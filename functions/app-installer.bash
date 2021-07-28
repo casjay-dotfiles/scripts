@@ -892,8 +892,8 @@ install_required() {
     for cmd in $REQUIRED; do cmd_exists $cmd || MISSING+="$cmd "; done
     if [ -n "$MISSING" ]; then
       if cmd_exists "pkmgr"; then
-        printf_yellow "Installing from package list"
         printf_yellow "Still missing: $MISSING"
+        printf_yellow "Installing from package list"
         if cmd_exists yay; then
           pkmgr --enable-aur dotfiles "$APPNAME"
         else

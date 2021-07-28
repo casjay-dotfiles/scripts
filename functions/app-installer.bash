@@ -814,8 +814,10 @@ git_clone() {
   if __am_i_online; then
     local repo="$1"
     local myappdir="${2:-$INSTDIR}"
-    [ -d "$myappdir/.git" ] || rm_rf "$myappdir"
-    devnull git clone --depth=1 -q --recursive "$repo" "$myappdir"
+    if [ ! -d "$myappdir/.git" ]; then
+      rm_rf "$myappdir"
+    fi
+    devnull git clone -q --recursive "$repo" "$myappdir"
   fi
 }
 ##################################################################################################

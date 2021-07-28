@@ -652,7 +652,11 @@ __python_exists() {
 #gem_exists "gemname"
 __gem_exists() {
   local package="$1"
-  if __cmd_exists "$package" || __devnull gem query -i -n "$package"; then return 0; else return 1; fi
+  if gem list | grep -q "$package"; then
+    return 0
+  else
+    return 1
+  fi
   set --
 }
 #check_app "app"

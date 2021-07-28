@@ -2010,6 +2010,9 @@ run_install_init() {
   local TMPINST="$TMPDIR/$APPNAME.inst.tmp"
   local exitCode=0
   touch "$TMPINST"
+  if [ -n "$PLUGNAMES" ]; then
+    [ -z "$PLUGDIR" ] || mkd "$PLUGDIR"
+  fi
   if [ ! -f "$TMPFILE" ]; then
     printf ""
     touch "$TMPFILE"

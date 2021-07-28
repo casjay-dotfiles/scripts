@@ -365,7 +365,7 @@ run_post() {
   set --
 }
 ##################################################################################################
-#transmission-remote-cli() { cmd_exists transmission-remote-cli || cmd_exists transmission-remote ;}
+transmission-remote-cli() { cmd_exists transmission-remote-cli || cmd_exists transmission-remote || return 1; }
 mlocate() { cmd_exists locate || cmd_exists mlocate || return 1; }
 xfce4() { cmd_exists xfce4-about || return 1; }
 imagemagick() { cmd_exists convert || return 1; }

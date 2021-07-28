@@ -376,7 +376,6 @@ chromium() { cmd_exists chromium || cmd_exists chromium-browser || return 1; }
 firefox() { cmd_exists firefox-esr || cmd_exists firefox || return 1; }
 gtk-2.0() { find /lib* /usr* -iname "*libgtk*2*.so*" -type f | grep -q . || return 0; }
 gtk-3.0() { find /lib* /usr* -iname "*libgtk*3*.so*" -type f | grep -q . || return 0; }
-export -f mlocate xfce4 imagemagick fdfind speedtest neovim chromium firefox gtk-2.0 gtk-3.0
 ##################################################################################################
 backupapp() {
   local filename count backupdir rmpre4vbackup

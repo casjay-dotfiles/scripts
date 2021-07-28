@@ -1616,18 +1616,17 @@ __return() {
 }
 ###################### OS Functions ######################
 #alternative names
-transmission-remote-cli() { cmd_exists transmission-remote-cli || cmd_exists transmission-remote || return 1; }
-mlocate() { cmd_exists locate || cmd_exists mlocate || return 1; }
-xfce4() { cmd_exists xfce4-about || return 1; }
-imagemagick() { cmd_exists convert || return 1; }
-fdfind() { cmd_exists fdind || cmd_exists fd || return 1; }
-speedtest() { cmd_exists speedtest-cli || cmd_exists speedtest || return 1; }
-neovim() { cmd_exists nvim || cmd_exists neovim || return 1; }
-chromium() { cmd_exists chromium || cmd_exists chromium-browser || return 1; }
-firefox() { cmd_exists firefox-esr || cmd_exists firefox || return 1; }
+transmission-remote-cli() { __cmd_exists transmission-remote-cli || __cmd_exists transmission-remote || return 1; }
+mlocate() { __cmd_exists locate || __cmd_exists mlocate || return 1; }
+xfce4() { __cmd_exists xfce4-about || return 1; }
+imagemagick() { __cmd_exists convert || return 1; }
+fdfind() { __cmd_exists fdind || __cmd_exists fd || return 1; }
+speedtest() { __cmd_exists speedtest-cli || __cmd_exists speedtest || return 1; }
+neovim() { __cmd_exists nvim || __cmd_exists neovim || return 1; }
+chromium() { __cmd_exists chromium || __cmd_exists chromium-browser || return 1; }
+firefox() { __cmd_exists firefox-esr || __cmd_exists firefox || return 1; }
 gtk-2.0() { find /lib* /usr* -iname "*libgtk*2*.so*" -type f | grep -q . || return 0; }
 gtk-3.0() { find /lib* /usr* -iname "*libgtk*3*.so*" -type f | grep -q . || return 0; }
-export -f mlocate xfce4 imagemagick fdfind speedtest neovim chromium firefox gtk-2.0 gtk-3.0
 #connection test
 __am_i_online() {
   if [ -f "$(type -P am_i_online)" ]; then

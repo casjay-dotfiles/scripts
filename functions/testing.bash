@@ -638,12 +638,14 @@ __system_service_restart() {
 
 #perl_exists "perlpackage"
 __perl_exists() {
+  __cmd_exists perl || return
   local package="$1"
   if __devnull2 perl -M$package -le 'print $INC{"$package/Version.pm"}'; then exitTmp=0; else exitTmp=1; fi
   set --
 }
 #python_exists "pythonpackage"
 __python_exists() {
+  cmd_exists python || cmd_exists python2 || cmd_exists python3 || return
   __getpythonver
   local package="$1"
   if __devnull2 "$PYTHONVER" -c "import $package"; then return 0; else return 1; fi
@@ -651,6 +653,7 @@ __python_exists() {
 }
 #gem_exists "gemname"
 __gem_exists() {
+  cmd_exists gem || return
   local package="$1"
   if gem list | grep -q "$package"; then
     return 0

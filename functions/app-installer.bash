@@ -481,6 +481,7 @@ cmd_exists() {
 }
 gem_exists() {
   #[ -n "$1" ] || return
+  cmd_exists gem || return
   local package="$1"
   if gem list | grep -q "$package"; then
     return 0
@@ -490,6 +491,7 @@ gem_exists() {
 }
 perl_exists() {
   #[ -n "$1" ] || return
+  cmd_exists perl || return
   local package="$1"
   if devnull perl -M$package -le 'print $INC{"$package/Version.pm"}' ||
     devnull perl -M$package -le 'print $INC{"$package.pm"}' ||
@@ -501,6 +503,7 @@ perl_exists() {
 }
 pthon_exists() {
   #[ -n "$1" ] || return
+  cmd_exists python || cmd_exists python2 || cmd_exists python3 || return
   local package="$1"
   if devnull $PYTHONVER -c "import $package"; then return 0; else return 1; fi
 }

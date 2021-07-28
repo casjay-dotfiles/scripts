@@ -5,6 +5,7 @@ export PATH="$(echo /usr/local/bin:$PATH:/usr/sbin:/sbin | tr ':' '\n' | awk '!s
 #trap '' err exit SIGINT SIGTERM
 export WHOAMI="${USER}"
 export SUDO_PROMPT="$(printf "\t\t\033[1;31m")[sudo]$(printf "\033[1;36m") password for $(printf "\033[1;32m")%p: $(printf "\033[0m")"
+export RUN_USER="${RUN_USER:-$USER}"
 
 TMP="${TMP:-/tmp}"
 TEMP="${TEMP:-/tmp}"
@@ -785,7 +786,7 @@ sudoask() {
       sleep 10
       rm -Rf "$HOME/.sudo"
       kill -0 "$$" || return
-    done &>/dev/null 2>/dev/null &
+    done &>/dev/null &
   fi
 }
 
@@ -829,7 +830,7 @@ execute() {
   local exitCode=0
   local cmdsPID=""
   set_trap "EXIT" "kill_all_subprocesses"
-  eval "$CMDS" &>/dev/null 2>"$TMP_FILE" &
+  eval "$CMDS" >/dev/null 2>"$TMP_FILE" &
   cmdsPID=$!
   show_spinner "$cmdsPID" "$CMDS" "$MSG"
   wait "$cmdsPID" &>/dev/null

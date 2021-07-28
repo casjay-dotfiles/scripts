@@ -4,6 +4,8 @@ APPNAME="${APPNAME:-testing}"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 FUNCFILE="testing.bash"
+export RUN_USER="${RUN_USER:-$USER}"
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #set opts
 
@@ -33,7 +35,7 @@ done
 # Versioning Info - __required_version "VersionNumber"
 localVersion="${localVersion:-202103310525-git}"
 requiredVersion="${requiredVersion:-202103310525-git}"
-if [ "$(cat "$CASJAYSDEVDIR/version.txt" | grep '^')" ]; then
+if [ "$(grep -qs '^' "$CASJAYSDEVDIR/version.txt")" ]; then
   currentVersion="${currentVersion:-$(<$CASJAYSDEVDIR/version.txt)}"
 else
   currentVersion="$localVersion"

@@ -4,6 +4,7 @@ APPNAME="${APPNAME:-app-installer}"
 FUNCFILE="app-installer.bash"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
+export RUN_USER="${RUN_USER:-$USER}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #set opts
 
@@ -59,14 +60,14 @@ sudo_root() {
 
 sudo_user() {
   local SUDOBIN="$(command -v sudo)"
-  local SUDOARG="-HE -u $USER"
+  local SUDOARG="-HE -u $RUN_USER"
   $SUDOBIN $SUDOARG "$@"
 }
 
 sudo_pkmgr() {
   local PKMGRBIN="$(command -v pkmgr)"
   local SUDOBIN="$(command -v sudo)"
-  local SUDOARG="-HE -u $USER"
+  local SUDOARG="-HE -u $RUN_USER"
   $SUDOBIN $SUDOARG $PKMGRBIN "$@"
 }
 
@@ -608,7 +609,10 @@ __getpythonver() {
     PIP="pip"
     PATH="${PATH}:$(python -c 'import site; print(site.USER_BASE)')/bin"
   fi
-  if cmd_exists yay || cmd_exists pacman; then PYTHONVER="python" && PIP="pip3"; fi
+  if cmd_exists yay || cmd_exists pacman; then
+    PYTHONVER="python"
+    PIP="pip3"
+  fi
 }
 __getpythonver
 ##################################################################################################
@@ -912,9 +916,9 @@ install_packages() {
         printf_warning "$MISSING"
         for miss in $MISSING; do
           if cmd_exists yay; then
-            execute "sudo_pkmgr --enable-aur silent $miss" "Installing $miss"
+            execute "pkmgr --enable-aur silent $miss" "Installing $miss"
           else
-            execute "sudo_pkmgr silent $miss" "Installing $miss"
+            execute "pkmgr silent $miss" "Installing $miss"
           fi
         done
       fi
@@ -936,9 +940,9 @@ install_python() {
         printf_warning "$MISSING"
         for miss in $MISSING; do
           if cmd_exists yay; then
-            execute "sudo_pkmgr --enable-aur silent $miss" "Installing $miss"
+            execute "pkmgr --enable-aur silent $miss" "Installing $miss"
           else
-            execute "sudo_pkmgr silent $miss" "Installing $miss"
+            execute "pkmgr silent $miss" "Installing $miss"
           fi
         done
       fi
@@ -959,7 +963,7 @@ install_perl() {
         printf_warning "Attempting to install missing perl packages"
         printf_warning "$MISSING"
         for miss in $MISSING; do
-          execute "sudo_pkmgr perl install $miss" "Installing $miss"
+          execute "pkmgr perl install $miss" "Installing $miss"
         done
       fi
     fi
@@ -979,7 +983,7 @@ install_pip() {
         printf_warning "Attempting to install missing pip packages"
         printf_warning "$MISSING"
         for miss in $MISSING; do
-          execute "sudo_pkmgr pip install $miss" "Installing $miss"
+          execute "pkmgr pip install $miss" "Installing $miss"
         done
       fi
     fi
@@ -999,7 +1003,7 @@ install_cpan() {
         printf_warning "Attempting to install missing cpan packages"
         printf_warning "$MISSING"
         for miss in $MISSING; do
-          execute "sudo_pkmgr cpan install $miss" "Installing $miss"
+          execute "pkmgr cpan install $miss" "Installing $miss"
         done
       fi
     fi
@@ -1019,7 +1023,7 @@ install_gem() {
         printf_warning "Attempting to install missing gem packages"
         printf_warning "$MISSING"
         for miss in $MISSING; do
-          execute "sudo_pkmgr gem install $miss" "Installing $miss"
+          execute "pkmgr gem install $miss" "Installing $miss"
         done
       fi
     fi
@@ -1048,7 +1052,7 @@ execute() {
   local exitCode=0
   local cmdsPID=""
   set_trap "EXIT" "kill_all_subprocesses"
-  eval "$CMDS" &>/dev/null 2>"$TMP_FILE" &
+  eval "$CMDS" >/dev/null 2>"$TMP_FILE" &
   cmdsPID=$!
   show_spinner "$cmdsPID" "$CMDS" "$MSG"
   wait "$cmdsPID" &>/dev/null
@@ -1200,7 +1204,7 @@ user_installdirs() {
   REPORAW="${REPORAW:-}"
   if [[ $(id -u) -eq 0 ]] || [[ $EUID -eq 0 ]] || [[ "$WHOAMI" = "root" ]]; then
     INSTALL_TYPE=user
-    if [[ $(uname -s) =~ Darwin ]]; then HOME="/usr/local/home/root"; else HOME="${HOME}"; fi
+    if [[ $(uname -s) =~ Darwin ]]; then HOME="/usr/local/home/root"; fi
     BIN="$HOME/.local/bin"
     CONF="$HOME/.config"
     SHARE="$HOME/.local/share"
@@ -1256,7 +1260,7 @@ system_installdirs() {
   APPNAME="${APPNAME:-installer}"
   REPORAW="${REPORAW:-}"
   if [[ $(id -u) -eq 0 ]] || [[ $EUID -eq 0 ]] || [[ "$WHOAMI" = "root" ]]; then
-    if [[ $(uname -s) =~ Darwin ]]; then HOME="/usr/local/home/root"; else HOME="${HOME}"; fi
+    if [[ $(uname -s) =~ Darwin ]]; then HOME="/usr/local/home/root"; fi
     BACKUPDIR="$HOME/.local/backups"
     BIN="/usr/local/bin"
     CONF="/usr/local/etc"

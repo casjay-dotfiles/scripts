@@ -1,7 +1,7 @@
             DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE  
                     Version 2, December 2004  
 
- Copyright (C) GEN_LICENSE_REPLACE_YEAR GEN_LICENSE_REPLACE_AUTHOR <GEN_LICENSE_REPLACE_EMAL>  
+ Copyright (C) GEN_LICENSE_REPLACE_YEAR GEN_LICENSE_REPLACE_AUTHOR <GEN_LICENSE_REPLACE_EMAIL>  
   
  Everyone is permitted to copy and distribute verbatim or modified  
  copies of this license document, and changing it is allowed as long  

@@ -470,8 +470,12 @@ cmd_exists() {
   local args="$*"
   local exitCode=0
   for cmd in $args; do
-    unalias "$cmd" 2>/dev/null >&1
-    if devnull command -v "$cmd" || devnull type -P "$cmd"; then return 0; else return 1; fi
+    command="$(command -v "$cmd" || type -P "$cmd")"
+    if [ -n "$command" ]; then
+      return 0
+    else
+      return 1
+    fi
     exitCode+=$?
   done
   return $exitCode
@@ -479,7 +483,11 @@ cmd_exists() {
 gem_exists() {
   #[ -n "$1" ] || return
   local package="$1"
-  if devnull gem query -i -n "$package"; then return 0; else return 1; fi
+  if gem list | grep -q "$package"; then
+    return 0
+  else
+    return 1
+  fi
 }
 perl_exists() {
   #[ -n "$1" ] || return

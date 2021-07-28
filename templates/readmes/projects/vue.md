@@ -5,7 +5,6 @@
 
 ```shell
 npm i
-npm i
 num run build
 ```
 

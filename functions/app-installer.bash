@@ -317,7 +317,7 @@ system_service_running() {
 #system_service_exists "servicename"
 system_service_exists() {
   for service in "$@"; do
-    if sudo systemctl list-units --full -all | grep -Fq "$service.service" || sudo systemctl list-units --full -all | grep -Fq "$service.socket"; then return 0; else return 1; fi
+    if sudo systemctl list-units --full -all | grep -Fq "$service.service" || sudo -HE systemctl list-units --full -all | grep -Fq "$service.socket"; then return 0; else return 1; fi
     setexitstatus $?
   done
   set --
@@ -325,7 +325,7 @@ system_service_exists() {
 #system_service_enable "servicename"
 system_service_enable() {
   for service in "$@"; do
-    if system_service_exists "$service"; then devnull "sudo systemctl enable --now -f $service"; fi
+    if system_service_exists "$service"; then devnull "sudo -HE systemctl enable --now -f $service"; fi
     setexitstatus $?
   done
   set --
@@ -341,7 +341,7 @@ system_service_disable() {
 #system_service_start "servicename"
 system_service_start() {
   for service in "$@"; do
-    if system_service_exists "$service"; then devnull "sudo systemctl start $service"; fi
+    if system_service_exists "$service"; then devnull "sudo -HE systemctl start $service"; fi
     setexitstatus $?
   done
   set --
@@ -349,7 +349,7 @@ system_service_start() {
 #system_service_stop "servicename"
 system_service_stop() {
   for service in "$@"; do
-    if system_service_exists "$service"; then devnull "sudo systemctl stop $service"; fi
+    if system_service_exists "$service"; then devnull "sudo -HE systemctl stop $service"; fi
     setexitstatus $?
   done
   set --
@@ -357,7 +357,7 @@ system_service_stop() {
 #system_service_restart "servicename"
 system_service_restart() {
   for service in "$@"; do
-    if system_service_exists "$service"; then devnull "sudo systemctl restart $service"; fi
+    if system_service_exists "$service"; then devnull "sudo -HE systemctl restart $service"; fi
     setexitstatus $?
   done
   set --
@@ -642,10 +642,10 @@ __getphpver() {
 }
 ##################################################################################################
 sudoif() { (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null; }
-sudorun() { if sudoif; then sudo "$@"; else "$@"; fi; }
+sudorun() { if sudoif; then sudo -HE "$@"; else "$@"; fi; }
 sudorerun() {
   local ARGS="$ARGS"
-  if [[ $UID != 0 ]]; then if sudoif; then sudo "$APPNAME" "$ARGS" && exit $?; else sudoreq; fi; fi
+  if [[ $UID != 0 ]]; then if sudoif; then sudo -HE "$APPNAME" "$ARGS" && exit $?; else sudoreq; fi; fi
 }
 sudoreq() {
   if [[ $UID != 0 ]]; then
@@ -691,7 +691,7 @@ requiresudo() {
   if [ -f "$(command -v sudo 2>/dev/null)" ]; then
     if (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null; then
       sudoask
-      sudoexit && sudo "$@"
+      sudoexit && sudo -HE "$@"
     fi
   else
     printf_red "You dont have access to sudo Please contact the syadmin for access"
@@ -721,7 +721,7 @@ crontab_add() {
       printf_custom "2" "$file has been removed from automatically updating"
     else
       printf_green "Removing $file from root crontab"
-      sudo crontab -l | grep -v -F "$file" | sudo crontab - &>/dev/null
+      sudo -HE crontab -l | grep -v -F "$file" | sudo -HE crontab - &>/dev/null
       printf_custom "2" "$file has been removed from automatically updating"
     fi
     ;;
@@ -740,7 +740,7 @@ crontab_add() {
       local croncmd="logr"
       local additional='bash -c "am_i_online && sleep $(expr $RANDOM \% 300) && '$file' &"'
       printf_green "Adding $frequency $croncmd $additional to root crontab"
-      sudo crontab -l | grep -qv -F "$croncmd"
+      sudo -HE crontab -l | grep -qv -F "$croncmd"
       addtocrontab "$frequency" "$croncmd" "$additional"
       printf_custom "2" "$file has been added to update automatically"
       printf_custom "3" "To remove run $file --cron remove"
@@ -760,7 +760,7 @@ crontab_add() {
       local croncmd="logr"
       local additional='bash -c "am_i_online && sleep $(expr $RANDOM \% 300) && '$file' &"'
       printf_green "Adding $frequency $croncmd $additional to root crontab"
-      sudo crontab -l | grep -qv -F "$croncmd"
+      sudo -HE crontab -l | grep -qv -F "$croncmd"
       addtocrontab "$frequency" "$croncmd" "$additional"
       printf_custom "2" "$file has been added to update automatically"
       printf_custom "3" "To remove run $file --cron remove"
@@ -804,7 +804,7 @@ scripts_check() {
       printf_question_timeout "4" "Would you like to do that now" "1" "choice" "-s"
       if [[ $choice == "y" || $choice == "Y" ]]; then
         urlverify "$SYSTEMMGRREPO/installer/raw/$GIT_REPO_BRANCH/install.sh" &&
-          sudo bash -c "$(__curl "$SYSTEMMGRREPO/installer/raw/$GIT_REPO_BRANCH/install.sh")" && echo
+          sudo -HE bash -c "$(__curl "$SYSTEMMGRREPO/installer/raw/$GIT_REPO_BRANCH/install.sh")" && echo
       else
         touch "$HOME/.config/local/noscripts"
         exit 1
@@ -861,7 +861,7 @@ dotfilesreqcmd() {
 dotfilesreqadmincmd() {
   local gitrepo="https://github.com/${SCRIPTS_PREFIX:-systemmgr}/${1:-$conf}"
   urlverify "$gitrepo/raw/$GIT_REPO_BRANCH/install.sh" &&
-    sudo bash -c "$(curl -LSs $gitrepo/raw/$GIT_REPO_BRANCH/install.sh)" &>/dev/null || return 1
+    sudo -HE bash -c "$(curl -LSs $gitrepo/raw/$GIT_REPO_BRANCH/install.sh)" &>/dev/null || return 1
 }
 ##################################################################################################
 dotfilesreq() {

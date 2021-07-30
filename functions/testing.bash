@@ -595,7 +595,7 @@ __system_service_running() {
 #system_service_exists "servicename"
 __system_service_exists() {
   for service in "$@"; do
-    if sudo systemctl list-unit-files | grep -Fq "$service.service" || sudo systemctl list-unit-files | grep -Fq "$service.socket"; then return 0; else return 1; fi
+    if sudo systemctl list-unit-files | grep -Fq "$service.service" || sudo -HE systemctl list-unit-files | grep -Fq "$service.socket"; then return 0; else return 1; fi
     __setexitstatus $?
   done
   set --
@@ -603,7 +603,7 @@ __system_service_exists() {
 #system_service_enable "servicename"
 __system_service_enable() {
   for service in "$@"; do
-    if __system_service_exists "$service"; then __devnull "sudo systemctl enable --now -f $service"; fi
+    if __system_service_exists "$service"; then __devnull "sudo -HE systemctl enable --now -f $service"; fi
     __setexitstatus $?
   done
   set --
@@ -611,7 +611,7 @@ __system_service_enable() {
 #system_service_disable "servicename"
 __system_service_disable() {
   for service in "$@"; do
-    if __system_service_exists "$service"; then __devnull "sudo systemctl disable --now -f $service"; fi
+    if __system_service_exists "$service"; then __devnull "sudo -HE systemctl disable --now -f $service"; fi
     __setexitstatus $?
   done
   set --
@@ -619,7 +619,7 @@ __system_service_disable() {
 #system_service_start "servicename"
 __system_service_start() {
   for service in "$@"; do
-    if __system_service_exists "$service"; then __devnull "sudo systemctl start $service"; fi
+    if __system_service_exists "$service"; then __devnull "sudo -HE systemctl start $service"; fi
     __setexitstatus $?
   done
   set --
@@ -627,7 +627,7 @@ __system_service_start() {
 #system_service_stop "servicename"
 __system_service_stop() {
   for service in "$@"; do
-    if __system_service_exists "$service"; then __devnull "sudo systemctl stop $service"; fi
+    if __system_service_exists "$service"; then __devnull "sudo -HE systemctl stop $service"; fi
     __setexitstatus $?
   done
   set --
@@ -635,7 +635,7 @@ __system_service_stop() {
 #system_service_restart "servicename"
 __system_service_restart() {
   for service in "$@"; do
-    if __system_service_exists "$service"; then __devnull "sudo systemctl restart $service"; fi
+    if __system_service_exists "$service"; then __devnull "sudo -HE systemctl restart $service"; fi
     __setexitstatus $?
   done
   set --
@@ -1247,7 +1247,7 @@ __cron_updater() {
         file="$(ls -A $SYSUPDATEDIR/$upd 2>/dev/null)"
         if [ -f "$file" ]; then
           appname="$(basename $file)"
-          sudo file="$file" bash -c "$file --cron $*"
+          sudo -HE file="$file" bash -c "$file --cron $*"
         fi
       done
     else
@@ -1255,7 +1255,7 @@ __cron_updater() {
         file="$(ls -A $SYSUPDATEDIR/$1 2>/dev/null)"
         if [ -f "$file" ]; then
           appname="$(basename $file)"
-          sudo file="$file" bash -c "$file --cron $*"
+          sudo -HE file="$file" bash -c "$file --cron $*"
         fi
       fi
     fi
@@ -1420,16 +1420,16 @@ __editor() {
   return $?
 }
 ##################### sudo functions ####################
-__sudo() { sudo $* && return 0 || return 1; }
+__sudo() { sudo -HE -A $* && return 0 || return 1; }
 __sudo_group() { grep "${1:-$USER}" /etc/group | grep -Eq 'wheel|adm|sudo' || return 1; }
 sudoif() { (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null && return 0 || return 1; }
-sudorun() { if sudoif; then sudo "$@"; else "$@"; fi; }
+sudorun() { if sudoif; then sudo -HE "$@"; else "$@"; fi; }
 sudorerun() {
   local CMD="${1:-$APPNAME}" && shift 1
   local ARGS="${*:-$ARGS}" && shift $#
   if [[ $UID != 0 ]]; then
     if sudoif; then
-      sudo "$CMD" "$ARGS"
+      sudo -HE "$CMD" "$ARGS"
       if [[ $? -ne 0 ]]; then
         return 1
       fi
@@ -1448,7 +1448,8 @@ sudoreq() {
 __can_i_sudo() { __sudo_group "${1:-$USER}" || sudoif; }
 __sudoask() {
   if [ ! -f "$HOME/.sudo" ]; then
-    sudo true &>/dev/null && return 0 || return 1
+    sudo -A true
+    sudo -HE true &>/dev/null && return 0 || return 1
     while true; do
       echo "$$" >"$HOME/.sudo"
       sudo -n true
@@ -1480,7 +1481,7 @@ user_is_root() {
   else return 1; fi
 }
 if __sudo_group "$USER"; then
-  __passwd() { sudo passwd "$*"; }
+  __passwd() { sudo -HE passwd "$*"; }
 else
   __passwd() { passwd "$*"; }
 fi
@@ -2517,10 +2518,10 @@ run_install_init() {
     if user_is_root; then
       export SUDO_USER
       if [ -f "$INSTDIR/install.sh" ]; then
-        sudo FORCE_INSTALL="$FORCE_INSTALL" bash -c "$INSTDIR/$app/install.sh"
+        sudo -HE FORCE_INSTALL="$FORCE_INSTALL" bash -c "$INSTDIR/$app/install.sh"
       else
         if __urlcheck "$REPORAW/install.sh"; then
-          sudo FORCE_INSTALL="$FORCE_INSTALL" bash -c "$(curl -q -LSs "$REPORAW/install.sh" 2>/dev/null)"
+          sudo -HE FORCE_INSTALL="$FORCE_INSTALL" bash -c "$(curl -q -LSs "$REPORAW/install.sh" 2>/dev/null)"
         else
           printf_error "Failed to initialize the installer from:"
           printf_exit "$REPORAW/install.sh\n"

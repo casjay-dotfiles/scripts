@@ -2329,6 +2329,7 @@ get_installer_version() {
   local GITREPO=""$REPO/$APPNAME""
   local APPVERSION="${APPVERSION:-$(__appversion)}"
   [ -n "$WHOAMI" ] && printf_info "WhoamI:                    $WHOAMI"
+  [ -n "$RUN_USER" ] && printf_info "SUDO USER:                 $RUN_USER"
   [ -n "$INSTALL_TYPE" ] && printf_info "Install Type:              $INSTALL_TYPE"
   [ -n "$APPNAME" ] && printf_info "APP name:                  $APPNAME"
   [ -n "$APPDIR" ] && printf_info "APP dir:                   $APPDIR"

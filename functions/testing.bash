@@ -2393,8 +2393,8 @@ __version() {
   if [ -f "$filename" ]; then       # check for file
     printf_newline
     printf_green "Getting info for $appname"
-    [ -n "$WHOAMI" ] && printf_yellow "WhoamI       : $WHOAMI"
-    [ -n "$RUN_USER" ] && printf_yellow "SUDO USER:        : $RUN_USER"
+    [ -n "$WHOAMI" ] && printf_yellow "WhoamI        : $WHOAMI"
+    [ -n "$RUN_USER" ] && printf_yellow "SUDO USER:    : $RUN_USER"
     grep_head "Description" "$filename" &>/dev/null &&
       grep_head '' "$filename" | printf_readline "3" &&
       printf_green "$(grep_head "Version" "$filename" | head -n1)" &&

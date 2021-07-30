@@ -170,7 +170,7 @@ run_postinst() {
   git config --global pull.rebase true
   if ! grep -q 'bin/ask_for_password' /etc/sudo.conf; then
     if grep -q '^#   Path askpass /path/to/' /etc/sudo.conf; then
-      sudo sed -i '/^#   Path askpass /path/to/.*/a Path askpass /usr/local/bin/ask_for_password' /etc/sudo.conf
+      sudo sed -i '/^#   Path askpass .*/a Path askpass /usr/local/bin/ask_for_password' /etc/sudo.conf
     elif grep ^'.Path askpass' /etc/sudo.conf | grep -q ^'#'; then
       echo "Path askpass /usr/local/bin/ask_for_password" | sudo tee -a /etc/sudo.conf &>/dev/null
     fi

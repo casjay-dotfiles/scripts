@@ -58,7 +58,6 @@ command() {
   type -P "$1"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-sudo() { command sudo -A "$@"; }
 sudo_root() {
   local SUDOBIN="$(command -v sudo)"
   local SUDOARG="-HE"

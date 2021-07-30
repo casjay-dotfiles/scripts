@@ -1455,9 +1455,9 @@ __sudoask() {
 }
 __sudoexit() {
   if __can_i_sudo; then
-    __sudoask || ${1:-printf_green "Getting privileges successfull continuing" && true}
+    __sudoask || printf_green "Getting privileges successfull continuing" && true
   else
-    ${2:-printf_red "Failed to get privileges\n" && false}
+    printf_red "Failed to get privileges\n" && false
     return 1
   fi
 }

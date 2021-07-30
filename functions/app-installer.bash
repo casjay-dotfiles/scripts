@@ -4,7 +4,6 @@ APPNAME="${APPNAME:-app-installer}"
 FUNCFILE="app-installer.bash"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
-export RUN_USER="${RUN_USER:-$USER}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #set opts
 
@@ -38,6 +37,13 @@ TMPPATH+="/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/ga
 export PATH="$(echo "$TMPPATH" | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 's#::#:.#g')"
 unset TMPPATH
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ $SUDO_USER ]; then
+  RUN_USER=$SUDO_USER
+else
+  RUN_USER=$(whoami)
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+export RUN_USER="${RUN_USER:-$USER}"
 export SUDO_PROMPT="$(printf "\033[1;31m")[sudo]$(printf "\033[1;36m") password for $(printf "\033[1;32m")%p: $(printf "\033[0m")"
 export TMP="${TMP:-/tmp}"
 export TEMP="${TEMP:-/tmp}"
@@ -52,7 +58,7 @@ command() {
   type -P "$1"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-sudo() { command sudo -A; }
+sudo() { command sudo -A "$@"; }
 sudo_root() {
   local SUDOBIN="$(command -v sudo)"
   local SUDOARG="-HE"
@@ -660,7 +666,7 @@ can_i_sudo() {
 ######################
 sudoask() {
   if [ ! -f "$HOME/.sudo" ]; then
-    sudo true &>/dev/null
+    sudo -A true 2>/dev/null
     while true; do
       echo -e "$!" >"$HOME/.sudo"
       sudo -n true && echo -e "$$" >>"$HOME/.sudo"

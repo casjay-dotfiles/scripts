@@ -895,9 +895,9 @@ install_required() {
         printf_yellow "Still missing: $MISSING"
         printf_yellow "Installing from package list"
         if cmd_exists yay; then
-          pkmgr --enable-aur dotfiles "$APPNAME"
+          sudo_pkmgr --enable-aur dotfiles "$APPNAME"
         else
-          pkmgr dotfiles "$APPNAME"
+          sudo_pkmgr dotfiles "$APPNAME"
         fi
       fi
     fi
@@ -928,9 +928,9 @@ install_packages() {
         printf_warning "$MISSING"
         for miss in $MISSING; do
           if cmd_exists yay; then
-            execute "pkmgr --enable-aur silent $miss" "Installing $miss"
+            execute "sudo_pkmgr --enable-aur silent $miss" "Installing $miss"
           else
-            execute "pkmgr silent $miss" "Installing $miss"
+            execute "sudo_pkmgr silent $miss" "Installing $miss"
           fi
         done
       fi

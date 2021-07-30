@@ -70,10 +70,10 @@ TMPPATH+="/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:$PATH:."
 PATH="$(echo "$TMPPATH" | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 's#::#:.#g')"
 unset TMPPATH
 # Setup sudo and user
-if [ $SUDO_USER ]; then
-  RUN_USER=$SUDO_USER
+if [ -n "$SUDO_USER" ]; then
+  RUN_USER=${RUN_USER:-$SUDO_USER}
 else
-  RUN_USER=$(whoami)
+  RUN_USER=${RUN_USER:-$(whoami)}
 fi
 WHOAMI="${USER}"
 SUDO_PROMPT="$(printf "\t\t\033[1;31m")[sudo]$(printf "\033[1;36m") password for $(printf "\033[1;32m")%p: $(printf "\033[0m\n")"

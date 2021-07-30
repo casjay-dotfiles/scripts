@@ -37,10 +37,10 @@ TMPPATH+="/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/ga
 export PATH="$(echo "$TMPPATH" | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 's#::#:.#g')"
 unset TMPPATH
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ $SUDO_USER ]; then
-  RUN_USER=$SUDO_USER
+if [ -n "$SUDO_USER" ]; then
+  RUN_USER=${RUN_USER:-$SUDO_USER}
 else
-  RUN_USER=$(whoami)
+  RUN_USER=${RUN_USER:-$(whoami)}
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 export RUN_USER="${RUN_USER:-$USER}"

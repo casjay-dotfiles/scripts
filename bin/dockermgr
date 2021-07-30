@@ -50,7 +50,7 @@ __gen_config() {
   [ -f "$DOCKERMGR_CONFIG_DIR/$DOCKERMGR_CONFIG_FILE" ] &&
     cp -Rf "$DOCKERMGR_CONFIG_DIR/$DOCKERMGR_CONFIG_FILE" "$DOCKERMGR_CONFIG_DIR/$DOCKERMGR_CONFIG_FILE.$$"
   cat <<EOF >"$DOCKERMGR_CONFIG_DIR/$DOCKERMGR_CONFIG_FILE"
-# Settings for dockermgr - unused
+# Settings for dockermgr
 DOCKERMGR_GIT_REPO="https://github.com/dockermgr"
 DOCKERMGR_DOCKER_CMD='sudo docker'
 DOCKERMGR_GET_INSTALL_SCRIPT="https://get.docker.com"
@@ -72,7 +72,7 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __list_available() {
-  echo -e 'airsonic daapd gitea hub ifconfig mariadb mongodb nginx-manager portainer postgresql registry registry-web template transmission' | tr ' ' '\n'
+  echo -e 'airsonic daapd gitea hub ifconfig mariadb mongo nginx-manager portainer postgresql registry registry-web template transmission' | tr ' ' '\n'
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __init() {
@@ -147,11 +147,14 @@ __install() {
   sudo -A true
   declare -a LISTARRAY="$*"
   for container in ${LISTARRAY[*]}; do
-    export INSTDIR DATADIR REPO
-    APPNAME="$container"
+    local APPNAME="$container"
+    local APPDIR="/usr/local/share/docker/$APPNAME"
+    local INSTDIR="/usr/local/share/CasjaysDev/$SCRIPTS_PREFIX"
+    local DATADIR="/srv/docker/$APPNAME"
+    export APPNAME APPDIR INSTDIR DATADIR REPO
     if [ -f "$INSTDIR/install.sh" ]; then
+      printf_blue "Setting the DATADIR to $DATADIR"
       printf_green "Updating container in $INSTDIR"
-      printf_blue "Setting the data dir to $DATADIR"
       sudo -HE bash -c "$INSTDIR/install.sh" &>/dev/null
       if sudo docker ps -a | grep -q "$container"; then
         printf_green "Updated $container"
@@ -162,13 +165,13 @@ __install() {
       fi
     else
       am_i_online --error -m "Can not setup docker: No internet" || exit 1
-      if [ -f "$DATADIR/$APPNAME/install.sh" ] && [ -d "$INSTDIR/.git" ]; then
+      if [ -f "$INSTDIR/install.sh" ] && [ -d "$INSTDIR/.git" ]; then
+        printf_blue "Setting the DATADIR to $DATADIR"
         printf_green "Updating container in $INSTDIR"
-        printf_blue "Setting the data dir to $DATADIR"
-        sudo -HE git -C "$DATADIR/$APPNAME" reset --hard -q &&
-          sudo -HE git -C "$DATADIR/$APPNAME" pull -q &&
-          sudo -HE chmod -Rf 755 "$DATADIR/$APPNAME/install.sh" &&
-          sudo -HE bash -c "$DATADIR/$APPNAME/install.sh" &>/dev/null
+        sudo -HE git -C "$INSTDIR" reset --hard -q &&
+          sudo -HE git -C "$INSTDIR" pull -q &&
+          sudo -HE chmod -Rf 755 "$INSTDIR/install.sh" &&
+          sudo -HE bash -c "$INSTDIR/install.sh" &>/dev/null
         if sudo docker ps -a | grep -q "$container"; then
           printf_green "Updated $container"
           __notifications "Updated $container"
@@ -177,10 +180,10 @@ __install() {
           __notifications "Update of $container has failed"
         fi
       else
+        printf_blue "Setting the DATADIR to $DATADIR"
         printf_green "Installing container to $INSTDIR"
-        printf_blue "Setting the data dir to $DATADIR"
-        sudo -HE git clone -q "$REPO/$APPNAME" "$DATADIR/$APPNAME" &&
-          sudo -HE chmod -Rf 755 "$DATADIR/$APPNAME/install.sh" &&
+        sudo -HE git clone -q "$REPO/$APPNAME" "$INSTDIR" &&
+          sudo -HE chmod -Rf 755 "$INSTDIR/install.sh" &&
           sudo -HE sudo -HE bash -c "$DATADIR/$APPNAME/install.sh" &>/dev/null
         if sudo docker ps -a | grep -q "$container"; then
           printf_green "Installed $container"
@@ -432,12 +435,12 @@ inactive)
 
 log)
   shift 1
-  docker log "$1"
+  $DOCKERMGR_DOCKER_CMD log "$1"
   ;;
 
 ps)
   shift 1
-  docker ps "$*"
+  $DOCKERMGR_DOCKER_CMD ps "$@"
   ;;
 
 update)
@@ -465,12 +468,16 @@ rm)
   shift 1
   ARGS="$*"
   for container in $ARGS; do
-    printf_blue "Deleting $container"
-    $DOCKERMGR_DOCKER_CMD rm "$container" -f &>/dev/null
-    if sudo docker ps -a | grep -q "$container"; then
-      printf_red "Failed to delete $container"
+    if $DOCKERMGR_DOCKER_CMD ps -a | grep -q "$container"; then
+      printf_blue "Deleting the container: $container"
+      $DOCKERMGR_DOCKER_CMD rm "$container" -f &>/dev/null
+      if $DOCKERMGR_DOCKER_CMD ps -a | grep -q "$container"; then
+        printf_red "Failed to delete $container"
+      else
+        printf_green "Successfully deleted $container"
+      fi
     else
-      printf_green "Successfully deleted $container"
+      printf_red "$container is not a valid container"
     fi
   done
   ;;
@@ -479,19 +486,23 @@ rmi)
   shift 1
   ARGS="$*"
   for image in $ARGS; do
-    printf_blue "Deleting $image"
-    $DOCKERMGR_DOCKER_CMD rm "$image" -f &>/dev/null
-    if sudo docker images | grep -q "$image"; then
-      printf_red "Failed to delete $image"
+    if $DOCKERMGR_DOCKER_CMD images | grep -q "$image"; then
+      printf_blue "Deleting the image: $image"
+      $DOCKERMGR_DOCKER_CMD rmi "$image" &>/dev/null
+      if $DOCKERMGR_DOCKER_CMD images | grep -q "$image"; then
+        printf_red "Failed to delete $image"
+      else
+        printf_green "Successfully deleted $image"
+      fi
     else
-      printf_green "Successfully deleted $image"
+      printf_red "$image is not a valid image"
     fi
   done
   ;;
 
 *)
   if [ $# -ne 0 ]; then
-    sudo docker $*
+    $DOCKERMGR_DOCKER_CMD "$@"
   else
     export -f __init
     if ! cmd_exists docker; then

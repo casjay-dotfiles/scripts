@@ -1497,6 +1497,8 @@ show_optvars() {
 
   if [ "$1" = "--full" ]; then
     get_app_version
+    printf_info "UserName:                  $USER"
+    printf_info "RunAs USer:                $RUN_USER"
     printf_info "UserHomeDir:               $HOME"
     printf_info "UserBinDir:                $BIN"
     printf_info "UserConfDir:               $CONF"

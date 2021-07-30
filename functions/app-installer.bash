@@ -52,6 +52,7 @@ command() {
   type -P "$1"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+sudo() { command sudo -A; }
 sudo_root() {
   local SUDOBIN="$(command -v sudo)"
   local SUDOARG="-HE"
@@ -924,7 +925,7 @@ install_packages() {
     if cmd_exists "pkmgr"; then
       for cmd in $REQUIRED; do cmd_exists "$cmd" || MISSING+="$cmd "; done
       if [ ! -z "$MISSING" ]; then
-        printf_warning "Attempting to install missing packages"
+        printf_warning "Attempting to install missing packages as $RUN_USER"
         printf_warning "$MISSING"
         for miss in $MISSING; do
           if cmd_exists yay; then

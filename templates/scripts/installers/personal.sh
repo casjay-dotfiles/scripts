@@ -25,7 +25,7 @@ SRC_DIR="${BASH_SOURCE%/*}"
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
 SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
 SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-app-installer.bash}"
-SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/master/functions}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/$GIT_DEFAULT_BRANCH/functions}"
 connect_test() { ping -c1 1.1.1.1 &>/dev/null || curl --disable -LSs --connect-timeout 3 --retry 0 --max-time 1 1.1.1.1 2>/dev/null | grep -e "HTTP/[0123456789]" | grep -q "200" -n1 &>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
@@ -94,10 +94,10 @@ _pre_inst() {
   if [[ "$OSTYPE" =~ ^linux ]]; then
     if ! cmd_exists systemmgr; then
       if (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null; then
-        sudo bash -c "$(curl -LSs https://github.com/systemmgr/installer/raw/master/install.sh)"
-        sudo bash -c "$(curl -LSs https://github.com/systemmgr/installer/raw/master/install.sh)"
+        sudo bash -c "$(curl -LSs https://github.com/systemmgr/installer/raw/$GIT_DEFAULT_BRANCH/install.sh)"
+        sudo bash -c "$(curl -LSs https://github.com/systemmgr/installer/raw/$GIT_DEFAULT_BRANCH/install.sh)"
       else
-        printf_red '\t\tplease run sudo bash -c "$(curl -LSs https://github.com/systemmgr/installer/raw/master/install.sh)\n"'
+        printf_red '\t\tplease run sudo bash -c "$(curl -LSs https://github.com/systemmgr/installer/raw/$GIT_DEFAULT_BRANCH/install.sh)\n"'
         exit 1
       fi
     fi

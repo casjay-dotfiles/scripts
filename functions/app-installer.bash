@@ -114,7 +114,7 @@ if [ ! -f "$(type -P git 2>/dev/null)" ]; then
 fi
 ##################################################################################################
 # Set Main Repo for dotfiles
-export GIT_REPO_BRANCH="master"
+export GIT_REPO_BRANCH="${GIT_DEFAULT_BRANCH:-main}"
 export DOTFILESREPO="${DOTFILESREPO:-https://github.com/dfmgr}"
 export DFMGRREPO="${DFMGRREPO:-https://github.com/dfmgr}"
 export PKMGRREPO="${PKMGRREPO:-https://github.com/pkmgr}"

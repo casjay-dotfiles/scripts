@@ -17,7 +17,7 @@ set +E
 
 # Set functions
 
-SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/master/functions}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/$GIT_DEFAULT_BRANCH/functions}"
 SCRIPTSFUNCTDIR="${SCRIPTSAPPFUNCTDIR:-/usr/local/share/CasjaysDev/scripts}"
 SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
 
@@ -55,7 +55,7 @@ fi
 
 echo -e "\n\t\t-----------------------------------------------------\n"
 printf_green "Testing scripts install"
-sudo bash -c "$(curl -LSs https://github.com/dfmgr/installer/raw/master/install.sh)"
+sudo bash -c "$(curl -LSs https://github.com/dfmgr/installer/raw/$GIT_DEFAULT_BRANCH/install.sh)"
 
 echo -e "\n\t\t-----------------------------------------------------\n"
 printf_green "Printing full info"

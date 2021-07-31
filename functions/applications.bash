@@ -50,6 +50,7 @@ export THEMEMGRREPO="${THEMEMGRREPO:-https://github.com/thememgr}"
 export DOCKERMGRREPO="${DOCKERMGRREPO:-https://github.com/dockermgr}"
 export SYSTEMMGRREPO="${SYSTEMMGRREPO:-https://github.com/systemmgr}"
 export WALLPAPERMGRREPO="${WALLPAPERMGRREPO:-https://github.com/wallpapermgr}"
+export GIT_REPO_BRANCH="${GIT_DEFAULT_BRANCH:-main}"
 
 ##################################################################################################
 
@@ -970,7 +971,7 @@ pkmgr_install() {
   APPDIR="${APPDIR:-$HOMEDIR/$APPNAME}"
   USRUPDATEDIR="$SHARE/CasjaysDev/apps/$PREFIX"
   SYSUPDATEDIR="$SYSSHARE/CasjaysDev/apps/$PREFIX"
-  REPODF="https://raw.githubusercontent.com/pkmgr/dotfiles/master"
+  REPODF="https://raw.githubusercontent.com/pkmgr/dotfiles/$GIT_REPO_BRANCH"
   ARRAY="$(cat /usr/local/share/CasjaysDev/scripts/helpers/$PREFIX/array)"
   LIST="$(cat /usr/local/share/CasjaysDev/scripts/helpers/$PREFIX/list)"
   mkdir -p "$USRUPDATEDIR" "$SYSUPDATEDIR"

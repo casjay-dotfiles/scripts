@@ -2,7 +2,7 @@
   
 ### GEN_README_REPLACE_DESCRIBE  
   
-Requires scripts to be installed: sudo bash -c "$(curl -LSs <https://github.com/dockermgr/installer/raw/master/install.sh>)" && sudo dockermgr install installer  
+Requires scripts to be installed: sudo bash -c "$(curl -LSs <https://github.com/dockermgr/installer/raw/$GIT_DEFAULT_BRANCH/install.sh>)" && sudo dockermgr install installer  
 Automatic install/update:  
 
 ```shell
@@ -12,7 +12,7 @@ dockermgr install GEN_README_REPLACE_APPNAME
 OR
 
 ```shell
-bash -c "$(curl -LSs https://github.com/dockermgr/GEN_README_REPLACE_APPNAME/raw/master/install.sh)"
+bash -c "$(curl -LSs https://github.com/dockermgr/GEN_README_REPLACE_APPNAME/raw/$GIT_DEFAULT_BRANCH/install.sh)"
 ```
   
 Manual install:

@@ -2,7 +2,7 @@
   
 ### GEN_README_REPLACE_DESCRIBE  
   
-Requires scripts to be installed: sudo bash -c "$(curl -LSs <https://github.com/fontmgr/installer/raw/master/install.sh>)" && sudo fontmgr install installer  
+Requires scripts to be installed: sudo bash -c "$(curl -LSs <https://github.com/fontmgr/installer/raw/$GIT_DEFAULT_BRANCH/install.sh>)" && sudo fontmgr install installer  
 Automatic install/update:
 
 ```shell
@@ -12,7 +12,7 @@ fontmgr install GEN_README_REPLACE_APPNAME
 OR  
 
 ```shell
-bash -c "$(curl -LSs https://github.com/fontmgr/GEN_README_REPLACE_APPNAME/raw/master/install.sh)"
+bash -c "$(curl -LSs https://github.com/fontmgr/GEN_README_REPLACE_APPNAME/raw/$GIT_DEFAULT_BRANCH/install.sh)"
 ```
   
 Manual install:  

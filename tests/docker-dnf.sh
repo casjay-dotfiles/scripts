@@ -21,7 +21,7 @@ dnf install git sudo curl wget -y
 
 # Set functions
 
-SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/master/functions}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/$GIT_DEFAULT_BRANCH/functions}"
 SCRIPTSFUNCTDIR="${SCRIPTSAPPFUNCTDIR:-/usr/local/share/CasjaysDev/scripts}"
 SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
 
@@ -45,7 +45,7 @@ fi
 
 # main program
 
-sudo bash -c "$(curl -LSs https://github.com/dfmgr/installer/raw/master/install.sh)"
+sudo bash -c "$(curl -LSs https://github.com/dfmgr/installer/raw/$GIT_DEFAULT_BRANCH/install.sh)"
 reqpkgs
 pkmgr clean
 pkmgr makecache

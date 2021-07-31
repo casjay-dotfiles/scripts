@@ -40,7 +40,7 @@ else
   currentVersion="$localVersion"
 fi
 # Set Main Repo for dotfiles
-GIT_REPO_BRANCH="master"
+GIT_REPO_BRANCH="${GIT_DEFAULT_BRANCH:-main}"
 DOTFILESREPO="https://github.com/dfmgr"
 # Set other Repos
 DFMGRREPO="https://github.com/dfmgr"

@@ -42,6 +42,7 @@ export FONTMGRREPO="${FONTMGRREPO:-https://github.com/fontmgr}"
 export THEMEMGRREPO="${THEMEMGRREPO:-https://github.com/thememgr}"
 export SYSTEMMGRREPO="${SYSTEMMGRREPO:-https://github.com/systemmgr}"
 export WALLPAPERMGRREPO="${WALLPAPERMGRREPO:-https://github.com/wallpapermgr}"
+export GIT_REPO_BRANCH="${GIT_DEFAULT_BRANCH:-main}"
 
 ##################################################################################################
 
@@ -479,8 +480,8 @@ scripts_check() {
     read -n 1 -s choice
     echo ""
     if [[ $choice == "y" || $choice == "Y" ]]; then
-      urlverify $REPO/scripts/raw/master/install.sh
-      sudo bash -c "$(curl -LSs $REPO/scripts/raw/master/install.sh)"
+      urlverify "$REPO/scripts/raw/$GIT_DEFAULT_BRANCH/install.sh"
+      sudo bash -c "$(curl -LSs $REPO/scripts/raw/$GIT_DEFAULT_BRANCH/install.sh)"
     else
       touch "$HOME/.noscripts"
       exit 1
@@ -544,8 +545,8 @@ dotfilesreq() {
   local confdir="$HOME/.local/share/CasjaysDev/apps"
   for conf in "$@"; do
     if [ ! -f "$confdir/$conf" ]; then
-      urlverify $REPO/$conf/raw/master/install.sh
-      bash -c "$(curl -LSs $REPO/$conf/raw/master/install.sh)"
+      urlverify "$REPO/$conf/raw/$GIT_DEFAULT_BRANCH/install.sh"
+      bash -c "$(curl -LSs $REPO/$conf/raw/$GIT_DEFAULT_BRANCH/install.sh)"
     fi
   done
 }
@@ -558,8 +559,8 @@ dotfilesreqadmin() {
   local confdir="$HOME/.local/share/CasjaysDev/apps"
   for conf in "$@"; do
     if [ ! -f "$confdir/$conf" ]; then
-      urlverify $REPO/$conf/raw/master/install.sh
-      sudo bash -c "$(curl -LSs $REPO/$conf/raw/master/install.sh)"
+      urlverify "$REPO/$conf/raw/$GIT_DEFAULT_BRANCH/install.sh"
+      sudo bash -c "$(curl -LSs $REPO/$conf/raw/$GIT_DEFAULT_BRANCH/install.sh)"
     fi
   done
 }

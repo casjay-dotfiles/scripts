@@ -988,7 +988,7 @@ __curl_upload() { curl -disable -LSsk --connect-timeout 3 --retry 0 --upload-fil
 #curl_api "API URL"
 __curl_api() { curl --disable -LSsk --connect-timeout 3 --retry 0 "https://api.github.com/orgs/${1:-SCRIPTS_PREFIX}/repos?per_page=1000" 2>/dev/null; }
 #urlcheck "url"
-__urlcheck() { curl --disable -k --connect-timeout 1 --retry 0 --retry-delay 0 --output /dev/null --silent --head --fail "$1" 2>/dev/null && __curl_exit; }
+__urlcheck() { curl --disable -LSsk --connect-timeout 1 --retry 0 --retry-delay 0 --output /dev/null --silent --head --fail "$1" 2>/dev/null && __curl_exit; }
 #urlverify "url"
 __urlverify() { __urlcheck "$1" || __urlinvalid "$1"; }
 #urlinvalid "url"

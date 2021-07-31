@@ -52,6 +52,12 @@ export TMPDIR="${TMPDIR:-/tmp}"
 export WHOAMI="${SUDO_USER:-$USER}"
 export HOME="${USER_HOME:-$HOME}"
 export LOGDIR="${LOGDIR:-$HOME/.local/log}"
+# Timezone data
+if [ -f "/etc/timezone" ]; then
+  export TIMEZONE="$(cat /etc/timezone)"
+else
+  export TIMEZONE="America/New_York"
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 command() {
   [ "$1" = "-v" ] && shift 1

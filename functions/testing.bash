@@ -54,6 +54,12 @@ SYSTEMMGRREPO="https://github.com/systemmgr"
 WALLPAPERMGRREPO="https://github.com/wallpapermgr"
 WHICH_LICENSE_URL="https://github.com/devenvmgr/licenses/raw/$GIT_REPO_BRANCH"
 WHICH_LICENSE_DEF="$CASJAYSDEVDIR/templates/wtfpl.md"
+# Timezone data
+if [ -f "/etc/timezone" ]; then
+  export TIMEZONE="$(cat /etc/timezone)"
+else
+  export TIMEZONE="America/New_York"
+fi
 # OS Settings
 if [ -f "$CASJAYSDEVDIR/bin/detectostype" ]; then
   . "$CASJAYSDEVDIR/bin/detectostype"

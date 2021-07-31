@@ -1727,7 +1727,7 @@ dfmgr_install_version() {
 }
 ##################################################################################################
 dockermgr_install() {
-  user_installdirs
+  system_installdirs
   #cmd_exists docker || printf_exit 1 1 "This requires docker, however, docker wasn't found"
   SCRIPTS_PREFIX="dockermgr"
   APPDIR="${APPDAIR:-$SHARE/docker/$APPNAME}"

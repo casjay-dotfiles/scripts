@@ -1914,9 +1914,9 @@ __if_os_id() {
 }
 ###################### setup folders - user ######################
 user_installdirs() {
-  APPNAME="$(basename $0)"
-  APPDIR="$(dirname $0)"
-  INSTDIR="$(dirname $0)"
+  #[ -n "$APPNAME" ] || APPNAME="$(basename $0)"
+  #[ -n "$APPDIR" ] || APPDIR="$(dirname $0)"
+  #[ -n "$INSTDIR" ] || INSTDIR="$(dirname $0)"
   SCRIPTS_PREFIX="${SCRIPTS_PREFIX:-dfmgr}"
   if [[ $(id -u) -eq 0 ]] || [[ $EUID -eq 0 ]] || [[ "$WHOAMI" = "root" ]]; then
     INSTALL_TYPE=user
@@ -1974,9 +1974,9 @@ user_installdirs() {
 
 ###################### setup folders - system ######################
 system_installdirs() {
-  APPNAME="$(basename $0)"
-  APPDIR="$(dirname $0)"
-  INSTDIR="$(dirname $0)"
+  #[ -n "$APPNAME" ] || APPNAME="$(basename $0)"
+  #[ -n "$APPDIR" ] || APPDIR="$(dirname $0)"
+  #[ -n "$INSTDIR" ] || INSTDIR="$(dirname $0)"
   SCRIPTS_PREFIX="${SCRIPTS_PREFIX:-dfmgr}"
   if [[ $(id -u) -eq 0 ]] || [[ $EUID -eq 0 ]] || [[ "$WHOAMI" = "root" ]]; then
     if [[ $(uname -s) =~ Darwin ]]; then HOME="/usr/local/home/root"; else HOME="${HOME}"; fi

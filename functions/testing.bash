@@ -2083,7 +2083,7 @@ dockermgr_install() {
   SCRIPTS_PREFIX="dockermgr"
   APPDIR="${APPDIR:-$SHARE/docker}"
   INSTDIR="${INSTDIR:-$SHARE/CasjaysDev/$SCRIPTS_PREFIX}"
-  DATADIR="${DATADIR:-$/srv/docker/$APPNAME}"
+  DATADIR="${DATADIR:-/srv/docker/$APPNAME}"
   REPO="${REPO:-$DOCKERMGRREPO}"
   REPORAW="${REPORAw:-$REPO/raw/$GIT_REPO_BRANCH}"
   USRUPDATEDIR="$SHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"

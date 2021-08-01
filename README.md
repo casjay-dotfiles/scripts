@@ -1,4 +1,4 @@
-# my custom scripts    
+# my custom scripts
   
 ## Automatic install/update
 

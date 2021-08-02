@@ -677,7 +677,7 @@ __gem_exists() {
   cmd_exists gem || printf_return "Ruby Gem is not installed"
   [ "$1" = "--sudo" ] && local cmdbin="sudo gem" && shift 1 || local cmdbin="gem"
   local package="$1"
-  if $cmdbin list 2>&1 | grep -q "$package"; then
+  if $cmdbin list 2>&1 | grep -wq "$package"; then
     return 0
   else
     return 1
@@ -689,7 +689,7 @@ __lua_exists() {
   cmd_exists luarocks || printf_return "luarocks is not installed"
   [ "$1" = "--sudo" ] && local cmdbin="sudo luarocks" && shift 1 || local cmdbin="luarocks"
   local package="$1"
-  if $cmdbin show "$package" 2>&1 | grep -q "$package"; then
+  if $cmdbin list 2>&1 | grep -wq "$package"; then
     return 0
   else
     return 1
@@ -701,7 +701,7 @@ __go_exists() {
   cmd_exists go || printf_return "go is not installed"
   [ "$1" = "--sudo" ] && local cmdbin="sudo go" && shift 1 || local cmdbin="go"
   local package="$1"
-  if $cmdbin show "$package" 2>&1 | grep -q "$package"; then
+  if $cmdbin list 2>&1 | grep -wq "$package"; then
     return 0
   else
     return 1

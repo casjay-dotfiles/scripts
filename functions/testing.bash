@@ -645,39 +645,39 @@ __system_service_restart() {
 }
 #npm_exists "npmpackage"
 __npm_exists() {
-  __cmd_exists npm || return
+  __cmd_exists npm || printf_return "NPM is not installed"
   [ "$1" = "--sudo" ] && local cmdbin="sudo npm" && shift 1 || local cmdbin="npm"
   local package="$1"
-  if __devnull2 $cmdbin list -g | grep -q "$package"; then
-    exitTmp=0
-  elif __devnull2 $cmdbin list | grep -q "$package"; then
-    exitTmp=0
-  else exitTmp=1; fi
+  if __devnull2 $cmdbin list -g 2>&1 | grep -q "$package"; then
+    return 0
+  elif __devnull2 $cmdbin list 2>&1 | grep -q "$package"; then
+    return 0
+  else return 1; fi
   set --
 }
 #perl_exists "perlpackage"
 __perl_exists() {
-  __cmd_exists perl || return
+  __cmd_exists perl || printf_return "Perl is not installed"
   [ "$1" = "--sudo" ] && local cmdbin="sudo perl" && shift 1 || local cmdbin="perl"
   local package="$1"
-  if __devnull2 $cmdbin -M$package -le 'print $INC{"$package/Version.pm"}'; then return 0; else return 1; fi
+  if __devnull $cmdbin -M$package -le 'print $INC{"$package/Version.pm"}' 2>&1; then return 0; else return 1; fi
   set --
 }
 #python_exists "pythonpackage"
 __python_exists() {
-  cmd_exists python || cmd_exists python2 || cmd_exists python3 || return
+  cmd_exists python || cmd_exists python2 || cmd_exists python3 || printf_return "Python is not installed"
   __getpythonver
   [ "$1" = "--sudo" ] && local cmdbin="sudo $PYTHONVER" && shift 1 || local cmdbin="$PYTHONVER"
   local package="$1"
-  if __devnull2 $cmdbin -c "import $package"; then return 0; else return 1; fi
+  if __devnull $cmdbin -c "import $package" 2>&1; then return 0; else return 1; fi
   set --
 }
 #gem_exists "gemname"
 __gem_exists() {
-  cmd_exists gem || return
+  cmd_exists gem || printf_return "Ruby Gem is not installed"
   [ "$1" = "--sudo" ] && local cmdbin="sudo gem" && shift 1 || local cmdbin="gem"
   local package="$1"
-  if gem list | grep -q "$package"; then
+  if gem list 2>&1 | grep -q "$package"; then
     return 0
   else
     return 1

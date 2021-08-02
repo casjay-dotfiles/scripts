@@ -660,7 +660,7 @@ __perl_exists() {
   __cmd_exists perl || return
   [ "$1" = "--sudo" ] && local cmdbin="sudo perl" && shift 1 || local cmdbin="perl"
   local package="$1"
-  if __devnull2 $cmdbin -M$package -le 'print $INC{"$package/Version.pm"}'; then exitTmp=0; else exitTmp=1; fi
+  if __devnull2 $cmdbin -M$package -le 'print $INC{"$package/Version.pm"}'; then return 0; else return 1; fi
   set --
 }
 #python_exists "pythonpackage"
@@ -761,6 +761,10 @@ __getpythonver() {
     PIP="pip3"
     PATH="${PATH}:$(python3 -c 'import site; print(site.USER_BASE)')/bin"
   elif [[ "$(python2 -V 2>/dev/null)" =~ "Python 2" ]]; then
+    PYTHONVER="python2"
+    PIP="pip"
+    PATH="${PATH}:$(python -c 'import site; print(site.USER_BASE)')/bin"
+  elif [[ "$(python -V 2>/dev/null)" =~ "Python 2" ]]; then
     PYTHONVER="python"
     PIP="pip"
     PATH="${PATH}:$(python -c 'import site; print(site.USER_BASE)')/bin"

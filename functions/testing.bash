@@ -381,7 +381,10 @@ printf_read_question() {
   reply="${1:-REPLY}" && shift 1
   readopts="${1:-}" && shift 1
   printf_color "\t\t$msg " "${PRINTF_COLOR:-$color}"
-  read -t 30 -r -n $lines ${readopts} ${reply}
+  read -t 30 -r -n $lines ${readopts} ${reply} || {
+    echo
+    return 1
+  }
   printf_newline
 }
 #printf_read_question "color" "message" "maxLines" "answerVar" "readopts"

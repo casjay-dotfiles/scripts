@@ -696,6 +696,18 @@ __lua_exists() {
   fi
   set --
 }
+#go_exists "goname"
+__go_exists() {
+  cmd_exists go || printf_return "go is not installed"
+  [ "$1" = "--sudo" ] && local cmdbin="sudo go" && shift 1 || local cmdbin="go"
+  local package="$1"
+  if $cmdbin show "$package" 2>&1 | grep -q "$package"; then
+    return 0
+  else
+    return 1
+  fi
+  set --
+}
 #check_app "app"
 __check_app() {
   local cmd=""

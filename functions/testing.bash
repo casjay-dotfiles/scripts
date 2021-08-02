@@ -391,7 +391,7 @@ printf_read_question_nt() {
   reply="${1:-REPLY}" && shift 1
   readopts="${1:-}" && shift 1
   printf_color "\t\t$msg " "${PRINTF_COLOR:-$color}"
-  read -r -n $lines ${readopts} ${reply} && echo || return 1
+  read -r -n $lines ${readopts} ${reply} || return 1
 }
 printf_read_passwd() {
   printf_read_question_nt ${1:-3} "$2:" "100" "$3" "-s"

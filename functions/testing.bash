@@ -701,7 +701,7 @@ __go_exists() {
   cmd_exists go || printf_return "go is not installed"
   [ "$1" = "--sudo" ] && local cmdbin="sudo go" && shift 1 || local cmdbin="go"
   local package="$1"
-  if $cmdbin list '...' 2>&1 | grep -wq "$package"; then
+  if $cmdbin list -m 2>&1 | grep -wq "$package"; then
     return 0
   else
     return 1

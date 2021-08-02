@@ -41,11 +41,52 @@ fi
 user_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__test_server() { netstatg $1 | grep -qi python && return 1 || return 0; }
+# main function
+main() {
+  i=0
+  port="${1:-8000}" && shift 1
+  other_port="${1:-}"
+  myip=$(__getlipaddr && echo "$CURRIP4")
+  myhost="$(hostname -s)"
+  MAX_NUMBER_OF_TRIES=${MAX_NUMBER_OF_TRIES:-10}
+  TMP_DIR="${TMPDIR:-/tmp}"
+  SERVER_LOG="${SERVER_LOG:-$TMPDIR/run_server_${other_port:-$port}.log}"
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  if ! __test_server "${other_port:-$port}"; then
+    printf_error "Something appears to be running on ${other_port:-$port}"
+    printf_yellow "Attempting another port"
+    while true; do
+      [ -n "$other_port" ] && other_port=$((port + 1)) || port=$((port + 1))
+      __test_server "${other_port:-$port}" && break
+    done
+    export other_port port
+  fi
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  printf '%s\n' "Starting the server on port ${other_port:-$port}" &>"$SERVER_LOG"
+  while [ $i -lt $MAX_NUMBER_OF_TRIES ]; do
+    if [ "$(lsof -i -nP | grep "${other_port:-$port}" | grep -i "$prog")" != "" ]; then
+      open_url "http://$myip:${other_port:-$port}}/" &>/dev/null
+      break
+    fi
+    i=$((i + 1))
+    sleep 5
+  done &
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  if [ -n "$dir" ] && [ -d "$dir" ]; then
+    printf_green "serving files from $dir"
+    cd "$dir" || printf_exit "Could not cd into $dir"
+  fi
+  printf_blue "Log file: $SERVER_LOG"
+  printf_yellow "Access from the network: http://$myip:${other_port:-$port}"
+  printf_red "control-c to exit"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__test_server() { netstatg "$1" | grep -qi "${prog:-python2}" && return 1 || return 0; }
 __return_error() { printf '%s\n' "Failed to start server" &>>"$SERVER_LOG" && printf_exit 1 1 "Failed to start the server"; }
 __netcat_serv() { while true; do nc -l "${port}" <.; done &>>"$SERVER_LOG" && echo netcat started &>>"$SERVER_LOG" || return 1; }
-__jekyll() { cmd_exists jekyll && jekyll serve -P ${port} -l -H 0.0.0.0 && echo jekyll started &>>"$SERVER_LOG" || return 1; }
-__proxy() { cmd_exists caddy && caddy reverse-proxy -to 127.0.0.1:${port:-3000} -from :${OTHER_PORT:-20000} && echo caddy started &>>"$SERVER_LOG" && OTHER_PORT="${OTHER_PORT:-20000}" || return 1; }
+__jekyll() { cmd_exists jekyll && jekyll serve -P ${port} -l -H 0.0.0.0 &>>"$SERVER_LOG" && echo jekyll started &>>"$SERVER_LOG" || return 1; }
+__proxy() { cmd_exists caddy && caddy reverse-proxy -to 127.0.0.1:${port:-3000} -from :${other_port:-20000} &>>"$SERVER_LOG" && echo caddy started &>>"$SERVER_LOG" && other_port="${other_port:-20000}" || return 1; }
+__static() { cmd_exists caddy && caddy file-server -browse -listen :${port} -root "$dir" -templates &>>"$SERVER_LOG" && echo caddy started &>>"$SERVER_LOG" || return 1; }
 __js_serv() { cmd_exists http-server && http-server -a 0.0.0.0 -p ${port} &>>"$SERVER_LOG" && echo http-server started &>>"$SERVER_LOG" || return 1; }
 __php_serv() { cmd_exists php && php -S 0.0.0.0:${port} &>>"$SERVER_LOG" && echo php started &>>"$SERVER_LOG" || return 1; }
 __ruby_serv() { cmd_exists ruby && ruby -run -ehttpd . -p ${port} &>>"$SERVER_LOG" && echo ruby started &>>"$SERVER_LOG" || return 1; }
@@ -76,94 +117,100 @@ if [ "$1" = "--bg" ]; then
   exit $?
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-i=0
-port="${1:-8000}" && shift 1
 dir="$1"
-OTHER_PORT="${3:-}"
-myip=$(__getlipaddr && echo "$CURRIP4")
-myhost="$(hostname -s)"
-MAX_NUMBER_OF_TRIES=10
-TMP_DIR="${TMPDIR:-/tmp}"
-SERVER_LOG="${SERVER_LOG:-$TMPDIR/run_server_$port.log}"
-[ -n "$dir" ] && [ -d "$dir" ] && shift 1
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if ! __test_server "${OTHER_PORT:-$port}"; then
-  printf_error "Something appears to be running on ${OTHER_PORT:-$port}"
-  printf_yellow "Attempting another port"
-  while true; do
-    port=$((port + 1))
-    __test_server "${OTHER_PORT:-$port}" && break
-  done
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-printf '%s\n' "Starting the server on port ${OTHER_PORT:-$port}" &>"$SERVER_LOG"
-while [ $i -lt $MAX_NUMBER_OF_TRIES ]; do
-  if [ "$(lsof -i -nP | grep "${OTHER_PORT:-$port}" | grep -i "python")" != "" ]; then
-    open_url "http://$myip:${OTHER_PORT:-$port}}/" &>/dev/null
-    break
-  fi
-  i=$((i + 1))
-  sleep 5
-done &
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ -n "$dir" ] && [ -d "$dir" ]; then
-  printf_green "serving files from $dir"
-  cd "$dir" || printf_exit "Could not cd into $dir"
-fi
-printf_yellow "Access from the network: http://$myip:${OTHER_PORT:-$port}"
-printf_red "control-c to exit"
+[ -d "$dir" ] && [ -n "$dir" ] && shift 1
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 case "$1" in
-proxy)
+static)
+  prog="caddy"
   shift 1
+  ARGS="$*"
+  main $ARGS
+  __static || __return_error
+  exit $?
+  ;;
+proxy)
+  prog="caddy"
+  shift 1
+  ARGS="$*"
+  main $ARGS
   __proxy || __return_error
+  exit $?
   ;;
 jekyll)
+  prog="jekyll"
   shift 1
+  ARGS="$*"
+  main $ARGS
   __jekyll || __return_error
+  exit $?
   ;;
 js)
+  prog="http-server"
   shift 1
+  ARGS="$*"
+  main $ARGS
   __js_serv || __return_error
+  exit $?
   ;;
 
 php)
+  prog="php"
   shift 1
+  ARGS="$*"
+  main $ARGS
   __php_serv || __return_error
   exit $?
   ;;
 
 ruby)
+  prog="ruby"
   shift 1
+  ARGS="$*"
+  main $ARGS
   __ruby_serv || __return_error
   exit $?
   ;;
 
 python2)
+  prog="python2"
   shift 1
+  ARGS="$*"
+  main $ARGS
   __python2_serv || __return_error
   exit $?
   ;;
 
 python3)
+  prog="python3"
   shift 1
+  ARGS="$*"
+  main $ARGS
   __python3_serv || __return_error
   exit $?
   ;;
 
 default)
+  prog="python2"
   shift 1
+  ARGS="$*"
+  main $ARGS
   __default_srv || __return_error
   exit $?
   ;;
 
 netcat | nc)
+  prog="betcat"
   shift 1
+  ARGS="$*"
+  main $ARGS
   __netcat_serv || __return_error
   exit $?
   ;;
 
 *)
+  ARGS="$*"
+  main $ARGS
   __default_srv || __python3_serv || __python2_serv || __py_simple || __netcat_serv || __return_error
   ;;
 esac

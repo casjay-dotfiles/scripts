@@ -646,10 +646,11 @@ __system_service_restart() {
 #npm_exists "npmpackage"
 __npm_exists() {
   __cmd_exists npm || return
+  [ "$1" = "--sudo" ] && local cmdbin="sudo npm" && shift 1 || local cmdbin="npm"
   local package="$1"
-  if __devnull2 npm list -g | grep -q "$package"; then
+  if __devnull2 $cmdbin list -g | grep -q "$package"; then
     exitTmp=0
-  elif __devnull2 npm list | grep -q "$package"; then
+  elif __devnull2 $cmdbin list | grep -q "$package"; then
     exitTmp=0
   else exitTmp=1; fi
   set --
@@ -657,21 +658,24 @@ __npm_exists() {
 #perl_exists "perlpackage"
 __perl_exists() {
   __cmd_exists perl || return
+  [ "$1" = "--sudo" ] && local cmdbin="sudo perl" && shift 1 || local cmdbin="perl"
   local package="$1"
-  if __devnull2 perl -M$package -le 'print $INC{"$package/Version.pm"}'; then exitTmp=0; else exitTmp=1; fi
+  if __devnull2 $cmdbin -M$package -le 'print $INC{"$package/Version.pm"}'; then exitTmp=0; else exitTmp=1; fi
   set --
 }
 #python_exists "pythonpackage"
 __python_exists() {
   cmd_exists python || cmd_exists python2 || cmd_exists python3 || return
   __getpythonver
+  [ "$1" = "--sudo" ] && local cmdbin="sudo $PYTHONVER" && shift 1 || local cmdbin="$PYTHONVER"
   local package="$1"
-  if __devnull2 "$PYTHONVER" -c "import $package"; then return 0; else return 1; fi
+  if __devnull2 $cmdbin -c "import $package"; then return 0; else return 1; fi
   set --
 }
 #gem_exists "gemname"
 __gem_exists() {
   cmd_exists gem || return
+  [ "$1" = "--sudo" ] && local cmdbin="sudo gem" && shift 1 || local cmdbin="gem"
   local package="$1"
   if gem list | grep -q "$package"; then
     return 0

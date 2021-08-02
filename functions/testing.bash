@@ -643,7 +643,17 @@ __system_service_restart() {
   done
   set --
 }
-
+#npm_exists "npmpackage"
+__npm_exists() {
+  __cmd_exists npm || return
+  local package="$1"
+  if __devnull2 npm list -g | grep -q "$package"; then
+    exitTmp=0
+  elif __devnull2 npm list | grep -q "$package"; then
+    exitTmp=0
+  else exitTmp=1; fi
+  set --
+}
 #perl_exists "perlpackage"
 __perl_exists() {
   __cmd_exists perl || return

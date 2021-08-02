@@ -371,7 +371,7 @@ printf_read_input() {
   reply="${1:-REPLY}" && shift 1
   readopts="${1:-}" && shift 1
   printf_color "\t\t$msg " "${PRINTF_COLOR:-$color}"
-  read -sre -n $lines $readopts $reply || return 1
+  read -sre -n $lines $readopts $reply && echo || return 1
 }
 #printf_read_question "color" "message" "maxLines" "answerVar" "readopts"
 printf_read_question() {
@@ -381,11 +381,7 @@ printf_read_question() {
   reply="${1:-REPLY}" && shift 1
   readopts="${1:-}" && shift 1
   printf_color "\t\t$msg " "${PRINTF_COLOR:-$color}"
-  read -t 30 -r -n $lines ${readopts} ${reply} || {
-    echo
-    return 1
-  }
-  printf_newline
+  read -t 30 -r -n $lines ${readopts} ${reply} && echo || return 1
 }
 #printf_read_question "color" "message" "maxLines" "answerVar" "readopts"
 printf_read_question_nt() {
@@ -395,8 +391,7 @@ printf_read_question_nt() {
   reply="${1:-REPLY}" && shift 1
   readopts="${1:-}" && shift 1
   printf_color "\t\t$msg " "${PRINTF_COLOR:-$color}"
-  read -r -n $lines ${readopts} ${reply}
-  printf_newline
+  read -r -n $lines ${readopts} ${reply} && echo || return 1
 }
 printf_read_passwd() {
   printf_read_question_nt ${1:-3} "$2:" "100" "$3" "-s"
@@ -409,7 +404,7 @@ printf_read_error() {
 #printf_answer "Var" "maxNum" "Opts"
 printf_answer() {
   read -t 10 -ers -n 1 "${1:-$REPLY}"
-  [ -n "$reply" ] || echo
+  [ -z "$reply" ] && return 1 || echo
   #history -s "${1:-$REPLY}"
 }
 #printf_answer_yes "var" "response"

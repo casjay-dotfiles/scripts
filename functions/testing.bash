@@ -955,6 +955,8 @@ __mv_f() { if [ -e "$1" ]; then __devnull mv -f "$1" "$2" || return 0; fi; }
 __cp_rf() { if [ -e "$1" ]; then __devnull cp -Rf "$1" "$2" || return 0; fi; }
 #rm_rf "file"
 __rm_rf() { if [ -e "$1" ]; then __devnull rm -Rf "$@" || return 0; fi; }
+# unlink "location"
+__unlink() { if [ -L "$1" ]; then __devnull unlink "$@" || return 0; fi; }
 #
 __broken_symlinks() {
   __devnull find -L "$@" -type l -exec rm -f {} \;

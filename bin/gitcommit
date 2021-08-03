@@ -51,6 +51,7 @@ __gen_config() {
     cp -Rf "$GITCOMMIT_CONFIG_DIR/$GITCOMMIT_CONFIG_FILE" "$GITCOMMIT_CONFIG_DIR/$GITCOMMIT_CONFIG_FILE.$$"
   cat <<EOF >"$GITCOMMIT_CONFIG_DIR/$GITCOMMIT_CONFIG_FILE"
 # Settings for gitcommit
+GITCOMMIT_MAINCONFIG=${GITCOMMIT_MAINCONFIG:-gitmainconfig}
 GITCOMMIT_NO_CONFIRM="\${GITCOMMIT_NO_CONFIRM:-true}"
 GITCOMMIT_PROJECT_DIR="\${GIT_PROJECT_DIR:-$HOME/Projects}"
 GITCOMMIT_VERSION_FORMAT="\${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}"
@@ -72,13 +73,14 @@ EOF
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gitcommit() {
   __git_porcelain "$gitdir" && return
+  COMMIT=""
   local mess="${1:-$mess}"
   local succ="Successfuly committed the changes to"
   local fail="Failed to commit the changes to"
   COMMIT=""
   printf_cyan "Commiting Changes with the following message:"
   printf_yellow "$mess"
-  if git -C "$gitdir" commit -q -S -m "$mess" 2>/dev/null; then
+  if git -C "$gitdir" commit -q -S -m "$mess" 2>"$GITCOMMIT_TEMP_FILE"; then
     if __getexitcode "$exitCode" "$succ $(__git_repobase "$gitdir")" "$fail $(__git_repobase "$gitdir")"; then
       printf_green "commit ID: $(__git_commitid "$gitdir")"
       COMMIT="true"
@@ -87,7 +89,8 @@ __gitcommit() {
       false
     fi
   else
-    false
+    cat "$GITCOMMIT_TEMP_FILE" | printf_readline "5"
+    printf_exit "Failed to commit the changes"
   fi
   return $?
 }
@@ -96,15 +99,22 @@ __git_add() {
   local -a files="$*"
   for f in $files; do
     if [ -e "$f" ]; then
-      git -C "$gitdir" add "$f" &>/dev/null
-    #else
-    #  git -C "$gitdir" rm "$f" &>/dev/null
+      git -C "$gitdir" add "$f" -f #&>/dev/null
+    else
+      printf_exit "Could not add $f"
     fi
   done
-  if [ -f "$versionfile" ]; then
-    date +"$gitversion" >"$versionfile"
-    git -C "$gitdir" add "$versionfile" &>/dev/null
-  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__git_del() {
+  local -a files="$*"
+  for f in $files; do
+    if [ ! -e "$f" ]; then
+      git -C "$gitdir" rm "$f" -f #&>/dev/null
+    else
+      printf_exit "Could not remove $f"
+    fi
+  done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_dir() {
@@ -210,6 +220,7 @@ GITCOMMIT_PROJECT_DIR="${GIT_PROJECT_DIR:-$HOME/Projects}"
 GITCOMMIT_VERSION_FORMAT="${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}"
 GITCOMMIT_VERSION_FILE="${GIT_VERSION_FILE:-version.txt}"
 GITCOMMIT_GITHUB_TOKEN="$GITHUB_ACCESS_TOKEN"
+GITCOMMIT_MAINCONFIG=${GITCOMMIT_MAINCONFIG:-gitmainconfig}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set additional variables/Argument/Option settings
 SETARGS="$*"
@@ -357,7 +368,8 @@ version)
   ;;
 
 files)
-  shift 1
+  shift
+  [ $# -eq 0 ] || printf_exit "Usage: $APPNAME files"
   if ! __git_porcelain "$gitdir"; then
     files="$(git -C "$gitdir" status -s -b | grep -F 'M ' | sed 's|^ ||g' | awk -F' ' '{print $2}')"
     filesmsg="$(git -C "$gitdir" status -b -s | sed '/^\#/d;s,^ ,,g;s,??,A,g' | tr '\n' '|' | sed 's#|$##g' | grep '^')"
@@ -370,9 +382,10 @@ files)
   ;;
 
 modified)
+  [ $# -eq 0 ] || printf_exit "Usage: $APPNAME modified"
   shift 1
   if git -C "$gitdir" status -s -b | grep -F 'M ' >/dev/null 2>&1; then
-    files="$(git -C "$gitdir" status -s -b | grep -F 'M ' | awk '{print $2}' | tr '\n' ' ')"
+    files="$(git -C "$gitdir" status -s -b | grep -F 'M ' | sed 's|^ ||g' | awk -F' ' '{print $2}')"
     mess="🗃 Modified: $files 🗃 "
     __git_add "$files"
     __gitcommit "$mess"
@@ -382,9 +395,10 @@ modified)
   ;;
 
 updated)
-  shift 1
+  shift
+  [ $# -eq 0 ] || printf_exit "Usage: $APPNAME updated"
   if git -C "$gitdir" status -s -b | grep -F 'M ' >/dev/null 2>&1; then
-    files="$(git -C "$gitdir" status -s -b | grep -F 'M ' | awk '{print $2}' | tr '\n' ' ')"
+    files="$(git -C "$gitdir" status -s -b | grep 'M \|D\|A ' | sed 's|^ ||g' | awk -F' ' '{print $2}')"
     mess="🗃 Updated: $files 🗃 "
     __git_add "$files"
     __gitcommit "$mess"
@@ -394,11 +408,12 @@ updated)
   ;;
 
 deleted)
-  shift 1
+  shift
+  [ $# -eq 0 ] || printf_exit "Usage: $APPNAME deleted"
   if git -C "$gitdir" status -s -b | grep -F 'D ' >/dev/null 2>&1; then
-    files="$(git -C "$gitdir" status -s -b | grep -F 'D ' | awk '{print $2}' | tr '\n' ' ')"
+    files="$(git -C "$gitdir" status -s -b | grep -F 'M ' | sed 's|^ ||g' | awk -F' ' '{print $2}')"
     mess="➖ Deleted: $files ➖ "
-    __git_add "$files"
+    __git_del "$files"
     __gitcommit "$mess"
   else
     printf_exit 1 0 "Nothing has been deleted in $gitdir"
@@ -406,7 +421,8 @@ deleted)
   ;;
 
 added)
-  shift 1
+  shift
+  [ $# -eq 0 ] || printf_exit "Usage: $APPNAME added"
   if git -C "$gitdir" status -s -b | grep -F '?? ' >/dev/null 2>&1; then
     files="$(git -C "$gitdir" status -s -b | grep -F '?? ' | awk '{print $2}' | tr '\n' ' ')"
     mess="❓ Added: $files ❓"
@@ -490,6 +506,7 @@ breaking)
 
 refactor)
   shift 1
+  [ $# -eq 0 ] && printf_exit "Usage: $APPNAME refactor filename[s]"
   ARGS="${*:-} "
   mess="✔️ 〰️ Refactor Code ${ARGS}〰️ ✔️  "
   __git_add "$ARGS"
@@ -498,6 +515,7 @@ refactor)
 
 performance)
   shift 1
+  [ $# -eq 0 ] && printf_exit "Usage: $APPNAME performance filename[s]"
   ARGS="${*:-} "
   mess="🚤 Preformance boost ${ARGS}⏩"
   __git_add "$ARGS"
@@ -662,16 +680,16 @@ shift
 if __git_porcelain "$gitdir"; then
   [ -n "$COMMIT" ] && true || printf_red "There are no changes to commit in ${basedir}"
 else
-  if [ -f "$gitdir/gitmasterconfig" ] && [ -d "$gitdir/.git" ]; then
-    cp -Rf "$gitdir/gitmasterconfig" "$gitdir/.git/config"
+  if [ -f "$gitdir/$GITCOMMIT_MAINCONFIG" ] && [ -d "$gitdir/.git" ]; then
+    cp -Rf "$gitdir/$GITCOMMIT_MAINCONFIG" "$gitdir/.git/config"
   fi
   if [ -z "$files" ]; then
     git -C "$gitdir" add . >/dev/null 2>&1
   fi
   if [ -z "$mess" ]; then
-    __gitcommit "🦈🏠🐜 Fixes and Updates 🐜🦈🏠 " 2>/dev/null && exitCode=0 || exitCode=1
+    [ -z "$COMMIT" ] || __gitcommit "🦈🏠🐜 Fixes and Updates 🐜🦈🏠 " && exitCode=0 || exitCode=1
   else
-    __gitcommit "$mess" 2>/dev/null && exitCode=0 || exitCode=1
+    [ -z "$COMMIT" ] || __gitcommit "$mess" && exitCode=0 || exitCode=1
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

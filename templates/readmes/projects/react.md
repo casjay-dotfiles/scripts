@@ -1,4 +1,5 @@
 # 👋 Welcome to the ProjectName project 👋
+
   ProjectDescription
 
 ## Run production  
@@ -9,12 +10,12 @@ npm run build
 ```
 
 ## Run Development  
+
 ```shell
 npm i -D
-num run start
+npm run start
 ```
   
 ## Author  
 
 👤 **AuthorName**  
-

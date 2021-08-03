@@ -364,24 +364,27 @@ printf_question_term() {
 }
 #printf_read_input "color" "message" "maxLines" "answerVar" "readopts"
 printf_read_input() {
-  local readopts="" reply=""
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="1"
   local msg="$1" && shift 1
+  local readopts=""
+  local reply=""
   test -n "$1" && test -z "${1//[0-9]/}" && local lines="$1" && shift 1 || local lines="120"
   reply="${1:-REPLY}" && shift 1
   readopts="${1:-}" && shift 1
   printf_color "\t\t$msg " "${PRINTF_COLOR:-$color}"
-  read -s -r -e -n $lines $readopts $reply || return 1
+  read -s -r -e -n $lines ${readopts:-} ${reply:-} || return 1
 }
 #printf_read_question "color" "message" "maxLines" "answerVar" "readopts"
 printf_read_question() {
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="1"
   local msg="$1" && shift 1
+  local readopts=""
+  local reply=""
   test -n "$1" && test -z "${1//[0-9]/}" && local lines="$1" && shift 1 || local lines="120"
   reply="${1:-REPLY}" && shift 1
   readopts="${1:-}" && shift 1
   printf_color "\t\t$msg " "${PRINTF_COLOR:-$color}"
-  read -t 30 -e -r -n $lines ${readopts} ${reply} || return 1
+  read -t 30 -e -r -n $lines ${readopts:-} ${reply:-} || return 1
 }
 #printf_read_question "color" "message" "maxLines" "answerVar" "readopts"
 printf_read_question_nt() {

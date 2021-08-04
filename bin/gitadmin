@@ -155,7 +155,7 @@ __api_org() {
 __api_url() { __api_user || __api_org || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_pull() {
-  local dir="$1" && shift 1
+  local dir="${1:-$REPO_DIR}" && shift 1
   local args="$*"
   local regex="(https?|ftp|file|git|ssh)://[-A-Za-z0-9\+&@#/%?=~_|!:,.;]*[-A-Za-z0-9\+&@#/%=~_|]"
   if [[ "$(__git_remote_origin "$dir")" =~ $regex ]]; then
@@ -168,7 +168,7 @@ __git_pull() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_push() {
-  local dir="$1" && shift 1
+  local dir="${1:-$REPO_DIR}" && shift 1
   local args="$*"
   local regex="(https?|ftp|file|git|ssh)://[-A-Za-z0-9\+&@#/%?=~_|!:,.;]*[-A-Za-z0-9\+&@#/%=~_|]"
   if [[ "$(__git_remote_origin "$dir")" =~ $regex ]]; then
@@ -290,9 +290,13 @@ run_git_init() {
         if [ -f "${REPO_DIR}/$GITADMIN_DEFAULT_MAINCONFIG" ]; then
           cp -Rf "${REPO_DIR}/$GITADMIN_DEFAULT_MAINCONFIG" "${REPO_DIR}/.git/config"
         fi
-        git -C "$REPO_DIR" push -q -f --set-upstream origin "$GIT_DEFAULT_BRANCH" &>/dev/null &&
-          __git_push "$REPO_DIR" &&
-          printf_green "Successfuly pushed to $repo" || printf_red "Push to $repo has failed"
+        git -C "$REPO_DIR" push -q -f --set-upstream origin "$GIT_DEFAULT_BRANCH" &>/dev/null
+        __git_push "$REPO_DIR"
+        if [ -d "$REPO_DIR/.git" ]; then
+          printf_green "Successfuly pushed to $repo"
+        else
+          printf_red "Push to $repo has failed"
+        fi
       else
         printf_yellow "Not pushing due to user canceling"
       fi
@@ -923,61 +927,6 @@ user)
   main "$USERNAME"
   ;;
 
-push)
-  [ "$1" == "help" ] && printf_help "Usage: $APPNAME --push | push all your repos repos"
-  shift 1
-  USERNAME="$1"
-  REPO_URL="$REPO_URL/$USERNAME"
-  __api_user_token "$USERNAME"
-  curl -q -H "Authorization: token $TOKEN" -Ls "$GITHUBAPIREPO" | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
-  COUNT="$(cat "$GITADMIN_TEMP_FILE" | wc -l)"
-  printf_green "$MESSAGE\n\t\tThere is currently $COUNT repos avaliable\n\t\tInititialing $REPO_URL"
-  for i in $(cat "$GITADMIN_TEMP_FILE"); do
-    if [ -d "$PROJECT_DIR/$USERNAME/$i" ]; then
-      printf_purple "Now running git push $1/$i"
-      ERROR="git push failed for $USERNAME/$i"
-      SUCCES="git push completed for $USERNAME/$i"
-      if [ -f "$PROJECT_DIR/$USERNAME/$i/gitmasterconfig" ]; then
-        cp -Rf "$PROJECT_DIR/$USERNAME/$i/gitmasterconfig" "$PROJECT_DIR/$USERNAME/$i/.git/config"
-      fi
-      if (__devnull2 git -C "$PROJECT_DIR/$USERNAME/$i" status | grep -q "working tree clean"); then
-        __getexitcode
-      else
-        [ -f "$PROJECT_DIR/$USERNAME/$i/version.txt" ] && date +"$VERSION_DATE_FORMAT" >"$PROJECT_DIR/$USERNAME/$i/version.txt"
-        __devnull git -C "$PROJECT_DIR/$USERNAME/$i" add . &&
-          __devnull git -C "$PROJECT_DIR/$USERNAME/$i" commit -a -m " ❇🦈🏠❗ General Fixes ❗🏠🦈❇ " &&
-          __devnull __git_push "$PROJECT_DIR/$USERNAME/$i"
-        __getexitcode
-      fi
-    fi
-  done
-  unset ERROR SUCCES
-  exit $EXIT
-  ;;
-
-clone)
-  shift 1
-  [ "$1" == "help" ] && printf_help "Usage: $APPNAME --clone | clone the repos"
-  USERNAME="$1"
-  REPO_URL="$REPO_URL/$USERNAME"
-  __api_user_token "$USERNAME"
-  curl -q -H "Authorization: token $TOKEN" -Ls $GITHUBAPIREPO | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
-  COUNT="$(cat "$GITADMIN_TEMP_FILE" | wc -l)"
-  printf_green "$MESSAGE\n\t\tThere is currently $COUNT repos avaliable\n\t\tInititialing $REPO_URL"
-  main "$USERNAME"
-  ;;
-
-pull)
-  shift 1
-  USERNAME="$1"
-  REPO_URL="$REPO_URL/$USERNAME"
-  __api_user_token "$USERNAME"
-  curl -q -H "Authorization: token $TOKEN" -Ls "$GITHUBAPIREPO" | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
-  COUNT="$(cat "$GITADMIN_TEMP_FILE" | wc -l)"
-  printf_green "$MESSAGE\n\t\tThere is currently $COUNT repos avaliable\n\t\tInititialing $REPO_URL"
-  main "$USERNAME"
-  ;;
-
 create)
   shift 1
   USERNAME="$1"
@@ -996,6 +945,30 @@ delete)
 init)
   shift 1
   git_init "$@"
+  ;;
+
+push) # push a repo
+  shift 1
+  [ "$1" == "--help" ] && printf_help "Usage: $APPNAME push | push the repo"
+  if [ "$1" = "--all" ]; then
+    for dir in $(find "$HOME/Projects"/*/*/* -maxdepth 0 -type d); do
+      git_push_single "$dir"
+    done
+  else
+    git_push_single "$@"
+  fi
+  ;;
+
+pull) # update repo
+  shift 1
+  [ "$1" == "--help" ] && printf_help "Usage: $APPNAME update | pull the repos"
+  git_pull_single "$@"
+  ;;
+
+clone) # Clone repo from url
+  shift 1
+  [ "$1" == "--help" ] && printf_help "Usage: $APPNAME clone | clone the repos"
+  git_clone_single "$@"
   ;;
 
 # Remote options
@@ -1028,6 +1001,61 @@ org)
     [ "$1" == "--help" ] && printf_help "Usage: $APPNAME all | Clone/Pull all orgs owned by you"
     USERNAME="$1"
     git_all_orgs "$GITHUB_USERNAME"
+    ;;
+
+  push)
+    [ "$1" == "help" ] && printf_help "Usage: $APPNAME --push | push all your repos repos"
+    shift 1
+    USERNAME="$1"
+    REPO_URL="$REPO_URL/$USERNAME"
+    __api_user_token "$USERNAME"
+    curl -q -H "Authorization: token $TOKEN" -Ls "$GITHUBAPIREPO" | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
+    COUNT="$(cat "$GITADMIN_TEMP_FILE" | wc -l)"
+    printf_green "$MESSAGE\n\t\tThere is currently $COUNT repos avaliable\n\t\tInititialing $REPO_URL"
+    for i in $(cat "$GITADMIN_TEMP_FILE"); do
+      if [ -d "$PROJECT_DIR/$USERNAME/$i" ]; then
+        printf_purple "Now running git push $1/$i"
+        ERROR="git push failed for $USERNAME/$i"
+        SUCCES="git push completed for $USERNAME/$i"
+        if [ -f "$PROJECT_DIR/$USERNAME/$i/gitmasterconfig" ]; then
+          cp -Rf "$PROJECT_DIR/$USERNAME/$i/gitmasterconfig" "$PROJECT_DIR/$USERNAME/$i/.git/config"
+        fi
+        if (__devnull2 git -C "$PROJECT_DIR/$USERNAME/$i" status | grep -q "working tree clean"); then
+          __getexitcode
+        else
+          [ -f "$PROJECT_DIR/$USERNAME/$i/version.txt" ] && date +"$VERSION_DATE_FORMAT" >"$PROJECT_DIR/$USERNAME/$i/version.txt"
+          __devnull git -C "$PROJECT_DIR/$USERNAME/$i" add . &&
+            __devnull git -C "$PROJECT_DIR/$USERNAME/$i" commit -a -m " ❇🦈🏠❗ General Fixes ❗🏠🦈❇ " &&
+            __devnull __git_push "$PROJECT_DIR/$USERNAME/$i"
+          __getexitcode
+        fi
+      fi
+    done
+    unset ERROR SUCCES
+    exit $EXIT
+    ;;
+
+  clone)
+    shift 1
+    [ "$1" == "help" ] && printf_help "Usage: $APPNAME --clone | clone the repos"
+    USERNAME="$1"
+    REPO_URL="$REPO_URL/$USERNAME"
+    __api_user_token "$USERNAME"
+    curl -q -H "Authorization: token $TOKEN" -Ls $GITHUBAPIREPO | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
+    COUNT="$(cat "$GITADMIN_TEMP_FILE" | wc -l)"
+    printf_green "$MESSAGE\n\t\tThere is currently $COUNT repos avaliable\n\t\tInititialing $REPO_URL"
+    main "$USERNAME"
+    ;;
+
+  pull)
+    shift 1
+    USERNAME="$1"
+    REPO_URL="$REPO_URL/$USERNAME"
+    __api_user_token "$USERNAME"
+    curl -q -H "Authorization: token $TOKEN" -Ls "$GITHUBAPIREPO" | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
+    COUNT="$(cat "$GITADMIN_TEMP_FILE" | wc -l)"
+    printf_green "$MESSAGE\n\t\tThere is currently $COUNT repos avaliable\n\t\tInititialing $REPO_URL"
+    main "$USERNAME"
     ;;
 
   *)
@@ -1073,9 +1101,10 @@ gist)
 
 # Single repo options
 single)
+  shift 1
   case $1 in
   init) # init a github repo
-    shift 2
+    shift 1
     if [ "$#" -ne 1 ]; then printf_exit "Usage: gitadmin single init RepoName"; fi
     if [[ "$1" = "--help" ]]; then printf_exit "Create a new single project\n\t\tUsage: gitadmin single init RepoName"; fi
     do_not_add_a_url "$1"
@@ -1087,7 +1116,7 @@ single)
     ;;
 
   push) # push a repo
-    shift 2
+    shift 1
     [ "$1" == "--help" ] && printf_help "Usage: $APPNAME push | push the repo"
     if [ "$1" = "--all" ]; then
       for dir in $(find "$HOME/Projects"/*/*/* -maxdepth 0 -type d); do
@@ -1099,13 +1128,13 @@ single)
     ;;
 
   pull) # update repo
-    shift 2
+    shift 1
     [ "$1" == "--help" ] && printf_help "Usage: $APPNAME update | pull the repos"
     git_pull_single "$@"
     ;;
 
   clone) # Clone repo from url
-    shift 2
+    shift 1
     [ "$1" == "--help" ] && printf_help "Usage: $APPNAME clone | clone the repos"
     git_clone_single "$@"
     ;;
@@ -1114,9 +1143,10 @@ single)
 
 # github repos commands
 github) # github repo
-  case $2 in
+  shift 1
+  case $1 in
   init) # init a github repo
-    shift 2
+    shift 1
     if [ "$#" -ne 1 ]; then printf_exit "Usage: gitadmin github init RepoName"; fi
     if [[ "$1" = "--help" ]]; then printf_exit "Create a new github project\n\t\tUsage: gitadmin github init RepoName"; fi
     do_not_add_a_url "$1"
@@ -1128,7 +1158,7 @@ github) # github repo
     ;;
 
   clone) # Clone repo from github
-    shift 2
+    shift 1
     if [ "$#" -ne 1 ]; then printf_exit "Usage: gitadmin github clone username/projectname"; fi
     if [ "$1" = "--help" ]; then printf_exit "Clone a github project\n\t\tUsage: gitadmin github clone username/projectname"; fi
     do_not_add_a_url "$1"
@@ -1157,9 +1187,10 @@ github) # github repo
   ;;
 # gitlab repos commands
 gitlab)
-  case $2 in
+  shift 1
+  case $1 in
   init) # init a gitlab repo
-    shift 2
+    shift 1
     if [ "$#" -ne 1 ]; then printf_exit "Usage: gitadmin gitlab init RepoName"; fi
     if [[ "$1" = "--help" ]]; then printf_exit "Create a new gitlab project\n\t\tUsage: gitadmin gitlab init RepoName"; fi
     do_not_add_a_url "$1"
@@ -1171,7 +1202,7 @@ gitlab)
     ;;
 
   clone) # Clone repo from gitlab
-    shift 2
+    shift 1
     if [ "$#" -ne 1 ]; then printf_exit "Usage: gitadmin gitlab clone username/projectname"; fi
     if [ "$1" = "--help" ]; then printf_exit "Clone a gitlab project\n\t\tUsage: gitadmin gitlab clone username/projectname"; fi
     do_not_add_a_url "$1"
@@ -1200,11 +1231,12 @@ gitlab)
   ;;
 # private repos commands
 private)
+  shift 1
   if [ -z "$PERSONAL_GIT_HOST" ]; then printf_exit "You dont have the env variable PERSONAL_GIT_HOST set"; fi
   [ "$1" = "--help" ] && printf_green "Useful if you have a private server such as gitea" && exit 0
-  case $2 in
+  case $1 in
   init) # init a private repo
-    shift 2
+    shift 1
     if [ "$#" -ne 1 ]; then printf_exit "Usage: gitadmin private init RepoName"; fi
     if [[ "$1" = "--help" ]]; then printf_exit "Create a new private project\n\t\tUsage: gitadmin private init RepoName"; fi
     do_not_add_a_url "$1"
@@ -1216,7 +1248,7 @@ private)
     ;;
 
   clone) # Clone repo from private
-    shift 2
+    shift 1
     if [ "$#" -ne 1 ]; then printf_exit "Usage: gitadmin private clone username/projectname"; fi
     if [ "$1" = "--help" ]; then printf_exit "Clone a private project\n\t\tUsage: gitadmin private clone username/projectname"; fi
     do_not_add_a_url "$1"

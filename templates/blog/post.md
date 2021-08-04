@@ -5,6 +5,7 @@ author: AuthorName
 categories: [blog]
 tags: [general]
 date: DATE
+permalink: /myurl
 comments: true
 ---
 

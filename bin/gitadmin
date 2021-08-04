@@ -1,20 +1,22 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0")"
+VERSION="202108040225-git"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #set opts
+trap 'exitCode=${exitCode:-$?};[ -f "$GITADMIN_TEMP_FILE" ] && rm -Rf "$GITADMIN_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202107101511-git
-# @Author        : Jason Hempstead
-# @Contact       : jason@casjaysdev.com
+##@Version       : 202108040225-git
+# @Author        : casjay
+# @Contact       : casjay
 # @License       : WTFPL
 # @ReadME        : gitadmin --help
 # @Copyright     : Copyright: (c) 2021 Jason Hempstead, CasjaysDev
-# @Created       : Saturday, Mar 20, 2021 07:39 EDT
+# @Created       : Wednesday, Aug 04, 2021 02:25 EDT
 # @File          : gitadmin
 # @Description   : push/clone/pull from github/gitlab/private repo
 # @TODO          : Organize this a lot better
@@ -40,36 +42,38 @@ fi
 user_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# I'm sure there is a better way to do this
-if [ -d "$1" ]; then
-  gitdir="$(__basedir "$1/showcurdir")"
-  shift 1
-elif [ "$1" = "-d" ] || [ "$1" = "-dir" ] || [ "$1" = "--dir" ]; then
-  gitdir="$(__dirname "$2")"
-  shift 2
-  [ -d "$gitdir" ] || printf_exit "$gitdir doesn't seem to be a directory"
-else
-  gitdir="$(__basedir "$PWD/.")"
-fi
-if [ "$gitdir" = "." ]; then gitdir="$(__basedir ".")"; fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# defaults
-unset PREVREPO
-topdir="$(__git_top_dir "$gitdir" 2>/dev/null)"
-USERNAME="${GITADMIN_DEFAULT_USERNAME}"
-TOKEN="$GITHUB_ACCESS_TOKEN"
-REPO_URL="${REPO_URL:-https://github.com}"
-PROJECT_BASE="$HOME/Projects"
-PROJECT_DIR="${PROJECT_DIR:-$PROJECT_BASE}"
-TMPFILE="${TMP:-/tmp}/github-casjaysdev-XXXXXXXXX"
-WTFLICENSE="${MY_LICENSE_FILE:-$CASJAYSDEVDIR/templates/wtfpl.md}"
-REPODIR="${topdir:-$PROJECT_DIR}"
-VERSIONFILE="$(__git_top_dir $gitdir 2>/dev/null)/version.txt"
-VERSION_DATE_FORMAT="${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}"
-DOMAIN_TEMPLATE="https://github.com/casjay-templates/domain-template"
-USER_API_URL="https://api.github.com/user/repos?per_page=1000&type=owner"
-ORG_API_URL="https://api.github.com/user/orgs?per_page=1000&type=owner"
-GIT_DEFAULT_BRANCH="main"
+__gen_config() {
+  printf_green "Generating the config file in"
+  printf_green "$GITADMIN_CONFIG_DIR/$GITADMIN_CONFIG_FILE"
+  [ -d "$GITADMIN_CONFIG_DIR" ] || mkdir -p "$GITADMIN_CONFIG_DIR"
+  [ -d "$GITADMIN_CONFIG_BACKUP_DIR" ] || mkdir -p "$GITADMIN_CONFIG_BACKUP_DIR"
+  [ -f "$GITADMIN_CONFIG_DIR/$GITADMIN_CONFIG_FILE" ] &&
+    cp -Rf "$GITADMIN_CONFIG_DIR/$GITADMIN_CONFIG_FILE" "$GITADMIN_CONFIG_BACKUP_DIR/$GITADMIN_CONFIG_FILE.$$"
+  cat <<EOF >"$GITADMIN_CONFIG_DIR/$GITADMIN_CONFIG_FILE"
+# Settings for gitadmin
+GITADMIN_DEFAULT_BRANCH="${GITADMIN_DEFAULT_BRANCH:-main}"
+GITADMIN_DEFAULT_MAINCONFIG="gitmainconfig"
+GITADMIN_DEFAULT_USERNAME="${GITADMIN_DEFAULT_USERNAME:-$GITHUB_USERNAME}"
+GITADMIN_TOKEN="${GITADMIN_TOKEN:-$GITHUB_ACCESS_TOKEN}"
+GITADMIN_DEFAULT_REPO_BASE="${REPO_URL:-https://github.com}"
+GITADMIN_DOMAIN_TEMPLATE="${GITADMIN_DOMAIN_TEMPLATE:-https://github.com/casjay-templates/domain-template}"
+GITADMIN_PROJECT_BASE="${GITADMIN_PROJECT_BASE:-$HOME/Projects}"
+GITADMIN_DEFAULT_LICENSE="${GITADMIN_DEFAULT_LICENSE:-$MY_LICENSE_FILE}"
+GITADMIN_VERSION_DATE_FORMAT="${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}"
+GITADMIN_TEMP_FILE="${TMPDIR:-/tmp}/gitadmin"
+GITADMIN_NOTIFY_ENABLED="yes"
+GITADMIN_NOTIFY_CLIENT_NAME="\${NOTIFY_CLIENT_NAME:-\$APPNAME}"
+GITADMIN_NOTIFY_CLIENT_ICON="\${NOTIFY_CLIENT_ICON:-\$GITADMIN_NOTIFY_CLIENT_ICON}"
+
+EOF
+  if [ -f "$GITADMIN_CONFIG_DIR/$GITADMIN_CONFIG_FILE" ]; then
+    printf_green "Your config file for gitadmin has been created"
+    true
+  else
+    printf_red "Failed to create the config file"
+    false
+  fi
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #[ -n "$TOKEN" ] || printf_exit "The env variable GITHUB_ACCESS_TOKEN is not set"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -82,6 +86,7 @@ if [ "$(git config --get user.email | wc -m)" -lt 2 ]; then
   printf_read_input "What is you Email" "120" "GIT_EMAIL"
   git config --global user.email "$GIT_EMAIL" 2>/dev/null
 fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Gist API
 __api_gist() {
   curl -q -H "Authorization: token $TOKEN" -H "Accept: application/vnd.github.v3+json" \
@@ -91,7 +96,7 @@ __api_gist() {
 # Set Message for token - user
 __api_user_token() {
   local USERNAME="${1:-$USERNAME}"
-  if [ ! -z "$TOKEN" ]; then
+  if [ -n "$TOKEN" ]; then
     GITHUBAPIREPO="https://api.github.com/users/$USERNAME/repos?per_page=1000&type=owner"
     MESSAGE="Getting the repos for $USERNAME using\n\t\tgithub token $TOKEN"
   else
@@ -111,7 +116,7 @@ __api_user() {
 # Set Message for token - org
 __api_org_token() {
   local USERNAME="${1:-$USERNAME}"
-  if [ ! -z "$TOKEN" ]; then
+  if [ -n "$TOKEN" ]; then
     GITHUBAPIREPO="https://api.github.com/orgs/$USERNAME/repos?per_page=1000&type=owner"
     MESSAGE="Getting the repos for $USERNAME using\n\t\tgithub token $TOKEN"
   else
@@ -134,10 +139,10 @@ __git_pull() {
   local regex="(https?|ftp|file|git|ssh)://[-A-Za-z0-9\+&@#/%?=~_|!:,.;]*[-A-Za-z0-9\+&@#/%=~_|]"
   if [[ "$(__git_remote_origin "$dir")" =~ $regex ]]; then
     if __am_i_online; then
-      git -C "$dir" pull $args -f -q &>/dev/null && return 0 || return 1
+      git -C "$dir" pull "$args" -f -q &>/dev/null && return 0 || return 1
     else return 1; fi
   else
-    git -C "$dir" pull $args -f -q &>/dev/null && return 0 || return 1
+    git -C "$dir" pull "$args" -f -q &>/dev/null && return 0 || return 1
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -147,10 +152,10 @@ __git_push() {
   local regex="(https?|ftp|file|git|ssh)://[-A-Za-z0-9\+&@#/%?=~_|!:,.;]*[-A-Za-z0-9\+&@#/%=~_|]"
   if [[ "$(__git_remote_origin "$dir")" =~ $regex ]]; then
     if __am_i_online; then
-      git -C "$dir" push $args -q &>/dev/null && return 0 || return 1
+      git -C "$dir" push "$args" -q &>/dev/null && return 0 || return 1
     else return 1; fi
   else
-    git -C "$dir" push $args -q &>/dev/null && return 0 || return 1
+    git -C "$dir" push "$args" -q &>/dev/null && return 0 || return 1
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -161,19 +166,19 @@ __git_clone() {
   local regex="(https?|ftp|file|git|ssh)://[-A-Za-z0-9\+&@#/%?=~_|!:,.;]*[-A-Za-z0-9\+&@#/%=~_|]"
   if [[ "$url" =~ $regex ]]; then
     if __am_i_online; then
-      git clone "$url" "$dir" -q $args &>>/dev/null && return 0 || return 1
+      git clone "$url" "$dir" -q "$args" &>>/dev/null && return 0 || return 1
     else
       return 1
     fi
   else
-    git clone "$url" "$dir" -q $args &>/dev/null && return 0 || return 1
+    git clone "$url" "$dir" -q "$args" &>/dev/null && return 0 || return 1
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Creates a README.md file if one doesn't exist
 create_new_readme_template() {
   local REPODIR="${1:-$REPODIR}"
-  if [ -f "$(command -v gen-readme)" ] && [[ "$(__count_files "${readmeDir:-$HOME/.config/gen-readme/files}" "2")" -ne 0 ]]; then
+  if [ -f "$(command -v gen-readme)" ] && [ ! -f "${REPODIR}/README.md" ]; then
     gen-readme "$REPODIR" &>/dev/null
   else
     local author="$(__git_globaluser)"
@@ -181,22 +186,22 @@ create_new_readme_template() {
     local BaseDir="${GitBaseDir##*/}"
     [ -f "$CASJAYSDEVDIR/templates/readmes/projects/default.md" ] &&
       cat "$CASJAYSDEVDIR/templates/readmes/projects/default.md" >"${REPODIR}/README.md"
-    [ -f ${REPODIR}/README.md ] && __sed -i "s#ProjectName#${BaseDir}#g" "${REPODIR}/README.md"
-    [ -f ${REPODIR}/README.md ] && __sed -i "s#AuthorName#${author}#g" "${REPODIR}/README.md"
+    [ -f "${REPODIR}/README.md" ] && __sed -i "s#ProjectName#${BaseDir}#g" "${REPODIR}/README.md"
+    [ -f "${REPODIR}/README.md" ] && __sed -i "s#AuthorName#${author}#g" "${REPODIR}/README.md"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Creates a WTFPL license if a LICENSE.md file doesn't exist
 create_new_wtfpl() {
   local REPODIR="${1:-$REPODIR}"
-  if [ -f "$(command -v gen-license)" ] && [[ "$(__count_files "${licenseDir:-$HOME/.config/gen-license/files}" "2")" -ne 0 ]]; then
-    gen-license "$REPODIR" default &>/dev/null
+  if [ -f "$(command -v gen-license)" ] && [ ! -f "${REPODIR}/LICENSE.md" ]; then
+    gen-license "$REPODIR" "$GITADMIN_DEFAULT_LICENSE" &>/dev/null
   else
     local author="$(__git_globaluser)"
     local year="$(date +'%Y')"
     [ -f "$WTFLICENSE" ] && cat "$WTFLICENSE" >"${REPODIR}/LICENSE.md"
-    [ -f ${REPODIR}/LICENSE.md ] && __sed -i "s#CURYEAR#${year}#g" "${REPODIR}/LICENSE.md"
-    [ -f ${REPODIR}/LICENSE.md ] && __sed -i "s#AuthorName#${author}#g" "${REPODIR}/LICENSE.md"
+    [ -f "${REPODIR}/LICENSE.md" ] && __sed -i "s#CURYEAR#${year}#g" "${REPODIR}/LICENSE.md"
+    [ -f "${REPODIR}/LICENSE.md" ] && __sed -i "s#AuthorName#${author}#g" "${REPODIR}/LICENSE.md"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -261,10 +266,10 @@ run_git_init() {
     if printf_answer_yes "$push"; then
       printf_read_question "3" "This will overwrite the repo if it exists. Continue? [y/n]" "1" "confirm_repo"
       if printf_answer_yes "$confirm_repo"; then
-        if [ -f "${REPODIR}/gitmasterconfig" ]; then
-          cp -Rf "${REPODIR}/gitmasterconfig" "${REPODIR}/.git/config"
+        if [ -f "${REPODIR}/$GITADMIN_DEFAULT_MAINCONFIG" ]; then
+          cp -Rf "${REPODIR}/$GITADMIN_DEFAULT_MAINCONFIG" "${REPODIR}/.git/config"
         fi
-        git -C "$REPODIR" push -q -f --set-upstream origin $GIT_DEFAULT_BRANCH &>/dev/null &&
+        git -C "$REPODIR" push -q -f --set-upstream origin "$GIT_DEFAULT_BRANCH" &>/dev/null &&
           __git_push "$REPODIR" &&
           printf_green "Successfuly pushed to $repo" || printf_red "Push to $repo has failed"
       else
@@ -284,11 +289,12 @@ run_git_setup() {
   local PREVREPO="${PREVREPO:-}"
   local continue="${continue:-}"
   local reuse="${reuse:-}"
+  local EXIT=0
   printf_green "Initializing $REPODIR"
   if [ -d "$REPODIR/.git" ]; then
     local PREVREPO="$(git -C "$REPODIR" remote -v | grep push | head -n 1 | awk '{print $2}' 2>/dev/null)"
     printf_error "This project already has git setup"
-    if [ ! -z "$PREVREPO" ]; then
+    if [ -n "$PREVREPO" ]; then
       printf_green "Remote repo is: $PREVREPO"
     fi
     printf_read_question "3" "Should I continue to reset this repo? [y/n]" "1" "continue"
@@ -322,12 +328,16 @@ run_git_setup() {
     printf_read_question "3" "Should I add a remote repo? [y/n] " "1" "remote"
     if printf_answer_yes "$remote"; then
       printf_read_input "3" "Enter remote repo: " "120" "repo"
-      run_git_init "$REPODIR"
+      if run_git_init "$REPODIR"; then
+        EXIT=0
+      else
+        EXIT=1
+      fi
     else
       printf_yellow "You have decided not to add a remote repository"
     fi
   fi
-  if [ $? -eq 0 ]; then
+  if [ $EXIT -eq 0 ]; then
     exit 0
   else
     printf_red "Initialization has failed"
@@ -354,11 +364,13 @@ run_git_setup_automated() {
   ls "$REPODIR/README"* 1>/dev/null 2>&1 || create_new_readme_template "$REPODIR"
   ls "$REPODIR/LICENSE"* 1>/dev/null 2>&1 || create_new_wtfpl "$REPODIR"
   __devnull git -C "${REPODIR}" init &&
-    __devnull git -C "${REPODIR}" remote add origin $PREVREPO &&
-    if [ -f "$REPODIR/gitmasterconfig" ]; then __cp_rf "$REPODIR/gitmasterconfig" "$REPODIR/.git/config"; fi &&
+    __devnull git -C "${REPODIR}" remote add origin "$PREVREPO" &&
+    if [ -f "$REPODIR/$GITADMIN_DEFAULT_MAINCONFIG" ]; then
+      __cp_rf "$REPODIR/$GITADMIN_DEFAULT_MAINCONFIG" "$REPODIR/.git/config"
+    fi &&
     __devnull git -C "${REPODIR}" add . &&
     __devnull2 git -C "${REPODIR}" commit -q -m ' 🦈🏠🐜❗ Initial Commit ❗🐜🦈🏠 ' &&
-    __git_push "$REPODIR" --set-upstream origin $GIT_DEFAULT_BRANCH &&
+    __git_push "$REPODIR" --set-upstream origin "$GIT_DEFAULT_BRANCH" &&
     __git_push "$REPODIR" &&
     printf_green "Successfuly pushed to: $PREVREPO" ||
     printf_red "Push to $PREVREPO has failed"
@@ -369,7 +381,7 @@ run_git_setup_automated() {
 # Makes a new jeckyll site
 make_newsite() {
   local REPODIR="$(__basedir "$REPODIR/.git")"
-  __git_clone $DOMAIN_TEMPLATE "$HOME/Public/sites/$1" &&
+  __git_clone "$DOMAIN_TEMPLATE" "$HOME/Public/sites/$1" &&
     rm -Rf "$HOME/Public/sites/new/.git" && cd "$HOME/Public/sites/$1" && "$EDITOR" _config.yml || return 1
   gitadmin "${REPODIR}" setup
 }
@@ -389,8 +401,8 @@ repos_init() {
   REPODIR="$(__basedir "${1:-$REPODIR}/.git")"
   [ -f "$VERSIONFILE" ] && date +"$VERSION_DATE_FORMAT" >"$VERSIONFILE"
   git -C "${REPODIR}" add .
-  if [ -f "${REPODIR}/gitmasterconfig" ]; then
-    cp -Rf "${REPODIR}/gitmasterconfig" "${REPODIR}/.git/config"
+  if [ -f "${REPODIR}/$GITADMIN_DEFAULT_MAINCONFIG" ]; then
+    cp -Rf "${REPODIR}/$GITADMIN_DEFAULT_MAINCONFIG" "${REPODIR}/.git/config"
   fi
   __devnull2 git -C "${REPODIR}" commit -m ' 🦈🏠🐜 Initial Commit 🐜🦈🏠 '
 }
@@ -404,10 +416,12 @@ git_init() {
   git_setup "$REPODIR"
   [ -f "$VERSIONFILE" ] && date +"$VERSION_DATE_FORMAT" >"$VERSIONFILE"
   __devnull2 git -C "$REPODIR" add .
-  if [ -f "$REPODIR/gitmasterconfig" ]; then cp -Rf "$REPODIR/gitmasterconfig" "$REPODIR/.git/config"; fi
+  if [ -f "$REPODIR/$GITADMIN_DEFAULT_MAINCONFIG" ]; then
+    cp -Rf "$REPODIR/$GITADMIN_DEFAULT_MAINCONFIG" "$REPODIR/.git/config"
+  fi
   __devnull2 git -C "$REPODIR" commit -m ' 🦈🏠🐜 Initial Commit 🐜🦈🏠 '
   __devnull2 git -C "$REPODIR" remote add origin "${remote:-https://github.com/$1/$2}"
-  __git_push "$REPODIR" -u origin $branch
+  __git_push "$REPODIR" -u origin "$GITADMIN_DEFAULT_BRANCH"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # List gists
@@ -488,7 +502,7 @@ curl_orgs_create() {
     return 0
   elif grep -qis 'name already exists on this account' "$TMPFILE"; then
     return 0
-  elif __api_org $USERNAME | grep -i "$REPONAME" | grep -q "html_url"; then
+  elif __api_org "$USERNAME" | grep -i "$REPONAME" | grep -q "html_url"; then
     return 0
   else
     return 1
@@ -624,13 +638,13 @@ git_update_loop() {
   if [[ "$*" =~ "--while" ]]; then
     while true; do
       for project in $(ls -d ~/Projects/*/*/*); do
-        printf_green "Updating $project $(__devnull __git_pull $project) $(__getexitcode)"
+        printf_green "Updating $project $(__devnull __git_pull "$project") $(__getexitcode)"
       done && clear
       printf_custom "3" "Sleeping for a minute $(sleep 60)"
     done
   else
     for project in $(ls -d ~/Projects/*/*/*); do
-      printf_green "Updating $project $(__devnull __git_pull $project) $(__getexitcode)"
+      printf_green "Updating $project $(__devnull __git_pull "$project") $(__getexitcode)"
     done
   fi
 }
@@ -712,7 +726,9 @@ main() {
       ERROR="Git pull $USERNAME/$i failed"
       SUCCES="Git pull $USERNAME/$i completed"
       printf_purple "Now running git pull $USERNAME/$i"
-      if [ -f "$REPODIR/gitmasterconfig" ]; then cp -Rf "$REPODIR/gitmasterconfig" "$REPODIR/.git/config"; fi
+      if [ -f "$REPODIR/$GITADMIN_DEFAULT_MAINCONFIG" ]; then
+        cp -Rf "$REPODIR/$GITADMIN_DEFAULT_MAINCONFIG" "$REPODIR/.git/config"
+      fi
       __git_pull "$PROJECT_DIR/$USERNAME/$i"
       __getexitcode "$SUCCES" "$ERROR"
     else
@@ -727,17 +743,117 @@ main() {
   exit "${EXIT:-$?}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Main application
+# Defaults
+exitCode=""
+GITADMIN_CONFIG_FILE="settings.conf"
+GITADMIN_CONFIG_DIR="$HOME/.config/myscripts/gitadmin"
+GITADMIN_CONFIG_BACKUP_DIR="$HOME/.local/share/myscripts/gitadmin/backups"
+GITADMIN_OPTIONS_DIR="$HOME/.local/share/myscripts/gitadmin/options"
+GITADMIN_TEMP_FILE="${TMPDIR:-/tmp}/gitadmin"
+GITADMIN_NOTIFY_ENABLED="yes"
+GITADMIN_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+GITADMIN_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$GITADMIN_NOTIFY_CLIENT_ICON}"
+GITADMIN_VERSION_DATE_FORMAT="${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}"
+GITADMIN_DEFAULT_BRANCH="${GITADMIN_DEFAULT_BRANCH:-main}"
+GITADMIN_DEFAULT_USERNAME="${GITADMIN_DEFAULT_USERNAME:-$GITHUB_USERNAME}"
+GITADMIN_TOKEN="${GITADMIN_TOKEN:-$GITHUB_ACCESS_TOKEN}"
+GITADMIN_DEFAULT_REPO_BASE="${REPO_URL:-https://github.com}"
+GITADMIN_PROJECT_BASE="${GITADMIN_PROJECT_BASE:-$HOME/Projects}"
+GITADMIN_DEFAULT_LICENSE="${MY_LICENSE_FILE:-$CASJAYSDEVDIR/templates/wtfpl.md}"
+GITADMIN_VERSION_DATE_FORMAT="${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}"
+GITADMIN_DOMAIN_TEMPLATE="${GITADMIN_DOMAIN_TEMPLATE:-https://github.com/casjay-templates/domain-template}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS="c,v,h,s:"
+LONGOPTS="options,config,version,help,single:"
+ARRAY="repos stow setup newsite private gitlab github single init gist org remote  "
+ARRAY+="delete create pull clone push user update commit branch log status cron "
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate Files
+[ -f "$GITADMIN_CONFIG_DIR/$GITADMIN_CONFIG_FILE" ] || __gen_config &>/dev/null
+[ -f "$GITADMIN_OPTIONS_DIR/options" ] || __list_options "$GITADMIN_OPTIONS_DIR" &>/dev/null
+[ -f "$GITADMIN_OPTIONS_DIR/array" ] || __list_array "$GITADMIN_OPTIONS_DIR" "$ARRAY" &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+if [ -f "$GITADMIN_CONFIG_DIR/$GITADMIN_CONFIG_FILE" ]; then
+  . "$GITADMIN_CONFIG_DIR/$GITADMIN_CONFIG_FILE"
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$APPNAME" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --options)
+    shift 1
+    __list_array "$GITADMIN_OPTIONS_DIR" "$ARRAY"
+    __list_options "$GITADMIN_OPTIONS_DIR"
+    exit $?
+    ;;
+  -v | --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  -h | --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  -c | --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  -s | --single)
+    shift 1
+    [ "$1" == "help" ] && printf_help "Usage: $APPNAME --single | clone a single repo"
+    ghsinglerepo "$@"
+    exit $?
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+export NOTIFY_CLIENT_NAME="${GITADMIN_NOTIFY_CLIENT_NAME}"
+export NOTIFY_CLIENT_ICON="${GITADMIN_NOTIFY_CLIENT_ICON}"
+if [ "$GITADMIN_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    notifications "$*" || return 1
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+cmd_exists --error bash git curl || exit 1
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables
+unset PREVREPO
+topdir="$(__git_top_dir "$gitdir" 2>/dev/null)"
+USERNAME="${GITADMIN_DEFAULT_USERNAME}"
+TOKEN="$GITADMIN_TOKEN"
+REPO_URL="${REPO_URL:-https://github.com}"
+PROJECT_BASE="$GITADMIN_PROJECT_BASE"
+PROJECT_DIR="${PROJECT_DIR:-$PROJECT_BASE}"
+TMPFILE="${GITADMIN_TEMP_FILE:-/tmp}/github-casjaysdev-XXXXXXXXX"
+WTFLICENSE="${GITADMIN_DEFAULT_LICENSE:-$CASJAYSDEVDIR/templates/wtfpl.md}"
+REPODIR="${topdir:-$PROJECT_DIR}"
+VERSIONFILE="$(__git_top_dir "$gitdir" 2>/dev/null)/version.txt"
+VERSION_DATE_FORMAT="${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}"
+DOMAIN_TEMPLATE="https://github.com/casjay-templates/domain-template"
+USER_API_URL="https://api.github.com/user/repos?per_page=1000&type=owner"
+ORG_API_URL="https://api.github.com/user/orgs?per_page=1000&type=owner"
+GIT_DEFAULT_BRANCH="$GITADMIN_DEFAULT_BRANCH"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
 case "$1" in
---help)
-  __help
-  exit
-  ;;
---single)
-  shift 1
-  [ "$1" == "--help" ] && printf_help "Usage: $APPNAME --single | clone a single repo"
-  ghsinglerepo "$@"
-  ;;
 
 updater | cron)
   shift 1
@@ -778,8 +894,8 @@ user)
   USERNAME="$1"
   REPO_URL="$REPO_URL/$USERNAME"
   __api_user_token "$USERNAME"
-  echo "$(curl -q -H "Authorization: token $TOKEN" -Ls $GITHUBAPIREPO | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//')" >"$TMPFILE"
-  COUNT="$(cat $TMPFILE | wc -l)"
+  curl -q -H "Authorization: token $TOKEN" -Ls "$GITHUBAPIREPO" | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$TMPFILE"
+  COUNT="$(cat "$TMPFILE" | wc -l)"
   printf_green "$MESSAGE\n\t\tThere is currently $COUNT repos avaliable\n\t\tInititialing $REPO_URL"
   main "$USERNAME"
   ;;
@@ -790,10 +906,10 @@ push)
   USERNAME="$1"
   REPO_URL="$REPO_URL/$USERNAME"
   __api_user_token "$USERNAME"
-  echo "$(curl -q -H "Authorization: token $TOKEN" -Ls $GITHUBAPIREPO | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//')" >"$TMPFILE"
-  COUNT="$(cat $TMPFILE | wc -l)"
+  curl -q -H "Authorization: token $TOKEN" -Ls "$GITHUBAPIREPO" | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$TMPFILE"
+  COUNT="$(cat "$TMPFILE" | wc -l)"
   printf_green "$MESSAGE\n\t\tThere is currently $COUNT repos avaliable\n\t\tInititialing $REPO_URL"
-  for i in $(cat $TMPFILE); do
+  for i in $(cat "$TMPFILE"); do
     if [ -d "$PROJECT_DIR/$USERNAME/$i" ]; then
       printf_purple "Now running git push $1/$i"
       ERROR="git push failed for $USERNAME/$i"
@@ -823,8 +939,8 @@ clone)
   USERNAME="$1"
   REPO_URL="$REPO_URL/$USERNAME"
   __api_user_token "$USERNAME"
-  echo "$(curl -q -H "Authorization: token $TOKEN" -Ls $GITHUBAPIREPO | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//')" >"$TMPFILE"
-  COUNT="$(cat $TMPFILE | wc -l)"
+  curl -q -H "Authorization: token $TOKEN" -Ls $GITHUBAPIREPO | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$TMPFILE"
+  COUNT="$(cat "$TMPFILE" | wc -l)"
   printf_green "$MESSAGE\n\t\tThere is currently $COUNT repos avaliable\n\t\tInititialing $REPO_URL"
   main "$USERNAME"
   ;;
@@ -834,8 +950,8 @@ pull)
   USERNAME="$1"
   REPO_URL="$REPO_URL/$USERNAME"
   __api_user_token "$USERNAME"
-  echo "$(curl -q -H "Authorization: token $TOKEN" -Ls $GITHUBAPIREPO | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//')" >"$TMPFILE"
-  COUNT="$(cat $TMPFILE | wc -l)"
+  curl -q -H "Authorization: token $TOKEN" -Ls "$GITHUBAPIREPO" | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$TMPFILE"
+  COUNT="$(cat "$TMPFILE" | wc -l)"
   printf_green "$MESSAGE\n\t\tThere is currently $COUNT repos avaliable\n\t\tInititialing $REPO_URL"
   main "$USERNAME"
   ;;
@@ -898,8 +1014,8 @@ org)
     USERNAME="$1"
     REPO_URL="$REPO_URL/$USERNAME"
     __api_org_token "$USERNAME"
-    echo "$(curl -q -H "Authorization: token $TOKEN" -Ls $GITHUBAPIREPO | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//')" >"$TMPFILE"
-    COUNT="$(cat $TMPFILE | wc -l)"
+    curl -q -H "Authorization: token $TOKEN" -Ls "$GITHUBAPIREPO" | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$TMPFILE"
+    COUNT="$(cat "$TMPFILE" | wc -l)"
     printf_green "$MESSAGE\n\t\tThere is currently $COUNT repos avaliable\n\t\tInititialing $REPO_URL"
     main "$USERNAME"
     ;;
@@ -941,7 +1057,7 @@ single)
     homerepo="$(echo "$1" | __sed 's/\",// ; s/\.[^.]*$// ; s#"##g')"
     __mkd "$1"
     [ -d "$homerepo/.git" ] && __cd_into "$homerepo" || printf_exit 1 1 "failed to initialize $REPODIR"
-    repos_init $REPODIR
+    repos_init "$REPODIR"
     exit "$?"
     ;;
 
@@ -982,7 +1098,7 @@ github) # github repo
     homerepo="$(echo "$HOME/Projects/github/$1" | __sed 's/\",// ; s/\.[^.]*$// ; s#"##g')"
     __mkd "$HOME/Projects/github/$1"
     [ -d "$homerepo/.git" ] && __cd_into "$homerepo" || printf_exit 1 1 "failed to initialize $REPODIR"
-    repos_init $REPODIR
+    repos_init "$REPODIR"
     exit "$?"
     ;;
 
@@ -1052,7 +1168,7 @@ gitlab)
     if [ "$#" -ne 2 ]; then printf_exit "Usage: gitadmin gitlab remote username/projectname"; fi
     [ "$1" = "--help" ] && printf_exit "Add a gitlab project to remote\n\t\tUsage: gitadmin gitlab remote username/projectname"
     do_not_add_a_url "$1"
-    git remote add "$1" https://gitlab.com/$2.git
+    git remote add "$1" "https://gitlab.com/$2.git"
     exit "$?"
     ;;
   esac
@@ -1070,7 +1186,7 @@ private)
     homerepo="$(echo "$HOME/Projects/private/$1" | __sed 's/\",// ; s/\.[^.]*$// ; s#"##g')"
     __mkd "$HOME/Projects/private/$1"
     [ -d "$homerepo/.git" ] && __cd_into "$homerepo" || printf_exit 1 1 "failed to initialize $REPODIR"
-    repos_init $REPODIR
+    repos_init "$REPODIR"
     exit "$?"
     ;;
 
@@ -1128,8 +1244,8 @@ repos)
   TOKEN="${GITHUB_ACCESS_TOKEN:-$2}"
   REPO_URL="https://github.com/$USERNAME"
   __api_user_token "$USERNAME"
-  curl -q -H "Authorization: token $TOKEN" -Ls $GITHUBAPIREPO | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$TMPFILE"
-  COUNT="$(cat $TMPFILE | wc -l)"
+  curl -q -H "Authorization: token $TOKEN" -Ls "$GITHUBAPIREPO" | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$TMPFILE"
+  COUNT="$(cat "$TMPFILE" | wc -l)"
   printf_green "$MESSAGE\n\t\tThere is currently $COUNT repos avaliable\n\t\tInititialing $REPO_URL"
   ;;
 
@@ -1143,8 +1259,8 @@ repos)
   TOKEN="${GITHUB_ACCESS_TOKEN:-$2}"
   REPO_URL="https://github.com/$USERNAME"
   __api_user_token "$USERNAME"
-  curl -q -H "Authorization: token $TOKEN" -Ls $GITHUBAPIREPO | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$TMPFILE"
-  COUNT="$(cat $TMPFILE | wc -l)"
+  curl -q -H "Authorization: token $TOKEN" -Ls "$GITHUBAPIREPO" | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$TMPFILE"
+  COUNT="$(cat "$TMPFILE" | wc -l)"
   printf_green "$MESSAGE\n\t\tThere is currently $COUNT repos avaliable\n\t\tInititialing $REPO_URL"
   main "$USERNAME"
   ;;
@@ -1153,5 +1269,7 @@ esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 rm -Rf "/tmp/github-casjaysdev-*"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-exit ${EXIT:-$?}
-# end
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit "${exitCode:-$?}"

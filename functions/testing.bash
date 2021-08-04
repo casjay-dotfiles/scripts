@@ -412,11 +412,11 @@ printf_answer() {
 }
 #printf_answer_yes "var" "response"
 printf_answer_yes() {
-  [ -n "${1:-$REPLY}" ] || echo
+  printf_newline ''
   if [[ "${1:-$REPLY}" =~ ${2:-^[Yy]$} ]]; then return 0; else return; fi
 }
 printf_answer_no() {
-  [ -n "${1:-$REPLY}" ] || echo
+  printf_newline ''
   if [[ "${1:-$REPLY}" =~ ${2:-^[Nn]$} ]]; then return 0; else return 1; fi
 }
 printf_head() {

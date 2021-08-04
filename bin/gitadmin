@@ -67,9 +67,9 @@ REPODIR="${topdir:-$PROJECT_DIR}"
 VERSIONFILE="$(__git_top_dir $gitdir 2>/dev/null)/version.txt"
 VERSION_DATE_FORMAT="${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}"
 DOMAIN_TEMPLATE="https://github.com/casjay-templates/domain-template"
+USER_API_URL="https://api.github.com/user/repos?per_page=1000&type=owner"
 ORG_API_URL="https://api.github.com/user/orgs?per_page=1000&type=owner"
 GIT_DEFAULT_BRANCH="main"
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #[ -n "$TOKEN" ] || printf_exit "The env variable GITHUB_ACCESS_TOKEN is not set"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -82,16 +82,60 @@ if [ "$(git config --get user.email | wc -m)" -lt 2 ]; then
   printf_read_input "What is you Email" "120" "GIT_EMAIL"
   git config --global user.email "$GIT_EMAIL" 2>/dev/null
 fi
+# Gist API
+__api_gist() {
+  curl -q -H "Authorization: token $TOKEN" -H "Accept: application/vnd.github.v3+json" \
+    -LSs "https://api.github.com/users/$USERNAME/gists"
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#__curl() { curl -q; }
-#__curl_api_header() { curl -q; }
+# Set Message for token - user
+__api_user_token() {
+  local USERNAME="${1:-$USERNAME}"
+  if [ ! -z "$TOKEN" ]; then
+    GITHUBAPIREPO="https://api.github.com/users/$USERNAME/repos?per_page=1000&type=owner"
+    MESSAGE="Getting the repos for $USERNAME using\n\t\tgithub token $TOKEN"
+  else
+    GITHUBAPIREPO="https://api.github.com/users/$USERNAME/repos?per_page=1000"
+    MESSAGE="Getting the repos for $USERNAME"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User api
+__api_user() {
+  local USERNAME="${1:-$USERNAME}"
+  __api_user_token "$USERNAME"
+  __devnull2 curl -q -H "Authorization: token $TOKEN" -H "Accept: application/vnd.github.v3+json" \
+    -LSs "$GITHUBAPIREPO"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set Message for token - org
+__api_org_token() {
+  local USERNAME="${1:-$USERNAME}"
+  if [ ! -z "$TOKEN" ]; then
+    GITHUBAPIREPO="https://api.github.com/orgs/$USERNAME/repos?per_page=1000&type=owner"
+    MESSAGE="Getting the repos for $USERNAME using\n\t\tgithub token $TOKEN"
+  else
+    GITHUBAPIREPO="https://api.github.com/orgs/$USERNAME/repos?per_page=1000"
+    MESSAGE="Getting the repos for $USERNAME"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Organization API
+__api_org() {
+  USERNAME="${1:-$USERNAME}"
+  __api_user_token "$USERNAME"
+  __devnull2 curl -q -H "Authorization: token $TOKEN" -H "Accept: application/vnd.github.v3+json" \
+    -LSs "$GITHUBAPIREPO"
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_pull() {
   local dir="$1" && shift 1
   local args="$*"
   local regex="(https?|ftp|file|git|ssh)://[-A-Za-z0-9\+&@#/%?=~_|!:,.;]*[-A-Za-z0-9\+&@#/%=~_|]"
   if [[ "$(__git_remote_origin "$dir")" =~ $regex ]]; then
-    if __am_i_online; then git -C "$dir" pull $args -f -q &>/dev/null && return 0 || return 1; else return 1; fi
+    if __am_i_online; then
+      git -C "$dir" pull $args -f -q &>/dev/null && return 0 || return 1
+    else return 1; fi
   else
     git -C "$dir" pull $args -f -q &>/dev/null && return 0 || return 1
   fi
@@ -102,7 +146,9 @@ __git_push() {
   local args="$*"
   local regex="(https?|ftp|file|git|ssh)://[-A-Za-z0-9\+&@#/%?=~_|!:,.;]*[-A-Za-z0-9\+&@#/%=~_|]"
   if [[ "$(__git_remote_origin "$dir")" =~ $regex ]]; then
-    if __am_i_online; then git -C "$dir" push $args -q &>/dev/null && return 0 || return 1; else return 1; fi
+    if __am_i_online; then
+      git -C "$dir" push $args -q &>/dev/null && return 0 || return 1
+    else return 1; fi
   else
     git -C "$dir" push $args -q &>/dev/null && return 0 || return 1
   fi
@@ -207,14 +253,17 @@ run_git_init() {
   local repo="$repo"
   local push=""
   local confirm=""
+  local confirm_repo=""
   if [ -n "$repo" ]; then
     git -C "$REPODIR" remote add origin "$repo" &>/dev/null &&
       printf_green "$repo has been added" || printf_exit 'Failed to add repo'
-    printf_read_question "3" "Should I push to the new repo? [y/n]" "1" "push" "-s"
+    printf_read_question "3" "Should I push to the new repo? [y/n]" "1" "push"
     if printf_answer_yes "$push"; then
-      printf_read_question "3" "This will overwrite the repo if it exists. Continue? [y/n]" "1" "confirm_repo" "-s"
+      printf_read_question "3" "This will overwrite the repo if it exists. Continue? [y/n]" "1" "confirm_repo"
       if printf_answer_yes "$confirm_repo"; then
-        if [ -f "${REPODIR}/gitmasterconfig" ]; then cp -Rf "${REPODIR}/gitmasterconfig" "${REPODIR}/.git/config"; fi
+        if [ -f "${REPODIR}/gitmasterconfig" ]; then
+          cp -Rf "${REPODIR}/gitmasterconfig" "${REPODIR}/.git/config"
+        fi
         git -C "$REPODIR" push -q -f --set-upstream origin $GIT_DEFAULT_BRANCH &>/dev/null &&
           __git_push "$REPODIR" &&
           printf_green "Successfuly pushed to $repo" || printf_red "Push to $repo has failed"
@@ -235,7 +284,6 @@ run_git_setup() {
   local PREVREPO="${PREVREPO:-}"
   local continue="${continue:-}"
   local reuse="${reuse:-}"
-
   printf_green "Initializing $REPODIR"
   if [ -d "$REPODIR/.git" ]; then
     local PREVREPO="$(git -C "$REPODIR" remote -v | grep push | head -n 1 | awk '{print $2}' 2>/dev/null)"
@@ -243,7 +291,7 @@ run_git_setup() {
     if [ ! -z "$PREVREPO" ]; then
       printf_green "Remote repo is: $PREVREPO"
     fi
-    printf_read_question "3" "Should I continue to reset this repo? [y/n]" "1" "continue" "-s"
+    printf_read_question "3" "Should I continue to reset this repo? [y/n]" "1" "continue"
     if printf_answer_yes "$continue"; then
       __rm_rf "$REPODIR/.git"
     else
@@ -261,7 +309,7 @@ run_git_setup() {
     printf_green "Success: $(__git_repobase "$REPODIR") has been initialized" ||
     printf_red "Failed to initialize $(__git_repobase "$REPODIR")"
   if [ -n "$PREVREPO" ]; then
-    printf_read_question "3" "Should I reuse the remote repo? [y/n] " "1" "reuse" "-s"
+    printf_read_question "3" "Should I reuse the remote repo? [y/n] " "1" "reuse"
   else
     PREVREPO=""
     repo=""
@@ -366,8 +414,7 @@ ghgist_list() {
   local USERNAME="$1"
   shift 1
   [ -n "$USERNAME" ] || printf_exit "Please provide the an username"
-  curl -q -H "Authorization: token $TOKEN" -H "Accept: application/vnd.github.v3+json" \
-    -LSs "https://api.github.com/users/$USERNAME/gists" | jq -r '.[].id' && return 0 || return 1
+  __api_gist | jq -r '.[].id' && return 0 || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Delete gist
@@ -410,11 +457,7 @@ ghdelete-user() {
   curl -q -H "Authorization: token $TOKEN" -LSs -XDELETE "https://api.github.com/repos/$USERNAME/$REPONAME" >"$TMPFILE" 2>/dev/null
   if grep -qs 'Not Found' "$TMPFILE"; then
     return 0
-  elif __devnull2 curl -q -H "Authorization: token $TOKEN" -LSs \
-    "https://api.github.com/users/$USERNAME/repos?per_page=1000" | grep -qvi "$REPONAME"; then
-    return 0
-  elif __devnull2 curl -q -H "Authorization: token $TOKEN" -LSs \
-    "https://api.github.com/users/repos?per_page=1000" | grep -qvi "$REPONAME"; then
+  elif __api_user "$USERNAME" | grep -qvi "$REPONAME"; then
     return 0
   else
     return 1
@@ -440,10 +483,11 @@ ghdelete() {
 curl_orgs_create() {
   curl -q -H "Authorization: token $TOKEN" -LSs "https://api.github.com/orgs/$USERNAME/repos" \
     -d "{\"name\": \"$REPONAME\", \"description\": \"$DESCR\"}" >"$TMPFILE"
-  sleep 5
-  if grep -qs 'name already exists on this account' "$TMPFILE"; then
+  if grep -qis '"full_name": "'$USERNAME'/'$REPONAME'"' "$TMPFILE"; then
     return 0
-  elif __devnull2 curl -q -H "Authorization: token $TOKEN" -LSs "https://api.github.com/orgs/$USERNAME/repos?per_page=1000" | grep -i "$REPONAME" | grep -q "html_url"; then
+  elif grep -qis 'name already exists on this account' "$TMPFILE"; then
+    return 0
+  elif __api_org $USERNAME | grep -i "$REPONAME" | grep -q "html_url"; then
     return 0
   else
     return 1
@@ -452,20 +496,15 @@ curl_orgs_create() {
 curl_user_create() {
   curl -q -H "Authorization: token $TOKEN" -LSs "https://api.github.com/user/repos" \
     -d "{\"name\": \"$REPONAME\", \"description\": \"$DESCR\"}" >"$TMPFILE"
-  sleep 5
-  if grep -qs 'name already exists on this account' "$TMPFILE"; then
+  if grep -qis '"full_name": "'$USERNAME'/'$REPONAME'"' "$TMPFILE"; then
     return 0
-  elif __devnull2 curl -q -H "Authorization: token $TOKEN" -LSsi "https://api.github.com/users/repos?per_page=1000" | grep -i "$REPONAME" | grep -q "html_url"; then
+  elif grep -qis 'name already exists on this account' "$TMPFILE"; then
+    return 0
+  elif __api_user "$USERNAME" | grep -i "$REPONAME" | grep -q "html_url"; then
     return 0
   else
     return 1
   fi
-}
-ghcreate-user() {
-  local USERNAME="${1:-$USERNAME}"
-  local REPONAME="${2:-$REPONAME}"
-  local DESCR="${3:-$DESCR}"
-  curl_orgs_create || curl_user_create || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Creates a new repo on github
@@ -474,14 +513,17 @@ ghcreate() {
   [ "$1" = "--help" ] && printf_green "Usage: --create userName repoName Description\n" && return 1
   [ "$1" = "" ] && printf_red "Usage: --create userName repoName Description\n" && return 1
   [ "$2" = "" ] && printf_red "Usage: --create userName repoName Description\n" && return 1
+  local EXIT=0
   local USERNAME="$1"
   local REPONAME="$2"
   local DESCR="$3"
   local ERROR="Creation of $REPONAME failed"
   local SUCCES="Creation of $REPONAME successful"
+  printf_blue "This may take a few seconds."
+  printf_blue "Sending your request to the github API."
   printf_green "Creating $REPONAME for user $USERNAME"
-  ghcreate-user "$USERNAME" "$REPONAME" "$DESCR"
-  __getexitcode "$SUCCES" "$ERROR"
+  curl_orgs_create || curl_user_create || EXIT=1
+  __getexitcode "$EXIT" "$SUCCES" "$ERROR"
   __rm_rf "$TMPFILE"
   return "$EXIT"
 }
@@ -508,6 +550,8 @@ git_push_single() {
       projdir="$1"
       REPODIR_NAME="$(__git_hostname "$1")"
       __git_username_repo "$1"
+      local username="$username"
+      local userrepo="$userrepo"
     else
       projdir="$PROJECT_BASE/$REPODIR_NAME/$username/$userrepo"
     fi
@@ -807,13 +851,7 @@ clone)
   [ "$1" == "--help" ] && printf_help "Usage: $APPNAME --org | Clone/Pull all repos owned by org"
   USERNAME="$1"
   REPO_URL="$REPO_URL/$USERNAME"
-  if [ ! -z "$TOKEN" ]; then
-    GITHUBAPIREPO="https://api.github.com/orgs/$USERNAME/repos?per_page=1000&type=owner"
-    MESSAGE="Getting the repos for $USERNAME using\n\t\tgithub token $TOKEN"
-  else
-    GITHUBAPIREPO="https://api.github.com/orgs/$USERNAME/repos?per_page=1000"
-    MESSAGE="Getting the repos for $USERNAME"
-  fi
+  __api_org_token "$USERNAME"
   echo "$(curl -q -H "Authorization: token $TOKEN" -Ls $GITHUBAPIREPO | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//')" >"$TMPFILE"
   COUNT="$(cat $TMPFILE | wc -l)"
   printf_green "$MESSAGE\n\t\tThere is currently $COUNT repos avaliable\n\t\tInititialing $REPO_URL"
@@ -825,13 +863,7 @@ clone)
   [ "$1" == "--help" ] && printf_help "Usage: $APPNAME --user | Clone/Pull all repos owned by you"
   USERNAME="$1"
   REPO_URL="$REPO_URL/$USERNAME"
-  if [ ! -z "$TOKEN" ]; then
-    GITHUBAPIREPO="https://api.github.com/user/repos?type=owner&per_page=1000"
-    MESSAGE="Getting the repos for $USERNAME using\n\t\tgithub token $TOKEN"
-  else
-    GITHUBAPIREPO="https://api.github.com/users/$USERNAME/repos?per_page=1000"
-    MESSAGE="Getting the repos for $USERNAME"
-  fi
+  __api_user_token "$USERNAME"
   echo "$(curl -q -H "Authorization: token $TOKEN" -Ls $GITHUBAPIREPO | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//')" >"$TMPFILE"
   COUNT="$(cat $TMPFILE | wc -l)"
   printf_green "$MESSAGE\n\t\tThere is currently $COUNT repos avaliable\n\t\tInititialing $REPO_URL"
@@ -843,13 +875,7 @@ clone)
   shift 1
   USERNAME="$1"
   REPO_URL="$REPO_URL/$USERNAME"
-  if [ ! -z "$TOKEN" ]; then
-    GITHUBAPIREPO="https://api.github.com/users/$USERNAME/repos?per_page=1000"
-    MESSAGE="Getting the repos for $USERNAME using\n\t\tgithub token $TOKEN"
-  else
-    GITHUBAPIREPO="https://api.github.com/users/$USERNAME/repos?per_page=1000"
-    MESSAGE="Getting the repos for $USERNAME"
-  fi
+  __api_user_token "$USERNAME"
   echo "$(curl -q -H "Authorization: token $TOKEN" -Ls $GITHUBAPIREPO | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//')" >"$TMPFILE"
   COUNT="$(cat $TMPFILE | wc -l)"
   printf_green "$MESSAGE\n\t\tThere is currently $COUNT repos avaliable\n\t\tInititialing $REPO_URL"
@@ -882,13 +908,7 @@ clone)
   [ "$1" == "--help" ] && printf_help "Usage: $APPNAME --clone | clone the repos"
   USERNAME="$1"
   REPO_URL="$REPO_URL/$USERNAME"
-  if [ ! -z "$TOKEN" ]; then
-    GITHUBAPIREPO="https://api.github.com/users/$USERNAME/repos?per_page=1000&type=owner"
-    MESSAGE="Getting the repos for $USERNAME using\n\t\tgithub token $TOKEN"
-  else
-    GITHUBAPIREPO="https://api.github.com/users/$USERNAME/repos?per_page=1000"
-    MESSAGE="Getting the repos for $USERNAME"
-  fi
+  __api_user_token "$USERNAME"
   echo "$(curl -q -H "Authorization: token $TOKEN" -Ls $GITHUBAPIREPO | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//')" >"$TMPFILE"
   COUNT="$(cat $TMPFILE | wc -l)"
   printf_green "$MESSAGE\n\t\tThere is currently $COUNT repos avaliable\n\t\tInititialing $REPO_URL"
@@ -899,13 +919,7 @@ clone)
   shift 1
   USERNAME="$1"
   REPO_URL="$REPO_URL/$USERNAME"
-  if [ ! -z "$TOKEN" ]; then
-    GITHUBAPIREPO="https://api.github.com/users/$USERNAME/repos?per_page=1000"
-    MESSAGE="Getting the repos for $USERNAME using\n\t\tgithub token $TOKEN"
-  else
-    GITHUBAPIREPO="https://api.github.com/users/$USERNAME/repos?per_page=1000"
-    MESSAGE="Getting the repos for $USERNAME"
-  fi
+  __api_user_token "$USERNAME"
   echo "$(curl -q -H "Authorization: token $TOKEN" -Ls $GITHUBAPIREPO | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//')" >"$TMPFILE"
   COUNT="$(cat $TMPFILE | wc -l)"
   printf_green "$MESSAGE\n\t\tThere is currently $COUNT repos avaliable\n\t\tInititialing $REPO_URL"
@@ -931,7 +945,7 @@ init)
   shift 1
   git_init "$@"
   ;;
-
+# github repos commands
 github) # github repo
   case $2 in
   init) # init a github repo
@@ -974,7 +988,7 @@ github) # github repo
     ;;
   esac
   ;;
-
+# gitlab repos commands
 gitlab)
   case $2 in
   init) # init a gitlab repo
@@ -1017,7 +1031,7 @@ gitlab)
     ;;
   esac
   ;;
-
+# private repos commands
 private)
   if [ -z "$PERSONAL_GIT_HOST" ]; then printf_exit "You dont have the env variable PERSONAL_GIT_HOST set"; fi
   [ "$1" = "--help" ] && printf_green "Useful if you have a private server such as gitea" && exit 0
@@ -1083,6 +1097,16 @@ stow)
   dotfiles stow "$@"
   ;;
 
+repos)
+  USERNAME="$1"
+  TOKEN="${GITHUB_ACCESS_TOKEN:-$2}"
+  REPO_URL="https://github.com/$USERNAME"
+  __api_user_token "$USERNAME"
+  curl -q -H "Authorization: token $TOKEN" -Ls $GITHUBAPIREPO | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$TMPFILE"
+  COUNT="$(cat $TMPFILE | wc -l)"
+  printf_green "$MESSAGE\n\t\tThere is currently $COUNT repos avaliable\n\t\tInititialing $REPO_URL"
+  ;;
+
 *)
   shift 0
   if [ -z "$1" ]; then
@@ -1092,13 +1116,7 @@ stow)
   USERNAME="$1"
   TOKEN="${GITHUB_ACCESS_TOKEN:-$2}"
   REPO_URL="https://github.com/$USERNAME"
-  if [ ! -z "$TOKEN" ]; then
-    GITHUBAPIREPO="https://api.github.com/users/$USERNAME/repos?per_page=1000&type=owner"
-    MESSAGE="Getting the repos for $USERNAME using\n\t\tgithub token $TOKEN"
-  else
-    GITHUBAPIREPO="https://api.github.com/users/$USERNAME/repos?per_page=1000"
-    MESSAGE="Getting the repos for $USERNAME"
-  fi
+  __api_user_token "$USERNAME"
   curl -q -H "Authorization: token $TOKEN" -Ls $GITHUBAPIREPO | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$TMPFILE"
   COUNT="$(cat $TMPFILE | wc -l)"
   printf_green "$MESSAGE\n\t\tThere is currently $COUNT repos avaliable\n\t\tInititialing $REPO_URL"
@@ -1106,11 +1124,8 @@ stow)
   ;;
 
 esac
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-
 rm -Rf "/tmp/github-casjaysdev-*"
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 exit ${EXIT:-$?}
 # end

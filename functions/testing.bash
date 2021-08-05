@@ -369,8 +369,8 @@ printf_read_input() {
   local readopts=""
   local reply=""
   test -n "$1" && test -z "${1//[0-9]/}" && local lines="$1" && shift 1 || local lines="120"
-  reply="${1:-REPLY}" && shift 1
-  readopts="${1:-}" && shift 1
+  local reply="${1:-REPLY}" && shift 1
+  local readopts="${1:-}" && shift 1
   printf_color "\t\t$msg " "${PRINTF_COLOR:-$color}"
   read -r -e -n $lines ${readopts:-} ${reply:-} || return 1
 }
@@ -381,20 +381,20 @@ printf_read_question() {
   local readopts=""
   local reply=""
   test -n "$1" && test -z "${1//[0-9]/}" && local lines="$1" && shift 1 || local lines="120"
-  reply="${1:-REPLY}" && shift 1
-  readopts="${1:-}" && shift 1
+  local reply="${1:-REPLY}" && shift 1
+  local readopts="${1:-}" && shift 1
   printf_color "\t\t$msg " "${PRINTF_COLOR:-$color}"
-  read -t 30 -r -n $lines ${readopts:-} ${reply:-} || return 1
+  read -t 30 -e -r -n $lines ${readopts:-} ${reply:-} || return 1
 }
 #printf_read_question "color" "message" "maxLines" "answerVar" "readopts"
 printf_read_question_nt() {
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="1"
   local msg="$1" && shift 1
   test -n "$1" && test -z "${1//[0-9]/}" && local lines="$1" && shift 1 || local lines="120"
-  reply="${1:-REPLY}" && shift 1
-  readopts="${1:-}" && shift 1
+  local reply="${1:-REPLY}" && shift 1
+  local readopts="${1:-}" && shift 1
   printf_color "\t\t$msg " "${PRINTF_COLOR:-$color}"
-  read -r -n $lines ${readopts} ${reply} || return 1
+  read -e -r -n $lines ${readopts} ${reply} || return 1
 }
 printf_read_passwd() {
   printf_read_question_nt ${1:-3} "$2:" "100" "$3" "-s"
@@ -406,18 +406,18 @@ printf_read_error() {
 }
 #printf_answer "Var" "maxNum" "Opts"
 printf_answer() {
-  read -t 10 -ers -n 1 "${1:-$REPLY}"
-  [ -z "$reply" ] && return 1 || echo
+  read -t 10 -e -r -s -n 1 "${1:-$REPLY}"
+  if [ -z "$reply" ]; then
+    return 1
+  fi
   #history -s "${1:-$REPLY}"
 }
 #printf_answer_yes "var" "response"
 printf_answer_yes() {
-  printf_newline ''
-  if [[ "${1:-$REPLY}" =~ ${2:-^[Yy]$} ]]; then return 0; else return; fi
+  [[ "${1:-$REPLY}" =~ ${2:-^[Yy]$} ]] || return 1
 }
 printf_answer_no() {
-  printf_newline ''
-  if [[ "${1:-$REPLY}" =~ ${2:-^[Nn]$} ]]; then return 0; else return 1; fi
+  [[ "${1:-$REPLY}" =~ ${2:-^[Nn]$} ]] && return 1 || return 0
 }
 printf_head() {
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="6"
@@ -841,7 +841,7 @@ __ps() {
 #basedir "file"
 __basedir() {
   if [ "$(dirname "$1" 2>/dev/null)" = . ]; then
-    echo $PWD
+    echo "$PWD"
   else
     dirname "$1" | sed 's#\../##g' 2>/dev/null
   fi
@@ -849,7 +849,7 @@ __basedir() {
 #__basename "file"
 __basename() { basename "${1:-.}" 2>/dev/null; }
 # dirname dir
-__dirname() { cd "$1" 2>/dev/null && echo $PWD || return 1; }
+__dirname() { cd "$1" 2>/dev/null && echo "$PWD" || return 1; }
 #to_lowercase "args"
 __to_lowercase() { echo "$@" | tr '[A-Z]' '[a-z]'; }
 #to_uppercase "args"
@@ -1251,17 +1251,17 @@ __git_username_repo() {
   fi
 }
 #usage: git_CMD gitdir
-__git_status() { [ -d "${1:-.}/.git" ] && git -C "${1:-.}" status -b -s 2>/dev/null && return 0 || return 1; }
-__git_log() { [ -d "${1:-.}/.git" ] && git -C "${1:-.}" log --pretty='%C(magenta)%h%C(red)%d %C(yellow)%ar %C(green)%s %C(yellow)(%an)' 2>/dev/null && return 0 || return 1; }
-__git_pull() { [ -d "${1:-.}/.git" ] && git -C "${1:-.}" pull -q 2>/dev/null && return 0 || return 1; }
-__git_top_dir() { [ -d "${1:-.}/.git" ] && git -C "${1:-.}" rev-parse --show-toplevel 2>/dev/null | grep -v fatal && return 0 || echo "${1:-$PWD}"; }
-__git_top_rel() { [ -d "${1:-.}/.git" ] && __devnull __git_top_dir "${1:-.}" && git -C "${1:-.}" rev-parse --show-cdup 2>/dev/null | sed 's#/$##g' | head -n1 || return 1; }
-__git_remote_pull() { [ -d "${1:-.}/.git" ] && git -C "${1:-.}" remote -v 2>/dev/null | grep push | head -n 1 | awk '{print $2}' 2>/dev/null | grep '^'; }
-__git_remote_fetch() { [ -d "${1:-.}/.git" ] && git -C "${1:-.}" remote -v 2>/dev/null | grep fetch | head -n 1 | awk '{print $2}' 2>/dev/null | grep '^' && return 0 || return 1; }
-__git_remote_origin() { [ -d "${1:-.}/.git" ] && __git_remote_pull "${1:-.}" && return 0 || return 1; }
-__git_porcelain() { [ -d "${1:-.}/.git" ] && __git_porcelain_count "${1:-.}" && return 0 || return 1; }
+__git_status() { git -C "${1:-.}" status -b -s 2>/dev/null && return 0 || return 1; }
+__git_log() { git -C "${1:-.}" log --pretty='%C(magenta)%h%C(red)%d %C(yellow)%ar %C(green)%s %C(yellow)(%an)' 2>/dev/null && return 0 || return 1; }
+__git_pull() { git -C "${1:-.}" pull -q 2>/dev/null && return 0 || return 1; }
+__git_top_dir() { git -C "${1:-.}" rev-parse --show-toplevel 2>/dev/null | grep -v fatal && return 0 || echo "${1:-$PWD}"; }
+__git_top_rel() { __devnull __git_top_dir "${1:-.}" && git -C "${1:-.}" rev-parse --show-cdup 2>/dev/null | sed 's#/$##g' | head -n1 || return 1; }
+__git_remote_pull() { git -C "${1:-.}" remote -v 2>/dev/null | grep push | head -n 1 | awk '{print $2}' 2>/dev/null | grep '^'; }
+__git_remote_fetch() { git -C "${1:-.}" remote -v 2>/dev/null | grep fetch | head -n 1 | awk '{print $2}' 2>/dev/null | grep '^' && return 0 || return 1; }
+__git_remote_origin() { __git_remote_pull "${1:-.}" && return 0 || return 1; }
+__git_porcelain() { __git_porcelain_count "${1:-.}" && return 0 || return 1; }
 __git_porcelain_count() { [ -d "$(__git_top_dir ${1:-.})/.git" ] && [ "$(git -C "${1:-.}" status --porcelain 2>/dev/null | wc -l 2>/dev/null)" -eq "0" ] && return 0 || return 1; }
-__git_repobase() { basename "$(__git_top_dir "${1:-$PWD}")"; }
+__git_repobase() { basename "$(__git_top_dir "${1:-$PWD}") 2>/dev/null"; }
 # __reldir="$(__git_top_rel ${1:-$PWD} || echo $PWD)"
 # __topdir="$(__git_top_dir "${1:-$PWD}" || echo $PWD)"
 

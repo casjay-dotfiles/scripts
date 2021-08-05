@@ -1929,7 +1929,6 @@ thememgr_req_version() { __required_version "$1"; }
 wallpapermgr_req_version() { __required_version "$1"; }
 
 ###################### export and call functions ######################
-__getpythonver
 
 ###################### debugging tool ######################
 # __load_debug() {

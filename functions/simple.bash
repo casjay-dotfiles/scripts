@@ -89,7 +89,7 @@ is_tty() { [[ -t 1 || -p /dev/stdout ]]; }
 ###################### builtins ######################
 command() {
   [ "$1" = "-v" ] && shift 1
-  type -P "$1"
+  builtin type -P "$1" 2>/dev/null
 }
 ###################### devnull/logging/error handling ######################
 # send all output to /dev/null
@@ -499,40 +499,15 @@ __list_options() {
   echo "--$LONGOPTS " | sed 's#:##g;s#,# --#g' >>"$OPTSDIR/options"
   return
 }
-###################### get versions ######################
-__getpythonver() {
-  if [[ "$(python3 -V 2>/dev/null)" =~ "Python 3" ]]; then
-    PYTHONVER="python3"
-    PIP="pip3"
-    PATH="${PATH}:$(python3 -c 'import site; print(site.USER_BASE)')/bin"
-  elif [[ "$(python2 -V 2>/dev/null)" =~ "Python 2" ]]; then
-    PYTHONVER="python2"
-    PIP="pip"
-    PATH="${PATH}:$(python -c 'import site; print(site.USER_BASE)')/bin"
-  elif [[ "$(python -V 2>/dev/null)" =~ "Python 2" ]]; then
-    PYTHONVER="python"
-    PIP="pip"
-    PATH="${PATH}:$(python -c 'import site; print(site.USER_BASE)')/bin"
-  fi
-  if [ "$(cmd_exists yay)" ] || [ "$(cmd_exists pacman)" ]; then PYTHONVER="python" && PIP="pip3"; fi
-}
-__getphpver() {
-  if cmd_exists php; then
-    PHPVER="$(php -v | grep --only-matching --perl-regexp "(PHP )\d+\.\\d+\.\\d+" | cut -c 5-7)"
-  else
-    PHPVER=""
-  fi
-  echo $PHPVER
-}
 ###################### macos fixes#################
 if [ "$(uname -s)" = Darwin ]; then
-  [ -f "$(command -v gls 2>/dev/null)" ] && lscmd="$(type -P gls)" || lscmd="$(type -P ls)"
+  [ -f "$(command -v gls 2>/dev/null)" ] && lscmd="$(type -P gls 2>/dev/null)" || lscmd="$(type -P ls 2>/dev/null)"
   alias ls='$lscmd'
-  [ -f "$(command -v gdate 2>/dev/null)" ] && datecmd="$(type -P gdate)" || datecmd="$(type -P date)"
-  [ -f "$(command -v greadlink 2>/dev/null)" ] && readlinkcmd="$(type -P greadlink)" || readlinkcmd="$(type -P readlink)"
-  [ -f "$(command -v gbasename 2>/dev/null)" ] && basenamecmd="$(type -P gbasename)" || basenamecmd="$(type -P basename)"
-  [ -f "$(command -v gdircolors 2>/dev/null)" ] && dircolorscmd="$(type -P gdircolors)" || dircolorscmd="$(type -P dircolors)"
-  [ -f "$(command -v grealpath 2>/dev/null)" ] && realpathcmd="$(type -P grealpath)" || realpathcmd="$(type -P realpath)"
+  [ -f "$(command -v gdate 2>/dev/null)" ] && datecmd="$(type -P gdate 2>/dev/null)" || datecmd="$(type -P date 2>/dev/null)"
+  [ -f "$(command -v greadlink 2>/dev/null)" ] && readlinkcmd="$(type -P greadlink 2>/dev/null)" || readlinkcmd="$(type -P readlink 2>/dev/null)"
+  [ -f "$(command -v gbasename 2>/dev/null)" ] && basenamecmd="$(type -P gbasename 2>/dev/null)" || basenamecmd="$(type -P basename 2>/dev/null)"
+  [ -f "$(command -v gdircolors 2>/dev/null)" ] && dircolorscmd="$(type -P gdircolors 2>/dev/null)" || dircolorscmd="$(type -P dircolors 2>/dev/null)"
+  [ -f "$(command -v grealpath 2>/dev/null)" ] && realpathcmd="$(type -P grealpath 2>/dev/null)" || realpathcmd="$(type -P realpath 2>/dev/null)"
   [ -n "$datecmd" ] || date() { $datecmd "$@"; }
   [ -n "$readlinkcmd" ] || readlink() { $readlinkcmd "$@"; }
   [ -n "$basenamecmd" ] || basename() { $basenamecmd "$@"; }
@@ -829,7 +804,7 @@ __git_update() {
 #git_commit "dir"
 __git_commit() {
   [ -n "$1" ] && local dir="$1" && shift 1 || local dir="${INSTDIR:-.}"
-  if cmd_exists gitcommit; then
+  if type -P gitcommit &/dev/null; then
     if [ -d "$2" ]; then shift 1; fi
     local mess="${*}"
     gitcommit "$dir" "$mess"
@@ -851,7 +826,7 @@ __git_commit() {
 #git_init "dir"
 __git_init() {
   [ -n "$1" ] && local dir="$1" && shift 1 || local dir="${APPDIR:-.}"
-  if cmd_exists gitadmin; then
+  if type -P gitadmin &>/dev/null; then
     if [ -d "$2" ]; then shift 1; fi
     gitadmin "$dir" setup
   else
@@ -946,13 +921,13 @@ user_is_root() { [[ $(id -u) -eq 0 ]] || [[ "$EUID" -eq 0 ]] || [[ "$WHOAMI" = "
 ###################### OS Functions ######################
 #function to get network device
 __getlipaddr() {
-  if cmd_exists route || cmd_exists ip; then
+  if type -P route 2>/dev/null || type -P ip 2>/dev/null; then
     if [[ "$OSTYPE" =~ ^darwin ]]; then
       NETDEV="$(route get default 2>/dev/null | grep interface | awk '{print $2}')"
     else
       NETDEV="$(ip route 2>/dev/null | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//" | awk '{print $1}')"
     fi
-    if cmd_exists ifconfig; then
+    if type -P ifconfig 2>/dev/null; then
       CURRIP4="$(/sbin/ifconfig $NETDEV 2>/dev/null | grep -E "venet|inet" | grep -v "127.0.0." | grep 'inet' | grep -v inet6 | awk '{print $2}' | sed s/addr://g | head -n1)"
       CURRIP6="$(/sbin/ifconfig "$NETDEV" 2>/dev/null | grep -E "venet|inet" | grep 'inet6' | grep -i global | awk '{print $2}' | head -n1)"
     else
@@ -1442,7 +1417,7 @@ thememgr_install() {
       if [ -d "$THEMEDIR" ]; then
         find "$THEMEDIR" -mindepth 0 -maxdepth 2 -type f,l,d -not -path "*/.git/*" 2>/dev/null | while read -r THEME; do
           if [ -f "$THEME/index.theme" ]; then
-            cmd_exists gtk-update-icon-cache && gtk-update-icon-cache -qf "$THEME"
+            type -P gtk-update-icon-cache 2>/dev/null && gtk-update-icon-cache -qf "$THEME"
           fi
         done
       fi
@@ -1582,7 +1557,7 @@ __version() {
   local name="${1:-$(basename $0)}" # get from os
   local prog="${APPNAME:-$PROG}"    # get from file
   local appname="${prog:-$name}"    # figure out wich one
-  filename="$(type -P $appname)"    # get filename
+  filename="$(type -P $appname 2>/dev/null)"    # get filename
   if [ -f "$filename" ]; then       # check for file
     printf_newline
     printf_green "Getting info for $appname"

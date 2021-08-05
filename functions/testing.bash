@@ -283,7 +283,7 @@ printf_exit() {
   local msg="$*"
   shift
   printf_color "\t\t$msg" "$color"
-  printf "\n\n"
+  printf "\n"
   exit "$exitCode"
 }
 printf_single() {
@@ -1251,16 +1251,16 @@ __git_username_repo() {
   fi
 }
 #usage: git_CMD gitdir
-__git_status() { git -C "${1:-.}" status -b -s 2>/dev/null && return 0 || return 1; }
-__git_log() { git -C "${1:-.}" log --pretty='%C(magenta)%h%C(red)%d %C(yellow)%ar %C(green)%s %C(yellow)(%an)' 2>/dev/null && return 0 || return 1; }
-__git_pull() { git -C "${1:-.}" pull -q 2>/dev/null && return 0 || return 1; }
-__git_top_dir() { git -C "${1:-.}" rev-parse --show-toplevel 2>/dev/null | grep -v fatal && return 0 || echo "${1:-$PWD}"; }
-__git_top_rel() { __devnull __git_top_dir "${1:-.}" && git -C "${1:-.}" rev-parse --show-cdup 2>/dev/null | sed 's#/$##g' | head -n1 || return 1; }
-__git_remote_pull() { git -C "${1:-.}" remote -v 2>/dev/null | grep push | head -n 1 | awk '{print $2}' 2>/dev/null | grep '^'; }
-__git_remote_fetch() { git -C "${1:-.}" remote -v 2>/dev/null | grep fetch | head -n 1 | awk '{print $2}' 2>/dev/null | grep '^' && return 0 || return 1; }
-__git_remote_origin() { __git_remote_pull "${1:-.}" && return 0 || return 1; }
+__git_status() { [ -d "${1:-.}/.git" ] && git -C "${1:-.}" status -b -s 2>/dev/null && return 0 || return 1; }
+__git_log() { [ -d "${1:-.}/.git" ] && git -C "${1:-.}" log --pretty='%C(magenta)%h%C(red)%d %C(yellow)%ar %C(green)%s %C(yellow)(%an)' 2>/dev/null && return 0 || return 1; }
+__git_pull() { [ -d "${1:-.}/.git" ] && git -C "${1:-.}" pull -q 2>/dev/null && return 0 || return 1; }
+__git_top_dir() { [ -d "${1:-.}/.git" ] && git -C "${1:-.}" rev-parse --show-toplevel 2>/dev/null | grep -v fatal && return 0 || echo "${1:-$PWD}"; }
+__git_top_rel() { [ -d "${1:-.}/.git" ] && __devnull __git_top_dir "${1:-.}" && git -C "${1:-.}" rev-parse --show-cdup 2>/dev/null | sed 's#/$##g' | head -n1 || return 1; }
+__git_remote_pull() { [ -d "${1:-.}/.git" ] && git -C "${1:-.}" remote -v 2>/dev/null | grep push | head -n 1 | awk '{print $2}' 2>/dev/null | grep '^'; }
+__git_remote_fetch() { [ -d "${1:-.}/.git" ] && git -C "${1:-.}" remote -v 2>/dev/null | grep fetch | head -n 1 | awk '{print $2}' 2>/dev/null | grep '^' && return 0 || return 1; }
+__git_remote_origin() { [ -d "${1:-.}/.git" ] && __git_remote_pull "${1:-.}" && return 0 || return 1; }
+__git_porcelain() { [ -d "${1:-.}/.git" ] && __git_porcelain_count "${1:-.}" && return 0 || return 1; }
 __git_porcelain_count() { [ -d "$(__git_top_dir ${1:-.})/.git" ] && [ "$(git -C "${1:-.}" status --porcelain 2>/dev/null | wc -l 2>/dev/null)" -eq "0" ] && return 0 || return 1; }
-__git_porcelain() { __git_porcelain_count "${1:-.}" && return 0 || return 1; }
 __git_repobase() { basename "$(__git_top_dir "${1:-$PWD}")"; }
 # __reldir="$(__git_top_rel ${1:-$PWD} || echo $PWD)"
 # __topdir="$(__git_top_dir "${1:-$PWD}" || echo $PWD)"

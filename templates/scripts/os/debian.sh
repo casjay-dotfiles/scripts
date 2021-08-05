@@ -25,7 +25,7 @@ SRC_DIR="${BASH_SOURCE%/*}"
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
 SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
 SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-app-installer.bash}"
-SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/$GIT_DEFAULT_BRANCH/functions}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/GEN_SCRIPTS_REPLACE_DEFAULT_BRANCH/functions}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
   . "$PWD/$SCRIPTSFUNCTFILE"
@@ -76,7 +76,7 @@ grab_remote_file() { urlverify "$1" && curl -sSLq "$@" || exit 1; }
 run_external() { printf_green "Executing $*" && "$@" >/dev/null 2>&1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 retrieve_version_file() {
-  grab_remote_file https://github.com/casjay-base/centos/raw/$GIT_DEFAULT_BRANCH/version.txt | head -n1 || echo "GEN_SCRIPTS_REPLACE_VERSION"
+  grab_remote_file https://github.com/casjay-base/centos/raw/GEN_SCRIPTS_REPLACE_DEFAULT_BRANCH/version.txt | head -n1 || echo "GEN_SCRIPTS_REPLACE_VERSION"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 run_grub() {

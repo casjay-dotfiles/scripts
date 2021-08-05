@@ -2,9 +2,13 @@
   
 ### GEN_README_REPLACE_DESCRIBE  
   
-Requires scripts to be installed: sudo bash -c "$(curl -LSs <https://github.com/dfmgr/installer/raw/$GIT_DEFAULT_BRANCH/install.sh>)" && sudo dfmgr install installer
-  
-Automatic install/update:
+#### Requires scripts to be installed
+
+```shell
+sudo bash -c "$(curl -LSs <https://github.com/dfmgr/installer/raw/GEN_README_REPLACE_DEFAULT_BRANCH/install.sh>)" && sudo dfmgr install installer
+```
+
+### Automatic install/update
 
 ```shell
 dfmgr install GEN_README_REPLACE_APPNAME
@@ -13,7 +17,7 @@ dfmgr install GEN_README_REPLACE_APPNAME
 OR
 
 ```shell
-bash -c "$(curl -LSs https://github.com/dfmgr/GEN_README_REPLACE_APPNAME/raw/$GIT_DEFAULT_BRANCH/install.sh)"
+bash -c "$(curl -LSs https://github.com/dfmgr/GEN_README_REPLACE_APPNAME/raw/GEN_README_REPLACE_DEFAULT_BRANCH/install.sh)"
 ```
   
 requirements:

@@ -2,8 +2,13 @@
   
 ### GEN_README_REPLACE_DESCRIBE  
   
-Requires scripts to be installed: sudo bash -c "$(curl -LSs <https://github.com/iconmgr/installer/raw/$GIT_DEFAULT_BRANCH/install.sh>)" && sudo iconmgr install installer
-Automatic install/update:  
+#### Requires scripts to be installed
+
+ ```shell
+sudo bash -c "$(curl -LSs <https://github.com/iconmgr/installer/raw/GEN_README_REPLACE_DEFAULT_BRANCH/install.sh>)" && sudo iconmgr install installer
+```
+
+### Automatic install/update  
 
 ```shell
 iconmgr install GEN_README_REPLACE_APPNAME
@@ -12,7 +17,7 @@ iconmgr install GEN_README_REPLACE_APPNAME
 OR  
 
 ```shell
-bash -c "$(curl -LSs https://github.com/iconmgr/GEN_README_REPLACE_APPNAME/raw/$GIT_DEFAULT_BRANCH/install.sh)"
+bash -c "$(curl -LSs https://github.com/iconmgr/GEN_README_REPLACE_APPNAME/raw/GEN_README_REPLACE_DEFAULT_BRANCH/install.sh)"
 ```
   
 Manual install:

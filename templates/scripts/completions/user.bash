@@ -57,11 +57,7 @@ _GEN_SCRIPTS_REPLACE_FILENAME() {
     [ $COMP_CWORD -gt 3 ] && COMPREPLY=($(compgen -W '' -- "${cur}"))
     ;;
   *)
-    if [[ ${cur} == --* ]]; then
-      COMPREPLY=($(compgen -W '${LONGOPTS}' -- ${cur}))
-    elif [[ ${cur} == -* ]]; then
-      COMPREPLY=($(compgen -W '${SHORTOPTS}' -- ${cur}))
-    elif [ -n "$FILEDIR" ]; then _filedir; fi
+    if [ -n "$FILEDIR" ]; then _filedir; fi
     if [[ "$ARRAY" = "show-none" ]]; then
       COMPREPLY=($(compgen -W '' -- "${cur}"))
     elif [[ "$ARRAY" = "show-_filedir" ]]; then
@@ -74,6 +70,10 @@ _GEN_SCRIPTS_REPLACE_FILENAME() {
     elif [[ -n "$OPTS" ]]; then
       #[ $COMP_CWORD -gt 3 ] && \
       COMPREPLY=($(compgen -W '${OPTS}' -- "${cur}"))
+    elif [[ ${cur} == --* ]]; then
+      COMPREPLY=($(compgen -W '${LONGOPTS}' -- ${cur}))
+    elif [[ ${cur} == -* ]]; then
+      COMPREPLY=($(compgen -W '${SHORTOPTS}' -- ${cur}))
     fi
     ;;
   esac

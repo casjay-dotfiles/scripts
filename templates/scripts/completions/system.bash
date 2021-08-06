@@ -1,28 +1,28 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : GEN_SCRIPTS_REPLACE_VERSION
-# @Author        : GEN_SCRIPTS_REPLACE_AUTHOR
-# @Contact       : GEN_SCRIPTS_REPLACE_EMAIL
-# @License       : GEN_SCRIPTS_REPLACE_LICENSE
-# @ReadME        : GEN_SCRIPTS_REPLACE_FILENAME --help
-# @Copyright     : GEN_SCRIPTS_REPLACE_COPYRIGHT
-# @Created       : GEN_SCRIPTS_REPLACE_DATE
-# @File          : GEN_SCRIPTS_REPLACE_FILENAME
-# @Description   : GEN_SCRIPTS_REPLACE_FILENAME completion script
-# @TODO          : GEN_SCRIPTS_REPLACE_TODO
-# @Other         : GEN_SCRIPTS_REPLACE_OTHER
-# @Resource      : GEN_SCRIPTS_REPLACE_RES
+##@Version       : GEN_SCRIPT_REPLACE_VERSION
+# @Author        : GEN_SCRIPT_REPLACE_AUTHOR
+# @Contact       : GEN_SCRIPT_REPLACE_EMAIL
+# @License       : GEN_SCRIPT_REPLACE_LICENSE
+# @ReadME        : GEN_SCRIPT_REPLACE_FILENAME --help
+# @Copyright     : GEN_SCRIPT_REPLACE_COPYRIGHT
+# @Created       : GEN_SCRIPT_REPLACE_DATE
+# @File          : GEN_SCRIPT_REPLACE_FILENAME
+# @Description   : GEN_SCRIPT_REPLACE_FILENAME completion script
+# @TODO          : GEN_SCRIPT_REPLACE_TODO
+# @Other         : GEN_SCRIPT_REPLACE_OTHER
+# @Resource      : GEN_SCRIPT_REPLACE_RES
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#[ -f "$HOME/.local/share/myscripts/GEN_SCRIPTS_REPLACE_FILENAME/array" ] || GEN_SCRIPTS_REPLACE_FILENAME --options &>/dev/null
-_GEN_SCRIPTS_REPLACE_FILENAME() {
+#[ -f "$HOME/.local/share/myscripts/GEN_SCRIPT_REPLACE_FILENAME/array" ] || GEN_SCRIPT_REPLACE_FILENAME --options &>/dev/null
+_GEN_SCRIPT_REPLACE_FILENAME() {
   ___findcmd() { find -L "${1:-$CONFDIR/}" -maxdepth ${3:-3} -type ${2:-f} 2>/dev/null | sed 's#'${1:-$CONFDIR}'##g' | grep '^' || return 1; }
   local cur prev words cword opts split
   local cur="${COMP_WORDS[$COMP_CWORD]}"
   local prev="${COMP_WORDS[$COMP_CWORD - 1]}"
   local CONFFILE="settings.conf"
-  local CONFDIR="$HOME/.config/myscripts/GEN_SCRIPTS_REPLACE_FILENAME"
-  local OPTSDIR="$HOME/.local/share/myscripts/GEN_SCRIPTS_REPLACE_FILENAME/options"
-  local SEARCHDIR="${CONFDIR:-$HOME/.config/myscripts/GEN_SCRIPTS_REPLACE_FILENAME}"
+  local CONFDIR="$HOME/.config/myscripts/GEN_SCRIPT_REPLACE_FILENAME"
+  local OPTSDIR="$HOME/.local/share/myscripts/GEN_SCRIPT_REPLACE_FILENAME/options"
+  local SEARCHDIR="${CONFDIR:-$HOME/.config/myscripts/GEN_SCRIPT_REPLACE_FILENAME}"
   #local SEARCHCMD="$(___findcmd "$SEARCHDIR/" "d" "1")"
   local DEFAULTARRAY=""
   local DEFAULTOPTS=""
@@ -82,4 +82,4 @@ _GEN_SCRIPTS_REPLACE_FILENAME() {
 } &&
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # enable completions
-  complete -F _GEN_SCRIPTS_REPLACE_FILENAME GEN_SCRIPTS_REPLACE_FILENAME
+  complete -F _GEN_SCRIPT_REPLACE_FILENAME GEN_SCRIPT_REPLACE_FILENAME

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-APPNAME="GEN_SCRIPTS_REPLACE_APPNAME"
+APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
@@ -8,24 +8,24 @@ SRC_DIR="${BASH_SOURCE%/*}"
 #set opts
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : GEN_SCRIPTS_REPLACE_VERSION
-# @Author        : GEN_SCRIPTS_REPLACE_AUTHOR
-# @Contact       : GEN_SCRIPTS_REPLACE_EMAIL
-# @License       : GEN_SCRIPTS_REPLACE_LICENSE
-# @ReadME        : GEN_SCRIPTS_REPLACE_FILENAME --help
-# @Copyright     : GEN_SCRIPTS_REPLACE_COPYRIGHT
-# @Created       : GEN_SCRIPTS_REPLACE_DATE
-# @File          : GEN_SCRIPTS_REPLACE_FILENAME
-# @Description   : GEN_SCRIPTS_REPLACE_DESC
-# @TODO          : GEN_SCRIPTS_REPLACE_TODO
-# @Other         : GEN_SCRIPTS_REPLACE_OTHER
-# @Resource      : GEN_SCRIPTS_REPLACE_RES
+##@Version       : GEN_SCRIPT_REPLACE_VERSION
+# @Author        : GEN_SCRIPT_REPLACE_AUTHOR
+# @Contact       : GEN_SCRIPT_REPLACE_EMAIL
+# @License       : GEN_SCRIPT_REPLACE_LICENSE
+# @ReadME        : GEN_SCRIPT_REPLACE_FILENAME --help
+# @Copyright     : GEN_SCRIPT_REPLACE_COPYRIGHT
+# @Created       : GEN_SCRIPT_REPLACE_DATE
+# @File          : GEN_SCRIPT_REPLACE_FILENAME
+# @Description   : GEN_SCRIPT_REPLACE_DESC
+# @TODO          : GEN_SCRIPT_REPLACE_TODO
+# @Other         : GEN_SCRIPT_REPLACE_OTHER
+# @Resource      : GEN_SCRIPT_REPLACE_RES
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
 SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
 SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-app-installer.bash}"
-SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/GEN_SCRIPTS_REPLACE_DEFAULT_BRANCH/functions}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/GEN_SCRIPT_REPLACE_DEFAULT_BRANCH/functions}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
   . "$PWD/$SCRIPTSFUNCTFILE"
@@ -68,7 +68,7 @@ disable_selinux() {
 }
 grab_remote_file() { urlverify "$1" && curl -sSLq "$@" || exit 1; }
 run_external() { printf_green "Executing $*" && "$@" >/dev/null 2>&1; }
-retrieve_version_file() { grab_remote_file https://github.com/casjay-base/centos/raw/GEN_SCRIPTS_REPLACE_DEFAULT_BRANCH/version.txt | head -n1 || echo "Unknown version"; }
+retrieve_version_file() { grab_remote_file https://github.com/casjay-base/centos/raw/GEN_SCRIPT_REPLACE_DEFAULT_BRANCH/version.txt | head -n1 || echo "Unknown version"; }
 run_grub() {
   printf_green "Setting up grub"
   rm -Rf /boot/*rescue*
@@ -108,7 +108,7 @@ if [ -f /etc/makepkg.conf ]; then
   fi
 fi
 ##################################################################################################################
-printf_head "Installing the packages for GEN_SCRIPTS_REPLACE_APPNAME"
+printf_head "Installing the packages for GEN_SCRIPT_REPLACE_APPNAME"
 ##################################################################################################################
 install_pkg listofpkgs
 ##################################################################################################################

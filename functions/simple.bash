@@ -1564,7 +1564,7 @@ sed_remove_empty() { sed '/^\#/d;/^$/d;s#^ ##g'; }
 sed_head_remove() { awk -F'  :' '{print $2}'; }
 sed_head() { sed -E 's|^.*#||g;s#^ ##g;s|^@||g'; }
 grep_head() { grep -sE '[".#]?@[A-Z]' "${2:-$appname}" | grep "${1:-}" | head -n 12 | sed_head | sed_remove_empty | grep '^' || return 1; }
-grep_head_remove() { grep -sE '[".#]?@[A-Z]' "${2:-$appname}" | grep "${1:-}" | grep -Ev 'GEN_SCRIPTS_*|\${|\$\(' | sed_head_remove | sed '/^\#/d;/^$/d;s#^ ##g' | grep '^' || return 1; }
+grep_head_remove() { grep -sE '[".#]?@[A-Z]' "${2:-$appname}" | grep "${1:-}" | grep -Ev 'GEN_SCRIPT_*|\${|\$\(' | sed_head_remove | sed '/^\#/d;/^$/d;s#^ ##g' | grep '^' || return 1; }
 grep_version() { grep_head ''${1:-Version}'' "${2:-$appname}" | sed_head | sed_head_remove | sed_remove_empty | head -n1 | grep '^'; }
 
 # grep_head() {

@@ -526,6 +526,7 @@ __local_sysname() {
   fi
 }
 ###################### Options ######################
+__list_available() { echo ${*:-$ARRAY} | __sed 's|,--| --|g;s|,-| -|g;s|,| |g;s|:||g'; }
 __list_array() {
   local OPTSDIR="${1:-$HOME/.local/share/myscripts/${APPNAME:-$PROG}/options}"
   mkdir -p "$OPTSDIR"

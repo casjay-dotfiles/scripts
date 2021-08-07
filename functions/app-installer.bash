@@ -905,7 +905,7 @@ install_required() {
     unset MISSING
     for cmd in $REQUIRED; do __command "$cmd" || MISSING+="$cmd "; done
     if [ -n "$MISSING" ]; then
-      printf_warning "Can not install the required packages for $APPNAME"
+      printf_warning "Can not install all the required packages for $APPNAME"
       #if [ -f "$APPDIR/install.sh" ]; then
       #  devnull unlink -f "$APPDIR" || devnull rm -Rf "$APPDIR"
       #fi

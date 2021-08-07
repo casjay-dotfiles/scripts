@@ -397,7 +397,7 @@ run_post() {
 ##################################################################################################
 ###################### OS Functions ######################
 #alternative names
-transmission-remote-cli() { __command transmission-remote-cli || __command transmission-remote || return 1; }
+cron() { __command crond || __command cron || return 1; }
 mlocate() { __command locate || __command mlocate || return 1; }
 xfce4() { __command xfce4-about || return 1; }
 imagemagick() { __command convert || return 1; }
@@ -408,6 +408,7 @@ chromium() { __command chromium || __command chromium-browser || return 1; }
 firefox() { __command firefox-esr || __command firefox || return 1; }
 gtk-2.0() { find /lib* /usr* -iname "*libgtk*2*.so*" -type f | grep -q . || return 1; }
 gtk-3.0() { find /lib* /usr* -iname "*libgtk*3*.so*" -type f | grep -q . || return 1; }
+transmission-remote-cli() { __command transmission-remote-cli || __command transmission-remote || return 1; }
 export -f transmission-remote-cli mlocate xfce4 imagemagick fdfind speedtest neovim chromium firefox gtk-2.0 gtk-3.0
 ##################################################################################################
 backupapp() {

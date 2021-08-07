@@ -67,7 +67,7 @@ __command() {
 }
 export -f __command
 ##################################################################################################
-__command -P am_i_online &>/dev/null || am_i_online() { __command -P am_i_online &>/dev/null || return 0; }
+__command -P am_i_online &>/dev/null && am_i_online || am_i_online() { true; }
 cmd_exist() { __command "$1" &>/dev/null || return 1; }
 ##################################################################################################
 # Versioning Info - __required_version "VersionNumber"

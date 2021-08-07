@@ -1,9 +1,10 @@
-# my custom scripts
+# My custom scripts
   
 ## Automatic install/update
 
 ```shell
-sudo sudo git -C /usr/local/share/CasjaysDev/scripts pull && sudo /usr/local/share/CasjaysDev/scripts/bin/systemmgr install scripts
+sudo git clone https://github.com/systemmgr/installer "/usr/local/share/CasjaysDev/scripts" && \
+sudo /usr/local/share/CasjaysDev/scripts/bin/systemmgr install scripts
 ```
 
 ## Manual install

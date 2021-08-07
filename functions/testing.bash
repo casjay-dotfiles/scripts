@@ -928,7 +928,7 @@ __netcat_kill_server() {
 __file_not_empty() { [ -s "$1" ] && return 0 || return 1; }
 __file_is_empty() { [ ! -s "$1" ] && return 0 || return 1; }
 #sed "commands"
-sed="$(__command -P gsed 2>/dev/null || __command -P sed 2>/dev/null)"
+sed="$(builtin type -P gsed 2>/dev/null || builtin -P sed 2>/dev/null)"
 __sed() { ${sed:-sed} $*; }
 #tar "filename dir"
 __tar_create() { tar cfvz "$@"; }

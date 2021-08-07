@@ -24,8 +24,30 @@ FUNCFILE="simple.bash"
 # Main scripts location
 CASJAYSDEVDIR="/usr/local/share/CasjaysDev/scripts"
 # Fail if git, curl, wget are not installed
+# Fail if git, curl, wget are not installed
+if ! type -P git &>/dev/null; then
+  echo -e "\t\t\033[0;31mAttempting to install git\033[0m"
+  if __command -P brew &>/dev/null; then
+    brew install -f git &>/dev/null
+  elif __command -P apt &>/dev/null; then
+    apt install -yy -q git &>/dev/null
+  elif __command -P pacman &>/dev/null; then
+    pacman -S --noconfirm git &>/dev/null
+  elif __command -P yum &>/dev/null; then
+    yum install -yy -q git &>/dev/null
+  elif __command -P choco &>/dev/null; then
+    choco install git -y &>/dev/null
+    if __command -P git &>/dev/null; then
+      echo -e "\t\t\033[0;31mGit was not installed\033[0m"
+      exit 1
+    fi
+  else
+    echo -e "\t\t\033[0;31mGit is not installed\033[0m"
+    exit 1
+  fi
+fi
 for check in git curl wget; do
-  if ! builtin type -P "$check" >/dev/null 2>&1; then
+  if ! builtin type -P "$check" &>/dev/null; then
     echo -e "\n\n\t\t\033[0;31m$check is not installed\033[0m\n"
     exit 1
   fi
@@ -33,7 +55,13 @@ done
 ###################### builtins ######################
 __command() {
   [ "$1" = "-v" ] && shift 1
-  if builtin type ${1:--t} "${2:-$1}" 2>/dev/null | grep -qv alias; then
+  if [ $# -ne 1 ]; then
+    if builtin type "$@" 2>/dev/null | grep -v alias | head -n1 | awk '{print $1}' | grep '^'; then
+      return 0
+    else
+      return 1
+    fi
+  elif builtin type "$*" 2>/dev/null | grep -v alias | head -n1 | awk '{print $1}' | grep -q '^'; then
     return 0
   else
     return 1
@@ -515,11 +543,11 @@ __list_options() {
 if [ "$(uname -s)" = Darwin ]; then
   __command gls && lscmd="$(type -P gls 2>/dev/null)" || lscmd="$(type -P ls 2>/dev/null)"
   alias ls='$lscmd'
-  __command -v gdate && datecmd="$(type -P gdate 2>/dev/null)" || datecmd="$(type -P date 2>/dev/null)"
-  __command -v greadlink && readlinkcmd="$(type -P greadlink 2>/dev/null)" || readlinkcmd="$(type -P readlink 2>/dev/null)"
-  __command -v gbasename && basenamecmd="$(type -P gbasename 2>/dev/null)" || basenamecmd="$(type -P basename 2>/dev/null)"
-  __command -v gdircolors && dircolorscmd="$(type -P gdircolors 2>/dev/null)" || dircolorscmd="$(type -P dircolors 2>/dev/null)"
-  __command -v grealpath && realpathcmd="$(type -P grealpath 2>/dev/null)" || realpathcmd="$(type -P realpath 2>/dev/null)"
+  __command gdate && datecmd="$(type -P gdate 2>/dev/null)" || datecmd="$(type -P date 2>/dev/null)"
+  __command greadlink && readlinkcmd="$(type -P greadlink 2>/dev/null)" || readlinkcmd="$(type -P readlink 2>/dev/null)"
+  __command gbasename && basenamecmd="$(type -P gbasename 2>/dev/null)" || basenamecmd="$(type -P basename 2>/dev/null)"
+  __command gdircolors && dircolorscmd="$(type -P gdircolors 2>/dev/null)" || dircolorscmd="$(type -P dircolors 2>/dev/null)"
+  __command grealpath && realpathcmd="$(type -P grealpath 2>/dev/null)" || realpathcmd="$(type -P realpath 2>/dev/null)"
   [ -n "$datecmd" ] || date() { $datecmd "$@"; }
   [ -n "$readlinkcmd" ] || readlink() { $readlinkcmd "$@"; }
   [ -n "$basenamecmd" ] || basename() { $basenamecmd "$@"; }
@@ -560,7 +588,7 @@ __get_full_file() { ls -A "$*" 2>/dev/null; }
 __rmcomments() { sed 's/[[:space:]]*#.*//;/^[[:space:]]*$/d'; }
 #countwd file
 __countwd() { cat "$@" | wc -l | __rmcomments; }
-__column() { __command -v column && column || tee; }
+__column() { __command column && column || tee; }
 #getuser "username" "grep options"
 __getuser() { if [ -n "${1:-$USER}" ]; then cut -d: -f1 /etc/passwd | grep "${1:-$USER}" | cut -d: -f1 /etc/passwd | grep "${1:-$USER}" ${2:-}; fi; }
 #getuser_shell "shellname"
@@ -1019,16 +1047,16 @@ __if_os_id() {
     local distroname=$(cat /etc/os-release | grep '^ID=' | sed 's#ID=##g' | sed 's#"##g' | tr '[:upper:]' '[:lower:]')
     local distroversion=$(cat /etc/os-release | grep '^VERSION="' | sed 's#VERSION="##g;s#"##g')
     local codename="$(grep VERSION_CODENAME /etc/os-release && cat /etc/os-release | grep ^VERSION_CODENAME | sed 's#VERSION_CODENAME="##g;s#"##g' || true)"
-  elif __command -v lsb_release; then
+  elif __command lsb_release; then
     local distroname="$(lsb_release -a 2>/dev/null | grep 'Distributor ID' | awk '{print $3}' | tr '[:upper:]' '[:lower:]' | sed 's#"##g')"
     local distroversion="$(lsb_release -a 2>/dev/null | grep 'Release' | awk '{print $2}')"
-  elif __command -v lsb-release; then
+  elif __command lsb-release; then
     local distroname="$(lsb-release -a 2>/dev/null | grep 'Distributor ID' | awk '{print $3}' | tr '[:upper:]' '[:lower:]' | sed 's#"##g')"
     local distroversion="$(lsb-release -a 2>/dev/null | grep 'Release' | awk '{print $2}')"
   elif [ -f "/etc/redhat-release" ]; then
     local distroname=$(cat /etc/redhat-release | awk '{print $1}' | tr '[:upper:]' '[:lower:]' | sed 's#"##g')
     local distroversion=$(cat /etc/redhat-release | awk '{print $4}' | tr '[:upper:]' '[:lower:]' | sed 's#"##g')
-  elif __command -v sw_vers; then
+  elif __command sw_vers; then
     local distroname="darwin"
     local distroversion="$(sw_vers -productVersion)"
   else
@@ -1951,7 +1979,6 @@ __appversion() {
   fi
   __curl "${versionfile}" 2>/dev/null | head -n1 || echo "$localVersion"
 }
-
 __required_version() {
   #__main_installer_info
   if [ -f "$CASJAYSDEVDIR/version.txt" ]; then

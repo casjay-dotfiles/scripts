@@ -23,19 +23,19 @@ HOME="${USER_HOME:-${HOME}}"
 CASJAYSDEVDIR="/usr/local/share/CasjaysDev/scripts"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Fail if git, curl, wget are not installed
-if __command git; then
+if ! type -P git &>/dev/null; then
   echo -e "\t\t\033[0;31mAttempting to install git\033[0m"
-  if __command -P brew; then
-    brew install -f git >/dev/null 2>&1
-  elif __command -P apt; then
-    apt install -yy -q git >/dev/null 2>&1
-  elif __command -P pacman; then
-    pacman -S --noconfirm git >/dev/null 2>&1
-  elif __command -P yum; then
-    yum install -yy -q git >/dev/null 2>&1
-  elif __command -P choco; then
-    choco install git -y >/dev/null 2>&1
-    if [ ! -f "$(type -P git 2>/dev/null)" ]; then
+  if __command -P brew &>/dev/null; then
+    brew install -f git &>/dev/null
+  elif __command -P apt &>/dev/null; then
+    apt install -yy -q git &>/dev/null
+  elif __command -P pacman &>/dev/null; then
+    pacman -S --noconfirm git &>/dev/null
+  elif __command -P yum &>/dev/null; then
+    yum install -yy -q git &>/dev/null
+  elif __command -P choco &>/dev/null; then
+    choco install git -y &>/dev/null
+    if __command -P git &>/dev/null; then
       echo -e "\t\t\033[0;31mGit was not installed\033[0m"
       exit 1
     fi
@@ -45,7 +45,7 @@ if __command git; then
   fi
 fi
 for check in git curl wget; do
-  if ! builtin type -P "$check" >/dev/null 2>&1; then
+  if ! builtin type -P "$check" &>/dev/null; then
     echo -e "\n\n\t\t\033[0;31m$check is not installed\033[0m\n"
     exit 1
   fi
@@ -53,7 +53,13 @@ done
 ###################### builtins ######################
 __command() {
   [ "$1" = "-v" ] && shift 1
-  if builtin type ${1:--t} "${2:-$1}" 2>/dev/null | grep -qv alias; then
+  if [ $# -ne 1 ]; then
+    if builtin type "$@" 2>/dev/null | grep -v alias | head -n1 | awk '{print $1}' | grep '^'; then
+      return 0
+    else
+      return 1
+    fi
+  elif builtin type "$*" 2>/dev/null | grep -v alias | head -n1 | awk '{print $1}' | grep -q '^'; then
     return 0
   else
     return 1
@@ -395,8 +401,8 @@ speedtest() { __command fdind || __command speedtest || return 1; }
 neovim() { __command nvim || __command neovim || return 1; }
 chromium() { __command chromium || __command chromium-browser || return 1; }
 firefox() { __command firefox-esr || __command firefox || return 1; }
-gtk-2.0() { find /lib* /usr* -iname "*libgtk*2*.so*" -type f | grep -q . || return 0; }
-gtk-3.0() { find /lib* /usr* -iname "*libgtk*3*.so*" -type f | grep -q . || return 0; }
+gtk-2.0() { find /lib* /usr* -iname "*libgtk*2*.so*" -type f | grep -q . || return 1; }
+gtk-3.0() { find /lib* /usr* -iname "*libgtk*3*.so*" -type f | grep -q . || return 1; }
 export -f transmission-remote-cli mlocate xfce4 imagemagick fdfind speedtest neovim chromium firefox gtk-2.0 gtk-3.0
 ##################################################################################################
 backupapp() {
@@ -465,42 +471,9 @@ urlverify() { urlcheck "$1" || urlinvalid "$1"; }
 symlink() { ln_sf "$1" "$2"; }
 rm_link() { unlink "$1"; }
 ##################################################################################################
-am_i_online() {
-  site="1.1.1.1"
-  test_ping() {
-    timeout 2 ping -c2 $site &>/dev/null
-    pingExit=$?
-  }
-  test_http() {
-    timeout 2 __curl "$site" | grep -e "HTTP/[0123456789]" | grep "200" -n1 &>/dev/null
-    httpExit=$?
-  }
-  test_ping || test_http
-
-  if [ "$pingExit" = 0 ] || [ "$httpExit" = 0 ]; then
-    __AM_I_ONLINE=0
-  else
-    __AM_I_ONLINE=1
-  fi
-  export __AM_I_ONLINE
-  return $__AM_I_ONLINE
-}
+__am_i_online() { __command am_i_online || return 1; }
+__cmd_exist() { __command "$1" || return 1; }
 ##################################################################################################
-__command() {
-  #[ -n "$1" ] || return
-  local args="$*"
-  local exitCode=0
-  for cmd in $args; do
-    command="$(builtin command -v "$cmd" || builtin type -P "$cmd")"
-    if [ -n "$command" ]; then
-      return 0
-    else
-      return 1
-    fi
-    exitCode+=$?
-  done
-  return $exitCode
-}
 gem_exists() {
   #[ -n "$1" ] || return
   __command gem || return
@@ -815,7 +788,7 @@ scripts_check() {
   local choice=""
   export -f __curl
   if am_i_online; then
-    if ! __command "pkmgr" && [ ! -f "$HOME/.config/local/noscripts" ]; then
+    if ! __command pkmgr && [ ! -f "$HOME/.config/local/noscripts" ]; then
       printf_red "Please install my scripts repo - requires root/sudo"
       printf_question_timeout "4" "Would you like to do that now" "1" "choice" "-s"
       if [[ $choice == "y" || $choice == "Y" ]]; then
@@ -943,7 +916,7 @@ install_packages() {
     local REQUIRED="$*"
     local MISSING=""
     local cmd=""
-    if __command "pkmgr"; then
+    if __command -p "pkmgr" &>/dev/null; then
       for cmd in $REQUIRED; do __command "$cmd" || MISSING+="$cmd "; done
       if [ ! -z "$MISSING" ]; then
         printf_warning "Attempting to install missing packages as $RUN_USER"
@@ -968,8 +941,8 @@ install_python() {
     local MISSING=""
     local cmd=""
     for cmd in $REQUIRED; do python_missing "$cmd"; done
-    if [ ! -z "$MISSING" ]; then
-      if __command "pkmgr"; then
+    if [ -n "$MISSING" ]; then
+      if __command -p "pkmgr" &>dev/null; then
         printf_warning "Attempting to install missing python packages"
         printf_warning "$MISSING"
         for miss in $MISSING; do
@@ -1189,7 +1162,7 @@ if_os_id() {
     local distroname=$(grep ID_LIKE= /etc/os-release | sed 's#ID_LIKE=##')
   elif [ -f "/etc/redhat-release" ]; then
     local distroname=$(cat /etc/redhat-release)
-  elif __command -P lsb_release; then
+  elif __command -P lsb_release &>/dev/null; then
     local distroname="$(lsb_release -a | grep 'Distributor ID' | awk '{print $3}')"
   else
     local distroname="unknown"
@@ -2277,15 +2250,15 @@ wallpapermgr_req_version() { __required_version "$1"; }
 ##################################################################################################
 vdebug() {
   echo -e "VAR - "ARGS:$*""
-  for path in "USER:$USER" "HOME:$HOME" "PREFIX:$SCRIPTS_PREFIX" "REPO:$REPO" "REPORAW:$REPORAW" \
-    "CONF:$CONF" "SHARE:$SHARE" "INSTDIR:$INSTDIR" "APPDIR:$APPDIR" "USRUPDATEDIR:$USRUPDATEDIR" \
-    "SYSUPDATEDIR:$SYSUPDATEDIR" "FONTDIR:$FONTDIR " "ICONDIR:$ICONDIR" "THEMEDIR:$THEMEDIR" \
-    "$INSTDIR/version.txt:$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME" \
-    "$INSTDIR/install.sh:$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX/$APPNAME" \
-    "$APPDIR/version.txt:$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME" \
-    "$APPDIR/install.sh:$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX/$APPNAME"; do
-    echo -e "VAR - $path"
-  done
+  # for path in "USER:$USER" "HOME:$HOME" "PREFIX:$SCRIPTS_PREFIX" "REPO:$REPO" "REPORAW:$REPORAW" \
+  #   "CONF:$CONF" "SHARE:$SHARE" "INSTDIR:$INSTDIR" "APPDIR:$APPDIR" "USRUPDATEDIR:$USRUPDATEDIR" \
+  #   "SYSUPDATEDIR:$SYSUPDATEDIR" "FONTDIR:$FONTDIR " "ICONDIR:$ICONDIR" "THEMEDIR:$THEMEDIR" \
+  #   "$INSTDIR/version.txt:$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME" \
+  #   "$INSTDIR/install.sh:$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX/$APPNAME" \
+  #   "$APPDIR/version.txt:$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME" \
+  #   "$APPDIR/install.sh:$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX/$APPNAME"; do
+  #   echo -e "VAR - $path"
+  # done
 }
 __debugger() {
   if [ "$1" = "debug" ]; then

@@ -28,18 +28,53 @@ TEMP="${TEMP:-/tmp}"
 # @Description : installer functions for apps
 #
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-
 # fail if git is not installed
-
-if ! command -v "git" >/dev/null 2>&1; then
-  echo -e "\t\t\033[0;31mGit is not installed\033[0m"
-  exit 1
+if ! type -P git &>/dev/null; then
+  echo -e "\t\t\033[0;31mAttempting to install git\033[0m"
+  if __command -P brew &>/dev/null; then
+    brew install -f git &>/dev/null
+  elif __command -P apt &>/dev/null; then
+    apt install -yy -q git &>/dev/null
+  elif __command -P pacman &>/dev/null; then
+    pacman -S --noconfirm git &>/dev/null
+  elif __command -P yum &>/dev/null; then
+    yum install -yy -q git &>/dev/null
+  elif __command -P choco &>/dev/null; then
+    choco install git -y &>/dev/null
+    if __command -P git &>/dev/null; then
+      echo -e "\t\t\033[0;31mGit was not installed\033[0m"
+      exit 1
+    fi
+  else
+    echo -e "\t\t\033[0;31mGit is not installed\033[0m"
+    exit 1
+  fi
 fi
-
+for check in git curl wget; do
+  if ! builtin type -P "$check" &>/dev/null; then
+    echo -e "\n\n\t\t\033[0;31m$check is not installed\033[0m\n"
+    exit 1
+  fi
+done
+###################### builtins ######################
+__command() {
+  [ "$1" = "-v" ] && shift 1
+  if [ $# -ne 1 ]; then
+    if builtin type "$@" 2>/dev/null | grep -v alias | head -n1 | awk '{print $1}' | grep '^'; then
+      return 0
+    else
+      return 1
+    fi
+  elif builtin type "$*" 2>/dev/null | grep -v alias | head -n1 | awk '{print $1}' | grep -q '^'; then
+    return 0
+  else
+    return 1
+  fi
+}
+export -f __command
 ##################################################################################################
 # Set Main Repo for dotfiles
 export DOTFILESREPO="${DOTFILESREPO:-https://github.com/dfmgr}"
-
 # Set other Repos
 export PKMGRREPO="${PKMGRREPO:-https://github.com/pkmgr}"
 export DEVENVMGR="${DEVENVMGR:-https://github.com/devenvmgr}"
@@ -49,9 +84,7 @@ export THEMEMGRREPO="${THEMEMGRREPO:-https://github.com/thememgr}"
 export SYSTEMMGRREPO="${SYSTEMMGRREPO:-https://github.com/systemmgr}"
 export WALLPAPERMGRREPO="${WALLPAPERMGRREPO:-https://github.com/wallpapermgr}"
 export GIT_REPO_BRANCH="${GIT_DEFAULT_BRANCH:-main}"
-
 ##################################################################################################
-
 NC="$(tput sgr0 2>/dev/null)"
 RESET="$(tput sgr0 2>/dev/null)"
 BLACK="\033[0;30m"
@@ -66,9 +99,7 @@ ORANGE="\033[0;33m"
 LIGHTRED='\033[1;31m'
 BG_GREEN="\[$(tput setab 2 2>/dev/null)\]"
 BG_RED="\[$(tput setab 9 2>/dev/null)\]"
-
 ##################################################################################################
-
 printf_color() { printf "%b" "$(tput setaf "$2" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
 printf_normal() { printf_color "\t\t$1\n" "$2"; }
 printf_green() { printf_color "\t\t$1\n" 2; }
@@ -98,7 +129,6 @@ printf_execute_result() {
 printf_execute_error_stream() { while read -r line; do printf_execute_error "↳ ERROR: $line"; done; }
 
 ##################################################################################################
-
 printf_readline() {
   set -o pipefail
   [[ $1 == ?(-)+([0-9]) ]] && local color="$1" && shift 1 || local color="3"
@@ -107,9 +137,7 @@ printf_readline() {
   done
   set +o pipefail
 }
-
 ##################################################################################################
-
 printf_custom() {
   [[ $1 == ?(-)+([0-9]) ]] && local color="$1" && shift 1 || local color="1"
   local msg="$*"
@@ -117,9 +145,7 @@ printf_custom() {
   printf_color "\t\t$msg" "$color"
   echo ""
 }
-
 ##################################################################################################
-
 printf_head() {
   [[ $1 == ?(-)+([0-9]) ]] && local color="$1" && shift 1 || local color="6"
   local msg="$*"
@@ -129,9 +155,7 @@ printf_head() {
 \t\t$msg
 \t\t##################################################\n\n" "$color"
 }
-
 ##################################################################################################
-
 printf_result() {
   [ ! -z "$1" ] && EXIT="$1" || EXIT="$?"
   [ ! -z "$2" ] && local OK="$2" || local OK="Command executed successfully"
@@ -144,23 +168,19 @@ printf_result() {
     exit 1
   fi
 }
-
 ##################################################################################################
-
 notifications() {
   local title="$1"
   shift 1
   local msg="$*"
   shift
-  cmd_exists notify-send && notify-send -u normal -i "notification-message-IM" "$title" "$msg" || return 0
+  __command notify-send && notify-send -u normal -i "notification-message-IM" "$title" "$msg" || return 0
 }
-
 ##################################################################################################
-
 devnull() { "$@" >/dev/null 2>&1; }
 killpid() { devnull kill -9 "$(pidof "$1")"; }
 hostname2ip() { getent hosts "$1" | cut -d' ' -f1 | head -n1; }
-cmd_exists() {
+__command() {
   local pkg LISTARRAY
   declare -a LISTARRAY="$*"
   for cmd in $LISTARRAY; do
@@ -195,24 +215,21 @@ system_service_disable() {
   setexitstatus
   set --
 }
-
 ##################################################################################################
 #alternative names
-mlocate() { cmd_exists locate || cmd_exists mlocate || return 1; }
-xfce4() { cmd_exists xfce4-about || return 1; }
-imagemagick() { cmd_exists convert || return 1; }
-fdfind() { cmd_exists fdfind || cmd_exists fd || return 1; }
-speedtest() { cmd_exists speedtest-cli || cmd_exists speedtest || return 1; }
-neovim() { cmd_exists nvim || cmd_exists neovim || return 1; }
-chromium() { cmd_exists chromium || cmd_exists chromium-browser || return 1; }
-firefox() { cmd_exists firefox-esr || cmd_exists firefox || return 1; }
+mlocate() { __command locate || __command mlocate || return 1; }
+xfce4() { __command xfce4-about || return 1; }
+imagemagick() { __command convert || return 1; }
+fdfind() { __command fdfind || __command fd || return 1; }
+speedtest() { __command speedtest-cli || __command speedtest || return 1; }
+neovim() { __command nvim || __command neovim || return 1; }
+chromium() { __command chromium || __command chromium-browser || return 1; }
+firefox() { __command firefox-esr || __command firefox || return 1; }
 gtk-2.0() { find /lib* /usr* -iname "*libgtk*2*.so*" -type f | grep -q . || return 1; }
 gtk-3.0() { find /lib* /usr* -iname "*libgtk*3*.so*" -type f | grep -q . || return 1; }
-httpd() { cmd_exists httpd || cmd_exists apache2 || return 1; }
-emacs() { cmd_exists emacs26 || cmd_exists emacs; }
-
+httpd() { __command httpd || __command apache2 || return 1; }
+emacs() { __command emacs26 || __command emacs; }
 ##################################################################################################
-
 rm_rf() { if [ -e "$1" ]; then devnull rm -Rf "$@"; fi; }
 cp_rf() { if [ -e "$1" ]; then devnull cp -Rfa "$@"; fi; }
 ln_rm() { devnull find "$1" -xtype l -delete; }
@@ -232,28 +249,20 @@ urlinvalid() { if [ -z "$1" ]; then printf_red "\t\tInvalid URL\n"; else
 fi; }
 urlverify() { urlcheck $1 || urlinvalid $1; }
 symlink() { ln_sf "$1" "$2"; }
-
 ##################################################################################################
-
 system_service_enable() { execute "sudo systemctl enable -f $*" "Enabling services: $*"; }
 system_service_disable() { execute "sudo systemctl disable --now $*" "Disabling services: $*"; }
-
 ##################################################################################################
-
-generate_icon_index() { sudo fc-cache -f "$APPDIR/$APPNAME"; }
-
+generate_icon_index() { sudo fc-cache -f "${1:-$APPDIR/$APPNAME}"; }
 ##################################################################################################
-
 generate_theme_index() {
-  sudo find "$APPDIR/$APPNAME" -mindepth 1 -maxdepth 2 -type d -not -path "$APPDIR/$APPNAME/.git/*" | while read -r THEME; do
+  sudo find "${1:-$APPDIR/$APPNAME}" -mindepth 1 -maxdepth 2 -type d -not -path "${1:-$APPDIR/$APPNAME}/.git/*" | while read -r THEME; do
     if [ -f "$THEME/index.theme" ]; then
       gtk-update-icon-cache -f -q "$THEME"
     fi
   done
 }
-
 ##################################################################################################
-
 retry_cmd() {
   retries="${1:-}"
   shift
@@ -271,9 +280,7 @@ retry_cmd() {
     fi
   done
 }
-
 ##################################################################################################
-
 backupapp() {
   local filename count backupdir rmpre4vbackup
   [ ! -z "$1" ] && local myappdir="$1" || local myappdir="$APPDIR"
@@ -294,9 +301,7 @@ backupapp() {
   fi
   if [ "$count" -gt "3" ]; then rm_rf $rmpre4vbackup; fi
 }
-
 ##################################################################################################
-
 returnexitcode() {
   local RETVAL="$?"
   EXIT="$RETVAL"
@@ -304,9 +309,7 @@ returnexitcode() {
     return "$EXIT"
   fi
 }
-
 ##################################################################################################
-
 getexitcode() {
   local RETVAL="$?"
   local ERROR="Setup failed"
@@ -319,9 +322,7 @@ getexitcode() {
     exit "$EXIT"
   fi
 }
-
 ##################################################################################################
-
 failexitcode() {
   local RETVAL="$?"
   [ ! -z "$1" ] && local fail="$1" || local fail="Command has failed"
@@ -333,9 +334,7 @@ failexitcode() {
     [ -z "$success" ] || printf_custom "42" "$success"
   fi
 }
-
 ##################################################################################################
-
 setexitstatus() {
   [ -z "$EXIT" ] && local EXIT="$?" || local EXIT="$EXIT"
   local EXITSTATUS+="$EXIT"
@@ -347,9 +346,7 @@ setexitstatus() {
     return 0
   fi
 }
-
 ##################################################################################################
-
 get_answer() { printf "%s" "$REPLY"; }
 ask() {
   printf_question "$1"
@@ -361,17 +358,13 @@ ask_for_confirmation() {
   read -r -n 1
   printf "\n"
 }
-
 ##################################################################################################
-
 __getip() {
   NETDEV="$(ip route | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//")"
   CURRIP4="$(/sbin/ifconfig $NETDEV | grep -E "venet|inet" | grep -v "127.0.0." | grep 'inet' | grep -v inet6 | awk '{print $2}' | sed 's#addr:##g' | head -n1)"
 }
 __getip
-
 ##################################################################################################
-
 __getpythonver() {
   if [[ "$(python3 -V 2>/dev/null)" =~ "Python 3" ]]; then
     PYTHONVER="python3"
@@ -384,9 +377,7 @@ __getpythonver() {
   fi
 }
 __getpythonver
-
 ##################################################################################################
-
 __getphpver() {
   if cmdif php; then
     PHPVER="$(php -v | grep --only-matching --perl-regexp "(PHP )\d+\.\\d+\.\\d+" | cut -c 5-7)"
@@ -395,9 +386,7 @@ __getphpver() {
   fi
   echo $PHPVER
 }
-
 ##################################################################################################
-
 sudoif() { (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null; }
 sudorun() { if sudoif; then sudo -HE "$@"; else "$@"; fi; }
 sudorerun() {
@@ -409,9 +398,7 @@ sudoreq() { if [[ $UID != 0 ]]; then
   returnexitcode
   exit 1
 fi; }
-
 ######################
-
 sudoask() {
   if [ ! -f "$HOME/.sudo" ]; then
     sudo true &>/dev/null
@@ -424,9 +411,7 @@ sudoask() {
     done &>/dev/null &
   fi
 }
-
 ######################
-
 sudoexit() {
   if [ $? -eq 0 ]; then
     sudoask || printf_green "Getting privileges successfull continuing" &&
@@ -435,9 +420,7 @@ sudoexit() {
     printf_red "Failed to get privileges"
   fi
 }
-
 ######################
-
 requiresudo() {
   if [ -f "$(command -v sudo 2>/dev/null)" ]; then
     if (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null; then
@@ -449,9 +432,7 @@ requiresudo() {
     exit 1
   fi
 }
-
 ##################################################################################################
-
 versioncheck() {
   if [ -f $APPDIR/version.txt ]; then
     printf_green "\t\tChecking for updates\n"
@@ -475,12 +456,10 @@ versioncheck() {
   fi
   exit $?
 }
-
 ##################################################################################################
-
 scripts_check() {
   local REPO="${DOTFILESREPO:-https://github.com/dfmgr}"
-  if ! cmd_exists "pkmgr" && [ ! -f "$HOME/.noscripts" ]; then
+  if ! __command "pkmgr" && [ ! -f "$HOME/.noscripts" ]; then
     printf_red "\t\tPlease install my scripts repo - requires root/sudo\n"
     printf_question "Would you like to do that now" [y/N]
     read -n 1 -s choice
@@ -494,13 +473,11 @@ scripts_check() {
     fi
   fi
 }
-
 ##################################################################################################
-
 cmdif() {
   local package=$1
-  devnull unalias "$package"
-  if devnull command -v "$package"; then return 0; else return 1; fi
+  __command "$package"
+  if __command "$package"; then return 0; else return 1; fi
 }
 perlif() {
   local package=$1
@@ -510,24 +487,18 @@ pythonif() {
   local package=$1
   if devnull $PYTHONVER -c "import $package"; then return 0; else return 1; fi
 }
-
 ##################################################################################################
-
 cmd_missing() { cmdif "$1" || MISSING+="$1 "; }
 perl_missing() { perlif $1 || MISSING+="perl-$1 "; }
 python_missing() { pythonif "$1" || MISSING+="$PYTHONVER-$1 "; }
-
 ##################################################################################################
-
 git_clone() {
   local repo="$1"
   [ ! -z "$2" ] && local myappdir="$2" || local myappdir="$APPDIR"
   [ ! -d "$myappdir" ] || rm_rf "$myappdir"
   devnull git clone --depth=1 -q --recursive "$@"
 }
-
 ##################################################################################################
-
 git_update() {
   cd "$APPDIR"
   local repo="$(git remote -v | grep fetch | head -n 1 | awk '{print $2}')"
@@ -542,9 +513,7 @@ git_update() {
       git_clone "$repo" "$APPDIR"
   fi
 }
-
 ##################################################################################################
-
 dotfilesreq() {
   local REPO="${DOTFILESREPO:-https://github.com/dfmgr}"
   local conf=""
@@ -556,9 +525,7 @@ dotfilesreq() {
     fi
   done
 }
-
 ##################################################################################################
-
 dotfilesreqadmin() {
   local REPO="${DOTFILESREPO:-https://github.com/dfmgr}"
   local conf=""
@@ -570,19 +537,17 @@ dotfilesreqadmin() {
     fi
   done
 }
-
 ##################################################################################################
-
 install_packages() {
   local MISSING=""
   local USER="$USER"
   for cmd in "$@"; do cmdif $cmd || MISSING+="$cmd "; done
   if [ ! -z "$MISSING" ]; then
-    if cmd_exists "pkmgr"; then
+    if __command "pkmgr"; then
       printf_warning "Attempting to install missing packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        if cmd_exists yay; then
+        if __command yay; then
           execute "pkmgr --enable-aur silent $miss" "Installing $miss"
         else
           execute "pkmgr silent $miss" "Installing $miss"
@@ -591,16 +556,14 @@ install_packages() {
     fi
   fi
 }
-
 ##################################################################################################
-
 install_required() {
   local MISSING=""
   for cmd in "$@"; do cmdif $cmd || MISSING+="$cmd "; done
   if [ ! -z "$MISSING" ]; then
-    if cmd_exists "pkmgr"; then
+    if __command "pkmgr"; then
       printf_warning "Installing from package list"
-      if cmd_exists yay; then
+      if __command yay; then
         pkmgr --enable-aur dotfiles "$APPNAME"
       else
         pkmgr dotfiles "$APPNAME"
@@ -608,18 +571,16 @@ install_required() {
     fi
   fi
 }
-
 ##################################################################################################
-
 install_python() {
   local MISSING=""
   for cmd in "$@"; do python_missing "$cmd"; done
   if [ ! -z "$MISSING" ]; then
-    if cmd_exists "pkmgr"; then
+    if __command "pkmgr"; then
       printf_warning "Attempting to install missing python packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        if cmd_exists yay; then
+        if __command yay; then
           execute "pkmgr --enable-aur silent $miss" "Installing $miss"
         else
           execute "pkmgr silent $miss" "Installing $miss"
@@ -628,18 +589,16 @@ install_python() {
     fi
   fi
 }
-
 ##################################################################################################
-
 install_perl() {
   local MISSING=""
   for cmd in "$@"; do perl_missing "$cmd"; done
   if [ ! -z "$MISSING" ]; then
-    if cmd_exists "pkmgr"; then
+    if __command "pkmgr"; then
       printf_warning "Attempting to install missing perl packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        if cmd_exists yay; then
+        if __command yay; then
           execute "pkmgr --enable-aur silent $miss" "Installing $miss"
         else
           execute "pkmgr silent $miss" "Installing $miss"
@@ -648,14 +607,12 @@ install_perl() {
     fi
   fi
 }
-
 ##################################################################################################
-
 install_pip() {
   local MISSING=""
   for cmd in "$@"; do cmdif $cmd || pip_missing $cmd; done
   if [ ! -z "$MISSING" ]; then
-    if cmd_exists "pkmgr"; then
+    if __command "pkmgr"; then
       printf_warning "Attempting to install missing pip packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
@@ -664,14 +621,12 @@ install_pip() {
     fi
   fi
 }
-
 ##################################################################################################
-
 install_cpan() {
   local MISSING=""
   for cmd in "$@"; do cmdif $cmd || cpan_missing "$cmd"; done
   if [ ! -z "$MISSING" ]; then
-    if cmd_exists "pkmgr"; then
+    if __command "pkmgr"; then
       printf_warning "Attempting to install missing cpan packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
@@ -680,14 +635,12 @@ install_cpan() {
     fi
   fi
 }
-
 ##################################################################################################
-
 install_gem() {
   local MISSING=""
   for cmd in "$@"; do cmdif $cmd || gem_missing $cmd; done
   if [ ! -z "$MISSING" ]; then
-    if cmd_exists "pkmgr"; then
+    if __command "pkmgr"; then
       printf_warning "Attempting to install missing gem packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
@@ -696,28 +649,49 @@ install_gem() {
     fi
   fi
 }
-
 ##################################################################################################
-
 trim() {
   local IFS=' '
   local trimmed="${@//[[:space:]]/}"
   echo "$trimmed"
 }
-
 ##################################################################################################
-
-kill_all_subprocesses() {
-  local i=""
-  for i in $(jobs -p); do
-    kill "$i"
-    wait "$i" &>/dev/null
-  done
-}
-
-##################################################################################################
-
 execute() {
+  kill_all_subprocesses() {
+    local i=""
+    for i in $(jobs -p); do
+      kill "$i"
+      wait "$i" &>/dev/null
+    done
+  }
+  show_spinner() {
+    local -r FRAMES='/-\|'
+    local -r NUMBER_OR_FRAMES=${#FRAMES}
+    local -r CMDS="$2"
+    local -r MSG="$3"
+    local -r PID="$1"
+    local i=0
+    local frameText=""
+    if [ "$TRAVIS" != "true" ]; then
+      printf "\n\n\n"
+      tput cuu 3
+      tput sc
+    fi
+    while kill -0 "$PID" &>/dev/null; do
+      frameText="                [ ${FRAMES:i++%NUMBER_OR_FRAMES:1} ] $MSG"
+      if [ "$TRAVIS" != "true" ]; then
+        printf "%s\n" "$frameText"
+      else
+        printf "%s" "$frameText"
+      fi
+      sleep 0.2
+      if [ "$TRAVIS" != "true" ]; then
+        tput rc
+      else
+        printf "\r"
+      fi
+    done
+  }
   local -r CMDS="$1"
   local -r MSG="${2:-$1}"
   local -r TMP_FILE="$(mktemp /tmp/XXXXX)"
@@ -736,39 +710,5 @@ execute() {
   rm -rf "$TMP_FILE"
   return $exitCode
 }
-
 ##################################################################################################
-
-show_spinner() {
-  local -r FRAMES='/-\|'
-  local -r NUMBER_OR_FRAMES=${#FRAMES}
-  local -r CMDS="$2"
-  local -r MSG="$3"
-  local -r PID="$1"
-  local i=0
-  local frameText=""
-  if [ "$TRAVIS" != "true" ]; then
-    printf "\n\n\n"
-    tput cuu 3
-    tput sc
-  fi
-  while kill -0 "$PID" &>/dev/null; do
-    frameText="                [ ${FRAMES:i++%NUMBER_OR_FRAMES:1} ] $MSG"
-    if [ "$TRAVIS" != "true" ]; then
-      printf "%s\n" "$frameText"
-    else
-      printf "%s" "$frameText"
-    fi
-    sleep 0.2
-    if [ "$TRAVIS" != "true" ]; then
-      tput rc
-    else
-      printf "\r"
-    fi
-  done
-}
-
-##################################################################################################
-
 # end
-#/* vi: set expandtab ts=4 noai

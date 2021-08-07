@@ -56,12 +56,12 @@ done
 __command() {
   [ "$1" = "-v" ] && shift 1
   if [ $# -ne 1 ]; then
-    if builtin type "$@" 2>/dev/null | grep -v alias | head -n1 | awk '{print $1}' | grep '^'; then
+    if builtin type $* 2>/dev/null | grep -v alias | head -n1 | awk '{print $1}' | grep '^'; then
       return 0
     else
       return 1
     fi
-  elif builtin type "$*" 2>/dev/null | grep -v alias | head -n1 | awk '{print $1}' | grep -q '^'; then
+  elif builtin type $* 2>/dev/null | grep -v alias | head -n1 | awk '{print $1}' | grep -q '^'; then
     return 0
   else
     return 1

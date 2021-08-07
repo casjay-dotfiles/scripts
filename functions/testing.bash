@@ -835,12 +835,12 @@ if [ "$(uname -s)" = Darwin ]; then
   alias ls='$lscmd'
   __command gdate && datecmd="$(type -P gdate)" || datecmd="$(type -P date)"
   __command greadlink && readlinkcmd="$(type -P greadlink)" || readlinkcmd="$(type -P readlink)"
-  __command gbasename && basenamecmd="$(type -P gbasename)" || basenamecmd="$(type -P basename)"
+  __command g__basename && __basenamecmd="$(type -P g__basename)" || __basenamecmd="$(type -P __basename)"
   __command gdircolors && dircolorscmd="$(type -P gdircolors)" || dircolorscmd="$(type -P dircolors)"
   __command grealpath && realpathcmd="$(type -P grealpath)" || realpathcmd="$(type -P realpath)"
   [ -n "$datecmd" ] || date() { $datecmd "$@"; }
   [ -n "$readlinkcmd" ] || readlink() { $readlinkcmd "$@"; }
-  [ -n "$basenamecmd" ] || basename() { $basenamecmd "$@"; }
+  [ -n "$__basenamecmd" ] || __basename() { $__basenamecmd "$@"; }
   [ -n "$dircolorscmd" ] || dircolors() { $dircolorscmd "$@"; }
   [ -n "$realpathcmd" ] || realpath() { $realpathcmd "$@"; }
 fi
@@ -863,7 +863,7 @@ __basedir() {
     dirname "$1" | sed 's#\../##g' 2>/dev/null
   fi
 }
-#__basename "file"
+#basename "file"
 __basename() { basename "${1:-.}" 2>/dev/null; }
 # dirname dir
 __dirname() { cd "$1" 2>/dev/null && echo "$PWD" || return 1; }
@@ -906,9 +906,9 @@ __mkd() {
 #netcat
 netcat="$(type -P nc 2>/dev/null || type -P -v netcat 2>/dev/null || return 1)"
 __netcat_test() { __command netcat || printf_error "The program netcat is not installed"; }
-__netcat_pids() { netstat -tupln 2>/dev/null | grep ":$1" | grep "$(basename ${netcat:-nc})" | awk '{print $7}' | sed 's#'/"$(basename ${netcat:-nc})"'##g' | grep '^'; }
+__netcat_pids() { netstat -tupln 2>/dev/null | grep ":$1" | grep "$(__basename ${netcat:-nc})" | awk '{print $7}' | sed 's#'/"$(__basename ${netcat:-nc})"'##g' | grep '^'; }
 # kill_netpid "port" "procname"
-__kill_netpid() { netstatg "$1" | grep "$(basename "$2")" | awk '{print $7}' | sed 's#/'$2'##g' && netstat -taupln | grep -qv "$1" || return 1; }
+__kill_netpid() { netstatg "$1" | grep "$(__basename "$2")" | awk '{print $7}' | sed 's#/'$2'##g' && netstat -taupln | grep -qv "$1" || return 1; }
 __netcat_kill() {
   pidof "$netcat" &>/dev/null && kill -s KILL "$(__netcat_pids "$1")" &>/dev/null
   netstat -taupln | grep -Fqv ":$1 " || return 1
@@ -1245,8 +1245,8 @@ __git_username_repo() {
     protocol=
     separator=
     hostname=localhost
-    userrepo="$(basename "$url")"
-    username="$(basename "$(dirname "$url")")"
+    userrepo="$(__basename "$url")"
+    username="$(__basename "$(dirname "$url")")"
     folder="local"
     projectdir="${PROJECT_DIR:-$HOME/Projects}/$folder/$username-$userrepo"
   elif [[ $url =~ $re ]]; then
@@ -1272,7 +1272,7 @@ __git_remote_fetch() { git -C "${1:-.}" remote -v 2>/dev/null | grep fetch | hea
 __git_remote_origin() { __git_remote_pull "${1:-.}" && return 0 || return 1; }
 __git_porcelain() { __git_porcelain_count "${1:-.}" && return 0 || return 1; }
 __git_porcelain_count() { [ -d "$(__git_top_dir ${1:-.})/.git" ] && [ "$(git -C "${1:-.}" status --porcelain 2>/dev/null | wc -l 2>/dev/null)" -eq "0" ] && return 0 || return 1; }
-__git_repobase() { basename "$(__git_top_dir "${1:-$PWD}") 2>/dev/null"; }
+__git_repobase() { __basename "$(__git_top_dir "${1:-$PWD}") | grep -v null 2>/dev/null" || echo __basename $PWD; }
 # __reldir="$(__git_top_rel ${1:-$PWD} || echo $PWD)"
 # __topdir="$(__git_top_dir "${1:-$PWD}" || echo $PWD)"
 
@@ -1307,7 +1307,7 @@ __cron_updater() {
       for upd in $(ls $SYSUPDATEDIR/); do
         file="$(ls -A $SYSUPDATEDIR/$upd 2>/dev/null)"
         if [ -f "$file" ]; then
-          appname="$(basename $file)"
+          appname="$(__basename $file)"
           sudo -HE file="$file" bash -c "$file --cron $*"
         fi
       done
@@ -1315,7 +1315,7 @@ __cron_updater() {
       if [ -d "$SYSUPDATEDIR" ] && ls "$SYSUPDATEDIR"/* 1>/dev/null 2>&1; then
         file="$(ls -A $SYSUPDATEDIR/$1 2>/dev/null)"
         if [ -f "$file" ]; then
-          appname="$(basename $file)"
+          appname="$(__basename $file)"
           sudo -HE file="$file" bash -c "$file --cron $*"
         fi
       fi
@@ -1325,7 +1325,7 @@ __cron_updater() {
       for upd in $(ls $USRUPDATEDIR/); do
         file="$(ls -A $USRUPDATEDIR/$upd 2>/dev/null)"
         if [ -f "$file" ]; then
-          appname="$(basename $file)"
+          appname="$(__basename $file)"
           file="$file" bash -c "$file --cron $*"
         fi
       done
@@ -1333,7 +1333,7 @@ __cron_updater() {
       if [ -d "$USRUPDATEDIR" ] && ls "$USRUPDATEDIR"/* 1>/dev/null 2>&1; then
         file="$(ls -A $USRUPDATEDIR/$1 2>/dev/null)"
         if [ -f "$file" ]; then
-          appname="$(basename $file)"
+          appname="$(__basename $file)"
           file="$file" bash -c "$file --cron $*"
         fi
       fi
@@ -1907,7 +1907,7 @@ __if_os_id() {
 }
 ###################### setup folders - user ######################
 user_installdirs() {
-  #[ -n "$APPNAME" ] || APPNAME="$(basename $0)"
+  #[ -n "$APPNAME" ] || APPNAME="$(__basename $0)"
   #[ -n "$APPDIR" ] || APPDIR="$(dirname $0)"
   #[ -n "$INSTDIR" ] || INSTDIR="$(dirname $0)"
   SCRIPTS_PREFIX="${SCRIPTS_PREFIX:-dfmgr}"
@@ -1967,7 +1967,7 @@ user_installdirs() {
 
 ###################### setup folders - system ######################
 system_installdirs() {
-  #[ -n "$APPNAME" ] || APPNAME="$(basename $0)"
+  #[ -n "$APPNAME" ] || APPNAME="$(__basename $0)"
   #[ -n "$APPDIR" ] || APPDIR="$(dirname $0)"
   #[ -n "$INSTDIR" ] || INSTDIR="$(dirname $0)"
   SCRIPTS_PREFIX="${SCRIPTS_PREFIX:-dfmgr}"
@@ -2365,7 +2365,7 @@ get_desc() {
   local PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/usr/sbin"
   local appname="$(type -P "${PROG:-$APPNAME}" 2>/dev/null || __command -p "${PROG:-$APPNAME}" 2>/dev/null)"
   local desc="$(grep_head_remove "Description" "$appname" | head -n1)"
-  [ -n "$desc" ] && printf '%s' "$desc" || printf '%s' "$(basename $appname) --help"
+  [ -n "$desc" ] && printf '%s' "$desc" || printf '%s' "$(__basename $appname) --help"
 }
 __help() {
   #----------------
@@ -2384,11 +2384,11 @@ __help() {
   exit 0
 }
 __version() {
-  local name="${1:-$(basename $0)}" # get from os
-  local prog="${APPNAME:-$PROG}"    # get from file
-  local appname="${prog:-$name}"    # figure out wich one
-  filename="$(type -P $appname)"    # get filename
-  if [ -f "$filename" ]; then       # check for file
+  local name="${1:-$(__basename $0)}" # get from os
+  local prog="${APPNAME:-$PROG}"      # get from file
+  local appname="${prog:-$name}"      # figure out wich one
+  filename="$(type -P $appname)"      # get filename
+  if [ -f "$filename" ]; then         # check for file
     printf_newline
     printf_green "Getting info for $appname"
     [ -n "$WHOAMI" ] && printf_yellow "WhoamI        : $WHOAMI"

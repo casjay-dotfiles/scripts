@@ -92,15 +92,38 @@ EOF
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __list_available() { echo -e "${1:-$ARRAY}" | tr ' ' '\n'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#git init
-if [ "$(git config --get user.name | wc -m)" -lt 2 ]; then
-  printf_read_input "What is you Name" "120" "GIT_NAME"
-  git config --global user.name "$GIT_NAME" 2>/dev/null
-fi
-if [ "$(git config --get user.email | wc -m)" -lt 2 ]; then
-  printf_read_input "What is you Email" "120" "GIT_EMAIL"
-  git config --global user.email "$GIT_EMAIL" 2>/dev/null
-fi
+#set folder name based on githost
+__git_hostname() {
+  echo "$@" | sed -e "s/[^/]*\/\/\([^@]*@\)\?\([^:/]*\).*/\2/" | awk -F. '{print $(NF-1) "." $NF}' | sed 's#\..*##g'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#setup directory structure
+__git_username_repo() {
+  unset url protocol separator hostname username userrepo
+  local url="$1"
+  local re="^(https?|git|ssh)(:\/\/|@)([^\/:]+)[\/:]([^\/:]+)\/(.+)$"
+  local githostname="$(__git_hostname $url 2>/dev/null)"
+  if [ -d "$url" ]; then
+    protocol=
+    separator=
+    hostname=localhost
+    userrepo="$(__basename "$url")"
+    username="$(__basename "$(dirname "$url")")"
+    folder="local"
+    projectdir="${GITADMIN_PROJECT_BASE:-$HOME/Projects}/$folder/$username-$userrepo"
+  elif [[ $url =~ $re ]]; then
+    protocol=${BASH_REMATCH[1]}
+    separator=${BASH_REMATCH[2]}
+    hostname=${BASH_REMATCH[3]}
+    username=${BASH_REMATCH[4]}
+    userrepo=${BASH_REMATCH[5]}
+    folder=$githostname
+    projectdir="${GITADMIN_PROJECT_BASE:-$HOME/Projects}/$folder/$username/$userrepo"
+  else
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # issues API
 __api_issues_token() {
   local user="${1:-$USERNAME}"
@@ -667,10 +690,9 @@ ghsinglerepo() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # push local repo
 git_push_single() {
-  SUCCESS_MSG() { echo "Push to $(__git_remote_origin "$git_dir") has completed"; }
-  FAILED_MSG() { echo "Push to $(__git_remote_origin "$git_dir") has failed"; }
+  SUCCESS_MSG() { echo "Push to $(__git_remote_origin "${projectdir:-$GITADMIN_WD}") has completed"; }
+  FAILED_MSG() { echo "Push to $(__git_remote_origin "$projectdir:-$GITADMIN_WD") has failed"; }
   [ "$1" = "help" ] && printf_help "Usage: gitadmin push MyProjectDir"
-  local git_dir="$(__basedir "${1:-$GITADMIN_WD}/.git")"
   local GITADMIN_EXITCODE=0
   if [ -d "$git_dir/.git" ]; then
     printf_custom "4" "Pushing the repo in $git_dir"
@@ -678,17 +700,17 @@ git_push_single() {
     __getexitcode $GITADMIN_EXITCODE "$(SUCCESS_MSG)" "$(FAILED_MSG)"
   else
     if [ -n "$1" ]; then
-      projdir="$1"
       GITADMIN_WD_NAME="$(__git_hostname "$1")"
+      projectdir="$1"
       __git_username_repo "$1"
       local username="$username"
       local userrepo="$userrepo"
     else
-      projdir="$PROJECT_BASE/$GITADMIN_WD_NAME/$username/$userrepo"
+      projectdir="${projectdir:-$PROJECT_BASE/$GITADMIN_WD_NAME/$username/$userrepo}"
     fi
-    if [ -d "$projdir/.git" ]; then
-      printf_custom "4" "Pushing the repo in $projdir"
-      __git_push "$projdir" && GITADMIN_EXITCODE=0 || GITADMIN_EXITCODE=1
+    if [ -d "$projectdir/.git" ]; then
+      printf_custom "4" "Pushing the repo in $projectdir"
+      __git_push "$projectdir" && GITADMIN_EXITCODE=0 || GITADMIN_EXITCODE=1
       __getexitcode $GITADMIN_EXITCODE "$(SUCCESS_MSG)" "$(FAILED_MSG)"
     else
       GITADMIN_EXITCODE=1
@@ -699,26 +721,27 @@ git_push_single() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # pull a single repo
 git_pull_single() {
-  SUCCESS_MSG() { echo "Pull from $(__git_remote_origin "$git_dir") has completed"; }
-  FAILED_MSG() { echo "Pull from $(__git_remote_origin "$git_dir") has failed"; }
+  SUCCESS_MSG() { echo "Pull from $(__git_remote_origin "$projectdir:-$GITADMIN_WD") has completed"; }
+  FAILED_MSG() { echo "Pull from $(__git_remote_origin "$projectdir:-$GITADMIN_WD") has failed"; }
   [ "$1" = "help" ] && printf_help "Usage: gitadmin pull MyProjectDir"
   local GITADMIN_WD="$(__basedir "${1:-$GITADMIN_WD}/.git")"
+  local GITADMIN_EXITCODE=0
   if [ -d "$GITADMIN_WD/.git" ]; then
     printf_custom "4" "Pulling the repo in $GITADMIN_WD"
-    __git_pull "$GITADMIN_WD" && exitCode=0 || exitCode=1
-    __getexitcode $exitCode "$(SUCCESS_MSG)" "$(FAILED_MSG)"
+    __git_pull "$GITADMIN_WD" && GITADMIN_EXITCODE=0 || GITADMIN_EXITCODE=1
+    __getexitcode $GITADMIN_EXITCODE "$(SUCCESS_MSG)" "$(FAILED_MSG)"
   else
     if [ -n "$1" ]; then
-      projdir="$1"
       GITADMIN_WD_NAME="$(__git_hostname "$1")"
+      projectdir="$1"
       __git_username_repo "$1"
     else
-      projdir="$PROJECT_BASE/$GITADMIN_WD_NAME/$username/$userrepo"
+      projectdir="${projectdir:-$PROJECT_BASE/$GITADMIN_WD_NAME/$username/$userrepo}"
     fi
-    if [ -d "$projdir/.git" ]; then
-      printf_custom "4" "Pulling the repo in $projdir"
-      __git_pull "$projdir" && exitCode=0 || exitCode=1
-      __getexitcode $exitCode "$(SUCCESS_MSG)" "$(FAILED_MSG)"
+    if [ -d "$projectdir/.git" ]; then
+      printf_custom "4" "Pulling the repo in $projectdir"
+      __git_pull "$projectdir" && GITADMIN_EXITCODE=0 || GITADMIN_EXITCODE=1
+      __getexitcode $projectdir "$(SUCCESS_MSG)" "$(FAILED_MSG)"
     else
       return 1
     fi
@@ -728,23 +751,22 @@ git_pull_single() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # clone a single repo
 git_clone_single() {
-  SUCCESS_MSG() { echo "Cloning from $giturl has completed"; }
-  FAILED_MSG() { echo "Cloning from $giturl has failed"; }
+  SUCCESS_MSG() { echo "Cloning from $git_url has completed"; }
+  FAILED_MSG() { echo "Cloning from $git_url has failed"; }
   [ "$1" = "help" ] || [ $# -eq 0 ] && printf_help "Usage: gitadmin clone MyURL"
   __git_username_repo "$1"
-  local projectdir="$projectdir"
-  local giturl="$1"
-  local projdir="${2:-$projectdir}"
-  local git_dir="$(__basedir "$projdir/.git")"
-  #printf_exit "U:$giturl P:$PROJECT_DIR p:$projdir R:$GITADMIN_WD"
-  if [ -d "$projdir/.git" ]; then
-    printf_custom "4" "Updating the repo in $projdir"
-    __git_pull "$projdir" && exitCode=0 || exitCode=1
-    __getexitcode $exitCode "$(SUCCESS_MSG)" "$(FAILED_MSG)"
+  local git_url="$1"
+  local projectdir="${2:-$projectdir}"
+  local projectdir="${projectdir:-$PROJECT_BASE/$GITADMIN_WD_NAME/$username/$userrepo}"
+  local GITADMIN_EXITCODE=0
+  if [ -d "$projectdir/.git" ]; then
+    printf_custom "4" "Updating the repo in $projectdir"
+    __git_pull "$projectdir" && GITADMIN_EXITCODE=0 || GITADMIN_EXITCODE=1
+    __getexitcode $GITADMIN_EXITCODE "$(SUCCESS_MSG)" "$(FAILED_MSG)"
   else
-    printf_custom "4" "Cloning the repo to $projdir"
-    __git_clone "$giturl" "$projdir" && exitCode=0 || exitCode=1
-    __getexitcode $exitCode "$(SUCCESS_MSG)" "$(FAILED_MSG)"
+    printf_custom "4" "Cloning the repo to $projectdir"
+    __git_clone "$git_url" "$projectdir" && GITADMIN_EXITCODE=0 || GITADMIN_EXITCODE=1
+    __getexitcode $GITADMIN_EXITCODE "$(SUCCESS_MSG)" "$(FAILED_MSG)"
   fi
   exit "$?"
 }
@@ -982,6 +1004,16 @@ GITADMIN_WD="${topdir:-$PROJECT_DIR}"
 VERSIONFILE="$(__git_top_dir "$topdir" 2>/dev/null)/version.txt"
 VERSION_DATE_FORMAT="${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}"
 DOMAIN_TEMPLATE="$GITADMIN_DOMAIN_TEMPLATE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#git init
+if [ "$(git config --get user.name | wc -m)" -lt 2 ]; then
+  printf_read_input "What is you Name" "120" "GIT_NAME"
+  git config --global user.name "$GIT_NAME" 2>/dev/null
+fi
+if [ "$(git config --get user.email | wc -m)" -lt 2 ]; then
+  printf_read_input "What is you Email" "120" "GIT_EMAIL"
+  git config --global user.email "$GIT_EMAIL" 2>/dev/null
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 case "$1" in

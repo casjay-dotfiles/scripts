@@ -898,7 +898,7 @@ install_required() {
       fi
     fi
     unset MISSING
-    for cmd in "$@"; do __command "$cmd" || MISSING+="$cmd "; done
+    for cmd in $REQUIRED; do __command "$cmd" || MISSING+="$cmd "; done
     if [ -n "$MISSING" ]; then
       printf_warning "Can not install the required packages for $APPNAME"
       #if [ -f "$APPDIR/install.sh" ]; then

@@ -3,8 +3,14 @@
 export PATH="$(echo /usr/local/bin:$PATH:/usr/sbin:/sbin | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 's#::#:.#g')"
 
 #trap '' err exit SIGINT SIGTERM
+if [ -n "$DISPLAY" ] && [ -f "$(command -v ask_for_password 2>/dev/null)" ]; then
+  export SUDO_ASKPASS="/usr/local/bin/ask_for_password"
+  export SUDO_PROMPT="/usr/local/bin/ask_for_password"
+else
+  export SUDO_ASKPASS="${SUDO_ASKPASS:-}"
+  export SUDO_PROMPT="$(printf "\n\t\t\033[1;31m")[sudo]$(printf "\033[1;36m") password for $(printf "\033[1;32m")%p: $(printf "\033[0m" && echo)"
+fi
 export WHOAMI="${USER}"
-export SUDO_PROMPT="$(printf "\t\t\033[1;31m")[sudo]$(printf "\033[1;36m") password for $(printf "\033[1;32m")%p: $(printf "\033[0m")"
 export RUN_USER="${RUN_USER:-$USER}"
 
 TMP="${TMP:-/tmp}"

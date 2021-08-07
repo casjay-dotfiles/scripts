@@ -75,13 +75,19 @@ TMPPATH+="/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:$PATH:."
 PATH="$(echo "$TMPPATH" | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 's#::#:.#g')"
 unset TMPPATH
 # Setup sudo and user
+if [ -n "$DISPLAY" ] && [ -f "$(command -v ask_for_password 2>/dev/null)" ]; then
+  export SUDO_ASKPASS="/usr/local/bin/ask_for_password"
+  export SUDO_PROMPT="/usr/local/bin/ask_for_password"
+else
+  export SUDO_ASKPASS="${SUDO_ASKPASS:-}"
+  export SUDO_PROMPT="$(printf "\n\t\t\033[1;31m")[sudo]$(printf "\033[1;36m") password for $(printf "\033[1;32m")%p: $(printf "\033[0m" && echo)"
+fi
 if [ -n "$SUDO_USER" ]; then
   RUN_USER=${RUN_USER:-$SUDO_USER}
 else
   RUN_USER=${RUN_USER:-$(whoami)}
 fi
 WHOAMI="${USER}"
-SUDO_PROMPT="$(printf "\t\t\033[1;31m")[sudo]$(printf "\033[1;36m") password for $(printf "\033[1;32m")%p: $(printf "\033[0m\n")"
 export RUN_USER="${RUN_USER:-$USER}"
 export USER="${SUDO_USER:-$USER}"
 # TTY Check

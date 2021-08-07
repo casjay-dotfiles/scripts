@@ -36,6 +36,13 @@ TMPPATH+="/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/ga
 export PATH="$(echo "$TMPPATH" | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 's#::#:.#g')"
 unset TMPPATH
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -n "$DISPLAY" ] && [ -f "$(command -v ask_for_password 2>/dev/null)" ]; then
+  export SUDO_ASKPASS="/usr/local/bin/ask_for_password"
+  export SUDO_PROMPT="/usr/local/bin/ask_for_password"
+else
+  export SUDO_ASKPASS="${SUDO_ASKPASS:-}"
+  export SUDO_PROMPT="$(printf "\n\t\t\033[1;31m")[sudo]$(printf "\033[1;36m") password for $(printf "\033[1;32m")%p: $(printf "\033[0m" && echo)"
+fi
 if [ -n "$SUDO_USER" ]; then
   RUN_USER=${RUN_USER:-$SUDO_USER}
 else
@@ -43,7 +50,6 @@ else
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 export RUN_USER="${RUN_USER:-$USER}"
-export SUDO_PROMPT="$(printf "\033[1;31m")[sudo]$(printf "\033[1;36m") password for $(printf "\033[1;32m")%p: $(printf "\033[0m")"
 export TMP="${TMP:-/tmp}"
 export TEMP="${TEMP:-/tmp}"
 export TMPDIR="${TMPDIR:-/tmp}"

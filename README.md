@@ -3,7 +3,7 @@
 ## Automatic install/update
 
 ```shell
-sudo bash -c "$(curl -LSs https://github.com/casjay-dotfiles/scripts/raw/main/install.sh)" && sudo systemmgr update scripts
+sudo sudo git -C /usr/local/share/CasjaysDev/scripts pull && sudo /usr/local/share/CasjaysDev/scripts/bin/systemmgr install scripts
 ```
 
 ## Manual install

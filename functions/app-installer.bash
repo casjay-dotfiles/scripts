@@ -66,6 +66,10 @@ __command() {
   fi
 }
 export -f __command
+##################################################################################################
+__command -P am_i_online & >/dev/null am_i_online() { __command -P am_i_online & >/dev/null || return 0; }
+cmd_exist() { __command "$1" &>/dev/null || return 1; }
+##################################################################################################
 # Versioning Info - __required_version "VersionNumber"
 localVersion="${localVersion:-202103310525-git}"
 requiredVersion="${requiredVersion:-202103310525-git}"
@@ -470,10 +474,6 @@ urlinvalid() {
 urlverify() { urlcheck "$1" || urlinvalid "$1"; }
 symlink() { ln_sf "$1" "$2"; }
 rm_link() { unlink "$1"; }
-##################################################################################################
-
-am_i_online() { __command -P am_i_online & >/dev/null || return 1; }
-cmd_exist() { __command "$1" &>/dev/null || return 1; }
 ##################################################################################################
 gem_exists() {
   #[ -n "$1" ] || return

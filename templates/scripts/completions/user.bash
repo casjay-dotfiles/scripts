@@ -13,16 +13,16 @@
 # @Other         : GEN_SCRIPT_REPLACE_OTHER
 # @Resource      : GEN_SCRIPT_REPLACE_RES
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#[ -f "$HOME/.local/share/misc/GEN_SCRIPT_REPLACE_FILENAME/options/array" ] || GEN_SCRIPT_REPLACE_FILENAME --options &>/dev/null
+#[ -f "$HOME/.local/share/myscripts/GEN_SCRIPT_REPLACE_FILENAME/array" ] || GEN_SCRIPT_REPLACE_FILENAME --options &>/dev/null
 _GEN_SCRIPT_REPLACE_FILENAME() {
   ___findcmd() { find -L "${1:-$CONFDIR/}" -maxdepth ${3:-3} -type ${2:-f} 2>/dev/null | sed 's#'${1:-$CONFDIR}'##g' | grep '^' || return 1; }
   local cur prev words cword opts split
   local cur="${COMP_WORDS[$COMP_CWORD]}"
   local prev="${COMP_WORDS[$COMP_CWORD - 1]}"
   local CONFFILE="settings.conf"
-  local CONFDIR="$HOME/.config/misc/settings/GEN_SCRIPT_REPLACE_FILENAME"
-  local OPTSDIR="$HOME/.local/share/misc/GEN_SCRIPT_REPLACE_FILENAME/options"
-  local SEARCHDIR="${CONFDIR:-$HOME/.config/misc/settings/GEN_SCRIPT_REPLACE_FILENAME}"
+  local CONFDIR="$HOME/.config/myscripts/GEN_SCRIPT_REPLACE_FILENAME"
+  local OPTSDIR="$HOME/.local/share/myscripts/GEN_SCRIPT_REPLACE_FILENAME/options"
+  local SEARCHDIR="${CONFDIR:-$HOME/.config/myscripts/GEN_SCRIPT_REPLACE_FILENAME}"
   #local SEARCHCMD="$(___findcmd "$SEARCHDIR/" "d" "1")"
   local DEFAULTARRAY=""
   local DEFAULTOPTS=""
@@ -39,22 +39,23 @@ _GEN_SCRIPT_REPLACE_FILENAME() {
     compopt -o $SHOW_COMP_OPTS_SEP
   fi
   case ${COMP_WORDS[1]:-$prev} in
-  -) prev="-" COMPREPLY=($(compgen -W '${SHORTOPTS} ${LONGOPTS}' -- ${cur})) ;;
-  --options) prev="--options" && COMPREPLY=($(compgen -W '' -- "${cur}")) ;;
-  -c | --config) prev="--config" && COMPREPLY=($(compgen -W '' -- "${cur}")) ;;
-  -h | --help) prev="--help" && COMPREPLY=($(compgen -W '' -- "${cur}")) ;;
-  -v | --version) prev="--version" && COMPREPLY=($(compgen -W '' -- "${cur}")) ;;
+  -) COMPREPLY=($(compgen -W '${SHORTOPTS} ${LONGOPTS}' -- ${cur})) && prev="-" ;;
+  --options) COMPREPLY=($(compgen -W '' -- "${cur}")) && prev="--options" ;;
+  -c | --config) COMPREPLY=($(compgen -W '' -- "${cur}")) && prev="--config" ;;
+  -h | --help) COMPREPLY=($(compgen -W '' -- "${cur}")) && prev="--help" ;;
+  -v | --version) COMPREPLY=($(compgen -W '' -- "${cur}")) && prev="--version" ;;
+  -l | --list) COMPREPLY=($(compgen -W '' -- "${cur}")) && prev="--list" ;;
   -m | --modify)
-    prev="-m"
-    compopt -o nospace
     [ $COMP_CWORD -eq 2 ] && COMPREPLY=($(compgen -W '{a..z} {A..Z} {0..9}' -o nospace -- "${cur}"))
     [ $COMP_CWORD -eq 3 ] && COMPREPLY=($(compgen -W '$(_filedir)' -o filenames -o dirnames -- "${cur}"))
     [ $COMP_CWORD -gt 3 ] && COMPREPLY=($(compgen -W '' -- "${cur}"))
+    prev="-m"
+    compopt -o nospace
     ;;
   -r | --remove)
-    prev="-r"
     [ $COMP_CWORD -eq 2 ] && COMPREPLY=($(compgen -W '${ARRAY}' -- "${cur}"))
     [ $COMP_CWORD -gt 3 ] && COMPREPLY=($(compgen -W '' -- "${cur}"))
+    prev="-r"
     ;;
   *)
     if [ -n "$FILEDIR" ]; then _filedir; fi

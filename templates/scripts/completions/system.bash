@@ -39,23 +39,23 @@ _GEN_SCRIPT_REPLACE_FILENAME() {
     compopt -o $SHOW_COMP_OPTS_SEP
   fi
   case ${COMP_WORDS[1]:-$prev} in
-  -) prev="-" COMPREPLY=($(compgen -W '${SHORTOPTS} ${LONGOPTS}' -- ${cur})) ;;
-  --options) prev="--options" && COMPREPLY=($(compgen -W '' -- "${cur}")) ;;
-  -c | --config) prev="--config" && COMPREPLY=($(compgen -W '' -- "${cur}")) ;;
-  -h | --help) prev="--help" && COMPREPLY=($(compgen -W '' -- "${cur}")) ;;
-  -v | --version) prev="--version" && COMPREPLY=($(compgen -W '' -- "${cur}")) ;;
-  -l | --list) prev="--list" && COMPREPLY=($(compgen -W '' -- "${cur}")) ;;
+  -) COMPREPLY=($(compgen -W '${SHORTOPTS} ${LONGOPTS}' -- ${cur})) && prev="-" ;;
+  --options) COMPREPLY=($(compgen -W '' -- "${cur}")) && prev="--options" ;;
+  -c | --config) COMPREPLY=($(compgen -W '' -- "${cur}")) && prev="--config" ;;
+  -h | --help) COMPREPLY=($(compgen -W '' -- "${cur}")) && prev="--help" ;;
+  -v | --version) COMPREPLY=($(compgen -W '' -- "${cur}")) && prev="--version" ;;
+  -l | --list) COMPREPLY=($(compgen -W '' -- "${cur}")) && prev="--list" ;;
   -m | --modify)
-    prev="-m"
-    compopt -o nospace
     [ $COMP_CWORD -eq 2 ] && COMPREPLY=($(compgen -W '{a..z} {A..Z} {0..9}' -o nospace -- "${cur}"))
     [ $COMP_CWORD -eq 3 ] && COMPREPLY=($(compgen -W '$(_filedir)' -o filenames -o dirnames -- "${cur}"))
     [ $COMP_CWORD -gt 3 ] && COMPREPLY=($(compgen -W '' -- "${cur}"))
+    prev="-m"
+    compopt -o nospace
     ;;
   -r | --remove)
-    prev="-r"
     [ $COMP_CWORD -eq 2 ] && COMPREPLY=($(compgen -W '${ARRAY}' -- "${cur}"))
     [ $COMP_CWORD -gt 3 ] && COMPREPLY=($(compgen -W '' -- "${cur}"))
+    prev="-r"
     ;;
   *)
     if [ -n "$FILEDIR" ]; then _filedir; fi

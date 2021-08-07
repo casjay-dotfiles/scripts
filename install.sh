@@ -175,6 +175,7 @@ run_postinst() {
       echo "Path askpass /usr/local/bin/ask_for_password" | sudo tee -a /etc/sudo.conf &>/dev/null
     fi
   fi
+  sudo fontmgr install --all
 }
 #
 execute "run_postinst" "Running post install scripts"

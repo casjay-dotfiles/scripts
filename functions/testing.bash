@@ -46,6 +46,11 @@ if ! type -P git &>/dev/null; then
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+builtin type -p am_i_online &>/dev/null || am_i_online() { am_i_online || true; }
+builtin type -p __am_i_online &>/dev/null || __am_i_online() { am_i_online || true; }
+cmd_exist() { __command "$1" &>/dev/null || return 1; }
+__cmd_exist() { __command "$1" &>/dev/null || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 for check in git curl wget; do
   if ! builtin type -P "$check" &>/dev/null; then
     echo -e "\n\n\t\t\033[0;31m$check is not installed\033[0m\n"

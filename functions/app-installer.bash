@@ -409,7 +409,9 @@ firefox() { __command firefox-esr || __command firefox || return 1; }
 gtk-2.0() { find /lib* /usr* -iname "*libgtk*2*.so*" -type f | grep -q . || return 1; }
 gtk-3.0() { find /lib* /usr* -iname "*libgtk*3*.so*" -type f | grep -q . || return 1; }
 transmission-remote-cli() { __command transmission-remote-cli || __command transmission-remote || return 1; }
-export -f transmission-remote-cli mlocate xfce4 imagemagick fdfind speedtest neovim chromium firefox gtk-2.0 gtk-3.0
+for functions in cron mlocate xfce4 imagemagick fdfind speedtest neovim chromium firefox gtk-2.0 gtk-3.0 transmission-remote-cli; do
+  export -f $functions
+done
 ##################################################################################################
 backupapp() {
   local filename count backupdir rmpre4vbackup

@@ -25,11 +25,21 @@ FUNCFILE="testing.bash"
 CASJAYSDEVDIR="/usr/local/share/CasjaysDev/scripts"
 # Fail if git, curl, wget are not installed
 for check in git curl wget; do
-  if ! command -v "$check" >/dev/null 2>&1; then
+  if ! builtin type -P "$check" >/dev/null 2>&1; then
     echo -e "\n\n\t\t\033[0;31m$check is not installed\033[0m\n"
     exit 1
   fi
 done
+###################### builtins ######################
+__command() {
+  [ "$1" = "-v" ] && shift 1
+  if builtin type ${1:--t} "${2:-$1}" 2>/dev/null | grep -qv alias; then
+    return 0
+  else
+    return 1
+  fi
+}
+export -f __command
 # Versioning Info - __required_version "VersionNumber"
 localVersion="${localVersion:-202103310525-git}"
 requiredVersion="${requiredVersion:-202103310525-git}"
@@ -75,7 +85,7 @@ TMPPATH+="/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:$PATH:."
 PATH="$(echo "$TMPPATH" | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 's#::#:.#g')"
 unset TMPPATH
 # Setup sudo and user
-if [ -n "$DISPLAY" ] && [ -n "$(type ask_for_password 2>/dev/null)" ]; then
+if [ -n "$DISPLAY" ] && [ -n "$(__command ask_for_password 2>/dev/null)" ]; then
   export SUDO_ASKPASS="/usr/local/bin/ask_for_password"
   export SUDO_PROMPT="/usr/local/bin/ask_for_password"
 else
@@ -92,11 +102,6 @@ export RUN_USER="${RUN_USER:-$USER}"
 export USER="${SUDO_USER:-$USER}"
 # TTY Check
 is_tty() { [[ -t 1 || -p /dev/stdout ]]; }
-###################### builtins ######################
-command() {
-  [ "$1" = "-v" ] && shift 1
-  type -P "$1"
-}
 ###################### devnull/logging/error handling ######################
 # send all output to /dev/null
 __devnull() {
@@ -238,8 +243,8 @@ printf_execute_result() {
   return "$1"
 }
 printf_not_found() {
-  if ! [ -n "$(type "$1" 2>/dev/null)" ]; then
-    printf_exit "The $1 command is not installed"
+  if [ -z "$(__command "$1" 2>/dev/null)" ]; then
+    printf_exit "The $1 __command is not installed"
   fi
 }
 printf_execute_error_stream() {
@@ -307,7 +312,7 @@ printf_help() {
   shift
   echo ""
   if [ "${PROG:-$APPNAME}" ]; then
-    printf_color "\t\t$(grep ^"# @Description" "$(command -v "${PROG:-$APPNAME}")" | grep ' : ' | sed 's#..* : ##g' || "${PROG:-$APPNAME}" help)\n" 2
+    printf_color "\t\t$(grep ^"# @Description" "$(__command -v "${PROG:-$APPNAME}")" | grep ' : ' | sed 's#..* : ##g' || "${PROG:-$APPNAME}" help)\n" 2
   fi
   printf_color "\t\t$msg" "${PRINTF_COLOR:-$color}"
   printf "\n\n"
@@ -467,10 +472,10 @@ printf_header() {
 }
 printf_result() {
   PREV="$4"
-  [ ! -z "$1" ] && EXIT="$1" || EXIT="$?"
-  [ ! -z "$2" ] && local OK="$2" || local OK="Command executed successfully"
-  [ ! -z "$3" ] && local FAIL="$3" || local FAIL="${PREV:-The previous command} has failed"
-  [ ! -z "$4" ] && local FAIL="$3" || local FAIL="$3"
+  [ -n "$1" ] && EXIT="$1" || EXIT="$?"
+  [ -n "$2" ] && local OK="$2" || local OK="Command executed successfully"
+  [ -n "$3" ] && local FAIL="$3" || local FAIL="${PREV:-The previous command} has failed"
+  [ -n "$4" ] && local FAIL="$3" || local FAIL="$3"
   if [ "$EXIT" -eq 0 ]; then
     printf_success "$OK"
     return 0
@@ -617,7 +622,7 @@ __system_service_restart() {
 }
 #npm_exists "npmpackage"
 __npm_exists() {
-  [ -n "$(type npm 2>/dev/null)" ] || printf_return "NPM is not installed"
+  __command npm || printf_return "NPM is not installed"
   [ "$1" = "--sudo" ] && local cmdbin="sudo npm" && shift 1 || local cmdbin="npm"
   local package="$1"
   if __devnull2 $cmdbin list -g 2>&1 | grep -q "$package"; then
@@ -629,7 +634,7 @@ __npm_exists() {
 }
 #perl_exists "perlpackage"
 __perl_exists() {
-  [ -n "$(type perl 2>/dev/null)" ] || printf_return "Perl is not installed"
+  __command perl || printf_return "Perl is not installed"
   [ "$1" = "--sudo" ] && local cmdbin="sudo perl" && shift 1 || local cmdbin="perl"
   local package="$1"
   if __devnull $cmdbin -M$package -le 'print $INC{"$package/Version.pm"}' 2>&1; then return 0; else return 1; fi
@@ -637,7 +642,7 @@ __perl_exists() {
 }
 #python_exists "pythonpackage"
 __python_exists() {
-  [ -n "$(type python3 2>/dev/null)" ] || [ -n "$(type python2 2>/dev/null)" ] || [ -n "$(type python 2>/dev/null)" ] || printf_return "Python is not installed"
+  __command python3 || __command python2 || __command python || printf_return "Python is not installed"
   __getpythonver
   [ "$1" = "--sudo" ] && local cmdbin="sudo $PYTHONVER" && shift 1 || local cmdbin="$PYTHONVER"
   local package="$1"
@@ -646,7 +651,7 @@ __python_exists() {
 }
 #gem_exists "gemname"
 __gem_exists() {
-  [ -n "$(type gem 2>/dev/null)" ] || printf_return "Ruby Gem is not installed"
+  __command gem || printf_return "Ruby Gem is not installed"
   [ "$1" = "--sudo" ] && local cmdbin="sudo gem" && shift 1 || local cmdbin="gem"
   local package="$1"
   if $cmdbin list 2>&1 | grep -wq "$package"; then
@@ -658,7 +663,7 @@ __gem_exists() {
 }
 #lua_exists "luaname"
 __lua_exists() {
-  [ -n "$(type luarocks 2>/dev/null)" ] || printf_return "luarocks is not installed"
+  __command luarocks || printf_return "luarocks is not installed"
   [ "$1" = "--sudo" ] && local cmdbin="sudo luarocks" && shift 1 || local cmdbin="luarocks"
   local package="$1"
   if $cmdbin list 2>&1 | grep -wq "$package"; then
@@ -670,7 +675,7 @@ __lua_exists() {
 }
 #go_exists "goname"
 __go_exists() {
-  [ -n "$(type go 2>/dev/null)" ] || printf_return "go is not installed"
+  __command go || printf_return "go is not installed"
   [ "$1" = "--sudo" ] && local cmdbin="sudo go" && shift 1 || local cmdbin="go"
   local package="$1"
   if $cmdbin list -m 2>&1 | grep -wq "$package"; then
@@ -689,7 +694,7 @@ __check_app() {
   export APP="${APPNAME:-$PROG}"
   export NOTIFY_CLIENT_ICON="software"
   export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APP}"
-  for cmd in $ARGS; do [ -n "$(type $cmd 2>/dev/null)" ] || MISSING+="$cmd "; done
+  for cmd in $ARGS; do __command $cmd || MISSING+="$cmd "; done
   if [ -n "$MISSING" ]; then
     notifications "${NOTIFY_CLIENT_NAME:-$APPNAME}" "Missing $MISSING"
     if [ -n "$DESKTOP_SESSION" ]; then
@@ -713,8 +718,8 @@ __check_app() {
 __check_pip() {
   local ARGS="$*"
   local MISSING=""
-  for cmd in $ARGS; do [ -n "$(type $cmd 2>/dev/null)" ] || MISSING+="$cmd "; done
-  if [ ! -z "$MISSING" ]; then
+  for cmd in $ARGS; do type $cmd || MISSING+="$cmd "; done
+  if [ -n "$MISSING" ]; then
     printf_read_question "2" "$1 is not installed Would you like install it? [y/N]" "1" "choice" "-s"
     if printf_answer_yes "$choice"; then
       for miss in $MISSING; do
@@ -728,8 +733,8 @@ __check_pip() {
 #check_cpan "cpanname"
 __check_cpan() {
   local MISSING=""
-  for cmd in "$@"; do [ -n "$(type $cmd 2>/dev/null)" ] || MISSING+="$cmd "; done
-  if [ ! -z "$MISSING" ]; then
+  for cmd in "$@"; do type $cmd || MISSING+="$cmd "; done
+  if [ -n "$MISSING" ]; then
     printf_question "2" "$1 is not installed Would you like install it? [y/N]" "1" "choice" "-s"
     if printf_answer_yes "$choice"; then
       for miss in $MISSING; do
@@ -745,52 +750,45 @@ __require_app() { __check_app "$@" || exit 1; }
 __requires() {
   local ARGS="$*"
   for cmd in $ARGS; do
-    [ -n "$(type cmd 2>/dev/null)" ] || local CMD+="$cmd "
+    type $cmd || local CMD+="$cmd "
   done
   if [ -n "$CMD" ]; then __require_app "$CMD"; fi
   [ "$?" -eq 0 ] && return 0 || exit 1
 }
 ###################### get versions ######################
 __getpythonver() {
-  if [[ "$(python3 -V 2>/dev/null)" =~ "Python 3" ]]; then
+  if __command -P python3; then
     PYTHONVER="python3"
     PIP="pip3"
     PATH="${PATH}:$(python3 -c 'import site; print(site.USER_BASE)')/bin"
-  elif [[ "$(python2 -V 2>/dev/null)" =~ "Python 2" ]]; then
+  elif __command -P python2; then
     PYTHONVER="python2"
     PIP="pip"
     PATH="${PATH}:$(python -c 'import site; print(site.USER_BASE)')/bin"
-  elif [[ "$(python -V 2>/dev/null)" =~ "Python 2" ]]; then
+  elif __command -P python; then
     PYTHONVER="python"
     PIP="pip"
     PATH="${PATH}:$(python -c 'import site; print(site.USER_BASE)')/bin"
   fi
-  if [ -n "$(type -P yay 2>/dev/null)" ] || [ -n "$(type -P pacman 2>/dev/null)" ]; then PYTHONVER="python" && PIP="pip3"; fi
+  if __command -P yay || __command -P pacman; then PYTHONVER="python" && PIP="pip3"; fi
 }
 __getphpver() {
-  if [ -n "$(type php 2>/dev/null)" ]; then
+  if __command php; then
     PHPVER="$(php -v | grep --only-matching --perl-regexp "(PHP )\d+\.\\d+\.\\d+" | cut -c 5-7)"
   else
     PHPVER=""
   fi
   echo $PHPVER
 }
-type_function() {
-  if type -f "$1" 2>/dev/null | grep -q 'is aliased to'; then
-    return 1
-  else
-    return 0
-  fi
-}
 ###################### macos fixes#################
 if [ "$(uname -s)" = Darwin ]; then
-  [ -f "$(command -v gls 2>/dev/null)" ] && lscmd="$(type -P gls)" || lscmd="$(type -P ls)"
+  __command gls && lscmd="$(type -P gls)" || lscmd="$(type -P ls)"
   alias ls='$lscmd'
-  [ -f "$(command -v gdate 2>/dev/null)" ] && datecmd="$(type -P gdate)" || datecmd="$(type -P date)"
-  [ -f "$(command -v greadlink 2>/dev/null)" ] && readlinkcmd="$(type -P greadlink)" || readlinkcmd="$(type -P readlink)"
-  [ -f "$(command -v gbasename 2>/dev/null)" ] && basenamecmd="$(type -P gbasename)" || basenamecmd="$(type -P basename)"
-  [ -f "$(command -v gdircolors 2>/dev/null)" ] && dircolorscmd="$(type -P gdircolors)" || dircolorscmd="$(type -P dircolors)"
-  [ -f "$(command -v grealpath 2>/dev/null)" ] && realpathcmd="$(type -P grealpath)" || realpathcmd="$(type -P realpath)"
+  __command gdate && datecmd="$(type -P gdate)" || datecmd="$(type -P date)"
+  __command greadlink && readlinkcmd="$(type -P greadlink)" || readlinkcmd="$(type -P readlink)"
+  __command gbasename && basenamecmd="$(type -P gbasename)" || basenamecmd="$(type -P basename)"
+  __command gdircolors && dircolorscmd="$(type -P gdircolors)" || dircolorscmd="$(type -P dircolors)"
+  __command grealpath && realpathcmd="$(type -P grealpath)" || realpathcmd="$(type -P realpath)"
   [ -n "$datecmd" ] || date() { $datecmd "$@"; }
   [ -n "$readlinkcmd" ] || readlink() { $readlinkcmd "$@"; }
   [ -n "$basenamecmd" ] || basename() { $basenamecmd "$@"; }
@@ -831,7 +829,7 @@ __get_full_file() { ls -A "$*" 2>/dev/null; }
 __rmcomments() { sed 's/[[:space:]]*#.*//;/^[[:space:]]*$/d'; }
 #countwd file
 __countwd() { cat "$@" | wc -l | __rmcomments; }
-__column() { [ -f "$(command -v column)" ] && column || tee; }
+__column() { __command -v column && column || tee; }
 #getuser "username" "grep options"
 __getuser() { if [ -n "${1:-$USER}" ]; then cut -d: -f1 /etc/passwd | grep "${1:-$USER}" | cut -d: -f1 /etc/passwd | grep "${1:-$USER}" ${2:-}; fi; }
 #getuser_shell "shellname"
@@ -846,15 +844,9 @@ __getuser_cur_shell() {
   local CURSHELL="$(grep "$USER" /etc/passwd | tr ':' '\n' | tail -n1)"
   grep "$USER" /etc/passwd | tr ':' '\n' | grep "${CURSHELL:-$SHELL}"
 }
-#hostname() {
-#  local PATH="/usr/bin:/usr/sbin"
-#  hostnamecli="$(type -P hostname)"
-#  $hostnamecli "$@"
-#  return $?
-#}
 ###################### Apps ######################
 #vim "file"
-vim="$(command -v /usr/local/bin/vim || command -v vim)"
+vim="$(type -P /usr/local/bin/vim || type -P vim)"
 __vim() { $vim "$@"; }
 #mkd dir
 __mkd() {
@@ -862,13 +854,13 @@ __mkd() {
   return 0
 }
 #netcat
-netcat="$(command -v nc 2>/dev/null || command -v netcat 2>/dev/null || return 1)"
-__netcat_test() { [ -n "$(type -P netcat 2>/dev/null)" ] || printf_error "The program netcat is not installed"; }
+netcat="$(type -P nc 2>/dev/null || type -P -v netcat 2>/dev/null || return 1)"
+__netcat_test() { __command netcat || printf_error "The program netcat is not installed"; }
 __netcat_pids() { netstat -tupln 2>/dev/null | grep ":$1" | grep "$(basename ${netcat:-nc})" | awk '{print $7}' | sed 's#'/"$(basename ${netcat:-nc})"'##g' | grep '^'; }
 # kill_netpid "port" "procname"
 __kill_netpid() { netstatg "$1" | grep "$(basename "$2")" | awk '{print $7}' | sed 's#/'$2'##g' && netstat -taupln | grep -qv "$1" || return 1; }
 __netcat_kill() {
-  pidof "$netcat" >/dev/null 2>&1 && kill -s KILL "$(__netcat_pids "$1")" >/dev/null 2>&1
+  pidof "$netcat" &>/dev/null && kill -s KILL "$(__netcat_pids "$1")" &>/dev/null
   netstat -taupln | grep -Fqv ":$1 " || return 1
 }
 #__kill_server "port required" "print success" "print fail" "success message" "failed message"
@@ -886,7 +878,7 @@ __netcat_kill_server() {
 __file_not_empty() { [ -s "$1" ] && return 0 || return 1; }
 __file_is_empty() { [ ! -s "$1" ] && return 0 || return 1; }
 #sed "commands"
-sed="$(command -v gsed 2>/dev/null || command -v sed 2>/dev/null)"
+sed="$(__command -v gsed 2>/dev/null || __command -v sed 2>/dev/null)"
 __sed() { $sed "$@"; }
 #tar "filename dir"
 __tar_create() { tar cfvz "$@"; }
@@ -1080,7 +1072,7 @@ check_uri() {
 #very simple function to ensure connection and jq exists
 __api_test() {
   local message="${*:-}"
-  if am_i_online && [ -n "$(type -P jq 2>/dev/null)" ]; then
+  if am_i_online && __command -P jq; then
     return 0
   else
     if [ -n "$message" ]; then printf_error "$message"; fi
@@ -1152,7 +1144,7 @@ __git_update() {
 #git_commit "dir"
 __git_commit() {
   [ -n "$1" ] && local dir="$1" && shift 1 || local dir="${INSTDIR:-.}"
-  if [ -n "$(type -P gitcommit 2>/dev/null)" ]; then
+  if __command -P gitcommit; then
     if [ -d "$2" ]; then shift 1; fi
     local mess="${*}"
     gitcommit "$dir" "$mess"
@@ -1174,7 +1166,7 @@ __git_commit() {
 #git_init "dir"
 __git_init() {
   [ -n "$1" ] && local dir="$1" && shift 1 || local dir="${APPDIR:-.}"
-  if [ -n "$(type -P gitadmin 2>/dev/null)" ]; then
+  if __command -P gitadmin; then
     if [ -d "$2" ]; then shift 1; fi
     gitadmin "$dir" setup
   else
@@ -1372,7 +1364,7 @@ __custom_menus() {
 __open_file_menus() {
   local prog="$1" && shift 1
   local args="$*" && shift $#
-  if [ -n "$(type $prog 2>/dev/null)" ]; then
+  if __command type $prog; then
     local file="$(dialog --title "Play a file" --stdout --title "Please choose a file or url to play" --fselect "$HOME/" 14 48 || return 1)"
     if [ -f "$file" ] || [ -d "$file" ]; then
       __run_menu_start "$prog" "$file" || __run_menu_failed
@@ -1383,12 +1375,12 @@ __open_file_menus() {
     __attemp_install_menus "$prog" && __run_menu_start "$prog" "$args" || __run_menu_failed
   fi
 }
-#run_command "full command" - terminal apps
+#run___command "full command" - terminal apps
 __run_command() {
   local cmd="$1" && shift 1
   local arg="$*" && shift $#
   clear
-  if [ -n "$(type $cmd 2>/dev/null)" ]; then
+  if __command $cmd; then
     $cmd ${arg:-} 2>/dev/null
   else
     printf_newline "\n\n\n"
@@ -1401,7 +1393,7 @@ __run_prog_menus() {
   local args="$*" && shift $#
   clear
   printf_newline "\n\n\n"
-  if [ -n "$(type $prog 2>/dev/null)" ]; then
+  if __command $prog; then
     __run_menu_start "$prog" "$args" && printf_counter "5" "3" "Launching $prog"
   else
     __attemp_install_menus "$prog" && __run_menu_start "$prog" "$args"
@@ -1412,7 +1404,7 @@ __edit_menu() {
   local EDITOR="$EDITOR"
   [ -f "$1" ] && local file="$1" && shift 1 || local file="$file"
   [ -d "$1" ] && local dir="$1" && shift 1 || local dir="${WDIR:-$HOME}"
-  if [ -n "$(type dialog 2>/dev/null)" ]; then
+  if __command dialog; then
     [ -n "$file" ] || file=$(dialog --title "Play a file" --stdout --title "Please choose a file to edit" --fselect "$dir/" 20 80 || __return 1)
     [ -f "$file" ] && __editor "$file" && __return 0 || __return 1 "Can not open file" "$file does not exists"
   else
@@ -1423,14 +1415,14 @@ __edit_menu() {
 ##################### editor functions ####################
 __editor() {
   local EDITOR="$EDITOR"
-  if [ -n "$(type myeditor 2>/dev/null)" ]; then
+  if __command myeditor; then
     myeditor "$@"
-  elif [ -n "$EDITOR" ] && [ -n "$(type "$EDITOR" 2>/dev/null)" ]; then
+  elif [ -n "$EDITOR" ] && __command -t "$EDITOR"; then
     $EDITOR "$@"
-  elif [ -n "$(type vim 2>/dev/null)" ]; then
+  elif __command vim; then
     local vimoptions="$vimoptions"
     __vim ${vimoptions:-} "$@"
-  elif [ -n "$(type nano 2>/dev/null)" ]; then
+  elif __command nano; then
     local nanooptions="$nanooptions"
     nano ${nanooptions:-} "$@"
   else
@@ -1517,7 +1509,7 @@ __newpasswd() {
 }
 ###################### spinner and execute function ######################
 # show a spinner while executing code or zenity
-# if [ -f "$(command -v zenity 2>/dev/null)" ] && [ -n "$DISPLAY" ] && [ -z "$SSH_TTY" ]; then
+# if __command -v zenity && [ -n "$DISPLAY" ] && [ -z "$SSH_TTY" ]; then
 #   __execute() {
 #     local CMD="$1"
 #     local MSG="$2"
@@ -1624,7 +1616,7 @@ __getexitcode() {
   elif [ -n "$ERROR" ]; then
     local PERROR="$ERROR"
   else
-    local PERROR="Last command failed to complete"
+    local PERROR="Last __command failed to complete"
   fi
   if [ "$EXITCODE" -eq 0 ]; then
     printf_cyan "$PSUCCES"
@@ -1644,15 +1636,15 @@ __return() {
 }
 ###################### OS Functions ######################
 #alternative names
-transmission-remote-cli() { [ -n "$(type transmission-remote-cli 2>/dev/null)" ] || [ -n "$(type transmission-remote 2>/dev/null)" ] || return 1; }
-mlocate() { [ -n "$(type locate 2>/dev/null)" ] || [ -n "$(type mlocate 2>/dev/null)" ] || return 1; }
-xfce4() { [ -n "$(type xfce4-about 2>/dev/null)" ] || return 1; }
-imagemagick() { [ -n "$(type convert 2>/dev/null)" ] || return 1; }
-fdfind() { [ -n "$(type python3 2>/dev/null)" ] || [ -n "$(type fd 2>/dev/null)" ] || return 1; }
-speedtest() { [ -n "$(type fdind 2>/dev/null)" ] || [ -n "$(type speedtest 2>/dev/null)" ] || return 1; }
-neovim() { [ -n "$(type nvim 2>/dev/null)" ] || [ -n "$(type neovim 2>/dev/null)" ] || return 1; }
-chromium() { [ -n "$(type chromium 2>/dev/null)" ] || [ -n "$(type chromium-browser 2>/dev/null)" ] || return 1; }
-firefox() { [ -n "$(type firefox-esr 2>/dev/null)" ] || [ -n "$(type firefox 2>/dev/null)" ] || return 1; }
+transmission-remote-cli() { __command transmission-remote-cli || __command transmission-remote || return 1; }
+mlocate() { __command locate || __command mlocate || return 1; }
+xfce4() { __command xfce4-about || return 1; }
+imagemagick() { __command convert || return 1; }
+fdfind() { __command python3 || __command fd || return 1; }
+speedtest() { __command fdind || __command speedtest || return 1; }
+neovim() { __command nvim || __command neovim || return 1; }
+chromium() { __command chromium || __command chromium-browser || return 1; }
+firefox() { __command firefox-esr || __command firefox || return 1; }
 gtk-2.0() { find /lib* /usr* -iname "*libgtk*2*.so*" -type f | grep -q . || return 0; }
 gtk-3.0() { find /lib* /usr* -iname "*libgtk*3*.so*" -type f | grep -q . || return 0; }
 export -f transmission-remote-cli mlocate xfce4 imagemagick fdfind speedtest neovim chromium firefox gtk-2.0 gtk-3.0
@@ -1688,13 +1680,13 @@ __ask_confirm() {
   __term() { printf_question_term "$1" "$2" || return 1; }
   if [ -n "$DISPLAY" ]; then
     if [ -n "$DESKTOP_SESSION" ]; then
-      if [ -f "$(command -v zenity 2>/dev/null)" ]; then
+      if __command -v zenity; then
         __zenity "$question" "$command" && notify_good "${name:-$appname}" || notify_error "${name:-$appname}"
-      elif [ -f "$(command -v rofi 2>/dev/null)" ]; then
+      elif __command -v rofi; then
         __rofi "$question" "$command" && notify_good "${name:-$appname}" || notify_error "${name:-$appname}"
-      elif [ -f "$(command -v dmenu 2>/dev/null)" ]; then
+      elif __command -v dmenu; then
         __dmenu "$question" "$command" && notify_good "${name:-$appname}" || notify_error "${name:-$appname}"
-      elif [ -f "$(command -v gdialog 2>/dev/null)" ]; then
+      elif __command -v gdialog; then
         __dialog "$question" "$command" && notify_good "${name:-$appname}" || notify_error "${name:-$appname}"
       else
         __term "$question" "$command" && notify_good "${name:-$appname}" || notify_error "${name:-$appname}"
@@ -1709,13 +1701,13 @@ __ask_confirm() {
 }
 #function to get network device
 __getlipaddr() {
-  if [ -n "$(type -P route 2>/dev/null)" ] || [ -n "$(type -P ip 2>/dev/null)" ]; then
+  if __command -P route || __command -P ip; then
     if [[ "$OSTYPE" =~ ^darwin ]]; then
       NETDEV="$(route get default 2>/dev/null | grep interface | awk '{print $2}')"
     else
       NETDEV="$(ip route 2>/dev/null | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//" | awk '{print $1}')"
     fi
-    if [ -n "$(type ipconfig 2>/dev/null)" ]; then
+    if __command ipconfig; then
       CURRIP4="$(/sbin/ifconfig $NETDEV 2>/dev/null | grep -E "venet|inet" | grep -v "127.0.0." | grep 'inet' | grep -v inet6 | awk '{print $2}' | sed s/addr://g | head -n1)"
       CURRIP6="$(/sbin/ifconfig "$NETDEV" 2>/dev/null | grep -E "venet|inet" | grep 'inet6' | grep -i global | awk '{print $2}' | head -n1)"
     else
@@ -1792,16 +1784,16 @@ __if_os_id() {
     local distroname=$(cat /etc/os-release | grep '^ID=' | sed 's#ID=##g' | sed 's#"##g' | tr '[:upper:]' '[:lower:]')
     local distroversion=$(cat /etc/os-release | grep '^VERSION="' | sed 's#VERSION="##g;s#"##g')
     local codename="$(grep VERSION_CODENAME /etc/os-release && cat /etc/os-release | grep ^VERSION_CODENAME | sed 's#VERSION_CODENAME="##g;s#"##g' || true)"
-  elif [ -f "$(command -v lsb_release 2>/dev/null)" ]; then
+  elif __command -v lsb_release; then
     local distroname="$(lsb_release -a 2>/dev/null | grep 'Distributor ID' | awk '{print $3}' | tr '[:upper:]' '[:lower:]' | sed 's#"##g')"
     local distroversion="$(lsb_release -a 2>/dev/null | grep 'Release' | awk '{print $2}')"
-  elif [ -f "$(command -v lsb-release 2>/dev/null)" ]; then
+  elif __command -v lsb-release; then
     local distroname="$(lsb-release -a 2>/dev/null | grep 'Distributor ID' | awk '{print $3}' | tr '[:upper:]' '[:lower:]' | sed 's#"##g')"
     local distroversion="$(lsb-release -a 2>/dev/null | grep 'Release' | awk '{print $2}')"
   elif [ -f "/etc/redhat-release" ]; then
     local distroname=$(cat /etc/redhat-release | awk '{print $1}' | tr '[:upper:]' '[:lower:]' | sed 's#"##g')
     local distroversion=$(cat /etc/redhat-release | awk '{print $4}' | tr '[:upper:]' '[:lower:]' | sed 's#"##g')
-  elif [ -f "$(command -v sw_vers 2>/dev/null)" ]; then
+  elif __command -v sw_vers; then
     local distroname="darwin"
     local distroversion="$(sw_vers -productVersion)"
   else
@@ -2205,7 +2197,7 @@ thememgr_install() {
       if [ -d "$THEMEDIR" ]; then
         find "$THEMEDIR" -mindepth 0 -maxdepth 2 -type f,l,d -not -path "*/.git/*" 2>/dev/null | while read -r THEME; do
           if [ -f "$THEME/index.theme" ]; then
-            [ -n "$(type gtk-update-icon-cache 2>/dev/null)" ] && gtk-update-icon-cache -qf "$THEME"
+            __command gtk-update-icon-cache && gtk-update-icon-cache -qf "$THEME"
           fi
         done
       fi
@@ -2321,7 +2313,7 @@ grep_version() { grep_head ''${1:-Version}'' "${2:-$appname}" | sed_head | sed_h
 ###################### help ######################
 get_desc() {
   local PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/usr/sbin"
-  local appname="$(type -P "${PROG:-$APPNAME}" 2>/dev/null || command -v "${PROG:-$APPNAME}" 2>/dev/null)"
+  local appname="$(type -P "${PROG:-$APPNAME}" 2>/dev/null || __command -v "${PROG:-$APPNAME}" 2>/dev/null)"
   local desc="$(grep_head_remove "Description" "$appname" | head -n1)"
   [ -n "$desc" ] && printf '%s' "$desc" || printf '%s' "$(basename $appname) --help"
 }
@@ -2632,7 +2624,7 @@ run_install_version() {
       if [ -f "$file" ]; then
         printf_green "Information about $app: \n$(bash -c "$file --version" | sed '/^\#/d;/^$/d')"
       fi
-    elif [ -f "$(command -v $app 2>/dev/null)" ]; then
+    elif __command -v $app; then
       printf_green "$(bash -c "$app --version 2>/dev/null" | sed '/^\#/d;/^$/d')"
     else
       echo $USRUPDATEDIR/$app

@@ -21,6 +21,45 @@ HOME="${USER_HOME:-${HOME}}"
 # @Resource      :
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 CASJAYSDEVDIR="/usr/local/share/CasjaysDev/scripts"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Fail if git, curl, wget are not installed
+if __command git; then
+  echo -e "\t\t\033[0;31mAttempting to install git\033[0m"
+  if __command -P brew; then
+    brew install -f git >/dev/null 2>&1
+  elif __command -P apt; then
+    apt install -yy -q git >/dev/null 2>&1
+  elif __command -P pacman; then
+    pacman -S --noconfirm git >/dev/null 2>&1
+  elif __command -P yum; then
+    yum install -yy -q git >/dev/null 2>&1
+  elif __command -P choco; then
+    choco install git -y >/dev/null 2>&1
+    if [ ! -f "$(type -P git 2>/dev/null)" ]; then
+      echo -e "\t\t\033[0;31mGit was not installed\033[0m"
+      exit 1
+    fi
+  else
+    echo -e "\t\t\033[0;31mGit is not installed\033[0m"
+    exit 1
+  fi
+fi
+for check in git curl wget; do
+  if ! builtin type -P "$check" >/dev/null 2>&1; then
+    echo -e "\n\n\t\t\033[0;31m$check is not installed\033[0m\n"
+    exit 1
+  fi
+done
+###################### builtins ######################
+__command() {
+  [ "$1" = "-v" ] && shift 1
+  if builtin type ${1:--t} "${2:-$1}" 2>/dev/null | grep -qv alias; then
+    return 0
+  else
+    return 1
+  fi
+}
+export -f __command
 # Versioning Info - __required_version "VersionNumber"
 localVersion="${localVersion:-202103310525-git}"
 requiredVersion="${requiredVersion:-202103310525-git}"
@@ -36,7 +75,7 @@ TMPPATH+="/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/ga
 export PATH="$(echo "$TMPPATH" | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 's#::#:.#g')"
 unset TMPPATH
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ -n "$DISPLAY" ] && [ -f "$(command -v ask_for_password 2>/dev/null)" ]; then
+if [ -n "$DISPLAY" ] && __command ask_for_password; then
   export SUDO_ASKPASS="/usr/local/bin/ask_for_password"
   export SUDO_PROMPT="/usr/local/bin/ask_for_password"
 else
@@ -64,65 +103,28 @@ else
   export TIMEZONE="America/New_York"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-command() {
-  [ "$1" = "-v" ] && shift 1
-  type -P "$1"
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 sudo_root() {
-  local SUDOBIN="$(command -v sudo)"
+  local SUDOBIN="$(type -P sudo)"
   local SUDOARG="-HE"
   $SUDOBIN $SUDOARG "$@"
 }
 
 sudo_user() {
-  local SUDOBIN="$(command -v sudo)"
+  local SUDOBIN="$(type -P sudo)"
   local SUDOARG="-HE -u $RUN_USER"
   $SUDOBIN $SUDOARG "$@"
 }
 
 sudo_pkmgr() {
-  local PKMGRBIN="$(command -v pkmgr)"
-  local SUDOBIN="$(command -v sudo)"
+  local PKMGRBIN="$(type -P pkmgr)"
+  local SUDOBIN="$(type -P sudo)"
   local SUDOARG="-HE -u $RUN_USER"
   $SUDOBIN $SUDOARG $PKMGRBIN "$@"
 }
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-cmd_exists() {
-  [ -n "$1" ] || return 0
-  local LISTARRAY="$*"
-  local exitCode=0
-  local pkg=""
-  for pkg in $LISTARRAY; do
-    type -P "$pkg" &>/dev/null && exitCode+=0 || exitCode+=1
-  done
-  return $exitCode
-}
 devnull() { "$@" >/dev/null 2>&1; }
 devnull2() { "$@" >/dev/null 2>&1; }
-# fail if git is not installed
-if [ ! -f "$(type -P git 2>/dev/null)" ]; then
-  echo -e "\t\t\033[0;31mAttempting to install git\033[0m"
-  if cmd_exists brew; then
-    brew install -f git >/dev/null 2>&1
-  elif cmd_exists apt; then
-    apt install -yy -q git >/dev/null 2>&1
-  elif cmd_exists pacman; then
-    pacman -S --noconfirm git >/dev/null 2>&1
-  elif cmd_exists yum; then
-    yum install -yy -q git >/dev/null 2>&1
-  elif cmd_exists choco; then
-    choco install git -y >/dev/null 2>&1
-    if [ ! -f "$(type -P git 2>/dev/null)" ]; then
-      echo -e "\t\t\033[0;31mGit was not installed\033[0m"
-      exit 1
-    fi
-  else
-    echo -e "\t\t\033[0;31mGit is not installed\033[0m"
-    exit 1
-  fi
-fi
 ##################################################################################################
 # Set Main Repo for dotfiles
 export GIT_REPO_BRANCH="${GIT_DEFAULT_BRANCH:-main}"
@@ -382,17 +384,20 @@ run_post() {
   set --
 }
 ##################################################################################################
-transmission-remote-cli() { cmd_exists transmission-remote-cli || cmd_exists transmission-remote || return 1; }
-mlocate() { cmd_exists locate || cmd_exists mlocate || return 1; }
-xfce4() { cmd_exists xfce4-about || return 1; }
-imagemagick() { cmd_exists convert || return 1; }
-fdfind() { cmd_exists fdind || cmd_exists fd || return 1; }
-speedtest() { cmd_exists speedtest-cli || cmd_exists speedtest || return 1; }
-neovim() { cmd_exists nvim || cmd_exists neovim || return 1; }
-chromium() { cmd_exists chromium || cmd_exists chromium-browser || return 1; }
-firefox() { cmd_exists firefox-esr || cmd_exists firefox || return 1; }
+###################### OS Functions ######################
+#alternative names
+transmission-remote-cli() { __command transmission-remote-cli || __command transmission-remote || return 1; }
+mlocate() { __command locate || __command mlocate || return 1; }
+xfce4() { __command xfce4-about || return 1; }
+imagemagick() { __command convert || return 1; }
+fdfind() { __command python3 || __command fd || return 1; }
+speedtest() { __command fdind || __command speedtest || return 1; }
+neovim() { __command nvim || __command neovim || return 1; }
+chromium() { __command chromium || __command chromium-browser || return 1; }
+firefox() { __command firefox-esr || __command firefox || return 1; }
 gtk-2.0() { find /lib* /usr* -iname "*libgtk*2*.so*" -type f | grep -q . || return 0; }
 gtk-3.0() { find /lib* /usr* -iname "*libgtk*3*.so*" -type f | grep -q . || return 0; }
+export -f transmission-remote-cli mlocate xfce4 imagemagick fdfind speedtest neovim chromium firefox gtk-2.0 gtk-3.0
 ##################################################################################################
 backupapp() {
   local filename count backupdir rmpre4vbackup
@@ -481,12 +486,12 @@ am_i_online() {
   return $__AM_I_ONLINE
 }
 ##################################################################################################
-cmd_exists() {
+__command() {
   #[ -n "$1" ] || return
   local args="$*"
   local exitCode=0
   for cmd in $args; do
-    command="$(command -v "$cmd" || type -P "$cmd")"
+    command="$(builtin command -v "$cmd" || builtin type -P "$cmd")"
     if [ -n "$command" ]; then
       return 0
     else
@@ -498,7 +503,7 @@ cmd_exists() {
 }
 gem_exists() {
   #[ -n "$1" ] || return
-  cmd_exists gem || return
+  __command gem || return
   local package="$1"
   if gem list | grep -q "$package"; then
     return 0
@@ -508,7 +513,7 @@ gem_exists() {
 }
 perl_exists() {
   #[ -n "$1" ] || return
-  cmd_exists perl || return
+  __command perl || return
   local package="$1"
   if devnull perl -M$package -le 'print $INC{"$package/Version.pm"}' ||
     devnull perl -M$package -le 'print $INC{"$package.pm"}' ||
@@ -520,7 +525,7 @@ perl_exists() {
 }
 pthon_exists() {
   #[ -n "$1" ] || return
-  cmd_exists python || cmd_exists python2 || cmd_exists python3 || return
+  __command python || __command python2 || __command python3 || return
   local package="$1"
   if devnull $PYTHONVER -c "import $package"; then return 0; else return 1; fi
 }
@@ -605,13 +610,13 @@ setexitstatus() {
 }
 ##################################################################################################
 __getip() {
-  if cmd_exists route || cmd_exists ip; then
+  if __command route || __command ip; then
     if [[ "$OSTYPE" =~ ^darwin ]]; then
       NETDEV="$(route get default | grep interface | awk '{print $2}')"
     else
       NETDEV="$(ip route | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//" | awk '{print $1}')"
     fi
-    if cmd_exists ifconfig; then
+    if __command ifconfig; then
       CURRIP4="$(/sbin/ifconfig $NETDEV | grep -E "venet|inet" | grep -v "127.0.0." | grep 'inet' | grep -v inet6 | awk '{print $2}' | sed s/addr://g | head -n1)"
       CURRIP6="$(/sbin/ifconfig "$NETDEV" | grep -E "venet|inet" | grep 'inet6' | grep -i global | awk '{print $2}' | head -n1)"
     else
@@ -636,7 +641,7 @@ __getpythonver() {
     PIP="pip"
     PATH="${PATH}:$(python -c 'import site; print(site.USER_BASE)')/bin"
   fi
-  if cmd_exists yay || cmd_exists pacman; then
+  if __command yay || __command pacman; then
     PYTHONVER="python"
     PIP="pip3"
   fi
@@ -644,7 +649,7 @@ __getpythonver() {
 __getpythonver
 ##################################################################################################
 __getphpver() {
-  if cmd_exists php; then
+  if __command php; then
     PHPVER="$(php -v | grep --only-matching --perl-regexp "(PHP )\d+\.\\d+\.\\d+" | cut -c 5-7)"
   else
     PHPVER=""
@@ -699,7 +704,7 @@ sudoexit() {
 }
 ######################
 requiresudo() {
-  if [ -f "$(command -v sudo 2>/dev/null)" ]; then
+  if __command sudo; then
     if (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null; then
       sudoask
       sudoexit && sudo -HE "$@"
@@ -810,7 +815,7 @@ scripts_check() {
   local choice=""
   export -f __curl
   if am_i_online; then
-    if ! cmd_exists "pkmgr" && [ ! -f "$HOME/.config/local/noscripts" ]; then
+    if ! __command "pkmgr" && [ ! -f "$HOME/.config/local/noscripts" ]; then
       printf_red "Please install my scripts repo - requires root/sudo"
       printf_question_timeout "4" "Would you like to do that now" "1" "choice" "-s"
       if [[ $choice == "y" || $choice == "Y" ]]; then
@@ -826,12 +831,12 @@ scripts_check() {
 ##################################################################################################
 #is_url() { echo "$1" | grep -q http; }
 #strip_url() { echo "$1" | sed 's#git+##g' | awk -F//*/ '{print $2}' | sed 's#.*./##g' | sed 's#python-##g'; }
-cmd_missing() { cmd_exists "$1" && return 0 || MISSING+="$1 " && return 1; }
+cmd_missing() { __command "$1" && return 0 || MISSING+="$1 " && return 1; }
 cpan_missing() { perl_exists "$1" && return 0 || MISSING+="$1" && return 1; }
 gem_missing() { gem_exists "$1" && return 0 || MISSING+="$1 " && return 1; }
 perl_missing() { perl_exists "$1" && return 0 || MISSING+="$(echo perl-$1 | sed 's#::#-#g') " && return 1; }
 pip_missing() { pthon_exists "$1" && return 0 || MISSING+="$1 " && return 1; }
-if cmd_exists pacman; then
+if __command pacman; then
   python_missing() { pthon_exists "$1" && return 0 || MISSING+="python-$1 " && return 1; }
 else
   python_missing() { pthon_exists "$1" && return 0 || MISSING+="$PYTHONVER-$1 " && return 1; }
@@ -906,12 +911,12 @@ install_required() {
     local REQUIRED="$*"
     local MISSING=""
     local cmd=""
-    for cmd in $REQUIRED; do cmd_exists $cmd || MISSING+="$cmd "; done
+    for cmd in $REQUIRED; do __command $cmd || MISSING+="$cmd "; done
     if [ -n "$MISSING" ]; then
-      if cmd_exists "pkmgr"; then
+      if __command "pkmgr"; then
         printf_yellow "Still missing: $MISSING"
         printf_yellow "Installing from package list"
-        if cmd_exists yay; then
+        if __command yay; then
           sudo_pkmgr --enable-aur dotfiles "$APPNAME"
         else
           sudo_pkmgr dotfiles "$APPNAME"
@@ -919,7 +924,7 @@ install_required() {
       fi
     fi
     unset MISSING
-    for cmd in "$@"; do cmd_exists "$cmd" || MISSING+="$cmd "; done
+    for cmd in "$@"; do __command "$cmd" || MISSING+="$cmd "; done
     if [ -n "$MISSING" ]; then
       printf_warning "Can not install the required packages for $APPNAME"
       #if [ -f "$APPDIR/install.sh" ]; then
@@ -938,13 +943,13 @@ install_packages() {
     local REQUIRED="$*"
     local MISSING=""
     local cmd=""
-    if cmd_exists "pkmgr"; then
-      for cmd in $REQUIRED; do cmd_exists "$cmd" || MISSING+="$cmd "; done
+    if __command "pkmgr"; then
+      for cmd in $REQUIRED; do __command "$cmd" || MISSING+="$cmd "; done
       if [ ! -z "$MISSING" ]; then
         printf_warning "Attempting to install missing packages as $RUN_USER"
         printf_warning "$MISSING"
         for miss in $MISSING; do
-          if cmd_exists yay; then
+          if __command yay; then
             execute "sudo_pkmgr --enable-aur silent $miss" "Installing $miss"
           else
             execute "sudo_pkmgr silent $miss" "Installing $miss"
@@ -964,11 +969,11 @@ install_python() {
     local cmd=""
     for cmd in $REQUIRED; do python_missing "$cmd"; done
     if [ ! -z "$MISSING" ]; then
-      if cmd_exists "pkmgr"; then
+      if __command "pkmgr"; then
         printf_warning "Attempting to install missing python packages"
         printf_warning "$MISSING"
         for miss in $MISSING; do
-          if cmd_exists yay; then
+          if __command yay; then
             execute "pkmgr --enable-aur silent $miss" "Installing $miss"
           else
             execute "pkmgr silent $miss" "Installing $miss"
@@ -988,7 +993,7 @@ install_perl() {
     local cmd=""
     for cmd in $REQUIRED; do perl_missing "$cmd"; done
     if [ ! -z "$MISSING" ]; then
-      if cmd_exists "pkmgr"; then
+      if __command "pkmgr"; then
         printf_warning "Attempting to install missing perl packages"
         printf_warning "$MISSING"
         for miss in $MISSING; do
@@ -1006,9 +1011,9 @@ install_pip() {
     local REQUIRED="$*"
     local MISSING=""
     local cmd=""
-    for cmd in $REQUIRED; do cmd_exists $cmd || pip_missing "$cmd"; done
+    for cmd in $REQUIRED; do __command $cmd || pip_missing "$cmd"; done
     if [ ! -z "$MISSING" ]; then
-      if cmd_exists "pkmgr"; then
+      if __command "pkmgr"; then
         printf_warning "Attempting to install missing pip packages"
         printf_warning "$MISSING"
         for miss in $MISSING; do
@@ -1026,9 +1031,9 @@ install_cpan() {
     local REQUIRED="$*"
     local MISSING=""
     local cmd=""
-    for cmd in $REQUIRED; do cmd_exists $cmd || cpan_missing "$cmd"; done
+    for cmd in $REQUIRED; do __command $cmd || cpan_missing "$cmd"; done
     if [ ! -z "$MISSING" ]; then
-      if cmd_exists "pkmgr"; then
+      if __command "pkmgr"; then
         printf_warning "Attempting to install missing cpan packages"
         printf_warning "$MISSING"
         for miss in $MISSING; do
@@ -1046,9 +1051,9 @@ install_gem() {
     local REQUIRED="$*"
     local MISSING=""
     local cmd=""
-    for cmd in $REQUIRED; do cmd_exists $cmd || gem_missing $cmd; done
+    for cmd in $REQUIRED; do __command $cmd || gem_missing $cmd; done
     if [ ! -z "$MISSING" ]; then
-      if cmd_exists "pkmgr"; then
+      if __command "pkmgr"; then
         printf_warning "Attempting to install missing gem packages"
         printf_warning "$MISSING"
         for miss in $MISSING; do
@@ -1184,7 +1189,7 @@ if_os_id() {
     local distroname=$(grep ID_LIKE= /etc/os-release | sed 's#ID_LIKE=##')
   elif [ -f "/etc/redhat-release" ]; then
     local distroname=$(cat /etc/redhat-release)
-  elif [ -f "$(command -v lsb_release)" ]; then
+  elif __command -P lsb_release; then
     local distroname="$(lsb_release -a | grep 'Distributor ID' | awk '{print $3}')"
   else
     local distroname="unknown"
@@ -1460,9 +1465,9 @@ show_optvars() {
   fi
 
   if [ "$1" = "--help" ]; then
-    #    if cmd_exists xdg-open; then
+    #    if __command xdg-open; then
     #      xdg-open "$REPO"
-    #    elif cmd_exists open; then
+    #    elif __command open; then
     #      open "$REPO"
     #    else
     printf_cyan "Go to $REPO for help"
@@ -1579,7 +1584,7 @@ __install_fonts() {
   if [ -d "$INSTDIR/fontconfig" ]; then
     local fontconfdir="$FONTCONF"
     ln_sf "$INSTDIR/fontconfig"/* "$fontconfdir/"
-    cmd_exists fc-cache && fc-cache -f "$FONTCONF"
+    __command fc-cache && fc-cache -f "$FONTCONF"
   fi
   if [ -d "$HOME/Library/Fonts" ]; then
     local fontdir="$HOME/Library/Fonts"
@@ -1589,7 +1594,7 @@ __install_fonts() {
   if [ -d "$INSTDIR/fonts" ]; then
     [ -d "$fontdir/$APPNAME" ] && rm_rf "$fontdir/$APPNAME"
     ln_sf "$INSTDIR/fonts"/* "$fontdir/"
-    cmd_exists fc-cache && fc-cache -f "$FONTDIR"
+    __command fc-cache && fc-cache -f "$FONTDIR"
   fi
 }
 __install_icons() {
@@ -1602,14 +1607,14 @@ __install_icons() {
         ln_sf "$INSTDIR/icons/$f" "$icondir/$f"
         find -L "$ICONDIR" -mindepth 1 -maxdepth 1 -type d | while read -r ICON; do
           if [ -f "$ICON/index.theme" ]; then
-            cmd_exists gtk-update-icon-cache && gtk-update-icon-cache -f -q "$ICON"
+            __command gtk-update-icon-cache && gtk-update-icon-cache -f -q "$ICON"
           fi
         done
       done
     fi
     devnull find "$ICONDIR" -type d -exec chmod 755 {} \;
     devnull find "$ICONDIR" -type f -exec chmod 644 {} \;
-    cmd_exists gtk-update-icon-cache && devnull gtk-update-icon-cache -q -t -f "$ICONDIR"
+    __command gtk-update-icon-cache && devnull gtk-update-icon-cache -q -t -f "$ICONDIR"
   fi
   return 0
 }
@@ -1624,7 +1629,7 @@ __install_theme() {
         ln_sf "$INSTDIR/theme/$f" "$themedir/$APPNAME/$f"
         find -L "$THEMEDIR" -mindepth 1 -maxdepth 2 -type d | while read -r THEME; do
           if [ -f "$THEME/index.theme" ]; then
-            cmd_exists gtk-update-icon-cache && gtk-update-icon-cache -f -q "$THEME"
+            __command gtk-update-icon-cache && gtk-update-icon-cache -f -q "$THEME"
           fi
         done
       done
@@ -1632,7 +1637,7 @@ __install_theme() {
     ln_rm "$THEMEDIR"
     find "$THEMEDIR" -mindepth 1 -maxdepth 2 -type d -not -path "*/.git/*" | while read -r THEME; do
       if [ -f "$THEME/index.theme" ]; then
-        cmd_exists gtk-update-icon-cache && gtk-update-icon-cache -f -q "$THEME"
+        __command gtk-update-icon-cache && gtk-update-icon-cache -f -q "$THEME"
       fi
     done
   fi
@@ -1734,7 +1739,7 @@ dfmgr_install_version() {
 ##################################################################################################
 dockermgr_install() {
   system_installdirs
-  #cmd_exists docker || printf_exit 1 1 "This requires docker, however, docker wasn't found"
+  #__command docker || printf_exit 1 1 "This requires docker, however, docker wasn't found"
   SCRIPTS_PREFIX="dockermgr"
   APPDIR="${APPDAIR:-$SHARE/docker/$APPNAME}"
   INSTDIR="${INSTDIR:-$SHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME}"
@@ -1852,7 +1857,7 @@ iconmgr_install_version() {
 generate_icon_index() {
   iconmgr_install
   ICONDIR="${ICONDIR:-$SHARE/icons}"
-  cmd_exists fc-cache && fc-cache -f "$ICONDIR"
+  __command fc-cache && fc-cache -f "$ICONDIR"
 }
 ##################################################################################################
 pkmgr_install() {
@@ -2093,7 +2098,7 @@ run_postinst_global() {
       fi
       ln_rm "$BIN/"
     fi
-    cmd_exists updatedb && updatedb || return 0
+    __command updatedb && updatedb || return 0
   else
     # Run on everything else
     if [ "$APPDIR" != "$INSTDIR" ]; then

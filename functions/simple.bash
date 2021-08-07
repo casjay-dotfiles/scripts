@@ -25,11 +25,21 @@ FUNCFILE="simple.bash"
 CASJAYSDEVDIR="/usr/local/share/CasjaysDev/scripts"
 # Fail if git, curl, wget are not installed
 for check in git curl wget; do
-  if ! command -v "$check" >/dev/null 2>&1; then
+  if ! builtin type -P "$check" >/dev/null 2>&1; then
     echo -e "\n\n\t\t\033[0;31m$check is not installed\033[0m\n"
     exit 1
   fi
 done
+###################### builtins ######################
+__command() {
+  [ "$1" = "-v" ] && shift 1
+  if builtin type ${1:--t} "${2:-$1}" 2>/dev/null | grep -qv alias; then
+    return 0
+  else
+    return 1
+  fi
+}
+export -f __command
 # Versioning Info - __required_version "VersionNumber"
 localVersion="${localVersion:-202103310525-git}"
 requiredVersion="${requiredVersion:-202103310525-git}"
@@ -75,7 +85,7 @@ TMPPATH+="/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:$PATH:."
 PATH="$(echo "$TMPPATH" | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 's#::#:.#g')"
 unset TMPPATH
 # Setup sudo and user
-if [ -n "$DISPLAY" ] && [ -f "$(command -v ask_for_password 2>/dev/null)" ]; then
+if [ -n "$DISPLAY" ] && __command -v ask_for_password; then
   export SUDO_ASKPASS="/usr/local/bin/ask_for_password"
   export SUDO_PROMPT="/usr/local/bin/ask_for_password"
 else
@@ -92,11 +102,6 @@ export RUN_USER="${RUN_USER:-$USER}"
 export USER="${SUDO_USER:-$USER}"
 # TTY Check
 is_tty() { [[ -t 1 || -p /dev/stdout ]]; }
-###################### builtins ######################
-command() {
-  [ "$1" = "-v" ] && shift 1
-  builtin type -P "$1" 2>/dev/null
-}
 ###################### devnull/logging/error handling ######################
 # send all output to /dev/null
 __devnull() {
@@ -508,13 +513,13 @@ __list_options() {
 }
 ###################### macos fixes#################
 if [ "$(uname -s)" = Darwin ]; then
-  [ -f "$(command -v gls 2>/dev/null)" ] && lscmd="$(type -P gls 2>/dev/null)" || lscmd="$(type -P ls 2>/dev/null)"
+  __command gls && lscmd="$(type -P gls 2>/dev/null)" || lscmd="$(type -P ls 2>/dev/null)"
   alias ls='$lscmd'
-  [ -f "$(command -v gdate 2>/dev/null)" ] && datecmd="$(type -P gdate 2>/dev/null)" || datecmd="$(type -P date 2>/dev/null)"
-  [ -f "$(command -v greadlink 2>/dev/null)" ] && readlinkcmd="$(type -P greadlink 2>/dev/null)" || readlinkcmd="$(type -P readlink 2>/dev/null)"
-  [ -f "$(command -v gbasename 2>/dev/null)" ] && basenamecmd="$(type -P gbasename 2>/dev/null)" || basenamecmd="$(type -P basename 2>/dev/null)"
-  [ -f "$(command -v gdircolors 2>/dev/null)" ] && dircolorscmd="$(type -P gdircolors 2>/dev/null)" || dircolorscmd="$(type -P dircolors 2>/dev/null)"
-  [ -f "$(command -v grealpath 2>/dev/null)" ] && realpathcmd="$(type -P grealpath 2>/dev/null)" || realpathcmd="$(type -P realpath 2>/dev/null)"
+  __command -v gdate && datecmd="$(type -P gdate 2>/dev/null)" || datecmd="$(type -P date 2>/dev/null)"
+  __command -v greadlink && readlinkcmd="$(type -P greadlink 2>/dev/null)" || readlinkcmd="$(type -P readlink 2>/dev/null)"
+  __command -v gbasename && basenamecmd="$(type -P gbasename 2>/dev/null)" || basenamecmd="$(type -P basename 2>/dev/null)"
+  __command -v gdircolors && dircolorscmd="$(type -P gdircolors 2>/dev/null)" || dircolorscmd="$(type -P dircolors 2>/dev/null)"
+  __command -v grealpath && realpathcmd="$(type -P grealpath 2>/dev/null)" || realpathcmd="$(type -P realpath 2>/dev/null)"
   [ -n "$datecmd" ] || date() { $datecmd "$@"; }
   [ -n "$readlinkcmd" ] || readlink() { $readlinkcmd "$@"; }
   [ -n "$basenamecmd" ] || basename() { $basenamecmd "$@"; }
@@ -555,7 +560,7 @@ __get_full_file() { ls -A "$*" 2>/dev/null; }
 __rmcomments() { sed 's/[[:space:]]*#.*//;/^[[:space:]]*$/d'; }
 #countwd file
 __countwd() { cat "$@" | wc -l | __rmcomments; }
-__column() { [ -f "$(command -v column)" ] && column || tee; }
+__column() { __command -v column && column || tee; }
 #getuser "username" "grep options"
 __getuser() { if [ -n "${1:-$USER}" ]; then cut -d: -f1 /etc/passwd | grep "${1:-$USER}" | cut -d: -f1 /etc/passwd | grep "${1:-$USER}" ${2:-}; fi; }
 #getuser_shell "shellname"
@@ -1014,16 +1019,16 @@ __if_os_id() {
     local distroname=$(cat /etc/os-release | grep '^ID=' | sed 's#ID=##g' | sed 's#"##g' | tr '[:upper:]' '[:lower:]')
     local distroversion=$(cat /etc/os-release | grep '^VERSION="' | sed 's#VERSION="##g;s#"##g')
     local codename="$(grep VERSION_CODENAME /etc/os-release && cat /etc/os-release | grep ^VERSION_CODENAME | sed 's#VERSION_CODENAME="##g;s#"##g' || true)"
-  elif [ -f "$(command -v lsb_release 2>/dev/null)" ]; then
+  elif __command -v lsb_release; then
     local distroname="$(lsb_release -a 2>/dev/null | grep 'Distributor ID' | awk '{print $3}' | tr '[:upper:]' '[:lower:]' | sed 's#"##g')"
     local distroversion="$(lsb_release -a 2>/dev/null | grep 'Release' | awk '{print $2}')"
-  elif [ -f "$(command -v lsb-release 2>/dev/null)" ]; then
+  elif __command -v lsb-release; then
     local distroname="$(lsb-release -a 2>/dev/null | grep 'Distributor ID' | awk '{print $3}' | tr '[:upper:]' '[:lower:]' | sed 's#"##g')"
     local distroversion="$(lsb-release -a 2>/dev/null | grep 'Release' | awk '{print $2}')"
   elif [ -f "/etc/redhat-release" ]; then
     local distroname=$(cat /etc/redhat-release | awk '{print $1}' | tr '[:upper:]' '[:lower:]' | sed 's#"##g')
     local distroversion=$(cat /etc/redhat-release | awk '{print $4}' | tr '[:upper:]' '[:lower:]' | sed 's#"##g')
-  elif [ -f "$(command -v sw_vers 2>/dev/null)" ]; then
+  elif __command -v sw_vers; then
     local distroname="darwin"
     local distroversion="$(sw_vers -productVersion)"
   else
@@ -1896,7 +1901,7 @@ run_install_version() {
       if [ -f "$file" ]; then
         printf_green "Information about $app: \n$(bash -c "$file --version" | sed '/^\#/d;/^$/d')"
       fi
-    elif [ -f "$(command -v $app 2>/dev/null)" ]; then
+    elif __command $app; then
       printf_green "$(bash -c "$app --version 2>/dev/null" | sed '/^\#/d;/^$/d')"
     else
       echo $USRUPDATEDIR/$app

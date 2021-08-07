@@ -471,8 +471,9 @@ urlverify() { urlcheck "$1" || urlinvalid "$1"; }
 symlink() { ln_sf "$1" "$2"; }
 rm_link() { unlink "$1"; }
 ##################################################################################################
-__am_i_online() { __command am_i_online || return 1; }
-__cmd_exist() { __command "$1" || return 1; }
+
+am_i_online() { __command -P am_i_online & >/dev/null || return 1; }
+cmd_exist() { __command "$1" &>/dev/null || return 1; }
 ##################################################################################################
 gem_exists() {
   #[ -n "$1" ] || return

@@ -10,7 +10,7 @@ sudo /usr/local/share/CasjaysDev/scripts/install.sh
 ## Automatic update
 
 ```shell
-sudo systemmgr update script
+sudo systemmgr update scripts
 ```
 
 ## Manual install

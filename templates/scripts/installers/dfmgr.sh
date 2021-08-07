@@ -123,7 +123,7 @@ if [ -d "$APPDIR" ]; then
   execute "backupapp $APPDIR $APPNAME" "Backing up $APPDIR"
 fi
 # Main progam
-if __am_i_online; then
+if am_i_online; then
   if [ -d "$INSTDIR/.git" ]; then
     execute "git_update $INSTDIR" "Updating $APPNAME configurations"
   else
@@ -134,7 +134,7 @@ if __am_i_online; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Plugins
-if __am_i_online; then
+if am_i_online; then
   if [ "$PLUGNAMES" != "" ]; then
     if [ -d "$PLUGDIR"/PLUREP/.git ]; then
       execute "git_update $PLUGDIR/PLUGREP" "Updating plugin PLUGNAME"

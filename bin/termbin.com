@@ -41,7 +41,7 @@ user_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 cmd_exists nc || cmd_exists netcat || exit 1
-__am_i_online_err || exit 1
+am_i_online --error || exit 1
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 NETCATCMD="${nc:-nc}"
 TEMPFILE="${TMPDIR:-/tmp}/termbin"

@@ -75,7 +75,7 @@ TMPPATH+="/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:$PATH:."
 PATH="$(echo "$TMPPATH" | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 's#::#:.#g')"
 unset TMPPATH
 # Setup sudo and user
-if [ -n "$DISPLAY" ] && [ -f "$(command -v ask_for_password 2>/dev/null)" ]; then
+if [ -n "$DISPLAY" ] && [ -n "$(type ask_for_password 2>/dev/null)" ]; then
   export SUDO_ASKPASS="/usr/local/bin/ask_for_password"
   export SUDO_PROMPT="/usr/local/bin/ask_for_password"
 else
@@ -238,7 +238,7 @@ printf_execute_result() {
   return "$1"
 }
 printf_not_found() {
-  if ! __cmd_exists "$1"; then
+  if ! [ -n "$(type "$1" 2>/dev/null)" ]; then
     printf_exit "The $1 command is not installed"
   fi
 }
@@ -546,45 +546,7 @@ __list_options() {
   echo "--$LONGOPTS " | sed 's#:##g;s#,# --#g' >>"$OPTSDIR/options"
   return
 }
-###################### MyCurDir ######################
-#mycurrdir "$*" | returns $MyCurDir
-__mycurrdir() {
-  # I'm sure there is a better way to do this
-  if [ -d "$1" ]; then
-    MYCURRDIR="$1"
-    shift 1
-  elif [ "$1" = "-d" ] || [ "$1" = "-dir" ] || [ "$1" = "--dir" ]; then
-    MYCURRDIR="$2"
-    shift 2
-    [ -d "$MYCURRDIR" ] || printf_exit "$MYCURRDIR doesn't seem to be a directory"
-  else
-    MYCURRDIR="$PWD"
-  fi
-  MYCURRDIR="$MYCURRDIR"
-  MYARGS="$*"
-}
 ###################### checks ######################
-#cmd_exists command
-__cmd_exists() {
-  # if [ -f "$(type -P cmd_exists)" ]; then
-  #   cmd_exists "$@"
-  # else
-  [[ "$1" = *-ask ]] && shift 1 && __requires "$@" && return $? || true
-  [ $# -eq 0 ] && return 1
-  local args="$*"
-  local exitTmp=""
-  local exitCode=""
-  for cmd in $args; do
-    if find "$(command -v "$cmd" 2>/dev/null)" >/dev/null 2>&1 || find "$(type -P "$cmd" 2>/dev/null)" >/dev/null 2>&1; then
-      local exitTmp=0
-    else
-      local exitTmp=1
-    fi
-    local exitCode+="$exitTmp"
-  done
-  [ "$exitCode" -eq 0 ] && return 0 || return 1
-  # fi
-}
 #system_service_active "list of services to check"
 __system_service_active() {
   for service in "$@"; do
@@ -655,7 +617,7 @@ __system_service_restart() {
 }
 #npm_exists "npmpackage"
 __npm_exists() {
-  __cmd_exists npm || printf_return "NPM is not installed"
+  [ -n "$(type npm 2>/dev/null)" ] || printf_return "NPM is not installed"
   [ "$1" = "--sudo" ] && local cmdbin="sudo npm" && shift 1 || local cmdbin="npm"
   local package="$1"
   if __devnull2 $cmdbin list -g 2>&1 | grep -q "$package"; then
@@ -667,7 +629,7 @@ __npm_exists() {
 }
 #perl_exists "perlpackage"
 __perl_exists() {
-  __cmd_exists perl || printf_return "Perl is not installed"
+  [ -n "$(type perl 2>/dev/null)" ] || printf_return "Perl is not installed"
   [ "$1" = "--sudo" ] && local cmdbin="sudo perl" && shift 1 || local cmdbin="perl"
   local package="$1"
   if __devnull $cmdbin -M$package -le 'print $INC{"$package/Version.pm"}' 2>&1; then return 0; else return 1; fi
@@ -675,7 +637,7 @@ __perl_exists() {
 }
 #python_exists "pythonpackage"
 __python_exists() {
-  cmd_exists python || cmd_exists python2 || cmd_exists python3 || printf_return "Python is not installed"
+  [ -n "$(type python3 2>/dev/null)" ] || [ -n "$(type python2 2>/dev/null)" ] || [ -n "$(type python 2>/dev/null)" ] || printf_return "Python is not installed"
   __getpythonver
   [ "$1" = "--sudo" ] && local cmdbin="sudo $PYTHONVER" && shift 1 || local cmdbin="$PYTHONVER"
   local package="$1"
@@ -684,7 +646,7 @@ __python_exists() {
 }
 #gem_exists "gemname"
 __gem_exists() {
-  cmd_exists gem || printf_return "Ruby Gem is not installed"
+  [ -n "$(type gem 2>/dev/null)" ] || printf_return "Ruby Gem is not installed"
   [ "$1" = "--sudo" ] && local cmdbin="sudo gem" && shift 1 || local cmdbin="gem"
   local package="$1"
   if $cmdbin list 2>&1 | grep -wq "$package"; then
@@ -696,7 +658,7 @@ __gem_exists() {
 }
 #lua_exists "luaname"
 __lua_exists() {
-  cmd_exists luarocks || printf_return "luarocks is not installed"
+  [ -n "$(type luarocks 2>/dev/null)" ] || printf_return "luarocks is not installed"
   [ "$1" = "--sudo" ] && local cmdbin="sudo luarocks" && shift 1 || local cmdbin="luarocks"
   local package="$1"
   if $cmdbin list 2>&1 | grep -wq "$package"; then
@@ -708,7 +670,7 @@ __lua_exists() {
 }
 #go_exists "goname"
 __go_exists() {
-  cmd_exists go || printf_return "go is not installed"
+  [ -n "$(type go 2>/dev/null)" ] || printf_return "go is not installed"
   [ "$1" = "--sudo" ] && local cmdbin="sudo go" && shift 1 || local cmdbin="go"
   local package="$1"
   if $cmdbin list -m 2>&1 | grep -wq "$package"; then
@@ -727,7 +689,7 @@ __check_app() {
   export APP="${APPNAME:-$PROG}"
   export NOTIFY_CLIENT_ICON="software"
   export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APP}"
-  for cmd in $ARGS; do __cmd_exists "$cmd" || MISSING+="$cmd "; done
+  for cmd in $ARGS; do [ -n "$(type $cmd 2>/dev/null)" ] || MISSING+="$cmd "; done
   if [ -n "$MISSING" ]; then
     notifications "${NOTIFY_CLIENT_NAME:-$APPNAME}" "Missing $MISSING"
     if [ -n "$DESKTOP_SESSION" ]; then
@@ -751,7 +713,7 @@ __check_app() {
 __check_pip() {
   local ARGS="$*"
   local MISSING=""
-  for cmd in $ARGS; do __cmd_exists $cmd || MISSING+="$cmd "; done
+  for cmd in $ARGS; do [ -n "$(type $cmd 2>/dev/null)" ] || MISSING+="$cmd "; done
   if [ ! -z "$MISSING" ]; then
     printf_read_question "2" "$1 is not installed Would you like install it? [y/N]" "1" "choice" "-s"
     if printf_answer_yes "$choice"; then
@@ -766,7 +728,7 @@ __check_pip() {
 #check_cpan "cpanname"
 __check_cpan() {
   local MISSING=""
-  for cmd in "$@"; do __cmd_exists $cmd || MISSING+="$cmd "; done
+  for cmd in "$@"; do [ -n "$(type $cmd 2>/dev/null)" ] || MISSING+="$cmd "; done
   if [ ! -z "$MISSING" ]; then
     printf_question "2" "$1 is not installed Would you like install it? [y/N]" "1" "choice" "-s"
     if printf_answer_yes "$choice"; then
@@ -783,7 +745,7 @@ __require_app() { __check_app "$@" || exit 1; }
 __requires() {
   local ARGS="$*"
   for cmd in $ARGS; do
-    __cmd_exists "$cmd " || local CMD+="$cmd "
+    [ -n "$(type cmd 2>/dev/null)" ] || local CMD+="$cmd "
   done
   if [ -n "$CMD" ]; then __require_app "$CMD"; fi
   [ "$?" -eq 0 ] && return 0 || exit 1
@@ -803,10 +765,10 @@ __getpythonver() {
     PIP="pip"
     PATH="${PATH}:$(python -c 'import site; print(site.USER_BASE)')/bin"
   fi
-  if [ "$(__cmd_exists yay)" ] || [ "$(__cmd_exists pacman)" ]; then PYTHONVER="python" && PIP="pip3"; fi
+  if [ -n "$(type -P yay 2>/dev/null)" ] || [ -n "$(type -P pacman 2>/dev/null)" ]; then PYTHONVER="python" && PIP="pip3"; fi
 }
 __getphpver() {
-  if __cmd_exists php; then
+  if [ -n "$(type php 2>/dev/null)" ]; then
     PHPVER="$(php -v | grep --only-matching --perl-regexp "(PHP )\d+\.\\d+\.\\d+" | cut -c 5-7)"
   else
     PHPVER=""
@@ -901,7 +863,7 @@ __mkd() {
 }
 #netcat
 netcat="$(command -v nc 2>/dev/null || command -v netcat 2>/dev/null || return 1)"
-__netcat_test() { __cmd_exists "$netcat" || printf_error "The program netcat is not installed"; }
+__netcat_test() { [ -n "$(type -P netcat 2>/dev/null)" ] || printf_error "The program netcat is not installed"; }
 __netcat_pids() { netstat -tupln 2>/dev/null | grep ":$1" | grep "$(basename ${netcat:-nc})" | awk '{print $7}' | sed 's#'/"$(basename ${netcat:-nc})"'##g' | grep '^'; }
 # kill_netpid "port" "procname"
 __kill_netpid() { netstatg "$1" | grep "$(basename "$2")" | awk '{print $7}' | sed 's#/'$2'##g' && netstat -taupln | grep -qv "$1" || return 1; }
@@ -1031,7 +993,7 @@ __start() {
 path_info() { echo "$PATH" | tr ':' '\n' | sort -u; }
 ###################### url functions ######################
 __curl() {
-  __am_i_online && curl --disable -LSsfk --connect-timeout 3 --retry 0 --fail "$@" 2>/dev/null || return 1
+  am_i_online && curl --disable -LSsfk --connect-timeout 3 --retry 0 --fail "$@" 2>/dev/null || return 1
 }
 __curl_exit() { EXIT=0 && return 0 || EXIT=1 && return 1; }
 #curl_header "site" "code"
@@ -1118,7 +1080,7 @@ check_uri() {
 #very simple function to ensure connection and jq exists
 __api_test() {
   local message="${*:-}"
-  if __am_i_online && __cmd_exists jq; then
+  if am_i_online && [ -n "$(type -P jq 2>/dev/null)" ]; then
     return 0
   else
     if [ -n "$message" ]; then printf_error "$message"; fi
@@ -1190,7 +1152,7 @@ __git_update() {
 #git_commit "dir"
 __git_commit() {
   [ -n "$1" ] && local dir="$1" && shift 1 || local dir="${INSTDIR:-.}"
-  if __cmd_exists gitcommit; then
+  if [ -n "$(type -P gitcommit 2>/dev/null)" ]; then
     if [ -d "$2" ]; then shift 1; fi
     local mess="${*}"
     gitcommit "$dir" "$mess"
@@ -1212,7 +1174,7 @@ __git_commit() {
 #git_init "dir"
 __git_init() {
   [ -n "$1" ] && local dir="$1" && shift 1 || local dir="${APPDIR:-.}"
-  if __cmd_exists gitadmin; then
+  if [ -n "$(type -P gitadmin 2>/dev/null)" ]; then
     if [ -d "$2" ]; then shift 1; fi
     gitadmin "$dir" setup
   else
@@ -1410,7 +1372,7 @@ __custom_menus() {
 __open_file_menus() {
   local prog="$1" && shift 1
   local args="$*" && shift $#
-  if __cmd_exists "$prog"; then
+  if [ -n "$(type $prog 2>/dev/null)" ]; then
     local file="$(dialog --title "Play a file" --stdout --title "Please choose a file or url to play" --fselect "$HOME/" 14 48 || return 1)"
     if [ -f "$file" ] || [ -d "$file" ]; then
       __run_menu_start "$prog" "$file" || __run_menu_failed
@@ -1426,7 +1388,7 @@ __run_command() {
   local cmd="$1" && shift 1
   local arg="$*" && shift $#
   clear
-  if __cmd_exists $cmd; then
+  if [ -n "$(type $cmd 2>/dev/null)" ]; then
     $cmd ${arg:-} 2>/dev/null
   else
     printf_newline "\n\n\n"
@@ -1439,7 +1401,7 @@ __run_prog_menus() {
   local args="$*" && shift $#
   clear
   printf_newline "\n\n\n"
-  if __cmd_exists "$prog"; then
+  if [ -n "$(type $prog 2>/dev/null)" ]; then
     __run_menu_start "$prog" "$args" && printf_counter "5" "3" "Launching $prog"
   else
     __attemp_install_menus "$prog" && __run_menu_start "$prog" "$args"
@@ -1450,7 +1412,7 @@ __edit_menu() {
   local EDITOR="$EDITOR"
   [ -f "$1" ] && local file="$1" && shift 1 || local file="$file"
   [ -d "$1" ] && local dir="$1" && shift 1 || local dir="${WDIR:-$HOME}"
-  if __cmd_exists dialog; then
+  if [ -n "$(type dialog 2>/dev/null)" ]; then
     [ -n "$file" ] || file=$(dialog --title "Play a file" --stdout --title "Please choose a file to edit" --fselect "$dir/" 20 80 || __return 1)
     [ -f "$file" ] && __editor "$file" && __return 0 || __return 1 "Can not open file" "$file does not exists"
   else
@@ -1461,14 +1423,14 @@ __edit_menu() {
 ##################### editor functions ####################
 __editor() {
   local EDITOR="$EDITOR"
-  if __cmd_exists myeditor; then
+  if [ -n "$(type myeditor 2>/dev/null)" ]; then
     myeditor "$@"
-  elif [ -n "$EDITOR" ]; then
+  elif [ -n "$EDITOR" ] && [ -n "$(type "$EDITOR" 2>/dev/null)" ]; then
     $EDITOR "$@"
-  elif __cmd_exists vim; then
+  elif [ -n "$(type vim 2>/dev/null)" ]; then
     local vimoptions="$vimoptions"
     __vim ${vimoptions:-} "$@"
-  elif __cmd_exists nano; then
+  elif [ -n "$(type nano 2>/dev/null)" ]; then
     local nanooptions="$nanooptions"
     nano ${nanooptions:-} "$@"
   else
@@ -1682,81 +1644,18 @@ __return() {
 }
 ###################### OS Functions ######################
 #alternative names
-transmission-remote-cli() { __cmd_exists transmission-remote-cli || __cmd_exists transmission-remote || return 1; }
-mlocate() { __cmd_exists locate || __cmd_exists mlocate || return 1; }
-xfce4() { __cmd_exists xfce4-about || return 1; }
-imagemagick() { __cmd_exists convert || return 1; }
-fdfind() { __cmd_exists fdind || __cmd_exists fd || return 1; }
-speedtest() { __cmd_exists speedtest-cli || __cmd_exists speedtest || return 1; }
-neovim() { __cmd_exists nvim || __cmd_exists neovim || return 1; }
-chromium() { __cmd_exists chromium || __cmd_exists chromium-browser || return 1; }
-firefox() { __cmd_exists firefox-esr || __cmd_exists firefox || return 1; }
+transmission-remote-cli() { [ -n "$(type transmission-remote-cli 2>/dev/null)" ] || [ -n "$(type transmission-remote 2>/dev/null)" ] || return 1; }
+mlocate() { [ -n "$(type locate 2>/dev/null)" ] || [ -n "$(type mlocate 2>/dev/null)" ] || return 1; }
+xfce4() { [ -n "$(type xfce4-about 2>/dev/null)" ] || return 1; }
+imagemagick() { [ -n "$(type convert 2>/dev/null)" ] || return 1; }
+fdfind() { [ -n "$(type python3 2>/dev/null)" ] || [ -n "$(type fd 2>/dev/null)" ] || return 1; }
+speedtest() { [ -n "$(type fdind 2>/dev/null)" ] || [ -n "$(type speedtest 2>/dev/null)" ] || return 1; }
+neovim() { [ -n "$(type nvim 2>/dev/null)" ] || [ -n "$(type neovim 2>/dev/null)" ] || return 1; }
+chromium() { [ -n "$(type chromium 2>/dev/null)" ] || [ -n "$(type chromium-browser 2>/dev/null)" ] || return 1; }
+firefox() { [ -n "$(type firefox-esr 2>/dev/null)" ] || [ -n "$(type firefox 2>/dev/null)" ] || return 1; }
 gtk-2.0() { find /lib* /usr* -iname "*libgtk*2*.so*" -type f | grep -q . || return 0; }
 gtk-3.0() { find /lib* /usr* -iname "*libgtk*3*.so*" -type f | grep -q . || return 0; }
-#connection test
-__am_i_online() {
-  if [ -f "$(type -P am_i_online)" ]; then
-    am_i_online "$@"
-  else
-    [[ "$1" = *force ]] && return 0
-    [ -n "$FORCE_CONNECTION" ] && return 0
-    local show=no
-    local error=no
-    local console=no
-    local message=""
-    export NOTIFY_CLIENT_ICON=error
-    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$(basename "$0")}"
-    case $1 in
-    *err* | *show)
-      shift 1
-      local showerror=yes
-      local site="${1:-1.1.1.1}"
-      local message="${1:-}"
-      ;;
-    *console)
-      shift 1
-      local console="yes"
-      local site="${1:-1.1.1.1}"
-      ;;
-    *)
-      local site="${1:-1.1.1.1}"
-      ;;
-    esac
-    shift
-    test_ping() {
-      timeout 2 ping -c1 "$site" &>/dev/null
-      local pingExit=$?
-    }
-    test_http() {
-      timeout 2 curl --disable -LSIs --max-time 1 "$site" | grep -e "HTTP/[0123456789]" | grep "200" -n1 &>/dev/null
-      local httpExit=$?
-    }
-    test_ping || test_http
-    if [ "$pingExit" = 0 ] || [ "$httpExit" = 0 ]; then
-      [ "$console" = "yes" ] && printf_green "you seem to be connected to the internet"
-      local exitCode=0
-    else
-      if [ "$console" = "yes" ]; then
-        printf_red "you appear to be offline" >&2
-      fi
-      if [ -n "$message" ]; then
-        local showerror=no
-        printf_return 1 1 "$message"
-        if [ -z "$NOTIFY_DISABLED" ]; then
-          notifications "${NOTIFY_CLIENT_NAME:-$APPNAME}" "$message"
-        fi
-      elif [ "$showerror" = "yes" ]; then
-        notifications "${NOTIFY_CLIENT_NAME:-$APPNAME}" "Error: internet appears to be down and I require a working connection"
-        printf_red "you appear to not be connected to the internet" >&2
-      fi
-      exitCode=1
-    fi
-    return $exitCode
-  fi
-}
-#am_i_online_err "Message"
-__am_i_online_err() { __am_i_online --error "$@"; }
-# ask question and execute
+export -f transmission-remote-cli mlocate xfce4 imagemagick fdfind speedtest neovim chromium firefox gtk-2.0 gtk-3.0
 __ask_confirm() {
   local appname="${PROG:-$APPNAME}"
   local question="${1:-Would you like to proceed?}"
@@ -1810,13 +1709,13 @@ __ask_confirm() {
 }
 #function to get network device
 __getlipaddr() {
-  if __cmd_exists route || __cmd_exists ip; then
+  if [ -n "$(type -P route 2>/dev/null)" ] || [ -n "$(type -P ip 2>/dev/null)" ]; then
     if [[ "$OSTYPE" =~ ^darwin ]]; then
       NETDEV="$(route get default 2>/dev/null | grep interface | awk '{print $2}')"
     else
       NETDEV="$(ip route 2>/dev/null | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//" | awk '{print $1}')"
     fi
-    if __cmd_exists ifconfig; then
+    if [ -n "$(type ipconfig 2>/dev/null)" ]; then
       CURRIP4="$(/sbin/ifconfig $NETDEV 2>/dev/null | grep -E "venet|inet" | grep -v "127.0.0." | grep 'inet' | grep -v inet6 | awk '{print $2}' | sed s/addr://g | head -n1)"
       CURRIP6="$(/sbin/ifconfig "$NETDEV" 2>/dev/null | grep -E "venet|inet" | grep 'inet6' | grep -i global | awk '{print $2}' | head -n1)"
     else
@@ -2306,7 +2205,7 @@ thememgr_install() {
       if [ -d "$THEMEDIR" ]; then
         find "$THEMEDIR" -mindepth 0 -maxdepth 2 -type f,l,d -not -path "*/.git/*" 2>/dev/null | while read -r THEME; do
           if [ -f "$THEME/index.theme" ]; then
-            __cmd_exists gtk-update-icon-cache && gtk-update-icon-cache -qf "$THEME"
+            [ -n "$(type gtk-update-icon-cache 2>/dev/null)" ] && gtk-update-icon-cache -qf "$THEME"
           fi
         done
       fi

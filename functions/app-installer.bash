@@ -294,7 +294,7 @@ ask_question() {
   read -re -n 1 "REPLY"
 }
 ##################################################################################################
-__curl() { __am_i_online && curl -q -LSs --connect-timeout 3 --retry 0 "$@"; }
+__curl() { am_i_online && curl -q -LSs --connect-timeout 3 --retry 0 "$@"; }
 __start() {
   sleep .2 && "$@" &>/dev/null &
   disown
@@ -460,7 +460,7 @@ urlverify() { urlcheck "$1" || urlinvalid "$1"; }
 symlink() { ln_sf "$1" "$2"; }
 rm_link() { unlink "$1"; }
 ##################################################################################################
-__am_i_online() {
+am_i_online() {
   site="1.1.1.1"
   test_ping() {
     timeout 2 ping -c2 $site &>/dev/null
@@ -809,7 +809,7 @@ scripts_check() {
   mkdir -p "$HOME/.config/local"
   local choice=""
   export -f __curl
-  if __am_i_online; then
+  if am_i_online; then
     if ! cmd_exists "pkmgr" && [ ! -f "$HOME/.config/local/noscripts" ]; then
       printf_red "Please install my scripts repo - requires root/sudo"
       printf_question_timeout "4" "Would you like to do that now" "1" "choice" "-s"
@@ -838,7 +838,7 @@ else
 fi
 ##################################################################################################
 git_clone() {
-  if __am_i_online; then
+  if am_i_online; then
     local repo="$1"
     local myappdir="${2:-$INSTDIR}"
     if [ ! -d "$myappdir/.git" ]; then
@@ -851,7 +851,7 @@ git_clone() {
 git_update() {
   local myappdir="${1:-$INSTDIR}"
   local exitCode=""
-  if __am_i_online; then
+  if am_i_online; then
     local repo="$(git remote -v | grep fetch | head -n 1 | awk '{print $2}')"
     devnull git -C "$myappdir" reset --hard &&
       devnull git -C "$myappdir" pull --recurse-submodules -fq &&
@@ -888,7 +888,7 @@ dotfilesreq() {
 }
 
 dotfilesreqadmin() {
-  __am_i_online || return 1
+  am_i_online || return 1
   local confdir="$SYSUPDATEDIR"
   declare -a LISTARRAY="$*"
   for conf in ${LISTARRAY[*]}; do
@@ -902,7 +902,7 @@ dotfilesreqadmin() {
 ##################################################################################################
 install_required() {
   #[ -n "$1" ] || return
-  if __am_i_online; then
+  if am_i_online; then
     local REQUIRED="$*"
     local MISSING=""
     local cmd=""
@@ -934,7 +934,7 @@ install_required() {
 ##################################################################################################
 install_packages() {
   #[ -n "$1" ] || return
-  if __am_i_online; then
+  if am_i_online; then
     local REQUIRED="$*"
     local MISSING=""
     local cmd=""
@@ -958,7 +958,7 @@ install_packages() {
 ##################################################################################################
 install_python() {
   #[ -n "$1" ] || return
-  if __am_i_online; then
+  if am_i_online; then
     local REQUIRED="$*"
     local MISSING=""
     local cmd=""
@@ -982,7 +982,7 @@ install_python() {
 ##################################################################################################
 install_perl() {
   #[ -n "$1" ] || return
-  if __am_i_online; then
+  if am_i_online; then
     local REQUIRED="$*"
     local MISSING=""
     local cmd=""
@@ -1002,7 +1002,7 @@ install_perl() {
 ##################################################################################################
 install_pip() {
   #[ -n "$1" ] || return
-  if __am_i_online; then
+  if am_i_online; then
     local REQUIRED="$*"
     local MISSING=""
     local cmd=""
@@ -1022,7 +1022,7 @@ install_pip() {
 ##################################################################################################
 install_cpan() {
   #[ -n "$1" ] || return
-  if __am_i_online; then
+  if am_i_online; then
     local REQUIRED="$*"
     local MISSING=""
     local cmd=""
@@ -1042,7 +1042,7 @@ install_cpan() {
 ##################################################################################################
 install_gem() {
   #[ -n "$1" ] || return
-  if __am_i_online; then
+  if am_i_online; then
     local REQUIRED="$*"
     local MISSING=""
     local cmd=""

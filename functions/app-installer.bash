@@ -408,8 +408,8 @@ fortune() { __command fortune || __command fortune-mod || return 1; }
 mlocate() { __command locate || __command mlocate || return 1; }
 xfce4() { __command xfce4-about || return 1; }
 imagemagick() { __command convert || return 1; }
-fdfind() { __command python3 || __command fd || return 1; }
-speedtest() { __command fdind || __command speedtest || return 1; }
+fdfind() { __command fdfind || __command fd || return 1; }
+speedtest() { __command speedtest-cli || __command speedtest || return 1; }
 neovim() { __command nvim || __command neovim || return 1; }
 chromium() { __command chromium || __command chromium-browser || return 1; }
 firefox() { __command firefox-esr || __command firefox || return 1; }

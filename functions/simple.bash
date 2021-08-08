@@ -966,7 +966,7 @@ __backupapp() {
 ###################### menu functions ######################
 ##################### sudo functions ####################
 sudoif() { (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null && return 0 || return 1; }
-sudorun() { if sudoif; then sudo -A -HE "$@"; else "$@"; fi; }
+sudorun() { if sudoif; then sudo -HE "$@"; else "$@"; fi; }
 user_is_root() { [[ $(id -u) -eq 0 ]] || [[ "$EUID" -eq 0 ]] || [[ "$WHOAMI" = "root" ]] || return 1; }
 ###################### OS Functions ######################
 #function to get network device

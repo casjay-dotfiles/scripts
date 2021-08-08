@@ -130,7 +130,7 @@ unset TMPPATH
 if [ -n "$DISPLAY" ] && __command ask_for_password; then
   unalias sudo &>/dev/null
   unset -f sudo &>/dev/null
-  sudo() { command sudo -A $*; }
+  sudo() { builtin command sudo -A $*; }
 else
   export SUDO_ASKPASS="${SUDO_ASKPASS:-}"
   export SUDO_PROMPT="$(printf "\n\t\t\033[1;31m")[sudo]$(printf "\033[1;36m") password for $(printf "\033[1;32m")%p: $(printf "\033[0m" && echo)"

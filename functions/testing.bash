@@ -1516,7 +1516,6 @@ sudoreq() {
 __can_i_sudo() { __sudo_group "${1:-$USER}" || sudoif; }
 __sudoask() {
   if [ ! -f "$HOME/.sudo" ]; then
-    sudo -A true
     sudo -HE true &>/dev/null && return 0 || return 1
     while true; do
       echo "$$" >"$HOME/.sudo"

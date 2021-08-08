@@ -90,14 +90,14 @@ TMPPATH+="/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:$PATH:."
 PATH="$(echo "$TMPPATH" | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 's#::#:.#g')"
 unset TMPPATH
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ -n "$DISPLAY" ] && __command ask_for_password; then
-  unalias sudo &>/dev/null
-  unset -f sudo &>/dev/null
-  sudo() { builtin command sudo -A $*; }
-else
-  export SUDO_ASKPASS="${SUDO_ASKPASS:-}"
-  export SUDO_PROMPT="$(printf "\n\t\t\033[1;31m")[sudo]$(printf "\033[1;36m") password for $(printf "\033[1;32m")%p: $(printf "\033[0m" && echo)"
-fi
+# if [ -n "$DISPLAY" ] && __command ask_for_password; then
+#   unalias sudo &>/dev/null
+#   unset -f sudo &>/dev/null
+#   sudo() { builtin command sudo  $*; }
+# else
+#   export SUDO_ASKPASS="${SUDO_ASKPASS:-}"
+#   export SUDO_PROMPT="$(printf "\n\t\t\033[1;31m")[sudo]$(printf "\033[1;36m") password for $(printf "\033[1;32m")%p: $(printf "\033[0m" && echo)"
+# fi
 if [ -n "$SUDO_USER" ]; then
   RUN_USER=${RUN_USER:-$SUDO_USER}
 else

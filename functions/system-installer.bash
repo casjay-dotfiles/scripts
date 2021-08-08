@@ -4,14 +4,14 @@ export PATH="$(echo $PATH | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 
 
 set -o pipefail
 #trap '' err exit SIGINT SIGTERM
-if [ -n "$DISPLAY" ] && [ -f "$(command -v ask_for_password 2>/dev/null)" ]; then
-  unalias sudo &>/dev/null
-  unset -f sudo &>/dev/null
-  sudo() { builtin command sudo -A $*; }
-else
-  export SUDO_ASKPASS="${SUDO_ASKPASS:-}"
-  export SUDO_PROMPT="$(printf "\n\t\t\033[1;31m")[sudo]$(printf "\033[1;36m") password for $(printf "\033[1;32m")%p: $(printf "\033[0m" && echo)"
-fi
+# if [ -n "$DISPLAY" ] && [ -f "$(command -v ask_for_password 2>/dev/null)" ]; then
+#   unalias sudo &>/dev/null
+#   unset -f sudo &>/dev/null
+#   sudo() { builtin command sudo $*; }
+# else
+#   export SUDO_ASKPASS="${SUDO_ASKPASS:-}"
+#   export SUDO_PROMPT="$(printf "\n\t\t\033[1;31m")[sudo]$(printf "\033[1;36m") password for $(printf "\033[1;32m")%p: $(printf "\033[0m" && echo)"
+# fi
 export USER="$USER"
 export WHOAMI="${USER}"
 export RUN_USER="${RUN_USER:-$USER}"

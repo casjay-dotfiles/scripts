@@ -120,11 +120,11 @@ TMPPATH+="/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:$PATH:."
 PATH="$(echo "$TMPPATH" | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 's#::#:.#g')"
 unset TMPPATH
 # Setup sudo and user
-if [ -n "$DISPLAY" ] && __command -v ask_for_password; then
-  unalias sudo &>/dev/null
-  unset -f sudo &>/dev/null
-  sudo() { builtin command sudo -A $*; }
-fi
+# if [ -n "$DISPLAY" ] && __command -v ask_for_password; then
+#   unalias sudo &>/dev/null
+#   unset -f sudo &>/dev/null
+#   sudo() { builtin command sudo -A $*; }
+# fi
 if [ -n "$SUDO_USER" ]; then
   RUN_USER=${RUN_USER:-$SUDO_USER}
 else

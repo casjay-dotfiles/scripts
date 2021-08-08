@@ -30,17 +30,18 @@ _GEN_SCRIPT_REPLACE_FILENAME() {
   local ARRAY=""
 
   _init_completion || return
+  
   if [ "$SHOW_COMP_OPTS" != "" ]; then
     local SHOW_COMP_OPTS_SEP="$(echo "$SHOW_COMP_OPTS" | tr ',' ' ')"
     compopt -o $SHOW_COMP_OPTS_SEP
   fi
+  
   case ${COMP_WORDS[1]:-$prev} in
   -) COMPREPLY=($(compgen -W '${SHORTOPTS} ${LONGOPTS}' -- ${cur})) && prev="-" ;;
   --options) COMPREPLY=($(compgen -W '' -- "${cur}")) && prev="--options" ;;
   -c | --config) COMPREPLY=($(compgen -W '' -- "${cur}")) && prev="--config" ;;
   -h | --help) COMPREPLY=($(compgen -W '' -- "${cur}")) && prev="--help" ;;
   -v | --version) COMPREPLY=($(compgen -W '' -- "${cur}")) && prev="--version" ;;
-  -l | --list) COMPREPLY=($(compgen -W '' -- "${cur}")) && prev="--list" ;;
   *)
     if [ -n "$FILEDIR" ]; then _filedir; fi
     if [[ "$ARRAY" = "show-none" ]]; then

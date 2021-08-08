@@ -121,11 +121,9 @@ PATH="$(echo "$TMPPATH" | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 's
 unset TMPPATH
 # Setup sudo and user
 if [ -n "$DISPLAY" ] && __command -v ask_for_password; then
-  export SUDO_ASKPASS="/usr/local/bin/ask_for_password"
-  export SUDO_PROMPT="/usr/local/bin/ask_for_password"
-else
-  export SUDO_ASKPASS="${SUDO_ASKPASS:-}"
-  export SUDO_PROMPT="$(printf "\n\t\t\033[1;31m")[sudo]$(printf "\033[1;36m") password for $(printf "\033[1;32m")%p: $(printf "\033[0m" && echo)"
+  unalias sudo &>/dev/null
+  unset -f sudo &>/dev/null
+  sudo() { builtin command sudo -A $*; }
 fi
 if [ -n "$SUDO_USER" ]; then
   RUN_USER=${RUN_USER:-$SUDO_USER}

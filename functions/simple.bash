@@ -24,7 +24,6 @@ FUNCFILE="simple.bash"
 # Main scripts location
 CASJAYSDEVDIR="/usr/local/share/CasjaysDev/scripts"
 # Fail if git, curl, wget are not installed
-# Fail if git, curl, wget are not installed
 if ! type -P git &>/dev/null; then
   echo -e "\t\t\033[0;31mAttempting to install git\033[0m"
   if __command -P brew &>/dev/null; then
@@ -46,6 +45,13 @@ if ! type -P git &>/dev/null; then
     exit 1
   fi
 fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+getopt() { builtin command getopt; }
+builtin type -p am_i_online &>/dev/null || am_i_online() { am_i_online || true; }
+builtin type -p __am_i_online &>/dev/null || __am_i_online() { am_i_online || true; }
+cmd_exist() { __command "$1" &>/dev/null || return 1; }
+__cmd_exist() { __command "$1" &>/dev/null || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 for check in git curl wget; do
   if ! builtin type -P "$check" &>/dev/null; then
     echo -e "\n\n\t\t\033[0;31m$check is not installed\033[0m\n"
@@ -56,12 +62,12 @@ done
 __command() {
   [ "$1" = "-v" ] && shift 1
   if [ $# -ne 1 ]; then
-    if builtin type "$@" 2>/dev/null | grep -v alias | head -n1 | awk '{print $1}' | grep '^'; then
+    if builtin type $* 2>/dev/null | grep -v alias | head -n1 | awk '{print $1}' | grep '^'; then
       return 0
     else
       return 1
     fi
-  elif builtin type "$*" 2>/dev/null | grep -v alias | head -n1 | awk '{print $1}' | grep -q '^'; then
+  elif builtin type $* 2>/dev/null | grep -v alias | head -n1 | awk '{print $1}' | grep -q '^'; then
     return 0
   else
     return 1
@@ -106,7 +112,8 @@ TMP="${TMP:-/tmp}"
 TEMP="${TMP:-/tmp}"
 TMPDIR="${TMP:-/tmp}"
 # Setup path
-TMPPATH="$HOME/.local/share/bash/basher/cellar/bin:$HOME/.local/share/bash/basher/bin:"
+TMPPATH="/usr/local/opt/gnu-getopt/bin:"
+TMPPATH+="$HOME/.local/share/bash/basher/cellar/bin:$HOME/.local/share/bash/basher/bin:"
 TMPPATH+="$HOME/.local/bin:$HOME/.cargo/bin:$HOME/.local/share/gem/bin:/usr/local/bin:"
 TMPPATH+="/usr/local/share/CasjaysDev/scripts/bin:/usr/local/sbin:/usr/sbin:"
 TMPPATH+="/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:$PATH:."

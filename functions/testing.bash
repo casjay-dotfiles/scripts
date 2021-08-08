@@ -1488,7 +1488,7 @@ __editor() {
   return $?
 }
 ##################### sudo functions ####################
-__sudo() { sudo -HE -A $* && return 0 || return 1; }
+__sudo() { sudo -HE $* && return 0 || return 1; }
 __sudo_group() { grep "${1:-$USER}" /etc/group | grep -Eq 'wheel|adm|sudo' || return 1; }
 sudoif() { (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null && return 0 || return 1; }
 sudorun() { if sudoif; then sudo -HE "$@"; else "$@"; fi; }

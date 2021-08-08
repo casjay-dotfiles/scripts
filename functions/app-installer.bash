@@ -67,6 +67,7 @@ __command() {
 }
 export -f __command
 ##################################################################################################
+getopt() { builtin command getopt; }
 builtin type -p am_i_online &>/dev/null || am_i_online() { am_i_online || true; }
 builtin type -p __am_i_online &>/dev/null || __am_i_online() { am_i_online || true; }
 cmd_exist() { __command "$1" &>/dev/null || return 1; }
@@ -81,10 +82,12 @@ else
   currentVersion="${currentVersion:-$localVersion}"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-TMPPATH="$HOME/.local/share/bash/basher/cellar/bin:$HOME/.local/share/bash/basher/bin:"
+TMPPATH="/usr/local/opt/gnu-getopt/bin:"
+TMPPATH+="$HOME/.local/share/bash/basher/cellar/bin:$HOME/.local/share/bash/basher/bin:"
 TMPPATH+="$HOME/.local/bin:$HOME/.cargo/bin:$HOME/.local/share/gem/bin:/usr/local/bin:"
-TMPPATH+="/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:$PATH:."
-export PATH="$(echo "$TMPPATH" | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 's#::#:.#g')"
+TMPPATH+="/usr/local/share/CasjaysDev/scripts/bin:/usr/local/sbin:/usr/sbin:"
+TMPPATH+="/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:$PATH:."
+PATH="$(echo "$TMPPATH" | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 's#::#:.#g')"
 unset TMPPATH
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -n "$DISPLAY" ] && __command ask_for_password; then

@@ -47,8 +47,8 @@ if ! type -P git &>/dev/null; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #getopt() { builtin command getopt; }
-builtin type -p am_i_online &>/dev/null || am_i_online() { am_i_online || true; }
-builtin type -p __am_i_online &>/dev/null || __am_i_online() { am_i_online || true; }
+builtin type -p am_i_online &>/dev/null || am_i_online() { builtin command am_i_online || true; }
+builtin type -p __am_i_online &>/dev/null || __am_i_online() { builtin command am_i_online || true; }
 cmd_exist() { __command "$1" &>/dev/null || return 1; }
 __cmd_exist() { __command "$1" &>/dev/null || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

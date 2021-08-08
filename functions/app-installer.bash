@@ -68,8 +68,8 @@ __command() {
 export -f __command
 ##################################################################################################
 #getopt() { builtin command getopt; }
-builtin type -p am_i_online &>/dev/null || am_i_online() { am_i_online || true; }
-builtin type -p __am_i_online &>/dev/null || __am_i_online() { am_i_online || true; }
+builtin type -p am_i_online &>/dev/null || am_i_online() { builtin command am_i_online || true; }
+builtin type -p __am_i_online &>/dev/null || __am_i_online() { builtin command am_i_online || true; }
 cmd_exist() { __command "$1" &>/dev/null || return 1; }
 __cmd_exist() { __command "$1" &>/dev/null || return 1; }
 ##################################################################################################
@@ -126,14 +126,14 @@ sudo_root() {
 
 sudo_user() {
   local SUDOBIN="$(type -P sudo)"
-  local SUDOARG="-HE -u $RUN_USER"
+  local SUDOARG="-HE -u ${RUN_USER:-$USER}"
   $SUDOBIN $SUDOARG "$@"
 }
 
 sudo_pkmgr() {
   local PKMGRBIN="$(type -P pkmgr)"
   local SUDOBIN="$(type -P sudo)"
-  local SUDOARG="-HE -u $RUN_USER"
+  local SUDOARG="-HE -u ${RUN_USER:-$USER}"
   $SUDOBIN $SUDOARG $PKMGRBIN "$@"
 }
 
@@ -414,7 +414,7 @@ gtk-2.0() { find /lib* /usr* -iname "*libgtk*2*.so*" -type f | grep -q . || retu
 gtk-3.0() { find /lib* /usr* -iname "*libgtk*3*.so*" -type f | grep -q . || return 1; }
 transmission-remote-cli() { __command transmission-remote-cli || __command transmission-remote || return 1; }
 for functions in cron mlocate xfce4 imagemagick fdfind speedtest neovim chromium firefox gtk-2.0 gtk-3.0 transmission-remote-cli; do
-  export -f $functions
+  export -f functions
 done
 ##################################################################################################
 backupapp() {
@@ -1242,7 +1242,7 @@ user_installdirs() {
     SYSUPDATEDIR="$SYSSHARE/CasjaysDev/apps/${SCRIPTS_PREFIX:-dfmgr}"
   else
     INSTALL_TYPE=user
-    HOME="${HOME}"
+    HOME="${HOME:-/tmp/$USER}"
     BIN="$HOME/.local/bin"
     CONF="$HOME/.config"
     SHARE="$HOME/.local/share"

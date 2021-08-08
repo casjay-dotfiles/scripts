@@ -663,7 +663,6 @@ can_i_sudo() {
 ######################
 sudoask() {
   if [ ! -f "$HOME/.sudo" ]; then
-    sudo -A true 2>/dev/null
     while true; do
       echo -e "$!" >"$HOME/.sudo"
       sudo -n true && echo -e "$$" >>"$HOME/.sudo"

@@ -1,20 +1,22 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0")"
+VERSION="202108080330-git"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #set opts
+trap 'exitCode=${exitCode:-$?};[ -f "$GEN_README_TEMP_FILE" ] && rm -Rf "$GEN_README_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202103200737-git
+##@Version       : 202108080330-git
 # @Author        : Jason Hempstead
 # @Contact       : jason@casjaysdev.com
 # @License       : WTFPL
 # @ReadME        : gen-readme --help
 # @Copyright     : Copyright: (c) 2021 Jason Hempstead, CasjaysDev
-# @Created       : Saturday, Mar 20, 2021 07:37 EDT
+# @Created       : Sunday, Aug 08, 2021 03:30 EDT
 # @File          : gen-readme
 # @Description   : Create a readme from template
 # @TODO          :
@@ -40,35 +42,64 @@ fi
 user_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# I'm sure there is a better way to do this
-if [ -d "$1" ]; then
-  curDir="$1"
-  shift 1
-elif [ "$1" = "-d" ] || [ "$1" = "-dir" ] || [ "$1" = "--dir" ]; then
-  curDir="$2"
-  shift 2
-  [ -d "$curDir" ] || printf_exit "$curDir doesn't seem to be a directory"
-else
-  curDir="$PWD"
-fi
-if [ "$curDir" = "." ]; then curDir="$(__basedir ".")"; fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-[ -f "$HOME/.config/myscripts/myscripts/gen-readme/settings.conf" ] &&
-  . "$HOME/.config/myscripts/gen-readme/settings.conf"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-readmeDir="${readmeDir:-$HOME/.config/myscripts/gen-readme/files}"
-readmeDefault="${readmeDefault:-default.md}"
-readmeRepo="${readmeRepo:-https://github.com/devenvmgr/readmes}"
-gitconfig_user="${gitconfig_user:-$(__git_globaluser)}"
-gitconfig_email="${gitconfig_email:-$(__git_globalemail)}"
+__gen_config() {
+  printf_green "Generating the config file in"
+  printf_green "$GEN_README_CONFIG_DIR/$GEN_README_CONFIG_FILE"
+  [ -d "$GEN_README_CONFIG_DIR" ] || mkdir -p "$GEN_README_CONFIG_DIR"
+  [ -d "$GEN_README_CONFIG_BACKUP_DIR" ] || mkdir -p "$GEN_README_CONFIG_BACKUP_DIR"
+  [ -f "$GEN_README_CONFIG_DIR/$GEN_README_CONFIG_FILE" ] &&
+    cp -Rf "$GEN_README_CONFIG_DIR/$GEN_README_CONFIG_FILE" "$GEN_README_CONFIG_BACKUP_DIR/$GEN_README_CONFIG_FILE.$$"
+  cat <<EOF >"$GEN_README_CONFIG_DIR/$GEN_README_CONFIG_FILE"
+# Settings for gen-readme
+GEN_README_FILE_DIR="${GEN_README_FILE_DIR:-$GEN_README_CONFIG_DIR/files}"
+GEN_README_DEFAULT_README="${GEN_README_DEFAULT_README:-default.md}"
+GEN_README_GIT_REPO="${GEN_README_GIT_REPO:-https://github.com/devenvmgr/readmes}"
+GEN_README_GIT_USER="${GEN_README_GIT_USER:-$(__git_globaluser)}"
+GEN_README_GIT_EMAIL="${GEN_README_GIT_EMAIL:-$(__git_globalemail)}"
 GEN_README_REPLACE_DEFAULT_BRANCH="${GEN_README_REPLACE_DEFAULT_BRANCH:-main}"
-__mkd "$readmeDir"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__file_failed() { printf_exit "Failed to get the readme file: $readmeFile"; }
-__grep_desc() {
-  grep -E ^'.*#.@Description' "$(type -P "${1}")" 2>/dev/null | grep ' :' |
-    head -n1 | sed 's/.*#.@'*'.*  ://g;s#^ ##g' | grep '^'
+GEN_README_TEMP_FILE="${TMPDIR:-/tmp}/gen-readme"
+GEN_README_NOTIFY_ENABLED="yes"
+GEN_README_NOTIFY_CLIENT_NAME="\${NOTIFY_CLIENT_NAME:-\$APPNAME}"
+GEN_README_NOTIFY_CLIENT_ICON="\${NOTIFY_CLIENT_ICON:-\$GEN_README_NOTIFY_CLIENT_ICON}"
+
+EOF
+  if [ -f "$GEN_README_CONFIG_DIR/$GEN_README_CONFIG_FILE" ]; then
+    printf_green "Your config file for gen-readme has been created"
+    true
+  else
+    printf_red "Failed to create the config file"
+    false
+  fi
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__copy_templates() {
+  printf_green "Installing the readme files"
+  if [ -d "$GEN_README_FILE_DIR/.git" ]; then
+    git -C "$GEN_README_FILE_DIR" pull -q
+  elif [ -d "${CASJAYSDEVDIR}/templates/readmes" ]; then
+    printf_green "Copying the template files"
+    printf_yellow "from: $CASJAYSDEVDIR/templates/readmes"
+    printf_yellow "to: $GEN_README_FILE_DIR"
+    __cp_rf "$CASJAYSDEVDIR/templates/readmes/." "$GEN_README_FILE_DIR/"
+    if [ "$(__count_files $GEN_README_FILE_DIR)" -ne 0 ]; then
+      printf_green "Copying has succeeded"
+    else
+      printf_error "Copying of files has failed"
+    fi
+  else
+    printf_error "Can not get readme files"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set functions
+__list_available() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
+__file_failed() { printf_exit "Failed to get the readme file: $readmeFile"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__findcmd() {
+  find "$GEN_README_FILE_DIR" -type f ${1} -not -path "${GEN_README_FILE_DIR}/*/.git/*" 2>/dev/null |
+    __sed 's#'$GEN_README_FILE_DIR/'##g' | sort -u
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 create_local_file() {
   cat "$1" >"$curDir/README.md" 2>/dev/null
   if [ -f "$curDir/README.md" ]; then
@@ -86,16 +117,15 @@ get_remote_file() {
     __file_failed "$1"
   fi
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 generate_readme() {
-  local readmeFile="${1:-$readmeDefault}"
+  local readmeFile="${1:-$GEN_README_DEFAULT_README}"
   local whichreadme="$(__strip_ext $readmeFile || exit 1)"
-  local author="$gitconfig_user"
+  local author="$GEN_README_GIT_USER"
   local curDir="$(dirname $curDir/README.md)"
   local BaseDir="${curDir##*/}"
-  if [ -f "$readmeDir/$readmeFile" ]; then
+  if [ -f "$GEN_README_FILE_DIR/$readmeFile" ]; then
     printf_green "Using $whichreadme for $curDir"
-    create_local_file "$readmeDir/$readmeFile"
+    create_local_file "$GEN_README_FILE_DIR/$readmeFile"
     [ -f ${curDir}/README.md ] && __sed -i "s#AuthorName#${author}#g" "${curDir}/README.md"
     [ -f ${curDir}/README.md ] && __sed -i "s#ProjectName#${BaseDir}#g" "${curDir}/README.md"
     [ -f ${curDir}/README.md ] && __sed -i "s#GEN_README_REPLACE_APPNAME#${BaseDir}#g" "${curDir}/README.md"
@@ -111,80 +141,63 @@ generate_readme() {
     fi
 
   else
-    printf_exit 1 1 "$readmeDir/$readmeFile does not exist"
+    printf_exit 1 1 "$GEN_README_FILE_DIR/$readmeFile does not exist"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-gen_config() {
-  cat <<EOF
-# Settings for $APPNAME
-readmeDir="$readmeDir"
-readmeDefault="$readmeDefault"
-readmeRepo="https://github.com/devenvmgr/readmes"
-GEN_README_REPLACE_DEFAULT_BRANCH="${GEN_README_REPLACE_DEFAULT_BRANCH:-main}"
-gitconfig_user="$gitconfig_user"
-gitconfig_email="$gitconfig_email"
-EOF
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Find the readme
 __find_readme() {
   arg1=${1// /\/}
   arg2=${2// /\/}
   arg3=${3// /\/}
-  if [ -f "$(__find $readmeDir/$arg1/$arg2/${arg3:-default})" ]; then
-    template="$(__find $readmeDir/$arg1/$arg2/${arg3:-default})"
+  if [ -f "$(__find $GEN_README_FILE_DIR/$arg1/$arg2/${arg3:-default})" ]; then
+    template="$(__find $GEN_README_FILE_DIR/$arg1/$arg2/${arg3:-default})"
     dest="${4:-$curDir/README.md}"
     shift 2
-  elif [ -f "$(__find $readmeDir/$arg1/${arg2:-default})" ]; then
-    template="$(__find $readmeDir/$arg1/${arg2:-default})"
+  elif [ -f "$(__find $GEN_README_FILE_DIR/$arg1/${arg2:-default})" ]; then
+    template="$(__find $GEN_README_FILE_DIR/$arg1/${arg2:-default})"
     dest="${3:-$curDir/README.md}"
     shift 2
-  elif [ -f "$(__find $readmeDir/${arg1:-default})" ]; then
-    template="$(__find $readmeDir/${arg1:-default})"
+  elif [ -f "$(__find $GEN_README_FILE_DIR/${arg1:-default})" ]; then
+    template="$(__find $GEN_README_FILE_DIR/${arg1:-default})"
     dest="${2:-$curDir/README.md}"
     shift 1
-  elif [ -f "$(__find $readmeDir/$readmeDefault)" ]; then
-    printf_green "Using the default template: $(__find $readmeDir/$readmeDefault)"
-    template="$(__find $readmeDir/$readmeDefault)"
+  elif [ -f "$(__find $GEN_README_FILE_DIR/$GEN_README_DEFAULT_README)" ]; then
+    printf_green "Using the default template: $(__find $GEN_README_FILE_DIR/$GEN_README_DEFAULT_README)"
+    template="$(__find $GEN_README_FILE_DIR/$GEN_README_DEFAULT_README)"
     dest="${1:-$curDir/README.md}"
   else
-    printf_exit 1 1 "Can not find any readmes matching $1 ${2:-$readmeDefault}"
+    printf_exit 1 1 "Can not find any readmes matching $1 ${2:-$GEN_README_DEFAULT_README}"
   fi
-  template="${template//$readmeDir\//}"
+  template="${template//$GEN_README_FILE_DIR\//}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__copy_templates() {
-  printf_green "Installing the readme files"
-  if [ -d "$readmeDir/.git" ]; then
-    git -C "$readmeDir" pull -q
-  elif [ -d "${CASJAYSDEVDIR}/templates/readmes" ]; then
-    printf_green "Copying the template files"
-    printf_yellow "from: $CASJAYSDEVDIR/templates/readmes"
-    printf_yellow "to: $readmeDir"
-    __cp_rf "$CASJAYSDEVDIR/templates/readmes/." "$readmeDir/"
-    if [ "$(__count_files $readmeDir)" -ne 0 ]; then
-      printf_green "Copying has succeeded"
-    else
-      printf_error "Copying of files has failed"
-    fi
-  else
-    printf_error "Can not get readme files"
-  fi
-}
+# Defaults
+exitCode=""
+GEN_README_CONFIG_FILE="settings.conf"
+GEN_README_CONFIG_DIR="${GEN_README_CONFIG_DIR:-$HOME/.config/myscripts/gen-readme}"
+GEN_README_CONFIG_BACKUP_DIR="$HOME/.local/share/myscripts/gen-readme/backups"
+GEN_README_OPTIONS_DIR="$HOME/.local/share/myscripts/gen-readme/options"
+GEN_README_TEMP_FILE="${TMPDIR:-/tmp}/gen-readme"
+GEN_README_NOTIFY_ENABLED="yes"
+GEN_README_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+GEN_README_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$GEN_README_NOTIFY_CLIENT_ICON}"
+GEN_README_FILE_DIR="${GEN_README_FILE_DIR:-$GEN_README_CONFIG_DIR/files}"
+GEN_README_DEFAULT_README="${GEN_README_DEFAULT_README:-default.md}"
+GEN_README_GIT_REPO="${GEN_README_GIT_REPO:-https://github.com/devenvmgr/readmes}"
+GEN_README_GIT_USER="${GEN_README_GIT_USER:-$(__git_globaluser)}"
+GEN_README_GIT_EMAIL="${GEN_README_GIT_EMAIL:-$(__git_globalemail)}"
+GEN_README_REPLACE_DEFAULT_BRANCH="${GEN_README_REPLACE_DEFAULT_BRANCH:-main}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__findcmd() {
-  find "$readmeDir" -type f ${1} -not -path "${readmeDir}/*/.git/*" 2>/dev/null |
-    __sed 's#'$readmeDir/'##g' | sort -u
-}
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS="c,v,h"
+LONGOPTS="options,config,version,help,copy"
+ARRAY="list,search,download,custom,all "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Init
-[ -f "$HOME/.config/myscripts/gen-readme/settings.conf" ] || gen_config &>/dev/null
-if [ "$1" = config ] || [[ "$1" = *-config ]]; then
-  true
-else
-  if [ "$(__count_files $readmeDir)" -eq 0 ]; then
-    __mkd "$readmeDir"
+# Generate Files
+if [[ "$1" != *-copy ]] || [[ "$1" != *-config ]]; then
+  if [ "$(__count_files $GEN_README_FILE_DIR)" -eq 0 ]; then
+    __mkd "$GEN_README_FILE_DIR"
     if [ "$(__count_files "$CASJAYSDEVDIR/templates/readmes")" -ne 0 ]; then
       __copy_templates &>/dev/null
     else
@@ -193,37 +206,90 @@ else
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+[ -f "$GEN_README_CONFIG_DIR/$GEN_README_CONFIG_FILE" ] || __gen_config &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+if [ -f "$GEN_README_CONFIG_DIR/$GEN_README_CONFIG_FILE" ]; then
+  . "$GEN_README_CONFIG_DIR/$GEN_README_CONFIG_FILE"
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$APPNAME" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --options)
+    shift 1
+    printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_available "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_available "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_available "5" "Base Options" "-$ARRAY" ',' ''
+    exit $?
+    ;;
+  -v | --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  -h | --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  -c | --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
 
+  --copy)
+    shift 1
+    __copy_templates
+    ;;
+
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+export NOTIFY_CLIENT_NAME="${GEN_README_NOTIFY_CLIENT_NAME}"
+export NOTIFY_CLIENT_ICON="${GEN_README_NOTIFY_CLIENT_ICON}"
+if [ "$GEN_README_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    notifications "$*" || return 1
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+cmd_exists --error bash || exit 1 # exit 1 if not found
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
 case "$1" in
-list | *-list)
+list)
   shift 1
   __findcmd "${1:-}" | printf_column "2"
   ;;
 
-search | *-search)
+search)
   shift 1
   __findcmd | grep -i "${1:-*}" | printf_column "2"
   ;;
 
-config | *-config)
+download)
   shift 1
-  printf_green "Generating the config file $HOME/.config/myscripts/gen-readme/settings.conf"
-  gen_config >"$HOME/.config/myscripts/gen-readme/settings.conf"
-  __copy_templates
-  exit
-  ;;
-
-copy | *-copy)
-  shift 1
-  __copy_templates
-  ;;
-
-download | *-download)
-  shift 1
-  printf_green "Cloning the repo to $readmeDir/"
-  if __git_clone "${1:-$readmeRepo}" /tmp/readme_clone; then
-    __mkd "$readmeDir/"
-    __cp_rf /tmp/readme_clone/files/. "$readmeDir/"
+  printf_green "Cloning the repo to $GEN_README_FILE_DIR/"
+  if __git_clone "${1:-$GEN_README_GIT_REPO}" /tmp/readme_clone; then
+    __mkd "$GEN_README_FILE_DIR/"
+    __cp_rf /tmp/readme_clone/files/. "$GEN_README_FILE_DIR/"
     __rm_rf /tmp/readme_clone
   else
     __copy_templates
@@ -231,7 +297,7 @@ download | *-download)
   exit $?
   ;;
 
-custom | *-custom)
+custom)
   shift 1
   __find_readme "$@"
   if [ -f "$readmeFile" ]; then
@@ -241,13 +307,7 @@ custom | *-custom)
   fi
   ;;
 
--*)
-  shift 1
-  __find_readme "$@"
-  generate_readme "$template"
-  ;;
-
-*all)
+all)
   shift 1
   __find_readme "$@"
   generate_readme "$template"
@@ -262,8 +322,8 @@ custom | *-custom)
   fi
   ;;
 esac
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-exit $?
+# End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# end
+# lets exit with code
+exit ${exitCode:-$?}

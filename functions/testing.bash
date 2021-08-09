@@ -1508,10 +1508,12 @@ sudorerun() {
   fi
 }
 sudoreq() {
-  if [[ $UID != 0 ]]; then
-    printf_newline
-    printf_error "Please run this script with sudo/root\n"
-    exit 1
+  if [[ $UID = 0 ]]; then
+    if cmd_exist ask_for_password && ask_for_password; then
+      printf_newline
+      printf_error "Please run this script with sudo/root\n"
+      exit 1
+    fi
   fi
 }
 __can_i_sudo() { __sudo_group "${1:-$USER}" || sudoif; }

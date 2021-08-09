@@ -120,21 +120,24 @@ else
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 sudo_root() {
+  export PATH="$PATH"
   local SUDOBIN="$(type -P sudo)"
-  local SUDOARG="-HE"
+  local SUDOARG="--preserve-env=PATH"
   $SUDOBIN $SUDOARG "$@"
 }
 
 sudo_user() {
+  export PATH="$PATH"
   local SUDOBIN="$(type -P sudo)"
-  local SUDOARG="-HE -u ${RUN_USER:-$USER}"
+  local SUDOARG="--preserve-env=PATH -u ${RUN_USER:-$USER}"
   $SUDOBIN $SUDOARG "$@"
 }
 
 sudo_pkmgr() {
+  export PATH="$PATH"
   local PKMGRBIN="$(type -P pkmgr)"
   local SUDOBIN="$(type -P sudo)"
-  local SUDOARG="-HE -u ${RUN_USER:-$USER}"
+  local SUDOARG="--preserve-env=PATH -u ${RUN_USER:-$USER}"
   $SUDOBIN $SUDOARG $PKMGRBIN "$@"
 }
 
@@ -650,10 +653,12 @@ sudorerun() {
   if [[ $UID != 0 ]]; then if sudoif; then sudo -HE "$APPNAME" "$ARGS" && exit $?; else sudoreq; fi; fi
 }
 sudoreq() {
-  if [[ $UID != 0 ]]; then
-    printf_newline
-    printf_error "Please run this script with sudo/root\n"
-    exit 1
+  if [[ $UID = 0 ]]; then
+    if cmd_exist ask_for_password && ask_for_password; then
+      printf_newline
+      printf_error "Please run this script with sudo/root\n"
+      exit 1
+    fi
   fi
 }
 user_is_root() { if [[ $(id -u) -eq 0 ]] || [[ $EUID -eq 0 ]] || [[ "$WHOAMI" = "root" ]]; then return 0; else return 1; fi; }

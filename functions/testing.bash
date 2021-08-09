@@ -1508,8 +1508,10 @@ sudorerun() {
   fi
 }
 sudoreq() {
-  if [[ $UID = 0 ]]; then
-    if cmd_exist ask_for_password && ask_for_password; then
+  if [[ $UID != 0 ]]; then
+    if builtin type -P ask_for_password && ask_for_password; then
+      return 0
+    else
       printf_newline
       printf_error "Please run this script with sudo/root\n"
       exit 1

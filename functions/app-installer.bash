@@ -653,8 +653,10 @@ sudorerun() {
   if [[ $UID != 0 ]]; then if sudoif; then sudo -HE "$APPNAME" "$ARGS" && exit $?; else sudoreq; fi; fi
 }
 sudoreq() {
-  if [[ $UID = 0 ]]; then
+  if [[ $UID != 0 ]]; then
     if cmd_exist ask_for_password && ask_for_password; then
+      return 0
+    else
       printf_newline
       printf_error "Please run this script with sudo/root\n"
       exit 1

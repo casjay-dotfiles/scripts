@@ -19,23 +19,23 @@ _GEN_SCRIPT_REPLACE_FILENAME() {
   local cur="${COMP_WORDS[$COMP_CWORD]}"
   local prev="${COMP_WORDS[$COMP_CWORD - 1]}"
   local CONFFILE="settings.conf"
-  local CONFDIR="$HOME/.config/misc/settings/GEN_SCRIPT_REPLACE_FILENAME"
-  local SEARCHDIR="${CONFDIR:-$HOME/.config/misc/settings/GEN_SCRIPT_REPLACE_FILENAME}"
+  local CONFDIR="$HOME/.config/myscripts/GEN_SCRIPT_REPLACE_FILENAME"
+  local SEARCHDIR="${CONFDIR:-$HOME/.config/myscripts/GEN_SCRIPT_REPLACE_FILENAME}"
   #local SEARCHCMD="$(___findcmd "$SEARCHDIR/" "d" "1")"
   local SHOW_COMP_OPTS=""
   local FILEDIR=""
-  local LONGOPTS="--help --version --config --options"
-  local SHORTOPTS="-h -v -c"
   local OPTS=""
+  local LONGOPTS="--options --help --version --config"
+  local SHORTOPTS="-h -v -c"
   local ARRAY=""
 
   _init_completion || return
-  
+
   if [ "$SHOW_COMP_OPTS" != "" ]; then
     local SHOW_COMP_OPTS_SEP="$(echo "$SHOW_COMP_OPTS" | tr ',' ' ')"
     compopt -o $SHOW_COMP_OPTS_SEP
   fi
-  
+
   case ${COMP_WORDS[1]:-$prev} in
   -) COMPREPLY=($(compgen -W '${SHORTOPTS} ${LONGOPTS}' -- ${cur})) && prev="-" ;;
   --options) COMPREPLY=($(compgen -W '' -- "${cur}")) && prev="--options" ;;

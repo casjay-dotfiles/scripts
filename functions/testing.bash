@@ -2363,7 +2363,6 @@ sed_head() { sed -E 's|^.*#||g;s#^ ##g;s|^@||g'; }
 grep_head() { grep -sE '[".#]?@[A-Z]' "${2:-$appname}" | grep "${1:-}" | head -n 12 | sed_head | sed_remove_empty | grep '^' || return 1; }
 grep_head_remove() { grep -sE '[".#]?@[A-Z]' "${2:-$appname}" | grep "${1:-}" | grep -Ev 'GEN_SCRIPT_*|\${|\$\(' | sed_head_remove | sed '/^\#/d;/^$/d;s#^ ##g' | grep '^' || return 1; }
 grep_version() { grep_head ''${1:-Version}'' "${2:-$appname}" | sed_head | sed_head_remove | sed_remove_empty | head -n1 | grep '^'; }
-
 # grep_head() {
 #   grep -v "$1" "$2" 2>/dev/null | grep '   :' |
 #     grep -v '\$' |
@@ -2416,99 +2415,117 @@ __version() {
   fi
   printf "\n"
 }
+###################### Set options ######################
+__vdebug() {
+  if [ -f ./applications.debug ]; then . ./applications.debug; fi
+  DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+  printf_debug 'APP:'$APPNAME' - ARGS:'$*''
+  printf_debug "USER:$USER HOME:$HOME PREFIX:$SCRIPTS_PREFIX REPO:$REPO REPORAW:$REPORAW CONF:$CONF SHARE:$SHARE"
+  printf_debug "APPDIR:$APPDIR USRUPDATEDIR:$USRUPDATEDIR SYSUPDATEDIR:$SYSUPDATEDIR"
+  printf_custom "4" "FUNCTIONSDir:$DIR"
+  exit
+}
+
+__full_app_info() {
+  printf_info "APPNAME:                   $APPNAME"
+  printf_info "App Dir:                   $APPDIR"
+  printf_info "Install Dir:               $INSTDIR"
+  printf_info "UserHomeDir:               $HOME"
+  printf_info "UserBinDir:                $BIN"
+  printf_info "UserConfDir:               $CONF"
+  printf_info "UserShareDir:              $SHARE"
+  printf_info "UserLogDir:                $LOGDIR"
+  printf_info "UserStartDir:              $STARTUP"
+  printf_info "SysConfDir:                $SYSCONF"
+  printf_info "SysBinDir:                 $SYSBIN"
+  printf_info "SysConfDir:                $SYSCONF"
+  printf_info "SysShareDir:               $SYSSHARE"
+  printf_info "SysLogDir:                 $SYSLOGDIR"
+  printf_info "SysBackUpDir:              $BACKUPDIR"
+  printf_info "ApplicationsDir:           $SHARE/applications"
+  printf_info "IconDir:                   $ICONDIR"
+  printf_info "ThemeDir                   $THEMEDIR"
+  printf_info "FontDir:                   $FONTDIR"
+  printf_info "FontConfDir:               $FONTCONF"
+  printf_info "CompletionsDir:            $COMPDIR"
+  printf_info "CasjaysDevDir:             $CASJAYSDEVSHARE"
+  printf_info "CASJAYSDEVSAPPDIR:         $CASJAYSDEVSAPPDIR"
+  printf_info "USRUPDATEDIR:              $USRUPDATEDIR"
+  printf_info "SYSUPDATEDIR:              $SYSUPDATEDIR"
+  printf_info "DOTFILESREPO:              $DOTFILESREPO"
+  printf_info "DevEnv Repo:               $DEVENVMGRREPO"
+  printf_info "Package Manager Repo:      $PKMGRREPO"
+  printf_info "Icon Manager Repo:         $ICONMGRREPO"
+  printf_info "Font Manager Repo:         $FONTMGRREPO"
+  printf_info "Theme Manager Repo         $THEMEMGRREPO"
+  printf_info "System Manager Repo:       $SYSTEMMGRREPO"
+  printf_info "Wallpaper Manager Repo:    $WALLPAPERMGRREPO"
+  printf_info "InstallType:               $installtype"
+  printf_info "Prefix:                    $SCRIPTS_PREFIX"
+  printf_info "SystemD dir:               $SYSTEMDDIR"
+  printf_info "FunctionsDir:              $SCRIPTSFUNCTDIR"
+  printf_info "FunctionsFile              $SCRIPTSFUNCTFILE"
+  exit
+}
+__remove_app() {
+  local exitCode=0
+  local ARRAY="$*"
+  for app in $ARRAY; do
+    installer_delete "$*" || exitCode+=1
+  done
+  if [[ $exitCode -ne 0 ]]; then
+    exit 1
+  else
+    exit 0
+  fi
+}
 ###################### call options ######################
 __options() {
   $installtype
   case $1 in
+  # --cron)
+  #   shift 1
+  #   [ "$1" = "--help" ] && printf_help 'Usage: '$APPNAME' --cron remove | add "command"' && exit 0
+  #   [ "$1" = "--add" ] && shift 2 && __setupcrontab "0 0 * * *" "$*"
+  #   [ "$1" = "--del" ] && shift 2 && echo $* # && __removecrontab "$*"
+  #   exit "$?"
+  #;;
+
   #--update) ###################### Update check ######################
   #  shift 1
   #  printf_error "Not enabled in apps: See the installer"
   #  exit
   #  ;;
 
+  # --help) ###################### help ######################
+  #   shift 1
+  #   __help
+  #   exit
+  #   ;;
+
+  # --version) ###################### get info from app ######################
+  #   shift 1
+  #   __version "${APPNAME:-$PROG}"
+  #   exit
+  #   ;;
+
   --vdebug) ###################### basic debug ######################
     shift 1
-    if [ -f ./applications.debug ]; then . ./applications.debug; fi
-    DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
-    printf_debug 'APP:'$APPNAME' - ARGS:'$*''
-    printf_debug "USER:$USER HOME:$HOME PREFIX:$SCRIPTS_PREFIX REPO:$REPO REPORAW:$REPORAW CONF:$CONF SHARE:$SHARE"
-    printf_debug "APPDIR:$APPDIR USRUPDATEDIR:$USRUPDATEDIR SYSUPDATEDIR:$SYSUPDATEDIR"
-    printf_custom "4" "FUNCTIONSDir:$DIR"
-    exit
+    __vdebug "$*"
     ;;
 
   --full) ###################### debug settings ######################
     shift 1
-    printf_info "APPNAME:                   $APPNAME"
-    printf_info "App Dir:                   $APPDIR"
-    printf_info "Install Dir:               $INSTDIR"
-    printf_info "UserHomeDir:               $HOME"
-    printf_info "UserBinDir:                $BIN"
-    printf_info "UserConfDir:               $CONF"
-    printf_info "UserShareDir:              $SHARE"
-    printf_info "UserLogDir:                $LOGDIR"
-    printf_info "UserStartDir:              $STARTUP"
-    printf_info "SysConfDir:                $SYSCONF"
-    printf_info "SysBinDir:                 $SYSBIN"
-    printf_info "SysConfDir:                $SYSCONF"
-    printf_info "SysShareDir:               $SYSSHARE"
-    printf_info "SysLogDir:                 $SYSLOGDIR"
-    printf_info "SysBackUpDir:              $BACKUPDIR"
-    printf_info "ApplicationsDir:           $SHARE/applications"
-    printf_info "IconDir:                   $ICONDIR"
-    printf_info "ThemeDir                   $THEMEDIR"
-    printf_info "FontDir:                   $FONTDIR"
-    printf_info "FontConfDir:               $FONTCONF"
-    printf_info "CompletionsDir:            $COMPDIR"
-    printf_info "CasjaysDevDir:             $CASJAYSDEVSHARE"
-    printf_info "CASJAYSDEVSAPPDIR:         $CASJAYSDEVSAPPDIR"
-    printf_info "USRUPDATEDIR:              $USRUPDATEDIR"
-    printf_info "SYSUPDATEDIR:              $SYSUPDATEDIR"
-    printf_info "DOTFILESREPO:              $DOTFILESREPO"
-    printf_info "DevEnv Repo:               $DEVENVMGRREPO"
-    printf_info "Package Manager Repo:      $PKMGRREPO"
-    printf_info "Icon Manager Repo:         $ICONMGRREPO"
-    printf_info "Font Manager Repo:         $FONTMGRREPO"
-    printf_info "Theme Manager Repo         $THEMEMGRREPO"
-    printf_info "System Manager Repo:       $SYSTEMMGRREPO"
-    printf_info "Wallpaper Manager Repo:    $WALLPAPERMGRREPO"
-    printf_info "InstallType:               $installtype"
-    printf_info "Prefix:                    $SCRIPTS_PREFIX"
-    printf_info "SystemD dir:               $SYSTEMDDIR"
-    printf_info "FunctionsDir:              $SCRIPTSFUNCTDIR"
-    printf_info "FunctionsFile              $SCRIPTSFUNCTFILE"
-    exit
+    __full_app_info
     ;;
-
-  --help) ###################### help ######################
-    shift 1
-    __help
-    exit
-    ;;
-
-  --version) ###################### get info from app ######################
-    shift 1
-    __version "${APPNAME:-$PROG}"
-    exit
-    ;;
-
-    # if [ "$1" = "--cron" ]; then
-    #   [ "$1" = "--help" ] && printf_help 'Usage: '$APPNAME' --cron remove | add "command"' && exit 0
-    #   [ "$1" = "--add" ] && shift 2 && __setupcrontab "0 0 * * *" "$*"
-    #   [ "$1" = "--del" ] && shift 2 && echo $* # && __removecrontab "$*"
-    #   shift
-    #   exit "$?"
-    # fi
 
   --remove | --uninstall)
     shift 1
-    local exitCode=0
-    installer_delete "$@" || exitCode=1
-    if [[ $exitCode -ne 0 ]]; then
-      exit 1
-    else
-      exit 0
-    fi
+    __remove_app "$*"
+    ;;
+
+  -*)
+    export option_two="$2"
     ;;
   esac
 }

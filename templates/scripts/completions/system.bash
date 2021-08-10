@@ -24,18 +24,18 @@ _GEN_SCRIPT_REPLACE_FILENAME() {
   #local SEARCHCMD="$(___findcmd "$SEARCHDIR/" "d" "1")"
   local SHOW_COMP_OPTS=""
   local FILEDIR=""
+  local OPTS=""
   local LONGOPTS="--help --version --config --options"
   local SHORTOPTS="-h -v -c"
-  local OPTS=""
   local ARRAY=""
 
   _init_completion || return
-  
+
   if [ "$SHOW_COMP_OPTS" != "" ]; then
     local SHOW_COMP_OPTS_SEP="$(echo "$SHOW_COMP_OPTS" | tr ',' ' ')"
     compopt -o $SHOW_COMP_OPTS_SEP
   fi
-  
+
   case ${COMP_WORDS[1]:-$prev} in
   -) COMPREPLY=($(compgen -W '${SHORTOPTS} ${LONGOPTS}' -- ${cur})) && prev="-" ;;
   --options) COMPREPLY=($(compgen -W '' -- "${cur}")) && prev="--options" ;;

@@ -37,7 +37,6 @@ _GEN_SCRIPT_REPLACE_FILENAME() {
   fi
 
   case ${COMP_WORDS[1]:-$prev} in
-  -) COMPREPLY=($(compgen -W '${SHORTOPTS} ${LONGOPTS}' -- ${cur})) && prev="-" ;;
   --options) COMPREPLY=($(compgen -W '' -- "${cur}")) && prev="--options" ;;
   -c | --config) COMPREPLY=($(compgen -W '' -- "${cur}")) && prev="--config" ;;
   -h | --help) COMPREPLY=($(compgen -W '' -- "${cur}")) && prev="--help" ;;

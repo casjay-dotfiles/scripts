@@ -95,9 +95,10 @@ __list_available() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g
 #set folder name based on githost
 __git_hostname() { echo "$@" | sed -e "s/[^/]*\/\/\([^@]*@\)\?\([^:/]*\).*/\2/" | awk -F. '{print $(NF-1) "." $NF}' | sed 's#\..*##g'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Download latest binaries from github
+# Download latest binaries from github - move to latest-release
 __install_latest() {
-  if [ "${OSTYPE}" = "x86_64" ]; then
+  [ "$1" = search ] && search="true" && shift 1
+  if [ "$(uname -m)" = "x86_64" ]; then
     local arch="amd64"
   else
     local arch="arm64"
@@ -106,39 +107,44 @@ __install_latest() {
   local arch="${3:-$arch}"
   local download_dir="$HOME/Downloads"
   local tempfile="$(mktemp /tmp/github-latest-XXXXXX)"
-  local api_url="https://api.github.com/repos/${1}/${2:-}/releases/latest"
+  local api_url="https://api.github.com/repos/${repo}/releases/latest"
   local latest_json="$(curl -q -LSs $CURL_HEADER "$api_url")"
-  local latest_download="$(echo "$latest_json" | grep -E 'browser_download_url' | grep -i "${arch:-$(uname -s)}" | cut -d '"' -f 4 | tail -1)"
+  local latest_download="$(echo "$latest_json" | grep -E 'browser_download_url' | cut -d '"' -f 4 | grep -i "$(uname -s)" | grep -i "${arch:-$(uname -m)}" | head -1)"
+  local latest_download_url="https://github.com/${repo}"
   local basename="$(basename "$latest_download")"
   local filename="$download_dir/$basename"
-  if [ -z "$latest_download" ] && ! wget -q $CURL_HEADER "$latest_download" -O "$tempfile"; then
-    [ -f "$tempfile" ] && __rm_rf "$tempfile"
-    printf_exit "failed to find any files from $api_url"
+  if [ "$search" = "true" ]; then
+    echo "$latest_json" | grep -E 'browser_download_url' | awk '{print $2}' | sed 's|"||g' | printf_readline '6'
+  elif [ -n "$latest_download" ]; then
+    printf_green "Attemptint to download $latest_download "
+    if wget -q $CURL_HEADER "$latest_download" -O "$tempfile"; then
+      __mkd "$download_dir"
+      chmod -f 755 "$tempfile" &>/dev/null
+      __mv_f "$tempfile" "$filename"
+      exitCode=0
+      if [ -f "$filename" ] && [ ! -s "$tempfile" ]; then
+        printf_green "Saved to $filename"
+        exitCode=0
+      else
+        printf_red "Failed to save $filename"
+        printf_red "from $latest_download"
+        exitCode=1
+      fi
+      case "$filename" in
+      # *.tar.bz2) ;;
+      # *.bz2) ;;
+      *.tar.gz) tar -xvzf "$filename" -C "$download_dir/$latest_download/$basename" ;;
+      # *.tgz) ;;
+      # *.gz) ;;
+      # *.zip) ;;
+      # *.7z) ;;
+      *) ;;
+      esac
+    else
+      [ -f "$tempfile" ] && __rm_rf "$tempfile"
+      printf_exit "failed to find any files from $latest_download_url"
+    fi
   fi
-  __mkd "$download_dir"
-  chmod -f 755 "$tempfile" &>/dev/null
-  __mv_f "$tempfile" "$filename"
-  exitCode=0
-  if [ -f "$filename" ] && [ ! -s "$tempfile" ]; then
-    printf_green "Downloaded Successfully from $latest_download "
-    printf_green "and saved to $filename"
-    exitCode=0
-  else
-    printf_red "Failed to save $filename"
-    printf_red "from $latest_download"
-    exitCode=1
-  fi
-  case "$filename" in
-  # *.tar.bz2) ;;
-  # *.bz2) ;;
-  *.tar.gz) tar -xvzf "$filename" -C "$download_dir/$latest_download/$basename" ;;
-  # *.tgz) ;;
-  # *.gz) ;;
-  # *.zip) ;;
-  # *.7z) ;;
-  *) ;;
-  esac
-
   [ -f "$tempfile" ] && __rm_rf "$tempfile"
   return ${exitCode:-$?}
 }

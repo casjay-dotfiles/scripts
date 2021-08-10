@@ -36,32 +36,34 @@ _GEN_SCRIPT_REPLACE_FILENAME() {
     compopt -o $SHOW_COMP_OPTS_SEP
   fi
 
-  case ${COMP_WORDS[1]:-$prev} in
-  --options) COMPREPLY=($(compgen -W '' -- "${cur}")) && prev="--options" ;;
-  -c | --config) COMPREPLY=($(compgen -W '' -- "${cur}")) && prev="--config" ;;
-  -h | --help) COMPREPLY=($(compgen -W '' -- "${cur}")) && prev="--help" ;;
-  -v | --version) COMPREPLY=($(compgen -W '' -- "${cur}")) && prev="--version" ;;
-  *)
-    if [ -n "$FILEDIR" ]; then _filedir; fi
-    if [[ "$ARRAY" = "show-none" ]]; then
-      COMPREPLY=($(compgen -W '' -- "${cur}"))
-    elif [[ "$ARRAY" = "show-_filedir" ]]; then
-      _filedir
-    elif [[ "$ARRAY" = "show-commands" ]]; then
-      COMPREPLY=($(compgen -c -- "${cur}"))
-    elif [[ -n "$ARRAY" ]]; then
-      #[ $COMP_CWORD -eq 3 ] && \
-      COMPREPLY=($(compgen -W '${ARRAY}' -- "${cur}"))
-    elif [[ -n "$OPTS" ]]; then
-      #[ $COMP_CWORD -gt 3 ] && \
-      COMPREPLY=($(compgen -W '${OPTS}' -- "${cur}"))
-    elif [[ ${cur} == --* ]]; then
-      COMPREPLY=($(compgen -W '${LONGOPTS}' -- ${cur}))
-    elif [[ ${cur} == -* ]]; then
-      COMPREPLY=($(compgen -W '${SHORTOPTS}' -- ${cur}))
-    fi
-    ;;
-  esac
+  if [[ ${cur} == --* ]]; then
+    COMPREPLY=($(compgen -W '${LONGOPTS}' -- ${cur}))
+  elif [[ ${cur} == -* ]]; then
+    COMPREPLY=($(compgen -W '${SHORTOPTS}' -- ${cur}))
+  else
+    case ${COMP_WORDS[1]:-$prev} in
+    --options) COMPREPLY=($(compgen -W '' -- "${cur}")) && prev="--options" ;;
+    -c | --config) COMPREPLY=($(compgen -W '' -- "${cur}")) && prev="--config" ;;
+    -h | --help) COMPREPLY=($(compgen -W '' -- "${cur}")) && prev="--help" ;;
+    -v | --version) COMPREPLY=($(compgen -W '' -- "${cur}")) && prev="--version" ;;
+    *)
+      if [ -n "$FILEDIR" ]; then _filedir; fi
+      if [[ "$ARRAY" = "show-none" ]]; then
+        COMPREPLY=($(compgen -W '' -- "${cur}"))
+      elif [[ "$ARRAY" = "show-_filedir" ]]; then
+        _filedir
+      elif [[ "$ARRAY" = "show-commands" ]]; then
+        COMPREPLY=($(compgen -c -- "${cur}"))
+      elif [[ -n "$ARRAY" ]]; then
+        #[ $COMP_CWORD -eq 3 ] && \
+        COMPREPLY=($(compgen -W '${ARRAY}' -- "${cur}"))
+      elif [[ -n "$OPTS" ]]; then
+        #[ $COMP_CWORD -gt 3 ] && \
+        COMPREPLY=($(compgen -W '${OPTS}' -- "${cur}"))
+      fi
+      ;;
+    esac
+  fi
   #[ $COMP_CWORD -eq 2 ] && COMPREPLY=($(compgen -W '{a..z} {A..Z} {0..9}' -o nospace -- "${cur}"))
   #[ $COMP_CWORD -eq 3 ] && COMPREPLY=($(compgen -W '$(_filedir)' -o filenames -o dirnames -- "${cur}"))
   #[ $COMP_CWORD -gt 3 ] && COMPREPLY=($(compgen -W '' -- "${cur}"))

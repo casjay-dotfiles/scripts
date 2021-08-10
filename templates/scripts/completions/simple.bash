@@ -27,24 +27,30 @@ _GEN_SCRIPT_REPLACE_FILENAME() {
   local CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
   local cur prev words cword
   local cur="${COMP_WORDS[$COMP_CWORD]}"
+  local SHOW_COMP_OPTS=""
   local LONGOPTS="--help --version --config --options"
   local SHORTOPTS="-h -v -c"
   local ARRAY=""
 
   _init_completion || return
 
-  case ${COMP_WORDS[1]:-$prev} in
-  *)
-    if [[ ${cur} == --* ]]; then
-      COMPREPLY=($(compgen -W '${LONGOPTS}' -- ${cur}))
-    elif [[ ${cur} == -* ]]; then
-      COMPREPLY=($(compgen -W '${SHORTOPTS}' -- ${cur}))
-    else
+  if [ "$SHOW_COMP_OPTS" != "" ]; then
+    local SHOW_COMP_OPTS_SEP="$(echo "$SHOW_COMP_OPTS" | tr ',' ' ')"
+    compopt -o $SHOW_COMP_OPTS_SEP
+  fi
+
+  if [[ ${cur} == --* ]]; then
+    COMPREPLY=($(compgen -W '${LONGOPTS}' -- ${cur}))
+  elif [[ ${cur} == -* ]]; then
+    COMPREPLY=($(compgen -W '${SHORTOPTS}' -- ${cur}))
+  else
+    case ${COMP_WORDS[1]:-$prev} in
+    *)
       COMPREPLY=($(compgen -W '$ARRAY' -- "$cur"))
       return 0
-    fi
-    ;;
-  esac
+      ;;
+    esac
+  fi
 } &&
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # enable completions

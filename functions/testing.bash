@@ -962,9 +962,9 @@ __start_count() { ps -ux | grep "$1" | grep -v 'grep ' | grep -c "${2:$1}"; }
 #count_words "file"
 __count_lines() { wc -l "$1" | awk '${print $1}'; }
 #count_files "dir"
-__count_files() { __devnull2 find -L "${1:-./}" -maxdepth "${2:-1}" -not -path "${1:-./}/.git/*" -type l,f | wc -l; }
+__count_files() { __devnull2 find -L "${1:-./}" -maxdepth "${2:-1}" -not -path "${1:-./}/.git/*" -type l,f 2>/dev/null | wc -l; }
 #count_dir "dir"
-__count_dir() { __devnull2 find -L "${1:-./}" -maxdepth "${2:-1}" -not -path "${1:-./}/.git/*" -type d | wc -l; }
+__count_dir() { __devnull2 find -L "${1:-./}" -maxdepth "${2:-1}" -not -path "${1:-./}/.git/*" -type d 2>/dev/null | wc -l; }
 __touch() { touch "$@" 2>/dev/null || return 0; }
 #symlink "file" "dest"
 __symlink() { if [ -e "$1" ]; then __devnull __ln_sf "${1}" "${2}" || return 0; fi; }

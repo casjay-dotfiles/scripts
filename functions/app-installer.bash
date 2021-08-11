@@ -886,7 +886,7 @@ install_packages() {
         if ! gem_exists "$cmd"; then  MISSING+="$cmd "
         elif ! pthon_exists "$cmd"; then  MISSING+="$cmd "
         elif ! perl_exists "$cmd"; then  MISSING+="$cmd "
-        elif ! builtin type -p "$cmd" &>/dev/null; then MISSING+="$cmd "
+        elif [ -z "$(builtin type -p "$cmd" 2>/dev/null)" ]; then MISSING+="$cmd "
         fi
       done
       if [ -n "$MISSING" ]; then

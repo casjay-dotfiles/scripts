@@ -460,7 +460,7 @@ urlinvalid() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 gem_exists() {
-  [ -z "$(builtin type -P gem 2>/dev/null)" ] || return
+  [ -n "$(builtin type -P gem 2>/dev/null)" ] || return
   local package="$1"
   if gem list | grep -q "$package"; then
     return 0
@@ -468,9 +468,9 @@ gem_exists() {
     return 1
   fi
 }
-### Replace Line
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 perl_exists() {
-  [ -z "$(builtin type -P perl 2>/dev/null)" ] || return
+  [ -n "$(builtin type -P perl 2>/dev/null)" ] || return
   local package="${1//perl-/}"
   if devnull perl -M$package -le 'print $INC{"$package/Version.pm"}' ||
     devnull perl -M$package -le 'print $INC{"$package.pm"}' ||
@@ -480,9 +480,9 @@ perl_exists() {
     return 1
   fi
 }
-### Replace Line
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 pthon_exists() {
-  [ -z "$(builtin type -P python3 2>/dev/null)" ] || [ -z "$(builtin type -P python2 2>/dev/null)" ] || [ -z "$(builtin type -P python 2>/dev/null)" ] || return
+  [ -n "$(builtin type -P python3 2>/dev/null)" ] || [ -n "$(builtin type -P python2 2>/dev/null)" ] || [ -n "$(builtin type -P python 2>/dev/null)" ] || return
   local package="$1"
   if devnull $PYTHONVER -c "import $package"; then return 0; else return 1; fi
 }

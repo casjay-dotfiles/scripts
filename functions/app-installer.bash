@@ -76,6 +76,7 @@ export RUN_USER="${RUN_USER:-$USER}"
 export TMP="${TMP:-/tmp}"
 export TEMP="${TEMP:-/tmp}"
 export TMPDIR="${TMPDIR:-/tmp}"
+mkdir -p "$TMPDIR" "$TEMP" "$TMP" &>/dev/null
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 export WHOAMI="${SUDO_USER:-$USER}"
 export HOME="${USER_HOME:-$HOME}"
@@ -879,7 +880,7 @@ install_packages() {
     local MISSING=""
     local cmd=""
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
-      for cmd in $REQUIRED; do 
+      for cmd in $REQUIRED; do
         gem_exists "$cmd" || pthon_exists "$cmd" || perl_exists "$cmd" || builtin type -p "$cmd" &>/dev/null || MISSING+="$cmd "
       done
       if [ -n "$MISSING" ]; then

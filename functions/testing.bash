@@ -116,6 +116,7 @@ fi
 TMP="${TMP:-/tmp}"
 TEMP="${TMP:-/tmp}"
 TMPDIR="${TMP:-/tmp}"
+mkdir -p "$TMPDIR" "$TEMP" "$TMP" &>/dev/null
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup path
 TMPPATH="/usr/local/opt/gnu-getopt/bin:"

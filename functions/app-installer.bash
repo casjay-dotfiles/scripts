@@ -82,13 +82,15 @@ export WHOAMI="${SUDO_USER:-$USER}"
 export HOME="${USER_HOME:-$HOME}"
 export LOGDIR="${LOGDIR:-$HOME/.local/log}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ -n "$DISPLAY" ] && [ -f "$(builtin type -P ask_for_password 2>/dev/null)" ]; then
-  unalias sudo &>/dev/null
-  unset -f sudo &>/dev/null
-  sudo() { builtin command sudo -HE --preserve-env=PATH "$@" || return 1; }
-else
+#if [ -n "$DISPLAY" ] && [ -f "$(builtin type -P ask_for_password 2>/dev/null)" ]; then
+#  unalias sudo &>/dev/null
+#  unset -f sudo &>/dev/null
+#  sudo() { builtin command sudo -HE --preserve-env=PATH "$@" || return 1; }
+#else
+if [ -z "$SUDO_PROMPT" ]; then 
   export SUDO_PROMPT="$(printf "\n\t\t\033[1;31m")[sudo]$(printf "\033[1;36m") password for $(printf "\033[1;32m")%p: $(printf "\033[0m" && echo)"
 fi
+#fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Timezone data
 [ -f "/etc/timezone" ] && export TIMEZONE="$(cat /etc/timezone)" || export TIMEZONE="America/New_York"

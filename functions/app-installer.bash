@@ -87,7 +87,7 @@ export LOGDIR="${LOGDIR:-$HOME/.local/log}"
 #  unset -f sudo &>/dev/null
 #  sudo() { builtin command sudo -HE --preserve-env=PATH "$@" || return 1; }
 #else
-if [ -z "$SUDO_PROMPT" ]; then 
+if [ -z "$SUDO_PROMPT" ]; then
   export SUDO_PROMPT="$(printf "\n\t\t\033[1;31m")[sudo]$(printf "\033[1;36m") password for $(printf "\033[1;32m")%p: $(printf "\033[0m" && echo)"
 fi
 #fi
@@ -883,10 +883,16 @@ install_packages() {
     local cmd=""
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
       for cmd in $REQUIRED; do
-        if ! gem_exists "$cmd"; then  MISSING+="$cmd "
-        elif ! pthon_exists "$cmd"; then  MISSING+="$cmd "
-        elif ! perl_exists "$cmd"; then  MISSING+="$cmd "
-        elif [ -z "$(builtin type -p "$cmd" 2>/dev/null)" ]; then MISSING+="$cmd "
+        if gem_exists "$cmd"; then
+          true
+        elif pthon_exists "$cmd"; then
+          true
+        elif perl_exists "$cmd"; then
+          true
+        elif [ -n "$(builtin type -p "screen" 2>/dev/null)" ]; then
+          true
+        else
+          MISSING+="$cmd "
         fi
       done
       if [ -n "$MISSING" ]; then

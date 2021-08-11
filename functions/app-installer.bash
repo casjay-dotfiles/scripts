@@ -889,7 +889,7 @@ install_packages() {
           true
         elif perl_exists "$cmd"; then
           true
-        elif [ -n "$(builtin type -p "screen" 2>/dev/null)" ]; then
+        elif [ -n "$(builtin type -p "$cmd" 2>/dev/null)" ]; then
           true
         else
           MISSING+="$cmd "

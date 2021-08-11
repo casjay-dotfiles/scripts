@@ -5,7 +5,7 @@ USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #set opts
-PATH="/usr/local/share/CasjaysDev/scripts/bin:/usr/local/bin:$PATH"
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ##@Version       : 020920211625-git
 # @Author        : Jason Hempstead
@@ -21,58 +21,38 @@ PATH="/usr/local/share/CasjaysDev/scripts/bin:/usr/local/bin:$PATH"
 # @Resource      :
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 CASJAYSDEVDIR="/usr/local/share/CasjaysDev/scripts"
+export PATH="$CASJAYSDEVDIR/bin:/usr/local/bin:$PATH"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Fail if git, curl, wget are not installed
-if ! type -P git &>/dev/null; then
-  echo -e "\t\t\033[0;31mAttempting to install git\033[0m"
-  if __command -P brew &>/dev/null; then
-    brew install -f git &>/dev/null
-  elif __command -P apt &>/dev/null; then
-    apt install -yy -q git &>/dev/null
-  elif __command -P pacman &>/dev/null; then
-    pacman -S --noconfirm git &>/dev/null
-  elif __command -P yum &>/dev/null; then
-    yum install -yy -q git &>/dev/null
-  elif __command -P choco &>/dev/null; then
-    choco install git -y &>/dev/null
-    if __command -P git &>/dev/null; then
-      echo -e "\t\t\033[0;31mGit was not installed\033[0m"
-      exit 1
-    fi
-  else
-    echo -e "\t\t\033[0;31mGit is not installed\033[0m"
-    exit 1
-  fi
-fi
 for check in git curl wget; do
-  if ! builtin type -P "$check" &>/dev/null; then
-    echo -e "\n\n\t\t\033[0;31m$check is not installed\033[0m\n"
+  if [ -z "$(builtin type -P "$check" 2>/dev/null)" ]; then
+    if [ -z "$(builtin type -P brew 2>/dev/null)" ]; then
+      echo -e "\t\t\033[0;31mAttempting to install $check\033[0m"
+      if [ -f "$(builtin type -P brew 2>/dev/null)" ]; then
+        brew install -f "$check" &>/dev/null
+      elif [ -f "$(builtin type -P apt 2>/dev/null)" ]; then
+        apt install -yy -q "$check" &>/dev/null
+      elif [ -f "$(builtin type -P pacman 2>/dev/null)" ]; then
+        pacman -S --noconfirm "$check" &>/dev/null
+      elif [ -f "$(builtin type -P yum 2>/dev/null)" ]; then
+        yum install -yy -q "$check" &>/dev/null
+      elif [ -f "$(builtin type -P choco 2>/dev/null)" ]; then
+        choco install "$check" -y &>/dev/null
+      else
+        echo -e "\t\t\033[0;31m$check can not be install automatically\033[0m"
+        exit 1
+      fi
+    fi
+  fi
+  if [ -z "$(builtin type -P "$check" 2>/dev/null)" ]; then
+    echo -e "\t\t\033[0;31m$check was not installed\033[0m"
     exit 1
   fi
 done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+cmd_exists() { [ -n "$(builtin type -P cmd_exists 2>/dev/null)" ] && $(builtin type -P cmd_exists 2>/dev/null) || return 0; }
+am_i_online() { [ -n "$(builtin type -P am_i_online 2>/dev/null)" ] && $(builtin type -P am_i_online 2>/dev/null) || return 0; }
 ###################### builtins ######################
-__command() {
-  [ "$1" = "-v" ] && shift 1
-  if [ $# -ne 1 ]; then
-    if builtin type "$@" 2>/dev/null | grep -v alias | head -n1 | awk '{print $1}' | grep '^'; then
-      return 0
-    else
-      return 1
-    fi
-  elif builtin type "$*" 2>/dev/null | grep -v alias | head -n1 | awk '{print $1}' | grep -q '^'; then
-    return 0
-  else
-    return 1
-  fi
-}
-export -f __command
-##################################################################################################
-#getopt() { builtin command getopt; }
-builtin type -p am_i_online &>/dev/null || am_i_online() { builtin command am_i_online || true; }
-builtin type -p __am_i_online &>/dev/null || __am_i_online() { builtin command am_i_online || true; }
-cmd_exist() { __command "$1" &>/dev/null || return 1; }
-__cmd_exist() { __command "$1" &>/dev/null || return 1; }
-##################################################################################################
 # Versioning Info - __required_version "VersionNumber"
 localVersion="${localVersion:-202103310525-git}"
 requiredVersion="${requiredVersion:-202103310525-git}"
@@ -90,19 +70,7 @@ TMPPATH+="/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:$PATH:."
 PATH="$(echo "$TMPPATH" | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 's#::#:.#g')"
 unset TMPPATH
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# if [ -n "$DISPLAY" ] && __command ask_for_password; then
-#   unalias sudo &>/dev/null
-#   unset -f sudo &>/dev/null
-#   sudo() { builtin command sudo  $*; }
-# else
-#   export SUDO_ASKPASS="${SUDO_ASKPASS:-}"
-#   export SUDO_PROMPT="$(printf "\n\t\t\033[1;31m")[sudo]$(printf "\033[1;36m") password for $(printf "\033[1;32m")%p: $(printf "\033[0m" && echo)"
-# fi
-if [ -n "$SUDO_USER" ]; then
-  RUN_USER=${RUN_USER:-$SUDO_USER}
-else
-  RUN_USER=${RUN_USER:-$(whoami)}
-fi
+[ -n "$SUDO_USER" ] && export RUN_USER="${RUN_USER:-$SUDO_USER}" || export RUN_USER="${RUN_USER:-$(whoami)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 export RUN_USER="${RUN_USER:-$USER}"
 export TMP="${TMP:-/tmp}"
@@ -112,39 +80,21 @@ export TMPDIR="${TMPDIR:-/tmp}"
 export WHOAMI="${SUDO_USER:-$USER}"
 export HOME="${USER_HOME:-$HOME}"
 export LOGDIR="${LOGDIR:-$HOME/.local/log}"
-# Timezone data
-if [ -f "/etc/timezone" ]; then
-  export TIMEZONE="$(cat /etc/timezone)"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -n "$DISPLAY" ] && [ -f "$(builtin type -P ask_for_password 2>/dev/null)" ]; then
+  unalias sudo &>/dev/null
+  unset -f sudo &>/dev/null
+  sudo() { $(builtin type -P sudo) -HE --preserve-env=PATH "$@" || return 1; }
 else
-  export TIMEZONE="America/New_York"
+  export SUDO_PROMPT="$(printf "\n\t\t\033[1;31m")[sudo]$(printf "\033[1;36m") password for $(printf "\033[1;32m")%p: $(printf "\033[0m" && echo)"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-sudo_root() {
-  export PATH="$PATH"
-  local SUDOBIN="$(type -P sudo)"
-  local SUDOARG="--preserve-env=PATH"
-  $SUDOBIN $SUDOARG "$@"
-}
-
-sudo_user() {
-  export PATH="$PATH"
-  local SUDOBIN="$(type -P sudo)"
-  local SUDOARG="--preserve-env=PATH -u ${RUN_USER:-$USER}"
-  $SUDOBIN $SUDOARG "$@"
-}
-
-sudo_pkmgr() {
-  export PATH="$PATH"
-  local PKMGRBIN="$(type -P pkmgr)"
-  local SUDOBIN="$(type -P sudo)"
-  local SUDOARG="--preserve-env=PATH -u ${RUN_USER:-$USER}"
-  $SUDOBIN $SUDOARG $PKMGRBIN "$@"
-}
-
+# Timezone data
+[ -f "/etc/timezone" ] && export TIMEZONE="$(cat /etc/timezone)" || export TIMEZONE="America/New_York"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 devnull() { "$@" >/dev/null 2>&1; }
 devnull2() { "$@" >/dev/null 2>&1; }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set Main Repo for dotfiles
 export GIT_REPO_BRANCH="${GIT_DEFAULT_BRANCH:-main}"
 export DOTFILESREPO="${DOTFILESREPO:-https://github.com/dfmgr}"
@@ -157,7 +107,7 @@ export FONTMGRREPO="${FONTMGRREPO:-https://github.com/fontmgr}"
 export THEMEMGRREPO="${THEMEMGRREPO:-https://github.com/thememgr}"
 export SYSTEMMGRREPO="${SYSTEMMGRREPO:-https://github.com/systemmgr}"
 export WALLPAPERMGRREPO="${WALLPAPERMGRREPO:-https://github.com/wallpapermgr}"
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Colors
 NC="$(tput sgr0 2>/dev/null)"
 RESET="$(tput sgr0 2>/dev/null)"
@@ -178,7 +128,7 @@ ICON_GOOD="[ ✔ ]"
 ICON_WARN="[ ❗ ]"
 ICON_ERROR="[ ✖ ]"
 ICON_QUESTION="[ ❓ ]"
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_newline() { printf "${*:-}\n"; }
 printf_color() { printf "%b" "$(tput setaf "$2" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
 printf_normal() { printf_color "\t\t$1\n" "$2"; }
@@ -199,14 +149,14 @@ printf_execute_result() {
   if [ "$1" -eq 0 ]; then printf_execute_success "$2"; else printf_execute_error "${3:-$2}"; fi
   return "$1"
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_question() {
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="4"
   local msg="$*"
   shift
   printf_color "\t\t$ICON_QUESTION $msg? " "$color"
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #printf_error "color" "exitcode" "message"
 printf_error() {
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="1"
@@ -215,7 +165,7 @@ printf_error() {
   printf_color "\t\t$ICON_ERROR $msg\n" "$color"
   return $exitCode
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #printf_exit "color" "exitcode" "message"
 printf_exit() {
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="1"
@@ -226,7 +176,7 @@ printf_exit() {
   echo ""
   exit "$exitCode"
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # #printf_newline
 printf_readline() {
   set -o pipefail
@@ -236,7 +186,7 @@ printf_readline() {
   done
   set +o pipefail
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_custom() {
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="5"
   local msg="$*"
@@ -244,14 +194,14 @@ printf_custom() {
   printf_color "\t\t$msg" "$color"
   echo ""
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_custom_question() {
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="1"
   local msg="$*"
   shift
   printf_color "\t\t$msg " "$color"
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_question_timeout() {
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="1"
   local msg="$1" && shift 1
@@ -262,7 +212,7 @@ printf_question_timeout() {
   read -t 30 -r -n $lines ${readopts} ${reply}
   printf_newline
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_head() {
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="6"
   local msg1="$1" && shift 1
@@ -283,13 +233,13 @@ printf_head() {
   [ -z "$msg7" ] || printf_color "\t\t$msg7\n" "$color"
   [ -z "$msg1" ] || printf_color "\t\t##################################################\n" "$color"
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_result() {
   PREV="$4"
-  [ ! -z "$1" ] && EXIT="$1" || EXIT="$?"
-  [ ! -z "$2" ] && local OK="$2" || local OK="Command executed successfully"
-  [ ! -z "$3" ] && local FAIL="$3" || local FAIL="${PREV:-The previous command} has failed"
-  [ ! -z "$4" ] && local FAIL="$3" || local FAIL="$3"
+  [ -n "$1" ] && EXIT="$1" || EXIT="$?"
+  [ -n "$2" ] && local OK="$2" || local OK="Command executed successfully"
+  [ -n "$3" ] && local FAIL="$3" || local FAIL="${PREV:-The previous command} has failed"
+  [ -n "$4" ] && local FAIL="$3" || local FAIL="$3"
   if [ "$EXIT" -eq 0 ]; then
     printf_success "$OK"
     return 0
@@ -302,7 +252,7 @@ printf_result() {
     return 1
   fi
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 get_answer() { printf "%s" "$REPLY"; }
 answer_is_yes() { [[ "$REPLY" =~ ^[Yy]$ ]] && return 0 || return 1; }
 ask_for_input() {
@@ -314,18 +264,20 @@ ask_question() {
   printf_question "$1 (y/N) "
   read -re -n 1 "REPLY"
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __curl() { am_i_online && curl -q -LSs --connect-timeout 3 --retry 0 "$@"; }
 __start() {
   sleep .2 && "$@" &>/dev/null &
   disown
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 die() { echo -e "$1" exit ${2:9999}; }
 killpid() { devnull kill -9 "$(pidof "$1")"; }
 running() { ps ux | grep "$1" | grep -vq 'grep ' &>/dev/null && return 1 || return 0; }
 hostname2ip() { getent hosts "$1" | cut -d' ' -f1 | head -n1 || nslookup "$1" 2>/dev/null | grep Address: | awk '{print $2}' | grep -vE '#|:' | grep ^ || return 1; }
 set_trap() { trap -p "$1" | grep "$2" &>/dev/null || trap '$2' "$1"; }
 getuser() { [ -z "$1" ] && cut -d: -f1 /etc/passwd | grep "$USER" || cut -d: -f1 /etc/passwd | grep "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #system_service_active "list of services to check"
 system_service_active() {
   for service in "$@"; do
@@ -336,6 +288,7 @@ system_service_active() {
     fi
   done
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #system_service_running "list of services to check"
 system_service_running() {
   for service in "$@"; do
@@ -346,6 +299,7 @@ system_service_running() {
     fi
   done
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #system_service_exists "servicename"
 system_service_exists() {
   for service in "$@"; do
@@ -354,6 +308,7 @@ system_service_exists() {
   done
   set --
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #system_service_enable "servicename"
 system_service_enable() {
   for service in "$@"; do
@@ -362,6 +317,7 @@ system_service_enable() {
   done
   set --
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #system_service_disable "servicename"
 system_service_disable() {
   for service in "$@"; do
@@ -370,6 +326,7 @@ system_service_disable() {
   done
   set --
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #system_service_start "servicename"
 system_service_start() {
   for service in "$@"; do
@@ -378,6 +335,7 @@ system_service_start() {
   done
   set --
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #system_service_stop "servicename"
 system_service_stop() {
   for service in "$@"; do
@@ -386,6 +344,7 @@ system_service_stop() {
   done
   set --
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #system_service_restart "servicename"
 system_service_restart() {
   for service in "$@"; do
@@ -394,6 +353,7 @@ system_service_restart() {
   done
   set --
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 run_post() {
   local e="$1"
   local m="${e//devnull//}"
@@ -402,28 +362,28 @@ run_post() {
   setexitstatus
   set --
 }
-##################################################################################################
-###################### OS Functions ######################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #alternative names
-tf() { __command tinyfigue || __command tf || return 1; }
-cron() { __command crond || __command cron || return 1; }
-cowsay() { __command cowsay || __command cowpatty || return 1; }
-fortune() { __command fortune || __command fortune-mod || return 1; }
-mlocate() { __command locate || __command mlocate || return 1; }
-xfce4() { __command xfce4-about || return 1; }
-xfce4-notifyd() { __command xfce4-notifyd-config || find /usr/lib* -name "xfce4-notifyd" -type f | grep -q . || return 1; }
-imagemagick() { __command convert || return 1; }
-fdfind() { __command fdfind || __command fd || return 1; }
-speedtest() { __command speedtest-cli || __command speedtest || return 1; }
-neovim() { __command nvim || __command neovim || return 1; }
-chromium() { __command chromium || __command chromium-browser || return 1; }
-firefox() { __command firefox-esr || __command firefox || return 1; }
-gtk-2.0() { find /lib* /usr* -iname "*libgtk*2*.so*" -type f | grep -q . || return 1; }
-gtk-3.0() { find /lib* /usr* -iname "*libgtk*3*.so*" -type f | grep -q . || return 1; }
-transmission-remote-cli() { __command transmission-remote-cli || __command transmission-remote || return 1; }
+tf() { [ -f "$(builtin type -P tinyfigue 2>/dev/null)" ] || [ -f "$(builtin type -P tf 2>/dev/null)" ] || return 1; }
+cron() { [ -f "$(builtin type -P crond 2>/dev/null)" ] || [ -f "$(builtin type -P cron 2>/dev/null)" ] || return 1; }
+grub() { [ -f "$(builtin type -P grub-install 2>/dev/null)" ] || [ -f "$(builtin type -P grub2-install 2>/dev/null)" ] || return 1; }
+cowsay() { [ -f "$(builtin type -P cowsay 2>/dev/null)" ] || [ -f "$(builtin type -P cowpatty 2>/dev/null)" ] || return 1; }
+fortune() { [ -f "$(builtin type -P fortune 2>/dev/null)" ] || [ -f "$(builtin type -P fortune-mod 2>/dev/null)" ] || return 1; }
+mlocate() { [ -f "$(builtin type -P locate 2>/dev/null)" ] || [ -f "$(builtin type -P mlocate 2>/dev/null)" ] || return 1; }
+xfce4() { [ -f "$(builtin type -P xfce4-about 2>/dev/null)" ] || return 1; }
+xfce4-notifyd() { [ -f "$(builtin type -P xfce4-notifyd-config 2>/dev/null)" ] || find /usr/lib* -name "xfce4-notifyd" -type f 2>/dev/null | grep -q . || return 1; }
+imagemagick() { [ -f "$(builtin type -P convert 2>/dev/null)" ] || return 1; }
+fdfind() { [ -f "$(builtin type -P fdfind 2>/dev/null)" ] || [ -f "$(builtin type -P fd 2>/dev/null)" ] || return 1; }
+speedtest() { [ -f "$(builtin type -P speedtest-cli 2>/dev/null)" ] || [ -f "$(builtin type -P speedtest 2>/dev/null)" ] || return 1; }
+neovim() { [ -f "$(builtin type -P nvim 2>/dev/null)" ] || [ -f "$(builtin type -P neovim 2>/dev/null)" ] || return 1; }
+chromium() { [ -f "$(builtin type -P chromium 2>/dev/null)" ] || [ -f "$(builtin type -P chromium-browser 2>/dev/null)" ] || return 1; }
+firefox() { [ -f "$(builtin type -P firefox-esr 2>/dev/null)" ] || [ -f "$(builtin type -P firefox 2>/dev/null)" ] || return 1; }
+gtk-2.0() { find /lib* /usr* -iname "*libgtk*2*.so*" -type f 2>/dev/null | grep -q . || return 1; }
+gtk-3.0() { find /lib* /usr* -iname "*libgtk*3*.so*" -type f 2>/dev/null | grep -q . || return 1; }
+transmission-remote-cli() { [ -f "$(builtin type -P transmission-remote-cli 2>/dev/null)" ] || [ -f "$(builtin type -P transmission-remote 2>/dev/null)" ] || return 1; }
 export -f cron mlocate xfce4 imagemagick fdfind speedtest neovim chromium firefox gtk-2.0 gtk-3.0
-export -f transmission-remote-cli cowsay xfce4-notifyd
-##################################################################################################
+export -f transmission-remote-cli cowsay xfce4-notifyd grub
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 backupapp() {
   local filename count backupdir rmpre4vbackup
   [ -n "$1" ] && local myappdir="$1" || local myappdir="$APPDIR"
@@ -451,11 +411,27 @@ backupapp() {
   fi
   if [ "$count" -gt "3" ]; then rm_rf $rmpre4vbackup; fi
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+mkd() {
+  local dir="$*"
+  for d in $dir; do
+    if [ -f "$d" ]; then rm_rf "$d"; fi
+    [ -d "$d" ] || mkdir -p "$d" &>/dev/null
+  done
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+rm_link() { unlink "$1"; }
+symlink() { ln_sf "$1" "$2"; }
+countwd() { cat "$@" | wc-l | rmcomments; }
+urlverify() { urlcheck "$1" || urlinvalid "$1"; }
+rmcomments() { sed 's/[[:space:]]*#.*//;/^[[:space:]]*$/d'; }
 broken_symlinks() { devnull find "$*" -xtype l -exec rm {} \;; }
 mv_f() { if [ -e "$1" ]; then devnull mv -f "$@"; else return 0; fi; }
 rm_rf() { if [ -e "$1" ]; then devnull rm -Rf "$@"; else return 0; fi; }
 cp_rf() { if [ -e "$1" ]; then devnull cp -Rfa "$@"; else return 0; fi; }
+replace() { find "$1" -not -path "$1/.git/*" -type f -exec sed -i "s#$2#$3#g" {} \; >/dev/null 2>&1; }
+urlcheck() { devnull curl --config /dev/null --connect-timeout 3 --retry 3 --retry-delay 1 --output /dev/null --silent --head --fail "$1"; }
 ln_rm() {
   if [ -e "$1" ]; then
     devnull find -L $1 -mindepth 1 -maxdepth 1 -type l -exec rm -f {} \;
@@ -473,10 +449,6 @@ mkd() {
   done
   return 0
 }
-replace() { find "$1" -not -path "$1/.git/*" -type f -exec sed -i "s#$2#$3#g" {} \; >/dev/null 2>&1; }
-rmcomments() { sed 's/[[:space:]]*#.*//;/^[[:space:]]*$/d'; }
-countwd() { cat "$@" | wc-l | rmcomments; }
-urlcheck() { devnull curl --config /dev/null --connect-timeout 3 --retry 3 --retry-delay 1 --output /dev/null --silent --head --fail "$1"; }
 urlinvalid() {
   if [ -z "$1" ]; then
     printf_red "Invalid URL"
@@ -486,13 +458,9 @@ urlinvalid() {
     failexitcode
   fi
 }
-urlverify() { urlcheck "$1" || urlinvalid "$1"; }
-symlink() { ln_sf "$1" "$2"; }
-rm_link() { unlink "$1"; }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 gem_exists() {
-  #[ -n "$1" ] || return
-  __command gem || return
+  [ -z "$(builtin type -P gem 2>/dev/null)" ] || return
   local package="$1"
   if gem list | grep -q "$package"; then
     return 0
@@ -500,10 +468,10 @@ gem_exists() {
     return 1
   fi
 }
+### Replace Line
 perl_exists() {
-  #[ -n "$1" ] || return
-  __command perl || return
-  local package="$1"
+  [ -z "$(builtin type -P perl 2>/dev/null)" ] || return
+  local package="${1//perl-/}"
   if devnull perl -M$package -le 'print $INC{"$package/Version.pm"}' ||
     devnull perl -M$package -le 'print $INC{"$package.pm"}' ||
     devnull perl -M$package -le 'print $INC{"$package"}'; then
@@ -512,31 +480,13 @@ perl_exists() {
     return 1
   fi
 }
+### Replace Line
 pthon_exists() {
-  #[ -n "$1" ] || return
-  __command python || __command python2 || __command python3 || return
+  [ -z "$(builtin type -P python3 2>/dev/null)" ] || [ -z "$(builtin type -P python2 2>/dev/null)" ] || [ -z "$(builtin type -P python 2>/dev/null)" ] || return
   local package="$1"
   if devnull $PYTHONVER -c "import $package"; then return 0; else return 1; fi
 }
-##################################################################################################
-retry_cmd() {
-  local retries="${1:-}"
-  local count=0
-  shift
-  until "$@"; do
-    local exit=$?
-    local wait=$((2 ** count))
-    local count=$((count + 1))
-    if [ "$count" -lt "$retries" ]; then
-      echo "Retry $count/$retries exited $exit, retrying in $wait seconds ..."
-      sleep $wait
-    else
-      echo "Retry $count/$retries exited $exit, no more retries left."
-      exit $exit
-    fi
-  done
-}
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 returnexitcode() {
   local RETVAL="$?"
   EXIT="$RETVAL"
@@ -544,20 +494,20 @@ returnexitcode() {
     return "$EXIT"
   fi
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 getexitcode() {
   local EXITCODE="$?"
   test -n "$1" && test -z "${1//[0-9]/}" && local EXITCODE="$1" && shift 1
-  if [ ! -z "$1" ]; then
+  if [ -n "$1" ]; then
     local PSUCCES="$1"
-  elif [ ! -z "$SUCCES" ]; then
+  elif [ -n "$SUCCES" ]; then
     local PSUCCES="$SUCCES"
   else
     local PSUCCES="Command successful"
   fi
-  if [ ! -z "$2" ]; then
+  if [ -n "$2" ]; then
     local PERROR="$2"
-  elif [ ! -z "$ERROR" ]; then
+  elif [ -n "$ERROR" ]; then
     local PERROR="$ERROR"
   else
     local PERROR="Last command failed to complete"
@@ -570,12 +520,12 @@ getexitcode() {
   returnexitcode "$EXITCODE"
   return "$EXITCODE"
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 failexitcode() {
   local RETVAL="$?"
   test -n "$1" && test -z "${1//[0-9]/}" && local RETVAL="$1" && shift 1
-  [ ! -z "$1" ] && local fail="$1" || local fail="Command has failed"
-  [ ! -z "$2" ] && local success="$2" || local success=""
+  [ -n "$1" ] && local fail="$1" || local fail="Command has failed"
+  [ -n "$2" ] && local success="$2" || local success=""
   if [ "$RETVAL" -ne 0 ]; then
     set -E
     printf_error "$fail"
@@ -585,7 +535,7 @@ failexitcode() {
     [ -z "$success" ] || printf_custom "42" "$success"
   fi
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 setexitstatus() {
   [ -z "$EXIT" ] && local EXIT="$?" || local EXIT="$EXIT"
   local EXITSTATUS+="$EXIT"
@@ -597,15 +547,15 @@ setexitstatus() {
     return 0
   fi
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __getip() {
-  if __command route || __command ip; then
+  if [ -f "$(builtin type -P route 2>/dev/null)" ] || [ -f "$(builtin type -P ip 2>/dev/null)" ]; then
     if [[ "$OSTYPE" =~ ^darwin ]]; then
       NETDEV="$(route get default | grep interface | awk '{print $2}')"
     else
       NETDEV="$(ip route | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//" | awk '{print $1}')"
     fi
-    if __command ifconfig; then
+    if [ -f "$(builtin type -P ifconfig 2>/dev/null)" ]; then
       CURRIP4="$(/sbin/ifconfig $NETDEV | grep -E "venet|inet" | grep -v "127.0.0." | grep 'inet' | grep -v inet6 | awk '{print $2}' | sed s/addr://g | head -n1)"
       CURRIP6="$(/sbin/ifconfig "$NETDEV" | grep -E "venet|inet" | grep 'inet6' | grep -i global | awk '{print $2}' | head -n1)"
     else
@@ -619,35 +569,36 @@ __getip() {
   fi
 }
 __getip 2>/dev/null
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __getpythonver() {
-  if [[ "$(python3 -V 2>/dev/null)" =~ "Python 3" ]]; then
+  if [[ "$(python -V 2>/dev/null)" =~ "Python 3" ]]; then
     PYTHONVER="python3"
     PIP="pip3"
     PATH="${PATH}:$(python3 -c 'import site; print(site.USER_BASE)')/bin"
-  elif [[ "$(python2 -V 2>/dev/null)" =~ "Python 2" ]]; then
+  elif [[ "$(python -V 2>/dev/null)" =~ "Python 2" ]]; then
     PYTHONVER="python"
     PIP="pip"
     PATH="${PATH}:$(python -c 'import site; print(site.USER_BASE)')/bin"
   fi
-  if __command yay || __command pacman; then
+  if [ -f "$(builtin type -P yay 2>/dev/null)" ] || [ -f "$(builtin type -P pacman 2>/dev/null)" ]; then
     PYTHONVER="python"
     PIP="pip3"
   fi
 }
 __getpythonver
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __getphpver() {
-  if __command php; then
+  if [ -f "$(builtin type -P php 2>/dev/null)" ]; then
     PHPVER="$(php -v | grep --only-matching --perl-regexp "(PHP )\d+\.\\d+\.\\d+" | cut -c 5-7)"
   else
     PHPVER=""
   fi
   echo $PHPVER
 }
-##################################################################################################
-sudoif() { (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 sudorun() { if sudoif; then sudo -HE "$@"; else "$@"; fi; }
+sudoif() { (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null; }
+user_is_root() { if [[ $(id -u) -eq 0 ]] || [[ $EUID -eq 0 ]] || [[ "$WHOAMI" = "root" ]]; then return 0; else return 1; fi; }
 sudorerun() {
   local ARGS="$ARGS"
   if [[ $UID != 0 ]]; then if sudoif; then sudo -HE "$APPNAME" "$ARGS" && exit $?; else sudoreq; fi; fi
@@ -663,17 +614,15 @@ sudoreq() {
     fi
   fi
 }
-user_is_root() { if [[ $(id -u) -eq 0 ]] || [[ $EUID -eq 0 ]] || [[ "$WHOAMI" = "root" ]]; then return 0; else return 1; fi; }
-######################
 can_i_sudo() {
   (
     ISINDSUDO=$(sudo grep -Re "$MYUSER" /etc/sudoers* | grep "ALL" >/dev/null)
     sudo -vn && sudo -ln
   ) 2>&1 | grep -v 'may not' >/dev/null
 }
-######################
 sudoask() {
   if [ ! -f "$HOME/.sudo" ]; then
+    [ -z "$(builtin type -P ask_for_password 2>/dev/null)" ] || ask_for_password
     while true; do
       echo -e "$!" >"$HOME/.sudo"
       sudo -n true && echo -e "$$" >>"$HOME/.sudo"
@@ -683,7 +632,6 @@ sudoask() {
     done &>/dev/null &
   fi
 }
-######################
 sudoexit() {
   local exitCode=$?
   if [ $exitCode -eq 0 ]; then
@@ -694,19 +642,18 @@ sudoexit() {
     return 1
   fi
 }
-######################
 requiresudo() {
-  if __command sudo; then
+  if [ -f "$(builtin type -P sudo 2>/dev/null)" ]; then
     if (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null; then
       sudoask
-      sudoexit && sudo -HE "$@"
+      sudoexit && sudo "$*"
     fi
   else
     printf_red "You dont have access to sudo Please contact the syadmin for access"
     exit 1
   fi
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 addtocrontab() {
   [ "$1" = "--help" ] && printf_help 'addtocrontab "frequency" "command" | IE: addtocrontab "0 4 * * *" "echo hello"'
   local frequency="$1"
@@ -776,7 +723,7 @@ crontab_add() {
     ;;
   esac
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 versioncheck() {
   local choice=""
   if [ -f "$INSTDIR/version.txt" ]; then
@@ -801,13 +748,13 @@ versioncheck() {
   fi
   exit $?
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 scripts_check() {
   mkdir -p "$HOME/.config/local"
   local choice=""
   export -f __curl
-  if am_i_online; then
-    if ! __command pkmgr && [ ! -f "$HOME/.config/local/noscripts" ]; then
+  if [ -z "$(builtin type -P am_i_online 2>/dev/null)" ]; then
+    if [ -z "$(builtin type -P pkmgr 2>/dev/null)" ] && [ ! -f "$HOME/.config/local/noscripts" ]; then
       printf_red "Please install my scripts repo - requires root/sudo"
       printf_question_timeout "4" "Would you like to do that now" "1" "choice" "-s"
       if [[ $choice == "y" || $choice == "Y" ]]; then
@@ -820,20 +767,25 @@ scripts_check() {
     fi
   fi
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #is_url() { echo "$1" | grep -q http; }
 #strip_url() { echo "$1" | sed 's#git+##g' | awk -F//*/ '{print $2}' | sed 's#.*./##g' | sed 's#python-##g'; }
-cmd_missing() { __command "$1" && return 0 || MISSING+="$1 " && return 1; }
-cpan_missing() { perl_exists "$1" && return 0 || MISSING+="$1" && return 1; }
-gem_missing() { gem_exists "$1" && return 0 || MISSING+="$1 " && return 1; }
-perl_missing() { perl_exists "$1" && return 0 || MISSING+="$(echo perl-$1 | sed 's#::#-#g') " && return 1; }
-pip_missing() { pthon_exists "$1" && return 0 || MISSING+="$1 " && return 1; }
-if __command pacman; then
-  python_missing() { pthon_exists "$1" && return 0 || MISSING+="python-$1 " && return 1; }
+cmd_missing() { [ -f "$(builtin type -P "$1" 2>/dev/null)" ] && return 0 || { MISSING+="$1 " && return 1; }; }
+cpan_missing() { perl_exists "$1" && return 0 || { MISSING+="$1" && return 1; }; }
+gem_missing() { gem_exists "$1" && return 0 || { MISSING+="$1 " && return 1; }; }
+perl_missing() { perl_exists "$1" && return 0 || { MISSING+="$(echo perl-$1 | sed 's#::#-#g') " && return 1; }; }
+pip_missing() { pthon_exists "$1" && return 0 || { MISSING+="$1 " && return 1; }; }
+if [ -f "$(builtin type -P pacman 2>/dev/null)" ]; then
+  python_missing() { pthon_exists "$1" && return 0 || { MISSING+="python-$1 " && return 1; }; }
 else
-  python_missing() { pthon_exists "$1" && return 0 || MISSING+="$PYTHONVER-$1 " && return 1; }
+  python_missing() { pthon_exists "$1" && return 0 || { MISSING+="$PYTHONVER-$1 " && return 1; }; }
 fi
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+git_repo_urls() {
+  REPO="${REPO:-https://github.com/dfmgr}"
+  REPORAW="${REPORAW:-$REPO/$APPNAME/raw/$GIT_REPO_BRANCH}"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 git_clone() {
   if am_i_online; then
     local repo="$1"
@@ -844,7 +796,7 @@ git_clone() {
     devnull git clone -q --recursive "$repo" "$myappdir"
   fi
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 git_update() {
   local myappdir="${1:-$INSTDIR}"
   local exitCode=""
@@ -860,7 +812,7 @@ git_update() {
     fi
   fi
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 dotfilesreqcmd() {
   local gitrepo="https://github.com/${SCRIPTS_PREFIX:-dfmgr}/${1:-$conf}"
   urlverify "$gitrepo/raw/$GIT_REPO_BRANCH/install.sh" &&
@@ -871,19 +823,17 @@ dotfilesreqadmincmd() {
   urlverify "$gitrepo/raw/$GIT_REPO_BRANCH/install.sh" &&
     sudo -HE bash -c "$(curl -LSs $gitrepo/raw/$GIT_REPO_BRANCH/install.sh)" &>/dev/null || return 1
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 dotfilesreq() {
   local confdir="$USRUPDATEDIR"
   declare -a LISTARRAY="$*"
   for conf in ${LISTARRAY[*]}; do
     if [ ! -f "$confdir/$conf" ] && [ ! -f "$TEMP/$conf.inst.tmp" ]; then
       touch "$TEMP/$conf.inst.tmp"
-      #execute "dotfilesreqcmd $conf" "Installing required dotfile $conf"
       dotfilesreqcmd $conf
     fi
   done
 }
-
 dotfilesreqadmin() {
   am_i_online || return 1
   local confdir="$SYSUPDATEDIR"
@@ -891,81 +841,52 @@ dotfilesreqadmin() {
   for conf in ${LISTARRAY[*]}; do
     if [ ! -f "$confdir/$conf" ] && [ ! -f "$TEMP/$conf.inst.tmp" ]; then
       touch "$TEMP/$conf.inst.tmp"
-      #execute "dotfilesreqcmd $conf" "Installing required dotfile $conf"
       dotfilesreqcmd $conf
     fi
   done
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_required() {
-  #[ -n "$1" ] || return
-  if am_i_online; then
+  if [ -f "$(builtin type -P am_i_online 2>/dev/null)" ] && am_i_online; then
     local REQUIRED="$*"
     local MISSING=""
     local cmd=""
-    for cmd in $REQUIRED; do __command $cmd || MISSING+="$cmd "; done
+    for cmd in $REQUIRED; do builtin type -p "$cmd" &>/dev/null || MISSING+="$cmd "; done
     if [ -n "$MISSING" ]; then
-      if __command "pkmgr"; then
+      if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
         printf_yellow "Still missing: $MISSING"
         printf_yellow "Installing from package list"
-        if __command yay; then
-          sudo_pkmgr --enable-aur dotfiles "$APPNAME"
+        if [ -f "$(builtin type -P yay 2>/dev/null)" ]; then
+          pkmgr --enable-aur dotfiles "$APPNAME" 2>/dev/null
         else
-          sudo_pkmgr dotfiles "$APPNAME"
+          pkmgr dotfiles "$APPNAME" 2>/dev/null
         fi
       fi
     fi
     unset MISSING
-    for cmd in $REQUIRED; do __command "$cmd" || MISSING+="$cmd "; done
+    for cmd in $REQUIRED; do builtin type -p "$cmd" &>/dev/null || MISSING+="$cmd "; done
     if [ -n "$MISSING" ]; then
       printf_warning "Can not install all the required packages for $APPNAME"
-      #if [ -f "$APPDIR/install.sh" ]; then
-      #  devnull unlink -f "$APPDIR" || devnull rm -Rf "$APPDIR"
-      #fi
-      #set -eE
       return 1
     fi
   fi
   unset MISSING
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_packages() {
-  #[ -n "$1" ] || return
-  if am_i_online; then
+  if [ -f "$(builtin type -P am_i_online 2>/dev/null)" ] && am_i_online; then
     local REQUIRED="$*"
     local MISSING=""
     local cmd=""
-    if __command -p "pkmgr" &>/dev/null; then
-      for cmd in $REQUIRED; do __command "$cmd" || MISSING+="$cmd "; done
-      if [ ! -z "$MISSING" ]; then
+    if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
+      for cmd in $REQUIRED; do 
+        python_missing "$cmd" || perl_missing "$cmd" || pip_missing "$cmd" || cpan_missing "$cmd" || builtin type -p "$cmd" &>/dev/null || MISSING+="$cmd "
+      done
+      if [ -n "$MISSING" ]; then
         printf_warning "Attempting to install missing packages as $RUN_USER"
         printf_warning "$MISSING"
         for miss in $MISSING; do
-          if __command yay; then
-            execute "sudo_pkmgr --enable-aur silent $miss" "Installing $miss"
-          else
-            execute "sudo_pkmgr silent $miss" "Installing $miss"
-          fi
-        done
-      fi
-    fi
-  fi
-  unset MISSING
-}
-##################################################################################################
-install_python() {
-  #[ -n "$1" ] || return
-  if am_i_online; then
-    local REQUIRED="$*"
-    local MISSING=""
-    local cmd=""
-    for cmd in $REQUIRED; do python_missing "$cmd"; done
-    if [ -n "$MISSING" ]; then
-      if __command -p "pkmgr" &>dev/null; then
-        printf_warning "Attempting to install missing python packages"
-        printf_warning "$MISSING"
-        for miss in $MISSING; do
-          if __command yay; then
+          if [ -n "$(builtin type -P yay 2>/dev/null)" ]; then
             execute "pkmgr --enable-aur silent $miss" "Installing $miss"
           else
             execute "pkmgr silent $miss" "Installing $miss"
@@ -976,16 +897,38 @@ install_python() {
   fi
   unset MISSING
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+install_python() {
+  if [ -n "$(builtin type -P am_i_online 2>/dev/null)" ] && am_i_online; then
+    local REQUIRED="$*"
+    local MISSING=""
+    local cmd=""
+    for cmd in $REQUIRED; do python_missing "$cmd"; done
+    if [ -n "$MISSING" ]; then
+      if [ -n "$(builtin type -P pkmgr 2>/dev/null)" ]; then
+        printf_warning "Attempting to install missing python packages"
+        printf_warning "$MISSING"
+        for miss in $MISSING; do
+          if [ -f "$(builtin type -P yay 2>/dev/null)" ]; then
+            execute "pkmgr --enable-aur silent $miss" "Installing $miss"
+          else
+            execute "pkmgr silent $miss" "Installing $miss"
+          fi
+        done
+      fi
+    fi
+  fi
+  unset MISSING
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_perl() {
-  #[ -n "$1" ] || return
-  if am_i_online; then
+  if [ -f "$(builtin type -P am_i_online 2>/dev/null)" ] && am_i_online; then
     local REQUIRED="$*"
     local MISSING=""
     local cmd=""
     for cmd in $REQUIRED; do perl_missing "$cmd"; done
-    if [ ! -z "$MISSING" ]; then
-      if __command "pkmgr"; then
+    if [ -n "$MISSING" ]; then
+      if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
         printf_warning "Attempting to install missing perl packages"
         printf_warning "$MISSING"
         for miss in $MISSING; do
@@ -996,16 +939,15 @@ install_perl() {
   fi
   unset MISSING
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_pip() {
-  #[ -n "$1" ] || return
-  if am_i_online; then
+  if [ -f "$(builtin type -P am_i_online 2>/dev/null)" ] && am_i_online; then
     local REQUIRED="$*"
     local MISSING=""
     local cmd=""
-    for cmd in $REQUIRED; do __command $cmd || pip_missing "$cmd"; done
-    if [ ! -z "$MISSING" ]; then
-      if __command "pkmgr"; then
+    for cmd in $REQUIRED; do [ -f "$(builtin type -P "$cmd" 2>/dev/null)" ] || pip_missing "$cmd"; done
+    if [ -n "$MISSING" ]; then
+      if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
         printf_warning "Attempting to install missing pip packages"
         printf_warning "$MISSING"
         for miss in $MISSING; do
@@ -1016,16 +958,15 @@ install_pip() {
   fi
   unset MISSING
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_cpan() {
-  #[ -n "$1" ] || return
-  if am_i_online; then
+  if [ -f "$(builtin type -P am_i_online 2>/dev/null)" ] && am_i_online; then
     local REQUIRED="$*"
     local MISSING=""
     local cmd=""
-    for cmd in $REQUIRED; do __command $cmd || cpan_missing "$cmd"; done
-    if [ ! -z "$MISSING" ]; then
-      if __command "pkmgr"; then
+    for cmd in $REQUIRED; do [ -f "$(builtin type -P "$cmd" 2>/dev/null)" ] || cpan_missing "$cmd"; done
+    if [ -n "$MISSING" ]; then
+      if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
         printf_warning "Attempting to install missing cpan packages"
         printf_warning "$MISSING"
         for miss in $MISSING; do
@@ -1036,16 +977,15 @@ install_cpan() {
   fi
   unset MISSING
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_gem() {
-  #[ -n "$1" ] || return
-  if am_i_online; then
+  if [ -f "$(builtin type -P am_i_online 2>/dev/null)" ] && am_i_online; then
     local REQUIRED="$*"
     local MISSING=""
     local cmd=""
-    for cmd in $REQUIRED; do __command $cmd || gem_missing $cmd; done
-    if [ ! -z "$MISSING" ]; then
-      if __command "pkmgr"; then
+    for cmd in $REQUIRED; do [ -f "$(builtin type -P $cmd 2>/dev/null)" ] || gem_missing "$cmd"; done
+    if [ -n "$MISSING" ]; then
+      if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
         printf_warning "Attempting to install missing gem packages"
         printf_warning "$MISSING"
         for miss in $MISSING; do
@@ -1056,22 +996,36 @@ install_gem() {
   fi
   unset MISSING
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 trim() {
   local IFS=' '
   local trimmed="${*//[[:space:]]/}"
   echo "$trimmed"
 }
-##################################################################################################
-kill_all_subprocesses() {
-  local i=""
-  for i in $(jobs -p); do
-    kill "$i"
-    wait "$i" &>/dev/null
-  done
-}
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 execute() {
+  kill_all_subprocesses() {
+    local i=""
+    for i in $(jobs -p); do
+      kill "$i"
+      wait "$i" &>/dev/null
+    done
+  }
+  show_spinner() {
+    local -r FRAMES='/-\|'
+    local -r NUMBER_OR_FRAMES=${#FRAMES}
+    local -r CMDS="$2"
+    local -r MSG="$3"
+    local -r PID="$1"
+    local i=0
+    local frameText=""
+    while kill -0 "$PID" &>/dev/null; do
+      frameText="                [${FRAMES:i++%NUMBER_OR_FRAMES:1}] $MSG"
+      printf "%s" "$frameText"
+      sleep 0.2
+      printf "\r"
+    done
+  }
   local -r CMDS="$1"
   local -r MSG="${2:-$1} "
   local -r TMP_FILE="$(mktemp /tmp/XXXXX)"
@@ -1090,28 +1044,7 @@ execute() {
   rm -rf "$TMP_FILE"
   return $exitCode
 }
-##################################################################################################
-show_spinner() {
-  local -r FRAMES='/-\|'
-  local -r NUMBER_OR_FRAMES=${#FRAMES}
-  local -r CMDS="$2"
-  local -r MSG="$3"
-  local -r PID="$1"
-  local i=0
-  local frameText=""
-  while kill -0 "$PID" &>/dev/null; do
-    frameText="                [${FRAMES:i++%NUMBER_OR_FRAMES:1}] $MSG"
-    printf "%s" "$frameText"
-    sleep 0.2
-    printf "\r"
-  done
-}
-##################################################################################################
-git_repo_urls() {
-  REPO="${REPO:-https://github.com/dfmgr}"
-  REPORAW="${REPORAW:-$REPO/$APPNAME/raw/$GIT_REPO_BRANCH}"
-}
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 os_support() {
   if [ -n "$1" ]; then
     OSTYPE="$(echo $1 | tr '[:upper:]' '[:lower:]')"
@@ -1181,7 +1114,7 @@ if_os_id() {
     local distroname=$(grep ID_LIKE= /etc/os-release | sed 's#ID_LIKE=##')
   elif [ -f "/etc/redhat-release" ]; then
     local distroname=$(cat /etc/redhat-release)
-  elif __command -P lsb_release &>/dev/null; then
+  elif [ -f "$(builtin type -P lsb_release 2>/dev/null)" ]; then
     local distroname="$(lsb_release -a | grep 'Distributor ID' | awk '{print $3}')"
   else
     local distroname="unknown"
@@ -1336,7 +1269,7 @@ system_installdirs() {
   installtype="system_installdirs"
   git_repo_urls
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ensure_dirs() {
   if [[ $EUID -ne 0 ]] || [[ "$WHOAMI" != "root" ]]; then
     mkd "$BIN"
@@ -1365,7 +1298,7 @@ ensure_dirs() {
   fi
   return 0
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ensure_perms() {
   # chown -Rf "$WHOAMI":"$WHOAMI" "$LOGDIR"
   # chown -Rf "$WHOAMI":"$WHOAMI" "$BACKUPDIR"
@@ -1382,7 +1315,7 @@ ensure_perms() {
   # chmod -Rf 755 "$HOME/.local/share/CasjaysDev"
   return 0
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 get_app_version() {
   if [ -f "$INSTDIR/version.txt" ]; then
     local version="$(grep -sv "#" "$INSTDIR/version.txt" | tail -n 1)"
@@ -1407,7 +1340,7 @@ get_app_version() {
     printf_info "Update Available:          Yes"
   fi
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 app_uninstall() {
   if [ -d "$APPDIR" ]; then
     printf_yellow "Removing $APPNAME from your system"
@@ -1422,7 +1355,7 @@ app_uninstall() {
     return 1
   fi
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 show_optvars() {
   __main_installer_info &>/dev/null
   if [ "$1" = "--force" ]; then
@@ -1457,9 +1390,9 @@ show_optvars() {
   fi
 
   if [ "$1" = "--help" ]; then
-    #    if __command xdg-open; then
+    #    if [ -f "$(builtin type -P  2>/dev/null)" ] xdg-open; then
     #      xdg-open "$REPO"
-    #    elif __command open; then
+    #    elif [ -f "$(builtin type -P  2>/dev/null)" ] open; then
     #      open "$REPO"
     #    else
     printf_cyan "Go to $REPO for help"
@@ -1553,7 +1486,7 @@ show_optvars() {
     exit $?
   fi
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 installer_noupdate() {
   if [ "$FORCE_INSTALL" = "true" ]; then
     rm_rf "$APPDIR/.installed" "$INSTDIR/.installed"
@@ -1571,12 +1504,12 @@ installer_noupdate() {
     fi
   fi
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __install_fonts() {
   if [ -d "$INSTDIR/fontconfig" ]; then
     local fontconfdir="$FONTCONF"
     ln_sf "$INSTDIR/fontconfig"/* "$fontconfdir/"
-    __command fc-cache && fc-cache -f "$FONTCONF"
+    [ -f "$(builtin type -P fc-cache 2>/dev/null)" ] && fc-cache -f "$FONTCONF"
   fi
   if [ -d "$HOME/Library/Fonts" ]; then
     local fontdir="$HOME/Library/Fonts"
@@ -1586,7 +1519,7 @@ __install_fonts() {
   if [ -d "$INSTDIR/fonts" ]; then
     [ -d "$fontdir/$APPNAME" ] && rm_rf "$fontdir/$APPNAME"
     ln_sf "$INSTDIR/fonts"/* "$fontdir/"
-    __command fc-cache && fc-cache -f "$FONTDIR"
+    [ -f "$(builtin type -P fc-cache 2>/dev/null)" ] && fc-cache -f "$FONTDIR"
   fi
 }
 __install_icons() {
@@ -1599,14 +1532,14 @@ __install_icons() {
         ln_sf "$INSTDIR/icons/$f" "$icondir/$f"
         find -L "$ICONDIR" -mindepth 1 -maxdepth 1 -type d | while read -r ICON; do
           if [ -f "$ICON/index.theme" ]; then
-            __command gtk-update-icon-cache && gtk-update-icon-cache -f -q "$ICON"
+            [ -f "$(builtin type -P gtk-update-icon-cache 2>/dev/null)" ] && gtk-update-icon-cache -f -q "$ICON"
           fi
         done
       done
     fi
     devnull find "$ICONDIR" -type d -exec chmod 755 {} \;
     devnull find "$ICONDIR" -type f -exec chmod 644 {} \;
-    __command gtk-update-icon-cache && devnull gtk-update-icon-cache -q -t -f "$ICONDIR"
+    [ -f "$(builtin type -P gtk-update-icon-cache 2>/dev/null)" ] && devnull gtk-update-icon-cache -q -t -f "$ICONDIR"
   fi
   return 0
 }
@@ -1621,7 +1554,7 @@ __install_theme() {
         ln_sf "$INSTDIR/theme/$f" "$themedir/$APPNAME/$f"
         find -L "$THEMEDIR" -mindepth 1 -maxdepth 2 -type d | while read -r THEME; do
           if [ -f "$THEME/index.theme" ]; then
-            __command gtk-update-icon-cache && gtk-update-icon-cache -f -q "$THEME"
+            [ -f "$(builtin type -P gtk-update-icon-cache 2>/dev/null)" ] && gtk-update-icon-cache -f -q "$THEME"
           fi
         done
       done
@@ -1629,7 +1562,7 @@ __install_theme() {
     ln_rm "$THEMEDIR"
     find "$THEMEDIR" -mindepth 1 -maxdepth 2 -type d -not -path "*/.git/*" | while read -r THEME; do
       if [ -f "$THEME/index.theme" ]; then
-        __command gtk-update-icon-cache && gtk-update-icon-cache -f -q "$THEME"
+        [ -f "$(builtin type -P gtk-update-icon-cache 2>/dev/null)" ] && gtk-update-icon-cache -f -q "$THEME"
       fi
     done
   fi
@@ -1649,7 +1582,7 @@ __install_wallpapers() {
   fi
   return 0
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ###################### devenv settings ######################
 devenvmgr_install() {
   user_installdirs
@@ -1728,10 +1661,10 @@ dfmgr_install_version() {
   #   ln_sf "$INSTDIR/install.sh" "$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX/$APPNAME"
   # fi
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 dockermgr_install() {
   system_installdirs
-  #__command docker || printf_exit 1 1 "This requires docker, however, docker wasn't found"
+  #[ -f "$(builtin type -P  2>/dev/null)" ] docker || printf_exit 1 1 "This requires docker, however, docker wasn't found"
   SCRIPTS_PREFIX="dockermgr"
   APPDIR="${APPDAIR:-$SHARE/docker/$APPNAME}"
   INSTDIR="${INSTDIR:-$SHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME}"
@@ -1768,7 +1701,7 @@ dockermgr_install_version() {
   #   ln_sf "$INSTDIR/install.sh" "$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX/$APPNAME"
   # fi
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 fontmgr_install() {
   system_installdirs
   SCRIPTS_PREFIX="fontmgr"
@@ -1807,7 +1740,7 @@ fontmgr_install_version() {
   #   ln_sf "$INSTDIR/install.sh" "$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX/$APPNAME"
   # fi
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 iconmgr_install() {
   system_installdirs
   SCRIPTS_PREFIX="iconmgr"
@@ -1849,9 +1782,9 @@ iconmgr_install_version() {
 generate_icon_index() {
   iconmgr_install
   ICONDIR="${ICONDIR:-$SHARE/icons}"
-  __command fc-cache && fc-cache -f "$ICONDIR"
+  [ -f "$(builtin type -P fc-cache 2>/dev/null)" ] && fc-cache -f "$ICONDIR"
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 pkmgr_install() {
   system_installdirs
   SCRIPTS_PREFIX="pkmgr"
@@ -1889,7 +1822,7 @@ pkmgr_install_version() {
   #   ln_sf "$INSTDIR/install.sh" "$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX/$APPNAME"
   # fi
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 systemmgr_install() {
   requiresudo "true"
   system_installdirs
@@ -1920,6 +1853,7 @@ systemmgr_install() {
 }
 ######## Installer Functions ########
 systemmgr_run_init() {
+  sudoif || sudo true
   run_install_init "configurations"
 }
 systemmgr_run_post() {
@@ -1933,7 +1867,7 @@ systemmgr_install_version() {
   #   ln_sf "$INSTDIR/install.sh" "$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX/$APPNAME"
   # fi
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 thememgr_install() {
   system_installdirs
   SCRIPTS_PREFIX="thememgr"
@@ -1976,7 +1910,7 @@ thememgr_install_version() {
   #   ln_sf "$INSTDIR/install.sh" "$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX/$APPNAME"
   # fi
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 wallpapermgr_install() {
   system_installdirs
   SCRIPTS_PREFIX="wallpapermgr"
@@ -2014,7 +1948,7 @@ wallpapermgr_install_version() {
   #   ln_sf "$INSTDIR/install.sh" "$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX/$APPNAME"
   # fi
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __main_installer_info() {
   if [ "$APPNAME" = "scripts" ] || [ "$APPNAME" = "installer" ]; then
     printf_cyan "Installing $APPNAME installer"
@@ -2028,7 +1962,7 @@ __main_installer_info() {
   fi
   #printf_exit "A:$APPNAME D:$APPDIR I:$INSTDIR P:$PLUGDIR"
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 run_install_init() {
   trap '[ -f "$TMPINST" ] && rm_rf $"$TMPINST"' EXIT
   __main_installer_info &>/dev/null
@@ -2066,7 +2000,7 @@ run_install_init() {
     [ "$exitCode" -eq 0 ] || exit 10
   fi
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 run_postinst_global() {
   $installtype
   # if [ "$APPDIR" != "$INSTDIR" ]; then
@@ -2090,7 +2024,7 @@ run_postinst_global() {
       fi
       ln_rm "$BIN/"
     fi
-    __command updatedb && updatedb || return 0
+    [ -f "$(builtin type -P updatedb 2>/dev/null)" ] && sudo updatedb || return 0
   else
     # Run on everything else
     if [ "$APPDIR" != "$INSTDIR" ]; then
@@ -2159,7 +2093,7 @@ run_postinst_global() {
   # Permission fix
   ensure_perms
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_version() {
   $installtype
   printf_blue "$ICON_GOOD installing version info"
@@ -2176,7 +2110,7 @@ install_version() {
     fi
   fi
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 run_exit() {
   $installtype
   local APPNAME="${APPNAME:-$PROG}"
@@ -2201,7 +2135,7 @@ run_exit() {
   #unset APPNAME APPDIR INSTDIR REPO REPORAW APPVERSION APP PLUGDIR TMPFILE
   exit "${EXIT:-$?}"
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 run_install_list() {
   if [ -d "$USRUPDATEDIR" ] && [ -n "$(ls -A "$USRUPDATEDIR/$1" 2>/dev/null)" ]; then
     file="$(ls -A "$USRUPDATEDIR/$1" 2>/dev/null)"
@@ -2223,7 +2157,7 @@ run_install_list() {
     fi
   fi
 }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Versioning
 __appversion() {
   local versionfile="${1:-REPORAW/version.txt}"
@@ -2266,7 +2200,7 @@ systemmgr_req_version() { __required_version "$1"; }
 thememgr_req_version() { __required_version "$1"; }
 #[ "$installtype" = "wallpapermgr_install" ] &&
 wallpapermgr_req_version() { __required_version "$1"; }
-##################################################################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 vdebug() {
   echo -e "VAR - "ARGS:$*""
   # for path in "USER:$USER" "HOME:$HOME" "PREFIX:$SCRIPTS_PREFIX" "REPO:$REPO" "REPORAW:$REPORAW" \

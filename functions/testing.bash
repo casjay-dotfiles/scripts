@@ -630,7 +630,7 @@ __system_service_running() {
 #system_service_exists "servicename"
 __system_service_exists() {
   for service in "$@"; do
-    if sudo systemctl list-unit-files | grep -Fq "$service.service" || sudo -HE systemctl list-unit-files | grep -Fq "$service.socket"; then return 0; else return 1; fi
+    if sudo systemctl list-unit-files | grep -Fq "$service.service" || sudo systemctl list-unit-files | grep -Fq "$service.socket"; then return 0; else return 1; fi
     __setexitstatus $?
   done
   set --
@@ -638,7 +638,7 @@ __system_service_exists() {
 #system_service_enable "servicename"
 __system_service_enable() {
   for service in "$@"; do
-    if __system_service_exists "$service"; then __devnull "sudo -HE systemctl enable --now -f $service"; fi
+    if __system_service_exists "$service"; then __devnull "sudo systemctl enable --now -f $service"; fi
     __setexitstatus $?
   done
   set --
@@ -646,7 +646,7 @@ __system_service_enable() {
 #system_service_disable "servicename"
 __system_service_disable() {
   for service in "$@"; do
-    if __system_service_exists "$service"; then __devnull "sudo -HE systemctl disable --now -f $service"; fi
+    if __system_service_exists "$service"; then __devnull "sudo systemctl disable --now -f $service"; fi
     __setexitstatus $?
   done
   set --
@@ -654,7 +654,7 @@ __system_service_disable() {
 #system_service_start "servicename"
 __system_service_start() {
   for service in "$@"; do
-    if __system_service_exists "$service"; then __devnull "sudo -HE systemctl start $service"; fi
+    if __system_service_exists "$service"; then __devnull "sudo systemctl start $service"; fi
     __setexitstatus $?
   done
   set --
@@ -662,7 +662,7 @@ __system_service_start() {
 #system_service_stop "servicename"
 __system_service_stop() {
   for service in "$@"; do
-    if __system_service_exists "$service"; then __devnull "sudo -HE systemctl stop $service"; fi
+    if __system_service_exists "$service"; then __devnull "sudo systemctl stop $service"; fi
     __setexitstatus $?
   done
   set --
@@ -670,7 +670,7 @@ __system_service_stop() {
 #system_service_restart "servicename"
 __system_service_restart() {
   for service in "$@"; do
-    if __system_service_exists "$service"; then __devnull "sudo -HE systemctl restart $service"; fi
+    if __system_service_exists "$service"; then __devnull "sudo systemctl restart $service"; fi
     __setexitstatus $?
   done
   set --
@@ -745,7 +745,7 @@ __go_exists() {
 __check_pip() {
   local ARGS="$*"
   local MISSING=""
-  for cmd in $ARGS; do type $cmd || MISSING+="$cmd "; done
+  for cmd in $ARGS; do type -P "$cmd" &>/dev/null || MISSING+="$cmd "; done
   if [ -n "$MISSING" ]; then
     printf_read_question "2" "$1 is not installed Would you like install it? [y/N]" "1" "choice" "-s"
     if printf_answer_yes "$choice"; then
@@ -1316,7 +1316,7 @@ __cron_updater() {
         file="$(ls -A $SYSUPDATEDIR/$upd 2>/dev/null)"
         if [ -f "$file" ]; then
           appname="$(__basename $file)"
-          sudo -HE file="$file" bash -c "$file --cron $*"
+          sudo file="$file" bash -c "$file --cron $*"
         fi
       done
     else
@@ -1324,7 +1324,7 @@ __cron_updater() {
         file="$(ls -A $SYSUPDATEDIR/$1 2>/dev/null)"
         if [ -f "$file" ]; then
           appname="$(__basename $file)"
-          sudo -HE file="$file" bash -c "$file --cron $*"
+          sudo file="$file" bash -c "$file --cron $*"
         fi
       fi
     fi
@@ -1348,7 +1348,28 @@ __cron_updater() {
     fi
   fi
 }
-###################### backup functions ######################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#alternative names
+tf() { [ -f "$(builtin type -P tinyfigue 2>/dev/null)" ] || [ -f "$(builtin type -P tf 2>/dev/null)" ] || return 1; }
+cron() { [ -f "$(builtin type -P crond 2>/dev/null)" ] || [ -f "$(builtin type -P cron 2>/dev/null)" ] || return 1; }
+grub() { [ -f "$(builtin type -P grub-install 2>/dev/null)" ] || [ -f "$(builtin type -P grub2-install 2>/dev/null)" ] || return 1; }
+cowsay() { [ -f "$(builtin type -P cowsay 2>/dev/null)" ] || [ -f "$(builtin type -P cowpatty 2>/dev/null)" ] || return 1; }
+fortune() { [ -f "$(builtin type -P fortune 2>/dev/null)" ] || [ -f "$(builtin type -P fortune-mod 2>/dev/null)" ] || return 1; }
+mlocate() { [ -f "$(builtin type -P locate 2>/dev/null)" ] || [ -f "$(builtin type -P mlocate 2>/dev/null)" ] || return 1; }
+xfce4() { [ -f "$(builtin type -P xfce4-about 2>/dev/null)" ] || return 1; }
+xfce4-notifyd() { [ -f "$(builtin type -P xfce4-notifyd-config 2>/dev/null)" ] || find /usr/lib* -name "xfce4-notifyd" -type f 2>/dev/null | grep -q . || return 1; }
+imagemagick() { [ -f "$(builtin type -P convert 2>/dev/null)" ] || return 1; }
+fdfind() { [ -f "$(builtin type -P fdfind 2>/dev/null)" ] || [ -f "$(builtin type -P fd 2>/dev/null)" ] || return 1; }
+speedtest() { [ -f "$(builtin type -P speedtest-cli 2>/dev/null)" ] || [ -f "$(builtin type -P speedtest 2>/dev/null)" ] || return 1; }
+neovim() { [ -f "$(builtin type -P nvim 2>/dev/null)" ] || [ -f "$(builtin type -P neovim 2>/dev/null)" ] || return 1; }
+chromium() { [ -f "$(builtin type -P chromium 2>/dev/null)" ] || [ -f "$(builtin type -P chromium-browser 2>/dev/null)" ] || return 1; }
+firefox() { [ -f "$(builtin type -P firefox-esr 2>/dev/null)" ] || [ -f "$(builtin type -P firefox 2>/dev/null)" ] || return 1; }
+gtk-2.0() { find /lib* /usr* -iname "*libgtk*2*.so*" -type f 2>/dev/null | grep -q . || return 1; }
+gtk-3.0() { find /lib* /usr* -iname "*libgtk*3*.so*" -type f 2>/dev/null | grep -q . || return 1; }
+transmission-remote-cli() { [ -f "$(builtin type -P transmission-remote-cli 2>/dev/null)" ] || [ -f "$(builtin type -P transmission-remote 2>/dev/null)" ] || return 1; }
+export -f cron mlocate xfce4 imagemagick fdfind speedtest neovim chromium firefox gtk-2.0 gtk-3.0
+export -f transmission-remote-cli cowsay xfce4-notifyd grub
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #backupapp "directory" "filename"
 __backupapp() {
   local filename count backupdir rmpre4vbackup
@@ -1489,16 +1510,16 @@ __editor() {
   return $?
 }
 ##################### sudo functions ####################
-__sudo() { sudo -HE $* && return 0 || return 1; }
+__sudo() { $(builtin type -P sudo) --preserve-env=PATH -HE "$@" || return 1; }
 __sudo_group() { grep "${1:-$USER}" /etc/group | grep -Eq 'wheel|adm|sudo' || return 1; }
 sudoif() { (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null && return 0 || return 1; }
-sudorun() { if sudoif; then sudo -HE "$@"; else "$@"; fi; }
+sudorun() { if sudoif; then sudo "$@"; else "$@"; fi; }
 sudorerun() {
   local CMD="${1:-$APPNAME}" && shift 1
   local ARGS="${*:-$ARGS}" && shift $#
   if [[ $UID != 0 ]]; then
     if sudoif; then
-      sudo -HE "$CMD" "$ARGS"
+      sudo "$CMD" "$ARGS"
       if [[ $? -ne 0 ]]; then
         return 1
       fi
@@ -1521,7 +1542,7 @@ sudoreq() {
 __can_i_sudo() { __sudo_group "${1:-$USER}" || sudoif; }
 __sudoask() {
   if [ ! -f "$HOME/.sudo" ]; then
-    sudo -HE true &>/dev/null && return 0 || return 1
+    sudo true &>/dev/null && return 0 || return 1
     while true; do
       echo "$$" >"$HOME/.sudo"
       sudo -n true
@@ -1553,7 +1574,7 @@ user_is_root() {
   else return 1; fi
 }
 if __sudo_group "$USER"; then
-  __passwd() { sudo -HE passwd "$*"; }
+  __passwd() { sudo passwd "$*"; }
 else
   __passwd() { passwd "$*"; }
 fi
@@ -1697,19 +1718,24 @@ __return() {
 }
 ###################### OS Functions ######################
 #alternative names
-cron() { __command crond || __command cron || return 1; }
-mlocate() { __command locate || __command mlocate || return 1; }
-xfce4() { __command xfce4-about || return 1; }
-imagemagick() { __command convert || return 1; }
-fdfind() { __command python3 || __command fd || return 1; }
-speedtest() { __command fdind || __command speedtest || return 1; }
-neovim() { __command nvim || __command neovim || return 1; }
-chromium() { __command chromium || __command chromium-browser || return 1; }
-firefox() { __command firefox-esr || __command firefox || return 1; }
-gtk-2.0() { find /lib* /usr* -iname "*libgtk*2*.so*" -type f | grep -q . || return 1; }
-gtk-3.0() { find /lib* /usr* -iname "*libgtk*3*.so*" -type f | grep -q . || return 1; }
-transmission-remote-cli() { __command transmission-remote-cli || __command transmission-remote || return 1; }
-export -f cron mlocate xfce4 imagemagick fdfind speedtest neovim chromium firefox gtk-2.0 gtk-3.0 transmission-remote-cli
+tf() { [ -f "$(builtin type -P timyfigue 2>/dev/null)" ] || [ -f "$(builtin type -P tf 2>/dev/null)" ] || return 1; }
+cron() { [ -f "$(builtin type -P crond 2>/dev/null)" ] || [ -f "$(builtin type -P cron 2>/dev/null)" ] || return 1; }
+cowsay() { [ -f "$(builtin type -P cowsay 2>/dev/null)" ] || [ -f "$(builtin type -P cowpatty 2>/dev/null)" ] || return 1; }
+fortune() { [ -f "$(builtin type -P fortune 2>/dev/null)" ] || [ -f "$(builtin type -P fortune-mod 2>/dev/null)" ] || return 1; }
+mlocate() { [ -f "$(builtin type -P locate 2>/dev/null)" ] || [ -f "$(builtin type -P mlocate 2>/dev/null)" ] || return 1; }
+xfce4() { [ -f "$(builtin type -P xfce4-about 2>/dev/null)" ] || return 1; }
+xfce4-notifyd() { [ -f "$(builtin type -P xfce4-notifyd-config 2>/dev/null)" ] || find /usr/lib* -name "xfce4-notifyd" -type f 2>/dev/null | grep -q . || return 1; }
+imagemagick() { [ -f "$(builtin type -P convert 2>/dev/null)" ] || return 1; }
+fdfind() { [ -f "$(builtin type -P fdfind 2>/dev/null)" ] || [ -f "$(builtin type -P fd 2>/dev/null)" ] || return 1; }
+speedtest() { [ -f "$(builtin type -P speedtest-cli 2>/dev/null)" ] || [ -f "$(builtin type -P speedtest 2>/dev/null)" ] || return 1; }
+neovim() { [ -f "$(builtin type -P nvim 2>/dev/null)" ] || [ -f "$(builtin type -P neovim 2>/dev/null)" ] || return 1; }
+chromium() { [ -f "$(builtin type -P chromium 2>/dev/null)" ] || [ -f "$(builtin type -P chromium-browser 2>/dev/null)" ] || return 1; }
+firefox() { [ -f "$(builtin type -P firefox-esr 2>/dev/null)" ] || [ -f "$(builtin type -P firefox 2>/dev/null)" ] || return 1; }
+gtk-2.0() { find /lib* /usr* -iname "*libgtk*2*.so*" -type f 2>/dev/null | grep -q . || return 1; }
+gtk-3.0() { find /lib* /usr* -iname "*libgtk*3*.so*" -type f 2>/dev/null | grep -q . || return 1; }
+transmission-remote-cli() { [ -f "$(builtin type -P transmission-remote-cli 2>/dev/null)" ] || [ -f "$(builtin type -P transmission-remote 2>/dev/null)" ] || return 1; }
+export -f cron mlocate xfce4 imagemagick fdfind speedtest neovim chromium firefox gtk-2.0 gtk-3.0
+export -f transmission-remote-cli cowsay xfce4-notifyd
 ##################################################################################################
 __ask_confirm() {
   local appname="${PROG:-$APPNAME}"
@@ -2546,10 +2572,10 @@ run_install_init() {
     if user_is_root; then
       export SUDO_USER
       if [ -f "$INSTDIR/install.sh" ]; then
-        sudo -HE FORCE_INSTALL="$FORCE_INSTALL" bash -c "$INSTDIR/$app/install.sh"
+        sudo FORCE_INSTALL="$FORCE_INSTALL" bash -c "$INSTDIR/$app/install.sh"
       else
         if __urlcheck "$REPORAW/install.sh"; then
-          sudo -HE FORCE_INSTALL="$FORCE_INSTALL" bash -c "$(curl -q -LSs "$REPORAW/install.sh" 2>/dev/null)"
+          sudo FORCE_INSTALL="$FORCE_INSTALL" bash -c "$(curl -q -LSs "$REPORAW/install.sh" 2>/dev/null)"
         else
           printf_error "Failed to initialize the installer from:"
           printf_exit "$REPORAW/install.sh\n"

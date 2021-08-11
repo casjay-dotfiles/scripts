@@ -883,15 +883,10 @@ install_packages() {
     local cmd=""
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
       for cmd in $REQUIRED; do
-        if gem_exists "$cmd"; then
-          true
-        elif pthon_exists "$cmd"; then
-          true
-        elif perl_exists "$cmd"; then
-          true
-        elif [ -n "$(builtin type -p "$cmd" 2>/dev/null)" ]; then
-          true
-        else
+        # if gem_exists "$cmd"; then true
+        # elif pthon_exists "$cmd"; then true
+        # elif perl_exists "$cmd"; then true
+        if [ -z "$(builtin type -p "$cmd" 2>/dev/null)" ]; then
           MISSING+="$cmd "
         fi
       done

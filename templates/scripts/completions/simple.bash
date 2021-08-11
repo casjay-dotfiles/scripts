@@ -44,7 +44,7 @@ _GEN_SCRIPT_REPLACE_FILENAME() {
   elif [[ ${cur} == -* ]]; then
     COMPREPLY=($(compgen -W '${SHORTOPTS}' -- ${cur}))
   else
-    case ${COMP_WORDS[1]:-$prev} in
+    case "${COMP_WORDS[1]:-$prev}" in
     *)
       COMPREPLY=($(compgen -W '$ARRAY' -- "$cur"))
       return 0

@@ -41,7 +41,7 @@ _GEN_SCRIPT_REPLACE_FILENAME() {
   elif [[ ${cur} == -* ]]; then
     COMPREPLY=($(compgen -W '${SHORTOPTS}' -- ${cur}))
   else
-    case ${COMP_WORDS[1]:-$prev} in
+    case "${COMP_WORDS[1]:-$prev}" in
     --options) COMPREPLY=($(compgen -W '' -- "${cur}")) && prev="--options" ;;
     -c | --config) COMPREPLY=($(compgen -W '' -- "${cur}")) && prev="--config" ;;
     -h | --help) COMPREPLY=($(compgen -W '' -- "${cur}")) && prev="--help" ;;

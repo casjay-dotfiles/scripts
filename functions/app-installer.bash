@@ -883,7 +883,11 @@ install_packages() {
     local cmd=""
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
       for cmd in $REQUIRED; do
-        gem_exists "$cmd" || pthon_exists "$cmd" || perl_exists "$cmd" || builtin type -p "$cmd" &>/dev/null || MISSING+="$cmd "
+        if ! gem_exists "$cmd"; then  MISSING+="$cmd "
+        elif ! pthon_exists "$cmd"; then  MISSING+="$cmd "
+        elif ! perl_exists "$cmd"; then  MISSING+="$cmd "
+        elif ! builtin type -p "$cmd" &>/dev/null; then MISSING+="$cmd "
+        fi
       done
       if [ -n "$MISSING" ]; then
         printf_warning "Attempting to install missing packages as $RUN_USER"

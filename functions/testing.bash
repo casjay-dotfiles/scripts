@@ -22,6 +22,17 @@ FUNCFILE="testing.bash"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main scripts location
 CASJAYSDEVDIR="/usr/local/share/CasjaysDev/scripts"
+CASJAYSDEV_USERDIR="${CASJAYSDEV_USERDIR:-$HOME/.local/share/CasjaysDev}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Versioning Info - __required_version "VersionNumber"
+localVersion="${localVersion:-202108121011-git}"
+requiredVersion="${requiredVersion:-202108121011-git}"
+if [ -f $CASJAYSDEVDIR/version.txt ]; then
+  currentVersion="${currentVersion:-$(<$CASJAYSDEVDIR/version.txt)}"
+else
+  currentVersion="${currentVersion:-$localVersion}"
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Fail if git, curl, wget are not installed
 if ! type -P git &>/dev/null; then
   echo -e "\t\t\033[0;31mAttempting to install git\033[0m"
@@ -74,15 +85,6 @@ __command() {
   fi
 }
 export -f __command
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Versioning Info - __required_version "VersionNumber"
-localVersion="${localVersion:-202103310525-git}"
-requiredVersion="${requiredVersion:-202103310525-git}"
-if [ -f $CASJAYSDEVDIR/version.txt ]; then
-  currentVersion="${currentVersion:-$(<$CASJAYSDEVDIR/version.txt)}"
-else
-  currentVersion="${currentVersion:-$localVersion}"
-fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set Main Repo for dotfiles
 GIT_REPO_BRANCH="${GIT_DEFAULT_BRANCH:-main}"
@@ -2733,14 +2735,20 @@ __appversion() {
 }
 
 __required_version() {
+  local NEW_VER=""
+  local NEW_DIR="$CASJAYSDEV_USERDIR/apps/$SCRIPTS_PREFIX/new_update"
+  [ -d "$NEW_DIR" ] || mkdir -p "$NEW_DIR" &>/dev/null
   if [ -f "$CASJAYSDEVDIR/version.txt" ]; then
     local requiredVersion="${1:-$requiredVersion}"
     local currentVersion="${APPVERSION:-$currentVersion}"
     local rVersion="${requiredVersion//-git/}"
     local cVersion="${currentVersion//-git/}"
+    [ -f "$NEW_DIR/$APPNAME" ] && NEW_VER="$(<"$NEW_DIR/$APPNAME")"
+    [ "$NEW_VER" = "$requiredVersion" ] && return
     if [ "$cVersion" -lt "$rVersion" ] && [ "$APPNAME" != "scripts" ] && [ "$SCRIPTS_PREFIX" != "systemmgr" ]; then
       printf_yellow "Requires version higher than $rVersion"
       printf_yellow "You will need to update for new features"
+      echo "$requiredVersion" >"$NEW_DIR/$APPNAME"
     fi
   fi
 }

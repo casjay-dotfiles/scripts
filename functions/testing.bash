@@ -234,7 +234,7 @@ ICON_ERROR="[ ✖ ]"
 ICON_QUESTION="[ ❓ ]"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # printf functions
-printf_log "$1" 2>>"$LOG_FILE_ERR" >>"$LOG_FILE"
+printf_log() { "$1" 2>>"$LOG_FILE_ERR" >>"$LOG_FILE"; }
 printf_newline() { printf '%s\n' "${*:-}"; }
 printf_color() { printf "%b" "$(tput setaf "$2" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
 printf_normal() {

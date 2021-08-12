@@ -50,6 +50,7 @@ builtin type -p am_i_online &>/dev/null || am_i_online() { builtin command am_i_
 builtin type -p __am_i_online &>/dev/null || __am_i_online() { builtin command am_i_online || true; }
 cmd_exist() { __command "$1" &>/dev/null || return 1; }
 __cmd_exist() { __command "$1" &>/dev/null || return 1; }
+__local_gen_header() { echo -e "$1" >>"$2"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 for check in git curl wget; do
   if ! builtin type -P "$check" &>/dev/null; then
@@ -61,12 +62,12 @@ done
 __command() {
   [ "$1" = "-v" ] && shift 1
   if [ $# -ne 1 ]; then
-    if builtin type $* 2>/dev/null | grep -v alias | head -n1 | awk '{print $1}' | grep '^'; then
+    if builtin type "$@" 2>/dev/null | grep -v alias | head -n1 | awk '{print $1}' | grep '^'; then
       return 0
     else
       return 1
     fi
-  elif builtin type $* 2>/dev/null | grep -v alias | head -n1 | awk '{print $1}' | grep -q '^'; then
+  elif builtin type "$@" 2>/dev/null | grep -v alias | head -n1 | awk '{print $1}' | grep -q '^'; then
     return 0
   else
     return 1
@@ -77,7 +78,7 @@ export -f __command
 # Versioning Info - __required_version "VersionNumber"
 localVersion="${localVersion:-202103310525-git}"
 requiredVersion="${requiredVersion:-202103310525-git}"
-if [ "$(grep -qs '^' "$CASJAYSDEVDIR/version.txt")" ]; then
+if grep -qs '^' "$CASJAYSDEVDIR/version.txt"; then
   currentVersion="${currentVersion:-$(<$CASJAYSDEVDIR/version.txt)}"
 else
   currentVersion="$localVersion"
@@ -173,21 +174,21 @@ __runapp() {
   if [ "$1" = "--bg" ]; then
     local logname="$2"
     shift 2
-    echo "#################################" >>"$logdir/$logname.log"
+    __local_gen_header "#################################" "$logdir/$logname.log"
     date +'%A, %B %d, %Y' >>"$logdir/$logname.log"
-    echo "#################################" >>"$logdir/$logname.log"
+    __local_gen_header "#################################" "$logdir/$logname.log"
     bash -c "${@:-$(false)}" >>"$logdir/$logname.log" 2>>"$logdir/$logname.err" &
   elif [ "$1" = "--log" ]; then
     local logname="$2"
     shift 2
-    echo "#################################" >>"$logdir/$logname.log"
+    __local_gen_header "#################################" "$logdir/$logname.log"
     date +'%A, %B %d, %Y' >>"$logdir/$logname.log"
-    echo "#################################" >>"$logdir/$logname.log"
+    __local_gen_header "#################################" "$logdir/$logname.log"
     bash -c "${@:-$(false)}" >>"$logdir/$logname.log" 2>>"$logdir/$logname.err"
   else
-    echo "#################################" >>"$logdir/${APPNAME:-$1}.log"
+    __local_gen_header "#################################" "$logdir/${APPNAME:-$1}.log"
     date +'%A, %B %d, %Y' >>"$logdir/${APPNAME:-$1}.log"
-    echo "#################################" >>"$logdir/${APPNAME:-$1}.log"
+    __local_gen_header "#################################" "$logdir/${APPNAME:-$1}.log"
     bash -c "${@:-$(false)}" >>"$logdir/${APPNAME:-$1}.log" 2>>"$logdir/${APPNAME:-$1}.err"
   fi
 }
@@ -233,7 +234,7 @@ ICON_ERROR="[ ✖ ]"
 ICON_QUESTION="[ ❓ ]"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # printf functions
-printf_newline() { printf "${*:-}\n"; }
+printf_newline() { printf '%s\n' "${*:-}"; }
 printf_color() { printf "%b" "$(tput setaf "$2" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
 printf_normal() {
   printf_color "\t\t$1" "$2"
@@ -937,7 +938,7 @@ __file_not_empty() { [ -s "$1" ] && return 0 || return 1; }
 __file_is_empty() { [ ! -s "$1" ] && return 0 || return 1; }
 #sed "commands"
 sed="$(builtin type -P gsed 2>/dev/null || builtin type -P sed 2>/dev/null)"
-__sed() { ${sed:-sed} $* 2>/dev/null; }
+__sed() { ${sed:-sed} "$*" 2>/dev/null; }
 #tar "filename dir"
 __tar_create() { tar cfvz "$@"; }
 #tar filename
@@ -1331,18 +1332,18 @@ __cron_updater() {
   else
     if [ -z "$1" ] && [ -d "$USRUPDATEDIR" ] && ls "$USRUPDATEDIR"/* 1>/dev/null 2>&1; then
       for upd in $(ls $USRUPDATEDIR/); do
-        file="$(ls -A $USRUPDATEDIR/$upd 2>/dev/null)"
+        export file="$(ls -A $USRUPDATEDIR/$upd 2>/dev/null)"
         if [ -f "$file" ]; then
           appname="$(__basename $file)"
-          file="$file" bash -c "$file --cron $*"
+          bash -c "$file --cron $*"
         fi
       done
     else
       if [ -d "$USRUPDATEDIR" ] && ls "$USRUPDATEDIR"/* 1>/dev/null 2>&1; then
-        file="$(ls -A $USRUPDATEDIR/$1 2>/dev/null)"
+        export file="$(ls -A $USRUPDATEDIR/$1 2>/dev/null)"
         if [ -f "$file" ]; then
           appname="$(__basename $file)"
-          file="$file" bash -c "$file --cron $*"
+          bash -c "$file --cron $*"
         fi
       fi
     fi
@@ -1380,18 +1381,18 @@ __backupapp() {
   local curdate="$(date +%Y-%m-%d-%H-%M-%S)"
   local filename="$myappname-$curdate.tar.gz"
   local backupdir="${MY_BACKUP_DIR:-$HOME/.local}/backups/${SCRIPTS_PREFIX:-apps}/"
-  local count="$(ls $backupdir/$myappname*.tar.gz 2>/dev/null | wc -l 2>/dev/null)"
-  local rmpre4vbackup="$(ls $backupdir/$myappname*.tar.gz 2>/dev/null | head -n 1)"
+  local count="$(find "$backupdir/$myappname"*.tar.gz 2>/dev/null | wc -l 2>/dev/null)"
+  local rmpre4vbackup="$(find "$backupdir/$myappname"*.tar.gz 2>/dev/null | head -n 1)"
   mkdir -p "$backupdir" "$logdir"
   if [ -d "$myappdir" ] && [ "$myappdir" != "$downloaddir" ] && [ ! -f "$APPDIR/.installed" ]; then
-    echo -e " #################################" >>"$logdir/$myappname.log"
-    echo -e "# Started on $(date +'%A, %B %d, %Y %H:%M:%S')" >>"$logdir/$myappname.log"
-    echo -e "# Backing up $myappdir" >>"$logdir/$myappname.log"
-    echo -e "#################################" >>"$logdir/$myappname.log"
+    __local_gen_header "#################################" "$logdir/$myappname.log"
+    __local_gen_header "# Started on $(date +'%A, %B %d, %Y %H:%M:%S')" >>"$logdir/$myappname.log"
+    __local_gen_header "# Backing up $myappdir" >>"$logdir/$myappname.log"
+    __local_gen_header "#################################" "$logdir/$myappname.log"
     tar cfzv "$backupdir/$filename" "$myappdir" >>"$logdir/$myappname.log" 2>>"$logdir/$myappname.log"
-    echo -e "#################################" >>"$logdir/$myappname.log"
-    echo -e "# Ended on $(date +'%A, %B %d, %Y %H:%M:%S')" >>"$logdir/$myappname.log"
-    echo -e "#################################" >>"$logdir/$myappname.log"
+    __local_gen_header "#################################" "$logdir/$myappname.log"
+    __local_gen_header "# Ended on $(date +'%A, %B %d, %Y %H:%M:%S')" >>"$logdir/$myappname.log"
+    __local_gen_header "#################################" "$logdir/$myappname.log"
     [ -f "$APPDIR/.installed" ] || rm_rf "$myappdir"
   fi
   if [ "$count" -gt "3" ]; then rm_rf $rmpre4vbackup; fi
@@ -1562,7 +1563,7 @@ __sudoexit() {
 }
 __requiresudo() {
   if __can_i_sudo; then
-    __sudoask && __sudoexit && __sudo "$*" 2>/dev/null
+    __sudoask && __sudoexit && __sudo "$@" 2>/dev/null
   else
     printf_red "You dont have access to sudo\n\t\tPlease contact the syadmin for access"
     return 1
@@ -1870,9 +1871,9 @@ __if_os_id() {
   unset distroname distroversion distro_id distro_version
   if [ -f "/etc/os-release" ]; then
     #local distroname=$(grep "ID_LIKE=" /etc/os-release | sed 's#ID_LIKE=##' | tr '[:upper:]' '[:lower:]' | sed 's#"##g' | awk '{print $1}')
-    local distroname=$(cat /etc/os-release | grep '^ID=' | sed 's#ID=##g' | sed 's#"##g' | tr '[:upper:]' '[:lower:]')
-    local distroversion=$(cat /etc/os-release | grep '^VERSION="' | sed 's#VERSION="##g;s#"##g')
-    local codename="$(grep VERSION_CODENAME /etc/os-release && cat /etc/os-release | grep ^VERSION_CODENAME | sed 's#VERSION_CODENAME="##g;s#"##g' || true)"
+    local distroname=$(grep '^ID=' /etc/os-release | sed 's#ID=##g' | sed 's#"##g' | tr '[:upper:]' '[:lower:]')
+    local distroversion=$(grep '^VERSION="' /etc/os-release | sed 's#VERSION="##g;s#"##g')
+    local codename="$(grep VERSION_CODENAME /etc/os-release && grep ^VERSION_CODENAME /etc/os-release | sed 's#VERSION_CODENAME="##g;s#"##g' || true)"
   elif __command -p lsb_release &>/dev/null; then
     local distroname="$(lsb_release -a 2>/dev/null | grep 'Distributor ID' | awk '{print $3}' | tr '[:upper:]' '[:lower:]' | sed 's#"##g')"
     local distroversion="$(lsb_release -a 2>/dev/null | grep 'Release' | awk '{print $2}')"
@@ -1880,8 +1881,8 @@ __if_os_id() {
     local distroname="$(lsb-release -a 2>/dev/null | grep 'Distributor ID' | awk '{print $3}' | tr '[:upper:]' '[:lower:]' | sed 's#"##g')"
     local distroversion="$(lsb-release -a 2>/dev/null | grep 'Release' | awk '{print $2}')"
   elif [ -f "/etc/redhat-release" ]; then
-    local distroname=$(cat /etc/redhat-release | awk '{print $1}' | tr '[:upper:]' '[:lower:]' | sed 's#"##g')
-    local distroversion=$(cat /etc/redhat-release | awk '{print $4}' | tr '[:upper:]' '[:lower:]' | sed 's#"##g')
+    local distroname=$(awk '{print $1}' /etc/redhat-release | tr '[:upper:]' '[:lower:]' | sed 's#"##g')
+    local distroversion=$(awk '{print $4}' /etc/redhat-release | tr '[:upper:]' '[:lower:]' | sed 's#"##g')
   elif __command sw_vers; then
     local distroname="darwin"
     local distroversion="$(sw_vers -productVersion)"
@@ -1952,7 +1953,7 @@ user_installdirs() {
   SCRIPTS_PREFIX="${SCRIPTS_PREFIX:-dfmgr}"
   if [[ $(id -u) -eq 0 ]] || [[ $EUID -eq 0 ]] || [[ "$WHOAMI" = "root" ]]; then
     INSTALL_TYPE=user
-    if [[ $(uname -s) =~ Darwin ]]; then HOME="/usr/local/home/root"; else HOME="${HOME}"; fi
+    if [[ $(uname -s) =~ Darwin ]]; then HOME="/usr/local/home/root"; fi
     BIN="$HOME/.local/bin"
     CONF="$HOME/.config"
     SHARE="$HOME/.local/share"
@@ -1976,7 +1977,6 @@ user_installdirs() {
     SYSTEMDDIR="/etc/systemd/system"
   else
     INSTALL_TYPE=user
-    HOME="${HOME}"
     BIN="$HOME/.local/bin"
     CONF="$HOME/.config"
     SHARE="$HOME/.local/share"
@@ -2011,7 +2011,7 @@ system_installdirs() {
   #[ -n "$INSTDIR" ] || INSTDIR="$(dirname $0)"
   SCRIPTS_PREFIX="${SCRIPTS_PREFIX:-dfmgr}"
   if [[ $(id -u) -eq 0 ]] || [[ $EUID -eq 0 ]] || [[ "$WHOAMI" = "root" ]]; then
-    if [[ $(uname -s) =~ Darwin ]]; then HOME="/usr/local/home/root"; else HOME="${HOME}"; fi
+    if [[ $(uname -s) =~ Darwin ]]; then HOME="/usr/local/home/root"; fi
     BACKUPDIR="$HOME/.local/backups"
     BIN="/usr/local/bin"
     CONF="/usr/local/etc"
@@ -2365,7 +2365,7 @@ __main_installer_info() {
 get_installer_version() {
   $installtype
   local GITREPO=""$REPO/$APPNAME""
-  local APPVERSION="${APPVERSION:-$(__appversion)}"
+  local APPVERSION="${APPVERSION:-$(__appversion ${1:-})}"
   [ -n "$WHOAMI" ] && printf_info "WhoamI:                    $WHOAMI"
   [ -n "$RUN_USER" ] && printf_info "SUDO USER:                 $RUN_USER"
   [ -n "$INSTALL_TYPE" ] && printf_info "Install Type:              $INSTALL_TYPE"
@@ -2671,7 +2671,7 @@ run_install_list() {
       fi
     elif [ "$(__count_dir "$SYSUPDATEDIR")" -ne 0 ]; then
       declare -a LSINST="$(ls "$SYSUPDATEDIR/")"
-      if [ -n "$LSINST" ]; then
+      if [ -n "${LSINST[0]}" ]; then
         for app in "${LSINST[@]}"; do
           installed+="$(echo "$app" | sed 's| ||g' | grep -sv "^$") "
         done
@@ -2706,10 +2706,10 @@ run_install_search() {
 run_install_available() {
   local app="$APPNAME"
   export APPNAME="$app" REPO="$REPO/$APPNAME" REPORAW="$REPO/raw/$GIT_REPO_BRANCH"
-  if __api_test; then
-    __curl_api $app | jq -r '.[] | .name' 2>/dev/null | printf_readline "4"
+  if __api_test ${1:-}; then
+    __curl_api "$app" | jq -r '.[] | .name' 2>/dev/null | printf_readline "4"
   else
-    __list_available | printf_column "${PRINTF_COLOR:-4}"
+    __list_available ${*:-} | printf_column "${PRINTF_COLOR:-4}"
   fi
   unset app
 }
@@ -2774,10 +2774,9 @@ installer_delete() {
 __appversion() {
   local versionfile="${1:-REPORAW/version.txt}"
   if [ -f "$INSTDIR/version.txt" ]; then
-    localVersion="$(<$INSTDIR/version.txt)"
-  else
-    localVersion="$localVersion"
+    get_localVersion="$(<$INSTDIR/version.txt)"
   fi
+  localVersion="${get_localVersion:-$localVersion}"
   __curl "${versionfile}" 2>/dev/null | head -n1 || echo "$localVersion"
 }
 

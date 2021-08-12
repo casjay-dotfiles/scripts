@@ -485,8 +485,8 @@ perl_exists() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 python_exists() {
-  [ -n "$(builtin type -P python3 2>/dev/null)" ] || [ -n "$(builtin type -P python2 2>/dev/null)" ] || [ -n "$(builtin type -P python 2>/dev/null)" ] || return
   __getpythonver
+  [ -n "$(builtin type -P python3 2>/dev/null)" ] || [ -n "$(builtin type -P python2 2>/dev/null)" ] || [ -n "$(builtin type -P python 2>/dev/null)" ] || return
   local package="$1"
   if devnull $PYTHONVER -c "import $package"; then return 0; else return 1; fi
 }

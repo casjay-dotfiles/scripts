@@ -2735,15 +2735,14 @@ __appversion() {
 }
 
 __required_version() {
-  local NEW_VER=""
+  local requiredVersion="${1:-$requiredVersion}"
   local NEW_DIR="$CASJAYSDEV_USERDIR/apps/$SCRIPTS_PREFIX/new_update"
   [ -d "$NEW_DIR" ] || mkdir -p "$NEW_DIR" &>/dev/null
   if [ -f "$CASJAYSDEVDIR/version.txt" ]; then
-    local requiredVersion="${1:-$requiredVersion}"
     local currentVersion="${APPVERSION:-$currentVersion}"
     local rVersion="${requiredVersion//-git/}"
     local cVersion="${currentVersion//-git/}"
-    [ -f "$NEW_DIR/$APPNAME" ] && NEW_VER="$(<"$NEW_DIR/$APPNAME")"
+    [ -f "$NEW_DIR/$APPNAME" ] && local NEW_VER="$(<"$NEW_DIR/$APPNAME")"
     [ "$NEW_VER" = "$requiredVersion" ] && return
     if [ "$cVersion" -lt "$rVersion" ] && [ "$APPNAME" != "scripts" ] && [ "$SCRIPTS_PREFIX" != "systemmgr" ]; then
       printf_yellow "Requires version higher than $rVersion"

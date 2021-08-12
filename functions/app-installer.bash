@@ -24,6 +24,15 @@ CASJAYSDEVDIR="/usr/local/share/CasjaysDev/scripts"
 CASJAYSDEV_USERDIR="${CASJAYSDEV_USERDIR:-$HOME/.local/share/CasjaysDev}"
 export PATH="$CASJAYSDEVDIR/bin:/usr/local/bin:$PATH"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Versioning Info - __required_version "VersionNumber"
+localVersion="${localVersion:-202108121011-git}"
+requiredVersion="${requiredVersion:-202108121011-git}"
+if [ -f $CASJAYSDEVDIR/version.txt ]; then
+  currentVersion="${currentVersion:-$(<$CASJAYSDEVDIR/version.txt)}"
+else
+  currentVersion="${currentVersion:-$localVersion}"
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Fail if git, curl, wget are not installed
 for check in git curl wget; do
   if [ -z "$(builtin type -P "$check" 2>/dev/null)" ]; then
@@ -54,15 +63,6 @@ done
 cmd_exists() { [ -n "$(builtin type -P cmd_exists 2>/dev/null)" ] && $(builtin type -P cmd_exists 2>/dev/null) || return 0; }
 am_i_online() { [ -n "$(builtin type -P am_i_online 2>/dev/null)" ] && $(builtin type -P am_i_online 2>/dev/null) || return 0; }
 ###################### builtins ######################
-# Versioning Info - __required_version "VersionNumber"
-localVersion="${localVersion:-202103310525-git}"
-requiredVersion="${requiredVersion:-202103310525-git}"
-if [ -f $CASJAYSDEVDIR/version.txt ]; then
-  currentVersion="${currentVersion:-$(<$CASJAYSDEVDIR/version.txt)}"
-else
-  currentVersion="${currentVersion:-$localVersion}"
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 TMPPATH="/usr/local/opt/gnu-getopt/bin:"
 TMPPATH+="$HOME/.local/share/bash/basher/cellar/bin:$HOME/.local/share/bash/basher/bin:"
 TMPPATH+="$HOME/.local/bin:$HOME/.cargo/bin:$HOME/.local/share/gem/bin:/usr/local/bin:"
@@ -2181,15 +2181,32 @@ __appversion() {
   __curl "${versionfile}" 2>/dev/null | head -n1 || echo "$localVersion"
 }
 
+# __required_version() {
+#   if [ -f "$CASJAYSDEVDIR/version.txt" ]; then
+#     local requiredVersion="${1:-$requiredVersion}"
+#     local currentVersion="${APPVERSION:-$currentVersion}"
+#     local rVersion="${requiredVersion//-git/}"
+#     local cVersion="${currentVersion//-git/}"
+#     if [ "$cVersion" -lt "$rVersion" ] && [ "$APPNAME" != "scripts" ] && [ "$SCRIPTS_PREFIX" != "systemmgr" ]; then
+#       printf_yellow "Requires version higher than $rVersion"
+#       printf_yellow "You will need to update for new features"
+#     fi
+#   fi
+# }
 __required_version() {
+  local requiredVersion="${1:-$requiredVersion}"
+  local NEW_DIR="$CASJAYSDEV_USERDIR/apps/$SCRIPTS_PREFIX/new_update"
+  [ -d "$NEW_DIR" ] || mkdir -p "$NEW_DIR" &>/dev/null
   if [ -f "$CASJAYSDEVDIR/version.txt" ]; then
-    local requiredVersion="${1:-$requiredVersion}"
     local currentVersion="${APPVERSION:-$currentVersion}"
     local rVersion="${requiredVersion//-git/}"
     local cVersion="${currentVersion//-git/}"
+    [ -f "$NEW_DIR/$APPNAME" ] && local NEW_VER="$(<"$NEW_DIR/$APPNAME")"
+    [ "$NEW_VER" = "$requiredVersion" ] && return
     if [ "$cVersion" -lt "$rVersion" ] && [ "$APPNAME" != "scripts" ] && [ "$SCRIPTS_PREFIX" != "systemmgr" ]; then
       printf_yellow "Requires version higher than $rVersion"
       printf_yellow "You will need to update for new features"
+      echo "$requiredVersion" >"$NEW_DIR/$APPNAME"
     fi
   fi
 }

@@ -2808,8 +2808,8 @@ __options() {
   --test)
     shift 1
     [ "$1" = "--x" ] && set -x && shift 1
-    export LOG_FILE="${TMP:-$HOME/.local/tmp}/$APPNAME/$(date +'%Y-%m-%d').log"
-    export LOG_FILE_ERR="${TMP:-$HOME/.local/tmp}/$APPNAME/$(date +'%Y-%m-%d').err"
+    export LOG_FILE="${TMP:-$HOME/.local/tmp}/${APPNAME}_debug/$(date +'%Y-%m-%d').log"
+    export LOG_FILE_ERR="${TMP:-$HOME/.local/tmp}/${APPNAME}_debug/$(date +'%Y-%m-%d').err"
     mkdir -p "${TMP:-$HOME/.local/tmp}/$APPNAME"
     printf_cyan "Saving all output to $LOG_FILE"
     __devnull() {

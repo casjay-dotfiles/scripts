@@ -25,8 +25,8 @@ _GEN_SCRIPT_REPLACE_FILENAME() {
   local SHOW_COMP_OPTS=""
   local FILEDIR=""
   local OPTS=""
-  local LONGOPTS="--help --version --config --options"
-  local SHORTOPTS="-h -v -c"
+  local LONGOPTS="options config version help dir"
+  local SHORTOPTS="c v h z"
   local ARRAY=""
 
   _init_completion || return
@@ -46,6 +46,7 @@ _GEN_SCRIPT_REPLACE_FILENAME() {
     -c | --config) COMPREPLY=($(compgen -W '' -- "${cur}")) && prev="--config" ;;
     -h | --help) COMPREPLY=($(compgen -W '' -- "${cur}")) && prev="--help" ;;
     -v | --version) COMPREPLY=($(compgen -W '' -- "${cur}")) && prev="--version" ;;
+    -z | dir) COMPREPLY=($(compgen -W '$(_filedir)' -- "${cur}")) ;;
     *)
       if [ -n "$FILEDIR" ]; then _filedir; fi
       if [[ "$ARRAY" = "show-none" ]]; then

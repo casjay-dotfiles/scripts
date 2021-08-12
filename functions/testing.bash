@@ -6,7 +6,7 @@ FUNCFILE="testing.bash"
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #set opts
-
+set -x
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ##@Version       : 020920211625-git
 # @Author        : Jason Hempstead
@@ -2855,3 +2855,4 @@ __getpythonver
 
 user_install # default type
 ###################### end application functions ######################
+set +x

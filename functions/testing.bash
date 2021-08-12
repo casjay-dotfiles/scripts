@@ -2802,10 +2802,10 @@ __getpythonver
 # }
 __runtest() {
   [ "$1" = "--x" ] && set -x && shift 1
-  __printf_log "$1" 2>>"$LOG_FILE_ERR" >>"$LOG_FILE"
-  LOG_FILE="$TPM/$APPNAME/$(date +'%Y-%m-%d').log"
-  LOG_FILE_ERR="$TPM/$APPNAME/$(date +'%Y-%m-%d').err"
+  export LOG_FILE="${TMP:-$HOME/.local/tmp}/$APPNAME/$(date +'%Y-%m-%d').log"
+  export LOG_FILE_ERR="${TMP:-$HOME/.local/tmp}/$APPNAME/$(date +'%Y-%m-%d').err"
   printf_cyan "Saving all output to $LOG_FILE"
+  __printf_log "$1" 2>>"$LOG_FILE_ERR" >>"$LOG_FILE"
   __devnull() {
     local CMD="$1" && shift 1
     local ARGS="$*" && shift
@@ -2826,6 +2826,7 @@ __runtest() {
     __printf_log "Running $CMD"
     eval $CMD $ARGS 2>>"$LOG_FILE_ERR" >>"$LOG_FILE"
   }
+  export -f devnull devnull1 devnull2 __printf_log
 }
 ###################### call options ######################
 __options() {

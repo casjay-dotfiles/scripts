@@ -640,7 +640,7 @@ __system_service_exists() {
 #system_service_enable "servicename"
 __system_service_enable() {
   for service in "$@"; do
-    if __system_service_exists "$service"; then __devnull "sudo systemctl enable --now -f $service"; fi
+    if __system_service_exists "$service"; then "sudo systemctl enable --now -f $service" &>/dev/null; fi
     __setexitstatus $?
   done
   set --
@@ -648,7 +648,7 @@ __system_service_enable() {
 #system_service_disable "servicename"
 __system_service_disable() {
   for service in "$@"; do
-    if __system_service_exists "$service"; then __devnull "sudo systemctl disable --now -f $service"; fi
+    if __system_service_exists "$service"; then "sudo systemctl disable --now -f $service" &>/dev/null; fi
     __setexitstatus $?
   done
   set --
@@ -656,7 +656,7 @@ __system_service_disable() {
 #system_service_start "servicename"
 __system_service_start() {
   for service in "$@"; do
-    if __system_service_exists "$service"; then __devnull "sudo systemctl start $service"; fi
+    if __system_service_exists "$service"; then "sudo systemctl start $service" &>/dev/null; fi
     __setexitstatus $?
   done
   set --
@@ -664,7 +664,7 @@ __system_service_start() {
 #system_service_stop "servicename"
 __system_service_stop() {
   for service in "$@"; do
-    if __system_service_exists "$service"; then __devnull "sudo systemctl stop $service"; fi
+    if __system_service_exists "$service"; then "sudo systemctl stop $service" &>/dev/null; fi
     __setexitstatus $?
   done
   set --
@@ -672,7 +672,7 @@ __system_service_stop() {
 #system_service_restart "servicename"
 __system_service_restart() {
   for service in "$@"; do
-    if __system_service_exists "$service"; then __devnull "sudo systemctl restart $service"; fi
+    if __system_service_exists "$service"; then "sudo systemctl restart $service" &>/dev/null; fi
     __setexitstatus $?
   done
   set --
@@ -683,9 +683,9 @@ __npm_exists() {
   __command npm || printf_return "NPM is not installed"
   [ "$1" = "--sudo" ] && local cmdbin="sudo npm" && shift 1 || local cmdbin="npm"
   local package="$1"
-  if __devnull2 $cmdbin list -g 2>&1 | grep -q "$package"; then
+  if $cmdbin list -g 2>&1 | grep -q "$package" &>/dev/null; then
     return 0
-  elif __devnull2 $cmdbin list 2>&1 | grep -q "$package"; then
+  elif $cmdbin list 2>&1 | grep -q "$package" &>/dev/null; then
     return 0
   else return 1; fi
   set --
@@ -695,7 +695,7 @@ __perl_exists() {
   __command perl || printf_return "Perl is not installed"
   [ "$1" = "--sudo" ] && local cmdbin="sudo perl" && shift 1 || local cmdbin="perl"
   local package="$1"
-  if __devnull $cmdbin -M$package -le 'print $INC{"$package/Version.pm"}' 2>&1; then return 0; else return 1; fi
+  if $cmdbin -M$package -le 'print $INC{"$package/Version.pm"}' &>/dev/null; then return 0; else return 1; fi
   set --
 }
 #python_exists "pythonpackage"
@@ -704,7 +704,7 @@ __python_exists() {
   __getpythonver
   [ "$1" = "--sudo" ] && local cmdbin="sudo $PYTHONVER" && shift 1 || local cmdbin="$PYTHONVER"
   local package="$1"
-  if __devnull $cmdbin -c "import $package" 2>&1; then return 0; else return 1; fi
+  if $cmdbin -c "import $package" &>/dev/null; then return 0; else return 1; fi
   set --
 }
 #gem_exists "gemname"
@@ -950,7 +950,7 @@ __while_loop() { while :; do "${@}" && sleep .3; done; }
 __for_each() { for item in ${1}; do ${2} ${item} && sleep .1; done; }
 __readline() { while read -r line; do echo "$line"; done <"$1"; }
 #hostname ""
-__hostname() { __devnull2 hostname -s "${1:-$HOSTNAME}"; }
+__hostname() { hostname -s "${1:-$HOSTNAME}" 2>/dev/null; }
 #domainname ""
 __domainname() { hostname -d "${1:-$HOSTNAME}" 2>/dev/null || hostname -f "${1:-$HOSTNAME}" 2>/dev/null; }
 #hostname2ip "hostname"
@@ -964,34 +964,34 @@ __start_count() { ps -ux | grep "$1" | grep -v 'grep ' | grep -c "${2:$1}"; }
 #count_words "file"
 __count_lines() { wc -l "$1" | awk '${print $1}'; }
 #count_files "dir"
-__count_files() { __devnull2 find -L "${1:-./}" -maxdepth "${2:-1}" -not -path "${1:-./}/.git/*" -type l,f 2>/dev/null | wc -l; }
+__count_files() { find -L "${1:-./}" -maxdepth "${2:-1}" -not -path "${1:-./}/.git/*" -type l,f 2>/dev/null | wc -l; }
 #count_dir "dir"
-__count_dir() { __devnull2 find -L "${1:-./}" -maxdepth "${2:-1}" -not -path "${1:-./}/.git/*" -type d 2>/dev/null | wc -l; }
+__count_dir() { find -L "${1:-./}" -maxdepth "${2:-1}" -not -path "${1:-./}/.git/*" -type d 2>/dev/null | wc -l; }
 __touch() { touch "$@" 2>/dev/null || return 0; }
 #symlink "file" "dest"
-__symlink() { if [ -e "$1" ]; then __devnull __ln_sf "${1}" "${2}" || return 0; fi; }
+__symlink() { if [ -e "$1" ]; then __ln_sf "${1}" "${2}" &>/dev/null || return 0; fi; }
 #mv_f "file" "dest"
-__mv_f() { if [ -e "$1" ]; then __devnull mv -f "$1" "$2" || return 0; fi; }
+__mv_f() { if [ -e "$1" ]; then mv -f "$1" "$2" &>/dev/null || return 0; fi; }
 #cp_rf "file" "dest"
-__cp_rf() { if [ -e "$1" ]; then __devnull cp -Rf "$1" "$2" || return 0; fi; }
+__cp_rf() { if [ -e "$1" ]; then cp -Rf "$1" "$2" &>/dev/null || return 0; fi; }
 #rm_rf "file"
-__rm_rf() { if [ -e "$1" ]; then __devnull rm -Rf "$@" || return 0; fi; }
+__rm_rf() { if [ -e "$1" ]; then rm -Rf "$@" &>/dev/null || return 0; fi; }
 # unlink "location"
-__unlink() { if [ -L "$1" ]; then __devnull unlink "$@" || return 0; fi; }
+__unlink() { if [ -L "$1" ]; then unlink "$@" &>/dev/null || return 0; fi; }
 #
 __broken_symlinks() {
-  __devnull find -L "$@" -type l -exec rm -f {} \;
+  find -L "$@" -type l -exec rm -f {} \; &>/dev/null
 }
 #ln_rm "file"
 __ln_rm() {
   if [ -e "$1" ]; then
-    __devnull find -L $1 -mindepth 1 -maxdepth 1 -type l -exec rm -f {} \;
+    find -L $1 -mindepth 1 -maxdepth 1 -type l -exec rm -f {} \; &>/dev/null
   fi
 }
 #ln_sf "file"
 __ln_sf() {
   [ -L "$2" ] && __rm_rf "$2" || true
-  __devnull ln -sf "$1" "$2"
+  ln -sf "$1" "$2" &>/dev/null
 }
 #find_mtime "file/dir" "time minutes"
 __find_mtime() {
@@ -1005,14 +1005,14 @@ __find_mtime() {
 __find() {
   local DEF_OPTS="-type l,f,d"
   local opts="${FIND_OPTS:-$DEF_OPTS}"
-  __devnull2 find "${*:-.}" -not -path "$dir/.git/*" $opts
+  find "${*:-.}" -not -path "$dir/.git/*" $opts 2>/dev/null
 }
 #find_old "dir" "minutes" "action"
 __find_old() {
   [ -d "$1" ] && local dir="$1" && shift 1
   local time="$1" && shift 1
   local action="$1" && shift 1
-  find "${dir:-$HOME/.local/tmp}" -type l,f -mmin +${time:-120} -${action:-delete}
+  find "${dir:-$HOME/.local/tmp}" -type l,f -mmin +${time:-120} -${action:-delete} 2>/dev/null
 }
 #find "dir" - return path relative to dir
 __find_rel() {
@@ -1021,7 +1021,7 @@ __find_rel() {
   local DEF_TYPE="${FIND_TYPE:-f,l}"
   local DEF_DEPTH="${FIND_DEPTH:-1}"
   local DEF_OPTS="${FIND_OPTS:-}"
-  __devnull2 find $DIR/* -maxdepth $DEF_DEPTH -type $DEF_TYPE $DEF_OPTS -not -path "$dir/.git/*" -print | sed 's#'$DIR'/##g'
+  find $DIR/* -maxdepth $DEF_DEPTH -type $DEF_TYPE $DEF_OPTS -not -path "$dir/.git/*" -print 2>/dev/null | sed 's#'$DIR'/##g'
 }
 #cd "dir"
 __cd() { cd "$1" || return 1; }
@@ -1276,7 +1276,7 @@ __git_status() { git -C "${1:-.}" status -b -s 2>/dev/null && return 0 || return
 __git_log() { git -C "${1:-.}" log --pretty='%C(magenta)%h%C(red)%d %C(yellow)%ar %C(green)%s %C(yellow)(%an)' 2>/dev/null && return 0 || return 1; }
 __git_pull() { git -C "${1:-.}" pull -q 2>/dev/null && return 0 || return 1; }
 __git_top_dir() { git -C "${1:-.}" rev-parse --show-toplevel 2>/dev/null | grep -v fatal && return 0 || echo "${1:-$PWD}"; }
-__git_top_rel() { __devnull __git_top_dir "${1:-.}" && git -C "${1:-.}" rev-parse --show-cdup 2>/dev/null | sed 's#/$##g' | head -n1 || return 1; }
+__git_top_rel() { __git_top_dir "${1:-.}" 2>/dev/null && git -C "${1:-.}" rev-parse --show-cdup 2>/dev/null | sed 's#/$##g' | head -n1 || return 1; }
 __git_remote_pull() { git -C "${1:-.}" remote -v 2>/dev/null | grep push | head -n 1 | awk '{print $2}' 2>/dev/null | grep '^'; }
 __git_remote_fetch() { git -C "${1:-.}" remote -v 2>/dev/null | grep fetch | head -n 1 | awk '{print $2}' 2>/dev/null | grep '^' && return 0 || return 1; }
 __git_remote_origin() { __git_remote_pull "${1:-.}" && return 0 || return 1; }
@@ -1417,7 +1417,7 @@ __attemp_install_menus() {
   message() {
     zenity --width=400 --timeout=10 --title="install $prog" --question --text="$prog is not installed! \nshould I try to install it?" || return 1
   }
-  __pkmgr() { __devnull pkmgr silent "$prog" && pkmgr_exitCode=0 || pkmgr_exitCode=1; }
+  __pkmgr() { pkmgr silent install "$prog" && pkmgr_exitCode=0 || pkmgr_exitCode=1; }
   if message; then
     sleep 2
     clear

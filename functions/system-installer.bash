@@ -549,9 +549,9 @@ install_packages() {
       printf_warning "$MISSING"
       for miss in $MISSING; do
         if __command yay; then
-          execute "pkmgr --enable-aur silent $miss" "Installing $miss"
+          execute "pkmgr --enable-aur silent install $miss" "Installing $miss"
         else
-          execute "pkmgr silent $miss" "Installing $miss"
+          execute "pkmgr silent install $miss" "Installing $miss"
         fi
       done
     fi
@@ -582,9 +582,9 @@ install_python() {
       printf_warning "$MISSING"
       for miss in $MISSING; do
         if __command yay; then
-          execute "pkmgr --enable-aur silent $miss" "Installing $miss"
+          execute "pkmgr --enable-aur silent install $miss" "Installing $miss"
         else
-          execute "pkmgr silent $miss" "Installing $miss"
+          execute "pkmgr silent install $miss" "Installing $miss"
         fi
       done
     fi
@@ -600,9 +600,9 @@ install_perl() {
       printf_warning "$MISSING"
       for miss in $MISSING; do
         if __command yay; then
-          execute "pkmgr --enable-aur silent $miss" "Installing $miss"
+          execute "pkmgr --enable-aur silent install $miss" "Installing $miss"
         else
-          execute "pkmgr silent $miss" "Installing $miss"
+          execute "pkmgr silent install $miss" "Installing $miss"
         fi
       done
     fi

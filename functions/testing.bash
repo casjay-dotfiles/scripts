@@ -1283,7 +1283,7 @@ __git_remote_fetch() { git -C "${1:-.}" remote -v 2>/dev/null | grep fetch | hea
 __git_remote_origin() { __git_remote_pull "${1:-.}" && return 0 || return 1; }
 __git_porcelain() { __git_porcelain_count "${1:-.}" && return 0 || return 1; }
 __git_porcelain_count() { [ -d "$(__git_top_dir ${1:-.})/.git" ] && [ "$(git -C "${1:-.}" status --porcelain 2>/dev/null | wc -l 2>/dev/null)" -eq "0" ] && return 0 || return 1; }
-__git_repobase() { __basename "$(__git_top_dir "${1:-$PWD}") | grep -v null 2>/dev/null" || echo __basename $PWD; }
+__git_repobase() { __basename "$(__git_top_dir "${1:-$PWD}")" 2>/dev/null || echo "$(__basename "$PWD")"; }
 # __reldir="$(__git_top_rel ${1:-$PWD} || echo $PWD)"
 # __topdir="$(__git_top_dir "${1:-$PWD}" || echo $PWD)"
 

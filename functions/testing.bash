@@ -113,9 +113,9 @@ if [ -f "$CASJAYSDEVDIR/bin/detectostype" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup temp folders
-TMP="${TMP:-/tmp}"
-TEMP="${TMP:-/tmp}"
-TMPDIR="${TMP:-/tmp}"
+TMP="${TMP:-$HOME/.local/tmp}"
+TEMP="${TMP:-$HOME/.local/tmp}"
+TMPDIR="${TMP:-$HOME/.local/tmp}"
 mkdir -p "$TMPDIR" "$TEMP" "$TMP" &>/dev/null
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup path
@@ -153,19 +153,19 @@ is_tty() { [[ -t 1 || -p /dev/stdout ]]; }
 __devnull() {
   local CMD="$1" && shift 1
   local ARGS="$*" && shift
-  $CMD $ARGS &>/dev/null
+  eval $CMD $ARGS &>/dev/null
 }
 # only send stdout to display
 __devnull1() {
   local CMD="$1" && shift 1
   local ARGS="$*" && shift
-  $CMD $ARGS 1>/dev/null >&0
+  eval $CMD $ARGS 1>/dev/null >&0
 }
 # send stderr to /dev/null
 __devnull2() {
   local CMD="$1" && shift 1
   local ARGS="$*" && shift
-  $CMD $ARGS 2>/dev/null
+  eval $CMD $ARGS 2>/dev/null
 }
 # log all app out to file
 __runapp() {
@@ -2505,56 +2505,6 @@ __remove_app() {
     exit 0
   fi
 }
-###################### call options ######################
-__options() {
-  $installtype
-  case $1 in
-  # --cron)
-  #   shift 1
-  #   [ "$1" = "--help" ] && printf_help 'Usage: '$APPNAME' --cron remove | add "command"' && exit 0
-  #   [ "$1" = "--add" ] && shift 2 && __setupcrontab "0 0 * * *" "$*"
-  #   [ "$1" = "--del" ] && shift 2 && echo $* # && __removecrontab "$*"
-  #   exit "$?"
-  #;;
-
-  #--update) ###################### Update check ######################
-  #  shift 1
-  #  printf_error "Not enabled in apps: See the installer"
-  #  exit
-  #  ;;
-
-  # --help) ###################### help ######################
-  #   shift 1
-  #   __help
-  #   exit
-  #   ;;
-
-  # --version) ###################### get info from app ######################
-  #   shift 1
-  #   __version "${APPNAME:-$PROG}"
-  #   exit
-  #   ;;
-
-  --vdebug) ###################### basic debug ######################
-    shift 1
-    __vdebug "$*"
-    ;;
-
-  --full) ###################### debug settings ######################
-    shift 1
-    __full_app_info
-    ;;
-
-  --remove | --uninstall)
-    shift 1
-    __remove_app "$*"
-    ;;
-
-  -*)
-    export option_two="$2"
-    ;;
-  esac
-}
 
 ###################### *mgr scripts install/update/version ######################
 export mgr_init="${mgr_init:-true}"
@@ -2850,6 +2800,85 @@ __getpythonver
 #   unset LIST PKMGRREPO SCRIPTS_PREFIX REPO REPODF REPORAW SHARE STARTUP SYSBIN SYSCONF SYSLOGDIR SYSSHARE SYSTEMMGRREPO
 #   unset SYSSHARE SYSTEMMGRREPO SYSUPDATEDIR THEMEDIR THEMEMGRREPO USRUPDATEDIR WALLPAPERMGRREPO WALLPAPERS
 # }
+__runtest() {
+  [ "$1" = "--x" ] && set -x && shift 1
+  __printf_log "$1" 2>>"$LOG_FILE_ERR" >>"$LOG_FILE"
+  LOG_FILE="$TPM/$APPNAME/$(date +'%Y-%m-%d').log"
+  LOG_FILE_ERR="$TPM/$APPNAME/$(date +'%Y-%m-%d').err"
+  printf_cyan "Saving all output to $LOG_FILE"
+  __devnull() {
+    local CMD="$1" && shift 1
+    local ARGS="$*" && shift
+    __printf_log "Running $CMD"
+    eval $CMD $ARGS 2>>"$LOG_FILE_ERR" >>"$LOG_FILE"
+  }
+  # only send stdout to display
+  __devnull1() {
+    local CMD="$1" && shift 1
+    local ARGS="$*" && shift
+    __printf_log "Running $CMD"
+    eval $CMD $ARGS 2>>"$LOG_FILE_ERR" >>"$LOG_FILE"
+  }
+  # send stderr to /dev/null
+  __devnull2() {
+    local CMD="$1" && shift 1
+    local ARGS="$*" && shift
+    __printf_log "Running $CMD"
+    eval $CMD $ARGS 2>>"$LOG_FILE_ERR" >>"$LOG_FILE"
+  }
+}
+###################### call options ######################
+__options() {
+  $installtype
+  case $1 in
+  --test)
+    __runtest "$*"
+    ;;
+  # --cron)
+  #   shift 1
+  #   [ "$1" = "--help" ] && printf_help 'Usage: '$APPNAME' --cron remove | add "command"' && exit 0
+  #   [ "$1" = "--add" ] && shift 2 && __setupcrontab "0 0 * * *" "$*"
+  #   [ "$1" = "--del" ] && shift 2 && echo $* # && __removecrontab "$*"
+  #   exit "$?"
+  #;;
 
+  #--update) ###################### Update check ######################
+  #  shift 1
+  #  printf_error "Not enabled in apps: See the installer"
+  #  exit
+  #  ;;
+
+  # --help) ###################### help ######################
+  #   shift 1
+  #   __help
+  #   exit
+  #   ;;
+
+  # --version) ###################### get info from app ######################
+  #   shift 1
+  #   __version "${APPNAME:-$PROG}"
+  #   exit
+  #   ;;
+
+  --vdebug) ###################### basic debug ######################
+    shift 1
+    __vdebug "$*"
+    ;;
+
+  --full) ###################### debug settings ######################
+    shift 1
+    __full_app_info
+    ;;
+
+  --remove | --uninstall)
+    shift 1
+    __remove_app "$*"
+    ;;
+
+  -*)
+    export option_two="$2"
+    ;;
+  esac
+}
 user_install # default type
 ###################### end application functions ######################

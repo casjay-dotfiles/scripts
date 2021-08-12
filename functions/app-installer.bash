@@ -484,8 +484,9 @@ perl_exists() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-pthon_exists() {
+python_exists() {
   [ -n "$(builtin type -P python3 2>/dev/null)" ] || [ -n "$(builtin type -P python2 2>/dev/null)" ] || [ -n "$(builtin type -P python 2>/dev/null)" ] || return
+  __getpythonver
   local package="$1"
   if devnull $PYTHONVER -c "import $package"; then return 0; else return 1; fi
 }
@@ -777,11 +778,11 @@ cmd_missing() { builtin type -p "$1" &>/dev/null && return 0 || { MISSING+="$1 "
 cpan_missing() { perl_exists "$1" && return 0 || { MISSING+="$1" && return 1; }; }
 gem_missing() { gem_exists "$1" && return 0 || { MISSING+="$1 " && return 1; }; }
 perl_missing() { perl_exists "$1" && return 0 || { MISSING+="$(echo perl-$1 | sed 's#::#-#g') " && return 1; }; }
-pip_missing() { pthon_exists "$1" && return 0 || { MISSING+="$1 " && return 1; }; }
+pip_missing() { python_exists "$1" && return 0 || { MISSING+="$1 " && return 1; }; }
 if [ -f "$(builtin type -P pacman 2>/dev/null)" ]; then
-  python_missing() { pthon_exists "$1" && return 0 || { MISSING+="python-$1 " && return 1; }; }
+  python_missing() { python_exists "$1" && return 0 || { MISSING+="python-$1 " && return 1; }; }
 else
-  python_missing() { pthon_exists "$1" && return 0 || { MISSING+="$PYTHONVER-$1 " && return 1; }; }
+  python_missing() { python_exists "$1" && return 0 || { MISSING+="$PYTHONVER-$1 " && return 1; }; }
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 git_repo_urls() {
@@ -884,7 +885,7 @@ install_packages() {
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
       for cmd in $REQUIRED; do
         # if gem_exists "$cmd"; then true
-        # elif pthon_exists "$cmd"; then true
+        # elif python_exists "$cmd"; then true
         # elif perl_exists "$cmd"; then true
         if ! builtin type -p "$cmd" &>/dev/null; then
           MISSING+="$cmd "

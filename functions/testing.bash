@@ -2800,40 +2800,37 @@ __getpythonver
 #   unset LIST PKMGRREPO SCRIPTS_PREFIX REPO REPODF REPORAW SHARE STARTUP SYSBIN SYSCONF SYSLOGDIR SYSSHARE SYSTEMMGRREPO
 #   unset SYSSHARE SYSTEMMGRREPO SYSUPDATEDIR THEMEDIR THEMEMGRREPO USRUPDATEDIR WALLPAPERMGRREPO WALLPAPERS
 # }
-__runtest() {
-  [ "$1" = "--x" ] && set -x && shift 1
-  export LOG_FILE="${TMP:-$HOME/.local/tmp}/$APPNAME/$(date +'%Y-%m-%d').log"
-  export LOG_FILE_ERR="${TMP:-$HOME/.local/tmp}/$APPNAME/$(date +'%Y-%m-%d').err"
-  printf_cyan "Saving all output to $LOG_FILE"
-  __printf_log "$1" 2>>"$LOG_FILE_ERR" >>"$LOG_FILE"
-  __devnull() {
-    local CMD="$1" && shift 1
-    local ARGS="$*" && shift
-    __printf_log "Running $CMD"
-    eval $CMD $ARGS 2>>"$LOG_FILE_ERR" >>"$LOG_FILE"
-  }
-  # only send stdout to display
-  __devnull1() {
-    local CMD="$1" && shift 1
-    local ARGS="$*" && shift
-    __printf_log "Running $CMD"
-    eval $CMD $ARGS 2>>"$LOG_FILE_ERR" >>"$LOG_FILE"
-  }
-  # send stderr to /dev/null
-  __devnull2() {
-    local CMD="$1" && shift 1
-    local ARGS="$*" && shift
-    __printf_log "Running $CMD"
-    eval $CMD $ARGS 2>>"$LOG_FILE_ERR" >>"$LOG_FILE"
-  }
-  export -f devnull devnull1 devnull2 __printf_log
-}
 ###################### call options ######################
 __options() {
   $installtype
   case $1 in
   --test)
-    __runtest "$*"
+    shift 1
+    [ "$1" = "--x" ] && set -x && shift 1
+    export LOG_FILE="${TMP:-$HOME/.local/tmp}/$APPNAME/$(date +'%Y-%m-%d').log"
+    export LOG_FILE_ERR="${TMP:-$HOME/.local/tmp}/$APPNAME/$(date +'%Y-%m-%d').err"
+    printf_cyan "Saving all output to $LOG_FILE"
+    __printf_log "$1" 2>>"$LOG_FILE_ERR" >>"$LOG_FILE"
+    __devnull() {
+      local CMD="$1" && shift 1
+      local ARGS="$*" && shift
+      __printf_log "Running $CMD"
+      eval $CMD $ARGS 2>>"$LOG_FILE_ERR" >>"$LOG_FILE"
+    }
+    # only send stdout to display
+    __devnull1() {
+      local CMD="$1" && shift 1
+      local ARGS="$*" && shift
+      __printf_log "Running $CMD"
+      eval $CMD $ARGS 2>>"$LOG_FILE_ERR" >>"$LOG_FILE"
+    }
+    # send stderr to /dev/null
+    __devnull2() {
+      local CMD="$1" && shift 1
+      local ARGS="$*" && shift
+      __printf_log "Running $CMD"
+      eval $CMD $ARGS 2>>"$LOG_FILE_ERR" >>"$LOG_FILE"
+    }
     ;;
   # --cron)
   #   shift 1

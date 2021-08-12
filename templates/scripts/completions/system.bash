@@ -87,6 +87,12 @@ _GEN_SCRIPT_REPLACE_FILENAME() {
         _filedir
       elif [[ "$ARRAY" = "show-commands" ]]; then
         COMPREPLY=($(compgen -c -- "${cur}"))
+      elif [ "$ARRAY" != "" ]; then
+        COMPREPLY=($(compgen -W '${ARRAY}' -- "${cur}"))
+      elif [ -n "$OPTS" ]; then
+        COMPREPLY=($(compgen -W '${OPTS}' -- "${cur}"))
+      else
+        COMPREPLY=($(compgen -W '${ARRAY}' -- "${cur}"))
       # elif [[ ${cword} -gt 2 ]]; then
       #   return
       # elif [[ ${cword} == 2 ]]; then

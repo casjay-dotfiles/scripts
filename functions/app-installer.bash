@@ -773,7 +773,7 @@ scripts_check() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #is_url() { echo "$1" | grep -q http; }
 #strip_url() { echo "$1" | sed 's#git+##g' | awk -F//*/ '{print $2}' | sed 's#.*./##g' | sed 's#python-##g'; }
-cmd_missing() { [ -f "$(builtin type -P "$1" 2>/dev/null)" ] && return 0 || { MISSING+="$1 " && return 1; }; }
+cmd_missing() { builtin type -p "$1" &>/dev/null && return 0 || { MISSING+="$1 " && return 1; }; }
 cpan_missing() { perl_exists "$1" && return 0 || { MISSING+="$1" && return 1; }; }
 gem_missing() { gem_exists "$1" && return 0 || { MISSING+="$1 " && return 1; }; }
 perl_missing() { perl_exists "$1" && return 0 || { MISSING+="$(echo perl-$1 | sed 's#::#-#g') " && return 1; }; }
@@ -886,7 +886,7 @@ install_packages() {
         # if gem_exists "$cmd"; then true
         # elif pthon_exists "$cmd"; then true
         # elif perl_exists "$cmd"; then true
-        if [ -z "$(builtin type -p "$cmd" 2>/dev/null)" ]; then
+        if builtin type -p "$cmd" &>/dev/null; then
           MISSING+="$cmd "
         fi
       done

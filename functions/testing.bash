@@ -2772,7 +2772,7 @@ installer_delete() {
 ##################################################################################################
 # Versioning
 __appversion() {
-  local versionfile="${1:-REPORAW/version.txt}"
+  local versionfile="${1:-$REPORAW/version.txt}"
   if [ -f "$INSTDIR/version.txt" ]; then
     get_localVersion="$(<$INSTDIR/version.txt)"
   fi
@@ -2782,16 +2782,24 @@ __appversion() {
 
 __required_version() {
   #__main_installer_info
+  rVersion=${requiredVersion:-0}
+  cVersion=${currentVersion:-0}
+  requiredVersion=${requiredVersion:-0}
+  currentVersion=${currentVersion:-0}
   if [ -f "$CASJAYSDEVDIR/version.txt" ]; then
     local requiredVersion="${1:-$requiredVersion}"
     local currentVersion="${APPVERSION:-$currentVersion}"
-    local rVersion="${requiredVersion//-git/}"
-    local cVersion="${currentVersion//-git/}"
-    if [[ "$cVersion" -lt "$rVersion" ]] && [ "$APPNAME" != "scripts" ] && [ "$SCRIPTS_PREFIX" != "systemmgr" ]; then
+    local rVersion=${rVersion//-git/}
+    local cVersion=${cVersion//-git/}
+    [[ -n "${rVersion:-0}" ]] || [[ -n "${cVersion:-0}" ]] || return
+    if [[ "${rVersion:-0}" != "${cVersion:-0}" ]] && [ "$APPNAME" != "scripts" ] && [ "$SCRIPTS_PREFIX" != "systemmgr" ]; then
       printf_yellow "Requires version higher than $rVersion"
       printf_yellow "You will need to update for new features"
     fi
+  else
+    return
   fi
+  return
 }
 __required_version "$requiredVersion"
 #[ "$installtype" = "devenvmgr_install" ] &&

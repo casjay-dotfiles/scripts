@@ -76,8 +76,8 @@ __command() {
 export -f __command
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Versioning Info - __required_version "VersionNumber"
-localVersion="${localVersion:-202103310525-git}"
-requiredVersion="${requiredVersion:-202103310525-git}"
+localVersion="${localVersion:-202108120844-git}"
+requiredVersion="${requiredVersion:-202108120845-git}"
 if grep -qs '^' "$CASJAYSDEVDIR/version.txt"; then
   currentVersion="${currentVersion:-$(<$CASJAYSDEVDIR/version.txt)}"
 else
@@ -2722,15 +2722,17 @@ installer_delete() {
 ##################################################################################################
 # Versioning
 __appversion() {
-  local versionfile="${1:-$REPORAW/version.txt}"
+  local versionfile="${1:-REPORAW/version.txt}"
   if [ -f "$INSTDIR/version.txt" ]; then
-    get_localVersion="$(<$INSTDIR/version.txt)"
+    localVersion="$(<$INSTDIR/version.txt)"
+  else
+    localVersion="$localVersion"
   fi
-  localVersion="${get_localVersion:-$localVersion}"
   __curl "${versionfile}" 2>/dev/null | head -n1 || echo "$localVersion"
 }
 
 __required_version() {
+  #__main_installer_info
   if [ -f "$CASJAYSDEVDIR/version.txt" ]; then
     local requiredVersion="${1:-$requiredVersion}"
     local currentVersion="${APPVERSION:-$currentVersion}"
@@ -2742,7 +2744,6 @@ __required_version() {
     fi
   fi
 }
-
 __required_version "$requiredVersion"
 #[ "$installtype" = "devenvmgr_install" ] &&
 devenvmgr_req_version() { __required_version "$1"; }

@@ -934,7 +934,7 @@ install_perl() {
     local REQUIRED="$*"
     local MISSING=""
     local cmd=""
-    for cmd in $REQUIRED; do perl_missing "$cmd"; done
+    for cmd in $REQUIRED; do builtin type -p "$cmd" &>/dev/null || perl_missing "$cmd"; done
     if [ -n "$MISSING" ]; then
       if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
         printf_warning "Attempting to install missing perl packages"
@@ -953,7 +953,7 @@ install_pip() {
     local REQUIRED="$*"
     local MISSING=""
     local cmd=""
-    for cmd in $REQUIRED; do [ -f "$(builtin type -P "$cmd" 2>/dev/null)" ] || pip_missing "$cmd"; done
+    for cmd in $REQUIRED; do builtin type -p "$cmd" &>/dev/null || pip_missing "$cmd"; done
     if [ -n "$MISSING" ]; then
       if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
         printf_warning "Attempting to install missing pip packages"
@@ -972,7 +972,7 @@ install_cpan() {
     local REQUIRED="$*"
     local MISSING=""
     local cmd=""
-    for cmd in $REQUIRED; do [ -f "$(builtin type -P "$cmd" 2>/dev/null)" ] || cpan_missing "$cmd"; done
+    for cmd in $REQUIRED; do builtin type -p "$cmd" &>/dev/null || cpan_missing "$cmd"; done
     if [ -n "$MISSING" ]; then
       if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
         printf_warning "Attempting to install missing cpan packages"
@@ -991,7 +991,7 @@ install_gem() {
     local REQUIRED="$*"
     local MISSING=""
     local cmd=""
-    for cmd in $REQUIRED; do [ -f "$(builtin type -P $cmd 2>/dev/null)" ] || gem_missing "$cmd"; done
+    for cmd in $REQUIRED; do builtin type -p "$cmd" &>/dev/null || gem_missing "$cmd"; done
     if [ -n "$MISSING" ]; then
       if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
         printf_warning "Attempting to install missing gem packages"

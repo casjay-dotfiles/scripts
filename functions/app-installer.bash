@@ -2172,7 +2172,7 @@ run_install_list() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Versioning
 __appversion() {
-  local versionfile="${1:-REPORAW/version.txt}"
+  local versionfile="${1:-$REPORAW/version.txt}"
   if [ -f "$INSTDIR/version.txt" ]; then
     local localVersion="$(<$INSTDIR/version.txt)"
   else

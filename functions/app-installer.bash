@@ -897,10 +897,10 @@ install_packages() {
         printf_warning "Attempting to install missing packages as $RUN_USER"
         printf_warning "$MISSING"
         for miss in $MISSING; do
-          if [ -n "$(builtin type -P yay 2>/dev/null)" ]; then
-            execute "pkmgr --enable-aur silent $miss" "Installing $miss"
+          if builtin type -P yay 2>/dev/null; then
+            execute "pkmgr --enable-aur silent install $miss" "Installing $miss"
           else
-            execute "pkmgr silent $miss" "Installing $miss"
+            execute "pkmgr silent install $miss" "Installing $miss"
           fi
         done
       fi
@@ -921,9 +921,9 @@ install_python() {
         printf_warning "$MISSING"
         for miss in $MISSING; do
           if [ -f "$(builtin type -P yay 2>/dev/null)" ]; then
-            execute "pkmgr --enable-aur silent $miss" "Installing $miss"
+            execute "pkmgr --enable-aur silent install $miss" "Installing $miss"
           else
-            execute "pkmgr silent $miss" "Installing $miss"
+            execute "pkmgr silent install $miss" "Installing $miss"
           fi
         done
       fi

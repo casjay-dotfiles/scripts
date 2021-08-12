@@ -38,14 +38,38 @@ _GEN_SCRIPT_REPLACE_FILENAME() {
 
   if [[ ${cur} == --* ]]; then
     COMPREPLY=($(compgen -W '${LONGOPTS}' -- ${cur}))
+    return
   elif [[ ${cur} == -* ]]; then
     COMPREPLY=($(compgen -W '${SHORTOPTS}' -- ${cur}))
+    return
   else
     case "${COMP_WORDS[1]:-$prev}" in
-    --options) COMPREPLY=($(compgen -W '' -- "${cur}")) && prev="--options" ;;
-    -c | --config) COMPREPLY=($(compgen -W '' -- "${cur}")) && prev="--config" ;;
-    -h | --help) COMPREPLY=($(compgen -W '' -- "${cur}")) && prev="--help" ;;
-    -v | --version) COMPREPLY=($(compgen -W '' -- "${cur}")) && prev="--version" ;;
+    --options)
+      local prev="--options"
+      COMPREPLY=($(compgen -W '' -- "${cur}"))
+      ;;
+
+    -c | --config)
+      local prev="--config"
+      COMPREPLY=($(compgen -W '' -- "${cur}"))
+      ;;
+
+    -h | --help)
+      prev="--help"
+      COMPREPLY=($(compgen -W '' -- "${cur}"))
+      ;;
+
+    -v | --version)
+      local prev="--version"
+      COMPREPLY=($(compgen -W '' -- "${cur}"))
+      ;;
+
+    -z | --dir)
+      local prev="dir"
+      _filedir
+      return
+      ;;
+
     *)
       if [ -n "$FILEDIR" ]; then _filedir; fi
       if [[ "$ARRAY" = "show-none" ]]; then

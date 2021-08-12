@@ -76,12 +76,12 @@ __command() {
 export -f __command
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Versioning Info - __required_version "VersionNumber"
-localVersion="${localVersion:-202108120845}"
-requiredVersion="${requiredVersion:-202108120845}"
-if grep -qs '^' "$CASJAYSDEVDIR/version.txt"; then
+localVersion="${localVersion:-202103310525-git}"
+requiredVersion="${requiredVersion:-202103310525-git}"
+if [ -f $CASJAYSDEVDIR/version.txt ]; then
   currentVersion="${currentVersion:-$(<$CASJAYSDEVDIR/version.txt)}"
 else
-  currentVersion="$localVersion"
+  currentVersion="${currentVersion:-$localVersion}"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set Main Repo for dotfiles
@@ -2722,32 +2722,27 @@ installer_delete() {
 ##################################################################################################
 # Versioning
 __appversion() {
-  local versionfile="${1:-REPORAW/version.txt}"
+  local versionfile="${1:-$REPORAW/version.txt}"
   if [ -f "$INSTDIR/version.txt" ]; then
-    localVersion="$(<$INSTDIR/version.txt)"
+    local tmpLocalVersion="$(<$INSTDIR/version.txt)"
   else
-    localVersion="$localVersion"
+    local tmpLocalVersion="$localVersion"
   fi
+  localVersion=${tmpLocalVersion//-git/}
   __curl "${versionfile}" 2>/dev/null | head -n1 || echo "$localVersion"
 }
 
 __required_version() {
-  CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
-  [ -n "$localVersion" ] || local localVersion="${localVersion:-202108120845}"
-  [ -n "$requiredVersion" ] || local requiredVersion="${requiredVersion:-202108120845}"
   if [ -f "$CASJAYSDEVDIR/version.txt" ]; then
-    local requiredVersion=${1:-$requiredVersion}
-    local currentVersion=${APPVERSION:-$currentVersion}
-    local rVersion=$(echo $requiredVersion | sed 's| ||g;s|-git||g')
-    local cVersion=$(echo $currentVersion | sed 's| ||g;s|-git||g')
-    printf_blue "[[ $cVersion -lt $rVersion ]]"
-    if [[ $cVersion -lt $rVersion ]] && [ "$APPNAME" != "scripts" ] && [ "$SCRIPTS_PREFIX" != "systemmgr" ]; then
+    local requiredVersion="${1:-$requiredVersion}"
+    local currentVersion="${APPVERSION:-$currentVersion}"
+    local rVersion="${requiredVersion//-git/}"
+    local cVersion="${currentVersion//-git/}"
+    if [ "$cVersion" -lt "$rVersion" ] && [ "$APPNAME" != "scripts" ] && [ "$SCRIPTS_PREFIX" != "systemmgr" ]; then
       printf_yellow "Requires version higher than $rVersion"
       printf_yellow "You will need to update for new features"
-      return 1
     fi
   fi
-  return
 }
 __required_version "$requiredVersion"
 #[ "$installtype" = "devenvmgr_install" ] &&

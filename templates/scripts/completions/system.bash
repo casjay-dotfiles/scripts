@@ -1,26 +1,35 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202108121656-git
-# @Author        : Jason Hempstead
-# @Contact       : jason@casjaysdev.com
-# @License       : WTFPL
-# @ReadME        : backupapp --help
-# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
-# @Created       : Thursday, Aug 12, 2021 16:56 EDT
-# @File          : backupapp
-# @Description   : backupapp completion script
-# @TODO          :
-# @Other         :
-# @Resource      :
+APPNAME="$(basename "$0")"
+VERSION="GEN_SCRIPT_REPLACE_VERSION"
+USER="${SUDO_USER:-${USER}}"
+HOME="${USER_HOME:-${HOME}}"
+SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-_backupapp() {
+#set opts
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version       : GEN_SCRIPT_REPLACE_VERSION
+# @Author        : GEN_SCRIPT_REPLACE_AUTHOR
+# @Contact       : GEN_SCRIPT_REPLACE_EMAIL
+# @License       : GEN_SCRIPT_REPLACE_LICENSE
+# @ReadME        : GEN_SCRIPT_REPLACE_FILENAME --help
+# @Copyright     : GEN_SCRIPT_REPLACE_COPYRIGHT
+# @Created       : GEN_SCRIPT_REPLACE_DATE
+# @File          : GEN_SCRIPT_REPLACE_FILENAME
+# @Description   : GEN_SCRIPT_REPLACE_DESC
+# @TODO          : GEN_SCRIPT_REPLACE_TODO
+# @Other         : GEN_SCRIPT_REPLACE_OTHER
+# @Resource      : GEN_SCRIPT_REPLACE_RES
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+_GEN_SCRIPT_REPLACE_FILENAME() {
   ___findcmd() { find -L "${1:-$CONFDIR/}" -maxdepth ${3:-3} -type ${2:-f} 2>/dev/null | sed 's#'${1:-$CONFDIR}'##g' | grep '^' || return 1; }
   local cur prev words cword opts split
   local cur="${COMP_WORDS[$COMP_CWORD]}"
   local prev="${COMP_WORDS[$COMP_CWORD - 1]}"
   local CONFFILE="settings.conf"
-  local CONFDIR="$HOME/.config/myscripts/backupapp"
-  local SEARCHDIR="${CONFDIR:-$HOME/.config/myscripts/backupapp}"
+  local CONFDIR="$HOME/.config/myscripts/GEN_SCRIPT_REPLACE_FILENAME"
+  local SEARCHDIR="${CONFDIR:-$HOME/.config/myscripts/GEN_SCRIPT_REPLACE_FILENAME}"
   #local SEARCHCMD="$(___findcmd "$SEARCHDIR/" "d" "1")"
   local SHOW_COMP_OPTS=""
   local FILEDIR=""
@@ -103,4 +112,4 @@ _backupapp() {
 } &&
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # enable completions
-  complete -F _backupapp backupapp
+  complete -F _GEN_SCRIPT_REPLACE_FILENAME GEN_SCRIPT_REPLACE_FILENAME

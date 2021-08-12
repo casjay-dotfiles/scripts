@@ -76,8 +76,8 @@ __command() {
 export -f __command
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Versioning Info - __required_version "VersionNumber"
-localVersion="${localVersion:-202108120844-git}"
-requiredVersion="${requiredVersion:-202108120845-git}"
+localVersion="${localVersion:-202108120845}"
+requiredVersion="${requiredVersion:-202108120845}"
 if grep -qs '^' "$CASJAYSDEVDIR/version.txt"; then
   currentVersion="${currentVersion:-$(<$CASJAYSDEVDIR/version.txt)}"
 else
@@ -2736,9 +2736,9 @@ __required_version() {
   if [ -f "$CASJAYSDEVDIR/version.txt" ]; then
     local requiredVersion="${1:-$requiredVersion}"
     local currentVersion="${APPVERSION:-$currentVersion}"
-    local rVersion="${requiredVersion//-git/}"
-    local cVersion="${currentVersion//-git/}"
-    if [ "$cVersion" -lt "$rVersion" ] && [ "$APPNAME" != "scripts" ] && [ "$SCRIPTS_PREFIX" != "systemmgr" ]; then
+    local rVersion="$(echo $requiredVersion || 's|-git||g')"
+    local cVersion="$(echo $currentVersion || 's|-git||g')"
+    if [[ "$cVersion" -lt "$rVersion" ]] && [ "$APPNAME" != "scripts" ] && [ "$SCRIPTS_PREFIX" != "systemmgr" ]; then
       printf_yellow "Requires version higher than $rVersion"
       printf_yellow "You will need to update for new features"
     fi

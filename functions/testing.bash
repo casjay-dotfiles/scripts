@@ -2732,17 +2732,22 @@ __appversion() {
 }
 
 __required_version() {
-  #__main_installer_info
+  CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+  [ -n "$localVersion" ] || local localVersion="${localVersion:-202108120845}"
+  [ -n "$requiredVersion" ] || local requiredVersion="${requiredVersion:-202108120845}"
   if [ -f "$CASJAYSDEVDIR/version.txt" ]; then
-    local requiredVersion="${1:-$requiredVersion}"
-    local currentVersion="${APPVERSION:-$currentVersion}"
-    local rVersion="$(echo $requiredVersion || 's|-git||g')"
-    local cVersion="$(echo $currentVersion || 's|-git||g')"
-    if [[ "$cVersion" -lt "$rVersion" ]] && [ "$APPNAME" != "scripts" ] && [ "$SCRIPTS_PREFIX" != "systemmgr" ]; then
+    local requiredVersion=${1:-$requiredVersion}
+    local currentVersion=${APPVERSION:-$currentVersion}
+    local rVersion=$(echo $requiredVersion | sed 's| ||g;s|-git||g')
+    local cVersion=$(echo $currentVersion | sed 's| ||g;s|-git||g')
+    printf_blue "[[ $cVersion -lt $rVersion ]]"
+    if [[ $cVersion -lt $rVersion ]] && [ "$APPNAME" != "scripts" ] && [ "$SCRIPTS_PREFIX" != "systemmgr" ]; then
       printf_yellow "Requires version higher than $rVersion"
       printf_yellow "You will need to update for new features"
+      return 1
     fi
   fi
+  return
 }
 __required_version "$requiredVersion"
 #[ "$installtype" = "devenvmgr_install" ] &&

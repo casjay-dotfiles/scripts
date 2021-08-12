@@ -234,6 +234,7 @@ ICON_ERROR="[ ✖ ]"
 ICON_QUESTION="[ ❓ ]"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # printf functions
+printf_log "$1" 2>>"$LOG_FILE_ERR" >>"$LOG_FILE"
 printf_newline() { printf '%s\n' "${*:-}"; }
 printf_color() { printf "%b" "$(tput setaf "$2" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
 printf_normal() {
@@ -2809,26 +2810,26 @@ __options() {
     [ "$1" = "--x" ] && set -x && shift 1
     export LOG_FILE="${TMP:-$HOME/.local/tmp}/$APPNAME/$(date +'%Y-%m-%d').log"
     export LOG_FILE_ERR="${TMP:-$HOME/.local/tmp}/$APPNAME/$(date +'%Y-%m-%d').err"
+    mkdir -p "${TMP:-$HOME/.local/tmp}/$APPNAME"
     printf_cyan "Saving all output to $LOG_FILE"
-    __printf_log "$1" 2>>"$LOG_FILE_ERR" >>"$LOG_FILE"
     __devnull() {
       local CMD="$1" && shift 1
       local ARGS="$*" && shift
-      __printf_log "Running $CMD"
+      printf_log "Running $CMD"
       eval $CMD $ARGS 2>>"$LOG_FILE_ERR" >>"$LOG_FILE"
     }
     # only send stdout to display
     __devnull1() {
       local CMD="$1" && shift 1
       local ARGS="$*" && shift
-      __printf_log "Running $CMD"
+      printf_log "Running $CMD"
       eval $CMD $ARGS 2>>"$LOG_FILE_ERR" >>"$LOG_FILE"
     }
     # send stderr to /dev/null
     __devnull2() {
       local CMD="$1" && shift 1
       local ARGS="$*" && shift
-      __printf_log "Running $CMD"
+      printf_log "Running $CMD"
       eval $CMD $ARGS 2>>"$LOG_FILE_ERR" >>"$LOG_FILE"
     }
     ;;

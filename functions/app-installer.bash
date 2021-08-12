@@ -588,6 +588,8 @@ __getpythonver() {
     PYTHONVER="python"
     PIP="pip3"
   fi
+  [ -n "$PYTHONVER" ] || PYTHONVER=python3
+  [ -n "$PIP" ] || PIP=pip3
 }
 __getpythonver
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

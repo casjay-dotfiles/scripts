@@ -290,7 +290,7 @@ printf_execute_error() {
   printf "\n"
 }
 printf_execute_result() {
-  if [ "$1" -eq 0 ]; then printf_execute_success "$2"; else printf_execute_error "${3:-$2}"; fi
+  if [[ "$1" = 0 ]]; then printf_execute_success "$2"; else printf_execute_error "${3:-$2}"; fi
   return "$1"
 }
 printf_not_found() {
@@ -527,7 +527,7 @@ printf_result() {
   [ -n "$2" ] && local OK="$2" || local OK="Command executed successfully"
   [ -n "$3" ] && local FAIL="$3" || local FAIL="${PREV:-The previous command} has failed"
   [ -n "$4" ] && local FAIL="$3" || local FAIL="$3"
-  if [ "$EXIT" -eq 0 ]; then
+  if [ "$EXIT" = 0 ]; then
     printf_success "$OK"
     return 0
   else
@@ -809,7 +809,7 @@ __requires() {
     type $cmd || local CMD+="$cmd "
   done
   if [ -n "$CMD" ]; then __require_app "$CMD"; fi
-  [ "$?" -eq 0 ] && return 0 || exit 1
+  [ "$?" = 0 ] && return 0 || exit 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ###################### get versions ######################
@@ -1181,7 +1181,7 @@ __git_clone() {
     [ -d "$dir" ] && __rm_rf "$dir"
     __git clone -q --recursive "$repo" "$dir" || false
   fi
-  if [ "$?" -ne "0" ]; then
+  if [ "$?" != "0" ]; then
     printf_error "Failed to clone the repo"
   fi
 }
@@ -1195,7 +1195,7 @@ __git_update() {
   __git -C "$dir" pull --recurse-submodules -fq || return 1
   __git -C "$dir" submodule update --init --recursive -q || return 1
   git -C "$dir" reset --hard -q || return 1
-  if [ "$?" -ne "0" ]; then
+  if [ "$?" != "0" ]; then
     printf_error "Failed to update the repo"
     #__backupapp "$dir" "$reponame" && __rm_rf "$dir" && git clone -q "$repo" "$dir"
   fi
@@ -1570,7 +1570,7 @@ __requiresudo() {
   fi
 }
 user_is_root() {
-  if [[ $(id -u) -eq 0 ]] || [[ "$EUID" -eq 0 ]] || [[ "$WHOAMI" = "root" ]]; then
+  if [[ $(id -u) -eq 0 ]] || [[ "$EUID" = 0 ]] || [[ "$WHOAMI" = "root" ]]; then
     return 0
   else return 1; fi
 }
@@ -1656,7 +1656,7 @@ __setexitstatus() {
   local EXIT="$?"
   if [ -z "$EXIT" ] || [ -n "$1" ]; then local EXIT="$1"; fi
   local EXITSTATUS+="$EXIT"
-  if [ "$EXITSTATUS" -eq 0 ]; then
+  if [ "$EXITSTATUS" = 0 ]; then
     BG_EXIT="${BG_GREEN}"
     unset EXIT
     return 0
@@ -1668,8 +1668,8 @@ __setexitstatus() {
 }
 #returnexitcode $?
 __returnexitcode() {
-  [ -z "$1" ] || EXIT="$1"
-  if [ "$EXIT" -eq 0 ]; then
+  [ -z "$1" ] || EXIT="${?:-0}"
+  if [ "$EXIT" = 0 ]; then
     BG_EXIT="${BG_GREEN}"
     PS_SYMBOL=" 😺 "
     return 0
@@ -1685,7 +1685,7 @@ __returnexitcode() {
 }
 #getexitcode "$?" "OK Message" "Error Message"
 __getexitcode() {
-  local EXITCODE="$?"
+  local EXITCODE="${1:-$?}"
   test -n "$1" && test -z "${1//[0-9]/}" && local EXITCODE="$1" && shift 1
   if [ -n "$1" ]; then
     local PSUCCES="$1"
@@ -1701,7 +1701,7 @@ __getexitcode() {
   else
     local PERROR="Last __command failed to complete"
   fi
-  if [ "$EXITCODE" -eq 0 ]; then
+  if [ "$EXITCODE" = 0 ]; then
     printf_cyan "$PSUCCES"
   else
     printf_error "$PERROR"
@@ -2661,7 +2661,7 @@ run_install_list() {
       fi
     done
   else
-    if [ "$(__count_dir "$USRUPDATEDIR")" -ne 0 ]; then
+    if [ "$(__count_dir "$USRUPDATEDIR")" != 0 ]; then
       local -a LSINST="$(ls "$USRUPDATEDIR")"
       if [ -n "$LSINST" ]; then
         for app in "${LSINST[@]}"; do
@@ -2669,7 +2669,7 @@ run_install_list() {
         done
         printf '%s\n' "$installed" | printf_column "4"
       fi
-    elif [ "$(__count_dir "$SYSUPDATEDIR")" -ne 0 ]; then
+    elif [ "$(__count_dir "$SYSUPDATEDIR")" != 0 ]; then
       declare -a LSINST="$(ls "$SYSUPDATEDIR/")"
       if [ -n "${LSINST[0]}" ]; then
         for app in "${LSINST[@]}"; do
@@ -2787,7 +2787,7 @@ __required_version() {
     local currentVersion="${APPVERSION:-$currentVersion}"
     local rVersion="${requiredVersion//-git/}"
     local cVersion="${currentVersion//-git/}"
-    if [ "$cVersion" -lt "$rVersion" ] && [ "$APPNAME" != "scripts" ] && [ "$SCRIPTS_PREFIX" != "systemmgr" ]; then
+    if [[ "$cVersion" -lt "$rVersion" ]] && [ "$APPNAME" != "scripts" ] && [ "$SCRIPTS_PREFIX" != "systemmgr" ]; then
       printf_yellow "Requires version higher than $rVersion"
       printf_yellow "You will need to update for new features"
     fi

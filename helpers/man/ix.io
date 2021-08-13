@@ -2,18 +2,18 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME_README="ix.io"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202108050000-git
-# @Author        : casjay
-# @Contact       : casjay
+##@Version       : 202108121904-git
+# @Author        : Jason Hempstead
+# @Contact       : jason@casjaysdev.com
 # @License       : WTFPL
 # @ReadME        : ix.io --help
-# @Copyright     : Copyright: (c) 2021 casjay, casjay
-# @Created       : Thursday, Aug 05, 2021 00:00 EDT
+# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created       : Thursday, Aug 12, 2021 19:04 EDT
 # @File          : ix.io
 # @Description   : Manual for ix.io
-# @TODO          : 
-# @Other         : 
-# @Resource      : 
+# @TODO          :
+# @Other         :
+# @Resource      :
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set variables
 __heading="- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -32,16 +32,19 @@ __printf_help() {
   __printf_color "\t\t$msg\n" "$color"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Begin help
-__printf_head "5" "ix.io: GEN_SCRIPT_REPLACE_DESC"
 printf '\n'
-__printf_help "4" "Usage: command | ix.io or ix.io filename"
-__printf_help "4" " -  "
-__printf_help "4" "-c, --config            - generate user config file"
-__printf_help "4" "-v, --version           - show script version"
-__printf_help "4" "-h, --help              - Shows this message"
-__printf_help "4" "--options               - files used for completion"
-
+__printf_head "5" "ix.io: GEN_SCRIPT_REPLACE_DESC"
+__printf_help " " "                                                  "
+__printf_help "5" "Usage: ix.io [-d ID] [-i ID] [-n N] [opts]"
+__printf_help " " "                                                  "
+__printf_head "5" "Other ix.io Options"
+__printf_help "4" "ix.io -c, --config                                      - Generate user config file"
+__printf_help "4" "ix.io -v, --version                                     - Show script version"
+__printf_help "4" "ix.io -h, --help                                        - Shows this message"
+__printf_help "4" "ix.io --options                                         - Shows all available options"
+__printf_help " " "                                                  "
+#__printf_head "5" "This is a work in progress"
+#__printf_help "4" "ix.io "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # end help
 printf '\n'
@@ -50,4 +53,3 @@ printf '\n'
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # lets exit with code
 exit "${exitCode:-0}"
-

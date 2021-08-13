@@ -2619,9 +2619,10 @@ run_install_list() {
 
 run_install_search() {
   [ $# = 0 ] && printf_exit "Nothing to search for"
-  local LIST="${LIST:-printf_exit "The enviroment variable LIST does not exist"}"
-  local results=""
   local -a LSINST="$*"
+  local LIST="${LIST:-}"
+  [ -n "$LIST"  ] || printf_exit "The enviroment variable LIST does not exist"
+  local results=""
   for app in "${LSINST[@]}"; do
     export APPNAME="$app" REPO="$REPO/$APPNAME" REPORAW="$REPO/raw/$GIT_REPO_BRANCH"
     local -a results+="$(echo -e "$LIST" | grep -Fi "$app" | sed 's| ||g' | grep -sv '^$') "

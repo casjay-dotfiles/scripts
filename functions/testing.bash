@@ -2619,6 +2619,7 @@ run_install_list() {
 
 run_install_search() {
   [ $# = 0 ] && printf_exit "Nothing to search for"
+  local LIST="${LIST:-printf_exit "The enviroment variable LIST does not exist"}"
   local results=""
   local -a LSINST="$*"
   for app in "${LSINST[@]}"; do

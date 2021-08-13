@@ -2,18 +2,18 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME_README="cheat.sh"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202108042358-git
-# @Author        : casjay
-# @Contact       : casjay
+##@Version       : 202108121904-git
+# @Author        : Jason Hempstead
+# @Contact       : jason@casjaysdev.com
 # @License       : WTFPL
 # @ReadME        : cheat.sh --help
-# @Copyright     : Copyright: (c) 2021 casjay, casjay
-# @Created       : Wednesday, Aug 04, 2021 23:58 EDT
+# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created       : Thursday, Aug 12, 2021 19:04 EDT
 # @File          : cheat.sh
 # @Description   : Manual for cheat.sh
-# @TODO          : 
-# @Other         : 
-# @Resource      : 
+# @TODO          :
+# @Other         :
+# @Resource      :
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set variables
 __heading="- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -32,21 +32,27 @@ __printf_help() {
   __printf_color "\t\t$msg\n" "$color"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Begin help
-__printf_head "5" "cheat.sh: Get help with commands"
 printf '\n'
+__printf_head "5" "cheat.sh: Get help with commands"
+__printf_help " " "                                                  "
+__printf_help "5" "Usage: cheat.sh [searchTerm]"
+# Begin import
+__printf_head "5" "cheat.sh: Get help with commands"
 __printf_help "2" "Lookup utitilies"
-__printf_help "4" "cheat.sh QUERY                            |  process QUERY and exit"
-__printf_help "4" "cheat.sh --help                           |  show this help"
-__printf_help "4" "cheat.sh --shell [LANG]                   |  shell mode (open LANG if specified)"
-__printf_help "4" "cheat.sh --standalone-install [DIR|help]  |  install cheat.sh in the standalone mode"
-__printf_help "4" "cheat.sh --mode [auto|lite]               |  set (or display) mode of operation"
+__printf_help "4" "cheat.sh --shell [LANG]                           - Shell mode (open LANG if specified)"
+__printf_help "4" "cheat.sh --standalone-install [DIR|help]          - Install cheat.sh in the standalone mode"
+__printf_help "4" "cheat.sh --mode [auto|lite]                       - Set (or display) mode of operation"
+# End Import
 __printf_help "4" " -  "
-__printf_help "4" "-c, --config            - generate user config file"
-__printf_help "4" "-v, --version           - show script version"
-__printf_help "4" "-h, --help              - Shows this message"
-__printf_help "4" "--options               - files used for completion"
-
+__printf_help " " "                                                  "
+__printf_head "5" "Other cheat.sh Options"
+__printf_help "4" "cheat.sh -c, --config                             - Generate user config file"
+__printf_help "4" "cheat.sh -v, --version                            - Show script version"
+__printf_help "4" "cheat.sh -h, --help                               - Shows this message"
+__printf_help "4" "cheat.sh --options                                - Shows all available options"
+__printf_help " " "                                                  "
+#__printf_head "5" "This is a work in progress"
+#__printf_help "4" "cheat.sh "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # end help
 printf '\n'
@@ -55,4 +61,3 @@ printf '\n'
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # lets exit with code
 exit "${exitCode:-0}"
-

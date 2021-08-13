@@ -73,7 +73,7 @@ done
 __command() {
   [ "$1" = "-v" ] && shift 1
   if [ $# -ne 1 ]; then
-    if builtin type "$@" 2>/dev/null | grep -v alias | head -n1 | awk '{print $1}' | grep -q '^'; then
+    if builtin type "$@" 2>/dev/null | grep -v alias | head -n1 | awk '{print $1}' | grep '^'; then
       return 0
     else
       return 1
@@ -763,7 +763,7 @@ __check_pip() {
 #check_cpan "cpanname"
 __check_cpan() {
   local MISSING=""
-  for cmd in "$@"; do type $cmd &>/dev/null || MISSING+="$cmd "; done
+  for cmd in "$@"; do builtin type -p "$cmd" &>/dev/null || MISSING+="$cmd "; done
   if [ -n "$MISSING" ]; then
     printf_question "2" "$1 is not installed Would you like install it? [y/N]" "1" "choice" "-s"
     if printf_answer_yes "$choice"; then
@@ -1720,26 +1720,6 @@ __return() {
   return "$1"
 }
 ###################### OS Functions ######################
-#alternative names
-tf() { [ -f "$(builtin type -P timyfigue 2>/dev/null)" ] || [ -f "$(builtin type -P tf 2>/dev/null)" ] || return 1; }
-cron() { [ -f "$(builtin type -P crond 2>/dev/null)" ] || [ -f "$(builtin type -P cron 2>/dev/null)" ] || return 1; }
-cowsay() { [ -f "$(builtin type -P cowsay 2>/dev/null)" ] || [ -f "$(builtin type -P cowpatty 2>/dev/null)" ] || return 1; }
-fortune() { [ -f "$(builtin type -P fortune 2>/dev/null)" ] || [ -f "$(builtin type -P fortune-mod 2>/dev/null)" ] || return 1; }
-mlocate() { [ -f "$(builtin type -P locate 2>/dev/null)" ] || [ -f "$(builtin type -P mlocate 2>/dev/null)" ] || return 1; }
-xfce4() { [ -f "$(builtin type -P xfce4-about 2>/dev/null)" ] || return 1; }
-xfce4-notifyd() { [ -f "$(builtin type -P xfce4-notifyd-config 2>/dev/null)" ] || find /usr/lib* -name "xfce4-notifyd" -type f 2>/dev/null | grep -q . || return 1; }
-imagemagick() { [ -f "$(builtin type -P convert 2>/dev/null)" ] || return 1; }
-fdfind() { [ -f "$(builtin type -P fdfind 2>/dev/null)" ] || [ -f "$(builtin type -P fd 2>/dev/null)" ] || return 1; }
-speedtest() { [ -f "$(builtin type -P speedtest-cli 2>/dev/null)" ] || [ -f "$(builtin type -P speedtest 2>/dev/null)" ] || return 1; }
-neovim() { [ -f "$(builtin type -P nvim 2>/dev/null)" ] || [ -f "$(builtin type -P neovim 2>/dev/null)" ] || return 1; }
-chromium() { [ -f "$(builtin type -P chromium 2>/dev/null)" ] || [ -f "$(builtin type -P chromium-browser 2>/dev/null)" ] || return 1; }
-firefox() { [ -f "$(builtin type -P firefox-esr 2>/dev/null)" ] || [ -f "$(builtin type -P firefox 2>/dev/null)" ] || return 1; }
-gtk-2.0() { find /lib* /usr* -iname "*libgtk*2*.so*" -type f 2>/dev/null | grep -q . || return 1; }
-gtk-3.0() { find /lib* /usr* -iname "*libgtk*3*.so*" -type f 2>/dev/null | grep -q . || return 1; }
-transmission-remote-cli() { [ -f "$(builtin type -P transmission-remote-cli 2>/dev/null)" ] || [ -f "$(builtin type -P transmission-remote 2>/dev/null)" ] || return 1; }
-export -f cron mlocate xfce4 imagemagick fdfind speedtest neovim chromium firefox gtk-2.0 gtk-3.0
-export -f transmission-remote-cli cowsay xfce4-notifyd
-##################################################################################################
 __ask_confirm() {
   local appname="${PROG:-$APPNAME}"
   local question="${1:-Would you like to proceed?}"

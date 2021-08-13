@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0")"
+VERSION="202108122056-git"
+RUN_USER="${SUDO_USER:-${USER}}"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#set opts
+# Set bash options
+trap 'exitCode=${exitCode:-$?};[ -f "$CHECK_APP_TEMP_FILE" ] && rm -Rf "$CHECK_APP_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202103200617-git
+##@Version       : 202108122056-git
 # @Author        : Jason Hempstead
 # @Contact       : jason@casjaysdev.com
 # @License       : WTFPL
 # @ReadME        : check_app --help
-# @Copyright     : Copyright: (c) 2021 Jason Hempstead, CasjaysDev
-# @Created       : Saturday, Mar 20, 2021 06:17 EDT
+# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created       : Thursday, Aug 12, 2021 20:56 EDT
 # @File          : check_app
 # @Description   : check for app and install if missing
 # @TODO          :
@@ -40,16 +43,175 @@ fi
 user_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Check for needed applications
-__requires bash || exit 1
+# Set functions
+__list_available() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Main application
-main() {
-  __requires "$@"
+__gen_config() {
+  printf_green "Generating the config file in"
+  printf_green "$CHECK_APP_CONFIG_DIR/$CHECK_APP_CONFIG_FILE"
+  [ -d "$CHECK_APP_CONFIG_DIR" ] || mkdir -p "$CHECK_APP_CONFIG_DIR"
+  [ -d "$CHECK_APP_CONFIG_BACKUP_DIR" ] || mkdir -p "$CHECK_APP_CONFIG_BACKUP_DIR"
+  [ -f "$CHECK_APP_CONFIG_DIR/$CHECK_APP_CONFIG_FILE" ] &&
+    cp -Rf "$CHECK_APP_CONFIG_DIR/$CHECK_APP_CONFIG_FILE" "$CHECK_APP_CONFIG_BACKUP_DIR/$CHECK_APP_CONFIG_FILE.$$"
+  cat <<EOF >"$CHECK_APP_CONFIG_DIR/$CHECK_APP_CONFIG_FILE"
+# Settings for check_app
+
+# Notification settings
+CHECK_APP_GOOD_MESSAGE="${CHECK_APP_GOOD_MESSAGE:-Everything Went OK}"
+CHECK_APP_ERROR_MESSAGE="${CHECK_APP_ERROR_MESSAGE:-Well that didn\'t work}"
+CHECK_APP_NOTIFY_ENABLED="${CHECK_APP_NOTIFY_ENABLED:-yes}"
+CHECK_APP_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$PROG}"
+CHECK_APP_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$CHECK_APP_NOTIFY_CLIENT_ICON}"
+
+EOF
+  if [ -f "$CHECK_APP_CONFIG_DIR/$CHECK_APP_CONFIG_FILE" ]; then
+    printf_green "Your config file for check_app has been created"
+    true
+  else
+    printf_red "Failed to create the config file"
+    false
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# execute main function
-main "$@"
+# Additional functions
+__require_app() { __check_app "$@" || exit 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-exit $exitCode
-# end
+__requires() {
+  local ARGS="$*"
+  for cmd in $ARGS; do
+    type $cmd || local CMD+="$cmd "
+  done
+  if [ -n "$CMD" ]; then __require_app "$CMD"; fi
+  [ "$?" = 0 ] && return 0 || exit 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__check_app() {
+  local cmd=""
+  local choice=""
+  local MISSING=""
+  local ARGS="$*"
+  export APP="${APPNAME:-$PROG}"
+  export NOTIFY_CLIENT_ICON="software"
+  export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APP}"
+  for cmd in $ARGS; do type -p "$cmd" &>/dev/null || MISSING+="$cmd "; done
+  if [ -n "$MISSING" ]; then
+    notifications "${NOTIFY_CLIENT_NAME:-$APPNAME}" "Missing $MISSING"
+    if [ -n "$DESKTOP_SESSION" ]; then
+      ask_yes_no_question "Would you like install $MISSING" "pkmgr silent install $MISSING" || return 1
+    else
+      printf_red "The following apps are missing: $MISSING"
+      printf_read_question "2" "Would you like install the missing packages? [y/N]" "1" "choice" "-s"
+      if printf_answer_yes "$choice"; then
+        for miss in $MISSING; do
+          __execute "pkmgr silent-install $miss" "Installing $miss" || return 1
+        done
+      else
+        return 1
+      fi
+    fi
+  else
+    return $?
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Default variables
+exitCode="0"
+CHECK_APP_CACHE_DIR="${CHECK_APP_CACHE_DIR:-/$HOME/.cache/check_app}"
+CHECK_APP_CONFIG_DIR="${CHECK_APP_CONFIG_DIR:-$HOME/.config/misc/check_app}"
+CHECK_APP_OPTIONS_DIR="${CHECK_APP_OPTIONS_DIR:-$HOME/.local/share/misc/check_app/options}"
+CHECK_APP_CONFIG_BACKUP_DIR="${CHECK_APP_CONFIG_BACKUP_DIR:-$HOME/.local/share/misc/check_app/backups}"
+CHECK_APP_TEMP_DIR="${CHECK_APP_TEMP_DIR/system_scripts/check_app:-$HOME/.local/tmp/system_scripts/check_app}"
+CHECK_APP_TEMP_FILE="${CHECK_APP_TEMP_DIR:-$HOME/.local/tmp/check_app}"
+CHECK_APP_CONFIG_FILE="${CHECK_APP_CONFIG_FILE:-settings.conf}"
+CHECK_APP_GOOD_MESSAGE="${CHECK_APP_GOOD_MESSAGE:-Everything Went OK}"
+CHECK_APP_ERROR_MESSAGE="${CHECK_APP_ERROR_MESSAGE:-Well that didn\'t work}"
+CHECK_APP_NOTIFY_ENABLED="${CHECK_APP_NOTIFY_ENABLED:-yes}"
+CHECK_APP_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+CHECK_APP_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$CHECK_APP_NOTIFY_CLIENT_ICON}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$CHECK_APP_TEMP_DIR" ] || mkdir -p "$CHECK_APP_TEMP_DIR" &>/dev/null
+[ -d "$CHECK_APP_CACHE_DIR" ] || mkdir -p "$CHECK_APP_CACHE_DIR" &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$CHECK_APP_CONFIG_DIR/$CHECK_APP_CONFIG_FILE" ] ||
+  __gen_config &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$CHECK_APP_CONFIG_DIR/$CHECK_APP_CONFIG_FILE" ] &&
+  . "$CHECK_APP_CONFIG_DIR/$CHECK_APP_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS="c,v,h,z:"
+LONGOPTS="options,config,version,help,dir:"
+ARRAY=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$PROG" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --options)
+    shift 1
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_available "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_available "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_available "5" "Base Options" "-$ARRAY" ',' ''
+    exit $?
+    ;;
+  -v | --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  -h | --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  -c | --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  -z | --dir)
+    shift 1
+    GEN_SCRIPT_REPLACE_CWD="$1"
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+if [ "$CHECK_APP_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${CHECK_APP_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${CHECK_APP_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${CHECK_APP_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${CHECK_APP_NOTIFY_CLIENT_ICON}"
+    notifications "$*" || return 1
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+cmd_exists --error bash || exit 1 # exit 1 if not found
+#am_i_online --error || exit       # exit 1 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+__requires "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-$?}

@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0")"
+VERSION="202108130106-git"
+RUN_USER="${SUDO_USER:-${USER}}"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#set opts
+# Set bash options
+trap 'exitCode=${exitCode:-$?};[ -f "$EXPANDURL_TEMP_FILE" ] && rm -Rf "$EXPANDURL_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202103200704-git
+##@Version       : 202108130106-git
 # @Author        : Jason Hempstead
 # @Contact       : jason@casjaysdev.com
 # @License       : WTFPL
 # @ReadME        : expandurl --help
-# @Copyright     : Copyright: (c) 2021 Jason Hempstead, CasjaysDev
-# @Created       : Saturday, Mar 20, 2021 07:04 EDT
+# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created       : Friday, Aug 13, 2021 01:06 EDT
 # @File          : expandurl
 # @Description   : Get full url from a shortner and copy to clipboard
 # @TODO          :
@@ -40,12 +43,142 @@ fi
 user_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set functions
+__list_available() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gen_config() {
+  printf_green "Generating the config file in"
+  printf_green "$EXPANDURL_CONFIG_DIR/$EXPANDURL_CONFIG_FILE"
+  [ -d "$EXPANDURL_CONFIG_DIR" ] || mkdir -p "$EXPANDURL_CONFIG_DIR"
+  [ -d "$EXPANDURL_CONFIG_BACKUP_DIR" ] || mkdir -p "$EXPANDURL_CONFIG_BACKUP_DIR"
+  [ -f "$EXPANDURL_CONFIG_DIR/$EXPANDURL_CONFIG_FILE" ] &&
+    cp -Rf "$EXPANDURL_CONFIG_DIR/$EXPANDURL_CONFIG_FILE" "$EXPANDURL_CONFIG_BACKUP_DIR/$EXPANDURL_CONFIG_FILE.$$"
+  cat <<EOF >"$EXPANDURL_CONFIG_DIR/$EXPANDURL_CONFIG_FILE"
+# Settings for expandurl
+
+# Notification settings
+EXPANDURL_GOOD_MESSAGE="${EXPANDURL_GOOD_MESSAGE:-Everything Went OK}"
+EXPANDURL_ERROR_MESSAGE="${EXPANDURL_ERROR_MESSAGE:-Well that didn\'t work}"
+EXPANDURL_NOTIFY_ENABLED="${EXPANDURL_NOTIFY_ENABLED:-yes}"
+EXPANDURL_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$PROG}"
+EXPANDURL_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$EXPANDURL_NOTIFY_CLIENT_ICON}"
+
+EOF
+  if [ -f "$EXPANDURL_CONFIG_DIR/$EXPANDURL_CONFIG_FILE" ]; then
+    printf_green "Your config file for expandurl has been created"
+    true
+  else
+    printf_red "Failed to create the config file"
+    false
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Default variables
+exitCode="0"
+EXPANDURL_CACHE_DIR="${EXPANDURL_CACHE_DIR:-/$HOME/.cache/expandurl}"
+EXPANDURL_CONFIG_DIR="${EXPANDURL_CONFIG_DIR:-$HOME/.config/misc/expandurl}"
+EXPANDURL_OPTIONS_DIR="${EXPANDURL_OPTIONS_DIR:-$HOME/.local/share/misc/expandurl/options}"
+EXPANDURL_CONFIG_BACKUP_DIR="${EXPANDURL_CONFIG_BACKUP_DIR:-$HOME/.local/share/misc/expandurl/backups}"
+EXPANDURL_TEMP_DIR="${EXPANDURL_TEMP_DIR/system_scripts/expandurl:-$HOME/.local/tmp/system_scripts/expandurl}"
+EXPANDURL_TEMP_FILE="${EXPANDURL_TEMP_DIR:-$HOME/.local/tmp/expandurl}"
+EXPANDURL_CONFIG_FILE="${EXPANDURL_CONFIG_FILE:-settings.conf}"
+EXPANDURL_GOOD_MESSAGE="${EXPANDURL_GOOD_MESSAGE:-Everything Went OK}"
+EXPANDURL_ERROR_MESSAGE="${EXPANDURL_ERROR_MESSAGE:-Well that didn\'t work}"
+EXPANDURL_NOTIFY_ENABLED="${EXPANDURL_NOTIFY_ENABLED:-yes}"
+EXPANDURL_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+EXPANDURL_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$EXPANDURL_NOTIFY_CLIENT_ICON}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$EXPANDURL_TEMP_DIR" ] || mkdir -p "$EXPANDURL_TEMP_DIR" &>/dev/null
+[ -d "$EXPANDURL_CACHE_DIR" ] || mkdir -p "$EXPANDURL_CACHE_DIR" &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$EXPANDURL_CONFIG_DIR/$EXPANDURL_CONFIG_FILE" ] ||
+  __gen_config &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$EXPANDURL_CONFIG_DIR/$EXPANDURL_CONFIG_FILE" ] &&
+  . "$EXPANDURL_CONFIG_DIR/$EXPANDURL_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS="c,v,h,z:"
+LONGOPTS="options,config,version,help,dir:"
+ARRAY=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$PROG" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --options)
+    shift 1
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_available "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_available "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_available "5" "Base Options" "-$ARRAY" ',' ''
+    exit $?
+    ;;
+  -v | --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  -h | --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  -c | --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  -z | --dir)
+    shift 1
+    GEN_SCRIPT_REPLACE_CWD="$1"
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+if [ "$EXPANDURL_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${EXPANDURL_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${EXPANDURL_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${EXPANDURL_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${EXPANDURL_NOTIFY_CLIENT_ICON}"
+    notifications "$*" || return 1
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+cmd_exists --error bash || exit 1 # exit 1 if not found
+#am_i_online --error || exit       # exit 1 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
 URL="$1"
+GET_URL="$(curl -q -ILSsi "$URL" 2>/dev/null | grep -i ^Location | awk '{print $2}' | grep '^')"
+[[ -z "$URL" || -z "$GET_URL" ]] && printf_exit "Nothing to expand"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-[ -z "$URL" ] && printf_exit "Nothing to expand"
+# begin main app
+printf_blue "Found the following url[s]"
+echo "$GET_URL" | putclip &>/dev/null
+echo "$GET_URL" | printf_readline '6'
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-wget -S "$URL" 2>&1 | grep ^Location | awk '{print $2}' | putclip
+# End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-exit $?
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# end
+# lets exit with code
+exit ${exitCode:-$?}

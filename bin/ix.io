@@ -79,9 +79,9 @@ EOF
 # Default variables
 exitCode="0"
 IX_IO_CACHE_DIR="${IX_IO_CACHE_DIR:-/$HOME/.cache/ix.io}"
-IX_IO_CONFIG_DIR="${IX_IO_CONFIG_DIR:-$HOME/.config/misc/ix.io}"
-IX_IO_OPTIONS_DIR="${IX_IO_OPTIONS_DIR:-$HOME/.local/share/misc/ix.io/options}"
-IX_IO_CONFIG_BACKUP_DIR="${IX_IO_CONFIG_BACKUP_DIR:-$HOME/.local/share/misc/ix.io/backups}"
+IX_IO_CONFIG_DIR="${IX_IO_CONFIG_DIR:-$HOME/.config/myscripts/ix.io}"
+IX_IO_OPTIONS_DIR="${IX_IO_OPTIONS_DIR:-$HOME/.local/share/myscripts/ix.io/options}"
+IX_IO_CONFIG_BACKUP_DIR="${IX_IO_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/ix.io/backups}"
 IX_IO_TEMP_DIR="${IX_IO_TEMP_DIR/system_scripts/ix.io:-$HOME/.local/tmp/system_scripts/ix.io}"
 IX_IO_TEMP_FILE="${IX_IO_TEMP_DIR:-$HOME/.local/tmp/ix.io}"
 IX_IO_CONFIG_FILE="${IX_IO_CONFIG_FILE:-settings.conf}"

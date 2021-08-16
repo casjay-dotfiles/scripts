@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0")"
+VERSION="202108161319-git"
+RUN_USER="${SUDO_USER:-${USER}}"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#set opts
+# Set bash options
+trap 'exitCode=${exitCode:-$?};[ -f "$SCRATCHPAD_TEMP_FILE" ] && rm -Rf "$SCRATCHPAD_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202103201835-git
-# @Author        : Jason Hempstead
-# @Contact       : jason@casjaysdev.com
+##@Version       : 202108161319-git
+# @Author        : casjay
+# @Contact       : casjay
 # @License       : WTFPL
 # @ReadME        : scratchpad --help
 # @Copyright     : Copyright: (c) 2021 Jason Hempstead, CasjaysDev
-# @Created       : Saturday, Mar 20, 2021 18:35 EDT
+# @Created       : Monday, Aug 16, 2021 13:19 EDT
 # @File          : scratchpad
 # @Description   : Setup a console base scratchpad
 # @TODO          :
@@ -40,103 +43,243 @@ fi
 user_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-scratchpad() {
-  TMUX=""
-  scratchdir="${SCRATCHAD_DIR:-$HOME/.local/share/editors/scratchpads}"
-  hour="$(date +"%H:%M")"
-  month="$(date +"%m")"
-  year="$(date +"%Y")"
-  day="$(date +"%d")"
-  folder="$year/$month"
-  title="$(date +"%B") $(date +"%d"), $year created at $hour"
-  filename="$folder/$day.md"
-  editor="vim"
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  __mkd "$scratchdir/$folder"
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  tmux_conf() {
-    if [ ! -f "$scratchdir/tmux.conf" ]; then
-      if [ -f "$HOME/.config/tmux/others/editors.conf" ]; then
-        __cp_rf "$HOME/.config/tmux/others/editors.conf" "$scratchdir/tmux.conf"
-      else
-        __cp_rf "$CASJAYSDEVDIR/templates/tmux.conf" "$NOTES_DIRECTORY/tmux.conf"
-      fi
-    fi
-  }
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  __tmux() {
-    unset TMUX
-    tmux -f "$scratchdir/tmux.conf" new-session -D -A -s scratchpad "$editor $1" &>/dev/null
-  }
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  __open() {
-    filepath="$(__get_full_file "$1")"
-    filename="$scratchdir/${1//$scratchdir/}"
-    run_tmux "$filename"
-  }
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  run_git() {
-    if [ -d "$scratchdir/.git" ]; then
-      gitcommit "$scratchdir" scratchpad
-    else
-      git -C "$scratchdir" init &>/dev/null &&
-        gitcommit "$scratchdir" scratchpad
-    fi
-    exit $?
-  }
-  run_tmux() {
-    local filename="${1:-$filename}"
-    local filename="$scratchdir/${filename//$scratchdir/}"
-    if [ ! -f "$filename" ]; then
-      local title="${2:-Scratchpad for $title}"
-      printf "%s\n\n" "## $title  " >"$filename"
-    fi
-    __tmux "$filename"
-  }
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  tmux_conf
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  case "$1" in
-  *new | *-n)
-    shift 1
-    [ $# -eq 0 ] && printf_help 'Usage: '$APPNAME' new "ProjectName" "FileName" "ext"  |  '$APPNAME' new "server" "parts" "txt"'
-    local new_title="ScratchPad for $1: Created on $(date +"%B") $(date +"%d"), $year at $hour"
-    __mkd "$scratchdir/$1"
-    run_tmux "$scratchdir/$1/${2:-default}.${3:-md}" "$new_title"
-    ;;
+# Set functions
+__list_available() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gen_config() {
+  printf_green "Generating the config file in"
+  printf_green "$SCRATCHPAD_CONFIG_DIR/$SCRATCHPAD_CONFIG_FILE"
+  [ -d "$SCRATCHPAD_CONFIG_DIR" ] || mkdir -p "$SCRATCHPAD_CONFIG_DIR"
+  [ -d "$SCRATCHPAD_CONFIG_BACKUP_DIR" ] || mkdir -p "$SCRATCHPAD_CONFIG_BACKUP_DIR"
+  [ -f "$SCRATCHPAD_CONFIG_DIR/$SCRATCHPAD_CONFIG_FILE" ] &&
+    cp -Rf "$SCRATCHPAD_CONFIG_DIR/$SCRATCHPAD_CONFIG_FILE" "$SCRATCHPAD_CONFIG_BACKUP_DIR/$SCRATCHPAD_CONFIG_FILE.$$"
+  cat <<EOF >"$SCRATCHPAD_CONFIG_DIR/$SCRATCHPAD_CONFIG_FILE"
+# Settings for scratchpad
+SCRATCHPAD_HOME="$HOME/.local/share/editors/scratchpads"
+SCRATCHPAD_HOUR_FMT="\$(date +"%H:%M")"
+SCRATCHPAD_MONTH_FMT="\$(date +"%m")"
+SCRATCHPAD_YEAR_FMT="\$(date +"%Y")"
+SCRATCHPAD_DAY_FMT="\$(date +"%d")"
+SCRATCHPAD_FILE_BASEDIR="\$SCRATCHPAD_YEAR_FMT/\$SCRATCHPAD_MONTH_FMT"
+SCRATCHPAD_TITLE="\$(date +"%B") \$(date +"%d"), \$SCRATCHPAD_YEAR_FMT created at \$SCRATCHPAD_HOUR_FMT"
 
-  *list | *-l)
-    shift 1
-    if [ -d "$scratchdir" ] && [ "$(__count_files "$scratchdir/*/*" "4")" -ne 0 ]; then
-      printf_green "Listing the files in $scratchdir"
-      find -L $scratchdir/*/* -type f,l -iname "*" | sed 's#'$scratchdir/'##g' | __column | printf_read "3"
-    else
-      printf_exit "No scratchpads exist"
-    fi
-    ;;
+# Notification settings
+SCRATCHPAD_GOOD_MESSAGE="${SCRATCHPAD_GOOD_MESSAGE:-Everything Went OK}"
+SCRATCHPAD_ERROR_MESSAGE="${SCRATCHPAD_ERROR_MESSAGE:-Well that didn\'t work}"
+SCRATCHPAD_NOTIFY_ENABLED="${SCRATCHPAD_NOTIFY_ENABLED:-yes}"
+SCRATCHPAD_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+SCRATCHPAD_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$SCRATCHPAD_NOTIFY_CLIENT_ICON}"
 
-  *open | *-o)
-    shift 1
-    __open "$1"
-    ;;
-
-  *git)
-    shift 1
-    run_git
-    ;;
-
-  *)
-    if [ -n "$1" ]; then
-      __open "$1"
-    else
-      run_tmux "$scratchdir/$filename"
-    fi
-    ;;
-  esac
+EOF
+  if [ -f "$SCRATCHPAD_CONFIG_DIR/$SCRATCHPAD_CONFIG_FILE" ]; then
+    printf_green "Your config file for scratchpad has been created"
+    true
+  else
+    printf_red "Failed to create the config file"
+    false
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-scratchpad "$@"
+# Additional functions
+__tmux() {
+  if [[ "$SCRATCHPAD_EDITOR" = "tmux" ]]; then
+    unset TMUX
+    tmux -f "$scratchdir/tmux.conf" new-session -D -A -s scratchpad "$editor $1" &>/dev/null
+  else
+    $SCRATCHPAD_EDITOR "$1"
+  fi
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-exit $?
+__open() {
+  filepath="$(__get_full_file "$1")"
+  filename="$scratchdir/${1//$scratchdir/}"
+  run_tmux "$filename"
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# end
+run_git() {
+  if [ -d "$scratchdir/.git" ]; then
+    gitcommit "$scratchdir" scratchpad
+  else
+    git -C "$scratchdir" init &>/dev/null &&
+      gitcommit "$scratchdir" scratchpad
+  fi
+  exit $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+run_tmux() {
+  local filename="${1:-$filename}"
+  local filename="$scratchdir/${filename//$scratchdir/}"
+  if [ ! -f "$filename" ]; then
+    local title="${2:-Scratchpad for $title}"
+    printf "%s\n\n" "## $title  " >"$filename"
+  fi
+  __tmux "$filename"
+}
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Default variables
+exitCode="0"
+SCRATCHPAD_HOME="${SCRATCHAD_DIR:-$HOME/.local/share/editors/scratchpads}"
+SCRATCHPAD_HOUR_FMT="${SCRATCHPAD_HOUR_FMT:-$(date +"%H:%M")}"
+SCRATCHPAD_MONTH_FMT="${SCRATCHPAD_MONTH_FMT:-$(date +"%m")}"
+SCRATCHPAD_YEAR_FMT="${SCRATCHPAD_YEAR_FMT:-$(date +"%Y")}"
+SCRATCHPAD_DAY_FMT="${SCRATCHPAD_DAY_FMT:-$(date +"%d")}"
+SCRATCHPAD_FILE_BASEDIR="${SCRATCHPAD_FILE_BASEDIR:-$SCRATCHPAD_YEAR_FMT/$SCRATCHPAD_MONTH_FMT}"
+SCRATCHPAD_TITLE="${SCRATCHPAD_TITLE:-$(date +"%B") $(date +"%d"), $SCRATCHPAD_YEAR_FMT created at $SCRATCHPAD_HOUR_FMT}"
+SCRATCHPAD_FILENAME="${SCRATCHPAD_FILENAME:-$SCRATCHPAD_FILE_BASEDIR/$SCRATCHPAD_DAY_FMT.md}"
+SCRATCHPAD_EDITOR="${SCRATCHPAD_EDITOR:-vim}"
+
+SCRATCHPAD_CACHE_DIR="${SCRATCHPAD_CACHE_DIR:-$HOME/.cache/scratchpad}"
+SCRATCHPAD_CONFIG_DIR="${SCRATCHPAD_CONFIG_DIR:-$HOME/.config/myscripts/scratchpad}"
+SCRATCHPAD_OPTIONS_DIR="${SCRATCHPAD_OPTIONS_DIR:-$HOME/.local/share/myscripts/scratchpad/options}"
+SCRATCHPAD_CONFIG_BACKUP_DIR="${SCRATCHPAD_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/scratchpad/backups}"
+SCRATCHPAD_TEMP_DIR="${SCRATCHPAD_TEMP_DIR/system_scripts/scratchpad:-$HOME/.local/tmp/system_scripts/scratchpad}"
+SCRATCHPAD_TEMP_FILE="${SCRATCHPAD_TEMP_DIR:-$HOME/.local/tmp/scratchpad}"
+SCRATCHPAD_CONFIG_FILE="${SCRATCHPAD_CONFIG_FILE:-settings.conf}"
+SCRATCHPAD_GOOD_MESSAGE="${SCRATCHPAD_GOOD_MESSAGE:-Everything Went OK}"
+SCRATCHPAD_ERROR_MESSAGE="${SCRATCHPAD_ERROR_MESSAGE:-Well that didn\'t work}"
+SCRATCHPAD_NOTIFY_ENABLED="${SCRATCHPAD_NOTIFY_ENABLED:-yes}"
+SCRATCHPAD_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+SCRATCHPAD_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$SCRATCHPAD_NOTIFY_CLIENT_ICON}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$SCRATCHPAD_TEMP_DIR" ] || mkdir -p "$SCRATCHPAD_TEMP_DIR" &>/dev/null
+[ -d "$SCRATCHPAD_CACHE_DIR" ] || mkdir -p "$SCRATCHPAD_CACHE_DIR" &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$SCRATCHPAD_CONFIG_DIR/$SCRATCHPAD_CONFIG_FILE" ] ||
+  __gen_config &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$SCRATCHPAD_CONFIG_DIR/$SCRATCHPAD_CONFIG_FILE" ] &&
+  . "$SCRATCHPAD_CONFIG_DIR/$SCRATCHPAD_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS="c,v,h,z:"
+LONGOPTS="options,config,version,help,dir:"
+ARRAY=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$PROG" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --options)
+    shift 1
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_available "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_available "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_available "5" "Base Options" "-$ARRAY" ',' ''
+    exit $?
+    ;;
+  -v | --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  -h | --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  -c | --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  -z | --dir)
+    shift 1
+    GEN_SCRIPT_REPLACE_CWD="$1"
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+if [ "$SCRATCHPAD_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${SCRATCHPAD_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${SCRATCHPAD_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${SCRATCHPAD_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${SCRATCHPAD_NOTIFY_CLIENT_ICON}"
+    notifications "$*" || return 1
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+cmd_exists --error bash || exit 1 # exit 1 if not found
+#am_i_online --error || exit       # exit 1 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+scratchdir="$SCRATCHPAD_HOME"
+hour="$SCRATCHPAD_HOUR_FMT"
+month="$SCRATCHPAD_MONTH_FMT"
+year="$SCRATCHPAD_YEAR_FMT"
+day="$SCRATCHPAD_DAY_FMT"
+folder="$SCRATCHPAD_FILE_BASEDIR"
+title="$SCRATCHPAD_TITLE"
+filename="$SCRATCHPAD_FILENAME"
+editor="$SCRATCHPAD_EDITOR"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__mkd "$scratchdir/$folder"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ ! -f "$scratchdir/tmux.conf" ]; then
+  if [ -f "$HOME/.config/tmux/others/editors.conf" ]; then
+    __cp_rf "$HOME/.config/tmux/others/editors.conf" "$SCRATCHPAD_HOME/tmux.conf"
+  else
+    __cp_rf "$CASJAYSDEVDIR/templates/tmux.conf" "$SCRATCHPAD_HOME/tmux.conf"
+  fi
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+case "$1" in
+new)
+  shift 1
+  [ $# -eq 0 ] && printf_help 'Usage: '$APPNAME' new "ProjectName" "FileName" "ext"  |  '$APPNAME' new "server" "parts" "txt"'
+  new_title="ScratchPad for $1: Created on $(date +"%B") $(date +"%d"), $year at $hour"
+  __mkd "$scratchdir/$1"
+  run_tmux "$scratchdir/$1/${2:-default}.${3:-md}" "$new_title"
+  ;;
+
+list)
+  shift 1
+  if [ -d "$scratchdir" ] && [ "$(__count_files "$scratchdir/*/*" "4")" -ne 0 ]; then
+    printf_green "Listing the files in $scratchdir"
+    find -L $scratchdir/*/* -type f,l -iname "*" | sed 's#'$scratchdir/'##g' | __column | printf_read "3"
+  else
+    printf_exit "No scratchpads exist"
+  fi
+  ;;
+
+open)
+  shift 1
+  __open "$1"
+  ;;
+
+git)
+  shift 1
+  run_git
+  ;;
+
+*)
+  if [ -n "$1" ]; then
+    __open "$1"
+  else
+    run_tmux "$scratchdir/$filename"
+  fi
+  ;;
+esac
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-$?}

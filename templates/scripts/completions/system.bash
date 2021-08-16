@@ -1,14 +1,5 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-APPNAME="$(basename "$0")"
-VERSION="GEN_SCRIPT_REPLACE_VERSION"
-USER="${SUDO_USER:-${USER}}"
-HOME="${USER_HOME:-${HOME}}"
-SRC_DIR="${BASH_SOURCE%/*}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#set opts
-
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ##@Version       : GEN_SCRIPT_REPLACE_VERSION
 # @Author        : GEN_SCRIPT_REPLACE_AUTHOR
 # @Contact       : GEN_SCRIPT_REPLACE_EMAIL

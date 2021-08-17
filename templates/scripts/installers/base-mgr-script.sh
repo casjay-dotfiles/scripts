@@ -40,7 +40,7 @@ else
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # user system devenv GEN_SCRIPT_REPLACE_ENV dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
-user_install
+GEN_SCRIPT_REPLACE_FILENAME_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set functions

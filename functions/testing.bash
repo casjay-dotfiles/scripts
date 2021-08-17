@@ -2619,19 +2619,18 @@ run_install_list() {
 
 run_install_search() {
   [ $# = 0 ] && printf_exit "Nothing to search for"
-  local -a LSINST="$*"
-  local LIST="${LIST:-}"
   [ -n "$LIST" ] || printf_exit "The enviroment variable LIST does not exist"
+  local -a LSINST="$*"
   local results=""
-  for app in "${LSINST[@]}"; do
+  for app in ${LSINST[*]}; do
     export APPNAME="$app" REPO="$REPO/$APPNAME" REPORAW="$REPO/raw/$GIT_REPO_BRANCH"
-    local -a results+="$(echo -e "$LIST" | grep -Fi "$app" | sed 's| ||g' | grep -sv '^$') "
+    local -a result+="$(echo -e "$LIST" | tr ' ' '\n' | grep -Fi "$app" | grep -sv '^$') "
   done
-  results="$(echo "$results" | sort -u | tr '\n' ' ' | sed 's| | |g' | grep '^')"
+  results="$(echo "$result" | sort -u | tr '\n' ' ' | sed 's| | |g' | grep '^')"
   if [ -z "$results" ]; then
     printf_exit "Your seach produced no results"
   else
-    printf '%s\n' "$installed" | printf_column "${PRINTF_COLOR:-4}"
+    printf '%s\n' "$results" | printf_column "${PRINTF_COLOR:-4}"
   fi
   unset results app
   exit $?

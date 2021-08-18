@@ -1,21 +1,24 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0")"
+VERSION="202108172203-git"
+RUN_USER="${SUDO_USER:-${USER}}"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#set opts
+# Set bash options
+trap 'exitCode=${exitCode:-$?};[ -f "$TRYFOREVER_TEMP_FILE" ] && rm -Rf "$TRYFOREVER_TEMP_FILE" &>/dev/null' EXIT
 trap exit SIGINT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202103202004-git
+##@Version       : 202108172203-git
 # @Author        : Jason Hempstead
 # @Contact       : jason@casjaysdev.com
 # @License       : WTFPL
 # @ReadME        : tryforever --help
-# @Copyright     : Copyright: (c) 2021 Jason Hempstead, CasjaysDev
-# @Created       : Saturday, Mar 20, 2021 20:04 EDT
+# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created       : Tuesday, Aug 17, 2021 22:03 EDT
 # @File          : tryforever
 # @Description   : Keep an app running until it successfuly completes
 # @TODO          :
@@ -41,14 +44,149 @@ fi
 user_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__check_app "$1" || exit 1
+# Set functions
+__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gen_config() {
+  printf_green "Generating the config file in"
+  printf_green "$TRYFOREVER_CONFIG_DIR/$TRYFOREVER_CONFIG_FILE"
+  [ -d "$TRYFOREVER_CONFIG_DIR" ] || mkdir -p "$TRYFOREVER_CONFIG_DIR"
+  [ -d "$TRYFOREVER_CONFIG_BACKUP_DIR" ] || mkdir -p "$TRYFOREVER_CONFIG_BACKUP_DIR"
+  [ -f "$TRYFOREVER_CONFIG_DIR/$TRYFOREVER_CONFIG_FILE" ] &&
+    cp -Rf "$TRYFOREVER_CONFIG_DIR/$TRYFOREVER_CONFIG_FILE" "$TRYFOREVER_CONFIG_BACKUP_DIR/$TRYFOREVER_CONFIG_FILE.$$"
+  cat <<EOF >"$TRYFOREVER_CONFIG_DIR/$TRYFOREVER_CONFIG_FILE"
+# Settings for tryforever
+
+# Notification settings
+TRYFOREVER_GOOD_MESSAGE="${TRYFOREVER_GOOD_MESSAGE:-Everything Went OK}"
+TRYFOREVER_ERROR_MESSAGE="${TRYFOREVER_ERROR_MESSAGE:-Well that didn\'t work}"
+TRYFOREVER_NOTIFY_ENABLED="${TRYFOREVER_NOTIFY_ENABLED:-yes}"
+TRYFOREVER_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+TRYFOREVER_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$TRYFOREVER_NOTIFY_CLIENT_ICON}"
+
+# Colorization settings
+TRYFOREVER_OUTPUT_COLOR="${TRYFOREVER_OUTPUT_COLOR:-5}"
+TRYFOREVER_OUTPUT_COLOR_GOOD="${TRYFOREVER_OUTPUT_COLOR_GOOD:-2}"
+TRYFOREVER_OUTPUT_COLOR_ERROR="${TRYFOREVER_OUTPUT_COLOR_ERROR:-1}"
+
+EOF
+  if [ -f "$TRYFOREVER_CONFIG_DIR/$TRYFOREVER_CONFIG_FILE" ]; then
+    printf_green "Your config file for tryforever has been created"
+    true
+  else
+    printf_red "Failed to create the config file"
+    false
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Default variables
+exitCode="0"
+TRYFOREVER_CACHE_DIR="${TRYFOREVER_CACHE_DIR:-/$HOME/.cache/tryforever}"
+TRYFOREVER_CONFIG_DIR="${TRYFOREVER_CONFIG_DIR:-$HOME/.config/myscripts/tryforever}"
+TRYFOREVER_OPTIONS_DIR="${TRYFOREVER_OPTIONS_DIR:-$HOME/.local/share/myscripts/tryforever/options}"
+TRYFOREVER_CONFIG_BACKUP_DIR="${TRYFOREVER_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/tryforever/backups}"
+TRYFOREVER_TEMP_DIR="${TRYFOREVER_TEMP_DIR/system_scripts/tryforever:-$HOME/.local/tmp/system_scripts/tryforever}"
+TRYFOREVER_TEMP_FILE="${TRYFOREVER_TEMP_DIR:-$HOME/.local/tmp/tryforever}"
+TRYFOREVER_CONFIG_FILE="${TRYFOREVER_CONFIG_FILE:-settings.conf}"
+TRYFOREVER_GOOD_MESSAGE="${TRYFOREVER_GOOD_MESSAGE:-Everything Went OK}"
+TRYFOREVER_ERROR_MESSAGE="${TRYFOREVER_ERROR_MESSAGE:-Well that didn\'t work}"
+TRYFOREVER_NOTIFY_ENABLED="${TRYFOREVER_NOTIFY_ENABLED:-yes}"
+TRYFOREVER_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+TRYFOREVER_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$TRYFOREVER_NOTIFY_CLIENT_ICON}"
+TRYFOREVER_OUTPUT_COLOR="${TRYFOREVER_OUTPUT_COLOR:-5}"
+TRYFOREVER_OUTPUT_COLOR_GOOD="${TRYFOREVER_OUTPUT_COLOR_GOOD:-2}"
+TRYFOREVER_OUTPUT_COLOR_ERROR="${TRYFOREVER_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$TRYFOREVER_TEMP_DIR" ] || mkdir -p "$TRYFOREVER_TEMP_DIR" &>/dev/null
+[ -d "$TRYFOREVER_CACHE_DIR" ] || mkdir -p "$TRYFOREVER_CACHE_DIR" &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$TRYFOREVER_CONFIG_DIR/$TRYFOREVER_CONFIG_FILE" ] ||
+  __gen_config &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$TRYFOREVER_CONFIG_DIR/$TRYFOREVER_CONFIG_FILE" ] &&
+  . "$TRYFOREVER_CONFIG_DIR/$TRYFOREVER_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS="c,v,h,z:"
+LONGOPTS="options,config,version,help,dir:"
+ARRAY=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$PROG" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --options)
+    shift 1
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "-$ARRAY" ',' ''
+    exit $?
+    ;;
+  -v | --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  -h | --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  -c | --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  -z | --dir)
+    shift 1
+    TRYFOREVER_CWD="$1"
+    ;;
+  --)
+    shift 1
+    ARGS="$1"
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+if [ "$TRYFOREVER_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${TRYFOREVER_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${TRYFOREVER_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${TRYFOREVER_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${TRYFOREVER_NOTIFY_CLIENT_ICON}"
+    notifications "$*" || return 1
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+cmd_exists --error bash $1 || exit 1 # exit 1 if not found
+#am_i_online --error || exit       # exit 1 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
 [ -z "$1" ] && __help
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
 while sleep 3; do
-  eval "$@" && exit 0 || printf_error "$1 command failed, trying again..."
+  eval "$SETARGS" && exit 0 || printf_error "$1 command failed, trying again..."
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-exit $?
+# End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# end
+# lets exit with code
+exit ${exitCode:-$?}

@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0")"
+VERSION="202108181057-git"
+RUN_USER="${SUDO_USER:-${USER}}"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#set opts
+# Set bash options
+trap 'exitCode=${exitCode:-$?};[ -f "$TOR_SITE_TEMP_FILE" ] && rm -Rf "$TOR_SITE_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202103201958-git
+##@Version       : 202108181057-git
 # @Author        : Jason Hempstead
 # @Contact       : jason@casjaysdev.com
 # @License       : WTFPL
 # @ReadME        : tor-site --help
-# @Copyright     : Copyright: (c) 2021 Jason Hempstead, CasjaysDev
-# @Created       : Saturday, Mar 20, 2021 19:58 EDT
+# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created       : Wednesday, Aug 18, 2021 10:57 EDT
 # @File          : tor-site
 # @Description   : Run a tor hidden site
 # @TODO          :
@@ -40,34 +43,271 @@ fi
 user_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-test -n "$1" && test -z "${1//[0-9]/}" && TORSITEPORT="$1" && shift 1
-TORSITEDIR="${1:-TORSITEDIR}"
-TORSITEPORT="${TORSITEPORT:-8082}"
-ROOTDIR="${TOR_SITE_DIR:-/usr/local/share/tor-site}"
+# Set functions
+__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__test_server() { netstatg $TORSITEPORT | grep -q python && return 0 || return 1; }
-__start_py_server() {
-  local TORSITEPORT="${1:-$TORSITEPORT}"
-  python3 -m http.server --cgi --bind 127.0.0.1 "$TORSITEPORT" &>/dev/null ||
-    python2 -m http.server --cgi --bind 127.0.0.1 "$TORSITEPORT" &>/dev/null ||
-    python -m SimpleHTTPServer "$TORSITEPORT" &>/dev/null || return 1 &
-  sleep 10
-  __test_server &>/dev/null && return 0 || return 0
+__gen_config() {
+  printf_green "Generating the config file in"
+  printf_green "$TOR_SITE_CONFIG_DIR/$TOR_SITE_CONFIG_FILE"
+  [ -d "$TOR_SITE_CONFIG_DIR" ] || mkdir -p "$TOR_SITE_CONFIG_DIR"
+  [ -d "$TOR_SITE_CONFIG_BACKUP_DIR" ] || mkdir -p "$TOR_SITE_CONFIG_BACKUP_DIR"
+  [ -f "$TOR_SITE_CONFIG_DIR/$TOR_SITE_CONFIG_FILE" ] &&
+    cp -Rf "$TOR_SITE_CONFIG_DIR/$TOR_SITE_CONFIG_FILE" "$TOR_SITE_CONFIG_BACKUP_DIR/$TOR_SITE_CONFIG_FILE.$$"
+  cat <<EOF >"$TOR_SITE_CONFIG_DIR/$TOR_SITE_CONFIG_FILE"
+# Settings for tor-site
+TOR_SITE_CWD="${TOR_SITE_CWD:-/usr/local/share/tor-site}"
+TOR_SITE_PORT="${TOR_SITE_PORT:-8082}"
+TOR_SITE_PID_FILE="${TOR_SITE_PID_FILE:-$TOR_SITE_TEMP_DIR/\$TOR_SITE_PORT.pid}"
+
+# Notification settings
+TOR_SITE_GOOD_MESSAGE="${TOR_SITE_GOOD_MESSAGE:-Everything Went OK}"
+TOR_SITE_ERROR_MESSAGE="${TOR_SITE_ERROR_MESSAGE:-Well that didn\'t work}"
+TOR_SITE_NOTIFY_ENABLED="${TOR_SITE_NOTIFY_ENABLED:-yes}"
+TOR_SITE_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+TOR_SITE_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$TOR_SITE_NOTIFY_CLIENT_ICON}"
+
+# Colorization settings
+TOR_SITE_OUTPUT_COLOR="${TOR_SITE_OUTPUT_COLOR:-5}"
+TOR_SITE_OUTPUT_COLOR_GOOD="${TOR_SITE_OUTPUT_COLOR_GOOD:-2}"
+TOR_SITE_OUTPUT_COLOR_ERROR="${TOR_SITE_OUTPUT_COLOR_ERROR:-1}"
+
+EOF
+  if [ -f "$TOR_SITE_CONFIG_DIR/$TOR_SITE_CONFIG_FILE" ]; then
+    printf_green "Your config file for tor-site has been created"
+    true
+  else
+    printf_red "Failed to create the config file"
+    false
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ -d "$ROOTDIR" ]; then
-  cd "$ROOTDIR" || printf_exit 1 1 "Failed to enter $ROOTDIR"
-  if __test_server &>/dev/null; then
-    printf_exit "Something is already running on port $TORSITEPORT"
+# Additional functions
+__test_server() { netstatg "${1:-$TOR_SITE_PORT}" | grep -q python && return 0 || return 1; }
+__cd() { cd "${1:-$TOR_SITE_CWD}" || { echo "Failed to enter ${1:-$TOR_SITE_CWD}" && return 1; }; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_pid() {
+  local pid="$(ps -ef | grep $1 | grep python | tr -s ' ' | cut -d ' ' -f2)"
+  [[ -n "$pid" ]] && echo "$pid" >"$TOR_SITE_PID_FILE" || __rm_rf "$TOR_SITE_PID_FILE"
+  [ -f "$TOR_SITE_PID_FILE" ] && [[ -s "$TOR_SITE_PID_FILE" ]] && cat "$TOR_SITE_PID_FILE"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__server_status() {
+  TOR_SITE_PORT="${1:-$TOR_SITE_PORT}"
+  pid="$(__get_pid "$TOR_SITE_PORT")"
+  if [[ -n "$pid" ]]; then
+    echo "Running on http://localhost:$TOR_SITE_PORT with pid: $pid" | printf_readline $TOR_SITE_OUTPUT_COLOR
   else
-    printf_green "Attempting to start the server on port $TORSITEPORT"
-    __start_py_server $TORSITEPORT && printf_green "Server has started" ||
-      printf_exit 1 1 "Failed to start the tor site server"
+    printf_red "Not running on http://localhost:$TOR_SITE_PORT"
   fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__run_server() {
+  { python3 -m http.server --cgi --bind 127.0.0.1 "$TOR_SITE_PORT" &>/dev/null ||
+    python2 -m http.server --cgi --bind 127.0.0.1 "$TOR_SITE_PORT" &>/dev/null ||
+    python -m SimpleHTTPServer "$TOR_SITE_PORT" &>/dev/null || return 1; } &
+  sleep 2
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__start_py_server() {
+  local TOR_SITE_CWD="${1:-$TOR_SITE_CWD}"
+  local TOR_SITE_PORT="${2:-$TOR_SITE_PORT}"
+  local exitCode="0"
+  __run_server || return 1
+  if __test_server "$TOR_SITE_PORT" &>/dev/null; then
+    TOR_SERVER_STATUS="running"
+    TOR_SERVER_STATUS_PID="$(__get_pid "$TOR_SITE_PORT")"
+    exitCode=0
+  else
+    TOR_SERVER_STATUS="not_running"
+    TOR_SERVER_STATUS_PID="0000"
+    echo "Failed"
+    exitCode=1
+  fi
+  export TOR_SERVER_STATUS TOR_SERVER_STATUS_PID
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__systemd() {
+  cat <<EOF
+# tor hidden site
+
+[Unit]
+Description=Tor Hidden Site $TOR_SITE_PORT
+Before=tor.service
+After=network.target
+
+[Service]
+Type=simple
+User=tor
+WorkingDirectory=/usr/local/share/tor/public
+ExecStart=/bin/bash -c "$SRC_DIR/$APPNAME run -p $TOR_SITE_PORT -z $TOR_SITE_CWD"
+ExecStop=/bin/kill -2 $MAINPID
+Restart=always
+#StartLimitBurst=10
+#StartLimitInterval=60s
+
+[Install]
+WantedBy=multi-user.target
+
+EOF
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Default variables
+exitCode="0"
+TOR_SITE_CACHE_DIR="${TOR_SITE_CACHE_DIR:-/$HOME/.cache/tor-site}"
+TOR_SITE_CONFIG_DIR="${TOR_SITE_CONFIG_DIR:-$HOME/.config/myscripts/tor-site}"
+TOR_SITE_OPTIONS_DIR="${TOR_SITE_OPTIONS_DIR:-$HOME/.local/share/myscripts/tor-site/options}"
+TOR_SITE_CONFIG_BACKUP_DIR="${TOR_SITE_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/tor-site/backups}"
+TOR_SITE_TEMP_DIR="${TOR_SITE_TEMP_DIR:-$HOME/.local/tmp/system_scripts/tor-site}"
+TOR_SITE_TEMP_FILE="${TOR_SITE_TEMP_FILE:-$HOME/.local/tmp/tor-site}"
+TOR_SITE_CONFIG_FILE="${TOR_SITE_CONFIG_FILE:-settings.conf}"
+TOR_SITE_GOOD_MESSAGE="${TOR_SITE_GOOD_MESSAGE:-Everything Went OK}"
+TOR_SITE_ERROR_MESSAGE="${TOR_SITE_ERROR_MESSAGE:-Well that didn\'t work}"
+TOR_SITE_NOTIFY_ENABLED="${TOR_SITE_NOTIFY_ENABLED:-yes}"
+TOR_SITE_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+TOR_SITE_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$TOR_SITE_NOTIFY_CLIENT_ICON}"
+TOR_SITE_OUTPUT_COLOR="${TOR_SITE_OUTPUT_COLOR:-5}"
+TOR_SITE_OUTPUT_COLOR_GOOD="${TOR_SITE_OUTPUT_COLOR_GOOD:-2}"
+TOR_SITE_OUTPUT_COLOR_ERROR="${TOR_SITE_OUTPUT_COLOR_ERROR:-1}"
+TOR_SITE_CWD="${TOR_SITE_CWD:-/usr/local/share/tor-site}"
+TOR_SITE_PORT="${TOR_SITE_PORT:-8082}"
+TOR_SITE_PID_FILE="${TOR_SITE_PID_FILE:-$TOR_SITE_TEMP_DIR/\$TOR_SITE_PORT.pid}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$TOR_SITE_TEMP_DIR" ] || mkdir -p "$TOR_SITE_TEMP_DIR" &>/dev/null
+[ -d "$TOR_SITE_CACHE_DIR" ] || mkdir -p "$TOR_SITE_CACHE_DIR" &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$TOR_SITE_CONFIG_DIR/$TOR_SITE_CONFIG_FILE" ] ||
+  __gen_config &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$TOR_SITE_CONFIG_DIR/$TOR_SITE_CONFIG_FILE" ] &&
+  . "$TOR_SITE_CONFIG_DIR/$TOR_SITE_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS="c,v,h,z:,p:"
+LONGOPTS="options,config,version,help,dir:,port:"
+ARRAY=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$PROG" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --options)
+    shift 1
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "-$ARRAY" ',' ''
+    exit $?
+    ;;
+  -v | --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  -h | --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  -c | --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  -z | --dir)
+    TOR_SITE_CWD="$2"
+    shift 2
+    ;;
+  -p | --port)
+    TOR_SITE_PORT="$2"
+    shift 2
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+if [ "$TOR_SITE_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${TOR_SITE_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${TOR_SITE_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${TOR_SITE_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${TOR_SITE_NOTIFY_CLIENT_ICON}"
+    notifications "$*" || return 1
+  }
 else
-  printf_exit 1 "2" "failed to start on port $TORSITEPORT"
+  __notifications() { false; }
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-exit $?
+# Check for required applications/Network check
+cmd_exists --error bash || exit 1 # exit 1 if not found
+#am_i_online --error || exit 1     # exit 1 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# end
+# APP Variables overrides
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+case "$1" in
+status)
+  shift 1
+  __server_status "$1"
+  ;;
+
+systemd)
+  shift 1
+  if sudo -n true &>/dev/null; then
+    printf_green "Creating systemd service"
+    __systemd | sudo tee /etc/systemd/system/tor_site_$TOR_SITE_PORT.service &>/dev/null
+    if [[ -f "/etc/systemd/system/tor_site_$TOR_SITE_PORT.service" ]]; then
+      sudo systemctl daemon-reload &>/dev/null
+      sudo systemctl enable --now tor_site_$TOR_SITE_PORT.service &>/dev/null
+      printf_blue "Systemd service has been created"
+    else
+      printf_exit "Failed to create tor sevice"
+    fi
+  else
+    printf_return 1 1 "This requires root"
+  fi
+  ;;
+
+run)
+  shift 1
+  [ -d "$TOR_SITE_CWD" ] && __cd "$TOR_SITE_CWD" || exit 1
+  if __run_server "$TOR_SITE_CWD" "$TOR_SITE_PORT"; then
+    echo "Tor Server is running"
+  else
+    echo "Tor Server failed to start"
+  fi
+  ;;
+
+*)
+  if [ -d "$TOR_SITE_CWD" ]; then
+    cd "$TOR_SITE_CWD" || printf_exit 1 1 "Failed to enter $TOR_SITE_CWD"
+    if __test_server "$TOR_SITE_PORT" &>/dev/null; then
+      printf_exit "Something is already running on port $TOR_SITE_PORT"
+    else
+      printf_green "Attempting to start development server on http://localhost:$TOR_SITE_PORT"
+      __start_py_server "$TOR_SITE_CWD" "$TOR_SITE_PORT"
+      printf_cyan "type kill -9 $(__get_pid "$TOR_SITE_PORT") to stop the server"
+    fi
+  else
+    printf_exit 1 "2" "The directory $TOR_SITE_CWD does not exist"
+  fi
+  ;;
+esac
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-$?}

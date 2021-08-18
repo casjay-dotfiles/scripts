@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0")"
+VERSION="202108172203-git"
+RUN_USER="${SUDO_USER:-${USER}}"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#set opts
+# Set bash options
+trap 'exitCode=${exitCode:-$?};[ -f "$UPDATE_MOTD_TEMP_FILE" ] && rm -Rf "$UPDATE_MOTD_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202103202008-git
+##@Version       : 202108172203-git
 # @Author        : Jason Hempstead
 # @Contact       : jason@casjaysdev.com
 # @License       : WTFPL
 # @ReadME        : update-motd --help
-# @Copyright     : Copyright: (c) 2021 Jason Hempstead, CasjaysDev
-# @Created       : Saturday, Mar 20, 2021 20:08 EDT
+# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created       : Tuesday, Aug 17, 2021 22:03 EDT
 # @File          : update-motd
 # @Description   : Update the MOTD and ISSUE files
 # @TODO          :
@@ -40,148 +43,277 @@ fi
 user_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-GIT_VERSION_FORMAT="${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}"
+# Set functions
+__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__requiresudo true
+__gen_config() {
+  printf_green "Generating the config file in"
+  printf_green "$UPDATE_MOTD_CONFIG_DIR/$UPDATE_MOTD_CONFIG_FILE"
+  [ -d "$UPDATE_MOTD_CONFIG_DIR" ] || mkdir -p "$UPDATE_MOTD_CONFIG_DIR"
+  [ -d "$UPDATE_MOTD_CONFIG_BACKUP_DIR" ] || mkdir -p "$UPDATE_MOTD_CONFIG_BACKUP_DIR"
+  [ -f "$UPDATE_MOTD_CONFIG_DIR/$UPDATE_MOTD_CONFIG_FILE" ] &&
+    cp -Rf "$UPDATE_MOTD_CONFIG_DIR/$UPDATE_MOTD_CONFIG_FILE" "$UPDATE_MOTD_CONFIG_BACKUP_DIR/$UPDATE_MOTD_CONFIG_FILE.$$"
+  cat <<EOF >"$UPDATE_MOTD_CONFIG_DIR/$UPDATE_MOTD_CONFIG_FILE"
+# Settings for update-motd
+UPDATE_MOTD_GIT_VERSION_FORMAT="${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}"
+
+# Notification settings
+UPDATE_MOTD_GOOD_MESSAGE="${UPDATE_MOTD_GOOD_MESSAGE:-Everything Went OK}"
+UPDATE_MOTD_ERROR_MESSAGE="${UPDATE_MOTD_ERROR_MESSAGE:-Well that didn\'t work}"
+UPDATE_MOTD_NOTIFY_ENABLED="${UPDATE_MOTD_NOTIFY_ENABLED:-yes}"
+UPDATE_MOTD_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+UPDATE_MOTD_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$UPDATE_MOTD_NOTIFY_CLIENT_ICON}"
+
+# Colorization settings
+UPDATE_MOTD_OUTPUT_COLOR="${UPDATE_MOTD_OUTPUT_COLOR:-5}"
+UPDATE_MOTD_OUTPUT_COLOR_GOOD="${UPDATE_MOTD_OUTPUT_COLOR_GOOD:-2}"
+UPDATE_MOTD_OUTPUT_COLOR_ERROR="${UPDATE_MOTD_OUTPUT_COLOR_ERROR:-1}"
+
+EOF
+  if [ -f "$UPDATE_MOTD_CONFIG_DIR/$UPDATE_MOTD_CONFIG_FILE" ]; then
+    printf_green "Your config file for update-motd has been created"
+    true
+  else
+    printf_red "Failed to create the config file"
+    false
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Default variables
+exitCode="0"
+UPDATE_MOTD_CACHE_DIR="${UPDATE_MOTD_CACHE_DIR:-/$HOME/.cache/update-motd}"
+UPDATE_MOTD_CONFIG_DIR="${UPDATE_MOTD_CONFIG_DIR:-$HOME/.config/myscripts/update-motd}"
+UPDATE_MOTD_OPTIONS_DIR="${UPDATE_MOTD_OPTIONS_DIR:-$HOME/.local/share/myscripts/update-motd/options}"
+UPDATE_MOTD_CONFIG_BACKUP_DIR="${UPDATE_MOTD_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/update-motd/backups}"
+UPDATE_MOTD_TEMP_DIR="${UPDATE_MOTD_TEMP_DIR/system_scripts/update-motd:-$HOME/.local/tmp/system_scripts/update-motd}"
+UPDATE_MOTD_TEMP_FILE="${UPDATE_MOTD_TEMP_DIR:-$HOME/.local/tmp/update-motd}"
+UPDATE_MOTD_CONFIG_FILE="${UPDATE_MOTD_CONFIG_FILE:-settings.conf}"
+UPDATE_MOTD_GOOD_MESSAGE="${UPDATE_MOTD_GOOD_MESSAGE:-Everything Went OK}"
+UPDATE_MOTD_ERROR_MESSAGE="${UPDATE_MOTD_ERROR_MESSAGE:-Well that didn\'t work}"
+UPDATE_MOTD_NOTIFY_ENABLED="${UPDATE_MOTD_NOTIFY_ENABLED:-yes}"
+UPDATE_MOTD_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+UPDATE_MOTD_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$UPDATE_MOTD_NOTIFY_CLIENT_ICON}"
+UPDATE_MOTD_OUTPUT_COLOR="${UPDATE_MOTD_OUTPUT_COLOR:-5}"
+UPDATE_MOTD_OUTPUT_COLOR_GOOD="${UPDATE_MOTD_OUTPUT_COLOR_GOOD:-2}"
+UPDATE_MOTD_OUTPUT_COLOR_ERROR="${UPDATE_MOTD_OUTPUT_COLOR_ERROR:-1}"
+UPDATE_MOTD_GIT_VERSION_FORMAT="${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$UPDATE_MOTD_TEMP_DIR" ] || mkdir -p "$UPDATE_MOTD_TEMP_DIR" &>/dev/null
+[ -d "$UPDATE_MOTD_CACHE_DIR" ] || mkdir -p "$UPDATE_MOTD_CACHE_DIR" &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$UPDATE_MOTD_CONFIG_DIR/$UPDATE_MOTD_CONFIG_FILE" ] ||
+  __gen_config &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$UPDATE_MOTD_CONFIG_DIR/$UPDATE_MOTD_CONFIG_FILE" ] &&
+  . "$UPDATE_MOTD_CONFIG_DIR/$UPDATE_MOTD_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+__requiresudo true || exit 1
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS="c,v,h,z:"
+LONGOPTS="options,config,version,help,dir:,force,console,debug"
+ARRAY=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$PROG" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --options)
+    shift 1
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "-$ARRAY" ',' ''
+    exit $?
+    ;;
+  -v | --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  -h | --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  -c | --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  -z | --dir)
+    shift 1
+    UPDATE_MOTD_CWD="$1"
+    ;;
+  --force)
+    shift 1
+    force_removal="true"
+    ;;
+  --console)
+    shift 1
+    show_console="true"
+    ;;
+  --debug)
+    shift 1
+    show_debug="true"
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+if [ "$UPDATE_MOTD_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${UPDATE_MOTD_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${UPDATE_MOTD_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${UPDATE_MOTD_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${UPDATE_MOTD_NOTIFY_CLIENT_ICON}"
+    notifications "$*" || return 1
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+cmd_exists --error bash || exit 1 # exit 1 if not found
+#am_i_online --error || exit       # exit 1 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
 __getlipaddr
+sed="$(command -v gsed 2>/dev/null || command -v sed 2>/dev/null)"
+HOSTNAME="$(hostname -f 2>/dev/null)"
+HOSTSHORT="$(hostname -s 2>/dev/null)"
+CURRIP4=${CURRIP4:-}
+CURRIP6=${CURRIP6:-}
+dategit="$(date +"$UPDATE_MOTD_GIT_VERSION_FORMAT")"
+datever="$(date +"%b %d, %Y at %H:%M")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# remove the old ones
-__requiresudo rm -Rf /etc/issue* /etc/motd*
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ "$1" = "--force" ]; then
-  shift 1
-  __requiresudo rm -Rf /etc/casjaysdev/messages/*/*.txt
-  __requiresudo mkdir -p /etc/casjaysdev/messages/{legal,issue,motd}
-  __requiresudo touch /etc/casjaysdev/messages/{legal,issue,motd}/000.txt
+# begin main app
+if [ "$force_removal" = "true" ]; then
+  __requiresudo rm -Rf /etc/casjaysdev/messages/*/*.txt &>/dev/null
+  __requiresudo mkdir -p /etc/casjaysdev/messages/{legal,issue,motd} &>/dev/null
+  __requiresudo touch /etc/casjaysdev/messages/{legal,issue,motd}/000.txt &>/dev/null
   if [ -f "$SCRIPTSFUNCTDIR/templates/casjaysdev-legal.txt" ]; then
     __requiresudo cp -Rf "$SCRIPTSFUNCTDIR/templates/casjaysdev-legal.txt" "/etc/casjaysdev/messages/legal/000.txt"
   fi
 fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# sed MacOS and Linux fix
-sed="$(command -v gsed 2>/dev/null || command -v sed 2>/dev/null)"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-HOSTNAME="$(hostname -f 2>/dev/null)"
-HOSTSHORT="$(hostname -s 2>/dev/null)"
-CURRIP4=${CURRIP4}
-CURRIP6=${CURRIP6}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-dategit="$(date +"$GIT_VERSION_FORMAT")"
-datever="$(date +"%b %d, %Y at %H:%M")"
+
+__requiresudo rm -Rf /etc/issue* /etc/motd* &>/dev/null
+__requiresudo touch /etc/issue /etc/motd &>/dev/null
+
 if [ -f /etc/casjaysdev/updates/versions/scripts.txt ]; then
-  scriptsversion="$(__devnull2 cat /etc/casjaysdev/updates/versions/scripts.txt)"
-else scriptsversion="$dategit"; fi
+  scriptsversion="$(</etc/casjaysdev/updates/versions/scripts.txt)"
+else
+  scriptsversion="$dategit"
+  echo $scriptsversion | __requiresudo tee /etc/casjaysdev/updates/versions/scripts.txt &>/dev/null
+fi
 if [ -f /etc/casjaysdev/updates/versions/configs.txt ]; then
-  configsversion="$(__devnull2 cat /etc/casjaysdev/updates/versions/configs.txt)"
-else configsversion="$dategit"; fi
+  configsversion="$(</etc/casjaysdev/updates/versions/configs.txt)"
+else
+  configsversion="$dategit"
+  echo $configsversion | __requiresudo tee /etc/casjaysdev/updates/versions/configs.txt &>/dev/null
+fi
 if [ -f /etc/casjaysdev/updates/versions/date.scripts.txt ]; then
-  scriptsdate="$(__devnull2 cat /etc/casjaysdev/updates/versions/date.scripts.txt)"
-else scriptsdate="$datever"; fi
+  scriptsdate="$(</etc/casjaysdev/updates/versions/date.scripts.txt)"
+else
+  scriptsdate="$datever"
+  echo $scriptsdate | __requiresudo tee /etc/casjaysdev/updates/versions/date.scripts.txt &>/dev/null
+fi
 if [ -f /etc/casjaysdev/updates/versions/date.configs.txt ]; then
-  configsdate="$(__devnull2 cat /etc/casjaysdev/updates/versions/date.configs.txt)"
-else configsdate="$datever"; fi
-distro_version="$distro_version"
+  configsdate="$(</etc/casjaysdev/updates/versions/date.configs.txt)"
+else
+  configsdate="$datever"
+  echo $configsdate | __requiresudo tee /etc/casjaysdev/updates/versions/date.configs.txt &>/dev/null
+fi
+
+distro_version="${distro_version:-N/A}"
+
+messages=$(ls /etc/casjaysdev/messages/legal/*.txt 2>/dev/null | wc -l)
+if [ "$messages" != "0" ]; then
+  __requiresudo $sed -i 's#MYFULLHOSTNAME#'$HOSTNAME'#g' "/etc/casjaysdev/messages/legal/000.txt" &>/dev/null
+  __requiresudo $sed -i 's#MYHOSTNAME#'$HOSTSHORT'#g' "/etc/casjaysdev/messages/legal/000.txt" &>/dev/null
+  __requiresudo $sed -i 's#MYHOSTIP#'$CURRIP4'#g' "/etc/casjaysdev/messages/legal/000.txt" &>/dev/null
+  __requiresudo $sed -i 's/MYHOSTIP6/'$CURRIP6'/g' "/etc/casjaysdev/messages/legal/000.txt" &>/dev/null
+  __requiresudo find "/etc/casjaysdev/messages" -type f -exec "$sed" -i 's#Welcome to.*#Welcome to '$HOSTNAME'!#g' {} \; &>/dev/null
+  __requiresudo find "/etc/casjaysdev/messages" -type f -exec "$sed" -i 's#MY Hostname is.*#MY Hostname is:     '$HOSTSHORT'#g' {} \; &>/dev/null
+  __requiresudo find "/etc/casjaysdev/messages" -type f -exec "$sed" -i 's#MY IP Address is.*#MY IP Address is:   '$CURRIP4'#g' {} \; &>/dev/null
+  __requiresudo find "/etc/casjaysdev/messages" -type f -exec "$sed" -i 's#MY IP6 Address is.*#MY IP6 Address is: '$CURRIP6'#g' {} \; &>/dev/null
+  cat /etc/casjaysdev/messages/legal/*.txt 2>/dev/null | "$sed" '/^$/d' | "$sed" '1i\ ' | __requiresudo tee -a /etc/issue &>/dev/null
+fi
+
+messages=$(ls /etc/casjaysdev/messages/issue/*.txt 2>/dev/null | wc -l)
+if [ "$messages" != "0" ]; then
+  cat /etc/casjaysdev/messages/issue/*.txt 2>/dev/null | "$sed" '/^$/d' | "$sed" '1i\ ' | __requiresudo tee -a /etc/issue &>/dev/null
+  printf "\n" | __requiresudo tee -a /etc/issue &>/dev/null
+fi
+
+messages=$(ls /etc/casjaysdev/messages/motd/*.txt 2>/dev/null | wc -l)
+if [ "$messages" != "0" ]; then
+  cat /etc/casjaysdev/messages/motd/*.txt | "$sed" '/^$/d' | __requiresudo tee -a /etc/motd &>/dev/null
+fi
+if [ "$(type -P fortune 2>/dev/null)" ] && [ -n "$(type -P cowsay 2>/dev/null)" ]; then
+  printf "\n" | __requiresudo tee -a /etc/motd &>/dev/null
+  fortune | cowsay | __requiresudo tee -a /etc/motd &>/dev/null
+  printf "\n" | __requiresudo tee -a /etc/motd &>/dev/null
+else
+  printf "\n" | __requiresudo tee -a /etc/motd &>/dev/null
+fi
+
+if __if_os_id debian; then
+  printf "Debian version: $distro_version\n" | __requiresudo tee -a /etc/motd &>/dev/null
+  printf "Config version: $configsversion\n" | __requiresudo tee -a /etc/motd &>/dev/null
+fi
+if __if_os_id rhel; then
+  printf "RHEL version: $distro_version\n" | __requiresudo tee -a /etc/motd &>/dev/null
+  printf "Config version: $configsversion\n" | __requiresudo tee -a /etc/motd &>/dev/null
+fi
+if __if_os_id arch; then
+  printf "Arch version: $distro_version\n" | __requiresudo tee -a /etc/motd &>/dev/null
+  printf "Config version: $configsversion\n" | __requiresudo tee -a /etc/motd &>/dev/null
+fi
+if __if_os_id mac; then
+  printf "Mac version: $distro_version\n" | __requiresudo tee -a /etc/motd &>/dev/null
+  printf "Config version: $configsversion\n" | __requiresudo tee -a /etc/motd &>/dev/null
+fi
+
+printf "Scripts version $scriptsversion\n" | __requiresudo tee -a /etc/motd &>/dev/null
+printf "configs were last updated on: $configsdate\n" | __requiresudo tee -a /etc/motd &>/dev/null
+printf "scripts package was last updated on: $scriptsdate\n" | __requiresudo tee -a /etc/motd &>/dev/null
+printf "Messages were last updated on: $(date +"%b %d, %Y at %H:%M")\n\n" | __requiresudo tee -a /etc/motd &>/dev/null
+cat /etc/motd | __requiresudo tee -a /etc/motd.net &>/dev/null
+cat /etc/issue | __requiresudo tee -a /etc/issue.net &>/dev/null
+
+if [ "$show_console" = "true" ] && [ "$show_debug" != "true" ]; then
+  cat /etc/issue /etc/motd | printf_readline $UPDATE_MOTD_OUTPUT_COLOR
+fi
+if [ "$show_debug" = "true" ]; then
+  __if_os_id
+  cat /etc/issue /etc/motd | printf_readline $UPDATE_MOTD_OUTPUT_COLOR
+  printf_green "distro name    : $distro_id"
+  printf_green "distro version : $distro_version"
+  printf_green "scripts version: $scriptsversion"
+  printf_green "configs version: $configsversion"
+  printf_green "scripts date   : $scriptsdate"
+  printf_green "configs date   : $configsdate"
+  printf_green "hostname       : $HOSTSHORT"
+  printf_green "full hostname  : $HOSTNAME"
+  printf_green "current ip     : $CURRIP4"
+  printf_green "current ip6    : $CURRIP6"
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-messages_legal() {
-  local messages=$(__devnull2 ls /etc/casjaysdev/messages/legal/*.txt | wc -l)
-  if [ "$messages" != "0" ]; then
-    __requiresudo $sed -i 's#MYFULLHOSTNAME#'$HOSTNAME'#g' "/etc/casjaysdev/messages/legal/000.txt" >/dev/null 2>&1
-    __requiresudo $sed -i 's#MYHOSTNAME#'$HOSTSHORT'#g' "/etc/casjaysdev/messages/legal/000.txt" >/dev/null 2>&1
-    __requiresudo $sed -i 's#MYHOSTIP#'$CURRIP4'#g' "/etc/casjaysdev/messages/legal/000.txt" >/dev/null 2>&1
-    __requiresudo $sed -i 's/MYHOSTIP6/'$CURRIP6'/g' "/etc/casjaysdev/messages/legal/000.txt" >/dev/null 2>&1
-    __requiresudo find "/etc/casjaysdev/messages" -type f -exec "$sed" -i 's#Welcome to.*#Welcome to '$HOSTNAME'!#g' {} \; >/dev/null 2>&1
-    __requiresudo find "/etc/casjaysdev/messages" -type f -exec "$sed" -i 's#MY Hostname is.*#MY Hostname is:     '$HOSTSHORT'#g' {} \; >/dev/null 2>&1
-    __requiresudo find "/etc/casjaysdev/messages" -type f -exec "$sed" -i 's#MY IP Address is.*#MY IP Address is:   '$CURRIP4'#g' {} \; >/dev/null 2>&1
-    __requiresudo find "/etc/casjaysdev/messages" -type f -exec "$sed" -i 's#MY IP6 Address is.*#MY IP6 Address is: '$CURRIP6'#g' {} \; >/dev/null 2>&1
-    cat /etc/casjaysdev/messages/legal/*.txt 2>/dev/null | "$sed" '/^$/d' | "$sed" '1i\ ' | __requiresudo tee -a /etc/issue >/dev/null 2>&1
-  fi
-}
+# End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-messages_issue() {
-  local messages=$(__devnull2 ls /etc/casjaysdev/messages/issue/*.txt | wc -l)
-  if [ "$messages" != "0" ]; then
-    cat /etc/casjaysdev/messages/issue/*.txt 2>/dev/null | "$sed" '/^$/d' | "$sed" '1i\ ' | __requiresudo tee -a /etc/issue >/dev/null 2>&1
-    printf "\n" | __requiresudo tee -a /etc/issue >/dev/null 2>&1
-  fi
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-messages_motd() {
-  local messages=$(__devnull2 ls /etc/casjaysdev/messages/motd/*.txt | wc -l)
-  if [ "$messages" != "0" ]; then
-    cat /etc/casjaysdev/messages/motd/*.txt | "$sed" '/^$/d' | __requiresudo tee -a /etc/motd >/dev/null 2>&1
-  fi
-  if [ "$(__devnull2 command -v fortune)" ] && [ -n "$(__devnull2 command -v cowsay)" ]; then
-    printf "\n" | __requiresudo tee -a /etc/motd >/dev/null 2>&1
-    fortune | cowsay | __requiresudo tee -a /etc/motd >/dev/null 2>&1
-    printf "\n" | __requiresudo tee -a /etc/motd >/dev/null 2>&1
-  else
-    printf "\n" | __requiresudo tee -a /etc/motd >/dev/null 2>&1
-  fi
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-conf_versions() {
-  if __if_os_id debian; then
-    printf "Debian version: $distro_version\n" | __requiresudo tee -a /etc/motd >/dev/null 2>&1
-    printf "Config version: $configsversion\n" | __requiresudo tee -a /etc/motd >/dev/null 2>&1
-  fi
-  if __if_os_id rhel; then
-    printf "RHEL version: $distro_version\n" | __requiresudo tee -a /etc/motd >/dev/null 2>&1
-    printf "Config version: $configsversion\n" | __requiresudo tee -a /etc/motd >/dev/null 2>&1
-  fi
-  if __if_os_id arch; then
-    printf "Arch version: $distro_version\n" | __requiresudo tee -a /etc/motd >/dev/null 2>&1
-    printf "Config version: $configsversion\n" | __requiresudo tee -a /etc/motd >/dev/null 2>&1
-  fi
-  if __if_os_id mac; then
-    printf "Mac version: $distro_version\n" | __requiresudo tee -a /etc/motd >/dev/null 2>&1
-    printf "Config version: $configsversion\n" | __requiresudo tee -a /etc/motd >/dev/null 2>&1
-  fi
-  printf "Scripts version $scriptsversion\n" | __requiresudo tee -a /etc/motd >/dev/null 2>&1
-  printf "configs were last updated on: $configsdate\n" | __requiresudo tee -a /etc/motd >/dev/null 2>&1
-  printf "scripts package was last updated on: $scriptsdate\n" | __requiresudo tee -a /etc/motd >/dev/null 2>&1
-  printf "Messages were last updated on: $(date +"%b %d, %Y at %H:%M")\n\n" | __requiresudo tee -a /etc/motd >/dev/null 2>&1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-finalize() {
-  __requiresudo touch /etc/issue /etc/motd
-  cat /etc/motd | __requiresudo tee -a /etc/motd.net >/dev/null 2>&1
-  cat /etc/issue | __requiresudo tee -a /etc/issue.net >/dev/null 2>&1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-display() {
-  if [ "$1" = "--console" ]; then
-    shift 1
-    cat /etc/issue /etc/motd
-  fi
-  if [ "$1" = "--app-debug" ]; then
-    shift 1
-    cat /etc/issue /etc/motd
-    __if_os_id
-    printf_green "distro name    : $distro_id"
-    printf_green "distro version : $distro_version"
-    printf_green "scripts version: $scriptsversion"
-    printf_green "configs version: $configsversion"
-    printf_green "scripts date   : $scriptsdate"
-    printf_green "configs date   : $configsdate"
-    printf_green "hostname       : $HOSTSHORT"
-    printf_green "full hostname  : $HOSTNAME"
-    printf_green "current ip     : $CURRIP4"
-    printf_green "current ip6    : $CURRIP6"
-  fi
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# main function
-main() {
-  messages_legal
-  messages_issue
-  messages_motd
-  conf_versions
-  display "$@"
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# run app
-main "$@"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-exit $?
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# end
+# lets exit with code
+exit ${exitCode:-$?}

@@ -143,10 +143,9 @@ run_postinst() {
   mkd /etc/casjaysdev/messages/legal
   mkd /etc/casjaysdev/updates/versions
   mkd /usr/local/share/CasjaysDev/apps/fontmgr
-  dotfilesreqadmin cron
   local fontdir="$(ls "$CASJAYSDEVSAPPDIR/fontmgr" | wc -l)"
   if [ "$fontdir" = "0" ]; then
-    sudo fontmgr install Hack
+    sudo fontmgr install Hack all-the-icons fontawesome LigatureSymbols
   fi
   for app in $(ls "$CASJAYSDEVDIR/applications"); do
     ln_sf "$CASJAYSDEVDIR/applications/$app" "$SYSSHARE/applications/$app"
@@ -159,16 +158,20 @@ run_postinst() {
   replace /etc/casjaysdev/messages/ MYHOSTNAME "$(hostname -s)"
   replace /etc/casjaysdev/messages/ MYFULLHOSTNAME "$(hostname -f)"
   grep -sRiq "git" /etc/casjaysdev/updates/versions/configs.txt && sudo rm -Rfv /etc/casjaysdev/updates/versions/configs.txt
-  [ -f /etc/casjaysdev/updates/versions/configs.txt ] || date +"%m%d%Y%H%M-git" | sudo tee /etc/casjaysdev/updates/versions/configs.txt
-  [ -f /etc/casjaysdev/updates/versions/date.configs.txt ] || date +"%b %d, %Y at %H:%M" | sudo tee /etc/casjaysdev/updates/versions/date.configs.txt
+  if [ ! -f /etc/casjaysdev/updates/versions/configs.txt ]; then
+    date +"${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}" | sudo tee /etc/casjaysdev/updates/versions/configs.txt &>/dev/null
+  fi
+  if [ ! -f /etc/casjaysdev/updates/versions/date.configs.txt ]; then
+    date +"%b %d, %Y at %H:%M" | sudo tee /etc/casjaysdev/updates/versions/date.configs.txt &>/dev/null
+  fi
   cp_rf "$INSTDIR/version.txt" /etc/casjaysdev/updates/versions/scripts.txt
-  date +"%b %d, %Y at %H:%M" | sudo tee /etc/casjaysdev/updates/versions/date.scripts.txt >/dev/null 2>&1
+  date +"%b %d, %Y at %H:%M" | sudo tee /etc/casjaysdev/updates/versions/date.scripts.txt &>/dev/null
   echo 'for f in '$CASJAYSDEVDIR/completions/*'; do source "$f" >/dev/null 2>&1; done' >"$COMPDIR/_my_scripts_completions"
   ln_sf "$APPDIR" "$SYSSHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME"
   ln_sf "$APPDIR" "$SYSSHARE/CasjaysDev/$SCRIPTS_PREFIX/installer"
   cmd_exists update-motd && update-ip && update-motd || true
   git config --global pull.rebase true
-  sudo fontmgr install --all
+  dotfilesreqadmin cron
 }
 #
 execute "run_postinst" "Running post install scripts"

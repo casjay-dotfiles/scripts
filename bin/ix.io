@@ -108,7 +108,7 @@ IX_IO_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$IX_IO_NOTIFY_CLIENT_ICON}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set additional variables/Argument/Option settings
 SETARGS="$*"
-SHORTOPTS="c,v,h,z:,h,d:,i:,n:"
+SHORTOPTS="c,z:,h,d:,i:,n:"
 LONGOPTS="options,config,version,help,dir:"
 ARRAY=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -124,7 +124,7 @@ while :; do
     [ -z "$ARRAY" ] || __list_available "5" "Base Options" "$ARRAY" ',' ''
     exit $?
     ;;
-  -v | --version)
+  --version)
     shift 1
     __version
     exit $?

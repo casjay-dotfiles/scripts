@@ -59,7 +59,7 @@ _GEN_SCRIPT_REPLACE_FILENAME() {
       COMPREPLY=($(compgen -W '' -- "${cur}"))
       ;;
 
-    -v | --version)
+    --version)
       local prev="--version"
       COMPREPLY=($(compgen -W '' -- "${cur}"))
       ;;

@@ -109,7 +109,7 @@ while :; do
     __list_options "$CHEAT_SH_OPTIONS_DIR"
     exit $?
     ;;
-  -v | --version)
+  --version)
     shift 1
     __version
     exit $?

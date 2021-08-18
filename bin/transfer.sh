@@ -117,7 +117,7 @@ TRANSFER_SH_OUTPUT_COLOR_ERROR="${TRANSFER_SH_OUTPUT_COLOR_ERROR:-1}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set additional variables/Argument/Option settings
 SETARGS="$*"
-SHORTOPTS="c,v,h,z:"
+SHORTOPTS="c,z:"
 LONGOPTS="options,config,version,help,dir:"
 ARRAY="scan virustotal backup"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -133,7 +133,7 @@ while :; do
     [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
     exit $?
     ;;
-  -v | --version)
+  --version)
     shift 1
     __version
     exit $?

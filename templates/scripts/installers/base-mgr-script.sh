@@ -147,7 +147,7 @@ GEN_SCRIPT_REPLACE_ENV_CLONE_DIR="${GEN_SCRIPT_REPLACE_ENV_CLONE_DIR:-$HOME/Proj
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set additional variables/Argument/Option settings
 SETARGS="$*"
-SHORTOPTS="c,v,h,z:,a,f"
+SHORTOPTS="c,z:,a,f"
 LONGOPTS="options,config,version,help,dir:force,all"
 ARRAY="download,list,search,available,remove,version,update,install,cron"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -166,7 +166,7 @@ while :; do
     [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
     exit $?
     ;;
-  -v | --version)
+  --version)
     shift 1
     __version
     exit $?

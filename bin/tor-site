@@ -140,11 +140,15 @@ After=network.target
 
 [Service]
 Type=simple
-User=tor
-WorkingDirectory=/usr/local/share/tor/public
-ExecStart=/bin/bash -c "$SRC_DIR/$APPNAME run -p $TOR_SITE_PORT -z $TOR_SITE_CWD"
-ExecStop=/bin/kill -2 $MAINPID
+User=$USER
+Environment=TOR_SITE_PORT="$TOR_SITE_PORT"
+Environment=TOR_SITE_CWD="$HOME/Public/tor/$TOR_SITE_PORT"
+WorkingDirectory=$HOME/Public/tor/$TOR_SITE_PORT
+ExecStartPre=-/bin/mkdir -p "$HOME/Public/tor/$TOR_SITE_PORT"
+ExecStart=$SRC_DIR/$APPNAME "run $TOR_SITE_PORT $HOME/Public/tor/$TOR_SITE_PORT" && $SRC_DIR/$APPNAME "status $TOR_SITE_PORT"
+ExecStop=$SRC_DIR/$APPNAME "stop $TOR_SITE_PORT"
 Restart=always
+RestartSec=10
 #StartLimitBurst=10
 #StartLimitInterval=60s
 
@@ -263,6 +267,7 @@ cmd_exists --error bash || exit 1 # exit 1 if not found
 case "$1" in
 status)
   shift 1
+  TOR_SITE_PORT="${1:-$TOR_SITE_PORT}"
   __server_status "$1"
   exit $?
   ;;
@@ -271,30 +276,54 @@ stop)
   shift 1
   TOR_SITE_PORT="${1:-$TOR_SITE_PORT}"
   pid="$(__get_pid "$TOR_SITE_PORT")"
-  [[ -n "$pid" ]] && __stop_server "$pid" &>/dev/null && printf_green "Server has been stopped"
-  [[ -n "$pid" ]] || printf_return "Failed to stop the server: kill -9 $pid"
+  if [[ -n "$pid" ]]; then
+    __stop_server "$pid" &>/dev/null && printf_green "Server has been stopped"
+    [[ -n "$pid" ]] || printf_return "Failed to stop the server: kill -9 $pid"
+  else
+    printf_red "No sites are running on port $TOR_SITE_PORT"
+  fi
   exit $?
   ;;
 
 systemd)
   shift 1
-  if sudo -n true &>/dev/null; then
-    printf_green "Creating systemd service"
-    __systemd | sudo tee /etc/systemd/system/tor_site_$TOR_SITE_PORT.service &>/dev/null
-    if [[ -f "/etc/systemd/system/tor_site_$TOR_SITE_PORT.service" ]]; then
-      sudo systemctl daemon-reload &>/dev/null
-      sudo systemctl enable --now tor_site_$TOR_SITE_PORT.service &>/dev/null
-      printf_blue "Systemd service has been created"
+  case "$1" in
+  remove)
+    shift 1
+    TOR_SITE_PORT="${1:-$TOR_SITE_PORT}"
+    TOR_SITE_CWD="${2:-$TOR_SITE_CWD}"
+    if [ -f "/etc/systemd/system/tor_site_$TOR_SITE_PORT.service" ]; then
+      printf_cyan "Removing tor_site_$TOR_SITE_PORT.service"
+      sudo systemctl disable --now tor_site_$TOR_SITE_PORT.service &>/dev/null &&
+        sudo rm -Rf /etc/systemd/system/tor_site_$TOR_SITE_PORT.service &>/dev/null &&
+        sudo systemctl daemon-reload &>/dev/null
     else
-      printf_exit "Failed to create tor sevice"
+      printf_blue "No systemd service exists for tor-site on $TOR_SITE_PORT"
     fi
-  else
-    printf_return 1 1 "This requires root"
-  fi
+    exit $?
+    ;;
+  *)
+    if sudo -n true &>/dev/null; then
+      printf_green "Creating systemd service"
+      __systemd | sudo tee /etc/systemd/system/tor_site_$TOR_SITE_PORT.service &>/dev/null
+      if [[ -f "/etc/systemd/system/tor_site_$TOR_SITE_PORT.service" ]]; then
+        sudo systemctl daemon-reload &>/dev/null
+        sudo systemctl enable --now tor_site_$TOR_SITE_PORT.service &>/dev/null
+        printf_blue "Systemd service has been created"
+      else
+        printf_exit "Failed to create tor sevice"
+      fi
+    else
+      printf_return 1 1 "This requires root"
+    fi
+    ;;
+  esac
   ;;
 
 run)
   shift 1
+  TOR_SITE_PORT="${1:-$TOR_SITE_PORT}"
+  TOR_SITE_CWD="${2:-$TOR_SITE_CWD}"
   [ -d "$TOR_SITE_CWD" ] && __cd "$TOR_SITE_CWD" || exit 1
   if __run_server "$TOR_SITE_CWD" "$TOR_SITE_PORT"; then
     echo "Tor Server is running"

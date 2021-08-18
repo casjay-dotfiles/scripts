@@ -568,9 +568,10 @@ __counter() {
   wait_time=$1 # seconds
   color="$2"
   msg="$3"
+  duration="${4:-}"
   temp_cnt=${wait_time}
   while [[ ${temp_cnt} -gt 0 ]]; do
-    printf "\r%s" "$(printf_custom "${PRINTF_COLOR:-$color}" "$msg" ${temp_cnt} "$4")"
+    printf "\r%s" "$(printf_custom "${PRINTF_COLOR:-$color}" "$msg$duration" ${temp_cnt} "$4")"
     sleep 1
     ((temp_cnt--))
   done

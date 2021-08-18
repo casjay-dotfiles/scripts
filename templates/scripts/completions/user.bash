@@ -54,7 +54,7 @@ _GEN_SCRIPT_REPLACE_FILENAME() {
       COMPREPLY=($(compgen -W '' -- "${cur}"))
       ;;
 
-    -h | --help)
+    --help)
       prev="--help"
       COMPREPLY=($(compgen -W '' -- "${cur}"))
       ;;

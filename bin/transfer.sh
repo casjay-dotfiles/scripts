@@ -80,6 +80,7 @@ EOF
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional functions
 __curl_upload() { curl -disable -LSsk --connect-timeout 3 --retry 0 --upload-file "$1" "$2" 2>/dev/null; }
+__filename() { export basefile=$(basename "$1" 2>/dev/null | sed -e 's/[^a-zA-Z0-9._-]/-/g'); }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default variables
 exitCode="0"
@@ -118,7 +119,7 @@ TRANSFER_SH_OUTPUT_COLOR_ERROR="${TRANSFER_SH_OUTPUT_COLOR_ERROR:-1}"
 SETARGS="$*"
 SHORTOPTS="c,v,h,z:"
 LONGOPTS="options,config,version,help,dir:"
-ARRAY=""
+ARRAY="scan virustotal backup"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$PROG" -- "$@" 2>/dev/null)
 eval set -- "${setopts[@]}" 2>/dev/null
@@ -180,12 +181,34 @@ am_i_online --error || exit 1     # exit 1 if no internet
 [ -n "$1" ] || __help
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
-if tty -s; then
-  basefile=$(basename "$1" | sed -e 's/[^a-zA-Z0-9._-]/-/g')
-  __curl_upload "$1" "https://transfer.sh/$basefile" >>"$TRANSFER_SH_TEMP_FILE"
-else
-  __curl_upload "-" "https://transfer.sh/${1}" >>"$TRANSFER_SH_TEMP_FILE"
-fi
+case "$1" in
+scan)
+  shift 1
+  __filename "$1"
+  curl -X PUT --upload-file "$1" https://transfer.sh/eicar.com/scan >>"$TRANSFER_SH_TEMP_FILE"
+  ;;
+
+virustotal)
+  shift 1
+  __filename "$1"
+  curl -X PUT --upload-file "$1" https://transfer.sh/test.txt/virustotal >>"$TRANSFER_SH_TEMP_FILE"
+  ;;
+
+backup)
+  shift 1
+  __filename "$1"
+  gpg -ac -o- | curl -X PUT --upload-file "-" https://transfer.sh/${basefile} >>"$TRANSFER_SH_TEMP_FILE"
+  ;;
+
+*)
+  if tty -s; then
+    __filename "$1"
+    __curl_upload "$1" "https://transfer.sh/$basefile" >>"$TRANSFER_SH_TEMP_FILE"
+  else
+    __curl_upload "-" "https://transfer.sh/${1}" >>"$TRANSFER_SH_TEMP_FILE"
+  fi
+  ;;
+esac
 printf_green "$(cat $TRANSFER_SH_TEMP_FILE)\n"
 __rm_rf "$TRANSFER_SH_TEMP_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

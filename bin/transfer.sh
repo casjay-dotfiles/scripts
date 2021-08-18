@@ -79,8 +79,8 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional functions
-__curl_upload() { curl -disable -LSsk --connect-timeout 3 --retry 0 --upload-file "$1" "$2" 2>/dev/null; }
-__filename() { export basefile=$(basename "$1" 2>/dev/null | sed -e 's/[^a-zA-Z0-9._-]/-/g'); }
+__curl_upload() { curl -q -LSs --connect-timeout 3 --retry 0 --upload-file "$1" "$2" 2>/dev/null || return 1; }
+__filename() { export basefile="$USER-$(basename "$1" 2>/dev/null | sed -e 's/[^a-zA-Z0-9._-]/-/g')"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default variables
 exitCode="0"
@@ -179,38 +179,44 @@ am_i_online --error || exit 1     # exit 1 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
 [ -n "$1" ] || __help
+tmpfile="$(mktemp -t transferXXXXXX)"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 case "$1" in
 scan)
   shift 1
   __filename "$1"
-  curl -X PUT --upload-file "$1" https://transfer.sh/eicar.com/scan >>"$TRANSFER_SH_TEMP_FILE"
+  __curl_upload "$1" "https://transfer.sh/${basefile}/scan" >>"$tmpfile" || exitCode=1
   ;;
 
 virustotal)
   shift 1
   __filename "$1"
-  curl -X PUT --upload-file "$1" https://transfer.sh/test.txt/virustotal >>"$TRANSFER_SH_TEMP_FILE"
+  __curl_upload "$1" "https://transfer.sh/${basefile}/virustotal" >>"$tmpfile" || exitCode=1
   ;;
 
 backup)
   shift 1
   __filename "$1"
-  gpg -ac -o- | curl -X PUT --upload-file "-" https://transfer.sh/${basefile} >>"$TRANSFER_SH_TEMP_FILE"
+  gpg -ac -o- | __curl_upload "-" "https://transfer.sh/${basefile}" >>"$tmpfile" || exitCode=1
   ;;
 
 *)
   if tty -s; then
     __filename "$1"
-    __curl_upload "$1" "https://transfer.sh/$basefile" >>"$TRANSFER_SH_TEMP_FILE"
+    __curl_upload "$1" "https://transfer.sh/$basefile" >>"$tmpfile" || exitCode=1
   else
-    __curl_upload "-" "https://transfer.sh/${1}" >>"$TRANSFER_SH_TEMP_FILE"
+    __curl_upload "-" "https://transfer.sh/${1}" >>"$tmpfile" || exitCode=1
   fi
   ;;
 esac
-printf_green "$(cat $TRANSFER_SH_TEMP_FILE)\n"
-__rm_rf "$TRANSFER_SH_TEMP_FILE"
+if [[ "$exitCode" = 0 ]] && [[ -f "$tmpfile" ]] && [[ -s "$tmpfile" ]]; then
+  printf_blue "Your file has been uploaded..."
+  printf_green "Link: $(cat "$tmpfile")"
+else
+  printf_red "Nothing seems to have happened"
+fi
+__rm_rf "$tmpfile"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

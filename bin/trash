@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0")"
+VERSION="202108172203-git"
+RUN_USER="${SUDO_USER:-${USER}}"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#set opts
+# Set bash options
+trap 'exitCode=${exitCode:-$?};[ -f "$TRASH_TEMP_FILE" ] && rm -Rf "$TRASH_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202103202002-git
+##@Version       : 202108172203-git
 # @Author        : Jason Hempstead
 # @Contact       : jason@casjaysdev.com
 # @License       : WTFPL
 # @ReadME        : trash --help
-# @Copyright     : Copyright: (c) 2021 Jason Hempstead, CasjaysDev
-# @Created       : Saturday, Mar 20, 2021 20:02 EDT
+# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created       : Tuesday, Aug 17, 2021 22:03 EDT
 # @File          : trash
 # @Description   : send files to trash
 # @TODO          :
@@ -40,56 +43,58 @@ fi
 user_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Doesn't support options so lets remove them
-while getopts ":*" opt; do
-  case $opt in
-  *) shift ;;
-  esac
-done
+# Set functions
+__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# set variables
-TrashDir="${TRASH_DIR:-$HOME/.local/share/Trash}"
-RestoreDir="${RESTORE_DIR}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__mkd "$TrashDir/files/" "$TrashDir/info/"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# set functions
-__refuse_home() {
-  exitCode=1
-  printf_error "Refusing to delete the home folder"
-  return 1
+__gen_config() {
+  printf_green "Generating the config file in"
+  printf_green "$TRASH_CONFIG_DIR/$TRASH_CONFIG_FILE"
+  [ -d "$TRASH_CONFIG_DIR" ] || mkdir -p "$TRASH_CONFIG_DIR"
+  [ -d "$TRASH_CONFIG_BACKUP_DIR" ] || mkdir -p "$TRASH_CONFIG_BACKUP_DIR"
+  [ -f "$TRASH_CONFIG_DIR/$TRASH_CONFIG_FILE" ] &&
+    cp -Rf "$TRASH_CONFIG_DIR/$TRASH_CONFIG_FILE" "$TRASH_CONFIG_BACKUP_DIR/$TRASH_CONFIG_FILE.$$"
+  cat <<EOF >"$TRASH_CONFIG_DIR/$TRASH_CONFIG_FILE"
+# Settings for trash
+
+# Notification settings
+TRASH_GOOD_MESSAGE="${TRASH_GOOD_MESSAGE:-Everything Went OK}"
+TRASH_ERROR_MESSAGE="${TRASH_ERROR_MESSAGE:-Well that didn\'t work}"
+TRASH_NOTIFY_ENABLED="${TRASH_NOTIFY_ENABLED:-yes}"
+TRASH_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+TRASH_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$TRASH_NOTIFY_CLIENT_ICON}"
+
+# Colorization settings
+TRASH_OUTPUT_COLOR="${TRASH_OUTPUT_COLOR:-5}"
+TRASH_OUTPUT_COLOR_GOOD="${TRASH_OUTPUT_COLOR_GOOD:-2}"
+TRASH_OUTPUT_COLOR_ERROR="${TRASH_OUTPUT_COLOR_ERROR:-1}"
+
+EOF
+  if [ -f "$TRASH_CONFIG_DIR/$TRASH_CONFIG_FILE" ]; then
+    printf_green "Your config file for trash has been created"
+    true
+  else
+    printf_red "Failed to create the config file"
+    false
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__refuse() {
-  exitCode=1
-  printf_error "Refusing to delete non-existant file or folder"
-  return 1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-filename_trash() {
-  get_name "$1" | sed 's#/#_-_#g;s| |_THIS_WAS_A_SPACE_|g' | sed 's#"##g'
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-filename_restore() {
-  grep Path "$TrashDir/info/$(basename "$1").trashinfo" 2>/dev/null | sed 's#Path=##g' | sed 's#"##g;s|_THIS_WAS_A_SPACE_| |g' || return 1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-test_filedir() {
-  find "$@" -maxdepth 1 -print0 | while IFS= read -r -d '' fd; do
-    [ -e "$fd" ] && exitCode=0 || __refuse
-  done
-}
+# Additional functions
+__refuse_home() { EXIT=1 && printf_error "Refusing to delete the home folder" && return 1; }
+__refuse() { EXIT=1 && printf_error "Refusing to delete non-existant file or folder" && return 1; }
+filename_trash() { get_name "$1" | sed 's#/#_-_#g' | sed 's#"##g'; }
+filename_restore() { grep Path "$TrashDir/info/$(basename $1).trashinfo" 2>/dev/null | sed 's#Path=##g' | sed 's#"##g' || return 1; }
+test_filedir() { for fd in "$@"; do [ -e "$fd" ] && EXIT=0 || __refuse; done; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 get_name() {
-  local IFS=$'\n'
   dirname="$(dirname "$1" 2>/dev/null || return 1)"
-  filename="$(basename "$1" 2>/dev/null || return 1)"
-  find "$@" -maxdepth 1 -print0 | while IFS= read -r -d '' files; do
+  filename="$(basename $1 2>/dev/null || return 1)"
+  files="$1"
+  while [ "$files" ]; do
     file=${files%%;*}
     if [ "$files" = "$file" ]; then
       files=''
     else
-      files=${files#*;}
+      files="${files#*;}"
     fi
     echo "$dirname/$filename"
   done
@@ -104,29 +109,32 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 trash-put() {
-  local exitCode=0
-  find "$@" -maxdepth 1 -print0 | while IFS= read -r -d '' files; do
-    [ $# -ne 0 ] || break
-    file="$files"
-    test_filedir "$(get_name "$file")" && printf_green "Removing $(get_name "$file")" && create_trash_file "$file"
-    #[[ $file =~ $HOME ]] && __refuse_home || break 2
-    if [ -d "$file" ]; then
-      __mkd "$TrashDir/files/$(filename_trash "$file")-$(basename "$file")"
-      cp -Rfa "$file/." "$TrashDir/files/$(filename_trash "$file")-$(basename "$file")"
-    else
-      cp -Rfa "$file" "$TrashDir/files/$(filename_trash "$file")-$(basename "$file")"
-    fi
-    rm -Rf "$file"
-    shift 1
+  local EXIT=0
+  local args="$*"
+  while :; do
+    for t in $args; do
+      [ $# -ne 0 ] || break 2
+      file="$t"
+      test_filedir "$(get_name $file)" && printf_green "Removing $(get_name $file)" && create_trash_file "$file"
+      #[[ $file =~ $HOME ]] && __refuse_home || break 2
+      if [ -d "$file" ]; then
+        __mkd "$TrashDir/files/$(filename_trash "$file")-$(basename "$file")"
+        cp -Rfa "$file/." "$TrashDir/files/$(filename_trash "$file")-$(basename "$file")"
+      else
+        cp -Rfa "$file" "$TrashDir/files/$(filename_trash "$file")-$(basename "$file")"
+      fi
+      rm -Rf "$file"
+      shift 1
+    done
   done
-  return "${exitCode:-$?}"
+  return "$EXIT"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 trash-restore() {
-  local r file
-  find "$@" -maxdepth 1 -print0 | while IFS= read -r -d '' r; do
-    local file="$(basename "$(echo "$r")")"
+  for r in "$@"; do
+    local file="$(basename $(echo $r))"
     local restorefile="$(filename_restore "$r")"
+    #echo "file:$file restore:$restorefile restorename:$restorename restoredir:$restoredir"
     if [ -e "$TrashDir/files/$file" ]; then
       local restorename="$(basename "$(echo "$restorefile" | sed 's#^/##g' | sed 's#_-_#/#g')")"
       local restoredir="$RestoreDir"
@@ -146,7 +154,7 @@ trash-restore() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 trash-list() {
-  if [ "$(__count_files "$TrashDir/files/")" = 0 ] || [ "$(__count_dir "$TrashDir/files/")" = 0 ]; then
+  if [ "$(__count_files "$TrashDir/files/")" = 0 ]; then
     printf_green "There are no files in your Trash"
   else
     if [ $# = 0 ]; then
@@ -154,7 +162,7 @@ trash-list() {
       find "$TrashDir/files"/ -type f 2>/dev/null | printf_readline "3" || return 1
     else
       for ls in "$@"; do
-        find "$TrashDir/files"/ -name "$ls" 2>/dev/null | printf_readline "3" || return 1
+        find "$TrashDir/files"/ -name $ls 2>/dev/null | printf_readline "3" || return 1
       done
     fi
   fi
@@ -178,7 +186,107 @@ trash_no_files() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# main application
+# Default variables
+exitCode="0"
+TRASH_CACHE_DIR="${TRASH_CACHE_DIR:-/$HOME/.cache/trash}"
+TRASH_CONFIG_DIR="${TRASH_CONFIG_DIR:-$HOME/.config/myscripts/trash}"
+TRASH_OPTIONS_DIR="${TRASH_OPTIONS_DIR:-$HOME/.local/share/myscripts/trash/options}"
+TRASH_CONFIG_BACKUP_DIR="${TRASH_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/trash/backups}"
+TRASH_TEMP_DIR="${TRASH_TEMP_DIR/system_scripts/trash:-$HOME/.local/tmp/system_scripts/trash}"
+TRASH_TEMP_FILE="${TRASH_TEMP_DIR:-$HOME/.local/tmp/trash}"
+TRASH_CONFIG_FILE="${TRASH_CONFIG_FILE:-settings.conf}"
+TRASH_GOOD_MESSAGE="${TRASH_GOOD_MESSAGE:-Everything Went OK}"
+TRASH_ERROR_MESSAGE="${TRASH_ERROR_MESSAGE:-Well that didn\'t work}"
+TRASH_NOTIFY_ENABLED="${TRASH_NOTIFY_ENABLED:-yes}"
+TRASH_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+TRASH_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$TRASH_NOTIFY_CLIENT_ICON}"
+TRASH_OUTPUT_COLOR="${TRASH_OUTPUT_COLOR:-5}"
+TRASH_OUTPUT_COLOR_GOOD="${TRASH_OUTPUT_COLOR_GOOD:-2}"
+TRASH_OUTPUT_COLOR_ERROR="${TRASH_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$TRASH_TEMP_DIR" ] || mkdir -p "$TRASH_TEMP_DIR" &>/dev/null
+[ -d "$TRASH_CACHE_DIR" ] || mkdir -p "$TRASH_CACHE_DIR" &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$TRASH_CONFIG_DIR/$TRASH_CONFIG_FILE" ] ||
+  __gen_config &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$TRASH_CONFIG_DIR/$TRASH_CONFIG_FILE" ] &&
+  . "$TRASH_CONFIG_DIR/$TRASH_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS="c,v,h,z:"
+LONGOPTS="options,config,version,help,dir:"
+ARRAY=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$PROG" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --options)
+    shift 1
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "-$ARRAY" ',' ''
+    exit $?
+    ;;
+  -v | --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  -h | --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  -c | --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  -z | --dir)
+    shift 1
+    TRASH_CWD="$1"
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+if [ "$TRASH_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${TRASH_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${TRASH_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${TRASH_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${TRASH_NOTIFY_CLIENT_ICON}"
+    notifications "$*" || return 1
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+cmd_exists --error bash || exit 1 # exit 1 if not found
+#am_i_online --error || exit       # exit 1 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+TrashDir="${TRASH_DIR:-$HOME/.local/share/Trash}"
+RestoreDir="${RESTORE_DIR}"
+__mkd "$TrashDir/files/" "$TrashDir/info/"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
 case "$1" in
 list | ls)
   shift 1
@@ -206,6 +314,7 @@ empty)
   ;;
 esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-exit ${exitCode:-$?}
+# End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# end
+# lets exit with code
+exit ${exitCode:-$?}

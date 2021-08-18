@@ -117,7 +117,7 @@ TRANSFER_SH_OUTPUT_COLOR_ERROR="${TRANSFER_SH_OUTPUT_COLOR_ERROR:-1}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set additional variables/Argument/Option settings
 SETARGS="$*"
-SHORTOPTS="c,z:"
+SHORTOPTS="z:"
 LONGOPTS="options,config,version,help,dir:"
 ARRAY="scan virustotal backup"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -143,14 +143,14 @@ while :; do
     __help
     exit $?
     ;;
-  -c | --config)
+  --config)
     shift 1
     __gen_config
     exit $?
     ;;
   -z | --dir)
+    TRANSFER_SH_CWD="$2"
     shift 1
-    TRANSFER_SH_CWD="$1"
     ;;
   --)
     shift 1

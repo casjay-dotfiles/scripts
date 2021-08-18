@@ -15,6 +15,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _GEN_SCRIPT_REPLACE_FILENAME() {
   ___findcmd() { find -L "${1:-$CONFDIR/}" -maxdepth ${3:-3} -type ${2:-f} 2>/dev/null | sed 's#'${1:-$CONFDIR}'##g' | grep '^' || return 1; }
+  local CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
   local cur prev words cword opts split
   local cur="${COMP_WORDS[$COMP_CWORD]}"
   local prev="${COMP_WORDS[$COMP_CWORD - 1]}"
@@ -26,7 +27,7 @@ _GEN_SCRIPT_REPLACE_FILENAME() {
   local FILEDIR=""
   local OPTS=""
   local LONGOPTS="--options --help --version --config"
-  local SHORTOPTS="-h -v -c"
+  local SHORTOPTS=""
   local ARRAY=""
 
   _init_completion || return
@@ -49,7 +50,7 @@ _GEN_SCRIPT_REPLACE_FILENAME() {
       COMPREPLY=($(compgen -W '' -- "${cur}"))
       ;;
 
-    -c | --config)
+    --config)
       local prev="--config"
       COMPREPLY=($(compgen -W '' -- "${cur}"))
       ;;

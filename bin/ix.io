@@ -108,7 +108,7 @@ IX_IO_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$IX_IO_NOTIFY_CLIENT_ICON}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set additional variables/Argument/Option settings
 SETARGS="$*"
-SHORTOPTS="c,z:,h,d:,i:,n:"
+SHORTOPTS="z:,h,d:,i:,n:"
 LONGOPTS="options,config,version,help,dir:"
 ARRAY=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -134,7 +134,7 @@ while :; do
     __help
     exit $?
     ;;
-  -c | --config)
+  --config)
     shift 1
     __gen_config
     exit $?

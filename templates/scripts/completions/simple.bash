@@ -19,7 +19,7 @@ _GEN_SCRIPT_REPLACE_FILENAME() {
   local cur="${COMP_WORDS[$COMP_CWORD]}"
   local SHOW_COMP_OPTS=""
   local LONGOPTS="--help --version --config --options"
-  local SHORTOPTS="-h -v -c"
+  local SHORTOPTS=""
   local ARRAY=""
 
   _init_completion || return

@@ -78,7 +78,7 @@ EOF
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default variables
 exitCode="0"
-IX_IO_CACHE_DIR="${IX_IO_CACHE_DIR:-/$HOME/.cache/ix.io}"
+IX_IO_CACHE_DIR="${IX_IO_CACHE_DIR:-$HOME/.cache/ix.io}"
 IX_IO_CONFIG_DIR="${IX_IO_CONFIG_DIR:-$HOME/.config/myscripts/ix.io}"
 IX_IO_OPTIONS_DIR="${IX_IO_OPTIONS_DIR:-$HOME/.local/share/myscripts/ix.io/options}"
 IX_IO_CONFIG_BACKUP_DIR="${IX_IO_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/ix.io/backups}"

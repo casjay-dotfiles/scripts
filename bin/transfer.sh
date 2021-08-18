@@ -84,7 +84,7 @@ __filename() { export basefile="$USER-$(basename "$1" 2>/dev/null | sed -e 's/[^
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default variables
 exitCode="0"
-TRANSFER_SH_CACHE_DIR="${TRANSFER_SH_CACHE_DIR:-/$HOME/.cache/transfer.sh}"
+TRANSFER_SH_CACHE_DIR="${TRANSFER_SH_CACHE_DIR:-$HOME/.cache/transfer.sh}"
 TRANSFER_SH_CONFIG_DIR="${TRANSFER_SH_CONFIG_DIR:-$HOME/.config/myscripts/transfer.sh}"
 TRANSFER_SH_OPTIONS_DIR="${TRANSFER_SH_OPTIONS_DIR:-$HOME/.local/share/myscripts/transfer.sh/options}"
 TRANSFER_SH_CONFIG_BACKUP_DIR="${TRANSFER_SH_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/transfer.sh/backups}"

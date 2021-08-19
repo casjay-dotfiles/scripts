@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0")"
+VERSION="202108190117-git"
+RUN_USER="${SUDO_USER:-${USER}}"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#set opts
-trap 'rm -f $TMPFILE' 0
+# Set bash options
+trap 'exitCode=${exitCode:-$?};[ -f "$SCREENCAST_TEMP_FILE" ] && rm -Rf "$SCREENCAST_TEMP_FILE" &>/dev/null' EXIT
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202103201839-git
+##@Version       : 202108190117-git
 # @Author        : Jason Hempstead
 # @Contact       : jason@casjaysdev.com
 # @License       : WTFPL
 # @ReadME        : screencast --help
-# @Copyright     : Copyright: (c) 2021 Jason Hempstead, CasjaysDev
-# @Created       : Saturday, Mar 20, 2021 18:39 EDT
+# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created       : Thursday, Aug 19, 2021 01:17 EDT
 # @File          : screencast
 # @Description   : Record your desktop
 # @TODO          :
@@ -40,24 +43,162 @@ fi
 user_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-TMPFILE="$(mktemp -t screencast-XXXXXXX).mkv"
-OUTPUT="$HOME/Pictures/Screencasts/$(date +%m-%d-%Y-%H-%M)"
+# Set functions
+__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__mkd "$OUTPUT"
+__gen_config() {
+  printf_green "Generating the config file in"
+  printf_green "$SCREENCAST_CONFIG_DIR/$SCREENCAST_CONFIG_FILE"
+  [ -d "$SCREENCAST_CONFIG_DIR" ] || mkdir -p "$SCREENCAST_CONFIG_DIR"
+  [ -d "$SCREENCAST_CONFIG_BACKUP_DIR" ] || mkdir -p "$SCREENCAST_CONFIG_BACKUP_DIR"
+  [ -f "$SCREENCAST_CONFIG_DIR/$SCREENCAST_CONFIG_FILE" ] &&
+    cp -Rf "$SCREENCAST_CONFIG_DIR/$SCREENCAST_CONFIG_FILE" "$SCREENCAST_CONFIG_BACKUP_DIR/$SCREENCAST_CONFIG_FILE.$$"
+  cat <<EOF >"$SCREENCAST_CONFIG_DIR/$SCREENCAST_CONFIG_FILE"
+# Settings for screencast
+SCREENCAST_SAVE_DIR="${SCREENCAST_SAVE_DIR:-$HOME/Pictures/Screencasts/\$(date +%m-%d-%Y-%H-%M)}"
+SCREENCAST_FILENAME_FMT="${SCREENCAST_FILENAME_FMT:-%Y-%m-%d-%H-%M}"
+
+# Notification settings
+SCREENCAST_GOOD_MESSAGE="${SCREENCAST_GOOD_MESSAGE:-Everything Went OK}"
+SCREENCAST_ERROR_MESSAGE="${SCREENCAST_ERROR_MESSAGE:-Well that didn\'t work}"
+SCREENCAST_NOTIFY_ENABLED="${SCREENCAST_NOTIFY_ENABLED:-yes}"
+SCREENCAST_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+SCREENCAST_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$SCREENCAST_NOTIFY_CLIENT_ICON}"
+
+# Colorization settings
+SCREENCAST_OUTPUT_COLOR="${SCREENCAST_OUTPUT_COLOR:-5}"
+SCREENCAST_OUTPUT_COLOR_GOOD="${SCREENCAST_OUTPUT_COLOR_GOOD:-2}"
+SCREENCAST_OUTPUT_COLOR_ERROR="${SCREENCAST_OUTPUT_COLOR_ERROR:-1}"
+
+EOF
+  if [ -f "$SCREENCAST_CONFIG_DIR/$SCREENCAST_CONFIG_FILE" ]; then
+    printf_green "Your config file for screencast has been created"
+    true
+  else
+    printf_red "Failed to create the config file"
+    false
+  fi
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Default variables
+exitCode="0"
+SCREENCAST_CACHE_DIR="${SCREENCAST_CACHE_DIR:-$HOME/.cache/screencast}"
+SCREENCAST_CONFIG_DIR="${SCREENCAST_CONFIG_DIR:-$HOME/.config/myscripts/screencast}"
+SCREENCAST_OPTIONS_DIR="${SCREENCAST_OPTIONS_DIR:-$HOME/.local/share/myscripts/screencast/options}"
+SCREENCAST_CONFIG_BACKUP_DIR="${SCREENCAST_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/screencast/backups}"
+SCREENCAST_TEMP_DIR="${SCREENCAST_TEMP_DIR:-$HOME/.local/tmp/system_scripts/screencast}"
+SCREENCAST_TEMP_FILE="${SCREENCAST_TEMP_FILE:-$(mktemp $SCREENCAST_TEMP_DIR/XXXXXX 2>/dev/null)}"
+SCREENCAST_CONFIG_FILE="${SCREENCAST_CONFIG_FILE:-settings.conf}"
+SCREENCAST_GOOD_MESSAGE="${SCREENCAST_GOOD_MESSAGE:-Everything Went OK}"
+SCREENCAST_ERROR_MESSAGE="${SCREENCAST_ERROR_MESSAGE:-Well that didn\'t work}"
+SCREENCAST_NOTIFY_ENABLED="${SCREENCAST_NOTIFY_ENABLED:-yes}"
+SCREENCAST_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+SCREENCAST_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$SCREENCAST_NOTIFY_CLIENT_ICON}"
+SCREENCAST_OUTPUT_COLOR="${SCREENCAST_OUTPUT_COLOR:-5}"
+SCREENCAST_OUTPUT_COLOR_GOOD="${SCREENCAST_OUTPUT_COLOR_GOOD:-2}"
+SCREENCAST_OUTPUT_COLOR_ERROR="${SCREENCAST_OUTPUT_COLOR_ERROR:-1}"
+SCREENCAST_SAVE_DIR="${SCREENCAST_SAVE_DIR:-$HOME/Pictures/Screencasts}"
+SCREENCAST_FILENAME_FMT="${SCREENCAST_FILENAME_FMT:-%Y-%m-%d-%H-%M}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$SCREENCAST_TEMP_DIR" ] || mkdir -p "$SCREENCAST_TEMP_DIR" &>/dev/null
+[ -d "$SCREENCAST_CACHE_DIR" ] || mkdir -p "$SCREENCAST_CACHE_DIR" &>/dev/null
+[ -d "$SCREENCAST_SAVE_DIR" ] || mkdir -p "$SCREENCAST_SAVE_DIR" &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$SCREENCAST_CONFIG_DIR/$SCREENCAST_CONFIG_FILE" ] ||
+  __gen_config &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$SCREENCAST_CONFIG_DIR/$SCREENCAST_CONFIG_FILE" ] &&
+  . "$SCREENCAST_CONFIG_DIR/$SCREENCAST_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS="z:"
+LONGOPTS="options,config,version,help,dir:"
+ARRAY=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$PROG" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --options)
+    shift 1
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  -z | --dir)
+    SCREENCAST_CWD="$2"
+    shift 2
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+if [ "$SCREENCAST_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${SCREENCAST_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${SCREENCAST_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${SCREENCAST_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${SCREENCAST_NOTIFY_CLIENT_ICON}"
+    notifications "$*" || return 1
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+cmd_exists --error --ask bash ffmpeg eog || exit 1 # exit 1 if not found
+#am_i_online --error || exit 1     # exit 1 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+filename="$SCREENCAST_SAVE_DIR/$(date +"$SCREENCAST_FILENAME_FMT")"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+echo $SCREENCAST_SAVE_DIR/$(date +"$SCREENCAST_FILENAME_FMT")
+echo $filename
+echo $SCREENCAST_TEMP_FILE
 read -r X Y W H G ID < <(slop -f "%x %y %w %h %g %i")
-ffmpeg -f x11grab -s "$W"x"$H" -i :0.0+$X,$Y "$TMPFILE"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ffmpeg -f x11grab -s "$W"x"$H" -i :0.0+$X,$Y "$SCREENCAST_TEMP_FILE"
 notifications "Screencast:" 'generating palette'
-ffmpeg -y -i "$TMPFILE" -vf fps=10,palettegen /tmp/palette.png
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ffmpeg -y -i "$SCREENCAST_TEMP_FILE" -vf fps=10,palettegen /tmp/palette.png
 notifications "Screencast:" 'generating gif'
-ffmpeg -i "$TMPFILE" -i /tmp/palette.png -filter_complex "paletteuse" $OUTPUT.gif
+ffmpeg -i "$SCREENCAST_TEMP_FILE" -i /tmp/palette.png -filter_complex "paletteuse" "$filename.gif"
+mv "$SCREENCAST_TEMP_FILE" "$filename.mkv"
+notifications "Screencast:" "size $(du -h "$filename.gif" | awk '{print $1}')"
+eog "$SCREENCAST_SAVE_DIR" "$SCREENCAST_TEMP_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-mv "$TMPFILE" "$OUTPUT.mkv"
-notifications "Screencast:" "size $(du -h $OUTPUT.gif | awk '{print $1}')"
-eog "$OUTPUT.gif"
+# End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-exit $?
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# end
+# lets exit with code
+exit ${exitCode:-$?}

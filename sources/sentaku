@@ -1,0 +1,1940 @@
+#!/usr/bin/env bash
+
+## Description {{{
+#
+# Utility to make sentaku (selection) window with shell command.
+#
+# Homepage: https://github.com/rcmdnk/sentaku
+#
+# Usage: sentaku [-HNladnh] [-f <file>] [-s <sep>] [input variables]
+#
+#
+SENTAKU_VERSION=v0.8.0
+SENTAKU_DATE="30/Sep/2019"
+#
+# }}}
+
+## License {{{
+#
+#The MIT License (MIT)
+#
+#Copyright (c) 2014 rcmdnk
+#
+#Permission is hereby granted, free of charge, to any person obtaining a copy of
+#this software and associated documentation files (the "Software"), to deal in
+#the Software without restriction, including without limitation the rights to
+#use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+#the Software, and to permit persons to whom the Software is furnished to do so,
+#subject to the following conditions:
+#
+#The above copyright notice and this permission notice shall be included in all
+#copies or substantial portions of the Software.
+#
+#THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+#IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+#FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+#COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+#IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+#CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+# }}}
+
+# Default variables # {{{
+_SENTAKU_INPUT_FILE=${_SENTAKU_INPUT_FILE:-}
+_SENTAKU_SEPARATOR=${_SENTAKU_SEPARATOR:-$IFS}
+_SENTAKU_MAX=${_SENTAKU_MAX:-20}
+_SENTAKU_MIN_SHOW=${_SENTAKU_MIN_SHOW:-3}
+_SENTAKU_NOHEADER=${_SENTAKU_NOHEADER:-0}
+_SENTAKU_NONUMBER=${_SENTAKU_NONUMBER:-0}
+_SENTAKU_SHOWLAST=${_SENTAKU_SHOWLAST:-0}
+_SENTAKU_CONTENT_LINES=${_SENTAKU_CONTENT_LINES:-10}
+_SENTAKU_CONTENT_SHOW_UNDER=${_SENTAKU_CONTENT_SHOW_UNDER:-0}
+_SENTAKU_CHILD=${_SENTAKU_CHILD:-0}
+# 0: AND (smart case), 1: AND (case sensitive), 2: starts with (smart case), 3: starts with (case sensitive)
+_SENTAKU_SEARCH_OPT=${_SENTAKU_SEARCH_OPT:-0}
+_SENTAKU_PAGE_CHANGE=${_SENTAKU_PAGE_CHANGE:-1}
+_SENTAKU_KEYMODE=${_SENTAKU_KEYMODE:-0}
+_SENTAKU_COLOR_NUM_ONLY=${_SENTAKU_COLOR_NUM_ONLY:-0}
+_SENTAKU_LINE_HIGHLIGHT=${_SENTAKU_LINE_HIGHLIGHT:-1}
+_SENTAKU_DEBUG=${_SENTAKU_DEBUG:-0}
+# }}}
+
+_sf_help () { # {{{
+  if [[ -t 1 ]];then
+    echo "$_s_help"|${PAGER:-less} >/dev/tty
+  else
+    echo "$_s_help"
+  fi
+} # }}}
+
+_sf_initialize () { # {{{
+  # Set variables
+  _s_file="${SENTAKU_INPUT_FILE:-$_SENTAKU_INPUT_FILE}"
+  _s_use_file=0
+  _s_s="${SENTAKU_SEPARATOR:-$_SENTAKU_SEPARATOR}"
+  # If a separator is normal IFS, use space for file write out.
+  # note: $' \t\n' should not be surrounded by '"'.
+  if [[ "$_s_s" = $' \t\n' ]];then
+    _s_s_push=" "
+  else
+    _s_s_push="$_s_s"
+  fi
+  _s_inputs=()
+  _s_cmd_line_inputs=""
+  _s_n=0
+  _s_max=${SENTAKU_MAX:-$_SENTAKU_MAX}
+  _s_min_show=${SENTAKU_MIN_SHOW:-$_SENTAKU_MIN_SHOW}
+  _s_header=""
+  _s_noheader=${SENTAKU_NOHEADER:-$_SENTAKU_NOHEADER}
+  _s_nonumber=${SENTAKU_NONUMBER:-$_SENTAKU_NONUMBER}
+  _s_showlast=${SENTAKU_SHOWLAST:-$_SENTAKU_SHOWLAST}
+  _s_content_view=0
+  _s_s_content=0
+  _s_show_content=0
+  _s_content_lines=${SENTAKU_CONTENT_LINES:-$_SENTAKU_CONTENT_LINES}
+  _s_content_show_under=${SENTAKU_CONTENT_SHOW_UNDER:-$_SENTAKU_CONTENT_SHOW_UNDER}
+  _s_search_opt=${SENTAKU_SEARCH_OPT:-$_SENTAKU_SEARCH_OPT}
+  _s_page_change=${SENTAKU_PAGE_CHANGE:-$_SENTAKU_PAGE_CHANGE}
+  _s_keymode=${SENTAKU_KEYMODE:-$_SENTAKU_KEYMODE}
+  _s_col_n_only=${SENTAKU_COLOR_NUM_ONLY:-$_SENTAKU_COLOR_NUM_ONLY}
+  _s_line_highlight=${SENTAKU_LINE_HIGHLIGHT:-$_SENTAKU_LINE_HIGHLIGHT}
+  _s_debug=${SENTAKU_DEBUG:-$_SENTAKU_DEBUG}
+  _s_show=""
+  _s_lines=0
+  _s_cols=0
+  _s_max_show=0
+  _s_stdin=0
+  _s_align=0
+  _s_delete=0
+  _s_continue=0
+  _s_noshow=0
+  _s_trapped=0
+  _s_normal_echo=${_s_normal_echo:-1}
+
+  _s_is_print=1
+
+  _s_ext_row=0
+  _s_current_n=-1
+  _s_num=""
+  _s_n_offset=0
+  _s_g=0
+  _s_n_move=-1
+  _s_visual=-1
+  _s_v_selected=()
+  _s_break=0
+  _s_search=""
+  _s_search_words=""
+  _s_pre_inputs_n=0
+  local i
+  for i in $(seq 0 999);do
+    eval "_s_pre_inputs_$i=()"
+  done
+  _s_read=""
+  _s_zsh_ksharrays=0
+  _s_stty=""
+  _s_IFS=$IFS
+
+  _s_ret=0
+
+  # Help
+  _s_help=${_s_help:-"Usage: sentaku [-HNulapEVcCURLSnvh] [-f <file>] [-s <sep>] [-r <n>] [input variables]
+
+Arguments:
+  -f <file>  Set input file
+  -s <sep>   Set separator (default: ${SENTAKU_SEPARATOR:-$_SENTAKU_SEPARATOR})
+             If <sep> is \"line\", \$'\\n' is set as a separator.
+  -H         Force to show a header at sentaku window.
+  -N         No numbers are shown.
+  -u         Use underline to show selected line, instead of highlighting.
+  -l         Show last words instead of starting words for longer lines.
+  -a         Align input list (set selected one to the first).
+  -r <n>     Return nth value directly.
+  -p         Push words to the file.
+  -E         Use Emacs mode
+  -V         Use Vim mode
+  -c         Load functions as a child process in other sentaku process.
+  -C         Show the file content at the list view
+  -R         Show the file content in the right (default: right)
+  -U         Show the file content under the list (default: right)
+  -L         Number of lines to show the file content under the list (default: ${SENTAKU_CONTENT_LINES:-$_SENTAKU_CONTENT_LINES})
+  -S         Open the file under the cursor by \${VISUAL:-less} at s
+             instead of showing full line of the selected one
+  -n         Don't run functions, to just source this file
+  -v         Show version
+  -h         Print this HELP and exit
+
+Key operation at sentaku window
+  Common for all:
+    C-p/C-n  Up/Down.
+    C-u/C-d  Half page down/Half page down.
+    C-b/C-f  Page up/Page down.
+    M-v/C-v  Page up/Page down.
+    C-a/C-e  Go to the beginning/end.
+    C-i/C-o  Move the item up/down.
+    C-x      Quit.
+    C-s      Start/Stop Visual mode (multi-selection).
+    Space    Select/unselect current line for multi-selection.
+             At Emacs mode or search mode in Vim mode,
+             it selects when space is pushed twice.
+    Esc      At search mode, first Esc takes it back to normal mode
+             with selected words.
+             Second Esc clear search mode.
+             Visual mode is cleared by first Esc.
+    Enter    Select and Quit.
+
+  For Vim mode:
+    n(any number) Set number. Multi-digit can be used (13, 320, etc...).
+                  Used/reset by other key.
+    k/j      Up/Down (if n is given, n-th up/n-th down).
+    gg/G     Go to top/bottom. (If n is given, move to n-th candidate.)
+    d        Delete current candidate. (in case you use input file.)
+    s        Show detail of current candidate.
+    v        Visual mode, same as C-s
+    /        Search.
+    q        Quit.
+    Others   Nothing happens.
+
+  For Emacs mode:
+    Others   Normal keys start an incremental search.
+"}
+
+  # Lines and columns at beginning
+  _s_lines=$(tput lines)
+  _s_cols=$(tput cols)
+
+  # Fix array for zsh
+  if [[ -n "$ZSH_VERSION" ]];then
+    if ! setopt|grep -q ksharrays;then
+      _s_zsh_ksharrays=1
+      setopt ksharrays
+    fi
+  fi
+
+  # Check std input
+  [[ ! -t 0 ]] && _s_stdin=1
+
+  # User initialization
+  _sf_initialize_user
+} # }}}
+
+_sf_initialize_user () { # {{{
+  :
+} # }}}
+
+_sf_finalize () { # {{{
+  IFS=$_s_IFS
+
+  if ((_s_ret == 0 && _s_current_n >= 0));then
+    # Align values
+    if [[ "$_s_search" != "" ]];then
+      local val="${_s_inputs[$_s_current_n]}"
+      local -a selected
+      selected=()
+      IFS="$_s_s"
+      if [[ $_s_visual -ne -1 ]];then
+        local is_first=1
+        local i
+        local j=0
+        for i in $(seq 0 $((_s_n-1)));do
+          if ((_s_v_selected[i] == 1 ));then
+            selected[$j]=${_s_inputs[$i]}
+            ((j++))
+          fi
+        done
+      fi
+      _s_inputs=("${_s_pre_inputs_0[@]}")
+      IFS=$_s_IFS
+      _s_n=${#_s_inputs[@]}
+      if ((_s_visual != -1));then
+        local i
+        for i in $(seq 0 $((_s_n-1)));do
+          _s_v_selected[$i]=0
+        done
+      fi
+      _s_current_n=0
+      if ((_s_visual != -1));then
+        local i
+        local j
+        for i in $(seq 0 $((_s_n-1)));do
+          for j in $(seq 0 $((${#selected[@]}-1)));do
+            if [[ "${selected[$j]}" = "${_s_inputs[$i]}" ]];then
+              _s_current_n=$i
+              _s_v_selected[$i]=1
+            fi
+          done
+        done
+      else
+        local i
+        for i in $(seq 0 $((_s_n-1)));do
+          if [[ "$val" = "${_s_inputs[$i]}" ]];then
+            _s_current_n=$i
+            break
+          fi
+        done
+      fi
+      _s_search=""
+    fi
+
+    # Execution for selected value
+    _sf_execute
+
+    ((_s_align == 1 && _s_stdin == 0)) && _sf_align_values "$_s_current_n" 0
+  fi
+
+  if ((_SENTAKU_CHILD == 0 && _s_noshow == 0));then
+    # Show cursor
+    tput cnorm >/dev/tty 2>/dev/null || tput vs >/dev/tty 2>/dev/null
+
+    # Enable echo input
+    if ((_s_stdin == 0));then
+      if [[ "$_s_stty" != "" ]];then
+        stty $_s_stty
+        # followings are for fixing problems of previous commands...
+        stty echo
+      fi
+    fi
+  fi
+  if ((_s_trapped == 1));then
+    # fixed at C-c
+    stty echo 2>/dev/null
+  fi
+
+  # Release variables
+  unset _s_file
+  unset _s_use_file
+  unset _s_s
+  unset _s_s_push
+  unset _s_inputs
+  unset _s_cmd_line_inputs
+  unset _s_n
+  unset _s_max
+  unset _s_min_show
+  unset _s_header
+  unset _s_noheader
+  unset _s_nonumber
+  unset _s_showlast
+  unset _s_content_view
+  unset _s_s_content
+  unset _s_show_content
+  unset _s_content_lines
+  unset _s_content_show_under
+  unset _s_search_opt
+  unset _s_page_change
+  unset _s_keymode
+  unset _s_col_n_only
+  unset _s_line_highlight
+  unset _s_debug
+  unset _s_show
+  unset _s_lines
+  unset _s_cols
+  unset _s_max_show
+  unset _s_stdin
+  unset _s_align
+  unset _s_delete
+  unset _s_continue
+  unset _s_noshow
+  unset _s_trapped
+  unset _s_normal_echo
+
+  unset _s_is_print
+
+  unset _s_ext_row
+  unset _s_current_n
+  unset _s_num
+  unset _s_n_offset
+  unset _s_g
+  unset _s_n_move
+  unset _s_visual
+  unset _s_v_selected
+  unset _s_break
+  unset _s_search
+  unset _s_search_words
+  unset _s_pre_inputs_n
+  local i
+  for i in $(seq 0 999);do
+    eval "unset _s_pre_inputs_$i"
+  done
+  unset _s_read
+
+  unset _s_help
+
+  [[ "x$_s_zsh_ksharrays" != "x" && $_s_zsh_ksharrays -eq 1 ]] && unsetopt ksharrays
+  unset _s_zsh_ksharrays
+
+  unset _s_stty
+  unset _s_IFS
+
+  _sf_finalize_user
+
+  local ret=$_s_ret
+  unset _s_ret
+  return $ret
+} # }}}
+
+_sf_finalize_user () { # {{{
+  :
+} # }}}
+
+_sf_execute () { # {{{
+  if ((_s_visual != -1));then
+    local is_first=1
+    local i
+    for i in $(seq 0 $((_s_n-1)));do
+      if ((_s_v_selected[i] == 1));then
+        if ((is_first == 1));then
+          printf "%s" "${_s_inputs[$i]}"
+          is_first=0
+        else
+          printf "$_s_s%s" "${_s_inputs[$i]}"
+        fi
+      fi
+    done
+  else
+    printf "%s" "${_s_inputs[$_s_current_n]}"
+  fi
+} # }}}
+
+_sf_hide () { # {{{
+  if ((_SENTAKU_CHILD == 0 && _s_noshow == 0));then
+    if ((_s_stdin == 0));then
+      # Save current stty
+      _s_stty=$(stty -g)
+
+      # Hide any input
+      stty -echo
+
+    fi
+
+    # Hide cursor
+    tput civis >/dev/tty 2>/dev/null || tput vi >/dev/tty 2>/dev/null
+
+    # Save current display
+    tput smcup >/dev/tty 2>/dev/null || tput ti >/dev/tty 2>/dev/null
+
+    _s_normal_echo=0
+  fi
+} # }}}
+
+_sf_clear () { # {{{
+  if ((_SENTAKU_CHILD == 0 && _s_noshow == 0));then
+    # clear after selection
+    clear >/dev/tty
+
+    # Restore display
+    tput rmcup >/dev/tty 2>/dev/null || tput te >/dev/tty 2>/dev/null
+
+    _s_normal_echo=1
+  fi
+} # }}}
+
+_sf_nth () { # {{{
+  case $1 in
+    1)echo 1st;;
+    2)echo 2nd;;
+    3)echo 3rd;;
+    *)echo "${1}th";;
+  esac
+} # }}}
+
+_sf_read () { # {{{
+  IFS=
+  if [[ -n "$ZSH_VERSION" ]];then
+    read -srk 1 _s_read </dev/tty
+  else
+    read -srn 1 _s_read </dev/tty
+  fi
+  IFS=$_s_IFS
+} # }}}
+
+_sf_wait () { # {{{
+  _sf_read
+} # }}}
+
+_sf_yn () { # {{{
+  local message="$*"
+  while : ;do
+    clear >/dev/tty
+    echo "$message [y/n]: " >/dev/tty
+    _sf_read
+    if [[ "$_s_read" = "y" ]];then
+      return 0
+    elif [[ "$_s_read" = "n" ]];then
+      _sf_quit
+      return 1
+    fi
+  done
+} # }}}
+
+_sf_check_args () { # {{{
+  # Get arguments
+  _s_continue=0
+  while [[ $# -gt 0 ]];do
+    case $1 in
+      "-f") # Use file
+        _s_file=$2
+        _s_use_file=1
+        if [[ "$_s_file" = "" ]];then
+          echo "ERROR: empty input was given with -i" >/dev/tty
+          return 1
+        fi
+        shift
+        ;;
+      "-s") # Set separator
+        _s_s=$2
+        if [[ "$_s_s" = "line" ]];then
+          _s_s=$'\n'
+        fi
+        if [[ "$_s_s" = $' \t\n' ]];then
+          _s_s_push=" "
+        else
+          _s_s_push="$_s_s"
+        fi
+        shift
+        ;;
+      "-H" ) _s_noheader=0;;
+      "-N" ) _s_nonumber=1;;
+      "-u" ) _s_line_highlight=0;;
+      "-l" ) _s_showlast=1;;
+      "-a" ) _s_align=1;;
+      "-m" ) ;;
+      "-r" )
+        if [[ "$2" =~ ^[0-9]+$ ]];then
+          _s_current_n=$2
+          shift
+        else
+          echo "-r option requires a number" >/dev/tty
+          return 1
+        fi
+        ;;
+      "-p" )
+        shift
+        _sf_push "$@"
+        return $?
+        ;;
+      "-E" ) _s_keymode=1;;
+      "-V" ) _s_keymode=0;;
+      "-c" ) _SENTAKU_CHILD=1;;
+      "-C" ) _s_show_content=1;;
+      "-R" ) _s_show_content=1;_s_content_show_under=0;;
+      "-U" ) _s_show_content=1;_s_content_show_under=1;;
+      "-L" ) _s_content_lines=$2;shift;;
+      "-S" ) _s_s_content=1;;
+      "-n" ) ;;
+      "-v" ) echo "$(basename "$0") $SENTAKU_VERSION $SENTAKU_DATE" >/dev/tty; return 0;;
+      "-h" )
+        _sf_help
+        return 0
+        ;;
+      -* )
+        echo "$(basename "$0") $1: unknown argument
+Check \"$(basename "$0") -h\" for further information" >/dev/tty
+        return 1
+        ;;
+      * )
+        break
+    esac
+    shift
+  done
+  _s_cmd_line_inputs="$*"
+  _s_continue=1
+  return 0
+} # }}}
+
+_sf_get_values_wrapper () { # {{{ _sf_get_values_wrapper [<is_stdin> [<is_check>]]
+  _sf_get_values "$1" "$2"
+  if ((_s_n == 0));then
+    return 1
+  else
+    _sf_setview
+  fi
+} # }}}
+
+_sf_get_values () { # {{{ _sf_get_values [<is_stdin> [<is_check>]]
+  local stdin=$_s_stdin
+  local check=1
+  if [[ "$1" != "" ]];then
+    stdin=$1
+  fi
+  if [[ "$2" != "" ]];then
+    check=$2
+  fi
+  # Get values
+  IFS="$_s_s"
+  if [[ "$stdin" -eq 0 || "$_s_use_file" -eq 1 ]];then
+    if [[ "$_s_use_file" -eq 0 && -z "$_s_file" ]];then
+      _s_inputs=($(echo "$_s_cmd_line_inputs"))
+    else
+      touch "$_s_file"
+      _s_inputs=($(cat "$_s_file"))
+    fi
+  else
+    _s_inputs=($(cat -))
+  fi
+  IFS=$_s_IFS
+  if [[ -n "$ZSH_VERSION" ]];then
+    # Fix array for ZSH
+    # Zsh's array adds additional empty value to array if IFS is in the end of file.
+    if [[ ${#_s_inputs[@]} -gt 0 ]];then
+      local last="${_s_inputs[$((${#_s_inputs[@]}-1))]}"
+      if [[ "${#last}" -eq 0 ]];then
+        _s_inputs=(${_s_inputs[0,$((${#_s_inputs[@]}-2))]})
+      fi
+    fi
+  fi
+  _s_n=${#_s_inputs[@]}
+
+  if ((check == 1 && _s_n == 0));then
+    if ((stdin == 0 || _s_use_file == 1));then
+      _sf_echoln "No value in $_s_file\\n"
+    else
+      _sf_echoln "No value in stdin\\n"
+    fi
+    _s_ret=1
+    return
+  elif ((_s_n > 0));then
+    _s_v_selected=()
+    local i
+    for i in $(seq 0 $((_s_n-1)));do
+      _s_v_selected[$i]=0
+    done
+  fi
+  _s_ret=0
+} # }}}
+
+_sf_align_values () { # {{{ _sf_align_values [<n> [<is_get>]]
+  local n=${1:-$_s_current_n}
+  local is_get=${2:-1}
+  if [[ ! "$n" =~ ^[0-9]+$ || "$n" -ge "$_s_n" ]];then
+    _sf_echoln "$n is not valid for _sf_align_values"
+    return 1
+  fi
+  local v="${_s_inputs[$n]}"
+  printf "%s$_s_s_push" "$v" > "$_s_file"
+  local i=0
+  for i in $(seq 0 $((_s_n-1)));do
+    if [[ "$i" -ge "$_s_max" ]];then break;fi
+    if [[ "${_s_inputs[$i]}" != "$v" ]];then
+      printf "%s$_s_s_push" "${_s_inputs[$i]}" >> "$_s_file"
+    fi
+  done
+  if [[ "$is_get" -eq 1 ]];then
+    _sf_get_values_wrapper
+  fi
+} # }}}
+
+_sf_delete () { # {{{
+  echo -n > "$_s_file"
+  local i
+  local old_current_n=$_s_current_n
+  for i in $(seq 0 $((_s_n-1)));do
+    if (((_s_visual != -1 && _s_v_selected[i] == 1 ) ||\
+        (_s_visual == -1 && i == old_current_n)));then
+      if ((i < old_current_n));then
+        ((_s_current_n--))
+      fi
+      continue
+    fi
+    printf "%s$_s_s_push" "${_s_inputs[$i]}" >> "$_s_file"
+  done
+  _sf_get_values_wrapper
+} # }}}
+
+_sf_remove () { # {{{
+  local inputs
+  inputs=()
+  local i
+  local old_current_n=$_s_current_n
+  for i in $(seq 0 $((_s_n-1)));do
+    if (((_s_visual != -1 && _s_v_selected[i] == 1) ||\
+        (_s_visual == -1 && i == old_current_n)));then
+      if ((i < old_current_n));then
+        ((_s_current_n--))
+      fi
+      continue
+    fi
+    inputs[${#inputs[@]}]="${_s_inputs[$i]}"
+  done
+  _s_inputs=("${inputs[@]}")
+  _s_n=${#_s_inputs[@]}
+  for i in $(seq 0 $((_s_n-1)));do
+    _s_v_selected[$i]=0
+  done
+} # }}}
+
+_sf_rm_del () { # {{{
+  if ((_s_delete == 0 || _s_stdin == 1));then
+    _sf_remove
+  else
+    _sf_delete
+  fi
+  if ((_s_n == 0));then
+    _sf_echoln "There are no remained entries"
+    _s_ret=1
+  fi
+  if ((_s_ret != 0));then
+    _sf_quit $_s_ret
+    return
+  fi
+  if ((_s_current_n >= _s_n));then
+    _s_current_n=$((_s_n-1))
+  fi
+  if ((_s_current_n < _s_n_offset));then
+    _s_n_offset=$_s_current_n
+  fi
+  local n_move
+  if ((_s_n < (_s_lines-_s_ext_row+_s_n_offset)));then
+    local n_move=$((_s_lines-_s_ext_row+_s_n_offset-_s_n))
+    if ((n_move > _s_n_offset));then
+      n_move=$_s_n_offset
+    fi
+    _s_n_offset=$((_s_n_offset-n_move))
+  fi
+  _s_visual=-1
+  local i
+  for i in $(seq 0 $((_s_n-1)));do
+    _s_v_selected[$i]=0
+  done
+  _s_is_print=1
+} # }}}
+
+_sf_add_spaces () { # {{{ _sf_add_spaces <var> <n> [is_prepend]
+  local var=$1
+  local n=$2
+  local prepend=${3:-0}
+  while ((n > 0));do
+    if ((prepend == 1));then
+      eval "$var=\" \$$var\""
+    else
+      eval "$var=\"\$$var \""
+    fi
+    ((n--))
+  done
+} # }}}
+
+_sf_cut_word () { # {{{ _sf_cut_word <var> <max_length> [<is_last_show>]
+  local var=$1
+  local max_length=$2
+  local is_last_show=${3:-0}
+  if eval "[[ \${#$var} -le $max_length ]]";then
+    eval "_sf_add_spaces $var \$(($max_length-\${#$var}))"
+    return
+  fi
+  if ((is_last_show == 0));then
+    eval "$var=\${$var: 0: $max_length}"
+    return
+  else
+    eval "$var=\${$var: \$((\${#$var}-max_length))}"
+    return
+  fi
+} # }}}
+
+_sf_get_content () { # {{{
+  if ! file "${_s_inputs[$_s_current_n]}"|grep -q text;then
+    echo "Not a text file"
+  else
+    cat "${_s_inputs[$_s_current_n]}"
+  fi
+} # }}}
+
+_sf_content () { # {{{
+  if ((_s_content_view == 0));then
+    return
+  fi
+  local i
+  local start_line=$((_s_lines+1))
+  local end_line=$(($(tput lines)-1))
+  local start_col=0
+  local n_cols=$_s_cols
+
+  if ((_s_content_show_under == 0));then
+    start_line=0
+    start_col=$_s_cols
+    n_cols=$_s_content_cols
+  fi
+
+  for i in $(seq $start_line $end_line);do
+    tput cup "$i" "$start_col" >/dev/tty
+    printf "%-${n_cols}s" "" >/dev/tty
+  done
+
+  if ((_s_content_show_under == 1));then
+    tput cup "$_s_lines" 0 >/dev/tty
+    printf -- "---"
+  fi
+
+  i=$start_line
+  while read -r line;do
+    if ((_s_content_show_under == 0));then
+      line="|$line"
+    fi
+    if ((${#line} >= n_cols));then
+      if [ "x$ZSH_VERSION" != "x" ];then
+        line="${line[0,$((n_cols-1))]}"
+      else
+        line="${line: 0: $n_cols}"
+      fi
+    fi
+    tput cup "$i" "$start_col" >/dev/tty
+    printf "%s" "$line"
+    ((i++))
+    if [ $i -gt $end_line ];then
+      break
+    fi
+  done < <(_sf_get_content)
+  if ((_s_content_show_under == 0));then
+    while ((i < end_line));do
+      tput cup "$i" "$start_col" >/dev/tty
+      printf "|"
+      ((i++))
+    done
+  fi
+} # }}}
+
+_sf_show () { # _sf_show [<is_selected>] [<n_show>] {{{
+  local is_selected=${1:-0}
+  local n_show=${2:-$_s_cols}
+  _sf_cut_word _s_show "$n_show" "$_s_showlast"
+
+  # Color search words
+  if [[ "$_s_search_words" != "" ]];then
+    local ignore_case=0
+    local search_words=$_s_search_words
+    if ((_s_search_opt == 0 || _s_search_opt == 2));then
+      if [[ -n "$ZSH_VERSION" ]];then
+        local words_lower=$_s_search_words:l
+      elif [[ -n ${BASH_VERSINFO[0]} ]] && [[ ${BASH_VERSINFO[0]} -ge 4 ]];then
+        local words_lower=${_s_search_words,,}
+      else
+        local words_lower=$(echo ${_s_search_words}|tr "[:upper:]" "[:lower:]")
+      fi
+      if [[ $words_lower = "$_s_search_words" ]];then
+        local ignore_case=1
+        search_words=$words_lower
+      fi
+    fi
+
+    local negative=""
+    if ((is_selected == 1));then
+      negative=";7"
+    fi
+
+    if ((_s_search_opt <= 1));then
+      local -a words
+      words=($search_words)
+      local w
+      for w in "${words[@]}";do
+        if ((ignore_case == 1));then
+          # Similar replace can be done by GNU sed, BSD sed doesn't support ignore case option
+          _s_show=$(echo "$_s_show"|perl -pe "s|($w)|\\e[31${negative}m\\1\\e[0${negative}m|gi")
+        else
+          _s_show="${_s_show//$w/\\e[31${negative}m$w\\e[${negative}m}"
+        fi
+      done
+    else
+      if ((ignore_case == 1));then
+        _s_show=$(echo "$_s_show"|perl -pe "s|(^$search_words)|\\e[31${negative}m\\1\\e[0${negative}m|gi")
+      else
+        _s_show="\\e[31${negative}m$search_words\\e[${negative}m${_s_show#$search_words}"
+      fi
+    fi
+  fi
+} # }}}
+
+_sf_printline () { # usage: _sf_printline is_selected n_line n_input {{{
+  local is_selected=$1
+  local n_line=$2
+  local n_input=$3
+
+  local color=""
+  if ((_s_v_selected[n_input] == 1));then
+    color="[36m"
+  fi
+  if ((is_selected == 1));then
+    if ((_s_line_highlight == 1));then
+      color="${color}[7m"
+    else
+      color="${color}[4m"
+    fi
+  fi
+
+  # Change line breaks to \n (to be shown), remove the last line break, replace tab to space
+  _s_show=${_s_inputs[$n_input]//$'\n'/\\\\n}
+  _s_show=${_s_show%\\\\n}
+  _s_show=${_s_show//$'\t'/ }
+
+  tput cup "$n_line" 0 >/dev/tty
+  local n_show=$_s_cols
+  _s_num=""
+  if ((_s_nonumber == 0));then
+    local nmax=$((_s_n-1))
+    local num_width=${#nmax}
+    n_show=$((_s_cols-num_width-2))
+    _sf_add_spaces _s_num $((num_width-${#n_input})) 1
+    _s_num="$_s_num$n_input: "
+  fi
+  _sf_show "$is_selected" "$n_show"
+  if ((_s_col_n_only == 1));then
+    printf "${color}${_s_num}[m${_s_show}" >/dev/tty
+  else
+    printf "${color}${_s_num}${_s_show}[m" >/dev/tty
+  fi
+  tput cup "$n_line" 0 >/dev/tty
+} # }}}
+
+_sf_print_current_line () { # print current line {{{
+  _sf_printline 1 $((_s_current_n-_s_n_offset+_s_ext_row)) $_s_current_n
+  _sf_content
+} # }}}
+
+_sf_printall () { # usage: _sf_printall [not force] {{{
+  # if any argument is given, check if echoed or not.
+  local n=$#
+  if ((n >= 1 && _s_is_print == 0));then
+    return
+  fi
+
+  local lines=$_s_lines
+  local cols=$_s_cols
+  _s_lines=$(tput lines)
+  _s_cols=$(tput cols)
+
+  _sf_setview
+
+  if ((lines != _s_lines || cols != _s_cols));then
+    _s_current_n=0
+    _s_n_offset=0
+  fi
+
+  clear >/dev/tty
+
+  # Header
+  _sf_print "${_s_header}"
+
+  local i
+  for i in $(seq 0 $((_s_max_show-1)));do
+    if (((i+_s_n_offset) >= _s_n));then break;fi
+    if (((i+_s_n_offset) == _s_current_n));then
+      _sf_print_current_line
+    else
+      _sf_printline 0 $((i+_s_ext_row)) $((i+_s_n_offset))
+    fi
+  done
+  _s_is_print=0
+} # }}}
+
+_sf_print () { # {{{
+  printf "%b" "$*" >/dev/tty
+} # }}}
+
+_sf_echo () { # {{{
+  if ((_s_noshow == 1));then
+    :
+  elif ((_s_normal_echo == 1));then
+    _sf_print "$*"
+  else
+    clear >/dev/tty
+    _sf_print "$*"
+    _s_is_print=1
+    _sf_wait
+  fi
+} # }}}
+
+_sf_echoln () { # {{{
+  _sf_echo "$*\\n"
+} # }}}
+
+_sf_echo_debug () { # {{{
+  if [[ "$_s_debug" = "" ]];then
+    # Temporarily use default value for debug_echo before initialization.
+    _s_debug=$_SENTAKU_DEBUG
+  fi
+  if ((_s_debug > 0));then
+    _sf_echo "$*"
+  fi
+} # }}}
+
+_sf_echoln_debug () { # {{{
+  _sf_echo_debug "$*\\n"
+} # }}}
+
+_sf_echo_printall () { # {{{
+  _sf_echo "$*"
+  _sf_printall
+} # }}}
+
+_sf_set_header () { # {{{
+  _s_header="\\e[43;30m$_s_n values in total\\e[0m "
+  if ((_s_noheader == 1));then
+    return
+  fi
+  if ((_s_delete == 1));then
+    local delete_key="d(delete), "
+  else
+    local delete_key=""
+  fi
+  if ((_s_keymode == 0));then
+    if ((_s_cols >= 68));then
+      _s_header="$_s_header
+  [n]j(n-down), [n]k(n-up), gg(top), G(bottom), [n]gg/G, (go to n)
+  ^D(Half page down), ^U(Half page up), ^F(Page down), ^B(Page Up)
+  ${delete_key}/(search), Enter/Space(select), q(quit)"
+    elif ((_s_cols >= 41));then
+      _s_header="$_s_header
+  vimike updown, e.g)j:down, k:up, gg/G
+  ${delete_key}Enter/Space(select), q(quit)"
+    fi
+  else
+    if ((_s_cols >= 51));then
+      _s_header="$_s_header
+  C-n(down), C-j(up), C-v(Page down), M-v(Page up)
+  Enter(select), C-x(quit)
+  Other normal keys start an incremental search"
+    fi
+  fi
+}  # }}}
+
+_sf_setview () { # {{{
+  if ((_s_show_content)) && ((_s_content_show_under == 0 ));then
+    _s_content_view=1
+    local full_cols=$_s_cols
+    _s_cols=$((full_cols/2))
+    _s_content_cols=$((full_cols-_s_cols))
+  fi
+
+  if ((_s_lines <= _s_min_show));then
+    _s_header=""
+    _s_ext_row=0
+  elif ((_s_lines == (_s_min_show+1)));then
+    _s_header="${_s_search}"
+    _s_ext_row=1
+  else
+    _sf_set_header
+    _s_header="$_s_header\\n$_s_search"
+    if [[ "$(printf "%b\n" "$_s_header"|grep -c ^)" -gt "$((_s_lines-_s_min_show))" ]];then
+      _s_header="\e[43;30m$_s_n values in total\e[0m\n${_s_search}"
+    fi
+    _s_ext_row=$(printf "%b\n" "$_s_header"|grep -c ^)
+  fi
+
+  if ((_s_show_content == 1)) && ((_s_content_show_under == 1));then
+    if ((_s_lines - _s_ext_row - _s_content_lines - 1 >= 0));then
+      _s_lines=$((_s_lines-_s_content_lines-1))
+      _s_content_view=1
+    else
+      _s_content_view=0
+    fi
+  fi
+
+  _s_max_show=$_s_n
+  if ((_s_n > (_s_lines-_s_ext_row)));then
+    _s_max_show=$((_s_lines-_s_ext_row))
+  fi
+} # }}}
+
+_sf_n_down () { # The line goes Down. (Increase the line number) {{{
+  ((_s_n_move <= 0)) && _s_n_move=1
+  local all=0
+  local old_current_n=$_s_current_n
+  local old_cursor_r=$((_s_current_n-_s_n_offset+_s_ext_row))
+  _s_current_n=$((_s_current_n+_s_n_move))
+  ((_s_current_n >= _s_n)) && _s_n_move=-1 && _s_current_n=$((_s_n-1))
+  _s_g=0
+  _s_n_move=-1
+  ((_s_current_n == old_current_n)) && return
+  if (((_s_current_n+1-_s_max_show) > _s_n_offset));then
+    if ((_s_page_change == 0));then
+      _s_n_offset=$((_s_current_n+1-_s_max_show))
+    else
+      _s_n_offset=$((_s_current_n-(_s_current_n)%_s_max_show))
+    fi
+    all=1
+  fi
+  if ((all == 1));then
+    _s_is_print=1
+  elif ((_s_visual < 0));then
+    _sf_printline 0 $old_cursor_r $old_current_n
+    _sf_print_current_line
+  fi
+  if ((_s_visual >= 0));then
+    local tmp_r=$old_cursor_r
+    local tmp_n=$old_current_n
+    while ((tmp_n < _s_current_n));do
+      if ((tmp_n < _s_visual));then
+        _s_v_selected[$tmp_n]=0
+      else
+        _s_v_selected[$tmp_n]=1
+      fi
+      ((all != 1)) && _sf_printline 0 $tmp_r $tmp_n
+      ((tmp_r++));((tmp_n++))
+    done
+    _s_v_selected[$_s_current_n]=1
+    ((all != 1)) && _sf_print_current_line
+  fi
+} # }}}
+
+_sf_n_up () { # The line goes up. (Decrease the line Number!) {{{
+  ((_s_n_move <= 0)) && _s_n_move=1
+  local all=0
+  local old_current_n=$_s_current_n
+  local old_cursor_r=$((_s_current_n-_s_n_offset+_s_ext_row))
+  _s_current_n=$((_s_current_n-_s_n_move))
+  ((_s_current_n < 0)) && _s_current_n=0
+  _s_n_move=-1
+  _s_g=0
+  ((_s_current_n == old_current_n)) && return
+  if ((_s_current_n < _s_n_offset));then
+    if ((_s_page_change == 0));then
+      _s_n_offset=$_s_current_n
+    else
+      _s_n_offset=$((_s_current_n-(_s_current_n)%_s_max_show))
+    fi
+    all=1
+  fi
+  if ((all == 1));then
+    _s_is_print=1
+  elif ((_s_visual < 0));then
+    _sf_printline 0 $old_cursor_r $old_current_n
+    _sf_print_current_line
+  fi
+  if ((_s_visual >= 0));then
+    local tmp_r=$old_cursor_r
+    local tmp_n=$old_current_n
+    while ((tmp_n > _s_current_n));do
+      if ((tmp_n > _s_visual));then
+        _s_v_selected[$tmp_n]=0
+      else
+        _s_v_selected[$tmp_n]=1
+      fi
+      ((all != 1)) && _sf_printline 0 $tmp_r $tmp_n
+      ((tmp_r--));((tmp_n--))
+    done
+    _s_v_selected[$_s_current_n]=1
+    ((all != 1)) && _sf_print_current_line
+  fi
+  _s_g=0
+  _s_n_move=-1
+} # }}}
+
+_sf_item_move_up () { # {{{ Move the item up
+  ((_s_current_n == 0)) && return
+
+  ((_s_n_move <= 0)) && _s_n_move=1
+
+  local replace=$((_s_current_n-_s_n_move))
+  ((replace < 0)) && replace=0
+
+  local v_current=${_s_inputs[$_s_current_n]}
+  local v_replace=${_s_inputs[$replace]}
+  _s_inputs[$_s_current_n]=$v_replace
+  _s_inputs[$replace]=$v_current
+  ((_s_visual>=0)) && _s_visual=-2
+  if ((_s_visual!=-1)); then
+    local s_current=${_s_v_selected[$_s_current_n]}
+    local s_replace=${_s_v_selected[$replace]}
+    _s_v_selected[$_s_current_n]=$s_replace
+    _s_v_selected[$replace]=$s_current
+  fi
+  ((_s_stdin == 0)) && _sf_align_values 0 0
+  _sf_n_up
+} # }}}
+
+_sf_item_move_down () { # {{{ Move the item down
+  ((_s_current_n == _s_n-1)) && return
+
+  ((_s_n_move <= 0)) && _s_n_move=1
+
+  local replace=$((_s_current_n+_s_n_move))
+  ((replace > _s_n-1)) && replace=$((_s_n-1))
+
+  local v_current=${_s_inputs[$_s_current_n]}
+  local v_replace=${_s_inputs[$replace]}
+  _s_inputs[$_s_current_n]=$v_replace
+  _s_inputs[$replace]=$v_current
+  ((_s_visual>=0)) && _s_visual=-2
+  if ((_s_visual!=-1)); then
+    local s_current=${_s_v_selected[$_s_current_n]}
+    local s_replace=${_s_v_selected[$replace]}
+    _s_v_selected[$_s_current_n]=$s_replace
+    _s_v_selected[$replace]=$s_current
+  fi
+  ((_s_stdin == 0)) && _sf_align_values 0 0
+  _sf_n_down
+} # }}}
+
+_sf_quit () { # {{{
+  local n=$#
+  ((n > 0)) && _s_ret=$1
+  _s_current_n=-1
+  _s_break=1
+} # }}}
+
+_sf_select () { # {{{
+  _s_break=1
+} # }}}
+
+_sf_search () { # {{{
+  if ((_s_ext_row == 0));then
+    _sf_echo "Too few lines for search mode."
+    return
+  fi
+  local first_char=$1
+  if [[ "$_s_search" = "" ]];then
+    _s_pre_inputs_0=("${_s_inputs[@]}")
+    _s_pre_inputs_n=0
+    _s_search="\e[41;30mSearch:\e[0m"
+  fi
+
+  if [[ "$first_char" = "" ]];then
+    _sf_printall
+  fi
+  while : ;do
+    local del=0
+    if [[ "$first_char" != "" ]];then
+      _s_search_words="$_s_search_words$first_char"
+      first_char=""
+    else
+      _sf_read
+      local r=$_s_read
+      case $r in
+        $'\E' ) # Esc
+          _sf_read
+          local r2=$_s_read
+          if [[ "$r2" = "v" ]];then # M-v
+            _s_n_move=$((_s_max_show)); _sf_n_up
+            continue
+          elif [[ "$r2" = "[" ]];then
+            _sf_read
+            local r3=$_s_read
+            if [[ "$r3" = "A" ]];then # cursor up
+              _sf_n_up
+              continue
+            elif [[ "$r3" = "B" ]];then # cursor down
+              _sf_n_down
+              continue
+            fi
+          fi
+          if ((_s_n == 0 || _s_keymode == 1));then
+            _s_inputs=("${_s_pre_inputs_0[@]}")
+            _s_n=${#_s_inputs[@]}
+            _s_search=""
+            _s_search_words=""
+            _sf_reset
+          fi
+          return
+          ;;
+        $'\ch'|$'\x7f') # ^H/Backspace
+          if [[ "$_s_search_words" = "" ]];then
+            _s_search=""
+            _s_search_words=""
+            _sf_reset
+            return
+          fi
+          _sf_cut_word _s_search_words $((${#_s_search_words}-1))
+          ((_s_pre_inputs_n--))
+          eval "_s_inputs=(\"\${_s_pre_inputs_$((_s_pre_inputs_n))[@]}\")"
+          _s_n=${#_s_inputs[@]}
+          del=1
+          ;;
+        $'\cu') # ^U
+          _s_search_words=""
+          _s_pre_inputs_n=0
+          ;;
+        ""|$'\n' )
+          _sf_enter
+          return
+          ;;
+        $'\ca' ) _sf_c_a; continue;;
+        $'\cb' ) _sf_c_b; continue;;
+        $'\cc' ) _sf_c_c; continue;;
+        $'\cd' ) _sf_c_d; continue;;
+        $'\ce' ) _sf_c_e; continue;;
+        $'\cf' ) _sf_c_f; continue;;
+        $'\cg' ) _sf_c_g; continue;;
+        $'\ch' ) _sf_c_h; continue;;
+        $'\ci' ) _sf_c_i; continue;;
+        $'\cj' ) _sf_c_j; continue;;
+        $'\ck' ) _sf_c_k; continue;;
+        $'\cl' ) _sf_c_l; continue;;
+        $'\cm' ) _sf_c_m; continue;;
+        $'\cn' ) _sf_c_n; continue;;
+        $'\co' ) _sf_c_o; continue;;
+        $'\cp' ) _sf_c_p; continue;;
+        $'\cr' ) _sf_c_r; continue;;
+        $'\cs' ) _sf_c_s; continue;;
+        $'\ct' ) _sf_c_t; continue;;
+        $'\cu' ) _sf_c_u; continue;;
+        $'\cv' ) _sf_c_v; continue;;
+        $'\cw' ) _sf_c_w; continue;;
+        $'\cx' ) _sf_c_x; continue;;
+        $'\cy' ) _sf_c_y; continue;;
+        $'\cz' ) _sf_c_z; continue;;
+
+        *)_s_search_words="$_s_search_words$_s_read";;
+      esac
+    fi
+
+    _s_search="\e[41;30mSearch:\e[0m \e[31m$_s_search_words\e[0m"
+
+    if [[ "$_s_search_words" = "" ]];then
+      _s_inputs=("${_s_pre_inputs_0[@]}")
+      _s_n=${#_s_inputs[@]}
+    elif ((del == 1));then
+      :
+    else
+      local -a inputs
+      inputs=()
+      local i
+      local j
+      for i in $(seq 0 $((_s_n-1)));do
+        if _sf_search_check "${_s_inputs[$i]}";then
+          inputs[j]="${_s_inputs[$i]}"
+          ((j++))
+        fi
+      done
+      _s_inputs=("${inputs[@]}")
+      _s_n=${#_s_inputs[@]}
+      ((_s_pre_inputs_n++))
+      eval "_s_pre_inputs_${_s_pre_inputs_n}=(\"\${_s_inputs[@]}\")"
+    fi
+
+    _sf_reset
+  done
+} # }}}
+
+_sf_search_check () { # {{{
+  local input="$1"
+  local search_words=$_s_search_words
+
+  if ((_s_search_opt == 0 || _s_search_opt == 2));then
+    if [[ -n "$ZSH_VERSION" ]];then
+      local input_lower=$input:l
+      local words_lower=$_s_search_words:l
+    elif [[ -n ${BASH_VERSINFO[0]} && ${BASH_VERSINFO[0]} -ge 4 ]];then
+      local input_lower=${input,,}
+      local words_lower=${_s_search_words,,}
+    else
+      local input_lower=$(echo "${input}"|tr "[:upper:]" "[:lower:]")
+      local words_lower=$(echo "${_s_search_words}"|tr "[:upper:]" "[:lower:]")
+    fi
+    if [[ $words_lower = "$_s_search_words" ]];then
+      input=$input_lower
+      search_words=$words_lower
+    fi
+  fi
+  if ((_s_search_opt <= 1));then
+    local -a words
+    words=(${search_words})
+    local w
+    for w in "${words[@]}";do
+      if ((_s_search_opt <= 1));then
+        if [[ ! $input = *$w* ]];then
+          return 1
+        fi
+      fi
+    done
+  else
+    if [[ ! $input = $search_words* ]];then
+      return 1
+    fi
+  fi
+  return 0
+} # }}}
+
+_sf_reset () { # {{{
+  _s_current_n=0
+  _s_n_offset=0
+  _s_g=0
+  _s_n_move=-1
+  _s_visual=-1
+  _s_v_selected=()
+  local i
+  for i in $(seq 0 $((_s_n-1)));do
+    _s_v_selected[$i]=0
+  done
+  tput cup "$_s_ext_row" 0 >/dev/tty
+  _sf_printall
+} # }}}
+
+_sf_visual_start () { # {{{
+  if ((_s_visual >= 0));then
+    _s_visual=-2
+  else
+    _s_v_selected[$_s_current_n]=1
+    _s_visual=$_s_current_n
+    _sf_print_current_line
+  fi
+} # }}}
+
+_sf_gG () { # {{{
+  _s_n_move=$((_s_n_move-_s_current_n))
+  if ((_s_n_move == 0));then
+    return
+  fi
+  if ((_s_n_move < 0));then
+    _s_n_move=$((0-_s_n_move))
+    _sf_n_up
+  else
+    _sf_n_down
+  fi
+} # }}}
+
+_sf_n_move_inc () { # {{{
+  local n=${1:-"0"}
+  ((_s_n_move > 0)) && _s_n_move="$_s_n_move""$n" || _s_n_move=$n
+} # }}}
+
+# function for 0-9 {{{
+_sf_0 () { # {{{
+  _sf_n_move_inc 0
+} # }}}
+_sf_1 () { # {{{
+  _sf_n_move_inc 1
+} # }}}
+_sf_2 () { # {{{
+  _sf_n_move_inc 2
+} # }}}
+_sf_3 () { # {{{
+  _sf_n_move_inc 3
+} # }}}
+_sf_4 () { # {{{
+  _sf_n_move_inc 4
+} # }}}
+_sf_5 () { # {{{
+  _sf_n_move_inc 5
+} # }}}
+_sf_6 () { # {{{
+  _sf_n_move_inc 6
+} # }}}
+_sf_7 () { # {{{
+  _sf_n_move_inc 7
+} # }}}
+_sf_8 () { # {{{
+  _sf_n_move_inc 8
+} # }}}
+_sf_9 () { # {{{
+  _sf_n_move_inc 9
+} # }}}
+# }}} function for 0-9
+
+# function for a-z {{{
+_sf_a () { # {{{
+  :
+} # }}}
+_sf_b () { # {{{
+  :
+} # }}}
+_sf_c () { # {{{
+  :
+} # }}}
+_sf_d () { # {{{
+  _sf_rm_del
+} # }}}
+_sf_e () { # {{{
+  :
+} # }}}
+_sf_f () { # {{{
+  :
+} # }}}
+_sf_g () { # {{{
+  if ((_s_g == 0));then
+    _s_g=1
+    return
+  fi
+  if ((_s_n_move < 0));then
+    _s_n_move=0
+  fi
+  _sf_gG
+} # }}}
+_sf_h () { # {{{
+  :
+} # }}}
+_sf_i () { # {{{
+  :
+} # }}}
+_sf_j () { # {{{
+  _sf_n_down
+} # }}}
+_sf_k () { # {{{
+  _sf_n_up
+} # }}}
+_sf_l () { # {{{
+  :
+} # }}}
+_sf_m () { # {{{
+  :
+} # }}}
+_sf_n () { # {{{
+  :
+} # }}}
+_sf_o () { # {{{
+  :
+} # }}}
+_sf_p () { # {{{
+  :
+} # }}}
+_sf_q () { # {{{
+  _sf_quit
+} # }}}
+_sf_r () { # {{{
+  :
+} # }}}
+_sf_s () { # {{{
+  if ((_s_s_content == 1));then
+    if [ ! -f "${_s_inputs[$_s_current_n]}" ];then
+      output="$(_sf_nth $((_s_current_n))) value: ${_s_inputs[$_s_current_n]}
+===============
+Not a file.
+"
+    _sf_echo "$output"
+    else
+      clear >/dev/tty
+      ${VISUAL:-less} "${_s_inputs[$_s_current_n]}" >/dev/tty </dev/tty
+      _s_is_print=1
+    fi
+  else
+    _sf_echo "$(_sf_nth $((_s_current_n))) value:
+
+${_s_inputs[$_s_current_n]}\n"
+  fi
+} # }}}
+_sf_t () { # {{{
+  :
+} # }}}
+_sf_u () { # {{{
+  :
+} # }}}
+_sf_v () { # {{{
+  _sf_visual_start
+} # }}}
+_sf_w () { # {{{
+  :
+} # }}}
+_sf_x () { # {{{
+  :
+} # }}}
+_sf_y () { # {{{
+  :
+} # }}}
+_sf_z () { # {{{
+  :
+} # }}}
+# function for a-z }}}
+
+# function for A-Z {{{
+_sf_A () { # {{{
+  :
+} # }}}
+_sf_B () { # {{{
+  :
+} # }}}
+_sf_C () { # {{{
+  :
+} # }}}
+_sf_D () { # {{{
+  :
+} # }}}
+_sf_E () { # {{{
+  :
+} # }}}
+_sf_F () { # {{{
+  :
+} # }}}
+_sf_G () { # {{{
+  if ((_s_n_move < 0));then
+    _s_n_move=$_s_n
+  fi
+  _sf_gG
+} # }}}
+_sf_H () { # {{{
+  :
+} # }}}
+_sf_I () { # {{{
+  :
+} # }}}
+_sf_J () { # {{{
+  :
+} # }}}
+_sf_K () { # {{{
+  :
+} # }}}
+_sf_L () { # {{{
+  :
+} # }}}
+_sf_M () { # {{{
+  :
+} # }}}
+_sf_N () { # {{{
+  :
+} # }}}
+_sf_O () { # {{{
+  :
+} # }}}
+_sf_P () { # {{{
+  :
+} # }}}
+_sf_Q () { # {{{
+  :
+} # }}}
+_sf_R () { # {{{
+  :
+} # }}}
+_sf_S () { # {{{
+  :
+} # }}}
+_sf_T () { # {{{
+  :
+} # }}}
+_sf_U () { # {{{
+  :
+} # }}}
+_sf_V () { # {{{
+  :
+} # }}}
+_sf_W () { # {{{
+  :
+} # }}}
+_sf_X () { # {{{
+  :
+} # }}}
+_sf_Y () { # {{{
+  :
+} # }}}
+_sf_Z () { # {{{
+  :
+} # }}}
+# function for A-Z }}}
+
+# function for <C-a>-<C-Z>, <C-Space> {{{
+_sf_c_a () { # {{{
+  _s_n_move=0
+  _sf_gG
+  #local i
+  #for i in $(seq 0 $((_s_n-1)));do
+  #  _s_visual=-2
+  #  _s_v_selected[$i]=1
+  #done
+  #_s_is_print=1
+} # }}}
+_sf_c_b () { # {{{
+  _s_n_move=$((_s_max_show))
+  _sf_n_up
+} # }}}
+_sf_c_c () { # {{{
+  :
+} # }}}
+_sf_c_d () { # {{{
+  _s_n_move=$((_s_max_show/2))
+  _sf_n_down
+} # }}}
+_sf_c_e () { # {{{
+  _s_n_move=$_s_n
+  _sf_gG
+} # }}}
+_sf_c_f () { # {{{
+  _s_n_move=$((_s_max_show))
+  _sf_n_down
+} # }}}
+_sf_c_g () { # {{{
+  :
+} # }}}
+_sf_c_h () { # {{{
+  :
+} # }}}
+_sf_c_i () { # {{{
+  _sf_item_move_up
+} # }}}
+_sf_c_j () { # {{{
+  :
+} # }}}
+_sf_c_k () { # {{{
+  :
+} # }}}
+_sf_c_l () { # {{{
+  :
+} # }}}
+_sf_c_m () { # {{{
+  :
+} # }}}
+_sf_c_n () { # {{{
+  _sf_n_down
+} # }}}
+_sf_c_o () { # {{{
+  _sf_item_move_down
+} # }}}
+_sf_c_p () { # {{{
+  _sf_n_up
+} # }}}
+_sf_c_q () { # {{{
+  :
+} # }}}
+_sf_c_r () { # {{{
+  _s_is_print=1
+  :
+} # }}}
+_sf_c_s () { # {{{
+  _sf_visual_start
+} # }}}
+_sf_c_t () { # {{{
+  :
+} # }}}
+_sf_c_u () { # {{{
+  _s_n_move=$((_s_max_show/2))
+  _sf_n_up
+} # }}}
+_sf_c_v () { # {{{
+  _s_n_move=$((_s_max_show))
+  _sf_n_down
+} # }}}
+_sf_c_w () { # {{{
+  :
+} # }}}
+_sf_c_x () { # {{{
+  _sf_quit
+} # }}}
+_sf_c_y () { # {{{
+  :
+} # }}}
+_sf_c_z () { # {{{
+  :
+} # }}}
+# function for C-a-C-Z }}}
+
+_sf_esc () { # {{{
+  _sf_read
+  local r2=$_s_read
+  if [[ "$r2" = "v" ]];then # M-v
+    _s_n_move=$((_s_max_show)); _sf_n_up
+    return
+  elif [[ "$r2" = "[" ]];then
+    _sf_read
+    local r3=$_s_read
+    if [[ "$r3" = "A" ]];then # cursor up
+      _sf_n_up
+      return
+    elif [[ "$r3" = "B" ]];then # cursor down
+      _sf_n_down
+      return
+    fi
+  fi
+  if ((_s_visual != -1));then
+    _s_visual=-1
+    local i
+    for i in $(seq 0 $((_s_n-1)));do
+      _s_v_selected[$i]=0
+    done
+    _s_is_print=1
+  fi
+  if [[ "$_s_search" != "" ]];then
+    _s_inputs=("${_s_pre_inputs_0[@]}")
+    _s_n=${#_s_inputs[@]}
+    _s_search=""
+    _s_search_words=""
+    _sf_reset
+  fi
+} # }}}
+
+_sf_space () { # {{{
+  # Space to start visual
+  if ((_s_v_selected[_s_current_n] == 1));then
+    _s_v_selected[$_s_current_n]=0
+  else
+    _s_v_selected[$_s_current_n]=1
+  fi
+  _s_visual=-2
+  _sf_print_current_line
+} # }}}
+
+_sf_enter () { # {{{
+  _sf_select
+} # }}}
+
+_sf_slash () { # {{{
+  _sf_search
+} # }}}
+
+_sf_push () { # {{{
+  # Set input
+  local input="$*"
+  shift $#
+  if ((_s_stdin == 1));then
+    input=$(cat -)
+  fi
+
+  # Ignore blank
+  if [[ "$input" = "" ]];then
+    return 1
+  fi
+
+  # Renew values
+  _sf_get_values_wrapper 0 0
+  IFS="$_s_s_push"
+  _s_inputs=(${input}${_s_s_push}${_s_inputs[@]})
+  IFS=$_s_IFS
+  _s_n=${#_s_inputs[@]}
+  _sf_align_values 0 0
+
+  _sf_echoln "$input is stored in $_s_file"
+} # }}}
+
+_sf_main () { # {{{
+
+  # Set trap
+  trap "_sf_clear;_s_trapped=1;_s_stdin=0;_s_ret=1;_sf_finalize;exit" HUP INT QUIT ABRT SEGV TERM
+
+  # Initialization
+  _sf_initialize
+
+  # Get arguments
+  _sf_check_args "$@"
+  _s_ret=$?
+  if ((_s_ret != 0));then
+    _sf_finalize
+    return $?
+  fi
+  if ((_s_continue == 0));then
+    _sf_finalize
+    return $?
+  fi
+
+  # Get values
+  _sf_get_values_wrapper
+  _s_ret=$?
+  if ((_s_ret != 0));then
+    _sf_finalize
+    return $?
+  fi
+
+  # Return nth
+  if ((_s_current_n >= 0));then
+    _sf_finalize
+    return $?
+  fi
+
+  # Hide displays
+  _sf_hide
+
+  # Initialize values
+  _sf_reset
+
+  while : ;do
+    _sf_printall 1
+    _sf_read
+    local r=$_s_read
+    case $r in
+      # Use common functions of C-*, Esc, Space and Enter for both vim/emacs modes.
+      $'\ca' ) _sf_c_a;;
+      $'\cb' ) _sf_c_b;;
+      $'\cc' ) _sf_c_c;;
+      $'\cd' ) _sf_c_d;;
+      $'\ce' ) _sf_c_e;;
+      $'\cf' ) _sf_c_f;;
+      $'\cg' ) _sf_c_g;;
+      $'\ch' ) _sf_c_h;;
+      $'\ci' ) _sf_c_i;;
+      $'\cj' ) _sf_c_j;;
+      $'\ck' ) _sf_c_k;;
+      $'\cl' ) _sf_c_l;;
+      $'\cm' ) _sf_c_m;;
+      $'\cn' ) _sf_c_n;;
+      $'\co' ) _sf_c_o;;
+      $'\cp' ) _sf_c_p;;
+      $'\cr' ) _sf_c_r;;
+      $'\cs' ) _sf_c_s;;
+      $'\ct' ) _sf_c_t;;
+      $'\cu' ) _sf_c_u;;
+      $'\cv' ) _sf_c_v;;
+      $'\cw' ) _sf_c_w;;
+      $'\cx' ) _sf_c_x;;
+      $'\cy' ) _sf_c_y;;
+      $'\cz' ) _sf_c_z;;
+      $'\E' ) _sf_esc;;
+      " " ) _sf_space;;
+      ""|$'\n' ) _sf_enter;; # Enter (Normally "" corresponds to Enter (line break before any key))
+
+      # Differences for difference modes.
+      * )
+        if ((_s_keymode == 0));then
+          case $r in
+            # Vim mode
+            "0" ) _sf_0;;
+            "1" ) _sf_1;;
+            "2" ) _sf_2;;
+            "3" ) _sf_3;;
+            "4" ) _sf_4;;
+            "5" ) _sf_5;;
+            "6" ) _sf_6;;
+            "7" ) _sf_7;;
+            "8" ) _sf_8;;
+            "9" ) _sf_9;;
+            "a" ) _sf_a;;
+            "b" ) _sf_b;;
+            "c" ) _sf_c;;
+            "d" ) _sf_d;;
+            "e" ) _sf_e;;
+            "f" ) _sf_f;;
+            "g" ) _sf_g;;
+            "h" ) _sf_h;;
+            "i" ) _sf_i;;
+            "j" ) _sf_j;;
+            "k" ) _sf_k;;
+            "l" ) _sf_l;;
+            "m" ) _sf_m;;
+            "n" ) _sf_n;;
+            "o" ) _sf_o;;
+            "p" ) _sf_p;;
+            "q" ) _sf_q;;
+            "r" ) _sf_r;;
+            "s" ) _sf_s;;
+            "t" ) _sf_t;;
+            "u" ) _sf_u;;
+            "v" ) _sf_v;;
+            "w" ) _sf_w;;
+            "x" ) _sf_x;;
+            "y" ) _sf_y;;
+            "z" ) _sf_z;;
+            "A" ) _sf_A;;
+            "B" ) _sf_B;;
+            "C" ) _sf_C;;
+            "D" ) _sf_D;;
+            "E" ) _sf_E;;
+            "F" ) _sf_F;;
+            "G" ) _sf_G;;
+            "H" ) _sf_H;;
+            "I" ) _sf_I;;
+            "J" ) _sf_J;;
+            "K" ) _sf_K;;
+            "L" ) _sf_L;;
+            "M" ) _sf_M;;
+            "N" ) _sf_N;;
+            "O" ) _sf_O;;
+            "P" ) _sf_P;;
+            "Q" ) _sf_Q;;
+            "R" ) _sf_R;;
+            "S" ) _sf_S;;
+            "T" ) _sf_T;;
+            "U" ) _sf_U;;
+            "V" ) _sf_V;;
+            "W" ) _sf_W;;
+            "X" ) _sf_X;;
+            "Y" ) _sf_Y;;
+            "Z" ) _sf_Z;;
+            "/" ) _sf_slash;;
+          esac
+        else
+          _sf_search "$r"
+        fi
+        ;;
+    esac
+    ((_s_break == 1)) && break
+  done
+
+  # Clear (Show cursor, Restore display, Enable echo input)
+  _sf_clear
+
+  # Finalization
+  _sf_finalize
+} # }}}
+
+# Execution part {{{
+if [ "$1" != "-n" ];then
+  _sf_main "$@"
+fi

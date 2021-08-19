@@ -1514,10 +1514,11 @@ __editor() {
   return $?
 }
 ##################### sudo functions ####################
+sudorun() { if sudoif; then sudo "$@"; else "$@"; fi; }
 __sudo() { $(builtin type -P sudo) --preserve-env=PATH -HE "$@" || return 1; }
 __sudo_group() { grep "${1:-$USER}" /etc/group | grep -Eq 'wheel|adm|sudo' || return 1; }
 sudoif() { (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null && return 0 || return 1; }
-sudorun() { if sudoif; then sudo "$@"; else "$@"; fi; }
+__can_i_sudo() { __sudo_group "${1:-$USER}" || sudoif || sudo -n true &>/dev/null || return 1; }
 sudorerun() {
   local CMD="${1:-$APPNAME}" && shift 1
   local ARGS="${*:-$ARGS}" && shift $#
@@ -1543,7 +1544,6 @@ sudoreq() {
     fi
   fi
 }
-__can_i_sudo() { __sudo_group "${1:-$USER}" || sudoif; }
 __sudoask() {
   if [ ! -f "$HOME/.sudo" ]; then
     sudo true &>/dev/null && return 0 || return 1

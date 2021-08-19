@@ -594,6 +594,8 @@ __local_sysname() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__pkmgr_gui() { __pkmgr | zenity --width=400 --progress --no-cancel --pulsate --text "Installing packages $prog" --auto-close || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ###################### Options ######################
 __list_available() { echo ${*:-$ARRAY} | __sed 's|,--| --|g;s|,-| -|g;s|,| |g;s|:||g'; }
 __list_array() {
@@ -1415,7 +1417,6 @@ __run_menu_start() {
 __run_menu_failed() { clear && echo -e "\n\n\n\n\n\n" && printf_red "${1:-An error has occured}" && sleep 3 && return 1; }
 #attemp_install_menus "programname"
 __attemp_install_menus() {
-  set -x
   local prog="$1"
   sudo -n true &>/dev/null && sudo true
   builtin type -P zenity &>/dev/null || { printf_blue "Installing required package: zenity" && sudo pkmgr silent install zenity &>/dev/null; }
@@ -1426,7 +1427,7 @@ __attemp_install_menus() {
   if message; then
     sleep 2
     clear
-    __pkmgr | zenity --width=400 --progress --no-cancel --pulsate --text "Installing packages $prog" --auto-close && pkmgr_exitCode=0 || pkmgr_exitCode=1
+    __pkmgr_gui && pkmgr_exitCode=0 || pkmgr_exitCode=1
     if [ "$pkmgr_exitCode" = 0 ]; then
       zenity --timeout=10 --width=400 --text-info --title="Success" --text="Successfully installed $prog"
       return 0
@@ -1438,7 +1439,6 @@ __attemp_install_menus() {
     zenity --timeout=10 --width=400 --error --title="cancelled" --text="Installation of $prog has been cancelled"
     return 1
   fi
-  set +x
 }
 __custom_menus() {
   local custom="" opts=""

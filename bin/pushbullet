@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0")"
+VERSION="202108190117-git"
+RUN_USER="${SUDO_USER:-${USER}}"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#set opts
+# Set bash options
+trap 'exitCode=${exitCode:-$?};[ -f "$PUSHBULLET_TEMP_FILE" ] && rm -Rf "$PUSHBULLET_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202103201749-git
+##@Version       : 202108190117-git
 # @Author        : Jason Hempstead
 # @Contact       : jason@casjaysdev.com
 # @License       : WTFPL
 # @ReadME        : pushbullet --help
-# @Copyright     : Copyright: (c) 2021 Jason Hempstead, CasjaysDev
-# @Created       : Saturday, Mar 20, 2021 17:49 EDT
+# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created       : Thursday, Aug 19, 2021 01:17 EDT
 # @File          : pushbullet
 # @Description   : send pushbullet notification
 # @TODO          :
@@ -40,23 +43,157 @@ fi
 user_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-am_i_online --error || exit 1
+# Set functions
+__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gen_config() {
+  printf_green "Generating the config file in"
+  printf_green "$PUSHBULLET_CONFIG_DIR/$PUSHBULLET_CONFIG_FILE"
+  [ -d "$PUSHBULLET_CONFIG_DIR" ] || mkdir -p "$PUSHBULLET_CONFIG_DIR"
+  [ -d "$PUSHBULLET_CONFIG_BACKUP_DIR" ] || mkdir -p "$PUSHBULLET_CONFIG_BACKUP_DIR"
+  [ -f "$PUSHBULLET_CONFIG_DIR/$PUSHBULLET_CONFIG_FILE" ] &&
+    cp -Rf "$PUSHBULLET_CONFIG_DIR/$PUSHBULLET_CONFIG_FILE" "$PUSHBULLET_CONFIG_BACKUP_DIR/$PUSHBULLET_CONFIG_FILE.$$"
+  cat <<EOF >"$PUSHBULLET_CONFIG_DIR/$PUSHBULLET_CONFIG_FILE"
+# Settings for pushbullet
+PUSHBULLET_ACCESS_TOKEN="${PUSHBULLET_ACCESS_TOKEN:-}"
+
+# Notification settings
+PUSHBULLET_GOOD_MESSAGE="${PUSHBULLET_GOOD_MESSAGE:-Everything Went OK}"
+PUSHBULLET_ERROR_MESSAGE="${PUSHBULLET_ERROR_MESSAGE:-Well that didn\'t work}"
+PUSHBULLET_NOTIFY_ENABLED="${PUSHBULLET_NOTIFY_ENABLED:-yes}"
+PUSHBULLET_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+PUSHBULLET_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$PUSHBULLET_NOTIFY_CLIENT_ICON}"
+
+# Colorization settings
+PUSHBULLET_OUTPUT_COLOR="${PUSHBULLET_OUTPUT_COLOR:-5}"
+PUSHBULLET_OUTPUT_COLOR_GOOD="${PUSHBULLET_OUTPUT_COLOR_GOOD:-2}"
+PUSHBULLET_OUTPUT_COLOR_ERROR="${PUSHBULLET_OUTPUT_COLOR_ERROR:-1}"
+
+EOF
+  if [ -f "$PUSHBULLET_CONFIG_DIR/$PUSHBULLET_CONFIG_FILE" ]; then
+    printf_green "Your config file for pushbullet has been created"
+    true
+  else
+    printf_red "Failed to create the config file"
+    false
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Default variables
+exitCode="0"
+PUSHBULLET_CACHE_DIR="${PUSHBULLET_CACHE_DIR:-$HOME/.cache/pushbullet}"
+PUSHBULLET_CONFIG_DIR="${PUSHBULLET_CONFIG_DIR:-$HOME/.config/myscripts/pushbullet}"
+PUSHBULLET_OPTIONS_DIR="${PUSHBULLET_OPTIONS_DIR:-$HOME/.local/share/myscripts/pushbullet/options}"
+PUSHBULLET_CONFIG_BACKUP_DIR="${PUSHBULLET_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/pushbullet/backups}"
+PUSHBULLET_TEMP_DIR="${PUSHBULLET_TEMP_DIR:-$HOME/.local/tmp/system_scripts/pushbullet}"
+PUSHBULLET_TEMP_FILE="${PUSHBULLET_TEMP_FILE:-$(mktemp $PUSHBULLET_TEMP_DIR/XXXXXX 2>/dev/null)}"
+PUSHBULLET_CONFIG_FILE="${PUSHBULLET_CONFIG_FILE:-settings.conf}"
+PUSHBULLET_GOOD_MESSAGE="${PUSHBULLET_GOOD_MESSAGE:-Everything Went OK}"
+PUSHBULLET_ERROR_MESSAGE="${PUSHBULLET_ERROR_MESSAGE:-Well that didn\'t work}"
+PUSHBULLET_NOTIFY_ENABLED="${PUSHBULLET_NOTIFY_ENABLED:-yes}"
+PUSHBULLET_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+PUSHBULLET_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$PUSHBULLET_NOTIFY_CLIENT_ICON}"
+PUSHBULLET_OUTPUT_COLOR="${PUSHBULLET_OUTPUT_COLOR:-5}"
+PUSHBULLET_OUTPUT_COLOR_GOOD="${PUSHBULLET_OUTPUT_COLOR_GOOD:-2}"
+PUSHBULLET_OUTPUT_COLOR_ERROR="${PUSHBULLET_OUTPUT_COLOR_ERROR:-1}"
+PUSHBULLET_ACCESS_TOKEN="${PUSHBULLET_ACCESS_TOKEN:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$PUSHBULLET_TEMP_DIR" ] || mkdir -p "$PUSHBULLET_TEMP_DIR" &>/dev/null
+[ -d "$PUSHBULLET_CACHE_DIR" ] || mkdir -p "$PUSHBULLET_CACHE_DIR" &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$PUSHBULLET_CONFIG_DIR/$PUSHBULLET_CONFIG_FILE" ] ||
+  __gen_config &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$PUSHBULLET_CONFIG_DIR/$PUSHBULLET_CONFIG_FILE" ] &&
+  . "$PUSHBULLET_CONFIG_DIR/$PUSHBULLET_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS="z:"
+LONGOPTS="options,config,version,help,dir:"
+ARRAY=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$PROG" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --options)
+    shift 1
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  -z | --dir)
+    PUSHBULLET_CWD="$2"
+    shift 2
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+if [ "$PUSHBULLET_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${PUSHBULLET_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${PUSHBULLET_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${PUSHBULLET_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${PUSHBULLET_NOTIFY_CLIENT_ICON}"
+    notifications "$*" || return 1
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+cmd_exists --error --ask bash || exit 1 # exit 1 if not found
+#am_i_online --error || exit 1     # exit 1 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
 [ -z "$PUSHBULLET_ACCESS_TOKEN" ] && printf_help "Please set PUSHBULLET_ACCESS_TOKEN"
 [ -z "$1" ] && [ -z "$2" ] && printf_help 'Usage: pushbullet "title" "body"'
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 title="$1"
 body="$2"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
 if [ -n "$PUSHBULLET_ACCESS_TOKEN" ]; then
   devnull2 curl -LSsq -u ${PUSHBULLET_ACCESS_TOKEN}: \
     --header 'Content-Type: application/json' \
     -X POST https://api.pushbullet.com/v2/pushes \
     -d "{\"type\": \"note\", \"title\": \"$title\", \"body\": \"$body.\"}" | grep -q active &&
     printf_green "Message sent" || printf_red "Failed to send"
-
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-exit $?
+# End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# end
+# lets exit with code
+exit ${exitCode:-$?}

@@ -1,21 +1,23 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0")"
+VERSION="202108190117-git"
+RUN_USER="${SUDO_USER:-${USER}}"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#set opts
-trap '[ -f "$SERVER_LOG" ] && rm -Rf "$SERVER_LOG" &>/dev/null' EXIT
+# Set bash options
+trap 'exitCode=${exitCode:-$?};[ -f "$RUN_SERVER_TEMP_FILE" ] && rm -Rf "$RUN_SERVER_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202103201833-git
+##@Version       : 202108190117-git
 # @Author        : Jason Hempstead
 # @Contact       : jason@casjaysdev.com
 # @License       : WTFPL
 # @ReadME        : run_server --help
-# @Copyright     : Copyright: (c) 2021 Jason Hempstead, CasjaysDev
-# @Created       : Saturday, Mar 20, 2021 18:33 EDT
+# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created       : Thursday, Aug 19, 2021 01:17 EDT
 # @File          : run_server
 # @Description   : Start an HTTP server from a directory
 # @TODO          :
@@ -41,16 +43,52 @@ fi
 user_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# main function
+# Set functions
+__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gen_config() {
+  printf_green "Generating the config file in"
+  printf_green "$RUN_SERVER_CONFIG_DIR/$RUN_SERVER_CONFIG_FILE"
+  [ -d "$RUN_SERVER_CONFIG_DIR" ] || mkdir -p "$RUN_SERVER_CONFIG_DIR"
+  [ -d "$RUN_SERVER_CONFIG_BACKUP_DIR" ] || mkdir -p "$RUN_SERVER_CONFIG_BACKUP_DIR"
+  [ -f "$RUN_SERVER_CONFIG_DIR/$RUN_SERVER_CONFIG_FILE" ] &&
+    cp -Rf "$RUN_SERVER_CONFIG_DIR/$RUN_SERVER_CONFIG_FILE" "$RUN_SERVER_CONFIG_BACKUP_DIR/$RUN_SERVER_CONFIG_FILE.$$"
+  cat <<EOF >"$RUN_SERVER_CONFIG_DIR/$RUN_SERVER_CONFIG_FILE"
+# Settings for run_server
+
+# Notification settings
+RUN_SERVER_GOOD_MESSAGE="${RUN_SERVER_GOOD_MESSAGE:-Everything Went OK}"
+RUN_SERVER_ERROR_MESSAGE="${RUN_SERVER_ERROR_MESSAGE:-Well that didn\'t work}"
+RUN_SERVER_NOTIFY_ENABLED="${RUN_SERVER_NOTIFY_ENABLED:-yes}"
+RUN_SERVER_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+RUN_SERVER_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$RUN_SERVER_NOTIFY_CLIENT_ICON}"
+
+# Colorization settings
+RUN_SERVER_OUTPUT_COLOR="${RUN_SERVER_OUTPUT_COLOR:-5}"
+RUN_SERVER_OUTPUT_COLOR_GOOD="${RUN_SERVER_OUTPUT_COLOR_GOOD:-2}"
+RUN_SERVER_OUTPUT_COLOR_ERROR="${RUN_SERVER_OUTPUT_COLOR_ERROR:-1}"
+
+EOF
+  if [ -f "$RUN_SERVER_CONFIG_DIR/$RUN_SERVER_CONFIG_FILE" ]; then
+    printf_green "Your config file for run_server has been created"
+    true
+  else
+    printf_red "Failed to create the config file"
+    false
+  fi
+}
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional functions
 main() {
   i=0
   port="${1:-8000}" && shift 1
   other_port="${1:-}"
   myip=$(__getlipaddr && echo "$CURRIP4")
-  myhost="$(hostname -s)"
+  myhost="$(hostname -s || echo localhost)"
   MAX_NUMBER_OF_TRIES=${MAX_NUMBER_OF_TRIES:-10}
-  TMP_DIR="${TMPDIR:-/tmp}"
-  SERVER_LOG="${SERVER_LOG:-$TMPDIR/run_server_${other_port:-$port}.log}"
+  RUN_SERVER_TEMP_DIR="${RUN_SERVER_TEMP_DIR:-/tmp}"
+  SERVER_LOG="${SERVER_LOG:-$RUN_SERVER_TEMP_DIR/run_server_${other_port:-$port}.log}"
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   if ! __test_server "${other_port:-$port}"; then
     printf_error "Something appears to be running on ${other_port:-$port}"
@@ -61,7 +99,6 @@ main() {
     done
     export other_port port
   fi
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   printf '%s\n' "Starting the server on port ${other_port:-$port}" &>"$SERVER_LOG"
   while [ $i -lt $MAX_NUMBER_OF_TRIES ]; do
     if [ "$(lsof -i -nP | grep "${other_port:-$port}" | grep -i "$prog")" != "" ]; then
@@ -71,7 +108,6 @@ main() {
     i=$((i + 1))
     sleep 5
   done &
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   if [ -n "$dir" ] && [ -d "$dir" ]; then
     printf_green "serving files from $dir"
     cd "$dir" || printf_exit "Could not cd into $dir"
@@ -113,24 +149,118 @@ open_url() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-cmd_exists lsof
+# Default variables
+exitCode="0"
+RUN_SERVER_CACHE_DIR="${RUN_SERVER_CACHE_DIR:-$HOME/.cache/run_server}"
+RUN_SERVER_CONFIG_DIR="${RUN_SERVER_CONFIG_DIR:-$HOME/.config/myscripts/run_server}"
+RUN_SERVER_OPTIONS_DIR="${RUN_SERVER_OPTIONS_DIR:-$HOME/.local/share/myscripts/run_server/options}"
+RUN_SERVER_CONFIG_BACKUP_DIR="${RUN_SERVER_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/run_server/backups}"
+RUN_SERVER_TEMP_DIR="${RUN_SERVER_TEMP_DIR:-$HOME/.local/tmp/system_scripts/run_server}"
+RUN_SERVER_TEMP_FILE="${RUN_SERVER_TEMP_FILE:-$(mktemp $RUN_SERVER_TEMP_DIR/XXXXXX 2>/dev/null)}"
+RUN_SERVER_CONFIG_FILE="${RUN_SERVER_CONFIG_FILE:-settings.conf}"
+RUN_SERVER_GOOD_MESSAGE="${RUN_SERVER_GOOD_MESSAGE:-Everything Went OK}"
+RUN_SERVER_ERROR_MESSAGE="${RUN_SERVER_ERROR_MESSAGE:-Well that didn\'t work}"
+RUN_SERVER_NOTIFY_ENABLED="${RUN_SERVER_NOTIFY_ENABLED:-yes}"
+RUN_SERVER_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+RUN_SERVER_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$RUN_SERVER_NOTIFY_CLIENT_ICON}"
+RUN_SERVER_OUTPUT_COLOR="${RUN_SERVER_OUTPUT_COLOR:-5}"
+RUN_SERVER_OUTPUT_COLOR_GOOD="${RUN_SERVER_OUTPUT_COLOR_GOOD:-2}"
+RUN_SERVER_OUTPUT_COLOR_ERROR="${RUN_SERVER_OUTPUT_COLOR_ERROR:-1}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ "$1" = "--bg" ]; then
-  shift 1
-  echo "launching background process"
-  SERVER_LOG="${TMPDIR:-/tmp}/run_server_bg.log"
-  $APPNAME "$*" &>"$SERVER_LOG" &
-  disown
-  exit $?
+# Ensure Directories exist
+[ -d "$RUN_SERVER_TEMP_DIR" ] || mkdir -p "$RUN_SERVER_TEMP_DIR" &>/dev/null
+[ -d "$RUN_SERVER_CACHE_DIR" ] || mkdir -p "$RUN_SERVER_CACHE_DIR" &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$RUN_SERVER_CONFIG_DIR/$RUN_SERVER_CONFIG_FILE" ] ||
+  __gen_config &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$RUN_SERVER_CONFIG_DIR/$RUN_SERVER_CONFIG_FILE" ] &&
+  . "$RUN_SERVER_CONFIG_DIR/$RUN_SERVER_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS="z:"
+LONGOPTS="options,config,version,help,dir:,bg"
+ARRAY="default,proxy,static,caddy,go,jekyll,js,php,rails,ruby,python2,python3,netcat"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$PROG" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --options)
+    shift 1
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  -z | --dir)
+    RUN_SERVER_CWD="$2"
+    shift 2
+    ;;
+  --bg)
+    shift 1
+    echo "launching background process"
+    export SERVER_LOG="${RUN_SERVER_TEMP_DIR:-/tmp}/run_server_bg.log"
+    $APPNAME "$*" &>"$SERVER_LOG" &
+    disown
+    exit $?
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+if [ "$RUN_SERVER_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${RUN_SERVER_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${RUN_SERVER_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${RUN_SERVER_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${RUN_SERVER_NOTIFY_CLIENT_ICON}"
+    notifications "$*" || return 1
+  }
+else
+  __notifications() { false; }
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-dir="$1"
-[ -d "$dir" ] && [ -n "$dir" ] && shift 1 || dir="$PWD"
+# Check for required applications/Network check
+cmd_exists --error --ask bash lsof || exit 1 # exit 1 if not found
+#am_i_online --error || exit 1     # exit 1 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+RUN_SERVER_CWD="$1"
+[ -d "$RUN_SERVER_CWD" ] && [ -n "$RUN_SERVER_CWD" ] && shift 1 || RUN_SERVER_CWD="$PWD"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
 case "$1" in
 proxy)
-  prog="caddy"
   shift 1
+  prog="caddy"
   ARGS="$*"
   main $ARGS
   __proxy || __return_error
@@ -138,8 +268,8 @@ proxy)
   ;;
 
 static)
-  prog="static"
   shift 1
+  prog="static"
   ARGS="$*"
   main $ARGS
   __static || __return_error
@@ -147,8 +277,8 @@ static)
   ;;
 
 caddy)
-  prog="caddy"
   shift 1
+  prog="caddy"
   ARGS="$*"
   main $ARGS
   __caddy || __return_error
@@ -156,8 +286,8 @@ caddy)
   ;;
 
 go)
-  prog="go"
   shift 1
+  prog="go"
   ARGS="$*"
   main $ARGS
   __go || __return_error
@@ -165,8 +295,8 @@ go)
   ;;
 
 jekyll)
-  prog="jekyll"
   shift 1
+  prog="jekyll"
   ARGS="$*"
   main $ARGS
   __jekyll || __return_error
@@ -174,8 +304,8 @@ jekyll)
   ;;
 
 js)
-  prog="http-server"
   shift 1
+  prog="http-server"
   ARGS="$*"
   main $ARGS
   __js_serv || __return_error
@@ -183,8 +313,8 @@ js)
   ;;
 
 php)
-  prog="php"
   shift 1
+  prog="php"
   ARGS="$*"
   main $ARGS
   __php_serv || __return_error
@@ -192,8 +322,8 @@ php)
   ;;
 
 rails)
-  prog="ruby"
   shift 1
+  prog="ruby"
   ARGS="$*"
   main $ARGS
   __rails_serv || __return_error
@@ -201,8 +331,8 @@ rails)
   ;;
 
 ruby)
-  prog="ruby"
   shift 1
+  prog="ruby"
   ARGS="$*"
   main $ARGS
   __ruby_serv || __return_error
@@ -210,8 +340,8 @@ ruby)
   ;;
 
 python2)
-  prog="python2"
   shift 1
+  prog="python2"
   ARGS="$*"
   main $ARGS
   __python2_serv || __return_error
@@ -219,8 +349,8 @@ python2)
   ;;
 
 python3)
-  prog="python3"
   shift 1
+  prog="python3"
   ARGS="$*"
   main $ARGS
   __python3_serv || __return_error
@@ -228,8 +358,8 @@ python3)
   ;;
 
 default)
-  prog="python2"
   shift 1
+  prog="python2"
   ARGS="$*"
   main $ARGS
   __default_srv || __return_error
@@ -237,8 +367,8 @@ default)
   ;;
 
 netcat | nc)
-  prog="betcat"
   shift 1
+  prog="betcat"
   ARGS="$*"
   main $ARGS
   __netcat_serv || __return_error
@@ -253,6 +383,7 @@ netcat | nc)
   ;;
 esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-exit $?
+# End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# end
+# lets exit with code
+exit ${exitCode:-$?}

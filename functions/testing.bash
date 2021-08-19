@@ -1417,7 +1417,7 @@ __run_menu_failed() { clear && echo -e "\n\n\n\n\n\n" && printf_red "${1:-An err
 __attemp_install_menus() {
   local prog="$1"
   sudo -n true &>/dev/null && sudo true
-  builtin type -P zenity || sudo pkmgr install zenity &>/dev/null
+  builtin type -P zenity &>/dev/null || sudo pkmgr install zenity &>/dev/null
   message() {
     zenity --width=400 --timeout=10 --title="install $prog" --question --text="$prog is not installed! \nshould I try to install it?" || return 1
   }

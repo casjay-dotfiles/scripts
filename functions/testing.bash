@@ -1422,11 +1422,11 @@ __attemp_install_menus() {
   message() {
     zenity --width=400 --timeout=10 --title="install $prog" --question --text="$prog is not installed! \nshould I try to install it?" || return 1
   }
-  __pkmgr() { pkmgr silent install "$prog" && pkmgr_exitCode=0 || pkmgr_exitCode=1; }
+  __pkmgr() { pkmgr silent install "$prog" && return 0 || return 1; }
   if message; then
     sleep 2
     clear
-    __pkmgr | zenity --width=400 --progress --no-cancel --pulsate --text "Installing packages $prog" --auto-close
+    __pkmgr | zenity --width=400 --progress --no-cancel --pulsate --text "Installing packages $prog" --auto-close && pkmgr_exitCode=0 || pkmgr_exitCode=1
     if [ "$pkmgr_exitCode" = 0 ]; then
       zenity --timeout=10 --width=400 --text-info --title="Success" --text="Successfully installed $prog"
       return 0

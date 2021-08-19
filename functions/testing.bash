@@ -1421,7 +1421,7 @@ __run_menu_failed() { clear && echo -e "\n\n\n\n\n\n" && printf_red "${1:-An err
 #attemp_install_menus "programname"
 __attemp_install_menus() {
   local prog="$1"
-  sudo -n true &>/dev/null && sudo true
+  sudo -n true &>/dev/null && ask_for_password "sudo true"
   builtin type -P zenity &>/dev/null || { printf_blue "Installing required package: zenity" && sudo pkmgr silent install zenity &>/dev/null; }
   message() {
     zenity --width=400 --timeout=10 --title="install $prog" --question --text="$prog is not installed! \nshould I try to install it?" || return 1
@@ -1429,7 +1429,8 @@ __attemp_install_menus() {
   if message; then
     sleep 2
     clear
-    __pkmgr_gui "$prog" && pkmgr_exitCode=0 || pkmgr_exitCode=1
+    __pkmgr_gui "$prog"
+    type -P "$prog" &>/dev/null && pkmgr_exitCode=0 || pkmgr_exitCode=1
     if [ "$pkmgr_exitCode" = 0 ]; then
       zenity --timeout=10 --width=400 --text-info --title="Success" --text="Successfully installed $prog"
       return 0

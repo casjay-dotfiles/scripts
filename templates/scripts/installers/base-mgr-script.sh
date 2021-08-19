@@ -215,8 +215,8 @@ else
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
-cmd_exists --error bash curl jq || exit 1 # exit 1 if not found
-am_i_online --error || exit 1             # exit 1 if no internet
+cmd_exists --error --ask bash curl jq || exit 1 # exit 1 if not found
+am_i_online --error || exit 1                   # exit 1 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
 export GEN_SCRIPT_REPLACE_ENVREPO="$GEN_SCRIPT_REPLACE_ENV_GIT_REPO"

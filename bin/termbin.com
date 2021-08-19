@@ -178,7 +178,7 @@ else
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
-cmd_exists --error bash $TERMBIN_COM_NETCATCMD || exit 1 # exit 1 if not found
+cmd_exists --error --ask bash $TERMBIN_COM_NETCATCMD || exit 1 # exit 1 if not found
 #am_i_online --error || exit 1     # exit 1 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides

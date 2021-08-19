@@ -594,7 +594,9 @@ __local_sysname() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__pkmgr_gui() { __pkmgr | zenity --width=400 --progress --no-cancel --pulsate --text "Installing packages $prog" --auto-close || return 1; }
+__pkmgr_gui() {
+  { __pkmgr && return 0 || return 1; } | zenity --width=400 --progress --no-cancel --pulsate --text "Installing packages $prog" --auto-close
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ###################### Options ######################
 __list_available() { echo ${*:-$ARRAY} | __sed 's|,--| --|g;s|,-| -|g;s|,| |g;s|:||g'; }

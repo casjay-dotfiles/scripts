@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0")"
+VERSION="202108190117-git"
+RUN_USER="${SUDO_USER:-${USER}}"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#set opts
+# Set bash options
+trap 'exitCode=${exitCode:-$?};[ -f "$ROKU_TEMP_FILE" ] && rm -Rf "$ROKU_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202103201827-git
+##@Version       : 202108190117-git
 # @Author        : Jason Hempstead
 # @Contact       : jason@casjaysdev.com
 # @License       : WTFPL
 # @ReadME        : roku --help
-# @Copyright     : Copyright: (c) 2021 Jason Hempstead, CasjaysDev
-# @Created       : Saturday, Mar 20, 2021 18:27 EDT
+# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created       : Thursday, Aug 19, 2021 01:17 EDT
 # @File          : roku
 # @Description   : home automation - roku script
 # @TODO          :
@@ -40,104 +43,237 @@ fi
 user_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# functions
+# Set functions
+__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gen_config() {
+  printf_green "Generating the config file in"
+  printf_green "$ROKU_CONFIG_DIR/$ROKU_CONFIG_FILE"
+  [ -d "$ROKU_CONFIG_DIR" ] || mkdir -p "$ROKU_CONFIG_DIR"
+  [ -d "$ROKU_CONFIG_BACKUP_DIR" ] || mkdir -p "$ROKU_CONFIG_BACKUP_DIR"
+  [ -f "$ROKU_CONFIG_DIR/$ROKU_CONFIG_FILE" ] &&
+    cp -Rf "$ROKU_CONFIG_DIR/$ROKU_CONFIG_FILE" "$ROKU_CONFIG_BACKUP_DIR/$ROKU_CONFIG_FILE.$$"
+  cat <<EOF >"$ROKU_CONFIG_DIR/$ROKU_CONFIG_FILE"
+# Settings for roku
+ROKU_DEVICE="${ROKU_DEVICE:-}"
+ROKU_STATE_FILE="${ROKU_STATE_FILE:-$ROKU_CACHE_DIR/automate_roku}"
+
+# Notification settings
+ROKU_GOOD_MESSAGE="${ROKU_GOOD_MESSAGE:-Everything Went OK}"
+ROKU_ERROR_MESSAGE="${ROKU_ERROR_MESSAGE:-Well that didn\'t work}"
+ROKU_NOTIFY_ENABLED="${ROKU_NOTIFY_ENABLED:-yes}"
+ROKU_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+ROKU_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$ROKU_NOTIFY_CLIENT_ICON}"
+
+# Colorization settings
+ROKU_OUTPUT_COLOR="${ROKU_OUTPUT_COLOR:-5}"
+ROKU_OUTPUT_COLOR_GOOD="${ROKU_OUTPUT_COLOR_GOOD:-2}"
+ROKU_OUTPUT_COLOR_ERROR="${ROKU_OUTPUT_COLOR_ERROR:-1}"
+
+EOF
+  if [ -f "$ROKU_CONFIG_DIR/$ROKU_CONFIG_FILE" ]; then
+    printf_green "Your config file for roku has been created"
+    true
+  else
+    printf_red "Failed to create the config file"
+    false
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional functions
+__curlcmd() { curl --disable -LSsfk --connect-timeout 3 --retry 0 --fail "$@"; }
+__curlapi() { __curlcmd -d '' "$@"; }
+__status_ok() { printf_green "Telling $roku_device_name to $1"; }
+__status_failed() { printf_error "Failed to send $1 to $roku_device_name"; }
+getstate() { cat "$state"; }
 urlcheck() { __urlcheck "$1"; }
 hostname2ip() { __hostname2ip "$1"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-roku() {
-  # variables
-  local setopts="$1"
-  local cache="${TMPDIR:-/tmp}"
-  local state="$cache/automate_roku"
-  local roku_device="$(hostname2ip ${ROKU_DEVICE:-$3})"
-  local roku_device_name="${ROKU_DEVICE:-$3}"
-  local roku_command="$1"
-  local roku_option="$2"
-  local api_url="http://$roku_device:8060"
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  __mkd "$cache"
-  touch "$state"
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  [ -n "$roku_device" ] || printf_exit "Please enter the hostname of your roku"
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  # functions
-  __curlcmd() { curl --disable -LSsfk --connect-timeout 3 --retry 0 --fail "$@"; }
-  __curlapi() { __curlcmd -d '' "$@"; }
-  __status_ok() { printf_green "Telling $roku_device_name to $1"; }
-  __status_failed() { printf_error "Failed to send $1 to $roku_device_name"; }
-  getstate() { cat "$state"; }
-  roku_play() {
-    __devnull __curlapi "$api_url/keypress/play" && echo play >"$state" &&
-      __status_ok "play" || __status_failed "play"
-  }
-  roku_stop() {
-    __devnull __curlapi "$api_url/keypress/stop" && echo stop >"$state" &&
-      __status_ok "stop" || __status_failed "stop"
-  }
-  roku_pause() {
-    __devnull __curlapi "$api_url/keypress/play" && echo pause >"$state" &&
-      __status_ok "pause" || __status_failed "pause"
-  }
-  roku_toggle() {
-    if [ "$(getstate)" = "stop" ]; then
-      roku_play
-    elif [ "$(getstate)" = "play" ]; then
-      roku_stop
-    elif [ "$(getstate)" = "pause" ] || [ "$(getstate)" = "toggle" ]; then
-      roku_pause
-    else
-      printf_exit "Can not get state"
-    fi
-  }
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  if [ ! -s "$state" ]; then echo toggle >"$state"; fi
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  case "$setopts" in
-  play)
-    shift 1
-    roku_play
-    ;;
-
-  stop)
-    shift 1
-    roku_stop
-    ;;
-
-  pause)
-    shift 1
-    roku_pause
-    ;;
-
-  toggle)
-    shift 1
-    toggle
-    echo toggle >"$state"
-    ;;
-
-  state)
-    case "$2" in
-    text) echo -e "$(getstate)" ;;
-    json | *) echo -e '{"status":"'$(getstate)'"}' ;;
-    esac
-    ;;
-
-  cmd | command)
-    shift 1
-    [ -z "$roku_command" ] && printf_exit "Please enter the the command you want to send to your roku"
-    [ -z "$roku_option" ] && printf_exit "Please enter the the command you want to send to your roku"
-    __devnull __curlapi "$api_url/$roku_command/$roku_option" && echo "$roku_option" >"$state" &&
-      __status_ok "$*" || __status_failed "$*"
-    ;;
-
-  *)
-    roku_toggle
-    ;;
-  esac
+roku_play() {
+  __devnull __curlapi "$api_url/keypress/play" && echo play >"$state" &&
+    __status_ok "play" || __status_failed "play"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#execute
-roku "$@"
+roku_stop() {
+  __devnull __curlapi "$api_url/keypress/stop" && echo stop >"$state" &&
+    __status_ok "stop" || __status_failed "stop"
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-exit $?
+roku_pause() {
+  __devnull __curlapi "$api_url/keypress/play" && echo pause >"$state" &&
+    __status_ok "pause" || __status_failed "pause"
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# end
+roku_play_pause() {
+  __devnull __curlapi "$api_url/keypress/play" && echo toggle >"$state" &&
+    __status_ok "play/pause" || __status_failed "play"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+roku_toggle() {
+  if [ "$(getstate)" = "stop" ]; then
+    roku_play
+  elif [ "$(getstate)" = "play" ]; then
+    roku_stop
+  elif [ "$(getstate)" = "pause" ] || [ "$(getstate)" = "toggle" ]; then
+    roku_play_pause
+  else
+    printf_exit "Can not get state"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Default variables
+exitCode="0"
+ROKU_CACHE_DIR="${ROKU_CACHE_DIR:-$HOME/.cache/roku}"
+ROKU_CONFIG_DIR="${ROKU_CONFIG_DIR:-$HOME/.config/myscripts/roku}"
+ROKU_OPTIONS_DIR="${ROKU_OPTIONS_DIR:-$HOME/.local/share/myscripts/roku/options}"
+ROKU_CONFIG_BACKUP_DIR="${ROKU_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/roku/backups}"
+ROKU_TEMP_DIR="${ROKU_TEMP_DIR:-$HOME/.local/tmp/system_scripts/roku}"
+ROKU_TEMP_FILE="${ROKU_TEMP_FILE:-$(mktemp $ROKU_TEMP_DIR/XXXXXX 2>/dev/null)}"
+ROKU_CONFIG_FILE="${ROKU_CONFIG_FILE:-settings.conf}"
+ROKU_GOOD_MESSAGE="${ROKU_GOOD_MESSAGE:-Everything Went OK}"
+ROKU_ERROR_MESSAGE="${ROKU_ERROR_MESSAGE:-Well that didn\'t work}"
+ROKU_NOTIFY_ENABLED="${ROKU_NOTIFY_ENABLED:-yes}"
+ROKU_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+ROKU_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$ROKU_NOTIFY_CLIENT_ICON}"
+ROKU_OUTPUT_COLOR="${ROKU_OUTPUT_COLOR:-5}"
+ROKU_OUTPUT_COLOR_GOOD="${ROKU_OUTPUT_COLOR_GOOD:-2}"
+ROKU_OUTPUT_COLOR_ERROR="${ROKU_OUTPUT_COLOR_ERROR:-1}"
+ROKU_STATE_FILE="${ROKU_STATE_FILE:-$ROKU_CACHE_DIR/automate_roku}"
+ROKU_DEVICE="${ROKU_DEVICE:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$ROKU_TEMP_DIR" ] || mkdir -p "$ROKU_TEMP_DIR" &>/dev/null
+[ -d "$ROKU_CACHE_DIR" ] || mkdir -p "$ROKU_CACHE_DIR" &>/dev/null
+[ -f "$ROKU_STATE_FILE" ] || touch "$ROKU_STATE_FILE" &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$ROKU_CONFIG_DIR/$ROKU_CONFIG_FILE" ] ||
+  __gen_config &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$ROKU_CONFIG_DIR/$ROKU_CONFIG_FILE" ] &&
+  . "$ROKU_CONFIG_DIR/$ROKU_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS="z:"
+LONGOPTS="options,config,version,help,dir:"
+ARRAY=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$PROG" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --options)
+    shift 1
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  -z | --dir)
+    ROKU_CWD="$2"
+    shift 2
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+if [ "$ROKU_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${ROKU_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${ROKU_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${ROKU_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${ROKU_NOTIFY_CLIENT_ICON}"
+    notifications "$*" || return 1
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+cmd_exists --error --ask bash || exit 1 # exit 1 if not found
+#am_i_online --error || exit 1     # exit 1 if no internet
+[ -n "$ROKU_DEVICE" ] || printf_exit "Please enter the hostname of your roku"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+setopts="$1"
+cache="$ROKU_CACHE_DIR"
+state="$ROKU_STATE_FILE"
+roku_device="$(hostname2ip ${ROKU_DEVICE:-$3})"
+roku_device_name="${ROKU_DEVICE:-$3}"
+roku_command="$1"
+roku_option="$2"
+api_url="http://$roku_device:8060"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+case "$1" in
+play)
+  shift 1
+  roku_play
+  ;;
+
+stop)
+  shift 1
+  roku_stop
+  ;;
+
+pause)
+  shift 1
+  roku_pause
+  ;;
+
+toggle)
+  shift 1
+  roku_toggle
+  echo toggle >"$state"
+  ;;
+
+state)
+  case "$2" in
+  text) echo -e "$(getstate)" ;;
+  json | *) echo -e '{"status":"'$(getstate)'"}' ;;
+  esac
+  ;;
+
+cmd | command)
+  shift 1
+  [ -z "$roku_command" ] && printf_exit "Please enter the the command you want to send to your roku"
+  [ -z "$roku_option" ] && printf_exit "Please enter the the command you want to send to your roku"
+  __devnull __curlapi "$api_url/$roku_command/$roku_option" && echo "$roku_option" >"$state" &&
+    __status_ok "$*" || __status_failed "$*"
+  ;;
+
+*)
+  roku_toggle
+  ;;
+esac
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-$?}

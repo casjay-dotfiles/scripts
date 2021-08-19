@@ -1,22 +1,25 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0")"
+VERSION="202108190117-git"
+RUN_USER="${SUDO_USER:-${USER}}"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#set opts
+# Set bash options
+trap 'exit=${exitCode:-$?};[ -f "$RUN_COMMAND_TEMP_FILE" ] && rm -Rf "$RUN_COMMAND_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202103201830-git
+##@Version       : 202108190117-git
 # @Author        : Jason Hempstead
 # @Contact       : jason@casjaysdev.com
 # @License       : WTFPL
 # @ReadME        : run_command --help
-# @Copyright     : Copyright: (c) 2021 Jason Hempstead, CasjaysDev
-# @Created       : Saturday, Mar 20, 2021 18:30 EDT
+# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created       : Thursday, Aug 19, 2021 01:17 EDT
 # @File          : run_command
-# @Description   : wrapper script for running commands
+# @Description   : wrapper script for running commands in the background
 # @TODO          :
 # @Other         :
 # @Resource      :
@@ -40,42 +43,177 @@ fi
 user_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-run_command() {
-  [ $# = 0 ] && printf_exit 1 1 "No command given"
-  [[ "$1" = /* ]] && printf_exit 1 4 "Absolute paths not supported"
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  APP="$(basename $1)" && shift 1
-  ARG="$*" && shift $#
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  year="$(date +'%Y')"
-  date="$(date +'%m%d')"
-  time="$(date +'%H%M')"
-  logdir="${LOGDIR:-$HOME/.local/log}/run/$year"
-  logname="$APP-$date"
-  command="$APP $ARG >>"$logdir/$logname.log" 2>>"$logdir/$logname.err" &>/dev/null &"
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  mkdir -p "$logdir"
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  if [ -f "$(command -v $APP 2>/dev/null)" ]; then
-    eval "$command" && sleep 5 && EXIT=0 || EXIT=1
-    if [ "$EXIT" -eq 0 ]; then
-      printf_success "$APP started successfuly"
-    else
-      printf_exit "$APP has failed: Check $logdir/$logname.err for details"
-    fi
+# Set functions
+__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gen_config() {
+  printf_green "Generating the config file in"
+  printf_green "$RUN_COMMAND_CONFIG_DIR/$RUN_COMMAND_CONFIG_FILE"
+  [ -d "$RUN_COMMAND_CONFIG_DIR" ] || mkdir -p "$RUN_COMMAND_CONFIG_DIR"
+  [ -d "$RUN_COMMAND_CONFIG_BACKUP_DIR" ] || mkdir -p "$RUN_COMMAND_CONFIG_BACKUP_DIR"
+  [ -f "$RUN_COMMAND_CONFIG_DIR/$RUN_COMMAND_CONFIG_FILE" ] &&
+    cp -Rf "$RUN_COMMAND_CONFIG_DIR/$RUN_COMMAND_CONFIG_FILE" "$RUN_COMMAND_CONFIG_BACKUP_DIR/$RUN_COMMAND_CONFIG_FILE.$$"
+  cat <<EOF >"$RUN_COMMAND_CONFIG_DIR/$RUN_COMMAND_CONFIG_FILE"
+# Settings for run_command
+RUN_COMMAND_LOG_DIR="${RUN_COMMAND_LOG_DIR:-$HOME/.local/log/run_command}"
+
+# Notification settings
+RUN_COMMAND_GOOD_MESSAGE="${RUN_COMMAND_GOOD_MESSAGE:-Everything Went OK}"
+RUN_COMMAND_ERROR_MESSAGE="${RUN_COMMAND_ERROR_MESSAGE:-Well that didn\'t work}"
+RUN_COMMAND_NOTIFY_ENABLED="${RUN_COMMAND_NOTIFY_ENABLED:-yes}"
+RUN_COMMAND_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+RUN_COMMAND_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$RUN_COMMAND_NOTIFY_CLIENT_ICON}"
+
+# Colorization settings
+RUN_COMMAND_OUTPUT_COLOR="${RUN_COMMAND_OUTPUT_COLOR:-5}"
+RUN_COMMAND_OUTPUT_COLOR_GOOD="${RUN_COMMAND_OUTPUT_COLOR_GOOD:-2}"
+RUN_COMMAND_OUTPUT_COLOR_ERROR="${RUN_COMMAND_OUTPUT_COLOR_ERROR:-1}"
+
+EOF
+  if [ -f "$RUN_COMMAND_CONFIG_DIR/$RUN_COMMAND_CONFIG_FILE" ]; then
+    printf_green "Your config file for run_command has been created"
+    true
   else
-    printf_error 1 1 "The application $APP does not exist"
-    printf_read_question "4" "would you like to try to install $APP?" "1" "YN"
-    if printf_answer_yes "$YN"; then
-      pkmgr install silent $APP && printf_green "$APP has been installed" || printf_exit 1 1 "Failed to install $APP"
-    else
-      exit 1
-    fi
+    printf_red "Failed to create the config file"
+    false
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-run_command "$@"
+# Additional functions
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-exit $?
+# Default variables
+exitCode="0"
+RUN_COMMAND_CACHE_DIR="${RUN_COMMAND_CACHE_DIR:-$HOME/.cache/run_command}"
+RUN_COMMAND_LOG_DIR="${RUN_COMMAND_LOG_DIR:-$HOME/.local/log/run_command}"
+RUN_COMMAND_CONFIG_DIR="${RUN_COMMAND_CONFIG_DIR:-$HOME/.config/myscripts/run_command}"
+RUN_COMMAND_OPTIONS_DIR="${RUN_COMMAND_OPTIONS_DIR:-$HOME/.local/share/myscripts/run_command/options}"
+RUN_COMMAND_CONFIG_BACKUP_DIR="${RUN_COMMAND_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/run_command/backups}"
+RUN_COMMAND_TEMP_DIR="${RUN_COMMAND_TEMP_DIR:-$HOME/.local/tmp/system_scripts/run_command}"
+RUN_COMMAND_TEMP_FILE="${RUN_COMMAND_TEMP_FILE:-$(mktemp $RUN_COMMAND_TEMP_DIR/XXXXXX 2>/dev/null)}"
+RUN_COMMAND_CONFIG_FILE="${RUN_COMMAND_CONFIG_FILE:-settings.conf}"
+RUN_COMMAND_GOOD_MESSAGE="${RUN_COMMAND_GOOD_MESSAGE:-Everything Went OK}"
+RUN_COMMAND_ERROR_MESSAGE="${RUN_COMMAND_ERROR_MESSAGE:-Well that didn\'t work}"
+RUN_COMMAND_NOTIFY_ENABLED="${RUN_COMMAND_NOTIFY_ENABLED:-yes}"
+RUN_COMMAND_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+RUN_COMMAND_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$RUN_COMMAND_NOTIFY_CLIENT_ICON}"
+RUN_COMMAND_OUTPUT_COLOR="${RUN_COMMAND_OUTPUT_COLOR:-5}"
+RUN_COMMAND_OUTPUT_COLOR_GOOD="${RUN_COMMAND_OUTPUT_COLOR_GOOD:-2}"
+RUN_COMMAND_OUTPUT_COLOR_ERROR="${RUN_COMMAND_OUTPUT_COLOR_ERROR:-1}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# end
+# Ensure Directories exist
+[ -d "$RUN_COMMAND_TEMP_DIR" ] || mkdir -p "$RUN_COMMAND_TEMP_DIR" &>/dev/null
+[ -d "$RUN_COMMAND_CACHE_DIR" ] || mkdir -p "$RUN_COMMAND_CACHE_DIR" &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$RUN_COMMAND_CONFIG_DIR/$RUN_COMMAND_CONFIG_FILE" ] ||
+  __gen_config &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$RUN_COMMAND_CONFIG_DIR/$RUN_COMMAND_CONFIG_FILE" ] &&
+  . "$RUN_COMMAND_CONFIG_DIR/$RUN_COMMAND_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS="z:"
+LONGOPTS="options,config,version,help,dir:"
+ARRAY=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$PROG" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --options)
+    shift 1
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  -z | --dir)
+    RUN_COMMAND_CWD="$2"
+    shift 2
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+if [ "$RUN_COMMAND_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${RUN_COMMAND_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${RUN_COMMAND_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${RUN_COMMAND_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${RUN_COMMAND_NOTIFY_CLIENT_ICON}"
+    notifications "$*" || return 1
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+cmd_exists --error --ask bash || exit 1 # exit 1 if not found
+#am_i_online --error || exit 1     # exit 1 if no internet
+[ $# = 0 ] && printf_exit 1 1 "No command given"
+[[ "$1" = /* ]] && printf_exit 1 4 "Absolute paths not supported"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+APP="$(basename $1)" && shift 1
+ARG="$*" && shift $#
+RUN_COMMAND_YEAR_FMT="$(date +'%Y')"
+RUN_COMMAND_DATE_FMT="$(date +'%m%d')"
+RUN_COMMAND_TIME_FMT="$(date +'%H%M')"
+RUN_COMMAND_LOG_DIR="${RUN_COMMAND_LOG_DIR:-$HOME/.local/log}/$RUN_COMMAND_YEAR_FMT"
+RUN_COMMAND_LOG_NAME="$APP-$RUN_COMMAND_DATE_FMT"
+RUN_COMMAND_BIN="$APP $ARG >>"$RUN_COMMAND_LOG_DIR/$RUN_COMMAND_LOG_NAME.log" 2>>"$RUN_COMMAND_LOG_DIR/$RUN_COMMAND_LOG_NAME.err" &>/dev/null &"
+mkdir -p "$RUN_COMMAND_LOG_DIR"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+if [ -f "$(builtin type -P "$APP" 2>/dev/null)" ]; then
+  if eval "$RUN_COMMAND_BIN"; then
+    pid=$! && sleep 5 && exitCode=0
+  else
+    exitCode=1
+  fi
+  if [ "$exitCode" -eq 0 ]; then
+    printf_success "$APP started successfuly with pid: $pid"
+  else
+    printf_exit "$APP has failed: Check $RUN_COMMAND_LOG_DIR/$RUN_COMMAND_LOG_NAME.err for details"
+  fi
+else
+  printf_error 1 1 "The application $APP does not exist"
+  printf_read_question "4" "would you like to try to install $APP?" "1" "YN"
+  if printf_answer_yes "$YN"; then
+    pkmgr install silent $APP && printf_green "$APP has been installed" || printf_exit 1 1 "Failed to install $APP"
+  else
+    exitCode=1
+  fi
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-$?}

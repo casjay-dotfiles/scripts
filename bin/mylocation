@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0")"
+VERSION="202108190117-git"
+RUN_USER="${SUDO_USER:-${USER}}"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#set opts
+# Set bash options
+trap 'exitCode=${exitCode:-$?};[ -f "$MYLOCATION_TEMP_FILE" ] && rm -Rf "$MYLOCATION_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202103201728-git
+##@Version       : 202108190117-git
 # @Author        : Jason Hempstead
 # @Contact       : jason@casjaysdev.com
 # @License       : WTFPL
 # @ReadME        : mylocation --help
-# @Copyright     : Copyright: (c) 2021 Jason Hempstead, CasjaysDev
-# @Created       : Saturday, Mar 20, 2021 17:28 EDT
+# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created       : Thursday, Aug 19, 2021 01:17 EDT
 # @File          : mylocation
 # @Description   : Show IP location
 # @TODO          :
@@ -40,14 +43,147 @@ fi
 user_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-am_i_online --error || exit 1
-__requires jq || exit 1
+# Set functions
+__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-[ -n "$IPSTACK_ACCESS_TOKEN" ] || __help
+__gen_config() {
+  printf_green "Generating the config file in"
+  printf_green "$MYLOCATION_CONFIG_DIR/$MYLOCATION_CONFIG_FILE"
+  [ -d "$MYLOCATION_CONFIG_DIR" ] || mkdir -p "$MYLOCATION_CONFIG_DIR"
+  [ -d "$MYLOCATION_CONFIG_BACKUP_DIR" ] || mkdir -p "$MYLOCATION_CONFIG_BACKUP_DIR"
+  [ -f "$MYLOCATION_CONFIG_DIR/$MYLOCATION_CONFIG_FILE" ] &&
+    cp -Rf "$MYLOCATION_CONFIG_DIR/$MYLOCATION_CONFIG_FILE" "$MYLOCATION_CONFIG_BACKUP_DIR/$MYLOCATION_CONFIG_FILE.$$"
+  cat <<EOF >"$MYLOCATION_CONFIG_DIR/$MYLOCATION_CONFIG_FILE"
+# Settings for mylocation - Requires PAI Key from ipstack.com
+MYLOCATION_API_KEY="${MYLOCATION_API_KEY:-$IPSTACK_ACCESS_TOKEN}"
+
+# Notification settings
+MYLOCATION_GOOD_MESSAGE="${MYLOCATION_GOOD_MESSAGE:-Everything Went OK}"
+MYLOCATION_ERROR_MESSAGE="${MYLOCATION_ERROR_MESSAGE:-Well that didn\'t work}"
+MYLOCATION_NOTIFY_ENABLED="${MYLOCATION_NOTIFY_ENABLED:-yes}"
+MYLOCATION_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+MYLOCATION_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$MYLOCATION_NOTIFY_CLIENT_ICON}"
+
+# Colorization settings
+MYLOCATION_OUTPUT_COLOR="${MYLOCATION_OUTPUT_COLOR:-5}"
+MYLOCATION_OUTPUT_COLOR_GOOD="${MYLOCATION_OUTPUT_COLOR_GOOD:-2}"
+MYLOCATION_OUTPUT_COLOR_ERROR="${MYLOCATION_OUTPUT_COLOR_ERROR:-1}"
+
+EOF
+  if [ -f "$MYLOCATION_CONFIG_DIR/$MYLOCATION_CONFIG_FILE" ]; then
+    printf_green "Your config file for mylocation has been created"
+    true
+  else
+    printf_red "Failed to create the config file"
+    false
+  fi
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-OUTPUT_FILE="${TMP:-/tmp}/server_location.txt"
+# Additional functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Default variables
+exitCode="0"
+MYLOCATION_CACHE_DIR="${MYLOCATION_CACHE_DIR:-$HOME/.cache/mylocation}"
+MYLOCATION_CONFIG_DIR="${MYLOCATION_CONFIG_DIR:-$HOME/.config/myscripts/mylocation}"
+MYLOCATION_OPTIONS_DIR="${MYLOCATION_OPTIONS_DIR:-$HOME/.local/share/myscripts/mylocation/options}"
+MYLOCATION_CONFIG_BACKUP_DIR="${MYLOCATION_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/mylocation/backups}"
+MYLOCATION_TEMP_DIR="${MYLOCATION_TEMP_DIR:-$HOME/.local/tmp/system_scripts/mylocation}"
+MYLOCATION_TEMP_FILE="${MYLOCATION_TEMP_FILE:-$(mktemp $MYLOCATION_TEMP_DIR/XXXXXX 2>/dev/null)}"
+MYLOCATION_CONFIG_FILE="${MYLOCATION_CONFIG_FILE:-settings.conf}"
+MYLOCATION_GOOD_MESSAGE="${MYLOCATION_GOOD_MESSAGE:-Everything Went OK}"
+MYLOCATION_ERROR_MESSAGE="${MYLOCATION_ERROR_MESSAGE:-Well that didn\'t work}"
+MYLOCATION_NOTIFY_ENABLED="${MYLOCATION_NOTIFY_ENABLED:-yes}"
+MYLOCATION_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+MYLOCATION_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$MYLOCATION_NOTIFY_CLIENT_ICON}"
+MYLOCATION_OUTPUT_COLOR="${MYLOCATION_OUTPUT_COLOR:-5}"
+MYLOCATION_OUTPUT_COLOR_GOOD="${MYLOCATION_OUTPUT_COLOR_GOOD:-2}"
+MYLOCATION_OUTPUT_COLOR_ERROR="${MYLOCATION_OUTPUT_COLOR_ERROR:-1}"
+MYLOCATION_API_KEY="${MYLOCATION_API_KEY:-$IPSTACK_ACCESS_TOKEN}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$MYLOCATION_TEMP_DIR" ] || mkdir -p "$MYLOCATION_TEMP_DIR" &>/dev/null
+[ -d "$MYLOCATION_CACHE_DIR" ] || mkdir -p "$MYLOCATION_CACHE_DIR" &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$MYLOCATION_CONFIG_DIR/$MYLOCATION_CONFIG_FILE" ] ||
+  __gen_config &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$MYLOCATION_CONFIG_DIR/$MYLOCATION_CONFIG_FILE" ] &&
+  . "$MYLOCATION_CONFIG_DIR/$MYLOCATION_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS="z:"
+LONGOPTS="options,config,version,help,dir:"
+ARRAY=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$PROG" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --options)
+    shift 1
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  -z | --dir)
+    MYLOCATION_CWD="$2"
+    shift 2
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+if [ "$MYLOCATION_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${MYLOCATION_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${MYLOCATION_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${MYLOCATION_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${MYLOCATION_NOTIFY_CLIENT_ICON}"
+    notifications "$*" || return 1
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+cmd_exists --error --ask bash jq || exit 1 # exit 1 if not found
+#am_i_online --error || exit 1     # exit 1 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+[ -n "$MYLOCATION_API_KEY" ] || __help
 PUBLIC_IP="$(curl -LSs -4 http:/ifconfig.co/ip)"
-curl -s http://api.ipstack.com/${PUBLIC_IP}?access_key=$IPSTACK_ACCESS_TOKEN |
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+curl -s http://api.ipstack.com/${PUBLIC_IP}?access_key=$MYLOCATION_API_KEY |
   jq '.latitude,.longitude,.city,.region_name,.country_name,.zip' |
   while read -r LATITUDE; do
     read -r LONGITUDE
@@ -55,12 +191,11 @@ curl -s http://api.ipstack.com/${PUBLIC_IP}?access_key=$IPSTACK_ACCESS_TOKEN |
     read -r REGION
     read -r COUNTRY
     read -r ZIP
-    echo -e "\n\t\tLAT: ${LATITUDE}\n\t\tLON: ${LONGITUDE}\n\t\tCity: ${CITY}\n\t\tRegion: ${REGION}\n\t\tCountry: ${COUNTRY}\n\t\tZip: ${ZIP}" | tr -d \" >${OUTPUT_FILE}
+    echo -e "\n\t\tLAT: ${LATITUDE}\n\t\tLON: ${LONGITUDE}\n\t\tCity: ${CITY}\n\t\tRegion: ${REGION}\n\t\tCountry: ${COUNTRY}\n\t\tZip: ${ZIP}" | tr -d \" >${MYLOCATION_TEMP_FILE}
   done
+printf_green "$(cat "${MYLOCATION_TEMP_FILE}")\n"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-printf_green "$(cat "${OUTPUT_FILE}")\n"
-__rm_rf "${OUTPUT_FILE}"
+# End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-exit $?
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# end
+# lets exit with code
+exit ${exitCode:-$?}

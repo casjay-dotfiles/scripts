@@ -164,7 +164,6 @@ run_postinst() {
   if [ ! -f /etc/casjaysdev/updates/versions/date.configs.txt ]; then
     date +"%b %d, %Y at %H:%M" | sudo tee /etc/casjaysdev/updates/versions/date.configs.txt &>/dev/null
   fi
-  [[ -f "/usr/bin/sentaku" ]] || ln_sf "$APPDIR/sources/sentaku" "/usr/bin/sentaku"
   cp_rf "$INSTDIR/version.txt" /etc/casjaysdev/updates/versions/scripts.txt
   date +"%b %d, %Y at %H:%M" | sudo tee /etc/casjaysdev/updates/versions/date.scripts.txt &>/dev/null
   echo 'for f in '$CASJAYSDEVDIR/completions/*'; do source "$f" >/dev/null 2>&1; done' >"$COMPDIR/_my_scripts_completions"
@@ -172,6 +171,9 @@ run_postinst() {
   ln_sf "$APPDIR" "$SYSSHARE/CasjaysDev/$SCRIPTS_PREFIX/installer"
   cmd_exists update-motd && update-ip && update-motd || true
   git config --global pull.rebase true
+  for file in multi_clipboard se sentaku tdrop; do
+    [[ -f "/usr/local/bin/$file" ]] || ln_sf "$APPDIR/sources/$file" "/usr/local/bin/$file"
+  done
   dotfilesreqadmin cron
 }
 #

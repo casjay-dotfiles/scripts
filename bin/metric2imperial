@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0")"
+VERSION="202108190117-git"
+RUN_USER="${SUDO_USER:-${USER}}"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#set opts
+# Set bash options
+trap 'exitCode=${exitCode:-$?};[ -f "$METRIC2IMPERIAL_TEMP_FILE" ] && rm -Rf "$METRIC2IMPERIAL_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202103201712-git
+##@Version       : 202108190117-git
 # @Author        : Jason Hempstead
 # @Contact       : jason@casjaysdev.com
 # @License       : WTFPL
 # @ReadME        : metric2imperial --help
-# @Copyright     : Copyright: (c) 2021 Jason Hempstead, CasjaysDev
-# @Created       : Saturday, Mar 20, 2021 17:12 EDT
+# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created       : Thursday, Aug 19, 2021 01:17 EDT
 # @File          : metric2imperial
 # @Description   : convert Celcius to Fahrenheit
 # @TODO          :
@@ -40,48 +43,186 @@ fi
 user_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ -z "$1" ] || [ $# -lt 2 ]; then __help; fi
+# Set functions
+__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__check_app tf bc
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-measurement="$1"
-math="$2"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-case $measurement in
+__gen_config() {
+  printf_green "Generating the config file in"
+  printf_green "$METRIC2IMPERIAL_CONFIG_DIR/$METRIC2IMPERIAL_CONFIG_FILE"
+  [ -d "$METRIC2IMPERIAL_CONFIG_DIR" ] || mkdir -p "$METRIC2IMPERIAL_CONFIG_DIR"
+  [ -d "$METRIC2IMPERIAL_CONFIG_BACKUP_DIR" ] || mkdir -p "$METRIC2IMPERIAL_CONFIG_BACKUP_DIR"
+  [ -f "$METRIC2IMPERIAL_CONFIG_DIR/$METRIC2IMPERIAL_CONFIG_FILE" ] &&
+    cp -Rf "$METRIC2IMPERIAL_CONFIG_DIR/$METRIC2IMPERIAL_CONFIG_FILE" "$METRIC2IMPERIAL_CONFIG_BACKUP_DIR/$METRIC2IMPERIAL_CONFIG_FILE.$$"
+  cat <<EOF >"$METRIC2IMPERIAL_CONFIG_DIR/$METRIC2IMPERIAL_CONFIG_FILE"
+# Settings for metric2imperial
 
-f)
+# Notification settings
+METRIC2IMPERIAL_GOOD_MESSAGE="${METRIC2IMPERIAL_GOOD_MESSAGE:-Everything Went OK}"
+METRIC2IMPERIAL_ERROR_MESSAGE="${METRIC2IMPERIAL_ERROR_MESSAGE:-Well that didn\'t work}"
+METRIC2IMPERIAL_NOTIFY_ENABLED="${METRIC2IMPERIAL_NOTIFY_ENABLED:-yes}"
+METRIC2IMPERIAL_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+METRIC2IMPERIAL_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-calc}"
+
+# Colorization settings
+METRIC2IMPERIAL_OUTPUT_COLOR="${METRIC2IMPERIAL_OUTPUT_COLOR:-5}"
+METRIC2IMPERIAL_OUTPUT_COLOR_GOOD="${METRIC2IMPERIAL_OUTPUT_COLOR_GOOD:-2}"
+METRIC2IMPERIAL_OUTPUT_COLOR_ERROR="${METRIC2IMPERIAL_OUTPUT_COLOR_ERROR:-1}"
+
+EOF
+  if [ -f "$METRIC2IMPERIAL_CONFIG_DIR/$METRIC2IMPERIAL_CONFIG_FILE" ]; then
+    printf_green "Your config file for metric2imperial has been created"
+    true
+  else
+    printf_red "Failed to create the config file"
+    false
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Default variables
+exitCode="0"
+METRIC2IMPERIAL_CACHE_DIR="${METRIC2IMPERIAL_CACHE_DIR:-$HOME/.cache/metric2imperial}"
+METRIC2IMPERIAL_CONFIG_DIR="${METRIC2IMPERIAL_CONFIG_DIR:-$HOME/.config/myscripts/metric2imperial}"
+METRIC2IMPERIAL_OPTIONS_DIR="${METRIC2IMPERIAL_OPTIONS_DIR:-$HOME/.local/share/myscripts/metric2imperial/options}"
+METRIC2IMPERIAL_CONFIG_BACKUP_DIR="${METRIC2IMPERIAL_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/metric2imperial/backups}"
+METRIC2IMPERIAL_TEMP_DIR="${METRIC2IMPERIAL_TEMP_DIR:-$HOME/.local/tmp/system_scripts/metric2imperial}"
+METRIC2IMPERIAL_TEMP_FILE="${METRIC2IMPERIAL_TEMP_FILE:-$(mktemp $METRIC2IMPERIAL_TEMP_DIR/XXXXXX 2>/dev/null)}"
+METRIC2IMPERIAL_CONFIG_FILE="${METRIC2IMPERIAL_CONFIG_FILE:-settings.conf}"
+METRIC2IMPERIAL_GOOD_MESSAGE="${METRIC2IMPERIAL_GOOD_MESSAGE:-Everything Went OK}"
+METRIC2IMPERIAL_ERROR_MESSAGE="${METRIC2IMPERIAL_ERROR_MESSAGE:-Well that didn\'t work}"
+METRIC2IMPERIAL_NOTIFY_ENABLED="${METRIC2IMPERIAL_NOTIFY_ENABLED:-yes}"
+METRIC2IMPERIAL_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+METRIC2IMPERIAL_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$METRIC2IMPERIAL_NOTIFY_CLIENT_ICON}"
+METRIC2IMPERIAL_OUTPUT_COLOR="${METRIC2IMPERIAL_OUTPUT_COLOR:-5}"
+METRIC2IMPERIAL_OUTPUT_COLOR_GOOD="${METRIC2IMPERIAL_OUTPUT_COLOR_GOOD:-2}"
+METRIC2IMPERIAL_OUTPUT_COLOR_ERROR="${METRIC2IMPERIAL_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$METRIC2IMPERIAL_TEMP_DIR" ] || mkdir -p "$METRIC2IMPERIAL_TEMP_DIR" &>/dev/null
+[ -d "$METRIC2IMPERIAL_CACHE_DIR" ] || mkdir -p "$METRIC2IMPERIAL_CACHE_DIR" &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$METRIC2IMPERIAL_CONFIG_DIR/$METRIC2IMPERIAL_CONFIG_FILE" ] ||
+  __gen_config &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$METRIC2IMPERIAL_CONFIG_DIR/$METRIC2IMPERIAL_CONFIG_FILE" ] &&
+  . "$METRIC2IMPERIAL_CONFIG_DIR/$METRIC2IMPERIAL_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS="z:"
+LONGOPTS="options,config,version,help,dir:"
+ARRAY="c mm cm m km"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$PROG" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --options)
+    shift 1
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  -z | --dir)
+    METRIC2IMPERIAL_CWD="$2"
+    shift 2
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+if [ "$METRIC2IMPERIAL_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${METRIC2IMPERIAL_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${METRIC2IMPERIAL_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${METRIC2IMPERIAL_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${METRIC2IMPERIAL_NOTIFY_CLIENT_ICON}"
+    notifications "$*" || return 1
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+cmd_exists --error --ask bash tf bc || exit 1 # exit 1 if not found
+#am_i_online --error || exit 1     # exit 1 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+case "$1" in
+c)
   shift 1
-  tf=$(echo "scale=2;((9/5) * $math) + 32" | bc)
-  printf_green "$math celcius is $tf in fahrenheit "
+  tf=$(echo "scale=2;((9/5) * $2) + 32" | bc)
+  message="$2 celcius is $tf in fahrenheit"
+  printf_green "$message"
+  __notifications "$message"
   ;;
 
 mm)
   shift 1
-  tf=$(echo "scale=2;$math * 0.0394" | bc)
-  printf_green "$math millimeter is $tf inches"
+  tf=$(echo "scale=2;$2 * 0.0394" | bc)
+  message="$2 millimeter is $tf inches"
+  printf_green "$message"
+  __notifications "$message"
   ;;
 
 cm)
   shift 1
-  tf=$(echo "scale=2;($math * 0.3937)" | bc)
-  printf_green "$math centimeter is $tf inches"
+  tf=$(echo "scale=2;($2 * 0.3937)" | bc)
+  message="$2 centimeter is $tf inches"
+  printf_green "$message"
+  __notifications "$message"
   ;;
 
 m | mt)
   shift 1
-  tf=$(echo "scale=2;($math * 3.2808)" | bc)
-  printf_green "$math meters is $tf feet"
+  tf=$(echo "scale=2;($2 * 3.2808)" | bc)
+  message="$2 meters is $tf feet"
+  printf_green "$message"
+  __notifications "$message"
   ;;
 
 k | km)
   shift 1
-  tf=$(echo "scale=2;($math * 0.3937)" | bc)
-  printf_green "$math kilometer is $tf miles"
+  tf=$(echo "scale=2;($2 * 0.3937)" | bc)
+  message="$2 kilometer is $tf miles"
+  printf_green "$message"
+  __notifications "$message"
   ;;
-
-*) __help ;;
 esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-exit $?
+# End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# end
+# lets exit with code
+exit ${exitCode:-$?}

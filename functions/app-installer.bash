@@ -2195,7 +2195,7 @@ __appversion() {
 # }
 __required_version() {
   [[ -d "$CASJAYSDEV_USERDIR/apps/$SCRIPTS_PREFIX/new_update" ]] &&
-    __rm_rf "$CASJAYSDEV_USERDIR/apps/$SCRIPTS_PREFIX/new_update"
+    rm_rf "$CASJAYSDEV_USERDIR/apps/$SCRIPTS_PREFIX/new_update"
   local requiredVersion="${1:-$requiredVersion}"
   local NEW_DIR="$CASJAYSDEV_USERDIR/apps/$SCRIPTS_PREFIX/$new_update"
   [ -d "$NEW_DIR" ] || mkdir -p "$NEW_DIR" &>/dev/null

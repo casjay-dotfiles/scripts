@@ -600,6 +600,15 @@ __pkmgr_gui() {
     zenity --width=400 --progress --no-cancel --pulsate --text "Installing packages $prog" --auto-close
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [[ -f "$(builtin type -P xclip 2>/dev/null)" ]]; then
+  __clipboard() { xclip -selection __clipboard; }
+elif [[ -f "$(builtin type -P xsel 2>/dev/null)" ]]; then
+  __clipboard() { xsel -ib; }
+elif [[ -f "$(builtin type -P aa clip.exe 2>/dev/null)" ]]; then
+  __clipboard() { clip.exe; }
+elif [[ -f "$(builtin type -P pbcopy 2>/dev/null)" ]]; then
+  __clipboard() { pbcopy; }
+fi
 ###################### Options ######################
 __list_available() { echo ${*:-$ARRAY} | __sed 's|,--| --|g;s|,-| -|g;s|,| |g;s|:||g'; }
 __list_array() {

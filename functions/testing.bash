@@ -1051,9 +1051,7 @@ __start() {
 }
 path_info() { echo "$PATH" | tr ':' '\n' | sort -u; }
 ###################### url functions ######################
-__curl() {
-  am_i_online && curl --disable -LSsfk --connect-timeout 3 --retry 0 --fail "$@" 2>/dev/null || return 1
-}
+__curl() { am_i_online && curl --disable -LSsfk --connect-timeout 3 --retry 0 --fail "$@" 2>/dev/null || return 1; }
 __curl_exit() { EXIT=0 && return 0 || EXIT=1 && return 1; }
 #curl_header "site" "code"
 __curl_header() { curl --disable -LSIsk --connect-timeout 3 --retry 0 --max-time 2 "$1" 2>/dev/null | grep -E "HTTP/[0123456789]" | grep "${2:-200}" -n1 -q; }

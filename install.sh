@@ -164,6 +164,7 @@ run_postinst() {
   if [ ! -f /etc/casjaysdev/updates/versions/date.configs.txt ]; then
     date +"%b %d, %Y at %H:%M" | sudo tee /etc/casjaysdev/updates/versions/date.configs.txt &>/dev/null
   fi
+  [[ -f "/usr/bin/sentaku" ]] || ln_sf "$APPDIR/sources/sentaku" "/usr/bin/sentaku"
   cp_rf "$INSTDIR/version.txt" /etc/casjaysdev/updates/versions/scripts.txt
   date +"%b %d, %Y at %H:%M" | sudo tee /etc/casjaysdev/updates/versions/date.scripts.txt &>/dev/null
   echo 'for f in '$CASJAYSDEVDIR/completions/*'; do source "$f" >/dev/null 2>&1; done' >"$COMPDIR/_my_scripts_completions"

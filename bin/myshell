@@ -112,22 +112,26 @@ __failure() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __del() {
+  local del_shell="$*"
+  local tmpshell="/tmp/shells"
   if [ $# = 0 ]; then
     printf_help "Usage: myshell --del shellname | myshell --del zsh"
   else
     __requiresudo true
-    local tmpshell="/tmp/shells"
-    if grep -q $1 /etc/shells; then
-      grep -Fv "$1" /etc/shells >"$tmpshell"
-      sudo mv -f "$tmpshell" /etc/shells
-      printf_exit 2 0 "$1 has been removed from /etc/shells"
-    else
-      printf_exit 1 1 "$1 isn't in /etc/shells"
-    fi
+    for f in $del_shell; do
+      if grep -q "$f" /etc/shells; then
+        grep -Fv "$f" /etc/shells >"$tmpshell"
+        sudo mv -f "$tmpshell" /etc/shells
+        printf_green "$f has been removed from /etc/shells"
+      else
+        printf_red "$f isn't in /etc/shells"
+      fi
+    done
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __add() {
+  local add_shell="$*"
   local PATH="$MYSHELL_SEARCH_PATH"
   local tmpshell="/tmp/shells"
   __requiresudo true
@@ -147,23 +151,19 @@ __add() {
     done
     exit $?
   else
-    if cmd_exists "$1"; then
-      local cmd="$(command -v $1)"
-      if ! grep -q "$1" /etc/shells; then
-        if [ "$(command -v $1 | grep -q '/' || echo 0)" = 0 ]; then
-          printf_red "/etc/shells requires full path to the shell, however,"
-          printf_exit "I couldn't determine the full path for $cmd"
+    for f in $add_shell; do
+      cmd="$(command -v $f)"
+      if [ -f "$cmd" ]; then
+        if ! grep -q "$f" /etc/shells; then
+          echo "$(command -v $f)" | sudo tee -a /etc/shells &>/dev/null &&
+            printf_green "Successfuly added $cmd to /etc/shells"
         else
-          echo "$cmd" | sudo tee -a /etc/shells &>/dev/null &&
-            printf_exit "2" "0" "$cmd has been added to /etc/shells" ||
-            printf_red "Something went wrong"
+          printf_yellow "$cmd is already in /etc/shells"
         fi
       else
-        printf_exit "$cmd already exists in /etc/shells"
+        printf_red "The command $f does not exist"
       fi
-    else
-      printf_exit "The command $1 doesn't exist"
-    fi
+    done
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -204,7 +204,7 @@ MYSHELL_SEARCH_PATH="${MYSHELL_SEARCH_PATH:-/usr/local/bin:/bin:/sbin:/usr/bin:/
 # Set additional variables/Argument/Option settings
 SETARGS="$*"
 SHORTOPTS="z:"
-LONGOPTS="options,config,version,help,dir:,list"
+LONGOPTS="options,config,version,help,dir:,list,add:,del:,set:"
 ARRAY=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$PROG" -- "$@" 2>/dev/null)
@@ -244,6 +244,24 @@ while :; do
     __list_shells
     exit
     ;;
+  --add)
+    shift 1
+    SETOPTS="add"
+    SHELL_LIST="$1"
+    shift 1
+    ;;
+  --del)
+    shift 1
+    SETOPTS="del"
+    SHELL_LIST="$1"
+    shift 1
+    ;;
+  --set)
+    shift 1
+    SETOPTS="set"
+    SHELL_LIST="$1"
+    shift 1
+    ;;
   --)
     shift 1
     break
@@ -273,20 +291,20 @@ cmd_exists --error --ask bash chsh || exit 1 # exit 1 if not found
 PATH="$MYSHELL_SEARCH_PATH"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
-case "$1" in
+case ${SETOPTS:-$1} in
 add)
   shift 1
-  __add "$@"
+  __add "${*:-$SHELL_LIST}"
   ;;
 
 del)
   shift 1
-  __del "$@"
+  __del "${*:-$SHELL_LIST}"
   ;;
 
 set)
   shift 1
-  myshell "$*"
+  myshell "${*:-$SHELL_LIST}"
   exit $?
   ;;
 

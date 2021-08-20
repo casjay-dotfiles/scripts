@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0")"
+VERSION="202108190117-git"
+RUN_USER="${SUDO_USER:-${USER}}"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#set opts
+# Set bash options
+trap 'exitCode=${exitCode:-$?};[ -f "$MPD_NOTIFY_TEMP_FILE" ] && rm -Rf "$MPD_NOTIFY_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202103201718-git
+##@Version       : 202108190117-git
 # @Author        : Jason Hempstead
 # @Contact       : jason@casjaysdev.com
 # @License       : WTFPL
 # @ReadME        : mpd-notify --help
-# @Copyright     : Copyright: (c) 2021 Jason Hempstead, CasjaysDev
-# @Created       : Saturday, Mar 20, 2021 17:18 EDT
+# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created       : Thursday, Aug 19, 2021 01:17 EDT
 # @File          : mpd-notify
 # @Description   : mpd notfication script
 # @TODO          :
@@ -40,46 +43,50 @@ fi
 user_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ ! -t 0 ] && { [ "$1" = "--term" ] || [ $# = 0 ]; }; then
-  myterminal -e "$APPNAME $*"
-  exit
-fi
+# Set functions
+__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-cmd_exists --ask mpd mpc
+__gen_config() {
+  printf_green "Generating the config file in"
+  printf_green "$MPD_NOTIFY_CONFIG_DIR/$MPD_NOTIFY_CONFIG_FILE"
+  [ -d "$MPD_NOTIFY_CONFIG_DIR" ] || mkdir -p "$MPD_NOTIFY_CONFIG_DIR"
+  [ -d "$MPD_NOTIFY_CONFIG_BACKUP_DIR" ] || mkdir -p "$MPD_NOTIFY_CONFIG_BACKUP_DIR"
+  [ -f "$MPD_NOTIFY_CONFIG_DIR/$MPD_NOTIFY_CONFIG_FILE" ] &&
+    cp -Rf "$MPD_NOTIFY_CONFIG_DIR/$MPD_NOTIFY_CONFIG_FILE" "$MPD_NOTIFY_CONFIG_BACKUP_DIR/$MPD_NOTIFY_CONFIG_FILE.$$"
+  cat <<EOF >"$MPD_NOTIFY_CONFIG_DIR/$MPD_NOTIFY_CONFIG_FILE"
+# Settings for mpd-notify
+
+# Notification settings
+MPD_NOTIFY_GOOD_MESSAGE="${MPD_NOTIFY_GOOD_MESSAGE:-Everything Went OK}"
+MPD_NOTIFY_ERROR_MESSAGE="${MPD_NOTIFY_ERROR_MESSAGE:-Well that didn\'t work}"
+MPD_NOTIFY_NOTIFY_ENABLED="${MPD_NOTIFY_NOTIFY_ENABLED:-yes}"
+MPD_NOTIFY_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+MPD_NOTIFY_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$MPD_NOTIFY_NOTIFY_CLIENT_ICON}"
+
+# Colorization settings
+MPD_NOTIFY_OUTPUT_COLOR="${MPD_NOTIFY_OUTPUT_COLOR:-5}"
+MPD_NOTIFY_OUTPUT_COLOR_GOOD="${MPD_NOTIFY_OUTPUT_COLOR_GOOD:-2}"
+MPD_NOTIFY_OUTPUT_COLOR_ERROR="${MPD_NOTIFY_OUTPUT_COLOR_ERROR:-1}"
+
+EOF
+  if [ -f "$MPD_NOTIFY_CONFIG_DIR/$MPD_NOTIFY_CONFIG_FILE" ]; then
+    printf_green "Your config file for mpd-notify has been created"
+    true
+  else
+    printf_red "Failed to create the config file"
+    false
+  fi
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ ! -d "$HOME/.config/mpd/mpd-notify" ]; then
-  printf_pause "1" "1" "Please install my mpd dotfiles | dfmgr install mpd"
-  exit 1
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-daemonName="mpd-notify"
-daemonDir="$HOME/.config/mpd/mpd-notify"
-CONFIG="$daemonDir/mpd-notify.cfg"
-MPDSERVER="${MPDSERVER:-localhost}"
-MPDSERVER_PORT=${MPDSERVER_PORT:-6600}
-NOTIFYSONG=true
-STATUSNOTIF=true
-pidFile="$daemonDir/$daemonName.pid"
-logFile="$daemonDir/$daemonName.log"
-runInterval=1
-logMaxSize="100"
-myPid="$(echo $$)"
-curPid="$(ps -ux | grep -v "$myPid" | grep 'mpd-notify run' | grep -v ' grep ' | awk '{print $2}' | head -n 1)"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-[ -f "$daemonDir/mpd-notify.cfg" ] && . "$daemonDir/mpd-notify.cfg"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ -f "$pidFile" ] && [ -z "$curPid" ]; then
-  oldPid="$(<"$pidFile")"
-elif [ -n "$curPid" ]; then
-  oldPid="$curPid"
-else
-  oldPid=""
-fi
-#printf_debug "Old:$oldPid" "Cur:$curPid" "Pid:$myPid"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional functions
 log() { echo "$*" >>"$logFile"; }
 __mpc() { mpc -h "$MPDSERVER" -p "$MPDSERVER_PORT" "$@"; }
-__mpc_status() { __mpc status && return 0 || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__mpc_status() {
+  curl -q -LSsi ${MPDSERVER:-localhost}:${MPDSERVER_PORT:-6600} 2>&1 |
+    grep 'Received HTTP' &>/dev/null && __mpc status && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __getpid() {
   curPid="$(ps -ux | grep -v "$myPid" | grep 'mpd-notify run' | grep -v ' grep ' | awk '{print $2}' | head -n 1)"
   if [ -n "$curPid" ]; then
@@ -109,7 +116,7 @@ scrapeDiscogs() {
     __rm_rf ${TMP:-/tmp}/image.jpg >/dev/null 2>&1
   fi
 }
-
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 notifyStatus() {
   if $STATUSNOTIF; then
     if [[ $curStatus != "$newStatus" ]]; then
@@ -121,7 +128,7 @@ notifyStatus() {
     fi
   fi
 }
-
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 findCover() {
   coverPath=
   maxFile=
@@ -138,14 +145,12 @@ findCover() {
       fi
     fi
   done
-
   coverPath="$maxFile"
   if [[ "$coverPath" == *".png" ]]; then
     newPath="$(echo $coverPath | sed 's/png/jpg/g')"
     convert "$coverPath" "$newPath"
     coverPath=$newPath
   fi
-
   if [[ -z "$coverPath" ]]; then
     coverPath=$MUSFOLDER$albumPath"cover.jpg"
     if $AUTOSCRAPE; then
@@ -153,7 +158,7 @@ findCover() {
     fi
   fi
 }
-
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 setWallpaper() {
   curRes=$(xdpyinfo | grep dimensions | grep -E -o "   .+x" | sed -r 's/x.+?$//' | sed -r 's/^.+[^0-9]//g')
   dimensions=$(xdpyinfo | grep dimensions | awk '{print $2}')
@@ -176,7 +181,7 @@ setWallpaper() {
     fi
   fi
 }
-
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 notifySong() {
   # Compare old and new songs.
   if [[ $currTitleArtist != "$newTitleArtist" ]]; then
@@ -190,13 +195,13 @@ notifySong() {
     log "*** $(date +"%Y-%m-%d %H:%M") - Now playing: $newTitleArtist from $MPDSERVER:$MPDSERVER_PORT"
   fi
 }
-
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 notifyVolume() {
   if [[ $curVol != "$newVol" ]]; then
     notifications "MPD" "$newVol"
   fi
 }
-#############
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 setupDaemon() {
   if [ ! -f "$logFile" ]; then
     touch "$logFile"
@@ -221,7 +226,7 @@ setupDaemon() {
   if [ -z "$MPDSERVER" ]; then __running mpd || printf_exit "1" "1" "Failed to start mpd"; fi
   sleep 3
 }
-
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 startDaemon() {
   if [ "$(ps -ux | grep 'mpd-notify run' | grep -v ' grep ' | wc -l)" -gt 2 ]; then
     printf_exit "2" "1" "ERROR: $daemonName is already running."
@@ -235,7 +240,7 @@ startDaemon() {
     loop
   fi
 }
-
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 stopDaemon() {
   if checkDaemon; then
     echo "Stopping $daemonName"
@@ -249,7 +254,7 @@ stopDaemon() {
     printf_exit "1" "1" "ERROR: $daemonName is not running."
   fi
 }
-
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 statusDaemon() {
   if checkDaemon; then
     notifications "MPD" "Connected to $MPDSERVER\n$(__mpc status)"
@@ -260,7 +265,7 @@ statusDaemon() {
     printf_return "1" "1" "$daemonName is not running."
   fi
 }
-
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 restartDaemon() {
   if checkDaemon; then
     stopDaemon
@@ -271,7 +276,7 @@ restartDaemon() {
     startDaemon
   fi
 }
-
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 checkDaemon() {
   if [[ "$(__getpid)" = 0 ]]; then
     return 0
@@ -280,7 +285,7 @@ checkDaemon() {
   fi
   return $?
 }
-
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 loop() {
   # Just get the song title and artist.
   currentSong=$(__devnull2 __mpc)
@@ -310,6 +315,7 @@ loop() {
   notifyVolume
   loop
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __toggle() {
   checkDaemon && status="running" || status="stopped"
   [ "$status" = "stopped" ] && action=start || action=stop
@@ -319,6 +325,7 @@ __toggle() {
   fi
   if [ -n "$1" ]; then [ "$status" = "stopped" ] && $APPNAME run || stopDaemon; fi
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __term() {
   shift $#
   while :; do
@@ -359,10 +366,132 @@ __term() {
   done
   clear
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Default variables
+exitCode="0"
+MPD_NOTIFY_CACHE_DIR="${MPD_NOTIFY_CACHE_DIR:-$HOME/.cache/mpd-notify}"
+MPD_NOTIFY_CONFIG_DIR="${MPD_NOTIFY_CONFIG_DIR:-$HOME/.config/myscripts/mpd-notify}"
+MPD_NOTIFY_OPTIONS_DIR="${MPD_NOTIFY_OPTIONS_DIR:-$HOME/.local/share/myscripts/mpd-notify/options}"
+MPD_NOTIFY_CONFIG_BACKUP_DIR="${MPD_NOTIFY_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/mpd-notify/backups}"
+MPD_NOTIFY_TEMP_DIR="${MPD_NOTIFY_TEMP_DIR:-$HOME/.local/tmp/system_scripts/mpd-notify}"
+MPD_NOTIFY_TEMP_FILE="${MPD_NOTIFY_TEMP_FILE:-$(mktemp $MPD_NOTIFY_TEMP_DIR/XXXXXX 2>/dev/null)}"
+MPD_NOTIFY_CONFIG_FILE="${MPD_NOTIFY_CONFIG_FILE:-settings.conf}"
+MPD_NOTIFY_GOOD_MESSAGE="${MPD_NOTIFY_GOOD_MESSAGE:-Everything Went OK}"
+MPD_NOTIFY_ERROR_MESSAGE="${MPD_NOTIFY_ERROR_MESSAGE:-Well that didn\'t work}"
+MPD_NOTIFY_NOTIFY_ENABLED="${MPD_NOTIFY_NOTIFY_ENABLED:-yes}"
+MPD_NOTIFY_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+MPD_NOTIFY_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$MPD_NOTIFY_NOTIFY_CLIENT_ICON}"
+MPD_NOTIFY_OUTPUT_COLOR="${MPD_NOTIFY_OUTPUT_COLOR:-5}"
+MPD_NOTIFY_OUTPUT_COLOR_GOOD="${MPD_NOTIFY_OUTPUT_COLOR_GOOD:-2}"
+MPD_NOTIFY_OUTPUT_COLOR_ERROR="${MPD_NOTIFY_OUTPUT_COLOR_ERROR:-1}"
+daemonName="mpd-notify"
+daemonDir="$HOME/.config/mpd/mpd-notify"
+CONFIG="$daemonDir/mpd-notify.cfg"
+MPDSERVER="${MPDSERVER:-localhost}"
+MPDSERVER_PORT=${MPDSERVER_PORT:-6600}
+NOTIFYSONG=true
+STATUSNOTIF=true
+pidFile="$daemonDir/$daemonName.pid"
+logFile="$daemonDir/$daemonName.log"
+runInterval=1
+logMaxSize="100"
+myPid="$(echo $$)"
+curPid="$(ps -ux | grep -v "$myPid" | grep 'mpd-notify run' | grep -v ' grep ' | awk '{print $2}' | head -n 1)"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$MPD_NOTIFY_TEMP_DIR" ] || mkdir -p "$MPD_NOTIFY_TEMP_DIR" &>/dev/null
+[ -d "$MPD_NOTIFY_CACHE_DIR" ] || mkdir -p "$MPD_NOTIFY_CACHE_DIR" &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$MPD_NOTIFY_CONFIG_DIR/$MPD_NOTIFY_CONFIG_FILE" ] ||
+  __gen_config &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$MPD_NOTIFY_CONFIG_DIR/$MPD_NOTIFY_CONFIG_FILE" ] &&
+  . "$MPD_NOTIFY_CONFIG_DIR/$MPD_NOTIFY_CONFIG_FILE"
+[ -f "$daemonDir/mpd-notify.cfg" ] && . "$daemonDir/mpd-notify.cfg"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+[ -d "$HOME/.config/mpd/mpd-notify" ] || { printf_pause "1" "1" "Please install my mpd dotfiles | dfmgr install mpd" exit 1; }
 
-##################
-#    ArgParse    #
-##################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS="z:"
+LONGOPTS="options,config,version,help,dir:,term"
+ARRAY="term toggle restart status stop stop run"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$PROG" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --options)
+    shift 1
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  -z | --dir)
+    MPD_NOTIFY_CWD="$2"
+    shift 2
+    ;;
+  --term)
+    shift 1
+    shift 1
+    __term
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+if [ "$MPD_NOTIFY_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${MPD_NOTIFY_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${MPD_NOTIFY_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${MPD_NOTIFY_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${MPD_NOTIFY_NOTIFY_CLIENT_ICON}"
+    notifications "$*" || return 1
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+cmd_exists --error --ask bash || exit 1 # exit 1 if not found
+#am_i_online --error || exit 1     # exit 1 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+if [ -f "$pidFile" ] && [ -z "$curPid" ]; then
+  oldPid="$(<"$pidFile")"
+elif [ -n "$curPid" ]; then
+  oldPid="$curPid"
+else
+  oldPid=""
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
 case "$1" in
 start)
   shift 1
@@ -393,7 +522,7 @@ toggle)
   shift 1
   __toggle "${1:-run}"
   ;;
---term | term)
+term)
   shift 1
   __term
   ;;
@@ -403,5 +532,8 @@ toggle)
   printf_pause "Error: usage $APPNAME { start | stop | restart | status | term }"
   ;;
 esac
-exit 0
-# end
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-$?}

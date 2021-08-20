@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0")"
+VERSION="202108190117-git"
+RUN_USER="${SUDO_USER:-${USER}}"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#set opts
+# Set bash options
+trap 'exitCode=${exitCode:-$?};[ -f "$MYBLUETOOTH_TEMP_FILE" ] && rm -Rf "$MYBLUETOOTH_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202103201720-git
+##@Version       : 202108190117-git
 # @Author        : Jason Hempstead
 # @Contact       : jason@casjaysdev.com
 # @License       : WTFPL
 # @ReadME        : mybluetooth --help
-# @Copyright     : Copyright: (c) 2021 Jason Hempstead, CasjaysDev
-# @Created       : Saturday, Mar 20, 2021 17:20 EDT
+# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created       : Thursday, Aug 19, 2021 01:17 EDT
 # @File          : mybluetooth
 # @Description   : Setup bluetooth devices
 # @TODO          :
@@ -40,93 +43,225 @@ fi
 user_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# check for needed applications
-cmd_exists bluetoothctl || printf_exit 1 1 "bluetoothctl is not installed"
+# Set functions
+__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set options
-DEFAULT_DEVICE="0C:FC:83:99:BC:9A"
-OPTIONS="$1" && shift 1
-CONFIG="$1"
-ARGS="$*"
+__gen_config() {
+  printf_green "Generating the config file in"
+  printf_green "$MYBLUETOOTH_CONFIG_DIR/$MYBLUETOOTH_CONFIG_FILE"
+  [ -d "$MYBLUETOOTH_CONFIG_DIR" ] || mkdir -p "$MYBLUETOOTH_CONFIG_DIR"
+  [ -d "$MYBLUETOOTH_CONFIG_BACKUP_DIR" ] || mkdir -p "$MYBLUETOOTH_CONFIG_BACKUP_DIR"
+  [ -f "$MYBLUETOOTH_CONFIG_DIR/$MYBLUETOOTH_CONFIG_FILE" ] &&
+    cp -Rf "$MYBLUETOOTH_CONFIG_DIR/$MYBLUETOOTH_CONFIG_FILE" "$MYBLUETOOTH_CONFIG_BACKUP_DIR/$MYBLUETOOTH_CONFIG_FILE.$$"
+  cat <<EOF >"$MYBLUETOOTH_CONFIG_DIR/$MYBLUETOOTH_CONFIG_FILE"
+# Settings for mybluetooth
+MYBLUETOOTH_DEFAULT_DEVICE="${MYBLUETOOTH_DEFAULT_DEVICE:-}"
+
+# Notification settings
+MYBLUETOOTH_GOOD_MESSAGE="${MYBLUETOOTH_GOOD_MESSAGE:-Everything Went OK}"
+MYBLUETOOTH_ERROR_MESSAGE="${MYBLUETOOTH_ERROR_MESSAGE:-Well that didn\'t work}"
+MYBLUETOOTH_NOTIFY_ENABLED="${MYBLUETOOTH_NOTIFY_ENABLED:-yes}"
+MYBLUETOOTH_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+MYBLUETOOTH_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$MYBLUETOOTH_NOTIFY_CLIENT_ICON}"
+
+# Colorization settings
+MYBLUETOOTH_OUTPUT_COLOR="${MYBLUETOOTH_OUTPUT_COLOR:-5}"
+MYBLUETOOTH_OUTPUT_COLOR_GOOD="${MYBLUETOOTH_OUTPUT_COLOR_GOOD:-2}"
+MYBLUETOOTH_OUTPUT_COLOR_ERROR="${MYBLUETOOTH_OUTPUT_COLOR_ERROR:-1}"
+
+EOF
+  if [ -f "$MYBLUETOOTH_CONFIG_DIR/$MYBLUETOOTH_CONFIG_FILE" ]; then
+    printf_green "Your config file for mybluetooth has been created"
+    true
+  else
+    printf_red "Failed to create the config file"
+    false
+  fi
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Import existing config
-MYTERMINAL_NOTIFICATIONS="no"
-if [ -f "$HOME/.config/mybluetooth/${CONFIG}.conf" ]; then
-  . "$HOME/.config/mybluetooth/${CONFIG}.conf"
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set device
-if [ -z "$MY_BT_DEVICE" ]; then
-  echo "$1" | grep -q ':' && MY_BT_DEVICE="$1" && shift 1 || MY_BT_DEVICE="${MY_BT_DEVICE:-$DEFAULT_DEVICE}"
-elif [ -f "$HOME/.config/mybluetooth/default.conf" ]; then
-  . "$HOME/.config/mybluetooth/default.conf"
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional functions
 __ok_msg() { printf_green "$1" && return 0; }
 __fail_msg() { printf_exit "1" "1" "$ICON_ERROR $1"; }
-
-__config() {
-  if [ "$ARGS" = "--help" ]; then
-    printf_exit 3 0 "Usage: mybluetooth config device name | IE: mybluetooth config ADDRESS speaker"
-  fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__device_config() {
+  [ "$ARGS" = "help" ] && printf_exit 3 0 "Usage: mybluetooth config device name | IE: mybluetooth config ADDRESS speaker"
   local appname="${1:-default}"
   printf_green "Generating the config file for ${1:-main}"
-  __mkd "$HOME/.config/mybluetooth"
+  __mkd "$MYBLUETOOTH_CONFIG_DIR"
   echo '# Settings for mybluetooth - '${1:-main}'
 CONFIGNAME="'${1:-main}'"
 MY_BT_DEVICE="'${MY_BT_DEVICE}'"
-' >"$HOME/.config/mybluetooth/$appname.conf"
-  if [ -f "$HOME/.config/mybluetooth/$appname.conf" ]; then
+' >"$MYBLUETOOTH_CONFIG_DIR/$appname.conf"
+  if [ -f "$MYBLUETOOTH_CONFIG_DIR/$appname.conf" ]; then
     printf_green "File has been saved to"
-    printf_green "$HOME/.config/mybluetooth/$appname.conf"
+    printf_green "$MYBLUETOOTH_CONFIG_DIR/$appname.conf"
   else
     printf_error "Failed to generate the file"
     return 1
   fi
   exit $?
 }
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Main application
-case $OPTIONS in
-config | *-config)
+__device() {
   if echo $MY_BT_DEVICE | grep -q ":" 2>/dev/null; then
     if [ $# = 0 ]; then
       MY_BT_DEVICE="$DEFAULT_DEVICE"
-      __config "default"
+      __device_config "default"
     elif [ "$MY_BT_DEVICE" != "$DEFAULT_DEVICE" ]; then
-      __config "$@"
+      __device_config "$@"
     else
-      __config --help
+      __device_config --help
     fi
   else
-    __config --help
+    __device_config --help
   fi
+  exit $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Default variables
+exitCode="0"
+MYBLUETOOTH_CACHE_DIR="${MYBLUETOOTH_CACHE_DIR:-$HOME/.cache/mybluetooth}"
+MYBLUETOOTH_CONFIG_DIR="${MYBLUETOOTH_CONFIG_DIR:-$HOME/.config/myscripts/mybluetooth}"
+MYBLUETOOTH_OPTIONS_DIR="${MYBLUETOOTH_OPTIONS_DIR:-$HOME/.local/share/myscripts/mybluetooth/options}"
+MYBLUETOOTH_CONFIG_BACKUP_DIR="${MYBLUETOOTH_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/mybluetooth/backups}"
+MYBLUETOOTH_TEMP_DIR="${MYBLUETOOTH_TEMP_DIR:-$HOME/.local/tmp/system_scripts/mybluetooth}"
+MYBLUETOOTH_TEMP_FILE="${MYBLUETOOTH_TEMP_FILE:-$(mktemp $MYBLUETOOTH_TEMP_DIR/XXXXXX 2>/dev/null)}"
+MYBLUETOOTH_CONFIG_FILE="${MYBLUETOOTH_CONFIG_FILE:-settings.conf}"
+MYBLUETOOTH_GOOD_MESSAGE="${MYBLUETOOTH_GOOD_MESSAGE:-Everything Went OK}"
+MYBLUETOOTH_ERROR_MESSAGE="${MYBLUETOOTH_ERROR_MESSAGE:-Well that didn\'t work}"
+MYBLUETOOTH_NOTIFY_ENABLED="${MYBLUETOOTH_NOTIFY_ENABLED:-yes}"
+MYBLUETOOTH_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+MYBLUETOOTH_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$MYBLUETOOTH_NOTIFY_CLIENT_ICON}"
+MYBLUETOOTH_OUTPUT_COLOR="${MYBLUETOOTH_OUTPUT_COLOR:-5}"
+MYBLUETOOTH_OUTPUT_COLOR_GOOD="${MYBLUETOOTH_OUTPUT_COLOR_GOOD:-2}"
+MYBLUETOOTH_OUTPUT_COLOR_ERROR="${MYBLUETOOTH_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$MYBLUETOOTH_TEMP_DIR" ] || mkdir -p "$MYBLUETOOTH_TEMP_DIR" &>/dev/null
+[ -d "$MYBLUETOOTH_CACHE_DIR" ] || mkdir -p "$MYBLUETOOTH_CACHE_DIR" &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$MYBLUETOOTH_CONFIG_DIR/$MYBLUETOOTH_CONFIG_FILE" ] ||
+  __gen_config &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$MYBLUETOOTH_CONFIG_DIR/$MYBLUETOOTH_CONFIG_FILE" ] &&
+  . "$MYBLUETOOTH_CONFIG_DIR/$MYBLUETOOTH_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS="z:"
+LONGOPTS="options,config,version,help,dir:,device:"
+ARRAY=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$PROG" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --options)
+    shift 1
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  -z | --dir)
+    MYBLUETOOTH_CWD="$2"
+    shift 2
+    ;;
+  --device)
+    shift 1
+    SETOPT=device
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+if [ "$MYBLUETOOTH_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${MYBLUETOOTH_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${MYBLUETOOTH_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${MYBLUETOOTH_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${MYBLUETOOTH_NOTIFY_CLIENT_ICON}"
+    notifications "$*" || return 1
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+cmd_exists --error --ask bash bluetoothctl || exit 1 # exit 1 if not found
+#am_i_online --error || exit 1     # exit 1 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+MYTERMINAL_NOTIFICATIONS="no"
+DEFAULT_DEVICE="${MYBLUETOOTH_DEFAULT_DEVICE:-0C:FC:83:99:BC:9A}"
+OPTIONS="${SETOPT:-$1}"
+CONFIG="$1" && shift 1
+ARGS="$*"
+if [ -f "$MYBLUETOOTH_CONFIG_DIR/${CONFIG}.conf" ]; then
+  . "$MYBLUETOOTH_CONFIG_DIR/${CONFIG}.conf"
+fi
+if [ -z "$MY_BT_DEVICE" ]; then
+  echo "$1" | grep -q ':' && MY_BT_DEVICE="$1" && shift 1 || MY_BT_DEVICE="${MY_BT_DEVICE:-$DEFAULT_DEVICE}"
+elif [ -f "$MYBLUETOOTH_CONFIG_DIR/default.conf" ]; then
+  . "$MYBLUETOOTH_CONFIG_DIR/default.conf"
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+case $OPTIONS in
+device)
+  shift 1
+  __device "$@"
   exit $?
   ;;
 
-on | *-on | -connect)
+on | connect)
   bluetoothctl connect "$MY_BT_DEVICE" | grep -iq "Connection successful" >/dev/null 2>&1 &&
     __ok_msg "Connected" || __fail_msg "Connection failed"
   exit $?
   ;;
 
-off | *-off | -disconnect)
+off | disconnect)
   bluetoothctl disconnect "$MY_BT_DEVICE" | grep -iq "Successful disconnected" >/dev/null 2>&1 &&
     __ok_msg "Disconnected" || __fail_msg "Disconnection failed"
   exit $?
   ;;
 
-discover | *-discover)
+discover)
   case $1 in
-  on | *-on)
+  on)
     shift 1
     bluetoothctl discoverable on | grep -iq "on succeeded" >/dev/null 2>&1 &&
       __ok_msg "Device is now in discoverable mode" || __fail_msg "Failed to initiate discovery mode"
     exit $?
     ;;
 
-  off | *-off)
+  off)
     shift 1
     bluetoothctl discoverable off | grep -iq "off succeeded" >/dev/null 2>&1 &&
       __ok_msg "Device has ended discoverable mode" || __fail_msg "Failed to exit discovery mode"
@@ -173,17 +308,20 @@ search)
 
 *)
   shift
+  LIST="$(bluetoothctl list 2>/dev/null)"
+  INFO="$(bluetoothctl info "$MY_BT_DEVICE" 2>/dev/null)"
+  PAIRED="$(bluetoothctl paired-devices 2>/dev/null)"
   printf_green "Available controller[s]"
-  bluetoothctl list | printf_readline "4"
+  echo "$LIST" | printf_readline "4"
   printf_green "Bluetooth status"
-  bluetoothctl info "$MY_BT_DEVICE" | printf_readline "4"
+  echo "$INFO" | printf_readline "4"
   printf_green "Paired devices"
-  bluetoothctl paired-devices | printf_readline "4"
+  echo "$PAIRED" | printf_readline "4"
   exit
   ;;
 esac
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-exit $?
+# End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# end
+# lets exit with code
+exit ${exitCode:-$?}

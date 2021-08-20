@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0")"
+VERSION="202108190117-git"
+RUN_USER="${SUDO_USER:-${USER}}"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#set opts
+# Set bash options
+trap 'exitCode=${exitCode:-$?};[ -f "$MYIP_TEMP_FILE" ] && rm -Rf "$MYIP_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202103201728-git
+##@Version       : 202108190117-git
 # @Author        : Jason Hempstead
 # @Contact       : jason@casjaysdev.com
 # @License       : WTFPL
 # @ReadME        : myip --help
-# @Copyright     : Copyright: (c) 2021 Jason Hempstead, CasjaysDev
-# @Created       : Saturday, Mar 20, 2021 17:28 EDT
+# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created       : Thursday, Aug 19, 2021 01:17 EDT
 # @File          : myip
 # @Description   : Show IP address
 # @TODO          :
@@ -40,72 +43,198 @@ fi
 user_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if cmd_exists ifconfig; then
-  __getlipaddr
-  myip-local4() { sudo ifconfig $NETDEV | grep -E "venet|inet" | grep -Ev "docker|127.0.0." | grep 'inet' | grep -v inet6 | awk '{print $2}' | sed 's#addr:##g' | head -n1; }
-  myip-local6() { sudo ifconfig $NETDEV | grep -E "venet|inet" | grep -v "docker" | grep 'inet6' | grep -i global | awk '{print $2}' | head -n1; }
-  myip-public4() { timeout 1 curl -I4qs ifconfig.co/ip 2>/dev/null | head -1 | grep 404 >/dev/null && if [ $? == 0 ]; then curl --config /dev/null -4qs ifconfig.co/ip 2>/dev/null; fi; }
-  myip-public6() { timeout 1 curl -I6qs ifconfig.co/ip 2>/dev/null | head -1 | grep 404 >/dev/null && if [ $? == 0 ]; then curl --config /dev/null -6qs ifconfig.co/ip 2>/dev/null; fi; }
-  myip4() { echo -e "$(myip-local4 2>/dev/null)" && echo -e "$(myip-public4 2>/dev/null)"; }
-  myip6() { echo -e "$(myip-local6 2>/dev/null)" && echo -e "$(myip-public6 2>/dev/null)"; }
-  export CURRIP4="$(myip-local4)"
-  export CURRIP6="$(myip-local6)"
-  export CURRIP4WAN="$(myip-public4)"
-  export CURRIP6WAN="$(myip-public6)"
+# Set functions
+__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gen_config() {
+  printf_green "Generating the config file in"
+  printf_green "$MYIP_CONFIG_DIR/$MYIP_CONFIG_FILE"
+  [ -d "$MYIP_CONFIG_DIR" ] || mkdir -p "$MYIP_CONFIG_DIR"
+  [ -d "$MYIP_CONFIG_BACKUP_DIR" ] || mkdir -p "$MYIP_CONFIG_BACKUP_DIR"
+  [ -f "$MYIP_CONFIG_DIR/$MYIP_CONFIG_FILE" ] &&
+    cp -Rf "$MYIP_CONFIG_DIR/$MYIP_CONFIG_FILE" "$MYIP_CONFIG_BACKUP_DIR/$MYIP_CONFIG_FILE.$$"
+  cat <<EOF >"$MYIP_CONFIG_DIR/$MYIP_CONFIG_FILE"
+# Settings for myip
+
+# Notification settings
+MYIP_GOOD_MESSAGE="${MYIP_GOOD_MESSAGE:-Everything Went OK}"
+MYIP_ERROR_MESSAGE="${MYIP_ERROR_MESSAGE:-Well that didn\'t work}"
+MYIP_NOTIFY_ENABLED="${MYIP_NOTIFY_ENABLED:-yes}"
+MYIP_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+MYIP_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$MYIP_NOTIFY_CLIENT_ICON}"
+
+# Colorization settings
+MYIP_OUTPUT_COLOR="${MYIP_OUTPUT_COLOR:-5}"
+MYIP_OUTPUT_COLOR_GOOD="${MYIP_OUTPUT_COLOR_GOOD:-2}"
+MYIP_OUTPUT_COLOR_ERROR="${MYIP_OUTPUT_COLOR_ERROR:-1}"
+
+EOF
+  if [ -f "$MYIP_CONFIG_DIR/$MYIP_CONFIG_FILE" ]; then
+    printf_green "Your config file for myip has been created"
+    true
+  else
+    printf_red "Failed to create the config file"
+    false
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional functions
+myip-local4() { sudo ifconfig "$NETDEV" | grep -E "venet|inet" | grep -Ev "docker|127.0.0." | grep 'inet' | grep -v inet6 | awk '{print $2}' | sed 's#addr:##g' | grep '^' | sed '/^$/d' | head -n1; }
+myip-local6() { sudo ifconfig "$NETDEV" | grep -E "venet|inet" | grep -Ev "docker|fe:" | grep 'inet6' | grep -i global | awk '{print $2}' | sed '/^$/d' | head -n1 | grep '^'; }
+myip-public4() { timeout 1 curl -I4qs ifconfig.co/ip 2>/dev/null | head -1 | grep 404 >/dev/null && if [ $? == 0 ]; then curl --config /dev/null -4qs ifconfig.co/ip 2>/dev/null | sed '/^$/d' | grep '^'; fi; }
+myip-public6() { timeout 1 curl -I6qs ifconfig.co/ip 2>/dev/null | head -1 | grep 404 >/dev/null && if [ $? == 0 ]; then curl --config /dev/null -6qs ifconfig.co/ip 2>/dev/null | sed '/^$/d' | grep '^'; fi; }
+myip4() { echo -e "$(myip-local4 2>/dev/null)" && echo -e "$(myip-public4 2>/dev/null)" | sed '/^$/d' | grep '^'; }
+myip6() { echo -e "$(myip-local6 2>/dev/null)" && echo -e "$(myip-public6 2>/dev/null)" | sed '/^$/d' | grep '^'; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Default variables
+exitCode="0"
+MYIP_CACHE_DIR="${MYIP_CACHE_DIR:-$HOME/.cache/myip}"
+MYIP_CONFIG_DIR="${MYIP_CONFIG_DIR:-$HOME/.config/myscripts/myip}"
+MYIP_OPTIONS_DIR="${MYIP_OPTIONS_DIR:-$HOME/.local/share/myscripts/myip/options}"
+MYIP_CONFIG_BACKUP_DIR="${MYIP_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/myip/backups}"
+MYIP_TEMP_DIR="${MYIP_TEMP_DIR:-$HOME/.local/tmp/system_scripts/myip}"
+MYIP_TEMP_FILE="${MYIP_TEMP_FILE:-$(mktemp $MYIP_TEMP_DIR/XXXXXX 2>/dev/null)}"
+MYIP_CONFIG_FILE="${MYIP_CONFIG_FILE:-settings.conf}"
+MYIP_GOOD_MESSAGE="${MYIP_GOOD_MESSAGE:-Everything Went OK}"
+MYIP_ERROR_MESSAGE="${MYIP_ERROR_MESSAGE:-Well that didn\'t work}"
+MYIP_NOTIFY_ENABLED="${MYIP_NOTIFY_ENABLED:-yes}"
+MYIP_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+MYIP_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$MYIP_NOTIFY_CLIENT_ICON}"
+MYIP_OUTPUT_COLOR="${MYIP_OUTPUT_COLOR:-5}"
+MYIP_OUTPUT_COLOR_GOOD="${MYIP_OUTPUT_COLOR_GOOD:-2}"
+MYIP_OUTPUT_COLOR_ERROR="${MYIP_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$MYIP_TEMP_DIR" ] || mkdir -p "$MYIP_TEMP_DIR" &>/dev/null
+[ -d "$MYIP_CACHE_DIR" ] || mkdir -p "$MYIP_CACHE_DIR" &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$MYIP_CONFIG_DIR/$MYIP_CONFIG_FILE" ] ||
+  __gen_config &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$MYIP_CONFIG_DIR/$MYIP_CONFIG_FILE" ] &&
+  . "$MYIP_CONFIG_DIR/$MYIP_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS="z:"
+LONGOPTS="options,config,version,help,dir:"
+ARRAY=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$PROG" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --options)
+    shift 1
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  -z | --dir)
+    MYIP_CWD="$2"
+    shift 2
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+if [ "$MYIP_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${MYIP_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${MYIP_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${MYIP_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${MYIP_NOTIFY_CLIENT_ICON}"
+    notifications "$*" || return 1
+  }
 else
-  printf_red "The command ifconfig was not found"
-  printf_red "try re-running this script with sudo or try installing"
-  printf_red "ifconfig can be installed with pkmgr install net-tools"
+  __notifications() { false; }
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check - ifconfig is in net-tools
+cmd_exists --error --ask bash ifconfig || exit 1 # exit 1 if not found
+#am_i_online --error || exit 1     # exit 1 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+__getlipaddr
+export CURRIP4="$(myip-local4)"
+export CURRIP6="$(myip-local6)"
+export CURRIP4WAN="$(myip-public4)"
+export CURRIP6WAN="$(myip-public6)"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
 case $1 in
-help)
-  __help
-  ;;
 local)
   case $2 in
   4)
-    myip-local4
+    myip-local4 | printf_readline $MYIP_OUTPUT_COLOR
     ;;
   6)
-    myip-local6
+    myip-local6 | printf_readline $MYIP_OUTPUT_COLOR
     ;;
   *)
-    myip-local4
-    myip-local6
+    myip-local4 | printf_readline $MYIP_OUTPUT_COLOR
+    myip-local6 | printf_readline $MYIP_OUTPUT_COLOR
     ;;
   esac
   ;;
 public)
   case $2 in
   4)
-    myip-public4
+    myip-public4 | printf_readline $MYIP_OUTPUT_COLOR
     ;;
   6)
-    myip-public6
+    myip-public6 | printf_readline $MYIP_OUTPUT_COLOR
     ;;
   *)
-    myip-public4
-    myip-public6
+    myip-public4 | printf_readline $MYIP_OUTPUT_COLOR
+    myip-public6 | printf_readline $MYIP_OUTPUT_COLOR
     ;;
   esac
   ;;
 4)
-  myip-local4
-  myip-public4
+  myip-local4 | printf_readline $MYIP_OUTPUT_COLOR
+  myip-public4 | printf_readline $MYIP_OUTPUT_COLOR
   ;;
 6)
-  myip-local6
-  myip-public6
+  myip-local6 | printf_readline $MYIP_OUTPUT_COLOR
+  myip-public6 | printf_readline $MYIP_OUTPUT_COLOR
   ;;
 *)
-  [ -z "$CURRIP4" ] || echo $CURRIP4
-  [ -z "$CURRIP6" ] || echo $CURRIP6
-  [ -z "$CURRIP4WAN" ] || echo $CURRIP4WAN
-  [ -z "$CURRIP6WAN" ] || echo $CURRIP6WAN
+  [ -z "$CURRIP4" ] || printf_green "$CURRIP4"
+  [ -z "$CURRIP6" ] || printf_green "$CURRIP6"
+  [ -z "$CURRIP4WAN" ] || printf_green "$CURRIP4WAN"
+  [ -z "$CURRIP6WAN" ] || printf_green "$CURRIP6WAN"
   ;;
 esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-exit $?
+# End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# end
+# lets exit with code
+exit ${exitCode:-$?}

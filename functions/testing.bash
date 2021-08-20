@@ -328,8 +328,8 @@ print_wait() {
 printf_return() {
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="1"
   test -n "$1" && test -z "${1//[0-9]/}" && local exitCode="$1" && shift 1 || local exitCode="1"
-  [ $# = 0 ] || printf_color "\t\t$msg" "$color"
-  printf "\n"
+  local msg="$*"
+  [ ${#msg} = 0 ] || { printf_color "\t\t$msg" "$color" && printf "\n"; }
   return ${exitCode:-2}
 }
 #printf_error "color" "exitcode" "message"

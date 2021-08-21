@@ -196,16 +196,16 @@ cmd_exists --error --ask bash || exit 1 # exit 1 if not found
 [ -f "$HOME/.netrc" ] && opts='-n'
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
-[ -t 0 ] && {
-  filename="$1"
-  shift
-  [ "$filename" ] && {
-    curl "$opts" -F f:1=@"$filename" "$*" "ix.io/$id"
-    exit
-  }
-  printf_green "^C to cancel, ^D to send."
-}
-curl "$opts" -F f:1='<-' "$*" "ix.io/$id"
+if [ ${#} -eq 0 ]; then
+  if [ -p "/dev/stdin" ]; then
+    filename="$(</dev/stdin)"
+  else
+    printf_green "^C to cancel, ^D to send."
+  fi
+else
+  filename="$*"
+fi
+curl "$opts" -F f:1=@"$filename" "$*" "ix.io/$id"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

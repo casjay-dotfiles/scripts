@@ -55,6 +55,7 @@ __gen_config() {
     cp -Rf "$IX_IO_CONFIG_DIR/$IX_IO_CONFIG_FILE" "$IX_IO_CONFIG_BACKUP_DIR/$IX_IO_CONFIG_FILE.$$"
   cat <<EOF >"$IX_IO_CONFIG_DIR/$IX_IO_CONFIG_FILE"
 # Settings for ix.io
+IX_IO_SERVER_HOST="${IX_IO_SERVER_HOST:-http://ix.io}"
 
 # Notification settings
 IX_IO_GOOD_MESSAGE="${IX_IO_GOOD_MESSAGE:-Everything Went OK}"
@@ -98,6 +99,7 @@ IX_IO_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$IX_IO_NOTIFY_CLIENT_ICON}"
 IX_IO_OUTPUT_COLOR="${IX_IO_OUTPUT_COLOR:-5}"
 IX_IO_OUTPUT_COLOR_GOOD="${IX_IO_OUTPUT_COLOR_GOOD:-2}"
 IX_IO_OUTPUT_COLOR_ERROR="${IX_IO_OUTPUT_COLOR_ERROR:-1}"
+IX_IO_SERVER_HOST="${IX_IO_SERVER_HOST:-http://ix.io}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure Directories exist
 [ -d "$IX_IO_TEMP_DIR" ] || mkdir -p "$IX_IO_TEMP_DIR" &>/dev/null
@@ -152,20 +154,20 @@ while :; do
     shift 2
     ;;
   -d)
-    shift 1
-    printf_green "curl $opts -X DELETE "ix.io/$OPTARG""
+    printf_green "curl $opts -X DELETE "ix.io/$2""
+    shift 3
     exit $?
     ;;
 
   -i)
-    shift 1
     opts="$opts -X PUT"
-    id="$OPTARG"
+    id="$2"
+    shift 2
     ;;
 
   -n)
-    shift 1
-    opts="$opts -F read:1=$OPTARG"
+    opts="$opts -F read:1=$2"
+    shift 2
     ;;
   --)
     shift 1
@@ -195,16 +197,16 @@ cmd_exists --error --ask bash || exit 1 # exit 1 if not found
 # APP Variables overrides
 UA=${UA:="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/44.0.2403.157 Safari/537.36"}
 [ -f "$HOME/.netrc" ] && opts='-n'
+id=${id:-}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 if [ ${#} -eq 0 ]; then
   if [ -p "/dev/stdin" ]; then
-    filename="$(</dev/stdin)"
+    cat /dev/stdin | curl -q -LSs $opts -F f:1='<-' $* $IX_IO_SERVER_HOST/$id
   fi
 else
-  filename="$*"
+  curl $opts -F f:1=@"$@" $* $IX_IO_SERVER_HOST
 fi
-echo "$filename" | curl -q -LSs -F 'f:1=<-' ix.io 2>/dev/null | printf_readline $IX_IO_OUTPUT_COLOR
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

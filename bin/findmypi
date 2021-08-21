@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0")"
+VERSION="202108190117-git"
+RUN_USER="${SUDO_USER:-${USER}}"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#set opts
+# Set bash options
+trap 'exitCode=${exitCode:-$?};[ -f "$FINDMYPI_TEMP_FILE" ] && rm -Rf "$FINDMYPI_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202103200711-git
+##@Version       : 202108190117-git
 # @Author        : Jason Hempstead
 # @Contact       : jason@casjaysdev.com
 # @License       : WTFPL
 # @ReadME        : findmypi --help
-# @Copyright     : Copyright: (c) 2021 Jason Hempstead, CasjaysDev
-# @Created       : Saturday, Mar 20, 2021 07:11 EDT
+# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created       : Thursday, Aug 19, 2021 01:17 EDT
 # @File          : findmypi
 # @Description   : Script to find a raspberry pi on your network
 # @TODO          :
@@ -40,33 +43,162 @@ fi
 user_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__gethostname() {
-  local host="$1"
-  cmd_exists nslookup && sethost="$(getent hosts $host 2>/dev/null | head -n 1 | awk '{print $2}')"
-  echo "$host    $sethost" >>"$HOME/Documents/raspis.txt" 2>/dev/null
+# Set functions
+__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gen_config() {
+  printf_green "Generating the config file in"
+  printf_green "$FINDMYPI_CONFIG_DIR/$FINDMYPI_CONFIG_FILE"
+  [ -d "$FINDMYPI_CONFIG_DIR" ] || mkdir -p "$FINDMYPI_CONFIG_DIR"
+  [ -d "$FINDMYPI_CONFIG_BACKUP_DIR" ] || mkdir -p "$FINDMYPI_CONFIG_BACKUP_DIR"
+  [ -f "$FINDMYPI_CONFIG_DIR/$FINDMYPI_CONFIG_FILE" ] &&
+    cp -Rf "$FINDMYPI_CONFIG_DIR/$FINDMYPI_CONFIG_FILE" "$FINDMYPI_CONFIG_BACKUP_DIR/$FINDMYPI_CONFIG_FILE.$$"
+  cat <<EOF >"$FINDMYPI_CONFIG_DIR/$FINDMYPI_CONFIG_FILE"
+# Settings for findmypi
+
+# Notification settings
+FINDMYPI_GOOD_MESSAGE="${FINDMYPI_GOOD_MESSAGE:-Everything Went OK}"
+FINDMYPI_ERROR_MESSAGE="${FINDMYPI_ERROR_MESSAGE:-Well that didn\'t work}"
+FINDMYPI_NOTIFY_ENABLED="${FINDMYPI_NOTIFY_ENABLED:-yes}"
+FINDMYPI_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+FINDMYPI_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$FINDMYPI_NOTIFY_CLIENT_ICON}"
+
+# Colorization settings
+FINDMYPI_OUTPUT_COLOR="${FINDMYPI_OUTPUT_COLOR:-5}"
+FINDMYPI_OUTPUT_COLOR_GOOD="${FINDMYPI_OUTPUT_COLOR_GOOD:-2}"
+FINDMYPI_OUTPUT_COLOR_ERROR="${FINDMYPI_OUTPUT_COLOR_ERROR:-1}"
+
+EOF
+  if [ -f "$FINDMYPI_CONFIG_DIR/$FINDMYPI_CONFIG_FILE" ]; then
+    printf_green "Your config file for findmypi has been created"
+    true
+  else
+    printf_red "Failed to create the config file"
+    false
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-[ -z "$1" ] && ip="10.0.0.0" || ip="$1"
-[ -z "$2" ] && nm="16" || nm="$2"
-[ -f "${TMP:-/tmp}/raspi.search.txt" ] && __rm_rf "${TMP:-/tmp}/raspi.search.txt"
+# Additional functions
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__require_app nmap
-sudoreq
+# Default variables
+exitCode="0"
+FINDMYPI_CACHE_DIR="${FINDMYPI_CACHE_DIR:-$HOME/.cache/findmypi}"
+FINDMYPI_CONFIG_DIR="${FINDMYPI_CONFIG_DIR:-$HOME/.config/myscripts/findmypi}"
+FINDMYPI_OPTIONS_DIR="${FINDMYPI_OPTIONS_DIR:-$HOME/.local/share/myscripts/findmypi/options}"
+FINDMYPI_CONFIG_BACKUP_DIR="${FINDMYPI_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/findmypi/backups}"
+FINDMYPI_TEMP_DIR="${FINDMYPI_TEMP_DIR:-$HOME/.local/tmp/system_scripts/findmypi}"
+FINDMYPI_TEMP_FILE="${FINDMYPI_TEMP_FILE:-$(mktemp $FINDMYPI_TEMP_DIR/XXXXXX 2>/dev/null)}"
+FINDMYPI_CONFIG_FILE="${FINDMYPI_CONFIG_FILE:-settings.conf}"
+FINDMYPI_GOOD_MESSAGE="${FINDMYPI_GOOD_MESSAGE:-Everything Went OK}"
+FINDMYPI_ERROR_MESSAGE="${FINDMYPI_ERROR_MESSAGE:-Well that didn\'t work}"
+FINDMYPI_NOTIFY_ENABLED="${FINDMYPI_NOTIFY_ENABLED:-yes}"
+FINDMYPI_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+FINDMYPI_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$FINDMYPI_NOTIFY_CLIENT_ICON}"
+FINDMYPI_OUTPUT_COLOR="${FINDMYPI_OUTPUT_COLOR:-5}"
+FINDMYPI_OUTPUT_COLOR_GOOD="${FINDMYPI_OUTPUT_COLOR_GOOD:-2}"
+FINDMYPI_OUTPUT_COLOR_ERROR="${FINDMYPI_OUTPUT_COLOR_ERROR:-1}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$FINDMYPI_TEMP_DIR" ] || mkdir -p "$FINDMYPI_TEMP_DIR" &>/dev/null
+[ -d "$FINDMYPI_CACHE_DIR" ] || mkdir -p "$FINDMYPI_CACHE_DIR" &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$FINDMYPI_CONFIG_DIR/$FINDMYPI_CONFIG_FILE" ] ||
+  __gen_config &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$FINDMYPI_CONFIG_DIR/$FINDMYPI_CONFIG_FILE" ] &&
+  . "$FINDMYPI_CONFIG_DIR/$FINDMYPI_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS="z:"
+LONGOPTS="options,config,version,help,dir:"
+ARRAY=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$PROG" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --options)
+    shift 1
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  -z | --dir)
+    FINDMYPI_CWD="$2"
+    shift 2
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+if [ "$FINDMYPI_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${FINDMYPI_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${FINDMYPI_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${FINDMYPI_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${FINDMYPI_NOTIFY_CLIENT_ICON}"
+    notifications "$*" || return 1
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+cmd_exists --error --ask bash nmap || exit 1 # exit 1 if not found
+#am_i_online --error || exit 1     # exit 1 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+default_if=$(ip route list | awk '/^default/ {print $5}')
+[ -z "$1" ] && ip="$(ip -o -f inet addr show $default_if | awk '{print $4}' | awk -F/ '{print $1}')" || ip="$1"
+[ -z "$2" ] && nm="$(ip -o -f inet addr show $default_if | awk '{print $4}' | awk -F/ '{print $2}')" || nm="$2"
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+sudoif && ask_for_password true || printf_exit "nmap requires root privileges"
 printf_green "Searching the $ip/$nm network for your Raspberry PI"
 printf_green "Depending on your network range this may take some time\n"
-nmap -sP "$ip"/"$nm" 2>/dev/null | awk '/^Nmap/{ip=$NF}/Raspberry Pi/{print ip}' | sed 's#(##g' | sed 's#)##g' >"${TMP:-/tmp}/raspi.search.txt" 2>/dev/null
-if [ -s "${TMP:-/tmp}/raspi.search.txt" ]; then
+sudo nmap -sP "$ip"/"$nm" 2>/dev/null | awk '/^Nmap/{ip=$NF}/Raspberry Pi/{print ip}' | sed 's#(##g' | sed 's#)##g' | tee "$FINDMYPI_TEMP_FILE" &>/dev/null
+if [ -s "$FINDMYPI_TEMP_FILE" ]; then
   while IFS="" read -r device || [ -n "$device" ]; do
     printf_cyan "I have found the following device[s]: $device"
     __gethostname "$device"
-  done <"${TMP:-/tmp}/raspi.search.txt"
-  echo "" && printf_blue "Saved the list to $HOME/Documents/raspis.txt"
+  done <"$FINDMYPI_TEMP_FILE"
+  echo "" && printf_blue "Saved the list to $HOME/Documents/MyRaspi.txt"
 else
   printf_red "I didn't find a Raspberry PI on your network"
 fi
-__rm_rf "${TMP:-/tmp}/raspi.search.txt"
+__rm_rf "$FINDMYPI_TEMP_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-exit $?
+# End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# end
+# lets exit with code
+exit ${exitCode:-$?}

@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0")"
+VERSION="202108190117-git"
+RUN_USER="${SUDO_USER:-${USER}}"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#set opts
+# Set bash options
+trap 'exitCode=${exitCode:-$?};[ -f "$KILLPROC_TEMP_FILE" ] && rm -Rf "$KILLPROC_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202103200829-git
+##@Version       : 202108190117-git
 # @Author        : Jason Hempstead
 # @Contact       : jason@casjaysdev.com
 # @License       : WTFPL
 # @ReadME        : killproc --help
-# @Copyright     : Copyright: (c) 2021 Jason Hempstead, CasjaysDev
-# @Created       : Saturday, Mar 20, 2021 08:29 EDT
+# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created       : Thursday, Aug 19, 2021 01:17 EDT
 # @File          : killproc
 # @Description   : kill proccesses
 # @TODO          :
@@ -40,15 +43,152 @@ fi
 user_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-i=""
-if [ ! -z "$1" ]; then
-  printf_red "\n\tKilling $1\n\n"
-  for i in $(pidof "$1"); do kill -9 "$i" | devnull wait "$i"; done
+# Set functions
+__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gen_config() {
+  printf_green "Generating the config file in"
+  printf_green "$KILLPROC_CONFIG_DIR/$KILLPROC_CONFIG_FILE"
+  [ -d "$KILLPROC_CONFIG_DIR" ] || mkdir -p "$KILLPROC_CONFIG_DIR"
+  [ -d "$KILLPROC_CONFIG_BACKUP_DIR" ] || mkdir -p "$KILLPROC_CONFIG_BACKUP_DIR"
+  [ -f "$KILLPROC_CONFIG_DIR/$KILLPROC_CONFIG_FILE" ] &&
+    cp -Rf "$KILLPROC_CONFIG_DIR/$KILLPROC_CONFIG_FILE" "$KILLPROC_CONFIG_BACKUP_DIR/$KILLPROC_CONFIG_FILE.$$"
+  cat <<EOF >"$KILLPROC_CONFIG_DIR/$KILLPROC_CONFIG_FILE"
+# Settings for killproc
+
+# Notification settings
+KILLPROC_GOOD_MESSAGE="${KILLPROC_GOOD_MESSAGE:-Everything Went OK}"
+KILLPROC_ERROR_MESSAGE="${KILLPROC_ERROR_MESSAGE:-Well that didn\'t work}"
+KILLPROC_NOTIFY_ENABLED="${KILLPROC_NOTIFY_ENABLED:-yes}"
+KILLPROC_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+KILLPROC_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$KILLPROC_NOTIFY_CLIENT_ICON}"
+
+# Colorization settings
+KILLPROC_OUTPUT_COLOR="${KILLPROC_OUTPUT_COLOR:-5}"
+KILLPROC_OUTPUT_COLOR_GOOD="${KILLPROC_OUTPUT_COLOR_GOOD:-2}"
+KILLPROC_OUTPUT_COLOR_ERROR="${KILLPROC_OUTPUT_COLOR_ERROR:-1}"
+
+EOF
+  if [ -f "$KILLPROC_CONFIG_DIR/$KILLPROC_CONFIG_FILE" ]; then
+    printf_green "Your config file for killproc has been created"
+    true
+  else
+    printf_red "Failed to create the config file"
+    false
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Default variables
+exitCode="0"
+KILLPROC_CACHE_DIR="${KILLPROC_CACHE_DIR:-$HOME/.cache/killproc}"
+KILLPROC_CONFIG_DIR="${KILLPROC_CONFIG_DIR:-$HOME/.config/myscripts/killproc}"
+KILLPROC_OPTIONS_DIR="${KILLPROC_OPTIONS_DIR:-$HOME/.local/share/myscripts/killproc/options}"
+KILLPROC_CONFIG_BACKUP_DIR="${KILLPROC_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/killproc/backups}"
+KILLPROC_TEMP_DIR="${KILLPROC_TEMP_DIR:-$HOME/.local/tmp/system_scripts/killproc}"
+KILLPROC_TEMP_FILE="${KILLPROC_TEMP_FILE:-$(mktemp $KILLPROC_TEMP_DIR/XXXXXX 2>/dev/null)}"
+KILLPROC_CONFIG_FILE="${KILLPROC_CONFIG_FILE:-settings.conf}"
+KILLPROC_GOOD_MESSAGE="${KILLPROC_GOOD_MESSAGE:-Everything Went OK}"
+KILLPROC_ERROR_MESSAGE="${KILLPROC_ERROR_MESSAGE:-Well that didn\'t work}"
+KILLPROC_NOTIFY_ENABLED="${KILLPROC_NOTIFY_ENABLED:-yes}"
+KILLPROC_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+KILLPROC_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$KILLPROC_NOTIFY_CLIENT_ICON}"
+KILLPROC_OUTPUT_COLOR="${KILLPROC_OUTPUT_COLOR:-5}"
+KILLPROC_OUTPUT_COLOR_GOOD="${KILLPROC_OUTPUT_COLOR_GOOD:-2}"
+KILLPROC_OUTPUT_COLOR_ERROR="${KILLPROC_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$KILLPROC_TEMP_DIR" ] || mkdir -p "$KILLPROC_TEMP_DIR" &>/dev/null
+[ -d "$KILLPROC_CACHE_DIR" ] || mkdir -p "$KILLPROC_CACHE_DIR" &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$KILLPROC_CONFIG_DIR/$KILLPROC_CONFIG_FILE" ] ||
+  __gen_config &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$KILLPROC_CONFIG_DIR/$KILLPROC_CONFIG_FILE" ] &&
+  . "$KILLPROC_CONFIG_DIR/$KILLPROC_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS="z:"
+LONGOPTS="options,config,version,help,dir:"
+ARRAY=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$PROG" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --options)
+    shift 1
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  -z | --dir)
+    KILLPROC_CWD="$2"
+    shift 2
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+if [ "$KILLPROC_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${KILLPROC_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${KILLPROC_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${KILLPROC_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${KILLPROC_NOTIFY_CLIENT_ICON}"
+    notifications "$*" || return 1
+  }
 else
-  printf_red "\n\tKilling\n$(jobs -p)\n\n"
-  for i in $(jobs -p); do kill -9 "$i" | devnull wait "$i"; done
+  __notifications() { false; }
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-exit $?
+# Check for required applications/Network check
+cmd_exists --error --ask bash || exit 1 # exit 1 if not found
+#am_i_online --error || exit 1     # exit 1 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# end
+# APP Variables overrides
+i=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+if [ ! -z "$1" ]; then
+  printf_red "Killing $1"
+  for i in $(pidof "$1"); do kill -9 "$i" | wait "$i" &>/dev/null; done
+else
+  printf_red "Killing $(jobs -p)"
+  for i in $(jobs -p); do kill -9 "$i" | wait "$i" &>/dev/null; done
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-$?}

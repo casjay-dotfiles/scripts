@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0")"
+VERSION="202108190117-git"
+RUN_USER="${SUDO_USER:-${USER}}"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#set opts
+# Set bash options
+trap 'exitCode=${exitCode:-$?};[ -f "$GEN_DNS_TEMP_FILE" ] && rm -Rf "$GEN_DNS_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202103200726-git
+##@Version       : 202108190117-git
 # @Author        : Jason Hempstead
 # @Contact       : jason@casjaysdev.com
 # @License       : WTFPL
 # @ReadME        : gen-dns --help
-# @Copyright     : Copyright: (c) 2021 Jason Hempstead, CasjaysDev
-# @Created       : Saturday, Mar 20, 2021 07:26 EDT
+# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created       : Thursday, Aug 19, 2021 01:17 EDT
 # @File          : gen-dns
 # @Description   : Generate a dns zone
 # @TODO          :
@@ -40,66 +43,82 @@ fi
 user_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-[ -f "$HOME/.config/gen-dns/settings" ] && . "$HOME/.config/gen-dns/settings"
+# Set functions
+__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-EDITOR="${EDITOR:-vim}"
-DNSROOT="${DNSROOT:-$HOME/.config/gen-dns/zones}"
-SERIAL="${SERIAL:-%Y%m%d}"
-DOMAIN="${1:-$DOMAIN}"
-HOSTIP="${2:-$HOSTIP}"
-DNSIP="${3:-$DNSIP}"
-DNSIP6="${4:-$DNSIP6}"
-HOSTIP6="${5:-$HOSTIP6}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-[ -d "$DNSROOT" ] || __mkd "$DNSROOT"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__ip_addr() {
-  [ -n "$DNSIP" ] || printf_read_question "3" "What is your DNS Servers IP" 120 DNSIP
-  [ -n "$HOSTIP" ] || printf_read_question "3" "What is your hosts IP address" 120 HOSTIP
-  if [ -z "$DNSIP6" ] || [ -z "$DNSIP" ]; then printf_read_question "3" "Does you dns or host have IP6?" 1 HASIP6; fi
-  if printf_answer_yes "$HASIP6"; then
-    [ -n "$DNSIP6" ] || printf_read_question "3" "What is your DNS Servers IP6" 120 DNSIP6
-    [ -n "$HOSTIP6" ] || printf_read_question "3" "What is your hosts IP6 address" 120 HOSTIP6
+__gen_config() {
+  printf_green "Generating the config file in"
+  printf_green "$GEN_DNS_CONFIG_DIR/$GEN_DNS_CONFIG_FILE"
+  [ -d "$GEN_DNS_CONFIG_DIR" ] || mkdir -p "$GEN_DNS_CONFIG_DIR"
+  [ -d "$GEN_DNS_CONFIG_BACKUP_DIR" ] || mkdir -p "$GEN_DNS_CONFIG_BACKUP_DIR"
+  [ -f "$GEN_DNS_CONFIG_DIR/$GEN_DNS_CONFIG_FILE" ] &&
+    cp -Rf "$GEN_DNS_CONFIG_DIR/$GEN_DNS_CONFIG_FILE" "$GEN_DNS_CONFIG_BACKUP_DIR/$GEN_DNS_CONFIG_FILE.$$"
+  cat <<EOF >"$GEN_DNS_CONFIG_DIR/$GEN_DNS_CONFIG_FILE"
+# Settings for gen-dns
+GEN_DNS_SERIAL_FMT="%Y%m%d"
+GEN_DNS_EDITOR="${GEN_DNS_EDITOR:-vim}"
+GEN_DNS_FILE_DIR="$GEN_DNS_CONFIG_DIR/zones"
+GEN_DNS_DEFAULT_OS_IP="${GEN_DNS_DEFAULT_OS_IP:-}"
+GEN_DNS_DEFAULT_DNS_IP="${GEN_DNS_DEFAULT_DNS_IP:-}"
+GEN_DNS_DEFAULT_DNS_IP6="${GEN_DNS_DEFAULT_DNS_IP6:-}"
+GEN_DNS_DEFAULT_OS_IP6="${GEN_DNS_DEFAULT_OS_IP6:-}"
+GEN_DNS_HAS_IPV6="${GEN_DNS_HAS_IPV6:-}"
+
+# Notification settings
+GEN_DNS_GOOD_MESSAGE="${GEN_DNS_GOOD_MESSAGE:-Everything Went OK}"
+GEN_DNS_ERROR_MESSAGE="${GEN_DNS_ERROR_MESSAGE:-Well that didn\'t work}"
+GEN_DNS_NOTIFY_ENABLED="${GEN_DNS_NOTIFY_ENABLED:-yes}"
+GEN_DNS_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+GEN_DNS_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$GEN_DNS_NOTIFY_CLIENT_ICON}"
+
+# Colorization settings
+GEN_DNS_OUTPUT_COLOR="${GEN_DNS_OUTPUT_COLOR:-5}"
+GEN_DNS_OUTPUT_COLOR_GOOD="${GEN_DNS_OUTPUT_COLOR_GOOD:-2}"
+GEN_DNS_OUTPUT_COLOR_ERROR="${GEN_DNS_OUTPUT_COLOR_ERROR:-1}"
+
+EOF
+  if [ -f "$GEN_DNS_CONFIG_DIR/$GEN_DNS_CONFIG_FILE" ]; then
+    printf_green "Your config file for gen-dns has been created"
+    true
+  else
+    printf_red "Failed to create the config file"
+    false
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__gen_config() {
-  printf_green "Generating config"
-  printf_green "Lets set some defaults"
-  [ -n "$DOMAIN" ] && shift 1 && unset DOMAIN
-  __ip_addr
-  cat <<EOF >"$HOME/.config/gen-dns/settings"
-EDITOR="${EDITOR:-vim}"
-DNSROOT="$HOME/.config/gen-dns/zones"
-SERIAL="%Y%m%d"
-HOSTIP="${1:-$HOSTIP}"
-DNSIP="${2:-$DNSIP}"
-DNSIP6="${3:-$DNSIP6}"
-HOSTIP6="${4:-$HOSTIP6}"
-
-EOF
-  printf_exit "2" "0" "Config saved to: $HOME/.config/gen-dns/settings"
+# Additional functions
+__ip_addr() {
+  [ -n "$GEN_DNS_DEFAULT_DNS_IP" ] || printf_read_question "3" "What is your DNS Servers IP" 120 GEN_DNS_DEFAULT_DNS_IP
+  [ -n "$GEN_DNS_DEFAULT_OS_IP" ] || printf_read_question "3" "What is your hosts IP address" 120 GEN_DNS_DEFAULT_OS_IP
+  if [[ "$GEN_DNS_HAS_IPV6" != "no" ]]; then
+    { [ -z "$GEN_DNS_DEFAULT_DNS_IP6" ] || [ -z "$GEN_DNS_DEFAULT_DNS_IP" ]; } &&
+      printf_read_question "3" "Does you dns or host have IP6?" 1 GEN_DNS_HAS_IPV6
+  fi
+  if printf_answer_yes "$GEN_DNS_HAS_IPV6"; then
+    [ -n "$GEN_DNS_DEFAULT_DNS_IP6" ] || printf_read_question "3" "What is your DNS Servers IP6" 120 GEN_DNS_DEFAULT_DNS_IP6
+    [ -n "$GEN_DNS_DEFAULT_OS_IP6" ] || printf_read_question "3" "What is your hosts IP6 address" 120 GEN_DNS_DEFAULT_OS_IP6
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __edit_conf() {
-  if [ ! -z "$1" ]; then
-    [ -f "$1" ] && $EDITOR "$1" 2>/dev/null
+  if [ -n "$1" ]; then
+    [ -f "$1" ] && $GEN_DNS_EDITOR "$1" 2>/dev/null
   else
-    [ -f "$HOME/.config/gen-dns/dns-zone.txt" ] &&
-      $EDITOR "$HOME/.config/gen-dns/dns-zone.txt" 2>/dev/null
+    [ -f "$GEN_DNS_CONFIG_DIR/dns-zone.txt" ] &&
+      $GEN_DNS_EDITOR "$GEN_DNS_CONFIG_DIR/dns-zone.txt" 2>/dev/null
   fi
   printf_green "File has been edited"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __template() {
-  SERIAL="$(date +"$SERIAL")01"
+  GEN_DNS_SERIAL_FMT="$(date +"$GEN_DNS_SERIAL_FMT")01"
   cat <<EOF
-\$ORIGIN                                     '$DOMAIN'.
+\$ORIGIN                                     '$GEN_DNS_DEFAULT_DOMAIN'.
 \$TTL                                        38400
 
 ;  **********soa settings**********
-@                            IN  SOA         dns1 dns-admin ( ${SERIAL}01 10800 3600 1209600 38400)
-*                            IN  SOA         dns1 dns-admin ( ${SERIAL}01 10800 3600 1209600 38400)
+@                            IN  SOA         dns1 dns-admin ( ${GEN_DNS_SERIAL_FMT}01 10800 3600 1209600 38400)
+*                            IN  SOA         dns1 dns-admin ( ${GEN_DNS_SERIAL_FMT}01 10800 3600 1209600 38400)
 
 ;  **********nameserver settings**********
 @                            IN  NS          dns1
@@ -108,25 +127,25 @@ __template() {
 *                            IN  NS          dns2
 
 ;  **********dns settings**********
-dns                          IN  A           ${DNSIP:-149.28.32.84}
-dns1                         IN  A           ${DNSIP:-149.28.32.84}
-dns2                         IN  A           ${DNSIP:-149.28.32.84}
+dns                          IN  A           ${GEN_DNS_DEFAULT_DNS_IP:-149.28.32.84}
+dns1                         IN  A           ${GEN_DNS_DEFAULT_DNS_IP:-149.28.32.84}
+dns2                         IN  A           ${GEN_DNS_DEFAULT_DNS_IP:-149.28.32.84}
 
-dns                          IN  AAAA        ${DNSIP6:-2001:19f0:5:2653:5400:02ff:fee3:f42e}
-dns1                         IN  AAAA        ${DNSIP6:-2001:19f0:5:2653:5400:02ff:fee3:f42e}
-dns2                         IN  AAAA        ${DNSIP6:-2001:19f0:5:2653:5400:02ff:fee3:f42e}
+dns                          IN  AAAA        ${GEN_DNS_DEFAULT_DNS_IP6:-2001:19f0:5:2653:5400:02ff:fee3:f42e}
+dns1                         IN  AAAA        ${GEN_DNS_DEFAULT_DNS_IP6:-2001:19f0:5:2653:5400:02ff:fee3:f42e}
+dns2                         IN  AAAA        ${GEN_DNS_DEFAULT_DNS_IP6:-2001:19f0:5:2653:5400:02ff:fee3:f42e}
 
 ;  **********host settings**********
-@                            IN  A           ${HOSTIP:-185.199.108.153}
-@                            IN  A           ${HOSTIP:-185.199.109.153}
-@                            IN  A           ${HOSTIP:-185.199.110.153}
-@                            IN  A           ${HOSTIP:-185.199.111.153}
-*                            IN  A           ${HOSTIP:-185.199.108.153}
-*                            IN  A           ${HOSTIP:-185.199.109.153}
-*                            IN  A           ${HOSTIP:-185.199.110.153}
-*                            IN  A           ${HOSTIP:-185.199.111.153}
-@                            IN  AAAA        ${HOSTIP6}
-*                            IN  AAAA        ${HOSTIP6}
+@                            IN  A           ${GEN_DNS_DEFAULT_OS_IP:-185.199.108.153}
+@                            IN  A           ${GEN_DNS_DEFAULT_OS_IP:-185.199.109.153}
+@                            IN  A           ${GEN_DNS_DEFAULT_OS_IP:-185.199.110.153}
+@                            IN  A           ${GEN_DNS_DEFAULT_OS_IP:-185.199.111.153}
+*                            IN  A           ${GEN_DNS_DEFAULT_OS_IP:-185.199.108.153}
+*                            IN  A           ${GEN_DNS_DEFAULT_OS_IP:-185.199.109.153}
+*                            IN  A           ${GEN_DNS_DEFAULT_OS_IP:-185.199.110.153}
+*                            IN  A           ${GEN_DNS_DEFAULT_OS_IP:-185.199.111.153}
+@                            IN  AAAA        ${GEN_DNS_DEFAULT_OS_IP6}
+*                            IN  AAAA        ${GEN_DNS_DEFAULT_OS_IP6}
 
 @                            IN  HINFO       "Web" "Shared Hosting"
 @                            IN  TXT         "Free Web Hosted"
@@ -203,26 +222,26 @@ groups      3600             IN  CNAME       gsuite.groups.casjay.net.redirect.c
 calendar    3600             IN  CNAME       gsuite.calendar.casjay.net.redirect.center.
 
 ;  **********sip settings**********
-;pbx                         IN  A           ${HOSTIP:-149.28.32.84}
-;sip                         IN  A           ${HOSTIP:-149.28.32.84}
-;tel                         IN  A           ${HOSTIP:-149.28.32.84}
-;iax                         IN  A           ${HOSTIP:-149.28.32.84}
+;pbx                         IN  A           ${GEN_DNS_DEFAULT_OS_IP:-149.28.32.84}
+;sip                         IN  A           ${GEN_DNS_DEFAULT_OS_IP:-149.28.32.84}
+;tel                         IN  A           ${GEN_DNS_DEFAULT_OS_IP:-149.28.32.84}
+;iax                         IN  A           ${GEN_DNS_DEFAULT_OS_IP:-149.28.32.84}
 
 ;  **********database settings**********
-;sql                          IN  CNAME      ${HOSTIP:-149.28.32.84}
-;*.sql                        IN  CNAME      ${HOSTIP:-149.28.32.84}
+;sql                          IN  CNAME      ${GEN_DNS_DEFAULT_OS_IP:-149.28.32.84}
+;*.sql                        IN  CNAME      ${GEN_DNS_DEFAULT_OS_IP:-149.28.32.84}
 
 ;  **********support settings**********
 ;wiki                         IN  CNAME      help.casjay.net.redirect.center.
 ;support                      IN  CNAME      help.casjay.net.redirect.center.
 
 ;  **********vpn settings**********
-;ppp                          IN  A          ${HOSTIP:-149.28.32.84}
-;vpn                          IN  A          ${HOSTIP:-149.28.32.84}
+;ppp                          IN  A          ${GEN_DNS_DEFAULT_OS_IP:-149.28.32.84}
+;vpn                          IN  A          ${GEN_DNS_DEFAULT_OS_IP:-149.28.32.84}
 
 ;  **********misc settings**********
-;invoice                      IN  A          ${HOSTIP:-149.28.32.84}
-;piwik                        IN  A          ${HOSTIP:-149.28.32.84}
+;invoice                      IN  A          ${GEN_DNS_DEFAULT_OS_IP:-149.28.32.84}
+;piwik                        IN  A          ${GEN_DNS_DEFAULT_OS_IP:-149.28.32.84}
 
 ;  **********other settings**********
 localhost                    IN  A           127.0.0.1
@@ -235,54 +254,162 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __addtonamed() {
-  printf_yellow "Add the contents of $DOMAIN.zone.conf to your named.conf file"
-  echo 'zone "'$DOMAIN'" {
+  printf_yellow "Add the contents of $GEN_DNS_FILE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone.conf to your named.conf file"
+  echo 'zone "'$GEN_DNS_DEFAULT_DOMAIN'" {
         type master;
-        file "'$DNSROOT/$DOMAIN.zone'";
+        file "'$GEN_DNS_FILE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone'";
         allow-update {key "certbot."; key "dhcp-key"; trusted;};
-    };' >"$DNSROOT/$DOMAIN.zone.conf"
+    };' >"$GEN_DNS_FILE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone.conf"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gen_dns_conf() {
   printf_read_question "3" "Would you like to replace the zone?" "1" REPLACE
-  printf_answer_yes $REPLACE || printf_exit "1" "2" "$DNSROOT/$DOMAIN.zone already exist\n"
+  printf_answer_yes $REPLACE || printf_exit "1" "2" "$GEN_DNS_FILE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone already exist\n"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gen_dns() {
   printf_green "Configuring DNS zone"
-  [ -n "$DOMAIN" ] || printf_read_question "3" "What is your Domain name" 120 DOMAIN
-  [ -f "$DNSROOT/$DOMAIN.zone" ] && __gen_dns_conf
+  [ -n "$GEN_DNS_DEFAULT_DOMAIN" ] || printf_read_question "3" "What is your Domain name" 120 GEN_DNS_DEFAULT_DOMAIN
+  [ -f "$GEN_DNS_FILE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone" ] && __gen_dns_conf
   __ip_addr
-  [ -n "$DOMAIN" ] || [ -n "$DNSIP" ] || [ -n "$HOSTIP" ] || printf_error "Continuing but with unset variables"
-  if [ -z "$DNSIP6" ] || [ -z "$HOSTIP6" ]; then
-    __template | grep -Fv 'AAAA' >"$DNSROOT/$DOMAIN.zone"
+  [ -n "$GEN_DNS_DEFAULT_DOMAIN" ] || [ -n "$GEN_DNS_DEFAULT_DNS_IP" ] || [ -n "$GEN_DNS_DEFAULT_OS_IP" ] || printf_error "Continuing but with unset variables"
+  if [ -z "$GEN_DNS_DEFAULT_DNS_IP6" ] || [ -z "$GEN_DNS_DEFAULT_OS_IP6" ]; then
+    __template | grep -Fv 'AAAA' >"$GEN_DNS_FILE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone"
   else
-    __template >"$DNSROOT/$DOMAIN.zone"
+    __template >"$GEN_DNS_FILE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone"
   fi
   if [ -f /etc/named/other/google-verifications.conf ]; then
-    cat /etc/named/other/google-verifications.conf >>"$DNSROOT/$DOMAIN.zone"
-    echo "" >>"$DNSROOT"
+    cat /etc/named/other/google-verifications.conf >>"$GEN_DNS_FILE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone"
+    echo "" >>"$GEN_DNS_FILE_DIR"
   fi
   if [ -f /etc/named/other/misc.conf ]; then
-    cat /etc/named/other/misc.conf >>"$DNSROOT/$DOMAIN.zone"
-    echo "" >>"$DNSROOT/$DOMAIN.zone"
+    cat /etc/named/other/misc.conf >>"$GEN_DNS_FILE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone"
+    echo "" >>"$GEN_DNS_FILE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone"
   fi
-  if [ $? = 0 ] && [ -f "$DNSROOT/$DOMAIN.zone" ]; then
-    printf_green "zone for $DOMAIN has been setup and"
-    printf_yellow "saved to $DNSROOT/$DOMAIN.zone"
+  if [ $? = 0 ] && [ -f "$GEN_DNS_FILE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone" ]; then
+    printf_green "zone for $GEN_DNS_DEFAULT_DOMAIN has been setup and saved to "
+    printf_yellow "$GEN_DNS_FILE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone"
     __addtonamed
   else
-    printf_exit 1 1 "Failed to configure $DOMAIN"
+    printf_exit 1 1 "Failed to configure $GEN_DNS_DEFAULT_DOMAIN"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-case $1 in
-config)
-  shift 1
-  __gen_config "$@"
-  ;;
+# Default variables
+exitCode="0"
+GEN_DNS_CACHE_DIR="${GEN_DNS_CACHE_DIR:-$HOME/.cache/gen-dns}"
+GEN_DNS_CONFIG_DIR="${GEN_DNS_CONFIG_DIR:-$HOME/.config/myscripts/gen-dns}"
+GEN_DNS_OPTIONS_DIR="${GEN_DNS_OPTIONS_DIR:-$HOME/.local/share/myscripts/gen-dns/options}"
+GEN_DNS_CONFIG_BACKUP_DIR="${GEN_DNS_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/gen-dns/backups}"
+GEN_DNS_TEMP_DIR="${GEN_DNS_TEMP_DIR:-$HOME/.local/tmp/system_scripts/gen-dns}"
+GEN_DNS_TEMP_FILE="${GEN_DNS_TEMP_FILE:-$(mktemp $GEN_DNS_TEMP_DIR/XXXXXX 2>/dev/null)}"
+GEN_DNS_CONFIG_FILE="${GEN_DNS_CONFIG_FILE:-settings.conf}"
+GEN_DNS_GOOD_MESSAGE="${GEN_DNS_GOOD_MESSAGE:-Everything Went OK}"
+GEN_DNS_ERROR_MESSAGE="${GEN_DNS_ERROR_MESSAGE:-Well that didn\'t work}"
+GEN_DNS_NOTIFY_ENABLED="${GEN_DNS_NOTIFY_ENABLED:-yes}"
+GEN_DNS_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+GEN_DNS_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$GEN_DNS_NOTIFY_CLIENT_ICON}"
+GEN_DNS_OUTPUT_COLOR="${GEN_DNS_OUTPUT_COLOR:-5}"
+GEN_DNS_OUTPUT_COLOR_GOOD="${GEN_DNS_OUTPUT_COLOR_GOOD:-2}"
+GEN_DNS_OUTPUT_COLOR_ERROR="${GEN_DNS_OUTPUT_COLOR_ERROR:-1}"
+GEN_DNS_EDITOR="${GEN_DNS_EDITOR:-vim}"
+GEN_DNS_FILE_DIR="${GEN_DNS_FILE_DIR:-$GEN_DNS_CONFIG_DIR/zones}"
+GEN_DNS_SERIAL_FMT="${GEN_DNS_SERIAL_FMT:-%Y%m%d}"
+GEN_DNS_DEFAULT_DOMAIN="${GEN_DNS_DEFAULT_DOMAIN:-}"
+GEN_DNS_DEFAULT_OS_IP="${GEN_DNS_DEFAULT_OS_IP:-}"
+GEN_DNS_DEFAULT_DNS_IP="${GEN_DNS_DEFAULT_DNS_IP:-}"
+GEN_DNS_DEFAULT_DNS_IP6="${GEN_DNS_DEFAULT_DNS_IP6:-}"
+GEN_DNS_DEFAULT_OS_IP6="${GEN_DNS_DEFAULT_OS_IP6:-}"
+GEN_DNS_HAS_IPV6="${GEN_DNS_HAS_IPV6:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$GEN_DNS_TEMP_DIR" ] || mkdir -p "$GEN_DNS_TEMP_DIR" &>/dev/null
+[ -d "$GEN_DNS_CACHE_DIR" ] || mkdir -p "$GEN_DNS_CACHE_DIR" &>/dev/null
+[ -d "$GEN_DNS_FILE_DIR" ] || mkdir -p "$GEN_DNS_FILE_DIR" &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$GEN_DNS_CONFIG_DIR/$GEN_DNS_CONFIG_FILE" ] ||
+  __gen_config &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$GEN_DNS_CONFIG_DIR/$GEN_DNS_CONFIG_FILE" ] &&
+  . "$GEN_DNS_CONFIG_DIR/$GEN_DNS_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
 
---edit)
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS="z:"
+LONGOPTS="options,config,version,help,dir:"
+ARRAY="edit "
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$PROG" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --options)
+    shift 1
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  -z | --dir)
+    GEN_DNS_CWD="$2"
+    shift 2
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+if [ "$GEN_DNS_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${GEN_DNS_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${GEN_DNS_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${GEN_DNS_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${GEN_DNS_NOTIFY_CLIENT_ICON}"
+    notifications "$*" || return 1
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+cmd_exists --error --ask bash || exit 1 # exit 1 if not found
+#am_i_online --error || exit 1     # exit 1 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+GEN_DNS_DEFAULT_DOMAIN="${1:-$GEN_DNS_DEFAULT_DOMAIN}"
+GEN_DNS_DEFAULT_OS_IP="${2:-$GEN_DNS_DEFAULT_OS_IP}"
+GEN_DNS_DEFAULT_DNS_IP="${3:-$GEN_DNS_DEFAULT_DNS_IP}"
+GEN_DNS_DEFAULT_DNS_IP6="${4:-$GEN_DNS_DEFAULT_DNS_IP6}"
+GEN_DNS_DEFAULT_OS_IP6="${5:-$GEN_DNS_DEFAULT_OS_IP6}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+case "$1" in
+edit)
   shift 1
   __edit_conf "$@"
   ;;
@@ -292,6 +419,7 @@ config)
   ;;
 esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-exit $?
+# End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# end
+# lets exit with code
+exit ${exitCode:-$?}

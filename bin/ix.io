@@ -154,14 +154,13 @@ while :; do
     shift 2
     ;;
   -d)
-    printf_green "curl $opts -X DELETE "ix.io/$2""
-    shift 3
-    exit $?
+    IX_IO_SERVER_HOST="http://ix.io/$2"
+    shift 2
     ;;
 
   -i)
     opts="$opts -X PUT"
-    id="$2"
+    IX_IO_SERVER_HOST="http://ix.io/$2"
     shift 2
     ;;
 
@@ -197,7 +196,6 @@ cmd_exists --error --ask bash || exit 1 # exit 1 if not found
 # APP Variables overrides
 UA=${UA:="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/44.0.2403.157 Safari/537.36"}
 [ -f "$HOME/.netrc" ] && opts='-n'
-id=${id:-}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 if [ ${#} -eq 0 ]; then
@@ -208,7 +206,7 @@ else
   file="$(<"$*")"
 fi
 if [[ -n "$file" ]]; then
-  post="$(echo "$file" | curl -q -LSs $opts -F f:1='<-' $IX_IO_SERVER_HOST/$id 2>/dev/null)"
+  post="$(echo "$file" | curl -q -LSs $opts -F f:1='<-' $IX_IO_SERVER_HOST 2>/dev/null)"
   echo "$post" | printf_readline $IX_IO_OUTPUT_COLOR
 else
   printf_red "Something went wrong. No input received"

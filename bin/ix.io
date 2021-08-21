@@ -197,19 +197,43 @@ cmd_exists --error --ask bash || exit 1 # exit 1 if not found
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
-if [ ${#} -eq 0 ]; then
-  if [ -p "/dev/stdin" ]; then
-    file="$(</dev/stdin)"
+case "$1" in
+last)
+  shift 1
+  lynx "$IX_IO_SERVER_HOST/user/"
+  ;;
+
+user)
+  shift 1
+  lynx "$IX_IO_SERVER_HOST/user/$1/"
+  ;;
+
+id)
+  shift 1
+  lynx "$IX_IO_SERVER_HOST/$1+"
+  ;;
+
+raw)
+  shift 1
+  lynx "$IX_IO_SERVER_HOST/$1"
+  ;;
+
+*)
+  if [ ${#} -eq 0 ]; then
+    if [ -p "/dev/stdin" ]; then
+      file="$(</dev/stdin)"
+    fi
+  else
+    file="$(<"$@")"
   fi
-else
-  file="$(<"$@")"
-fi
-if [[ -n "$file" ]]; then
-  post="$(echo "$file" | curl -q -LSs -F 'f:1=<-' $IX_IO_SERVER_HOST 2>/dev/null)"
-  echo "$post" | printf_readline $IX_IO_OUTPUT_COLOR
-else
-  printf_red "Something went wrong. No input received"
-fi
+  if [[ -n "$file" ]]; then
+    post="$(echo "$file" | curl -q -LSs -F 'f:1=<-' $IX_IO_SERVER_HOST 2>/dev/null)"
+    echo "$post" | printf_readline $IX_IO_OUTPUT_COLOR
+  else
+    printf_red "Something went wrong. No input received"
+  fi
+  ;;
+esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

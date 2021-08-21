@@ -1425,6 +1425,7 @@ __run_menu_start() {
     return 1
   fi
 }
+__zenity_custom_question() { zenity --question --text "$1" --no-wrap --ok-label "$2" --cancel-label "$3" && echo fileBrowser; }
 __run_menu_failed() { clear && echo -e "\n\n\n\n\n\n" && printf_red "${1:-An error has occured}" && sleep 3 && return 1; }
 #attemp_install_menus "programname"
 __attemp_install_menus() {
@@ -1463,7 +1464,13 @@ __open_file_menus() {
   local prog="$1" && shift 1
   local args="$*" && shift $#
   if builtin type -p "$prog" &>/dev/null; then
-    local file="$(dialog --title "Play a file" --stdout --title "Please choose a file or url to play" --fselect "$HOME/" 14 48 || return 1)"
+    if cmd_exists zenity && [ -n "$DISPLAY" ]; then
+      __zenity_custom_question "Would you like to open files or folders" "Files" "Folders" &&
+        local file="$(zenity --file-selection --multiple --title="File Chooser")" ||
+        local file="$(zenity --file-selection --title="Choose a directory" --directory)"
+    else
+      local file="$(dialog --title "Play a file" --stdout --title "Please choose a file or url to play" --fselect "$HOME/" 14 48 || return 1)"
+    fi
     if [ -f "$file" ] || [ -d "$file" ]; then
       __run_menu_start "$prog" "$file" || __run_menu_failed
     else

@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0")"
+VERSION="202108190117-git"
+RUN_USER="${SUDO_USER:-${USER}}"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#set opts
+# Set bash options
+trap 'exitCode=${exitCode:-$?};[ -f "$MAILSYNC_TEMP_FILE" ] && rm -Rf "$MAILSYNC_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202103201711-git
+##@Version       : 202108190117-git
 # @Author        : Jason Hempstead
 # @Contact       : jason@casjaysdev.com
 # @License       : WTFPL
 # @ReadME        : mailsync --help
-# @Copyright     : Copyright: (c) 2021 Jason Hempstead, CasjaysDev
-# @Created       : Saturday, Mar 20, 2021 17:11 EDT
+# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created       : Thursday, Aug 19, 2021 01:17 EDT
 # @File          : mailsync
 # @Description   : Sync mail and give notification if there is new mail.
 # @TODO          :
@@ -40,64 +43,183 @@ fi
 user_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-cmd_exists notifications >/dev/null || exit 1
-am_i_online --error || exit 1
+# Set functions
+__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user/$(id -u)/bus}"
-[ -d "$PASSWORD_STORE_DIR" ] || [ -d "$HOME/.local/share/password-store" ] &&
-  export PASSWORD_STORE_DIR="${PASSWORD_STORE_DIR:-$HOME/.local/share/password-store}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Run only if user logged in (prevent cron errors)
-pgrep -u "${USER:=$LOGNAME}" >/dev/null || printf_exit "$USER not logged in; sync will not run."
-# Run only if not already running in other instance
-pgrep -x mbsync >/dev/null && printf_exit "mbsync is already running."
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-notify() {
-  NOTIFY_CLIENT_NAME="mutt-wizard"
-  NOTIFY_CLIENT_ICON="Thunderbird"
-  notifications "mutt-wizard" "📬 $2 new mail(s) in \`$1\` account."
+__gen_config() {
+  printf_green "Generating the config file in"
+  printf_green "$MAILSYNC_CONFIG_DIR/$MAILSYNC_CONFIG_FILE"
+  [ -d "$MAILSYNC_CONFIG_DIR" ] || mkdir -p "$MAILSYNC_CONFIG_DIR"
+  [ -d "$MAILSYNC_CONFIG_BACKUP_DIR" ] || mkdir -p "$MAILSYNC_CONFIG_BACKUP_DIR"
+  [ -f "$MAILSYNC_CONFIG_DIR/$MAILSYNC_CONFIG_FILE" ] &&
+    cp -Rf "$MAILSYNC_CONFIG_DIR/$MAILSYNC_CONFIG_FILE" "$MAILSYNC_CONFIG_BACKUP_DIR/$MAILSYNC_CONFIG_FILE.$$"
+  cat <<EOF >"$MAILSYNC_CONFIG_DIR/$MAILSYNC_CONFIG_FILE"
+# Settings for mailsync
+MAILSYNC_PASSWORD_STORE_DIR="${MAILSYNC_PASSWORD_STORE_DIR:-$PASSWORD_STORE_DIR}"
+
+# Notification settings
+MAILSYNC_GOOD_MESSAGE="${MAILSYNC_GOOD_MESSAGE:-Everything Went OK}"
+MAILSYNC_ERROR_MESSAGE="${MAILSYNC_ERROR_MESSAGE:-Well that didn\'t work}"
+MAILSYNC_NOTIFY_ENABLED="${MAILSYNC_NOTIFY_ENABLED:-yes}"
+MAILSYNC_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+MAILSYNC_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$MAILSYNC_NOTIFY_CLIENT_ICON}"
+
+# Colorization settings
+MAILSYNC_OUTPUT_COLOR="${MAILSYNC_OUTPUT_COLOR:-5}"
+MAILSYNC_OUTPUT_COLOR_GOOD="${MAILSYNC_OUTPUT_COLOR_GOOD:-2}"
+MAILSYNC_OUTPUT_COLOR_ERROR="${MAILSYNC_OUTPUT_COLOR_ERROR:-1}"
+
+EOF
+  if [ -f "$MAILSYNC_CONFIG_DIR/$MAILSYNC_CONFIG_FILE" ]; then
+    printf_green "Your config file for mailsync has been created"
+    true
+  else
+    printf_red "Failed to create the config file"
+    false
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Check account for new mail. Notify if there is new content.
+# Additional functions
+__notify() { notifications "mutt-wizard" "📬 $2 new mail(s) in \`$1\` account."; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 syncandnotify() {
   acc="$(echo "$account" | sed "s/.*\///")"
   mbsync "$acc"
-  new=$(find "$HOME/.local/share/mail/$acc/INBOX/new/" "$HOME/.local/share/mail/$acc/Inbox/new/" "$HOME/.local/share/mail/$acc/inbox/new/" -type f -newer "$HOME/.config/mutt/.mailsynclastrun" 2>/dev/null)
+  new=$(find "$HOME/.local/share/mail/$acc/INBOX/new/" "$HOME/.local/share/mail/$acc/Inbox/new/" "$HOME/.local/share/mail/$acc/inbox/new/" -type f -newer "$MAILSYNC_CACHE_DIR/mailsynclastrun" 2>/dev/null)
   newcount=$(echo "$new" | sed '/^\s*$/d' | wc -l)
   if [ "$newcount" -gt "0" ]; then
-    notify "$acc" "$newcount" &
+    __notify "$acc" "$newcount" &
     for file in $new; do
       # Extract subject and sender from mail.
       from=$(awk '/^From: / && ++n ==1,/^\<.*\>:/' "$file" | perl -CS -MEncode -ne 'print decode("MIME-Header", $_)' | awk '{ $1=""; if (NF>=3)$NF=""; print $0 }' | sed 's/^[[:blank:]]*[\"'\''\<]*//;s/[\"'\''\>]*[[:blank:]]*$//')
       subject=$(awk '/^Subject: / && ++n == 1,/^\<.*\>: / && ++i == 2' "$file" | head -n-1 | perl -CS -MEncode -ne 'print decode("MIME-Header", $_)' | sed 's/^Subject: //' | sed 's/^{[[:blank:]]*[\"'\''\<]*//;s/[\"'\''\>]*[[:blank:]]*$//' | tr -d '\n')
-      notify "📧$from:" "$subject" &
+      __notify "📧$from:" "$subject" &
     done
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Sync accounts passed as argument or all.
+# Default variables
+exitCode="0"
+MAILSYNC_CACHE_DIR="${MAILSYNC_CACHE_DIR:-$HOME/.cache/mailsync}"
+MAILSYNC_CONFIG_DIR="${MAILSYNC_CONFIG_DIR:-$HOME/.config/myscripts/mailsync}"
+MAILSYNC_OPTIONS_DIR="${MAILSYNC_OPTIONS_DIR:-$HOME/.local/share/myscripts/mailsync/options}"
+MAILSYNC_CONFIG_BACKUP_DIR="${MAILSYNC_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/mailsync/backups}"
+MAILSYNC_TEMP_DIR="${MAILSYNC_TEMP_DIR:-$HOME/.local/tmp/system_scripts/mailsync}"
+MAILSYNC_TEMP_FILE="${MAILSYNC_TEMP_FILE:-$(mktemp $MAILSYNC_TEMP_DIR/XXXXXX 2>/dev/null)}"
+MAILSYNC_CONFIG_FILE="${MAILSYNC_CONFIG_FILE:-settings.conf}"
+MAILSYNC_GOOD_MESSAGE="${MAILSYNC_GOOD_MESSAGE:-Everything Went OK}"
+MAILSYNC_ERROR_MESSAGE="${MAILSYNC_ERROR_MESSAGE:-Well that didn\'t work}"
+MAILSYNC_NOTIFY_ENABLED="${MAILSYNC_NOTIFY_ENABLED:-yes}"
+MAILSYNC_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-MailSync}"
+MAILSYNC_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-Thunderbird}"
+MAILSYNC_OUTPUT_COLOR="${MAILSYNC_OUTPUT_COLOR:-5}"
+MAILSYNC_OUTPUT_COLOR_GOOD="${MAILSYNC_OUTPUT_COLOR_GOOD:-2}"
+MAILSYNC_OUTPUT_COLOR_ERROR="${MAILSYNC_OUTPUT_COLOR_ERROR:-1}"
+MAILSYNC_PASSWORD_STORE_DIR="${MAILSYNC_PASSWORD_STORE_DIR:-$PASSWORD_STORE_DIR}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$MAILSYNC_TEMP_DIR" ] || mkdir -p "$MAILSYNC_TEMP_DIR" &>/dev/null
+[ -d "$MAILSYNC_CACHE_DIR" ] || mkdir -p "$MAILSYNC_CACHE_DIR" &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$MAILSYNC_CONFIG_DIR/$MAILSYNC_CONFIG_FILE" ] ||
+  __gen_config &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$MAILSYNC_CONFIG_DIR/$MAILSYNC_CONFIG_FILE" ] &&
+  . "$MAILSYNC_CONFIG_DIR/$MAILSYNC_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS="z:"
+LONGOPTS="options,config,version,help,dir:"
+ARRAY=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$PROG" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --options)
+    shift 1
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  -z | --dir)
+    MAILSYNC_CWD="$2"
+    shift 2
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+if [ "$MAILSYNC_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${MAILSYNC_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${MAILSYNC_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${MAILSYNC_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${MAILSYNC_NOTIFY_CLIENT_ICON}"
+    notifications "$*" || return 1
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+cmd_exists --error --ask bash mbsync notmuch || exit 1 # exit 1 if not found
+#am_i_online --error || exit 1     # exit 1 if no internet
+pgrep -x mbsync >/dev/null && printf_exit "mbsync is already running."
+pgrep -u "${USER:=$LOGNAME}" >/dev/null || printf_exit "$USER not logged in; sync will not run."
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user/$(id -u)/bus}"
+if [ -d "$MAILSYNC_PASSWORD_STORE_DIR" ] || [ -d "$HOME/.local/share/password-store" ]; then
+  MAILSYNC_PASSWORD_STORE_DIR="${MAILSYNC_PASSWORD_STORE_DIR:-$HOME/.local/share/password-store}"
+fi
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
 if [ "$#" -eq "0" ]; then
   accounts="$(awk '/^Channel/ {print $2}' "$HOME/.mbsyncrc")"
 else
   accounts=$*
 fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-echo " 🔃" >/tmp/imapsyncicon_"$USER"
-[ -n "${STATUSBAR:?}" ] && devnull pkill -RTMIN+12 "${STATUSBAR:?}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Parallelize multiple accounts
+echo " 🔃" >"$MAILSYNC_TEMP_FILE"
+[ -n "${STATUSBAR:-}" ] && devnull pkill -RTMIN+12 "${STATUSBAR:-}"
 for account in $accounts; do
   syncandnotify &
 done
 wait
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-rm -f /tmp/imapsyncicon_"$USER"
-[ -n "${STATUSBAR:?}" ] && devnull pkill -RTMIN+12 "${STATUSBAR:?}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+[ -n "${STATUSBAR:-}" ] && devnull pkill -RTMIN+12 "${STATUSBAR:-}"
 notmuch new 2>/dev/null
+touch "$MAILSYNC_CACHE_DIR/mailsynclastrun"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#Create a touch file that indicates the time of the last run of mailsync
-touch "$HOME/.config/mutt/.mailsynclastrun"
+# End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-exit $?
-# end
+# lets exit with code
+exit ${exitCode:-$?}

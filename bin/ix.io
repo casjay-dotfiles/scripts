@@ -205,10 +205,14 @@ if [ ${#} -eq 0 ]; then
     file="$(</dev/stdin)"
   fi
 else
-  file="$*"
+  file="$(<"$*")"
 fi
-post="$(echo "$file" | curl -q -LSs $opts -F f:1='<-' $IX_IO_SERVER_HOST/$id 2>/dev/null)"
-echo "$post" | printf_readline $IX_IO_OUTPUT_COLOR
+if [[ -n "$file" ]]; then
+  post="$(echo "$file" | curl -q -LSs $opts -F f:1='<-' $IX_IO_SERVER_HOST/$id 2>/dev/null)"
+  echo "$post" | printf_readline $IX_IO_OUTPUT_COLOR
+else
+  printf_red "Something went wrong. No input received"
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

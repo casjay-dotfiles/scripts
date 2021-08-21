@@ -205,7 +205,7 @@ else
   file="$(<"$@")"
 fi
 if [[ -n "$file" ]]; then
-  post="$(echo "$file" | curl -q -LS -F f:1='<-' $IX_IO_SERVER_HOST 2>/dev/null)"
+  post="$(echo "$file" | curl -q -LSs -F 'f:1=<-' $IX_IO_SERVER_HOST 2>/dev/null)"
   echo "$post" | printf_readline $IX_IO_OUTPUT_COLOR
 else
   printf_red "Something went wrong. No input received"

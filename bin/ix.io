@@ -202,11 +202,12 @@ id=${id:-}
 # begin main app
 if [ ${#} -eq 0 ]; then
   if [ -p "/dev/stdin" ]; then
-    cat /dev/stdin | curl -q -LSs $opts -F f:1='<-' $* $IX_IO_SERVER_HOST/$id
+    file="$(</dev/stdin)"
   fi
 else
-  curl $opts -F f:1=@"$@" $* $IX_IO_SERVER_HOST
+  file="$*"
 fi
+echo "$file" | curl -q -LSs $opts -F f:1='<-' $IX_IO_SERVER_HOST/$id
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

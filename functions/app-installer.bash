@@ -68,7 +68,7 @@ TMPPATH+="$HOME/.local/share/bash/basher/cellar/bin:$HOME/.local/share/bash/bash
 TMPPATH+="$HOME/.local/bin:$HOME/.cargo/bin:$HOME/.local/share/gem/bin:/usr/local/bin:"
 TMPPATH+="/usr/local/share/CasjaysDev/scripts/bin:/usr/local/sbin:/usr/sbin:"
 TMPPATH+="/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:$PATH:."
-PATH="$(echo "$TMPPATH" | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | $sed 's#::#:.#g')"
+PATH="$(echo "$TMPPATH" | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 's#::#:.#g')"
 unset TMPPATH
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [ -n "$SUDO_USER" ] && export RUN_USER="${RUN_USER:-$SUDO_USER}" || export RUN_USER="${RUN_USER:-$(whoami)}"
@@ -361,7 +361,7 @@ system_service_restart() {
 run_post() {
   local e="$1"
   local m="${e//devnull//}"
-  #local m="$(echo $1 | $sed 's#devnull ##g')"
+  #local m="$(echo $1 | sed 's#devnull ##g')"
   execute "$e" "executing: $m"
   setexitstatus
   set --
@@ -430,13 +430,13 @@ rm_link() { unlink "$1"; }
 symlink() { ln_sf "$1" "$2"; }
 countwd() { cat "$@" | wc-l | rmcomments; }
 urlverify() { urlcheck "$1" || urlinvalid "$1"; }
-rmcomments() { $sed 's/[[:space:]]*#.*//;/^[[:space:]]*$/d'; }
+rmcomments() { sed 's/[[:space:]]*#.*//;/^[[:space:]]*$/d'; }
 sed_replace() { $sed -i 's|'"$1"'|'"$2"'|g' "$3" &>/dev/null; }
 broken_symlinks() { devnull find "$*" -xtype l -exec rm {} \;; }
 mv_f() { if [ -e "$1" ]; then devnull mv -f "$@"; else return 0; fi; }
 rm_rf() { if [ -e "$1" ]; then devnull rm -Rf "$@"; else return 0; fi; }
 cp_rf() { if [ -e "$1" ]; then devnull cp -Rfa "$@"; else return 0; fi; }
-replace() { find "$1" -not -path "$1/.git/*" -type f -exec $sed -i "s|$2|$3|g" {} \; >/dev/null 2>&1; }
+replace() { find "$1" -not -path "$1/.git/*" -type f -exec sed -i "s|$2|$3|g" {} \; >/dev/null 2>&1; }
 urlcheck() { devnull curl --config /dev/null --connect-timeout 3 --retry 3 --retry-delay 1 --output /dev/null --silent --head --fail "$1"; }
 ln_rm() {
   if [ -e "$1" ]; then
@@ -560,10 +560,10 @@ __getip() {
     if [[ "$OSTYPE" =~ ^darwin ]]; then
       NETDEV="$(route get default | grep interface | awk '{print $2}')"
     else
-      NETDEV="$(ip route | grep default | $sed -e "s/^.*dev.//" -e "s/.proto.*//" | awk '{print $1}')"
+      NETDEV="$(ip route | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//" | awk '{print $1}')"
     fi
     if [ -f "$(builtin type -P ifconfig 2>/dev/null)" ]; then
-      CURRIP4="$(/sbin/ifconfig $NETDEV | grep -E "venet|inet" | grep -v "127.0.0." | grep 'inet' | grep -v inet6 | awk '{print $2}' | $sed s/addr://g | head -n1)"
+      CURRIP4="$(/sbin/ifconfig $NETDEV | grep -E "venet|inet" | grep -v "127.0.0." | grep 'inet' | grep -v inet6 | awk '{print $2}' | sed s/addr://g | head -n1)"
       CURRIP6="$(/sbin/ifconfig "$NETDEV" | grep -E "venet|inet" | grep 'inet6' | grep -i global | awk '{print $2}' | head -n1)"
     else
       CURRIP4="$(ip addr | grep inet | grep -vE "127|inet6" | tr '/' ' ' | awk '{print $2}' | head -n 1)"
@@ -778,11 +778,11 @@ scripts_check() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #is_url() { echo "$1" | grep -q http; }
-#strip_url() { echo "$1" | $sed 's#git+##g' | awk -F//*/ '{print $2}' | $sed 's#.*./##g' | $sed 's#python-##g'; }
+#strip_url() { echo "$1" | sed 's#git+##g' | awk -F//*/ '{print $2}' | sed 's#.*./##g' | sed 's#python-##g'; }
 cmd_missing() { builtin type -p "$1" &>/dev/null && return 0 || { MISSING+="$1 " && return 1; }; }
 cpan_missing() { perl_exists "$1" && return 0 || { MISSING+="$1" && return 1; }; }
 gem_missing() { gem_exists "$1" && return 0 || { MISSING+="$1 " && return 1; }; }
-perl_missing() { perl_exists "$1" && return 0 || { MISSING+="$(echo perl-$1 | $sed 's#::#-#g') " && return 1; }; }
+perl_missing() { perl_exists "$1" && return 0 || { MISSING+="$(echo perl-$1 | sed 's#::#-#g') " && return 1; }; }
 pip_missing() { python_exists "$1" && return 0 || { MISSING+="$1 " && return 1; }; }
 if [ -f "$(builtin type -P pacman 2>/dev/null)" ]; then
   python_missing() { python_exists "$1" && return 0 || { MISSING+="python-$1 " && return 1; }; }
@@ -1125,7 +1125,7 @@ if_os() {
 
 if_os_id() {
   if [ -f "/etc/os-release" ]; then
-    local distroname=$(grep ID_LIKE= /etc/os-release | $sed 's#ID_LIKE=##')
+    local distroname=$(grep ID_LIKE= /etc/os-release | sed 's#ID_LIKE=##')
   elif [ -f "/etc/redhat-release" ]; then
     local distroname=$(cat /etc/redhat-release)
   elif [ -f "$(builtin type -P lsb_release 2>/dev/null)" ]; then
@@ -1496,7 +1496,7 @@ show_optvars() {
   if [ "$1" = "--installed" ]; then
     printf_green "User                               Group                              AppName"
     ls -l $CASJAYSDEVSAPPDIR/dotfiles | tr -s ' ' | cut -d' ' -f3,4,9 |
-      $sed 's# #                               #g' | grep -v "total." | printf_readline "5"
+      sed 's# #                               #g' | grep -v "total." | printf_readline "5"
     exit $?
   fi
 }

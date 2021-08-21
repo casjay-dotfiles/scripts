@@ -207,7 +207,8 @@ if [ ${#} -eq 0 ]; then
 else
   file="$*"
 fi
-echo "$file" | curl -q -LSs $opts -F f:1='<-' $IX_IO_SERVER_HOST/$id
+post="$(echo "$file" | curl -q -LSs $opts -F f:1='<-' $IX_IO_SERVER_HOST/$id 2>/dev/null)"
+echo "$post" | printf_readline $IX_IO_OUTPUT_COLOR
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

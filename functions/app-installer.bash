@@ -1124,6 +1124,7 @@ if_os() {
 }
 
 if_os_id() {
+  local os_id="$@"
   if [ -f "/etc/os-release" ]; then
     local distroname=$(grep ID_LIKE= /etc/os-release | sed 's#ID_LIKE=##')
   elif [ -f "/etc/redhat-release" ]; then
@@ -1133,11 +1134,11 @@ if_os_id() {
   else
     local distroname="unknown"
   fi
-  for id_like in "$@"; do
+  for id_like in $os_id; do
     if [[ "$(echo $1 | tr '[:upper:]' '[:lower:]')" =~ $id_like ]]; then
       case "$1" in
       Arch* | arch*)
-        if [[ "$distroname" =~ "ArcoLinux" ]] || [[ "$distroname" =~ "Arch" ]] || [[ "$distroname" =~ "BlackArch" ]]; then
+        if [[ "$distroname" =~ arcolinux ]] || [[ "$distroname" =~ arch ]] || [[ "$distroname" =~ blackarch ]] || [[ "$distroname" =~ manjaro ]]; then
           distro_id=Arch
           return 0
         else
@@ -1145,7 +1146,7 @@ if_os_id() {
         fi
         ;;
       RHEL* | rhel*)
-        if [[ "$distroname" =~ "Scientific" ]] || [[ "$distroname" =~ "RedHat" ]] || [[ "$distroname" =~ "CentOS" ]] || [[ "$distroname" =~ "Casjay" ]] || [[ "$distroname" =~ "Fedora" ]]; then
+        if [[ "$distroname" =~ scientific ]] || [[ "$distroname" =~ redhat ]] || [[ "$distroname" =~ centos ]] || [[ "$distroname" =~ casjay ]] || [[ "$distroname" =~ fedora ]] || [[ "$distroname" =~ rockylinux ]]; then
           distro_id=RHEL
           return 0
         else
@@ -1153,8 +1154,8 @@ if_os_id() {
         fi
         ;;
       Debian* | debian)
-        if [[ "$distroname" =~ "Kali" ]] || [[ "$distroname" =~ "Parrot" ]] || [[ "$distroname" =~ "Debian" ]] || [[ "$distroname" =~ "Raspbian" ]] ||
-          [[ "$distroname" =~ "Ubuntu" ]] || [[ "$distroname" =~ "Mint" ]] || [[ "$distroname" =~ "Elementary" ]] || [[ "$distroname" =~ "KDE neon" ]]; then
+        if [[ "$distroname" =~ kali ]] || [[ "$distroname" =~ parrot ]] || [[ "$distroname" =~ debian ]] || [[ "$distroname" =~ raspbian ]] ||
+          [[ "$distroname" =~ ubuntu ]] || [[ "$distroname" =~ mint ]] || [[ "$distroname" =~ elementary ]] || [[ "$distroname" =~ "kde neon" ]]; then
           distro_id=Debian
           return 0
         else

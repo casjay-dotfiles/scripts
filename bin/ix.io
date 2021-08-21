@@ -193,19 +193,18 @@ cmd_exists --error --ask bash || exit 1 # exit 1 if not found
 #am_i_online --error || exit 1     # exit 1 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
+UA=${UA:="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/44.0.2403.157 Safari/537.36"}
 [ -f "$HOME/.netrc" ] && opts='-n'
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 if [ ${#} -eq 0 ]; then
   if [ -p "/dev/stdin" ]; then
     filename="$(</dev/stdin)"
-  else
-    printf_green "^C to cancel, ^D to send."
   fi
 else
   filename="$*"
 fi
-curl "$opts" -F f:1=@"$filename" "$*" "ix.io/$id"
+curl -q -LSs $opts -A "$UA" -sF 'f:1=<-' http://ix.io <"$filename" | printf_readline $IX_IO_OUTPUT_COLOR
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

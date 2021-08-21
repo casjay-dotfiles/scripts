@@ -204,7 +204,7 @@ if [ ${#} -eq 0 ]; then
 else
   filename="$*"
 fi
-echo "$filename" | curl -F 'f:1=<-' ix.io | printf_readline $IX_IO_OUTPUT_COLOR
+echo "$filename" | curl -q -LSs -F 'f:1=<-' ix.io 2>/dev/null | printf_readline $IX_IO_OUTPUT_COLOR
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

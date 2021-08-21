@@ -202,7 +202,7 @@ if [ ${#} -eq 0 ]; then
     file="$(</dev/stdin)"
   fi
 else
-  file="$(cat "$@")"
+  file="$(<"$@")"
 fi
 if [[ -n "$file" ]]; then
   post="$(echo "$file" | curl -q -LS -F f:1='<-' $IX_IO_SERVER_HOST 2>/dev/null)"

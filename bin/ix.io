@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0")"
-VERSION="202108130401-git"
+VERSION="202108190117-git"
 RUN_USER="${SUDO_USER:-${USER}}"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
@@ -11,15 +11,15 @@ SRC_DIR="${BASH_SOURCE%/*}"
 trap 'exitCode=${exitCode:-$?};[ -f "$IX_IO_TEMP_FILE" ] && rm -Rf "$IX_IO_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202108130401-git
+##@Version       : 202108190117-git
 # @Author        : Jason Hempstead
 # @Contact       : jason@casjaysdev.com
 # @License       : WTFPL
 # @ReadME        : ix.io --help
 # @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
-# @Created       : Friday, Aug 13, 2021 04:01 EDT
+# @Created       : Thursday, Aug 19, 2021 01:17 EDT
 # @File          : ix.io
-# @Description   : GEN_SCRIPT_REPLACE_DESC
+# @Description   :
 # @TODO          :
 # @Other         :
 # @Resource      :
@@ -44,7 +44,7 @@ user_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set functions
-__list_available() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
+__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gen_config() {
   printf_green "Generating the config file in"
@@ -62,6 +62,11 @@ IX_IO_ERROR_MESSAGE="${IX_IO_ERROR_MESSAGE:-Well that didn\'t work}"
 IX_IO_NOTIFY_ENABLED="${IX_IO_NOTIFY_ENABLED:-yes}"
 IX_IO_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
 IX_IO_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$IX_IO_NOTIFY_CLIENT_ICON}"
+
+# Colorization settings
+IX_IO_OUTPUT_COLOR="${IX_IO_OUTPUT_COLOR:-5}"
+IX_IO_OUTPUT_COLOR_GOOD="${IX_IO_OUTPUT_COLOR_GOOD:-2}"
+IX_IO_OUTPUT_COLOR_ERROR="${IX_IO_OUTPUT_COLOR_ERROR:-1}"
 
 EOF
   if [ -f "$IX_IO_CONFIG_DIR/$IX_IO_CONFIG_FILE" ]; then
@@ -82,14 +87,17 @@ IX_IO_CACHE_DIR="${IX_IO_CACHE_DIR:-$HOME/.cache/ix.io}"
 IX_IO_CONFIG_DIR="${IX_IO_CONFIG_DIR:-$HOME/.config/myscripts/ix.io}"
 IX_IO_OPTIONS_DIR="${IX_IO_OPTIONS_DIR:-$HOME/.local/share/myscripts/ix.io/options}"
 IX_IO_CONFIG_BACKUP_DIR="${IX_IO_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/ix.io/backups}"
-IX_IO_TEMP_DIR="${IX_IO_TEMP_DIR/system_scripts/ix.io:-$HOME/.local/tmp/system_scripts/ix.io}"
-IX_IO_TEMP_FILE="${IX_IO_TEMP_DIR:-$HOME/.local/tmp/ix.io}"
+IX_IO_TEMP_DIR="${IX_IO_TEMP_DIR:-$HOME/.local/tmp/system_scripts/ix.io}"
+IX_IO_TEMP_FILE="${IX_IO_TEMP_FILE:-$(mktemp $IX_IO_TEMP_DIR/XXXXXX 2>/dev/null)}"
 IX_IO_CONFIG_FILE="${IX_IO_CONFIG_FILE:-settings.conf}"
 IX_IO_GOOD_MESSAGE="${IX_IO_GOOD_MESSAGE:-Everything Went OK}"
 IX_IO_ERROR_MESSAGE="${IX_IO_ERROR_MESSAGE:-Well that didn\'t work}"
 IX_IO_NOTIFY_ENABLED="${IX_IO_NOTIFY_ENABLED:-yes}"
 IX_IO_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
 IX_IO_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$IX_IO_NOTIFY_CLIENT_ICON}"
+IX_IO_OUTPUT_COLOR="${IX_IO_OUTPUT_COLOR:-5}"
+IX_IO_OUTPUT_COLOR_GOOD="${IX_IO_OUTPUT_COLOR_GOOD:-2}"
+IX_IO_OUTPUT_COLOR_ERROR="${IX_IO_OUTPUT_COLOR_ERROR:-1}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure Directories exist
 [ -d "$IX_IO_TEMP_DIR" ] || mkdir -p "$IX_IO_TEMP_DIR" &>/dev/null
@@ -108,7 +116,7 @@ IX_IO_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$IX_IO_NOTIFY_CLIENT_ICON}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set additional variables/Argument/Option settings
 SETARGS="$*"
-SHORTOPTS="z:,h,d:,i:,n:"
+SHORTOPTS="z:,d:,i:,n:"
 LONGOPTS="options,config,version,help,dir:"
 ARRAY=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -119,9 +127,9 @@ while :; do
   --options)
     shift 1
     [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
-    [ -z "$SHORTOPTS" ] || __list_available "5" "Short Options" "-$SHORTOPTS" ',' '-'
-    [ -z "$LONGOPTS" ] || __list_available "5" "Long Options" "--$LONGOPTS" ',' '--'
-    [ -z "$ARRAY" ] || __list_available "5" "Base Options" "$ARRAY" ',' ''
+    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
     exit $?
     ;;
   --version)
@@ -140,10 +148,9 @@ while :; do
     exit $?
     ;;
   -z | --dir)
-    shift 1
-    GEN_SCRIPT_REPLACE_CWD="$1"
+    IX_IO_CWD="$2"
+    shift 2
     ;;
-
   -d)
     shift 1
     printf_green "curl $opts -X DELETE "ix.io/$OPTARG""
@@ -160,7 +167,6 @@ while :; do
     shift 1
     opts="$opts -F read:1=$OPTARG"
     ;;
-
   --)
     shift 1
     break
@@ -184,7 +190,7 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
 cmd_exists --error --ask bash || exit 1 # exit 1 if not found
-#am_i_online --error || exit       # exit 1 if no internet
+#am_i_online --error || exit 1     # exit 1 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
 [ -f "$HOME/.netrc" ] && opts='-n'
@@ -199,7 +205,6 @@ cmd_exists --error --ask bash || exit 1 # exit 1 if not found
   }
   printf_green "^C to cancel, ^D to send."
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 curl "$opts" -F f:1='<-' "$*" "ix.io/$id"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application

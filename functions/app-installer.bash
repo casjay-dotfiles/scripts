@@ -434,7 +434,7 @@ broken_symlinks() { devnull find "$*" -xtype l -exec rm {} \;; }
 mv_f() { if [ -e "$1" ]; then devnull mv -f "$@"; else return 0; fi; }
 rm_rf() { if [ -e "$1" ]; then devnull rm -Rf "$@"; else return 0; fi; }
 cp_rf() { if [ -e "$1" ]; then devnull cp -Rfa "$@"; else return 0; fi; }
-replace() { find "$1" -not -path "$1/.git/*" -type f -exec sed -i "s#$2#$3#g" {} \; >/dev/null 2>&1; }
+replace() { find "$1" -not -path "$1/.git/*" -type f -exec sed -i "s|$2|$3|g" {} \; >/dev/null 2>&1; }
 urlcheck() { devnull curl --config /dev/null --connect-timeout 3 --retry 3 --retry-delay 1 --output /dev/null --silent --head --fail "$1"; }
 ln_rm() {
   if [ -e "$1" ]; then

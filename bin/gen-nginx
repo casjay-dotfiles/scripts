@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0")"
+VERSION="202108190117-git"
+RUN_USER="${SUDO_USER:-${USER}}"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#set opts
+# Set bash options
+trap 'exitCode=${exitCode:-$?};[ -f "$GEN_NGINX_TEMP_FILE" ] && rm -Rf "$GEN_NGINX_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202103200731-git
+##@Version       : 202108190117-git
 # @Author        : Jason Hempstead
 # @Contact       : jason@casjaysdev.com
 # @License       : WTFPL
 # @ReadME        : gen-nginx --help
-# @Copyright     : Copyright: (c) 2021 Jason Hempstead, CasjaysDev
-# @Created       : Saturday, Mar 20, 2021 07:31 EDT
+# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created       : Thursday, Aug 19, 2021 01:17 EDT
 # @File          : gen-nginx
 # @Description   : Generate a nginx proxy host
 # @TODO          : Add more config options
@@ -40,53 +43,80 @@ fi
 user_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-GEN_NGINX_CONFIG_DIR="${GEN_NGINX_CONFIG_DIR:-$HOME/.config/gen-nginx}"
-NGINXDOMAIN="${1:-$(hostname -f)}"
-NGINXDOCROOT="${2:-$GEN_NGINX_CONFIG_DIR/www/$(hostname -f)}"
-NGINXCONFDIR="${3:-$GEN_NGINX_CONFIG_DIR/conf}"
+# Set functions
+__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-mkdir -p "$NGINXDOCROOT"
-mkdir -p "$NGINXCONFDIR"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__nginx_confdir() {
-  if [ -d /etc/nginx/sites-enabled ]; then
-    NGINXCONFDIR="/etc/nginx/sites-enabled"
-  elif [ -d "/etc/nginx/vhosts.d" ]; then
-    NGINXCONFDIR="/etc/nginx/vhosts.d"
+__gen_config() {
+  printf_green "Generating the config file in"
+  printf_green "$GEN_NGINX_CONFIG_DIR/$GEN_NGINX_CONFIG_FILE"
+  [ -d "$GEN_NGINX_CONFIG_DIR" ] || mkdir -p "$GEN_NGINX_CONFIG_DIR"
+  [ -d "$GEN_NGINX_CONFIG_BACKUP_DIR" ] || mkdir -p "$GEN_NGINX_CONFIG_BACKUP_DIR"
+  [ -f "$GEN_NGINX_CONFIG_DIR/$GEN_NGINX_CONFIG_FILE" ] &&
+    cp -Rf "$GEN_NGINX_CONFIG_DIR/$GEN_NGINX_CONFIG_FILE" "$GEN_NGINX_CONFIG_BACKUP_DIR/$GEN_NGINX_CONFIG_FILE.$$"
+  cat <<EOF | tee "$GEN_NGINX_CONFIG_DIR/$GEN_NGINX_CONFIG_FILE" &>/dev/null
+# Settings for gen-nginx
+GEN_NGINX_WWW_USER_DIR="${GEN_NGINX_WWW_DIR_USER:-$GEN_NGINX_CONFIG_DIR/files/www}"
+GEN_NGINX_VHOST_USER_DIR="${GEN_NGINX_VHOST_USER_DIR:-$GEN_NGINX_CONFIG_DIR/files/vhosts}"
+GEN_NGINX_WWW_SYSTEM_DIR="${GEN_NGINX_WWW_DIR_ROOT:-/var/www/html}"
+GEN_NGINX_VHOST_SYSTEM_DIR="${GEN_NGINX_VHOST_DIR_ROOT:-/etc/nginx/vhosts.d}"
+
+# Notification settings
+GEN_NGINX_GOOD_MESSAGE="${GEN_NGINX_GOOD_MESSAGE:-Everything Went OK}"
+GEN_NGINX_ERROR_MESSAGE="${GEN_NGINX_ERROR_MESSAGE:-Well that didn\'t work}"
+GEN_NGINX_NOTIFY_ENABLED="${GEN_NGINX_NOTIFY_ENABLED:-yes}"
+GEN_NGINX_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+GEN_NGINX_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$GEN_NGINX_NOTIFY_CLIENT_ICON}"
+
+# Colorization settings
+GEN_NGINX_OUTPUT_COLOR="${GEN_NGINX_OUTPUT_COLOR:-5}"
+GEN_NGINX_OUTPUT_COLOR_GOOD="${GEN_NGINX_OUTPUT_COLOR_GOOD:-2}"
+GEN_NGINX_OUTPUT_COLOR_ERROR="${GEN_NGINX_OUTPUT_COLOR_ERROR:-1}"
+
+EOF
+  if [ -f "$GEN_NGINX_CONFIG_DIR/$GEN_NGINX_CONFIG_FILE" ]; then
+    printf_green "Your config file for gen-nginx has been created"
+    true
   else
-    printf_read_input "4" "Where are your nginx server files located?" "120" "NGINXCONFDIR" "-i $NGINXCONFDIR "
-    if [[ ! -d "$NGINXCONFDIR" ]]; then
-      printf_exit "$NGINXCONFDIR is an invalid directory"
+    printf_red "Failed to create the config file"
+    false
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional functions
+__nginx_conf_dir() {
+  if [[ -z "$GEN_NGINX_VHOST_USER_DIR" ]] || [[ -z "$GEN_NGINX_VHOST_SYSTEM_DIR" ]]; then
+    printf_read_input "4" "Where are your nginx server files located?" "120" "GEN_NGINX_VHOST_USER_DIR" "-e"
+    if [[ ! -d "$GEN_NGINX_VHOST_USER_DIR" ]]; then
+      printf_exit "$GEN_NGINX_VHOST_USER_DIR is an invalid directory"
       exit 1
     fi
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__hosts() {
-  grep "$REVPROXY" /etc/hosts &>/dev/null || echo "127.0.0.3      $REVPROXY" | sudo tee -a /etc/hosts &>/dev/null
-  grep "$NGINXDOMAIN" /etc/hosts &>/dev/null || echo "127.0.0.3      $NGINXDOMAIN" | sudo tee -a /etc/hosts &>/dev/null
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __nginx_dom() {
-  printf_read_input "4" "What is your domain name?" "120" "NGINXDOMAIN" "-i $(hostname -f) "
-  printf_read_input "4" "What is the name of the app?" "120" "REVPROXYNAME"
-  printf_read_input "4" "What should I proxy for?" "120" "REVPROXY" "-i localhost "
-  printf_read_input "4" "What is your APPs port [3000]?" "120" "REVPROXY_PORT" "-i 3000 "
-  printf_read_input "4" "What is the protocol http[s]?" "120" "REVPROXY_PROTO" "-i http "
-  [ -n "$NGINXDOMAIN" ] && NGINXDOMAIN="$NGINXDOMAIN" || printf_exit "domain name is required"
-  [ -n "$REVPROXYNAME" ] && REVPROXYNAME="$REVPROXYNAME" || printf_exit "app name is required"
-  REVPROXY="${REVPROXY:-localhost}"
-  REVPROXY_PORT="${REVPROXY_PORT:-3000}"
-  REVPROXY_PROTO="${REVPROXY_PROTO:-http}"
+  [[ -n "$NGINXDOMAIN" ]] || printf_read_input "4" "What is your domain name? " "120" "NGINXDOMAIN" "-i $(hostname -f) "
+  [[ -n "$REVPROXYNAME" ]] || printf_read_input "4" "What is the name of the app? " "120" "REVPROXYNAME"
+  [[ -n "$REVPROXY" ]] || printf_read_input "4" "What should I proxy for? " "120" "REVPROXY" "-i localhost "
+  [[ -n "$REVPROXY_PORT" ]] || printf_read_input "4" "What is your port is your app listening on [3000]? " "120" "REVPROXY_PORT" "-i 3000 "
+  [[ -n "$REVPROXY_PROTO" ]] || printf_read_input "4" "What is the protocol http[s]? " "120" "REVPROXY_PROTO" "-i http "
+  # Sanity check
+  [[ -n "$NGINXDOMAIN" ]] || printf_exit "domain name is required"
+  [[ -n "$REVPROXYNAME" ]] || printf_exit "app name is required"
+  [[ -n "$REVPROXY" ]] || printf_exit "reverse proxy host is required"
+  [[ -n "$REVPROXY_PORT" ]] || printf_exit "reverse proxy port is required"
+  export NGINXDOMAIN REVPROXYNAME REVPROXY REVPROXY_PORT REVPROXY_PROTO
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__nginx_conf() {
+__nginx_conf_file() {
   if [ -f "$GEN_NGINX_CONFIG_DIR/template.conf" ]; then
-    . "$GEN_NGINX_CONFIG_DIR/template.conf"
+    cat <<EOF | tee "$GEN_NGINX_VHOST_USER_DIR/$NGINXDOMAIN.conf" &>/dev/null
+"$GEN_NGINX_CONFIG_DIR/template.conf"
+EOF
   else
     if [ -d "/etc/letsencrypt/live/domain" ] || [ -d "/etc/letsencrypt/live/$(hostname -f)" ]; then
-      echo '#Define your primary service
-# upstream '$REVPROXYNAME' { server '$REVPROXY':'$REVPROXY_PORT' fail_timeout=0; }
+      cat <<EOF | tee "$GEN_NGINX_VHOST_USER_DIR/$NGINXDOMAIN.conf" &>/dev/null
+#Define your primary service
+# upstream $REVPROXYNAME { server $REVPROXY:$REVPROXY_PORT fail_timeout=0; }
 
 server {
   listen 443 ssl http2;
@@ -96,7 +126,7 @@ server {
   ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-SHA384;
   ssl_session_timeout 1d;
   ssl_session_cache shared:SSL:50m;
-  server_name '$NGINXDOMAIN';
+  server_name $NGINXDOMAIN;
   access_log /var/log/nginx/access.log;
   error_log  /var/log/nginx/error.log info;
   keepalive_timeout 75 75;
@@ -106,7 +136,7 @@ server {
 
   location / {
     proxy_redirect          http:// https://;
-    proxy_pass              '$REVPROXY_PROTO://$REVPROXY';
+    proxy_pass              $REVPROXY_PROTO://$REVPROXY;
     proxy_ssl_verify        off;
     send_timeout            3600;
     client_max_body_size    1024M;
@@ -144,10 +174,11 @@ server {
     include /etc/nginx/global.d/vnstats.conf;
     include /etc/nginx/global.d/others.conf;
 }
-' | sudo tee "$NGINXCONFDIR/$NGINXDOMAIN.conf" &>/dev/null
+EOF
     else
-      echo '#Define your primary service
-# upstream '$REVPROXYNAME' { server '$REVPROXY':'$REVPROXY_PORT' fail_timeout=0; }
+      cat <<EOF | tee "$GEN_NGINX_VHOST_USER_DIR/$NGINXDOMAIN.conf" &>/dev/null
+#Define your primary service
+# upstream $REVPROXYNAME { server $REVPROXY:$REVPROXY_PORT fail_timeout=0; }
 
 server {
   listen 443 ssl http2;
@@ -157,7 +188,7 @@ server {
   ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-SHA384;
   ssl_session_timeout 1d;
   ssl_session_cache shared:SSL:50m;
-  server_name '$NGINXDOMAIN';
+  server_name $NGINXDOMAIN;
   access_log /var/log/nginx/access.log;
   error_log  /var/log/nginx/error.log info;
   keepalive_timeout 75 75;
@@ -167,7 +198,7 @@ server {
 
   location / {
     proxy_redirect          http:// https://;
-    proxy_pass              '$REVPROXY_PROTO'://'$REVPROXY':'$REVPROXY_PORT';
+    proxy_pass              $REVPROXY_PROTO://$REVPROXY:$REVPROXY_PORT;
     proxy_ssl_verify        off;
     send_timeout            3600;
     client_max_body_size    1024M;
@@ -187,7 +218,7 @@ server {
 
 #  location ~ ^/uri {
 #    rewrite ^/(.*)$ /$1 break;
-#    proxy_pass '$REVPROXY_PROTO'://'$REVPROXY':'$REVPROXY_PORT'/;
+#    proxy_pass $REVPROXY_PROTO://$REVPROXY:$REVPROXY_PORT/;
 #    proxy_set_header X-Real-IP $remote_addr;
 #    proxy_set_header Host $host;
 #    proxy_redirect   off;
@@ -195,7 +226,7 @@ server {
 #    }
 
 #  location ~ ^/uri {
-#    rewrite ^/(.*)$ '$REVPROXY_PROTO'://'$REVPROXY':'$REVPROXY_PORT' permanent;
+#    rewrite ^/(.*)$ $REVPROXY_PROTO://$REVPROXY:$REVPROXY_PORT permanent;
 #    }
 
     include /etc/nginx/global.d/nginx-defaults.conf;
@@ -205,39 +236,149 @@ server {
     include /etc/nginx/global.d/vnstats.conf;
     include /etc/nginx/global.d/others.conf;
 }
-' | sudo tee "$NGINXCONFDIR/$NGINXDOMAIN.conf" &>/dev/null
+EOF
+
     fi
   fi
   printf_newline
-  printf_head 4 "Setting up $NGINXDOMAIN.conf" "in $NGINXCONFDIR"
-  if [ -f "$NGINXCONFDIR/$NGINXDOMAIN.conf" ]; then
-    printf_green "Successfuly created $NGINXCONFDIR/$NGINXDOMAIN.conf"
+  printf_head 4 "Setting up $NGINXDOMAIN.conf" "in $GEN_NGINX_VHOST_USER_DIR"
+  if [ -f "$GEN_NGINX_VHOST_USER_DIR/$NGINXDOMAIN.conf" ]; then
+    printf_green "Successfuly created $GEN_NGINX_VHOST_USER_DIR/$NGINXDOMAIN.conf"
   else
-    print_error "Failed to create $NGINXCONFDIR/$NGINXDOMAIN.conf"
+    print_error "Failed to create $GEN_NGINX_VHOST_USER_DIR/$NGINXDOMAIN.conf"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-gen_nginx() {
-  NGINXDOMAIN="${NGINXDOMAIN:-$1}"
-  REVPROXYNAME="${REVPROXYNAME:-$2}"
-  REVPROXY="${REVPROXY:-$3}"
-  REVPROXY_PORT="${REVPROXY_PORT:-$4}"
-  REVPROXY_PROTO="${REVPROXY_PROTO:-$5}"
-  __nginx_dom
-  __nginx_confdir
-  __nginx_conf "$@"
-  if [ "$NGINXCONFDIR/$NGINXDOMAIN.conf" != "$NGINXCONFDIR/$NGINXDOMAIN.conf" ]; then
-    if [ -d "/etc/nginx/vhosts.d" ] && __can_i_sudo; then
-      __requiresudo true
-      __nginx_confdir
-      printf_green "Installing config to $NGINXCONFDIR/$NGINXDOMAIN.conf"
-      sudo mv -f "$TMPDIR/$NGINXDOMAIN.conf" "$NGINXCONFDIR/$NGINXDOMAIN.conf"
-    fi
-  fi
+__hosts() {
+  grep "$REVPROXY" /etc/hosts &>/dev/null || echo "127.0.0.3      $REVPROXY" | sudo tee -a /etc/hosts &>/dev/null
+  grep "$NGINXDOMAIN" /etc/hosts &>/dev/null || echo "127.0.0.3      $NGINXDOMAIN" | sudo tee -a /etc/hosts &>/dev/null
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-gen_nginx "$@"
+# Default variables
+exitCode="0"
+GEN_NGINX_CACHE_DIR="${GEN_NGINX_CACHE_DIR:-$HOME/.cache/gen-nginx}"
+GEN_NGINX_CONFIG_DIR="${GEN_NGINX_CONFIG_DIR:-$HOME/.config/myscripts/gen-nginx}"
+GEN_NGINX_OPTIONS_DIR="${GEN_NGINX_OPTIONS_DIR:-$HOME/.local/share/myscripts/gen-nginx/options}"
+GEN_NGINX_CONFIG_BACKUP_DIR="${GEN_NGINX_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/gen-nginx/backups}"
+GEN_NGINX_TEMP_DIR="${GEN_NGINX_TEMP_DIR:-$HOME/.local/tmp/system_scripts/gen-nginx}"
+GEN_NGINX_TEMP_FILE="${GEN_NGINX_TEMP_FILE:-$(mktemp $GEN_NGINX_TEMP_DIR/XXXXXX 2>/dev/null)}"
+GEN_NGINX_CONFIG_FILE="${GEN_NGINX_CONFIG_FILE:-settings.conf}"
+GEN_NGINX_GOOD_MESSAGE="${GEN_NGINX_GOOD_MESSAGE:-Everything Went OK}"
+GEN_NGINX_ERROR_MESSAGE="${GEN_NGINX_ERROR_MESSAGE:-Well that didn\'t work}"
+GEN_NGINX_NOTIFY_ENABLED="${GEN_NGINX_NOTIFY_ENABLED:-yes}"
+GEN_NGINX_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+GEN_NGINX_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$GEN_NGINX_NOTIFY_CLIENT_ICON}"
+GEN_NGINX_OUTPUT_COLOR="${GEN_NGINX_OUTPUT_COLOR:-5}"
+GEN_NGINX_OUTPUT_COLOR_GOOD="${GEN_NGINX_OUTPUT_COLOR_GOOD:-2}"
+GEN_NGINX_OUTPUT_COLOR_ERROR="${GEN_NGINX_OUTPUT_COLOR_ERROR:-1}"
+GEN_NGINX_WWW_DIR_USER="${GEN_NGINX_WWW_DIR_USER:-$GEN_NGINX_CONFIG_DIR/files/www}"
+GEN_NGINX_VHOST_USER_DIR="${GEN_NGINX_VHOST_USER_DIR:-$GEN_NGINX_CONFIG_DIR/files/vhosts}"
+GEN_NGINX_WWW_DIR_SYSTEM="${GEN_NGINX_WWW_DIR_ROOT:-/var/www/html}"
+GEN_NGINX_VHOST_SYSTEM_DIR="${GEN_NGINX_VHOST_DIR_ROOT:-/etc/nginx/vhosts.d}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-exit $?
+# Ensure Directories exist
+[ -d "$GEN_NGINX_TEMP_DIR" ] || mkdir -p "$GEN_NGINX_TEMP_DIR" &>/dev/null
+[ -d "$GEN_NGINX_CACHE_DIR" ] || mkdir -p "$GEN_NGINX_CACHE_DIR" &>/dev/null
+[ -d "$GEN_NGINX_WWW_DIR_USER" ] || mkdir -p "$GEN_NGINX_WWW_DIR_USER" &>/dev/null
+[ -d "$GEN_NGINX_VHOST_USER_DIR" ] || mkdir -p "$GEN_NGINX_VHOST_USER_DIR" &>/dev/null
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# end
+# Generate config files
+[ -f "$GEN_NGINX_CONFIG_DIR/$GEN_NGINX_CONFIG_FILE" ] || __gen_config &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$GEN_NGINX_CONFIG_DIR/$GEN_NGINX_CONFIG_FILE" ] &&
+  . "$GEN_NGINX_CONFIG_DIR/$GEN_NGINX_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS="z:"
+LONGOPTS="options,config,version,help,dir:"
+ARRAY=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$PROG" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --options)
+    shift 1
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  -z | --dir)
+    GEN_NGINX_CWD="$2"
+    shift 2
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+if [ "$GEN_NGINX_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${GEN_NGINX_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${GEN_NGINX_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${GEN_NGINX_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${GEN_NGINX_NOTIFY_CLIENT_ICON}"
+    notifications "$*" || return 1
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+cmd_exists --error --ask bash || exit 1 # exit 1 if not found
+#am_i_online --error || exit 1     # exit 1 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+NGINXDOMAIN="${NGINXDOMAIN:-$1}"
+REVPROXYNAME="${REVPROXYNAME:-$2}"
+REVPROXY="${REVPROXY:-$3}"
+REVPROXY_PORT="${REVPROXY_PORT:-$4}"
+REVPROXY_PROTO="${REVPROXY_PROTO:-$5}"
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+__nginx_dom
+__nginx_conf_dir
+__nginx_conf_file "$@"
+if [ "$GEN_NGINX_VHOST_USER_DIR/$NGINXDOMAIN.conf" != "$GEN_NGINX_VHOST_SYSTEM_DIR/$NGINXDOMAIN.conf" ]; then
+  if __can_i_sudo; then
+    __requiresudo true
+    __nginx_conf_dir
+    sudo mkdir -p "$GEN_NGINX_VHOST_SYSTEM_DIR"
+    printf_green "Installing config to $GEN_NGINX_VHOST_SYSTEM_DIR/$NGINXDOMAIN.conf"
+    sudo cp -f "$GEN_NGINX_VHOST_USER_DIR/$NGINXDOMAIN.conf" "$GEN_NGINX_VHOST_SYSTEM_DIR/$NGINXDOMAIN.conf"
+  fi
+else
+  printf_red "Can not install to system due to not enough privileges"
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-$?}

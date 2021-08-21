@@ -1,22 +1,25 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0")"
+VERSION="202108190117-git"
+RUN_USER="${SUDO_USER:-${USER}}"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#set opts
+# Set bash options
+trap 'exitCode=${exitCode:-$?};[ -f "$LOGR_TEMP_FILE" ] && rm -Rf "$LOGR_TEMP_FILE" &>/dev/null' EXIT
 set -o pipefail
 shopt -s extglob
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202103201707-git
+##@Version       : 202108190117-git
 # @Author        : Jason Hempstead
 # @Contact       : jason@casjaysdev.com
 # @License       : WTFPL
 # @ReadME        : logr --help
-# @Copyright     : Copyright: (c) 2021 Jason Hempstead, CasjaysDev
-# @Created       : Saturday, Mar 20, 2021 17:07 EDT
+# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created       : Thursday, Aug 19, 2021 01:17 EDT
 # @File          : logr
 # @Description   : A logging script
 # @TODO          :
@@ -42,110 +45,248 @@ fi
 user_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-myhostname="$(hostname -f)"
-logrname="${1:-$APPNAME}"
-logdir="${LOGDIR:-$HOME/.local/log}/logr"
-date=$(date +'%m%d%Y-%H%M')
-stdout="$logrname-$date.log"
-stderr="$logrname-$date.err"
-toemail=${EMAIL_ERROR_TO:-root@$myhostname}
-fromemail=${EMAIL_ERROR_FROM:-root@$myhostname}
+# Set functions
+__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-case "$logrname" in
--name | --name)
-  logrname="$2"
-  shift 2
-  stdout="$logrname.log"
-  stderr="$logrname.err"
+__gen_config() {
+  printf_green "Generating the config file in"
+  printf_green "$LOGR_CONFIG_DIR/$LOGR_CONFIG_FILE"
+  [ -d "$LOGR_CONFIG_DIR" ] || mkdir -p "$LOGR_CONFIG_DIR"
+  [ -d "$LOGR_CONFIG_BACKUP_DIR" ] || mkdir -p "$LOGR_CONFIG_BACKUP_DIR"
+  [ -f "$LOGR_CONFIG_DIR/$LOGR_CONFIG_FILE" ] &&
+    cp -Rf "$LOGR_CONFIG_DIR/$LOGR_CONFIG_FILE" "$LOGR_CONFIG_BACKUP_DIR/$LOGR_CONFIG_FILE.$$"
+  cat <<EOF >"$LOGR_CONFIG_DIR/$LOGR_CONFIG_FILE"
+# Settings for logr
+LOGR_EMAIL_TO=${EMAIL_ERROR_TO:-root@$LOGR_HOST_NAME}
+LOGR_EMAIL_FROM=${EMAIL_ERROR_FROM:-root@$LOGR_HOST_NAME}
+
+# Notification settings
+LOGR_GOOD_MESSAGE="${LOGR_GOOD_MESSAGE:-Everything Went OK}"
+LOGR_ERROR_MESSAGE="${LOGR_ERROR_MESSAGE:-Well that didn\'t work}"
+LOGR_NOTIFY_ENABLED="${LOGR_NOTIFY_ENABLED:-yes}"
+LOGR_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+LOGR_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$LOGR_NOTIFY_CLIENT_ICON}"
+
+# Colorization settings
+LOGR_OUTPUT_COLOR="${LOGR_OUTPUT_COLOR:-5}"
+LOGR_OUTPUT_COLOR_GOOD="${LOGR_OUTPUT_COLOR_GOOD:-2}"
+LOGR_OUTPUT_COLOR_ERROR="${LOGR_OUTPUT_COLOR_ERROR:-1}"
+
+EOF
+  if [ -f "$LOGR_CONFIG_DIR/$LOGR_CONFIG_FILE" ]; then
+    printf_green "Your config file for logr has been created"
+    true
+  else
+    printf_red "Failed to create the config file"
+    false
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Default variables
+exitCode="0"
+LOGR_CACHE_DIR="${LOGR_CACHE_DIR:-$HOME/.cache/logr}"
+LOGR_CONFIG_DIR="${LOGR_CONFIG_DIR:-$HOME/.config/myscripts/logr}"
+LOGR_OPTIONS_DIR="${LOGR_OPTIONS_DIR:-$HOME/.local/share/myscripts/logr/options}"
+LOGR_CONFIG_BACKUP_DIR="${LOGR_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/logr/backups}"
+LOGR_TEMP_DIR="${LOGR_TEMP_DIR:-$HOME/.local/tmp/system_scripts/logr}"
+LOGR_TEMP_FILE="${LOGR_TEMP_FILE:-$(mktemp $LOGR_TEMP_DIR/XXXXXX 2>/dev/null)}"
+LOGR_CONFIG_FILE="${LOGR_CONFIG_FILE:-settings.conf}"
+LOGR_GOOD_MESSAGE="${LOGR_GOOD_MESSAGE:-Everything Went OK}"
+LOGR_ERROR_MESSAGE="${LOGR_ERROR_MESSAGE:-Well that didn\'t work}"
+LOGR_NOTIFY_ENABLED="${LOGR_NOTIFY_ENABLED:-yes}"
+LOGR_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+LOGR_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-application-x-class-file}"
+LOGR_OUTPUT_COLOR="${LOGR_OUTPUT_COLOR:-5}"
+LOGR_OUTPUT_COLOR_GOOD="${LOGR_OUTPUT_COLOR_GOOD:-2}"
+LOGR_OUTPUT_COLOR_ERROR="${LOGR_OUTPUT_COLOR_ERROR:-1}"
+LOGR_HOST_NAME="$(hostname -f)"
+LOGR_DATE_FMT=$(date +'%m%d%Y-%H%M')
+LOGR_LOG_NAME="${1:-$APPNAME}"
+LOGR_LOG_DIR="${LOGDIR:-$HOME/.local/log}/logr"
+LOGR_LOG_FILE="$LOGR_LOG_NAME-$LOGR_DATE_FMT.log"
+LOGR_LOG_FILE_ERROR="$LOGR_LOG_NAME-$LOGR_DATE_FMT.err"
+LOGR_EMAIL_TO=${EMAIL_ERROR_TO:-root@$LOGR_HOST_NAME}
+LOGR_EMAIL_FROM=${EMAIL_ERROR_FROM:-root@$LOGR_HOST_NAME}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$LOGR_TEMP_DIR" ] || mkdir -p "$LOGR_TEMP_DIR" &>/dev/null
+[ -d "$LOGR_CACHE_DIR" ] || mkdir -p "$LOGR_CACHE_DIR" &>/dev/null
+[ -d "$LOGR_LOG_DIR" ] || mkdir -p "$LOGR_LOG_DIR" &>/dev/null
+[ -d "$LOGR_LOG_DIR/pretty" ] || mkdir -p "$LOGR_LOG_DIR/pretty" &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$LOGR_CONFIG_DIR/$LOGR_CONFIG_FILE" ] ||
+  __gen_config &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$LOGR_CONFIG_DIR/$LOGR_CONFIG_FILE" ] &&
+  . "$LOGR_CONFIG_DIR/$LOGR_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS="z:"
+LONGOPTS="options,config,version,help,dir:,name:"
+ARRAY=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$PROG" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --options)
+    shift 1
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  -z | --dir)
+    LOGR_CWD="$2"
+    shift 2
+    ;;
+  --name)
+    LOGR_LOG_NAME="$2"
+    shift 2
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+if [ "$LOGR_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${LOGR_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${LOGR_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${LOGR_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${LOGR_NOTIFY_CLIENT_ICON}"
+    notifications "$*" || return 1
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+cmd_exists --error --ask bash || exit 1 # exit 1 if not found
+#am_i_online --error || exit 1     # exit 1 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+case "$LOGR_LOG_NAME" in
+name)
+  shift 1
+  LOGR_LOG_NAME="$1"
+  LOGR_LOG_FILE="$LOGR_LOG_NAME.log"
+  LOGR_LOG_FILE_ERROR="$LOGR_LOG_NAME.err"
   cmdline="$*"
   ;;
 
 cron | eval | exec)
-  logrname="$1"
   shift 1
-  stdout="$logrname.log"
-  stderr="$logrname.err"
+  LOGR_LOG_NAME="$1"
+  LOGR_LOG_FILE="$LOGR_LOG_NAME.log"
+  LOGR_LOG_FILE_ERROR="$LOGR_LOG_NAME.err"
   cmdline="$*"
   ;;
 esac
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-mkdir -p "$logdir" "$logdir/pretty"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-case "$logrname" in
---help | -h)
-  __help
+
+case "$LOGR_LOG_NAME" in
+list)
+  ls "$LOGR_LOG_DIR"
   ;;
 
---list | -l)
-  ls "$logdir"
+open)
+  cmd_exists myfilemanager && myfilemanager "$LOGR_LOG_DIR" || vifm "$LOGR_LOG_DIR" || thunar "$LOGR_LOG_DIR"
   ;;
 
---open | -o)
-  cmd_exists myfilemanager && myfilemanager "$logdir" || vifm "$logdir" || thunar "$logdir"
-  ;;
-
---clean | -c)
-  rm -Rf "$logdir"
+clean)
+  rm -Rf "$LOGR_LOG_DIR"
   rm -Rf "$HOME/.log" "$HOME/.err"
-  mkdir -p "$logdir"
-  mkdir -p "$logdir/pretty"
+  mkdir -p "$LOGR_LOG_DIR"
+  mkdir -p "$LOGR_LOG_DIR/pretty"
   ;;
 
--show | -sh)
+show)
   shift 1
   cmdline="${cmdline:-$*}"
-  printf_head "$logrname started on $(date +"%b %d, %Y at %H:%M")" \
+  printf_head "$LOGR_LOG_NAME started on $(date +"%b %d, %Y at %H:%M")" \
     "Full command is: $cmdline"
   bash -c "$cmdline"
   ;;
 
---noerr | -noe)
+noerr)
   shift 1
   cmdline="${cmdline:-$*}"
-  printf_head "logr started $logrname on $(date +"%b %d, %Y at %H:%M")" \
+  printf_head "logr started $LOGR_LOG_NAME on $(date +"%b %d, %Y at %H:%M")" \
     "Full command is: $cmdline"
-  bash -c "$cmdline" 2>>"$logdir/$stderr"
+  bash -c "$cmdline" 2>>"$LOGR_LOG_DIR/$LOGR_LOG_FILE_ERROR"
   ;;
 
---err | -e)
+err)
   shift 1
   cmdline="${cmdline:-$*}"
-  printf_head "logr started $logrname on $(date +"%b %d, %Y at %H:%M")" \
-    "Full command is: $cmdline" >>"$logdir/$stdout" >>"$logdir/$stdout"
-  bash -c "$cmdline" >>"$logdir/$stdout"
+  printf_head "logr started $LOGR_LOG_NAME on $(date +"%b %d, %Y at %H:%M")" \
+    "Full command is: $cmdline" >>"$LOGR_LOG_DIR/$LOGR_LOG_FILE" >>"$LOGR_LOG_DIR/$LOGR_LOG_FILE"
+  bash -c "$cmdline" >>"$LOGR_LOG_DIR/$LOGR_LOG_FILE"
   ;;
 
---silent | -si)
+silent)
   shift 1
   cmdline="${cmdline:-$*}"
-  printf_head "logr started $logrname on $(date +"%b %d, %Y at %H:%M")" \
-    "Full command is: $cmdline" >>"$logdir/$stdout" >>"$logdir/$stdout"
-  bash -c "$cmdline" >>"$logdir/$stdout" 2>>"$logdir/$stderr"
+  printf_head "logr started $LOGR_LOG_NAME on $(date +"%b %d, %Y at %H:%M")" \
+    "Full command is: $cmdline" >>"$LOGR_LOG_DIR/$LOGR_LOG_FILE" >>"$LOGR_LOG_DIR/$LOGR_LOG_FILE"
+  bash -c "$cmdline" >>"$LOGR_LOG_DIR/$LOGR_LOG_FILE" 2>>"$LOGR_LOG_DIR/$LOGR_LOG_FILE_ERROR"
   ;;
 
 *)
   cmdline="${cmdline:-$*}"
-  printf_head "logr started $logrname on $(date +"%b %d, %Y at %H:%M")" \
-    "Full command is: $cmdline" >>"$logdir/$stdout" >>"$logdir/$stdout"
-  bash -c "$cmdline" >>"$logdir/$stdout" 2>>"$logdir/$stderr"
+  printf_head "logr started $LOGR_LOG_NAME on $(date +"%b %d, %Y at %H:%M")" \
+    "Full command is: $cmdline" >>"$LOGR_LOG_DIR/$LOGR_LOG_FILE" >>"$LOGR_LOG_DIR/$LOGR_LOG_FILE"
+  bash -c "$cmdline" >>"$LOGR_LOG_DIR/$LOGR_LOG_FILE" 2>>"$LOGR_LOG_DIR/$LOGR_LOG_FILE_ERROR"
   ;;
 esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # merge the 2 files and keep any formatting
-if [ -f "$logdir/$stderr" ]; then
-  cat "$logdir/$stderr" >>"$logdir/$stdout"
+if [ -f "$LOGR_LOG_DIR/$LOGR_LOG_FILE_ERROR" ]; then
+  cat "$LOGR_LOG_DIR/$LOGR_LOG_FILE_ERROR" >>"$LOGR_LOG_DIR/$LOGR_LOG_FILE"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # close log file
-if [ -f "$logdir/$stdout" ]; then
-  printf_head "$logrname has ended on $(date +"%b %d, %Y at %H:%M")" >>"$logdir/$stdout"
-  printf "\n\n" >>"$logdir/$stdout"
-  cat "$logdir/$stdout" >>"$logdir/pretty/$stdout"
+if [ -f "$LOGR_LOG_DIR/$LOGR_LOG_FILE" ]; then
+  printf_head "$LOGR_LOG_NAME has ended on $(date +"%b %d, %Y at %H:%M")" >>"$LOGR_LOG_DIR/$LOGR_LOG_FILE"
+  printf "\n\n" >>"$LOGR_LOG_DIR/$LOGR_LOG_FILE"
+  cat "$LOGR_LOG_DIR/$LOGR_LOG_FILE" >>"$LOGR_LOG_DIR/pretty/$LOGR_LOG_FILE"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # remove formatting
-if [ -d "$logdir" ]; then
-  for upd in "$logdir/$stdout" "$logdir/$stderr"; do
+if [ -d "$LOGR_LOG_DIR" ]; then
+  for upd in "$LOGR_LOG_DIR/$LOGR_LOG_FILE" "$LOGR_LOG_DIR/$LOGR_LOG_FILE_ERROR"; do
     if [ -f "$upd" ]; then
       sed -i 's,\x1B\[[0-9;]*[a-zA-Z],,g' "$upd"
       sed -i '/^\#/d;/^$/d' "$upd"
@@ -156,28 +297,29 @@ if [ -d "$logdir" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #
-if cmd_exists mail && [ -s "$logdir/$stderr" ]; then
-  MAILFROM="$fromemail"
-  MAILRECIP="$toemail"
-  MAILSUB="logr: $logrname"
-  MAILHEADER="The $logrname script has been ran on $(hostname -s) and has failed.\nThe log can be found in $logdir/$stdout\nCheck the the log output below for info.\n"
-  echo -e "$MAILHEADER\n$(cat "$logdir/$stderr")" | mail -r "$MAILFROM" -s "$MAILSUB" "$MAILRECIP" 2>/dev/null
+if cmd_exists mail && [ -s "$LOGR_LOG_DIR/$LOGR_LOG_FILE_ERROR" ]; then
+  MAILFROM="$LOGR_EMAIL_FROM"
+  MAILRECIP="$LOGR_EMAIL_TO"
+  MAILSUB="logr: $LOGR_LOG_NAME"
+  MAILHEADER="The $LOGR_LOG_NAME script has been ran on $(hostname -s) and has failed.\nThe log can be found in $LOGR_LOG_DIR/$LOGR_LOG_FILE\nCheck the the log output below for info.\n"
+  echo -e "$MAILHEADER\n$(cat "$LOGR_LOG_DIR/$LOGR_LOG_FILE_ERROR")" | mail -r "$MAILFROM" -s "$MAILSUB" "$MAILRECIP" 2>/dev/null
   echo -e "
 Email Sent On: $(date +"%b %d, %Y at %H:%M")\n
 Mail From: $MAILFROM
 Mail To: $MAILRECIP
 Mail Subject: $MAILSUB
-Log File: "$logdir/$stdout"
-\n" >>$logdir/$logrname.sent
+Log File: "$LOGR_LOG_DIR/$LOGR_LOG_FILE"
+\n" >>$LOGR_LOG_DIR/$LOGR_LOG_NAME.sent
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ -n "$DESKTOP_SESSION" ] && [ -s "$logdir/$stderr" ]; then
-  notifications "$logrname completed" "The task has finished with errors: check the log"
+if [ -n "$DESKTOP_SESSION" ] && [ -s "$LOGR_LOG_DIR/$LOGR_LOG_FILE_ERROR" ]; then
+  __notifications "$LOGR_LOG_NAME completed" "The task has finished with errors: check the log"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #clean up
-rm -Rf "$logdir/$stderr"
+rm -Rf "$LOGR_LOG_DIR/$LOGR_LOG_FILE_ERROR"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-exit $?
+# End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# end
+# lets exit with code
+exit ${exitCode:-$?}

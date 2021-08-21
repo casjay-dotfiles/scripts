@@ -194,8 +194,7 @@ cmd_exists --error --ask bash || exit 1 # exit 1 if not found
 #am_i_online --error || exit 1     # exit 1 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
-UA=${UA:="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/44.0.2403.157 Safari/537.36"}
-[ -f "$HOME/.netrc" ] && opts='-n'
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 if [ ${#} -eq 0 ]; then
@@ -206,7 +205,7 @@ else
   file="$(<"$*")"
 fi
 if [[ -n "$file" ]]; then
-  post="$(echo "$file" | curl -q -LSs $opts -F f:1='<-' $IX_IO_SERVER_HOST 2>/dev/null)"
+  post="$(echo "$file" | curl -q -LS -F f:1='<-' $IX_IO_SERVER_HOST 2>/dev/null)"
   echo "$post" | printf_readline $IX_IO_OUTPUT_COLOR
 else
   printf_red "Something went wrong. No input received"

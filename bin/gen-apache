@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0")"
+VERSION="202108190117-git"
+RUN_USER="${SUDO_USER:-${USER}}"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#set opts
+# Set bash options
+trap 'exitCode=${exitCode:-$?};[ -f "$GEN_APACHE_TEMP_FILE" ] && rm -Rf "$GEN_APACHE_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202103200719-git
+##@Version       : 202108190117-git
 # @Author        : Jason Hempstead
 # @Contact       : jason@casjaysdev.com
 # @License       : WTFPL
 # @ReadME        : gen-apache --help
-# @Copyright     : Copyright: (c) 2021 Jason Hempstead, CasjaysDev
-# @Created       : Saturday, Mar 20, 2021 07:19 EDT
+# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created       : Thursday, Aug 19, 2021 01:17 EDT
 # @File          : gen-apache
 # @Description   : Generate a new apache host
 # @TODO          :
@@ -40,75 +43,106 @@ fi
 user_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-GEN_APACHE_CONFIG_DIR="${GEN_APACHE_CONFIG_DIR:-$HOME/.config/gen-apache}"
-APACHEDOMAIN="${1:-$(hostname -f)}"
-APACHEDOCROOT="${2:-$GEN_APACHE_CONFIG_DIR/www/$(hostname -f)}"
-APACHECONFDIR="${3:-$GEN_APACHE_CONFIG_DIR/conf}"
-APACHECONFFILE="$APACHECONFDIR/$(hostname -f).conf"
+# Set functions
+__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__requiresudo true
+__gen_config() {
+  printf_green "Generating the config file in"
+  printf_green "$GEN_APACHE_CONFIG_DIR/$GEN_APACHE_CONFIG_FILE"
+  [ -d "$GEN_APACHE_CONFIG_DIR" ] || mkdir -p "$GEN_APACHE_CONFIG_DIR"
+  [ -d "$GEN_APACHE_CONFIG_BACKUP_DIR" ] || mkdir -p "$GEN_APACHE_CONFIG_BACKUP_DIR"
+  [ -f "$GEN_APACHE_CONFIG_DIR/$GEN_APACHE_CONFIG_FILE" ] &&
+    cp -Rf "$GEN_APACHE_CONFIG_DIR/$GEN_APACHE_CONFIG_FILE" "$GEN_APACHE_CONFIG_BACKUP_DIR/$GEN_APACHE_CONFIG_FILE.$$"
+  cat <<EOF >"$GEN_APACHE_CONFIG_DIR/$GEN_APACHE_CONFIG_FILE"
+# Settings for gen-apache
+GEN_APACHE_WWW_USER_DIR="${GEN_APACHE_WWW_DIR_USER:-$GEN_APACHE_CONFIG_DIR/files/www}"
+GEN_APACHE_VHOST_USER_DIR="${GEN_APACHE_VHOST_USER_DIR:-$GEN_APACHE_CONFIG_DIR/files/vhosts}"
+GEN_APACHE_WWW_SYSTEM_DIR="${GEN_APACHE_WWW_DIR_ROOT:-/var/www/html}"
+GEN_APACHE_VHOST_SYSTEM_DIR="${GEN_APACHE_VHOST_DIR_ROOT:-/etc/nginx/vhosts.d}"
+
+# Notification settings
+GEN_APACHE_GOOD_MESSAGE="${GEN_APACHE_GOOD_MESSAGE:-Everything Went OK}"
+GEN_APACHE_ERROR_MESSAGE="${GEN_APACHE_ERROR_MESSAGE:-Well that didn\'t work}"
+GEN_APACHE_NOTIFY_ENABLED="${GEN_APACHE_NOTIFY_ENABLED:-yes}"
+GEN_APACHE_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+GEN_APACHE_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$GEN_APACHE_NOTIFY_CLIENT_ICON}"
+
+# Colorization settings
+GEN_APACHE_OUTPUT_COLOR="${GEN_APACHE_OUTPUT_COLOR:-5}"
+GEN_APACHE_OUTPUT_COLOR_GOOD="${GEN_APACHE_OUTPUT_COLOR_GOOD:-2}"
+GEN_APACHE_OUTPUT_COLOR_ERROR="${GEN_APACHE_OUTPUT_COLOR_ERROR:-1}"
+
+EOF
+  if [ -f "$GEN_APACHE_CONFIG_DIR/$GEN_APACHE_CONFIG_FILE" ]; then
+    printf_green "Your config file for gen-apache has been created"
+    true
+  else
+    printf_red "Failed to create the config file"
+    false
+  fi
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-mkdir -p "$APACHEDOCROOT"
-mkdir -p "$APACHECONFDIR"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional functions
 __return__error() {
   printf_error "Somethings seems to have gone very wrong"
-  printf_yellow "File has been saved to $APACHECONFFILE"
+  printf_yellow "File has been saved to $GEN_APACHE_DEFAULT_VHOST_FILE"
   printf_exit 1 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __apache_confdir() {
   if [ -d /etc/apache2/sites-enabled ]; then
-    APACHECONFDIR="/etc/apache2/sites-enabled"
+    GEN_APACHE_VHOST_SYSTEM_DIR="/etc/apache2/sites-enabled"
   elif [ -d "/etc/httpd/conf/vhosts.d" ]; then
-    APACHECONFDIR="/etc/httpd/conf/vhosts.d"
+    GEN_APACHE_VHOST_SYSTEM_DIR="/etc/httpd/conf/vhosts.d"
   else
-    printf_read_input "4" "Where are your apache server files located?" "120" "APACHECONFDIR" "-i $APACHECONFDIR"
-    if [[ ! -d "$APACHECONFDIR" ]]; then
+    [[ -n "$GEN_APACHE_VHOST_SYSTEM_DIR" ]] ||
+      printf_read_input "4" "Where are your apache server files located? " "120" "GEN_APACHE_VHOST_SYSTEM_DIR" "-i $GEN_APACHE_VHOST_SYSTEM_DIR"
+    if [[ ! -d "$GEN_APACHE_VHOST_SYSTEM_DIR" ]]; then
       if user_is_root; then
         printf_read_question_nt "4" "The directory doesn't exist should I try to create it?"
-        if printf_answer_yes; then sudo mkdir -p "$APACHECONFDIR"; fi
+        if printf_answer_yes; then sudo mkdir -p "$GEN_APACHE_VHOST_SYSTEM_DIR"; fi
       fi
     fi
   fi
-  [ -d "$APACHECONFDIR" ] || printf_error "Can not create $APACHECONFDIR"
+  [ -d "$GEN_APACHE_VHOST_SYSTEM_DIR" ] || printf_exit "Can not create $GEN_APACHE_VHOST_SYSTEM_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __apache_dom() {
-  printf_read_input "4" "What is your domain name?" "120" "APACHEDOMAIN" "-i $(hostname -f) "
-  [ -z "$APACHEDOMAIN" ] && printf_exit "domain name is required" || APACHEDOMAIN=$APACHEDOMAIN
+  [ -n "$GEN_APACHE_DOMAIN" ] || printf_read_input "4" "What is your domain name? " "120" "GEN_APACHE_DOMAIN" "-i $(hostname -f) "
+  [ -n "$GEN_APACHE_DOMAIN" ] && GEN_APACHE_DOMAIN=${GEN_APACHE_DOMAIN:-} || printf_exit "domain name is required"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __apache_www() {
-  printf_read_input "4" "What is your DocumentRoot?" "120" "APACHEDOCROOT" "-i $APACHEDOCROOT "
-  [ -z "$APACHEDOCROOT" ] && printf_exit "DocumentRoot is required" || APACHEDOCROOT=$APACHEDOCROOT
+  [ -n "$GEN_APACHE_WWW_USER_DIR" ] || printf_read_input "4" "What is your DocumentRoot? " "120" "GEN_APACHE_WWW_USER_DIR" "-i $GEN_APACHE_WWW_USER_DIR "
+  [ -n "$GEN_APACHE_WWW_USER_DIR" ] && GEN_APACHE_WWW_USER_DIR=${GEN_APACHE_WWW_USER_DIR:-} || printf_exit "DocumentRoot is required"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __apache_html() {
-  printf_green "Copying the template html files to $APACHEDOCROOT"
-  __mkd "$APACHEDOCROOT" && __cp_rf "$CASJAYSDEVDIR/templates/apache/html/." "$APACHEDOCROOT/"
-  find "$APACHECONFDIR" -type f -exec sed -i 's#GEN_SCRIPT_REPLACE_WITHDOM#'"${APACHEDOMAIN}"'#g' {} \; >/dev/null 2>&1
-  find "$APACHECONFDIR" -type f -exec sed -i 's#GEN_SCRIPT_REPLACE_HTMLROOT#'"${APACHEDOCROOT}"'#g' {} \; >/dev/null 2>&1
+  printf_green "Copying the template html files to $GEN_APACHE_WWW_USER_DIR"
+  __mkd "$GEN_APACHE_WWW_USER_DIR" && __cp_rf "$CASJAYSDEVDIR/templates/apache/html/." "$GEN_APACHE_WWW_USER_DIR/"
+  find "$GEN_APACHE_VHOST_USER_DIR" -type f -exec sed -i 's#GEN_SCRIPT_REPLACE_WITHDOM#'"${GEN_APACHE_WWW_USER_DIR}"'#g' {} \; >/dev/null 2>&1
+  find "$GEN_APACHE_VHOST_USER_DIR" -type f -exec sed -i 's#GEN_SCRIPT_REPLACE_HTMLROOT#'"${GEN_APACHE_WWW_USER_DIR}"'#g' {} \; >/dev/null 2>&1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __apache_conf() {
-  local APACHECONFFILE="$APACHECONFDIR/$(hostname -f).conf"
-  printf_green "Generating apache conf in $APACHECONFFILE"
+  printf_green "Generating apache conf in $GEN_APACHE_DEFAULT_VHOST_FILE"
   if [ -f "$GEN_APACHE_CONFIG_DIR/template.conf" ]; then
-    . "$GEN_APACHE_CONFIG_DIR/template.conf"
+    cat <<EOF >"$GEN_APACHE_DEFAULT_VHOST_FILE"
+. "$GEN_APACHE_CONFIG_DIR/template.conf"
+EOF
   else
     if [ -d /etc/letsencrypt/live/domain ] || [ -d "/etc/letsencrypt/live/$(hostname -f)" ]; then
       if [ -d "/etc/letsencrypt/live/$(hostname -f)" ]; then
         [ -d /etc/letsencrypt/live/domain ] || __ln_sf "/etc/letsencrypt/live/$(hostname -f)" /etc/letsencrypt/live/domain
       fi
-      cat <<EOF >"$APACHECONFFILE"
-# VirtualHost for $APACHEDOMAIN
+      cat <<EOF >"$GEN_APACHE_DEFAULT_VHOST_FILE"
+# VirtualHost for $GEN_APACHE_DOMAIN
 
 <IfModule mod_ssl.c>
 <VirtualHost _default_:8443>
-ServerName $APACHEDOMAIN
-ServerAdmin webmaster@$APACHEDOMAIN
-DocumentRoot "$APACHEDOCROOT"
+ServerName $GEN_APACHE_DOMAIN
+ServerAdmin webmaster@$GEN_APACHE_DOMAIN
+DocumentRoot "$GEN_APACHE_WWW_USER_DIR"
 
 #Rewrites
 RewriteEngine On
@@ -131,14 +165,14 @@ SSLCertificateChainFile /etc/letsencrypt/live/domain/fullchain.pem
 </IfModule>
 EOF
     else
-      cat <<EOF >"$APACHECONFFILE"
-# VirtualHost for $APACHEDOMAIN
+      cat <<EOF >"$GEN_APACHE_DEFAULT_VHOST_FILE"
+# VirtualHost for $GEN_APACHE_DOMAIN
 
 <IfModule mod_ssl.c>
 <VirtualHost _default_:8443>
-ServerName $APACHEDOMAIN
-ServerAdmin webmaster@$APACHEDOMAIN
-DocumentRoot "$APACHEDOCROOT"
+ServerName $GEN_APACHE_DOMAIN
+ServerAdmin webmaster@$GEN_APACHE_DOMAIN
+DocumentRoot "$GEN_APACHE_WWW_USER_DIR"
 
 #Rewrites
 RewriteEngine On
@@ -163,29 +197,132 @@ EOF
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-APACHEDOMAIN="${APACHEDOMAIN:-$1}"
-APACHEDOCROOT="${APACHEDOCROOT:-$2}"
-APACHECONFDIR="${APACHECONFDIR:-$APACHECONFDIR}"
+# Default variables
+exitCode="0"
+GEN_APACHE_CACHE_DIR="${GEN_APACHE_CACHE_DIR:-$HOME/.cache/gen-apache}"
+GEN_APACHE_CONFIG_DIR="${GEN_APACHE_CONFIG_DIR:-$HOME/.config/myscripts/gen-apache}"
+GEN_APACHE_OPTIONS_DIR="${GEN_APACHE_OPTIONS_DIR:-$HOME/.local/share/myscripts/gen-apache/options}"
+GEN_APACHE_CONFIG_BACKUP_DIR="${GEN_APACHE_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/gen-apache/backups}"
+GEN_APACHE_TEMP_DIR="${GEN_APACHE_TEMP_DIR:-$HOME/.local/tmp/system_scripts/gen-apache}"
+GEN_APACHE_TEMP_FILE="${GEN_APACHE_TEMP_FILE:-$(mktemp $GEN_APACHE_TEMP_DIR/XXXXXX 2>/dev/null)}"
+GEN_APACHE_CONFIG_FILE="${GEN_APACHE_CONFIG_FILE:-settings.conf}"
+GEN_APACHE_GOOD_MESSAGE="${GEN_APACHE_GOOD_MESSAGE:-Everything Went OK}"
+GEN_APACHE_ERROR_MESSAGE="${GEN_APACHE_ERROR_MESSAGE:-Well that didn\'t work}"
+GEN_APACHE_NOTIFY_ENABLED="${GEN_APACHE_NOTIFY_ENABLED:-yes}"
+GEN_APACHE_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+GEN_APACHE_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$GEN_APACHE_NOTIFY_CLIENT_ICON}"
+GEN_APACHE_OUTPUT_COLOR="${GEN_APACHE_OUTPUT_COLOR:-5}"
+GEN_APACHE_OUTPUT_COLOR_GOOD="${GEN_APACHE_OUTPUT_COLOR_GOOD:-2}"
+GEN_APACHE_OUTPUT_COLOR_ERROR="${GEN_APACHE_OUTPUT_COLOR_ERROR:-1}"
+GEN_APACHE_DOMAIN="${GEN_APACHE_DOMAIN:-}"
+GEN_APACHE_WWW_USER_DIR="${GEN_APACHE_WWW_DIR_USER:-$GEN_APACHE_CONFIG_DIR/files/www}"
+GEN_APACHE_VHOST_USER_DIR="${GEN_APACHE_VHOST_USER_DIR:-$GEN_APACHE_CONFIG_DIR/files/vhosts}"
+GEN_APACHE_WWW_SYSTEM_DIR="${GEN_APACHE_WWW_DIR_ROOT:-/var/www/html}"
+GEN_APACHE_VHOST_SYSTEM_DIR="${GEN_APACHE_VHOST_DIR_ROOT:-/etc/httpd/vhosts.d}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$GEN_APACHE_TEMP_DIR" ] || mkdir -p "$GEN_APACHE_TEMP_DIR" &>/dev/null
+[ -d "$GEN_APACHE_CACHE_DIR" ] || mkdir -p "$GEN_APACHE_CACHE_DIR" &>/dev/null
+[ -d "$GEN_APACHE_WWW_USER_DIR" ] || mkdir -p "$GEN_APACHE_WWW_USER_DIR" &>/dev/null
+[ -d "$GEN_APACHE_VHOST_USER_DIR" ] || mkdir -p "$GEN_APACHE_VHOST_USER_DIR" &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$GEN_APACHE_CONFIG_DIR/$GEN_APACHE_CONFIG_FILE" ] ||
+  __gen_config &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$GEN_APACHE_CONFIG_DIR/$GEN_APACHE_CONFIG_FILE" ] &&
+  . "$GEN_APACHE_CONFIG_DIR/$GEN_APACHE_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS="z:"
+LONGOPTS="options,config,version,help,dir:"
+ARRAY=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$PROG" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --options)
+    shift 1
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  -z | --dir)
+    GEN_APACHE_CWD="$2"
+    shift 2
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+if [ "$GEN_APACHE_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${GEN_APACHE_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${GEN_APACHE_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${GEN_APACHE_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${GEN_APACHE_NOTIFY_CLIENT_ICON}"
+    notifications "$*" || return 1
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+cmd_exists --error --ask bash || exit 1 # exit 1 if not found
+#am_i_online --error || exit 1     # exit 1 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+GEN_APACHE_DOMAIN="${1:-$(hostname -f)}"
+GEN_APACHE_VHOST_USER_DIR="${2:-$GEN_APACHE_CONFIG_DIR/conf}"
+GEN_APACHE_WWW_USER_DIR="${3:-$GEN_APACHE_CONFIG_DIR/www/$GEN_APACHE_DOMAIN}"
+GEN_APACHE_DEFAULT_VHOST_FILE="$GEN_APACHE_VHOST_USER_DIR/$GEN_APACHE_DOMAIN.conf"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
 __apache_confdir && __apache_dom && __apache_www || __return__error
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_newline
-printf_head 4 "Setting up $APACHEDOMAIN" "in $APACHECONFDIR"
+printf_head 4 "Setting up $GEN_APACHE_DOMAIN" "in $GEN_APACHE_VHOST_USER_DIR"
 __apache_conf "$@" && __apache_html || __return__error
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# move files if root
 if __can_i_sudo; then
-  if [ -z "$(grep $APACHEDOMAIN /etc/hosts 2>/dev/null)" ]; then
-    echo "127.0.3.1      $APACHEDOMAIN" | sudo tee -a /etc/hosts &>/dev/null
+  if ! grep -qs $GEN_APACHE_DOMAIN /etc/hosts; then
+    echo "127.0.3.1      $GEN_APACHE_DOMAIN" | sudo tee -a /etc/hosts &>/dev/null
   fi
-  if [ "$APACHECONFDIR/$APACHEDOMAIN.conf" != "$APACHECONFDIR/$APACHEDOMAIN.conf" ]; then
-    if [ -f "$APACHECONFFILE" ]; then
-      printf_green "Installing $APACHECONFFILE to" &&
-        printf_green "$APACHECONFDIR/$APACHEDOMAIN.conf" &&
-        sudo mv -f "$APACHECONFFILE" "$APACHECONFDIR/$APACHEDOMAIN.conf" &&
-        sudo mv -f "$APACHEDOCROOT" "$APACHEDOCROOT" &&
-        sudo find "$APACHEDOCROOT" -type f -exec sed -i 's#'$APACHECONFDIR'#'"${APACHEDOMAIN}"'#g' {} \; >/dev/null 2>&1 &&
-        sudo find "$APACHEDOCROOT" -type f -exec sed -i 's#'$APACHECONFDIR'#'"${APACHEDOCROOT}"'#g' {} \; >/dev/null 2>&1 &&
+  if [ "$GEN_APACHE_VHOST_USER_DIR/$GEN_APACHE_DOMAIN.conf" != "$GEN_APACHE_VHOST_SYSTEM_DIR/$GEN_APACHE_DOMAIN.conf" ]; then
+    if [ -f "$GEN_APACHE_DEFAULT_VHOST_FILE" ]; then
+      printf_green "Installing $GEN_APACHE_DEFAULT_VHOST_FILE to" &&
+        printf_green "$GEN_APACHE_VHOST_USER_DIR/$GEN_APACHE_DOMAIN.conf" &&
+        sudo mv -f "$GEN_APACHE_DEFAULT_VHOST_FILE" "$GEN_APACHE_VHOST_SYSTEM_DIR/$GEN_APACHE_DOMAIN.conf" &&
+        sudo mv -f "$GEN_APACHE_WWW_USER_DIR" "$GEN_APACHE_WWW_SYSTEM_DIR" &&
+        sudo find "$GEN_APACHE_WWW_USER_DIR" -type f -exec sed -i 's#'$GEN_APACHE_VHOST_USER_DIR'#'"${GEN_APACHE_DOMAIN}"'#g' {} \; >/dev/null 2>&1 &&
+        sudo find "$GEN_APACHE_WWW_USER_DIR" -type f -exec sed -i 's#'$GEN_APACHE_VHOST_USER_DIR'#'"${GEN_APACHE_WWW_SYSTEM_DIR}"'#g' {} \; >/dev/null 2>&1 &&
         printf_green "Everything has been setup" || __return__error
     else
       __return__error
@@ -195,6 +332,7 @@ else
   printf_green "The config file has been generated and html templates copied"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-exit $?
+# End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# end
+# lets exit with code
+exit ${exitCode:-$?}

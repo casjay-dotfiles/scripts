@@ -430,6 +430,7 @@ symlink() { ln_sf "$1" "$2"; }
 countwd() { cat "$@" | wc-l | rmcomments; }
 urlverify() { urlcheck "$1" || urlinvalid "$1"; }
 rmcomments() { sed 's/[[:space:]]*#.*//;/^[[:space:]]*$/d'; }
+sed_replace() { $sed -i 's|'"$1"'|'"$2"'|g' "$3" &>/dev/null; }
 broken_symlinks() { devnull find "$*" -xtype l -exec rm {} \;; }
 mv_f() { if [ -e "$1" ]; then devnull mv -f "$@"; else return 0; fi; }
 rm_rf() { if [ -e "$1" ]; then devnull rm -Rf "$@"; else return 0; fi; }

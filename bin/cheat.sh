@@ -97,36 +97,45 @@ __cheatsh() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default variables
 exitCode="0"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application Folders
+CHEAT_SH_LOG_DIR="${CHEAT_SH_LOG_DIR:-$HOME/.local/log/cheat.sh}"
 CHEAT_SH_CACHE_DIR="${CHEAT_SH_CACHE_DIR:-$HOME/.cache/cheat.sh}"
 CHEAT_SH_CONFIG_DIR="${CHEAT_SH_CONFIG_DIR:-$HOME/.config/myscripts/cheat.sh}"
-CHEAT_SH_OPTIONS_DIR="${CHEAT_SH_OPTIONS_DIR:-$HOME/.local/share/myscripts/cheat.sh/options}"
 CHEAT_SH_CONFIG_BACKUP_DIR="${CHEAT_SH_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/cheat.sh/backups}"
 CHEAT_SH_TEMP_DIR="${CHEAT_SH_TEMP_DIR:-$HOME/.local/tmp/system_scripts/cheat.sh}"
+CHEAT_SH_OPTIONS_DIR="${CHEAT_SH_OPTIONS_DIR:-$HOME/.local/share/myscripts/cheat.sh/options}"
 CHEAT_SH_TEMP_FILE="${CHEAT_SH_TEMP_FILE:-$(mktemp $CHEAT_SH_TEMP_DIR/XXXXXX 2>/dev/null)}"
 CHEAT_SH_CONFIG_FILE="${CHEAT_SH_CONFIG_FILE:-settings.conf}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+CHEAT_SH_OUTPUT_COLOR="${CHEAT_SH_OUTPUT_COLOR:-4}"
+CHEAT_SH_OUTPUT_COLOR_2="${CHEAT_SH_OUTPUT_COLOR:-6}"
+CHEAT_SH_OUTPUT_COLOR_GOOD="${CHEAT_SH_OUTPUT_COLOR_GOOD:-2}"
+CHEAT_SH_OUTPUT_COLOR_ERROR="${CHEAT_SH_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
 CHEAT_SH_GOOD_MESSAGE="${CHEAT_SH_GOOD_MESSAGE:-Everything Went OK}"
 CHEAT_SH_ERROR_MESSAGE="${CHEAT_SH_ERROR_MESSAGE:-Well that didn\'t work}"
 CHEAT_SH_NOTIFY_ENABLED="${CHEAT_SH_NOTIFY_ENABLED:-yes}"
 CHEAT_SH_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
 CHEAT_SH_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$CHEAT_SH_NOTIFY_CLIENT_ICON}"
-CHEAT_SH_OUTPUT_COLOR="${CHEAT_SH_OUTPUT_COLOR:-5}"
-CHEAT_SH_OUTPUT_COLOR_GOOD="${CHEAT_SH_OUTPUT_COLOR_GOOD:-2}"
-CHEAT_SH_OUTPUT_COLOR_ERROR="${CHEAT_SH_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application overrides
 CHEAT_SH_URL="${CHEAT_SH_URL:-https://cht.sh}"
 CHEAT_SH_HOME="${CHEAT_SH_HOME:-$HOME/.config/myscripts/cheat.sh}"
 CHEAT_SH_BIN_DIR="${CHEAT_SH_BIN_DIR:-$CASJAYSDEVDIR/sources}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$CHEAT_SH_CONFIG_DIR/$CHEAT_SH_CONFIG_FILE" ] && . "$CHEAT_SH_CONFIG_DIR/$CHEAT_SH_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure Directories exist
+[ -d "$CHEAT_SH_LOG_DIR" ] || mkdir -p "$CHEAT_SH_LOG_DIR" &>/dev/null
 [ -d "$CHEAT_SH_TEMP_DIR" ] || mkdir -p "$CHEAT_SH_TEMP_DIR" &>/dev/null
 [ -d "$CHEAT_SH_CACHE_DIR" ] || mkdir -p "$CHEAT_SH_CACHE_DIR" &>/dev/null
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Generate config files
-[ -f "$CHEAT_SH_CONFIG_DIR/$CHEAT_SH_CONFIG_FILE" ] ||
-  __gen_config &>/dev/null
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Import config
-[ -f "$CHEAT_SH_CONFIG_DIR/$CHEAT_SH_CONFIG_FILE" ] &&
-  . "$CHEAT_SH_CONFIG_DIR/$CHEAT_SH_CONFIG_FILE"
+# Generate non-existing config files
+[ -f "$CHEAT_SH_CONFIG_DIR/$CHEAT_SH_CONFIG_FILE" ] || __gen_config &>/dev/null
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show warn message if variables are missing
 

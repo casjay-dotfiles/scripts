@@ -628,71 +628,81 @@ __list_options() {
 ###################### checks ######################
 #system_service_active "list of services to check"
 __system_service_active() {
+  local exitCode=0
   for service in "$@"; do
-    if [ "$(systemctl show -p ActiveState $service | cut -d'=' -f2)" == active ]; then
-      return 0
-    else
-      return 1
-    fi
+    [[ "$(systemctl show -p ActiveState "$service" | cut -d'=' -f2)" == "active" ]] || { exitCode+=1 && false; }
   done
+  return ${exitCode:-$?}
 }
 #system_service_running "list of services to check"
 __system_service_running() {
+  local exitCode=0
   for service in "$@"; do
-    if systemctl status $service 2>/dev/null | grep -Fq running; then
-      return 0
-    else
-      return 1
+    if ! systemctl status $service 2>/dev/null | grep -Fq running; then
+      exitCode+=1
     fi
   done
+  return ${exitCode:-$?}
 }
 #system_service_exists "servicename"
 __system_service_exists() {
+  local exitCode=0
   for service in "$@"; do
-    if sudo systemctl list-unit-files | grep -Fq "$service" || sudo systemctl list-unit-files | grep -Fq "$service"; then return 0; else return 1; fi
-    __setexitstatus $?
+    if sudo systemctl list-unit-files | grep -qwF "$service"; then true; else false; fi
+    exitCode+=$?
   done
   set --
+  return ${exitCode:-$?}
 }
 #system_service_enable "servicename"
 __system_service_enable() {
+  local exitCode=0
   for service in "$@"; do
     if __system_service_exists "$service"; then "sudo systemctl enable --now -f $service" &>/dev/null; fi
-    __setexitstatus $?
+    exitCode+=$?
   done
   set --
+  return ${exitCode:-$?}
 }
 #system_service_disable "servicename"
 __system_service_disable() {
+  local exitCode=0
   for service in "$@"; do
     if __system_service_exists "$service"; then "sudo systemctl disable --now -f $service" &>/dev/null; fi
-    __setexitstatus $?
+    exitCode+=$?
   done
   set --
+  return ${exitCode:-$?}
 }
 #system_service_start "servicename"
 __system_service_start() {
+  local exitCode=0
   for service in "$@"; do
     if __system_service_exists "$service"; then "sudo systemctl start $service" &>/dev/null; fi
-    __setexitstatus $?
+    exitCode+=$?
   done
   set --
+  return ${exitCode:-$?}
 }
 #system_service_stop "servicename"
 __system_service_stop() {
+  local exitCode=0
   for service in "$@"; do
     if __system_service_exists "$service"; then "sudo systemctl stop $service" &>/dev/null; fi
-    __setexitstatus $?
+    exitCode+=$?
   done
   set --
+  return ${exitCode:-$?}
 }
 #system_service_restart "servicename"
 __system_service_restart() {
+  local exitCode=0
   for service in "$@"; do
     if __system_service_exists "$service"; then "sudo systemctl restart $service" &>/dev/null; fi
-    __setexitstatus $?
+    exitCode+=$?
   done
   set --
+  return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #npm_exists "npmpackage"

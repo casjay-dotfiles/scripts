@@ -1,22 +1,23 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0")"
-VERSION="202103310710-git"
+VERSION="202108190117-git"
+RUN_USER="${SUDO_USER:-${USER}}"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#set opts
-trap '[ -f "$DOCKERMGR_TEMP_FILE" ] && rm -Rf "$DOCKERMGR_TEMP_FILE" &>/dev/null' EXIT
+# Set bash options
+trap 'exitCode=${exitCode:-$?};[ -f "$DOCKERMGR_TEMP_FILE" ] && rm -Rf "$DOCKERMGR_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202103310710-git
+##@Version       : 202108190117-git
 # @Author        : Jason Hempstead
 # @Contact       : jason@casjaysdev.com
 # @License       : WTFPL
 # @ReadME        : dockermgr --help
-# @Copyright     : Copyright: (c) 2021 Jason Hempstead, CasjaysDev
-# @Created       : Wednesday, Mar 31, 2021 07:10 EDT
+# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created       : Thursday, Aug 19, 2021 01:17 EDT
 # @File          : dockermgr
 # @Description   : docker script to manage containers
 # @TODO          :
@@ -42,24 +43,35 @@ fi
 dockermgr_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set functions
+__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gen_config() {
   printf_green "Generating the config file in"
   printf_green "$DOCKERMGR_CONFIG_DIR/$DOCKERMGR_CONFIG_FILE"
   [ -d "$DOCKERMGR_CONFIG_DIR" ] || mkdir -p "$DOCKERMGR_CONFIG_DIR"
   [ -d "$DOCKERMGR_CONFIG_BACKUP_DIR" ] || mkdir -p "$DOCKERMGR_CONFIG_BACKUP_DIR"
   [ -f "$DOCKERMGR_CONFIG_DIR/$DOCKERMGR_CONFIG_FILE" ] &&
-    cp -Rf "$DOCKERMGR_CONFIG_DIR/$DOCKERMGR_CONFIG_FILE" "$DOCKERMGR_CONFIG_DIR/$DOCKERMGR_CONFIG_FILE.$$"
+    cp -Rf "$DOCKERMGR_CONFIG_DIR/$DOCKERMGR_CONFIG_FILE" "$DOCKERMGR_CONFIG_BACKUP_DIR/$DOCKERMGR_CONFIG_FILE.$$"
   cat <<EOF >"$DOCKERMGR_CONFIG_DIR/$DOCKERMGR_CONFIG_FILE"
 # Settings for dockermgr
-DOCKERMGR_GIT_REPO="https://github.com/dockermgr"
-DOCKERMGR_DOCKER_CMD='sudo -HE docker'
-DOCKERMGR_GET_INSTALL_SCRIPT="https://get.docker.com"
-DOCKERMGR_HOME="${DOCKERMGR_HOME:-/srv/docker/$APPNAME}"
-DOCKERMGR_FORCE_INSTALL="false"
-DOCKERMGR_TEMP_FILE="${TMPDIR:-/tmp}/dockermgr"
-DOCKERMGR_NOTIFY_ENABLED="yes"
-DOCKERMGR_NOTIFY_CLIENT_NAME="\${NOTIFY_CLIENT_NAME:-\$APPNAME}"
-DOCKERMGR_NOTIFY_CLIENT_ICON="\${NOTIFY_CLIENT_ICON:-\$DOCKERMGR_NOTIFY_CLIENT_ICON}"
+DOCKERMGR_GIT_REPO="${DOCKERMGR_GIT_REPO:-https://github.com/dockermgr}"
+DOCKERMGR_DOCKER_BIN="${DOCKERMGR_DOCKER_BIN:-sudo -HE docker}"
+DOCKERMGR_INSTALL_SCRIPT="${DOCKERMGR_INSTALL_SCRIPT:-https://get.docker.com}"
+DOCKERMGR_HOME="${DOCKERMGR_HOME:-/srv/docker/\$APPNAME}"
+DOCKERMGR_INSTALL_TMP="${DOCKERMGR_INSTALL_TMP:-/tmp/docker_install.sh}"
+
+# Notification settings
+DOCKERMGR_GOOD_MESSAGE="${DOCKERMGR_GOOD_MESSAGE:-Everything Went OK}"
+DOCKERMGR_ERROR_MESSAGE="${DOCKERMGR_ERROR_MESSAGE:-Well that didn\'t work}"
+DOCKERMGR_NOTIFY_ENABLED="${DOCKERMGR_NOTIFY_ENABLED:-yes}"
+DOCKERMGR_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+DOCKERMGR_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$DOCKERMGR_NOTIFY_CLIENT_ICON}"
+
+# Colorization settings
+DOCKERMGR_OUTPUT_COLOR="${DOCKERMGR_OUTPUT_COLOR:-5}"
+DOCKERMGR_OUTPUT_COLOR_GOOD="${DOCKERMGR_OUTPUT_COLOR_GOOD:-2}"
+DOCKERMGR_OUTPUT_COLOR_ERROR="${DOCKERMGR_OUTPUT_COLOR_ERROR:-1}"
 
 EOF
   if [ -f "$DOCKERMGR_CONFIG_DIR/$DOCKERMGR_CONFIG_FILE" ]; then
@@ -71,18 +83,10 @@ EOF
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__list_available() {
-  echo -e 'airsonic daapd gitea hub ifconfig mariadb mongo nginx-manager portainer postgresql registry registry-web template transmission' | tr ' ' '\n'
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__docker_sudo() {
-  local DOCKERMGR_DOCKER_CMD="${DOCKERMGR_DOCKER_CMD:-sudo -HE docker}"
-  sudo -n true && $DOCKERMGR_DOCKER_CMD "$*" || printf_exit "sudo is needed for this"
-}
+# Additional functions
+__docker() { sudo -n true &>/dev/null && $DOCKERMGR_DOCKER_BIN "$*" || printf_exit "sudo is needed for this"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __init() {
-  local DOCKERMGR_INSTALL_SCRIPT="/tmp/docker_install.sh"
-  export DOCKERMGR_GET_INSTALL_SCRIPT="https://get.docker.com"
   am_i_online --error -m "Can not setup docker: No internet" || exit 1
   sudo -n true &>/dev/null || printf_exit 1 1 "This script requires root privileges"
   if ! cmd_exists docker; then
@@ -92,16 +96,16 @@ __init() {
     if cmd_exists pacman; then
       sudo pacman -Syy --noconfirm docker &>/dev/null
     else
-      if curl -q -LSsfk --connect-timeout 3 --retry 0 --fail "$DOCKERMGR_GET_INSTALL_SCRIPT" >"$DOCKERMGR_INSTALL_SCRIPT"; then
-        chmod 755 "$DOCKERMGR_INSTALL_SCRIPT"
-        sudo bash -c "$DOCKERMGR_INSTALL_SCRIPT" 2>&1 | tee "$DOCKERMGR_TEMP_FILE" &>/dev/null
+      if curl -q -LSsfk --connect-timeout 3 --retry 0 --fail "$DOCKERMGR_INSTALL_SCRIPT" >"$DOCKERMGR_INSTALL_TMP"; then
+        chmod 755 "$DOCKERMGR_INSTALL_TMP"
+        sudo bash -c "$DOCKERMGR_INSTALL_TMP" 2>&1 | tee "$DOCKERMGR_TEMP_FILE" &>/dev/null
         if grep -q 'E: The repository' "$DOCKERMGR_TEMP_FILE"; then
           printf_red "Distro not supported please do a manual install"
           printf_red "https://github.com/dockermgr/community/wiki"
           printf_red "https://docs.docker.com/engine/install/"
         fi
       else
-        printf_exit "Failed to download the script from $DOCKERMGR_GET_INSTALL_SCRIPT"
+        printf_exit "Failed to download the script from $DOCKERMGR_INSTALL_SCRIPT"
       fi
     fi
   fi
@@ -140,7 +144,7 @@ __init_help() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __rancher() {
-  __docker_sudo run -d --restart=unless-stopped \
+  __docker run -d --restart=unless-stopped \
     -p 80:80 -p 443:443 \
     --privileged \
     rancher/rancher:latest
@@ -161,6 +165,7 @@ __k3b() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __install() {
+  __system_service_running docker || __system_service_start docker
   sudo -n true || printf_exit "sudo has failed"
   declare -a LISTARRAY="$*"
   for container in ${LISTARRAY[*]}; do
@@ -212,12 +217,12 @@ __run_help() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_main() {
   NAME="$(echo $1 | sed 's/[!@#\$%^&*():]//g')"
-  if [ "$(__docker_sudo ps -q -f status=running -f name=^/${NAME}$)" ]; then
-    __docker_sudo container exec -it "$NAME" /bin/bash -l
+  if [ "$(__docker ps -q -f status=running -f name=^/${NAME}$)" ]; then
+    __docker container exec -it "$NAME" /bin/bash -l
   else
     if [ -n "$1" ]; then
-      __docker_sudo run -d --network host -it --name "$NAME" --restart always "$1" /sbin/init &&
-        __docker_sudo container exec -it "$NAME" /bin/bash -l
+      __docker run -d --network host -it --name "$NAME" --restart always "$1" /sbin/init &&
+        __docker container exec -it "$NAME" /bin/bash -l
     else
       printf_exit "Error: No container name was given"
     fi
@@ -227,7 +232,7 @@ __run_main() {
 __run_test() {
   local container="$1"
   local image="${2:-}"
-  __docker_sudo pull "$2" && docker run -it -delete --name "$1" /bin/bash
+  __docker pull "$2" && docker run -it -delete --name "$1" /bin/bash
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_update() {
@@ -280,53 +285,64 @@ __ssh_main() {
   if [[ "$CONTAINER" == "" ]]; then
     CONTAINER=$(docker ps | grep -Eo "^[0-9a-z]{8,}\b") || __ssh_error
   fi
-  __docker_sudo exec -i -t "$CONTAINER" bash -l
+  __docker exec -i -t "$CONTAINER" bash -l
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Defaults
-exitCode=""
-DOCKERMGR_CONFIG_FILE="settings.conf"
-DOCKERMGR_CONFIG_DIR="$HOME/.config/myscripts/dockermgr"
-DOCKERMGR_CONFIG_BACKUP_DIR="$HOME/.local/share/myscripts/dockermgr/backups"
-DOCKERMGR_OPTIONS_DIR="$HOME/.local/share/myscripts/dockermgr/options"
-DOCKERMGR_TEMP_FILE="${TMPDIR:-/tmp}/dockermgr"
-DOCKERMGR_NOTIFY_ENABLED="yes"
+# Default variables
+exitCode="0"
+DOCKERMGR_CACHE_DIR="${DOCKERMGR_CACHE_DIR:-$HOME/.cache/dockermgr}"
+DOCKERMGR_CONFIG_DIR="${DOCKERMGR_CONFIG_DIR:-$HOME/.config/myscripts/dockermgr}"
+DOCKERMGR_OPTIONS_DIR="${DOCKERMGR_OPTIONS_DIR:-$HOME/.local/share/myscripts/dockermgr/options}"
+DOCKERMGR_CONFIG_BACKUP_DIR="${DOCKERMGR_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/dockermgr/backups}"
+DOCKERMGR_TEMP_DIR="${DOCKERMGR_TEMP_DIR:-$HOME/.local/tmp/system_scripts/dockermgr}"
+DOCKERMGR_TEMP_FILE="${DOCKERMGR_TEMP_FILE:-$(mktemp $DOCKERMGR_TEMP_DIR/XXXXXX 2>/dev/null)}"
+DOCKERMGR_CONFIG_FILE="${DOCKERMGR_CONFIG_FILE:-settings.conf}"
+DOCKERMGR_GOOD_MESSAGE="${DOCKERMGR_GOOD_MESSAGE:-Everything Went OK}"
+DOCKERMGR_ERROR_MESSAGE="${DOCKERMGR_ERROR_MESSAGE:-Well that didn\'t work}"
+DOCKERMGR_NOTIFY_ENABLED="${DOCKERMGR_NOTIFY_ENABLED:-yes}"
 DOCKERMGR_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
 DOCKERMGR_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$DOCKERMGR_NOTIFY_CLIENT_ICON}"
-DOCKERMGR_DOCKER_CMD='sudo -HE docker'
-DOCKERMGR_GET_INSTALL_SCRIPT="https://get.docker.com"
-DOCKERMGR_HOME="${DOCKERMGR_HOME:-/srv/docker/$APPNAME}"
-DOCKERMGR_FORCE_INSTALL="false"
-DOCKERMGR_GIT_REPO="https://github.com/dockermgr"
+DOCKERMGR_OUTPUT_COLOR="${DOCKERMGR_OUTPUT_COLOR:-5}"
+DOCKERMGR_OUTPUT_COLOR_GOOD="${DOCKERMGR_OUTPUT_COLOR_GOOD:-2}"
+DOCKERMGR_OUTPUT_COLOR_ERROR="${DOCKERMGR_OUTPUT_COLOR_ERROR:-1}"
+DOCKERMGR_GIT_REPO="${DOCKERMGR_GIT_REPO:-https://github.com/dockermgr}"
+DOCKERMGR_DOCKER_BIN="${DOCKERMGR_DOCKER_BIN:-sudo -HE docker}"
+DOCKERMGR_INSTALL_SCRIPT="${DOCKERMGR_INSTALL_SCRIPT:-https://get.docker.com}"
+DOCKERMGR_HOME="${DOCKERMGR_HOME:-/srv/docker/\$APPNAME}"
+DOCKERMGR_INSTALL_TMP="${DOCKERMGR_INSTALL_TMP:-/tmp/docker_install.sh}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$DOCKERMGR_TEMP_DIR" ] || mkdir -p "$DOCKERMGR_TEMP_DIR" &>/dev/null
+[ -d "$DOCKERMGR_CACHE_DIR" ] || mkdir -p "$DOCKERMGR_CACHE_DIR" &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$DOCKERMGR_CONFIG_DIR/$DOCKERMGR_CONFIG_FILE" ] ||
+  __gen_config &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$DOCKERMGR_CONFIG_DIR/$DOCKERMGR_CONFIG_FILE" ] &&
+  . "$DOCKERMGR_CONFIG_DIR/$DOCKERMGR_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set additional variables/Argument/Option settings
 SETARGS="$*"
-SHORTOPTS="f,a"
-LONGOPTS="options,config,version,help,force,all"
+SHORTOPTS="z:"
+LONGOPTS="options,config,version,help,dir:,force,all"
 ARRAY="list search available init install ssh run active inactive "
 ARRAY+="enter log update cron rancher k3b rm rmi"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Generate Files
-[ -f "$DOCKERMGR_CONFIG_DIR/$DOCKERMGR_CONFIG_FILE" ] || __gen_config &>/dev/null
-[ -f "$DOCKERMGR_OPTIONS_DIR/options" ] || __list_options "$DOCKERMGR_OPTIONS_DIR" &>/dev/null
-[ -f "$DOCKERMGR_OPTIONS_DIR/array" ] || __list_array "$DOCKERMGR_OPTIONS_DIR" "$ARRAY" &>/dev/null
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Import config
-if [ -f "$DOCKERMGR_CONFIG_DIR/$DOCKERMGR_CONFIG_FILE" ]; then
-  . "$DOCKERMGR_CONFIG_DIR/$DOCKERMGR_CONFIG_FILE"
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# options
-setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$APPNAME" -- "$@" 2>/dev/null)
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$PROG" -- "$@" 2>/dev/null)
 eval set -- "${setopts[@]}" 2>/dev/null
 while :; do
   case $1 in
   --options)
     shift 1
-    __list_array "$DOCKERMGR_OPTIONS_DIR" "$ARRAY"
-    __list_options "$DOCKERMGR_OPTIONS_DIR"
-    __list_available >"$DOCKERMGR_OPTIONS_DIR/available"
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
     exit $?
     ;;
   --version)
@@ -344,6 +360,10 @@ while :; do
     __gen_config
     exit $?
     ;;
+  -z | --dir)
+    DOCKERMGR_CWD="$2"
+    shift 2
+    ;;
   -f | --force)
     shift 1
     export FORCE_INSTALL="true"
@@ -360,10 +380,12 @@ done
 #set -- "$SETARGS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
-export NOTIFY_CLIENT_NAME="${DOCKERMGR_NOTIFY_CLIENT_NAME}"
-export NOTIFY_CLIENT_ICON="${DOCKERMGR_NOTIFY_CLIENT_ICON}"
 if [ "$DOCKERMGR_NOTIFY_ENABLED" = "yes" ]; then
   __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${DOCKERMGR_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${DOCKERMGR_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${DOCKERMGR_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${DOCKERMGR_NOTIFY_CLIENT_ICON}"
     notifications "$*" || return 1
   }
 else
@@ -371,11 +393,12 @@ else
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
-cmd_exists --error --ask bash || exit 1
+cmd_exists --error --ask bash docker || exit 1 # exit 1 if not found
+#am_i_online --error || exit 1     # exit 1 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# APP Variables
+# APP Variables overrides
 export DATADIR="$DOCKERMGR_HOME"
-
+export DOCKERMGRREPO="$DOCKERMGR_GIT_REPO"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 case "$1" in
@@ -454,40 +477,40 @@ run)
 active)
   shift 1
   [ "$1" = "help" ] && printf_exit "Show active containers"
-  __docker_sudo ps | sed "s#$(head -n1)##g" | grep -v "^#" ||
+  __docker ps | sed "s#$(head -n1)##g" | grep -v "^#" ||
     printf_exit "There are no active containers"
   ;;
 
 inactive)
   shift 1
   [ "$1" = "help" ] && printf_exit "Show all containers"
-  __docker_sudo ps -a | sed "s#$(head -n1)##g" | grep -v "^#" ||
+  __docker ps -a | sed "s#$(head -n1)##g" | grep -v "^#" ||
     printf_exit "There doesn't seem to be any containers on this system"
   ;;
 
 log)
   shift 1
   ARGS="$*"
-  [ "${#ARGS}" -ne 0 ] || __docker_sudo logs --help
-  __docker_sudo logs "$1"
+  [ "${#ARGS}" -ne 0 ] || __docker logs --help
+  __docker logs "$1"
   ;;
 
 ps)
   shift 1
   ARGS="$*"
-  [ "${#ARGS}" -ne 0 ] || __docker_sudo ps --help
-  __docker_sudo ps -a "$@"
+  [ "${#ARGS}" -ne 0 ] || __docker ps --help
+  __docker ps -a "$@"
   ;;
 
 rm)
   shift 1
   ARGS="$*"
-  [ "${#ARGS}" -ne 0 ] || __docker_sudo ps -a
+  [ "${#ARGS}" -ne 0 ] || __docker ps -a
   for container in $ARGS; do
-    if __docker_sudo ps -a | grep -q "$container"; then
+    if __docker ps -a | grep -q "$container"; then
       printf_blue "Deleting the container: $container"
-      __docker_sudo rm "$container" -f &>/dev/null
-      if __docker_sudo ps -a | grep -q "$container"; then
+      __docker rm "$container" -f &>/dev/null
+      if __docker ps -a | grep -q "$container"; then
         printf_red "Failed to delete $container"
       else
         printf_green "Successfully deleted $container"
@@ -501,12 +524,12 @@ rm)
 rmi)
   shift 1
   ARGS="$*"
-  [ "${#ARGS}" -ne 0 ] || __docker_sudo images
+  [ "${#ARGS}" -ne 0 ] || __docker images
   for image in $ARGS; do
-    if __docker_sudo images | grep -q "$image"; then
+    if __docker images | grep -q "$image"; then
       printf_blue "Deleting the image: $image"
-      __docker_sudo rmi "$image" &>/dev/null
-      if __docker_sudo images | grep -q "$image"; then
+      __docker rmi "$image" &>/dev/null
+      if __docker images | grep -q "$image"; then
         printf_red "Failed to delete $image"
       else
         printf_green "Successfully deleted $image"
@@ -519,7 +542,7 @@ rmi)
 
 *)
   if [ $# -ne 0 ]; then
-    __docker_sudo "$@"
+    __docker "$@"
   else
     export -f __init
     if ! cmd_exists docker; then

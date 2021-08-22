@@ -1,22 +1,23 @@
 #!/usr/bin/env bash
-
-#!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0")"
+VERSION="202108190117-git"
+RUN_USER="${SUDO_USER:-${USER}}"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#set opts
+# Set bash options
+trap 'exitCode=${exitCode:-$?};[ -f "$DISPLAYSELECT_TEMP_FILE" ] && rm -Rf "$DISPLAYSELECT_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202103200630-git
+##@Version       : 202108190117-git
 # @Author        : Jason Hempstead
 # @Contact       : jason@casjaysdev.com
 # @License       : WTFPL
 # @ReadME        : displayselect --help
-# @Copyright     : Copyright: (c) 2021 Jason Hempstead, CasjaysDev
-# @Created       : Saturday, Mar 20, 2021 06:30 EDT
+# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created       : Thursday, Aug 19, 2021 01:17 EDT
 # @File          : displayselect
 # @Description   : A UI for detecting and selecting all displays
 # @TODO          :
@@ -42,12 +43,51 @@ fi
 user_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set functions
+__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gen_config() {
+  printf_green "Generating the config file in"
+  printf_green "$DISPLAYSELECT_CONFIG_DIR/$DISPLAYSELECT_CONFIG_FILE"
+  [ -d "$DISPLAYSELECT_CONFIG_DIR" ] || mkdir -p "$DISPLAYSELECT_CONFIG_DIR"
+  [ -d "$DISPLAYSELECT_CONFIG_BACKUP_DIR" ] || mkdir -p "$DISPLAYSELECT_CONFIG_BACKUP_DIR"
+  [ -f "$DISPLAYSELECT_CONFIG_DIR/$DISPLAYSELECT_CONFIG_FILE" ] &&
+    cp -Rf "$DISPLAYSELECT_CONFIG_DIR/$DISPLAYSELECT_CONFIG_FILE" "$DISPLAYSELECT_CONFIG_BACKUP_DIR/$DISPLAYSELECT_CONFIG_FILE.$$"
+  cat <<EOF >"$DISPLAYSELECT_CONFIG_DIR/$DISPLAYSELECT_CONFIG_FILE"
+# Settings for displayselect
+
+# Notification settings
+DISPLAYSELECT_GOOD_MESSAGE="${DISPLAYSELECT_GOOD_MESSAGE:-Everything Went OK}"
+DISPLAYSELECT_ERROR_MESSAGE="${DISPLAYSELECT_ERROR_MESSAGE:-Well that didn\'t work}"
+DISPLAYSELECT_NOTIFY_ENABLED="${DISPLAYSELECT_NOTIFY_ENABLED:-yes}"
+DISPLAYSELECT_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+DISPLAYSELECT_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$DISPLAYSELECT_NOTIFY_CLIENT_ICON}"
+
+# Colorization settings
+DISPLAYSELECT_OUTPUT_COLOR="${DISPLAYSELECT_OUTPUT_COLOR:-5}"
+DISPLAYSELECT_OUTPUT_COLOR_GOOD="${DISPLAYSELECT_OUTPUT_COLOR_GOOD:-2}"
+DISPLAYSELECT_OUTPUT_COLOR_ERROR="${DISPLAYSELECT_OUTPUT_COLOR_ERROR:-1}"
+
+EOF
+  if [ -f "$DISPLAYSELECT_CONFIG_DIR/$DISPLAYSELECT_CONFIG_FILE" ]; then
+    printf_green "Your config file for displayselect has been created"
+    true
+  else
+    printf_red "Failed to create the config file"
+    false
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional functions
+{ builtin type -P rofi &>/dev/null && __dmenu() { rofi -dmenu -i -p "$1" -theme purple 2>/dev/null; }; } ||
+  { builtin type -P dmenu &>/dev/null && __dmenu() { dmenu -i -p "$1" 2>/dev/null; }; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 twoscreen() {
-  mirror=$(printf "no\\nyes" | dmenu -i -p "Mirror displays?")
+  mirror=$(printf "no\\nyes" | __dmenu "Mirror displays?")
   # Mirror displays using native resolution of external display and a scaled
   # version for the internal display
   if [ "$mirror" = "yes" ]; then
-    external=$(echo "$screens" | dmenu -i -p "Optimize resolution for:")
+    external=$(echo "$screens" | __dmenu "Optimize resolution for:")
     internal=$(echo "$screens" | grep -v "$external")
     res_external=$(xrandr --query | sed -n "/^$external/,/\+/p" | tail -n 1 | awk '{print $1}')
     res_internal=$(xrandr --query | sed -n "/^$internal/,/\+/p" | tail -n 1 | awk '{print $1}')
@@ -59,18 +99,18 @@ twoscreen() {
     scale_y=$(echo "$res_ext_y / $res_int_y" | bc -l)
     xrandr --output "$external" --auto --scale 1.0x1.0 --output "$internal" --auto --same-as "$external" --scale "$scale_x"x"$scale_y"
   else
-    primary=$(echo "$screens" | dmenu -i -p "Select primary display:")
+    primary=$(echo "$screens" | __dmenu "Select primary display:")
     secondary=$(echo "$screens" | grep -v "$primary")
-    direction=$(printf "left\\nright" | dmenu -i -p "What side of $primary should $secondary be on?")
+    direction=$(printf "left\\nright" | __dmenu "What side of $primary should $secondary be on?")
     xrandr --output "$primary" --auto --scale 1.0x1.0 --output "$secondary" --"$direction"-of "$primary" --auto --scale 1.0x1.0
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 morescreen() { # If multi-monitor is selected and there are more than two screens.
-  primary=$(echo "$screens" | dmenu -i -p "Select primary display:")
-  secondary=$(echo "$screens" | grep -v "$primary" | dmenu -i -p "Select secondary display:")
-  direction=$(printf "left\\nright" | dmenu -i -p "What side of $primary should $secondary be on?")
-  tertiary=$(echo "$screens" | grep -v "$primary" | grep -v "$secondary" | dmenu -i -p "Select third display:")
+  primary=$(echo "$screens" | __dmenu "Select primary display:")
+  secondary=$(echo "$screens" | grep -v "$primary" | __dmenu "Select secondary display:")
+  direction=$(printf "left\\nright" | __dmenu "What side of $primary should $secondary be on?")
+  tertiary=$(echo "$screens" | grep -v "$primary" | grep -v "$secondary" | __dmenu "Select third display:")
   xrandr --output "$primary" --auto --output "$secondary" --"$direction"-of "$primary" --auto --output "$tertiary" --"$(printf "left\\nright" | grep -v "$direction")"-of "$primary" --auto
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -82,26 +122,117 @@ multimon() { # Multi-monitor handler.
   esac
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Get all possible displays
-allposs=$(xrandr -q | grep "connected")
+# Default variables
+exitCode="0"
+DISPLAYSELECT_CACHE_DIR="${DISPLAYSELECT_CACHE_DIR:-$HOME/.cache/displayselect}"
+DISPLAYSELECT_CONFIG_DIR="${DISPLAYSELECT_CONFIG_DIR:-$HOME/.config/myscripts/displayselect}"
+DISPLAYSELECT_OPTIONS_DIR="${DISPLAYSELECT_OPTIONS_DIR:-$HOME/.local/share/myscripts/displayselect/options}"
+DISPLAYSELECT_CONFIG_BACKUP_DIR="${DISPLAYSELECT_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/displayselect/backups}"
+DISPLAYSELECT_TEMP_DIR="${DISPLAYSELECT_TEMP_DIR:-$HOME/.local/tmp/system_scripts/displayselect}"
+DISPLAYSELECT_TEMP_FILE="${DISPLAYSELECT_TEMP_FILE:-$(mktemp $DISPLAYSELECT_TEMP_DIR/XXXXXX 2>/dev/null)}"
+DISPLAYSELECT_CONFIG_FILE="${DISPLAYSELECT_CONFIG_FILE:-settings.conf}"
+DISPLAYSELECT_GOOD_MESSAGE="${DISPLAYSELECT_GOOD_MESSAGE:-Everything Went OK}"
+DISPLAYSELECT_ERROR_MESSAGE="${DISPLAYSELECT_ERROR_MESSAGE:-Well that didn\'t work}"
+DISPLAYSELECT_NOTIFY_ENABLED="${DISPLAYSELECT_NOTIFY_ENABLED:-yes}"
+DISPLAYSELECT_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+DISPLAYSELECT_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$DISPLAYSELECT_NOTIFY_CLIENT_ICON}"
+DISPLAYSELECT_OUTPUT_COLOR="${DISPLAYSELECT_OUTPUT_COLOR:-5}"
+DISPLAYSELECT_OUTPUT_COLOR_GOOD="${DISPLAYSELECT_OUTPUT_COLOR_GOOD:-2}"
+DISPLAYSELECT_OUTPUT_COLOR_ERROR="${DISPLAYSELECT_OUTPUT_COLOR_ERROR:-1}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Get all connected screens.
+# Ensure Directories exist
+[ -d "$DISPLAYSELECT_TEMP_DIR" ] || mkdir -p "$DISPLAYSELECT_TEMP_DIR" &>/dev/null
+[ -d "$DISPLAYSELECT_CACHE_DIR" ] || mkdir -p "$DISPLAYSELECT_CACHE_DIR" &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$DISPLAYSELECT_CONFIG_DIR/$DISPLAYSELECT_CONFIG_FILE" ] ||
+  __gen_config &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$DISPLAYSELECT_CONFIG_DIR/$DISPLAYSELECT_CONFIG_FILE" ] &&
+  . "$DISPLAYSELECT_CONFIG_DIR/$DISPLAYSELECT_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS="z:"
+LONGOPTS="options,config,version,help,dir:"
+ARRAY=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$PROG" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --options)
+    shift 1
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  -z | --dir)
+    DISPLAYSELECT_CWD="$2"
+    shift 2
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+if [ "$DISPLAYSELECT_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${DISPLAYSELECT_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${DISPLAYSELECT_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${DISPLAYSELECT_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${DISPLAYSELECT_NOTIFY_CLIENT_ICON}"
+    notifications "$*" || return 1
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+cmd_exists --error --ask bash xrandr dmenu || exit 1 # exit 1 if not found
+#am_i_online --error || exit 1     # exit 1 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+allposs=$(xrandr -q 2>/dev/null | grep "connected")
 screens=$(echo "$allposs" | grep " connected" | awk '{print $1}')
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Get user choice including multi-monitor and manual selection:
-chosen=$(printf "%s\\nmulti-monitor\\nmanual selection" "$screens" | dmenu -i -p "Select display arangement:") &&
+# begin main app
+chosen=$(printf "%s\\nmulti-monitor\\nmanual selection" "$screens" | __dmenu "Select display arangement:") &&
   case "$chosen" in
   "manual selection")
-    arandr
+    arandr 2>/dev/null
     exit
     ;;
   "multi-monitor") multimon ;;
-  *) xrandr --output "$chosen" --auto --scale 1.0x1.0 $(echo "$allposs" | grep -v "$chosen" | awk '{print "--output", $1, "--off"}' | tr '\n' ' ') ;;
+  *) xrandr --output "$chosen" --auto --scale 1.0x1.0 $(echo "$allposs" | grep -v "$chosen" | awk '{print "--output", $1, "--off"}' | tr '\n' ' ') 2>/dev/null ;;
   esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#setbg
-#remaps
+# End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-exit $?
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# end
+# lets exit with code
+exit ${exitCode:-$?}

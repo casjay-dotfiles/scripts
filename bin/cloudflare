@@ -1,22 +1,24 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0")"
-VERSION="202107182222-git"
+VERSION="202108190117-git"
+RUN_USER="${SUDO_USER:-${USER}}"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#set opts
+# Set bash options
+trap 'exitCode=${exitCode:-$?};[ -f "$CLOUDFLARE_TEMP_FILE" ] && rm -Rf "$CLOUDFLARE_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202107182222-git
-# @Author        : casjay
-# @Contact       : casjay
+##@Version       : 202108190117-git
+# @Author        : Jason Hempstead
+# @Contact       : jason@casjaysdev.com
 # @License       : WTFPL
-# @ReadME        : template --help
-# @Copyright     : Copyright: (c) 2021 casjay, casjay
-# @Created       : Sunday, Jul 18, 2021 22:22 EDT
-# @File          : template
+# @ReadME        : cloudflare --help
+# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created       : Thursday, Aug 19, 2021 01:17 EDT
+# @File          : cloudflare
 # @Description   : cloudflare api script
 # @TODO          :
 # @Other         :
@@ -41,6 +43,9 @@ fi
 user_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set functions
+__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gen_config() {
   printf_green "Generating the config file in"
   printf_green "$CLOUDFLARE_CONFIG_DIR/$CLOUDFLARE_CONFIG_FILE"
@@ -49,18 +54,28 @@ __gen_config() {
   [ -f "$CLOUDFLARE_CONFIG_DIR/$CLOUDFLARE_CONFIG_FILE" ] &&
     cp -Rf "$CLOUDFLARE_CONFIG_DIR/$CLOUDFLARE_CONFIG_FILE" "$CLOUDFLARE_CONFIG_BACKUP_DIR/$CLOUDFLARE_CONFIG_FILE.$$"
   cat <<EOF >"$CLOUDFLARE_CONFIG_DIR/$CLOUDFLARE_CONFIG_FILE"
-# Settings for CLOUDFLARE
-CLOUDFLARE_EMAIL="$CLOUDFLARE_EMAIL"
-CLOUDFLARE_KEY="$CLOUDFLARE_KEY}"
-CLOUDFLARE_ZONE="$CLOUDFLARE_ZONE"
-CLOUDFLARE_RECORD="$CLOUDFLARE_RECORD"
-CLOUDFLARE_NOTIFY_ENABLED="yes"
-CLOUDFLARE_NOTIFY_CLIENT_NAME="\${NOTIFY_CLIENT_NAME:-\$APPNAME}"
-CLOUDFLARE_NOTIFY_CLIENT_ICON="\${NOTIFY_CLIENT_ICON:-\$CLOUDFLARE_NOTIFY_CLIENT_ICON}"
+# Settings for cloudflare
+CLOUDFLARE_EMAIL="${CLOUDFLARE_EMAIL:-}"
+CLOUDFLARE_API_KEY="${CLOUDFLARE_API_KEY:-}"
+CLOUDFLARE_ZONE="${CLOUDFLARE_ZONE:-}"
+CLOUDFLARE_RECORD="${CLOUDFLARE_RECORD:-}"
+CLOUDFLARE_PROXY="${CLOUDFLARE_PROXY:-}"
+
+# Notification settings
+CLOUDFLARE_GOOD_MESSAGE="${CLOUDFLARE_GOOD_MESSAGE:-Everything Went OK}"
+CLOUDFLARE_ERROR_MESSAGE="${CLOUDFLARE_ERROR_MESSAGE:-Well that didn\'t work}"
+CLOUDFLARE_NOTIFY_ENABLED="${CLOUDFLARE_NOTIFY_ENABLED:-yes}"
+CLOUDFLARE_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+CLOUDFLARE_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$CLOUDFLARE_NOTIFY_CLIENT_ICON}"
+
+# Colorization settings
+CLOUDFLARE_OUTPUT_COLOR="${CLOUDFLARE_OUTPUT_COLOR:-5}"
+CLOUDFLARE_OUTPUT_COLOR_GOOD="${CLOUDFLARE_OUTPUT_COLOR_GOOD:-2}"
+CLOUDFLARE_OUTPUT_COLOR_ERROR="${CLOUDFLARE_OUTPUT_COLOR_ERROR:-1}"
 
 EOF
   if [ -f "$CLOUDFLARE_CONFIG_DIR/$CLOUDFLARE_CONFIG_FILE" ]; then
-    printf_green "Your config file for CLOUDFLARE has been created"
+    printf_green "Your config file for cloudflare has been created"
     true
   else
     printf_red "Failed to create the config file"
@@ -68,53 +83,71 @@ EOF
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__list_available() {
-  echo -e "$ARRAY" | tr ' ' '\n'
-  exit 0
+# Additional functions
+__get_ip() { curl -s https://api.ipify.org || curl -s https://ipv4.icanhazip.com/; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_record() { curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$CLOUDFLARE_ZONE/dns_records?name=$CLOUDFLARE_RECORD" -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__put_update() {
+  curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/$CLOUDFLARE_ZONE/dns_records/$record_identifier" \
+    -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" \
+    --data "{\"id\":\"$CLOUDFLARE_ZONE\",\"type\":\"A\",\"proxied\":${CLOUDFLARE_PROXY},\"name\":\"$CLOUDFLARE_RECORD\",\"content\":\"$ip\"}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Defaults
-exitCode=""
-CLOUDFLARE_CONFIG_FILE="settings.conf"
-CLOUDFLARE_CONFIG_DIR="$HOME/.config/myscripts/cloudflare"
-CLOUDFLARE_CONFIG_BACKUP_DIR="$HOME/.local/share/myscripts/cloudflare/backups"
-CLOUDFLARE_OPTIONS_DIR="$HOME/.local/share/myscripts/cloudflare/options"
-CLOUDFLARE_NOTIFY_ENABLED="yes"
+# Default variables
+exitCode="0"
+CLOUDFLARE_CACHE_DIR="${CLOUDFLARE_CACHE_DIR:-$HOME/.cache/cloudflare}"
+CLOUDFLARE_CONFIG_DIR="${CLOUDFLARE_CONFIG_DIR:-$HOME/.config/myscripts/cloudflare}"
+CLOUDFLARE_OPTIONS_DIR="${CLOUDFLARE_OPTIONS_DIR:-$HOME/.local/share/myscripts/cloudflare/options}"
+CLOUDFLARE_CONFIG_BACKUP_DIR="${CLOUDFLARE_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/cloudflare/backups}"
+CLOUDFLARE_TEMP_DIR="${CLOUDFLARE_TEMP_DIR:-$HOME/.local/tmp/system_scripts/cloudflare}"
+CLOUDFLARE_TEMP_FILE="${CLOUDFLARE_TEMP_FILE:-$(mktemp $CLOUDFLARE_TEMP_DIR/XXXXXX 2>/dev/null)}"
+CLOUDFLARE_CONFIG_FILE="${CLOUDFLARE_CONFIG_FILE:-settings.conf}"
+CLOUDFLARE_GOOD_MESSAGE="${CLOUDFLARE_GOOD_MESSAGE:-Everything Went OK}"
+CLOUDFLARE_ERROR_MESSAGE="${CLOUDFLARE_ERROR_MESSAGE:-Well that didn\'t work}"
+CLOUDFLARE_NOTIFY_ENABLED="${CLOUDFLARE_NOTIFY_ENABLED:-yes}"
 CLOUDFLARE_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
 CLOUDFLARE_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$CLOUDFLARE_NOTIFY_CLIENT_ICON}"
-CLOUDFLARE_TEMP_FILE="${TMPDIR:-/tmp}/cloudflare"
+CLOUDFLARE_OUTPUT_COLOR="${CLOUDFLARE_OUTPUT_COLOR:-5}"
+CLOUDFLARE_OUTPUT_COLOR_GOOD="${CLOUDFLARE_OUTPUT_COLOR_GOOD:-2}"
+CLOUDFLARE_OUTPUT_COLOR_ERROR="${CLOUDFLARE_OUTPUT_COLOR_ERROR:-1}"
 CLOUDFLARE_EMAIL="${CLOUDFLARE_EMAIL:-}"
-CLOUDFLARE_KEY="${CLOUDFLARE_KEY:-}"
+CLOUDFLARE_API_KEY="${CLOUDFLARE_API_KEY:-}"
 CLOUDFLARE_ZONE="${CLOUDFLARE_ZONE:-}"
 CLOUDFLARE_RECORD="${CLOUDFLARE_RECORD:-}"
+CLOUDFLARE_PROXY="${CLOUDFLARE_PROXY:-true}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$CLOUDFLARE_TEMP_DIR" ] || mkdir -p "$CLOUDFLARE_TEMP_DIR" &>/dev/null
+[ -d "$CLOUDFLARE_CACHE_DIR" ] || mkdir -p "$CLOUDFLARE_CACHE_DIR" &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$CLOUDFLARE_CONFIG_DIR/$CLOUDFLARE_CONFIG_FILE" ] ||
+  __gen_config &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$CLOUDFLARE_CONFIG_DIR/$CLOUDFLARE_CONFIG_FILE" ] &&
+  . "$CLOUDFLARE_CONFIG_DIR/$CLOUDFLARE_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set additional variables/Argument/Option settings
 SETARGS="$*"
-SHORTOPTS="v,h"
-LONGOPTS="options,config,version,help,start:"
+SHORTOPTS="z:"
+LONGOPTS="options,config,version,help,dir:"
 ARRAY=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Generate Files
-[ -f "$CLOUDFLARE_CONFIG_DIR/$CLOUDFLARE_CONFIG_FILE" ] || __gen_config &>/dev/null
-[ -f "$CLOUDFLARE_OPTIONS_DIR/options" ] || __list_options "$CLOUDFLARE_OPTIONS_DIR" &>/dev/null
-[ -f "$CLOUDFLARE_OPTIONS_DIR/array" ] || __list_array "$CLOUDFLARE_OPTIONS_DIR" "$ARRAY" &>/dev/null
-[ -f "$CLOUDFLARE_OPTIONS_DIR/available" ] || __list_available >"$CLOUDFLARE_OPTIONS_DIR/available" 2>/dev/null
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Import config
-if [ -f "$CLOUDFLARE_CONFIG_DIR/$CLOUDFLARE_CONFIG_FILE" ]; then
-  . "$CLOUDFLARE_CONFIG_DIR/$CLOUDFLARE_CONFIG_FILE"
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# options
-setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$APPNAME" -- "$@" 2>/dev/null)
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$PROG" -- "$@" 2>/dev/null)
 eval set -- "${setopts[@]}" 2>/dev/null
 while :; do
   case $1 in
   --options)
     shift 1
-    __list_array "$CLOUDFLARE_OPTIONS_DIR" "$ARRAY"
-    __list_options "$CLOUDFLARE_OPTIONS_DIR"
-    __list_available >"$CLOUDFLARE_OPTIONS_DIR/available"
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
     exit $?
     ;;
   --version)
@@ -132,6 +165,10 @@ while :; do
     __gen_config
     exit $?
     ;;
+  -z | --dir)
+    CLOUDFLARE_CWD="$2"
+    shift 2
+    ;;
   --)
     shift 1
     break
@@ -141,10 +178,12 @@ done
 #set -- "$SETARGS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
-export NOTIFY_CLIENT_NAME="${CLOUDFLARE_NOTIFY_CLIENT_NAME}"
-export NOTIFY_CLIENT_ICON="${CLOUDFLARE_NOTIFY_CLIENT_ICON}"
 if [ "$CLOUDFLARE_NOTIFY_ENABLED" = "yes" ]; then
   __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${CLOUDFLARE_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${CLOUDFLARE_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${CLOUDFLARE_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${CLOUDFLARE_NOTIFY_CLIENT_ICON}"
     notifications "$*" || return 1
   }
 else
@@ -152,85 +191,51 @@ else
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
-cmd_exists --error --ask bash || exit 1
+cmd_exists --error --ask bash || exit 1 # exit 1 if not found
+#am_i_online --error || exit 1     # exit 1 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# APP Variables
+# APP Variables overrides
 [ -n "$CLOUDFLARE_EMAIL" ] || printf_exit 1 1 "Please set CLOUDFLARE_EMAIL variable"
-[ -n "$CLOUDFLARE_KEY" ] || printf_exit 1 1 "Please set CLOUDFLARE_KEY variable"
+[ -n "$CLOUDFLARE_API_KEY" ] || printf_exit 1 1 "Please set CLOUDFLARE_API_KEY variable"
 [ -n "$CLOUDFLARE_ZONE" ] || printf_exit 1 1 "Please set CLOUDFLARE_ZONE variable"
 [ -n "$CLOUDFLARE_RECORD" ] || printf_exit 1 1 "Please set CLOUDFLARE_RECORD variable"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-auth_email="$CLOUDFLARE_EMAIL"     # The email used to login 'https://dash.cloudflare.com'
-auth_key="$CLOUDFLARE_KEY"         # Top right corner, "My profile" > "Global API Key"
-zone_identifier="$CLOUDFLARE_ZONE" # Can be found in the "Overview" tab of your domain
-record_name="$CLOUDFLARE_RECORD"   # Which record you want to be synced
-proxy=true                         # Set the proxy to true or false
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-###########################################
-## Check if we have an public IP
-###########################################
-ip=$(curl -s https://api.ipify.org || curl -s https://ipv4.icanhazip.com/)
+ip=$(__get_ip 2>/dev/null)
+record=$(__get_record)
+old_ip=$(echo "$record" | grep -Po '(?<="content":")[^"]*' | head -1)
+record_identifier=$(echo "$record" | grep -Po '(?<="id":")[^"]*' | head -1)
 if [ "${ip}" == "" ]; then
   message="No public IP found."
-  echo >&2 -e "${message}" >>~/log
+  echo >&2 -e "${message}" >>"$CLOUDFLARE_TEMP_DIR/log_file"
   exit 1
 fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-###########################################
-## Seek for the A record
-###########################################
-echo " Check Initiated" >>~/log
-record=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$zone_identifier/dns_records?name=$record_name" -H "X-Auth-Email: $auth_email" -H "X-Auth-Key: $auth_key" -H "Content-Type: application/json")
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-###########################################
-## Check if the domain has an A record
-###########################################
+echo " Check Initiated" >>"$CLOUDFLARE_TEMP_DIR/log_file"
 if [[ $record == *"\"count\":0"* ]]; then
-  message=" Record does not exist, perhaps create one first? (${ip} for ${record_name})"
-  echo >&2 -e "${message}" >>~/log
+  message=" Record does not exist, perhaps create one first? (${ip} for ${CLOUDFLARE_RECORD})"
+  echo >&2 -e "${message}" >>"$CLOUDFLARE_TEMP_DIR/log_file"
   exit 1
 fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-###########################################
-## Get the existing IP
-###########################################
-old_ip=$(echo "$record" | grep -Po '(?<="content":")[^"]*' | head -1)
 # Compare if they're the same
 if [[ $ip == "$old_ip" ]]; then
-  message=" IP ($ip) for ${record_name} has not changed."
-  echo "${message}" >>~/log
+  message=" IP ($ip) for ${CLOUDFLARE_RECORD} has not changed."
+  echo "${message}" >>"$CLOUDFLARE_TEMP_DIR/log_file"
   exit 0
 fi
+update=$(__put_update)
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-###########################################
-## Set the record identifier from result
-###########################################
-record_identifier=$(echo "$record" | grep -Po '(?<="id":")[^"]*' | head -1)
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-###########################################
-## Change the IP@Cloudflare using the API
-###########################################
-update=$(curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/$zone_identifier/dns_records/$record_identifier" \
-  -H "X-Auth-Email: $auth_email" \
-  -H "X-Auth-Key: $auth_key" \
-  -H "Content-Type: application/json" \
-  --data "{\"id\":\"$zone_identifier\",\"type\":\"A\",\"proxied\":${proxy},\"name\":\"$record_name\",\"content\":\"$ip\"}")
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-###########################################
-## Report the status
-###########################################
+# begin main app
 case "$update" in
 *"\"success\":false"*)
-  message="$ip $record_name DDNS failed for $record_identifier ($ip). DUMPING RESULTS:\n$update"
-  echo >&2 -e "${message}" >>~/log
+  message="$ip $CLOUDFLARE_RECORD DDNS failed for $record_identifier ($ip). DUMPING RESULTS:\n$update"
+  echo >&2 -e "${message}" >>"$CLOUDFLARE_TEMP_DIR/log_file"
   exit 1
   ;;
 *)
-  message="$ip $record_name DDNS updated."
-  echo "${message}" >>~/log
+  message="$ip $CLOUDFLARE_RECORD DDNS updated."
+  echo "${message}" >>"$CLOUDFLARE_TEMP_DIR/log_file"
   exit 0
   ;;
 esac
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

@@ -58,9 +58,10 @@ __gen_config() {
 CLOUDFLARE_EMAIL="${CLOUDFLARE_EMAIL:-}"
 CLOUDFLARE_API_KEY="${CLOUDFLARE_API_KEY:-}"
 CLOUDFLARE_RECORD="${CLOUDFLARE_RECORD:-}"
-CLOUDFLARE_DNS_TYPE="${CLOUDFLARE_DNS_TYPE:-CNAME}"
+CLOUDFLARE_DNS_TYPE="${CLOUDFLARE_DNS_TYPE:-A}"
 CLOUDFLARE_PROXY="${CLOUDFLARE_PROXY:-}"
 CLOUDFLARE_ZONE="${CLOUDFLARE_ZONE:-}"
+CLOUDFLARE_IP_ADDR="${CLOUDFLARE_IP_ADDR:-}"
 
 # Notification settings
 CLOUDFLARE_GOOD_MESSAGE="${CLOUDFLARE_GOOD_MESSAGE:-Everything Went OK}"
@@ -85,17 +86,22 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional functions
-__get_ip() { curl -s https://api.ipify.org || curl -s https://ipv4.icanhazip.com/; }
+__get_ip() { curl -q -LSs "https://ifconfig.co" || curl -s https://api.ipify.org || curl -s https://ipv4.icanhazip.com/; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __message() {
-  if grep 'success' "$CLOUDFLARE_TEMP_DIR/log_file" | grep -q 'true'; then
+  if grep 'success' "$CLOUDFLARE_TEMP_FILE" | grep -q 'true'; then
     printf_green "${1:-Successfully created $CLOUDFLARE_RECORD}"
     return 0
   else
     printf_red "Well something went horribly wrong"
-    cat "$CLOUDFLARE_TEMP_DIR/log_file"
+    jq -r <"$CLOUDFLARE_TEMP_FILE"
     return 1
   fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__zone_identifier() {
+  curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=$CLOUDFLARE_ZONE" -H "X-Auth-Email: $CLOUDFLARE_EMAIL" \
+    -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" | grep -Po '(?<="id":")[^"]*' | head -1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __api() {
@@ -104,28 +110,23 @@ __api() {
     jq -c '.result | .[] | [.name,.type,.id]'
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__zone_identifier() {
-  curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=$CLOUDFLARE_ZONE" -H "X-Auth-Email: $CLOUDFLARE_EMAIL" \
-    -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" | grep -Po '(?<="id":")[^"]*' | head -1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __delete_record() {
   printf_blue "Attempting to delete host"
   curl -q -LSs -X DELETE "https://api.cloudflare.com/client/v4/zones/$(__zone_identifier)/dns_records/$(__record_identifier)" \
-    -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" >>"$CLOUDFLARE_TEMP_DIR/log_file"
+    -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" >>"$CLOUDFLARE_TEMP_FILE"
   __message "Successfully deleted $CLOUDFLARE_RECORD"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_record() {
   local CLOUDFLARE_RECORD="${1:-CLOUDFLARE_RECORD}"
-  local DNS_TYPE="${2:-$DNS_TYPE}"
+  local CLOUDFLARE_DNS_TYPE="${2:-$CLOUDFLARE_DNS_TYPE}"
   local CLOUDFLARE_PROXY="${3:-$CLOUDFLARE_PROXY}"
   printf_blue "Attempting to create a new host"
   curl -q -LSs -X POST "https://api.cloudflare.com/client/v4/zones/$(__zone_identifier)/dns_records" \
     -H "X-Auth-Email: $CLOUDFLARE_EMAIL" \
     -H "X-Auth-Key: $CLOUDFLARE_API_KEY" \
     -H "Content-Type: application/json" \
-    --data "{\"type\":\"${CLOUDFLARE_DNS_TYPE:-A}\",\"name\":\"$CLOUDFLARE_RECORD\",\"content\":\"$ip\",\"ttl\":120,\"priority\":0,\"proxied\":$CLOUDFLARE_PROXY}" >>"$CLOUDFLARE_TEMP_DIR/log_file"
+    --data "{\"type\":\"${CLOUDFLARE_DNS_TYPE}\",\"name\":\"$CLOUDFLARE_RECORD\",\"content\":\"$CLOUDFLARE_IP_ADDR\",\"ttl\":120,\"priority\":0,\"proxied\":$CLOUDFLARE_PROXY}" >>"$CLOUDFLARE_TEMP_FILE"
   __message "Successfully created $CLOUDFLARE_RECORD"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -135,7 +136,7 @@ __update() {
   printf_blue "Attempting to update host"
   curl -q -LSs -X PUT "https://api.cloudflare.com/client/v4/zones/$(__zone_identifier)/dns_records/$(__record_identifier)" \
     -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" \
-    --data "{\"id\":\"$CLOUDFLARE_ZONE\",\"type\":\"${DNS_TYPE:-A}\",\"proxied\":${CLOUDFLARE_PROXY},\"name\":\"$CLOUDFLARE_RECORD\",\"content\":\"$ip\"}" >>"$CLOUDFLARE_TEMP_DIR/log_file"
+    --data "{\"id\":\"$CLOUDFLARE_ZONE\",\"type\":\"${CLOUDFLARE_DNS_TYPE}\",\"proxied\":${CLOUDFLARE_PROXY},\"name\":\"$CLOUDFLARE_RECORD\",\"content\":\"$CLOUDFLARE_IP_ADDR\"}" >>"$CLOUDFLARE_TEMP_FILE"
   __message "Successfully Updated $CLOUDFLARE_RECORD"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -164,10 +165,11 @@ CLOUDFLARE_OUTPUT_COLOR_GOOD="${CLOUDFLARE_OUTPUT_COLOR_GOOD:-2}"
 CLOUDFLARE_OUTPUT_COLOR_ERROR="${CLOUDFLARE_OUTPUT_COLOR_ERROR:-1}"
 CLOUDFLARE_EMAIL="${CLOUDFLARE_EMAIL:-}"
 CLOUDFLARE_API_KEY="${CLOUDFLARE_API_KEY:-}"
-CLOUDFLARE_ZONE="${CLOUDFLARE_ZONE:-}"
 CLOUDFLARE_RECORD="${CLOUDFLARE_RECORD:-}"
-CLOUDFLARE_DNS_TYPE="${CLOUDFLARE_DNS_TYPE:-CNAME}"
-CLOUDFLARE_PROXY="${CLOUDFLARE_PROXY:-true}"
+CLOUDFLARE_DNS_TYPE="${CLOUDFLARE_DNS_TYPE:-A}"
+CLOUDFLARE_PROXY="${CLOUDFLARE_PROXY:-}"
+CLOUDFLARE_ZONE="${CLOUDFLARE_ZONE:-}"
+CLOUDFLARE_IP_ADDR="${CLOUDFLARE_IP_ADDR:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure Directories exist
 [ -d "$CLOUDFLARE_TEMP_DIR" ] || mkdir -p "$CLOUDFLARE_TEMP_DIR" &>/dev/null
@@ -251,36 +253,35 @@ cmd_exists --error --ask bash || exit 1 # exit 1 if not found
 [ -n "$CLOUDFLARE_API_KEY" ] || printf_exit 1 1 "Please set CLOUDFLARE_API_KEY variable"
 [ -n "${1:-$CLOUDFLARE_RECORD}" ] || printf_exit 1 1 "Please set CLOUDFLARE_RECORD variable"
 [ -n "${2:-$CLOUDFLARE_ZONE}" ] || printf_exit 1 1 "Please set CLOUDFLARE_ZONE variable"
-__rm_rf "$CLOUDFLARE_TEMP_DIR/log_file"
-ip=$(__get_ip 2>/dev/null)
+__rm_rf "$CLOUDFLARE_TEMP_FILE"
+CLOUDFLARE_RECORD="${2:-CLOUDFLARE_RECORD}"
+CLOUDFLARE_DNS_TYPE="${3:-$CLOUDFLARE_DNS_TYPE}"
+CLOUDFLARE_PROXY="${4:-$CLOUDFLARE_PROXY}"
+[[ "$CLOUDFLARE_DNS_TYPE" == "CNAME" ]] && CLOUDFLARE_IP_ADDR="$CLOUDFLARE_ZONE" || CLOUDFLARE_IP_ADDR=$(__get_ip 2>/dev/null)
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 case "$1" in
 create)
   shift 1
-  CLOUDFLARE_RECORD="${1:-CLOUDFLARE_RECORD}"
-  DNS_TYPE="${2:-$DNS_TYPE}"
-  CLOUDFLARE_PROXY="${3:-$CLOUDFLARE_PROXY}"
-  __create_record "$CLOUDFLARE_RECORD" "$DNS_TYPE" "$CLOUDFLARE_PROXY"
-  exit $?
-  ;;
-
-delete)
-  shift 1
-  CLOUDFLARE_RECORD="${1:-CLOUDFLARE_RECORD}"
-  echo $record
-  __delete_record "$CLOUDFLARE_RECORD"
+  __create_record "$CLOUDFLARE_RECORD" "$CLOUDFLARE_DNS_TYPE" "$CLOUDFLARE_PROXY"
   exit $?
   ;;
 
 update)
   shift 1
-  CLOUDFLARE_RECORD="${1:-CLOUDFLARE_RECORD}"
   __update "$CLOUDFLARE_RECORD" "$CLOUDFLARE_ZONE"
   exit $?
   ;;
 
-list)
+delete)
+  shift 1
+  echo $record
+  __delete_record "$CLOUDFLARE_RECORD"
+  exit $?
+  ;;
+
+\
+  list)
   shift 1
   CLOUDFLARE_ZONE="${1:-$CLOUDFLARE_ZONE}"
   __api "$CLOUDFLARE_ZONE"

@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0")"
+VERSION="202108190117-git"
+RUN_USER="${SUDO_USER:-${USER}}"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#set opts
+# Set bash options
+trap 'exitCode=${exitCode:-$?};[ -f "$DMENURECORD_TEMP_FILE" ] && rm -Rf "$DMENURECORD_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202103200639-git
+##@Version       : 202108190117-git
 # @Author        : Jason Hempstead
 # @Contact       : jason@casjaysdev.com
 # @License       : WTFPL
 # @ReadME        : dmenurecord --help
-# @Copyright     : Copyright: (c) 2021 Jason Hempstead, CasjaysDev
-# @Created       : Saturday, Mar 20, 2021 06:39 EDT
+# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created       : Thursday, Aug 19, 2021 01:17 EDT
 # @File          : dmenurecord
 # @Description   : Ask for recording type via dmenu
 # @TODO          :
@@ -40,24 +43,63 @@ fi
 user_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-DMENU_RECORD_EXT="${DMENU_RECORD_EXT:-.mkv}"
-DMENU_RECORD_DATE="${DMENU_RECORD_DATE:-$(date '+%y%m%d-%H%M-%S')}"
+# Set functions
+__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gen_config() {
+  printf_green "Generating the config file in"
+  printf_green "$DMENURECORD_CONFIG_DIR/$DMENURECORD_CONFIG_FILE"
+  [ -d "$DMENURECORD_CONFIG_DIR" ] || mkdir -p "$DMENURECORD_CONFIG_DIR"
+  [ -d "$DMENURECORD_CONFIG_BACKUP_DIR" ] || mkdir -p "$DMENURECORD_CONFIG_BACKUP_DIR"
+  [ -f "$DMENURECORD_CONFIG_DIR/$DMENURECORD_CONFIG_FILE" ] &&
+    cp -Rf "$DMENURECORD_CONFIG_DIR/$DMENURECORD_CONFIG_FILE" "$DMENURECORD_CONFIG_BACKUP_DIR/$DMENURECORD_CONFIG_FILE.$$"
+  cat <<EOF >"$DMENURECORD_CONFIG_DIR/$DMENURECORD_CONFIG_FILE"
+# Settings for dmenurecord
+DMENURECORD_SAVE_DIR="${DMENURECORD_SAVE_DIR:-$HOME/Recordings}"
+DMENURECORD_EXT="${DMENURECORD_EXT:-.mkv}"
+DMENURECORD_DATE_FMT="${DMENURECORD_DATE_FMT:-"%y%m%d-%H%M-%S"}"
+
+# Notification settings
+DMENURECORD_GOOD_MESSAGE="${DMENURECORD_GOOD_MESSAGE:-Everything Went OK}"
+DMENURECORD_ERROR_MESSAGE="${DMENURECORD_ERROR_MESSAGE:-Well that didn\'t work}"
+DMENURECORD_NOTIFY_ENABLED="${DMENURECORD_NOTIFY_ENABLED:-yes}"
+DMENURECORD_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+DMENURECORD_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$DMENURECORD_NOTIFY_CLIENT_ICON}"
+
+# Colorization settings
+DMENURECORD_OUTPUT_COLOR="${DMENURECORD_OUTPUT_COLOR:-5}"
+DMENURECORD_OUTPUT_COLOR_GOOD="${DMENURECORD_OUTPUT_COLOR_GOOD:-2}"
+DMENURECORD_OUTPUT_COLOR_ERROR="${DMENURECORD_OUTPUT_COLOR_ERROR:-1}"
+
+EOF
+  if [ -f "$DMENURECORD_CONFIG_DIR/$DMENURECORD_CONFIG_FILE" ]; then
+    printf_green "Your config file for dmenurecord has been created"
+    true
+  else
+    printf_red "Failed to create the config file"
+    false
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional functions
+{ builtin type -P rofi &>/dev/null && __dmenu() { rofi -dmenu -i -p "$1" -theme purple 2>/dev/null; }; } ||
+  { builtin type -P dmenu &>/dev/null && __dmenu() { dmenu -i -p "$1" 2>/dev/null; }; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 updateicon() {
-  echo "$1" >/tmp/recordingicon
-  [ -n "${STATUSBAR:?}" ] && pkill -RTMIN+9 "${STATUSBAR:?}"
+  echo "$1" >"$DMENURECORD_TEMP_DIR/recordingicon"
+  [ -n "${STATUSBAR}" ] && pkill -RTMIN+9 "${STATUSBAR:?}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 killrecording() {
-  recpid="$(cat /tmp/recordingpid)"
+  recpid="$(cat "$DMENURECORD_TEMP_DIR/recordingpid")"
   # kill with SIGTERM, allowing finishing touches.
-  kill -15 "$recpid"
-  rm -f /tmp/recordingpid
+  kill -15 "$recpid" &>/dev/null
+  rm -f "$DMENURECORD_TEMP_DIR/recordingpid"
   updateicon ""
-  [ -n "${STATUSBAR:?}" ] && pkill -RTMIN+9 "${STATUSBAR:?}"
+  [ -n "${STATUSBAR}" ] && pkill -RTMIN+9 "${STATUSBAR:?}"
   # even after SIGTERM, ffmpeg may still run, so SIGKILL it.
   sleep 3
-  kill -9 "$recpid"
+  kill -9 "$recpid" &>/dev/null
   exit
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -70,8 +112,8 @@ screencast() {
     -f alsa -i default \
     -r 30 \
     -c:v libx264rgb -crf 0 -preset ultrafast -c:a flac \
-    "$HOME/screencast-$DMENU_RECORD_DATE$DMENU_RECORD_EXT" &
-  echo $! >/tmp/recordingpid
+    "$DMENURECORD_SAVE_DIR/screencast-$DMENURECORD_DATE$DMENURECORD_EXT" &>/dev/null &
+  echo $! >"$DMENURECORD_TEMP_DIR/recordingpid"
   updateicon "⏺️🎙️"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -81,8 +123,8 @@ video() {
     -s "$(xdpyinfo | grep dimensions | awk '{print $2;}')" \
     -i $DISPLAY \
     -c:v libx264 -qp 0 -r 30 \
-    "$HOME/video-$DMENU_RECORD_DATE$DMENU_RECORD_EXT" &
-  echo $! >/tmp/recordingpid
+    "$DMENURECORD_SAVE_DIR/video-$DMENURECORD_DATE$DMENURECORD_EXT" &>/dev/null &
+  echo $! >"$DMENURECORD_TEMP_DIR/recordingpid"
   updateicon "⏺️"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -91,8 +133,8 @@ webcamhidef() {
     -f v4l2 \
     -i /dev/video0 \
     -video_size 1920x1080 \
-    "$HOME/webcam-$DMENU_RECORD_DATE$DMENU_RECORD_EXT" &
-  echo $! >/tmp/recordingpid
+    "$DMENURECORD_SAVE_DIR/webcam-$DMENURECORD_DATE$DMENURECORD_EXT" &>/dev/null &
+  echo $! >"$DMENURECORD_TEMP_DIR/recordingpid"
   updateicon "🎥"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -101,8 +143,8 @@ webcam() {
     -f v4l2 \
     -i /dev/video0 \
     -video_size 640x480 \
-    "$HOME/webcam-$DMENU_RECORD_DATE$DMENU_RECORD_EXT" &
-  echo $! >/tmp/recordingpid
+    "$DMENURECORD_SAVE_DIR/webcam-$DMENURECORD_DATE$DMENURECORD_EXT" &>/dev/null &
+  echo $! >"$DMENURECORD_TEMP_DIR/recordingpid"
   updateicon "🎥"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -110,13 +152,13 @@ audio() {
   ffmpeg \
     -f alsa -i default \
     -c:a flac \
-    "$HOME/audio-$DMENU_RECORD_DATE.flac" &
-  echo $! >/tmp/recordingpid
+    "$DMENURECORD_SAVE_DIR/audio-$DMENURECORD_DATE.flac" &>/dev/null &
+  echo $! >"$DMENURECORD_TEMP_DIR/recordingpid"
   updateicon "🎙️"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 askrecording() {
-  choice=$(printf "screencast\\nvideo\\naudio\\nwebcam\\nwebcam (hi-def)" | dmenu -i -p "Select recording style:")
+  choice=$(printf "screencast\\nvideo\\naudio\\nwebcam\\nwebcam (hi-def)" | __dmenu "Select recording style:")
   case "$choice" in
   screencast) screencast ;;
   audio) audio ;;
@@ -127,18 +169,122 @@ askrecording() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 asktoend() {
-  response=$(printf "No\\nYes" | dmenu -i -p "Recording still active. End recording?") &&
+  response=$(printf "No\\nYes" | __dmenu "Recording still active. End recording?") &&
     [ "$response" = "Yes" ] && killrecording
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Default variables
+exitCode="0"
+DMENURECORD_CACHE_DIR="${DMENURECORD_CACHE_DIR:-$HOME/.cache/dmenurecord}"
+DMENURECORD_CONFIG_DIR="${DMENURECORD_CONFIG_DIR:-$HOME/.config/myscripts/dmenurecord}"
+DMENURECORD_OPTIONS_DIR="${DMENURECORD_OPTIONS_DIR:-$HOME/.local/share/myscripts/dmenurecord/options}"
+DMENURECORD_CONFIG_BACKUP_DIR="${DMENURECORD_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/dmenurecord/backups}"
+DMENURECORD_TEMP_DIR="${DMENURECORD_TEMP_DIR:-$HOME/.local/tmp/system_scripts/dmenurecord}"
+DMENURECORD_TEMP_FILE="${DMENURECORD_TEMP_FILE:-$(mktemp $DMENURECORD_TEMP_DIR/XXXXXX 2>/dev/null)}"
+DMENURECORD_CONFIG_FILE="${DMENURECORD_CONFIG_FILE:-settings.conf}"
+DMENURECORD_GOOD_MESSAGE="${DMENURECORD_GOOD_MESSAGE:-Everything Went OK}"
+DMENURECORD_ERROR_MESSAGE="${DMENURECORD_ERROR_MESSAGE:-Well that didn\'t work}"
+DMENURECORD_NOTIFY_ENABLED="${DMENURECORD_NOTIFY_ENABLED:-yes}"
+DMENURECORD_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+DMENURECORD_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$DMENURECORD_NOTIFY_CLIENT_ICON}"
+DMENURECORD_OUTPUT_COLOR="${DMENURECORD_OUTPUT_COLOR:-5}"
+DMENURECORD_OUTPUT_COLOR_GOOD="${DMENURECORD_OUTPUT_COLOR_GOOD:-2}"
+DMENURECORD_OUTPUT_COLOR_ERROR="${DMENURECORD_OUTPUT_COLOR_ERROR:-1}"
+DMENURECORD_EXT="${DMENURECORD_EXT:-.mkv}"
+DMENURECORD_DATE_FMT="${DMENURECORD_DATE_FMT:-+"%y%m%d-%H%M-%S"}"
+DMENURECORD_SAVE_DIR="${DMENURECORD_SAVE_DIR:-$HOME/Recordings}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$DMENURECORD_TEMP_DIR" ] || mkdir -p "$DMENURECORD_TEMP_DIR" &>/dev/null
+[ -d "$DMENURECORD_CACHE_DIR" ] || mkdir -p "$DMENURECORD_CACHE_DIR" &>/dev/null
+[ -d "$DMENURECORD_SAVE_DIR" ] || mkdir -p "$DMENURECORD_SAVE_DIR" &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$DMENURECORD_CONFIG_DIR/$DMENURECORD_CONFIG_FILE" ] ||
+  __gen_config &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$DMENURECORD_CONFIG_DIR/$DMENURECORD_CONFIG_FILE" ] &&
+  . "$DMENURECORD_CONFIG_DIR/$DMENURECORD_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS="z:"
+LONGOPTS="options,config,version,help,dir:"
+ARRAY=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$PROG" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --options)
+    shift 1
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  -z | --dir)
+    DMENURECORD_CWD="$2"
+    shift 2
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+if [ "$DMENURECORD_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${DMENURECORD_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${DMENURECORD_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${DMENURECORD_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${DMENURECORD_NOTIFY_CLIENT_ICON}"
+    notifications "$*" || return 1
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+cmd_exists --error --ask bash || exit 1 # exit 1 if not found
+#am_i_online --error || exit 1     # exit 1 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+DMENURECORD_DATE="$(date +"$DMENURECORD_DATE_FMT")"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
 case "$1" in
 screencast) screencast ;;
 audio) audio ;;
 video) video ;;
 kill) killrecording ;;
-*) ([ -f /tmp/recordingpid ] && asktoend && exit) || askrecording ;;
+*) ([ -f "$DMENURECORD_TEMP_DIR/recordingpid" ] && asktoend && exit) || askrecording ;;
 esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-exit $?
+# End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# end
+# lets exit with code
+exit ${exitCode:-$?}

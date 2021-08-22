@@ -133,7 +133,7 @@ CHEAT_SH_BIN_DIR="${CHEAT_SH_BIN_DIR:-$CASJAYSDEVDIR/sources}"
 # Set additional variables/Argument/Option settings
 SETARGS="$*"
 SHORTOPTS="z:"
-LONGOPTS="options,config,version,help,dir:"
+LONGOPTS="options,config,version,help,dir:,shell,standalone-install,mode"
 ARRAY=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$PROG" -- "$@" 2>/dev/null)
@@ -167,13 +167,17 @@ while :; do
     CHEAT_SH_CWD="$2"
     shift 2
     ;;
+  shell | standalone-install | mode)
+    shift 1
+    RESET_VARS="true"
+    ;;
   --)
     shift 1
     break
     ;;
   esac
 done
-#set -- "$SETARGS"
+[[ -z "$RESET_VARS" ]] || set -- "$SETARGS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
 if [ "$CHEAT_SH_NOTIFY_ENABLED" = "yes" ]; then

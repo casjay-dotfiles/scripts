@@ -630,7 +630,7 @@ __list_options() {
 __system_service_active() {
   local exitCode=0
   for service in "$@"; do
-    [[ "$(systemctl show -p ActiveState "$service" | cut -d'=' -f2)" == "active" ]] || { exitCode+=1 && false; }
+    systemctl show -p ActiveState "$service" | cut -d'=' -f2 | grep -q ^active || { exitCode+=1 && false; }
   done
   return ${exitCode:-$?}
 }

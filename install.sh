@@ -4,7 +4,8 @@ APPNAME="scripts"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#set opts
+# Set bash options
+[[ "$1" == "--debug" ]] && shift 1 && set -euo pipefail
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ##@Version       : 021020210200-git

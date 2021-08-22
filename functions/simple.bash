@@ -5,7 +5,8 @@ HOME="${USER_HOME:-${HOME}}"
 FUNCFILE="simple.bash"
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#set opts
+# Set bash options
+[[ "$1" == "--debug" ]] && shift 1 && set -euo pipefail
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ##@Version       : 020920211625-git

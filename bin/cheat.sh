@@ -167,7 +167,7 @@ while :; do
     CHEAT_SH_CWD="$2"
     shift 2
     ;;
-  shell | standalone-install | mode)
+  --shell | --standalone-install | --mode)
     shift 1
     RESET_VARS="true"
     ;;

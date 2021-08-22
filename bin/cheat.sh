@@ -199,6 +199,7 @@ am_i_online --error "$CHEAT_SH_URL" || exit 1 # exit 1 if no internet
 # APP Variables overrides
 export CHTSH="${CHTSH:-$CHEAT_SH_HOME}"
 export CHEAT_SH_URL="${CHEAT_SH_URL}"
+export CHEATSH_CACHE_TYPE=none
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app

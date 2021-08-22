@@ -79,25 +79,79 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional functions
+{ builtin type -P rofi &>/dev/null && __dmenu() { rofi -dmenu -i -p "$1" -theme purple 2>/dev/null; }; } ||
+  { builtin type -P dmenu &>/dev/null && __dmenu() { dmenu -i -p "$1" 2>/dev/null; }; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__ask() {
+  case $(printf "Mount\\nUnmount" | __dmenu "Would you like to mount or unmount a device?") in
+  Mount) $APPNAME mount ;;
+  Unmount) $APPNAME umount ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 unmountusb() {
   [ -z "$drives" ] && exit
-  chosen="$(echo "$drives" | dmenu -i -p "Unmount which drive?")" || exit 1
+  chosen="$(echo "$drives" | __dmenu "Unmount which drive?")" || exit 1
   chosen="$(echo "$chosen" | awk '{print $1}')"
   [ -z "$chosen" ] && exit
   sudo -A umount "$chosen" && __notifications "💻 USB unmounting" "$chosen unmounted."
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 unmountandroid() {
-  chosen="$(awk '/simple-mtpfs/ {print $2}' /etc/mtab | dmenu -i -p "Unmount which device?")" || exit 1
+  chosen="$(awk '/simple-mtpfs/ {print $2}' /etc/mtab | __dmenu "Unmount which device?")" || exit 1
   [ -z "$chosen" ] && exit
   sudo -A umount -l "$chosen" && __notifications "🤖 Android unmounting" "$chosen unmounted."
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-asktype() {
-  choice="$(printf "USB\\nAndroid" | dmenu -i -p "Unmount a USB drive or Android device?")" || exit 1
+asktype_unmount() {
+  choice="$(printf "USB\\nAndroid" | __dmenu "Unmount a USB drive or Android device?")" || exit 1
   case "$choice" in
   USB) unmountusb ;;
   Android) unmountandroid ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+getmount() {
+  [ -z "$chosen" ] && exit 1
+  mp="$(find $1 2>/dev/null | __dmenu "Type in mount point.")"
+  [ "$mp" = "" ] && exit 1
+  if [ ! -d "$mp" ]; then
+    mkdiryn=$(printf "No\\nYes" | __dmenu "$mp does not exist. Create it?")
+    [ "$mkdiryn" = "Yes" ] && (mkdir -p "$mp" || sudo -A mkdir -p "$mp")
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+mountusb() {
+  chosen="$(echo "$usbdrives" | __dmenu "Mount which drive?" | awk '{print $1}')"
+  sudo -A mount "$chosen" 2>/dev/null && notifications "💻 USB mounting" "$chosen mounted." && exit 0
+  alreadymounted=$(lsblk -nrpo "name,type,mountpoint" | awk '$2=="part"&&$3!~/\/boot|\/home$|SWAP/&&length($3)>1{printf "-not \\( -path *%s -prune \\) \\ \n",$3}')
+  getmount "/mnt /media /mount /home -maxdepth 5 -type d $alreadymounted"
+  partitiontype="$(lsblk -no "fstype" "$chosen")"
+  case "$partitiontype" in
+  "vfat") sudo -A mount -t vfat "$chosen" "$mp" -o rw,umask=0000 ;;
+  *)
+    sudo -A mount "$chosen" "$mp"
+    user="$(whoami)"
+    ug="$(groups | awk '{print $1}')"
+    sudo -A chown "$user":"$ug" "$mp"
+    ;;
+  esac
+  notifications "💻 USB mounting" "$chosen mounted to $mp."
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+mountandroid() {
+  chosen=$(echo "$anddrives" | __dmenu "Which Android device?" | cut -d : -f 1)
+  getmount "$HOME -maxdepth 3 -type d"
+  simple-mtpfs --device "$chosen" "$mp"
+  echo "OK" | __dmenu "Tap Allow on your phone if it asks for permission and then press enter"
+  simple-mtpfs --device "$chosen" "$mp"
+  notifications "🤖 Android Mounting" "Android device mounted to $mp."
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+asktype_mount() {
+  case $(printf "USB\\nAndroid" | __dmenu "Mount a USB drive or Android device?") in
+  USB) mountusb ;;
+  Android) mountandroid ;;
   esac
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -198,22 +252,64 @@ cmd_exists --error --ask bash || exit 1 # exit 1 if not found
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
 drives=$(lsblk -nrpo "name,type,size,mountpoint" | awk '$4!~/\/boot|\/efi|\/home$|SWAP/&&length($4)>1{printf "%s (%s)\n",$4,$3}')
+anddrives=$(simple-mtpfs -l 2>/dev/null)
+usbdrives="$(lsblk -rpo "name,type,size,mountpoint" | awk '$2=="part"&&$4==""{printf "%s (%s)\n",$1,$3}')"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
-if ! grep simple-mtpfs /etc/mtab; then
-  [ -z "$drives" ] && echo "No drives to unmount." && exit
-  printf_red "Unmountable USB drive detected."
-  __notifications "Unmountable USB drive detected."
-  unmountusb
-else
-  if [ -z "$drives" ]; then
-    echo "Unmountable Android device detected."
-    unmountandroid
+
+case "$1" in
+mount)
+  shift 1
+  if [ -z "$usbdrives" ]; then
+    if [ -z "$anddrives" ]; then
+      printf_red "No USB drive or Android device detected"
+      __notifications "No USB drive or Android device detected"
+      exit 1
+    else
+      printf_green "Android device(s) detected."
+      __notifications "Android device(s) detected."
+      mountandroid
+    fi
   else
-    echo "Unmountable USB drive(s) and Android device(s) detected."
-    asktype
+    if [ -z "$anddrives" ]; then
+      printf_green "USB drive(s) detected."
+      __notifications "USB drive(s) detected."
+      mountusb
+    else
+      printf_green "Mountable USB drive(s) and Android device(s) detected."
+      __notifications "Mountable USB drive(s) and Android device(s) detected."
+      asktype_mount
+    fi
   fi
-fi
+  ;;
+umount | unmount)
+  shift 1
+  if ! grep simple-mtpfs /etc/mtab; then
+    if [ -z "$drives" ]; then
+      printf_red "No drives to unmount."
+      __notifications "No drives to unmount."
+      exit 1
+    else
+      printf_green "Unmountable USB drive detected."
+      __notifications "Unmountable USB drive detected."
+      unmountusb
+    fi
+  else
+    if [ -z "$drives" ]; then
+      printf_green "Unmountable Android device detected."
+      __notifications "Unmountable Android device detected."
+      unmountandroid
+    else
+      printf_green "Unmountable USB drive(s) and Android device(s) detected."
+      __notifications "Unmountable USB drive(s) and Android device(s) detected."
+      asktype_unmount
+    fi
+  fi
+  ;;
+*)
+  __ask
+  ;;
+esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

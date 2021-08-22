@@ -6,7 +6,7 @@ HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
-[[ "\$1" == "--debug" ]] && shift 1 && set -euo pipefail
+[[ "$1" == "--debug" ]] && shift 1 && set -euo pipefail
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ##@Version       : GEN_SCRIPT_REPLACE_VERSION

@@ -85,34 +85,43 @@ EOF
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default variables
 exitCode="0"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application Folders
+IX_IO_LOG_DIR="${IX_IO_LOG_DIR:-$HOME/.local/log/ix.io}"
 IX_IO_CACHE_DIR="${IX_IO_CACHE_DIR:-$HOME/.cache/ix.io}"
 IX_IO_CONFIG_DIR="${IX_IO_CONFIG_DIR:-$HOME/.config/myscripts/ix.io}"
-IX_IO_OPTIONS_DIR="${IX_IO_OPTIONS_DIR:-$HOME/.local/share/myscripts/ix.io/options}"
 IX_IO_CONFIG_BACKUP_DIR="${IX_IO_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/ix.io/backups}"
 IX_IO_TEMP_DIR="${IX_IO_TEMP_DIR:-$HOME/.local/tmp/system_scripts/ix.io}"
+IX_IO_OPTIONS_DIR="${IX_IO_OPTIONS_DIR:-$HOME/.local/share/myscripts/ix.io/options}"
 IX_IO_TEMP_FILE="${IX_IO_TEMP_FILE:-$(mktemp $IX_IO_TEMP_DIR/XXXXXX 2>/dev/null)}"
 IX_IO_CONFIG_FILE="${IX_IO_CONFIG_FILE:-settings.conf}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+IX_IO_OUTPUT_COLOR="${IX_IO_OUTPUT_COLOR:-4}"
+IX_IO_OUTPUT_COLOR_2="${IX_IO_OUTPUT_COLOR:-6}"
+IX_IO_OUTPUT_COLOR_GOOD="${IX_IO_OUTPUT_COLOR_GOOD:-2}"
+IX_IO_OUTPUT_COLOR_ERROR="${IX_IO_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
 IX_IO_GOOD_MESSAGE="${IX_IO_GOOD_MESSAGE:-Everything Went OK}"
 IX_IO_ERROR_MESSAGE="${IX_IO_ERROR_MESSAGE:-Well that didn\'t work}"
 IX_IO_NOTIFY_ENABLED="${IX_IO_NOTIFY_ENABLED:-yes}"
 IX_IO_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
 IX_IO_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$IX_IO_NOTIFY_CLIENT_ICON}"
-IX_IO_OUTPUT_COLOR="${IX_IO_OUTPUT_COLOR:-5}"
-IX_IO_OUTPUT_COLOR_GOOD="${IX_IO_OUTPUT_COLOR_GOOD:-2}"
-IX_IO_OUTPUT_COLOR_ERROR="${IX_IO_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application overrides
 IX_IO_SERVER_HOST="${IX_IO_SERVER_HOST:-http://ix.io}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$IX_IO_CONFIG_DIR/$IX_IO_CONFIG_FILE" ] && . "$IX_IO_CONFIG_DIR/$IX_IO_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure Directories exist
+[ -d "$IX_IO_LOG_DIR" ] || mkdir -p "$IX_IO_LOG_DIR" &>/dev/null
 [ -d "$IX_IO_TEMP_DIR" ] || mkdir -p "$IX_IO_TEMP_DIR" &>/dev/null
 [ -d "$IX_IO_CACHE_DIR" ] || mkdir -p "$IX_IO_CACHE_DIR" &>/dev/null
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Generate config files
-[ -f "$IX_IO_CONFIG_DIR/$IX_IO_CONFIG_FILE" ] ||
-  __gen_config &>/dev/null
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Import config
-[ -f "$IX_IO_CONFIG_DIR/$IX_IO_CONFIG_FILE" ] &&
-  . "$IX_IO_CONFIG_DIR/$IX_IO_CONFIG_FILE"
+# Generate non-existing config files
+[ -f "$IX_IO_CONFIG_DIR/$IX_IO_CONFIG_FILE" ] || __gen_config &>/dev/null
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show warn message if variables are missing
 

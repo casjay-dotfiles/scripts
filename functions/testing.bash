@@ -2464,7 +2464,6 @@ __vdebug() {
   printf_debug "USER:$USER HOME:$HOME PREFIX:$SCRIPTS_PREFIX REPO:$REPO REPORAW:$REPORAW CONF:$CONF SHARE:$SHARE"
   printf_debug "APPDIR:$APPDIR USRUPDATEDIR:$USRUPDATEDIR SYSUPDATEDIR:$SYSUPDATEDIR"
   printf_custom "4" "FUNCTIONSDir:$DIR"
-  exit
 }
 
 __full_app_info() {
@@ -2827,7 +2826,7 @@ __getpythonver
 ###################### call options ######################
 __options() {
   $installtype
-  case "$1" in
+  case "${SCRIPT_OPTS:-$@}" in
   --test)
     shift 1
     [ "$1" = "--x" ] && set -x && shift 1

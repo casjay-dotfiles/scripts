@@ -2827,14 +2827,14 @@ __getpythonver
 ###################### call options ######################
 __options() {
   $installtype
-  case $1 in
+  case "$1" in
   --test)
     shift 1
     [ "$1" = "--x" ] && set -x && shift 1
     export LOG_FILE_DEBUG="${TMP:-$HOME/.local/tmp}/${APPNAME}_debug/$(date +'%Y-%m-%d').log"
     export LOG_FILE_ERROR="${TMP:-$HOME/.local/tmp}/${APPNAME}_debug/$(date +'%Y-%m-%d').err"
     mkdir -p "${TMP:-$HOME/.local/tmp}/${APPNAME}_debug"
-    printf_cyan "Saving all output to $LOG_FILE"
+    printf_cyan "Saving all output to $LOG_FILE_DEBUG"
     printf_log() { "$1" 2>>"${2:-$LOG_FILE_ERROR}" >>"${3:-$LOG_FILE_DEBUG}"; }
     __devnull() {
       local CMD="$1" && shift 1
@@ -2857,31 +2857,6 @@ __options() {
       eval $CMD $ARGS 2>>"$LOG_FILE_ERROR" >>"$LOG_FILE_DEBUG"
     }
     ;;
-  # --cron)
-  #   shift 1
-  #   [ "$1" = "--help" ] && printf_help 'Usage: '$APPNAME' --cron remove | add "command"' && exit 0
-  #   [ "$1" = "--add" ] && shift 2 && __setupcrontab "0 0 * * *" "$*"
-  #   [ "$1" = "--del" ] && shift 2 && echo $* # && __removecrontab "$*"
-  #   exit "$?"
-  #;;
-
-  #--update) ###################### Update check ######################
-  #  shift 1
-  #  printf_error "Not enabled in apps: See the installer"
-  #  exit
-  #  ;;
-
-  # --help) ###################### help ######################
-  #   shift 1
-  #   __help
-  #   exit
-  #   ;;
-
-  # --version) ###################### get info from app ######################
-  #   shift 1
-  #   __version "${APPNAME:-$PROG}"
-  #   exit
-  #   ;;
 
   --vdebug) ###################### basic debug ######################
     shift 1
@@ -2897,6 +2872,32 @@ __options() {
     shift 1
     __remove_app "$*"
     ;;
+
+    # --cron)
+    #   shift 1
+    #   [ "$1" = "--help" ] && printf_help 'Usage: '$APPNAME' --cron remove | add "command"' && exit 0
+    #   [ "$1" = "--add" ] && shift 2 && __setupcrontab "0 0 * * *" "$*"
+    #   [ "$1" = "--del" ] && shift 2 && echo $* # && __removecrontab "$*"
+    #   exit "$?"
+    #;;
+
+    #--update) ###################### Update check ######################
+    #  shift 1
+    #  printf_error "Not enabled in apps: See the installer"
+    #  exit
+    #  ;;
+
+    # --help) ###################### help ######################
+    #   shift 1
+    #   __help
+    #   exit
+    #   ;;
+
+    # --version) ###################### get info from app ######################
+    #   shift 1
+    #   __version "${APPNAME:-$PROG}"
+    #   exit
+    #   ;;
 
     # -*)
     #   export option_two="$2"

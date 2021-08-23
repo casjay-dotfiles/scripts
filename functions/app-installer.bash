@@ -127,7 +127,7 @@ ORANGE="\033[0;33m"
 LIGHTRED='\033[1;31m'
 BG_GREEN="\[$(tput setab 2 2>/dev/null)\]"
 BG_RED="\[$(tput setab 9 2>/dev/null)\]"
-ICON_INFO="[ ℹ️ ]"
+ICON_INFO="[ ℹ️  ]"
 ICON_GOOD="[ ✔ ]"
 ICON_WARN="[ ❗ ]"
 ICON_ERROR="[ ✖ ]"
@@ -2011,7 +2011,7 @@ run_install_init() {
       printf_green "Installing ${1:-$APPNAME} to ${APPDIR/$HOME/\~}"
     fi
     if [[ "$INSTDIR" = "$APPDIR" ]]; then
-      printf_cyan "[ $ICON_INFO ] Note: The INSTDIR and APPDIR are the same"
+      printf_cyan "$ICON_INFO Note: The INSTDIR and APPDIR are the same"
     else
       true
       #printf_cyan "Copying files from $INSTDIR to $APPDIR"

@@ -1585,6 +1585,8 @@ sudorerun() {
   fi
 }
 sudoreq() {
+  sudo_check=$(sudo -H -S -- echo SUDO_OK 2>&1 &)
+  [[ $sudo_check == "SUDO_OK" ]] && return
   if [[ $UID != 0 ]]; then
     if builtin type -P ask_for_password &>/dev/null; then
       [[ "$SUDO_SUCCESS" = "TRUE" ]] || ask_for_password true

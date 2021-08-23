@@ -62,5 +62,6 @@ sudo git -C /usr/local/share/CasjaysDev/scripts pull
   
 <p align=center>
   <a href="https://github.com/casjay-dotfiles/scripts" target="_blank">scripts site</a><br /><br />
+  <a href="https://wakatime.com/@casjay" target="_blank"><img alt="Wakatime" src="https://wakatime.com/badge/github/casjay-dotfiles/scripts.svg"><br> <br>
   <a href="https://travis-ci.com/casjay-dotfiles/scripts" target="_blank"><img alt="Travis-CI" src="https://travis-ci.com/casjay-dotfiles/scripts.svg?branch=master"><br> <br>
 </p>  

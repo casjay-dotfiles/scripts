@@ -614,7 +614,8 @@ sudorerun() {
 }
 sudoreq() {
   if [[ $UID != 0 ]]; then
-    if cmd_exists ask_for_password && ask_for_password; then
+    if builtin type -P ask_for_password &>/dev/null && ask_for_password && [[ "$SUDO_SUCCESS" != "TRUE" ]]; then
+      export SUDO_SUCCESS="TRUE"
       return 0
     else
       printf_newline

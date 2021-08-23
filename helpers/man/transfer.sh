@@ -34,13 +34,13 @@ __printf_help() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf '\n'
 __printf_head "5" "transfer.sh: Upload file to https://transfer.sh"
-__printf_help " " "                                                  "
+
 __printf_help "5" "Usage: transfer.sh []"
-__printf_help " " "                                                  "
-__printf_head "5" "Other transfer.sh Options"
-__printf_help "4" "transfer.sh --config                          - Generate user config file"
-__printf_help "4" "transfer.sh --version                         - Show script version"
-__printf_help "4" "transfer.sh --help                            - Shows this message"
+
+__printf_head "5" "Other Options"
+__printf_help "4" "transfer.sh --config                              - Generate user config file"
+__printf_help "4" "transfer.sh --version                             - Show script version"
+__printf_help "4" "transfer.sh --help                                - Shows this message"
 __printf_help "4" "transfer.sh --options                             - Shows all available options"
 __printf_help " " "                                                  "
 #__printf_head "5" "This is a work in progress"

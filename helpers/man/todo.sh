@@ -34,13 +34,13 @@ __printf_help() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf '\n'
 __printf_head "5" "todo.sh: A todo manager"
-__printf_help " " "                                                  "
+
 __printf_help "5" "Usage: todo.sh []"
-__printf_help " " "                                                  "
-__printf_head "5" "Other todo.sh Options"
-__printf_help "4" "todo.sh --config                              - Generate user config file"
-__printf_help "4" "todo.sh --version                             - Show script version"
-__printf_help "4" "todo.sh --help                                - Shows this message"
+
+__printf_head "5" "Other Options"
+__printf_help "4" "todo.sh --config                                  - Generate user config file"
+__printf_help "4" "todo.sh --version                                 - Show script version"
+__printf_help "4" "todo.sh --help                                    - Shows this message"
 __printf_help "4" "todo.sh --options                                 - Shows all available options"
 __printf_help " " "                                                  "
 #__printf_head "5" "This is a work in progress"

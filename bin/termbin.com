@@ -196,14 +196,22 @@ OLDIFS="$IFS"
 IFS=''
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
-if [ -n "$1" ]; then
-  cat "$1" | $TERMBIN_COM_NETCATCMD $TERMBIN_COM_URL_HOST $TERMBIN_COM_URL_HOST_PORT >"$TERMBIN_COM_TEMP_FILE" 2>/dev/null
+if [ ${#} -eq 0 ]; then
+  if [ -p "/dev/stdin" ]; then
+    message="$(</dev/stdin)"
+    printf '%s' "$message" | $TERMBIN_COM_NETCATCMD $TERMBIN_COM_URL_HOST $TERMBIN_COM_URL_HOST_PORT >"$TERMBIN_COM_TEMP_FILE" 2>/dev/null
+  else
+    echo "Type your paste, hit control-d when done"
+    message="$(</dev/stdin)"
+    printf '%s' "$message" | $TERMBIN_COM_NETCATCMD $TERMBIN_COM_URL_HOST $TERMBIN_COM_URL_HOST_PORT >"$TERMBIN_COM_TEMP_FILE" 2>/dev/null
+  fi
 else
-  cat - | $TERMBIN_COM_NETCATCMD $TERMBIN_COM_URL_HOST $TERMBIN_COM_URL_HOST_PORT >"$TERMBIN_COM_TEMP_FILE" #2>/dev/null
+  message="$*"
+  printf '%s' "$message" | $TERMBIN_COM_NETCATCMD $TERMBIN_COM_URL_HOST $TERMBIN_COM_URL_HOST_PORT >"$TERMBIN_COM_TEMP_FILE" 2>/dev/null
 fi
 if [ -f "$TERMBIN_COM_TEMP_FILE" ]; then
-  echo "" >>"$TERMBIN_COM_TEMP_FILE"
-  cat "$TERMBIN_COM_TEMP_FILE" 2>/dev/null | printf_readline
+  printf_readline $TERMBIN_COM_OUTPUT_COLOR <"$TERMBIN_COM_TEMP_FILE" 2>/dev/null
+  printf '\n'
 else
   printf_red "Something went wrong"
 fi

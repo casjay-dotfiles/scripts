@@ -6,7 +6,7 @@ FUNCFILE="simple.bash"
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
-[[ "$1" == "--debug" ]] && shift 1 && set -euo pipefail
+[[ "$1" == "--debug" ]] && shift 1 && set -xo pipefail && export DEBUGGING="true"
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ##@Version       : 020920211625-git

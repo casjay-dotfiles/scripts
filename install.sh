@@ -5,7 +5,7 @@ USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
-[[ "$1" == "--debug" ]] && shift 1 && set -euo pipefail
+[[ "$1" == "--debug" ]] && shift 1 && set -xo pipefail && export DEBUGGING="true"
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ##@Version       : 021020210200-git

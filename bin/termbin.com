@@ -131,7 +131,7 @@ TERMBIN_COM_URL_HOST_PORT="${TERMBIN_COM_URL_HOST_PORT:-9999}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set additional variables/Argument/Option settings
 SETARGS="$*"
-SHORTOPTS="z:"
+SHORTOPTS=""
 LONGOPTS="options,config,version,help,dir:"
 ARRAY=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -162,7 +162,7 @@ while :; do
     __gen_config
     exit $?
     ;;
-  -z | --dir)
+  --dir)
     TERMBIN_COM_CWD="$2"
     shift 2
     ;;

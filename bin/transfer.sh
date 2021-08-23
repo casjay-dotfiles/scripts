@@ -128,7 +128,7 @@ TRANSFER_SH_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$TRANSFER_SH_NOTIFY_CLIENT
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set additional variables/Argument/Option settings
 SETARGS="$*"
-SHORTOPTS="z:"
+SHORTOPTS=""
 LONGOPTS="options,config,version,help,dir:"
 ARRAY="scan virustotal backup"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -159,7 +159,7 @@ while :; do
     __gen_config
     exit $?
     ;;
-  -z | --dir)
+  --dir)
     TRANSFER_SH_CWD="$2"
     shift 1
     ;;

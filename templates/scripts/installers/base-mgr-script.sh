@@ -148,7 +148,7 @@ GEN_SCRIPT_REPLACE_ENV_CLONE_DIR="${GEN_SCRIPT_REPLACE_ENV_CLONE_DIR:-$HOME/Proj
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set additional variables/Argument/Option settings
 SETARGS="$*"
-SHORTOPTS="z:,a,f"
+SHORTOPTS="a,f"
 LONGOPTS="options,config,version,help,dir:force,all"
 ARRAY="download,list,search,available,remove,version,update,install,cron"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -182,7 +182,7 @@ while :; do
     __gen_config
     exit $?
     ;;
-  -z | --dir)
+  --dir)
     shift 1
     GEN_SCRIPT_REPLACE_ENV_CWD="$1"
     ;;

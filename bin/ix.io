@@ -128,7 +128,7 @@ IX_IO_SERVER_HOST="${IX_IO_SERVER_HOST:-http://ix.io}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set additional variables/Argument/Option settings
 SETARGS="$*"
-SHORTOPTS="z:,d:,i:,n:"
+SHORTOPTS="d:,i:,n:"
 LONGOPTS="options,config,version,help,dir:"
 ARRAY=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -159,7 +159,7 @@ while :; do
     __gen_config
     exit $?
     ;;
-  -z | --dir)
+  --dir)
     IX_IO_CWD="$2"
     shift 2
     ;;

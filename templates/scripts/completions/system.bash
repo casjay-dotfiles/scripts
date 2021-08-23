@@ -65,7 +65,7 @@ _GEN_SCRIPT_REPLACE_FILENAME() {
       COMPREPLY=($(compgen -W '' -- "${cur}"))
       ;;
 
-    -z | --dir)
+    --dir)
       local prev="dir"
       _filedir
       return

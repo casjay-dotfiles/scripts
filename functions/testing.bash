@@ -2898,9 +2898,9 @@ __options() {
     __remove_app "$*"
     ;;
 
-  -*)
-    export option_two="$2"
-    ;;
+    # -*)
+    #   export option_two="$2"
+    #   ;;
   esac
 }
 user_install # default type

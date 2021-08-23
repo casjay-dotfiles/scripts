@@ -128,9 +128,9 @@ LIGHTRED='\033[1;31m'
 BG_GREEN="\[$(tput setab 2 2>/dev/null)\]"
 BG_RED="\[$(tput setab 9 2>/dev/null)\]"
 ICON_INFO="[ ℹ️  ]"
-ICON_GOOD="[ ✅  ]"
-ICON_WARN="[ ❗  ]"
-ICON_ERROR="[ ❌  ]"
+ICON_GOOD="[ ✅ ]"
+ICON_WARN="[ ❗ ]"
+ICON_ERROR="[ ❌ ]"
 ICON_QUESTION="[ ❓ ]"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_newline() { printf "${*:-}\n"; }

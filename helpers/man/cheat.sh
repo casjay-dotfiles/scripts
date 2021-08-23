@@ -36,19 +36,15 @@ printf '\n'
 __printf_head "5" "cheat.sh: Get help with commands"
 __printf_help " " "                                                  "
 __printf_help "5" "Usage: cheat.sh [searchTerm]"
-# Begin import
-__printf_head "5" "cheat.sh: Get help with commands"
-__printf_help "2" "Lookup utitilies"
+
 __printf_help "4" "cheat.sh --shell [LANG]                           - Shell mode (open LANG if specified)"
 __printf_help "4" "cheat.sh --standalone-install [DIR|help]          - Install cheat.sh in the standalone mode"
 __printf_help "4" "cheat.sh --mode [auto|lite]                       - Set (or display) mode of operation"
-# End Import
-__printf_help "4" " -  "
-__printf_help " " "                                                  "
+
 __printf_head "5" "Other cheat.sh Options"
-__printf_help "4" "cheat.sh --config                             - Generate user config file"
-__printf_help "4" "cheat.sh --version                            - Show script version"
-__printf_help "4" "cheat.sh --help                               - Shows this message"
+__printf_help "4" "cheat.sh --config                                 - Generate user config file"
+__printf_help "4" "cheat.sh --version                                - Show script version"
+__printf_help "4" "cheat.sh --help                                   - Shows this message"
 __printf_help "4" "cheat.sh --options                                - Shows all available options"
 __printf_help " " "                                                  "
 #__printf_head "5" "This is a work in progress"

@@ -48,8 +48,8 @@ __options "$@"
 __list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gen_config() {
-  printf_green "Generating the config file in"
-  printf_green "$TRANSFER_SH_CONFIG_DIR/$TRANSFER_SH_CONFIG_FILE"
+  [[ -n "$SHOW_CONFIG_MESSAGE" ]] || printf_green "Generating the config file in"
+  [[ -n "$SHOW_CONFIG_MESSAGE" ]] || printf_green "$TRANSFER_SH_CONFIG_DIR/$TRANSFER_SH_CONFIG_FILE"
   [ -d "$TRANSFER_SH_CONFIG_DIR" ] || mkdir -p "$TRANSFER_SH_CONFIG_DIR"
   [ -d "$TRANSFER_SH_CONFIG_BACKUP_DIR" ] || mkdir -p "$TRANSFER_SH_CONFIG_BACKUP_DIR"
   [ -f "$TRANSFER_SH_CONFIG_DIR/$TRANSFER_SH_CONFIG_FILE" ] &&
@@ -71,12 +71,13 @@ TRANSFER_SH_OUTPUT_COLOR_ERROR="${TRANSFER_SH_OUTPUT_COLOR_ERROR:-1}"
 
 EOF
   if [ -f "$TRANSFER_SH_CONFIG_DIR/$TRANSFER_SH_CONFIG_FILE" ]; then
-    printf_green "Your config file for transfer.sh has been created"
-    true
+    [[ -n "$SHOW_CONFIG_MESSAGE" ]] || printf_green "Your config file for transfer.sh has been created"
+    $APPNAME "$*" && exitCode=0 || exitCode=$?
   else
     printf_red "Failed to create the config file"
-    false
+    exitCode=1
   fi
+  exit ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional functions
@@ -121,7 +122,7 @@ TRANSFER_SH_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$TRANSFER_SH_NOTIFY_CLIENT
 [ -d "$TRANSFER_SH_CACHE_DIR" ] || mkdir -p "$TRANSFER_SH_CACHE_DIR" &>/dev/null
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate non-existing config files
-[ -f "$TRANSFER_SH_CONFIG_DIR/$TRANSFER_SH_CONFIG_FILE" ] || __gen_config &>/dev/null
+[ -f "$TRANSFER_SH_CONFIG_DIR/$TRANSFER_SH_CONFIG_FILE" ] || SHOW_CONFIG_MESSAGE=NO __gen_config "$*"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show warn message if variables are missing
 

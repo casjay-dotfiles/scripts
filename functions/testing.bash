@@ -2435,6 +2435,7 @@ __help() {
   fi
   printf "\n"
   ${*:-true}
+  echo Test
 }
 __version() {
   local name="${1:-$(__basename $0)}"          # get from os

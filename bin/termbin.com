@@ -86,36 +86,45 @@ EOF
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default variables
 exitCode="0"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application Folders
+TERMBIN_COM_LOG_DIR="${TERMBIN_COM_LOG_DIR:-$HOME/.local/log/termbin.com}"
 TERMBIN_COM_CACHE_DIR="${TERMBIN_COM_CACHE_DIR:-$HOME/.cache/termbin.com}"
 TERMBIN_COM_CONFIG_DIR="${TERMBIN_COM_CONFIG_DIR:-$HOME/.config/myscripts/termbin.com}"
-TERMBIN_COM_OPTIONS_DIR="${TERMBIN_COM_OPTIONS_DIR:-$HOME/.local/share/myscripts/termbin.com/options}"
 TERMBIN_COM_CONFIG_BACKUP_DIR="${TERMBIN_COM_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/termbin.com/backups}"
 TERMBIN_COM_TEMP_DIR="${TERMBIN_COM_TEMP_DIR:-$HOME/.local/tmp/system_scripts/termbin.com}"
+TERMBIN_COM_OPTIONS_DIR="${TERMBIN_COM_OPTIONS_DIR:-$HOME/.local/share/myscripts/termbin.com/options}"
 TERMBIN_COM_TEMP_FILE="${TERMBIN_COM_TEMP_FILE:-$(mktemp $TERMBIN_COM_TEMP_DIR/XXXXXX 2>/dev/null)}"
 TERMBIN_COM_CONFIG_FILE="${TERMBIN_COM_CONFIG_FILE:-settings.conf}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+TERMBIN_COM_OUTPUT_COLOR="${TERMBIN_COM_OUTPUT_COLOR:-4}"
+TERMBIN_COM_OUTPUT_COLOR_2="${TERMBIN_COM_OUTPUT_COLOR:-6}"
+TERMBIN_COM_OUTPUT_COLOR_GOOD="${TERMBIN_COM_OUTPUT_COLOR_GOOD:-2}"
+TERMBIN_COM_OUTPUT_COLOR_ERROR="${TERMBIN_COM_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
 TERMBIN_COM_GOOD_MESSAGE="${TERMBIN_COM_GOOD_MESSAGE:-Everything Went OK}"
 TERMBIN_COM_ERROR_MESSAGE="${TERMBIN_COM_ERROR_MESSAGE:-Well that didn\'t work}"
 TERMBIN_COM_NOTIFY_ENABLED="${TERMBIN_COM_NOTIFY_ENABLED:-yes}"
 TERMBIN_COM_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
 TERMBIN_COM_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$TERMBIN_COM_NOTIFY_CLIENT_ICON}"
-TERMBIN_COM_OUTPUT_COLOR="${TERMBIN_COM_OUTPUT_COLOR:-5}"
-TERMBIN_COM_OUTPUT_COLOR_GOOD="${TERMBIN_COM_OUTPUT_COLOR_GOOD:-2}"
-TERMBIN_COM_OUTPUT_COLOR_ERROR="${TERMBIN_COM_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application overrides
 TERMBIN_COM_NETCATCMD="${TERMBIN_COM_NETCATCMD:-$(type -P netcat 2>/dev/null || type -P nc 2>/dev/null)}"
 TERMBIN_COM_URL_HOST="${TERMBIN_COM_URL_HOST:-termbin.com}"
 TERMBIN_COM_URL_HOST_PORT="${TERMBIN_COM_URL_HOST_PORT:-9999}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$TERMBIN_COM_CONFIG_DIR/$TERMBIN_COM_CONFIG_FILE" ] && . "$TERMBIN_COM_CONFIG_DIR/$TERMBIN_COM_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure Directories exist
+[ -d "$TERMBIN_COM_LOG_DIR" ] || mkdir -p "$TERMBIN_COM_LOG_DIR" &>/dev/null
 [ -d "$TERMBIN_COM_TEMP_DIR" ] || mkdir -p "$TERMBIN_COM_TEMP_DIR" &>/dev/null
 [ -d "$TERMBIN_COM_CACHE_DIR" ] || mkdir -p "$TERMBIN_COM_CACHE_DIR" &>/dev/null
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Generate config files
-[ -f "$TERMBIN_COM_CONFIG_DIR/$TERMBIN_COM_CONFIG_FILE" ] ||
-  __gen_config &>/dev/null
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Import config
-[ -f "$TERMBIN_COM_CONFIG_DIR/$TERMBIN_COM_CONFIG_FILE" ] &&
-  . "$TERMBIN_COM_CONFIG_DIR/$TERMBIN_COM_CONFIG_FILE"
+# Generate non-existing config files
+[ -f "$TERMBIN_COM_CONFIG_DIR/$TERMBIN_COM_CONFIG_FILE" ] || __gen_config &>/dev/null
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show warn message if variables are missing
 

@@ -2434,8 +2434,6 @@ __help() {
     printf_help "$CASJAYSDEVDIR/helpers/man/$APPNAME"
   fi
   printf "\n"
-  ${*:-true}
-  echo Test
 }
 __version() {
   local name="${1:-$(__basename $0)}"          # get from os
@@ -2872,36 +2870,6 @@ __options() {
     shift 1
     __remove_app "$*"
     ;;
-
-    # --cron)
-    #   shift 1
-    #   [ "$1" = "--help" ] && printf_help 'Usage: '$APPNAME' --cron remove | add "command"' && exit 0
-    #   [ "$1" = "--add" ] && shift 2 && __setupcrontab "0 0 * * *" "$*"
-    #   [ "$1" = "--del" ] && shift 2 && echo $* # && __removecrontab "$*"
-    #   exit "$?"
-    #;;
-
-    #--update) ###################### Update check ######################
-    #  shift 1
-    #  printf_error "Not enabled in apps: See the installer"
-    #  exit
-    #  ;;
-
-    # --help) ###################### help ######################
-    #   shift 1
-    #   __help
-    #   exit
-    #   ;;
-
-    # --version) ###################### get info from app ######################
-    #   shift 1
-    #   __version "${APPNAME:-$PROG}"
-    #   exit
-    #   ;;
-
-    # -*)
-    #   export option_two="$2"
-    #   ;;
   esac
 }
 user_install # default type

@@ -1642,7 +1642,6 @@ __help() {
     printf_help "$CASJAYSDEVDIR/helpers/man/$APPNAME"
   fi
   printf "\n"
-  exit 0
 }
 __version() {
   local name="${1:-$(basename $0)}"          # get from os
@@ -1727,26 +1726,6 @@ __options() {
     printf_info "FunctionsFile              $SCRIPTSFUNCTFILE"
     exit
     ;;
-
-  --help) ###################### help ######################
-    shift 1
-    __help
-    exit
-    ;;
-
-  --version) ###################### get info from app ######################
-    shift 1
-    __version "${APPNAME:-$PROG}"
-    exit
-    ;;
-
-    # if [ "$1" = "--cron" ]; then
-    #   [ "$1" = "--help" ] && printf_help 'Usage: '$APPNAME' --cron remove | add "command"' && exit 0
-    #   [ "$1" = "--add" ] && shift 2 && __setupcrontab "0 0 * * *" "$*"
-    #   [ "$1" = "--del" ] && shift 2 && echo $* # && __removecrontab "$*"
-    #   shift
-    #   exit "$?"
-    # fi
 
   --remove | --uninstall)
     shift 1

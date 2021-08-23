@@ -622,7 +622,7 @@ __pkmgr_gui() {
 if [[ -f "$(builtin type -P xclip 2>/dev/null)" ]]; then
   __clipboard() { xclip -selection __clipboard; }
 elif [[ -f "$(builtin type -P xsel 2>/dev/null)" ]]; then
-  __clipboard() { xsel -ib; }
+  __clipboard() { xsel -ip; }
 elif [[ -f "$(builtin type -P aa clip.exe 2>/dev/null)" ]]; then
   __clipboard() { clip.exe; }
 elif [[ -f "$(builtin type -P pbcopy 2>/dev/null)" ]]; then

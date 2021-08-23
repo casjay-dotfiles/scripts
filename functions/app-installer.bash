@@ -614,7 +614,7 @@ sudorerun() {
 }
 sudoreq() {
   if [[ $UID != 0 ]]; then
-    if cmd_exist ask_for_password && ask_for_password; then
+    if cmd_exists ask_for_password && ask_for_password; then
       return 0
     else
       printf_newline

@@ -48,8 +48,8 @@ __options "$@"
 __list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gen_config() {
-  [[ -n "$SHOW_CONFIG_MESSAGE" ]] || printf_green "Generating the config file in"
-  [[ -n "$SHOW_CONFIG_MESSAGE" ]] || printf_green "$IX_IO_CONFIG_DIR/$IX_IO_CONFIG_FILE"
+  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Generating the config file in"
+  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "$IX_IO_CONFIG_DIR/$IX_IO_CONFIG_FILE"
   [ -d "$IX_IO_CONFIG_DIR" ] || mkdir -p "$IX_IO_CONFIG_DIR"
   [ -d "$IX_IO_CONFIG_BACKUP_DIR" ] || mkdir -p "$IX_IO_CONFIG_BACKUP_DIR"
   [ -f "$IX_IO_CONFIG_DIR/$IX_IO_CONFIG_FILE" ] &&
@@ -72,9 +72,12 @@ IX_IO_OUTPUT_COLOR_ERROR="${IX_IO_OUTPUT_COLOR_ERROR:-1}"
 
 EOF
   if [ -f "$IX_IO_CONFIG_DIR/$IX_IO_CONFIG_FILE" ]; then
-    [[ -n "$SHOW_CONFIG_MESSAGE" ]] || printf_green "Your config file for ix.io has been created"
+    [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for ix.io has been created"
     exitCode=0
-    exec $APPNAME "$*"
+    if [[ "$INIT_CONFIG" = "TRUE" ]]; then
+      eval $APPNAME "$*"
+      exit $?
+    fi
   else
     printf_red "Failed to create the config file"
     exitCode=1
@@ -123,7 +126,7 @@ IX_IO_SERVER_HOST="${IX_IO_SERVER_HOST:-http://ix.io}"
 [ -d "$IX_IO_CACHE_DIR" ] || mkdir -p "$IX_IO_CACHE_DIR" &>/dev/null
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate non-existing config files
-[ -f "$IX_IO_CONFIG_DIR/$IX_IO_CONFIG_FILE" ] || SHOW_CONFIG_MESSAGE=NO __gen_config "$*"
+[ -f "$IX_IO_CONFIG_DIR/$IX_IO_CONFIG_FILE" ] || INIT_CONFIG=TRUE __gen_config "${SETARGS:-$*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show warn message if variables are missing
 

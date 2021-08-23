@@ -48,8 +48,8 @@ __options "$@"
 __list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gen_config() {
-  [[ -n "$SHOW_CONFIG_MESSAGE" ]] || printf_green "Generating the config file in"
-  [[ -n "$SHOW_CONFIG_MESSAGE" ]] || printf_green "$CHEAT_SH_CONFIG_DIR/$CHEAT_SH_CONFIG_FILE"
+  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Generating the config file in"
+  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "$CHEAT_SH_CONFIG_DIR/$CHEAT_SH_CONFIG_FILE"
   [ -d "$CHEAT_SH_CONFIG_DIR" ] || mkdir -p "$CHEAT_SH_CONFIG_DIR"
   [ -d "$CHEAT_SH_CONFIG_BACKUP_DIR" ] || mkdir -p "$CHEAT_SH_CONFIG_BACKUP_DIR"
   [ -f "$CHEAT_SH_CONFIG_DIR/$CHEAT_SH_CONFIG_FILE" ] &&
@@ -74,9 +74,12 @@ CHEAT_SH_OUTPUT_COLOR_ERROR="${CHEAT_SH_OUTPUT_COLOR_ERROR:-1}"
 
 EOF
   if [ -f "$CHEAT_SH_CONFIG_DIR/$CHEAT_SH_CONFIG_FILE" ]; then
-    [[ -n "$SHOW_CONFIG_MESSAGE" ]] || printf_green "Your config file for cheat.sh has been created"
+    [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for cheat.sh has been created"
     exitCode=0
-    exec $APPNAME "$*"
+    if [[ "$INIT_CONFIG" = "TRUE" ]]; then
+      eval $APPNAME "$*"
+      exit $?
+    fi
   else
     printf_red "Failed to create the config file"
     exitCode=1
@@ -137,7 +140,7 @@ CHEAT_SH_BIN_DIR="${CHEAT_SH_BIN_DIR:-$CASJAYSDEVDIR/sources}"
 [ -d "$CHEAT_SH_CACHE_DIR" ] || mkdir -p "$CHEAT_SH_CACHE_DIR" &>/dev/null
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate non-existing config files
-[ -f "$CHEAT_SH_CONFIG_DIR/$CHEAT_SH_CONFIG_FILE" ] || SHOW_CONFIG_MESSAGE=NO __gen_config "$*"
+[ -f "$CHEAT_SH_CONFIG_DIR/$CHEAT_SH_CONFIG_FILE" ] || INIT_CONFIG=TRUE __gen_config "${SETARGS:-$*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show warn message if variables are missing
 

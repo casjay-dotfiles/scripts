@@ -74,12 +74,13 @@ TERMBIN_COM_OUTPUT_COLOR_ERROR="${TERMBIN_COM_OUTPUT_COLOR_ERROR:-1}"
 EOF
   if [ -f "$TERMBIN_COM_CONFIG_DIR/$TERMBIN_COM_CONFIG_FILE" ]; then
     [[ -n "$SHOW_CONFIG_MESSAGE" ]] || printf_green "Your config file for termbin.com has been created"
-    $APPNAME "$*" && exitCode=0 || exitCode=$?
+    exitCode=0
+    exec $APPNAME "$*"
   else
     printf_red "Failed to create the config file"
     exitCode=1
   fi
-  exit ${exitCode:-$?}
+  return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional functions

@@ -72,12 +72,13 @@ GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$GEN_SCRIPT_REP
 EOF
   if [ -f "$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE" ]; then
     [[ -n "$SHOW_CONFIG_MESSAGE" ]] || printf_green "Your config file for GEN_SCRIPT_REPLACE_FILENAME has been created"
-    $APPNAME "$*" && exitCode=0 || exitCode=$?
+    exitCode=0
+    exec $APPNAME "$*"
   else
     printf_red "Failed to create the config file"
     exitCode=1
   fi
-  exit ${exitCode:-$?}
+  return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional functions

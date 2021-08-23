@@ -564,6 +564,25 @@ printf_debug() {
   exit 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__yad__text() {
+  if cmd_exists yad; then
+    yad --text-info --center --title="$1" --width=${YAD_WIDTH:-400} --height=${YAD_HEIGHT:-400} 2>/dev/null &
+  elif cmd_exists zenity; then
+    zenity --text-info --center --title="$1" --width=${YAD_WIDTH:-400} --height=${YAD_HEIGHT:-400} 2>/dev/null &
+  else
+    true
+  fi
+}
+__yad_list() {
+  if cmd_exists yad1; then
+    yad --list --center --title="$1" --width=${YAD_WIDTH:-400} --height=${YAD_HEIGHT:-400} --column=${2:-Results} 2>/dev/null &
+  elif cmd_exists zenity; then
+    zenity --list --center --title="$1" --width=${YAD_WIDTH:-400} --height=${YAD_HEIGHT:-400} --column=${2:-Results} 2>/dev/null &
+  else
+    true
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #counter time "color" "message" "seconds(s) "
 __counter() {
   wait_time=$1 # seconds

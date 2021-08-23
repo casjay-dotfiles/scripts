@@ -2011,7 +2011,7 @@ run_install_init() {
       printf_green "Installing ${1:-$APPNAME} to ${APPDIR/$HOME/\~}"
     fi
     if [[ "$INSTDIR" = "$APPDIR" ]]; then
-      printf_cyan "The INSTDIR and APPDIR are the same"
+      printf_cyan "[ $ICON_INFO ] Note: The INSTDIR and APPDIR are the same"
     else
       true
       #printf_cyan "Copying files from $INSTDIR to $APPDIR"

@@ -29,7 +29,7 @@ trap 'exitCode=${exitCode:-$?};[ -f "$GEN_SCRIPT_REPLACE_ENV_TEMP_FILE" ] && rm 
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
 SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
 SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
-SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/GEN_SCRIPT_REPLACE_ENV/installer/raw/main/functions}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/GEN_SCRIPT_REPLACE_ENV_/installer/raw/main/functions}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
   . "$PWD/$SCRIPTSFUNCTFILE"
@@ -40,12 +40,12 @@ else
   exit 1
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# user system devenv GEN_SCRIPT_REPLACE_ENV dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+# user system devenv GEN_SCRIPT_REPLACE_ENV_ dockermgr fontmgr iconmgr pkmgr systemmgr thememgr GEN_SCRIPT_REPLACE_FILENAMEmgr
 GEN_SCRIPT_REPLACE_FILENAME_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set functions
-__list_available() { echo -e "$LIST" | tr ',' ' ' | tr ' ' '\n' && exit 0; }
+__list_available() { echo -e "${1:-$LIST}" | tr ',' ' ' | tr ' ' '\n' && exit 0; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -59,15 +59,22 @@ __gen_config() {
   cat <<EOF >"$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE"
 # Settings for GEN_SCRIPT_REPLACE_FILENAME
 GEN_SCRIPT_REPLACE_ENV_CLONE_DIR="${GEN_SCRIPT_REPLACE_ENV_CLONE_DIR:-$HOME/Projects/github/GEN_SCRIPT_REPLACE_FILENAME}"
-GEN_SCRIPT_REPLACE_ENV_GIT_REPO="${GEN_SCRIPT_REPLACE_ENV_GIT_REPO:-https://github.com/GEN_SCRIPT_REPLACE_FILENAME}"
+GEN_SCRIPT_REPLACE_ENV_REPO_URL="${GEN_SCRIPT_REPLACE_ENV_REPO_URL:-https://github.com/GEN_SCRIPT_REPLACE_FILENAME}"
+GEN_SCRIPT_REPLACE_ENV_REPO_API="${GEN_SCRIPT_REPLACE_ENV_REPO_API:-https://api.github.com/orgs/GEN_SCRIPT_REPLACE_FILENAME/repos}"
+GEN_SCRIPT_REPLACE_ENV_REPO_API_PER_PAGE="${GEN_SCRIPT_REPLACE_ENV_REPO_API_PER_PAGE:-1000}"
 GEN_SCRIPT_REPLACE_ENV_FORCE_INSTALL="${GEN_SCRIPT_REPLACE_ENV_FORCE_INSTALL:-false}"
 
 # Notification settings
 GEN_SCRIPT_REPLACE_ENV_GOOD_MESSAGE="${GEN_SCRIPT_REPLACE_ENV_GOOD_MESSAGE:-Everything Went OK}"
-GEN_SCRIPT_REPLACE_ENV_ERROR_MESSAGE="${GEN_SCRIPT_REPLACE_ENV_ERROR_MESSAGE:-Well that didn\'t work}"
+GEN_SCRIPT_REPLACE_ENV_ERROR_MESSAGE="${GEN_SCRIPT_REPLACE_ENV_ERROR_MESSAGE:-Well that did not work}"
 GEN_SCRIPT_REPLACE_ENV_NOTIFY_ENABLED="${GEN_SCRIPT_REPLACE_ENV_NOTIFY_ENABLED:-yes}"
 GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
 GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_ICON}"
+
+# Colorization settings
+GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR:-5}"
+GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_GOOD="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_GOOD:-2}"
+GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_ERROR="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_ERROR:-1}"
 
 EOF
   if [ -f "$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE" ]; then
@@ -87,24 +94,35 @@ EOF
 # Additional functions
 __download() {
   REPO_NAME="$1"
-  REPO_URL="$GEN_SCRIPT_REPLACE_ENV_GIT_REPO/$REPO_NAME"
-  DIR_NAME="$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR/$REPO_NAME"
-  gitadmin clone "$REPO_URL" "$DIR_NAME"
-  return $?
+  REPO_URL="${GEN_SCRIPT_REPLACE_ENV_REPO_URL}/${REPO_NAME}"
+  DIR_NAME="${GEN_SCRIPT_REPLACE_ENV_CWD:-$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR}/${REPO_NAME}"
+  if cmd_exists gitadmin; then
+    gitadmin clone "$REPO_URL" "$DIR_NAME"
+    exitCode=$?
+  else
+    if [[ -d "$DIR_NAME/.git" ]]; then
+      git -C "$DIR_NAME" pull -q &>/dev/null
+      exitCode=$?
+    else
+      git clone "$REPO_URL" "$DIR_NAME" -q &>/dev/null
+      exitCode=$?
+    fi
+  fi
+  return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __api_list() {
-  local api_url="https://api.github.com/orgs/GEN_SCRIPT_REPLACE_FILENAME/repos?per_page=1000"
-  am_i_online && curl -q -H "Accept: application/vnd.github.v3+json" -LSs "$api_url" 2>/dev/null |
-    jq '.[].name' 2>/dev/null | sed 's#"##g' | grep -v 'template' || __list_options
+  local api_url="${GEN_SCRIPT_REPLACE_ENV_REPO_API:-https://api.github.com/orgs/GEN_SCRIPT_REPLACE_FILENAME/repos?per_page=${GEN_SCRIPT_REPLACE_ENV_REPO_API_PER_PAGE:-1000}}"
+  if am_i_online -s --error "$GEN_SCRIPT_REPLACE_ENV_REPO_API"; then
+    curl -q -H "Accept: application/vnd.github.v3+json" -LSs "$api_url" 2>/dev/null | jq '.[].name' 2>/dev/null | sed 's#"##g' | grep -v 'template' || __list_options
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_search() {
+  local results=""
   [ $# = 0 ] && printf_exit "Nothing to search for"
   [ -n "$LIST" ] || printf_exit "The enviroment variable LIST does not exist"
-  local -a LSINST="$*"
-  local results=""
-  for app in ${LSINST[*]}; do
+  for app in "$@"; do
     export APPNAME="$app" REPO="$REPO/$APPNAME" REPORAW="$REPO/raw/$GIT_REPO_BRANCH"
     local -a result+="$(echo -e "$LIST" | tr ' ' '\n' | grep -Fi "$app" | grep -sv '^$') "
   done
@@ -120,35 +138,47 @@ __run_search() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default variables
 exitCode="0"
-GEN_SCRIPT_REPLACE_ENV_CACHE_DIR="${GEN_SCRIPT_REPLACE_ENV_CACHE_DIR:-$HOME/.cache/GEN_SCRIPT_REPLACE_FILENAME}"
-GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR="${GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR:-$HOME/.config/myscripts/GEN_SCRIPT_REPLACE_FILENAME}"
-GEN_SCRIPT_REPLACE_ENV_OPTIONS_DIR="${GEN_SCRIPT_REPLACE_ENV_OPTIONS_DIR:-$HOME/.local/share/myscripts/GEN_SCRIPT_REPLACE_FILENAME/options}"
-GEN_SCRIPT_REPLACE_ENV_CONFIG_BACKUP_DIR="${GEN_SCRIPT_REPLACE_ENV_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/GEN_SCRIPT_REPLACE_FILENAME/backups}"
-GEN_SCRIPT_REPLACE_ENV_TEMP_DIR="${GEN_SCRIPT_REPLACE_ENV_TEMP_DIR/system_scripts/GEN_SCRIPT_REPLACE_FILENAME:-$HOME/.local/tmp/system_scripts/GEN_SCRIPT_REPLACE_FILENAME}"
-GEN_SCRIPT_REPLACE_ENV_TEMP_FILE="${GEN_SCRIPT_REPLACE_ENV_TEMP_DIR:-$HOME/.local/tmp/GEN_SCRIPT_REPLACE_FILENAME}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application Folders
+GEN_SCRIPT_REPLACE_ENV_LOG_DIR="${GEN_SCRIPT_REPLACE_ENV_LOG_DIR:-$HOME/.local/log/GEN_SCRIPT_REPLACE_ENV_}"
+GEN_SCRIPT_REPLACE_ENV_CACHE_DIR="${GEN_SCRIPT_REPLACE_ENV_CACHE_DIR:-$HOME/.cache/GEN_SCRIPT_REPLACE_ENV_}"
+GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR="${GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR:-$HOME/.config/myscripts/GEN_SCRIPT_REPLACE_ENV_}"
+GEN_SCRIPT_REPLACE_ENV_CONFIG_BACKUP_DIR="${GEN_SCRIPT_REPLACE_ENV_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/GEN_SCRIPT_REPLACE_ENV_/backups}"
+GEN_SCRIPT_REPLACE_ENV_TEMP_DIR="${GEN_SCRIPT_REPLACE_ENV_TEMP_DIR:-$HOME/.local/tmp/system_scripts/GEN_SCRIPT_REPLACE_ENV_}"
+GEN_SCRIPT_REPLACE_ENV_OPTIONS_DIR="${GEN_SCRIPT_REPLACE_ENV_OPTIONS_DIR:-$HOME/.local/share/myscripts/GEN_SCRIPT_REPLACE_ENV_/options}"
+GEN_SCRIPT_REPLACE_ENV_TEMP_FILE="${GEN_SCRIPT_REPLACE_ENV_TEMP_FILE:-$(mktemp $GEN_SCRIPT_REPLACE_ENV_TEMP_DIR/XXXXXX 2>/dev/null)}"
 GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE="${GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE:-settings.conf}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR:-4}"
+GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_2="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR:-6}"
+GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_GOOD="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_GOOD:-2}"
+GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_ERROR="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
 GEN_SCRIPT_REPLACE_ENV_GOOD_MESSAGE="${GEN_SCRIPT_REPLACE_ENV_GOOD_MESSAGE:-Everything Went OK}"
 GEN_SCRIPT_REPLACE_ENV_ERROR_MESSAGE="${GEN_SCRIPT_REPLACE_ENV_ERROR_MESSAGE:-Well that didn\'t work}"
 GEN_SCRIPT_REPLACE_ENV_NOTIFY_ENABLED="${GEN_SCRIPT_REPLACE_ENV_NOTIFY_ENABLED:-yes}"
 GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
 GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_ICON}"
-GEN_SCRIPT_REPLACE_ENV_GIT_REPO="${GEN_SCRIPT_REPLACE_ENV_GIT_REPO:-https://github.com/GEN_SCRIPT_REPLACE_FILENAME}"
-GEN_SCRIPT_REPLACE_ENV_FORCE_INSTALL="${GEN_SCRIPT_REPLACE_ENV_FORCE_INSTALL:-false}"
-GEN_SCRIPT_REPLACE_ENV_CLONE_DIR="${GEN_SCRIPT_REPLACE_ENV_CLONE_DIR:-$HOME/Projects/github/GEN_SCRIPT_REPLACE_FILENAME}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application overrides
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE" ] && . "$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure Directories exist
+[ -d "$GEN_SCRIPT_REPLACE_ENV_LOG_DIR" ] || mkdir -p "$GEN_SCRIPT_REPLACE_ENV_LOG_DIR" &>/dev/null
 [ -d "$GEN_SCRIPT_REPLACE_ENV_TEMP_DIR" ] || mkdir -p "$GEN_SCRIPT_REPLACE_ENV_TEMP_DIR" &>/dev/null
 [ -d "$GEN_SCRIPT_REPLACE_ENV_CACHE_DIR" ] || mkdir -p "$GEN_SCRIPT_REPLACE_ENV_CACHE_DIR" &>/dev/null
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Generate config files
-[ -f "$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE" ] ||
-  __gen_config &>/dev/null
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Import config
-[ -f "$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE" ] &&
-  . "$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE"
+# Generate non-existing config files
+[ -f "$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE" ] || SHOW_CONFIG_MESSAGE=NO __gen_config "$*"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show warn message if variables are missing
+GEN_SCRIPT_REPLACE_ENV_REPO_URL="${GEN_SCRIPT_REPLACE_ENV_REPO_URL:-https://github.com/GEN_SCRIPT_REPLACE_FILENAME}"
+GEN_SCRIPT_REPLACE_ENV_CLONE_DIR="${GEN_SCRIPT_REPLACE_ENV_CLONE_DIR:-$HOME/Projects/github/GEN_SCRIPT_REPLACE_FILENAME}"
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set additional variables/Argument/Option settings
@@ -170,6 +200,7 @@ while :; do
     [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
     [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
     [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    [ -z "$LIST" ] || __list_available "$LIST" | printf_column $GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR
     exit $?
     ;;
   --version)
@@ -225,8 +256,9 @@ cmd_exists --error --ask bash curl jq || exit 1 # exit 1 if not found
 am_i_online --error || exit 1                   # exit 1 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
-export GEN_SCRIPT_REPLACE_ENVREPO="$GEN_SCRIPT_REPLACE_ENV_GIT_REPO"
-export REPO="$GEN_SCRIPT_REPLACE_ENVREPO"
+export GEN_SCRIPT_REPLACE_ENV_REPO_URL="${GEN_SCRIPT_REPLACE_ENV_REPO_URL}"
+export GEN_SCRIPT_REPLACE_ENV_CLONE_DIR="${GEN_SCRIPT_REPLACE_ENV_CWD:-$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR}"
+export REPO="$GEN_SCRIPT_REPLACE_ENV_REPO_URL"
 export APPDIR="$SHARE/CasjaysDev/$SCRIPTS_PREFIX"
 export INSTDIR="$SHARE/CasjaysDev/$SCRIPTS_PREFIX"
 export installtype
@@ -235,19 +267,19 @@ export installtype
 case $1 in
 list)
   shift 1
-  printf_green "All available wallpaper packs"
+  printf_green "All available GEN_SCRIPT_REPLACE_FILENAME packs"
   __list_available | printf_column '5'
+  ;;
+
+available)
+  shift 1
+  printf_cyan "All available GEN_SCRIPT_REPLACE_FILENAME packs"
+  __api_list | printf_column '6'
   ;;
 
 search)
   shift 1
   __run_search "$@"
-  ;;
-
-available)
-  shift 1
-  printf_cyan "All available wallpaper packs"
-  __api_list | printf_column '6'
   ;;
 
 remove)
@@ -308,12 +340,14 @@ install)
   exit $?
   ;;
 
-download)
+download | clone)
   shift 1
   if [ "$INSTALL_ALL" = "true" ]; then
-    LISTARRAY="$(__list_options)"
+    LISTARRAY="$(__list_available)"
   elif [ $# -ne 0 ]; then
     LISTARRAY="$*"
+  fi
+  if [[ -n "$LISTARRAY" ]]; then
     for pkgs in $LISTARRAY; do
       __download "$pkgs"
     done

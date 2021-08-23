@@ -60,4 +60,4 @@ printf '\n'
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # lets exit with code
-exit "${exitCode:-0}"
+#exit "${exitCode:-0}"

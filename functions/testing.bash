@@ -2434,7 +2434,7 @@ __help() {
     printf_help "$CASJAYSDEVDIR/helpers/man/$APPNAME"
   fi
   printf "\n"
-  exit 0
+  ${*:-true}
 }
 __version() {
   local name="${1:-$(__basename $0)}"          # get from os

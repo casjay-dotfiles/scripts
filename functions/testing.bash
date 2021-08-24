@@ -1705,45 +1705,44 @@ __run_post() {
   local e="$1"
   local m="${e//__devnull//}"
   __execute "$e" "executing: $m"
-  __setexitstatus
+  __setexitstatus $?
   set --
 }
 ###################### exitcode functions ######################
 #setexitstatus || setexitstatus $?
 __setexitstatus() {
-  local EXIT="$?"
-  if [ -z "$EXIT" ] || [ -n "$1" ]; then local EXIT="$1"; fi
-  local EXITSTATUS+="$EXIT"
-  if [ "$EXITSTATUS" = 0 ]; then
-    BG_EXIT="${BG_GREEN}"
-    unset EXIT
-    return 0
+  local EXITCODE=$?
+  test -n "$1" && test -z "${1//[0-9]/}" && local EXITCODE="$1" && shift 1
+  [ -z "$1" ] || EXIT="$1"
+  if [ "$EXITCODE" = 0 ]; then
+    NEW_BG_EXIT="${BG_GREEN}"
   else
-    BG_EXIT="${BG_RED}"
-    unset EXIT
-    return 1
+    NEW_BG_EXIT="${BG_RED}"
   fi
+  export NEW_BG_EXIT
+  return ${EXITCODE:-$?}
 }
 #returnexitcode $?
 __returnexitcode() {
-  [ -z "$1" ] || EXIT="${?:-0}"
-  if [ "$EXIT" = 0 ]; then
-    BG_EXIT="${BG_GREEN}"
-    PS_SYMBOL=" 😺 "
-    return 0
-  elif [ "$EXIT" -gt 2 ]; then
-    BG_EXIT="${BG_RED}"
-    PS_SYMBOL=" ⁉️ "
-    return "$EXIT"
+  local EXITCODE=$?
+  test -n "$1" && test -z "${1//[0-9]/}" && local EXITCODE="$1" && shift 1
+  if [ $EXITCODE -eq 0 ]; then
+    NEW_BG_EXIT="${BG_GREEN}"
+    NEW_PS_SYMBOL=" 😺 [ $EXITCODE] "
+    EXIT=0
+  elif [ $EXITCODE -gt 1 ]; then
+    NEW_BG_EXIT="${BG_RED}"
+    NEW_PS_SYMBOL=" ⁉️ [ $EXITCODE] "
   else
-    BG_EXIT="${BG_RED}"
-    PS_SYMBOL=" 😟 "
-    return "$EXIT"
+    NEW_BG_EXIT="${BG_RED}"
+    NEW_PS_SYMBOL=" 😟 [ $EXITCODE] "
   fi
+  export NEW_BG_EXIT NEW_PS_SYMBOL
+  return ${EXITCODE:-$?}
 }
 #getexitcode "$?" "OK Message" "Error Message"
 __getexitcode() {
-  EXITCODE=$?
+  local EXITCODE=$?
   test -n "$1" && test -z "${1//[0-9]/}" && local EXITCODE="$1" && shift 1
   if [ -n "$1" ]; then
     local PSUCCES="$1"

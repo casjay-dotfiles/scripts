@@ -1041,7 +1041,7 @@ __ln_sf() {
 }
 #find_mtime "file/dir" "time minutes"
 __find_mtime() {
-  if [ "$(find ${1:-.} -maxdepth 1 -type l,f -cmin +${2:-60} 2>/dev/null | wc -l)" -ne 0 ]; then
+  if [ "$(find ${1:-.} -maxdepth 1 -type l,f -cmin ${2:-60} 2>/dev/null | wc -l)" -ne 0 ]; then
     return 0
   else
     return 1

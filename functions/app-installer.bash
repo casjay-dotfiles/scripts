@@ -5,7 +5,7 @@ USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
-
+[[ -n "$_DEBUG" ]] && set -x
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ##@Version       : 020920211625-git
 # @Author        : Jason Hempstead
@@ -1514,6 +1514,7 @@ show_optvars() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 installer_noupdate() {
+  [[ -n "$_DEBUG" ]] && set -x
   if [ "$FORCE_INSTALL" = "true" ]; then
     rm_rf "$APPDIR/.installed" "$INSTDIR/.installed"
     return 0
@@ -1532,6 +1533,7 @@ installer_noupdate() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __install_fonts() {
+  [[ -n "$_DEBUG" ]] && set -x
   if [ -d "$INSTDIR/fontconfig" ]; then
     local fontconfdir="$FONTCONF"
     ln_sf "$INSTDIR/fontconfig"/* "$fontconfdir/"

@@ -2042,8 +2042,8 @@ run_install_init() {
     if [[ "$INSTDIR" = "$APPDIR" ]]; then
       printf_cyan "$ICON_INFO Note: The INSTDIR and APPDIR are the same"
     else
+      printf_cyan "$ICON_INFO Copying files from $INSTDIR to $APPDIR"
       true
-      #printf_cyan "Copying files from $INSTDIR to $APPDIR"
     fi
     local exitCode=$?
     export APPDIR INSTDIR

@@ -1607,18 +1607,29 @@ __install_theme() {
 __install_wallpapers() {
   [[ -n "$_DEBUG" ]] && set -x && echo __install_wallpapers
   if [ -d "$INSTDIR/images" ]; then
+    mkdir -p "$WALLPAPERS/$APPNAME"
     local wallpapers="$(ls $INSTDIR/images/ 2>/dev/null | wc -l)"
-    local wallpaperdir="$WALLPAPERS/$APPNAME"
     if [ "$wallpapers" != "0" ]; then
-      if [ "$INSTDIR" != "$APPDIR" ] && [ -e "$APPDIR" ]; then rm_rf "$APPDIR"; fi
-      mkd "$wallpaperdir"
-      find -L "$INSTDIR/images/" -mindepth 1 -maxdepth 1 -type d -name '*.*' -print0 |
-        while IFS= read -r -d '' file; do
-          filename="$(basename "$file")"
-          cp_rf "$file" "$wallpaperdir/$filename"
-        done
+      wallpaperFiles="$(ls $INSTDIR/images/)"
+      for wallpaper in $wallpaperFiles; do
+        cp_rf "$INSTDIR/images/$wallpaper" "$WALLPAPERS/$APPNAME/$wallpaper"
+      done
     fi
   fi
+
+  # if [ -d "$INSTDIR/images" ]; then
+  #   local wallpapers="$(ls $INSTDIR/images/ 2>/dev/null | wc -l)"
+  #   local wallpaperdir="$WALLPAPERS/$APPNAME"
+  #   if [ "$wallpapers" != "0" ]; then
+  #     if [ "$INSTDIR" != "$APPDIR" ] && [ -e "$APPDIR" ]; then rm_rf "$APPDIR"; fi
+  #     mkd "$wallpaperdir"
+  #     find -L "$INSTDIR/images/" -mindepth 1 -maxdepth 1 -type d -name '*.*' -print0 |
+  #       while IFS= read -r -d '' file; do
+  #         filename="$(basename "$file")"
+  #         cp_rf "$file" "$wallpaperdir/$filename"
+  #       done
+  #   fi
+  # fi
   return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -2041,8 +2052,9 @@ run_install_init() {
     fi
     if [[ "$INSTDIR" = "$APPDIR" ]]; then
       printf_cyan "$ICON_INFO Note: The INSTDIR and APPDIR are the same"
+      true
     else
-      printf_cyan "$ICON_INFO Copying files from $INSTDIR to $APPDIR"
+      #printf_cyan "$ICON_INFO Copying files from $INSTDIR to $APPDIR"
       true
     fi
     local exitCode=$?

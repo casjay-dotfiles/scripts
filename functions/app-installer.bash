@@ -1607,15 +1607,16 @@ __install_theme() {
 __install_wallpapers() {
   [[ -n "$_DEBUG" ]] && set -x && echo __install_wallpapers
   if [ -d "$INSTDIR/images" ]; then
-    local wallpaperdir="$WALLPAPERS/$APPNAME"
     local wallpapers="$(ls $INSTDIR/images/ 2>/dev/null | wc -l)"
+    local wallpaperdir="$WALLPAPERS/$APPNAME"
     if [ "$wallpapers" != "0" ]; then
-      if [ "$INSTDIR" != "$APPDIR" ] && [ -e "$APPDIR" ]; then rm_rf "$APPDIR"; fi
-      mkd "$WALLPAPERS/$APPNAME"
+      #if [ "$INSTDIR" != "$APPDIR" ] && [ -e "$APPDIR" ]; then rm_rf "$APPDIR"; fi
+      mkd "$wallpaperdir"
       find -L "$INSTDIR/images/" -mindepth 1 -maxdepth 1 -type d -name '*.*' -print0 |
         while IFS= read -r -d '' file; do
           filename="$(basename "$file")"
           ln_sf "$file" "$wallpaperdir/$filename"
+          echo $file:$filename 1>&2
         done
     fi
   fi

@@ -1533,7 +1533,7 @@ installer_noupdate() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __install_fonts() {
-  [[ -n "$_DEBUG" ]] && set -x
+  [[ -n "$_DEBUG" ]] && set -x && echo __install_fonts
   if [ -d "$INSTDIR/fontconfig" ]; then
     local fontconfdir="$FONTCONF"
     ln_sf "$INSTDIR/fontconfig"/* "$fontconfdir/"
@@ -1551,6 +1551,7 @@ __install_fonts() {
   fi
 }
 __install_icons() {
+  [[ -n "$_DEBUG" ]] && set -x && echo __install_icons
   if [ -d "$INSTDIR/icons" ]; then
     local icondir="$ICONDIR"
     local icons="$(ls "$INSTDIR/icons" 2>/dev/null | wc -l)"
@@ -1572,6 +1573,7 @@ __install_icons() {
   return 0
 }
 __install_theme() {
+  [[ -n "$_DEBUG" ]] && set -x && echo __install_theme
   if [ -d "$INSTDIR/theme" ]; then
     local themedir="$THEMEDIR"
     local theme="$(ls "$INSTDIR/theme" 2>/dev/null | wc -l)"
@@ -1597,6 +1599,7 @@ __install_theme() {
   return 0
 }
 __install_wallpapers() {
+  [[ -n "$_DEBUG" ]] && set -x && echo __install_wallpapers
   if [ -d "$INSTDIR/images" ]; then
     local wallpapers="$(ls $INSTDIR/images/ 2>/dev/null | wc -l)"
     if [ "$wallpapers" != "0" ]; then
@@ -1615,6 +1618,7 @@ __install_wallpapers() {
 devenvmgr_install() {
   user_installdirs
   SCRIPTS_PREFIX="devenvmgr"
+  [[ -n "$_DEBUG" ]] && set -x && echo "$SCRIPTS_PREFIX"
   APPDIR="${APPDIR:-$SHARE/$SCRIPTS_PREFIX/$APPNAME}"
   INSTDIR="${INSTDIR:-$SHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME}"
   REPO="${REPO:-$DEVENVMGRREPO/$APPNAME}"

@@ -1584,35 +1584,35 @@ __install_theme() {
     local themedir="$THEMEDIR"
     local theme="$(ls "$INSTDIR/theme" 2>/dev/null | wc -l)"
     mkd "$themedir/$APPNAME"
-    if [ "$theme" != "0" ]; then
-      find -L "$INSTDIR/theme/" -mindepth 1 -maxdepth 1 -type d -name '*.*' -print0 |
-        while IFS= read -r -d '' file; do
-          filename="$(basename "$file")"
-          ln_sf "$file" "$themedir/$filename"
-          find -L "$THEMEDIR" -mindepth 1 -maxdepth 1 -type d | while read -r THEME; do
-            if [ -f "$THEME/index.theme" ]; then
-              [ -f "$(builtin type -P gtk-update-icon-cache 2>/dev/null)" ] && gtk-update-icon-cache -f -q "$THEME"
-            fi
-          done
-        done
-    fi
     # if [ "$theme" != "0" ]; then
-    #   fFiles="$(ls $INSTDIR/theme --ignore='.uuid')"
-    #   for f in $fFiles; do
-    #     ln_sf "$INSTDIR/theme/$f" "$themedir/$APPNAME/$f"
-    #     find -L "$THEMEDIR" -mindepth 1 -maxdepth 2 -type d | while read -r THEME; do
-    #       if [ -f "$THEME/index.theme" ]; then
-    #         [ -f "$(builtin type -P gtk-update-icon-cache 2>/dev/null)" ] && gtk-update-icon-cache -f -q "$THEME"
-    #       fi
+    #   find -L "$INSTDIR/theme/" -mindepth 1 -maxdepth 1 -type d -name '*.*' -print0 |
+    #     while IFS= read -r -d '' file; do
+    #       filename="$(basename "$file")"
+    #       ln_sf "$file" "$themedir/$filename"
+    #       find -L "$THEMEDIR" -mindepth 1 -maxdepth 1 -type d | while read -r THEME; do
+    #         if [ -f "$THEME/index.theme" ]; then
+    #           [ -f "$(builtin type -P gtk-update-icon-cache 2>/dev/null)" ] && gtk-update-icon-cache -f -q "$THEME"
+    #         fi
+    #       done
     #     done
-    #   done
     # fi
-    # ln_rm "$THEMEDIR"
-    # find "$THEMEDIR" -mindepth 1 -maxdepth 2 -type d -not -path "*/.git/*" | while read -r THEME; do
-    #   if [ -f "$THEME/index.theme" ]; then
-    #     [ -f "$(builtin type -P gtk-update-icon-cache 2>/dev/null)" ] && gtk-update-icon-cache -f -q "$THEME"
-    #   fi
-    # done
+    if [ "$theme" != "0" ]; then
+      fFiles="$(ls $INSTDIR/theme --ignore='.uuid')"
+      for f in $fFiles; do
+        ln_sf "$INSTDIR/theme/$f" "$themedir/$APPNAME/$f"
+        find -L "$THEMEDIR" -mindepth 1 -maxdepth 2 -type d | while read -r THEME; do
+          if [ -f "$THEME/index.theme" ]; then
+            [ -f "$(builtin type -P gtk-update-icon-cache 2>/dev/null)" ] && gtk-update-icon-cache -f -q "$THEME"
+          fi
+        done
+      done
+    fi
+    ln_rm "$THEMEDIR"
+    find "$THEMEDIR" -mindepth 1 -maxdepth 2 -type d -not -path "*/.git/*" | while read -r THEME; do
+      if [ -f "$THEME/index.theme" ]; then
+        [ -f "$(builtin type -P gtk-update-icon-cache 2>/dev/null)" ] && gtk-update-icon-cache -f -q "$THEME"
+      fi
+    done
   fi
   return 0
 }

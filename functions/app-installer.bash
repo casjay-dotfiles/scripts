@@ -1564,7 +1564,7 @@ __install_icons() {
       find -L "$INSTDIR/icons/" -mindepth 1 -maxdepth 1 -type d -name '*.*' -print0 |
         while IFS= read -r -d '' file; do
           filename="$(basename "$file")"
-          ln_sf "$file" "$fontdir/$filename"
+          ln_sf "$file" "$icondir/$filename"
           find -L "$ICONDIR" -mindepth 1 -maxdepth 1 -type d | while read -r ICON; do
             if [ -f "$ICON/index.theme" ]; then
               [ -f "$(builtin type -P gtk-update-icon-cache 2>/dev/null)" ] && gtk-update-icon-cache -f -q "$ICON"

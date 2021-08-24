@@ -1743,7 +1743,8 @@ __returnexitcode() {
 }
 #getexitcode "$?" "OK Message" "Error Message"
 __getexitcode() {
-  test -n "$1" && test -z "${1//[0-9]/}" && local EXITCODE="$1" && shift 1 || local EXITCODE=$?
+  EXITCODE=$?
+  test -n "$1" && test -z "${1//[0-9]/}" && local EXITCODE="$1" && shift 1
   if [ -n "$1" ]; then
     local PSUCCES="$1"
   elif [ -n "$SUCCES" ]; then

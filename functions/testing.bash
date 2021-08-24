@@ -1194,12 +1194,12 @@ __do_not_add_a_url() {
 ###################### git commands ######################
 #git_globaluser
 __git_globaluser() {
-  local author="$(git config --get user.name || echo "$USER")"
+  local author="$(git config --get user.name | grep '^' || echo "$USER")"
   echo "$author"
 }
 #git_globalemail
 __git_globalemail() {
-  local email="$(git config --get user.email || echo "$USER"@"$(hostname -s)".local)"
+  local email="$(git config --get user.name | grep '^' || echo "$USER"@"$(hostname -s)".local)"
   echo "$email"
 }
 __git() {

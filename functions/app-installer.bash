@@ -1658,6 +1658,7 @@ devenvmgr_install_version() {
 dfmgr_install() {
   user_installdirs
   SCRIPTS_PREFIX="dfmgr"
+  [[ -n "$_DEBUG" ]] && set -x && echo "$SCRIPTS_PREFIX"
   APPDIR="${APPDIR:-$CONF/$APPNAME}"
   INSTDIR="${INSTDIR:-$SHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME}"
   REPO="${REPO:-$DFMGRREPO/$APPNAME}"
@@ -1698,6 +1699,7 @@ dockermgr_install() {
   system_installdirs
   #[ -f "$(builtin type -P  2>/dev/null)" ] docker || printf_exit 1 1 "This requires docker, however, docker wasn't found"
   SCRIPTS_PREFIX="dockermgr"
+  [[ -n "$_DEBUG" ]] && set -x && echo "$SCRIPTS_PREFIX"
   APPDIR="${APPDAIR:-$SHARE/docker/$APPNAME}"
   INSTDIR="${INSTDIR:-$SHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME}"
   DATADIR="${DATADIR:-/srv/docker/$APPNAME}"
@@ -1737,6 +1739,7 @@ dockermgr_install_version() {
 fontmgr_install() {
   system_installdirs
   SCRIPTS_PREFIX="fontmgr"
+  [[ -n "$_DEBUG" ]] && set -x && echo "$SCRIPTS_PREFIX"
   APPDIR="${APPDIR:-$SHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME}"
   INSTDIR="${INSTDIR:-$SHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME}"
   REPO="${REPO:-$FONTMGRREPO/$APPNAME}"

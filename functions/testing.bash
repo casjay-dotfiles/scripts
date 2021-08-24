@@ -2602,7 +2602,7 @@ run_install_update() {
     if [[ -d "$USRUPDATEDIR" && -n "$(ls -A "$USRUPDATEDIR" | grep '^' || ls "$SHARE/CasjaysDev/$SCRIPTS_PREFIX" | grep '^')" ]]; then
       for app in $(ls "$USRUPDATEDIR" | grep '^' || ls "$SHARE/CasjaysDev/$SCRIPTS_PREFIX" | grep '^'); do
         APPNAME="$app"
-        run_install_init "$APPNAME" && __notifications "Installed $APPNAME" || __notifications "Installation of $APPNAME has failed"
+        run_install_init "$app" && __notifications "Installed $app" || __notifications "Installation of $app has failed"
         local exitCode+=$?
       done
     fi
@@ -2610,7 +2610,7 @@ run_install_update() {
       if [[ -d "$SYSUPDATEDIR" && -n "$(ls -A "$SYSUPDATEDIR" | grep '^' || ls "$SYSSHARE/CasjaysDev/$SCRIPTS_PREFIX" | grep '^')" ]]; then
         for app in $(ls "$SYSUPDATEDIR" | grep '^' || ls "$SYSSHARE/CasjaysDev/$SCRIPTS_PREFIX" | grep '^'); do
           APPNAME="$app"
-          run_install_init "$APPNAME" && __notifications "Installed $APPNAME" || __notifications "Installation of $APPNAME has failed"
+          run_install_init "$app" && __notifications "Installed $app" || __notifications "Installation of $app has failed"
           local exitCode+=$?
         done
       fi
@@ -2619,7 +2619,7 @@ run_install_update() {
     local LISTARRAY="$*"
     for app in $LISTARRAY; do
       APPNAME="$app"
-      run_install_init "$APPNAME" && __notifications "Installed $APPNAME" || __notifications "Installation of $APPNAME has failed"
+      run_install_init "$app" && __notifications "Installed $app" || __notifications "Installation of $app has failed"
       local exitCode+=$?
     done
   fi

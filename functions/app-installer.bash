@@ -1546,7 +1546,11 @@ __install_fonts() {
   fi
   if [ -d "$INSTDIR/fonts" ]; then
     [ -d "$fontdir/$APPNAME" ] && rm_rf "$fontdir/$APPNAME"
-    ln_sf "$INSTDIR/fonts"/* "$fontdir/"
+    find -L "$INSTDIR/fonts/" -mindepth 1 -maxdepth 1 -type f -name '*.*' -print0 |
+      while IFS= read -r -d '' file; do
+        filename="$(basename "$file")"
+        ln_sf "$file" "$fontdir/$filename"
+      done
     [ -f "$(builtin type -P fc-cache 2>/dev/null)" ] && fc-cache -f "$FONTDIR"
   fi
 }
@@ -1557,15 +1561,25 @@ __install_icons() {
     local icondir="$ICONDIR"
     local icons="$(ls "$INSTDIR/icons" 2>/dev/null | wc -l)"
     if [ "$icons" != "0" ]; then
-      fFiles="$(ls "$INSTDIR/icons" --ignore='.uuid')"
-      for f in $fFiles; do
-        ln_sf "$INSTDIR/icons/$f" "$icondir/$f"
-        find -L "$ICONDIR" -mindepth 1 -maxdepth 1 -type d | while read -r ICON; do
-          if [ -f "$ICON/index.theme" ]; then
-            [ -f "$(builtin type -P gtk-update-icon-cache 2>/dev/null)" ] && gtk-update-icon-cache -f -q "$ICON"
-          fi
+      find -L "$INSTDIR/icons/" -mindepth 1 -maxdepth 1 -type d -name '*.*' -print0 |
+        while IFS= read -r -d '' file; do
+          filename="$(basename "$file")"
+          ln_sf "$file" "$fontdir/$filename"
+          find -L "$ICONDIR" -mindepth 1 -maxdepth 1 -type d | while read -r ICON; do
+            if [ -f "$ICON/index.theme" ]; then
+              [ -f "$(builtin type -P gtk-update-icon-cache 2>/dev/null)" ] && gtk-update-icon-cache -f -q "$ICON"
+            fi
+          done
         done
-      done
+      # fFiles="$(ls "$INSTDIR/icons" --ignore='.uuid')"
+      # for f in $fFiles; do
+      #   ln_sf "$INSTDIR/icons/$f" "$icondir/$f"
+      #   find -L "$ICONDIR" -mindepth 1 -maxdepth 1 -type d | while read -r ICON; do
+      #     if [ -f "$ICON/index.theme" ]; then
+      #       [ -f "$(builtin type -P gtk-update-icon-cache 2>/dev/null)" ] && gtk-update-icon-cache -f -q "$ICON"
+      #     fi
+      #   done
+      # done
     fi
     devnull find "$ICONDIR" -type d -exec chmod 755 {} \;
     devnull find "$ICONDIR" -type f -exec chmod 644 {} \;

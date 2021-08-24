@@ -1743,12 +1743,13 @@ __returnexitcode() {
 }
 #getexitcode "$?" "OK Message" "Error Message"
 __getexitcode() {
-  local EXITCODE="${1:-$?}"
-  test -n "$1" && test -z "${1//[0-9]/}" && local EXITCODE="$1" && shift 1
+  test -n "$1" && test -z "${1//[0-9]/}" && local EXITCODE="$1" && shift 1 || local EXITCODE=$?
   if [ -n "$1" ]; then
     local PSUCCES="$1"
   elif [ -n "$SUCCES" ]; then
     local PSUCCES="$SUCCES"
+  elif [ -n "$GETEXITCODE_SUCCES" ]; then
+    local PSUCCES="$GETEXITCODE_SUCCES"
   else
     local PSUCCES="Command successful"
   fi
@@ -1756,6 +1757,8 @@ __getexitcode() {
     local PERROR="$2"
   elif [ -n "$ERROR" ]; then
     local PERROR="$ERROR"
+  elif [ -n "$GETEXITCODE_ERROR" ]; then
+    local PSUCCES="$GETEXITCODE_ERROR"
   else
     local PERROR="Last command failed to complete"
   fi
@@ -2107,7 +2110,7 @@ system_install() { system_installdirs; }
 ###################### devenv settings ######################
 devenvmgr_install() {
   user_installdirs
-  SCRIPTS_PREFIX="devenv"
+  SCRIPTS_PREFIX="devenvmgr"
   APPDIR="${APPDIR:-$SHARE/$SCRIPTS_PREFIX}"
   INSTDIR="${INSTDIR:-$SHARE/CasjaysDev/$SCRIPTS_PREFIX}"
   REPO="${REPO:-$DEVENVMGRREPO}"

@@ -40,7 +40,7 @@ else
   exit 1
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# user system devenv GEN_SCRIPT_REPLACE_ENV_ dockermgr fontmgr iconmgr pkmgr systemmgr thememgr GEN_SCRIPT_REPLACE_FILENAMEmgr
+# user system devenvmgr dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
 GEN_SCRIPT_REPLACE_FILENAME_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -58,8 +58,12 @@ __gen_config() {
     cp -Rf "$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE" "$GEN_SCRIPT_REPLACE_ENV_CONFIG_BACKUP_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE.$$"
   cat <<EOF >"$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE"
 # Settings for GEN_SCRIPT_REPLACE_FILENAME
+GEN_SCRIPT_REPLACE_ENV_GIT_REPO_BRANCH="${GEN_SCRIPT_REPLACE_ENV_GIT_REPO_BRANCH:-main}"
+GEN_SCRIPT_REPLACE_ENV_APP_DIR="${GEN_SCRIPT_REPLACE_ENV_APP_DIR:-${GEN_SCRIPT_REPLACE_ENV_APP_DIR:-$SHARE/CasjaysDev/GEN_SCRIPT_REPLACE_FILENAME}}"
+GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR="${GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR:-${GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR:-$SHARE/CasjaysDev/GEN_SCRIPT_REPLACE_FILENAME}}"
 GEN_SCRIPT_REPLACE_ENV_CLONE_DIR="${GEN_SCRIPT_REPLACE_ENV_CLONE_DIR:-$HOME/Projects/github/GEN_SCRIPT_REPLACE_FILENAME}"
 GEN_SCRIPT_REPLACE_ENV_REPO_URL="${GEN_SCRIPT_REPLACE_ENV_REPO_URL:-https://github.com/GEN_SCRIPT_REPLACE_FILENAME}"
+GEN_SCRIPT_REPLACE_ENV_REPO_RAW="${GEN_SCRIPT_REPLACE_ENV_REPO_RAW:-raw/$GEN_SCRIPT_REPLACE_ENV_GIT_REPO_BRANCH}"
 GEN_SCRIPT_REPLACE_ENV_REPO_API="${GEN_SCRIPT_REPLACE_ENV_REPO_API:-https://api.github.com/orgs/GEN_SCRIPT_REPLACE_FILENAME/repos}"
 GEN_SCRIPT_REPLACE_ENV_REPO_API_PER_PAGE="${GEN_SCRIPT_REPLACE_ENV_REPO_API_PER_PAGE:-1000}"
 GEN_SCRIPT_REPLACE_ENV_FORCE_INSTALL="${GEN_SCRIPT_REPLACE_ENV_FORCE_INSTALL:-false}"
@@ -92,19 +96,158 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional functions
+__rm_rf() { if [ -e "$1" ]; then __require_sudo rm -Rf "$@" &>/dev/null; else return 0; fi; }
+__broken_symlinks() { __require_sudo find "$*" -xtype l -exec rm {} \; &>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__require_sudo() {
+  if [[ $REQUIRE_SUDO = "TRUE" ]]; then
+    sudo -HE "$APPNAME $SETARGS"
+    return $?
+  else
+    eval "$*"
+    return $?
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__cron_updater() {
+  local upd file
+  [ "$*" = "help" ] && shift 1 && printf_help "Usage: ${PROG:-$APPNAME} updater $APPNAME"
+  if user_is_root; then
+    if [ -z "$1" ] && [ -d "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_SYSTEM" ] && ls "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_SYSTEM"/* 1>/dev/null 2>&1; then
+      for upd in $(ls $GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_SYSTEM/); do
+        file="$(ls -A $GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_SYSTEM/$upd 2>/dev/null)"
+        if [ -f "$file" ]; then
+          appname="$(__basename $file)"
+          __require_sudo file="$file" bash "$file --cron $*"
+        fi
+      done
+    else
+      if [ -d "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_SYSTEM" ] && ls "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_SYSTEM"/* 1>/dev/null 2>&1; then
+        file="$(ls -A $GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_SYSTEM/$1 2>/dev/null)"
+        if [ -f "$file" ]; then
+          appname="$(__basename $file)"
+          __require_sudo file="$file" bash "$file --cron $*"
+        fi
+      fi
+    fi
+  else
+    if [ -z "$1" ] && [ -d "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER" ] && ls "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER"/* 1>/dev/null 2>&1; then
+      for upd in $(ls $GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER/); do
+        export file="$(ls -A $GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER/$upd 2>/dev/null)"
+        if [ -f "$file" ]; then
+          appname="$(__basename $file)"
+          __require_sudo bash "$file --cron $*"
+        fi
+      done
+    else
+      if [ -d "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER" ] && ls "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER"/* 1>/dev/null 2>&1; then
+        export file="$(ls -A $GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER/$1 2>/dev/null)"
+        if [ -f "$file" ]; then
+          appname="$(__basename $file)"
+          __require_sudo bash "$file --cron $*"
+        fi
+      fi
+    fi
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__installer_delete() {
+  local app="${1:?}"
+  local MESSAGE="${MESSAGE:-Removing $app from ${msg:-your system}}"
+  [[ "$GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR/$app" == "$GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR/" ]] && return
+  if [ -d "$GEN_SCRIPT_REPLACE_ENV_APP_DIR/$app" ] || [ -d "$GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR/$app" ]; then
+    printf_yellow "$MESSAGE"
+    if [[ -e "$GEN_SCRIPT_REPLACE_ENV_APP_DIR/$app" ]]; then
+      printf_blue "Deleting the files from $GEN_SCRIPT_REPLACE_ENV_APP_DIR/$app"
+      __rm_rf "$GEN_SCRIPT_REPLACE_ENV_APP_DIR/$app" && exitCode+=0 || exitCode+=1
+    fi
+    if [[ -e "$GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR/$app" ]]; then
+      printf_blue "Deleting the files from $GEN_SCRIPT_REPLACE_ENV_APP_DIR/$app"
+      __rm_rf "$GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR/$app" && exitCode+=0 || exitCode+=1
+    fi
+    if [[ -e "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER/$app" ]]; then
+      printf_blue "Deleting the files from $GEN_SCRIPT_REPLACE_ENV_APP_DIR/$app"
+      __rm_rf "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER/$app" && exitCode+=0 || exitCode+=1
+    fi
+    { [[ -d "$GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR/$app" ]] || [[ -d "$GEN_SCRIPT_REPLACE_ENV_APP_DIR/$app" ]]; } && exitCode=0 || exitCode=1
+    printf_yellow "Removing any broken symlinks"
+    __broken_symlinks "$BIN" "$SHARE" "$COMPDIR" "$CONF" "$THEMEDIR" "$FONTDIR" "$ICONDIR"
+    [[ $exitCode = 0 ]] && "$app has been removed"
+    return $exitCode
+  else
+    printf_error "$app doesn't seem to be installed"
+  fi
+  return ${exitCode}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__run_install_init() {
+  local app
+  for app in "$@"; do
+    export SUDO_USER
+    if [ -f "$GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR/$app/install.sh" ] && ! am_i_online; then
+      export FORCE_INSTALL="$FORCE_INSTALL"
+      __require_sudo bash "$GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR/$app/install.sh" 2>/dev/null
+    else
+      if __urlcheck "$GEN_SCRIPT_REPLACE_ENV_REPO_URL/$app/$GEN_SCRIPT_REPLACE_ENV_REPO_RAW/install.sh"; then
+        export FORCE_INSTALL="$FORCE_INSTALL"
+        __require_sudo curl -q -LSs "$GEN_SCRIPT_REPLACE_ENV_REPO_URL/$app/$GEN_SCRIPT_REPLACE_ENV_REPO_RAW/install.sh" 2>/dev/null | bash -s -- 2>/dev/null
+      else
+        printf_error "Failed to initialize the installer from:"
+        printf_exit "$GEN_SCRIPT_REPLACE_ENV_REPO_URL/$app/$GEN_SCRIPT_REPLACE_ENV_REPO_RAW/install.sh\n"
+      fi
+    fi
+    local exitCode+=$?
+  done
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__run_install_update() {
+  local app APPNAME exitCode
+  local NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME}"
+  local NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON}"
+  export NOTIFY_CLIENT_NAME NOTIFY_CLIENT_ICON
+  if [ $# = 0 ]; then
+    if [[ -d "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER" && -n "$(ls -A "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER" | grep '^' || ls "$SHARE/CasjaysDev/GEN_SCRIPT_REPLACE_FILENAME" | grep '^')" ]]; then
+      for app in $(ls "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER" | grep '^' || ls "$SHARE/CasjaysDev/GEN_SCRIPT_REPLACE_FILENAME" | grep '^'); do
+        APPNAME="$app"
+        __run_install_init "$APPNAME" && __notifications "Installed $APPNAME" || __notifications "Installation of $APPNAME has failed"
+        local exitCode+=$?
+      done
+    fi
+    if user_is_root && [ "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER" != "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_SYSTEM" ]; then
+      if [[ -d "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_SYSTEM" && -n "$(ls -A "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_SYSTEM" | grep '^' || ls "$SYSSHARE/CasjaysDev/GEN_SCRIPT_REPLACE_FILENAME" | grep '^')" ]]; then
+        for app in $(ls "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_SYSTEM" | grep '^' || ls "$SYSSHARE/CasjaysDev/GEN_SCRIPT_REPLACE_FILENAME" | grep '^'); do
+          APPNAME="$app"
+          __run_install_init "$APPNAME" && __notifications "Installed $APPNAME" || __notifications "Installation of $APPNAME has failed"
+          local exitCode+=$?
+        done
+      fi
+    fi
+  else
+    for app in "$@"; do
+      APPNAME="$app"
+      __run_install_init "$APPNAME" && __notifications "Installed $APPNAME" || __notifications "Installation of $APPNAME has failed"
+      local exitCode+=$?
+    done
+  fi
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __download() {
   REPO_NAME="$1"
-  REPO_URL="${GEN_SCRIPT_REPLACE_ENV_REPO_URL}/${REPO_NAME}"
-  DIR_NAME="${GEN_SCRIPT_REPLACE_ENV_CWD:-$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR}/${REPO_NAME}"
   if cmd_exists gitadmin; then
-    gitadmin clone "$REPO_URL" "$DIR_NAME"
-    exitCode=$?
+    if [[ -d "${GEN_SCRIPT_REPLACE_ENV_CWD:-$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR}/${REPO_NAME}/.git" ]]; then
+      gitadmin pull "${GEN_SCRIPT_REPLACE_ENV_CWD:-$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR}/${REPO_NAME}"
+    else
+      gitadmin clone "${GEN_SCRIPT_REPLACE_ENV_REPO_URL}/${REPO_NAME}" "${GEN_SCRIPT_REPLACE_ENV_CWD:-$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR}/${REPO_NAME}"
+      exitCode=$?
+    fi
   else
-    if [[ -d "$DIR_NAME/.git" ]]; then
-      git -C "$DIR_NAME" pull -q &>/dev/null
+    if [[ -d "${GEN_SCRIPT_REPLACE_ENV_CWD:-$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR}/${REPO_NAME}/.git" ]]; then
+      git -C "${GEN_SCRIPT_REPLACE_ENV_CWD:-$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR}/${REPO_NAME}" pull
       exitCode=$?
     else
-      git clone "$REPO_URL" "$DIR_NAME" -q &>/dev/null
+      git clone "${GEN_SCRIPT_REPLACE_ENV_REPO_URL}/${REPO_NAME}" "${GEN_SCRIPT_REPLACE_ENV_CWD:-$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR}/${REPO_NAME}"
       exitCode=$?
     fi
   fi
@@ -113,7 +256,7 @@ __download() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __api_list() {
   local api_url="${GEN_SCRIPT_REPLACE_ENV_REPO_API:-https://api.github.com/orgs/GEN_SCRIPT_REPLACE_FILENAME/repos?per_page=${GEN_SCRIPT_REPLACE_ENV_REPO_API_PER_PAGE:-1000}}"
-  if am_i_online -s --error "$GEN_SCRIPT_REPLACE_ENV_REPO_API"; then
+  if am_i_online --error -s "$api_url"; then
     curl -q -H "Accept: application/vnd.github.v3+json" -LSs "$api_url" 2>/dev/null | jq '.[].name' 2>/dev/null | sed 's#"##g' | grep -v 'template' || __list_options
   fi
 }
@@ -123,7 +266,6 @@ __run_search() {
   [ $# = 0 ] && printf_exit "Nothing to search for"
   [ -n "$LIST" ] || printf_exit "The enviroment variable LIST does not exist"
   for app in "$@"; do
-    export APPNAME="$app" REPO="$REPO/$APPNAME" REPORAW="$REPO/raw/$GIT_REPO_BRANCH"
     local -a result+="$(echo -e "$LIST" | tr ' ' '\n' | grep -Fi "$app" | grep -sv '^$') "
   done
   results="$(echo "$result" | sort -u | tr '\n' ' ' | sed 's| | |g' | grep '^')"
@@ -140,12 +282,12 @@ __run_search() {
 exitCode="0"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application Folders
-GEN_SCRIPT_REPLACE_ENV_LOG_DIR="${GEN_SCRIPT_REPLACE_ENV_LOG_DIR:-$HOME/.local/log/GEN_SCRIPT_REPLACE_ENV_}"
-GEN_SCRIPT_REPLACE_ENV_CACHE_DIR="${GEN_SCRIPT_REPLACE_ENV_CACHE_DIR:-$HOME/.cache/GEN_SCRIPT_REPLACE_ENV_}"
-GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR="${GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR:-$HOME/.config/myscripts/GEN_SCRIPT_REPLACE_ENV_}"
-GEN_SCRIPT_REPLACE_ENV_CONFIG_BACKUP_DIR="${GEN_SCRIPT_REPLACE_ENV_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/GEN_SCRIPT_REPLACE_ENV_/backups}"
-GEN_SCRIPT_REPLACE_ENV_TEMP_DIR="${GEN_SCRIPT_REPLACE_ENV_TEMP_DIR:-$HOME/.local/tmp/system_scripts/GEN_SCRIPT_REPLACE_ENV_}"
-GEN_SCRIPT_REPLACE_ENV_OPTIONS_DIR="${GEN_SCRIPT_REPLACE_ENV_OPTIONS_DIR:-$HOME/.local/share/myscripts/GEN_SCRIPT_REPLACE_ENV_/options}"
+GEN_SCRIPT_REPLACE_ENV_LOG_DIR="${GEN_SCRIPT_REPLACE_ENV_LOG_DIR:-$HOME/.local/log/GEN_SCRIPT_REPLACE_FILENAME}"
+GEN_SCRIPT_REPLACE_ENV_CACHE_DIR="${GEN_SCRIPT_REPLACE_ENV_CACHE_DIR:-$HOME/.cache/GEN_SCRIPT_REPLACE_FILENAME}"
+GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR="${GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR:-$HOME/.config/myscripts/GEN_SCRIPT_REPLACE_FILENAME}"
+GEN_SCRIPT_REPLACE_ENV_CONFIG_BACKUP_DIR="${GEN_SCRIPT_REPLACE_ENV_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/GEN_SCRIPT_REPLACE_FILENAME/backups}"
+GEN_SCRIPT_REPLACE_ENV_TEMP_DIR="${GEN_SCRIPT_REPLACE_ENV_TEMP_DIR:-$HOME/.local/tmp/system_scripts/GEN_SCRIPT_REPLACE_FILENAME}"
+GEN_SCRIPT_REPLACE_ENV_OPTIONS_DIR="${GEN_SCRIPT_REPLACE_ENV_OPTIONS_DIR:-$HOME/.local/share/myscripts/GEN_SCRIPT_REPLACE_FILENAME/options}"
 GEN_SCRIPT_REPLACE_ENV_TEMP_FILE="${GEN_SCRIPT_REPLACE_ENV_TEMP_FILE:-$(mktemp $GEN_SCRIPT_REPLACE_ENV_TEMP_DIR/XXXXXX 2>/dev/null)}"
 GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE="${GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE:-settings.conf}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -163,7 +305,17 @@ GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
 GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_ICON}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application overrides
-
+GEN_SCRIPT_REPLACE_ENV_GIT_REPO_BRANCH="${GEN_SCRIPT_REPLACE_ENV_GIT_REPO_BRANCH:-main}"
+GEN_SCRIPT_REPLACE_ENV_APP_DIR="${GEN_SCRIPT_REPLACE_ENV_APP_DIR:-${GEN_SCRIPT_REPLACE_ENV_APP_DIR:-$SHARE/CasjaysDev/GEN_SCRIPT_REPLACE_FILENAME}}"
+GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR="${GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR:-${GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR:-$SHARE/CasjaysDev/GEN_SCRIPT_REPLACE_FILENAME}}"
+GEN_SCRIPT_REPLACE_ENV_CLONE_DIR="${GEN_SCRIPT_REPLACE_ENV_CLONE_DIR:-$HOME/Projects/github/GEN_SCRIPT_REPLACE_FILENAME}"
+GEN_SCRIPT_REPLACE_ENV_REPO_URL="${GEN_SCRIPT_REPLACE_ENV_REPO_URL:-https://github.com/GEN_SCRIPT_REPLACE_FILENAME}"
+GEN_SCRIPT_REPLACE_ENV_REPO_RAW="${GEN_SCRIPT_REPLACE_ENV_REPO_RAW:-raw/$GEN_SCRIPT_REPLACE_ENV_GIT_REPO_BRANCH}"
+GEN_SCRIPT_REPLACE_ENV_REPO_API="${GEN_SCRIPT_REPLACE_ENV_REPO_API:-https://api.github.com/orgs/GEN_SCRIPT_REPLACE_FILENAME/repos}"
+GEN_SCRIPT_REPLACE_ENV_REPO_API_PER_PAGE="${GEN_SCRIPT_REPLACE_ENV_REPO_API_PER_PAGE:-1000}"
+GEN_SCRIPT_REPLACE_ENV_FORCE_INSTALL="${GEN_SCRIPT_REPLACE_ENV_FORCE_INSTALL:-false}"
+GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER="${GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER:-${GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER:-$HOME/.local/share/CasjaysDev/apps/GEN_SCRIPT_REPLACE_FILENAME}}"
+GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_SYSTEM="${GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_SYSTEM:-{$:-GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_SYSTEM/usr/local/share/CasjaysDev/apps/GEN_SCRIPT_REPLACE_FILENAME}}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import config
 [ -f "$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE" ] && . "$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE"
@@ -172,13 +324,14 @@ GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$GEN_SCRIPT_REP
 [ -d "$GEN_SCRIPT_REPLACE_ENV_LOG_DIR" ] || mkdir -p "$GEN_SCRIPT_REPLACE_ENV_LOG_DIR" &>/dev/null
 [ -d "$GEN_SCRIPT_REPLACE_ENV_TEMP_DIR" ] || mkdir -p "$GEN_SCRIPT_REPLACE_ENV_TEMP_DIR" &>/dev/null
 [ -d "$GEN_SCRIPT_REPLACE_ENV_CACHE_DIR" ] || mkdir -p "$GEN_SCRIPT_REPLACE_ENV_CACHE_DIR" &>/dev/null
+[ -d "$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR" ] || mkdir -p "$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR"
+[ -d "$" ] || mkdir -p "$"
+[ -d "$" ] || mkdir -p "$"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate non-existing config files
-[ -f "$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE" ] || SHOW_CONFIG_MESSAGE=NO __gen_config "$*"
+[ -f "$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE" ] || INIT_CONFIG=TRUE __gen_config "$*"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show warn message if variables are missing
-GEN_SCRIPT_REPLACE_ENV_REPO_URL="${GEN_SCRIPT_REPLACE_ENV_REPO_URL:-https://github.com/GEN_SCRIPT_REPLACE_FILENAME}"
-GEN_SCRIPT_REPLACE_ENV_CLONE_DIR="${GEN_SCRIPT_REPLACE_ENV_CLONE_DIR:-$HOME/Projects/github/GEN_SCRIPT_REPLACE_FILENAME}"
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set additional variables/Argument/Option settings
@@ -254,14 +407,10 @@ fi
 # Check for required applications/Network check
 cmd_exists --error --ask bash curl jq || exit 1 # exit 1 if not found
 am_i_online --error || exit 1                   # exit 1 if no internet
+#sudo -n true && ask_for_password true && REQUIRE_SUDO="TRUE" || exit 1 # Require root
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
-export GEN_SCRIPT_REPLACE_ENV_REPO_URL="${GEN_SCRIPT_REPLACE_ENV_REPO_URL}"
-export GEN_SCRIPT_REPLACE_ENV_CLONE_DIR="${GEN_SCRIPT_REPLACE_ENV_CWD:-$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR}"
-export REPO="$GEN_SCRIPT_REPLACE_ENV_REPO_URL"
-export APPDIR="$SHARE/CasjaysDev/$SCRIPTS_PREFIX"
-export INSTDIR="$SHARE/CasjaysDev/$SCRIPTS_PREFIX"
-export installtype
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 case $1 in
@@ -285,15 +434,14 @@ search)
 remove)
   shift 1
   if [ "$INSTALL_ALL" = "true" ]; then
-    LISTARRAY="$(ls -A "$USRUPDATEDIR" 2>/dev/null)"
+    LISTARRAY="$(ls -A "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER" 2>/dev/null)"
   else
     LISTARRAY="$*"
   fi
   [ ${#LISTARRAY} -ne 0 ] || printf_exit "No packages selected for removal"
   for rmf in $LISTARRAY; do
-    MESSAGE="Removing $rmf from $WALLPAPERS"
-    APPNAME="$rmf"
-    installer_delete "$APPNAME"
+    MESSAGE="Removing $rmf from $GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR/$rmf"
+    __installer_delete "$rmf"
     echo ""
   done
   ;;
@@ -301,19 +449,19 @@ remove)
 update)
   shift 1
   if [ $# -eq 0 ] || [ "$INSTALL_ALL" = "true" ]; then
-    LISTARRAY="$(ls -A "$USRUPDATEDIR" 2>/dev/null)"
+    LISTARRAY="$(ls -A "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER" 2>/dev/null)"
   else
     LISTARRAY="$*"
   fi
   if [ $# -ne 0 ]; then
     for ins in $LISTARRAY; do
       APPNAME="$ins"
-      run_install_update "$APPNAME"
+      __run_install_update "$APPNAME"
     done
-  elif [[ -d "$USRUPDATEDIR" ]] && [[ ${#LISTARRAY} -ne 0 ]]; then
-    for upd in $(ls "$USRUPDATEDIR"); do
+  elif [[ -d "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER" ]] && [[ ${#LISTARRAY} -ne 0 ]]; then
+    for upd in $(ls "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER"); do
       APPNAME="$upd"
-      run_install_update "$APPNAME"
+      __run_install_update "$APPNAME"
     done
   else
     printf_yellow "There doesn't seem to be any packages installed"
@@ -328,23 +476,23 @@ install)
     LISTARRAY="$(__list_options)"
   elif [ $# -eq 0 ]; then
     printf_blue "No packages provide running the updater"
-    run_install_update
+    __run_install_update
     exit $?
   else
     LISTARRAY="$*"
   fi
   for ins in $LISTARRAY; do
     APPNAME="$ins"
-    run_install_update "$APPNAME"
+    __run_install_update "$APPNAME"
   done
   exit $?
   ;;
 
 download | clone)
   shift 1
-  if [ "$INSTALL_ALL" = "true" ]; then
+  if [[ $# = 0 ]] || [[ "$INSTALL_ALL" = "true" ]]; then
     LISTARRAY="$(__list_available)"
-  elif [ $# -ne 0 ]; then
+  else
     LISTARRAY="$*"
   fi
   if [[ -n "$LISTARRAY" ]]; then
@@ -361,7 +509,7 @@ cron)
   LISTARRAY="$*"
   for cron in $LISTARRAY; do
     APPNAME="$cron"
-    __cron_updater "$APPNAME"
+    __cron_updater "$cron"
   done
   ;;
 
@@ -370,7 +518,7 @@ version)
   LISTARRAY="$*"
   for ver in $LISTARRAY; do
     APPNAME="$ver"
-    run_install_version "$APPNAME"
+    run_install_version "$ver"
   done
   ;;
 

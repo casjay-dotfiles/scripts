@@ -509,6 +509,8 @@ getexitcode() {
     local PSUCCES="$1"
   elif [ -n "$SUCCES" ]; then
     local PSUCCES="$SUCCES"
+  elif [ -n "$GETEXITCODE_SUCCES" ]; then
+    local PSUCCES="$GETEXITCODE_SUCCES"
   else
     local PSUCCES="Command successful"
   fi
@@ -516,6 +518,8 @@ getexitcode() {
     local PERROR="$2"
   elif [ -n "$ERROR" ]; then
     local PERROR="$ERROR"
+  elif [ -n "$GETEXITCODE_ERROR" ]; then
+    local PSUCCES="$GETEXITCODE_ERROR"
   else
     local PERROR="Last command failed to complete"
   fi

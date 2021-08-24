@@ -1550,6 +1550,7 @@ __install_fonts() {
     [ -f "$(builtin type -P fc-cache 2>/dev/null)" ] && fc-cache -f "$FONTDIR"
   fi
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __install_icons() {
   [[ -n "$_DEBUG" ]] && set -x && echo __install_icons
   if [ -d "$INSTDIR/icons" ]; then

@@ -1610,13 +1610,12 @@ __install_wallpapers() {
     local wallpapers="$(ls $INSTDIR/images/ 2>/dev/null | wc -l)"
     local wallpaperdir="$WALLPAPERS/$APPNAME"
     if [ "$wallpapers" != "0" ]; then
-      #if [ "$INSTDIR" != "$APPDIR" ] && [ -e "$APPDIR" ]; then rm_rf "$APPDIR"; fi
+      if [ "$INSTDIR" != "$APPDIR" ] && [ -e "$APPDIR" ]; then rm_rf "$APPDIR"; fi
       mkd "$wallpaperdir"
       find -L "$INSTDIR/images/" -mindepth 1 -maxdepth 1 -type d -name '*.*' -print0 |
         while IFS= read -r -d '' file; do
           filename="$(basename "$file")"
-          ln_sf "$file" "$wallpaperdir/$filename"
-          echo $file:$filename 1>&2
+          cp_rf "$file" "$wallpaperdir/$filename"
         done
     fi
   fi
@@ -2015,6 +2014,7 @@ run_install_init() {
   local TMPFILE="$TMPDIR/$APPNAME.tmp"
   local TMPINST="$TMPDIR/$APPNAME.inst.tmp"
   local exitCode=0
+  export APPDIR INSTDIR
   touch "$TMPINST"
   if [ -n "$PLUGNAMES" ]; then
     [ -z "$PLUGDIR" ] || mkd "$PLUGDIR"
@@ -2046,7 +2046,6 @@ run_install_init() {
       true
     fi
     local exitCode=$?
-    export APPDIR INSTDIR
     [ "$exitCode" -eq 0 ] || exit 10
   fi
 }
@@ -2139,6 +2138,7 @@ run_postinst_global() {
     [ "$installtype" = "fontmgr_install" ] || __install_fonts
     [ "$installtype" = "iconmgr_install" ] || __install_icons
     [ "$installtype" = "thememgr_install" ] || __install_theme
+    [ "$installtype" = "wallpapermgr_install" ] || __install_wallpapers
   fi
   # Permission fix
   ensure_perms

@@ -63,6 +63,7 @@ MYTERMINAL="${MYTERMINAL:-$TERMINAL}"
 MYTERMINAL_MULTIPLEX="${MYTERMINAL_MULTIPLEX:-tmux}"
 MYTERMINAL_MULTIPLEX_OPTS="${MYTERMINAL_MULTIPLEX_OPTS:--f $CASJAYSDEVDIR/templates/tmux.conf}"
 MYTERMINAL_NOTIFICATIONS="${MYTERMINAL_NOTIFICATIONS:-}"
+OLD_MYTERMINAL="${OLD_MYTERMINAL:-$MYTERMINAL}"
 
 # Notification settings
 MYTERMINAL_GOOD_MESSAGE="${MYTERMINAL_GOOD_MESSAGE:-Everything Went OK}"
@@ -87,23 +88,50 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional functions
+__create_term() {
+  cat <<EOF | tee
+  #!/usr/bin/env sh
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version       : 202104040050-git
+# @Author        : Jason Hempstead
+# @Contact       : jason@casjaysdev.com
+# @License       : WTFPL
+# @ReadME        : myterminal --help
+# @Copyright     : Copyright: (c) 2021 Jason Hempstead, CasjaysDev
+# @Created       : Sunday, Apr 04, 2021 00:50 EDT
+# @File          : myterminal
+# @Description   : Using $MYTERMINAL as myterminal
+# @TODO          :
+# @Other         :
+# @Resource      :
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+[[ "\$1" = '-e' ]] && shift 1
+$MYTERMINAL -e "\${*:-\$SHELL}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit \${exitCode:-\$?}
+
+EOF
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_link() {
-  case "$1" in
-  *)
-    if [ ! -z "$2" ]; then
-      shift 1
-      if cmd_exists "$1"; then
-        printf_green "Linking $HOME/.local/bin/myterminal to $1"
-        __ln_sf "$(builtin type -P $1)" "$HOME/.local/bin/myterminal"
-        exit 0
-      else
-        printf_green "Linking $HOME/.local/bin/myterminal to $MYTERMINAL"
-        __ln_sf "$MYTERMINAL" "$HOME/.local/bin/myterminal"
-        exit 0
-      fi
-    fi
-    ;;
-  esac
+  local MYTERMINAL="$1"
+  local MYTERMINAL_NAME="$(basename "$MYTERMINAL" 2>/dev/null)"
+  shift $#
+  [[ -f "$HOME/.local/bin/myterminal" ]] && unlink "$HOME/.local/bin/myterminal" &>/dev/null
+  if cmd_exists "$MYTERMINAL"; then
+    printf_green "Linking $HOME/.local/bin/myterminal to $MYTERMINAL"
+    __create_term >"$HOME/.local/bin/myterminal"
+    chmod -f 755 "$HOME/.local/bin/myterminal" &>/dev/null
+  else
+    printf_green "Linking $HOME/.local/bin/myterminal to $MYTERMINAL"
+    __ln_sf "$MYTERMINAL" "$HOME/.local/bin/myterminal"
+  fi
+  printf_blue "Updating the config file"
+  __rm_rf "$MYTERMINAL_CONFIG_DIR/$MYTERMINAL_CONFIG_FILE"
+  __gen_config &>/dev/null
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default variables
@@ -128,7 +156,7 @@ MYTERMINAL_OUTPUT_COLOR_ERROR="${MYTERMINAL_OUTPUT_COLOR_ERROR:-1}"
 # Notification Settings
 MYTERMINAL_GOOD_MESSAGE="${MYTERMINAL_GOOD_MESSAGE:-Everything Went OK}"
 MYTERMINAL_ERROR_MESSAGE="${MYTERMINAL_ERROR_MESSAGE:-Well that didn\'t work}"
-MYTERMINAL_NOTIFY_ENABLED="${MYTERMINAL_NOTIFY_ENABLED:-yes}"
+MYTERMINAL_NOTIFY_ENABLED="${MYTERMINAL_NOTIFY_ENABLED:-no}"
 MYTERMINAL_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
 MYTERMINAL_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$MYTERMINAL_NOTIFY_CLIENT_ICON}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -203,8 +231,8 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set additional variables/Argument/Option settings
 SETARGS="$*"
-SHORTOPTS="z:"
-LONGOPTS="options,config,version,help,dir:"
+SHORTOPTS=""
+LONGOPTS="options,config,version,help,dir:,link:"
 ARRAY=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$PROG" -- "$@" 2>/dev/null)
@@ -234,13 +262,18 @@ while :; do
     __gen_config
     exit $?
     ;;
-  -z | --dir)
+  --dir)
     MYTERMINAL_CWD="$2"
     shift 2
     ;;
+  --link)
+    shift 1
+    OLD_MYTERMINAL="${OLD_MYTERMINAL:-$MYTERMINAL}"
+    __create_link "${1:-$MYTERMINAL}"
+    exit $?
+    ;;
   --)
     shift 1
-    COMMAND_ARGS+="$*"
     break
     ;;
   esac
@@ -268,33 +301,31 @@ cmd_exists --error --ask bash || exit 1 # exit 1 if not found
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
-COMMAND="${*:-${COMMAND:-$SHELL}}"
-COMMAND_ARGS="${COMMAND_ARGS:-}"
+COMMAND=${*:-$SHELL}
 opt="-e"
-[ -e "$COMMAND" ] || cmd_exists "$COMMAND" || printf_exit 2 1 "$COMMAND does not seem to exist"
+[ -e "$COMMAND" ] || cmd_exists "$1" || printf_exit 2 1 "$COMMAND does not seem to exist"
 [ "$MYTERMINAL_NOTIFY_ENABLED" = "yes" ] && notifications "MyTerminal" "Attempting to launch $MYTERMINAL_NAME"
 if [[ -n "$SSH_CONNECTION" ]] || [[ -n "$SSH_TTY" ]] || [[ -z "$DISPLAY" ]]; then
-  printf_blue "Executing $COMMAND $COMMAND_ARGS"
+  printf_blue "Executing $COMMAND"
   printf_blue "in shell due to no display"
   if [ "$MYTERMINAL" = "$MYTERMINAL_MULTIPLEX" ]; then
-    $MYTERMINAL_MULTIPLEX $MYTERMINAL_MULTIPLEX_OPTS $COMMAND $COMMAND_ARGS
+    $MYTERMINAL_MULTIPLEX $MYTERMINAL_MULTIPLEX_OPTS $COMMAND
   elif cmd_exists screen; then
-    screen $COMMAND $COMMAND_ARGS &>/dev/null
+    screen $COMMAND &>/dev/null
   elif cmd_exists tmux; then
-    tmux new $COMMAND $COMMAND_ARGS &>/dev/null
+    tmux new $COMMAND &>/dev/null
   else
-    $COMMAND $COMMAND_ARGS
+    $COMMAND
     $SHELL
   fi
 else
   if [ -f "$HOME/.local/bin/myterminal" ]; then
-    echo "$MYTERMINAL ${OPTIONS:-$opt} $COMMAND $COMMAND_ARGS"
-    eval "$HOME/.local/bin/myterminal" ${OPTIONS:-$opt} $COMMAND $COMMAND_ARGS &>/dev/null
+    exec "$HOME/.local/bin/myterminal" $COMMAND &>/dev/null &
   #disown
   elif [[ "$TERMINAL_APP" = "TRUE" ]]; then
-    eval $MYTERMINAL ${OPTIONS:-$opt} $COMMAND $COMMAND_ARGS
+    eval $MYTERMINAL ${OPTIONS:-$opt} $COMMAND
   else
-    __exec $MYTERMINAL ${OPTIONS:-$opt} $COMMAND $COMMAND_ARGS &>/dev/null
+    __exec $MYTERMINAL ${OPTIONS:-$opt} $COMMAND &>/dev/null
     #disown
   fi
 fi

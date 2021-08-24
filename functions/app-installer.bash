@@ -1609,7 +1609,7 @@ __install_wallpapers() {
   if [ -d "$INSTDIR/images" ]; then
     local wallpapers="$(ls $INSTDIR/images/ 2>/dev/null | wc -l)"
     if [ "$wallpapers" != "0" ]; then
-      if [ "$INSTDIR" != "$APPDIR" ] && [ -e "$APPDIR" ]; then rm_rf "$APPDIR"; fi
+      #if [ "$INSTDIR" != "$APPDIR" ] && [ -e "$APPDIR" ]; then rm_rf "$APPDIR"; fi
       mkd "$WALLPAPERS/$APPNAME"
       find -L "$INSTDIR/images/" -mindepth 1 -maxdepth 1 -type d -name '*.*' -print0 |
         while IFS= read -r -d '' file; do

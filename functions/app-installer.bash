@@ -1026,7 +1026,9 @@ trim() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 execute() {
+  [[ -n "$_DEBUG" ]] && set -x
   kill_all_subprocesses() {
+    [[ -n "$_DEBUG" ]] && set -x
     local i=""
     for i in $(jobs -p); do
       kill "$i"
@@ -1034,6 +1036,7 @@ execute() {
     done
   }
   show_spinner() {
+    [[ -n "$_DEBUG" ]] && set -x
     local -r FRAMES='/-\|'
     local -r NUMBER_OR_FRAMES=${#FRAMES}
     local -r CMDS="$2"
@@ -1550,7 +1553,7 @@ __install_icons() {
     local icondir="$ICONDIR"
     local icons="$(ls "$INSTDIR/icons" 2>/dev/null | wc -l)"
     if [ "$icons" != "0" ]; then
-      fFiles="$(ls $INSTDIR/icons --ignore='.uuid')"
+      fFiles="$(ls "$INSTDIR/icons" --ignore='.uuid')"
       for f in $fFiles; do
         ln_sf "$INSTDIR/icons/$f" "$icondir/$f"
         find -L "$ICONDIR" -mindepth 1 -maxdepth 1 -type d | while read -r ICON; do

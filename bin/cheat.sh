@@ -140,7 +140,7 @@ CHEAT_SH_BIN_DIR="${CHEAT_SH_BIN_DIR:-$CASJAYSDEVDIR/sources}"
 [ -d "$CHEAT_SH_CACHE_DIR" ] || mkdir -p "$CHEAT_SH_CACHE_DIR" &>/dev/null
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate non-existing config files
-[ -f "$CHEAT_SH_CONFIG_DIR/$CHEAT_SH_CONFIG_FILE" ] && [[ "$*" = "--config" ]] || INIT_CONFIG=TRUE __gen_config "${SETARGS:-$*}"
+[ -f "$CHEAT_SH_CONFIG_DIR/$CHEAT_SH_CONFIG_FILE" ] && [[ "$*" = "--config" ]] || INIT_CONFIG=TRUE __gen_config ${SETARGS:-$@}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show warn message if variables are missing
 

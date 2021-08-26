@@ -85,8 +85,7 @@ EOF
     [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for GEN_SCRIPT_REPLACE_FILENAME has been created"
     exitCode=0
     if [[ "$INIT_CONFIG" = "TRUE" ]]; then
-      eval $APPNAME "$*"
-      exit $?
+      exit 1
     fi
   else
     printf_red "Failed to create the config file"

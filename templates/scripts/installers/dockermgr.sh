@@ -45,18 +45,17 @@ fi
 user_installdirs
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Defaults
-APPNAME="${APPNAME:-GEN_SCRIPT_REPLACE_FILENAME}"
-DATADIR="$SHARE/docker/data/$APPNAME"
-APPDIR="$CASJAYSDEVSHARE/dockermgr/$APPNAME"
-INSTDIR="$CASJAYSDEVSHARE/dockermgr/$APPNAME"
+APPDIR="$HOME/.local/share/CasjaysDev/dockermgr/$APPNAME"
+INSTDIR="$HOME/.local/share/CasjaysDev/dockermgr/$APPNAME"
+DATADIR="${SRV_DIR:-$DATADIR}"
 REPO_BRANCH="${GIT_REPO_BRANCH:-master}"
 REPO="${DOCKERMGRREPO:-https://github.com/dockermgr}/$APPNAME"
 REPORAW="$REPO/raw/$REPO_BRANCH"
 APPVERSION="$(__appversion "$REPORAW/version.txt")"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup plugins
-PLUGNAMES=""
-PLUGDIR="${SHARE:-$HOME/.local/share}/$APPNAME"
+DOCKER_HUB_URL="REPLACE_WITH_HUB_URL"
+GEN_SCRIPT_REPLACE_ENV_SERVER_PORT="${GEN_SCRIPT_REPLACE_ENV_SERVER_PORT:-15050}"
+GEN_SCRIPT_REPLACE_ENV_SERVER_HOST="${GEN_SCRIPT_REPLACE_ENV_SERVER_HOST:-$(hostname -f 2>/dev/null)}"
+TIMEZONE="${TZ:-$TIMEZONE}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Require a version higher than
 dockermgr_req_version "$APPVERSION"
@@ -71,9 +70,10 @@ show_optvars "$@"
 dockermgr_run_init
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup
-mkdir -p "$DATADIR"/{data,config}
-chmod -Rf 777 "$DATADIR"
-
+sudo mkdir -p "$DATADIR/data"
+sudo mkdir -p "$DATADIR/config"
+sudo chmod -Rf 777 "$DATADIR"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if docker ps -a | grep "GEN_SCRIPT_REPLACE_APPNAME" >/dev/null 2>&1; then
   docker pull GEN_SCRIPT_REPLACE_APPNAME && docker restart "GEN_SCRIPT_REPLACE_APPNAME"
 else
@@ -82,8 +82,9 @@ else
     --hostname "GEN_SCRIPT_REPLACE_APPNAME" \
     --restart=always \
     --privileged \
-    -p 4040:80 \
-    -v "$DATADIR/data":/GEN_SCRIPT_REPLACE_APPNAME/data \
+    -p $GEN_SCRIPT_REPLACE_ENV_SERVER_PORT:80 \
+    -v "$DATADIR/data":/data \
+    -v "$DATADIR/config":/config \
     GEN_SCRIPT_REPLACE_APPNAME
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -91,7 +92,14 @@ fi
 dockermgr_install_version
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run exit function
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 run_exit
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if docker ps -a | grep -qs "$APPNAME"; then
+  printf_blue "Service is available at: http://$GEN_SCRIPT_REPLACE_ENV_SERVER_HOST:$GEN_SCRIPT_REPLACE_ENV_SERVER_PORT"
+else
+  false
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

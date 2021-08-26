@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -Eex
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # @Author      : Jason
 # @Contact     : casjaysdev@casjay.net
@@ -38,14 +38,15 @@ for check in git curl wget; do
   if builtin type -P "$check" &>/dev/null; then
     true
   else
-    __install "$check" && return 0 || return 1
+    __install "$check" && true || false
     builtin type -P "$check" &>/dev/null || cmdMissing="$check "
   fi
 done
 if [[ -n "$cmdMissing" ]]; then
-  unset cmdMissing
-else
   echo -e "\n\n\t\t\033[0;31m$cmdMissing is not installed\033[0m\n"
+  #exit 1
+else
+  unset cmdMissing
 fi
 ###################### builtins ######################
 # Set Main Repo for dotfiles

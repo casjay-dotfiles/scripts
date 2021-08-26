@@ -95,7 +95,6 @@ run_updatecheck() { am_i_online && pkmgrcheckupdates || echo 0; }
 __rm_rf() { sudo -HE rm -Rf "$@"; }
 __cp_rf() { sudo -HE cp -Rf "$@"; }
 __curl() { am_i_online --error && curl --disable -LSsfk --connect-timeout 3 --retry 0 --fail "$*" 2>/dev/null || return 1; }
-__curl_sudo() { am_i_online --error && sudo -HE curl --disable -LSsfk --connect-timeout 3 --retry 0 --fail "$*" 2>/dev/null || return 1; }
 __not_installed() { echo -ne "${RED}Not Installed${NC}"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 pipecmd() {
@@ -115,7 +114,7 @@ cpan_run() {
     if [ ! -f "$cpanfile" ] || [ ! -f "$cpandir/.init" ]; then
       printf_green "Grabbing the CPAN.pm file"
       __urlcheck "$cpanconf" &&
-        __curl_sudo "$cpanconf" -o "$cpanfile" &&
+        __curl "$cpanconf" | sudo -HE tee "$cpanfile" &>/dev/null &&
         sudo touch "$cpandir/.init" || exit 1
     fi
     sudo bash -c "cpan notest install $*" 2>/dev/null | printf_readline || return 1
@@ -208,12 +207,12 @@ curl_run() {
   if [[ $1 =~ https?://.* ]] || [[ $1 =~ ftp?://.* ]]; then
     local url="$1"
     __urlverify "$url"
-    __curl "$url" -o "$PKMGR_TEMP_FILE"
+    __curl "$url" | tee "$PKMGR_TEMP_FILE" &>/dev/null
   else
     local url="$REPO/$1/raw/$GIT_REPO_BRANCH/lists/$2.list"
     shift "$#"
     __urlverify "$url"
-    __curl "$url" -o "$PKMGR_TEMP_FILE"
+    __curl "$url" | tee "$PKMGR_TEMP_FILE" &>/dev/null
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -221,12 +220,12 @@ script_run_if_is_url() {
   [ -z $1 ] && printf_exit 1 0 "Usage: pkmgr script filename or url "
   if [[ $1 =~ https?://.* ]] || [[ $1 =~ ftp?://.* ]]; then
     __urlverify "$1"
-    __curl "$1" | tee /tmp/pkmgr-script.sh &>/dev/null
+    __curl "$1" | tee "$PKMGR_TEMP_FILE" &>/dev/null
   else
-    __cp_rf "$1" "/tmp/pkmgr-script.sh"
+    __cp_rf "$1" "$PKMGR_TEMP_FILE"
   fi
-  if [ -f /tmp/pkmgr-script.sh ]; then
-    chmod 755 /tmp/pkmgr-script.sh
+  if [ -f "$PKMGR_TEMP_FILE" ]; then
+    chmod 755 "$PKMGR_TEMP_FILE"
   else
     printf_red "Error file does not exit"
     return 1
@@ -237,16 +236,16 @@ script_run() {
   if [ "$1" = "--script" ]; then
     shift 1
     script_run_if_is_url "$1"
-    __execute "/tmp/pkmgr-script.sh" "executing the script"
+    __execute "$PKMGR_TEMP_FILE" "executing the script"
   elif [ "$1" = "--line" ]; then
     shift 1
     script_run_if_is_url "$1"
-    while read -r line; do __execute "$line" "$line"; done <"/tmp/pkmgr-script.sh"
+    while read -r line; do __execute "$line" "$line"; done <"$PKMGR_TEMP_FILE"
   else
     script_run_if_is_url "$1"
-    /tmp/pkmgr-script.sh
+    "$PKMGR_TEMP_FILE"
   fi
-  __rm_rf "/tmp/pkmgr-script.sh"
+  __rm_rf "$PKMGR_TEMP_FILE"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __schedule() {
@@ -282,7 +281,7 @@ __schedule() {
     echo -e "###########\n$date\n###########\n" | sudo tee -a "$logfile" &>/dev/null
     echo -e "###########\n$date\n###########\n" | sudo tee -a "$loggerfile" &>/dev/null
     sudo $pkgmgrbinupdcron 2>>"$loggerfile.tmp" | sudo tee -a "$logfile" &>/dev/null
-    if [ -s "$loggerfile.tmp" ] && [ -f "$loggerfile.tmp" ] && [[ ! -z $(grep '[^[:space:]]' $loggerfile.tmp) ]]; then
+    if [ -s "$loggerfile.tmp" ] && [ -f "$loggerfile.tmp" ] && grep -q '[^[:space:]]' "$loggerfile.tmp" &>/dev/null; then
       if cmd_exists mail; then
         MAILMESS="$(echo -e "Errors were reported and they are as follows:\n""$(cat $loggerfile.tmp)\n")"
         echo $MAILMESS | mail -r "$mailadmin" -s "pkmgr failed" "$mailadmin"
@@ -303,7 +302,7 @@ dotfiles_run() {
   echo >"$PKMGR_TEMP_FILE"
   for f in $file; do
     local url="$dotfilesrepo/$f.list"
-    __urlverify "$url" && __curl "$url" >>"$PKMGR_TEMP_FILE" || return 1
+    __urlverify "$url" && __curl "$url" | tee -a "$PKMGR_TEMP_FILE" &>/dev/null || return 1
   done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

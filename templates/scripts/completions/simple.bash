@@ -36,8 +36,12 @@ _GEN_SCRIPT_REPLACE_FILENAME() {
   else
     case "${COMP_WORDS[1]:-$prev}" in
     *)
-      COMPREPLY=($(compgen -W '$ARRAY' -- "$cur"))
-      return 0
+      if [[ $cword -gt 2 ]]; then
+        return
+      else
+        COMPREPLY=($(compgen -W '$ARRAY' -- "$cur"))
+        return 0
+      fi
       ;;
     esac
   fi

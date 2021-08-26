@@ -73,6 +73,16 @@ _GEN_SCRIPT_REPLACE_FILENAME() {
 
     *)
       if [[ -n "$FILEDIR" ]]; then _filedir; fi
+      # if [[ $cword -gt 2 ]]; then
+      #   return
+      # elif [[ $cword == 2 ]]; then
+      #   _filedir
+      #   compopt -o nospace
+      #   return
+      # elif [[ $cword -eq 1 ]]; then
+      #   COMPREPLY=($(compgen -W '{a..z}{a..z}' -- "${cur}"))
+      #   compopt -o nospace
+      #   return
       if [[ "$ARRAY" = "show-none" ]]; then
         COMPREPLY=($(compgen -W '' -- "${cur}"))
       elif [[ "$ARRAY" = "show-_filedir" ]]; then
@@ -85,9 +95,9 @@ _GEN_SCRIPT_REPLACE_FILENAME() {
         COMPREPLY=($(compgen -W '${OPTS}' -- "${cur}"))
       else
         COMPREPLY=($(compgen -W '${ARRAY}' -- "${cur}"))
-      # elif [[ ${cword} -gt 2 ]]; then
+      # elif [[ $cword -gt 2 ]]; then
       #   return
-      # elif [[ ${cword} == 2 ]]; then
+      # elif [[ $cword == 2 ]]; then
       #   _filedir
       #   compopt -o nospace
       #   return

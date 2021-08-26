@@ -44,7 +44,8 @@ for check in git curl wget; do
 done
 if [[ -n "$cmdMissing" ]]; then
   echo -e "\n\n\t\t\033[0;31m$cmdMissing is not installed\033[0m\n"
-  #exit 1
+  [ -f "/tmp/system-installer.bash" ] && rm -Rf /tmp/system-installer.bash
+  exit 1
 else
   unset cmdMissing
 fi

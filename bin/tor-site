@@ -88,6 +88,7 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional functions
+__is_root() { { sudo -ll -U ${1:-$USER} 2>/dev/null | grep -q 'ALL' &>/dev/null || sudo -n -u ${1:-$USER} &>/dev/null || [[ "$EUID" = 0 ]]; } && return 0 || return 1; }
 __replace() { sed -i 's|'"$1"'|'"$2"'|g' "$3" 2>/dev/null; }
 __stop_server() { kill -9 "${1:-$pid}" &>/dev/null && return 0 || return 1; }
 __test_server() { netstatg "${1:-$TOR_SITE_PORT}" | grep -q python && return 0 || return 1; }
@@ -117,7 +118,7 @@ __run_server() {
   sleep 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__run_systemd_server() {
+__run_service_server() {
   __cd "$TOR_SITE_CWD"
   { python3 -m http.server --cgi --bind 127.0.0.1 "$TOR_SITE_PORT" &>/dev/null ||
     python2 -m http.server --cgi --bind 127.0.0.1 "$TOR_SITE_PORT" &>/dev/null ||
@@ -168,10 +169,10 @@ __create_site() {
 __systemd() {
   local dir="${1:-$TOR_SITE_CWD}"
   local port="${2:-$TOR_SITE_PORT}"
-  __create_site "$dir" "$port" &>/dev/null
-  cat <<EOF
+  __create_site "$dir" "$port"
+  cat <<EOF | sudo tee /etc/systemd/system/tor_site_$port.service &>/dev/null
 [Unit]
-Description=Tor Hidden Site localhost:$TOR_SITE_PORT
+Description=Tor Hidden Site localhost:$port
 Before=tor.service
 After=network.target
 
@@ -181,7 +182,7 @@ User=$USER
 Environment=TOR_SITE_PORT="$port"
 Environment=TOR_SITE_CWD="$dir/$port"
 WorkingDirectory=$dir/$port
-ExecStart=/bin/bash -c "$SRC_DIR/$APPNAME systemd run $port $dir/$port"
+ExecStart=/bin/bash -c "$SRC_DIR/$APPNAME service run $port $dir/$port"
 ExecStop=/bin/bash -c "$SRC_DIR/$APPNAME stop $port"
 Restart=always
 #RestartSec=5
@@ -190,6 +191,28 @@ Restart=always
 
 [Install]
 WantedBy=multi-user.target
+
+EOF
+}
+
+__service() {
+  local dir="${1:-$TOR_SITE_CWD}"
+  local port="${2:-$TOR_SITE_PORT}"
+  #!/usr/bin/env xdg-open
+  cat <<EOF
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Tor-$port
+GenericName=Tor-$port
+Comment=Tor service on port $port.
+Icon=tor
+Exec=/bin/bash -c "$SRC_DIR/$APPNAME service run $port $dir/$port"
+Terminal=false
+Actions=
+Categories=Internet;GTK;X-XFCE;GNOME;MyScripts
+Keywords=mpd;music;player;my;
+StartupNotify=false
 
 EOF
 }
@@ -237,13 +260,13 @@ TOR_SITE_PID_FILE="${TOR_SITE_PID_FILE:-$TOR_SITE_TEMP_DIR/\$TOR_SITE_PORT.pid}"
 [ -f "$TOR_SITE_CONFIG_DIR/$TOR_SITE_CONFIG_FILE" ] || [[ "$*" = "--config" ]] || INIT_CONFIG=TRUE __gen_config ${SETARGS:-$@}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show warn message if variables are missing
-[[ "$EUID" = 0 ]] && TOR_SITE_CWD="/usr/local/share/tor-site"
+__is_root && TOR_SITE_CWD="/usr/local/share/tor-site"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set additional variables/Argument/Option settings
 SETARGS="$*"
 SHORTOPTS="p:"
 LONGOPTS="options,config,version,help,dir:,port:"
-ARRAY="status stop systemd create"
+ARRAY="status stop service create"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$PROG" -- "$@" 2>/dev/null)
 eval set -- "${setopts[@]}" 2>/dev/null
@@ -336,14 +359,14 @@ stop)
   exit ${exitCode:-$?}
   ;;
 
-systemd) # systemd options
+service) # service options
   shift 1
   case "$1" in
   install)
     shift 1
-    if sudo -n true &>/dev/null; then
+    if __is_root "$USER" &>/dev/null; then
       printf_green "Creating systemd service"
-      __systemd ${1:-$TOR_SITE_CWD} ${2:-$TOR_SITE_PORT} | sudo tee /etc/systemd/system/tor_site_$TOR_SITE_PORT.service &>/dev/null
+      __systemd ${1:-$TOR_SITE_CWD} ${2:-$TOR_SITE_PORT}
       if [[ -f "/etc/systemd/system/tor_site_$TOR_SITE_PORT.service" ]]; then
         sudo systemctl daemon-reload &>/dev/null
         sudo systemctl enable --now tor_site_$TOR_SITE_PORT.service &>/dev/null
@@ -352,7 +375,9 @@ systemd) # systemd options
         printf_exit "Failed to create tor sevice"
       fi
     else
-      printf_return 1 1 "This requires root"
+      printf_red "You need to be root in order to install the systemd service"
+      printf_blue "Configuring for a user install instead"
+      __create_site ${1:-$TOR_SITE_CWD} ${2:-$TOR_SITE_PORT}
     fi
     ;;
 
@@ -381,11 +406,11 @@ systemd) # systemd options
     shift 1
     TOR_SITE_PORT="${1:-$TOR_SITE_PORT}"
     TOR_SITE_CWD="${2:-$TOR_SITE_CWD}"
-    __run_systemd_server "$TOR_SITE_CWD" "$TOR_SITE_PORT"
+    __run_service_server "$TOR_SITE_CWD" "$TOR_SITE_PORT"
     exit ${exitCode:-$?}
     ;;
   esac
-  ;; # end systemd options
+  ;; # end service options
 
 create)
   shift 1

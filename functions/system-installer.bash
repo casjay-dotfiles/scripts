@@ -9,6 +9,7 @@
 # @Description : installer functions for apps
 #
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+[[ $(id -u) != 0 ]] || [[ "$EUID" != 0 ]] || [[ "$WHOAMI" != "root" ]] || { echo -e "\t\t\033[0;31mThis script requires sudo or root\033[0m" && exit 1; }
 export PATH="$(echo "$PATH" | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 's#::#:.#g')"
 export USER="$USER"
 export WHOAMI="${USER}"

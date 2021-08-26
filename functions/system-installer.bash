@@ -34,12 +34,11 @@ else
 fi
 
 for check in git curl wget; do
-  if ! builtin type -P "$check" &>/dev/null; then
-    __install "$check"
-    builtin type -P "$check" &>/dev/null || cmdMissing="$check "
-  fi
+  { builtin type -P "$check" &>/dev/null || __install "$check" && return 0 || return 1; }
+  builtin type -P "$check" &>/dev/null || cmdMissing="$check "
 done
-[[ -n "$cmdMissing" ]] || echo -e "\n\n\t\t\033[0;31m$check is not installed\033[0m\n"
+[[ -n "$cmdMissing" ]] || echo -e "\n\n\t\t\033[0;31m$cmdMissing is not installed\033[0m\n"
+unset cmdMissing
 ###################### builtins ######################
 # Set Main Repo for dotfiles
 export DOTFILESREPO="${DOTFILESREPO:-https://github.com/dfmgr}"

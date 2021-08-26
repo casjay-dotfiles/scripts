@@ -1,24 +1,4 @@
 #!/usr/bin/env bash
-
-export PATH="$(echo $PATH | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 's#::#:.#g')"
-
-set -o pipefail
-#trap '' err exit SIGINT SIGTERM
-# if [ -n "$DISPLAY" ] && [ -f "$(command -v ask_for_password 2>/dev/null)" ]; then
-#   unalias sudo &>/dev/null
-#   unset -f sudo &>/dev/null
-#   sudo() { builtin command sudo $*; }
-# else
-#   export SUDO_ASKPASS="${SUDO_ASKPASS:-}"
-#   export SUDO_PROMPT="$(printf "\n\t\t\033[1;31m")[sudo]$(printf "\033[1;36m") password for $(printf "\033[1;32m")%p: $(printf "\033[0m" && echo)"
-# fi
-export USER="$USER"
-export WHOAMI="${USER}"
-export RUN_USER="${RUN_USER:-$USER}"
-
-TMP="${TMP:-/tmp}"
-TEMP="${TEMP:-/tmp}"
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # @Author      : Jason
 # @Contact     : casjaysdev@casjay.net
@@ -28,6 +8,14 @@ TEMP="${TEMP:-/tmp}"
 # @Copyright   : Copyright (c) CasjaysDev
 # @Description : installer functions for apps
 #
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+set -o pipefail
+export PATH="$(echo "$PATH" | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 's#::#:.#g')"
+export USER="$USER"
+export WHOAMI="${USER}"
+export RUN_USER="${RUN_USER:-$USER}"
+TMP="${TMP:-/tmp}"
+TEMP="${TEMP:-/tmp}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # fail if git is not installed
 if builtin type -P brew &>/dev/null; then
@@ -53,22 +41,6 @@ for check in git curl wget; do
 done
 [[ -n "$cmdMissing" ]] || echo -e "\n\n\t\t\033[0;31m$check is not installed\033[0m\n"
 ###################### builtins ######################
-__command() {
-  [ "$1" = "-v" ] && shift 1
-  if [ $# -ne 1 ]; then
-    if builtin type "$@" 2>/dev/null | grep -v alias | head -n1 | awk '{print $1}' | grep '^'; then
-      return 0
-    else
-      return 1
-    fi
-  elif builtin type "$*" 2>/dev/null | grep -v alias | head -n1 | awk '{print $1}' | grep -q '^'; then
-    return 0
-  else
-    return 1
-  fi
-}
-export -f __command
-##################################################################################################
 # Set Main Repo for dotfiles
 export DOTFILESREPO="${DOTFILESREPO:-https://github.com/dfmgr}"
 # Set other Repos
@@ -170,16 +142,15 @@ notifications() {
   shift 1
   local msg="$*"
   shift
-  __command notify-send && notify-send -u normal -i "notification-message-IM" "$title" "$msg" || return 0
+  builtin type -P notify-send &>/dev/null && notify-send -u normal -i "notification-message-IM" "$title" "$msg" || return 0
 }
 ##################################################################################################
 devnull() { "$@" >/dev/null 2>&1; }
 killpid() { devnull kill -9 "$(pidof "$1")"; }
 hostname2ip() { getent hosts "$1" | cut -d' ' -f1 | head -n1; }
 __command() {
-  local pkg LISTARRAY
-  declare -a LISTARRAY="$*"
-  for cmd in $LISTARRAY; do
+  local cmd
+  for cmd in "$@"; do
     type -P "$1" | grep -q "/" 2>/dev/null
   done
 }
@@ -213,18 +184,18 @@ system_service_disable() {
 }
 ##################################################################################################
 #alternative names
-mlocate() { __command locate || __command mlocate || return 1; }
-xfce4() { __command xfce4-about || return 1; }
-imagemagick() { __command convert || return 1; }
-fdfind() { __command fdfind || __command fd || return 1; }
-speedtest() { __command speedtest-cli || __command speedtest || return 1; }
-neovim() { __command nvim || __command neovim || return 1; }
-chromium() { __command chromium || __command chromium-browser || return 1; }
-firefox() { __command firefox-esr || __command firefox || return 1; }
+mlocate() { builtin type -P locate &>/dev/null || builtin type -P mlocate &>/dev/null || return 1; }
+xfce4() { builtin type -P xfce4-about &>/dev/null || return 1; }
+imagemagick() { builtin type -P convert &>/dev/null || return 1; }
+fdfind() { builtin type -P fdfind &>/dev/null || builtin type -P fd &>/dev/null || return 1; }
+speedtest() { builtin type -P speedtest-cli &>/dev/null || builtin type -P speedtest &>/dev/null || return 1; }
+neovim() { builtin type -P nvim &>/dev/null || builtin type -P neovim &>/dev/null || return 1; }
+chromium() { builtin type -P chromium &>/dev/null || builtin type -P chromium-browser &>/dev/null || return 1; }
+firefox() { builtin type -P firefox-esr &>/dev/null || builtin type -P firefox &>/dev/null || return 1; }
 gtk-2.0() { find /lib* /usr* -iname "*libgtk*2*.so*" -type f | grep -q . || return 1; }
 gtk-3.0() { find /lib* /usr* -iname "*libgtk*3*.so*" -type f | grep -q . || return 1; }
-httpd() { __command httpd || __command apache2 || return 1; }
-emacs() { __command emacs26 || __command emacs; }
+httpd() { builtin type -P httpd &>/dev/null || builtin type -P apache2 &>/dev/null || return 1; }
+emacs() { builtin type -P emacs26 &>/dev/null || builtin type -P emacs &>/dev/null || return 1; }
 ##################################################################################################
 rm_rf() { if [ -e "$1" ]; then devnull rm -Rf "$@"; fi; }
 cp_rf() { if [ -e "$1" ]; then devnull cp -Rfa "$@"; fi; }
@@ -356,8 +327,8 @@ ask_for_confirmation() {
 }
 ##################################################################################################
 __getip() {
-  NETDEV="$(ip route | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//")"
-  CURRIP4="$(/sbin/ifconfig $NETDEV | grep -E "venet|inet" | grep -v "127.0.0." | grep 'inet' | grep -v inet6 | awk '{print $2}' | sed 's#addr:##g' | head -n1)"
+  NETDEV="$(ip route 2>/dev/null | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//")"
+  CURRIP4="$(/sbin/ifconfig $NETDEV 2>/dev/null | grep -E "venet|inet" | grep -v "127.0.0." | grep 'inet' | grep -v inet6 | awk '{print $2}' | sed 's#addr:##g' | head -n1)"
 }
 __getip
 ##################################################################################################
@@ -455,7 +426,7 @@ versioncheck() {
 ##################################################################################################
 scripts_check() {
   local REPO="${DOTFILESREPO:-https://github.com/dfmgr}"
-  if ! __command "pkmgr" && [ ! -f "$HOME/.noscripts" ]; then
+  if ! builtin type -P "pkmgr" &>/dev/null && [ ! -f "$HOME/.noscripts" ]; then
     printf_red "\t\tPlease install my scripts repo - requires root/sudo\n"
     printf_question "Would you like to do that now" [y/N]
     read -n 1 -s choice
@@ -472,8 +443,8 @@ scripts_check() {
 ##################################################################################################
 cmdif() {
   local package=$1
-  __command "$package"
-  if __command "$package"; then return 0; else return 1; fi
+  builtin type -P "$package" &>/dev/null
+  if builtin type -P "$package" &>/dev/null; then return 0; else return 1; fi
 }
 perlif() {
   local package=$1
@@ -539,11 +510,11 @@ install_packages() {
   local USER="$USER"
   for cmd in "$@"; do cmdif $cmd || MISSING+="$cmd "; done
   if [ ! -z "$MISSING" ]; then
-    if __command "pkmgr"; then
+    if builtin type -P "pkmgr" &>/dev/null; then
       printf_warning "Attempting to install missing packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        if __command yay; then
+        if builtin type -P yay &>/dev/null; then
           execute "pkmgr --enable-aur silent install $miss" "Installing $miss"
         else
           execute "pkmgr silent install $miss" "Installing $miss"
@@ -557,9 +528,9 @@ install_required() {
   local MISSING=""
   for cmd in "$@"; do cmdif $cmd || MISSING+="$cmd "; done
   if [ ! -z "$MISSING" ]; then
-    if __command "pkmgr"; then
+    if builtin type -P "pkmgr" &>/dev/null; then
       printf_warning "Installing from package list"
-      if __command yay; then
+      if builtin type -P yay &>/dev/null; then
         pkmgr --enable-aur dotfiles "$APPNAME"
       else
         pkmgr dotfiles "$APPNAME"
@@ -572,11 +543,11 @@ install_python() {
   local MISSING=""
   for cmd in "$@"; do python_missing "$cmd"; done
   if [ ! -z "$MISSING" ]; then
-    if __command "pkmgr"; then
+    if builtin type -P "pkmgr" &>/dev/null; then
       printf_warning "Attempting to install missing python packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        if __command yay; then
+        if builtin type -P yay &>/dev/null; then
           execute "pkmgr --enable-aur silent install $miss" "Installing $miss"
         else
           execute "pkmgr silent install $miss" "Installing $miss"
@@ -590,11 +561,11 @@ install_perl() {
   local MISSING=""
   for cmd in "$@"; do perl_missing "$cmd"; done
   if [ ! -z "$MISSING" ]; then
-    if __command "pkmgr"; then
+    if builtin type -P "pkmgr" &>/dev/null; then
       printf_warning "Attempting to install missing perl packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        if __command yay; then
+        if builtin type -P yay &>/dev/null; then
           execute "pkmgr --enable-aur silent install $miss" "Installing $miss"
         else
           execute "pkmgr silent install $miss" "Installing $miss"
@@ -608,7 +579,7 @@ install_pip() {
   local MISSING=""
   for cmd in "$@"; do cmdif $cmd || pip_missing $cmd; done
   if [ ! -z "$MISSING" ]; then
-    if __command "pkmgr"; then
+    if builtin type -P "pkmgr" &>/dev/null; then
       printf_warning "Attempting to install missing pip packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
@@ -622,7 +593,7 @@ install_cpan() {
   local MISSING=""
   for cmd in "$@"; do cmdif $cmd || cpan_missing "$cmd"; done
   if [ ! -z "$MISSING" ]; then
-    if __command "pkmgr"; then
+    if builtin type -P "pkmgr" &>/dev/null; then
       printf_warning "Attempting to install missing cpan packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
@@ -636,7 +607,7 @@ install_gem() {
   local MISSING=""
   for cmd in "$@"; do cmdif $cmd || gem_missing $cmd; done
   if [ ! -z "$MISSING" ]; then
-    if __command "pkmgr"; then
+    if builtin type -P "pkmgr" &>/dev/null; then
       printf_warning "Attempting to install missing gem packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do

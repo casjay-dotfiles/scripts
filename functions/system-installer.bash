@@ -30,33 +30,28 @@ TEMP="${TEMP:-/tmp}"
 #
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # fail if git is not installed
-if ! type -P git &>/dev/null; then
-  echo -e "\t\t\033[0;31mAttempting to install git\033[0m"
-  if __command -P brew &>/dev/null; then
-    brew install -f git &>/dev/null
-  elif __command -P apt &>/dev/null; then
-    apt install -yy -q git &>/dev/null
-  elif __command -P pacman &>/dev/null; then
-    pacman -S --noconfirm git &>/dev/null
-  elif __command -P yum &>/dev/null; then
-    yum install -yy -q git &>/dev/null
-  elif __command -P choco &>/dev/null; then
-    choco install git -y &>/dev/null
-    if __command -P git &>/dev/null; then
-      echo -e "\t\t\033[0;31mGit was not installed\033[0m"
-      exit 1
-    fi
-  else
-    echo -e "\t\t\033[0;31mGit is not installed\033[0m"
-    exit 1
-  fi
+if builtin type -P brew &>/dev/null; then
+  __install() { eval brew install -f "$*" &>/dev/null; }
+elif builtin type -P apt &>/dev/null; then
+  __install() { eval apt install -yy -q "$*" &>/dev/null; }
+elif builtin type -P pacman &>/dev/null; then
+  __install() { eval pacman -S --noconfirm "$*" &>/dev/null; }
+elif builtin type -P yum &>/dev/null; then
+  __install() { eval yum install -yy -q "$*" &>/dev/null; }
+elif builtin type -P choco &>/dev/null; then
+  __install() { eval choco install "$*" -y &>/dev/null; }
+else
+  echo -e "\t\t\033[0;31mCan not determine you packager manager\033[0m"
+  exit 1
 fi
+
 for check in git curl wget; do
   if ! builtin type -P "$check" &>/dev/null; then
-    echo -e "\n\n\t\t\033[0;31m$check is not installed\033[0m\n"
-    exit 1
+    __install "$check"
+    builtin type -P "$check" &>/dev/null || cmdMissing="$check "
   fi
 done
+[[ -n "$cmdMissing" ]] || echo -e "\n\n\t\t\033[0;31m$check is not installed\033[0m\n"
 ###################### builtins ######################
 __command() {
   [ "$1" = "-v" ] && shift 1

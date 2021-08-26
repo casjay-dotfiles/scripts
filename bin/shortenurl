@@ -59,6 +59,10 @@ __gen_config() {
 # Settings for shortenurl
 SHORTENURL_URL="${SHORTENURL_URL:-https://is.gd/create.php?logstats=1&format=simple&url=}"
 
+# See https://github.com/casjay-coffee/casjay.link
+SHORTENURL_URL_CUSTOM="${SHORTENURL_URL_CUSTOM:-https://casjay.link}"
+SHORTENURL_URL_CUSTOM_API="${SHORTENURL_URL_CUSTOM_API:-https://casjay.link/url}"
+
 # Notification settings
 SHORTENURL_GOOD_MESSAGE="${SHORTENURL_GOOD_MESSAGE:-Everything Went OK}"
 SHORTENURL_ERROR_MESSAGE="${SHORTENURL_ERROR_MESSAGE:-Well something seems to have gone wrong}"
@@ -87,8 +91,40 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional functions
-__curl() { curl -q --connect-timeout 3 --retry 0 --fail $* 2>/dev/null || return 1; }
+__curl() { curl -q --connect-timeout 3 --retry 0 --fail "$*" 2>/dev/null || return 1; }
 __urlencode() { perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' "${1:-$URL}"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__default_url() {
+  local host="$1"
+  local encoded="$(__urlencode "$1" | sed 's| ||g')"
+  local results="$(__curl "$SHORTENURL_URL$encoded" | grep '^')"
+  [[ -n "$result" ]] && echo "$results" && exitCode=0 ||
+    { echo "Something seems to have gone creating the shortened url" && echo "$SHORTENURL_URL$encoded" && exitCode=1; }
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__custom_url() {
+  local host="$1"
+  local slug="${2:-$(tr -dc 'a-zA-Z' </dev/urandom | head -c 6)}"
+  echo "$host" | grep -Eq 'http|https' || { echo "Please enter a valid URL" && return 1; }
+  results="$(curl -q -LSs --header "Content-Type: application/json" --request POST --data '{"url":"'$host'","slug":"'$slug'"}' "$SHORTENURL_URL_CUSTOM_API")"
+  { echo echo "$results" | grep -q 'Too many requests' && echo "You have been rate limited. Please try again later. 🍔" && exitCode=1; }
+  { echo "$results" | grep -q 'Slug in use.' && echo "The slug $2 is in use. 🍔" && exitCode=1; } ||
+    { echo "$results" | grep -q 'Error:' && echo "An error has occured. 🍔" && exitCode=1; } ||
+    { echo "$results" | jq -r '.url' | sed 's|"||g' | grep -q '^' && echo "$SHORTENURL_URL_CUSTOM/$slug points to $host" && exitCode=0; } ||
+    exitCode=1
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__guthub_url() {
+  local host="$1"
+  local slug="${2:-$(tr -dc 'a-zA-Z' </dev/urandom | head -c 6)}"
+  echo "$host" | grep -Eq 'github' || { echo "Please enter a valid github URL" && return 1; }
+  results="$(curl -q -LSsi https://git.io -F "url=$host" 2>/dev/null | grep 'Location: ')"
+  [[ -n "$result" ]] && echo "$results" && exitCode=0 ||
+    { echo "Something seems to have gone creating the github url" && exitCode=1; }
+  return ${exitCode:-$?}
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default variables
 exitCode="0"
@@ -118,6 +154,8 @@ SHORTENURL_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$SHORTENURL_NOTIFY_CLIENT_I
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application overrides
 SHORTENURL_URL="${SHORTENURL_URL:-https://is.gd/create.php?logstats=1&format=simple&url=}"
+SHORTENURL_URL_CUSTOM="${SHORTENURL_URL_CUSTOM:-https://casjay.link}"
+SHORTENURL_URL_CUSTOM_API="${SHORTENURL_URL_CUSTOM_API:-https://casjay.link/url}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import config
 [ -f "$SHORTENURL_CONFIG_DIR/$SHORTENURL_CONFIG_FILE" ] && . "$SHORTENURL_CONFIG_DIR/$SHORTENURL_CONFIG_FILE"
@@ -196,18 +234,35 @@ cmd_exists --error --ask bash || exit 1 # exit 1 if not found
 #am_i_online --error || exit 1     # exit 1 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
-[ -z "$1" ] && seturl=$(printclip) || seturl="$1"
-encoded="$(__urlencode "$seturl" | sed 's| ||g')"
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
-result="$(__curl "$SHORTENURL_URL$encoded" | grep '^')"
-if [[ -n "$result" ]]; then
+case "$1" in
+github)
+  shift 1
+  [ -z "$1" ] && seturl=$(printclip) || seturl="$1"
+  result="$(__github_url $seturl $2)"
   echo "$result" | printf_readline $SHORTENURL_OUTPUT_COLOR
   echo "$result" | putclip
-else
-  printf_return "Something seems to have gone creating the shortened url"
-  printf_return "$SHORTENURL_URL$encoded"
-fi
+  exit $?
+  ;;
+
+private)
+  shift 1
+  [ -z "$1" ] && seturl=$(printclip) || seturl="$1"
+  result="$(__custom_url $seturl $2)"
+  echo "$result" | printf_readline $SHORTENURL_OUTPUT_COLOR
+  echo "$result" | putclip
+  exit $?
+  ;;
+
+*)
+  [ -z "$1" ] && seturl=$(printclip) || seturl="$1"
+  result="$(__default_url $seturl)"
+  echo "$result" | printf_readline $SHORTENURL_OUTPUT_COLOR
+  echo "$result" | putclip
+  ;;
+esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

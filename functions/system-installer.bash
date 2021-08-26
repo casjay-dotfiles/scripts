@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -Eex
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # @Author      : Jason
 # @Contact     : casjaysdev@casjay.net
@@ -34,11 +35,18 @@ else
 fi
 
 for check in git curl wget; do
-  { builtin type -P "$check" &>/dev/null || __install "$check" && return 0 || return 1; }
-  builtin type -P "$check" &>/dev/null || cmdMissing="$check "
+  if builtin type -P "$check" &>/dev/null; then
+    true
+  else
+    __install "$check" && return 0 || return 1
+    builtin type -P "$check" &>/dev/null || cmdMissing="$check "
+  fi
 done
-[[ -n "$cmdMissing" ]] || echo -e "\n\n\t\t\033[0;31m$cmdMissing is not installed\033[0m\n"
-unset cmdMissing
+if [[ -n "$cmdMissing" ]]; then
+  unset cmdMissing
+else
+  echo -e "\n\n\t\t\033[0;31m$cmdMissing is not installed\033[0m\n"
+fi
 ###################### builtins ######################
 # Set Main Repo for dotfiles
 export DOTFILESREPO="${DOTFILESREPO:-https://github.com/dfmgr}"

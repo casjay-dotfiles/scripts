@@ -128,7 +128,7 @@ TERMBIN_COM_URL_HOST_PORT="${TERMBIN_COM_URL_HOST_PORT:-9999}"
 [ -d "$TERMBIN_COM_CACHE_DIR" ] || mkdir -p "$TERMBIN_COM_CACHE_DIR" &>/dev/null
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate non-existing config files
-[ -f "$TERMBIN_COM_CONFIG_DIR/$TERMBIN_COM_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG=TRUE __gen_config ${SETARGS:-$@}
+[ -f "$TERMBIN_COM_CONFIG_DIR/$TERMBIN_COM_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show warn message if variables are missing
 

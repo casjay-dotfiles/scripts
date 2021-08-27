@@ -175,10 +175,10 @@ run_postinst() {
   for file in multi_clipboard se sentaku tdrop; do
     [[ -f "/usr/local/bin/$file" ]] || ln_sf "$APPDIR/sources/$file" "/usr/local/bin/$file"
   done
-  for f in $(find -L /usr/local/share/CasjaysDev/scripts/bin/* -type f,l); do
-    [[ -f "$f" ]] && INIT_CONFIG=TRUE bash -c '"'$f'" --config &>/dev/null'
-    true
-  done
+  # for f in $(find -L /usr/local/share/CasjaysDev/scripts/bin/* -type f,l); do
+  #   [[ -f "$f" ]] && INIT_CONFIG=TRUE bash -c '"'$f'" --config &>/dev/null'
+  #   true
+  # done
   cmd_exists &>/dev/null
   cmd_exists update-motd && update-ip && update-motd || true
   dotfilesreqadmin cron

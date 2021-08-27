@@ -168,28 +168,6 @@ log() {
   mkdir -p "$HOME/.local/log"
   "$@" >"$HOME/.local/log/$APPNAME.log" 2>"$HOME/.local/log/$APPNAME.err"
 }
-run_post() {
-  local e="$1"
-  local m="$(echo $1 | sed 's#devnull ##g')"
-  execute "$e" "executing: $m"
-  setexitstatus
-  set --
-}
-system_service_exists() {
-  if sudo systemctl list-units --full -all | grep -Fq "$1"; then return 0; else return 1; fi
-  setexitstatus
-  set --
-}
-system_service_enable() {
-  if system_service_exists; then execute "sudo systemctl enable -f $1" "Enabling service: $1"; fi
-  setexitstatus
-  set --
-}
-system_service_disable() {
-  if system_service_exists; then execute "sudo systemctl disable --now $1" "Disabling service: $1"; fi
-  setexitstatus
-  set --
-}
 ##################################################################################################
 #alternative names
 mlocate() { builtin command -v locate &>/dev/null || builtin command -v mlocate &>/dev/null || return 1; }

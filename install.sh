@@ -179,6 +179,7 @@ run_postinst() {
     [[ -f "$f" ]] && INIT_CONFIG=TRUE bash -c '"'$f'" --config &>/dev/null'
     true
   done
+  cmd_exists &>/dev/null
   cmd_exists update-motd && update-ip && update-motd || true
   dotfilesreqadmin cron
 }

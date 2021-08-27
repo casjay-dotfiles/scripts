@@ -176,7 +176,7 @@ run_postinst() {
     [[ -f "/usr/local/bin/$file" ]] || ln_sf "$APPDIR/sources/$file" "/usr/local/bin/$file"
   done
   for f in $(find -L /usr/local/share/CasjaysDev/scripts/bin/* -type f,l); do
-    [[ -f "$f" ]] && eval INIT_CONFIG=TRUE "$f" --config &>/dev/null
+    [[ -f "$f" ]] && INIT_CONFIG=TRUE bash -c '"'$f'" --config &>/dev/null'
     true
   done
   cmd_exists update-motd && update-ip && update-motd || true

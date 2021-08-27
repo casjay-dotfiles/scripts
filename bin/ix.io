@@ -125,7 +125,7 @@ IX_IO_SERVER_HOST="${IX_IO_SERVER_HOST:-http://ix.io}"
 [ -d "$IX_IO_CACHE_DIR" ] || mkdir -p "$IX_IO_CACHE_DIR" &>/dev/null
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate non-existing config files
-[ -f "$IX_IO_CONFIG_DIR/$IX_IO_CONFIG_FILE" ] || [[ "$*" = "--config" ]] || INIT_CONFIG=TRUE __gen_config ${SETARGS:-$@}
+[ -f "$IX_IO_CONFIG_DIR/$IX_IO_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG=TRUE __gen_config ${SETARGS:-$@}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show warn message if variables are missing
 

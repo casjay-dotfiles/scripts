@@ -138,15 +138,16 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run post install scripts
 run_postinst() {
-  export PATH="$CASJAYSDEVDIR/bin:$PATH"
+  export PATH="/usr/local/share/CasjaysDev/scripts/bin:$PATH"
   systemmgr_run_post
   mkd /etc/casjaysdev/messages/motd
   mkd /etc/casjaysdev/messages/issue
   mkd /etc/casjaysdev/messages/legal
   mkd /etc/casjaysdev/updates/versions
   mkd /usr/local/share/CasjaysDev/apps/fontmgr
-  for f in $CASJAYSDEVDIR/bin/*; do
+  for f in /usr/local/share/CasjaysDev/scripts/bin/*; do
     [[ -f "$f" ]] && eval INIT_CONFIG=TRUE "$f" --config &>/dev/null
+    true
   done
   local fontdir="$(ls "$CASJAYSDEVSAPPDIR/fontmgr" | wc -l)"
   if [ "$fontdir" = "0" ]; then

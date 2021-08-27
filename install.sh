@@ -145,10 +145,6 @@ run_postinst() {
   mkd /etc/casjaysdev/messages/legal
   mkd /etc/casjaysdev/updates/versions
   mkd /usr/local/share/CasjaysDev/apps/fontmgr
-  for f in /usr/local/share/CasjaysDev/scripts/bin/*; do
-    [[ -f "$f" ]] && eval INIT_CONFIG=TRUE "$f" --config &>/dev/null
-    true
-  done
   local fontdir="$(ls "$CASJAYSDEVSAPPDIR/fontmgr" | wc -l)"
   if [ "$fontdir" = "0" ]; then
     sudo fontmgr install Hack all-the-icons fontawesome LigatureSymbols
@@ -175,11 +171,15 @@ run_postinst() {
   echo 'for f in '$CASJAYSDEVDIR/completions/*'; do source "$f" >/dev/null 2>&1; done' >"$COMPDIR/_my_scripts_completions"
   ln_sf "$APPDIR" "$SYSSHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME"
   ln_sf "$APPDIR" "$SYSSHARE/CasjaysDev/$SCRIPTS_PREFIX/installer"
-  cmd_exists update-motd && update-ip && update-motd || true
   git config --global pull.rebase true
   for file in multi_clipboard se sentaku tdrop; do
     [[ -f "/usr/local/bin/$file" ]] || ln_sf "$APPDIR/sources/$file" "/usr/local/bin/$file"
   done
+  for f in $(find -L /usr/local/share/CasjaysDev/scripts/bin/* -type f,l); do
+    [[ -f "$f" ]] && eval INIT_CONFIG=TRUE "$f" --config &>/dev/null
+    true
+  done
+  cmd_exists update-motd && update-ip && update-motd || true
   dotfilesreqadmin cron
 }
 #

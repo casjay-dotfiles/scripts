@@ -427,7 +427,9 @@ printf_custom_question() {
 }
 printf_question_term() {
   printf_read_question "4" "$1" "1" "REPLY" "-s"
-  printf_answer_yes "$REPLY" && eval "${2:-true}" || return 1
+  printf "\n"
+  printf_answer_yes "$REPLY" && eval "${2:-true}" && exitCode=0 || exitCode=1
+  return ${exitCode:-$?}
 }
 #printf_read_input "color" "message" "maxLines" "answerVar" "readopts"
 printf_read_input() {

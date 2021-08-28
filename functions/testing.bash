@@ -482,7 +482,13 @@ printf_answer() {
 }
 #printf_answer_yes "var" "response"
 printf_answer_yes() {
-  [[ "${1:-$REPLY}" =~ ${2:-^[Yy]$} ]] || return 1
+  if [[ "${1:-$REPLY}" =~ ${2:-^[Yy]$} ]]; then
+    exitCode=0
+  else
+    exitCode=1
+  fi
+  printf "\n"
+  return ${exitCode:-$?}
 }
 printf_answer_no() {
   [[ "${1:-$REPLY}" =~ ${2:-^[Nn]$} ]] && return 1 || return 0

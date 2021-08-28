@@ -487,7 +487,6 @@ printf_answer_yes() {
   else
     exitCode=1
   fi
-  printf "\n"
   return ${exitCode:-$?}
 }
 printf_answer_no() {

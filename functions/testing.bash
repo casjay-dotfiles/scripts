@@ -482,7 +482,6 @@ printf_answer() {
 }
 #printf_answer_yes "var" "response"
 printf_answer_yes() {
-  printf "\n"
   [[ "${1:-$REPLY}" =~ ${2:-^[Yy]$} ]] || return 1
 }
 printf_answer_no() {

@@ -346,11 +346,21 @@ sudorerun() {
   local ARGS="$ARGS"
   if [[ $UID != 0 ]]; then if sudoif; then sudo -HE "$APPNAME" "$ARGS" && exit $?; else sudoreq; fi; fi
 }
-sudoreq() { if [[ $UID != 0 ]]; then
-  echo "" && printf_error "Please run this script with sudo\n\n"
-  returnexitcode
-  exit 1
-fi; }
+sudoreq() {
+  sudo_check=$(sudo -H -S -- echo SUDO_OK 2>&1 &)
+  [[ $sudo_check == "SUDO_OK" ]] && return
+  if [[ $UID != 0 ]]; then
+    if builtin type -P ask_for_password &>/dev/null; then
+      [[ "$SUDO_SUCCESS" = "TRUE" ]] || ask_for_password ${*:-true}
+      export SUDO_SUCCESS="TRUE"
+      return 0
+    else
+      printf_newline
+      printf_error "Please run this script with sudo/root\n"
+      exit 1
+    fi
+  fi
+}
 ######################
 sudoask() {
   if [ ! -f "$HOME/.sudo" ]; then

@@ -76,7 +76,7 @@ show_optvars "$@"
 #installer_noupdate "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Requires root - no point in continuing
-#sudoreq  # sudo required
+#sudoreq "$0 *" # sudo required
 #sudorun  # sudo optional
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # initialize the installer

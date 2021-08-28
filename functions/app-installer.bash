@@ -1761,6 +1761,7 @@ dockermgr_install() {
 ######## Installer Functions ########
 dockermgr_run_init() {
   run_install_init "docker configurations"
+  [[ -d "$INSTDIR" ]] && execute "git -C $INSTDIR pull -q &>/dev/null" "Updating the git repo"
 }
 dockermgr_run_post() {
   dockermgr_install

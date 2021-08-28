@@ -1525,22 +1525,31 @@ show_optvars() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 installer_noupdate() {
+  __git_update() { git -C "${1:-$INSTDIR}" reset --hard -q &>/dev/null && git -C "${1:-$INSTDIR}" pull &>/dev/null && return 0 || return 1; }
   [[ -n "$_DEBUG" ]] && set -x
   if [ "$FORCE_INSTALL" = "true" ]; then
     rm_rf "$APPDIR/.installed" "$INSTDIR/.installed"
     return 0
   fi
   if [ "$1" != "--force" ]; then
-    if [ -f "$SYSSHARE/CasjaysDev/apps/$SCRIPTS_PREFIX/$APPNAME" ] ||
-      [ -f "$APPDIR/.installed" ] || [ -f "$INSTDIR/.installed" ]; then
+    if [ -f "$SYSSHARE/CasjaysDev/apps/$SCRIPTS_PREFIX/$APPNAME" ] || [ -f "$APPDIR/.installed" ] || [ -f "$INSTDIR/.installed" ]; then
       APPDIR="$INSTDIR"
-      ln_sf "$INSTDIR/install.sh" "$SYSUPDATEDIR/$APPNAME"
-      printf_yellow "Updating of $APPNAME has been disabled"
+      printf_yellow "Coping file of $APPNAME has been disabled"
       printf_yellow "This can be changed with the --force flag"
-      printf_newline ''
-      exit 0
+      printf_yellow "Updating the git repository only"
+      ln_sf "$INSTDIR/install.sh" "$SYSUPDATEDIR/$APPNAME"
+      if __git_update "$INSTDIR"; then
+        printf_green "$INSTDIR has been updated"
+        exitCode=0
+      else
+        printf_red "Failed to update $INSTDIR"
+        printf_newline ''
+        exitCode=1
+      fi
+      exitCode=$?
     fi
   fi
+  exit ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __install_fonts() {

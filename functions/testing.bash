@@ -1589,7 +1589,7 @@ sudoreq() {
   [[ $sudo_check == "SUDO_OK" ]] && return
   if [[ $UID != 0 ]]; then
     if builtin type -P ask_for_password &>/dev/null; then
-      [[ "$SUDO_SUCCESS" = "TRUE" ]] || ask_for_password true
+      [[ "$SUDO_SUCCESS" = "TRUE" ]] || ask_for_password "${1:-true}"
       export SUDO_SUCCESS="TRUE"
       return 0
     else

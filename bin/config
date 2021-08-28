@@ -97,8 +97,18 @@ _gitcmd() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _stow() {
-
   eval git --git-dir="$CONFIG_CWD_BARE_DIR" --work-tree="$CONFIG_CWD_HOME_DIR" ${*:-} $GIT_OPTS 2>&1 | printf_readline "$CONFIG_OUTPUT_COLOR" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+_stow_commit() {
+  eval git --git-dir="$CONFIG_CWD_BARE_DIR" --work-tree="$CONFIG_CWD_HOME_DIR" commit $GIT_OPTS -q -m '"🏠🐜❗ Added .gitignore 🏠🐜❗"' &>/dev/null
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+_show_info() {
+  printf_blue "Git bare dir is $CONFIG_CWD_BARE_DIR"
+  printf_blue "Git Working dir is $CONFIG_CWD_HOME_DIR"
+  printf_blue "Git backup dir is $CONFIG_CWD_BACKUP_DIR"
+  [[ -f "$CONFIG_CWD_BARE_DIR/config" ]] && _stow status | grep -v 'On branch '
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _copy() {
@@ -122,13 +132,15 @@ _copy() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _add() {
-  local -a args=("$@")
   local gitDir="$CONFIG_CWD_BARE_DIR"
-  local workingTree="$CONFIG_CWD_HOME_DIR"
+  local workingTree="$CONFIG_CWD_HOME_DIR/os"
   local backupDir="$CONFIG_CWD_BACKUP_DIR"
-  for f in ${args[*]}; do
-    _copy "$f" && _stow add -f "$workingTree/$f" && true || false
-    exitCode+=$?
+  mkdir -p "$workingTree"
+  for f in "${@}"; do
+    if [[ "$f" != "$workingTree/$f" ]]; then
+      _copy "$f" && _stow add -f "$workingTree/$f" && true || false
+      exitCode+=$?
+    fi
   done
   return ${exitCode:-$?}
 }
@@ -136,14 +148,15 @@ _add() {
 _restore() {
   local -a args=("$@")
   local gitDir="$CONFIG_CWD_BARE_DIR"
-  local workingTree="$CONFIG_CWD_HOME_DIR"
+  local workingTree="$CONFIG_CWD_HOME_DIR/os"
   local backupName="$HOME/.local/share/myscripts/config/backup/$(date +'%Y%m%d_%H%M').tar.gz"
   mkdir -p "$HOME/.local/share/myscripts/config/backup"
   for f in ${args[*]}; do
     file="${f//workingTree/}"
-    [[ -f "$file" ]] && tar cfvzu "$backupDir" "$backupName"
-    _cp "$f" "$file" && true || false
-    exitCode+=$?
+    if [[ -f "$file" ]] && [[ "$f" = "$file" ]]; then
+      tar cfvzu "$backupDir" "$backupName" && _cp "$f" "$file" && true || false
+      exitCode+=$?
+    fi
   done
   return ${exitCode:-$?}
 }
@@ -152,7 +165,6 @@ _checkout() {
   local gitDir="$CONFIG_CWD_BARE_DIR"
   local workingTree="$CONFIG_CWD_HOME_DIR"
   local backupDir="$CONFIG_CWD_BACKUP_DIR"
-  _backup
   eval _gitcmd checkout --force | printf_readline 4
   _restore "$workingTree"
 }
@@ -167,10 +179,9 @@ _bare() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _backup() {
   local gitDir="$CONFIG_CWD_BARE_DIR"
-  local workingTree="$CONFIG_CWD_HOME_DIR"
+  local workingTree="$CONFIG_CWD_HOME_DIR/os"
   local backupDir="$CONFIG_CWD_BACKUP_DIR"
-  eval _gitcmd 2>&1 | awk '{print $2}' | grep -E '^' |
-    rsync -av --remove-source-files --files-from="-" $workingTree "$backupDir/" | printf_readline 4
+  rsync -a --remove-source-files "$1" "$backupDir/"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 git_remote() {
@@ -260,59 +271,77 @@ EOF
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 git_init() {
-  if [[ $# -gt 2 ]] && [[ "$*" = *config ]] || [[ "$*" = *bare ]] || [[ "$*" = *clone ]] || [[ "$*" = *bare ]]; then
+  if [[ $# -gt 1 ]] && [[ "$*" = *config ]] || [[ "$*" = *bare ]] || [[ "$*" = *clone ]] || [[ "$*" = *bare ]] || [[ "$*" = *info ]]; then
     return
   fi
   local choice="" email="" name=""
   local gitDir="$CONFIG_CWD_BARE_DIR"
   local workingTree="$CONFIG_CWD_HOME_DIR"
-  local name="$(_gitcmd config --local --get user.name | grep '^' || git config --get user.name | grep '^')"
-  local email="$(_gitcmd config --local --get user.name | grep '^' || git config --get user.email | grep '^')"
-  [[ -d "$gitDir" ]] && printf_read_question "4" "Should I continue anyway?\n\t\t$gitDir already exists. " "1" "continue" || continue=y
+  [[ -d "$gitDir" ]] && printf_read_question "4" "$This git bare repo already exists! Should I continue anyway?" "1" "continue" || continue=y
   if printf_answer_yes "$continue"; then
     if [ ! -f "$workingTree/.gitignore" ]; then
-      echo "$gitDir" >"$workingTree/.gitignore"
-      echo "*/.git/*" >"$workingTree/.gitignore"
+      printf '# Disable reminder in prompt\nignoredirmessage\n\n' >>"$workingTree/.gitignore"
+      printf "# Ignore the bare repo\n$gitDir\n*/.git/*\n" >>"$workingTree/.gitignore"
     else
-      grep -sq "$gitDir" "$workingTree/.gitignore" 2>/dev/null || echo "$gitDir" >>"$workingTree/.gitignore"
-      grep -sq '/.git/' "$workingTree/.gitignore" 2>/dev/null || echo "*/.git/*" >>"$workingTree/.gitignore"
+      grep -sq "$gitDir" "$workingTree/.gitignore" &>/dev/null || printf '# Disable reminder in prompt\nignoredirmessage\n\n' >>"$workingTree/.gitignore"
+      grep -sq '/.git/' "$workingTree/.gitignore" &>/dev/null || printf "# Ignore the bare repo\n$gitDir\n*/.git/*\n" >>"$workingTree/.gitignore"
     fi
-    printf_read_question "4" "Do you already have a dotfiles repo: [y/N]" "1" "choice"
-    if printf_answer_yes "$choice"; then
-      printf_read_input "4" "What is the repo url:" "120" "url"
-      git clone --bare "$url" "$gitDir" -q
+    printf_read_question "4" "Do you already have a dotfiles repo: [y/n]" "1" "repo_init"
+    if printf_answer_yes "$repo_init"; then
+      printf_read_input "4" "What is the repo url:" "120" "repo_init_url"
+      git clone --bare "$repo_init_url" "$gitDir" -q
       _checkout
-      printf_cyan "Adding core.excludesfile to $workingTree/config"
-      _gitcmd config --local core.excludesfile "$workingTree/.gitignore"
-      printf_cyan "Adding status.showUntrackedFiles no to $workingTree/config"
-      _gitcmd config --local status.showUntrackedFiles "no"
     else
-      mkdir -p "$gitDir"
+      printf_cyan "Initializing $gitDir"
       git init --bare "$gitDir" -q
-      gitconfig_local
-      printf_cyan "Adding status.showUntrackedFiles no to $workingTree/config"
-      _gitcmd config --local status.showUntrackedFiles "no"
-      printf_cyan "Adding commit.gpgSign false to $workingTree/config"
-      _gitcmd config --local commit.gpgSign "false"
-      printf_read_question "4" "Would you like to add a remote git repo: [y/N]" "1" "choice"
-      if printf_answer_yes "$choice"; then
-        printf_read_input "4" "Enter the url to your git repo:" "120" "url"
-        _stow remote add origin "$url"
+      [ -f "$gitDir/config.local" ] || printf_exit "Failed to initialize the repo"
+      printf_read_question "4" "Would you like to add a remote git repo: [y/n]" "1" "remote_repo_init"
+      if printf_answer_yes "$remote_repo_init"; then
+        printf_read_input "4" "Enter the url to your git repo:" "120" "remote_repo_init_url"
+        _stow remote add origin "$remote_repo_init_url" && remote_enabled=true
       else
         printf_green "You did not add a remote git repo"
       fi
-      [[ -n "$name" ]] || printf_read_input "4" "Enter your name:" "120" "name"
-      [[ -n "$email" ]] || printf_read_input "4" "Enter email address:" "120" "email"
-      printf_cyan "Adding user.name $name to $workingTree/config"
-      _gitcmd config --local user.name "$name"
-      printf_cyan "Adding user.email $email to $workingTree/config"
-      _gitcmd config --local user.email "$email"
-      printf_cyan "Adding include.path config.local to $workingTree/config"
-      _gitcmd config --local include.path "$gitDir/config.local"
-      [[ -f "$workingTree/.gitignore" ]] && _gitcmd add -f "$workingTree/.gitignore"
-      _gitcmd commit -q -m "'🏠🐜❗ Added .gitignore 🏠🐜❗'"
     fi
-    printf_cyan "The git repo has been initialized"
+    gitconfig_local "$gitDir"
+    local name="$(_gitcmd config --local --get user.name 2>/dev/null | grep '^' || git config --get user.name 2>/dev/null | grep '^')"
+    local email="$(_gitcmd config --local --get user.email 2>/dev/null | grep '^' || git config --get user.email 2>/dev/null | grep '^')"
+    if [[ -z "$name" ]]; then
+      printf_read_input "4" "Enter your name:" "120" "name"
+    fi
+    if [[ -z "$email" ]]; then
+      printf_read_input "4" "Enter email address:" "120" "email"
+    fi
+    printf_cyan "Adding include.path config.local to $gitDir/config"
+    _gitcmd config --local include.path "$gitDir/config.local"
+    printf_blue "Adding status.showUntrackedFiles no to $gitDir/config"
+    _gitcmd config --local status.showUntrackedFiles "no"
+    printf_green "Adding commit.gpgSign false to $gitDir/config"
+    _gitcmd config --local commit.gpgSign false
+    printf_cyan "Adding user.name $name to $gitDir/config"
+    _gitcmd config --local user.name "$name"
+    printf_blue "Adding user.email $email to $gitDir/config"
+    _gitcmd config --local user.email "$email"
+    printf_green "Adding core.excludesfile to $workingTree/config"
+    _gitcmd config --local core.excludesfile "$workingTree/.gitignore"
+    if [[ -f "$workingTree/.gitignore" ]]; then
+      printf_cyan 'Adding .gitignore'
+      _gitcmd add -f ".gitignore"
+    fi
+    if [ -z "$repo_init_url" ]; then
+      printf_purple 'Committing .gitignore'
+      _stow_commit
+      sleep 1
+    fi
+    if [[ -n "$remote_repo_init_url" ]] || [ -z "$repo_init_url" ]; then
+      printf_read_question "4" "Would you like to push your changes: [y/n]" "1" "push"
+      printf_read_question "5" "This will overwrite anything in the remote repo, Continue: [y/n]" "1" "confirm"
+      if printf_answer_yes "$push" && printf_answer_yes "$confirm"; then
+        _stow push --set-upstream origin main -f -q
+      fi
+    fi
+    _stow l | head -n 5
+    _show_info
     exit "$?"
   else
     return
@@ -485,10 +514,7 @@ init)
 
 info)
   shift 1
-  printf_blue "Git bare dir is $CONFIG_CWD_BARE_DIR"
-  printf_blue "Git Working dir is $CONFIG_CWD_HOME_DIR"
-  printf_blue "Git backup dir is $CONFIG_CWD_BACKUP_DIR"
-  _stow status "$@"
+  _show_info
   exit
   ;;
 
@@ -520,9 +546,9 @@ delete)
     printf_green "Backing up to $CONFIG_CWD_BACKUP_DIR/deleted"
     mkdir -p "$CONFIG_CWD_BACKUP_DIR/deleted" &>/dev/null
     cp -Rfa "$CONFIG_CWD_HOME_DIR/" "$CONFIG_CWD_BACKUP_DIR/deleted/" &>/dev/null
-    printf_red "Deleting the files in $CONFIG_CWD_BARE_DIR"
+    printf_blue "Deleting the files in $CONFIG_CWD_BARE_DIR"
     rm -Rf "$CONFIG_CWD_BARE_DIR"
-    printf_red "Deleting the files in $CONFIG_CWD_HOME_DIR"
+    printf_cyan "Deleting the files in $CONFIG_CWD_HOME_DIR"
     rm -Rf "$CONFIG_CWD_HOME_DIR"
   fi
   exit $?
@@ -549,7 +575,7 @@ add | stow)
 commit)
   shift 1
   printf_green "'🏠🐜❗ Committing files to repo 🏠🐜❗'"
-  _stow commit -q "$@" -m "'🏠🐜❗ Added files to repo 🏠🐜❗'"
+  _stow_commit "'🏠🐜❗ Added files to repo 🏠🐜❗'"
   ;;
 
 checkout)

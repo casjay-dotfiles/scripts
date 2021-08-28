@@ -1766,6 +1766,7 @@ dockermgr_run_post() {
   dockermgr_install
   run_postinst_global
   [ -d "$APPDIR" ] && replace "$APPDIR" "/home/jason" "$HOME"
+  [ -d "$INSTDIR/system" ] && cp -Rfa "$INSTDIR/system/." "$DATADIR/"
 }
 dockermgr_install_version() {
   dockermgr_install

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202103200620-git
+##@Version       : 202108272203-git
 # @Author        : Jason Hempstead
 # @Contact       : jason@casjaysdev.com
 # @License       : WTFPL
 # @ReadME        : config --help
-# @Copyright     : Copyright: (c) 2021 Jason Hempstead, CasjaysDev
-# @Created       : Saturday, Mar 20, 2021 06:20 EDT
+# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created       : Friday, Aug 27, 2021 22:03 EDT
 # @File          : config
 # @Description   : Add dotfiles/config files to a git repo
 # @TODO          :
@@ -14,12 +14,15 @@
 # @Resource      : https://www.atlassian.com/git/tutorials/dotfiles
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0" 2>/dev/null)"
-USER="${SUDO_USER:-${USER}}"
-HOME="${USER_HOME:-${HOME}}"
+VERSION="202108272203-git"
+HOME="${USER_HOME:-$HOME}"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${SUDO_USER:-$USER}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
 if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
+trap 'exitCode=${exitCode:-$?};[ -n "$CONFIG_TEMP_FILE" ] && [ -f "$CONFIG_TEMP_FILE" ] && rm -Rf "$CONFIG_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
@@ -41,48 +44,110 @@ fi
 user_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-ARRAY="$(cat ${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/helpers/config/array)"
-LIST="$(cat ${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/helpers/config/list)"
-HELP="$(cat ${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/helpers/config/help)"
+# Set functions
+__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [[ $EUID -eq 0 ]]; then
-  printf_head "You are running as root as such this will allow full system access"
-  CONFIG_HOME="/"
-else
-  CONFIG_HOME=$HOME
-fi
-gitdir="${CONFIG_REPO:-$HOME/.local/dotfiles/config}"
-backupdir="${CONFIG_BACKUP_DIR:-$HOME/.local/backups/config}"
-logdir="${CONFIG_LOG_DIR:-$HOME/.local/log/config}"
-logfile="$logdir/config.log"
-mkdir -p "$logdir" "$backupdir"
+__gen_config() {
+  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Generating the config file in"
+  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "$CONFIG_CONFIG_DIR/$CONFIG_CONFIG_FILE"
+  [ -d "$CONFIG_CONFIG_DIR" ] || mkdir -p "$CONFIG_CONFIG_DIR"
+  [ -d "$CONFIG_BACKUP_DIR" ] || mkdir -p "$CONFIG_BACKUP_DIR"
+  [ -f "$CONFIG_CONFIG_DIR/$CONFIG_CONFIG_FILE" ] &&
+    cp -Rf "$CONFIG_CONFIG_DIR/$CONFIG_CONFIG_FILE" "$CONFIG_BACKUP_DIR/$CONFIG_CONFIG_FILE.$$"
+  cat <<EOF >"$CONFIG_CONFIG_DIR/$CONFIG_CONFIG_FILE"
+# Settings for config
+CONFIG_SYSTEM_HOME="${CONFIG_SYSTEM_HOME:-$HOME/.local/dotfiles}"
+CONFIG_GIT_BARE_DIR="${CONFIG_GIT_BARE_DIR:-$HOME/.local/backups/config}"
+CONFIG_SYSTEM_BACKUP_DIR="${CONFIG_SYSTEM_BACKUP_DIR:-$HOME/.local/backups/config}"
+
+# Notification settings
+CONFIG_GOOD_MESSAGE="${CONFIG_GOOD_MESSAGE:-Everything Went OK}"
+CONFIG_ERROR_MESSAGE="${CONFIG_ERROR_MESSAGE:-Well something seems to have gone wrong}"
+CONFIG_NOTIFY_ENABLED="${CONFIG_NOTIFY_ENABLED:-yes}"
+CONFIG_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+CONFIG_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$CONFIG_NOTIFY_CLIENT_ICON}"
+
+# Colorization settings
+CONFIG_OUTPUT_COLOR="${CONFIG_OUTPUT_COLOR:-5}"
+CONFIG_OUTPUT_COLOR_GOOD="${CONFIG_OUTPUT_COLOR_GOOD:-2}"
+CONFIG_OUTPUT_COLOR_ERROR="${CONFIG_OUTPUT_COLOR_ERROR:-1}"
+
+EOF
+  if [ -f "$CONFIG_CONFIG_DIR/$CONFIG_CONFIG_FILE" ]; then
+    [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for config has been created"
+    exitCode=0
+    if [[ "$INIT_CONFIG" = "TRUE" ]]; then
+      eval $APPNAME "$*"
+      exit $?
+    fi
+  else
+    printf_red "Failed to create the config file"
+    exitCode=1
+  fi
+  return ${exitCode:-$?}
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional functions
+_symlink() { ls -l "$1" | awk '{print $NF}'; }
 _online_check() { am_i_online --error && return 0 || return 1; }
-_stow() { eval git --git-dir="$gitdir/" --work-tree="$CONFIG_HOME" ${*:-} 2>&1 | printf_readline 4; }
-_symlink() { ls -ltra "$1" | grep '\->' | awk -F'-> ' '{print $2}' | sed 's|'$CONFIG_HOME'/||g'; }
+_cp() { cp -R --parents --force "$1" "$2" &>/dev/null || return 1; }
+_stow() { eval git --git-dir="$CONFIG_CWD_BARE_DIR/" --work-tree="$CONFIG_CWD_HOME_DIR" ${*:-} 2>&1 | printf_readline 4 || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+_copy() {
+  local -a args=("$@")
+  local gitDir="$CONFIG_CWD_BARE_DIR"
+  local workingTree="$CONFIG_CWD_HOME_DIR"
+  local backupDir="$CONFIG_CWD_BACKUP_DIR"
+  local exitCode=0
+  for f in ${args[*]}; do
+    file="$1"
+    symlink="$(_symlink "$1")"
+    if [[ "$file" = "$symlink" ]]; then
+      _cp "$symlink" "$workingTree" || exitCode+=1
+      _cp "$file" "$workingTree" || exitCode+=1
+    else
+      _cp "$file" "$workingTree" || exitCode+=1
+    fi
+    unset file symlink
+  done
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+_add() {
+  local -a args=("$@")
+  local gitDir="$CONFIG_CWD_BARE_DIR"
+  local workingTree="$CONFIG_CWD_HOME_DIR"
+  local backupDir="$CONFIG_CWD_BACKUP_DIR"
+  for f in ${args[*]}; do
+    _copy "$f" && _stow add -f "$workingTree/$f" && true || false
+    exitCode+=$?
+  done
+  return ${exitCode:-$?}
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _checkout() {
-  local backupDir="$backupdir/$(date +'%Y%m%d')"
-  mkdir -p "$backupDir" &>/dev/null
+  local gitDir="$CONFIG_CWD_BARE_DIR"
+  local workingTree="$CONFIG_CWD_HOME_DIR"
+  local backupDir="$CONFIG_CWD_BACKUP_DIR"
   _backup
-  eval git --git-dir="$gitdir/" --work-tree="$CONFIG_HOME" checkout --force | printf_readline 4
+  eval git --git-dir="$gitDir/" --work-tree="$workingTree" checkout --force | printf_readline 4
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _bare() {
-  local gitDir="${1:-gitdir}"
-  local configHome="${2:-$CONFIG_HOME}"
-  local backupDir="$backupdir/$(date +'%Y%m%d')"
-  mkdir -p "$backupDir" &>/dev/null
-  eval git clone --bare --git-dir="$gitDir/" --work-tree="$configHome" ${*:-} 2>/dev/null | grep -E "\s+\." | awk '{print $1}' |
+  local gitDir="$CONFIG_CWD_BARE_DIR"
+  local workingTree="$CONFIG_CWD_HOME_DIR"
+  local backupDir="$CONFIG_CWD_BACKUP_DIR"
+  eval git clone --bare --git-dir="$gitDir/" --work-tree="$workingTree" ${*:-} 2>/dev/null | grep -E "\s+\." | awk '{print $1}' |
     xargs -I{} mv {} "$backupDir"/{} | printf_readline 4
-  cd "$configHome" && git checkout --git-dir="$gitDir/" --work-tree="$configHome" | printf_readline 4 || return 1
+  cd "$workingTree" && git checkout --git-dir="$gitDir/" --work-tree="$workingTree" | printf_readline 4 || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _backup() {
-  local backupDir="$backupdir/$(date +'%Y%m%d')"
-  mkdir -p "$backupdir"
-  eval git --git-dir="$gitdir/" --work-tree="$CONFIG_HOME" checkout 2>/dev/null | awk '{print $2}' | grep -E '^' |
-    rsync -av --remove-source-files --files-from="-" $CONFIG_HOME "$backupdir/" | printf_readline 4
+  local gitDir="$CONFIG_CWD_BARE_DIR"
+  local workingTree="$CONFIG_CWD_HOME_DIR"
+  local backupDir="$CONFIG_CWD_BACKUP_DIR"
+  eval git --git-dir="$gitDir/" --work-tree="$workingTree" checkout 2>/dev/null | awk '{print $2}' | grep -E '^' |
+    rsync -av --remove-source-files --files-from="-" $workingTree "$backupDir/" | printf_readline 4
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 git_remote() {
@@ -95,7 +160,19 @@ git_remote() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 gitconfig_local() {
-  cat <<EOF >"$gitdir/config.local"
+  local gitDir="$CONFIG_CWD_BARE_DIR"
+  local workingTree="$CONFIG_CWD_HOME_DIR"
+  printf_green "Setting up the local gitconfig file"
+  if grep "$gitDir/config.local" "$gitDir/config.local" | grep -qv ' = '; then
+    cat <<EOF | tee -a "$gitDir/config.local" &>/dev/null
+
+[include]
+path = $gitDir/config.local
+
+EOF
+  fi
+
+  cat <<EOF | tee "$gitDir/config.local" &>/dev/null
 [color "branch"]
   current = green bold
   local = green
@@ -136,32 +213,51 @@ gitconfig_local() {
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Aliases
-g   = "!(){ git --git-dir="$gitdir/" --work-tree="$CONFIG_HOME" log --graph --pretty=custom; };f"
-l   = "!f(){ git --git-dir="$gitdir/" --work-tree="$CONFIG_HOME" log --pretty=custom; };f"
-s   = "!f(){ git --git-dir="$gitdir/" --work-tree="$CONFIG_HOME" status -s -b; };f"
-p   = "!f(){ git --git-dir="$gitdir/" --work-tree="$CONFIG_HOME" push; };f"
+g   = "!(){ git --git-dir="$gitDir/" --work-tree="$workingTree" log --graph --pretty=custom; };f"
+l   = "!f(){ git --git-dir="$gitDir/" --work-tree="$workingTree" log --pretty=custom; };f"
+s   = "!f(){ git --git-dir="$gitDir/" --work-tree="$workingTree" status -s -b; };f"
+p   = "!f(){ git --git-dir="$gitDir/" --work-tree="$workingTree" push; };f"
 
 EOF
+
+  git --git-dir="$gitDir/" --work-tree="$workingTree" config --local commit.gpgSign false &>/dev/null
+  git --git-dir="$gitDir/" --work-tree="$workingTree" config --local status.showUntrackedFiles no &>/dev/null
+  git --git-dir="$gitDir/" --work-tree="$workingTree" config --local core.excludesfile "$workingTree/.gitignore" &>/dev/null
+
+  if [[ -f "$gitDir/config.local" ]]; then
+    printf_blue "The local git config file has been created in"
+    exitCode=0
+  else
+    printf_red "Failed to create the config file in"
+    exitCode=1
+  fi
+  printf_blue "$gitDir/config.local"
+  return ${exitCode:-$?}
 }
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 git_init() {
+  { [[ $# -gt 2 ]] || [[ "$*" = *config ]] || [[ "$*" = *bare ]] || [[ "$*" = *clone ]] || [[ "$*" = *bare ]]; } && return
   local choice="" email="" name=""
-  if [ ! -f $CONFIG_HOME/.gitignore ]; then
-    echo "$gitdir" >$CONFIG_HOME/.gitignore
-    echo "*/.git/*" >$CONFIG_HOME/.gitignore
+  local gitDir="$CONFIG_CWD_BARE_DIR"
+  local workingTree="$CONFIG_CWD_HOME_DIR"
+  if [ ! -f $workingTree/.gitignore ]; then
+    echo "$gitDir" >"$workingTree/.gitignore"
+    echo "*/.git/*" >"$workingTree/.gitignore"
   else
-    grep -q "$gitdir" $CONFIG_HOME/.gitignore 2>/dev/null || echo "$gitdir" >>$CONFIG_HOME/.gitignore
-    grep -q '/.git/' $CONFIG_HOME/.gitignore 2>/dev/null || echo "*/.git/*" >>$CONFIG_HOME/.gitignore
+    grep -q "$gitDir" "$workingTree/.gitignore" 2>/dev/null || echo "$gitDir" >>"$workingTree/.gitignore"
+    grep -q '/.git/' "$workingTree/.gitignore" 2>/dev/null || echo "*/.git/*" >>"$workingTree/.gitignore"
   fi
   printf_read_question "4" "Do you already have a dotfiles repo: [y/N]" "1" "choice"
   if printf_answer_yes "$choice"; then
     printf_read_input "4" "What is the repo url:" "120" "url"
-    git clone --bare "$url" "$gitdir" -q
+    git clone --bare "$url" "$gitDir" -q
     _checkout
+    _stow config --local core.excludesfile "$workingTree/.gitignore"
     _stow config --local status.showUntrackedFiles no
   else
-    mkdir -p "$gitdir"
-    git init --bare "$gitdir" -q
+    mkdir -p "$gitDir"
+    git init --bare "$gitDir" -q
     gitconfig_local
     _stow config --local status.showUntrackedFiles no
     _stow config --local commit.gpgSign false
@@ -176,70 +272,162 @@ git_init() {
     printf_read_input "4" "Enter email address:" "120" "email"
     _stow config --local user.name "$name"
     _stow config --local user.email "$email"
-    _stow config --local include.path "$gitdir/config.local"
-    _stow add -f $CONFIG_HOME/.gitignore
+    _stow config --local include.path "$gitDir/config.local"
+    _stow add -f "$workingTree/.gitignore"
     _stow commit -q -m "'🏠🐜❗ Added .gitignore 🏠🐜❗'"
   fi
   exit "$?"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-[ -d "$gitdir" ] && [[ "$1" = *config ]] || [[ -f "$gitdir/config" ]] || [[ "$1" = "clone" ]] || [[ "$1" = "bare" ]] || [[ "$1" = "init" ]] || git_init
+# Default variables
+exitCode=
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-case "$1" in
---config)
-  printf_green "Regenerating the config file"
-  shift 1
-  gitconfig_local
-  exit
-  ;;
+# Application Folders
+CONFIG_LOG_DIR="${CONFIG_LOG_DIR:-$HOME/.local/log/config}"
+CONFIG_CACHE_DIR="${CONFIG_CACHE_DIR:-$HOME/.cache/config}"
+CONFIG_CONFIG_DIR="${CONFIG_CONFIG_DIR:-$HOME/.config/myscripts/config}"
+CONFIG_OPTIONS_DIR="${CONFIG_OPTIONS_DIR:-$HOME/.local/share/myscripts/config/options}"
+CONFIG_BACKUP_DIR="${CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/config/backups}"
+CONFIG_TEMP_DIR="${CONFIG_TEMP_DIR:-$HOME/.local/tmp/system_scripts/config}"
+CONFIG_TEMP_FILE="${CONFIG_TEMP_FILE:-$(mktemp $CONFIG_TEMP_DIR/XXXXXX 2>/dev/null)}"
+CONFIG_CONFIG_FILE="${CONFIG_CONFIG_FILE:-settings.conf}"
+CONFIG_GOOD_MESSAGE="${CONFIG_GOOD_MESSAGE:-Everything Went OK}"
+CONFIG_ERROR_MESSAGE="${CONFIG_ERROR_MESSAGE:-Well something seems to have gone wrong}"
+CONFIG_NOTIFY_ENABLED="${CONFIG_NOTIFY_ENABLED:-yes}"
+CONFIG_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+CONFIG_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$CONFIG_NOTIFY_CLIENT_ICON}"
+CONFIG_OUTPUT_COLOR="${CONFIG_OUTPUT_COLOR:-5}"
+CONFIG_OUTPUT_COLOR_GOOD="${CONFIG_OUTPUT_COLOR_GOOD:-2}"
+CONFIG_OUTPUT_COLOR_ERROR="${CONFIG_OUTPUT_COLOR_ERROR:-1}"
+CONFIG_SYSTEM_HOME="${CONFIG_SYSTEM_HOME:-$HOME/.local/dotfiles}"
+CONFIG_GIT_BARE_DIR="${CONFIG_GIT_BARE_DIR:-$HOME/.local/backups/config}"
+CONFIG_SYSTEM_BACKUP_DIR="${CONFIG_SYSTEM_BACKUP_DIR:-$HOME/.local/backups/config}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$CONFIG_CONFIG_DIR/$CONFIG_CONFIG_FILE" ] && . "$CONFIG_CONFIG_DIR/$CONFIG_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$CONFIG_LOG_DIR" ] || mkdir -p "$CONFIG_LOG_DIR" &>/dev/null
+[ -d "$CONFIG_TEMP_DIR" ] || mkdir -p "$CONFIG_TEMP_DIR" &>/dev/null
+[ -d "$CONFIG_CACHE_DIR" ] || mkdir -p "$CONFIG_CACHE_DIR" &>/dev/null
+[ -d "$CONFIG_SYSTEM_BACKUP_DIR" ] || mkdir -p &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$CONFIG_CONFIG_DIR/$CONFIG_CONFIG_FILE" ] || [[ "$*" = "--config" ]] || INIT_CONFIG=TRUE __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
 
---system)
-  shift 1
-  if [ "$1" = "--help" ]; then
-    printf_custom "41" "Allows you to keep your system settings in a git repo"
-    printf_green "Usage: config --system commands"
-    printf_exit "See config help for commands"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS=""
+LONGOPTS="options,config,version,help,dir:,system:,name,custom,root"
+ARRAY="init,local,log,status,restore,remove,add,commit,checkout,remote,pull,push,set,rename,clone,bare,backup"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$PROG" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --options)
+    shift 1
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
     __help
-  fi
-  __requiresudo true
-  gitdir="/root/.local/dotfiles/system/$(hostname -s)"
-  ;;
-
---name)
-  shift 1
-  if [ -z "${CONFIG_CUSTOM_REPO:-$1}" ] || [ -z "${CONFIG_CUSTOM_CONFIG_HOME:-$2}" ] || [ -z "$3" ]; then
-    printf_custom "41" "This allows the use of a custom git dir"
-    printf_green "Usage: config --custom gitdir commands"
-    printf_exit "See config help for commands"
-    exit 1
-  fi
-  name="$1"
-  gitdir="$CONFIG_HOME/.local/dotfiles/system/$name"
-  if [ -d "$gitdir" ]; then
-    printf_red "Error: $gitdir already in use"
-    exit 1
-  fi
-  shift
-  ;;
-
---custom)
-  shift 1
-  if [ -z "${CONFIG_CUSTOM_REPO:-$1}" ] || [ -z "${CONFIG_CUSTOM_CONFIG_HOME:-$2}" ] || [ -z "$3" ]; then
-    printf_custom "41" "This allows the use of a custom git dir and home dir"
-    printf_green "Usage: config --custom gitdir homedir commands"
-    printf_exit "See config help for commands"
-  fi
-  gitdir="${CONFIG_CUSTOM_REPO:-$1}"
-  shift
-  CONFIG_HOME="${CONFIG_CUSTOM_CONFIG_HOME:-$1}"
-  shift 1
-  ;;
-esac
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  --dir)
+    CONFIG_CWD_HOME_DIR="$2"
+    shift 2
+    ;;
+  --root)
+    shift 1
+    ;;
+  --system)
+    shift 1
+    if [ "$1" = "help" ]; then
+      printf_custom "41" "Allows you to keep your system settings in a git repo"
+      printf_green "Usage: config --system commands"
+      printf_exit "See config help for commands"
+      __help
+    fi
+    __requiresudo true
+    CONFIG_SYSTEM_NAME="$(hostname -s)"
+    ;;
+  --name)
+    if [ -z "$1" ] || [ -z "$2" ]; then
+      printf_custom "41" "This allows the use of a custom git dir"
+      printf_green "Usage: config --custom $CONFIG_GIT_BARE_DIR commands"
+      printf_exit "See config help for commands"
+      exit 1
+    fi
+    CONFIG_SYSTEM_NAME="$2"
+    if [ -d "$CONFIG_GIT_BARE_DIR" ]; then
+      printf_yellow "Warning: $CONFIG_GIT_BARE_DIR already in use"
+      printf_read_question "Are you sure you want to continue using this repo? " "1" || exit 1
+    fi
+    shift 2
+    ;;
+  --custom)
+    if [ -z "$2" ] || [ -z "$3" ] || [ -z "$4" ]; then
+      printf_custom "41" "This allows the use of a custom git dir and home dir"
+      printf_green "Usage: config --custom $CONFIG_GIT_BARE_DIR $CONFIG_SYSTEM_HOME commands"
+      printf_exit "See config help for commands"
+    fi
+    CONFIG_CWD_BARE_DIR="$2"
+    CONFIG_CWD_HOME_DIR="$3"
+    shift 3
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+if [ "$CONFIG_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${CONFIG_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${CONFIG_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${CONFIG_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${CONFIG_NOTIFY_CLIENT_ICON}"
+    notifications "$*" || return 1
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+cmd_exists --error --ask bash || exit 1 # exit 1 if not found
+#am_i_online --error || exit 1     # exit 1 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+CONFIG_CWD_HOME_DIR="${CONFIG_CWD_HOME_DIR:-$CONFIG_SYSTEM_HOME/$CONFIG_SYSTEM_NAME}"                           # Git working dir
+CONFIG_CWD_BARE_DIR="${CONFIG_CWD_BARE_DIR:-$CONFIG_GIT_BARE_DIR/$CONFIG_SYSTEM_NAME}"                          # Git bare dir
+CONFIG_CWD_BACKUP_DIR="${CONFIG_CWD_BACKUP_DIR:-$CONFIG_SYSTEM_BACKUP_DIR/$CONFIG_SYSTEM_NAME/$(date +'%Y%m')}" # Git backup dirgit_init "$*"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
 case "$1" in
 init)
   shift 1
-  git_init
+  git_init "$*"
   ;;
 
 local)
@@ -272,17 +460,7 @@ rm | remove)
 add | stow)
   shift 1
   printf_green "'🏠🐜❗ Adding files to repo - this may take a moment 🏠🐜❗'"
-  declare -a args="$*"
-  for f in ${args[*]}; do
-    if [ -L "$f" ]; then
-      [ ! -L "$(_symlink "$f")" ] &&
-        [ -e "$(_symlink "$f")" ] &&
-        _stow add "$f" &&
-        _stow add "$(_symlink "$f")"
-    else
-      _stow add -f "$f"
-    fi
-  done
+  _add "$*"
   [ $? = 0 ] && printf_green "Don't forget to run config commit"
   #_stow commit -q -m "'🏠🐜❗ Added Files 🏠🐜❗'"
   ;;
@@ -358,12 +536,6 @@ backup)
   exit $?
   ;;
 
-help | -h* | --h*)
-  shift 0
-  __help
-  exit $?
-  ;;
-
 *)
   shift 0
   [ -n "$1" ] && _stow "$@" || __help
@@ -371,5 +543,7 @@ help | -h* | --h*)
   ;;
 esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-exit $?
-# end
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-$?}

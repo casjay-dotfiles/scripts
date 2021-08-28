@@ -166,7 +166,7 @@ printf_error() {
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="1"
   test -n "$1" && test -z "${1//[0-9]/}" && local exitCode="$1" && shift 1 || local exitCode="1"
   local msg="$*"
-  printf_color "\t\t$ICON_ERROR $msg\n" "$color"
+  printf_color "\t\t$ICON_ERROR $msg\n" "$color" 1>&2
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -176,9 +176,20 @@ printf_exit() {
   test -n "$1" && test -z "${1//[0-9]/}" && local exitCode="$1" && shift 1 || local exitCode="1"
   local msg="$*"
   shift
-  printf_color "\t\t$msg" "$color"
+  printf_color "\t\t$msg" "$color" 1>&2
   echo ""
   exit "$exitCode"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#printf_exit "color" "exitcode" "message"
+printf_return() {
+  test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="1"
+  test -n "$1" && test -z "${1//[0-9]/}" && local exitCode="$1" && shift 1 || local exitCode="1"
+  local msg="$*"
+  shift
+  printf_color "\t\t$msg" "$color" 1>&2
+  echo ""
+  return "$exitCode"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # #printf_newline

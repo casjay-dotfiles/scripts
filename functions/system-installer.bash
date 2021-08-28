@@ -86,13 +86,13 @@ printf_blue() { printf_color "\t\t$1\n" 4; }
 printf_cyan() { printf_color "\t\t$1\n" 6; }
 printf_info() { printf_color "\t\t[ ℹ️ ] $1\n" 3; }
 printf_exit() {
-  printf_color "\t\t$1\n" 1
+  printf_color "\t\t$1\n" 1 1>&2
   exit 1
 }
 printf_help() { printf_color "\t\t$1\n" 1; }
 printf_read() { printf_color "\t\t$1" 5; }
 printf_success() { printf_color "\t\t[ ✔ ] $1\n" 2; }
-printf_error() { printf_color "\t\t[ ✖ ] $1 $2\n" 1; }
+printf_error() { printf_color "\t\t[ ✖ ] $1 $2\n" 1 1>&2; }
 printf_warning() { printf_color "\t\t[ ❗ ] $1\n" 3; }
 printf_question() { printf_color "\t\t[ ❓ ] $1 [❓] " 6; }
 printf_error_stream() { while read -r line; do printf_error "↳ ERROR: $line"; done; }

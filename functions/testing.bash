@@ -1199,7 +1199,7 @@ __git_globaluser() {
 }
 #git_globalemail
 __git_globalemail() {
-  local email="$(git config --get user.name | grep '^' || echo "$USER"@"$(hostname -s)".local)"
+  local email="$(git config --get user.email | grep '^' || echo "$USER"@"$(hostname -s)".local)"
   echo "$email"
 }
 __git() {

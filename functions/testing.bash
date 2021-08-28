@@ -214,6 +214,8 @@ esac
 # get version
 scripts_version() { printf_green "scripts version is $(cat ${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/version.txt)\n"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__col() { awk -v col=$1 '{print $col}'; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #setup colors
 NC="$(tput sgr0 2>/dev/null)"
 RESET="$(tput sgr0 2>/dev/null)"

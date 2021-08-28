@@ -920,9 +920,9 @@ install_packages() {
         printf_warning "$MISSING"
         for miss in $MISSING; do
           if [ -f "$(builtin type -P yay 2>/dev/null)" ]; then
-            execute "pkmgr --enable-aur silent install $miss" "Installing $miss"
+            execute "pkmgr --enable-aur silent install $miss &>/dev/null" "Installing $miss"
           else
-            execute "pkmgr silent install $miss" "Installing $miss"
+            execute "pkmgr silent install $miss &>/dev/null" "Installing $miss"
           fi
         done
       fi
@@ -943,9 +943,9 @@ install_python() {
         printf_warning "$MISSING"
         for miss in $MISSING; do
           if [ -f "$(builtin type -P yay 2>/dev/null)" ]; then
-            execute "pkmgr --enable-aur silent install $miss" "Installing $miss"
+            execute "pkmgr --enable-aur silent install $miss &>/dev/null" "Installing $miss"
           else
-            execute "pkmgr silent install $miss" "Installing $miss"
+            execute "pkmgr silent install $miss &>/dev/null" "Installing $miss"
           fi
         done
       fi

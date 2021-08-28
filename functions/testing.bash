@@ -428,7 +428,6 @@ printf_custom_question() {
 printf_question_term() {
   printf_read_question "4" "$1" "1" "REPLY" "-s"
   printf_answer_yes "$REPLY" && eval "${2:-true}" && exitCode=0 || exitCode=1
-  printf "\n"
   return ${exitCode:-$?}
 }
 #printf_read_input "color" "message" "maxLines" "answerVar" "readopts"
@@ -483,6 +482,7 @@ printf_answer() {
 }
 #printf_answer_yes "var" "response"
 printf_answer_yes() {
+  printf "\n"
   [[ "${1:-$REPLY}" =~ ${2:-^[Yy]$} ]] || return 1
 }
 printf_answer_no() {

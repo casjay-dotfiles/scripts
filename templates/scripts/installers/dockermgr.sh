@@ -54,7 +54,7 @@ scripts_check
 REPO_BRANCH="${GIT_REPO_BRANCH:-master}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Defaults
-APPNAME="${APPNAME:-GEN_SCRIPT_REPLACE_APPNAME}"
+APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
 APPDIR="$HOME/.local/share/docker/GEN_SCRIPT_REPLACE_APPNAME"
 DATADIR="$HOME/.local/share/docker/GEN_SCRIPT_REPLACE_APPNAME/files"
 INSTDIR="$HOME/.local/share/dockermgr/docker/GEN_SCRIPT_REPLACE_APPNAME"

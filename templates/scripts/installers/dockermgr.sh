@@ -44,18 +44,35 @@ fi
 # Call the main function
 user_installdirs
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Defaults
-APPDIR="$HOME/.local/share/CasjaysDev/dockermgr/$APPNAME"
-INSTDIR="$HOME/.local/share/CasjaysDev/dockermgr/$APPNAME"
-DATADIR="${SRV_DIR:-$DATADIR}"
+# Define extra functions
+__sudo() { if sudo -n true; then eval sudo "$*"; else eval "$*"; fi; }
+__enable_ssl() { [[ "$SERVER_SSL" = "yes" ]] && [[ "$SERVER_SSL" = "true" ]] && return 0 || return 1; }
+__ssl_certs() { [ -f "${1:-$SERVER_SSL_CRT}" ] && [ -f "${2:-SERVER_SSL_KEY}" ] && return 0 || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Make sure the scripts repo is installed
+scripts_check
 REPO_BRANCH="${GIT_REPO_BRANCH:-master}"
-REPO="${DOCKERMGRREPO:-https://github.com/dockermgr}/$APPNAME"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Defaults
+APPNAME="${APPNAME:-GEN_SCRIPT_REPLACE_APPNAME}"
+APPDIR="$HOME/.local/share/docker/GEN_SCRIPT_REPLACE_APPNAME"
+DATADIR="$HOME/.local/share/docker/GEN_SCRIPT_REPLACE_APPNAME/files"
+INSTDIR="$HOME/.local/share/dockermgr/docker/GEN_SCRIPT_REPLACE_APPNAME"
+REPO="${DOCKERMGRREPO:-https://github.com/dockermgr}/GEN_SCRIPT_REPLACE_APPNAME"
 REPORAW="$REPO/raw/$REPO_BRANCH"
 APPVERSION="$(__appversion "$REPORAW/version.txt")"
-DOCKER_HUB_URL="REPLACE_WITH_HUB_URL"
-GEN_SCRIPT_REPLACE_ENV_SERVER_PORT="${GEN_SCRIPT_REPLACE_ENV_SERVER_PORT:-15050}"
-GEN_SCRIPT_REPLACE_ENV_SERVER_HOST="${GEN_SCRIPT_REPLACE_ENV_SERVER_HOST:-$(hostname -f 2>/dev/null)}"
-TIMEZONE="${TZ:-$TIMEZONE}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup plugins
+HUB_URL="template/template"
+SERVER_HOST="${SERVER_HOST:-$(hostname -f 2>/dev/null)}"
+SERVER_PORT="${SERVER_PORT:-15000}"
+SERVER_PORT_INT="${SERVER_PORT_INT:-80}"
+SERVER_PORT_SSL="${SERVER_PORT_SSL:-15100}"
+SERVER_PORT_SSL_INT="${SERVER_PORT_SSL_INT:-443}"
+SERVER_TIMEZONE="${TZ:-${TIMEZONE:-America/New_York}}"
+SERVER_SSL="${SERVER_SSL:-false}"
+SERVER_SSL_CRT="/etc/ssl/CA/CasjaysDev/certs/localhost.crt"
+SERVER_SSL_KEY="/etc/ssl/CA/CasjaysDev/private/localhost.key"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Require a version higher than
 dockermgr_req_version "$APPVERSION"
@@ -63,43 +80,120 @@ dockermgr_req_version "$APPVERSION"
 # Call the dockermgr function
 dockermgr_install
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Script options IE: --help --version
+# Script options IE: --help
 show_optvars "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Requires root - no point in continuing
+#sudoreq "$0 $*" # sudo required
+#sudorun # sudo optional
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Do not update - add --force to overwrite
+#installer_noupdate "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # initialize the installer
 dockermgr_run_init
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup
-sudo mkdir -p "$DATADIR/data"
-sudo mkdir -p "$DATADIR/config"
-sudo chmod -Rf 777 "$DATADIR"
+# Ensure directories exist
+ensure_dirs
+ensure_perms
+__sudo mkdir -p "$DATADIR/data"
+__sudo mkdir -p "$DATADIR/config"
+__sudo chmod -Rf 777 "$APPDIR"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if docker ps -a | grep "GEN_SCRIPT_REPLACE_APPNAME" >/dev/null 2>&1; then
-  docker pull GEN_SCRIPT_REPLACE_APPNAME && docker restart "GEN_SCRIPT_REPLACE_APPNAME"
-else
-  docker run -d \
-    --name="GEN_SCRIPT_REPLACE_APPNAME" \
-    --hostname "GEN_SCRIPT_REPLACE_APPNAME" \
-    --restart=always \
-    --privileged \
-    -p $GEN_SCRIPT_REPLACE_ENV_SERVER_PORT:80 \
-    -v "$DATADIR/data":/data \
-    -v "$DATADIR/config":/config \
-    GEN_SCRIPT_REPLACE_APPNAME
+# Clone/update the repo
+if am_i_online; then
+  if [ -d "$INSTDIR/.git" ]; then
+    message="Updating $APPNAME configurations"
+    execute "git_update $INSTDIR" "$message"
+  else
+    message="Installing $APPNAME configurations"
+    execute "git_clone $REPO $INSTDIR" "$message"
+  fi
+  # exit on fail
+  failexitcode $? "$message has failed"
 fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Copy over data files - keep the same stucture as -v dataDir/mnt:/mount
+[[ -d "$INSTDIR/dataDir" ]] && cp -Rf "$INSTDIR/dataDir/*" "$DATADIR/"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Main progam
+if [ -f "$INSTDIR/docker-compose.yml" ] && cmd_exists docker-compose; then
+  printf_blue "Installing containers using docker compose"
+  sed -i "s|REPLACE_DATADIR|$DATADIR" "$INSTDIR/docker-compose.yml"
+  if cd "$INSTDIR"; then
+    __sudo docker-compose pull &>/dev/null
+    __sudo docker-compose up -d &>/dev/null
+  fi
+else
+  if docker ps -a | grep -qsw "$APPNAME"; then
+    __sudo docker stop "$APPNAME" &>/dev/null
+    __sudo docker rm -f "$APPNAME" &>/dev/null
+  fi
+  if __enable_ssl && __ssl_certs "$SERVER_SSL_CRT" "$SERVER_SSL_KEY"; then
+    ## SSL
+    __sudo docker run -d \
+      --name="$APPNAME" \
+      --hostname "$SERVER_HOST" \
+      --restart=unless-stopped \
+      --privileged \
+      -e ENV_DOCKER_REGISTRY_HOST=localhost \
+      -e ENV_DOCKER_REGISTRY_PORT=5000 \
+      -e ENV_REGISTRY_PROXY_FQDN=localhost \
+      -e ENV_REGISTRY_PROXY_PORT=443 \
+      -e ENV_DEFAULT_REPOSITORIES_PER_PAGE=50 \
+      -e ENV_MODE_BROWSE_ONLY=false \
+      -e ENV_DEFAULT_TAGS_PER_PAGE=20 \
+      -e ENV_DOCKER_REGISTRY_USE_SSL=1 \
+      -e ENV_USE_SSL=1 \
+      -v /etc/ssl/CA/CasjaysDev/certs/localhost.crt:/etc/apache2/server.crt:ro \
+      -v /etc/ssl/CA/CasjaysDev/private/localhost.key:/etc/apache2/server.key:ro \
+      -e TZ="$SERVER_TIMEZONE" \
+      -v "$DATADIR/data":/data:z \
+      -v "$DATADIR/config":/config:z \
+      -p $SERVER_PORT:$SERVER_PORT_SSL_INT \
+      "$HUB_URL" &>/dev/null
+  else
+    __sudo docker run -d \
+      --name="$APPNAME" \
+      --hostname "$SERVER_HOST" \
+      --restart=unless-stopped \
+      --privileged \
+      -e ENV_DOCKER_REGISTRY_HOST=localhost \
+      -e ENV_DOCKER_REGISTRY_PORT=5000 \
+      -e ENV_REGISTRY_PROXY_FQDN=localhost \
+      -e ENV_REGISTRY_PROXY_PORT=443 \
+      -e ENV_DEFAULT_REPOSITORIES_PER_PAGE=50 \
+      -e ENV_MODE_BROWSE_ONLY=false \
+      -e ENV_DEFAULT_TAGS_PER_PAGE=20 \
+      -e ENV_DOCKER_REGISTRY_USE_SSL=0 \
+      -e ENV_USE_SSL=0 \
+      -e TZ="$SERVER_TIMEZONE" \
+      -v "$DATADIR/data":/data:z \
+      -v "$DATADIR/config":/config:z \
+      -p $SERVER_PORT:$SERVER_PORT_INT \
+      "$HUB_URL" &>/dev/null
+  fi
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# run post install scripts
+run_postinst() {
+  dockermgr_run_post
+}
+#
+execute "run_postinst" "Running post install scripts"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # create version file
 dockermgr_install_version
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run exit function
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-run_exit
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if docker ps -a | grep -qs "$APPNAME"; then
-  printf_blue "Service is available at: http://$GEN_SCRIPT_REPLACE_ENV_SERVER_HOST:$GEN_SCRIPT_REPLACE_ENV_SERVER_PORT"
+  printf_blue "DATADIR in $DATADIR"
+  printf_cyan "Installed to $INSTDIR"
+  printf_blue "Service is available at: http://$SERVER_HOST:$SERVER_PORT"
 else
-  false
+  printf_error "Something seems to have gone wrong with the install"
 fi
+run_exit
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

@@ -620,6 +620,7 @@ __getphpver() {
   echo $PHPVER
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__sudo() { if sudo -n true; then eval sudo "$*"; else eval "$*"; fi; }
 sudorun() { if sudoif; then sudo -HE "$@"; else "$@"; fi; }
 sudoif() { (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null; }
 user_is_root() { if [[ $(id -u) -eq 0 ]] || [[ $EUID -eq 0 ]] || [[ "$WHOAMI" = "root" ]]; then return 0; else return 1; fi; }
@@ -1735,14 +1736,16 @@ dfmgr_install_version() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 dockermgr_install() {
-  system_installdirs
+  user_installdirs
   #[ -f "$(builtin type -P  2>/dev/null)" ] docker || printf_exit 1 1 "This requires docker, however, docker wasn't found"
   SCRIPTS_PREFIX="dockermgr"
   [[ -n "$_DEBUG" ]] && set -x && echo "$SCRIPTS_PREFIX"
-  APPDIR="${APPDAIR:-$SHARE/docker/$APPNAME}"
-  INSTDIR="${INSTDIR:-$SHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME}"
-  DATADIR="${DATADIR:-/srv/docker/$APPNAME}"
+  APPNAME="${APPNAME:-$SCRIPTS_PREFIX}"
+  APPDIR="${APPDAIR:-$HOME/.local/share/docker/$APPNAME}"
+  INSTDIR="${INSTDIR:-$HOME/.local/share/dockermgr/docker/$APPNAME}"
+  DATADIR="${DATADIR:-$HOME/.local/share/docker/$APPNAME/files}"
   REPO="${REPO:-$DOCKERMGRREPO/$APPNAME}"
+  REPO_BRANCH="${GIT_REPO_BRANCH:-master}"
   REPORAW="${REPORAW:-$REPO/raw/$GIT_REPO_BRANCH}"
   USRUPDATEDIR="$SHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"
   SYSUPDATEDIR="$SYSSHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"
@@ -1761,15 +1764,11 @@ dockermgr_install() {
 ######## Installer Functions ########
 dockermgr_run_init() {
   run_install_init "docker configurations"
-  if [[ -d "$INSTDIR/.git" ]]; then
-    execute "git -C $INSTDIR pull -q" "Updating the git repo"
-  fi
 }
 dockermgr_run_post() {
   dockermgr_install
   run_postinst_global
   [ -d "$APPDIR" ] && replace "$APPDIR" "/home/jason" "$HOME"
-  [ -d "$INSTDIR/system" ] && cp -Rfa "$INSTDIR/system/." "$DATADIR/"
 }
 dockermgr_install_version() {
   dockermgr_install

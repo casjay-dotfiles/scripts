@@ -1,8 +1,8 @@
 # Welcome to dockermgr GEN_README_REPLACE_APPNAME installer 👋
   
-### GEN_README_REPLACE_DESCRIBE  
+## GEN_README_REPLACE_DESCRIBE  
   
-#### Requires scripts to be installed
+### Requires scripts to be installed
 
 ```shell
  sudo bash -c "$(curl -LSs <https://github.com/dockermgr/installer/raw/GEN_README_REPLACE_DEFAULT_BRANCH/install.sh>)"

@@ -571,18 +571,18 @@ setexitstatus() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __getip() {
-  if [ -f "$(builtin type -P route 2>/dev/null)" ] || [ -f "$(builtin type -P ip 2>/dev/null)" ]; then
+  if builtin type -P route &>/dev/null || builtin type -P ip &>/dev/null; then
     if [[ "$OSTYPE" =~ ^darwin ]]; then
-      NETDEV="$(route get default | grep interface | awk '{print $2}')"
+      NETDEV="$(route get default 2>/dev/null | grep interface | awk '{print $2}')"
     else
-      NETDEV="$(ip route | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//" | awk '{print $1}')"
+      NETDEV="$(ip route 2>/dev/null | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//" | awk '{print $1}')"
     fi
-    if [ -f "$(builtin type -P ifconfig 2>/dev/null)" ]; then
-      CURRIP4="$(/sbin/ifconfig $NETDEV | grep -E "venet|inet" | grep -v "127.0.0." | grep 'inet' | grep -v inet6 | awk '{print $2}' | sed s/addr://g | head -n1)"
-      CURRIP6="$(/sbin/ifconfig "$NETDEV" | grep -E "venet|inet" | grep 'inet6' | grep -i global | awk '{print $2}' | head -n1)"
+    if builtin type -P ipconfig &>/dev/null; then
+      CURRIP4="$(/sbin/ifconfig $NETDEV 2>/dev/null | grep -E "venet|inet" | grep -v "127.0.0." | grep 'inet' | grep -v inet6 | awk '{print $2}' | sed s/addr://g | head -n1)"
+      CURRIP6="$(/sbin/ifconfig "$NETDEV" 2>/dev/null | grep -E "venet|inet" | grep 'inet6' | grep -i global | awk '{print $2}' | head -n1)"
     else
-      CURRIP4="$(ip addr | grep inet | grep -vE "127|inet6" | tr '/' ' ' | awk '{print $2}' | head -n 1)"
-      CURRIP6="$(ip addr | grep inet6 | grep -v "::1/" -v | tr '/' ' ' | awk '{print $2}' | head -n 1)"
+      CURRIP4="$(ip addr | grep inet 2>/dev/null | grep -vE "127|inet6" | tr '/' ' ' | awk '{print $2}' | head -n 1)"
+      CURRIP6="$(ip addr | grep inet6 2>/dev/null | grep -v "::1/" -v | tr '/' ' ' | awk '{print $2}' | head -n 1)"
     fi
   else
     NETDEV="lo"

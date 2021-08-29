@@ -25,6 +25,7 @@ bash -c "$HOME/.local/share/CasjaysDev/dockermgr/GEN_README_REPLACE_APPNAME/inst
   
 #### Just run it
 
+```shell
 mkdir -p "$HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/"
 
 git clone <https://github.com/dockermgr/GEN_README_REPLACE_APPNAME> "$HOME/.local/share/CasjaysDev/dockermgr/GEN_README_REPLACE_APPNAME"
@@ -41,7 +42,7 @@ sudo docker run -d \
 -v "$HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/config":/config:z \
 -p PORT:INT_PORT \
 TEMPLATE/TEMPLATE 1>/dev/null
-
+```
 
 ## Author  
 

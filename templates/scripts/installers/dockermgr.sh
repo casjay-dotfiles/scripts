@@ -118,7 +118,10 @@ if am_i_online; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Copy over data files - keep the same stucture as -v dataDir/mnt:/mount
-[[ -d "$INSTDIR/dataDir" ]] && cp -Rfa "$INSTDIR/dataDir/*" "$DATADIR/"
+if [[ -d "$INSTDIR/dataDir" ]] && [[ -f "$DATADIR/.installed" ]]; then
+  cp -Rf "$INSTDIR/dataDir/." "$DATADIR/"
+  touch "$DATADIR/.installed"
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main progam
 if [ -f "$INSTDIR/docker-compose.yml" ] && cmd_exists docker-compose; then

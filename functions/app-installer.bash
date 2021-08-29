@@ -1768,7 +1768,7 @@ dockermgr_run_init() {
 dockermgr_run_post() {
   dockermgr_install
   run_postinst_global
-  [ -d "$APPDIR" ] && replace "$APPDIR" "/home/jason" "$HOME"
+  [ -d "$APPDIR" ] && replace "$APPDIR" "/home/jason" "$HOME" || true
 }
 dockermgr_install_version() {
   dockermgr_install

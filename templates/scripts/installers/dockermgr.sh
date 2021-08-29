@@ -47,8 +47,8 @@ user_installdirs
 # Define extra functions
 __sudo() { if sudo -n true; then eval sudo "$*"; else eval "$*"; fi; }
 __sudo_root() { sudo -n true && ask_for_password true && eval sudo "$*" || return 1; }
-__enable_ssl() { [[ "$SERVER_SSL" = "yes" ]] && [[ "$SERVER_SSL" = "true" ]] && return 0 || return 1; }
 __ssl_certs() { [ -f "${1:-$SERVER_SSL_CRT}" ] && [ -f "${2:-SERVER_SSL_KEY}" ] && return 0 || return 1; }
+__enable_ssl() { { [[ "$SERVER_SSL" = "yes" ]] || [[ "$SERVER_SSL" = "true" ]]; } && return 0 || return 1; }
 __port_not_in_use() { [[ -d "/etc/nginx/vhosts.d" ]] && grep -Rsq "${1:-$SERVER_PORT}" /etc/nginx/vhosts.d && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Make sure the scripts repo is installed

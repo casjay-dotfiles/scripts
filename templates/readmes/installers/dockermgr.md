@@ -38,8 +38,8 @@ sudo docker run -d \
 --restart=unless-stopped \
 --privileged \
 -e TZ="${TZ:-${TIMEZONE:-America/New_York}}" \
--v "$HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/data":/data:z \
--v "$HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/config":/config:z \
+-v "$HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/files/data":/data:z \
+-v "$HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/files/config":/config:z \
 -p PORT:INT_PORT \
 TEMPLATE/TEMPLATE 1>/dev/null
 ```

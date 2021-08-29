@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
+APPNAME="GEN_SCRIPT_REPLACE_FILENAME"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
@@ -54,11 +54,11 @@ scripts_check
 REPO_BRANCH="${GIT_REPO_BRANCH:-master}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Defaults
-APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
-APPDIR="$HOME/.local/share/docker/GEN_SCRIPT_REPLACE_APPNAME"
-DATADIR="$HOME/.local/share/docker/GEN_SCRIPT_REPLACE_APPNAME/files"
-INSTDIR="$HOME/.local/share/dockermgr/docker/GEN_SCRIPT_REPLACE_APPNAME"
-REPO="${DOCKERMGRREPO:-https://github.com/dockermgr}/GEN_SCRIPT_REPLACE_APPNAME"
+APPNAME="GEN_SCRIPT_REPLACE_FILENAME"
+APPDIR="$HOME/.local/share/docker/GEN_SCRIPT_REPLACE_FILENAME"
+DATADIR="$HOME/.local/share/docker/GEN_SCRIPT_REPLACE_FILENAME/files"
+INSTDIR="$HOME/.local/share/dockermgr/docker/GEN_SCRIPT_REPLACE_FILENAME"
+REPO="${DOCKERMGRREPO:-https://github.com/dockermgr}/GEN_SCRIPT_REPLACE_FILENAME"
 REPORAW="$REPO/raw/$REPO_BRANCH"
 APPVERSION="$(__appversion "$REPORAW/version.txt")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

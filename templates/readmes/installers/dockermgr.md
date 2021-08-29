@@ -5,7 +5,8 @@
 #### Requires scripts to be installed
 
 ```shell
- sudo bash -c "$(curl -LSs <https://github.com/dockermgr/installer/raw/GEN_README_REPLACE_DEFAULT_BRANCH/install.sh>)" && sudo dockermgr install installer  
+ sudo bash -c "$(curl -LSs <https://github.com/dockermgr/installer/raw/GEN_README_REPLACE_DEFAULT_BRANCH/install.sh>)"
+ dockermgr --config && dockermgr install scripts  
 ```
 
 ### Automatic install/update  
@@ -14,22 +15,28 @@
 dockermgr install GEN_README_REPLACE_APPNAME
 ```
 
-OR
 
-```shell
-bash -c "$(curl -LSs https://github.com/dockermgr/GEN_README_REPLACE_APPNAME/raw/GEN_README_REPLACE_DEFAULT_BRANCH/install.sh)"
-```
-  
-Manual install:
+### Manual install:
 
 ```shell
 git clone https://github.com/dockermgr/GEN_README_REPLACE_APPNAME "$HOME/.local/share/CasjaysDev/dockermgr/GEN_README_REPLACE_APPNAME"
 bash -c "$HOME/.local/share/CasjaysDev/dockermgr/GEN_README_REPLACE_APPNAME/install.sh"
 ```
   
-Manual update:
+### Just run
+mkdir -p "$HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/"
 
-```shell
-git -C "$HOME/.local/share/CasjaysDev/dockermgr/GEN_README_REPLACE_APPNAME" pull
-bash -c "$HOME/.local/share/CasjaysDev/dockermgr/GEN_README_REPLACE_APPNAME/install.sh"
-```
+git clone https://github.com/dockermgr/GEN_README_REPLACE_APPNAME "$HOME/.local/share/CasjaysDev/dockermgr/GEN_README_REPLACE_APPNAME"
+
+cp -Rf "$HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/system/*" "$HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/"
+
+sudo docker run -d \
+--name="GEN_README_REPLACE_APPNAME" \
+--hostname "checkip" \
+--restart=unless-stopped \
+--privileged \
+-e TZ="${TZ:-${TIMEZONE:-America/New_York}}" \
+-v "$HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/data":/data:z \
+-v "$HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/config":/config:z \
+-p PORT:INT_PORT \
+TEMPLATE/TEMPLATE 1>/dev/null

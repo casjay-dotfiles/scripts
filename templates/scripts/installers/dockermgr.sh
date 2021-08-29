@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-APPNAME="GEN_SCRIPT_REPLACE_FILENAME"
+APPNAME="GEN_README_REPLACE_APPNAME"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
@@ -26,7 +26,7 @@ if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OP
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
 SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
 SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-app-installer.bash}"
-SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/GEN_SCRIPT_REPLACE_DEFAULT_BRANCH/functions}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
 connect_test() { ping -c1 1.1.1.1 &>/dev/null || curl --disable -LSs --connect-timeout 3 --retry 0 --max-time 1 1.1.1.1 2>/dev/null | grep -e "HTTP/[0123456789]" | grep -q "200" -n1 &>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
@@ -54,21 +54,23 @@ scripts_check
 REPO_BRANCH="${GIT_REPO_BRANCH:-master}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Defaults
-APPNAME="GEN_SCRIPT_REPLACE_FILENAME"
-APPDIR="$HOME/.local/share/docker/GEN_SCRIPT_REPLACE_FILENAME"
-DATADIR="$HOME/.local/share/docker/GEN_SCRIPT_REPLACE_FILENAME/files"
-INSTDIR="$HOME/.local/share/dockermgr/docker/GEN_SCRIPT_REPLACE_FILENAME"
-REPO="${DOCKERMGRREPO:-https://github.com/dockermgr}/GEN_SCRIPT_REPLACE_FILENAME"
+APPNAME="GEN_README_REPLACE_APPNAME"
+APPDIR="$HOME/.local/share/docker/GEN_README_REPLACE_APPNAME"
+DATADIR="$HOME/.local/share/docker/GEN_README_REPLACE_APPNAME/files"
+INSTDIR="$HOME/.local/share/dockermgr/docker/GEN_README_REPLACE_APPNAME"
+REPO="${DOCKERMGRREPO:-https://github.com/dockermgr}/GEN_README_REPLACE_APPNAME"
 REPORAW="$REPO/raw/$REPO_BRANCH"
 APPVERSION="$(__appversion "$REPORAW/version.txt")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup plugins
 HUB_URL="template/template"
-SERVER_HOST="${SERVER_HOST:-$(hostname -f 2>/dev/null)}"
-SERVER_PORT="${SERVER_PORT:-15000}"
+SERVER_HOST="${APPNAME:-$(hostname -f 2>/dev/null)}"
+SERVER_PORT="${SERVER_PORT:-14000}"
 SERVER_PORT_INT="${SERVER_PORT_INT:-80}"
-SERVER_PORT_SSL="${SERVER_PORT_SSL:-15100}"
+SERVER_PORT_SSL="${SERVER_PORT_SSL:-15000}"
 SERVER_PORT_SSL_INT="${SERVER_PORT_SSL_INT:-443}"
+SERVER_PORT_ADMIN="${SERVER_PORT_SSL:-16000}"
+SERVER_PORT_ADMIN_INT="${SERVER_PORT_SSL_INT:-8080}"
 SERVER_TIMEZONE="${TZ:-${TIMEZONE:-America/New_York}}"
 SERVER_SSL="${SERVER_SSL:-false}"
 SERVER_SSL_CRT="/etc/ssl/CA/CasjaysDev/certs/localhost.crt"
@@ -131,47 +133,27 @@ else
   fi
   if __enable_ssl && __ssl_certs "$SERVER_SSL_CRT" "$SERVER_SSL_KEY"; then
     ## SSL
-    __sudo docker run -d \
-      --name="$APPNAME" \
-      --hostname "$SERVER_HOST" \
-      --restart=unless-stopped \
-      --privileged \
-      -e ENV_DOCKER_REGISTRY_HOST=localhost \
-      -e ENV_DOCKER_REGISTRY_PORT=5000 \
-      -e ENV_REGISTRY_PROXY_FQDN=localhost \
-      -e ENV_REGISTRY_PROXY_PORT=443 \
-      -e ENV_DEFAULT_REPOSITORIES_PER_PAGE=50 \
-      -e ENV_MODE_BROWSE_ONLY=false \
-      -e ENV_DEFAULT_TAGS_PER_PAGE=20 \
-      -e ENV_DOCKER_REGISTRY_USE_SSL=1 \
-      -e ENV_USE_SSL=1 \
-      -v /etc/ssl/CA/CasjaysDev/certs/localhost.crt:/etc/apache2/server.crt:ro \
-      -v /etc/ssl/CA/CasjaysDev/private/localhost.key:/etc/apache2/server.key:ro \
-      -e TZ="$SERVER_TIMEZONE" \
-      -v "$DATADIR/data":/data:z \
-      -v "$DATADIR/config":/config:z \
-      -p $SERVER_PORT:$SERVER_PORT_SSL_INT \
-      "$HUB_URL" &>/dev/null
+  __sudo docker run -d \
+    --name="$APPNAME" \
+    --hostname "$SERVER_HOST" \
+    --restart=unless-stopped \
+    --privileged \
+    -e TZ="$SERVER_TIMEZONE" \
+    -v "$DATADIR/data":/data:z \
+    -v "DATADIR/config":config:z \
+    -p $SERVER_PORT:$SERVER_PORT_INT \
+    "$HUB_URL" 1>/dev/null
   else
-    __sudo docker run -d \
-      --name="$APPNAME" \
-      --hostname "$SERVER_HOST" \
-      --restart=unless-stopped \
-      --privileged \
-      -e ENV_DOCKER_REGISTRY_HOST=localhost \
-      -e ENV_DOCKER_REGISTRY_PORT=5000 \
-      -e ENV_REGISTRY_PROXY_FQDN=localhost \
-      -e ENV_REGISTRY_PROXY_PORT=443 \
-      -e ENV_DEFAULT_REPOSITORIES_PER_PAGE=50 \
-      -e ENV_MODE_BROWSE_ONLY=false \
-      -e ENV_DEFAULT_TAGS_PER_PAGE=20 \
-      -e ENV_DOCKER_REGISTRY_USE_SSL=0 \
-      -e ENV_USE_SSL=0 \
-      -e TZ="$SERVER_TIMEZONE" \
-      -v "$DATADIR/data":/data:z \
-      -v "$DATADIR/config":/config:z \
-      -p $SERVER_PORT:$SERVER_PORT_INT \
-      "$HUB_URL" &>/dev/null
+  __sudo docker run -d \
+    --name="$APPNAME" \
+    --hostname "$SERVER_HOST" \
+    --restart=unless-stopped \
+    --privileged \
+    -e TZ="$SERVER_TIMEZONE" \
+    -v "$DATADIR/data":/data:z \
+    -v "DATADIR/config":config:z \
+    -p $SERVER_PORT:$SERVER_PORT_INT \
+    "$HUB_URL" 1>/dev/null
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

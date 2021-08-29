@@ -142,8 +142,9 @@ else
       --privileged \
       -e TZ="$SERVER_TIMEZONE" \
       -v "$DATADIR/data":/data:z \
-      -v "DATADIR/config":config:z \
+      -v "$DATADIR/config":config:z \
       -p $SERVER_PORT:$SERVER_PORT_INT \
+      -p $SERVER_PORT_SSL:$SERVER_PORT_SSL_INT \
       "$HUB_URL" 1>/dev/null
   else
     __sudo docker run -d \
@@ -153,7 +154,7 @@ else
       --privileged \
       -e TZ="$SERVER_TIMEZONE" \
       -v "$DATADIR/data":/data:z \
-      -v "DATADIR/config":config:z \
+      -v "$DATADIR/config":config:z \
       -p $SERVER_PORT:$SERVER_PORT_INT \
       "$HUB_URL" 1>/dev/null
   fi

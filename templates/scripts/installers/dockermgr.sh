@@ -46,10 +46,10 @@ user_installdirs
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define extra functions
 __sudo() { if sudo -n true; then eval sudo "$*"; else eval "$*"; fi; }
-__sudo_root() { sudo -n true && ask_for_password true && eval sudo "$*" || false; return $?; }
+__sudo_root() { sudo -n true && ask_for_password true && eval sudo "$*" || return 1; }
 __enable_ssl() { [[ "$SERVER_SSL" = "yes" ]] && [[ "$SERVER_SSL" = "true" ]] && return 0 || return 1; }
 __ssl_certs() { [ -f "${1:-$SERVER_SSL_CRT}" ] && [ -f "${2:-SERVER_SSL_KEY}" ] && return 0 || return 1; }
-__port_in_use() { [[ -d "/etc/nginx/vhosts.d" ]] && grep -Rsq "${1:-$SERVER_PORT}" /etc/nginx/vhosts.d && return 0 || return 1; }
+__port_not_in_use() { [[ -d "/etc/nginx/vhosts.d" ]] && grep -Rsq "${1:-$SERVER_PORT}" /etc/nginx/vhosts.d && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Make sure the scripts repo is installed
 scripts_check
@@ -135,34 +135,36 @@ else
   fi
   if __enable_ssl && __ssl_certs "$SERVER_SSL_CRT" "$SERVER_SSL_KEY"; then
     ## SSL
-  __sudo docker run -d \
-    --name="$APPNAME" \
-    --hostname "$SERVER_HOST" \
-    --restart=unless-stopped \
-    --privileged \
-    -e TZ="$SERVER_TIMEZONE" \
-    -v "$DATADIR/data":/data:z \
-    -v "DATADIR/config":config:z \
-    -p $SERVER_PORT:$SERVER_PORT_INT \
-    "$HUB_URL" 1>/dev/null
+    __sudo docker run -d \
+      --name="$APPNAME" \
+      --hostname "$SERVER_HOST" \
+      --restart=unless-stopped \
+      --privileged \
+      -e TZ="$SERVER_TIMEZONE" \
+      -v "$DATADIR/data":/data:z \
+      -v "DATADIR/config":config:z \
+      -p $SERVER_PORT:$SERVER_PORT_INT \
+      "$HUB_URL" 1>/dev/null
   else
-  __sudo docker run -d \
-    --name="$APPNAME" \
-    --hostname "$SERVER_HOST" \
-    --restart=unless-stopped \
-    --privileged \
-    -e TZ="$SERVER_TIMEZONE" \
-    -v "$DATADIR/data":/data:z \
-    -v "DATADIR/config":config:z \
-    -p $SERVER_PORT:$SERVER_PORT_INT \
-    "$HUB_URL" 1>/dev/null
+    __sudo docker run -d \
+      --name="$APPNAME" \
+      --hostname "$SERVER_HOST" \
+      --restart=unless-stopped \
+      --privileged \
+      -e TZ="$SERVER_TIMEZONE" \
+      -v "$DATADIR/data":/data:z \
+      -v "DATADIR/config":config:z \
+      -p $SERVER_PORT:$SERVER_PORT_INT \
+      "$HUB_URL" 1>/dev/null
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Install nginx proxy
 if [[ ! -f "/etc/nginx/vhosts.d/$APPNAME.conf" ]] && [[ -f "$APPDIR/nginx/proxy.conf" ]]; then
-  if __port_in_use; then
-    __sudo_root cp -Rf "$APPDIR/nginx/proxy.conf" "/etc/nginx/vhosts.d/$APPNAME.conf" && __sudo_root systemctl reload nginx
+  if __port_not_in_use "$SERVER_PORT"; then
+    __sudo_root cp -Rf "$APPDIR/nginx/proxy.conf" "/etc/nginx/vhosts.d/$APPNAME.conf"
+    sed -i "s|REPLACE_SERVER_PORT|$SERVER_PORT|g" "/etc/nginx/vhosts.d/$APPNAME.conf"
+    __sudo_root systemctl reload nginx
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

@@ -152,7 +152,7 @@ else
       -v "$DATADIR/data":/data \
       -v "$DATADIR/config":/config \
       -p $SERVER_LISTEN:$SERVER_PORT:$SERVER_PORT_INT \
-      "$HUB_URL" 1>/dev/null
+      "$HUB_URL" &>/dev/null
   else
     printf_cyan "Setting up the docker container"
     __sudo docker run -d \
@@ -164,7 +164,7 @@ else
       -v "$DATADIR/data":/data \
       -v "$DATADIR/config":/config \
       -p $SERVER_LISTEN:$SERVER_PORT:$SERVER_PORT_INT \
-      "$HUB_URL" 1>/dev/null
+      "$HUB_URL" &>/dev/null
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

@@ -1760,6 +1760,8 @@ dockermgr_install() {
   fi
   mkd "$USRUPDATEDIR" "$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX"
   export installtype="dockermgr_install"
+  [[ -d "$HOME" ]] || mkdir -p "$HOME" &>/dev/null
+  [[ -f "$HOME/.docker/config.json" ]] || touch "$HOME/.docker.config.json" &>/dev/null
 }
 ######## Installer Functions ########
 dockermgr_run_init() {

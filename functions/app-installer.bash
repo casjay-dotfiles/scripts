@@ -1768,7 +1768,14 @@ dockermgr_run_init() {
 dockermgr_run_post() {
   dockermgr_install
   run_postinst_global
-  [ -d "$APPDIR" ] && replace "$APPDIR" "/home/jason" "$HOME" || true
+  if [ -d "$APPDIR" ]; then replace "$APPDIR" "/home/jason" "$HOME"; fi
+  if [[ -f "$APPDIR/nginx/template" ]]; then
+    sed -i "s|REPLACE_APPNAME|$APPNAME|g" "/etc/nginx/vhosts.d/$APPNAME.conf" &>/dev/null
+    sed -i "s|REPLACE_NGINX_HTTP|$NGINX_HTTP|g" "/etc/nginx/vhosts.d/$APPNAME.conf" &>/dev/null
+    sed -i "s|REPLACE_NGINX_HTTPS|$NGINX_HTTPS|g" "/etc/nginx/vhosts.d/$APPNAME.conf" &>/dev/null
+    sed -i "s|REPLACE_SERVER_PORT|$SERVER_PORT|g" "/etc/nginx/vhosts.d/$APPNAME.conf" &>/dev/null
+    sed -i "s|REPLACE_SERVER_LISTEN|$SERVER_LISTEN|g" "/etc/nginx/vhosts.d/$APPNAME.conf" &>/dev/null
+  fi
 }
 dockermgr_install_version() {
   dockermgr_install

@@ -27,17 +27,17 @@ CASJAYSDEVDIR="/usr/local/share/CasjaysDev/scripts"
 # Fail if git, curl, wget are not installed
 if ! type -P git &>/dev/null; then
   echo -e "\t\t\033[0;31mAttempting to install git\033[0m"
-  if __command -P brew &>/dev/null; then
+  if builtin type -P brew &>/dev/null; then
     brew install -f git &>/dev/null
-  elif __command -P apt &>/dev/null; then
+  elif builtin type -P apt &>/dev/null; then
     apt install -yy -q git &>/dev/null
-  elif __command -P pacman &>/dev/null; then
+  elif builtin type -P pacman &>/dev/null; then
     pacman -S --noconfirm git &>/dev/null
-  elif __command -P yum &>/dev/null; then
+  elif builtin type -P yum &>/dev/null; then
     yum install -yy -q git &>/dev/null
-  elif __command -P choco &>/dev/null; then
+  elif builtin type -P choco &>/dev/null; then
     choco install git -y &>/dev/null
-    if __command -P git &>/dev/null; then
+    if builtin type -P git &>/dev/null; then
       echo -e "\t\t\033[0;31mGit was not installed\033[0m"
       exit 1
     fi
@@ -48,10 +48,10 @@ if ! type -P git &>/dev/null; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #getopt() { builtin command getopt; }
-builtin type -p am_i_online &>/dev/null || am_i_online() { builtin command am_i_online || true; }
-builtin type -p __am_i_online &>/dev/null || __am_i_online() { builtin command am_i_online || true; }
-cmd_exist() { __command "$1" &>/dev/null || return 1; }
-__cmd_exist() { __command "$1" &>/dev/null || return 1; }
+am_i_online() {  true; }
+__am_i_online() { true; }
+cmd_exist() { builtin type "$1" &>/dev/null || return 1; }
+__cmd_exist() { builtin type "$1" &>/dev/null || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 for check in git curl wget; do
   if ! builtin type -P "$check" &>/dev/null; then

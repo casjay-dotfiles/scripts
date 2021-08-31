@@ -52,6 +52,7 @@ am_i_online() {  true; }
 __am_i_online() { true; }
 cmd_exist() { builtin type "$1" &>/dev/null || return 1; }
 __cmd_exist() { builtin type "$1" &>/dev/null || return 1; }
+__command() { builtin type -p "$1" &>/dev/null || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 for check in git curl wget; do
   if ! builtin type -P "$check" &>/dev/null; then
@@ -60,21 +61,6 @@ for check in git curl wget; do
   fi
 done
 ###################### builtins ######################
-__command() {
-  [ "$1" = "-v" ] && shift 1
-  if [ $# -ne 1 ]; then
-    if builtin type $* 2>/dev/null | grep -v alias | head -n1 | awk '{print $1}' | grep '^'; then
-      return 0
-    else
-      return 1
-    fi
-  elif builtin type $* 2>/dev/null | grep -v alias | head -n1 | awk '{print $1}' | grep -q '^'; then
-    return 0
-  else
-    return 1
-  fi
-}
-export -f __command
 # Versioning Info - __required_version "VersionNumber"
 localVersion="${localVersion:-202103310525-git}"
 requiredVersion="${requiredVersion:-202103310525-git}"

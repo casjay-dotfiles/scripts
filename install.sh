@@ -183,6 +183,9 @@ run_postinst() {
   cmd_exists update-motd && update-ip && update-motd || true
   dotfilesreqadmin cron
   echo '5 4 * * * root "[ -f /usr/local/share/CasjaysDev/scripts/bin/systemmgr ] && /usr/local/share/CasjaysDev/scripts/bin/systemmgr update scripts cron &>/dev/null"'
+  for mgr in devenvmgr dfmgr dockermgr fontmgr iconmgr passmgr pkmgr systemmgr thememgr wallpapermgr; do
+    $mgr --config &>/dev/null
+  done
 }
 #
 execute "run_postinst" "Running post install scripts"

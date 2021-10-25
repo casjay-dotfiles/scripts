@@ -1422,8 +1422,6 @@ powerline-status() { [ -f "$(builtin type -P powerline-config 2>/dev/null)" ] ||
 gtk-2.0() { find /lib* /usr* -iname "*libgtk*2*.so*" -type f 2>/dev/null | grep -q . || return 1; }
 gtk-3.0() { find /lib* /usr* -iname "*libgtk*3*.so*" -type f 2>/dev/null | grep -q . || return 1; }
 transmission-remote-cli() { [ -f "$(builtin type -P transmission-remote-cli 2>/dev/null)" ] || [ -f "$(builtin type -P transmission-remote 2>/dev/null)" ] || return 1; }
-export -f cron mlocate xfce4 imagemagick fdfind speedtest neovim chromium firefox gtk-2.0 gtk-3.0
-export -f transmission-remote-cli cowsay xfce4-notifyd grub powerline-status
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #backupapp "directory" "filename"
 __backupapp() {

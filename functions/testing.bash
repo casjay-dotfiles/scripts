@@ -60,9 +60,10 @@ fi
 builtin type -p am_i_online &>/dev/null || am_i_online() { builtin command am_i_online || true; }
 builtin type -p __am_i_online &>/dev/null || __am_i_online() { builtin command am_i_online || true; }
 cmd_exist() { builtin type -P "$1" &>/dev/null || return 1; }
+sudo() { builtin command sudo env PATH=$PATH "$@"; }
 __cmd_exist() { builtin type -P "$1" &>/dev/null || return 1; }
 __local_gen_header() { echo -e "$1" >>"$2"; }
-sudo() { builtin command sudo env PATH=$PATH "$@"; }
+__sudo() { builtin command sudo env PATH=$PATH "$@"; }
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 for check in git curl wget; do

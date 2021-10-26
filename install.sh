@@ -187,7 +187,7 @@ run_postinst() {
     $mgr --config &>/dev/null
   done
   grep 'Defaults.*.env_reset' /etc/sudoers | grep -v '!' && sed -i 's|env_reset|!env_reset|g' /etc/sudoers
-  grep 'Defaults.*.secure_path ' /etc/sudoers && sed -i 's|secure_path =*.|secure_path = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"|g' /etc/sudoers
+  grep 'Defaults.*.secure_path' /etc/sudoers && sed -i 's|secure_path =.*|secure_path = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"|g' /etc/sudoers
 }
 #
 execute "run_postinst" "Running post install scripts"

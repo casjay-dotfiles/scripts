@@ -62,6 +62,8 @@ builtin type -p __am_i_online &>/dev/null || __am_i_online() { builtin command a
 cmd_exist() { builtin type -P "$1" &>/dev/null || return 1; }
 __cmd_exist() { builtin type -P "$1" &>/dev/null || return 1; }
 __local_gen_header() { echo -e "$1" >>"$2"; }
+sudo() { builtin command sudo env PATH=$PATH "$@"; }
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 for check in git curl wget; do
   if ! builtin type -P "$check" &>/dev/null; then

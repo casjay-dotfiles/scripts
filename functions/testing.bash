@@ -1519,13 +1519,13 @@ __open_file_menus() {
     __attemp_install_menus "$prog" && __run_menu_start "$prog" "$args" || __run_menu_failed
   fi
 }
-#run___command "full command" - terminal apps
+#run_command "full command" - terminal apps
 __run_command() {
   local cmd="$1" && shift 1
   local arg="$*" && shift $#
   clear
   if builtin type -P "$cmd" &>/dev/null; then
-    $cmd ${arg:-} 2>/dev/null
+    eval "$cmd" "${arg:-}" 2>/dev/null
   else
     printf_newline "\n\n\n"
     printf_pause 1 "Sorry but $cmd doesn't seem to exist"

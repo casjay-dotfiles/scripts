@@ -1525,7 +1525,7 @@ __run_command() {
   local arg="$*" && shift $#
   clear
   if builtin type -P "$cmd" &>/dev/null; then
-    eval "$cmd" "${arg:-}" 2>/dev/null
+    eval $cmd ${arg:-} 2>/dev/null
   else
     printf_newline "\n\n\n"
     printf_pause 1 "Sorry but $cmd doesn't seem to exist"

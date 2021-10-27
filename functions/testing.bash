@@ -1528,7 +1528,7 @@ __run_command() {
     eval $cmd ${arg:-} 2>/dev/null
   else
     printf_newline "\n\n\n"
-    printf_pause 1 "Sorry but $cmd doesn't seem to exist"
+    printf_pause 1 "Sorry but $cmd doesn't seem to exist [press any key to continue]"
   fi
 }
 #run_prog_menus - graphical apps

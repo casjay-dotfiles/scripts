@@ -2169,9 +2169,9 @@ dfmgr_install() {
 dockermgr_install() {
   user_installdirs
   SCRIPTS_PREFIX="dockermgr"
-  APPDIR="${APPDIR:-$SHARE/docker}"
-  INSTDIR="${INSTDIR:-$SHARE/CasjaysDev/$SCRIPTS_PREFIX}"
-  DATADIR="${DATADIR:-$SRV_DIR/$APPNAME}"
+  APPDIR="${APPDIR:-$HOME/.local/share/srv/docker}"
+  INSTDIR="${INSTDIR:-$HOME/.local/share/dockermgr}"
+  DATADIR="${DATADIR:-$HOME/.local/share/srv/docker}"
   REPO="${REPO:-$DOCKERMGRREPO}"
   REPORAW="${REPORAW:-$REPO/raw/$GIT_REPO_BRANCH}"
   USRUPDATEDIR="$SHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"

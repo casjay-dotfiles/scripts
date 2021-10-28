@@ -56,7 +56,7 @@ __gen_config() {
     cp -Rf "$EMOJIS_CONFIG_DIR/$EMOJIS_CONFIG_FILE" "$EMOJIS_CONFIG_BACKUP_DIR/$EMOJIS_CONFIG_FILE.$$"
   cat <<EOF >"$EMOJIS_CONFIG_DIR/$EMOJIS_CONFIG_FILE"
 # Settings for emojis
-EMOJIS_EMOJIFY_BIN="${EMOJIS_EMOJIFY_BIN:-HOME/.local/share/myscripts/emojis/emojify}"
+EMOJIS_EMOJIFY_BIN="${EMOJIS_EMOJIFY_BIN:-$HOME/.local/share/myscripts/emojis/emojify}"
 EMOJIS_EMOJIFY_URL="${EMOJIS_EMOJIFY_URL:-https://raw.githubusercontent.com/mrowa44/emojify/master/emojify}"
 
 # Notification settings
@@ -83,6 +83,7 @@ EOF
     printf_red "Failed to create the config file"
     exitCode=1
   fi
+  update_list | tee "$HOME/.local/share/myscripts/emojis/list" &>/dev/null || exitCode=1
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -94,8 +95,9 @@ dmenu_emojis() {
   chosen="$(cut -d ';' -f1 "$CASJAYSDEVDIR/helpers/emojis/emojis" | __dmenu -i -l 60 | sed "s/ .*//")"
   [ "$chosen" != "" ] || exit 1
   echo "$chosen" | clipboard
-  echo "$chosen"
+  message="$chosen"
   __notifications "Emojify" "$chosen copied to clipboard."
+  return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 update_list() {
@@ -130,11 +132,14 @@ EMOJIS_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
 EMOJIS_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$EMOJIS_NOTIFY_CLIENT_ICON}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application overrides
-EMOJIS_EMOJIFY_BIN="${EMOJIS_EMOJIFY_BIN:-HOME/.local/share/myscripts/emojis/emojify}"
+EMOJIS_EMOJIFY_BIN="${EMOJIS_EMOJIFY_BIN:-$HOME/.local/share/myscripts/emojis/emojify}"
 EMOJIS_EMOJIFY_URL="${EMOJIS_EMOJIFY_URL:-https://raw.githubusercontent.com/mrowa44/emojify/master/emojify}"
 [[ -f "$HOME/.local/share/myscripts/emojis/array" ]] && ARRAY="$(<$HOME/.local/share/myscripts/emojis/array)" || ARRAY=""
 [[ -f "$HOME/.local/share/myscripts/emojis/list" ]] && LIST="$(<$HOME/.local/share/myscripts/emojis/list)" || LIST=""
-[[ -f "$EMOJIS_EMOJIFY_BIN" ]] || EMOJIS_EMOJIFY_BIN="$CASJAYSDEVDIR/sources/emojify"
+if [[ "$EMOJIS_EMOJIFY_BIN" = "$CASJAYSDEVDIR/sources/emojify" ]]; then
+  cp -Rfv "$CASJAYSDEVDIR/sources/emojify" "$HOME/.local/share/myscripts/emojis/emojify"
+  EMOJIS_EMOJIFY_BIN="$HOME/.local/share/myscripts/emojis/emojify"
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import config
 [ -f "$EMOJIS_CONFIG_DIR/$EMOJIS_CONFIG_FILE" ] && . "$EMOJIS_CONFIG_DIR/$EMOJIS_CONFIG_FILE"
@@ -143,6 +148,7 @@ EMOJIS_EMOJIFY_URL="${EMOJIS_EMOJIFY_URL:-https://raw.githubusercontent.com/mrow
 [ -d "$EMOJIS_LOG_DIR" ] || mkdir -p "$EMOJIS_LOG_DIR" &>/dev/null
 [ -d "$EMOJIS_TEMP_DIR" ] || mkdir -p "$EMOJIS_TEMP_DIR" &>/dev/null
 [ -d "$EMOJIS_CACHE_DIR" ] || mkdir -p "$EMOJIS_CACHE_DIR" &>/dev/null
+[ -d "$HOME/.local/share/myscripts/emojis" ] || mkdir -p "$HOME/.local/share/myscripts/emojis"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate non-existing config files
 [ -f "$EMOJIS_CONFIG_DIR/$EMOJIS_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
@@ -221,21 +227,27 @@ cmd_exists --error --ask bash || exit 1 # exit 1 if not found
 case "$1" in
 update)
   mkdir -p "$HOME/.local/share/myscripts/emojis"
-  curl -LSs "$EMOJIS_EMOJIFY_URL" -o "$EMOJIS_EMOJIFY_BIN" 2>/dev/null &&
+  if curl -q -LSs "$EMOJIS_EMOJIFY_URL" -o "$EMOJIS_EMOJIFY_BIN" 2>/dev/null; then
     chmod +x "$EMOJIS_EMOJIFY_BIN"
-  [ $? -eq 0 ] && printf_green "Update Successful" || printf_red "Update Failed"
+    printf_green "Update Successful"
+  else
+    printf_red "Failed to update $EMOJIS_EMOJIFY_BIN"
+    printf_red "from $EMOJIS_EMOJIFY_URL"
+  fi
   update_list | tee "$HOME/.local/share/myscripts/emojis/list" &>/dev/null
   [ $? -eq 0 ] && printf_green "System Update Successful" || printf_red "System Update Failed"
   ;;
 
 dmenu)
   dmenu_emojis
+  exit $?
   ;;
 
 search)
   shift 1
   search="$1"
-  $EMOJIS_EMOJIFY_BIN --list | grep -i --color=auto "$search"
+  $EMOJIS_EMOJIFY_BIN --list | grep -i --color=auto "$search" | grep '^'
+  exit $?
   ;;
 
 print)
@@ -250,11 +262,13 @@ print)
     message="$*"
   fi
   $EMOJIS_EMOJIFY_BIN "$message" | printf_readline 2
+  exit $?
   ;;
 
 list)
   printf_red "List of available emojis - Just copy and use"
   column "$HOME/.local/share/myscripts/emojis/list"
+  exit $?
   ;;
 
 *)
@@ -267,7 +281,9 @@ list)
   else
     message="$*"
   fi
-  $EMOJIS_EMOJIFY_BIN "$message" | printf_readline 2
+  if [[ -n "$message" ]]; then
+    $EMOJIS_EMOJIFY_BIN "$message" | printf_readline 2
+  fi
   ;;
 esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

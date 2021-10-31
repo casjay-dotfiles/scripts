@@ -89,6 +89,38 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional functions
+__gitea() {
+  local url=""
+  local arch=""
+  local dom="$1"
+  local repo="$2"
+  local download_dir="$LATEST_RELEASE_DOWNLOADS"
+  local tempfile="$LATEST_RELEASES_TEMP_FILE"
+  local api_url="$dom/api/v1/repos/$repo/releases"
+  local filename="$(basename "$repo")"
+  mkdir -p "$download_dir"
+  if [ "$LATEST_RELEASE_DEFAULT_ARCH" = "x86_64" ]; then
+    arch="amd64"
+  elif [[ -n "$1" ]]; then
+    arch="$1"
+  else
+    arch="arm64"
+  fi
+  url="$(curl -q -LSs -X 'GET' "$api_url" -H 'accept: application/json' | jq -rc '.[].assets | .[] | {name: .name, link: .browser_download_url}' | grep ''$arch'"' | grep -i "$(uname -s)" | jq -c | head -n1 | jq -r | grep link | awk -F '":' '{print $2}' | sed 's|"||g;s| ||g')"
+  printf_green "Attempting to download $filename from $url"
+  printf_green "and save to $download_dir/$filename"
+  curl -q -LSs "$url" -o "$tempfile" 2>/dev/null || printf_exit "Failed to download the file"
+  if [[ -f "$tempfile" ]] && [[ -s "$tempfile" ]]; then
+    mv -f "$tempfile" "$download_dir/$filename"
+    if [[ -d "$HOME/.local/bin" ]]; then
+      cp -Rf "$download_dir/$filename" "$HOME/.local/bin/$filename"
+      chmod -Rf 755 "$HOME/.local/bin/$filename"
+    fi
+  else
+    printf_exit "Failed to download the file"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __add_to_latest() {
   if ! grep -qs "$1" "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST"; then
     printf_purple "Added ${2:-$1} to $LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST"
@@ -146,14 +178,14 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __install_latest() {
-  echo $1 | grep -qv '^#' || return
-  echo $1 | grep -qv '^$' || return
+  echo "$1" | grep -qv '^#' || return
+  echo "$1" | grep -qv '^$' || return
   [ "$1" = search ] && search="true" && shift 1
   if [[ $# == 1 ]]; then
-    local repo=$1
+    local repo="$1"
     shift 1
   elif [[ $# -gt 1 ]]; then
-    local repo=$1/$2
+    local repo="$1/$2"
     shift 2
   fi
   if [ "$LATEST_RELEASE_DEFAULT_ARCH" = "x86_64" ]; then
@@ -263,8 +295,8 @@ __install_latest() {
       sudo chmod -Rf 755 "/usr/local/bin/$basenamerepo"
     fi
   fi
-  [ -n "$latest_download" ] && __add_to_latest "$repo" "$repo"
-  [ -f "$tempfile" ] && __rm_rf "$tempfile"
+  [[ -n "$latest_download" ]] && __add_to_latest "$repo" "$repo"
+  [[ -f "$tempfile" ]] && __rm_rf "$tempfile"
   [[ -f "$filename" ]] && __rm_rf "$filename"
   echo
   return ${exitCode:-$?}
@@ -274,7 +306,7 @@ __wget_latest() {
   if [[ -z "$LATEST_RELEASE_GITHUB_TOKEN" ]]; then
     wget -q "${1:-$latest_download}" -O "${2:-$tempfile}" 2>/dev/null && return 0 || return 1
   else
-    wget -q --header="Authorization: token $LATEST_RELEASE_GITHUB_TOKEN" "${1:-$latest_download}" -O "${2:-$tempfile}" 2>/dev/null && return 0 || return 1
+    wget -q --header="Authorization: token ${3:-$LATEST_RELEASE_GITHUB_TOKEN}" "${1:-$latest_download}" -O "${2:-$tempfile}" 2>/dev/null && return 0 || return 1
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -293,6 +325,7 @@ __curl_tag() {
     curl -q -LSs -H "Authorization: token $LATEST_RELEASE_GITHUB_TOKEN" "https://api.github.com/repos/${repo}/tags?per_page=1" 2>/dev/null | jq -r ".[0].name, .[0].commit.url" 2>/dev/null | paste -sd,-
   fi
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __curl_json() {
   if [[ -z "$LATEST_RELEASE_GITHUB_TOKEN" ]]; then
     curl -q -LSs "$api_url" 2>/dev/null
@@ -445,6 +478,11 @@ install)
     __install_latest "$@"
   fi
   exit $?
+  ;;
+
+gitea)
+  shift 1
+  __gitea "$@"
   ;;
 
 update)

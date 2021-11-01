@@ -108,6 +108,14 @@ __docker_stop() { __docker ps -q 2>/dev/null | xargs $DOCKERMGR_DOCKER_BIN stop;
 __docker_rm() { __docker ps -aq 2>/dev/null | __col 3 | xargs $DOCKERMGR_DOCKER_BIN rm -f; }
 __docker_rmi() { __docker images 2>/dev/null | grep none | __col 3 | xargs $DOCKERMGR_DOCKER_BIN rmi -f; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__sudo_rm() {
+  if __sudo -n true &>/dev/null && __sudo true; then
+    sudo rm -Rf "$*"
+  else
+    printf_return "Can not remove $*"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __status() {
   local status
   if ps -aux | grep -w [d]ocker &>/dev/null; then
@@ -222,27 +230,32 @@ __download() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 installer_delete() {
   local LISTARRAY="$*"
-  local exitCode=0
+  local exitCode=
   local app=""
   for app in $LISTARRAY; do
     local APPDIR="$HOME/.local/share/dockermgr"
     local INSTDIR="$HOME/.local/share/dockermgr"
     local DATADIR="$HOME/.local/share/srv/docker"
     local MESSAGE="${MESSAGE:-Removing $app from ${msg:-your system}}"
-    #echo "APPDIR:$APPDIR : DATADIR:$DATADIR : INSTDIR:$INSTDIR"
-    if [ -d "$APPDIR/$app" ] || [ -d "$INSTDIR/$app" ]; then
+    if [ -d "$APPDIR/$app" ] || [ -d "$INSTDIR/$app" ] || [ -d "$DATADIR" ]; then
       printf_yellow "$MESSAGE"
       printf_blue "Deleting the files"
-      __rm_rf "$APPDIR/$app" || exitCode+=1
-      __rm_rf "$INSTDIR/$app" || exitCode+=1
-      __rm_rf "$DATADIR/$app"
-      __getexitcode $exitCode "$app has been removed" " "
-      return $exitCode
+      __rm_rf "$APPDIR/$app" || __sudo_rm "$APPDIR/$app"
+      __rm_rf "$INSTDIR/$app" || __sudo_rm "$INSTDIR/$app"
+      __rm_rf "$DATADIR/$app" || __sudo_rm "$DATADIR/$app"
+      eval $DOCKERMGR_DOCKER_BIN rm -f "$app" &>/dev/null
+      if [ -d "$APPDIR/$app" ] || [ -d "$INSTDIR/$app" ] || [ -d "$DATADIR/$app" ]; then
+        exitCode+=1
+        printf_red "There was a problem deleting $app"
+      else
+        exitCode+=0
+        printf_green "$app has been removed" " "
+      fi
     else
-      printf_error "1" "$exitCode" "$app doesn't seem to be installed"
+      printf_error "$app doesn't seem to be installed"
     fi
+    unset app
   done
-  unset app
   return ${exitCode}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -712,11 +725,8 @@ remove)
     LISTARRAY="$*"
   fi
   [ ${#LISTARRAY} -ne 0 ] || printf_exit "No packages selected for removal"
-  for rmf in $LISTARRAY; do
-    MESSAGE="Removing $rmf from $APPDIR"
-    APPNAME="$rmf"
-    installer_delete "$APPNAME"
-    echo ""
+  for rmf in ${LISTARRAY}; do
+    installer_delete "$rmf"
   done
   exit $?
   ;;

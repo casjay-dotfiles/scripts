@@ -73,7 +73,7 @@ TERMBIN_COM_OUTPUT_COLOR_ERROR="${TERMBIN_COM_OUTPUT_COLOR_ERROR:-1}"
 
 EOF
   if [ -f "$TERMBIN_COM_CONFIG_DIR/$TERMBIN_COM_CONFIG_FILE" ]; then
-    [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for termbin.com has been created"
+    [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for $APPNAME has been created"
     exitCode=0
     if [[ "$INIT_CONFIG" = "TRUE" ]]; then
       eval $APPNAME "$@"

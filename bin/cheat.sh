@@ -74,7 +74,7 @@ CHEAT_SH_OUTPUT_COLOR_ERROR="${CHEAT_SH_OUTPUT_COLOR_ERROR:-1}"
 
 EOF
   if [ -f "$CHEAT_SH_CONFIG_DIR/$CHEAT_SH_CONFIG_FILE" ]; then
-    [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for cheat.sh has been created"
+    [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for $APPNAME has been created"
     exitCode=0
     if [[ "$INIT_CONFIG" = "TRUE" ]]; then
       eval $APPNAME "$@"

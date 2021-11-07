@@ -86,7 +86,7 @@ EOF
     exitCode=0
     if [[ "$INIT_CONFIG" = "TRUE" ]]; then
       unset INIT_CONFIG
-      eval bash -c "$APPNAME $@"
+      eval bash -c "$APPNAME $*"
       exit
     fi
   else

@@ -86,6 +86,17 @@ EOF
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__autostart_disable() {
+  printf_green "Disabling MPD Notify service"
+  __rm_rf "$HOME/.config/autostart/mpd-notify.desktop"
+  [[ $(mpd-notify status --ask) = "running" ]] && mpd-notify stop &>/dev/null
+  if [[ -f "$HOME/.config/autostart/mpd-notify.desktop" ]]; then
+    printf_return 1 1 "Failed to delete $HOME/.config/autostart/mpd-notify.desktop"
+  else
+    printf_return 2 0 "Successfully deleted mpd-notify from startup"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __autostart() {
   printf_green "Enabling MPD Notify"
   cat <<EOF >"$HOME/.config/autostart/mpd-notify.desktop"
@@ -282,6 +293,8 @@ startDaemon() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 stopDaemon() {
+  local success_msg="Stopping notifications"
+  local error_msg="ERROR: $daemonName is not running."
   if checkDaemon; then
     echo "Stopping $daemonName"
     log '*** '"$(date +"%Y-%m-%d %H:%M")"": $daemonName stopped."
@@ -289,13 +302,16 @@ stopDaemon() {
       kill -s 15 "$pid" &>/dev/null
     done
     __rm_rf "$pidFile"
-    notifications "MPD" "Stopping notifications"
+    notifications "MPD" "$success_msg"
   else
-    printf_exit "1" "1" "ERROR: $daemonName is not running."
+    printf_exit "1" "1" "$error_msg"
+    notifications "MPD" "$error_msg"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 statusDaemon() {
+  local curPid
+  curPid="$(ps -ux | grep -v "$myPid" | grep 'mpd-notify run' | grep -v ' grep ' | awk '{print $2}' | head -n 1)"
   if checkDaemon; then
     notifications "MPD" "Connected to $MPDSERVER\n$(__mpc status)"
     export MPD_NOTIFY_STATUS="running"
@@ -309,21 +325,21 @@ statusDaemon() {
 restartDaemon() {
   if checkDaemon; then
     stopDaemon
-    startDaemon &
-    disown
+    $APPNAME run
   else
-    printf_red "$daemonName isn't running."
-    startDaemon
+    $APPNAME run
   fi
+  return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 checkDaemon() {
+  local exitCode
   if [[ "$(__getpid)" = 0 ]]; then
-    return 0
+    exitCode=0
   else
-    return 1
+    exitCode=1
   fi
-  return $?
+  return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 loop() {
@@ -358,12 +374,18 @@ loop() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __toggle() {
   checkDaemon && status="running" || status="stopped"
-  [ "$status" = "stopped" ] && action=start || action=stop
+  [[ "$status" = "stopped" ]] && action=start || action=stop
   if [ "$1" = "--ask" ]; then
     [ "$status" = "stopped" ] && echo off || echo on
-    exit
+    return $?
   fi
-  if [ -n "$1" ]; then [ "$status" = "stopped" ] && $APPNAME run || stopDaemon; fi
+  if [ -n "${1}" ]; then
+    if [ "$status" = "stopped" ]; then
+      $APPNAME run
+    else
+      stopDaemon
+    fi
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __term() {
@@ -371,7 +393,7 @@ __term() {
   while :; do
     # show menu
     checkDaemon
-    __toggle
+    __toggle --ask
     clear
     shift 1
     printf_newline "\n\n\n\n"
@@ -393,10 +415,14 @@ __term() {
     b) stopDaemon &>/dev/null ;;
     c) restartDaemon &>/dev/null ;;
     d)
+      clear
+      printf_newline '\n\n'
       statusDaemon
       printf_pause
       ;;
-    e) toggle run ;;
+    e)
+      $APPNAME toggle run &>/dev/null
+      ;;
     '\E' | $'\e' | z) clear && break ;;
     *) shift ;;
     esac
@@ -405,7 +431,7 @@ __term() {
     printf_counter "2" "3" "Re-loading menu in"
   done
   clear
-  exit
+  exit $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default variables
@@ -545,7 +571,6 @@ else
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
-if [ -n "$TERMINAL_APP" ]; then __term; fi
 case "$1" in
 enable)
   shift 1
@@ -554,24 +579,16 @@ enable)
   ;;
 disable)
   shift 1
-  printf_green "Disabling MPD Notify service"
-  __rm_rf "$HOME/.config/autostart/mpd-notify.desktop"
-  [[ $(mpd-notify status --ask) = "running" ]] && mpd-notify stop &>/dev/null
-  if [[ -f "$HOME/.config/autostart/mpd-notify.desktop" ]]; then
-    printf_return 1 1 "Failed to delete $HOME/.config/autostart/mpd-notify.desktop"
-  else
-    printf_return 2 0 "Successfully deleted mpd-notify from startup"
-  fi
+  __autostart_disable
   exit $?
   ;;
 start)
   shift 1
-  exec $APPNAME run
+  $APPNAME run
   ;;
 run)
   shift 1
   startDaemon &
-  #disown
   ;;
 stop)
   shift 1
@@ -598,9 +615,11 @@ term)
   __term
   ;;
 *)
+  if [ -n "$TERMINAL_APP" ]; then __term; fi
   checkDaemon && status="running" || status="stopped"
   printf_yellow "Current status: $status"
-  printf_pause "Error: usage $APPNAME { start | stop | restart | status | term }"
+  printf_cyan "Error: usage $APPNAME { start | stop | restart | status }"
+  printf_pause
   ;;
 esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

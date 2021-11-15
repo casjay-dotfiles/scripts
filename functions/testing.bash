@@ -997,6 +997,8 @@ __file_is_empty() { [ ! -s "$1" ] && return 0 || return 1; }
 #sed "commands"
 sed="$(builtin type -P gsed 2>/dev/null || builtin type -P sed 2>/dev/null)"
 __sed() { ${sed:-sed} "$*" 2>/dev/null; }
+#replace search replace file
+__replace() { $sed -i 's|'"$1"'|'"$2"'|g' "$3" &>/dev/null; }
 #tar "filename dir"
 __tar_create() { tar cfvz "$@"; }
 #tar filename

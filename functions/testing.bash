@@ -967,7 +967,9 @@ vim="$(type -P /usr/local/bin/vim 2>/dev/null || type -P vim 2>/dev/null)"
 __vim() { $vim "$@"; }
 #mkd dir
 __mkd() {
-  for d in "$@"; do [ -e "$d" ] || mkdir -p "$d" &>/dev/null; done
+  for d in "$@"; do
+    [ -e "$d" ] || mkdir -p "$d" &>/dev/null
+  done
   return 0
 }
 #netcat
@@ -1026,7 +1028,15 @@ __count_lines() { wc -l "$1" | awk '${print $1}'; }
 __count_files() { find -L "${1:-./}" -maxdepth "${2:-1}" -not -path "${1:-./}/.git/*" -type l,f 2>/dev/null | wc -l; }
 #count_dir "dir"
 __count_dir() { find -L "${1:-./}" -maxdepth "${2:-1}" -not -path "${1:-./}/.git/*" -type d 2>/dev/null | wc -l; }
-__touch() { touch "$@" 2>/dev/null || return 0; }
+#touch file
+__touch() {
+  for f in "$@"; do
+    local dir="$(dirname "$f" 2>/dev/null)"
+    mkdir -p "$dir" &>/dev/null
+    touch "$f" &>/dev/null
+  done
+  return
+}
 #symlink "file" "dest"
 __symlink() { if [ -e "$1" ]; then __ln_sf "${1}" "${2}" &>/dev/null || return 0; fi; }
 #mv_f "file" "dest"

@@ -75,11 +75,11 @@ EOF
   if [ -f "$TERMBIN_COM_CONFIG_DIR/$TERMBIN_COM_CONFIG_FILE" ]; then
     [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for $APPNAME has been created"
     exitCode=0
-    if [[ "$INIT_CONFIG" = "TRUE" ]]; then
-      unset INIT_CONFIG
-      eval bash -c "$APPNAME $*"
-      exit
-    fi
+    # if [[ "$INIT_CONFIG" = "TRUE" ]]; then
+    #   unset INIT_CONFIG
+    #   eval bash -c "$APPNAME $*"
+    #   exit
+    # fi
   else
     printf_red "Failed to create the config file"
     exitCode=1
@@ -131,6 +131,12 @@ TERMBIN_COM_URL_HOST_PORT="${TERMBIN_COM_URL_HOST_PORT:-9999}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate non-existing config files
 [ -f "$TERMBIN_COM_CONFIG_DIR/$TERMBIN_COM_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show warn message if variables are missing
 

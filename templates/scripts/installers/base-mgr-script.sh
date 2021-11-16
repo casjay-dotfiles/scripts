@@ -84,11 +84,11 @@ EOF
   if [ -f "$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE" ]; then
     [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for $APPNAME has been created"
     exitCode=0
-    if [[ "$INIT_CONFIG" = "TRUE" ]]; then
-      unset INIT_CONFIG
-      eval bash -c "$APPNAME $*"
-      exit
-    fi
+    # if [[ "$INIT_CONFIG" = "TRUE" ]]; then
+    #   unset INIT_CONFIG
+    #   eval bash -c "$APPNAME $*"
+    #   exit
+    # fi
   else
     printf_red "Failed to create the config file"
     exitCode=1
@@ -331,6 +331,12 @@ GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_SYSTEM="${GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate non-existing config files
 [ -f "$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config "$*"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show warn message if variables are missing
 

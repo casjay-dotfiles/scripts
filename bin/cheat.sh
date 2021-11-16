@@ -76,11 +76,11 @@ EOF
   if [ -f "$CHEAT_SH_CONFIG_DIR/$CHEAT_SH_CONFIG_FILE" ]; then
     [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for $APPNAME has been created"
     exitCode=0
-    if [[ "$INIT_CONFIG" = "TRUE" ]]; then
-      unset INIT_CONFIG
-      eval bash -c "$APPNAME $*"
-      exit
-    fi
+    # if [[ "$INIT_CONFIG" = "TRUE" ]]; then
+    #   unset INIT_CONFIG
+    #   eval bash -c "$APPNAME $*"
+    #   exit
+    # fi
   else
     printf_red "Failed to create the config file"
     exitCode=1
@@ -142,6 +142,12 @@ CHEAT_SH_BIN_DIR="${CHEAT_SH_BIN_DIR:-$CASJAYSDEVDIR/sources}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate non-existing config files
 [ -f "$CHEAT_SH_CONFIG_DIR/$CHEAT_SH_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show warn message if variables are missing
 

@@ -22,7 +22,6 @@ SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
 if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
-trap 'exitCode=${exitCode:-$?};[ -n "$CMDFU_TEMP_FILE" ] && [ -f "$CMDFU_TEMP_FILE" ] && rm -Rf "$CMDFU_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
@@ -59,8 +58,8 @@ __gen_config() {
 CMDFU_API_URL="${CMDFU_API_URL:-http://www.commandlinefu.com}"
 
 # Notification settings
-CMDFU_GOOD_MESSAGE="${CMDFU_GOOD_MESSAGE:-Everything Went OK}"
-CMDFU_ERROR_MESSAGE="${CMDFU_ERROR_MESSAGE:-Well something seems to have gone wrong}"
+CMDFU_GOOD_MESSAGE="${CMDFU_GOOD_MESSAGE:-}"
+CMDFU_ERROR_MESSAGE="${CMDFU_ERROR_MESSAGE:-Failed to search for}"
 CMDFU_NOTIFY_ENABLED="${CMDFU_NOTIFY_ENABLED:-yes}"
 CMDFU_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
 CMDFU_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$CMDFU_NOTIFY_CLIENT_ICON}"
@@ -96,9 +95,16 @@ _get_results() {
   fi
   printf_blue "Getting results from: $CMDFU_API_URL/$URL"
   if __urlcheck "$CMDFU_API_URL/$URL"; then
-    __curl "$CMDFU_API_URL/$URL" | printf_readline "6"
+    formatted="$(__curl "$CMDFU_API_URL/$URL")"
+    if echo "$formatted" | grep -v "# commandlinefu" | grep -q '^$'; then
+      [ -n "$DISPLAY" ] && echo "$formatted" | __yad__text || echo "$formatted" | printf_readline "6"
+    else
+      printf_return "1" "1" "$CMDFU_ERROR_MESSAGE $search"
+      __notifications "$CMDFU_ERROR_MESSAGE $search"
+    fi
   else
-    printf_return "1" "1" "Failed to search for $search"
+    printf_return "1" "1" "$CMDFU_ERROR_MESSAGE $search"
+    __notifications "$CMDFU_ERROR_MESSAGE $search"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -122,14 +128,17 @@ CMDFU_OUTPUT_COLOR_GOOD="${CMDFU_OUTPUT_COLOR_GOOD:-2}"
 CMDFU_OUTPUT_COLOR_ERROR="${CMDFU_OUTPUT_COLOR_ERROR:-1}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Notification Settings
-CMDFU_GOOD_MESSAGE="${CMDFU_GOOD_MESSAGE:-Everything Went OK}"
-CMDFU_ERROR_MESSAGE="${CMDFU_ERROR_MESSAGE:-Well something seems to have gone wrong}"
+CMDFU_GOOD_MESSAGE="${CMDFU_GOOD_MESSAGE:-}"
+CMDFU_ERROR_MESSAGE="${CMDFU_ERROR_MESSAGE:-Failed to search for}"
 CMDFU_NOTIFY_ENABLED="${CMDFU_NOTIFY_ENABLED:-yes}"
 CMDFU_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
 CMDFU_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$CMDFU_NOTIFY_CLIENT_ICON}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application overrides
 CMDFU_API_URL="${CMDFU_API_URL:-http://www.commandlinefu.com}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate non-existing config files
+[ -f "$CMDFU_CONFIG_DIR/$CMDFU_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import config
 [ -f "$CMDFU_CONFIG_DIR/$CMDFU_CONFIG_FILE" ] && . "$CMDFU_CONFIG_DIR/$CMDFU_CONFIG_FILE"
@@ -138,15 +147,23 @@ CMDFU_API_URL="${CMDFU_API_URL:-http://www.commandlinefu.com}"
 [ -d "$CMDFU_LOG_DIR" ] || mkdir -p "$CMDFU_LOG_DIR" &>/dev/null
 [ -d "$CMDFU_TEMP_DIR" ] || mkdir -p "$CMDFU_TEMP_DIR" &>/dev/null
 [ -d "$CMDFU_CACHE_DIR" ] || mkdir -p "$CMDFU_CACHE_DIR" &>/dev/null
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Generate non-existing config files
-[ -f "$CMDFU_CONFIG_DIR/$CMDFU_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup notification function
-
+[ -f "$CMDFU_TEMP_FILE" ] || touch "$CMDFU_TEMP_FILE" &>/dev/null
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup trap
-
+trap 'exitCode=${exitCode:-$?};[ -n "$CMDFU_TEMP_FILE" ] && [ -f "$CMDFU_TEMP_FILE" ] && rm -Rf "$CMDFU_TEMP_FILE" &>/dev/null' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+if [ "$CMDFU_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${CMDFU_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${CMDFU_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${CMDFU_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${CMDFU_NOTIFY_CLIENT_ICON}"
+    notifications "$*" || return 1
+  }
+else
+  __notifications() { false; }
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show warn message if variables are missing
 
@@ -197,17 +214,7 @@ done
 #set -- "$SETARGS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
-if [ "$CMDFU_NOTIFY_ENABLED" = "yes" ]; then
-  __notifications() {
-    export NOTIFY_GOOD_MESSAGE="${CMDFU_GOOD_MESSAGE}"
-    export NOTIFY_ERROR_MESSAGE="${CMDFU_ERROR_MESSAGE}"
-    export NOTIFY_CLIENT_NAME="${CMDFU_NOTIFY_CLIENT_NAME}"
-    export NOTIFY_CLIENT_ICON="${CMDFU_NOTIFY_CLIENT_ICON}"
-    notifications "$*" || return 1
-  }
-else
-  __notifications() { false; }
-fi
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
 cmd_exists --error --ask bash || exit 1 # exit 1 if not found

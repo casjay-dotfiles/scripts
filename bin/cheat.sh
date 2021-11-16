@@ -22,7 +22,6 @@ SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
 if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
-trap 'exitCode=${exitCode:-$?};[ -n "$CHEAT_SH_TEMP_FILE" ] && [ -f "$CHEAT_SH_TEMP_FILE" ] && rm -Rf "$CHEAT_SH_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
@@ -132,6 +131,9 @@ CHEAT_SH_URL="${CHEAT_SH_URL:-https://cht.sh}"
 CHEAT_SH_HOME="${CHEAT_SH_HOME:-$HOME/.config/myscripts/cheat.sh}"
 CHEAT_SH_BIN_DIR="${CHEAT_SH_BIN_DIR:-$CASJAYSDEVDIR/sources}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate non-existing config files
+[ -f "$CHEAT_SH_CONFIG_DIR/$CHEAT_SH_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import config
 [ -f "$CHEAT_SH_CONFIG_DIR/$CHEAT_SH_CONFIG_FILE" ] && . "$CHEAT_SH_CONFIG_DIR/$CHEAT_SH_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -139,15 +141,23 @@ CHEAT_SH_BIN_DIR="${CHEAT_SH_BIN_DIR:-$CASJAYSDEVDIR/sources}"
 [ -d "$CHEAT_SH_LOG_DIR" ] || mkdir -p "$CHEAT_SH_LOG_DIR" &>/dev/null
 [ -d "$CHEAT_SH_TEMP_DIR" ] || mkdir -p "$CHEAT_SH_TEMP_DIR" &>/dev/null
 [ -d "$CHEAT_SH_CACHE_DIR" ] || mkdir -p "$CHEAT_SH_CACHE_DIR" &>/dev/null
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Generate non-existing config files
-[ -f "$CHEAT_SH_CONFIG_DIR/$CHEAT_SH_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup notification function
-
+[ -f "$CHEAT_SH_TEMP_FILE" ] || touch "$CHEAT_SH_TEMP_FILE" &>/dev/null
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup trap
-
+trap 'exitCode=${exitCode:-$?};[ -n "$CHEAT_SH_TEMP_FILE" ] && [ -f "$CHEAT_SH_TEMP_FILE" ] && rm -Rf "$CHEAT_SH_TEMP_FILE" &>/dev/null' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+if [ "$CHEAT_SH_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${CHEAT_SH_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${CHEAT_SH_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${CHEAT_SH_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${CHEAT_SH_NOTIFY_CLIENT_ICON}"
+    notifications "$*" || return 1
+  }
+else
+  __notifications() { false; }
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show warn message if variables are missing
 
@@ -202,17 +212,7 @@ done
 [[ -z "$RESET_VARS" ]] || set -- "$SETARGS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
-if [ "$CHEAT_SH_NOTIFY_ENABLED" = "yes" ]; then
-  __notifications() {
-    export NOTIFY_GOOD_MESSAGE="${CHEAT_SH_GOOD_MESSAGE}"
-    export NOTIFY_ERROR_MESSAGE="${CHEAT_SH_ERROR_MESSAGE}"
-    export NOTIFY_CLIENT_NAME="${CHEAT_SH_NOTIFY_CLIENT_NAME}"
-    export NOTIFY_CLIENT_ICON="${CHEAT_SH_NOTIFY_CLIENT_ICON}"
-    notifications "$*" || return 1
-  }
-else
-  __notifications() { false; }
-fi
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
 cmd_exists --error --ask bash || exit 1       # exit 1 if not found

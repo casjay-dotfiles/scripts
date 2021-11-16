@@ -22,7 +22,6 @@ SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
 if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
-trap 'exitCode=${exitCode:-$?};[ -n "$NOTIFICATIONS_TEMP_FILE" ] && [ -f "$NOTIFICATIONS_TEMP_FILE" ] && rm -Rf "$NOTIFICATIONS_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
@@ -63,8 +62,8 @@ NOTIFICATIONS_CLIENT="${NOTIFICATIONS_CLIENT:-no}"
 # Option Settings
 
 # Notification settings
-NOTIFICATIONS_GOOD_MESSAGE="${NOTIFICATIONS_GOOD_MESSAGE:-Everything Went OK}"
-NOTIFICATIONS_ERROR_MESSAGE="${NOTIFICATIONS_ERROR_MESSAGE:-Well something seems to have gone wrong}"
+NOTIFICATIONS_GOOD_MESSAGE="${NOTIFICATIONS_GOOD_MESSAGE:-}"
+NOTIFICATIONS_ERROR_MESSAGE="${NOTIFICATIONS_ERROR_MESSAGE:-}"
 NOTIFICATIONS_NOTIFY_ENABLED="${NOTIFICATIONS_NOTIFY_ENABLED:-yes}"
 NOTIFICATIONS_NOTIFY_CLIENT_NAME="${NOTIFICATIONS_NOTIFY_CLIENT_NAME:-$APPNAME}"
 NOTIFICATIONS_NOTIFY_CLIENT_ICON="${NOTIFICATIONS_NOTIFY_CLIENT_ICON:-com.github.timecraft.notifier}"
@@ -178,8 +177,8 @@ NOTIFICATIONS_OUTPUT_COLOR_GOOD="${NOTIFICATIONS_OUTPUT_COLOR_GOOD:-2}"
 NOTIFICATIONS_OUTPUT_COLOR_ERROR="${NOTIFICATIONS_OUTPUT_COLOR_ERROR:-1}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Notification Settings
-NOTIFICATIONS_GOOD_MESSAGE="${NOTIFICATIONS_GOOD_MESSAGE:-Everything Went OK}"
-NOTIFICATIONS_ERROR_MESSAGE="${NOTIFICATIONS_ERROR_MESSAGE:-Well something seems to have gone wrong}"
+NOTIFICATIONS_GOOD_MESSAGE="${NOTIFICATIONS_GOOD_MESSAGE:-}"
+NOTIFICATIONS_ERROR_MESSAGE="${NOTIFICATIONS_ERROR_MESSAGE:-}"
 NOTIFICATIONS_NOTIFY_ENABLED="${NOTIFICATIONS_NOTIFY_ENABLED:-yes}"
 NOTIFICATIONS_NOTIFY_CLIENT_NAME="${NOTIFICATIONS_NOTIFY_CLIENT_NAME:-$APPNAME}"
 NOTIFICATIONS_NOTIFY_CLIENT_ICON="${NOTIFICATIONS_NOTIFY_CLIENT_ICON:-com.github.timecraft.notifier}"
@@ -195,8 +194,10 @@ NOTIFICATIONS_CLIENT_ICON="${NOTIFICATIONS_CLIENT_ICON:-com.github.timecraft.not
 NOTIFICATIONS_APPNAME="${NOTIFICATIONS_NOTIFY_CLIENT_NAME:-$APPNAME}"
 NOTIFICATIONS_URGENY="${NOTIFICATIONS_URGENY:-NOTIFICATIONS_NOTIFY_CLIENT_URGENCY}"
 NOTIFICATIONS_ICON="${NOTIFICATIONS_CLIENT_ICON:-com.github.timecraft.notifier}"
-NOTIFY_CLIENT_NAME="${NOTIFICATIONS_APPNAME:-${APPNAME:-$PROG}}"
 netcat="${netcat:-$(type -P netcat 2>/dev/null || type -P nc 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate non-existing config files
+[ -f "$NOTIFICATIONS_CONFIG_DIR/$NOTIFICATIONS_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import config
 [ -f "$NOTIFICATIONS_CONFIG_DIR/$NOTIFICATIONS_CONFIG_FILE" ] && . "$NOTIFICATIONS_CONFIG_DIR/$NOTIFICATIONS_CONFIG_FILE"
@@ -205,14 +206,45 @@ netcat="${netcat:-$(type -P netcat 2>/dev/null || type -P nc 2>/dev/null)}"
 [ -d "$NOTIFICATIONS_LOG_DIR" ] || mkdir -p "$NOTIFICATIONS_LOG_DIR" &>/dev/null
 [ -d "$NOTIFICATIONS_TEMP_DIR" ] || mkdir -p "$NOTIFICATIONS_TEMP_DIR" &>/dev/null
 [ -d "$NOTIFICATIONS_CACHE_DIR" ] || mkdir -p "$NOTIFICATIONS_CACHE_DIR" &>/dev/null
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Generate non-existing config files
-[ -f "$NOTIFICATIONS_CONFIG_DIR/$NOTIFICATIONS_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+[ -f "$NOTIFICATIONS_TEMP_FILE" ] || touch "$NOTIFICATIONS_TEMP_FILE" &>/dev/null
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup notification function
-
+if [ "$NOTIFICATIONS_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    local title msg
+    NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$NOTIFICATIONS_GOOD_MESSAGE}"
+    NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$NOTIFICATIONS_ERROR_MESSAGE}"
+    NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$NOTIFICATIONS_NOTIFY_CLIENT_NAME}"
+    NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$NOTIFICATIONS_NOTIFY_CLIENT_ICON}"
+    NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$NOTIFICATIONS_NOTIFY_CLIENT_URGENCY}"
+    export NOTIFY_CLIENT_NAME NOTIFY_CLIENT_ICON NOTIFY_CLIENT_URGENCY
+    if [ $# = 0 ]; then
+      NOTIFY_CLIENT_ICON="dialog-error-symbolic"
+      NOTIFY_CLIENT_URGENCY="critical"
+      export NOTIFY_CLIENT_ICON NOTIFY_CLIENT_URGENCY
+      title="$NOTIFY_CLIENT_NAME"
+      msg="Nothing was sent to notify you of"
+    elif [ $# -lt 2 ]; then
+      title="$NOTIFY_CLIENT_NAME"
+      msg="$1"
+    else
+      export NOTIFY_CLIENT_NAME=""
+      title="$1"
+      msg="$2"
+    fi
+    __notify_send "$title" "$msg" || return 1
+    if [ "$NOTIFICATIONS_CLIENT" = "yes" ] && [ -n "$NOTIFICATIONS_HOST" ]; then
+      __notifications_cli "$title" "$msg"
+    else
+      return 0
+    fi
+  }
+else
+  __notifications() { false; }
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup trap
+trap 'exitCode=${exitCode:-$?};[ -n "$NOTIFICATIONS_TEMP_FILE" ] && [ -f "$NOTIFICATIONS_TEMP_FILE" ] && rm -Rf "$NOTIFICATIONS_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show warn message if variables are missing
@@ -276,25 +308,7 @@ done
 #set -- "$SETARGS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
-if [ "$NOTIFICATIONS_NOTIFY_ENABLED" = "yes" ]; then
-  __notifications() {
-    export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$NOTIFICATIONS_GOOD_MESSAGE}"
-    export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$NOTIFICATIONS_ERROR_MESSAGE}"
-    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$NOTIFICATIONS_NOTIFY_CLIENT_NAME}"
-    export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$NOTIFICATIONS_NOTIFY_CLIENT_ICON}"
-    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$NOTIFICATIONS_NOTIFY_CLIENT_URGENCY}"
-    local title="$1"
-    local msg="$2"
-    __notify_send "$title" "$msg" || return 1
-    if [ "$NOTIFICATIONS_CLIENT" = "yes" ] && [ -n "$NOTIFICATIONS_HOST" ]; then
-      __notifications_cli "$title" "$msg"
-    else
-      return 0
-    fi
-  }
-else
-  __notifications() { false; }
-fi
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
 cmd_exists --error --ask bash || exit 1 # exit 1 if not found
@@ -309,10 +323,10 @@ elif [ "$(uname -s)" = "Linux" ]; then
   XUSERS=($(who | grep -E "\(:[0-9](\.[0-9])*\)" | awk '{print $1$5}' | sort -u | grep $USER))
   if cmd_exists notify-send; then
     [[ "$1" = *ask ]] && exit 0
-    __notify_send() { notify-send --app-name="${NOTIFY_CLIENT_NAME}" -u "${NOTIFY_CLIENT_URGENCY}" -i "${NOTIFY_CLIENT_ICON}" "$@"; }
+    __notify_send() { notify-send --app-name="$NOTIFY_CLIENT_NAME" -u "$NOTIFY_CLIENT_URGENCY" -i "$NOTIFY_CLIENT_ICON" "$@"; }
   elif cmd_exists notify-send.sh; then
     [[ "$1" = *ask ]] && exit 0
-    __notify_send() { notify-send.sh --app-name="${NOTIFY_CLIENT_NAME}" -u "${NOTIFY_CLIENT_URGENCY}" -i "${NOTIFY_CLIENT_ICON}" "$@"; }
+    __notify_send() { notify-send.sh --app-name="$NOTIFY_CLIENT_NAME" -u "$NOTIFY_CLIENT_URGENCY" -i "$NOTIFY_CLIENT_ICON" "$@"; }
   else
     [[ "$1" = *ask ]] && exit 1
     if [ -n "$1" ]; then
@@ -337,7 +351,7 @@ bg)
 
 client)
   shift 1
-  if [ ${#} -eq 0 ]; then
+  if [ ${#} -eq 0 ] && [ -p "/dev/stdin" ]; then
     title="${NOTIFY_CLIENT_NAME:-$APPNAME}"
     msg="$(</dev/stdin)"
     shift
@@ -361,14 +375,13 @@ client)
 
 all)
   shift 1
-  if [ ${#} -eq 0 ]; then
+  if [ ${#} -eq 0 ] && [ -p "/dev/stdin" ]; then
     title="${NOTIFY_CLIENT_NAME:-$APPNAME}"
     msg="$(</dev/stdin)"
     shift
   else
     if [ ${#} -eq 1 ]; then
       title="${NOTIFY_CLIENT_NAME:-$APPNAME}"
-      shift 1
       msg="$(</dev/stdin)"
       shift
     else
@@ -393,7 +406,7 @@ all)
   ;;
 
 *)
-  if [ ${#} -eq 0 ]; then
+  if [ ${#} -eq 0 ] && [ -p "/dev/stdin" ]; then
     title="${NOTIFY_CLIENT_NAME:-$APPNAME}"
     msg="$(</dev/stdin)"
     shift
@@ -407,7 +420,11 @@ all)
       msg="$*"
     fi
   fi
-  __notifications "$title" "$msg"
+  if [ -z "$msg" ]; then
+    __notifications "$@"
+  else
+    __notifications "$title" "$msg"
+  fi
   ;;
 esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

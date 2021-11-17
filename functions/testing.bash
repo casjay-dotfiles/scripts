@@ -577,9 +577,9 @@ printf_debug() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __yad__text() {
   if cmd_exists yad; then
-    yad --text-info --center --title="$1" --width=${YAD_WIDTH:-400} --height=${YAD_HEIGHT:-400} 2>/dev/null &
+    cat - | yad --text-info --center --title="$1" --width=${YAD_WIDTH:-400} --height=${YAD_HEIGHT:-400} 2>/dev/null &
   elif cmd_exists zenity; then
-    zenity --text-info --center --title="$1" --width=${YAD_WIDTH:-400} --height=${YAD_HEIGHT:-400} 2>/dev/null &
+    cat - | zenity --text-info --center --title="$1" --width=${YAD_WIDTH:-400} --height=${YAD_HEIGHT:-400} 2>/dev/null &
   else
     true
   fi

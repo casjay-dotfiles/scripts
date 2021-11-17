@@ -22,7 +22,6 @@ SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
 if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
-trap 'exitCode=${exitCode:-$?};[ -n "$MYLOCATION_TEMP_FILE" ] && [ -f "$MYLOCATION_TEMP_FILE" ] && rm -Rf "$MYLOCATION_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
@@ -55,7 +54,9 @@ __gen_config() {
   [ -f "$MYLOCATION_CONFIG_DIR/$MYLOCATION_CONFIG_FILE" ] &&
     cp -Rf "$MYLOCATION_CONFIG_DIR/$MYLOCATION_CONFIG_FILE" "$MYLOCATION_CONFIG_BACKUP_DIR/$MYLOCATION_CONFIG_FILE.$$"
   cat <<EOF >"$MYLOCATION_CONFIG_DIR/$MYLOCATION_CONFIG_FILE"
-# Settings for mylocation - Requires PAI Key from ipstack.com
+# API URL to get ip - ifconfig.co
+MYLOCATION_IP="${MYLOCATION_IP:-https://myip.casjaydns.com}"
+# Settings for mylocation - Requires API Key from ipstack.com
 MYLOCATION_API_KEY="${MYLOCATION_API_KEY:-$IPSTACK_ACCESS_TOKEN}"
 
 # Notification settings
@@ -99,7 +100,6 @@ MYLOCATION_CONFIG_DIR="${MYLOCATION_CONFIG_DIR:-$HOME/.config/myscripts/mylocati
 MYLOCATION_CONFIG_BACKUP_DIR="${MYLOCATION_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/mylocation/backups}"
 MYLOCATION_TEMP_DIR="${MYLOCATION_TEMP_DIR:-$HOME/.local/tmp/system_scripts/mylocation}"
 MYLOCATION_OPTIONS_DIR="${MYLOCATION_OPTIONS_DIR:-$HOME/.local/share/myscripts/mylocation/options}"
-MYLOCATION_TEMP_FILE="${MYLOCATION_TEMP_FILE:-$(mktemp $MYLOCATION_TEMP_DIR/XXXXXX 2>/dev/null)}"
 MYLOCATION_CONFIG_FILE="${MYLOCATION_CONFIG_FILE:-settings.conf}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
@@ -116,27 +116,39 @@ MYLOCATION_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
 MYLOCATION_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$MYLOCATION_NOTIFY_CLIENT_ICON}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application overrides
+MYLOCATION_IP="${MYLOCATION_IP:-https://myip.casjaydns.com}"
 MYLOCATION_API_KEY="${MYLOCATION_API_KEY:-$IPSTACK_ACCESS_TOKEN}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Import config
-[ -f "$MYLOCATION_CONFIG_DIR/$MYLOCATION_CONFIG_FILE" ] && . "$MYLOCATION_CONFIG_DIR/$MYLOCATION_CONFIG_FILE"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Ensure Directories exist
-[ -d "$MYLOCATION_LOG_DIR" ] || mkdir -p "$MYLOCATION_LOG_DIR" &>/dev/null
-[ -d "$MYLOCATION_TEMP_DIR" ] || mkdir -p "$MYLOCATION_TEMP_DIR" &>/dev/null
-[ -d "$MYLOCATION_CACHE_DIR" ] || mkdir -p "$MYLOCATION_CACHE_DIR" &>/dev/null
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate non-existing config files
 [ -f "$MYLOCATION_CONFIG_DIR/$MYLOCATION_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup notification function
-
+# Import config
+[ -f "$MYLOCATION_CONFIG_DIR/$MYLOCATION_CONFIG_FILE" ] && . "$MYLOCATION_CONFIG_DIR/$MYLOCATION_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup trap
-
+# Ensure Directories and files exist
+[ -d "$MYLOCATION_LOG_DIR" ] || mkdir -p "$MYLOCATION_LOG_DIR" &>/dev/null
+[ -d "$MYLOCATION_TEMP_DIR" ] || mkdir -p "$MYLOCATION_TEMP_DIR" &>/dev/null
+[ -d "$MYLOCATION_CACHE_DIR" ] || mkdir -p "$MYLOCATION_CACHE_DIR" &>/dev/null
+MYLOCATION_TEMP_FILE="${MYLOCATION_TEMP_FILE:-$(mktemp $MYLOCATION_TEMP_DIR/XXXXXX)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap 'exitCode=${exitCode:-$?};[ -n "$MYLOCATION_TEMP_FILE" ] && [ -f "$MYLOCATION_TEMP_FILE" ] && rm -Rf "$MYLOCATION_TEMP_FILE" &>/dev/null' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+if [ "$MYLOCATION_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${MYLOCATION_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${MYLOCATION_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${MYLOCATION_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${MYLOCATION_NOTIFY_CLIENT_ICON}"
+    notifications "$@" || return 1
+  }
+else
+  __notifications() { false; }
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show warn message if variables are missing
-
+[ -n "$MYLOCATION_API_KEY" ] || printf_exit "This requires an API key from http://ipstack.com"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set additional variables/Argument/Option settings
 SETARGS="$*"
@@ -184,17 +196,7 @@ done
 #set -- "$SETARGS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
-if [ "$MYLOCATION_NOTIFY_ENABLED" = "yes" ]; then
-  __notifications() {
-    export NOTIFY_GOOD_MESSAGE="${MYLOCATION_GOOD_MESSAGE}"
-    export NOTIFY_ERROR_MESSAGE="${MYLOCATION_ERROR_MESSAGE}"
-    export NOTIFY_CLIENT_NAME="${MYLOCATION_NOTIFY_CLIENT_NAME}"
-    export NOTIFY_CLIENT_ICON="${MYLOCATION_NOTIFY_CLIENT_ICON}"
-    notifications "$*" || return 1
-  }
-else
-  __notifications() { false; }
-fi
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
 cmd_exists --error --ask bash jq || exit 1 # exit 1 if not found
@@ -202,10 +204,11 @@ cmd_exists --error --ask bash jq || exit 1 # exit 1 if not found
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
 [ -n "$MYLOCATION_API_KEY" ] || __help
-PUBLIC_IP="$(curl -LSs -4 http:/ifconfig.co/ip)"
+PUBLIC_IP="$(curl -q -LSs -4 "$MYLOCATION_IP/ip" 2>/dev/null)"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
-curl -s http://api.ipstack.com/${PUBLIC_IP}?access_key=$MYLOCATION_API_KEY |
+[ -n "${1:-$PUBLIC_IP}" ] || printf_exit "No ip address provided"
+curl -q -LSs "http://api.ipstack.com/${1:-$PUBLIC_IP}?access_key=$MYLOCATION_API_KEY" |
   jq '.latitude,.longitude,.city,.region_name,.country_name,.zip' |
   while read -r LATITUDE; do
     read -r LONGITUDE
@@ -213,9 +216,9 @@ curl -s http://api.ipstack.com/${PUBLIC_IP}?access_key=$MYLOCATION_API_KEY |
     read -r REGION
     read -r COUNTRY
     read -r ZIP
-    echo -e "\n\t\tLAT: ${LATITUDE}\n\t\tLON: ${LONGITUDE}\n\t\tCity: ${CITY}\n\t\tRegion: ${REGION}\n\t\tCountry: ${COUNTRY}\n\t\tZip: ${ZIP}" | tr -d \" >${MYLOCATION_TEMP_FILE}
+    echo -e "\n\t\tLAT: ${LATITUDE}\n\t\tLON: ${LONGITUDE}\n\t\tCity: ${CITY}\n\t\tRegion: ${REGION}\n\t\tCountry: ${COUNTRY}\n\t\tZip: ${ZIP}" | tr -d \" >$MYLOCATION_TEMP_FILE
   done
-printf_green "$(cat "${MYLOCATION_TEMP_FILE}")\n"
+printf_green "$(cat "$MYLOCATION_TEMP_FILE")\n"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

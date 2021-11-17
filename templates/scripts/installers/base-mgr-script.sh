@@ -22,7 +22,6 @@ SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
 if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
-trap 'exitCode=${exitCode:-$?};[ -f GEN_SCRIPT_REPLACE_ENV_TEMP_FILE" ] && rm -Rf "$GEN_SCRIPT_REPLACE_ENV_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
@@ -289,7 +288,6 @@ GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR="${GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR:-$HOME/.c
 GEN_SCRIPT_REPLACE_ENV_CONFIG_BACKUP_DIR="${GEN_SCRIPT_REPLACE_ENV_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/GEN_SCRIPT_REPLACE_FILENAME/backups}"
 GEN_SCRIPT_REPLACE_ENV_TEMP_DIR="${GEN_SCRIPT_REPLACE_ENV_TEMP_DIR:-$HOME/.local/tmp/system_scripts/GEN_SCRIPT_REPLACE_FILENAME}"
 GEN_SCRIPT_REPLACE_ENV_OPTIONS_DIR="${GEN_SCRIPT_REPLACE_ENV_OPTIONS_DIR:-$HOME/.local/share/myscripts/GEN_SCRIPT_REPLACE_FILENAME/options}"
-GEN_SCRIPT_REPLACE_ENV_TEMP_FILE="${GEN_SCRIPT_REPLACE_ENV_TEMP_FILE:-$(mktemp $GEN_SCRIPT_REPLACE_ENV_TEMP_DIR/XXXXXX 2>/dev/null)}"
 GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE="${GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE:-settings.conf}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
@@ -318,25 +316,34 @@ GEN_SCRIPT_REPLACE_ENV_FORCE_INSTALL="${GEN_SCRIPT_REPLACE_ENV_FORCE_INSTALL:-fa
 GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER="${GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER:-${GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER:-$HOME/.local/share/CasjaysDev/apps/GEN_SCRIPT_REPLACE_FILENAME}}"
 GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_SYSTEM="${GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_SYSTEM:-{$:-GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_SYSTEM/usr/local/share/CasjaysDev/apps/GEN_SCRIPT_REPLACE_FILENAME}}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate non-existing config files
+[ -f "$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config "$*"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import config
 [ -f "$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE" ] && . "$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Ensure Directories exist
+# Ensure Directories and files exist
 [ -d "$GEN_SCRIPT_REPLACE_ENV_LOG_DIR" ] || mkdir -p "$GEN_SCRIPT_REPLACE_ENV_LOG_DIR" &>/dev/null
 [ -d "$GEN_SCRIPT_REPLACE_ENV_TEMP_DIR" ] || mkdir -p "$GEN_SCRIPT_REPLACE_ENV_TEMP_DIR" &>/dev/null
 [ -d "$GEN_SCRIPT_REPLACE_ENV_CACHE_DIR" ] || mkdir -p "$GEN_SCRIPT_REPLACE_ENV_CACHE_DIR" &>/dev/null
 [ -d "$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR" ] || mkdir -p "$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR"
-[ -d "$" ] || mkdir -p "$"
-[ -d "$" ] || mkdir -p "$"
+GEN_SCRIPT_REPLACE_ENV_TEMP_FILE="${GEN_SCRIPT_REPLACE_ENV_TEMP_FILE:-$(mktemp $GEN_SCRIPT_REPLACE_ENV_TEMP_DIR/XXXXXX 2>/dev/null)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Generate non-existing config files
-[ -f "$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config "$*"
+# Setup trap to remove temp file
+trap 'exitCode=${exitCode:-$?};[ -f GEN_SCRIPT_REPLACE_ENV_TEMP_FILE" ] && rm -Rf "$GEN_SCRIPT_REPLACE_ENV_TEMP_FILE" &>/dev/null' EXIT
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup notification function
-
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup trap
-
+if [ "$GEN_SCRIPT_REPLACE_ENV_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${GEN_SCRIPT_REPLACE_ENV_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${GEN_SCRIPT_REPLACE_ENV_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_ICON}"
+    notifications "$@" || return 1
+  }
+else
+  __notifications() { false; }
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show warn message if variables are missing
 
@@ -350,6 +357,7 @@ ARRAY="download,list,search,available,remove,version,update,install,cron"
 LIST=""
 LIST+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
 setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$PROG" -- "$@" 2>/dev/null)
 eval set -- "${setopts[@]}" 2>/dev/null
 while :; do
@@ -399,17 +407,7 @@ done
 #set -- "$SETARGS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
-if [ "$GEN_SCRIPT_REPLACE_ENV_NOTIFY_ENABLED" = "yes" ]; then
-  __notifications() {
-    export NOTIFY_GOOD_MESSAGE="${GEN_SCRIPT_REPLACE_ENV_GOOD_MESSAGE}"
-    export NOTIFY_ERROR_MESSAGE="${GEN_SCRIPT_REPLACE_ENV_ERROR_MESSAGE}"
-    export NOTIFY_CLIENT_NAME="${GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_NAME}"
-    export NOTIFY_CLIENT_ICON="${GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_ICON}"
-    notifications "$*" || return 1
-  }
-else
-  __notifications() { false; }
-fi
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
 cmd_exists --error --ask bash curl jq || exit 1 # exit 1 if not found

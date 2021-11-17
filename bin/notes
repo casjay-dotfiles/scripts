@@ -23,7 +23,6 @@ SRC_DIR="${BASH_SOURCE%/*}"
 # Set bash options
 [[ ! -p "/dev/stdin" ]] || [[ -n "$DISPLAY" ]] && [ ! -t 0 ] && { [[ "$1" = *term ]] || [ $# = 0 ]; } && TERMINAL_APP="TRUE" eval ${TERMINAL:-myterminal} -e "${APPNAME:-bash}" ${*:-} && { exit || exit 1; }
 if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
-trap 'exitCode=${exitCode:-$?};[ -n "$NOTES_TEMP_FILE" ] && [ -f "$NOTES_TEMP_FILE" ] && rm -Rf "$NOTES_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
@@ -413,8 +412,8 @@ __client() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import previous month notes
 __import() {
-  if [ -f "$NOTES_PREV_FILE" ]; then
-    if cat "$NOTES_PREV_FILE" | sed '/^\#/d;/^$/d' >>"${NOTES_PATH}"; then
+  if [ -f "${1:-$NOTES_PREV_FILE}" ]; then
+    if cat "${1:-$NOTES_PREV_FILE}" | sed '/^\#/d;/^$/d' >>"${NOTES_PATH}"; then
       printf_green "Notes have been imported"
     else
       return 1
@@ -475,7 +474,6 @@ NOTES_CONFIG_DIR="${NOTES_CONFIG_DIR:-$HOME/.config/myscripts/notes}"
 NOTES_CONFIG_BACKUP_DIR="${NOTES_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/notes/backups}"
 NOTES_TEMP_DIR="${NOTES_TEMP_DIR:-$HOME/.local/tmp/system_scripts/notes}"
 NOTES_OPTIONS_DIR="${NOTES_OPTIONS_DIR:-$HOME/.local/share/myscripts/notes/options}"
-NOTES_TEMP_FILE="${NOTES_TEMP_FILE:-$(mktemp $NOTES_TEMP_DIR/XXXXXX 2>/dev/null)}"
 NOTES_CONFIG_FILE="${NOTES_CONFIG_FILE:-settings.conf}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
@@ -509,23 +507,34 @@ NOTES_PREV_FILE="${NOTES_PREV_FILE:-$NOTES_SERVER_DIRECTORY/$NOTES_FOLDER/$NOTES
 NOTES_DEDUP_NOTIFY="${NOTES_DEDUP_NOTIFY:-no}"
 NOTES_GIT_ENABLED="${NOTES_GIT_ENABLED:-enabled}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate non-existing config files
+[ -f "$NOTES_CONFIG_DIR/$NOTES_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import config
 [ -f "$NOTES_CONFIG_DIR/$NOTES_CONFIG_FILE" ] && . "$NOTES_CONFIG_DIR/$NOTES_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Ensure Directories exist
+# Ensure Directories and files exist
 [ -d "$NOTES_LOG_DIR" ] || mkdir -p "$NOTES_LOG_DIR" &>/dev/null
 [ -d "$NOTES_TEMP_DIR" ] || mkdir -p "$NOTES_TEMP_DIR" &>/dev/null
 [ -d "$NOTES_CACHE_DIR" ] || mkdir -p "$NOTES_CACHE_DIR" &>/dev/null
 [ -d "$NOTES_HOME/$NOTES_FOLDER" ] || mkdir -p "$NOTES_HOME/$NOTES_FOLDER" &>/dev/null
+NOTES_TEMP_FILE="${NOTES_TEMP_FILE:-$(mktemp $NOTES_TEMP_DIR/XXXXXX 2>/dev/null)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Generate non-existing config files
-[ -f "$NOTES_CONFIG_DIR/$NOTES_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# Setup trap to remove temp file
+trap 'exitCode=${exitCode:-$?};[ -n "$NOTES_TEMP_FILE" ] && [ -f "$NOTES_TEMP_FILE" ] && rm -Rf "$NOTES_TEMP_FILE" &>/dev/null' EXIT
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup notification function
-
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup trap
-
+if [ "$NOTES_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${NOTES_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${NOTES_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${NOTES_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${NOTES_NOTIFY_CLIENT_ICON}"
+    notifications "$@" || return 1
+  }
+else
+  __notifications() { false; }
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show warn message if variables are missing
 [[ "$1" = "-" ]] && shift 1 && OPTS="stdin"
@@ -581,23 +590,36 @@ done
 #set -- "$SETARGS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
-if [ "$NOTES_NOTIFY_ENABLED" = "yes" ]; then
-  __notifications() {
-    export NOTIFY_GOOD_MESSAGE="${NOTES_GOOD_MESSAGE}"
-    export NOTIFY_ERROR_MESSAGE="${NOTES_ERROR_MESSAGE}"
-    export NOTIFY_CLIENT_NAME="${NOTES_NOTIFY_CLIENT_NAME}"
-    export NOTIFY_CLIENT_ICON="${NOTES_NOTIFY_CLIENT_ICON}"
-    notifications "$*" || return 1
-  }
-else
-  __notifications() { false; }
-fi
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
 cmd_exists --error --ask bash tmux || exit 1 # exit 1 if not found
 #am_i_online --error || exit 1     # exit 1 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
+if [ ! -d "$NOTES_HOME" ] || [ "$(__count_files "$NOTES_HOME" "4")" = 0 ]; then
+  [ -d "$NOTES_HOME" ] && rm -Rf "$NOTES_HOME" 2>/dev/null
+  printf_green "This seems to be a clean install"
+  printf_read_question "4" "Would you like to import an existing notes?" "1" "YES"
+  if printf_answer_yes "$YES"; then
+    printf_read_input "6" "Please enter the url to your git repo: " "200" "REPO"
+    [ -n "$REPO" ] && git clone -q "$REPO" "$NOTES_HOME" &>/dev/null
+    [ -d "$NOTES_HOME" ] || printf_return "Failed to import repo"
+    if [ ! -f "$NOTES_PATH" ]; then
+      cat -s "$NOTES_HOME"/*/*.txt 2>/dev/null >"/tmp/notes.$$.txt"
+      echo -e "## Notes for $(date +%B) created on $(date +"%D at %H:%M") ##\n" >"${NOTES_PATH}"
+      __import "/tmp/notes.$$.txt" && sleep 3
+    else
+      __mkd "$NOTES_HOME"
+    fi
+  fi
+  if [ "$NOTES_GIT_ENABLED" = "yes" ] || [ "$NOTES_GIT_ENABLED" = "enabled" ]; then
+    [[ -f "$NOTES_HOME/README.md" ]] || printf '#  My notes  \n' >"$NOTES_HOME/README.md"
+    [[ -f "$NOTES_HOME/LICENSE.md" ]] || printf 'Public' >"$NOTES_HOME/LICENSE.md"
+    [ -d "$NOTES_HOME/.git" ] || gitadmin "$NOTES_HOME" setup --noreadme --nolicense
+  fi
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ ! -f "$NOTES_HOME/tmux.conf" ]; then
   if [ -f "$HOME/.config/tmux/others/editors.conf" ]; then
     __cp_rf "$HOME/.config/tmux/others/editors.conf" "$NOTES_HOME/tmux.conf"

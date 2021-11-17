@@ -110,7 +110,6 @@ CHEAT_SH_CONFIG_DIR="${CHEAT_SH_CONFIG_DIR:-$HOME/.config/myscripts/cheat.sh}"
 CHEAT_SH_CONFIG_BACKUP_DIR="${CHEAT_SH_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/cheat.sh/backups}"
 CHEAT_SH_TEMP_DIR="${CHEAT_SH_TEMP_DIR:-$HOME/.local/tmp/system_scripts/cheat.sh}"
 CHEAT_SH_OPTIONS_DIR="${CHEAT_SH_OPTIONS_DIR:-$HOME/.local/share/myscripts/cheat.sh/options}"
-CHEAT_SH_TEMP_FILE="${CHEAT_SH_TEMP_FILE:-$(mktemp $CHEAT_SH_TEMP_DIR/XXXXXX 2>/dev/null)}"
 CHEAT_SH_CONFIG_FILE="${CHEAT_SH_CONFIG_FILE:-settings.conf}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
@@ -137,13 +136,13 @@ CHEAT_SH_BIN_DIR="${CHEAT_SH_BIN_DIR:-$CASJAYSDEVDIR/sources}"
 # Import config
 [ -f "$CHEAT_SH_CONFIG_DIR/$CHEAT_SH_CONFIG_FILE" ] && . "$CHEAT_SH_CONFIG_DIR/$CHEAT_SH_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Ensure Directories exist
+# Ensure Directories and files exist
 [ -d "$CHEAT_SH_LOG_DIR" ] || mkdir -p "$CHEAT_SH_LOG_DIR" &>/dev/null
 [ -d "$CHEAT_SH_TEMP_DIR" ] || mkdir -p "$CHEAT_SH_TEMP_DIR" &>/dev/null
 [ -d "$CHEAT_SH_CACHE_DIR" ] || mkdir -p "$CHEAT_SH_CACHE_DIR" &>/dev/null
-[ -f "$CHEAT_SH_TEMP_FILE" ] || touch "$CHEAT_SH_TEMP_FILE" &>/dev/null
+CHEAT_SH_TEMP_FILE="${CHEAT_SH_TEMP_FILE:-$(mktemp $CHEAT_SH_TEMP_DIR/XXXXXX 2>/dev/null)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup trap
+# Setup trap to remove temp file
 trap 'exitCode=${exitCode:-$?};[ -n "$CHEAT_SH_TEMP_FILE" ] && [ -f "$CHEAT_SH_TEMP_FILE" ] && rm -Rf "$CHEAT_SH_TEMP_FILE" &>/dev/null' EXIT
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup notification function
@@ -153,7 +152,7 @@ if [ "$CHEAT_SH_NOTIFY_ENABLED" = "yes" ]; then
     export NOTIFY_ERROR_MESSAGE="${CHEAT_SH_ERROR_MESSAGE}"
     export NOTIFY_CLIENT_NAME="${CHEAT_SH_NOTIFY_CLIENT_NAME}"
     export NOTIFY_CLIENT_ICON="${CHEAT_SH_NOTIFY_CLIENT_ICON}"
-    notifications "$*" || return 1
+    notifications "$@" || return 1
   }
 else
   __notifications() { false; }

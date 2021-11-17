@@ -22,7 +22,6 @@ SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
 if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
-trap 'exitCode=${exitCode:-$?};[ -n "$TRANSFER_SH_TEMP_FILE" ] && [ -f "$TRANSFER_SH_TEMP_FILE" ] && rm -Rf "$TRANSFER_SH_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
@@ -99,7 +98,6 @@ TRANSFER_SH_CONFIG_DIR="${TRANSFER_SH_CONFIG_DIR:-$HOME/.config/myscripts/transf
 TRANSFER_SH_CONFIG_BACKUP_DIR="${TRANSFER_SH_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/transfer.sh/backups}"
 TRANSFER_SH_TEMP_DIR="${TRANSFER_SH_TEMP_DIR:-$HOME/.local/tmp/system_scripts/transfer.sh}"
 TRANSFER_SH_OPTIONS_DIR="${TRANSFER_SH_OPTIONS_DIR:-$HOME/.local/share/myscripts/transfer.sh/options}"
-TRANSFER_SH_TEMP_FILE="${TRANSFER_SH_TEMP_FILE:-$(mktemp $TRANSFER_SH_TEMP_DIR/XXXXXX 2>/dev/null)}"
 TRANSFER_SH_CONFIG_FILE="${TRANSFER_SH_CONFIG_FILE:-settings.conf}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
@@ -118,22 +116,33 @@ TRANSFER_SH_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$TRANSFER_SH_NOTIFY_CLIENT
 # Application overrides
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Import config
-[ -f "$TRANSFER_SH_CONFIG_DIR/$TRANSFER_SH_CONFIG_FILE" ] && . "$TRANSFER_SH_CONFIG_DIR/$TRANSFER_SH_CONFIG_FILE"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Ensure Directories exist
-[ -d "$TRANSFER_SH_LOG_DIR" ] || mkdir -p "$TRANSFER_SH_LOG_DIR" &>/dev/null
-[ -d "$TRANSFER_SH_TEMP_DIR" ] || mkdir -p "$TRANSFER_SH_TEMP_DIR" &>/dev/null
-[ -d "$TRANSFER_SH_CACHE_DIR" ] || mkdir -p "$TRANSFER_SH_CACHE_DIR" &>/dev/null
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate non-existing config files
 [ -f "$TRANSFER_SH_CONFIG_DIR/$TRANSFER_SH_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup notification function
-
+# Import config
+[ -f "$TRANSFER_SH_CONFIG_DIR/$TRANSFER_SH_CONFIG_FILE" ] && . "$TRANSFER_SH_CONFIG_DIR/$TRANSFER_SH_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup trap
-
+# Ensure Directories and files exist
+[ -d "$TRANSFER_SH_LOG_DIR" ] || mkdir -p "$TRANSFER_SH_LOG_DIR" &>/dev/null
+[ -d "$TRANSFER_SH_TEMP_DIR" ] || mkdir -p "$TRANSFER_SH_TEMP_DIR" &>/dev/null
+[ -d "$TRANSFER_SH_CACHE_DIR" ] || mkdir -p "$TRANSFER_SH_CACHE_DIR" &>/dev/null
+TRANSFER_SH_TEMP_FILE="${TRANSFER_SH_TEMP_FILE:-$(mktemp $TRANSFER_SH_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap 'exitCode=${exitCode:-$?};[ -n "$TRANSFER_SH_TEMP_FILE" ] && [ -f "$TRANSFER_SH_TEMP_FILE" ] && rm -Rf "$TRANSFER_SH_TEMP_FILE" &>/dev/null' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+if [ "$TRANSFER_SH_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${TRANSFER_SH_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${TRANSFER_SH_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${TRANSFER_SH_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${TRANSFER_SH_NOTIFY_CLIENT_ICON}"
+    notifications "$@" || return 1
+  }
+else
+  __notifications() { false; }
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show warn message if variables are missing
 
@@ -184,17 +193,7 @@ done
 #set -- "$SETARGS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
-if [ "$TRANSFER_SH_NOTIFY_ENABLED" = "yes" ]; then
-  __notifications() {
-    export NOTIFY_GOOD_MESSAGE="${TRANSFER_SH_GOOD_MESSAGE}"
-    export NOTIFY_ERROR_MESSAGE="${TRANSFER_SH_ERROR_MESSAGE}"
-    export NOTIFY_CLIENT_NAME="${TRANSFER_SH_NOTIFY_CLIENT_NAME}"
-    export NOTIFY_CLIENT_ICON="${TRANSFER_SH_NOTIFY_CLIENT_ICON}"
-    notifications "$*" || return 1
-  }
-else
-  __notifications() { false; }
-fi
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
 cmd_exists --error --ask bash || exit 1 # exit 1 if not found

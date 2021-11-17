@@ -22,7 +22,6 @@ SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
 if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
-trap 'exitCode=${exitCode:-$?};[ -n "$TODO_TEMP_FILE" ] && [ -f "$TODO_TEMP_FILE" ] && rm -Rf "$TODO_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
@@ -112,7 +111,7 @@ __run_tmux() {
   local name="$name"
   local filename="$filename"
   if [ ! -f "$TODO_HOME/$filename" ] || [ ! -s "$TODO_HOME/$filename" ]; then
-    local titleheader="{TODO for $name: $TODO_TITLE_FMT}  "
+    local titleheader="TODO for $name: $TODO_TITLE_FMT  "
     [ -d "$TODO_HOME/all" ] || __mkd "$TODO_HOME/all"
     [ -d "$TODO_HOME/$name" ] || __mkd "$TODO_HOME/$name"
     if [ -d "$TODO_HOME/$filename" ]; then
@@ -179,7 +178,6 @@ TODO_CONFIG_DIR="${TODO_CONFIG_DIR:-$HOME/.config/myscripts/todo}"
 TODO_CONFIG_BACKUP_DIR="${TODO_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/todo/backups}"
 TODO_TEMP_DIR="${TODO_TEMP_DIR:-$HOME/.local/tmp/system_scripts/todo}"
 TODO_OPTIONS_DIR="${TODO_OPTIONS_DIR:-$HOME/.local/share/myscripts/todo/options}"
-TODO_TEMP_FILE="${TODO_TEMP_FILE:-$(mktemp $TODO_TEMP_DIR/XXXXXX 2>/dev/null)}"
 TODO_CONFIG_FILE="${TODO_CONFIG_FILE:-settings.conf}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
@@ -208,23 +206,34 @@ TODO_TITLE_FMT="${TODO_TITLE:-Created on $(date +"%B") $(date +"%d"), $TODO_YEAR
 TODO_GIT_ENABLED="${TODO_GIT_ENABLED:-enabled}"
 TODO_CONFIG_DIR="${TODO_CONFIG_DIR:-/$HOME/.config/todo}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate non-existing config files
+[ -f "$TODO_CONFIG_DIR/$TODO_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import config
 [ -f "$TODO_CONFIG_DIR/$TODO_CONFIG_FILE" ] && . "$TODO_CONFIG_DIR/$TODO_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Ensure Directories exist
+# Ensure Directories and files exist
 [ -d "$TODO_LOG_DIR" ] || mkdir -p "$TODO_LOG_DIR" &>/dev/null
 [ -d "$TODO_TEMP_DIR" ] || mkdir -p "$TODO_TEMP_DIR" &>/dev/null
 [ -d "$TODO_CACHE_DIR" ] || mkdir -p "$TODO_CACHE_DIR" &>/dev/null
 [ -d "$TODO_HOME" ] || mkdir -p "$TODO_HOME" &>/dev/null
+TODO_TEMP_FILE="${TODO_TEMP_FILE:-$(mktemp $TODO_TEMP_DIR/XXXXXX 2>/dev/null)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Generate non-existing config files
-[ -f "$TODO_CONFIG_DIR/$TODO_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# Setup trap to remove temp file
+trap 'exitCode=${exitCode:-$?};[ -n "$TODO_TEMP_FILE" ] && [ -f "$TODO_TEMP_FILE" ] && rm -Rf "$TODO_TEMP_FILE" &>/dev/null' EXIT
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup notification function
-
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup trap
-
+if [ "$TODO_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${TODO_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${TODO_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${TODO_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${TODO_NOTIFY_CLIENT_ICON}"
+    notifications "$@" || return 1
+  }
+else
+  __notifications() { false; }
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show warn message if variables are missing
 
@@ -275,24 +284,30 @@ done
 #set -- "$SETARGS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
-if [ "$TODO_NOTIFY_ENABLED" = "yes" ]; then
-  __notifications() {
-    export NOTIFY_GOOD_MESSAGE="${TODO_GOOD_MESSAGE}"
-    export NOTIFY_ERROR_MESSAGE="${TODO_ERROR_MESSAGE}"
-    export NOTIFY_CLIENT_NAME="${TODO_NOTIFY_CLIENT_NAME}"
-    export NOTIFY_CLIENT_ICON="${TODO_NOTIFY_CLIENT_ICON}"
-    notifications "$*" || return 1
-  }
-else
-  __notifications() { false; }
-fi
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
 cmd_exists --error --ask bash $TODO_EDITOR || exit 1 # exit 1 if not found
 #am_i_online --error || exit 1     # exit 1 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
-
+if [ ! -d "$TODO_HOME" ] || [ "$(__count_files "$TODO_HOME" "4")" = 0 ]; then
+  [ -d "$TODO_HOME" ] && rm -Rf "$TODO_HOME" 2>/dev/null
+  printf_green "This seems to be a clean install"
+  printf_read_question "4" "Would you like to import an existing todo?" "1" "YES"
+  if printf_answer_yes "$YES"; then
+    printf_read_input "6" "Please enter the url to your git repo: " "200" "REPO"
+    [ -n "$REPO" ] && git clone "$REPO" "$TODO_HOME" &>/dev/null
+    [ -d "$TODO_HOME" ] || printf_return "Unable to clone repo"
+  else
+    __mkd "$TODO_HOME"
+  fi
+  if [ "$TODO_GIT_ENABLED" = "yes" ] || [ "$TODO_GIT_ENABLED" = "enabled" ]; then
+    [[ -f "$TODO_HOME/README.md" ]] || printf '#  My todo list  \n' >"$TODO_HOME/README.md"
+    [[ -f "$TODO_HOME/LICENSE.md" ]] || printf 'Public' >"$TODO_HOME/LICENSE.md"
+    [ -d "$TODO_HOME/.git" ] || gitadmin "$TODO_HOME" setup --noreadme --nolicense
+  fi
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 case "$1" in

@@ -22,7 +22,6 @@ SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
 if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
-trap 'exitCode=${exitCode:-$?};[ -n "$TERMBIN_COM_TEMP_FILE" ] && [ -f "$TERMBIN_COM_TEMP_FILE" ] && rm -Rf "$TERMBIN_COM_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
@@ -100,7 +99,6 @@ TERMBIN_COM_CONFIG_DIR="${TERMBIN_COM_CONFIG_DIR:-$HOME/.config/myscripts/termbi
 TERMBIN_COM_CONFIG_BACKUP_DIR="${TERMBIN_COM_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/termbin.com/backups}"
 TERMBIN_COM_TEMP_DIR="${TERMBIN_COM_TEMP_DIR:-$HOME/.local/tmp/system_scripts/termbin.com}"
 TERMBIN_COM_OPTIONS_DIR="${TERMBIN_COM_OPTIONS_DIR:-$HOME/.local/share/myscripts/termbin.com/options}"
-TERMBIN_COM_TEMP_FILE="${TERMBIN_COM_TEMP_FILE:-$(mktemp $TERMBIN_COM_TEMP_DIR/XXXXXX 2>/dev/null)}"
 TERMBIN_COM_CONFIG_FILE="${TERMBIN_COM_CONFIG_FILE:-settings.conf}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
@@ -121,22 +119,33 @@ TERMBIN_COM_NETCATCMD="${TERMBIN_COM_NETCATCMD:-$(type -P netcat 2>/dev/null || 
 TERMBIN_COM_URL_HOST="${TERMBIN_COM_URL_HOST:-termbin.com}"
 TERMBIN_COM_URL_HOST_PORT="${TERMBIN_COM_URL_HOST_PORT:-9999}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Import config
-[ -f "$TERMBIN_COM_CONFIG_DIR/$TERMBIN_COM_CONFIG_FILE" ] && . "$TERMBIN_COM_CONFIG_DIR/$TERMBIN_COM_CONFIG_FILE"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Ensure Directories exist
-[ -d "$TERMBIN_COM_LOG_DIR" ] || mkdir -p "$TERMBIN_COM_LOG_DIR" &>/dev/null
-[ -d "$TERMBIN_COM_TEMP_DIR" ] || mkdir -p "$TERMBIN_COM_TEMP_DIR" &>/dev/null
-[ -d "$TERMBIN_COM_CACHE_DIR" ] || mkdir -p "$TERMBIN_COM_CACHE_DIR" &>/dev/null
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate non-existing config files
 [ -f "$TERMBIN_COM_CONFIG_DIR/$TERMBIN_COM_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup notification function
-
+# Import config
+[ -f "$TERMBIN_COM_CONFIG_DIR/$TERMBIN_COM_CONFIG_FILE" ] && . "$TERMBIN_COM_CONFIG_DIR/$TERMBIN_COM_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup trap
-
+# Ensure Directories and files exist
+[ -d "$TERMBIN_COM_LOG_DIR" ] || mkdir -p "$TERMBIN_COM_LOG_DIR" &>/dev/null
+[ -d "$TERMBIN_COM_TEMP_DIR" ] || mkdir -p "$TERMBIN_COM_TEMP_DIR" &>/dev/null
+[ -d "$TERMBIN_COM_CACHE_DIR" ] || mkdir -p "$TERMBIN_COM_CACHE_DIR" &>/dev/null
+TERMBIN_COM_TEMP_FILE="${TERMBIN_COM_TEMP_FILE:-$(mktemp $TERMBIN_COM_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap 'exitCode=${exitCode:-$?};[ -n "$TERMBIN_COM_TEMP_FILE" ] && [ -f "$TERMBIN_COM_TEMP_FILE" ] && rm -Rf "$TERMBIN_COM_TEMP_FILE" &>/dev/null' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+if [ "$TERMBIN_COM_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${TERMBIN_COM_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${TERMBIN_COM_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${TERMBIN_COM_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${TERMBIN_COM_NOTIFY_CLIENT_ICON}"
+    notifications "$@" || return 1
+  }
+else
+  __notifications() { false; }
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show warn message if variables are missing
 
@@ -187,17 +196,7 @@ done
 #set -- "$SETARGS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
-if [ "$TERMBIN_COM_NOTIFY_ENABLED" = "yes" ]; then
-  __notifications() {
-    export NOTIFY_GOOD_MESSAGE="${TERMBIN_COM_GOOD_MESSAGE}"
-    export NOTIFY_ERROR_MESSAGE="${TERMBIN_COM_ERROR_MESSAGE}"
-    export NOTIFY_CLIENT_NAME="${TERMBIN_COM_NOTIFY_CLIENT_NAME}"
-    export NOTIFY_CLIENT_ICON="${TERMBIN_COM_NOTIFY_CLIENT_ICON}"
-    notifications "$*" || return 1
-  }
-else
-  __notifications() { false; }
-fi
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
 cmd_exists --error --ask bash $TERMBIN_COM_NETCATCMD || exit 1 # exit 1 if not found
@@ -223,6 +222,7 @@ else
 fi
 if [ -f "$TERMBIN_COM_TEMP_FILE" ]; then
   printf_readline $TERMBIN_COM_OUTPUT_COLOR <"$TERMBIN_COM_TEMP_FILE" 2>/dev/null
+  __notifications "$APPNAME" "$(cat "$TERMBIN_COM_TEMP_FILE")"
   printf '\n'
 else
   printf_red "Something went wrong"

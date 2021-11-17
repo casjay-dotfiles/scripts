@@ -22,7 +22,6 @@ SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
 if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
-trap 'exitCode=${exitCode:-$?};[ -n "$GITADMIN_TEMP_FILE" ] && [ -f "$GITADMIN_TEMP_FILE" ] && rm -Rf "$GITADMIN_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
@@ -251,6 +250,7 @@ __git_clone() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Creates a README.md file if one doesn't exist
 create_new_readme_template() {
+  [[ "$NOREADME" = "yes" ]] && return 0
   local git_dir="${1:-$GITADMIN_WD}"
   if [ -f "$(command -v gen-readme)" ] && [ ! -f "$git_dir/README.md" ]; then
     gen-readme "$git_dir" "$(basename "${GITADMIN_DEFAULT_README:-default}")" "README.md" &>/dev/null
@@ -267,6 +267,7 @@ create_new_readme_template() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Creates a license if a LICENSE.md file doesn't exist
 create_new_license() {
+  [[ "$NOLICENSE" = "yes" ]] && return 0
   local git_dir="${1:-$GITADMIN_WD}"
   if [ -f "$(command -v gen-license)" ] && [ ! -f "$git_dir/LICENSE.md" ]; then
     gen-license "$git_dir" "$(basename "$GITADMIN_DEFAULT_LICENSE")" &>/dev/null
@@ -935,7 +936,6 @@ GITADMIN_CONFIG_DIR="${GITADMIN_CONFIG_DIR:-$HOME/.config/myscripts/gitadmin}"
 GITADMIN_CONFIG_BACKUP_DIR="${GITADMIN_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/gitadmin/backups}"
 GITADMIN_TEMP_DIR="${GITADMIN_TEMP_DIR:-$HOME/.local/tmp/system_scripts/gitadmin}"
 GITADMIN_OPTIONS_DIR="${GITADMIN_OPTIONS_DIR:-$HOME/.local/share/myscripts/gitadmin/options}"
-GITADMIN_TEMP_FILE="${GITADMIN_TEMP_FILE:-$(mktemp $GITADMIN_TEMP_DIR/XXXXXX 2>/dev/null)}"
 GITADMIN_CONFIG_FILE="${GITADMIN_CONFIG_FILE:-settings.conf}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
@@ -968,42 +968,49 @@ GITADMIN_DEFAULT_GIT_DIR_PRIVATE="${GITADMIN_DEFAULT_GIT_DIR_PRIVATE:-$GITADMIN_
 GITADMIN_PERSONAL_GIT_HOST="${GITADMIN_PERSONAL_GIT_HOST:-$PERSONAL_GIT_HOST}"
 GITADMIN_DEFAULT_USER_DOMAIN="${GITADMIN_DEFAULT_USER_DOMAIN:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate non-existing config files
+[ -f "$GITADMIN_CONFIG_DIR/$GITADMIN_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$GITADMIN_CONFIG_DIR/$GITADMIN_CONFIG_FILE" ] && . "$GITADMIN_CONFIG_DIR/$GITADMIN_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories and files exist
+[ -d "$GITADMIN_LOG_DIR" ] || mkdir -p "$GITADMIN_LOG_DIR" &>/dev/null
+[ -d "$GITADMIN_TEMP_DIR" ] || mkdir -p "$GITADMIN_TEMP_DIR" &>/dev/null
+[ -d "$GITADMIN_CACHE_DIR" ] || mkdir -p "$GITADMIN_CACHE_DIR" &>/dev/null
+GITADMIN_TEMP_FILE="${GITADMIN_TEMP_FILE:-$(mktemp $GITADMIN_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap 'exitCode=${exitCode:-$?};[ -n "$GITADMIN_TEMP_FILE" ] && [ -f "$GITADMIN_TEMP_FILE" ] && rm -Rf "$GITADMIN_TEMP_FILE" &>/dev/null' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+if [ "$GITADMIN_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${GITADMIN_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${GITADMIN_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${GITADMIN_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${GITADMIN_NOTIFY_CLIENT_ICON}"
+    notifications "$@" || return 1
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+[ -n "$GITADMIN_DEFAULT_USERNAME" ] || printf_yellow "Please set GITADMIN_DEFAULT_USERNAME or GITHUB_USERNAME variable in settings"
+[ -n "$GITADMIN_GITHUB_AUTH_TOKEN" ] || printf_yellow "Please set GITADMIN_GITHUB_AUTH_TOKEN or GITHUB_ACCESS_TOKEN variable in settings"
 if [ -d "$1" ]; then
   GITADMIN_WD="$1"
   shift 1
 else
   GITADMIN_WD="$PWD"
 fi
-if [ "$GITADMIN_WD" = "." ]; then
-  GITADMIN_WD="$(__basedir ".")"
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Import config
-[ -f "$GITADMIN_CONFIG_DIR/$GITADMIN_CONFIG_FILE" ] && . "$GITADMIN_CONFIG_DIR/$GITADMIN_CONFIG_FILE"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Ensure Directories exist
-[ -d "$GITADMIN_LOG_DIR" ] || mkdir -p "$GITADMIN_LOG_DIR" &>/dev/null
-[ -d "$GITADMIN_TEMP_DIR" ] || mkdir -p "$GITADMIN_TEMP_DIR" &>/dev/null
-[ -d "$GITADMIN_CACHE_DIR" ] || mkdir -p "$GITADMIN_CACHE_DIR" &>/dev/null
-[ -f "$GITADMIN_TEMP_FILE" ] || touch "$GITADMIN_TEMP_FILE" &>/dev/null
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Generate non-existing config files
-[ -f "$GITADMIN_CONFIG_DIR/$GITADMIN_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup notification function
-
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup trap
-
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Show warn message if variables are missing
-[ -n "$GITADMIN_DEFAULT_USERNAME" ] || printf_yellow "Please set GITADMIN_DEFAULT_USERNAME or GITHUB_USERNAME variable in settings"
-[ -n "$GITADMIN_GITHUB_AUTH_TOKEN" ] || printf_yellow "Please set GITADMIN_GITHUB_AUTH_TOKEN or GITHUB_ACCESS_TOKEN variable in settings"
+[ "$GITADMIN_WD" = "." ] && GITADMIN_WD="$(__basedir ".")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set additional variables/Argument/Option settings
 SETARGS="$*"
 SHORTOPTS="u,o,s:"
-LONGOPTS="options,config,version,help,dir:,user,org,single:"
+LONGOPTS="options,config,version,help,dir:,user,org,single:,nolicense,noreadme"
 ARRAY="repos stow setup newsite private gitlab github single init gist orgs remote list "
 ARRAY+="delete create pull clone push user update commit branch log status cron issues squash "
 ARRAY+=""
@@ -1048,11 +1055,23 @@ while :; do
   -u | --user)
     [ "$1" == "help" ] && printf_help "Usage: $APPNAME --user | List user repos"
     __api_user "$USERNAME"
+    shift 2
     ;;
   -o | --org)
     [ "$1" == "help" ] && printf_help "Usage: $APPNAME --org | List organization repos"
     __api_org "$USERNAME"
+    shift 2
     ;;
+  --nolicense)
+    shift 1
+    NOLICENSE="yes"
+    ;;
+
+  --noreadme)
+    shift 1
+    NOREADME="yes"
+    ;;
+
   --)
     shift 1
     break
@@ -1062,17 +1081,7 @@ done
 #set -- "$SETARGS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
-if [ "$GITADMIN_NOTIFY_ENABLED" = "yes" ]; then
-  __notifications() {
-    export NOTIFY_GOOD_MESSAGE="${GITADMIN_GOOD_MESSAGE}"
-    export NOTIFY_ERROR_MESSAGE="${GITADMIN_ERROR_MESSAGE}"
-    export NOTIFY_CLIENT_NAME="${GITADMIN_NOTIFY_CLIENT_NAME}"
-    export NOTIFY_CLIENT_ICON="${GITADMIN_NOTIFY_CLIENT_ICON}"
-    notifications "$*" || return 1
-  }
-else
-  __notifications() { false; }
-fi
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
 cmd_exists --error --ask bash git curl || exit 1 # exit 1 if not found

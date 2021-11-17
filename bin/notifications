@@ -117,6 +117,37 @@ __run_bg() {
   done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__notify_send() {
+  local CLIENT_NAME="$NOTIFY_CLIENT_NAME"
+  local CLIENT_ICON="$NOTIFY_CLIENT_ICON"
+  local CLIENT_URGENCY="$NOTIFY_CLIENT_URGENCY"
+  if [ "$(uname -s)" = "Darwin" ]; then
+    [[ "$1" = *ask ]] && exit 0
+    osascript -e "display notification \"${2}\" with title \"$1\"" || return
+  elif [ "$(uname -s)" = "Linux" ]; then
+    DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u ${USER})/bus"
+    XUSERS=($(who | grep -E "\(:[0-9](\.[0-9])*\)" | awk '{print $1$5}' | sort -u | grep "$USER"))
+    if cmd_exists notify-send; then
+      [[ "$1" = *ask ]] && exit 0
+      notify-send --app-name="$CLIENT_NAME" -u "$CLIENT_URGENCY" -i "$CLIENT_ICON" "$@"
+    elif cmd_exists notify-send.sh; then
+      [[ "$1" = *ask ]] && exit 0
+      notify-send.sh --app-name="$CLIENT_NAME" -u "$CLIENT_URGENCY" -i "$CLIENT_ICON" "$@"
+    else
+      [[ "$1" = *ask ]] && exit 1
+      if [ -n "$1" ]; then
+        echo "$*" >/dev/null
+      else
+        printf_exit 1 1 "There is no notify app installed: Install notify-send, dunst, deadd"
+      fi
+    fi
+    NAME=("${XUSER/(/ }")
+    DISPLAY="${NAME[1]/)/}"
+  else
+    exit 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __notifications_cli() {
   __netcat_test
   __mkd "$TMP/notify-client"
@@ -167,7 +198,6 @@ NOTIFICATIONS_CONFIG_DIR="${NOTIFICATIONS_CONFIG_DIR:-$HOME/.config/myscripts/no
 NOTIFICATIONS_CONFIG_BACKUP_DIR="${NOTIFICATIONS_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/notifications/backups}"
 NOTIFICATIONS_TEMP_DIR="${NOTIFICATIONS_TEMP_DIR:-$HOME/.local/tmp/system_scripts/notifications}"
 NOTIFICATIONS_OPTIONS_DIR="${NOTIFICATIONS_OPTIONS_DIR:-$HOME/.local/share/myscripts/notifications/options}"
-NOTIFICATIONS_TEMP_FILE="${NOTIFICATIONS_TEMP_FILE:-$(mktemp $NOTIFICATIONS_TEMP_DIR/XXXXXX 2>/dev/null)}"
 NOTIFICATIONS_CONFIG_FILE="${NOTIFICATIONS_CONFIG_FILE:-settings.conf}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
@@ -202,11 +232,14 @@ netcat="${netcat:-$(type -P netcat 2>/dev/null || type -P nc 2>/dev/null)}"
 # Import config
 [ -f "$NOTIFICATIONS_CONFIG_DIR/$NOTIFICATIONS_CONFIG_FILE" ] && . "$NOTIFICATIONS_CONFIG_DIR/$NOTIFICATIONS_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Ensure Directories exist
+# Ensure Directories and files exist
 [ -d "$NOTIFICATIONS_LOG_DIR" ] || mkdir -p "$NOTIFICATIONS_LOG_DIR" &>/dev/null
 [ -d "$NOTIFICATIONS_TEMP_DIR" ] || mkdir -p "$NOTIFICATIONS_TEMP_DIR" &>/dev/null
 [ -d "$NOTIFICATIONS_CACHE_DIR" ] || mkdir -p "$NOTIFICATIONS_CACHE_DIR" &>/dev/null
-[ -f "$NOTIFICATIONS_TEMP_FILE" ] || touch "$NOTIFICATIONS_TEMP_FILE" &>/dev/null
+NOTIFICATIONS_TEMP_FILE="${NOTIFICATIONS_TEMP_FILE:-$(mktemp $NOTIFICATIONS_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap 'exitCode=${exitCode:-$?};[ -n "$NOTIFICATIONS_TEMP_FILE" ] && [ -f "$NOTIFICATIONS_TEMP_FILE" ] && rm -Rf "$NOTIFICATIONS_TEMP_FILE" &>/dev/null' EXIT
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup notification function
 if [ "$NOTIFICATIONS_NOTIFY_ENABLED" = "yes" ]; then
@@ -224,15 +257,16 @@ if [ "$NOTIFICATIONS_NOTIFY_ENABLED" = "yes" ]; then
       export NOTIFY_CLIENT_ICON NOTIFY_CLIENT_URGENCY
       title="$NOTIFY_CLIENT_NAME"
       msg="Nothing was sent to notify you of"
+      __notify_send "$title" "$msg" || return 1
     elif [ $# -lt 2 ]; then
       title="$NOTIFY_CLIENT_NAME"
       msg="$1"
-    else
-      export NOTIFY_CLIENT_NAME=""
+      __notify_send "$title" "$msg" || return 1
+    elif [ $# -gt 1 ]; then
       title="$1"
       msg="$2"
+      __notify_send "$title" "$msg" || return 1
     fi
-    __notify_send "$title" "$msg" || return 1
     if [ "$NOTIFICATIONS_CLIENT" = "yes" ] && [ -n "$NOTIFICATIONS_HOST" ]; then
       __notifications_cli "$title" "$msg"
     else
@@ -242,10 +276,6 @@ if [ "$NOTIFICATIONS_NOTIFY_ENABLED" = "yes" ]; then
 else
   __notifications() { false; }
 fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup trap
-trap 'exitCode=${exitCode:-$?};[ -n "$NOTIFICATIONS_TEMP_FILE" ] && [ -f "$NOTIFICATIONS_TEMP_FILE" ] && rm -Rf "$NOTIFICATIONS_TEMP_FILE" &>/dev/null' EXIT
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show warn message if variables are missing
 
@@ -315,31 +345,7 @@ cmd_exists --error --ask bash || exit 1 # exit 1 if not found
 #am_i_online --error || exit 1     # exit 1 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
-if [ "$(uname -s)" = "Darwin" ]; then
-  [[ "$1" = *ask ]] && exit 0
-  __notify_send() { osascript -e "display notification \"${2}\" with title \"$1\"" || return; }
-elif [ "$(uname -s)" = "Linux" ]; then
-  DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u ${USER})/bus"
-  XUSERS=($(who | grep -E "\(:[0-9](\.[0-9])*\)" | awk '{print $1$5}' | sort -u | grep $USER))
-  if cmd_exists notify-send; then
-    [[ "$1" = *ask ]] && exit 0
-    __notify_send() { notify-send --app-name="$NOTIFY_CLIENT_NAME" -u "$NOTIFY_CLIENT_URGENCY" -i "$NOTIFY_CLIENT_ICON" "$@"; }
-  elif cmd_exists notify-send.sh; then
-    [[ "$1" = *ask ]] && exit 0
-    __notify_send() { notify-send.sh --app-name="$NOTIFY_CLIENT_NAME" -u "$NOTIFY_CLIENT_URGENCY" -i "$NOTIFY_CLIENT_ICON" "$@"; }
-  else
-    [[ "$1" = *ask ]] && exit 1
-    if [ -n "$1" ]; then
-      __notify_send() { echo "$*" >/dev/null; }
-    else
-      printf_exit 1 1 "There is no notify app installed: Install notify-send, dunst, deadd"
-    fi
-  fi
-  NAME=("${XUSER/(/ }")
-  DISPLAY="${NAME[1]/)/}"
-else
-  exit 1
-fi
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 case "${1:-$OPTS}" in

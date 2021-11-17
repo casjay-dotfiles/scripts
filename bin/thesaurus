@@ -22,7 +22,6 @@ SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
 if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
-trap 'exitCode=${exitCode:-$?};[ -n "$THESAURUS_TEMP_FILE" ] && [ -f "$THESAURUS_TEMP_FILE" ] && rm -Rf "$THESAURUS_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
@@ -100,7 +99,6 @@ THESAURUS_CONFIG_DIR="${THESAURUS_CONFIG_DIR:-$HOME/.config/myscripts/thesaurus}
 THESAURUS_CONFIG_BACKUP_DIR="${THESAURUS_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/thesaurus/backups}"
 THESAURUS_TEMP_DIR="${THESAURUS_TEMP_DIR:-$HOME/.local/tmp/system_scripts/thesaurus}"
 THESAURUS_OPTIONS_DIR="${THESAURUS_OPTIONS_DIR:-$HOME/.local/share/myscripts/thesaurus/options}"
-THESAURUS_TEMP_FILE="${THESAURUS_TEMP_FILE:-$(mktemp $THESAURUS_TEMP_DIR/XXXXXX 2>/dev/null)}"
 THESAURUS_CONFIG_FILE="${THESAURUS_CONFIG_FILE:-settings.conf}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
@@ -120,22 +118,33 @@ THESAURUS_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$THESAURUS_NOTIFY_CLIENT_ICO
 THESAURUS_SERVER_HOST="${THESAURUS_SERVER_HOST:-dict.org}"
 THESAURUS_SERVER_PORT="${THESAURUS_SERVER_PORT:-2628}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Import config
-[ -f "$THESAURUS_CONFIG_DIR/$THESAURUS_CONFIG_FILE" ] && . "$THESAURUS_CONFIG_DIR/$THESAURUS_CONFIG_FILE"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Ensure Directories exist
-[ -d "$THESAURUS_LOG_DIR" ] || mkdir -p "$THESAURUS_LOG_DIR" &>/dev/null
-[ -d "$THESAURUS_TEMP_DIR" ] || mkdir -p "$THESAURUS_TEMP_DIR" &>/dev/null
-[ -d "$THESAURUS_CACHE_DIR" ] || mkdir -p "$THESAURUS_CACHE_DIR" &>/dev/null
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate non-existing config files
 [ -f "$THESAURUS_CONFIG_DIR/$THESAURUS_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup notification function
-
+# Import config
+[ -f "$THESAURUS_CONFIG_DIR/$THESAURUS_CONFIG_FILE" ] && . "$THESAURUS_CONFIG_DIR/$THESAURUS_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup trap
-
+# Ensure Directories and files exist
+[ -d "$THESAURUS_LOG_DIR" ] || mkdir -p "$THESAURUS_LOG_DIR" &>/dev/null
+[ -d "$THESAURUS_TEMP_DIR" ] || mkdir -p "$THESAURUS_TEMP_DIR" &>/dev/null
+[ -d "$THESAURUS_CACHE_DIR" ] || mkdir -p "$THESAURUS_CACHE_DIR" &>/dev/null
+THESAURUS_TEMP_FILE="${THESAURUS_TEMP_FILE:-$(mktemp $THESAURUS_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap 'exitCode=${exitCode:-$?};[ -n "$THESAURUS_TEMP_FILE" ] && [ -f "$THESAURUS_TEMP_FILE" ] && rm -Rf "$THESAURUS_TEMP_FILE" &>/dev/null' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+if [ "$THESAURUS_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${THESAURUS_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${THESAURUS_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${THESAURUS_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${THESAURUS_NOTIFY_CLIENT_ICON}"
+    notifications "$@" || return 1
+  }
+else
+  __notifications() { false; }
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show warn message if variables are missing
 
@@ -186,17 +195,7 @@ done
 #set -- "$SETARGS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
-if [ "$THESAURUS_NOTIFY_ENABLED" = "yes" ]; then
-  __notifications() {
-    export NOTIFY_GOOD_MESSAGE="${THESAURUS_GOOD_MESSAGE}"
-    export NOTIFY_ERROR_MESSAGE="${THESAURUS_ERROR_MESSAGE}"
-    export NOTIFY_CLIENT_NAME="${THESAURUS_NOTIFY_CLIENT_NAME}"
-    export NOTIFY_CLIENT_ICON="${THESAURUS_NOTIFY_CLIENT_ICON}"
-    notifications "$*" || return 1
-  }
-else
-  __notifications() { false; }
-fi
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
 cmd_exists --error --ask bash dict || exit 1           # exit 1 if not found
@@ -211,7 +210,7 @@ if grep -svq "No definitions" "$THESAURUS_TEMP_FILE"; then
   THESAURUS="$(grep -sv '^$' "$THESAURUS_TEMP_FILE" | grep -vE 'definition found|words for' | sed 's|,[ ]|\n|g;s|,||g')"
   printf '%s\n' "$(grep -sv '^$' "$THESAURUS_TEMP_FILE" | grep -E 'definition found|words for' | head -n2)" | printf_readline "$THESAURUS_OUTPUT_COLOR_GOOD"
   printf '%s\n' "$THESAURUS" | printf_column "$THESAURUS_OUTPUT_COLOR"
-  __notifications "$(<"$THESAURUS_TEMP_FILE")"
+  cat "$THESAURUS_TEMP_FILE" | __yad__text
 else
   printf_custom $THESAURUS_OUTPUT_COLOR_ERROR "No results found for $1"
 fi

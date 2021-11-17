@@ -22,7 +22,6 @@ SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
 if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
-trap 'exitCode=${exitCode:-$?};[ -n "$IX_IO_TEMP_FILE" ] && [ -f "$IX_IO_TEMP_FILE" ] && rm -Rf "$IX_IO_TEMP_FILE" &>/dev/null' EXIT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
@@ -99,7 +98,6 @@ IX_IO_CONFIG_DIR="${IX_IO_CONFIG_DIR:-$HOME/.config/myscripts/ix.io}"
 IX_IO_CONFIG_BACKUP_DIR="${IX_IO_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/ix.io/backups}"
 IX_IO_TEMP_DIR="${IX_IO_TEMP_DIR:-$HOME/.local/tmp/system_scripts/ix.io}"
 IX_IO_OPTIONS_DIR="${IX_IO_OPTIONS_DIR:-$HOME/.local/share/myscripts/ix.io/options}"
-IX_IO_TEMP_FILE="${IX_IO_TEMP_FILE:-$(mktemp $IX_IO_TEMP_DIR/XXXXXX 2>/dev/null)}"
 IX_IO_CONFIG_FILE="${IX_IO_CONFIG_FILE:-settings.conf}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
@@ -118,22 +116,33 @@ IX_IO_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$IX_IO_NOTIFY_CLIENT_ICON}"
 # Application overrides
 IX_IO_SERVER_HOST="${IX_IO_SERVER_HOST:-http://ix.io}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Import config
-[ -f "$IX_IO_CONFIG_DIR/$IX_IO_CONFIG_FILE" ] && . "$IX_IO_CONFIG_DIR/$IX_IO_CONFIG_FILE"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Ensure Directories exist
-[ -d "$IX_IO_LOG_DIR" ] || mkdir -p "$IX_IO_LOG_DIR" &>/dev/null
-[ -d "$IX_IO_TEMP_DIR" ] || mkdir -p "$IX_IO_TEMP_DIR" &>/dev/null
-[ -d "$IX_IO_CACHE_DIR" ] || mkdir -p "$IX_IO_CACHE_DIR" &>/dev/null
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate non-existing config files
 [ -f "$IX_IO_CONFIG_DIR/$IX_IO_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup notification function
-
+# Import config
+[ -f "$IX_IO_CONFIG_DIR/$IX_IO_CONFIG_FILE" ] && . "$IX_IO_CONFIG_DIR/$IX_IO_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup trap
-
+# Ensure Directories and files exist
+[ -d "$IX_IO_LOG_DIR" ] || mkdir -p "$IX_IO_LOG_DIR" &>/dev/null
+[ -d "$IX_IO_TEMP_DIR" ] || mkdir -p "$IX_IO_TEMP_DIR" &>/dev/null
+[ -d "$IX_IO_CACHE_DIR" ] || mkdir -p "$IX_IO_CACHE_DIR" &>/dev/null
+IX_IO_TEMP_FILE="${IX_IO_TEMP_FILE:-$(mktemp $IX_IO_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap 'exitCode=${exitCode:-$?};[ -n "$IX_IO_TEMP_FILE" ] && [ -f "$IX_IO_TEMP_FILE" ] && rm -Rf "$IX_IO_TEMP_FILE" &>/dev/null' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+if [ "$IX_IO_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${IX_IO_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${IX_IO_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${IX_IO_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${IX_IO_NOTIFY_CLIENT_ICON}"
+    notifications "$@" || return 1
+  }
+else
+  __notifications() { false; }
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show warn message if variables are missing
 
@@ -199,17 +208,7 @@ done
 #set -- "$SETARGS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
-if [ "$IX_IO_NOTIFY_ENABLED" = "yes" ]; then
-  __notifications() {
-    export NOTIFY_GOOD_MESSAGE="${IX_IO_GOOD_MESSAGE}"
-    export NOTIFY_ERROR_MESSAGE="${IX_IO_ERROR_MESSAGE}"
-    export NOTIFY_CLIENT_NAME="${IX_IO_NOTIFY_CLIENT_NAME}"
-    export NOTIFY_CLIENT_ICON="${IX_IO_NOTIFY_CLIENT_ICON}"
-    notifications "$*" || return 1
-  }
-else
-  __notifications() { false; }
-fi
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
 cmd_exists --error --ask bash || exit 1 # exit 1 if not found
@@ -248,7 +247,10 @@ raw)
   else
     file="$(<"$@")"
   fi
-  if [[ -n "$file" ]]; then
+  if [ -f "$file" ]; then
+    post="$(curl -q -LSs -F 'f:1=<-' $IX_IO_SERVER_HOST <"$file" 2>/dev/null)"
+    echo "$post" | printf_readline $IX_IO_OUTPUT_COLOR
+  elif [[ -n "$file" ]]; then
     post="$(echo "$file" | curl -q -LSs -F 'f:1=<-' $IX_IO_SERVER_HOST 2>/dev/null)"
     echo "$post" | printf_readline $IX_IO_OUTPUT_COLOR
   else

@@ -1,14 +1,5 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-APPNAME="$(basename "$0")"
-VERSION="202111171035-git"
-USER="${SUDO_USER:-${USER}}"
-HOME="${USER_HOME:-${HOME}}"
-SRC_DIR="${BASH_SOURCE%/*}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#set opts
-
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ##@Version       : GEN_SCRIPT_REPLACE_VERSION
 # @Author        : GEN_SCRIPT_REPLACE_AUTHOR
 # @Contact       : GEN_SCRIPT_REPLACE_EMAIL
@@ -21,6 +12,15 @@ SRC_DIR="${BASH_SOURCE%/*}"
 # @TODO          : GEN_SCRIPT_REPLACE_TODO
 # @Other         : GEN_SCRIPT_REPLACE_OTHER
 # @Resource      : GEN_SCRIPT_REPLACE_RES
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="$(basename "$0")"
+VERSION="202111171035-git"
+USER="${SUDO_USER:-${USER}}"
+HOME="${USER_HOME:-${HOME}}"
+SRC_DIR="${BASH_SOURCE%/*}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#set opts
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"

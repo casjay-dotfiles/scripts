@@ -2846,6 +2846,8 @@ __required_version "$requiredVersion"
 devenvmgr_req_version() { __required_version "$1"; }
 #[ "$installtype" = "dfmgr_install" ] &&
 dfmgr_req_version() { __required_version "$1"; }
+#[ "$installtype" = "desktopmgr_install" ] &&
+desktopmgr_req_version() { __required_version "$1"; }
 #[ "$installtype" = "dockermgr_install" ] &&
 dockermgr_req_version() { __required_version "$1"; }
 #[ "$installtype" = "fontmgr_install" ] &&

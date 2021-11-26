@@ -1736,6 +1736,46 @@ dfmgr_install_version() {
   #   ln_sf "$INSTDIR/install.sh" "$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX/$APPNAME"
   # fi
 }
+###################### desktopmgr settings ######################
+desktopmgr_install() {
+  user_installdirs
+  SCRIPTS_PREFIX="desktopmgr"
+  [[ -n "$_DEBUG" ]] && set -x && echo "$SCRIPTS_PREFIX"
+  APPDIR="${APPDIR:-$CONF/$APPNAME}"
+  INSTDIR="${INSTDIR:-$SHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME}"
+  REPO="${REPO:-$DESKTOPMGRREPO/$APPNAME}"
+  REPORAW="${REPORAW:-$REPO/raw/$GIT_REPO_BRANCH}"
+  USRUPDATEDIR="$SHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"
+  SYSUPDATEDIR="$SYSSHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"
+  ARRAY="${ARRAY:-}"
+  LIST="${LIST:-}"
+  [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && APPDIR="${APPDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
+  [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && INSTDIR="${INSTDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
+  if [ -f "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME" ]; then
+    APPVERSION="$(grep -sv '#' "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME")"
+  else
+    APPVERSION="$currentVersion"
+  fi
+  mkd "$USRUPDATEDIR" "$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX"
+  export installtype="desktopmgr_install"
+}
+######## Installer Functions ########
+desktopmgr_run_init() {
+  run_install_init "configurations"
+}
+desktopmgr_run_post() {
+  desktopmgr_install
+  run_postinst_global
+  [ -d "$APPDIR" ] && replace "$APPDIR" "replacehome" "$HOME"
+  [ -d "$APPDIR" ] && replace "$APPDIR" "/home/jason" "$HOME"
+}
+desktopmgr_install_version() {
+  desktopmgr_install
+  install_version
+  # if [ -f "$INSTDIR/install.sh" ] && [ -f "$INSTDIR/version.txt" ]; then
+  #   ln_sf "$INSTDIR/install.sh" "$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX/$APPNAME"
+  # fi
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 dockermgr_install() {
   user_installdirs

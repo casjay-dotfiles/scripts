@@ -1,0 +1,325 @@
+#!/usr/bin/env bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version       : 202103310710-git
+# @Author        : Jason Hempstead
+# @Contact       : jason@casjaysdev.com
+# @License       : WTFPL
+# @ReadME        : desktopmgr --help
+# @Copyright     : Copyright: (c) 2021 Jason Hempstead, CasjaysDev
+# @Created       : Wednesday, Mar 31, 2021 07:10 EDT
+# @File          : desktopmgr
+# @Description   : Desktop ManaGeR
+# @TODO          :
+# @Other         :
+# @Resource      :
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="$(basename "$0" 2>/dev/null)"
+VERSION="202103310710-git"
+USER="${SUDO_USER:-${USER}}"
+HOME="${USER_HOME:-${HOME}}"
+SRC_DIR="${BASH_SOURCE%/*}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set bash options
+if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import functions
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/desktopmgr/installer/raw/main/functions}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+  . "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  exit 1
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# user system devenv desktopmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+desktopmgr_install
+__options "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gen_config() {
+  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Generating the config file in"
+  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "$DESKTOPMGR_CONFIG_DIR/$DESKTOPMGR_CONFIG_FILE"
+  [ -d "$DESKTOPMGR_CONFIG_DIR" ] || mkdir -p "$DESKTOPMGR_CONFIG_DIR"
+  [ -d "$DESKTOPMGR_CONFIG_BACKUP_DIR" ] || mkdir -p "$DESKTOPMGR_CONFIG_BACKUP_DIR"
+  [ -f "$DESKTOPMGR_CONFIG_DIR/$DESKTOPMGR_CONFIG_FILE" ] &&
+    cp -Rf "$DESKTOPMGR_CONFIG_DIR/$DESKTOPMGR_CONFIG_FILE" "$DESKTOPMGR_CONFIG_DIR/$DESKTOPMGR_CONFIG_FILE.$$"
+  cat <<EOF >"$DESKTOPMGR_CONFIG_DIR/$DESKTOPMGR_CONFIG_FILE"
+# Settings for desktopmgr - unused
+DESKTOPMGR_GIT_REPO="https://github.com/desktopmgr"
+DESKTOPMGR_FORCE_INSTALL="false"
+DESKTOPMGR_NOTIFY_ENABLED="yes"
+DESKTOPMGR_NOTIFY_CLIENT_NAME="\${NOTIFY_CLIENT_NAME:-\$APPNAME}"
+DESKTOPMGR_NOTIFY_CLIENT_ICON="\${NOTIFY_CLIENT_ICON:-\$DESKTOPMGR_NOTIFY_CLIENT_ICON}"
+DESKTOPMGR_TEMP_FILE="${TMPDIR:-/tmp}/desktopmgr"
+DESKTOPMGR_CLONE_DIR="$HOME/Projects/github/desktopmgr"
+EOF
+  if [ -f "$DESKTOPMGR_CONFIG_DIR/$DESKTOPMGR_CONFIG_FILE" ]; then
+    [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for $APPNAME has been created"
+    exitCode=0
+  else
+    printf_red "Failed to create the config file"
+    exitCode=1
+  fi
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__download() {
+  REPO_NAME="$1"
+  REPO_URL="$DESKTOPMGR_GIT_REPO/$REPO_NAME"
+  DIR_NAME="$DESKTOPMGR_CLONE_DIR/$REPO_NAME"
+  gitadmin clone "$REPO_URL" "$DIR_NAME"
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__list_available() { echo -e "$LIST" | tr ' ' '\n' && exit 0; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__api_list() {
+  local api_url="https://api.github.com/orgs/desktopmgr/repos?per_page=1000"
+  am_i_online && curl -q -H "Accept: application/vnd.github.v3+json" -LSs "$api_url" 2>/dev/null |
+    jq '.[].name' 2>/dev/null | sed 's#"##g' | grep -v 'template' || __list_available
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Defaults
+exitCode=""
+DESKTOPMGR_CONFIG_FILE="settings.conf"
+DESKTOPMGR_CONFIG_DIR="$HOME/.config/myscripts/desktopmgr"
+DESKTOPMGR_CONFIG_BACKUP_DIR="$HOME/.local/share/myscripts/desktopmgr/backups"
+DESKTOPMGR_OPTIONS_DIR="$HOME/.local/share/myscripts/desktopmgr/options"
+DESKTOPMGR_TEMP_FILE="${TMPDIR:-/tmp}/desktopmgr"
+DESKTOPMGR_NOTIFY_ENABLED="${DESKTOPMGR_NOTIFY_ENABLED:-yes}"
+DESKTOPMGR_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+DESKTOPMGR_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$DESKTOPMGR_NOTIFY_CLIENT_ICON}"
+DESKTOPMGR_DOTFILES_DIR="${PERSONAL_DOTFILES_DIR:-$HOME/.local/dotfiles/personal}"
+DESKTOPMGR_FORCE_INSTALL="false"
+DESKTOPMGR_GIT_REPO="https://github.com/desktopmgr"
+DESKTOPMGR_CLONE_DIR="$HOME/Projects/github/desktopmgr"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate non-existing config files
+[ -f "$DESKTOPMGR_CONFIG_DIR/$DESKTOPMGR_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$DESKTOPMGR_CONFIG_DIR/$DESKTOPMGR_CONFIG_FILE" ] && . "$DESKTOPMGR_CONFIG_DIR/$DESKTOPMGR_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+# [ -d "$DESKTOPMGR_LOG_DIR" ] || mkdir -p "$DESKTOPMGR_LOG_DIR" &>/dev/null
+# [ -d "$DESKTOPMGR_TEMP_DIR" ] || mkdir -p "$DESKTOPMGR_TEMP_DIR" &>/dev/null
+# [ -d "$DESKTOPMGR_CACHE_DIR" ] || mkdir -p "$DESKTOPMGR_CACHE_DIR" &>/dev/null
+# [ -f "$DESKTOPMGR_TEMP_FILE" ] || touch "$DESKTOPMGR_TEMP_FILE" &>/dev/null
+[ -f "$DESKTOPMGR_TEMP_FILE" ] || touch "$DESKTOPMGR_TEMP_FILE" &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap 'exitCode=${exitCode:-$?};[ -n "$DESKTOPMGR_TEMP_FILE" ] && [ -f "$DESKTOPMGR_TEMP_FILE" ] && rm -Rf "$DESKTOPMGR_TEMP_FILE" &>/dev/null' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+if [ "$DESKTOPMGR_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${DESKTOPMGR_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${DESKTOPMGR_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${DESKTOPMGR_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${DESKTOPMGR_NOTIFY_CLIENT_ICON}"
+    notifications "$@" || return 1
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS="f,l,a"
+LONGOPTS="options,config,version,help,force,list,all"
+ARRAY="list,search,available,update,install,cron,version,remove,download"
+LIST="awesome bspwm cutefish dusk dwm herbstluftwm i3 leftwm mate openbox plasma qtile"
+LIST+="spectrwm xfce xmonad"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --options)
+    shift 1
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  -f | --force)
+    shift 1
+    export FORCE_INSTALL="true"
+    ;;
+  -l | --list)
+    shift 1
+    __api_list
+    ;;
+  -a | --all)
+    shift 1
+    INSTALL_ALL="true"
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+unset setopts
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+cmd_exists --error --ask bash || exit 1
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables
+export DESKTOPMGRREPO="$DESKTOPMGR_GIT_REPO"
+export REPO="$DESKTOPMGRREPO"
+export APPDIR="$CONF"
+export INSTDIR="$SHARE/CasjaysDev/$SCRIPTS_PREFIX"
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+case $1 in
+list)
+  shift 1
+  printf_green "All available desktop configurations:"
+  __list_available | printf_column '5'
+  ;;
+
+search)
+  shift 1
+  run_install_search "$@"
+  ;;
+
+available)
+  shift 1
+  printf_cyan "All available configurations:"
+  __api_list | printf_column '6'
+  ;;
+
+remove)
+  shift 1
+  if [ "$INSTALL_ALL" = "true" ]; then
+    LISTARRAY="$(ls -A "$USRUPDATEDIR" 2>/dev/null)"
+  else
+    LISTARRAY="$*"
+  fi
+  [ ${#LISTARRAY} -ne 0 ] || printf_exit "No packages selected for removal"
+  for rmf in $LISTARRAY; do
+    MESSAGE="Removing $rmf from $CONF"
+    APPNAME="$rmf"
+    installer_delete "$APPNAME"
+    echo ""
+  done
+  ;;
+
+update)
+  shift 1
+  if [ $# -eq 0 ] || [ "$INSTALL_ALL" = "true" ]; then
+    LISTARRAY="$(ls -A "$USRUPDATEDIR" 2>/dev/null)"
+  else
+    LISTARRAY="$*"
+  fi
+  if [ $# -ne 0 ]; then
+    for ins in $LISTARRAY; do
+      APPNAME="$ins"
+      run_install_update "$APPNAME"
+    done
+  elif [[ -d "$USRUPDATEDIR" ]] && [[ ${#LISTARRAY} -ne 0 ]]; then
+    for upd in $(ls "$USRUPDATEDIR"); do
+      APPNAME="$upd"
+      run_install_update "$APPNAME"
+    done
+  else
+    printf_yellow "There doesn't seem to be any packages installed"
+    __notifications "There doesn't seem to be any packages installed"
+  fi
+  exit $?
+  ;;
+
+install)
+  shift 1
+  if [ "$INSTALL_ALL" = "true" ]; then
+    LISTARRAY="$(__list_available)"
+  elif [ $# -eq 0 ]; then
+    printf_blue "No packages provide running the updater"
+    run_install_update
+  else
+    LISTARRAY="$*"
+  fi
+  for ins in $LISTARRAY; do
+    APPNAME="$ins"
+    run_install_update "$APPNAME"
+  done
+  exit $?
+  ;;
+
+clone | download)
+  shift 1
+  if [ "$INSTALL_ALL" = "true" ]; then
+    LISTARRAY="$(__list_available)"
+  elif [ $# -ne 0 ]; then
+    LISTARRAY="$*"
+  fi
+  if [[ -n "$LISTARRAY" ]]; then
+    for pkgs in $LISTARRAY; do
+      __download "$pkgs"
+    done
+  else
+    printf_exit "No packages selected for download"
+  fi
+  ;;
+
+cron)
+  shift 1
+  LISTARRAY="$*"
+  for cron in $LISTARRAY; do
+    APPNAME="$cron"
+    cron_updater "$APPNAME"
+  done
+  ;;
+
+version)
+  shift 1
+  LISTARRAY="$*"
+  for ver in $LISTARRAY; do
+    APPNAME="$ver"
+    run_install_version "$APPNAME"
+  done
+  ;;
+
+*)
+  __help
+  ;;
+esac
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-$?}

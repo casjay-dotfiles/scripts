@@ -845,12 +845,12 @@ git_update() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 dotfilesreqcmd() {
-  local gitrepo="https://github.com/${SCRIPTS_PREFIX:-dfmgr}/${1:-$conf}"
+  local gitrepo="https://github.com/${DFMGRREPO:-dfmgr}/${1:-$conf}"
   urlverify "$gitrepo/raw/$GIT_REPO_BRANCH/install.sh" &&
     bash -c "$(curl -LSs $gitrepo/raw/$GIT_REPO_BRANCH/install.sh)" &>/dev/null || return 1
 }
 dotfilesreqadmincmd() {
-  local gitrepo="https://github.com/${SCRIPTS_PREFIX:-systemmgr}/${1:-$conf}"
+  local gitrepo="https://github.com/${SYSTEMMGRREPO:-systemmgr}/${1:-$conf}"
   urlverify "$gitrepo/raw/$GIT_REPO_BRANCH/install.sh" &&
     sudo -HE bash -c "$(curl -LSs $gitrepo/raw/$GIT_REPO_BRANCH/install.sh)" &>/dev/null || return 1
 }

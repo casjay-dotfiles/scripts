@@ -353,7 +353,7 @@ LIST=""
 LIST+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup application options
-setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$PROG" -- "$@" 2>/dev/null)
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
 eval set -- "${setopts[@]}" 2>/dev/null
 while :; do
   case $1 in

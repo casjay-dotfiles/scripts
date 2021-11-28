@@ -22,7 +22,7 @@ _GEN_SCRIPT_REPLACE_FILENAME() {
   local CONFFILE="settings.conf"
   local CONFDIR="$HOME/.config/myscripts/GEN_SCRIPT_REPLACE_FILENAME"
   local SEARCHDIR="${CONFDIR:-$HOME/.config/myscripts/GEN_SCRIPT_REPLACE_FILENAME}"
-  #local SEARCHCMD="$(___findcmd "$SEARCHDIR/" "d" "1")"
+  #local SEARCHCMD="$(___findcmd "$SEARCHDIR/" "d" "1" | sort -u)"
   local SHOW_COMP_OPTS=""
   local FILEDIR=""
   local OPTS=""

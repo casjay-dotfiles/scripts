@@ -1183,6 +1183,9 @@ check_uri() {
   if echo "$url" | grep -q "http.*://\S\+\.[A-Za-z]\+\S*"; then
     uri="http"
     return 0
+  elif echo "$url" | grep -q "https.*://\S\+\.[A-Za-z]\+\S*"; then
+    uri="https"
+    return 0
   elif echo "$url" | grep -q "ftp.*://\S\+\.[A-Za-z]\+\S*"; then
     uri="ftp"
     return 0

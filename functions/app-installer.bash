@@ -1952,7 +1952,7 @@ pkmgr_install_version() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 systemmgr_install() {
-  requiresudo "true"
+  requiresudo "true" || { sudo -n true 2>&1 | grep -q ' required' && sudo true || printf_exit "sudo is required"; }
   system_installdirs
   SCRIPTS_PREFIX="systemmgr"
   APPDIR="${APPDIR:-/usr/local/etc/$APPNAME}"

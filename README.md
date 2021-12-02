@@ -18,15 +18,15 @@ sudo systemmgr update scripts
 requires:
 
 ```shell
-sudo apt install git bash zsh fish python3-pip python3-setuptools net-tools fontconfig jq tf xclip curl wget dialog qalc rsync links html2text dict
+sudo apt install git bash zsh fish python3-pip python3-setuptools net-tools fontconfig jq tf xclip curl wget dialog qalc rsync links html2text dict sudo
 ```  
 
 ```shell
-sudo yum install git bash zsh fish python3-pip python3-setuptools net-tools fontconfig jq tinyfugue xclip curl wget dialog qalc dictd
+sudo yum install git bash zsh fish python3-pip python3-setuptools net-tools fontconfig jq tinyfugue xclip curl wget dialog qalc dictd sudo
 ```  
 
 ```shell
-sudo pacman -S git bash zsh fish python-pip python-setuptools net-tools fontconfig jq xclip curl wget dialog qalculate-gtk
+sudo pacman -S git bash zsh fish python-pip python-setuptools net-tools fontconfig jq xclip curl wget dialog qalculate-gtk sudo
 yay -S tinyfugue
 ```  
 

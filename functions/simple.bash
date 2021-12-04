@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 FUNCFILE="simple.bash"
+RUN_USER="$(logname 2>/dev/null)"
+SUDO_USER="${RUN_USER:-$SUDO_USER}"
+export RUN_USER SUDO_USER
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
 if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi

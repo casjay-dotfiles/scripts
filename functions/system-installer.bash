@@ -10,12 +10,13 @@
 #
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [[ $(id -u) != 0 ]] || [[ "$EUID" != 0 ]] || [[ "$WHOAMI" != "root" ]] || { echo -e "\t\t\033[0;31mThis script requires sudo or root\033[0m" && exit 1; }
-export PATH="$(echo "$PATH" | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 's#::#:.#g')"
-export USER="$USER"
-export WHOAMI="${USER}"
-export RUN_USER="${RUN_USER:-$USER}"
+PATH="$(echo "$PATH" | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 's#::#:.#g')"
+USER="${USER:-}"
+RUN_USER="$(logname 2>/dev/null)"
+SUDO_USER="${RUN_USER:-$SUDO_USER}"
 TMP="${TMP:-/tmp}"
 TEMP="${TEMP:-/tmp}"
+export RUN_USER SUDO_USER WHOAMI USER PATH
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # fail if git is not installed
 if builtin command -v brew &>/dev/null; then

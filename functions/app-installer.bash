@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 FUNCFILE="app-installer.bash"
-RUN_USER="$(grep -w "$(id -u $(logname))" /etc/passwd 2>/dev/null | awk -F: '{print $1}' 2>/dev/null)"
+RUN_USER="$(logname 2>/dev/null)"
 SUDO_USER="${RUN_USER:-$SUDO_USER}"
 export RUN_USER SUDO_USER
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

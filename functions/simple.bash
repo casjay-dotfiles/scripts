@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-USER="${SUDO_USER:-${USER}}"
-HOME="${USER_HOME:-${HOME}}"
 FUNCFILE="simple.bash"
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
 if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
@@ -48,7 +45,7 @@ if ! type -P git &>/dev/null; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #getopt() { builtin command getopt; }
-am_i_online() {  true; }
+am_i_online() { true; }
 __am_i_online() { true; }
 cmd_exist() { builtin type "$1" &>/dev/null || return 1; }
 __cmd_exist() { builtin type "$1" &>/dev/null || return 1; }

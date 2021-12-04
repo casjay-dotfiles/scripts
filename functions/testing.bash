@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-USER="${SUDO_USER:-${USER}}"
-HOME="${USER_HOME:-${HOME}}"
 FUNCFILE="testing.bash"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options

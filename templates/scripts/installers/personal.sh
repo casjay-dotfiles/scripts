@@ -52,7 +52,7 @@ AUTHTOKEN="${GITHUB_ACCESS_TOKEN:-YOUR_AUTH_TOKEN}"
 # either http https or git
 GITPROTO="https://"
 #Your git repo
-GITREPO="${MYPERSONALGITREPO:-github.com/dfmgr/personal}"
+GITREPO="${DOTFILES_PERSONAL_REPO:-github.com/dfmgr/personal}"
 #scripts repo
 SCRIPTSREPO="https://github.com/dfmgr/installer"
 # Git Command - Private Repo
@@ -143,7 +143,7 @@ _root_init() {
     sudo chmod -Rf 600 /root/.ssh/
     sudo chmod -f 700 /root/.ssh
     sudo chown -Rf root:root /root
-    [[ -d "/personal" ]] && sudo rm -R "/personal"
+    if [[ -d "/personal" ]]; then sudo rm -R "/personal"; fi
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

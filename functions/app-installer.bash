@@ -2160,7 +2160,7 @@ run_postinst_global() {
       fi
       ln_rm "$BIN/"
     fi
-    [ -f "$(builtin type -P updatedb 2>/dev/null)" ] && sudo updatedb || return 0
+    [ -f "$(builtin type -P updatedb 2>/dev/null)" ] && sudo updatedb || true
   else
     # Run on everything else
     if [ "$APPDIR" != "$INSTDIR" ]; then
@@ -2365,7 +2365,7 @@ thememgr_req_version() { __required_version "$1"; }
 wallpapermgr_req_version() { __required_version "$1"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 vdebug() {
-  echo -e "VAR - "ARGS:$*""
+  echo -e "VAR - ARGS:${*:-no arguments given}"
   # for path in "USER:$USER" "HOME:$HOME" "PREFIX:$SCRIPTS_PREFIX" "REPO:$REPO" "REPORAW:$REPORAW" \
   #   "CONF:$CONF" "SHARE:$SHARE" "INSTDIR:$INSTDIR" "APPDIR:$APPDIR" "USRUPDATEDIR:$USRUPDATEDIR" \
   #   "SYSUPDATEDIR:$SYSUPDATEDIR" "FONTDIR:$FONTDIR " "ICONDIR:$ICONDIR" "THEMEDIR:$THEMEDIR" \
@@ -2377,7 +2377,7 @@ vdebug() {
   # done
 }
 __debugger() {
-  if [ "$1" = "debug" ]; then
+  if [ "$1" = "debug" ] || [ "$debug" = "true" ]; then
     shift 1 && set -Ex
     export debug=true
     export LOGDIR_DEBUG="${LOGDIR:-/tmp/$USER}/debug"

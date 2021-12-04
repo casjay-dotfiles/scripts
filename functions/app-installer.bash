@@ -453,7 +453,7 @@ broken_symlinks() { devnull find "$*" -xtype l -exec rm {} \;; }
 mv_f() { if [ -e "$1" ]; then devnull mv -f "$@"; else return 0; fi; }
 rm_rf() { if [ -e "$1" ]; then devnull rm -Rf "$@"; else return 0; fi; }
 cp_rf() { if [ -e "$1" ]; then devnull cp -Rfa "$@"; else return 0; fi; }
-replace() { [[ -e "$1" ]] && find "$1" -not -path "$1/.git/*" -type f -exec sed -i 's|'$2'|'$3'|g' {} \; >/dev/null 2>&1 || true; }
+replace() { [[ -e "$1" ]] && find "$1" -not -path "$1/.git/*" -type f -exec sed -i 's|'$2'|'$3'|g' {} \; >/dev/null 2>&1 || return 0; }
 urlcheck() { devnull curl --config /dev/null --connect-timeout 3 --retry 3 --retry-delay 1 --output /dev/null --silent --head --fail "$1"; }
 ln_rm() {
   if [ -e "$1" ]; then
@@ -1691,7 +1691,6 @@ devenvmgr_run_init() {
 devenvmgr_run_post() {
   devenvmgr_install
   run_postinst_global
-  [ -d "$APPDIR" ] && replace "$APPDIR" "/home/jason" "$HOME"
 }
 devenvmgr_install_version() {
   devenvmgr_install
@@ -1730,8 +1729,6 @@ dfmgr_run_init() {
 dfmgr_run_post() {
   dfmgr_install
   run_postinst_global
-  [ -d "$APPDIR" ] && replace "$APPDIR" "replacehome" "$HOME"
-  [ -d "$APPDIR" ] && replace "$APPDIR" "/home/jason" "$HOME"
 }
 dfmgr_install_version() {
   dfmgr_install
@@ -1770,8 +1767,6 @@ desktopmgr_run_init() {
 desktopmgr_run_post() {
   desktopmgr_install
   run_postinst_global
-  [ -d "$APPDIR" ] && replace "$APPDIR" "replacehome" "$HOME"
-  [ -d "$APPDIR" ] && replace "$APPDIR" "/home/jason" "$HOME"
 }
 desktopmgr_install_version() {
   desktopmgr_install
@@ -1816,7 +1811,6 @@ dockermgr_run_init() {
 dockermgr_run_post() {
   dockermgr_install
   run_postinst_global
-  if [ -d "$APPDIR" ]; then replace "$APPDIR" "/home/jason" "$HOME"; fi
   if [[ -f "$APPDIR/nginx/template" ]]; then
     sed -i "s|REPLACE_APPNAME|$APPNAME|g" "/etc/nginx/vhosts.d/$APPNAME.conf" &>/dev/null
     sed -i "s|REPLACE_NGINX_HTTP|$NGINX_HTTP|g" "/etc/nginx/vhosts.d/$APPNAME.conf" &>/dev/null
@@ -2232,6 +2226,13 @@ run_postinst_global() {
     [ "$installtype" = "iconmgr_install" ] || __install_icons
     [ "$installtype" = "thememgr_install" ] || __install_theme
     [ "$installtype" = "wallpapermgr_install" ] || __install_wallpapers
+  fi
+
+  #
+  if [ -d "$APPDIR" ] && [[ -z "$DF_NO_REPLACE" ]]; then
+    grep -qR '/home/jason' "$APPDIR" && replace "$APPDIR" "/home/jason" "$HOME"
+    grep -qR 'replacehome' "$APPDIR" && replace "$APPDIR" "replacehome" "$HOME"
+    true
   fi
   # Permission fix
   ensure_perms

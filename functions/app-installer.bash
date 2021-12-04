@@ -1985,8 +1985,8 @@ systemmgr_install() {
 ######## Installer Functions ########
 systemmgr_run_init() {
   sudoif || sudo true
-  printf_blue "running as user: $USER"
   run_install_init "configurations"
+  #printf_blue "running as user: $USER"
 }
 systemmgr_run_post() {
   systemmgr_install

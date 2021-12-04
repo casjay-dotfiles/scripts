@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 FUNCFILE="app-installer.bash"
+RUN_USER="${SUDO_USER:-$USER}"
+export RUN_USER
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
 [[ -n "$_DEBUG" ]] && set -x

@@ -57,28 +57,11 @@ fi
 user_installdirs
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define extra functions
-__sudo() { if sudo -n true; then eval sudo "$*"; else eval "$*"; fi; }
+__sudo() { sudo -n true && eval sudo "$*" || eval "$*" || return 1; }
 __sudo_root() { sudo -n true && ask_for_password true && eval sudo "$*" || return 1; }
 __enable_ssl() { [[ "$SERVER_SSL" = "yes" ]] && [[ "$SERVER_SSL" = "true" ]] && return 0 || return 1; }
 __ssl_certs() { [ -f "${1:-$SERVER_SSL_CRT}" ] && [ -f "${2:-SERVER_SSL_KEY}" ] && return 0 || return 1; }
 __port_not_in_use() { [[ -d "/etc/nginx/vhosts.d" ]] && grep -wRsq "${1:-$SERVER_PORT}" /etc/nginx/vhosts.d && return 0 || return 1; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__set_port() {
-  if test -n "$1" && test -z "${1//[0-9]/}"; then
-    local PORT="$1"
-    local CHANGE_PORT=""
-    docker ps | grep -w "$APPNAME" | grep -qw ":$PORT->" 2>/dev/null ||
-      netstat -taupln | grep 'LISTEN' | grep -qw "$PORT" 2>/dev/null ||
-      CHANGE_PORT="$PORT"
-    if [[ -n "$CHANGE_PORT" ]]; then
-      echo "$(($PORT + 1))"
-    else
-      echo $PORT
-    fi
-  else
-    echo "$1"
-  fi
-}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Make sure the scripts repo is installed
 scripts_check
@@ -115,7 +98,7 @@ SERVER_PORT="${SERVER_PORT:-15002}"
 SERVER_PORT_INT="${SERVER_PORT_INT:-80}"
 SERVER_PORT_ADMIN="${SERVER_PORT_ADMIN:-}"
 SERVER_PORT_ADMIN_INT="${SERVER_PORT_ADMIN_INT:-}"
-SERVER_PORT_OTHER="$__set_port (${SERVER_PORT_OTHER:-15003}"
+SERVER_PORT_OTHER="${SERVER_PORT_OTHER:-15003}"
 SERVER_PORT_OTHER_INT="${SERVER_PORT_OTHER_INT:-443}"
 SERVER_WEB_PORT="${SERVER_WEB_PORT:-$SERVER_PORT_ADMIN}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

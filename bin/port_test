@@ -1,0 +1,240 @@
+#!/usr/bin/env bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version       : 202112051434-git
+# @Author        : Jason Hempstead
+# @Contact       : jason@casjaysdev.com
+# @License       : WTFPL
+# @ReadME        : port_test --help
+# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created       : Sunday, Dec 05, 2021 14:34 EST
+# @File          : port_test
+# @Description   : test if port is in use
+# @TODO          :
+# @Other         :
+# @Resource      :
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="$(basename "$0" 2>/dev/null)"
+VERSION="202112051434-git"
+HOME="${USER_HOME:-$HOME}"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${SUDO_USER:-$USER}"
+SRC_DIR="${BASH_SOURCE%/*}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set bash options
+if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import functions
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+  . "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  exit 1
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# user system devenv dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+user_install
+__options "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set functions
+__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gen_config() {
+  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Generating the config file in"
+  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "$PORT_TEST_CONFIG_DIR/$PORT_TEST_CONFIG_FILE"
+  [ -d "$PORT_TEST_CONFIG_DIR" ] || mkdir -p "$PORT_TEST_CONFIG_DIR"
+  [ -d "$PORT_TEST_CONFIG_BACKUP_DIR" ] || mkdir -p "$PORT_TEST_CONFIG_BACKUP_DIR"
+  [ -f "$PORT_TEST_CONFIG_DIR/$PORT_TEST_CONFIG_FILE" ] &&
+    cp -Rf "$PORT_TEST_CONFIG_DIR/$PORT_TEST_CONFIG_FILE" "$PORT_TEST_CONFIG_BACKUP_DIR/$PORT_TEST_CONFIG_FILE.$$"
+  cat <<EOF >"$PORT_TEST_CONFIG_DIR/$PORT_TEST_CONFIG_FILE"
+# Settings for port_test
+
+# Notification settings
+PORT_TEST_GOOD_MESSAGE="${PORT_TEST_GOOD_MESSAGE:-Everything Went OK}"
+PORT_TEST_ERROR_MESSAGE="${PORT_TEST_ERROR_MESSAGE:-Well something seems to have gone wrong}"
+PORT_TEST_NOTIFY_ENABLED="${PORT_TEST_NOTIFY_ENABLED:-yes}"
+PORT_TEST_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+PORT_TEST_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$PORT_TEST_NOTIFY_CLIENT_ICON}"
+
+# Colorization settings
+PORT_TEST_OUTPUT_COLOR="${PORT_TEST_OUTPUT_COLOR:-5}"
+PORT_TEST_OUTPUT_COLOR_GOOD="${PORT_TEST_OUTPUT_COLOR_GOOD:-2}"
+PORT_TEST_OUTPUT_COLOR_ERROR="${PORT_TEST_OUTPUT_COLOR_ERROR:-1}"
+
+EOF
+  if [ -f "$PORT_TEST_CONFIG_DIR/$PORT_TEST_CONFIG_FILE" ]; then
+    [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for $APPNAME has been created"
+    exitCode=0
+  else
+    printf_red "Failed to create the config file"
+    exitCode=1
+  fi
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional functions
+__set_port() {
+  if test -n "$1" && test -z "${1//[0-9]/}"; then
+    local SERVER_PORT="$1"
+    local SERVER_NAME="$2"
+    if docker ps | grep -w "$SERVER_NAME" | grep -wq ":$SERVER_PORT->" 2>/dev/null; then
+      CHANGE_PORT=""
+    elif netstat -taupln 2>/dev/null | grep 'LISTEN' | grep -w "$SERVER_PORT" | grep -wq "${SERVER_NAME:-$APPNAME}"; then
+      CHANGE_PORT=""
+    elif ! netstat -taupln 2>/dev/null | grep 'LISTEN' | grep -wq "$SERVER_PORT"; then
+      CHANGE_PORT=""
+    else
+      CHANGE_PORT="$PORT"
+    fi
+    if [[ -n "$CHANGE_PORT" ]] && [[ -z "$NEW_PORT" ]]; then
+      NEW_PORT="$(($CHANGE_PORT + 1))"
+      unset CHANGE_PORT
+      exitCode=1
+    else
+      NEW_PORT="$PORT"
+      exitCode=0
+    fi
+  else
+    NEW_PORT="$1"
+    exitCode=0
+  fi
+  PORT="$NEW_PORT"
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Default variables
+exitCode=
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application Folders
+PORT_TEST_LOG_DIR="${PORT_TEST_LOG_DIR:-$HOME/.local/log/port_test}"
+PORT_TEST_CACHE_DIR="${PORT_TEST_CACHE_DIR:-$HOME/.cache/port_test}"
+PORT_TEST_CONFIG_DIR="${PORT_TEST_CONFIG_DIR:-$HOME/.config/myscripts/port_test}"
+PORT_TEST_OPTIONS_DIR="${PORT_TEST_OPTIONS_DIR:-$HOME/.local/share/myscripts/port_test/options}"
+PORT_TEST_CONFIG_BACKUP_DIR="${PORT_TEST_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/port_test/backups}"
+PORT_TEST_TEMP_DIR="${PORT_TEST_TEMP_DIR:-$HOME/.local/tmp/system_scripts/port_test}"
+PORT_TEST_CONFIG_FILE="${PORT_TEST_CONFIG_FILE:-settings.conf}"
+PORT_TEST_GOOD_MESSAGE="${PORT_TEST_GOOD_MESSAGE:-Everything Went OK}"
+PORT_TEST_ERROR_MESSAGE="${PORT_TEST_ERROR_MESSAGE:-Well something seems to have gone wrong}"
+PORT_TEST_NOTIFY_ENABLED="${PORT_TEST_NOTIFY_ENABLED:-yes}"
+PORT_TEST_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+PORT_TEST_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$PORT_TEST_NOTIFY_CLIENT_ICON}"
+PORT_TEST_OUTPUT_COLOR="${PORT_TEST_OUTPUT_COLOR:-5}"
+PORT_TEST_OUTPUT_COLOR_GOOD="${PORT_TEST_OUTPUT_COLOR_GOOD:-2}"
+PORT_TEST_OUTPUT_COLOR_ERROR="${PORT_TEST_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Enviroment overrides
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$PORT_TEST_CONFIG_DIR/$PORT_TEST_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$PORT_TEST_CONFIG_DIR/$PORT_TEST_CONFIG_FILE" ] && . "$PORT_TEST_CONFIG_DIR/$PORT_TEST_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories and files exist
+[ -d "$PORT_TEST_LOG_DIR" ] || mkdir -p "$PORT_TEST_LOG_DIR" &>/dev/null
+[ -d "$PORT_TEST_TEMP_DIR" ] || mkdir -p "$PORT_TEST_TEMP_DIR" &>/dev/null
+[ -d "$PORT_TEST_CACHE_DIR" ] || mkdir -p "$PORT_TEST_CACHE_DIR" &>/dev/null
+PORT_TEST_TEMP_FILE="${PORT_TEST_TEMP_FILE:-$(mktemp $PORT_TEST_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap 'exitCode=${exitCode:-$?};[ -n "$PORT_TEST_TEMP_FILE" ] && [ -f "$PORT_TEST_TEMP_FILE" ] && rm -Rf "$PORT_TEST_TEMP_FILE" &>/dev/null' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+if [ "$PORT_TEST_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${PORT_TEST_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${PORT_TEST_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${PORT_TEST_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${PORT_TEST_NOTIFY_CLIENT_ICON}"
+    notifications "$@" && exitCode=0 || exitCode=1
+    unset NOTIFY_CLIENT_NAME NOTIFY_CLIENT_ICON NOTIFY_GOOD_MESSAGE NOTIFY_ERROR_MESSAGE
+    return ${exitCode:-$?}
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS=""
+LONGOPTS="options,config,version,help,dir:"
+ARRAY=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --options)
+    shift 1
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    __help
+    shift 1
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  --dir)
+    PORT_TEST_CWD="$2"
+    shift 2
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+cmd_exists --error --ask bash || exit 1 # exit 1 if not found
+#am_i_online --error || exit 1     # exit 1 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+APP="$2"
+PORT="$1"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+while true; do
+  if __set_port "$PORT" "$APP"; then
+    PORT="$NEW_PORT"
+    break
+  else
+    PORT=$NEW_PORT
+  fi
+done
+
+printf '%s\n' "$PORT"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-$?}

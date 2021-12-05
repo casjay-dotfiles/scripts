@@ -111,13 +111,13 @@ SERVER_HOST="${APPNAME}.$(hostname -d 2>/dev/null | grep '^' || echo local)"
 SERVER_TIMEZONE="${TZ:-${TIMEZONE:-America/New_York}}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Port Setup [ _INT is container port ]
-SERVER_PORT="$(__set_port ${SERVER_PORT:-15002})"
+SERVER_PORT="${SERVER_PORT:-15002}"
 SERVER_PORT_INT="${SERVER_PORT_INT:-80}"
-SERVER_PORT_ADMIN="$(__set_port ${SERVER_PORT_ADMIN:-})"
+SERVER_PORT_ADMIN="${SERVER_PORT_ADMIN:-}"
 SERVER_PORT_ADMIN_INT="${SERVER_PORT_ADMIN_INT:-}"
-SERVER_PORT_OTHER="$__set_port (${SERVER_PORT_OTHER:-15003})"
+SERVER_PORT_OTHER="$__set_port (${SERVER_PORT_OTHER:-15003}"
 SERVER_PORT_OTHER_INT="${SERVER_PORT_OTHER_INT:-443}"
-SERVER_WEB_PORT="$(__set_port ${SERVER_WEB_PORT:-$SERVER_PORT_ADMIN})"
+SERVER_WEB_PORT="${SERVER_WEB_PORT:-$SERVER_PORT_ADMIN}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # SSL Setup
 SERVER_SSL_CA="/etc/ssl/CA/CasjaysDev/certs/ca.crt"

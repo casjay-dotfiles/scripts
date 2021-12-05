@@ -67,11 +67,11 @@ __set_port() {
   if test -n "$1" && test -z "${1//[0-9]/}"; then
     local PORT="$1"
     local CHANGE_PORT=""
-    docker ps | grep -w "$APPNAME" | grep -qw ":$PORT->" ||
-      netstat -taupln | grep 'LISTEN' | grep -qw "$PORT" ||
+    docker ps | grep -w "$APPNAME" | grep -qw ":$PORT->" 2>/dev/null ||
+      netstat -taupln | grep 'LISTEN' | grep -qw "$PORT" 2>/dev/null ||
       CHANGE_PORT="$PORT"
     if [[ -n "$CHANGE_PORT" ]]; then
-      echo "$(($1 + 1))"
+      echo "$(($PORT + 1))"
     else
       echo $PORT
     fi
@@ -94,7 +94,7 @@ REPORAW="$REPO/raw/$REPO_BRANCH"
 APPVERSION="$(__appversion "$REPORAW/version.txt")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # URL to container image [docker pull URL]
-HUB_URL="template"
+HUB_URL="GEN_SCRIPT_REPLACE_APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Directory variables
 SERVER_DATA_DIR=""

@@ -1786,7 +1786,7 @@ dockermgr_install() {
   DATADIR="${DATADIR:-$HOME/.local/share/srv/docker/$APPNAME/files}"
   INSTDIR="${INSTDIR:-$HOME/.local/share/dockermgr/$APPNAME}"
   REPO="${REPO:-$DOCKERMGRREPO/$APPNAME}"
-  REPO_BRANCH="${GIT_REPO_BRANCH:-master}"
+  REPO_BRANCH="${GIT_REPO_BRANCH:-main}"
   REPORAW="${REPORAW:-$REPO/raw/$GIT_REPO_BRANCH}"
   USRUPDATEDIR="$SHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"
   SYSUPDATEDIR="$SYSSHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"

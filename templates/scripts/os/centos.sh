@@ -17,6 +17,7 @@ APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
+REQUIRE_SUDO="true"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
 if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
@@ -108,12 +109,12 @@ install_pkg() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Begin main script
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-[ -n "$1" ] || printf_exit 'To many options provided'
+[ $# -eq 0 ] || printf_exit 'To many options provided'
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ##################################################################################################################
 printf_head "Initializing the setup script"
 ##################################################################################################################
-user_is_root && sudoexit "This scripts requires root/sudo"
+[[ "$REQUIRE_SUDO" = "true" ]] && user_is_root && sudoexit "This scripts requires root/sudo"
 ##################################################################################################################
 printf_head "Configuring cores for compiling"
 ##################################################################################################################
@@ -137,26 +138,23 @@ printf_head "Fixing packages"
 ##################################################################################################################
 printf_head "setting up config files"
 ##################################################################################################################
-run_post "cp -rT /etc/skel $HOME"
-run_post "dotfilesreq bash"
-run_post "dotfilesreq misc"
-run_post "dotfilesreqadmin samba ssl"
+run_post "config_file_actions"
 ##################################################################################################################
 printf_head "Enabling services"
 ##################################################################################################################
-system_service_enable smb.service
-system_service_enable nmb.service
-system_service_enable avahi-daemon.service
-system_service_enable org.cups.cupsd.service
+system_service_enable "services_to_enable"
+##################################################################################################################
+printf_head "Disabling services"
+##################################################################################################################
+system_service_disable "services_to_disable"
 ##################################################################################################################
 printf_head "Running post install"
 ##################################################################################################################
-run_post "devnull systemctl set-default multi-user.target"
-run_post "devnull grub-mkconfig -o /boot/grub/grub.cfg"
+run_post "commands_to_run_after_package_install"
 ##################################################################################################################
 printf_head "Cleaning up"
 ##################################################################################################################
-remove_pkg sendmail
+remove_pkg "packages_to_remove"
 ##################################################################################################################
 printf_head "Finished "
 printf_newline

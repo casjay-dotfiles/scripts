@@ -54,7 +54,7 @@ scripts_check
 APPNAME="${APPNAME:-GEN_SCRIPT_REPLACE_APPNAME}"
 APPDIR="$HOME/.local/share/devenvmgr/$APPNAME"
 INSTDIR="$CASJAYSDEVSHARE/devenvmgr/$APPNAME"
-REPO_BRANCH="${GIT_REPO_BRANCH:-master}"
+REPO_BRANCH="${GIT_REPO_BRANCH:-main}"
 REPO="${DEVENVMGRREPO:-https://github.com/devenvmgr}/$APPNAME"
 REPORAW="$REPO/raw/$REPO_BRANCH"
 APPVERSION="$(__appversion "$REPORAW/version.txt")"

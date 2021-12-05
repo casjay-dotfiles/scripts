@@ -35,7 +35,7 @@ cp -Rfva "$HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/dataDir/." "$
 sudo docker run -d \
 --name="GEN_README_REPLACE_APPNAME" \
 --hostname "GEN_README_REPLACE_APPNAME" \
---restart=unless-stopped \
+--restart=always \
 --privileged \
 -e TZ="${TZ:-${TIMEZONE:-America/New_York}}" \
 -v "$HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/files/data":/data:z \

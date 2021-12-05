@@ -1,4 +1,4 @@
-# 👋 Welcome to the ProjectName project 👋
+# 👋 Welcome to ProjectName 👋
 
   ProjectDescription
 

@@ -61,8 +61,8 @@ for check in git curl wget; do
   fi
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-cmd_exists() { [ -n "$(builtin type -P cmd_exists 2>/dev/null)" ] && $(builtin type -P cmd_exists 2>/dev/null) || return 0; }
-am_i_online() { [ -n "$(builtin type -P am_i_online 2>/dev/null)" ] && $(builtin type -P am_i_online 2>/dev/null) || return 0; }
+cmd_exists() { [ -n "$(builtin type -P cmd_exists 2>/dev/null)" ] && cmd_exists 2>/dev/null || return 0; }
+am_i_online() { [ -n "$(builtin type -P am_i_online 2>/dev/null)" ] && am_i_online 2>/dev/null || return 0; }
 ###################### builtins ######################
 TMPPATH="/usr/local/opt/gnu-getopt/bin:"
 TMPPATH+="$HOME/.local/share/bash/basher/cellar/bin:$HOME/.local/share/bash/basher/bin:"
@@ -134,7 +134,7 @@ ICON_WARN="[ ❗ ]"
 ICON_ERROR="[ ❌ ]"
 ICON_QUESTION="[ ❓ ]"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-printf_newline() { printf "${*:-}\n"; }
+printf_newline() { printf '%s\n' "${*:-}"; }
 printf_color() { printf "%b" "$(tput setaf "$2" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
 printf_normal() { printf_color "\t\t$1\n" "$2"; }
 printf_green() { printf_color "\t\t$1\n" 2; }
@@ -225,7 +225,7 @@ printf_question_timeout() {
   reply="${1:-REPLY}" && shift 1
   readopts="${1:-}" && shift 1
   printf_color "\t\t$msg " "${PRINTF_COLOR:-$color}"
-  read -t 30 -r -n $lines ${readopts} ${reply}
+  read -t 30 -r -n $lines $readopts $reply
   printf_newline
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

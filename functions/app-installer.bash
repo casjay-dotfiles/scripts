@@ -1782,7 +1782,7 @@ dockermgr_install() {
   SCRIPTS_PREFIX="dockermgr"
   [[ -n "$_DEBUG" ]] && set -x && echo "$SCRIPTS_PREFIX"
   APPNAME="${APPNAME:-$SCRIPTS_PREFIX}"
-  APPDIR="${APPDAIR:-$HOME/.local/share/srv/docker/$APPNAME}"
+  APPDIR="${APPDIR:-$HOME/.local/share/srv/docker/$APPNAME}"
   DATADIR="${DATADIR:-$HOME/.local/share/srv/docker/$APPNAME/files}"
   INSTDIR="${INSTDIR:-$HOME/.local/share/dockermgr/$APPNAME}"
   REPO="${REPO:-$DOCKERMGRREPO/$APPNAME}"
@@ -2229,7 +2229,7 @@ run_postinst_global() {
   fi
 
   #
-  if [ -d "$APPDIR" ] && [[ -z "$DF_NO_REPLACE" ]]; then
+  if [[ "$APPDIR" != "$INSTDIR" ]] && [ -d "$APPDIR" ] && [[ -z "$DF_NO_REPLACE" ]]; then
     grep -qR '/home/jason' "$APPDIR" && replace "$APPDIR" "/home/jason" "$HOME"
     grep -qR 'replacehome' "$APPDIR" && replace "$APPDIR" "replacehome" "$HOME"
     true

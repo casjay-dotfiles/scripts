@@ -21,8 +21,9 @@ RUN_USER="${SUDO_USER:-$USER}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
+if [[ -n "$DISPLAY" ]] && [ ! -t 0 ] && { [[ "$1" = *term ]] || [ $# = 0 ]; }; then TERMINAL_APP="TRUE" eval ${TERMINAL:-myterminal} -e "${APPNAME:-bash} ${*:-}" && { exit || exit; }; fi
 if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
-trap 'exit $?' INT
+trap 'echo ""; exit' INT
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
@@ -83,9 +84,16 @@ EOF
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional functions
 __speak() {
-  trap 'exit ${exitCode:-$?}' INT
-  printf '\r\t\t%s' "$(echo -en "${BLUE}Your alarm is going off${NC}")   "
-  $TIMER_SPEAK_COMMAND "$2" &>/dev/null && exitCode=0 || exitCode=1
+  local message="${2:-}"
+  $TIMER_SPEAK_COMMAND "$message" &>/dev/null
+  if cmd_exist zenity; then
+    if ! ps -ux | grep [z]enity | grep -qs "$message"; then
+      zenity --question --ok-label=OK --cancel-label=Dismiss --width=400 --title="Alarm" --text "Your alarm is going off: $message" &>/dev/null || kill -INT $$ &>/dev/null &
+    fi
+  else
+    printf '\r\t\t%s' "$(echo -en "${BLUE}Your alarm is going off: $message ${NC}")"
+  fi
+  sleep 5
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_timer() {
@@ -94,11 +102,27 @@ __run_timer() {
   local duration_message="$3"
   shift 2
   printf_yellow "press control-c to cancel"
-  __counter ${duration:-$length} "$TIMER_OUTPUT_COLOR" "Your timer is set for: $length $duration_message"
+  printf_cyan "Your timer for $speech is set for ${duration_time} ${duration_message} "
+  __counter ${duration:-$length} "${TIMER_OUTPUT_COLOR}" "Time remaining in seconds "
+  echo ""
   while true; do
-    echo ""
-    __speak "$length" "$speech" && sleep 1 || break
+    __speak "$length" "$speech" || exit
   done
+}
+__get_speak_cmd() {
+  if cmd_exists espeak-ng; then
+    echo espeak-ng
+  elif cmd_exists espeak; then
+    echo espeak
+  elif cmd_exists say; then
+    echo say
+  elif cmd_exists speech; then
+    echo speech
+  elif cmd_exists speaker-test; then
+    echo speaker-test -t sine -f 1500 -S 70 -p 10000 -l 1
+  else
+    return 1
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default variables
@@ -127,7 +151,7 @@ TIMER_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
 TIMER_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$TIMER_NOTIFY_CLIENT_ICON}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application overrides
-TIMER_SPEAK_COMMAND="${TIMER_SPEAK_COMMAND:-$(command -v espeak-ng || command -v espeak || command -v say || command -v speech)}"
+TIMER_SPEAK_COMMAND="${TIMER_SPEAK_COMMAND:-$(__get_speak_cmd)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate non-existing config files
 [ -f "$TIMER_CONFIG_DIR/$TIMER_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
@@ -199,16 +223,19 @@ while :; do
     ;;
   -s | --seconds)
     duration="$2"
+    duration_time="$2"
     duration_message="second[s]"
     shift 2
     ;;
   -m | --minutes)
-    duration="(($2*60))"
+    duration="$(echo $(($2 * 60)))"
+    duration_time="$2"
     duration_message="minute[s]"
     shift 2
     ;;
   -h | --hours)
-    duration="(($2*60*60))"
+    duration="$(echo $(($2 * 60 * 60)))"
+    duration_time="$2"
     duration_message="hour[s]"
     shift 2
     ;;
@@ -229,15 +256,18 @@ cmd_exists say || cmd_exists speech || cmd_exists speaker-test || exit 1
 #am_i_online --error || exit 1     # exit 1 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
-[ -n "$TIMER_SPEAK_COMMAND" ] || TIMER_SPEAK_COMMAND="$(command -v say || command -v speech || command -v speaker-test || return 1)"
-[[ "$saycmd" =~ speaker-test ]] && TIMER_SPEAK_COMMAND="speaker-test -t sine -f 1500 -S 70 -p 10000 -l 1 "
+if [[ "$TIMER_SPEAK_COMMAND" =~ speaker-test ]] || [ -z "$TIMER_SPEAK_COMMAND" ]; then
+  TIMER_SPEAK_COMMAND="$(__get_speak_cmd || return 1)"
+fi
+
 length="${duration:-$1}"
-shift 1
+duration_time="${duration_time:-$length}"
+test -n "$1" && test -z "${1//[0-9]/}" && shift 1
 speech="$*"
 shift $#
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
-__run_timer "$length" "$speech" "${duration_message:-}"
+__run_timer "$length" "$speech" "${duration_message:-second[s]}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

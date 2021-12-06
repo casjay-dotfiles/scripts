@@ -83,11 +83,11 @@ _GEN_SCRIPT_REPLACE_FILENAME() {
       #   COMPREPLY=($(compgen -W '{a..z}{a..z}' -- "${cur}"))
       #   compopt -o nospace
       #   return
-      if [[ "$ARRAY" = "show-none" ]]; then
+      if [[ "$ARRAY" = "show__none" ]]; then
         COMPREPLY=($(compgen -W '' -- "${cur}"))
-      elif [[ "$ARRAY" = "show-_filedir" ]]; then
+      elif [[ "$ARRAY" = "show__filedir" ]]; then
         _filedir
-      elif [[ "$ARRAY" = "show-commands" ]]; then
+      elif [[ "$ARRAY" = "show__commands" ]]; then
         COMPREPLY=($(compgen -c -- "${cur}"))
       elif [ "$ARRAY" != "" ]; then
         COMPREPLY=($(compgen -W '${ARRAY}' -- "${cur}"))

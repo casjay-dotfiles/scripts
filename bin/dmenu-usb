@@ -54,7 +54,7 @@ __gen_config() {
   [ -f "$DMENU_USB_CONFIG_DIR/$DMENU_USB_CONFIG_FILE" ] &&
     cp -Rf "$DMENU_USB_CONFIG_DIR/$DMENU_USB_CONFIG_FILE" "$DMENU_USB_CONFIG_BACKUP_DIR/$DMENU_USB_CONFIG_FILE.$$"
   cat <<EOF >"$DMENU_USB_CONFIG_DIR/$DMENU_USB_CONFIG_FILE"
-# Settings for dmenu-usb
+# Settings for $APPNAME
 
 # Notification settings
 DMENU_USB_GOOD_MESSAGE="${DMENU_USB_GOOD_MESSAGE:-Everything Went OK}"
@@ -80,10 +80,15 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional functions
-{ builtin type -P rofi &>/dev/null && __dmenu() { rofi -theme ${ROFI_THEME:-purple} -dmenu -i -p "$1" 2>/dev/null; }; } ||
-  { builtin type -P dmenu &>/dev/null && __dmenu() { dmenu -i -p "$1" 2>/dev/null; }; }
+{
+  if builtin type -P rofi &>/dev/null; then
+    __dmenu() { rofi -theme ${ROFI_THEME:-purple} -dmenu -i -p "$1" 2>/dev/null; }
+  elif builtin type -P dmenu &>/dev/null; then
+    __dmenu() { dmenu -i -p "$1" 2>/dev/null; }
+  fi
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__ask() {
+__ask_option() {
   case $(printf "Mount\\nUnmount" | __dmenu "Would you like to mount or unmount a device?") in
   Mount) $APPNAME mount ;;
   Unmount) $APPNAME umount ;;
@@ -95,7 +100,7 @@ unmountusb() {
   chosen="$(echo "$drives" | __dmenu "Unmount which drive?")" || exit 1
   chosen="$(echo "$chosen" | awk '{print $1}')"
   [ -z "$chosen" ] && exit
-  sudo -A umount "$chosen" && __notifications "💻 USB unmounting" "$chosen unmounted."
+  sudo -A umount "$chosen" &>/dev/null && __notifications "💻 USB unmounting" "$chosen unmounted."
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 unmountandroid() {
@@ -118,16 +123,21 @@ getmount() {
   [ "$mp" = "" ] && exit 1
   if [ ! -d "$mp" ]; then
     mkdiryn=$(printf "No\\nYes" | __dmenu "$mp does not exist. Create it?")
-    [ "$mkdiryn" = "Yes" ] && (mkdir -p "$mp" || sudo -A mkdir -p "$mp")
+    if [ "$mkdiryn" = "Yes" ]; then
+      if ! mkdir -p "$mp" &>/dev/null; then
+        sudo -n sudo -A true
+        sudo -A mkdir -p "$mp" &>/dev/null
+      fi
+    fi
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 mountusb() {
   chosen="$(echo "$usbdrives" | __dmenu "Mount which drive?" | awk '{print $1}')"
   sudo -A mount "$chosen" 2>/dev/null && notifications "💻 USB mounting" "$chosen mounted." && exit 0
-  alreadymounted=$(lsblk -nrpo "name,type,mountpoint" | awk '$2=="part"&&$3!~/\/boot|\/home$|SWAP/&&length($3)>1{printf "-not \\( -path *%s -prune \\) \\ \n",$3}')
+  alreadymounted=$(lsblk -nrpo "name,type,mountpoint" 2>/dev/null | awk '$2=="part"&&$3!~/\/boot|\/home$|SWAP/&&length($3)>1{printf "-not \\( -path *%s -prune \\) \\ \n",$3}')
   getmount "/mnt /media /mount /home -maxdepth 5 -type d $alreadymounted"
-  partitiontype="$(lsblk -no "fstype" "$chosen")"
+  partitiontype="$(lsblk -no "fstype" "$chosen" 2>/dev/null | grep -v '^$')"
   case "$partitiontype" in
   "vfat") sudo -A mount -t vfat "$chosen" "$mp" -o rw,umask=0000 ;;
   *)
@@ -219,7 +229,7 @@ fi
 SETARGS="$*"
 SHORTOPTS=""
 LONGOPTS="options,config,version,help,dir:"
-ARRAY=""
+ARRAY="mount unmount"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
 eval set -- "${setopts[@]}" 2>/dev/null
@@ -324,7 +334,7 @@ umount | unmount)
   fi
   ;;
 *)
-  __ask
+  __ask_option
   ;;
 esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

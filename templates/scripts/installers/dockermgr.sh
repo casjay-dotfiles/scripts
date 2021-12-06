@@ -231,7 +231,7 @@ if docker ps -a | grep -qs "$APPNAME"; then
   printf_blue "DATADIR in $DATADIR"
   printf_cyan "Installed to $INSTDIR"
   [[ -n "$SERVER_PORT" ]] && printf_blue "Service is running on: $SERVER_IP:$SERVER_PORT"
-  [[ -n "$SERVER_WEB_PORT" ]] && printf_blue "and should be available at: http://$SERVER_LISTEN:$SERVER_PORT_OTHER or http://$SERVER_HOST:$SERVER_PORT_OTHER"
+  [[ -n "$SERVER_WEB_PORT" ]] && printf_blue "and should be available at: http://$SERVER_LISTEN:$SERVER_WEB_PORT or http://$SERVER_HOST:$SERVER_WEB_PORT"
   [[ -z "$SERVER_WEB_PORT" ]] && printf_yellow "This container does not have a web interface"
   [[ -n "$SERVER_MESSAGE" ]] && printf_red "$SERVER_MESSAGE"
 else

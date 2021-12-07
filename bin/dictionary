@@ -55,6 +55,7 @@ __gen_config() {
     cp -Rf "$DICTIONARY_CONFIG_DIR/$DICTIONARY_CONFIG_FILE" "$DICTIONARY_CONFIG_BACKUP_DIR/$DICTIONARY_CONFIG_FILE.$$"
   cat <<EOF >"$DICTIONARY_CONFIG_DIR/$DICTIONARY_CONFIG_FILE"
 # Settings for dictionary
+DICTIONARY_SERVER_LANG="${DICTIONARY_SERVER_LANG:-en}"
 DICTIONARY_SERVER_HOST="${DICTIONARY_SERVER_HOST:-https://api.dictionaryapi.dev/api}"
 
 # Notification settings
@@ -82,13 +83,27 @@ EOF
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional functions
 __origin() {
-  res="$(curl -q -LSs "$DICTIONARY_SERVER_HOST/v2/entries/en/${1}" | jq -r .[]'.origin' 2>/dev/null || echo)"
+  res="$(curl -q -LSs "$DICTIONARY_SERVER_HOST/v2/entries/$DICTIONARY_SERVER_LANG/${1}" | jq -r .[]'.origin' 2>/dev/null || echo)"
   [ -n "$res" ] && echo "$res" || return
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __definition() {
-  res="$(curl -q -LSs --fail "$DICTIONARY_SERVER_HOST/v2/entries/en/${1}" | jq -r '.[].meanings | .[].definitions | .[].definition' 2>/dev/null || echo)"
+  res="$(curl -q -LSs --fail "$DICTIONARY_SERVER_HOST/v2/entries/$DICTIONARY_SERVER_LANG/${1}" | jq -r '.[].meanings | .[].definitions | .[].definition' 2>/dev/null || echo)"
   [ -n "$res" ] && echo "$res" || return
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__synonyms() {
+  res="$(curl -q -LSs --fail "$DICTIONARY_SERVER_HOST/v2/entries/$DICTIONARY_SERVER_LANG/${1}" | jq -r '.[].meanings | .[].definitions | .[].synonyms | .[]' | tr ' ' '\n' | sort -u | tr '\n' ' ' || echo)"
+  [ -n "$res" ] && echo "$res" || return
+}
+__display() {
+  if [ "$DICTIONARY_TEMP_FILE" ] && [ -s "$DICTIONARY_TEMP_FILE" ]; then
+    cat "$DICTIONARY_TEMP_FILE" | printf_readline "$DICTIONARY_OUTPUT_COLOR"
+    cat "$DICTIONARY_TEMP_FILE" | __yad__text
+  else
+    echo "An error has occured!" | printf_readline
+    echo "An error has occured!" | __yad__text
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default variables
@@ -117,6 +132,7 @@ DICTIONARY_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
 DICTIONARY_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$DICTIONARY_NOTIFY_CLIENT_ICON}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application overrides
+DICTIONARY_SERVER_LANG="${DICTIONARY_SERVER_LANG:-en}"
 DICTIONARY_SERVER_HOST="${DICTIONARY_SERVER_HOST:-https://api.dictionaryapi.dev/api}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate non-existing config files
@@ -154,7 +170,7 @@ fi
 SETARGS="$*"
 SHORTOPTS=""
 LONGOPTS="options,config,version,help,dir:"
-ARRAY=""
+ARRAY="origin synonym"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
 eval set -- "${setopts[@]}" 2>/dev/null
@@ -203,18 +219,48 @@ cmd_exists --error --ask bash dict || exit 1            # exit 1 if not found
 am_i_online "$DICTIONARY_SERVER_HOST" --error || exit 1 # exit 1 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
-origin="$(__origin "$*")"
-def="$(__definition "$*")"
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
-if [ -n "$origin" ] && [ -n "$def" ]; then
-  printf 'Lookup: %s\n\nOrigin: %s\n\nDefinition:\n%s\n' "$*" "$origin" "$def" >"$DICTIONARY_TEMP_FILE"
-  cat "$DICTIONARY_TEMP_FILE" | printf_readline "$DICTIONARY_OUTPUT_COLOR"
-  cat "$DICTIONARY_TEMP_FILE" | __yad__text
-else
-  printf_custom $DICTIONARY_OUTPUT_COLOR_ERROR "No results found for $1"
-fi
-sleep 1
+case $1 in
+synonym | s)
+  shift 1
+  search="$*"
+  synonym="$(__synonyms "$search")"
+  {
+    printf 'Lookup: %s\n\n' "$search"
+    [ -n "$synonym" ] && printf 'synonyms: %s\n\n' "${synonym:-none}" | tr ' ' '\n'
+  } >"$DICTIONARY_TEMP_FILE"
+  __display
+  ;;
+origin | o)
+  shift 1
+  search="$*"
+  origin="$(__origin "$search")"
+  {
+    printf 'Lookup: %s\n\n' "$search"
+    [ -n "$origin" ] && printf 'origin: %s\n\n' "${origin:-none}"
+  } >"$DICTIONARY_TEMP_FILE"
+  __display
+  ;;
+*)
+  search="$*"
+  origin="$(__origin "$search")"
+  synonym="$(__synonyms "$search")"
+  definition="$(__definition "$search")"
+  if [ -n "$origin" ] && [ -n "$definition" ]; then
+    {
+      printf 'Lookup: %s\n\n' "$search"
+      [ -n "$origin" ] && printf 'Origin: %s\n\n' "$origin"
+      [ -n "$synonym" ] && printf 'synonyms: %s\n\n' "$synonym"
+      [ -n "$definition" ] && printf 'Definition:\n%s\n' "$definition"
+    } >"$DICTIONARY_TEMP_FILE"
+    __display
+  else
+    printf_custom $DICTIONARY_OUTPUT_COLOR_ERROR "No results found for $1"
+  fi
+  ;;
+esac
 [ -f "$DICTIONARY_TEMP_FILE" ] && rm -Rf "$DICTIONARY_TEMP_FILE" &>/dev/null
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application

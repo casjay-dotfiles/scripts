@@ -2544,8 +2544,9 @@ __vdebug() {
 
 __full_app_info() {
   printf_info "APPNAME:                   $APPNAME"
-  printf_info "App Dir:                   $APPDIR"
+  printf_info "App Dir:                   ${APPDIR:-$INSTDIR}"
   printf_info "Install Dir:               $INSTDIR"
+  printf_info "APP config dir             $HOME/.config/myscripts/$APPNAME"
   printf_info "UserHomeDir:               $HOME"
   printf_info "UserBinDir:                $BIN"
   printf_info "UserConfDir:               $CONF"

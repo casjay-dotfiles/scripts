@@ -2940,7 +2940,7 @@ __options() {
     __vdebug "$*"
     ;;
 
-  --full) ###################### debug settings ######################
+  --full-info) ###################### debug settings ######################
     shift 1
     __full_app_info
     ;;

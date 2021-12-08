@@ -956,13 +956,13 @@ user_is_root() { [[ $(id -u) -eq 0 ]] || [[ "$EUID" -eq 0 ]] || [[ "$WHOAMI" = "
 ###################### OS Functions ######################
 #function to get network device
 __getlipaddr() {
-  if type -P route 2>/dev/null || type -P ip 2>/dev/null; then
+  if type -P route &>/dev/null || type -P ip &>/dev/null; then
     if [[ "$OSTYPE" =~ ^darwin ]]; then
       NETDEV="$(route get default 2>/dev/null | grep interface | awk '{print $2}')"
     else
       NETDEV="$(ip route 2>/dev/null | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//" | awk '{print $1}')"
     fi
-    if type -P ifconfig 2>/dev/null; then
+    if type -P ifconfig &>/dev/null; then
       CURRIP4="$(/sbin/ifconfig $NETDEV 2>/dev/null | grep -E "venet|inet" | grep -v "127.0.0." | grep 'inet' | grep -v inet6 | awk '{print $2}' | sed s/addr://g | head -n1)"
       CURRIP6="$(/sbin/ifconfig "$NETDEV" 2>/dev/null | grep -E "venet|inet" | grep 'inet6' | grep -i global | awk '{print $2}' | head -n1)"
     else
@@ -1670,7 +1670,7 @@ __options() {
     exit
     ;;
 
-  --full) ###################### debug settings ######################
+  --full-info) ###################### debug settings ######################
     shift 1
     printf_info "APPNAME:                   $APPNAME"
     printf_info "App Dir:                   $APPDIR"

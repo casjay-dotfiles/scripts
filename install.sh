@@ -138,14 +138,17 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run post install scripts
 run_postinst() {
+  local motdDir="/etc/casjaysdev/messages"
+  local verDir="/etc/casjaysdev/updates/versions"
+  local fontdir="$(ls "$CASJAYSDEVSAPPDIR/fontmgr" | wc -l)"
   export PATH="/usr/local/share/CasjaysDev/scripts/bin:$PATH"
   systemmgr_run_post
-  mkd /etc/casjaysdev/messages/motd
-  mkd /etc/casjaysdev/messages/issue
-  mkd /etc/casjaysdev/messages/legal
-  mkd /etc/casjaysdev/updates/versions
+  mkd "$motdDir/motd"
+  mkd "$motdDir/issue"
+  mkd "$motdDir/legal"
+  mkd "$verDir"
   mkd /usr/local/share/CasjaysDev/apps/fontmgr
-  local fontdir="$(ls "$CASJAYSDEVSAPPDIR/fontmgr" | wc -l)"
+  git config --global pull.rebase true
   if [ "$fontdir" = "0" ]; then
     sudo fontmgr install Hack all-the-icons fontawesome LigatureSymbols
   fi
@@ -153,39 +156,36 @@ run_postinst() {
     ln_sf "$CASJAYSDEVDIR/applications/$app" "$SYSSHARE/applications/$app"
   done
   ln_rm "$SHARE/applications/"
-  if [ -f "$INSTDIR/templates/casjaysdev-legal.txt" ] && [ ! -f /etc/casjaysdev/messages/legal/000.txt ]; then
-    cp_rf "$INSTDIR/templates/casjaysdev-legal.txt" "/etc/casjaysdev/messages/legal/000.txt"
+  if [ -f "$INSTDIR/templates/casjaysdev-legal.txt" ]; then
+    [ -f /etc/casjaysdev/messages/legal/000.txt ] ||
+      cp_rf "$INSTDIR/templates/casjaysdev-legal.txt" "/etc/casjaysdev/messages/legal/000.txt"
   fi
+  grep -sRiq "git" "$verDir/configs.txt" &&
+    sudo rm -Rfv "$verDir/configs.txt"
+  if [ ! -f "$verDir/configs.txt" ]; then
+    date +"${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}" | sudo tee "$verDir/configs.txt" &>/dev/null
+  fi
+  if [ ! -f "$verDir/date.configs.txt" ]; then
+    date +"%b %d, %Y at %H:%M" | sudo tee "$verDir/date.configs.txt" &>/dev/null
+  fi
+  date +"%b %d, %Y at %H:%M" | sudo tee "$verDir/date.scripts.txt" &>/dev/null
+  cp_rf "$INSTDIR/version.txt" "$verDir/scripts.txt"
   replace /etc/casjaysdev/messages/ MYHOSTIP "$CURRIP4"
   replace /etc/casjaysdev/messages/ MYHOSTNAME "$(hostname -s)"
   replace /etc/casjaysdev/messages/ MYFULLHOSTNAME "$(hostname -f)"
-  grep -sRiq "git" /etc/casjaysdev/updates/versions/configs.txt && sudo rm -Rfv /etc/casjaysdev/updates/versions/configs.txt
-  if [ ! -f /etc/casjaysdev/updates/versions/configs.txt ]; then
-    date +"${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}" | sudo tee /etc/casjaysdev/updates/versions/configs.txt &>/dev/null
-  fi
-  if [ ! -f /etc/casjaysdev/updates/versions/date.configs.txt ]; then
-    date +"%b %d, %Y at %H:%M" | sudo tee /etc/casjaysdev/updates/versions/date.configs.txt &>/dev/null
-  fi
-  cp_rf "$INSTDIR/version.txt" /etc/casjaysdev/updates/versions/scripts.txt
-  date +"%b %d, %Y at %H:%M" | sudo tee /etc/casjaysdev/updates/versions/date.scripts.txt &>/dev/null
   echo 'for f in '$CASJAYSDEVDIR/completions/*'; do source "$f" >/dev/null 2>&1; done' >"$COMPDIR/_my_scripts_completions"
   ln_sf "$APPDIR" "$SYSSHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME"
   ln_sf "$APPDIR" "$SYSSHARE/CasjaysDev/$SCRIPTS_PREFIX/installer"
-  git config --global pull.rebase true
   for file in multi_clipboard se sentaku tdrop; do
     [[ -f "/usr/local/bin/$file" ]] || ln_sf "$APPDIR/sources/$file" "/usr/local/bin/$file"
   done
-  # for f in $(find -L /usr/local/share/CasjaysDev/scripts/bin/* -type f,l); do
-  #   [[ -f "$f" ]] && INIT_CONFIG=TRUE bash -c '"'$f'" --config &>/dev/null'
-  #   true
-  # done
-  cmd_exists &>/dev/null
+  cmd_exists --config &>/dev/null
   cmd_exists update-motd && update-ip && update-motd || true
   dotfilesreqadmin cron
-  echo '5 4 * * * root "[ -f /usr/local/share/CasjaysDev/scripts/bin/systemmgr ] && /usr/local/share/CasjaysDev/scripts/bin/systemmgr update scripts cron &>/dev/null"'
   for mgr in devenvmgr dfmgr dockermgr fontmgr iconmgr passmgr pkmgr systemmgr thememgr wallpapermgr; do
     $mgr --config &>/dev/null
   done
+  echo '5 4 * * * root "[ -f $(builtin type -P systemmgr 2>/dev/null) ] && systemmgr update scripts cron &>/dev/null"' | tee /etc/cron.d/systemmgr &>/dev/null
   grep 'Defaults.*.env_reset' /etc/sudoers | grep -v '!' && sed -i 's|env_reset|!env_reset|g' /etc/sudoers
   grep 'Defaults.*.secure_path' /etc/sudoers && sed -i 's|secure_path =.*|secure_path = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"|g' /etc/sudoers
 }

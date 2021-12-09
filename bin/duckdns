@@ -1,0 +1,313 @@
+#!/usr/bin/env bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version       : 202111162147-git
+# @Author        : Jason Hempstead
+# @Contact       : jason@casjaysdev.com
+# @License       : LICENSE.md
+# @ReadME        : duckdns --help
+# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created       : Thursday, Dec 09, 2021 13:06 EST
+# @File          : duckdns
+# @Description   : DuckDNS api script
+# @TODO          :
+# @Other         :
+# @Resource      :
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="$(basename "$0" 2>/dev/null)"
+VERSION="202111162147-git"
+HOME="${USER_HOME:-$HOME}"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${SUDO_USER:-$USER}"
+SRC_DIR="${BASH_SOURCE%/*}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set bash options
+if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import functions
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+  . "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  exit 1
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# user system devenv dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+user_install
+__options "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set functions
+__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gen_config() {
+  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Generating the config file in"
+  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "$DUCKDNS_CONFIG_DIR/$DUCKDNS_CONFIG_FILE"
+  [ -d "$DUCKDNS_CONFIG_DIR" ] || mkdir -p "$DUCKDNS_CONFIG_DIR"
+  [ -d "$DUCKDNS_CONFIG_BACKUP_DIR" ] || mkdir -p "$DUCKDNS_CONFIG_BACKUP_DIR"
+  [ -f "$DUCKDNS_CONFIG_DIR/$DUCKDNS_CONFIG_FILE" ] &&
+    cp -Rf "$DUCKDNS_CONFIG_DIR/$DUCKDNS_CONFIG_FILE" "$DUCKDNS_CONFIG_BACKUP_DIR/$DUCKDNS_CONFIG_FILE.$$"
+  cat <<EOF >"$DUCKDNS_CONFIG_DIR/$DUCKDNS_CONFIG_FILE"
+# Settings for duckdns
+DUCKDNS_API_KEY="${DUCKDNS_API_KEY:-}"
+DUCKDNS_DOMAIN="${DUCKDNS_DOMAIN:-}"
+DUCKDNS_CLEAR="${DUCKDNS_CLEAR:-false}"
+DUCKDNS_API_URL="${DUCKDNS_API_URL:-https://www.duckdns.org/update}"
+DUCKDNS_EXTERNAL_IP="${DUCKDNS_EXTERNAL_IP:-https://checkip.casjaydns.com}"
+
+# Notification settings
+DUCKDNS_GOOD_MESSAGE="${DUCKDNS_GOOD_MESSAGE:-Everything Went OK}"
+DUCKDNS_ERROR_MESSAGE="${DUCKDNS_ERROR_MESSAGE:-Well something seems to have gone wrong}"
+DUCKDNS_NOTIFY_ENABLED="${DUCKDNS_NOTIFY_ENABLED:-yes}"
+DUCKDNS_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+DUCKDNS_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$DUCKDNS_NOTIFY_CLIENT_ICON}"
+
+# Colorization settings
+DUCKDNS_OUTPUT_COLOR="${DUCKDNS_OUTPUT_COLOR:-5}"
+DUCKDNS_OUTPUT_COLOR_GOOD="${DUCKDNS_OUTPUT_COLOR_GOOD:-2}"
+DUCKDNS_OUTPUT_COLOR_ERROR="${DUCKDNS_OUTPUT_COLOR_ERROR:-1}"
+
+EOF
+  if [ -f "$DUCKDNS_CONFIG_DIR/$DUCKDNS_CONFIG_FILE" ]; then
+    [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for $APPNAME has been created"
+    exitCode=0
+  else
+    printf_red "Failed to create the config file"
+    exitCode=1
+  fi
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional functions
+__uriencode() {
+  s="${1//'%'/%25}"
+  s="${s//' '/%20}"
+  s="${s//'"'/%22}"
+  s="${s//'#'/%23}"
+  s="${s//'$'/%24}"
+  s="${s//'&'/%26}"
+  s="${s//'+'/%2B}"
+  s="${s//','/%2C}"
+  s="${s//'/'/%2F}"
+  s="${s//':'/%3A}"
+  s="${s//';'/%3B}"
+  s="${s//'='/%3D}"
+  s="${s//'?'/%3F}"
+  s="${s//'@'/%40}"
+  s="${s//'['/%5B}"
+  s="${s//']'/%5D}"
+  printf '%s' "$s"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_external_ip4() { curl -q -LSs --fail -4 "$DUCKDNS_EXTERNAL_IP" 2>/dev/null; }
+__get_external_ip6() { curl -q -LSs --fail -6 "$DUCKDNS_EXTERNAL_IP" 2>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__duckdns_api() { curl -q -LSs "$DUCKDNS_API_URL/${*}" 2>/dev/null && return 0 || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__duckdns_update() {
+  local domain ip ip6 verbose clear token
+  [[ -n "${1:-$DUCKDNS_DOMAIN}" ]] && domains="domains=${1:-$DUCKDNS_DOMAIN}"
+  [[ -n "${2:-$DUCKDNS_IP}" ]] && ip="&ip=${2:-$DUCKDNS_IP}"
+  [[ -n "${3:-$DUCKDNS_IP6}" ]] && ipv6="&ipv6=${3:-$DUCKDNS_IP6}"
+  [[ -z "${ip:-$DUCKDNS_EXTERNAL_IP}" ]] && ip="$(__get_external_ip4 || echo "")"
+  [[ -z "${ip6:-$DUCKDNS_EXTERNAL_IP6}" ]] && ip6="$(__get_external_ip6 || echo "")"
+  clear="&clear=${DUCKDNS_CLEAR:-false}"
+  token="&token=${DUCKDNS_API_KEY:-}"
+  if [[ -n "$DUCKDNS_TEXT" ]]; then
+    textrecord="$(__uriencode "$DUCKDNS_TEXT")"
+    resp="$(__duckdns_api "update/?${domains}${token}${ip}${ip6}${clear}&verbose=true&txt=${textrecord}")"
+  else
+    resp="$(__duckdns_api "update/?${domains}${token}${ip}${ip6}${clear}&verbose=true")"
+  fi
+  changed4="$(echo "$resp" | grep '[0-9][0-9].')"
+  changed6="$(echo "$resp" | grep ':')"
+  nochange="$(echo "$resp" | grep 'NOCHANGE')"
+  if echo "$resp" | grep -q 'OK'; then
+    if [[ -n "$nochange" ]]; then
+      printf_green "Successfully sent command, however, nothing was changed"
+    else
+      if [[ -n "$textrecord" ]]; then
+        printf_green "Successfully updated $DUCKDNS_DOMAIN with txt: ${DUCKDNS_TEXT}"
+      fi
+      if [[ -n "$changed4" ]]; then
+        printf_green "Successfully updated $DUCKDNS_DOMAIN with ip: ${changed4}"
+      fi
+      if [[ -n "$changed6" ]]; then
+        printf_green "Successfully updated $DUCKDNS_DOMAIN with ip: ${changed6}"
+      fi
+    fi
+    return 0
+  else
+    printf_red "Failed to update $1"
+    echo "$resp" | printf_readline 1
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__var_check() {
+  [[ -n "${1:-$DUCKDNS_DOMAIN}" ]] && DUCKDNS_DOMAIN="${1:-$DUCKDNS_DOMAIN}" || printf_exit "Please set the domain you want to update"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Default variables
+exitCode=
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application Folders
+DUCKDNS_LOG_DIR="${DUCKDNS_LOG_DIR:-$HOME/.local/log/duckdns}"
+DUCKDNS_CACHE_DIR="${DUCKDNS_CACHE_DIR:-$HOME/.cache/duckdns}"
+DUCKDNS_CONFIG_DIR="${DUCKDNS_CONFIG_DIR:-$HOME/.config/myscripts/duckdns}"
+DUCKDNS_OPTIONS_DIR="${DUCKDNS_OPTIONS_DIR:-$HOME/.local/share/myscripts/duckdns/options}"
+DUCKDNS_CONFIG_BACKUP_DIR="${DUCKDNS_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/duckdns/backups}"
+DUCKDNS_TEMP_DIR="${DUCKDNS_TEMP_DIR:-$HOME/.local/tmp/system_scripts/duckdns}"
+DUCKDNS_CONFIG_FILE="${DUCKDNS_CONFIG_FILE:-settings.conf}"
+DUCKDNS_GOOD_MESSAGE="${DUCKDNS_GOOD_MESSAGE:-Everything Went OK}"
+DUCKDNS_ERROR_MESSAGE="${DUCKDNS_ERROR_MESSAGE:-Well something seems to have gone wrong}"
+DUCKDNS_NOTIFY_ENABLED="${DUCKDNS_NOTIFY_ENABLED:-yes}"
+DUCKDNS_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+DUCKDNS_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$DUCKDNS_NOTIFY_CLIENT_ICON}"
+DUCKDNS_OUTPUT_COLOR="${DUCKDNS_OUTPUT_COLOR:-5}"
+DUCKDNS_OUTPUT_COLOR_GOOD="${DUCKDNS_OUTPUT_COLOR_GOOD:-2}"
+DUCKDNS_OUTPUT_COLOR_ERROR="${DUCKDNS_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Enviroment overrides
+DUCKDNS_API_KEY="${DUCKDNS_API_KEY:-}"
+DUCKDNS_DOMAIN="${DUCKDNS_DOMAIN:-}"
+DUCKDNS_CLEAR="${DUCKDNS_CLEAR:-false}"
+DUCKDNS_API_URL="${DUCKDNS_API_URL:-https://www.duckdns.org}"
+DUCKDNS_EXTERNAL_IP="${DUCKDNS_EXTERNAL_IP:-https://checkip.casjaydns.com}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$DUCKDNS_CONFIG_DIR/$DUCKDNS_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$DUCKDNS_CONFIG_DIR/$DUCKDNS_CONFIG_FILE" ] && . "$DUCKDNS_CONFIG_DIR/$DUCKDNS_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories and files exist
+[ -d "$DUCKDNS_LOG_DIR" ] || mkdir -p "$DUCKDNS_LOG_DIR" &>/dev/null
+[ -d "$DUCKDNS_TEMP_DIR" ] || mkdir -p "$DUCKDNS_TEMP_DIR" &>/dev/null
+[ -d "$DUCKDNS_CACHE_DIR" ] || mkdir -p "$DUCKDNS_CACHE_DIR" &>/dev/null
+DUCKDNS_TEMP_FILE="${DUCKDNS_TEMP_FILE:-$(mktemp $DUCKDNS_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap 'exitCode=${exitCode:-$?};[ -n "$DUCKDNS_TEMP_FILE" ] && [ -f "$DUCKDNS_TEMP_FILE" ] && rm -Rf "$DUCKDNS_TEMP_FILE" &>/dev/null' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+if [ "$DUCKDNS_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${DUCKDNS_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${DUCKDNS_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${DUCKDNS_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${DUCKDNS_NOTIFY_CLIENT_ICON}"
+    notifications "$@" && exitCode=0 || exitCode=1
+    unset NOTIFY_CLIENT_NAME NOTIFY_CLIENT_ICON NOTIFY_GOOD_MESSAGE NOTIFY_ERROR_MESSAGE
+    return ${exitCode:-$?}
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS=""
+LONGOPTS="options,config,version,help,dir:,api:,domain:,ip:,ip6:,txt:"
+ARRAY="update"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --options)
+    shift 1
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    __help
+    shift 1
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  --dir)
+    DUCKDNS_CWD="$2"
+    shift 2
+    ;;
+  --api)
+    DUCKDNS_API_KEY="$2"
+    shift 2
+    ;;
+  --domain)
+    DUCKDNS_DOMAIN="$2"
+    shift 2
+    ;;
+  --ip)
+    DUCKDNS_IP="$2"
+    shift 2
+    ;;
+  --ip6)
+    DUCKDNS_IP6="$2"
+    shift 2
+    ;;
+  --txt)
+    DUCKDNS_TEXT="$2"
+    shift 2
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+[[ -n "$DUCKDNS_API_KEY" ]] || printf_exit "Please set your duckdns api key - DUCKDNS_API_KEY"
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+cmd_exists --error --ask bash curl || exit 1 # exit 1 if not found
+am_i_online --error || exit 1                # exit 1 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+case "$1" in
+update)
+  shift 1
+  __var_check "$1"
+  __duckdns_update "$@"
+  ;;
+
+*)
+  __var_check "$1"
+  __duckdns_update "$@"
+  ;;
+
+esac
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-$?}

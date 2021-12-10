@@ -88,8 +88,12 @@ EOF
 # Additional functions
 __template() {
   title="${1:-$POSTIT_BLOG_TITLE}"
-  [[ -f "$POSTIT_CONFIG_DIR/$POSTIT_TEMPLATE_FILE" ]] || return 1
-  cat <<EOF | tee
+  if [[ -f "$POSTIT_CONFIG_DIR/$POSTIT_TEMPLATE_FILE" ]]; then
+    cat <<EOF | tee "$2" &>/dev/null
+. $POSTIT_CONFIG_DIR/$POSTIT_TEMPLATE_FILE"
+EOF
+  else
+    cat <<EOF | tee "$2" &>/dev/null
 ---
 layout: post
 title: $title
@@ -104,6 +108,100 @@ comments: true
 # Head
 
 EOF
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__set_vars() {
+  POSTIT_BLOG_TITLE="${1:-$POSTIT_BLOG_TITLE}"
+  POSTIT_BLOG_REPO="${2:-$POSTIT_BLOG_REPO}"
+  POSTIT_BLOG_DIR="${3:-$POSTIT_BLOG_DIR}"
+  POSTIT_BLOG_FILE="$(date +'%Y-%m-%d')-${POSTIT_BLOG_TITLE}.md"
+  POSTIT_BLOG_FILENAME="${POSTIT_BLOG_FILE// /-}"
+  POSTIT_BLOG_API_URL="https://api.github.com/repos/$POSTIT_BLOG_REPO/contents/${POSTIT_BLOG_DIR:-_posts}/$POSTIT_BLOG_FILENAME"
+  POSTIT_BLOG_API_INFO="$(curl -q -LSs -H "Authorization: token $POSTIT_GITHUB_AUTH_TOKEN" "$POSTIT_BLOG_API_URL" 2>/dev/null | jq -r '{ name:.name,path:.path,sha:.sha,download_url:.download_url,content:.content,type:.type,encoding:.encoding,url:.url }' 2>/dev/null || echo "")"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__var_check() {
+  [[ -n "${1:-$POSTIT_BLOG_TITLE}" ]] || printf_exit "Please provide a title [usage: $APPNAME <title>]"
+  [[ -n "${2:-$POSTIT_BLOG_REPO}" ]] || printf_exit "Please provide a repo [usage: $APPNAME <title> <repo>]"
+  [[ -n "${3:-$POSTIT_BLOG_DIR}" ]] || printf_exit "Please provide a directory [usage: $APPNAME <title> <repo> <dir>]"
+  [[ -n "$POSTIT_GITHUB_AUTH_TOKEN" ]] || printf_exit "Please provide a github auth token POSTIT_GITHUB_AUTH_TOKEN"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__delete_post() {
+  printf_exit "Not yet implemented"
+  api_file="$(echo "$api_url" | jq -r '.download_url' 2>/dev/null)"
+  sha="$(echo "$api_url" | jq -r '.sha' 2>/dev/null | grep -v 'null')"
+  curl -LSs -X DELETE \
+    -H "Accept: application/vnd.github.v3+json" \
+    -H "Authorization: token $POSTIT_GITHUB_AUTH_TOKEN" \
+    -H "Content-Type: application/octet-stream" \
+    "$POSTIT_BLOG_API_URL" -d '{"message":"🐜📓❇📓 Deleted blog post: '${POSTIT_BLOG_DIR:-_posts}/$POSTIT_BLOG_FILENAME' 📓❇📓🐜","sha":"'$sha'"}' &>"$POSTIT_LOG_DIR/$APPNAME.log"
+  cat "$POSTIT_LOG_DIR/$APPNAME.log"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__edit_post() {
+  local api_url="${1:-$POSTIT_BLOG_API_INFO}"
+  api_file="$(echo "$api_url" | jq -r '.download_url' 2>/dev/null)"
+  sha="$(echo "$api_url" | jq -r '.sha' 2>/dev/null | grep -v 'null')"
+  if [[ -n "$sha" ]]; then
+    curl -q -LSs "$api_file" -o "$POSTIT_TEMP_FILE" 2>/dev/null
+    __post_file "$sha"
+  else
+    __template "$POSTIT_BLOG_TITLE" "$POSTIT_TEMP_FILE" || printf_exit "Failed to create template"
+    __post_file
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__create_post() {
+  local POSTIT_BLOG_TITLE="${1:-$POSTIT_BLOG_TITLE}"
+  if [[ ! -f "$POSTIT_TEMP_FILE.err" ]]; then
+    if [[ -z "$POSTIT_BLOG_API_INFO" ]]; then
+      __template "$POSTIT_BLOG_TITLE" "$POSTIT_TEMP_FILE" || printf_exit "Failed to create template"
+      __post_file
+    else
+      __edit_post "$POSTIT_BLOG_API_INFO"
+    fi
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__post_file() {
+  local sha="${1:-$sha}"
+  if [[ -f "$POSTIT_TEMP_FILE.err" ]]; then
+    __mv_f "$POSTIT_TEMP_FILE.err" "$POSTIT_TEMP_FILE"
+  fi
+  $POSTIT_DEFAULT_EDITOR "$POSTIT_TEMP_FILE"
+  contents="$(base64 "$POSTIT_TEMP_FILE" | tr -d '\n\r')"
+  if [[ -n "$contents" ]]; then
+    curl -LSs -X PUT \
+      -H "Accept: application/vnd.github.v3+json" \
+      -H "Authorization: token $POSTIT_GITHUB_AUTH_TOKEN" \
+      -H "Content-Type: application/octet-stream" \
+      "$POSTIT_BLOG_API_URL" -d '{"message":"🐜📓❇📓 blog post: '${POSTIT_BLOG_DIR:-_posts}/$POSTIT_BLOG_FILENAME' 📓❇📓🐜","content":"'$contents'","sha":"'$sha'"}' &>"$POSTIT_LOG_DIR/$APPNAME.log"
+    url="$(cat "$POSTIT_LOG_DIR/$APPNAME.log" | jq -r '.content.html_url' 2>/dev/null)"
+    if [[ -n "$url" ]] && [[ "$url" != "null" ]] && [[ "$url" != "failed:" ]]; then
+      if grep -sqiv "documentation_url" "$POSTIT_LOG_DIR/$APPNAME.log"; then
+        printf_blue "Success: $url"
+        exitCode=0
+        __rm_rf "${POSTIT_TEMP_FILE}.base64"
+      else
+        error_log="$(cat "$POSTIT_LOG_DIR/$APPNAME.log" | jq -r '.message' 2>/dev/null)"
+        printf_red "Something went wrong: $error_log"
+        __mv_f "$POSTIT_TEMP_FILE" "${POSTIT_TEMP_FILE}.err"
+        exitCode=1
+      fi
+    else
+      error_log="$(cat "$POSTIT_LOG_DIR/$APPNAME.log" | jq -r '.message' 2>/dev/null)"
+      printf_red "failed: $error_log"
+      __mv_f "$POSTIT_TEMP_FILE" "${POSTIT_TEMP_FILE}.err"
+      exitCode=1
+    fi
+  else
+    error_log="$(cat "$POSTIT_LOG_DIR/$APPNAME.log" | jq -r '.message' 2>/dev/null)"
+    printf_red "Error: $error_log"
+    __mv_f "$POSTIT_TEMP_FILE" "${POSTIT_TEMP_FILE}.err"
+    exitCode=1
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default variables
@@ -168,7 +266,7 @@ fi
 SETARGS="$*"
 SHORTOPTS=""
 LONGOPTS="options,config,version,help,dir:"
-ARRAY=""
+ARRAY="create edit delete"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup application options
 setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
@@ -200,6 +298,7 @@ while :; do
     ;;
   --dir)
     POSTIT_CWD="$2"
+    [ -f "$POSTIT_CONFIG_DIR/$POSTIT_CWD" ] && . "$POSTIT_CONFIG_DIR/$POSTIT_CWD"
     shift 2
     ;;
   --)
@@ -218,52 +317,37 @@ cmd_exists --error --ask bash || exit 1 # exit 1 if not found
 #am_i_online --error || exit 1     # exit 1 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
-POSTIT_BLOG_TITLE="${1:-$POSTIT_BLOG_TITLE}"
-POSTIT_BLOG_REPO="${2:-$POSTIT_BLOG_REPO}"
-POSTIT_BLOG_DIR="${3:-$POSTIT_BLOG_DIR}"
-POSTIT_BLOG_FILE="$(date +'%Y-%m-%d')-${POSTIT_BLOG_TITLE}.md"
-POSTIT_BLOG_FILENAME="${POSTIT_BLOG_FILE// /-}"
-POSTIT_BLOG_API_URL="https://api.github.com/repos/$POSTIT_BLOG_REPO/contents/${POSTIT_BLOG_DIR:-_posts}/$POSTIT_BLOG_FILENAME"
-POSTIT_BLOG_API_INFO="$(curl -q -LSs -H "Authorization: token $POSTIT_GITHUB_AUTH_TOKEN" "$POSTIT_BLOG_API_URL" 2>/dev/null | jq -r 2>/dev/null | grep '^')"
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
-if echo $POSTIT_BLOG_API_INFO | grep -qE 'Not Found|get-repository-content'; then
-  __template "$POSTIT_BLOG_TITLE" >"$POSTIT_TEMP_FILE"
-else
-  api_file="$(echo $POSTIT_BLOG_API_INFO | jq -r '.download_url')"
-  sha="$(curl -q -LSs -H "Authorization: token $POSTIT_GITHUB_AUTH_TOKEN" "$POSTIT_BLOG_API_URL" 2>/dev/null | jq -r '.sha' 2>/dev/null | grep -v 'null')"
-  curl -q -LSs "$api_file" >"$POSTIT_TEMP_FILE" 2>/dev/null
-fi
-[[ -f "$POSTIT_TEMP_FILE.err" ]] && __mv_f "$POSTIT_TEMP_FILE.err" "$POSTIT_TEMP_FILE"
-$POSTIT_DEFAULT_EDITOR "$POSTIT_TEMP_FILE"
-contents="$(base64 "$POSTIT_TEMP_FILE" | tr -d '\n\r')"
-if [[ -n "$contents" ]]; then
-  curl -LSs -X PUT \
-    -H "Accept: application/vnd.github.v3+json" \
-    -H "Authorization: token $POSTIT_GITHUB_AUTH_TOKEN" \
-    -H "Content-Type: application/octet-stream" \
-    "$POSTIT_BLOG_API_URL" -d '{"message":"🐜📓❇📓 blog post: '${POSTIT_BLOG_DIR:-_posts}/$POSTIT_BLOG_FILENAME' 📓❇📓🐜","content":"'$contents'","sha":"'$sha'"}' &>"$POSTIT_LOG_DIR/$APPNAME.log"
-  url="$(cat "$POSTIT_LOG_DIR/$APPNAME.log" | jq -r '.content.html_url' 2>/dev/null)"
-  if [[ -n "$url" && "$url" != "null" ]]; then
-    if grep -sqiv "documentation_url" "$POSTIT_LOG_DIR/$APPNAME.log"; then
-      printf_blue "Success: $url"
-      exitCode=0
-      __rm_rf "${POSTIT_TEMP_FILE}.base64"
-    else
-      printf_red "Something went wrong"
-      __mv_f "$POSTIT_TEMP_FILE"
-      exitCode=1
-    fi
-  else
-    printf "failed: " && cat "$POSTIT_LOG_DIR/$APPNAME.log" | jq -cr '.message' | tr '\n' ' ' | sed 's|  | |g' | printf_readline '6'
-    echo
-    exitCode=1
-  fi
-else
-  printf_red "An error has occurred"
-  exitCode=1
-fi
+case "$1" in
+new | create)
+  shift 1
+  __set_vars "$@"
+  __var_check "$1" "$2" "$3"
+  __create_post "$1"
+  ;;
+
+edit)
+  shift 1
+  __set_vars "$@"
+  __var_check "$1" "$2" "$3"
+  __edit_post "$POSTIT_BLOG_API_INFO"
+  ;;
+
+delete)
+  shift 1
+  __set_vars "$@"
+  __var_check "$1" "$2" "$3"
+  __delete_post "$1"
+  ;;
+
+*)
+  __set_vars "$@"
+  __var_check "$1" "$2" "$3"
+  __create_post "$1"
+  ;;
+esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

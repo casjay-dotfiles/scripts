@@ -111,6 +111,7 @@ SERVER_SSL_KEY="/etc/ssl/CA/CasjaysDev/private/localhost.key"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Override global variables
 [[ -f "$HOME/.config/myscripts/dockermgr/env" ]] && . "$HOME/.config/myscripts/dockermgr/env"
+[[ -f "$APPDIR/env" ]] && . "$APPDIR/env"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show post install message
 SERVER_MESSAGE=""

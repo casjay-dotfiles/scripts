@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : GEN_SCRIPT_REPLACE_VERSION
-# @Author        : GEN_SCRIPT_REPLACE_AUTHOR
-# @Contact       : GEN_SCRIPT_REPLACE_EMAIL
-# @License       : GEN_SCRIPT_REPLACE_LICENSE
-# @ReadME        : GEN_SCRIPT_REPLACE_FILENAME --help
-# @Copyright     : GEN_SCRIPT_REPLACE_COPYRIGHT
-# @Created       : GEN_SCRIPT_REPLACE_DATE
-# @File          : GEN_SCRIPT_REPLACE_FILENAME
-# @Description   : GEN_SCRIPT_REPLACE_DESC
-# @TODO          : GEN_SCRIPT_REPLACE_TODO
-# @Other         : GEN_SCRIPT_REPLACE_OTHER
-# @Resource      : GEN_SCRIPT_REPLACE_RES
+##@Version       : 202112161543-git
+# @Author        : Jason Hempstead
+# @Contact       : jason@casjaysdev.com
+# @License       : WTFPL
+# @ReadME        : install.sh --help
+# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created       : Sunday, Dec 05, 2021 22:12 EST
+# @File          : install.sh
+# @Description   :
+# @TODO          :
+# @Other         :
+# @Resource      :
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
 USER="${SUDO_USER:-${USER}}"
@@ -77,7 +77,7 @@ REPORAW="$REPO/raw/$REPO_BRANCH"
 APPVERSION="$(__appversion "$REPORAW/version.txt")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # URL to container image [docker pull URL]
-HUB_URL="GEN_SCRIPT_REPLACE_APPNAME"
+HUB_URL="HubURL/GEN_SCRIPT_REPLACE_APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Directory variables
 SERVER_DATA_DIR=""
@@ -94,13 +94,13 @@ SERVER_HOST="${APPNAME}.$(hostname -d 2>/dev/null | grep '^' || echo local)"
 SERVER_TIMEZONE="${TZ:-${TIMEZONE:-America/New_York}}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Port Setup [ _INT is container port ]
-SERVER_PORT="${SERVER_PORT:-15002}"
-SERVER_PORT_INT="${SERVER_PORT_INT:-80}"
+SERVER_PORT="${SERVER_PORT:-}"
+SERVER_PORT_INT="${SERVER_PORT_INT:-}"
 SERVER_PORT_ADMIN="${SERVER_PORT_ADMIN:-}"
 SERVER_PORT_ADMIN_INT="${SERVER_PORT_ADMIN_INT:-}"
-SERVER_PORT_OTHER="${SERVER_PORT_OTHER:-15003}"
-SERVER_PORT_OTHER_INT="${SERVER_PORT_OTHER_INT:-443}"
-SERVER_WEB_PORT="${SERVER_WEB_PORT:-$SERVER_PORT_ADMIN}"
+SERVER_PORT_OTHER="${SERVER_PORT_OTHER:-}"
+SERVER_PORT_OTHER_INT="${SERVER_PORT_OTHER_INT:-}"
+SERVER_WEB_PORT="${SERVER_WEB_PORT:-$SERVER_PORT}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # SSL Setup
 SERVER_SSL_CA="/etc/ssl/CA/CasjaysDev/certs/ca.crt"
@@ -185,10 +185,9 @@ else
     --restart=always \
     --privileged \
     -e TZ="$SERVER_TIMEZONE" \
-    -v "$LOCAL_DATA_DIR":$SERVER_DATA_DIR \
-    -v "$LOCAL_CONFIG_DIR":$SERVER_CONFIG_DIR \
+    -v $LOCAL_DATA_DIR:/data \
+    -v $LOCAL_CONFIG_DIR:/config \
     -p $SERVER_LISTEN:$SERVER_PORT:$SERVER_PORT_INT \
-    -p $SERVER_LISTEN:$SERVER_PORT_OTHER:$SERVER_PORT_OTHER_INT \
     "$HUB_URL" &>/dev/null
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

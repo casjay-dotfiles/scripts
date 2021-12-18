@@ -1,0 +1,383 @@
+#!/usr/bin/env bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version       : 202112171704-git
+# @Author        : Jason Hempstead
+# @Contact       : jason@casjaysdev.com
+# @License       : WTFPL
+# @ReadME        : timeis --help
+# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created       : Friday, Dec 17, 2021 17:04 EST
+# @File          : timeis
+# @Description   : get current time for any timezone
+# @TODO          :
+# @Other         :
+# @Resource      :
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="$(basename "$0" 2>/dev/null)"
+VERSION="202112171704-git"
+HOME="${USER_HOME:-$HOME}"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${SUDO_USER:-$USER}"
+SRC_DIR="${BASH_SOURCE%/*}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set bash options
+if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import functions
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+  . "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  exit 1
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# user system devenv dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+user_install
+__options "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set functions
+__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gen_config() {
+  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Generating the config file in"
+  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "$TIMEIS_CONFIG_DIR/$TIMEIS_CONFIG_FILE"
+  [ -d "$TIMEIS_CONFIG_DIR" ] || mkdir -p "$TIMEIS_CONFIG_DIR"
+  [ -d "$TIMEIS_CONFIG_BACKUP_DIR" ] || mkdir -p "$TIMEIS_CONFIG_BACKUP_DIR"
+  [ -f "$TIMEIS_CONFIG_DIR/$TIMEIS_CONFIG_FILE" ] &&
+    cp -Rf "$TIMEIS_CONFIG_DIR/$TIMEIS_CONFIG_FILE" "$TIMEIS_CONFIG_BACKUP_DIR/$TIMEIS_CONFIG_FILE.$$"
+  cat <<EOF >"$TIMEIS_CONFIG_DIR/$TIMEIS_CONFIG_FILE"
+# Settings for timeis
+TIMEIS_API_URL="${TIMEIS_API_URL:-http://worldtimeapi.org/api}"
+
+# Notification settings
+TIMEIS_GOOD_MESSAGE="${TIMEIS_GOOD_MESSAGE:-Everything Went OK}"
+TIMEIS_ERROR_MESSAGE="${TIMEIS_ERROR_MESSAGE:-Well something seems to have gone wrong}"
+TIMEIS_NOTIFY_ENABLED="${TIMEIS_NOTIFY_ENABLED:-yes}"
+TIMEIS_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+TIMEIS_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$TIMEIS_NOTIFY_CLIENT_ICON}"
+
+# Colorization settings
+TIMEIS_OUTPUT_COLOR="${TIMEIS_OUTPUT_COLOR:-5}"
+TIMEIS_OUTPUT_COLOR_GOOD="${TIMEIS_OUTPUT_COLOR_GOOD:-2}"
+TIMEIS_OUTPUT_COLOR_ERROR="${TIMEIS_OUTPUT_COLOR_ERROR:-1}"
+
+EOF
+  if [ -f "$TIMEIS_CONFIG_DIR/$TIMEIS_CONFIG_FILE" ]; then
+    [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for $APPNAME has been created"
+    exitCode=0
+  else
+    printf_red "Failed to create the config file"
+    exitCode=1
+  fi
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional functions
+__api() {
+  local options response
+  options="${options:-$*}"
+  response="$(curl -q -LSs --fail "$TIMEIS_API_URL/$options" 2>/dev/null || return 1)"
+  if [[ -n "$response" ]]; then
+    echo "$response"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__jq() {
+  local error response
+  response="$(jq -r "$1" 2>/dev/null || return 1)"
+  if [[ -n "$response" ]]; then
+    echo "$response"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get() {
+  if [[ $1 = "help" ]]; then
+    printf_cyan "Listing all available time zones"
+    __api "timezones" | __jq '.[]' | printf_column
+    exit
+  elif [[ $# = 1 ]]; then
+    opts="timezone/$*"
+  elif [[ $# = 2 ]]; then
+    opts="$1/$2"
+  elif [[ $# = 3 ]]; then
+    opts="$1/$2/$3"
+  else
+    if [[ -f "/etc/timezone" ]]; then
+      opts="$(</etc/timezone)"
+    elif [[ -n "$TIMEZONE" ]]; then
+      opts="$TIMEZONE"
+    fi
+  fi
+
+  res="$(__api "$opts")"
+  if [[ -z "$res" ]]; then
+    printf_exit "Failed getting info from $TIMEIS_API_URL/$opts"
+  fi
+
+  abbreviation="$(echo "$res" | __jq '.abbreviation')"
+  raw_offset="$(echo "$res" | __jq '.raw_offset')"
+  unixtime="$(echo "$res" | __jq '.unixtime')"
+  client_ip="$(echo "$res" | __jq '.client_ip')"
+  timezone="$(echo "$res" | __jq '.timezone')"
+  day_of_week="$(echo "$res" | __jq '.day_of_week')"
+  day_of_year="$(echo "$res" | __jq '.day_of_year')"
+  week_number="$(echo "$res" | __jq '.week_number')"
+
+  if [[ -z "$abbreviation" ]] || [[ -z "$raw_offset" ]] || [[ -z "$timezone" ]] || [[ -z "$day_of_week" ]] || [[ -z "$week_number" ]]; then
+    printf_red "Failed getting timezone info"
+    printf_red "Make sure you have a valid time zone"
+    printf_exit "See $APPNAME help for a complete list of timezones"
+  fi
+
+  case "$raw_offset" in
+  -*)
+    epoch="$unixtime"
+    offset="$(echo $raw_offset | awk -F'\-' '{print $2}' 2>/dev/null)"
+    time="$((epoch - offset))"
+    tzdate="$(date -u -d @"${time:-$epoch}" +'%A, %B %d, %Y')"
+    tztime="$(date -u -d @"${time}" +'%T '$abbreviation'')"
+    offsetSym="➖ $((offset / 60 / 60)) hour[s]"
+    ;;
+  +*)
+    epoch="$unixtime"
+    offset="$(echo $raw_offset | awk -F'+' '{print $2}' 2>/dev/null)"
+    time="$((epoch + offset))"
+    tzdate="$(date -u -d @"${time:-$epoch}" +'%A, %B %d, %Y')"
+    tztime="$(date -u -d @"${time}" +'%T '$abbreviation'')"
+    offsetSym="➕ $((offset / 60 / 60)) hour[s]"
+    ;;
+  *)
+    epoch="$unixtime"
+    offset="$raw_offset"
+    time="$((epoch + offset))"
+    tzdate="$(date -u -d @"${time:-$epoch}" +'%A, %B %d, %Y')"
+    tztime="$(date -u -d @"${time}" +'%T '$abbreviation'')"
+    offsetSym="➕ $((offset / 60 / 60)) hour[s]"
+    ;;
+  esac
+  [[ "$offset" = 0 ]] && offsetSym="0" && offset="0"
+
+  if [[ "$timezone" == "$abbreviation" ]]; then
+    [[ -z "$timezone" ]] || printf_blue "Requested timezone is:  $timezone"
+  else
+    [[ -z "$timezone" ]] || printf_blue "Requested timezone is:  $timezone"
+    [[ -z "$timezone" ]] || printf_blue "Abbrevated timezone is: $abbreviation"
+  fi
+  [[ -z "$tzdate" ]] || printf_blue "Date is:                $tzdate"
+  [[ -z "$tztime" ]] || printf_blue "Time is:                $tztime"
+  [[ -z "$offset" ]] || printf_blue "Diff from GMT is:       ${offsetSym}"
+  [[ -z "$day_of_week" ]] || printf_blue "Day of week is:         $day_of_week"
+  [[ -z "$day_of_year" ]] || printf_blue "Day of year is:         $day_of_year"
+  [[ -z "$week_number" ]] || printf_blue "Week number is:         $week_number"
+  [[ -z "$client_ip" ]] || printf_blue "Your IP is:             $client_ip"
+  __footer "$set_tz"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__convert() {
+  # Convert date to unixtime
+  local set_tz date time date_format time_format date_time unixtime
+  [[ -n "$1" ]] && set_tz="$1" || printf_exit "Please specify a timezone to convert to"
+  [[ -n "$2" ]] && date="$2" || date="$(date +'%Y-%m-%d' 2>/dev/null)"
+  [[ -n "$3" ]] && time="$3" || time="$(date +'%H:%M:%S' 2>/dev/null)"
+  date_format="${4:-%Y-%m-%d}"
+  time_format="${5:-%H:%M:%S}"
+  date_time="$date $time"
+  unixtime="$(date -u -d "$date_time" +'%s' 2>/dev/null)"
+
+  if [[ -z "$unixtime" ]] || [[ -z "$date" ]]; then
+    printf_red "Failed converting date to unixtime"
+    printf_exit "Make sure you have a valid date"
+  fi
+
+  printf_cyan "The date in $set_tz is: $(__showdate $my_tz $set_tz 2>/dev/null)"
+  printf_cyan "The time in $set_tz is: $(__showtime $my_tz $set_tz 2>/dev/null)"
+  __footer "$set_tz"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__showtime() {
+  local TZIN TZOUT FORMAT
+  TZIN=$1
+  TZOUT=$2
+  FORMAT='%H:%M:%S'
+  TZ=$TZOUT date --date='TZ="'$TZIN'"'" $time" +"$FORMAT"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__showdate() {
+  local TZIN TZOUT FORMAT
+  TZIN=$1
+  TZOUT=$2
+  FORMAT='%Y-%m-%d'
+  TZ=$TZOUT date --date='TZ="'$TZIN'"'" $time" +"$FORMAT"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__date() {
+  local new tz
+  new="$(date +'%s')"
+  script_date="$new"
+  if [[ -f "/etc/timezone" ]]; then
+    my_tz="$(</etc/timezone)"
+  elif [[ -n "$TIMEZONE" ]]; then
+    my_tz="$TIMEZONE"
+  else
+    my_tz="America/New_York"
+  fi
+  printf_purple "epoch time: $(date -d @"${new}" +"%s")"
+  printf_purple "Current date in $my_tz:  $(date -d @"${new}" +"%Y-%m-%d")"
+  printf_purple "Current time in $my_tz:  $(date -d @"${new}" +"%H:%M:%S")"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__footer() {
+  zone="$(echo "$1" | tr '[:upper:]' '[:lower:]')"
+  printf_blue "--------------------------------------------------------------------------------"
+  printf_purple "https://www.timeanddate.com/time/zones/$zone"
+  printf_purple 'https://www.timeanddate.com/time/map/#!cities=241'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Default variables
+exitCode=
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application Folders
+TIMEIS_LOG_DIR="${TIMEIS_LOG_DIR:-$HOME/.local/log/timeis}"
+TIMEIS_CACHE_DIR="${TIMEIS_CACHE_DIR:-$HOME/.cache/timeis}"
+TIMEIS_CONFIG_DIR="${TIMEIS_CONFIG_DIR:-$HOME/.config/myscripts/timeis}"
+TIMEIS_OPTIONS_DIR="${TIMEIS_OPTIONS_DIR:-$HOME/.local/share/myscripts/timeis/options}"
+TIMEIS_CONFIG_BACKUP_DIR="${TIMEIS_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/timeis/backups}"
+TIMEIS_TEMP_DIR="${TIMEIS_TEMP_DIR:-$HOME/.local/tmp/system_scripts/timeis}"
+TIMEIS_CONFIG_FILE="${TIMEIS_CONFIG_FILE:-settings.conf}"
+TIMEIS_GOOD_MESSAGE="${TIMEIS_GOOD_MESSAGE:-Everything Went OK}"
+TIMEIS_ERROR_MESSAGE="${TIMEIS_ERROR_MESSAGE:-Well something seems to have gone wrong}"
+TIMEIS_NOTIFY_ENABLED="${TIMEIS_NOTIFY_ENABLED:-yes}"
+TIMEIS_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+TIMEIS_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$TIMEIS_NOTIFY_CLIENT_ICON}"
+TIMEIS_OUTPUT_COLOR="${TIMEIS_OUTPUT_COLOR:-5}"
+TIMEIS_OUTPUT_COLOR_GOOD="${TIMEIS_OUTPUT_COLOR_GOOD:-2}"
+TIMEIS_OUTPUT_COLOR_ERROR="${TIMEIS_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Enviroment overrides
+TIMEIS_API_URL="${TIMEIS_API_URL:-http://worldtimeapi.org/api}"
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$TIMEIS_CONFIG_DIR/$TIMEIS_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$TIMEIS_CONFIG_DIR/$TIMEIS_CONFIG_FILE" ] && . "$TIMEIS_CONFIG_DIR/$TIMEIS_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories and files exist
+[ -d "$TIMEIS_LOG_DIR" ] || mkdir -p "$TIMEIS_LOG_DIR" &>/dev/null
+[ -d "$TIMEIS_TEMP_DIR" ] || mkdir -p "$TIMEIS_TEMP_DIR" &>/dev/null
+[ -d "$TIMEIS_CACHE_DIR" ] || mkdir -p "$TIMEIS_CACHE_DIR" &>/dev/null
+TIMEIS_TEMP_FILE="${TIMEIS_TEMP_FILE:-$(mktemp $TIMEIS_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap 'exitCode=${exitCode:-$?};[ -n "$TIMEIS_TEMP_FILE" ] && [ -f "$TIMEIS_TEMP_FILE" ] && rm -Rf "$TIMEIS_TEMP_FILE" &>/dev/null' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+if [ "$TIMEIS_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${TIMEIS_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${TIMEIS_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${TIMEIS_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${TIMEIS_NOTIFY_CLIENT_ICON}"
+    notifications "$@" && exitCode=0 || exitCode=1
+    unset NOTIFY_CLIENT_NAME NOTIFY_CLIENT_ICON NOTIFY_GOOD_MESSAGE NOTIFY_ERROR_MESSAGE
+    return ${exitCode:-$?}
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS=""
+LONGOPTS="options,config,version,help,dir:"
+ARRAY=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --options)
+    shift 1
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    __help
+    shift 1
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  --dir)
+    TIMEIS_CWD="$2"
+    shift 2
+    ;;
+  --ts)
+    shift 1
+    __date
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+cmd_exists --error --ask bash curl jq || exit 1 # exit 1 if not found
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+case $1 in
+convert)
+  shift 1
+  __date
+  __convert "$@"
+  ;;
+
+get)
+  shift 1
+  am_i_online --error || exit 1 # exit 1 if no internet
+  __get "$@"
+  ;;
+
+*)
+  __date
+  ;;
+
+esac
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-$?}

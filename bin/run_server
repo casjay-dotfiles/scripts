@@ -46,6 +46,15 @@ __options "$@"
 # Set functions
 __list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__exit() {
+  local pid="$1"
+  trap 'trap - INT
+  kill -s INT "$pid"
+' INT
+  printf_red "Killing the server with pid: $pid"
+  exit 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gen_config() {
   [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Generating the config file in"
   [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "$RUN_SERVER_CONFIG_DIR/$RUN_SERVER_CONFIG_FILE"
@@ -82,12 +91,13 @@ EOF
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional functions
 main() {
+  trap '__exit $$' INT
   i=0
   port="${1:-8000}" && shift 1
   other_port="${1:-}"
-  myip=$(__getlipaddr && echo "$CURRIP4")
+  myip=$(__getlipaddr && echo "$CURRIP4" || echo '127.0.0.1')
   myhost="$(hostname -s || echo localhost)"
-  MAX_NUMBER_OF_TRIES=${MAX_NUMBER_OF_TRIES:-10}
+  MAX_NUMBER_OF_TRIES=${MAX_NUMBER_OF_TRIES:-20}
   RUN_SERVER_TEMP_DIR="${RUN_SERVER_TEMP_DIR:-/tmp}"
   SERVER_LOG="${SERVER_LOG:-$RUN_SERVER_TEMP_DIR/run_server_${other_port:-$port}.log}"
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -103,17 +113,18 @@ main() {
   printf '%s\n' "Starting the server on port ${other_port:-$port}" &>"$SERVER_LOG"
   while [ $i -lt $MAX_NUMBER_OF_TRIES ]; do
     if [ "$(lsof -i -nP | grep "${other_port:-$port}" | grep -i "$prog")" != "" ]; then
-      sleep 20
-      open_url "http://$myip:${other_port:-$port}}/" &>/dev/null
+      sleep 1
+      open_url "http://$myip:${other_port:-$port}"
       break
     fi
     i=$((i + 1))
-    sleep 5
+    sleep .5
   done &
   if [ -n "$dir" ] && [ -d "$dir" ]; then
     printf_green "serving files from $dir"
     cd "$dir" || printf_exit "Could not cd into $dir"
   fi
+  printf_purple "serving files from ${dir:-$PWD} with pid: $$"
   printf_blue "Log file: $SERVER_LOG"
   printf_yellow "Access from the network: http://$myip:${other_port:-$port}"
   printf_red "control-c to exit"
@@ -141,7 +152,7 @@ __netcat_serv() { while true; do nc -l "${port}" <.; done &>>"$SERVER_LOG" && ec
 __static() { __go || __caddy || __php_serv || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 open_url() {
-  [ -z "$SSH_CONNECTION" ] || [ -z "$DISPLAY" ] || [[ "$(uname -s)" = "Darwin" ]] || return
+  [ -n "$SSH_CONNECTION" ] && return
   if cmd_exists mybrowser; then
     mybrowser "$1"
   elif cmd_exists "xdg-open"; then
@@ -395,7 +406,6 @@ netcat | nc)
 
 *)
   ARGS="$*"
-  [ -n "$ARGS" ] || __help
   main $ARGS
   __default_srv || __python3_serv || __python2_serv || __py_simple || __netcat_serv || __return_error
   ;;

@@ -599,14 +599,22 @@ __getip() {
 __getip 2>/dev/null
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __getpythonver() {
-  if [[ "$(python -V 2>/dev/null)" =~ "Python 3" ]]; then
+  if builtin type -P python3 &>/dev/null; then
+    PYTHONBIN="python3"
+  elif builtin type -P python2 &>/dev/null; then
+    PYTHONBIN="python2"
+  else
+    PYTHONBIN="python"
+  fi
+  [[ -n "$PYTHONBIN" ]] || return 1
+  if [[ "$($PYTHONBIN -V 2>/dev/null)" =~ "Python 3" ]]; then
     PYTHONVER="python3"
     PIP="pip3"
-    PATH="${PATH}:$(python3 -c 'import site; print(site.USER_BASE)')/bin"
-  elif [[ "$(python -V 2>/dev/null)" =~ "Python 2" ]]; then
+    PATH="${PATH}:$($PYTHONBIN -c 'import site; print(site.USER_BASE)')/bin"
+  elif [[ "$($PYTHONBIN -V 2>/dev/null)" =~ "Python 2" ]]; then
     PYTHONVER="python"
     PIP="pip"
-    PATH="${PATH}:$(python -c 'import site; print(site.USER_BASE)')/bin"
+    PATH="${PATH}:$($PYTHONBIN -c 'import site; print(site.USER_BASE)')/bin"
   fi
   if [ -f "$(builtin type -P yay 2>/dev/null)" ] || [ -f "$(builtin type -P pacman 2>/dev/null)" ]; then
     PYTHONVER="python"

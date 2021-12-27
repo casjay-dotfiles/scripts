@@ -890,7 +890,10 @@ __getpythonver() {
     PIP="pip"
     PATH="${PATH}:$(python -c 'import site; print(site.USER_BASE)')/bin"
   fi
-  if builtin type -P yay &>/dev/null || builtin type -P pacman &>/dev/null; then PYTHONVER="python" && PIP="pip3"; fi
+  if builtin type -P yay &>/dev/null || builtin type -P pacman &>/dev/null; then
+    PYTHONVER="python"
+    PIP="pip3"
+  fi
 }
 __getphpver() {
   if builtin type -P php &>/dev/null; then

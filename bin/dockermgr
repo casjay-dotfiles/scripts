@@ -64,7 +64,7 @@ __gen_config() {
 # Settings for dockermgr
 DOCKERMGR_GIT_REPO="${DOCKERMGR_GIT_REPO:-https://github.com/dockermgr}"
 DOCKERMGR_CLONE_DIR="${DOCKERMGR_CLONE_DIR:-$HOME/Projects/dockermgr}"
-DOCKERMGR_DOCKER_BIN="${DOCKERMGR_DOCKER_BIN:-__sudo -HE docker}"
+DOCKERMGR_DOCKER_BIN="${DOCKERMGR_DOCKER_BIN:-sudo -HE docker}"
 DOCKERMGR_INSTALL_SCRIPT="${DOCKERMGR_INSTALL_SCRIPT:-https://get.docker.com}"
 DOCKERMGR_K3B_INSTALL_SCRIPT="${DOCKERMGR_K3B_INSTALL_SCRIPT:-https://get.k3s.io}"
 DOCKERMGR_HOME="${DOCKERMGR_HOME:-$HOME/.local/share/srv/docker}"
@@ -99,10 +99,36 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional functions
+__col() { awk -v col=$1 '{print $col}'; }
 __docker() { eval $DOCKERMGR_DOCKER_BIN "$*"; }
-__docker_stop() { __docker ps -q 2>/dev/null | xargs $DOCKERMGR_DOCKER_BIN stop; }
-__docker_rm() { __docker ps -aq 2>/dev/null | __col 3 | xargs $DOCKERMGR_DOCKER_BIN rm -f; }
-__docker_rmi() { __docker images 2>/dev/null | grep none | __col 3 | xargs $DOCKERMGR_DOCKER_BIN rmi -f; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__docker_stop() {
+  get_running="$(__docker ps -q 2>/dev/null)"
+  __docker stop "$get_running" &>/dev/null &&
+    printf_green "Stopped the following containers: $get_running" ||
+    printf_red "Failed to stop the following containers: $get_running"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__docker_rm() {
+  getcontents=$(__docker ps -aq 2>/dev/null | __col 3)
+  for content in $getcontents; do
+    __docker rm -f $content &>/dev/null &&
+      printf_green "Removed container: $content" ||
+      printf_red "Failed to remove container: $content"
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__docker_rmi() {
+  getcontents=$(__docker images 2>/dev/null | grep -v 'IMAGE ID' | __col 3)
+  for contents in $getcontents; do
+    image_name="$(__docker images 2>/dev/null | grep -v 'REPOSITORY' | grep "$contents" | awk '{print $1}')"
+    running_container="$(__docker container ls 2>/dev/null | grep -v 'CONTAINER ID' | grep "$image_name" | awk '{print $1}')"
+    [[ -n "$running_container" ]] && __docker rm -f "$running_container" &>/dev/null && running_container=""
+    __docker rmi -f $contents 2>&1 | grep -q 'running container' &>/dev/null && REMOVED="TRUE" || REMOVED="FALSE"
+    [[ "$REMOVED" = "TRUE" ]] && printf_green "Removed image: $contents" || printf_red "Failed to remove image: $contents"
+    [[ -z "$running_container" ]] || printf_blue "Can not delete an image that is currently running"
+  done
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __sudo_rm() {
   if __sudo -n true &>/dev/null && __sudo true; then
@@ -474,7 +500,7 @@ DOCKERMGR_OUTPUT_COLOR_GOOD="${DOCKERMGR_OUTPUT_COLOR_GOOD:-2}"
 DOCKERMGR_OUTPUT_COLOR_ERROR="${DOCKERMGR_OUTPUT_COLOR_ERROR:-1}"
 DOCKERMGR_GIT_REPO="${DOCKERMGR_GIT_REPO:-https://github.com/dockermgr}"
 DOCKERMGR_CLONE_DIR="${DOCKERMGR_CLONE_DIR:-$HOME/Projects/dockermgr}"
-DOCKERMGR_DOCKER_BIN="${DOCKERMGR_DOCKER_BIN:-__sudo -HE docker}"
+DOCKERMGR_DOCKER_BIN="${DOCKERMGR_DOCKER_BIN:-sudo -HE docker}"
 DOCKERMGR_INSTALL_SCRIPT="${DOCKERMGR_INSTALL_SCRIPT:-https://get.docker.com}"
 DOCKERMGR_HOME="${DOCKERMGR_HOME:-$HOME/.local/share/srv/docker}"
 DOCKERMGR_INSTALL_TMP="${DOCKERMGR_INSTALL_TMP:-/tmp/docker_install.sh}"
@@ -723,20 +749,20 @@ rm)
 rmi)
   shift 1
   ARGS="$*"
-  [ "${#ARGS}" -ne 0 ] || __docker images
-  if [[ "$INSTALL_ALL" = "true" ]]; then
-    shift 1
+  [ "${#ARGS}" -ne 0 ] || [ -n "$INSTALL_ALL" ] || __docker images
+  if [[ "$1" = "force" ]]; then
     printf_red "Deleting all docker images"
     printf_yellow "However, your data files will remain in"
     printf_blue "$HOME/.local/share/srv/docker"
     __docker_rmi
     exit $?
-  elif [[ "$1" = "all" ]]; then
+  elif [[ "$1" = "all" ]] || [[ "$INSTALL_ALL" = "true" ]]; then
     IMAGES=($(docker images | grep -v 'IMAGE ID' | awk '{print $3}' | sort -u))
-    for image in ${IMAGES[@]}; do
+    for image in "${IMAGES[@]}"; do
       docker rmi "$image" 2>&1 | grep -q 'running container' && RUNNING="true" || RUNNING=""
       [[ "$RUNNING" != "" ]] || true
     done
+    exit $?
   else
     for image in $ARGS; do
       if __docker images | grep -q "$image"; then

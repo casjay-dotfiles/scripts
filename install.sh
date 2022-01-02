@@ -115,7 +115,7 @@ install_gem "$GEMS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Other dependencies
 dotfilesreq
-dotfilesreqadmin
+dotfilesreqadmin cron
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure directories exist
 ensure_dirs
@@ -181,13 +181,13 @@ run_postinst() {
   done
   cmd_exists --config &>/dev/null
   cmd_exists update-motd && update-ip && update-motd || true
-  dotfilesreqadmin cron
   for mgr in devenvmgr dfmgr dockermgr fontmgr iconmgr passmgr pkmgr systemmgr thememgr wallpapermgr; do
     $mgr --config &>/dev/null
   done
   echo '5 4 * * * root [ -f $(builtin type -P systemmgr 2>/dev/null) ] && systemmgr update scripts cron &>/dev/null' | tee /etc/cron.d/systemmgr &>/dev/null
   grep 'Defaults.*.env_reset' /etc/sudoers | grep -v '!' && sed -i 's|env_reset|!env_reset|g' /etc/sudoers
   grep 'Defaults.*.secure_path' /etc/sudoers && sed -i 's|secure_path =.*|secure_path = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"|g' /etc/sudoers
+  [[ -f "/bin/hostname" ]] || [[ -f "/usr/bin/hostname" ]] || [[ -f "/sbin/hostname" ]] || [[ -f "/usr/sbin/hostname" ]] || ln_sf "$INSTDIR/bin/hostnamecli" "/usr/local/bin/hostname"
 }
 #
 execute "run_postinst" "Running post install scripts"

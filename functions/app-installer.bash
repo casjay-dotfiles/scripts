@@ -862,9 +862,9 @@ dotfilesreqcmd() {
     bash -c "$(curl -LSs $gitrepo/raw/$GIT_REPO_BRANCH/install.sh)" &>/dev/null || return 1
 }
 dotfilesreqadmincmd() {
-  local gitrepo="${SYSTEMMGRREPO:-https://github.com/systemmgr}/${1:-$conf}"
-  urlverify "$gitrepo/raw/$GIT_REPO_BRANCH/install.sh" &&
-    sudo -HE bash -c "$(curl -LSs $gitrepo/raw/$GIT_REPO_BRANCH/install.sh)" &>/dev/null || return 1
+  local gitrepoadmin="${SYSTEMMGRREPO:-https://github.com/systemmgr}/${1:-$conf}"
+  urlverify "$gitrepoadmin/raw/$GIT_REPO_BRANCH/install.sh" &&
+    sudo -HE bash -c "$(curl -LSs $gitrepoadmin/raw/$GIT_REPO_BRANCH/install.sh)" &>/dev/null || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 dotfilesreq() {
@@ -884,7 +884,7 @@ dotfilesreqadmin() {
   for conf in ${LISTARRAY[*]}; do
     if [ ! -f "$confdir/$conf" ] && [ ! -f "$TEMP/$conf.inst.tmp" ]; then
       touch "$TEMP/$conf.inst.tmp"
-      dotfilesreqcmd $conf
+      dotfilesreqcmd "$conf"
     fi
   done
 }

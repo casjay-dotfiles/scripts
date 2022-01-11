@@ -2089,25 +2089,24 @@ __main_installer_info() {
     REPO="$SYSTEMMGRREPO/installer"
     REPORAW="$REPO/raw/$GIT_REPO_BRANCH"
   fi
-  #printf_exit "A:$APPNAME D:$APPDIR I:$INSTDIR P:$PLUGDIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 run_install_init() {
-  SET_SUDO_PROMPT="$(printf "\n\t\t\033[1;31m")[sudo]$(printf "\033[1;36m") password for $(printf "\033[1;32m")%p: $(printf "\033[0m")"
-  (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null || sudo -n true &>/dev/null || SUDO_PROMPT="$SET_SUDO_PROMPT" sudo true
-  trap '[ -f "$TMPINST" ] && rm -Rf "$TMPINST"' EXIT
-  __main_installer_info &>/dev/null
   local TMPDIR="${TMPDIR:-/tmp}"
   local APPNAME="${APPNAME:-$PROG}"
   local TMPFILE="$TMPDIR/$APPNAME.tmp"
   local TMPINST="$TMPDIR/$APPNAME.inst.tmp"
   local exitCode=0
   export APPDIR INSTDIR
+  SET_SUDO_PROMPT="$(printf "\n\t\t\033[1;31m")[sudo]$(printf "\033[1;36m") password for $(printf "\033[1;32m")%p: $(printf "\033[0m")"
+  (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null || sudo -n true &>/dev/null || SUDO_PROMPT="$SET_SUDO_PROMPT" sudo true
+  __main_installer_info &>/dev/null
   [ -f "$TMPINST" ] && return || touch "$TMPINST"
   if [ -n "$PLUGNAMES" ]; then
     [ -z "$PLUGDIR" ] || mkd "$PLUGDIR"
   fi
   if [ ! -f "$TMPFILE" ]; then
+    trap '[ -f "$TMPINST" ] && rm -Rf "$TMPINST"' EXIT
     printf ""
     touch "$TMPFILE"
     if [ -f "$INSTDIR/install.sh" ]; then
@@ -2140,12 +2139,6 @@ run_install_init() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 run_postinst_global() {
   $installtype
-  # if [ "$APPDIR" != "$INSTDIR" ]; then
-  #   ln_sf "$APPDIR" "$INSTDIR"
-  #   if [ -d "$INSTDIR" ] && [ ! -e "$APPDIR" ]; then
-  #     ln_sf "$APPDIR" "$INSTDIR"
-  #   fi
-  # fi
   if [[ "$APPNAME" = "scripts" ]] || [[ "$APPNAME" = "installer" ]]; then
     # Only run on the scripts install
     ln_rm "$SYSBIN/"
@@ -2277,7 +2270,6 @@ run_exit() {
   local exitCode+=$?
   getexitcode "$APPNAME has been installed" "$APPNAME installer has encountered an error: Check the URL"
   printf_newline
-  #unset APPNAME APPDIR INSTDIR REPO REPORAW APPVERSION APP PLUGDIR TMPFILE
   exit "${EXIT:-$?}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

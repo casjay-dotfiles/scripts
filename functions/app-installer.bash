@@ -2103,7 +2103,7 @@ run_install_init() {
   local TMPINST="$TMPDIR/$APPNAME.inst.tmp"
   local exitCode=0
   export APPDIR INSTDIR
-  touch "$TMPINST"
+  [ -f "$TMPINST" ] && return || touch "$TMPINST"
   if [ -n "$PLUGNAMES" ]; then
     [ -z "$PLUGDIR" ] || mkd "$PLUGDIR"
   fi

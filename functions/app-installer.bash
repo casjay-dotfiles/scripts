@@ -872,6 +872,7 @@ dotfilesreq() {
   declare -a LISTARRAY="$*"
   for conf in ${LISTARRAY[*]}; do
     local TMPINST="$TMPDIR/$conf.inst.tmp"
+    [ -d "$confdir/$conf" ] && return
     [ -f "$TMPINST" ] && return || dotfilesreqcmd $conf
   done
 }
@@ -881,6 +882,7 @@ dotfilesreqadmin() {
   declare -a LISTARRAY="$*"
   for conf in ${LISTARRAY[*]}; do
     local TMPINST="$TMPDIR/$conf.inst.tmp"
+    [ -d "$confdir/$conf" ] && return
     [ -f "$TMPINST" ] && return || dotfilesreqcmd "$conf"
   done
 }
@@ -2075,9 +2077,6 @@ wallpapermgr_run_post() {
 wallpapermgr_install_version() {
   wallpapermgr_install
   install_version
-  # if [ -f "$INSTDIR/install.sh" ] && [ -f "$INSTDIR/version.txt" ]; then
-  #   ln_sf "$INSTDIR/install.sh" "$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX/$APPNAME"
-  # fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __main_installer_info() {

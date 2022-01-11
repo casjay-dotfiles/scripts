@@ -2618,27 +2618,19 @@ run_install_init() {
     export APPNAME REPO REPORAW
     if user_is_root; then
       export SUDO_USER
-      if [ -f "$INSTDIR/install.sh" ]; then
-        sudo FORCE_INSTALL="$FORCE_INSTALL" bash -c "$INSTDIR/$app/install.sh"
+      if __urlcheck "$REPORAW/install.sh"; then
+        sudo FORCE_INSTALL="$FORCE_INSTALL" bash -c "$(curl -q -LSs "$REPORAW/install.sh" 2>/dev/null)"
       else
-        if __urlcheck "$REPORAW/install.sh"; then
-          sudo FORCE_INSTALL="$FORCE_INSTALL" bash -c "$(curl -q -LSs "$REPORAW/install.sh" 2>/dev/null)"
-        else
-          printf_error "Failed to initialize the installer from:"
-          printf_exit "$REPORAW/install.sh\n"
-        fi
+        printf_error "Failed to initialize the installer from:"
+        printf_exit "$REPORAW/install.sh\n"
       fi
       local exitCode+=$?
     else
-      if [ -f "$INSTDIR/install.sh" ]; then
-        FORCE_INSTALL="$FORCE_INSTALL" bash -c "$INSTDIR/install.sh"
+      if __urlcheck "$REPORAW/install.sh"; then
+        FORCE_INSTALL="$FORCE_INSTALL" bash -c "$(curl -q -LSs "$REPORAW/install.sh" 2>/dev/null)"
       else
-        if __urlcheck "$REPORAW/install.sh"; then
-          FORCE_INSTALL="$FORCE_INSTALL" bash -c "$(curl -q -LSs "$REPORAW/install.sh" 2>/dev/null)"
-        else
-          printf_error "Failed to initialize the installer from:"
-          printf_exit "$REPORAW/install.sh\n"
-        fi
+        printf_error "Failed to initialize the installer from:"
+        printf_exit "$REPORAW/install.sh\n"
       fi
       local exitCode+=$?
     fi

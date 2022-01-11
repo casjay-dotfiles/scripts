@@ -871,7 +871,9 @@ dotfilesreq() {
   local confdir="$USRUPDATEDIR"
   declare -a LISTARRAY="$*"
   for conf in ${LISTARRAY[*]}; do
-    if [ ! -f "$confdir/$conf" ] && [ ! -f "$TEMP/$conf.inst.tmp" ]; then
+    if [ -f "$confdir/$conf" ] && [ -f "$TEMP/$conf.inst.tmp" ]; then
+      return 0
+    else
       touch "$TEMP/$conf.inst.tmp"
       dotfilesreqcmd $conf
     fi
@@ -882,7 +884,9 @@ dotfilesreqadmin() {
   local confdir="$SYSUPDATEDIR"
   declare -a LISTARRAY="$*"
   for conf in ${LISTARRAY[*]}; do
-    if [ ! -f "$confdir/$conf" ] && [ ! -f "$TEMP/$conf.inst.tmp" ]; then
+    if [ -f "$confdir/$conf" ] && [ -f "$TEMP/$conf.inst.tmp" ]; then
+      return 0
+    else
       touch "$TEMP/$conf.inst.tmp"
       dotfilesreqcmd "$conf"
     fi

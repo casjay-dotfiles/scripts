@@ -868,16 +868,15 @@ dotfilesreqadmincmd() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 dotfilesreq() {
-  local confdir="$USRUPDATEDIR"
+  local confdir="$USRUPDATEDIR" conf=""
   declare -a LISTARRAY="$*"
   for conf in ${LISTARRAY[*]}; do
     local TMPINST="$TMPDIR/$conf.inst.tmp"
-    [ -d "$confdir/$conf" ] || [ -f "$TMPINST" ] || dotfilesreqcmd $conf
+    [ -d "$confdir/$conf" ] || [ -f "$TMPINST" ] || dotfilesreqcmd "$conf"
   done
 }
 dotfilesreqadmin() {
-  am_i_online || return 1
-  local confdir="$SYSUPDATEDIR"
+  local confdir="$SYSUPDATEDIR" conf=""
   declare -a LISTARRAY="$*"
   for conf in ${LISTARRAY[*]}; do
     local TMPINST="$TMPDIR/$conf.inst.tmp"

@@ -1,13 +1,5 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-APPNAME="scripts"
-USER="${SUDO_USER:-${USER}}"
-HOME="${USER_HOME:-${HOME}}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set bash options
-if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
-
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ##@Version       : 021020210200-git
 # @Author        : Jason Hempstead
 # @Contact       : jason@casjaysdev.com
@@ -20,6 +12,15 @@ if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OP
 # @TODO          : MacOS fixes
 # @Other         :
 # @Resource      :
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="scripts"
+USER="${SUDO_USER:-${USER}}"
+HOME="${USER_HOME:-${HOME}}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set bash options
+if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
+export PATH="/usr/local/share/CasjaysDev/scripts/bin:$PATH"
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
@@ -115,7 +116,7 @@ install_gem "$GEMS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Other dependencies
 dotfilesreq
-dotfilesreqadmin cron
+dotfilesreqadmin
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure directories exist
 ensure_dirs
@@ -138,11 +139,11 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run post install scripts
 run_postinst() {
+  systemmgr_run_post
   local motdDir="/etc/casjaysdev/messages"
   local verDir="/etc/casjaysdev/updates/versions"
   local fontdir="$(ls "$CASJAYSDEVSAPPDIR/fontmgr" | wc -l)"
-  export PATH="/usr/local/share/CasjaysDev/scripts/bin:$PATH"
-  systemmgr_run_post
+  ln_rm "$SHARE/applications/"
   mkd "$motdDir/motd"
   mkd "$motdDir/issue"
   mkd "$motdDir/legal"
@@ -155,7 +156,6 @@ run_postinst() {
   for app in $(ls "$CASJAYSDEVDIR/applications"); do
     ln_sf "$CASJAYSDEVDIR/applications/$app" "$SYSSHARE/applications/$app"
   done
-  ln_rm "$SHARE/applications/"
   if [ -f "$INSTDIR/templates/casjaysdev-legal.txt" ]; then
     [ -f /etc/casjaysdev/messages/legal/000.txt ] ||
       cp_rf "$INSTDIR/templates/casjaysdev-legal.txt" "/etc/casjaysdev/messages/legal/000.txt"
@@ -181,13 +181,13 @@ run_postinst() {
   done
   cmd_exists --config &>/dev/null
   cmd_exists update-motd && update-ip && update-motd || true
+  dotfilesreqadmin cron
   for mgr in devenvmgr dfmgr dockermgr fontmgr iconmgr passmgr pkmgr systemmgr thememgr wallpapermgr; do
     $mgr --config &>/dev/null
   done
   echo '5 4 * * * root [ -f $(builtin type -P systemmgr 2>/dev/null) ] && systemmgr update scripts cron &>/dev/null' | tee /etc/cron.d/systemmgr &>/dev/null
   grep 'Defaults.*.env_reset' /etc/sudoers | grep -v '!' && sed -i 's|env_reset|!env_reset|g' /etc/sudoers
   grep 'Defaults.*.secure_path' /etc/sudoers && sed -i 's|secure_path =.*|secure_path = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"|g' /etc/sudoers
-  [[ -f "/bin/hostname" ]] || [[ -f "/usr/bin/hostname" ]] || [[ -f "/sbin/hostname" ]] || [[ -f "/usr/sbin/hostname" ]] || ln_sf "$INSTDIR/bin/hostnamecli" "/usr/local/bin/hostname"
 }
 #
 execute "run_postinst" "Running post install scripts"

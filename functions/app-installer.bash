@@ -95,7 +95,7 @@ fi
 #fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Timezone data
-[ -f "/etc/timezone" ] && export TIMEZONE="$(cat /etc/timezone)" || export TIMEZONE="America/New_York"
+[ -f "/etc/timezone" ] && export TIMEZONE="$(<"/etc/timezone")" || export TIMEZONE="America/New_York"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 devnull() { "$@" >/dev/null 2>&1; }
 devnull2() { "$@" >/dev/null 2>&1; }
@@ -2306,18 +2306,6 @@ __appversion() {
   __curl "${versionfile}" 2>/dev/null | head -n1 || echo "$localVersion"
 }
 
-# __required_version() {
-#   if [ -f "$CASJAYSDEVDIR/version.txt" ]; then
-#     local requiredVersion="${1:-$requiredVersion}"
-#     local currentVersion="${APPVERSION:-$currentVersion}"
-#     local rVersion="${requiredVersion//-git/}"
-#     local cVersion="${currentVersion//-git/}"
-#     if [ "$cVersion" -lt "$rVersion" ] && [ "$APPNAME" != "scripts" ] && [ "$SCRIPTS_PREFIX" != "systemmgr" ]; then
-#       printf_yellow "Requires version higher than $rVersion"
-#       printf_yellow "You will need to update for new features"
-#     fi
-#   fi
-# }
 __required_version() {
   [[ -d "$CASJAYSDEV_USERDIR/apps/$SCRIPTS_PREFIX/new_update" ]] &&
     rm_rf "$CASJAYSDEV_USERDIR/apps/$SCRIPTS_PREFIX/new_update"
@@ -2386,11 +2374,4 @@ __debugger() {
     execute() { $1 2>>"$LOGDIR_DEBUG/$APPNAME.err" >>"$LOGDIR_DEBUG/$APPNAME.log" >&0 && set --; }
   fi
 }
-#set_trap "EXIT" "install_packages"
-#set_trap "EXIT" "install_required"
-#set_trap "EXIT" "install_python"
-#set_trap "EXIT" "install_perl"
-#set_trap "EXIT" "install_pip"
-#set_trap "EXIT" "install_cpan"
-#set_trap "EXIT" "install_gem"
 # end

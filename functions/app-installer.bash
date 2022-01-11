@@ -872,9 +872,7 @@ dotfilesreq() {
   declare -a LISTARRAY="$*"
   for conf in ${LISTARRAY[*]}; do
     local TMPINST="$TMPDIR/$conf.inst.tmp"
-    [ -d "$confdir/$conf" ] && return
-    [ -f "$TMPINST" ] && return
-    dotfilesreqcmd $conf
+    [ -d "$confdir/$conf" ] || [ -f "$TMPINST" ] || dotfilesreqcmd $conf
   done
 }
 dotfilesreqadmin() {
@@ -883,9 +881,7 @@ dotfilesreqadmin() {
   declare -a LISTARRAY="$*"
   for conf in ${LISTARRAY[*]}; do
     local TMPINST="$TMPDIR/$conf.inst.tmp"
-    [ -d "$confdir/$conf" ] && return
-    [ -f "$TMPINST" ] && return
-    dotfilesreqcmd "$conf"
+    [ -d "$confdir/$conf" ] || [ -f "$TMPINST" ] || dotfilesreqcmd "$conf"
   done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

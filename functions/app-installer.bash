@@ -871,7 +871,8 @@ dotfilesreq() {
   local confdir="$USRUPDATEDIR"
   declare -a LISTARRAY="$*"
   for conf in ${LISTARRAY[*]}; do
-    dotfilesreqcmd $conf
+    local TMPINST="$TMPDIR/$conf.inst.tmp"
+    [ -f "$TMPINST" ] && return || dotfilesreqcmd $conf
   done
 }
 dotfilesreqadmin() {
@@ -879,7 +880,8 @@ dotfilesreqadmin() {
   local confdir="$SYSUPDATEDIR"
   declare -a LISTARRAY="$*"
   for conf in ${LISTARRAY[*]}; do
-    dotfilesreqcmd "$conf"
+    local TMPINST="$TMPDIR/$conf.inst.tmp"
+    [ -f "$TMPINST" ] && return || dotfilesreqcmd "$conf"
   done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -2101,7 +2103,7 @@ run_install_init() {
   SET_SUDO_PROMPT="$(printf "\n\t\t\033[1;31m")[sudo]$(printf "\033[1;36m") password for $(printf "\033[1;32m")%p: $(printf "\033[0m")"
   (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null || sudo -n true &>/dev/null || SUDO_PROMPT="$SET_SUDO_PROMPT" sudo true
   __main_installer_info &>/dev/null
-  [ -f "$TMPINST" ] && return || touch "$TMPINST"
+  touch "$TMPINST"
   if [ -n "$PLUGNAMES" ]; then
     [ -z "$PLUGDIR" ] || mkd "$PLUGDIR"
   fi

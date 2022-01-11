@@ -2094,16 +2094,16 @@ __main_installer_info() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 run_install_init() {
+  local exitCode=0
   local TMPDIR="${TMPDIR:-/tmp}"
   local APPNAME="${APPNAME:-$PROG}"
   local TMPFILE="$TMPDIR/$APPNAME.tmp"
   local TMPINST="$TMPDIR/$APPNAME.inst.tmp"
-  local exitCode=0
+  [[ -f "$TMPINST" ]] && exit 5 || touch "$TMPINST"
   export APPDIR INSTDIR
   SET_SUDO_PROMPT="$(printf "\n\t\t\033[1;31m")[sudo]$(printf "\033[1;36m") password for $(printf "\033[1;32m")%p: $(printf "\033[0m")"
   (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null || sudo -n true &>/dev/null || SUDO_PROMPT="$SET_SUDO_PROMPT" sudo true
   __main_installer_info &>/dev/null
-  touch "$TMPINST"
   if [ -n "$PLUGNAMES" ]; then
     [ -z "$PLUGDIR" ] || mkd "$PLUGDIR"
   fi

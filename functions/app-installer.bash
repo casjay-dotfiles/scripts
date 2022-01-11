@@ -871,12 +871,7 @@ dotfilesreq() {
   local confdir="$USRUPDATEDIR"
   declare -a LISTARRAY="$*"
   for conf in ${LISTARRAY[*]}; do
-    if [ -f "$confdir/$conf" ] && [ -f "$TEMP/$conf.inst.tmp" ]; then
-      return 0
-    else
-      touch "$TEMP/$conf.inst.tmp"
-      dotfilesreqcmd $conf
-    fi
+    dotfilesreqcmd $conf
   done
 }
 dotfilesreqadmin() {
@@ -884,12 +879,7 @@ dotfilesreqadmin() {
   local confdir="$SYSUPDATEDIR"
   declare -a LISTARRAY="$*"
   for conf in ${LISTARRAY[*]}; do
-    if [ -f "$confdir/$conf" ] && [ -f "$TEMP/$conf.inst.tmp" ]; then
-      return 0
-    else
-      touch "$TEMP/$conf.inst.tmp"
-      dotfilesreqcmd "$conf"
-    fi
+    dotfilesreqcmd "$conf"
   done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -2105,7 +2095,7 @@ __main_installer_info() {
 run_install_init() {
   SET_SUDO_PROMPT="$(printf "\n\t\t\033[1;31m")[sudo]$(printf "\033[1;36m") password for $(printf "\033[1;32m")%p: $(printf "\033[0m")"
   (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null || sudo -n true &>/dev/null || SUDO_PROMPT="$SET_SUDO_PROMPT" sudo true
-  trap '[ -f "$TMPINST" ] && rm_rf $"$TMPINST"' EXIT
+  trap '[ -f "$TMPINST" ] && rm -Rf "$TMPINST"' EXIT
   __main_installer_info &>/dev/null
   local TMPDIR="${TMPDIR:-/tmp}"
   local APPNAME="${APPNAME:-$PROG}"
@@ -2123,7 +2113,6 @@ run_install_init() {
     if [ -f "$INSTDIR/install.sh" ]; then
       printf_yellow "Initializing the installer from"
       printf_purple "${INSTDIR/$HOME/\~}/install.sh"
-      #bash -c "$INSTDIR/install.sh"
     else
       printf_yellow "Downloading to ${INSTDIR/$HOME/\~}"
       printf_purple "$REPORAW/install.sh"

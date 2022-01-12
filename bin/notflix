@@ -1,0 +1,251 @@
+#!/usr/bin/env bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version       : 202201060015-git
+# @Author        : Jason Hempstead
+# @Contact       : jason@casjaysdev.com
+# @License       : WTFPL
+# @ReadME        : notflix --help
+# @Copyright     : Copyright: (c) 2022 Jason Hempstead, Casjays Developments
+# @Created       : Thursday, Jan 06, 2022 00:15 EST
+# @File          : notflix
+# @Description   : a tool which search magnet links and stream it with webtorrent
+# @TODO          :
+# @Other         :
+# @Resource      :
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="$(basename "$0" 2>/dev/null)"
+VERSION="202201060015-git"
+HOME="${USER_HOME:-$HOME}"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${SUDO_USER:-$USER}"
+SRC_DIR="${BASH_SOURCE%/*}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set bash options
+if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import functions
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+  . "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  exit 1
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# user system devenv dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+user_install
+__options "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set functions
+__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gen_config() {
+  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Generating the config file in"
+  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "$NOTFLIX_CONFIG_DIR/$NOTFLIX_CONFIG_FILE"
+  [ -d "$NOTFLIX_CONFIG_DIR" ] || mkdir -p "$NOTFLIX_CONFIG_DIR"
+  [ -d "$NOTFLIX_CONFIG_BACKUP_DIR" ] || mkdir -p "$NOTFLIX_CONFIG_BACKUP_DIR"
+  [ -f "$NOTFLIX_CONFIG_DIR/$NOTFLIX_CONFIG_FILE" ] &&
+    cp -Rf "$NOTFLIX_CONFIG_DIR/$NOTFLIX_CONFIG_FILE" "$NOTFLIX_CONFIG_BACKUP_DIR/$NOTFLIX_CONFIG_FILE.$$"
+  cat <<EOF >"$NOTFLIX_CONFIG_DIR/$NOTFLIX_CONFIG_FILE"
+# Settings for notflix
+NOTFLIX_URL="${NOTFLIX_URL:-https://1337x.wtf}"
+
+# Notification settings
+NOTFLIX_GOOD_MESSAGE="${NOTFLIX_GOOD_MESSAGE:-Everything Went OK}"
+NOTFLIX_ERROR_MESSAGE="${NOTFLIX_ERROR_MESSAGE:-Well something seems to have gone wrong}"
+NOTFLIX_NOTIFY_ENABLED="${NOTFLIX_NOTIFY_ENABLED:-yes}"
+NOTFLIX_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+NOTFLIX_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$NOTFLIX_NOTIFY_CLIENT_ICON}"
+
+# Colorization settings
+NOTFLIX_OUTPUT_COLOR="${NOTFLIX_OUTPUT_COLOR:-5}"
+NOTFLIX_OUTPUT_COLOR_GOOD="${NOTFLIX_OUTPUT_COLOR_GOOD:-2}"
+NOTFLIX_OUTPUT_COLOR_ERROR="${NOTFLIX_OUTPUT_COLOR_ERROR:-1}"
+
+EOF
+  if [ -f "$NOTFLIX_CONFIG_DIR/$NOTFLIX_CONFIG_FILE" ]; then
+    [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for $APPNAME has been created"
+    exitCode=0
+  else
+    printf_red "Failed to create the config file"
+    exitCode=1
+  fi
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional functions
+__install_webtorrent() {
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  cmd_exists npm && printf_blue "installing webtorrent-cli" || printf_exit "npm is not installed"
+  npm install webtorrent-cli -g &>/dev/null || printf_exit "Failed to install webtorrent-cli"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_torrent() {
+  # Get Titles
+  grep -o '<a href="/torrent/.*</a>' $NOTFLIX_CACHE_DIR/tmp.html | sed 's/<[^>]*>//g' >$NOTFLIX_CACHE_DIR/titles.bw
+  result_count=$(wc -l $NOTFLIX_CACHE_DIR/titles.bw | awk '{print $1}')
+  if [ "$result_count" -lt 1 ]; then
+    __notifications "$APPNAME" "😔 No Result found. Try again 🔴"
+    exit 1
+  fi
+  # Seeders and Leechers
+  grep -o '<td class="coll-2 seeds.*</td>\|<td class="coll-3 leeches.*</td>' $NOTFLIX_CACHE_DIR/tmp.html | sed 's/<[^>]*>//g' | sed 'N;s/\n/ /' >$NOTFLIX_CACHE_DIR/seedleech.bw
+  # Size
+  grep -o '<td class="coll-4 size.*</td>' $NOTFLIX_CACHE_DIR/tmp.html | sed 's/<span class="seeds">.*<\/span>//g' | sed -e 's/<[^>]*>//g' >$NOTFLIX_CACHE_DIR/size.bw
+  # Links
+  grep -E '/torrent/' $NOTFLIX_CACHE_DIR/tmp.html | sed -E 's#.*(/torrent/.*)/">.*/#\1#' | sed 's/td>//g' >$NOTFLIX_CACHE_DIR/links.bw
+  # Clearning up some data to display
+  sed 's/\./ /g; s/\-/ /g' $NOTFLIX_CACHE_DIR/titles.bw | sed 's/[^A-Za-z0-9 ]//g' | tr -s " " >$NOTFLIX_CACHE_DIR/tmp && mv $NOTFLIX_CACHE_DIR/tmp $NOTFLIX_CACHE_DIR/titles.bw
+  awk '{print NR " - ["$0"]"}' $NOTFLIX_CACHE_DIR/size.bw >$NOTFLIX_CACHE_DIR/tmp && mv $NOTFLIX_CACHE_DIR/tmp $NOTFLIX_CACHE_DIR/size.bw
+  awk '{print "[S:"$1 ", L:"$2"]" }' $NOTFLIX_CACHE_DIR/seedleech.bw >$NOTFLIX_CACHE_DIR/tmp && mv $NOTFLIX_CACHE_DIR/tmp $NOTFLIX_CACHE_DIR/seedleech.bw
+  # Getting the line number
+  LINE=$(paste -d\  $NOTFLIX_CACHE_DIR/size.bw $NOTFLIX_CACHE_DIR/seedleech.bw $NOTFLIX_CACHE_DIR/titles.bw | dmenu -i -l 25 | cut -d\- -f1 | awk '{$1=$1; print}')
+  if [ -z "$LINE" ]; then
+    notifications "$APPNAME" "😔 No Result selected. Exiting... 🔴"
+    exit 1
+  fi
+  notifications "$APPNAME" "🔍 Searching Magnet seeds 🧲"
+  url=$(head -n $LINE $NOTFLIX_CACHE_DIR/links.bw | tail -n +$LINE)
+  fullURL="${NOTFLIX_URL}${url}/"
+  # Requesting page for magnet link
+  curl -s $fullURL >$NOTFLIX_CACHE_DIR/tmp.html
+  magnet=$(grep -Po "magnet:\?xt=urn:btih:[a-zA-Z0-9]*" $NOTFLIX_CACHE_DIR/tmp.html | head -n 1)
+  webtorrent -d 9999 -u 1 -o "$HOME/Videos/stream/" download "$magnet" --mpv
+  # Simple notification
+  notifications "$APPNAME" "🎥 Enjoy Watching 😀 "
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Default variables
+exitCode=
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application Folders
+NOTFLIX_LOG_DIR="${NOTFLIX_LOG_DIR:-$HOME/.local/log/notflix}"
+NOTFLIX_CACHE_DIR="${NOTFLIX_CACHE_DIR:-$HOME/.cache/notflix}"
+NOTFLIX_CONFIG_DIR="${NOTFLIX_CONFIG_DIR:-$HOME/.config/myscripts/notflix}"
+NOTFLIX_OPTIONS_DIR="${NOTFLIX_OPTIONS_DIR:-$HOME/.local/share/myscripts/notflix/options}"
+NOTFLIX_CONFIG_BACKUP_DIR="${NOTFLIX_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/notflix/backups}"
+NOTFLIX_TEMP_DIR="${NOTFLIX_TEMP_DIR:-$HOME/.local/tmp/system_scripts/notflix}"
+NOTFLIX_CONFIG_FILE="${NOTFLIX_CONFIG_FILE:-settings.conf}"
+NOTFLIX_GOOD_MESSAGE="${NOTFLIX_GOOD_MESSAGE:-Everything Went OK}"
+NOTFLIX_ERROR_MESSAGE="${NOTFLIX_ERROR_MESSAGE:-Well something seems to have gone wrong}"
+NOTFLIX_NOTIFY_ENABLED="${NOTFLIX_NOTIFY_ENABLED:-yes}"
+NOTFLIX_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+NOTFLIX_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$NOTFLIX_NOTIFY_CLIENT_ICON}"
+NOTFLIX_OUTPUT_COLOR="${NOTFLIX_OUTPUT_COLOR:-5}"
+NOTFLIX_OUTPUT_COLOR_GOOD="${NOTFLIX_OUTPUT_COLOR_GOOD:-2}"
+NOTFLIX_OUTPUT_COLOR_ERROR="${NOTFLIX_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Enviroment overrides
+NOTFLIX_URL="${NOTFLIX_URL:-https://1337x.wtf}"
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$NOTFLIX_CONFIG_DIR/$NOTFLIX_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$NOTFLIX_CONFIG_DIR/$NOTFLIX_CONFIG_FILE" ] && . "$NOTFLIX_CONFIG_DIR/$NOTFLIX_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories and files exist
+[ -d "$NOTFLIX_LOG_DIR" ] || mkdir -p "$NOTFLIX_LOG_DIR" &>/dev/null
+[ -d "$NOTFLIX_TEMP_DIR" ] || mkdir -p "$NOTFLIX_TEMP_DIR" &>/dev/null
+[ -d "$NOTFLIX_CACHE_DIR" ] || mkdir -p "$NOTFLIX_CACHE_DIR" &>/dev/null
+NOTFLIX_TEMP_FILE="${NOTFLIX_TEMP_FILE:-$(mktemp $NOTFLIX_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap 'exitCode=${exitCode:-$?};[ -n "$NOTFLIX_TEMP_FILE" ] && [ -f "$NOTFLIX_TEMP_FILE" ] && rm -Rf "$NOTFLIX_TEMP_FILE" &>/dev/null' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+if [ "$NOTFLIX_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${NOTFLIX_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${NOTFLIX_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${NOTFLIX_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${NOTFLIX_NOTIFY_CLIENT_ICON}"
+    notifications "$@" && exitCode=0 || exitCode=1
+    unset NOTIFY_CLIENT_NAME NOTIFY_CLIENT_ICON NOTIFY_GOOD_MESSAGE NOTIFY_ERROR_MESSAGE
+    return ${exitCode:-$?}
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS=""
+LONGOPTS="options,config,version,help,dir:"
+ARRAY=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --options)
+    shift 1
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    __help
+    shift 1
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  --dir)
+    NOTFLIX_CWD="$2"
+    shift 2
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+cmd_exists --error --ask bash mpv || exit 1   # exit 1 if not found
+cmd_exists webtorrent || __install_webtorrent # install webtorrent if not found
+am_i_online --error || exit 1                 # exit 1 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+if [ -z $1 ]; then
+  query=$(dmenu -p "Search Torrent: " <&-)
+else
+  query="$1"
+fi
+query="$(echo "$query" | sed 's/ /+/g')"
+curl -s "$NOTFLIX_URL/search/$query/1/" >"$NOTFLIX_CACHE_DIR/tmp.html"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+__get_torrent && exitCode=0 || exitCode=1
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-$?}

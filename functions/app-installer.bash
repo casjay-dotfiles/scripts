@@ -61,8 +61,8 @@ for check in git curl wget; do
   fi
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-cmd_exists() { [ -n "$(builtin type -P cmd_exists 2>/dev/null)" ] && cmd_exists 2>/dev/null || return 0; }
-am_i_online() { [ -n "$(builtin type -P am_i_online 2>/dev/null)" ] && am_i_online 2>/dev/null || return 0; }
+cmd_exists() { [ -n "$(builtin type -P cmd_exists 2>/dev/null)" ] && builtin command cmd_exists 2>/dev/null || return 0; }
+am_i_online() { [ -n "$(builtin type -P am_i_online 2>/dev/null)" ] && builtin command am_i_online 2>/dev/null || return 0; }
 ###################### builtins ######################
 TMPPATH="/usr/local/opt/gnu-getopt/bin:"
 TMPPATH+="$HOME/.local/share/bash/basher/cellar/bin:$HOME/.local/share/bash/basher/bin:"
@@ -729,14 +729,14 @@ crontab_add() {
     [ -f "$file" ] || printf_exit "1" "Can not find $file"
     if [[ "$EUID" -ne 0 ]]; then
       local croncmd="logr"
-      local additional='bash -c "am_i_online && sleep $(expr $RANDOM \% 300) && '$file' &"'
+      local additional='bash -c "sleep $(expr $RANDOM \% 300) && '$file' &"'
       printf_green "Adding $frequency $croncmd $additional to $WHOAMI crontab"
       addtocrontab "$frequency" "$croncmd" "$additional"
       printf_custom "2" "$file has been added to update automatically"
       printf_custom "3" "To remove run $file --cron remove"
     else
       local croncmd="logr"
-      local additional='bash -c "am_i_online && sleep $(expr $RANDOM \% 300) && '$file' &"'
+      local additional='bash -c "sleep $(expr $RANDOM \% 300) && '$file' &"'
       printf_green "Adding $frequency $croncmd $additional to root crontab"
       sudo -HE crontab -l | grep -qv -F "$croncmd"
       addtocrontab "$frequency" "$croncmd" "$additional"
@@ -749,14 +749,14 @@ crontab_add() {
     [ -f "$file" ] || printf_exit "1" "Can not find $file"
     if [[ "$EUID" -ne 0 ]]; then
       local croncmd="logr"
-      local additional='bash -c "am_i_online && sleep $(expr $RANDOM \% 300) && '$file' &"'
+      local additional='bash -c "sleep $(expr $RANDOM \% 300) && '$file' &"'
       printf_green "Adding $frequency $croncmd $additional to $WHOAMI crontab"
       addtocrontab "$frequency" "$croncmd" "$additional"
       printf_custom "2" "$file has been added to update automatically"
       printf_custom "3" "To remove run $file --cron remove"
     else
       local croncmd="logr"
-      local additional='bash -c "am_i_online && sleep $(expr $RANDOM \% 300) && '$file' &"'
+      local additional='bash -c "sleep $(expr $RANDOM \% 300) && '$file' &"'
       printf_green "Adding $frequency $croncmd $additional to root crontab"
       sudo -HE crontab -l | grep -qv -F "$croncmd"
       addtocrontab "$frequency" "$croncmd" "$additional"
@@ -793,20 +793,18 @@ versioncheck() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 scripts_check() {
-  mkdir -p "$HOME/.config/local"
   local choice=""
   export -f __curl
-  if [ -z "$(builtin type -P am_i_online 2>/dev/null)" ]; then
-    if [ -z "$(builtin type -P pkmgr 2>/dev/null)" ] && [ ! -f "$HOME/.config/local/noscripts" ]; then
-      printf_red "Please install my scripts repo - requires root/sudo"
-      printf_question_timeout "4" "Would you like to do that now" "1" "choice" "-s"
-      if [[ $choice == "y" || $choice == "Y" ]]; then
-        urlverify "$SYSTEMMGRREPO/installer/raw/$GIT_REPO_BRANCH/install.sh" &&
-          sudo -HE bash -c "$(__curl "$SYSTEMMGRREPO/installer/raw/$GIT_REPO_BRANCH/install.sh")" && echo
-      else
-        touch "$HOME/.config/local/noscripts"
-        exit 1
-      fi
+  mkdir -p "$HOME/.config/local"
+  if [ -z "$(builtin type -P pkmgr 2>/dev/null)" ] && [ ! -f "$HOME/.config/local/noscripts" ]; then
+    printf_red "Please install my scripts repo - requires root/sudo"
+    printf_question_timeout "4" "Would you like to do that now" "1" "choice" "-s"
+    if [[ $choice == "y" || $choice == "Y" ]]; then
+      urlverify "$SYSTEMMGRREPO/installer/raw/$GIT_REPO_BRANCH/install.sh" &&
+        sudo -HE bash -c "$(__curl "$SYSTEMMGRREPO/installer/raw/$GIT_REPO_BRANCH/install.sh")" && echo
+    else
+      touch "$HOME/.config/local/noscripts"
+      exit 1
     fi
   fi
 }
@@ -868,173 +866,161 @@ dotfilesreqadmincmd() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 dotfilesreq() {
-  local confdir="$USRUPDATEDIR" conf=""
-  declare -a LISTARRAY="$*"
+  local -a LISTARRAY="$*"
+  local confdir="$USRUPDATEDIR"
+  local conf=""
   for conf in ${LISTARRAY[*]}; do
-    local TMPINST="$TMPDIR/$conf.inst.tmp"
+    local TMPINST="$TMPDIR/${conf}.inst.tmp"
     [ -d "$confdir/$conf" ] || [ -f "$TMPINST" ] || dotfilesreqcmd "$conf"
   done
 }
 dotfilesreqadmin() {
-  local confdir="$SYSUPDATEDIR" conf=""
-  declare -a LISTARRAY="$*"
+  local -a LISTARRAY="$*"
+  local confdir="$SYSUPDATEDIR"
+  local conf=""
   for conf in ${LISTARRAY[*]}; do
-    local TMPINST="$TMPDIR/$conf.inst.tmp"
+    local TMPINST="$TMPDIR/${conf}.inst.tmp"
     [ -d "$confdir/$conf" ] || [ -f "$TMPINST" ] || dotfilesreqcmd "$conf"
   done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_required() {
-  if [ -f "$(builtin type -P am_i_online 2>/dev/null)" ] && am_i_online; then
-    local REQUIRED="$*"
-    local MISSING=""
-    local cmd=""
-    for cmd in $REQUIRED; do builtin type -p "$cmd" &>/dev/null || MISSING+="$cmd "; done
-    if [ -n "$MISSING" ]; then
-      if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
-        printf_yellow "Still missing: $MISSING"
-        printf_yellow "Installing from package list"
-        if [ -f "$(builtin type -P yay 2>/dev/null)" ]; then
-          pkmgr --enable-aur dotfiles "$APPNAME" 2>/dev/null
-        else
-          pkmgr dotfiles "$APPNAME" 2>/dev/null
-        fi
+  local REQUIRED="$*"
+  local MISSING=""
+  local cmd=""
+  for cmd in $REQUIRED; do builtin type -p "$cmd" &>/dev/null || MISSING+="$cmd "; done
+  if [ -n "$MISSING" ]; then
+    if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
+      printf_yellow "Still missing: $MISSING"
+      printf_yellow "Installing from package list"
+      if [ -f "$(builtin type -P yay 2>/dev/null)" ]; then
+        pkmgr --enable-aur dotfiles "$APPNAME" 2>/dev/null
+      else
+        pkmgr dotfiles "$APPNAME" 2>/dev/null
       fi
     fi
-    unset MISSING
-    for cmd in $REQUIRED; do builtin type -p "$cmd" &>/dev/null || MISSING+="$cmd "; done
-    if [ -n "$MISSING" ]; then
-      printf_warning "Can not install all the required packages for $APPNAME"
-      return 1
-    fi
+  fi
+  unset MISSING
+  for cmd in $REQUIRED; do builtin type -p "$cmd" &>/dev/null || MISSING+="$cmd "; done
+  if [ -n "$MISSING" ]; then
+    printf_warning "Can not install all the required packages for $APPNAME"
+    return 1
   fi
   unset MISSING
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_packages() {
-  if [ -f "$(builtin type -P am_i_online 2>/dev/null)" ] && am_i_online; then
-    local REQUIRED="$*"
-    local MISSING=""
-    local cmd=""
-    if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
-      for cmd in $REQUIRED; do
-        # if gem_exists "$cmd"; then true
-        # elif python_exists "$cmd"; then true
-        # elif perl_exists "$cmd"; then true
-        if ! builtin type -p "$cmd" &>/dev/null; then
-          MISSING+="$cmd "
+  local REQUIRED="$*"
+  local MISSING=""
+  local cmd=""
+  if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
+    for cmd in $REQUIRED; do
+      # if gem_exists "$cmd"; then true
+      # elif python_exists "$cmd"; then true
+      # elif perl_exists "$cmd"; then true
+      if ! builtin type -p "$cmd" &>/dev/null; then
+        MISSING+="$cmd "
+      fi
+    done
+    if [ -n "$MISSING" ]; then
+      printf_warning "Attempting to install missing packages as $RUN_USER"
+      printf_warning "$MISSING"
+      for miss in $MISSING; do
+        if [ -f "$(builtin type -P yay 2>/dev/null)" ]; then
+          execute "pkmgr --enable-aur silent install $miss &>/dev/null" "Installing $miss"
+        else
+          execute "pkmgr silent install $miss &>/dev/null" "Installing $miss"
         fi
       done
-      if [ -n "$MISSING" ]; then
-        printf_warning "Attempting to install missing packages as $RUN_USER"
-        printf_warning "$MISSING"
-        for miss in $MISSING; do
-          if [ -f "$(builtin type -P yay 2>/dev/null)" ]; then
-            execute "pkmgr --enable-aur silent install $miss &>/dev/null" "Installing $miss"
-          else
-            execute "pkmgr silent install $miss &>/dev/null" "Installing $miss"
-          fi
-        done
-      fi
     fi
   fi
   unset MISSING
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_python() {
-  if [ -n "$(builtin type -P am_i_online 2>/dev/null)" ] && am_i_online; then
-    local REQUIRED="$*"
-    local MISSING=""
-    local cmd=""
-    for cmd in $REQUIRED; do python_missing "$cmd"; done
-    if [ -n "$MISSING" ]; then
-      if [ -n "$(builtin type -P pkmgr 2>/dev/null)" ]; then
-        printf_warning "Attempting to install missing python packages"
-        printf_warning "$MISSING"
-        for miss in $MISSING; do
-          if [ -f "$(builtin type -P yay 2>/dev/null)" ]; then
-            execute "pkmgr --enable-aur silent install $miss &>/dev/null" "Installing $miss"
-          else
-            execute "pkmgr silent install $miss &>/dev/null" "Installing $miss"
-          fi
-        done
-      fi
+  local REQUIRED="$*"
+  local MISSING=""
+  local cmd=""
+  for cmd in $REQUIRED; do python_missing "$cmd"; done
+  if [ -n "$MISSING" ]; then
+    if [ -n "$(builtin type -P pkmgr 2>/dev/null)" ]; then
+      printf_warning "Attempting to install missing python packages"
+      printf_warning "$MISSING"
+      for miss in $MISSING; do
+        if [ -f "$(builtin type -P yay 2>/dev/null)" ]; then
+          execute "pkmgr --enable-aur silent install $miss &>/dev/null" "Installing $miss"
+        else
+          execute "pkmgr silent install $miss &>/dev/null" "Installing $miss"
+        fi
+      done
     fi
   fi
   unset MISSING
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_perl() {
-  if [ -f "$(builtin type -P am_i_online 2>/dev/null)" ] && am_i_online; then
-    local REQUIRED="$*"
-    local MISSING=""
-    local cmd=""
-    for cmd in $REQUIRED; do builtin type -p "$cmd" &>/dev/null || perl_missing "$cmd"; done
-    if [ -n "$MISSING" ]; then
-      if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
-        printf_warning "Attempting to install missing perl packages"
-        printf_warning "$MISSING"
-        for miss in $MISSING; do
-          execute "pkmgr perl install $miss" "Installing $miss"
-        done
-      fi
+  local REQUIRED="$*"
+  local MISSING=""
+  local cmd=""
+  for cmd in $REQUIRED; do builtin type -p "$cmd" &>/dev/null || perl_missing "$cmd"; done
+  if [ -n "$MISSING" ]; then
+    if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
+      printf_warning "Attempting to install missing perl packages"
+      printf_warning "$MISSING"
+      for miss in $MISSING; do
+        execute "pkmgr perl install $miss" "Installing $miss"
+      done
     fi
   fi
   unset MISSING
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_pip() {
-  if [ -f "$(builtin type -P am_i_online 2>/dev/null)" ] && am_i_online; then
-    local REQUIRED="$*"
-    local MISSING=""
-    local cmd=""
-    for cmd in $REQUIRED; do builtin type -p "$cmd" &>/dev/null || pip_missing "$cmd"; done
-    if [ -n "$MISSING" ]; then
-      if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
-        printf_warning "Attempting to install missing pip packages"
-        printf_warning "$MISSING"
-        for miss in $MISSING; do
-          execute "pkmgr pip install $miss" "Installing $miss"
-        done
-      fi
+  local REQUIRED="$*"
+  local MISSING=""
+  local cmd=""
+  for cmd in $REQUIRED; do builtin type -p "$cmd" &>/dev/null || pip_missing "$cmd"; done
+  if [ -n "$MISSING" ]; then
+    if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
+      printf_warning "Attempting to install missing pip packages"
+      printf_warning "$MISSING"
+      for miss in $MISSING; do
+        execute "pkmgr pip install $miss" "Installing $miss"
+      done
     fi
   fi
   unset MISSING
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_cpan() {
-  if [ -f "$(builtin type -P am_i_online 2>/dev/null)" ] && am_i_online; then
-    local REQUIRED="$*"
-    local MISSING=""
-    local cmd=""
-    for cmd in $REQUIRED; do builtin type -p "$cmd" &>/dev/null || cpan_missing "$cmd"; done
-    if [ -n "$MISSING" ]; then
-      if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
-        printf_warning "Attempting to install missing cpan packages"
-        printf_warning "$MISSING"
-        for miss in $MISSING; do
-          execute "pkmgr cpan install $miss" "Installing $miss"
-        done
-      fi
+  local REQUIRED="$*"
+  local MISSING=""
+  local cmd=""
+  for cmd in $REQUIRED; do builtin type -p "$cmd" &>/dev/null || cpan_missing "$cmd"; done
+  if [ -n "$MISSING" ]; then
+    if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
+      printf_warning "Attempting to install missing cpan packages"
+      printf_warning "$MISSING"
+      for miss in $MISSING; do
+        execute "pkmgr cpan install $miss" "Installing $miss"
+      done
     fi
   fi
   unset MISSING
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_gem() {
-  if [ -f "$(builtin type -P am_i_online 2>/dev/null)" ] && am_i_online; then
-    local REQUIRED="$*"
-    local MISSING=""
-    local cmd=""
-    for cmd in $REQUIRED; do builtin type -p "$cmd" &>/dev/null || gem_missing "$cmd"; done
-    if [ -n "$MISSING" ]; then
-      if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
-        printf_warning "Attempting to install missing gem packages"
-        printf_warning "$MISSING"
-        for miss in $MISSING; do
-          execute "pkmgr gem install $miss" "Installing $miss"
-        done
-      fi
+  local REQUIRED="$*"
+  local MISSING=""
+  local cmd=""
+  for cmd in $REQUIRED; do builtin type -p "$cmd" &>/dev/null || gem_missing "$cmd"; done
+  if [ -n "$MISSING" ]; then
+    if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
+      printf_warning "Attempting to install missing gem packages"
+      printf_warning "$MISSING"
+      for miss in $MISSING; do
+        execute "pkmgr gem install $miss" "Installing $miss"
+      done
     fi
   fi
   unset MISSING

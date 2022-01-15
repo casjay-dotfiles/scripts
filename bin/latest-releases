@@ -59,6 +59,7 @@ LATEST_RELEASE_DOWNLOADS="${LATEST_RELEASE_DOWNLOADS:-$HOME/Downloads/Latest}"
 LATEST_RELEASE_REPO_LIST="${LATEST_RELEASE_REPO_LIST:-repos.conf}"
 LATEST_RELEASE_GITHUB_AUTH_FILE="${LATEST_RELEASE_GITHUB_AUTH_FILE:-auth.conf}"
 LATEST_RELEASE_DEFAULT_ARCH="${LATEST_RELEASE_DEFAULT_ARCH:-$(uname -m)}"
+LATEST_RELEASE_INSTALL_DIR="${LATEST_RELEASE_INSTALL_DIR:-$HOME/.local/share/latest-releases}"
 
 # Notification settings
 LATEST_RELEASES_GOOD_MESSAGE="${LATEST_RELEASES_GOOD_MESSAGE:-Everything Went OK}"
@@ -86,21 +87,22 @@ EOF
 # Additional functions
 __gitea() {
   local url=""
-  local arch=""
   local dom="$1"
   local repo="$2"
   local download_dir="$LATEST_RELEASE_DOWNLOADS"
   local tempfile="$LATEST_RELEASES_TEMP_FILE"
   local api_url="$dom/api/v1/repos/$repo/releases"
   local filename="$(basename "$repo")"
+  local get_arch=""
   mkdir -p "$download_dir"
   if [ "$LATEST_RELEASE_DEFAULT_ARCH" = "x86_64" ]; then
-    arch="amd64"
+    get_arch="amd64"
   elif [[ -n "$1" ]]; then
-    arch="$1"
+    get_arch="$1"
   else
-    arch="arm64"
+    get_arch="arm64"
   fi
+  arch="${LATEST_RELEASES_ARCH_TYPE:-$get_arch}"
   url="$(curl -q -LSs -X 'GET' "$api_url" -H 'accept: application/json' | jq -rc '.[].assets | .[] | {name: .name, link: .browser_download_url}' | grep ''$arch'"' | grep -i "$(uname -s)" | jq -c | head -n1 | jq -r | grep link | awk -F '":' '{print $2}' | sed 's|"||g;s| ||g')"
   printf_green "Attempting to download $filename from $url"
   printf_green "and save to $download_dir/$filename"
@@ -127,12 +129,13 @@ __gitlab() {
   local filename="$(basename "$repo")"
   mkdir -p "$download_dir"
   if [ "$LATEST_RELEASE_DEFAULT_ARCH" = "x86_64" ]; then
-    arch="amd64"
+    get_arch="amd64"
   elif [[ -n "$1" ]]; then
-    arch="$1"
+    get_arch="$1"
   else
-    arch="arm64"
+    get_arch="arm64"
   fi
+  arch="${LATEST_RELEASES_ARCH_TYPE:-$get_arch}"
   url="$(curl -q -LSs -X 'GET' "$api_url" -H 'accept: application/json' | jq -rc '.[].assets | .[] | {name: .name, link: .browser_download_url}' | grep ''$arch'"' | grep -i "$(uname -s)" | jq -c | head -n1 | jq -r | grep link | awk -F '":' '{print $2}' | sed 's|"||g;s| ||g')"
   printf_green "Attempting to download $filename from $url"
   printf_green "and save to $download_dir/$filename"
@@ -206,109 +209,114 @@ EOF
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __install_latest() {
   echo "$1" | grep -qv '^#' || return
-  echo "$1" | grep -qv '^$' || return
+  echo "$1" | grep -qv '^$' || [[ -n "$LATEST_RELEASE_FULL_URL" ]] || return
   [ "$1" = search ] && search="true" && shift 1
   if [[ $# == 1 ]]; then
-    local repo="$1"
+    repo="$1"
     shift 1
   elif [[ $# -gt 1 ]]; then
-    local repo="$1/$2"
+    repo="$1/$2"
     shift 2
   fi
   if [ "$LATEST_RELEASE_DEFAULT_ARCH" = "x86_64" ]; then
-    local arch="amd64"
+    get_arch="amd64"
   elif [[ -n "$1" ]]; then
-    local arch="$1"
+    get_arch="$1"
   else
-    local arch="arm64"
+    get_arch="arm64"
   fi
-  local download_dir="$LATEST_RELEASE_DOWNLOADS"
-  local tempfile="$LATEST_RELEASES_TEMP_FILE"
-  local api_url="https://api.github.com/repos/$repo/releases/latest"
+  arch="${LATEST_RELEASES_ARCH_TYPE:-$get_arch}"
+  tempfile="$LATEST_RELEASES_TEMP_FILE"
+  download_dir="$LATEST_RELEASE_DOWNLOADS"
+  api_url="https://api.github.com/repos/$repo/releases/latest"
   if [[ -n "$LATEST_RELEASE_GITHUB_TOKEN" ]]; then
     printf_blue "Github API Auth token is set"
     printf_green "Getting info from $api_url"
   else
     printf_green "Getting info from $api_url"
   fi
-  local latest_json="$(__curl_json)"
-  local latest_download="$(echo "$latest_json" | grep -iE 'browser_download_url' | grep -vE '*.deb|*.rpm' | cut -d '"' -f 4 | grep -i "$(uname -s)" | grep -i "$arch" | head -n1)"
-  local latest_download_url="https://github.com/$repo"
-  local basename="$(basename "$latest_download")"
-  local basenamerepo="$(basename "$repo")"
-  local filename="$download_dir/$basename"
-  local extract_name="$(basename "$repo")"
-  local extract_dir="$download_dir/$extract_name"
+  if [[ -n "$LATEST_RELEASE_FULL_URL" ]]; then
+    latest_download="$LATEST_RELEASE_FULL_URL"
+  elif [ -n "$LATEST_RELEASES_FILENAME" ]; then
+    latest_json="$(__curl_json_all "$repo")"
+    latest_download="$(echo "$latest_json" | grep -i "$LATEST_RELEASES_FILENAME" | head -n1 | grep '^')"
+  else
+    latest_json="$(__curl_json)"
+    latest_download="$(echo "$latest_json" | grep -iE 'browser_download_url' | grep -vE '\*.deb|\*.rpm' | cut -d '"' -f 4 | grep -i "$(uname -s)" | grep -i "$arch" | head -n1 | grep '^')"
+  fi
+  latest_download_url="https://github.com/$repo"
+  basename="$(basename "$latest_download")"
+  basenamerepo="$(basename "$repo")"
+  filename="$download_dir/$basename"
+  extract_name="$(basename "$repo")"
+  extract_dir="$LATEST_RELEASE_INSTALL_DIR/$extract_name"
   if [ "$search" = "true" ]; then
     echo "$latest_json" | grep -iE 'browser_download_url' | awk '{print $2}' | sed 's|"||g' | printf_readline '6'
   elif [ -n "$latest_download" ]; then
     printf_green "Attempting to download $latest_download "
     if __wget_latest "$latest_download" "$tempfile"; then
-      __mkd "$download_dir"
-      chmod -f 755 "$tempfile" &>/dev/null
-      __mv_f "$tempfile" "$filename"
+      [[ -f "$tempfile" ]] && __cp_rf "$tempfile" "$filename"
       exitCode=0
-      if [ -f "$filename" ] && [ ! -s "$tempfile" ]; then
-        printf_green "Saved to $filename"
-        exitCode=0
-      else
-        printf_red "Failed to save $filename"
-        printf_red "from $latest_download"
-        exitCode=1
-      fi
-      case "$filename" in
-      *.tar.bz2)
-        printf_blue "Extracting to $extract_dir"
-        mkdir -p "$extract_dir"
-        tar xjf "$filename" -C "$extract_dir"
-        ;;
-      *.bz2)
-        printf_blue "Extracting to $extract_dir"
-        mkdir -p "$extract_dir"
-        tar xjf "$filename" -C "$extract_dir"
-        ;;
-      *.tar.gz)
-        printf_blue "Extracting to $extract_dir"
-        mkdir -p "$extract_dir"
-        tar xf "$filename" -C "$extract_dir"
-        ;;
-      *.tgz)
-        printf_blue "Extracting to $extract_dir"
-        mkdir -p "$extract_dir"
-        tar xf "$filename" -C "$extract_dir"
-        ;;
-      *.gz)
-        printf_blue "Extracting to $extract_dir"
-        mkdir -p "$extract_dir"
-        tar xf "$filename" -C "$extract_dir"
-        ;;
-      *.zip)
-        printf_blue "Extracting to $extract_dir"
-        mkdir -p "$extract_dir"
-        unzip "$filename" -d "$extract_dir"
-        ;;
-      *.7z)
-        printf_blue "Extracting to $extract_dir"
-        mkdir -p "$extract_dir"
-        7za x -y "$filename" -o"$extract_dir" my_dir && mv -f my_dir/* "$extract_dir" && rmdir my_dir
-        ;;
-      *) ;;
-      esac
-      if [[ -f "$extract_dir/$extract_name" ]] && [[ $(file --mime-type -b "$extract_dir/$extract_name") == "application/x-executable" ]]; then
-        __cp_rf "$extract_dir/$extract_name" "$HOME/.local/bin/$extract_name" &&
-          chmod 755 "$HOME/.local/bin/$extract_name" &&
-          printf_cyan "Installed $extract_dir/$extract_name to $HOME/.local/bin/$extract_name" ||
-          printf_red "Failed to install $extract_name to $HOME/.local/bin/$extract_name"
-        __rm_rf "$extract_dir"
-      elif [[ -f "$filename" ]] && [[ $(file --mime-type -b "$filename") == "application/x-executable" ]]; then
-        __cp_rf "$filename" "$HOME/.local/bin/$basenamerepo" &&
-          printf_cyan "Installed $filename to $HOME/.local/bin/$basenamerepo" ||
-          printf_red "Failed to install $filename to $HOME/.local/bin/$basenamerepo"
-      fi
     else
       [ -f "$tempfile" ] && __rm_rf "$tempfile"
       printf_exit "failed to find any files from $latest_download_url"
-      exitCode=1
+      exit 1
+    fi
+    [[ -f "$filename" ]] && [[ -d "$extract_dir" ]] && __rm_rf "$extract_dir"
+    case "$filename" in
+    *.tar.bz2)
+      printf_blue "Extracting to $extract_dir"
+      mkdir -p "$extract_dir"
+      tar xjf "$filename" -C "$extract_dir" &>/dev/null || printf_exit "Failed to extract $filename"
+      ;;
+    *.bz2)
+      printf_blue "Extracting to $extract_dir"
+      mkdir -p "$extract_dir"
+      tar xjf "$filename" -C "$extract_dir" &>/dev/null || printf_exit "Failed to extract $filename"
+      ;;
+    *.tar.gz)
+      printf_blue "Extracting to $extract_dir"
+      mkdir -p "$extract_dir"
+      tar xf "$filename" -C "$extract_dir" &>/dev/null || printf_exit "Failed to extract $filename"
+      ;;
+    *.tgz)
+      printf_blue "Extracting to $extract_dir"
+      mkdir -p "$extract_dir"
+      tar xf "$filename" -C "$extract_dir" &>/dev/null || printf_exit "Failed to extract $filename"
+      ;;
+    *.gz)
+      printf_blue "Extracting to $extract_dir"
+      mkdir -p "$extract_dir"
+      tar xf "$filename" -C "$extract_dir" &>/dev/null || printf_exit "Failed to extract $filename"
+      ;;
+    *.zip)
+      printf_blue "Extracting to $extract_dir"
+      mkdir -p "$extract_dir"
+      unzip "$filename" -d "$extract_dir" &>/dev/null || printf_exit "Failed to extract $filename"
+      ;;
+    *.7z)
+      printf_blue "Extracting to $extract_dir"
+      mkdir -p "$extract_dir"
+      7za x -y "$filename" -o"$extract_dir" my_dir && mv -f my_dir/* "$extract_dir" && rmdir my_dir &>/dev/null || printf_exit "Failed to extract $filename"
+      ;;
+    *) ;;
+    esac
+    [[ -z "$LATEST_RELEASES_BIN_NAME" ]] || extract_name="$LATEST_RELEASES_BIN_NAME"
+    if [[ "$(find "$extract_dir" -maxdepth 1 -type f,d 2>/dev/null | wc -l)" -gt 4 ]]; then
+      ln -sf "$extract_dir/$extract_name" "$HOME/.local/bin/$extract_name" &&
+        chmod 755 "$HOME/.local/bin/$extract_name" &&
+        printf_cyan "Installed $extract_dir/$extract_name to $HOME/.local/bin/$extract_name" ||
+        printf_red "Failed to install $extract_name to $HOME/.local/bin/$extract_name"
+    elif [[ -f "$extract_dir/$extract_name" ]] && [[ $(file --mime-type -b "$extract_dir/$extract_name") == "application/x-executable" ]]; then
+      __cp_rf "$extract_dir/$extract_name" "$HOME/.local/bin/$extract_name" &&
+        chmod 755 "$HOME/.local/bin/$extract_name" &&
+        printf_cyan "Installed $extract_dir/$extract_name to $HOME/.local/bin/$extract_name" ||
+        printf_red "Failed to install $extract_name to $HOME/.local/bin/$extract_name"
+      __rm_rf "$extract_dir"
+    elif [[ -f "$filename" ]] && [[ $(file --mime-type -b "$filename") == "application/x-executable" ]]; then
+      __cp_rf "$filename" "$HOME/.local/bin/${basenamerepo}" &&
+        printf_cyan "Installed $filename to $HOME/.local/bin/${basenamerepo}" ||
+        printf_red "Failed to install $filename to $HOME/.local/bin/${basenamerepo}"
     fi
   else
     manual_dl="$(echo $latest_json | jq -r '.html_url')"
@@ -317,25 +325,31 @@ __install_latest() {
     exitCode=1
   fi
   if sudo -n true; then
-    if [[ -f "$HOME/.local/bin/$basenamerepo" ]]; then
+    if [[ -f "$HOME/.local/bin/${basenamerepo}" ]]; then
       printf_green "Copying $basenamerepo to /usr/local/bin"
-      sudo cp -Rf "$HOME/.local/bin/$basenamerepo" "/usr/local/bin/$basenamerepo"
-      sudo chmod -Rf 755 "/usr/local/bin/$basenamerepo"
+      sudo cp -Rf "$HOME/.local/bin/${basenamerepo}" "/usr/local/bin/${basenamerepo}"
+      sudo chmod -Rf 755 "/usr/local/bin/${basenamerepo}"
     fi
   fi
   [[ -n "$latest_download" ]] && __add_to_latest "$repo" "$repo"
-  [[ -f "$tempfile" ]] && __rm_rf "$tempfile"
-  [[ -f "$filename" ]] && __rm_rf "$filename"
+  [[ -s "$tempfile" ]] && __mv_f "$tempfile" "$filename"
   echo
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __wget_latest() {
-  if [[ -z "$LATEST_RELEASE_GITHUB_TOKEN" ]]; then
-    wget -q "${1:-$latest_download}" -O "${2:-$tempfile}" 2>/dev/null && return 0 || return 1
+  [[ -d "$download_dir" ]] || __mkd "$download_dir"
+  if [[ -s "$filename" ]]; then
+    printf_yellow "Already downloaded $filename"
+    printf_yellow "Reinstalling from $filename"
+    __cp_rf "$filename" "$tempfile"
+    return 0
+  elif [[ -z "$LATEST_RELEASE_GITHUB_TOKEN" ]]; then
+    wget -q "${1:-$latest_download}" -O "${2:-$tempfile}" 2>/dev/null
   else
-    wget -q --header="Authorization: token ${3:-$LATEST_RELEASE_GITHUB_TOKEN}" "${1:-$latest_download}" -O "${2:-$tempfile}" 2>/dev/null && return 0 || return 1
+    wget -q --header="Authorization: token ${LATEST_RELEASE_GITHUB_TOKEN}" "${1:-$latest_download}" -O "${2:-$tempfile}" 2>/dev/null
   fi
+  [[ -s "${2:-$tempfile}" ]] && return 0 || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __curl_date() {
@@ -356,9 +370,28 @@ __curl_tag() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __curl_json() {
   if [[ -z "$LATEST_RELEASE_GITHUB_TOKEN" ]]; then
-    curl -q -LSs "$api_url" 2>/dev/null
+    curl -q -LSs --fail "${1:-$api_url}" 2>/dev/null
   else
-    curl -q -LSs -H "Authorization: token $LATEST_RELEASE_GITHUB_TOKEN" "$api_url" 2>/dev/null
+    curl -q -LSs --fail -H "Authorization: token $LATEST_RELEASE_GITHUB_TOKEN" "${1:-$api_url}" 2>/dev/null
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__curl_json_all() {
+  echo "$1" | grep -qs './.' || printf_exit "Usage: $APPNAME username/reponame"
+  local results="$(__curl_json "https://api.github.com/repos/${1:-$repo}/releases" 2>/dev/null)"
+  if [[ -n "$results" ]]; then
+    printf '%s\n' "$results" | jq -r '.[]' | jq -r '.assets | .[].browser_download_url' | sort | grep '^' ||
+      {
+        manual_dl="$(echo $results | jq -r '.[] | .html_url' | sort -n | tail -n1 | grep '^')"
+        printf_custom $LATEST_RELEASES_OUTPUT_COLOR_ERROR "No releases found from ${1:-$repo}"
+        if [[ -n "$manual_dl" ]]; then
+          printf_purple "However I did find the following link:"
+          printf '%s\n' "$manual_dl" | printf_readline $LATEST_RELEASES_OUTPUT_COLOR
+        fi
+        exit 1
+      }
+  else
+    printf_exit "No releases found for ${1:-$repo}"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -384,6 +417,19 @@ __show_latest() {
     out+=$"${repo} | ${tag_name} | ${tag_commit_date}${nl}"
   done <"$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST"
   column -t <<<"${out}" | sort -t "|" -k 3 -r | printf_readline "6"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__update_install() {
+  if [[ -f "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST" ]] && [[ -z "$1" ]]; then
+    while read -r repo_list; do
+      [[ -n "$repo_list" ]] && __install_latest "$repo_list"
+      repo_list=
+    done <"$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST"
+  else
+    for l in "$@"; do
+      __install_latest "$l"
+    done
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default variables
@@ -418,6 +464,7 @@ LATEST_RELEASE_REPO_LIST="${LATEST_RELEASE_REPO_LIST:-repos.conf}"
 LATEST_RELEASE_GITHUB_AUTH_FILE="${LATEST_RELEASE_GITHUB_AUTH_FILE:-auth.conf}"
 LATEST_RELEASE_DEFAULT_ARCH="${LATEST_RELEASE_DEFAULT_ARCH:-$(uname -m)}"
 LATEST_RELEASE_DOWNLOADS="${LATEST_RELEASE_DOWNLOADS:-$HOME/Downloads/Latest}"
+LATEST_RELEASE_INSTALL_DIR="${LATEST_RELEASE_INSTALL_DIR:-$HOME/.local/share/latest-releases}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate non-existing config files
 [ -f "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASES_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
@@ -432,6 +479,7 @@ LATEST_RELEASE_DOWNLOADS="${LATEST_RELEASE_DOWNLOADS:-$HOME/Downloads/Latest}"
 [ -d "$LATEST_RELEASES_LOG_DIR" ] || mkdir -p "$LATEST_RELEASES_LOG_DIR" &>/dev/null
 [ -d "$LATEST_RELEASES_TEMP_DIR" ] || mkdir -p "$LATEST_RELEASES_TEMP_DIR" &>/dev/null
 [ -d "$LATEST_RELEASES_CACHE_DIR" ] || mkdir -p "$LATEST_RELEASES_CACHE_DIR" &>/dev/null
+[ -d "$LATEST_RELEASE_INSTALL_DIR" ] || mkdir -p "$LATEST_RELEASE_INSTALL_DIR" &>/dev/null
 LATEST_RELEASES_TEMP_FILE="${LATEST_RELEASES_TEMP_FILE:-$(mktemp $LATEST_RELEASES_TEMP_DIR/XXXXXX 2>/dev/null)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup trap to remove temp file
@@ -455,9 +503,9 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set additional variables/Argument/Option settings
 SETARGS="$*"
-SHORTOPTS=""
-LONGOPTS="options,config,version,help,dir:"
-ARRAY="install update list add remove"
+SHORTOPTS="f:,t:,b:"
+LONGOPTS="options,config,version,help,dir:,filename:,type:,bin:"
+ARRAY="add remove install gitea info update list search"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
 eval set -- "${setopts[@]}" 2>/dev/null
@@ -491,6 +539,18 @@ while :; do
     ;;
   --dir)
     LATEST_RELEASES_CWD="$2"
+    shift 2
+    ;;
+  -f | --filename)
+    LATEST_RELEASES_FILENAME="$2"
+    shift 2
+    ;;
+  -t | --type)
+    LATEST_RELEASES_ARCH="$2"
+    shift 2
+    ;;
+  -b | --bin)
+    LATEST_RELEASES_BIN_NAME="$2"
     shift 2
     ;;
   --)
@@ -531,16 +591,13 @@ remove)
 
 install)
   shift 1
-  if [[ -f "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST" ]] && [[ -z "$1" ]]; then
-    while read -r repo_list; do
-      [[ -n "$repo_list" ]] && __install_latest "$repo_list"
-      repo_list=
-    done <$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST
-  else
-    for l in "$@"; do
-      __install_latest "$l"
-    done
-  fi
+  __update_install "$@"
+  exit $?
+  ;;
+
+update)
+  shift 1
+  __update_install "$@"
   exit $?
   ;;
 
@@ -554,15 +611,26 @@ info)
   __show_latest
   ;;
 
-update)
-  if [[ -f "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST" ]]; then
-    while read -r repo_list; do
-      set_url="$repo_list"
-      [[ -n "$set_url" ]] && __install_latest "$set_url"
-    done <"$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST"
+list)
+  shift 1
+  show="$(<"$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST")"
+  if [[ -n "$show" ]]; then
+    printf '\n'
+    printf_purple "The following packages are available for installation:"
+    printf '%s\n' "$show" | printf_column '6'
   else
-    printf_return "There are no packages available for update"
+    printf_return "There are no packages available"
   fi
+  exit $?
+  ;;
+
+search)
+  shift 1
+  [ $# = 0 ] &&
+    printf_red "Usage: $APPNAME username/reponame [filter] [grepOpts]" &&
+    printf_exit "$APPNAME search PowerShell/PowerShell 'arm' '-E linux|amd -v alpine'"
+  [ $# -eq 1 ] && __curl_json_all "$1"
+  [ $# -gt 1 ] && __curl_json_all "$1" | grep -i $3 "$2"
   exit $?
   ;;
 

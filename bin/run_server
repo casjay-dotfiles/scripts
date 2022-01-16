@@ -97,21 +97,20 @@ EOF
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_port() {
   local port="$1"
-  local set_port=""
+  local set_port="$1"
   local ORIG_PORT="$RUN_SERVER_PORT"
   local i=0
-  if __port_used; then
+  if __port_used $port; then
     printf_red "Something appears to be running on port $RUN_SERVER_PORT}"
     printf_yellow "Attempting the next port: $((port + 1))"
     while :; do
-      __port_free && break || set_port="$((port + 1)) "
+      __port_free $port && break || set_port="$((port + 1)) "
+      sleep .5
     done
-  else
-    printf_yellow "Attempting to start on: $RUN_SERVER_PORT"
   fi
-  port=$set_port
+  port=${set_port:-$port}
   export port ORIG_PORT
-  echo "$RUN_SERVER_PORT"
+  echo "$port"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional functions
@@ -128,13 +127,13 @@ __main__() {
   echo "$RUN_SERVER_PORT" >"$RUN_SERVER_LOG_DIR/$mainPid"
   SERVER_LOG="${SERVER_LOG:-$RUN_SERVER_TEMP_DIR/run_server_$RUN_SERVER_PORT.log}"
   printf '%s\n' "Starting the server on port $RUN_SERVER_PORT" &>"$SERVER_LOG"
-  SERVER_URL="http://$SET_SERVER_ADDR:$RUN_SERVER_PORT"
+  SERVER_URL="http://$RUN_SERVER_ADDR:$RUN_SERVER_PORT"
   SERVER_PORT="${SERVER_PORT:-$RUN_SERVER_PORT}"
   export SERVER_DIR SERVER_URL SERVER_PORT
   while [ $i -lt $MAX_NUMBER_OF_TRIES ]; do
-    if __port_used || __lsof; then
+    if __port_used "$SERVER_PORT" || __lsof; then
       sleep 1
-      open_url "http://$SET_SERVER_ADDR:$RUN_SERVER_PORT"
+      open_url "http://$RUN_SERVER_ADDR:$RUN_SERVER_PORT"
       BROWSER_PID="$!"
       trap 'kill -9 $BROWSER_PID &>/dev/null || exit 0' EXIT
       i=$MAX_NUMBER_OF_TRIES
@@ -145,12 +144,12 @@ __main__() {
   done &
   printf_purple "serving files from $SERVER_DIR with pid: $$"
   printf_blue "Log file: $SERVER_LOG"
-  printf_yellow "Access from the network: http://$SET_SERVER_ADDR:$RUN_SERVER_PORT"
+  printf_yellow "Access from the network: http://$RUN_SERVER_ADDR:$RUN_SERVER_PORT"
   open_filemanager "$SERVER_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __return_error() { printf '%s\n' "Failed to start server" &>>"$SERVER_LOG" && printf_exit 1 1 "Failed to start the server"; }
-__lsof() { lsof -i -nP | grep "$RUN_SERVER_PORT" | grep -v 'grep' | grep -i "${prog:-python2}" | grep -q '^' && return 0 || return 1; }
+__lsof() { lsof -i -nP | grep "${1:-$RUN_SERVER_PORT}" | grep -v 'grep' | grep -i "${prog:-python2}" | grep -q '^' && return 0 || return 1; }
 __netcat_serv() { while true; do nc -l "$RUN_SERVER_PORT" <.; done &>>"$SERVER_LOG" && echo netcat started &>>"$SERVER_LOG" || return 1; }
 __port_used() { sleep 5 && sudo netstat -tauln 2>/dev/null | grep 'LISTEN' | grep ":${1:-$RUN_SERVER_PORT}" | grep -q '^' && return 0 || return 1; }
 __port_free() { sleep 5 && sudo netstat -tauln 2>/dev/null | grep 'LISTEN' | grep ":${1:-$RUN_SERVER_PORT}" | grep -q '^' && return 1 || return 0; }
@@ -205,13 +204,13 @@ __rails_serv() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __python3_serv() {
   cmd_exists python3 && cd "$RUN_SERVER_CWD" &&
-    python3 -m http.server --cgi --bind "$SET_SERVER_ADDR" "$RUN_SERVER_PORT" &>>"$SERVER_LOG" &&
+    python3 -m http.server --cgi --bind "$RUN_SERVER_ADDR" "$RUN_SERVER_PORT" &>>"$SERVER_LOG" &&
     echo Py3 started &>>"$SERVER_LOG" || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __python2_serv() {
   cmd_exists python2 && cd "$RUN_SERVER_CWD" &&
-    python2 -m http.server --cgi --bind "$SET_SERVER_ADDR" "$RUN_SERVER_PORT" &>>"$SERVER_LOG" &&
+    python2 -m http.server --cgi --bind "$RUN_SERVER_ADDR" "$RUN_SERVER_PORT" &>>"$SERVER_LOG" &&
     echo Py2 started &>>"$SERVER_LOG" || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -281,6 +280,7 @@ __set_vars() {
   RUN_SERVER_PORT="$(__get_port "${1:-$RUN_SERVER_DEFAULT_PORT}")"
   RUN_SERVER_ADDR="$(__getlipaddr && echo "$CURRIP4" || echo '127.0.0.1')"
   RUN_SERVER_CWD="$(realpath "${RUN_SERVER_CWD:-$PWD}" || echo "${RUN_SERVER_CWD:-$PWD}")"
+  export RUN_SERVER_HOST RUN_SERVER_PORT RUN_SERVER_ADDR RUN_SERVER_CWD
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 screen_config() {
@@ -539,8 +539,8 @@ static)
   prog="static"
   __prog_check "$prog"
   __set_vars $1
-  __static "$SET_SERVER_PORT" || __return_error
-  __main__ "$SET_SERVER_PORT"
+  __static "$RUN_SERVER_PORT" || __return_error
+  __main__ "$RUN_SERVER_PORT"
   exit $?
   ;;
 
@@ -549,8 +549,8 @@ proxy)
   prog="caddy"
   __prog_check "$prog"
   __set_vars $1
-  __proxy "$SET_SERVER_PORT" "$2" || __return_error
-  __main__ "$SET_SERVER_PORT"
+  __proxy "$RUN_SERVER_PORT" "$2" || __return_error
+  __main__ "$RUN_SERVER_PORT"
   exit $?
   ;;
 
@@ -559,8 +559,8 @@ caddy)
   prog="caddy"
   __prog_check "$prog"
   __set_vars $1
-  __caddy "$SET_SERVER_PORT" || __return_error
-  __main__ "$SET_SERVER_PORT"
+  __caddy "$RUN_SERVER_PORT" || __return_error
+  __main__ "$RUN_SERVER_PORT"
   exit $?
   ;;
 
@@ -569,8 +569,8 @@ go)
   prog="gohttpserver"
   __prog_check "$prog"
   __set_vars $1
-  __go "$SET_SERVER_PORT" || __return_error
-  __main__ "$SET_SERVER_PORT"
+  __go "$RUN_SERVER_PORT" || __return_error
+  __main__ "$RUN_SERVER_PORT"
   exit $?
   ;;
 
@@ -579,8 +579,8 @@ jekyll)
   prog="jekyll"
   __prog_check "$prog"
   __set_vars $1
-  __jekyll "$SET_SERVER_PORT" || __return_error
-  __main__ "$SET_SERVER_PORT"
+  __jekyll "$RUN_SERVER_PORT" || __return_error
+  __main__ "$RUN_SERVER_PORT"
   exit $?
   ;;
 
@@ -589,8 +589,8 @@ js)
   prog="http-server"
   __prog_check "$prog"
   __set_vars $1
-  __js_serv "$SET_SERVER_PORT" || __return_error
-  __main__ "$SET_SERVER_PORT"
+  __js_serv "$RUN_SERVER_PORT" || __return_error
+  __main__ "$RUN_SERVER_PORT"
   exit $?
   ;;
 
@@ -599,8 +599,8 @@ php)
   prog="php"
   __prog_check "$prog"
   __set_vars $1
-  __php_serv "$SET_SERVER_PORT" || __return_error
-  __main__ "$SET_SERVER_PORT"
+  __php_serv "$RUN_SERVER_PORT" || __return_error
+  __main__ "$RUN_SERVER_PORT"
   exit $?
   ;;
 
@@ -608,8 +608,8 @@ rails)
   shift 1
   prog="ruby"
   __prog_check "$prog"
-  __rails_serv "$SET_SERVER_PORT" || __return_error
-  __main__ "$SET_SERVER_PORT"
+  __rails_serv "$RUN_SERVER_PORT" || __return_error
+  __main__ "$RUN_SERVER_PORT"
   exit $?
   ;;
 
@@ -618,8 +618,8 @@ ruby)
   prog="ruby"
   __prog_check "$prog"
   __set_vars $1
-  __ruby_serv "$SET_SERVER_PORT" || __return_error
-  __main__ "$SET_SERVER_PORT"
+  __ruby_serv "$RUN_SERVER_PORT" || __return_error
+  __main__ "$RUN_SERVER_PORT"
   exit $?
   ;;
 
@@ -628,8 +628,8 @@ python2)
   prog="python2"
   __prog_check "$prog"
   __set_vars $1
-  __python2_serv "$SET_SERVER_PORT" || __return_error
-  __main__ "$SET_SERVER_PORT"
+  __python2_serv "$RUN_SERVER_PORT" || __return_error
+  __main__ "$RUN_SERVER_PORT"
   exit $?
   ;;
 
@@ -638,8 +638,8 @@ python3)
   prog="python3"
   __prog_check "$prog"
   __set_vars $1
-  __python3_serv "$SET_SERVER_PORT" || __return_error
-  __main__ "$SET_SERVER_PORT"
+  __python3_serv "$RUN_SERVER_PORT" || __return_error
+  __main__ "$RUN_SERVER_PORT"
   exit $?
   ;;
 
@@ -648,8 +648,8 @@ default)
   prog="python2"
   __prog_check "$prog"
   __set_vars $1
-  __default_srv "$SET_SERVER_PORT" || __return_error
-  __main__ "$SET_SERVER_PORT"
+  __default_srv "$RUN_SERVER_PORT" || __return_error
+  __main__ "$RUN_SERVER_PORT"
   exit $?
   ;;
 
@@ -659,7 +659,7 @@ netcat | nc)
   __prog_check "$prog"
   __set_vars $1
   __netcat_serv || __return_error
-  __main__ "$SET_SERVER_PORT"
+  __main__ "$RUN_SERVER_PORT"
   exit $?
   ;;
 
@@ -670,7 +670,7 @@ netcat | nc)
     __prog_check "$prog"
     __set_vars $1
     __default_srv || __python3_serv || __python2_serv || __py_simple || __netcat_serv || __return_error
-    __main__ "$SET_SERVER_PORT"
+    __main__ "$RUN_SERVER_PORT"
   fi
   ;;
 esac

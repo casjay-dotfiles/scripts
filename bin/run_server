@@ -95,44 +95,46 @@ EOF
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_port() {
+  local port="$1"
+  local set_port=""
+  local ORIG_PORT="$RUN_SERVER_PORT"
+  local i=0
+  if __port_used; then
+    printf_red "Something appears to be running on port $RUN_SERVER_PORT}"
+    printf_yellow "Attempting the next port: $((port + 1))"
+    while :; do
+      __port_free && break || set_port="$((port + 1)) "
+    done
+  else
+    printf_yellow "Attempting to start on: $RUN_SERVER_PORT"
+  fi
+  port=$set_port
+  export port ORIG_PORT
+  echo "$RUN_SERVER_PORT"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional functions
-main() {
+__main__() {
   mainPid="$$"
   trap '__exit $mainPid' INT
+  prog=""
   SERVER_PORT="${1:-$RUN_SERVER_DEFAULT_PORT}"
-  port="${SERVER_PORT:-19922}" && shift 1
-  other_port="${2:-}"
-  prog="${prog:-python2}"
-  myip=$(__getlipaddr && echo "$CURRIP4" || echo '127.0.0.1')
-  myhost="$(hostname -s || echo localhost)"
   MAX_NUMBER_OF_TRIES=${MAX_NUMBER_OF_TRIES:-20}
   RUN_SERVER_TEMP_DIR="${RUN_SERVER_TEMP_DIR:-/tmp}"
-  SERVER_DIR="$(realpath "${RUN_SERVER_CWD:-$PWD}")"
+  SERVER_DIR=""
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  if __port_used; then
-    printf_red "Something appears to be running on port ${other_port:-$port}"
-    printf_yellow "Attempting the next port: $((port + 1))"
-    i=0
-    while :; do
-      [ -n "$other_port" ] && other_port=$((other_port + 1)) || other_port=$((port + 1))
-      __port_free && break
-      echo $other_port
-    done
-    port=$other_port
-  else
-    printf_yellow "Attempting to start on: $port"
-  fi
   i=0
-  echo "${other_port:-$port}" >"$RUN_SERVER_LOG_DIR/$mainPid"
-  SERVER_LOG="${SERVER_LOG:-$RUN_SERVER_TEMP_DIR/run_server_${other_port:-$port}.log}"
-  printf '%s\n' "Starting the server on port ${other_port:-$port}" &>"$SERVER_LOG"
-  SERVER_URL="http://$myip:${other_port:-$port}"
-  SERVER_PORT="${SERVER_PORT:-$port}"
+  echo "$RUN_SERVER_PORT" >"$RUN_SERVER_LOG_DIR/$mainPid"
+  SERVER_LOG="${SERVER_LOG:-$RUN_SERVER_TEMP_DIR/run_server_$RUN_SERVER_PORT.log}"
+  printf '%s\n' "Starting the server on port $RUN_SERVER_PORT" &>"$SERVER_LOG"
+  SERVER_URL="http://$SET_SERVER_ADDR:$RUN_SERVER_PORT"
+  SERVER_PORT="${SERVER_PORT:-$RUN_SERVER_PORT}"
   export SERVER_DIR SERVER_URL SERVER_PORT
   while [ $i -lt $MAX_NUMBER_OF_TRIES ]; do
     if __port_used || __lsof; then
       sleep 1
-      open_url "http://$myip:${other_port:-$port}"
+      open_url "http://$SET_SERVER_ADDR:$RUN_SERVER_PORT"
       BROWSER_PID="$!"
       trap 'kill -9 $BROWSER_PID &>/dev/null || exit 0' EXIT
       i=$MAX_NUMBER_OF_TRIES
@@ -143,30 +145,93 @@ main() {
   done &
   printf_purple "serving files from $SERVER_DIR with pid: $$"
   printf_blue "Log file: $SERVER_LOG"
-  printf_yellow "Access from the network: http://$myip:${other_port:-$port}"
+  printf_yellow "Access from the network: http://$SET_SERVER_ADDR:$RUN_SERVER_PORT"
   open_filemanager "$SERVER_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __return_error() { printf '%s\n' "Failed to start server" &>>"$SERVER_LOG" && printf_exit 1 1 "Failed to start the server"; }
-__lsof() { lsof -i -nP | grep "${other_port:-$port}" | grep -v 'grep' | grep -i "$prog" | grep -q '^' && return 0 || return 1; }
-__netcat_serv() { while true; do nc -l "${port}" <.; done &>>"$SERVER_LOG" && echo netcat started &>>"$SERVER_LOG" || return 1; }
-__port_used() { sleep 5 && sudo netstat -tauln 2>/dev/null | grep 'LISTEN' | grep ":${1:-${other_port:-$port}}" | grep -q '^' && return 0 || return 1; }
-__port_free() { sleep 5 && sudo netstat -tauln 2>/dev/null | grep 'LISTEN' | grep ":${1:-${other_port:-$port}}" | grep -q '^' && return 1 || return 0; }
+__lsof() { lsof -i -nP | grep "$RUN_SERVER_PORT" | grep -v 'grep' | grep -i "${prog:-python2}" | grep -q '^' && return 0 || return 1; }
+__netcat_serv() { while true; do nc -l "$RUN_SERVER_PORT" <.; done &>>"$SERVER_LOG" && echo netcat started &>>"$SERVER_LOG" || return 1; }
+__port_used() { sleep 5 && sudo netstat -tauln 2>/dev/null | grep 'LISTEN' | grep ":${1:-$RUN_SERVER_PORT}" | grep -q '^' && return 0 || return 1; }
+__port_free() { sleep 5 && sudo netstat -tauln 2>/dev/null | grep 'LISTEN' | grep ":${1:-$RUN_SERVER_PORT}" | grep -q '^' && return 1 || return 0; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__go() { cmd_exists gohttpserver && cd "$RUN_SERVER_CWD" && gohttpserver --theme dark --port ${port} --title="Dev Server" -r "." --xheaders --cors &>>"$SERVER_LOG" && echo gohttpserver started &>>"$SERVER_LOG" || return 1; }
-__caddy() { cmd_exists caddy && cd "$RUN_SERVER_CWD" && caddy file-server -browse -listen :${port} -root "." -templates &>>"$SERVER_LOG" && echo caddy started &>>"$SERVER_LOG" || return 1; }
-__proxy() { cmd_exists caddy && cd "$RUN_SERVER_CWD" && caddy reverse-proxy -to 127.0.0.1:${port:-3000} -from :${other_port:-20000} &>>"$SERVER_LOG" && echo caddy started &>>"$SERVER_LOG" && other_port="${other_port:-20000}" || return 1; }
-__jekyll() { cmd_exists jekyll && cd "$RUN_SERVER_CWD" && jekyll serve -P ${port} -l -H 0.0.0.0 &>>"$SERVER_LOG" && echo jekyll started &>>"$SERVER_LOG" || return 1; }
-__js_serv() { cmd_exists http-server && cd "$RUN_SERVER_CWD" && http-server -a 0.0.0.0 -p ${port} &>>"$SERVER_LOG" && echo http-server started &>>"$SERVER_LOG" || return 1; }
-__php_serv() { cmd_exists php && cd "$RUN_SERVER_CWD" && php -S 0.0.0.0:${port} &>>"$SERVER_LOG" && echo php started &>>"$SERVER_LOG" || return 1; }
-__ruby_serv() { cmd_exists ruby && cd "$RUN_SERVER_CWD" && ruby -run -ehttpd -p ${port} &>>"$SERVER_LOG" && echo ruby started &>>"$SERVER_LOG" || return 1; }
-__rails_serv() { cmd_exists rails && cd "$RUN_SERVER_CWD" && server -p "$port" &>>"$SERVER_LOG" && echo ruby started &>>"$SERVER_LOG" || return 1; }
-__python3_serv() { cmd_exists python3 && cd "$RUN_SERVER_CWD" && python3 -m http.server --cgi --bind "$myip" "${port}" &>>"$SERVER_LOG" && echo Py3 started &>>"$SERVER_LOG" || return 1; }
-__python2_serv() { cmd_exists python2 && cd "$RUN_SERVER_CWD" && python2 -m http.server --cgi --bind "$myip" "${port}" &>>"$SERVER_LOG" && echo Py2 started &>>"$SERVER_LOG" || return 1; }
-__py_simple() { cmd_exists python && cd "$RUN_SERVER_CWD" && python -m SimpleHTTPServer "${port}" &>>"$SERVER_LOG" && echo "Py simple start" &>>"$SERVER_LOG" || return 1; }
-__default_srv() { cmd_exists python2 && cd "$RUN_SERVER_CWD" && python2 -c $'import SimpleHTTPServer;\nmap = SimpleHTTPServer.SimpleHTTPRequestHandler.extensions_map;\nmap[""] = "text/plain";\nfor key, value in map.items():\n\tmap[key] = value + ";charset=UTF-8";\nSimpleHTTPServer.test();' "${port}" &>>"$SERVER_LOG" && echo "Default has started" || return 1; }
-__netcat_serv() { cd "$RUN_SERVER_CWD" && while true; do nc -l "${port}" <.; done &>>"$SERVER_LOG" && echo netcat started &>>"$SERVER_LOG" || return 1; }
-__static() { __go || __caddy || __php_serv || return 1; }
+__go() {
+  cmd_exists gohttpserver && cd "$RUN_SERVER_CWD" &&
+    gohttpserver --theme dark --port $RUN_SERVER_PORT --title="Dev Server" -r "." --xheaders --cors &>>"$SERVER_LOG" &&
+    echo gohttpserver started &>>"$SERVER_LOG" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__caddy() {
+  cmd_exists caddy && cd "$RUN_SERVER_CWD" &&
+    caddy file-server -browse -listen :$RUN_SERVER_PORT -root "." -templates &>>"$SERVER_LOG" &&
+    echo caddy started &>>"$SERVER_LOG" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__proxy() {
+  cmd_exists caddy && cd "$RUN_SERVER_CWD" &&
+    caddy reverse-proxy -to 127.0.0.1:${port:-3000} -from :${other_port:-20000} &>>"$SERVER_LOG" &&
+    echo caddy started &>>"$SERVER_LOG" && other_port="${other_port:-20000}" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__jekyll() {
+  cmd_exists jekyll && cd "$RUN_SERVER_CWD" &&
+    jekyll serve -P $RUN_SERVER_PORT -l -H 0.0.0.0 &>>"$SERVER_LOG" &&
+    echo jekyll started &>>"$SERVER_LOG" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__js_serv() {
+  cmd_exists http-server && cd "$RUN_SERVER_CWD" &&
+    http-server -a 0.0.0.0 -p $RUN_SERVER_PORT &>>"$SERVER_LOG" &&
+    echo http-server started &>>"$SERVER_LOG" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__php_serv() {
+  cmd_exists php && cd "$RUN_SERVER_CWD" &&
+    php -S 0.0.0.0:$RUN_SERVER_PORT &>>"$SERVER_LOG" &&
+    echo php started &>>"$SERVER_LOG" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__ruby_serv() {
+  cmd_exists ruby && cd "$RUN_SERVER_CWD" &&
+    ruby -run -ehttpd -p $RUN_SERVER_PORT &>>"$SERVER_LOG" &&
+    echo ruby started &>>"$SERVER_LOG" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__rails_serv() {
+  cmd_exists rails && cd "$RUN_SERVER_CWD" &&
+    server -p "$RUN_SERVER_PORT" &>>"$SERVER_LOG" &&
+    echo ruby started &>>"$SERVER_LOG" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__python3_serv() {
+  cmd_exists python3 && cd "$RUN_SERVER_CWD" &&
+    python3 -m http.server --cgi --bind "$SET_SERVER_ADDR" "$RUN_SERVER_PORT" &>>"$SERVER_LOG" &&
+    echo Py3 started &>>"$SERVER_LOG" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__python2_serv() {
+  cmd_exists python2 && cd "$RUN_SERVER_CWD" &&
+    python2 -m http.server --cgi --bind "$SET_SERVER_ADDR" "$RUN_SERVER_PORT" &>>"$SERVER_LOG" &&
+    echo Py2 started &>>"$SERVER_LOG" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__py_simple() {
+  cmd_exists python && cd "$RUN_SERVER_CWD" &&
+    python -m SimpleHTTPServer "$RUN_SERVER_PORT" &>>"$SERVER_LOG" &&
+    echo "Py simple start" &>>"$SERVER_LOG" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__default_srv() {
+  cmd_exists python2 && cd "$RUN_SERVER_CWD" &&
+    python2 -c $'import SimpleHTTPServer;\nmap = SimpleHTTPServer.SimpleHTTPRequestHandler.extensions_map;\nmap[""] = "text/plain";\nfor key, value in map.items():\n\tmap[key] = value + ";charset=UTF-8";\nSimpleHTTPServer.test();' "$RUN_SERVER_PORT" &>>"$SERVER_LOG" &&
+    echo "Default has started" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__netcat_serv() {
+  cd "$RUN_SERVER_CWD" && while true; do nc -l "$RUN_SERVER_PORT" <.; done &>>"$SERVER_LOG" && echo netcat started &>>"$SERVER_LOG" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__static() { __go || __caddy || __php_serv || __default_srv || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 open_url() {
   local PATH="$SRC_DIR:$PATH"
@@ -207,8 +272,15 @@ __prog_check() {
     clear
     printf_newline '\n\n\n'
     printf_red "Error: ${1:-$prog} is not installed\n"
-    exit 1
+    return 1
   }
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__set_vars() {
+  RUN_SERVER_HOST="$(__gethostname)"
+  RUN_SERVER_PORT="$(__get_port "${1:-$RUN_SERVER_DEFAULT_PORT}")"
+  RUN_SERVER_ADDR="$(__getlipaddr && echo "$CURRIP4" || echo '127.0.0.1')"
+  RUN_SERVER_CWD="$(realpath "${RUN_SERVER_CWD:-$PWD}" || echo "${RUN_SERVER_CWD:-$PWD}")"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 screen_config() {
@@ -457,137 +529,137 @@ if [[ "$RUN_SERVER_CWD" == "$HOME" ]]; then
   printf_newline '\n\n\n'
 fi
 [[ -d "$RUN_SERVER_CWD" ]] || mkdir -p "$RUN_SERVER_CWD"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 cd "$RUN_SERVER_CWD" || exit 1
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 case "$1" in
-proxy)
-  shift 1
-  prog="caddy"
-  __prog_check
-  ARGS="$*"
-  main $ARGS
-  __proxy || __return_error
-  exit $?
-  ;;
-
 static)
   shift 1
   prog="static"
-  __prog_check
-  ARGS="$*"
-  main $ARGS
-  __static || __return_error
+  __prog_check "$prog"
+  __set_vars $1
+  __static "$SET_SERVER_PORT" || __return_error
+  __main__ "$SET_SERVER_PORT"
+  exit $?
+  ;;
+
+proxy)
+  shift 1
+  prog="caddy"
+  __prog_check "$prog"
+  __set_vars $1
+  __proxy "$SET_SERVER_PORT" "$2" || __return_error
+  __main__ "$SET_SERVER_PORT"
   exit $?
   ;;
 
 caddy)
   shift 1
   prog="caddy"
-  __prog_check
-  ARGS="$*"
-  main $ARGS
-  __caddy || __return_error
+  __prog_check "$prog"
+  __set_vars $1
+  __caddy "$SET_SERVER_PORT" || __return_error
+  __main__ "$SET_SERVER_PORT"
   exit $?
   ;;
 
 go)
   shift 1
-  prog="go"
-  __prog_check
-  ARGS="$*"
-  main $ARGS
-  __go || __return_error
+  prog="gohttpserver"
+  __prog_check "$prog"
+  __set_vars $1
+  __go "$SET_SERVER_PORT" || __return_error
+  __main__ "$SET_SERVER_PORT"
   exit $?
   ;;
 
 jekyll)
   shift 1
   prog="jekyll"
-  __prog_check
-  ARGS="$*"
-  main $ARGS
-  __jekyll || __return_error
+  __prog_check "$prog"
+  __set_vars $1
+  __jekyll "$SET_SERVER_PORT" || __return_error
+  __main__ "$SET_SERVER_PORT"
   exit $?
   ;;
 
 js)
   shift 1
   prog="http-server"
-  __prog_check
-  ARGS="$*"
-  main $ARGS
-  __js_serv || __return_error
+  __prog_check "$prog"
+  __set_vars $1
+  __js_serv "$SET_SERVER_PORT" || __return_error
+  __main__ "$SET_SERVER_PORT"
   exit $?
   ;;
 
 php)
   shift 1
   prog="php"
-  __prog_check
-  ARGS="$*"
-  main $ARGS
-  __php_serv || __return_error
+  __prog_check "$prog"
+  __set_vars $1
+  __php_serv "$SET_SERVER_PORT" || __return_error
+  __main__ "$SET_SERVER_PORT"
   exit $?
   ;;
 
 rails)
   shift 1
   prog="ruby"
-  __prog_check
-  ARGS="$*"
-  main $ARGS
-  __rails_serv || __return_error
+  __prog_check "$prog"
+  __rails_serv "$SET_SERVER_PORT" || __return_error
+  __main__ "$SET_SERVER_PORT"
   exit $?
   ;;
 
 ruby)
   shift 1
   prog="ruby"
-  __prog_check
-  ARGS="$*"
-  main $ARGS
-  __ruby_serv || __return_error
+  __prog_check "$prog"
+  __set_vars $1
+  __ruby_serv "$SET_SERVER_PORT" || __return_error
+  __main__ "$SET_SERVER_PORT"
   exit $?
   ;;
 
 python2)
   shift 1
   prog="python2"
-  __prog_check
-  ARGS="$*"
-  main $ARGS
-  __python2_serv || __return_error
+  __prog_check "$prog"
+  __set_vars $1
+  __python2_serv "$SET_SERVER_PORT" || __return_error
+  __main__ "$SET_SERVER_PORT"
   exit $?
   ;;
 
 python3)
   shift 1
   prog="python3"
-  __prog_check
-  ARGS="$*"
-  main $ARGS
-  __python3_serv || __return_error
+  __prog_check "$prog"
+  __set_vars $1
+  __python3_serv "$SET_SERVER_PORT" || __return_error
+  __main__ "$SET_SERVER_PORT"
   exit $?
   ;;
 
 default)
   shift 1
   prog="python2"
-  __prog_check
-  ARGS="$*"
-  main $ARGS
-  __default_srv || __return_error
+  __prog_check "$prog"
+  __set_vars $1
+  __default_srv "$SET_SERVER_PORT" || __return_error
+  __main__ "$SET_SERVER_PORT"
   exit $?
   ;;
 
 netcat | nc)
   shift 1
-  prog="netcat"
-  __prog_check
-  ARGS="$*"
-  main $ARGS
+  prog="$(basename $(type -P netcat 2>/dev/null || type -P nc 2>/dev/null))"
+  __prog_check "$prog"
+  __set_vars $1
   __netcat_serv || __return_error
+  __main__ "$SET_SERVER_PORT"
   exit $?
   ;;
 
@@ -595,9 +667,10 @@ netcat | nc)
   if [[ -n "$SCREEN_SHELL" ]]; then
     exec screen -c "$RUN_SERVER_CONFIG_DIR/runserverc"
   else
-    ARGS="$*"
-    main $ARGS
+    __prog_check "$prog"
+    __set_vars $1
     __default_srv || __python3_serv || __python2_serv || __py_simple || __netcat_serv || __return_error
+    __main__ "$SET_SERVER_PORT"
   fi
   ;;
 esac

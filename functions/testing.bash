@@ -1018,6 +1018,8 @@ __while_loop() { while :; do "${@}" && sleep .3; done; }
 #for_each "option" "command"
 __for_each() { for item in ${1}; do ${2} ${item} && sleep .1; done; }
 __readline() { while read -r line; do echo "$line"; done <"$1"; }
+#gethostname ""
+__gethostname() { hostname -f 2>/dev/null || hostnamectl 2>/dev/null | grep 'Static hostname' | awk -F ': ' '{print $2}' | grep '^' || hostnamecli 2>/dev/null || echo 'localhost'; }
 #hostname ""
 __hostname() { hostname -s "${1:-$HOSTNAME}" 2>/dev/null; }
 #domainname ""

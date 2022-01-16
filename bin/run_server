@@ -22,10 +22,7 @@ SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
 if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
-if [ -z "$SSH_CONNECTION" ] && { [[ "$INIT_CONFIG" = "TRUE" ]] || [[ "$1" != "--config" ]]; }; then
-  cmd_exists screen && screen -c "$HOME/.config/screen/dev/runserverc" -S "$APPNAME" "$APPNAME" "$*"
-  exit 0
-fi
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
@@ -68,6 +65,7 @@ __gen_config() {
   cat <<EOF >"$RUN_SERVER_CONFIG_DIR/$RUN_SERVER_CONFIG_FILE"
 # Settings for run_server
 RUN_SERVER_DEFAULT_DIR="${RUN_SERVER_DEFAULT_DIR:-$HOME/Public/www}"
+RUN_SERVER_DEFAULT_PORT="${RUN_SERVER_DEFAULT_PORT:-19922}"
 RUN_SERVER_BROWSER="${RUN_SERVER_BROWSER:-mybrowser}"
 RUN_SERVER_BROWSER_ARGS="${RUN_SERVER_BROWSER_ARGS:-}"
 
@@ -99,9 +97,10 @@ EOF
 # Additional functions
 main() {
   trap '__exit $$' INT
+  SERVER_PORT="${1:-$RUN_SERVER_DEFAULT_PORT}"
+  port="${SERVER_PORT:-19922}" && shift 1
+  other_port="${2:-}"
   i=0
-  port="${1:-8000}" && shift 1
-  other_port="${1:-}"
   prog="${prog:-python2}"
   myip=$(__getlipaddr && echo "$CURRIP4" || echo '127.0.0.1')
   myhost="$(hostname -s || echo localhost)"
@@ -109,6 +108,9 @@ main() {
   RUN_SERVER_TEMP_DIR="${RUN_SERVER_TEMP_DIR:-/tmp}"
   SERVER_DIR="$(realpath "${RUN_SERVER_CWD:-$PWD}")"
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  SERVER_URL="http://$myip:${other_port:-$port}"
+  SERVER_PORT="${SERVER_PORT:-$port}"
+  export SERVER_DIR SERVER_URL SERVER_PORT
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   if ! __test_server "${other_port:-$port}"; then
     printf_red "Something appears to be running on port ${other_port:-$port}"
@@ -161,7 +163,7 @@ __static() { __go || __caddy || __php_serv || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 open_url() {
   local PATH="$SRC_DIR:$PATH"
-  [ -z "$SSH_CONNECTION" ] && return
+  [ -n "$SSH_CONNECTION" ] && return
   [[ -n "$RUN_SERVER_BROWSER_ARGS" ]] || RUN_SERVER_BROWSER_ARGS="--private"
   if cmd_exists mybrowser; then
     OPEN_WEB="mybrowser $RUN_SERVER_BROWSER_ARGS $1"
@@ -177,8 +179,7 @@ open_url() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 open_filemanager() {
   local PATH="$SRC_DIR:$PATH"
-  if [ -z "$SSH_CONNECTION" ]; then
-    screen -c "$HOME/.config/screen/dev/runserverc" -S "$APPNAME" -p "fm"
+  if [ -n "$SSH_CONNECTION" ]; then
     { cmd_exists vim && OPEN_FM="vim"; } ||
       { cmd_exists vifm && OPEN_FM="vifm"; } ||
       { cmd_exists ranger && OPEN_FM="ranger"; } ||
@@ -195,7 +196,8 @@ open_filemanager() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 screen_config() {
-  cat <<EOF | tee
+  printf_blue "Creating screenrc file"
+  cat <<EOF | tee "$HOME/.config/myscripts/run_server/runserverc" &>/dev/null
 # Sources
 # - https://bbs.archlinux.org/viewtopic.php?id=55618&p=3
 # - https://bbs.archlinux.org/viewtopic.php?pid=930174#p930174
@@ -231,9 +233,8 @@ altscreen on
 nethack on
 # mouse tracking allows to switch region focus by clicking
 mousetrack off
-# default windows
-screen -t main       1 $APPNAME
 # window numbering starts at 1 not 0
+screen -t serv     1 $APPNAME
 select 1
 bind c screen 1
 # get rid of silly xoff stuff
@@ -272,6 +273,8 @@ bindkey -m "^[[5;2~" stuff ^u
 bindkey -m "^[[6;2~" stuff ^d
 
 EOF
+  [[ -f "$HOME/.config/myscripts/run_server/runserverc" ]] &&
+    printf_blue "Created: $HOME/.config/myscripts/run_server/runserverc"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default variables
@@ -302,6 +305,7 @@ RUN_SERVER_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$RUN_SERVER_NOTIFY_CLIENT_I
 # Application overrides
 RUN_SERVER_BROWSER_ARGS="${RUN_SERVER_BROWSER_ARGS:-}"
 RUN_SERVER_DEFAULT_DIR="${RUN_SERVER_DEFAULT_DIR:-$HOME/Public/www}"
+RUN_SERVER_DEFAULT_PORT="${RUN_SERVER_DEFAULT_PORT:-19922}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate non-existing config files
 [ -f "$RUN_SERVER_CONFIG_DIR/$RUN_SERVER_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
@@ -338,7 +342,8 @@ fi
 SETARGS="$*"
 SHORTOPTS=""
 LONGOPTS="options,config,version,help,dir:,bg"
-ARRAY="default,proxy,static,caddy,go,jekyll,js,php,rails,ruby,python2,python3,netcat"
+ARRAY="default,proxy,static,caddy,go,jekyll,js,php,rails,ruby,python2,python3,netcat "
+ARRAY+="filemanager browser "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
 eval set -- "${setopts[@]}" 2>/dev/null
@@ -365,7 +370,7 @@ while :; do
   --config)
     shift 1
     __gen_config
-    screen_config >"$HOME/.config/screen/dev/runserverc"
+    screen_config #>
     exit $?
     ;;
   --dir)
@@ -378,6 +383,16 @@ while :; do
     export SERVER_LOG="${RUN_SERVER_TEMP_DIR:-/tmp}/run_server_bg.log"
     $APPNAME "$*" &>"$SERVER_LOG" &
     exit $?
+    ;;
+  --filemanager)
+    shift 1
+    open_filemanager
+    exit
+    ;;
+  --browser)
+    shift 1
+    open_url "${SERVER_URL:-http://localhost:${SERVER_PORT:-$RUN_SERVER_DEFAULT_PORT}}"
+    exit
     ;;
   --)
     shift 1

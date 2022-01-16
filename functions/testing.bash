@@ -1615,6 +1615,7 @@ sudorerun() {
       sudoreq
     fi
   fi
+  exit $?
 }
 sudoreq() {
   sudo_check=$(sudo -H -S -- echo SUDO_OK 2>&1 &)

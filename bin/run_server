@@ -50,6 +50,8 @@ __exit() {
   local pid="$1"
   trap 'trap - INT
   kill -s INT "$pid"
+  [[ -f "$RUN_SERVER_LOG_DIR/$pid" ]] && rm -Rf "$RUN_SERVER_LOG_DIR/$pid"
+  true
 ' INT
   printf_red "Killing the server with pid: $pid"
   exit 0
@@ -92,11 +94,11 @@ EOF
   fi
   return ${exitCode:-$?}
 }
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional functions
 main() {
-  trap '__exit $$' INT
+  mainPid="$$"
+  trap '__exit $mainPid' INT
   SERVER_PORT="${1:-$RUN_SERVER_DEFAULT_PORT}"
   port="${SERVER_PORT:-19922}" && shift 1
   other_port="${2:-}"
@@ -108,23 +110,26 @@ main() {
   RUN_SERVER_TEMP_DIR="${RUN_SERVER_TEMP_DIR:-/tmp}"
   SERVER_DIR="$(realpath "${RUN_SERVER_CWD:-$PWD}")"
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  SERVER_URL="http://$myip:${other_port:-$port}"
-  SERVER_PORT="${SERVER_PORT:-$port}"
-  export SERVER_DIR SERVER_URL SERVER_PORT
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  if ! __test_server "${other_port:-$port}"; then
+  if __port_used; then
     printf_red "Something appears to be running on port ${other_port:-$port}"
     printf_yellow "Attempting the next port: $((port + 1))"
     while :; do
       [ -n "$other_port" ] && other_port=$((other_port + 1)) || other_port=$((port + 1))
-      __test_server "${other_port:-$port}" || break
+      __port_free && break
+      echo $other_port
     done
     port=$other_port
+  else
+    printf_yellow "Attempting to start on: $port"
   fi
+  echo "${other_port:-$port}" >"$RUN_SERVER_LOG_DIR/$mainPid"
   SERVER_LOG="${SERVER_LOG:-$RUN_SERVER_TEMP_DIR/run_server_${other_port:-$port}.log}"
   printf '%s\n' "Starting the server on port ${other_port:-$port}" &>"$SERVER_LOG"
+  SERVER_URL="http://$myip:${other_port:-$port}"
+  SERVER_PORT="${SERVER_PORT:-$port}"
+  export SERVER_DIR SERVER_URL SERVER_PORT
   while [ $i -lt $MAX_NUMBER_OF_TRIES ]; do
-    if ! __test_server "${other_port:-$port}" || [ "$(lsof -i -nP | grep "${other_port:-$port}" | grep -i "$prog")" != "" ]; then
+    if __port_used || __lsof; then
       sleep 1
       open_url "http://$myip:${other_port:-$port}"
       BROWSER_PID="$!"
@@ -133,7 +138,7 @@ main() {
       break
     fi
     i=$((i + 1))
-    sleep .5
+    sleep 5
   done &
   printf_purple "serving files from $SERVER_DIR with pid: $$"
   printf_blue "Log file: $SERVER_LOG"
@@ -141,10 +146,11 @@ main() {
   open_filemanager "$SERVER_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__test_server() { netstatg LISTEN | grep -q ":${1:$port}" && return 1 || return 0; }
 __return_error() { printf '%s\n' "Failed to start server" &>>"$SERVER_LOG" && printf_exit 1 1 "Failed to start the server"; }
+__lsof() { lsof -i -nP | grep "${other_port:-$port}" | grep -v 'grep' | grep -i "$prog" | grep -q '^' && return 0 || return 1; }
 __netcat_serv() { while true; do nc -l "${port}" <.; done &>>"$SERVER_LOG" && echo netcat started &>>"$SERVER_LOG" || return 1; }
-__return_error() { printf '%s\n' "Failed to start server" &>>"$SERVER_LOG" && printf_exit 1 1 "Failed to start the server"; }
+__port_used() { sleep 5 && sudo netstat -tauln 2>/dev/null | grep 'LISTEN' | grep ":${1:-${other_port:-$port}}" | grep -q '^' && return 0 || return 1; }
+__port_free() { sleep 5 && sudo netstat -tauln 2>/dev/null | grep 'LISTEN' | grep ":${1:-${other_port:-$port}}" | grep -q '^' && return 1 || return 0; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __go() { cmd_exists gohttpserver && cd "$RUN_SERVER_CWD" && gohttpserver --theme dark --port ${port} --title="Dev Server" -r "." --xheaders --cors &>>"$SERVER_LOG" && echo gohttpserver started &>>"$SERVER_LOG" || return 1; }
 __caddy() { cmd_exists caddy && cd "$RUN_SERVER_CWD" && caddy file-server -browse -listen :${port} -root "." -templates &>>"$SERVER_LOG" && echo caddy started &>>"$SERVER_LOG" || return 1; }
@@ -197,7 +203,7 @@ open_filemanager() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 screen_config() {
   printf_blue "Creating screenrc file"
-  cat <<EOF | tee "$HOME/.config/myscripts/run_server/runserverc" &>/dev/null
+  cat <<EOF | tee "$RUN_SERVER_CONFIG_DIR/runserverc" &>/dev/null
 # Sources
 # - https://bbs.archlinux.org/viewtopic.php?id=55618&p=3
 # - https://bbs.archlinux.org/viewtopic.php?pid=930174#p930174
@@ -234,7 +240,11 @@ nethack on
 # mouse tracking allows to switch region focus by clicking
 mousetrack off
 # window numbering starts at 1 not 0
-screen -t serv     1 $APPNAME
+screen -t main     1 bash -c "bash; $SHELL"
+screen -t dev      2 bash -c "myeditor --console .; $SHELL"
+screen -t web      3 bash -c "mybrowser --console .; $SHELL"
+screen -t fm       4 bash -c "myfilemanager --console .; $SHELL"
+screen -t serv     9 bash -c "$APPNAME .; $SHELL"
 select 1
 bind c screen 1
 # get rid of silly xoff stuff
@@ -273,8 +283,8 @@ bindkey -m "^[[5;2~" stuff ^u
 bindkey -m "^[[6;2~" stuff ^d
 
 EOF
-  [[ -f "$HOME/.config/myscripts/run_server/runserverc" ]] &&
-    printf_blue "Created: $HOME/.config/myscripts/run_server/runserverc"
+  [[ -f "$RUN_SERVER_CONFIG_DIR/runserverc" ]] &&
+    printf_blue "Created: $RUN_SERVER_CONFIG_DIR/runserverc"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default variables
@@ -341,9 +351,9 @@ fi
 # Set additional variables/Argument/Option settings
 SETARGS="$*"
 SHORTOPTS=""
-LONGOPTS="options,config,version,help,dir:,bg"
+LONGOPTS="options,config,version,help,dir:,bg,screen,filemanager,browser"
 ARRAY="default,proxy,static,caddy,go,jekyll,js,php,rails,ruby,python2,python3,netcat "
-ARRAY+="filemanager browser "
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
 eval set -- "${setopts[@]}" 2>/dev/null
@@ -370,7 +380,7 @@ while :; do
   --config)
     shift 1
     __gen_config
-    screen_config #>
+    screen_config
     exit $?
     ;;
   --dir)
@@ -393,6 +403,14 @@ while :; do
     shift 1
     open_url "${SERVER_URL:-http://localhost:${SERVER_PORT:-$RUN_SERVER_DEFAULT_PORT}}"
     exit
+    ;;
+  --screen)
+    shift 1
+    if [ -z "$SCREEN_SESSION" ]; then
+      export SCREEN_SESSION="$APPNAME"
+      SCREEN_SHELL="$(builtin type -P screen 2>/dev/null || echo '')"
+      screen_config &>/dev/null
+    fi
     ;;
   --)
     shift 1
@@ -419,12 +437,13 @@ elif [ -d "$1" ]; then
 else
   RUN_SERVER_CWD="${RUN_SERVER_CWD:-$RUN_SERVER_DEFAULT_DIR}"
 fi
-if [[ "$RUN_SERVER_CWD" == "$HOME" ]]; then
+if [[ "$RUN_SERVER_CWD" = "$HOME" ]]; then
   printf_red "Running this in your HOME directory is not supported"
   printf_yellow "Changing RUN_SERVER_CWD to $RUN_SERVER_DEFAULT_DIR"
   RUN_SERVER_CWD="$RUN_SERVER_DEFAULT_DIR"
 fi
 [[ -d "$RUN_SERVER_CWD" ]] || mkdir -p "$RUN_SERVER_CWD"
+cd "$RUN_SERVER_CWD" || exit 1
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 case "$1" in
@@ -546,9 +565,13 @@ netcat | nc)
   ;;
 
 *)
-  ARGS="$*"
-  main $ARGS
-  __default_srv || __python3_serv || __python2_serv || __py_simple || __netcat_serv || __return_error
+  if [[ -n "$SCREEN_SHELL" ]]; then
+    exec screen -c "$RUN_SERVER_CONFIG_DIR/runserverc"
+  else
+    ARGS="$*"
+    main $ARGS
+    __default_srv || __python3_serv || __python2_serv || __py_simple || __netcat_serv || __return_error
+  fi
   ;;
 esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

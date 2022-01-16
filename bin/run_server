@@ -64,6 +64,8 @@ __gen_config() {
     cp -Rf "$RUN_SERVER_CONFIG_DIR/$RUN_SERVER_CONFIG_FILE" "$RUN_SERVER_CONFIG_BACKUP_DIR/$RUN_SERVER_CONFIG_FILE.$$"
   cat <<EOF >"$RUN_SERVER_CONFIG_DIR/$RUN_SERVER_CONFIG_FILE"
 # Settings for run_server
+RUN_SERVER_BROWSER="${RUN_SERVER_BROWSER:-mybrowser}"
+RUN_SERVER_BROWSER_ARGS="${RUN_SERVER_BROWSER_ARGS:-}"
 
 # Notification settings
 RUN_SERVER_GOOD_MESSAGE="${RUN_SERVER_GOOD_MESSAGE:-Everything Went OK}"
@@ -113,9 +115,12 @@ main() {
   SERVER_LOG="${SERVER_LOG:-$RUN_SERVER_TEMP_DIR/run_server_${other_port:-$port}.log}"
   printf '%s\n' "Starting the server on port ${other_port:-$port}" &>"$SERVER_LOG"
   while [ $i -lt $MAX_NUMBER_OF_TRIES ]; do
-    if [ "$(lsof -i -nP | grep "${other_port:-$port}" | grep -i "$prog")" != "" ]; then
+    if ! __test_server "${other_port:-$port}" || [ "$(lsof -i -nP | grep "${other_port:-$port}" | grep -i "$prog")" != "" ]; then
       sleep 1
       open_url "http://$myip:${other_port:-$port}"
+      BROWSER_PID="$!"
+      trap 'kill -9 $BROWSER_PID &>/dev/null' EXIT
+      i=$MAX_NUMBER_OF_TRIES
       break
     fi
     i=$((i + 1))
@@ -124,7 +129,6 @@ main() {
   printf_purple "serving files from $(realpath "${RUN_SERVER_CWD:-$PWD}" 2>/dev/null) with pid: $$"
   printf_blue "Log file: $SERVER_LOG"
   printf_yellow "Access from the network: http://$myip:${other_port:-$port}"
-  printf_red "control-c to exit"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __test_server() { netstatg LISTEN | grep -q ":${1:$port}" && return 1 || return 0; }
@@ -148,14 +152,23 @@ __netcat_serv() { cd "$RUN_SERVER_CWD" && while true; do nc -l "${port}" <.; don
 __static() { __go || __caddy || __php_serv || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 open_url() {
+  local PATH="$SRC_DIR:$PATH"
   [ -n "$SSH_CONNECTION" ] && return
+  [[ -n "$RUN_SERVER_BROWSER_ARGS" ]] || RUN_SERVER_BROWSER_ARGS="--private"
   if cmd_exists mybrowser; then
-    mybrowser "$1"
+    OPEN_WEB="mybrowser $RUN_SERVER_BROWSER_ARGS $1"
   elif cmd_exists "xdg-open"; then
-    xdg-open "$1"
+    OPEN_WEB="xdg-open $1"
   elif cmd_exists "open"; then
-    open "$1"
+    OPEN_WEB="open $1"
   fi
+  printf_purple "Launching: $OPEN_WEB"
+  $OPEN_WEB
+  _exit_message
+  trap '_exit_message &>/dev/null' EXIT
+}
+_exit_message() {
+  while :; do printf '%s\r' $(read -r && printf_red "control-c to exit"); done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default variables
@@ -184,6 +197,7 @@ RUN_SERVER_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
 RUN_SERVER_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$RUN_SERVER_NOTIFY_CLIENT_ICON}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application overrides
+RUN_SERVER_BROWSER_ARGS="${RUN_SERVER_BROWSER_ARGS:-}"
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate non-existing config files

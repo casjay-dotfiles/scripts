@@ -22,7 +22,10 @@ SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
 if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
-
+if [ -z "$SSH_CONNECTION" ] && { [[ "$INIT_CONFIG" = "TRUE" ]] || [[ "$1" != "--config" ]]; }; then
+  cmd_exists screen && screen -c "$HOME/.config/screen/dev/runserverc" -S "$APPNAME" "$APPNAME" "$*"
+  exit 0
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
@@ -64,6 +67,7 @@ __gen_config() {
     cp -Rf "$RUN_SERVER_CONFIG_DIR/$RUN_SERVER_CONFIG_FILE" "$RUN_SERVER_CONFIG_BACKUP_DIR/$RUN_SERVER_CONFIG_FILE.$$"
   cat <<EOF >"$RUN_SERVER_CONFIG_DIR/$RUN_SERVER_CONFIG_FILE"
 # Settings for run_server
+RUN_SERVER_DEFAULT_DIR="${RUN_SERVER_DEFAULT_DIR:-$HOME/Public/www}"
 RUN_SERVER_BROWSER="${RUN_SERVER_BROWSER:-mybrowser}"
 RUN_SERVER_BROWSER_ARGS="${RUN_SERVER_BROWSER_ARGS:-}"
 
@@ -80,6 +84,7 @@ RUN_SERVER_OUTPUT_COLOR_GOOD="${RUN_SERVER_OUTPUT_COLOR_GOOD:-2}"
 RUN_SERVER_OUTPUT_COLOR_ERROR="${RUN_SERVER_OUTPUT_COLOR_ERROR:-1}"
 
 EOF
+  [[ -f "$HOME/.config/screen/dev/runserverc" ]] || screen_config >"$HOME/.config/screen/dev/runserverc"
   if [ -f "$RUN_SERVER_CONFIG_DIR/$RUN_SERVER_CONFIG_FILE" ]; then
     [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for $APPNAME has been created"
     exitCode=0
@@ -102,6 +107,8 @@ main() {
   myhost="$(hostname -s || echo localhost)"
   MAX_NUMBER_OF_TRIES=${MAX_NUMBER_OF_TRIES:-20}
   RUN_SERVER_TEMP_DIR="${RUN_SERVER_TEMP_DIR:-/tmp}"
+  SERVER_DIR="$(realpath "${RUN_SERVER_CWD:-$PWD}")"
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   if ! __test_server "${other_port:-$port}"; then
     printf_red "Something appears to be running on port ${other_port:-$port}"
@@ -119,16 +126,17 @@ main() {
       sleep 1
       open_url "http://$myip:${other_port:-$port}"
       BROWSER_PID="$!"
-      trap 'kill -9 $BROWSER_PID &>/dev/null' EXIT
+      trap 'kill -9 $BROWSER_PID &>/dev/null || exit 0' EXIT
       i=$MAX_NUMBER_OF_TRIES
       break
     fi
     i=$((i + 1))
     sleep .5
   done &
-  printf_purple "serving files from $(realpath "${RUN_SERVER_CWD:-$PWD}" 2>/dev/null) with pid: $$"
+  printf_purple "serving files from $SERVER_DIR with pid: $$"
   printf_blue "Log file: $SERVER_LOG"
   printf_yellow "Access from the network: http://$myip:${other_port:-$port}"
+  open_filemanager "$SERVER_DIR"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __test_server() { netstatg LISTEN | grep -q ":${1:$port}" && return 1 || return 0; }
@@ -153,7 +161,7 @@ __static() { __go || __caddy || __php_serv || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 open_url() {
   local PATH="$SRC_DIR:$PATH"
-  [ -n "$SSH_CONNECTION" ] && return
+  [ -z "$SSH_CONNECTION" ] && return
   [[ -n "$RUN_SERVER_BROWSER_ARGS" ]] || RUN_SERVER_BROWSER_ARGS="--private"
   if cmd_exists mybrowser; then
     OPEN_WEB="mybrowser $RUN_SERVER_BROWSER_ARGS $1"
@@ -164,11 +172,106 @@ open_url() {
   fi
   printf_purple "Launching: $OPEN_WEB"
   $OPEN_WEB
-  _exit_message
-  trap '_exit_message &>/dev/null' EXIT
+  printf_red "control-c to exit"
 }
-_exit_message() {
-  while :; do printf '%s\r' $(read -r && printf_red "control-c to exit"); done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+open_filemanager() {
+  local PATH="$SRC_DIR:$PATH"
+  if [ -z "$SSH_CONNECTION" ]; then
+    screen -c "$HOME/.config/screen/dev/runserverc" -S "$APPNAME" -p "fm"
+    { cmd_exists vim && OPEN_FM="vim"; } ||
+      { cmd_exists vifm && OPEN_FM="vifm"; } ||
+      { cmd_exists ranger && OPEN_FM="ranger"; } ||
+      { cmd_exists se && cd "$1" && OPEN_FM="se"; }
+  elif cmd_exists myfilemanager; then
+    OPEN_FM="myfilemanager $1"
+  elif cmd_exists "xdg-open"; then
+    OPEN_FM="xdg-open $1"
+  elif cmd_exists "open"; then
+    OPEN_FM="open $1"
+  fi
+  printf_purple "Launching: $OPEN_FM"
+  $OPEN_FM
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+screen_config() {
+  cat <<EOF | tee
+# Sources
+# - https://bbs.archlinux.org/viewtopic.php?id=55618&p=3
+# - https://bbs.archlinux.org/viewtopic.php?pid=930174#p930174
+# search | name for dynamic window titles
+shelltitle '$|bash'
+# Detect activity in new windows
+defmonitor on
+# Turn your hardstatus line into a dynamic urxvt|xterm|aterm window title
+backtick 1 5 5 true
+termcapinfo rxvt* 'hs:ts=\E]2;:fs=\007:ds=\E]2;\007'
+# Set the window titles
+caption always
+caption string "%n %t"
+# Set the status bar
+hardstatus alwayslastline
+hardstatus alwayslastline " %{kb}$LOGNAME %{bk} %H %?%{kb}%{kY} %-Lw%{Yk}%:%{Yb}%{Yk}%?%{Yk} %n%f* %t %{kY}%+Lw %-="
+#hardstatus alwayslastline "%{bk} %S %{kb} $LOGNAME %{bk} %H %?%{kb}%{kY} %-Lw%{Yk}%:%{Yb}%{Yk}%?%{Yk} %n%f* %t %{kY}%+Lw %-="
+# huge scrollback buffer
+defscrollback 5000
+# no welcome message
+startup_message off
+# 256 colors
+attrcolor b ".I"
+termcapinfo xterm 'Co#256:AB=\E[48;5;%dm:AF=\E[38;5;%dm'
+term "screen-256color"
+defbce on
+# Display notification when bell is detected for a window
+bell_msg "Bell detected in %t (%n)!"
+activity "Activity detected in %t (%n)!"
+# Fix for residual editor text
+altscreen on
+# print wackier status messages
+nethack on
+# mouse tracking allows to switch region focus by clicking
+mousetrack off
+# default windows
+screen -t main       1 $APPNAME
+# window numbering starts at 1 not 0
+select 1
+bind c screen 1
+# get rid of silly xoff stuff
+bind s split
+# layouts
+layout autosave on
+layout new one
+select 1
+layout attach one
+layout select one
+# use hjkl keys to resize regions
+bind -c rsz h eval "resize -h -5" "command -c rsz"
+bind -c rsz j eval "resize -v -5" "command -c rsz"
+bind -c rsz k eval "resize -v +5" "command -c rsz"
+bind -c rsz l eval "resize -h +5" "command -c rsz"
+# quickly switch between regions using tab and arrows
+bind -c rsz \t    eval "focus"       "command -c rsz" # Tab
+bind -c rsz -k kl eval "focus left"  "command -c rsz" # Left
+bind -c rsz -k kr eval "focus right" "command -c rsz" # Right
+bind -c rsz -k ku eval "focus up"    "command -c rsz" # Up
+bind -c rsz -k kd eval "focus down"  "command -c rsz" # Down
+# re-source screenrc file
+#bind r eval "source $HOME/.screenrc" "echo '.screenrc reloaded!'"
+# You can use "showkey -a" to capture the key definitions for your terminal.
+bindkey "^[OR" prev         # F3 = previous window
+bindkey "^[OS" next         # F4 = next window
+bindkey "^[[1;2C" next      # shift+right_arrow
+bindkey "^[[1;2D" prev      # shift+left_arrow
+bindkey "^[[A" focus top    # ctrl+up_arrow = large top area
+bindkey "^[[B" focus down   # ctrl+down_arrow = bottom-left area
+bindkey "^[[C" focus bottom # ctrl+right_arrow = bottom-right area
+bindkey "^[[D" focus left   # ctrl+left_arrow = back to bottom-left area from bottom-right area
+# Finally! Shift-pg up or down to view scrollback buffer
+bindkey "^[[5;2~" eval "copy" "stuff ^u"
+bindkey -m "^[[5;2~" stuff ^u
+bindkey -m "^[[6;2~" stuff ^d
+
+EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default variables
@@ -198,7 +301,7 @@ RUN_SERVER_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$RUN_SERVER_NOTIFY_CLIENT_I
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application overrides
 RUN_SERVER_BROWSER_ARGS="${RUN_SERVER_BROWSER_ARGS:-}"
-
+RUN_SERVER_DEFAULT_DIR="${RUN_SERVER_DEFAULT_DIR:-$HOME/Public/www}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate non-existing config files
 [ -f "$RUN_SERVER_CONFIG_DIR/$RUN_SERVER_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
@@ -262,6 +365,7 @@ while :; do
   --config)
     shift 1
     __gen_config
+    screen_config >"$HOME/.config/screen/dev/runserverc"
     exit $?
     ;;
   --dir)
@@ -273,7 +377,6 @@ while :; do
     echo "launching background process"
     export SERVER_LOG="${RUN_SERVER_TEMP_DIR:-/tmp}/run_server_bg.log"
     $APPNAME "$*" &>"$SERVER_LOG" &
-    disown
     exit $?
     ;;
   --)
@@ -299,9 +402,14 @@ elif [ -d "$1" ]; then
   RUN_SERVER_CWD="$1"
   shift 1
 else
-  RUN_SERVER_CWD="${RUN_SERVER_CWD:-$PWD}"
+  RUN_SERVER_CWD="${RUN_SERVER_CWD:-$RUN_SERVER_DEFAULT_DIR}"
 fi
-[[ "$RUN_SERVER_CWD" == "$HOME" ]] && printf_exit "Running this in your HOME directory is not supported"
+if [[ "$RUN_SERVER_CWD" == "$HOME" ]]; then
+  printf_red "Running this in your HOME directory is not supported"
+  printf_yellow "Changing RUN_SERVER_CWD to $RUN_SERVER_DEFAULT_DIR"
+  RUN_SERVER_CWD="$RUN_SERVER_DEFAULT_DIR"
+fi
+[[ -d "$RUN_SERVER_CWD" ]] || mkdir -p "$RUN_SERVER_CWD"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 case "$1" in

@@ -102,35 +102,37 @@ __main__() {
   RUN_SERVER_PORT="${RUN_SERVER_PORT:-$RUN_SERVER_DEFAULT_PORT}"
   MAX_NUMBER_OF_TRIES=${MAX_NUMBER_OF_TRIES:-20}
   RUN_SERVER_TEMP_DIR="${RUN_SERVER_TEMP_DIR:-/tmp}"
-  i=0
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   printf_yellow "Attempting to start on: $port"
   echo "$RUN_SERVER_PORT" >"$RUN_SERVER_LOG_DIR/$mainPid"
   printf '%s\n' "Starting the server on port $RUN_SERVER_PORT" &>"$RUN_SERVER_LOG"
   export RUN_SERVER_DIR RUN_SERVER_URL RUN_SERVER_PORT
+  printf_yellow "executing: $1"
+  i=0
   while [ $i -lt $MAX_NUMBER_OF_TRIES ]; do
-    if __port_used "$RUN_SERVER_PORT" || __lsof; then
-      sleep 1
+    sleep 2 && if __port_used || __lsof; then
+      i=$MAX_NUMBER_OF_TRIES
       open_url "$RUN_SERVER_URL"
       BROWSER_PID="$!"
       trap 'kill -9 $BROWSER_PID &>/dev/null || exit 0' EXIT
-      i=$MAX_NUMBER_OF_TRIES
       break
     fi
     i=$((i + 1))
-    sleep 5
   done &
   printf_purple "serving files from $RUN_SERVER_CWD with pid: $$"
   printf_blue "Log file: $RUN_SERVER_LOG"
-  printf_yellow "Access from the network: http://$RUN_SERVER_ADDR:$RUN_SERVER_PORT"
+  printf_yellow "Access from the network: $RUN_SERVER_URL"
   open_filemanager "$RUN_SERVER_CWD"
+  eval $1 &>/dev/null || return 1
+  serverPid="$!"
+  trap '__exit $serverPid' INT
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __return_error() { printf '%s\n' "Failed to start server" &>>"$RUN_SERVER_LOG" && printf_exit 1 1 "Failed to start the server"; }
 __lsof() { lsof -i -nP | grep "${1:-$RUN_SERVER_PORT}" | grep -v 'grep' | grep -i "${prog:-python2}" | grep -q '^' && return 0 || return 1; }
 __netcat_serv() { while true; do nc -l "$RUN_SERVER_PORT" <.; done &>>"$RUN_SERVER_LOG" && echo netcat started &>>"$RUN_SERVER_LOG" || return 1; }
-__port_used() { sleep 5 && sudo netstat -tauln 2>/dev/null | grep 'LISTEN' | grep ":${1:-$RUN_SERVER_PORT}" | grep -q '^' && return 0 || return 1; }
-__port_free() { sleep 5 && sudo netstat -tauln 2>/dev/null | grep 'LISTEN' | grep ":${1:-$RUN_SERVER_PORT}" | grep -q '^' && return 1 || return 0; }
+__port_used() { sleep .1 && sudo netstat -tauln 2>/dev/null | grep 'LISTEN' | grep ":${1:-$RUN_SERVER_PORT}" | grep -q '^' && return 0 || return 1; }
+__port_free() { sleep .1 && sudo netstat -tauln 2>/dev/null | grep 'LISTEN' | grep ":${1:-$RUN_SERVER_PORT}" | grep -q '^' && return 1 || return 0; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __go() {
   cmd_exists gohttpserver && cd "$RUN_SERVER_CWD" &&
@@ -222,7 +224,7 @@ open_url() {
     OPEN_WEB="open $1"
   fi
   printf_purple "Launching: $OPEN_WEB"
-  $OPEN_WEB
+  eval $OPEN_WEB
   printf_red "control-c to exit"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -256,17 +258,20 @@ __prog_check() {
 __set_vars() {
   local ORIG_PORT="${1:-$RUN_SERVER_DEFAULT_PORT}"
   local port="${1:-$RUN_SERVER_DEFAULT_PORT}"
-  local set_port="${1:-$RUN_SERVER_DEFAULT_PORT}"
   local i=0
   if __port_used $port; then
-    printf_red "Something appears to be running on port ${other_port:-$port}"
-    printf_yellow "Attempting the next port: $((port + 1))"
+    printf_red "Something appears to be running on port ${port}"
     while :; do
-      __port_free $port && break || set_port="$((port + 1)) "
-      sleep .5
+      if __port_free $port; then
+        break
+      else
+        printf_yellow "Attempting the next port: $((port + 1))"
+        port="$((port + 1)) "
+        sleep .5
+      fi
     done
   fi
-  RUN_SERVER_PORT="$port"
+  RUN_SERVER_PORT="${port}"
   RUN_SERVER_HOST="$(__gethostname)"
   RUN_SERVER_ADDR="$(__getlipaddr && echo "$CURRIP4" || echo '127.0.0.1')"
   RUN_SERVER_CWD="$(realpath "${RUN_SERVER_CWD:-$PWD}" || dirname "${RUN_SERVER_CWD:-$PWD}/.")"
@@ -280,8 +285,7 @@ __try_default() {
     __main__ "__python3_serv" ||
     __main__ "__python2_serv" ||
     __main__ "__py_simple" ||
-    __main__ "__netcat_serv" ||
-    __main__ "__return_error"
+    __main__ "__netcat_serv" || __return_error
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 screen_config() {
@@ -657,6 +661,7 @@ netcat | nc)
   else
     __prog_check "$prog"
     __set_vars $1
+    __main__ "__try_default" || __return_error
   fi
   ;;
 esac

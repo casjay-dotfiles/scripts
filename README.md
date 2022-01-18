@@ -18,7 +18,7 @@ sudo systemmgr update scripts
 requires:
 
 ```shell
-sudo apt install git bash zsh fish python3-pip python3-setuptools net-tools fontconfig jq tf xclip curl wget dialog qalc rsync links html2text dict sudo
+sudo apt install git bash zsh fish python3-pip python3-setuptools net-tools fontconfig jq tf xclip curl wget dialog qalc rsync links html2text dict sudo ruby expect nethogs iftop iotop iperf locate pass python
 ```  
 
 ```shell

@@ -1865,6 +1865,23 @@ __ask_confirm() {
   fi
   return ${exitCode:-$?}
 }
+###################### git commands ######################
+__generate_random_port() {
+  __run() { cat /dev/urandom | od -N2 -An -i | awk -v f=2000 -v r=65000 '{printf "%i\n", f + r * $1 / 65536}'; }
+  __number() { [[ $number -lt 65000 ]] && echo "$number" || number="$(__run)"; }
+  number="$(__run)"
+  while :; do
+    if sudo netstat -taupln | grep -q ":$number "; then
+      number="$(__run)"
+      exitCode=1
+    else
+      break
+    fi
+    sleep 0.1
+  done
+  __number
+  return ${exitCode:-0}
+}
 #function to get network device
 __getlipaddr() {
   if builtin type -P route &>/dev/null || builtin type -P ip &>/dev/null; then

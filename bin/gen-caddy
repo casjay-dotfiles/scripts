@@ -106,7 +106,7 @@ __get_caddy_pid() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__get_caddy_port() { netstatl | grep "${1:-$pids}" | tr ' ' '\n' | grep -Ev '^$|:\*' | grep ':' | sed 's|.*:||g' | grep -v '^$' || return 1; }
+__get_caddy_port() { sudo netstatl | grep "${1:-$pids}" | tr ' ' '\n' | grep -Ev '^$|:\*' | grep ':' | sed 's|.*:||g' | grep -v '^$' || return 1; }
 __get_caddy_mem() { ps axo rss,comm,pid | grep "${1:-$pids}" | awk '{$1/=1024;printf "%.0fMB\t",$1}{print $2}' | awk '{print $1}'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 about() {
@@ -298,6 +298,7 @@ caddystatus() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 amiroot() {
+  [[ $GEN_CADDY_FILE_DIR =~ $HOME ]] && return
   if [[ "$EUID" -eq 0 ]]; then
     return 0
   else
@@ -354,6 +355,14 @@ getcaddy() {
   fi
   move_bin
 }
+create_bin_link() {
+  # Create symlink
+  local bindir="/usr/local/bin"
+  [[ "$EUID" -ne 0 ]] && [[ -d "$HOME/.local/bin" ]] && bindir="$HOME/.local/bin"
+  if [[ ! -e "$bindir/caddy" ]]; then
+    __ln_sf "$GEN_CADDY_BIN_FILE" "$bindir/caddy"
+  fi
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 installcaddy() {
   if [[ -e "$GEN_CADDY_BIN_FILE" ]]; then
@@ -394,10 +403,10 @@ installcaddy() {
   # Port setup
   printf_blue "Binding port using setcap..."
   if hash setcap 2>/dev/null; then
-    setcap cap_net_bind_service=+ep "$GEN_CADDY_BIN_FILE" &>/dev/null && printf_blue "[$(tput setaf 2)DONE$(tput sgr0)]" || printf_blue "[$(tput setaf 1)FAILED$(tput sgr0)]"
+    sudo setcap cap_net_bind_service=+ep "$GEN_CADDY_BIN_FILE" &>/dev/null && printf_blue "[$(tput setaf 2)DONE$(tput sgr0)]" || printf_blue "[$(tput setaf 1)FAILED$(tput sgr0)]"
   elif hash apt-get 2>/dev/null; then
-    apt-get install libcap2-bin -y &>/dev/null
-    setcap cap_net_bind_service=+ep "$GEN_CADDY_BIN_FILE" &>/dev/null && printf_blue "[$(tput setaf 2)DONE$(tput sgr0)]" || printf_blue "[$(tput setaf 1)FAILED$(tput sgr0)]"
+    sudo apt-get install libcap2-bin -y &>/dev/null
+    sudo setcap cap_net_bind_service=+ep "$GEN_CADDY_BIN_FILE" &>/dev/null && printf_blue "[$(tput setaf 2)DONE$(tput sgr0)]" || printf_blue "[$(tput setaf 1)FAILED$(tput sgr0)]"
   else
     printf_blue "[$(tput setaf 1)FAILED$(tput sgr0)]"
   fi
@@ -485,7 +494,7 @@ updatecaddy() {
     chown -R "$GEN_CADDY_DEFAULT_USER" $GEN_CADDY_FILE_DIR
   fi
   # Port setup
-  hash setcap 2>/dev/null && setcap cap_net_bind_service=+ep "$GEN_CADDY_BIN_FILE" &>/dev/null
+  hash setcap 2>/dev/null && sudo setcap cap_net_bind_service=+ep "$GEN_CADDY_BIN_FILE" &>/dev/null
   # Removing caddy archive and printing info
   echo $(date +%s) >$GEN_CADDY_TEMP_DIR/updatecheck
   chmod 777 $GEN_CADDY_TEMP_DIR/updatecheck
@@ -525,12 +534,12 @@ installphp() {
       fi
       # Install PHP
       if hash yum 2>/dev/null; then
-        yum update -y &>/dev/null && yum install sed php-fpm php-cli php-curl curl sudo -y &>/dev/null
+        yum update -y &>/dev/null && sudo yum install sed php-fpm php-cli php-curl curl sudo -y &>/dev/null
         printf_blue "[$(tput setaf 2)DONE$(tput sgr0)]"
         printf_blue "Installed 'php-fpm php-cli php-curl curl sudo'"
         fixphpfpm
       elif hash apt-get 2>/dev/null; then
-        apt-get update -y &>/dev/null && apt-get install sed $PHP-fpm $PHP-cli $PHP-curl curl sudo -y &>/dev/null
+        apt-get update -y &>/dev/null && sudo apt-get install sed $PHP-fpm $PHP-cli $PHP-curl curl sudo -y &>/dev/null
         printf_blue "[$(tput setaf 2)DONE$(tput sgr0)]"
         printf_blue "Installed '$PHP-fpm $PHP-cli $PHP-curl curl sudo'"
         fixphpfpm
@@ -574,7 +583,7 @@ phpvalue() {
   if [[ -n "$DELETE_CADDY" ]]; then
     if [[ -f "$caddyphpfpmdir/caddy.conf" ]]; then
       printf_red "Deleting $caddyphpfpmdir/caddy.conf"
-      rm -Rf "$caddyphpfpmdir/caddy.conf" &>/dev/null
+      sudo rm -Rf "$caddyphpfpmdir/caddy.conf" &>/dev/null
       return
     else
       return
@@ -582,7 +591,7 @@ phpvalue() {
   elif [[ -n "$phpfpm" ]] && [[ -d "$caddyphpfpmdir" ]]; then
     printf_blue "PHP-FPM config dir found: $caddyphpfpmdir"
     caddyphpfpm="$caddyphpfpmdir/caddy.conf"
-    cp -Rf "$phpfpm" "$caddyphpfpm"
+    sudo cp -Rf "$phpfpm" "$caddyphpfpm"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -593,55 +602,54 @@ phpfpm_caddy() { grep -Rs "php_fastcgi " "$GEN_CADDY_SERVER_FILE" | grep '^' || 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 fixphpfpm() {
   phpvalue
-  user=$1
-  fpmport="localhost:$(generate_random_port)"
+  fpmport="127.0.0.1:$(generate_random_port)"
   listen="$(phpfpm_listen)"
   getuser="$(phpfpm_user)"
   getgroup="$(phpfpm_group)"
-  phpuser="${getuser:-$user}"
+  phpuser="${getuser:-www-data}"
   phpfpm_caddy="$(phpfpm_caddy)"
-  phpfpm_caddy_port="localhost:$(generate_random_port)"
-  [[ $fpmport = "$phpfpm_caddy_port" ]] && phpfpm_caddy_port="localhost:$(generate_random_port)"
+  phpfpm_caddy_port="127.0.0.1:$(generate_random_port)"
+  [[ $fpmport = "$phpfpm_caddy_port" ]] && phpfpm_caddy_port="127.0.0.1:$(generate_random_port)"
   if [[ $phpuser == "" ]]; then
     phpuser=$GEN_CADDY_DEFAULT_USER
   fi
   if [[ -f "$caddyphpfpm" ]]; then
     printf_yellow "Fixing php-fpm user and group..."
     printf_purple "in $caddyphpfpm"
-    sed -i 's|\[www\]|\[caddy\]|g' "$caddyphpfpm"
-    sed -i "s|$phpuser|$GEN_CADDY_DEFAULT_USER|g" "$caddyphpfpm"
-    sed -i "s|$phpuser|$GEN_CADDY_DEFAULT_USER|g" "$caddyphpfpm"
-    sed -i "s|$phpfpm_caddy|$phpfpm_caddy_port|g" "$caddyphpfpm"
-    sed -i "s|$listen|$phpfpm_caddy_port|g" "$caddyphpfpm"
+    sudo sed -i 's|\[www\]|\[caddy\]|g' "$caddyphpfpm"
+    sudo sed -i "s|$phpuser|$GEN_CADDY_DEFAULT_USER|g" "$caddyphpfpm"
+    sudo sed -i "s|$phpuser|$GEN_CADDY_DEFAULT_USER|g" "$caddyphpfpm"
+    sudo sed -i "s|$phpfpm_caddy|$phpfpm_caddy_port|g" "$caddyphpfpm"
+    sudo sed -i "s|$listen|$phpfpm_caddy_port|g" "$caddyphpfpm"
   fi
   # Detect php5-fpm or php-fpm
   printf_blue "Fixing php sock issue..."
   # PHP 5-7
   if [[ -e "$phpfpm" ]]; then
-    sed -i "s@user = .*@user = $phpuser@g" $phpfpm
-    sed -i "s@group = .*@group = $phpuser@g" $phpfpm
-    sed -i 's/listen = .*/listen = '$fpmport'/g' $phpfpm
+    sudo sed -i "s@user = .*@user = $phpuser@g" $phpfpm
+    sudo sed -i "s@group = .*@group = $phpuser@g" $phpfpm
+    sudo sed -i 's/listen = .*/listen = '$fpmport'/g' $phpfpm
     printf_blue "[$(tput setaf 2)DONE$(tput sgr0)]"
   #Ubuntu
   elif [[ -e "$ubuntuphp5fpm" ]]; then
-    sed -i "s@user = .*@user = $phpuser@g" $ubuntuphp5fpm
-    sed -i "s@group = .*@group = $phpuser@g" $ubuntuphp5fpm
-    sed -i 's/listen = .*/listen = '$fpmport'/g' $ubuntuphp5fpm
+    sudo sed -i "s@user = .*@user = $phpuser@g" $ubuntuphp5fpm
+    sudo sed -i "s@group = .*@group = $phpuser@g" $ubuntuphp5fpm
+    sudo sed -i 's/listen = .*/listen = '$fpmport'/g' $ubuntuphp5fpm
     printf_blue "[$(tput setaf 2)DONE$(tput sgr0)]"
   # CentOS
   elif [[ -e "$centosphpfpm" ]]; then
-    sed -i "s@user = .*@user = $phpuser@g" $centosphpfpm
-    sed -i "s@group = .*@group = $phpuser@g" $centosphpfpm
+    sudo sed -i "s@user = .*@user = $phpuser@g" $centosphpfpm
+    sudo sed -i "s@group = .*@group = $phpuser@g" $centosphpfpm
     printf_blue "[$(tput setaf 2)DONE$(tput sgr0)]"
   # CentOS 2
   elif [[ -e "$centosphpfpm2" ]]; then
-    sed -i "s@user = .*@user = $phpuser@g" $centosphpfpm2
-    sed -i "s@group = .*@group = $phpuser@g" $centosphpfpm2
+    sudo sed -i "s@user = .*@user = $phpuser@g" $centosphpfpm2
+    sudo sed -i "s@group = .*@group = $phpuser@g" $centosphpfpm2
     printf_blue "[$(tput setaf 2)DONE$(tput sgr0)]"
   # PHP 7
   elif [[ -e "$phpfpm7" ]]; then
-    sed -i "s@user = .*@user = $phpuser@g" $phpfpm7
-    sed -i "s@group = .*@group = $phpuser@g" $phpfpm7
+    sudo sed -i "s@user = .*@user = $phpuser@g" $phpfpm7
+    sudo sed -i "s@group = .*@group = $phpuser@g" $phpfpm7
     printf_blue "[$(tput setaf 2)DONE$(tput sgr0)]"
   else
     printf_blue "[$(tput setaf 1)FAILED$(tput sgr0)]"
@@ -709,10 +717,14 @@ checkconfigfile() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 gen_caddy_config() {
   local newport="$GEN_CADDY_DOMAIN_PORT"
+  local fpmport="127.0.0.1:$(generate_random_port)"
   move_bin &>/dev/null
   phpvalue
   # Ubuntu
-  if [[ -e "$ubuntuphp5fpm" ]]; then
+  if [[ -e "$phpfpm" ]]; then
+    sed -i 's/listen = .*/listen = '$fpmport'/g' $phpfpm7
+    phpsock=$(grep "listen = *" <$phpfpm | cut -c 10-)
+  elif [[ -e "$ubuntuphp5fpm" ]]; then
     phpsock=$(grep "listen = *" <$ubuntuphp5fpm | cut -c 10-)
   # CentOS
   elif [[ -e "$centosphpfpm" ]]; then
@@ -760,12 +772,12 @@ gen_caddy_config() {
       domainmail=""
       makeconfig | tee "$GEN_CADDY_SERVER_FILE" &>/dev/null
     else
-      makeconfig ssl | sudo "$GEN_CADDY_SERVER_FILE" &>/dev/null
+      makeconfig ssl | tee "$GEN_CADDY_SERVER_FILE" &>/dev/null
     fi
     checkconfigfile || exit 10
   fi
   if [[ -f "$GEN_CADDY_SERVER_FILE" ]]; then
-    sudo cp -Rf "$GEN_CADDY_SERVER_FILE" "$GEN_CADDY_SERVER_FILE.orig"
+    cp -Rf "$GEN_CADDY_SERVER_FILE" "$GEN_CADDY_SERVER_FILE.orig"
     # sudo caddy adapt --config "$GEN_CADDY_SERVER_FILE" 2>/dev/null | jq | sudo tee "$GEN_CADDY_SERVER_FILE.tmp" &>/dev/null
     # sudo mv "$GEN_CADDY_SERVER_FILE.tmp" "$GEN_CADDY_SERVER_FILE"
   fi
@@ -784,7 +796,7 @@ global_config() {
   https_port="$(generate_random_port)"
   fulldomain="$domainnameport"
   sslfulldomain="$(echo "$domainnameport" | sed 's/^http:\/\//https:\/\//g')"")"
-  netstat -taupln | grep "$https_port" &>/dev/null || https_port="$(generate_random_port)"
+  sudo netstat -taupln | grep "$https_port" &>/dev/null || https_port="$(generate_random_port)"
   if [[ "$1" = all ]]; then
     cat <<EOF | tee
 $fulldomain,$sslfulldomain
@@ -875,8 +887,8 @@ makeservice() {
   if [ "$init" == 'systemd' ]; then
     MAIN="$"
     MAINPID="MAINPID"
-    rm -f /etc/systemd/system/caddy.service
-    cat <<EOF >/etc/systemd/system/caddy.service
+    sudo rm -f /etc/systemd/system/caddy.service
+    cat <<EOF | sudo tee /etc/systemd/system/caddy.service &>/dev/null
 [Unit]
 Description=Caddy HTTP/2 web server
 Documentation=https://caddyserver.com/docs
@@ -885,6 +897,7 @@ Requires=network-online.target
 
 [Service]
 User=$GEN_CADDY_DEFAULT_USER
+Group=$GEN_CADDY_DEFAULT_USER
 StartLimitInterval=86400
 StartLimitBurst=5
 LimitNOFILE=16535
@@ -896,15 +909,15 @@ PIDFile=$GEN_CADDY_FILE_DIR/caddy.pid
 [Install]
 WantedBy=multi-user.target
 EOF
-    chmod 0644 /etc/systemd/system/caddy.service
-    printf_blue "$(tput setaf 2)DONE$(tput sgr0)"
+    sudo chmod -Rf 0644 /etc/systemd/system/caddy.service
     sudo systemctl daemon-reload &>/dev/null
     sudo systemctl enable caddy &>/dev/null
     sudo systemctl restart caddy &>/dev/null
+    printf_blue "$(tput setaf 2)DONE$(tput sgr0)"
   else
     # Download
-    wget -q $nocert "https://raw.githubusercontent.com/sayem314/Caddy-Web-Server-Installer/master/php-fpm/runcaddy.sh" -O "/etc/init.d/caddy.sh" 2>/dev/null
-    chmod +x /etc/init.d/caddy.sh
+    sudo wget -q $nocert "https://raw.githubusercontent.com/sayem314/Caddy-Web-Server-Installer/master/php-fpm/runcaddy.sh" -O "/etc/init.d/caddy.sh" 2>/dev/null
+    sudo chmod +x /etc/init.d/caddy.sh
     # Enable
     if hash yum 2>/dev/null; then
       sudo chkconfig caddy.sh on
@@ -939,12 +952,12 @@ deletecaddy() {
       rm -rf $GEN_CADDY_FILE_DIR &>/dev/null
       cmd_exists caddy && __rm_rf "$GEN_CADDY_BIN_FILE"
       # Backup Caddyfile if exists, usually on /etc/Caddyfile.
-      if [[ -e $GEN_CADDY_CONFIG_DIR ]]; then
+      if [[ -f "$GEN_CADDY_CONFIG_DIR" ]]; then
         cp -Rf $GEN_CADDY_CONFIG_DIR $GEN_CADDY_CONFIG_DIR.$$ 2>/dev/null
         printf_blue "Backup of current Caddy config dir saved to $GEN_CADDY_CONFIG_DIR.$$"
       fi
       # Now remove Caddyfile
-      rm -Rf $GEN_CADDY_CONFIG_DIR &>/dev/null
+      rm -Rf "$GEN_CADDY_CONFIG_DIR" &>/dev/null
       # Prompt if data should be removed
       if [[ -d "$GEN_CADDY_WWW_DIR" ]]; then
         printf_blue "$GEN_CADDY_NAME has been deleted."
@@ -953,7 +966,7 @@ deletecaddy() {
         # remove caddy user
         if [[ ! "$GEN_CADDY_DEFAULT_USER" == $(whoami) ]]; then
           if id -u "$GEN_CADDY_DEFAULT_USER" >/dev/null 2>&1; then
-            hash php 2>/dev/null && fixphpfpm www-data
+            hash php 2>/dev/null && fixphpfpm
             restartphpfpm
             sudo userdel -f -r "$GEN_CADDY_DEFAULT_USER" &>/dev/null # delete caddy user
             printf_blue "$GEN_CADDY_NAME and Caddy user '$GEN_CADDY_DEFAULT_USER' has been deleted."
@@ -1009,7 +1022,7 @@ deletecaddydata() {
     # remove caddy user too if exists
     if [[ ! "$GEN_CADDY_DEFAULT_USER" == $(whoami) ]]; then
       if id -u "$GEN_CADDY_DEFAULT_USER" >/dev/null 2>&1; then
-        hash php 2>/dev/null && fixphpfpm www-data
+        hash php 2>/dev/null && fixphpfpm
         hash php 2>/dev/null && restartphpfpm
         sudo userdel -f -r "$GEN_CADDY_DEFAULT_USER" &>/dev/null # delete caddy user
         printf_blue "Caddy user '$GEN_CADDY_DEFAULT_USER' has been deleted too."
@@ -1104,6 +1117,10 @@ restorecaddy() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default variables
 exitCode="0"
+if [[ "$EUID" -ne 0 ]]; then
+  GEN_CADDY_FILE_DIR="$HOME/.local/share/caddyserver"
+  GEN_CADDY_DEFAULT_USER="${USER}"
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application Folders
 GEN_CADDY_LOG_DIR="${GEN_CADDY_LOG_DIR:-$HOME/.local/log/gen-caddy}"

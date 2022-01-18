@@ -97,17 +97,22 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional functions
+__ps_aux() { ps -ax | grep -w '[c]addy' | grep run | awk '{print $1}' | grep -v '^$' | tr '\n' ' ' | grep '^' || return 1; }
+__cat_pid() { [[ -f "$GEN_CADDY_FILE_DIR/caddy.pid" ]] && cat "$GEN_CADDY_FILE_DIR/caddy.pid" && return 0 || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_caddy_pid() {
+  local pid=""
   if [[ -s "$GEN_CADDY_FILE_DIR/caddy.pid" ]]; then
-    cat "$GEN_CADDY_FILE_DIR/caddy.pid"
+    pid=$(__cat_pid || __ps_aux | grep '^')
   else
-    ps -ax | grep -w '[c]addy' | grep run | awk '{print $1}' | grep -v '^$' | tr '\n' ' ' | grep '^' && echo ||
-      return 1
+    pid=$(__ps_aux | grep '^')
   fi
+  [[ -n "$pid" ]] && echo $pid || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__get_caddy_port() { sudo netstatl | grep "${1:-$pids}" | tr ' ' '\n' | grep -Ev '^$|:\*' | grep ':' | sed 's|.*:||g' | grep -v '^$' || return 1; }
-__get_caddy_mem() { ps axo rss,comm,pid | grep "${1:-$pids}" | awk '{$1/=1024;printf "%.0fMB\t",$1}{print $2}' | awk '{print $1}'; }
+__get_caddy_port() { sudo netstat -taupln | grep 'LISTEN' | grep "${1:-$pids}" | tr ' ' '\n' | grep -Ev '^$|:\*' | grep ':' | sed 's|.*:||g' | grep -v '^$' || return 1; }
+__get_caddy_mem() { ps -axo rss,comm,pid | grep "${1:-$pids}" | awk '{$1/=1024;printf "%.0fMB\t",$1}{print $2}' | awk '{print $1}'; }
+__get_caddy_uptime() { ps -p "${1:-$pids}" -oetime= 2>/dev/null | tr '-' ':' | awk -F: '{ total=0; m=1; } { for (i=0; i < NF; i++) {total += $(NF-i)*m; m *= i >= 2 ? 24 : 60 }} {print total}' | grep -v "^$" || return; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 about() {
   printf_blue "========================================================= "
@@ -155,7 +160,7 @@ isinstalled() {
   if [[ ! -x "$GEN_CADDY_BIN_FILE" ]] || [[ ! -f "$GEN_CADDY_SERVER_FILE" ]]; then
     echo
     printf_blue "Caddy is not installed."
-    printf_blue "run $(tput setaf 3)sudo $APPNAME install$(tput sgr0) to install $GEN_CADDY_NAME"
+    printf_blue "run $(tput setaf 3)$APPNAME install$(tput sgr0) to install $GEN_CADDY_NAME"
     return 1
   fi
 }
@@ -179,7 +184,7 @@ startcaddy() {
   isinstalled || exit 1
   caddypid="$GEN_CADDY_FILE_DIR/caddy.pid"
   if [[ ! -f "$caddypid" ]]; then
-    mkdir -p "$caddypid" 2>/dev/null || (
+    mkdir -p "$(dirname "$caddypid" 2>/dev/null)" || (
       printf_blue "error creating folder $caddypid"
       printf_blue "try running with: sudo $APPNAME start"
       exit 1
@@ -223,9 +228,9 @@ stopcaddy() {
       # Most arch based linux don't have service
       hash service 2>/dev/null && sudo service caddy stop || sudo systemctl stop caddy
     else
-      kill "$pids"
+      sudo kill -9 "$pids" &>/dev/null
     fi
-    sudo "$GEN_CADDY_BIN_FILE" stop &>/dev/null
+    sudo -HE $GEN_CADDY_DEFAULT_USER $GEN_CADDY_BIN_FILE stop &>/dev/null
     sleep 1
     printf_blue "[$(tput setaf 2)DONE$(tput sgr0)]"
   fi
@@ -253,17 +258,35 @@ reloadcaddy() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 restartphpfpm() {
-  phpvalue
-  # Ubuntu
-  if [[ -e "$ubuntuphp5fpm" ]]; then
+  local exitCode=0
+  local restartphpfpmMessage=""
+  phpvalue &>/dev/null && printf_blue "Restarting PHP-FPM..."
+  if [[ -n "$getsphpervice" ]]; then
+    sudo systemctl restart "$getsphpervice" &>/dev/null
+    exitCode=$?
+  elif [[ -e "$ubuntuphp5fpm" ]]; then
+    # Ubuntu
     service php5-fpm restart &>/dev/null
-  # CentOS
+    exitCode=$?
   elif [[ -e "$centosphpfpm" || -e "$centosphpfpm2" ]]; then
+    # CentOS
     service php-fpm restart &>/dev/null
-  # PHP 7
+    exitCode=$?
   elif [[ -e "$phpfpm7" ]]; then
-    /etc/init.d/php7.*-fpm reload &>/dev/null
+    # PHP 7
+    phpfpm_init=$(find /etc/init.d/ -name "php*-fpm" | head -n 1)
+    ${phpfpm_init} reload &>/dev/null
+    exitCode=$?
+  else
+    printf_red "I can't find the php-fpm service"
+    return 1
   fi
+  if [[ $exitCode -eq 0 ]]; then
+    printf_green "Service has been restarted"
+  else
+    printf_red "error restarting PHP-FPM"
+  fi
+  return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 caddystatus() {
@@ -276,8 +299,11 @@ caddystatus() {
   else
     caddymemusage=$(__get_caddy_mem "$pids")
     caddyport=$(__get_caddy_port "$pids")
-    secs=$(ps -p "$pids" -oetime= 2>/dev/null | tr '-' ':' | awk -F: '{ total=0; m=1; } { for (i=0; i < NF; i++) {total += $(NF-i)*m; m *= i >= 2 ? 24 : 60 }} {print total}' | grep -v "^$" || return)
-    if [[ $secs -lt 120 ]]; then
+    secs=$(__get_caddy_uptime "$pids")
+    [[ -n "$caddymemusage" ]] || caddymemusage="N/A"
+    if [[ -z "$secs" ]]; then
+      caddyuptime="unknown"
+    elif [[ $secs -lt 120 ]]; then
       caddyuptime="$secs seconds"
     elif [[ $secs -lt 3600 ]]; then
       caddyuptime=$(printf '%d minutes %d seconds\n' $(($secs % 3600 / 60)) $(($secs % 60)))
@@ -341,19 +367,36 @@ getcaddy() {
   downurl="$(echo "https://github.com/caddyserver/caddy/releases/download/v${curver}/caddy_${curver}_${os}_${cpubits}.tar.gz")"
   isupdate="$1"
   nocert="--no-check-certificate"
+  caddyBin="$(type -p caddy 2>/dev/null | grep -v "$GEN_CADDY_BIN_FILE" | grep '^' || return 1)"
   if [[ $isupdate == "update" ]]; then
+    caddyBin=""
     caddyversion=$("$GEN_CADDY_BIN_FILE" -version | awk '{print}')
     printf_blue "Found $caddyversion"
   fi
-  printf_blue "Downloading caddy $curver for $os from"
-  printf_blue "$downurl"
-  # Start downloading caddy now
-  if ! wget -q $nocert "$downurl" -O "caddy_custom.tar.gz" 2>/dev/null; then
-    printf_red "Error: Cannot download Caddy binary from"
+  if [[ -f "$caddyBin" ]]; then
+    printf_yellow "Found caddy in: $caddyBin"
+    ln -sf "$caddyBin" "$GEN_CADDY_BIN_FILE"
+  else
+    [[ -f "$caddyBin" ]] && __rm_rf "$caddyBin"
+    printf_blue "Downloading caddy $curver for $os from"
     printf_blue "$downurl"
-    exit 1
+    # Start downloading caddy now
+    if ! wget -q $nocert "$downurl" -O "caddy_custom.tar.gz" 2>/dev/null; then
+      printf_red "Error: Cannot download Caddy binary from"
+      printf_blue "$downurl"
+      exit 1
+    fi
+    # Extract Caddy to appropriate folder
+    printf_blue "Extracting $GEN_CADDY_NAME to $GEN_CADDY_FILE_DIR..."
+    if ! tar xzf caddy_custom.tar.gz -C $GEN_CADDY_FILE_DIR; then
+      printf_blue "[$(tput setaf 1)FAILED$(tput sgr0)]: Cannot extract 'caddy_custom.tar.gz'"
+      exit 1
+    fi
+    move_bin
   fi
-  move_bin
+  # Creating folders
+  mkdir -p "$GEN_CADDY_FILE_DIR"
+  mkdir -p "$GEN_CADDY_LOG_DIR"
 }
 create_bin_link() {
   # Create symlink
@@ -375,15 +418,6 @@ installcaddy() {
   fi
   # Download caddy
   getcaddy
-  # Creating folders
-  mkdir -p "$GEN_CADDY_FILE_DIR"
-  mkdir -p "$GEN_CADDY_LOG_DIR"
-  # Extract Caddy to appropriate folder
-  printf_blue "Extracting $GEN_CADDY_NAME to $GEN_CADDY_FILE_DIR..."
-  if ! tar xzf caddy_custom.tar.gz -C $GEN_CADDY_FILE_DIR; then
-    printf_blue "[$(tput setaf 1)FAILED$(tput sgr0)]: Cannot extract 'caddy_custom.tar.gz'"
-    exit 1
-  fi
   # Deleting Caddy archive
   rm -f caddy_custom.tar.gz
   # move caddy binary to correct location
@@ -469,13 +503,14 @@ updatecaddy() {
   sleep 0.1
   # Stop current process if found
   if [ -n "$pids" ]; then
-    printf_blue "Found Caddy is running!"
+    printf_blue "Caddy is running!"
+    printf_blue "Stopping Caddy... $pids"
     stopcaddy
   fi
   # Delete Caddy folder
   printf_blue "Removing current $GEN_CADDY_NAME from $GEN_CADDY_BIN_FILE"
   sleep 0.2
-  rm -rf "${GEN_CADDY_BIN_FILE:?}"
+  __rm_rf "${GEN_CADDY_BIN_FILE:?}"
   printf_blue "[$(tput setaf 2)DONE$(tput sgr0)]"
   sleep 0.1
   # Extract Caddy to appropriate folder
@@ -564,8 +599,9 @@ phpvalue() {
   ubuntuphp5fpm="/etc/php5/fpm/pool.d/www.conf"
   centosphpfpm="/etc/php/fpm/pool.d/www.conf"
   centosphpfpm2="/etc/php-fpm.d/www.conf"
-  phpfpm7=$(echo /etc/php/7.*/fpm/pool.d/www.conf)
+  phpfpm7="$(find /etc/php/*/fpm/pool.d/ -name 'www.conf' 2>/dev/null)"
   getphpfpm="$(find /etc/*php* -maxdepth 3 -type f -name 'www.conf' 2>/dev/null | grep 'www' | head -n1 | grep '^' || echo '')"
+  getsphpervice="$(sudo systemctl list-unit-files | grep 'php*-fpm' | awk '{print $1}' | grep '^php')"
   if [[ -e "$getphpfpm" ]]; then
     phpfpm="$getphpfpm"
   elif [[ -e "$phpfpm7" ]]; then
@@ -583,7 +619,7 @@ phpvalue() {
   if [[ -n "$DELETE_CADDY" ]]; then
     if [[ -f "$caddyphpfpmdir/caddy.conf" ]]; then
       printf_red "Deleting $caddyphpfpmdir/caddy.conf"
-      sudo rm -Rf "$caddyphpfpmdir/caddy.conf" &>/dev/null
+      sudo __rm_rf "$caddyphpfpmdir/caddy.conf" &>/dev/null
       return
     else
       return
@@ -655,11 +691,14 @@ fixphpfpm() {
     printf_blue "[$(tput setaf 1)FAILED$(tput sgr0)]"
     printf_blue "php not found!"
   fi
+  restartphpfpm && exitCode=0 || exitCode=1
+  [[ -n "$restartphpfpmMessage" ]] && $restartphpfpmMessageColor "$restartphpfpmMessage"
+  return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 make_example_html() {
   # Create example html
-  [[ -n "$FORCE_INSTALL" ]] && rm -Rf "$GEN_CADDY_WWW_DIR"
+  [[ -n "$FORCE_INSTALL" ]] && __rm_rf "$GEN_CADDY_WWW_DIR"
   [[ -d "$GEN_CADDY_WWW_DIR" ]] || mkdir -p "$GEN_CADDY_WWW_DIR"
   if [[ -f "$GEN_CADDY_WWW_DIR/.installed" ]]; then
     printf_blue "$GEN_CADDY_WWW_DIR/index.html found. Skipped!"
@@ -722,20 +761,18 @@ gen_caddy_config() {
   phpvalue
   # Ubuntu
   if [[ -e "$phpfpm" ]]; then
-    sed -i 's/listen = .*/listen = '$fpmport'/g' $phpfpm7
-    phpsock=$(grep "listen = *" <$phpfpm | cut -c 10-)
+    phpsock=$(grep -s "listen = *" "$phpfpm" | head -n1 | cut -c 10-)
   elif [[ -e "$ubuntuphp5fpm" ]]; then
-    phpsock=$(grep "listen = *" <$ubuntuphp5fpm | cut -c 10-)
+    phpsock=$(grep "listen = *" "$ubuntuphp5fpm" | head -n1 | cut -c 10-)
   # CentOS
   elif [[ -e "$centosphpfpm" ]]; then
-    phpsock=$(grep "listen = *" <$centosphpfpm | cut -c 10-)
+    phpsock=$(grep -s "listen = *" <$centosphpfpm | head -n1 | cut -c 10-)
   # CentOS 2
   elif [[ -e "$centosphpfpm2" ]]; then
-    phpsock=$(grep "listen = *" <$centosphpfpm2 | cut -c 10-)
+    phpsock=$(grep -s "listen = *" <$centosphpfpm2 | head -n1 | cut -c 10-)
   # PHP 7
   elif [[ -e "$phpfpm7" ]]; then
-    sed -i 's/listen = .*/listen = 127.0.0.1:9000/g' $phpfpm7
-    phpsock=$(grep "listen = *" <$phpfpm7 | cut -c 10-)
+    phpsock=$(grep -s "listen = *" <$phpfpm7 | head -n1 | cut -c 10-)
   else
     phpsock="127.0.0.1:9000"
   fi
@@ -948,16 +985,15 @@ deletecaddy() {
       sleep 1
       # Disable and remove startup script if exist
       removeservice
-      # Remove Caddy web server folder, usually on /opt/caddyserver.
-      rm -rf $GEN_CADDY_FILE_DIR &>/dev/null
-      cmd_exists caddy && __rm_rf "$GEN_CADDY_BIN_FILE"
       # Backup Caddyfile if exists, usually on /etc/Caddyfile.
       if [[ -f "$GEN_CADDY_CONFIG_DIR" ]]; then
         cp -Rf $GEN_CADDY_CONFIG_DIR $GEN_CADDY_CONFIG_DIR.$$ 2>/dev/null
         printf_blue "Backup of current Caddy config dir saved to $GEN_CADDY_CONFIG_DIR.$$"
       fi
+      # Remove Caddy web server folder, usually on /opt/caddyserver.
+      [[ -f "$GEN_CADDY_BIN_FILE" ]] && __rm_rf "$GEN_CADDY_BIN_FILE"
       # Now remove Caddyfile
-      rm -Rf "$GEN_CADDY_CONFIG_DIR" &>/dev/null
+      __rm_rf "$GEN_CADDY_CONFIG_DIR" &>/dev/null
       # Prompt if data should be removed
       if [[ -d "$GEN_CADDY_WWW_DIR" ]]; then
         printf_blue "$GEN_CADDY_NAME has been deleted."
@@ -973,7 +1009,8 @@ deletecaddy() {
           fi
         fi
       fi
-      [[ -d "$GEN_CADDY_LOG_DIR" ]] && rm -Rf "$GEN_CADDY_LOG_DIR" &>/dev/null
+      [[ -d "$GEN_CADDY_LOG_DIR" ]] && __rm_rf "$GEN_CADDY_LOG_DIR" &>/dev/null
+      [[ -d "$GEN_CADDY_FILE_DIR" ]] && __rm_rf "$GEN_CADDY_FILE_DIR" &>/dev/null
       exit
       ;;
     [nN][oO] | [nN])
@@ -987,6 +1024,7 @@ deletecaddy() {
     esac
   else
     printf_blue "Looks like Caddy is not installed!"
+    [[ -e "$GEN_CADDY_FILE_DIR" ]] && __rm_rf "$GEN_CADDY_FILE_DIR"
     return 1
   fi
 }
@@ -1017,7 +1055,7 @@ deletecaddydata() {
   [yY][eE][sS] | [yY])
     printf_blue "Deleting $GEN_CADDY_WWW_DIR (data)..."
     sleep 2
-    rm -rf $GEN_CADDY_WWW_DIR # deleting caddy html folder
+    __rm_rf $GEN_CADDY_WWW_DIR # deleting caddy html folder
     printf_blue "[$(tput setaf 2)DONE$(tput sgr0)]"
     # remove caddy user too if exists
     if [[ ! "$GEN_CADDY_DEFAULT_USER" == $(whoami) ]]; then
@@ -1083,7 +1121,7 @@ backupcaddy() {
   tar -czf "$backupname" $GEN_CADDY_FILE_DIR $GEN_CADDY_CONFIG_DIR --absolute-names || (
     printf_blue "error creating backup $backupname"
     printf_blue "Abort."
-    rm -f "$backupname"
+    __rm_rf "$backupname"
     exit
   )
   printf_blue "Backup finished."
@@ -1169,7 +1207,7 @@ GEN_CADDY_TEMP_FILE="${GEN_CADDY_TEMP_FILE:-$(mktemp $GEN_CADDY_TEMP_DIR/XXXXXX 
 GEN_CADDY_DOMAIN_PORT="$([ -f "$GEN_CADDY_SERVER_FILE" ] && grep ':' -s "$GEN_CADDY_SERVER_FILE" | sed 's|htt.*://||g;s|{||g' | awk -F ':' '{print $2}' | head -n1 | grep '[0-9]' | grep '^' || echo "$(generate_random_port)")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup trap to remove temp file
-trap 'exitCode=${exitCode:-$?};[ -n "$GEN_CADDY_TEMP_FILE" ] && [ -f "$GEN_CADDY_TEMP_FILE" ] && rm -Rf "$GEN_CADDY_TEMP_FILE" &>/dev/null' EXIT
+trap 'exitCode=${exitCode:-$?};[ -n "$GEN_CADDY_TEMP_FILE" ] && [ -f "$GEN_CADDY_TEMP_FILE" ] && __rm_rf "$GEN_CADDY_TEMP_FILE" &>/dev/null' EXIT
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup notification function
 if [ "$GEN_CADDY_NOTIFY_ENABLED" = "yes" ]; then
@@ -1219,7 +1257,7 @@ while :; do
     ;;
   --config)
     shift 1
-    rm -Rf $GEN_CADDY_CONFIG_DIR
+    __rm_rf $GEN_CADDY_CONFIG_DIR
     __gen_config
     exit $?
     ;;
@@ -1314,7 +1352,7 @@ case $1 in
 'service' | 'makeservice')
   shift 1
   amiroot
-  rm -f /etc/systemd/system/caddy.service
+  sudo rm -f /etc/systemd/system/caddy.service
   makeservice
   ;;
 'uninstall' | 'delete')

@@ -245,6 +245,7 @@ ICON_QUESTION="[ ❓ ]"
 # printf functions
 printf_newline() { printf "${*:-}"; }
 printf_color() { printf "%b" "$(tput setaf "$2" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+printf_reset() { printf_color "\r\t\t$1 " ${2:-1}; }
 printf_normal() {
   printf_color "\t\t$1" "$2"
   printf "\n"

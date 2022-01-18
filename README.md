@@ -22,7 +22,7 @@ sudo apt install git bash zsh fish python3-pip python3-setuptools net-tools font
 ```  
 
 ```shell
-sudo yum install git bash zsh fish python3-pip python3-setuptools net-tools fontconfig jq tinyfugue xclip curl wget dialog qalc dictd sudo
+sudo yum install git bash zsh fish python3-pip python3-setuptools net-tools fontconfig jq tinyfugue xclip curl wget dialog qalc sudo
 ```  
 
 ```shell

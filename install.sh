@@ -188,6 +188,7 @@ run_postinst() {
   echo '5 4 * * * root [ -f $(builtin type -P systemmgr 2>/dev/null) ] && systemmgr update scripts cron &>/dev/null' | tee /etc/cron.d/systemmgr &>/dev/null
   grep 'Defaults.*.env_reset' /etc/sudoers | grep -v '!' && sed -i 's|env_reset|!env_reset|g' /etc/sudoers
   grep 'Defaults.*.secure_path' /etc/sudoers && sed -i 's|secure_path =.*|secure_path = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"|g' /etc/sudoers
+  printf '%s: %s\n' "$(__os_name)" "$(__os_version)" >/etc/casjaysdev/updates/versions/osversion.txt
 }
 #
 execute "run_postinst" "Running post install scripts"

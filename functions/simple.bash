@@ -69,6 +69,8 @@ if [ "$(grep -qs '^' "$CASJAYSDEVDIR/version.txt")" ]; then
 else
   currentVersion="$localVersion"
 fi
+__os_name() { cat /etc/os-release | awk -F '=' '{print $2}' || cat /etc/os-release 2>/dev/null | grep '^ID=' | awk -F '=' '{print $2}'; }
+__os_version() { cat /etc/os-release 2>/dev/null | grep '^VERSION=' | sed 's/[^.0-9]*//g' | grep '^' || cat /etc/os-release 2>/dev/null | grep 'BUILD_ID' | awk -F '=' '{print $2}'; }
 # Set Main Repo for dotfiles
 GIT_REPO_BRANCH="${GIT_DEFAULT_BRANCH:-main}"
 DOTFILESREPO="https://github.com/dfmgr"

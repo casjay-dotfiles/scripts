@@ -65,7 +65,8 @@ sudo() { PATH=$PATH builtin command sudo "$@"; }
 __cmd_exist() { builtin type -P "$1" &>/dev/null || return 1; }
 __local_gen_header() { echo -e "$1" >>"$2"; }
 __sudo() { PATH=$PATH builtin command sudo "$@"; }
-
+__os_name() { cat /etc/os-release 2>/dev/null | grep '^NAME=' | awk -F '=' '{print $2}' || cat /etc/os-release 2>/dev/null | grep '^ID=' | awk -F '=' '{print $2}'; }
+__os_version() { cat /etc/os-release 2>/dev/null | grep '^VERSION=' | sed 's/[^.0-9]*//g' | grep '^' || cat /etc/os-release 2>/dev/null | grep 'BUILD_ID' | awk -F '=' '{print $2}'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 for check in git curl wget; do
   if ! builtin type -P "$check" &>/dev/null; then

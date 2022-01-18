@@ -99,6 +99,8 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 devnull() { "$@" >/dev/null 2>&1; }
 devnull2() { "$@" >/dev/null 2>&1; }
+__os_name() { cat /etc/os-release 2>/dev/null | grep '^NAME=' | awk -F '=' '{print $2}' || cat /etc/os-release 2>/dev/null | grep '^ID=' | awk -F '=' '{print $2}'; }
+__os_version() { cat /etc/os-release 2>/dev/null | grep '^VERSION=' | sed 's/[^.0-9]*//g' | grep '^' || cat /etc/os-release 2>/dev/null | grep 'BUILD_ID' | awk -F '=' '{print $2}'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set Main Repo for dotfiles
 export GIT_REPO_BRANCH="${GIT_DEFAULT_BRANCH:-main}"

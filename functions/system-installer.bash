@@ -49,6 +49,8 @@ if [[ -n "$cmdMissing" ]]; then
 else
   unset cmdMissing
 fi
+__os_name() { cat /etc/os-release 2>/dev/null | grep '^NAME=' | awk -F '=' '{print $2}' || cat /etc/os-release 2>/dev/null | grep '^ID=' | awk -F '=' '{print $2}'; }
+__os_version() { cat /etc/os-release 2>/dev/null | grep '^VERSION=' | sed 's/[^.0-9]*//g' | grep '^' || cat /etc/os-release 2>/dev/null | grep 'BUILD_ID' | awk -F '=' '{print $2}'; }
 ###################### builtins ######################
 # Set Main Repo for dotfiles
 export DOTFILESREPO="${DOTFILESREPO:-https://github.com/dfmgr}"

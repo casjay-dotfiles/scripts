@@ -60,14 +60,14 @@ GEN_CADDY_NAME="${GEN_CADDY_NAME:-Caddy Web Server}"
 # folder where caddyserver will be kept
 GEN_CADDY_FILE_DIR="${GEN_CADDY_FILE_DIR:-/usr/local/share/caddyserver}"
 # caddy bin/file folder
-GEN_CADDY_BIN_DIR="${GEN_CADDY_BIN_DIR:-$GEN_CADDY_BIN_DIR/bin}"
+GEN_CADDY_BIN_DIR="${GEN_CADDY_BIN_DIR:-$GEN_CADDY_FILE_DIR/bin}"
 GEN_CADDY_BIN_FILE="${GEN_CADDY_BIN_FILE:-$GEN_CADDY_BIN_DIR/caddy}"
 # caddy web server config file
 GEN_CADDY_SERVER_FILE="${GEN_CADDY_SERVER_FILE:-$GEN_CADDY_FILE_DIR/Caddyfile}"
 # folder where public files should be
 GEN_CADDY_WWW_DIR="${GEN_CADDY_WWW_DIR:-$GEN_CADDY_FILE_DIR/www}"
 # folder where logs will be written
-GEN_CADDY_LOG_DIR="${GEN_CADDY_LOG_DIR:-/var/log/caddy}"
+GEN_CADDY_LOG_DIR="${GEN_CADDY_LOG_DIR:-$GEN_CADDY_FILE_DIR/log}"
 # user under caddy is gonna be running
 GEN_CADDY_DEFAULT_USER="${GEN_CADDY_DEFAULT_USER:-caddy}"
 # gen-caddy settings file
@@ -98,7 +98,7 @@ EOF
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional functions
 __get_caddy_pid() { ps -a | grep -w '[c]addy$' | awk '{print $1}' | grep -v '^$' || return 1; }
-__get_caddy_port() { netstatl | grep "${1:-$pids}" | tr ' ' '\n' | grep -Ev '^$|:\*' | grep ':' | grep -v '^$' || return 1; }
+__get_caddy_port() { netstatl | grep "${1:-$pids}" | tr ' ' '\n' | grep -Ev '^$|:\*' | grep ':' | sed 's|.*:||g' | grep -v '^$' || return 1; }
 __get_caddy_mem() { ps axo rss,comm,pid | grep "${1:-$pids}" | awk '{$1/=1024;printf "%.0fMB\t",$1}{print $2}' | awk '{print $1}'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 about() {
@@ -112,7 +112,17 @@ about() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 howto() {
   printf_blue "Welcome to the $GEN_CADDY_NAME installer!"
-  printf_blue "run $(tput setaf 3)$APPNAME help $(tput sgr0) for help"
+  printf_blue "run $(tput setaf 3)$APPNAME help $(tput sgr0)for help"
+  exit 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+move_bin() {
+  [[ -d "$GEN_CADDY_BIN_DIR" ]] || mkdir -p "$GEN_CADDY_BIN_DIR"
+  if [ -f "$GEN_CADDY_FILE_DIR/caddy" ]; then
+    printf_blue "Moving $GEN_CADDY_FILE_DIR/caddy to $GEN_CADDY_BIN_FILE"
+    mv -f "$GEN_CADDY_FILE_DIR/caddy" "$GEN_CADDY_BIN_FILE"
+  fi
+  [[ -f "$GEN_CADDY_BIN_FILE" ]] && return 0 || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 prms() {
@@ -138,15 +148,28 @@ isinstalled() {
     echo
     printf_blue "Caddy is not installed."
     printf_blue "run $(tput setaf 3)sudo $APPNAME install$(tput sgr0) to install $GEN_CADDY_NAME"
-    sudo $APPNAME install
-    return $?
+    return 1
   fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+get_hosts() {
+  hosts="$([ -f "$GEN_CADDY_SERVER_FILE" ] && cat "$GEN_CADDY_SERVER_FILE" | grep 'http' | awk '{printf $1}' | grep '^' || echo '')"
+  if [[ -n "$hosts" ]]; then
+    for host in $hosts; do
+      printf_cyan "Host: $host"
+    done
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+run_caddy_server() {
+  sudo -HE -u "$GEN_CADDY_DEFAULT_USER" "$GEN_CADDY_BIN_FILE" start -config="$GEN_CADDY_SERVER_FILE" -pidfile=/var/run/caddy/caddy.pid -watch 2>&1 | tee "$GEN_CADDY_LOG_DIR/caddy.log" &>/dev/null &
+  sleep 1
+  return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 startcaddy() {
   isinstalled || exit 1
   caddypid="/var/run/caddy"
-  hosts="$([ -f "$GEN_CADDY_SERVER_FILE.orig" ] && grep 'http' "$GEN_CADDY_SERVER_FILE.orig" | awk '{printf $1}' | grep '^')"
   if [[ ! -f "$caddypid" ]]; then
     mkdir -p "$caddypid" 2>/dev/null || (
       printf_blue "error creating folder $caddypid"
@@ -163,7 +186,7 @@ startcaddy() {
       # If service exist use service
       hash service 2>/dev/null && service caddy start || systemctl start caddy
     else
-      sudo -HE -u "$GEN_CADDY_DEFAULT_USER" "$GEN_CADDY_BIN_FILE" start -config="$GEN_CADDY_SERVER_FILE" -pidfile=/var/run/caddy/caddy.pid | sudo tee "$GEN_CADDY_BIN_FILE.log" &>/dev/null &
+      run_caddy_server
     fi
     sleep 1
     printf_blue "[$(tput setaf 2)DONE$(tput sgr0)]"
@@ -174,7 +197,6 @@ startcaddy() {
     caddystatus
   else
     printf_blue "$GEN_CADDY_NAME is already $(tput setaf 2)running$(tput sgr0) on: $pids (PID)"
-    printf '%s\n' "$hosts" | printf_readline '4'
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -218,6 +240,7 @@ reloadcaddy() {
     printf_blue "[$(tput setaf 2)DONE$(tput sgr0)]"
     printf_blue "To restart, use $(tput setaf 6)$APPNAME restart$(tput sgr0)"
     printf_blue "Refresh your browser at least 3 times to take affect"
+    get_hosts
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -255,18 +278,23 @@ caddystatus() {
     else
       caddyuptime=$(printf_blue $((secs / 86400))" days, "$(date -d "1970-01-01 + $secs seconds" "+%H hrs %M min %S sec"))
     fi
-    printf_blue "$GEN_CADDY_NAME is $(tput setaf 2)running$(tput sgr0)"
-    printf_blue "Caddy (PID: $pids) is using $caddymemusage RAM"
+    printf_cyan "$GEN_CADDY_NAME is $(tput setaf 2)running$(tput sgr0)"
+    printf_yellow "Caddy (PID: $pids) is using $caddymemusage RAM"
     printf_blue "System available RAM $(free -h | grep Mem: | awk '{print $7}')B"
     printf_blue "Uptime - $caddyuptime"
-    printf_blue "Running on $caddyport"
+    for port in $caddyport; do
+      printf_purple "Listening on port $port"
+    done
+    get_hosts
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 amiroot() {
-  if [[ "$EUID" -ne 0 ]]; then
+  if [[ "$EUID" -eq 0 ]]; then
+    return 0
+  else
     printf_red "Sorry, you need to run this as root"
-    printf_red "Try running with command 'sudo'"
+    printf_red "Try running with command sudo $APPNAME $*"
     exit 1
   fi
 }
@@ -316,6 +344,7 @@ getcaddy() {
     printf_blue "$downurl"
     exit 1
   fi
+  move_bin
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 installcaddy() {
@@ -335,16 +364,13 @@ installcaddy() {
   # Extract Caddy to appropriate folder
   printf_blue "Extracting $GEN_CADDY_NAME to $GEN_CADDY_FILE_DIR..."
   if ! tar xzf caddy_custom.tar.gz -C $GEN_CADDY_FILE_DIR; then
-    printf_blue "[$(tput setaf 1)FAILED$(tput sgr0)]"
-    printf_blue "Error: Cannot extract 'caddy_custom.tar.gz'"
-    printf_blue "Abort."
+    printf_blue "[$(tput setaf 1)FAILED$(tput sgr0)]: Cannot extract 'caddy_custom.tar.gz'"
     exit 1
   fi
-  { [[ ! -f "$GEN_CADDY_BIN_FILE" ]] && [[ -f "$GEN_CADDY_FILE_DIR/caddy" ]]; } || mv -f "$GEN_CADDY_FILE_DIR/caddy" "$GEN_CADDY_BIN_FILE"
-  printf_blue "$(tput setaf 2)[DONE]$(tput sgr0)"
   # Deleting Caddy archive
   rm -f caddy_custom.tar.gz
-  # Skip php installation on arch-linux and naked install
+  # move caddy binary to correct location
+  move_bin
   # Php installation support for arch-linux will be implemented later
   if [[ ! $1 == naked ]]; then
     hash pacman 2>/dev/null || installphp
@@ -375,13 +401,16 @@ installcaddy() {
   if [[ ! -e "/usr/local/bin/caddy" ]]; then
     __ln_sf "$GEN_CADDY_BIN_FILE" "/usr/local/bin/caddy"
   fi
+  # Create config file
+  gen_caddy_config
+  # Generate html files
+  make_example_html
   # Create update check file
   echo $(date +%s) >"$GEN_CADDY_TEMP_DIR/updatecheck"
   chmod 777 "$GEN_CADDY_TEMP_DIR/updatecheck"
   chown -R "$GEN_CADDY_DEFAULT_USER" "$GEN_CADDY_FILE_DIR"
   chown -R "$GEN_CADDY_DEFAULT_USER" "$GEN_CADDY_LOG_DIR"
   chown -R "$GEN_CADDY_DEFAULT_USER" "$GEN_CADDY_SERVER_FILE"
-
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 compareVersion() {
@@ -428,9 +457,9 @@ updatecaddy() {
     stopcaddy
   fi
   # Delete Caddy folder
-  printf_blue "Removing current $GEN_CADDY_NAME from $GEN_CADDY_FILE_DIR"
+  printf_blue "Removing current $GEN_CADDY_NAME from $GEN_CADDY_BIN_FILE"
   sleep 0.2
-  rm -rf "${GEN_CADDY_FILE_DIR:?}/"*
+  rm -rf "${GEN_CADDY_BIN_FILE:?}"
   printf_blue "[$(tput setaf 2)DONE$(tput sgr0)]"
   sleep 0.1
   # Extract Caddy to appropriate folder
@@ -442,6 +471,8 @@ updatecaddy() {
     exit 1
   fi
   printf_blue "$(tput setaf 2)[DONE]$(tput sgr0)"
+  # move caddy binary to correct location
+  move_bin
   # Granting owner access and required permission
   if id -u "$GEN_CADDY_DEFAULT_USER" >/dev/null 2>&1; then
     chown -R "$GEN_CADDY_DEFAULT_USER" $GEN_CADDY_FILE_DIR
@@ -453,6 +484,8 @@ updatecaddy() {
   chmod 777 $GEN_CADDY_TEMP_DIR/updatecheck
   rm -f caddy_custom.tar.gz # Deleting Caddy archive
   caddyversion=$("$GEN_CADDY_BIN_FILE" -version | awk '{print}')
+  # create config file
+  gen_caddy_config
   echo
   printf_blue "Updated to $caddyversion"
   echo
@@ -548,7 +581,55 @@ fixphpfpm() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+make_example_html() {
+  # Create example html
+  [[ -n "$FORCE_INSTALL" ]] && rm -Rf "$GEN_CADDY_WWW_DIR"
+  [[ -d "$GEN_CADDY_WWW_DIR" ]] || mkdir -p "$GEN_CADDY_WWW_DIR"
+  if [[ -f "$GEN_CADDY_WWW_DIR/.installed" ]]; then
+    printf_blue "$GEN_CADDY_WWW_DIR/index.html found. Skipped!"
+  else
+    __cp_rf "$CASJAYSDEVDIR/templates/apache/html/." "$GEN_CADDY_WWW_DIR/"
+    printf_blue "Template HTML Documents copied"
+    printf_blue "$GEN_CADDY_WWW_DIR"
+    date +'%Y%m%d%H%M' | tee "$GEN_CADDY_WWW_DIR/.installed" &>/dev/null
+  fi
+  # phpinfo
+  if [[ -f "$GEN_CADDY_WWW_DIR/info.php" ]]; then
+    printf_blue "$GEN_CADDY_WWW_DIR/info.php found. Skipped!"
+  else
+    printf_blue "<?php phpinfo(); ?>" >>"$GEN_CADDY_WWW_DIR/info.php"
+    printf_blue "$GEN_CADDY_WWW_DIR/info.php file created"
+  fi
+  __find_replace "GEN_SCRIPT_REPLACE_DOMAIN" "$domainname" "$GEN_CADDY_WWW_DIR"
+  __find_replace "GEN_SCRIPT_REPLACE_HTMLROOT" "$GEN_CADDY_WWW_DIR" "$GEN_CADDY_WWW_DIR"
+  chown -Rf "$GEN_CADDY_DEFAULT_USER:$GEN_CADDY_DEFAULT_USER" "$GEN_CADDY_WWW_DIR"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+generate_random_port() {
+  number="$(cat /dev/urandom | od -N2 -An -i | awk -v f=2000 -v r=65000 '{printf "%i\n", f + r * $1 / 65536}')"
+  [[ $number -lt 65000 ]] && echo "$number" || generate_random_port
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+checkconfigfile() {
+  if checkconfig &>/dev/null; then
+    if [[ $1 = check ]]; then
+      printf_blue "Caddyfile is valid and the output is below:"
+      printf_blue "$GEN_CADDY_BIN_FILE validate --config $GEN_CADDY_SERVER_FILE --adapter caddyfile"
+      [[ $1 = json ]] && checkconfig 2>&1 | jq -rc . 2>/dev/null
+    else
+      printf_blue "Caddyfile is valid and is configured for $domainnameport"
+      printf_blue "$GEN_CADDY_SERVER_FILE created"
+    fi
+  else
+    printf_red "$GEN_CADDY_SERVER_FILE is not valid"
+    printf_blue "$GEN_CADDY_BIN_FILE validate --config $GEN_CADDY_SERVER_FILE --adapter caddyfile"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 gen_caddy_config() {
+  local newport="$GEN_CADDY_DOMAIN_PORT"
+  move_bin &>/dev/null
   phpvalue
   # Ubuntu
   if [[ -e "$ubuntuphp5fpm" ]]; then
@@ -569,8 +650,17 @@ gen_caddy_config() {
   # Check if Caddyfile exist & Generate Caddyfile
   printf_blue "Enter your domain name"
   printf_blue "Seperated by comma"
-  printf_read_input "5" "Domain name: " "200" domainname "-i ${HOSTNAME:-localhost}"
-  if grep -qs "$domainname" "$GEN_CADDY_SERVER_FILE"; then
+  printf_read_input "5" "Domain name: " "200" domainname "-i http://${HOSTNAME:-localhost}"
+  printf_read_input "5" "Domain port: " "200" domainport "-i :${newport:-85}"
+  if echo "$domainname" | grep -q ','; then
+    domainlist=$(echo "$domainname" | tr ',' '\n')
+    for domains in $domainlist; do
+      domainnameport+="$domains$domainport,"
+    done
+  else
+    domainnameport="$domainname$domainport"
+  fi
+  if grep -qs "$domainnameport" "$GEN_CADDY_SERVER_FILE"; then
     printf_blue "Looks like domain already already exist in:"
     printf_blue "$GEN_CADDY_SERVER_FILE"
   else
@@ -588,18 +678,11 @@ gen_caddy_config() {
     fi
     if [[ "$domainmail" == off ]]; then
       domainmail=""
-      makeconfig | tee "$GEN_CADDY_SERVER_FILE"
+      makeconfig | tee "$GEN_CADDY_SERVER_FILE" &>/dev/null
     else
-      makeconfig ssl | sudo "$GEN_CADDY_SERVER_FILE"
+      makeconfig ssl | sudo "$GEN_CADDY_SERVER_FILE" &>/dev/null
     fi
-    if checkconfig &>/dev/null; then
-      printf_blue "Caddyfile is valid and is configured for $port"
-      printf_blue "$GEN_CADDY_SERVER_FILE created"
-    else
-      printf_exit "Caddyfile is not valid\n"
-      checkconfig
-      exit 10
-    fi
+    checkconfigfile || exit 10
   fi
   if [[ -f "$GEN_CADDY_SERVER_FILE" ]]; then
     sudo cp -Rf "$GEN_CADDY_SERVER_FILE" "$GEN_CADDY_SERVER_FILE.orig"
@@ -608,45 +691,32 @@ gen_caddy_config() {
   fi
 
   # Check if GEN_CADDY_WWW_DIR exist
-  [[ -e "$GEN_CADDY_WWW_DIR" ]] || mkdir -p "$GEN_CADDY_WWW_DIR"
+  [[ -d "$GEN_CADDY_WWW_DIR" ]] || mkdir -p "$GEN_CADDY_WWW_DIR"
   [[ -d "$GEN_CADDY_LOG_DIR" ]] || mkdir -p "$GEN_CADDY_LOG_DIR"
 
   # Generate example html
   # shellcheck disable=SC1078,SC1079,SC2140
-  if [[ ! -e "$GEN_CADDY_WWW_DIR/.installed" ]]; then
-    __cp_rf "$CASJAYSDEVDIR/templates/apache/html/." "$GEN_CADDY_WWW_DIR/"
-    sed -i "s|GEN_SCRIPT_REPLACE_DOMAIN|$domainname|g" "$GEN_CADDY_WWW_DIR/index.html"
-    sed -i "s|GEN_SCRIPT_REPLACE_HTMLROOT|$GEN_CADDY_WWW_DIR|g" "$GEN_CADDY_WWW_DIR/index.html"
-    printf_blue "Template HTML Documents copied"
-    printf_blue "$GEN_CADDY_WWW_DIR/index.html"
-    date +'%Y%m%d%H%M' | tee "$GEN_CADDY_WWW_DIR/.installed" &>/dev/null
-  else
-    printf_blue "index.html found. Skipped!"
-  fi
-  # phpinfo
-  if [[ ! -e "$GEN_CADDY_WWW_DIR/info.php" ]]; then
-    printf_blue "<?php phpinfo(); ?>" >>"$GEN_CADDY_WWW_DIR/info.php"
-    printf_blue "PHP-info file created"
-    printf_blue "$GEN_CADDY_WWW_DIR/info.php"
-  fi
-  chown -R "$GEN_CADDY_DEFAULT_USER" "$GEN_CADDY_WWW_DIR"
+  make_example_html
   printf_blue "Done. Caddy has been installed :)"
   printf_blue "Run $(tput setaf 3)$APPNAME start$(tput sgr0) to start $GEN_CADDY_NAME"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 global_config() {
+  https_port="$(generate_random_port)"
+  fulldomain="$domainnameport"
+  sslfulldomain="$(echo "$domainnameport" | sed 's/^http:\/\//https:\/\//g')"")"
+  netstat -taupln | grep "$https_port" &>/dev/null || https_port="$(generate_random_port)"
   if [[ "$1" = all ]]; then
     cat <<EOF | tee
-http://$domainname:85
-https://$domainname:85
+$fulldomain,$sslfulldomain
 EOF
   elif [[ "$1" = ssl ]]; then
     cat <<EOF | tee
-https://$domainname:85
+$sslfulldomain
 EOF
   else
     cat <<EOF | tee
-http://$domainname:85
+$fulldomain
 EOF
   fi
 }
@@ -657,8 +727,7 @@ checkconfig() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 makeconfig() {
-  [[ -d "/var/log/caddy" ]] || mkdir -p /var/log/caddy &>/dev/null
-  local port
+  [[ -d "$GEN_CADDY_LOG_DIR" ]] || mkdir -p "$GEN_CADDY_LOG_DIR" &>/dev/null
   if [[ "$1" = ssl ]]; then
     port="$(global_config ssl)"
     cat <<EOF | tee
@@ -669,7 +738,7 @@ $port {
   tls ${domainmail:-internal}
   php_fastcgi $phpsock
   log {
-    output file /var/log/caddy/access.log
+    output file $GEN_CADDY_LOG_DIR/access.log
     }
 }
 
@@ -695,7 +764,7 @@ $port {
 
 EOF
   elif [[ "$1" = reverse ]]; then
-    port="$(global_config all)"
+    port="$(global_config)"
     cat <<EOF | tee
 $port {
   reverse_proxy localhost:3333
@@ -711,12 +780,13 @@ $port {
   encode gzip
   php_fastcgi $phpsock
   log {
-    output file /var/log/caddy/access.log
+    output file $GEN_CADDY_LOG_DIR/access.log
     }
 }
 
 EOF
   fi
+  domainnameport="$port"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 makeservice() {
@@ -876,7 +946,7 @@ versioninfo() {
   fi
   printf_blue "$GEN_CADDY_NAME Installer - $VERSION"
   if hash php8 2>/dev/null; then
-    printf_blue8 "$(php8 -v | grep cli)"
+    printf_blue "$(php8 -v | grep cli)"
   elif hash php 2>/dev/null; then
     printf_blue "$(php -v | grep cli)"
   fi
@@ -976,11 +1046,11 @@ GEN_CADDY_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$GEN_CADDY_NOTIFY_CLIENT_ICO
 # Application overrides
 GEN_CADDY_FILE_DIR="${GEN_CADDY_FILE_DIR:-/usr/local/share/caddyserver}"
 GEN_CADDY_WWW_DIR="${GEN_CADDY_WWW_DIR:-$GEN_CADDY_FILE_DIR/www}"
-GEN_CADDY_LOG_DIR="${GEN_CADDY_LOG_DIR:-/var/log/caddy}"
+GEN_CADDY_LOG_DIR="${GEN_CADDY_LOG_DIR:-$GEN_CADDY_FILE_DIR/log}"
 GEN_CADDY_DEFAULT_USER="${GEN_CADDY_DEFAULT_USER:-caddy}"
 GEN_CADDY_NAME="${GEN_CADDY_NAME:-Caddy Web Server}"
 GEN_CADDY_SERVER_FILE="${GEN_CADDY_SERVER_FILE:-$GEN_CADDY_FILE_DIR/Caddyfile}"
-GEN_CADDY_BIN_DIR="${GEN_CADDY_BIN_DIR:-$GEN_CADDY_BIN_DIR/bin}"
+GEN_CADDY_BIN_DIR="${GEN_CADDY_BIN_DIR:-$GEN_CADDY_FILE_DIR/bin}"
 GEN_CADDY_BIN_FILE="${GEN_CADDY_BIN_FILE:-$GEN_CADDY_BIN_DIR/caddy}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate non-existing config files
@@ -995,6 +1065,7 @@ GEN_CADDY_BIN_FILE="${GEN_CADDY_BIN_FILE:-$GEN_CADDY_BIN_DIR/caddy}"
 [ -d "$GEN_CADDY_CACHE_DIR" ] || mkdir -p "$GEN_CADDY_CACHE_DIR" &>/dev/null
 [ -d "$GEN_CADDY_BIN_DIR" ] || mkdir -p "$GEN_CADDY_BIN_DIR" &>/dev/null
 GEN_CADDY_TEMP_FILE="${GEN_CADDY_TEMP_FILE:-$(mktemp $GEN_CADDY_TEMP_DIR/XXXXXX 2>/dev/null)}"
+GEN_CADDY_DOMAIN_PORT="$([ -f "$GEN_CADDY_SERVER_FILE" ] && grep ':' -s "$GEN_CADDY_SERVER_FILE" | sed 's|htt.*://||g;s|{||g' | awk -F ':' '{print $2}' | head -n1 | grep '[0-9]' | grep '^' || echo "$(generate_random_port)")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup trap to remove temp file
 trap 'exitCode=${exitCode:-$?};[ -n "$GEN_CADDY_TEMP_FILE" ] && [ -f "$GEN_CADDY_TEMP_FILE" ] && rm -Rf "$GEN_CADDY_TEMP_FILE" &>/dev/null' EXIT
@@ -1013,12 +1084,12 @@ else
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show warn message if variables are missing
-
+move_bin
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set additional variables/Argument/Option settings
 SETARGS="$*"
 SHORTOPTS=""
-LONGOPTS="options,config,version,help,dir:"
+LONGOPTS="options,config,version,help,dir:,force"
 ARRAY="start stop reload restart status install install-naked update fixphp installphp edit "
 ARRAY+="service uninstall delete-service backup restore about help version download reverse "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1054,6 +1125,10 @@ while :; do
     GEN_CADDY_CWD="$2"
     shift 2
     ;;
+  --force)
+    shift 1
+    FORCE_INSTALL="yes"
+    ;;
   --)
     shift 1
     break
@@ -1075,96 +1150,132 @@ cmd_exists --error --ask bash || exit 1 # exit 1 if not found
 # begin main app
 case $1 in
 'start' | 'startcaddy')
-  caddy start &>/dev/null
+  shift 1
+  amiroot
+  #caddy start &>/dev/null
   startcaddy
   ;;
 'stop' | 'stopcaddy')
+  shift 1
+  amiroot
   stopcaddy
   ;;
 'reload' | 'reloadcaddy')
+  shift 1
   reloadcaddy
   ;;
 'restart')
+  shift 1
+  amiroot
   stopcaddy
   sleep 2
   startcaddy
   ;;
 'status' | 'caddystatus')
+  shift 1
   caddystatus
   ;;
 'install')
+  shift 1
   amiroot
-  plugin="$2"
+  plugin="$1"
   installcaddy
-  gen_caddy_config
   makeservice
   ;;
 'install-naked')
+  shift 1
   amiroot
-  plugin="$2"
+  plugin="$1"
   installcaddy naked
   ;;
 'update' | 'updatecaddy')
+  shift 1
   amiroot
-  plugin="$2"
+  plugin="$1"
   updatecaddy
-  gen_caddy_config
   ;;
 'fixphp' | 'fixphpfpm')
+  shift 1
   amiroot
   fixphpfpm
   ;;
 'installphp')
+  shift 1
   amiroot
   installphp
   ;;
 'edit')
+  shift 1
   amiroot
   edit_gen_caddy_config
   ;;
 'service' | 'makeservice')
+  shift 1
   amiroot
   rm -f /etc/systemd/system/caddy.service
   makeservice
   ;;
 'uninstall' | 'delete')
+  shift 1
   amiroot
   deletecaddy
   ;;
 'delete-service' | 'remove-startup')
+  shift 1
   amiroot
   removeservice
   ;;
 'config' | 'gen-config')
+  shift 1
+  amiroot
   gen_caddy_config
   exit $?
   ;;
+'html' | 'gen-html')
+  shift 1
+  make_example_html $2
+  exit $?
+  ;;
 'backup')
+  shift 1
+  amiroot
   backupcaddy
   ;;
 'restore')
+  shift 1
+  amiroot
   restorecaddy
   ;;
 'about')
+  shift 1
   about
   ;;
 'help')
+  shift 1
   prms
   ;;
 'version' | 'versioninfo')
+  shift 1
   versioninfo
   ;;
 'download')
+  shift 1
+  amiroot
   getcaddy
   ;;
 'reverse')
   shift 1
   if cmd_exists caddy; then
-    sudo -H -u "$GEN_CADDY_DEFAULT_USER" "$GEN_CADDY_BIN_FILE" reverse-proxy -to 127.0.0.1:${1:-3000} -from :${2:-20000}
+    $GEN_CADDY_BIN_FILE reverse-proxy -to 127.0.0.1:${1:-3000} -from :${2:-$(generate_random_port)}
   else
     printf_red "caddy doesn't seem to be installed"
     printf_exit 1 1 "Please run $APPNAME install to setup caddy"
   fi
+  ;;
+'check')
+  shift 1
+  amiroot
+  checkconfigfile "$1"
   ;;
 *)
   howto

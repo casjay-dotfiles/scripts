@@ -2,7 +2,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # @Author      : Jason
 # @Contact     : casjaysdev@casjay.net
-# @File        : install
+# @File        : system-installer.sh
 # @Created     : Wed, Aug 05, 2020, 02:00 EST
 # @License     : WTFPL
 # @Copyright   : Copyright (c) CasjaysDev
@@ -173,18 +173,29 @@ log() {
 }
 ##################################################################################################
 #alternative names
-mlocate() { builtin command -v locate &>/dev/null || builtin command -v mlocate &>/dev/null || return 1; }
-xfce4() { builtin command -v xfce4-about &>/dev/null || return 1; }
-imagemagick() { builtin command -v convert &>/dev/null || return 1; }
-fdfind() { builtin command -v fdfind &>/dev/null || builtin command -v fd &>/dev/null || return 1; }
-speedtest() { builtin command -v speedtest-cli &>/dev/null || builtin command -v speedtest &>/dev/null || return 1; }
-neovim() { builtin command -v nvim &>/dev/null || builtin command -v neovim &>/dev/null || return 1; }
-chromium() { builtin command -v chromium &>/dev/null || builtin command -v chromium-browser &>/dev/null || return 1; }
-firefox() { builtin command -v firefox-esr &>/dev/null || builtin command -v firefox &>/dev/null || return 1; }
-gtk-2.0() { find /lib* /usr* -iname "*libgtk*2*.so*" -type f | grep -q . || return 1; }
-gtk-3.0() { find /lib* /usr* -iname "*libgtk*3*.so*" -type f | grep -q . || return 1; }
-httpd() { builtin command -v httpd &>/dev/null || builtin command -v apache2 &>/dev/null || return 1; }
-emacs() { builtin command -v emacs26 &>/dev/null || builtin command -v emacs &>/dev/null || return 1; }
+tf() { [ -f "$(builtin type -P tinyfigue 2>/dev/null)" ] || [ -f "$(builtin type -P tf 2>/dev/null)" ] || return 1; }
+httpd() { [ -f "$(builtin type -P httpd 2>/dev/null)" ] || [ -f "$(builtin type -P apache2 2>/dev/null)" ] || [ -f "$(builtin type -P apache 2>/dev/null)" ] || return 1; }
+cron() { [ -f "$(builtin type -P crond 2>/dev/null)" ] || [ -f "$(builtin type -P cron 2>/dev/null)" ] || return 1; }
+grub() { [ -f "$(builtin type -P grub-install 2>/dev/null)" ] || [ -f "$(builtin type -P grub2-install 2>/dev/null)" ] || return 1; }
+cowsay() { [ -f "$(builtin type -P cowsay 2>/dev/null)" ] || [ -f "$(builtin type -P cowpatty 2>/dev/null)" ] || return 1; }
+fortune() { [ -f "$(builtin type -P fortune 2>/dev/null)" ] || [ -f "$(builtin type -P fortune-mod 2>/dev/null)" ] || return 1; }
+mlocate() { [ -f "$(builtin type -P locate 2>/dev/null)" ] || [ -f "$(builtin type -P mlocate 2>/dev/null)" ] || return 1; }
+xfce4() { [ -f "$(builtin type -P xfce4-about 2>/dev/null)" ] || return 1; }
+xfce4-notifyd() { [ -f "$(builtin type -P xfce4-notifyd-config 2>/dev/null)" ] || find /usr/lib* -name "xfce4-notifyd" -type f 2>/dev/null | grep -q . || return 1; }
+imagemagick() { [ -f "$(builtin type -P convert 2>/dev/null)" ] || return 1; }
+fdfind() { [ -f "$(builtin type -P fdfind 2>/dev/null)" ] || [ -f "$(builtin type -P fd 2>/dev/null)" ] || return 1; }
+speedtest() { [ -f "$(builtin type -P speedtest-cli 2>/dev/null)" ] || [ -f "$(builtin type -P speedtest 2>/dev/null)" ] || return 1; }
+neovim() { [ -f "$(builtin type -P nvim 2>/dev/null)" ] || [ -f "$(builtin type -P neovim 2>/dev/null)" ] || return 1; }
+chromium() { [ -f "$(builtin type -P chromium 2>/dev/null)" ] || [ -f "$(builtin type -P chromium-browser 2>/dev/null)" ] || return 1; }
+firefox() { [ -f "$(builtin type -P firefox-esr 2>/dev/null)" ] || [ -f "$(builtin type -P firefox 2>/dev/null)" ] || return 1; }
+powerline-status() { [ -f "$(builtin type -P powerline-config 2>/dev/null)" ] || [ -f "$(builtin type -P powerline-daemon 2>/dev/null)" ] || return 1; }
+gtk-2.0() { find /lib* /usr* -iname "*libgtk*2*.so*" -type f 2>/dev/null | grep -q . || return 1; }
+gtk-3.0() { find /lib* /usr* -iname "*libgtk*3*.so*" -type f 2>/dev/null | grep -q . || return 1; }
+transmission-remote-cli() { [ -f "$(builtin type -P transmission-remote-cli 2>/dev/null)" ] || [ -f "$(builtin type -P transmission-remote 2>/dev/null)" ] || return 1; }
+transmission() { [ -f "$(builtin type -P transmission-remote)" ] || [ -f "$(builtin type -P transmission-remote-cli)" ] || [ -f "$(builtin type -P transmission-remote-gtk)" ] || return 1; }
+libvirt() { [ -f "$(builtin type -P libvirtd)" ] && return 0 || return 1; }
+qemu() { [ -f "$(builtin type -P qemu-img)" ] && return 0 || return 1; }
+
 ##################################################################################################
 rm_rf() { if [ -e "$1" ]; then devnull rm -Rf "$@"; fi; }
 cp_rf() { if [ -e "$1" ]; then devnull cp -Rfa "$@"; fi; }

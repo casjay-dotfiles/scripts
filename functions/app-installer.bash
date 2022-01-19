@@ -2103,8 +2103,7 @@ run_install_init() {
       printf_yellow "Downloading to ${INSTDIR/$HOME/\~}"
       printf_purple "$REPORAW/install.sh"
       if ! urlcheck "$REPORAW/install.sh"; then
-        printf_error "Failed to initialize the installer from:"
-        printf_exit "$REPORAW/install.sh\n"
+        printf_error "Failed to initialize the installer from: $REPORAW/install.sh\n"
       fi
     fi
     if [ -d "$INSTDIR" ]; then

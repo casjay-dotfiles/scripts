@@ -169,7 +169,7 @@ printf_error() {
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="1"
   test -n "$1" && test -z "${1//[0-9]/}" && local exitCode="$1" && shift 1 || local exitCode="1"
   local msg="$*"
-  printf_color "\t\t$ICON_ERROR $msg\n" "$color" 1>&2
+  printf_color "$ICON_ERROR $msg" "$color" 1>&2
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -401,7 +401,7 @@ powerline-status() { [ -f "$(builtin type -P powerline-config 2>/dev/null)" ] ||
 gtk-2.0() { find /lib* /usr* -iname "*libgtk*2*.so*" -type f 2>/dev/null | grep -q . || return 1; }
 gtk-3.0() { find /lib* /usr* -iname "*libgtk*3*.so*" -type f 2>/dev/null | grep -q . || return 1; }
 transmission-remote-cli() { [ -f "$(builtin type -P transmission-remote-cli 2>/dev/null)" ] || [ -f "$(builtin type -P transmission-remote 2>/dev/null)" ] || return 1; }
-transmission() { [ -f "$(builtin type -P transmission-remote)" ] || [ -f "$(builtin type -P transmission-remote-cli)" || [ -f "$(builtin type -P transmission-remote-gtk)" || return 1; }
+transmission() { [ -f "$(builtin type -P transmission-remote)" ] || [ -f "$(builtin type -P transmission-remote-cli)" ] || [ -f "$(builtin type -P transmission-remote-gtk)" ] || return 1; }
 libvirt() { [ -f "$(builtin type -P libvirtd)" ] && return 0 || return 1; }
 qemu() { [ -f "$(builtin type -P qemu-img)" ] && return 0 || return 1; }
 

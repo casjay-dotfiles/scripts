@@ -701,5 +701,8 @@ execute() {
   rm -rf "$TMP_FILE"
   return $exitCode
 }
+# cursor
+echo -e -n "\x1b[\x35 q" 2>/dev/null
+echo -e -n "\e]12;cyan\a" 2>/dev/null
 ##################################################################################################
 # end

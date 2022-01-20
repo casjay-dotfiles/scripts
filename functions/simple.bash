@@ -2024,4 +2024,7 @@ wallpapermgr_req_version() { __required_version "$1"; }
 # }
 
 user_install # default type
+# cursor
+echo -e -n "\x1b[\x35 q" 2>/dev/null
+echo -e -n "\e]12;cyan\a" 2>/dev/null
 ###################### end application functions ######################

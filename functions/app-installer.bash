@@ -2360,4 +2360,7 @@ __debugger() {
     execute() { $1 2>>"$LOGDIR_DEBUG/$APPNAME.err" >>"$LOGDIR_DEBUG/$APPNAME.log" >&0 && set --; }
   fi
 }
+# cursor
+echo -e -n "\x1b[\x35 q" 2>/dev/null
+echo -e -n "\e]12;cyan\a" 2>/dev/null
 # end

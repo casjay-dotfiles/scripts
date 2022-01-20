@@ -65,8 +65,20 @@ sudo() { PATH=$PATH builtin command sudo "$@"; }
 __cmd_exist() { builtin type -P "$1" &>/dev/null || return 1; }
 __local_gen_header() { echo -e "$1" >>"$2"; }
 __sudo() { PATH=$PATH builtin command sudo "$@"; }
-__os_name() { cat /etc/os-release 2>/dev/null | grep '^NAME=' | awk -F '=' '{print $2}' || cat /etc/os-release 2>/dev/null | grep '^ID=' | awk -F '=' '{print $2}'; }
-__os_version() { cat /etc/os-release 2>/dev/null | grep '^VERSION=' | sed 's/[^.0-9]*//g' | grep '^' || cat /etc/os-release 2>/dev/null | grep 'BUILD_ID' | awk -F '=' '{print $2}'; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__os_fix_name() { [[ -f "${1:-/etc/casjaysdev/updates/versions/osversion.txt}" ]] && sudo sed -i 's|[",]||g' "${1:-/etc/casjaysdev/updates/versions/osversion.txt}" || return 0; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__os_name() {
+  grep -s '^NAME=' /etc/os-release | awk -F '=' '{print $2}' | grep '^' ||
+    grep -s '^ID=' /etc/os-release | awk -F '=' '{print $2}' | grep '^' ||
+    echo "OS: Unknown"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__os_version() {
+  grep -s '^VERSION=' /etc/os-release 2>/dev/null | sed 's/[^.0-9]*//g' | grep '^' ||
+    grep -s 'BUILD_ID' /etc/os-release 2>/dev/null | awk -F '=' '{print $2}' | grep '^' ||
+    echo "Version: Unknown"
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 for check in git curl wget; do
   if ! builtin type -P "$check" &>/dev/null; then

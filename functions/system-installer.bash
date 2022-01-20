@@ -49,8 +49,20 @@ if [[ -n "$cmdMissing" ]]; then
 else
   unset cmdMissing
 fi
-__os_name() { cat /etc/os-release 2>/dev/null | grep '^NAME=' | awk -F '=' '{print $2}' || cat /etc/os-release 2>/dev/null | grep '^ID=' | awk -F '=' '{print $2}'; }
-__os_version() { cat /etc/os-release 2>/dev/null | grep '^VERSION=' | sed 's/[^.0-9]*//g' | grep '^' || cat /etc/os-release 2>/dev/null | grep 'BUILD_ID' | awk -F '=' '{print $2}'; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__os_fix_name() { [[ -f "${1:-/etc/casjaysdev/updates/versions/osversion.txt}" ]] && sudo sed -i 's|[",]||g' "${1:-/etc/casjaysdev/updates/versions/osversion.txt}" || return 0; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__os_name() {
+  grep -s '^NAME=' /etc/os-release | awk -F '=' '{print $2}' | grep '^' ||
+    grep -s '^ID=' /etc/os-release | awk -F '=' '{print $2}' | grep '^' ||
+    echo "OS: Unknown"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__os_version() {
+  grep -s '^VERSION=' /etc/os-release 2>/dev/null | sed 's/[^.0-9]*//g' | grep '^' ||
+    grep -s 'BUILD_ID' /etc/os-release 2>/dev/null | awk -F '=' '{print $2}' | grep '^' ||
+    echo "Version: Unknown"
+}
 ###################### builtins ######################
 # Set Main Repo for dotfiles
 export DOTFILESREPO="${DOTFILESREPO:-https://github.com/dfmgr}"

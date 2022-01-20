@@ -187,7 +187,7 @@ run_postinst() {
   done
   grep 'Defaults.*.env_reset' /etc/sudoers | grep -v '!' && sed -i 's|env_reset|!env_reset|g' /etc/sudoers
   grep 'Defaults.*.secure_path' /etc/sudoers && sed -i 's|secure_path =.*|secure_path = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"|g' /etc/sudoers
-  echo '5 4 * * * root [ -f $(builtin type -P systemmgr 2>/dev/null) ] && systemmgr update scripts cron &>/dev/null' | tee /etc/cron.d/systemmgr &>/dev/null
+  printf '# update scripts cron\n5 4 * * * root [ -f $(builtin type -P systemmgr 2>/dev/null) ] && systemmgr update scripts cron &>/dev/null\n' | tee /etc/cron.d/systemmgr &>/dev/null
   printf '%s: %s\n' "$(__os_name)" "$(__os_version)" >"/etc/casjaysdev/updates/versions/osversion.txt"
   __os_fix_name
 }

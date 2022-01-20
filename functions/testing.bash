@@ -2303,8 +2303,8 @@ iconmgr_install() {
   USRUPDATEDIR="$SHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"
   SYSUPDATEDIR="$SYSSHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"
   ICONDIR="${ICONDIR:-$SHARE/icons}"
-  ARRAY="$(grep -s '^' $CASJAYSDEVDIR/helpers/$SCRIPTS_PREFIX/array)"
-  LIST="$(grep -s '^' $CASJAYSDEVDIR/helpers/$SCRIPTS_PREFIX/list)"
+  ARRAY="$(grep -s '^' $CASJAYSDEVDIR/helpers/$SCRIPTS_PREFIX/array || echo '')"
+  LIST="$(grep -s '^' $CASJAYSDEVDIR/helpers/$SCRIPTS_PREFIX/list || echo '')"
   [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && APPDIR="${APPDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
   if [ -f "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME" ]; then
     APPVERSION="$(grep -sv '#' $CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME)"
@@ -2974,7 +2974,4 @@ __options() {
   esac
 }
 user_install # default type
-# cursor
-echo -e -n "\x1b[\x35 q" 2>/dev/null
-echo -e -n "\e]12;cyan\a" 2>/dev/null
 ###################### end application functions ######################

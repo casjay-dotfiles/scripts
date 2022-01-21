@@ -160,6 +160,14 @@ printf_result() {
   fi
 }
 ##################################################################################################
+printf_return() {
+  test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="1"
+  test -n "$1" && test -z "${1//[0-9]/}" && local exitCode="$1" && shift 1 || local exitCode="1"
+  local msg="$*"
+  [ ${#msg} = 0 ] || { printf_color "\t\t$msg" "$color" 1>&2 && printf "\n"; }
+  return ${exitCode:-2}
+}
+##################################################################################################
 notifications() {
   local title="$1"
   shift 1

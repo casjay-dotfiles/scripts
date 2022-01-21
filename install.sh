@@ -176,6 +176,10 @@ run_postinst() {
   echo 'for f in '$CASJAYSDEVDIR/completions/*'; do source "$f" >/dev/null 2>&1; done' >"$COMPDIR/_my_scripts_completions"
   ln_sf "$APPDIR" "$SYSSHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME"
   ln_sf "$APPDIR" "$SYSSHARE/CasjaysDev/$SCRIPTS_PREFIX/installer"
+  for f in $(grep -sRl 'dir=/var/spool/mail' /etc/pam.d/); do
+    cp -Rf "$f" "/root/.local/backups/systemmgr/ssh/$(basename "$f").bak" &&
+      sed --follow-symlinks -i 's|dir=~/Maildir||g' "$f"
+  done
   for file in multi_clipboard se sentaku tdrop; do
     [[ -f "/usr/local/bin/$file" ]] || ln_sf "$APPDIR/sources/$file" "/usr/local/bin/$file"
   done

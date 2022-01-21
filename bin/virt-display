@@ -58,7 +58,7 @@ __gen_config() {
 VIRT_DISPLAY_VM_RAM_SIZE="${VIRT_DISPLAY_VM_RAM_SIZE:-2048}"
 VIRT_DISPLAY_VM_NETWORK="${VIRT_DISPLAY_VM_NETWORK:-network=default}"
 VIRT_DISPLAY_VM_DISK_TYPE="${VIRT_DISPLAY_VM_DISK_TYPE:-qcow2}"
-VIRT_DISPLAY_VM_DISK_SIZE="${VIRT_DISPLAY_VM_DISK_SIZE:-100G}"
+VIRT_DISPLAY_VM_DISK_SIZE="${VIRT_DISPLAY_VM_DISK_SIZE:-100}"
 
 # Notification settings
 VIRT_DISPLAY_GOOD_MESSAGE="${VIRT_DISPLAY_GOOD_MESSAGE:-Everything Went OK}"
@@ -101,16 +101,32 @@ __ssh() {
   [[ -n "$idFile" ]] && ssh -i "$id_file" $sshcmd 2>/dev/null || ssh $sshcmd 2>/dev/null || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__new_vm() {
-  virt-install \
-    --name $1 \
-    --ram=$VIRT_DISPLAY_VM_RAM_SIZE \
-    --vcpus=2 \
-    --disk pool=guest_images,size=$VIRT_DISPLAY_VM_DISK_SIZE,bus=virtio,format=$VIRT_DISPLAY_VM_DISK_TYPE \
-    --cdrom $2 \
-    --network $VIRT_DISPLAY_VM_NETWORK,model=virtio \
-    --graphics spice \
-    --boot cdrom,hd,menu=on
+__vm_rm() {
+  __list_vms | grep -qw "$1" &&
+    printf_blue "Removing virtual machine: $1"
+  __list_running | grep -qi 'running' && __virsh destroy "$1" &>/dev/null &&
+    __list_vms | grep -qw "$1" && __virsh undefine "$1" &>/dev/null &&
+    printf_green "The vm has been deleted" ||
+    printf_exit "The VM $1 does not exist"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__vm_new() {
+  __list_vms | grep -qw "$1" && __local_viewer "$1" && printf_exit "The VM $1 Already Exists"
+  printf_cyan "Creating $1 using ISO: $(basename "$2")"
+  {
+    sudo virt-install \
+      --name $1 \
+      --ram=$VIRT_DISPLAY_VM_RAM_SIZE \
+      --vcpus=2 \
+      --disk /var/lib/libvirt/images/$1.$VIRT_DISPLAY_VM_DISK_TYPE,device=disk,size=$VIRT_DISPLAY_VM_DISK_SIZE,bus=virtio,format=$VIRT_DISPLAY_VM_DISK_TYPE \
+      --cdrom $2 \
+      --network $VIRT_DISPLAY_VM_NETWORK,model=virtio \
+      --graphics spice \
+      --boot cdrom,hd,menu=on &>/dev/null && sleep 3
+  } &
+  virt_install_pid=$!
+  trap 'kill -9 $virt_install_pid' INT
+  printf_yellow "Attempting to create and start $1"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_id_file() {
@@ -240,7 +256,7 @@ VIRT_DISPLAY_OUTPUT_COLOR_ERROR="${VIRT_DISPLAY_OUTPUT_COLOR_ERROR:-1}"
 VIRT_DISPLAY_VM_RAM_SIZE="${VIRT_DISPLAY_VM_RAM_SIZE:-2048}"
 VIRT_DISPLAY_VM_NETWORK="${VIRT_DISPLAY_VM_NETWORK:-network=default}"
 VIRT_DISPLAY_VM_DISK_TYPE="${VIRT_DISPLAY_VM_DISK_TYPE:-qcow2}"
-VIRT_DISPLAY_VM_DISK_SIZE="${VIRT_DISPLAY_VM_DISK_SIZE:-100G}"
+VIRT_DISPLAY_VM_DISK_SIZE="${VIRT_DISPLAY_VM_DISK_SIZE:-100}"
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
@@ -280,7 +296,7 @@ fi
 SETARGS="$*"
 SHORTOPTS=""
 LONGOPTS="options,config,version,help,dir:"
-ARRAY="list start ssh restore create new"
+ARRAY="list start ssh restore create new delete"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup application options
 setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
@@ -372,7 +388,13 @@ create)
 new)
   shift 1
   [[ $# -ne 2 ]] && printf_ "Usage: $0 new <name> <isoFile>" && exit 1
-  __new_vm "$1" "$2"
+  __vm_new "$1" "$2"
+  exit $?
+  ;;
+
+delete)
+  shift 1
+  __vm_rm "$1"
   exit $?
   ;;
 

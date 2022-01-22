@@ -135,47 +135,65 @@ __gitcommit() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __default_git_action() {
-  local modified added other
-  modified="$(git ls-files -m 2>/dev/null | sort -u | grep '^')"
-  added="$(git ls-files -a 2>/dev/null | sort -u | grep '^')"
-  other="$(git ls-files -s 2>/dev/null | sort -u | grep '^')"
-  for m in $modified; do git add "$m" && __gitcommit "🗃 Modified: $m 🗃"; done
-  for a in $added; do git add "$a" && __gitcommit "❓ Added: $m ❓"; done
-  for o in $other; do [ -f "$o" ] && git add "$o" && __gitcommit "❓ Added: $m ❓" || { git rm -rf "$o" && __gitcommit "➖ Deleted: $m" ➖; }; done
+  local modified added deleted
+  action="${action:-😕}"
+  icon="${icon:-😕}"
+  added="$(git -C "$GITCOMMIT_CWD" status -s | awk '{if ($1 == "??") print $2}' 2>/dev/null | sort -u | grep '^' 2>/dev/null | sort -u | grep '^')"
+  deleted="$(git -C "$GITCOMMIT_CWD" status -s | awk '{if ($1 == "D") print $2}' 2>/dev/null | sort -u | grep '^' 2>/dev/null | sort -u | grep '^')"
+  modified="$(git -C "$GITCOMMIT_CWD" status -s | awk '{if ($1 == "M") print $2}' 2>/dev/null | sort -u | grep '^' 2>/dev/null | sort -u | grep '^')"
+  for a in $added; do git -C "$GITCOMMIT_CWD" add "$a" &>/dev/null && __gitcommit "${action:-❓ Added:} $a ${icon:-❓}"; done
+  for m in $modified; do git -C "$GITCOMMIT_CWD" add "$m" &>/dev/null && __gitcommit "${action:-🗃 Modified:} $m ${icon:-🗃}"; done
+  for d in $deleted; do git -C "$GITCOMMIT_CWD" rm -rf "$d" &>/dev/null && __gitcommit "${action:-➖ Deleted:} $d" ${icon:-➖}; done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__git_updated() {
+  __git_add "$@"
+  __git_mod "$@"
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__git_renamed() {
+  git -C "$GITCOMMIT_CWD" rm "$1" -f &>/dev/null
+  git -C "$GITCOMMIT_CWD" add "$2" -f &>/dev/null && __gitcommit "$1"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_mod() {
-  modified="$(git ls-files -m 2>/dev/null | sort -u | grep '^')"
-  local -a mess="$*"
-  if [ -e "$modified" ]; then
-    for f in $modified; do
-      if [ -e "$f" ]; then
-        git -C "$GITCOMMIT_CWD" add "$f" -f &>/dev/null
-        __gitcommit "🗃 Modified: $f 🗃"
-      fi
-    done
-  fi
+  local mess modified
+  action="${action:-🗃 Modified:}"
+  icon="${icon:-🗃}"
+  mess="$*"
+  modified="$(git -C "$GITCOMMIT_CWD" status -s | awk '{if ($1 == "M") print $2}' 2>/dev/null | sort -u | grep '^' 2>/dev/null | sort -u | grep '^')"
+  for f in $modified; do
+    if [ -e "$f" ]; then
+      git -C "$GITCOMMIT_CWD" add "$f" -f &>/dev/null
+      __gitcommit "${action:-} $f $mess ${icon:-}"
+    fi
+  done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_add() {
-  local -a files="$*"
-  if [ -e "$1" ]; then
-    for f in $files; do
-      if [ -e "$f" ]; then
-        git -C "$GITCOMMIT_CWD" add "$f" -f &>/dev/null
-      fi
-    done
-  else
-    git -C "$GITCOMMIT_CWD" add "."
-  fi
+  local mess added
+  mess="$*"
+  action="${action:-❓ Added:}"
+  icon="${icon:-❓}"
+  added="$(git -C "$GITCOMMIT_CWD" status -s | awk '{if ($1 == "??") print $2}' 2>/dev/null | sort -u | grep '^')"
+  for f in $added; do
+    if [ -e "$f" ]; then
+      git -C "$GITCOMMIT_CWD" add "$f" -f &>/dev/null
+      __gitcommit "${action} $f $mess ${icon:-}"
+    fi
+  done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_del() {
-  local -a files="$*"
-  for f in $files; do
-    if [ ! -e "$f" ]; then
-      git -C "$GITCOMMIT_CWD" rm "$f" -f &>/dev/null
-    fi
+  local mess deleted
+  mess="$*"
+  action="${action:-➖ Deleted:}"
+  icon="${icon:-➖}"
+  deleted="$(git -C "$GITCOMMIT_CWD" status -s | awk '{if ($1 == "D") print $2}' 2>/dev/null | sort -u | grep '^' 2>/dev/null | sort -u | grep '^')"
+  for f in $deleted; do
+    git -C "$GITCOMMIT_CWD" rm -rf "$f" &>/dev/null
+    __gitcommit "${action:-} $f $mess ${icon:-}"
   done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -186,6 +204,9 @@ __git_dir() {
     printf_error "You are not in a git repo"
     printf_read_question "4" "Would you like to turn $git_dir into a git repo? y/N" "1" "makerepo"
     if printf_answer_yes "$makerepo"; then
+      if [ ! -e "$git_dir/.gitignore" ]; then
+        [ -d "$git_dir/node_modules" ] && gitignore "$git_dir" dirignore default node || gitignore "$git_dir" dirignore default
+      fi
       gitadmin "$git_dir" setup
       exit $?
     else
@@ -202,10 +223,12 @@ __git_commitid() {
 __git_push() {
   local git_dir="${1:-$GITCOMMIT_CWD}"
   local git_repo="$(__git_remote_fetch "$GITCOMMIT_CWD")"
+  local git_remote="$(git -C "$GITCOMMIT_CWD" remote show | grep '^' || false)"
   local git_failed="Failed to push the changes to $git_repo"
   local git_succes="Successfully pushed the changes for commit ID:"
   local GITCOMMIT_EXITCODE=0
   local git_push=""
+  [[ -n "$git_remote" ]] || return 0
   [[ -f "$git_dir/.nopush" ]] && return
   am_i_online --error || exit 1
   if [ "$git_repo" != "localdir" ]; then
@@ -252,7 +275,7 @@ __set_version() {
     local git_failed="Failed to commit the version change in"
     local GITCOMMIT_EXITCODE=0
     __write_version || printf_exit "Version files doesn't exist"
-    __git_add "$GITCOMMIT_CWD/version.txt" && __commit_version "$@" && GITCOMMIT_EXITCODE=0 || GITCOMMIT_EXITCODE=1
+    __git_add "$GITCOMMIT_CWD/version.txt" && GITCOMMIT_EXITCODE=0 || GITCOMMIT_EXITCODE=1
     __getexitcode $GITCOMMIT_EXITCODE "$git_sucess $(__git_repobase "$git_dir")" "$git_failed ${git_dir//$PWD/.}"
   fi
 }
@@ -427,7 +450,7 @@ fi
 topdir="$(__git_top_dir "$GITCOMMIT_CWD" 2>/dev/null)"
 GITCOMMIT_CWD="${topdir:-$GITCOMMIT_CWD}"
 versionfile="$GITCOMMIT_CWD/$GITCOMMIT_VERSION_FILE"
-repo="$(__git_remote_fetch $GITCOMMIT_CWD)"
+repo="$(__git_remote_fetch "$GITCOMMIT_CWD")"
 basedir="$(basename $GITCOMMIT_CWD)"
 gituser="$(basename "$(dirname "$GITCOMMIT_CWD")")"
 gitversion="$GITCOMMIT_VERSION_FORMAT"
@@ -484,8 +507,7 @@ version)
   shift 1
   ARGS="$*"
   if [[ ${#ARGS} -ne 0 ]]; then
-    __git_del $ARGS
-    __git_add $ARGS
+    __default_git_action $ARGS
   fi
   __set_version
   __git_push "$GITCOMMIT_CWD" --automated
@@ -496,12 +518,7 @@ files)
   shift
   [ "$1" != "help" ] || printf_exit "Usage: $APPNAME files"
   if ! __git_porcelain "$GITCOMMIT_CWD"; then
-    files="$(git -C "$GITCOMMIT_CWD" status -s -b | grep 'M \| D \|??' | grep -v '^$' | sed 's|^ ||g' | awk -F' ' '{print $2}')"
-    filesmsg="$(git -C "$GITCOMMIT_CWD" status -b -s | sed '/^\#/d;s,^ ,,g;s,??,A,g' | tr '\n' '|' | sed 's#|$##g' | grep '^')"
-    mess="➕ ${*:-$filesmsg} ➕"
-    __git_del "$files"
-    __git_add "$files"
-    __gitcommit "$mess"
+    __default_git_action "$@"
   else
     printf_exit 1 0 "🎊 Nothing has been modified in $GITCOMMIT_CWD 🎊"
   fi
@@ -521,10 +538,7 @@ updated)
   shift
   [ "$1" != "help" ] || printf_exit "Usage: $APPNAME updated"
   if git -C "$GITCOMMIT_CWD" status -s -b | grep -F 'M ' >/dev/null 2>&1; then
-    files="$(git -C "$GITCOMMIT_CWD" status -s -b | grep 'M \|D\|A ' | grep -v '^$' | sed 's|^ ||g' | awk -F' ' '{print $2}')"
-    mess="🗃 Updated: $(echo "${*:-$files}" | tr '\n' ' ') 🗃"
-    __git_add "$files"
-    __gitcommit "$mess"
+    __git_updated "$@"
   else
     printf_exit 1 0 "🎊 Nothing has been modified in $GITCOMMIT_CWD 🎊"
   fi
@@ -535,10 +549,7 @@ deleted)
   [ "$1" != "help" ] || printf_exit "Usage: $APPNAME deleted"
   __is_deleted="$(git -C "$GITCOMMIT_CWD" status -s -b | sed 's|^ ||g' | grep -v '^$' | grep -q '^D ' && echo TRUE)"
   if [[ "$__is_deleted" = "TRUE" ]]; then
-    files="$(git -C "$GITCOMMIT_CWD" status -s -b | sed 's|^ ||g' | grep '^D ' | grep -v '^$' | awk -F' ' '{print $2}')"
-    mess="➖ Deleted: $(echo "${*:-$files}" | tr '\n' ' ') ➖"
-    __git_del "$files"
-    __gitcommit "$mess"
+    __git_del "$@"
   else
     printf_exit 1 0 "🎊 Nothing has been modified in $GITCOMMIT_CWD 🎊"
   fi
@@ -548,14 +559,7 @@ added)
   shift
   [ "$1" != "help" ] || printf_exit "Usage: $APPNAME added"
   if git -C "$GITCOMMIT_CWD" status -s -b | grep -F '?? ' >/dev/null 2>&1; then
-    if [[ -f "$1" ]] || [[ $# -eq 0 ]]; then
-      files="$(git -C "$GITCOMMIT_CWD" status -s -b | grep -F '?? ' | awk '{print $2}' | grep -v '^$' | tr '\n' ' ')"
-    else
-      files="$*"
-    fi
-    mess="❓ Added: $(echo "${*:-$files}" | grep -v '^$' | tr '\n' ' ') ❓"
-    __git_add "$files"
-    __gitcommit "$mess"
+    __git_add "$@"
   else
     printf_exit 1 0 "🎊 Nothing has been modified in $GITCOMMIT_CWD 🎊"
   fi
@@ -565,8 +569,7 @@ renamed)
   shift 1
   [ $# -ne 2 ] && printf_exit "Usage: $APPNAME renamed oldfile newfile"
   mess="✔️ Renamed: ${1} ➡ ${2} ✔️"
-  __git_add $ARGS
-  __gitcommit "$mess"
+  __git_renamed "$mess" "$1" "$2"
   ;;
 
 changed)
@@ -584,7 +587,6 @@ new)
   ARGS="${*:-} "
   mess="🆕📦 NEW: ${ARGS}📦🆕"
   __git_add "$ARGS"
-  __gitcommit "$mess"
   ;;
 
 improved)

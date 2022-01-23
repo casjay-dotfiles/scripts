@@ -285,15 +285,6 @@ printf_result() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 get_answer() { printf "%s" "$REPLY"; }
 answer_is_yes() { [[ "$REPLY" =~ ^[Yy]$ ]] && return 0 || return 1; }
-ask_for_input() {
-  history -s
-  printf_question "$1"
-  read -re "REPLY"
-}
-ask_question() {
-  printf_question "$1 (y/N) "
-  read -re -n 1 "REPLY"
-}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __curl() { am_i_online && curl -q -LSs --connect-timeout 3 --retry 0 "$@"; }
 __start() {

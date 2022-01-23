@@ -97,6 +97,7 @@ EOF
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __screen_config() {
   printf_blue "Creating screenrc file"
+  rm -Rf "$RUN_SERVER_CONFIG_DIR/runserverc"
   cat <<EOF | tee "$RUN_SERVER_CONFIG_DIR/runserverc" &>/dev/null
 #Sources
 # - https://bbs.archlinux.org/viewtopic.php?id=55618&p=3
@@ -137,11 +138,12 @@ nethack on
 # mouse tracking allows to switch region focus by clicking
 mousetrack off
 # default windows
-screen -t main     1 sh -c "$SHELL;$SHELL"
-screen -t editor   2 sh -c "while :; do $RUN_SERVER_OPEN_EDITOR        ;sleep 2 || break; done"
-screen -t web      3 sh -c "while :; do $RUN_SERVER_OPEN_WEB           ;sleep 2 || break; done"
-screen -t fm       4 sh -c "while :; do $RUN_SERVER_OPEN_FM            ;sleep 2 || break; done"
-screen -t serv     9 sh -c "while :; do run_server  --console $RUN_SERVER_CONSOLE_CMD;sleep 1 || break; done"
+screen -t main     1 sh -c "sleep 2;$SHELL;$SHELL"
+screen -t editor   2 sh -c "sleep 4;while :; do ${RUN_SERVER_SCREEN_OPEN_EDITOR}      ;sleep 2 || break; done"
+screen -t fm       3 sh -c "sleep 6;while :; do ${RUN_SERVER_SCREEN_OPEN_FM}          ;sleep 2 || break; done"
+screen -t web      4 sh -c "sleep 30;while :; do ${RUN_SERVER_SCREEN_OPEN_WEB}        ;sleep 2 || break; done"
+screen -t log      8 sh -c "sleep 8;while :; do ${RUN_SERVER_SCREEN_OPEN_LOG}         ;sleep 2 || break; done"
+screen -t serv     9 sh -c "while :; do ${RUN_SERVER_SCREEN_OPEN_CMD}                 ;sleep 1 || break; done"
 
 # window numbering starts at 1 not 0
 select 9
@@ -201,11 +203,13 @@ EOF
 exec_screen() {
   if [[ "$SCREEN_SESSION" = "$APPNAME" ]]; then
     export SCREEN_SESSION SCREEN_SHELL SCREEN_SESSION_NAME
+    __screen_config &>/dev/null
     if [[ "$SCREEN_SESSION_NAME" = "$APPNAME" ]]; then
-      screen -S "$APPNAME"
+      #screen -S "$APPNAME"
+      exit
     else
       SCREEN_SESSION_NAME="$APPNAME"
-      screen -c "$RUN_SERVER_CONFIG_DIR/runserverc"
+      exec screen -c "$RUN_SERVER_CONFIG_DIR/runserverc"
       exit $?
     fi
   fi
@@ -218,8 +222,8 @@ start_run_server() {
   RUN_SERVER_TEMP_DIR="${RUN_SERVER_TEMP_DIR:-/tmp}"
   RUN_SERVER_DIR="${RUN_SERVER_DIR:-$RUN_SERVER_CWD}"
   RUN_SERVER_URL="${RUN_SERVER_URL:-http://localhost:$RUN_SERVER_PORT}"
-  export RUN_SERVER_CONSOLE_CMD="start_run_server $1"
-  export RUN_SERVER_DIR RUN_SERVER_URL RUN_SERVER_PORT
+  export RUN_SERVER_OPEN_CMD="${RUN_SERVER_OPEN_CMD:-$RUN_SERVER_CONSOLE_CMD}"
+  export RUN_SERVER_DIR RUN_SERVER_URL RUN_SERVER_PORT RUN_SERVER_OPEN_CMD RUN_SERVER_SCREEN_OPEN_LOG
   export -f start_run_server __lsof __port_used open_browser open_editor open_filemanager
   echo "$RUN_SERVER_PORT" >"$RUN_SERVER_LOG_DIR/$mainPid"
   printf '%s\n' "Starting the server on port $RUN_SERVER_PORT" &>"$RUN_SERVER_LOG"
@@ -247,8 +251,15 @@ __main__() {
   RUN_SERVER_TEMP_DIR="${RUN_SERVER_TEMP_DIR:-/tmp}"
   RUN_SERVER_DIR="${RUN_SERVER_DIR:-$RUN_SERVER_CWD}"
   RUN_SERVER_URL="${RUN_SERVER_URL:-http://localhost:$RUN_SERVER_PORT}"
-  export RUN_SERVER_CONSOLE_CMD="start_run_server $1"
+  RUN_SERVER_SCREEN_OPEN_WEB="${RUN_SERVER_OPEN_WEB} $RUN_SERVER_URL"
+  RUN_SERVER_SCREEN_OPEN_CMD="${RUN_SERVER_OPEN_CMD} $RUN_SERVER_DIR"
+  RUN_SERVER_SCREEN_OPEN_FM="${RUN_SERVER_OPEN_FM} $RUN_SERVER_DIR"
+  RUN_SERVER_SCREEN_OPEN_EDITOR="${RUN_SERVER_OPEN_EDITOR} $RUN_SERVER_DIR"
+  RUN_SERVER_SCREEN_OPEN_LOG="tail -f ${RUN_SERVER_SCREEN_OPEN_LOG:-$RUN_SERVER_LOG}"
+  export RUN_SERVER_OPEN_FM RUN_SERVER_OPEN_WEB RUN_SERVER_OPEN_EDITOR
+  export RUN_SERVER_SCREEN_OPEN_WEB RUN_SERVER_SCREEN_OPEN_CMD RUN_SERVER_SCREEN_OPEN_FM RUN_SERVER_SCREEN_OPEN_EDITOR
   export RUN_SERVER_DIR RUN_SERVER_URL RUN_SERVER_PORT
+  exec_screen
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   $RUN_SERVER_CONSOLE_CMD
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -324,8 +335,9 @@ __js_serv() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __php_serv() {
-  cmd_exists php && cd "$RUN_SERVER_CWD" &&
-    php -S 0.0.0.0:$RUN_SERVER_PORT &>>"$RUN_SERVER_LOG" &&
+  local php="$(builtin type -P php8 2>/dev/null || builtin type -P php7 2>/dev/null || builtin type -P php 2>/dev/null || return)"
+  [ -n "$php" ] && cd "$RUN_SERVER_CWD" &&
+    php -S 0.0.0.0:$RUN_SERVER_PORT -t "$RUN_SERVER_CWD" &>>"$RUN_SERVER_LOG" &&
     echo php started &>>"$RUN_SERVER_LOG" || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -374,7 +386,7 @@ __static() { __go || __caddy || __php_serv || __default_srv || return 1; }
 open_browser() {
   [ "$RUN_SERVER_OPEN_WEB_NO" != "yes" ] || return
   local PATH="$SRC_DIR:$PATH"
-  [[ -n "$RUN_SERVER_BROWSER_ARGS" ]] || RUN_SERVER_BROWSER_ARGS="--private"
+  [[ -n "$SCREEN_SESSION" ]] || [[ -n "$RUN_SERVER_BROWSER_ARGS" ]] || RUN_SERVER_BROWSER_ARGS="--private"
   RUN_SERVER_OPEN_WEB="$RUN_SERVER_OPEN_WEB $1 $RUN_SERVER_BROWSER_ARGS"
   printf_purple "Launching: $RUN_SERVER_OPEN_WEB"
   [ -n "$SCREEN_SESSION" ] || $RUN_SERVER_OPEN_WEB 2>/dev/null
@@ -430,7 +442,7 @@ __set_vars() {
   RUN_SERVER_CWD="$(realpath "${RUN_SERVER_CWD:-$PWD}" || dirname "${RUN_SERVER_CWD:-$PWD}/.")"
   RUN_SERVER_LOG="${RUN_SERVER_LOG:-$RUN_SERVER_TEMP_DIR/run_server_$RUN_SERVER_PORT.log}"
   RUN_SERVER_URL="${RUN_SERVER_URL:-http://$RUN_SERVER_ADDR:$RUN_SERVER_PORT}"
-  export RUN_SERVER_HOST RUN_SERVER_PORT RUN_SERVER_ADDR RUN_SERVER_CWD RUN_SERVER_URL
+  export RUN_SERVER_LOG RUN_SERVER_HOST RUN_SERVER_PORT RUN_SERVER_ADDR RUN_SERVER_CWD RUN_SERVER_URL
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __try_default() {
@@ -534,7 +546,7 @@ while :; do
   --config)
     shift 1
     __gen_config
-    #__screen_config
+    __screen_config
     exit $?
     ;;
   --dir)
@@ -549,8 +561,6 @@ while :; do
     ;;
   --screen)
     shift 1
-    rm -Rf "$RUN_SERVER_CONFIG_DIR/runserverc"
-    __screen_config
     unset SCREENEXCHANGE SCREEN_MSGMINWAIT
     if [ -z "$SCREEN_SESSION" ]; then
       SCREEN_SESSION="$APPNAME"
@@ -637,10 +647,10 @@ cd "$RUN_SERVER_CWD" || exit 1
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -n "$SSH_CONNECTION" ] || [ -n "$SCREEN_SESSION" ]; then
   { [ -n "$RUN_SERVER_OPEN_FM" ]; } ||
-    { cmd_exists vim && RUN_SERVER_OPEN_FM="vim"; } ||
     { cmd_exists vifm && RUN_SERVER_OPEN_FM="vifm"; } ||
     { cmd_exists ranger && RUN_SERVER_OPEN_FM="ranger"; } ||
-    { cmd_exists se && RUN_SERVER_OPEN_FM="se"; }
+    { cmd_exists se && RUN_SERVER_OPEN_FM="se"; } ||
+    { cmd_exists vim && RUN_SERVER_OPEN_FM="vim"; }
 elif cmd_exists myfilemanager; then
   RUN_SERVER_OPEN_FM="myfilemanager"
 elif [ -n "$FILEMANAGER" ]; then
@@ -656,10 +666,11 @@ if [ -n "$SSH_CONNECTION" ] || [ -n "$SCREEN_SESSION" ]; then
   { [ -n "$RUN_SERVER_OPEN_WEB" ]; } ||
     { cmd_exists browsh && RUN_SERVER_OPEN_WEB="browsh"; } ||
     { cmd_exists netrik && RUN_SERVER_OPEN_WEB="netrik"; } ||
-    { cmd_exists w3m && RUN_SERVER_OPEN_WEB="w3m"; } ||
-    { cmd_exists lynx && RUN_SERVER_OPEN_WEB="lynx"; } ||
     { cmd_exists links2 && RUN_SERVER_OPEN_WEB="links2"; } ||
+    { cmd_exists links && RUN_SERVER_OPEN_WEB="links"; } ||
+    { cmd_exists lynx && RUN_SERVER_OPEN_WEB="lynx -accept_all_cookies"; } ||
     { cmd_exists elinks && RUN_SERVER_OPEN_WEB="elinks"; } ||
+    { cmd_exists w3m && RUN_SERVER_OPEN_WEB="w3m"; } ||
     return 1
 elif cmd_exists mybrowser; then
   RUN_SERVER_OPEN_WEB="mybrowser"
@@ -688,6 +699,7 @@ elif cmd_exists "open"; then
   RUN_SERVER_OPEN_EDITOR="open"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+export RUN_SERVER_OPEN_CMD="$APPNAME $*"
 export RUN_SERVER_OPEN_FM RUN_SERVER_OPEN_WEB RUN_SERVER_OPEN_EDITOR
 export SCREEN_SESSION SCREEN_SHELL SCREEN_SESSION_NAME
 export -f start_run_server open_browser open_editor open_filemanager
@@ -806,16 +818,6 @@ python3)
   exit $?
   ;;
 
-default)
-  shift 1
-  prog="python2"
-  export -f __default_srv
-  __prog_check "$prog"
-  __set_vars $1
-  __main__ "__default_srv $RUN_SERVER_PORT"
-  exit $?
-  ;;
-
 netcat | nc)
   shift 1
   prog="$(basename $(type -P netcat 2>/dev/null || type -P nc 2>/dev/null))"
@@ -826,15 +828,21 @@ netcat | nc)
   exit $?
   ;;
 
+default)
+  shift 1
+  prog="__try_default"
+  export -f __try_default
+  __prog_check "$prog"
+  __set_vars $1
+  __main__ "__try_default"
+  exit $?
+  ;;
+
 *)
-  if [[ -n "$SCREEN_SHELL" ]]; then
-    exec screen -c "$RUN_SERVER_CONFIG_DIR/runserverc"
-  else
-    export -f __try_default
-    __prog_check "$prog"
-    __set_vars $1
-    __main__ "__try_default"
-  fi
+  export -f __try_default
+  __prog_check "$prog"
+  __set_vars $1
+  __main__ "__try_default"
   ;;
 esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

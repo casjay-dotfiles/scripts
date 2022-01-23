@@ -84,7 +84,7 @@ RUN_SERVER_OUTPUT_COLOR_GOOD="${RUN_SERVER_OUTPUT_COLOR_GOOD:-2}"
 RUN_SERVER_OUTPUT_COLOR_ERROR="${RUN_SERVER_OUTPUT_COLOR_ERROR:-1}"
 
 EOF
-  [[ -f "$RUN_SERVER_CONFIG_DIR/runserverc" ]] || __screen_config >"$RUN_SERVER_CONFIG_DIR/runserverc"
+  [[ -s "$RUN_SERVER_CONFIG_DIR/runserverc" ]] || __screen_config &>/dev/null
   if [ -f "$RUN_SERVER_CONFIG_DIR/$RUN_SERVER_CONFIG_FILE" ]; then
     [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for $APPNAME has been created"
     exitCode=0
@@ -97,10 +97,12 @@ EOF
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __screen_config() {
   printf_blue "Creating screenrc file"
-  cat <<EOF #| tee "$RUN_SERVER_CONFIG_DIR/runserverc" &>/dev/null
+  cat <<EOF | tee "$RUN_SERVER_CONFIG_DIR/runserverc" &>/dev/null
 #Sources
 # - https://bbs.archlinux.org/viewtopic.php?id=55618&p=3
 # - https://bbs.archlinux.org/viewtopic.php?pid=930174#p930174
+# Set name
+sessionname $APPNAME
 # search | name for dynamic window titles
 shelltitle '\$|bash'
 # Detect activity in new windows
@@ -135,11 +137,11 @@ nethack on
 # mouse tracking allows to switch region focus by clicking
 mousetrack off
 # default windows
-screen -t main     1 bash -c "bash; \$SHELL"
-screen -t editor   2 bash -c "myeditor --console .; \$SHELL"
-screen -t web      3 bash -c "mybrowser --console .; \$SHELL"
-screen -t fm       4 bash -c "myfilemanager --console .; \$SHELL"
-screen -t serv     9 bash -c "run_server --console .; \$SHELL"
+screen -t main     1 sh -c "$SHELL;$SHELL"
+screen -t editor   2 sh -c "while :; do myeditor --console .;sleep 1; done"
+screen -t web      3 sh -c "while :; do mybrowser --console .;sleep 1; done"
+screen -t fm       4 sh -c "while :; do myfilemanager --console .;sleep 1; done"
+screen -t serv     9 sh -c "while :; do run_server --console .;sleep 1; done"
 
 # window numbering starts at 1 not 0
 select 9
@@ -196,6 +198,31 @@ EOF
     printf_blue "Created: $RUN_SERVER_CONFIG_DIR/runserverc"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+exec_screen() {
+  if [[ "$SCREEN_SESSION" = "$APPNAME" ]]; then
+    export SCREEN_SESSION SCREEN_SHELL SCREEN_SESSION_NAME
+    if [[ -n "$SCREEN_SESSION_NAME" ]]; then
+      screen -R -S "$APPNAME"
+    else
+      SCREEN_SESSION_NAME="$APPNAME"
+      screen -R -c "$RUN_SERVER_CONFIG_DIR/runserverc" -S "$APPNAME"
+      exit $?
+    fi
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+start_run_server() {
+  RUN_SERVER_PORT="${RUN_SERVER_PORT:-$RUN_SERVER_DEFAULT_PORT}"
+  MAX_NUMBER_OF_TRIES=${MAX_NUMBER_OF_TRIES:-20}
+  RUN_SERVER_TEMP_DIR="${RUN_SERVER_TEMP_DIR:-/tmp}"
+  RUN_SERVER_DIR="${RUN_SERVER_DIR:-$RUN_SERVER_CWD}"
+  RUN_SERVER_URL="${RUN_SERVER_URL:-http://localhost:$RUN_SERVER_PORT}"
+  export RUN_SERVER_CONSOLE_CMD="start_run_server $1"
+  export RUN_SERVER_DIR RUN_SERVER_URL RUN_SERVER_PORT
+  export -f start_run_server
+  run_server "$@"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional functions
 __main__() {
   mainPid="$$"
@@ -203,11 +230,15 @@ __main__() {
   RUN_SERVER_PORT="${RUN_SERVER_PORT:-$RUN_SERVER_DEFAULT_PORT}"
   MAX_NUMBER_OF_TRIES=${MAX_NUMBER_OF_TRIES:-20}
   RUN_SERVER_TEMP_DIR="${RUN_SERVER_TEMP_DIR:-/tmp}"
+  RUN_SERVER_DIR="${RUN_SERVER_DIR:-$RUN_SERVER_CWD}"
+  RUN_SERVER_URL="${RUN_SERVER_URL:-http://localhost:$RUN_SERVER_PORT}"
+  export RUN_SERVER_CONSOLE_CMD="__run_server $1"
   export RUN_SERVER_DIR RUN_SERVER_URL RUN_SERVER_PORT
+  export -f start_run_server
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   echo "$RUN_SERVER_PORT" >"$RUN_SERVER_LOG_DIR/$mainPid"
   printf '%s\n' "Starting the server on port $RUN_SERVER_PORT" &>"$RUN_SERVER_LOG"
-  run_server $1
+  __run_server "$1"
   i=0
   while [ $i -lt $MAX_NUMBER_OF_TRIES ]; do
     sleep 1
@@ -225,7 +256,7 @@ __main__() {
   [ "$RUN_SERVER_BG" = "true" ] || wait -f $SRVID
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-run_server() {
+__run_server() {
   { $1 &>/dev/null || __return_error || exit 1; } &
   SRVID="$!"
   trap 'kill -9 $SRVID &>/dev/null || exit 0' EXIT
@@ -468,7 +499,7 @@ fi
 # Set additional variables/Argument/Option settings
 SETARGS="$*"
 SHORTOPTS=""
-LONGOPTS="options,config,version,help,dir:,bg,screen,filemanager,browser"
+LONGOPTS="options,config,version,help,dir:,bg,screen,filemanager,browser,console"
 ARRAY="default,proxy,static,caddy,go,jekyll,js,php,rails,ruby,python2,python3,netcat "
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -522,12 +553,20 @@ while :; do
     ;;
   --screen)
     shift 1
+    __screen_config
     if [ -z "$SCREEN_SESSION" ]; then
       SCREEN_SESSION="$APPNAME"
       SCREEN_SHELL="$(builtin type -P screen 2>/dev/null || echo '')"
       export SCREEN_SESSION SCREEN_SHELL SCREEN_SESSION_NAME
-      __screen_config &>/dev/null
+      export -f start_run_server
     fi
+    ;;
+  --console)
+    shift 2
+    echo $*
+    echo $RUN_SERVER_CONSOLE_CMD
+    [ -n "$RUN_SERVER_CONSOLE_CMD" ] && $RUN_SERVER_CONSOLE_CMD || __run_server "$@"
+    exit
     ;;
   --)
     shift 1
@@ -566,14 +605,9 @@ fi
 [[ -d "$RUN_SERVER_CWD" ]] || mkdir -p "$RUN_SERVER_CWD"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 cd "$RUN_SERVER_CWD" || exit 1
-if [[ "$SCREEN_SESSION" = "$APPNAME" ]]; then
-  export SCREEN_SESSION SCREEN_SHELL SCREEN_SESSION_NAME
-  if [[ -z "$SCREEN_SESSION_NAME" ]]; then
-    SCREEN_SESSION_NAME="$APPNAME"
-    exec screen -c "$RUN_SERVER_CONFIG_DIR/runserverc" -R -S $APPNAME
-  fi
-fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#exec_screen $APPNAME "$@"
+# # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 case "$1" in
 static)

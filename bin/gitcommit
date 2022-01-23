@@ -111,6 +111,7 @@ __gitmessage() {
   else
     mess="$(printf '%s\n\n' "$message")"
   fi
+  export mess
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gitcommit() {
@@ -134,65 +135,105 @@ __gitcommit() {
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__git_init() {
+  action="${set_action:-📂}"
+  icon="${set_icon:- 📂}"
+  initm="$action ${*:-Initial Commit}$icon"
+  __gitignore_init "$GITCOMMIT_CWD"
+  git -C "$GITCOMMIT_CWD" init &>/dev/null
+  git -C "$GITCOMMIT_CWD" add -A &>/dev/null
+  __gitcommit "$initm"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__changed_files() {
+  local files=""
+  if [ "$1" = "message" ]; then
+    git -C "$GITCOMMIT_CWD" status -b -s | grep -v '^$' | sed '/^\#/d;s,^ ,,g;s,??,A,g' | tr '\n' '|' | sed 's#|$##g' | sed 's|  | |g' | grep '^' || return 1
+  elif [ "$1" = "added" ]; then
+    git -C "$GITCOMMIT_CWD" status -s 2>/dev/null | grep -Ew ^'\?\?|A|AA' | awk '{print $2}' | sort -u | grep -v '^$' | grep '^' || return 1
+  elif [ "$1" = "modified" ]; then
+    git -C "$GITCOMMIT_CWD" status -s 2>/dev/null | grep -Ew ^'M|MM| M' | awk '{print $2}' | sort -u | grep -v '^$' | grep '^' || return 1
+  elif [ "$1" = "deleted" ]; then
+    git -C "$GITCOMMIT_CWD" status -s 2>/dev/null | grep -E ^'[M, ]D|DD' | awk '{print $2}' | sort -u | grep -v '^$' | grep '^' || return 1
+  else
+    files+="$(__changed_files added) "
+    files+="$(__changed_files modified) "
+    files+="$(__changed_files deleted) "
+    printf '%s\n' "$files" | tr ' ' '\n' | sort -u | grep -v '^$' | grep '^'
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __default_git_action() {
-  local modified added deleted
-  added="$(git -C "$GITCOMMIT_CWD" status -s | awk '{if ($1 == "??") print $2}' 2>/dev/null | sort -u | grep '^' 2>/dev/null | sort -u | grep '^')"
-  deleted="$(git -C "$GITCOMMIT_CWD" status -s | awk '{if ($1 == "D") print $2}' 2>/dev/null | sort -u | grep '^' 2>/dev/null | sort -u | grep '^')"
-  modified="$(git -C "$GITCOMMIT_CWD" status -s | awk '{if ($1 == "M") print $2}' 2>/dev/null | sort -u | grep '^' 2>/dev/null | sort -u | grep '^')"
-  for a in $added; do __git_add; done
-  for m in $modified; do __git_mod; done
-  for d in $deleted; do __git_del; done
+  local modified added deleted message
+  message="$*"
+  added="$(__changed_files added)"
+  deleted="$(__changed_files deleted)"
+  modified="$(__changed_files modified)"
+  for a in $added; do __git_add "$message"; done
+  for m in $modified; do __git_mod "$message"; done
+  for d in $deleted; do __git_del "$message"; done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_updated() {
-  __git_add "$@"
-  __git_mod "$@"
+  __git_add "$*"
+  __git_mod "$*"
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_renamed() {
-  git -C "$GITCOMMIT_CWD" rm "$1" -f &>/dev/null
-  git -C "$GITCOMMIT_CWD" add "$2" -f &>/dev/null && __gitcommit "$1"
+  git -C "$GITCOMMIT_CWD" rm $1 -rf &>/dev/null &&
+    git -C "$GITCOMMIT_CWD" add $2 -f &>/dev/null && __gitcommit "$3"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_mod() {
-  local mess modified action="" icon=""
   mess="$*"
   action="${set_action:-🗃 Modified:}"
-  icon="${set_icon:-🗃}"
-  modified="$(git -C "$GITCOMMIT_CWD" status -s | awk '{if ($1 == "M") print $2}' 2>/dev/null | sort -u | grep '^' 2>/dev/null | sort -u | grep '^')"
+  icon="${set_icon:- 🗃}"
+  modified="$(__changed_files modified)"
+  [ -n "$modified" ] || return
   for f in $modified; do
     if [ -e "$f" ]; then
-      git -C "$GITCOMMIT_CWD" add "$f" -f &>/dev/null
-      __gitcommit "${action:-} $f $mess ${icon:-}"
+      setmess="$(echo | grep -v "$f")"
+      git -C "$GITCOMMIT_CWD" add $f -f &>/dev/null
+      __gitcommit "${action:-} $f $setmess${icon:-}"
     fi
   done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_add() {
-  local mess added action="" icon=""
   mess="$*"
   action="${set_action:-❓ Added:}"
-  icon="${set_icon:-❓}"
-  added="$(git -C "$GITCOMMIT_CWD" status -s | awk '{if ($1 == "??") print $2}' 2>/dev/null | sort -u | grep '^')"
+  icon="${set_icon:- ❓}"
+  added="$(__changed_files added)"
+  [ -n "$added" ] || return
   for f in $added; do
     if [ -e "$f" ]; then
-      git -C "$GITCOMMIT_CWD" add "$f" -f &>/dev/null
-      __gitcommit "${action} $f $mess ${icon:-}"
+      setmess="$(echo | grep -v "$f")"
+      git -C "$GITCOMMIT_CWD" add $f &>/dev/null
+      __gitcommit "${action} $f $setmess${icon:-}"
     fi
   done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_del() {
-  local mess deleted action="" icon=""
   mess="$*"
   action="${set_action:-➖ Deleted:}"
-  icon="${set_icon:-➖}"
-  deleted="$(git -C "$GITCOMMIT_CWD" status -s | awk '{if ($1 == "D") print $2}' 2>/dev/null | sort -u | grep '^' 2>/dev/null | sort -u | grep '^')"
+  icon="${set_icon:- ➖}"
+  deleted="$(__changed_files deleted)"
+  [ -n "$deleted" ] || return
   for f in $deleted; do
-    git -C "$GITCOMMIT_CWD" rm -rf "$f" &>/dev/null
-    __gitcommit "${action:-} $f $mess ${icon:-}"
+    setmess="$(echo | grep -v "$f")"
+    git -C "$GITCOMMIT_CWD" rm -rf $f &>/dev/null
+    __gitcommit "${action:-} $f $setmess${icon:-}"
   done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gitignore_init() {
+  if [ ! -e "${1:-$GITCOMMIT_CWD}/.gitignore" ]; then
+    [ -d "${1:-$GITCOMMIT_CWD}/node_modules" ] &&
+      gitignore "${1:-$GITCOMMIT_CWD}" dirignore default node ||
+      gitignore "${1:-$GITCOMMIT_CWD}" dirignore default
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_dir() {
@@ -202,9 +243,7 @@ __git_dir() {
     printf_error "You are not in a git repo"
     printf_read_question "4" "Would you like to turn $git_dir into a git repo? y/N" "1" "makerepo"
     if printf_answer_yes "$makerepo"; then
-      if [ ! -e "$git_dir/.gitignore" ]; then
-        [ -d "$git_dir/node_modules" ] && gitignore "$git_dir" dirignore default node || gitignore "$git_dir" dirignore default
-      fi
+      __gitignore_init "$git_dir"
       gitadmin "$git_dir" setup
       exit $?
     else
@@ -416,7 +455,7 @@ while :; do
     ;;
   -m | --mess | --message)
     shift 1
-    newmess="$2"
+    GITCOMMIT_MESSAGE="$2"
     shift 1
     ;;
   --)
@@ -455,11 +494,10 @@ gitversion="$GITCOMMIT_VERSION_FORMAT"
 gitprojectdir="$GITCOMMIT_PROJECT_DIR"
 [ -n "$repo" ] || repo="localdir"
 __git_dir "$GITCOMMIT_CWD"
-MESSAGE="${newmess:-$1}"
 GITCOMMIT_RAN=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
-case "$MESSAGE" in
+case "$1" in
 s | status)
   shift 1
   __git_status "$GITCOMMIT_CWD"
@@ -470,6 +508,13 @@ l | log)
   shift 1
   __git_log "$GITCOMMIT_CWD"
   exit $?
+  ;;
+
+init)
+  shift 1
+  set_action="🦈🏠🐜❗ "
+  set_icon="📍🐜🦈🏠"
+  __git_init "${*:-Initial Commit}"
   ;;
 
 setup)
@@ -503,9 +548,8 @@ push)
 
 version)
   shift 1
-  ARGS="$*"
   if [[ ${#ARGS} -ne 0 ]]; then
-    __default_git_action $ARGS
+    __default_git_action ${GITCOMMIT_MESSAGE:-$*}
   fi
   __set_version
   __git_push "$GITCOMMIT_CWD" --automated
@@ -515,18 +559,22 @@ version)
 files)
   shift
   [ "$1" != "help" ] || printf_exit "Usage: $APPNAME files"
-  if ! __git_porcelain "$GITCOMMIT_CWD"; then
-    __default_git_action "$@"
+  if __changed_files message &>/dev/null; then
+    set_action="📁 %(__changed_files message)"
+    set_icon="📁"
+    __default_git_action "${GITCOMMIT_MESSAGE:-$*}"
   else
-    printf_exit 1 0 "🎊 Nothing has been modified in $GITCOMMIT_CWD 🎊"
+    printf_exit 1 0 "🎊 Nothing has been changed in $GITCOMMIT_CWD 🎊"
   fi
   ;;
 
 modified)
   shift
   [ "$1" != "help" ] || printf_exit "Usage: $APPNAME modified"
-  if git -C "$GITCOMMIT_CWD" status -s -b | grep -F 'M ' >/dev/null 2>&1; then
-    __git_mod "$*"
+  if __changed_files modified &>/dev/null; then
+    set_action="📁 modified:"
+    set_icon="📁"
+    __git_mod "${GITCOMMIT_MESSAGE:-$*}"
   else
     printf_exit 1 0 "🎊 Nothing has been modified in $GITCOMMIT_CWD 🎊"
   fi
@@ -535,8 +583,10 @@ modified)
 updated)
   shift
   [ "$1" != "help" ] || printf_exit "Usage: $APPNAME updated"
-  if git -C "$GITCOMMIT_CWD" status -s -b | grep -F 'M ' >/dev/null 2>&1; then
-    __git_updated "$@"
+  if __changed_files modified &>/dev/null; then
+    set_action="📁 Updated:"
+    set_icon="📁"
+    __git_updated "${GITCOMMIT_MESSAGE:-$*}"
   else
     printf_exit 1 0 "🎊 Nothing has been modified in $GITCOMMIT_CWD 🎊"
   fi
@@ -545,278 +595,264 @@ updated)
 deleted)
   shift
   [ "$1" != "help" ] || printf_exit "Usage: $APPNAME deleted"
-  __is_deleted="$(git -C "$GITCOMMIT_CWD" status -s -b | sed 's|^ ||g' | grep -v '^$' | grep -q '^D ' && echo TRUE)"
+  __is_deleted="$(__changed_files deleted &>/dev/null && echo TRUE)"
   if [[ "$__is_deleted" = "TRUE" ]]; then
-    __git_del "$@"
+    set_action="➖ Deleted:"
+    set_icon="➖"
+    __git_del "${GITCOMMIT_MESSAGE:-$*}"
   else
-    printf_exit 1 0 "🎊 Nothing has been modified in $GITCOMMIT_CWD 🎊"
+    printf_exit 1 0 "🎊 Nothing has been deleted in $GITCOMMIT_CWD 🎊"
   fi
   ;;
 
 added)
   shift
   [ "$1" != "help" ] || printf_exit "Usage: $APPNAME added"
-  if git -C "$GITCOMMIT_CWD" status -s -b | grep -F '?? ' >/dev/null 2>&1; then
-    __git_add "$@"
+  if __changed_files added &>/dev/null; then
+    set_action="➕ Added:"
+    set_icon="➕"
+    __git_add "${GITCOMMIT_MESSAGE:-$*}"
   else
-    printf_exit 1 0 "🎊 Nothing has been modified in $GITCOMMIT_CWD 🎊"
+    printf_exit 1 0 "🎊 Nothing has been added in $GITCOMMIT_CWD 🎊"
   fi
   ;;
 
 renamed)
   shift 1
   [ $# -ne 2 ] && printf_exit "Usage: $APPNAME renamed oldfile newfile"
-  mess="✔️ Renamed: ${1} ➡ ${2} ✔️"
-  __git_renamed "$mess" "$1" "$2"
+  mess="${1} ➡ ${2}"
+  set_action="✔️ Renamed:"
+  set_icon="✔️"
+  ARGS="${*:-} "
+  __git_renamed "$1" "$2" "$mess"
   ;;
 
 changed)
   shift 1
-  [ $# -eq 0 ] && printf_exit "Usage: $APPNAME changed filename[s]"
-  ARGS="${*:-} "
-  mess="✔️🐛 Changed: ${ARGS} 🐛✔️"
-  __git_add $ARGS
-  __gitcommit "$mess"
+  [ "$1" != "help" ] || printf_exit "Usage: $APPNAME changed filename[s]"
+  set_action="📁✔️ Changed:"
+  set_icon="📁✔️"
+  __git_mod "${GITCOMMIT_MESSAGE:-$*}"
   ;;
 
 new)
   shift 1
-  [ $# -eq 0 ] && printf_exit "Usage: $APPNAME new filename[s]"
-  ARGS="${*:-} "
-  mess="🆕📦 NEW: ${ARGS}📦🆕"
-  __git_add "$ARGS"
+  [ "$1" != "help" ] || printf_exit "Usage: $APPNAME new filename[s]"
+  set_action="🆕📦 New:"
+  set_icon="📦🆕"
+  __git_add "${*}"
   ;;
 
 improved)
   shift 1
-  [ $# -eq 0 ] && printf_exit "Usage: $APPNAME improved filename[s]"
-  ARGS="${*:-} "
-  mess="👌 IMPROVE: ${ARGS}👌"
-  __git_add "$ARGS"
+  [ "$1" != "help" ] || printf_exit "Usage: $APPNAME improved filename[s]"
+  set_action="👌 IMPROVE:"
+  set_icon="👌"
+  __git_updated "${GITCOMMIT_MESSAGE:-$*}"
   ;;
 
-fixed)
+fixed | fixes)
   shift 1
-  [ $# -eq 0 ] && printf_exit "Usage: $APPNAME fixed filename[s]"
-  ARGS="${*:-} "
-  mess="🐛 FIXED: ${ARGS}🐛"
-  __git_add "$ARGS"
-  __gitcommit "$mess"
+  [ "$1" != "help" ] || printf_exit "Usage: $APPNAME fixed filename[s]"
+  set_action="🐛 FIXED:"
+  set_icon="🐛✔️"
+  __git_updated "$ARGS"
   ;;
 
 release)
   shift 1
-  [ $# -eq 0 ] && printf_exit "Usage: $APPNAME release filename[s]"
-  ARGS="${*:-} "
-  mess="🚀 RELEASE: ${ARGS}🚀"
-  __git_add "$ARGS"
-  __gitcommit "$mess"
+  [ "$1" != "help" ] || printf_exit "Usage: $APPNAME release filename[s]"
+  set_action="🚀 RELEASE: "
+  set_icon="🚀"
+  __set_version
+  __default_git_action "${GITCOMMIT_MESSAGE:-$*}"
   ;;
 
 deploy)
   shift
   [ "$1" != "help" ] || printf_exit "Usage: $APPNAME deploy"
-  if ! __git_porcelain "$GITCOMMIT_CWD"; then
-    files="$(git -C "$GITCOMMIT_CWD" status -s -b | grep 'M \| D \|??' | sed 's|^ ||g' | awk -F' ' '{print $2}')"
-    filesmsg="$(git -C "$GITCOMMIT_CWD" status -b -s | sed '/^\#/d;s,^ ,,g;s,??,A,g' | tr '\n' '|' | sed 's#|$##g' | grep '^')"
-    mess="👌📃 deployed: ${*:-$filesmsg} 📃👌"
-    __git_del "$files"
-    __git_add "$files"
-    __gitcommit "$mess"
-  else
+  set_action="👌📃 Deployed:"
+  set_icon="📃👌"
+  if __git_porcelain "$GITCOMMIT_CWD"; then
     printf_exit 1 0 "🎊 Nothing has been modified in $GITCOMMIT_CWD 🎊"
+  else
+    files="$(__changed_files)"
+    filesmsg="📁 %(__changed_files message) 📁"
+    __write_version
+    __default_git_action "${*:-$filesmsg}"
   fi
   ;;
 
 docs)
   shift 1
-  [ $# -eq 0 ] && printf_exit "Usage: $APPNAME docs filename[s]"
-  ARGS="${*} "
-  mess="📖 DOCS: ${ARGS}📖"
-  __git_add "$ARGS"
-  __gitcommit "$mess"
+  [ "$1" != "help" ] || printf_exit "Usage: $APPNAME docs filename[s]"
+  set_action="📖 DOCS:"
+  set_icon="📖"
+  __git_updated "${GITCOMMIT_MESSAGE:-$*}"
   ;;
 
 test)
   shift 1
-  [ $# -eq 0 ] && printf_exit "Usage: $APPNAME test filename[s]"
-  ARGS="${*:-} "
-  mess="🤖 TEST: ${ARGS}🤖"
-  __git_add "$ARGS"
-  __gitcommit "$mess"
+  [ "$1" != "help" ] || printf_exit "Usage: $APPNAME test filename[s]"
+  set_action="🤖 TEST:"
+  set_icon="🤖"
+  __default_git_action "${GITCOMMIT_MESSAGE:-$*}"
   ;;
 
 breaking)
   shift 1
-  [ $# -eq 0 ] && printf_exit "Usage: $APPNAME breaking filename[s]"
-  ARGS="${*:-} "
-  mess="⚒️ BREAKING: ${ARGS}⚒️"
-  __git_add "$ARGS"
-  __gitcommit "$mess"
+  [ "$1" != "help" ] || printf_exit "Usage: $APPNAME breaking filename[s]"
+  set_action="⚒️ BREAKING:"
+  set_icon="⚒️"
+  __default_git_action "${GITCOMMIT_MESSAGE:-$*}"
   ;;
 
 refactor)
   shift 1
-  [ $# -eq 0 ] && printf_exit "Usage: $APPNAME refactor filename[s]"
-  ARGS="${*:-} "
-  mess="✔️〰️ Refactor Code ${ARGS}〰️✔️"
-  __git_add "$ARGS"
-  __gitcommit "$mess"
+  [ "$1" != "help" ] || printf_exit "Usage: $APPNAME refactor filename[s]"
+  set_action="✔️〰️ Refactor Code:"
+  set_icon="〰️✔️"
+  __git_updated "${GITCOMMIT_MESSAGE:-$*}"
   ;;
 
 performance)
   shift 1
-  [ $# -eq 0 ] && printf_exit "Usage: $APPNAME performance filename[s]"
-  ARGS="${*:-} "
-  mess="🚤 Preformance boost ${ARGS}⏩"
-  __git_add "$ARGS"
-  __gitcommit "$mess"
+  [ "$1" != "help" ] || printf_exit "Usage: $APPNAME performance filename[s]"
+  set_action="🚤 Performance boost:"
+  set_icon="⏩"
+  __git_updated "${GITCOMMIT_MESSAGE:-$*}"
   ;;
 
 permission | permissions)
   shift 1
-  ARGS="${*:-} "
-  mess="🏠🔥❗ Fixed Permissions ${ARGS}❗🔥🏠"
-  __git_add "$ARGS"
-  __gitcommit "$mess"
+  set_action="🏠🔥❗ Fixed Permissions:"
+  set_icon="❗🔥🏠"
+  __git_updated "${GITCOMMIT_MESSAGE:-$*}"
   ;;
 
 bug | bugs)
   shift 1
-  ARGS="${*:-} "
-  mess="🐛🦈🏠❗ Bug Fixes ${ARGS}❗🏠🦈🐛"
-  __git_add "$ARGS"
-  __gitcommit "$mess"
+  set_action="🐛🦈🏠❗ Bug Fixes:"
+  set_icon="❗🏠🦈🐛"
+  __git_updated "${GITCOMMIT_MESSAGE:-$*}"
   ;;
 
-alot | fixes)
+alot)
   shift 1
-  ARGS="${*:-} "
-  mess="🦈🏠🐜❗ Fixes and Updates ${ARGS}❗🐜🦈🏠"
-  __git_add "."
-  __gitcommit "$mess"
+  set_action="🦈🏠🐜❗ Fixes and Updates:"
+  set_icon="❗🐜🦈🏠"
+  __default_git_action "${GITCOMMIT_MESSAGE:-$*}"
   ;;
 
 docker)
   shift 1
-  ARGS="${*:-} "
-  mess="🐜❇🦈🏠❗ Added Docker Workflow ${ARGS}❗🏠🦈❇🐜"
-  __git_add "$ARGS"
-  __gitcommit "$mess"
+  set_action="🐜❇🦈🏠❗ Added Docker Workflow:"
+  set_icon="❗🏠🦈❇🐜"
+  __git_updated "${GITCOMMIT_MESSAGE:-$*}"
   ;;
 
 node)
   shift 1
-  ARGS="${*:-} "
-  mess="🐜❇🦈🏠❗ Added nodejs Workflow ${ARGS}🏠🦈❇🐜"
-  __git_add "$ARGS"
-  __gitcommit "$mess"
+  set_action="🐜❇🦈🏠❗ Added nodejs Workflow:"
+  set_icon="🏠🦈❇🐜"
+  __git_updated "${GITCOMMIT_MESSAGE:-$*}"
   ;;
 
 ruby)
   shift 1
-  ARGS="${*:-} "
-  mess="🐜❇🦈🏠❗ Added ruby Workflow ${ARGS}❗🏠🦈❇🐜"
-  __git_add "$ARGS"
-  __gitcommit "$mess"
+  set_action="🐜❇🦈🏠❗ Added ruby Workflow:"
+  set_icon="❗🏠🦈❇🐜"
+  __git_updated "${GITCOMMIT_MESSAGE:-$*}"
   ;;
 
 php)
   shift 1
-  ARGS="${*:-} "
-  mess="🐜❇🦈🏠❗ Added php Workflow ${ARGS}❗🏠🦈❇🐜"
-  __git_add "$ARGS"
-  __gitcommit "$mess"
+  set_action="🐜❇🦈🏠❗ Added php Workflow:"
+  set_icon="❗🏠🦈❇🐜"
+  __git_updated "${GITCOMMIT_MESSAGE:-$*}"
   ;;
 
 perl)
   shift 1
-  ARGS="${*:-} "
-  mess="🐜❇🦈🏠❗ Added perl Workflow ${ARGS}❗🏠🦈❇🐜"
-  __git_add "$ARGS"
-  __gitcommit "$mess"
+  set_action="🐜❇🦈🏠❗ Added perl Workflow:"
+  set_icon="❗🏠🦈❇🐜"
+  __git_updated "${GITCOMMIT_MESSAGE:-$*}"
   ;;
 
 python)
   shift 1
-  ARGS="${*:-} "
-  mess="🐜❇🦈🏠❗ Added python Workflow ${ARGS}❗🏠🦈❇🐜"
-  __git_add "$ARGS"
-  __gitcommit "$mess"
+  set_action="🐜❇🦈🏠❗ Added python Workflow:"
+  set_icon="❗🏠🦈❇🐜"
+  __git_updated "${GITCOMMIT_MESSAGE:-$*}"
   ;;
 
 scratchpad)
   shift 1
   msg="${1:-}"
   shift 1
-  ARGS=" ${*:-} "
-  mess="🐜📓❇📓 ${msg:-Modified my scratchpad} ${ARGS}📓❇📓🐜"
-  __git_add "$ARGS"
-  __gitcommit "$mess"
+  set_action="🐜📓❇📓 ${msg:-Modified my scratchpad}:"
+  set_icon="📓❇📓🐜"
+  __git_updated "${GITCOMMIT_MESSAGE:-$*}"
   ;;
 
 todo)
   shift 1
   msg="${1:-}"
   shift 1
-  ARGS=" ${*:-} "
-  mess="🐜📓❇📓 ${mesg:-Modified my todo list} ${ARGS}📓❇📓🐜"
-  __git_add "$ARGS"
-  __gitcommit "$mess"
+  set_action="🐜📓❇📓 ${mesg:-Modified my todo list}:"
+  set_icon="📓❇📓🐜"
+  __git_updated "${GITCOMMIT_MESSAGE:-$*}"
   ;;
 
 notes)
   shift 1
   msg="${1:-}"
   shift 1
-  ARGS=" ${*:-} "
-  mess="🐜📓❇📓 ${msg:-Modified my notes} ${ARGS}📓❇📓🐜"
-  __git_add "$ARGS"
-  __gitcommit "$mess"
+  set_action="🐜📓❇📓 ${msg:-Modified my notes}:"
+  set_icon="📓❇📓🐜"
+  __git_updated "${GITCOMMIT_MESSAGE:-$*}"
   ;;
 
 blog)
   shift 1
   msg="${1:-}"
   shift 1
-  ARGS=" ${*:-} "
-  mess="🐜📓❇📓 ${msg:-New blog post} ${ARGS}📓❇📓🐜"
-  __git_add "$ARGS"
-  __gitcommit "$mess"
-  ;;
-
-init)
-  shift 1
-  msg="${*}"
-  mess="${msg:-🦈🏠🐜❗ Initial Commit 📍🐜🦈🏠} "
-  ;;
-
-emj | emojy | emojify)
-  cmd_exists emojify && setemj="$(emojify "$*")" || setemj="$*"
-  mess="${setemj:-🦈🏠🐜❗ Well I did some things ❗🐜🦈🏠 }"
+  set_action="🐜📓❇📓 ${msg:-New blog post}:"
+  set_icon="📓❇📓🐜"
+  __git_updated "${GITCOMMIT_MESSAGE:-$*}"
   ;;
 
 random)
   shift 1
-  mess="🐜➡️  Random: $(curl -q -LSsf "$GITCOMMIT_API_URL") ⬅️ 🐜"
+  set_action="🐜➡️ Random:"
+  set_icon="⬅️🐜"
+  __default_git_action "$(curl -q -LSsf "$GITCOMMIT_API_URL")"
+  ;;
+
+emj | emojy | emojify)
+  shift 1
+  cmd_exists emojify && setemj="$(emojify "${GITCOMMIT_MESSAGE:-$*}")" || setemj="${GITCOMMIT_MESSAGE:-$*}"
+  set_action="${setemj:-🦈🏠🐜❗}"
+  set_icon="${setemj:-❗🐜🦈🏠}"
+  __default_git_action "$(echo "${GITCOMMIT_MESSAGE:-$*}" | __emj_check)"
   ;;
 
 custom)
   shift 1
   if [ -n "$1" ]; then
-    mess=" $1 "
+    __default_git_action "${GITCOMMIT_MESSAGE:-$*}"
   else
     printf_exit "You must specify your commit message"
   fi
   ;;
-
 *)
   setmessage="${newmess:-$mess}"
   if [ -n "$setmessage" ]; then
     [ ! "$(echo "$setmessage" | wc -m)" -lt "4" ] || printf_exit "Message must be longer than 4 characters"
     mess="$setmessage"
+    __default_git_action "$mess"
   else
-    __default_git_action "$@"
+    __default_git_action "${GITCOMMIT_MESSAGE:-$*}"
   fi
   ;;
 esac
@@ -827,9 +863,6 @@ if __git_porcelain "$GITCOMMIT_CWD"; then
 else
   if [ -f "$GITCOMMIT_CWD/$GITCOMMIT_MAIN_CONFIG" ] && [ -d "$GITCOMMIT_CWD/.git" ]; then
     cp -Rf "$GITCOMMIT_CWD/$GITCOMMIT_MAIN_CONFIG" "$GITCOMMIT_CWD/.git/config"
-  fi
-  if [ -z "$files" ]; then
-    git -C "$GITCOMMIT_CWD" add . >/dev/null 2>&1
   fi
   if [ -z "$mess" ]; then
     if [ -z "$GITCOMMIT_RAN" ]; then

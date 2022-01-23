@@ -88,6 +88,12 @@ EOF
 # Additional functions
 __emj_check() { sed 's/\xf0\x9f/\r&/g; s/\s*\r.//g'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__run_push() {
+  git_cherry="$(git -C "$GITCOMMIT_CWD" cherry -v &>/dev/null || return 1)"
+  [ -n "$git_cherry" ] && [ -n "$GITCOMMIT_RAN" ] && __git_push "$@"
+  export GITCOMMIT_PUSH="TRUE"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gitmessage() {
   local message="$(echo -e "$*")"
   commitmess="$(echo -e "$message")"
@@ -135,7 +141,7 @@ __git_init() {
   __gitignore_init "$GITCOMMIT_CWD"
   git -C "$GITCOMMIT_CWD" init &>/dev/null
   git -C "$GITCOMMIT_CWD" add -A &>/dev/null
-  __gitcommit
+  __gitcommit || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __changed_files() {
@@ -184,9 +190,10 @@ __git_mod() {
       setmess="$(echo "${action:-} $f ${icon:-}" | sed "s|$f.*.$f|$f|g")"
       __gitmessage "$setmess"
       git -C "$GITCOMMIT_CWD" add $f -f &>/dev/null
-      __gitcommit
+      __gitcommit || exitCode+="1"
     fi
   done
+  return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_add() {
@@ -200,9 +207,10 @@ __git_add() {
       setmess="$(echo -e "${action:-} $f ${icon:-}" | sed "s|$f.*.$f|$f|g")"
       __gitmessage "$setmess"
       git -C "$GITCOMMIT_CWD" add $f -f &>/dev/null
-      __gitcommit
+      __gitcommit || exitCode+="1"
     fi
   done
+  return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_del() {
@@ -216,11 +224,13 @@ __git_del() {
   __gitmessage "$setmess"
   git -C "$GITCOMMIT_CWD" rm $f -f &>/dev/null
   __gitcommit
+  return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_renamed() {
   git -C "$GITCOMMIT_CWD" rm $1 -rf &>/dev/null &&
     git -C "$GITCOMMIT_CWD" add $2 -f &>/dev/null && __gitcommit "$3"
+  return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __files() {
@@ -231,7 +241,7 @@ __files() {
   __gitmessage "$setmess"
   git -C "$GITCOMMIT_CWD" add -A &>/dev/null
   git -C "$GITCOMMIT_CWD" rm $(__changed_files deleted) &>/dev/null
-  __gitcommit && __git_push
+  __gitcommit
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -240,7 +250,7 @@ __gitignore_init() {
   [ -d "${1:-$GITCOMMIT_CWD}/node_modules" ] &&
     gitignore "${1:-$GITCOMMIT_CWD}" dirignore default node ||
     gitignore "${1:-$GITCOMMIT_CWD}" dirignore default
-
+  return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_dir() {
@@ -257,7 +267,7 @@ __git_dir() {
       exit
     fi
   fi
-  [ -d "$git_dir" ] || printf_exit "$git_dir doesn't seem to be a git repo"
+  [ -d "$git_dir" ] || printf_exit "$git_dir doesn't seem to be a directory"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_commitid() {
@@ -274,7 +284,7 @@ __git_push() {
   local git_push=""
   [[ -n "$git_remote" ]] || return 0
   [[ -f "$git_dir/.nopush" ]] && return
-  am_i_online --error || exit 1
+  am_i_online --error -m "No internet connection. Skipping push" || exit 1
   if [ "$git_repo" != "localdir" ]; then
     if [[ "$*" =~ --automated ]] || [[ "$*" =~ --force ]]; then
       printf_green "Pushing the changes to $git_repo"
@@ -553,7 +563,7 @@ branch)
 
 push)
   shift 1
-  __git_push "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")"
+  __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
 
@@ -561,7 +571,7 @@ version)
   shift 1
   __set_version --force
   __default_git_action "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")"
-  __git_push "$GITCOMMIT_CWD" --automated
+  __run_push "$GITCOMMIT_CWD" --automated
   exit $?
   ;;
 
@@ -571,7 +581,7 @@ files)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="📁 $(__changed_files message)"
   set_icon="📁"
-  __files "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")"
+  __files "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
 
@@ -581,7 +591,7 @@ modified)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 Nothing has been modified in $GITCOMMIT_CWD 🎊"
   set_action="🗃️ modified:"
   set_icon="🗃️"
-  __git_mod "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")"
+  __git_mod "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
 
@@ -591,7 +601,7 @@ updated)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 Nothing has been updated in $GITCOMMIT_CWD 🎊"
   set_action="📁 Updated:"
   set_icon="📁"
-  __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")"
+  __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
 
@@ -603,9 +613,9 @@ deleted)
   if [[ "$__is_deleted" = "TRUE" ]]; then
     set_action="➖ Deleted:"
     set_icon="➖"
-    __git_del "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")"
+    __git_del "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   else
-    printf_exit 1 0 "🎊  $GITCOMMIT_CWD 🎊"
+    printf_exit 1 0 "🎊 $GITCOMMIT_CWD 🎊"
   fi
   exit $?
   ;;
@@ -616,7 +626,7 @@ added)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 Nothing has been added in $GITCOMMIT_CWD 🎊"
   set_action="➕ Added:"
   set_icon="➕"
-  __git_add "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")"
+  __git_add "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
 
@@ -626,7 +636,7 @@ renamed)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been renamed in $GITCOMMIT_CWD 🎊"
   set_action="✔️ Renamed: ${1} ➡ ${2}"
   set_icon="✔️"
-  __git_renamed "$1" "$2" "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")"
+  __git_renamed "$1" "$2" "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
 
@@ -636,7 +646,7 @@ changed)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="📁✔️ Changed:"
   set_icon="📁✔️"
-  __git_mod "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")"
+  __git_mod "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
 
@@ -646,7 +656,7 @@ new)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No new files in $GITCOMMIT_CWD 🎊"
   set_action="🆕📦 New:"
   set_icon="📦🆕"
-  __git_add "${*}"
+  __git_add "${*}" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
 
@@ -656,7 +666,7 @@ improved)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="👌 IMPROVE:"
   set_icon="👌"
-  __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")"
+  __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
 
@@ -666,7 +676,7 @@ fixed | fixes)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="🐛 FIXED:"
   set_icon="🐛✔️"
-  __git_updated "$ARGS"
+  __git_updated "$ARGS" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
 
@@ -677,7 +687,7 @@ release)
   set_action="🚀 RELEASE: "
   set_icon="🚀"
   __set_version
-  __default_git_action "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")"
+  __default_git_action "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
 
@@ -687,14 +697,10 @@ deploy)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="👌📃 Deployed:"
   set_icon="📃👌"
-  if __git_porcelain "$GITCOMMIT_CWD"; then
-    printf_exit 1 0 "🎊 Nothing has been modified in $GITCOMMIT_CWD 🎊"
-  else
-    files="$(__changed_files)"
-    filesmsg="📁 $(__changed_files message) 📁"
-    __write_version
-    __default_git_action "${*:-$filesmsg}"
-  fi
+  files="$(__changed_files)"
+  filesmsg="📁 $(__changed_files message) 📁"
+  __write_version
+  __default_git_action "${*:-$filesmsg}" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
 
@@ -704,7 +710,7 @@ docs)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="📖 DOCS:"
   set_icon="📖"
-  __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")"
+  __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
 
@@ -714,7 +720,7 @@ test)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="🤖 TEST:"
   set_icon="🤖"
-  __default_git_action "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")"
+  __default_git_action "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
 
@@ -724,7 +730,7 @@ breaking)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="⚒️ BREAKING:"
   set_icon="⚒️"
-  __default_git_action "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")"
+  __default_git_action "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
 
@@ -734,7 +740,7 @@ refactor)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="✔️〰️ Refactor Code:"
   set_icon="〰️✔️"
-  __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")"
+  __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
 
@@ -744,7 +750,7 @@ performance)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="🚤 Performance boost:"
   set_icon="⏩"
-  __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")"
+  __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
 
@@ -753,7 +759,7 @@ permission | permissions)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="🏠🔥❗ Fixed Permissions:"
   set_icon="❗🔥🏠"
-  __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")"
+  __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
 
@@ -762,7 +768,7 @@ bug | bugs)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="🐛🦈🏠❗ Bug Fixes:"
   set_icon="❗🏠🦈🐛"
-  __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")"
+  __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
 
@@ -771,7 +777,7 @@ alot)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="🦈🏠🐜❗ Fixes and Updates:"
   set_icon="❗🐜🦈🏠"
-  __default_git_action "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")"
+  __default_git_action "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
 
@@ -780,7 +786,7 @@ docker)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="🐜❇🦈🏠❗ Added Docker Workflow:"
   set_icon="❗🏠🦈❇🐜"
-  __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")"
+  __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
 
@@ -789,7 +795,7 @@ node)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="🐜❇🦈🏠❗ Added nodejs Workflow:"
   set_icon="🏠🦈❇🐜"
-  __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")"
+  __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
 
@@ -798,7 +804,7 @@ ruby)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="🐜❇🦈🏠❗ Added ruby Workflow:"
   set_icon="❗🏠🦈❇🐜"
-  __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")"
+  __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
 
@@ -807,7 +813,7 @@ php)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="🐜❇🦈🏠❗ Added php Workflow:"
   set_icon="❗🏠🦈❇🐜"
-  __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")"
+  __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
 
@@ -825,7 +831,7 @@ python)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="🐜❇🦈🏠❗ Added python Workflow:"
   set_icon="❗🏠🦈❇🐜"
-  __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")"
+  __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
 
@@ -836,7 +842,7 @@ scratchpad)
   shift 1
   set_action="🐜📓❇📓 ${msg:-Modified my scratchpad}:"
   set_icon="📓❇📓🐜"
-  __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")"
+  __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
 
@@ -847,7 +853,7 @@ todo)
   shift 1
   set_action="🐜📓❇📓 ${mesg:-Modified my todo list}:"
   set_icon="📓❇📓🐜"
-  __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")"
+  __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
 
@@ -858,7 +864,7 @@ notes)
   shift 1
   set_action="🐜📓❇📓 ${msg:-Modified my notes}:"
   set_icon="📓❇📓🐜"
-  __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")"
+  __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
 
@@ -869,7 +875,7 @@ blog)
   shift 1
   set_action="🐜📓❇📓 ${msg:-New blog post}:"
   set_icon="📓❇📓🐜"
-  __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")"
+  __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
 
@@ -878,7 +884,7 @@ random)
   set_action="🐜➡️ Random: $(curl -q -LSsf "$GITCOMMIT_API_URL")"
   set_icon="⬅️🐜"
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
-  __default_git_action "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")"
+  __default_git_action "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
 
@@ -888,7 +894,7 @@ emj | emojy | emojify)
   cmd_exists emojify && setemj="$(emojify "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")")"
   set_action="${setemj:-🦈🏠🐜❗}"
   set_icon="${setemj:-❗🐜🦈🏠}"
-  __default_git_action "$(echo -e "${GITCOMMIT_MESSAGE:-$*}" | __emj_check)"
+  __default_git_action "$(echo -e "${GITCOMMIT_MESSAGE:-$*}" | __emj_check)" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
 
@@ -896,7 +902,7 @@ custom)
   shift 1
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   if [ -n "$1" ]; then
-    __default_git_action "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")"
+    __default_git_action "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   else
     printf_exit "You must specify your commit message"
   fi
@@ -935,12 +941,7 @@ else
   fi
 fi
 #
-git_cherry="$(git -C "$GITCOMMIT_CWD" cherry -v 2>/dev/null)"
-if [ -n "$git_cherry" ]; then
-  if am_i_online --error -m "No internet connection. Skipping push"; then
-    [ -z "$GITCOMMIT_RAN" ] || __git_push
-  fi
-fi
+__run_push
 printf_newline
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application

@@ -2983,6 +2983,12 @@ __options() {
     shift 1
     __remove_app "$*"
     ;;
+
+  --raw | raw)
+    shift 1
+    printf_color() { printf '%s\n' "$1"; }
+    printf_readline() { tee; }
+    ;;
   esac
 }
 user_install # default type

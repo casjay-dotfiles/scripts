@@ -1738,7 +1738,15 @@ __options() {
       exit 0
     fi
     ;;
+
+  --raw)
+    shift 1
+    printf_color() { printf '%s\n' "$1"; }
+    printf_readline() { tee; }
+    ;;
+
   esac
+
 }
 
 ###################### *mgr scripts install/update/version ######################

@@ -1107,6 +1107,115 @@ __gen_opts() {
   # return
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__git_setup_new_added() {
+  [ -d "$GEN_SCRIPT_CWD/.git" ] || return 0
+  git -C "$GEN_SCRIPT_CWD" add "$1" >/dev/null && printf_blue "Added $filename to git" ||
+    return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__git_setup_new_delete() {
+  [ -d "$GEN_SCRIPT_CWD/.git" ] || return 0
+  git rm -rf --cached -- "$1" &>/dev/null
+  git -C "$GEN_SCRIPT_CWD" add -q "$1" &>/dev/null && printf_blue "Deleted ${2:-$1} from git" ||
+    git -C "$GEN_SCRIPT_CWD" add -A >/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__git_setup_new_commit() {
+  [ -d "$GEN_SCRIPT_CWD/.git" ] || return 0
+  message="$1"
+  shift 1
+  printf_blue "Committing changes to $GEN_SCRIPT_CWD"
+  printf_cyan "Message: $(echo "$message" | head -n1)"
+  git -C "$GEN_SCRIPT_CWD" commit --untracked=no -q -S -m "$message" $* &>/dev/null || return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_new() {
+  local type="${1:-system}"
+  local dir="${GEN_SCRIPT_CWD}"
+  export PATH="${SRC_DIR}:${PATH}"
+  local name="$(basename "$dir" 2>/dev/null)"
+  case ${type} in
+  remove)
+    filename="$2"
+    shift 2
+    files="$dir/${filename} "
+    files+="$dir/bin/${filename} "
+    files+="$dir/man/${filename} "
+    files+="$dir/completions/_${filename}_completions "
+    for file in $files; do
+      [ -f "$file" ] && __rm_rf "$file"
+      printf_green "Deleting $file"
+      __git_setup_new_delete "$file"
+    done
+    __git_setup_new_commit "$(printf '%s\n\n%s\n' "➖ Delete: $filename ➖" "Deleted $filename from $name")" -a
+    exit
+    ;;
+  user)
+    filename="$2"
+    shift 2
+    $APPNAME bash user "$filename" "$@"
+    $APPNAME completions user.bash "$filename" "$@"
+    $APPNAME other script_readme "$filename" "$@"
+    files="$dir/${filename} "
+    files+="$dir/bin/${filename} "
+    files+="$dir/man/${filename} "
+    files+="$dir/completions/_${filename}_completions"
+    [ -f "$dir/${filename}" ] &&
+      __git_setup_new_added "$dir/${filename}"
+    [ -f "$dir/bin/${filename}" ] &&
+      __git_setup_new_added "$GEN_SCRIPT_CWD/bin/${filename}"
+    [ -f "$dir/man/${filename}" ] &&
+      __git_setup_new_added "$GEN_SCRIPT_CWD/man/${filename}"
+    [ -f "$dir/completions/_${filename}_completions" ] &&
+      __git_setup_new_added "$dir/completions/_${filename}_completions"
+    __git_setup_new_commit "$(printf '%s\n' "➕ Added: $filename to $name ➕")" -a
+    exit
+    ;;
+  system)
+    filename="$2"
+    shift 2
+    $APPNAME bash system "$filename" "$@"
+    $APPNAME completions system.bash "$filename" "$@"
+    $APPNAME other script_help "$filename" "$@"
+    files="$dir/${filename} "
+    files+="$dir/bin/${filename} "
+    files+="$dir/man/${filename} "
+    files+="$dir/completions/_${filename}_completions"
+    [ -f "$dir/${filename}" ] &&
+      __git_setup_new_added
+    [ -f "$dir/bin/${filename}" ] &&
+      __git_setup_new_added "$dir/bin/${filename}"
+    [ -f "$dir/man/${filename}" ] &&
+      __git_setup_new_added "$dir/man/${filename}"
+    [ -f "$dir/completions/_${filename}_completions" ] &&
+      __git_setup_new_added "$dir/completions/_${filename}_completions"
+    __git_setup_new_commit "$(printf '%s\n' "➕ Added: $filename to $name ➕")" -a
+    exit
+    ;;
+  *)
+    filename="$1"
+    shift 2
+    $APPNAME bash system "$filename" "$@"
+    $APPNAME completions system.bash "$filename" "$@"
+    $APPNAME other script_help "$filename" "$@"
+    files="$dir/${filename} "
+    files+="$dir/bin/${filename} "
+    files+="$dir/man/${filename} "
+    files+="$dir/completions/_${filename}_completions"
+    [ -f "$dir/${filename}" ] &&
+      __git_setup_new_added
+    [ -f "$dir/bin/${filename}" ] &&
+      __git_setup_new_added "$dir/bin/${filename}"
+    [ -f "$dir/man/${filename}" ] &&
+      __git_setup_new_added "$dir/man/${filename}"
+    [ -f "$dir/completions/_${filename}_completions" ] &&
+      __git_setup_new_added "$dir/completions/_${filename}_completions"
+    __git_setup_new_commit "$(printf '%s\n' "➕ Added: $filename to $name ➕")" -a
+    exit
+    ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Begin
 GEN_SCRIPT_OPTS="$*"
 # I'm sure there is a better way to do this
@@ -1374,6 +1483,12 @@ case ${1:-$SETOPTS} in
   __gen_header "$@"
   exit $?
   ;;
+new)
+  shift 1
+  { [[ $# -lt 1 ]] || [[ $1 = "help" ]]; } && printf_exit "Usage: $APPNAME complete [user|system] [options]"
+  __setup_new "$@"
+  exit
+  ;;
 
 completions)
   filename="${3:-$2}"
@@ -1430,14 +1545,19 @@ shift $#
 [ -n "${dest:-newScript}" ] || printf_exit 1 1 "Something went wrong while setting up filename"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # file and folder setup
-filename="$(__filename ${dest:-newScript} 2>/dev/null)"
-destfolder="$(__basedir $dest 2>/dev/null)"
-templatename="$(basename $template 2>/dev/null)"
+filename="$(__filename "${dest:-newScript}" 2>/dev/null)"
+destfolder="$(__basedir "$dest" 2>/dev/null)"
+templatename="$(basename "$template" 2>/dev/null)"
+[ -d "$GEN_SCRIPT_CWD/bin" ] && destfolder="$destfolder/bin"
 # # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate the file
 if [ "$templatename" = "readme" ] || [ "$templatename" = "script_help" ]; then
   printf_yellow "Setting up the script as a scripts readme file"
-  destfolder="${GEN_SCRIPT_MAN_DIR:-$destfolder/man}"
+  if [ -d "$GEN_SCRIPT_CWD/helpers/man" ]; then
+    destfolder="$GEN_SCRIPT_CWD/helpers/man"
+  else
+    destfolder="${GEN_SCRIPT_MAN_DIR:-$destfolder/man}"
+  fi
   filename="${filename// /_}"
 fi
 if [ "$filename" = "newScript" ]; then

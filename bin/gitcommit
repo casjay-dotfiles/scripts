@@ -94,10 +94,38 @@ __run_push() {
   export GITCOMMIT_PUSH="TRUE"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__changelog_create() { # Not yet enabled
+  return
+  local gitmessage_file="$GITCOMMIT_CWD/${GITCOMMIT_CHANGELOG:-CHANGELOG.md}"
+  local gitmessage_file_tmp="$GITCOMMIT_TEMP_DIR/${GITCOMMIT_CHANGELOG:-CHANGELOG.tmp}"
+  printf '### Changelog: %s\n\n' "$(date +'%Y-%m-%d at %H:%M')" >"$gitmessage_file_tmp"
+  [[ $# -eq 0 || -z "$1" ]] || printf '%s\n\n' "$*" >>"$gitmessage_file_tmp"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__changelog_update() { # Not yet enabled
+  return
+  local change_message="${change_message:-$*}"
+  local changed_files="${changed_files:-$(__changed_files)}"
+  local gitmessage_file="$GITCOMMIT_CWD/${GITCOMMIT_CHANGELOG:-CHANGELOG.md}"
+  local gitmessage_file_tmp="$GITCOMMIT_TEMP_DIR/${GITCOMMIT_CHANGELOG:-CHANGELOG.tmp}"
+  for change in $changed_files; do
+    printf '%s\n' "$change_message" >>"$gitmessage_file_tmp"
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__changelog_end() { # Not yet enabled
+  return
+  local gitmessage_file="$GITCOMMIT_CWD/${GITCOMMIT_CHANGELOG:-CHANGELOG.md}"
+  local gitmessage_file_tmp="$GITCOMMIT_TEMP_DIR/${GITCOMMIT_CHANGELOG:-CHANGELOG.tmp}"
+  printf '\n### End\n' >>"$gitmessage_file_tmp"
+  cat "$gitmessage_file_tmp" >>"$gitmessage_file"
+  rm -Rf "$gitmessage_file_tmp"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gitmessage() {
   local message="$(echo -e "$*")"
   commitmess="$(echo -e "$message")"
-  commitfile="$GITCOMMIT_CWD/.gitcommit"
+  commitfile="${gitmessage_file:-$GITCOMMIT_CWD/.gitcommit}"
   printf '%s\n' "${commitmess:-$mess}" | sed 's|^ ||g' >"$commitfile"
   if [ -n "${longmessage:-$fullcommit_message}" ]; then
     longmessage="$(echo -e "$fullcommit_message")"
@@ -187,6 +215,8 @@ __git_mod() {
   icon="${set_icon:-🗃}"
   modified="$(__changed_files modified)"
   [ -n "$modified" ] || { [ "$NO_ERROR" != "true" ] && printf_return "No files have been modified" || return 1; }
+  export changed_files="$modified"
+  __changelog_update "$action $changed_files $icon"
   for f in $modified; do
     if [ -e "$f" ]; then
       setmess="$(echo "${action:-} $f ${icon:-}" | sed "s|$f.*.$f|$f|g")"
@@ -204,6 +234,8 @@ __git_add() {
   icon="${set_icon:-❓}"
   added="$(__changed_files added)"
   [ -n "$added" ] || { [ "$NO_ERROR" != "true" ] && printf_return "No files have been added" || return 1; }
+  export changed_files="$added"
+  __changelog_update "$action $changed_files $icon"
   for f in $added; do
     if [ -e "$f" ]; then
       setmess="$(echo -e "${action:-} $f ${icon:-}" | sed "s|$f.*.$f|$f|g")"
@@ -222,8 +254,11 @@ __git_del() {
   deleted="$(__changed_files deleted | grep -v '$^' | tr '\n' ' ')"
   [ -n "$deleted" ] || { [ "$NO_ERROR" != "true" ] && printf_return "No files have been deleted" || return 1; }
   setmess="$(echo -e "${action:-} $deleted ${icon:-}")"
+  export changed_files="$deleted"
+  __changelog_update "$action $changed_files $icon"
   __gitmessage "$setmess"
-  git -C "$GITCOMMIT_CWD" rm $f -f &>/dev/null
+  git -C "$GITCOMMIT_CWD" rm $f -rf #&>/dev/null
+  git -C "$GITCOMMIT_CWD" add -A    #&>/dev/null
   __gitcommit
   return ${exitCode:-$?}
 }
@@ -594,6 +629,7 @@ files)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="📁 $(__changed_files message)"
   set_icon="📁"
+  __changelog_create "$*"
   __files "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
@@ -604,6 +640,7 @@ modified)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 Nothing has been modified in $GITCOMMIT_CWD 🎊"
   set_action="🗃️ modified:"
   set_icon="🗃️"
+  __changelog_create
   __git_mod "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
@@ -614,6 +651,7 @@ updated)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 Nothing has been updated in $GITCOMMIT_CWD 🎊"
   set_action="📁 Updated:"
   set_icon="📁"
+  __changelog_create "$*"
   __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
@@ -626,6 +664,7 @@ deleted)
   if [[ "$__is_deleted" = "TRUE" ]]; then
     set_action="➖ Deleted:"
     set_icon="➖"
+    __changelog_create "$*"
     __git_del "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   else
     printf_exit 1 0 "🎊 $GITCOMMIT_CWD 🎊"
@@ -639,6 +678,7 @@ added)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 Nothing has been added in $GITCOMMIT_CWD 🎊"
   set_action="➕ Added:"
   set_icon="➕"
+  __changelog_create "$*"
   __git_add "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
@@ -649,6 +689,7 @@ renamed)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been renamed in $GITCOMMIT_CWD 🎊"
   set_action="✔️ Renamed: ${1} ➡ ${2}"
   set_icon="✔️"
+  __changelog_create "$*"
   __git_renamed "$1" "$2" "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
@@ -659,6 +700,7 @@ changed)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="📁✔️ Changed:"
   set_icon="📁✔️"
+  __changelog_create "$*"
   __git_mod "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
@@ -669,6 +711,7 @@ new)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No new files in $GITCOMMIT_CWD 🎊"
   set_action="🆕📦 New:"
   set_icon="📦🆕"
+  __changelog_create "$*"
   __git_add "${*}" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
@@ -679,6 +722,7 @@ improved)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="👌 IMPROVE:"
   set_icon="👌"
+  __changelog_create "$*"
   __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
@@ -689,6 +733,7 @@ fixed | fixes)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="✔️🐛 FIXED:"
   set_icon="🐛✔️"
+  __changelog_create "$*"
   __git_updated "$*" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
@@ -699,6 +744,7 @@ release)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="🚀 RELEASE: "
   set_icon="🚀"
+  __changelog_create "$*"
   __set_version
   __default_git_action "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
@@ -713,6 +759,7 @@ deploy)
   files="$(__changed_files)"
   filesmsg="📁 $(__changed_files message) 📁"
   __write_version
+  __changelog_create "$*"
   __default_git_action "${*:-$filesmsg}" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
@@ -723,6 +770,7 @@ docs)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="📖 DOCS:"
   set_icon="📖"
+  __changelog_create "$*"
   __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
@@ -733,6 +781,7 @@ test)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="🤖 TEST:"
   set_icon="🤖"
+  __changelog_create "$*"
   __default_git_action "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
@@ -743,6 +792,7 @@ breaking)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="⚒️ BREAKING:"
   set_icon="⚒️"
+  __changelog_create "$*"
   __default_git_action "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
@@ -753,6 +803,7 @@ refactor)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="✔️〰️ Refactor Code:"
   set_icon="〰️✔️"
+  __changelog_create "$*"
   __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
@@ -763,6 +814,7 @@ performance)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="🚤 Performance boost:"
   set_icon="⏩"
+  __changelog_create "$*"
   __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
@@ -772,6 +824,7 @@ permission | permissions)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="🏠🔥❗ Fixed Permissions:"
   set_icon="❗🔥🏠"
+  __changelog_create "$*"
   __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
@@ -781,6 +834,7 @@ bug | bugs)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="🐛🦈🏠❗ Bug Fixes:"
   set_icon="❗🏠🦈🐛"
+  __changelog_create "$*"
   __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
@@ -790,6 +844,7 @@ alot)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="🦈🏠🐜❗ Fixes and Updates:"
   set_icon="❗🐜🦈🏠"
+  __changelog_create "$*"
   __default_git_action "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
@@ -799,6 +854,7 @@ docker)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="🐜❇🦈🏠❗ Added Docker Workflow:"
   set_icon="❗🏠🦈❇🐜"
+  __changelog_create "$*"
   __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
@@ -808,6 +864,7 @@ node)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="🐜❇🦈🏠❗ Added nodejs Workflow:"
   set_icon="🏠🦈❇🐜"
+  __changelog_create "$*"
   __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
@@ -817,6 +874,7 @@ ruby)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="🐜❇🦈🏠❗ Added ruby Workflow:"
   set_icon="❗🏠🦈❇🐜"
+  __changelog_create "$*"
   __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
@@ -826,6 +884,7 @@ php)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="🐜❇🦈🏠❗ Added php Workflow:"
   set_icon="❗🏠🦈❇🐜"
+  __changelog_create "$*"
   __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
@@ -835,6 +894,7 @@ perl)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="🐜❇🦈🏠❗ Added perl Workflow:"
   set_icon="❗🏠🦈❇🐜"
+  __changelog_create "$*"
   __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")"
   exit $?
   ;;
@@ -844,6 +904,7 @@ python)
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="🐜❇🦈🏠❗ Added python Workflow:"
   set_icon="❗🏠🦈❇🐜"
+  __changelog_create "$*"
   __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
@@ -855,6 +916,7 @@ scratchpad)
   shift 1
   set_action="🐜📓❇📓 ${msg:-Modified my scratchpad}:"
   set_icon="📓❇📓🐜"
+  __changelog_create "$*"
   __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
@@ -866,6 +928,7 @@ todo)
   shift 1
   set_action="🐜📓❇📓 ${mesg:-Modified my todo list}:"
   set_icon="📓❇📓🐜"
+  __changelog_create "$*"
   __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
@@ -877,6 +940,7 @@ notes)
   shift 1
   set_action="🐜📓❇📓 ${msg:-Modified my notes}:"
   set_icon="📓❇📓🐜"
+  __changelog_create "$*"
   __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
@@ -888,6 +952,7 @@ blog)
   shift 1
   set_action="🐜📓❇📓 ${msg:-New blog post}:"
   set_icon="📓❇📓🐜"
+  __changelog_create "$*"
   __git_updated "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
@@ -897,6 +962,7 @@ random)
   set_action="🐜➡️ Random: $(curl -q -LSsf "$GITCOMMIT_API_URL")"
   set_icon="⬅️🐜"
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
+  __changelog_create "$*"
   __default_git_action "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
@@ -907,6 +973,7 @@ emj | emojy | emojify)
   cmd_exists emojify && setemj="$(emojify "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")")"
   set_action="${setemj:-🦈🏠🐜❗}"
   set_icon="${setemj:-❗🐜🦈🏠}"
+  __changelog_create "$*"
   __default_git_action "$(echo -e "${GITCOMMIT_MESSAGE:-$*}" | __emj_check)" && __run_push "$GITCOMMIT_MESSAGE"
   exit $?
   ;;
@@ -915,6 +982,7 @@ custom)
   shift 1
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   if [ -n "$1" ]; then
+    __changelog_create "$*"
     __default_git_action "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" && __run_push "$GITCOMMIT_MESSAGE"
   else
     printf_exit "You must specify your commit message"
@@ -927,6 +995,7 @@ custom)
     [ ! "$(echo "$setmessage" | wc -m)" -lt "4" ] || printf_exit "Message must be longer than 4 characters"
     GITCOMMIT_MESSAGE="$setmessage"
   fi
+  __changelog_create "$*"
   __default_git_action "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")"
   ;;
 esac

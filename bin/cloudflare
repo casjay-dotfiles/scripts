@@ -102,11 +102,16 @@ __message() {
 __zone_identifier() {
   get_api() {
     CLOUDFLARE_ZONE="${1:-$CLOUDFLARE_ZONE}"
-    curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=$CLOUDFLARE_ZONE" \
-      -H "Authorization: Bearer $CLOUDFLARE_API_KEY" \
-      -H "Content-Type: application/json"
+    curl -q -LSsf -X GET "https://api.cloudflare.com/client/v4/zones?name=$CLOUDFLARE_ZONE" \
+      -H 'Authorization: Bearer '$CLOUDFLARE_API_KEY'' \
+      -H 'Content-Type: application/json' 2>/dev/null
   }
-  get_api | grep -Po '(?<="id":")[^"]*' | head -1
+  results=$(get_api)
+  if echo "$results" | jq '.success' | grep -q 'false'; then
+    return 1
+  else
+    echo "$results" | grep -Po '(?<="id":")[^"]*' | head -1
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __record_identifier() {
@@ -115,7 +120,12 @@ __record_identifier() {
       -H "Authorization: Bearer $CLOUDFLARE_API_KEY" \
       -H "Content-Type: application/json"
   }
-  get_api | jq -c '.result | .[] | [.name,.id]' | grep "${CLOUDFLARE_RECORD}" | tr -d '][' | sed 's|["]||g' | awk -F, '{print $2}'
+  results=$(get_api)
+  if echo "$results" | jq '.success' | grep -q 'false'; then
+    return 1
+  else
+    echo "$results" | jq -rc '.result | .[] | [.name,.id]' | grep "${CLOUDFLARE_RECORD:-^}" | tr -d '][' | sed 's|["]||g' | awk -F, '{print $2}' | head -n1
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __api() {
@@ -124,7 +134,12 @@ __api() {
       -H "Authorization: Bearer $CLOUDFLARE_API_KEY" \
       -H "Content-Type: application/json"
   }
-  get_api | jq -c '.result | .[] | [.name,.type,.id]'
+  results=$(get_api)
+  #if echo "$results" | jq '.success' | grep -q 'false'; then
+  #  return 1
+  #else
+  echo "$results" | jq -c '.result | .[] | [.name,.type,.id]'
+  #fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __api_full() {
@@ -185,6 +200,19 @@ __cloudflare_zone() {
     CLOUDFLARE_IP_ADDR="$CLOUDFLARE_ZONE"
   else
     CLOUDFLARE_IP_ADDR=$(__get_ip 2>/dev/null)
+  fi
+  [ -n "$CLOUDFLARE_ZONE" ] || __usage $CLOUDFLARE_ZONE || exit 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__usage() {
+  if [ -z "${1:-$CLOUDFLARE_ZONE}" ]; then
+    printf_return "Usage: $APPNAME ZONE RECORD DNS_TYPE PROXY"
+  elif [ -n "${2:-$CLOUDFLARE_RECORD}" ]; then
+    printf_return "Usage: $APPNAME ZONE RECORD DNS_TYPE PROXY"
+  elif [ -n "${3:-$CLOUDFLARE_DNS_TYPE}" ]; then
+    printf_return "Usage: $APPNAME ZONE RECORD DNS_TYPE PROXY"
+  elif [ -n "${4:-$CLOUDFLARE_PROXY}" ]; then
+    printf_return "Usage: $APPNAME ZONE RECORD DNS_TYPE PROXY"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -334,10 +362,9 @@ case "$1" in
 verify)
   shift 1
   __cloudflare_zone "$1" "$2" "$3" "$4"
-  curl -q -LSs -X GET "https://api.cloudflare.com/client/v4/user/tokens/verify" \
-    -H "Authorization: Bearer $CLOUDFLARE_API_KEY" |
-    jq -r '.messages | .[].message' | grep 'valid' | printf_readline ||
-    printf_exit "API Key is invalid"
+  results="$(curl -q -LSs -X GET "https://api.cloudflare.com/client/v4/user/tokens/verify" -H "Authorization: Bearer $CLOUDFLARE_API_KEY" 2>/dev/null | jq -r '.messages | .[].message' 2>/dev/null | grep 'valid' | grep '^' || return)"
+  [ -n "$results" ] && printf_green "Valid API Key" && printf '%s\n' "$results" | printf_readline ||
+    printf_red "Invalid API Key"
   ;;
 
 create)

@@ -407,9 +407,11 @@ transmission-remote-cli() { [ -f "$(builtin type -P transmission-remote-cli 2>/d
 transmission() { [ -f "$(builtin type -P transmission-remote)" ] || [ -f "$(builtin type -P transmission-remote-cli)" ] || [ -f "$(builtin type -P transmission-remote-gtk)" ] || return 1; }
 libvirt() { [ -f "$(builtin type -P libvirtd)" ] && return 0 || return 1; }
 qemu() { [ -f "$(builtin type -P qemu-img)" ] && return 0 || return 1; }
-
+mongodb() { -f "$(builtin type -P mongod)" || -f "$(builtin type -P mongodb)" || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 export -f cron mlocate xfce4 imagemagick fdfind speedtest neovim chromium firefox gtk-2.0 gtk-3.0
-export -f transmission transmission-remote-cli cowsay xfce4-notifyd grub powerline-status
+export -f transmission transmission-remote-cli cowsay xfce4-notifyd grub powerline-status libvirt
+export -f qemu mongodb
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 backupapp() {
   local filename count backupdir rmpre4vbackup

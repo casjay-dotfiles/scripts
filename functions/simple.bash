@@ -1741,6 +1741,7 @@ __options() {
 
   --raw)
     shift 1
+    unset -f printf_color printf_readline
     printf_color() { printf '%s' "$1" | sed 's|\\t||g'; }
     printf_readline() { tee; }
     ;;

@@ -2984,11 +2984,13 @@ __options() {
     __remove_app "$*"
     ;;
 
-  --raw | raw)
+  --raw)
     shift 1
+    unset -f printf_color printf_readline
     printf_color() { printf '%s' "$1" | sed 's|\\t||g'; }
     printf_readline() { tee; }
     ;;
+
   esac
 }
 user_install # default type

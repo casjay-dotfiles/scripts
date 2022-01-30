@@ -1897,6 +1897,7 @@ __generate_random_port() {
 }
 #function to get network device
 __getlipaddr() {
+  local localips="127.*/8 10.*/8 172.16/12 192.168.*/16"
   if builtin type -P route &>/dev/null || builtin type -P ip &>/dev/null; then
     if [[ "$OSTYPE" =~ ^darwin ]]; then
       NETDEV="$(route get default 2>/dev/null | grep interface | awk '{print $2}')"
@@ -1915,6 +1916,7 @@ __getlipaddr() {
     CURRIP4="127.0.0.1"
     CURRIP6="::1"
   fi
+  CURRIP4="$(ip addr | grep -w inet | grep -vE '127.*/8|10.*/*|172.16.*/*|192.168.*/*' | awk -F'/' '{print $1}' | awk '{print $NF}' | head -n 1 | grep '^' || echo "$CURRIP4")"
 }
 #os_support oses
 __os_support() {

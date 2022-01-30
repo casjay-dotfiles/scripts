@@ -603,6 +603,7 @@ __getip() {
     CURRIP4="127.0.0.1"
     CURRIP6="::1"
   fi
+  CURRIP4="$(ip addr | grep -w inet | grep -vE '127.*/8|10.*/*|172.16.*/*|192.168.*/*' | awk -F'/' '{print $1}' | awk '{print $NF}' | head -n 1 | grep '^' || echo "$CURRIP4")"
 }
 __getip 2>/dev/null
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

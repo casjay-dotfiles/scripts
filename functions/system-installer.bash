@@ -349,6 +349,7 @@ ask_for_confirmation() {
 __getip() {
   NETDEV="$(ip route 2>/dev/null | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//")"
   CURRIP4="$(/sbin/ifconfig $NETDEV 2>/dev/null | grep -E "venet|inet" | grep -v "127.0.0." | grep 'inet' | grep -v inet6 | awk '{print $2}' | sed 's#addr:##g' | head -n1)"
+  CURRIP4="$(ip addr | grep -w inet | grep -vE '127.*/8|10.*/*|172.16.*/*|192.168.*/*' | awk -F'/' '{print $1}' | awk '{print $NF}' | head -n 1 | grep '^' || echo "$CURRIP4")"
 }
 __getip
 ##################################################################################################

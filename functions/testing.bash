@@ -2711,7 +2711,27 @@ run_install_update() {
   unset app
   return $exitCode
 }
-
+#
+run_install() {
+  local app=""
+  local APPNAME=""
+  local exitCode=0
+  local mgr_init="${mgr_init:-true}"
+  local NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME}"
+  local NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON}"
+  export mgr_init NOTIFY_CLIENT_NAME NOTIFY_CLIENT_ICON
+  local LISTARRAY="$*"
+  for app in $LISTARRAY; do
+    if [[ ! -f "$USRUPDATEDIR/$app" ]] || [[ ! -f "$SHARE/CasjaysDev/$SCRIPTS_PREFIX/$app" ]]; then
+      APPNAME="$app"
+      run_install_init "$app" && __notifications "Installed $app" || __notifications "Installation of $app has failed"
+      local exitCode+=$?
+    fi
+  done
+  unset app
+  return $exitCode
+}
+#
 run_install_list() {
   local installed=""
   if [ $# -ne 0 ]; then

@@ -2724,9 +2724,7 @@ run_install() {
   export mgr_init NOTIFY_CLIENT_NAME NOTIFY_CLIENT_ICON
   local LISTARRAY="$*"
   for app in $LISTARRAY; do
-    if [[ -e "$USRUPDATEDIR/$app" ]] || [[ -e "$SHARE/CasjaysDev/$SCRIPTS_PREFIX/$app" ]]; then
-      printf_green "$app is already installed in: $USRUPDATEDIR/$app"
-    else
+    if [[ ! -e "$USRUPDATEDIR/$app" || ! -e "$SHARE/CasjaysDev/$SCRIPTS_PREFIX/$app" ]]; then
       APPNAME="$app"
       run_install_init "$app" && __notifications "Installed $app" || __notifications "Installation of $app has failed"
       local exitCode+=$?

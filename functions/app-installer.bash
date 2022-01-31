@@ -1808,7 +1808,6 @@ dockermgr_run_init() {
 }
 dockermgr_run_post() {
   dockermgr_install
-  run_postinst_global
   local NGINX_TMPL="$APPDIR/nginx/nginx.conf"
   local NGINX_CONF="/etc/nginx/vhosts.d/$APPNAME.conf"
   [[ -f "$APPDIR/nginx/template" ]] && NGINX_TMPL="$APPDIR/nginx/template"

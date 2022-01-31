@@ -1809,12 +1809,17 @@ dockermgr_run_init() {
 dockermgr_run_post() {
   dockermgr_install
   run_postinst_global
-  if [[ -f "$APPDIR/nginx/template" ]]; then
-    sed -i "s|REPLACE_APPNAME|$APPNAME|g" "/etc/nginx/vhosts.d/$APPNAME.conf" &>/dev/null
-    sed -i "s|REPLACE_NGINX_HTTP|$NGINX_HTTP|g" "/etc/nginx/vhosts.d/$APPNAME.conf" &>/dev/null
-    sed -i "s|REPLACE_NGINX_HTTPS|$NGINX_HTTPS|g" "/etc/nginx/vhosts.d/$APPNAME.conf" &>/dev/null
-    sed -i "s|REPLACE_SERVER_PORT|$SERVER_PORT|g" "/etc/nginx/vhosts.d/$APPNAME.conf" &>/dev/null
-    sed -i "s|REPLACE_SERVER_LISTEN|$SERVER_LISTEN|g" "/etc/nginx/vhosts.d/$APPNAME.conf" &>/dev/null
+  local NGINX_TMPL="$APPDIR/nginx/nginx.conf"
+  local NGINX_CONF="/etc/nginx/vhosts.d/$APPNAME.conf"
+  [[ -f "$APPDIR/nginx/template" ]] && NGINX_TMPL="$APPDIR/nginx/template"
+  [[ -f "$APPDIR/nginx/proxy.conf" ]] && NGINX_TMPL="$APPDIR/nginx/proxy.conf"
+  if [[ -f "$NGINX_TMPL" ]]; then
+    sed -i "s|REPLACE_APPNAME|$APPNAME|g" "$NGINX_TMPL" &>/dev/null
+    sed -i "s|REPLACE_NGINX_HTTP|$NGINX_HTTP|g" "$NGINX_TMPL" &>/dev/null
+    sed -i "s|REPLACE_NGINX_HTTPS|$NGINX_HTTPS|g" "$NGINX_TMPL" &>/dev/null
+    sed -i "s|REPLACE_SERVER_PORT|$SERVER_PORT|g" "$NGINX_TMPL" &>/dev/null
+    sed -i "s|REPLACE_SERVER_LISTEN|$SERVER_LISTEN|g" "$NGINX_TMPL" &>/dev/null
+    [[ -f "$NGINX_CONF" ]] || ln_sf "$NGINX_TMPL" "$NGINX_CONF"
   fi
 }
 dockermgr_install_version() {

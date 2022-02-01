@@ -1250,6 +1250,7 @@ user_installdirs() {
     USRUPDATEDIR="$SHARE/CasjaysDev/apps/${SCRIPTS_PREFIX:-dfmgr}"
     SYSUPDATEDIR="$SYSSHARE/CasjaysDev/apps/${SCRIPTS_PREFIX:-dfmgr}"
   fi
+  DOCKERMGR_HOME="${DOCKERMGR_HOME:-$HOME/.config/myscripts/dockermgr}"
   APPDIR="${APPDIR:-$HOME/.local/share/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME}"
   INSTDIR="${INSTDIR:-$HOME/.local/share/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME}"
   installtype="user_installdirs"

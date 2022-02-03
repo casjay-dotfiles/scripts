@@ -1172,7 +1172,7 @@ if_os_id() {
           return 1
         fi
         ;;
-      RHEL* | rhel*)
+      rhel* | centos* | fedora* | rocky* | ol* | oracle* | redhat* | scientific*)
         if [[ "$distroname" =~ scientific ]] || [[ "$distroname" =~ redhat ]] || [[ "$distroname" =~ centos ]] || [[ "$distroname" =~ casjay ]] || [[ "$distroname" =~ fedora ]] || [[ "$distroname" =~ rockylinux ]]; then
           distro_id=RHEL
           return 0

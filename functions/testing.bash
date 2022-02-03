@@ -2011,8 +2011,8 @@ __if_os_id() {
         return 1
       fi
       ;;
-    rhel* | centos* | fedora*)
-      if [[ "$distroname" =~ ^scientific ]] || [[ "$distroname" =~ ^redhat ]] || [[ "$distroname" =~ ^centos ]] || [[ "$distroname" =~ ^casjay ]] || [[ "$distroname" =~ ^fedora ]]; then
+    rhel* | centos* | fedora* | rocky* | ol* | oracle* | redhat* | scientific* | alma*)
+      if [[ "$distroname" =~ ^scientific ]] || [[ "$distroname" =~ ^redhat ]] || [[ "$distroname" =~ ^centos ]] || [[ "$distroname" =~ ^casjay ]] || [[ "$distroname" =~ ^rocky ]] || [[ "$distroname" =~ ^alma ]]; then
         distro_id=RHEL
         distro_version="$distroversion"
         return 0
@@ -2048,8 +2048,8 @@ __if_os_id() {
     #   return 1
     # fi
   done
-  # [ -z $distro_id ] || distro_id="Unknown"
-  # [ -z $distro_version ] || distro_version="Unknown"
+  [ -n "$distro_id" ] || distro_id="Unknown"
+  [ -n "$distro_version" ] || distro_version="Unknown"
   # [ -n "$codename" ] && distro_codename="$codename" || distro_codename="N/A"
   # echo $id_like $distroname $distroversion $distro_codename
 }

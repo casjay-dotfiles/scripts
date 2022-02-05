@@ -10,11 +10,11 @@ GEN_README_REPLACE_DESCRIBE
 docker run -d \
 --restart always \
 --name ProjectName \
--e HOSTNAME=ProjectName
--e TZ=${TIMEZONE:-America/New_York}
--p 80:80 \
+--hostname ProjectName \
+-e TZ=${TIMEZONE:-America/New_York} \
 -v $PWD/ProjectName/data:/data \
 -v $PWD/ProjectName/config:/config \
+-p 80:80 \
 casjaysdev/ProjectName:latest
 ```
 

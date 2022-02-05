@@ -128,17 +128,17 @@ __git_username_repo() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # issues API
 __api_issues_token() {
-  local user="${1:-$USERNAME}"
-  local git_repo="$2"
-  [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && CURL_HEADER="" || CURL_HEADER='-H "Authorization: token '$GITADMIN_GITHUB_AUTH_TOKEN'"'
-  ISSUE_HTML="https://github.com/repos/$user/$git_repo/issues"
-  ISSUE_API="https://api.github.com/repos/$user/$git_repo/issues"
+  { [ $# = 2 ] && local git_repo="$1/$2"; } || { [ $# = 1 ] && local git_repo="$1"; }
+  [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && export CURL_HEADER="" || export CURL_HEADER='-H "Authorization: token '$GITADMIN_GITHUB_AUTH_TOKEN'"'
+  ISSUE_HTML="https://github.com/$git_repo/issues"
+  ISSUE_API="https://api.github.com/repos/$git_repo/issues"
+  export ISSUE_HTML="${ISSUE_HTML}" ISSUE_API="${ISSUE_API}" CURL_HEADER="${CURL_HEADER}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # call the issues api
 __api_issues() {
-  __api_issues_token "$1" "$2"
-  curl -q -LSs "${CURL_HEADER}" -H "Accept: application/vnd.github.v3+json" "$ISSUE_API"
+  local resp="$(curl -q -LSsf -X ${1:-GET} "'$CURL_HEADER'" -H "'Accept: application/vnd.github.v3+json'" "${2:-$ISSUE_API}" 2>/dev/null)"
+  [ -n "$resp" ] && printf "%s" "$resp" || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Gist API
@@ -1801,36 +1801,43 @@ private)
 
 issues) # Issue options
   shift 1
-  [ "$1" = "help" ] && __help
-  [ -z "$1" ] && __help
   case "$1" in
   count)
     shift 1
-    get_count="$(__api_issues "$1" "$2" | jq 'map(select(.pull_request == null)) | length' 2>/dev/null)"
-    printf_blue "You currently have $get_count issues on"
-    printf_cyan "https://github.com/repos/$1/$2/issues"
+    { [ $# = 0 ] || [ "$1" = "help" ] && printf_help "Usage: gitadmin issues count username/projectname"; }
+    __api_issues_token "$@"
+    get_count="$(__api_issues "GET" | jq 'map(select(.pull_request == null)) | length' 2>/dev/null || false)"
+    [ -n "$get_count" ] || printf_exit 1 1 "failed to get count"
+    printf_blue "You currently have $get_count issues"
+    printf_cyan "$ISSUE_HTML"
+    exit $?
     ;;
 
   list)
     shift 1
+    { [ $# = 0 ] || [ "$1" = "help" ] && printf_help "Usage: gitadmin issues count username/projectname"; }
     if [ "$1" = "json" ]; then
       shift 1
-      __api_issues "$1" "$2" | jq
+      __api_issues_token "$@"
+      __api_issues "GET" | jq
     else
       printf_green "Showing 10 of the most recent issues"
-      __api_issues "$1" "$2" | jq -r .[]'.html_url' 2>/dev/null | head -n 10 | printf_readline "5"
+      __api_issues_token "$@"
+
+      __api_issues "GET" | jq -rc '.[]|[.title,.html_url]' 2>/dev/null | sed 's|","|: |g;s|"||g;s|\]||g;s|\[||g' | head -n 10 | printf_readline "5"
     fi
     ;;
 
   create)
     shift 1
+    { [ $# = 0 ] || [ "$1" = "help" ] && printf_help "Usage: gitadmin issues count username/projectname"; }
     user="${1:-$USERNAME}" && shift 1
     issue_repo="$1" && shift 1
     issue_title="$1" && shift 1
     [ -f "$1" ] && issue_body="$(cat "$1" | sed 's|^| |g')" || issue_body="$1"
     shift
     content="$(printf "%s\r" "{ \"title\": \"$issue_title\", \"body\": \"$issue_body\" }" >$GITADMIN_TEMP_FILE)"
-    __api_issues_token "$user" "$issue_repo"
+    __api_issues_token ${user} ${issue_repo:-}
     printf_green "Attempting to create a new issue "
     curl -q -X "POST" -LSs "$ISSUE_API" -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" -H "Accept: application/vnd.github.v3+json" \
       -d @$GITADMIN_TEMP_FILE 2>/dev/null | jq -r ".html_url" 2>/dev/null | grep -v 'null' | printf_readline |
@@ -1839,6 +1846,7 @@ issues) # Issue options
 
   edit)
     shift 1
+    { [ $# = 0 ] || [ "$1" = "help" ] && printf_help "Usage: gitadmin issues count username/projectname"; }
     issue_number="$1" && shift 1
     user="${1:-$USERNAME}" && shift 1
     issue_repo="$1" && shift 1
@@ -1852,8 +1860,19 @@ issues) # Issue options
       -H "Accept: application/vnd.github.v3+json" -d @$GITADMIN_TEMP_FILE 2>/dev/null | jq -r ".html_url" 2>/dev/null |
       grep -v 'null' | printf_readline | grep '^' || printf_exit 1 "Failed to edit the issue at\n\t\t$ISSUE_API/$issue_number"
     ;;
+
+  delete)
+    shift 1
+    { [ $# = 0 ] || [ "$1" = "help" ] && printf_help "Usage: gitadmin issues count username/projectname"; }
+    printf_exit "Not implemented yet"
+    issue_number="$1" && shift 1
+    __api_issues_token "$@"
+    ;;
+
   *)
-    printf_help "Usage: $APPNAME [list,count,create] username reponame "
+    { [ $# = 0 ] || [ "$1" = "help" ] && printf_help "Usage: gitadmin issues [list,count,create] username/projectname"; }
+    $APPNAME issues list "$@"
+    exit $?
     ;;
   esac
   ;;

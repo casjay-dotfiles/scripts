@@ -69,6 +69,8 @@ DOCKERMGR_INSTALL_SCRIPT="${DOCKERMGR_INSTALL_SCRIPT:-https://get.docker.com}"
 DOCKERMGR_K3B_INSTALL_SCRIPT="${DOCKERMGR_K3B_INSTALL_SCRIPT:-https://get.k3s.io}"
 DOCKERMGR_HOME="${DOCKERMGR_HOME:-$HOME/.local/share/srv/docker}"
 DOCKERMGR_INSTALL_TMP="${DOCKERMGR_INSTALL_TMP:-/tmp/docker_install.sh}"
+DOCKERMGR_REGISTRY_URL="${DOCKERMGR_REGISTRY_URL:-https://hub.docker.com}"
+DOCKERMGR_REGISTRY_USERNAME="${DOCKERMGR_REGISTRY_USERNAME:-}"
 
 # Notification settings
 DOCKERMGR_GOOD_MESSAGE="${DOCKERMGR_GOOD_MESSAGE:-Everything Went OK}"
@@ -248,7 +250,7 @@ __k3b() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __install_helm() {
-  curl -q -LSsf https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash &>/dev/null
+  curl -q -LSsf "https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3" | bash &>/dev/null
   if cmd_exists helm; then
     printf_green "Helm has been installed"
     helm completion bash | __sudo tee /etc/bash_completion.d/helm &>/dev/null
@@ -489,10 +491,10 @@ __create_swap() {
   local swapName="swapFile.swap"
   printf_blue "Creating swap file"
   [[ -d "$swapDir" ]] || sudo mkdir -p "$swapDir"
-  sudo dd if=/dev/zero bs=1M count=1024 of="$swapDir/$swapName"
-  sudo chmod 600 "$swapDir/$swapName"
-  sudo mkswap "$swapDir/$swapName"
-  sudo swapon "$swapDir/$swapName"
+  sudo dd if=/dev/zero bs=1M count=1024 of="$swapDir/$swapName" &>/dev/null
+  sudo chmod 600 "$swapDir/$swapName" &>/dev/null
+  sudo mkswap "$swapDir/$swapName" &>/dev/null
+  sudo swapon "$swapDir/$swapName" &>/dev/null
   if ! grep -qs "$swapDir/$swapName /etc/fstab"; then
     echo "$swapDir/$swapName swap swap defaults 0 0" | sudo tee -a /etc/fstab
   fi
@@ -517,26 +519,41 @@ __install_kasm() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __docker_compose() {
-  if cmd_exists docker-compose; then
+  if cmd_exists docker-compose && [ "$1" != "update" ]; then
     return 0
   else
     printf_red "Attempting to install docker-compose"
-    sudo curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose 2>/dev/null
+    sudo curl -L "https://github.com/docker/compose/releases/download/v2.2.3/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose 2>/dev/null
     [[ -x "$(builtin type -P docker-compose 2>/dev/null)" ]] || sudo chmod +x /usr/local/bin/docker-compose
     cmd_exists docker-compose || printf_exit "Failed to download docker-compose"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __orgs_api_auth() {
-  local user="${1:-}"
-  local pass"${2:-}"
-  TOKEN=$(curl -s -H "Content-Type: application/json" -X POST -d '{"username": "'${user}'", "password": "'${pass}'"}' https://hub.docker.com/v2/users/login/ | jq -r .token)
-  [[ -n "$TOKEN" ]] && echo "$TOKEN" >"$DOCKERMGR_CACHE_DIR/token" || return
+  if [[ -z "${1:-$DOCKERMGR_REGISTRY_USERNAME}" ]]; then
+    printf_exit "Please provide your username"
+  fi
+  if [ ! -f "$DOCKERMGR_CONFIG_DIR/.hub_password" ]; then
+    printf_red "Please create and put your hub password in"
+    printf_red "$DOCKERMGR_CONFIG_DIR/.hub_password"
+    printf_yellow "And set the permissions to 600"
+  fi
+  local user="${1:-$DOCKERMGR_REGISTRY_USERNAME}"
+  local pass"${2:-$(<"$DOCKERMGR_CONFIG_DIR/.hub_password")}"
+  TOKEN=$(curl -s -H "Content-Type: application/json" -X POST -d '{"username": "'${user}'", "password": "'${pass}'"}' "$DOCKERMGR_REGISTRY_URL/v2/users/login/" | jq -r .token)
+  if [[ -n "$TOKEN" ]]; then
+    echo "$TOKEN" >"$DOCKERMGR_CACHE_DIR/token"
+  else
+    [ -f "$DOCKERMGR_CACHE_DIR/token" ] && rm "$DOCKERMGR_CACHE_DIR/token"
+    return 1
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __orgs_api_list() {
-  curl -q -LSsf "https://hub.docker.com/v2/repositories/$1" | jq -r '.results|.[]|.name'
+  curl -q -LSsf "$DOCKERMGR_REGISTRY_URL/v2/repositories/$1" | jq -r '.results|.[]|.name'
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default variables
 exitCode=
@@ -564,6 +581,7 @@ DOCKERMGR_INSTALL_SCRIPT="${DOCKERMGR_INSTALL_SCRIPT:-https://get.docker.com}"
 DOCKERMGR_HOME="${DOCKERMGR_HOME:-$HOME/.local/share/srv/docker}"
 DOCKERMGR_INSTALL_TMP="${DOCKERMGR_INSTALL_TMP:-/tmp/docker_install.sh}"
 DOCKERMGR_K3B_INSTALL_SCRIPT="${DOCKERMGR_K3B_INSTALL_SCRIPT:-https://get.k3s.io}"
+DOCKERMGR_REGISTRY_URL="${DOCKERMGR_REGISTRY_URL:-https://hub.docker.com}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$DOCKERMGR_CONFIG_DIR/$DOCKERMGR_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
@@ -675,6 +693,34 @@ cmd_exists podman && alias docker='podman'
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 case "$1" in
+org)
+  shift 1
+  [ -n "$1" ] || printf_red "Missing an organization name"
+  case $1 in
+  *)
+    __orgs_api_list "$1"
+    ;;
+  esac
+  ;;
+
+api)
+  shift 1
+  case $1 in
+  list)
+    shift 1
+    __orgs_api_list "$1"
+    exit $?
+    ;;
+  auth)
+    shift 1
+    __orgs_api_auth "$@"
+    exit $?
+    ;;
+  *)
+    printf_help "Usage: $APPNAME api [list|auth]"
+    ;;
+  esac
+  ;;
 test)
   shift 1
   image="${1:-}"
@@ -772,15 +818,6 @@ log)
   [ "${#ARGS}" -ne 0 ] || __docker logs --help
   __docker logs "$ARGS"
   exit $?
-  ;;
-
-org)
-  shift 1
-  case $1 in
-  *)
-    __orgs_api_list "$1"
-    ;;
-  esac
   ;;
 
 ps)
@@ -928,6 +965,12 @@ kasm)
   exit $?
   ;;
 
+compose)
+  shift 1
+  __docker_compose "$@"
+  exit $?
+  ;;
+
 init)
   shift 1
   [ "$1" = "help" ] && __init_help
@@ -956,6 +999,7 @@ ds)
   #   __sudo passwd -u dockstarter -f &>/dev/null
   #   echo "dockstarter ALL=(ALL) NOPASSWD:ALL" | __sudo tee /etc/sudoers.d/dockstarter &>/dev/null
   #   __sudo -HE -u dockstarter bash -c "$(curl -q -fsSL https://get.dockstarter.com)"
+  export DOCKERCONFDIR="${DOCKERCONFDIR:-$HOME/.config/dockstarter}"
   bash -c "$(curl -q -fsSL https://get.dockstarter.com)"
   # fi
   ;;

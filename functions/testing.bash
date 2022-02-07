@@ -405,7 +405,7 @@ printf_read() {
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="6"
   while read line; do
     printf_color "\t\t$line" "${PRINTF_COLOR:-$color}"
-  done
+  done |& tee
   printf "\n"
   set +o pipefail
 }
@@ -415,14 +415,14 @@ printf_readline() {
   while read line; do
     printf_color "\t\t$line" "${PRINTF_COLOR:-$color}"
     printf "\n"
-  done
+  done |& tee
   set +o pipefail
 }
 printf_column() {
   local -a column=""
   set -o pipefail
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="7"
-  cat - | column | printf_readline "${color:-$COLOR}"
+  cat - |& column | printf_readline "${color:-$COLOR}"
   printf "\n"
   set +o pipefail
 }

@@ -1015,6 +1015,8 @@ __netcat_kill_server() {
     ${prints} "${succ}" || ${printf} "${fail}"
   sleep 2
 }
+#keeps output color
+cmd_exists unbuffer || unbuffer() { exec "$@"; }
 #file_is_emtpy return 1
 __file_not_empty() { [ -s "$1" ] && return 0 || return 1; }
 __file_is_empty() { [ ! -s "$1" ] && return 0 || return 1; }

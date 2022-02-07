@@ -62,15 +62,16 @@ __gen_config() {
     cp -Rf "$DOCKERMGR_CONFIG_DIR/$DOCKERMGR_CONFIG_FILE" "$DOCKERMGR_CONFIG_BACKUP_DIR/$DOCKERMGR_CONFIG_FILE.$$"
   cat <<EOF >"$DOCKERMGR_CONFIG_DIR/$DOCKERMGR_CONFIG_FILE"
 # Settings for dockermgr
+DOCKERMGR_REGISTRY_USERNAME="${DOCKERMGR_REGISTRY_USERNAME:-}"
+DOCKERMGR_HOME="${DOCKERMGR_HOME:-$HOME/.local/share/srv/docker}"
 DOCKERMGR_GIT_REPO="${DOCKERMGR_GIT_REPO:-https://github.com/dockermgr}"
 DOCKERMGR_CLONE_DIR="${DOCKERMGR_CLONE_DIR:-$HOME/Projects/dockermgr}"
 DOCKERMGR_DOCKER_BIN="${DOCKERMGR_DOCKER_BIN:-sudo -HE docker}"
 DOCKERMGR_INSTALL_SCRIPT="${DOCKERMGR_INSTALL_SCRIPT:-https://get.docker.com}"
 DOCKERMGR_K3B_INSTALL_SCRIPT="${DOCKERMGR_K3B_INSTALL_SCRIPT:-https://get.k3s.io}"
-DOCKERMGR_HOME="${DOCKERMGR_HOME:-$HOME/.local/share/srv/docker}"
 DOCKERMGR_INSTALL_TMP="${DOCKERMGR_INSTALL_TMP:-/tmp/docker_install.sh}"
-DOCKERMGR_REGISTRY_URL="${DOCKERMGR_REGISTRY_URL:-https://hub.docker.com}"
-DOCKERMGR_REGISTRY_USERNAME="${DOCKERMGR_REGISTRY_USERNAME:-}"
+DOCKERMGR_HUB_URL="${DOCKERMGR_HUB_URL:-https://hub.docker.com}"
+DOCKERMGR_REGISTRY_URL="${DOCKERMGR_REGISTRY_URL:-http://registry.docker.com}"
 
 # Notification settings
 DOCKERMGR_GOOD_MESSAGE="${DOCKERMGR_GOOD_MESSAGE:-Everything Went OK}"
@@ -529,31 +530,83 @@ __docker_compose() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__api_jwt() {
+  token="$(curl -q -fsSL "https://auth.docker.io/token?service=registry.docker.io&scope=registry" 2>/dev/null | jq --raw-output '.token' | grep '^' || return)"
+  [ -n "$token" ] && echo "$token" >"$DOCKERMGR_CACHE_DIR/jwt"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __orgs_api_auth() {
   if [[ -z "${1:-$DOCKERMGR_REGISTRY_USERNAME}" ]]; then
-    printf_exit "Please provide your username"
+    printf_exit "Please provide a username or organization name"
   fi
-  if [ ! -f "$DOCKERMGR_CONFIG_DIR/.hub_password" ]; then
-    printf_red "Please create and put your hub password in"
-    printf_red "$DOCKERMGR_CONFIG_DIR/.hub_password"
+  local user="${1:-$DOCKERMGR_REGISTRY_USERNAME}" && shift 1
+  if [ -n "$1" ]; then
+    local pass="$1" && shift 1
+    [ -f "$DOCKERMGR_CONFIG_DIR/.hub_password" ] ||
+      echo "$pass" >"$DOCKERMGR_CONFIG_DIR/.hub_password"
+  elif [ -f "$DOCKERMGR_CONFIG_DIR/.hub_password" ]; then
+    local pass="$(<"$DOCKERMGR_CONFIG_DIR/.hub_password")"
+  else
+    printf_cyan "Please put your hub password in the file:"
+    printf_cyan "$DOCKERMGR_CONFIG_DIR/.hub_password"
     printf_yellow "And set the permissions to 600"
+    exit 1
   fi
-  local user="${1:-$DOCKERMGR_REGISTRY_USERNAME}"
-  local pass"${2:-$(<"$DOCKERMGR_CONFIG_DIR/.hub_password")}"
-  TOKEN=$(curl -s -H "Content-Type: application/json" -X POST -d '{"username": "'${user}'", "password": "'${pass}'"}' "$DOCKERMGR_REGISTRY_URL/v2/users/login/" | jq -r .token)
+  chmod 600 "$DOCKERMGR_CONFIG_DIR/.hub_password"
+  TOKEN=$(curl -q -LSsf -H "Content-Type: application/json" -X POST -d '{"username": "'${user}'", "password": "'${pass}'"}' "$DOCKERMGR_HUB_URL/v2/users/login/" 2>"$DOCKERMGR_CACHE_DIR/token.err" | jq -r .token | grep '^' || return)
   if [[ -n "$TOKEN" ]]; then
     echo "$TOKEN" >"$DOCKERMGR_CACHE_DIR/token"
+    return 0
   else
     [ -f "$DOCKERMGR_CACHE_DIR/token" ] && rm "$DOCKERMGR_CACHE_DIR/token"
+    [ -f "$DOCKERMGR_CACHE_DIR/token.err" ] && cat "$DOCKERMGR_CACHE_DIR/token.err" | printf_readline 1 &&
+      rm "$DOCKERMGR_CACHE_DIR/token.err"
     return 1
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __orgs_api_list() {
-  curl -q -LSsf "$DOCKERMGR_REGISTRY_URL/v2/repositories/$1" | jq -r '.results|.[]|.name'
+  [ -n "$1" ] || printf_exit "Please provide a organization name"
+  results="$(curl -q -LSsf "$DOCKERMGR_HUB_URL/v2/repositories/$1" 2>/dev/null | jq -r '.results|.[]|.name' | grep '^' || return)"
+  if [ -n "$results" ]; then
+    printf '%s\n' "$results" | printf_column 154
+  else
+    printf_red "No repositories found for $1"
+    return 1
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-
+__orgs_api_info() {
+  printf_exit "Not implemented yet"
+  __api_jwt || return 1
+  [ -n "$1" ] || printf_exit "Usage: $0 orgs info name [tags] [list]"
+  if [ -f "$DOCKERMGR_CACHE_DIR/jwt" ]; then
+    local token="$(<"$DOCKERMGR_CACHE_DIR/jwt")"
+    curl -q -fsSL -X GET -H "Authorization: Bearer $token" \
+      "$DOCKERMGR_REGISTRY_URL/v2/$1/${2:-tags}/${3:-list}" #2>/dev/null | jq
+  else
+    __api_auth_error
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__orgs_api_delete() {
+  [ -n "$1" ] || printf_exit "Please provide a organization name"
+  [ -n "$2" ] || printf_exit "Please provide a repository name"
+  if [ -f "$DOCKERMGR_CACHE_DIR/token" ]; then
+    local token="$(<"$DOCKERMGR_CACHE_DIR/token")"
+    curl -q -LSsf -H "Authorization: Bearer $TOKEN" \
+      -X DELETE "$DOCKERMGR_REGISTRY_URL/v2/$1/repositories/$2" 2>/dev/null &&
+      printf_green "Successfully deleted the repository" || printf_exit "Failed to delete the repository"
+  else
+    __api_auth_error
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__api_auth_error() {
+  printf_exit "Please authenticate with the command:"
+  printf_yellow "dockermgr api auth username password"
+  exit 1
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default variables
 exitCode=
@@ -581,7 +634,8 @@ DOCKERMGR_INSTALL_SCRIPT="${DOCKERMGR_INSTALL_SCRIPT:-https://get.docker.com}"
 DOCKERMGR_HOME="${DOCKERMGR_HOME:-$HOME/.local/share/srv/docker}"
 DOCKERMGR_INSTALL_TMP="${DOCKERMGR_INSTALL_TMP:-/tmp/docker_install.sh}"
 DOCKERMGR_K3B_INSTALL_SCRIPT="${DOCKERMGR_K3B_INSTALL_SCRIPT:-https://get.k3s.io}"
-DOCKERMGR_REGISTRY_URL="${DOCKERMGR_REGISTRY_URL:-https://hub.docker.com}"
+DOCKERMGR_HUB_URL="${DOCKERMGR_HUB_URL:-https://hub.docker.com}"
+DOCKERMGR_REGISTRY_URL="${DOCKERMGR_REGISTRY_URL:-http://registry.docker.com}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$DOCKERMGR_CONFIG_DIR/$DOCKERMGR_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
@@ -706,14 +760,28 @@ org)
 api)
   shift 1
   case $1 in
+  auth)
+    shift 1
+    __orgs_api_auth "$@"
+    exit $?
+    ;;
   list)
     shift 1
     __orgs_api_list "$1"
     exit $?
     ;;
-  auth)
+  delete)
     shift 1
-    __orgs_api_auth "$@"
+    __orgs_api_delete "$1"
+    exit $?
+    ;;
+  info)
+    shift 1
+    __orgs_api_info "$@"
+    exit
+    ;;
+  *)
+    __orgs_api_help
     exit $?
     ;;
   *)

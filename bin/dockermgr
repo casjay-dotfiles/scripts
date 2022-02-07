@@ -263,21 +263,14 @@ __install_helm() {
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__minikube_curl() {
-  curl -q -LSsf --fail "https://storage.googleapis.com/minikube/releases/latest/minikube-$1" -o "/tmp/minikube" &>/dev/null
-  if [[ $? -eq 0 ]]; then
-    [ -f "/tmp/minikube" ] &&
-      { __sudo mv -f "/tmp/minikube" "/usr/local/bin/minikube" &&
-        chmod +x "/usr/local/bin/minikube" || false; } ||
-      { mv -f "/tmp/minikube" "$HOME/.local/bin/minikube" &&
-        chmod +x "/usr/local/bin/minikube" || false; }
-    return $?
-  else
-    return 1
-  fi
+__minikube() {
+  cmd_exists minikube || __minikube_init
+  unbuffer minikube "$@" | printf_readline
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__minikube() {
+__minikube_delete() { unbuffer minikube delete "$@" |& printf_readline; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__minikube_init() {
   cmd_exists docker || printf_exit "Docker is not installed"
   printf_blue "Setting up minikube please wait....."
   local driver="${1:-}"
@@ -294,7 +287,7 @@ __minikube() {
       driver="docker"
     else
       printf_red "No driver found. If you know the driver please specify it"
-      printf_yellow "$APPNAME minikube drivername"
+      printf_yellow "$APPNAME minikube [virtualbox|vmware|kvm2|docker|hyperkit|none]"
       printf_exit "Docs: https://minikube.sigs.k8s.io/docs/drivers/"
     fi
   fi
@@ -310,26 +303,47 @@ __minikube() {
     printf_exit "minikube is not supported on $uname"
   printf_purple "Downloading minikube for $osname [$osarch]"
   if __minikube_curl $osname-$osarch; then
+    set -o pipefail
     if cmd_exists minikube; then
-      kubectl() { minikube kubectl "$@" || return 1; } && export -f kubectl
+      unalias kubectl &>/dev/null
+      kubectl() { minikube kubectl -- "$@" || return 1; } && export -f kubectl
       printf_green "Minikube has been installed"
       minikube completion bash | __sudo tee /etc/bash_completion.d/minikube &>/dev/null
-      printf_blue "Attempting to start minikube cluster using driver: $driver"
-      (
-        set -o pipefail
-        unbuffer minikube start --driver=$driver | printf_readline 5 &&
-          unbuffer minikube config set driver $driver | printf_readline 4 &&
-          unbuffer minikube kubectl -- get pods -A | grep '^kube' | printf_readline 6 &&
-          minikube dashboard --url false --port 18080 | printf_readline 3 &
-      ) | tee
+      printf_blue "Attempting to start minikube cluster - May take awhile" &&
+        (unbuffer minikube start --driver=$driver | grep -v '^$' 2>&1) |& printf_readline 7 &&
+        echo &&
+        printf_purple "Attempting to configure minikube to use driver: $driver" &&
+        (unbuffer minikube config set driver $driver | grep -v '^$' 2>&1) |& printf_readline 7 &&
+        echo &&
+        printf_purple "Getting minikube pod info" &&
+        (unbuffer kubectl get pods -A | grep '^kube' | grep -v '^$' 2>&1) |& printf_readline 7 &&
+        echo &&
+        printf_purple "Setting up minikube dashboard " &&
+        (timeout 3600 unbuffer minikube dashboard --url false | grep -v '^$' 2>&1) |& printf_readline 7
       return $?
     else
       printf_red "Minikube install has failed"
-      return $?
+      __minikube_delete
+      return 1
     fi
   else
     printf_red "Minikube install has failed"
+    __minikube_delete
+    return $1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__minikube_curl() {
+  curl -q -LSsf --fail "https://storage.googleapis.com/minikube/releases/latest/minikube-$1" -o "/tmp/minikube" &>/dev/null
+  if [[ $? -eq 0 ]]; then
+    [ -f "/tmp/minikube" ] &&
+      { __sudo mv -f "/tmp/minikube" "/usr/local/bin/minikube" &&
+        chmod +x "/usr/local/bin/minikube" || false; } ||
+      { mv -f "/tmp/minikube" "$HOME/.local/bin/minikube" &&
+        chmod +x "/usr/local/bin/minikube" || false; }
     return $?
+  else
+    return 1
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1051,7 +1065,15 @@ k3b)
 
 minikube)
   shift 1
-  __minikube "$@"
+  if [ "$1" = "delete" ]; then
+    shift 1
+    __minikube_delete "$1"
+  elif [[ "$1" = "init" || "$1" = "install" || "$1" = "setup" ]]; then
+    shift 1
+    __minikube_init "$@"
+  else
+    __minikube "$@"
+  fi
   exit $?
   ;;
 

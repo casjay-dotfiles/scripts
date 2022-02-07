@@ -268,7 +268,16 @@ __minikube() {
   unbuffer minikube "$@" | printf_readline
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__minikube_delete() { unbuffer minikube delete "$@" |& printf_readline; }
+__minikube_dashboard() {
+  unbuffer minikube dashboard --url false --port 18080 &
+  disown
+  sleep 15
+  kubectl proxy &
+  disown
+  sleep 15
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__minikube_delete() { unbuffer minikube delete -p "${@:-minikube}" | printf_readline; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __minikube_init() {
   cmd_exists docker || printf_exit "Docker is not installed"
@@ -306,21 +315,30 @@ __minikube_init() {
     set -o pipefail
     if cmd_exists minikube; then
       unalias kubectl &>/dev/null
-      kubectl() { minikube kubectl -- "$@" || return 1; } && export -f kubectl
       printf_green "Minikube has been installed"
       minikube completion bash | __sudo tee /etc/bash_completion.d/minikube &>/dev/null
       printf_blue "Attempting to start minikube cluster - May take awhile" &&
-        (unbuffer minikube start --driver=$driver | grep -v '^$' 2>&1) |& printf_readline 7 &&
-        echo &&
+        (unbuffer minikube start --driver=$driver 2>&1 |& grep -v 'Using image' &&
+        kubectl config use-context minikube &>/dev/null) | printf_readline 7 | grep -v '^$'
+      echo &&
         printf_purple "Attempting to configure minikube to use driver: $driver" &&
-        (unbuffer minikube config set driver $driver | grep -v '^$' 2>&1) |& printf_readline 7 &&
-        echo &&
+        (unbuffer minikube config set driver $driver 2>&1) | printf_readline 7 | grep -v '^$'
+      echo &&
+        printf_purple "configuring minikube addons: $m"
+      for m in ingress portainer registry dashboard; do
+        unbuffer minikube addons enable $m | grep -v '^$' | head -n 1 | printf_readline 7
+      done
+      echo &&
         printf_purple "Getting minikube pod info" &&
-        (unbuffer kubectl get pods -A | grep '^kube' | grep -v '^$' 2>&1) |& printf_readline 7 &&
-        echo &&
+        (unbuffer minikube kubectl -- get pods -A | grep '^kube' 2>&1) | printf_readline 7 | grep -v '^$'
+      echo &&
         printf_purple "Setting up minikube dashboard " &&
-        (timeout 3600 unbuffer minikube dashboard --url false | grep -v '^$' 2>&1) |& printf_readline 7
-      return $?
+        __minikube_dashboard | printf_readline 7 | grep -v '^$'
+      sleep 10
+      echo &&
+        [[ "$driver" != "none" || "$driver" != "docker" ]] &&
+        printf_yellow="default login is, username: docker & password: tcuser."
+      exitCode=$?
     else
       printf_red "Minikube install has failed"
       __minikube_delete

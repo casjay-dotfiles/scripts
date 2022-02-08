@@ -1664,7 +1664,7 @@ __sudoask() {
 }
 __sudoexit() {
   if __can_i_sudo; then
-    __sudoask || printf_green "Getting privileges successfull continuing" && true
+    __sudoask || printf_green "Getting privileges successful continuing" && true
   else
     printf_red "Failed to get privileges\n" && false
     return 1
@@ -1838,7 +1838,7 @@ __ask_confirm() {
   notify_good() {
     local prog="$name"
     local name="${1:-$prog}"
-    local message="${command:-Command} was successfull"
+    local message="${command:-Command} was successful"
     if [ -z "$SEND_NOTIFY" ]; then
       notifications "${prog:-$name}:" "$message" || printf_green "${prog:-$name}: $message"
       export YN_NOTIFY=yes

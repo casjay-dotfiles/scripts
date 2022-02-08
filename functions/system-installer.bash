@@ -426,7 +426,7 @@ sudoask() {
 ######################
 sudoexit() {
   if [ $? -eq 0 ]; then
-    sudoask || printf_green "Getting privileges successfull continuing" &&
+    sudoask || printf_green "Getting privileges successful continuing" &&
       sudo -n true
   else
     printf_red "Failed to get privileges"

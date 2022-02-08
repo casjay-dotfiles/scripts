@@ -599,7 +599,8 @@ __yad__text() {
   elif cmd_exists zenity; then
     cat - | zenity --text-info --center --title="$title" --width=${YAD_WIDTH:-400} --height=${YAD_HEIGHT:-400} 2>/dev/null &
   else
-    printf_readline $color
+    #printf_readline $color
+    return 1
   fi
 }
 __yad__list() {
@@ -609,7 +610,7 @@ __yad__list() {
   elif cmd_exists zenity; then
     zenity --list --center --title="$title" --width=${YAD_WIDTH:-400} --height=${YAD_HEIGHT:-400} --column=${2:-Results} 2>/dev/null &
   else
-    true
+    return 1
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

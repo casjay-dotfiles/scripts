@@ -1,0 +1,225 @@
+#!/usr/bin/env bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version       : 202202080930-git
+# @Author        : Jason Hempstead
+# @Contact       : jason@casjaysdev.com
+# @License       : WTFPL
+# @ReadME        : latest-iso --help
+# @Copyright     : Copyright: (c) 2022 Jason Hempstead, Casjays Developments
+# @Created       : Tuesday, Feb 08, 2022 09:30 EST
+# @File          : latest-iso
+# @Description   :
+# @TODO          :
+# @Other         :
+# @Resource      :
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="$(basename "$0" 2>/dev/null)"
+VERSION="202202080930-git"
+HOME="${USER_HOME:-$HOME}"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${SUDO_USER:-$USER}"
+SRC_DIR="${BASH_SOURCE%/*}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set bash options
+if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import functions
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+  . "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  exit 1
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# user system devenv dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+user_install
+__options "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set functions
+__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gen_config() {
+  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Generating the config file in"
+  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "$LATEST_ISO_CONFIG_DIR/$LATEST_ISO_CONFIG_FILE"
+  [ -d "$LATEST_ISO_CONFIG_DIR" ] || mkdir -p "$LATEST_ISO_CONFIG_DIR"
+  [ -d "$LATEST_ISO_CONFIG_BACKUP_DIR" ] || mkdir -p "$LATEST_ISO_CONFIG_BACKUP_DIR"
+  [ -f "$LATEST_ISO_CONFIG_DIR/$LATEST_ISO_CONFIG_FILE" ] &&
+    cp -Rf "$LATEST_ISO_CONFIG_DIR/$LATEST_ISO_CONFIG_FILE" "$LATEST_ISO_CONFIG_BACKUP_DIR/$LATEST_ISO_CONFIG_FILE.$$"
+  cat <<EOF >"$LATEST_ISO_CONFIG_DIR/$LATEST_ISO_CONFIG_FILE"
+# Settings for latest-iso
+
+# Notification settings
+LATEST_ISO_GOOD_MESSAGE="${LATEST_ISO_GOOD_MESSAGE:-Everything Went OK}"
+LATEST_ISO_ERROR_MESSAGE="${LATEST_ISO_ERROR_MESSAGE:-Well something seems to have gone wrong}"
+LATEST_ISO_NOTIFY_ENABLED="${LATEST_ISO_NOTIFY_ENABLED:-yes}"
+LATEST_ISO_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+LATEST_ISO_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$LATEST_ISO_NOTIFY_CLIENT_ICON}"
+
+# Colorization settings
+LATEST_ISO_OUTPUT_COLOR="${LATEST_ISO_OUTPUT_COLOR:-5}"
+LATEST_ISO_OUTPUT_COLOR_GOOD="${LATEST_ISO_OUTPUT_COLOR_GOOD:-2}"
+LATEST_ISO_OUTPUT_COLOR_ERROR="${LATEST_ISO_OUTPUT_COLOR_ERROR:-1}"
+
+EOF
+  if [ -f "$LATEST_ISO_CONFIG_DIR/$LATEST_ISO_CONFIG_FILE" ]; then
+    [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for $APPNAME has been created"
+    exitCode=0
+  else
+    printf_red "Failed to create the config file"
+    exitCode=1
+  fi
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional functions
+__latest_release() {
+  local iso url latest download_dir
+  [[ "$1" = "tails" ]] && shift 1 && url="https://tails.boum.org/install/dvd-download/index.en.html"
+  url="${1:-$url}"
+  file="${2:-$file}"
+  latest=$(curl -q -LSsf "$url" 2>/dev/null | sed -r 's/.*href="([^"]+).*/\1/g' | grep 'http*.*.*iso' | grep -v 'torrent' | grep 'http' | sed 's|\\/|/|g' | head -n1 | grep '^')
+  echo "$latest"
+  return 1
+  [ -n "$latest" ] || printf_return "No iso found on $url"
+  iso=$(basename "$latest" 2>/dev/null)
+  download_dir=$(dirname "${2:-$HOME/Downloads}/$iso" 2>/dev/null)
+  download_file="$download_dir/$iso"
+  [ -e "$download_file" ] && printf_purple "File already exists: $download_file" && return 0
+  [ -d "$download_dir" ] || mkdir -p "$download_dir"
+  printf_green "Downloading $iso to $download_file"
+  curl -q -LSsf "$latest" -o "$download_file" 2>/dev/null &&
+    printf_green "File saved to $download_file" || {
+    printf_red "Error downloading $url"
+    return 1
+  }
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Default variables
+exitCode=
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application Folders
+LATEST_ISO_LOG_DIR="${LATEST_ISO_LOG_DIR:-$HOME/.local/log/latest-iso}"
+LATEST_ISO_CACHE_DIR="${LATEST_ISO_CACHE_DIR:-$HOME/.cache/latest-iso}"
+LATEST_ISO_CONFIG_DIR="${LATEST_ISO_CONFIG_DIR:-$HOME/.config/myscripts/latest-iso}"
+LATEST_ISO_OPTIONS_DIR="${LATEST_ISO_OPTIONS_DIR:-$HOME/.local/share/myscripts/latest-iso/options}"
+LATEST_ISO_CONFIG_BACKUP_DIR="${LATEST_ISO_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/latest-iso/backups}"
+LATEST_ISO_TEMP_DIR="${LATEST_ISO_TEMP_DIR:-$HOME/.local/tmp/system_scripts/latest-iso}"
+LATEST_ISO_CONFIG_FILE="${LATEST_ISO_CONFIG_FILE:-settings.conf}"
+LATEST_ISO_GOOD_MESSAGE="${LATEST_ISO_GOOD_MESSAGE:-Everything Went OK}"
+LATEST_ISO_ERROR_MESSAGE="${LATEST_ISO_ERROR_MESSAGE:-Well something seems to have gone wrong}"
+LATEST_ISO_NOTIFY_ENABLED="${LATEST_ISO_NOTIFY_ENABLED:-yes}"
+LATEST_ISO_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+LATEST_ISO_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$LATEST_ISO_NOTIFY_CLIENT_ICON}"
+LATEST_ISO_OUTPUT_COLOR="${LATEST_ISO_OUTPUT_COLOR:-5}"
+LATEST_ISO_OUTPUT_COLOR_GOOD="${LATEST_ISO_OUTPUT_COLOR_GOOD:-2}"
+LATEST_ISO_OUTPUT_COLOR_ERROR="${LATEST_ISO_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Enviroment overrides
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$LATEST_ISO_CONFIG_DIR/$LATEST_ISO_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$LATEST_ISO_CONFIG_DIR/$LATEST_ISO_CONFIG_FILE" ] && . "$LATEST_ISO_CONFIG_DIR/$LATEST_ISO_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories and files exist
+[ -d "$LATEST_ISO_LOG_DIR" ] || mkdir -p "$LATEST_ISO_LOG_DIR" &>/dev/null
+[ -d "$LATEST_ISO_TEMP_DIR" ] || mkdir -p "$LATEST_ISO_TEMP_DIR" &>/dev/null
+[ -d "$LATEST_ISO_CACHE_DIR" ] || mkdir -p "$LATEST_ISO_CACHE_DIR" &>/dev/null
+LATEST_ISO_TEMP_FILE="${LATEST_ISO_TEMP_FILE:-$(mktemp $LATEST_ISO_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap 'exitCode=${exitCode:-$?};[ -n "$LATEST_ISO_TEMP_FILE" ] && [ -f "$LATEST_ISO_TEMP_FILE" ] && rm -Rf "$LATEST_ISO_TEMP_FILE" &>/dev/null' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+if [ "$LATEST_ISO_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${LATEST_ISO_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${LATEST_ISO_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${LATEST_ISO_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${LATEST_ISO_NOTIFY_CLIENT_ICON}"
+    notifications "$@" && exitCode=0 || exitCode=1
+    unset NOTIFY_CLIENT_NAME NOTIFY_CLIENT_ICON NOTIFY_GOOD_MESSAGE NOTIFY_ERROR_MESSAGE
+    return ${exitCode:-$?}
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS=""
+LONGOPTS="options,config,version,help,dir:"
+ARRAY=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --options)
+    shift 1
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    __help
+    shift 1
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  --dir)
+    LATEST_ISO_CWD="$2"
+    shift 2
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+cmd_exists --error --ask bash || exit 1 # exit 1 if not found
+#am_i_online --error || exit 1     # exit 1 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+[ $# -ne 0 ] || __help
+__latest_release "$@"
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-$?}

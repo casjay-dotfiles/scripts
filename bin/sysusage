@@ -1,0 +1,313 @@
+#!/usr/bin/env bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version       : 202201141342-git
+# @Author        : Jason Hempstead
+# @Contact       : jason@casjaysdev.com
+# @License       : LICENSE.md
+# @ReadME        : sysusage --help
+# @Copyright     : Copyright: (c) 2022 Jason Hempstead, Casjays Developments
+# @Created       : Tuesday, Feb 08, 2022 12:29 EST
+# @File          : sysusage
+# @Description   :
+# @TODO          :
+# @Other         :
+# @Resource      :
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="$(basename "$0" 2>/dev/null)"
+VERSION="202201141342-git"
+HOME="${USER_HOME:-$HOME}"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${SUDO_USER:-$USER}"
+SRC_DIR="${BASH_SOURCE%/*}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set bash options
+if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import functions
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+  . "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  exit 1
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# user system devenv dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+user_install
+__options "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set functions
+__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gen_config() {
+  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Generating the config file in"
+  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "$SYSUSAGE_CONFIG_DIR/$SYSUSAGE_CONFIG_FILE"
+  [ -d "$SYSUSAGE_CONFIG_DIR" ] || mkdir -p "$SYSUSAGE_CONFIG_DIR"
+  [ -d "$SYSUSAGE_CONFIG_BACKUP_DIR" ] || mkdir -p "$SYSUSAGE_CONFIG_BACKUP_DIR"
+  [ -f "$SYSUSAGE_CONFIG_DIR/$SYSUSAGE_CONFIG_FILE" ] &&
+    cp -Rf "$SYSUSAGE_CONFIG_DIR/$SYSUSAGE_CONFIG_FILE" "$SYSUSAGE_CONFIG_BACKUP_DIR/$SYSUSAGE_CONFIG_FILE.$$"
+  cat <<EOF >"$SYSUSAGE_CONFIG_DIR/$SYSUSAGE_CONFIG_FILE"
+# Settings for sysusage
+SYSUSAGE_NOTIFY_EMAIL="${SYSUSAGE_NOTIFY_EMAIL:-$USER@$HOSTNAME}"
+SYSUSAGE_NOTIFY_EMAIL_SEND="${SYSUSAGE_NOTIFY_EMAIL_SEND:-yes}"
+SYSUSAGE_PRIMARY_DRIVE="${SYSUSAGE_PRIMARY_DRIVE:-}"
+SYSUSAGE_PRIMARY_DRIVE_NUMBER="${SYSUSAGE_PRIMARY_DRIVE_NUMBER:-}"
+
+# Notification settings
+SYSUSAGE_GOOD_MESSAGE="${SYSUSAGE_GOOD_MESSAGE:-Everything Went OK}"
+SYSUSAGE_ERROR_MESSAGE="${SYSUSAGE_ERROR_MESSAGE:-Well something seems to have gone wrong}"
+SYSUSAGE_NOTIFY_ENABLED="${SYSUSAGE_NOTIFY_ENABLED:-yes}"
+SYSUSAGE_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+SYSUSAGE_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$SYSUSAGE_NOTIFY_CLIENT_ICON}"
+
+# Colorization settings
+SYSUSAGE_OUTPUT_COLOR="${SYSUSAGE_OUTPUT_COLOR:-5}"
+SYSUSAGE_OUTPUT_COLOR_GOOD="${SYSUSAGE_OUTPUT_COLOR_GOOD:-2}"
+SYSUSAGE_OUTPUT_COLOR_ERROR="${SYSUSAGE_OUTPUT_COLOR_ERROR:-1}"
+
+EOF
+  if [ -f "$SYSUSAGE_CONFIG_DIR/$SYSUSAGE_CONFIG_FILE" ]; then
+    [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for $APPNAME has been created"
+    exitCode=0
+  else
+    printf_red "Failed to create the config file"
+    exitCode=1
+  fi
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional functions
+__cpu_info() {
+  cpu_info="$(grep 'model name' /proc/cpuinfo | sed 's|..*: ||g' | head -n1 | grep '^' || uname -i | grep '^')"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__disk_info() {
+  local disk="${1:-$SYSUSAGE_PRIMARY_DRIVE}"
+  disk_drive="${disk:-$(df -h | df -Ph | grep '[h,s,x,v]d[a-z][1-9]' | awk '{print $1}' | head -n1)}"
+  disk_percent="$(df -Ph | grep "$disk_drive" | awk '{print $5}' | grep '%' | sed 's|%||g')"
+  disk_total="$(df -Ph | grep "$disk_drive" | awk '{print $2}' | tr -d '\n')"
+  disk_usage="$(df -Ph | grep "$disk_drive" | awk '{print $3}' | tr -d '\n')"
+  disk_free="$(df -Ph | grep "$disk_drive" | awk '{print $4}' | tr -d '\n')"
+  disk_percent_used="$((100 - disk_percent))"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__load_info() {
+  load_avg1=$(cat /proc/loadavg | awk '{print $1}')
+  load_avg5=$(cat /proc/loadavg | awk '{print $2}')
+  load_avg15=$(cat /proc/loadavg | awk '{print $3}')
+}
+__mem_info() {
+  mem_total="$(free -m | grep 'Mem' | awk '{print $2}')"
+  mem_free=$(free -t -m | grep Mem | awk '{print $4" MB";}')
+  mem_used=$(free -t -m | grep "Mem" | awk '{print $3" MB";}')
+  mem_available=$(free -t -m | grep "Mem" | awk '{print $7" MB";}')
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__swap_info() {
+  swap_total="$(free -m | grep 'Swap' | awk '{print $2}')"
+  swap_free=$(free -t -m | grep Swap | awk '{print $4" MB";}')
+  swap_used=$(free -t -m | grep "Swap" | awk '{print $3" MB";}')
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__mail() {
+  cat <<EOF
+
+Dear $USER,
+
+Your server status is $1
+
+$(__print_output)
+
+EOF
+}
+__print_disk() {
+  local disks="$(df -h | awk '{print $1}' | grep "/dev" | grep '[h,s,d,v]')"
+  local count="${#disks[@]}"
+  local DiskHN0=""
+  local diskN="1"
+  for disk in $disks; do
+    __disk_info "$disk"
+    DiskHN0="$(printf 'Disk %03d\n' "$diskN")"
+    cat <<EOF
+- $DiskHN0..............: $disk_drive $disk_total
+- Disk Usage............: $disk_usage ($disk_percent%)
+- Disk Remaining........: $disk_free ($disk_percent_used%)
+EOF
+    if [ ${count} -gt 0 ]; then
+      echo "========================================================================================="
+    fi
+    count=$((count - 1))
+    diskN="$((diskN + 1))"
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__print_output() {
+  cat <<EOF | tee
+=========================================================================================
+- Server Information....: $(uname -m -r -s)
+- Server Date...........: $(date +"%Y/%m/%d %H:%M:%S")
+- Server Name.......... : $HOSTNAME
+=========================================================================================
+- CPU Info..............: $cpu_info
+- CPU usage.............: $load_avg1, $load_avg5, $load_avg15 (1, 5, 15 min)
+=========================================================================================
+- Swap info.............: $swap_total / $swap_free / $swap_used (total/free/used)
+- Memory info...........: $mem_total / $mem_available / $mem_free / $mem_used (total/available/free/used)
+=========================================================================================
+$(__print_disk)
+=========================================================================================
+
+EOF
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Default variables
+exitCode=
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application Folders
+SYSUSAGE_LOG_DIR="${SYSUSAGE_LOG_DIR:-$HOME/.local/log/sysusage}"
+SYSUSAGE_CACHE_DIR="${SYSUSAGE_CACHE_DIR:-$HOME/.cache/sysusage}"
+SYSUSAGE_CONFIG_DIR="${SYSUSAGE_CONFIG_DIR:-$HOME/.config/myscripts/sysusage}"
+SYSUSAGE_OPTIONS_DIR="${SYSUSAGE_OPTIONS_DIR:-$HOME/.local/share/myscripts/sysusage/options}"
+SYSUSAGE_CONFIG_BACKUP_DIR="${SYSUSAGE_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/sysusage/backups}"
+SYSUSAGE_TEMP_DIR="${SYSUSAGE_TEMP_DIR:-$HOME/.local/tmp/system_scripts/sysusage}"
+SYSUSAGE_CONFIG_FILE="${SYSUSAGE_CONFIG_FILE:-settings.conf}"
+SYSUSAGE_GOOD_MESSAGE="${SYSUSAGE_GOOD_MESSAGE:-Everything Went OK}"
+SYSUSAGE_ERROR_MESSAGE="${SYSUSAGE_ERROR_MESSAGE:-Well something seems to have gone wrong}"
+SYSUSAGE_NOTIFY_ENABLED="${SYSUSAGE_NOTIFY_ENABLED:-yes}"
+SYSUSAGE_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+SYSUSAGE_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$SYSUSAGE_NOTIFY_CLIENT_ICON}"
+SYSUSAGE_OUTPUT_COLOR="${SYSUSAGE_OUTPUT_COLOR:-5}"
+SYSUSAGE_OUTPUT_COLOR_GOOD="${SYSUSAGE_OUTPUT_COLOR_GOOD:-2}"
+SYSUSAGE_OUTPUT_COLOR_ERROR="${SYSUSAGE_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Enviroment overrides
+SYSUSAGE_NOTIFY_EMAIL="${SYSUSAGE_NOTIFY_EMAIL:-$USER@$HOSTNAME}"
+SYSUSAGE_NOTIFY_EMAIL_SEND="${SYSUSAGE_NOTIFY_EMAIL_SEND:-yes}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$SYSUSAGE_CONFIG_DIR/$SYSUSAGE_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$SYSUSAGE_CONFIG_DIR/$SYSUSAGE_CONFIG_FILE" ] && . "$SYSUSAGE_CONFIG_DIR/$SYSUSAGE_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories and files exist
+[ -d "$SYSUSAGE_LOG_DIR" ] || mkdir -p "$SYSUSAGE_LOG_DIR" &>/dev/null
+[ -d "$SYSUSAGE_TEMP_DIR" ] || mkdir -p "$SYSUSAGE_TEMP_DIR" &>/dev/null
+[ -d "$SYSUSAGE_CACHE_DIR" ] || mkdir -p "$SYSUSAGE_CACHE_DIR" &>/dev/null
+SYSUSAGE_TEMP_FILE="${SYSUSAGE_TEMP_FILE:-$(mktemp $SYSUSAGE_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap 'exitCode=${exitCode:-$?};[ -n "$SYSUSAGE_TEMP_FILE" ] && [ -f "$SYSUSAGE_TEMP_FILE" ] && rm -Rf "$SYSUSAGE_TEMP_FILE" &>/dev/null' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+if [ "$SYSUSAGE_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${SYSUSAGE_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${SYSUSAGE_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${SYSUSAGE_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${SYSUSAGE_NOTIFY_CLIENT_ICON}"
+    notifications "$@" && exitCode=0 || exitCode=1
+    unset NOTIFY_CLIENT_NAME NOTIFY_CLIENT_ICON NOTIFY_GOOD_MESSAGE NOTIFY_ERROR_MESSAGE
+    return ${exitCode:-$?}
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS=""
+LONGOPTS="options,config,version,help,dir:"
+ARRAY=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --options)
+    shift 1
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    __help
+    shift 1
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  --dir)
+    SYSUSAGE_CWD="$2"
+    shift 2
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+cmd_exists --error --ask bash || exit 1 # exit 1 if not found
+#am_i_online --error || exit 1     # exit 1 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+__cpu_info
+__disk_info
+__load_info
+__mem_info
+__swap_info
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+case $1 in
+cron)
+  shift 1
+  if [ "$SYSUSAGE_NOTIFY_EMAIL_SEND" = "true" ]; then
+    if [ "$disk_percent" -le 60 ]; then
+      __print_output "Good" | mail -s "Good: $HOSTNAME" "$SYSUSAGE_NOTIFY_EMAIL"
+    elif [ "$disk_percent" -ge 60 ] && [ "$disk_percent" -lt 80 ]; then
+      __print_output "Notify" | mail -s "Notify: $HOSTNAME" "$SYSUSAGE_NOTIFY_EMAIL"
+    elif [ "$disk_percent" -ge 80 ] && [ "$disk_percent" -le 95 ]; then
+      __print_output "Warn" | mail -s "Warn: $HOSTNAME" "$SYSUSAGE_NOTIFY_EMAIL"
+    elif [ "$disk_percent" -ge 95 ]; then
+      __print_output "Error" | mail -s "Error: $HOSTNAME" "$SYSUSAGE_NOTIFY_EMAIL"
+    fi
+  fi
+  ;;
+
+*)
+  __print_output |& sed 's|^|        |g'
+  ;;
+
+esac
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-$?}

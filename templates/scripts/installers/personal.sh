@@ -100,10 +100,10 @@ _pre_inst() {
 _git_repo_init() {
   if [ -d "$DOTFILES"/.git ]; then
     git -C "$DOTFILES" reset --hard &>/dev/null && git -C "$DOTFILES" pull -f
-    getexitcode "repo update successfull" "git pull failed for $DOTFILES"
+    getexitcode "repo update successful" "git pull failed for $DOTFILES"
   else
     git clone "$GITURL" "$DOTFILES"
-    getexitcode "git clone successfull" "git clone $GITURL has failed"
+    getexitcode "git clone successful" "git clone $GITURL has failed"
   fi
   if [ -d "$DOTFILES" ]; then cp -Rf "$DOTFILES" "$DOTTEMP" &>/dev/null; fi
 }

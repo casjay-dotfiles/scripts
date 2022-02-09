@@ -67,7 +67,8 @@ scripts_check
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Require a higher version
 dockermgr_req_version "$APPVERSION"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -# Repository variables
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Repository variables
 REPO="${DOCKERMGRREPO:-https://github.com/dockermgr}/GEN_SCRIPT_REPLACE_APPNAME"
 APPVERSION="$(__appversion "$REPO/raw/${GIT_REPO_BRANCH:-main}/version.txt")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

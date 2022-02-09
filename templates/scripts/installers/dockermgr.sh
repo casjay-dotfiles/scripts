@@ -77,6 +77,7 @@ APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
 INSTDIR="$HOME/.local/share/dockermgr/GEN_SCRIPT_REPLACE_APPNAME"
 APPDIR="$HOME/.local/share/srv/docker/GEN_SCRIPT_REPLACE_APPNAME"
 DATADIR="$HOME/.local/share/srv/docker/GEN_SCRIPT_REPLACE_APPNAME/files"
+DOCKERMGR_HOME="${DOCKERMGR_HOME:-$HOME/.config/myscripts/dockermgr}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Directory variables for container
 SERVER_SSL_DIR="$DATADIR/ssl"
@@ -128,10 +129,10 @@ HUB_URL="hello-world"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # import global variables
 if [[ -f "$APPDIR/env.sh" ]] && [[ ! -f "$DOCKERMGR_HOME/env/$APPNAME" ]]; then
-  mkdir -p "$DOCKERMGR_HOME/env"
-  cp -f "$APPDIR/env.sh" "$DOCKERMGR_HOME/env/$APPNAME"
-  . "$DOCKERMGR_HOME/env/$APPNAME"
+  mkdir -p "$DOCKERMGR_HOME/env" &&
+    cp -Rf "$APPDIR/env.sh" "$DOCKERMGR_HOME/env/$APPNAME"
 fi
+[[ -f "$DOCKERMGR_HOME/env/$APPNAME" ]] && . "$DOCKERMGR_HOME/env/$APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -z "$HUB_URL" ] || [ "$HUB_URL" = "hello-world" ]; then
   printf_exit "Please set the url to the containers image"

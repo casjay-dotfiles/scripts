@@ -8,8 +8,8 @@
 # @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
 # @Created       : Thursday, Aug 19, 2021 01:17 EDT
 # @File          : latest-releases
-# @Description   :
-# @TODO          :
+# @Description   : Download the latest release of a package
+# @TODO          : Refactor this mess
 # @Other         :
 # @Resource      :
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -210,20 +210,23 @@ EOF
 __install_latest() {
   echo "$1" | grep -qv '^#' || return
   echo "$1" | grep -qv '^$' || [[ -n "$LATEST_RELEASE_FULL_URL" ]] || return
+  set_arch="$(uname -m)"
   [ "$1" = search ] && search="true" && shift 1
-  if [[ $# == 1 ]]; then
+  if echo "$1" | grep -q './.' || [[ $# == 1 ]]; then
     repo="$1"
     shift 1
   elif [[ $# -gt 1 ]]; then
     repo="$1/$2"
     shift 2
   fi
-  if [ "$LATEST_RELEASE_DEFAULT_ARCH" = "x86_64" ]; then
-    get_arch="amd64"
-  elif [[ -n "$1" ]]; then
+  if [[ -n "$1" ]]; then
     get_arch="$1"
-  else
+  elif [ "$LATEST_RELEASE_DEFAULT_ARCH" = "x86_64" ]; then
+    get_arch="amd64"
+    retry_arch="x86_64"
+  elif [ "$set_arch" = "aarch64" ]; then
     get_arch="arm64"
+    retry_arch="aarch64"
   fi
   arch="${LATEST_RELEASES_ARCH_TYPE:-$get_arch}"
   tempfile="$LATEST_RELEASES_TEMP_FILE"
@@ -242,7 +245,7 @@ __install_latest() {
     latest_download="$(echo "$latest_json" | grep -i "$LATEST_RELEASES_FILENAME" | head -n1 | grep '^')"
   else
     latest_json="$(__curl_json)"
-    latest_download="$(echo "$latest_json" | grep -iE 'browser_download_url' | grep -vE '*.deb|*.rpm' | grep -E 'tar.*|*.bz|*.zip|.*' | cut -d '"' -f 4 | grep -i "$(uname -s)" | grep -i "$arch" | head -n1 | grep '^')"
+    latest_download="$(__browser_download_url "$latest_json" "$arch" || __browser_download_url "$latest_json" "$retry_arch" || return 1)"
   fi
   latest_download_url="https://github.com/$repo"
   basename="$(basename "$latest_download")"
@@ -337,6 +340,15 @@ __install_latest() {
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__browser_download_url() {
+  echo "${1:-$latest_json}" | grep -iE 'browser_download_url' |
+    grep -vE '*.deb|*.rpm' |
+    grep -E 'tar.*|*.bz|*.zip|.*' |
+    cut -d '"' -f 4 |
+    grep -i "$(uname -s)" | grep -i "${2:-$arch}" |
+    head -n1 | grep '^' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __wget_latest() {
   [[ -d "$download_dir" ]] || __mkd "$download_dir"
   if [[ -s "$filename" ]]; then
@@ -418,6 +430,7 @@ __show_latest() {
   done <"$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST"
   column -t <<<"${out}" | sort -t "|" -k 3 -r | printf_readline "6"
 }
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __update_install() {
   if [[ -f "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST" ]] && [[ -z "$1" ]]; then
@@ -638,7 +651,7 @@ search)
   if [[ $# -ne 0 ]]; then
     for l in "$@"; do
       __add_to_latest "$l"
-      __install_latest "$l"
+      __install_latest "$@"
     done
   else
     __show_latest

@@ -445,8 +445,23 @@ __update_install() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__search_api() {
-  curl -q -LSsf "https://api.github.com/search/repositories?q=${1:-$repo}" 2>/dev/null | jq -r '.items[].full_name'
+__api_repos() {
+  res="$(curl -q -LSs -H "Authorization: token $LATEST_RELEASE_GITHUB_TOKEN" \
+    "https://api.github.com/users/$1/repos&per_page=500&sort=updated" 2>/dev/null |
+    jq -r '.[] | .name' 2>/dev/null | grep '^' || return 1)"
+  [ -n "$res" ] && printf '%s\n' "$res" | sort -n || __api_search "$1"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__api_search() {
+  res="$(curl -q -LSsf "https://api.github.com/search/repositories?q=${1:-$repo}&per_page=100&sort=updated" 2>/dev/null |
+    jq -r '.items[].full_name' 2>/dev/null || return 1)" &&
+    [ -n "$res" ] && printf '%s\n' "$res" | sort -u || printf_exit "No results found for ${1:-$repo}"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__search_help() {
+  printf_red "Usage: $APPNAME username/reponame [filter] [grepOpts]" &&
+    printf_red "or: $APPNAME search api <query>" &&
+    printf_exit "$APPNAME search PowerShell/PowerShell 'arm' '-E linux|amd -v alpine'"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default variables
@@ -643,13 +658,19 @@ list)
 
 search)
   shift 1
-  [ "$1" = "api" ] && shift 1 && __search_api "$@" && exit $?
-  { echo "$1" | grep -vq './.' || [ $# = 0 ]; } &&
-    printf_red "Usage: $APPNAME username/reponame [filter] [grepOpts]" &&
-    printf_red "or: $APPNAME search api <query>" &&
-    printf_exit "$APPNAME search PowerShell/PowerShell 'arm' '-E linux|amd -v alpine'"
-  [ $# -eq 1 ] && __curl_json_all "$1"
-  [ $# -gt 1 ] && __curl_json_all "$1" | grep -i $3 "$2"
+  if [ "$1" = "repo" ]; then
+    shift 1
+    [ $# = 0 ] && __search_help || __api_repos "$@"
+  elif [ "$1" = "api" ]; then
+    shift 1
+    [ $# = 0 ] && __search_help || __api_search "$@"
+  elif echo "$1" | grep -vq './.' && [ $# = 0 ]; then
+    __search_help
+  elif [ $# -eq 1 ]; then
+    __curl_json_all "$1"
+  elif [ $# -gt 1 ]; then
+    __curl_json_all "$1" | grep -i $3 "$2"
+  fi
   exit $?
   ;;
 

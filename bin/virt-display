@@ -113,6 +113,14 @@ __vm_rm() {
 __vm_new() {
   local name="$1"
   local cdimage="$2"
+  if [[ "$name" = "tails" || "$name" = "heads" ]]; then
+    __virsh undefine "$name" &>/dev/null || true &>/dev/null
+    local disk="--disk none"
+    local snapshot="true"
+  else
+    local disk="--disk /var/lib/libvirt/images/$name.$VIRT_DISPLAY_VM_DISK_TYPE,device=disk,size=$VIRT_DISPLAY_VM_DISK_SIZE,bus=virtio,format=$VIRT_DISPLAY_VM_DISK_TYPE"
+    local snapshot="__snapshot $name default no-stop &>/dev/null"
+  fi
   if __list_running | grep "$name" | grep -qi 'running'; then
     printf_red "The vm is already running"
     printf_cyan "launching the vm viewer for $name"
@@ -124,14 +132,6 @@ __vm_new() {
   else
     printf_cyan "Creating $name using ISO: $(basename "$cdimage")"
   fi
-  if [[ "$name" = "tails" || "$name" = "heads" ]]; then
-    __virsh undefine "$name" &>/dev/null || true &>/dev/null
-    local disk="--disk none"
-    local snapshot="true"
-  else
-    local disk="--disk /var/lib/libvirt/images/$name.$VIRT_DISPLAY_VM_DISK_TYPE,device=disk,size=$VIRT_DISPLAY_VM_DISK_SIZE,bus=virtio,format=$VIRT_DISPLAY_VM_DISK_TYPE"
-    local snapshot="__snapshot $name default no-stop &>/dev/null"
-  fi
   {
     sudo virt-install \
       --name $name \
@@ -140,15 +140,20 @@ __vm_new() {
       --cdrom "$cdimage" \
       --network $VIRT_DISPLAY_VM_NETWORK,model=virtio \
       --graphics spice \
-      --boot cdrom,hd,menu=on &>/dev/null &
+      --boot cdrom,hd,menu=on &>"$VIRT_DISPLAY_LOG_DIR/install" &
     local pid=$!
+    sleep 2
+    if grep -iqs 'virt-install: error:' "$VIRT_DISPLAY_LOG_DIR/install"; then
+      printf_exit "Failed to create vm"
+    else
+      printf_yellow "Attempting to create and start $name"
+    fi
     sleep .2
-    printf_blue "Waiting for the VM to boot"
     wait -f $pid && ${snapshot:-}
   } &
-  sleep 10
-  printf_yellow "Attempting to create and start $name"
-  sleep 5
+  sleep .5
+  printf_blue "Waiting for the VM to boot"
+  sleep 2
   echo ''
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -411,7 +416,7 @@ create)
 new)
   shift 1
   [[ $# -ne 2 ]] && printf_exit "Usage: $APPNAME new <name> <isoFile>"
-  __vm_new "$1" "$2"
+  __vm_new "$@"
   exit $?
   ;;
 

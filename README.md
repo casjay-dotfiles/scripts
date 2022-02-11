@@ -31,7 +31,7 @@ yay -S tinyfugue
 ```  
 
 ```shell
-apk add util-linux pciutils usbutils coreutils binutils findutils grep iproute2 sudo
+apk add ncurses util-linux pciutils usbutils coreutils binutils findutils grep iproute2 sudo
 ```
 
 ```shell

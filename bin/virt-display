@@ -95,7 +95,7 @@ __printf_reset() { printf_color "\r\t\t$1 " ${2:-1}; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __check_vm_args() {
   if [[ $# -eq 0 ]]; then
-    local running="$(__list_running | grep 'running' | awk '{print $2}' | tr '\n' ' ' | grep '^')"
+    local running="$(__list_running | grep -w 'running' | awk '{print $2}' | tr '\n' ' ' | grep '^')"
     [[ -n "$running" ]] && printf_red "Please provide the vm name: ${GREEN}$running${RESET}" || printf_red "Please provide the vm name"
     exit 1
   else
@@ -106,7 +106,7 @@ __check_vm_args() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __ssh() {
   local ip="$1"
-  local user="$2"
+  local user="${2:-root}"
   local idFile="$3"
   local sshcmd="-l ${user} ${ip} ${VIRT_DISPLAY_SSH_OPTS:-}"
   [[ -n "$idFile" ]] && ssh -i "$id_file" $sshcmd 2>/dev/null || ssh $sshcmd 2>/dev/null || return 1
@@ -134,37 +134,53 @@ __get_id_file() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_ip() {
-  local ip=""
-  ip="$(__list_ips | grep "$1" | awk '{print $5}' | grep '[0-9]' | awk -F '/' '{print $1}')"
-  mac="$(__virsh dumpxml "$1" 2>/dev/null | grep "mac address" | awk -F\' '{ print $2}')"
+  local name="$1"
+  local ip="" mac=""
+  ip="$(__list_ips | grep -w "$name" | awk '{print $5}' | grep '[0-9]' | awk -F '/' '{print $1}')"
+  mac="$(__virsh dumpxml "$name" 2>/dev/null | grep "mac address" | awk -F\' '{ print $2}')"
   [[ -n "$ip" ]] && printf '%s\n' "$ip" || arp -an 2>/dev/null | grep "$mac" | grep '^' || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__test_connection() {
+  local ip="$1"
+  status=$(cmd_exists nmap && nmap "$ip" -Pn -p 22 | grep -ioE 'open|closed|filtered')
+  if [[ $status == "open" ]]; then
+    return 0
+  elif ping -w 1 -c1 "$ip" &>/dev/null; then
+    return 0
+  elif ssh -q -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=1 $ip 'exit 0' &>/dev/null; then
+    return 0
+  else
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __ssh_viewer() {
-  clear
-  local ip="" id_file=""
+  local name="$1" ip="$2" user="$3" idFile="$4"
+  local ip="$(__get_ip "${name}" | tail -n1)"
+  local user="${user}"
+  local idFile="$(__get_id_file "$idFile")"
   local tries=10
-  ip="$(__get_ip "$1")"
+  clear
   while [ $tries -gt 0 ]; do
-    __printf_reset "Attempting to connect to ${ip:-$1}..." 3
-    __start "$1" &>/dev/null && sleep 2 || sleep .5
+    __printf_reset "Attempting to connect to ${ip}..." 3
+    __start "$name" &>/dev/null && sleep 2 || sleep .5
     [[ -n "$ip" ]] && break || tries=$((tries - 1))
-    sleep 1 && ip="$(__get_ip "$1")"
+    sleep 1 && ip="$(__get_ip "$ip")"
   done
   echo ''
-  id_file="$(__get_id_file "$1" || __get_id_file "$ip")"
+  id_file="$(__get_id_file "$idFile" || __get_id_file "$ip")"
   if [[ -n "$ip" ]]; then
-    if ping -w 1 -c1 "$ip" >/dev/null 2>&1; then
-      clear
-      __ssh "${ip:-$1}" "${2:-root}" "${id_file:-$3}" && clear
+    if __test_connection "$ip"; then
+      __ssh "${ip}" "${user}" "${id_file}" && clear
       exit
     else
-      printf_red "Failed to ping ${ip:-$1} launching local viewer"
+      printf_red "Failed to ping ${ip} launching local viewer"
       sleep 3
-      __local_viewer "$1"
+      __local_viewer "$name"
     fi
   else
-    printf_exit "Can not find the IP address for $1"
+    printf_exit "Can not find the IP address for $name"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -332,7 +348,7 @@ fi
 SETARGS="$*"
 SHORTOPTS=""
 LONGOPTS="options,config,version,help,dir:"
-ARRAY="list start ssh restore create new delete"
+ARRAY="list start ssh restore create new delete open"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup application options
 setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
@@ -407,18 +423,21 @@ start)
   shift 1
   __check_vm_args $1
   __start "$@"
+  exit $?
   ;;
 
 restore)
   shift 1
   __check_vm_args $1
   __restore "$@"
+  exit $?
   ;;
 
 create)
   shift 1
   __check_vm_args "$1"
   __snapshot "$@"
+  exit $?
   ;;
 
 new)
@@ -447,15 +466,22 @@ ip)
   else
     __list_ips
   fi
-  exit
+  exit $?
   ;;
 
 ssh)
   shift 1
   __check_vm_args $1
   __ssh_viewer "$1" "$2" "$3"
+  exit $?
   ;;
 
+open)
+  shift 1
+  __check_vm_args $1
+  __list_running | grep -q "$1" && __viewer "$1"
+  exit $?
+  ;;
 *)
   __check_vm_args $1
   __list_running | grep -q "$1" && __viewer "$1"

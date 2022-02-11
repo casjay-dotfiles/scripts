@@ -31,6 +31,10 @@ yay -S tinyfugue
 ```  
 
 ```shell
+apk add util-linux pciutils usbutils coreutils binutils findutils grep iproute2 sudo
+```
+
+```shell
 export PATH="$PATH:/usr/local/share/CasjaysDev/scripts/bin"
 sudo git clone https://github.com/systemmgr/installer "/usr/local/share/CasjaysDev/scripts"
 echo 'for f in /usr/local/share/CasjaysDev/scripts/completions/*; do source "$f" >/dev/null 2>&1; done' | sudo tee "/etc/bash_completion.d/_my_scripts_completions" >/dev/null

@@ -100,7 +100,14 @@ fi
 devnull() { "$@" >/dev/null 2>&1; }
 devnull2() { "$@" >/dev/null 2>&1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__os_fix_name() { [[ -f "${1:-/etc/casjaysdev/updates/versions/osversion.txt}" ]] && sudo sed -i 's|[",]||g;s| [lL]inux:||g' "${1:-/etc/casjaysdev/updates/versions/osversion.txt}" || return 0; }
+__os_fix_name() {
+  local file="${1:-/etc/casjaysdev/updates/versions/osversion.txt}"
+  if [[ -f "$file" ]]; then
+    sudo sed -i 's|[",]||g;s| [lL]inux:||g' "$file"
+  else
+    return 0
+  fi
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __os_name() {
   grep -s '^NAME=' /etc/os-release | awk -F '=' '{print $2}' | grep '^' ||

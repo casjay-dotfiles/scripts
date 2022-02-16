@@ -70,8 +70,8 @@ systemmgr_install
 show_optvars "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Requires root - no point in continuing
-sudoreq "$0 $*" # sudo required
-#sudorun # sudo optional
+sudoreq "sudo -HE $0 $*" # sudo required
+#sudorun                  # sudo optional
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Do not update - add --force to overwrite
 #installer_noupdate "$@"
@@ -91,7 +91,6 @@ PYTH="pip "
 PIPS="speedtest-cli "
 CPAN=""
 GEMS="mdless "
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # install packages - useful for package that have the same name on all oses
 install_packages "$APP"
@@ -140,19 +139,15 @@ fi
 # run post install scripts
 run_postinst() {
   systemmgr_run_post
-  local motdDir="/etc/casjaysdev/messages"
-  local verDir="/etc/casjaysdev/updates/versions"
-  local fontdir="$(ls "$CASJAYSDEVSAPPDIR/fontmgr" | wc -l)"
-  ln_rm "$SHARE/applications/"
-  mkd "$motdDir/motd"
-  mkd "$motdDir/issue"
-  mkd "$motdDir/legal"
-  mkd "$verDir"
-  mkd /usr/local/share/CasjaysDev/apps/fontmgr
+  motdDir="/etc/casjaysdev/messages"
+  verDir="/etc/casjaysdev/updates/versions"
+  fontdir="$(ls "$CASJAYSDEVSAPPDIR/fontmgr" | wc -l)"
   git config --global pull.rebase true
-  if [ "$fontdir" = "0" ]; then
-    sudo fontmgr install Hack all-the-icons fontawesome LigatureSymbols
-  fi
+  ln_rm "$SHARE/applications/"
+  mkdir -p "$motdDir/motd" "$motdDir/issue" "$motdDir/legal"
+  mkdir -p "$verDir" "/usr/local/share/CasjaysDev/apps/fontmgr"
+  grep -sRiq "git" "$verDir/configs.txt" && sudo rm -Rfv "$verDir/configs.txt"
+  [ "$fontdir" = "0" ] && sudo fontmgr install Hack all-the-icons fontawesome LigatureSymbols
   for app in $(ls "$CASJAYSDEVDIR/applications"); do
     ln_sf "$CASJAYSDEVDIR/applications/$app" "$SYSSHARE/applications/$app"
   done
@@ -160,19 +155,13 @@ run_postinst() {
     [ -f /etc/casjaysdev/messages/legal/000.txt ] ||
       cp_rf "$INSTDIR/templates/casjaysdev-legal.txt" "/etc/casjaysdev/messages/legal/000.txt"
   fi
-  grep -sRiq "git" "$verDir/configs.txt" &&
-    sudo rm -Rfv "$verDir/configs.txt"
-  if [ ! -f "$verDir/configs.txt" ]; then
-    date +"${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}" | sudo tee "$verDir/configs.txt" &>/dev/null
-  fi
-  if [ ! -f "$verDir/date.configs.txt" ]; then
-    date +"%b %d, %Y at %H:%M" | sudo tee "$verDir/date.configs.txt" &>/dev/null
-  fi
+  [ -f "$verDir/configs.txt" ] || date +"${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}" | sudo tee "$verDir/configs.txt" &>/dev/null
+  [ -f "$verDir/date.configs.txt" ] || date +"%b %d, %Y at %H:%M" | sudo tee "$verDir/date.configs.txt" &>/dev/null
   date +"%b %d, %Y at %H:%M" | sudo tee "$verDir/date.scripts.txt" &>/dev/null
   cp_rf "$INSTDIR/version.txt" "$verDir/scripts.txt"
-  replace /etc/casjaysdev/messages/ MYHOSTIP "$CURRIP4"
-  replace /etc/casjaysdev/messages/ MYHOSTNAME "$(hostname -s)"
-  replace /etc/casjaysdev/messages/ MYFULLHOSTNAME "$(hostname -f)"
+  replace "/etc/casjaysdev/messages/" "MYHOSTIP" "$CURRIP4"
+  replace "/etc/casjaysdev/messages/" "MYHOSTNAME" "$(hostname -s)"
+  replace "/etc/casjaysdev/messages/" "MYFULLHOSTNAME" "$(hostname -f)"
   echo 'for f in '$CASJAYSDEVDIR/completions/*'; do source "$f" >/dev/null 2>&1; done' >"$COMPDIR/_my_scripts_completions"
   ln_sf "$APPDIR" "$SYSSHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME"
   ln_sf "$APPDIR" "$SYSSHARE/CasjaysDev/$SCRIPTS_PREFIX/installer"
@@ -186,15 +175,14 @@ run_postinst() {
   cmd_exists --config &>/dev/null
   cmd_exists update-ip && update-ip
   cmd_exists update-motd && update-motd || true
-  dotfilesreqadmin cron
   for mgr in devenvmgr dfmgr dockermgr fontmgr iconmgr passmgr pkmgr systemmgr thememgr wallpapermgr; do
-    $mgr --config &>/dev/null
+    eval "$mgr" --config &>/dev/null
   done
-  grep 'Defaults.*.env_reset' /etc/sudoers | grep -v '!' && sed -i 's|env_reset|!env_reset|g' /etc/sudoers
-  grep 'Defaults.*.secure_path' /etc/sudoers && sed -i 's|secure_path =.*|secure_path = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"|g' /etc/sudoers
-  printf '# update scripts cron\n5 4 * * * root [ -f $(builtin type -P systemmgr 2>/dev/null) ] && systemmgr update scripts cron &>/dev/null\n' | tee /etc/cron.d/systemmgr &>/dev/null
+  grep 'Defaults.*.env_reset' "/etc/sudoers" | grep -v '!' && sed -i 's|env_reset|!env_reset|g' "/etc/sudoers"
+  grep 'Defaults.*.secure_path' "/etc/sudoers" && sed -i 's|secure_path =.*|secure_path = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"|g' "/etc/sudoers"
+  printf '# update scripts cron\n5 4 * * * root [ -f $(builtin type -P systemmgr 2>/dev/null) ] && systemmgr update scripts cron &>/dev/null\n' | tee "/etc/cron.d/systemmgr" &>/dev/null
   printf '%s: %s\n' "$(__os_name)" "$(__os_version)" | sed 's| [lL]inux:||g' >"/etc/casjaysdev/updates/versions/osversion.txt"
-  __os_fix_name
+  __os_fix_name "/etc/casjaysdev/updates/versions/osversion.txt"
 }
 #
 execute "run_postinst" "Running post install scripts"

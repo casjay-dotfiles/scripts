@@ -59,7 +59,6 @@ GITADMIN_DEFAULT_GIT_DIR="${GITADMIN_DEFAULT_GIT_DIR:-$HOME/Projects}"
 GITADMIN_DEFAULT_GIT_DIR_GITHUB="${GITADMIN_DEFAULT_GIT_DIR_GITHUB:-$GITADMIN_DEFAULT_GIT_DIR/github}"
 GITADMIN_DEFAULT_GIT_DIR_GITLAB="${GITADMIN_DEFAULT_GIT_DIR_GITLAB:-$GITADMIN_DEFAULT_GIT_DIR/gitlab}"
 GITADMIN_DEFAULT_GIT_DIR_PRIVATE="${GITADMIN_DEFAULT_GIT_DIR_PRIVATE:-$GITADMIN_DEFAULT_GIT_DIR/Private}"
-GITADMIN_PERSONAL_GIT_HOST="${GITADMIN_PERSONAL_GIT_HOST:-$PERSONAL_GIT_HOST}"
 GITADMIN_DEFAULT_BRANCH="${GITADMIN_DEFAULT_BRANCH:-main}"
 GITADMIN_DEFAULT_MAINCONFIG="${GITADMIN_DEFAULT_MAINCONFIG:-gitmainconfig}"
 GITADMIN_DEFAULT_USERNAME="${GITADMIN_DEFAULT_USERNAME:-$GITHUB_USERNAME}"
@@ -70,6 +69,9 @@ GITADMIN_DOMAIN_TEMPLATE="${GITADMIN_DOMAIN_TEMPLATE:-https://github.com/casjay-
 GITADMIN_DEFAULT_README="${GITADMIN_DEFAULT_README:-default}"
 GITADMIN_DEFAULT_LICENSE="${GITADMIN_DEFAULT_LICENSE:-$MY_LICENSE_FILE}"
 GITADMIN_VERSION_DATE_FORMAT="${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}"
+GITADMIN_GITLAB_AUTH_TOKEN="${GITADMIN_GITLAB_AUTH_TOKEN:-$GITLAB_ACCESS_TOKEN}"
+GITADMIN_PERSONAL_GIT_HOST="${GITADMIN_PERSONAL_GIT_HOST:-$GIT_PRIVATE_URL}"
+GITADMIN_PRIVATE_AUTH_TOKEN="${GITADMIN_PRIVATE_AUTH_TOKEN:-$GIT_PRIVATE_ACCESS_TOKEN}"
 
 # Notification settings
 GITADMIN_GOOD_MESSAGE="${GITADMIN_GOOD_MESSAGE:-Everything Went OK}"
@@ -95,8 +97,172 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gitea_update_repo() {
+  { [ $# = 0 ] || [ "$1" == "help" ]; } && __update_usage
+  echo "$1" | grep -q '.*./.*.' || echo "$1" | grep -q '.*.=.*.' || __update_usage
+  repo="$1" && shift 1
+  while :; do
+    case "$1" in
+    *=*)
+      data="$(echo "$1" | awk -F '=' '{print $1}')" value="$(echo "$1" | awk -F '=' '{print $2}')"
+      json+='"'$data'":"'$value'"'
+      shift 1
+      ;;
+    *)
+      break
+      ;;
+    esac
+  done
+  data="$(printf '%s' "{${json//\"\"/\",\"}}")"
+  curl -q -X PATCH --fail -LSsif \
+    -H "Content-Type: application/json" \
+    -H "Authorization: token $GIT_PRIVATE_ACCESS_TOKEN" \
+    --data "$data" \
+    "https://$GITADMIN_PERSONAL_GIT_HOST/api/v1/repos/$repo" 2>&1 | grep -q 'HTTP/.*.20.' &&
+    {
+      printf_green "Successfully updated $repo with the following data:"
+      #echo "$data" | jq -r | sed 's|[\}\{]||g' | grep -v '^$' | printf_readline
+      printf "$data" | jq -c | grep -v '^$' | printf_readline
+      exitCode=0
+    } || {
+    printf_red "Failed to update $repo"
+    exitCode=1
+  }
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gitea_orgs() {
+  local resp="$(
+    curl -q -LSsf -X 'GET' \
+      -H "Authorization: token $GIT_PRIVATE_ACCESS_TOKEN" \
+      -H 'accept: application/json' \
+      "https://$GITADMIN_PERSONAL_GIT_HOST/api/v1/orgs/$1/repos" 2>/dev/null |
+      jq -r '.[]' || false
+  )"
+  if [ -n "$resp" ]; then
+    echo "$resp" | jq
+    exitCode=0
+  else
+    printf_red "Failed to retrieve the list of repos for $1"
+    exitCode=1
+  fi
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gitea_users() {
+  local resp="$(
+    curl -q -LSsf -X 'GET' \
+      -H "Content-Type: application/json" \
+      -H "Authorization: token $GIT_PRIVATE_ACCESS_TOKEN" \
+      -H 'accept: application/json' \
+      "https://$GITADMIN_PERSONAL_GIT_HOST/api/v1/users/$1/repos" 2>/dev/null |
+      jq -r '.[]' || __gitea_orgs "$1" "silent" || false
+  )"
+  if [ -n "$resp" ]; then
+    [ -n "$2" ] || echo "$resp" | jq
+    exitCode=0
+  else
+    [ -n "$2" ] || printf_red "Failed to retrieve the list of repos for $1"
+    exitCode=1
+  fi
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gitea_users_orgs() {
+  local resp="$(
+    curl -q -LSsf -X 'GET' \
+      -H "Authorization: token $GIT_PRIVATE_ACCESS_TOKEN" \
+      -H "Content-Type: application/json" \
+      -H 'accept: application/json' \
+      "https://$GITADMIN_PERSONAL_GIT_HOST/api/v1/users/$1/orgs" 2>/dev/null |
+      jq -r '.' || false
+  )"
+  if [ -n "$resp" ]; then
+    [ -n "$2" ] || echo "$resp" | jq
+    exitCode=0
+  else
+    [ -n "$2" ] || printf_red "Failed to retrieve the list of orgs for $1"
+    exitCode=1
+  fi
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gitea_delete_repo() {
+  local resp="$(
+    curl -q -LSsf -X 'POST' \
+      -H "Authorization: token $GIT_PRIVATE_ACCESS_TOKEN" \
+      -H "Content-Type: application/json" \
+      -H 'accept: application/json' \
+      "https://$GITADMIN_PERSONAL_GIT_HOST/api/v1/$1/repos/delete" 2>/dev/null |
+      grep -v '.html_url' && echo 'deleted' || false
+  )"
+  if [ -n "$resp" ]; then
+    echo "$resp" | jq -r
+    exitCode=0
+  else
+    printf_red "Failed to create the repo $1"
+    exitCode=1
+  fi
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gitea_create_repo() {
+  local resp="$(
+    curl -q -LSsf -X 'POST' \
+      -H "Authorization: token $GIT_PRIVATE_ACCESS_TOKEN" \
+      -H "Content-Type: application/json" \
+      -H 'accept: application/json' \
+      --data '{"auto_init": false,"default_branch": "main","name": "'$1'","description": "'$2'","private": '${3:-false}'}' \
+      "https://$GITADMIN_PERSONAL_GIT_HOST/api/v1/user/repos" 2>/dev/null |
+      jq -r '.id' || false
+  )"
+  if [ -n "$resp" ]; then
+    echo "$resp" | jq -r
+    exitCode=0
+  else
+    printf_red "Failed to create the repo $1"
+    exitCode=1
+  fi
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gitea_create_org() {
+  curl -q -LSsf -X 'POST' \
+    -H "Authorization: token $GIT_PRIVATE_ACCESS_TOKEN" \
+    -H 'Content-Type: application/json' \
+    -H 'accept: application/json' \
+    -d '{"username": "'$2'","description": "'$3'","website": "'$4'","visibility": "'${5:-public}'"}' \
+    "https://$GITADMIN_PERSONAL_GIT_HOST/api/v1/admin/users/$1/orgs" 2>/dev/null | jq -r '.'
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gitea_branch() {
+  curl -q -LSsf -X 'POST' \
+    -H "Authorization: token $GIT_PRIVATE_ACCESS_TOKEN" \
+    -H 'accept: application/json' \
+    -H 'Content-Type: application/json' \
+    -d '{"new_branch_name": "'$3'","old_branch_name": "'$2'"}' \
+    "https://$GITADMIN_PERSONAL_GIT_HOST/api/v1/repos/$1/branches" 2>/dev/null | jq -r '.'
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gitlab_orgs() {
+  printf_exit "Not implemented yet"
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gitlab_branch() {
+  curl -q -LSsf -X POST \
+    -H "PRIVATE-TOKEN: $GITADMIN_GITLAB_AUTH_TOKEN" \
+    --url "https://gitlab.com/api/v4/projects/$1" \
+    --data "default_branch=${GITADMIN_DEFAULT_BRANCH:-$2}" 2>/dev/null | jq -r '.'
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __update_repo_usage() {
   printf_help 'Usage: '$APPNAME' github update repo "[description,homepage,visibility]=value"'
+  return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __update_repo() {
@@ -1020,8 +1186,10 @@ GITADMIN_DEFAULT_GIT_DIR="${GITADMIN_DEFAULT_GIT_DIR:-$HOME/Projects}"
 GITADMIN_DEFAULT_GIT_DIR_GITHUB="${GITADMIN_DEFAULT_GIT_DIR_GITHUB:-$GITADMIN_DEFAULT_GIT_DIR/github}"
 GITADMIN_DEFAULT_GIT_DIR_GITLAB="${GITADMIN_DEFAULT_GIT_DIR_GITLAB:-$GITADMIN_DEFAULT_GIT_DIR/gitlab}"
 GITADMIN_DEFAULT_GIT_DIR_PRIVATE="${GITADMIN_DEFAULT_GIT_DIR_PRIVATE:-$GITADMIN_DEFAULT_GIT_DIR/Private}"
-GITADMIN_PERSONAL_GIT_HOST="${GITADMIN_PERSONAL_GIT_HOST:-$PERSONAL_GIT_HOST}"
+GITADMIN_PERSONAL_GIT_HOST="${GITADMIN_PERSONAL_GIT_HOST:-$GIT_PRIVATE_URL}"
 GITADMIN_DEFAULT_USER_DOMAIN="${GITADMIN_DEFAULT_USER_DOMAIN:-}"
+GITADMIN_GITLAB_AUTH_TOKEN="${GITADMIN_GITLAB_AUTH_TOKEN:-$GITLAB_ACCESS_TOKEN}"
+GITADMIN_PRIVATE_AUTH_TOKEN="${GITADMIN_PRIVATE_AUTH_TOKEN:-$GIT_PRIVATE_ACCESS_TOKEN}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate non-existing config files
 [ -f "$GITADMIN_CONFIG_DIR/$GITADMIN_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
@@ -1770,6 +1938,20 @@ gitlab)
     git remote add "$1" "$remote_repo"
     exit "$?"
     ;;
+
+  repos)
+    shift 1
+    __gitlab_orgs "$@"
+    exit $?
+    ;;
+
+  branch)
+    shift 1
+    [ "$1" = "help" ] && printf_help "Usage: gitadmin gitlab branch projectID branch"
+    [ -z "$1" ] && printf_exit "Usage: gitadmin gitlab branch projectID branch"
+    __gitlab_branch "$@"
+    exit $?
+    ;;
   esac
   ;;
 
@@ -1840,6 +2022,57 @@ private)
     git remote add "$1" "$GITADMIN_PERSONAL_GIT_HOST/$2.git"
     exit "$?"
     ;;
+
+  update) # update repo
+    shift 1
+    __update_repo "$@"
+    exit "$?"
+    ;;
+
+  create)
+    shift 1
+    case "$1" in
+    repo) # create a private repo
+      shift 1
+      [ "$1" = "help" ] && printf_exit "Usage: gitadmin private create RepoName 'description'"
+      [ -z "$1" ] && printf_exit "Usage: gitadmin private create RepoName 'description'"
+      __gitea_create_repo "$@"
+      exit "$?"
+      ;;
+
+    org) # create a private org
+      shift 1
+      [ "$1" = "help" ] && printf_exit "Usage: gitadmin private create orgname 'reponame' 'description'"
+      [ -z "$1" ] && printf_exit "Usage: gitadmin private create orgname 'reponame' 'description'"
+      __gitea_create_org "$@"
+      exit "$?"
+      ;;
+
+    esac
+    ;;
+  branch) # create a branch
+    shift 1
+    [ "$1" = "help" ] && printf_help "Usage: gitadmin private branch RepoName branch"
+    [ -z "$1" ] && printf_exit "Usage: gitadmin private branch RepoName branch"
+    __gitea_branch "$@"
+    exit "$?"
+    ;;
+
+  repos) # list private repos
+    shift 1
+    if [ "$1" = "delete" ]; then
+      shift 1
+      [ "$1" = "help" ] && printf_exit "Usage: gitadmin private repos delete RepoName"
+      [ -z "$1" ] && printf_exit "Usage: gitadmin private repos delete RepoName"
+      __gitea_delete_repo "$@"
+    else
+      [ "$1" = "help" ] && printf_help "Usage: gitadmin private repos"
+      [ -z "$1" ] && printf_exit "Usage: gitadmin private repos"
+      __gitea_users "$@"
+    fi
+    exit "$?"
+    ;;
+
   esac
   ;;
 

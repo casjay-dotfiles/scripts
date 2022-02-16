@@ -889,7 +889,7 @@ dotfilesreqadmin() {
   local conf=""
   for conf in ${LISTARRAY[*]}; do
     local TMPINST="$TMPDIR/${conf}.inst.tmp"
-    [ -d "$confdir/$conf" ] || [ -f "$TMPINST" ] || dotfilesreqcmd "$conf"
+    [ -d "$confdir/$conf" ] || [ -f "$TMPINST" ] || dotfilesreqadmincmd "$conf"
   done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

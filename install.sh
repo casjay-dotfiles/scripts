@@ -184,7 +184,8 @@ run_postinst() {
     [[ -f "/usr/local/bin/$file" ]] || ln_sf "$APPDIR/sources/$file" "/usr/local/bin/$file"
   done
   cmd_exists --config &>/dev/null
-  cmd_exists update-motd && update-ip && update-motd || true
+  cmd_exists update-ip && update-ip
+  cmd_exists update-motd && update-motd || true
   dotfilesreqadmin cron
   for mgr in devenvmgr dfmgr dockermgr fontmgr iconmgr passmgr pkmgr systemmgr thememgr wallpapermgr; do
     $mgr --config &>/dev/null

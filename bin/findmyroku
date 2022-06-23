@@ -1,0 +1,257 @@
+#!/usr/bin/env bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version       : 202108190117-git
+# @Author        : Jason Hempstead
+# @Contact       : jason@casjaysdev.com
+# @License       : WTFPL
+# @ReadME        : findmyroku --help
+# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created       : Thursday, Aug 19, 2021 01:17 EDT
+# @File          : findmyroku
+# @Description   : Script to find a ROKU on your network
+# @TODO          :
+# @Other         :
+# @Resource      :
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="$(basename "$0" 2>/dev/null)"
+VERSION="202108190117-git"
+HOME="${USER_HOME:-$HOME}"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${SUDO_USER:-$USER}"
+SRC_DIR="${BASH_SOURCE%/*}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set bash options
+if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import functions
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+  . "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  exit 1
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# user system devenv dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+user_install
+__options "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set functions
+__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gen_config() {
+  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Generating the config file in"
+  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "$FINDMYROKU_CONFIG_DIR/$FINDMYROKU_CONFIG_FILE"
+  [ -d "$FINDMYROKU_CONFIG_DIR" ] || mkdir -p "$FINDMYROKU_CONFIG_DIR"
+  [ -d "$FINDMYROKU_CONFIG_BACKUP_DIR" ] || mkdir -p "$FINDMYROKU_CONFIG_BACKUP_DIR"
+  [ -f "$FINDMYROKU_CONFIG_DIR/$FINDMYROKU_CONFIG_FILE" ] &&
+    cp -Rf "$FINDMYROKU_CONFIG_DIR/$FINDMYROKU_CONFIG_FILE" "$FINDMYROKU_CONFIG_BACKUP_DIR/$FINDMYROKU_CONFIG_FILE.$$"
+  cat <<EOF >"$FINDMYROKU_CONFIG_DIR/$FINDMYROKU_CONFIG_FILE"
+# Settings for findmyroku
+FINDMYROKU_SAVED_FILE="${FINDMYROKU_SAVED_FILE:-$HOME/Documents/MyRaspi.txt}"
+
+# Notification settings
+FINDMYROKU_GOOD_MESSAGE="${FINDMYROKU_GOOD_MESSAGE:-Everything Went OK}"
+FINDMYROKU_ERROR_MESSAGE="${FINDMYROKU_ERROR_MESSAGE:-Well something seems to have gone wrong}"
+FINDMYROKU_NOTIFY_ENABLED="${FINDMYROKU_NOTIFY_ENABLED:-yes}"
+FINDMYROKU_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+FINDMYROKU_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$FINDMYROKU_NOTIFY_CLIENT_ICON}"
+
+# Colorization settings
+FINDMYROKU_OUTPUT_COLOR="${FINDMYROKU_OUTPUT_COLOR:-5}"
+FINDMYROKU_OUTPUT_COLOR_GOOD="${FINDMYROKU_OUTPUT_COLOR_GOOD:-2}"
+FINDMYROKU_OUTPUT_COLOR_ERROR="${FINDMYROKU_OUTPUT_COLOR_ERROR:-1}"
+
+EOF
+  if [ -f "$FINDMYROKU_CONFIG_DIR/$FINDMYROKU_CONFIG_FILE" ]; then
+    [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for $APPNAME has been created"
+    exitCode=0
+  else
+    printf_red "Failed to create the config file"
+    exitCode=1
+  fi
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional functions
+__gethostname() {
+  local host="$1"
+  cmd_exists nslookup && sethost="$(getent hosts $host 2>/dev/null | head -n 1 | awk '{print $2}' || echo "$host")"
+  echo "$host    $sethost" >>"$FINDMYROKU_SAVED_FILE" 2>/dev/null
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__display_devices() {
+  while IFS="" read -r device || [ -n "$device" ]; do
+    printf '\t\t%s\n' "${RED}I have found the following device[s]: ${GREEN}$device${NC}"
+    __gethostname "$device"
+  done <"$FINDMYROKU_TEMP_FILE"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__filter() { tr ' ' '\n' | grep -v '^$' | grep '[0-9].[0-9].[0-9].*/'; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Default variables
+exitCode="0"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application Folders
+FINDMYROKU_SAVED_FILE="${FINDMYROKU_SAVED_FILE:-$HOME/Documents/MyRaspi.txt}"
+FINDMYROKU_LOG_DIR="${FINDMYROKU_LOG_DIR:-$HOME/.local/log/findmyroku}"
+FINDMYROKU_CACHE_DIR="${FINDMYROKU_CACHE_DIR:-$HOME/.cache/findmyroku}"
+FINDMYROKU_CONFIG_DIR="${FINDMYROKU_CONFIG_DIR:-$HOME/.config/myscripts/findmyroku}"
+FINDMYROKU_CONFIG_BACKUP_DIR="${FINDMYROKU_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/findmyroku/backups}"
+FINDMYROKU_TEMP_DIR="${FINDMYROKU_TEMP_DIR:-$HOME/.local/tmp/system_scripts/findmyroku}"
+FINDMYROKU_OPTIONS_DIR="${FINDMYROKU_OPTIONS_DIR:-$HOME/.local/share/myscripts/findmyroku/options}"
+FINDMYROKU_CONFIG_FILE="${FINDMYROKU_CONFIG_FILE:-settings.conf}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+FINDMYROKU_OUTPUT_COLOR="${FINDMYROKU_OUTPUT_COLOR:-4}"
+FINDMYROKU_OUTPUT_COLOR_2="${FINDMYROKU_OUTPUT_COLOR:-6}"
+FINDMYROKU_OUTPUT_COLOR_GOOD="${FINDMYROKU_OUTPUT_COLOR_GOOD:-2}"
+FINDMYROKU_OUTPUT_COLOR_ERROR="${FINDMYROKU_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+FINDMYROKU_GOOD_MESSAGE="${FINDMYROKU_GOOD_MESSAGE:-Everything Went OK}"
+FINDMYROKU_ERROR_MESSAGE="${FINDMYROKU_ERROR_MESSAGE:-Well something seems to have gone wrong}"
+FINDMYROKU_NOTIFY_ENABLED="${FINDMYROKU_NOTIFY_ENABLED:-yes}"
+FINDMYROKU_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+FINDMYROKU_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$FINDMYROKU_NOTIFY_CLIENT_ICON}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application overrides
+FINDMYROKU_MAC_RANGE=(
+  DC3A5E
+  D83134
+  D04D2C
+  CC6DA0
+  C83A6B
+  B8A175
+  B83E59
+  B0EE7B
+  B0A737
+  ACAE19
+  AC3A7A
+  8C4962
+  88DEA9
+  84EAED
+  105932
+  080581
+  000D4B
+)
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate non-existing config files
+[ -f "$FINDMYROKU_CONFIG_DIR/$FINDMYROKU_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$FINDMYROKU_CONFIG_DIR/$FINDMYROKU_CONFIG_FILE" ] && . "$FINDMYROKU_CONFIG_DIR/$FINDMYROKU_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories and files exist
+[ -d "$FINDMYROKU_LOG_DIR" ] || mkdir -p "$FINDMYROKU_LOG_DIR" &>/dev/null
+[ -d "$FINDMYROKU_TEMP_DIR" ] || mkdir -p "$FINDMYROKU_TEMP_DIR" &>/dev/null
+[ -d "$FINDMYROKU_CACHE_DIR" ] || mkdir -p "$FINDMYROKU_CACHE_DIR" &>/dev/null
+FINDMYROKU_TEMP_FILE="${FINDMYROKU_TEMP_FILE:-$(mktemp $FINDMYROKU_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap 'exitCode=${exitCode:-$?};[ -n "$FINDMYROKU_TEMP_FILE" ] && [ -f "$FINDMYROKU_TEMP_FILE" ] && rm -Rf "$FINDMYROKU_TEMP_FILE" &>/dev/null' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+if [ "$FINDMYROKU_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${FINDMYROKU_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${FINDMYROKU_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${FINDMYROKU_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${FINDMYROKU_NOTIFY_CLIENT_ICON}"
+    notifications "$@" || return 1
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS=""
+LONGOPTS="options,config,version,help,dir:"
+ARRAY=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --options)
+    shift 1
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  --dir)
+    FINDMYROKU_CWD="$2"
+    shift 2
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+cmd_exists --error --ask bash nmap || exit 1 # exit 1 if not found
+#am_i_online --error || exit 1     # exit 1 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+default_if=$(ip route list | awk '/^default/ {print $5}')
+[ -z "$1" ] && ip="$(ip -o -f inet addr show $default_if | __filter | awk -F/ '{print $1}')" || ip="$1"
+[ -z "$2" ] && nm="$(ip -o -f inet addr show $default_if | __filter | awk -F/ '{print $2}')" || nm="${2:-24}"
+_IP_NETWORK="${ip%.*}.0"
+_IP_NETMASK="$nm"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+sudoif && ask_for_password true || printf_exit "nmap requires root privileges"
+clear
+if cmd_exists ipcalc unbuffer; then
+  printf_head "25" "${PURPLE}Depending on your network range this may take some time${NC}\n$(unbuffer ipcalc "$ip/$nm" | grep -v '^$' | printf_readline)"
+else
+  printf_green "Searching the $_IP_NETWORK/$_IP_NETMASK network for your Roku"
+fi
+sudo nmap -sP "$ip"/"$nm" 2>/dev/null | awk '/^Nmap/{ip=$NF}/Roku/{print ip}' | sed 's#(##g' | sed 's#)##g' | tee "$FINDMYROKU_TEMP_FILE" &>/dev/null
+if [ -s "$FINDMYROKU_TEMP_FILE" ]; then
+  echo ""
+  printf_head "3" "\n$(__display_devices)\n"
+  echo "" && printf_blue "Saved the list to $FINDMYROKU_SAVED_FILE"
+else
+  printf_red "I didn't find a Roku on your network"
+  exitCode=1
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-$?}

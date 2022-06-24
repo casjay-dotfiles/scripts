@@ -1,0 +1,405 @@
+#!/usr/bin/env bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version       : 202201210409-git
+# @Author        : Jason Hempstead
+# @Contact       : jason@casjaysdev.com
+# @License       : LICENSE.md
+# @ReadME        : buildx --help
+# @Copyright     : Copyright: (c) 2022 Jason Hempstead, Casjays Developments
+# @Created       : Thursday, Feb 03, 2022 14:07 EST
+# @File          : buildx
+# @Description   : Docker buildx wrapper
+# @TODO          :
+# @Other         :
+# @Resource      :
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+PROG="$(basename "$0" 2>/dev/null)"
+VERSION="202201210409-git"
+RUN_USER="${SUDO_USER:-${USER}}"
+USER="${SUDO_USER:-${USER}}"
+HOME="${USER_HOME:-${HOME}}"
+SRC_DIR="${BASH_SOURCE%/*}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set bash options
+if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import functions
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+  . "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  exit 1
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# user system devenv dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+user_install
+__options "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__help() {
+  app_help "4" "Usage: buildx [init, status, version] " \
+    "--options                              -  Show all options" \
+    "-c, --config                           -  Create config file" \
+    "-v, --version                          -  Display version" \
+    "-h, --help                             -  Display help"
+
+  exit $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gen_config() {
+  printf_green "Generating the config file in"
+  printf_green "$BUILDX_CONFIG_DIR/$BUILDX_CONFIG_FILE"
+  [ -d "$BUILDX_CONFIG_DIR" ] || mkdir -p "$BUILDX_CONFIG_DIR"
+  [ -d "$BUILDX_CONFIG_BACKUP_DIR" ] || mkdir -p "$BUILDX_CONFIG_BACKUP_DIR"
+  [ -f "$BUILDX_CONFIG_DIR/$BUILDX_CONFIG_FILE" ] &&
+    cp -Rf "$BUILDX_CONFIG_DIR/$BUILDX_CONFIG_FILE" "$BUILDX_CONFIG_BACKUP_DIR/$BUILDX_CONFIG_FILE.$$"
+  cat <<EOF >"$BUILDX_CONFIG_DIR/$BUILDX_CONFIG_FILE"
+# Settings for buildx
+BUILDX_BUILDER_NAME="${BUILDX_BUILDER_NAME:-mybuilder}"
+BUILDX_DEFAULT_REPO="${BUILDX_DEFAULT_REPO:-casjaysdev}"
+BUILDX_DEFAULT_HUB="${BUILDX_DEFAULT_HUB:-docker.io}"
+BUILDX_DEFAULT_TAG="${BUILDX_DEFAULT_TAG:-latest}"
+BUILDX_REMOVE_BUILD="${BUILDX_REMOVE_BUILD:-}"
+
+# Notification settings
+BUILDX_GOOD_MESSAGE="${BUILDX_GOOD_MESSAGE:-Everything Went OK}"
+BUILDX_ERROR_MESSAGE="${BUILDX_ERROR_MESSAGE:-Well something seems to have gone wrong}"
+BUILDX_NOTIFY_ENABLED="${BUILDX_NOTIFY_ENABLED:-yes}"
+BUILDX_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$PROG}"
+BUILDX_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$BUILDX_NOTIFY_CLIENT_ICON}"
+
+# Colorization settings
+BUILDX_OUTPUT_COLOR="${BUILDX_OUTPUT_COLOR:-5}"
+BUILDX_OUTPUT_COLOR_GOOD="${BUILDX_OUTPUT_COLOR_GOOD:-2}"
+BUILDX_OUTPUT_COLOR_ERROR="${BUILDX_OUTPUT_COLOR_ERROR:-1}"
+
+EOF
+  if [ -f "$BUILDX_CONFIG_DIR/$BUILDX_CONFIG_FILE" ]; then
+    [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for $APPNAME has been created"
+    true
+  else
+    printf_red "Failed to create the config file"
+    false
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional functions
+__usage() {
+  printf_exit 1 2 "Usage: $PROG: [Dockerfile] [name] [tag] [.]" 1>&2
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__docker() {
+  sudo docker "$@" 2>/dev/null && true || false
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__docker_version() {
+  version="$(__docker --version | cut -d' ' -f3 | tr -cd '0-9.' | sed -e 's/ 0*/ /g')"
+  [ -n "$version" ] && printf_blue "Docker version: $version"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__buildx_version() {
+  version="$(__docker version | awk '/^ *Experimental:/ {print $2 ; exit}')"
+  [ -n "$version" ] && printf_blue "Experimental: $version" ||
+    printf_red "Experimental: disabled"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__binfmt_version() {
+  cmd_exists update-binfmts || printf_exit "Please install update-binfmts"
+  version="$(update-binfmts --version | awk '{print $NF}')"
+  [ -n "$version" ] && printf_blue "update-binfmts $version has fix-binary (F) support."
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__qemu_version() {
+  if [[ ! -e '/proc/sys/fs/binfmt_misc/qemu-aarch64' ]]; then
+    if cmd_exists qemu-aarch64-static; then
+      printf_blue "QEMU installed"
+    else
+      printf_red "Missing qemu-user-static package."
+    fi
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__buildx_init() {
+  name="${1:-mybuilder}"
+  __docker buildx | grep 'Usage' | head -n1 | grep -q 'docker buildx' || printf_exit "The module 'docker buildx' is not installed"
+  if ! __docker images | grep -q 'qemu' && ! __docker images | grep -q 'binfmt'; then
+    printf_yellow "Setting up the qemu image - multiarch/qemu-user-static"
+    __docker run --rm --privileged multiarch/qemu-user-static --reset -p yes &>/dev/null
+    printf_yellow "Setting up the binfmt image"
+    __docker run --rm --privileged tonistiigi/binfmt --install all &>/dev/null
+  fi
+  printf_blue "Setting up docker build to use buildx"
+  __docker buildx create --name $name --use &>/dev/null
+  __docker buildx use $name &>/dev/null
+  __docker buildx inspect --bootstrap &>/dev/null
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__buildx_status() {
+  a="$*"
+  e=0
+  c="$(__docker buildx inspect ${1:-$BUILDX_BUILDER_NAME} || false)"
+  r="$(__docker buildx ls | grep ${1:-$BUILDX_BUILDER_NAME} | grep -qi 'running' && echo 'running' || false)"
+  s="$(echo "$c" | grep -i 'Status:' | grep -qi 'running' && echo 'Running' || false)"
+  if [ ${#a} = 0 ]; then
+    [[ -n "$s" ]] && e=0 || e=1
+  else
+    if [[ -n "$s" ]]; then
+      printf '%s\n' "$c"
+      e=0
+    else
+      printf '%s\n' "buildx is not running"
+      e=1
+    fi
+  fi
+  return ${e:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__buildx_exec() {
+  echo "$*" | grep -q '.*.:.*.' && __usage
+  [ $# -ne 0 ] || __usage
+  exitCode=0
+  if [ -f "$PWD/$1" ] || [ -f "$1" ]; then
+    Dockerfile="${1//$PWD\//}"
+    REALPATH="$(dirname "$(realpath "$1")")"
+    dirname="$(basename "$(dirname "$(realpath "$Dockerfile")")")"
+    builtin cd "$REALPATH" || exit 15
+    shift 1
+  elif [ -d "$1" ]; then
+    REALPATH="$(dirname "$(realpath "$1")")"
+    dirname="$(basename "$REALPATH")"
+    builtin cd "$1" || exit 15
+    shift 1
+  fi
+  if [ $# -eq 1 ]; then
+    name="${1:-$dirname}:latest"
+    shift 1
+  elif [ $# -eq 2 ]; then
+    name="${1:-$dirname}:${2:-$tag}"
+    shift 2
+  else
+    REALPATH="$(dirname "$(realpath "$PWD/Dockerfile")")"
+    name="$(basename "$REALPATH")"
+  fi
+  if [ "$BUILDX_DEFAULT_HUB" = "docker.io" ]; then
+    tagged_name="$BUILDX_DEFAULT_REPO/$name"
+  else
+    tagged_name="$BUILDX_DEFAULT_HUB/$BUILDX_DEFAULT_REPO/$name"
+  fi
+  if [ -n "$Dockerfile" ]; then
+    printf_cyan "Using $Dockerfile to build $tagged_name"
+  else
+    printf_cyan "Building $tagged_name"
+  fi
+  printf_blue "Log is being saved to $BUILDX_LOG_DIR/build.log"
+  (
+    exitCodeS=1
+    set -e -o pipefail
+    printf '%s\n' "Building $tagged_name on : $(date +'%Y-%m-%d at %H:%M')"
+    __docker buildx build ${BUILDX_REMOVE_BUILD:-} \
+      --platform "${DOCKER_PLATFORMS// /,}" \
+      --push \
+      --output=type=registry \
+      --progress plain \
+      -f ${Dockerfile:-Dockerfile} \
+      -t "$tagged_name" "${@:-$PWD}" 2>&1 |& grep -v '^$' && exitCodeS=0 || exitCodeS=1
+    printf '###############################################################################\n\n'
+    return ${exitCodeS:-$?}
+  ) &>>"$BUILDX_LOG_DIR/build.log" &&
+    {
+      __notifications "Successfully built $name"
+      printf_green "Successfully built $name"
+
+      __notifications "Pulling the updated image"
+      printf_green "Pulling the updated image"
+      docker pull "$tagged_name" &>/dev/null &&
+        {
+          __notifications "Successfully pulled $tagged_name"
+          printf_green "Successfully pulled $tagged_name"
+        } || {
+        __notifications "Failed to pull $tagged_name"
+        printf_red "Failed to pull $tagged_name"
+        exitCode+=1
+      }
+    } || {
+    __notifications "Failed to build $name"
+    printf_red "Failed to build $name" 1>&2
+    exitCode+=1
+  }
+  echo ''
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Defaults
+exitCode=
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application Folders
+BUILDX_LOG_DIR="${BUILDX_LOG_DIR:-$HOME/.local/log/buildx}"
+BUILDX_CACHE_DIR="${BUILDX_CACHE_DIR:-$HOME/.cache/buildx}"
+BUILDX_CONFIG_DIR="${BUILDX_CONFIG_DIR:-$HOME/.config/myscripts/buildx}"
+BUILDX_OPTIONS_DIR="${BUILDX_OPTIONS_DIR:-$HOME/.local/share/myscripts/buildx/options}"
+BUILDX_CONFIG_BACKUP_DIR="${BUILDX_CONFIG_BACKUP_DIR:-$HOME/.local/myscripts/buildx/backups}"
+BUILDX_TEMP_DIR="${BUILDX_TEMP_DIR:-$HOME/.local/tmp/system_scripts/buildx}"
+BUILDX_CONFIG_FILE="${BUILDX_CONFIG_FILE:-settings.conf}"
+BUILDX_GOOD_MESSAGE="${BUILDX_GOOD_MESSAGE:-Everything Went OK}"
+BUILDX_ERROR_MESSAGE="${BUILDX_ERROR_MESSAGE:-Well something seems to have gone wrong}"
+BUILDX_NOTIFY_ENABLED="${BUILDX_NOTIFY_ENABLED:-yes}"
+BUILDX_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+BUILDX_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$BUILDX_NOTIFY_CLIENT_ICON}"
+BUILDX_OUTPUT_COLOR="${BUILDX_OUTPUT_COLOR:-5}"
+BUILDX_OUTPUT_COLOR_GOOD="${BUILDX_OUTPUT_COLOR_GOOD:-2}"
+BUILDX_OUTPUT_COLOR_ERROR="${BUILDX_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Enviroment overrides
+BUILDX_DEFAULT_REPO="${BUILDX_DEFAULT_REPO:-casjaysdev}"
+BUILDX_DEFAULT_HUB="${BUILDX_DEFAULT_HUB:-docker.io}"
+BUILDX_DEFAULT_TAG="${BUILDX_DEFAULT_TAG:-latest}"
+BUILDX_REMOVE_BUILD="${BUILDX_REMOVE_BUILD:-}"
+BUILDX_BUILDER_NAME="${BUILDX_BUILDER_NAME:-mybuilder}"
+export DOCKER_CLI_EXPERIMENTAL="${DOCKER_CLI_EXPERIMENTAL:-enabled}"
+export DOCKER_PLATFORMS="${DOCKER_PLATFORMS:-linux/amd64,linux/arm64}"
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$BUILDX_CONFIG_DIR/$BUILDX_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$BUILDX_CONFIG_DIR/$BUILDX_CONFIG_FILE" ] && . "$BUILDX_CONFIG_DIR/$BUILDX_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$BUILDX_LOG_DIR" ] || mkdir -p "$BUILDX_LOG_DIR" &>/dev/null
+[ -d "$BUILDX_TEMP_DIR" ] || mkdir -p "$BUILDX_TEMP_DIR" &>/dev/null
+[ -d "$BUILDX_CACHE_DIR" ] || mkdir -p "$BUILDX_CACHE_DIR" &>/dev/null
+BUILDX_TEMP_FILE="${BUILDX_TEMP_FILE:-$(mktemp $BUILDX_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap 'exitCode=${exitCode:-$?};[ -n "$BUILDX_TEMP_FILE" ] && [ -f "$BUILDX_TEMP_FILE" ] && rm -Rf "$BUILDX_TEMP_FILE" &>/dev/null' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+if [ "$BUILDX_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${BUILDX_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${BUILDX_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${BUILDX_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${BUILDX_NOTIFY_CLIENT_ICON}"
+    notifications "$@" && exitCode=0 || exitCode=1
+    unset NOTIFY_CLIENT_NAME NOTIFY_CLIENT_ICON NOTIFY_GOOD_MESSAGE NOTIFY_ERROR_MESSAGE
+    return ${exitCode:-$?}
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Argument/Option settings
+SETARGS="$*"
+SHORTOPTS=""
+LONGOPTS="options,config,version,help,dir:"
+ARRAY=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case "$1" in
+  --options)
+    shift 1
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  --dir)
+    BUILDX_CWD="$2"
+    shift 2
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+cmd_exists --error bash docker || exit 1 # exit 1 if not found
+#am_i_online --error || exit 1     # exit 1 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+case "$1" in
+init)
+  shift
+  __buildx_init "$@"
+  exit $?
+  ;;
+
+status)
+  shift 1
+  if [[ $# -eq 0 ]]; then
+    __buildx_status &&
+      printf_blue "BuildX is running" ||
+      printf_red "buildx is not running"
+  else
+    __buildx_status "$@" | printf_readline 4
+  fi
+  exit $?
+  ;;
+
+version)
+  __docker_version
+  __buildx_version
+  __binfmt_version
+  __qemu_version
+  exit 0
+  ;;
+
+*)
+  if [[ $# -ne 0 ]]; then
+    __buildx_init &>/dev/null && __buildx_exec "$@"
+  else
+    __usage
+    exit
+  fi
+  ;;
+esac
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+return ${exitCode:-$?}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-$?}

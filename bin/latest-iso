@@ -82,18 +82,18 @@ EOF
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional functions
 __test_iso() {
-  echo "$1" | grep -qE '*\.iso$' || return 1
+  local test="$(echo "$1" | grep -aE 'http|ftp' | grep -a '.iso$' | grep '^' || echo '')"
+  local verify="$([[ -n "$test" ]] && __urlcheck "$test" &>/dev/null && echo 'valid' || echo 'error')"
+  [[ "$verify" = "valid" ]] || test=""
+  [[ -n "$test" ]] && return 0 || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __strip_iso() {
-  grep -E 'http|ftp' |
-    grep -E '[_|-|.]*.*[_|-|.]' |
-    grep -v 'torrent' |
-    grep -v 'target' |
-    grep -v 'ti-download' |
-    grep '.*.iso' |
-    head -n1 |
-    grep '^'
+  grep -aE '[_|-|.]*.*[_|-|.]' |
+    grep -av 'torrent' |
+    grep -av 'target' |
+    grep -av 'ti-download' |
+    grep -a '.iso'
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __strip_tags() {
@@ -107,6 +107,24 @@ __strip_tags() {
     sed 's|>.*||g' |
     sed "s|$iso/download$|$iso|g" |
     sed 's|.iso.torrent|.iso|g'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__verify_arch() {
+  local latest="${1:-$latest}"
+  if echo "$latest" | grep -q 'x86_64'; then
+    arch="x86_64"
+  elif echo "$latest" | grep -q 'amd64'; then
+    arch="x86_64"
+  elif echo "$latest" | grep -qE 'i[1-9]86'; then
+    arch="i386"
+  elif echo "$latest" | grep -q 'aarch64'; then
+    arch="arm64"
+  elif echo "$latest" | grep -q 'arm*'; then
+    arch="arm"
+  else
+    arch="x86_64"
+  fi
+  echo "$arch"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_arch() {
@@ -124,59 +142,86 @@ __get_arch() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __find_iso() {
   local url="$1"
-  local iso=""
+  local iso_url=""
   local arch="$(__get_arch)"
-  iso="$(curl -q -LSsf "$url" 2>/dev/null | grep "$arch" | grep 'a href="*.*"' | grep -E '[http,ftp]*.*\.iso' | __strip_tags | __strip_iso || return)"
-  if [ -z "$iso" ] && ! __test_iso "$iso"; then
-    iso="$(curl -q -LSsf "$url" 2>/dev/null | grep 'a href="' | grep '.*\.iso' | grep -iE "amd64|x86_64" | __strip_tags | __strip_iso || return)"
+  if __test_iso "$url"; then
+    iso_url="$url"
+  else
+    iso_url="$(curl -q -LSsf "$url" 2>/dev/null | grep "$arch" | grep 'href="*.*"' | grep -E '[http,ftp]*.*\.iso' | __strip_tags | __strip_iso | head -n1 | grep '^' || echo '')"
+    [ -n "$iso_url" ] && __test_iso "$iso_url" || iso_url=""
+    if [ -z "$iso_url" ]; then
+      iso_url="$(curl -q -LSsf "$url" 2>/dev/null | grep 'href="*.*"' | grep -iE "$arch" | __strip_tags | __strip_iso | head -n1 | grep '^' || echo '')"
+      [ -n "$iso_url" ] && __test_iso "$iso_url" || iso_url=""
+    fi
+    if [ -z "$iso_url" ]; then
+      iso_url="$(curl -q -LSsf "$url" | grep -E 'x86_64|amd64' | __strip_tags | __strip_iso | head -n1 | grep '^' || echo '')"
+      [ -n "$iso_url" ] && __test_iso "$iso_url" || iso_url=""
+    fi
+    if [ -z "$iso_url" ]; then
+      iso_url="$(curl -q -LSsf "$url" 2>/dev/null | __strip_tags | __strip_iso | head -n1 | grep '^' || echo '')"
+      [ -n "$iso_url" ] && __test_iso "$iso_url" || iso_url=""
+    fi
+    if [ -z "$iso_url" ]; then
+      isor="$(curl -q -LSsf "$url" 2>/dev/null | grep '\.iso' | __strip_tags | head -n1 | grep '^' || echo '')"
+      iso_url="$url/$isor"
+      [ -n "$iso_url" ] && __test_iso "$iso_url" || iso_url=""
+    fi
+    if [ -z "$iso_url" ]; then
+      iso_url="$(curl -q -LSsf "$url" | __strip_tags | __strip_iso | head -n1 | grep '^' || echo '')"
+      [ -n "$iso_url" ] && __test_iso "$iso_url" || iso_url=""
+    fi
   fi
-  if [ -z "$iso" ] && ! __test_iso "$iso"; then
-    iso="$(curl -q -LSsf "$url" 2>/dev/null | grep '.*\.iso' | __strip_tags | __strip_iso || return)"
+  if [ -n "$iso_url" ]; then
+    echo "$iso_url"
+  elif [ -n "$iso_url" ] && __test_iso "$iso_url"; then
+    echo "$iso_url"
+  else
+    echo ""
   fi
-  if [ -z "$iso" ] && ! __test_iso "$iso"; then
-    isor="$(curl -q -LSsf "$url" 2>/dev/null | grep '.*\.iso' | __strip_tags | head -n1 || return)"
-    iso="$url/$isor"
-  fi
-  if [ -z "$iso" ] && ! __test_iso "$iso"; then
-    iso="$(curl -q -LSsf "$url" | __strip_tags | __strip_iso || return)"
-  fi
-  [ -n "$iso" ] && echo "$iso" || exit 10
-  __test_iso "$iso" || exit 10
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __latest_iso() {
-  local iso url latest download_dir
+  local latest
+  local download_dir
   local exitCode="0"
   url="${1:-$url}"
   file="${2:-$file}"
-  latest=$(__find_iso "$url")
-  iso=$(basename "$latest" 2>/dev/null)
-  download_dir=$(dirname "${2:-$LATEST_ISO_DOWNLOAD_DIR/$iso}" 2>/dev/null)
+  printf_green "Attemping to locate the ISO from: "
+  printf_cyan "$url"
+  latest=$(__find_iso "${url}")
+  localname=$(basename "$latest" 2>/dev/null)
+  download_dir=$(dirname "${2:-$LATEST_ISO_DOWNLOAD_DIR/$localname}" 2>/dev/null)
   download_file="$download_dir/${file//$download_dir\//}"
-  filesize="$(__filesize "$latest")"
   [ -n "$FORCE_INST" ] && __rm_rf "$download_file"
   [ -d "$download_dir" ] || mkdir -p "$download_dir"
   [ -z "$latest" ] && printf_exit "No iso found on $url"
   [ -d "$download_file" ] && printf_exit "The download file should not be a directory: $download_file"
-  echo "$latest" | grep -qE '*\.iso$' || printf_exit "$latest seems to be invalid"
+  echo "$latest" | grep -q '.iso$' || printf_exit "$latest seems to be invalid"
   if [ -e "$download_file" ] && [ "$LATEST_ISO_OVERWRITE" != "yes" ]; then
     printf_exit "File already exists: $download_file"
   fi
-  if [ -n "$latest" ]; then
-    printf_green "Attemping to locate the ISO from: "
-    printf_purple "$url for $arch"
-    printf_cyan "Grabbing iso from $latest"
-    printf_purple "and saving it to $download_file"
-    printf_blue "The size of the ISO is: $filesize"
-  fi
-  __grab_iso "$latest" "$download_file" && exitCode=0 || exitCode=1
+  url="${url:-}" __grab_iso "$latest" "$download_file" && exitCode=0 || exitCode=1
   [[ "$exitCode" = 0 ]] && [ -f "$download_file" ] && return 0 || return 5
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __grab_iso() {
   local latest="${1:-$latest}"
   local download_file="${2:-$download_file}"
+  local filesize="$(__filesize "$latest")"
+  local system_arch="$(__get_arch)"
+  local iso_arch="$(__verify_arch "$latest")"
   local exitCode=0
+  if [[ "$filesize" = "0" || "$filesize" = "0B" ]]; then
+    printf_red "URL $latest"
+    printf_exit "doesn't seem to be a valid ISO image"
+  fi
+  [[ "$system_arch" = "$iso_arch" ]] && arch="$system_arch" || arch="$iso_arch"
+  if [ -n "$latest" ]; then
+    printf_cyan "Grabbing iso for $arch from:"
+    printf_green "$latest"
+    printf_purple "and saving it to $download_file"
+    printf_blue "The size of the ISO is: $filesize"
+  fi
   if [ "$LATEST_ISO_OVERWRITE" != "yes" ]; then
     curl -q -LSsf -o "$download_file" -C - "$latest" 2>/dev/null && success="true" || success="false"
   else
@@ -195,11 +240,14 @@ __grab_iso() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __filesize() {
   local head="$(curl -q -sfSLI "$1" 2>/dev/null)"
-  local content_length_count="$(echo "$head" | grep -ic 'content-length')"
-  if [ "$content_length_count" -eq 1 ]; then
-    content_length="$(echo "$head" | grep -i 'content-length' | head -n1 | awk -v IGNORECASE=1 'BEGIN{RS="\r\n"} /^content-length/ { print $2 }')"
-  elif [ "$content_length_count" -gt 1 ]; then
-    content_length="$(echo "$head" | grep -i 'content-length' | tail -n1 | awk -v IGNORECASE=1 'BEGIN{RS="\r\n"} /^content-length/ { print $2 }')"
+  local content_length_count="$(echo "$head" | grep -ic 'content-length' || echo 1)"
+  if [[ $content_length_count = 1 ]]; then
+    content_length="$(echo "$head" | grep -ai 'content-length' | head -n1 | awk -v IGNORECASE=1 'BEGIN{RS="\r\n"} /^content-length/ { print $2 }')"
+  elif [[ "$content_length_count" != 1 ]]; then
+    content_length="$(echo "$head" | grep -ai 'content-length' | tail -n1 | awk -v IGNORECASE=1 'BEGIN{RS="\r\n"} /^content-length/ { print $2 }')"
+  fi
+  if [[ "$content_length" = 0B ]]; then
+    content_length=0
   fi
   [ -n "$content_length" ] || content_length=0
   if cmd_exists numfmt; then
@@ -209,6 +257,10 @@ __filesize() {
   else
     echo "$content_length"
   fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_iso() {
+  curl -q -LSsf "$1" 2>/dev/null | grep -a "$2" | __strip_tags | __strip_iso | head -n1 || return
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default variables
@@ -370,7 +422,7 @@ fedora)
   ;;
 heads)
   shift 1
-  __latest_iso "https://files.dyne.org/heads/" "$LATEST_ISO_DOWNLOAD_DIR/heads.iso"
+  __latest_iso "https://files.dyne.org/heads" "$LATEST_ISO_DOWNLOAD_DIR/heads.iso"
   ;;
 kali)
   shift 1
@@ -378,11 +430,12 @@ kali)
   ;;
 parrot)
   shift 1
-  __latest_iso "https://www.parrotsec.org/security-edition/" "$LATEST_ISO_DOWNLOAD_DIR/parrot.iso"
+  isoname="https://cdimage.parrotsec.org/parrot/iso/current/$(__get_iso "https://cdimage.parrotsec.org/parrot/iso/current" "security" | head -n1)"
+  __latest_iso "${isoname}" "$LATEST_ISO_DOWNLOAD_DIR/parrot.iso"
   ;;
 peppermint)
   shift 1
-  __latest_iso "https://peppermintos.com/guide/downloading/" "$LATEST_ISO_DOWNLOAD_DIR/peppermint.iso"
+  __latest_iso "https://peppermintos.com/guide/downloading" "$LATEST_ISO_DOWNLOAD_DIR/peppermint.iso"
   ;;
 photon)
   shift 1

@@ -108,9 +108,12 @@ __find_iso() {
   local url="$1"
   local iso=""
   local arch="$(__get_arch)"
-  iso="$(curl -q -LSsf "$url" 2>/dev/null | grep "$arch" | grep 'a href="' | grep -E '[http,ftp]*.*.*iso' | grep -v 'torrent' | grep 'http' | head -n1 | __strip_tags | grep '^' || return)"
+  iso="$(curl -q -LSsf "$url" 2>/dev/null | grep '.*\.iso' | grep "$arch" | grep 'a href="' | grep -E '[http,ftp]*.*.*iso' | grep -v 'torrent' | grep 'http' | head -n1 | __strip_tags | grep '^' || return)"
   if [ -z "$iso" ]; then
-    iso="$(curl -q -LSsf "$url" 2>/dev/null | grep -E '[http,ftp]*.*.*iso' | grep -v 'torrent' | head -n1 | __strip_tags | grep '^' || return)"
+    iso="$(curl -q -LSsf "https://tails.boum.org/install/dvd/index.en.html" 2>/dev/null | __strip_tags | grep '.*\.iso' | grep "amd" | grep -E '[http,ftp]*.*.*iso' | grep -v 'torrent' | head -n1 | grep '^' || return)"
+  fi
+  if [ -z "$iso" ]; then
+    iso="$(curl -q -LSsf "$url" 2>/dev/null | __strip_tags | grep -E '[http,ftp]*.*.*iso' | grep -v 'torrent' | head -n1 | __strip_tags | grep '^' || return)"
   fi
   if [ -z "$iso" ]; then
     iso="$(curl -q -LSsf "$url" 2>/dev/null | __strip_tags | grep -E '.*.*iso' | grep -Ev 'torrent' | grep '.iso' | head -n1 | __strip_tags | grep '^' || return)"
@@ -128,11 +131,21 @@ __latest_iso() {
   iso=$(basename "$latest" 2>/dev/null)
   download_dir=$(dirname "${2:-$LATEST_ISO_DOWNLOAD_DIR/$iso}" 2>/dev/null)
   download_file="$download_dir/${file//$download_dir\//}"
+  filesize="$(__filesize "$latest")"
   [ -n "$FORCE_INST" ] && __rm_rf "$download_file"
+  [ -d "$download_dir" ] || mkdir -p "$download_dir"
   [ -z "$latest" ] && printf_exit "No iso found on $url"
   [ -d "$download_file" ] && printf_exit "The download file should not be a directory: $download_file"
-  [ -e "$download_file" ] && printf_exit "File already exists: $download_file"
-  [ -d "$download_dir" ] || mkdir -p "$download_dir"
+  if [ -e "$download_file" ] && [ "$LATEST_ISO_OVERWRITE" != "yes" ]; then
+    printf_exit "File already exists: $download_file"
+  fi
+  if [ -n "$latest" ]; then
+    printf_green "Attemping to locate the ISO from: "
+    printf_purple "$url for $arch"
+    printf_cyan "Grabbing iso from $latest"
+    printf_purple "and saving it to $download_file"
+    printf_blue "The size of the ISO is: $filesize"
+  fi
   __grab_iso "$latest" "$download_file" && exitCode=0 || exitCode=1
   [[ "$exitCode" = 0 ]] && [ -f "$download_file" ] && return 0 || return 5
 }
@@ -140,14 +153,39 @@ __latest_iso() {
 __grab_iso() {
   local latest="${1:-$latest}"
   local download_file="${2:-$download_file}"
-  printf_cyan "Grabbing iso from $latest"
-  printf_purple "and saving it to $download_file"
-  curl -q -LSsf "$latest" -o "$download_file" 2>/dev/null &&
-    printf_green "Downloading of the ISO was successful" || {
+  local exitCode=0
+  if [ "$LATEST_ISO_OVERWRITE" != "yes" ]; then
+    curl -q -LSsf -o "$download_file" -C - "$latest" 2>/dev/null && success="true" || success="false"
+  else
+    curl -q -LSsf -o "$download_file" "$latest" 2>/dev/null && success="true" || success="false"
+  fi
+  if [ "$success" = "true" ]; then
+    printf_green "Downloading of the ISO was successful"
+    exitCode=0
+  else
     printf_red "Error downloading the ISO"
-    echo ""
-    return 1
-  }
+    exitCode=1
+  fi
+  echo ""
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__filesize() {
+  local head="$(curl -q -sfSLI "$1")"
+  local content_length_count="$(echo "$head" | grep -ic 'Content-Length')"
+  if [ "$content_length_count" -eq 1 ]; then
+    content_length="$(echo "$head" | grep -i 'Content-Length' | head -n1 | awk 'BEGIN{RS="\r\n"} /^Content-Length/ { print $2 }')"
+  elif [ "$content_length_count" -ne 1 ]; then
+    content_length="$(echo "$head" | grep -i 'Content-Length' | tail -n1 | awk 'BEGIN{RS="\r\n"} /^Content-Length/ { print $2 }')"
+  fi
+  [ -n "$content_length" ] || content_length=0
+  if cmd_exists numfmt; then
+    numfmt --to=iec-i --suffix=B "$content_length"
+  elif cmd_exists gnumfmt; then
+    gnumfmt --to=iec-i --suffix=B "$content_length"
+  else
+    echo "$content_length"
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default variables
@@ -209,7 +247,7 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set additional variables/Argument/Option settings
 SETARGS="$*"
-SHORTOPTS=""
+SHORTOPTS="C"
 LONGOPTS="options,config,version,help,dir:,force,all,ask"
 ARRAY="iso alpine arcolinux debian fedora heads kali parrot "
 ARRAY+="peppermint photon tails tinylinux "
@@ -261,6 +299,10 @@ while :; do
     shift 1
     echo "$ARRAY"
     exit
+    ;;
+  -C)
+    shift 1
+    LATEST_ISO_OVERWRITE="yes"
     ;;
   --)
     shift 1
@@ -325,7 +367,7 @@ photon)
   ;;
 tails)
   shift 1
-  __latest_iso "https://tails.boum.org/install/dvd-download/index.en.html" "$LATEST_ISO_DOWNLOAD_DIR/tails.iso"
+  __latest_iso "https://tails.boum.org/install/dvd/index.en.html" "$LATEST_ISO_DOWNLOAD_DIR/tails.iso"
   ;;
 tinylinux)
   shift 1

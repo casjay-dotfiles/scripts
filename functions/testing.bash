@@ -592,15 +592,18 @@ printf_debug() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __yad__text() {
+  set -o pipefail
   local title="$1"
   local color="$2"
   if cmd_exists yad; then
     cat - | yad --text-info --center --title="$title" --width=${YAD_WIDTH:-400} --height=${YAD_HEIGHT:-400} 2>/dev/null &
+    return $?
   elif cmd_exists zenity; then
     cat - | zenity --text-info --center --title="$title" --width=${YAD_WIDTH:-400} --height=${YAD_HEIGHT:-400} 2>/dev/null &
+    return $?
   else
     printf_readline $color
-    return 1
+    return $?
   fi
 }
 __yad__list() {

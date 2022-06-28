@@ -596,10 +596,10 @@ __yad__text() {
   local title="$1"
   local color="$2"
   if cmd_exists yad; then
-    cat - | yad --text-info --center --title="$title" --width=${YAD_WIDTH:-400} --height=${YAD_HEIGHT:-400} 2>/dev/null &
+    cat - | yad --text-info --center --title="$title" --width=${YAD_WIDTH:-500} --height=${YAD_HEIGHT:-400} 2>/dev/null &
     return $?
   elif cmd_exists zenity; then
-    cat - | zenity --text-info --center --title="$title" --width=${YAD_WIDTH:-400} --height=${YAD_HEIGHT:-400} 2>/dev/null &
+    cat - | zenity --text-info --title="$title" --width=${YAD_WIDTH:-500} --height=${YAD_HEIGHT:-400} 2>/dev/null &
     return $?
   else
     cat - | printf_readline $color
@@ -609,9 +609,9 @@ __yad__text() {
 __yad__list() {
   local title="$1"
   if cmd_exists yad; then
-    yad --list --center --title="$title" --width=${YAD_WIDTH:-400} --height=${YAD_HEIGHT:-400} --column=${2:-Results} 2>/dev/null &
+    yad --list --center --title="$title" --width=${YAD_WIDTH:-500} --height=${YAD_HEIGHT:-400} --column=${2:-Results} 2>/dev/null &
   elif cmd_exists zenity; then
-    zenity --list --center --title="$title" --width=${YAD_WIDTH:-400} --height=${YAD_HEIGHT:-400} --column=${2:-Results} 2>/dev/null &
+    zenity --list --center --title="$title" --width=${YAD_WIDTH:-500} --height=${YAD_HEIGHT:-400} --column=${2:-Results} 2>/dev/null &
   else
     return 1
   fi

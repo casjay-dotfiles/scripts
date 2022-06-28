@@ -609,10 +609,11 @@ __yad__text() {
 __yad__list() {
   local title="$1"
   if cmd_exists yad; then
-    yad --list --center --title="$title" --width=${YAD_WIDTH:-500} --height=${YAD_HEIGHT:-400} --column=${2:-Results} 2>/dev/null &
+    cat - | yad --list --center --title="$title" --width=${YAD_WIDTH:-500} --height=${YAD_HEIGHT:-400} --column=${2:-Results} 2>/dev/null &
   elif cmd_exists zenity; then
-    zenity --list --center --title="$title" --width=${YAD_WIDTH:-500} --height=${YAD_HEIGHT:-400} --column=${2:-Results} 2>/dev/null &
+    cat - | zenity --list --center --title="$title" --width=${YAD_WIDTH:-500} --height=${YAD_HEIGHT:-400} --column=${2:-Results} 2>/dev/null &
   else
+    cat - | printf_readline $color
     return 1
   fi
 }

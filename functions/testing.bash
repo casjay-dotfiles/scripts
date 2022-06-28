@@ -599,7 +599,7 @@ __yad__text() {
   elif cmd_exists zenity; then
     cat - | zenity --text-info --center --title="$title" --width=${YAD_WIDTH:-400} --height=${YAD_HEIGHT:-400} 2>/dev/null &
   else
-    #printf_readline $color
+    printf_readline $color
     return 1
   fi
 }

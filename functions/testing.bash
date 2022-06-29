@@ -453,8 +453,6 @@ printf_question_term() {
 printf_read_input() {
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="1"
   local msg="$1" && shift 1
-  local readopts=""
-  local reply=""
   test -n "$1" && test -z "${1//[0-9]/}" && local lines="$1" && shift 1 || local lines="120"
   local reply="${1:-REPLY}" && shift 1
   local readopts="${1:-}" && shift 1

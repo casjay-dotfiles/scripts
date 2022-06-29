@@ -86,7 +86,17 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional functions
-__get_ip() { curl -q -LSs "https://ifconfig.co" || curl -q -s "https://api.ipify.org" || curl -q -s "https://ipv4.icanhazip.com/"; }
+__get_ip() {
+  curl -q -LSs -4 "https://ifconfig.co" ||
+    curl -q -s -4 "https://api.ipify.org" ||
+    curl -q -s -4 "https://ipv4.icanhazip.com/"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_ip6() {
+  curl -q -LSs -6 "https://ifconfig.co" ||
+    curl -q -s -6 "https://api.ipify.org" ||
+    curl -q -s -6 "https://ipv4.icanhazip.com/"
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __message() {
   if grep 'success' "$CLOUDFLARE_TEMP_FILE" | grep -q 'true'; then
@@ -102,9 +112,11 @@ __message() {
 __zone_identifier() {
   get_api() {
     CLOUDFLARE_ZONE="${1:-$CLOUDFLARE_ZONE}"
-    curl -q -LSsf -X GET "https://api.cloudflare.com/client/v4/zones?name=$CLOUDFLARE_ZONE" \
-      -H 'Authorization: Bearer '$CLOUDFLARE_API_KEY'' \
-      -H 'Content-Type: application/json' 2>/dev/null
+    curl -q -LSsf -X GET \
+      -H "Authorization: Bearer $CLOUDFLARE_API_KEY" \
+      -H "Content-Type: application/json" \
+      "https://api.cloudflare.com/client/v4/zones?name=$CLOUDFLARE_ZONE" 2>/dev/null
+
   }
   results=$(get_api)
   if echo "$results" | jq '.success' 2>/dev/null | grep -q 'false'; then
@@ -116,23 +128,31 @@ __zone_identifier() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __record_identifier() {
   get_api() {
-    curl -q -LSs -X GET "https://api.cloudflare.com/client/v4/zones/$(__zone_identifier)/dns_records" \
+    curl -q -LSs -X GET \
       -H "Authorization: Bearer $CLOUDFLARE_API_KEY" \
-      -H "Content-Type: application/json"
+      -H "Content-Type: application/json" \
+      "https://api.cloudflare.com/client/v4/zones/$(__zone_identifier)/dns_records"
   }
   results=$(get_api)
   if echo "$results" | jq '.success' 2>/dev/null | grep -q 'false'; then
     return 1
   else
-    echo "$results" | jq -rc '.result | .[] | [.name,.id]' 2>/dev/null | grep "${CLOUDFLARE_RECORD:-^}" | tr -d '][' | sed 's|["]||g' | awk -F, '{print $2}' | head -n1
+    echo "$results" |
+      jq -rc '.result | .[] | [.name,.id]' 2>/dev/null |
+      grep "${CLOUDFLARE_RECORD:-^}" |
+      tr -d '][' |
+      sed 's|["]||g' |
+      awk -F, '{print $2}' |
+      head -n1
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __api() {
   get_api() {
-    curl -q -LSs -X GET "https://api.cloudflare.com/client/v4/zones/$(__zone_identifier)/dns_records" \
+    curl -q -LSs -X GET \
       -H "Authorization: Bearer $CLOUDFLARE_API_KEY" \
-      -H "Content-Type: application/json"
+      -H "Content-Type: application/json" \
+      "https://api.cloudflare.com/client/v4/zones/$(__zone_identifier)/dns_records"
   }
   results=$(get_api)
   if echo "$results" | jq '.success' 2>/dev/null | grep -q 'false'; then
@@ -144,9 +164,10 @@ __api() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __api_full() {
   get_api() {
-    curl -q -LSs -X GET "https://api.cloudflare.com/client/v4/zones/$(__zone_identifier)/dns_records" \
+    curl -q -LSs -X GET \
       -H "Authorization: Bearer $CLOUDFLARE_API_KEY" \
-      -H "Content-Type: application/json"
+      -H "Content-Type: application/json" \
+      "https://api.cloudflare.com/client/v4/zones/$(__zone_identifier)/dns_records"
   }
   get_api | jq -r '.result | .[]' 2>/dev/null
 }
@@ -154,24 +175,26 @@ __api_full() {
 __delete_record() {
   printf_blue "Attempting to delete host"
   get_api() {
-    curl -q -LSs -X DELETE "https://api.cloudflare.com/client/v4/zones/$(__zone_identifier)/dns_records/$(__record_identifier)" \
+    curl -q -LSs -X DELETE \
       -H "Authorization: Bearer $CLOUDFLARE_API_KEY" \
-      -H "Content-Type: application/json"
+      -H "Content-Type: application/json" \
+      "https://api.cloudflare.com/client/v4/zones/$(__zone_identifier)/dns_records/$(__record_identifier)"
   }
   get_api >>"$CLOUDFLARE_TEMP_FILE"
   __message "Successfully deleted $CLOUDFLARE_RECORD"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_record() {
-  local CLOUDFLARE_RECORD="${1:-$CLOUDFLARE_RECORD}"
-  local CLOUDFLARE_DNS_TYPE="${2:-$CLOUDFLARE_DNS_TYPE}"
-  local CLOUDFLARE_PROXY="${3:-$CLOUDFLARE_PROXY}"
+  CLOUDFLARE_RECORD="${1:-$CLOUDFLARE_RECORD}"
+  CLOUDFLARE_DNS_TYPE="${2:-$CLOUDFLARE_DNS_TYPE}"
+  CLOUDFLARE_PROXY="${3:-$CLOUDFLARE_PROXY}"
   printf_blue "Attempting to create a new host"
   get_api() {
-    curl -q -LSs -X POST "https://api.cloudflare.com/client/v4/zones/$(__zone_identifier)/dns_records" \
-      -H "Accept: application/json" \
+    curl -q -LSs -X POST \
+      -H "Content-Type: application/json" \
       -H "Authorization: Bearer $CLOUDFLARE_API_KEY" \
-      --data "{\"type\":\"${CLOUDFLARE_DNS_TYPE}\",\"name\":\"${CLOUDFLARE_RECORD}\",\"content\":\"${CLOUDFLARE_IP_ADDR}\",\"ttl\":120,\"priority\":0,\"proxied\":${CLOUDFLARE_PROXY}}"
+      --data "{\"type\":\"${CLOUDFLARE_DNS_TYPE}\",\"name\":\"${CLOUDFLARE_RECORD}\",\"content\":\"${CLOUDFLARE_IP_ADDR}\",\"ttl\":120,\"priority\":0,\"proxied\":${CLOUDFLARE_PROXY}}" \
+      "https://api.cloudflare.com/client/v4/zones/$(__zone_identifier)/dns_records"
   }
   get_api >>"$CLOUDFLARE_TEMP_FILE"
   __message "Successfully created ${CLOUDFLARE_RECORD}"
@@ -180,13 +203,14 @@ __create_record() {
 __update_record() {
   CLOUDFLARE_RECORD="${1:-$CLOUDFLARE_RECORD}"
   CLOUDFLARE_ZONE="${2:-$CLOUDFLARE_ZONE}"
-  CLOUDFLARE_PROXY="${CLOUDFLARE_PROXY:-true}"
+  CLOUDFLARE_PROXY="${3:-$CLOUDFLARE_PROXY}"
   printf_blue "Attempting to update host"
   get_api() {
-    curl -q -LSs -X PUT "https://api.cloudflare.com/client/v4/zones/$(__zone_identifier)/dns_records/$(__record_identifier)" \
+    curl -q -LSs -X PATCH \
       -H "Authorization: Bearer $CLOUDFLARE_API_KEY" \
       -H "Content-Type: application/json" \
-      --data "{\"id\":\"${CLOUDFLARE_ZONE}\",\"type\":\"${CLOUDFLARE_DNS_TYPE}\",\"proxied\":${CLOUDFLARE_PROXY},\"name\":\"${CLOUDFLARE_RECORD}\",\"content\":\"${CLOUDFLARE_IP_ADDR}\"}"
+      --data "{\"id\":\"${CLOUDFLARE_ZONE}\",\"type\":\"${CLOUDFLARE_DNS_TYPE}\",\"proxied\":${CLOUDFLARE_PROXY},\"name\":\"${CLOUDFLARE_RECORD}\",\"content\":\"${CLOUDFLARE_IP_ADDR}\"}" \
+      "https://api.cloudflare.com/client/v4/zones/$(__zone_identifier)/dns_records/$(__record_identifier)"
   }
   get_api >>"$CLOUDFLARE_TEMP_FILE"
   __message "Successfully Updated ${CLOUDFLARE_RECORD}"
@@ -199,10 +223,13 @@ __cloudflare_zone() {
   CLOUDFLARE_PROXY="${4:-$CLOUDFLARE_PROXY}"
   if [[ "$CLOUDFLARE_DNS_TYPE" == "CNAME" ]]; then
     CLOUDFLARE_IP_ADDR="$CLOUDFLARE_ZONE"
+  elif [[ "$CLOUDFLARE_DNS_TYPE" == "AAAA" ]]; then
+    CLOUDFLARE_IP_ADDR=${CLOUDFLARE_IP_ADDR:-$(__get_ip6 2>/dev/null)}
   else
     CLOUDFLARE_IP_ADDR=${CLOUDFLARE_IP_ADDR:-$(__get_ip 2>/dev/null)}
   fi
   [[ -n "$CLOUDFLARE_IP_ADDR" ]] || CLOUDFLARE_IP_ADDR=${IP_ADDR:-$(__get_ip 2>/dev/null)}
+  [[ -n "$CLOUDFLARE_PROXY" ]] || CLOUDFLARE_PROXY="true"
   [ -n "$CLOUDFLARE_ZONE" ] || __usage $CLOUDFLARE_ZONE || exit 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

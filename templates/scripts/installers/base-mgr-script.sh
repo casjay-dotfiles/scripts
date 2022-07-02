@@ -401,15 +401,15 @@ while :; do
 done
 #set -- "$SETARGS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Actions based on env
-
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
 cmd_exists --error --ask bash curl jq || exit 1 # exit 1 if not found
 am_i_online --error || exit 1                   # exit 1 if no internet
 #sudo -n true && ask_for_password true && REQUIRE_SUDO="TRUE" || exit 1 # Require root
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app

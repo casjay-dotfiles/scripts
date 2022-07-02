@@ -80,19 +80,14 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional functions
-__lxc_bin() {
-  sudo lxc "$*"
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __lxd_init() {
   local version=""
   local exitCode=0
-  if ! cmd_exists lxc-execute; then
+  if ! cmd_exists lxc-info; then
     pkmgr silent install lxc || exitCode=1
-    version="$(cmd_exists lxc-execute && lxc-execute --version 2>/dev/null || echo '')"
+    version="$(cmd_exists lxc-info && lxc-info --version 2>/dev/null || echo '')"
     if [[ -n "$version" ]] && [[ "$exitCode" = 0 ]]; then
       printf_green "Installed lxc $version"
-      __lxc_bin init
       return $?
     else
       printf_red "The program lxc is not installed"
@@ -103,7 +98,7 @@ __lxd_init() {
     version="$(cmd_exists lxd && lxd --version 2>/dev/null || echo '')"
     if [[ -n "$version" ]] && [[ "$exitCode" = 0 ]]; then
       printf_green "Installed lxd $version"
-      __lxc_bin init
+      lxd init
       return $?
     else
       printf_red "The program lxd is not installed"
@@ -112,9 +107,22 @@ __lxd_init() {
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__lxc_panel() {
+  local exitCode=1
+  if [[ $1 = update ]]; then
+    shift 1
+    wget "https://lxc-webpanel.github.io/tools/update.sh" -O "/tmp/pxc_panel.sh" && exitCode=0 || printf_exit "Failed"
+  else
+    wget "https://lxc-webpanel.github.io/tools/install.sh" -O "/tmp/pxc_panel.sh" && exitCode=0 || printf_exit "Failed"
+  fi
+  sudo bash "/tmp/pxc_panel.sh" && exitCode=0
+  rm -Rf "/tmp/pxc_panel.sh"
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __lxd_check() {
   [[ $# -eq 1 ]] || printf_exit "Usage: $APPNAME check [name]"
-  if __lxc_bin image list images: | grep -qi "$1" &>/dev/null; then
+  if sudo lxc-ls | grep -qi "$1" &>/dev/null; then
     return 0
   else
     return 1
@@ -122,18 +130,18 @@ __lxd_check() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __lxd_create() {
-  [[ $# -eq 2 ]] || printf_exit "Usage: $APPNAME create [image] [name]"
-  if __lxd_check "$2"; then
-    printf_exit "$2 container already exists"
+  [[ $# -eq 3 ]] || printf_exit "Usage: $APPNAME create [name] [image] [release]"
+  if __lxd_check "$1"; then
+    printf_exit "$1 container already exists"
   else
-    __lxc_bin launch images:$1 $2
+    lxc-create -n $1 -t download -- -d $2 -r $3 -a $(uname -m)
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __lxd_stop() {
   [[ $# -eq 1 ]] || printf_exit "Usage: $APPNAME stop [name]"
   if __lxd_check "$1"; then
-    __lxc_bin stop "$1"
+    lxc-stop -n "$1" -d
   else
     printf_exit "$1 does not exists"
   fi
@@ -142,7 +150,7 @@ __lxd_stop() {
 __lxd_start() {
   [[ $# -eq 1 ]] || printf_exit "Usage: $APPNAME start [name]"
   if __lxd_check "$1"; then
-    __lxc_bin start "$1"
+    lxc-start -n "$1" -d
   else
     printf_exit "$1 does not exists"
   fi
@@ -151,7 +159,8 @@ __lxd_start() {
 __lxd_restart() {
   [[ $# -eq 1 ]] || printf_exit "Usage: $APPNAME restart [name]"
   if __lxd_check "$1"; then
-    __lxc_bin restart "$1"
+    __lxd_stop "$1"
+    __lxd_start "$1"
   else
     printf_exit "$1 does not exists"
   fi
@@ -160,16 +169,16 @@ __lxd_restart() {
 __lxd_delete() {
   [[ $# -eq 1 ]] || printf_exit "Usage: $APPNAME delete [name]"
   if __lxd_check "$1"; then
-    __lxc_bin delete "$1"
+    lxc-destroy -n "$1"
   else
     printf_exit "$1 does not exists"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __lxd_exec() {
-  [[ $# -eq 2 ]] || printf_exit "Usage: $APPNAME exec [name] [command]"
-  if __lxd_check "$2"; then
-    __lxc_bin exec "$1" ${2:-bash}
+  [[ $# -eq 2 ]] || [[ $# -eq 1 ]] || printf_exit "Usage: $APPNAME exec [name] [command]"
+  if __lxd_check "$1"; then
+    lxc-attach -n "$1" ${2:-bash}
   else
     printf_exit "$1 does not exists"
   fi
@@ -178,7 +187,7 @@ __lxd_exec() {
 __lxd_search() {
   [[ $# -eq 1 ]] || printf_exit "Usage: $APPNAME search [name]"
   if __lxd_check "$1"; then
-    __lxc_bin image list images: | grep -i "${1:-^}"
+    lxc-ls -f | grep -i "${1:-^}"
   else
     printf_exit "$1 does not exists"
   fi
@@ -186,17 +195,17 @@ __lxd_search() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __lxd_info() {
   [[ $# -eq 1 ]] || printf_exit "Usage: $APPNAME info [name]"
-  __lxc_bin info "$1"
+  lxc-info -n "$1"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __lxd_list() {
   [[ $# -eq 1 ]] || printf_exit "Usage: $APPNAME list [name]"
-  __lxc_bin list | grep -i "${1:-^}"
+  lxc-ls | grep -i "${1:-^}"
   printf_exit "$2 container already exists"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __lxd_run() {
-  __lxc_bin "$*"
+  eval "$*"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default variables
@@ -259,7 +268,7 @@ fi
 SETARGS="$*"
 SHORTOPTS=""
 LONGOPTS="options,config,version,help,dir:"
-ARRAY="init check create stop start restart delete exec search info list run"
+ARRAY="init check create stop start restart delete exec search info list run panel"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup application options
 setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
@@ -316,61 +325,79 @@ case "$1" in
 init)
   shift 1
   __lxd_init
+  exit $?
   ;;
 
 check)
   shift 1
   __lxd_check "$1"
+  exit $?
   ;;
 
 create)
   shift 1
   __lxd_create "$1" "$2"
+  exit $?
   ;;
 
 stop)
   shift 1
   __lxd_stop "$1"
+  exit $?
   ;;
 
 start)
   shift 1
   __lxd_start "$1"
+  exit $?
   ;;
 
 restart)
   shift 1
   __lxd_restart "$1"
+  exit $?
   ;;
 
 delete)
   shift 1
   __lxd_delete "$1"
+  exit $?
   ;;
 
 exec)
   shift 1
   __lxd_exec "$1" "${2:-}"
+  exit $?
   ;;
 
 search)
   shift 1
   __lxd_search "${1:-}"
+  exit $?
   ;;
 
 info)
   shift 1
   __lxd_info "${1:-}"
+  exit $?
   ;;
 
 list)
   shift 1
   __lxd_list "${1:-}"
+  exit $?
   ;;
 
 run)
   shift 1
   __lxd_run "$*"
+  exit $?
+  ;;
+
+panel)
+  shift 1
+  __lxc_panel "$@"
+  exit $?
   ;;
 
 *)

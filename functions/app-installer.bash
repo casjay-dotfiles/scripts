@@ -419,6 +419,7 @@ python() { [ -f "$(builtin type -P python || builtin type -P python2 || builtin 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 export -f cron mlocate xfce4 imagemagick fdfind speedtest neovim chromium firefox gtk-2.0 gtk-3.0
 export -f transmission transmission-remote-cli cowsay xfce4-notifyd grub powerline-status libvirt
+export -f python 
 export -f qemu mongodb
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 backupapp() {

@@ -1,0 +1,385 @@
+#!/usr/bin/env bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version       : 202207021608-git
+# @Author        : Jason Hempstead
+# @Contact       : jason@casjaysdev.com
+# @License       : WTFPL
+# @ReadME        : lxdmgr --help
+# @Copyright     : Copyright: (c) 2022 Jason Hempstead, Casjays Developments
+# @Created       : Saturday, Jul 02, 2022 16:08 EDT
+# @File          : lxdmgr
+# @Description   :
+# @TODO          :
+# @Other         :
+# @Resource      :
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="$(basename "$0" 2>/dev/null)"
+VERSION="202207021608-git"
+HOME="${USER_HOME:-$HOME}"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${SUDO_USER:-$USER}"
+SRC_DIR="${BASH_SOURCE%/*}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set bash options
+if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import functions
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+  . "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  exit 1
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# user system devenv dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+user_install
+__options "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set functions
+__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gen_config() {
+  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Generating the config file in"
+  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "$LXDMGR_CONFIG_DIR/$LXDMGR_CONFIG_FILE"
+  [ -d "$LXDMGR_CONFIG_DIR" ] || mkdir -p "$LXDMGR_CONFIG_DIR"
+  [ -d "$LXDMGR_CONFIG_BACKUP_DIR" ] || mkdir -p "$LXDMGR_CONFIG_BACKUP_DIR"
+  [ -f "$LXDMGR_CONFIG_DIR/$LXDMGR_CONFIG_FILE" ] &&
+    cp -Rf "$LXDMGR_CONFIG_DIR/$LXDMGR_CONFIG_FILE" "$LXDMGR_CONFIG_BACKUP_DIR/$LXDMGR_CONFIG_FILE.$$"
+  cat <<EOF >"$LXDMGR_CONFIG_DIR/$LXDMGR_CONFIG_FILE"
+# Settings for lxdmgr
+
+# Notification settings
+LXDMGR_GOOD_MESSAGE="${LXDMGR_GOOD_MESSAGE:-Everything Went OK}"
+LXDMGR_ERROR_MESSAGE="${LXDMGR_ERROR_MESSAGE:-Well something seems to have gone wrong}"
+LXDMGR_NOTIFY_ENABLED="${LXDMGR_NOTIFY_ENABLED:-yes}"
+LXDMGR_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+LXDMGR_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$LXDMGR_NOTIFY_CLIENT_ICON}"
+
+# Colorization settings
+LXDMGR_OUTPUT_COLOR="${LXDMGR_OUTPUT_COLOR:-5}"
+LXDMGR_OUTPUT_COLOR_GOOD="${LXDMGR_OUTPUT_COLOR_GOOD:-2}"
+LXDMGR_OUTPUT_COLOR_ERROR="${LXDMGR_OUTPUT_COLOR_ERROR:-1}"
+
+EOF
+  if [ -f "$LXDMGR_CONFIG_DIR/$LXDMGR_CONFIG_FILE" ]; then
+    [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for $APPNAME has been created"
+    exitCode=0
+  else
+    printf_red "Failed to create the config file"
+    exitCode=1
+  fi
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional functions
+__lxc_bin() {
+  sudo lxc "$*"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__lxd_init() {
+  local version=""
+  local exitCode=0
+  if ! cmd_exists lxc-execute; then
+    pkmgr silent install lxc || exitCode=1
+    version="$(cmd_exists lxc-execute && lxc-execute --version 2>/dev/null || echo '')"
+    if [[ -n "$version" ]] && [[ "$exitCode" = 0 ]]; then
+      printf_green "Installed lxc $version"
+      __lxc_bin init
+      return $?
+    else
+      printf_red "The program lxc is not installed"
+    fi
+  fi
+  if ! cmd_exists lxd && [[ "$exitCode" -ne 0 ]]; then
+    pkmgr silent install lxd || exitCode=1
+    version="$(cmd_exists lxd && lxd --version 2>/dev/null || echo '')"
+    if [[ -n "$version" ]] && [[ "$exitCode" = 0 ]]; then
+      printf_green "Installed lxd $version"
+      __lxc_bin init
+      return $?
+    else
+      printf_red "The program lxd is not installed"
+    fi
+  fi
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__lxd_check() {
+  [[ $# -eq 1 ]] || printf_exit "Usage: $APPNAME check [name]"
+  if __lxc_bin image list images: | grep -qi "$1" &>/dev/null; then
+    return 0
+  else
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__lxd_create() {
+  [[ $# -eq 2 ]] || printf_exit "Usage: $APPNAME create [image] [name]"
+  if __lxd_check "$2"; then
+    printf_exit "$2 container already exists"
+  else
+    __lxc_bin launch images:$1 $2
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__lxd_stop() {
+  [[ $# -eq 1 ]] || printf_exit "Usage: $APPNAME stop [name]"
+  if __lxd_check "$1"; then
+    __lxc_bin stop "$1"
+  else
+    printf_exit "$1 does not exists"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__lxd_start() {
+  [[ $# -eq 1 ]] || printf_exit "Usage: $APPNAME start [name]"
+  if __lxd_check "$1"; then
+    __lxc_bin start "$1"
+  else
+    printf_exit "$1 does not exists"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__lxd_restart() {
+  [[ $# -eq 1 ]] || printf_exit "Usage: $APPNAME restart [name]"
+  if __lxd_check "$1"; then
+    __lxc_bin restart "$1"
+  else
+    printf_exit "$1 does not exists"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__lxd_delete() {
+  [[ $# -eq 1 ]] || printf_exit "Usage: $APPNAME delete [name]"
+  if __lxd_check "$1"; then
+    __lxc_bin delete "$1"
+  else
+    printf_exit "$1 does not exists"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__lxd_exec() {
+  [[ $# -eq 2 ]] || printf_exit "Usage: $APPNAME exec [name] [command]"
+  if __lxd_check "$2"; then
+    __lxc_bin exec "$1" ${2:-bash}
+  else
+    printf_exit "$1 does not exists"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__lxd_search() {
+  [[ $# -eq 1 ]] || printf_exit "Usage: $APPNAME search [name]"
+  if __lxd_check "$1"; then
+    __lxc_bin image list images: | grep -i "${1:-^}"
+  else
+    printf_exit "$1 does not exists"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__lxd_info() {
+  [[ $# -eq 1 ]] || printf_exit "Usage: $APPNAME info [name]"
+  __lxc_bin info "$1"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__lxd_list() {
+  [[ $# -eq 1 ]] || printf_exit "Usage: $APPNAME list [name]"
+  __lxc_bin list | grep -i "${1:-^}"
+  printf_exit "$2 container already exists"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__lxd_run() {
+  __lxc_bin "$*"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Default variables
+exitCode=
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application Folders
+LXDMGR_LOG_DIR="${LXDMGR_LOG_DIR:-$HOME/.local/log/lxdmgr}"
+LXDMGR_CACHE_DIR="${LXDMGR_CACHE_DIR:-$HOME/.cache/lxdmgr}"
+LXDMGR_CONFIG_DIR="${LXDMGR_CONFIG_DIR:-$HOME/.config/myscripts/lxdmgr}"
+LXDMGR_OPTIONS_DIR="${LXDMGR_OPTIONS_DIR:-$HOME/.local/share/myscripts/lxdmgr/options}"
+LXDMGR_CONFIG_BACKUP_DIR="${LXDMGR_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/lxdmgr/backups}"
+LXDMGR_TEMP_DIR="${LXDMGR_TEMP_DIR:-$HOME/.local/tmp/system_scripts/lxdmgr}"
+LXDMGR_CONFIG_FILE="${LXDMGR_CONFIG_FILE:-settings.conf}"
+LXDMGR_GOOD_MESSAGE="${LXDMGR_GOOD_MESSAGE:-Everything Went OK}"
+LXDMGR_ERROR_MESSAGE="${LXDMGR_ERROR_MESSAGE:-Well something seems to have gone wrong}"
+LXDMGR_NOTIFY_ENABLED="${LXDMGR_NOTIFY_ENABLED:-yes}"
+LXDMGR_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+LXDMGR_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$LXDMGR_NOTIFY_CLIENT_ICON}"
+LXDMGR_OUTPUT_COLOR="${LXDMGR_OUTPUT_COLOR:-5}"
+LXDMGR_OUTPUT_COLOR_GOOD="${LXDMGR_OUTPUT_COLOR_GOOD:-2}"
+LXDMGR_OUTPUT_COLOR_ERROR="${LXDMGR_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Enviroment overrides
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$LXDMGR_CONFIG_DIR/$LXDMGR_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$LXDMGR_CONFIG_DIR/$LXDMGR_CONFIG_FILE" ] && . "$LXDMGR_CONFIG_DIR/$LXDMGR_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories and files exist
+[ -d "$LXDMGR_LOG_DIR" ] || mkdir -p "$LXDMGR_LOG_DIR" &>/dev/null
+[ -d "$LXDMGR_TEMP_DIR" ] || mkdir -p "$LXDMGR_TEMP_DIR" &>/dev/null
+[ -d "$LXDMGR_CACHE_DIR" ] || mkdir -p "$LXDMGR_CACHE_DIR" &>/dev/null
+LXDMGR_TEMP_FILE="${LXDMGR_TEMP_FILE:-$(mktemp $LXDMGR_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap 'exitCode=${exitCode:-$?};[ -n "$LXDMGR_TEMP_FILE" ] && [ -f "$LXDMGR_TEMP_FILE" ] && rm -Rf "$LXDMGR_TEMP_FILE" &>/dev/null' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+if [ "$LXDMGR_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${LXDMGR_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${LXDMGR_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${LXDMGR_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${LXDMGR_NOTIFY_CLIENT_ICON}"
+    notifications "$@" && exitCode=0 || exitCode=1
+    unset NOTIFY_CLIENT_NAME NOTIFY_CLIENT_ICON NOTIFY_GOOD_MESSAGE NOTIFY_ERROR_MESSAGE
+    return ${exitCode:-$?}
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS=""
+LONGOPTS="options,config,version,help,dir:"
+ARRAY="init check create stop start restart delete exec search info list run"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --options)
+    shift 1
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    __help
+    shift 1
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  --dir)
+    LXDMGR_CWD="$2"
+    shift 2
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+cmd_exists --error --ask bash || exit 1 # exit 1 if not found
+#am_i_online --error || exit 1     # exit 1 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+__lxd_init
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+case "$1" in
+init)
+  shift 1
+  __lxd_init
+  ;;
+
+check)
+  shift 1
+  __lxd_check "$1"
+  ;;
+
+create)
+  shift 1
+  __lxd_create "$1" "$2"
+  ;;
+
+stop)
+  shift 1
+  __lxd_stop "$1"
+  ;;
+
+start)
+  shift 1
+  __lxd_start "$1"
+  ;;
+
+restart)
+  shift 1
+  __lxd_restart "$1"
+  ;;
+
+delete)
+  shift 1
+  __lxd_delete "$1"
+  ;;
+
+exec)
+  shift 1
+  __lxd_exec "$1" "${2:-}"
+  ;;
+
+search)
+  shift 1
+  __lxd_search "${1:-}"
+  ;;
+
+info)
+  shift 1
+  __lxd_info "${1:-}"
+  ;;
+
+list)
+  shift 1
+  __lxd_list "${1:-}"
+  ;;
+
+run)
+  shift 1
+  __lxd_run "$*"
+  ;;
+
+*)
+  shift 1
+  __help
+  ;;
+esac
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-$?}

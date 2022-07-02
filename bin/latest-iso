@@ -101,10 +101,16 @@ EOF
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional functions
 __test_iso() {
-  local test="$(echo "$1" | grep -aE 'http|ftp' | grep -a '.iso$' | grep '^' || echo '')"
-  local verify="$([[ -n "$test" ]] && __urlcheck "$test" &>/dev/null && echo 'valid' || echo 'error')"
-  [[ "$verify" = "valid" ]] || test=""
-  [[ -n "$test" ]] && return 0 || return 1
+  local test="" verify=""
+  [[ -n "$1" ]] && test="$(echo "$1" | grep -aE 'http|ftp' | grep -a '.iso$' | grep '^' || echo '')"
+  [[ -n "$test" ]] && verify="$([[ -n "$test" ]] && __urlcheck "$test" &>/dev/null && echo 'valid' || echo '')"
+  if [[ "$verify" = "valid" ]]; then
+    return 0
+  else
+    verify=""
+    test=""
+    return 1
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __sort_v() {
@@ -200,9 +206,7 @@ __find_iso() {
       [ -n "$iso_url" ] && __test_iso "$iso_url" || iso_url=""
     fi
   fi
-  if [ -n "$iso_url" ]; then
-    echo "$iso_url"
-  elif [ -n "$iso_url" ] && __test_iso "$iso_url"; then
+  if [ -n "$iso_url" ] && __test_iso "$iso_url"; then
     echo "$iso_url"
   else
     echo ""
@@ -221,19 +225,15 @@ __latest_iso() {
   localname=$(basename "$latest" 2>/dev/null)
   download_dir=$(dirname "${2:-$LATEST_ISO_DOWNLOAD_DIR/$localname}" 2>/dev/null)
   download_file="$download_dir/${file//$download_dir\//}"
-  [ -n "$FORCE_INST" ] && __rm_rf "$download_file"
   [ -d "$download_dir" ] || mkdir -p "$download_dir"
-  [ -z "$latest" ] && printf_exit "No iso found on $url\n"
-  [ -d "$download_file" ] && printf_exit "The download file should not be a directory: $download_file\n"
+  [ -n "$latest" ] || printf_exit "No iso found on $url\n"
+  [ -d "$download_dir" ] && printf_exit "The download file should not be a directory: $download_file\n"
   echo "$latest" | grep -q '.iso$' || printf_exit "$latest seems to be invalid\n"
-  if [ -e "$download_file" ] && [ "$LATEST_ISO_OVERWRITE" != "yes" ]; then
-    printf_exit "File already exists: $download_file\n"
-  fi
-  url="${url:-}" __grab_iso "$latest" "$download_file" && exitCode=0 || exitCode=1
+  __grab_iso "$latest" "$download_file" && exitCode=0 || exitCode=1
   if [[ "$exitCode" = 0 ]] && [ -f "$download_file" ]; then
     return 0
   else
-    return 5
+    return 2
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -244,26 +244,31 @@ __grab_iso() {
   local system_arch="$(__get_arch)"
   local iso_arch="$(__verify_arch "$latest")"
   local exitCode=0
+  [ -z "$FORCE_INST" ] || __rm_rf "$download_file"
+  [[ "$system_arch" = "$iso_arch" ]] && arch="$system_arch" || arch="$iso_arch"
   if [[ "$filesize" = "0" || "$filesize" = "0B" ]]; then
     printf_red "URL $latest"
     printf_exit "doesn't seem to be a valid ISO image"
   fi
-  [[ "$system_arch" = "$iso_arch" ]] && arch="$system_arch" || arch="$iso_arch"
   if [ -n "$latest" ]; then
     printf_cyan "Grabbing iso for $arch from:"
     printf_green "$latest"
     printf_purple "and saving it to $download_file"
     printf_blue "The size of the ISO is: $filesize"
   fi
-  if [ "$LATEST_ISO_OVERWRITE" != "yes" ]; then
-    curl -q -LSsf -o "$download_file" -C - "$latest" 2>/dev/null && success="true" || success="false"
-  else
-    curl -q -LSsf -o "$download_file" "$latest" 2>/dev/null && success="true" || success="false"
+  if [ -f "$download_file" ] && [ "$LATEST_ISO_OVERWRITE" != "yes" ]; then
+    printf_cyan "File already exists: $download_file\n"
+    __filesize_local "$download_file"
+    exit 5
   fi
+  if [ "$LATEST_ISO_OVERWRITE" != "yes" ]; then
+    curl -q -LSsf -o "$download_file" -C - "$latest" 2>/dev/null && success="true" || success=""
+  else
+    curl -q -LSsf -o "$download_file" "$latest" 2>/dev/null && success="true" || success=""
+  fi
+  __filesize_local "$download_file"
   if [ "$success" = "true" ]; then
-    local fsize="$(find "$download_file" -print0 2>/dev/null | xargs --null ls -lh 2>/dev/null | awk '{print $5}' | grep -v '^$')"
     printf_green "Downloading of the ISO was successful"
-    [[ -z "$fsize" ]] || printf_green "The size of the file is $fsize"
     exitCode=0
   else
     printf_red "Error downloading the ISO"
@@ -271,6 +276,17 @@ __grab_iso() {
   fi
   echo ""
   return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__filesize_local() {
+  local local_file="" local_file_size=""
+  local_file="${1:-$download_file}"
+  if [[ -f "$local_file" ]]; then
+    local_file_size="$(ls -lha "$local_file" 2>/dev/null | awk '{print $5}' | grep -v '^$')"
+    [[ -n "$local_file_size" ]] && printf_green "The size of the file is $local_file_size"
+  else
+    return 1
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __filesize() {
@@ -282,7 +298,7 @@ __filesize() {
     content_length="$(echo "$head" | grep -ai 'content-length' | tail -n1 | awk -v IGNORECASE=1 'BEGIN{RS="\r\n"} /^content-length/ { print $2 }')"
   fi
   if [[ "$content_length" = 0B ]]; then
-    content_length=0
+    content_length=""
   fi
   [ -n "$content_length" ] || content_length=0
   if cmd_exists numfmt; then
@@ -295,7 +311,7 @@ __filesize() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_iso() {
-  curl -q -LSsf "$1" 2>/dev/null | grep -a "$2" | __strip_tags | __strip_iso | head -n1 || return
+  curl -q -LSsf --fail "$1" 2>/dev/null | grep -a "$2" | __strip_tags | __strip_iso | head -n1 || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default variables

@@ -53,7 +53,7 @@ else
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Call the main function
-user_installdirs
+dockermgr_install
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define extra functions
 __sudo() { sudo -n true && eval sudo "$*" || eval "$*" || return 1; }

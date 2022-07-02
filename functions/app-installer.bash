@@ -415,12 +415,12 @@ transmission() { [ -f "$(builtin type -P transmission-remote)" ] || [ -f "$(buil
 libvirt() { [ -f "$(builtin type -P libvirtd)" ] && return 0 || return 1; }
 qemu() { [ -f "$(builtin type -P qemu-img)" ] && return 0 || return 1; }
 mongodb() { -f "$(builtin type -P mongod)" || -f "$(builtin type -P mongodb)" || return 1; }
-python() { [ -f "$(builtin type -P python || builtin type -P python2 || builtin type -P python3)" ] && return 0 || return 1; }
+python() { [ -f "$(builtin type -P python)" ] || [ -f "$(builtin type -P python2 )" || [ -f "$(builtin type -P python3)" && return 0 || return 1; }
+locate() { [ -f "$(builtin type -P locate 2>/dev/null)" ] || [ -f "$(builtin type -P mlocate 2>/dev/null)" ] || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 export -f cron mlocate xfce4 imagemagick fdfind speedtest neovim chromium firefox gtk-2.0 gtk-3.0
 export -f transmission transmission-remote-cli cowsay xfce4-notifyd grub powerline-status libvirt
-export -f python 
-export -f qemu mongodb
+export -f qemu mongodb python locate
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 backupapp() {
   local filename count backupdir rmpre4vbackup

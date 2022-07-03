@@ -414,8 +414,8 @@ transmission-remote-cli() { [ -f "$(builtin type -P transmission-remote-cli 2>/d
 transmission() { [ -f "$(builtin type -P transmission-remote)" ] || [ -f "$(builtin type -P transmission-remote-cli)" ] || [ -f "$(builtin type -P transmission-remote-gtk)" ] || return 1; }
 libvirt() { [ -f "$(builtin type -P libvirtd)" ] && return 0 || return 1; }
 qemu() { [ -f "$(builtin type -P qemu-img)" ] && return 0 || return 1; }
-mongodb() { -f "$(builtin type -P mongod)" || -f "$(builtin type -P mongodb)" || return 1; }
-python() { [ -f "$(builtin type -P python)" ] || [ -f "$(builtin type -P python2 )" || [ -f "$(builtin type -P python3)" && return 0 || return 1; }
+mongodb() { [ -f "$(builtin type -P mongod)" ] || [ -f "$(builtin type -P mongodb)" ] || return 1; }
+python() { [ -f "$(builtin type -P python)" ] || [ -f "$(builtin type -P python2)" ] || [ -f "$(builtin type -P python3)" ] && return 0 || return 1; }
 locate() { [ -f "$(builtin type -P locate 2>/dev/null)" ] || [ -f "$(builtin type -P mlocate 2>/dev/null)" ] || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 export -f cron mlocate xfce4 imagemagick fdfind speedtest neovim chromium firefox gtk-2.0 gtk-3.0

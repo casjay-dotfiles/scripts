@@ -1,13 +1,5 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-FUNCFILE="app-installer.bash"
-RUN_USER="$(logname 2>/dev/null)"
-SUDO_USER="${RUN_USER:-$SUDO_USER}"
-export RUN_USER SUDO_USER
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set bash options
-[[ -n "$_DEBUG" ]] && set -x
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ##@Version       : 020920211625-git
 # @Author        : Jason Hempstead
 # @Contact       : jason@casjaysdev.com
@@ -21,6 +13,14 @@ export RUN_USER SUDO_USER
 # @Other         :
 # @Resource      :
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+FUNCFILE="app-installer.bash"
+RUN_USER="$(logname 2>/dev/null)"
+SUDO_USER="${RUN_USER:-$SUDO_USER}"
+export RUN_USER SUDO_USER
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set bash options
+[[ -n "$_DEBUG" ]] && set -x
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 CASJAYSDEVDIR="/usr/local/share/CasjaysDev/scripts"
 CASJAYSDEV_USERDIR="${CASJAYSDEV_USERDIR:-$HOME/.local/share/CasjaysDev}"
 export PATH="$CASJAYSDEVDIR/bin:/usr/local/bin:$PATH"
@@ -33,6 +33,15 @@ if [ -f $CASJAYSDEVDIR/version.txt ]; then
 else
   currentVersion="${currentVersion:-$localVersion}"
 fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+###################### builtins ######################
+TMPPATH="/usr/local/opt/gnu-getopt/bin:"
+TMPPATH+="$HOME/.local/share/bash/basher/cellar/bin:$HOME/.local/share/bash/basher/bin:"
+TMPPATH+="$HOME/.local/bin:$HOME/.cargo/bin:$HOME/.local/share/gem/bin:/usr/local/bin:"
+TMPPATH+="/usr/local/share/CasjaysDev/scripts/bin:/usr/local/sbin:/usr/sbin:"
+TMPPATH+="/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:$PATH:."
+PATH="$(echo "$TMPPATH" | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 's#::#:.#g')"
+unset TMPPATH
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Fail if git, curl, wget are not installed
 for check in git curl wget; do
@@ -61,18 +70,25 @@ for check in git curl wget; do
   fi
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-cmd_exists() { [ -n "$(builtin type -P cmd_exists 2>/dev/null)" ] && builtin command cmd_exists 2>/dev/null || return 0; }
-am_i_online() { [ -n "$(builtin type -P am_i_online 2>/dev/null)" ] && builtin command am_i_online 2>/dev/null || return 0; }
-###################### builtins ######################
-TMPPATH="/usr/local/opt/gnu-getopt/bin:"
-TMPPATH+="$HOME/.local/share/bash/basher/cellar/bin:$HOME/.local/share/bash/basher/bin:"
-TMPPATH+="$HOME/.local/bin:$HOME/.cargo/bin:$HOME/.local/share/gem/bin:/usr/local/bin:"
-TMPPATH+="/usr/local/share/CasjaysDev/scripts/bin:/usr/local/sbin:/usr/sbin:"
-TMPPATH+="/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:$PATH:."
-PATH="$(echo "$TMPPATH" | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 's#::#:.#g')"
-unset TMPPATH
+cmd_exists() {
+  for f in "$@"; do
+    builtin type -P "$f" 2>/dev/null && return 0 || return 0
+  done
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-[ -n "$SUDO_USER" ] && export RUN_USER="${RUN_USER:-$SUDO_USER}" || export RUN_USER="${RUN_USER:-$(whoami)}"
+am_i_online() {
+  if curl -q -LSsfI 1.1.1.1 2>/dev/null | grep -q ':.cloudflare'; then
+    return 0
+  else
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -n "$SUDO_USER" ]; then
+  export RUN_USER="${RUN_USER:-$SUDO_USER}"
+else
+  export RUN_USER="${RUN_USER:-$(whoami)}"
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 export RUN_USER="${RUN_USER:-$USER}"
 export TMP="${TMP:-/tmp}"
@@ -95,7 +111,11 @@ fi
 #fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Timezone data
-[ -f "/etc/timezone" ] && export TIMEZONE="$(<"/etc/timezone")" || export TIMEZONE="America/New_York"
+if [ -f "/etc/timezone" ]; then
+  export TIMEZONE="$(<"/etc/timezone")"
+else
+  export TIMEZONE="America/New_York"
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 devnull() { "$@" >/dev/null 2>&1; }
 devnull2() { "$@" >/dev/null 2>&1; }
@@ -167,12 +187,27 @@ printf_cyan() { printf_color "\t\t$1\n" 6; }
 printf_info() { printf_color "\t\t$ICON_INFO $1\n" 3; }
 printf_success() { printf_color "\t\t$ICON_GOOD $1\n" 2; }
 printf_warning() { printf_color "\t\t$ICON_WARN $1\n" 3; }
-printf_error_stream() { while read -r line; do printf_error "↳ ERROR: $line"; done; }
 printf_execute_success() { printf_color "\t\t$ICON_GOOD $1\n" 2; }
 printf_execute_error() { printf_color "\t\t$ICON_WARN $1 $2\n" 1; }
-printf_execute_error_stream() { while read -r line; do printf_execute_error "↳ ERROR: $line"; done; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+printf_error_stream() {
+  while read -r line; do
+    printf_error "↳ ERROR: $line"
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+printf_execute_error_stream() {
+  while read -r line; do
+    printf_execute_error "↳ ERROR: $line"
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_execute_result() {
-  if [ "$1" -eq 0 ]; then printf_execute_success "$2"; else printf_execute_error "${3:-$2}"; fi
+  if [ "$1" -eq 0 ]; then
+    printf_execute_success "$2"
+  else
+    printf_execute_error "${3:-$2}"
+  fi
   return "$1"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -246,7 +281,7 @@ printf_question_timeout() {
   reply="${1:-REPLY}" && shift 1
   readopts="${1:-}" && shift 1
   printf_color "\t\t$msg " "${PRINTF_COLOR:-$color}"
-  read -t 30 -r -n $lines $readopts $reply
+  read -t 30 -r -n ${lines} ${readopts} ${reply}
   printf_newline
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -293,9 +328,12 @@ printf_result() {
 get_answer() { printf "%s" "$REPLY"; }
 answer_is_yes() { [[ "$REPLY" =~ ^[Yy]$ ]] && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__curl() { am_i_online && curl -q -LSs --connect-timeout 3 --retry 0 "$@"; }
+__curl() {
+  am_i_online && curl -q -LSs --connect-timeout 3 --retry 0 "$@"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __start() {
-  sleep .2 && "$@" &>/dev/null &
+  sleep .2 && "$*" &>/dev/null &
   disown
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -304,7 +342,14 @@ killpid() { devnull kill -9 "$(pidof "$1")"; }
 running() { ps ux | grep "$1" | grep -vq 'grep ' &>/dev/null && return 1 || return 0; }
 hostname2ip() { getent hosts "$1" | cut -d' ' -f1 | head -n1 || nslookup "$1" 2>/dev/null | grep Address: | awk '{print $2}' | grep -vE '#|:' | grep ^ || return 1; }
 set_trap() { trap -p "$1" | grep "$2" &>/dev/null || trap '$2' "$1"; }
-getuser() { [ -z "$1" ] && cut -d: -f1 /etc/passwd | grep "$USER" || cut -d: -f1 /etc/passwd | grep "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+getuser() {
+  if [ -z "$1" ]; then
+    cut -d: -f1 /etc/passwd | grep "$USER"
+  else
+    cut -d: -f1 /etc/passwd | grep "$1"
+  fi
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #system_service_active "list of services to check"
 system_service_active() {
@@ -340,7 +385,9 @@ system_service_exists() {
 #system_service_enable "servicename"
 system_service_enable() {
   for service in "$@"; do
-    if system_service_exists "$service"; then devnull "sudo -HE systemctl enable --now -f $service"; fi
+    if system_service_exists "$service"; then
+      devnull "sudo -HE systemctl enable --now -f $service"
+    fi
     setexitstatus $?
   done
   set --
@@ -349,7 +396,9 @@ system_service_enable() {
 #system_service_disable "servicename"
 system_service_disable() {
   for service in "$@"; do
-    if system_service_exists "$service"; then devnull "sudo systemctl disable --now -f $service"; fi
+    if system_service_exists "$service"; then
+      devnull "sudo systemctl disable --now -f $service"
+    fi
     setexitstatus $?
   done
   set --
@@ -358,7 +407,9 @@ system_service_disable() {
 #system_service_start "servicename"
 system_service_start() {
   for service in "$@"; do
-    if system_service_exists "$service"; then devnull "sudo -HE systemctl start $service"; fi
+    if system_service_exists "$service"; then
+      devnull "sudo -HE systemctl start $service"
+    fi
     setexitstatus $?
   done
   set --
@@ -367,7 +418,9 @@ system_service_start() {
 #system_service_stop "servicename"
 system_service_stop() {
   for service in "$@"; do
-    if system_service_exists "$service"; then devnull "sudo -HE systemctl stop $service"; fi
+    if system_service_exists "$service"; then
+      devnull "sudo -HE systemctl stop $service"
+    fi
     setexitstatus $?
   done
   set --
@@ -376,7 +429,9 @@ system_service_stop() {
 #system_service_restart "servicename"
 system_service_restart() {
   for service in "$@"; do
-    if system_service_exists "$service"; then devnull "sudo -HE systemctl restart $service"; fi
+    if system_service_exists "$service"; then
+      devnull "sudo -HE systemctl restart $service"
+    fi
     setexitstatus $?
   done
   set --
@@ -418,9 +473,10 @@ mongodb() { [ -f "$(builtin type -P mongod)" ] || [ -f "$(builtin type -P mongod
 python() { [ -f "$(builtin type -P python)" ] || [ -f "$(builtin type -P python2)" ] || [ -f "$(builtin type -P python3)" ] && return 0 || return 1; }
 locate() { [ -f "$(builtin type -P locate 2>/dev/null)" ] || [ -f "$(builtin type -P mlocate 2>/dev/null)" ] || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-export -f cron mlocate xfce4 imagemagick fdfind speedtest neovim chromium firefox gtk-2.0 gtk-3.0
-export -f transmission transmission-remote-cli cowsay xfce4-notifyd grub powerline-status libvirt
-export -f qemu mongodb python locate
+export -f cron mlocate xfce4 imagemagick fdfind speedtest neovim
+export -f chromium firefox gtk-2.0 gtk-3.0 transmission transmission-remote-cli
+export -f cowsay xfce4-notifyd grub powerline-status libvirt qemu mongodb python
+export -f locate
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 backupapp() {
   local filename count backupdir rmpre4vbackup
@@ -431,8 +487,8 @@ backupapp() {
   local curdate="$(date +%Y-%m-%d-%H-%M-%S)"
   local filename="$myappname-$curdate.tar.gz"
   local backupdir="${MY_BACKUP_DIR:-$HOME/.local}/backups/${SCRIPTS_PREFIX:-apps}/"
-  local count="$(ls $backupdir/$myappname*.tar.gz 2>/dev/null | wc -l 2>/dev/null)"
-  local rmpre4vbackup="$(ls $backupdir/$myappname*.tar.gz 2>/dev/null | head -n 1)"
+  local count="$(find -L $backupdir/$myappname*.tar.gz -type f 2>/dev/null | wc -l 2>/dev/null)"
+  local rmpre4vbackup="$(find -L $backupdir/$myappname*.tar.gz -type f 2>/dev/null | head -n 1)"
   mkdir -p "$backupdir" "$logdir"
   if [ ! -f "$APPDIR/.installed" ] && [ -d "$myappdir" ] && [ "$myappdir" != "$downloaddir" ]; then
     echo -e " #################################" >>"$logdir/$myappname.log"
@@ -459,7 +515,7 @@ mkd() {
   return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-sed="$(builtin type -P gsed 2>/dev/null || builtin type -P sed 2>/dev/null)"
+sed="$(builtin type -P gsed 2>/dev/null || builtin type -P sed 2>/dev/null || return)"
 rm_link() { unlink "$1"; }
 symlink() { ln_sf "$1" "$2"; }
 countwd() { cat "$@" | wc-l | rmcomments; }
@@ -471,16 +527,28 @@ mv_f() { if [ -e "$1" ]; then devnull mv -f "$@"; else return 0; fi; }
 rm_rf() { if [ -e "$1" ]; then devnull rm -Rf "$@"; else return 0; fi; }
 cp_rf() { if [ -e "$1" ]; then devnull cp -Rfa "$@"; else return 0; fi; }
 replace() { [[ -e "$1" ]] && find "$1" -not -path "$1/.git/*" -type f -exec sed -i 's|'$2'|'$3'|g' {} \; >/dev/null 2>&1 || return 0; }
-urlcheck() { devnull curl --config /dev/null --connect-timeout 3 --retry 3 --retry-delay 1 --output /dev/null --silent --head --fail "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+urlcheck() {
+  devnull curl --config /dev/null \
+    --connect-timeout 3 \
+    --retry 3 \
+    --retry-delay 1 \
+    --output /dev/null \
+    --silent --head \
+    --fail "$1"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ln_rm() {
   if [ -e "$1" ]; then
-    devnull find -L $1 -mindepth 1 -maxdepth 1 -type l -exec rm -f {} \;
+    devnull find -L "$1" -mindepth 1 -maxdepth 1 -type l -exec rm -f {} \;
   fi
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ln_sf() {
   [ -L "$2" ] && rm_rf "$2" || true
   devnull ln -sf "$1" "$2"
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 mkd() {
   local dir="$*"
   for d in $dir; do
@@ -489,6 +557,7 @@ mkd() {
   done
   return 0
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 urlinvalid() {
   if [ -z "$1" ]; then
     printf_red "Invalid URL"
@@ -523,7 +592,9 @@ perl_exists() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 python_exists() {
   __getpythonver
-  [ -n "$(builtin type -P python3 2>/dev/null)" ] || [ -n "$(builtin type -P python2 2>/dev/null)" ] || [ -n "$(builtin type -P python 2>/dev/null)" ] || return
+  [ -n "$(builtin type -P python3 2>/dev/null)" ] ||
+    [ -n "$(builtin type -P python2 2>/dev/null)" ] ||
+    [ -n "$(builtin type -P python 2>/dev/null)" ] || return 1
   local package="$1"
   if devnull $PYTHONVER -c "import $package"; then return 0; else return 1; fi
 }
@@ -655,11 +726,26 @@ __getphpver() {
 __sudo() { if sudo -n true; then eval sudo "$*"; else eval "$*"; fi; }
 sudorun() { if sudoif; then sudo -HE "$@"; else "$@"; fi; }
 sudoif() { (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null; }
-user_is_root() { if [[ $(id -u) -eq 0 ]] || [[ $EUID -eq 0 ]] || [[ "$WHOAMI" = "root" ]]; then return 0; else return 1; fi; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+user_is_root() {
+  if [[ $(id -u) -eq 0 ]] || [[ $EUID -eq 0 ]] || [[ "$WHOAMI" = "root" ]]; then
+    return 0
+  else
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 sudorerun() {
   local ARGS="$ARGS"
-  if [[ $UID != 0 ]]; then if sudoif; then sudo -HE "$APPNAME" "$ARGS" && exit $?; else sudoreq; fi; fi
+  if [[ $UID != 0 ]]; then
+    if sudoif; then
+      sudo -HE "$APPNAME" "$ARGS" && exit $?
+    else
+      sudoreq
+    fi
+  fi
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 sudoreq() {
   sudo_check=$(sudo -H -S -- echo SUDO_OK 2>&1 &)
   [[ $sudo_check == "SUDO_OK" ]] && return
@@ -675,12 +761,14 @@ sudoreq() {
     fi
   fi
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 can_i_sudo() {
   (
     ISINDSUDO=$(sudo grep -Re "$MYUSER" /etc/sudoers* | grep "ALL" >/dev/null)
     sudo -vn && sudo -ln
   ) 2>&1 | grep -v 'may not' >/dev/null
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 sudoask() {
   if [ ! -f "$HOME/.sudo" ]; then
     [ -z "$(builtin type -P ask_for_password 2>/dev/null)" ] || ask_for_password
@@ -693,6 +781,7 @@ sudoask() {
     done &>/dev/null &
   fi
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 sudoexit() {
   local exitCode=$?
   if [ $exitCode -eq 0 ]; then
@@ -703,6 +792,7 @@ sudoexit() {
     return 1
   fi
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 requiresudo() {
   if [ -f "$(builtin type -P sudo 2>/dev/null)" ]; then
     if (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null; then
@@ -723,6 +813,7 @@ addtocrontab() {
   local job="$frequency $command $additional"
   cat <(grep -F -i -v "$command" <(crontab -l)) <(echo "$job") | crontab - &>/dev/null
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 crontab_add() {
   local appname="${APPNAME:-$1}"
   local action="${action:-$1}"
@@ -827,17 +918,71 @@ scripts_check() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#is_url() { echo "$1" | grep -q http; }
+#is_url() { echo "$1" | grep -qE 'http|ftp'; }
 #strip_url() { echo "$1" | sed 's#git+##g' | awk -F//*/ '{print $2}' | sed 's#.*./##g' | sed 's#python-##g'; }
-cmd_missing() { builtin type -p "$1" &>/dev/null && return 0 || { MISSING+="$1 " && return 1; }; }
-cpan_missing() { perl_exists "$1" && return 0 || { MISSING+="$1" && return 1; }; }
-gem_missing() { gem_exists "$1" && return 0 || { MISSING+="$1 " && return 1; }; }
-perl_missing() { perl_exists "$1" && return 0 || { MISSING+="$(echo perl-$1 | sed 's#::#-#g') " && return 1; }; }
-pip_missing() { python_exists "$1" && return 0 || { MISSING+="$1 " && return 1; }; }
+cmd_missing() {
+  if builtin type -p "$1" &>/dev/null; then
+    return 0
+  else
+    MISSING+="$1 "
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+cpan_missing() {
+  if perl_exists "$1"; then
+    return 0
+  else
+    MISSING+="$1"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+gem_missing() {
+  if gem_exists "$1"; then
+    return 0
+  else
+    MISSING+="$1 "
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+perl_missing() {
+  if perl_exists "$1"; then
+    return 0
+  else
+    MISSING+="$(echo perl-$1 | sed 's#::#-#g') "
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+pip_missing() {
+  if python_exists "$1"; then
+    return 0
+  else
+    MISSING+="$1 "
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -f "$(builtin type -P pacman 2>/dev/null)" ]; then
-  python_missing() { python_exists "$1" && return 0 || { MISSING+="python-$1 " && return 1; }; }
+  python_missing() {
+    if python_exists "$1"; then
+      return 0
+    else
+      MISSING+="python-$1 "
+      return 1
+    fi
+  }
 else
-  python_missing() { python_exists "$1" && return 0 || { MISSING+="$PYTHONVER-$1 " && return 1; }; }
+  python_missing() {
+    if python_exists "$1"; then
+      return 0
+    else
+      MISSING+="$PYTHONVER-$1 "
+      return 1
+    fi
+  }
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 git_repo_urls() {
@@ -875,12 +1020,15 @@ git_update() {
 dotfilesreqcmd() {
   local gitrepo="${DFMGRREPO:-https://github.com/dfmgr}/${1:-$conf}"
   urlverify "$gitrepo/raw/$GIT_REPO_BRANCH/install.sh" &&
-    bash -c "$(curl -LSs $gitrepo/raw/$GIT_REPO_BRANCH/install.sh)" &>/dev/null || return 1
+    bash -c "$(curl -LSs $gitrepo/raw/$GIT_REPO_BRANCH/install.sh)" &>/dev/null ||
+    return 1
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 dotfilesreqadmincmd() {
   local gitrepoadmin="${SYSTEMMGRREPO:-https://github.com/systemmgr}/${1:-$conf}"
   urlverify "$gitrepoadmin/raw/$GIT_REPO_BRANCH/install.sh" &&
-    sudo -HE bash -c "$(curl -LSs $gitrepoadmin/raw/$GIT_REPO_BRANCH/install.sh)" &>/dev/null || return 1
+    sudo -HE bash -c "$(curl -LSs $gitrepoadmin/raw/$GIT_REPO_BRANCH/install.sh)" &>/dev/null ||
+    return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 dotfilesreq() {
@@ -892,6 +1040,7 @@ dotfilesreq() {
     [ -d "$confdir/$conf" ] || [ -f "$TMPINST" ] || dotfilesreqcmd "$conf"
   done
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 dotfilesreqadmin() {
   local -a LISTARRAY="$*"
   local confdir="$SYSUPDATEDIR"
@@ -906,7 +1055,9 @@ install_required() {
   local REQUIRED="$*"
   local MISSING=""
   local cmd=""
-  for cmd in $REQUIRED; do builtin type -p "$cmd" &>/dev/null || MISSING+="$cmd "; done
+  for cmd in $REQUIRED; do
+    builtin type -p "$cmd" &>/dev/null || MISSING+="$cmd "
+  done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
       printf_yellow "Still missing: $MISSING"
@@ -919,7 +1070,9 @@ install_required() {
     fi
   fi
   unset MISSING
-  for cmd in $REQUIRED; do builtin type -p "$cmd" &>/dev/null || MISSING+="$cmd "; done
+  for cmd in $REQUIRED; do
+    builtin type -p "$cmd" &>/dev/null || MISSING+="$cmd "
+  done
   if [ -n "$MISSING" ]; then
     printf_warning "Can not install all the required packages for $APPNAME"
     return 1
@@ -959,7 +1112,9 @@ install_python() {
   local REQUIRED="$*"
   local MISSING=""
   local cmd=""
-  for cmd in $REQUIRED; do python_missing "$cmd"; done
+  for cmd in $REQUIRED; do
+    python_missing "$cmd"
+  done
   if [ -n "$MISSING" ]; then
     if [ -n "$(builtin type -P pkmgr 2>/dev/null)" ]; then
       printf_warning "Attempting to install missing python packages"
@@ -980,7 +1135,9 @@ install_perl() {
   local REQUIRED="$*"
   local MISSING=""
   local cmd=""
-  for cmd in $REQUIRED; do builtin type -p "$cmd" &>/dev/null || perl_missing "$cmd"; done
+  for cmd in $REQUIRED; do
+    builtin type -p "$cmd" &>/dev/null || perl_missing "$cmd"
+  done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
       printf_warning "Attempting to install missing perl packages"
@@ -997,7 +1154,9 @@ install_pip() {
   local REQUIRED="$*"
   local MISSING=""
   local cmd=""
-  for cmd in $REQUIRED; do builtin type -p "$cmd" &>/dev/null || pip_missing "$cmd"; done
+  for cmd in $REQUIRED; do
+    builtin type -p "$cmd" &>/dev/null || pip_missing "$cmd"
+  done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
       printf_warning "Attempting to install missing pip packages"
@@ -1014,7 +1173,9 @@ install_cpan() {
   local REQUIRED="$*"
   local MISSING=""
   local cmd=""
-  for cmd in $REQUIRED; do builtin type -p "$cmd" &>/dev/null || cpan_missing "$cmd"; done
+  for cmd in $REQUIRED; do
+    builtin type -p "$cmd" &>/dev/null || cpan_missing "$cmd"
+  done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
       printf_warning "Attempting to install missing cpan packages"
@@ -1031,7 +1192,9 @@ install_gem() {
   local REQUIRED="$*"
   local MISSING=""
   local cmd=""
-  for cmd in $REQUIRED; do builtin type -p "$cmd" &>/dev/null || gem_missing "$cmd"; done
+  for cmd in $REQUIRED; do
+    builtin type -p "$cmd" &>/dev/null || gem_missing "$cmd"
+  done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
       printf_warning "Attempting to install missing gem packages"
@@ -1110,7 +1273,7 @@ os_support() {
   *) echo "Unknown OS" || return 1 ;;
   esac
 }
-
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 supported_os() {
   for OSes in "$@"; do
     local app=${APPNAME:-$PROG}
@@ -1118,7 +1281,7 @@ supported_os() {
     printf_newline
   done
 }
-
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 unsupported_oses() {
   for OSes in "$@"; do
     if [[ "$(echo $OSes | tr '[:upper:]' '[:lower:]')" =~ $(os_support) ]]; then
@@ -1127,7 +1290,7 @@ unsupported_oses() {
     fi
   done
 }
-
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if_os() {
   UNAME="$(uname -s | tr '[:upper:]' '[:lower:]')"
   case "$1" in
@@ -1158,7 +1321,7 @@ if_os() {
     ;;
   esac
 }
-
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if_os_id() {
   local os_id="$*"
   if [ -f "/etc/os-release" ]; then
@@ -1174,15 +1337,19 @@ if_os_id() {
     if [[ "$(echo $1 | tr '[:upper:]' '[:lower:]')" =~ $id_like ]]; then
       case "$1" in
       Arch* | arch*)
-        if [[ "$distroname" =~ arcolinux ]] || [[ "$distroname" =~ arch ]] || [[ "$distroname" =~ blackarch ]] || [[ "$distroname" =~ manjaro ]]; then
+        if [[ "$distroname" =~ arcolinux ]] || [[ "$distroname" =~ arch ]] ||
+          [[ "$distroname" =~ blackarch ]] || [[ "$distroname" =~ manjaro ]]; then
           distro_id=Arch
           return 0
         else
           return 1
         fi
         ;;
-      rhel* | centos* | fedora* | rocky* | ol* | oracle* | redhat* | scientific*)
-        if [[ "$distroname" =~ scientific ]] || [[ "$distroname" =~ redhat ]] || [[ "$distroname" =~ centos ]] || [[ "$distroname" =~ casjay ]] || [[ "$distroname" =~ fedora ]] || [[ "$distroname" =~ rockylinux ]]; then
+      rhel* | centos* | fedora* | rocky* | ol* | oracle* | redhat* | scientific* | almalinux)
+        if [[ "$distroname" =~ scientific ]] || [[ "$distroname" =~ redhat ]] ||
+          [[ "$distroname" =~ centos ]] || [[ "$distroname" =~ casjay ]] ||
+          [[ "$distroname" =~ fedora ]] || [[ "$distroname" =~ rockylinux ]] ||
+          [[ "$distroname" =~ almalinux ]]; then
           distro_id=RHEL
           return 0
         else
@@ -1190,8 +1357,11 @@ if_os_id() {
         fi
         ;;
       Debian* | debian)
-        if [[ "$distroname" =~ kali ]] || [[ "$distroname" =~ parrot ]] || [[ "$distroname" =~ debian ]] || [[ "$distroname" =~ raspbian ]] ||
-          [[ "$distroname" =~ ubuntu ]] || [[ "$distroname" =~ mint ]] || [[ "$distroname" =~ elementary ]] || [[ "$distroname" =~ "kde neon" ]]; then
+        if [[ "$distroname" =~ kali ]] || [[ "$distroname" =~ parrot ]] ||
+          [[ "$distroname" =~ debian ]] || [[ "$distroname" =~ raspbian ]] ||
+          [[ "$distroname" =~ ubuntu ]] || [[ "$distroname" =~ mint ]] ||
+          [[ "$distroname" =~ elementary ]] || [[ "$distroname" =~ "kde neon" ]] ||
+          [[ "$distroname" =~ peppermint ]]; then
           distro_id=Debian
           return 0
         else
@@ -1534,7 +1704,8 @@ show_optvars() {
   if [ "$1" = "--installed" ]; then
     printf_green "User                               Group                              AppName"
     ls -l $CASJAYSDEVSAPPDIR/dotfiles | tr -s ' ' | cut -d' ' -f3,4,9 |
-      sed 's# #                               #g' | grep -v "total." | printf_readline "5"
+      sed 's# #                               #g' | grep -v "total." |
+      printf_readline "5"
     exit $?
   fi
 }
@@ -2290,7 +2461,7 @@ run_install_list() {
     fi
   else
     declare -a LSINST="$(ls "$USRUPDATEDIR/" 2>/dev/null)"
-    if [ -z "$LSINST" ]; then
+    if [ -z "${LSINST[0]}" ]; then
       printf_red "No dotfiles are installed"
       exit
     else
@@ -2311,7 +2482,7 @@ __appversion() {
   fi
   __curl "${versionfile}" 2>/dev/null | head -n1 || echo "$localVersion"
 }
-
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __required_version() {
   [[ -d "$CASJAYSDEV_USERDIR/apps/$SCRIPTS_PREFIX/new_update" ]] &&
     rm_rf "$CASJAYSDEV_USERDIR/apps/$SCRIPTS_PREFIX/new_update"
@@ -2331,7 +2502,10 @@ __required_version() {
     fi
   fi
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __required_version "$requiredVersion"
+#[ "$installtype" = "devenvmgr_install" ] &&
+desktopmgr_req_version() { __required_version "$1"; }
 #[ "$installtype" = "devenvmgr_install" ] &&
 devenvmgr_req_version() { __required_version "$1"; }
 #[ "$installtype" = "dfmgr_install" ] &&
@@ -2363,6 +2537,7 @@ vdebug() {
   #   echo -e "VAR - $path"
   # done
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __debugger() {
   if [ "$1" = "debug" ] || [ "$debug" = "true" ]; then
     shift 1 && set -Ex
@@ -2380,6 +2555,7 @@ __debugger() {
     execute() { $1 2>>"$LOGDIR_DEBUG/$APPNAME.err" >>"$LOGDIR_DEBUG/$APPNAME.log" >&0 && set --; }
   fi
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # cursor
 echo -e -n "\x1b[\x35 q" 2>/dev/null
 echo -e -n "\e]12;cyan\a" 2>/dev/null

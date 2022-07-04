@@ -160,12 +160,12 @@ fi
 # Show warn message if variables are missing
 if [ -z "$(builtin type -P "$MYTORRENT")" ] || [ "$MYTORRENT" = "mytorrent" ]; then unset MYTORRENT; fi
 if [ "$MYTORRENT_NAME" = "config" ] || [[ "$MYTORRENT_NAME" = "" ]]; then
-  if [ -n "$(builtin type -P transmission-remote-gtk 2>/dev/null)" ]; then
-    MYTORRENT="transmission-remote-gtk"
-  elif [ -n "$(builtin type -P transmission-gtk 2>/dev/null)" ]; then
+  if [ -n "$(builtin type -P transmission-gtk 2>/dev/null)" ]; then
     MYTORRENT="transmission-gtk"
   elif [ -n "$(builtin type -P transmission-qt 2>/dev/null)" ]; then
     MYTORRENT="transmission-qt"
+  elif [ -n "$(builtin type -P transmission-remote-gtk 2>/dev/null)" ]; then
+    MYTORRENT="transmission-remote-gtk"
   elif [ -n "$(builtin type -P transmission-cli 2>/dev/null)" ]; then
     MYTORRENT="transmission-cli"
   elif [ -n "$(builtin type -P deluge 2>/dev/null)" ]; then
@@ -195,13 +195,29 @@ MYTORRENT_NAME="$(basename $MYTORRENT 2>/dev/null)"
 export TORRENT="$MYTORRENT"
 export MYTORRENT="$MYTORRENT"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-case $MYTORRENT_NAME in
+case "$MYTORRENT_NAME" in
 transmission-*)
-  transmission_daemon="$(ps -aux | grep transmission-da | grep -v 'grep ' 2>/dev/null)"
-  TRANSMISSION_REMOTE="true"
-  if echo "$MYTORRENT_NAME" | grep -qE "gtk|qt"; then
+  if [[ -n "$(command -v transmission-daemon 2>/dev/null)" ]]; then
+    transmission_daemon="$(ps -aux | grep [t]ransmission-da | grep '^' 2>/dev/null)"
+    if [[ -n "$transmission_daemon" ]]; then
+      TRANSMISSION_REMOTE="true"
+      if [ -n "$(builtin type -P transmission-remote-gtk 2>/dev/null)" ]; then
+        MYTORRENT="transmission-remote-gtk"
+      elif [ -n "$(builtin type -P transmission-cli 2>/dev/null)" ]; then
+        MYTORRENT="transmission-cli"
+        TERMINAL_APP="TRUE"
+        MYTORRENT_CONSOLE="yes"
+      fi
+    else
+      TRANSMISSION_REMOTE="false"
+    fi
+  fi
+  if [[ -n "$transmission_daemon" ]] && echo "$MYTORRENT_NAME" | grep -E "gtk|qt" | grep 'remote' | grep -q '^'; then
     TERMINAL_APP="FALSE"
     TRANSMISSION_REMOTE="true"
+  elif echo "$MYTORRENT_NAME" | grep -E "gtk|qt" | grep -v 'remote' | grep -q '^'; then
+    TERMINAL_APP="FALSE"
+    TRANSMISSION_REMOTE="false"
   else
     TERMINAL_APP="TRUE"
     MYTORRENT_CONSOLE="yes"
@@ -288,7 +304,8 @@ if [ "$TRANSMISSION_REMOTE" = "true" ]; then
   if [[ -z "$MYTORRENT_SERVER" ]] || [[ "$MYTORRENT_SERVER" =~ localhost ]] || [[ "$MYTORRENT_SERVER" =~ $(hostname -s) ]] || [[ "$MYTORRENT_SERVER" =~ $(hostname -f) ]]; then
     if [ -z "$transmission_daemon" ]; then
       transmission-daemon &>/dev/null && sleep 5 &&
-        __notifications "Transmission server has been started" || __notifications "Transmission server failed to start"
+        __notifications "Transmission server has been started" ||
+        __notifications "Transmission server failed to start"
     fi
   fi
 fi
@@ -297,9 +314,13 @@ __notifications "Attempting to launch $MYTORRENT_NAME"
 if [[ "$ARGS" = *.torrent ]]; then
   if [[ "$MYTORRENT" =~ transmission ]]; then
     if cmd_exists transadd; then
-      transadd "$ARGS" | grep -q "success" && true || false
+      transadd "$ARGS" | grep -q "success" && exit 0 || exit 1
+    elif [[ "$MYTORRENT" = "transmission-cli" ]]; then
+      transmission-cli "$ARGS" && exit 0 || exit 1
+    elif [[ "$MYTORRENT" = "transmission-remote" ]]; then
+      eval "$MYTORRENT_NAME" -a "$ARGS" && exit 0 || exit 1
     else
-      transmission -a "$ARGS"
+      eval "$MYTORRENT_NAME" "$ARGS" && exit 0 || exit 1
     fi
   elif [ -n "$DESKTOP_SESSION" ]; then
     xdg-open "$ARGS"

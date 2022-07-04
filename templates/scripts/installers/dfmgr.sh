@@ -150,6 +150,14 @@ fi
 # run post install scripts
 run_postinst() {
   dfmgr_run_post
+  if ! cmd_exits "$APPNAME" && [[ -f "$INSTDIR/build.sh" ]]; then
+    if builtin cd "$PLUGDIR/source"; then
+      BUILD_SRC_DIR="$PLUGDIR/source"
+      BUILD_SRC_URL=""
+      export BUILD_SRC_DIR BUILD_SRC_URL
+      eval "$INSTDIR/build.sh"
+    fi
+  fi
 }
 #
 execute "run_postinst" "Running post install scripts"

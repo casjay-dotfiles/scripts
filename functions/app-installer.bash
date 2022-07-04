@@ -72,7 +72,7 @@ done
 # trap errors
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 trap_exit() {
-  trap 'exitCode=${exitCode:-$?};[ -n "$TMPINST" ] && [ -f "$TMPINST" ] && rm -Rf "$TMPINST";[ -n "$TMPFILE" ] && [ -f "$TMPFILE" ] && rm -Rf "$TMPFILE" &>/dev/null;trap - RETURN' SIGINT SIGTERM ERR EXIT
+  trap 'exitCode=${exitCode:-$?};[ -n "$TMPINST" ] && [ -f "$TMPINST" ] && rm -Rf "$TMPINST";[ -n "$TMPFILE" ] && [ -f "$TMPFILE" ] && rm -Rf "$TMPFILE" &>/dev/null;trap - RETURN;return ${exitCode:-$?}' SIGINT SIGTERM ERR EXIT
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 cmd_exists() {

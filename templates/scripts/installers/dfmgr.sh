@@ -112,7 +112,7 @@ install_cpan "$CPAN"
 install_gem "$GEMS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Other dependencies
-dotfilesreq git misc
+dotfilesreq
 dotfilesreqadmin
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure directories exist
@@ -137,11 +137,10 @@ fi
 # Plugins
 if am_i_online; then
   if [ "$PLUGNAMES" != "" ]; then
-    if [ -d "$PLUGDIR"/PLUREP/.git ]; then
+    if [ -d "$PLUGDIR/PLUREP/.git" ]; then
       execute "git_update $PLUGDIR/PLUGREP" "Updating plugin PLUGNAME"
     else
-      execute
-      "git_clone PLUGINREPO $PLUGDIR/PLUGREP" "Installing plugin PLUGREP"
+      execute "git_clone PLUGINREPO $PLUGDIR/PLUGREP" "Installing plugin PLUGREP"
     fi
   fi
   # exit on fail

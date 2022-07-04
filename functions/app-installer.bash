@@ -19,7 +19,7 @@ SUDO_USER="${RUN_USER:-$SUDO_USER}"
 export RUN_USER SUDO_USER
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
-[[ -n "$_DEBUG" ]] && set -x
+[[ -n "$_DEBUG" ]] && set -xe0 errtrace errexit pipefaile && trap 'echo Error on line $LINENO' ERR
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 CASJAYSDEVDIR="/usr/local/share/CasjaysDev/scripts"
 CASJAYSDEV_USERDIR="${CASJAYSDEV_USERDIR:-$HOME/.local/share/CasjaysDev}"
@@ -2270,7 +2270,7 @@ __main_installer_info() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 run_install_init() {
-  trap 'exitCode=${exitCode:-$?};[ -n "$TMPINST" ] && [ -f "$TMPINST" ] && rm -Rf "$TMPINST";[ -n "$TMPFILE" ] && [ -f "$TMPFILE" ] && rm -Rf "$TMPFILE" &>/dev/null;return "${exitCode:-0}"' EXIT
+  trap 'exitCode=${exitCode:-$?};[ -n "$TMPINST" ] && [ -f "$TMPINST" ] && rm -Rf "$TMPINST";[ -n "$TMPFILE" ] && [ -f "$TMPFILE" ] && rm -Rf "$TMPFILE" &>/dev/null' SIGINT SIGTERM ERR
   local exitCode=0
   local TMPDIR="${TMPDIR:-/tmp}"
   local APPNAME="${APPNAME:-$PROG}"
@@ -2285,7 +2285,6 @@ run_install_init() {
     [ -z "$PLUGDIR" ] || mkd "$PLUGDIR"
   fi
   if [ ! -f "$TMPFILE" ]; then
-    trap '[ -f "$TMPINST" ] && rm -Rf "$TMPINST"' EXIT
     printf ""
     touch "$TMPFILE"
     if [ -f "$INSTDIR/install.sh" ]; then

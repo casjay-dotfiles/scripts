@@ -72,7 +72,7 @@ done
 # trap errors
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 trap_exit() {
-  trap 'exitCode=${exitCode:-$?};[ -n "$TMPINST" ] && [ -f "$TMPINST" ] && rm -Rf "$TMPINST";[ -n "$TMPFILE" ] && [ -f "$TMPFILE" ] && rm -Rf "$TMPFILE" &>/dev/null;trap - RETURN;return ${exitCode:-$?}' SIGINT SIGTERM ERR EXIT
+  trap 'exitCode=${exitCode:-$?};[ -n "$TMPINST" ] && [ -f "$TMPINST" ] && rm -Rf "$TMPINST";[ -n "$TMPFILE" ] && [ -f "$TMPFILE" ] && rm -Rf "$TMPFILE" &>/dev/null;trap - RETURN;exit ${exitCode:-$?}' SIGINT SIGTERM ERR EXIT
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 cmd_exists() {
@@ -2432,7 +2432,7 @@ install_version() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 run_exit() {
   $installtype
-  trap 'trap_exit;return ${exitCode:-$?}' EXIT
+  trap 'trap_exit' EXIT
   local APPNAME="${APPNAME:-$PROG}"
   local TMPDIR="${TMPDIR:-/tmp}"
   local TMPFILE="$TMPDIR/$APPNAME.tmp"

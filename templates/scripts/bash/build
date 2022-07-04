@@ -26,16 +26,33 @@ set -Eo pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup build function
 __make_build() {
+  local exitCode=10
   if [[ -f "configure" ]]; then
+    printf_color "$GREEN" "running configure"
     ./configure \
-      --prefix="$BUILD_DESTDIR"
+      --prefix="$BUILD_DESTDIR" 2>&1 |
+      tee -a "$BUILD_LOG_FILE" &>/dev/null
+    exitCode_configure=$?
   fi
   if [[ -f "Makefile" ]]; then
-    printf_color "$GREEN" "Updating the git repo"
-    make clean
-    sudo install DESTDIR="$BUILD_DESTDIR"
-    exitCode=$?
+    printf_color "$GREEN" "running make"
+    make clean 2>&1 | tee -a "$BUILD_LOG_FILE" &>/dev/null
+    make -j$(nproc) 2>&1 | tee -a "$BUILD_LOG_FILE" &>/dev/null
+    sudo make install DESTDIR="$BUILD_DESTDIR" 2>&1 | tee -a "$BUILD_LOG_FILE" &>/dev/null
+    exitCode_make=$?
   fi
+  if [[ -f "CMakeLists.txt" ]]; then
+    mkdir build && cd build || exit 10
+    cmake .. 2>&1 | tee -a "$BUILD_LOG_FILE" &>/dev/null
+    make -j$(nproc) 2>&1 | tee -a "$BUILD_LOG_FILE" &>/dev/null
+    sudo make install 2>&1 | tee -a "$BUILD_LOG_FILE" &>/dev/null
+
+    exitCode_cmake=$?
+  fi
+  [[ $exitCode_configure = 0 ]] &&
+    [[ $exitCode_make = 0 ]] &&
+    [[ $exitCode_cmake = 0 ]] &&
+    exitCode=0
   return "${exitCode:-$?}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
@@ -43,7 +60,8 @@ __make_build() {
 __run_git() {
   if [[ -d ".git" ]]; then
     printf_color "$CYAN" "Updating the git repo"
-    if git reset --hard && git pull; then
+    git reset --hard && git pull 2>&1 | tee -a "$BUILD_LOG_FILE" &>/dev/null
+    if [[ $? = 0 ]]; then
       return 0
     else
       printf_color "$RED" "Failed to clone from $BUILD_SRC_URL"
@@ -51,7 +69,8 @@ __run_git() {
     fi
   elif [[ -n "$BUILD_SRC_URL" ]]; then
     printf_color "$CYAN" "Cloning the git repo"
-    if git clone "$BUILD_SRC_URL" "$BUILD_SRC_DIR"; then
+    git clone "$BUILD_SRC_URL" "$BUILD_SRC_DIR" 2>&1 | tee -a "$BUILD_LOG_FILE" &>/dev/null
+    if [[ $? = 0 ]]; then
       return 0
     else
       printf_color "$RED" "Failed to clone from $BUILD_SRC_URL"
@@ -61,6 +80,7 @@ __run_git() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __check_log() {
+  local exitCode="$?"
   if [[ -f "$BUILD_LOG_FILE" ]]; then
     errors="$(grep 'fatal error' "$BUILD_LOG_FILE" || echo '')"
     if [[ -n "$errors" ]] || [[ "$exitCode" -ne 0 ]]; then
@@ -190,8 +210,8 @@ if [[ -d "$BUILD_SRC_DIR" ]]; then
     printf_color "$RED" "Failed to cd into $BUILD_SRC_DIR"
     exit 1
   fi
-  __run_git 2>&1 | tee -a "$BUILD_LOG_FILE" &>/dev/null
-  __make_build 2>&1 | tee -a "$BUILD_LOG_FILE" &>/dev/null
+  __run_git
+  __make_build
   __check_log
   exitCode=$?
 fi

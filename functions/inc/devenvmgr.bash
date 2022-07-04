@@ -46,22 +46,22 @@ unset TMPPATH
 # Fail if git, curl, wget are not installed
 for check in git curl wget; do
   if [ -z "$(builtin type -P "$check" 2>/dev/null)" ]; then
-    if [ -z "$(builtin type -P brew 2>/dev/null)" ]; then
-      echo -e "\t\t\033[0;31mAttempting to install $check\033[0m"
-      if [ -f "$(builtin type -P brew 2>/dev/null)" ]; then
-        brew install -f "$check" &>/dev/null
-      elif [ -f "$(builtin type -P apt 2>/dev/null)" ]; then
-        apt install -yy -q "$check" &>/dev/null
-      elif [ -f "$(builtin type -P pacman 2>/dev/null)" ]; then
-        pacman -S --noconfirm "$check" &>/dev/null
-      elif [ -f "$(builtin type -P yum 2>/dev/null)" ]; then
-        yum install -yy -q "$check" &>/dev/null
-      elif [ -f "$(builtin type -P choco 2>/dev/null)" ]; then
-        choco install "$check" -y &>/dev/null
-      else
-        echo -e "\t\t\033[0;31m$check can not be install automatically\033[0m"
-        exit 1
-      fi
+    echo -e "\t\t\033[0;31mAttempting to install $check\033[0m"
+    if [ -f "$(builtin type -P brew 2>/dev/null)" ]; then
+      brew install -f "$check" &>/dev/null
+    elif [ -f "$(builtin type -P apt 2>/dev/null)" ]; then
+      apt install -yy -q "$check" &>/dev/null
+    elif [ -f "$(builtin type -P pacman 2>/dev/null)" ]; then
+      pacman -S --noconfirm "$check" &>/dev/null
+    elif [ -f "$(builtin type -P yum 2>/dev/null)" ]; then
+      yum install -yy -q "$check" &>/dev/null
+    elif [ -f "$(builtin type -P apk 2>/dev/null)" ]; then
+      apk --no-cache add "$check" -y &>/dev/null
+    elif [ -f "$(builtin type -P choco 2>/dev/null)" ]; then
+      choco install "$check" -y &>/dev/null
+    else
+      echo -e "\t\t\033[0;31m$check can not be install automatically\033[0m"
+      exit 1
     fi
   fi
   if [ -z "$(builtin type -P "$check" 2>/dev/null)" ]; then
@@ -72,7 +72,7 @@ done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 cmd_exists() {
   for f in "$@"; do
-    builtin type -P "$f" 2>/dev/null && return 0 || return 0
+    builtin type -P "$f" &>/dev/null && return 0 || return 1
   done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

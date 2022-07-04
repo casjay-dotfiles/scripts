@@ -672,8 +672,8 @@ __list_array() {
 __list_options() {
   local OPTSDIR="${1:-$HOME/.local/share/myscripts/${APPNAME:-$PROG}/options}"
   mkdir -p "$OPTSDIR"
-  echo -n "-$SHORTOPTS" | sed 's#:##g;s#,# -#g' >"$OPTSDIR/options"
-  echo "--$LONGOPTS" | sed 's#:##g;s#,# --#g' >>"$OPTSDIR/options"
+  echo -n "-$SHORTOPTS" | sed 's#:.*,#,#g;s#,# -#g' >"$OPTSDIR/options"
+  echo "--$LONGOPTS" | sed 's#:.*,#,##g;s#,# --#g' >>"$OPTSDIR/options"
   return
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

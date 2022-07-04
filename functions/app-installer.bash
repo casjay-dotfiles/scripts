@@ -69,6 +69,11 @@ for check in git curl wget; do
     exit 1
   fi
 done
+# trap errors
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+trap_exit() {
+  trap 'exitCode=${exitCode:-$?};[ -n "$TMPINST" ] && [ -f "$TMPINST" ] && rm -Rf "$TMPINST";[ -n "$TMPFILE" ] && [ -f "$TMPFILE" ] && rm -Rf "$TMPFILE" &>/dev/null;trap - RETURN' SIGINT SIGTERM ERR EXIT
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 cmd_exists() {
   for f in "$@"; do
@@ -2270,7 +2275,6 @@ __main_installer_info() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 run_install_init() {
-  trap 'exitCode=${exitCode:-$?};[ -n "$TMPINST" ] && [ -f "$TMPINST" ] && rm -Rf "$TMPINST";[ -n "$TMPFILE" ] && [ -f "$TMPFILE" ] && rm -Rf "$TMPFILE" &>/dev/null' SIGINT SIGTERM ERR
   local exitCode=0
   local TMPDIR="${TMPDIR:-/tmp}"
   local APPNAME="${APPNAME:-$PROG}"
@@ -2428,6 +2432,7 @@ install_version() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 run_exit() {
   $installtype
+  trap 'trap_exit;return ${exitCode:-$?}' EXIT
   local APPNAME="${APPNAME:-$PROG}"
   local TMPDIR="${TMPDIR:-/tmp}"
   local TMPFILE="$TMPDIR/$APPNAME.tmp"

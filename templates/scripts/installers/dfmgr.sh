@@ -157,6 +157,9 @@ execute "run_postinst" "Running post install scripts"
 # create version file
 dfmgr_install_version
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# exit
+run_exit
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # lets exit with code

@@ -23,24 +23,66 @@ SRC_DIR="${BASH_SOURCE%/*}"
 if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
 trap 'exitCode=${exitCode:-$?};[ -n "$GEN_SCRIPT_REPLACE_ENV_TEMP_FILE" ] && [ -f "$GEN_SCRIPT_REPLACE_ENV_TEMP_FILE" ] && rm -Rf "$GEN_SCRIPT_REPLACE_ENV_TEMP_FILE" &>/dev/null;exit ${exitCode:-$?}' EXIT
 set -Eo pipefail
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup build function
+__make_build() {
+  if [[ -f "configure" ]]; then
+    ./configure \
+      --prefix="$BUILD_DESTDIR"
+  fi
+  if [[ -f "Makefile" ]]; then
+    printf_color "$GREEN" "Updating the git repo"
+    make clean
+    sudo install DESTDIR="$BUILD_DESTDIR"
+    exitCode=$?
+  fi
+  return "${exitCode:-$?}"
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
-# Set functions
+# Set main functions
+__run_git() {
+  if [[ -d ".git" ]]; then
+    printf_color "$CYAN" "Updating the git repo"
+    if git reset --hard && git pull; then
+      return 0
+    else
+      printf_color "$RED" "Failed to clone from $BUILD_SRC_URL"
+      exit 1
+    fi
+  elif [[ -n "$BUILD_SRC_URL" ]]; then
+    printf_color "$CYAN" "Cloning the git repo"
+    if git clone "$BUILD_SRC_URL" "$BUILD_SRC_DIR"; then
+      return 0
+    else
+      printf_color "$RED" "Failed to clone from $BUILD_SRC_URL"
+      exit 1
+    fi
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__check_log() {
+  if [[ -f "$BUILD_LOG_FILE" ]]; then
+    errors="$(grep 'fatal error' "$BUILD_LOG_FILE" || echo '')"
+    if [[ -n "$errors" ]] || [[ "$exitCode" -ne 0 ]]; then
+      printf_color "$RED" "The following errors have occurred:"
+      echo -e "$errors"
+      printf_color "$YELLOW" "Log file saved to $BUILD_LOG_FILE"
+      exitCode=1
+    else
+      rm -Rf "$BUILD_LOG_FILE" &>/dev/null
+      printf_color "$GREEN" "Build of $BUILD_NAME has completed without error"
+      exitCode=0
+    fi
+  fi
+  return "${exitCode:-$?}"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+printf_color() { echo -e "\t\t${1:-}${2:-}${NC}"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __help() {
   [[ -z "$ARRAY" ]] || local array="[${ARRAY//,/ }]"
   [[ -z "$LONGOPTS" ]] || local opts="[--${LONGOPTS//,/ --}]"
   printf_color "$BLUE" "Usage: $APPNAME $opts $array"
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Additional functions
-printf_color() { echo -e "\t\t${1:-}${2:-}${NC}"; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__make_build() {
-  if [[ -f "Makefile" ]]; then
-    printf_color "$GREEN" "Updating the git repo"
-    sudo make clean install DESTDIR="$BUILD_DESTDIR"
-    exitCode=$?
-  fi
-  return "${exitCode:-$?}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for needed applications
@@ -144,33 +186,14 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main application
 if [[ -d "$BUILD_SRC_DIR" ]]; then
-  builtin cd "$BUILD_SRC_DIR" || exit 1
-  if [[ -d ".git" ]]; then
-    printf_color "$CYAN" "Updating the git repo"
-    git reset --hard 2>&1 | tee -a "$BUILD_LOG_FILE" &>/dev/null &&
-      git pull -q 2>&1 | tee -a "$BUILD_LOG_FILE" &>/dev/null
-  elif [[ -n "$BUILD_SRC_URL" ]]; then
-    printf_color "$CYAN" "Cloning the git repo"
-    if ! git clone "$BUILD_SRC_URL" "$BUILD_SRC_DIR"; then
-      printf_color "$RED" "Failed to clone from $BUILD_SRC_URL"
-      exit 1
-    fi
+  if ! builtin cd "$BUILD_SRC_DIR"; then
+    printf_color "$RED" "Failed to cd into $BUILD_SRC_DIR"
+    exit 1
   fi
+  __run_git 2>&1 | tee -a "$BUILD_LOG_FILE" &>/dev/null
   __make_build 2>&1 | tee -a "$BUILD_LOG_FILE" &>/dev/null
+  __check_log
   exitCode=$?
-  if [[ -f "$BUILD_LOG_FILE" ]]; then
-    errors="$(grep 'fatal error' "$BUILD_LOG_FILE" || echo '')"
-    if [[ -n "$errors" ]] || [[ "$exitCode" -ne 0 ]]; then
-      printf_color "$RED" "The following errors have occurred:"
-      echo -e "$errors"
-      printf_color "$YELLOW" "Log file saved to $BUILD_LOG_FILE"
-      exitCode=1
-    else
-      rm -Rf "$BUILD_LOG_FILE" &>/dev/null
-      printf_color "$GREEN" "Build of $BUILD_NAME has completed without error"
-      exitCode=0
-    fi
-  fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # check

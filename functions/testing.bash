@@ -1,13 +1,5 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-FUNCFILE="testing.bash"
-RUN_USER="$(logname 2>/dev/null)"
-SUDO_USER="${RUN_USER:-$SUDO_USER}"
-export RUN_USER SUDO_USER
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set bash options
-
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ##@Version       : 020920211625-git
 # @Author        : Jason Hempstead
 # @Contact       : jason@casjaysdev.com
@@ -17,9 +9,17 @@ export RUN_USER SUDO_USER
 # @Created       : Tuesday, Feb 09, 2021 17:17 EST
 # @File          : testing.bash
 # @Description   : Functions for apps
-# @TODO          : Refactor code - It is a mess/change to zenity
+# @TODO          : Refactor code - It is a mess/change, change to zenity
 # @Other         :
 # @Resource      :
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set bash options
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+FUNCFILE="testing.bash"
+RUN_USER="$(logname 2>/dev/null)"
+SUDO_USER="${RUN_USER:-$SUDO_USER}"
+export RUN_USER SUDO_USER
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main scripts location
 CASJAYSDEVDIR="/usr/local/share/CasjaysDev/scripts"

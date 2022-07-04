@@ -72,7 +72,7 @@ done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 cmd_exists() {
   for f in "$@"; do
-    builtin type -P "$f" 2>/dev/null && return 0 || return 0
+    builtin type -P "$f" &>/dev/null && return 0 || return 1
   done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

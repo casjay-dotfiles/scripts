@@ -112,6 +112,35 @@ __check_log() {
   return "${exitCode:-$?}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__packages() {
+  # Install required packages
+  #__printf_color "$BLUE" "Installing required packages"
+  # if cmd_exists apt-get; then
+  #   if cmd_exists pkmgr; then
+  #     for pkg in LIST; do
+  #        pkmgr silent install "$pk"g &>/dev/null
+  #        [[ $? = 0 ]] && __logr "Installed $pkg" || __logr "Warning: Failed to installed $pkg"
+  #     done
+  #   fi
+  # elif cmd_exists dnf; then
+  #   if cmd_exists pkmgr; then
+  #     for pkg in LIST; do
+  #        pkmgr silent install "$pkg" &>/dev/null
+  #        [[ $? = 0 ]] && __logr "Installed $pkg" || __logr "Warning: Failed to installed $pkg"
+  #     done
+  #   fi
+  # elif cmd_exists yum; then
+  #   if cmd_exists pkmgr; then
+  #     for pkg in LIST; do
+  #        pkmgr silent install "$pkg" &>/dev/null
+  #        [[ $? = 0 ]] && __logr "Installed $pkg" || __logr "Warning: Failed to installed $pkg"
+  #     done
+  #   fi
+  # fi
+  #__printf_color "$YELLOW" "Done trying to install packages"
+  return
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __init() {
   if [[ -z "$BUILD_FORCE" ]] && [[ -n "$(type -P "$BUILD_NAME")" ]]; then
     __printf_color "$RED" "$BUILD_NAME is already installed" 1>&2
@@ -205,32 +234,6 @@ else
   BUILD_DESTDIR="${BUILD_DESTDIR:-/usr/local}"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Install required packages
-#__printf_color "$BLUE" "Installing required packages"
-# if cmd_exists apt-get; then
-#   if cmd_exists pkmgr; then
-#     for pkg in LIST; do
-#        pkmgr silent install "$pk"g &>/dev/null
-#        [[ $? = 0 ]] && __logr "Installed $pkg" || __logr "Warning: Failed to installed $pkg"
-#     done
-#   fi
-# elif cmd_exists dnf; then
-#   if cmd_exists pkmgr; then
-#     for pkg in LIST; do
-#        pkmgr silent install "$pkg" &>/dev/null
-#        [[ $? = 0 ]] && __logr "Installed $pkg" || __logr "Warning: Failed to installed $pkg"
-#     done
-#   fi
-# elif cmd_exists yum; then
-#   if cmd_exists pkmgr; then
-#     for pkg in LIST; do
-#        pkmgr silent install "$pkg" &>/dev/null
-#        [[ $? = 0 ]] && __logr "Installed $pkg" || __logr "Warning: Failed to installed $pkg"
-#     done
-#   fi
-# fi
-#__printf_color "$YELLOW" "Done trying to install packages"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main application
 if [[ -d "$BUILD_SRC_DIR" ]]; then
   if ! builtin cd "$BUILD_SRC_DIR"; then
@@ -238,6 +241,7 @@ if [[ -d "$BUILD_SRC_DIR" ]]; then
     exit 1
   fi
   __init
+  __packages
   __run_git
   __make_build
   __check_log

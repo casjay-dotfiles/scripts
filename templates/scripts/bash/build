@@ -31,21 +31,21 @@ __make_build() {
   local exitCode_cmake=0
   local exitCode_configure=0
   if [[ -f "configure" ]]; then
-    printf_color "$GREEN" "running configure"
+    __printf_color "$GREEN" "running configure"
     ./configure \
       --prefix="$BUILD_DESTDIR" 2>&1 |
       tee -a "$BUILD_LOG_FILE" &>/dev/null
     exitCode_configure=$?
   fi
   if [[ -f "Makefile" ]]; then
-    printf_color "$GREEN" "running make"
+    __printf_color "$GREEN" "running make"
     make clean 2>&1 | tee -a "$BUILD_LOG_FILE" &>/dev/null &&
       make -j$(nproc) 2>&1 | tee -a "$BUILD_LOG_FILE" &>/dev/null &&
       sudo make install DESTDIR="$BUILD_DESTDIR" 2>&1 | tee -a "$BUILD_LOG_FILE" &>/dev/null
     exitCode_make=$?
   fi
   if [[ -f "CMakeLists.txt" ]]; then
-    mkdir build && cd build || exit 10
+    mkdir -p build && cd build || exit 10
     cmake .. 2>&1 | tee -a "$BUILD_LOG_FILE" &>/dev/null &&
       make -j$(nproc) 2>&1 | tee -a "$BUILD_LOG_FILE" &>/dev/null &&
       sudo make install 2>&1 | tee -a "$BUILD_LOG_FILE" &>/dev/null &&
@@ -61,22 +61,22 @@ __make_build() {
 # Set main functions
 __run_git() {
   if [[ -d ".git" ]]; then
-    printf_color "$CYAN" "Updating the git repo"
+    __printf_color "$CYAN" "Updating the git repo"
     git reset --hard 2>&1 | tee -a "$BUILD_LOG_FILE" &>/dev/null &&
       git pull 2>&1 | tee -a "$BUILD_LOG_FILE" &>/dev/null
     if [[ $? = 0 ]]; then
       return 0
     else
-      printf_color "$RED" "Failed to clone from $BUILD_SRC_URL"
+      __printf_color "$RED" "Failed to update: $BUILD_SRC_DIR"
       exit 1
     fi
   elif [[ -n "$BUILD_SRC_URL" ]]; then
-    printf_color "$CYAN" "Cloning the git repo"
+    __printf_color "$CYAN" "Cloning the git repo to: $BUILD_SRC_DIR"
     git clone "$BUILD_SRC_URL" "$BUILD_SRC_DIR" 2>&1 | tee -a "$BUILD_LOG_FILE" &>/dev/null
     if [[ $? = 0 ]]; then
       return 0
     else
-      printf_color "$RED" "Failed to clone from $BUILD_SRC_URL"
+      __printf_color "$RED" "Failed to clone: $BUILD_SRC_URL"
       exit 1
     fi
   fi
@@ -85,32 +85,49 @@ __run_git() {
 __check_log() {
   local exitCode="$?"
   if [[ -f "$BUILD_LOG_FILE" ]]; then
-    errors="$(grep 'fatal error' "$BUILD_LOG_FILE" || echo '')"
+    errors="$(grep -i 'fatal error' "$BUILD_LOG_FILE" || echo '')"
+    warnings="$(grep -i 'warning: ' "$BUILD_LOG_FILE" || echo '')"
+    if [[ -n "$warnings" ]]; then
+      __printf_color "$RED" "The following warnings have occurred:"
+      echo -e "$warnings"
+      __printf_color "$YELLOW" "Log file saved to $BUILD_LOG_FILE"
+      exitCode=0
+    fi
     if [[ -n "$errors" ]] || [[ "$exitCode" -ne 0 ]]; then
-      printf_color "$RED" "The following errors have occurred:"
+      __printf_color "$RED" "The following errors have occurred:"
       echo -e "$errors"
-      printf_color "$YELLOW" "Log file saved to $BUILD_LOG_FILE"
+      __printf_color "$YELLOW" "Log file saved to $BUILD_LOG_FILE"
       exitCode=1
     else
       rm -Rf "$BUILD_LOG_FILE" &>/dev/null
-      printf_color "$GREEN" "Build of $BUILD_NAME has completed without error"
+      __printf_color "$GREEN" "Build of $BUILD_NAME has completed without error"
       exitCode=0
     fi
   fi
   return "${exitCode:-$?}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-printf_color() { echo -e "\t\t${1:-}${2:-}${NC}"; }
+__init() {
+  if [[ -z "$BUILD_FORCE" ]] && [[ -n "$(type -P "$BUILD_NAME")" ]]; then
+    __printf_color "$RED" "$BUILD_NAME is already installed" 1>&2
+    __printf_color "$YELLOW" "run with --force to rebuild" 1>&2
+    exit 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__logr() { echo -e "$*" | tee -a "$BUILD_LOG_FILE" &>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__printf_color() { echo -e "\t\t${1:-}${2:-}${NC}"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __help() {
   [[ -z "$ARRAY" ]] || local array="[${ARRAY//,/ }]"
   [[ -z "$LONGOPTS" ]] || local opts="[--${LONGOPTS//,/ --}]"
-  printf_color "$BLUE" "Usage: $APPNAME $opts $array"
+  __printf_color "$BLUE" "Usage: $APPNAME $opts $array"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for needed applications
-type -P bash &>/dev/null || { printf_color "$RED" "Missing: bash" && exit 1; }
-type -P make &>/dev/null || { printf_color "$RED" "Missing: make" && exit 1; }
+type -P bash &>/dev/null || { __printf_color "$RED" "Missing: bash" && exit 1; }
+type -P make &>/dev/null || { __printf_color "$RED" "Missing: make" && exit 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set variables
 exitCode=10
@@ -138,7 +155,7 @@ BG_RED="\[$(tput setab 9 2>/dev/null)\]"
 # Set options
 SETARGS="$*"
 SHORTOPTS=""
-LONGOPTS="version,help,raw"
+LONGOPTS="version,help,raw,force"
 ARRAY=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup application options
@@ -153,12 +170,16 @@ while :; do
     ;;
   --version)
     shift 1
-    printf_color "$YELLOW" "$APPNAME Version: $VERSION\n"
+    __printf_color "$YELLOW" "$APPNAME Version: $VERSION\n"
     exit
     ;;
   --raw)
     shift 1
-    printf_color() { shift 1 && echo -e "$1"; }
+    __printf_color() { shift 1 && echo -e "$1"; }
+    ;;
+  --force)
+    shift 1
+    BUILD_FORCE=true
     ;;
   --)
     shift 1
@@ -179,36 +200,35 @@ else
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Install required packages
+#__printf_color "$BLUE" "Installing required packages"
 # if cmd_exists apt-get; then
 #   if cmd_exists pkmgr; then
 #     for pkg in LIST; do
-#        printf_color "$CYAN" "Installing $pkg"
 #        pkmgr silent install $pkg &>/dev/null
-#        [[ $? = 0 ]] && printf_color "$GREEN" "Installed $pkg" || printf_color "$RED" "Failed to installed $pkg"
+#        [[ $? = 0 ]] && __logr "Installed $pkg" || __logr "Warning: Failed to installed $pkg"
 #     done
 #   fi
 # elif cmd_exists dnf; then
 #   if cmd_exists pkmgr; then
 #     for pkg in LIST; do
-#        printf_color "$CYAN" "Installing $pkg"
 #        pkmgr silent install $pkg &>/dev/null
-#        [[ $? = 0 ]] && printf_color "$GREEN" "Installed $pkg" || printf_color "$RED" "Failed to installed $pkg"
+#        [[ $? = 0 ]] && __logr "Installed $pkg" || __logr "Warning: Failed to installed $pkg"
 #     done
 #   fi
 # elif cmd_exists yum; then
 #   if cmd_exists pkmgr; then
 #     for pkg in LIST; do
-#        printf_color "$CYAN" "Installing $pkg"
 #        pkmgr silent install $pkg &>/dev/null
-#        [[ $? = 0 ]] && printf_color "$GREEN" "Installed $pkg" || printf_color "$RED" "Failed to installed $pkg"
+#        [[ $? = 0 ]] && __logr "Installed $pkg" || __logr "Warning: Failed to installed $pkg"
 #     done
 #   fi
 # fi
+#__printf_color "$YELLOW" "Done trying to install packages"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main application
 if [[ -d "$BUILD_SRC_DIR" ]]; then
   if ! builtin cd "$BUILD_SRC_DIR"; then
-    printf_color "$RED" "Failed to cd into $BUILD_SRC_DIR"
+    __printf_color "$RED" "Failed to cd into $BUILD_SRC_DIR"
     exit 1
   fi
   __run_git
@@ -219,10 +239,10 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # check
 if [[ "$exitCode" -eq 0 ]] && [[ -n "$(builtin type -P "$BUILD_NAME")" ]]; then
-  printf_color "$GREEN" "Successfully installed $BUILD_NAME"
+  __printf_color "$GREEN" "Successfully installed $BUILD_NAME"
   exitCode=0
 else
-  printf_color "$RED" "Failed to install $BUILD_NAME"
+  __printf_color "$RED" "Failed to install $BUILD_NAME"
   exitCode=1
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

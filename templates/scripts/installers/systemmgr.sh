@@ -12,6 +12,7 @@
 # @TODO          : GEN_SCRIPT_REPLACE_TODO
 # @Other         : GEN_SCRIPT_REPLACE_OTHER
 # @Resource      : GEN_SCRIPT_REPLACE_RES
+# @sudo/root     : no
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
 USER="${SUDO_USER:-${USER}}"
@@ -149,3 +150,5 @@ run_exit
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # lets exit with code
 exit ${exitCode:-$?}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# end

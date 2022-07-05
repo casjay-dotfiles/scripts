@@ -1657,7 +1657,7 @@ __version() {
     grep_head "Description" "$filename" &>/dev/null &&
       grep_head '' "$filename" | printf_readline "3" &&
       printf_green "$(grep_head "Version" "$filename" | head -n1)" &&
-      printf_blue "Required ver  : $requiredVersion" ||
+      printf_blue "Required ver      :$requiredVersion" ||
       printf_red "File was found, however, No information was provided"
   else
     printf_red "${1:-$appname} was not found"

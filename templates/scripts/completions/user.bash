@@ -12,6 +12,7 @@
 # @TODO          : GEN_SCRIPT_REPLACE_TODO
 # @Other         : GEN_SCRIPT_REPLACE_OTHER
 # @Resource      : GEN_SCRIPT_REPLACE_RES
+# @sudo/root     : no
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _GEN_SCRIPT_REPLACE_FILENAME() {
   ___findcmd() { find -L "${1:-$CONFDIR/}" -maxdepth ${3:-3} -type ${2:-f} 2>/dev/null | sed 's#'${1:-$CONFDIR}'##g' | grep '^' || return 1; }

@@ -322,9 +322,9 @@ printf_result() {
     return 0
   else
     if [ -z "$4" ]; then
-      printf_error "$FAIL"
+      printf_error "$FAIL\n"
     else
-      printf_error "$FAIL: $PREV"
+      printf_error "$FAIL: $PREV\n"
     fi
     return 1
   fi
@@ -649,7 +649,7 @@ failexitcode() {
   [ -n "$2" ] && local success="$2" || local success=""
   if [ "$RETVAL" -ne 0 ]; then
     set -E
-    printf_error "$fail"
+    printf_error "$fail\n"
     exit 1
   else
     set +eE

@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 020920211625-git
-# @Author        : Jason Hempstead
-# @Contact       : jason@casjaysdev.com
-# @License       : LICENSE.md
-# @ReadME        : README.md
-# @Copyright     : Copyright: (c) 2021 Jason Hempstead, CasjaysDev
-# @Created       : Tuesday, Feb 09, 2021 17:17 EST
-# @File          : devenvmgr.bash
-# @Description   : Installer functions for apps
-# @TODO          : Refactor code - It is a mess
-# @Other         :
-# @Resource      :
+##@Version           :  020920211625-git
+# @Author            :  Jason Hempstead
+# @Contact           :  jason@casjaysdev.com
+# @License           :  LICENSE.md
+# @ReadME            :  README.md
+# @Copyright         :  Copyright: (c) 2021 Jason Hempstead, CasjaysDev
+# @Created           :  Tuesday, Feb 09, 2021 17:17 EST
+# @File              :  devenvmgr.bash
+# @Description       :  Installer functions for apps
+# @TODO              :  Refactor code - It is a mess
+# @Other             :
+# @Resource          :
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
 [[ -n "$_DEBUG" ]] && set -x

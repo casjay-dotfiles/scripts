@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202207042242-git
-# @Author        : Jason Hempstead
-# @Contact       : jason@casjaysdev.com
-# @License       : WTFPL
-# @ReadME        : transfer.sh --help
-# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
-# @Created       : Wednesday, Aug 18, 2021 10:57 EDT
-# @File          : transfer.sh
-# @Description   : Upload file to https://transfer.sh
-# @TODO          :
-# @Other         :
-# @Resource      :
+##@Version           :  202207042242-git
+# @Author            :  Jason Hempstead
+# @Contact           :  jason@casjaysdev.com
+# @License           :  WTFPL
+# @ReadME            :  transfer.sh --help
+# @Copyright         :  Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created           :  Wednesday, Aug 18, 2021 10:57 EDT
+# @File              :  transfer.sh
+# @Description       :  Upload file to https://transfer.sh
+# @TODO              :
+# @Other             :
+# @Resource          :
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0" 2>/dev/null)"
 VERSION="202108181057-git"

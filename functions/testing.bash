@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 020920211625-git
-# @Author        : Jason Hempstead
-# @Contact       : jason@casjaysdev.com
-# @License       : LICENSE.md
-# @ReadME        : README.md
-# @Copyright     : Copyright: (c) 2021 Jason Hempstead, CasjaysDev
-# @Created       : Tuesday, Feb 09, 2021 17:17 EST
-# @File          : testing.bash
-# @Description   : Functions for apps
-# @TODO          : Refactor code - It is a mess/change, change to zenity
-# @Other         :
-# @Resource      :
+##@Version           :  020920211625-git
+# @Author            :  Jason Hempstead
+# @Contact           :  jason@casjaysdev.com
+# @License           :  LICENSE.md
+# @ReadME            :  README.md
+# @Copyright         :  Copyright: (c) 2021 Jason Hempstead, CasjaysDev
+# @Created           :  Tuesday, Feb 09, 2021 17:17 EST
+# @File              :  testing.bash
+# @Description       :  Functions for apps
+# @TODO              :  Refactor code - It is a mess/change, change to zenity
+# @Other             :
+# @Resource          :
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
 
@@ -2545,7 +2545,7 @@ grep_head() { grep -sE '[".#]?@[A-Z]' "${2:-$appname}" | grep "${1:-}" | head -n
 grep_head_remove() { grep -sE '[".#]?@[A-Z]' "${2:-$appname}" | grep "${1:-}" | grep -Ev 'GEN_SCRIPT_*|\${|\$\(' | sed_head_remove | sed '/^\#/d;/^$/d;s#^ ##g' | grep '^' || return 1; }
 grep_version() { grep_head ''${1:-Version}'' "${2:-$appname}" | sed_head | sed_head_remove | sed_remove_empty | head -n1 | grep '^'; }
 # grep_head() {
-#   grep -v "$1" "$2" 2>/dev/null | grep '   :' |
+#   grep -v "$1" "$2" 2>/dev/null | grep '       : ' |
 #     grep -v '\$' |
 #     grep -E ^'.*#.@'${1:-*}'' |
 #     sed -E 's/..*#[#, ]@//g' |
@@ -2583,8 +2583,8 @@ __version() {
   if [ -f "$filename" ]; then                  # check for file
     printf_newline
     printf_green "Getting info for $appname"
-    [ -n "$WHOAMI" ] && printf_yellow "WhoamI        : $WHOAMI"
-    [ -n "$RUN_USER" ] && printf_yellow "SUDO USER:    : $RUN_USER"
+    [ -n "$WHOAMI" ] && printf_yellow "WhoamI            :  $WHOAMI"
+    [ -n "$RUN_USER" ] && printf_yellow "SUDO USER:        :  $RUN_USER"
     grep_head "Description" "$filename" &>/dev/null &&
       grep_head '' "$filename" | printf_readline "3" &&
       printf_green "$(grep_head "Version" "$filename" | head -n1)" &&

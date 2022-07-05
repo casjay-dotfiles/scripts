@@ -2,18 +2,18 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME_README="cheat.sh"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202108121904-git
-# @Author        : Jason Hempstead
-# @Contact       : jason@casjaysdev.com
-# @License       : WTFPL
-# @ReadME        : cheat.sh --help
-# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
-# @Created       : Thursday, Aug 12, 2021 19:04 EDT
-# @File          : cheat.sh
-# @Description   : Manual for cheat.sh
-# @TODO          :
-# @Other         :
-# @Resource      :
+##@Version           :  202108121904-git
+# @Author            :  Jason Hempstead
+# @Contact           :  jason@casjaysdev.com
+# @License           :  WTFPL
+# @ReadME            :  cheat.sh --help
+# @Copyright         :  Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created           :  Thursday, Aug 12, 2021 19:04 EDT
+# @File              :  cheat.sh
+# @Description       :  Manual for cheat.sh
+# @TODO              :
+# @Other             :
+# @Resource          :
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set variables
 __heading="- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"

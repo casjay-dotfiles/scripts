@@ -2,18 +2,18 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME_README="ix.io"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202108121904-git
-# @Author        : Jason Hempstead
-# @Contact       : jason@casjaysdev.com
-# @License       : WTFPL
-# @ReadME        : ix.io --help
-# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
-# @Created       : Thursday, Aug 12, 2021 19:04 EDT
-# @File          : ix.io
-# @Description   : Manual for ix.io
-# @TODO          :
-# @Other         :
-# @Resource      :
+##@Version           :  202108121904-git
+# @Author            :  Jason Hempstead
+# @Contact           :  jason@casjaysdev.com
+# @License           :  WTFPL
+# @ReadME            :  ix.io --help
+# @Copyright         :  Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created           :  Thursday, Aug 12, 2021 19:04 EDT
+# @File              :  ix.io
+# @Description       :  Manual for ix.io
+# @TODO              :
+# @Other             :
+# @Resource          :
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set variables
 __heading="- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"

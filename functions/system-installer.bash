@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# @Author      : Jason
-# @Contact     : casjaysdev@casjay.net
-# @File        : system-installer.sh
-# @Created     : Wed, Aug 05, 2020, 02:00 EST
-# @License     : WTFPL
-# @Copyright   : Copyright (c) CasjaysDev
+# @Author          :  Jason
+# @Contact         :  casjaysdev@casjay.net
+# @File            :  system-installer.sh
+# @Created         :  Wed, Aug 05, 2020, 02:00 EST
+# @License         :  WTFPL
+# @Copyright       :  Copyright (c) CasjaysDev
 # @Description : installer functions for apps
 #
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

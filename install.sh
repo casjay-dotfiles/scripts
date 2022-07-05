@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202207042244-git
-# @Author        : Jason Hempstead
-# @Contact       : jason@casjaysdev.com
-# @License       : LICENSE.md
-# @ReadME        : README.md
-# @Copyright     : Copyright: (c) 2021 Jason Hempstead, CasjaysDev
-# @Created       : Wednesday, Feb 10, 2021 02:00 EST
-# @File          : install.sh
-# @Description   : My custom scripts
-# @TODO          : MacOS fixes
-# @Other         :
-# @Resource      :
+##@Version           :  202207042244-git
+# @Author            :  Jason Hempstead
+# @Contact           :  jason@casjaysdev.com
+# @License           :  LICENSE.md
+# @ReadME            :  README.md
+# @Copyright         :  Copyright: (c) 2021 Jason Hempstead, CasjaysDev
+# @Created           :  Wednesday, Feb 10, 2021 02:00 EST
+# @File              :  install.sh
+# @Description       :  My custom scripts
+# @TODO              :  MacOS fixes
+# @Other             :
+# @Resource          :
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="scripts"
 USER="${SUDO_USER:-${USER}}"

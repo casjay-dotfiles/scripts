@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : GEN_SCRIPT_REPLACE_VERSION
-# @Author        : GEN_SCRIPT_REPLACE_AUTHOR
-# @Contact       : GEN_SCRIPT_REPLACE_EMAIL
-# @License       : GEN_SCRIPT_REPLACE_LICENSE
-# @ReadME        : GEN_SCRIPT_REPLACE_FILENAME --help
-# @Copyright     : GEN_SCRIPT_REPLACE_COPYRIGHT
-# @Created       : GEN_SCRIPT_REPLACE_DATE
-# @File          : GEN_SCRIPT_REPLACE_FILENAME
-# @Description   : GEN_SCRIPT_REPLACE_FILENAME completion script
-# @TODO          : GEN_SCRIPT_REPLACE_TODO
-# @Other         : GEN_SCRIPT_REPLACE_OTHER
-# @Resource      : GEN_SCRIPT_REPLACE_RES
-# @sudo/root     : no
+##@Version           :  GEN_SCRIPT_REPLACE_VERSION
+# @Author            :  GEN_SCRIPT_REPLACE_AUTHOR
+# @Contact           :  GEN_SCRIPT_REPLACE_EMAIL
+# @License           :  GEN_SCRIPT_REPLACE_LICENSE
+# @ReadME            :  GEN_SCRIPT_REPLACE_FILENAME --help
+# @Copyright         :  GEN_SCRIPT_REPLACE_COPYRIGHT
+# @Created           :  GEN_SCRIPT_REPLACE_DATE
+# @File              :  GEN_SCRIPT_REPLACE_FILENAME
+# @Description       :  GEN_SCRIPT_REPLACE_FILENAME completion script
+# @TODO              :  GEN_SCRIPT_REPLACE_TODO
+# @Other             :  GEN_SCRIPT_REPLACE_OTHER
+# @Resource          :  GEN_SCRIPT_REPLACE_RES
+# @sudo/root         :  no
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _GEN_SCRIPT_REPLACE_FILENAME() {
   ___findcmd() { find -L "${1:-$CONFDIR/}" -maxdepth ${3:-3} -type ${2:-f} 2>/dev/null | sed 's#'${1:-$CONFDIR}'##g' | grep '^' || return 1; }

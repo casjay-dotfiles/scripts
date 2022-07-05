@@ -5,12 +5,12 @@ APPNAME="travis-ci.sh"
 set +E
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# @Author      : Jason
-# @Contact     : casjaysdev@casjay.net
-# @File        :
-# @Created     : Wed, Aug 05, 2020, 02:00 EST
-# @License     : WTFPL
-# @Copyright   : Copyright (c) CasjaysDev
+# @Author          :  Jason
+# @Contact         :  casjaysdev@casjay.net
+# @File            :
+# @Created         :  Wed, Aug 05, 2020, 02:00 EST
+# @License         :  WTFPL
+# @Copyright       :  Copyright (c) CasjaysDev
 # @Description :
 #
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202207042242-git
-# @Author        : Jason Hempstead
-# @Contact       : jason@casjaysdev.com
-# @License       : WTFPL
-# @ReadME        : termbin.com --help
-# @Copyright     : Copyright: (c) 2021 Jason Hempstead, Casjays Developments
-# @Created       : Wednesday, Aug 18, 2021 19:57 EDT
-# @File          : termbin.com
-# @Description   : Post text to termbin.com
-# @TODO          :
-# @Other         :
-# @Resource      :
+##@Version           :  202207042242-git
+# @Author            :  Jason Hempstead
+# @Contact           :  jason@casjaysdev.com
+# @License           :  WTFPL
+# @ReadME            :  termbin.com --help
+# @Copyright         :  Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created           :  Wednesday, Aug 18, 2021 19:57 EDT
+# @File              :  termbin.com
+# @Description       :  Post text to termbin.com
+# @TODO              :
+# @Other             :
+# @Resource          :
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0" 2>/dev/null)"
 VERSION="202108181957-git"

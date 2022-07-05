@@ -118,7 +118,7 @@ __packages() {
   # if cmd_exists apt-get; then
   #   if cmd_exists pkmgr; then
   #     for pkg in LIST; do
-  #        pkmgr silent install "$pk"g &>/dev/null
+  #        pkmgr silent install "$pkg" &>/dev/null
   #        [[ $? = 0 ]] && __logr "Installed $pkg" || __logr "Warning: Failed to installed $pkg"
   #     done
   #   fi

@@ -147,7 +147,9 @@ __init() {
     __printf_color "$YELLOW" "run with --force to rebuild" 1>&2
     exit 0
   fi
+  __printf_color "$PURPLE" "Initializing build script for $BUILD_NAME"
   __printf_color "$CYAN" "Saving all output to $BUILD_LOG_FILE"
+  sleep 3
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __logr() { echo -e "$*" | tee -a "$BUILD_LOG_FILE" &>/dev/null; }

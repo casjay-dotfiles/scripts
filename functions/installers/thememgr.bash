@@ -1,6 +1,6 @@
 ###################### thememgr settings ######################
 thememgr_install() {
-  system_installdirs
+  system_install
   SCRIPTS_PREFIX="thememgr"
   APPDIR="${APPDIR:-SHARE/CasjaysDev/$SCRIPTS_PREFIX}"
   INSTDIR="${INSTDIR:-$SHARE/CasjaysDev/$SCRIPTS_PREFIX}"

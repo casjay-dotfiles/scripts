@@ -1,6 +1,6 @@
 ###################### pkmgr settings ######################
 pkmgr_install() {
-  system_installdirs
+  system_install
   SCRIPTS_PREFIX="pkmgr"
   APPDIR="${APPDIR:-$SYSSHARE/CasjaysDev/$SCRIPTS_PREFIX}"
   INSTDIR="${INSTDIR:-$SHARE/CasjaysDev/$SCRIPTS_PREFIX}"

@@ -1,4 +1,19 @@
-source "$CASJAYSDEVDIR/functions/global/mgr_install.bash"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version           :  202207071459-git
+# @Author            :  Jason Hempstead
+# @Contact           :  jason@casjaysdev.com
+# @License           :  WTFPL
+# @ReadME            :  main.bash --help
+# @Copyright         :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
+# @Created           :  Thursday, Jul 07, 2022 14:59 EDT
+# @File              :  main.bash
+# @Description       :  Main functions for mgr
+# @TODO              :
+# @Other             :
+# @Resource          :
+# @sudo/root         :  no
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+source "$CASJAYSDEVDIR/functions/types/mgr_install.bash"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __main_installer_info() {
   if [ "$APPNAME" = "scripts" ] || [ "$APPNAME" = "installer" ]; then

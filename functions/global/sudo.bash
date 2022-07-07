@@ -38,7 +38,8 @@ __sudo() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 sudo() {
-  PATH=$PATH builtin command sudo "$@"
+  local PATH="$PATH"
+  builtin command \sudo "${@:-true}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 sudorun() {

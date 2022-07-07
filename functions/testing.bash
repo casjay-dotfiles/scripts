@@ -14,7 +14,8 @@
 # @Resource          :
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
-set -x
+[[ "$_DEBUG" = "on" ]] && set -xo pipefail
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main scripts location
 FUNCFILE="testing.bash"

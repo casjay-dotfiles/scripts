@@ -93,5 +93,6 @@ source "$CASJAYSDEVDIR/functions/global/exit_status.bash"
 source "$CASJAYSDEVDIR/functions/types/main.bash"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run functions
+user_install
 __getpythonver
 ###################### end application functions ######################

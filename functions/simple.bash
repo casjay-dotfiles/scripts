@@ -49,7 +49,7 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #getopt() { builtin command getopt; }
 __am_i_online() { true; }
-__cmd_exist() { builtin type "$1" &>/dev/null || return 1; }
+__cmd_exists() { builtin type "$1" &>/dev/null || return 1; }
 __command() { builtin type -p "$1" &>/dev/null || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 for check in git curl wget; do

@@ -75,13 +75,13 @@ trap_exit() {
   trap 'exitCode=${exitCode:-$?};[ -n "$TMPINST" ] && [ -f "$TMPINST" ] && rm -Rf "$TMPINST";[ -n "$TMPFILE" ] && [ -f "$TMPFILE" ] && rm -Rf "$TMPFILE" &>/dev/null;trap - RETURN;exit ${exitCode:-$?}' SIGINT SIGTERM ERR EXIT
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-cmd_exists() {
+__cmd_exists() {
   for f in "$@"; do
     builtin type -P "$f" &>/dev/null && return 0 || return 1
   done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-am_i_online() {
+__am_i_online() {
   if curl -q -LSsfI 1.1.1.1 2>/dev/null | grep -q ':.cloudflare'; then
     return 0
   else
@@ -334,7 +334,7 @@ get_answer() { printf "%s" "$REPLY"; }
 answer_is_yes() { [[ "$REPLY" =~ ^[Yy]$ ]] && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __curl() {
-  am_i_online && curl -q -LSs --connect-timeout 3 --retry 0 "$@"
+  __am_i_online && curl -q -LSs --connect-timeout 3 --retry 0 "$@"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __start() {
@@ -996,7 +996,7 @@ git_repo_urls() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 git_clone() {
-  if am_i_online; then
+  if __am_i_online; then
     local repo="$1"
     local myappdir="${2:-$INSTDIR}"
     if [ ! -d "$myappdir/.git" ]; then
@@ -1009,7 +1009,7 @@ git_clone() {
 git_update() {
   local myappdir="${1:-$INSTDIR}"
   local exitCode=""
-  if am_i_online; then
+  if __am_i_online; then
     local repo="$(git remote -v | grep fetch | head -n 1 | awk '{print $2}')"
     devnull git -C "$myappdir" reset --hard &&
       devnull git -C "$myappdir" pull --recurse-submodules -fq &&

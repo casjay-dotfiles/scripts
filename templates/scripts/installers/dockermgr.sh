@@ -163,7 +163,7 @@ mkdir -p "$LOCAL_CONFIG_DIR"
 chmod -Rf 777 "$APPDIR"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Clone/update the repo
-if am_i_online; then
+if __am_i_online; then
   if [ -d "$INSTDIR/.git" ]; then
     message="Updating $APPNAME configurations"
     execute "git_update $INSTDIR" "$message"
@@ -188,7 +188,7 @@ else
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main progam
-if cmd_exists docker-compose && [ -f "$INSTDIR/docker-compose.yml" ]; then
+if __cmd_exists docker-compose && [ -f "$INSTDIR/docker-compose.yml" ]; then
   printf_blue "Installing containers using dockercompose"
   sed -i "s|REPLACE_DATADIR|$DATADIR" "$INSTDIR/docker-compose.yml"
   if cd "$INSTDIR"; then

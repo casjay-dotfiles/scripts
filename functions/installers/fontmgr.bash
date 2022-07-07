@@ -1,6 +1,6 @@
 ###################### fontmgr settings ######################
 fontmgr_install() {
-  system_installdirs
+  system_install
   SCRIPTS_PREFIX="fontmgr"
   APPDIR="${APPDIR:-$SHARE/CasjaysDev/$SCRIPTS_PREFIX}"
   INSTDIR="${INSTDIR:-$SHARE/CasjaysDev/$SCRIPTS_PREFIX}"

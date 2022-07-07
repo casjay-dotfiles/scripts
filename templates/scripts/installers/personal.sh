@@ -14,7 +14,7 @@
 # @Resource          :  GEN_SCRIPT_REPLACE_RES
 # @sudo/root         :  no
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-APPNAME="$(basename "$0")"
+APPNAME="$(basename "$0" 2>/dev/null)"
 VERSION="202111171035-git"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"

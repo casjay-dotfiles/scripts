@@ -194,8 +194,8 @@ done
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
-__cmd_exists --error --ask bash $TERMBIN_COM_NETCATCMD || exit 1 # exit 1 if not found
-#__am_i_online --error || exit 1     # exit 1 if no internet
+cmd_exists --error --ask bash $TERMBIN_COM_NETCATCMD || exit 1 # exit 1 if not found
+#am_i_online --error || exit 1     # exit 1 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
 OLDIFS="$IFS"

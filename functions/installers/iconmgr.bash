@@ -1,6 +1,6 @@
 ###################### iconmgr settings ######################
 iconmgr_install() {
-  system_installdirs
+  system_install
   SCRIPTS_PREFIX="iconmgr"
   APPDIR="${APPDIR:-$SYSSHARE/CasjaysDev/$SCRIPTS_PREFIX}"
   INSTDIR="${INSTDIR:-$SYSSHARE/CasjaysDev/$SCRIPTS_PREFIX}"

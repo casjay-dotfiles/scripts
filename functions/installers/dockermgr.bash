@@ -1,6 +1,6 @@
 ###################### dockermgr settings ######################
 dockermgr_install() {
-  user_installdirs
+  user_install
   SCRIPTS_PREFIX="dockermgr"
   APPDIR="${APPDIR:-$HOME/.local/share/srv/docker}"
   INSTDIR="${INSTDIR:-$HOME/.local/share/dockermgr}"

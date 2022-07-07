@@ -14,7 +14,7 @@
 # @Resource          :
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
-
+set -x
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main scripts location
 FUNCFILE="testing.bash"

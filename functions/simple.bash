@@ -48,9 +48,7 @@ if ! type -P git &>/dev/null; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #getopt() { builtin command getopt; }
-am_i_online() { true; }
 __am_i_online() { true; }
-cmd_exist() { builtin type "$1" &>/dev/null || return 1; }
 __cmd_exist() { builtin type "$1" &>/dev/null || return 1; }
 __command() { builtin type -p "$1" &>/dev/null || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

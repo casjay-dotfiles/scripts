@@ -48,4 +48,4 @@ _GEN_SCRIPT_REPLACE_FILENAME() {
 } &&
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # enable completions
-  complete -F _GEN_SCRIPT_REPLACE_FILENAME am_i_online
+  complete -F _GEN_SCRIPT_REPLACE_FILENAME __am_i_online

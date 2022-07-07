@@ -14,13 +14,6 @@
 # @Resource          :
 # @sudo/root         :  no
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__am_i_online() {
-  curl -q --connect-timeout 1 \
-    --fail --retry 1 -ILSsf 1.1.1.1 |
-    grep -q 'server:.*cloudflare' &&
-    return 0 || return 1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cmd_exists() {
   for cmd in "$@"; do
     builtin type -P "$cmd" &>/dev/null || return 1

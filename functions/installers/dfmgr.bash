@@ -1,6 +1,6 @@
 ###################### dfmgr settings ######################
 dfmgr_install() {
-  user_installdirs
+  user_install
   SCRIPTS_PREFIX="dfmgr"
   APPDIR="${APPDIR:-$CONF}"
   INSTDIR="${INSTDIR:-$SHARE/CasjaysDev/$SCRIPTS_PREFIX}"

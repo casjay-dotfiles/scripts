@@ -47,7 +47,7 @@ __cron_updater() {
       for upd in $(ls $SYSUPDATEDIR/); do
         file="$(ls -A $SYSUPDATEDIR/$upd 2>/dev/null)"
         if [ -f "$file" ]; then
-          appname="$(__basename $file)"
+          appname="$(__basename "$file")"
           sudo file="$file" bash -c "$file --cron $*"
         fi
       done
@@ -55,7 +55,7 @@ __cron_updater() {
       if [ -d "$SYSUPDATEDIR" ] && ls "$SYSUPDATEDIR"/* 1>/dev/null 2>&1; then
         file="$(ls -A $SYSUPDATEDIR/$1 2>/dev/null)"
         if [ -f "$file" ]; then
-          appname="$(__basename $file)"
+          appname="$(__basename "$file")"
           sudo file="$file" bash -c "$file --cron $*"
         fi
       fi
@@ -65,7 +65,7 @@ __cron_updater() {
       for upd in $(ls $USRUPDATEDIR/); do
         export file="$(ls -A $USRUPDATEDIR/$upd 2>/dev/null)"
         if [ -f "$file" ]; then
-          appname="$(__basename $file)"
+          appname="$(__basename "$file")"
           bash -c "$file --cron $*"
         fi
       done
@@ -73,7 +73,7 @@ __cron_updater() {
       if [ -d "$USRUPDATEDIR" ] && ls "$USRUPDATEDIR"/* 1>/dev/null 2>&1; then
         export file="$(ls -A $USRUPDATEDIR/$1 2>/dev/null)"
         if [ -f "$file" ]; then
-          appname="$(__basename $file)"
+          appname="$(__basename "$file")"
           bash -c "$file --cron $*"
         fi
       fi

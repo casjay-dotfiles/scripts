@@ -1,6 +1,6 @@
 ###################### devenv settings ######################
 devenvmgr_install() {
-  user_installdirs
+  user_install
   SCRIPTS_PREFIX="devenvmgr"
   APPDIR="${APPDIR:-$SHARE/$SCRIPTS_PREFIX}"
   INSTDIR="${INSTDIR:-$SHARE/CasjaysDev/$SCRIPTS_PREFIX}"

@@ -89,10 +89,13 @@ source "$CASJAYSDEVDIR/functions/global/menu.bash"
 # exitcode functions
 source "$CASJAYSDEVDIR/functions/global/exit_status.bash"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# default variables based on application requirements
+source "$CASJAYSDEVDIR/functions/types/user_install.bash"
+source "$CASJAYSDEVDIR/functions/types/system_install.bash"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # application specfic
 source "$CASJAYSDEVDIR/functions/types/main.bash"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run functions
-user_install
 __getpythonver
 ###################### end application functions ######################

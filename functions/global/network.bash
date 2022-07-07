@@ -16,7 +16,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __am_i_online() {
   curl -q --connect-timeout 1 \
-    --fail --retry 1 -ILSsf 1.1.1.1 |
+    --fail --retry 1 -ILSsf 1.1.1.1 2>/dev/null |
     grep -q 'server:.*cloudflare' &&
     return 0 || return 1
 }

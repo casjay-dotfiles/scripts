@@ -1,6 +1,6 @@
 ###################### wallpapermgr settings ######################
 wallpapermgr_install() {
-  system_installdirs
+  system_install
   SCRIPTS_PREFIX="wallpapermgr"
   APPDIR="${APPDIR:-$SHARE/CasjaysDev/$SCRIPTS_PREFIX}"
   INSTDIR="${INSTDIR:-$SHARE/CasjaysDev/$SCRIPTS_PREFIX}"

@@ -21,7 +21,7 @@ __am_i_online() {
     return 0 || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__cmd_exist() {
+__cmd_exists() {
   for cmd in "$@"; do
     builtin type -P "$cmd" &>/dev/null || return 1
   done

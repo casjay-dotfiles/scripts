@@ -1,6 +1,6 @@
 ###################### desktopmgr settings ######################
 desktopmgr_install() {
-  user_installdirs
+  user_install
   SCRIPTS_PREFIX="desktopmgr"
   APPDIR="${APPDIR:-$CONF}"
   INSTDIR="${INSTDIR:-$SHARE/CasjaysDev/$SCRIPTS_PREFIX}"

@@ -23,6 +23,9 @@ CASJAYSDEVDIR="/usr/local/share/CasjaysDev/scripts"
 # Default enviroment variables
 source "$CASJAYSDEVDIR/functions/global/env.bash"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Default OS functions
+source "$CASJAYSDEVDIR/functions/global/os.bash"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # System checks and other functions
 source "$CASJAYSDEVDIR/functions/global/initialize.bash"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

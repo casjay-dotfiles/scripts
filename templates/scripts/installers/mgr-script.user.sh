@@ -180,7 +180,7 @@ __run_install_init() {
   local app
   for app in "$@"; do
     export SUDO_USER
-    if [ -f "$GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR/$app/install.sh" ] && ! am_i_online; then
+    if [ -f "$GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR/$app/install.sh" ] && ! __am_i_online; then
       export FORCE_INSTALL="$FORCE_INSTALL"
       __require_sudo bash "$GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR/$app/install.sh" 2>/dev/null
     else
@@ -231,7 +231,7 @@ __run_install_update() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __download() {
   REPO_NAME="$1"
-  if cmd_exists gitadmin; then
+  if __cmd_exists gitadmin; then
     if [[ -d "${GEN_SCRIPT_REPLACE_ENV_CWD:-$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR}/${REPO_NAME}/.git" ]]; then
       gitadmin pull "${GEN_SCRIPT_REPLACE_ENV_CWD:-$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR}/${REPO_NAME}"
     else
@@ -252,7 +252,7 @@ __download() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __api_list() {
   local api_url="${GEN_SCRIPT_REPLACE_ENV_REPO_API:-https://api.github.com/orgs/GEN_SCRIPT_REPLACE_FILENAME/repos?per_page=${GEN_SCRIPT_REPLACE_ENV_REPO_API_PER_PAGE:-1000}}"
-  if am_i_online --error -s "$api_url"; then
+  if __am_i_online --error -s "$api_url"; then
     curl -q -H "Accept: application/vnd.github.v3+json" -LSs "$api_url" 2>/dev/null | jq '.[].name' 2>/dev/null | sed 's#"##g' | grep -v 'template' || __list_options
   fi
 }
@@ -404,8 +404,8 @@ done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
 #sudo -n true && ask_for_password true && REQUIRE_SUDO="TRUE" || exit 1 # Require root
-cmd_exists --error --ask bash curl jq || exit 1 # exit 1 if not found
-am_i_online --error || exit 1                   # exit 1 if no internet
+__cmd_exists --error --ask bash curl jq || exit 1 # exit 1 if not found
+__am_i_online --error || exit 1                   # exit 1 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
 

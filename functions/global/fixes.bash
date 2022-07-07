@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version           :  202207071007-git
+# @Author            :  Jason Hempstead
+# @Contact           :  jason@casjaysdev.com
+# @License           :  WTFPL
+# @ReadME            :  fixes.bash --help
+# @Copyright         :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
+# @Created           :  Thursday, Jul 07, 2022 10:07 EDT
+# @File              :  fixes.bash
+# @Description       :  OS based functions
+# @TODO              :
+# @Other             :
+# @Resource          :
+# @sudo/root         :  no
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# macos fixes
+case "$(uname -s)" in
+Darwin)
+  NETDEV="$(route get default 2>/dev/null | grep interface | awk '{print $2}')"
+  vim="$(builtin type -P /usr/local/bin/vim 2>/dev/null || builtin type -P vim 2>/dev/null)"
+  builtin type -P gsed &>/dev/null && sed="$(type -P gsed 2>/dev/null)" || sed="$(type -P sed 2>/dev/null)"
+  builtin type -P gls &>/dev/null && lscmd="$(type -P gls 2>/dev/null)" || lscmd="$(type -P ls 2>/dev/null)"
+  builtin type -P gdate &>/dev/null && datecmd="$(type -P gdate 2>/dev/null)" || datecmd="$(type -P date 2>/dev/null)"
+  builtin type -P greadlink &>/dev/null && readlinkcmd="$(type -P greadlink 2>/dev/null)" || readlinkcmd="$(type -P readlink 2>/dev/null)"
+  builtin type -P gbasename &>/dev/null && __basenamecmd="$(type -P __basename 2>/dev/null)" || __basenamecmd="$(type -P __basename 2>/dev/null)"
+  builtin type -P gdircolors &>/dev/null && dircolorscmd="$(type -P gdircolors 2>/dev/null)" || dircolorscmd="$(type -P dircolors 2>/dev/null)"
+  builtin type -P grealpath &>/dev/null && realpathcmd="$(type -P grealpath 2>/dev/null)" || realpathcmd="$(type -P realpath 2>/dev/null)"
+  [ -n "$sed" ] || sed() { $sed "$@"; }
+  [ -n "$datecmd" ] || date() { $datecmd "$@"; }
+  [ -n "$readlinkcmd" ] || readlink() { $readlinkcmd "$@"; }
+  [ -n "$__basenamecmd" ] || __basename() { $__basenamecmd "$@"; }
+  [ -n "$dircolorscmd" ] || dircolors() { $dircolorscmd "$@"; }
+  [ -n "$realpathcmd" ] || realpath() { $realpathcmd "$@"; }
+  alias ls='$lscmd '
+  alias dircolors='gdircolors '
+  ;;
+Linux)
+  NETDEV="$(ip route 2>/dev/null | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//" | awk '{print $1}')"
+  sed="$(builtin type -P sed 2>/dev/null)"
+  vim="$(builtin type -P vim 2>/dev/null || builtin type -P nvim || builtin type -P nano 2>/dev/null)"
+  ;;
+esac
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

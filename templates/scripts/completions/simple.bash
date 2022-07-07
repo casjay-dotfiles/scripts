@@ -18,7 +18,7 @@ _GEN_SCRIPT_REPLACE_FILENAME() {
   local cur prev words cword
   local cur="${COMP_WORDS[$COMP_CWORD]}"
   local SHOW_COMP_OPTS=""
-  local LONGOPTS="--help --version --config --options"
+  local LONGOPTS="--debug --help --version --config --options "
   local SHORTOPTS=""
   local ARRAY=""
 

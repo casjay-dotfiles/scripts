@@ -18,7 +18,7 @@
 devenvmgr_install() {
   SCRIPTS_PREFIX="devenvmgr"
   installtype="devenvmgr_install"
-  "$CASJAYSDEVDIR/functions/installers/${SCRIPTS_PREFIX}.bash"
+  source "$CASJAYSDEVDIR/functions/installers/${SCRIPTS_PREFIX}.bash"
   #__main_installer_info
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -26,7 +26,7 @@ devenvmgr_install() {
 dfmgr_install() {
   SCRIPTS_PREFIX="dfmgr"
   installtype="dfmgr_install"
-  "$CASJAYSDEVDIR/functions/installers/${SCRIPTS_PREFIX}.bash"
+  source "$CASJAYSDEVDIR/functions/installers/${SCRIPTS_PREFIX}.bash"
   #__main_installer_info
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -34,7 +34,7 @@ dfmgr_install() {
 desktopmgr_install() {
   SCRIPTS_PREFIX="desktopmgr"
   installtype="desktopmgr_install"
-  "$CASJAYSDEVDIR/functions/installers/${SCRIPTS_PREFIX}.bash"
+  source "$CASJAYSDEVDIR/functions/installers/${SCRIPTS_PREFIX}.bash"
   #__main_installer_info
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -42,7 +42,7 @@ desktopmgr_install() {
 dockermgr_install() {
   SCRIPTS_PREFIX="dockermgr"
   installtype="dockermgr_install"
-  "$CASJAYSDEVDIR/functions/installers/${SCRIPTS_PREFIX}.bash"
+  source "$CASJAYSDEVDIR/functions/installers/${SCRIPTS_PREFIX}.bash"
   #__main_installer_info
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -50,7 +50,7 @@ dockermgr_install() {
 fontmgr_install() {
   SCRIPTS_PREFIX="fontmgr"
   installtype="fontmgr_install"
-  "$CASJAYSDEVDIR/functions/installers/${SCRIPTS_PREFIX}.bash"
+  source "$CASJAYSDEVDIR/functions/installers/${SCRIPTS_PREFIX}.bash"
   #__main_installer_info
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -58,7 +58,7 @@ fontmgr_install() {
 iconmgr_install() {
   SCRIPTS_PREFIX="iconmgr"
   installtype="iconmgr_install"
-  "$CASJAYSDEVDIR/functions/installers/${SCRIPTS_PREFIX}.bash"
+  source "$CASJAYSDEVDIR/functions/installers/${SCRIPTS_PREFIX}.bash"
   #__main_installer_info
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -66,7 +66,7 @@ iconmgr_install() {
 pkmgr_install() {
   SCRIPTS_PREFIX="pkmgr"
   installtype="pkmgr_install"
-  "$CASJAYSDEVDIR/functions/installers/${SCRIPTS_PREFIX}.bash"
+  source "$CASJAYSDEVDIR/functions/installers/${SCRIPTS_PREFIX}.bash"
 }
 #__main_installer_info
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -74,7 +74,7 @@ pkmgr_install() {
 systemmgr_install() {
   SCRIPTS_PREFIX="systemmgr"
   installtype="systemmgr_install"
-  "$CASJAYSDEVDIR/functions/installers/${SCRIPTS_PREFIX}.bash"
+  source "$CASJAYSDEVDIR/functions/installers/${SCRIPTS_PREFIX}.bash"
   #__main_installer_info
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -82,7 +82,7 @@ systemmgr_install() {
 thememgr_install() {
   SCRIPTS_PREFIX="thememgr"
   installtype="thememgr_install"
-  "$CASJAYSDEVDIR/functions/installers/${SCRIPTS_PREFIX}.bash"
+  source "$CASJAYSDEVDIR/functions/installers/${SCRIPTS_PREFIX}.bash"
   #__main_installer_info
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -90,7 +90,7 @@ thememgr_install() {
 wallpapermgr_install() {
   SCRIPTS_PREFIX="wallpapermgr"
   installtype="wallpapermgr_install"
-  "$CASJAYSDEVDIR/functions/installers/${SCRIPTS_PREFIX}.bash"
+  source "$CASJAYSDEVDIR/functions/installers/${SCRIPTS_PREFIX}.bash"
   #__main_installer_info
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

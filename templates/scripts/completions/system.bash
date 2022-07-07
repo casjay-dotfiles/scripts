@@ -26,7 +26,7 @@ _GEN_SCRIPT_REPLACE_FILENAME() {
   local SHOW_COMP_OPTS=""
   local FILEDIR=""
   local OPTS=""
-  local LONGOPTS="--options --config --version --help --dir"
+  local LONGOPTS="--debug --options --config --version --help --dir "
   local SHORTOPTS=""
   local ARRAY=""
 

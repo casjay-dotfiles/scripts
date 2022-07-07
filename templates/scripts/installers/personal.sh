@@ -35,7 +35,7 @@ elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
   . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
 else
   echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
-  exit 1
+  exit 90
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # user system devenv dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
@@ -146,6 +146,10 @@ _root_init() {
     sudo chown -Rf root:root /root
     if [[ -d "/personal" ]]; then sudo rm -R "/personal"; fi
   fi
+  if [[ -d "$DOTTEMP/home/.docker" ]]; then
+    mkdir -p /root/.docker
+    sudo rsync -ahqk "$DOTTEMP/home/.docker/." /root/.docker/
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _files_init() {
@@ -165,6 +169,7 @@ _files_init() {
   find "$DOTTEMP"/system -type f -iname "*.pl" -exec chmod 755 -Rf {} \; &>/dev/null
   find "$DOTTEMP"/system -type f -iname "*.cgi" -exec chmod 755 -Rf {} \; &>/dev/null
 
+  # copy files to users home directory
   rsync -ahqk "$DOTTEMP"/home/. "$HOME/"
 
   # import podcast feeds

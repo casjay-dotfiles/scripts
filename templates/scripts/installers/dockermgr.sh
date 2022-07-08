@@ -185,7 +185,7 @@ else
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main progam
-if __cmd_exists docker-compose && [ -f "$INSTDIR/docker-compose.yml" ]; then
+if cmd_exists docker-compose && [ -f "$INSTDIR/docker-compose.yml" ]; then
   printf_blue "Installing containers using dockercompose"
   sed -i "s|REPLACE_DATADIR|$DATADIR" "$INSTDIR/docker-compose.yml"
   if cd "$INSTDIR"; then

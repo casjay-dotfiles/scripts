@@ -68,7 +68,7 @@ TMP_FILE="$(mktemp /tmp/dfmpersonal-XXXXXXXXX)"
 OPTIONS="$*"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 rm -Rf "$TMP_FILE" /tmp/dfmpersonal-* &>/dev/null
-if __cmd_exists sudo; then sudo echo; fi
+if cmd_exists sudo; then sudo echo; fi
 clear
 printf "\n\n\n\n"
 _pre_inst() {
@@ -83,7 +83,7 @@ _pre_inst() {
   if [ ! -d "$DOTFILES/.git" ]; then rm -Rf "$DOTFILES"; fi
   if [ -d "$DOTTEMP" ]; then rm -Rf "$DOTTEMP"; fi
   if [[ "$OSTYPE" =~ ^linux ]]; then
-    if ! __cmd_exists systemmgr; then
+    if ! cmd_exists systemmgr; then
       if (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null; then
         sudo bash -c "$(curl -LSs https://github.com/systemmgr/installer/raw/main/install.sh)"
         sudo bash -c "$(curl -LSs https://github.com/systemmgr/installer/raw/main/install.sh)"
@@ -93,7 +93,7 @@ _pre_inst() {
       fi
     fi
   fi
-  if __cmd_exists sudoers; then
+  if cmd_exists sudoers; then
     sudoers nopass
   fi
 }
@@ -173,7 +173,7 @@ _files_init() {
   rsync -ahqk "$DOTTEMP"/home/. "$HOME/"
 
   # import podcast feeds
-  if __cmd_exists castero; then
+  if cmd_exists castero; then
     if [[ -f "$HOME"/.config/castero/podcasts.opml ]]; then
       castero --import "$HOME"/.config/castero/podcasts.opml &>/dev/null
     elif [[ -f "$DOTTEMP"/tmp/podcasts.opml ]]; then
@@ -182,7 +182,7 @@ _files_init() {
   fi
 
   # import rss feeds
-  if __cmd_exists newsboat; then
+  if cmd_exists newsboat; then
     if [[ -f "$HOME"/.config/newsboat/news.opml ]]; then
       newsboat -i "$HOME"/.config/newsboat/news.opml &>/dev/null
     elif [[ -f "$DOTTEMP"/tmp/news.opml ]]; then

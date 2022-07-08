@@ -232,7 +232,7 @@ __run_install_update() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __download() {
   REPO_NAME="$1"
-  if __cmd_exists gitadmin; then
+  if cmd_exists gitadmin; then
     if [[ -d "${GEN_SCRIPT_REPLACE_ENV_CWD:-$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR}/${REPO_NAME}/.git" ]]; then
       gitadmin pull "${GEN_SCRIPT_REPLACE_ENV_CWD:-$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR}/${REPO_NAME}"
     else
@@ -405,7 +405,7 @@ done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
 sudo -n true && ask_for_password true && REQUIRE_SUDO="TRUE" || exit 1 # Require root
-__cmd_exists --error --ask bash curl jq || exit 1                      # exit 1 if not found
+cmd_exists --error --ask bash curl jq || exit 1                        # exit 1 if not found
 __am_i_online --error || exit 1                                        # exit 1 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides

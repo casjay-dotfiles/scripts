@@ -75,7 +75,7 @@ DOCKERMGR_INSTALL_SCRIPT="${DOCKERMGR_INSTALL_SCRIPT:-https://get.docker.com}"
 DOCKERMGR_K3B_INSTALL_SCRIPT="${DOCKERMGR_K3B_INSTALL_SCRIPT:-https://get.k3s.io}"
 DOCKERMGR_INSTALL_TMP="${DOCKERMGR_INSTALL_TMP:-/tmp/docker_install.sh}"
 DOCKERMGR_HUB_URL="${DOCKERMGR_HUB_URL:-https://hub.docker.com}"
-DOCKERMGR_REGISTRY_URL="${DOCKERMGR_REGISTRY_URL:-http://registry.docker.com}"
+DOCKERMGR_REGISTRY_URL="${DOCKERMGR_REGISTRY_URL:-https://hub.docker.com}"
 
 # Notification settings
 DOCKERMGR_GOOD_MESSAGE="${DOCKERMGR_GOOD_MESSAGE:-Everything Went OK}"
@@ -640,9 +640,14 @@ __docker_compose() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__api_jwt() {
-  token="$(curl -q -fsSL "https://auth.docker.io/token?service=registry.docker.io&scope=registry" 2>/dev/null | jq --raw-output '.token' | grep '^' || return)"
-  [ -n "$token" ] && echo "$token" >"$DOCKERMGR_CACHE_DIR/jwt"
+__api_auth_token() {
+  local user="${1:-$user}"
+  local pass="${2:-$(<"$DOCKERMGR_CONFIG_DIR/.hub_password")}"
+  curl -q -LSsf \
+    -H "Content-Type: application/json" -X POST \
+    -d "{\"username\": \"$user\", \"password\": \"$pass\"}" \
+    "$DOCKERMGR_HUB_URL/v2/users/login/" 2>"$DOCKERMGR_CACHE_DIR/token.err" |
+    jq -r '.token' | grep '^' || echo ''
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __orgs_api_auth() {
@@ -650,13 +655,14 @@ __orgs_api_auth() {
     printf_exit "Please provide a username or organization name"
   fi
   local user="${1:-$DOCKERMGR_REGISTRY_USERNAME}" && shift 1
-  if [ -n "$1" ]; then
+  if [ -n "$user" ] && [ -n "$1" ]; then
     local pass="$1" && shift 1
-    [ -f "$DOCKERMGR_CONFIG_DIR/.hub_password" ] ||
+    if [ ! -f "$DOCKERMGR_CONFIG_DIR/.hub_password" ]; then
+      printf_green "Password saved to $DOCKERMGR_CONFIG_DIR/.hub_password"
       echo "$pass" >"$DOCKERMGR_CONFIG_DIR/.hub_password"
-  elif [[ -f "$HOME/.docker/.token_seed" ]] && grep -qi '"seed":' $HOME/.docker/.token_seed; then
-    cat "$HOME/.docker/.token_seed" | jq -r | grep -i '"seed":' | awk -F': ' '{print $2}' | sed 's|"||g' >"$DOCKERMGR_CONFIG_DIR/.hub_password"
+    fi
   elif [ -f "$DOCKERMGR_CONFIG_DIR/.hub_password" ]; then
+    printf_green "Setting password from $DOCKERMGR_CONFIG_DIR/.hub_password"
     local pass="$(<"$DOCKERMGR_CONFIG_DIR/.hub_password")"
   else
     printf_cyan "Please put your hub password/api token in:"
@@ -665,11 +671,14 @@ __orgs_api_auth() {
     exit 1
   fi
   chmod 600 "$DOCKERMGR_CONFIG_DIR/.hub_password"
-  TOKEN=$(curl -q -LSsf -H "Content-Type: application/json" -X POST -d '{"username": "'${user}'", "password": "'${pass}'"}' "$DOCKERMGR_HUB_URL/v2/users/login/" 2>"$DOCKERMGR_CACHE_DIR/token.err" | jq -r .token | grep '^' || return)
+  TOKEN=$(__api_auth_token "$@")
   if [[ -n "$TOKEN" ]]; then
+    printf_purple "Successfully retrieved a token"
+    printf_yellow "$DOCKERMGR_CACHE_DIR/token"
     echo "$TOKEN" >"$DOCKERMGR_CACHE_DIR/token"
     return 0
   else
+    printf_red "An error has occured. The message is:"
     [ -f "$DOCKERMGR_CACHE_DIR/token" ] && rm "$DOCKERMGR_CACHE_DIR/token"
     [ -f "$DOCKERMGR_CACHE_DIR/token.err" ] && cat "$DOCKERMGR_CACHE_DIR/token.err" | printf_readline 1 &&
       rm "$DOCKERMGR_CACHE_DIR/token.err"
@@ -690,12 +699,12 @@ __orgs_api_list() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __orgs_api_info() {
   printf_exit "Not implemented yet"
-  __api_jwt || return 1
-  [ -n "$1" ] || printf_exit "Usage: $0 orgs info name [tags] [list]"
-  if [ -f "$DOCKERMGR_CACHE_DIR/jwt" ]; then
-    local token="$(<"$DOCKERMGR_CACHE_DIR/jwt")"
+  [ -n "$1" ] || printf_exit "Usage: $APPNAME api info name [tags] [list]"
+  __api_auth_token "$1" || return 1
+  if [ -f "$DOCKERMGR_CACHE_DIR/token" ]; then
+    local token="$(<"$DOCKERMGR_CACHE_DIR/token")"
     curl -q -fsSL -X GET -H "Authorization: Bearer $token" \
-      "$DOCKERMGR_REGISTRY_URL/v2/$1/${2:-tags}/${3:-list}" #2>/dev/null | jq
+      "$DOCKERMGR_REGISTRY_URL/v2/repositories/$1/${2:-tags}/${3:-list}" 2>/dev/null | jq
   else
     __api_auth_error
   fi
@@ -705,18 +714,33 @@ __orgs_api_delete() {
   [ -n "$1" ] || printf_exit "Please provide a organization name"
   [ -n "$2" ] || printf_exit "Please provide a repository name"
   if [ -f "$DOCKERMGR_CACHE_DIR/token" ]; then
-    local token="$(<"$DOCKERMGR_CACHE_DIR/token")"
-    curl -q -LSsf -H "Authorization: Bearer $TOKEN" \
-      -X DELETE "$DOCKERMGR_REGISTRY_URL/v2/$1/repositories/$2" 2>/dev/null &&
-      printf_green "Successfully deleted the repository" || printf_exit "Failed to delete the repository"
+    local TOKEN="$(<"$DOCKERMGR_CACHE_DIR/token")"
+    printf_cyan "Attempting to delete $1 from:"
+    printf_cyan "$DOCKERMGR_REGISTRY_URL/v2/repositories/$1/$2"
+    curl -q -LSsfi -H "Authorization: Bearer $TOKEN" -X DELETE "$DOCKERMGR_REGISTRY_URL/v2/repositories/$1/$2" &>"$DOCKERMGR_CACHE_DIR/delete.log"
+    if grep -qis '405 Not Allowed' "$DOCKERMGR_CACHE_DIR/delete.log"; then
+      __api_auth_error
+    elif grep -qis '404.*Not.*Found' "$DOCKERMGR_CACHE_DIR/delete.log"; then
+      printf_green "Repository does not exist"
+    elif grep -qis 'HTTP.*404.NO.*Content' "$DOCKERMGR_CACHE_DIR/delete.log"; then
+      printf_green "Repository does not exist"
+    elif grep -qis 'HTTP.*204.NO.*Content' "$DOCKERMGR_CACHE_DIR/delete.log"; then
+      printf_green "Repository does not exist"
+    elif grep -qis 'HTTP.*202.*Accepted' "$DOCKERMGR_CACHE_DIR/delete.log"; then
+      printf_green "Successfully deleted the repository"
+    else
+      printf_exit "Failed to delete the repository"
+      grep -i 'HTTP/.*' "$DOCKERMGR_CACHE_DIR/delete.log" | printf_readline 1
+      grep -i 'URL returned error' "$DOCKERMGR_CACHE_DIR/delete.log" | sed 's|*.The requested URL returned error: ||g' | printf_readline 1
+    fi
   else
-    __api_auth_error
+    printf_exit 1 1 "Well something went terribly wrong"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __api_auth_error() {
   printf_exit "Please authenticate with the command:"
-  printf_yellow "dockermgr api auth username password"
+  printf_yellow "dockermgr api auth username password/key"
   exit 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -777,7 +801,7 @@ DOCKERMGR_HOME="${DOCKERMGR_HOME:-$HOME/.config/myscripts/dockermgr}"
 DOCKERMGR_INSTALL_TMP="${DOCKERMGR_INSTALL_TMP:-/tmp/docker_install.sh}"
 DOCKERMGR_K3B_INSTALL_SCRIPT="${DOCKERMGR_K3B_INSTALL_SCRIPT:-https://get.k3s.io}"
 DOCKERMGR_HUB_URL="${DOCKERMGR_HUB_URL:-https://hub.docker.com}"
-DOCKERMGR_REGISTRY_URL="${DOCKERMGR_REGISTRY_URL:-http://registry.docker.com}"
+DOCKERMGR_REGISTRY_URL="${DOCKERMGR_REGISTRY_URL:-https://hub.docker.com}"
 DOCKERMGR_GIT_SRC_REPO="${DOCKERMGR_GIT_SRC_REPO:-https://github.com/dockerize-it}"
 DOCKERMGR_CLONE_SRC_DIR="${DOCKERMGR_CLONE_SRC_DIR:-$HOME/Projects/docker/$(basename "$DOCKERMGR_GIT_SRC_REPO")}"
 DOCKERMGR_GIT_USERNAME="${DOCKERMGR_REGISTRY_USERNAME:-$(basename "$DOCKERMGR_REGISTRY_URL")}"
@@ -923,7 +947,7 @@ api)
     ;;
   delete)
     shift 1
-    __orgs_api_delete "$1"
+    __orgs_api_delete "$@"
     exit $?
     ;;
   info)

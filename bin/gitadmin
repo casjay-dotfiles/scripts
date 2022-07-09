@@ -538,7 +538,7 @@ run_git_init() {
   local git_confirm_repo=""
   if [ -n "$git_repo" ]; then
     git -C "$git_dir" remote add origin "$git_repo" &>/dev/null &&
-      printf_cyan "$git_repo has been added" || printf_exit 'Failed to add repo'
+      printf_cyan "$git_repo has been added" || printf_exit 'Failed to add $git_repo'
     printf_read_question "3" "Should I push to the remote repo? [y/n]" "1" "git_push"
     if printf_answer_yes "$git_push"; then
       printf_read_question "3" "This will overwrite the repo if it exists. Continue? [y/n]" "1" "git_confirm_repo"
@@ -546,10 +546,52 @@ run_git_init() {
         if [ -f "$git_dir/$GITADMIN_DEFAULT_MAINCONFIG" ]; then
           cp -Rf "$git_dir/$GITADMIN_DEFAULT_MAINCONFIG" "$git_dir/.git/config"
         fi
-        git -C "$git_dir" push -q -f --set-upstream origin "$GITADMIN_DEFAULT_BRANCH" &>/dev/null ||
-          __git_push "$git_dir" || GITADMIN_EXITCODE=1
+        git -C "$git_dir" push -q -f --set-upstream origin "$GITADMIN_DEFAULT_BRANCH" &>/dev/null
+        git remote show origin 2>&1 | grep -q 'Repository not found' && git_push="n"
+        [[ "$git_push" = "n" ]] || __git_push "$git_dir"
+        GITADMIN_EXITCODE=$?
         if [ -d "$git_dir/.git" ] && [ "$GITADMIN_EXITCODE" = 0 ]; then
-          printf_green "Successfully pushed to $git_repo"
+          [[ "$git_push" = "n" ]] && printf_yellow "The remote repository wasn't found: not pushing" || __git_push "$git_dir"
+          GITADMIN_EXITCODE=0
+        else
+          printf_red "Push to $git_repo has failed"
+          GITADMIN_EXITCODE=1
+        fi
+      else
+        printf_yellow "Not pushing due to user canceling"
+        GITADMIN_EXITCODE=1
+      fi
+    else
+      printf_yellow "Not pushing due to user canceling"
+      GITADMIN_EXITCODE=1
+    fi
+  else
+    printf_red "No remote repo specified"
+    GITADMIN_EXITCODE=1
+  fi
+  return ${GITADMIN_EXITCODE:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+run_git_init_automated() {
+  local git_dir="${1:-$GITADMIN_CWD}"
+  local git_repo="${git_remote_repo:-$git_repo}"
+  local git_push="y"
+  local git_confirm="y"
+  local git_confirm_repo="y"
+  if [ -n "$git_repo" ]; then
+    git -C "$git_dir" remote add origin "$git_repo" &>/dev/null &&
+      printf_cyan "$git_repo has been added" || printf_exit 'Failed to add $git_repo'
+    if [ -n "$git_push" ]; then
+      if [ -n "$git_confirm_repo" ]; then
+        if [ -f "$git_dir/$GITADMIN_DEFAULT_MAINCONFIG" ]; then
+          cp -Rf "$git_dir/$GITADMIN_DEFAULT_MAINCONFIG" "$git_dir/.git/config"
+        fi
+        git -C "$git_dir" push -q -f --set-upstream origin "$GITADMIN_DEFAULT_BRANCH" &>/dev/null
+        git remote show origin 2>&1 | grep -q 'Repository not found' && git_push="n"
+        [[ "$git_push" = "n" ]] && printf_yellow "The remote repository wasn't found: not pushing" || __git_push "$git_dir"
+        GITADMIN_EXITCODE=$?
+        if [ -d "$git_dir/.git" ] && [ "$GITADMIN_EXITCODE" = 0 ]; then
+          [[ "$git_push" = "n" ]] || printf_green "Successfully pushed to $git_repo"
           GITADMIN_EXITCODE=0
         else
           printf_red "Push to $git_repo has failed"
@@ -608,6 +650,7 @@ run_git_setup() {
   check_uri "$remote_repo" && tmprepo="${remote_repo// /_}" || tmprepo=""
   git_prev="${tmprepo:-$git_tmpprev}"
   printf_green "Initializing the repo in $git_dir"
+  [[ -f "$git_dir/.gitignore" ]] || gitignore "$git_dir" default --automated
   if [ -d "$git_dir/.git" ]; then
     printf_error "This project already has git setup"
     if [ -n "$git_prev" ]; then
@@ -666,40 +709,50 @@ run_git_setup() {
 run_git_setup_automated() {
   local GITADMIN_EXITCODE=0
   local git_dir="$(__basedir "$GITADMIN_CWD/.git")"
+  local git_continue="${continue:-}"
+  local git_reuse="${reuse:-}"
   local git_version_file="$VERSIONFILE"
   local git_version_fmt="$VERSION_DATE_FORMAT"
   local remote_repo="${2:-$1}"
   local git_tmpprev="$(git -C "$git_dir" remote -v 2>/dev/null | grep push | head -n 1 | awk '{print $2}' 2>/dev/null | grep '^')"
   check_uri "$remote_repo" && tmprepo="${remote_repo// /_}" || tmprepo=""
   git_prev="${tmprepo:-$git_tmpprev}"
-  [ -d "$git_dir" ] || __mkd "$git_dir"
-  if [ -z "$git_prev" ]; then
-    printf_exit "Can't run in automated mode due to there not being a repo setup"
-    exit 1
+  printf_green "Initializing the repo in $git_dir"
+  [[ -f "$git_dir/.gitignore" ]] || gitignore "$git_dir" default --automated
+  if [ -n "$git_prev" ]; then
+    printf_green "Remote repo is: $git_prev"
+    __rm_rf "$git_dir/.git"
   fi
-  printf_cyan "Setting up $git_dir " &&
-    printf_purple "With remote: $remote_repo as requested" && sleep 5
-  __rm_rf "$git_dir/.git"
   [ -f "$git_version_file" ] && date +"$git_version_fmt" >"$git_version_file"
   ls "$git_dir/README"* >/dev/null 2>&1 || create_new_readme_template "$git_dir"
   ls "$git_dir/LICENSE"* >/dev/null 2>&1 || create_new_license "$git_dir"
-  __devnull git -C "$git_dir" init . &&
-    __devnull git -C "$git_dir" add . &&
+  __devnull git -C "$git_dir" init . && __devnull git -C "$git_dir" add . &&
     git -C "$git_dir" commit -q -m ' 🦈🏠🐜❗ Initial Commit ❗🐜🦈🏠 ' &&
     printf_green "Success: $(__git_repobase "$git_dir") has been initialized" ||
     printf_exit "Failed to initialize $(__git_repobase "$git_dir")"
-  if ! git -C "$git_dir" remote add origin "$git_prev" -f &>/dev/null; then
-    printf_exit "Failed to add remote repo for $(basename "$git_dir")"
-  fi
-  __split_create_repo "$git_prev" || printf_exit "$remote repo does not exist"
-  git -C "$git_dir" push -q -f --set-upstream origin "$GITADMIN_DEFAULT_BRANCH" &>/dev/null
-  __git_push "$git_dir" || GITADMIN_EXITCODE=1
-  if [ -d "$git_dir/.git" ] && [ "$GITADMIN_EXITCODE" = 0 ]; then
-    printf_green "Successfully pushed to $git_prev"
-    GITADMIN_EXITCODE=0
+  if [ -n "$git_prev" ]; then
+    git_reuse="y"
+    git_remote="y"
+    git_remote_repo="$git_prev"
   else
-    printf_red "Push to $git_prev has failed"
-    GITADMIN_EXITCODE=1
+    git_prev=""
+    git_repo=""
+    git_remote_repo=""
+  fi
+  if [ -n "$git_reuse" ]; then
+    git_remote="y"
+    git_remote_repo="${git_prev:-}"
+    __split_create_repo "$git_prev" || printf_exit "$remote repo does not exist"
+    if [ -n "$git_reuse" ] || [ -n "$git_remote" ]; then
+      export git_remote_repo
+      if run_git_init_automated "$git_dir"; then
+        GITADMIN_EXITCODE=0
+      else
+        GITADMIN_EXITCODE=1
+      fi
+    else
+      printf_yellow "No remote repository provided"
+    fi
   fi
   if [ $GITADMIN_EXITCODE -ne 0 ]; then
     printf_red "Initialization has failed"
@@ -739,6 +792,7 @@ git_all_orgs() {
   fi
   export GIT_ALL_REPOS="${git_user}"
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 git_all_orgs_clone() {
   git_all_orgs "${1:-$USERNAME}"
   for org in $USERNAME $GIT_ALL_REPOS; do

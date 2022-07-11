@@ -1,3 +1,4 @@
+cat <<EOF | tee
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ##@Version           :  $GEN_SCRIPT_VERSION
 # @Author            :  $GEN_SCRIPT_AUTHOR
@@ -6,10 +7,11 @@
 # @ReadME            :  $GEN_SCRIPT_DEFREADME
 # @Copyright         :  $GEN_SCRIPT_COPYRIGHT
 # @Created           :  $GEN_SCRIPT_CREATED
-# @File              :  $(__filename $GEN_SCRIPT_NEWFILE 2>/dev/null)
+# @File              :  $GEN_SCRIPT_NEWFILE
 # @Description       :  ${desc:-}
 # @TODO              :  ${todo:-}
 # @Other             :  ${other:-}
 # @Resource          :  ${res:-}
 # @sudo/root         :  no
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+EOF

@@ -16,10 +16,10 @@ docker run -d \
 --name ProjectName \
 --hostname casjaysdev-ProjectName \
 -e TZ=${TIMEZONE:-America/New_York} \
--v $PWD/ProjectName/data:/data \
--v $PWD/ProjectName/config:/config \
+-v $HOME/.local/share/docker/storage/ProjectName/ProjectName/data:/data \
+-v $HOME/.local/share/docker/storage/ProjectName/ProjectName/config:/config \
 -p 80:80 \
-casjaysdev/ProjectName:latest
+casjaysdevdocker/ProjectName:latest
 ```
 
 ### via docker-compose
@@ -28,7 +28,7 @@ casjaysdev/ProjectName:latest
 version: "2"
 services:
   ProjectName:
-    image: casjaysdev/ProjectName
+    image: casjaysdevdocker/ProjectName
     container_name: ProjectName
     environment:
       - TZ=America/New_York
@@ -43,5 +43,5 @@ services:
 
 ## Authors  
 
-🤖 AuthorName: [Github](https://github.com/AuthorName) [Docker](https://hub.docker.com/AuthorName) 🤖  
-⛵ CasjaysDev: [Github](https://github.com/casjaysdev) [Docker](https://hub.docker.com/casjaysdev) ⛵  
+🤖 AuthorName: [Github](https://github.com/AuthorName) [Docker](https://hub.docker.com/u/AuthorName) 🤖  
+⛵ CasjaysDev: [Github](https://github.com/casjaysdev) [Docker](https://hub.docker.com/u/casjaysdev) ⛵  

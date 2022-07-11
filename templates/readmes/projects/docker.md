@@ -13,7 +13,7 @@ dockermgr install ProjectName
 ```shell
 docker run -d \
 --restart always \
---name ProjectName \
+--name casjaysdevdocker-ProjectName \
 --hostname casjaysdev-ProjectName \
 -e TZ=${TIMEZONE:-America/New_York} \
 -v $HOME/.local/share/docker/storage/ProjectName/ProjectName/data:/data \

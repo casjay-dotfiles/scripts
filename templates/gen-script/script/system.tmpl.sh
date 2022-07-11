@@ -2,7 +2,7 @@ cat <<EOF | tee
 $(. "$CASJAYSDEVDIR/templates/gen-script/header/default.tmpl.sh")
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="\$(basename "\$0")"
-VERSION="\$GEN_SCRIPT_VERSION"
+VERSION="$GEN_SCRIPT_VERSION"
 HOME="\${USER_HOME:-\$HOME}"
 USER="\${SUDO_USER:-\$USER}"
 RUN_USER="\${SUDO_USER:-\$USER}"

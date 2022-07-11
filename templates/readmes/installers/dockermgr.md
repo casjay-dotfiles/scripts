@@ -15,14 +15,6 @@
 dockermgr install GEN_README_REPLACE_APPNAME
 ```
 
-
-#### Manual install
-
-```shell
-git clone https://github.com/dockermgr/GEN_README_REPLACE_APPNAME "$HOME/.local/share/CasjaysDev/dockermgr/GEN_README_REPLACE_APPNAME"
-bash -c "$HOME/.local/share/CasjaysDev/dockermgr/GEN_README_REPLACE_APPNAME/install.sh"
-```
-  
 #### Just run it
 
 ```shell

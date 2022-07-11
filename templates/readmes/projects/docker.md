@@ -34,8 +34,8 @@ services:
       - TZ=America/New_York
       - HOSTNAME=casjaysdev-ProjectName
     volumes:
-      - $HOME/.local/share/docker/storage/ProjectName/data:/data
-      - $HOME/.local/share/docker/storage/ProjectName/config:/config
+      - $HOME/.local/share/docker/storage/ProjectName/data:/data:z
+      - $HOME/.local/share/docker/storage/ProjectName/config:/config:z
     ports:
       - 80:80
     restart: always

@@ -11,6 +11,7 @@ dockermgr install ProjectName
 ### via command line
 
 ```shell
+docker pull casjaysdevdocker/ProjectName:latest && \
 docker run -d \
 --restart always \
 --name casjaysdevdocker-ProjectName \

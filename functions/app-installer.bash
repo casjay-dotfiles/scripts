@@ -1723,15 +1723,13 @@ installer_noupdate() {
     return 0
   fi
   if [ "$1" != "--force" ]; then
-    if [ -f "$SYSSHARE/CasjaysDev/apps/$SCRIPTS_PREFIX/$APPNAME" ] || [ -f "$APPDIR/.installed" ] || [ -f "$INSTDIR/.installed" ]; then
+    if [ -f "$APPDIR/.installed" ] || [ -f "$INSTDIR/.installed" ]; then
       APPDIR="$INSTDIR"
       printf_yellow "Coping file of $APPNAME has been disabled"
       printf_yellow "This can be changed with the --force flag"
       printf_yellow "Updating the git repository only"
       ln_sf "$INSTDIR/install.sh" "$SYSUPDATEDIR/$APPNAME"
-      if [[ ! -d "" ]]; then
-        git clone -q "$REPO" "$INSTDIR" &>/dev/null
-      fi
+      [[ -d "$INSTDIR" ]] || git clone -q "$REPO" "$INSTDIR" &>/dev/null
       if __git_update "$INSTDIR"; then
         printf_green "$INSTDIR has been updated"
         exitCode=0

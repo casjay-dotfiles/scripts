@@ -9,7 +9,7 @@
 # @Created           :  Tuesday, Jul 12, 2022 01:26 EDT
 # @File              :  todo
 # @Description       :  Setup a console base todo
-# @TODO              :  Clean up code
+# @TODO              :  Add project support
 # @Other             :
 # @Resource          :
 # @sudo/root         :  no
@@ -59,7 +59,7 @@ __gen_config() {
 # Settings for todo
 TODO_GIT_URL="${TODO_GIT_URL:-}"
 TODO_HOME="${TODO_HOME:-$HOME/.local/share/editors/todos}"
-TODO_FILE="${TODO_FILE:-default.md}"
+TODO_PROJECT_DIR="${TODO_PROJECT_DIR:-default}"
 TODO_EDITOR="${TODO_EDITOR:-$(builtin type -P nano 2>/dev/null || builtin type -P vi 2>/dev/null || builtin type -P vim 2>/dev/null || builtin type -P nvim 2>/dev/null || $EDITOR)}"
 
 # Notification settings
@@ -87,17 +87,22 @@ EOF
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional functions
 __make_todo() {
-  [[ -f "$TODO_FILE" ]] || printf '# TODO List\n' >>"$TODO_HOME/${1:-$TODO_FILE}"
-  printf '[ ] %s  \n' "$*" >>"$TODO_HOME/${TODO_FILE}"
-  grep -wq "$*" "$TODO_HOME/${TODO_FILE}" && __run_git || false
+  local project="$(basename "$(dirname "$TODO_HOME/$TODO_PROJECT/$TODO_FILE")")"
+  [[ -d "$TODO_HOME/$project" ]] && mkdir -p "$TODO_HOME/$TODO_PROJECT_DIR"
+  [[ -f "$TODO_HOME/$project/$TODO_FILE" ]] || printf '# TODO List for "$project"\n' >>"$TODO_HOME/${1:-$TODO_FILE}"
+  printf '[ ] %s  \n' "$*" >>"$TODO_HOME/$project/$TODO_FILE"
+  grep -wq "$*" "$TODO_HOME/$project/$TODO_FILE" && __run_git || false
   return $?
 }
-__editor() { $TODO_EDITOR "$TODO_FILE"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__editor() {
+  local project="$(basename "$(dirname "$TODO_HOME/$TODO_PROJECT/$TODO_FILE")")" [[ -d "$TODO_HOME/$TODO_PROJECT_DIR" ]] && mkdir -p "$TODO_HOME/$TODO_PROJECT_DIR"
+  $TODO_EDITOR "$TODO_HOME/$project/$TODO_FILE"
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_git() {
-  [[ -d "$TODO_HOME/.git" ]] || return
-  [[ -n "$TODO_GIT_URL" ]] || return
-  [[ -n "$(git diff-index --name-only HEAD -- 2>/dev/null)" ]] &&
+  [[ -d "$TODO_HOME/.git" ]] || [[ -n "$TODO_GIT_URL" ]] || return
+  git -C "$TODO_HOME" diff-index --name-only HEAD -- 2>/dev/null | grep -q '^' &&
     gitcommit "$TODO_HOME" todo
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -106,7 +111,7 @@ __git_import() {
   if [[ -d "$TODO_HOME/.git" ]]; then
     gitadmin "$TODO_HOME" pull
   else
-    __gen_config &>/dev/null
+    sed -i 's|TODO_GIT_URL=.*$|TODO_GIT_URL="'$TODO_GIT_URL'"|g' "$TODO_CONFIG_DIR/$TODO_CONFIG_FILE"
     gitadmin clone "$1" "$TODO_HOME"
   fi
 }
@@ -132,10 +137,11 @@ TODO_OUTPUT_COLOR_GOOD="${TODO_OUTPUT_COLOR_GOOD:-2}"
 TODO_OUTPUT_COLOR_ERROR="${TODO_OUTPUT_COLOR_ERROR:-1}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Enviroment overrides
-TODO_GIT_URL="${TODO_GIT_URL:-}"
-TODO_HOME="${TODO_HOME:-$HOME/.local/share/editors/todos}"
-TODO_FILE="all/${TODO_FILE:-index.md}"
 TODO_EDITOR="${TODO_EDITOR:-$(builtin type -P nano 2>/dev/null || builtin type -P vi 2>/dev/null || builtin type -P vim 2>/dev/null || builtin type -P nvim 2>/dev/null || $EDITOR)}"
+TODO_HOME="${TODO_HOME:-$HOME/.local/share/editors/todos}"
+TODO_FILE="${TODO_FILE:-index.md}"
+TODO_GIT_URL="${TODO_GIT_URL:-}"
+TODO_PROJECT_DIR="${TODO_PROJECT_DIR:-default}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$TODO_CONFIG_DIR/$TODO_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
@@ -173,9 +179,9 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set additional variables/Argument/Option settings
 SETARGS="$*"
-SHORTOPTS=""
+SHORTOPTS="p:"
 LONGOPTS="debug,options,config,version,help,dir:"
-ARRAY="import list search edit"
+ARRAY="complete import list search edit"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup application options
 setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
@@ -215,6 +221,10 @@ while :; do
     TODO_CWD="$2"
     shift 2
     ;;
+  -p)
+    TODO_PROJECT_DIR="$2"
+    shift 2
+    ;;
   --)
     shift 1
     break
@@ -237,9 +247,10 @@ cmd_exists --error --ask bash || exit 1 # exit 1 if not found
 case "$1" in
 import)
   shift 1
+  TODO_GIT_URL="${1:-$TODO_GIT_URL}"
   [[ "$(find $TODO_HOME/* 2>/dev/null | wc -l)" = 0 ]] || printf_exit "$TODO_HOME is not empty"
-  if [[ -n "$TODO_GIT_URL" ]]; then
-    __git_import "$TODO_GIT_URL" || printf_exit "no repo specified"
+  if [[ -n "$TODO_GIT_URL" ]] || [[ -n "$1" ]]; then
+    __git_import "${1:-$TODO_GIT_URL}" || printf_exit "no repo specified"
   elif [[ $# = 0 ]]; then
     printf_read_question 6 "Would you like to import from git" "1" "Yy"
     if printf_answer_yes "$Yy"; then
@@ -254,14 +265,29 @@ import)
   exit $?
   ;;
 
+complete)
+  shift 1
+  TODO_PROJECT_DIR="$(basename "$(dirname "$TODO_HOME/$TODO_PROJECT/$TODO_FILE")")"
+  __editor
+  grep -s '^\[x] ' "$TODO_HOME/$TODO_PROJECT/$TODO_FILE" >>"$TODO_HOME/all/completed.md"
+  grep -s '^\[ ] ' "$TODO_HOME/$TODO_PROJECT/$TODO_FILE" >"$TODO_HOME/tmp.bak"
+  if [[ -f "$TODO_HOME/tmp.bak" ]]; then
+    mv -f "$TODO_HOME/tmp.bak" "$TODO_HOME/$TODO_PROJECT/$TODO_FILE" && rm -Rf "$TODO_HOME/tmp.bak"
+  fi
+  __run_git
+  exit
+  ;;
+
 list)
   shift 1
-  cat "$TODO_FILE" | printf_readline
+  TODO_PROJECT_DIR="$(basename "$(dirname "$TODO_HOME/$TODO_PROJECT/$TODO_FILE")")"
+  cat "$TODO_HOME/$TODO_PROJECT/$TODO_FILE" | printf_readline
   ;;
 
 search)
   shift 1
-  search_results="$(cat "$TODO_FILE" | grep -si "$1" 2>/dev/null)"
+  TODO_PROJECT_DIR="$(basename "$(dirname "$TODO_HOME/$TODO_PROJECT/$TODO_FILE")")"
+  search_results="$(cat "$TODO_HOME/$TODO_PROJECT/$TODO_FILE" | grep -si "$1" 2>/dev/null)"
   if [ -n "$search_results" ]; then
     printf_green "Search results: "
     echo "$search_results" | printf_readline "7"
@@ -273,9 +299,11 @@ search)
   exit $exitCode
   ;;
 
-edit)
+edit | new)
   shift 1
+  TODO_PROJECT_DIR="$(basename "$(dirname "$TODO_HOME/$TODO_PROJECT/$TODO_FILE")")"
   __editor
+  __run_git
   exit $?
   ;;
 

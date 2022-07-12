@@ -102,15 +102,18 @@ _pre_inst() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _git_repo_init() {
-  if [ -d "$DOTFILES_HOME"/.git ]; then
-    DOTFILES_TEMP="$DOTFILES_HOME"
+  if [ -d "$DOTFILES_HOME/.git" ]; then
     git -C "$DOTFILES_HOME" reset --hard &>/dev/null && git -C "$DOTFILES_HOME" pull -f
     getexitcode "repo update successful" "git pull failed for $DOTFILES_HOME"
   else
     git clone "$DOTFILES_GIT_URL" "$DOTFILES_HOME"
     getexitcode "git clone successful" "git clone $DOTFILES_GIT_URL has failed"
   fi
-  if [ -d "$DOTFILES_HOME" ]; then cp -Rf "$DOTFILES_HOME" "$DOTFILES_TEMP" &>/dev/null; fi
+  if [ -d "$DOTFILES_HOME" ]; then
+    rsync -avhP "$DOTFILES_HOME/." "$DOTFILES_TEMP/." --delete &>/dev/null
+  else
+    printf_exit "Failed to to clone the repo"
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _scripts_init() {
@@ -173,7 +176,7 @@ _files_init() {
   find "$DOTFILES_TEMP"/system -type f -iname "*.cgi" -exec chmod 755 -Rf {} \; &>/dev/null
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # copy files to ~
-  [[ "$DOTFILES_HOME" = "$DOTFILES_TEMP" ]] || rsync -ahqk "$DOTFILES_TEMP/home/." "$HOME/"
+  rsync -ahqk "$DOTFILES_TEMP/home/." "$HOME/"
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # import podcast feeds
   if cmd_exists castero; then

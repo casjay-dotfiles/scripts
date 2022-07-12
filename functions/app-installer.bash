@@ -19,7 +19,7 @@ SUDO_USER="${RUN_USER:-$SUDO_USER}"
 export RUN_USER SUDO_USER
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
-[[ -n "$_DEBUG" ]] && set -xeo errtrace errexit pipefaile && trap 'echo Error on line $LINENO' ERR
+[[ "$_DEBUG" = "on" ]] && set -xo pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 CASJAYSDEVDIR="/usr/local/share/CasjaysDev/scripts"
 CASJAYSDEV_USERDIR="${CASJAYSDEV_USERDIR:-$HOME/.local/share/CasjaysDev}"

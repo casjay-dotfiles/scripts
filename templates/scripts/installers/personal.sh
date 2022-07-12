@@ -173,7 +173,7 @@ _files_init() {
   find "$DOTFILES_TEMP"/system -type f -iname "*.cgi" -exec chmod 755 -Rf {} \; &>/dev/null
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # copy files to ~
-  [[ "$DOTFILES_HOME" = "$DOTFILES_TEMP" ]] || rsync -ahqk "$DOTFILES_TEMP"/home/. "$HOME/"
+  [[ "$DOTFILES_HOME" = "$DOTFILES_TEMP" ]] || rsync -ahqk "$DOTFILES_TEMP/home/." "$HOME/"
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # import podcast feeds
   if cmd_exists castero; then

@@ -151,7 +151,7 @@ printf_pause() {
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="5"
   local msg="${*:-Press any key to continue}"
   printf_color "\t\t$msg " "${PRINTF_COLOR:-$color}"
-  read -r -n 1
+  read -r -n 1 -s
   printf "\n"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

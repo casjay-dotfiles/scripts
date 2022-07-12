@@ -19,7 +19,7 @@ SUDO_USER="${RUN_USER:-$SUDO_USER}"
 export RUN_USER SUDO_USER
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
-[[ -n "$_DEBUG" ]] && set -xe0 errtrace errexit pipefaile && trap 'echo Error on line $LINENO' ERR
+[[ -n "$_DEBUG" ]] && set -xeo errtrace errexit pipefaile && trap 'echo Error on line $LINENO' ERR
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 CASJAYSDEVDIR="/usr/local/share/CasjaysDev/scripts"
 CASJAYSDEV_USERDIR="${CASJAYSDEV_USERDIR:-$HOME/.local/share/CasjaysDev}"
@@ -1282,7 +1282,7 @@ os_support() {
 supported_os() {
   for OSes in "$@"; do
     local app=${APPNAME:-$PROG}
-    if_os $OSes || printf_exit 1 1 "$app does not support your OS"
+    if_os "$OSes" || printf_exit 1 1 "$app does not support your OS"
     printf_newline
   done
 }
@@ -1729,6 +1729,9 @@ installer_noupdate() {
       printf_yellow "This can be changed with the --force flag"
       printf_yellow "Updating the git repository only"
       ln_sf "$INSTDIR/install.sh" "$SYSUPDATEDIR/$APPNAME"
+      if [[ ! -d "" ]]; then
+        git clone -q "$REPO" "$INSTDIR" &>/dev/null
+      fi
       if __git_update "$INSTDIR"; then
         printf_green "$INSTDIR has been updated"
         exitCode=0

@@ -1717,29 +1717,30 @@ show_optvars() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 installer_noupdate() {
   __git_update() { git -C "${1:-$INSTDIR}" reset --hard -q &>/dev/null && git -C "${1:-$INSTDIR}" pull &>/dev/null && return 0 || return 1; }
-  [[ -n "$_DEBUG" ]] && set -x
+  [[ -n "$_DEBUG" ]] && set -xeo
+  [ "$1" = "--force" ] && return 0
   if [ "$FORCE_INSTALL" = "true" ]; then
     rm_rf "$APPDIR/.installed" "$INSTDIR/.installed"
     return 0
   fi
-  if [ "$1" != "--force" ]; then
-    if [ -f "$APPDIR/.installed" ] || [ -f "$INSTDIR/.installed" ]; then
-      APPDIR="$INSTDIR"
-      printf_yellow "Coping file of $APPNAME has been disabled"
-      printf_yellow "This can be changed with the --force flag"
-      printf_yellow "Updating the git repository only"
-      ln_sf "$INSTDIR/install.sh" "$SYSUPDATEDIR/$APPNAME"
-      [[ -d "$INSTDIR" ]] || git clone -q "$REPO" "$INSTDIR" &>/dev/null
-      if __git_update "$INSTDIR"; then
-        printf_green "$INSTDIR has been updated"
-        exitCode=0
-      else
-        printf_red "Failed to update $INSTDIR"
-        printf_newline ''
-        exitCode=1
-      fi
-      exitCode=$?
+  if [ -f "$APPDIR/.installed" ] || [ -f "$INSTDIR/.installed" ]; then
+    APPDIR="$INSTDIR"
+    printf_yellow "Coping file of $APPNAME has been disabled"
+    printf_yellow "This can be changed with the --force flag"
+    printf_yellow "Updating the git repository only"
+    ln_sf "$INSTDIR/install.sh" "$SYSUPDATEDIR/$APPNAME"
+    [[ -d "$INSTDIR" ]] || git clone -q "$REPO" "$INSTDIR" &>/dev/null
+    if __git_update "$INSTDIR"; then
+      printf_green "$INSTDIR has been updated"
+      exitCode=0
+    else
+      printf_red "Failed to update $INSTDIR"
+      printf_newline ''
+      exitCode=1
     fi
+    exitCode=$?
+  else
+    return 0
   fi
   exit ${exitCode:-$?}
 }

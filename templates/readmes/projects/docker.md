@@ -44,5 +44,5 @@ services:
 
 ## Authors  
 
-🤖 AuthorName: [Github](https://github.com/AuthorName) [Docker](https://hub.docker.com/u/AuthorName) 🤖  
-⛵ CasjaysDev: [Github](https://github.com/casjaysdev) [Docker](https://hub.docker.com/u/casjaysdev) ⛵  
+🤖 AuthorName: [Github](https://github.com/AuthorName) [Docker](https://hub.docker.com/r/AuthorName) 🤖  
+⛵ CasjaysDev: [Github](https://github.com/casjaysdev) [Docker](https://hub.docker.com/r/casjaysdev) ⛵  

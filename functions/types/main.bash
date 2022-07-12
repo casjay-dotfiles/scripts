@@ -150,7 +150,7 @@ export mgr_init="${mgr_init:-true}"
 run_install_init() {
   $installtype
   local app=""
-  local exitCode=""
+  local exitCode="0"
   local LISTARRAY="$*"
   for app in $LISTARRAY; do
     __main_installer_info

@@ -8,15 +8,17 @@
 # @Copyright         :  GEN_SCRIPT_REPLACE_COPYRIGHT
 # @Created           :  GEN_SCRIPT_REPLACE_DATE
 # @File              :  GEN_SCRIPT_REPLACE_FILENAME
-# @Description       :  Installer script for GEN_SCRIPT_REPLACE_APPNAME
+# @Description       :  GEN_SCRIPT_REPLACE_DESC
 # @TODO              :  GEN_SCRIPT_REPLACE_TODO
 # @Other             :  GEN_SCRIPT_REPLACE_OTHER
 # @Resource          :  GEN_SCRIPT_REPLACE_RES
 # @sudo/root         :  no
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
-USER="${SUDO_USER:-${USER}}"
-HOME="${USER_HOME:-${HOME}}"
+VERSION="GEN_SCRIPT_REPLACE_VERSION"
+HOME="${USER_HOME:-$HOME}"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${SUDO_USER:-$USER}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options

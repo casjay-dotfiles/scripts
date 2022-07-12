@@ -103,6 +103,7 @@ _pre_inst() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _git_repo_init() {
   if [ -d "$DOTFILES_HOME"/.git ]; then
+    DOTFILES_TEMP="$DOTFILES_HOME"
     git -C "$DOTFILES_HOME" reset --hard &>/dev/null && git -C "$DOTFILES_HOME" pull -f
     getexitcode "repo update successful" "git pull failed for $DOTFILES_HOME"
   else
@@ -156,7 +157,6 @@ _root_init() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _files_init() {
-  [ -d "$DOTFILES_TEMP" ] || DOTFILES_TEMP="$DOTFILES_HOME"
   GPG_TTY="$(tty)"
   unalias cp &>/dev/null
   find "$HOME/" -xtype l -delete &>/dev/null
@@ -173,7 +173,7 @@ _files_init() {
   find "$DOTFILES_TEMP"/system -type f -iname "*.cgi" -exec chmod 755 -Rf {} \; &>/dev/null
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # copy files to ~
-  rsync -ahqk "$DOTFILES_TEMP"/home/. "$HOME/"
+  [[ "$DOTFILES_HOME" = "$DOTFILES_TEMP" ]] || rsync -ahqk "$DOTFILES_TEMP"/home/. "$HOME/"
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # import podcast feeds
   if cmd_exists castero; then

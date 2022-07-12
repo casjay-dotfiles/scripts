@@ -1729,20 +1729,16 @@ installer_noupdate() {
     printf_yellow "This can be changed with the --force flag"
     printf_yellow "Updating the git repository only"
     ln_sf "$INSTDIR/install.sh" "$SYSUPDATEDIR/$APPNAME"
-    [[ -d "$INSTDIR" ]] || git clone -q "$REPO" "$INSTDIR" &>/dev/null
+    [[ -d "$INSTDIR/.git" ]] || git clone -q "$REPO" "$INSTDIR" &>/dev/null
     if __git_update "$INSTDIR"; then
       printf_green "$INSTDIR has been updated"
-      exitCode=0
+      exit 0
     else
       printf_red "Failed to update $INSTDIR"
       printf_newline ''
-      exitCode=1
+      exit 1
     fi
-    exitCode=$?
-  else
-    return 0
   fi
-  exit ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __install_fonts() {

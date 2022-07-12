@@ -1008,7 +1008,7 @@ git_clone() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 git_update() {
   local myappdir="${1:-$INSTDIR}"
-  local exitCode=""
+  local exitCode="0"
   if __am_i_online; then
     local repo="$(git remote -v | grep fetch | head -n 1 | awk '{print $2}')"
     devnull git -C "$myappdir" reset --hard &&

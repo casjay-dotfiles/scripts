@@ -15,8 +15,10 @@
 # @sudo/root         :  no
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
-USER="${SUDO_USER:-${USER}}"
-HOME="${USER_HOME:-${HOME}}"
+VERSION="GEN_SCRIPT_REPLACE_VERSION"
+HOME="${USER_HOME:-$HOME}"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${SUDO_USER:-$USER}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
@@ -59,10 +61,6 @@ REPO_BRANCH="${GIT_REPO_BRANCH:-main}"
 REPO="${DEVENVMGRREPO:-https://github.com/devenvmgr}/$APPNAME"
 REPORAW="$REPO/raw/$REPO_BRANCH"
 APPVERSION="$(__appversion "$REPORAW/version.txt")"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup plugins
-PLUGNAMES=""
-PLUGDIR="${SHARE:-$HOME/.local/share}/$APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Require a version higher than
 devenvmgr_req_version "$APPVERSION"
@@ -129,19 +127,6 @@ if connect_test; then
   else
     execute
     "git_clone $REPO $INSTDIR" "Installing $APPNAME configurations"
-  fi
-  # exit on fail
-  failexitcode $? "Git has failed"
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Plugins
-if connect_test; then
-  if [ "$PLUGNAMES" != "" ]; then
-    if [ -d "$PLUGDIR"/PLUREP/.git ]; then
-      execute "git_update $PLUGDIR/PLUGREP" "Updating plugin PLUGNAME"
-    else
-      execute "git_clone PLUGINREPO $PLUGDIR/PLUGREP" "Installing plugin PLUGREP"
-    fi
   fi
   # exit on fail
   failexitcode $? "Git has failed"

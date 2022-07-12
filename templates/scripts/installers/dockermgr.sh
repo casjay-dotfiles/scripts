@@ -64,7 +64,7 @@ __sudo() { sudo -n true && eval sudo "$*" || eval "$*" || return 1; }
 __sudo_root() { sudo -n true && ask_for_password true && eval sudo "$*" || return 1; }
 __enable_ssl() { [[ "$SERVER_SSL" = "yes" ]] && [[ "$SERVER_SSL" = "true" ]] && return 0 || return 1; }
 __ssl_certs() { [ -f "${1:-$SERVER_SSL_CRT}" ] && [ -f "${2:-SERVER_SSL_KEY}" ] && return 0 || return 1; }
-__port_not_in_use() { [[ -d "/etc/nginx/vhosts.d" ]] && grep -wRsq "${1:-$SERVER_PORT}" /etc/nginx/vhosts.d && return 0 || return 1; }
+__port_not_in_use() { [[ -d "/etc/nginx/vhosts.d" ]] && grep -wRsq "${1:-$SERVER_PORT_EXT}" /etc/nginx/vhosts.d && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Make sure the scripts repo is installed
 scripts_check
@@ -111,12 +111,12 @@ NGINX_HTTP="${NGINX_HTTP:-80}"
 NGINX_HTTPS="${NGINX_HTTPS:-443}"
 NGINX_PORT="${NGINX_HTTPS:-$NGINX_HTTP}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Port Setup [ _INT is container port ]
-SERVER_PORT="${SERVER_PORT:-}"
+# Port Setup [ _INT is container port ] [ _EXT is docker ]
+SERVER_PORT_EXT="${SERVER_PORT_EXT:-}"
 SERVER_PORT_INT="${SERVER_PORT_INT:-}"
-SERVER_PORT_ADMIN="${SERVER_PORT_ADMIN:-}"
+SERVER_PORT_ADMIN_EXT="${SERVER_PORT_ADMIN_EXT:-}"
 SERVER_PORT_ADMIN_INT="${SERVER_PORT_ADMIN_INT:-}"
-SERVER_PORT_OTHER="${SERVER_PORT_OTHER:-}"
+SERVER_PORT_OTHER_EXT="${SERVER_PORT_OTHER_EXT:-}"
 SERVER_PORT_OTHER_INT="${SERVER_PORT_OTHER_INT:-}"
 SERVER_WEB_PORT="${SERVER_WEB_PORT:-$SERVER_PORT}"
 SERVER_PROXY="${SERVER_PROXY:-https://$SERVER_LISTEN:$SERVER_PORT}"
@@ -189,8 +189,8 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main progam
 if cmd_exists docker-compose && [ -f "$INSTDIR/docker-compose.yml" ]; then
-  printf_blue "Installing containers using dockercompose"
-  sed -i "s|REPLACE_DATADIR|$DATADIR" "$INSTDIR/docker-compose.yml"
+  printf_blue "Installing containers using docker-compose"
+  sed -i 's|REPLACE_DATADIR|'$DATADIR'' "$INSTDIR/docker-compose.yml"
   if cd "$INSTDIR"; then
     __sudo docker-compose pull &>/dev/null
     __sudo docker-compose up -d &>/dev/null
@@ -206,7 +206,7 @@ else
     -e TZ="$SERVER_TIMEZONE" \
     -v $LOCAL_DATA_DIR:/app/data \
     -v $LOCAL_CONFIG_DIR:/app/config \
-    -p $SERVER_LISTEN:$SERVER_PORT:$SERVER_PORT_INT \
+    -p $SERVER_LISTEN:$SERVER_PORT_EXT:$SERVER_PORT_INT \
     "$HUB_URL" &>/dev/null
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -215,7 +215,7 @@ if [[ ! -f "/etc/nginx/vhosts.d/$SERVER_HOST.conf" ]] && [[ -f "$INSTDIR/nginx/p
   cp -f "$INSTDIR/nginx/proxy.conf" "/tmp/$$.$SERVER_HOST.conf"
   sed -i "s|REPLACE_APPNAME|$APPNAME|g" "/tmp/$$.$SERVER_HOST.conf" &>/dev/null
   sed -i "s|REPLACE_NGINX_PORT|$NGINX_PORT|g" "/tmp/$$.$SERVER_HOST.conf" &>/dev/null
-  sed -i "s|REPLACE_SERVER_PORT|$SERVER_PORT|g" "/tmp/$$.$SERVER_HOST.conf" &>/dev/null
+  sed -i "s|REPLACE_SERVER_PORT|$SERVER_PORT_EXT|g" "/tmp/$$.$SERVER_HOST.conf" &>/dev/null
   sed -i "s|REPLACE_SERVER_HOST|$SERVER_DOMAIN|g" "/tmp/$$.$SERVER_HOST.conf" &>/dev/null
   sed -i "s|REPLACE_SERVER_PROXY|$SERVER_PROXY|g" "/tmp/$$.$SERVER_HOST.conf" &>/dev/null
   __sudo_root mv -f "/tmp/$$.$SERVER_HOST.conf" "/etc/nginx/vhosts.d/$SERVER_HOST.conf"
@@ -248,7 +248,7 @@ dockermgr_install_version
 if docker ps -a | grep -qs "$APPNAME"; then
   printf_blue "DATADIR in $DATADIR"
   printf_cyan "Installed to $INSTDIR"
-  [[ -n "$SERVER_IP" && -n "$SERVER_PORT" ]] && printf_blue "Service is running on: $SERVER_IP:$SERVER_PORT"
+  [[ -n "$SERVER_IP" && -n "$SERVER_PORT_EXT" ]] && printf_blue "Service is running on: $SERVER_IP:$SERVER_PORT_EXT"
   [[ -n "$SERVER_LISTEN" && -n "$SERVER_WEB_PORT" ]] && printf_blue "and should be available at: http://$SERVER_LISTEN:$SERVER_WEB_PORT or http://$SERVER_HOST:$SERVER_WEB_PORT"
   [[ -z "$SERVER_WEB_PORT" ]] && printf_yellow "This container does not have a web interface"
   [[ -n "$SERVER_MESSAGE_USER" ]] && printf_cyan "Username is:  $SERVER_MESSAGE_USER"

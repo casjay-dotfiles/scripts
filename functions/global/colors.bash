@@ -237,7 +237,7 @@ printf_readline() {
   while read line; do
     printf_color "\t\t$line" "${PRINTF_COLOR:-$color}"
     printf "\n"
-  done |& cat - | tee
+  done |& cat - | cut -c 1-${TRUNC_IT:-130} | tee
   set +o pipefail
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

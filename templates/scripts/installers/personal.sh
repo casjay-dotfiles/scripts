@@ -1,21 +1,20 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  GEN_SCRIPT_REPLACE_VERSION
-# @Author            :  GEN_SCRIPT_REPLACE_AUTHOR
-# @Contact           :  GEN_SCRIPT_REPLACE_EMAIL
-# @License           :  GEN_SCRIPT_REPLACE_LICENSE
-# @ReadME            :  GEN_SCRIPT_REPLACE_FILENAME --help
-# @Copyright         :  GEN_SCRIPT_REPLACE_COPYRIGHT
-# @Created           :  GEN_SCRIPT_REPLACE_DATE
-# @File              :  GEN_SCRIPT_REPLACE_FILENAME
-# @Description       :  GEN_SCRIPT_REPLACE_DESC
-# @TODO              :  GEN_SCRIPT_REPLACE_TODO
-# @Other             :  GEN_SCRIPT_REPLACE_OTHER
-# @Resource          :  GEN_SCRIPT_REPLACE_RES
-# @sudo/root         :  no
+##@Version       : 202103302120-git
+# @Author        : Jason Hempstead
+# @Contact       : jason@casjaysdev.com
+# @License       : WTFPL
+# @ReadME        : install.sh --help
+# @Copyright     : Copyright: (c) 2021 Jason Hempstead, CasjaysDev
+# @Created       : Tuesday, Mar 30, 2021 21:20 EDT
+# @File          : install.sh
+# @Description   : installer script for personal dotfiles
+# @TODO          :
+# @Other         :
+# @Resource      :
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-APPNAME="$(basename "$0" 2>/dev/null)"
-VERSION="202111171035-git"
+APPNAME="$(basename "$0")"
+VERSION="202103302120-git"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
@@ -35,7 +34,7 @@ elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
   . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
 else
   echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
-  exit 90
+  exit 1
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # user system devenv dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
@@ -45,34 +44,38 @@ show_optvars "$@"
 # Options
 PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games:/usr/local/sbin:/usr/sbin:/sbin:/usr/bin/core_perl/cpan"
 # Set primary dir
-DOTFILES="${DOTFILES_PERSONAL:-$HOME/.local/dotfiles/personal}"
+DOTFILES_HOME="${DOTFILES_PERSONAL:-$HOME/.local/dotfiles/personal}"
 # Set the temp directory
-DOTTEMP="${DOTTEMP:-/tmp/dotfiles-personal-$USER}"
+DOTFILES_TEMP="${DOTFILES_TEMP:-/tmp/dotfiles-personal-$USER}"
 #Modify and set if using the auth token
-AUTHTOKEN="${GITHUB_ACCESS_TOKEN:-YOUR_AUTH_TOKEN}"
+DOTFILES_GIT_TOKEN="${GITHUB_ACCESS_TOKEN:-YOUR_AUTH_TOKEN}"
 # either http https or git
-GITPROTO="https://"
+DOTFILES_GIT_PROTO="https://"
 #Your git repo
-GITREPO="${DOTFILES_PERSONAL_REPO:-github.com/dfmgr/personal}"
+DOTFILES_GIT_REPO="${DOTFILES_PERSONAL_REPO:-github.com/your/repo}"
 #scripts repo
-SCRIPTSREPO="https://github.com/dfmgr/installer"
+SYSTEM_SCRIPTS_REPO="https://github.com/casjay-dotfiles/scripts"
 # Git Command - Private Repo
-GITURL="$GITPROTO$AUTHTOKEN:x-oauth-basic@$GITREPO"
+DOTFILES_GIT_URL="$DOTFILES_GIT_PROTO$DOTFILES_GIT_TOKEN:x-oauth-basic@$DOTFILES_GIT_REPO"
 #Public Repo
-#GITURL="$GITPROTO$GITREPO"
+#DOTFILES_GIT_URL="$DOTFILES_GIT_PROTO$DOTFILES_GIT_REPO"
 # Default NTP Server
-NTPSERVER="ntp.casjay.net"
+DOTFILES_NTP_SERVER="ntp.casjay.net"
 # Set tmpfile
-TMP_FILE="$(mktemp /tmp/dfmpersonal-XXXXXXXXX)"
+DOTFILES_TEMP_FILE="$(mktemp /tmp/dfmpersonal-XXXXXXXXX)"
 # Set Options
-OPTIONS="$*"
+INSTALL_OPTIONS="$*"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-rm -Rf "$TMP_FILE" /tmp/dfmpersonal-* &>/dev/null
+rm -Rf "$DOTFILES_TEMP_FILE" /tmp/dfmpersonal-* &>/dev/null
 if cmd_exists sudo; then sudo echo; fi
 clear
 printf "\n\n\n\n"
 _pre_inst() {
-  if [ -z "$AUTHTOKEN" ] || [ "$AUTHTOKEN" == "YOUR_AUTH_TOKEN" ]; then
+  if [[ "$DOTFILES_PERSONAL_REPO" = "github.com/your/repo" ]]; then
+    printf_red "Please set DOTFILES_PERSONAL_REPO to the url to your repo"
+    exit 1
+  fi
+  if [ -z "$DOTFILES_GIT_TOKEN" ] || [ "$DOTFILES_GIT_TOKEN" == "YOUR_AUTH_TOKEN" ]; then
     printf_red "AUTH Token is not set"
     exit 1
   fi
@@ -80,15 +83,15 @@ _pre_inst() {
     printf_red "Sudo is needed, however its not installed installed"
     exit 1
   fi
-  if [ ! -d "$DOTFILES/.git" ]; then rm -Rf "$DOTFILES"; fi
-  if [ -d "$DOTTEMP" ]; then rm -Rf "$DOTTEMP"; fi
+  if [ ! -d "$DOTFILES_HOME/.git" ]; then rm -Rf "$DOTFILES_HOME"; fi
+  if [ -d "$DOTFILES_TEMP" ]; then rm -Rf "$DOTFILES_TEMP"; fi
   if [[ "$OSTYPE" =~ ^linux ]]; then
     if ! cmd_exists systemmgr; then
       if (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null; then
-        sudo bash -c "$(curl -LSs https://github.com/systemmgr/installer/raw/main/install.sh)"
-        sudo bash -c "$(curl -LSs https://github.com/systemmgr/installer/raw/main/install.sh)"
+        sudo bash -c "$(curl -q -LSsf "$SYSTEM_SCRIPTS_REPO/raw/main/install.sh")"
+        sudo bash -c "$(curl -q -LSsf "$SYSTEM_SCRIPTS_REPO/raw/main/install.sh")"
       else
-        printf_red 'Please run sudo bash -c "$(curl -LSs https://github.com/systemmgr/installer/raw/main/install.sh)"'
+        printf_red 'Please run sudo bash -c "$(curl -q -LSsf "$SYSTEM_SCRIPTS_REPO/raw/main/install.sh")"'
         exit 1
       fi
     fi
@@ -99,27 +102,28 @@ _pre_inst() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _git_repo_init() {
-  if [ -d "$DOTFILES"/.git ]; then
-    git -C "$DOTFILES" reset --hard &>/dev/null && git -C "$DOTFILES" pull -f
-    getexitcode "repo update successful" "git pull failed for $DOTFILES"
+  if [ -d "$DOTFILES_HOME"/.git ]; then
+    git -C "$DOTFILES_HOME" reset --hard &>/dev/null && git -C "$DOTFILES_HOME" pull -f
+    getexitcode "repo update successful" "git pull failed for $DOTFILES_HOME"
   else
-    git clone "$GITURL" "$DOTFILES"
-    getexitcode "git clone successful" "git clone $GITURL has failed"
+    git clone "$DOTFILES_GIT_URL" "$DOTFILES_HOME"
+    getexitcode "git clone successful" "git clone $DOTFILES_GIT_URL has failed"
   fi
-  if [ -d "$DOTFILES" ]; then cp -Rf "$DOTFILES" "$DOTTEMP" &>/dev/null; fi
+  if [ -d "$DOTFILES_HOME" ]; then cp -Rf "$DOTFILES_HOME" "$DOTFILES_TEMP" &>/dev/null; fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _scripts_init() {
   install_all_dfmgr() { dfmgr install --all || return 1; }
-  install_basic_dfmgr() { dfmgr install misc bash git vim || return 1; }
+  install_basic_dfmgr() { dfmgr install misc bash git || return 1; }
   install_server_dfmgr() { dfmgr install bash git tmux vifm vim || return 1; }
   install_desktopmgr() { desktopmgr install awesome bspwm i3 openbox qtile xfce4 xmonad || return 1; }
-
-  for sudoconf in installer ssh ssl; do
-    sudo systemmgr --config &>/dev/null
-    sudo systemmgr install $sudoconf
-  done
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  systemmgr --config &>/dev/null
   dfmgr --config &>/dev/null
+  for sudoconf in cron installer ssh ssl; do
+    systemmgr install "$sudoconf"
+  done
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   if [[ "$OSTYPE" =~ ^linux ]]; then
     if [ "$1" = "--all" ]; then
       install_all_dfmgr
@@ -140,106 +144,149 @@ _root_init() {
   # Copy gpg ssh to root
   if (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null; then
     sudo mkdir -p "/root/.ssh"
-    sudo rsync -ahqk "$DOTTEMP/home/.ssh/." /root/.ssh/
+    sudo rsync -ahqk "$DOTFILES_TEMP/home/.ssh/." /root/.ssh/
     sudo chmod -Rf 600 /root/.ssh/
     sudo chmod -f 700 /root/.ssh
     sudo chown -Rf root:root /root
     if [[ -d "/personal" ]]; then sudo rm -R "/personal"; fi
-  fi
-  if [[ -d "$DOTTEMP/home/.docker" ]]; then
-    mkdir -p /root/.docker
-    sudo rsync -ahqk "$DOTTEMP/home/.docker/." /root/.docker/
+    # copy docker config
+    sudo mkdir -p /root/.docker
+    sudo cp -Rfv "$DOTFILES_TEMP/home/.docker/." "/root/.docker"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _files_init() {
-  [ -d "$DOTTEMP" ] || DOTTEMP="$DOTFILES"
+  [ -d "$DOTFILES_TEMP" ] || DOTFILES_TEMP="$DOTFILES_HOME"
   GPG_TTY="$(tty)"
   unalias cp &>/dev/null
   find "$HOME/" -xtype l -delete &>/dev/null
   mkdir -p "$HOME"/.ssh "$HOME"/.gnupg &>/dev/null
-  chmod -Rf 755 "$DOTTEMP"/system/usr/local/bin/* &>/dev/null
-  chmod -Rf 755 "$DOTTEMP"/home/.local/bin/* &>/dev/null
-  find "$DOTTEMP"/home -type f -iname "*.bash" -exec chmod 755 -Rf {} \; &>/dev/null
-  find "$DOTTEMP"/home -type f -iname "*.sh" -exec chmod 755 -Rf {} \; &>/dev/null
-  find "$DOTTEMP"/home -type f -iname "*.pl" -exec chmod 755 -Rf {} \; &>/dev/null
-  find "$DOTTEMP"/home -type f -iname "*.cgi" -exec chmod 755 -Rf {} \; &>/dev/null
-  find "$DOTTEMP"/system -type f -iname "*.bash" -exec chmod 755 -Rf {} \; &>/dev/null
-  find "$DOTTEMP"/system -type f -iname "*.sh" -exec chmod 755 -Rf {} \; &>/dev/null
-  find "$DOTTEMP"/system -type f -iname "*.pl" -exec chmod 755 -Rf {} \; &>/dev/null
-  find "$DOTTEMP"/system -type f -iname "*.cgi" -exec chmod 755 -Rf {} \; &>/dev/null
-
-  # copy files to users home directory
-  rsync -ahqk "$DOTTEMP"/home/. "$HOME/"
-
+  chmod -Rf 755 "$DOTFILES_TEMP"/system/usr/local/bin/* &>/dev/null
+  chmod -Rf 755 "$DOTFILES_TEMP"/home/.local/bin/* &>/dev/null
+  find "$DOTFILES_TEMP"/home -type f -iname "*.bash" -exec chmod 755 -Rf {} \; &>/dev/null
+  find "$DOTFILES_TEMP"/home -type f -iname "*.sh" -exec chmod 755 -Rf {} \; &>/dev/null
+  find "$DOTFILES_TEMP"/home -type f -iname "*.pl" -exec chmod 755 -Rf {} \; &>/dev/null
+  find "$DOTFILES_TEMP"/home -type f -iname "*.cgi" -exec chmod 755 -Rf {} \; &>/dev/null
+  find "$DOTFILES_TEMP"/system -type f -iname "*.bash" -exec chmod 755 -Rf {} \; &>/dev/null
+  find "$DOTFILES_TEMP"/system -type f -iname "*.sh" -exec chmod 755 -Rf {} \; &>/dev/null
+  find "$DOTFILES_TEMP"/system -type f -iname "*.pl" -exec chmod 755 -Rf {} \; &>/dev/null
+  find "$DOTFILES_TEMP"/system -type f -iname "*.cgi" -exec chmod 755 -Rf {} \; &>/dev/null
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  # copy files to ~
+  rsync -ahqk "$DOTFILES_TEMP"/home/. "$HOME/"
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # import podcast feeds
   if cmd_exists castero; then
     if [[ -f "$HOME"/.config/castero/podcasts.opml ]]; then
       castero --import "$HOME"/.config/castero/podcasts.opml &>/dev/null
-    elif [[ -f "$DOTTEMP"/tmp/podcasts.opml ]]; then
-      castero --import "$DOTTEMP"/tmp/podcasts.opml &>/dev/null
+    elif [[ -f "$DOTFILES_TEMP"/tmp/podcasts.opml ]]; then
+      castero --import "$DOTFILES_TEMP"/tmp/podcasts.opml &>/dev/null
     fi
   fi
-
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # import rss feeds
   if cmd_exists newsboat; then
     if [[ -f "$HOME"/.config/newsboat/news.opml ]]; then
       newsboat -i "$HOME"/.config/newsboat/news.opml &>/dev/null
-    elif [[ -f "$DOTTEMP"/tmp/news.opml ]]; then
-      newsboat -i "$DOTTEMP"/tmp/news.opml &>/dev/null
+    elif [[ -f "$DOTFILES_TEMP"/tmp/news.opml ]]; then
+      newsboat -i "$DOTFILES_TEMP"/tmp/news.opml &>/dev/null
     fi
   fi
-
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  # change permissions
   find "$HOME"/.gnupg "$HOME"/.ssh -type f -exec chmod 600 {} \; &>/dev/null
   find "$HOME"/.gnupg "$HOME"/.ssh -type d -exec chmod 700 {} \; &>/dev/null
   chmod 755 -f "$HOME" &>/dev/null
   mkdir -p "$HOME"/{Projects,Music,Videos,Downloads,Pictures,Documents}
   rm -Rf "$HOME/.local/share/mail/*/.keep" &>/dev/null
-  rm -Rf "$TMP_FILE" /tmp/dfmpersonal-*
+  rm -Rf "$DOTFILES_TEMP_FILE" /tmp/dfmpersonal-*
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _gpg_init() {
   GPG_TTY="$(tty)"
+  killall gpg-agent &>/dev/null
   # Import gpg keys - user
-  gpg --import "$DOTTEMP"/tmp/*.gpg 2>/dev/null
-  gpg --import "$DOTTEMP"/tmp/*.sec 2>/dev/null
-  gpg --import "$DOTTEMP"/tmp/*.asc 2>/dev/null
-  gpg --import-ownertrust "$DOTTEMP"/tmp/*.trust 2>/dev/null
+  gpg --import "$DOTFILES_TEMP"/tmp/*.gpg 2>/dev/null &&
+    gpg --import "$DOTFILES_TEMP"/tmp/*.sec 2>/dev/null &&
+    gpg --import "$DOTFILES_TEMP"/tmp/*.asc 2>/dev/null &&
+    gpg --import-ownertrust "$DOTFILES_TEMP"/tmp/*.trust 2>/dev/null &&
+    exitCode=0 || exitCode=1
   # Import gpg keys - root
-  sudo GPG_TTY="$(tty)" gpg --import "$DOTTEMP"/tmp/*.gpg 2>/dev/null
-  sudo GPG_TTY="$(tty)" gpg --import "$DOTTEMP"/tmp/*.sec 2>/dev/null
-  sudo GPG_TTY="$(tty)" gpg --import "$DOTTEMP"/tmp/*.asc 2>/dev/null
-  sudo GPG_TTY="$(tty)" gpg --import-ownertrust "$DOTTEMP"/tmp/*.trust 2>/dev/null
+  sudo killall gpg-agent &>/dev/null
+  sudo GPG_TTY="$(tty)" gpg --import "$DOTFILES_TEMP"/tmp/*.gpg 2>/dev/null &&
+    sudo GPG_TTY="$(tty)" gpg --import "$DOTFILES_TEMP"/tmp/*.sec 2>/dev/null &&
+    sudo GPG_TTY="$(tty)" gpg --import "$DOTFILES_TEMP"/tmp/*.asc 2>/dev/null &&
+    sudo GPG_TTY="$(tty)" gpg --import-ownertrust "$DOTFILES_TEMP"/tmp/*.trust 2>/dev/null &&
+    exitCode=0 || exitCode=1
+  return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 main() {
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  printf_blue "Initializing the installer please wait"
-  __am_i_online && execute "_pre_inst $OPTIONS" "Loading......."
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  printf_blue "Setting up the git repo: $GITREPO"
-  __am_i_online && execute "_git_repo_init $OPTIONS" "Initializing git repo"
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  printf_blue "The installer is updating the scripts"
-  __am_i_online && execute "_scripts_init $OPTIONS" "Installing scripts"
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  printf_blue "Installing your personal files"
-  execute "_files_init $OPTIONS" "Installing files"
-  printf_blue "Installing your personal files completed"
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  printf_blue "Installing your personal files for root"
-  execute "_root_init $OPTIONS" "Installing files for root"
-  printf_blue "Installing your personal files for root completed"
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  printf_blue "Installing your gpg keys"
-  if _gpg_init; then
-    printf_blue "Installing your personal gpg keys completed"
-  else
-    printf_red "Installing your personal gpg keys has failed"
-  fi
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  printf_blue "Initializing the installer please wait:${YELLOW} Loading.......${NC}"
+  sleep 5
+  case "$@" in
+  git)
+    shift 1
+    printf_blue "Setting up the git repo: $DOTFILES_GIT_REPO"
+    am_i_online && execute "_git_repo_init $INSTALL_OPTIONS" "Initializing git repo"
+    printf_cyan "The installer finished updating the repo"
+    ;;
+  scripts)
+    shift 1
+    printf_blue "The installer is updating the scripts"
+    am_i_online && execute "_scripts_init $INSTALL_OPTIONS" "Installing scripts"
+    printf_cyan "The installer finished updating the scripts"
+    ;;
+  files)
+    shift 1
+    printf_blue "Installing your personal files"
+    execute "_files_init $INSTALL_OPTIONS" "Installing files"
+    printf_cyan "Installing your personal files completed"
+    ;;
+  root)
+    shift 1
+    printf_blue "Installing your personal files for root"
+    execute "_root_init $INSTALL_OPTIONS" "Installing files for root"
+    printf_cyan "Installing your personal files for root completed"
+    ;;
+  gpg)
+    shift 1
+    printf_blue "Installing your gpg keys"
+    _gpg_init &&
+      printf_cyan "Installing your personal gpg keys completed" ||
+      printf_red "Installing your personal gpg keys has failed"
+    ;;
+  *)
+    # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    printf_blue "Configuring up your system"
+    am_i_online && _pre_inst "$INSTALL_OPTIONS"
+    printf_cyan "Initializing has completed"
+    # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    printf_blue "Setting up the git repo: $DOTFILES_GIT_REPO"
+    am_i_online && execute "_git_repo_init $INSTALL_OPTIONS" "Initializing git repo"
+    printf_cyan "The installer finished updating the repo"
+    # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    printf_blue "The installer is updating the scripts"
+    am_i_online && execute "_scripts_init $INSTALL_OPTIONS" "Installing scripts"
+    printf_cyan "The installer finished updating the scripts"
+    # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    printf_blue "Installing your personal files"
+    execute "_files_init $INSTALL_OPTIONS" "Installing files"
+    printf_cyan "Installing your personal files completed"
+    # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    printf_blue "Installing your personal files for root"
+    execute "_root_init $INSTALL_OPTIONS" "Installing files for root"
+    printf_cyan "Installing your personal files for root completed"
+    # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    printf_blue "Installing your gpg keys"
+    _gpg_init &&
+      printf_cyan "Installing your personal gpg keys completed" ||
+      printf_red "Installing your personal gpg keys has failed"
+    # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    ;;
+  esac
   printf '\n'
-  unset __colors DOTTEMP MIN UPDATE DESKTOP
+  unset __colors DOTFILES_TEMP MIN UPDATE DESKTOP
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # finally run application

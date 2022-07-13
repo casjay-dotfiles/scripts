@@ -45,7 +45,10 @@ GEN_SCRIPT_REPLACE_FILENAME_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set functions
-__list_available() { echo -e "${1:-$LIST}" | tr ',' ' ' | tr ' ' '\n' && exit 0; }
+__list_available() {
+  [[ -n "$LIST" ]] || LIST="$(__api_list)"
+  echo -e "${1:-$LIST}" | tr ',' ' ' | tr ' ' '\n' && exit 0
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -270,7 +273,7 @@ __api_list() {
   local api_url="${GEN_SCRIPT_REPLACE_ENV_REPO_API:-https://api.github.com/orgs/GEN_SCRIPT_REPLACE_FILENAME/repos?per_page=${GEN_SCRIPT_REPLACE_ENV_REPO_API_PER_PAGE:-1000}}"
   if __urlcheck "$api_url"; then
     curl -q -LSsf -H "Accept: application/vnd.github.v3+json" "$api_url" 2>/dev/null |
-      jq '.[].name' 2>/dev/null | sed 's#"##g' | grep -v 'template' |
+      jq '.[].name' 2>/dev/null | sed 's#"##g' | grep -Ev '.github|template|^null$' |
       grep -v '^null$' | grep '^' || __list_options
   fi
 }

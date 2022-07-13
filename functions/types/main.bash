@@ -101,16 +101,6 @@ get_desc() {
   [ -n "$desc" ] && printf '%s' "$desc" || printf '%s' "$(__basename $appname) --help"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__help() {
-  if [ -f "$CASJAYSDEVDIR/helpers/man/$APPNAME" ] && [ -s "$CASJAYSDEVDIR/helpers/man/$APPNAME" ]; then
-    source "$CASJAYSDEVDIR/helpers/man/$APPNAME"
-  else
-    printf_help "There is no man page for this app in: "
-    printf_help "$CASJAYSDEVDIR/helpers/man/$APPNAME"
-  fi
-  printf "\n"
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __version() {
   local name="${1:-$(__basename $0)}"          # get from os
   local prog="${APPNAME:-$PROG}"               # get from file
@@ -344,7 +334,7 @@ run_install_version() {
   unset args app
   [ "$exitCode" = 0 ] && scripts_version || exit 1
 }
-
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 installer_delete() {
   local app=""
   local exitCode=0
@@ -370,6 +360,4 @@ installer_delete() {
   unset app
   return ${exitCode}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

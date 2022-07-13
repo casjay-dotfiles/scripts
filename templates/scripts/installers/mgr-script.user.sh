@@ -234,12 +234,13 @@ __run_install_update() {
 __download() {
   local REPO_NAME="$1"
   local DIR_NAME="${2:-$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR/$REPO_NAME}"
+  local REPO_URL="$GEN_SCRIPT_REPLACE_ENV_REPO_URL"
   if cmd_exists gitadmin; then
     if [[ -d "$DIR_NAME/.git" ]]; then
       sudo -u $SUDO_USER gitadmin pull "$DIR_NAME"
       exitCode=$?
     else
-      gitadmin clone "$REPO_NAME" "$DIR_NAME"
+      gitadmin clone "$REPO_URL/$REPO_NAME" "$DIR_NAME"
       exitCode=$?
     fi
   else
@@ -247,7 +248,7 @@ __download() {
       sudo -u $SUDO_USER git -C "$DIR_NAME" pull
       exitCode=$?
     else
-      sudo -u $SUDO_USER git clone "$REPO_NAME" "$DIR_NAME"
+      sudo -u $SUDO_USER git clone "$REPO_URL/$REPO_NAME" "$DIR_NAME"
       exitCode=$?
     fi
   fi

@@ -4,18 +4,18 @@ $(. "$CASJAYSDEVDIR/templates/gen-script/header/default.tmpl.sh")
 # Set variables
 __heading="- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-APPNAME_README="$GEN_SCRIPT_REPLACE_APPNAME"
+APPNAME_README="\$GEN_SCRIPT_REPLACE_APPNAME"
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set functions
 __sed_head() { sed 's#..* :##g;s#^ ##g'; }
-__grep_head() { grep -sE '[".#]?@[A-Z]' "$(type -P "${2:-$GEN_SCRIPT_REPLACE_FILENAME}")" | grep "${1:-}"; }
-__version() { __grep_head 'Version' "$(type -P "$GEN_SCRIPT_REPLACE_FILENAME")" | __sed_head | head -n1 | grep '^'; }
-__printf_head() { __printf_color "ntt$__headingntt$2ntt$__headingn" "$1"; }
-__printf_color() { printf "%b" "$(tput setaf "$2" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+__grep_head() { grep -sE '[".#]?@[A-Z]' "$(type -P "\${2:-\$GEN_SCRIPT_REPLACE_FILENAME}")" | grep "\${1:-}"; }
+__version() { __grep_head 'Version' "$(type -P "\$GEN_SCRIPT_REPLACE_FILENAME")" | __sed_head | head -n1 | grep '^'; }
+__printf_head() { __printf_color "\\n\\t\\t\$__heading\\n\\t\\t\$2\\n\\t\\t\$__heading\\n" "\$1"; }
+__printf_color() { printf "%b" "$(tput setaf "\$2" 2>/dev/null)" "\$1" "$(tput sgr0 2>/dev/null)"; }
 __printf_help() {
-  printf "%b" "$(tput setaf "${2:-4}" 2>/dev/null)" "tt$1" "$(tput sgr0 2>/dev/null)"
-  printf 'n'
+  printf "%b" "$(tput setaf "\${2:-4}" 2>/dev/null)" "\\t\\t\$1" "$(tput sgr0 2>/dev/null)"
+  printf '\\n'
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin
@@ -35,5 +35,5 @@ __printf_help " " "                                                  "
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # lets exit with code
-#exit ${exitCode:-$?}
+#exit \${exitCode:-\$?}
 EOF

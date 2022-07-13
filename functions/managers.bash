@@ -95,7 +95,7 @@ source "$CASJAYSDEVDIR/functions/types/user_install.bash"
 source "$CASJAYSDEVDIR/functions/types/system_install.bash"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # application specfic
-#source "$CASJAYSDEVDIR/functions/types/main.bash"
+source "$CASJAYSDEVDIR/functions/types/main.bash"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run functions
 __getpythonver

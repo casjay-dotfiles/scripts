@@ -15,7 +15,7 @@ cat <<EOF | tee
 # @Resource          :  GEN_SCRIPT_REPLACE_RES
 # @sudo/root         :  no
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-$GEN_SCRIPT_REPLACE_PROG="\$(basename "\$0")"
+GEN_SCRIPT_REPLACE_PROG="\$(basename "\$0")"
 VERSION="GEN_SCRIPT_REPLACE_VERSION"
 HOME="\${USER_HOME:-\$HOME}"
 USER="\${SUDO_USER:-\$USER}"

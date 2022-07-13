@@ -3,7 +3,7 @@ cat <<EOF | tee
 CASJAYSDEVDIR="\${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
 SCRIPTSFUNCTDIR="\${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
 SCRIPTSFUNCTFILE="\${SCRIPTSAPPFUNCTFILE:-testing.bash}"
-SCRIPTSFUNCTURL="\${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/\$GEN_SCRIPT_GIT_DEFAULT_BRANCH/functions}"
+SCRIPTSFUNCTURL="\${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/$GEN_SCRIPT_GIT_DEFAULT_BRANCH/functions}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -f "\$PWD/\$SCRIPTSFUNCTFILE" ]; then
   . "\$PWD/\$SCRIPTSFUNCTFILE"

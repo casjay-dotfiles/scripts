@@ -61,6 +61,7 @@ LATEST_ISO_DOWNLOAD_DIR="${LATEST_ISO_DOWNLOAD_DIR:-$HOME/Downloads/ISOs}"
 LATEST_ISO_ALMA_URL="${LATEST_ISO_ALMA_URL:-http://mirror.vtti.vt.edu/almalinux}"
 LATEST_ISO_ALPINE_URL="${LATEST_ISO_ALPINE_URL:-https://alpinelinux.org/downloads}"
 LATEST_ISO_ARCHLINUX_URL="${LATEST_ISO_ARCHLINUX_URL:-http://mirror.siena.edu/archlinux/iso/latest}"
+LATEST_ISO_ARCHCRAFT_URL="${LATEST_ISO_ARCHCRAFT_URL:-https://api.github.com/archcraft-os/releases}"
 LATEST_ISO_ARCOLINUX_URL="${LATEST_ISO_ARCOLINUX_URL:-https://ftp.belnet.be/arcolinux/iso}"
 LATEST_ISO_DEBIAN_URL="${LATEST_ISO_DEBIAN_URL:-https://www.debian.org/download}"
 LATEST_ISO_ENDEAVOUR_URL="${LATEST_ISO_ENDEAVOUR_URL:-https://mirror.linux.pizza/endeavouros/iso}"
@@ -116,16 +117,6 @@ __gui() {
     __notifications "Download has failed"
   fi
   return $?
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__verify_filesizes() {
-  local local_version="$(echo "$1" | sed -e 's|[a-z].||g;s|[A-Z].||g')"
-  local remote_version="$(echo "$2" | sed -e 's|[a-z].||g;s|[A-Z].||g')"
-  if [[ "$local_version" = "$remote_version" ]]; then
-    return 0
-  else
-    return 1
-  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_all() {
@@ -310,8 +301,8 @@ __grab_iso() {
   elif [ -f "$download_file" ] && [ "$LATEST_ISO_OVERWRITE" != "yes" ]; then
     printf_cyan "File already exists in:"
     printf_purple "$download_file"
-    __filesize_local "$download_file"
     [[ -n "$remote_filesize" ]] && printf_cyan "Remote file size is: $remote_filesize"
+    __filesize_local "$download_file"
     exitCode="5"
   elif [ -n "$latest" ]; then
     if { [ "$LATEST_ISO_OVERWRITE" = "yes" ] || [[ ! -f "$file" ]] || [[ "$FORCE_INST" = "yes" ]]; }; then
@@ -328,20 +319,15 @@ __grab_iso() {
     printf_blue "The size of the remote ISO is: $remote_filesize"
     if [ -f "$download_file" ] && [ "$LATEST_ISO_OVERWRITE" = "yes" ]; then
       curl -q -LSsf -o "$download_file" -C - "$latest" 2>/dev/null && success="true" || success=""
-      local_file_size="$(find "$download_file" -exec du -h {} \; | awk '{print $1}' | grep -v '^$' || echo '')"
     else
       curl -q -LSsf -o "$download_file" "$latest" 2>/dev/null && success="true" || success=""
-      local_file_size="$(find "$download_file" -exec du -h {} \; | awk '{print $1}' | grep -v '^$' || echo '')"
     fi
     [[ -f "$download_file" ]] && __filesize_local "$download_file"
-    if [ "$success" = "true" ]; then
-      __verify_filesizes "$local_file_size" "$remote_filesize" &&
-        printf_green "Downloading of the ISO was successful" || { printf_green "Downloading of the ISO was unsuccessful" && exitFailed=1; }
+    if __verify_filesizes $local_file_size $remote_filesize; then
+      printf_green "Downloading of the ISO was successful" ||
+        { printf_blue "Downloading of the ISO was unsuccessful" && exitFailed=1; }
       exitCode=${exitFailed:-0}
-    elif __verify_filesizes "$local_file_size" "$remote_filesize"; then
-      printf_green "Downloading of the ISO was successful"
-      exitCode=0
-    elif ! __verify_filesizes "$local_file_size" "$remote_filesize"; then
+    elif ! __verify_filesizes $local_file_size $remote_filesize; then
       printf_green "Downloading of the ISO was unsuccessful"
       exitCode=2
     else
@@ -353,13 +339,27 @@ __grab_iso() {
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__verify_filesizes() {
+  local local_version="$(printf '%s' "$1" | tr -d '\n')"
+  local remote_version="$(printf '%s' "$2" | tr -d '\n')"
+  if [ "$remote_version" = $local_version ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __filesize_local() {
   set -o pipefail
   local local_file="${1:-$download_file}"
-  local local_file_size=""
+  local_file_size=""
   if [[ -f "$local_file" ]]; then
-    local_file_size="$(find "$download_file" -exec du -h {} \; | awk '{print $1}' | awk '{print $5}' | grep -v '^$' || echo '')"
-    [[ -n "$local_file_size" ]] && printf_cyan "The size of the local file is: $local_file_size"
+    local_file_size="$(find "$download_file" -type f -exec du -h {} \; | awk '{print $1}' | grep -v '^$' || echo '')"
+    if [[ -n "$local_file_size" ]]; then
+      printf_cyan "The size of the local file is: $local_file_size"
+    else
+      return 1
+    fi
   else
     return 1
   fi
@@ -379,11 +379,11 @@ __remote_filesize() {
   fi
   [ -n "$content_length" ] || content_length=0
   if cmd_exists numfmt; then
-    numfmt --to=iec-i --suffix=B "$content_length"
+    numfmt --to=iec-i --suffix=B "$content_length" | sed 's|iB$||g'
   elif cmd_exists gnumfmt; then
-    gnumfmt --to=iec-i --suffix=B "$content_length"
+    gnumfmt --to=iec-i --suffix=B "$content_length" | sed 's|iB$||g'
   else
-    echo "$content_length"
+    printf "$content_length"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -406,6 +406,19 @@ __get_torrent() {
   else
     return 1
   fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__github_api() {
+  local repo="$(echo "$1" | sed 's|.*://||g;s|.*.github.com/||g' || echo "$1")"
+  if echo "$repo" | grep -q 'api.github.com'; then
+    api="$1"
+  else
+    api="https://api.github.com/repos/${repo:-$1}/releases/latest"
+  fi
+  results="$(curl -q -LSsf -H "Accept: application/vnd.github+json" "$api" |
+    jq -r '.[]' | grep 'browser_download_url' | awk -F'": ' '{print $2}' |
+    sed 's|"||g' | grep '.iso$' | sort | head -n1 | grep '^')"
+  [[ -n "$results" ]] && echo "$results" || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default variables
@@ -432,6 +445,7 @@ LATEST_ISO_OUTPUT_COLOR_ERROR="${LATEST_ISO_OUTPUT_COLOR_ERROR:-1}"
 LATEST_ISO_DOWNLOAD_DIR="${LATEST_ISO_DOWNLOAD_DIR:-$HOME/Downloads/ISOs}"
 LATEST_ISO_ALMA_URL="${LATEST_ISO_ALMA_URL:-http://mirror.vtti.vt.edu/almalinux}"
 LATEST_ISO_ALPINE_URL="${LATEST_ISO_ALPINE_URL:-https://alpinelinux.org/downloads}"
+LATEST_ISO_ARCHCRAFT_URL="${LATEST_ISO_ARCHCRAFT_URL:-https://api.github.com/archcraft-os/releases}"
 LATEST_ISO_ARCHLINUX_URL="${LATEST_ISO_ARCHLINUX_URL:-http://mirror.siena.edu/archlinux/iso/latest}"
 LATEST_ISO_ARCOLINUX_URL="${LATEST_ISO_ARCOLINUX_URL:-https://ftp.belnet.be/arcolinux/iso}"
 LATEST_ISO_DEBIAN_URL="${LATEST_ISO_DEBIAN_URL:-https://www.debian.org/download}"
@@ -490,7 +504,7 @@ fi
 SETARGS="$*"
 SHORTOPTS="C"
 LONGOPTS="options,config,version,help,dir:,force,all,ask"
-ARRAY="iso alma alpine arch arco clear debian endeavour fedora "
+ARRAY="iso alma alpine arch archcraft arco clear debian endeavour fedora garuda "
 ARRAY+="heads kali manjaro openvz parrot peppermint photon "
 ARRAY+="proxmox rocky ubuntu tails tiny "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -586,6 +600,11 @@ arch)
   shift 1
   isourl="$(curl -q -LSsf "$LATEST_ISO_ARCHLINUX_URL" | __strip_tags | __strip_iso | head -n1)"
   __latest_iso "$LATEST_ISO_ARCHLINUX_URL/$isourl" "$LATEST_ISO_DOWNLOAD_DIR/arch.iso"
+  ;;
+archcraft)
+  shift 1
+  isourl="$(__github_api "$LATEST_ISO_ARCHCRAFT_URL")"
+  __latest_iso "$isourl" "$LATEST_ISO_DOWNLOAD_DIR/arch.iso"
   ;;
 arco)
   shift 1

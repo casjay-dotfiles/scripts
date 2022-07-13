@@ -45,6 +45,38 @@ GEN_SCRIPT_REPLACE_FILENAME_install
 __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set functions
+__help() {
+  # Help function - Align to 50
+  printf_head() { printf_purple "$*"; }
+  printf_opts() { printf_blue "$*"; }
+  printf_line() { printf_blue "$*"; }
+  #
+  printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  printf_opts "GEN_SCRIPT_REPLACE_FILENAME: GEN_SCRIPT_REPLACE_DESC"
+  printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  printf_line "Usage: GEN_SCRIPT_REPLACE_FILENAME [options] [commands]"
+  printf_line "GEN_SCRIPT_REPLACE_FILENAME available                             - list all available packages"
+  printf_line "GEN_SCRIPT_REPLACE_FILENAME list                                  - list installed packages"
+  printf_line "GEN_SCRIPT_REPLACE_FILENAME search    [package]                   - search for a package"
+  printf_line "GEN_SCRIPT_REPLACE_FILENAME version   [package]                   - show the version info"
+  printf_line "GEN_SCRIPT_REPLACE_FILENAME install   [package]                   - install a package"
+  printf_line "GEN_SCRIPT_REPLACE_FILENAME remove    [package]                   - remove a package"
+  printf_line "GEN_SCRIPT_REPLACE_FILENAME update    [package]                   - update a package"
+  printf_line "GEN_SCRIPT_REPLACE_FILENAME download  [package]                   - downloads the source"
+  printf_line ""
+  printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  printf_opts "Other Options"
+  printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  printf_line "GEN_SCRIPT_REPLACE_FILENAME --debug                               - enable debugging"
+  printf_line "GEN_SCRIPT_REPLACE_FILENAME --config                              - Generate user config file"
+  printf_line "GEN_SCRIPT_REPLACE_FILENAME --version                             - Show script version"
+  printf_line "GEN_SCRIPT_REPLACE_FILENAME --help                                - Shows this message"
+  printf_line "GEN_SCRIPT_REPLACE_FILENAME --options                             - Shows all available options"
+  printf_line ""
+  printf_head " - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  exit
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __list_available() {
   [[ -n "$LIST" ]] || LIST="$(__api_list)"
   echo -e "${1:-$LIST}" | tr ',' ' ' | tr ' ' '\n' && exit 0

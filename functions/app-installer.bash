@@ -2447,10 +2447,10 @@ run_exit() {
   if [ -f "$TMPINST" ]; then rm_rf "$TMPINST"; fi
   if [ -f "/tmp/$SCRIPTSFUNCTFILE" ]; then rm_rf "/tmp/$SCRIPTSFUNCTFILE"; fi
   local exitCode+=$?
-  getexitcode "$APPNAME has been installed" "$APPNAME installer has encountered an error: Check the URL"
+  getexitcode "The configurations for $APPNAME have been installed" "$APPNAME installer has encountered an error: Check the URL"
   printf_newline
   export EXIT
-  return "${EXIT:-$?}"
+  return "${EXIT:-$?exitCode}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 run_install_list() {

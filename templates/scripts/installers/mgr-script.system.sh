@@ -100,7 +100,7 @@ __rm_rf() { if [ -e "$1" ]; then __require_sudo rm -Rf "$@" &>/dev/null; else re
 __broken_symlinks() { __require_sudo find "$*" -xtype l -exec rm {} \; &>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __require_sudo() {
-  if [[ "$REQUIRE_SUDO" = "TRUE" ]]; then
+  if [[ "$REQUIRE_SUDO" = "TRUE" ]] || [[ "$USER" != "root" ]] || [[ "$UID" != "0" ]] || [[ -z "$SUDO_USER" ]]; then
     sudo -HE "$APPNAME $SETARGS"
     return $?
   else

@@ -2430,7 +2430,6 @@ install_version() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 run_exit() {
   $installtype
-  trap 'trap_exit' EXIT
   local APPNAME="${APPNAME:-$PROG}"
   local TMPDIR="${TMPDIR:-/tmp}"
   local TMPFILE="$TMPDIR/$APPNAME.tmp"
@@ -2450,7 +2449,7 @@ run_exit() {
   local exitCode+=$?
   getexitcode "$APPNAME has been installed" "$APPNAME installer has encountered an error: Check the URL"
   printf_newline
-  exit "${EXIT:-$?}"
+  return "${EXIT:-$?}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 run_install_list() {

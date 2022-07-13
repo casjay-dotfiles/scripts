@@ -101,6 +101,14 @@ _pre_inst() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__create_tmp() {
+  if [ -d "$DOTFILES_HOME" ]; then
+    rsync -avhP "$DOTFILES_HOME/." "$DOTFILES_TEMP/." --delete &>/dev/null
+  else
+    printf_exit "Failed to to clone the repo"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _git_repo_init() {
   if [ -d "$DOTFILES_HOME/.git" ]; then
     git -C "$DOTFILES_HOME" reset --hard &>/dev/null && git -C "$DOTFILES_HOME" pull -f
@@ -108,11 +116,6 @@ _git_repo_init() {
   else
     git clone "$DOTFILES_GIT_URL" "$DOTFILES_HOME"
     getexitcode "git clone successful" "git clone $DOTFILES_GIT_URL has failed"
-  fi
-  if [ -d "$DOTFILES_HOME" ]; then
-    rsync -avhP "$DOTFILES_HOME/." "$DOTFILES_TEMP/." --delete &>/dev/null
-  else
-    printf_exit "Failed to to clone the repo"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -160,6 +163,7 @@ _root_init() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _files_init() {
+  __create_tmp
   GPG_TTY="$(tty)"
   unalias cp &>/dev/null
   find "$HOME/" -xtype l -delete &>/dev/null

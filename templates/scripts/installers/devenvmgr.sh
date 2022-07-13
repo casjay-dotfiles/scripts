@@ -142,12 +142,22 @@ execute "run_postinst" "Running post install scripts"
 # create version file
 devenvmgr_install_version
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# exit
+# run exit function
 run_exit
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# run any external scripts
+if ! cmd_exists "$APPNAME" && [[ -f "$INSTDIR/build.sh" ]]; then
+  if builtin cd "$PLUGDIR/source"; then
+    BUILD_SRC_DIR="$PLUGDIR/source"
+    BUILD_SRC_URL="https://github.com/johanmalm/jgmenu"
+    export BUILD_SRC_DIR BUILD_SRC_URL
+    eval "$INSTDIR/build.sh"
+  fi
+fi
+cmd_exists $APPNAME || printf_red "jgmenu is not installed: run $INSTDIR/build.sh"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${EXIT:-$exitCode}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# lets exit with code
-exit ${exitCode:-$?}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# end

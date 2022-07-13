@@ -2449,6 +2449,7 @@ run_exit() {
   local exitCode+=$?
   getexitcode "$APPNAME has been installed" "$APPNAME installer has encountered an error: Check the URL"
   printf_newline
+  export EXIT
   return "${EXIT:-$?}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

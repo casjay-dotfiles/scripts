@@ -97,6 +97,17 @@ source "$CASJAYSDEVDIR/functions/types/system_install.bash"
 # application specfic
 source "$CASJAYSDEVDIR/functions/types/main.bash"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# help
+__help() {
+  if [ -f "$CASJAYSDEVDIR/helpers/man/$APPNAME" ] && [ -s "$CASJAYSDEVDIR/helpers/man/$APPNAME" ]; then
+    source "$CASJAYSDEVDIR/helpers/man/$APPNAME"
+  else
+    printf_help "There is no man page for this app in: "
+    printf_help "$CASJAYSDEVDIR/helpers/man/$APPNAME"
+  fi
+  printf "\n"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run functions
 __getpythonver
 ###################### end application functions ######################

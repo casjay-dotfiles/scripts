@@ -108,19 +108,21 @@ __require_sudo() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cron_updater() {
   local upd file
+  local USRUPDATEDIR="$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER"
+  local SYSUPDATEDIR="$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_SYSTEM"
   [ "$*" = "help" ] && shift 1 && printf_help "Usage: ${PROG:-$APPNAME} updater $APPNAME"
   if user_is_root; then
-    if [ -z "$1" ] && [ -d "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_SYSTEM" ] && ls "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_SYSTEM"/* 1>/dev/null 2>&1; then
-      for upd in $(ls $GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_SYSTEM/); do
-        file="$(ls -A $GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_SYSTEM/$upd 2>/dev/null)"
+    if [ -z "$1" ] && [ -d "$SYSUPDATEDIR" ] && ls "$SYSUPDATEDIR"/* 1>/dev/null 2>&1; then
+      for upd in $(ls $SYSUPDATEDIR/); do
+        file="$(ls -A $SYSUPDATEDIR/$upd 2>/dev/null)"
         if [ -f "$file" ]; then
           appname="$(__basename $file)"
           __require_sudo file="$file" bash "$file --cron $*"
         fi
       done
     else
-      if [ -d "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_SYSTEM" ] && ls "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_SYSTEM"/* 1>/dev/null 2>&1; then
-        file="$(ls -A $GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_SYSTEM/$1 2>/dev/null)"
+      if [ -d "$SYSUPDATEDIR" ] && ls "$SYSUPDATEDIR"/* 1>/dev/null 2>&1; then
+        file="$(ls -A $SYSUPDATEDIR/$1 2>/dev/null)"
         if [ -f "$file" ]; then
           appname="$(__basename $file)"
           __require_sudo file="$file" bash "$file --cron $*"
@@ -128,17 +130,17 @@ __cron_updater() {
       fi
     fi
   else
-    if [ -z "$1" ] && [ -d "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER" ] && ls "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER"/* 1>/dev/null 2>&1; then
-      for upd in $(ls $GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER/); do
-        export file="$(ls -A $GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER/$upd 2>/dev/null)"
+    if [ -z "$1" ] && [ -d "$USRUPDATEDIR" ] && ls "$USRUPDATEDIR"/* 1>/dev/null 2>&1; then
+      for upd in $(ls $USRUPDATEDIR/); do
+        export file="$(ls -A $USRUPDATEDIR/$upd 2>/dev/null)"
         if [ -f "$file" ]; then
           appname="$(__basename $file)"
           __require_sudo bash "$file --cron $*"
         fi
       done
     else
-      if [ -d "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER" ] && ls "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER"/* 1>/dev/null 2>&1; then
-        export file="$(ls -A $GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER/$1 2>/dev/null)"
+      if [ -d "$USRUPDATEDIR" ] && ls "$USRUPDATEDIR"/* 1>/dev/null 2>&1; then
+        export file="$(ls -A $USRUPDATEDIR/$1 2>/dev/null)"
         if [ -f "$file" ]; then
           appname="$(__basename $file)"
           __require_sudo bash "$file --cron $*"
@@ -149,24 +151,27 @@ __cron_updater() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __installer_delete() {
-  local app="${1:?}"
+  local app="${1:-}"
+  local APP_DIR_NAME="$GEN_SCRIPT_REPLACE_ENV_APP_DIR"
+  local INSTALL_DIR_NAME="$GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR"
   local MESSAGE="${MESSAGE:-Removing $app from ${msg:-your system}}"
-  [[ "$GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR/$app" == "$GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR/" ]] && return
-  if [ -d "$GEN_SCRIPT_REPLACE_ENV_APP_DIR/$app" ] || [ -d "$GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR/$app" ]; then
+  [[ -n "$app" ]] || printf_exit "Please specify the name to delete"
+  [[ "$INSTALL_DIR_NAME/$app" == "$INSTALL_DIR_NAME/" ]] && return
+  if [ -d "$APP_DIR_NAME/$app" ] || [ -d "$INSTALL_DIR_NAME/$app" ]; then
     printf_yellow "$MESSAGE"
-    if [[ -e "$GEN_SCRIPT_REPLACE_ENV_APP_DIR/$app" ]]; then
-      printf_blue "Deleting the files from $GEN_SCRIPT_REPLACE_ENV_APP_DIR/$app"
-      __rm_rf "$GEN_SCRIPT_REPLACE_ENV_APP_DIR/$app" && exitCode+=0 || exitCode+=1
+    if [[ -e "$APP_DIR_NAME/$app" ]]; then
+      printf_blue "Deleting the files from $APP_DIR_NAME/$app"
+      __rm_rf "$APP_DIR_NAME/$app" && exitCode+=0 || exitCode+=1
     fi
-    if [[ -e "$GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR/$app" ]]; then
-      printf_blue "Deleting the files from $GEN_SCRIPT_REPLACE_ENV_APP_DIR/$app"
-      __rm_rf "$GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR/$app" && exitCode+=0 || exitCode+=1
+    if [[ -e "$INSTALL_DIR_NAME/$app" ]]; then
+      printf_blue "Deleting the files from $APP_DIR_NAME/$app"
+      __rm_rf "$INSTALL_DIR_NAME/$app" && exitCode+=0 || exitCode+=1
     fi
     if [[ -e "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER/$app" ]]; then
-      printf_blue "Deleting the files from $GEN_SCRIPT_REPLACE_ENV_APP_DIR/$app"
+      printf_blue "Deleting the files from $APP_DIR_NAME/$app"
       __rm_rf "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER/$app" && exitCode+=0 || exitCode+=1
     fi
-    { [[ -d "$GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR/$app" ]] || [[ -d "$GEN_SCRIPT_REPLACE_ENV_APP_DIR/$app" ]]; } && exitCode=0 || exitCode=1
+    { [[ -d "$INSTALL_DIR_NAME/$app" ]] || [[ -d "$APP_DIR_NAME/$app" ]]; } && exitCode=0 || exitCode=1
     printf_yellow "Removing any broken symlinks"
     __broken_symlinks "$BIN" "$SHARE" "$COMPDIR" "$CONF" "$THEMEDIR" "$FONTDIR" "$ICONDIR"
     [[ $exitCode = 0 ]] && "$app has been removed"
@@ -179,19 +184,15 @@ __installer_delete() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_install_init() {
   local app
+  local INSTALL_DIR_NAME="$GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR"
   for app in "$@"; do
     export SUDO_USER
-    if [ -f "$GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR/$app/install.sh" ] && ! __am_i_online; then
+    if __urlcheck "$GEN_SCRIPT_REPLACE_ENV_REPO_URL/$app/$GEN_SCRIPT_REPLACE_ENV_REPO_RAW/install.sh"; then
       export FORCE_INSTALL="$FORCE_INSTALL"
-      __require_sudo bash "$GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR/$app/install.sh" 2>/dev/null
+      __require_sudo curl -q -LSsf "$GEN_SCRIPT_REPLACE_ENV_REPO_URL/$app/$GEN_SCRIPT_REPLACE_ENV_REPO_RAW/install.sh" 2>/dev/null | bash -s -- 2>/dev/null
     else
-      if __urlcheck "$GEN_SCRIPT_REPLACE_ENV_REPO_URL/$app/$GEN_SCRIPT_REPLACE_ENV_REPO_RAW/install.sh"; then
-        export FORCE_INSTALL="$FORCE_INSTALL"
-        __require_sudo curl -q -LSs "$GEN_SCRIPT_REPLACE_ENV_REPO_URL/$app/$GEN_SCRIPT_REPLACE_ENV_REPO_RAW/install.sh" 2>/dev/null | bash -s -- 2>/dev/null
-      else
-        printf_error "Failed to initialize the installer from:"
-        printf_exit "$GEN_SCRIPT_REPLACE_ENV_REPO_URL/$app/$GEN_SCRIPT_REPLACE_ENV_REPO_RAW/install.sh\n"
-      fi
+      printf_error "Failed to initialize the installer from:"
+      printf_exit "$GEN_SCRIPT_REPLACE_ENV_REPO_URL/$app/$GEN_SCRIPT_REPLACE_ENV_REPO_RAW/install.sh\n"
     fi
     local exitCode+=$?
   done
@@ -200,22 +201,30 @@ __run_install_init() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_install_update() {
   local app APPNAME exitCode
+  local USER_SHARE_DIR="$SHARE/CasjaysDev/GEN_SCRIPT_REPLACE_FILENAME"
+  local SYSTEM_SHARE_DIR="$SYSSHARE/CasjaysDev/GEN_SCRIPT_REPLACE_FILENAME"
+  local USRUPDATEDIR="$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER"
+  local SYSUPDATEDIR="$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_SYSTEM"
   local NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME}"
   local NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON}"
   export NOTIFY_CLIENT_NAME NOTIFY_CLIENT_ICON
   if [ $# = 0 ]; then
-    if [[ -d "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER" && -n "$(ls -A "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER" | grep '^' || ls "$SHARE/CasjaysDev/GEN_SCRIPT_REPLACE_FILENAME" | grep '^')" ]]; then
-      for app in $(ls "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER" | grep '^' || ls "$SHARE/CasjaysDev/GEN_SCRIPT_REPLACE_FILENAME" | grep '^'); do
+    if [[ -d "$USRUPDATEDIR" && -n "$(ls -A "$USRUPDATEDIR" | grep '^' || ls "$USER_SHARE_DIR" | grep '^')" ]]; then
+      for app in $(ls "$USRUPDATEDIR" | grep '^' || ls "$USER_SHARE_DIR" | grep '^'); do
         APPNAME="$app"
-        __run_install_init "$APPNAME" && __notifications "Installed $APPNAME" || __notifications "Installation of $APPNAME has failed"
+        __run_install_init "$APPNAME" &&
+          __notifications "Installed $APPNAME" ||
+          __notifications "Installation of $APPNAME has failed"
         local exitCode+=$?
       done
     fi
-    if user_is_root && [ "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER" != "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_SYSTEM" ]; then
-      if [[ -d "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_SYSTEM" && -n "$(ls -A "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_SYSTEM" | grep '^' || ls "$SYSSHARE/CasjaysDev/GEN_SCRIPT_REPLACE_FILENAME" | grep '^')" ]]; then
-        for app in $(ls "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_SYSTEM" | grep '^' || ls "$SYSSHARE/CasjaysDev/GEN_SCRIPT_REPLACE_FILENAME" | grep '^'); do
+    if user_is_root && [ "$USRUPDATEDIR" != "$SYSUPDATEDIR" ]; then
+      if [[ -d "$SYSUPDATEDIR" && -n "$(ls -A "$SYSUPDATEDIR" | grep '^' || ls "$SYSTEM_SHARE_DIR" | grep '^')" ]]; then
+        for app in $(ls "$SYSUPDATEDIR" | grep '^' || ls "$SYSTEM_SHARE_DIR" | grep '^'); do
           APPNAME="$app"
-          __run_install_init "$APPNAME" && __notifications "Installed $APPNAME" || __notifications "Installation of $APPNAME has failed"
+          __run_install_init "$APPNAME" &&
+            __notifications "Installed $APPNAME" ||
+            __notifications "Installation of $APPNAME has failed"
           local exitCode+=$?
         done
       fi
@@ -223,7 +232,9 @@ __run_install_update() {
   else
     for app in "$@"; do
       APPNAME="$app"
-      __run_install_init "$APPNAME" && __notifications "Installed $APPNAME" || __notifications "Installation of $APPNAME has failed"
+      __run_install_init "$APPNAME" &&
+        __notifications "Installed $APPNAME" ||
+        __notifications "Installation of $APPNAME has failed"
       local exitCode+=$?
     done
   fi
@@ -231,30 +242,36 @@ __run_install_update() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __download() {
-  REPO_NAME="$1"
+  local REPO_NAME="$1"
+  local DIR_NAME="${2:-$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR/$REPO_NAME}"
   if cmd_exists gitadmin; then
-    if [[ -d "${GEN_SCRIPT_REPLACE_ENV_CWD:-$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR}/${REPO_NAME}/.git" ]]; then
-      gitadmin pull "${GEN_SCRIPT_REPLACE_ENV_CWD:-$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR}/${REPO_NAME}"
+    if [[ -d "$DIR_NAME/.git" ]]; then
+      gitadmin pull "$DIR_NAME"
+      exitCode=$?
     else
-      gitadmin clone "${GEN_SCRIPT_REPLACE_ENV_REPO_URL}/${REPO_NAME}" "${GEN_SCRIPT_REPLACE_ENV_CWD:-$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR}/${REPO_NAME}"
+      gitadmin clone "$DIR_NAME" "$DIR_NAME"
       exitCode=$?
     fi
   else
-    if [[ -d "${GEN_SCRIPT_REPLACE_ENV_CWD:-$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR}/${REPO_NAME}/.git" ]]; then
-      git -C "${GEN_SCRIPT_REPLACE_ENV_CWD:-$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR}/${REPO_NAME}" pull
+    if [[ -d "$DIR_NAME/.git" ]]; then
+      git -C "$DIR_NAME" pull
       exitCode=$?
     else
-      git clone "${GEN_SCRIPT_REPLACE_ENV_REPO_URL}/${REPO_NAME}" "${GEN_SCRIPT_REPLACE_ENV_CWD:-$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR}/${REPO_NAME}"
+      git clone "$DIR_NAME" "$DIR_NAME"
       exitCode=$?
     fi
   fi
+  [[ -d "$DIR_NAME" ]] && exitCode="0" &&
+    [[ -n "$SUDO_USER" ]] && sudo chown -Rf $SUDO_USER:$SUDO_USER "$DIR_NAME"
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __api_list() {
   local api_url="${GEN_SCRIPT_REPLACE_ENV_REPO_API:-https://api.github.com/orgs/GEN_SCRIPT_REPLACE_FILENAME/repos?per_page=${GEN_SCRIPT_REPLACE_ENV_REPO_API_PER_PAGE:-1000}}"
-  if __am_i_online --error -s "$api_url"; then
-    curl -q -H "Accept: application/vnd.github.v3+json" -LSs "$api_url" 2>/dev/null | jq '.[].name' 2>/dev/null | sed 's#"##g' | grep -v 'template' || __list_options
+  if __urlcheck "$api_url"; then
+    curl -q -LSsf -H "Accept: application/vnd.github.v3+json" "$api_url" 2>/dev/null |
+      jq '.[].name' 2>/dev/null | sed 's#"##g' | grep -v 'template' |
+      grep -v '^null$' | grep '^' || __list_options
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

@@ -10,7 +10,7 @@ if [ -f "\$PWD/\$SCRIPTSFUNCTFILE" ]; then
 elif [ -f "\$SCRIPTSFUNCTDIR/\$SCRIPTSFUNCTFILE" ]; then
   . "\$SCRIPTSFUNCTDIR/\$SCRIPTSFUNCTFILE"
 else
-  echo "Can not load the functions file: \$SCRIPTSFUNCTDIR/\$SCRIPTSFUNCTFILE" 1>&2
+  printf "\\t\\t\033[0;31m%s \033[0m\\n" "Couldn't source the functions file from  \$SCRIPTSFUNCTDIR/\$SCRIPTSFUNCTFILE" 1>&2
   exit 90
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

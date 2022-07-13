@@ -246,23 +246,22 @@ __download() {
   local DIR_NAME="${2:-$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR/$REPO_NAME}"
   if cmd_exists gitadmin; then
     if [[ -d "$DIR_NAME/.git" ]]; then
-      gitadmin pull "$DIR_NAME"
+      sudo -u $SUDO_USER gitadmin pull "$DIR_NAME"
       exitCode=$?
     else
-      gitadmin clone "$DIR_NAME" "$DIR_NAME"
+      gitadmin clone "$REPO_NAME" "$DIR_NAME"
       exitCode=$?
     fi
   else
     if [[ -d "$DIR_NAME/.git" ]]; then
-      git -C "$DIR_NAME" pull
+      sudo -u $SUDO_USER git -C "$DIR_NAME" pull
       exitCode=$?
     else
-      git clone "$DIR_NAME" "$DIR_NAME"
+      sudo -u $SUDO_USER git clone "$REPO_NAME" "$DIR_NAME"
       exitCode=$?
     fi
   fi
-  [[ -d "$DIR_NAME" ]] && exitCode="0" &&
-    [[ -n "$SUDO_USER" ]] && sudo chown -Rf $SUDO_USER:$SUDO_USER "$DIR_NAME"
+  [[ -d "$DIR_NAME" ]] && exitCode="0" #&& [[ -n "$SUDO_USER" ]] && sudo chown -Rf $SUDO_USER:$SUDO_USER "$DIR_NAME"
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

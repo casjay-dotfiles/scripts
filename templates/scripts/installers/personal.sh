@@ -20,6 +20,7 @@ HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #set opts
+if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
@@ -72,26 +73,24 @@ clear
 printf "\n\n\n\n"
 _pre_inst() {
   if [[ "$DOTFILES_PERSONAL_REPO" = "github.com/your/repo" ]]; then
-    printf_red "Please set DOTFILES_PERSONAL_REPO to the url to your repo"
+    printf_red "Please set DOTFILES_PERSONAL_REPO to the url to your repo" 1>&2
     exit 1
   fi
   if [ -z "$DOTFILES_GIT_TOKEN" ] || [ "$DOTFILES_GIT_TOKEN" == "YOUR_AUTH_TOKEN" ]; then
-    printf_red "AUTH Token is not set"
+    printf_red "AUTH Token is not set" 1>&2
     exit 1
   fi
   if [ ! -f "$(which sudo 2>/dev/null)" ] && [[ $EUID -ne 0 ]]; then
-    printf_red "Sudo is needed, however its not installed installed"
+    printf_red "Sudo is needed, however its not installed installed" 1>&2
     exit 1
   fi
-  if [ ! -d "$DOTFILES_HOME/.git" ]; then rm -Rf "$DOTFILES_HOME"; fi
-  if [ -d "$DOTFILES_TEMP" ]; then rm -Rf "$DOTFILES_TEMP"; fi
   if [[ "$OSTYPE" =~ ^linux ]]; then
     if ! cmd_exists systemmgr; then
       if (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null; then
         sudo bash -c "$(curl -q -LSsf "$SYSTEM_SCRIPTS_REPO/raw/main/install.sh")"
         sudo bash -c "$(curl -q -LSsf "$SYSTEM_SCRIPTS_REPO/raw/main/install.sh")"
       else
-        printf_red 'Please run sudo bash -c "$(curl -q -LSsf "$SYSTEM_SCRIPTS_REPO/raw/main/install.sh")"'
+        printf_red 'Please run sudo bash -c "$(curl -q -LSsf "$SYSTEM_SCRIPTS_REPO/raw/main/install.sh")"' 1>&2
         exit 1
       fi
     fi
@@ -101,22 +100,16 @@ _pre_inst() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__create_tmp() {
-  if [ -d "$DOTFILES_HOME" ]; then
-    rsync -avhP "$DOTFILES_HOME/." "$DOTFILES_TEMP/." --delete &>/dev/null
-  else
-    printf_exit "Failed to to clone the repo"
-  fi
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _git_repo_init() {
   if [ -d "$DOTFILES_HOME/.git" ]; then
-    git -C "$DOTFILES_HOME" reset --hard &>/dev/null && git -C "$DOTFILES_HOME" pull -f
-    getexitcode "repo update successful" "git pull failed for $DOTFILES_HOME"
+    git -C "$DOTFILES_HOME" reset --hard &>/dev/null
+    git -C "$DOTFILES_HOME" pull -f
+    getexitcode "repo update successful" "git pull failed for $DOTFILES_HOME" 1>&2
   else
     git clone "$DOTFILES_GIT_URL" "$DOTFILES_HOME"
-    getexitcode "git clone successful" "git clone $DOTFILES_GIT_URL has failed"
+    getexitcode "git clone successful" "git clone $DOTFILES_GIT_URL has failed" 1>&2
   fi
+  [[ -d "$DOTFILES_HOME" ]] || printf_exit "Failed to to clone the repo" 1>&2
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _scripts_init() {
@@ -151,7 +144,7 @@ _root_init() {
   # Copy gpg ssh to root
   if (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null; then
     sudo mkdir -p "/root/.ssh"
-    sudo rsync -ahqk "$DOTFILES_TEMP/home/.ssh/." /root/.ssh/
+    sudo rsync -avhP "$DOTFILES_TEMP/home/.ssh/." "/root/.ssh/"
     sudo chmod -Rf 600 /root/.ssh/
     sudo chmod -f 700 /root/.ssh
     sudo chown -Rf root:root /root
@@ -163,7 +156,6 @@ _root_init() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _files_init() {
-  __create_tmp
   GPG_TTY="$(tty)"
   unalias cp &>/dev/null
   find "$HOME/" -xtype l -delete &>/dev/null
@@ -180,7 +172,7 @@ _files_init() {
   find "$DOTFILES_TEMP"/system -type f -iname "*.cgi" -exec chmod 755 -Rf {} \; &>/dev/null
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # copy files to ~
-  rsync -ahqk "$DOTFILES_TEMP/home/." "$HOME/"
+  rsync -avhP "$DOTFILES_TEMP/home/." "$HOME/"
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # import podcast feeds
   if cmd_exists castero; then
@@ -206,7 +198,6 @@ _files_init() {
   chmod 755 -f "$HOME" &>/dev/null
   mkdir -p "$HOME"/{Projects,Music,Videos,Downloads,Pictures,Documents}
   rm -Rf "$HOME/.local/share/mail/*/.keep" &>/dev/null
-  rm -Rf "$DOTFILES_TEMP_FILE" /tmp/dfmpersonal-*
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _gpg_init() {
@@ -229,69 +220,78 @@ _gpg_init() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 main() {
-  printf_blue "Initializing the installer please wait:${YELLOW} Loading.......${NC}"
-  sleep 5
+  printf_blue "[ 🗄️ ] Initializing the installer ${YELLOW}please wait${NC} [ 🚀 ]"
+  [ -d "$DOTFILES_HOME/.git" ] || rm -Rf "$DOTFILES_HOME"
+  [ -d "$DOTFILES_HOME" ] && mkdir -p "$DOTFILES_TEMP" &>/dev/null &&
+    rsync -avhP "$DOTFILES_HOME/." "$DOTFILES_TEMP" &>/dev/null && sleep 5
   case "$@" in
   git)
     shift 1
-    printf_blue "Setting up the git repo: $DOTFILES_GIT_REPO"
+    [ -d "$DOTFILES_HOME/.git" ] && [ -d "$DOTFILES_TEMP" ] || printf_exit "[ 😿 ] Repo has not been setup [ 😿 ]" 1>&2
+    printf_blue "[ 🗄️ ] Setting up the git repo: $DOTFILES_GIT_REPO [ 🚀 ]"
     am_i_online && execute "_git_repo_init $INSTALL_OPTIONS" "Initializing git repo"
-    printf_cyan "The installer finished updating the repo"
+    printf_cyan "[ ✅ ] The installer finished updating the repo [ 📂 ]"
     ;;
   scripts)
     shift 1
-    printf_blue "The installer is updating the scripts"
+    [ -d "$DOTFILES_HOME/.git" ] && [ -d "$DOTFILES_TEMP" ] || printf_exit "[ 😿 ] Repo has not been setup [ 😿 ]" 1>&2
+    printf_blue "[ 🗄️ ] The installer is updating the scripts [ 🚀 ]"
     am_i_online && execute "_scripts_init $INSTALL_OPTIONS" "Installing scripts"
-    printf_cyan "The installer finished updating the scripts"
+    printf_cyan "[ ✅ ] The installer finished updating the scripts [ 📂 ]"
     ;;
   files)
     shift 1
-    printf_blue "Installing your personal files"
+    [ -d "$DOTFILES_HOME/.git" ] && [ -d "$DOTFILES_TEMP" ] || printf_exit "[ 😿 ] Repo has not been setup [ 😿 ]" 1>&2
+    printf_blue "[ 🗄️ ] Installing your personal files [ 🚀 ]"
     execute "_files_init $INSTALL_OPTIONS" "Installing files"
-    printf_cyan "Installing your personal files completed"
+    printf_cyan "[ ✅ ] Installing your personal files completed [ 📂 ]"
     ;;
   root)
     shift 1
-    printf_blue "Installing your personal files for root"
+    [ -d "$DOTFILES_HOME/.git" ] && [ -d "$DOTFILES_TEMP" ] || printf_exit "[ 😿 ] Repo has not been setup [ 😿 ]" 1>&2
+    printf_blue "[ 🗄️ ] Installing your personal files for root [ 🚀 ]"
     execute "_root_init $INSTALL_OPTIONS" "Installing files for root"
-    printf_cyan "Installing your personal files for root completed"
+    printf_cyan "[ ✅ ] Installing your personal files for root completed [ 📂 ]"
     ;;
   gpg)
     shift 1
-    printf_blue "Installing your gpg keys"
+    [ -d "$DOTFILES_HOME/.git" ] && [ -d "$DOTFILES_TEMP" ] || printf_exit "[ 😿 ] Repo has not been setup [ 😿 ]" 1>&2
+    printf_blue "[ 🗄️ ] Installing your gpg keys [ 🚀 ]"
     _gpg_init &&
-      printf_cyan "Installing your personal gpg keys completed" ||
-      printf_red "Installing your personal gpg keys has failed"
+      printf_cyan "[ ✅ ] Installing your personal gpg keys completed [ 📂 ]" ||
+      printf_red "[ 🔴 ] Installing your personal gpg keys has failed [ 🔴 ]"
     ;;
   *)
     # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-    printf_blue "Configuring up your system"
+    printf_blue "[ 🗄️ ] Configuring up your system [ 🚀 ]"
     am_i_online && _pre_inst "$INSTALL_OPTIONS"
-    printf_cyan "Initializing has completed"
+    printf_cyan "[ ✅ ] Initializing has completed [ 📂 ]"
     # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-    printf_blue "Setting up the git repo: $DOTFILES_GIT_REPO"
+    printf_blue "[ 🗄️ ] Setting up the git repo: $DOTFILES_GIT_REPO [ 🚀 ]"
     am_i_online && execute "_git_repo_init $INSTALL_OPTIONS" "Initializing git repo"
-    printf_cyan "The installer finished updating the repo"
+    printf_cyan "[ ✅ ] The installer finished updating the repo [ 📂 ]"
     # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-    printf_blue "The installer is updating the scripts"
+    printf_blue "[ 🗄️ ] The installer is updating the scripts [ 🚀 ]"
     am_i_online && execute "_scripts_init $INSTALL_OPTIONS" "Installing scripts"
-    printf_cyan "The installer finished updating the scripts"
+    printf_cyan "[ ✅ ] The installer finished updating the scripts [ 📂 ]"
     # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-    printf_blue "Installing your personal files"
-    execute "_files_init $INSTALL_OPTIONS" "Installing files"
-    printf_cyan "Installing your personal files completed"
-    # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-    printf_blue "Installing your personal files for root"
+    printf_blue "[ 🗄️ ] Installing your personal files for root [ 🚀 ]"
     execute "_root_init $INSTALL_OPTIONS" "Installing files for root"
-    printf_cyan "Installing your personal files for root completed"
+    printf_cyan "[ ✅ ] Installing your personal files for root completed [ 📂 ]"
     # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-    printf_blue "Installing your gpg keys"
+    printf_blue "[ 🗄️ ] Installing your personal files [ 🚀 ]"
+    execute "_files_init $INSTALL_OPTIONS" "Installing files"
+    printf_cyan "[ ✅ ] Installing your personal files completed [ 📂 ]"
+    # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    printf_blue "[ 🗄️ ] Installing your gpg keys [ 🚀 ]"
     _gpg_init &&
-      printf_cyan "Installing your personal gpg keys completed" ||
-      printf_red "Installing your personal gpg keys has failed"
+      printf_cyan "[ ✅ ] Installing your personal gpg keys completed" ||
+      printf_red "[ 🔴 ] Installing your personal gpg keys has failed [ 🔴 ]"
     # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
     ;;
   esac
+  printf_yellow "[ 📂 ] Cleaning up temporary files [ 📂 ]"
+  rm -Rf "$DOTFILES_TEMP_FILE" /tmp/dfmpersonal-*
   printf '\n'
   unset __colors DOTFILES_TEMP MIN UPDATE DESKTOP
 }

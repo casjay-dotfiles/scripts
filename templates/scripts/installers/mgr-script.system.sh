@@ -73,7 +73,7 @@ __help() {
   printf_line "GEN_SCRIPT_REPLACE_FILENAME --help                                - Shows this message"
   printf_line "GEN_SCRIPT_REPLACE_FILENAME --options                             - Shows all available options"
   printf_line ""
-  printf_head " - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   exit
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

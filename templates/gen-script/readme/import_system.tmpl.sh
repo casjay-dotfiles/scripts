@@ -4,23 +4,23 @@ $(. "$CASJAYSDEVDIR/templates/gen-script/header/default.tmpl.sh")
 # Set variables
 __heading="- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-APPNAME_README="$GEN_SCRIPT_REPLACE_APPNAME"
+APPNAME_README="\$GEN_SCRIPT_REPLACE_APPNAME"
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set functions
 __sed_head() { sed 's#..* :##g;s#^ ##g'; }
-__grep_head() { grep -sE '[".#]?@[A-Z]' "$(type -P "${2:-$GEN_SCRIPT_REPLACE_FILENAME}")" | grep "${1:-}"; }
-__version() { __grep_head 'Version' "$(type -P "$GEN_SCRIPT_REPLACE_FILENAME")" | __sed_head | head -n1 | grep '^'; }
-__printf_color() { printf "%b" "$(tput setaf "$2" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
-__printf_head() { __printf_color "ntt$__headingntt$2ntt$__headingn" "$1"; }
+__grep_head() { grep -sE '[".#]?@[A-Z]' "$(type -P "\${2:-\$GEN_SCRIPT_REPLACE_FILENAME}")" | grep "\${1:-}"; }
+__version() { __grep_head 'Version' "$(type -P "\$GEN_SCRIPT_REPLACE_FILENAME")" | __sed_head | head -n1 | grep '^'; }
+__printf_color() { printf "%b" "$(tput setaf "\$2" 2>/dev/null)" "\$1" "$(tput sgr0 2>/dev/null)"; }
+__printf_head() { __printf_color "\\n\\t\\t\$__heading\\n\\t\\t\$2\\n\\t\\t\$__heading\\n" "\$1"; }
 __printf_help() {
-  test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="4"
-  local msg="$*"
+  test -n "\$1" && test -z "\${1//[0-9]/}" && local color="\$1" && shift 1 || local color="4"
+  local msg="\$*"
   shift
-  __printf_color "tt$msgn" "$color"
+  __printf_color "\\t\\t\$msgn" "\$color"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-printf 'n'
+printf '\\n'
 __printf_head "5" "GEN_SCRIPT_REPLACE_FILENAME: GEN_SCRIPT_REPLACE_DESC"
 __printf_help " " "                                                  "
 __printf_help "5" "Usage: GEN_SCRIPT_REPLACE_APPNAME []"
@@ -45,5 +45,5 @@ printf 'n'
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # lets exit with code
-exit "${exitCode:-$?}"
+exit "\${exitCode:-\$?}"
 EOF

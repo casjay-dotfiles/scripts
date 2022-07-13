@@ -370,7 +370,7 @@ while :; do
     [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
     [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
     [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
-    [ -z "$LIST" ] || __list_available "$LIST" | printf_column $GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR
+    [ -z "$LIST" ] && __api_list | printf_column $GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR || __list_available "$LIST" | printf_column $GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR
     exit $?
     ;;
   --version)

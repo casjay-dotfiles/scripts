@@ -478,7 +478,7 @@ scripts_check() {
     echo ""
     if [[ $choice == "y" || $choice == "Y" ]]; then
       urlverify "$REPO/scripts/raw/$GIT_DEFAULT_BRANCH/install.sh"
-      sudo bash -c "$(curl -LSs $REPO/scripts/raw/$GIT_DEFAULT_BRANCH/install.sh)"
+      sudo bash -c "$(curl -q -LSsf $REPO/scripts/raw/$GIT_DEFAULT_BRANCH/install.sh)"
     else
       touch "$HOME/.noscripts"
       exit 1
@@ -533,7 +533,7 @@ dotfilesreq() {
   for conf in "$@"; do
     if [ ! -f "$confdir/$conf" ]; then
       urlverify "$REPO/$conf/raw/$GIT_DEFAULT_BRANCH/install.sh"
-      bash -c "$(curl -LSs $REPO/$conf/raw/$GIT_DEFAULT_BRANCH/install.sh)"
+      bash -c "$(curl -q -LSsf $REPO/$conf/raw/$GIT_DEFAULT_BRANCH/install.sh)"
     fi
   done
 }
@@ -545,7 +545,7 @@ dotfilesreqadmin() {
   for conf in "$@"; do
     if [ ! -f "$confdir/$conf" ]; then
       urlverify "$REPO/$conf/raw/$GIT_DEFAULT_BRANCH/install.sh"
-      sudo bash -c "$(curl -LSs $REPO/$conf/raw/$GIT_DEFAULT_BRANCH/install.sh)"
+      sudo bash -c "$(curl -q -LSsf $REPO/$conf/raw/$GIT_DEFAULT_BRANCH/install.sh)"
     fi
   done
 }

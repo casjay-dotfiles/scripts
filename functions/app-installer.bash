@@ -1521,28 +1521,21 @@ ensure_dirs() {
   return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if user_is_root && [[ -n "$SUDO_USER" ]] && [[ "$INSTALL_TYPE" = "user" ]]; then
-  __chown() { sudo -HE -u "$SUDO_USER" chown "$*"; }
-  export -f __chown
-else
-  __chown() { chown "$*"; }
-  export -f __chown
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ensure_perms() {
-  __chown -Rf "$WHOAMI":"$WHOAMI" "$LOGDIR"
-  __chown -Rf "$WHOAMI":"$WHOAMI" "$BACKUPDIR"
-  __chown -Rf "$WHOAMI":"$WHOAMI" "$CASJAYSDEVSHARE"
-  __chown -Rf "$WHOAMI":"$WHOAMI" "$HOME/.local/backups"
-  __chown -Rf "$WHOAMI":"$WHOAMI" "$HOME/.local/log"
-  __chown -Rf "$WHOAMI":"$WHOAMI" "$HOME/.local/share/CasjaysDev"
-  __chmod -Rf 755 "$SHARE"
-  __chmod -Rf 755 "$LOGDIR"
-  __chmod -Rf 755 "$BACKUPDIR"
-  __chmod -Rf 755 "$CASJAYSDEVSHARE"
-  __chmod -Rf 755 "$HOME/.local/backups"
-  __chmod -Rf 755 "$HOME/.local/log"
-  __chmod -Rf 755 "$HOME/.local/share/CasjaysDev"
+  local SUDO_USER="${SUDO_USER:-$USER}"
+  chown -Rf "${SUDO_USER:-$WHOAMI}":"${SUDO_USER:-$WHOAMI}" "$LOGDIR"
+  chown -Rf "${SUDO_USER:-$WHOAMI}":"${SUDO_USER:-$WHOAMI}" "$BACKUPDIR"
+  chown -Rf "${SUDO_USER:-$WHOAMI}":"${SUDO_USER:-$WHOAMI}" "$CASJAYSDEVSHARE"
+  chown -Rf "${SUDO_USER:-$WHOAMI}":"${SUDO_USER:-$WHOAMI}" "$HOME/.local/backups"
+  chown -Rf "${SUDO_USER:-$WHOAMI}":"${SUDO_USER:-$WHOAMI}" "$HOME/.local/log"
+  chown -Rf "${SUDO_USER:-$WHOAMI}":"${SUDO_USER:-$WHOAMI}" "$HOME/.local/share/CasjaysDev"
+  chmod -Rf 755 "$SHARE"
+  chmod -Rf 755 "$LOGDIR"
+  chmod -Rf 755 "$BACKUPDIR"
+  chmod -Rf 755 "$CASJAYSDEVSHARE"
+  chmod -Rf 755 "$HOME/.local/backups"
+  chmod -Rf 755 "$HOME/.local/log"
+  chmod -Rf 755 "$HOME/.local/share/CasjaysDev"
   return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

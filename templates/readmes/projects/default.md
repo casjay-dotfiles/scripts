@@ -7,4 +7,4 @@ StartDocumentationHere
   
 ## Author  
 
-👤 **AuthorName**  
+🤖 AuthorName: [Github](https://github.com/AuthorName) 🤖  

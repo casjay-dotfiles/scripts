@@ -18,4 +18,4 @@ npm run start
   
 ## Author  
 
-👤 **AuthorName**  
+🤖 AuthorName: [Github](https://github.com/AuthorName) 🤖  

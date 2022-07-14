@@ -180,8 +180,8 @@ if ! cmd_exists "$APPNAME" && [[ -f "$INSTDIR/build.sh" ]]; then
     export BUILD_SRC_DIR BUILD_SRC_URL
     eval "$INSTDIR/build.sh"
   fi
+  cmd_exists $APPNAME || printf_red "$APPNAME is not installed: run $INSTDIR/build.sh"
 fi
-cmd_exists $APPNAME || printf_red "jgmenu is not installed: run $INSTDIR/build.sh"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # lets exit with code
 exit ${EXIT:-$exitCode}

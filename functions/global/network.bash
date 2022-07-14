@@ -171,6 +171,8 @@ check_uri() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+is_url() { echo "$1" | grep -qE 'http://|ftp://|git://|https://'; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # validate ip v4 address
 __validateIP() {
   local ip=$1

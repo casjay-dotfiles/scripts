@@ -28,7 +28,7 @@ export PATH="$CASJAYSDEVDIR/bin:/usr/local/bin:$PATH"
 # Versioning Info - __required_version "VersionNumber"
 localVersion="${localVersion:-202108121011-git}"
 requiredVersion="${requiredVersion:-202108121011-git}"
-if [ -f $CASJAYSDEVDIR/version.txt ]; then
+if [ -f "$CASJAYSDEVDIR/version.txt" ]; then
   currentVersion="${currentVersion:-$(<$CASJAYSDEVDIR/version.txt)}"
 else
   currentVersion="${currentVersion:-$localVersion}"
@@ -72,7 +72,7 @@ done
 # trap errors
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 trap_exit() {
-  trap 'exitCode=${exitCode:-$?};[ -n "$TMPINST" ] && [ -f "$TMPINST" ] && rm -Rf "$TMPINST";[ -n "$TMPFILE" ] && [ -f "$TMPFILE" ] && rm -Rf "$TMPFILE" &>/dev/null;trap - RETURN;exit ${exitCode:-$?}' SIGINT SIGTERM ERR EXIT
+  trap 'exitCode=${exitCode:-$?};run_cleanup;exit ${exitCode:-$?}' SIGINT SIGTERM ERR EXIT
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cmd_exists() {
@@ -105,15 +105,9 @@ export WHOAMI="${SUDO_USER:-$USER}"
 export HOME="${USER_HOME:-$HOME}"
 export LOGDIR="${LOGDIR:-$HOME/.local/log}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#if [ -n "$DISPLAY" ] && [ -f "$(builtin type -P ask_for_password 2>/dev/null)" ]; then
-#  unalias sudo &>/dev/null
-#  unset -f sudo &>/dev/null
-#  sudo() { builtin command sudo -HE --preserve-env=PATH "$@" || return 1; }
-#else
 if [ -z "$SUDO_PROMPT" ]; then
   export SUDO_PROMPT="$(printf "\n\t\t\033[1;31m")[sudo]$(printf "\033[1;36m") password for $(printf "\033[1;32m")%p: $(printf "\033[0m" && echo)"
 fi
-#fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Timezone data
 if [ -f "/etc/timezone" ]; then
@@ -650,9 +644,9 @@ failexitcode() {
   if [ "$RETVAL" -ne 0 ]; then
     set -E
     printf_error "$fail\n"
-    exit 1
+    exit ${RETVAL:-1}
   else
-    set +eE
+    set +E
     [ -z "$success" ] || printf_custom "42" "$success"
   fi
 }
@@ -662,7 +656,7 @@ setexitstatus() {
   local EXITSTATUS+="$EXIT"
   if [ -z "$EXITSTATUS" ] || [ "$EXITSTATUS" -ne 0 ]; then
     BG_EXIT="${BG_RED}"
-    return 1
+    return ${EXIT:-1}
   else
     BG_EXIT="${BG_GREEN}"
     return 0
@@ -744,7 +738,8 @@ sudorerun() {
   local ARGS="$ARGS"
   if [[ $UID != 0 ]]; then
     if sudoif; then
-      sudo -HE "$APPNAME" "$ARGS" && exit $?
+      sudo -HE "$APPNAME" "$ARGS"
+      exit $?
     else
       sudoreq
     fi
@@ -1265,7 +1260,7 @@ execute() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 os_support() {
   if [ -n "$1" ]; then
-    OSTYPE="$(echo $1 | tr '[:upper:]' '[:lower:]')"
+    OSTYPE="$(echo "$1" | tr '[:upper:]' '[:lower:]')"
   else
     OSTYPE="$(uname -s | tr '[:upper:]' '[:lower:]')"
   fi
@@ -1275,7 +1270,7 @@ os_support() {
   win* | msys* | mingw* | cygwin*) echo "Windows" || return 1 ;;
   bsd*) echo "BSD" || return 1 ;;
   solaris*) echo "Solaris" || return 1 ;;
-  *) echo "Unknown OS" || return 1 ;;
+  *) return 0 ;;
   esac
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1299,7 +1294,7 @@ unsupported_oses() {
 if_os() {
   UNAME="$(uname -s | tr '[:upper:]' '[:lower:]')"
   case "$1" in
-  linux)
+  linux*)
     if [[ "$UNAME" =~ ^linux ]]; then
       return 0
     else
@@ -1527,19 +1522,21 @@ ensure_dirs() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ensure_perms() {
-  # chown -Rf "$WHOAMI":"$WHOAMI" "$LOGDIR"
-  # chown -Rf "$WHOAMI":"$WHOAMI" "$BACKUPDIR"
-  # chown -Rf "$WHOAMI":"$WHOAMI" "$CASJAYSDEVSHARE"
-  # chown -Rf "$WHOAMI":"$WHOAMI" "$HOME/.local/backups"
-  # chown -Rf "$WHOAMI":"$WHOAMI" "$HOME/.local/log"
-  # chown -Rf "$WHOAMI":"$WHOAMI" "$HOME/.local/share/CasjaysDev"
-  # chmod -Rf 755 "$SHARE"
-  # chmod -Rf 755 "$LOGDIR"
-  # chmod -Rf 755 "$BACKUPDIR"
-  # chmod -Rf 755 "$CASJAYSDEVSHARE"
-  # chmod -Rf 755 "$HOME/.local/backups"
-  # chmod -Rf 755 "$HOME/.local/log"
-  # chmod -Rf 755 "$HOME/.local/share/CasjaysDev"
+  user_is_root && [[ -n "$SUDO_USER" ]] && [[ "$INSTALL_TYPE" = "user" ]] &&
+    __chown() { sudo -HE -u "$SUDO_USER" chown "$*"; } || __chown() { chown "$*"; }
+  __chown -Rf "$WHOAMI":"$WHOAMI" "$LOGDIR"
+  __chown -Rf "$WHOAMI":"$WHOAMI" "$BACKUPDIR"
+  __chown -Rf "$WHOAMI":"$WHOAMI" "$CASJAYSDEVSHARE"
+  __chown -Rf "$WHOAMI":"$WHOAMI" "$HOME/.local/backups"
+  __chown -Rf "$WHOAMI":"$WHOAMI" "$HOME/.local/log"
+  __chown -Rf "$WHOAMI":"$WHOAMI" "$HOME/.local/share/CasjaysDev"
+  __chmod -Rf 755 "$SHARE"
+  __chmod -Rf 755 "$LOGDIR"
+  __chmod -Rf 755 "$BACKUPDIR"
+  __chmod -Rf 755 "$CASJAYSDEVSHARE"
+  __chmod -Rf 755 "$HOME/.local/backups"
+  __chmod -Rf 755 "$HOME/.local/log"
+  __chmod -Rf 755 "$HOME/.local/share/CasjaysDev"
   return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1708,7 +1705,7 @@ show_optvars() {
 
   if [ "$1" = "--installed" ]; then
     printf_green "User                               Group                              AppName"
-    ls -l $CASJAYSDEVSAPPDIR/dotfiles | tr -s ' ' | cut -d' ' -f3,4,9 |
+    ls -l "$CASJAYSDEVSAPPDIR/dotfiles" | tr -s ' ' | cut -d' ' -f3,4,9 |
       sed 's# #                               #g' | grep -v "total." |
       printf_readline "5"
     exit $?
@@ -2411,6 +2408,11 @@ run_postinst_global() {
   ensure_perms
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+run_pre_install() {
+  eval "${*:-true}"
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_version() {
   $installtype
   printf_blue "$ICON_GOOD installing version info"
@@ -2428,12 +2430,17 @@ install_version() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+run_cleanup() {
+  local TMPFILE="$TMPDIR/$APPNAME.tmp"
+  local TMPINST="$TMPDIR/$APPNAME.inst.tmp"
+  if [ -f "$TMPFILE" ]; then rm_rf "$TMPFILE"; fi
+  if [ -f "$TMPINST" ]; then rm_rf "$TMPINST"; fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 run_exit() {
   $installtype
   local APPNAME="${APPNAME:-$PROG}"
   local TMPDIR="${TMPDIR:-/tmp}"
-  local TMPFILE="$TMPDIR/$APPNAME.tmp"
-  local TMPINST="$TMPDIR/$APPNAME.inst.tmp"
   printf_yellow "$ICON_GOOD Running exit commands"
   [ -e "$APPDIR/$APPNAME" ] || rm_rf "$APPDIR/$APPNAME"
   [ -e "$INSTDIR/$APPNAME" ] || rm_rf "$INSTDIR/$APPNAME"
@@ -2443,14 +2450,13 @@ run_exit() {
   if [ -d "$INSTDIR" ] && [ ! -f "$INSTDIR/.installed" ]; then
     date '+Installed on: %m/%d/%y @ %H:%M:%S' >"$INSTDIR/.installed" 2>/dev/null
   fi
-  if [ -f "$TMPFILE" ]; then rm_rf "$TMPFILE"; fi
-  if [ -f "$TMPINST" ]; then rm_rf "$TMPINST"; fi
+  run_cleanup
   if [ -f "/tmp/$SCRIPTSFUNCTFILE" ]; then rm_rf "/tmp/$SCRIPTSFUNCTFILE"; fi
   local exitCode+=$?
   getexitcode "The configurations for $APPNAME have been installed" "$APPNAME installer has encountered an error: Check the URL"
   printf_newline
   export EXIT
-  return "${EXIT:-$?exitCode}"
+  return "${EXIT:-$exitCode}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 run_install_list() {
@@ -2542,9 +2548,11 @@ vdebug() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __debugger() {
-  if [ "$1" = "debug" ] || [ "$debug" = "true" ]; then
-    shift 1 && set -Ex
-    export debug=true
+  local debug=""
+  [ "$1" = "debug" ] && debug="true" && shift 1
+  if [ "$debug" = "true" ] || [ "$_DEBUG" = "on" ]; then
+    set -Ex
+    export debug="true" _DEBUG="on"
     export LOGDIR_DEBUG="${LOGDIR:-/tmp/$USER}/debug"
     mkdir -p "$LOGDIR_DEBUG"
     rm_rf "$LOGDIR_DEBUG/$APPNAME.log" "$LOGDIR_DEBUG/$APPNAME.err"

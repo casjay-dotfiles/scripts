@@ -1523,8 +1523,10 @@ ensure_dirs() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if user_is_root && [[ -n "$SUDO_USER" ]] && [[ "$INSTALL_TYPE" = "user" ]]; then
   __chown() { sudo -HE -u "$SUDO_USER" chown "$*"; }
+  export -f __chown
 else
   __chown() { chown "$*"; }
+  export -f __chown
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ensure_perms() {

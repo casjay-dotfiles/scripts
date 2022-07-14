@@ -33,7 +33,7 @@ elif [ -f "$SCRIPTSFUNCTDIR/functions/$SCRIPTSFUNCTFILE" ]; then
   . "$SCRIPTSFUNCTDIR/functions/$SCRIPTSFUNCTFILE"
 else
   mkdir -p "/tmp/CasjaysDev/functions"
-  curl -LSs "$SCRIPTSFUNCTURL/$SCRIPTSFUNCTFILE" -o "/tmp/CasjaysDev/functions/$SCRIPTSFUNCTFILE" || exit 1
+  curl -q -LSsf "$SCRIPTSFUNCTURL/$SCRIPTSFUNCTFILE" -o "/tmp/CasjaysDev/functions/$SCRIPTSFUNCTFILE" || exit 1
   . "/tmp/CasjaysDev/functions/$SCRIPTSFUNCTFILE"
 fi
 
@@ -45,7 +45,7 @@ fi
 
 # main program
 
-sudo bash -c "$(curl -LSs https://github.com/dfmgr/installer/raw/$GIT_DEFAULT_BRANCH/install.sh)"
+sudo bash -c "$(curl -q -LSsf https://github.com/dfmgr/installer/raw/$GIT_DEFAULT_BRANCH/install.sh)"
 reqpkgs
 pkmgr init
 

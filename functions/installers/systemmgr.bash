@@ -1,6 +1,5 @@
 ###################### systemmgr settings ######################
 systemmgr_install() {
-  #__requiresudo "true"
   system_install
   SCRIPTS_PREFIX="systemmgr"
   APPDIR="${APPDIR:-/usr/local/etc}"

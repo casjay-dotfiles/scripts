@@ -3,15 +3,19 @@
 GEN_README_REPLACE_DESCRIBE  
   
   
+### Requires scripts to be installed
+
 
 ```shell
 sudo bash -c "$(curl -q -LSsf "https://github.com/thememgr/installer/raw/GEN_README_REPLACE_DEFAULT_BRANCH/install.sh")" && sudo thememgr install installer  
 ```
 
-### Automatic install/update
+OR
+
+### Automatic install/update  
 
 ```shell
-thememgr install GEN_README_REPLACE_APPNAME
+thememgr update GEN_README_REPLACE_APPNAME
 ```
 
 OR  

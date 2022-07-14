@@ -6,7 +6,7 @@ GEN_README_REPLACE_DESCRIBE
 ## Run container
 
 ```shell
-dockermgr install ProjectName
+dockermgr update ProjectName
 ```
 
 ### via command line

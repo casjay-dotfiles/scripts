@@ -29,7 +29,7 @@ elif [ -f "$SCRIPTSFUNCTDIR/functions/$SCRIPTSFUNCTFILE" ]; then
   . "$SCRIPTSFUNCTDIR/functions/$SCRIPTSFUNCTFILE"
 else
   mkdir -p "/tmp/CasjaysDev/functions"
-  curl -LSs "$SCRIPTSFUNCTURL/$SCRIPTSFUNCTFILE" -o "/tmp/CasjaysDev/functions/$SCRIPTSFUNCTFILE" || exit 1
+  curl -q -LSsf "$SCRIPTSFUNCTURL/$SCRIPTSFUNCTFILE" -o "/tmp/CasjaysDev/functions/$SCRIPTSFUNCTFILE" || exit 1
   . "/tmp/CasjaysDev/functions/$SCRIPTSFUNCTFILE"
 fi
 
@@ -42,7 +42,7 @@ printf_green "$PWD"
 if [[ "$OSTYPE" =~ ^linux ]] && [ -d /home/travis/build/casjay-dotfiles/scripts ]; then
   echo -e "\n\t\t-----------------------------------------------------\n"
   printf_green "Setting up git for push"
-  curl -LSs -H "Authorization: token ${GITHUB_API_KEY}" "https://${PERSONAL_GIT_REPO}/etc/skel/.config/git/git-credentials" -o "$HOME/.config/git/git-credentials" >/dev/null 2>&1
+  curl -q -LSsf -H "Authorization: token ${GITHUB_API_KEY}" "https://${PERSONAL_GIT_REPO}/etc/skel/.config/git/git-credentials" -o "$HOME/.config/git/git-credentials" >/dev/null 2>&1
   git clone -q https://github.com/casjay-dotfiles/scripts "$HOME/push-scripts" >/dev/null 2>&1
   git -C "$HOME/push-scripts" push -q -f https://${GITHUB_API_KEY}@github.com/pkmgr/installer >/dev/null 2>&1 && printf_green "Successfully pushed to pkmgr/installer" || printf_red "Failed to push to pkmgr/installer"
   git -C "$HOME/push-scripts" push -q -f https://${GITHUB_API_KEY}@github.com/dfmgr/installer >/dev/null 2>&1 && printf_green "Successfully pushed to dfmgr/installer" || printf_red "Failed to push to dfmgr/installer"
@@ -55,7 +55,7 @@ fi
 
 echo -e "\n\t\t-----------------------------------------------------\n"
 printf_green "Testing scripts install"
-sudo bash -c "$(curl -LSs https://github.com/dfmgr/installer/raw/$GIT_DEFAULT_BRANCH/install.sh)"
+sudo bash -c "$(curl -q -LSsf https://github.com/dfmgr/installer/raw/$GIT_DEFAULT_BRANCH/install.sh)"
 
 echo -e "\n\t\t-----------------------------------------------------\n"
 printf_green "Printing full info"

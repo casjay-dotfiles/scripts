@@ -1,7 +1,8 @@
-# 👋 Welcome to ProjectName 👋
+## 👋 Welcome to ProjectName 🚀  
 
-  ProjectDescription
-
+GEN_README_REPLACE_DESCRIBE  
+  
+  
 ## Run production  
 
 ```shell

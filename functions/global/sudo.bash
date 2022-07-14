@@ -125,7 +125,7 @@ __sudoexit() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __requiresudo() {
   if __can_i_sudo; then
-    __sudoask && __sudoexit && __sudo "$@" 2>/dev/null
+    __sudoask && __sudoexit && return 0
   else
     printf_red "You dont have access to sudo\n\t\tPlease contact the syadmin for access"
     return 1

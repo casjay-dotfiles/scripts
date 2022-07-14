@@ -1020,14 +1020,14 @@ git_update() {
 dotfilesreqcmd() {
   local gitrepo="${DFMGRREPO:-https://github.com/dfmgr}/${1:-$conf}"
   urlverify "$gitrepo/raw/$GIT_REPO_BRANCH/install.sh" &&
-    bash -c "$(curl -LSs $gitrepo/raw/$GIT_REPO_BRANCH/install.sh)" &>/dev/null ||
+    bash -c "$(curl -q -LSsf $gitrepo/raw/$GIT_REPO_BRANCH/install.sh)" &>/dev/null ||
     return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 dotfilesreqadmincmd() {
   local gitrepoadmin="${SYSTEMMGRREPO:-https://github.com/systemmgr}/${1:-$conf}"
   urlverify "$gitrepoadmin/raw/$GIT_REPO_BRANCH/install.sh" &&
-    sudo -HE bash -c "$(curl -LSs $gitrepoadmin/raw/$GIT_REPO_BRANCH/install.sh)" &>/dev/null ||
+    sudo -HE bash -c "$(curl -q -LSsf $gitrepoadmin/raw/$GIT_REPO_BRANCH/install.sh)" &>/dev/null ||
     return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -2406,11 +2406,6 @@ run_postinst_global() {
   fi
   # Permission fix
   ensure_perms
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-run_pre_install() {
-  eval "${*:-true}"
-  return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_version() {

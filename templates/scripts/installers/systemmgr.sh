@@ -20,9 +20,13 @@ HOME="${USER_HOME:-$HOME}"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${SUDO_USER:-$USER}"
 SRC_DIR="${BASH_SOURCE%/*}"
+SCRIPTS_PREFIX="systemmgr"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
 if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# specify any functions here
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
@@ -30,7 +34,7 @@ CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
 SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
 SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-app-installer.bash}"
 SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/GEN_SCRIPT_REPLACE_DEFAULT_BRANCH/functions}"
-connect_test() { curl -q -ILSsf --retry 1 -m 1 https://1.1.1.1 | grep -iq 'server:*.cloudflare' || return 1; }
+connect_test() { curl -q -ILSsf --retry 1 -m 1 "https://1.1.1.1" | grep -iq 'server:*.cloudflare' || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
   . "$PWD/$SCRIPTSFUNCTFILE"
@@ -79,6 +83,9 @@ sudoreq "$0 $*" # sudo required
 # initialize the installer
 systemmgr_run_init
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# run pre install commands
+run_pre_install
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # end with a space
 APP="$APPNAME "
 PERL=""
@@ -86,7 +93,6 @@ PYTH=""
 PIPS=""
 CPAN=""
 GEMS=""
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # install packages - useful for package that have the same name on all oses
 install_packages "$APP"

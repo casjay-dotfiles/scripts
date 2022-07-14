@@ -918,7 +918,7 @@ scripts_check() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#is_url() { echo "$1" | grep -qE 'http|ftp'; }
+is_url() { echo "$1" | grep -qE 'http://|ftp://|git://|https://'; }
 #strip_url() { echo "$1" | sed 's#git+##g' | awk -F//*/ '{print $2}' | sed 's#.*./##g' | sed 's#python-##g'; }
 cmd_missing() {
   if builtin type -p "$1" &>/dev/null; then

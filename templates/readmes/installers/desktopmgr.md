@@ -1,17 +1,20 @@
-## 👋 Welcome to GEN_README_REPLACE_APPNAME 🚀 
+## 👋 Welcome to GEN_README_REPLACE_APPNAME 🚀
+
 GEN_README_REPLACE_DESCRIBE  
   
   
-#### Requires scripts to be installed
+### Requires scripts to be installed
 
 ```shell
 sudo bash -c "$(curl -q -LSsf <https://github.com/desktopmgr/installer/raw/GEN_README_REPLACE_DEFAULT_BRANCH/install.sh>)" && sudo desktopmgr install installer
 ```
 
-### Automatic install/update
+OR
+
+### Automatic install/update  
 
 ```shell
-desktopmgr install GEN_README_REPLACE_APPNAME
+desktopmgr update GEN_README_REPLACE_APPNAME
 ```
 
 OR

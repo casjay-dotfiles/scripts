@@ -5,10 +5,10 @@
 #### Requires scripts to be installed
 
 ```shell
-sudo bash -c "$(curl -LSs <https://github.com/dfmgr/installer/raw/GEN_README_REPLACE_DEFAULT_BRANCH/install.sh>)" && sudo dfmgr install installer
+sudo bash -c "$(curl -q -LSsf "https://github.com/dfmgr/installer/raw/GEN_README_REPLACE_DEFAULT_BRANCH/install.sh")" && sudo dfmgr install installer
 ```
 
-### Automatic install/update
+### Automatic install/upd
 
 ```shell
 dfmgr install GEN_README_REPLACE_APPNAME
@@ -17,7 +17,7 @@ dfmgr install GEN_README_REPLACE_APPNAME
 OR
 
 ```shell
-bash -c "$(curl -LSs https://github.com/dfmgr/GEN_README_REPLACE_APPNAME/raw/GEN_README_REPLACE_DEFAULT_BRANCH/install.sh)"
+bash -c "$(curl -q -LSsf "https://github.com/dfmgr/GEN_README_REPLACE_APPNAME/raw/GEN_README_REPLACE_DEFAULT_BRANCH/install.sh")"
 ```
   
 requirements:
@@ -55,7 +55,14 @@ git clone https://github.com/dfmgr/GEN_README_REPLACE_APPNAME "$APPDIR"
 cp -Rfv "$APPDIR/etc/." "$HOME/.config/GEN_README_REPLACE_APPNAME/"
 [ -d "$APPDIR/bin" ] && cp -Rfv "$APPDIR/bin/." "$HOME/.local/bin/"
 ```
-  
+
+## Author  
+
+🤖 AuthorName: [Github](https://github.com/AuthorName) 🤖  
+⛵ dfmgr: [Github](https://github.com/dfmgr) ⛵  
+
+## Links
+
 <p align=center>
    <a href="https://travis-ci.com/github/dfmgr/GEN_README_REPLACE_APPNAME" target="_blank" rel="noopener noreferrer">
      <img src="https://travis-ci.com/dfmgr/GEN_README_REPLACE_APPNAME.svg?branch=master" alt="Build Status"></a><br />

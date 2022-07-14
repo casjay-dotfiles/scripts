@@ -18,4 +18,4 @@ npm run dev
   
 ## Author  
 
-👤 **AuthorName**  
+🤖 AuthorName: [Github](https://github.com/AuthorName) 🤖  

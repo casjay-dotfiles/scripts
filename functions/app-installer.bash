@@ -1521,9 +1521,13 @@ ensure_dirs() {
   return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if user_is_root && [[ -n "$SUDO_USER" ]] && [[ "$INSTALL_TYPE" = "user" ]]; then
+  __chown() { sudo -HE -u "$SUDO_USER" chown "$*"; }
+else
+  __chown() { chown "$*"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ensure_perms() {
-  user_is_root && [[ -n "$SUDO_USER" ]] && [[ "$INSTALL_TYPE" = "user" ]] &&
-    __chown() { sudo -HE -u "$SUDO_USER" chown "$*"; } || __chown() { chown "$*"; }
   __chown -Rf "$WHOAMI":"$WHOAMI" "$LOGDIR"
   __chown -Rf "$WHOAMI":"$WHOAMI" "$BACKUPDIR"
   __chown -Rf "$WHOAMI":"$WHOAMI" "$CASJAYSDEVSHARE"

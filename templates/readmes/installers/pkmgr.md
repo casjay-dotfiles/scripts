@@ -3,7 +3,7 @@
 GEN_README_REPLACE_DESCRIBE  
   
   
-#### Requires scripts to be installed
+### Requires scripts to be installed
 
 ```shell
 sudo bash -c "$(curl -q -LSsf "https://github.com/pkmgr/installer/raw/GEN_README_REPLACE_DEFAULT_BRANCH/install.sh")" && sudo pkmgr install installer  

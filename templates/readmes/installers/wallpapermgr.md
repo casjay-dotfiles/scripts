@@ -1,9 +1,8 @@
-## GEN_README_REPLACE_APPNAME
-  
-### GEN_README_REPLACE_DESCRIBE  
-  
-#### Requires scripts to be installed
+## 👋 Welcome to GEN_README_REPLACE_APPNAME 🚀  
 
+GEN_README_REPLACE_DESCRIBE  
+  
+  
 ```shell
 sudo bash -c "$(curl -q -LSsf "https://github.com/wallpapermgr/installer/raw/GEN_README_REPLACE_DEFAULT_BRANCH/install.sh")" && sudo wallpapermgr install installer
 ```

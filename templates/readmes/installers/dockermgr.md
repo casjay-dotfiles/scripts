@@ -10,10 +10,12 @@ GEN_README_REPLACE_DESCRIBE
  dockermgr --config && dockermgr install scripts  
 ```
 
-#### Automatic install/update  
+OR
+
+### Automatic install/update  
 
 ```shell
-dockermgr install GEN_README_REPLACE_APPNAME
+dockermgr update GEN_README_REPLACE_APPNAME
 ```
 
 #### Just run it

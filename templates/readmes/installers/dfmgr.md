@@ -3,51 +3,47 @@
 GEN_README_REPLACE_DESCRIBE  
   
   
-#### Requires scripts to be installed
+### Requires scripts to be installed
 
 ```shell
 sudo bash -c "$(curl -q -LSsf "https://github.com/dfmgr/installer/raw/GEN_README_REPLACE_DEFAULT_BRANCH/install.sh")" && sudo dfmgr install installer
 ```
 
-### Automatic install/upd
-
-```shell
-dfmgr install GEN_README_REPLACE_APPNAME
-```
-
 OR
 
+### Automatic install/update  
+
 ```shell
-bash -c "$(curl -q -LSsf "https://github.com/dfmgr/GEN_README_REPLACE_APPNAME/raw/GEN_README_REPLACE_DEFAULT_BRANCH/install.sh")"
+dfmgr update GEN_README_REPLACE_APPNAME
 ```
   
-requirements:
+### requirements  
   
-Debian based:
+#### Debian based
 
 ```shell
 apt install GEN_README_REPLACE_APPNAME
 ```  
 
-Fedora Based:
+#### Fedora Based
 
 ```shell
 yum install GEN_README_REPLACE_APPNAME
 ```  
 
-Arch Based:
+#### Arch Based
 
 ```shell
 pacman -S GEN_README_REPLACE_APPNAME
 ```  
 
-MacOS:  
+#### MacOS  
 
 ```shell
 brew install GEN_README_REPLACE_APPNAME
 ```
   
-Manual install:  
+#### Manual install  
 
   ```shell
 APPDIR="$HOME/.local/share/CasjaysDev/dfmgr/GEN_README_REPLACE_APPNAME"

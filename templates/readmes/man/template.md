@@ -30,9 +30,17 @@ Options
 
 :   Prints the options that are available.
 
+--config
+
+:   generate settings file.
+
 --debug
 
 :   Prints the debugging information.
+
+--dir
+
+:   change current directory.
 
 FILES
 =====

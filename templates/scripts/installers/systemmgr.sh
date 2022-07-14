@@ -158,7 +158,7 @@ run_exit
 if ! cmd_exists "$APPNAME" && [[ -f "$INSTDIR/build.sh" ]]; then
   if builtin cd "$PLUGDIR/source"; then
     BUILD_SRC_DIR="$PLUGDIR/source"
-    BUILD_SRC_URL="https://github.com/johanmalm/jgmenu"
+    BUILD_SRC_URL=""
     export BUILD_SRC_DIR BUILD_SRC_URL
     eval "$INSTDIR/build.sh"
   fi

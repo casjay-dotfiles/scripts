@@ -1,6 +1,6 @@
-## GEN_README_REPLACE_APPNAME  
+## 👋 Welcome to GEN_README_REPLACE_APPNAME 🚀 
+GEN_README_REPLACE_DESCRIBE  
   
-### GEN_README_REPLACE_DESCRIBE  
   
 #### Requires scripts to be installed
 

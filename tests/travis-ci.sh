@@ -62,8 +62,8 @@ printf_green "Printing full info"
 ./install.sh --full
 
 #echo -e "\n\t\t-----------------------------------------------------\n"
-#printf_green "Running system upgrade - pkmgr silent-upgrade"
-#sudo pkmgr silent-upgrade
+#printf_green "Running system upgrade - pkmgr silent upgrade"
+#sudo pkmgr silent upgrade
 
 echo -e "\n\t\t-----------------------------------------------------\n"
 printf_green "Installing packages"

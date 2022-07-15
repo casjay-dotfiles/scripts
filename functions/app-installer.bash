@@ -1040,6 +1040,7 @@ dotfilesreq() {
     local TMPINST="$TMPDIR/${conf}.inst.tmp"
     [ -d "$confdir/$conf" ] || [ -f "$TMPINST" ] || dotfilesreqcmd "$conf"
   done
+  run_cleanup
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 dotfilesreqadmin() {
@@ -1050,6 +1051,7 @@ dotfilesreqadmin() {
     local TMPINST="$TMPDIR/${conf}.inst.tmp"
     [ -d "$confdir/$conf" ] || [ -f "$TMPINST" ] || dotfilesreqadmincmd "$conf"
   done
+  run_cleanup
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_required() {
@@ -1582,134 +1584,151 @@ app_uninstall() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 show_optvars() {
   __main_installer_info &>/dev/null
-  if [ "$1" = "--force" ]; then
-    shift 1
-    FORCE_INSTALL="true"
-    export FORCE_INSTALL
-  fi
-  if [ "$1" = "--debug" ]; then
-    shift 1
-    __debugger "debug"
-  fi
+  local LONGOPTS="installed,full,location,uninstall,remove,version,help,stow,cron:,update,debug,force"
+  setopts=$(getopt --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
+  eval set -- "${setopts[@]}" 2>/dev/null
+  while :; do
+    case "$1" in
+    --force)
+      shift 1
+      FORCE_INSTALL="true"
+      export FORCE_INSTALL
+      ;;
 
-  if [ "$1" = "--update" ]; then
-    versioncheck
-    exit "$?"
-  fi
+    --debug)
+      shift 1
+      set -xo pipefail
+      export SCRIPT_OPTS="--debug"
+      export _DEBUG="on"
+      __debugger "debug"
+      ;;
 
-  if [ "$1" = "--cron" ]; then
-    shift 1
-    [ "$1" = "--help" ] && printf_help "Usage: $APPNAME --cron remove | add" && exit 0
-    [ "$1" = "--cron" ] && shift 1
-    [ "$1" = "cron" ] && shift 1
-    crontab_add "$*"
-    exit "$?"
-  fi
+    --update)
+      shift 1
+      versioncheck
+      exit "$?"
+      ;;
 
-  if [ "$1" = "--stow" ]; then
-    [ "$1" = "--help" ] && config --help
-    shift 1
-    config add "$*"
-    exit "$?"
-  fi
+    --cron)
+      shift 1
+      [ "$1" = "help" ] && printf_help "Usage: $APPNAME --cron remove | add" && exit 0
+      [ "$1" = "cron" ] && shift 1
+      crontab_add "$*"
+      exit "$?"
+      ;;
 
-  if [ "$1" = "--help" ]; then
-    #    if [ -f "$(builtin type -P  2>/dev/null)" ] xdg-open; then
-    #      xdg-open "$REPO"
-    #    elif [ -f "$(builtin type -P  2>/dev/null)" ] open; then
-    #      open "$REPO"
-    #    else
-    printf_cyan "Go to $REPO for help"
-    #    fi
-    exit
-  fi
+    --stow)
+      shift 1
+      [ "$1" = "help" ] && config --help
+      shift 1
+      config add "$*"
+      exit "$?"
+      ;;
 
-  if [ "$1" = "--version" ]; then
-    get_app_version
-    exit $?
-  fi
+    --help)
+      shift 1
+      #    if [ -f "$(builtin type -P  2>/dev/null)" ] xdg-open; then
+      #      xdg-open "$REPO"
+      #    elif [ -f "$(builtin type -P  2>/dev/null)" ] open; then
+      #      open "$REPO"
+      #    else
+      printf_cyan "Go to $REPO for help"
+      #    fi
+      exit
+      ;;
 
-  if [ "$1" = "--remove" ] || [ "$1" = "--uninstall" ]; then
-    shift 1
-    app_uninstall
-    exit $?
-  fi
+    --version)
+      shift 1
+      get_app_version
+      exit $?
+      ;;
 
-  path_info() {
-    echo "$PATH" | tr ':' '\n' | sort -u
-  }
+    --remove | --uninstall)
+      shift 1
+      app_uninstall
+      exit $?
+      ;;
 
-  if [ "$1" = "--location" ]; then
-    printf_info "AppName:                   $APPNAME"
-    printf_info "Installed to:              $APPDIR"
-    printf_info "Downloaded to:             $INSTDIR"
-    printf_info "UserHomeDir:               $HOME"
-    printf_info "UserBinDir:                $BIN"
-    printf_info "UserConfDir:               $CONF"
-    printf_info "UserShareDir:              $SHARE"
-    printf_info "UserLogDir:                $LOGDIR"
-    printf_info "UserStartDir:              $STARTUP"
-    printf_info "SysConfDir:                $SYSCONF"
-    printf_info "SysBinDir:                 $SYSBIN"
-    printf_info "SysConfDir:                $SYSCONF"
-    printf_info "SysShareDir:               $SYSSHARE"
-    printf_info "SysLogDir:                 $SYSLOGDIR"
-    printf_info "SysBackUpDir:              $BACKUPDIR"
-    printf_info "CompletionsDir:            $COMPDIR"
-    printf_info "CasjaysDevDir:             $CASJAYSDEVSHARE"
-    exit $?
-  fi
+    --location)
+      shift 1
+      printf_info "AppName:                   $APPNAME"
+      printf_info "Installed to:              $APPDIR"
+      printf_info "Downloaded to:             $INSTDIR"
+      printf_info "UserHomeDir:               $HOME"
+      printf_info "UserBinDir:                $BIN"
+      printf_info "UserConfDir:               $CONF"
+      printf_info "UserShareDir:              $SHARE"
+      printf_info "UserLogDir:                $LOGDIR"
+      printf_info "UserStartDir:              $STARTUP"
+      printf_info "SysConfDir:                $SYSCONF"
+      printf_info "SysBinDir:                 $SYSBIN"
+      printf_info "SysConfDir:                $SYSCONF"
+      printf_info "SysShareDir:               $SYSSHARE"
+      printf_info "SysLogDir:                 $SYSLOGDIR"
+      printf_info "SysBackUpDir:              $BACKUPDIR"
+      printf_info "CompletionsDir:            $COMPDIR"
+      printf_info "CasjaysDevDir:             $CASJAYSDEVSHARE"
+      exit $?
+      ;;
 
-  if [ "$1" = "--full" ]; then
-    get_app_version
-    printf_info "UserName:                  $USER"
-    printf_info "RunAs USer:                $RUN_USER"
-    printf_info "UserHomeDir:               $HOME"
-    printf_info "UserBinDir:                $BIN"
-    printf_info "UserConfDir:               $CONF"
-    printf_info "UserShareDir:              $SHARE"
-    printf_info "UserLogDir:                $LOGDIR"
-    printf_info "UserStartDir:              $STARTUP"
-    printf_info "SysConfDir:                $SYSCONF"
-    printf_info "SysBinDir:                 $SYSBIN"
-    printf_info "SysConfDir:                $SYSCONF"
-    printf_info "SysShareDir:               $SYSSHARE"
-    printf_info "SysLogDir:                 $SYSLOGDIR"
-    printf_info "SysBackUpDir:              $BACKUPDIR"
-    printf_info "ApplicationsDir:           $SHARE/applications"
-    printf_info "IconDir:                   $ICONDIR"
-    printf_info "ThemeDir                   $THEMEDIR"
-    printf_info "FontDir:                   $FONTDIR"
-    printf_info "FontConfDir:               $FONTCONF"
-    printf_info "CompletionsDir:            $COMPDIR"
-    printf_info "CasjaysDevDir:             $CASJAYSDEVSHARE"
-    printf_info "CASJAYSDEVSAPPDIR:         $CASJAYSDEVSAPPDIR"
-    printf_info "USRUPDATEDIR:              $USRUPDATEDIR"
-    printf_info "SYSUPDATEDIR:              $SYSUPDATEDIR"
-    printf_info "DOTFILESREPO:              $DOTFILESREPO"
-    printf_info "DevEnv Repo:               $DEVENVMGRREPO"
-    printf_info "Package Manager Repo:      $PKMGRREPO"
-    printf_info "Icon Manager Repo:         $ICONMGRREPO"
-    printf_info "Font Manager Repo:         $FONTMGRREPO"
-    printf_info "Theme Manager Repo         $THEMEMGRREPO"
-    printf_info "System Manager Repo:       $SYSTEMMGRREPO"
-    printf_info "Wallpaper Manager Repo:    $WALLPAPERMGRREPO"
-    printf_info "Downloaded to:             $INSTDIR"
-    printf_info "REPORAW:                   $REPORAW"
-    printf_info "Prefix:                    $SCRIPTS_PREFIX"
-    for PATHS in $(path_info); do
-      printf_info "PATH:                      $PATHS"
-    done
-    exit $?
-  fi
+    --full)
+      shift 1
+      path_info() { echo "$PATH" | tr ':' '\n' | sort -u; }
+      get_app_version
+      printf_info "UserName:                  $USER"
+      printf_info "RunAs USer:                $RUN_USER"
+      printf_info "UserHomeDir:               $HOME"
+      printf_info "UserBinDir:                $BIN"
+      printf_info "UserConfDir:               $CONF"
+      printf_info "UserShareDir:              $SHARE"
+      printf_info "UserLogDir:                $LOGDIR"
+      printf_info "UserStartDir:              $STARTUP"
+      printf_info "SysConfDir:                $SYSCONF"
+      printf_info "SysBinDir:                 $SYSBIN"
+      printf_info "SysConfDir:                $SYSCONF"
+      printf_info "SysShareDir:               $SYSSHARE"
+      printf_info "SysLogDir:                 $SYSLOGDIR"
+      printf_info "SysBackUpDir:              $BACKUPDIR"
+      printf_info "ApplicationsDir:           $SHARE/applications"
+      printf_info "IconDir:                   $ICONDIR"
+      printf_info "ThemeDir                   $THEMEDIR"
+      printf_info "FontDir:                   $FONTDIR"
+      printf_info "FontConfDir:               $FONTCONF"
+      printf_info "CompletionsDir:            $COMPDIR"
+      printf_info "CasjaysDevDir:             $CASJAYSDEVSHARE"
+      printf_info "CASJAYSDEVSAPPDIR:         $CASJAYSDEVSAPPDIR"
+      printf_info "USRUPDATEDIR:              $USRUPDATEDIR"
+      printf_info "SYSUPDATEDIR:              $SYSUPDATEDIR"
+      printf_info "DOTFILESREPO:              $DOTFILESREPO"
+      printf_info "DevEnv Repo:               $DEVENVMGRREPO"
+      printf_info "Package Manager Repo:      $PKMGRREPO"
+      printf_info "Icon Manager Repo:         $ICONMGRREPO"
+      printf_info "Font Manager Repo:         $FONTMGRREPO"
+      printf_info "Theme Manager Repo         $THEMEMGRREPO"
+      printf_info "System Manager Repo:       $SYSTEMMGRREPO"
+      printf_info "Wallpaper Manager Repo:    $WALLPAPERMGRREPO"
+      printf_info "Downloaded to:             $INSTDIR"
+      printf_info "REPORAW:                   $REPORAW"
+      printf_info "Prefix:                    $SCRIPTS_PREFIX"
+      for PATHS in $(path_info); do
+        printf_info "PATH:                      $PATHS"
+      done
+      exit $?
+      ;;
 
-  if [ "$1" = "--installed" ]; then
-    printf_green "User                               Group                              AppName"
-    ls -l "$CASJAYSDEVSAPPDIR/dotfiles" | tr -s ' ' | cut -d' ' -f3,4,9 |
-      sed 's# #                               #g' | grep -v "total." |
-      printf_readline "5"
-    exit $?
-  fi
+    --installed)
+      shift 1
+      printf_green "User                               Group                              AppName"
+      ls -l "$CASJAYSDEVSAPPDIR/dotfiles" | tr -s ' ' | cut -d' ' -f3,4,9 |
+        sed 's# #                               #g' | grep -v "total." |
+        printf_readline "5"
+      exit $?
+      ;;
+    *)
+      break
+      ;;
+    esac
+  done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 installer_noupdate() {

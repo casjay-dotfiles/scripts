@@ -41,8 +41,7 @@ else
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # user system devenvmgr dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
-GEN_SCRIPT_REPLACE_FILENAME_install
-__options "$@"
+GEN_SCRIPT_REPLACE_FILENAME_install && __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set functions
 __help() {

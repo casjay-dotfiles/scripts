@@ -71,10 +71,7 @@ for check in git curl wget; do
 done
 # trap errors
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-trap_exit() {
-  #trap 'exitCode=${exitCode:-$?};run_cleanup;return ${exitCode:-$?}' SIGINT SIGTERM ERR
-  true
-}
+trap_exit() { true; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cmd_exists() {
   for f in "$@"; do

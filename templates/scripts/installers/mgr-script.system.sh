@@ -447,7 +447,9 @@ while :; do
     ;;
   --raw)
     export SHOW_RAW="true"
-    printf_color() { '%b\n' "$1" | tr -d '\t' | sed 's,\x1B\[[0-9;]*[a-zA-Z],,g'; }
+    unset -f printf_color
+    printf_color() { printf '%b' "$1" | tr -d '\t\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
+
     ;;
   --)
     shift 1

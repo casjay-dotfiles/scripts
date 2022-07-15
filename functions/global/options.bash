@@ -90,59 +90,72 @@ __full_app_info() {
 ###################### call options ######################
 __options() {
   $installtype
-  case "${SCRIPT_OPTS:-$@}" in
-  --test)
-    shift 1
-    [ "$1" = "--x" ] && set -x && shift 1
-    export LOG_FILE_DEBUG="${TMP:-$HOME/.local/tmp}/${APPNAME}_debug/$(date +'%Y-%m-%d').log"
-    export LOG_FILE_ERROR="${TMP:-$HOME/.local/tmp}/${APPNAME}_debug/$(date +'%Y-%m-%d').err"
-    mkdir -p "${TMP:-$HOME/.local/tmp}/${APPNAME}_debug"
-    printf_cyan "Saving all output to $LOG_FILE_DEBUG"
-    printf_log() { "$1" 2>>"${2:-$LOG_FILE_ERROR}" >>"${3:-$LOG_FILE_DEBUG}"; }
-    __devnull() {
-      local CMD="$1" && shift 1
-      local ARGS="$*" && shift
-      printf_log "Running $CMD"
-      eval $CMD $ARGS 2>>"$LOG_FILE_ERROR" >>"$LOG_FILE_DEBUG"
-    }
-    # only send stdout to display
-    __devnull1() {
-      local CMD="$1" && shift 1
-      local ARGS="$*" && shift
-      printf_log "Running $CMD"
-      eval $CMD $ARGS 2>>"$LOG_FILE_ERROR" >>"$LOG_FILE_DEBUG"
-    }
-    # send stderr to /dev/null
-    __devnull2() {
-      local CMD="$1" && shift 1
-      local ARGS="$*" && shift
-      printf_log "Running $CMD"
-      eval $CMD $ARGS 2>>"$LOG_FILE_ERROR" >>"$LOG_FILE_DEBUG"
-    }
-    ;;
+  local LONGOPTS="test,vdebug,full-info,remove:,uninstall:,raw"
+  setopts=$(getopt --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
+  eval set -- "${setopts[@]}" 2>/dev/null
+  while :; do
+    case "$1" in
+    --test)
+      shift 1
+      [ "$1" = "--x" ] && set -x && shift 1
+      export LOG_FILE_DEBUG="${TMP:-$HOME/.local/tmp}/${APPNAME}_debug/$(date +'%Y-%m-%d').log"
+      export LOG_FILE_ERROR="${TMP:-$HOME/.local/tmp}/${APPNAME}_debug/$(date +'%Y-%m-%d').err"
+      mkdir -p "${TMP:-$HOME/.local/tmp}/${APPNAME}_debug"
+      printf_cyan "Saving all output to $LOG_FILE_DEBUG"
+      printf_log() { "$1" 2>>"${2:-$LOG_FILE_ERROR}" >>"${3:-$LOG_FILE_DEBUG}"; }
+      __devnull() {
+        local CMD="$1" && shift 1
+        local ARGS="$*" && shift
+        printf_log "Running $CMD"
+        eval $CMD $ARGS 2>>"$LOG_FILE_ERROR" >>"$LOG_FILE_DEBUG"
+      }
+      # only send stdout to display
+      __devnull1() {
+        local CMD="$1" && shift 1
+        local ARGS="$*" && shift
+        printf_log "Running $CMD"
+        eval $CMD $ARGS 2>>"$LOG_FILE_ERROR" >>"$LOG_FILE_DEBUG"
+      }
+      # send stderr to /dev/null
+      __devnull2() {
+        local CMD="$1" && shift 1
+        local ARGS="$*" && shift
+        printf_log "Running $CMD"
+        eval $CMD $ARGS 2>>"$LOG_FILE_ERROR" >>"$LOG_FILE_DEBUG"
+      }
+      ;;
 
-  --vdebug) ###################### basic debug ######################
-    shift 1
-    __vdebug "$*"
-    ;;
+    --debug)
+      shift 1
+      set -xo pipefail
+      export SCRIPT_OPTS="--debug"
+      export _DEBUG="on"
+      ;;
 
-  --full-info) ###################### debug settings ######################
-    shift 1
-    __full_app_info
-    ;;
+    --vdebug) ###################### basic debug ######################
+      shift 1
+      __vdebug "$*"
+      ;;
 
-  --remove | --uninstall)
-    shift 1
-    __remove_app "$*"
-    ;;
+    --full-info) ###################### debug settings ######################
+      shift 1
+      __full_app_info
+      ;;
 
-  --raw)
-    shift 1
-    unset -f printf_color printf_readline
-    printf_color() { printf '%s' "$1" | sed 's|\\t||g'; }
-    printf_readline() { tee; }
-    ;;
+    --remove | --uninstall)
+      shift 1
+      __remove_app "$*"
+      ;;
 
-  esac
+    --raw)
+      shift 1
+      unset -f printf_color printf_readline
+      printf_color() { printf '%b' "$1" | sed 's|\\t||g'; }
+      ;;
+    *)
+      break
+      ;;
+    esac
+  done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

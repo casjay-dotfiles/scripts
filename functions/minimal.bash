@@ -966,3 +966,28 @@ __do_not_add_a_url() {
     printf_exit "Do not provide the full url: only provide the username/repo"
   fi
 }
+
+__options() {
+  local LONGOPTS="debug,raw"
+  setopts=$(getopt --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
+  eval set -- "${setopts[@]}" 2>/dev/null
+  while :; do
+    case "$1" in
+    --debug)
+      shift 1
+      set -xo pipefail
+      export SCRIPT_OPTS="--debug"
+      export _DEBUG="on"
+      ;;
+
+    --raw)
+      shift 1
+      unset -f printf_color printf_readline
+      printf_color() { printf '%b' "$1" | sed 's|\\t||g'; }
+      ;;
+    *)
+      break
+      ;;
+    esac
+  done
+}

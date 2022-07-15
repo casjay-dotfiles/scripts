@@ -336,7 +336,6 @@ GEN_SCRIPT_REPLACE_ENV_CACHE_DIR="${GEN_SCRIPT_REPLACE_ENV_CACHE_DIR:-$HOME/.cac
 GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR="${GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR:-$HOME/.config/myscripts/GEN_SCRIPT_REPLACE_FILENAME}"
 GEN_SCRIPT_REPLACE_ENV_CONFIG_BACKUP_DIR="${GEN_SCRIPT_REPLACE_ENV_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/GEN_SCRIPT_REPLACE_FILENAME/backups}"
 GEN_SCRIPT_REPLACE_ENV_TEMP_DIR="${GEN_SCRIPT_REPLACE_ENV_TEMP_DIR:-$HOME/.local/tmp/system_scripts/GEN_SCRIPT_REPLACE_FILENAME}"
-GEN_SCRIPT_REPLACE_ENV_OPTIONS_DIR="${GEN_SCRIPT_REPLACE_ENV_OPTIONS_DIR:-$HOME/.local/share/myscripts/GEN_SCRIPT_REPLACE_FILENAME/options}"
 GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE="${GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE:-settings.conf}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
@@ -400,7 +399,7 @@ fi
 # Set additional variables/Argument/Option settings
 SETARGS="$*"
 SHORTOPTS="a,f"
-LONGOPTS="options,config,version,help,dir:force,all"
+LONGOPTS="options,config,version,help,dir:force,all,raw"
 ARRAY="download,list,search,available,remove,version,update,install,cron"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
@@ -446,6 +445,10 @@ while :; do
   -a | --all)
     shift 1
     INSTALL_ALL="true"
+    ;;
+  --raw)
+    export SHOW_RAW="true"
+    printf_color() { '%b\n' "$1" | tr -d '\t' | sed 's,\x1B\[[0-9;]*[a-zA-Z],,g'; }
     ;;
   --)
     shift 1

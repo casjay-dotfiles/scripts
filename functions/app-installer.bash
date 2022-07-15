@@ -72,7 +72,7 @@ done
 # trap errors
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 trap_exit() {
-  trap 'exitCode=${exitCode:-$?};run_cleanup;exit ${exitCode:-$?}' SIGINT SIGTERM ERR EXIT
+  trap 'exitCode=${exitCode:-$?};run_cleanup;return ${exitCode:-$?}' SIGINT SIGTERM ERR
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cmd_exists() {

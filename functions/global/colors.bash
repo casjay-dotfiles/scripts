@@ -39,7 +39,7 @@ ICON_QUESTION="[ ❓ ]"
 __col() { awk -v col="$1" '{print $col}'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_newline() {
-  printf "${*:-}"
+  printf '%s' "${*:-\n}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_color() {
@@ -249,6 +249,7 @@ printf_column() {
   printf "\n"
   set +o pipefail
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_cat() {
   file=${1:--}
   while IFS= read -r line; do

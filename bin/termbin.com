@@ -108,7 +108,7 @@ TERMBIN_COM_NOTIFY_ENABLED="${TERMBIN_COM_NOTIFY_ENABLED:-yes}"
 TERMBIN_COM_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
 TERMBIN_COM_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$TERMBIN_COM_NOTIFY_CLIENT_ICON}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Application overrides
+# Additional Variables
 TERMBIN_COM_NETCATCMD="${TERMBIN_COM_NETCATCMD:-$(type -P netcat 2>/dev/null || type -P nc 2>/dev/null)}"
 TERMBIN_COM_URL_HOST="${TERMBIN_COM_URL_HOST:-termbin.com}"
 TERMBIN_COM_URL_HOST_PORT="${TERMBIN_COM_URL_HOST_PORT:-9999}"

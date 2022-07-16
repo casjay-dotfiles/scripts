@@ -2361,6 +2361,52 @@ run_postinst_global() {
       [ -d "$INSTDIR/etc" ] && mkd "$APPDIR" && cp_rf "$INSTDIR/etc/." "$APPDIR/"
     fi
 
+    if [ -d "$INSTDIR/man" ]; then
+      local MANDIR="$SHARE/man/man1"
+      [ -d "$MANDIR" ] || mkdir -p "$MANDIR"
+      for man in "$INSTDIR/man"/*.1; do
+        [ -n "$man" ] || break
+        name="$(basename "$man" 2>/dev/null)"
+        [ -n "$name" ] && cp_rf "$man" "$MANDIR/$name"
+      done
+      for man in "$INSTDIR/man"/*.2; do
+        [ -n "$man" ] || break
+        name="$(basename "$man" 2>/dev/null)"
+        [ -n "$name" ] && cp_rf "$man" "$MANDIR/$name"
+      done
+      for man in "$INSTDIR/man"/*.3; do
+        [ -n "$man" ] || break
+        name="$(basename "$man" 2>/dev/null)"
+        [ -n "$name" ] && cp_rf "$man" "$MANDIR/$name"
+      done
+      for man in "$INSTDIR/man"/*.4; do
+        [ -n "$man" ] || break
+        name="$(basename "$man" 2>/dev/null)"
+        [ -n "$name" ] && cp_rf "$man" "$MANDIR/$name"
+      done
+      for man in "$INSTDIR/man"/*.5; do
+        [ -n "$man" ] || break
+        name="$(basename "$man" 2>/dev/null)"
+        [ -n "$name" ] && cp_rf "$man" "$MANDIR/$name"
+      done
+      for man in "$INSTDIR/man"/*.6; do
+        [ -n "$man" ] || break
+        name="$(basename "$man" 2>/dev/null)"
+        [ -n "$name" ] && cp_rf "$man" "$MANDIR/$name"
+      done
+      for man in "$INSTDIR/man"/*.7; do
+        [ -n "$man" ] || break
+        name="$(basename "$man" 2>/dev/null)"
+        [ -n "$name" ] && cp_rf "$man" "$MANDIR/$name"
+      done
+      for man in "$INSTDIR/man"/*.8; do
+        [ -n "$man" ] || break
+        name="$(basename "$man" 2>/dev/null)"
+        [ -n "$name" ] && cp_rf "$man" "$MANDIR/$name"
+      done
+      unset man
+    fi
+
     if [ -d "$INSTDIR/backgrounds" ]; then
       mkdir -p "$WALLPAPERS/system"
       local wallpapers="$(ls $INSTDIR/backgrounds/ 2>/dev/null | wc -l)"

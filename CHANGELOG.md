@@ -1,3 +1,23 @@
+#### Changelog: 2022-07-16 at 15:05:35  
+####🗃️ Committing everything that changed 🗃️  
+  
+bin/gen-script      🚀  
+bin/systemmgr      🚀  
+templates/scripts/bash/autostart      🚀  
+templates/scripts/installers/personal.sh      🚀  
+templates/scripts/os/arch.sh      🚀  
+templates/scripts/os/centos.sh      🚀  
+templates/scripts/os/debian.sh      🚀  
+templates/scripts/os/fedora.sh      🚀  
+templates/scripts/os/macos.sh      🚀  
+templates/scripts/os/void.sh      🚀  
+templates/scripts/shell/bash      🚀  
+templates/scripts/shell/sh      🚀  
+  
+#### End of changes for 202207161435-git - 2022-07-16 at 15:05:35  
+  
+----  
+  
 #### Changelog: 2022-07-16 at 14:35:17  
 ####🗃️ Committing everything that changed 🗃️  
   

@@ -9,6 +9,7 @@
 # @Created           :  GEN_SCRIPT_REPLACE_DATE
 # @File              :  GEN_SCRIPT_REPLACE_FILENAME
 # @Description       :  GEN_SCRIPT_REPLACE_DESC
+# @Changelog         :
 # @TODO              :  GEN_SCRIPT_REPLACE_TODO
 # @Other             :  GEN_SCRIPT_REPLACE_OTHER
 # @Resource          :  GEN_SCRIPT_REPLACE_RES

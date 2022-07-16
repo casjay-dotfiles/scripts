@@ -1,3 +1,42 @@
+#### Changelog: 2022-07-16 at 16:37:11  
+#### 🗃️ Fixed blank exitCode variable 🗃️  
+  
+bin/am_i_online      🚀  
+bin/anime-dl      🚀  
+bin/anonymize      🚀  
+bin/buildx      🚀  
+bin/client-installs      🚀  
+bin/config      🚀  
+bin/dockermgr      🚀  
+bin/duckdns      🚀  
+bin/earthquakes      🚀  
+bin/gen-header      🚀  
+bin/gen-links      🚀  
+bin/gen-network      🚀  
+bin/latest-iso      🚀  
+bin/lxdmgr      🚀  
+bin/notflix      🚀  
+bin/port_test      🚀  
+bin/postit      🚀  
+bin/publishit      🚀  
+bin/pve-spice      🚀  
+bin/sysusage      🚀  
+bin/timeis      🚀  
+bin/todo      🚀  
+bin/usb-writer      🚀  
+bin/virt-check      🚀  
+bin/virt-display      🚀  
+bin/volumectl      🚀  
+bin/ytstream      🚀  
+templates/scripts/bash/simple      🚀  
+templates/scripts/bash/system      🚀  
+templates/scripts/bash/terminal      🚀  
+templates/scripts/bash/user      🚀  
+  
+#### End of changes for 202207161524-git - 2022-07-16 at 16:37:11  
+  
+----  
+  
 #### Changelog: 2022-07-16 at 15:39:53  
   
 bin/gen-readme      🚀  

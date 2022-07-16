@@ -82,7 +82,7 @@ __list_available() {
   echo -e "${1:-$LIST}" | tr ',' ' ' | tr ' ' '\n' && exit 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
+__list_options() { printf_custom "5" "$1: $(echo ${2:-$ARRAY} | __sed 's|:||g;s|'$3'| '$4'|g')" |& __devnull2; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gen_config() {
   [[ -z "$NOTIFY_CLIENT_NAME" ]] || NOTIFY_CLIENT_NAME=""
@@ -403,9 +403,9 @@ while :; do
   --options)
     shift 1
     [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
-    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
-    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
-    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' ''
     [ -z "$LIST" ] && __api_list | printf_column $GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR || __list_available "$LIST" | printf_column $GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR
     exit $?
     ;;

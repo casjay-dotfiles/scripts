@@ -1,3 +1,40 @@
+#### Changelog: 2022-07-16 at 12:01:18  
+####🗃️ Committing everything that changed 🗃️  
+  
+templates/gen-script/header/default.tmpl.sh      🚀  
+templates/gen-script/header/raw.tmpl.sh      🚀  
+templates/scripts/bash/build      🚀  
+templates/scripts/bash/case      🚀  
+templates/scripts/bash/docker-entrypoint      🚀  
+templates/scripts/bash/profile      🚀  
+templates/scripts/bash/simple      🚀  
+templates/scripts/bash/system      🚀  
+templates/scripts/bash/terminal      🚀  
+templates/scripts/bash/user      🚀  
+templates/scripts/installers/desktopmgr.sh      🚀  
+templates/scripts/installers/devenvmgr.sh      🚀  
+templates/scripts/installers/dfmgr.sh      🚀  
+templates/scripts/installers/dockermgr.sh      🚀  
+templates/scripts/installers/fontmgr.sh      🚀  
+templates/scripts/installers/iconmgr.sh      🚀  
+templates/scripts/installers/mgr-script.system.sh      🚀  
+templates/scripts/installers/mgr-script.user.sh      🚀  
+templates/scripts/installers/systemmgr.sh      🚀  
+templates/scripts/installers/thememgr.sh      🚀  
+templates/scripts/installers/wallpapermgr.sh      🚀  
+templates/scripts/os/arch.sh      🚀  
+templates/scripts/os/centos.sh      🚀  
+templates/scripts/os/debian.sh      🚀  
+templates/scripts/os/fedora.sh      🚀  
+templates/scripts/os/macos.sh      🚀  
+templates/scripts/os/void.sh      🚀  
+templates/scripts/shell/bash      🚀  
+templates/scripts/shell/sh      🚀  
+  
+#### End of changes for 202207161054-git - 2022-07-16 at 12:01:18  
+  
+----  
+  
 #### Changelog: 2022-07-16 at 11:16:38  
   
 bin/volumectl      🚀  

@@ -1,3 +1,12 @@
+#### Changelog: 2022-07-16 at 19:19:59  
+#### 🗃️ Fixed spacing error in function 🗃️  
+  
+bin/gen-script      🚀  
+  
+#### End of changes for 202207161637-git - 2022-07-16 at 19:19:59  
+  
+----  
+  
 #### Changelog: 2022-07-16 at 16:37:11  
 #### 🗃️ Fixed blank exitCode variable 🗃️  
   

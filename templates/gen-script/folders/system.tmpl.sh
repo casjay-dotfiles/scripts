@@ -15,7 +15,7 @@ GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR="\${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR:-5}"
 GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_GOOD="\${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_GOOD:-2}"
 GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_ERROR="\${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_ERROR:-1}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Enviroment overrides
+# Additional Variables
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files

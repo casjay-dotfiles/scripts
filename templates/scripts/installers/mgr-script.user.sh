@@ -82,7 +82,7 @@ __list_available() {
   echo -e "${1:-$LIST}" | tr ',' ' ' | tr ' ' '\n' && exit 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__list_options() { printf_custom "5" "$1: $(echo ${2:-$ARRAY} | __sed 's|:||g;s|'$3'| '$4'|g')" |& __devnull2; }
+__list_options() { printf_custom "5" "$1: $(echo ${2:-$ARRAY} | __sed 's|:||g;s|'$3'| '$4'|g')" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gen_config() {
   [[ -z "$NOTIFY_CLIENT_NAME" ]] || NOTIFY_CLIENT_NAME=""

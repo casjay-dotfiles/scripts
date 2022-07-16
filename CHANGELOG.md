@@ -1,3 +1,25 @@
+#### Changelog: 2022-07-16 at 13:46:03  
+####🗃️ Committing everything that changed 🗃️  
+  
+bin/gen-header      🚀  
+bin/gen-script      🚀  
+bin/volumectl      🚀  
+templates/gen-script/header/raw.tmpl.sh      🚀  
+templates/scripts/bash/autostart      🚀  
+templates/scripts/bash/build      🚀  
+templates/scripts/bash/case      🚀  
+templates/scripts/bash/profile      🚀  
+templates/scripts/bash/simple      🚀  
+templates/scripts/bash/system      🚀  
+templates/scripts/bash/terminal      🚀  
+templates/scripts/bash/user      🚀  
+templates/scripts/installers/mgr-script.system.sh      🚀  
+templates/scripts/installers/mgr-script.user.sh      🚀  
+  
+#### End of changes for 202207161201-git - 2022-07-16 at 13:46:03  
+  
+----  
+  
 #### Changelog: 2022-07-16 at 12:23:31  
   
 bin/volumectl      🚀  

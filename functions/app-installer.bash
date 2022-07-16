@@ -1004,10 +1004,11 @@ git_update() {
   local exitCode="0"
   if __am_i_online; then
     local repo="$(git remote -v | grep fetch | head -n 1 | awk '{print $2}')"
-    devnull git -C "$myappdir" reset --hard &&
-      devnull git -C "$myappdir" pull --recurse-submodules -fq &&
-      devnull git -C "$myappdir" submodule update --init --recursive -q &&
-      devnull git -C "$myappdir" reset --hard -q && exitCode=0 || exitCode=1
+    devnull git -C "$myappdir" reset --hard
+    devnull git -C "$myappdir" pull --recurse-submodules
+    devnull git -C "$myappdir" submodule update --init --recursive
+    devnull git -C "$myappdir" reset --hard -q
+    devnull git -C "$myappdir" pull --recurse-submodules && exitCode=0 || exitCode=1
     if [ "$exitCode" -ne 0 ] && [ -n "$repo" ] && [ ! -d "$myappdir/.git" ]; then
       rm_rf "$myappdir"
       git_clone "$repo" "$myappdir"
@@ -1522,20 +1523,13 @@ ensure_dirs() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ensure_perms() {
-  local SUDO_USER="${SUDO_USER:-$USER}"
-  chown -Rf "${SUDO_USER:-$WHOAMI}":"${SUDO_USER:-$WHOAMI}" "$LOGDIR"
-  chown -Rf "${SUDO_USER:-$WHOAMI}":"${SUDO_USER:-$WHOAMI}" "$BACKUPDIR"
-  chown -Rf "${SUDO_USER:-$WHOAMI}":"${SUDO_USER:-$WHOAMI}" "$CASJAYSDEVSHARE"
-  chown -Rf "${SUDO_USER:-$WHOAMI}":"${SUDO_USER:-$WHOAMI}" "$HOME/.local/backups"
-  chown -Rf "${SUDO_USER:-$WHOAMI}":"${SUDO_USER:-$WHOAMI}" "$HOME/.local/log"
-  chown -Rf "${SUDO_USER:-$WHOAMI}":"${SUDO_USER:-$WHOAMI}" "$HOME/.local/share/CasjaysDev"
-  chmod -Rf 755 "$SHARE"
-  chmod -Rf 755 "$LOGDIR"
-  chmod -Rf 755 "$BACKUPDIR"
-  chmod -Rf 755 "$CASJAYSDEVSHARE"
-  chmod -Rf 755 "$HOME/.local/backups"
-  chmod -Rf 755 "$HOME/.local/log"
-  chmod -Rf 755 "$HOME/.local/share/CasjaysDev"
+  if user_is_root; then
+    local SUDO_USER="${SUDO_USER:-$USER}"
+    chown -Rf "${SUDO_USER:-$WHOAMI}":"${SUDO_USER:-$WHOAMI}" "$HOME/.local/log"
+    chown -Rf "${SUDO_USER:-$WHOAMI}":"${SUDO_USER:-$WHOAMI}" "$HOME/.local/backups"
+    chown -Rf "${SUDO_USER:-$WHOAMI}":"${SUDO_USER:-$WHOAMI}" "$HOME/.local/share/CasjaysDev"
+    chmod -Rf 755 "$HOME/.local/bin/"
+  fi
   return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -2362,47 +2356,47 @@ run_postinst_global() {
     fi
 
     if [ -d "$INSTDIR/man" ]; then
-      local MANDIR="$SHARE/man/man1"
+      user_is_root && local MANDIR="/usr/share/man" || MANDIR="$HOME/.local/share/man"
       [ -d "$MANDIR" ] || mkdir -p "$MANDIR"
       for man in "$INSTDIR/man"/*.1; do
         [ -n "$man" ] || break
         name="$(basename "$man" 2>/dev/null)"
-        [ -n "$name" ] && cp_rf "$man" "$MANDIR/$name"
+        [ ! -f "$MANDIR/man1/$name" ] && [ -d "$MANDIR/man1" ] && [ -n "$name" ] && ln_sf "$man" "$MANDIR/man1/$name"
       done
       for man in "$INSTDIR/man"/*.2; do
         [ -n "$man" ] || break
         name="$(basename "$man" 2>/dev/null)"
-        [ -n "$name" ] && cp_rf "$man" "$MANDIR/$name"
+        [ ! -f "$MANDIR/man2/$name" ] && [ -d "$MANDIR/man2" ] && [ -n "$name" ] && ln_sf "$man" "$MANDIR/man2/$name"
       done
       for man in "$INSTDIR/man"/*.3; do
         [ -n "$man" ] || break
         name="$(basename "$man" 2>/dev/null)"
-        [ -n "$name" ] && cp_rf "$man" "$MANDIR/$name"
+        [ ! -f "$MANDIR/man3/$name" ] && [ -d "$MANDIR/man3" ] && [ -n "$name" ] && ln_sf "$man" "$MANDIR/man3/$name"
       done
       for man in "$INSTDIR/man"/*.4; do
         [ -n "$man" ] || break
         name="$(basename "$man" 2>/dev/null)"
-        [ -n "$name" ] && cp_rf "$man" "$MANDIR/$name"
+        [ ! -f "$MANDIR/man4/$name" ] && [ -d "$MANDIR/man4" ] && [ -n "$name" ] && ln_sf "$man" "$MANDIR/man4/$name"
       done
       for man in "$INSTDIR/man"/*.5; do
         [ -n "$man" ] || break
         name="$(basename "$man" 2>/dev/null)"
-        [ -n "$name" ] && cp_rf "$man" "$MANDIR/$name"
+        [ ! -f "$MANDIR/man5/$name" ] && [ -d "$MANDIR/man5" ] && [ -n "$name" ] && ln_sf "$man" "$MANDIR/man5/$name"
       done
       for man in "$INSTDIR/man"/*.6; do
         [ -n "$man" ] || break
         name="$(basename "$man" 2>/dev/null)"
-        [ -n "$name" ] && cp_rf "$man" "$MANDIR/$name"
+        [ ! -f "$MANDIR/man6/$name" ] && [ -d "$MANDIR/man6" ] && [ -n "$name" ] && ln_sf "$man" "$MANDIR/man6/$name"
       done
       for man in "$INSTDIR/man"/*.7; do
         [ -n "$man" ] || break
         name="$(basename "$man" 2>/dev/null)"
-        [ -n "$name" ] && cp_rf "$man" "$MANDIR/$name"
+        [ ! -f "$MANDIR/man7/$name" ] && [ -d "$MANDIR/man7" ] && [ -n "$name" ] && ln_sf "$man" "$MANDIR/man7/$name"
       done
       for man in "$INSTDIR/man"/*.8; do
         [ -n "$man" ] || break
         name="$(basename "$man" 2>/dev/null)"
-        [ -n "$name" ] && cp_rf "$man" "$MANDIR/$name"
+        [ ! -f "$MANDIR/man8/$name" ] && [ -d "$MANDIR/man8" ] && [ -n "$name" ] && ln_sf "$man" "$MANDIR/man8/$name"
       done
       unset man
     fi

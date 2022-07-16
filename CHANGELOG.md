@@ -1,0 +1,41 @@
+#### Changelog: 2022-07-16 at 02:49:27  
+  
+bin/gitcommit 🚀   
+bin/run_server 🚀   
+functions/app-installer.bash 🚀   
+gitmainconfig 🚀   
+templates/scripts/bash/build 🚀   
+templates/scripts/bash/case 🚀   
+templates/scripts/bash/profile 🚀   
+templates/scripts/bash/system 🚀   
+templates/scripts/bash/terminal 🚀   
+templates/scripts/bash/user 🚀   
+templates/scripts/completions/simple.bash 🚀   
+templates/scripts/completions/system.bash 🚀   
+templates/scripts/completions/user.bash 🚀   
+templates/scripts/installers/desktopmgr.sh 🚀   
+templates/scripts/installers/devenvmgr.sh 🚀   
+templates/scripts/installers/dfmgr.sh 🚀   
+templates/scripts/installers/dockermgr.sh 🚀   
+templates/scripts/installers/fontmgr.sh 🚀   
+templates/scripts/installers/iconmgr.sh 🚀   
+templates/scripts/installers/mgr-script.system.sh 🚀   
+templates/scripts/installers/mgr-script.user.sh 🚀   
+templates/scripts/installers/personal.sh 🚀   
+templates/scripts/installers/systemmgr.sh 🚀   
+templates/scripts/installers/thememgr.sh 🚀   
+templates/scripts/installers/wallpapermgr.sh 🚀   
+templates/scripts/os/arch.sh 🚀   
+templates/scripts/os/centos.sh 🚀   
+templates/scripts/os/debian.sh 🚀   
+templates/scripts/os/fedora.sh 🚀   
+templates/scripts/os/macos.sh 🚀   
+templates/scripts/os/void.sh 🚀   
+templates/scripts/shell/bash 🚀   
+templates/scripts/shell/sh 🚀   
+version.txt 🚀   
+  
+#### End of changes for 202207160247-git - 2022-07-16 at 02:49:27  
+----  
+  
+  

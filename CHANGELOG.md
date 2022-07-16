@@ -1,3 +1,19 @@
+#### Changelog: 2022-07-16 at 14:10:32  
+  
+templates/scripts/bash/build      🚀  
+templates/scripts/bash/case      🚀  
+templates/scripts/bash/profile      🚀  
+templates/scripts/bash/simple      🚀  
+templates/scripts/bash/system      🚀  
+templates/scripts/bash/terminal      🚀  
+templates/scripts/bash/user      🚀  
+templates/scripts/installers/mgr-script.system.sh      🚀  
+templates/scripts/installers/mgr-script.user.sh      🚀  
+  
+#### End of changes for 202207161346-git - 2022-07-16 at 14:10:32  
+  
+----  
+  
 #### Changelog: 2022-07-16 at 13:49:23  
   
 templates/scripts/bash/simple      🚀  

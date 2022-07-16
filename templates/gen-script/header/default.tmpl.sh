@@ -10,7 +10,7 @@ cat <<EOF | tee
 # @@Created          :  $GEN_SCRIPT_CREATED
 # @@File             :  $GEN_SCRIPT_NEWFILE
 # @@Description      :  ${desc:-$get_desc}
-# @@Changelog        :  GEN_SCRIPT_REPLACE_CHANGELOG  ${changelog:-$get_changelog}
+# @@Changelog        :  ${changelog:-$get_changelog}
 # @@TODO             :  ${todo:-$get_todo}
 # @@Other            :  ${other:-$get_other}
 # @@Resource         :  ${res:-$get_res}

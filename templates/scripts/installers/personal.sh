@@ -1,17 +1,19 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version       : 202103302120-git
-# @Author        : Jason Hempstead
-# @Contact       : jason@casjaysdev.com
-# @License       : WTFPL
-# @ReadME        : install.sh --help
-# @Copyright     : Copyright: (c) 2021 Jason Hempstead, CasjaysDev
-# @Created       : Tuesday, Mar 30, 2021 21:20 EDT
-# @File          : install.sh
-# @Description   : installer script for personal dotfiles
-# @TODO          :
-# @Other         :
-# @Resource      :
+##@Version           :  GEN_SCRIPT_REPLACE_VERSION
+# @@Author           :  GEN_SCRIPT_REPLACE_AUTHOR
+# @@Contact          :  GEN_SCRIPT_REPLACE_EMAIL
+# @@License          :  GEN_SCRIPT_REPLACE_LICENSE
+# @@ReadME           :  GEN_SCRIPT_REPLACE_FILENAME --help
+# @@Copyright        :  GEN_SCRIPT_REPLACE_COPYRIGHT
+# @@Created          :  GEN_SCRIPT_REPLACE_DATE
+# @@File             :  GEN_SCRIPT_REPLACE_FILENAME
+# @@Description      :  Installer script for personal dotfiles
+# @@Changelog        :  GEN_SCRIPT_REPLACE_CHANGELOG
+# @@TODO             :  GEN_SCRIPT_REPLACE_TODO
+# @@Other            :  GEN_SCRIPT_REPLACE_OTHER
+# @@Resource         :  GEN_SCRIPT_REPLACE_RES
+# @@sudo/root        :  no
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0")"
 VERSION="202103302120-git"

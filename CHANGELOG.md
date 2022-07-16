@@ -1,3 +1,19 @@
+#### Changelog: 2022-07-16 at 14:35:17  
+####🗃️ Committing everything that changed 🗃️  
+  
+templates/gen-script/header/default.tmpl.sh      🚀  
+templates/scripts/bash/build      🚀  
+templates/scripts/completions/simple.bash      🚀  
+templates/scripts/completions/system.bash      🚀  
+templates/scripts/completions/user.bash      🚀  
+templates/scripts/installers/mgr-script.system.sh      🚀  
+templates/scripts/installers/mgr-script.user.sh      🚀  
+templates/scripts/installers/personal.sh      🚀  
+  
+#### End of changes for 202207161421-git - 2022-07-16 at 14:35:17  
+  
+----  
+  
 #### Changelog: 2022-07-16 at 14:21:27  
 ####🗃️ Committing everything that changed 🗃️  
   

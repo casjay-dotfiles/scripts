@@ -1,3 +1,12 @@
+#### Changelog: 2022-07-16 at 15:24:49  
+#### 🗃️ Fixed spacing error in function 🗃️  
+  
+bin/gitcommit      🚀  
+  
+#### End of changes for 202207161522-git - 2022-07-16 at 15:24:49  
+  
+----  
+  
 #### Changelog: 2022-07-16 at 15:22:29  
 ####🗃️ Fixed pre-install function 🗃️  
   

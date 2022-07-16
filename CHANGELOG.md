@@ -1,3 +1,20 @@
+#### Changelog: 2022-07-16 at 15:22:29  
+####🗃️ Fixed pre-install function 🗃️  
+  
+templates/scripts/installers/desktopmgr.sh      🚀  
+templates/scripts/installers/devenvmgr.sh      🚀  
+templates/scripts/installers/dfmgr.sh      🚀  
+templates/scripts/installers/dockermgr.sh      🚀  
+templates/scripts/installers/fontmgr.sh      🚀  
+templates/scripts/installers/iconmgr.sh      🚀  
+templates/scripts/installers/systemmgr.sh      🚀  
+templates/scripts/installers/thememgr.sh      🚀  
+templates/scripts/installers/wallpapermgr.sh      🚀  
+  
+#### End of changes for 202207161516-git - 2022-07-16 at 15:22:29  
+  
+----  
+  
 #### Changelog: 2022-07-16 at 15:16:40  
 ####🗃️ Committing everything that changed 🗃️  
   

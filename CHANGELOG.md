@@ -1,3 +1,61 @@
+#### Changelog: 2022-07-16 at 10:54:33  
+####🗃️ Committing everything that changed 🗃️  
+  
+bin/gen-readme      🚀  
+helpers/calendar/array      🚀  
+helpers/config/array      🚀  
+helpers/config/help      🚀  
+helpers/config/list      🚀  
+helpers/devenv/array      🚀  
+helpers/devenv/list      🚀  
+helpers/devenv/start      🚀  
+helpers/dfmgr/array      🚀  
+helpers/dfmgr/list      🚀  
+helpers/dmenu_edit_conf/array      🚀  
+helpers/dmenu_run_cmd/array      🚀  
+helpers/dmenu_run_cmd/list      🚀  
+helpers/dmenu_run_cmd/opts/configs      🚀  
+helpers/dockermgr/array      🚀  
+helpers/dockermgr/list      🚀  
+helpers/dotfiles/admin      🚀  
+helpers/dotfiles/array      🚀  
+helpers/dotfiles/list      🚀  
+helpers/emojis/array      🚀  
+helpers/emojis/emojis      🚀  
+helpers/emojis/list      🚀  
+helpers/fontmgr/array      🚀  
+helpers/fontmgr/list      🚀  
+helpers/gen-dns/list      🚀  
+helpers/gen-license/array      🚀  
+helpers/gen-readme/array      🚀  
+helpers/gitadmin/array      🚀  
+helpers/gitadmin/list      🚀  
+helpers/gitcommit/array      🚀  
+helpers/gitcommit/list      🚀  
+helpers/gitignore/array      🚀  
+helpers/iconmgr/array      🚀  
+helpers/iconmgr/list      🚀  
+helpers/metric2imperial/array      🚀  
+helpers/music/array      🚀  
+helpers/music/list      🚀  
+helpers/pkmgr/array      🚀  
+helpers/pkmgr/list      🚀  
+helpers/scratchpad/array      🚀  
+helpers/sudoers/array      🚀  
+helpers/sudoers/list      🚀  
+helpers/systemmgr/array      🚀  
+helpers/systemmgr/list      🚀  
+helpers/thememgr/array      🚀  
+helpers/thememgr/list      🚀  
+helpers/todo/array      🚀  
+helpers/update-motd/array      🚀  
+helpers/wallpapermgr/array      🚀  
+helpers/wallpapermgr/list      🚀  
+  
+#### End of changes for 202207160944-git - 2022-07-16 at 10:54:33  
+  
+----  
+  
 #### Changelog: 2022-07-16 at 10:23:19  
   
 bin/todo      🚀  

@@ -119,7 +119,7 @@ CHEAT_SH_NOTIFY_ENABLED="${CHEAT_SH_NOTIFY_ENABLED:-yes}"
 CHEAT_SH_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
 CHEAT_SH_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$CHEAT_SH_NOTIFY_CLIENT_ICON}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Application overrides
+# Additional Variables
 CHEAT_SH_URL="${CHEAT_SH_URL:-https://cht.sh}"
 CHEAT_SH_HOME="${CHEAT_SH_HOME:-$HOME/.config/myscripts/cheat.sh}"
 CHEAT_SH_BIN_DIR="${CHEAT_SH_BIN_DIR:-$CASJAYSDEVDIR/sources}"

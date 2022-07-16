@@ -1,3 +1,20 @@
+#### Changelog: 2022-07-16 at 19:53:31  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+templates/scripts/bash/build      🚀  
+templates/scripts/bash/case      🚀  
+templates/scripts/bash/profile      🚀  
+templates/scripts/bash/simple      🚀  
+templates/scripts/bash/system      🚀  
+templates/scripts/bash/terminal      🚀  
+templates/scripts/bash/user      🚀  
+templates/scripts/shell/bash      🚀  
+templates/scripts/shell/sh      🚀  
+  
+#### End of changes for 202207161919-git - 2022-07-16 at 19:53:31  
+  
+----  
+  
 #### Changelog: 2022-07-16 at 19:19:59  
 #### 🗃️ Fixed spacing error in function 🗃️  
   

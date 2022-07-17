@@ -1,3 +1,22 @@
+#### Changelog: 2022-07-17 at 14:53:46  
+  
+functions/global/version.bash      🚀  
+functions/simple.bash      🚀  
+functions/types/main.bash      🚀  
+templates/gen-script/folders/system.tmpl.sh      🚀  
+templates/gen-script/folders/user.tmpl.sh      🚀  
+templates/scripts/bash/system      🚀  
+templates/scripts/bash/terminal      🚀  
+templates/scripts/bash/user      🚀  
+templates/scripts/installers/mgr-script.system.sh      🚀  
+templates/scripts/installers/mgr-script.user.sh      🚀  
+templates/scripts/shell/bash      🚀  
+templates/scripts/shell/sh      🚀  
+  
+#### End of changes for 202207171209-git - 2022-07-17 at 14:53:46  
+  
+----  
+  
 #### Changelog: 2022-07-17 at 14:24:45  
   
 bin/gen-script      🚀  

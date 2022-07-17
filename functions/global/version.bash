@@ -60,6 +60,108 @@ __required_version() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+get_installer_version() {
+  $installtype
+  local GITREPO=""$REPO/$APPNAME""
+  local APPVERSION="${APPVERSION:-$(__appversion ${1:-})}"
+  [ -n "$WHOAMI" ] && printf_info "WhoamI:                    $WHOAMI"
+  [ -n "$RUN_USER" ] && printf_info "SUDO USER:                 $RUN_USER"
+  [ -n "$INSTALL_TYPE" ] && printf_info "Install Type:              $INSTALL_TYPE"
+  [ -n "$APPNAME" ] && printf_info "APP name:                  $APPNAME"
+  [ -n "$APPDIR" ] && printf_info "APP dir:                   $APPDIR"
+  [ -n "$INSTDIR" ] && printf_info "Downloaded to:             $INSTDIR"
+  [ -n "$GITREPO" ] && printf_info "APP repo:                  $REPO/$APPNAME"
+  [ -n "$PLUGNAMES" ] && printf_info "Plugins:                   $PLUGNAMES"
+  [ -n "$PLUGDIR" ] && printf_info "PluginsDir:                $PLUGDIR"
+  [ -n "$version" ] && printf_info "Installed Version:         $version"
+  [ -n "$APPVERSION" ] && printf_info "Online Version:            $APPVERSION"
+  if [ "$version" = "$APPVERSION" ]; then
+    printf_info "Update Available:          No"
+  else
+    printf_info "Update Available:          Yes"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+sed_remove_empty() {
+  local sed="${sed:-sed}"
+  $sed '/^\#/d;/^$/d;s#^ ##g'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+sed_head_remove() {
+  awk -F'  :' '{print $2}'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+sed_head() {
+  local sed="${sed:-sed}"
+  $sed -E 's|^.*#||g;s#^ ##g;s|^@||g'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+grep_head() {
+  grep -sE '[".#]?@[A-Z]' "${2:-$appname}" |
+    grep "${1:-}" |
+    head -n 12 |
+    sed_head |
+    sed_remove_empty |
+    grep '^' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+grep_head_remove() {
+  local sed="${sed:-sed}"
+  grep -sE '[".#]?@[A-Z]' "${2:-$appname}" |
+    grep "${1:-}" | grep -Ev 'GEN_SCRIPT_*|\${|\$\(' |
+    sed_head_remove |
+    $sed '/^\#/d;/^$/d;s#^ ##g' |
+    grep '^' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+grep_version() {
+  grep_head ''${1:-Version}'' "${2:-$appname}" |
+    sed_head |
+    sed_head_remove |
+    sed_remove_empty |
+    head -n1 |
+    grep '^'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# grep_head() {
+#   grep -v "$1" "$2" 2>/dev/null | grep '       : ' |
+#     grep -v '\$' |
+#     grep -E ^'.*#.@'${1:-*}'' |
+#     sed -E 's/..*#[#, ]@//g' |
+#     sed -E 's/.*#[#, ]@//g' |
+#     head -n14 |
+#     grep '^' || return 1
+# }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+get_desc() {
+  local PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/usr/sbin"
+  local appname="$(type -P "${PROG:-$APPNAME}" 2>/dev/null || builtin type -p "${PROG:-$APPNAME}" 2>/dev/null)"
+  local desc="$(grep_head_remove "Description" "$appname" | head -n1)"
+  [ -n "$desc" ] && printf '%s' "$desc" || printf '%s' "$(__basename $appname) --help"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__version() { __app_version; } # TODO: to be removed on refactor
+__app_version() {
+  local name="${1:-$(__basename $0)}"          # get from os
+  local prog="${APPNAME:-$PROG}"               # get from file
+  local appname="${prog:-$name}"               # figure out wich one
+  filename="$(type -P "$appname" 2>/dev/null)" # get filename
+  if [ -f "$filename" ]; then                  # check for file
+    printf_newline
+    printf_green "Getting info for $appname"
+    [ -n "$WHOAMI" ] && printf_yellow "WhoamI            :  $WHOAMI"
+    [ -n "$RUN_USER" ] && printf_yellow "SUDO USER:        :  $RUN_USER"
+    grep_head "Description" "$filename" &>/dev/null &&
+      grep_head '' "$filename" | printf_readline "3" &&
+      printf_green "$(grep_head "Version" "$filename" | head -n1)" &&
+      printf_blue "Required ver      :  $requiredVersion" ||
+      printf_red "File was found, however, No information was provided"
+  else
+    printf_red "${1:-$appname} was not found"
+  fi
+  printf "\n"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __required_version "$requiredVersion"
 #[ "$installtype" = "devenvmgr_install" ] &&
 devenvmgr_req_version() { __required_version "$1"; }

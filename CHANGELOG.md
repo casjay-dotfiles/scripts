@@ -1,3 +1,14 @@
+#### Changelog: 2022-07-17 at 15:36:01  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+bin/am_i_online      🚀  
+functions/minimal.bash      🚀  
+templates/scripts/bash/simple      🚀  
+  
+#### End of changes for 202207171209-git - 2022-07-17 at 15:36:01  
+  
+----  
+  
 #### Changelog: 2022-07-17 at 15:02:09  
   
 templates/gen-script/folders/system.tmpl.sh      🚀  

@@ -908,9 +908,7 @@ __find_rel() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #cd "dir"
-__cd() {
-  cd "$1" || return 1
-}
+__cd() { cd "$1" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # cd into directory with message
 __cd_into() {
@@ -921,9 +919,7 @@ __cd_into() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-path_info() {
-  echo "$PATH" | tr ':' '\n' | sort -u
-}
+path_info() { echo "$PATH" | tr ':' '\n' | sort -u; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 check_local() {
   local file="${1:-$PWD}"
@@ -973,7 +969,7 @@ __do_not_add_a_url() {
     printf_exit "Do not provide the full url: only provide the username/repo"
   fi
 }
-
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __options() {
   local LONGOPTS="debug,raw"
   setopts=$(getopt --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)

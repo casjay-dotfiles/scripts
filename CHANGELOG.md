@@ -1,3 +1,18 @@
+#### Changelog: 2022-07-16 at 23:13:13  
+  
+bin/volumectl      🚀  
+templates/scripts/bash/build      🚀  
+templates/scripts/bash/case      🚀  
+templates/scripts/bash/profile      🚀  
+templates/scripts/bash/simple      🚀  
+templates/scripts/bash/system      🚀  
+templates/scripts/bash/terminal      🚀  
+templates/scripts/bash/user      🚀  
+  
+#### End of changes for 202207161953-git - 2022-07-16 at 23:13:13  
+  
+----  
+  
 #### Changelog: 2022-07-16 at 23:01:56  
   
 bin/gen-script      🚀  

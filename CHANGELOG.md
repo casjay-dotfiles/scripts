@@ -1,3 +1,12 @@
+#### Changelog: 2022-07-17 at 15:02:09  
+  
+templates/gen-script/folders/system.tmpl.sh      🚀  
+templates/gen-script/folders/user.tmpl.sh      🚀  
+  
+#### End of changes for 202207171209-git - 2022-07-17 at 15:02:09  
+  
+----  
+  
 #### Changelog: 2022-07-17 at 14:53:46  
   
 functions/global/version.bash      🚀  

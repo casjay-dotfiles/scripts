@@ -2,14 +2,14 @@
 desktopmgr_install() {
   user_install
   SCRIPTS_PREFIX="desktopmgr"
-  APPDIR="${APPDIR:-$CONF}"
-  INSTDIR="${INSTDIR:-$SHARE/CasjaysDev/$SCRIPTS_PREFIX}"
-  REPO="${REPO:-$DESKTOPMGRREPO}"
-  REPORAW="${REPORAW:-$DESKTOPMGRREPO/$APPNAME/raw/$GIT_REPO_BRANCH}"
+  APPDIR="${DESKTOPMGR_APPDIR:-$CONF/$APPNAME}"
+  INSTDIR="${DESKTOPMGR_INSTDIR:-$CASJAYSDEVSHARE/desktopmgr/$APPNAME}"
+  REPO_BRANCH="${GIT_REPO_BRANCH:-main}"
+  REPO="${DESKTOPMGRREPO:-https://github.com/desktopmgr}/$APPNAME"
+  REPORAW="${DESKTOPMGR_REPORAW:-$DESKTOPMGR/raw/$REPO_BRANCH}"
+  APPVERSION="${DESKTOPMGR_APPVERSION:-$(__appversion "$DESKTOPMGR_REPORAW/version.txt")}"
   USRUPDATEDIR="$SHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"
   SYSUPDATEDIR="$SYSSHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"
-  ARRAY="$(grep -s '^' $CASJAYSDEVDIR/helpers/$SCRIPTS_PREFIX/array)"
-  LIST="$(grep -s '^' $CASJAYSDEVDIR/helpers/$SCRIPTS_PREFIX/list)"
   #[ "$APPNAME" = "$SCRIPTS_PREFIX" ] && APPDIR="${APPDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
   if [ -f "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME" ]; then
     APPVERSION="$(grep -sv '#' $CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME)"
@@ -17,7 +17,6 @@ desktopmgr_install() {
     APPVERSION="$currentVersion"
   fi
   __mkd "$USRUPDATEDIR"
-  user_is_root && __mkd "$SYSUPDATEDIR"
   installtype="desktopmgr_install"
   #__main_installer_info
 }

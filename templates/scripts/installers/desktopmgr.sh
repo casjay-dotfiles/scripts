@@ -35,8 +35,8 @@ run_pre_install() {
 # Import functions
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
 SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
-SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-app-installer.bash}"
-SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/desktopmgr/installer/raw/GEN_SCRIPT_REPLACE_DEFAULT_BRANCH/functions}"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-mgr-installers.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/$SCRIPTS_PREFIX/installer/raw/GEN_SCRIPT_REPLACE_DEFAULT_BRANCH/functions}"
 connect_test() { curl -q -ILSsf --retry 1 -m 1 "https://1.1.1.1" | grep -iq 'server:*.cloudflare' || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
@@ -71,10 +71,6 @@ REPO_BRANCH="${GIT_REPO_BRANCH:-main}"
 REPO="${DESKTOPMGR:-https://github.com/desktopmgr}/$APPNAME"
 REPORAW="$REPO/raw/$REPO_BRANCH"
 APPVERSION="$(__appversion "$REPORAW/version.txt")"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup plugins
-PLUGNAMES=""
-PLUGDIR="${SHARE:-$HOME/.local/share}/$APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Require a version higher than
 desktopmgr_req_version "$APPVERSION"
@@ -142,19 +138,6 @@ if __am_i_online; then
     execute "git_update $INSTDIR" "Updating $APPNAME configurations"
   else
     execute "git_clone $REPO $INSTDIR" "Installing $APPNAME configurations"
-  fi
-  # exit on fail
-  failexitcode $? "Git has failed"
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Plugins
-if __am_i_online; then
-  if [ "$PLUGNAMES" != "" ]; then
-    if [ -d "$PLUGDIR/PLUREP/.git" ]; then
-      execute "git_update $PLUGDIR/PLUGREP" "Updating plugin PLUGNAME"
-    else
-      execute "git_clone PLUGINREPO $PLUGDIR/PLUGREP" "Installing plugin PLUGREP"
-    fi
   fi
   # exit on fail
   failexitcode $? "Git has failed"

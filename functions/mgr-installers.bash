@@ -7,13 +7,13 @@
 # @ReadME            :  README.md
 # @Copyright         :  Copyright: (c) 2021 Jason Hempstead, CasjaysDev
 # @Created           :  Tuesday, Feb 09, 2021 17:17 EST
-# @File              :  app-installer.bash
+# @File              :  mgr-installers.bash
 # @Description       :  Installer functions for apps
 # @TODO              :  Refactor code - It is a mess
 # @Other             :
 # @Resource          :
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-FUNCFILE="app-installer.bash"
+FUNCFILE="mgr-installers.bash"
 RUN_USER="$(logname 2>/dev/null)"
 SUDO_USER="${RUN_USER:-$SUDO_USER}"
 export RUN_USER SUDO_USER
@@ -142,14 +142,14 @@ __os_version() {
 export GIT_REPO_BRANCH="${GIT_DEFAULT_BRANCH:-main}"
 export DOTFILESREPO="${DOTFILESREPO:-https://github.com/dfmgr}"
 export DESKTOPMGRREPO="${DESKTOPMGRREPO:-https://github.com/desktopmgr}"
-export DFMGRREPO="${DFMGRREPO:-https://github.com/dfmgr}"
-export PKMGRREPO="${PKMGRREPO:-https://github.com/pkmgr}"
 export DEVENVMGRREPO="${DEVENVMGR:-https://github.com/devenvmgr}"
+export DFMGRREPO="${DFMGRREPO:-https://github.com/dfmgr}"
 export DOCKERMGRREPO="${DOCKERMGRREPO:-https://github.com/dockermgr}"
-export ICONMGRREPO="${ICONMGRREPO:-https://github.com/iconmgr}"
 export FONTMGRREPO="${FONTMGRREPO:-https://github.com/fontmgr}"
-export THEMEMGRREPO="${THEMEMGRREPO:-https://github.com/thememgr}"
+export ICONMGRREPO="${ICONMGRREPO:-https://github.com/iconmgr}"
+export PKMGRREPO="${PKMGRREPO:-https://github.com/pkmgr}"
 export SYSTEMMGRREPO="${SYSTEMMGRREPO:-https://github.com/systemmgr}"
+export THEMEMGRREPO="${THEMEMGRREPO:-https://github.com/thememgr}"
 export WALLPAPERMGRREPO="${WALLPAPERMGRREPO:-https://github.com/wallpapermgr}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Colors
@@ -352,97 +352,101 @@ hostname2ip() { getent hosts "$1" | cut -d' ' -f1 | head -n1 || nslookup "$1" 2>
 set_trap() { trap -p "$1" | grep "$2" &>/dev/null || trap '$2' "$1"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 getuser() {
-  if [ -z "$1" ]; then
-    cut -d: -f1 /etc/passwd | grep "$USER"
-  else
-    cut -d: -f1 /etc/passwd | grep "$1"
-  fi
+  cut -d: -f1 "/etc/passwd" | grep "${1:-$USER}"
+  return $?
+}
+getuser_group() {
+  cut -d: -f1 "/etc/passwd" | grep "${1:-$USER}" | awk -F: '{printf $1}' | grep '^' ||
+    grep "${1:-$USER}" "/etc/group" | grep "users" | awk -F: '{printf $NF}' | grep '^'
+  return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #system_service_active "list of services to check"
 system_service_active() {
+  local exitCode=0
   for service in "$@"; do
-    if [ "$(systemctl show -p ActiveState $service | cut -d'=' -f2)" == active ]; then
-      return 0
-    else
-      return 1
-    fi
+    systemctl show -p ActiveState $service 2>&1 | grep -wq 'ActiveState=active' ||
+      exitCode+=1
   done
+  return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #system_service_running "list of services to check"
 system_service_running() {
+  local exitCode=0
   for service in "$@"; do
-    if systemctl status $service 2>/dev/null | grep -Fq running; then
-      return 0
-    else
-      return 1
-    fi
+    systemctl status $service 2>&1 | grep -i 'Active: ' | grep -iq 'running' ||
+      exitCode+=1
   done
+  return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #system_service_exists "servicename"
 system_service_exists() {
+  local exitCode=0
   for service in "$@"; do
-    if sudo systemctl list-units --full -all | grep -Fq "$service.service" || sudo -HE systemctl list-units --full -all | grep -Fq "$service.socket"; then return 0; else return 1; fi
-    setexitstatus $?
+    systemctl list-units --full -all | grep -E "service|socket" | grep -w "$service" ||
+      exitCode+=1
   done
-  set --
+  return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #system_service_enable "servicename"
 system_service_enable() {
+  local exitCode=0
   for service in "$@"; do
-    if system_service_exists "$service"; then
-      devnull "sudo -HE systemctl enable --now -f $service"
-    fi
-    setexitstatus $?
+    system_service_exists "$service" &&
+      devnull "sudo -HE systemctl enable --now -f $service" ||
+      exitCode+=1
   done
-  set --
+  return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #system_service_disable "servicename"
 system_service_disable() {
+  local exitCode=0
   for service in "$@"; do
-    if system_service_exists "$service"; then
-      devnull "sudo systemctl disable --now -f $service"
-    fi
-    setexitstatus $?
+    system_service_exists "$service" &&
+      devnull "sudo -HE systemctl disable --now -f $service" ||
+      exitCode+=1
   done
-  set --
+  return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #system_service_start "servicename"
 system_service_start() {
+  local exitCode=0
   for service in "$@"; do
-    if system_service_exists "$service"; then
-      devnull "sudo -HE systemctl start $service"
-    fi
-    setexitstatus $?
+    system_service_exists "$service" &&
+      devnull "sudo -HE systemctl start $service" &&
+      system_service_running " $service" ||
+      exitCode+=1
   done
-  set --
+  return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #system_service_stop "servicename"
 system_service_stop() {
+  local exitCode=0
   for service in "$@"; do
-    if system_service_exists "$service"; then
-      devnull "sudo -HE systemctl stop $service"
-    fi
-    setexitstatus $?
+    system_service_exists "$service" &&
+      devnull "sudo -HE systemctl stop $service" &&
+      system_service_running " $service" && exitCode+=1 ||
+      exitCode=0
   done
-  set --
+  return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #system_service_restart "servicename"
 system_service_restart() {
+  local exitCode=0
   for service in "$@"; do
-    if system_service_exists "$service"; then
-      devnull "sudo -HE systemctl restart $service"
-    fi
-    setexitstatus $?
+    system_service_exists "$service" &&
+      devnull "sudo -HE systemctl restart $service" &&
+      system_service_running " $service" ||
+      exitCode+=1
   done
-  set --
+  return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 run_post() {
@@ -579,11 +583,7 @@ urlinvalid() {
 gem_exists() {
   [ -n "$(builtin type -P gem 2>/dev/null)" ] || return
   local package="$1"
-  if gem list | grep -q "$package"; then
-    return 0
-  else
-    return 1
-  fi
+  gem list | grep -q "$package" && return 0 || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 perl_exists() {
@@ -1098,12 +1098,7 @@ install_packages() {
   local cmd=""
   if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
     for cmd in $REQUIRED; do
-      # if gem_exists "$cmd"; then true
-      # elif python_exists "$cmd"; then true
-      # elif perl_exists "$cmd"; then true
-      if ! builtin type -p "$cmd" &>/dev/null; then
-        MISSING+="$cmd "
-      fi
+      builtin type -p "$cmd" &>/dev/null || MISSING+="$cmd "
     done
     if [ -n "$MISSING" ]; then
       printf_warning "Attempting to install missing packages as $RUN_USER"
@@ -1313,7 +1308,6 @@ if_os() {
       return 1
     fi
     ;;
-
   mac*)
     if [[ "$UNAME" =~ ^darwin ]]; then
       return 0
@@ -1813,6 +1807,7 @@ __install_icons() {
   fi
   return 0
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __install_theme() {
   [[ -n "$_DEBUG" ]] && set -x && echo __install_theme
   if [ -d "$INSTDIR/theme" ]; then
@@ -1839,6 +1834,7 @@ __install_theme() {
   fi
   return 0
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __install_wallpapers() {
   [[ -n "$_DEBUG" ]] && set -x && echo __install_wallpapers
   if [ -d "$INSTDIR/images" ]; then
@@ -2309,22 +2305,18 @@ run_install_init() {
   SET_SUDO_PROMPT="$(printf "\n\t\t\033[1;31m")[sudo]$(printf "\033[1;36m") password for $(printf "\033[1;32m")%p: $(printf "\033[0m")"
   (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null || sudo -n true &>/dev/null || SUDO_PROMPT="$SET_SUDO_PROMPT" sudo true
   __main_installer_info &>/dev/null
-  if [ -n "$PLUGNAMES" ]; then
-    [ -z "$PLUGDIR" ] || mkd "$PLUGDIR"
-  fi
+  [ -n "$PLUGNAMES" ] && [ -n "$PLUGDIR" ] && [ -d "$PLUGDIR" ] || mkd "$PLUGDIR"
   if [ ! -f "$TMPFILE" ]; then
     printf ""
     touch "$TMPFILE"
-    if [ -f "$INSTDIR/install.sh" ]; then
-      printf_yellow "Initializing the installer from"
-      printf_purple "${INSTDIR/$HOME/\~}/install.sh"
-    else
-      printf_yellow "Downloading to ${INSTDIR/$HOME/\~}"
-      printf_purple "$REPORAW/install.sh"
-      if ! urlcheck "$REPORAW/install.sh"; then
-        printf_error "Failed to initialize the installer from: $REPORAW/install.sh\n"
-      fi
-    fi
+    printf_yellow "Grabbing install file from:"
+    printf_purple "$REPORAW/install.sh"
+    urlcheck "$REPORAW/install.sh" || {
+      printf_red "Failed to initialize the installer from:"
+      print_yellow "$REPORAW/install.sh\n"
+      run_cleanup
+      exit 5
+    }
     if [ -d "$INSTDIR" ]; then
       printf_green "Updating ${1:-$APPNAME} in ${APPDIR/$HOME/\~}"
     else
@@ -2411,7 +2403,7 @@ run_postinst_global() {
       done
       unset man
     fi
-
+    #
     if [ -d "$INSTDIR/backgrounds" ]; then
       mkdir -p "$WALLPAPERS/system"
       local wallpapers="$(ls $INSTDIR/backgrounds/ 2>/dev/null | wc -l)"
@@ -2422,7 +2414,7 @@ run_postinst_global() {
         done
       fi
     fi
-
+    #
     if [ -d "$INSTDIR/startup" ]; then
       local autostart="$(ls $INSTDIR/startup/ 2>/dev/null | wc -l)"
       if [ "$autostart" != "0" ]; then
@@ -2433,7 +2425,7 @@ run_postinst_global() {
       fi
       ln_rm "$STARTUP/"
     fi
-
+    #
     if [ -d "$INSTDIR/bin" ]; then
       local bin="$(ls $INSTDIR/bin/ 2>/dev/null | wc -l)"
       if [ "$bin" != "0" ]; then
@@ -2445,7 +2437,7 @@ run_postinst_global() {
       fi
       ln_rm "$BIN/"
     fi
-
+    #
     if [ -d "$INSTDIR/completions" ]; then
       local comps="$(ls $INSTDIR/completions/ 2>/dev/null | wc -l)"
       if [ "$comps" != "0" ]; then
@@ -2456,7 +2448,7 @@ run_postinst_global() {
       fi
       ln_rm "$COMPDIR/"
     fi
-
+    #
     if [ -d "$INSTDIR/applications" ]; then
       local apps="$(ls $INSTDIR/applications/ 2>/dev/null | wc -l)"
       if [ "$apps" != "0" ]; then
@@ -2472,7 +2464,6 @@ run_postinst_global() {
     [ "$installtype" = "thememgr_install" ] || __install_theme
     [ "$installtype" = "wallpapermgr_install" ] || __install_wallpapers
   fi
-
   #
   if [[ "$APPDIR" != "$INSTDIR" ]] && [ -d "$APPDIR" ] && [[ -z "$DF_NO_REPLACE" ]]; then
     grep -qR '/home/jason' "$APPDIR" && replace "$APPDIR" "/home/jason" "$HOME"

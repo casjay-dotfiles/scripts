@@ -1,3 +1,15 @@
+#### Changelog: 2022-07-17 at 11:40:09  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+functions/app-installer.bash      🚀  
+functions/installers/desktopmgr.bash      🚀  
+functions/mgr-installers.bash      🚀  
+templates/scripts/installers/desktopmgr.sh      🚀  
+  
+#### End of changes for 202207171026-git - 2022-07-17 at 11:40:09  
+  
+----  
+  
 #### Changelog: 2022-07-17 at 10:26:10  
 #### 🗃️ Committing everything that changed 🗃️  
   

@@ -93,9 +93,10 @@ BG_RED="\[$(tput setab 9 2>/dev/null)\]"
 ##################################################################################################
 if [ "$SHOW_RAW" = "true" ]; then
   unset -f __printf_color
-  printf_color() { printf '%s\n' "$1" | tr -d '\t\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
+  printf_color() { printf '%b' "$1" | tr -d '\t\t'; }
   __printf_color() { printf_color "$1"; }
 else
+  __printf_color() { printf_color "$@"; }
   printf_color() {
     printf "%b" "$(tput setaf "$2" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"
   }

@@ -1,3 +1,29 @@
+#### Changelog: 2022-07-17 at 10:16:02  
+#### 🗃️ Possibly broken commit 🗃️  
+  
+bin/gen-script      🚀  
+functions/app-installer.bash      🚀  
+functions/global/colors.bash      🚀  
+functions/minimal.bash      🚀  
+functions/system-installer.bash      🚀  
+functions/types/main.bash      🚀  
+templates/scripts/bash/autostart      🚀  
+templates/scripts/bash/build      🚀  
+templates/scripts/bash/case      🚀  
+templates/scripts/bash/docker-entrypoint      🚀  
+templates/scripts/bash/profile      🚀  
+templates/scripts/bash/simple      🚀  
+templates/scripts/bash/system      🚀  
+templates/scripts/bash/terminal      🚀  
+templates/scripts/bash/user      🚀  
+templates/scripts/other/      🚀  
+templates/scripts/shell/bash      🚀  
+templates/scripts/shell/sh      🚀  
+  
+#### End of changes for 202207170236-git - 2022-07-17 at 10:16:02  
+  
+----  
+  
 #### Changelog: 2022-07-17 at 02:36:51  
 #### 🗃️ Committing everything that changed 🗃️  
   

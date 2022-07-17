@@ -101,7 +101,8 @@ get_desc() {
   [ -n "$desc" ] && printf '%s' "$desc" || printf '%s' "$(__basename $appname) --help"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__version() {
+__version() { __app_version; } # TODO: to be removed on refactor
+__app_version() {
   local name="${1:-$(__basename $0)}"          # get from os
   local prog="${APPNAME:-$PROG}"               # get from file
   local appname="${prog:-$name}"               # figure out wich one

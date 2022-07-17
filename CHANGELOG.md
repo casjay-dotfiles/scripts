@@ -1,3 +1,17 @@
+#### Changelog: 2022-07-17 at 10:26:10  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+templates/scripts/bash/profile      🚀  
+templates/scripts/bash/simple      🚀  
+templates/scripts/bash/system      🚀  
+templates/scripts/bash/terminal      🚀  
+templates/scripts/bash/user      🚀  
+templates/scripts/other/build      🚀  
+  
+#### End of changes for 202207171016-git - 2022-07-17 at 10:26:10  
+  
+----  
+  
 #### Changelog: 2022-07-17 at 10:16:02  
 #### 🗃️ Possibly broken commit 🗃️  
   

@@ -1,3 +1,19 @@
+#### Changelog: 2022-07-17 at 18:52:28  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+bin/real_path      🚀  
+completions/_real_path_completions      🚀  
+man/real_path.1      🚀  
+templates/scripts/bash/simple      🚀  
+templates/scripts/bash/system      🚀  
+templates/scripts/bash/terminal      🚀  
+templates/scripts/bash/user      🚀  
+templates/scripts/other/build      🚀  
+  
+#### End of changes for 202207171536-git - 2022-07-17 at 18:52:28  
+  
+----  
+  
 #### Changelog: 2022-07-17 at 15:36:01  
 #### 🗃️ Committing everything that changed 🗃️  
   

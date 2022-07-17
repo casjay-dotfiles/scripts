@@ -24,6 +24,9 @@ CASJAYSDEVDIR="/usr/local/share/CasjaysDev/scripts"
 # Default enviroment variables
 source "$CASJAYSDEVDIR/functions/global/env.bash"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Colorization and printf functions
+source "$CASJAYSDEVDIR/functions/global/colors.bash"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default OS functions
 source "$CASJAYSDEVDIR/functions/global/os.bash"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -41,9 +44,6 @@ source "$CASJAYSDEVDIR/functions/global/logging.bash"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Redifine OS Based functions
 source "$CASJAYSDEVDIR/functions/global/fixes.bash"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Colorization and printf functions
-source "$CASJAYSDEVDIR/functions/global/colors.bash"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Network based functions
 source "$CASJAYSDEVDIR/functions/global/network.bash"

@@ -15,7 +15,7 @@ else
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # user system devenv dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
-${default_type:-system}_install
+${default_type:-user}_install
 __options "\$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 EOF

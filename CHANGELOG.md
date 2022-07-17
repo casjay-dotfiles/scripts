@@ -1,3 +1,16 @@
+#### Changelog: 2022-07-17 at 12:35:35  
+  
+templates/gen-script/header/default.tmpl.sh      🚀  
+templates/gen-script/header/raw.tmpl.sh      🚀  
+templates/scripts/bash/simple      🚀  
+templates/scripts/bash/system      🚀  
+templates/scripts/bash/terminal      🚀  
+templates/scripts/bash/user      🚀  
+  
+#### End of changes for 202207171209-git - 2022-07-17 at 12:35:35  
+  
+----  
+  
 #### Changelog: 2022-07-17 at 12:18:02  
   
 templates/scripts/man/user.man      🚀  

@@ -1,3 +1,14 @@
+#### Changelog: 2022-07-17 at 13:23:25  
+  
+templates/scripts/bash/system      🚀  
+templates/scripts/bash/terminal      🚀  
+templates/scripts/bash/user      🚀  
+templates/scripts/man/user.man      🚀  
+  
+#### End of changes for 202207171209-git - 2022-07-17 at 13:23:25  
+  
+----  
+  
 #### Changelog: 2022-07-17 at 13:01:54  
   
 templates/scripts/other/autostart      🚀  

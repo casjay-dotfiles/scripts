@@ -1,3 +1,12 @@
+#### Changelog: 2022-07-17 at 12:46:22  
+  
+templates/gen-script/folders/profile.tmpl.sh      🚀  
+templates/gen-script/functions/profile.tmpl.sh      🚀  
+  
+#### End of changes for 202207171209-git - 2022-07-17 at 12:46:22  
+  
+----  
+  
 #### Changelog: 2022-07-17 at 12:36:52  
   
 templates/scripts/bash/profile      🚀  

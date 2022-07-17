@@ -1,3 +1,11 @@
+#### Changelog: 2022-07-17 at 12:18:02  
+  
+templates/scripts/man/user.man      🚀  
+  
+#### End of changes for 202207171209-git - 2022-07-17 at 12:18:02  
+  
+----  
+  
 #### Changelog: 2022-07-17 at 12:09:22  
 #### 🗃️ Committing everything that changed 🗃️  
   

@@ -1,3 +1,11 @@
+#### Changelog: 2022-07-17 at 13:01:54  
+  
+templates/scripts/other/autostart      🚀  
+  
+#### End of changes for 202207171209-git - 2022-07-17 at 13:01:54  
+  
+----  
+  
 #### Changelog: 2022-07-17 at 12:57:26  
   
 templates/gen-script/folders/user.tmpl.sh      🚀  

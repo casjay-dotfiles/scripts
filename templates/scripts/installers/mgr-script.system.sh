@@ -127,7 +127,7 @@ EOF
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Additional functions
+# User defined functions
 __rm_rf() { if [ -e "$1" ]; then __require_sudo rm -Rf "$@" &>/dev/null; else return 0; fi; }
 __broken_symlinks() { __require_sudo find "$*" -xtype l -exec rm {} \; &>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

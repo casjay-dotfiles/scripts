@@ -172,8 +172,17 @@ ICON_WARN="[ ❗ ]"
 ICON_ERROR="[ ❌ ]"
 ICON_QUESTION="[ ❓ ]"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ "$SHOW_RAW" = "true" ]; then
+  unset -f __printf_color
+  printf_color() { printf '%s\n' "$1" | tr -d '\t\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
+  __printf_color() { printf_color "$1"; }
+else
+  printf_color() {
+    printf "%b" "$(tput setaf "$2" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"
+  }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_newline() { printf '%s\n' "${*:-}"; }
-printf_color() { printf "%b" "$(tput setaf "$2" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
 printf_normal() { printf_color "\t\t$1\n" "$2"; }
 printf_green() { printf_color "\t\t$1\n" 2; }
 printf_red() { printf_color "\t\t$1\n" 1; }

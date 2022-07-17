@@ -1,3 +1,27 @@
+#### Changelog: 2022-07-17 at 02:36:51  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+functions/app-installer.bash      🚀  
+functions/global/colors.bash      🚀  
+functions/minimal.bash      🚀  
+functions/system-installer.bash      🚀  
+templates/scripts/bash/autostart      🚀  
+templates/scripts/bash/build      🚀  
+templates/scripts/bash/case      🚀  
+templates/scripts/bash/docker-entrypoint      🚀  
+templates/scripts/bash/profile      🚀  
+templates/scripts/bash/simple      🚀  
+templates/scripts/bash/system      🚀  
+templates/scripts/bash/terminal      🚀  
+templates/scripts/bash/user      🚀  
+templates/scripts/installers/mgr-script.system.sh      🚀  
+templates/scripts/installers/mgr-script.user.sh      🚀  
+templates/scripts/shell/bash      🚀  
+  
+#### End of changes for 202207161953-git - 2022-07-17 at 02:36:51  
+  
+----  
+  
 #### Changelog: 2022-07-16 at 23:13:13  
   
 bin/volumectl      🚀  

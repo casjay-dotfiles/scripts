@@ -1,3 +1,26 @@
+#### Changelog: 2022-07-17 at 11:59:23  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+bin/volumectl      🚀  
+functions/app-installer.bash      🚀  
+functions/global/options.bash      🚀  
+functions/mgr-installers.bash      🚀  
+functions/minimal.bash      🚀  
+templates/scripts/bash/profile      🚀  
+templates/scripts/bash/simple      🚀  
+templates/scripts/bash/system      🚀  
+templates/scripts/bash/terminal      🚀  
+templates/scripts/bash/user      🚀  
+templates/scripts/installers/mgr-script.system.sh      🚀  
+templates/scripts/installers/mgr-script.user.sh      🚀  
+templates/scripts/other/build      🚀  
+templates/scripts/other/docker-entrypoint      🚀  
+templates/scripts/shell/bash      🚀  
+  
+#### End of changes for 202207171140-git - 2022-07-17 at 11:59:23  
+  
+----  
+  
 #### Changelog: 2022-07-17 at 11:40:09  
 #### 🗃️ Committing everything that changed 🗃️  
   

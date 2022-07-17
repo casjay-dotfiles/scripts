@@ -1593,7 +1593,7 @@ show_optvars() {
     case "$1" in
     --raw)
       shift 1
-      export SHOW_RAW="true"
+      SHOW_RAW="true"
       unset -f printf_color
       printf_color() { printf '%b' "$1" | tr -d '\t\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
 

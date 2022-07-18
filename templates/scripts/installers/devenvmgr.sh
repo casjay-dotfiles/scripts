@@ -25,7 +25,7 @@ SRC_DIR="${BASH_SOURCE%/*}"
 SCRIPTS_PREFIX="devenvmgr"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
-if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
+[[ "$1" == "--debug" ]] && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # specify any functions here

@@ -13,7 +13,8 @@
 # @@TODO             :  GEN_SCRIPT_REPLACE_TODO
 # @@Other            :  GEN_SCRIPT_REPLACE_OTHER
 # @@Resource         :  GEN_SCRIPT_REPLACE_RES
-# @@sudo/root        :  no
+# @@sudo/root        :  GEN_SCRIPT_REPLACE_SUDO
+# @@Template         :  installers/desktopmgr
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
 VERSION="GEN_SCRIPT_REPLACE_VERSION"

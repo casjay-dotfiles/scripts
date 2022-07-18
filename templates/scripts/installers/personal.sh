@@ -8,12 +8,13 @@
 # @@Copyright        :  GEN_SCRIPT_REPLACE_COPYRIGHT
 # @@Created          :  GEN_SCRIPT_REPLACE_DATE
 # @@File             :  GEN_SCRIPT_REPLACE_FILENAME
-# @@Description      :  Installer script for personal dotfiles
+# @@Description      :  GEN_SCRIPT_REPLACE_DESC
 # @@Changelog        :  GEN_SCRIPT_REPLACE_CHANGELOG
 # @@TODO             :  GEN_SCRIPT_REPLACE_TODO
 # @@Other            :  GEN_SCRIPT_REPLACE_OTHER
 # @@Resource         :  GEN_SCRIPT_REPLACE_RES
-# @@sudo/root        :  no
+# @@sudo/root        :  GEN_SCRIPT_REPLACE_SUDO
+# @@Template         :  installers/personal
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0" 2>/dev/null)"
 VERSION="202103302120-git"
@@ -28,7 +29,7 @@ if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OP
 # Import functions
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
 SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
-SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-app-installer.bash}"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-mgr-installers.bash}"
 SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then

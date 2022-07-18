@@ -13,7 +13,8 @@
 # @@TODO             :  GEN_SCRIPT_REPLACE_TODO
 # @@Other            :  GEN_SCRIPT_REPLACE_OTHER
 # @@Resource         :  GEN_SCRIPT_REPLACE_RES
-# @@sudo/root        :  no
+# @@sudo/root        :  GEN_SCRIPT_REPLACE_SUDO
+# @@Template         :  installers/mgr-script.user
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0" 2>/dev/null)"
 VERSION="GEN_SCRIPT_REPLACE_VERSION"
@@ -41,7 +42,8 @@ else
   exit 90
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# user system devenvmgr dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+# Options are: devenvmgr_install dfmgr_install dockermgr_install fontmgr_install iconmgr_install pkmgr_install
+# system_install systemmgr_install thememgr_install user_install wallpapermgr_install
 GEN_SCRIPT_REPLACE_FILENAME_install && __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set functions
@@ -214,7 +216,7 @@ __run_install_init() {
     export SUDO_USER
     if __urlcheck "$GEN_SCRIPT_REPLACE_ENV_REPO_URL/$app/$GEN_SCRIPT_REPLACE_ENV_REPO_RAW/install.sh"; then
       export FORCE_INSTALL="$FORCE_INSTALL"
-      curl -q -LSsf "$GEN_SCRIPT_REPLACE_ENV_REPO_URL/$app/$GEN_SCRIPT_REPLACE_ENV_REPO_RAW/install.sh" 2>/dev/null | bash -s -- 2>/dev/null
+      bash -c "$(curl -q -LSsf "$GEN_SCRIPT_REPLACE_ENV_REPO_URL/$app/$GEN_SCRIPT_REPLACE_ENV_REPO_RAW/install.sh" 2>/dev/null)" 2>/dev/null
     else
       printf_error "Failed to initialize the installer from:"
       printf_exit "$GEN_SCRIPT_REPLACE_ENV_REPO_URL/$app/$GEN_SCRIPT_REPLACE_ENV_REPO_RAW/install.sh\n"
@@ -272,7 +274,7 @@ __download() {
   local REPO_URL="$GEN_SCRIPT_REPLACE_ENV_REPO_URL"
   if cmd_exists gitadmin; then
     if [[ -d "$DIR_NAME/.git" ]]; then
-      sudo -u $SUDO_USER gitadmin pull "$DIR_NAME"
+      gitadmin pull "$DIR_NAME"
       exitCode=$?
     else
       gitadmin clone "$REPO_URL/$REPO_NAME" "$DIR_NAME"
@@ -280,14 +282,14 @@ __download() {
     fi
   else
     if [[ -d "$DIR_NAME/.git" ]]; then
-      sudo -u $SUDO_USER git -C "$DIR_NAME" pull
+      git -C "$DIR_NAME" pull
       exitCode=$?
     else
-      sudo -u $SUDO_USER git clone "$REPO_URL/$REPO_NAME" "$DIR_NAME"
+      git clone "$REPO_URL/$REPO_NAME" "$DIR_NAME"
       exitCode=$?
     fi
   fi
-  [[ -d "$DIR_NAME" ]] && exitCode="0" #&& [[ -n "$SUDO_USER" ]] && sudo chown -Rf $SUDO_USER:$SUDO_USER "$DIR_NAME"
+  [[ -d "$DIR_NAME/.git" ]] && exitCode="0" #&& [[ -n "$SUDO_USER" ]] && sudo chown -Rf $SUDO_USER:$SUDO_USER "$DIR_NAME"
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -296,7 +298,7 @@ __api_list() {
   if __urlcheck "$api_url"; then
     curl -q -LSsf -H "Accept: application/vnd.github.v3+json" "$api_url" 2>/dev/null |
       jq '.[].name' 2>/dev/null | sed 's#"##g' | grep -Ev '.github|template|^null$' |
-      grep -v '^null$' | grep '^' || __list_options
+      grep '^' || __list_options
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -439,8 +441,7 @@ while :; do
   --raw)
     SHOW_RAW="true"
     unset -f printf_color
-    printf_color() { printf '%s' "$1" | tr -d '\t\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
-
+    printf_color() { printf '%b' "$1" | tr -d '\t\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
     ;;
   --)
     shift 1

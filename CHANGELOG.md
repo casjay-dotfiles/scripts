@@ -1,3 +1,19 @@
+#### Changelog: 2022-07-18 at 19:39:14  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+templates/scripts/bash/simple      🚀  
+templates/scripts/bash/system      🚀  
+templates/scripts/bash/terminal      🚀  
+templates/scripts/bash/user      🚀  
+templates/scripts/other/build      🚀  
+templates/scripts/other/docker-entrypoint      🚀  
+templates/scripts/shell/bash      🚀  
+templates/scripts/shell/sh      🚀  
+  
+#### End of changes for  - 2022-07-18 at 19:39:14  
+  
+----  
+  
 #### Changelog: 2022-07-18 at 18:06:25  
 #### 🗃️ Committing everything that changed 🗃️  
   

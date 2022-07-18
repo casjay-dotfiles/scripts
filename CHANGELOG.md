@@ -1,3 +1,20 @@
+#### Changelog: 2022-07-17 at 20:42:47  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+bin/command      🚀  
+bin/type      🚀  
+completions/_command_completions      🚀  
+completions/_detectostype_completions      🚀  
+completions/_run_command_completions      🚀  
+completions/_type_completions      🚀  
+templates/scripts/completions/simple.bash      🚀  
+templates/scripts/completions/system.bash      🚀  
+templates/scripts/completions/user.bash      🚀  
+  
+#### End of changes for 202207171852-git - 2022-07-17 at 20:42:47  
+  
+----  
+  
 #### Changelog: 2022-07-17 at 18:52:28  
 #### 🗃️ Committing everything that changed 🗃️  
   

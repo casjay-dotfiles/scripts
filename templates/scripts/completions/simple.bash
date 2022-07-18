@@ -15,12 +15,12 @@
 # @@Resource         :  GEN_SCRIPT_REPLACE_RES
 # @@sudo/root        :  no
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-_GEN_SCRIPT_REPLACE_FILENAME() {
+_GEN_SCRIPT_REPLACE_FILENAME_completion() {
   local CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
   local cur prev words cword
   local cur="${COMP_WORDS[$COMP_CWORD]}"
   local SHOW_COMP_OPTS=""
-  local LONGOPTS="--debug --raw --help --version --config --options --dir "
+  local LONGOPTS="--debug --raw --help --version --config --options "
   local SHORTOPTS=""
   local ARRAY=""
 
@@ -34,14 +34,18 @@ _GEN_SCRIPT_REPLACE_FILENAME() {
   if [[ ${cur} == --* ]]; then
     COMPREPLY=($(compgen -W '${LONGOPTS}' -- ${cur}))
   elif [[ ${cur} == -* ]]; then
-    COMPREPLY=($(compgen -W '${SHORTOPTS}' -- ${cur}))
+    COMPREPLY=($(compgen -W '${SHORTOPTS:---}' -- ${cur})) && compopt -o nospace
   else
     case "${COMP_WORDS[1]:-$prev}" in
+    --debug | --raw | --help | --version | --config | --options)
+      prev=""
+      COMPREPLY=($(compgen -W '${SHORTOPTS:-$LONGOPTS}' -- "$cur"))
+      ;;
     *)
       if [[ $cword -gt 2 ]]; then
         return
       else
-        COMPREPLY=($(compgen -W '$ARRAY' -- "$cur"))
+        COMPREPLY=($(compgen -W '${ARRAY}' -- "$cur"))
         return 0
       fi
       ;;
@@ -50,4 +54,4 @@ _GEN_SCRIPT_REPLACE_FILENAME() {
 } &&
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # enable completions
-  complete -F _GEN_SCRIPT_REPLACE_FILENAME __am_i_online
+  complete -F _GEN_SCRIPT_REPLACE_FILENAME_completion GEN_SCRIPT_REPLACE_FILENAME

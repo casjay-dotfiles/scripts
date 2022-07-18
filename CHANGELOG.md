@@ -1,3 +1,16 @@
+#### Changelog: 2022-07-18 at 13:03:17  
+  
+templates/scripts/bash/simple      🚀  
+templates/scripts/bash/system      🚀  
+templates/scripts/bash/terminal      🚀  
+templates/scripts/bash/user      🚀  
+templates/scripts/shell/bash      🚀  
+templates/scripts/shell/sh      🚀  
+  
+#### End of changes for 202207181250-git - 2022-07-18 at 13:03:17  
+  
+----  
+  
 #### Changelog: 2022-07-18 at 12:50:15  
 #### 🗃️ Committing everything that changed 🗃️  
   

@@ -39,7 +39,7 @@ ICON_QUESTION="[ ❓ ]"
 __col() { awk -v col="$1" '{print $col}'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_newline() {
-  [[ -n "$1" ]] && printf '%s\n' "$*" || printf '\n'
+  [[ -n "$1" ]] && printf '%s' ${*:-} || printf '\n'
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ "$SHOW_RAW" = "true" ]; then

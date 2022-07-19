@@ -1,3 +1,11 @@
+#### Changelog: 2022-07-19 at 01:22:37  
+  
+functions/app-installer.bash      🚀  
+  
+#### End of changes for  - 2022-07-19 at 01:22:37  
+  
+----  
+  
 #### Changelog: 2022-07-19 at 01:12:31  
   
 bin/gen-completion      🚀  

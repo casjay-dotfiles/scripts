@@ -2344,8 +2344,8 @@ run_install_init() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 run_postinst_global() {
   $installtype
+  # Only run on the scripts install
   if [[ "$APPNAME" = "scripts" ]] || [[ "$APPNAME" = "installer" ]]; then
-    # Only run on the scripts install
     ln_rm "$SYSBIN/"
     ln_rm "$COMPDIR/"
     if [ -d "$INSTDIR/bin" ]; then
@@ -2360,56 +2360,9 @@ run_postinst_global() {
       ln_rm "$BIN/"
     fi
     [ -f "$(builtin type -P updatedb 2>/dev/null)" ] && sudo updatedb || true
-  else
-    # Run on everything else
+  else # Run on everything else
     if [ "$APPDIR" != "$INSTDIR" ]; then
       [ -d "$INSTDIR/etc" ] && mkd "$APPDIR" && cp_rf "$INSTDIR/etc/." "$APPDIR/"
-    fi
-
-    if [ -d "$INSTDIR/man" ]; then
-      user_is_root && local MANDIR="/usr/share/man" || MANDIR="$HOME/.local/share/man"
-      [ -d "$MANDIR" ] || mkdir -p "$MANDIR"
-      for man in "$INSTDIR/man"/*.1; do
-        [ -n "$man" ] || break
-        name="$(basename "$man" 2>/dev/null)"
-        [ ! -f "$MANDIR/man1/$name" ] && [ -d "$MANDIR/man1" ] && [ -n "$name" ] && ln_sf "$man" "$MANDIR/man1/$name"
-      done
-      for man in "$INSTDIR/man"/*.2; do
-        [ -n "$man" ] || break
-        name="$(basename "$man" 2>/dev/null)"
-        [ ! -f "$MANDIR/man2/$name" ] && [ -d "$MANDIR/man2" ] && [ -n "$name" ] && ln_sf "$man" "$MANDIR/man2/$name"
-      done
-      for man in "$INSTDIR/man"/*.3; do
-        [ -n "$man" ] || break
-        name="$(basename "$man" 2>/dev/null)"
-        [ ! -f "$MANDIR/man3/$name" ] && [ -d "$MANDIR/man3" ] && [ -n "$name" ] && ln_sf "$man" "$MANDIR/man3/$name"
-      done
-      for man in "$INSTDIR/man"/*.4; do
-        [ -n "$man" ] || break
-        name="$(basename "$man" 2>/dev/null)"
-        [ ! -f "$MANDIR/man4/$name" ] && [ -d "$MANDIR/man4" ] && [ -n "$name" ] && ln_sf "$man" "$MANDIR/man4/$name"
-      done
-      for man in "$INSTDIR/man"/*.5; do
-        [ -n "$man" ] || break
-        name="$(basename "$man" 2>/dev/null)"
-        [ ! -f "$MANDIR/man5/$name" ] && [ -d "$MANDIR/man5" ] && [ -n "$name" ] && ln_sf "$man" "$MANDIR/man5/$name"
-      done
-      for man in "$INSTDIR/man"/*.6; do
-        [ -n "$man" ] || break
-        name="$(basename "$man" 2>/dev/null)"
-        [ ! -f "$MANDIR/man6/$name" ] && [ -d "$MANDIR/man6" ] && [ -n "$name" ] && ln_sf "$man" "$MANDIR/man6/$name"
-      done
-      for man in "$INSTDIR/man"/*.7; do
-        [ -n "$man" ] || break
-        name="$(basename "$man" 2>/dev/null)"
-        [ ! -f "$MANDIR/man7/$name" ] && [ -d "$MANDIR/man7" ] && [ -n "$name" ] && ln_sf "$man" "$MANDIR/man7/$name"
-      done
-      for man in "$INSTDIR/man"/*.8; do
-        [ -n "$man" ] || break
-        name="$(basename "$man" 2>/dev/null)"
-        [ ! -f "$MANDIR/man8/$name" ] && [ -d "$MANDIR/man8" ] && [ -n "$name" ] && ln_sf "$man" "$MANDIR/man8/$name"
-      done
-      unset man
     fi
 
     if [ -d "$INSTDIR/backgrounds" ]; then
@@ -2472,7 +2425,8 @@ run_postinst_global() {
     [ "$installtype" = "thememgr_install" ] || __install_theme
     [ "$installtype" = "wallpapermgr_install" ] || __install_wallpapers
   fi
-
+  # man pages
+  __install_man_pages
   #
   if [[ "$APPDIR" != "$INSTDIR" ]] && [ -d "$APPDIR" ] && [[ -z "$DF_NO_REPLACE" ]]; then
     grep -qR '/home/jason' "$APPDIR" && replace "$APPDIR" "/home/jason" "$HOME"
@@ -2481,6 +2435,56 @@ run_postinst_global() {
   fi
   # Permission fix
   ensure_perms
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__install_man_pages() {
+  local man=""
+  local MANDIR=""
+  user_is_root && MANDIR="/usr/local/share/man" || MANDIR="$HOME/.local/share/man"
+  if [ -d "$INSTDIR/man" ]; then
+    [ -d "$MANDIR" ] || mkdir -p "$MANDIR"
+    for man in "$INSTDIR/man"/*.1; do
+      [ -n "$man" ] || break
+      name="$(basename "$man" 2>/dev/null)"
+      [ ! -f "$MANDIR/man1/$name" ] && [ -d "$MANDIR/man1" ] && [ -n "$name" ] && ln_sf "$man" "$MANDIR/man1/$name"
+    done
+    for man in "$INSTDIR/man"/*.2; do
+      [ -n "$man" ] || break
+      name="$(basename "$man" 2>/dev/null)"
+      [ ! -f "$MANDIR/man2/$name" ] && [ -d "$MANDIR/man2" ] && [ -n "$name" ] && ln_sf "$man" "$MANDIR/man2/$name"
+    done
+    for man in "$INSTDIR/man"/*.3; do
+      [ -n "$man" ] || break
+      name="$(basename "$man" 2>/dev/null)"
+      [ ! -f "$MANDIR/man3/$name" ] && [ -d "$MANDIR/man3" ] && [ -n "$name" ] && ln_sf "$man" "$MANDIR/man3/$name"
+    done
+    for man in "$INSTDIR/man"/*.4; do
+      [ -n "$man" ] || break
+      name="$(basename "$man" 2>/dev/null)"
+      [ ! -f "$MANDIR/man4/$name" ] && [ -d "$MANDIR/man4" ] && [ -n "$name" ] && ln_sf "$man" "$MANDIR/man4/$name"
+    done
+    for man in "$INSTDIR/man"/*.5; do
+      [ -n "$man" ] || break
+      name="$(basename "$man" 2>/dev/null)"
+      [ ! -f "$MANDIR/man5/$name" ] && [ -d "$MANDIR/man5" ] && [ -n "$name" ] && ln_sf "$man" "$MANDIR/man5/$name"
+    done
+    for man in "$INSTDIR/man"/*.6; do
+      [ -n "$man" ] || break
+      name="$(basename "$man" 2>/dev/null)"
+      [ ! -f "$MANDIR/man6/$name" ] && [ -d "$MANDIR/man6" ] && [ -n "$name" ] && ln_sf "$man" "$MANDIR/man6/$name"
+    done
+    for man in "$INSTDIR/man"/*.7; do
+      [ -n "$man" ] || break
+      name="$(basename "$man" 2>/dev/null)"
+      [ ! -f "$MANDIR/man7/$name" ] && [ -d "$MANDIR/man7" ] && [ -n "$name" ] && ln_sf "$man" "$MANDIR/man7/$name"
+    done
+    for man in "$INSTDIR/man"/*.8; do
+      [ -n "$man" ] || break
+      name="$(basename "$man" 2>/dev/null)"
+      [ ! -f "$MANDIR/man8/$name" ] && [ -d "$MANDIR/man8" ] && [ -n "$name" ] && ln_sf "$man" "$MANDIR/man8/$name"
+    done
+    unset man
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_version() {

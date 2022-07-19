@@ -1,3 +1,23 @@
+#### Changelog: 2022-07-19 at 19:21:59  
+  
+bin/am_i_online      🚀  
+bin/anime-dl      🚀  
+bin/anonymize      🚀  
+bin/append_path      🚀  
+bin/ask_for_input      🚀  
+bin/ask_for_password      🚀  
+bin/ask_yes_no_question      🚀  
+bin/automate      🚀  
+bin/backupapp      🚀  
+functions/app-installer.bash      🚀  
+functions/global/colors.bash      🚀  
+functions/mgr-installers.bash      🚀  
+functions/minimal.bash      🚀  
+  
+#### End of changes for  - 2022-07-19 at 19:21:59  
+  
+----  
+  
 #### Changelog: 2022-07-19 at 12:01:36  
   
 bin/gen-script      🚀  

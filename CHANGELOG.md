@@ -1,3 +1,13 @@
+#### Changelog: 2022-07-19 at 01:12:31  
+  
+bin/gen-completion      🚀  
+completions/_gen-completion_completions      🚀  
+man/gen-completion.1      🚀  
+  
+#### End of changes for  - 2022-07-19 at 01:12:31  
+  
+----  
+  
 #### Changelog: 2022-07-18 at 23:59:28  
 #### 🗃️ Committing everything that changed 🗃️  
   

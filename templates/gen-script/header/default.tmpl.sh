@@ -15,5 +15,5 @@ cat <<EOF | tee
 # @@Other            :  ${other:-$get_other}
 # @@Resource         :  ${res:-$get_res}
 # @@sudo/root        :  ${sudo:-$get_sudo}
-# @@Template         :  bash/user
+# @@Template         :  ${template:-$get_template}
 EOF

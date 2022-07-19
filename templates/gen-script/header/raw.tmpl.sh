@@ -15,7 +15,7 @@ cat <<EOF | tee
 # @@Other            :  GEN_SCRIPT_REPLACE_OTHER
 # @@Resource         :  GEN_SCRIPT_REPLACE_RES
 # @@sudo/root        :  GEN_SCRIPT_REPLACE_SUDO
-# @@Template         :  bash/user
+# @@Template         :  GEN_SCRIPT_REPLACE_TEMPLATE
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="\$(basename "\$0")"
 VERSION="GEN_SCRIPT_REPLACE_VERSION"

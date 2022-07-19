@@ -35,7 +35,7 @@ else
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ###################### builtins ######################
-TMPPATH="/usr/local/opt/gnu-getopt/bin:"
+[[ -d "/usr/local/opt/gnu-getopt/bin" ]] && TMPPATH="/usr/local/opt/gnu-getopt/bin:"
 TMPPATH+="$HOME/.local/share/bash/basher/cellar/bin:$HOME/.local/share/bash/basher/bin:"
 TMPPATH+="$HOME/.local/bin:$HOME/.cargo/bin:$HOME/.local/share/gem/bin:/usr/local/bin:"
 TMPPATH+="/usr/local/share/CasjaysDev/scripts/bin:/usr/local/sbin:/usr/sbin:"

@@ -1,3 +1,47 @@
+#### Changelog: 2022-07-18 at 23:59:28  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+bin/am_i_online      🚀  
+bin/anime-dl      🚀  
+bin/anonymize      🚀  
+bin/append_path      🚀  
+bin/ask_for_input      🚀  
+bin/ask_for_password      🚀  
+bin/ask_yes_no_question      🚀  
+completions/_am_i_online_completions      🚀  
+completions/_anime-dl_completions      🚀  
+completions/_anonymize_completions      🚀  
+completions/_append_path_completions      🚀  
+completions/_ask_for_input_completions      🚀  
+completions/_ask_for_password_completions      🚀  
+completions/_ask_yes_no_question_completions      🚀  
+functions/app-installer.bash      🚀  
+functions/global/env.bash      🚀  
+man/am_i_online.1      🚀  
+templates/scripts/bash/simple      🚀  
+templates/scripts/bash/system      🚀  
+templates/scripts/bash/terminal      🚀  
+templates/scripts/bash/user      🚀  
+version.txt      🚀  
+  
+#### End of changes for  - 2022-07-18 at 23:59:28  
+  
+----  
+  
+#### Changelog: 2022-07-18 at 23:55:58  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+functions/app-installer.bash      🚀  
+functions/global/env.bash      🚀  
+templates/scripts/bash/simple      🚀  
+templates/scripts/bash/system      🚀  
+templates/scripts/bash/terminal      🚀  
+templates/scripts/bash/user      🚀  
+  
+#### End of changes for 202207181939-git - 2022-07-18 at 23:55:58  
+  
+----  
+  
 #### Changelog: 2022-07-18 at 19:39:14  
 #### 🗃️ Committing everything that changed 🗃️  
   

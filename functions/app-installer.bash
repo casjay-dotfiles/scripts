@@ -184,7 +184,10 @@ else
   }
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-printf_newline() { [[ -n "$1" ]] && printf '%s' ${*:-} || printf '\n'; }
+printf_newline() {
+  [[ -n "$1" ]] && printf '%b\n' "${*:-}" || printf '\n'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_normal() { printf_color "\t\t$1\n" "$2"; }
 printf_green() { printf_color "\t\t$1\n" 2; }
 printf_red() { printf_color "\t\t$1\n" 1; }

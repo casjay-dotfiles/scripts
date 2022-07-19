@@ -1,3 +1,15 @@
+#### Changelog: 2022-07-19 at 19:36:06  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+functions/app-installer.bash      🚀  
+functions/global/colors.bash      🚀  
+functions/mgr-installers.bash      🚀  
+functions/minimal.bash      🚀  
+  
+#### End of changes for 202207191154-git - 2022-07-19 at 19:36:06  
+  
+----  
+  
 #### Changelog: 2022-07-19 at 19:21:59  
   
 bin/am_i_online      🚀  

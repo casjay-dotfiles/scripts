@@ -1,3 +1,15 @@
+#### Changelog: 2022-07-19 at 09:13:53  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+templates/scripts/bash/simple      🚀  
+templates/scripts/bash/system      🚀  
+templates/scripts/bash/terminal      🚀  
+templates/scripts/bash/user      🚀  
+  
+#### End of changes for 202207182359-git - 2022-07-19 at 09:13:53  
+  
+----  
+  
 #### Changelog: 2022-07-19 at 01:22:37  
   
 functions/app-installer.bash      🚀  

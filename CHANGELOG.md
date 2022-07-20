@@ -1,3 +1,11 @@
+#### Changelog: 2022-07-20 at 16:20:41  
+  
+bin/latest-iso      🚀  
+  
+#### End of changes for 202207201202-git - 2022-07-20 at 16:20:41  
+  
+----  
+  
 #### Changelog: 2022-07-20 at 12:02:14  
 #### 🗃️ Committing everything that changed 🗃️  
   

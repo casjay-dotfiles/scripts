@@ -1,3 +1,11 @@
+#### Changelog: 2022-07-20 at 20:20:55  
+  
+bin/gen-script      🚀  
+  
+#### End of changes for 202207201202-git - 2022-07-20 at 20:20:55  
+  
+----  
+  
 #### Changelog: 2022-07-20 at 19:58:32  
   
 bin/latest-iso      🚀  

@@ -1,3 +1,20 @@
+#### Changelog: 2022-07-21 at 15:59:47  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+bin/anonymize      🚀  
+bin/append_path      🚀  
+bin/ask_for_input      🚀  
+completions/_anonymize_completions      🚀  
+completions/_append_path_completions      🚀  
+completions/_ask_for_input_completions      🚀  
+man/anonymize.1      🚀  
+man/append_path.1      🚀  
+man/ask_for_input.1      🚀  
+  
+#### End of changes for  - 2022-07-21 at 15:59:47  
+  
+----  
+  
 #### Changelog: 2022-07-21 at 12:11:23  
 #### 🗃️ Committing everything that changed 🗃️  
   

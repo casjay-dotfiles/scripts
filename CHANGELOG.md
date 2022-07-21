@@ -1,3 +1,15 @@
+#### Changelog: 2022-07-20 at 21:58:33  
+  
+templates/scripts/bash/simple      🚀  
+templates/scripts/bash/system      🚀  
+templates/scripts/bash/terminal      🚀  
+templates/scripts/bash/user      🚀  
+templates/scripts/other/build      🚀  
+  
+#### End of changes for 202207201202-git - 2022-07-20 at 21:58:33  
+  
+----  
+  
 #### Changelog: 2022-07-20 at 21:01:21  
   
 bin/gen-dockerfile      🚀  

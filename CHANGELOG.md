@@ -1,3 +1,18 @@
+#### Changelog: 2022-07-21 at 12:11:23  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+bin/am_i_online      🚀  
+bin/anime-dl      🚀  
+completions/_am_i_online_completions      🚀  
+completions/_anime-dl_completions      🚀  
+man/am_i_online.1      🚀  
+man/anime-dl.1      🚀  
+templates/scripts/other/build      🚀  
+  
+#### End of changes for  - 2022-07-21 at 12:11:23  
+  
+----  
+  
 #### Changelog: 2022-07-20 at 21:58:33  
   
 templates/scripts/bash/simple      🚀  

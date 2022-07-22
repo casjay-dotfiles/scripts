@@ -1,3 +1,17 @@
+#### Changelog: 2022-07-22 at 18:49:36  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+bin/cmd_exists      🚀  
+templates/scripts/bash/simple      🚀  
+templates/scripts/bash/system      🚀  
+templates/scripts/bash/terminal      🚀  
+templates/scripts/bash/user      🚀  
+templates/scripts/other/build      🚀  
+  
+#### End of changes for 202207221834-git - 2022-07-22 at 18:49:36  
+  
+----  
+  
 #### Changelog: 2022-07-22 at 18:34:12  
 #### 🗃️ Committing everything that changed 🗃️  
   

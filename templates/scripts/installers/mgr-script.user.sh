@@ -311,7 +311,7 @@ __run_search() {
   done
   results="$(echo "$result" | sort -u | tr '\n' ' ' | sed 's| | |g' | grep '^')"
   if [ -z "$results" ]; then
-    printf_exit "Your seach produced no results"
+    printf_exit "Your search produced no results"
   else
     printf '%s\n' "$results" | printf_column "${PRINTF_COLOR:-4}"
   fi

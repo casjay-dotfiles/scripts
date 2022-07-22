@@ -1,23 +1,24 @@
 #!/usr/bin/env bash
+# shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202207191207-git
+##@Version           :  202207211101-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.com
 # @@License          :  WTFPL
 # @@ReadME           :  cheat.sh --help
 # @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
-# @@Created          :  Tuesday, Jul 19, 2022 12:07 EDT
+# @@Created          :  Thursday, Jul 21, 2022 11:01 EDT
 # @@File             :  cheat.sh
 # @@Description      :  Get help with commands
 # @@Changelog        :
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
-# @@sudo/root        :
+# @@sudo/root        :  no
 # @@Template         :  bash/system
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0" 2>/dev/null)"
-VERSION="202207191207-git"
+VERSION="202207211101-git"
 HOME="${USER_HOME:-$HOME}"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${SUDO_USER:-$USER}"
@@ -53,29 +54,16 @@ __devnull() {
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
-__devnull2() {
-  eval "$*" 2>/dev/null || exitCode=1
-  return ${exitCode:-$?}
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
-__logr() {
-  printf_color() { printf '%b' "$1" | tr -d '\t\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
-  if [ "$#" -ne 0 ]; then
-    eval "$*" 2>>"${LOGFILE:-$AM_I_ONLINE_LOG_DIR/$APPNAME.log}.err" >>"${LOGFILE:-$AM_I_ONLINE_LOG_DIR/$APPNAME.log}" || exitCode=1
-  else
-    cat - &> >(tee -ia "${LOGFILE:-$AM_I_ONLINE_LOG_DIR/$APPNAME.log}" &>/dev/null) || exitCode=1
-  fi
-  return ${exitCode:-$?}
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cmd_exist() {
   local exitCode=0
-  for cmd in "$@"; do builtin command -v "$cmd" |& __devnull && true || exitCode+=1; done
+  for cmd in "$@"; do
+    builtin command -v "$cmd" |& __devnull && true || exitCode+=1
+  done
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # output version
-__version() { printf_purple "$VERSION"; }
+__version() { printf_color "$VERSION" "2"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # list options
 __list_options() {
@@ -93,9 +81,9 @@ __gen_config() {
     cp -Rf "$CHEAT_SH_CONFIG_DIR/$CHEAT_SH_CONFIG_FILE" "$CHEAT_SH_CONFIG_BACKUP_DIR/$CHEAT_SH_CONFIG_FILE.$$"
   cat <<EOF >"$CHEAT_SH_CONFIG_DIR/$CHEAT_SH_CONFIG_FILE"
 # Settings for cheat.sh
-CHEAT_SH_BIN_DIR="${CHEAT_SH_BIN_DIR:-$CASJAYSDEVDIR/sources}"
-CHEAT_SH_URL="${CHEAT_SH_URL:-https://cht.sh}"
-CHEAT_SH_HOME="${CHEAT_SH_HOME:-$HOME/.config/myscripts/cheat.sh}"
+CHEAT_SH_HOME="${CHEAT_SH_HOME:-}"
+CHEAT_SH_URL="${CHEAT_SH_URL:-}"
+CHEAT_SH_BIN_DIR="${CHEAT_SH_BIN_DIR:-}"
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
@@ -116,6 +104,7 @@ CHEAT_SH_NOTIFY_CLIENT_ICON="${CHEAT_SH_NOTIFY_CLIENT_ICON:-}"
 CHEAT_SH_NOTIFY_CLIENT_URGENCY="${CHEAT_SH_NOTIFY_CLIENT_URGENCY:-}"
 
 EOF
+  curl -q -LSsf --max-time 2 "https://cheat.sh/:list" -o "$CHEAT_SH_CONFIG_DIR/completion.txt" 2>/dev/null
   if [ -f "$CHEAT_SH_CONFIG_DIR/$CHEAT_SH_CONFIG_FILE" ]; then
     [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for $APPNAME has been created"
     . "$CHEAT_SH_CONFIG_DIR/$CHEAT_SH_CONFIG_FILE"
@@ -160,7 +149,7 @@ __help() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
-__cheatsh() {
+__execute_cheatsh() {
   if [ -f "$HOME/.local/bin/cheat.sh" ]; then
     bash "$HOME/.local/bin/cheat.sh" ${CHEAT_SH_VARS:-} "$*"
   elif [ -f "$CHEAT_SH_BIN_DIR/cheat.sh" ]; then
@@ -247,7 +236,7 @@ fi
 # Argument/Option settings
 SETARGS="$*"
 SHORTOPTS=""
-LONGOPTS="config,debug,dir:,help,options,raw,version,shell:,standalone-install:,mode:"
+LONGOPTS="config,debug,help,options,raw,version,shell:,standalone-install:,mode:"
 ARRAY=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup application options
@@ -258,6 +247,7 @@ while :; do
   --raw)
     shift 1
     SHOW_RAW="true"
+    printf_column() { tee | grep '^'; }
     printf_color() {
       printf '%b' "$1" | tr -d '\t\t' |
         sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'
@@ -268,10 +258,6 @@ while :; do
     set -xo pipefail
     __devnull() {
       tee || exitCode=1
-      return ${exitCode:-$?}
-    }
-    __devnull2() {
-      eval "$*" || exitCode=1
       return ${exitCode:-$?}
     }
     export SCRIPT_OPTS="--debug"
@@ -300,10 +286,6 @@ while :; do
     __gen_config
     exit $?
     ;;
-  --dir)
-    CHEAT_SH_CWD="$2"
-    shift 2
-    ;;
   --shell | --standalone-install | --mode)
     [ -n "$CHEAT_SH_VARS" ] && CHEAT_SH_VARS="$1 "$2 || CHEAT_SH_VARS+="$1 $2"
     shift 2
@@ -320,20 +302,20 @@ done
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
-cmd_exists --error bash rlwrap || exit 1 # exit 1 if not found
-#am_i_online --error || exit 4     # exit 1 if no internet
+#__cmd_exists bash || exit 3 # exit 3 if not found
+cmd_exists --error rlwrap || exit 3 # exit 3 if not found
+#am_i_online --error || exit 4     # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
 export CHTSH="${CHTSH:-$CHEAT_SH_HOME}"
 export CHEAT_SH_URL="${CHEAT_SH_URL}"
 export CHEATSH_CACHE_TYPE=none
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
 [[ -n "$CHEAT_SH_VARS" ]] || [[ $# -ne 0 ]] || printf_exit "Usage: $APPNAME [options] [query]"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
-__cheatsh "$*"
+__execute_cheatsh "$*"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

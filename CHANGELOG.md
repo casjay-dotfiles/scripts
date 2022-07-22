@@ -1,3 +1,51 @@
+#### Changelog: 2022-07-22 at 18:25:35  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+bin/ask_for_password      🚀  
+bin/ask_yes_no_question      🚀  
+bin/automate      🚀  
+bin/backupapp      🚀  
+bin/bashtop      🚀  
+bin/blog      🚀  
+bin/buildx      🚀  
+bin/calc      🚀  
+bin/calendar      🚀  
+bin/changeip      🚀  
+bin/cheat.sh      🚀  
+bin/gen-script      🚀  
+completions/_ask_for_password_completions      🚀  
+completions/_ask_yes_no_question_completions      🚀  
+completions/_automate_completions      🚀  
+completions/_backupapp_completions      🚀  
+completions/_bashtop_completions      🚀  
+completions/_blog_completions      🚀  
+completions/_buildx_completions      🚀  
+completions/_calc_completions      🚀  
+completions/_changeip_completions      🚀  
+completions/_cheat.sh_completions      🚀  
+man/ask_for_password.1      🚀  
+man/ask_yes_no_question.1      🚀  
+man/automate.1      🚀  
+man/backupapp.1      🚀  
+man/bashtop.1      🚀  
+man/blog.1      🚀  
+man/buildx.1      🚀  
+man/calc.1      🚀  
+man/calendar.1      🚀  
+man/changeip.1      🚀  
+man/cheat.sh.1      🚀  
+templates/gen-script/header/default.tmpl.sh      🚀  
+templates/gen-script/header/raw.tmpl.sh      🚀  
+templates/scripts/bash/simple      🚀  
+templates/scripts/bash/system      🚀  
+templates/scripts/bash/terminal      🚀  
+templates/scripts/bash/user      🚀  
+templates/scripts/installers/mgr-script.system.sh      🚀  
+  
+#### End of changes for 202207211559-git - 2022-07-22 at 18:25:35  
+  
+----  
+  
 #### Changelog: 2022-07-21 at 15:59:47  
 #### 🗃️ Committing everything that changed 🗃️  
   

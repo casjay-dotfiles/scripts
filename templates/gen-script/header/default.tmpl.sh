@@ -14,6 +14,7 @@ cat <<EOF | tee
 # @@TODO             :  ${todo:-$get_todo}
 # @@Other            :  ${other:-$get_other}
 # @@Resource         :  ${res:-$get_res}
+# @@Terminal App     :  ${terminal:-$get_terminal}
 # @@sudo/root        :  ${sudo:-$get_sudo}
 # @@Template         :  ${template:-$get_template}
 EOF

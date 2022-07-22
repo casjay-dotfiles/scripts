@@ -1,23 +1,23 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202207191207-git
+##@Version           :  202207211100-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.com
 # @@License          :  WTFPL
 # @@ReadME           :  buildx --help
 # @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
-# @@Created          :  Tuesday, Jul 19, 2022 12:07 EDT
+# @@Created          :  Thursday, Jul 21, 2022 11:00 EDT
 # @@File             :  buildx
 # @@Description      :  Docker buildx wrapper
 # @@Changelog        :
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
-# @@sudo/root        :
+# @@sudo/root        :  no
 # @@Template         :  bash/system
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0" 2>/dev/null)"
-VERSION="202207191207-git"
+VERSION="202207211100-git"
 HOME="${USER_HOME:-$HOME}"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${SUDO_USER:-$USER}"
@@ -31,7 +31,7 @@ set -o pipefail
 # Import functions
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
 SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
-SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-minimal.bash}"
 SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
@@ -53,29 +53,16 @@ __devnull() {
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
-__devnull2() {
-  eval "$*" 2>/dev/null || exitCode=1
-  return ${exitCode:-$?}
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
-__logr() {
-  printf_color() { printf '%b' "$1" | tr -d '\t\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
-  if [ "$#" -ne 0 ]; then
-    eval "$*" 2>>"${LOGFILE:-$AM_I_ONLINE_LOG_DIR/$APPNAME.log}.err" >>"${LOGFILE:-$AM_I_ONLINE_LOG_DIR/$APPNAME.log}" || exitCode=1
-  else
-    cat - &> >(tee -ia "${LOGFILE:-$AM_I_ONLINE_LOG_DIR/$APPNAME.log}" &>/dev/null) || exitCode=1
-  fi
-  return ${exitCode:-$?}
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cmd_exist() {
   local exitCode=0
-  for cmd in "$@"; do builtin command -v "$cmd" |& __devnull && true || exitCode+=1; done
+  for cmd in "$@"; do
+    builtin command -v "$cmd" |& __devnull && true || exitCode+=1
+  done
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # output version
-__version() { printf_purple "$VERSION"; }
+__version() { printf_color "$VERSION" "2"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # list options
 __list_options() {
@@ -165,6 +152,10 @@ __help() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
+__jq() { jq ${*:-} 2>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__curl() { curl -q -LSsf --max-time 2 --retry 0 "$*" 2>/dev/null || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __usage() {
   printf_exit 1 2 "Usage: $PROG: [Dockerfile] [name] [tag] [.]" 1>&2
 }
@@ -371,13 +362,29 @@ __is_logged_in() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __api() {
-  local repo="$(curl -s "https://hub.docker.com/v2/repositories/$1/?page_size=10000" | jq -r '.results|.[]|.name' | grep '^')"
-  [[ -n "$repo" ]] || exit 2
+  local repo
+  repo="$(__curl "https://hub.docker.com/v2/repositories/$BUILDX_DEFAULT_REPO/?page_size=1000" | __jq -r '.results|.[]|.name' | grep '^')"
+  [[ -n "$repo" ]] && echo "$repo" | grep -vE 'tools|templates|.docker' | grep '^' || exit 2
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__api_search() {
+  [[ $# -eq 1 ]] || return 1
+  local repo
+  repo="$(__curl "https://hub.docker.com/v2/repositories/$1/?page_size=1000" | __jq -r '.results|.[]|.name' | grep '^')"
+  [[ -n "$repo" ]] && echo "$repo" | grep -vE 'tools|templates|.docker' | grep '^' || exit 2
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__api_source() {
+  local list
+  list="$(__curl "https://api.github.com/orgs/$BUILDX_GIT_REPO_USER/repos?per_page=1000" | __jq -r '.[].name' | grep '^')"
+  [[ -n "$list" ]] || list="$(__curl -q -LSsf "https://api.github.com/users/${1:-casjaysdevdocker}/repos?per_page=1000" | __jq -r '.[].name' | grep '^')"
+  [[ -n "$list" ]] && echo "$list" | grep -vE 'tools|templates|.github' | grep '^' || exit 2
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __api_clone() {
-  local repos="$(__api "$1")"
-  local git_url="${2:-$BUILDX_GIT_REPO_PROVIDER/$BUILDX_GIT_REPO_USER}"
+  local repos git_url
+  [[ "$1" = "all" ]] && repos="$(__api_source "$BUILDX_GIT_REPO_USER")" || repos="$(__api_source "$1" | grep "$1" | head -n1)"
+  git_url="${2:-$BUILDX_GIT_REPO_PROVIDER/$BUILDX_GIT_REPO_USER}"
   [[ -n "$repo" ]] || exit 2
   [[ -n "$git_url" ]] || exit 2
   for repo in $repos; do
@@ -477,6 +484,7 @@ while :; do
   --raw)
     shift 1
     SHOW_RAW="true"
+    printf_column() { tee | grep '^'; }
     printf_color() {
       printf '%b' "$1" | tr -d '\t\t' |
         sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'
@@ -487,10 +495,6 @@ while :; do
     set -xo pipefail
     __devnull() {
       tee || exitCode=1
-      return ${exitCode:-$?}
-    }
-    __devnull2() {
-      eval "$*" || exitCode=1
       return ${exitCode:-$?}
     }
     export SCRIPT_OPTS="--debug"
@@ -535,8 +539,8 @@ done
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
-cmd_exists --error bash || exit 1 # exit 1 if not found
-#am_i_online --error || exit 4     # exit 1 if no internet
+cmd_exists --error bash || exit 3 # exit 3 if not found
+#am_i_online --error || exit 4     # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
 export DOCKER_PLATFORMS DOCKER_CLI_EXPERIMENTAL
@@ -578,16 +582,31 @@ api)
   case "$1" in
   list)
     shift 1
-    [ $# = 0 ] && printf_help "usage: $APPNAME api list repo"
-    __api "$1"
+    [ "$1" = "help" ] && printf_help "usage: $APPNAME api list repo"
+    __api | grep "${1:-^}"
+    exit $?
+    ;;
+  search)
+    shift 1
+    [ "$1" = "help" ] && printf_help "usage: $APPNAME api search repo"
+    __api_search "${1:-docker}"
+    exit $?
+    ;;
+  sources)
+    shift 1
+    [ "$1" = "help" ] && printf_help "usage: $APPNAME api sources repo"
+    __api_source | grep "${1:-^}"
+    exit $?
     ;;
   clone)
     shift 1
-    [ $# = 0 ] && printf_help "usage: $APPNAME api clone repo [Base user repo]"
-    __api_clone "$@"
+    [ "$1" = "help" ] && printf_help "usage: $APPNAME api clone repo [Base user repo]"
+    __api_clone "${@:-all}"
+    exit $?
     ;;
   *)
     printf_help "usage: $APPNAME api [list,clone]"
+    exit 1
     ;;
   esac
   ;;

@@ -1,14 +1,8 @@
-#### Changelog: 2022-07-22 at 18:27:11  
-#### 🗃️ Committing everything that changed 🗃️  
+#### Changelog: 2022-07-22 at 18:29:27  
   
-templates/scripts/installers/mgr-script.system.sh      🚀  
-templates/scripts/installers/mgr-script.user.sh      🚀  
+version.txt      🚀  
   
-#### End of changes for <<<<<<< HEAD
-202207221825-git
-=======
-202207221031-git
->>>>>>> f3ca4cdcde74651c11dd9efc63e57fa101ab260f - 2022-07-22 at 18:27:11  
+#### End of changes for 202207221828-git - 2022-07-22 at 18:29:27  
   
 ----  
   

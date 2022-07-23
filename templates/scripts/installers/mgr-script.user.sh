@@ -25,9 +25,9 @@ RUN_USER="${SUDO_USER:-$USER}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
-#if [ ! -t 0 ] && { [[ "$1" = *term ]] || [ $# = 0 ]; }; then { [[ "$1" = *term ]] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
-[[ "$1" = "--debug" ]] && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
-[[ "$1" = "--raw" ]] && export SHOW_RAW="true"
+#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+[ "$1" = "--debug" ] && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
 set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
@@ -82,21 +82,21 @@ __help() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Disable colorization
-if [[ "$SHOW_RAW" = "true" ]]; then
-  printf_color() { printf '%b' "$1\n" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
+if [ "$SHOW_RAW" = "true" ]; then
+  printf_color() { printf '%b' "$1\n" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __list_available() {
-  [[ -n "$LIST" ]] || LIST="$(__api_list)"
+  [ -n "$LIST" ] || LIST="$(__api_list)"
   echo -e "${1:-$LIST}" | tr ',' ' ' | tr ' ' '\n' && exit 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __list_options() { printf_custom "5" "$1: $(echo ${2:-$ARRAY} | __sed 's|:||g;s|'$3'| '$4'|g')" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gen_config() {
-  [[ -z "$NOTIFY_CLIENT_NAME" ]] || NOTIFY_CLIENT_NAME=""
-  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Generating the config file in"
-  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE"
+  [ -z "$NOTIFY_CLIENT_NAME" ] || NOTIFY_CLIENT_NAME=""
+  [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Generating the config file in"
+  [ "$INIT_CONFIG" = "TRUE" ] || printf_green "$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE"
   [ -d "$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR" ] || mkdir -p "$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR"
   [ -d "$GEN_SCRIPT_REPLACE_ENV_CONFIG_BACKUP_DIR" ] || mkdir -p "$GEN_SCRIPT_REPLACE_ENV_CONFIG_BACKUP_DIR"
   [ -f "$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE" ] &&
@@ -127,7 +127,7 @@ GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_ERROR="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR
 
 EOF
   if [ -f "$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE" ]; then
-    [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for $APPNAME has been created"
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
     exitCode=0
   else
     printf_red "Failed to create the config file"
@@ -168,26 +168,26 @@ __installer_delete() {
   local APP_DIR_NAME="$GEN_SCRIPT_REPLACE_ENV_APP_DIR"
   local INSTALL_DIR_NAME="$GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR"
   local MESSAGE="${MESSAGE:-Removing $app from ${msg:-your system}}"
-  [[ -n "$app" ]] || printf_exit "Please specify the name to delete"
-  [[ "$INSTALL_DIR_NAME/$app" == "$INSTALL_DIR_NAME/" ]] && return
+  [ -n "$app" ] || printf_exit "Please specify the name to delete"
+  [ "$INSTALL_DIR_NAME/$app" == "$INSTALL_DIR_NAME/" ] && return
   if [ -d "$APP_DIR_NAME/$app" ] || [ -d "$INSTALL_DIR_NAME/$app" ]; then
     printf_yellow "$MESSAGE"
-    if [[ -e "$APP_DIR_NAME/$app" ]]; then
+    if [ -e "$APP_DIR_NAME/$app" ]; then
       printf_blue "Deleting the files from $APP_DIR_NAME/$app"
       __rm_rf "$APP_DIR_NAME/$app" && exitCode+=0 || exitCode+=1
     fi
-    if [[ -e "$INSTALL_DIR_NAME/$app" ]]; then
+    if [ -e "$INSTALL_DIR_NAME/$app" ]; then
       printf_blue "Deleting the files from $APP_DIR_NAME/$app"
       __rm_rf "$INSTALL_DIR_NAME/$app" && exitCode+=0 || exitCode+=1
     fi
-    if [[ -e "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER/$app" ]]; then
+    if [ -e "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER/$app" ]; then
       printf_blue "Deleting the files from $APP_DIR_NAME/$app"
       __rm_rf "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER/$app" && exitCode+=0 || exitCode+=1
     fi
-    { [[ -d "$INSTALL_DIR_NAME/$app" ]] || [[ -d "$APP_DIR_NAME/$app" ]]; } && exitCode=1 || exitCode=0
+    { [ -d "$INSTALL_DIR_NAME/$app" ] || [ -d "$APP_DIR_NAME/$app" ]; } && exitCode=1 || exitCode=0
     printf_yellow "Removing any broken symlinks"
     __broken_symlinks "$BIN" "$SHARE" "$COMPDIR" "$CONF" "$THEMEDIR" "$FONTDIR" "$ICONDIR"
-    [[ $exitCode = 0 ]] && printf_cyan "$app has been removed"
+    [ $exitCode = 0 ] && printf_cyan "$app has been removed"
     return $exitCode
   else
     printf_error "$app doesn't seem to be installed"
@@ -222,7 +222,7 @@ __run_install_update() {
   local NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON}"
   export NOTIFY_CLIENT_NAME NOTIFY_CLIENT_ICON
   if [ $# = 0 ]; then
-    if [[ -d "$USRUPDATEDIR" && -n "$(ls -A "$USRUPDATEDIR" | grep '^' || ls "$USER_SHARE_DIR" | grep '^')" ]]; then
+    if [ -d "$USRUPDATEDIR" ] && [ -n "$(ls -A "$USRUPDATEDIR" | grep '^' || ls "$USER_SHARE_DIR" | grep '^')" ]; then
       for app in $(ls "$USRUPDATEDIR" | grep '^' || ls "$USER_SHARE_DIR" | grep '^'); do
         APPNAME="$app"
         __run_install_init "$APPNAME" &&
@@ -232,7 +232,7 @@ __run_install_update() {
       done
     fi
     if user_is_root && [ "$USRUPDATEDIR" != "$SYSUPDATEDIR" ]; then
-      if [[ -d "$SYSUPDATEDIR" && -n "$(ls -A "$SYSUPDATEDIR" | grep '^' || ls "$SYSTEM_SHARE_DIR" | grep '^')" ]]; then
+      if [ -d "$SYSUPDATEDIR" ] && [ -n "$(ls -A "$SYSUPDATEDIR" | grep '^' || ls "$SYSTEM_SHARE_DIR" | grep '^')" ]; then
         for app in $(ls "$SYSUPDATEDIR" | grep '^' || ls "$SYSTEM_SHARE_DIR" | grep '^'); do
           APPNAME="$app"
           __run_install_init "$APPNAME" &&
@@ -259,7 +259,7 @@ __download() {
   local DIR_NAME="${2:-$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR/$REPO_NAME}"
   local REPO_URL="$GEN_SCRIPT_REPLACE_ENV_REPO_URL"
   if cmd_exists gitadmin; then
-    if [[ -d "$DIR_NAME/.git" ]]; then
+    if [ -d "$DIR_NAME/.git" ]; then
       sudo -u "$SUDO_USER" gitadmin pull "$DIR_NAME"
       exitCode=$?
     else
@@ -267,7 +267,7 @@ __download() {
       exitCode=$?
     fi
   else
-    if [[ -d "$DIR_NAME/.git" ]]; then
+    if [ -d "$DIR_NAME/.git" ]; then
       sudo -u "$SUDO_USER" git -C "$DIR_NAME" pull
       exitCode=$?
     else
@@ -275,7 +275,7 @@ __download() {
       exitCode=$?
     fi
   fi
-  [[ -d "$DIR_NAME/.git" ]] && exitCode="0" #&& [[ -n "$SUDO_USER" ]] && sudo chown -Rf $SUDO_USER:$SUDO_USER "$DIR_NAME"
+  [ -d "$DIR_NAME/.git" ] && exitCode="0" #&& [  -n "$SUDO_USER"  ] && sudo chown -Rf $SUDO_USER:$SUDO_USER "$DIR_NAME"
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -388,7 +388,7 @@ while :; do
   --raw)
     export SHOW_RAW="true"
     unset -f printf_color
-    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
     ;;
   --options)
     shift 1
@@ -491,7 +491,7 @@ update)
       APPNAME="$ins"
       __run_install_update "$APPNAME"
     done
-  elif [[ -d "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER" ]] && [[ ${#LISTARRAY} -ne 0 ]]; then
+  elif [ -d "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER" ] && [ ${#LISTARRAY} -ne 0 ]; then
     for upd in $(ls "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER"); do
       APPNAME="$upd"
       __run_install_update "$APPNAME"
@@ -523,12 +523,12 @@ install)
 
 download | clone)
   shift 1
-  if [[ $# = 0 ]] || [[ "$INSTALL_ALL" = "true" ]]; then
+  if [ $# = 0 ] || [ "$INSTALL_ALL" = "true" ]; then
     LISTARRAY="$(__list_available)"
   else
     LISTARRAY="$*"
   fi
-  if [[ -n "$LISTARRAY" ]]; then
+  if [ -n "$LISTARRAY" ]; then
     for pkgs in $LISTARRAY; do
       __download "$pkgs"
     done

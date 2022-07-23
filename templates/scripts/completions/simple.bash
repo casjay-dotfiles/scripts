@@ -45,7 +45,7 @@ _GEN_SCRIPT_REPLACE_FILENAME_completion() {
       COMPREPLY=($(compgen -W '${SHORTOPTS:-$LONGOPTS}' -- "$cur"))
       ;;
     *)
-      if [[ $cword -gt 2 ]]; then
+      if [ $cword -gt 2 ]; then
         return
       else
         COMPREPLY=($(compgen -W '${ARRAY}' -- "$cur"))

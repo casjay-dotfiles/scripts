@@ -24,9 +24,9 @@ HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #set opts
-#if [ ! -t 0 ] && { [[ "$1" = *term ]] || [ $# = 0 ]; }; then { [[ "$1" = *term ]] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
-[[ "$1" = "--debug" ]] && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
-[[ "$1" = "--raw" ]] && export SHOW_RAW="true"
+#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+[ "$1" = "--debug" ] && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
 set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
@@ -78,7 +78,7 @@ if cmd_exists sudo; then sudo echo; fi
 clear
 printf "\n\n\n\n"
 _pre_inst() {
-  if [[ "$DOTFILES_PERSONAL_REPO" = "github.com/your/repo" ]]; then
+  if [ "$DOTFILES_PERSONAL_REPO" = "github.com/your/repo" ]; then
     printf_red "Please set DOTFILES_PERSONAL_REPO to the url to your repo" 1>&2
     exit 1
   fi
@@ -86,11 +86,11 @@ _pre_inst() {
     printf_red "AUTH Token is not set" 1>&2
     exit 1
   fi
-  if [ ! -f "$(which sudo 2>/dev/null)" ] && [[ $EUID -ne 0 ]]; then
+  if [ ! -f "$(which sudo 2>/dev/null)" ] && [ $EUID -ne 0 ]; then
     printf_red "Sudo is needed, however its not installed installed" 1>&2
     exit 1
   fi
-  if [[ "$OSTYPE" =~ ^linux ]]; then
+  if [ "$(uname -s)" = "Linux" ]; then
     if ! cmd_exists systemmgr; then
       if (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null; then
         sudo bash -c "$(curl -q -LSsf "$SYSTEM_SCRIPTS_REPO/raw/main/install.sh")"
@@ -115,7 +115,7 @@ _git_repo_init() {
     git clone "$DOTFILES_GIT_URL" "$DOTFILES_HOME"
     getexitcode "git clone successful" "git clone $DOTFILES_GIT_URL has failed" 1>&2
   fi
-  [[ -d "$DOTFILES_HOME" ]] || printf_exit "Failed to to clone the repo" 1>&2
+  [ -d "$DOTFILES_HOME" ] || printf_exit "Failed to to clone the repo" 1>&2
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _scripts_init() {
@@ -130,7 +130,7 @@ _scripts_init() {
     systemmgr install "$sudoconf"
   done
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  if [[ "$OSTYPE" =~ ^linux ]]; then
+  if [ "$(uname -s)" = "Linux" ]; then
     if [ "$1" = "--all" ]; then
       install_all_dfmgr
     elif [ "$1" = "--server" ]; then
@@ -154,7 +154,7 @@ _root_init() {
     sudo chmod -Rf 600 /root/.ssh/
     sudo chmod -f 700 /root/.ssh
     sudo chown -Rf root:root /root
-    if [[ -d "/personal" ]]; then sudo rm -R "/personal"; fi
+    if [ -d "/personal" ]; then sudo rm -R "/personal"; fi
     # copy docker config
     sudo mkdir -p /root/.docker
     sudo cp -Rfv "$DOTFILES_TEMP/home/.docker/." "/root/.docker"
@@ -182,18 +182,18 @@ _files_init() {
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # import podcast feeds
   if cmd_exists castero; then
-    if [[ -f "$HOME"/.config/castero/podcasts.opml ]]; then
+    if [ -f "$HOME"/.config/castero/podcasts.opml ]; then
       castero --import "$HOME"/.config/castero/podcasts.opml &>/dev/null
-    elif [[ -f "$DOTFILES_TEMP"/tmp/podcasts.opml ]]; then
+    elif [ -f "$DOTFILES_TEMP"/tmp/podcasts.opml ]; then
       castero --import "$DOTFILES_TEMP"/tmp/podcasts.opml &>/dev/null
     fi
   fi
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # import rss feeds
   if cmd_exists newsboat; then
-    if [[ -f "$HOME"/.config/newsboat/news.opml ]]; then
+    if [ -f "$HOME"/.config/newsboat/news.opml ]; then
       newsboat -i "$HOME"/.config/newsboat/news.opml &>/dev/null
-    elif [[ -f "$DOTFILES_TEMP"/tmp/news.opml ]]; then
+    elif [ -f "$DOTFILES_TEMP"/tmp/news.opml ]; then
       newsboat -i "$DOTFILES_TEMP"/tmp/news.opml &>/dev/null
     fi
   fi

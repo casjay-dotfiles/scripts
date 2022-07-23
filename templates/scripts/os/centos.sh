@@ -25,7 +25,7 @@ RUN_USER="${SUDO_USER:-$USER}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
-[[ "$1" == "--debug" ]] && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+[ "$1" == "--debug" ] && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import global functions
@@ -46,7 +46,7 @@ fi
 # Define functions
 run_post() {
   local e="$1"
-  local m="$(echo $1 | sed 's#devnull ##g')"
+  local m="${e//devnull /}"
   execute "$e" "executing: $m"
   setexitstatus
   set --
@@ -119,7 +119,7 @@ install_pkg() {
 ##################################################################################################################
 printf_head "Initializing the setup script"
 ##################################################################################################################
-[[ "$REQUIRE_SUDO" = "true" ]] && user_is_root && sudoexit "This scripts requires root/sudo"
+[ "$REQUIRE_SUDO" = "true" ] && user_is_root && sudoexit "This scripts requires root/sudo"
 ##################################################################################################################
 printf_head "Configuring cores for compiling"
 ##################################################################################################################

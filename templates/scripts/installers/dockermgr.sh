@@ -26,9 +26,9 @@ SRC_DIR="${BASH_SOURCE%/*}"
 SCRIPTS_PREFIX="dockermgr"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
-#if [ ! -t 0 ] && { [[ "$1" = *term ]] || [ $# = 0 ]; }; then { [[ "$1" = *term ]] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
-[[ "$1" = "--debug" ]] && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
-[[ "$1" = "--raw" ]] && export SHOW_RAW="true"
+#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+[ "$1" = "--debug" ] && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
 set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define pre-install scripts
@@ -77,9 +77,9 @@ dockermgr_install
 # Define extra functions
 __sudo() { sudo -n true && eval sudo "$*" || eval "$*" || return 1; }
 __sudo_root() { sudo -n true && ask_for_password true && eval sudo "$*" || return 1; }
-__enable_ssl() { [[ "$SERVER_SSL" = "yes" ]] && [[ "$SERVER_SSL" = "true" ]] && return 0 || return 1; }
+__enable_ssl() { [ "$SERVER_SSL" = "yes" ] && [ "$SERVER_SSL" = "true" ] && return 0 || return 1; }
 __ssl_certs() { [ -f "${1:-$SERVER_SSL_CRT}" ] && [ -f "${2:-SERVER_SSL_KEY}" ] && return 0 || return 1; }
-__port_not_in_use() { [[ -d "/etc/nginx/vhosts.d" ]] && grep -wRsq "${1:-$SERVER_PORT_EXT}" /etc/nginx/vhosts.d && return 0 || return 1; }
+__port_not_in_use() { [ -d "/etc/nginx/vhosts.d" ] && grep -wRsq "${1:-$SERVER_PORT_EXT}" /etc/nginx/vhosts.d && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Make sure the scripts repo is installed
 scripts_check
@@ -147,11 +147,11 @@ SERVER_MESSAGE_POST=""
 HUB_URL="hello-world"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # import global variables
-if [[ -f "$APPDIR/env.sh" ]] && [[ ! -f "$DOCKERMGR_HOME/env/$APPNAME" ]]; then
+if [ -f "$APPDIR/env.sh" ] && [ ! -f "$DOCKERMGR_HOME/env/$APPNAME" ]; then
   mkdir -p "$DOCKERMGR_HOME/env" &&
     cp -Rf "$APPDIR/env.sh" "$DOCKERMGR_HOME/env/$APPNAME"
 fi
-[[ -f "$DOCKERMGR_HOME/env/$APPNAME" ]] && . "$DOCKERMGR_HOME/env/$APPNAME"
+[ -f "$DOCKERMGR_HOME/env/$APPNAME" ] && . "$DOCKERMGR_HOME/env/$APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -z "$HUB_URL" ] || [ "$HUB_URL" = "hello-world" ]; then
   printf_exit "Please set the url to the containers image"
@@ -194,12 +194,12 @@ if __am_i_online; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Copy over data files - keep the same stucture as -v dataDir/mnt:/mount
-if [[ -d "$INSTDIR/dataDir" ]] && [[ ! -f "$DATADIR/.installed" ]]; then
+if [ -d "$INSTDIR/dataDir" ] && [ ! -f "$DATADIR/.installed" ]; then
   printf_blue "Copying files to $DATADIR"
   cp -Rf "$INSTDIR/dataDir/." "$DATADIR/"
   find "$DATADIR" -name ".gitkeep" -type f -exec rm -rf {} \; &>/dev/null
 fi
-if [[ -f "$DATADIR/.installed" ]]; then
+if [ -f "$DATADIR/.installed" ]; then
   date +'Updated on %Y-%m-%d at %H:%M' >"$DATADIR/.installed"
 else
   date +'installed on %Y-%m-%d at %H:%M' >"$DATADIR/.installed"
@@ -229,7 +229,7 @@ else
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Install nginx proxy
-if [[ ! -f "/etc/nginx/vhosts.d/$SERVER_HOST.conf" ]] && [[ -f "$INSTDIR/nginx/proxy.conf" ]]; then
+if [ ! -f "/etc/nginx/vhosts.d/$SERVER_HOST.conf" ] && [ -f "$INSTDIR/nginx/proxy.conf" ]; then
   cp -f "$INSTDIR/nginx/proxy.conf" "/tmp/$$.$SERVER_HOST.conf"
   sed -i "s|REPLACE_APPNAME|$APPNAME|g" "/tmp/$$.$SERVER_HOST.conf" &>/dev/null
   sed -i "s|REPLACE_NGINX_PORT|$NGINX_PORT|g" "/tmp/$$.$SERVER_HOST.conf" &>/dev/null
@@ -244,10 +244,10 @@ fi
 # run post install scripts
 run_postinst() {
   dockermgr_run_post
-  [[ -w "/etc/hosts" ]] || return 0
+  [ -w "/etc/hosts" ] || return 0
   if ! grep -sq "$SERVER_HOST" /etc/hosts; then
-    if [[ -n "$SERVER_PORT_INT" ]]; then
-      if [[ $(hostname -d 2>/dev/null | grep '^') = 'local' ]]; then
+    if [ -n "$SERVER_PORT_INT" ]; then
+      if [ $(hostname -d 2>/dev/null | grep '^') = 'local' ]; then
         echo "$SERVER_LISTEN     $APPNAME.local" | sudo tee -a /etc/hosts &>/dev/null
       else
         echo "$SERVER_LISTEN     $APPNAME.local" | sudo tee -a /etc/hosts &>/dev/null
@@ -271,12 +271,12 @@ dockermgr_install_version
 if docker ps -a | grep -qs "$APPNAME"; then
   printf_blue "DATADIR in $DATADIR"
   printf_cyan "Installed to $INSTDIR"
-  [[ -n "$SERVER_IP" && -n "$SERVER_PORT_EXT" ]] && printf_blue "Service is running on: $SERVER_IP:$SERVER_PORT_EXT"
-  [[ -n "$SERVER_LISTEN" && -n "$SERVER_WEB_PORT" ]] && printf_blue "and should be available at: http://$SERVER_LISTEN:$SERVER_WEB_PORT or http://$SERVER_HOST:$SERVER_WEB_PORT"
-  [[ -z "$SERVER_WEB_PORT" ]] && printf_yellow "This container does not have a web interface"
-  [[ -n "$SERVER_MESSAGE_USER" ]] && printf_cyan "Username is:  $SERVER_MESSAGE_USER"
-  [[ -n "$SERVER_MESSAGE_PASS" ]] && printf_purple "Password is:  $SERVER_MESSAGE_PASS"
-  [[ -n "$SERVER_MESSAGE_POST" ]] && printf_green "$SERVER_MESSAGE_POST"
+  [ -n "$SERVER_IP" ] && [ -n "$SERVER_PORT_EXT" ] && printf_blue "Service is running on: $SERVER_IP:$SERVER_PORT_EXT"
+  [ -n "$SERVER_LISTEN" ] && [ -n "$SERVER_WEB_PORT" ] && printf_blue "and should be available at: http://$SERVER_LISTEN:$SERVER_WEB_PORT or http://$SERVER_HOST:$SERVER_WEB_PORT"
+  [ -z "$SERVER_WEB_PORT" ] && printf_yellow "This container does not have a web interface"
+  [ -n "$SERVER_MESSAGE_USER" ] && printf_cyan "Username is:  $SERVER_MESSAGE_USER"
+  [ -n "$SERVER_MESSAGE_PASS" ] && printf_purple "Password is:  $SERVER_MESSAGE_PASS"
+  [ -n "$SERVER_MESSAGE_POST" ] && printf_green "$SERVER_MESSAGE_POST"
 else
   printf_error "Something seems to have gone wrong with the install"
 fi

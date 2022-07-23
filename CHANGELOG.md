@@ -1,3 +1,18 @@
+#### Changelog: 2022-07-23 at 00:46:23  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+bin/gen-completion      🚀  
+bin/real_path      🚀  
+bin/type      🚀  
+templates/scripts/bash/simple      🚀  
+templates/scripts/other/build      🚀  
+templates/scripts/shell/bash      🚀  
+templates/scripts/shell/sh      🚀  
+  
+#### End of changes for 202207230044-git - 2022-07-23 at 00:46:23  
+  
+----  
+  
 #### Changelog: 2022-07-23 at 00:44:10  
 #### 🗃️ Committing everything that changed 🗃️  
   

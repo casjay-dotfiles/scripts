@@ -135,7 +135,7 @@ EOF
     exitCode=0
   else
     printf_red "Failed to create the config file"
-    exitCode=1
+    exitCode=11
   fi
   return ${exitCode:-$?}
 }

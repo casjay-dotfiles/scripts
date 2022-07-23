@@ -1,3 +1,19 @@
+#### Changelog: 2022-07-23 at 01:47:46  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+bin/am_i_online      🚀  
+templates/scripts/bash/simple      🚀  
+templates/scripts/bash/system      🚀  
+templates/scripts/bash/terminal      🚀  
+templates/scripts/bash/user      🚀  
+templates/scripts/installers/mgr-script.system.sh      🚀  
+templates/scripts/installers/mgr-script.user.sh      🚀  
+templates/scripts/other/build      🚀  
+  
+#### End of changes for 202207230124-git - 2022-07-23 at 01:47:46  
+  
+----  
+  
 #### Changelog: 2022-07-23 at 01:29:26  
   
 templates/scripts/shell/sh      🚀  

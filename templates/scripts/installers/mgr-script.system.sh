@@ -81,10 +81,13 @@ __help() {
   exit
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Disable colorization
+# colorization
 if [ "$SHOW_RAW" = "true" ]; then
   printf_color() { printf '%b' "$1\n" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "\t\t$1\n" "$(tput sgr0 2>/dev/null)"; }
 fi
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __list_available() {
   [ -n "$LIST" ] || LIST="$(__api_list)"
@@ -424,7 +427,7 @@ while :; do
   --raw)
     export SHOW_RAW="true"
     unset -f printf_color
-    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    printf_color() { printf '%b\n' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
     ;;
   --options)
     shift 1

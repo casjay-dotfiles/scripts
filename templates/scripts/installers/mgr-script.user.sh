@@ -51,9 +51,9 @@ GEN_SCRIPT_REPLACE_FILENAME_install && __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set functions
 # Help function - Align to 55
-__printf_head() { printf_color "$1" "5"; }
-__printf_opts() { printf_color "$1" "6"; }
-__printf_line() { printf_color "$1" "4"; }
+__printf_head() { printf_color "\t\t$1\n" "5"; }
+__printf_opts() { printf_color "\t\t$1\n" "6"; }
+__printf_line() { printf_color "\t\t$1\n" "4"; }
 __help() {
   printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   printf_opts "GEN_SCRIPT_REPLACE_FILENAME: GEN_SCRIPT_REPLACE_DESC"
@@ -85,7 +85,7 @@ __help() {
 if [ "$SHOW_RAW" = "true" ]; then
   printf_color() { printf '%b' "$1\n" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
 else
-  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "\t\t$1\n" "$(tput sgr0 2>/dev/null)"; }
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
 fi
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

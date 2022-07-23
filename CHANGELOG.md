@@ -1,3 +1,20 @@
+#### Changelog: 2022-07-23 at 12:54:17  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+templates/scripts/bash/simple      🚀  
+templates/scripts/bash/system      🚀  
+templates/scripts/bash/terminal      🚀  
+templates/scripts/bash/user      🚀  
+templates/scripts/installers/mgr-script.system.sh      🚀  
+templates/scripts/installers/mgr-script.user.sh      🚀  
+templates/scripts/other/build      🚀  
+templates/scripts/shell/bash      🚀  
+templates/scripts/shell/sh      🚀  
+  
+#### End of changes for  - 2022-07-23 at 12:54:17  
+  
+----  
+  
 #### Changelog: 2022-07-23 at 12:24:00  
 #### 🗃️ Committing everything that changed 🗃️  
   

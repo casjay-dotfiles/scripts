@@ -21,9 +21,11 @@ RUN_USER="${RUN_USER:-$USER}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
-if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
 trap 'exitCode=${exitCode:-$?};[ -n "$PKMGR_TEMP_FILE" ] && [ -f "$PKMGR_TEMP_FILE" ] && rm -Rf "$PKMGR_TEMP_FILE" &>/dev/null' EXIT
-
+#if [ ! -t 0 ] && { [[ "$1" = *term ]] || [ $# = 0 ]; }; then shift 1 && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+[[ "$1" = "--debug" ]] && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+[[ "$1" = "--raw" ]] && SHOW_RAW="true" && printf_color() { printf '%b' "$1\n" | tr -d '\t\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
+set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
@@ -88,8 +90,14 @@ run_updatecheck() { am_i_online && pkmgrcheckupdates || echo 0; }
 #   $run_command "$newpackage" && return 0 || return 1
 # }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__rm_rf() { sudo -HE rm -Rf "$@"; }
-__cp_rf() { sudo -HE cp -Rf "$@"; }
+if cmd_exists sudo && ! user_is_root && builtin command sudo -n true 2>/dev/null; then
+  sudo() { type -P sudu -HE "$*"; }
+else
+  sudo() { builtin eval "$*"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__rm_rf() { sudo rm -Rf "$@"; }
+__cp_rf() { sudo cp -Rf "$@"; }
 __curl() { am_i_online --error && curl --disable -LSsfk --connect-timeout 3 --retry 0 --fail "$*" 2>/dev/null || return 1; }
 __not_installed() { echo -ne "${RED}Not Installed${NC}"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -116,25 +124,28 @@ searchcmd() {
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Define output
+# if [ -n "$DISPLAY" ] && [ -f "$(builtin type -P zenity)" ] && [ -z "$SSH_TTY" ]; then
+#   pipecmd() {
+#     zenity --progress --no-cancel --pulsate --auto-close --title="Attempting install" --text="Trying to install" --height=200 --width=400 || printf_readline "5"
+#   }
+# else
 pipecmd() {
-  # if [ -n "$DISPLAY" ]; then
-  #   [ -f "$(builtin type -P zenity)" ] && [ -z "$SSH_TTY" ] &&
-  #     zenity --progress --no-cancel --pulsate --auto-close --title="Attempting install" --text="Trying to install" --height=200 --width=400 || printf_readline "5"
-  # else
   printf_readline "5"
-  # fi
 }
+# fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Perl/CPAN functions
 cpan_run() {
   cpan="$(type -P cpan 2>/dev/null | grep -v "$HOME" | grep '^' || return)"
   if [[ -n "$cpan" ]]; then
-    local cpandir="$(__devnull2 sudo -HE find /usr/share/perl* /usr/local/share/perl* -path '*/CPAN/Version.pm' | sed 's#/Version.pm##g' | head -n1)"
+    local cpandir="$(__devnull2 sudo find /usr/share/perl* /usr/local/share/perl* -path '*/CPAN/Version.pm' | sed 's#/Version.pm##g' | head -n1)"
     local cpanconf="https://raw.githubusercontent.com/casjay-base/centos/master/usr/share/perl5/CPAN/Config.pm"
     local cpanfile="$cpandir/Config.pm"
     if [ ! -f "$cpanfile" ] || [ ! -f "$cpandir/.init" ]; then
       printf_green "Grabbing the CPAN.pm file"
       __urlcheck "$cpanconf" &&
-        __curl "$cpanconf" | sudo -HE tee "$cpanfile" &>/dev/null &&
+        __curl "$cpanconf" | sudo tee "$cpanfile" &>/dev/null &&
         sudo touch "$cpandir/.init" || exit 1
     fi
     sudo bash -c "$cpan notest install $*" 2>/dev/null | printf_readline || return 1
@@ -147,6 +158,7 @@ cpan_remove() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Python/PIP functions
 pip_run() {
   pip3="$(type -P pip3 2>/dev/null | grep -v "$HOME" | grep '^' || return)"
   if [[ -n "$pip3" ]]; then
@@ -168,32 +180,45 @@ pip_remove() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ruby/GEM functions
 gem_run() {
   gem="$(type -P gem 2>/dev/null | grep -v "$HOME" | grep '^' || return)"
   if [[ -n "$gem" ]]; then
-    eval sudo $gem install --no-user-install "$*" 2>/dev/null | printf_readline || return 1
+    sudo $gem install --no-user-install "$*" 2>/dev/null | printf_readline || return 1
   fi
 }
 gem_remove() {
   gem="$(type -P cpan 2>/dev/null | grep -v "$HOME" | grep '^' || return)"
   if [[ -n "$gem" ]]; then
-    eval sudo $gem uninstall --no-user-install --force -aIx "$*" 2>/dev/null | printf_readline || return 1
+    sudo $gem uninstall --no-user-install --force -aIx "$*" 2>/dev/null | printf_readline || return 1
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# NODE/Yarn/NPM functions
 npm_run() {
   local NODE_PATH="$(echo $PATH | tr ':' '\n' | grep node || return)"
   local PATH="$NODE_PATH:$PATH"
-  cmd_exists npm || printdf_exit "npm doesn't seem to be installed"
-  eval npm install -g "$*" 2>/dev/null | grep -v '^$' | printf_readline || return 1
+  if cmd_exists npm; then
+    eval npm install -g "$*" 2>/dev/null | grep -v '^$' | printf_readline || return 1
+  elif cmd_exists yarn; then
+    yarn global add "$*" --prefix "/usr/local/bin"
+  else
+    printdf_exit "Neither npm or yarn seem to be installed"
+  fi
 }
 npm_remove() {
   local NODE_PATH="$(echo $PATH | tr ':' '\n' | grep node || return)"
   local PATH="$NODE_PATH:$PATH"
-  cmd_exists npm || printdf_exit "npm doesn't seem to be installed"
-  eval npm remove -g "$*" 2>/dev/null | grep -v '^$' | printf_readline || return 1
+  if cmd_exists npm; then
+    eval npm remove -g "$*" 2>/dev/null | grep -v '^$' | printf_readline || return 1
+  elif cmd_exists yarn; then
+    yarn global remove "$*" --prefix "/usr/local/bin"
+  else
+    printdf_exit "Neither npm or yarn seem to be installed"
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Lua/Rocks functions
 lua_run() {
   cmd_exists lua || return 1
   luarocks install "$*"
@@ -202,6 +227,7 @@ lua_remove() {
   luarocks remove "$*"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Go functions
 go_run() {
   cmd_exists go || return 1
   go install -v "$1@latest"
@@ -227,6 +253,7 @@ go_remove() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Curl functions
 curl_run() {
   [ -z $1 ] && printf_exit 1 0 "Usage: pkmgr curl OS filename or pkmgr curl fullurltolist "
   local os="$(echo $OS | tr '[:upper:]' '[:lower:]')"
@@ -244,9 +271,10 @@ curl_run() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Remote script execution functions
 script_run_if_is_url() {
-  [ -z $1 ] && printf_exit 1 0 "Usage: pkmgr script filename or url "
-  if [[ $1 =~ https?://.* ]] || [[ $1 =~ ftp?://.* ]]; then
+  [ -z "$1" ] && printf_exit 1 0 "Usage: pkmgr script filename or url "
+  if [[ "$1" =~ https?://.* ]] || [[ "$1" =~ ftp?://.* ]]; then
     __urlverify "$1"
     __curl "$1" | tee "$PKMGR_TEMP_FILE" &>/dev/null
   else
@@ -260,6 +288,7 @@ script_run_if_is_url() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Script execution
 script_run() {
   if [ "$1" = "--script" ]; then
     shift 1
@@ -285,8 +314,7 @@ __schedule() {
   local sleepcmd="$(expr $RANDOM \% 300)"
   local date="$(date +"%m-%d-%Y %H:%M")"
   local cronjob="0 4 * * * root sleep ${sleepcmd} ; pkmgr cron run"
-  sudo mkdir -p /var/log/pkmgr
-
+  sudo mkdir -p "/var/log/pkmgr"
   case "$1" in
   remove)
     shift 1
@@ -335,52 +363,80 @@ dotfiles_run() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __aliases() {
-  echo -e "
-  alias apt='sudo $APPNAME '
-  alias apt-get='sudo $APPNAME '
-  alias dnf='sudo $APPNAME '
-  alias yum='sudo $APPNAME '
-  alias pacman='sudo $APPNAME '
-  alias brew='sudo $APPNAME '
-  alias yay='sudo $APPNAME '
-  "
+  cat <<EOF
+  alias apt='$APPNAME '
+  alias apt-get='$APPNAME '
+  alias dnf='$APPNAME '
+  alias yum='$APPNAME '
+  alias pacman='$APPNAME '
+  alias brew='$APPNAME '
+  alias yay='$APPNAME '
+EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 show_info() {
-  printf_info "         System info for $(hostname -s)"
-  printf_green "Repo:                       $dotfilesrepo"
-  printf_green "system package manager:     $pkgmgrbin"
-  printf_green "Install cmd:                $pkgmgrbinins"
-  printf_green "Install silent cmd:         $pkgmgrbininssil"
-  printf_green "Remove cmd:                 $pkgmgrbindel"
-  printf_green "Remove silent cmd:          $pkgmgrbinremsil"
-  printf_green "Update cmd:                 $pkgmgrbinupd"
-  printf_green "Update silent cmd:          $pkgmgrbinupdsil"
-  printf_green "Search cmd:                 $pkgmgrbinsea"
-  printf_green "Clean cache cmd:            $pkgmgrbincle"
-  printf_green "Make cache cmd:             $pkgmgrbincac"
-  printf_green "Python:                     $(builtin type -P python3 || builtin type -P python2 || __not_installed)"
-  printf_green "PIP:                        $(builtin type -P pip3 || builtin type -P pip || __not_installed)"
-  printf_green "CPAN:                       $(builtin type -P cpan || __not_installed)"
-  printf_green "Gem:                        $(builtin type -P gem || __not_installed)"
-  printf_green "NPM:                        $(builtin type -P node || __not_installed)"
-  printf_green "Lua                         $(builtin type -P luarocks || __not_installed)"
+  local col=""
+  local truncate=""
+  [[ -n "$COLUMNS" ]] && col="$(($COLUMNS - 50))" || col=90
+  printf_red "System info for $(hostname -f)         "
   if [ -n "$DISTRO" ]; then
-    printf_green "Distribution:               $DISTRO"
-    printf_green "Distro Version:             $DISTRO_VERSION"
+    printf_blue "Distribution:               $DISTRO"
+    printf_blue "Distro Version:             $DISTRO_VERSION"
     [ -z "$CODENAME" ] ||
-      printf_green "Release version:            $CODENAME"
+      printf_yellow "Release version:            $CODENAME"
   elif cmd_exists lsb_release; then
-    printf_green "Distribution:               $(lsb_release -a 2>dev/null | grep -i Distributor | awk '{print $3}')"
-    printf_green "Codename:                   $(lsb_release -a 2>dev/null | grep -i Codename | awk '{print $2}')"
-    printf_green "Release version:            $(lsb_release -a 2>dev/null | grep -i Release | awk '{print $2}')"
+    printf_yellow "Distribution:               $(lsb_release -a 2>dev/null | grep -i Distributor | awk '{print $3}')"
+    printf_yellow "Codename:                   $(lsb_release -a 2>dev/null | grep -i Codename | awk '{print $2}')"
+    printf_yellow "Release version:            $(lsb_release -a 2>dev/null | grep -i Release | awk '{print $2}')"
   fi
-  printf_green "Kernel version              $(uname -r)"
+  printf_yellow "Kernel version              $(uname -r)"
+  if [[ "$1" = "truncate" ]]; then
+    truncate="true"
+    printf_cyan "Repo:                       ${dotfilesrepo:0:$col}"
+    printf_cyan "system package manager:     ${pkgmgrbin:0:$col}"
+    printf_cyan "Install cmd:                ${pkgmgrbinins:0:$col}"
+    printf_cyan "Install silent cmd:         ${pkgmgrbininssil:0:$col}"
+    printf_cyan "Remove cmd:                 ${pkgmgrbindel:0:$col}"
+    printf_cyan "Remove silent cmd:          ${pkgmgrbinremsil:0:$col}"
+    printf_cyan "Update cmd:                 ${pkgmgrbinupd:0:$col}"
+    printf_cyan "Update silent cmd:          ${pkgmgrbinupdsil:0:$col}"
+    printf_cyan "Search cmd:                 ${pkgmgrbinsea:0:$col}"
+    printf_cyan "Clean cache cmd:            ${pkgmgrbincle:0:$col}"
+    printf_cyan "Make cache cmd:             ${pkgmgrbincac:0:$col}"
+  else
+    truncate="false"
+    printf_cyan "Repo:                       ${dotfilesrepo}"
+    printf_cyan "system package manager:     ${pkgmgrbin}"
+    printf_cyan "Install cmd:                ${pkgmgrbinins}"
+    printf_cyan "Install silent cmd:         ${pkgmgrbininssil}"
+    printf_cyan "Remove cmd:                 ${pkgmgrbindel}"
+    printf_cyan "Remove silent cmd:          ${pkgmgrbinremsil}"
+    printf_cyan "Update cmd:                 ${pkgmgrbinupd}"
+    printf_cyan "Update silent cmd:          ${pkgmgrbinupdsil}"
+    printf_cyan "Search cmd:                 ${pkgmgrbinsea}"
+    printf_cyan "Clean cache cmd:            ${pkgmgrbincle}"
+    printf_cyan "Make cache cmd:             ${pkgmgrbincac}"
+  fi
+  printf_blue "Node:                       $(builtin type -P node || __not_installed)"
+  printf_blue "NPM:                        $(builtin type -P npm || builtin type -P yarn || __not_installed)"
+  printf_purple "Python:                     $(builtin type -P python3 || builtin type -P python2 || __not_installed)"
+  printf_purple "PIP:                        $(builtin type -P pip3 || builtin type -P pip || __not_installed)"
+  printf_blue "Perl:                       $(builtin type -P perl || __not_installed)"
+  printf_blue "CPAN:                       $(builtin type -P cpan || __not_installed)"
+  printf_purple "Ruby:                       $(builtin type -P ruby || __not_installed)"
+  printf_purple "Gem:                        $(builtin type -P gem || __not_installed)"
+  printf_blue "Lua                         $(builtin type -P lua || __not_installed)"
+  printf_blue "Luarocks                    $(builtin type -P luarocks || __not_installed)"
+  if [[ "$truncate" = "true" ]]; then
+    printf_red "Results may have been truncated to $col"
+    printf_red "add notruncate for no truncation"
+  fi
+  printf_newline
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 exportpkg() {
-  [[ "$(uname -s)" =~ Darwin* ]] && DISTRO=MacOS
-  [[ "$(uname -s)" =~ ^MING*|WIN*|MSYS* ]] && DISTRO=Windows
+  [[ "$(uname -s)" =~ Darwin* ]] && DISTRO="MacOS"
+  [[ "$(uname -s)" =~ ^MING*|WIN*|MSYS* ]] && DISTRO="Windows"
   local pkgdir="$HOME/.local/tmp/${DISTRO:-}"
   local pkglist="$pkgdir/$(hostname -s).list"
   mkdir -p "$pkgdir"
@@ -518,7 +574,7 @@ fi
 [ -f "$PKMGR_TEMP_FILE" ] && __rm_rf "$PKMGR_TEMP_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Variables - Distro specific
-case "$(uname -s | tr '[:upper:]' '[:lower:]')" in #
+case "$(uname -s | tr '[:upper:]' '[:lower:]')" in
 linux)
   # apt-get debian based setup                                                                                                                     #
   if [ -f "$(builtin type -P apt-get 2>/dev/null)" ]; then                                                                              #
@@ -526,14 +582,14 @@ linux)
     export DEBIAN_FRONTEND=noninteractive                                                                                               #
     export APT_OPTS="-o Dpkg::Options::='--force-confdef' -o Dpkg::Options::='--force-confold'"                                         #
     dotfilesrepo="$REPODF/apt"                                                                                                          #
-    pkgmgrbin="sudo -HE --preserve-env=PATH /usr/bin/apt-get"                                                                           #
+    pkgmgrbin="sudo --preserve-env=PATH /usr/bin/apt-get"                                                                               #
     pkgmgrbinins="$pkgmgrbin install"                                                                                                   #
     pkgmgrbininssil="$pkgmgrbin install $APT_OPTS --ignore-missing -yy -qq --allow-unauthenticated --assume-yes"                        #
     pkgmgrbinremsil="$pkgmgrbin remove -yy -qq --assume-yes --purge"                                                                    #
     pkgmgrbinupdsil="$pkgmgrbin dist-upgrade $APT_OPTS --ignore-missing -yy -qq --allow-unauthenticated --assume-yes"                   #
     pkgmgrbinupdcron="$pkgmgrbin dist-upgrade $APT_OPTS --ignore-missing -yy --allow-unauthenticated --assume-yes"                      #
     pkgmgrbindel="$pkgmgrbin remove --purge"                                                                                            #
-    pkgmgrbinsea="sudo -HE --preserve-env=PATH /usr/bin/apt-cache search"                                                               #
+    pkgmgrbinsea="sudo --preserve-env=PATH /usr/bin/apt-cache search"                                                                   #
     pkgmgrbinupd="$pkgmgrbin dist-upgrade"                                                                                              #
     pkgmgrbincle="$pkgmgrbin clean"                                                                                                     #
     pkgmgrbincac="$pkgmgrbin update"                                                                                                    #
@@ -546,14 +602,14 @@ linux)
     export DEBIAN_FRONTEND=noninteractive                                                                                               #
     export APT_OPTS="-o Dpkg::Options::='--force-confdef' -o Dpkg::Options::='--force-confold'"                                         #
     dotfilesrepo="$REPODF/apt"                                                                                                          #
-    pkgmgrbin="sudo -HE --preserve-env=PATH /usr/bin/apt"                                                                               #
+    pkgmgrbin="sudo --preserve-env=PATH /usr/bin/apt"                                                                                   #
     pkgmgrbinins="$pkgmgrbin install"                                                                                                   #
     pkgmgrbininssil="$pkgmgrbin install $APT_OPTS --ignore-missing -yy -qq --allow-unauthenticated --assume-yes"                        #
     pkgmgrbinremsil="$pkgmgrbin remove -yy -qq --assume-yes --purge"                                                                    #
     pkgmgrbinupdsil="$pkgmgrbin dist-upgrade $APT_OPTS --ignore-missing -yy -qq --allow-unauthenticated --assume-yes"                   #
     pkgmgrbinupdcron="$pkgmgrbin dist-upgrade $APT_OPTS --ignore-missing -yy --allow-unauthenticated --assume-yes"                      #
     pkgmgrbindel="$pkgmgrbin remove --purge"                                                                                            #
-    pkgmgrbinsea="sudo -HE --preserve-env=PATH /usr/bin/apt-cache search"                                                               #
+    pkgmgrbinsea="sudo --preserve-env=PATH /usr/bin/apt-cache search"                                                                   #
     pkgmgrbinupd="$pkgmgrbin dist-upgrade"                                                                                              #
     pkgmgrbincle="$pkgmgrbin clean"                                                                                                     #
     pkgmgrbincac="$pkgmgrbin update"                                                                                                    #
@@ -563,7 +619,7 @@ linux)
   # pacman archlinux based setup                                                                                                                     #
   elif [ -f "$(builtin type -P pacman 2>/dev/null)" ]; then                                                                       #
     dotfilesrepo="$REPODF/pacman"                                                                                                 #
-    pkgmgrbin="sudo -HE --preserve-env=PATH /usr/bin/pacman"                                                                      #
+    pkgmgrbin="sudo --preserve-env=PATH /usr/bin/pacman"                                                                          #
     pkgmgrbinins="$pkgmgrbin -S --noconfirm --overwrite='*'"                                                                      #
     pkgmgrbininssil="$pkgmgrbin -S --noconfirm --needed --overwrite='*' "                                                         #
     pkgmgrbinremsil="$pkgmgrbin -R --noconfirm"                                                                                   #
@@ -580,7 +636,7 @@ linux)
   # pamac archlinux based setup                                                                                                                     #
   elif [ -f "$(builtin type -P pamac 2>/dev/null)" ]; then                                                           #
     dotfilesrepo="$REPODF/pacman"                                                                                    #
-    pkgmgrbin="sudo -HE  /usr/bin/pamac"                                                                             #
+    pkgmgrbin="sudo  /usr/bin/pamac"                                                                                 #
     pkgmgrbinins="$pkgmgrbin install --noconfirm"                                                                    #
     pkgmgrbininssil="$pkgmgrbin install --noconfirm"                                                                 #
     pkgmgrbinremsil="$pkgmgrbin remove --noconfirm"                                                                  #
@@ -597,7 +653,7 @@ linux)
   # dnf fedora based setup                                                                                                                     #
   elif [ -f "$(builtin type -P dnf 2>/dev/null)" ]; then                                                                                #
     dotfilesrepo="$REPODF/yum"                                                                                                          #
-    pkgmgrbin="sudo -HE --preserve-env=PATH /usr/bin/dnf"                                                                               #
+    pkgmgrbin="sudo --preserve-env=PATH /usr/bin/dnf"                                                                                   #
     pkgmgrbinins="$pkgmgrbin install"                                                                                                   #
     pkgmgrbininssil="$pkgmgrbin install -y -q"                                                                                          #
     pkgmgrbinremsil="$pkgmgrbin remove -y -q"                                                                                           #
@@ -614,7 +670,7 @@ linux)
   # yum fedora based setup                                                                                                                     #
   elif [ -f "$(builtin type -P yum 2>/dev/null)" ]; then                                                                                #
     dotfilesrepo="$REPODF/yum"                                                                                                          #
-    pkgmgrbin="sudo -HE --preserve-env=PATH /usr/bin/yum"                                                                               #
+    pkgmgrbin="sudo --preserve-env=PATH /usr/bin/yum"                                                                                   #
     pkgmgrbinins="$pkgmgrbin install"                                                                                                   #
     pkgmgrbininssil="$pkgmgrbin install -y -q"                                                                                          #
     pkgmgrbinremsil="$pkgmgrbin remove -y -q"                                                                                           #
@@ -631,7 +687,7 @@ linux)
   # tdnf photon based setup                                                                                                                     #
   elif [ -f "$(builtin type -P tdnf 2>/dev/null)" ]; then                                                                                 #
     dotfilesrepo="$REPODF/yum"                                                                                                            #
-    pkgmgrbin="sudo -HE --preserve-env=PATH /usr/bin/tdnf"                                                                                #
+    pkgmgrbin="sudo --preserve-env=PATH /usr/bin/tdnf"                                                                                    #
     pkgmgrbinins="$pkgmgrbin install"                                                                                                     #
     pkgmgrbininssil="$pkgmgrbin install -y -q"                                                                                            #
     pkgmgrbinremsil="$pkgmgrbin remove -y -q"                                                                                             #
@@ -661,20 +717,20 @@ linux)
     pkgmgrbincac="true"                                  #
     pkmgrcheckbin="$(builtin type -P apk 2>/dev/null)"   #
     pkmgrcheckupdates() { apk -u list | wc -l; }         #
-    pkgmgrexport() { apk info | sort; }                  #
+    pkgmgrexport() { apk info | sort -u; }               #
   # xbps-* voidlinux based setup                         #
   elif [ -f "$(builtin type -P xbps-install 2>/dev/null)" ]; then                                    #
     dotfilesrepo="$REPODF/xbps"                                                                      #
-    pkgmgrbin="sudo -HE --preserve-env=PATH /usr/bin/xbps-install"                                   #
+    pkgmgrbin="sudo --preserve-env=PATH /usr/bin/xbps-install"                                       #
     pkgmgrbinins="$pkgmgrbin -S"                                                                     #
     pkgmgrbininssil="$pkgmgrbin -Sy"                                                                 #
-    pkgmgrbinremsil="sudo -HE --preserve-env=PATH /usr/bin/xbps-remove -y"                           #
+    pkgmgrbinremsil="sudo --preserve-env=PATH /usr/bin/xbps-remove -y"                               #
     pkgmgrbinupdsil="$pkgmgrbin -Syu"                                                                #
     pkgmgrbinupdcron="$pkgmgrbin -Syu"                                                               #
-    pkgmgrbindel="sudo -HE --preserve-env=PATH /usr/bin/xbps-remove"                                 #
-    pkgmgrbinsea="sudo -HE --preserve-env=PATH /usr/bin/xbps-query -Rs"                              #
+    pkgmgrbindel="sudo --preserve-env=PATH /usr/bin/xbps-remove"                                     #
+    pkgmgrbinsea="sudo --preserve-env=PATH /usr/bin/xbps-query -Rs"                                  #
     pkgmgrbinupd="$pkgmgrbin -Syu "                                                                  #
-    pkgmgrbincle="sudo -HE --preserve-env=PATH /usr/bin/xbps-remove -O"                              #
+    pkgmgrbincle="sudo --preserve-env=PATH /usr/bin/xbps-remove -O"                                  #
     pkgmgrbincac="$pkgmgrbin -S"                                                                     #
     pkmgrcheckbin="$(builtin type -P xbps-install 2>/dev/null)"                                      #
     pkmgrcheckupdates() { [ -n "$pkmgrcheckbin" ] && $pkmgrcheckbin 2>/dev/null | wc -l || echo 0; } #
@@ -686,9 +742,9 @@ darwin)                                                                         
   if [ -n "$(builtin type -P brew 2>/dev/null)" ]; then                                                       #
     dotfilesrepo="$REPODF/brew"                                                                               #
     if [ "$1" = "--cask" ]; then                                                                              #
-      pkgmgrbin="sudo -HE --preserve-env=PATH -u $RUN_USER brew --cask"                                       #
+      pkgmgrbin="sudo --preserve-env=PATH -u $RUN_USER brew --cask"                                           #
     else                                                                                                      #
-      pkgmgrbin="sudo -HE --preserve-env=PATH -u $RUN_USER brew"                                              #
+      pkgmgrbin="sudo --preserve-env=PATH -u $RUN_USER brew"                                                  #
     fi                                                                                                        #
     pkgmgrbinins="$pkgmgrbin install"                                                                         #
     pkgmgrbininssil="$pkgmgrbin install -f"                                                                   #
@@ -729,7 +785,7 @@ esac                                                                            
 #
 if [ -f "$(builtin type -P yay 2>/dev/null)" ] && [ "$ENABLE_AUR" = "true" ]; then                                               #
   dotfilesrepo="$REPODF/pacman"                                                                                                  #
-  pkgmgrbin="sudo -HE --preserve-env=PATH -HE -u $RUN_USER /usr/bin/yay"                                                         #
+  pkgmgrbin="sudo --preserve-env=PATH -u $RUN_USER /usr/bin/yay"                                                                 #
   pkgmgrbinins="$pkgmgrbin -S --cleanafter --overwrite='*'"                                                                      #
   pkgmgrbininssil="$pkgmgrbin -Sy --needed --noconfirm --cleanafter --overwrite='*'"                                             #
   pkgmgrbinremsil="$pkgmgrbin -Ry --noconfirm --needed --noconfirm"                                                              #
@@ -758,12 +814,12 @@ pkginit="$pkgmgrbincle ; $pkgmgrbincac ; $pkgmgrbinupdsil"
 case "$1" in
 check) # Check for updates
   shift 1
-  builtin command sudo -n true &>/dev/null && $pkgmgrbincac &>/dev/null
+  { user_is_root || builtin command sudo -n true &>/dev/null; } && $pkgmgrbincac &>/dev/null
   UPDATECHECKFILE="$CHECK_FOR_UPDATES_CACHEDIR/update_check"
   [[ "$1" = "force" || "$FORCE_INSTALL" = "yes" ]] && __rm_rf "$UPDATECHECKFILE"
   __find_mtime "$UPDATECHECKFILE" "1800" || __rm_rf "$UPDATECHECKFILE"
   if [ ! -f "$UPDATECHECKFILE" ]; then
-    builtin command sudo -n true &>/dev/null && $pkgmgrbincac &>/dev/null
+    { user_is_root || builtin command sudo -n true &>/dev/null; } && $pkgmgrbincac &>/dev/null
     run_updatecheck >"$UPDATECHECKFILE"
   fi
   [ -f "$UPDATECHECKFILE" ] && cat "$UPDATECHECKFILE" || echo 0
@@ -819,11 +875,11 @@ keys | -k)
   shift 1
   if cmd_exists pacman-key; then
     [ "$1" = "help" ] && printf_help "Usage: $APPNAME keys [arch,manjaro,arcolinux] - Manage arch keys"
-    sudo -HE rm -R /etc/pacman.d/gnupg/
-    sudo -HE rm -R /root/.gnupg/
-    sudo -HE gpg --refresh-keys
-    sudo -HE pacman-key --init && sudo -HE pacman-key --populate "${1:-archlinux}"
-    sudo -HE pacman-key --refresh-keys
+    sudo rm -R /etc/pacman.d/gnupg/
+    sudo rm -R /root/.gnupg/
+    sudo gpg --refresh-keys
+    sudo pacman-key --init && sudo pacman-key --populate "${1:-archlinux}"
+    sudo pacman-key --refresh-keys
   else
     printf_error "This is only supported on Arch based distros"
   fi
@@ -905,7 +961,7 @@ upgrade | update) # Update packages
   declare -a LISTARRAY=$PCKLIST
   am_i_online --error || exit 1
   if [ -f "$(builtin type -P systemmgr)" ]; then
-    sudo -HE systemmgr install installer && exitCode+=0 || exitCode+=1
+    sudo systemmgr install installer && exitCode+=0 || exitCode+=1
   fi
   $pkgmgrbinupd "$@" && exitCode+=0 || exitCode+=1
   exit ${exitCode:-$?}
@@ -994,7 +1050,7 @@ silent-upgrade | silent-update) # Silently update packages
   [ "$1" = "help" ] && printf_help "Silently upgrade your system"
   am_i_online --error || exit 1
   if [ -f "$(builtin type -P systemmgr)" ]; then
-    __devnull sudo -HE systemmgr install scripts && exitCode+=0 || exitCode+=1
+    __devnull sudo systemmgr install scripts && exitCode+=0 || exitCode+=1
   fi
   __devnull $pkgmgrbinupdsil && exitCode+=0 || exitCode+=1
   exit ${exitCode:-$?}
@@ -1282,7 +1338,7 @@ silent) # Silent
     [ "$1" = "help" ] && printf_help "Silently upgrade your system"
     am_i_online --error || exit 1
     if [ -f "$(builtin type -P systemmgr)" ]; then
-      __devnull sudo -HE systemmgr install installer
+      __devnull sudo systemmgr install installer
     fi
     __devnull $pkgmgrbinupdsil && exitCode+=0 || exitCode+=1
     exit ${exitCode:-$?}
@@ -1308,7 +1364,7 @@ silent) # Silent
 info) # Show system info
   shift 1
   [ "$1" = "help" ] && printf_help "Show info about your system"
-  show_info
+  show_info "${1:-truncate}"
   ;;
 
 version) # Show version

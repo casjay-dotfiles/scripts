@@ -26,10 +26,12 @@ SRC_DIR="${BASH_SOURCE%/*}"
 SCRIPTS_PREFIX="devenvmgr"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
-[[ "$1" == "--debug" ]] && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
-
+#if [ ! -t 0 ] && { [[ "$1" = *term ]] || [ $# = 0 ]; }; then { [[ "$1" = *term ]] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+[[ "$1" = "--debug" ]] && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+[[ "$1" = "--raw" ]] && SHOW_RAW="true" && printf_color() { printf '%b' "$1\n" | tr -d '\t\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
+set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# specify any functions here
+# Define pre-install scripts
 run_pre_install() {
 
   return ${?:-0}
@@ -88,10 +90,10 @@ show_optvars "$@"
 #sudoreq "$0 $*" # sudo required
 #sudorun  # sudo optional
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# initialize the installer
+# Initialize the installer
 devenvmgr_run_init
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# run pre install commands
+# Run pre-install commands
 execute "run_pre_install" "Running pre-installation commands"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # end with a space
@@ -101,6 +103,7 @@ PYTH=""
 PIPS=""
 CPAN=""
 GEMS=""
+NPM=""
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # install packages - useful for package that have the same name on all oses
@@ -123,6 +126,9 @@ install_cpan "$CPAN"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # check for ruby binaries and install using ruby package manager
 install_gem "$GEMS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# check for npm binaries and install using node package manager
+install_npm "$NPM"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Other dependencies
 dotfilesreq
@@ -153,7 +159,12 @@ run_postinst() {
   devenvmgr_run_post
 }
 #
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# run post install scripts
 execute "run_postinst" "Running post install scripts"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Output post install message
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # create version file
 devenvmgr_install_version

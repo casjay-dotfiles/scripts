@@ -589,6 +589,12 @@ gem_exists() {
   gem list | grep -q "$package" && return 0 || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+node_exists() {
+  [ -n "$(builtin type -P npm 2>/dev/null)" ] || return
+  local package="$1"
+  npm list -g --depth=0 2>&1 | grep -q "$package@" && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 perl_exists() {
   [ -n "$(builtin type -P perl 2>/dev/null)" ] || return
   local package="${1//perl-/}"
@@ -959,6 +965,15 @@ gem_missing() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+node_missing() {
+  if node_exists "$1"; then
+    return 0
+  else
+    MISSING+="$1 "
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 perl_missing() {
   if perl_exists "$1"; then
     return 0
@@ -1211,6 +1226,26 @@ install_gem() {
       printf_warning "$MISSING"
       for miss in $MISSING; do
         execute "pkmgr gem install $miss" "Installing $miss"
+      done
+    fi
+  fi
+  unset MISSING
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+install_node() {
+  builtin type -p "npm" &>/dev/null || builtin type -p "yarn" &>/dev/null || return 1
+  local REQUIRED="$*"
+  local MISSING=""
+  local cmd=""
+  for cmd in $REQUIRED; do
+    node_missing "$cmd" &>/dev/null
+  done
+  if [ -n "$MISSING" ]; then
+    if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
+      printf_warning "Attempting to install missing node packages"
+      printf_warning "$MISSING"
+      for miss in $MISSING; do
+        execute "pkmgr npm install $miss" "Installing $miss"
       done
     fi
   fi

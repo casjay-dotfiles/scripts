@@ -26,10 +26,12 @@ SRC_DIR="${BASH_SOURCE%/*}"
 SCRIPTS_PREFIX="wallpapermgr"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
-[[ "$1" == "--debug" ]] && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
-
+#if [ ! -t 0 ] && { [[ "$1" = *term ]] || [ $# = 0 ]; }; then { [[ "$1" = *term ]] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+[[ "$1" = "--debug" ]] && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+[[ "$1" = "--raw" ]] && SHOW_RAW="true" && printf_color() { printf '%b' "$1\n" | tr -d '\t\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
+set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# specify any functions here
+# Define pre-install scripts
 run_pre_install() {
 
   return ${?:-0}
@@ -75,10 +77,10 @@ wallpapermgr_req_version "$APPVERSION"
 # Script options IE: --help
 show_optvars "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# initialize the installer
+# Initialize the installer
 wallpapermgr_run_init
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# run pre install commands
+# Run pre-install commands
 execute "run_pre_install" "Running pre-installation commands"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure directories exist
@@ -100,8 +102,12 @@ fi
 run_postinst() {
   wallpapermgr_run_post
 }
-#
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# run post install scripts
 execute "run_postinst" "Running post install scripts"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Output post install message
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # create version file
 wallpapermgr_install_version

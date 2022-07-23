@@ -1,3 +1,13 @@
+#### Changelog: 2022-07-23 at 01:21:02  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+templates/scripts/shell/bash      🚀  
+templates/scripts/shell/sh      🚀  
+  
+#### End of changes for 202207230119-git - 2022-07-23 at 01:21:02  
+  
+----  
+  
 #### Changelog: 2022-07-23 at 01:19:03  
 #### 🗃️ Committing everything that changed 🗃️  
   

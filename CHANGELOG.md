@@ -1,3 +1,12 @@
+#### Changelog: 2022-07-23 at 13:10:36  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+templates/scripts/bash/simple      🚀  
+  
+#### End of changes for  - 2022-07-23 at 13:10:36  
+  
+----  
+  
 #### Changelog: 2022-07-23 at 13:07:17  
 #### 🗃️ Committing everything that changed 🗃️  
   

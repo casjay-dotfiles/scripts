@@ -158,7 +158,7 @@ printf_newline() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ "$SHOW_RAW" = "true" ]; then
   unset -f __printf_color
-  printf_color() { printf '%b' "$1" | tr -d '\t\t'; }
+  printf_color() { printf '%b' "$1" | tr -d '\t'; }
   __printf_color() { printf_color "$1"; }
 else
   __printf_color() { printf_color "$@"; }
@@ -985,9 +985,9 @@ __options() {
 
     --raw)
       shift 1
-      SHOW_RAW="true"
+      export SHOW_RAW="true"
       unset -f printf_color
-      printf_color() { printf '%b' "$1" | tr -d '\t\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
+      printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
 
       ;;
     *)

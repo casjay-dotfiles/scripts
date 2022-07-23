@@ -27,7 +27,7 @@ SRC_DIR="${BASH_SOURCE%/*}"
 # Set bash options
 #if [ ! -t 0 ] && { [[ "$1" = *term ]] || [ $# = 0 ]; }; then { [[ "$1" = *term ]] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
 [[ "$1" = "--debug" ]] && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
-[[ "$1" = "--raw" ]] && SHOW_RAW="true" && printf_color() { printf '%b' "$1\n" | tr -d '\t\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
+[[ "$1" = "--raw" ]] && export SHOW_RAW="true"
 set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
@@ -45,8 +45,8 @@ else
   exit 90
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Options are: devenvmgr_install dfmgr_install dockermgr_install fontmgr_install iconmgr_install pkmgr_install
-# system_install systemmgr_install thememgr_install user_install wallpapermgr_install
+# Options are: desktopmgr_install devenvmgr_install dfmgr_install dockermgr_install fontmgr_install iconmgr_install
+# pkmgr_install system_install systemmgr_install thememgr_install user_install wallpapermgr_install
 GEN_SCRIPT_REPLACE_FILENAME_install && __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set functions
@@ -80,6 +80,11 @@ __help() {
   printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   exit
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disable colorization
+if [[ "$SHOW_RAW" = "true" ]]; then
+  printf_color() { printf '%b' "$1\n" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __list_available() {
   [[ -n "$LIST" ]] || LIST="$(__api_list)"
@@ -331,9 +336,6 @@ __run_search() {
   exit $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Default variables
-exitCode="0"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application Folders
 GEN_SCRIPT_REPLACE_ENV_LOG_DIR="${GEN_SCRIPT_REPLACE_ENV_LOG_DIR:-$HOME/.local/log/GEN_SCRIPT_REPLACE_FILENAME}"
 GEN_SCRIPT_REPLACE_ENV_CACHE_DIR="${GEN_SCRIPT_REPLACE_ENV_CACHE_DIR:-$HOME/.cache/GEN_SCRIPT_REPLACE_FILENAME}"
@@ -414,6 +416,11 @@ setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$(basename "$0" 2>/de
 eval set -- "${setopts[@]}" 2>/dev/null
 while :; do
   case $1 in
+  --raw)
+    export SHOW_RAW="true"
+    unset -f printf_color
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
+    ;;
   --options)
     shift 1
     [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
@@ -449,11 +456,6 @@ while :; do
   -a | --all)
     shift 1
     INSTALL_ALL="true"
-    ;;
-  --raw)
-    SHOW_RAW="true"
-    unset -f printf_color
-    printf_color() { printf '%b' "$1" | tr -d '\t\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
     ;;
   --)
     shift 1
@@ -588,6 +590,9 @@ version)
   __help
   ;;
 esac
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set exit code
+exitCode="${exitCode:-$?}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

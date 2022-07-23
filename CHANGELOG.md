@@ -1,3 +1,78 @@
+#### Changelog: 2022-07-23 at 00:41:42  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+bin/am_i_online      🚀  
+bin/anime-dl      🚀  
+bin/anonymize      🚀  
+bin/append_path      🚀  
+bin/ask_for_input      🚀  
+bin/ask_for_password      🚀  
+bin/ask_yes_no_question      🚀  
+bin/automate      🚀  
+bin/backupapp      🚀  
+bin/bashtop      🚀  
+bin/blog      🚀  
+bin/buildx      🚀  
+bin/calc      🚀  
+bin/calendar      🚀  
+bin/changeip      🚀  
+bin/cheat.sh      🚀  
+bin/check_app      🚀  
+bin/check-for-updates      🚀  
+bin/clean-system      🚀  
+bin/client-installs      🚀  
+bin/clipboard      🚀  
+bin/cloudflare      🚀  
+bin/cmd_exists      🚀  
+bin/cmdfu      🚀  
+bin/command      🚀  
+bin/config      🚀  
+bin/corona-virus      🚀  
+bin/covid19      🚀  
+bin/currency      🚀  
+bin/decrypt      🚀  
+bin/define      🚀  
+bin/dfmgr      🚀  
+bin/gen-completion      🚀  
+bin/gen-script      🚀  
+bin/pkmgr      🚀  
+bin/real_path      🚀  
+bin/type      🚀  
+bin/volumectl      🚀  
+functions/app-installer.bash      🚀  
+functions/global/colors.bash      🚀  
+functions/global/options.bash      🚀  
+functions/mgr-installers.bash      🚀  
+functions/minimal.bash      🚀  
+functions/system-installer.bash      🚀  
+templates/gen-script/header/raw.tmpl.sh      🚀  
+templates/gen-script/script/system.tmpl.sh      🚀  
+templates/gen-script/script/user.tmpl.sh      🚀  
+templates/scripts/bash/simple      🚀  
+templates/scripts/bash/system      🚀  
+templates/scripts/bash/terminal      🚀  
+templates/scripts/bash/user      🚀  
+templates/scripts/installers/desktopmgr.sh      🚀  
+templates/scripts/installers/devenvmgr.sh      🚀  
+templates/scripts/installers/dfmgr.sh      🚀  
+templates/scripts/installers/dockermgr.sh      🚀  
+templates/scripts/installers/fontmgr.sh      🚀  
+templates/scripts/installers/iconmgr.sh      🚀  
+templates/scripts/installers/mgr-script.system.sh      🚀  
+templates/scripts/installers/mgr-script.user.sh      🚀  
+templates/scripts/installers/personal.sh      🚀  
+templates/scripts/installers/systemmgr.sh      🚀  
+templates/scripts/installers/thememgr.sh      🚀  
+templates/scripts/installers/wallpapermgr.sh      🚀  
+templates/scripts/other/build      🚀  
+templates/scripts/other/docker-entrypoint      🚀  
+templates/scripts/shell/bash      🚀  
+templates/scripts/shell/sh      🚀  
+  
+#### End of changes for 202207222308-git - 2022-07-23 at 00:41:42  
+  
+----  
+  
 #### Changelog: 2022-07-22 at 23:08:29  
 #### 🗃️ Committing everything that changed 🗃️  
   

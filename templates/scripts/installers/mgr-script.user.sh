@@ -15,7 +15,7 @@
 # @@Resource         :  GEN_SCRIPT_REPLACE_RES
 # @@Terminal App     :  GEN_SCRIPT_REPLACE_TERMINAL
 # @@sudo/root        :  GEN_SCRIPT_REPLACE_SUDO
-# @@Template         :  installers/mgr-script.user
+# @@Template         :  installers/mgr-script.system
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0" 2>/dev/null)"
 VERSION="GEN_SCRIPT_REPLACE_VERSION"
@@ -27,7 +27,7 @@ SRC_DIR="${BASH_SOURCE%/*}"
 # Set bash options
 #if [ ! -t 0 ] && { [[ "$1" = *term ]] || [ $# = 0 ]; }; then { [[ "$1" = *term ]] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
 [[ "$1" = "--debug" ]] && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
-[[ "$1" = "--raw" ]] && SHOW_RAW="true" && printf_color() { printf '%b' "$1\n" | tr -d '\t\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
+[[ "$1" = "--raw" ]] && export SHOW_RAW="true"
 set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
@@ -45,42 +45,46 @@ else
   exit 90
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Options are: devenvmgr_install dfmgr_install dockermgr_install fontmgr_install iconmgr_install pkmgr_install
-# system_install systemmgr_install thememgr_install user_install wallpapermgr_install
+# Options are: desktopmgr_install devenvmgr_install dfmgr_install dockermgr_install fontmgr_install iconmgr_install
+# pkmgr_install system_install systemmgr_install thememgr_install user_install wallpapermgr_install
 GEN_SCRIPT_REPLACE_FILENAME_install && __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set functions
+# Help function - Align to 55
+__printf_head() { printf_color "$1" "5"; }
+__printf_opts() { printf_color "$1" "6"; }
+__printf_line() { printf_color "$1" "4"; }
 __help() {
-  # Help function - Align to 50
-  printf_head() { printf_purple "$*"; }
-  printf_opts() { printf_blue "$*"; }
-  printf_line() { printf_blue "$*"; }
-  #
   printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   printf_opts "GEN_SCRIPT_REPLACE_FILENAME: GEN_SCRIPT_REPLACE_DESC"
   printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   printf_line "Usage: GEN_SCRIPT_REPLACE_FILENAME [options] [commands]"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME available                             - list all available packages"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME list                                  - list installed packages"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME search    [package]                   - search for a package"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME version   [package]                   - show the version info"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME install   [package]                   - install a package"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME remove    [package]                   - remove a package"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME update    [package]                   - update a package"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME download  [package]                   - downloads the source"
-  printf_line ""
+  printf_line "GEN_SCRIPT_REPLACE_FILENAME available            - list all available packages"
+  printf_line "GEN_SCRIPT_REPLACE_FILENAME list                 - list installed packages"
+  printf_line "GEN_SCRIPT_REPLACE_FILENAME search    [package]  - search for a package"
+  printf_line "GEN_SCRIPT_REPLACE_FILENAME version   [package]  - show the version info"
+  printf_line "GEN_SCRIPT_REPLACE_FILENAME install   [package]  - install a package"
+  printf_line "GEN_SCRIPT_REPLACE_FILENAME remove    [package]  - remove a package"
+  printf_line "GEN_SCRIPT_REPLACE_FILENAME update    [package]  - update a package"
+  printf_line "GEN_SCRIPT_REPLACE_FILENAME download  [package]  - downloads the source"
+  printf_line "                                       "
   printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   printf_opts "Other Options"
   printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME --debug                               - enable debugging"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME --config                              - Generate user config file"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME --version                             - Show script version"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME --help                                - Shows this message"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME --options                             - Shows all available options"
+  printf_line "GEN_SCRIPT_REPLACE_FILENAME --debug              - enable debugging"
+  printf_line "GEN_SCRIPT_REPLACE_FILENAME --config             - Generate user config file"
+  printf_line "GEN_SCRIPT_REPLACE_FILENAME --version            - Show script version"
+  printf_line "GEN_SCRIPT_REPLACE_FILENAME --help               - Shows this message"
+  printf_line "GEN_SCRIPT_REPLACE_FILENAME --options            - Shows all available options"
   printf_line ""
   printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   exit
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disable colorization
+if [[ "$SHOW_RAW" = "true" ]]; then
+  printf_color() { printf '%b' "$1\n" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __list_available() {
   [[ -n "$LIST" ]] || LIST="$(__api_list)"
@@ -99,27 +103,27 @@ __gen_config() {
     cp -Rf "$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE" "$GEN_SCRIPT_REPLACE_ENV_CONFIG_BACKUP_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE.$$"
   cat <<EOF >"$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE"
 # Settings for GEN_SCRIPT_REPLACE_FILENAME
-GEN_SCRIPT_REPLACE_ENV_GIT_REPO_BRANCH="${GEN_SCRIPT_REPLACE_ENV_GIT_REPO_BRANCH:-main}"
-GEN_SCRIPT_REPLACE_ENV_APP_DIR="${GEN_SCRIPT_REPLACE_ENV_APP_DIR:-$SHARE/CasjaysDev/GEN_SCRIPT_REPLACE_FILENAME}"
-GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR="${GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR:-$SHARE/CasjaysDev/GEN_SCRIPT_REPLACE_FILENAME}"
-GEN_SCRIPT_REPLACE_ENV_CLONE_DIR="${GEN_SCRIPT_REPLACE_ENV_CLONE_DIR:-$HOME/Projects/github/GEN_SCRIPT_REPLACE_FILENAME}"
-GEN_SCRIPT_REPLACE_ENV_REPO_URL="${GEN_SCRIPT_REPLACE_ENV_REPO_URL:-https://github.com/GEN_SCRIPT_REPLACE_FILENAME}"
-GEN_SCRIPT_REPLACE_ENV_REPO_RAW="${GEN_SCRIPT_REPLACE_ENV_REPO_RAW:-raw/$GEN_SCRIPT_REPLACE_ENV_GIT_REPO_BRANCH}"
-GEN_SCRIPT_REPLACE_ENV_REPO_API="${GEN_SCRIPT_REPLACE_ENV_REPO_API:-https://api.github.com/orgs/GEN_SCRIPT_REPLACE_FILENAME/repos}"
-GEN_SCRIPT_REPLACE_ENV_REPO_API_PER_PAGE="${GEN_SCRIPT_REPLACE_ENV_REPO_API_PER_PAGE:-1000}"
-GEN_SCRIPT_REPLACE_ENV_FORCE_INSTALL="${GEN_SCRIPT_REPLACE_ENV_FORCE_INSTALL:-false}"
+GEN_SCRIPT_REPLACE_ENV_GIT_REPO_BRANCH="${GEN_SCRIPT_REPLACE_ENV_GIT_REPO_BRANCH:-}"
+GEN_SCRIPT_REPLACE_ENV_APP_DIR="${GEN_SCRIPT_REPLACE_ENV_APP_DIR:-}"
+GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR="${GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR:-}"
+GEN_SCRIPT_REPLACE_ENV_CLONE_DIR="${GEN_SCRIPT_REPLACE_ENV_CLONE_DIR:-}"
+GEN_SCRIPT_REPLACE_ENV_REPO_URL="${GEN_SCRIPT_REPLACE_ENV_REPO_URL:-}"
+GEN_SCRIPT_REPLACE_ENV_REPO_RAW="${GEN_SCRIPT_REPLACE_ENV_REPO_RAW:-}"
+GEN_SCRIPT_REPLACE_ENV_REPO_API="${GEN_SCRIPT_REPLACE_ENV_REPO_API:-}"
+GEN_SCRIPT_REPLACE_ENV_REPO_API_PER_PAGE="${GEN_SCRIPT_REPLACE_ENV_REPO_API_PER_PAGE:-}"
+GEN_SCRIPT_REPLACE_ENV_FORCE_INSTALL="${GEN_SCRIPT_REPLACE_ENV_FORCE_INSTALL:-}"
 
 # Notification settings
-GEN_SCRIPT_REPLACE_ENV_GOOD_MESSAGE="${GEN_SCRIPT_REPLACE_ENV_GOOD_MESSAGE:-Everything Went OK}"
-GEN_SCRIPT_REPLACE_ENV_ERROR_MESSAGE="${GEN_SCRIPT_REPLACE_ENV_ERROR_MESSAGE:-Well that did not work}"
-GEN_SCRIPT_REPLACE_ENV_NOTIFY_ENABLED="${GEN_SCRIPT_REPLACE_ENV_NOTIFY_ENABLED:-yes}"
-GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
-GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_ICON}"
+GEN_SCRIPT_REPLACE_ENV_GOOD_MESSAGE="${GEN_SCRIPT_REPLACE_ENV_GOOD_MESSAGE:-}"
+GEN_SCRIPT_REPLACE_ENV_ERROR_MESSAGE="${GEN_SCRIPT_REPLACE_ENV_ERROR_MESSAGE:-}"
+GEN_SCRIPT_REPLACE_ENV_NOTIFY_ENABLED="${GEN_SCRIPT_REPLACE_ENV_NOTIFY_ENABLED:-}"
+GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-}"
+GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-}"
 
 # Colorization settings
-GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR:-5}"
-GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_GOOD="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_GOOD:-2}"
-GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_ERROR="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_ERROR:-1}"
+GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR:-}"
+GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_GOOD="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_GOOD:-}"
+GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_ERROR="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_ERROR:-}"
 
 EOF
   if [ -f "$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE" ]; then
@@ -139,42 +143,21 @@ __broken_symlinks() { find "$*" -xtype l -exec rm {} \; &>/dev/null; }
 __cron_updater() {
   local upd file
   local USRUPDATEDIR="$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER"
-  local SYSUPDATEDIR="$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_SYSTEM"
   [ "$*" = "help" ] && shift 1 && printf_help "Usage: ${PROG:-$APPNAME} updater $APPNAME"
-  if user_is_root; then
-    if [ -z "$1" ] && [ -d "$SYSUPDATEDIR" ] && ls "$SYSUPDATEDIR"/* 1>/dev/null 2>&1; then
-      for upd in $(ls $SYSUPDATEDIR/); do
-        file="$(ls -A $SYSUPDATEDIR/$upd 2>/dev/null)"
-        if [ -f "$file" ]; then
-          appname="$(__basename $file)"
-          file="$file" bash "$file --cron $*"
-        fi
-      done
-    else
-      if [ -d "$SYSUPDATEDIR" ] && ls "$SYSUPDATEDIR"/* 1>/dev/null 2>&1; then
-        file="$(ls -A $SYSUPDATEDIR/$1 2>/dev/null)"
-        if [ -f "$file" ]; then
-          appname="$(__basename $file)"
-          file="$file" bash "$file --cron $*"
-        fi
+  if [ -z "$1" ] && [ -d "$USRUPDATEDIR" ] && ls "$USRUPDATEDIR"/* 1>/dev/null 2>&1; then
+    for upd in $(ls "$USRUPDATEDIR/"); do
+      export file="$(ls -A "$USRUPDATEDIR/$upd" 2>/dev/null)"
+      if [ -f "$file" ]; then
+        appname="$(__basename "$file")"
+        bash "$file --cron $*"
       fi
-    fi
+    done
   else
-    if [ -z "$1" ] && [ -d "$USRUPDATEDIR" ] && ls "$USRUPDATEDIR"/* 1>/dev/null 2>&1; then
-      for upd in $(ls $USRUPDATEDIR/); do
-        export file="$(ls -A $USRUPDATEDIR/$upd 2>/dev/null)"
-        if [ -f "$file" ]; then
-          appname="$(__basename $file)"
-          bash "$file --cron $*"
-        fi
-      done
-    else
-      if [ -d "$USRUPDATEDIR" ] && ls "$USRUPDATEDIR"/* 1>/dev/null 2>&1; then
-        export file="$(ls -A $USRUPDATEDIR/$1 2>/dev/null)"
-        if [ -f "$file" ]; then
-          appname="$(__basename $file)"
-          bash "$file --cron $*"
-        fi
+    if [ -d "$USRUPDATEDIR" ] && ls "$USRUPDATEDIR"/* 1>/dev/null 2>&1; then
+      export file="$(ls -A "$USRUPDATEDIR/$1" 2>/dev/null)"
+      if [ -f "$file" ]; then
+        appname="$(__basename "$file")"
+        bash "$file --cron $*"
       fi
     fi
   fi
@@ -201,10 +184,10 @@ __installer_delete() {
       printf_blue "Deleting the files from $APP_DIR_NAME/$app"
       __rm_rf "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER/$app" && exitCode+=0 || exitCode+=1
     fi
-    { [[ -d "$INSTALL_DIR_NAME/$app" ]] || [[ -d "$APP_DIR_NAME/$app" ]]; } && exitCode=0 || exitCode=1
+    { [[ -d "$INSTALL_DIR_NAME/$app" ]] || [[ -d "$APP_DIR_NAME/$app" ]]; } && exitCode=1 || exitCode=0
     printf_yellow "Removing any broken symlinks"
     __broken_symlinks "$BIN" "$SHARE" "$COMPDIR" "$CONF" "$THEMEDIR" "$FONTDIR" "$ICONDIR"
-    [[ $exitCode = 0 ]] && "$app has been removed"
+    [[ $exitCode = 0 ]] && printf_cyan "$app has been removed"
     return $exitCode
   else
     printf_error "$app doesn't seem to be installed"
@@ -219,7 +202,7 @@ __run_install_init() {
     export SUDO_USER
     if __urlcheck "$GEN_SCRIPT_REPLACE_ENV_REPO_URL/$app/$GEN_SCRIPT_REPLACE_ENV_REPO_RAW/install.sh"; then
       export FORCE_INSTALL="$FORCE_INSTALL"
-      bash -c "$(curl -q -LSsf "$GEN_SCRIPT_REPLACE_ENV_REPO_URL/$app/$GEN_SCRIPT_REPLACE_ENV_REPO_RAW/install.sh" 2>/dev/null)" 2>/dev/null
+      bash -c "$(curl -q -LSsf "$GEN_SCRIPT_REPLACE_ENV_REPO_URL/$app/$GEN_SCRIPT_REPLACE_ENV_REPO_RAW/install.sh")" 2>/dev/null
     else
       printf_error "Failed to initialize the installer from:"
       printf_exit "$GEN_SCRIPT_REPLACE_ENV_REPO_URL/$app/$GEN_SCRIPT_REPLACE_ENV_REPO_RAW/install.sh\n"
@@ -277,7 +260,7 @@ __download() {
   local REPO_URL="$GEN_SCRIPT_REPLACE_ENV_REPO_URL"
   if cmd_exists gitadmin; then
     if [[ -d "$DIR_NAME/.git" ]]; then
-      gitadmin pull "$DIR_NAME"
+      sudo -u "$SUDO_USER" gitadmin pull "$DIR_NAME"
       exitCode=$?
     else
       gitadmin clone "$REPO_URL/$REPO_NAME" "$DIR_NAME"
@@ -285,10 +268,10 @@ __download() {
     fi
   else
     if [[ -d "$DIR_NAME/.git" ]]; then
-      git -C "$DIR_NAME" pull
+      sudo -u "$SUDO_USER" git -C "$DIR_NAME" pull
       exitCode=$?
     else
-      git clone "$REPO_URL/$REPO_NAME" "$DIR_NAME"
+      sudo -u "$SUDO_USER" git clone "$REPO_URL/$REPO_NAME" "$DIR_NAME"
       exitCode=$?
     fi
   fi
@@ -321,9 +304,6 @@ __run_search() {
   unset results app
   exit $?
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Default variables
-exitCode="0"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application Folders
 GEN_SCRIPT_REPLACE_ENV_LOG_DIR="${GEN_SCRIPT_REPLACE_ENV_LOG_DIR:-$HOME/.local/log/GEN_SCRIPT_REPLACE_FILENAME}"
@@ -405,6 +385,11 @@ setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$(basename "$0" 2>/de
 eval set -- "${setopts[@]}" 2>/dev/null
 while :; do
   case $1 in
+  --raw)
+    export SHOW_RAW="true"
+    unset -f printf_color
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
+    ;;
   --options)
     shift 1
     [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
@@ -441,11 +426,6 @@ while :; do
     shift 1
     INSTALL_ALL="true"
     ;;
-  --raw)
-    SHOW_RAW="true"
-    unset -f printf_color
-    printf_color() { printf '%b' "$1" | tr -d '\t\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
-    ;;
   --)
     shift 1
     break
@@ -455,9 +435,9 @@ done
 #set -- "$SETARGS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
-#sudo -n true && ask_for_password true && REQUIRE_SUDO="TRUE" || exit 1 # Require root
-cmd_exists --error --ask bash curl jq || exit 1 # exit 1 if not found
-__am_i_online --error || exit 1                 # exit 1 if no internet
+sudo -n true && ask_for_password true && REQUIRE_SUDO="TRUE" || exit 1 # Require root
+cmd_exists --error --ask bash curl jq || exit 1                        # exit 1 if not found
+__am_i_online --error || exit 1                                        # exit 1 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
 
@@ -579,6 +559,9 @@ version)
   __help
   ;;
 esac
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set exit code
+exitCode="${exitCode:-$?}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

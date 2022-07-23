@@ -27,25 +27,35 @@ SRC_DIR="${BASH_SOURCE%/*}"
 # Set bash options
 #if [ ! -t 0 ] && { [[ "$1" = *term ]] || [ $# = 0 ]; }; then { [[ "$1" = *term ]] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
 [[ "$1" = "--debug" ]] && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
-[[ "$1" = "--raw" ]] && SHOW_RAW="true" && printf_color() { printf '%b' "$1\n" | tr -d '\t\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
+[[ "$1" = "--raw" ]] && export SHOW_RAW="true"
 set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
-# Set functions
-__devnull() {
+# Send all output to /dev/null
+devnull() {
   tee &>/dev/null || exitCode=1
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
-__cmd_exists() {
+# Check for program
+cmd_exists() {
   local exitCode=0
   for cmd in "$@"; do
-    builtin command -v "$cmd" |& __devnull && true || exitCode+=1
+    builtin command -v "$cmd" |& devnull && true || exitCode+=1
   done
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for internet connection
+am_i_online() {
+  curl -q -LSsfI --max-time 1 --retry 0 "${1:-http://1.1.1.1}" | grep -qi 'server:.*cloudflare' 2>&1 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
 # colorization
-printf_color() { printf "%b" "$(tput setaf "$2" 2>/dev/null)" "\t\t$1\n" "$(tput sgr0 2>/dev/null)"; }
+if [[ "$SHOW_RAW" = "true" ]]; then
+  printf_color() { printf '%b' "$1\n" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
+else
+  printf_color() { printf "%b" "$(tput setaf "$2" 2>/dev/null)" "\t\t$1\n" "$(tput sgr0 2>/dev/null)"; }
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # output version
 __version() { printf_color "$VERSION" "2"; }
@@ -113,9 +123,6 @@ __help() {
 # User defined functions
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Defaults
-exitCode=0
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application Folders
 GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE="${GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE:-settings.conf}"
 GEN_SCRIPT_REPLACE_ENV_CACHE_DIR="${GEN_SCRIPT_REPLACE_ENV_CACHE_DIR:-$HOME/.cache/GEN_SCRIPT_REPLACE_FILENAME}"
@@ -148,9 +155,9 @@ GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_URGENCY="${GEN_SCRIPT_REPLACE_ENV_NOTIFY_CL
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure Directories exist
 [ -d "$GEN_SCRIPT_REPLACE_ENV_LOG_DIR" ] ||
-  mkdir -p "$GEN_SCRIPT_REPLACE_ENV_LOG_DIR" |& __devnull
+  mkdir -p "$GEN_SCRIPT_REPLACE_ENV_LOG_DIR" |& devnull
 [ -d "$GEN_SCRIPT_REPLACE_ENV_TEMP_DIR" ] ||
-  mkdir -p "$GEN_SCRIPT_REPLACE_ENV_TEMP_DIR" |& __devnull
+  mkdir -p "$GEN_SCRIPT_REPLACE_ENV_TEMP_DIR" |& devnull
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup notification function
 if [ "$GEN_SCRIPT_REPLACE_ENV_NOTIFY_ENABLED" = "yes" ]; then
@@ -184,17 +191,14 @@ while :; do
   case "$1" in
   --raw)
     shift 1
-    SHOW_RAW="true"
+    export SHOW_RAW="true"
     printf_column() { tee | grep '^'; }
-    printf_color() {
-      printf '%b' "$1\n" | tr -d '\t\t' |
-        sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'
-    }
+    printf_color() { printf '%b' "$1\n" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
     ;;
   --debug)
     shift 1
     set -xo pipefail
-    __devnull() {
+    devnull() {
       tee || exitCode=1
       return ${exitCode:-$?}
     }
@@ -236,8 +240,8 @@ done
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
-cmd_exists --error bash || exit 3 # exit 3 if not found
-#am_i_online --error || exit 4     # exit 4 if no internet
+#cmd_exists bash || exit 3       # exit 3 if not found
+#am_i_online "1.1.1.1" || exit 4 # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
 
@@ -248,6 +252,9 @@ cmd_exists --error bash || exit 3 # exit 3 if not found
 # begin main app
 printf_color "Name: $APPNAME $ARGS" "2"
 printf_color "Version: $VERSION" "2"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set exit code
+exitCode="${exitCode:-$?}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

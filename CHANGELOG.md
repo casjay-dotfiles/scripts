@@ -1,3 +1,12 @@
+#### Changelog: 2022-07-24 at 16:30:37  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+bin/buildx      🚀  
+  
+#### End of changes for  - 2022-07-24 at 16:30:37  
+  
+----  
+  
 #### Changelog: 2022-07-23 at 14:46:29  
 #### 🗃️ Committing everything that changed 🗃️  
   

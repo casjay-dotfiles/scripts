@@ -1,3 +1,18 @@
+#### Changelog: 2022-07-25 at 14:16:57  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+functions/global/sudo.bash      🚀  
+templates/scripts/bash/simple      🚀  
+templates/scripts/bash/system      🚀  
+templates/scripts/bash/terminal      🚀  
+templates/scripts/bash/user      🚀  
+templates/scripts/installers/mgr-script.system.sh      🚀  
+templates/scripts/installers/mgr-script.user.sh      🚀  
+  
+#### End of changes for 202207250254-git - 2022-07-25 at 14:16:57  
+  
+----  
+  
 #### Changelog: 2022-07-25 at 13:49:08  
   
 bin/pkmgr      🚀  

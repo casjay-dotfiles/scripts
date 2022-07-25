@@ -23,52 +23,24 @@
 #   export SUDO_ASKPASS="${SUDO_ASKPASS:-}"
 #   export SUDO_PROMPT="$(printf "\n\t\t\033[1;31m")[sudo]$(printf "\033[1;36m") password for $(printf "\033[1;32m")%p: $(printf "\033[0m" && echo)"
 # fi
-if [ -n "$SUDO_USER" ]; then
-  RUN_USER=${RUN_USER:-$SUDO_USER}
-else
-  RUN_USER=${RUN_USER:-$(whoami)}
-fi
 WHOAMI="${USER}"
+[ -n "$SUDO_USER" ] && RUN_USER=${RUN_USER:-$SUDO_USER} || RUN_USER=${RUN_USER:-$WHOAMI}
 export RUN_USER="${RUN_USER:-$USER}"
 export USER="${SUDO_USER:-$USER}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+sudo() { PATH="$PATH" builtin command \sudo --preserve-env=PATH -HE "${@:-true}" || return 1 ;}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__sudo() {
-  PATH=$PATH builtin command sudo "$@"
-}
+__sudo() { PATH="$PATH" builtin command \sudo --preserve-env=PATH -HE "$@" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-sudo() {
-  local PATH="$PATH"
-  builtin command \sudo "${@:-true}"
-}
+sudorun() { sudoif && sudo "$@" || eval "$@" }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-sudorun() {
-  if sudoif; then
-    sudo "$@"
-  else "$@"; fi
-}
+__sudo_group() { grep "${1:-$USER}" /etc/group | grep -Eq 'wheel|adm|sudo' || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__sudo() {
-  $(builtin type -P sudo) --preserve-env=PATH -HE "$@" ||
-    return 1
-}
+__sudo_group "$USER" && __passwd() { sudo passwd "$*"; }|| __passwd() { passwd "$*"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__sudo_group() {
-  grep "${1:-$USER}" /etc/group |
-    grep -Eq 'wheel|adm|sudo' || return 1
-}
+sudoif() { (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-sudoif() {
-  (sudo -vn && sudo -ln) 2>&1 |
-    grep -v 'may not' >/dev/null &&
-    return 0 || return 1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__can_i_sudo() {
-  __sudo_group "${1:-$USER}" ||
-    sudoif || sudo -n true &>/dev/null ||
-    return 1
-}
+__can_i_sudo() { __sudo_group "${1:-$USER}" || sudoif || sudo -n true &>/dev/null || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 sudorerun() {
   local CMD="${1:-$APPNAME}" && shift 1
@@ -116,25 +88,13 @@ __sudoask() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __sudoexit() {
   if __can_i_sudo; then
-    __sudoask || printf_green "Getting privileges successful continuing" && true
+    __sudoask || { printf_green "Getting privileges successful continuing" && true; }
   else
-    printf_red "Failed to get privileges\n" && false
-    return 1
+    printf_red "Failed to get privileges\n" && false || return 1
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__requiresudo() {
-  if __can_i_sudo; then
-    __sudoask && __sudoexit && return 0
-  else
-    printf_red "You dont have access to sudo\n\t\tPlease contact the syadmin for access"
-    return 1
-  fi
+__requiresudo() { __can_i_sudo && __sudoask && __sudoexit && return 0 || 
+  { printf_red "You dont have access to sudo\n\t\tPlease contact the syadmin for access" && return 1; }
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if __sudo_group "$USER"; then
-  __passwd() { sudo passwd "$*"; }
-else
-  __passwd() { passwd "$*"; }
-fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

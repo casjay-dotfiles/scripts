@@ -97,6 +97,13 @@ __list_available() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __list_options() { printf_custom "5" "$1: $(echo ${2:-$ARRAY} | __sed 's|:||g;s|'$3'| '$4'|g')" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# sudo functions
+__sudorun() { __sudoif && __sudo "$@" || eval "$@" || return 1; }
+__sudo_group() { grep "${1:-$USER}" /etc/group | grep -Eq 'wheel|adm|sudo' || return 1; }
+__sudo() { PATH="$PATH" builtin command __sudo --preserve-env=PATH -HE "$@" || return 1; }
+__sudoif() { (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null && return 0 || return 1; }
+__can_i_sudo() { __sudo_group "${1:-$USER}" || __sudoif || __sudo -n true &>/dev/null || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gen_config() {
   [ -z "$NOTIFY_CLIENT_NAME" ] || NOTIFY_CLIENT_NAME=""
   [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Generating the config file in"

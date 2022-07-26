@@ -32,7 +32,7 @@ sudo() { PATH="$PATH" builtin command \sudo --preserve-env=PATH -HE "${@:-true}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __sudo() { PATH="$PATH" builtin command \sudo --preserve-env=PATH -HE "$@" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-sudorun() { sudoif && sudo "$@" || eval "$@" }
+sudorun() { sudoif && sudo "$@" || eval "$@"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __sudo_group() { grep "${1:-$USER}" /etc/group | grep -Eq 'wheel|adm|sudo' || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -94,7 +94,8 @@ __sudoexit() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__requiresudo() { __can_i_sudo && __sudoask && __sudoexit && return 0 || 
+__requiresudo() { __can_i_sudo && __sudoask && __sudoexit && return 0 ||
   { printf_red "You dont have access to sudo\n\t\tPlease contact the syadmin for access" && return 1; }
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+

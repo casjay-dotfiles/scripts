@@ -391,7 +391,7 @@ fi
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set additional variables/Argument/Option settings
-SETARGS="$*"
+SETARGS=("$@")
 SHORTOPTS="a,f"
 LONGOPTS="options,config,version,help,dir:force,all,raw"
 ARRAY="download,list,search,available,remove,version,update,install,cron"
@@ -451,7 +451,19 @@ while :; do
     ;;
   esac
 done
-#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get directory from args
+# set -- "$@"
+# for arg in "$@"; do
+# if [ -d "$arg" ]; then
+# GEN_SCRIPT_REPLACE_ENV_CWD="$arg" && shift 1
+# elif [ -f "$arg" ]; then
+# GEN_SCRIPT_REPLACE_ENV_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1
+# else
+# SET_NEW_ARGS+=("$arg")
+# fi
+# done
+# set -- "${SET_NEW_ARGS[@]}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
 sudo -n true && ask_for_password true && REQUIRE_SUDO="TRUE" || exit 1 # Require root

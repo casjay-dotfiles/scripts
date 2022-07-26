@@ -1,3 +1,12 @@
+#### Changelog: 2022-07-26 at 00:59:41  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+functions/global/os.bash      🚀  
+  
+#### End of changes for  - 2022-07-26 at 00:59:41  
+  
+----  
+  
 #### Changelog: 2022-07-25 at 23:09:41  
 #### 🗃️ Committing everything that changed 🗃️  
   

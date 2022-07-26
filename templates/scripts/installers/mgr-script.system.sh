@@ -98,11 +98,14 @@ __list_available() {
 __list_options() { printf_custom "5" "$1: $(echo ${2:-$ARRAY} | __sed 's|:||g;s|'$3'| '$4'|g')" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # sudo functions
-__sudorun() { __sudoif && __sudo "$@" || eval "$@" || return 1; }
+__sudoask() { ask_for_password sudo true && return 0 || return 1; }
+__sudorun() { __sudoif && __sudoask && __sudo "$@" || eval "$@" || return $?; }
+__sudo() { PATH="$PATH" builtin command sudo --preserve-env=PATH -HE "$@" || return 1; }
 __sudo_group() { grep "${1:-$USER}" /etc/group | grep -Eq 'wheel|adm|sudo' || return 1; }
-__sudo() { PATH="$PATH" builtin command __sudo --preserve-env=PATH -HE "$@" || return 1; }
 __sudoif() { (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null && return 0 || return 1; }
 __can_i_sudo() { __sudo_group "${1:-$USER}" || __sudoif || __sudo -n true &>/dev/null || return 1; }
+__requiresudo() { __cmd_exists sudo && ! __user_is_root && __sudorun "$@" && return 0 || return ${?:-1}; }
+__user_is_root() { { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gen_config() {
   [ -z "$NOTIFY_CLIENT_NAME" ] || NOTIFY_CLIENT_NAME=""
@@ -166,7 +169,7 @@ __cron_updater() {
   local USRUPDATEDIR="$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER"
   local SYSUPDATEDIR="$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_SYSTEM"
   [ "$*" = "help" ] && shift 1 && printf_help "Usage: ${PROG:-$APPNAME} updater $APPNAME"
-  if user_is_root; then
+  if __user_is_root; then
     if [ -z "$1" ] && [ -d "$SYSUPDATEDIR" ] && ls "$SYSUPDATEDIR"/* 1>/dev/null 2>&1; then
       for upd in $(ls "$SYSUPDATEDIR/"); do
         file="$(ls -A "$SYSUPDATEDIR/$upd" 2>/dev/null)"
@@ -273,7 +276,7 @@ __run_install_update() {
         local exitCode+=$?
       done
     fi
-    if user_is_root && [ "$USRUPDATEDIR" != "$SYSUPDATEDIR" ]; then
+    if __user_is_root && [ "$USRUPDATEDIR" != "$SYSUPDATEDIR" ]; then
       if [ -d "$SYSUPDATEDIR" ] && [ -n "$(ls -A "$SYSUPDATEDIR" | grep '^' || ls "$SYSTEM_SHARE_DIR" | grep '^')" ]; then
         for app in $(ls "$SYSUPDATEDIR" | grep '^' || ls "$SYSTEM_SHARE_DIR" | grep '^'); do
           APPNAME="$app"

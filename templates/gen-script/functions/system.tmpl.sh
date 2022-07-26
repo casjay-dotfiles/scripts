@@ -14,8 +14,7 @@ else
   exit 90
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# user system devenv dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
-${default_type:-user}_install
-__options "\$@"
+# user system devenv desktopmgr dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+${default_type:-system}_install && __options "\$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 EOF

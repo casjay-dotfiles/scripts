@@ -1,3 +1,31 @@
+#### Changelog: 2022-07-25 at 23:06:37  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+templates/gen-script/folders/profile.tmpl.sh      🚀  
+templates/gen-script/folders/user.tmpl.sh      🚀  
+templates/gen-script/functions/profile.tmpl.sh      🚀  
+templates/gen-script/functions/system.tmpl.sh      🚀  
+templates/gen-script/functions/user.tmpl.sh      🚀  
+templates/gen-script/header/raw.tmpl.sh      🚀  
+templates/gen-script/script/system.tmpl.sh      🚀  
+templates/gen-script/script/user.tmpl.sh      🚀  
+templates/nginx/html/      🚀  
+templates/scripts/bash/simple      🚀  
+templates/scripts/bash/system      🚀  
+templates/scripts/bash/terminal      🚀  
+templates/scripts/bash/user      🚀  
+templates/scripts/completions/simple.bash      🚀  
+templates/scripts/installers/mgr-script.system.sh      🚀  
+templates/scripts/installers/mgr-script.user.sh      🚀  
+templates/scripts/os/arch.sh      🚀  
+templates/scripts/os/centos.sh      🚀  
+templates/scripts/os/debian.sh      🚀  
+templates/scripts/os/fedora.sh      🚀  
+  
+#### End of changes for 202207251416-git - 2022-07-25 at 23:06:37  
+  
+----  
+  
 #### Changelog: 2022-07-25 at 14:16:57  
 #### 🗃️ Committing everything that changed 🗃️  
   

@@ -16,7 +16,7 @@
 FUNCFILE="app-installer.bash"
 RUN_USER="$(logname 2>/dev/null)"
 SUDO_USER="${RUN_USER:-$SUDO_USER}"
-export RUN_USER SUDO_USER
+export RUN_USER SUDO_USER _DEBUG
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
 [[ "$_DEBUG" = "on" ]] && set -xo pipefail
@@ -1757,7 +1757,7 @@ installer_noupdate() {
   fi
   if [ -f "$APPDIR/.installed" ] || [ -f "$INSTDIR/.installed" ]; then
     APPDIR="$INSTDIR"
-    printf_yellow "Coping file of $APPNAME has been disabled"
+    printf_yellow "Copying file of $APPNAME has been disabled"
     printf_yellow "This can be changed with the --force flag"
     printf_yellow "Updating the git repository only"
     ln_sf "$INSTDIR/install.sh" "$SYSUPDATEDIR/$APPNAME"

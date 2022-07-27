@@ -13,15 +13,18 @@
 # @Resource          :
 # @sudo/root         :  no
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+[ "$_DEBUG" = "on" ] && set -x
 source "$CASJAYSDEVDIR/functions/types/mgr_install.bash"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __main_installer_info() {
+  [ "$_DEBUG" = "on" ] && set -x
   if [ "$APPNAME" = "scripts" ] || [ "$APPNAME" = "installer" ]; then
     PLUGDIR="/usr/local/share/CasjaysDev/apps/$SCRIPTS_PREFIX"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __remove_app() {
+  [ "$_DEBUG" = "on" ] && set -x
   local exitCode=0
   local ARRAY="$*"
   for app in $ARRAY; do
@@ -38,6 +41,7 @@ __remove_app() {
 ###################### *mgr scripts install/update/version ######################
 export mgr_init="${mgr_init:-true}"
 run_install_init() {
+  [ "$_DEBUG" = "on" ] && set -x
   $installtype
   local app=""
   local exitCode=""
@@ -73,6 +77,7 @@ run_install_init() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 run_install_update() {
+  [ "$_DEBUG" = "on" ] && set -x
   local app=""
   local APPNAME=""
   local exitCode=""

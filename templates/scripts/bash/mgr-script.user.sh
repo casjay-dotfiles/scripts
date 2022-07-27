@@ -596,17 +596,20 @@ list)
   LISTARRAY=("$(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_USER" 2>/dev/null)")
   [ -n "${LISTARRAY[*]}" ] && printf '%s\n' "${LISTARRAY[@]}" | printf_column '5' ||
     printf_exit "There doesn't seem to be any packages installed"
+  exit ${exitCode:-$?}
   ;;
 
 available)
   shift 1
   printf_cyan "All available $GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX packages"
   __api_list | printf_column '6'
+  exit ${exitCode:-$?}
   ;;
 
 search)
   shift 1
   __run_search "$@"
+  exit ${exitCode:-$?}
   ;;
 
 remove)
@@ -623,6 +626,7 @@ remove)
     [ $? = 0 ] && __notifications "Deletion of $APPNAME was successfull" || __notifications "Deletetion of $APPNAME has failed"
     printf '\n'
   done
+  exit ${exitCode:-$?}
   ;;
 
 install)
@@ -669,7 +673,7 @@ update)
     printf_yellow "There doesn't seem to be any packages installed"
     __notifications "There doesn't seem to be any packages installed"
   fi
-  exit $?
+  exit ${exitCode:-$?}
   ;;
 
 download | clone)
@@ -687,6 +691,7 @@ download | clone)
   else
     printf_exit "No packages selected for download"
   fi
+  exit ${exitCode:-$?}
   ;;
 
 cron)
@@ -697,6 +702,7 @@ cron)
     APPNAME="$cron"
     __cron_updater "$APPNAME"
   done
+  exit ${exitCode:-$?}
   ;;
 
 version)
@@ -706,6 +712,7 @@ version)
     APPNAME="$ver"
     __run_install_version "$ver"
   done
+  exit ${exitCode:-$?}
   ;;
 
 *)

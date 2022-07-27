@@ -15,7 +15,7 @@
 # @@Other            :  GEN_SCRIPT_REPLACE_OTHER
 # @@Resource         :  GEN_SCRIPT_REPLACE_RES
 # @@Terminal App     :  GEN_SCRIPT_REPLACE_TERMINAL
-# @@sudo/root        :  GEN_SCRIPT_REPLACE_SUDO
+# @@sudo/root        :  yes
 # @@Template         :  installers/mgr-script.system
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0" 2>/dev/null)"
@@ -385,7 +385,7 @@ __trap_exit() {
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default variables
-GEN_SCRIPT_REPLACE_ENV_REQUIRE_SUDO="${GEN_SCRIPT_REPLACE_ENV_REQUIRE_SUDO:-GEN_SCRIPT_REPLACE_SUDO}"
+GEN_SCRIPT_REPLACE_ENV_REQUIRE_SUDO="${GEN_SCRIPT_REPLACE_ENV_REQUIRE_SUDO:-yes}"
 GEN_SCRIPT_REPLACE_ENV_USER_DIR="${GEN_SCRIPT_REPLACE_ENV_USER_DIR:-$USRUPDATEDIR}"
 GEN_SCRIPT_REPLACE_ENV_SYSTEM_DIR="${GEN_SCRIPT_REPLACE_ENV_SYSTEM_DIR:-$SYSUPDATEDIR}"
 GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR="${GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR:-$SHARE/CasjaysDev/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX}"

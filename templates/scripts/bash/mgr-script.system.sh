@@ -93,7 +93,6 @@ fi
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __list_available() {
-  local LIST="${LIST:-$(__api_list)}"
   echo -e "${1:-$LIST}" | tr ',' ' ' | tr ' ' '\n' && exit 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -259,7 +258,7 @@ __download() {
   local exitCode=0
   if cmd_exists gitadmin; then
     if [ -d "$DIR_NAME/.git" ]; then
-      sudo -u "$SUDO_USER" gitadmin pull "$DIR_NAME"
+      gitadmin pull "$DIR_NAME"
       exitCode=$?
     else
       gitadmin clone "$REPO_URL/$REPO_NAME" "$DIR_NAME"
@@ -267,10 +266,10 @@ __download() {
     fi
   else
     if [ -d "$DIR_NAME/.git" ]; then
-      sudo -u "$SUDO_USER" git -C "$DIR_NAME" pull
+      git -C "$DIR_NAME" pull
       exitCode=$?
     else
-      sudo -u "$SUDO_USER" git clone "$REPO_URL/$REPO_NAME" "$DIR_NAME"
+      git clone "$REPO_URL/$REPO_NAME" "$DIR_NAME"
       exitCode=$?
     fi
   fi
@@ -281,14 +280,20 @@ __download() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __api_list() {
   local exitCode=0
-  local api_url="${GEN_SCRIPT_REPLACE_ENV_REPO_API:-https://api.github.com/orgs/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX/repos?per_page=${GEN_SCRIPT_REPLACE_ENV_REPO_API_PER_PAGE:-1000}}"
+  local api_call=""
+  local prefix="$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX"
+  local per_page="${GEN_SCRIPT_REPLACE_ENV_REPO_API_PER_PAGE:-1000}"
+  local api_url="${GEN_SCRIPT_REPLACE_ENV_REPO_API:-https://api.github.com/orgs/$prefix/repos}"
   if __urlcheck "$api_url"; then
-    curl -q -LSsf -H "Accept: application/vnd.github.v3+json" "$api_url" 2>/dev/null |
-      jq '.[].name' 2>/dev/null | sed 's#"##g' | grep -Ev '.github|template|^null$' |
-      grep '^' || __list_options || false
+    api_call="$(curl -q -LSsf -H "Accept: application/vnd.github.v3+json" "$api_url?per_page=$per_page" 2>/dev/null | jq '.[].name' 2>/dev/null | sed 's#"##g' | grep -Ev '.github|template|^null$' | grep '^')"
+    if [ -n "$api_call" ]; then
+      printf '%s\n' "$api_call"
+    else
+      __list_available "$LIST"
+    fi
     exitCode=$?
   else
-    __list_options
+    __list_available "$LIST"
     exitCode=$?
   fi
   [ "$exitCode" = 0 ] && exitCode=0 || exitCode=1
@@ -297,7 +302,7 @@ __api_list() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_search() {
   local -a results=""
-  [ $# = 0 ] && printf_exit "Nothing to search for"
+  local LIST="${LIST:-$(__api_list)}"
   [ -n "$LIST" ] || printf_exit "The enviroment variable LIST does not exist"
   for app in "$@"; do
     result+="$(echo -e "$LIST" | tr ' ' '\n' | grep -Fi "$app" | grep -sv '^$') "
@@ -353,9 +358,14 @@ __sudoif() {
 # Run command as root
 __requiresudo() {
   # Default variables
-  [ "$GEN_SCRIPT_REPLACE_ENV_REQUIRE_SUDO" = "yes" ] && unset GEN_SCRIPT_REPLACE_ENV_REQUIRE_SUDO || return 0
-  __sudorun "$@"
-  return $?
+  if [ "$GEN_SCRIPT_REPLACE_ENV_REQUIRE_SUDO" = "yes" ] && [ -z "$GEN_SCRIPT_REPLACE_ENV_REQUIRE_SUDO_RUN" ]; then
+    export GEN_SCRIPT_REPLACE_ENV_REQUIRE_SUDO="no"
+    export GEN_SCRIPT_REPLACE_ENV_REQUIRE_SUDO_RUN="true"
+    __sudorun "$@"
+    exit $?
+  else
+    return 0
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Execute sudo
@@ -514,7 +524,7 @@ while :; do
     ;;
   --options)
     shift 1
-    SHOW_LIST="$(__api_list || __list_available "$LIST" || echo '' &)"
+    SHOW_LIST="$(__api_list || echo '' &)"
     [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
     [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-'
     [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--'
@@ -577,9 +587,9 @@ export GEN_SCRIPT_REPLACE_ENV_CWD="${GEN_SCRIPT_REPLACE_ENV_CWD:-$PWD}"
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
-__requiresudo "$APPNAME" "$@" || exit 2 # exit 2 if errors
-__cmd_exists bash || exit 3             # exit with error code 3 if not found
-__am_i_online "1.1.1.1" || exit 4       # exit with error code 4 if no internet
+__requiresudo "$0" "$@" || exit 2 # exit 2 if errors
+__cmd_exists bash || exit 3       # exit with error code 3 if not found
+__am_i_online "1.1.1.1" || exit 4 # exit with error code 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
 declare -a LISTARRAY=()
@@ -593,7 +603,7 @@ case "$1" in
 list)
   shift 1
   printf_green "All installed $GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX packages"
-  LISTARRAY=("$(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_USER" 2>/dev/null)")
+  LISTARRAY=("$(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" 2>/dev/null)")
   [ -n "${LISTARRAY[*]}" ] && printf '%s\n' "${LISTARRAY[@]}" | printf_column '5' ||
     printf_exit "There doesn't seem to be any packages installed"
   exit ${exitCode:-$?}
@@ -601,13 +611,21 @@ list)
 
 available)
   shift 1
-  printf_cyan "All available $GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX packages"
-  __api_list | printf_column '6'
+  api_info="$(__api_list)"
+  pkg_count="$(echo "$api_info" | tr ' ' '\n' | wc -l)"
+  if [ -n "$api_info" ]; then
+    printf_purple "$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX currently has $pkg_count packages available"
+    printf '%s\n' "$api_info" | printf_column '6'
+    true
+  else
+    false
+  fi
   exit ${exitCode:-$?}
   ;;
 
 search)
   shift 1
+  [ $# = 0 ] && printf_exit "Nothing to search for"
   __run_search "$@"
   exit ${exitCode:-$?}
   ;;
@@ -615,7 +633,7 @@ search)
 remove)
   shift 1
   if [ "$INSTALL_ALL" = "true" ]; then
-    LISTARRAY=("$(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_USER" 2>/dev/null)")
+    LISTARRAY=("$(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" 2>/dev/null)")
   else
     LISTARRAY=("$@")
   fi
@@ -653,7 +671,7 @@ install)
 update)
   shift 1
   if [ $# -eq 0 ] || [ "$INSTALL_ALL" = "true" ]; then
-    LISTARRAY=("$(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_USER" 2>/dev/null)")
+    LISTARRAY=("$(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" 2>/dev/null)")
   else
     LISTARRAY=("$@")
   fi
@@ -663,8 +681,8 @@ update)
       __run_install_update "$APPNAME"
       [ $? = 0 ] && __notifications "Successfully updated $APPNAME" || __notifications "Update of $APPNAME has failed"
     done
-  elif [ -d "$GEN_SCRIPT_REPLACE_ENV_DIR_USER" ] && [ ${#LISTARRAY} -ne 0 ]; then
-    for upd in $(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_USER" 2>/dev/null); do
+  elif [ -d "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" ] && [ ${#LISTARRAY} -ne 0 ]; then
+    for upd in $(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" 2>/dev/null); do
       APPNAME="$upd"
       __run_install_update "$APPNAME"
       [ $? = 0 ] && __notifications "Successfully updated $APPNAME" || __notifications "Update of $APPNAME has failed"
@@ -679,7 +697,7 @@ update)
 download | clone)
   shift 1
   if [ $# = 0 ] || [ "$INSTALL_ALL" = "true" ]; then
-    LISTARRAY=("$(__list_available)")
+    LISTARRAY=("$(__api_list)")
   else
     LISTARRAY=("$@")
   fi

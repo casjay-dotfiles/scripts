@@ -1,3 +1,14 @@
+#### Changelog: 2022-07-27 at 09:09:53  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+functions/app-installer.bash      🚀  
+functions/types/main.bash      🚀  
+templates/scripts/bash/mgr-script.user.sh      🚀  
+  
+#### End of changes for 202207270322-git - 2022-07-27 at 09:09:53  
+  
+----  
+  
 #### Changelog: 2022-07-27 at 03:22:54  
 #### 🗃️ Committing everything that changed 🗃️  
   

@@ -664,14 +664,17 @@ failexitcode() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 setexitstatus() {
-  [ -z "$EXIT" ] && local EXIT="$?" || local EXIT="$EXIT"
-  local EXITSTATUS+="$EXIT"
+  local EXIT=$?
+  set -x
+  export EXITSTATUS=$((${EXIT} + ${EXITSTATUS:-0}))
   if [ -z "$EXITSTATUS" ] || [ "$EXITSTATUS" -ne 0 ]; then
     BG_EXIT="${BG_RED}"
-    return ${EXIT:-1}
+    set +x
+    return 0
   else
     BG_EXIT="${BG_GREEN}"
-    return 0
+    set +x
+    return 1
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

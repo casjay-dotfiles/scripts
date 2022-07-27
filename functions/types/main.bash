@@ -25,7 +25,8 @@ __remove_app() {
   local exitCode=0
   local ARRAY="$*"
   for app in $ARRAY; do
-    installer_delete "$*" || exitCode+=1
+    installer_delete "$*"
+    exitCode+=$(($? + ${exitCode:1}))
   done
   if [[ $exitCode -ne 0 ]]; then
     exit 1
@@ -39,7 +40,7 @@ export mgr_init="${mgr_init:-true}"
 run_install_init() {
   $installtype
   local app=""
-  local exitCode="0"
+  local exitCode=""
   local LISTARRAY="$*"
   for app in $LISTARRAY; do
     __main_installer_info
@@ -55,7 +56,7 @@ run_install_init() {
         printf_error "Failed to initialize the installer from:"
         printf_exit "$REPORAW/install.sh\n"
       fi
-      local exitCode+=$?
+      exitCode+=$(($? + ${exitCode:-0}))
     else
       if __urlcheck "$REPORAW/install.sh"; then
         FORCE_INSTALL="$FORCE_INSTALL" bash -c "$(curl -q -LSs "$REPORAW/install.sh" 2>/dev/null)"
@@ -63,7 +64,7 @@ run_install_init() {
         printf_error "Failed to initialize the installer from:"
         printf_exit "$REPORAW/install.sh\n"
       fi
-      local exitCode+=$?
+      exitCode+=$(($? + ${exitCode:-0}))
     fi
     unset APPNAME REPO REPORAW
   done
@@ -74,7 +75,7 @@ run_install_init() {
 run_install_update() {
   local app=""
   local APPNAME=""
-  local exitCode=0
+  local exitCode=""
   local mgr_init="${mgr_init:-true}"
   local NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME}"
   local NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON}"
@@ -84,7 +85,7 @@ run_install_update() {
       for app in $(ls "$USRUPDATEDIR" | grep '^' || ls "$SHARE/CasjaysDev/$SCRIPTS_PREFIX" | grep '^'); do
         APPNAME="$app"
         run_install_init "$app" && __notifications "Installed $app" || __notifications "Installation of $app has failed"
-        local exitCode+=$?
+        exitCode+=$(($? + ${exitCode:-0}))
       done
     fi
     if user_is_root && [ "$USRUPDATEDIR" != "$SYSUPDATEDIR" ]; then
@@ -92,7 +93,7 @@ run_install_update() {
         for app in $(ls "$SYSUPDATEDIR" | grep '^' || ls "$SYSSHARE/CasjaysDev/$SCRIPTS_PREFIX" | grep '^'); do
           APPNAME="$app"
           run_install_init "$app" && __notifications "Installed $app" || __notifications "Installation of $app has failed"
-          local exitCode+=$?
+          exitCode+=$(($? + ${exitCode:-0}))
         done
       fi
     fi
@@ -101,7 +102,7 @@ run_install_update() {
     for app in $LISTARRAY; do
       APPNAME="$app"
       run_install_init "$app" && __notifications "Installed $app" || __notifications "Installation of $app has failed"
-      local exitCode+=$?
+      exitCode+=$(($? + ${exitCode:-0}))
     done
   fi
   unset app
@@ -121,7 +122,7 @@ run_install() {
     if [[ ! -e "$USRUPDATEDIR/$app" || ! -e "$SHARE/CasjaysDev/$SCRIPTS_PREFIX/$app" ]]; then
       APPNAME="$app"
       run_install_init "$app" && __notifications "Installed $app" || __notifications "Installation of $app has failed"
-      local exitCode+=$?
+      exitCode+=$(($? + ${exitCode:-0}))
     fi
   done
   unset app
@@ -226,7 +227,7 @@ run_install_version() {
     else
       echo $USRUPDATEDIR/$app
       printf_red "File was not found is it installed?"
-      exitCode+=1
+      exitCode+=$(($? + ${exitCode:1}))
       return 1
     fi
   done
@@ -236,7 +237,7 @@ run_install_version() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 installer_delete() {
   local app=""
-  local exitCode=0
+  local exitCode=""
   local LISTARRAY="$*"
   for app in $LISTARRAY; do
     export APPNAME="$app" REPO="$REPO/$APPNAME" REPORAW="$REPO/raw/$GIT_REPO_BRANCH"
@@ -244,12 +245,12 @@ installer_delete() {
     if [ -d "$APPDIR/$app" ] || [ -d "$INSTDIR/$app" ]; then
       printf_yellow "$MESSAGE"
       printf_blue "Deleting the files"
-      [ -d "$INSTDIR/$app" ] && __rm_rf "$INSTDIR/$app" || exitCode+=1
-      __rm_rf "$APPDIR/$app" "$INSTDIR/$app" || exitCode+=1
-      __rm_rf "$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX/$app" || exitCode+=1
-      __rm_rf "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$app" || exitCode+=1
+      [ -d "$INSTDIR/$app" ] && __rm_rf "$INSTDIR/$app" || exitCode+=$(($? + ${exitCode:-0}))
+      __rm_rf "$APPDIR/$app" "$INSTDIR/$app" || exitCode+=$(($? + ${exitCode:-0}))
+      __rm_rf "$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX/$app" || exitCode+=$(($? + ${exitCode:-0}))
+      __rm_rf "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$app" || exitCode+=$(($? + ${exitCode:-0}))
       printf_yellow "Removing any broken symlinks"
-      __broken_symlinks "$BIN" "$SHARE" "$COMPDIR" "$CONF" "$THEMEDIR" "$FONTDIR" "$ICONDIR" || exitCode+=1
+      __broken_symlinks "$BIN" "$SHARE" "$COMPDIR" "$CONF" "$THEMEDIR" "$FONTDIR" "$ICONDIR" || exitCode+=$(($? + ${exitCode:-0}))
       __getexitcode $exitCode "$app has been removed" " "
       return $exitCode
     else

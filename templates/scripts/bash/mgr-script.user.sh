@@ -63,11 +63,12 @@ __help() {
   __printf_line "available            - List all available packages"
   __printf_line "list                 - List installed packages"
   __printf_line "search    [package]  - Search for a package"
-  __printf_line "version   [package]  - Show the version info"
   __printf_line "install   [package]  - Install a package"
-  __printf_line "remove    [package]  - Remove a package"
   __printf_line "update    [package]  - Update a package"
   __printf_line "download  [package]  - Downloads the source"
+  __printf_line "remove    [package]  - Remove a package"
+  __printf_line "cron      [package]  - Enables the use of cron to update packages on a schedule"
+  __printf_line "version   [package]  - Shows the version of an installed package"
   __printf_line "                                       "
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
@@ -143,13 +144,13 @@ __broken_symlinks() { find "$*" -xtype l -exec rm {} \; &>/dev/null; }
 __rm_rf() { if [ -e "$1" ]; then rm -Rf "$@" &>/dev/null; else return 0; fi; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_install_version() {
-  local upd file USRUPDATEDIR="$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER" exitCode=""
+  local upd file USRUPDATEDIR="$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER" exitCode=0
   if [ -d "$USRUPDATEDIR" ] && ls "$USRUPDATEDIR"/* 1>/dev/null 2>&1; then
     export file="$(ls -A "$USRUPDATEDIR/$1" 2>/dev/null)"
     if [ -f "$file" ]; then
       appname="$(__basename "$file")"
       bash -c "$file --version $appname"
-      exitCode+=$?
+      exitCode=$?
     fi
   fi
   [ "$exitCode" = 0 ] && exitCode=0 || exitCode=1
@@ -157,14 +158,14 @@ __run_install_version() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cron_updater() {
-  local upd file USRUPDATEDIR="$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER" exitCode=""
+  local upd file USRUPDATEDIR="$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER" exitCode=0
   if [ -z "$1" ] && [ -d "$USRUPDATEDIR" ] && ls "$USRUPDATEDIR"/* 1>/dev/null 2>&1; then
     for upd in $(ls "$USRUPDATEDIR/"); do
       export file="$(ls -A "$USRUPDATEDIR/$upd" 2>/dev/null)"
       if [ -f "$file" ]; then
         appname="$(__basename "$file")"
         bash -c "$file --cron $appname"
-        exitCode+=$?
+        exitCode=$?
       fi
     done
   else
@@ -173,7 +174,7 @@ __cron_updater() {
       if [ -f "$file" ]; then
         appname="$(__basename "$file")"
         bash -c "$file --cron $appname"
-        exitCode+=$?
+        exitCode=$?
       fi
     fi
   fi
@@ -183,7 +184,7 @@ __cron_updater() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __installer_delete() {
   local app="${1:-}"
-  local exitCode=""
+  local exitCode=0
   local APP_DIR_NAME="$GEN_SCRIPT_REPLACE_ENV_APP_DIR"
   local INSTALL_DIR_NAME="$GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR"
   local MESSAGE="${MESSAGE:-Removing $app from ${msg:-your system}}"
@@ -193,19 +194,19 @@ __installer_delete() {
     printf_yellow "$MESSAGE"
     if [ -e "$APP_DIR_NAME/$app" ]; then
       printf_blue "Deleting the files from $APP_DIR_NAME/$app"
-      __rm_rf "$APP_DIR_NAME/$app" && exitCode+=0 || exitCode+=1
+      __rm_rf "$APP_DIR_NAME/$app"
     fi
     if [ -e "$INSTALL_DIR_NAME/$app" ]; then
       printf_blue "Deleting the files from $APP_DIR_NAME/$app"
-      __rm_rf "$INSTALL_DIR_NAME/$app" && exitCode+=0 || exitCode+=1
+      __rm_rf "$INSTALL_DIR_NAME/$app"
     fi
     if [ -e "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER/$app" ]; then
       printf_blue "Deleting the files from $APP_DIR_NAME/$app"
-      __rm_rf "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER/$app" && exitCode+=0 || exitCode+=1
+      __rm_rf "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER/$app"
     fi
-    { [ -d "$INSTALL_DIR_NAME/$app" ] || [ -d "$APP_DIR_NAME/$app" ]; } && exitCode=1 || exitCode=0
     printf_yellow "Removing any broken symlinks"
     __broken_symlinks "$BIN" "$SHARE" "$COMPDIR" "$CONF" "$THEMEDIR" "$FONTDIR" "$ICONDIR"
+    { [ -e "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER/$app" ] || [ -d "$INSTALL_DIR_NAME/$app" ] || [ -d "$APP_DIR_NAME/$app" ]; } && exitCode=1 || exitCode=0
     [ $exitCode = 0 ] && printf_cyan "$app has been removed"
     return $exitCode
   else
@@ -215,27 +216,25 @@ __installer_delete() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_install_init() {
-  local app exitCode=0
+  local app="$1"
+  local exitCode=0
   local INSTALL_DIR_NAME="$GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR"
-  for app in "$@"; do
-    export SUDO_USER
-    if __urlcheck "$GEN_SCRIPT_REPLACE_ENV_REPO_URL/$app/$GEN_SCRIPT_REPLACE_ENV_REPO_RAW/install.sh"; then
-      export FORCE_INSTALL="$FORCE_INSTALL"
-      bash -c "$(curl -q -LSsf "$GEN_SCRIPT_REPLACE_ENV_REPO_URL/$app/$GEN_SCRIPT_REPLACE_ENV_REPO_RAW/install.sh")" 2>/dev/null
-      exitCode+=$?
-    else
-      printf_error "Failed to initialize the installer from:"
-      printf_red "$GEN_SCRIPT_REPLACE_ENV_REPO_URL/$app/$GEN_SCRIPT_REPLACE_ENV_REPO_RAW/install.sh\n"
-      exitCode+=1
-    fi
-  done
+  export SUDO_USER
+  if __urlcheck "$GEN_SCRIPT_REPLACE_ENV_REPO_URL/$app/$GEN_SCRIPT_REPLACE_ENV_REPO_RAW/install.sh"; then
+    export FORCE_INSTALL="$FORCE_INSTALL"
+    bash -c "$(curl -q -LSsf "$GEN_SCRIPT_REPLACE_ENV_REPO_URL/$app/$GEN_SCRIPT_REPLACE_ENV_REPO_RAW/install.sh")" 2>/dev/null
+    exitCode=$?
+  else
+    printf_error "Failed to initialize the installer from:"
+    printf_red "$GEN_SCRIPT_REPLACE_ENV_REPO_URL/$app/$GEN_SCRIPT_REPLACE_ENV_REPO_RAW/install.sh\n"
+    exitCode=1
+  fi
   [ "$exitCode" = 0 ] && exitCode=0 || exitCode=1
   return ${exitCode:-$?}
-
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_install_update() {
-  local app APPNAME exitCode=""
+  local app APPNAME exitCode=0
   local USER_SHARE_DIR="$SHARE/CasjaysDev/GEN_SCRIPT_REPLACE_FILENAME"
   local SYSTEM_SHARE_DIR="$SYSSHARE/CasjaysDev/GEN_SCRIPT_REPLACE_FILENAME"
   local USRUPDATEDIR="$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER"
@@ -243,37 +242,8 @@ __run_install_update() {
   local NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME}"
   local NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON}"
   export NOTIFY_CLIENT_NAME NOTIFY_CLIENT_ICON
-  if [ $# = 0 ]; then
-    if [ -d "$USRUPDATEDIR" ] && [ -n "$(ls -A "$USRUPDATEDIR" | grep '^' || ls "$USER_SHARE_DIR" | grep '^')" ]; then
-      for app in $(ls "$USRUPDATEDIR" | grep '^' || ls "$USER_SHARE_DIR" | grep '^'); do
-        APPNAME="$app"
-        __run_install_init "$APPNAME" &&
-          __notifications "Installed $APPNAME" ||
-          __notifications "Installation of $APPNAME has failed"
-        exitCode+=$?
-      done
-    fi
-    if __user_is_root && [ "$USRUPDATEDIR" != "$SYSUPDATEDIR" ]; then
-      if [ -d "$SYSUPDATEDIR" ] && [ -n "$(ls -A "$SYSUPDATEDIR" | grep '^' || ls "$SYSTEM_SHARE_DIR" | grep '^')" ]; then
-        for app in $(ls "$SYSUPDATEDIR" | grep '^' || ls "$SYSTEM_SHARE_DIR" | grep '^'); do
-          APPNAME="$app"
-          __run_install_init "$APPNAME" &&
-            __notifications "Installed $APPNAME" ||
-            __notifications "Installation of $APPNAME has failed"
-          exitCode+=$?
-        done
-      fi
-    fi
-  else
-    for app in "$@"; do
-      APPNAME="$app"
-      __run_install_init "$APPNAME" &&
-        __notifications "Installed $APPNAME" ||
-        __notifications "Installation of $APPNAME has failed"
-      exitCode+=$?
-    done
-  fi
-  [ "$exitCode" = 0 ] && exitCode=0 || exitCode=1
+  APPNAME="$app"
+  __run_install_init "$APPNAME" && exitCode=0 || exitCode=1
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -281,7 +251,7 @@ __download() {
   local REPO_NAME="$1"
   local DIR_NAME="${2:-$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR/$REPO_NAME}"
   local REPO_URL="$GEN_SCRIPT_REPLACE_ENV_REPO_URL"
-  local exitCode=""
+  local exitCode=0
   if cmd_exists gitadmin; then
     if [ -d "$DIR_NAME/.git" ]; then
       sudo -u "$SUDO_USER" gitadmin pull "$DIR_NAME"
@@ -299,38 +269,41 @@ __download() {
       exitCode=$?
     fi
   fi
-  [ -d "$DIR_NAME/.git" ] && exitCode="0" #&& [ -n "$SUDO_USER" ] && sudo chown -Rf $SUDO_USER:$SUDO_USER "$DIR_NAME"
+  [ -d "$DIR_NAME/.git" ] && exitCode=0 #&& [ -n "$SUDO_USER" ] && sudo chown -Rf $SUDO_USER:$SUDO_USER "$DIR_NAME"
   [ "$exitCode" = 0 ] && exitCode=0 || exitCode=1
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __api_list() {
-  local exitCode=""
+  local exitCode=0
   local api_url="${GEN_SCRIPT_REPLACE_ENV_REPO_API:-https://api.github.com/orgs/GEN_SCRIPT_REPLACE_FILENAME/repos?per_page=${GEN_SCRIPT_REPLACE_ENV_REPO_API_PER_PAGE:-1000}}"
   if __urlcheck "$api_url"; then
     curl -q -LSsf -H "Accept: application/vnd.github.v3+json" "$api_url" 2>/dev/null |
       jq '.[].name' 2>/dev/null | sed 's#"##g' | grep -Ev '.github|template|^null$' |
       grep '^' || __list_options || false
-    exitCode+=$?
+    exitCode=$?
   else
-    exitCode+=1
+    __list_options
+    exitCode=$?
   fi
   [ "$exitCode" = 0 ] && exitCode=0 || exitCode=1
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_search() {
-  local results=""
+  local -a results=""
   [ $# = 0 ] && printf_exit "Nothing to search for"
   [ -n "$LIST" ] || printf_exit "The enviroment variable LIST does not exist"
   for app in "$@"; do
-    local -a result+="$(echo -e "$LIST" | tr ' ' '\n' | grep -Fi "$app" | grep -sv '^$') "
+    result+="$(echo -e "$LIST" | tr ' ' '\n' | grep -Fi "$app" | grep -sv '^$') "
   done
   results="$(echo "$result" | sort -u | tr '\n' ' ' | sed 's| | |g' | grep '^')"
   if [ -z "$results" ]; then
     printf_exit "Your search produced no results"
+    exitCode=1
   else
     printf '%s\n' "$results" | printf_column "${PRINTF_COLOR:-4}"
+    exitCode=0
   fi
   [ "$exitCode" = 0 ] && exitCode=0 || exitCode=1
   return ${exitCode:-$?}
@@ -606,8 +579,10 @@ declare -a LISTARRAY=()
 case "$1" in
 list)
   shift 1
-  printf_green "All available GEN_SCRIPT_REPLACE_FILENAME packages"
-  __list_available | printf_column '5'
+  printf_green "All installed GEN_SCRIPT_REPLACE_FILENAME packages"
+  LISTARRAY=("$(ls -A "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER" 2>/dev/null)")
+  [ -n "${LISTARRAY[*]}" ] && printf '%s\n' "${LISTARRAY[@]}" | printf_column '5' ||
+    printf_exit "There doesn't seem to be any packages installed"
   ;;
 
 available)
@@ -632,6 +607,7 @@ remove)
   for rmf in "${LISTARRAY[@]}"; do
     MESSAGE="Removing $rmf from $GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR/$rmf"
     __installer_delete "$rmf"
+    [ $? = 0 ] && __notifications "Deletion of $APPNAME was successfull" || __notifications "Deletetion of $APPNAME has failed"
     printf '\n'
   done
   ;;
@@ -647,11 +623,13 @@ update)
     for ins in "${LISTARRAY[@]}"; do
       APPNAME="$ins"
       __run_install_update "$APPNAME"
+      [ $? = 0 ] && __notifications "Update $APPNAME" || __notifications "Update of $APPNAME has failed"
     done
   elif [ -d "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER" ] && [ ${#LISTARRAY} -ne 0 ]; then
     for upd in $(ls "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER"); do
       APPNAME="$upd"
       __run_install_update "$APPNAME"
+      [ $? = 0 ] && __notifications "Updated $APPNAME" || __notifications "Update of $APPNAME has failed"
     done
   else
     printf_yellow "There doesn't seem to be any packages installed"
@@ -667,6 +645,7 @@ install)
   elif [ $# -eq 0 ]; then
     printf_blue "No packages provide running the updater"
     __run_install_update
+    [ $? = 0 ] && __notifications "Installed $APPNAME" || __notifications "Installation of $APPNAME has failed"
     exit $?
   else
     LISTARRAY=("$@")
@@ -674,8 +653,9 @@ install)
   for ins in "${LISTARRAY[@]}"; do
     APPNAME="$ins"
     __run_install_update "$APPNAME"
+    [ $? = 0 ] && __notifications "Installed $APPNAME" || __notifications "Installation of $APPNAME has failed"
   done
-  exit $?
+  exit ${exitCode:-$?}
   ;;
 
 download | clone)
@@ -688,6 +668,7 @@ download | clone)
   if [ -n "${LISTARRAY[*]}" ]; then
     for pkgs in "${LISTARRAY[@]}"; do
       __download "$pkgs"
+      [ $? = 0 ] && __notifications "Downloaded $APPNAME" || __notifications "Download of $APPNAME has failed"
     done
   else
     printf_exit "No packages selected for download"

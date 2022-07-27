@@ -16,7 +16,7 @@
 # @@Resource         :  GEN_SCRIPT_REPLACE_RES
 # @@Terminal App     :  GEN_SCRIPT_REPLACE_TERMINAL
 # @@sudo/root        :  GEN_SCRIPT_REPLACE_SUDO
-# @@Template         :  completions/user
+# @@Template         :  completions/system
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _GEN_SCRIPT_REPLACE_FILENAME_completion() {
   ___findcmd() { find -L "${1:-$CONFDIR/}" -maxdepth ${3:-3} -type ${2:-f} 2>/dev/null | sed 's#'${1:-$CONFDIR}'##g' | grep '^' || return 1; }
@@ -32,7 +32,7 @@ _GEN_SCRIPT_REPLACE_FILENAME_completion() {
   #####################################################################
   local SHORTOPTS=""
   #####################################################################
-  local LONGOPTS="--completions --config --debug --dir --help --options --raw --version "
+  local LONGOPTS="--completions --config --debug --dir --help --options --raw --version --term "
   #####################################################################
   local ARRAY=""
   #####################################################################
@@ -60,7 +60,7 @@ _GEN_SCRIPT_REPLACE_FILENAME_completion() {
       return 0
       ;;
     --dir)
-      prev="--dir"
+      prev="dir"
       [ "$cword" -le 2 ] && _filedir -d ||
         COMPREPLY=($(compgen -W '${ARRAY}' -- "$cur"))
       ;;

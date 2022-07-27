@@ -23,7 +23,7 @@ VERSION="GEN_SCRIPT_REPLACE_VERSION"
 HOME="${USER_HOME:-$HOME}"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${SUDO_USER:-$USER}"
-SRC_DIR="${BASH_SOURCE%/*}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
 SCRIPTS_PREFIX="systemmgr"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
@@ -171,9 +171,9 @@ run_exit
 # run any external scripts
 if ! cmd_exists "$APPNAME" && [ -f "$INSTDIR/build.sh" ]; then
   if builtin cd "$PLUGDIR/source"; then
-    BUILD_SRC_DIR="$PLUGDIR/source"
+    BUILD_SCRIPT_SRC_DIR="$PLUGDIR/source"
     BUILD_SRC_URL=""
-    export BUILD_SRC_DIR BUILD_SRC_URL
+    export BUILD_SCRIPT_SRC_DIR BUILD_SRC_URL
     eval "$INSTDIR/build.sh"
   fi
   cmd_exists $APPNAME || printf_red "$APPNAME is not installed: run $INSTDIR/build.sh"

@@ -24,11 +24,16 @@ _GEN_SCRIPT_REPLACE_FILENAME_completion() {
   local prev="${COMP_WORDS[$COMP_CWORD - 1]}"
   #####################################################################
   local CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
-  local SHORTOPTS="$(GEN_SCRIPT_REPLACE_FILENAME --completions short)"
-  local LONGOPTS="$(GEN_SCRIPT_REPLACE_FILENAME --completions long)"
-  local ARRAY=$(GEN_SCRIPT_REPLACE_FILENAME --completions array)
-  local LIST=$(GEN_SCRIPT_REPLACE_FILENAME --completions list)
+  #####################################################################
   local SHOW_COMP_OPTS=""
+  #####################################################################
+  local SHORTOPTS=""
+  #####################################################################
+  local LONGOPTS="--completions --config --debug --help --options --raw --version "
+  #####################################################################
+  local ARRAY=""
+  #####################################################################
+  local LIST=""
   #####################################################################
   _init_completion || return
   #####################################################################
@@ -43,6 +48,10 @@ _GEN_SCRIPT_REPLACE_FILENAME_completion() {
     COMPREPLY=($(compgen -W '${SHORTOPTS:---}' -- ${cur})) && compopt -o nospace
   else
     case "${prev:-${COMP_WORDS[1]}}" in
+    --completions)
+      prev=""
+      COMPREPLY=($(compgen -W 'long short list array' -- "$cur"))
+      ;;
     --debug | --raw | --help | --version | --config | --options)
       prev=""
       COMPREPLY=($(compgen -W '${SHORTOPTS:-$LONGOPTS}' -- "$cur"))

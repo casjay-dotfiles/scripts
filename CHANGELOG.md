@@ -1,3 +1,50 @@
+#### Changelog: 2022-07-27 at 03:22:54  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+templates/scripts/bash/mgr-script.system.sh      🚀  
+templates/scripts/bash/mgr-script.user.sh      🚀  
+templates/scripts/bash/simple      🚀  
+templates/scripts/bash/system      🚀  
+templates/scripts/bash/terminal      🚀  
+templates/scripts/bash/user      🚀  
+templates/scripts/completions/mgr-script.system.bash      🚀  
+templates/scripts/completions/mgr-script.user.bash      🚀  
+templates/scripts/completions/simple.bash      🚀  
+templates/scripts/completions/system.bash      🚀  
+templates/scripts/completions/terminal.bash      🚀  
+templates/scripts/completions/user.bash      🚀  
+templates/scripts/installers/desktopmgr.sh      🚀  
+templates/scripts/installers/devenvmgr.sh      🚀  
+templates/scripts/installers/dfmgr.sh      🚀  
+templates/scripts/installers/dockermgr.sh      🚀  
+templates/scripts/installers/fontmgr.sh      🚀  
+templates/scripts/installers/iconmgr.sh      🚀  
+templates/scripts/installers/mgr-script.system.sh      🚀  
+templates/scripts/installers/mgr-script.user.sh      🚀  
+templates/scripts/installers/personal.sh      🚀  
+templates/scripts/installers/systemmgr.sh      🚀  
+templates/scripts/installers/thememgr.sh      🚀  
+templates/scripts/installers/wallpapermgr.sh      🚀  
+templates/scripts/man/mgr-script.system.man      🚀  
+templates/scripts/man/mgr-script.user.man      🚀  
+templates/scripts/man/simple.man      🚀  
+templates/scripts/man/terminal.man      🚀  
+templates/scripts/os/arch.sh      🚀  
+templates/scripts/os/centos.sh      🚀  
+templates/scripts/os/debian.sh      🚀  
+templates/scripts/os/fedora.sh      🚀  
+templates/scripts/os/macos.sh      🚀  
+templates/scripts/os/void.sh      🚀  
+templates/scripts/other/autostart      🚀  
+templates/scripts/other/build      🚀  
+templates/scripts/other/docker-entrypoint      🚀  
+templates/scripts/shell/bash      🚀  
+templates/scripts/shell/sh      🚀  
+  
+#### End of changes for 202207262113-git - 2022-07-27 at 03:22:54  
+  
+----  
+  
 #### Changelog: 2022-07-26 at 22:15:45  
   
 templates/scripts/bash/simple      🚀  

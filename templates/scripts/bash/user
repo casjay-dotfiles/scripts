@@ -23,7 +23,7 @@ VERSION="GEN_SCRIPT_REPLACE_VERSION"
 HOME="${USER_HOME:-$HOME}"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${SUDO_USER:-$USER}"
-SRC_DIR="${BASH_SOURCE%/*}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
 #if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
@@ -32,27 +32,35 @@ SRC_DIR="${BASH_SOURCE%/*}"
 set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main function file
-if [ -f "$SRC_DIR/functions.bash" ]; then
-  FUNCTIONS_DIR="$SRC_DIR"
+if [ -f "$SCRIPT_SRC_DIR/functions.bash" ]; then
+  FUNCTIONS_DIR="$SCRIPT_SRC_DIR"
   . "$FUNCTIONS_DIR/functions.bash"
 elif [ -f "$HOME/.local/bin/functions.bash" ]; then
   FUNCTIONS_DIR="$HOME/.local/bin"
   . "$FUNCTIONS_DIR/functions.bash"
 else
-  printf "\t\t\033[0;31m%s \033[0m\n" "Couldn't source the functions file from ${FUNCTIONS_DIR:-$SRC_DIR}"
+  printf "\t\t\033[0;31m%s \033[0m\n" "Couldn't source the functions file from ${FUNCTIONS_DIR:-$SCRIPT_SRC_DIR}"
   exit 1
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# helper functions
+# Send all output to /dev/null
 __devnull() {
-  tee &>/dev/null || exitCode=1
+  tee &>/dev/null && exitCode=0 || exitCode=1
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# Send errors to /dev/null
+__devnull2() {
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# See if the executable exists
 __cmd_exists() {
-  local exitCode=0
+  [ -n "$1" ] && local exitCode="" || return 0
   for cmd in "$@"; do
-    builtin command -v "$cmd" |& __devnull && true || exitCode+=1
+    builtin command -v "$cmd" |& __devnull && exitCode+=0 || exitCode+=1
   done
   [ $exitCode -eq 0 ] || exitCode=3
   return ${exitCode:-$?}
@@ -64,7 +72,6 @@ if [ "$SHOW_RAW" = "true" ]; then
 else
   printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
 fi
-
 ## - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # output version
 __version() { printf_cyan "$VERSION"; }
@@ -75,59 +82,6 @@ __list_options() {
   echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g'
   printf_newline
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# sudo functions
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__sudoask() { # Get sudo password
-  ask_for_password sudo true && return 0 || return 1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__sudorun() { # Run sudo
-  __sudoif && __sudoask && __sudo "$@" || eval "$@" || return $?
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__sudo_group() { # Check if user is a member of sudo
-  grep "${1:-$USER}" /etc/group | grep -Eq 'wheel|adm|sudo' || return 1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__can_i_sudo() { # Test if user has access to sudo
-  __sudo_group "${1:-$USER}" || __sudoif || __sudo -n true &>/dev/null || return 1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__user_is_root() { # Is current user root
-  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__user_is_not_root() { # Is current user not root
-  { [ $(id -u) -ne 0 ] || [ $EUID -ne 0 ] || [ "$WHOAMI" != "root" ]; } && return 0 || return 1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__sudoif() { # User can run sudo
-  __user_is_not_root && (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null && return 0 || return 1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__requiresudo() { # Run command as root
-  __sudorun "$@"
-  return $?
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__sudo() {
-  CMD="${*:-echo -e "$USER"}"
-  export PATH="$PATH"
-  if __cmd_exists sudo; then
-    \sudo --preserve-env=PATH -HE "bash -c ${CMD};exit $?" || return 1
-  else
-    if __user_is_root; then
-      eval "$@"
-      return $?
-    else
-      printf '%s\n' "This requires root to run"
-      return $?
-    fi
-  fi
-  return ${?:-1}
-}
-# End of sudo functions
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gen_config() {
   if [ "$INIT_CONFIG" != "TRUE" ]; then
@@ -157,6 +111,7 @@ GEN_SCRIPT_REPLACE_ENV_ERROR_MESSAGE="${GEN_SCRIPT_REPLACE_ENV_ERROR_MESSAGE:-}"
 GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_NAME="${GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_NAME:-}"
 GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_ICON="${GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_ICON:-}"
 GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_URGENCY="${GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_URGENCY:-}"
+
 EOF
   if [ -f "$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE" ]; then
     [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
@@ -195,15 +150,83 @@ __help() {
   __printf_line "--config           - Generate user config file"
   __printf_line "--version          - Show script version"
   __printf_line "--options          - Shows all available options"
-  __printf_line "--debug            - Enable debugging"
+  __printf_line "--debug            - Enables script debugging"
   __printf_line "--raw              - Removes all formatting on output"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   exit
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# # Get sudo password
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run sudo
+__sudorun() {
+  __sudoif && __sudoask && __sudo "$@" || eval "$@"
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo
+__can_i_sudo() {
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo -n true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() {
+  { [ $(id -u) -ne 0 ] || [ $EUID -ne 0 ] || [ "$WHOAMI" != "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User can run sudo
+__sudoif() {
+  __user_is_not_root && (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run command as root
+requiresudo() {
+  [ "$GEN_SCRIPT_REPLACE_ENV_REQUIRE_SUDO" = "yes" ] && unset GEN_SCRIPT_REPLACE_ENV_REQUIRE_SUDO || return 0
+  __sudorun "$@"
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  local CMD="${*:-echo -e "$USER"}"
+  local SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  export PATH="$PATH"
+  [ "$(basename "$SUDO" 2>/dev/null)" = "sudo" ] && SUDO_OPTS="--preserve-env=PATH -HE"
+  if __cmd_exists sudo; then
+    $SUDO ${SUDO_OPTS:-} "bash -c ${CMD};exit $?"
+    return $?
+  else
+    printf '%s\n' "This requires root to run"
+    return $?
+  fi
+  return ${?:-1}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  exitCode=${exitCode:-$?}
+  [ -f "GEN_SCRIPT_REPLACE_ENV_TEMP_FILE" ] && rm -Rf "$GEN_SCRIPT_REPLACE_ENV_TEMP_FILE" &>/dev/null
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Default variables
+GEN_SCRIPT_REPLACE_ENV_REQUIRE_SUDO="${GEN_SCRIPT_REPLACE_ENV_REQUIRE_SUDO:-GEN_SCRIPT_REPLACE_SUDO}"
 # Application Folders
 GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE="${GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE:-settings.conf}"
 GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR="${GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR:-$HOME/.config/misc/settings/GEN_SCRIPT_REPLACE_FILENAME}"
@@ -250,7 +273,7 @@ GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_URGENCY="${GEN_SCRIPT_REPLACE_ENV_NOTIFY_CL
 GEN_SCRIPT_REPLACE_ENV_TEMP_FILE="${GEN_SCRIPT_REPLACE_ENV_TEMP_FILE:-$(mktemp $GEN_SCRIPT_REPLACE_ENV_TEMP_DIR/XXXXXX 2>/dev/null)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup trap to remove temp file
-trap 'exitCode=${exitCode:-$?};[ -n "$GEN_SCRIPT_REPLACE_ENV_TEMP_FILE" ] && [ -f "$GEN_SCRIPT_REPLACE_ENV_TEMP_FILE" ] && rm -Rf "$GEN_SCRIPT_REPLACE_ENV_TEMP_FILE" |&__devnull' EXIT
+trap '__trap_exit' EXIT
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup notification function
 if [ "$GEN_SCRIPT_REPLACE_ENV_NOTIFY_ENABLED" = "yes" ]; then
@@ -261,9 +284,10 @@ if [ "$GEN_SCRIPT_REPLACE_ENV_NOTIFY_ENABLED" = "yes" ]; then
       export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_ICON}"
       export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_NAME}"
       export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_URGENCY}"
-      notifications "$@" && exitCode=0 || exitCode=1
+      notifications "$@"
+      retval=$?
       unset NOTIFY_CLIENT_NAME NOTIFY_CLIENT_ICON NOTIFY_GOOD_MESSAGE NOTIFY_ERROR_MESSAGE
-      return ${exitCode:-$?}
+      return $retval
     ) &>/dev/null &
   }
 else
@@ -271,18 +295,22 @@ else
 fi
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Show warn message if variables are missing
+# Show warning message if variables are missing
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Argument/Option settings
 SETARGS=("$@")
-LONGOPTS="completions:,config,debug,dir:,help,options,raw,version"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SHORTOPTS=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup application options
-setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$APPNAME" -- "$@" 2>/dev/null)
 eval set -- "${setopts[@]}" 2>/dev/null
 while :; do
   case "$1" in
@@ -290,20 +318,30 @@ while :; do
     shift 1
     export SHOW_RAW="true"
     printf_column() { tee | grep '^'; }
-    printf_color() {
-      printf '%b' "$1" | tr -d '\t' |
-        sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'
-    }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
     ;;
   --debug)
     shift 1
     set -xo pipefail
-    __devnull() {
-      tee || exitCode=1
-      return ${exitCode:-$?}
-    }
     export SCRIPT_OPTS="--debug"
     export _DEBUG="on"
+    __devnull() { tee || return 1; }
+    __devnull2() { eval "$@" |& tee || return 1; }
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
     ;;
   --options)
     shift 1
@@ -328,22 +366,6 @@ while :; do
     __gen_config
     exit $?
     ;;
-  --completions)
-    __completion_list() { printf '%s\n' "$1" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'; }
-    if [ "$2" = "short" ]; then
-      __completion_list "-$SHORTOPTS"
-    elif [ "$2" = "long" ]; then
-      __completion_list "--$LONGOPTS"
-    elif [ "$2" = "array" ]; then
-      __completion_list "$ARRAY"
-    elif [ "$2" = "list" ]; then
-      __completion_list "$LIST"
-    else
-      printf "\n"
-    fi
-    shift 2
-    exit $?
-    ;;
   --dir)
     GEN_SCRIPT_REPLACE_ENV_CWD="$2"
     shift 2
@@ -359,9 +381,9 @@ done
 # set -- "$@"
 # for arg in "$@"; do
 # if [ -d "$arg" ]; then
-# GEN_SCRIPT_REPLACE_ENV_CWD="$arg" && shift 1
+# GEN_SCRIPT_REPLACE_ENV_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
 # elif [ -f "$arg" ]; then
-# GEN_SCRIPT_REPLACE_ENV_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1
+# GEN_SCRIPT_REPLACE_ENV_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
 # else
 # SET_NEW_ARGS+=("$arg")
 # fi
@@ -370,30 +392,30 @@ done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set directory to first argument
 # [ -d "$1" ] && GEN_SCRIPT_REPLACE_ENV_CWD="$1" && shift 1
-export GEN_SCRIPT_REPLACE_ENV_CWD="${GEN_SCRIPT_REPLACE_ENV_CWD:-$PWD}"
-export REQUIRE_SUDO="FALSE"
+[ "$GEN_SCRIPT_REPLACE_ENV_CWD" = "." ] && GEN_SCRIPT_REPLACE_ENV_CWD="$(readlink -f "." 2>/dev/null)"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set actions based on variables
-
+export GEN_SCRIPT_REPLACE_ENV_CWD="${GEN_SCRIPT_REPLACE_ENV_CWD:-$PWD}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Redefine functions based on options
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
-#__requiresudo "" || exit 2        # exit 2 if errors
+#requiresudo "$APPNAME" "$@" || exit 2     # exit 2 if errors
 cmd_exists --error --ask bash || exit 3 # exit 3 if not found
-#am_i_online --error || exit 4     # exit 4 if no internet
+#am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
-[ "$GEN_SCRIPT_REPLACE_ENV_CWD" = "." ] && GEN_SCRIPT_REPLACE_ENV_CWD="$(readlink -f "." 2>/dev/null)"
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
-printf_green "Version:$VERSION"
-printf_green "DIR=$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR"
+printf_purple "Name: $APPNAME"
+printf_green "Version: $VERSION"
+printf_blue "Config Dir: $GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR"
+printf_cyan "Current Working directory: $GEN_SCRIPT_REPLACE_ENV_CWD"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set exit code
 exitCode="${exitCode:-$?}"

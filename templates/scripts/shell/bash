@@ -23,12 +23,35 @@ VERSION="GEN_SCRIPT_REPLACE_VERSION"
 HOME="${USER_HOME:-$HOME}"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${SUDO_USER:-$USER}"
-SRC_DIR="${BASH_SOURCE%/*}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
 [ "$1" = "--debug" ] && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
 [ "$1" = "--raw" ] && export SHOW_RAW="true"
 set -o pipefail
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Send all output to /dev/null
+__devnull() {
+  tee &>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# Send errors to /dev/null
+__devnull2() {
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# See if the executable exists
+__cmd_exists() {
+  [ -n "$1" ] && local exitCode="" || return 0
+  for cmd in "$@"; do
+    builtin command -v "$cmd" |& __devnull && exitCode+=0 || exitCode+=1
+  done
+  [ $exitCode -eq 0 ] || exitCode=3
+  return ${exitCode:-$?}
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # colorization
 if [ "$SHOW_RAW" = "true" ]; then
@@ -49,7 +72,6 @@ __version() { printf_color "\t\t$VERSION\n" "4"; }
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set additional variables
-exitCode="0"
 GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR="$HOME/.config/$APPNAME"
 GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE="settings.conf"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -57,42 +79,73 @@ GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE="settings.conf"
 [ -f "$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE" ] &&
   . "$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Argument/Option settings
 SETARGS=("$@")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SHORTOPTS=""
-LONGOPTS="config,debug,help,raw,version"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LONGOPTS="completions:,config,debug,help,options,raw,version"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LIST=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup application options
-setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
-eval set -- "${setopts}" 2>/dev/null
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$APPNAME" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
 while :; do
   case "$1" in
   --raw)
     shift 1
-    shift 1
     export SHOW_RAW="true"
-    printf_color() { printf '%b' "$1\n" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    printf_column() { tee | grep '^'; }
+    __printf_color() { printf '%b\n' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
     ;;
   --debug)
     shift 1
     set -xo pipefail
     export SCRIPT_OPTS="--debug"
     export _DEBUG="on"
+    __devnull() { tee || return 1; }
+    __devnull2() { eval "$@" |& tee || return 1; }
+    ;;
+  --completions)
+    if [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
+    ;;
+  --options)
+    shift 1
+    __printf_color "Current options for ${PROG:-$APPNAME}" '4'
+    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' 4
+    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' 4
+    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
+    exit $?
     ;;
   --version)
     shift 1
     __version
+    exit $?
     ;;
   --help)
     shift 1
-    printf_color 'help' "6"
-    exit
+    __help
+    exit $?
     ;;
   --config)
     shift 1
-    echo "" >"$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE"
+    __gen_config
+    exit $?
     ;;
   --)
     shift 1

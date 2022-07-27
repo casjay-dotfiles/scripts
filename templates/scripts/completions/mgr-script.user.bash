@@ -16,7 +16,7 @@
 # @@Resource         :  GEN_SCRIPT_REPLACE_RES
 # @@Terminal App     :  GEN_SCRIPT_REPLACE_TERMINAL
 # @@sudo/root        :  GEN_SCRIPT_REPLACE_SUDO
-# @@Template         :  completions/user
+# @@Template         :  completions/system
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _GEN_SCRIPT_REPLACE_FILENAME_completion() {
   ___findcmd() { find -L "${1:-$CONFDIR/}" -maxdepth ${3:-3} -type ${2:-f} 2>/dev/null | sed 's#'${1:-$CONFDIR}'##g' | grep '^' || return 1; }
@@ -30,11 +30,11 @@ _GEN_SCRIPT_REPLACE_FILENAME_completion() {
   #####################################################################
   local SHOW_COMP_OPTS=""
   #####################################################################
-  local SHORTOPTS=""
+  local SHORTOPTS="-a -f"
   #####################################################################
-  local LONGOPTS="--completions --config --debug --dir --help --options --raw --version "
+  local LONGOPTS="--completions --config --debug --help --options --raw --version "
   #####################################################################
-  local ARRAY=""
+  local ARRAY="download list search available remove version update install cron "
   #####################################################################
   local LIST=""
   #####################################################################
@@ -59,13 +59,12 @@ _GEN_SCRIPT_REPLACE_FILENAME_completion() {
       COMPREPLY=($(compgen -W '${ARRAY} ${LONGOPTS} ${SHORTOPTS}' -- ${cur}))
       return 0
       ;;
-    --dir)
-      prev="--dir"
-      [ "$cword" -le 2 ] && _filedir -d ||
-        COMPREPLY=($(compgen -W '${ARRAY}' -- "$cur"))
+    --all)
+      COMPREPLY=($(compgen -W '${LIST}' -- "$cur"))
       ;;
     *)
-      COMPREPLY=($(compgen -W '${ARRAY}' -- "$cur"))
+      [ $cword -gt 2 ] && COMPREPLY=($(compgen -W '${LIST}' -- "$cur")) ||
+        COMPREPLY=($(compgen -W '${ARRAY}' -- "$cur"))
       return 0
       ;;
     esac

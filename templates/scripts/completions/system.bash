@@ -20,33 +20,32 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _GEN_SCRIPT_REPLACE_FILENAME_completion() {
   ___findcmd() { find -L "${1:-$CONFDIR/}" -maxdepth ${3:-3} -type ${2:-f} 2>/dev/null | sed 's#'${1:-$CONFDIR}'##g' | grep '^' || return 1; }
-  local CONFDIR="$HOME/.config/myscripts/GEN_SCRIPT_REPLACE_FILENAME"
-  local SEARCHDIR="${CONFDIR:-$HOME/.config/myscripts/GEN_SCRIPT_REPLACE_FILENAME}"
-  local CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
-  local CONFFILE="settings.conf"
   local cur prev words cword opts split
   local cur="${COMP_WORDS[$COMP_CWORD]}"
   local prev="${COMP_WORDS[$COMP_CWORD - 1]}"
-  #local SEARCHCMD="$(___findcmd "$SEARCHDIR/" "d" "1" | sort -u)"
+  local CONFFILE="settings.conf"
+  #####################################################################
+  local CONFDIR="$HOME/.config/myscripts/GEN_SCRIPT_REPLACE_FILENAME"
+  local SEARCHDIR="${CONFDIR:-$HOME/.config/myscripts/GEN_SCRIPT_REPLACE_FILENAME}"
+  local SHORTOPTS="$(GEN_SCRIPT_REPLACE_FILENAME --completions short)"
+  local LONGOPTS="$(GEN_SCRIPT_REPLACE_FILENAME --completions long)"
+  local ARRAY=$(GEN_SCRIPT_REPLACE_FILENAME --completions array)
+  local LIST=$(GEN_SCRIPT_REPLACE_FILENAME --completions list)
   local SHOW_COMP_OPTS=""
-  local FILEDIR=""
-  local LONGOPTS="--debug --raw --options --config --version --help --dir "
-  local SHORTOPTS=""
-  local ARRAY=""
-
+  #####################################################################
   _init_completion || return
-
+  #####################################################################
   if [ "$SHOW_COMP_OPTS" != "" ]; then
     local SHOW_COMP_OPTS_SEP="$(echo "$SHOW_COMP_OPTS" | tr ',' ' ')"
     compopt -o $SHOW_COMP_OPTS_SEP
   fi
-
+  #####################################################################
   if [[ ${cur} == --* ]]; then
     COMPREPLY=($(compgen -W '${LONGOPTS}' -- ${cur}))
   elif [[ ${cur} == -* ]]; then
     COMPREPLY=($(compgen -W '${SHORTOPTS:---}' -- ${cur})) && compopt -o nospace
   else
-    case "${COMP_WORDS[1]:-$prev}" in
+    case "${prev:-${COMP_WORDS[1]}}" in
     --debug | --raw | --help | --version | --config | --options)
       COMPREPLY=($(compgen -W '${ARRAY} ${LONGOPTS} ${SHORTOPTS}' -- ${cur}))
       return 0
@@ -103,7 +102,6 @@ _GEN_SCRIPT_REPLACE_FILENAME_completion() {
   # [ $COMP_CWORD -gt 3 ] && COMPREPLY=($(compgen -W '' -- "${cur}"))
   # prev=""
   # compopt -o nospace
-  $split && return
 } &&
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # enable completions

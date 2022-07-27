@@ -150,9 +150,9 @@ __broken_symlinks() { find "$*" -xtype l -exec rm {} \; &>/dev/null; }
 __rm_rf() { if [ -e "$1" ]; then rm -Rf "$@" &>/dev/null; else return 0; fi; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_install_version() {
-  local upd file USRUPDATEDIR="$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER" exitCode=0
-  if [ -d "$USRUPDATEDIR" ] && ls "$USRUPDATEDIR"/* 1>/dev/null 2>&1; then
-    export file="$(ls -A "$USRUPDATEDIR/$1" 2>/dev/null)"
+  local upd file exitCode=0
+  if [ -d "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" ] && ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" 2>&1 | grep -q '^'; then
+    export file="$(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM/$1" 2>/dev/null)"
     if [ -f "$file" ]; then
       appname="$(__basename "$file")"
       bash -c "$file --version $appname"
@@ -164,10 +164,10 @@ __run_install_version() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cron_updater() {
-  local upd file USRUPDATEDIR="$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER" exitCode=0
-  if [ -z "$1" ] && [ -d "$USRUPDATEDIR" ] && ls "$USRUPDATEDIR"/* 1>/dev/null 2>&1; then
-    for upd in $(ls "$USRUPDATEDIR/"); do
-      export file="$(ls -A "$USRUPDATEDIR/$upd" 2>/dev/null)"
+  local upd file exitCode=0
+  if [ -z "$1" ] && [ -d "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" ] && ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" 2>&1 | grep -q '^'; then
+    for upd in $(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM"); do
+      export file="$(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM/$upd" 2>/dev/null)"
       if [ -f "$file" ]; then
         appname="$(__basename "$file")"
         bash -c "$file --cron $appname"
@@ -175,8 +175,8 @@ __cron_updater() {
       fi
     done
   else
-    if [ -d "$USRUPDATEDIR" ] && ls "$USRUPDATEDIR"/* 1>/dev/null 2>&1; then
-      export file="$(ls -A "$USRUPDATEDIR/$1" 2>/dev/null)"
+    if [ -d "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" ] && ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" 2>&1 | grep -q '^'; then
+      export file="$(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM/$1" 2>/dev/null)"
       if [ -f "$file" ]; then
         appname="$(__basename "$file")"
         bash -c "$file --cron $appname"
@@ -243,8 +243,8 @@ __run_install_update() {
   local app APPNAME exitCode=0
   local USER_SHARE_DIR="$SHARE/CasjaysDev/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX"
   local SYSTEM_SHARE_DIR="$SYSSHARE/CasjaysDev/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX"
-  local USRUPDATEDIR="$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER"
-  local SYSUPDATEDIR="$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_SYSTEM"
+  local USRUPDATEDIR="$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM"
+  local SYSUPDATEDIR="$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM"
   local NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME}"
   local NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON}"
   export NOTIFY_CLIENT_NAME NOTIFY_CLIENT_ICON
@@ -387,7 +387,7 @@ __trap_exit() {
 # Default variables
 GEN_SCRIPT_REPLACE_ENV_REQUIRE_SUDO="${GEN_SCRIPT_REPLACE_ENV_REQUIRE_SUDO:-GEN_SCRIPT_REPLACE_SUDO}"
 GEN_SCRIPT_REPLACE_ENV_USER_DIR="${GEN_SCRIPT_REPLACE_ENV_USER_DIR:-$USRUPDATEDIR}"
-GEN_SCRIPT_REPLACE_ENV_SYSTEM_DIR="${GEN_SCRIPT_REPLACE_ENV_SYSTEM_DIR:-$USRUPDATEDIR}"
+GEN_SCRIPT_REPLACE_ENV_SYSTEM_DIR="${GEN_SCRIPT_REPLACE_ENV_SYSTEM_DIR:-$SYSUPDATEDIR}"
 GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR="${GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR:-$SHARE/CasjaysDev/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX}"
 # Application Folders
 GEN_SCRIPT_REPLACE_ENV_LOG_DIR="${GEN_SCRIPT_REPLACE_ENV_LOG_DIR:-$HOME/.local/log/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX}"
@@ -415,16 +415,16 @@ GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_URGENCY="${GEN_SCRIPT_REPLACE_ENV_NOTIFY_CL
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional Variables
 GEN_SCRIPT_REPLACE_ENV_GIT_REPO_BRANCH="${GEN_SCRIPT_REPLACE_ENV_GIT_REPO_BRANCH:-main}"
-GEN_SCRIPT_REPLACE_ENV_APP_DIR="${GEN_SCRIPT_REPLACE_ENV_APP_DIR:-${GEN_SCRIPT_REPLACE_ENV_APP_DIR:-$SHARE/CasjaysDev/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX}}"
-GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR="${GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR:-${GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR:-$SHARE/CasjaysDev/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX}}"
+GEN_SCRIPT_REPLACE_ENV_APP_DIR="${GEN_SCRIPT_REPLACE_ENV_APP_DIR:-$SHARE/CasjaysDev/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX}"
+GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR="${GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR:-$SHARE/CasjaysDev/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX}"
 GEN_SCRIPT_REPLACE_ENV_CLONE_DIR="${GEN_SCRIPT_REPLACE_ENV_CLONE_DIR:-$HOME/Projects/github/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX}"
 GEN_SCRIPT_REPLACE_ENV_REPO_URL="${GEN_SCRIPT_REPLACE_ENV_REPO_URL:-https://github.com/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX}"
 GEN_SCRIPT_REPLACE_ENV_REPO_RAW="${GEN_SCRIPT_REPLACE_ENV_REPO_RAW:-raw/$GEN_SCRIPT_REPLACE_ENV_GIT_REPO_BRANCH}"
 GEN_SCRIPT_REPLACE_ENV_REPO_API="${GEN_SCRIPT_REPLACE_ENV_REPO_API:-https://api.github.com/orgs/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX/repos}"
 GEN_SCRIPT_REPLACE_ENV_REPO_API_PER_PAGE="${GEN_SCRIPT_REPLACE_ENV_REPO_API_PER_PAGE:-1000}"
 GEN_SCRIPT_REPLACE_ENV_FORCE_INSTALL="${GEN_SCRIPT_REPLACE_ENV_FORCE_INSTALL:-false}"
-GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER="${GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER:-${GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER:-$HOME/.local/share/CasjaysDev/apps/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX}}"
-GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_SYSTEM="${GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_SYSTEM:-{$:-GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_SYSTEM/usr/local/share/CasjaysDev/apps/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX}}"
+GEN_SCRIPT_REPLACE_ENV_DIR_USER="${GEN_SCRIPT_REPLACE_ENV_DIR_USER:-$USRUPDATEDIR}"
+GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM="${GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM:-$SYSUPDATEDIR}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate non-existing config files
 [ -f "$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config "$*"
@@ -591,7 +591,7 @@ case "$1" in
 list)
   shift 1
   printf_green "All installed $GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX packages"
-  LISTARRAY=("$(ls -A "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER" 2>/dev/null)")
+  LISTARRAY=("$(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" 2>/dev/null)")
   [ -n "${LISTARRAY[*]}" ] && printf '%s\n' "${LISTARRAY[@]}" | printf_column '5' ||
     printf_exit "There doesn't seem to be any packages installed"
   ;;
@@ -610,7 +610,7 @@ search)
 remove)
   shift 1
   if [ "$INSTALL_ALL" = "true" ]; then
-    LISTARRAY=("$(ls -A "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER" 2>/dev/null)")
+    LISTARRAY=("$(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" 2>/dev/null)")
   else
     LISTARRAY=("$@")
   fi
@@ -632,7 +632,7 @@ install)
     LISTARRAY=("$@")
   fi
   for ins in "${LISTARRAY[@]}"; do
-    if [ -e "$GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR/$ins" ] || [ -e "$GEN_SCRIPT_REPLACE_ENV_USER_DIR/$ins" ] || [ -e "$GEN_SCRIPT_REPLACE_ENV_SYSTEM_DIR/$ins" ] || [ -e "$SHARE/CasjaysDev/$SCRIPTS_PREFIX/$app" ]; then
+    if [ -e "$GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR/$ins" ] || [ -e "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM/$ins" ] || [ -e "$GEN_SCRIPT_REPLACE_ENV_DIR_USER/$ins" ] || [ -e "$SHARE/CasjaysDev/$SCRIPTS_PREFIX/$app" ]; then
       __notifications "$ins is already installed"
       continue
     else
@@ -647,7 +647,7 @@ install)
 update)
   shift 1
   if [ $# -eq 0 ] || [ "$INSTALL_ALL" = "true" ]; then
-    LISTARRAY=("$(ls -A "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER" 2>/dev/null)")
+    LISTARRAY=("$(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" 2>/dev/null)")
   else
     LISTARRAY=("$@")
   fi
@@ -657,8 +657,8 @@ update)
       __run_install_update "$APPNAME"
       [ $? = 0 ] && __notifications "Successfully updated $APPNAME" || __notifications "Update of $APPNAME has failed"
     done
-  elif [ -d "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER" ] && [ ${#LISTARRAY} -ne 0 ]; then
-    for upd in $(ls "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER"); do
+  elif [ -d "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" ] && [ ${#LISTARRAY} -ne 0 ]; then
+    for upd in $(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" 2>/dev/null); do
       APPNAME="$upd"
       __run_install_update "$APPNAME"
       [ $? = 0 ] && __notifications "Successfully updated $APPNAME" || __notifications "Update of $APPNAME has failed"

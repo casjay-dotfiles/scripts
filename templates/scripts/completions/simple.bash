@@ -19,27 +19,30 @@
 # @@Template         :  installers/simple
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _GEN_SCRIPT_REPLACE_FILENAME_completion() {
-  local CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
   local cur prev words cword
   local cur="${COMP_WORDS[$COMP_CWORD]}"
+  local prev="${COMP_WORDS[$COMP_CWORD - 1]}"
+  #####################################################################
+  local CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+  local SHORTOPTS="$(GEN_SCRIPT_REPLACE_FILENAME --completions short)"
+  local LONGOPTS="$(GEN_SCRIPT_REPLACE_FILENAME --completions long)"
+  local ARRAY=$(GEN_SCRIPT_REPLACE_FILENAME --completions array)
+  local LIST=$(GEN_SCRIPT_REPLACE_FILENAME --completions list)
   local SHOW_COMP_OPTS=""
-  local LONGOPTS="--debug --raw --help --version --config --options "
-  local SHORTOPTS=""
-  local ARRAY=""
-
+  #####################################################################
   _init_completion || return
-
+  #####################################################################
   if [ "$SHOW_COMP_OPTS" != "" ]; then
     local SHOW_COMP_OPTS_SEP="$(echo "$SHOW_COMP_OPTS" | tr ',' ' ')"
     compopt -o $SHOW_COMP_OPTS_SEP
   fi
-
+  #####################################################################
   if [[ ${cur} == --* ]]; then
     COMPREPLY=($(compgen -W '${LONGOPTS}' -- ${cur}))
   elif [[ ${cur} == -* ]]; then
     COMPREPLY=($(compgen -W '${SHORTOPTS:---}' -- ${cur})) && compopt -o nospace
   else
-    case "${COMP_WORDS[1]:-$prev}" in
+    case "${prev:-${COMP_WORDS[1]}}" in
     --debug | --raw | --help | --version | --config | --options)
       prev=""
       COMPREPLY=($(compgen -W '${SHORTOPTS:-$LONGOPTS}' -- "$cur"))

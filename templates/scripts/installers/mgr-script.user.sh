@@ -438,12 +438,12 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set additional variables/Argument/Option settings
 SETARGS=("$@")
+LONGOPTS="completions:,options,config,version,help,dir:force,all,raw"
 SHORTOPTS="a,f"
-LONGOPTS="options,config,version,help,dir:force,all,raw"
 ARRAY="download,list,search,available,remove,version,update,install,cron"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-LIST="
-LIST+="
+LIST=""
+LIST+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup application options
 setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
@@ -477,6 +477,22 @@ while :; do
   --config)
     shift 1
     __gen_config
+    exit $?
+    ;;
+  --completions)
+    __completion_list() { printf '%s\n' "$1" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'; }
+    if [ "$2" = "short" ]; then
+      __completion_list "-$SHORTOPTS"
+    elif [ "$2" = "long" ]; then
+      __completion_list "--$LONGOPTS"
+    elif [ "$2" = "array" ]; then
+      __completion_list "$ARRAY"
+    elif [ "$2" = "list" ]; then
+      __completion_list "$LIST"
+    else
+      printf "\n"
+    fi
+    shift 2
     exit $?
     ;;
   --dir)

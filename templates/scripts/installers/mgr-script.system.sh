@@ -515,7 +515,7 @@ done
 # [ -d "$1" ] && GENSCRIPT_REPLACE_ENV_CWD="$1" && shift 1
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set actions based on variables
-# GEN_SCRIPT_REPLACE_ENV_CWD="${GEN_SCRIPT_REPLACE_ENV_CWD:-$PWD}"
+export GEN_SCRIPT_REPLACE_ENV_CWD="${GEN_SCRIPT_REPLACE_ENV_CWD:-$PWD}"
 export REQUIRE_SUDO="TRUE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Redefine functions based on options
@@ -524,12 +524,13 @@ export REQUIRE_SUDO="TRUE"
 # Check for required applications/Network check
 __requiresudo "$APPNAME" "$@" || exit 1 # Require root
 __cmd_exists bash curl jq || exit 1     # exit 1 if not found
-__am_i_online --error || exit 1         # exit 1 if no internet
+am_i_online --error || exit 1           # exit 1 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
+[ "$GEN_SCRIPT_REPLACE_ENV_CWD" = "." ] && GEN_SCRIPT_REPLACE_ENV_CWD="$(readlink -f "." 2>/dev/null)"
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app

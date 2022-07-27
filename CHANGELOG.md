@@ -1,3 +1,19 @@
+#### Changelog: 2022-07-26 at 21:12:59  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+bin/gen-script      🚀  
+templates/scripts/bash/simple      🚀  
+templates/scripts/bash/system      🚀  
+templates/scripts/bash/terminal      🚀  
+templates/scripts/bash/user      🚀  
+templates/scripts/installers/mgr-script.system.sh      🚀  
+templates/scripts/installers/mgr-script.user.sh      🚀  
+templates/shellcheckrc      🚀  
+  
+#### End of changes for 202207262029-git - 2022-07-26 at 21:12:59  
+  
+----  
+  
 #### Changelog: 2022-07-26 at 20:29:11  
 #### 🗃️ Committing everything that changed 🗃️  
   

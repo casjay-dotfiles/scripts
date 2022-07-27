@@ -442,8 +442,8 @@ SHORTOPTS="a,f"
 LONGOPTS="options,config,version,help,dir:force,all,raw"
 ARRAY="download,list,search,available,remove,version,update,install,cron"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-LIST=""
-LIST+=""
+LIST="
+LIST+="
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup application options
 setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
@@ -515,25 +515,27 @@ done
 # [ -d "$1" ] && GENSCRIPT_REPLACE_ENV_CWD="$1" && shift 1
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set actions based on variables
-# GEN_SCRIPT_REPLACE_ENV_CWD="${GEN_SCRIPT_REPLACE_ENV_CWD:-$PWD}"
-
+export GEN_SCRIPT_REPLACE_ENV_CWD="${GEN_SCRIPT_REPLACE_ENV_CWD:-$PWD}"
+export REQUIRE_SUDO="FALSE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Redefine functions based on options
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
-sudo -n true && ask_for_password true && REQUIRE_SUDO="TRUE" || exit 1 # Require root
-cmd_exists --error --ask bash curl jq || exit 1                        # exit 1 if not found
-__am_i_online --error || exit 1                                        # exit 1 if no internet
+#__requiresudo "$APPNAME" "$@" || exit 1 # Require root
+cmd_exists --error --ask bash curl jq || exit 1 # exit 1 if not found
+am_i_online --error || exit 1                   # exit 1 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
+declare -a LISTARRAY=()
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
+[ "$GEN_SCRIPT_REPLACE_ENV_CWD" = "." ] && GEN_SCRIPT_REPLACE_ENV_CWD="$(readlink -f "." 2>/dev/null)"
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
-case $1 in
+case "$1" in
 list)
   shift 1
   printf_green "All available GEN_SCRIPT_REPLACE_FILENAME packs"
@@ -554,27 +556,27 @@ search)
 remove)
   shift 1
   if [ "$INSTALL_ALL" = "true" ]; then
-    LISTARRAY="$(ls -A "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER" 2>/dev/null)"
+    LISTARRAY=("$(ls -A "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER" 2>/dev/null)")
   else
-    LISTARRAY="$*"
+    LISTARRAY=("$@")
   fi
   [ ${#LISTARRAY} -ne 0 ] || printf_exit "No packages selected for removal"
-  for rmf in $LISTARRAY; do
+  for rmf in "${LISTARRAY[@]}"; do
     MESSAGE="Removing $rmf from $GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR/$rmf"
     __installer_delete "$rmf"
-    echo ""
+    printf '\n'
   done
   ;;
 
 update)
   shift 1
   if [ $# -eq 0 ] || [ "$INSTALL_ALL" = "true" ]; then
-    LISTARRAY="$(ls -A "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER" 2>/dev/null)"
+    LISTARRAY=("$(ls -A "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER" 2>/dev/null)")
   else
-    LISTARRAY="$*"
+    LISTARRAY=("$@")
   fi
   if [ $# -ne 0 ]; then
-    for ins in $LISTARRAY; do
+    for ins in "${LISTARRAY[@]}"; do
       APPNAME="$ins"
       __run_install_update "$APPNAME"
     done
@@ -593,15 +595,15 @@ update)
 install)
   shift 1
   if [ "$INSTALL_ALL" = "true" ]; then
-    LISTARRAY="$(__list_options)"
+    LISTARRAY=("$(__list_options)")
   elif [ $# -eq 0 ]; then
     printf_blue "No packages provide running the updater"
     __run_install_update
     exit $?
   else
-    LISTARRAY="$*"
+    LISTARRAY=("$@")
   fi
-  for ins in $LISTARRAY; do
+  for ins in "${LISTARRAY[@]}"; do
     APPNAME="$ins"
     __run_install_update "$APPNAME"
   done
@@ -611,12 +613,12 @@ install)
 download | clone)
   shift 1
   if [ $# = 0 ] || [ "$INSTALL_ALL" = "true" ]; then
-    LISTARRAY="$(__list_available)"
+    LISTARRAY=("$(__list_available)")
   else
-    LISTARRAY="$*"
+    LISTARRAY=("$@")
   fi
-  if [ -n "$LISTARRAY" ]; then
-    for pkgs in $LISTARRAY; do
+  if [ -n "${LISTARRAY[*]}" ]; then
+    for pkgs in "${LISTARRAY[@]}"; do
       __download "$pkgs"
     done
   else
@@ -626,8 +628,8 @@ download | clone)
 
 cron)
   shift 1
-  LISTARRAY="$*"
-  for cron in $LISTARRAY; do
+  LISTARRAY=("$@")
+  for cron in "${LISTARRAY[@]}"; do
     APPNAME="$cron"
     __cron_updater "$cron"
   done
@@ -635,8 +637,8 @@ cron)
 
 version)
   shift 1
-  LISTARRAY="$*"
-  for ver in $LISTARRAY; do
+  LISTARRAY=("$@")
+  for ver in "${LISTARRAY[@]}"; do
     APPNAME="$ver"
     run_install_version "$ver"
   done

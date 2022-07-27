@@ -111,14 +111,14 @@ install_pkg() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-printf_head "Initializing the setup script"
+__printf_head "Initializing the setup script"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 sudoask && sudoexit
 execute "sudo PKMGR"
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-printf_head "Configuring cores for compiling"
+__printf_head "Configuring cores for compiling"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 if [ -f /etc/makepkg.conf ]; then
@@ -132,17 +132,17 @@ if [ -f /etc/makepkg.conf ]; then
 fi
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-printf_head "Installing the packages for TEMPLATE"
+__printf_head "Installing the packages for TEMPLATE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 install_pkg listofpkgs
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-printf_head "Fixing packages"
+__printf_head "Fixing packages"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-printf_head "setting up config files"
+__printf_head "setting up config files"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 run_post "cp -rT /etc/skel $HOME"
@@ -152,7 +152,7 @@ run_post "dotfilesreq misc"
 run_post dotfilesreqadmin samba
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-printf_head "Enabling services"
+__printf_head "Enabling services"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 system_service_enable lightdm.service
@@ -169,13 +169,13 @@ run_post "devnull systemctl set-default graphical.target"
 run_post "devnull grub-mkconfig -o /boot/grub/grub.cfg"
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-printf_head "Cleaning up"
+__printf_head "Cleaning up"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 remove_pkg xfce4-artwork
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-printf_head "Finished "
+__printf_head "Finished "
 echo""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 

@@ -1,3 +1,26 @@
+#### Changelog: 2022-07-26 at 20:29:11  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+templates/scripts/bash/simple      🚀  
+templates/scripts/bash/system      🚀  
+templates/scripts/bash/terminal      🚀  
+templates/scripts/bash/user      🚀  
+templates/scripts/completions/system.bash      🚀  
+templates/scripts/completions/user.bash      🚀  
+templates/scripts/installers/mgr-script.system.sh      🚀  
+templates/scripts/installers/mgr-script.user.sh      🚀  
+templates/scripts/os/arch.sh      🚀  
+templates/scripts/os/centos.sh      🚀  
+templates/scripts/os/debian.sh      🚀  
+templates/scripts/os/fedora.sh      🚀  
+templates/scripts/os/macos.sh      🚀  
+templates/scripts/os/void.sh      🚀  
+templates/scripts/other/build      🚀  
+  
+#### End of changes for 202207261837-git - 2022-07-26 at 20:29:11  
+  
+----  
+  
 #### Changelog: 2022-07-26 at 18:37:21  
 #### 🗃️ Committing everything that changed 🗃️  
   

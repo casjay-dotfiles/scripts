@@ -56,29 +56,29 @@ __printf_head() { printf_color "\t\t$1\n" "5"; }
 __printf_opts() { printf_color "\t\t$1\n" "6"; }
 __printf_line() { printf_color "\t\t$1\n" "4"; }
 __help() {
-  printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-  printf_opts "GEN_SCRIPT_REPLACE_FILENAME: GEN_SCRIPT_REPLACE_DESC"
-  printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-  printf_line "Usage: GEN_SCRIPT_REPLACE_FILENAME [options] [commands]"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME available            - list all available packages"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME list                 - list installed packages"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME search    [package]  - search for a package"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME version   [package]  - show the version info"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME install   [package]  - install a package"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME remove    [package]  - remove a package"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME update    [package]  - update a package"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME download  [package]  - downloads the source"
-  printf_line "                                       "
-  printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-  printf_opts "Other Options"
-  printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME --debug              - enable debugging"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME --config             - Generate user config file"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME --version            - Show script version"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME --help               - Shows this message"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME --options            - Shows all available options"
-  printf_line ""
-  printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "GEN_SCRIPT_REPLACE_FILENAME: GEN_SCRIPT_REPLACE_DESC"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Usage: GEN_SCRIPT_REPLACE_FILENAME [options] [commands]"
+  __printf_line "available            - list all available packages"
+  __printf_line "list                 - list installed packages"
+  __printf_line "search    [package]  - search for a package"
+  __printf_line "version   [package]  - show the version info"
+  __printf_line "install   [package]  - install a package"
+  __printf_line "remove    [package]  - remove a package"
+  __printf_line "update    [package]  - update a package"
+  __printf_line "download  [package]  - downloads the source"
+  __printf_line "                                       "
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Other Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--debug              - enable debugging"
+  __printf_line "--config             - Generate user config file"
+  __printf_line "--version            - Show script version"
+  __printf_line "--help               - Shows this message"
+  __printf_line "--options            - Shows all available options"
+  __printf_line ""
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   exit
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -96,16 +96,6 @@ __list_available() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __list_options() { printf_custom "5" "$1: $(echo ${2:-$ARRAY} | __sed 's|:||g;s|'$3'| '$4'|g')" 2>/dev/null; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# sudo functions
-__sudoask() { ask_for_password sudo true && return 0 || return 1; }
-__sudorun() { __sudoif && __sudoask && __sudo "$@" || eval "$@" || return $?; }
-__sudo() { PATH="$PATH" builtin command sudo --preserve-env=PATH -HE "$@" || return 1; }
-__sudo_group() { grep "${1:-$USER}" /etc/group | grep -Eq 'wheel|adm|sudo' || return 1; }
-__sudoif() { (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null && return 0 || return 1; }
-__can_i_sudo() { __sudo_group "${1:-$USER}" || __sudoif || __sudo -n true &>/dev/null || return 1; }
-__requiresudo() { __cmd_exists sudo && ! __user_is_root && __sudorun "$@" && return 0 || return ${?:-1}; }
-__user_is_root() { { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gen_config() {
   [ -z "$NOTIFY_CLIENT_NAME" ] || NOTIFY_CLIENT_NAME=""
@@ -151,58 +141,27 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
-__rm_rf() { if [ -e "$1" ]; then __require_sudo rm -Rf "$@" &>/dev/null; else return 0; fi; }
-__broken_symlinks() { __require_sudo find "$*" -xtype l -exec rm {} \; &>/dev/null; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__require_sudo() {
-  if [ "$REQUIRE_SUDO" = "TRUE" ] || [ "$USER" != "root" ] || [ "$UID" != "0" ] || [ -z "$SUDO_USER" ]; then
-    sudo -HE "$APPNAME $SETARGS"
-    return $?
-  else
-    eval "$*"
-    return $?
-  fi
-}
+__rm_rf() { if [ -e "$1" ]; then rm -Rf "$@" &>/dev/null; else return 0; fi; }
+__broken_symlinks() { find "$*" -xtype l -exec rm {} \; &>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cron_updater() {
   local upd file
   local USRUPDATEDIR="$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER"
-  local SYSUPDATEDIR="$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_SYSTEM"
   [ "$*" = "help" ] && shift 1 && printf_help "Usage: ${PROG:-$APPNAME} updater $APPNAME"
-  if __user_is_root; then
-    if [ -z "$1" ] && [ -d "$SYSUPDATEDIR" ] && ls "$SYSUPDATEDIR"/* 1>/dev/null 2>&1; then
-      for upd in $(ls "$SYSUPDATEDIR/"); do
-        file="$(ls -A "$SYSUPDATEDIR/$upd" 2>/dev/null)"
-        if [ -f "$file" ]; then
-          appname="$(__basename "$file")"
-          __require_sudo file="$file" bash "$file --cron $*"
-        fi
-      done
-    else
-      if [ -d "$SYSUPDATEDIR" ] && ls "$SYSUPDATEDIR"/* 1>/dev/null 2>&1; then
-        file="$(ls -A "$SYSUPDATEDIR/$1" 2>/dev/null)"
-        if [ -f "$file" ]; then
-          appname="$(__basename "$file")"
-          __require_sudo file="$file" bash "$file --cron $*"
-        fi
+  if [ -z "$1" ] && [ -d "$USRUPDATEDIR" ] && ls "$USRUPDATEDIR"/* 1>/dev/null 2>&1; then
+    for upd in $(ls "$USRUPDATEDIR/"); do
+      export file="$(ls -A "$USRUPDATEDIR/$upd" 2>/dev/null)"
+      if [ -f "$file" ]; then
+        appname="$(__basename "$file")"
+        bash "$file --cron $*"
       fi
-    fi
+    done
   else
-    if [ -z "$1" ] && [ -d "$USRUPDATEDIR" ] && ls "$USRUPDATEDIR"/* 1>/dev/null 2>&1; then
-      for upd in $(ls "$USRUPDATEDIR/"); do
-        export file="$(ls -A "$USRUPDATEDIR/$upd" 2>/dev/null)"
-        if [ -f "$file" ]; then
-          appname="$(__basename "$file")"
-          __require_sudo bash "$file --cron $*"
-        fi
-      done
-    else
-      if [ -d "$USRUPDATEDIR" ] && ls "$USRUPDATEDIR"/* 1>/dev/null 2>&1; then
-        export file="$(ls -A "$USRUPDATEDIR/$1" 2>/dev/null)"
-        if [ -f "$file" ]; then
-          appname="$(__basename "$file")"
-          __require_sudo bash "$file --cron $*"
-        fi
+    if [ -d "$USRUPDATEDIR" ] && ls "$USRUPDATEDIR"/* 1>/dev/null 2>&1; then
+      export file="$(ls -A "$USRUPDATEDIR/$1" 2>/dev/null)"
+      if [ -f "$file" ]; then
+        appname="$(__basename "$file")"
+        bash "$file --cron $*"
       fi
     fi
   fi
@@ -247,7 +206,7 @@ __run_install_init() {
     export SUDO_USER
     if __urlcheck "$GEN_SCRIPT_REPLACE_ENV_REPO_URL/$app/$GEN_SCRIPT_REPLACE_ENV_REPO_RAW/install.sh"; then
       export FORCE_INSTALL="$FORCE_INSTALL"
-      __require_sudo bash -c "$(curl -q -LSsf "$GEN_SCRIPT_REPLACE_ENV_REPO_URL/$app/$GEN_SCRIPT_REPLACE_ENV_REPO_RAW/install.sh")" 2>/dev/null
+      bash -c "$(curl -q -LSsf "$GEN_SCRIPT_REPLACE_ENV_REPO_URL/$app/$GEN_SCRIPT_REPLACE_ENV_REPO_RAW/install.sh")" 2>/dev/null
     else
       printf_error "Failed to initialize the installer from:"
       printf_exit "$GEN_SCRIPT_REPLACE_ENV_REPO_URL/$app/$GEN_SCRIPT_REPLACE_ENV_REPO_RAW/install.sh\n"
@@ -320,7 +279,7 @@ __download() {
       exitCode=$?
     fi
   fi
-  [ -d "$DIR_NAME/.git" ] && exitCode="0" #&& [  -n "$SUDO_USER"  ] && sudo chown -Rf $SUDO_USER:$SUDO_USER "$DIR_NAME"
+  [ -d "$DIR_NAME/.git" ] && exitCode="0" #&& [ -n "$SUDO_USER" ] && sudo chown -Rf $SUDO_USER:$SUDO_USER "$DIR_NAME"
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -349,6 +308,62 @@ __run_search() {
   unset results app
   exit $?
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__sudoask() { # Get sudo password
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__sudorun() { # Run sudo
+  __sudoif && __sudoask && __sudo "$@" || eval "$@" || return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__sudo_group() { # Check if user is a member of sudo
+  grep "${1:-$USER}" /etc/group | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__can_i_sudo() { # Test if user has access to sudo
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo -n true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__user_is_root() { # Is current user root
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__user_is_not_root() { # Is current user not root
+  { [ $(id -u) -ne 0 ] || [ $EUID -ne 0 ] || [ "$WHOAMI" != "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__sudoif() { # User can run sudo
+  __user_is_not_root && (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__requiresudo() { # Run command as root
+  __sudorun "$@"
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__sudo() {
+  CMD="${*:-echo -e "$USER"}"
+  export PATH="$PATH"
+  if __cmd_exists sudo; then
+    \sudo --preserve-env=PATH -HE "bash -c ${CMD};exit $?" || return 1
+  else
+    if __user_is_root; then
+      eval "$@"
+      return $?
+    else
+      printf '%s\n' "This requires root to run"
+      return $?
+    fi
+  fi
+  return ${?:-1}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Define other functions
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application Folders
 GEN_SCRIPT_REPLACE_ENV_LOG_DIR="${GEN_SCRIPT_REPLACE_ENV_LOG_DIR:-$HOME/.local/log/GEN_SCRIPT_REPLACE_FILENAME}"
@@ -496,10 +511,20 @@ done
 # done
 # set -- "${SET_NEW_ARGS[@]}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set directory to first argument
+# [ -d "$1" ] && GENSCRIPT_REPLACE_ENV_CWD="$1" && shift 1
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set actions based on variables
+# GEN_SCRIPT_REPLACE_ENV_CWD="${GEN_SCRIPT_REPLACE_ENV_CWD:-$PWD}"
+export REQUIRE_SUDO="TRUE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Redefine functions based on options
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
-sudo -n true && ask_for_password true && REQUIRE_SUDO="TRUE" || exit 1 # Require root
-cmd_exists --error --ask bash curl jq || exit 1                        # exit 1 if not found
-__am_i_online --error || exit 1                                        # exit 1 if no internet
+__requiresudo "$APPNAME" "$@" || exit 1 # Require root
+__cmd_exists bash curl jq || exit 1     # exit 1 if not found
+__am_i_online --error || exit 1         # exit 1 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
 

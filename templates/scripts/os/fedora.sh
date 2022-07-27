@@ -101,11 +101,11 @@ install_pkg() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [ -n "$1" ] || printf_exit 'To many options provided'
 ##################################################################################################################
-printf_head "Initializing the setup script"
+__printf_head "Initializing the setup script"
 ##################################################################################################################
 __user_is_root && sudoexit "This scripts requires root/sudo"
 ##################################################################################################################
-printf_head "Configuring cores for compiling"
+__printf_head "Configuring cores for compiling"
 ##################################################################################################################
 if [ -f /etc/makepkg.conf ]; then
   numberofcores=$(grep -c ^processor /proc/cpuinfo)
@@ -116,22 +116,22 @@ if [ -f /etc/makepkg.conf ]; then
   fi
 fi
 ##################################################################################################################
-printf_head "Installing the packages for GEN_SCRIPT_REPLACE_APPNAME"
+__printf_head "Installing the packages for GEN_SCRIPT_REPLACE_APPNAME"
 ##################################################################################################################
 install_pkg listofpkgs
 ##################################################################################################################
-printf_head "Fixing packages"
+__printf_head "Fixing packages"
 ##################################################################################################################
 
 ##################################################################################################################
-printf_head "setting up config files"
+__printf_head "setting up config files"
 ##################################################################################################################
 run_post "cp -rT /etc/skel $HOME"
 run_post "dotfilesreq bash"
 run_post "dotfilesreq misc"
 run_post "dotfilesreqadmin samba ssl"
 ##################################################################################################################
-printf_head "Enabling services"
+__printf_head "Enabling services"
 ##################################################################################################################
 system_service_enable lightdm.service
 system_service_enable bluetooth.service
@@ -145,11 +145,11 @@ system_service_disable mpd
 run_post "devnull systemctl set-default graphical.target"
 run_post "devnull grub-mkconfig -o /boot/grub/grub.cfg"
 ##################################################################################################################
-printf_head "Cleaning up"
+__printf_head "Cleaning up"
 ##################################################################################################################
 remove_pkg xfce4-artwork
 ##################################################################################################################
-printf_head "Finished "
+__printf_head "Finished "
 printf_newline
 ##################################################################################################################
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

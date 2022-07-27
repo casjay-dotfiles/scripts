@@ -56,29 +56,29 @@ __printf_head() { printf_color "\t\t$1\n" "5"; }
 __printf_opts() { printf_color "\t\t$1\n" "6"; }
 __printf_line() { printf_color "\t\t$1\n" "4"; }
 __help() {
-  printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-  printf_opts "GEN_SCRIPT_REPLACE_FILENAME: GEN_SCRIPT_REPLACE_DESC"
-  printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-  printf_line "Usage: GEN_SCRIPT_REPLACE_FILENAME [options] [commands]"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME available            - list all available packages"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME list                 - list installed packages"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME search    [package]  - search for a package"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME version   [package]  - show the version info"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME install   [package]  - install a package"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME remove    [package]  - remove a package"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME update    [package]  - update a package"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME download  [package]  - downloads the source"
-  printf_line "                                       "
-  printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-  printf_opts "Other Options"
-  printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME --debug              - enable debugging"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME --config             - Generate user config file"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME --version            - Show script version"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME --help               - Shows this message"
-  printf_line "GEN_SCRIPT_REPLACE_FILENAME --options            - Shows all available options"
-  printf_line ""
-  printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "GEN_SCRIPT_REPLACE_FILENAME: GEN_SCRIPT_REPLACE_DESC"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Usage: GEN_SCRIPT_REPLACE_FILENAME [options] [packageName]"
+  __printf_line "available            - List all available packages"
+  __printf_line "list                 - List installed packages"
+  __printf_line "search    [package]  - Search for a package"
+  __printf_line "version   [package]  - Show the version info"
+  __printf_line "install   [package]  - Install a package"
+  __printf_line "remove    [package]  - Remove a package"
+  __printf_line "update    [package]  - Update a package"
+  __printf_line "download  [package]  - Downloads the source"
+  __printf_line "                                       "
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Other Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--debug              - enable debugging"
+  __printf_line "--config             - Generate user config file"
+  __printf_line "--version            - Show script version"
+  __printf_line "--help               - Shows this message"
+  __printf_line "--options            - Shows all available options"
+  __printf_line ""
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   exit
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -91,21 +91,11 @@ fi
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __list_available() {
-  [ -n "$LIST" ] || LIST="$(__api_list)"
+  local LIST="${LIST:-$(__api_list)}"
   echo -e "${1:-$LIST}" | tr ',' ' ' | tr ' ' '\n' && exit 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __list_options() { printf_custom "5" "$1: $(echo ${2:-$ARRAY} | __sed 's|:||g;s|'$3'| '$4'|g')" 2>/dev/null; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# sudo functions
-__sudoask() { ask_for_password sudo true && return 0 || return 1; }
-__sudorun() { __sudoif && __sudoask && __sudo "$@" || eval "$@" || return $?; }
-__sudo() { PATH="$PATH" builtin command sudo --preserve-env=PATH -HE "$@" || return 1; }
-__sudo_group() { grep "${1:-$USER}" /etc/group | grep -Eq 'wheel|adm|sudo' || return 1; }
-__sudoif() { (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null && return 0 || return 1; }
-__can_i_sudo() { __sudo_group "${1:-$USER}" || __sudoif || __sudo -n true &>/dev/null || return 1; }
-__requiresudo() { __cmd_exists sudo && ! __user_is_root && __sudorun "$@" && return 0 || return ${?:-1}; }
-__user_is_root() { { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gen_config() {
   [ -z "$NOTIFY_CLIENT_NAME" ] || NOTIFY_CLIENT_NAME=""
@@ -289,7 +279,7 @@ __download() {
       exitCode=$?
     fi
   fi
-  [ -d "$DIR_NAME/.git" ] && exitCode="0" #&& [  -n "$SUDO_USER"  ] && sudo chown -Rf $SUDO_USER:$SUDO_USER "$DIR_NAME"
+  [ -d "$DIR_NAME/.git" ] && exitCode="0" #&& [ -n "$SUDO_USER" ] && sudo chown -Rf $SUDO_USER:$SUDO_USER "$DIR_NAME"
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -318,6 +308,62 @@ __run_search() {
   unset results app
   exit $?
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__sudoask() { # Get sudo password
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__sudorun() { # Run sudo
+  __sudoif && __sudoask && __sudo "$@" || eval "$@" || return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__sudo_group() { # Check if user is a member of sudo
+  grep "${1:-$USER}" /etc/group | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__can_i_sudo() { # Test if user has access to sudo
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo -n true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__user_is_root() { # Is current user root
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__user_is_not_root() { # Is current user not root
+  { [ $(id -u) -ne 0 ] || [ $EUID -ne 0 ] || [ "$WHOAMI" != "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__sudoif() { # User can run sudo
+  __user_is_not_root && (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__requiresudo() { # Run command as root
+  __sudorun "$@"
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__sudo() {
+  CMD="${*:-echo -e "$USER"}"
+  export PATH="$PATH"
+  if __cmd_exists sudo; then
+    \sudo --preserve-env=PATH -HE "bash -c ${CMD};exit $?" || return 1
+  else
+    if __user_is_root; then
+      eval "$@"
+      return $?
+    else
+      printf '%s\n' "This requires root to run"
+      return $?
+    fi
+  fi
+  return ${?:-1}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Define other functions
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application Folders
 GEN_SCRIPT_REPLACE_ENV_LOG_DIR="${GEN_SCRIPT_REPLACE_ENV_LOG_DIR:-$HOME/.local/log/GEN_SCRIPT_REPLACE_FILENAME}"
@@ -464,6 +510,16 @@ done
 # fi
 # done
 # set -- "${SET_NEW_ARGS[@]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set directory to first argument
+# [ -d "$1" ] && GENSCRIPT_REPLACE_ENV_CWD="$1" && shift 1
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set actions based on variables
+# GEN_SCRIPT_REPLACE_ENV_CWD="${GEN_SCRIPT_REPLACE_ENV_CWD:-$PWD}"
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Redefine functions based on options
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
 sudo -n true && ask_for_password true && REQUIRE_SUDO="TRUE" || exit 1 # Require root

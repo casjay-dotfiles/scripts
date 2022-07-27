@@ -115,11 +115,11 @@ install_pkg() {
 [ -n "$1" ] || printf_exit 'To many options provided'
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ##################################################################################################################
-printf_head "Initializing the setup script"
+__printf_head "Initializing the setup script"
 ##################################################################################################################
 __user_is_root && sudoexit "This scripts requires root/sudo"
 ##################################################################################################################
-printf_head "Configuring cores for compiling"
+__printf_head "Configuring cores for compiling"
 ##################################################################################################################
 numberofcores=$(grep -c ^processor /proc/cpuinfo)
 printf_info "Total cores available: $numberofcores"
@@ -128,25 +128,25 @@ if [ $numberofcores -gt 1 ]; then
   sudo sed -i 's/COMPRESSXZ=(xz -c -z -)/COMPRESSXZ=(xz -c -T '"$numberofcores"' -z -)/g' /etc/makepkg.conf
 fi
 ##################################################################################################################
-printf_head "Installing the packages for GEN_SCRIPT_REPLACE_APPNAME"
+__printf_head "Installing the packages for GEN_SCRIPT_REPLACE_APPNAME"
 ##################################################################################################################
 install_pkg listofpkgs
 ##################################################################################################################
-printf_head "Fixing packages"
+__printf_head "Fixing packages"
 ##################################################################################################################
 run_post "sudo sed -i 's/'#AutoEnable=false'/'AutoEnable=true'/g' /etc/bluetooth/main.conf"
 run_post "sudo sed -i 's/files mymachines myhostname/files mymachines/g' /etc/nsswitch.conf"
 run_post "sudo sed -i 's/\[\!UNAVAIL=return\] dns/\[\!UNAVAIL=return\] mdns dns wins myhostname/g' /etc/nsswitch.conf"
 run_post "sudo usermod  -a -G rfkill $USER"
 ##################################################################################################################
-printf_head "setting up config files"
+__printf_head "setting up config files"
 ##################################################################################################################
 run_post "cp -rT /etc/skel $HOME"
 run_post "dotfilesreq bash"
 run_post "dotfilesreq misc"
 run_post "dotfilesreqadmin samba ssl"
 ##################################################################################################################
-printf_head "Enabling services"
+__printf_head "Enabling services"
 ##################################################################################################################
 system_service_enable lightdm.service
 system_service_enable bluetooth.service
@@ -157,16 +157,16 @@ system_service_enable tlp.service
 system_service_enable org.cups.cupsd.service
 system_service_disable mpd
 ##################################################################################################################
-printf_head "Running post install"
+__printf_head "Running post install"
 ##################################################################################################################
 run_post "devnull sudo systemctl set-default graphical.target"
 run_post "devnull sudo grub-mkconfig -o /boot/grub/grub.cfg"
 ##################################################################################################################
-printf_head "Cleaning up"
+__printf_head "Cleaning up"
 ##################################################################################################################
 remove_pkg xfce4-artwork
 ##################################################################################################################
-printf_head "Finished "
+__printf_head "Finished "
 printf_newline
 ##################################################################################################################
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

@@ -336,6 +336,7 @@ __sudo_group() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Test if user has access to sudo
 __can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
   __sudo_group "${1:-$USER}" || __sudoif || __sudo -n true &>/dev/null || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -351,7 +352,8 @@ __user_is_not_root() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User can run sudo
 __sudoif() {
-  __user_is_not_root && (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null && return 0 || return 1
+  __user_is_root && return 0
+  __user_is_not_root && __can_i_sudo "${SUDO_USER:-$USER}" && return 0 || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run command as root

@@ -15,7 +15,7 @@
 # @@Other            :  GEN_SCRIPT_REPLACE_OTHER
 # @@Resource         :  GEN_SCRIPT_REPLACE_RES
 # @@Terminal App     :  GEN_SCRIPT_REPLACE_TERMINAL
-# @@sudo/root        :  GEN_SCRIPT_REPLACE_SUDO
+# @@sudo/root        :  no
 # @@Template         :  installers/mgr-script.system
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0" 2>/dev/null)"
@@ -24,14 +24,21 @@ HOME="${USER_HOME:-$HOME}"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${SUDO_USER:-$USER}"
 SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+GEN_SCRIPT_REPLACE_ENV_REQUIRE_SUDO="${GEN_SCRIPT_REPLACE_ENV_REQUIRE_SUDO:-no}"
 GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX="${APPNAME:-GEN_SCRIPT_REPLACE_FILENAME}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set bash options
+# Reopen in a terminal
 #if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
-[ "$1" = "--debug" ] && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
-[ "$1" = "--raw" ] && export SHOW_RAW="true"
-set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initial debugging
+[ "$1" = "--debug" ] && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# pipes fail
+set -o pipefail
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
 # Import functions
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
 SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
@@ -47,41 +54,40 @@ else
   exit 90
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Options are: desktopmgr_install devenvmgr_install dfmgr_install dockermgr_install fontmgr_install iconmgr_install
-# pkmgr_install system_install systemmgr_install thememgr_install user_install wallpapermgr_install
+# Options are: *_install
+# desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr
+# pkmgr system systemmgr thememgr user wallpapermgr
 GEN_SCRIPT_REPLACE_FILENAME_install && __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set functions
-# Help function - Align to 55
-__printf_head() { printf_color "\t\t$1\n" "5"; }
-__printf_opts() { printf_color "\t\t$1\n" "6"; }
-__printf_line() { printf_color "\t\t$1\n" "4"; }
-__help() {
-  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_opts "$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX: GEN_SCRIPT_REPLACE_DESC"
-  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_line "Usage: $GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX [options] [packageName]"
-  __printf_line "available            - List all available packages"
-  __printf_line "list                 - List installed packages"
-  __printf_line "search    [package]  - Search for a package"
-  __printf_line "install   [package]  - Install a package"
-  __printf_line "update    [package]  - Update a package"
-  __printf_line "download  [package]  - Downloads the source"
-  __printf_line "remove    [package]  - Remove a package"
-  __printf_line "cron      [package]  - Enables the use of cron to update packages on a schedule"
-  __printf_line "version   [package]  - Shows the version of an installed package"
-  __printf_line "                                       "
-  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_opts "Other Options"
-  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_line "--debug              - enable debugging"
-  __printf_line "--config             - Generate user config file"
-  __printf_line "--version            - Show script version"
-  __printf_line "--help               - Shows this message"
-  __printf_line "--options            - Shows all available options"
-  __printf_line ""
-  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-  exit
+# Send all output to /dev/null
+__devnull() {
+  tee &>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# Send errors to /dev/null
+__devnull2() {
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# See if the executable exists
+__cmd_exists() {
+  exitCode=0
+  [ -n "$1" ] && local exitCode="" || return 0
+  for cmd in "$@"; do
+    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
+  done
+  [ $exitCode -eq 0 ] || exitCode=3
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for a valid internet connection
+__am_i_online() {
+  local exitCode=0
+  curl -q -LSsfI --max-time 1 --retry 0 "${1:-http://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
+  return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # colorization
@@ -90,13 +96,18 @@ if [ "$SHOW_RAW" = "true" ]; then
 else
   printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
 fi
-
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__printf_head() { printf_color "\t\t$1\n" "5"; }
+__printf_opts() { printf_color "\t\t$1\n" "6"; }
+__printf_line() { printf_color "\t\t$1\n" "4"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __list_available() {
   echo -e "${1:-$LIST}" | tr ',' ' ' | tr ' ' '\n' && exit 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__list_options() { printf_custom "5" "$1: $(echo ${2:-$ARRAY} | __sed 's|:||g;s|'$3'| '$4'|g')" 2>/dev/null; }
+__list_options() {
+  printf_custom "5" "$1: $(echo ${2:-$ARRAY} | __sed 's|:||g;s|'$3'| '$4'|g' 2>/dev/null)"
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gen_config() {
   local NOTIFY_CLIENT_NAME=""
@@ -114,9 +125,10 @@ GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR="${GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR:-}"
 GEN_SCRIPT_REPLACE_ENV_CLONE_DIR="${GEN_SCRIPT_REPLACE_ENV_CLONE_DIR:-}"
 GEN_SCRIPT_REPLACE_ENV_REPO_URL="${GEN_SCRIPT_REPLACE_ENV_REPO_URL:-}"
 GEN_SCRIPT_REPLACE_ENV_REPO_RAW="${GEN_SCRIPT_REPLACE_ENV_REPO_RAW:-}"
-GEN_SCRIPT_REPLACE_ENV_REPO_API="${GEN_SCRIPT_REPLACE_ENV_REPO_API:-}"
+GEN_SCRIPT_REPLACE_ENV_REPO_API_URL="${GEN_SCRIPT_REPLACE_ENV_REPO_API_URL:-}"
 GEN_SCRIPT_REPLACE_ENV_REPO_API_PER_PAGE="${GEN_SCRIPT_REPLACE_ENV_REPO_API_PER_PAGE:-}"
 GEN_SCRIPT_REPLACE_ENV_FORCE_INSTALL="${GEN_SCRIPT_REPLACE_ENV_FORCE_INSTALL:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
 GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR:-}"
 GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_2="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_2:-}"
@@ -144,17 +156,46 @@ EOF
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# User defined functions
+# Help function - Align to 55
+__help() {
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX: GEN_SCRIPT_REPLACE_DESC"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Usage: $GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX [options] [packageName]"
+  __printf_line "available                       - List all available packages"
+  __printf_line "list                            - List installed packages"
+  __printf_line "search    [package]             - Search for a package"
+  __printf_line "install   [package]             - Install a package"
+  __printf_line "update    [package]             - Update a package"
+  __printf_line "download  [package]             - Downloads the source"
+  __printf_line "remove    [package]             - Remove a package"
+  __printf_line "cron      [package]             - Enables the use of cron to update packages on a schedule"
+  __printf_line "version   [package]             - Shows the version of an installed package"
+  __printf_line "                                       "
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Other Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--debug                         - enable debugging"
+  __printf_line "--config                        - Generate user config file"
+  __printf_line "--version                       - Show script version"
+  __printf_line "--help                          - Shows this message"
+  __printf_line "--options                       - Shows all available options"
+  __printf_line ""
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  exit
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __broken_symlinks() { find "$*" -xtype l -exec rm {} \; &>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __rm_rf() { if [ -e "$1" ]; then rm -Rf "$@" &>/dev/null; else return 0; fi; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_install_version() {
   local upd file exitCode=0
-  if [ -d "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" ] && ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" 2>&1 | grep -q '^'; then
+  if [ -d "$GEN_SCRIPT_REPLACE_ENV_DIR_USER" ] && ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_USER" 2>&1 | grep -q '^'; then
     export file="$(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM/$1" 2>/dev/null)"
     if [ -f "$file" ]; then
       appname="$(__basename "$file")"
-      bash -c "$file --version $appname"
+      eval "$file" "--version $appname"
       exitCode=$?
     fi
   fi
@@ -164,17 +205,17 @@ __run_install_version() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cron_updater() {
   local upd file exitCode=0
-  if [ -z "$1" ] && [ -d "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" ] && ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" 2>&1 | grep -q '^'; then
-    for upd in $(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM"); do
+  if [ -z "$1" ] && [ -d "$GEN_SCRIPT_REPLACE_ENV_DIR_USER" ] && ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_USER" 2>&1 | grep -q '^'; then
+    for upd in $(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_USER"); do
       export file="$(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM/$upd" 2>/dev/null)"
       if [ -f "$file" ]; then
         appname="$(__basename "$file")"
-        bash -c "$file --cron $appname"
+        eval "$file" "--cron $appname"
         exitCode=$?
       fi
     done
   else
-    if [ -d "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" ] && ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" 2>&1 | grep -q '^'; then
+    if [ -d "$GEN_SCRIPT_REPLACE_ENV_DIR_USER" ] && ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_USER" 2>&1 | grep -q '^'; then
       export file="$(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM/$1" 2>/dev/null)"
       if [ -f "$file" ]; then
         appname="$(__basename "$file")"
@@ -240,10 +281,10 @@ __run_install_init() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_install_update() {
   local app APPNAME exitCode=0
-  local USER_SHARE_DIR="$SHARE/CasjaysDev/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX"
+  local USER_SHARE_DIR="$SYSSHARE/CasjaysDev/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX"
   local SYSTEM_SHARE_DIR="$SYSSHARE/CasjaysDev/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX"
-  local USRUPDATEDIR="$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM"
-  local SYSUPDATEDIR="$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM"
+  local USRUPDATEDIR="$GEN_SCRIPT_REPLACE_ENV_DIR_USER"
+  local SYSUPDATEDIR="$GEN_SCRIPT_REPLACE_ENV_DIR_USER"
   local NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME}"
   local NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON}"
   export NOTIFY_CLIENT_NAME NOTIFY_CLIENT_ICON
@@ -273,16 +314,22 @@ __download() {
       exitCode=$?
     fi
   fi
-  [ -d "$DIR_NAME/.git" ] && exitCode=0 #&& [ -n "$SUDO_USER" ] && sudo chown -Rf $SUDO_USER:$SUDO_USER "$DIR_NAME"
+  if [ -d "$DIR_NAME/.git" ]; then
+    # if [ -n "${SUDO_USER:-$RUN_USER}" ]; then
+    #   sudo chown -Rf ${SUDO_USER:-$RUN_USER}:${SUDO_USER:-$RUN_USER} "$DIR_NAME"
+    # fi
+    exitCode=0
+  fi
   [ "$exitCode" = 0 ] && exitCode=0 || exitCode=1
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __api_list() {
   local exitCode=0
+  local api_call=""
   local prefix="$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX"
   local per_page="${GEN_SCRIPT_REPLACE_ENV_REPO_API_PER_PAGE:-1000}"
-  local api_url="${GEN_SCRIPT_REPLACE_ENV_REPO_API:-https://api.github.com/orgs/$prefix/repos}"
+  local api_url="${GEN_SCRIPT_REPLACE_ENV_REPO_API_URL:-https://api.github.com/orgs/$prefix/repos}"
   if __urlcheck "$api_url"; then
     api_call="$(curl -q -LSsf -H "Accept: application/vnd.github.v3+json" "$api_url?per_page=$per_page" 2>/dev/null | jq '.[].name' 2>/dev/null | sed 's#"##g' | grep -Ev '.github|template|^null$' | grep '^')"
     if [ -n "$api_call" ]; then
@@ -307,58 +354,64 @@ __run_search() {
     result+="$(echo -e "$LIST" | tr ' ' '\n' | grep -Fi "$app" | grep -sv '^$') "
   done
   results="$(echo "$result" | sort -u | tr '\n' ' ' | sed 's| | |g' | grep '^')"
-  if [ -z "$results" ]; then
-    printf_exit "Your search produced no results"
-    exitCode=1
-  else
+  if [ -n "$results" ]; then
     printf '%s\n' "$results" | printf_column "${PRINTF_COLOR:-4}"
     exitCode=0
+  else
+    printf_exit "Your search produced no results"
+    exitCode=1
   fi
   [ "$exitCode" = 0 ] && exitCode=0 || exitCode=1
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user root
+__user_is_root() { { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() { { [ $(id -u) -ne 0 ] || [ $EUID -ne 0 ] || [ "$WHOAMI" != "root" ]; } && return 0 || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # # Get sudo password
-__sudoask() {
-  ask_for_password sudo true && return 0 || return 1
-}
+__sudoask() { ask_for_password sudo true && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run sudo
-__sudorun() {
-  __sudoif && __sudoask && __sudo "$@" || eval "$@"
-  return $?
-}
+__sudorun() { __sudoif && __sudo "$@" || eval "$@" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check if user is a member of sudo
-__sudo_group() {
-  grep "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
-}
+__sudo_group() { grep "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Test if user has access to sudo
 __can_i_sudo() {
   (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
-  __sudo_group "${1:-$USER}" || __sudoif || __sudo -n true &>/dev/null || return 1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Is current user root
-__user_is_root() {
-  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Is current user not root
-__user_is_not_root() {
-  { [ $(id -u) -ne 0 ] || [ $EUID -ne 0 ] || [ "$WHOAMI" != "root" ]; } && return 0 || return 1
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User can run sudo
 __sudoif() {
   __user_is_root && return 0
-  __user_is_not_root && __can_i_sudo "${SUDO_USER:-$USER}" && return 0 || return 1
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  CMD="${1:-echo}" && shift 1
+  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  [ "$(basename "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="-n --preserve-env=PATH -HE"
+  if __cmd_exists "$SUDO"; then
+    export PATH="$PATH"
+    $SUDO ${OPTS:-} bash -c ''$CMD' '$CMD_ARGS' && true || false'
+    return $?
+  else
+    printf '%s\n' "This requires root to run"
+    return $?
+  fi
+  return ${?:-1}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run command as root
 __requiresudo() {
-  # Default variables
   if [ "$GEN_SCRIPT_REPLACE_ENV_REQUIRE_SUDO" = "yes" ] && [ -z "$GEN_SCRIPT_REPLACE_ENV_REQUIRE_SUDO_RUN" ]; then
     export GEN_SCRIPT_REPLACE_ENV_REQUIRE_SUDO="no"
     export GEN_SCRIPT_REPLACE_ENV_REQUIRE_SUDO_RUN="true"
@@ -367,22 +420,6 @@ __requiresudo() {
   else
     return 0
   fi
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Execute sudo
-__sudo() {
-  local CMD="${*:-echo -e "$USER"}"
-  local SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
-  export PATH="$PATH"
-  [ "$(basename "$SUDO" 2>/dev/null)" = "sudo" ] && SUDO_OPTS="--preserve-env=PATH -HE"
-  if __cmd_exists sudo; then
-    $SUDO ${SUDO_OPTS:-} "bash -c ${CMD};exit $?"
-    return $?
-  else
-    printf '%s\n' "This requires root to run"
-    return $?
-  fi
-  return ${?:-1}
 }
 # End of sudo functions
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -396,7 +433,6 @@ __trap_exit() {
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default variables
-GEN_SCRIPT_REPLACE_ENV_REQUIRE_SUDO="${GEN_SCRIPT_REPLACE_ENV_REQUIRE_SUDO:-no}"
 GEN_SCRIPT_REPLACE_ENV_USER_DIR="${GEN_SCRIPT_REPLACE_ENV_USER_DIR:-$USRUPDATEDIR}"
 GEN_SCRIPT_REPLACE_ENV_SYSTEM_DIR="${GEN_SCRIPT_REPLACE_ENV_SYSTEM_DIR:-$SYSUPDATEDIR}"
 GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR="${GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR:-$SHARE/CasjaysDev/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX}"
@@ -431,7 +467,7 @@ GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR="${GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR:-$SHARE
 GEN_SCRIPT_REPLACE_ENV_CLONE_DIR="${GEN_SCRIPT_REPLACE_ENV_CLONE_DIR:-$HOME/Projects/github/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX}"
 GEN_SCRIPT_REPLACE_ENV_REPO_URL="${GEN_SCRIPT_REPLACE_ENV_REPO_URL:-https://github.com/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX}"
 GEN_SCRIPT_REPLACE_ENV_REPO_RAW="${GEN_SCRIPT_REPLACE_ENV_REPO_RAW:-raw/$GEN_SCRIPT_REPLACE_ENV_GIT_REPO_BRANCH}"
-GEN_SCRIPT_REPLACE_ENV_REPO_API="${GEN_SCRIPT_REPLACE_ENV_REPO_API:-https://api.github.com/orgs/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX/repos}"
+GEN_SCRIPT_REPLACE_ENV_REPO_API_URL="${GEN_SCRIPT_REPLACE_ENV_REPO_API_URL:-https://api.github.com/orgs/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX/repos}"
 GEN_SCRIPT_REPLACE_ENV_REPO_API_PER_PAGE="${GEN_SCRIPT_REPLACE_ENV_REPO_API_PER_PAGE:-1000}"
 GEN_SCRIPT_REPLACE_ENV_FORCE_INSTALL="${GEN_SCRIPT_REPLACE_ENV_FORCE_INSTALL:-false}"
 GEN_SCRIPT_REPLACE_ENV_DIR_USER="${GEN_SCRIPT_REPLACE_ENV_DIR_USER:-$USRUPDATEDIR}"
@@ -588,7 +624,7 @@ export GEN_SCRIPT_REPLACE_ENV_CWD="${GEN_SCRIPT_REPLACE_ENV_CWD:-$PWD}"
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
-#__requiresudo "$0" "$@" || exit 2 # exit 2 if errors
+__requiresudo "$0" "$@" || exit 2 # exit 2 if errors
 __cmd_exists bash || exit 3       # exit with error code 3 if not found
 __am_i_online "1.1.1.1" || exit 4 # exit with error code 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -604,7 +640,7 @@ case "$1" in
 list)
   shift 1
   printf_green "All installed $GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX packages"
-  LISTARRAY=("$(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" 2>/dev/null)")
+  LISTARRAY=("$(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_USER" 2>/dev/null)")
   [ -n "${LISTARRAY[*]}" ] && printf '%s\n' "${LISTARRAY[@]}" | printf_column '5' ||
     printf_exit "There doesn't seem to be any packages installed"
   exit ${exitCode:-$?}
@@ -634,7 +670,7 @@ search)
 remove)
   shift 1
   if [ "$INSTALL_ALL" = "true" ]; then
-    LISTARRAY=("$(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" 2>/dev/null)")
+    LISTARRAY=("$(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_USER" 2>/dev/null)")
   else
     LISTARRAY=("$@")
   fi
@@ -672,7 +708,7 @@ install)
 update)
   shift 1
   if [ $# -eq 0 ] || [ "$INSTALL_ALL" = "true" ]; then
-    LISTARRAY=("$(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" 2>/dev/null)")
+    LISTARRAY=("$(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_USER" 2>/dev/null)")
   else
     LISTARRAY=("$@")
   fi
@@ -682,8 +718,8 @@ update)
       __run_install_update "$APPNAME"
       [ $? = 0 ] && __notifications "Successfully updated $APPNAME" || __notifications "Update of $APPNAME has failed"
     done
-  elif [ -d "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" ] && [ ${#LISTARRAY} -ne 0 ]; then
-    for upd in $(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" 2>/dev/null); do
+  elif [ -d "$GEN_SCRIPT_REPLACE_ENV_DIR_USER" ] && [ ${#LISTARRAY} -ne 0 ]; then
+    for upd in $(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_USER" 2>/dev/null); do
       APPNAME="$upd"
       __run_install_update "$APPNAME"
       [ $? = 0 ] && __notifications "Successfully updated $APPNAME" || __notifications "Update of $APPNAME has failed"
@@ -735,6 +771,12 @@ version)
   ;;
 
 *)
+  printf_red "User ID: $UID"
+  printf_green "User Name: $RUN_USER"
+  printf_blue "Script Name: $APPNAME"
+  printf_cyan "Version: $VERSION"
+  printf_yellow "Config Dir: $GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR"
+  printf_purple "Current Working directory: $GEN_SCRIPT_REPLACE_ENV_CWD"
   __help
   ;;
 esac

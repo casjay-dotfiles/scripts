@@ -1,3 +1,17 @@
+#### Changelog: 2022-07-29 at 11:36:11  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+templates/scripts/bash/mgr-script.system.sh      🚀  
+templates/scripts/bash/mgr-script.user.sh      🚀  
+templates/scripts/bash/simple      🚀  
+templates/scripts/bash/system      🚀  
+templates/scripts/bash/terminal      🚀  
+templates/scripts/bash/user      🚀  
+  
+#### End of changes for 202207290819-git - 2022-07-29 at 11:36:11  
+  
+----  
+  
 #### Changelog: 2022-07-29 at 08:19:08  
 #### 🗃️ Committing everything that changed 🗃️  
   

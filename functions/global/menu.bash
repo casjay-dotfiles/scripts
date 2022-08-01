@@ -132,6 +132,18 @@ __editor() {
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__run_menu_start() {
+  clear
+  if __running "$1"; then
+    __start "$@" && return 0 || return 1
+  else
+    echo -e "\n\n\n\n"
+    printf_red "$1 is already running"
+    sleep 5
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __ask_confirm() {
   local appname="${PROG:-$APPNAME}"
   local question="${1:-Would you like to proceed?}"

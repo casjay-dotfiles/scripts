@@ -1,3 +1,13 @@
+#### Changelog: 2022-08-01 at 19:54:24  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+functions/global/menu.bash      🚀  
+functions/global/processes.bash      🚀  
+  
+#### End of changes for 202208011515-git - 2022-08-01 at 19:54:24  
+  
+----  
+  
 #### Changelog: 2022-08-01 at 15:15:12  
 #### 🗃️ Committing everything that changed 🗃️  
   

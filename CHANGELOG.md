@@ -1,3 +1,32 @@
+#### Changelog: 2022-08-01 at 15:15:12  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+templates/scripts/bash/mgr-script.system.sh      🚀  
+templates/scripts/bash/mgr-script.user.sh      🚀  
+templates/scripts/bash/simple      🚀  
+templates/scripts/bash/system      🚀  
+templates/scripts/bash/terminal      🚀  
+templates/scripts/bash/user      🚀  
+version.txt      🚀  
+  
+#### End of changes for  - 2022-08-01 at 15:15:12  
+  
+----  
+  
+#### Changelog: 2022-08-01 at 15:14:01  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+templates/scripts/bash/mgr-script.system.sh      🚀  
+templates/scripts/bash/mgr-script.user.sh      🚀  
+templates/scripts/bash/simple      🚀  
+templates/scripts/bash/system      🚀  
+templates/scripts/bash/terminal      🚀  
+templates/scripts/bash/user      🚀  
+  
+#### End of changes for  - 2022-08-01 at 15:14:01  
+  
+----  
+  
 #### Changelog: 2022-07-30 at 12:58:09  
 #### 🗃️ Committing everything that changed 🗃️  
   

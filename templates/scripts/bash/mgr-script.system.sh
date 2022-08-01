@@ -349,7 +349,7 @@ __api_list() {
 __run_search() {
   local -a results=""
   local LIST="${LIST:-$(__api_list)}"
-  [ -n "$LIST" ] || printf_exit "The enviroment variable LIST does not exist"
+  [ -n "$LIST" ] || printf_exit "The environment variable LIST does not exist"
   for app in "$@"; do
     result+="$(echo -e "$LIST" | tr ' ' '\n' | grep -Fi "$app" | grep -sv '^$') "
   done

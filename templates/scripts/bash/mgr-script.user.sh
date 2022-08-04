@@ -31,7 +31,7 @@ GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX="${APPNAME:-GEN_SCRIPT_REPLACE_FILENAME}"
 #if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Initial debugging
-[ "$1" = "--debug" ] && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Disables colorization
 [ "$1" = "--raw" ] && export SHOW_RAW="true"
@@ -97,18 +97,22 @@ else
   printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional printf_ colors
 __printf_head() { printf_color "\t\t$1\n" "5"; }
 __printf_opts() { printf_color "\t\t$1\n" "6"; }
 __printf_line() { printf_color "\t\t$1\n" "4"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# list all packages
 __list_available() {
   echo -e "${1:-$LIST}" | tr ',' ' ' | tr ' ' '\n' && exit 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# list options
 __list_options() {
   printf_custom "5" "$1: $(echo ${2:-$ARRAY} | __sed 's|:||g;s|'$3'| '$4'|g' 2>/dev/null)"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create the config file
 __gen_config() {
   local NOTIFY_CLIENT_NAME=""
   [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Generating the config file in"
@@ -157,10 +161,10 @@ EOF
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Help function - Align to 55
+# Help function - Align to 50
 __help() {
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_opts "$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX: GEN_SCRIPT_REPLACE_DESC"
+  __printf_opts "GEN_SCRIPT_REPLACE_FILENAME: GEN_SCRIPT_REPLACE_DESC - $VERSION"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "Usage: $GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX [options] [packageName]"
   __printf_line "available                       - List all available packages"
@@ -172,7 +176,6 @@ __help() {
   __printf_line "remove    [package]             - Remove a package"
   __printf_line "cron      [package]             - Enables the use of cron to update packages on a schedule"
   __printf_line "version   [package]             - Shows the version of an installed package"
-  __printf_line "                                       "
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -183,7 +186,6 @@ __help() {
   __printf_line "--options                       - Shows all available options"
   __printf_line ""
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-  exit
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __broken_symlinks() { find "$*" -xtype l -exec rm {} \; &>/dev/null; }
@@ -364,22 +366,30 @@ __run_search() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Is current user root
-__user_is_root() { { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1; }
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Is current user not root
-__user_is_not_root() { { [ $(id -u) -ne 0 ] || [ $EUID -ne 0 ] || [ "$WHOAMI" != "root" ]; } && return 0 || return 1; }
+__user_is_not_root() {
+  { [ $(id -u) -ne 0 ] || [ $EUID -ne 0 ] || [ "$WHOAMI" != "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep -s "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # # Get sudo password
-__sudoask() { ask_for_password sudo true && return 0 || return 1; }
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run sudo
 __sudorun() {
   __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
   return $?
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Check if user is a member of sudo
-__sudo_group() { grep "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Test if user has access to sudo
 __can_i_sudo() {
@@ -622,17 +632,17 @@ done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set directory to first argument
 # [ -d "$1" ] && GEN_SCRIPT_REPLACE_ENV_CWD="$1" && shift 1 || GEN_SCRIPT_REPLACE_ENV_CWD="${GEN_SCRIPT_REPLACE_ENV_CWD:-$PWD}"
-# GEN_SCRIPT_REPLACE_ENV_CWD="$(readlink -f "$GEN_SCRIPT_REPLACE_ENV_CWD" 2>/dev/null)"
 # if [ -d "$GEN_SCRIPT_REPLACE_ENV_CWD" ] && cd "$GEN_SCRIPT_REPLACE_ENV_CWD"; then
+# if [ "$GEN_SCRIPT_REPLACE_ENV_SILENT" != true ]; then
 # printf_cyan "Setting working dir to $GEN_SCRIPT_REPLACE_ENV_CWD"
+# fi
 # else
 # printf_exit "💔 $GEN_SCRIPT_REPLACE_ENV_CWD does not exist 💔"
 # fi
+GEN_SCRIPT_REPLACE_ENV_CWD="$(realpath "${GEN_SCRIPT_REPLACE_ENV_CWD:-$PWD}" 2>/dev/null)"
+export GEN_SCRIPT_REPLACE_ENV_CWD
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set actions based on variables
-export GEN_SCRIPT_REPLACE_ENV_CWD="${GEN_SCRIPT_REPLACE_ENV_CWD:-$PWD}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Redefine functions based on options
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check

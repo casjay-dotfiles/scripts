@@ -1,3 +1,29 @@
+#### Changelog: 2022-08-04 at 13:58:17  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+templates/scripts/bash/mgr-script.system.sh      🚀  
+templates/scripts/bash/mgr-script.user.sh      🚀  
+templates/scripts/bash/simple      🚀  
+templates/scripts/bash/system      🚀  
+templates/scripts/bash/terminal      🚀  
+templates/scripts/bash/user      🚀  
+templates/scripts/installers/desktopmgr.sh      🚀  
+templates/scripts/installers/devenvmgr.sh      🚀  
+templates/scripts/installers/dfmgr.sh      🚀  
+templates/scripts/installers/dockermgr.sh      🚀  
+templates/scripts/installers/fontmgr.sh      🚀  
+templates/scripts/installers/iconmgr.sh      🚀  
+templates/scripts/installers/personal.sh      🚀  
+templates/scripts/installers/systemmgr.sh      🚀  
+templates/scripts/installers/thememgr.sh      🚀  
+templates/scripts/installers/wallpapermgr.sh      🚀  
+templates/scripts/shell/bash      🚀  
+templates/scripts/shell/sh      🚀  
+  
+#### End of changes for 202208041216-git - 2022-08-04 at 13:58:17  
+  
+----  
+  
 #### Changelog: 2022-08-04 at 12:16:34  
 #### 🗃️ Committing everything that changed 🗃️  
   

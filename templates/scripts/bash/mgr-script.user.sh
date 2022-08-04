@@ -130,7 +130,7 @@ GEN_SCRIPT_REPLACE_ENV_REPO_API_PER_PAGE="${GEN_SCRIPT_REPLACE_ENV_REPO_API_PER_
 GEN_SCRIPT_REPLACE_ENV_FORCE_INSTALL="${GEN_SCRIPT_REPLACE_ENV_FORCE_INSTALL:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
-GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR:-}"
+GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_1="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_1:-}"
 GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_2="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_2:-}"
 GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_GOOD="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_GOOD:-}"
 GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_ERROR="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_ERROR:-}"
@@ -146,6 +146,7 @@ GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_ICON="${GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIEN
 GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_URGENCY="${GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_URGENCY:-}"
 
 EOF
+  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
   if [ -f "$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE" ]; then
     [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
     exitCode=0
@@ -315,9 +316,6 @@ __download() {
     fi
   fi
   if [ -d "$DIR_NAME/.git" ]; then
-    # if [ -n "${SUDO_USER:-$RUN_USER}" ]; then
-    #   sudo chown -Rf ${SUDO_USER:-$RUN_USER}:${SUDO_USER:-$RUN_USER} "$DIR_NAME"
-    # fi
     exitCode=0
   fi
   [ "$exitCode" = 0 ] && exitCode=0 || exitCode=1
@@ -375,7 +373,10 @@ __user_is_not_root() { { [ $(id -u) -ne 0 ] || [ $EUID -ne 0 ] || [ "$WHOAMI" !=
 __sudoask() { ask_for_password sudo true && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run sudo
-__sudorun() { __sudoif && __sudo "$@" || eval "$@" || return 1; }
+__sudorun() {
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  return $?
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check if user is a member of sudo
 __sudo_group() { grep "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1; }
@@ -399,7 +400,7 @@ __sudo() {
   CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
   SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
   [ "$(basename "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="-n --preserve-env=PATH -HE"
-  if __cmd_exists "$SUDO"; then
+  if __sudoif; then
     export PATH="$PATH"
     $SUDO ${OPTS:-} bash -c ''$CMD' '$CMD_ARGS' && true || false'
     return $?
@@ -415,7 +416,7 @@ __requiresudo() {
   if [ "$GEN_SCRIPT_REPLACE_ENV_REQUIRE_SUDO" = "yes" ] && [ -z "$GEN_SCRIPT_REPLACE_ENV_REQUIRE_SUDO_RUN" ]; then
     export GEN_SCRIPT_REPLACE_ENV_REQUIRE_SUDO="no"
     export GEN_SCRIPT_REPLACE_ENV_REQUIRE_SUDO_RUN="true"
-    __sudorun "$@"
+    __sudo "$@"
     exit $?
   else
     return 0
@@ -426,6 +427,7 @@ __requiresudo() {
 __trap_exit() {
   exitCode=${exitCode:-$?}
   [ -f "$GEN_SCRIPT_REPLACE_ENV_TEMP_FILE" ] && rm -Rf "$GEN_SCRIPT_REPLACE_ENV_TEMP_FILE" &>/dev/null
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -448,7 +450,7 @@ GEN_SCRIPT_REPLACE_ENV_TEMP_DIR="${GEN_SCRIPT_REPLACE_ENV_TEMP_DIR:-$HOME/.local
 GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE="${GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE:-settings.conf}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
-GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR:-4}"
+GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_1="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_1:-4}"
 GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_2="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR:-6}"
 GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_GOOD="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_GOOD:-2}"
 GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_ERROR="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_ERROR:-1}"
@@ -506,9 +508,9 @@ __notifications() {
     export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_URGENCY}"
     notifications "$@"
     retval=$?
-    unset NOTIFY_CLIENT_NAME NOTIFY_CLIENT_ICON NOTIFY_GOOD_MESSAGE NOTIFY_ERROR_MESSAGE
+    unset NOTIFY_CLIENT_NAME NOTIFY_CLIENT_ICON NOTIFY_GOOD_MESSAGE NOTIFY_ERROR_MESSAGE NOTIFY_CLIENT_URGENCY
     return $retval
-  ) &>/dev/null &
+  ) |& __devnull &
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set custom actions
@@ -518,10 +520,13 @@ __notifications() {
 SETARGS=("$@")
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SHORTOPTS="a,f"
+SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LONGOPTS="completions:,options,config,version,help,force,all,raw"
+LONGOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="download,list,search,available,remove,version,update,install,cron"
+ARRAY+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
 LIST+=""

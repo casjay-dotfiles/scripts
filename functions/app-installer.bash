@@ -669,11 +669,9 @@ setexitstatus() {
   export EXITSTATUS=$((${EXIT} + ${EXITSTATUS:-0}))
   if [ -z "$EXITSTATUS" ] || [ "$EXITSTATUS" -ne 0 ]; then
     BG_EXIT="${BG_RED}"
-    set +x
     return 0
   else
     BG_EXIT="${BG_GREEN}"
-    set +x
     return 1
   fi
 }

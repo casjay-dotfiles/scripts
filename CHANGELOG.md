@@ -1,3 +1,12 @@
+#### Changelog: 2022-08-08 at 18:51:18  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+functions/app-installer.bash      🚀  
+  
+#### End of changes for  - 2022-08-08 at 18:51:18  
+  
+----  
+  
 #### Changelog: 2022-08-07 at 23:25:39  
 #### 🗃️ Committing everything that changed 🗃️  
   

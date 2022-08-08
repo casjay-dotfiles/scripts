@@ -409,16 +409,16 @@ __sudo() {
   CMD="${1:-echo}" && shift 1
   CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
   SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
-  [ "$(basename "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="-n --preserve-env=PATH -HE"
+  [ "$(basename "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
   if __sudoif; then
     export PATH="$PATH"
-    $SUDO ${OPTS:-} bash -c ''$CMD' '$CMD_ARGS' && true || false'
-    return $?
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    exitCode=$?
   else
     printf '%s\n' "This requires root to run"
-    return $?
+    exitCode=1
   fi
-  return ${?:-1}
+  return ${exitCode:-1}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run command as root

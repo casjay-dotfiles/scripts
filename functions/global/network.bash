@@ -219,20 +219,23 @@ __generate_random_port() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #function to get network device
 __getlipaddr() {
-  local localips="127.*/8 10.*/8 172.16/12 192.168.*/16"
-  if builtin type -P route &>/dev/null || builtin type -P ip &>/dev/null; then
-    if builtin type -P ipconfig &>/dev/null; then
-      CURRIP4="$(/sbin/ifconfig $NETDEV 2>/dev/null | grep -E "venet|inet" | grep -v "127.0.0." | grep 'inet' | grep -v inet6 | awk '{print $2}' | sed s/addr://g | head -n1)"
-      CURRIP6="$(/sbin/ifconfig "$NETDEV" 2>/dev/null | grep -E "venet|inet" | grep 'inet6' | grep -i global | awk '{print $2}' | head -n1)"
-    else
-      CURRIP4="$(ip addr | grep inet 2>/dev/null | grep -vE "127|inet6" | tr '/' ' ' | awk '{print $2}' | head -n 1)"
-      CURRIP6="$(ip addr | grep inet6 2>/dev/null | grep -v "::1/" -v | tr '/' ' ' | awk '{print $2}' | head -n 1)"
-    fi
+  local CHANGE_IP_VAR_DIR="" IFCONFIG""                                             
+  if [[ "$OSTYPE" =~ ^darwin ]]; then
+    NETDEV="$(route get default 2>/dev/null | grep interface | awk '{print $2}')"
   else
-    NETDEV="lo"
-    CURRIP4="127.0.0.1"
-    CURRIP6="::1"
+    NETDEV="$(ip route 2>/dev/null | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//" | awk '{print $1}' | grep '^' || echo 'eth0')"
   fi
-  CURRIP4="$(ip addr | grep -w inet | grep -vE '127.*/8|10.*/*|172.16.*/*|192.168.*/*' | awk -F'/' '{print $1}' | awk '{print $NF}' | head -n 1 | grep '^' || echo "$CURRIP4")"
+  IFCONFIG="$(builtin type -P /sbin/ifconfig || builtin type -P ifconfig)"
+  if [ -f "$IFCONFIG" ]; then
+    # net-tools package
+    CURRIP4="$(/sbin/ifconfig $NETDEV 2>/dev/null | grep -E "venet|inet" | grep -v "127.0.0." | grep 'inet' | grep -v inet6 | awk '{print $2}' | sed s/addr://g | head -n1 | grep '^')"
+    CURRIP6="$(/sbin/ifconfig $NETDEV 2>/dev/null | grep -E "venet|inet" | grep 'inet6' | grep -i global | awk '{print $2}' | head -n1 | grep '^')"
+  else
+    CURRIP4="$(ip -o -f inet address show $NETDEV | awk -F'/' '{print $1}' | awk '{print $NF}' | head -n 1 | grep '^')"
+    CURRIP6="$(ip -o -f inet6 address show $NETDEV | awk -F'/' '{print $1}' | awk '{print $NF}' | head -n 1 | grep '^')"
+  fi
+  [ -n "$NETDEV" ] || NETDEV="lo"
+  [ -n "$CURRIP4" ] || CURRIP4="127.0.0.1"
+  [ -n "$CURRIP6" ] || CURRIP6="::1"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

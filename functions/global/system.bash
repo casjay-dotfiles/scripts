@@ -139,35 +139,35 @@ __unsupported_oses() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __if_os_id() {
-  unset distroname distroversion distro_id distro_version
-  if [ -f "/etc/os-release" ]; then
+  local distroname="" distroversion="" distro_id="" distro_version="" in="" def="" args=""
+  if [ "$(uname -s 2>/dev/null)" = "Darwin" ] && builtin type -P sw_vers &>/dev/null; then
+    distroname="darwin"
+    distroversion="$(sw_vers -productVersion)"
+  elif [ -f "/etc/os-release" ]; then
     #local distroname=$(grep "ID_LIKE=" /etc/os-release | sed 's#ID_LIKE=##' | tr '[:upper:]' '[:lower:]' | sed 's#"##g' | awk '{print $1}')
-    local distroname=$(grep '^ID=' /etc/os-release | sed 's#ID=##g' | sed 's#"##g' | tr '[:upper:]' '[:lower:]')
-    local distroversion=$(grep '^VERSION="' /etc/os-release | sed 's#VERSION="##g;s#"##g')
-    local codename="$(grep VERSION_CODENAME /etc/os-release && grep ^VERSION_CODENAME /etc/os-release | sed 's#VERSION_CODENAME="##g;s#"##g' || true)"
-  elif builtin type -p lsb_release &>/dev/null; then
-    local distroname="$(lsb_release -a 2>/dev/null | grep 'Distributor ID' | awk '{print $3}' | tr '[:upper:]' '[:lower:]' | sed 's#"##g')"
-    local distroversion="$(lsb_release -a 2>/dev/null | grep 'Release' | awk '{print $2}')"
-  elif builtin type -p lsb-release &>/dev/null; then
-    local distroname="$(lsb-release -a 2>/dev/null | grep 'Distributor ID' | awk '{print $3}' | tr '[:upper:]' '[:lower:]' | sed 's#"##g')"
-    local distroversion="$(lsb-release -a 2>/dev/null | grep 'Release' | awk '{print $2}')"
+    distroname=$(grep '^ID=' /etc/os-release | sed 's#ID=##g' | sed 's#"##g' | tr '[:upper:]' '[:lower:]')
+    distroversion=$(grep '^VERSION="' /etc/os-release | sed 's#VERSION="##g;s#"##g')
+    codename="$(grep 'VERSION_CODENAME' /etc/os-release && grep '^VERSION_CODENAME' /etc/os-release | sed 's#VERSION_CODENAME="##g;s#"##g' || true)"
   elif [ -f "/etc/redhat-release" ]; then
-    local distroname=$(awk '{print $1}' /etc/redhat-release | tr '[:upper:]' '[:lower:]' | sed 's#"##g')
-    local distroversion=$(awk '{print $4}' /etc/redhat-release | tr '[:upper:]' '[:lower:]' | sed 's#"##g')
-  elif builtin type -P sw_vers &>/dev/null; then
-    local distroname="darwin"
-    local distroversion="$(sw_vers -productVersion)"
+    distroname=$(awk '{print $1}' /etc/redhat-release | tr '[:upper:]' '[:lower:]' | sed 's#"##g')
+    distroversion=$(awk '{print $4}' /etc/redhat-release | tr '[:upper:]' '[:lower:]' | sed 's#"##g')
+  elif builtin type -p lsb_release &>/dev/null; then
+    distroname="$(lsb_release -a 2>/dev/null | grep 'Distributor ID' | awk '{print $3}' | tr '[:upper:]' '[:lower:]' | sed 's#"##g')"
+    distroversion="$(lsb_release -a 2>/dev/null | grep 'Release' | awk '{print $2}')"
+  elif builtin type -p lsb-release &>/dev/null; then
+    distroname="$(lsb-release -a 2>/dev/null | grep 'Distributor ID' | awk '{print $3}' | tr '[:upper:]' '[:lower:]' | sed 's#"##g')"
+    distroversion="$(lsb-release -a 2>/dev/null | grep 'Release' | awk '{print $2}')"
   else
     return 1
   fi
-  local in="$*"
-  local def="${DISTRO}"
-  local args="$(echo "${*:-$def}" | tr '[:upper:]' '[:lower:]')"
+  in="$*"
+  def="${DISTRO}"
+  args="$(echo "${*:-$def}" | tr '[:upper:]' '[:lower:]')"
   for id_like in $args; do
     case "$id_like" in
     arch* | arco*)
       if [[ $distroname =~ ^arco ]] || [[ "$distroname" =~ ^arch ]]; then
-        distro_id=Arch
+        distro_id="Arch"
         distro_version="$(cat /etc/os-release | grep '^BUILD_ID' | sed 's#BUILD_ID=##g')"
         return 0
       else
@@ -176,7 +176,7 @@ __if_os_id() {
       ;;
     rhel* | centos* | fedora* | rocky* | ol* | oracle* | redhat* | scientific* | alma*)
       if [[ "$distroname" =~ ^scientific ]] || [[ "$distroname" =~ ^redhat ]] || [[ "$distroname" =~ ^centos ]] || [[ "$distroname" =~ ^casjay ]] || [[ "$distroname" =~ ^rocky ]] || [[ "$distroname" =~ ^alma ]]; then
-        distro_id=RHEL
+        distro_id="RHEL"
         distro_version="$distroversion"
         return 0
       else
@@ -186,7 +186,7 @@ __if_os_id() {
     debian* | ubuntu*)
       if [[ "$distroname" =~ ^kali ]] || [[ "$distroname" =~ ^parrot ]] || [[ "$distroname" =~ ^debian ]] || [[ "$distroname" =~ ^raspbian ]] ||
         [[ "$distroname" =~ ^ubuntu ]] || [[ "$distroname" =~ ^linuxmint ]] || [[ "$distroname" =~ ^elementary ]] || [[ "$distroname" =~ ^kde ]]; then
-        distro_id=Debian
+        distro_id="Debian"
         distro_version="$distroversion"
         distro_codename="$codename"
         return 0
@@ -196,7 +196,7 @@ __if_os_id() {
       ;;
     darwin* | mac*)
       if [[ "$distroname" =~ ^mac ]] || [[ "$distroname" =~ ^darwin ]]; then
-        distro_id=MacOS
+        distro_id="MacOS"
         distro_version="$distroversion"
         return 0
       else

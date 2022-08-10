@@ -1,5 +1,6 @@
-var init = function () {
-  const myhostname = window.location.hostname || 'localhost';
+var load_main_init = function () {
+  const myfilename = 'localhost' + location.pathname;
+  const myhostname = window.location.origin || myfilename;
   var e,
     r =
       ((e = {}),
@@ -15,7 +16,7 @@ var init = function () {
         }
       }),
       e),
-    t = window.location.origin || myhostname,
+    t = myhostname,
     o = function (e) {
       return (e = e.split('//')[1]);
     },

@@ -1,3 +1,23 @@
+#### Changelog: 2022-08-11 at 13:44:10  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+templates/scripts/bash/system      🚀  
+templates/scripts/bash/terminal      🚀  
+templates/scripts/bash/user      🚀  
+version.txt      🚀  
+  
+#### End of changes for  - 2022-08-11 at 13:44:10  
+  
+----  
+  
+#### Changelog: 2022-08-11 at 12:05:00  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+  
+#### End of changes for  - 2022-08-11 at 12:05:00  
+  
+----  
+  
 #### Changelog: 2022-08-11 at 11:56:56  
 #### 🗃️ Committing everything that changed 🗃️  
   

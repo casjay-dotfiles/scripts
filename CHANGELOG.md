@@ -1,3 +1,12 @@
+#### Changelog: 2022-08-10 at 22:57:02  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+functions/global/menu.bash      🚀  
+  
+#### End of changes for  - 2022-08-10 at 22:57:02  
+  
+----  
+  
 #### Changelog: 2022-08-10 at 16:52:20  
 #### 🗃️ Committing everything that changed 🗃️  
   

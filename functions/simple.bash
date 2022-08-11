@@ -14,12 +14,12 @@
 # @Resource          :
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
-[[ "$_DEBUG" = "on" ]] && set -xo pipefail
+[ "$_DEBUG" = "on" ] && set -xo pipefail
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main scripts location
-FUNCFILE="testing.bash"
-CASJAYSDEVDIR="/usr/local/share/CasjaysDev/scripts"
+FUNCFILE="${SCRIPTSFUNCTFILE:-simple}"
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default enviroment variables
 source "$CASJAYSDEVDIR/functions/global/env.bash"
@@ -42,7 +42,7 @@ source "$CASJAYSDEVDIR/functions/global/tty.bash"
 # set logging functions
 source "$CASJAYSDEVDIR/functions/global/logging.bash"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Redifine OS Based functions
+# Redefine OS Based functions
 source "$CASJAYSDEVDIR/functions/global/fixes.bash"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Network based functions
@@ -74,3 +74,4 @@ source "$CASJAYSDEVDIR/functions/types/user_install.bash"
 # Run functions
 __getpythonver
 ###################### end application functions ######################
+

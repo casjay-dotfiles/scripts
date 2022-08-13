@@ -1,3 +1,12 @@
+#### Changelog: 2022-08-12 at 21:01:17  
+#### 🗃️ Committing everything that changed 🗃️  
+  
+bin/rmd      🚀  
+  
+#### End of changes for  - 2022-08-12 at 21:01:17  
+  
+----  
+  
 #### Changelog: 2022-08-11 at 16:09:52  
 #### 🗃️ Committing everything that changed 🗃️  
   

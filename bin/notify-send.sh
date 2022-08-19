@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202208162215-git
+##@Version           :  202208141524-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.com
 # @@License          :  WTFPL
-# @@ReadME           :  spellcheck --help
+# @@ReadME           :  notify-send.sh --help
 # @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
-# @@Created          :  Tuesday, Aug 16, 2022 22:15 EDT
-# @@File             :  spellcheck
-# @@Description      :  Script to check spelling
+# @@Created          :  Sunday, Aug 14, 2022 15:24 EDT
+# @@File             :  notify-send.sh
+# @@Description      :  wrapper for notify-send
 # @@Changelog        :  New script
-# @@TODO             :  Add function to keep open/Add notification support
+# @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
 # @@Terminal App     :  no
@@ -19,12 +19,12 @@
 # @@Template         :  bash/system
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0" 2>/dev/null)"
-VERSION="202208162215-git"
+VERSION="202208141524-git"
 HOME="${USER_HOME:-$HOME}"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${SUDO_USER:-$USER}"
 SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
-SPELLCHECK_REQUIRE_SUDO="${SPELLCHECK_REQUIRE_SUDO:-no}"
+NOTIFY_SEND_SH_REQUIRE_SUDO="${NOTIFY_SEND_SH_REQUIRE_SUDO:-no}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Reopen in a terminal
 #if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
@@ -116,38 +116,37 @@ __gen_config() {
   local NOTIFY_CLIENT_NAME="$APPNAME"
   if [ "$INIT_CONFIG" != "TRUE" ]; then
     printf_blue "Generating the config file in"
-    printf_cyan "$SPELLCHECK_CONFIG_DIR/$SPELLCHECK_CONFIG_FILE"
+    printf_cyan "$NOTIFY_SEND_SH_CONFIG_DIR/$NOTIFY_SEND_SH_CONFIG_FILE"
   fi
-  [ -d "$SPELLCHECK_CONFIG_DIR" ] || mkdir -p "$SPELLCHECK_CONFIG_DIR"
-  [ -d "$SPELLCHECK_CONFIG_BACKUP_DIR" ] || mkdir -p "$SPELLCHECK_CONFIG_BACKUP_DIR"
-  [ -f "$SPELLCHECK_CONFIG_DIR/$SPELLCHECK_CONFIG_FILE" ] &&
-    cp -Rf "$SPELLCHECK_CONFIG_DIR/$SPELLCHECK_CONFIG_FILE" "$SPELLCHECK_CONFIG_BACKUP_DIR/$SPELLCHECK_CONFIG_FILE.$$"
-  cat <<EOF >"$SPELLCHECK_CONFIG_DIR/$SPELLCHECK_CONFIG_FILE"
-# Settings for spellcheck
-SPELLCHECK_YAD_WIDTH="${SPELLCHECK_YAD_WIDTH:-}"
-SPELLCHECK_YAD_HEIGHT="${SPELLCHECK_YAD_HEIGHT:-}"
+  [ -d "$NOTIFY_SEND_SH_CONFIG_DIR" ] || mkdir -p "$NOTIFY_SEND_SH_CONFIG_DIR"
+  [ -d "$NOTIFY_SEND_SH_CONFIG_BACKUP_DIR" ] || mkdir -p "$NOTIFY_SEND_SH_CONFIG_BACKUP_DIR"
+  [ -f "$NOTIFY_SEND_SH_CONFIG_DIR/$NOTIFY_SEND_SH_CONFIG_FILE" ] &&
+    cp -Rf "$NOTIFY_SEND_SH_CONFIG_DIR/$NOTIFY_SEND_SH_CONFIG_FILE" "$NOTIFY_SEND_SH_CONFIG_BACKUP_DIR/$NOTIFY_SEND_SH_CONFIG_FILE.$$"
+  cat <<EOF >"$NOTIFY_SEND_SH_CONFIG_DIR/$NOTIFY_SEND_SH_CONFIG_FILE"
+# Settings for notify-send.sh
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
-SPELLCHECK_OUTPUT_COLOR_1="${SPELLCHECK_OUTPUT_COLOR_1:-}"
-SPELLCHECK_OUTPUT_COLOR_2="${SPELLCHECK_OUTPUT_COLOR_2:-}"
-SPELLCHECK_OUTPUT_COLOR_GOOD="${SPELLCHECK_OUTPUT_COLOR_GOOD:-}"
-SPELLCHECK_OUTPUT_COLOR_ERROR="${SPELLCHECK_OUTPUT_COLOR_ERROR:-}"
+NOTIFY_SEND_SH_OUTPUT_COLOR_1="${NOTIFY_SEND_SH_OUTPUT_COLOR_1:-}"
+NOTIFY_SEND_SH_OUTPUT_COLOR_2="${NOTIFY_SEND_SH_OUTPUT_COLOR_2:-}"
+NOTIFY_SEND_SH_OUTPUT_COLOR_GOOD="${NOTIFY_SEND_SH_OUTPUT_COLOR_GOOD:-}"
+NOTIFY_SEND_SH_OUTPUT_COLOR_ERROR="${NOTIFY_SEND_SH_OUTPUT_COLOR_ERROR:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Notification Settings
-SPELLCHECK_NOTIFY_ENABLED="${SPELLCHECK_NOTIFY_ENABLED:-}"
-SPELLCHECK_GOOD_NAME="${SPELLCHECK_GOOD_NAME:-}"
-SPELLCHECK_ERROR_NAME="${SPELLCHECK_ERROR_NAME:-}"
-SPELLCHECK_GOOD_MESSAGE="${SPELLCHECK_GOOD_MESSAGE:-}"
-SPELLCHECK_ERROR_MESSAGE="${SPELLCHECK_ERROR_MESSAGE:-}"
-SPELLCHECK_NOTIFY_CLIENT_NAME="${SPELLCHECK_NOTIFY_CLIENT_NAME:-}"
-SPELLCHECK_NOTIFY_CLIENT_ICON="${SPELLCHECK_NOTIFY_CLIENT_ICON:-}"
-SPELLCHECK_NOTIFY_CLIENT_URGENCY="${SPELLCHECK_NOTIFY_CLIENT_URGENCY:-}"
+NOTIFY_SEND_SH_NOTIFY_ENABLED="${NOTIFY_SEND_SH_NOTIFY_ENABLED:-}"
+NOTIFY_SEND_SH_GOOD_NAME="${NOTIFY_SEND_SH_GOOD_NAME:-}"
+NOTIFY_SEND_SH_ERROR_NAME="${NOTIFY_SEND_SH_ERROR_NAME:-}"
+NOTIFY_SEND_SH_GOOD_MESSAGE="${NOTIFY_SEND_SH_GOOD_MESSAGE:-}"
+NOTIFY_SEND_SH_ERROR_MESSAGE="${NOTIFY_SEND_SH_ERROR_MESSAGE:-}"
+NOTIFY_SEND_SH_NOTIFY_CLIENT_NAME="${NOTIFY_SEND_SH_NOTIFY_CLIENT_NAME:-}"
+NOTIFY_SEND_SH_NOTIFY_CLIENT_ICON="${NOTIFY_SEND_SH_NOTIFY_CLIENT_ICON:-}"
+NOTIFY_SEND_SH_NOTIFY_CLIENT_URGENCY="${NOTIFY_SEND_SH_NOTIFY_CLIENT_URGENCY:-}"
 
 EOF
   if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
-  if [ -f "$SPELLCHECK_CONFIG_DIR/$SPELLCHECK_CONFIG_FILE" ]; then
+  if [ -f "$NOTIFY_SEND_SH_CONFIG_DIR/$NOTIFY_SEND_SH_CONFIG_FILE" ]; then
     [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
-    . "$SPELLCHECK_CONFIG_DIR/$SPELLCHECK_CONFIG_FILE"
+    . "$NOTIFY_SEND_SH_CONFIG_DIR/$NOTIFY_SEND_SH_CONFIG_FILE"
     exitCode=0
   else
     printf_red "Failed to create the config file"
@@ -159,12 +158,12 @@ EOF
 # Help function - Align to 50
 __help() {
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_opts "spellcheck:  Script to check spelling - $VERSION"
+  __printf_opts "notify-send.sh:  wrapper for notify-send - $VERSION"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_line "Usage: spellcheck [options] [commands]"
-  __printf_line " - "
-  __printf_line " - "
-  __printf_line "--dir                           - Sets the working directory"
+  __printf_line "Usage: notify-send.sh [options] [title] [message]"
+  __printf_line "* [title] [message]             - Send a notification"
+  __printf_line "--all [title] [message]         - Send a notification to all users"
+  __printf_line "--ask [title] [message]         - Ask if a notification client is installed"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -218,9 +217,9 @@ __sudoif() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run command as root
 requiresudo() {
-  if [ "$SPELLCHECK_REQUIRE_SUDO" = "yes" ] && [ -z "$SPELLCHECK_REQUIRE_SUDO_RUN" ]; then
-    export SPELLCHECK_REQUIRE_SUDO="no"
-    export SPELLCHECK_REQUIRE_SUDO_RUN="true"
+  if [ "$NOTIFY_SEND_SH_REQUIRE_SUDO" = "yes" ] && [ -z "$NOTIFY_SEND_SH_REQUIRE_SUDO_RUN" ]; then
+    export NOTIFY_SEND_SH_REQUIRE_SUDO="no"
+    export NOTIFY_SEND_SH_REQUIRE_SUDO_RUN="true"
     __sudo "$@"
     exit $?
   else
@@ -248,109 +247,157 @@ __sudo() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __trap_exit() {
   exitCode=${exitCode:-$?}
-  [ -f "$SPELLCHECK_TEMP_FILE" ] && rm -Rf "$SPELLCHECK_TEMP_FILE" &>/dev/null
+  [ -f "$NOTIFY_SEND_SH_TEMP_FILE" ] && rm -Rf "$NOTIFY_SEND_SH_TEMP_FILE" &>/dev/null
   if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
-__yad__text() {
-  set -o pipefail
-  local title="$1"
-  local color="${2:-$SPELLCHECK_OUTPUT_COLOR_1}"
-  local SPELLCHECK_YAD_WIDTH="${SPELLCHECK_YAD_WIDTH:-300}"
-  local SPELLCHECK_YAD_HEIGHT="${SPELLCHECK_YAD_HEIGHT:-400}"
-  if __cmd_exists yad && [ -n "$DISPLAY" ] && [ -z "$SSH_CONNECTION" ]; then
-    cat - | yad --text-info --wrap --center --title="$title" --width=${SPELLCHECK_YAD_WIDTH:-500} --height=${SPELLCHECK_YAD_HEIGHT:-400} 2>/dev/null &
-    return $?
-  elif __cmd_exists yad && [ -n "$DISPLAY" ] && [ -z "$SSH_CONNECTION" ]; then
-    cat - | zenity --text-info --title="$title" --width=${SPELLCHECK_YAD_WIDTH:-500} --height=${SPELLCHECK_YAD_HEIGHT:-400} 2>/dev/null &
-    return $?
+__notify_send() {
+  [ -n "$NOTIFY_ASK" ] && exit 0
+  local NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$CLIENT_ICON}"
+  local NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$CLIENT_NAME}"
+  local NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$CLIENT_URGENCY}"
+  local CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$NOTIFICATIONS_NOTIFY_CLIENT_ICON}"
+  local CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$NOTIFICATIONS_NOTIFY_CLIENT_NAME}"
+  local CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$NOTIFICATIONS_NOTIFY_CLIENT_URGENCY}"
+  [ -n "$CLIENT_NAME" ] || CLIENT_NAME="$1"
+  [ -n "$CLIENT_URGENCY" ] || CLIENT_URGENCY="normal"
+  [ -n "$CLIENT_ICON" ] || CLIENT_ICON="com.github.timecraft.notifier"
+  [ "$CLIENT_NAME" = "$1" ] && [ $# -gt 1 ] && shift 1
+  if [ "$(uname -s)" = "Darwin" ]; then
+    contents="$(printf '%b\n' "$2")"
+    osascript -e "display notification \"$contents\" with title \"$1\"" || return
+  elif [ "$(uname -s)" = "Linux" ]; then
+    DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u ${USER})/bus"
+    XUSERS=($(who | grep -E "\(:[0-9](\.[0-9])*\)" | awk '{print $1$5}' | sort -u | grep "$USER"))
+    [ -n "$SSH_CONNECTION" ] && return
+    if cmd_exists notify-send.py; then
+      contents="$(printf '%b\n' "$*")"
+      notify-send.py --app-name="$CLIENT_NAME" -u "$CLIENT_URGENCY" -i "$CLIENT_ICON" "$contents" 2>/dev/null
+    elif cmd_exists notify-send; then
+      contents="$(printf '%b\n' "$*")"
+      notify-send --app-name="$CLIENT_NAME" -u "$CLIENT_URGENCY" -i "$CLIENT_ICON" "$contents" 2>/dev/null
+    else
+      if [ -n "$1" ]; then
+        echo "$*" >/dev/null
+      else
+        printf_exit 1 1 "There is no notification app installed: Install xfce4-notifyd notify-send, dunst, deadd" 1>&2
+      fi
+    fi
+    NAME=("${XUSER/(/ }")
+    DISPLAY="${NAME[1]/)/}"
   else
-    cat - | printf_readline "$color"
-    return $?
+    exit 1
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__execute_spellcheck() {
-  if [ ! -f "$SPELLCHECK_CONFIG_DIR/aspell.conf" ]; then
-    ASPELL_CHECK="$(aspell dump dicts | wc -l)"
-    if [ "$ASPELL_CHECK" = 0 ]; then
-      ask_yes_no_question "Missing dictionary files should I install them" "pkmgr silent install aspell-en" || exit 1
+__notify_send_all() {
+  set -x
+  local msg="$2"
+  local title="$1"
+  local NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$CLIENT_ICON}"
+  local NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$CLIENT_NAME}"
+  local NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$CLIENT_URGENCY}"
+  export CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$NOTIFICATIONS_NOTIFY_CLIENT_ICON}"
+  export CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$NOTIFICATIONS_NOTIFY_CLIENT_NAME}"
+  export CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$NOTIFICATIONS_NOTIFY_CLIENT_URGENCY}"
+  local cli_name="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+  [ "$cli_name" = "$title" ] && shift 1
+  XUSERS=($(who | grep -E "\(:[0-9](\.[0-9])*\)" | awk '{print $1$5}' | sort -u | grep '^' || echo ''))
+  if [ "$(uname -s)" = "Linux" ]; then
+    if [ -n "${XUSERS[*]}" ]; then
+      for XUSER in "${XUSERS[@]}"; do
+        NAME=("${XUSER//(:[0-9])/}")
+        DISPLAY="${NAME[1]/)/}"
+        DBUS_ADDRESS=unix:path="/run/user/$(id -u ${NAME[0]})/bus"
+        if [ -n "${NAME[*]}" ] && [ -n "$DISPLAY" ] && [ -n "$DBUS_ADDRESS" ]; then
+          sudo -u "${NAME[0]}" DISPLAY="${DISPLAY}" DBUS_SESSION_BUS_ADDRESS="${DBUS_ADDRESS}" PATH="${PATH}" "$0" "$title" "$msg"
+        fi
+        __send_wall "$title: $msg"
+      done
     else
-      printf '%s\n' "aspell is installed and configured" >"$SPELLCHECK_CONFIG_DIR/aspell.conf"
+      sudo -u "$SUDO_USER" "$0" "$title" "$msg"
+      __send_wall "$title: $msg"
     fi
-  fi
-  if [ -f "$FILE_TO_CHECK" ]; then
-    aspell -c "$FILE_TO_CHECK"
-    exitCode=$?
+    NOTIFY_WALL=""
   else
-    echo "${search:-$1}" | aspell -a list | grep -v "@(#) " >"$SPELLCHECK_TEMP_FILE" 2>/dev/null
-    if grep -sq '^\*$' "$SPELLCHECK_TEMP_FILE"; then
-      correct="You have spelled $1 correctly"
-      printf_green "$correct"
-      __notifications "SpellCheck:" "$correct"
-      exitCode=0
-    else
-      fix="$(sed 's|^& ||g;s|,| :|g' <"$SPELLCHECK_TEMP_FILE")"
-      formatted="$(echo $fix | sed 's| : |\n|g' | grep -v '^$')"
-      echo "$formatted" | __yad__text "$1" ||
-        printf_custom $SPELLCHECK_OUTPUT_COLOR "$fix"
-      __notifications "SpellCheck:" "$formatted"
-      exitCode=1
-    fi
+    __notify_send "$title" "$msg"
+    __send_wall "$title: $msg"
   fi
-  return $exitCode
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__send_wall() {
+  [ "$NOTIFY_WALL" = "true" ] || return 1
+  __user_is_root || return 1
+  if __cmd_exists wall; then
+    echo "${1:-$title}: ${2:-$msg}" | wall -n
+  else
+    printf_console "3" "${1:-$title}: ${2:-$msg}" >/dev/fd/0
+  fi
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__ask() {
+  if __cmd_exists notify-send.py; then
+    return 0
+  elif __cmd_exists notify-send; then
+    return 0
+  elif __cmd_exists osascript; then
+    return 0
+  else
+    return 1
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application Folders
-SPELLCHECK_CONFIG_FILE="${SPELLCHECK_CONFIG_FILE:-settings.conf}"
-SPELLCHECK_CONFIG_DIR="${SPELLCHECK_CONFIG_DIR:-$HOME/.config/myscripts/spellcheck}"
-SPELLCHECK_CONFIG_BACKUP_DIR="${SPELLCHECK_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/spellcheck/backups}"
-SPELLCHECK_LOG_DIR="${SPELLCHECK_LOG_DIR:-$HOME/.local/log/spellcheck}"
-SPELLCHECK_TEMP_DIR="${SPELLCHECK_TEMP_DIR:-$HOME/.local/tmp/system_scripts/spellcheck}"
-SPELLCHECK_CACHE_DIR="${SPELLCHECK_CACHE_DIR:-$HOME/.cache/spellcheck}"
+NOTIFY_SEND_SH_CONFIG_FILE="${NOTIFY_SEND_SH_CONFIG_FILE:-settings.conf}"
+NOTIFY_SEND_SH_CONFIG_DIR="${NOTIFY_SEND_SH_CONFIG_DIR:-$HOME/.config/myscripts/notify-send.sh}"
+NOTIFY_SEND_SH_CONFIG_BACKUP_DIR="${NOTIFY_SEND_SH_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/notify-send.sh/backups}"
+NOTIFY_SEND_SH_LOG_DIR="${NOTIFY_SEND_SH_LOG_DIR:-$HOME/.local/log/notify-send.sh}"
+NOTIFY_SEND_SH_TEMP_DIR="${NOTIFY_SEND_SH_TEMP_DIR:-$HOME/.local/tmp/system_scripts/notify-send.sh}"
+NOTIFY_SEND_SH_CACHE_DIR="${NOTIFY_SEND_SH_CACHE_DIR:-$HOME/.cache/notify-send.sh}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
-SPELLCHECK_OUTPUT_COLOR_1="${SPELLCHECK_OUTPUT_COLOR_1:-4}"
-SPELLCHECK_OUTPUT_COLOR_2="${SPELLCHECK_OUTPUT_COLOR_2:-5}"
-SPELLCHECK_OUTPUT_COLOR_GOOD="${SPELLCHECK_OUTPUT_COLOR_GOOD:-2}"
-SPELLCHECK_OUTPUT_COLOR_ERROR="${SPELLCHECK_OUTPUT_COLOR_ERROR:-1}"
+NOTIFY_SEND_SH_OUTPUT_COLOR_1="${NOTIFY_SEND_SH_OUTPUT_COLOR_1:-4}"
+NOTIFY_SEND_SH_OUTPUT_COLOR_2="${NOTIFY_SEND_SH_OUTPUT_COLOR_2:-5}"
+NOTIFY_SEND_SH_OUTPUT_COLOR_GOOD="${NOTIFY_SEND_SH_OUTPUT_COLOR_GOOD:-2}"
+NOTIFY_SEND_SH_OUTPUT_COLOR_ERROR="${NOTIFY_SEND_SH_OUTPUT_COLOR_ERROR:-1}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Notification Settings
-SPELLCHECK_NOTIFY_ENABLED="${SPELLCHECK_NOTIFY_ENABLED:-yes}"
-SPELLCHECK_GOOD_NAME="${SPELLCHECK_GOOD_NAME:-Great:}"
-SPELLCHECK_ERROR_NAME="${SPELLCHECK_ERROR_NAME:-Error:}"
-SPELLCHECK_GOOD_MESSAGE="${SPELLCHECK_GOOD_MESSAGE:-No errors reported}"
-SPELLCHECK_ERROR_MESSAGE="${SPELLCHECK_ERROR_MESSAGE:-Errors were reported}"
-SPELLCHECK_NOTIFY_CLIENT_NAME="${SPELLCHECK_NOTIFY_CLIENT_NAME:-$APPNAME}"
-SPELLCHECK_NOTIFY_CLIENT_ICON="${SPELLCHECK_NOTIFY_CLIENT_ICON:-notification-new}"
-SPELLCHECK_NOTIFY_CLIENT_URGENCY="${SPELLCHECK_NOTIFY_CLIENT_URGENCY:-normal}"
+NOTIFY_SEND_SH_NOTIFY_ENABLED="${NOTIFY_SEND_SH_NOTIFY_ENABLED:-yes}"
+NOTIFY_SEND_SH_GOOD_NAME="${NOTIFY_SEND_SH_GOOD_NAME:-Great:}"
+NOTIFY_SEND_SH_ERROR_NAME="${NOTIFY_SEND_SH_ERROR_NAME:-Error:}"
+NOTIFY_SEND_SH_GOOD_MESSAGE="${NOTIFY_SEND_SH_GOOD_MESSAGE:-No errors reported}"
+NOTIFY_SEND_SH_ERROR_MESSAGE="${NOTIFY_SEND_SH_ERROR_MESSAGE:-Errors were reported}"
+NOTIFY_SEND_SH_NOTIFY_CLIENT_NAME="${NOTIFY_SEND_SH_NOTIFY_CLIENT_NAME:-$APPNAME}"
+NOTIFY_SEND_SH_NOTIFY_CLIENT_ICON="${NOTIFY_SEND_SH_NOTIFY_CLIENT_ICON:-notification-new}"
+NOTIFY_SEND_SH_NOTIFY_CLIENT_URGENCY="${NOTIFY_SEND_SH_NOTIFY_CLIENT_URGENCY:-normal}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional Variables
-SPELLCHECK_YAD_WIDTH="${SPELLCHECK_YAD_WIDTH:-300}"
-SPELLCHECK_YAD_HEIGHT="${SPELLCHECK_YAD_HEIGHT:-400}"
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
-[ -f "$SPELLCHECK_CONFIG_DIR/$SPELLCHECK_CONFIG_FILE" ] ||
+[ -f "$NOTIFY_SEND_SH_CONFIG_DIR/$NOTIFY_SEND_SH_CONFIG_FILE" ] ||
   [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import config
-[ -f "$SPELLCHECK_CONFIG_DIR/$SPELLCHECK_CONFIG_FILE" ] &&
-  . "$SPELLCHECK_CONFIG_DIR/$SPELLCHECK_CONFIG_FILE"
+[ -f "$NOTIFY_SEND_SH_CONFIG_DIR/$NOTIFY_SEND_SH_CONFIG_FILE" ] &&
+  . "$NOTIFY_SEND_SH_CONFIG_DIR/$NOTIFY_SEND_SH_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure Directories exist
-[ -d "$SPELLCHECK_LOG_DIR" ] ||
-  mkdir -p "$SPELLCHECK_LOG_DIR" |& __devnull
-[ -d "$SPELLCHECK_TEMP_DIR" ] ||
-  mkdir -p "$SPELLCHECK_TEMP_DIR" |& __devnull
-[ -d "$SPELLCHECK_CACHE_DIR" ] ||
-  mkdir -p "$SPELLCHECK_CACHE_DIR" |& __devnull
+[ -d "$NOTIFY_SEND_SH_LOG_DIR" ] ||
+  mkdir -p "$NOTIFY_SEND_SH_LOG_DIR" |& __devnull
+[ -d "$NOTIFY_SEND_SH_TEMP_DIR" ] ||
+  mkdir -p "$NOTIFY_SEND_SH_TEMP_DIR" |& __devnull
+[ -d "$NOTIFY_SEND_SH_CACHE_DIR" ] ||
+  mkdir -p "$NOTIFY_SEND_SH_CACHE_DIR" |& __devnull
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-SPELLCHECK_TEMP_FILE="${SPELLCHECK_TEMP_FILE:-$(mktemp $SPELLCHECK_TEMP_DIR/XXXXXX 2>/dev/null)}"
+NOTIFY_SEND_SH_TEMP_FILE="${NOTIFY_SEND_SH_TEMP_FILE:-$(mktemp $NOTIFY_SEND_SH_TEMP_DIR/XXXXXX 2>/dev/null)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup trap to remove temp file
 trap '__trap_exit' EXIT
@@ -358,16 +405,16 @@ trap '__trap_exit' EXIT
 # Setup notification function
 __notifications() {
   __cmd_exists notifications || return
-  [ "$SPELLCHECK_NOTIFY_ENABLED" = "yes" ] || return
+  [ "$NOTIFY_SEND_SH_NOTIFY_ENABLED" = "yes" ] || return
   [ "$SEND_NOTIFICATION" = "no" ] && return
   (
     set +x
     export SCRIPT_OPTS="" _DEBUG=""
-    export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$SPELLCHECK_GOOD_MESSAGE}"
-    export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$SPELLCHECK_ERROR_MESSAGE}"
-    export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$SPELLCHECK_NOTIFY_CLIENT_ICON}"
-    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$SPELLCHECK_NOTIFY_CLIENT_NAME}"
-    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$SPELLCHECK_NOTIFY_CLIENT_URGENCY}"
+    export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$NOTIFY_SEND_SH_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$NOTIFY_SEND_SH_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$NOTIFY_SEND_SH_NOTIFY_CLIENT_ICON}"
+    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$NOTIFY_SEND_SH_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$NOTIFY_SEND_SH_NOTIFY_CLIENT_URGENCY}"
     notifications "$@"
     retval=$?
     return $retval
@@ -380,11 +427,11 @@ __notifications() {
 # Argument/Option settings
 SETARGS=("$@")
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-SHORTOPTS="f:"
+SHORTOPTS=""
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
-LONGOPTS+=",file:,gtk"
+LONGOPTS+=",ask,all,wall"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY=""
 ARRAY+=""
@@ -451,22 +498,25 @@ while :; do
     ;;
   --silent)
     shift 1
-    SPELLCHECK_SILENT="true"
+    NOTIFY_SEND_SH_SILENT="true"
     ;;
   --dir)
     CWD_IS_SET="TRUE"
-    SPELLCHECK_CWD="$2"
-    #[ -d "$SPELLCHECK_CWD" ] || mkdir -p "$SPELLCHECK_CWD" |& __devnull
+    NOTIFY_SEND_SH_CWD="$2"
+    [ -d "$NOTIFY_SEND_SH_CWD" ] || mkdir -p "$NOTIFY_SEND_SH_CWD" |& __devnull
     shift 2
     ;;
-  -f | --file)
-    FILE_CHECK="yes"
-    FILE_TO_CHECK="$2"
-    shift 2
-    ;;
-  --gtk)
-    search="$(INPUT_NAME="$APPNAME" ask_for_input)"
+  --ask)
     shift 1
+    NOTIFY_ASK="true"
+    ;;
+  --all)
+    shift 1
+    NOTIFY_ALL="true"
+    ;;
+  --wall)
+    shift 1
+    NOTIFY_WALL="true"
     ;;
   --)
     shift 1
@@ -479,9 +529,9 @@ done
 # set -- "$@"
 # for arg in "$@"; do
 # if [ -d "$arg" ]; then
-# SPELLCHECK_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
+# NOTIFY_SEND_SH_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
 # elif [ -f "$arg" ]; then
-# SPELLCHECK_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
+# NOTIFY_SEND_SH_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
 # else
 # SET_NEW_ARGS+=("$arg")
 # fi
@@ -489,16 +539,16 @@ done
 # set -- "${SET_NEW_ARGS[@]}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set directory to first argument
-# [ -d "$1" ] && SPELLCHECK_CWD="$1" && shift 1 || SPELLCHECK_CWD="${SPELLCHECK_CWD:-$PWD}"
-SPELLCHECK_CWD="$(realpath "${SPELLCHECK_CWD:-$PWD}" 2>/dev/null)"
-# if [ -d "$SPELLCHECK_CWD" ] && cd "$SPELLCHECK_CWD"; then
-# if [ "$SPELLCHECK_SILENT" != "true" ]; then
-# printf_cyan "Setting working dir to $SPELLCHECK_CWD"
+# [ -d "$1" ] && NOTIFY_SEND_SH_CWD="$1" && shift 1 || NOTIFY_SEND_SH_CWD="${NOTIFY_SEND_SH_CWD:-$PWD}"
+NOTIFY_SEND_SH_CWD="$(realpath "${NOTIFY_SEND_SH_CWD:-$PWD}" 2>/dev/null)"
+# if [ -d "$NOTIFY_SEND_SH_CWD" ] && cd "$NOTIFY_SEND_SH_CWD"; then
+# if [ "$NOTIFY_SEND_SH_SILENT" != "true" ]; then
+# printf_cyan "Setting working dir to $NOTIFY_SEND_SH_CWD"
 # fi
 # else
-# printf_exit "💔 $SPELLCHECK_CWD does not exist 💔"
+# printf_exit "💔 $NOTIFY_SEND_SH_CWD does not exist 💔"
 # fi
-export SPELLCHECK_CWD
+export NOTIFY_SEND_SH_CWD
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set actions based on variables
 
@@ -515,7 +565,11 @@ export SPELLCHECK_CWD
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
-__execute_spellcheck "$@"
+if [ "$NOTIFY_ALL" = "true" ] || [ "$USER" = "root" ] || [ "$UID" = "0" ]; then
+  __notify_send_all "$@"
+else
+  __notify_send "$@"
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set exit code
 exitCode="${exitCode:-$?}"

@@ -1,28 +1,42 @@
 #!/usr/bin/env bash
+# shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202207042242-git
-# @Author            :  Jason Hempstead
-# @Contact           :  jason@casjaysdev.com
-# @License           :  WTFPL
-# @ReadME            :  gitcommit --help
-# @Copyright         :  Copyright: (c) 2021 Jason Hempstead, Casjays Developments
-# @Created           :  Thursday, Aug 19, 2021 01:17 EDT
-# @File              :  gitcommit
-# @Description       :  Commit changes to a git repo
-# @TODO              :  Refactor code
-# @Other             :
-# @Resource          :
+##@Version           :  202208082340-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  jason@casjaysdev.com
+# @@License          :  WTFPL
+# @@ReadME           :  gitcommit --help
+# @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
+# @@Created          :  Monday, Aug 08, 2022 23:40 EDT
+# @@File             :  gitcommit
+# @@Description      :  Commit changes to a git repo
+# @@Changelog        :  New script
+# @@TODO             :  Refactor code
+# @@Other            :
+# @@Resource         :
+# @@Terminal App     :  no
+# @@sudo/root        :  no
+# @@Template         :  bash/system
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0" 2>/dev/null)"
-VERSION="202108190117-git"
+VERSION="202208082340-git"
 HOME="${USER_HOME:-$HOME}"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${SUDO_USER:-$USER}"
-SRC_DIR="${BASH_SOURCE%/*}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+GITCOMMIT_REQUIRE_SUDO="${GITCOMMIT_REQUIRE_SUDO:-no}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set bash options
-if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
-
+# Reopen in a terminal
+#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initial debugging
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# pipes fail
+set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
@@ -36,18 +50,74 @@ elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
   . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
 else
   echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
-  exit 90
+  exit 1
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# user system devenv dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+# Options are: *_install
+# desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr
+#   pkmgr system systemmgr thememgr user wallpapermgr
 user_install && __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set functions
-__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
+# Send all output to /dev/null
+__devnull() {
+  tee &>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# Send errors to /dev/null
+__devnull2() {
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# See if the executable exists
+__cmd_exists() {
+  exitCode=0
+  [ -n "$1" ] && local exitCode="" || return 0
+  for cmd in "$@"; do
+    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
+  done
+  [ $exitCode -eq 0 ] || exitCode=3
+  return ${exitCode:-$?}
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for a valid internet connection
+__am_i_online() {
+  local exitCode=0
+  curl -q -LSsfI --max-time 1 --retry 0 "${1:-http://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# colorization
+if [ "$SHOW_RAW" = "true" ]; then
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional printf_ colors
+__printf_head() { printf_blue "$1"; }
+__printf_opts() { printf_purple "$1"; }
+__printf_line() { printf_cyan "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# output version
+__version() { printf_cyan "$VERSION"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# list options
+__list_options() {
+  printf_color "$1: " "$5"
+  echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g'
+  printf_newline
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create the config file
 __gen_config() {
-  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Generating the config file in"
-  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "$GITCOMMIT_CONFIG_DIR/$GITCOMMIT_CONFIG_FILE"
+  local NOTIFY_CLIENT_NAME="$APPNAME"
+  if [ "$INIT_CONFIG" != "TRUE" ]; then
+    printf_blue "Generating the config file in"
+    printf_cyan "$GITCOMMIT_CONFIG_DIR/$GITCOMMIT_CONFIG_FILE"
+  fi
   [ -d "$GITCOMMIT_CONFIG_DIR" ] || mkdir -p "$GITCOMMIT_CONFIG_DIR"
   [ -d "$GITCOMMIT_CONFIG_BACKUP_DIR" ] || mkdir -p "$GITCOMMIT_CONFIG_BACKUP_DIR"
   [ -f "$GITCOMMIT_CONFIG_DIR/$GITCOMMIT_CONFIG_FILE" ] &&
@@ -56,27 +126,34 @@ __gen_config() {
 # Settings for gitcommit
 GITCOMMIT_NO_CONFIRM="${GITCOMMIT_NO_CONFIRM:-true}"
 GITCOMMIT_PROJECT_DIR="${GIT_PROJECT_DIR:-$HOME/Projects}"
+GITCOMMIT_CHANGELOG_FILE_NAME="${GITCOMMIT_CHANGELOG_FILE_NAME:-CHANGELOG.md}"
 GITCOMMIT_VERSION_FILE="${GIT_VERSION_FILE:-version.txt}"
 GITCOMMIT_MAIN_CONFIG=${GITCOMMIT_MAIN_CONFIG:-gitmainconfig}
 GITCOMMIT_VERSION_FORMAT="${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}"
 GITCOMMIT_RELEASE_FORMAT="${GITCOMMIT_RELEASE_FORMAT:-%Y.%m.%d}"
 GITCOMMIT_RANDOM_API_URL="${GIT_API_URL:-https://api.casjay.vercel.app/api/v1/commit/txt/}"
-
-# Notification settings
-GITCOMMIT_GOOD_MESSAGE="${GITCOMMIT_GOOD_MESSAGE:-Everything Went OK}"
-GITCOMMIT_ERROR_MESSAGE="${GITCOMMIT_ERROR_MESSAGE:-Well something seems to have gone wrong}"
-GITCOMMIT_NOTIFY_ENABLED="${GITCOMMIT_NOTIFY_ENABLED:-yes}"
-GITCOMMIT_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
-GITCOMMIT_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$GITCOMMIT_NOTIFY_CLIENT_ICON}"
-
-# Colorization settings
-GITCOMMIT_OUTPUT_COLOR="${GITCOMMIT_OUTPUT_COLOR:-5}"
-GITCOMMIT_OUTPUT_COLOR_GOOD="${GITCOMMIT_OUTPUT_COLOR_GOOD:-2}"
-GITCOMMIT_OUTPUT_COLOR_ERROR="${GITCOMMIT_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+GITCOMMIT_OUTPUT_COLOR_1="${GITCOMMIT_OUTPUT_COLOR_1:-}"
+GITCOMMIT_OUTPUT_COLOR_2="${GITCOMMIT_OUTPUT_COLOR_2:-}"
+GITCOMMIT_OUTPUT_COLOR_GOOD="${GITCOMMIT_OUTPUT_COLOR_GOOD:-}"
+GITCOMMIT_OUTPUT_COLOR_ERROR="${GITCOMMIT_OUTPUT_COLOR_ERROR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+GITCOMMIT_NOTIFY_ENABLED="${GITCOMMIT_NOTIFY_ENABLED:-}"
+GITCOMMIT_GOOD_NAME="${GITCOMMIT_GOOD_NAME:-}"
+GITCOMMIT_ERROR_NAME="${GITCOMMIT_ERROR_NAME:-}"
+GITCOMMIT_GOOD_MESSAGE="${GITCOMMIT_GOOD_MESSAGE:-}"
+GITCOMMIT_ERROR_MESSAGE="${GITCOMMIT_ERROR_MESSAGE:-}"
+GITCOMMIT_NOTIFY_CLIENT_NAME="${GITCOMMIT_NOTIFY_CLIENT_NAME:-}"
+GITCOMMIT_NOTIFY_CLIENT_ICON="${GITCOMMIT_NOTIFY_CLIENT_ICON:-}"
+GITCOMMIT_NOTIFY_CLIENT_URGENCY="${GITCOMMIT_NOTIFY_CLIENT_URGENCY:-}"
 
 EOF
+  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
   if [ -f "$GITCOMMIT_CONFIG_DIR/$GITCOMMIT_CONFIG_FILE" ]; then
-    [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for $APPNAME has been created"
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
+    . "$GITCOMMIT_CONFIG_DIR/$GITCOMMIT_CONFIG_FILE"
     exitCode=0
   else
     printf_red "Failed to create the config file"
@@ -85,23 +162,170 @@ EOF
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Additional functions
-__emj_check() { sed 's/\xf0\x9f/\r&/g; s/\s*\r.//g'; }
+# Help function - Align to 50
+__help() {
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "gitcommit:  Commit changes to a git repo - $VERSION"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Usage: gitcommit [options] [directory] [commands]"
+  __printf_line "amend                           - Amend a previous commit"
+  __printf_line "status                          - Show git status"
+  __printf_line "log                             - Show the log"
+  __printf_line "init                            - Initialize a repo"
+  __printf_line "setup                           - Initialize a repo"
+  __printf_line "reset                           - Reset a git repo"
+  __printf_line "tag                             - Create a tag"
+  __printf_line "tar                             - Create a tar release"
+  __printf_line "branch                          - Create a new branch"
+  __printf_line "push                            - Push changes to remote repo"
+  __printf_line "version                         - Bump the version"
+  __printf_line "all                             - Commit all files"
+  __printf_line "files                           - Commit files based on status"
+  __printf_line "modified                        - Commit only modified files"
+  __printf_line "updated                         - Commit only updated files"
+  __printf_line "deleted                         - Commit only deleted files"
+  __printf_line "added                           - Commit only added files"
+  __printf_line "renamed                         - Commit only renamed files"
+  __printf_line "changed                         - Commit only changed files"
+  __printf_line "new                             - New files"
+  __printf_line "improved                        - Improved files"
+  __printf_line "fixes                           - File fixes"
+  __printf_line "release                         - New release"
+  __printf_line "deploy                          - Deploy"
+  __printf_line "docs                            - Docs"
+  __printf_line "test                            - Test "
+  __printf_line "breaking                        - Breaking changes were made"
+  __printf_line "refactor                        - Refactoring code"
+  __printf_line "performance                     - Performance improvement"
+  __printf_line "permissions                     - Permission fixes"
+  __printf_line "bugs                            - Bug fixes"
+  __printf_line "alot                            - Lazy message"
+  __printf_line "docker                          - Docker project"
+  __printf_line "node                            - NodeJS project"
+  __printf_line "ruby                            - Ruby project"
+  __printf_line "php                             - PHP project"
+  __printf_line "perl                            - Perl project"
+  __printf_line "python                          - Python project"
+  __printf_line "scratchpad                      - Scratchpad repo"
+  __printf_line "todo                            - TODO repo"
+  __printf_line "notes                           - Notes repo"
+  __printf_line "blog                            - Blog repo"
+  __printf_line "random                          - Generate a random commit message"
+  __printf_line "emojify                         - emojify a commit"
+  __printf_line "custom                          - Specify custom message"
+  __printf_line "--message                       - Specify custom message"
+  __printf_line "--amend                         - Amend a commit"
+  __printf_line "--force                         - Force changes and push [This will overwrite existing repo]"
+  __printf_line "--dir                           - Sets the working directory"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Other Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--help                          - Shows this message"
+  __printf_line "--config                        - Generate user config file"
+  __printf_line "--version                       - Show script version"
+  __printf_line "--options                       - Shows all available options"
+  __printf_line "--debug                         - Enables script debugging"
+  __printf_line "--raw                           - Removes all formatting on output"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() {
+  { [ $(id -u) -ne 0 ] || [ $EUID -ne 0 ] || [ "$WHOAMI" != "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep -s "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# # Get sudo password
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run sudo
+__sudorun() {
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo
+__can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User can run sudo
+__sudoif() {
+  __user_is_root && return 0
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run command as root
+requiresudo() {
+  if [ "$GITCOMMIT_REQUIRE_SUDO" = "yes" ] && [ -z "$GITCOMMIT_REQUIRE_SUDO_RUN" ]; then
+    export GITCOMMIT_REQUIRE_SUDO="no"
+    export GITCOMMIT_REQUIRE_SUDO_RUN="true"
+    __sudo "$@"
+    exit $?
+  else
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  CMD="${1:-echo}" && shift 1
+  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  [ "$(basename "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  if __sudoif; then
+    export PATH="$PATH"
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    exitCode=$?
+  else
+    printf '%s\n' "This requires root to run"
+    exitCode=1
+  fi
+  return ${exitCode:-1}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  exitCode=${exitCode:-$?}
+  [ -f "$GITCOMMIT_TEMP_FILE" ] && rm -Rf "$GITCOMMIT_TEMP_FILE" &>/dev/null
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined functions
+__emj_check() {
+  sed 's/\xf0\x9f/\r&/g; s/\s*\r.//g'
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_push() {
+  [ -f "$GITCOMMIT_CWD/.no_push" ] && printf_yellow "㊗️ Push is disabled for $GITCOMMIT_CWD ㊗️ " && exit 0
   __git_push "$@" &&
     export PUSH_ENABLE="" &&
     export GITCOMMIT_PUSH="TRUE"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __tag_release() {
-  local release="${1:-$(date +'%Y.%m')}"
-  local message="${2:-🚀🌟 Updated to version $release 🚀🌟}"
-  local eCode="1"
-  [[ -n "$release" ]] || printf_exit "Usage: $APPNAME release [version] [message]"
+  local release="" message="" eCode=""
+  release="${1:-$(date +'%Y.%m')}"
+  message="${2:-🚀🌟 Updated to version $release 🚀🌟}"
+  eCode="1"
+  [ -n "$release" ] || printf_exit "Usage: $APPNAME release [version] [message]"
   git -C "$GITCOMMIT_CWD" tag "$release" -a -m "$message" &&
     git -C "$GITCOMMIT_CWD" push origin "$release" && eCode=0
-  if [[ "$eCode" = 0 ]]; then
+  if [ "$eCode" = 0 ]; then
     printf_green "Successfully created new tag"
   else
     printf_red "Failed to create tag"
@@ -110,13 +334,14 @@ __tag_release() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __tar_release() {
-  local release="${1:-$(date +'%Y.%m.%d')}"
-  local backup_dir="$HOME/.local/backups/$APPNAME"
-  local eCode="1"
+  local release="" backup_dir="" eCode=""
+  release="${1:-$(date +'%Y.%m.%d')}"
+  backup_dir="$HOME/.local/backups/$APPNAME"
+  eCode="1"
   [ -d "$backup_dir" ] || mkdir -p "$backup_dir"
   printf_cyan "Creating backup from $GITCOMMIT_CWD to $backup_dir/$release.tar.gz "
   tar -cvf "$backup_dir/$release.tar.gz" "$GITCOMMIT_CWD" && eCode=0
-  if [[ "$eCode" = 0 ]]; then
+  if [ "$eCode" = 0 ]; then
     printf_green "Successfully created tar file"
   else
     printf_red "Failed to create archive"
@@ -124,22 +349,26 @@ __tar_release() {
   return $eCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__changelog_create() { # Not yet enabled
+__changelog_create() {
+  local gitmessage_file="" gitmessage_file_tmp=""
+  changelog_name="${GITCOMMIT_CHANGELOG_FILE_NAME:-CHANGELOG.md}"
+  [ -f "$changelog_name" ] || return 0
   CHANGELOG_DATE="$(date +'%Y-%m-%d at %H:%M:%S')"
-  local gitmessage_file="$GITCOMMIT_CWD/${GITCOMMIT_CHANGELOG:-CHANGELOG.md}"
-  local gitmessage_file_tmp="$GITCOMMIT_TEMP_DIR/${APPNAME}-${GITCOMMIT_CHANGELOG:-CHANGELOG}.tmp"
+  gitmessage_file="$GITCOMMIT_CWD/$changelog_name"
+  gitmessage_file_tmp="$GITCOMMIT_TEMP_DIR/${APPNAME}-${changelog_name}.tmp"
   printf '#### Changelog: %s  \n' "$CHANGELOG_DATE" >"$gitmessage_file_tmp"
-  [[ -n "${GITCOMMIT_MESSAGE_SHORT:-$GITCOMMIT_MESSAGE}" ]] &&
+  [ -n "${GITCOMMIT_MESSAGE_SHORT:-$GITCOMMIT_MESSAGE}" ] &&
     printf '#### %s  \n  \n' "${GITCOMMIT_MESSAGE_SHORT:-$GITCOMMIT_MESSAGE}" >>"$gitmessage_file_tmp" || printf '  \n' >>"$gitmessage_file_tmp"
   __changelog_update "${changed_files:-all}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__changelog_update() { # Not yet enabled
-  local changed_icon="${icon:-🚀}"
-  local changed_files="${changed_files:-$(__changed_files "$1")}"
-  local gitmessage_file="$GITCOMMIT_CWD/${GITCOMMIT_CHANGELOG:-CHANGELOG.md}"
-  local gitmessage_file_tmp="$GITCOMMIT_TEMP_DIR/${APPNAME}-${GITCOMMIT_CHANGELOG:-CHANGELOG}.tmp"
-  if [[ -f "$gitmessage_file_tmp" ]]; then
+__changelog_update() {
+  local changed_icon="" changed_files="" gitmessage_file="" gitmessage_file_tmp=""
+  changed_icon="${icon:-🚀}"
+  changed_files="${changed_files:-$(__changed_files "$1")}"
+  gitmessage_file="$GITCOMMIT_CWD/${GITCOMMIT_CHANGELOG_FILE_NAME:-CHANGELOG.md}"
+  gitmessage_file_tmp="$GITCOMMIT_TEMP_DIR/${APPNAME}-${GITCOMMIT_CHANGELOG_FILE_NAME:-CHANGELOG}.tmp"
+  if [ -f "$gitmessage_file_tmp" ]; then
     for changed in $changed_files; do
       printf '%s  \n' "$changed      ${changed_icon// /}" >>"$gitmessage_file_tmp"
     done
@@ -154,7 +383,8 @@ __changelog_update() { # Not yet enabled
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gitmessage() {
-  local message="$(echo -e "$*")"
+  local message=""
+  message="$(echo -e "$*")"
   commitmess="$(echo -e "$message")"
   commitfile="${gitmessage_file:-$GITCOMMIT_CWD/.git/COMMIT_MESS}"
   testmessage="${commitmess:-$mess}"
@@ -178,28 +408,33 @@ __gitmessage() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gitcommit_cmd() {
-  if [ -n "$GITCOMMIT_AMEND" ] || [ "$GITCOMMIT_AMEND" = "true" ]; then
-    git -C "$GITCOMMIT_CWD" commit --untracked=no -q -S --amend --no-edit 2>"$GITCOMMIT_TEMP_FILE" || return 1
+  local git_amend="$GITCOMMIT_AMEND"
+  local changelog_file="$GITCOMMIT_CWD/${GITCOMMIT_CHANGELOG_FILE_NAME:-CHANGELOG.md}"
+  if [ -f "$changelog_file" ] && [ "$git_amend" = "true" ]; then
+    git -C "$GITCOMMIT_CWD" commit --untracked=no -q -S --amend --no-edit &>"$GITCOMMIT_TEMP_FILE" || return 1
+  elif [ -f "$commitfile" ]; then
+    git -C "$GITCOMMIT_CWD" commit -q -S -m "$(<"$commitfile")" &>"$GITCOMMIT_TEMP_FILE" || return 1
   else
-    git -C "$GITCOMMIT_CWD" commit --untracked=no -q -S -m "$(<"$commitfile")" 2>"$GITCOMMIT_TEMP_FILE" || return 1
+    git -C "$GITCOMMIT_CWD" commit -q -S -m "${1:-$mess}" &>"$GITCOMMIT_TEMP_FILE"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gitcommit() {
+  local mess="" succ="" fail="" column_length="" removemess="" add_changelog_to_commit=""
   __git_porcelain "$GITCOMMIT_CWD" &>/dev/null && return
-  local mess="${commitmess:-}"
-  local succ="Successfully committed the changes to"
-  local fail="Failed to commit the changes to"
-  local column_length=$(($(tput cols) - 20))
-  local removemess="${commitmess:10:30}"
-  local add_changelog_to_commit=""
+  mess="${commitmess:-}"
+  succ="Successfully committed the changes to"
+  fail="Failed to commit the changes to"
+  column_length=$(($(tput cols) - 20))
+  removemess="${commitmess:10:30}"
+  add_changelog_to_commit=""
   [ -n "$message_set" ] || __gitmessage "$mess"
   [ -n "$nomessage" ] || show_message="$(grep -svE "$removemess" "$commitfile" | grep -v '^$' | tr '\n' ' ' | grep '^')"
   [ -n "$message_set" ] && [ -s "$commitfile" ] || printf_return "The commit message is empty"
   printf_cyan "🧾 Committing Changes with the following message: 🧾"
   printf_yellow "${commitmess:-$mess}"
   [ -n "$show_message" ] && printf_blue "${show_message:0:$column_length}"
-  if __gitcommit_cmd; then
+  if __gitcommit_cmd "$mess"; then
     if [ "$NO_MESSAGE" != "true" ]; then
       if __getexitcode "${GITCOMMIT_EXITCODE:-$?}" "🔗 $succ $(__git_repobase "$GITCOMMIT_CWD") 🔗" "🚫 $fail $(__git_repobase "$GITCOMMIT_CWD") 🚫"; then
         printf_green "🆔 commit ID: $(__git_commitid "$GITCOMMIT_CWD") 🆔"
@@ -211,26 +446,27 @@ __gitcommit() {
     printf_exit "Failed to commit the changes"
   fi
   add_changelog_to_commit="$(__changed_files changelog | grep '^' || echo '')"
-  [ -n "$add_changelog_to_commit" ] &&
+  if [ -n "$add_changelog_to_commit" ]; then
     git -C "$GITCOMMIT_CWD" add "CHANGELOG.md" &>/dev/null &&
-    git -C "$GITCOMMIT_CWD" commit --amend --no-edit &>/dev/null
-  [ -f "$commitfile" ] && rm -Rf $commitfile
+      git -C "$GITCOMMIT_CWD" commit --amend --no-edit &>/dev/null
+  fi
+  [ -f "$commitfile" ] && rm -Rf "$commitfile"
   export GITCOMMIT_RAN="true"
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_init() {
-  is_url "$1" && REPO="$1" && shift 1
   local exitCode=""
-  export fullcommit_message="$(echo -e "New repo created on $(date +'%Y-%m-%d at %H:%M')\n\n$*\n")"
+  is_url "$1" && REPO="$1" && shift 1
+  fullcommit_message="$(echo -e "New repo created on $(date +'%Y-%m-%d at %H:%M')\n\n$*\n")"
   action="${set_action:-📂 $fullcommit_message}"
   icon="${set_icon:- 📂}"
   initm="$action$icon"
-  export GITCOMMIT_MESSAGE="$initm"
-  __gitmessage
+  GITCOMMIT_MESSAGE="$initm"
+  export PUSH_ENABLE GITCOMMIT_MESSAGE fullcommit_message __gitmessage
   __gitignore_init "$GITCOMMIT_CWD" &>/dev/null
   gitadmin "$GITCOMMIT_CWD" setup "${REPO:-}" && exitCode=0 || exitCode=1
-  export PUSH_ENABLE=true
+  PUSH_ENABLE="true"
   exit ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -295,7 +531,7 @@ __default_git_action() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_updated() {
-  export NO_ERROR=true
+  export NO_ERROR="true"
   __git_add "$(echo -e "$*")"
   __git_mod "$(echo -e "$*")"
   export PUSH_ENABLE=true
@@ -303,29 +539,30 @@ __git_updated() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_mod() {
-  export fullcommit_message="$(echo -e "${fullcommit_message:-$*}")"
+  fullcommit_message="$(echo -e "${fullcommit_message:-$*}")"
   action="${set_action:-🗃 Modified:}"
   icon="${set_icon:-🗃}"
   modified="$(__changed_files modified)"
   [ -n "$modified" ] || { [ "$NO_ERROR" != "true" ] &&
     printf_return "🙁 No files have been modified in $GITCOMMIT_CWD 🙁" || return 1; }
+  export PUSH_ENABLE=true fullcommit_message
   for f in $modified; do
     setmess="$(echo "${action:-} $f ${icon:-}" | sed "s|$f.*.$f|$f|g")"
     __gitmessage "$setmess"
     git -C "$GITCOMMIT_CWD" add "$f" &>/dev/null
     __gitcommit || exitCode+="1"
   done
-  export PUSH_ENABLE=true
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_add() {
-  export fullcommit_message="$(echo -e "${fullcommit_message:-$*}")"
+  fullcommit_message="$(echo -e "${fullcommit_message:-$*}")"
   action="${set_action:-❓ Added:}"
   icon="${set_icon:-❓}"
   added="$(__changed_files added)"
   [ -n "$added" ] || { [ "$NO_ERROR" != "true" ] &&
     printf_return "🙁 No files have been added in $GITCOMMIT_CWD 🙁" || return 1; }
+  export PUSH_ENABLE=true fullcommit_message
   for f in $added; do
     setmess="$(echo -e "${action:-} $f ${icon:-}" | sed "s|$f.*.$f|$f|g")"
     __gitmessage "$setmess"
@@ -333,32 +570,32 @@ __git_add() {
     __gitcommit || exitCode+="1"
   done
   #  exit
-  export PUSH_ENABLE=true
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_del() {
-  export fullcommit_message="$(echo -e "${fullcommit_message:-$*}")"
+  fullcommit_message="$(echo -e "${fullcommit_message:-$*}")"
   action="${set_action:-➖ Deleted:}"
   icon="${set_icon:-➖}"
   deleted="$(__changed_files deleted)"
   [ -n "$deleted" ] || { [ "$NO_ERROR" != "true" ] &&
     printf_return "🙁 No files have been deleted in $GITCOMMIT_CWD 🙁" || return 1; }
+  export PUSH_ENABLE=true fullcommit_message
   for f in $deleted; do
     setmess="$(echo -e "${action:-} ${f:0:75} ${icon:-}")"
     __gitmessage "$setmess"
     git -C "$GITCOMMIT_CWD" rm -rf "$f" --ignore-unmatch --cached &>/dev/null
     __gitcommit || exitCode+="1"
   done
-  export PUSH_ENABLE=true
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_renamed() {
-  export fullcommit_message="$(echo -e "${fullcommit_message:-$*}")"
+  fullcommit_message="$(echo -e "${fullcommit_message:-$*}")"
+  export fullcommit_message
   action="${set_action:-✔️ Renamed: ${1} ➡ ${2}:}"
   icon="${set_icon:-✔️}"
-  [[ -d "$1" ]] && mkdir -p "$(dirname "$2")"
+  [ -d "$1" ] && mkdir -p "$(dirname "$2")"
   [ -e "$1" ] && mv -f "$1" "$2" &>/dev/null
   setmess="$(echo -e "${action:-} ${icon:-}")"
   __gitmessage "$setmess"
@@ -369,7 +606,8 @@ __git_renamed() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __files() {
-  export fullcommit_message="$(echo -e "${fullcommit_message:-$*}")"
+  fullcommit_message="$(echo -e "${fullcommit_message:-$*}")"
+  export
   action="${set_action:-➖}"
   icon="${set_icon:-➖}"
   setmess="${action:-} ${icon:-}"
@@ -403,8 +641,9 @@ __test_gitignore() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_dir() {
-  local git_dir="${1:-$GITCOMMIT_CWD}"
-  local makerepo=""
+  local git_dir="" makerepo=""
+  git_dir="${1:-$GITCOMMIT_CWD}"
+  makerepo=""
   if [ "$(git -C "$git_dir" rev-parse --is-inside-work-tree 2>/dev/null)" == "" ]; then
     printf_error "You are not in a git repo"
     printf_read_question "4" "Would you like to turn $git_dir into a git repo? y/N" "1" "makerepo"
@@ -423,12 +662,34 @@ __git_commitid() {
   echo -n "$(git -C "${1:-$GITCOMMIT_CWD}" rev-parse --short HEAD)"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__git_check_cherry() { git -C "$GITCOMMIT_CWD" cherry -v 2>&1 | wc -l | grep -q '^' && return 0 || return 1; }
-__git_check_ahead() { git -C "$GITCOMMIT_CWD" log --oneline origin..HEAD 2>&1 | wc -l | grep -q '0' && return 1 || return 0; }
-__git_check_branch() { git -C "$GITCOMMIT_CWD" branch -avvv 2>&1 | grep -q ': ahead ' && return 0 || return 1; }
+__git_check_cherry() {
+  git -C "$GITCOMMIT_CWD" cherry -v 2>&1 | wc -l | grep -q '0' && return 1 || return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__git_check_ahead() {
+  git -C "$GITCOMMIT_CWD" log --oneline origin..HEAD 2>&1 | wc -l | grep -q '0' && return 1 || return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__git_check_branch() {
+  git -C "$GITCOMMIT_CWD" branch -avvv 2>&1 | grep -q ': ahead ' && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__git_check_push() {
+  local exitCode=""
+  if [ "$(git -C "$GITCOMMIT_CWD" diff --stat origin/main 2>/dev/null | wc -l)" -ne 0 ]; then
+    exitCode=0
+  elif __git_check_ahead; then
+    exitCode=0
+  else
+    exitCode=1
+  fi
+  return $exitCode
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_push_check() {
-  if __git_check_cherry; then
+  if __git_check_push; then
+    return 0
+  elif __git_check_cherry; then
     return 0
   elif __git_check_ahead; then
     return 0
@@ -448,17 +709,18 @@ __git_push_check() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_push() {
-  local GITCOMMIT_EXITCODE=0
-  local git_dir="${1:-$GITCOMMIT_CWD}"
-  local git_repo="$(__git_remote_fetch "$GITCOMMIT_CWD")"
-  local git_remote="$(git -C "$GITCOMMIT_CWD" remote show | grep '^' || false)"
-  local git_failed="Failed to push the changes to $git_repo"
-  local git_succes="Successfully pushed the changes for commit ID:"
-  local git_push=""
-  local git_repo_clean="$(echo "$git_repo" | sed 's|://*.*:|://|g')"
+  local GITCOMMIT_EXITCODE=0 git_dir="" git_repo="" git_remote=""
+  local git_failed="" git_succes="" git_push="" git_repo_clean=""
+  git_dir="${1:-$GITCOMMIT_CWD}"
+  git_repo="$(__git_remote_fetch "$GITCOMMIT_CWD")"
+  git_remote="$(git -C "$GITCOMMIT_CWD" remote show | grep '^' || false)"
+  git_failed="Failed to push the changes to $git_repo"
+  git_succes="Successfully pushed the changes for commit ID:"
+  git_push=""
+  git_repo_clean="$(echo "$git_repo" | sed 's|://*.*:|://|g')"
   if __git_push_check; then
-    [[ -n "$git_remote" ]] || return 0
-    [[ -f "$git_dir/.nopush" ]] && return
+    [ -n "$git_remote" ] || return 0
+    [ -f "$git_dir/.nopush" ] && return
     am_i_online --error -m "🚫 No internet connection. Skipping push 🚫" || exit 1
     if [ "$git_repo" != "localdir" ]; then
       if [ -n "$FORCE_PUSH" ]; then
@@ -481,26 +743,30 @@ __git_push() {
           __getexitcode $GITCOMMIT_EXITCODE "㊗️ $git_succes $(__git_commitid "$git_dir") ㊗️" "😿 $git_failed 😿"
         fi
       fi
+    else
+      printf_red "⚠️ Doesn't seem to have a remote setup ⚠️"
+      GITCOMMIT_EXITCODE=0
     fi
   else
-    printf_exit "🛠 No changes to push in $GITCOMMIT_CWD 🛠"
+    printf_red "🛠 No changes to push in $GITCOMMIT_CWD 🛠"
+    GITCOMMIT_EXITCODE=1
   fi
   return $GITCOMMIT_EXITCODE
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __commit_custom_cmd() {
-  if [[ "$1" = "" ]]; then
+  if [ "$1" = "" ]; then
     git -C "$GITCOMMIT_CWD" add "${1:-GITCOMMIT_CWD/$GITCOMMIT_VERSION_FILE}" &&
       git -C "$GITCOMMIT_CWD" commit -q -S -m "$GITCOMMIT_MESSAGE" "${1:-$GITCOMMIT_CWD/$GITCOMMIT_VERSION_FILE}" &>/dev/null || return 1
     exitCode=$?
   elif [ -n "$GITCOMMIT_MESSAGE_LONG" ]; then
     GITCOMMIT_MESSAGE="$(printf '%s \n\n\n%s' "$GITCOMMIT_MESSAGE_SHORT" "$GITCOMMIT_MESSAGE_LONG")"
     printf_cyan "$GITCOMMIT_MESSAGE_SHORT"
-    git -C "$GITCOMMIT_CWD" add . &>/dev/null &&
+    git -C "$GITCOMMIT_CWD" add "${*:-.}" &>/dev/null &&
       git -C "$GITCOMMIT_CWD" commit -q -S -m "$GITCOMMIT_MESSAGE" &>/dev/null || return 1
     exitCode=$?
   else
-    git -C "$GITCOMMIT_CWD" add "${*}" &&
+    git -C "$GITCOMMIT_CWD" add "${*:-.}" &>/dev/null &&
       git -C "$GITCOMMIT_CWD" commit -q -S -m "$GITCOMMIT_MESSAGE" "${*}" &>/dev/null || return 1
     exitCode=$?
   fi
@@ -508,21 +774,32 @@ __commit_custom_cmd() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __commit_custom() {
+  local git_repo="" git_failed="" git_succes="" git_repo_clean=""
   export PUSH_ENABLE="true"
   GITCOMMIT_MESSAGE_SHORT="$GITCOMMIT_MESSAGE"
   [ "$FORCE_PUSH" ] && ARGS="-f"
-  __git_push_check || printf_exit "😿 No changes to commit 😿"
-  __write_version
-  __gitmessage "$GITCOMMIT_MESSAGE_SHORT"
-  __commit_custom_cmd "$@"
-  if [[ "$exitCode" = 0 ]] || __git_push_check; then
-    local git_repo="$(__git_remote_fetch "$GITCOMMIT_CWD")"
-    local git_failed="Failed to push the changes to $git_repo"
-    local git_succes="Successfully pushed the changes for commit ID:"
-    local git_repo_clean="$(echo "$git_repo" | sed 's|://*.*:|://|g')"
-    printf_green "📍 Pushing the changes to $git_repo_clean 📍"
-    git -C "$GITCOMMIT_CWD" push $ARGS -q &>/dev/null && GITCOMMIT_EXITCODE=0 || GITCOMMIT_EXITCODE=1
-    __getexitcode $GITCOMMIT_EXITCODE "㊗️ $git_succes $(__git_commitid "$GITCOMMIT_CWD") ㊗️" "😿 $git_failed 😿"
+  if __git_check_cherry; then
+    printf_yellow "😿 No changes to commit 😿"
+    exitCode=0
+  else
+    __write_version
+    __gitmessage "$GITCOMMIT_MESSAGE_SHORT"
+    __commit_custom_cmd "$@"
+    if [ -f "$GITCOMMIT_CWD/$GITCOMMIT_CHANGELOG_FILE_NAME" ]; then
+      GITCOMMIT_AMEND="true" __gitcommit_cmd
+    fi
+    exitCode=$?
+  fi
+  if [ "$exitCode" = 0 ]; then
+    if [ ! -f "$GITCOMMIT_CWD/.no_push" ] && __git_check_push; then
+      git_repo="$(__git_remote_fetch "$GITCOMMIT_CWD")"
+      git_failed="Failed to push the changes to $git_repo"
+      git_succes="Successfully pushed the changes for commit ID:"
+      git_repo_clean="$(echo "$git_repo" | sed 's|://*.*:|://|g')"
+      printf_green "📍 Pushing the changes to $git_repo_clean 📍"
+      git -C "$GITCOMMIT_CWD" push $ARGS -q &>/dev/null && GITCOMMIT_EXITCODE=0 || GITCOMMIT_EXITCODE=1
+      __getexitcode $GITCOMMIT_EXITCODE "㊗️ $git_succes $(__git_commitid "$GITCOMMIT_CWD") ㊗️" "😿 $git_failed 😿"
+    fi
   else
     printf_exit "😿 Failed to commit the changes 😿"
   fi
@@ -532,29 +809,31 @@ __commit_custom() {
 __write_version() {
   [ "$1" = "--force" ] && shift 1 || [ -f "$GITCOMMIT_CWD/$GITCOMMIT_VERSION_FILE" ] || return 1
   date +"$GITCOMMIT_VERSION_FORMAT" >"$GITCOMMIT_CWD/$GITCOMMIT_VERSION_FILE"
-  [[ -n "$GITCOMMIT_MESSAGE" ]] || GITCOMMIT_MESSAGE="🚀 Version Bump: $(cat "$GITCOMMIT_CWD/$GITCOMMIT_VERSION_FILE") 🚀 "
-  [[ -n "$GITCOMMIT_MESSAGE" ]] || printf_blue "$GITCOMMIT_MESSAGE"
+  [ -n "$GITCOMMIT_MESSAGE" ] || GITCOMMIT_MESSAGE="🚀 Version Bump: $(cat "$GITCOMMIT_CWD/$GITCOMMIT_VERSION_FILE") 🚀 "
+  [ -n "$GITCOMMIT_MESSAGE" ] || printf_blue "$GITCOMMIT_MESSAGE"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __set_version() {
+  local GITCOMMIT_EXITCODE="" git_dir="" git_succes="" git_failed=""
   if [ "$1" = "--force" ] || [ -f "$GITCOMMIT_CWD/$GITCOMMIT_VERSION_FILE" ]; then
-    local GITCOMMIT_EXITCODE=0
-    local git_dir="$GITCOMMIT_CWD"
-    local git_sucess="Successfully committed the new version to"
-    local git_failed="Failed to commit the version change in"
+    GITCOMMIT_EXITCODE=0
+    git_dir="$GITCOMMIT_CWD"
+    git_succes="Successfully committed the new version to"
+    git_failed="Failed to commit the version change in"
     __write_version "$1" || printf_exit "Version files doesn't exist"
     git -C "$GITCOMMIT_CWD" add "$GITCOMMIT_VERSION_FILE" &>/dev/null &&
       git -C "$GITCOMMIT_CWD" commit -m "$GITCOMMIT_MESSAGE" &>/dev/null &&
       GITCOMMIT_EXITCODE=0 || GITCOMMIT_EXITCODE=1
-    __getexitcode $GITCOMMIT_EXITCODE "🔗 $git_sucess $(__git_repobase "$git_dir")🔗 " "🚫 $git_failed ${git_dir//$PWD/.} 🚫"
+    __getexitcode $GITCOMMIT_EXITCODE "🔗 $git_succes $(__git_repobase "$git_dir")🔗 " "🚫 $git_failed ${git_dir//$PWD/.} 🚫"
   fi
   export NO_MESSAGE=true PUSH_ENABLE=true
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __rename_branch() {
-  local branch="$1" && shift 1
-  local USER="${2:-$(basename "$(dirname "$GITCOMMIT_CWD")")}"
-  local REPO="${3:-$(basename "$GITCOMMIT_CWD")}"
+  local branch="" USER="" REPO=""
+  branch="$1" && shift 1
+  USER="${2:-$(basename "$(dirname "$GITCOMMIT_CWD")")}"
+  REPO="${3:-$(basename "$GITCOMMIT_CWD")}"
   printf_blue "Changing git branch to $branch on $REPO"
   git -C "$GITCOMMIT_CWD" branch -m master "$branch" &>/dev/null
   git -C "$GITCOMMIT_CWD" push -u origin "$branch" -fq &>/dev/null
@@ -571,10 +850,11 @@ __rename_branch() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __curl_branch() {
-  local branch="$1"
-  local USER="${2:-$(basename "$(dirname "$GITCOMMIT_CWD")")}"
-  local REPO="${3:-$(basename "$GITCOMMIT_CWD")}"
-  local GITCOMMIT_EXITCODE=0
+  local branch="" USER="" REPO="" GITCOMMIT_EXITCODE=""
+  branch="$1"
+  USER="${2:-$(basename "$(dirname "$GITCOMMIT_CWD")")}"
+  REPO="${3:-$(basename "$GITCOMMIT_CWD")}"
+  GITCOMMIT_EXITCODE=0
   printf_exit "$USER"/"$REPO"
   curl -q -LSs -X PATCH -H "Accept: application/vnd.github.v3+json" \
     -H "Authorization: token $GITCOMMIT_GITHUB_TOKEN" "https://api.github.com/repos/$USER/$REPO" \
@@ -582,30 +862,32 @@ __curl_branch() {
   return $GITCOMMIT_EXITCODE
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Default variables
-exitCode="0"
+# User defined variables/import external variables
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application Folders
-GITCOMMIT_LOG_DIR="${GITCOMMIT_LOG_DIR:-$HOME/.local/log/gitcommit}"
-GITCOMMIT_CACHE_DIR="${GITCOMMIT_CACHE_DIR:-$HOME/.cache/gitcommit}"
+GITCOMMIT_CONFIG_FILE="${GITCOMMIT_CONFIG_FILE:-settings.conf}"
 GITCOMMIT_CONFIG_DIR="${GITCOMMIT_CONFIG_DIR:-$HOME/.config/myscripts/gitcommit}"
 GITCOMMIT_CONFIG_BACKUP_DIR="${GITCOMMIT_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/gitcommit/backups}"
+GITCOMMIT_LOG_DIR="${GITCOMMIT_LOG_DIR:-$HOME/.local/log/gitcommit}"
 GITCOMMIT_TEMP_DIR="${GITCOMMIT_TEMP_DIR:-$HOME/.local/tmp/system_scripts/gitcommit}"
-GITCOMMIT_OPTIONS_DIR="${GITCOMMIT_OPTIONS_DIR:-$HOME/.local/share/myscripts/gitcommit/options}"
-GITCOMMIT_CONFIG_FILE="${GITCOMMIT_CONFIG_FILE:-settings.conf}"
+GITCOMMIT_CACHE_DIR="${GITCOMMIT_CACHE_DIR:-$HOME/.cache/gitcommit}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
-GITCOMMIT_OUTPUT_COLOR="${GITCOMMIT_OUTPUT_COLOR:-4}"
-GITCOMMIT_OUTPUT_COLOR_2="${GITCOMMIT_OUTPUT_COLOR:-6}"
+GITCOMMIT_OUTPUT_COLOR_1="${GITCOMMIT_OUTPUT_COLOR_1:-4}"
+GITCOMMIT_OUTPUT_COLOR_2="${GITCOMMIT_OUTPUT_COLOR_2:-5}"
 GITCOMMIT_OUTPUT_COLOR_GOOD="${GITCOMMIT_OUTPUT_COLOR_GOOD:-2}"
 GITCOMMIT_OUTPUT_COLOR_ERROR="${GITCOMMIT_OUTPUT_COLOR_ERROR:-1}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Notification Settings
-GITCOMMIT_GOOD_MESSAGE="${GITCOMMIT_GOOD_MESSAGE:-Everything Went OK}"
-GITCOMMIT_ERROR_MESSAGE="${GITCOMMIT_ERROR_MESSAGE:-Well something seems to have gone wrong}"
 GITCOMMIT_NOTIFY_ENABLED="${GITCOMMIT_NOTIFY_ENABLED:-yes}"
-GITCOMMIT_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
-GITCOMMIT_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$GITCOMMIT_NOTIFY_CLIENT_ICON}"
+GITCOMMIT_GOOD_NAME="${GITCOMMIT_GOOD_NAME:-Great:}"
+GITCOMMIT_ERROR_NAME="${GITCOMMIT_ERROR_NAME:-Error:}"
+GITCOMMIT_GOOD_MESSAGE="${GITCOMMIT_GOOD_MESSAGE:-No errors reported}"
+GITCOMMIT_ERROR_MESSAGE="${GITCOMMIT_ERROR_MESSAGE:-Errors were reported}"
+GITCOMMIT_NOTIFY_CLIENT_NAME="${GITCOMMIT_NOTIFY_CLIENT_NAME:-$APPNAME}"
+GITCOMMIT_NOTIFY_CLIENT_ICON="${GITCOMMIT_NOTIFY_CLIENT_ICON:-notification-new}"
+GITCOMMIT_NOTIFY_CLIENT_URGENCY="${GITCOMMIT_NOTIFY_CLIENT_URGENCY:-normal}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional Variables
 GITCOMMIT_NO_CONFIRM="${GITCOMMIT_NO_CONFIRM:-true}"
@@ -616,58 +898,111 @@ GITCOMMIT_VERSION_FORMAT="${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}"
 GITCOMMIT_RELEASE_FORMAT="${GITCOMMIT_RELEASE_FORMAT:-%Y.%m.%d}"
 GITCOMMIT_RANDOM_API_URL="${GIT_API_URL:-https://api.casjay.vercel.app/api/v1/commit/txt/}"
 GITCOMMIT_GITHUB_TOKEN="${GITCOMMIT_GITHUB_TOKEN:-$GITHUB_ACCESS_TOKEN}"
+GITCOMMIT_SILENT="${GITCOMMIT_SILENT:-true}"
+GITCOMMIT_CHANGELOG_FILE_NAME="${GITCOMMIT_CHANGELOG_FILE_NAME:-CHANGELOG.md}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Generate non-existing config files
-[ -f "$GITCOMMIT_CONFIG_DIR/$GITCOMMIT_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# Generate config files
+[ -f "$GITCOMMIT_CONFIG_DIR/$GITCOMMIT_CONFIG_FILE" ] ||
+  [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import config
-[ -f "$GITCOMMIT_CONFIG_DIR/$GITCOMMIT_CONFIG_FILE" ] && . "$GITCOMMIT_CONFIG_DIR/$GITCOMMIT_CONFIG_FILE"
+[ -f "$GITCOMMIT_CONFIG_DIR/$GITCOMMIT_CONFIG_FILE" ] &&
+  . "$GITCOMMIT_CONFIG_DIR/$GITCOMMIT_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Ensure Directories and files exist
-[ -d "$GITCOMMIT_LOG_DIR" ] || mkdir -p "$GITCOMMIT_LOG_DIR" &>/dev/null
-[ -d "$GITCOMMIT_TEMP_DIR" ] || mkdir -p "$GITCOMMIT_TEMP_DIR" &>/dev/null
-[ -d "$GITCOMMIT_CACHE_DIR" ] || mkdir -p "$GITCOMMIT_CACHE_DIR" &>/dev/null
+# Ensure Directories exist
+[ -d "$GITCOMMIT_LOG_DIR" ] ||
+  mkdir -p "$GITCOMMIT_LOG_DIR" |& __devnull
+[ -d "$GITCOMMIT_TEMP_DIR" ] ||
+  mkdir -p "$GITCOMMIT_TEMP_DIR" |& __devnull
+[ -d "$GITCOMMIT_CACHE_DIR" ] ||
+  mkdir -p "$GITCOMMIT_CACHE_DIR" |& __devnull
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 GITCOMMIT_TEMP_FILE="${GITCOMMIT_TEMP_FILE:-$(mktemp $GITCOMMIT_TEMP_DIR/XXXXXX 2>/dev/null)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup trap to remove temp file
-trap 'exitCode=${exitCode:-$?};[ -n "$GITCOMMIT_TEMP_FILE" ] && [ -f "$GITCOMMIT_TEMP_FILE" ] && rm -Rf "$GITCOMMIT_TEMP_FILE" &>/dev/null' EXIT
+trap '__trap_exit' EXIT
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup notification function
-if [ "$GITCOMMIT_NOTIFY_ENABLED" = "yes" ]; then
-  __notifications() {
-    export NOTIFY_GOOD_MESSAGE="${GITCOMMIT_GOOD_MESSAGE}"
-    export NOTIFY_ERROR_MESSAGE="${GITCOMMIT_ERROR_MESSAGE}"
-    export NOTIFY_CLIENT_NAME="${GITCOMMIT_NOTIFY_CLIENT_NAME}"
-    export NOTIFY_CLIENT_ICON="${GITCOMMIT_NOTIFY_CLIENT_ICON}"
-    notifications "$@" || return 1
-  }
-else
-  __notifications() { false; }
-fi
+__notifications() {
+  __cmd_exists notifications || return
+  [ "$GITCOMMIT_NOTIFY_ENABLED" = "yes" ] || return
+  [ "$SEND_NOTIFICATION" = "no" ] && return
+  (
+    set +x
+    export SCRIPT_OPTS="" _DEBUG=""
+    export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$GITCOMMIT_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$GITCOMMIT_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$GITCOMMIT_NOTIFY_CLIENT_ICON}"
+    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$GITCOMMIT_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$GITCOMMIT_NOTIFY_CLIENT_URGENCY}"
+    notifications "$@"
+    retval=$?
+    return $retval
+  ) |& __devnull &
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Show warn message if variables are missing
+# Set custom actions
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set additional variables/Argument/Option settings
-SETARGS="$*"
-SHORTOPTS="m:"
-LONGOPTS="options,config,version,help,dir:,mess:,message:,amend,force"
+# Argument/Option settings
+SETARGS=("$@")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SHORTOPTS=""
+SHORTOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
+LONGOPTS+=",mess:,message:,amend,force"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="all amend status log reset branch push init "
 ARRAY+="version files modified updated deleted added renamed changed new "
 ARRAY+="improved fixed release deploy docs test breaking refactor performance permissions "
 ARRAY+="bugs docker node ruby php perl python scratchpad todo notes blog "
-ARRAY+="emojify random notes blog emojify random custom tag tar"
+ARRAY+="emojify random notes blog emojify random custom tag tar "
+ARRAY+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
+LIST=""
+LIST+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$APPNAME" -- "$@" 2>/dev/null)
 eval set -- "${setopts[@]}" 2>/dev/null
 while :; do
-  case $1 in
+  case "$1" in
+  --raw)
+    shift 1
+    export SHOW_RAW="true"
+    printf_column() { tee | grep '^'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    ;;
+  --debug)
+    shift 1
+    set -xo pipefail
+    export SCRIPT_OPTS="--debug"
+    export _DEBUG="on"
+    __devnull() { tee || return 1; }
+    __devnull2() { eval "$@" |& tee || return 1; }
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
+    ;;
   --options)
     shift 1
-    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
-    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
-    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
-    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' 4
+    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' 4
+    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
     exit $?
     ;;
   --version)
@@ -685,8 +1020,14 @@ while :; do
     __gen_config
     exit $?
     ;;
+  --silent)
+    shift 1
+    GITCOMMIT_SILENT="true"
+    ;;
   --dir)
+    CWD_IS_SET="TRUE"
     GITCOMMIT_CWD="$2"
+    [ -d "$GITCOMMIT_CWD" ] || mkdir -p "$GITCOMMIT_CWD" |& __devnull
     shift 2
     ;;
   -m | --mess | --message)
@@ -708,26 +1049,42 @@ while :; do
     ;;
   esac
 done
-#set -- "$SETARGS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Actions based on env
+# Get directory from args
+# set -- "$@"
+# for arg in "$@"; do
+# if [ -d "$arg" ]; then
+# GITCOMMIT_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
+# elif [ -f "$arg" ]; then
+# GITCOMMIT_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
+# else
+# SET_NEW_ARGS+=("$arg")
+# fi
+# done
+# set -- "${SET_NEW_ARGS[@]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set directory to first argument
+[ -d "$1" ] && GITCOMMIT_CWD="$1" && shift 1 || GITCOMMIT_CWD="${GITCOMMIT_CWD:-$PWD}"
+GITCOMMIT_CWD="$(realpath "${GITCOMMIT_CWD:-$PWD}" 2>/dev/null)"
+if [ -d "$GITCOMMIT_CWD" ] && cd "$GITCOMMIT_CWD"; then
+  if [ "$GITCOMMIT_SILENT" != "true" ]; then
+    [ "$GITCOMMIT_SILENT" = "true" ] || printf_cyan "Setting working dir to $GITCOMMIT_CWD"
+  fi
+else
+  printf_exit "💔 $GITCOMMIT_CWD does not exist 💔"
+fi
+export GITCOMMIT_CWD
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set actions based on variables
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
-cmd_exists --error --ask bash git || exit 1 # exit 1 if not found
-#am_i_online --error || exit 1     # exit 1 if no internet
+#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+#cmd_exists --error --ask bash || exit 3 # exit 3 if not found
+#am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
-if [ -d "$1" ]; then
-  GITCOMMIT_CWD="$1"
-  [ -d "$GITCOMMIT_CWD" ] || printf_exit "$GITCOMMIT_CWD doesn't seem to be a directory"
-  shift 1
-else
-  GITCOMMIT_CWD="${GITCOMMIT_CWD:-$PWD}"
-fi
-if [ "$GITCOMMIT_CWD" = "." ]; then
-  GITCOMMIT_CWD="$(__basedir ".")"
-fi
+GITCOMMIT_RAN=""
 WORK_DIR="$(__git_top_dir "$GITCOMMIT_CWD" 2>/dev/null)"
 GITCOMMIT_CWD="${WORK_DIR:-$GITCOMMIT_CWD}"
 REMOTE_REPO="$(__git_remote_fetch "$GITCOMMIT_CWD")"
@@ -735,17 +1092,17 @@ BASE_DIR="$(basename $GITCOMMIT_CWD)"
 GIT_USERNAME="$(basename "$(dirname "$GITCOMMIT_CWD")")"
 GIT_VERSION="$GITCOMMIT_VERSION_FORMAT"
 GIT_PROJECT_DIR="$GITCOMMIT_PROJECT_DIR"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+[ -f "$GITCOMMIT_VERSION_FILE" ] && GITCOMMIT_VERSION_CURRENT="$(<"$GITCOMMIT_VERSION_FILE")"
 [ -n "$REMOTE_REPO" ] || REMOTE_REPO="localdir"
 __git_dir "$GITCOMMIT_CWD"
-GITCOMMIT_RAN=""
 __gitignore_init "$GITCOMMIT_CWD"
 __test_gitignore "$GITCOMMIT_CWD"
-[[ -f "$GITCOMMIT_VERSION_FILE" ]] && GITCOMMIT_VERSION_CURRENT="$(<"$GITCOMMIT_VERSION_FILE")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
-
 case "$1" in
-amend) GITCOMMIT_AMEND="true" ;;
+amend) GITCOMMIT_AMEND="true" && shift 1 ;;
 esac
 
 case "$1" in
@@ -818,11 +1175,11 @@ version)
 
 all)
   shift 1
-  [ "$1" != "help" ] || printf_exit "Usage: $APPNAME all [message]"
+  [ "$1" = "help" ] && printf_exit "Usage: $APPNAME all [message]"
   GITCOMMIT_MESSAGE="🗃️ ${*:-Committing everything that changed} 🗃️"
   changed_files="$(__changed_files all)"
   __changelog_create
-  __commit_custom manual
+  __commit_custom .
   ;;
 
 files)
@@ -830,7 +1187,7 @@ files)
   GITCOMMIT_MESSAGE="🗃️ ${*:-Committing all file changes} 🗃️"
   changed_files="$(__changed_files deleted added modified)"
   __changelog_create
-  [ "$1" != "help" ] || printf_exit "Usage: $APPNAME files"
+  [ "$1" = "help" ] && printf_exit "Usage: $APPNAME files"
   __git_del "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" || exitCode=1
   __git_add "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" || exitCode=1
   __git_mod "$(echo -e "${GITCOMMIT_MESSAGE:-$*}")" || exitCode=1
@@ -840,7 +1197,7 @@ files)
 
 modified)
   shift
-  [ "$1" != "help" ] || printf_exit "Usage: $APPNAME modified"
+  [ "$1" = "help" ] && printf_exit "Usage: $APPNAME modified"
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 Nothing has been modified in $GITCOMMIT_CWD 🎊"
   set_action="🗃️ modified:"
   set_icon="🗃️"
@@ -852,7 +1209,7 @@ modified)
 
 updated)
   shift
-  [ "$1" != "help" ] || printf_exit "Usage: $APPNAME updated"
+  [ "$1" = "help" ] && printf_exit "Usage: $APPNAME updated"
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 Nothing has been updated in $GITCOMMIT_CWD 🎊"
   set_action="📁 Updated:"
   set_icon="📁"
@@ -864,7 +1221,7 @@ updated)
 
 deleted)
   shift
-  [ "$1" != "help" ] || printf_exit "Usage: $APPNAME deleted"
+  [ "$1" = "help" ] && printf_exit "Usage: $APPNAME deleted"
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 Nothing has been deleted in $GITCOMMIT_CWD 🎊"
   __is_deleted="$(__changed_files deleted &>/dev/null && echo TRUE)"
   if [[ "$__is_deleted" = "TRUE" ]]; then
@@ -881,7 +1238,7 @@ deleted)
 
 added)
   shift
-  [ "$1" != "help" ] || printf_exit "Usage: $APPNAME added"
+  [ "$1" = "help" ] && printf_exit "Usage: $APPNAME added"
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 Nothing has been added in $GITCOMMIT_CWD 🎊"
   set_action="➕ Added:"
   set_icon="➕"
@@ -905,7 +1262,7 @@ renamed)
 
 changed)
   shift 1
-  [ "$1" != "help" ] || printf_exit "Usage: $APPNAME changed filename[s]"
+  [ "$1" = "help" ] && printf_exit "Usage: $APPNAME changed filename[s]"
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="📁✔️ Changed:"
   set_icon="📁✔️"
@@ -917,7 +1274,7 @@ changed)
 
 new)
   shift 1
-  [ "$1" != "help" ] || printf_exit "Usage: $APPNAME new filename[s]"
+  [ "$1" = "help" ] && printf_exit "Usage: $APPNAME new filename[s]"
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No new files in $GITCOMMIT_CWD 🎊"
   set_action="🆕📦 New:"
   set_icon="📦🆕"
@@ -929,7 +1286,7 @@ new)
 
 improved)
   shift 1
-  [ "$1" != "help" ] || printf_exit "Usage: $APPNAME improved filename[s]"
+  [ "$1" = "help" ] && printf_exit "Usage: $APPNAME improved filename[s]"
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="👌 IMPROVE:"
   set_icon="👌"
@@ -941,7 +1298,7 @@ improved)
 
 fixed | fixes)
   shift 1
-  [ "$1" != "help" ] || printf_exit "Usage: $APPNAME fixed filename[s]"
+  [ "$1" = "help" ] && printf_exit "Usage: $APPNAME fixed filename[s]"
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="✔️🐛 FIXED:"
   set_icon="🐛✔️"
@@ -953,7 +1310,7 @@ fixed | fixes)
 
 release)
   shift 1
-  [ "$1" != "help" ] || printf_exit "Usage: $APPNAME release filename[s]"
+  [ "$1" = "help" ] && printf_exit "Usage: $APPNAME release filename[s]"
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="🚀 RELEASE: "
   set_icon="🚀"
@@ -966,7 +1323,7 @@ release)
 
 deploy)
   shift
-  [ "$1" != "help" ] || printf_exit "Usage: $APPNAME deploy"
+  [ "$1" = "help" ] && printf_exit "Usage: $APPNAME deploy"
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="👌📃 Deployed:"
   set_icon="📃👌"
@@ -981,7 +1338,7 @@ deploy)
 
 docs)
   shift 1
-  [ "$1" != "help" ] || printf_exit "Usage: $APPNAME docs filename[s]"
+  [ "$1" = "help" ] && printf_exit "Usage: $APPNAME docs filename[s]"
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="📖 DOCS:"
   set_icon="📖"
@@ -993,7 +1350,7 @@ docs)
 
 test)
   shift 1
-  [ "$1" != "help" ] || printf_exit "Usage: $APPNAME test filename[s]"
+  [ "$1" = "help" ] && printf_exit "Usage: $APPNAME test filename[s]"
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="🤖 TEST:"
   set_icon="🤖"
@@ -1005,7 +1362,7 @@ test)
 
 breaking)
   shift 1
-  [ "$1" != "help" ] || printf_exit "Usage: $APPNAME breaking filename[s]"
+  [ "$1" = "help" ] && printf_exit "Usage: $APPNAME breaking filename[s]"
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="⚒️ BREAKING:"
   set_icon="⚒️"
@@ -1017,7 +1374,7 @@ breaking)
 
 refactor)
   shift 1
-  [ "$1" != "help" ] || printf_exit "Usage: $APPNAME refactor filename[s]"
+  [ "$1" = "help" ] && printf_exit "Usage: $APPNAME refactor filename[s]"
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="✔️〰️ Refactor Code:"
   set_icon="〰️✔️"
@@ -1029,7 +1386,7 @@ refactor)
 
 performance)
   shift 1
-  [ "$1" != "help" ] || printf_exit "Usage: $APPNAME performance filename[s]"
+  [ "$1" = "help" ] && printf_exit "Usage: $APPNAME performance filename[s]"
   __changed_files message &>/dev/null || printf_exit 1 0 "🎊 No files have been changed in $GITCOMMIT_CWD 🎊"
   set_action="🚤 Performance boost:"
   set_icon="⏩"
@@ -1262,11 +1619,18 @@ else
       GITCOMMIT_EXITCODE=1
     fi
   fi
+  if [ -n "$exitCode" ] && [ -n "$GITCOMMIT_EXITCODE" ]; then
+    exitCode=$(($exitCode + $GITCOMMIT_EXITCODE))
+  else
+    exitCode="${exitCode:-0}"
+  fi
 fi
 #
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__run_push || exitCode=1
+__run_push && exitCode=${exitCode:-0} || exitCode=1
 printf_newline
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set exit code
+exitCode="${exitCode:-$?}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

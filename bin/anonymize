@@ -1,37 +1,47 @@
 #!/usr/bin/env bash
+# shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202207211057-git
+##@Version           :  202208041729-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.com
 # @@License          :  WTFPL
 # @@ReadME           :  anonymize --help
 # @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
-# @@Created          :  Thursday, Jul 21, 2022 10:57 EDT
+# @@Created          :  Thursday, Aug 04, 2022 17:29 EDT
 # @@File             :  anonymize
 # @@Description      :  Anonymous web access
-# @@Changelog        :
+# @@Changelog        :  New script
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
+# @@Terminal App     :  no
 # @@sudo/root        :  no
 # @@Template         :  bash/system
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0" 2>/dev/null)"
-VERSION="202207211057-git"
+VERSION="202208041729-git"
 HOME="${USER_HOME:-$HOME}"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${SUDO_USER:-$USER}"
-SRC_DIR="${BASH_SOURCE%/*}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+ANONYMIZE_REQUIRE_SUDO="${ANONYMIZE_REQUIRE_SUDO:-no}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set bash options
-[[ "$1" == "--debug" ]] && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
-[[ "$1" == "--raw" ]] && export SHOW_RAW="true"
+# Reopen in a terminal
+#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initial debugging
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# pipes fail
 set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
 SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
-SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-minimal.bash}"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
 SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
@@ -43,26 +53,56 @@ else
   exit 1
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Options are: desktopmgr_install devenvmgr_install dfmgr_install dockermgr_install fontmgr_install iconmgr_install
-# pkmgr_install system_install systemmgr_install thememgr_install user_install wallpapermgr_install
+# Options are: *_install
+# desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr
+#   pkmgr system systemmgr thememgr user wallpapermgr
 user_install && __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set functions
+# Send all output to /dev/null
 __devnull() {
-  tee &>/dev/null || exitCode=1
+  tee &>/dev/null && exitCode=0 || exitCode=1
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
-__cmd_exist() {
-  local exitCode=0
+# Send errors to /dev/null
+__devnull2() {
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# See if the executable exists
+__cmd_exists() {
+  exitCode=0
+  [ -n "$1" ] && local exitCode="" || return 0
   for cmd in "$@"; do
-    builtin command -v "$cmd" |& __devnull && true || exitCode+=1
+    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
   done
+  [ $exitCode -eq 0 ] || exitCode=3
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for a valid internet connection
+__am_i_online() {
+  local exitCode=0
+  curl -q -LSsfI --max-time 1 --retry 0 "${1:-http://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# colorization
+if [ "$SHOW_RAW" = "true" ]; then
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional printf_ colors
+__printf_head() { printf_blue "$1"; }
+__printf_opts() { printf_purple "$1"; }
+__printf_line() { printf_cyan "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # output version
-__version() { printf_color "$VERSION" "2"; }
+__version() { printf_cyan "$VERSION"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # list options
 __list_options() {
@@ -71,26 +111,28 @@ __list_options() {
   printf_newline
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create the config file
 __gen_config() {
-  printf_blue "Generating the config file in"
-  printf_cyan "$ANONYMIZE_CONFIG_DIR/$ANONYMIZE_CONFIG_FILE"
+  local NOTIFY_CLIENT_NAME="$APPNAME"
+  if [ "$INIT_CONFIG" != "TRUE" ]; then
+    printf_blue "Generating the config file in"
+    printf_cyan "$ANONYMIZE_CONFIG_DIR/$ANONYMIZE_CONFIG_FILE"
+  fi
   [ -d "$ANONYMIZE_CONFIG_DIR" ] || mkdir -p "$ANONYMIZE_CONFIG_DIR"
   [ -d "$ANONYMIZE_CONFIG_BACKUP_DIR" ] || mkdir -p "$ANONYMIZE_CONFIG_BACKUP_DIR"
   [ -f "$ANONYMIZE_CONFIG_DIR/$ANONYMIZE_CONFIG_FILE" ] &&
     cp -Rf "$ANONYMIZE_CONFIG_DIR/$ANONYMIZE_CONFIG_FILE" "$ANONYMIZE_CONFIG_BACKUP_DIR/$ANONYMIZE_CONFIG_FILE.$$"
   cat <<EOF >"$ANONYMIZE_CONFIG_DIR/$ANONYMIZE_CONFIG_FILE"
 # Settings for anonymize
+ANONYMIZE_HOME="${ANONYMIZE_HOME:-}"
 ANONYMIZE_I2P_JAR="${ANONYMIZE_I2P_JAR:-}"
 ANONYMIZE_FREENET_JAR="${ANONYMIZE_FREENET_JAR:-}"
-ANONYMIZE_CWD="${ANONYMIZE_CWD:-}"
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
-ANONYMIZE_OUTPUT_COLOR="${ANONYMIZE_OUTPUT_COLOR:-}"
-ANONYMIZE_OUTPUT_COLOR_2="${ANONYMIZE_OUTPUT_COLOR:-}"
+ANONYMIZE_OUTPUT_COLOR_1="${ANONYMIZE_OUTPUT_COLOR_1:-}"
+ANONYMIZE_OUTPUT_COLOR_2="${ANONYMIZE_OUTPUT_COLOR_2:-}"
 ANONYMIZE_OUTPUT_COLOR_GOOD="${ANONYMIZE_OUTPUT_COLOR_GOOD:-}"
 ANONYMIZE_OUTPUT_COLOR_ERROR="${ANONYMIZE_OUTPUT_COLOR_ERROR:-}"
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Notification Settings
 ANONYMIZE_NOTIFY_ENABLED="${ANONYMIZE_NOTIFY_ENABLED:-}"
@@ -103,45 +145,117 @@ ANONYMIZE_NOTIFY_CLIENT_ICON="${ANONYMIZE_NOTIFY_CLIENT_ICON:-}"
 ANONYMIZE_NOTIFY_CLIENT_URGENCY="${ANONYMIZE_NOTIFY_CLIENT_URGENCY:-}"
 
 EOF
+  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
   if [ -f "$ANONYMIZE_CONFIG_DIR/$ANONYMIZE_CONFIG_FILE" ]; then
-    [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for $APPNAME has been created"
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
     . "$ANONYMIZE_CONFIG_DIR/$ANONYMIZE_CONFIG_FILE"
     exitCode=0
   else
     printf_red "Failed to create the config file"
-    exitCode=
+    exitCode=1
   fi
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Help function - Align to 55
+# Help function - Align to 50
 __help() {
-  __printf_head() { printf_purple "$*"; }
-  __printf_opts() { printf_cyan "$*"; }
-  __printf_line() { printf_blue "$*"; }
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_opts "anonymize:  Anonymous web access"
+  __printf_opts "anonymize:  Anonymous web access - $VERSION"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_line "Usage: anonymize [options]"
-  __printf_line "anonymize proxy                 - Set proxy"
-  __printf_line "anonymize [--]tor               - Launch tor browser"
-  __printf_line "anonymize [--]i2p               - Launch i2p server"
-  __printf_line "anonymize [--]freenet           - Launch freenet server"
-  __printf_line "anonymize --download            - Update/re-download server"
-  __printf_line "anonymize --console             - Output to console"
-  __printf_line ""
+  __printf_line "Usage: anonymize [options] [command]"
+  __printf_line "proxy                           - Set proxy"
+  __printf_line "tor                             - Launch tor browser"
+  __printf_line "i2p                             - Launch i2p server"
+  __printf_line "freenet                         - Launch freenet server"
+  __printf_line "--download                      - Update/re-download server"
+  __printf_line "--console                       - Output to console"
+  __printf_line "--dir [path/to/dir]             - Sets the working directory"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_line "anonymize --help             - Shows this message"
-  __printf_line "anonymize --config           - Generate user config file"
-  __printf_line "anonymize --version          - Show script version"
-  __printf_line "anonymize --options          - Shows all available options"
-  __printf_line "anonymize --debug            - enable debugging"
-  __printf_line "anonymize --raw              - removes all formatting on output"
+  __printf_line "--help                          - Shows this message"
+  __printf_line "--config                        - Generate user config file"
+  __printf_line "--version                       - Show script version"
+  __printf_line "--options                       - Shows all available options"
+  __printf_line "--debug                         - Enables script debugging"
+  __printf_line "--raw                           - Removes all formatting on output"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-  printf '\n'
-  exit
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() {
+  { [ $(id -u) -ne 0 ] || [ $EUID -ne 0 ] || [ "$WHOAMI" != "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep -s "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# # Get sudo password
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run sudo
+__sudorun() {
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo
+__can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User can run sudo
+__sudoif() {
+  __user_is_root && return 0
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run command as root
+requiresudo() {
+  if [ "$ANONYMIZE_REQUIRE_SUDO" = "yes" ] && [ -z "$ANONYMIZE_REQUIRE_SUDO_RUN" ]; then
+    export ANONYMIZE_REQUIRE_SUDO="no"
+    export ANONYMIZE_REQUIRE_SUDO_RUN="true"
+    __sudo "$@"
+    exit $?
+  else
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  CMD="${1:-echo}" && shift 1
+  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  [ "$(basename "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  if __sudoif; then
+    export PATH="$PATH"
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    exitCode=$?
+  else
+    printf '%s\n' "This requires root to run"
+    exitCode=1
+  fi
+  return ${exitCode:-1}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  exitCode=${exitCode:-$?}
+  [ -f "$ANONYMIZE_TEMP_FILE" ] && rm -Rf "$ANONYMIZE_TEMP_FILE" &>/dev/null
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
@@ -168,15 +282,23 @@ __proxy_setup() {
     export NO_PROXY="${SET_PROXY_NONE:-}"
     printf_cyan "Proxy is set to $SET_PROXY"
     mybrowser "$browser"
-    exec bash
+    curl -q -LSsf "https://check.torproject.org" |
+      grep -q 'Congratulations. This browser is configured to use Tor' &&
+      printf_yellow "Torifing your shell - exit to quit"
+    exec bash || printf_return "Proxy seems to have failed"
   else
     printf_red "Can not set http proxy due to tor not running"
   fi
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Defaults
-exitCode=0
+__curl_dl() {
+  curl -q -LSsf --max-time 1 --retry 1 "$1" -o "$2" 2>/dev/null
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined variables/import external variables
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application Folders
 ANONYMIZE_CONFIG_FILE="${ANONYMIZE_CONFIG_FILE:-settings.conf}"
@@ -187,8 +309,8 @@ ANONYMIZE_TEMP_DIR="${ANONYMIZE_TEMP_DIR:-$HOME/.local/tmp/system_scripts/anonym
 ANONYMIZE_CACHE_DIR="${ANONYMIZE_CACHE_DIR:-$HOME/.cache/anonymize}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
-ANONYMIZE_OUTPUT_COLOR="${ANONYMIZE_OUTPUT_COLOR:-4}"
-ANONYMIZE_OUTPUT_COLOR_2="${ANONYMIZE_OUTPUT_COLOR:-5}"
+ANONYMIZE_OUTPUT_COLOR_1="${ANONYMIZE_OUTPUT_COLOR_1:-4}"
+ANONYMIZE_OUTPUT_COLOR_2="${ANONYMIZE_OUTPUT_COLOR_2:-5}"
 ANONYMIZE_OUTPUT_COLOR_GOOD="${ANONYMIZE_OUTPUT_COLOR_GOOD:-2}"
 ANONYMIZE_OUTPUT_COLOR_ERROR="${ANONYMIZE_OUTPUT_COLOR_ERROR:-1}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -197,7 +319,7 @@ ANONYMIZE_NOTIFY_ENABLED="${ANONYMIZE_NOTIFY_ENABLED:-yes}"
 ANONYMIZE_GOOD_NAME="${ANONYMIZE_GOOD_NAME:-Great:}"
 ANONYMIZE_ERROR_NAME="${ANONYMIZE_ERROR_NAME:-Error:}"
 ANONYMIZE_GOOD_MESSAGE="${ANONYMIZE_GOOD_MESSAGE:-No errors reported}"
-ANONYMIZE_ERROR_MESSAGE="${ANONYMIZE_ERROR_MESSAGE:-Error reported}"
+ANONYMIZE_ERROR_MESSAGE="${ANONYMIZE_ERROR_MESSAGE:-Errors were reported}"
 ANONYMIZE_NOTIFY_CLIENT_NAME="${ANONYMIZE_NOTIFY_CLIENT_NAME:-$APPNAME}"
 ANONYMIZE_NOTIFY_CLIENT_ICON="${ANONYMIZE_NOTIFY_CLIENT_ICON:-notification-new}"
 ANONYMIZE_NOTIFY_CLIENT_URGENCY="${ANONYMIZE_NOTIFY_CLIENT_URGENCY:-normal}"
@@ -205,11 +327,11 @@ ANONYMIZE_NOTIFY_CLIENT_URGENCY="${ANONYMIZE_NOTIFY_CLIENT_URGENCY:-normal}"
 # Additional Variables
 ANONYMIZE_I2P_JAR="${ANONYMIZE_I2P_JAR:-https://download.i2p2.de/releases/1.5.0/i2pinstall_1.5.0.jar}"
 ANONYMIZE_FREENET_JAR="${ANONYMIZE_FREENET_JAR:-https://github.com/freenet/fred/releases/download/build01492/new_installer_offline_1492.jar}"
-ANONYMIZE_CWD="${ANONYMIZE_CWD:-$HOME/.local/share/anonymize}"
+ANONYMIZE_HOME="${ANONYMIZE_HOME:-$HOME/.local/share/anonymize}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$ANONYMIZE_CONFIG_DIR/$ANONYMIZE_CONFIG_FILE" ] ||
-  [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+  [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import config
 [ -f "$ANONYMIZE_CONFIG_DIR/$ANONYMIZE_CONFIG_FILE" ] &&
@@ -226,35 +348,47 @@ ANONYMIZE_CWD="${ANONYMIZE_CWD:-$HOME/.local/share/anonymize}"
 ANONYMIZE_TEMP_FILE="${ANONYMIZE_TEMP_FILE:-$(mktemp $ANONYMIZE_TEMP_DIR/XXXXXX 2>/dev/null)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup trap to remove temp file
-trap 'exitCode=${exitCode:-$?};[ -n "$ANONYMIZE_TEMP_FILE" ] && [ -f "$ANONYMIZE_TEMP_FILE" ] && rm -Rf "$ANONYMIZE_TEMP_FILE" |&__devnull' EXIT
+trap '__trap_exit' EXIT
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup notification function
-if [ "$ANONYMIZE_NOTIFY_ENABLED" = "yes" ]; then
-  __notifications() {
+__notifications() {
+  __cmd_exists notifications || return
+  [ "$ANONYMIZE_NOTIFY_ENABLED" = "yes" ] || return
+  [ "$SEND_NOTIFICATION" = "no" ] && return
+  (
+    set +x
+    export SCRIPT_OPTS="" _DEBUG=""
     export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$ANONYMIZE_GOOD_MESSAGE}"
     export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$ANONYMIZE_ERROR_MESSAGE}"
     export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$ANONYMIZE_NOTIFY_CLIENT_ICON}"
     export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$ANONYMIZE_NOTIFY_CLIENT_NAME}"
     export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$ANONYMIZE_NOTIFY_CLIENT_URGENCY}"
-    notifications "$@" && exitCode=0 || exitCode=1
-    unset NOTIFY_CLIENT_NAME NOTIFY_CLIENT_ICON NOTIFY_GOOD_MESSAGE NOTIFY_ERROR_MESSAGE
-    return ${exitCode:-$?}
-  }
-else
-  __notifications() { false; }
-fi
+    notifications "$@"
+    retval=$?
+    return $retval
+  ) |& __devnull &
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Show warn message if variables are missing
+# Set custom actions
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Argument/Option settings
-SETARGS="$*"
+SETARGS=("$@")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SHORTOPTS=""
-LONGOPTS="config,debug,help,options,raw,version,freenet,i2p,download,console"
+SHORTOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
+LONGOPTS+=",download"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="i2p freenet tor proxy"
+ARRAY+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LIST=""
+LIST+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup application options
-setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$APPNAME" -- "$@" 2>/dev/null)
 eval set -- "${setopts[@]}" 2>/dev/null
 while :; do
   case "$1" in
@@ -262,20 +396,30 @@ while :; do
     shift 1
     export SHOW_RAW="true"
     printf_column() { tee | grep '^'; }
-    printf_color() {
-      printf '%b' "$1" | tr -d '\t' |
-        sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'
-    }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
     ;;
   --debug)
     shift 1
     set -xo pipefail
-    __devnull() {
-      tee || exitCode=1
-      return ${exitCode:-$?}
-    }
     export SCRIPT_OPTS="--debug"
     export _DEBUG="on"
+    __devnull() { tee || return 1; }
+    __devnull2() { eval "$@" |& tee || return 1; }
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
     ;;
   --options)
     shift 1
@@ -300,21 +444,19 @@ while :; do
     __gen_config
     exit $?
     ;;
-  --console)
+  --silent)
     shift 1
-    CONSOLE="true"
+    ANONYMIZE_SILENT="true"
     ;;
-  --i2p)
-    shift 1
-    OPTS="i2p"
-    ;;
-  --freenet)
-    shift 1
-    OPTS=freenet
+  --dir)
+    CWD_IS_SET="TRUE"
+    ANONYMIZE_CWD="$2"
+    [ -d "$ANONYMIZE_CWD" ] || mkdir -p "$ANONYMIZE_CWD" |& __devnull
+    shift 2
     ;;
   --download)
     shift 1
-    DOWNLOAD="true"
+    ANONYMIZE_DOWNLOAD="true"
     ;;
   --)
     shift 1
@@ -322,23 +464,48 @@ while :; do
     ;;
   esac
 done
-#set -- "$SETARGS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Redefine functions based on options
+# Get directory from args
+# set -- "$@"
+# for arg in "$@"; do
+# if [ -d "$arg" ]; then
+# ANONYMIZE_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
+# elif [ -f "$arg" ]; then
+# ANONYMIZE_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
+# else
+# SET_NEW_ARGS+=("$arg")
+# fi
+# done
+# set -- "${SET_NEW_ARGS[@]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set directory to first argument
+# [ -d "$1" ] && ANONYMIZE_CWD="$1" && shift 1 || ANONYMIZE_CWD="${ANONYMIZE_CWD:-$PWD}"
+ANONYMIZE_CWD="$(realpath "${ANONYMIZE_CWD:-$PWD}" 2>/dev/null)"
+# if [ -d "$ANONYMIZE_CWD" ] && cd "$ANONYMIZE_CWD"; then
+# if [ "$ANONYMIZE_SILENT" != "true" ]; then
+# printf_cyan "Setting working dir to $ANONYMIZE_CWD"
+# fi
+# else
+# printf_exit "💔 $ANONYMIZE_CWD does not exist 💔"
+# fi
+export ANONYMIZE_CWD
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set actions based on variables
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
-cmd_exists --error bash || exit 3 # exit 3 if not found
-#am_i_online --error || exit 4     # exit 4 if no internet
+#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+#cmd_exists --error --ask bash || exit 3 # exit 3 if not found
+#am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
-
+[ -d "$ANONYMIZE_CWD" ] || mkdir -p "$ANONYMIZE_CWD"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
-case ${OPTS:-$1} in
+case "$1" in
 proxy)
   shift 1
   __proxy_setup "$@"
@@ -347,15 +514,16 @@ proxy)
 
 tor)
   shift 1
-  cmd_exists tor-browser || cmd_exists torbrowser || { printf_green "Intalling tor browser" && pkmgr silent install tor-browser torbrowser; }
-  if [[ $? -ne 0 ]]; then printf_red "Tor browser does not seem to be installed" && __notifications "Please install Tor Browser"; fi
+  LINK="${1:-http://imtulbcjer7mohs62lpycyod2c3pnil2x6xjirrojedbluh4d7z2g6ad.onion}"
+  cmd_exists tor-browser || cmd_exists torbrowser || { printf_green "Intalling tor browser" && pkmgr silent install tor-browser || printf_exit "Failed to install the tor browser"; }
+  if [ $? -ne 0 ]; then printf_red "Tor browser does not seem to be installed" && __notifications "Please install Tor Browser"; fi
   if cmd_exists tor-browser; then
     __notifications "Launching tor-browser -new-tab --allow-remote"
-    tor-browser -new-tab --allow-remote ${LINK:-http://imtulbcjer7mohs62lpycyod2c3pnil2x6xjirrojedbluh4d7z2g6ad.onion/} &>/dev/null &
+    tor-browser -new-tab --allow-remote "$LINK" &>/dev/null &
   elif cmd_exists torbrowser; then
     __notifications "Launching torbrowser -new-tab --allow-remote"
-    torbrowser -new-tab --allow-remote ${LINK:-/http://imtulbcjer7mohs62lpycyod2c3pnil2x6xjirrojedbluh4d7z2g6ad.onion/} &>/dev/null &
-  elif __cmd_exist systemmgr; then
+    torbrowser -new-tab --allow-remote "$LINK" &>/dev/null &
+  elif __cmd_exists systemmgr; then
     sudo -n true
     systemmgr install tor &>/dev/null
     sleep 10
@@ -367,44 +535,44 @@ tor)
 i2p)
   shift 1
   cmd_exists java && printf_green "Installing openjdk" && pkmgr silent install jdk-openjdk || printf_exit "Failed to install openjdk"
-  if [[ "$DOWNLOAD" = "true" ]] || [[ ! -f "$ANONYMIZE_CWD/i2p/i2p-install.jar" ]]; then
+  if [ "$ANONYMIZE_DOWNLOAD" = "true" ] || [ ! -f "$ANONYMIZE_CWD/i2p/i2p-install.jar" ]; then
     mkdir -p "$ANONYMIZE_CWD/i2p"
-    curl -q -LSsf "$ANONYMIZE_I2P_JAR" -o "$ANONYMIZE_CWD/i2p/i2p-install.jar"
-    [[ -f "$ANONYMIZE_CWD/i2p/i2p-install.jar" ]] || printf_exit "failed to download $ANONYMIZE_I2P_JAR"
-    if [[ "$CONSOLE" = "true" ]]; then
+    __curl_dl "$ANONYMIZE_I2P_JAR" "$ANONYMIZE_CWD/i2p/i2p-install.jar"
+    [ -f "$ANONYMIZE_CWD/i2p/i2p-install.jar" ] || printf_exit "failed to download $ANONYMIZE_I2P_JAR"
+    if [ "$CONSOLE" = "true" ]; then
       java -jar "$ANONYMIZE_CWD/i2p/i2p-install.jar" -console
     else
       java -jar "$ANONYMIZE_CWD/i2p/i2p-install.jar"
     fi
   fi
-  if [[ -f "$HOME/.local/share/i2p/i2prouter" ]]; then
-    eval "$HOME/.local/share/i2p/i2prouter" start &
+  if [ -f "$ANONYMIZE_CWD/i2p/i2prouter" ]; then
+    eval "$ANONYMIZE_CWD/i2p/i2prouter" start &
     sleep 10
   fi
   netstatg 7657 2>&1 | grep -q java || printf_exit "i2p does not seem to be running"
-  [[ -z "$BROWSER" ]] || eval $BROWSER "http://localhost:7657"
+  [ -z "$BROWSER" ] || eval $BROWSER "http://localhost:7657"
   exit $?
   ;;
 
 freenet)
   shift 1
-  if [[ "$DOWNLOAD" = "true" ]] || [[ ! -f "$ANONYMIZE_CWD/freenet/freenet-install.jar" ]]; then
+  if [ "$ANONYMIZE_DOWNLOAD" = "true" ] || [ ! -f "$ANONYMIZE_CWD/freenet/freenet-install.jar" ]; then
     mkdir -p "$ANONYMIZE_CWD/freenet"
-    curl -q -LSsf "$ANONYMIZE_FREENET_JAR" -o "$ANONYMIZE_CWD/freenet/freenet-install.jar"
-    [[ -f "$ANONYMIZE_CWD/freenet/freenet-install.jar" ]] || printf_exit "failed to download $ANONYMIZE_FREENET_JAR"
-    printf_yellow "Install to $HOME/.local/share/Freenet"
-    if [[ "$CONSOLE" = "true" ]]; then
+    __curl_dl "$ANONYMIZE_FREENET_JAR" "$ANONYMIZE_CWD/freenet/freenet-install.jar"
+    [ -f "$ANONYMIZE_CWD/freenet/freenet-install.jar" ] || printf_exit "failed to download $ANONYMIZE_FREENET_JAR"
+    printf_yellow "Install to $ANONYMIZE_CWD/Freenet"
+    if [ "$CONSOLE" = "true" ]; then
       java -jar "$ANONYMIZE_CWD/freenet/freenet-install.jar" -console
     else
       java -jar "$ANONYMIZE_CWD/freenet/freenet-install.jar"
     fi
   fi
-  if [[ -f "$HOME/.local/share/Freenet/run.sh" ]]; then
-    eval "$HOME/.local/share/Freenet/run.sh" start &
+  if [ -f "$ANONYMIZE_CWD/Freenet/run.sh" ]; then
+    eval "$ANONYMIZE_CWD/Freenet/run.sh" start &
     sleep 10
   fi
   netstatg 8888 2>&1 | grep -q java || printf_exit "Freenet does not seem to be running"
-  [[ -z "$BROWSER" ]] || eval $BROWSER "http://localhost:8888"
+  [ -z "$BROWSER" ] || eval $BROWSER "http://localhost:8888"
   exit $?
   ;;
 
@@ -412,6 +580,9 @@ freenet)
   __help
   ;;
 esac
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set exit code
+exitCode="${exitCode:-$?}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

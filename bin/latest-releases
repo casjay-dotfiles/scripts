@@ -1,28 +1,42 @@
 #!/usr/bin/env bash
+# shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202207042242-git
-# @Author            :  Jason Hempstead
-# @Contact           :  jason@casjaysdev.com
-# @License           :  WTFPL
-# @ReadME            :  latest-releases --help
-# @Copyright         :  Copyright: (c) 2021 Jason Hempstead, Casjays Developments
-# @Created           :  Thursday, Aug 19, 2021 01:17 EDT
-# @File              :  latest-releases
-# @Description       :  Download the latest release of a package
-# @TODO              :  Refactor this mess
-# @Other             :
-# @Resource          :
+##@Version           :  202208121532-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  jason@casjaysdev.com
+# @@License          :  WTFPL
+# @@ReadME           :  latest-releases --help
+# @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
+# @@Created          :  Friday, Aug 12, 2022 15:32 EDT
+# @@File             :  latest-releases
+# @@Description      :  Download the latest release of a package
+# @@Changelog        :  New script
+# @@TODO             :  Refactor this mess
+# @@Other            :
+# @@Resource         :
+# @@Terminal App     :  no
+# @@sudo/root        :  no
+# @@Template         :  bash/system
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0" 2>/dev/null)"
-VERSION="202108190117-git"
+VERSION="202208121532-git"
 HOME="${USER_HOME:-$HOME}"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${SUDO_USER:-$USER}"
-SRC_DIR="${BASH_SOURCE%/*}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+LATEST_RELEASES_REQUIRE_SUDO="${LATEST_RELEASES_REQUIRE_SUDO:-no}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set bash options
-if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
-
+# Reopen in a terminal
+#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initial debugging
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# pipes fail
+set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
@@ -36,45 +50,107 @@ elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
   . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
 else
   echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
-  exit 90
+  exit 1
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# user system devenv dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+# Options are: *_install
+# desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr
+#   pkmgr system systemmgr thememgr user wallpapermgr
 user_install && __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set functions
-__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
+# Send all output to /dev/null
+__devnull() {
+  tee &>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# Send errors to /dev/null
+__devnull2() {
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# See if the executable exists
+__cmd_exists() {
+  exitCode=0
+  [ -n "$1" ] && local exitCode="" || return 0
+  for cmd in "$@"; do
+    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
+  done
+  [ $exitCode -eq 0 ] || exitCode=3
+  return ${exitCode:-$?}
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for a valid internet connection
+__am_i_online() {
+  local exitCode=0
+  curl -q -LSsfI --max-time 1 --retry 0 "${1:-http://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# colorization
+if [ "$SHOW_RAW" = "true" ]; then
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional printf_ colors
+__printf_head() { printf_blue "$1"; }
+__printf_opts() { printf_purple "$1"; }
+__printf_line() { printf_cyan "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# output version
+__version() { printf_cyan "$VERSION"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# list options
+__list_options() {
+  printf_color "$1: " "$5"
+  echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g'
+  printf_newline
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create the config file
 __gen_config() {
-  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Generating the config file in"
-  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASES_CONFIG_FILE"
+  local NOTIFY_CLIENT_NAME="$APPNAME"
+  if [ "$INIT_CONFIG" != "TRUE" ]; then
+    printf_blue "Generating the config file in"
+    printf_cyan "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASES_CONFIG_FILE"
+  fi
   [ -d "$LATEST_RELEASES_CONFIG_DIR" ] || mkdir -p "$LATEST_RELEASES_CONFIG_DIR"
   [ -d "$LATEST_RELEASES_CONFIG_BACKUP_DIR" ] || mkdir -p "$LATEST_RELEASES_CONFIG_BACKUP_DIR"
   [ -f "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASES_CONFIG_FILE" ] &&
     cp -Rf "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASES_CONFIG_FILE" "$LATEST_RELEASES_CONFIG_BACKUP_DIR/$LATEST_RELEASES_CONFIG_FILE.$$"
   cat <<EOF >"$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASES_CONFIG_FILE"
 # Settings for latest-releases
-LATEST_RELEASE_DOWNLOADS="${LATEST_RELEASE_DOWNLOADS:-$HOME/Downloads/Latest}"
-LATEST_RELEASE_REPO_LIST="${LATEST_RELEASE_REPO_LIST:-repos.conf}"
-LATEST_RELEASE_GITHUB_AUTH_FILE="${LATEST_RELEASE_GITHUB_AUTH_FILE:-auth.conf}"
-LATEST_RELEASE_DEFAULT_ARCH="${LATEST_RELEASE_DEFAULT_ARCH:-$(uname -m)}"
-LATEST_RELEASE_INSTALL_DIR="${LATEST_RELEASE_INSTALL_DIR:-$HOME/.local/share/latest-releases}"
-
-# Notification settings
-LATEST_RELEASES_GOOD_MESSAGE="${LATEST_RELEASES_GOOD_MESSAGE:-Everything Went OK}"
-LATEST_RELEASES_ERROR_MESSAGE="${LATEST_RELEASES_ERROR_MESSAGE:-Well something seems to have gone wrong}"
-LATEST_RELEASES_NOTIFY_ENABLED="${LATEST_RELEASES_NOTIFY_ENABLED:-yes}"
-LATEST_RELEASES_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
-LATEST_RELEASES_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$LATEST_RELEASES_NOTIFY_CLIENT_ICON}"
-
-# Colorization settings
-LATEST_RELEASES_OUTPUT_COLOR="${LATEST_RELEASES_OUTPUT_COLOR:-5}"
-LATEST_RELEASES_OUTPUT_COLOR_GOOD="${LATEST_RELEASES_OUTPUT_COLOR_GOOD:-2}"
-LATEST_RELEASES_OUTPUT_COLOR_ERROR="${LATEST_RELEASES_OUTPUT_COLOR_ERROR:-1}"
+LATEST_RELEASE_DOWNLOADS="${LATEST_RELEASE_DOWNLOADS:-}"
+LATEST_RELEASE_REPO_LIST="${LATEST_RELEASE_REPO_LIST:-}"
+LATEST_RELEASE_GITHUB_AUTH_FILE="${LATEST_RELEASE_GITHUB_AUTH_FILE:-}"
+LATEST_RELEASE_DEFAULT_ARCH="${LATEST_RELEASE_DEFAULT_ARCH:-}"
+LATEST_RELEASE_INSTALL_DIR="${LATEST_RELEASE_INSTALL_DIR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+LATEST_RELEASES_OUTPUT_COLOR_1="${LATEST_RELEASES_OUTPUT_COLOR_1:-}"
+LATEST_RELEASES_OUTPUT_COLOR_2="${LATEST_RELEASES_OUTPUT_COLOR_2:-}"
+LATEST_RELEASES_OUTPUT_COLOR_GOOD="${LATEST_RELEASES_OUTPUT_COLOR_GOOD:-}"
+LATEST_RELEASES_OUTPUT_COLOR_ERROR="${LATEST_RELEASES_OUTPUT_COLOR_ERROR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+LATEST_RELEASES_NOTIFY_ENABLED="${LATEST_RELEASES_NOTIFY_ENABLED:-}"
+LATEST_RELEASES_GOOD_NAME="${LATEST_RELEASES_GOOD_NAME:-}"
+LATEST_RELEASES_ERROR_NAME="${LATEST_RELEASES_ERROR_NAME:-}"
+LATEST_RELEASES_GOOD_MESSAGE="${LATEST_RELEASES_GOOD_MESSAGE:-}"
+LATEST_RELEASES_ERROR_MESSAGE="${LATEST_RELEASES_ERROR_MESSAGE:-}"
+LATEST_RELEASES_NOTIFY_CLIENT_NAME="${LATEST_RELEASES_NOTIFY_CLIENT_NAME:-}"
+LATEST_RELEASES_NOTIFY_CLIENT_ICON="${LATEST_RELEASES_NOTIFY_CLIENT_ICON:-}"
+LATEST_RELEASES_NOTIFY_CLIENT_URGENCY="${LATEST_RELEASES_NOTIFY_CLIENT_URGENCY:-}"
 
 EOF
+  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
   if [ -f "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASES_CONFIG_FILE" ]; then
-    [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for $APPNAME has been created"
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
+    . "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASES_CONFIG_FILE"
     exitCode=0
   else
     printf_red "Failed to create the config file"
@@ -83,41 +159,148 @@ EOF
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Additional functions
-search_gh_api() {
-  curl -q -LSsf -H "Accept: application/vnd.github+json" \
-    "https://api.github.com/search/repositories?q=$1&sort=stars&order=desc&per_page=20" |
-    jq -r '.items | .[].full_name' | grep -iw "$1$" | grep '^'
+# Help function - Align to 50
+__help() {
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "latest-releases:  Download the latest release of a package - $VERSION"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Usage: latest-releases [options] [commands]"
+  __printf_line " - "
+  __printf_line " - "
+  __printf_line "--dir                           - Sets the working directory"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Other Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--help                          - Shows this message"
+  __printf_line "--config                        - Generate user config file"
+  __printf_line "--version                       - Show script version"
+  __printf_line "--options                       - Shows all available options"
+  __printf_line "--debug                         - Enables script debugging"
+  __printf_line "--raw                           - Removes all formatting on output"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() {
+  { [ $(id -u) -ne 0 ] || [ $EUID -ne 0 ] || [ "$WHOAMI" != "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep -s "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# # Get sudo password
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run sudo
+__sudorun() {
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo
+__can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User can run sudo
+__sudoif() {
+  __user_is_root && return 0
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run command as root
+requiresudo() {
+  if [ "$LATEST_RELEASES_REQUIRE_SUDO" = "yes" ] && [ -z "$LATEST_RELEASES_REQUIRE_SUDO_RUN" ]; then
+    export LATEST_RELEASES_REQUIRE_SUDO="no"
+    export LATEST_RELEASES_REQUIRE_SUDO_RUN="true"
+    __sudo "$@"
+    exit $?
+  else
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  CMD="${1:-echo}" && shift 1
+  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  [ "$(basename "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  if __sudoif; then
+    export PATH="$PATH"
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    exitCode=$?
+  else
+    printf '%s\n' "This requires root to run"
+    exitCode=1
+  fi
+  return ${exitCode:-1}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  exitCode=${exitCode:-$?}
+  [ -f "$LATEST_RELEASES_TEMP_FILE" ] && rm -Rf "$LATEST_RELEASES_TEMP_FILE" &>/dev/null
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined functions
+search_gh_api() {
+  local -a results=()
+  local api_results=""
+  api_results="$(curl -q -LSsf -H "Accept: application/vnd.github+json" "https://api.github.com/search/repositories?q=$1&sort=stars&order=desc&per_page=60" 2>/dev/null | jq '.items | .[]')"
+  results=("$(echo "${api_results}" | jq -c '[.full_name,.description]' | sed 's|\]||g;s|\[||g;s|"||g' | awk -F',' '{print $1": "$2}' | grep -iwF "$1")")
+  if [ -n "${results[*]}" ]; then
+    for line in "${results[@]}"; do
+      echo "$line" | cut -c 1-120 | grep -v ': null' | grep '^'
+      exitCode+=$?
+    done
+  else
+    exitCode=1
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gitea() {
-  [[ $# -eq 2 ]] || printf_exit "Usage: $APPNAME gitea [gitea_url] [user/repo]"
-  local url=""
-  local dom="$1"
-  local repo="$2"
-  local download_dir="$LATEST_RELEASE_DOWNLOADS"
-  local tempfile="$LATEST_RELEASES_TEMP_FILE"
-  local api_url="$dom/api/v1/repos/$repo/releases"
-  local filename="$(basename "$repo")"
-  local get_arch=""
+  [ $# -eq 2 ] || printf_exit "Usage: $APPNAME gitea [gitea_url] [user/repo]"
+  local url="" dom="" repo="" download_dir="" tempfile="" api_url="" filename="" get_arch=""
+  url=""
+  dom="$1"
+  repo="$2"
+  download_dir="$LATEST_RELEASE_DOWNLOADS"
+  tempfile="$LATEST_RELEASES_TEMP_FILE"
+  api_url="$dom/api/v1/repos/$repo/releases"
+  filename="$(basename "$repo")"
+  get_arch=""
   mkdir -p "$download_dir"
   if [ "$LATEST_RELEASE_DEFAULT_ARCH" = "x86_64" ]; then
     get_arch="amd64"
-  elif [[ -n "$1" ]]; then
+  elif [ -n "$1" ]; then
     get_arch="$1"
   else
     get_arch="arm64"
   fi
   arch="${LATEST_RELEASES_ARCH_TYPE:-$get_arch}"
-  url="$(curl -q -LSs -X 'GET' "$api_url" -H 'accept: application/json' | jq -rc '.[].assets | .[] | {name: .name, link: .browser_download_url}' | grep ''$arch'"' | grep -i "$(uname -s)" | jq -c | head -n1 | jq -r | grep link | awk -F '":' '{print $2}' | sed 's|"||g;s| ||g')"
+  url="$(curl -q -LSs -X 'GET' "$api_url" -H 'accept: application/json' 2>/dev/null | jq -rc '.[].assets | .[] | {name: .name, link: .browser_download_url}' | grep ''$arch'"' | grep -i "$(uname -s)" | jq -c | head -n1 | jq -r | grep link | awk -F '":' '{print $2}' | sed 's|"||g;s| ||g')"
   printf_green "Attempting to download $filename from $url"
   printf_green "and save to $download_dir/$filename"
   curl -q -LSs "$url" -o "$tempfile" 2>/dev/null || printf_exit "Failed to download the file"
-  if [[ -f "$tempfile" ]] && [[ -s "$tempfile" ]]; then
+  if [ -f "$tempfile" ] && [ -s "$tempfile" ]; then
     chmod -Rf 755 "$download_dir/$filename"
     mv -f "$tempfile" "$download_dir/$filename"
-    if [[ -d "$HOME/.local/bin" ]]; then
+    if [ -d "$HOME/.local/bin" ]; then
       cp -Rf "$download_dir/$filename" "$HOME/.local/bin/$filename"
     fi
   else
@@ -126,31 +309,32 @@ __gitea() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gitlab() {
-  [[ $# -eq 2 ]] || printf_exit "Usage: $APPNAME gitlab [gitlab_url] [user/repo]"
-  local url=""
-  local arch=""
-  local dom="$1"
-  local repo="$2"
-  local download_dir="$LATEST_RELEASE_DOWNLOADS"
-  local tempfile="$LATEST_RELEASES_TEMP_FILE"
-  local api_url="$dom/api/v1/repos/$repo/releases"
-  local filename="$(basename "$repo")"
+  [ $# -eq 2 ] || printf_exit "Usage: $APPNAME gitlab [gitlab_url] [user/repo]"
+  local url="" dom="" repo="" download_dir="" tempfile="" api_url="" filename="" arch=""
+  url=""
+  arch=""
+  dom="$1"
+  repo="$2"
+  download_dir="$LATEST_RELEASE_DOWNLOADS"
+  tempfile="$LATEST_RELEASES_TEMP_FILE"
+  api_url="$dom/api/v1/repos/$repo/releases"
+  filename="$(basename "$repo")"
   mkdir -p "$download_dir"
   if [ "$LATEST_RELEASE_DEFAULT_ARCH" = "x86_64" ]; then
     get_arch="amd64"
-  elif [[ -n "$1" ]]; then
+  elif [ -n "$1" ]; then
     get_arch="$1"
   else
     get_arch="arm64"
   fi
   arch="${LATEST_RELEASES_ARCH_TYPE:-$get_arch}"
-  url="$(curl -q -LSs -X 'GET' "$api_url" -H 'accept: application/json' | jq -rc '.[].assets | .[] | {name: .name, link: .browser_download_url}' | grep ''$arch'"' | grep -i "$(uname -s)" | jq -c | head -n1 | jq -r | grep link | awk -F '":' '{print $2}' | sed 's|"||g;s| ||g')"
+  url="$(curl -q -LSs -X 'GET' "$api_url" -H 'accept: application/json' 2>/dev/null | jq -rc '.[].assets | .[] | {name: .name, link: .browser_download_url}' | grep ''$arch'"' | grep -i "$(uname -s)" | jq -c | head -n1 | jq -r | grep link | awk -F '":' '{print $2}' | sed 's|"||g;s| ||g')"
   printf_green "Attempting to download $filename from $url"
   printf_green "and save to $download_dir/$filename"
   curl -q -LSs "$url" -o "$tempfile" 2>/dev/null || printf_exit "Failed to download the file"
-  if [[ -f "$tempfile" ]] && [[ -s "$tempfile" ]]; then
+  if [ -f "$tempfile" ] && [ -s "$tempfile" ]; then
     mv -f "$tempfile" "$download_dir/$filename"
-    if [[ -d "$HOME/.local/bin" ]]; then
+    if [ -d "$HOME/.local/bin" ]; then
       cp -Rf "$download_dir/$filename" "$HOME/.local/bin/$filename"
       chmod -Rf 755 "$HOME/.local/bin/$filename"
     fi
@@ -179,7 +363,7 @@ __gen_repolist() {
   if [ -f "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST" ]; then
     __cp_rf "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST" "$LATEST_RELEASES_CONFIG_BACKUP_DIR/$LATEST_RELEASE_REPO_LIST.$$"
   else
-    printf_green "Creating default repo lists"
+    printf_green "Creating sample repo lists"
     cat <<EOF | tee "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST" &>/dev/null
 gokcehan/lf
 go-gitea/gitea
@@ -187,7 +371,7 @@ justjanne/powerline-go
 codeskyblue/gohttpserver
 EOF
   fi
-  if [[ -f "$LATEST_RELEASES_CONFIG_BACKUP_DIR/$LATEST_RELEASE_REPO_LIST.$$" ]]; then
+  if [ -f "$LATEST_RELEASES_CONFIG_BACKUP_DIR/$LATEST_RELEASE_REPO_LIST.$$" ]; then
     printf_blue "Backup $LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST"
     printf_cyan "to: $LATEST_RELEASES_CONFIG_BACKUP_DIR/$LATEST_RELEASE_REPO_LIST.$$"
   elif [ -f "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST" ]; then
@@ -207,7 +391,7 @@ LATEST_RELEASE_GITHUB_TOKEN="${LATEST_RELEASE_GITHUB_TOKEN:-$GITHUB_ACCESS_TOKEN
 
 EOF
   fi
-  if [[ -f "$LATEST_RELEASES_CONFIG_BACKUP_DIR/$LATEST_RELEASE_GITHUB_AUTH_FILE.$$" ]]; then
+  if [ -f "$LATEST_RELEASES_CONFIG_BACKUP_DIR/$LATEST_RELEASE_GITHUB_AUTH_FILE.$$" ]; then
     printf_blue "Backup $LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_GITHUB_AUTH_FILE"
     printf_cyan "to: $LATEST_RELEASES_CONFIG_BACKUP_DIR/$LATEST_RELEASE_GITHUB_AUTH_FILE.$$"
   elif [ -f "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_GITHUB_AUTH_FILE" ]; then
@@ -217,17 +401,17 @@ EOF
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __install_latest() {
   echo "$1" | grep -qv '^#' || return
-  echo "$1" | grep -qv '^$' || [[ -n "$LATEST_RELEASE_FULL_URL" ]] || return
+  echo "$1" | grep -qv '^$' || [ -n "$LATEST_RELEASE_FULL_URL" ] || return
   set_arch="$(uname -m)"
   [ "$1" = search ] && search="true" && shift 1
-  if echo "$1" | grep -q './.' || [[ $# == 1 ]]; then
+  if echo "$1" | grep -q './.' || [ $# == 1 ]; then
     repo="$1"
     shift 1
-  elif [[ $# -gt 1 ]]; then
+  elif [ $# -gt 1 ]; then
     repo="$1/$2"
     shift 2
   fi
-  if [[ -n "$1" ]]; then
+  if [ -n "$1" ]; then
     get_arch="$1"
   elif [ "$LATEST_RELEASE_DEFAULT_ARCH" = "x86_64" ]; then
     get_arch="amd64"
@@ -241,13 +425,13 @@ __install_latest() {
   tempfile="$LATEST_RELEASES_TEMP_FILE"
   download_dir="$LATEST_RELEASE_DOWNLOADS"
   api_url="https://api.github.com/repos/$repo/releases/latest"
-  if [[ -n "$LATEST_RELEASE_GITHUB_TOKEN" ]]; then
+  if [ -n "$LATEST_RELEASE_GITHUB_TOKEN" ]; then
     printf_blue "Github API Auth token is set"
     printf_green "Getting info from $api_url"
   else
     printf_green "Getting info from $api_url"
   fi
-  if [[ -n "$LATEST_RELEASE_FULL_URL" ]]; then
+  if [ -n "$LATEST_RELEASE_FULL_URL" ]; then
     latest_download="$LATEST_RELEASE_FULL_URL"
   elif [ -n "$LATEST_RELEASES_FILENAME" ]; then
     latest_json="$(__curl_json_all "$repo")"
@@ -275,14 +459,14 @@ __install_latest() {
   elif [ -n "$latest_download" ]; then
     printf_green "Attempting to download $latest_download "
     if __wget_latest "$latest_download" "$tempfile"; then
-      [[ -f "$tempfile" ]] && __cp_rf "$tempfile" "$filename"
+      [ -f "$tempfile" ] && __cp_rf "$tempfile" "$filename"
       exitCode=0
     else
       [ -f "$tempfile" ] && __rm_rf "$tempfile"
       printf_exit "failed to find any files from $latest_download_url"
       exit 1
     fi
-    [[ -f "$filename" ]] && [[ -d "$extract_dir" ]] && __rm_rf "$extract_dir"
+    [ -f "$filename" ] && [ -d "$extract_dir" ] && __rm_rf "$extract_dir"
     case "$filename" in
     *.tar.bz2)
       printf_blue "Extracting to $extract_dir"
@@ -321,45 +505,47 @@ __install_latest() {
       ;;
     *) ;;
     esac
-    [[ -z "$LATEST_RELEASES_BIN_NAME" ]] || extract_name="$LATEST_RELEASES_BIN_NAME"
-    if [[ "$(find "$extract_dir" -maxdepth 1 -type f,d 2>/dev/null | wc -l)" -gt 4 ]]; then
+    [ -z "$LATEST_RELEASES_BIN_NAME" ] || extract_name="$LATEST_RELEASES_BIN_NAME"
+    if [ "$(find "$extract_dir" -maxdepth 1 -type f,d 2>/dev/null | wc -l)" -gt 4 ]; then
       ln -sf "$extract_dir/$extract_name" "$HOME/.local/bin/$extract_name" &&
         chmod -Rf 755 "$HOME/.local/bin/$extract_name" &&
         printf_cyan "Installed $extract_dir/$extract_name to $HOME/.local/bin/$extract_name" ||
         printf_red "Failed to install $extract_name to $HOME/.local/bin/$extract_name"
-    elif [[ -f "$extract_dir/$extract_name" ]] && [[ $(file --mime-type -b "$extract_dir/$extract_name") == "application/x-executable" ]]; then
+    elif [ -f "$extract_dir/$extract_name" ] && [ $(file --mime-type -b "$extract_dir/$extract_name") == "application/x-executable" ]; then
       __cp_rf "$extract_dir/$extract_name" "$HOME/.local/bin/$extract_name" &&
         chmod -Rf 755 "$HOME/.local/bin/$extract_name" &&
         printf_cyan "Installed $extract_dir/$extract_name to $HOME/.local/bin/$extract_name" ||
         printf_red "Failed to install $extract_name to $HOME/.local/bin/$extract_name"
       __rm_rf "$extract_dir"
-    elif [[ -f "$filename" ]] && [[ $(file --mime-type -b "$filename") == "application/x-executable" ]]; then
+    elif [ -f "$filename" ] && [ $(file --mime-type -b "$filename") == "application/x-executable" ]; then
       __cp_rf "$filename" "$HOME/.local/bin/${basenamerepo}" &&
         printf_cyan "Installed $filename to $HOME/.local/bin/${basenamerepo}" ||
         printf_red "Failed to install $filename to $HOME/.local/bin/${basenamerepo}"
     fi
   else
-    manual_dl="$(echo $latest_json | jq -r '.html_url')"
+    manual_dl="$(echo "$latest_json" | jq -r '.html_url')"
     printf_custom $LATEST_RELEASES_OUTPUT_COLOR_ERROR "No releases found from $repo matching $arch"
-    echo "Go to $manual_dl for manual download" | printf_readline $LATEST_RELEASES_OUTPUT_COLOR
+    [ -n "$manual_dl" ] && echo "Go to $manual_dl for manual download" | printf_readline $LATEST_RELEASES_OUTPUT_COLOR_1
     exitCode=1
   fi
-  if sudo -n true; then
-    if [[ -f "$HOME/.local/bin/${basenamerepo}" ]]; then
+  if __can_i_sudo; then
+    if [ -f "$HOME/.local/bin/${basenamerepo}" ]; then
+      __sudoask true
       printf_green "Copying $basenamerepo to /usr/local/bin"
       sudo cp -Rf "$HOME/.local/bin/${basenamerepo}" "/usr/local/bin/${basenamerepo}"
       sudo chmod -Rf 755 "/usr/local/bin/${basenamerepo}"
     fi
   fi
-  [[ -n "$latest_download" ]] && __add_to_latest "$repo" "$repo"
-  [[ -s "$tempfile" ]] && __mv_f "$tempfile" "$filename"
+  [ -n "$latest_download" ] && __add_to_latest "$repo" "$repo"
+  [ -s "$tempfile" ] && __mv_f "$tempfile" "$filename"
   echo
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __browser_download_url() {
-  echo "${1:-$latest_json}" | grep -iE 'browser_download_url' |
-    grep -vE '*.deb|*.rpm' |
+  echo "${1:-$latest_json}" |
+    grep -iE 'browser_download_url' |
+    grep -vE '.*.deb|.*.rpm' |
     grep -E 'tar.*|*.bz|*.zip|.*' |
     cut -d '"' -f 4 |
     grep -i "$(uname -s)" | grep -i "${2:-$arch}" |
@@ -367,22 +553,22 @@ __browser_download_url() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __wget_latest() {
-  [[ -d "$download_dir" ]] || __mkd "$download_dir"
-  if [[ -s "$filename" ]]; then
+  [ -d "$download_dir" ] || __mkd "$download_dir"
+  if [ -s "$filename" ]; then
     printf_yellow "Already downloaded $filename"
     printf_yellow "Reinstalling from $filename"
-    __cp_rf "$filename" "$tempfile"
+    __mv_f "$filename" "$tempfile"
     return 0
-  elif [[ -z "$LATEST_RELEASE_GITHUB_TOKEN" ]]; then
+  elif [ -z "$LATEST_RELEASE_GITHUB_TOKEN" ]; then
     wget -q "${1:-$latest_download}" -O "${2:-$tempfile}" 2>/dev/null
   else
     wget -q --header="Authorization: token ${LATEST_RELEASE_GITHUB_TOKEN}" "${1:-$latest_download}" -O "${2:-$tempfile}" 2>/dev/null
   fi
-  [[ -s "${2:-$tempfile}" ]] && return 0 || return 1
+  [ -s "${2:-$tempfile}" ] && return 0 || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __curl_date() {
-  if [[ -z "$LATEST_RELEASE_GITHUB_TOKEN" ]]; then
+  if [ -z "$LATEST_RELEASE_GITHUB_TOKEN" ]; then
     curl -q -LS -s "${tag_commit_url}" 2>/dev/null | jq -r ".commit.author.date" 2>/dev/null | cut -d 'T' -f 1
   else
     curl -q -LS -H "Authorization: token $LATEST_RELEASE_GITHUB_TOKEN" -s "${tag_commit_url}" 2>/dev/null | jq -r ".commit.author.date" 2>/dev/null | cut -d 'T' -f 1
@@ -390,7 +576,7 @@ __curl_date() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __curl_tag() {
-  if [[ -z "$LATEST_RELEASE_GITHUB_TOKEN" ]]; then
+  if [ -z "$LATEST_RELEASE_GITHUB_TOKEN" ]; then
     curl -q -LSs -H "https://api.github.com/repos/${repo}/tags?per_page=1" 2>/dev/null | jq -r ".[0].name, .[0].commit.url" 2>/dev/null | paste -sd,-
   else
     curl -q -LSs -H "Authorization: token $LATEST_RELEASE_GITHUB_TOKEN" "https://api.github.com/repos/${repo}/tags?per_page=1" 2>/dev/null | jq -r ".[0].name, .[0].commit.url" 2>/dev/null | paste -sd,-
@@ -398,7 +584,7 @@ __curl_tag() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __curl_json() {
-  if [[ -z "$LATEST_RELEASE_GITHUB_TOKEN" ]]; then
+  if [ -z "$LATEST_RELEASE_GITHUB_TOKEN" ]; then
     curl -q -LSs --fail "${1:-$api_url}" 2>/dev/null
   else
     curl -q -LSs --fail -H "Authorization: token $LATEST_RELEASE_GITHUB_TOKEN" "${1:-$api_url}" 2>/dev/null
@@ -406,16 +592,17 @@ __curl_json() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __curl_json_all() {
+  local results=""
   echo "$1" | grep -qs './.' || printf_exit "Usage: $APPNAME username/reponame"
-  local results="$(__curl_json "https://api.github.com/repos/${1:-$repo}/releases" 2>/dev/null)"
-  if [[ -n "$results" ]]; then
+  results="$(__curl_json "https://api.github.com/repos/${1:-$repo}/releases" 2>/dev/null)"
+  if [ -n "$results" ]; then
     printf '%s\n' "$results" | jq -r '.[]' | jq -r '.assets | .[].browser_download_url' | sort | grep '^' ||
       {
         manual_dl="$(echo $results | jq -r '.[] | .html_url' | sort -n | tail -n1 | grep '^')"
         printf_custom $LATEST_RELEASES_OUTPUT_COLOR_ERROR "No releases found from ${1:-$repo}"
-        if [[ -n "$manual_dl" ]]; then
+        if [ -n "$manual_dl" ]; then
           printf_purple "However I did find the following link:"
-          printf '%s\n' "$manual_dl" | printf_readline $LATEST_RELEASES_OUTPUT_COLOR
+          printf '%s\n' "$manual_dl" | printf_readline $LATEST_RELEASES_OUTPUT_COLOR_1
         fi
         exit 1
       }
@@ -425,7 +612,8 @@ __curl_json_all() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __show_latest() {
-  printf_green "Latest releases on GitHub:"
+  set -e
+  printf_purple "Finding the Latest releases on GitHub. This may take a minute:"
   nl=$'\n'
   out=""
   while read -r repo; do
@@ -433,29 +621,33 @@ __show_latest() {
     tag_name=""
     tag_commit_url=""
     tag_commit_date=""
-    set -e
-    if ! tag_info="$(__curl_tag)"; then
-      printf_green "You are API rate limited by GitHub, please authenticate by:"
-      printf_green 'export LATEST_RELEASE_GITHUB_TOKEN="youraccesstoken"'
+    tag_info="$(__curl_tag)"
+    if [ -z "$tag_info" ]; then
+      printf_cyan "Something went very, very wrong"
+      if [ -z "$LATEST_RELEASE_GITHUB_TOKEN" ]; then
+        printf_green "You are likely being rate limited by GitHub, please authenticate by setting your api token:"
+        printf_green 'export LATEST_RELEASE_GITHUB_TOKEN="youraccesstoken"'
+      fi
       exit "${?}"
     fi
-    set -e
     tag_name="$(cut -d ',' -f 1 <<<"${tag_info}")"
     tag_commit_url="$(cut -d ',' -f 2 <<<"${tag_info}")"
     tag_commit_date="$(__curl_date)"
     out+=$"${repo} | ${tag_name} | ${tag_commit_date}${nl}"
   done <"$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST"
-  column -t <<<"${out}" | sort -t "|" -k 3 -r | printf_readline "6"
+  column -t <<<"${out}" |& sort -t "|" -k 3 -r | printf_readline "6"
 }
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __update_install() {
-  if [[ -f "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST" ]] && [[ -z "$1" ]]; then
+  local l="" repo_list=""
+  if [ -f "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST" ] && [ -z "$1" ]; then
     while read -r repo_list; do
-      [[ -n "$repo_list" ]] && __install_latest "$repo_list"
+      [ -n "$repo_list" ] && __install_latest "$repo_list"
       repo_list=
     done <"$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST"
   else
+    echo "$@" | grep -q '/' || { printf_red "You provided an invalid repo" && printf_exit "Usage: $APPNAME install user/repo"; }
     for l in "$@"; do
       __install_latest "$l"
     done
@@ -472,39 +664,41 @@ __api_repos() {
 __api_search() {
   res="$(curl -q -LSsf "https://api.github.com/search/repositories?q=${1:-$repo}&per_page=100&sort=updated" 2>/dev/null |
     jq -r '.items[].full_name' 2>/dev/null || return 1)" &&
-    [ -n "$res" ] && printf '%s\n' "$res" | sort -u || printf_exit "No results found for ${1:-$repo}"
+    [ -n "$res" ] && printf '%s\n' "$res" | sort -u || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __search_help() {
   printf_red "Usage: $APPNAME username/reponame [filter] [grepOpts]"
   printf_red "or: $APPNAME search api <query>"
-  printf_exit "$APPNAME search PowerShell/PowerShell 'arm' '-E linux|amd -v alpine'"
+  printf_exit "$APPNAME search PowerShell/PowerShell 'arm' '-E linux|amd' '-v alpine'"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Default variables
-exitCode="0"
+# User defined variables/import external variables
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application Folders
-LATEST_RELEASES_LOG_DIR="${LATEST_RELEASES_LOG_DIR:-$HOME/.local/log/latest-releases}"
-LATEST_RELEASES_CACHE_DIR="${LATEST_RELEASES_CACHE_DIR:-$HOME/.cache/latest-releases}"
+LATEST_RELEASES_CONFIG_FILE="${LATEST_RELEASES_CONFIG_FILE:-settings.conf}"
 LATEST_RELEASES_CONFIG_DIR="${LATEST_RELEASES_CONFIG_DIR:-$HOME/.config/myscripts/latest-releases}"
 LATEST_RELEASES_CONFIG_BACKUP_DIR="${LATEST_RELEASES_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/latest-releases/backups}"
+LATEST_RELEASES_LOG_DIR="${LATEST_RELEASES_LOG_DIR:-$HOME/.local/log/latest-releases}"
 LATEST_RELEASES_TEMP_DIR="${LATEST_RELEASES_TEMP_DIR:-$HOME/.local/tmp/system_scripts/latest-releases}"
-LATEST_RELEASES_OPTIONS_DIR="${LATEST_RELEASES_OPTIONS_DIR:-$HOME/.local/share/myscripts/latest-releases/options}"
-LATEST_RELEASES_CONFIG_FILE="${LATEST_RELEASES_CONFIG_FILE:-settings.conf}"
+LATEST_RELEASES_CACHE_DIR="${LATEST_RELEASES_CACHE_DIR:-$HOME/.cache/latest-releases}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
-LATEST_RELEASES_OUTPUT_COLOR="${LATEST_RELEASES_OUTPUT_COLOR:-4}"
-LATEST_RELEASES_OUTPUT_COLOR_2="${LATEST_RELEASES_OUTPUT_COLOR:-6}"
+LATEST_RELEASES_OUTPUT_COLOR_1="${LATEST_RELEASES_OUTPUT_COLOR_1:-4}"
+LATEST_RELEASES_OUTPUT_COLOR_2="${LATEST_RELEASES_OUTPUT_COLOR_2:-5}"
 LATEST_RELEASES_OUTPUT_COLOR_GOOD="${LATEST_RELEASES_OUTPUT_COLOR_GOOD:-2}"
 LATEST_RELEASES_OUTPUT_COLOR_ERROR="${LATEST_RELEASES_OUTPUT_COLOR_ERROR:-1}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Notification Settings
-LATEST_RELEASES_GOOD_MESSAGE="${LATEST_RELEASES_GOOD_MESSAGE:-Everything Went OK}"
-LATEST_RELEASES_ERROR_MESSAGE="${LATEST_RELEASES_ERROR_MESSAGE:-Well something seems to have gone wrong}"
 LATEST_RELEASES_NOTIFY_ENABLED="${LATEST_RELEASES_NOTIFY_ENABLED:-yes}"
-LATEST_RELEASES_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
-LATEST_RELEASES_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$LATEST_RELEASES_NOTIFY_CLIENT_ICON}"
+LATEST_RELEASES_GOOD_NAME="${LATEST_RELEASES_GOOD_NAME:-Great:}"
+LATEST_RELEASES_ERROR_NAME="${LATEST_RELEASES_ERROR_NAME:-Error:}"
+LATEST_RELEASES_GOOD_MESSAGE="${LATEST_RELEASES_GOOD_MESSAGE:-No errors reported}"
+LATEST_RELEASES_ERROR_MESSAGE="${LATEST_RELEASES_ERROR_MESSAGE:-Errors were reported}"
+LATEST_RELEASES_NOTIFY_CLIENT_NAME="${LATEST_RELEASES_NOTIFY_CLIENT_NAME:-$APPNAME}"
+LATEST_RELEASES_NOTIFY_CLIENT_ICON="${LATEST_RELEASES_NOTIFY_CLIENT_ICON:-notification-new}"
+LATEST_RELEASES_NOTIFY_CLIENT_URGENCY="${LATEST_RELEASES_NOTIFY_CLIENT_URGENCY:-normal}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional Variables
 LATEST_RELEASE_GITHUB_USERNAME="${LATEST_RELEASE_GITHUB_USERNAME:-$GITHUB_USERNAME}"
@@ -515,57 +709,104 @@ LATEST_RELEASE_DEFAULT_ARCH="${LATEST_RELEASE_DEFAULT_ARCH:-$(uname -m)}"
 LATEST_RELEASE_DOWNLOADS="${LATEST_RELEASE_DOWNLOADS:-$HOME/Downloads/Latest}"
 LATEST_RELEASE_INSTALL_DIR="${LATEST_RELEASE_INSTALL_DIR:-$HOME/.local/share/latest-releases}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Generate non-existing config files
-[ -f "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASES_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
-[ -f "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_GITHUB_AUTH_FILE" ] || __gen_github_auth &>/dev/null
-[ -f "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST" ] || __gen_repolist &>/dev/null
+# Generate config files
+[ -f "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASES_CONFIG_FILE" ] ||
+  [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import config
-[ -f "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASES_CONFIG_FILE" ] && . "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASES_CONFIG_FILE"
-[ -f "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_GITHUB_AUTH_FILE" ] && . "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_GITHUB_AUTH_FILE"
+[ -f "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASES_CONFIG_FILE" ] &&
+  . "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASES_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Ensure Directories and files exist
-[ -d "$LATEST_RELEASES_LOG_DIR" ] || mkdir -p "$LATEST_RELEASES_LOG_DIR" &>/dev/null
-[ -d "$LATEST_RELEASES_TEMP_DIR" ] || mkdir -p "$LATEST_RELEASES_TEMP_DIR" &>/dev/null
-[ -d "$LATEST_RELEASES_CACHE_DIR" ] || mkdir -p "$LATEST_RELEASES_CACHE_DIR" &>/dev/null
-[ -d "$LATEST_RELEASE_INSTALL_DIR" ] || mkdir -p "$LATEST_RELEASE_INSTALL_DIR" &>/dev/null
+# Ensure Directories exist
+[ -d "$LATEST_RELEASES_LOG_DIR" ] ||
+  mkdir -p "$LATEST_RELEASES_LOG_DIR" |& __devnull
+[ -d "$LATEST_RELEASES_TEMP_DIR" ] ||
+  mkdir -p "$LATEST_RELEASES_TEMP_DIR" |& __devnull
+[ -d "$LATEST_RELEASES_CACHE_DIR" ] ||
+  mkdir -p "$LATEST_RELEASES_CACHE_DIR" |& __devnull
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LATEST_RELEASES_TEMP_FILE="${LATEST_RELEASES_TEMP_FILE:-$(mktemp $LATEST_RELEASES_TEMP_DIR/XXXXXX 2>/dev/null)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup trap to remove temp file
-trap 'exitCode=${exitCode:-$?};[ -n "$LATEST_RELEASES_TEMP_FILE" ] && [ -f "$LATEST_RELEASES_TEMP_FILE" ] && rm -Rf "$LATEST_RELEASES_TEMP_FILE" &>/dev/null' EXIT
+trap '__trap_exit' EXIT
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup notification function
-if [ "$LATEST_RELEASES_NOTIFY_ENABLED" = "yes" ]; then
-  __notifications() {
-    export NOTIFY_GOOD_MESSAGE="${LATEST_RELEASES_GOOD_MESSAGE}"
-    export NOTIFY_ERROR_MESSAGE="${LATEST_RELEASES_ERROR_MESSAGE}"
-    export NOTIFY_CLIENT_NAME="${LATEST_RELEASES_NOTIFY_CLIENT_NAME}"
-    export NOTIFY_CLIENT_ICON="${LATEST_RELEASES_NOTIFY_CLIENT_ICON}"
-    notifications "$@" || return 1
-  }
-else
-  __notifications() { false; }
-fi
+__notifications() {
+  __cmd_exists notifications || return
+  [ "$LATEST_RELEASES_NOTIFY_ENABLED" = "yes" ] || return
+  [ "$SEND_NOTIFICATION" = "no" ] && return
+  (
+    set +x
+    export SCRIPT_OPTS="" _DEBUG=""
+    export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$LATEST_RELEASES_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$LATEST_RELEASES_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$LATEST_RELEASES_NOTIFY_CLIENT_ICON}"
+    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$LATEST_RELEASES_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$LATEST_RELEASES_NOTIFY_CLIENT_URGENCY}"
+    notifications "$@"
+    retval=$?
+    return $retval
+  ) |& __devnull &
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Show warn message if variables are missing
+# Set custom actions
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set additional variables/Argument/Option settings
-SETARGS="$*"
-SHORTOPTS="f:,t:,b:"
-LONGOPTS="options,config,version,help,dir:,filename:,type:,bin:"
-ARRAY="add remove install gitea info update list search"
+# Argument/Option settings
+SETARGS=("$@")
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
+SHORTOPTS="f:,t:,b:"
+SHORTOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
+LONGOPTS+=",filename:,type:,bin:"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ARRAY="add remove install gitea info update list search"
+ARRAY+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LIST=""
+LIST+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$APPNAME" -- "$@" 2>/dev/null)
 eval set -- "${setopts[@]}" 2>/dev/null
 while :; do
-  case $1 in
+  case "$1" in
+  --raw)
+    shift 1
+    export SHOW_RAW="true"
+    printf_column() { tee | grep '^'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    ;;
+  --debug)
+    shift 1
+    set -xo pipefail
+    export SCRIPT_OPTS="--debug"
+    export _DEBUG="on"
+    __devnull() { tee || return 1; }
+    __devnull2() { eval "$@" |& tee || return 1; }
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
+    ;;
   --options)
     shift 1
-    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
-    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
-    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
-    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' 4
+    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' 4
+    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
     exit $?
     ;;
   --version)
@@ -581,13 +822,16 @@ while :; do
   --config)
     shift 1
     __gen_config
-    __gen_repolist
-    __gen_update_list
-    __gen_github_auth
     exit $?
     ;;
+  --silent)
+    shift 1
+    LATEST_RELEASES_SILENT="true"
+    ;;
   --dir)
+    CWD_IS_SET="TRUE"
     LATEST_RELEASES_CWD="$2"
+    [ -d "$LATEST_RELEASES_CWD" ] || mkdir -p "$LATEST_RELEASES_CWD" |& __devnull
     shift 2
     ;;
   -f | --filename)
@@ -608,20 +852,52 @@ while :; do
     ;;
   esac
 done
-#set -- "$SETARGS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Actions based on env
+# Get directory from args
+# set -- "$@"
+# for arg in "$@"; do
+# if [ -d "$arg" ]; then
+# LATEST_RELEASES_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
+# elif [ -f "$arg" ]; then
+# LATEST_RELEASES_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
+# else
+# SET_NEW_ARGS+=("$arg")
+# fi
+# done
+# set -- "${SET_NEW_ARGS[@]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set directory to first argument
+# [ -d "$1" ] && LATEST_RELEASES_CWD="$1" && shift 1 || LATEST_RELEASES_CWD="${LATEST_RELEASES_CWD:-$PWD}"
+LATEST_RELEASES_CWD="$(realpath "${LATEST_RELEASES_CWD:-$PWD}" 2>/dev/null)"
+# if [ -d "$LATEST_RELEASES_CWD" ] && cd "$LATEST_RELEASES_CWD"; then
+# if [ "$LATEST_RELEASES_SILENT" != "true" ]; then
+# printf_cyan "Setting working dir to $LATEST_RELEASES_CWD"
+# fi
+# else
+# printf_exit "💔 $LATEST_RELEASES_CWD does not exist 💔"
+# fi
+export LATEST_RELEASES_CWD
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set actions based on variables
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
-cmd_exists --error --ask bash jq curl wget || exit 1 # exit 1 if not found
-#am_i_online --error || exit 1     # exit 1 if no internet
+#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+#cmd_exists --error --ask bash || exit 3 # exit 3 if not found
+#am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 case "$1" in
+token)
+  [ -n "$LATEST_RELEASE_GITHUB_TOKEN" ] && printf_cyan "Your API Token is set" || printf_exit "Token is not set"
+  exit
+  ;;
 add)
   shift 1
   for l in "$@"; do
@@ -663,10 +939,9 @@ info)
 list)
   shift 1
   show="$(<"$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST")"
-  if [[ -n "$show" ]]; then
-    printf '\n'
+  if [ -n "$show" ]; then
     printf_purple "The following packages are available for installation:"
-    printf '%s\n' "$show" | printf_column '6'
+    printf '%s\n' "$show" | printf_column "$LATEST_RELEASES_OUTPUT_COLOR_1"
   else
     printf_return "There are no packages available"
   fi
@@ -688,35 +963,53 @@ search)
     case "$1" in
     release)
       shift 1
-      [ $# = 0 ] && __search_help || __api_search "$@"
+      [ $# = 0 ] && __search_help && exit 1 || printf_purple "Searching for $*"
       if echo "$1" | grep -vq './.' && [ $# = 0 ]; then
         __search_help
       elif [ $# -eq 1 ]; then
-        __curl_json_all "$1"
+        __curl_json_all "$1" | printf_readline "$LATEST_RELEASES_OUTPUT_COLOR_1"
       elif [ $# -gt 1 ]; then
-        __curl_json_all "$1" | grep -i $3 "$2"
+        __curl_json_all "$1" | grep -i $3 "$2" | printf_readline "$LATEST_RELEASES_OUTPUT_COLOR_1"
       fi
       ;;
     *)
-      search_gh_api "$1" | printf_readcolumn
+      query="$1"
+      # { printf_purple "Searching github for $*" && __api_search "$@" || printf_exit "No results found for ${1:-$repo}"; }
+      printf_purple "Searching github for $*"
+      results="$(search_gh_api "$query" | grep '^' || __api_search "$query")"
+      if [ -n "$results" ]; then
+        #printf_cyan "Found the following results for $query"
+        printf '%s\n' "$results" | printf_readline "$LATEST_RELEASES_OUTPUT_COLOR_1"
+      else
+        printf_red "No results found for $query"
+      fi
       exit $?
       ;;
     esac
     ;;
-  *) exit ;;
+  *)
+    printf_exit "Usage: $APPNAME search api [repo,search] searchTerm"
+    ;;
   esac
   ;;
 
 *)
-  if [[ $# -ne 0 ]]; then
-    for l in "$@"; do
-      __install_latest "$@" && __add_to_latest "$l"
+  if [ $# -ne 0 ]; then
+    for app in "$@"; do
+      if echo "$app" | grep -q '/'; then
+        __install_latest "$app" && true || false
+      else
+        printf_custom "${YELLOW}$app${NC} ${RED}is an invalid repo: format is user/repo${NC}"
+      fi
     done
   else
     __show_latest
   fi
   ;;
 esac
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set exit code
+exitCode="${exitCode:-$?}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

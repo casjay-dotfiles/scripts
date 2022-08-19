@@ -1,29 +1,42 @@
 #!/usr/bin/env bash
+# shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202207042242-git
-# @Author            :  Jason Hempstead
-# @Contact           :  jason@casjaysdev.com
-# @License           :  WTFPL
-# @ReadME            :  notes --help
-# @Copyright         :  Copyright: (c) 2021 Jason Hempstead, Casjays Developments
-# @Created           :  Thursday, Aug 19, 2021 01:17 EDT
-# @File              :  notes
-# @Description       :  Take notes using bash
-# @TODO              :  Refactor code
-# @Other             :
-# @Resource          :
+##@Version           :  202208141346-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  jason@casjaysdev.com
+# @@License          :  WTFPL
+# @@ReadME           :  notes --help
+# @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
+# @@Created          :  Sunday, Aug 14, 2022 13:46 EDT
+# @@File             :  notes
+# @@Description      :  Take notes using bash
+# @@Changelog        :  New script
+# @@TODO             :  Refactor code
+# @@Other            :
+# @@Resource         :
+# @@Terminal App     :  no
+# @@sudo/root        :  no
+# @@Template         :  bash/system
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0" 2>/dev/null)"
-VERSION="202108190117-git"
+VERSION="202208141346-git"
 HOME="${USER_HOME:-$HOME}"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${SUDO_USER:-$USER}"
-SRC_DIR="${BASH_SOURCE%/*}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+NOTES_REQUIRE_SUDO="${NOTES_REQUIRE_SUDO:-no}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set bash options
-if [[ -n "$DISPLAY" ]] && { [[ ! -p "/dev/stdin" ]] && [[ ! -t 0 ]]; } && { [[ "$1" = *term ]] || [ $# = 0 ]; }; then TERMINAL_APP="TRUE" eval ${TERMINAL:-myterminal} -e "${APPNAME:-bash} ${*:-}" && { exit || exit $?; }; fi
-if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
-
+# Reopen in a terminal
+#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initial debugging
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# pipes fail
+set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
@@ -37,53 +50,111 @@ elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
   . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
 else
   echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
-  exit 90
+  exit 1
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# user system devenv dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+# Options are: *_install
+# desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr
+#   pkmgr system systemmgr thememgr user wallpapermgr
 user_install && __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set functions
-__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
+# Send all output to /dev/null
+__devnull() {
+  tee &>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# Send errors to /dev/null
+__devnull2() {
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# See if the executable exists
+__cmd_exists() {
+  exitCode=0
+  [ -n "$1" ] && local exitCode="" || return 0
+  for cmd in "$@"; do
+    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
+  done
+  [ $exitCode -eq 0 ] || exitCode=3
+  return ${exitCode:-$?}
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for a valid internet connection
+__am_i_online() {
+  local exitCode=0
+  curl -q -LSsfI --max-time 1 --retry 0 "${1:-http://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# colorization
+if [ "$SHOW_RAW" = "true" ]; then
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional printf_ colors
+__printf_head() { printf_blue "$1"; }
+__printf_opts() { printf_purple "$1"; }
+__printf_line() { printf_cyan "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# output version
+__version() { printf_cyan "$VERSION"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# list options
+__list_options() {
+  printf_color "$1: " "$5"
+  echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g'
+  printf_newline
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create the config file
 __gen_config() {
-  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Generating the config file in"
-  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "$NOTES_CONFIG_DIR/$NOTES_CONFIG_FILE"
+  local NOTIFY_CLIENT_NAME="$APPNAME"
+  if [ "$INIT_CONFIG" != "TRUE" ]; then
+    printf_blue "Generating the config file in"
+    printf_cyan "$NOTES_CONFIG_DIR/$NOTES_CONFIG_FILE"
+  fi
   [ -d "$NOTES_CONFIG_DIR" ] || mkdir -p "$NOTES_CONFIG_DIR"
   [ -d "$NOTES_CONFIG_BACKUP_DIR" ] || mkdir -p "$NOTES_CONFIG_BACKUP_DIR"
   [ -f "$NOTES_CONFIG_DIR/$NOTES_CONFIG_FILE" ] &&
     cp -Rf "$NOTES_CONFIG_DIR/$NOTES_CONFIG_FILE" "$NOTES_CONFIG_BACKUP_DIR/$NOTES_CONFIG_FILE.$$"
   cat <<EOF >"$NOTES_CONFIG_DIR/$NOTES_CONFIG_FILE"
 # Settings for notes
-NOTES_EDITOR="${NOTES_EDITOR:-vim}"
-NOTES_SERVER_NAME="${NOTES_SERVER_NAME:-localhost}"
-NOTES_SERVER_PORT="${NOTES_SERVER_PORT:-65000}"
-NOTES_GIT_ENABLED="${NOTES_GIT_ENABLED:-enabled}"
-NOTES_FOLDER="\$(date +%Y)"
-NOTES_FILE="\$(date +%m).txt"
-NOTES_HOME="${NOTES_HOME:-$HOME/.local/share/editors/notes}"
-NOTES_SERVER_DIRECTORY="${NOTES_HOME}"
-NOTES_SERVER_TIMEOUT="${NOTES_SERVER_TIMEOUT:-600}"
-NOTES_LOG_FILE="${NOTES_TEMP_DIR}/notes_server.log"
-NOTES_DEDUP_NOTIFY="${NOTES_DEDUP_NOTIFY:-no}"
-#NOTES_PATH="\${NOTES_HOME}/\${NOTES_FOLDER}/\${NOTES_FILE}"
-#NOTES_SERVER_PATH="\${NOTES_SERVER_DIRECTORY}/\${NOTES_FOLDER}/\${NOTES_FILE}"
-
-# Notification settings
-NOTES_GOOD_MESSAGE="${NOTES_GOOD_MESSAGE:-Everything Went OK}"
-NOTES_ERROR_MESSAGE="${NOTES_ERROR_MESSAGE:-Well something seems to have gone wrong}"
-NOTES_NOTIFY_ENABLED="${NOTES_NOTIFY_ENABLED:-yes}"
-NOTES_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
-NOTES_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$NOTES_NOTIFY_CLIENT_ICON}"
-
-# Colorization settings
-NOTES_OUTPUT_COLOR="${NOTES_OUTPUT_COLOR:-5}"
-NOTES_OUTPUT_COLOR_GOOD="${NOTES_OUTPUT_COLOR_GOOD:-2}"
-NOTES_OUTPUT_COLOR_ERROR="${NOTES_OUTPUT_COLOR_ERROR:-1}"
+NOTES_HOME="${NOTES_HOME:-}"
+NOTES_EDITOR="${NOTES_EDITOR:-}"
+NOTES_SERVER_NAME="${NOTES_SERVER_NAME:-}"
+NOTES_SERVER_PORT="${NOTES_SERVER_PORT:-}"
+NOTES_GIT_ENABLED="${NOTES_GIT_ENABLED:-}"
+NOTES_SERVER_DIRECTORY="${NOTES_SERVER_DIRECTORY:-}"
+NOTES_SERVER_TIMEOUT="${NOTES_SERVER_TIMEOUT:-}"
+NOTES_LOG_FILE="${NOTES_LOG_FILE:-}"
+NOTES_DEDUP_NOTIFY="${NOTES_DEDUP_NOTIFY:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+NOTES_OUTPUT_COLOR_1="${NOTES_OUTPUT_COLOR_1:-}"
+NOTES_OUTPUT_COLOR_2="${NOTES_OUTPUT_COLOR_2:-}"
+NOTES_OUTPUT_COLOR_GOOD="${NOTES_OUTPUT_COLOR_GOOD:-}"
+NOTES_OUTPUT_COLOR_ERROR="${NOTES_OUTPUT_COLOR_ERROR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+NOTES_NOTIFY_ENABLED="${NOTES_NOTIFY_ENABLED:-}"
+NOTES_GOOD_NAME="${NOTES_GOOD_NAME:-}"
+NOTES_ERROR_NAME="${NOTES_ERROR_NAME:-}"
+NOTES_GOOD_MESSAGE="${NOTES_GOOD_MESSAGE:-}"
+NOTES_ERROR_MESSAGE="${NOTES_ERROR_MESSAGE:-}"
+NOTES_NOTIFY_CLIENT_NAME="${NOTES_NOTIFY_CLIENT_NAME:-}"
+NOTES_NOTIFY_CLIENT_ICON="${NOTES_NOTIFY_CLIENT_ICON:-}"
+NOTES_NOTIFY_CLIENT_URGENCY="${NOTES_NOTIFY_CLIENT_URGENCY:-}"
 
 EOF
+  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
   if [ -f "$NOTES_CONFIG_DIR/$NOTES_CONFIG_FILE" ]; then
-    [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for $APPNAME has been created"
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
+    . "$NOTES_CONFIG_DIR/$NOTES_CONFIG_FILE"
     exitCode=0
   else
     printf_red "Failed to create the config file"
@@ -92,13 +163,137 @@ EOF
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Additional functions
+# Help function - Align to 50
+__help() {
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "notes:  Take notes using bash - $VERSION"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Usage: notes [options] [commands]"
+  __printf_line "*                               - Opens your notes in vim"
+  __printf_line "something you want to jot down  - Appends that text to the file"
+  __printf_line "xclip -o | notes or notes -     - Appends stdin to the file"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "client usage:                   "
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "client                          - used to send notes to the server - same syntax as notes"
+  __printf_line "client message to send          - Appends that text to the server file"
+  __printf_line "xclip -o | notes client         - Appends stdin to the server file"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "server usage:                   "
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "server                          - Run notes as a server using netcat"
+  __printf_line "server open                     - Open your notes on remote server"
+  __printf_line "server open all                 - Open all your notes on remote server"
+  __printf_line "server --status                 - Shows the current status of the server"
+  __printf_line "server --kill                   - Initiates the kill to stop the server"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "systemd server usage:           "
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "service systemd                 - Systemd functions"
+  __printf_line "service systemd install         - Installs notes as a service using systemd"
+  __printf_line "service systemd remove          - Remove the notes systemd service"
+  __printf_line "service systemd start           - Start the notes systemd service"
+  __printf_line "service systemd stop            - Stop the notes systemd service"
+  __printf_line "service systemd restart         - Restart the notes systemd service"
+  __printf_line "service systemd status          - Get the notes systemd service status"
+  __printf_line "service systemd run/vars        - Used by systemd to run the notes server"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Other Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--help                          - Shows this message"
+  __printf_line "--config                        - Generate user config file"
+  __printf_line "--version                       - Show script version"
+  __printf_line "--options                       - Shows all available options"
+  __printf_line "--debug                         - Enables script debugging"
+  __printf_line "--raw                           - Removes all formatting on output"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "All variables can be overwritten by editing the file"
+  __printf_opts "$NOTES_CONFIG_DIR/$NOTES_CONFIG_FILE"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() {
+  { [ $(id -u) -ne 0 ] || [ $EUID -ne 0 ] || [ "$WHOAMI" != "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep -s "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# # Get sudo password
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run sudo
+__sudorun() {
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo
+__can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User can run sudo
+__sudoif() {
+  __user_is_root && return 0
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run command as root
+requiresudo() {
+  if [ "$NOTES_REQUIRE_SUDO" = "yes" ] && [ -z "$NOTES_REQUIRE_SUDO_RUN" ]; then
+    export NOTES_REQUIRE_SUDO="no"
+    export NOTES_REQUIRE_SUDO_RUN="true"
+    __sudo "$@"
+    exit $?
+  else
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  CMD="${1:-echo}" && shift 1
+  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  [ "$(basename "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  if __sudoif; then
+    export PATH="$PATH"
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    exitCode=$?
+  else
+    printf '%s\n' "This requires root to run"
+    exitCode=1
+  fi
+  return ${exitCode:-1}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  exitCode=${exitCode:-$?}
+  [ -f "$NOTES_TEMP_FILE" ] && rm -Rf "$NOTES_TEMP_FILE" &>/dev/null
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined functions
 __server_start() {
   notes server start "$@" &>/dev/null &
   disown || return 1
   sleep 3
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # SystemD service file
 systemd_service() {
@@ -106,29 +301,28 @@ systemd_service() {
     printf_exit 1 1 "User autostart is enabled"
   fi
   [ -f "$1" ] && sudo rm -Rf "$1"
-  echo '
+  cat <<EOF | sudo tee "$1" &>/dev/null
 [Unit]
 Description=Notes Server
 After=network.target
 
 [Service]
-#Type=simple
 Type=dbus
 Restart=always
 RestartSec=5
 KillMode=mixed
-User='${USER:-daemon}'
-Group='${USER:-daemon}'
+User=${USER:-daemon}
+Group=${USER:-daemon}
 
-Environment=HOME='${HOME}'
-Environment=TERM='${TERM:-linux}'
-Environment=NOTES_TEMP_DIR='${TMP:-/tmp/notes_server}'
-Environment=NOTES_HOME='${HOME}/.local/share/editors/notes'
-Environment=NOTES_LOG_FILE='${NOTES_TEMP_DIR}/notes_server.log'
+Environment=HOME="${HOME}"
+Environment=TERM="${TERM:-linux}"
+Environment=NOTES_TEMP_DIR="${TMP:-/tmp/notes_server}"
+Environment=NOTES_HOME="${HOME}/.local/share/editors/notes"
+Environment=NOTES_LOG_FILE="${NOTES_TEMP_DIR}/notes_server.log"
 Environment=NOTES_SERVER_NAME="$(hostname -f)"
-Environment=NOTES_SERVER_PORT=65000
-Environment=NOTES_TEMP_FILE="$(mktemp $NOTES_TEMP_DIR/notes.XXXXXX.txt 2>/dev/null)"
-Environment=NOTES_NOTIFY_ENABLED="'${NOTES_NOTIFY_ENABLED:-yes}'"
+Environment=NOTES_SERVER_PORT="65000"
+Environment=NOTES_TEMP_FILE="$NOTES_TEMP_DIR/notes.server.tmp.txt"
+Environment=NOTES_NOTIFY_ENABLED="${NOTES_NOTIFY_ENABLED:-yes}"
 
 ExecStartPre=/usr/local/bin/notes server systemd run vars
 ExecStopPost=/usr/bin/rm -Rf "$NOTES_TEMP_DIR $NOTES_LOG_FILE"
@@ -140,7 +334,8 @@ RemainAfterExit=yes
 
 [Install]
 WantedBy=multi-user.target
-' | sudo tee "$1" &>/dev/null
+
+EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Enable user autostart
@@ -149,7 +344,7 @@ __server_enable() {
     printf_exit 1 1 "$ICON_WARN systemd service already exists"
   fi
   printf_green "Enabling the Notes Server on port $NOTES_SERVER_PORT"
-  cat <<EOF >"$HOME/.config/autostart/notes-server.desktop"
+  cat <<EOF | tee "$HOME/.config/autostart/notes-server.desktop" &>/dev/null
 #!/usr/bin/env xdg-open
 
 [Desktop Entry]
@@ -166,6 +361,7 @@ Actions=
 Categories=System;Development;GTK;X-XFCE;GNOME;
 Keywords=notes;server;
 StartupNotify=true
+
 EOF
   { __server_start loop & } || false
   if [ $? = 0 ]; then
@@ -203,10 +399,43 @@ __server_disable() {
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Netcat fix
-netcat="$(command -v nc 2>/dev/null || command -v netcat 2>/dev/null)"
-__netcat_test() { cmd_exists $netcat || printf_exit "The program netcat is not installed"; }
-__nc_send() { $netcat -c $1 $2 2>>"$NOTES_LOG_FILE" && true || $netcat -w 1 $1 $2 2>>"$NOTES_LOG_FILE" || return 1; }
+NOTES_NETCAT_BIN="$(builtin type -P nc 2>/dev/null || builtin type -P netcat 2>/dev/null || false)"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__netcat_pids() {
+  netstat -tupln 2>/dev/null | grep ":$1" | grep "$(__basename ${NOTES_NETCAT_BIN:-nc})" |
+    awk '{print $7}' | sed 's#'/"$(__basename ${NOTES_NETCAT_BIN:-nc})"'##g' | grep '^'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__kill_netpid() {
+  netstatg "$1" | grep "$(__basename "$2")" | awk '{print $7}' |
+    sed 's#/'$2'##g' && netstat -taupln | grep -qv "$1" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__netcat_kill() {
+  pidof "$NOTES_NETCAT_BIN" &>/dev/null && kill -s KILL "$(__netcat_pids "$1")" &>/dev/null
+  netstat -taupln | grep -Fqv ":$1 " || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#__kill_server "port required" "print success" "print fail" "success message" "failed message"
+__netcat_kill_server() {
+  local port="" print_succ="" print_fail="" mess_succ="" mess_fail=""
+  port="${1:?}"
+  print_succ="${2:-printf_green}"
+  print_fail="${3:-printf_red}"
+  mess_succ="${4:-Server has been stopped}"
+  mess_fail="${5:-Failed to stop}"
+  __netcat_kill "${port}" >/dev/null 2>&1 &&
+    ${print_succ} "${mess_succ}" || ${print_fail} "${mess_fail}"
+  sleep 2
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__netcat_test() {
+  __cmd_exists $NOTES_NETCAT_BIN || printf_exit "The program netcat is not installed"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__nc_send() {
+  eval $NOTES_NETCAT_BIN -c $1 $2 2>>"$NOTES_LOG_FILE" && true || $NOTES_NETCAT_BIN -w 1 $1 $2 2>>"$NOTES_LOG_FILE" || return 1
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __local() {
   if [ "$NOTES_SERVER_NAME" = "$(hostname -f)" ] || [ "$NOTES_SERVER_NAME" = "$(hostname -s)" ] ||
@@ -223,8 +452,9 @@ __notes() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __dedup() {
-  local _MSG="$1"
-  local _NOTESP=${2:-$NOTES_PATH}
+  local _MSG="" _NOTESP=""
+  _MSG="$1"
+  _NOTESP=${2:-$NOTES_PATH}
   shift $#
   if grep -sqx "$_MSG" "$_NOTESP"; then
     DEDUP=true
@@ -239,7 +469,7 @@ __dedup() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #__update_notes "$message" "${NOTES_PATH}"
 __update_notes() {
-  [[ $NOTES_SERVER_NAME =~ $HOSTNAME ]] && return
+  [[ "$NOTES_SERVER_NAME" =~ $HOSTNAME ]] && return
   if __dedup "$1" "$2"; then
     printf "%s\n" "$1" >>"${2:-$NOTES_PATH}" 2>>"${3:-$NOTES_LOG_FILE}" && exitCode=0 && __notifications "New Note" "$1\nposted to\n$2"
     if [ "$exitCode" -ne 0 ]; then __notifications "Failed to post the note"; fi
@@ -268,8 +498,9 @@ __run_sync() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __sync_tmp() {
-  local _NOTESP="${1:-$NOTES_PATH}"
-  local _TPATH="${2:-$_PATH}"
+  local _NOTESP="" _TPATH=""
+  _NOTESP="${1:-$NOTES_PATH}"
+  _TPATH="${2:-$_PATH}"
   shift
   if [ -n "$_TPATH" ]; then cat "$_NOTESP" "$_TPATH" >"$NOTES_TEMP_DIR/notes_cli.tmp" &&
     __mv_f "$NOTES_TEMP_DIR/notes_cli.tmp" "$_NOTESP"; fi
@@ -278,13 +509,12 @@ __sync_tmp() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __sync_all() {
   [ -z "$DEDUP" ] || return
-  local exitCode=0
-  local notesFile=""
-  local _NOTESP=${1:-$NOTES_PATH}
-  local _NOTESA="${2:-$NOTES_HOME/all.txt}"
-  local _NOTES_TMPFILE="${NOTES_TEMP_DIR:-/tmp}/notes.$$.tmp"
-  local _ARCHIVE="$NOTES_HOME/archive/$(date +'%y-%m-%d').txt"
-  [[ -f "$_NOTES_TMPFILE" ]] && rm -f "$_NOTES_TMPFILE"
+  local exitCode=0 notesFile="" _NOTESP="" _NOTESA="" _NOTES_TMPFILE="" _ARCHIVE=""
+  _NOTESP=${1:-$NOTES_PATH}
+  _NOTESA="${2:-$NOTES_HOME/all.txt}"
+  _NOTES_TMPFILE="${NOTES_TEMP_DIR:-/tmp}/notes.$$.tmp"
+  _ARCHIVE="$NOTES_HOME/archive/$(date +'%y-%m-%d').txt"
+  [ -f "$_NOTES_TMPFILE" ] && rm -f "$_NOTES_TMPFILE"
   [ -f "$_NOTESA" ] || touch "$_NOTESP"
   [ -f "$_NOTESA" ] || cat "$_NOTESP" >"$_NOTESA" 2>/dev/null
   for notesDir in $(__listdirfiles); do
@@ -310,11 +540,12 @@ __sync_all() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Server function for user autostart
 __server() {
+  local _PORT="" _KILL="" _TMPFILE="" NOTES_SERVER_LOOP="${NOTES_SERVER_LOOP:-}" errormsg=""
   [ "$1" = "loop" ] && NOTES_SERVER_LOOP="yes"
-  local _PORT="$NOTES_SERVER_PORT"
-  local _KILL="$NOTES_TEMP_DIR/kill_notes"
-  local _TMPFILE="$NOTES_TEMP_FILE"
-  local NOTES_SERVER_LOOP="$NOTES_SERVER_LOOP"
+  _PORT="$NOTES_SERVER_PORT"
+  _KILL="$NOTES_TEMP_DIR/kill_notes"
+  _TMPFILE="$NOTES_TEMP_FILE"
+  NOTES_SERVER_LOOP="$NOTES_SERVER_LOOP"
   __mkd "$NOTES_TEMP_DIR"
   __netcat_test
   netstatg "$_PORT" &>/dev/null && printf_exit "Already Running" || printf_green "Launching server on port $_PORT"
@@ -322,7 +553,7 @@ __server() {
     __notifications "Notes Server" "Launching server on port $_PORT"
     echo "Starting notes server on port $_PORT" >>"$NOTES_LOG_FILE"
   fi
-  timeout ${NOTES_SERVER_TIMEOUT:-600} $netcat -l -p $_PORT >"$_TMPFILE"
+  timeout ${NOTES_SERVER_TIMEOUT:-600} $NOTES_NETCAT_BIN -l -p $_PORT >"$_TMPFILE"
   message="$(<"$_TMPFILE")"
   if __dedup "$message" "$NOTES_PATH"; then
     __update_notes "$message" "$NOTES_PATH" "$NOTES_LOG_FILE"
@@ -348,11 +579,14 @@ __server() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Server function for SystemD
 __run_service() {
-  local _PORT="$NOTES_SERVER_PORT"
-  local _PATH="$NOTES_TEMP_FILE"
-  local NOTES_NOTIFY_ENABLED=${NOTES_NOTIFY_ENABLED:-yes}
-  local DISPLAY="${DISPLAY:-:0.0}"
-  local NOTES_SERVER_LOOP="$NOTES_SERVER_LOOP"
+  local _PORT="" _PATH="" DISPLAY="${DISPLAY:-}"
+  local NOTES_SERVER_LOOP="${NOTES_SERVER_LOOP:-}"
+  local NOTES_NOTIFY_ENABLED="${NOTES_NOTIFY_ENABLED:-}"
+  _PORT="$NOTES_SERVER_PORT"
+  _PATH="$NOTES_TEMP_FILE"
+  NOTES_NOTIFY_ENABLED=${NOTES_NOTIFY_ENABLED:-yes}
+  DISPLAY="${DISPLAY:-:0.0}"
+  NOTES_SERVER_LOOP="$NOTES_SERVER_LOOP"
   kill -s KILL "$(netstatg $_PORT | awk '{print $7}' | head -n 1 | sed 's#/.*##g')" || true
   if [ "$NOTES_SERVER_LOOP" != "yes" ]; then
     echo "Launching server on port $_PORT"
@@ -360,7 +594,7 @@ __run_service() {
   fi
   rm -Rf "$NOTES_TEMP_DIR/kill_notes"
   rm -Rf "$_PATH"
-  timeout ${NOTES_SERVER_TIMEOUT:-600} $netcat -l -p "$_PORT" >"$_PATH"
+  timeout ${NOTES_SERVER_TIMEOUT:-600} $NOTES_NETCAT_BIN -l -p "$_PORT" >"$_PATH"
   if __file_not_empty "$_PATH"; then
     cat "$_PATH" >>"${NOTES_PATH}" 2>>"$NOTES_LOG_FILE" || echo "Failed to commit the note"
     echo "New note: $(cat $_PATH) in ${NOTES_PATH}"
@@ -371,6 +605,8 @@ __run_service() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Client function
 __client() {
+  local MESSAGE="" DEDUP_NOTIFY="" _SERVER="" _PORT="" _PATH=""
+  local _WRITE_MESSAGE="" _POSTMESSAGE=""
   __failed() {
     __notifications "${1:-NotesCLI}" "${2:-$MESSAGE Failed to send}"
     printf_red "failed to send message"
@@ -380,22 +616,22 @@ __client() {
     __notifications "${1:-NotesCLI}" "${2:-$MESSAGE has been sent}"
     return 0
   }
-  local MESSAGE="$1"
-  local DEDUP_NOTIFY="${DEDUP_NOTIFY:-no}"
-  local _SERVER="${NOTES_SERVER_NAME}"
-  local _PORT=${NOTES_SERVER_PORT}
-  local _PATH="$NOTES_TEMP_FILE"
-  local _WRITE_MESSAGE="$(printf "%s\n" "$*" >"$_PATH" 2>>$NOTES_TEMP_DIR/notes_client && echo success || echo failed)"
+  MESSAGE="$1"
+  DEDUP_NOTIFY="${DEDUP_NOTIFY:-no}"
+  _SERVER="${NOTES_SERVER_NAME}"
+  _PORT=${NOTES_SERVER_PORT}
+  _PATH="$NOTES_TEMP_FILE"
+  _WRITE_MESSAGE="$(printf "%s\n" "$*" >"$_PATH" 2>>$NOTES_TEMP_DIR/notes_client && echo success || echo failed)"
   __netcat_test
   printf_green "Attempting to send message to $_SERVER on $_PORT"
-  local _POSTMESSAGE="$(cat "$_PATH" 2>>$NOTES_TEMP_DIR/notes_client | __nc_send "$_SERVER" "$_PORT" 2>>$NOTES_TEMP_DIR/notes_client && echo success || echo failed)"
-  if [[ "$_WRITE_MESSAGE" == "success" ]] && [[ "$_POSTMESSAGE" == "success" ]]; then
+  _POSTMESSAGE="$(cat "$_PATH" 2>>$NOTES_TEMP_DIR/notes_client | __nc_send "$_SERVER" "$_PORT" 2>>$NOTES_TEMP_DIR/notes_client && echo success || echo failed)"
+  if [ "$_WRITE_MESSAGE" == "success" ] && [ "$_POSTMESSAGE" == "success" ]; then
     __dedup "$MESSAGE" "$NOTES_PATH"
     __success "NotesCLI"
     exitCode=0
-  elif [[ "$_WRITE_MESSAGE" == "success" ]] || [[ "$_POSTMESSAGE" == "success" ]]; then
+  elif [ "$_WRITE_MESSAGE" == "success" ] || [ "$_POSTMESSAGE" == "success" ]; then
     $_POSTMESSAGE
-    if [[ "$_POSTMESSAGE" == "success" ]]; then
+    if [ "$_POSTMESSAGE" == "success" ]; then
       __dedup "$MESSAGE" "$NOTES_PATH"
       __success "NotesCLI"
       exitCode=0
@@ -426,8 +662,10 @@ __client() {
 # Import previous month notes
 __import() {
   if [ -f "${1:-$NOTES_PREV_FILE}" ]; then
-    if cat "${1:-$NOTES_PREV_FILE}" | sed '/^\#/d;/^$/d' >>"${NOTES_PATH}"; then
+    if cat "${1:-$NOTES_PREV_FILE}" | sed '/^\#/d;/^$/d' | sort -u >>"${NOTES_PATH}"; then
       printf_green "Notes have been imported"
+      sleep 1
+      return 0
     else
       return 1
     fi
@@ -435,20 +673,21 @@ __import() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __add_remote() {
-  [[ -f "$NOTES_HOME/.nopush" ]] && return
+  [ -f "$NOTES_HOME/.nopush" ] && return
   git -C "$NOTES_HOME" remote -v 2>&1 | grep -q 'fatal:' &>/dev/null || return
   printf_read_question "4" "Would you like to add a remote repo? " "1" "Yy"
   printf_answer "Yy" && printf_read_input "5" "What is the URL of your repo? " "200" "REMOTE" &&
     git -C "$NOTES_HOME" remote add origin "$REMOTE" || printf 'Push disabled\n' >"$NOTES_HOME/.nopush"
-  [[ -f "$NOTES_HOME/.nopush" ]] || git -C "$NOTES_HOME" push -q &>/dev/null
+  [ -f "$NOTES_HOME/.nopush" ] || git -C "$NOTES_HOME" push -q &>/dev/null
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_git() {
-  local git_author="$(git config --get user.name | grep '^')"
-  local git_email="$(git config --get user.name | grep '^')"
-  local git_enabled="$NOTES_GIT_ENABLED"
-  [[ -n "$git_author" ]] && [[ -n "$git_email" ]] || return
-  { [[ "$git_enabled" = "no" ]] || [[ "$git_enabled" = "disabled" ]]; } && return
+  local git_author="" git_email="" git_enabled=""
+  git_author="$(git config --get user.name | grep '^')"
+  git_email="$(git config --get user.name | grep '^')"
+  git_enabled="$NOTES_GIT_ENABLED"
+  [ -n "$git_author" ] && [ -n "$git_email" ] || return
+  { [ "$git_enabled" = "no" ] || [ "$git_enabled" = "disabled" ]; } && return
   if [ -d "$NOTES_HOME/.git" ]; then
     if git -C "$NOTES_HOME" status --porcelain 2>&1 | grep -vq "fatal:" &>/dev/null; then
       printf_green "Committing changes for notes"
@@ -462,9 +701,10 @@ __run_git() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_pull() {
-  local REMOTE_URL="$(__git_remote_pull "$NOTES_HOME")"
-  [[ -n "$NOTES_GIT_ENABLED" ]] && [[ -n "$REMOTE_URL" ]] || return
-  { [[ "$NOTES_GIT_ENABLED" = "no" ]] || [[ "$NOTES_GIT_ENABLED" = "disabled" ]]; } && return
+  local REMOTE_URL
+  REMOTE_URL="$(__git_remote_pull "$NOTES_HOME")"
+  [ -n "$NOTES_GIT_ENABLED" ] && [ -n "$REMOTE_URL" ] || return
+  { [ "$NOTES_GIT_ENABLED" = "no" ] || [ "$NOTES_GIT_ENABLED" = "disabled" ]; } && return
   git -C "$NOTES_HOME" pull -q || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -475,30 +715,97 @@ __list_all() {
     sed 's#'$NOTES_HOME/'##g' | printf_column 6
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Default variables
-exitCode="0"
+__initialize_app() {
+  [ -d "$NOTES_HOME/.git" ] && __git_pull
+  if [ ! -d "$NOTES_HOME" ] || [ "$(__count_files "$NOTES_HOME" "4")" = 0 ]; then
+    [ -d "$NOTES_HOME" ] && rm -Rf "$NOTES_HOME" 2>/dev/null
+    printf_green "This seems to be a clean install"
+    printf_read_question "4" "Would you like to import an existing notes?" "1" "YES"
+    if printf_answer_yes "$YES"; then
+      printf_read_input "6" "Please enter the url to your git repo: " "200" "REPO"
+      [ -n "$REPO" ] && git clone -q "$REPO" "$NOTES_HOME" &>/dev/null
+      [ -d "$NOTES_HOME" ] || printf_return "Failed to import repo"
+      if [ ! -f "$NOTES_PATH" ]; then
+        cat -s "$NOTES_HOME"/*/*.txt 2>/dev/null >"/tmp/notes.$$.txt"
+        echo -e "## Notes for $(date +%B) created on $(date +"%D at %H:%M") ##\n" >"${NOTES_PATH}"
+        __import "/tmp/notes.$$.txt"
+      else
+        __mkd "$NOTES_HOME"
+      fi
+    fi
+    if [ "$NOTES_GIT_ENABLED" = "yes" ] || [ "$NOTES_GIT_ENABLED" = "enabled" ]; then
+      [ -f "$NOTES_HOME/README.md" ] || printf '#  My notes  \n' >"$NOTES_HOME/README.md"
+      [ -f "$NOTES_HOME/LICENSE.md" ] || printf 'Public' >"$NOTES_HOME/LICENSE.md"
+      [ -d "$NOTES_HOME/.git" ] || gitadmin "$NOTES_HOME" setup --noreadme --nolicense
+    fi
+  fi
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  # tmux config file
+  if [ ! -f "$NOTES_HOME/tmux.conf" ]; then
+    if [ -f "$HOME/.config/tmux/others/editors.conf" ]; then
+      __cp_rf "$HOME/.config/tmux/others/editors.conf" "$NOTES_HOME/tmux.conf"
+    else
+      __cp_rf "$CASJAYSDEVDIR/templates/tmux.conf" "$NOTES_HOME/tmux.conf"
+    fi
+  fi
+  if [ ! -f "$NOTES_PREV_FILE" ]; then
+    echo -e "## Notes for $(date --date="1 Month Ago" +%B) created on $(date --date="1 Month Ago" +"%D at %H:%M") ##\n" >"$NOTES_PREV_FILE"
+  fi
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  # Previous month
+  if [ ! -f "$NOTES_PATH" ]; then
+    if [ -s "$NOTES_PATH" ]; then
+      printf_red "Refusing to import old notes into an none empty file"
+      printf_green "You can do it manually by running $APPNAME --import"
+    else
+      printf_green "Assuming its a new month or new install"
+      echo -e "## Notes for $(date +%B) created on $(date +"%D at %H:%M") ##\n" >"${NOTES_PATH}"
+      __import "$NOTES_PREV_FILE"
+    fi
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__kill_server() {
+  if netstatg "$NOTES_SERVER_PORT" &>/dev/null; then
+    printf_red "Starting shutdown"
+    shift 1
+    touch "$NOTES_TEMP_DIR/kill_notes"
+    __netcat_kill_server "$NOTES_SERVER_PORT" "printf_green" "printf_red"
+    exitCode=$?
+    # kill -s 9 "$(netstatg $NOTES_SERVER_PORT | awk '{print $7}' | head -n 1 | sed 's#/.*##g')" || true
+  else
+    printf_red "Server is not running"
+    exitCode=1
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined variables/import external variables
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application Folders
-NOTES_LOG_DIR="${NOTES_LOG_DIR:-$HOME/.local/log/notes}"
-NOTES_CACHE_DIR="${NOTES_CACHE_DIR:-$HOME/.cache/notes}"
+NOTES_CONFIG_FILE="${NOTES_CONFIG_FILE:-settings.conf}"
 NOTES_CONFIG_DIR="${NOTES_CONFIG_DIR:-$HOME/.config/myscripts/notes}"
 NOTES_CONFIG_BACKUP_DIR="${NOTES_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/notes/backups}"
+NOTES_LOG_DIR="${NOTES_LOG_DIR:-$HOME/.local/log/notes}"
 NOTES_TEMP_DIR="${NOTES_TEMP_DIR:-$HOME/.local/tmp/system_scripts/notes}"
-NOTES_OPTIONS_DIR="${NOTES_OPTIONS_DIR:-$HOME/.local/share/myscripts/notes/options}"
-NOTES_CONFIG_FILE="${NOTES_CONFIG_FILE:-settings.conf}"
+NOTES_CACHE_DIR="${NOTES_CACHE_DIR:-$HOME/.cache/notes}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
-NOTES_OUTPUT_COLOR="${NOTES_OUTPUT_COLOR:-4}"
-NOTES_OUTPUT_COLOR_2="${NOTES_OUTPUT_COLOR:-6}"
+NOTES_OUTPUT_COLOR_1="${NOTES_OUTPUT_COLOR_1:-4}"
+NOTES_OUTPUT_COLOR_2="${NOTES_OUTPUT_COLOR_2:-5}"
 NOTES_OUTPUT_COLOR_GOOD="${NOTES_OUTPUT_COLOR_GOOD:-2}"
 NOTES_OUTPUT_COLOR_ERROR="${NOTES_OUTPUT_COLOR_ERROR:-1}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Notification Settings
-NOTES_GOOD_MESSAGE="${NOTES_GOOD_MESSAGE:-Everything Went OK}"
-NOTES_ERROR_MESSAGE="${NOTES_ERROR_MESSAGE:-Well something seems to have gone wrong}"
 NOTES_NOTIFY_ENABLED="${NOTES_NOTIFY_ENABLED:-yes}"
-NOTES_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
-NOTES_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$NOTES_NOTIFY_CLIENT_ICON}"
+NOTES_GOOD_NAME="${NOTES_GOOD_NAME:-Great:}"
+NOTES_ERROR_NAME="${NOTES_ERROR_NAME:-Error:}"
+NOTES_GOOD_MESSAGE="${NOTES_GOOD_MESSAGE:-No errors reported}"
+NOTES_ERROR_MESSAGE="${NOTES_ERROR_MESSAGE:-Errors were reported}"
+NOTES_NOTIFY_CLIENT_NAME="${NOTES_NOTIFY_CLIENT_NAME:-$APPNAME}"
+NOTES_NOTIFY_CLIENT_ICON="${NOTES_NOTIFY_CLIENT_ICON:-notification-new}"
+NOTES_NOTIFY_CLIENT_URGENCY="${NOTES_NOTIFY_CLIENT_URGENCY:-normal}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional Variables
 NOTES_PREV_YEAR="$(date --date='1 year ago' +%Y)"
@@ -517,60 +824,110 @@ NOTES_PATH="${NOTES_PATH:-$NOTES_HOME/$NOTES_FOLDER/$NOTES_FILE}"
 NOTES_SERVER_PATH="${NOTES_SERVER_PATH:-$NOTES_SERVER_DIRECTORY/$NOTES_FOLDER/$NOTES_FILE}"
 NOTES_DEDUP_NOTIFY="${NOTES_DEDUP_NOTIFY:-no}"
 NOTES_GIT_ENABLED="${NOTES_GIT_ENABLED:-enabled}"
-if [[ "$NOTES_PREV_MONTH" = '12' ]]; then
+if [ "$NOTES_PREV_MONTH" = '12' ]; then
   NOTES_PREV_FILE="${NOTES_PREV_FILE:-$NOTES_SERVER_DIRECTORY/$NOTES_PREV_YEAR/$NOTES_PREV_MONTH.txt}"
 else
   NOTES_PREV_FILE="${NOTES_PREV_FILE:-$NOTES_SERVER_DIRECTORY/$NOTES_FOLDER/$NOTES_PREV_MONTH.txt}"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Generate non-existing config files
-[ -f "$NOTES_CONFIG_DIR/$NOTES_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# Generate config files
+[ -f "$NOTES_CONFIG_DIR/$NOTES_CONFIG_FILE" ] ||
+  [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import config
-[ -f "$NOTES_CONFIG_DIR/$NOTES_CONFIG_FILE" ] && . "$NOTES_CONFIG_DIR/$NOTES_CONFIG_FILE"
+[ -f "$NOTES_CONFIG_DIR/$NOTES_CONFIG_FILE" ] &&
+  . "$NOTES_CONFIG_DIR/$NOTES_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Ensure Directories and files exist
-[ -d "$NOTES_LOG_DIR" ] || mkdir -p "$NOTES_LOG_DIR" &>/dev/null
-[ -d "$NOTES_TEMP_DIR" ] || mkdir -p "$NOTES_TEMP_DIR" &>/dev/null
-[ -d "$NOTES_CACHE_DIR" ] || mkdir -p "$NOTES_CACHE_DIR" &>/dev/null
-[ -d "$NOTES_HOME/$NOTES_FOLDER" ] || mkdir -p "$NOTES_HOME/$NOTES_FOLDER" &>/dev/null
+# Ensure Directories exist
+[ -d "$NOTES_LOG_DIR" ] ||
+  mkdir -p "$NOTES_LOG_DIR" |& __devnull
+[ -d "$NOTES_TEMP_DIR" ] ||
+  mkdir -p "$NOTES_TEMP_DIR" |& __devnull
+[ -d "$NOTES_CACHE_DIR" ] ||
+  mkdir -p "$NOTES_CACHE_DIR" |& __devnull
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 NOTES_TEMP_FILE="${NOTES_TEMP_FILE:-$(mktemp $NOTES_TEMP_DIR/XXXXXX 2>/dev/null)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup trap to remove temp file
-trap 'exitCode=${exitCode:-$?};[ -n "$NOTES_TEMP_FILE" ] && [ -f "$NOTES_TEMP_FILE" ] && rm -Rf "$NOTES_TEMP_FILE" &>/dev/null' EXIT
+trap '__trap_exit' EXIT
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup notification function
-if [ "$NOTES_NOTIFY_ENABLED" = "yes" ]; then
-  __notifications() {
-    export NOTIFY_GOOD_MESSAGE="${NOTES_GOOD_MESSAGE}"
-    export NOTIFY_ERROR_MESSAGE="${NOTES_ERROR_MESSAGE}"
-    export NOTIFY_CLIENT_NAME="${NOTES_NOTIFY_CLIENT_NAME}"
-    export NOTIFY_CLIENT_ICON="${NOTES_NOTIFY_CLIENT_ICON}"
-    notifications "$@" || return 1
-  }
-else
-  __notifications() { false; }
-fi
+__notifications() {
+  __cmd_exists notifications || return
+  [ "$NOTES_NOTIFY_ENABLED" = "yes" ] || return
+  [ "$SEND_NOTIFICATION" = "no" ] && return
+  (
+    set +x
+    export SCRIPT_OPTS="" _DEBUG=""
+    export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$NOTES_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$NOTES_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$NOTES_NOTIFY_CLIENT_ICON}"
+    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$NOTES_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$NOTES_NOTIFY_CLIENT_URGENCY}"
+    notifications "$@"
+    retval=$?
+    return $retval
+  ) |& __devnull &
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Show warn message if variables are missing
-[[ "$1" = "-" ]] && shift 1 && OPTS="stdin"
+# Set custom actions
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set additional variables/Argument/Option settings
-SETARGS="$*"
+# Argument/Option settings
+SETARGS=("$@")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SHORTOPTS=""
-LONGOPTS="options,config,version,help,dir:,import,nogit"
-ARRAY=""
+SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
+LONGOPTS+=",import,nogit,kill"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ARRAY=""
+ARRAY+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LIST=""
+LIST+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$APPNAME" -- "$@" 2>/dev/null)
 eval set -- "${setopts[@]}" 2>/dev/null
 while :; do
-  case $1 in
+  case "$1" in
+  --raw)
+    shift 1
+    export SHOW_RAW="true"
+    printf_column() { tee | grep '^'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    ;;
+  --debug)
+    shift 1
+    set -xo pipefail
+    export SCRIPT_OPTS="--debug"
+    export _DEBUG="on"
+    __devnull() { tee || return 1; }
+    __devnull2() { eval "$@" |& tee || return 1; }
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
+    ;;
   --options)
     shift 1
-    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
-    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
-    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
-    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' 4
+    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' 4
+    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
     exit $?
     ;;
   --version)
@@ -588,18 +945,28 @@ while :; do
     __gen_config
     exit $?
     ;;
+  --silent)
+    shift 1
+    NOTES_SILENT="true"
+    ;;
   --dir)
+    CWD_IS_SET="TRUE"
     NOTES_CWD="$2"
+    [ -d "$NOTES_CWD" ] || mkdir -p "$NOTES_CWD" |& __devnull
     shift 2
     ;;
   --import)
     shift 1
-    __import
+    __import "$NOTES_PREV_FILE"
     exit $?
     ;;
   --nogit)
     shift 1
     NOTES_GIT_ENABLED="disabled"
+    ;;
+  --kill)
+    shift 1
+    __kill_server
     ;;
   --)
     shift 1
@@ -607,68 +974,52 @@ while :; do
     ;;
   esac
 done
-#set -- "$SETARGS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Actions based on env
+# Get directory from args
+# set -- "$@"
+# for arg in "$@"; do
+# if [ -d "$arg" ]; then
+# NOTES_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
+# elif [ -f "$arg" ]; then
+# NOTES_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
+# else
+# SET_NEW_ARGS+=("$arg")
+# fi
+# done
+# set -- "${SET_NEW_ARGS[@]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set directory to first argument
+# [ -d "$1" ] && NOTES_CWD="$1" && shift 1 || NOTES_CWD="${NOTES_CWD:-$PWD}"
+NOTES_CWD="$(realpath "${NOTES_CWD:-$PWD}" 2>/dev/null)"
+# if [ -d "$NOTES_CWD" ] && cd "$NOTES_CWD"; then
+# if [ "$NOTES_SILENT" != "true" ]; then
+# printf_cyan "Setting working dir to $NOTES_CWD"
+# fi
+# else
+# printf_exit "💔 $NOTES_CWD does not exist 💔"
+# fi
+export NOTES_CWD
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set actions based on variables
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
-cmd_exists --error --ask bash tmux || exit 1 # exit 1 if not found
-#am_i_online --error || exit 1     # exit 1 if no internet
+#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+#cmd_exists --error --ask bash || exit 3 # exit 3 if not found
+#am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
-[ -d "$NOTES_HOME/.git" ] && __git_pull
-if [ ! -d "$NOTES_HOME" ] || [ "$(__count_files "$NOTES_HOME" "4")" = 0 ]; then
-  [ -d "$NOTES_HOME" ] && rm -Rf "$NOTES_HOME" 2>/dev/null
-  printf_green "This seems to be a clean install"
-  printf_read_question "4" "Would you like to import an existing notes?" "1" "YES"
-  if printf_answer_yes "$YES"; then
-    printf_read_input "6" "Please enter the url to your git repo: " "200" "REPO"
-    [ -n "$REPO" ] && git clone -q "$REPO" "$NOTES_HOME" &>/dev/null
-    [ -d "$NOTES_HOME" ] || printf_return "Failed to import repo"
-    if [ ! -f "$NOTES_PATH" ]; then
-      cat -s "$NOTES_HOME"/*/*.txt 2>/dev/null >"/tmp/notes.$$.txt"
-      echo -e "## Notes for $(date +%B) created on $(date +"%D at %H:%M") ##\n" >"${NOTES_PATH}"
-      __import "/tmp/notes.$$.txt" && sleep 3
-    else
-      __mkd "$NOTES_HOME"
-    fi
-  fi
-  if [ "$NOTES_GIT_ENABLED" = "yes" ] || [ "$NOTES_GIT_ENABLED" = "enabled" ]; then
-    [[ -f "$NOTES_HOME/README.md" ]] || printf '#  My notes  \n' >"$NOTES_HOME/README.md"
-    [[ -f "$NOTES_HOME/LICENSE.md" ]] || printf 'Public' >"$NOTES_HOME/LICENSE.md"
-    [ -d "$NOTES_HOME/.git" ] || gitadmin "$NOTES_HOME" setup --noreadme --nolicense
-  fi
-fi
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ ! -f "$NOTES_HOME/tmux.conf" ]; then
-  if [ -f "$HOME/.config/tmux/others/editors.conf" ]; then
-    __cp_rf "$HOME/.config/tmux/others/editors.conf" "$NOTES_HOME/tmux.conf"
-  else
-    __cp_rf "$CASJAYSDEVDIR/templates/tmux.conf" "$NOTES_HOME/tmux.conf"
-  fi
-fi
-if [ ! -f "$NOTES_PREV_FILE" ]; then
-  echo -e "## Notes for $(date --date="1 Month Ago" +%B) created on $(date --date="1 Month Ago" +"%D at %H:%M") ##\n" >"$NOTES_PREV_FILE"
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Previous month
-if [ ! -f "$NOTES_PATH" ]; then
-  if [ -s "$NOTES_PATH" ]; then
-    printf_red "Refusing to import old notes into an none empty file"
-    printf_green "You can do it manually by running $APPNAME --import"
-  else
-    printf_green "Assuming its a new month or new install"
-    echo -e "## Notes for $(date +%B) created on $(date +"%D at %H:%M") ##\n" >"${NOTES_PATH}"
-    __import && sleep 3
-  fi
-fi
+# Actions based on env
+__initialize_app
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 case "${1:-$OPTS}" in
 server | service)
-  if [ "$2" = "help" ]; then shift 1 && printf_help 'Usage: notes server  |  Start the server'; fi
-  if [ "$2" = "status" ]; then
+  shift 1
+  if [ "$1" = "help" ]; then shift 1 && printf_help 'Usage: notes server  |  Start the server'; fi
+  if [ "$1" = "status" ]; then
     shift 1
     if netstatg "$NOTES_SERVER_PORT" &>/dev/null; then
       printf_green "The server is up and running on $NOTES_SERVER_PORT"
@@ -676,21 +1027,12 @@ server | service)
     else printf_exit 1 1 "$ICON_ERROR The notes server is not running"; fi
     exit $?
   fi
-  if [ "$2" = "kill" ]; then
-    if netstatg "$NOTES_SERVER_PORT" &>/dev/null; then
-      printf_red "Starting shutdown"
-      shift 1
-      touch "$NOTES_TEMP_DIR/kill_notes"
-      __netcat_kill_server "$NOTES_SERVER_PORT" "printf_green" "printf_red"
-    #kill -s 9 "$(netstatg $NOTES_SERVER_PORT | awk '{print $7}' | head -n 1 | sed 's#/.*##g')" || true
-    else
-      printf_red "Server is not running"
-    fi
+  if [ "$1" = "kill" ]; then
+    __kill_server
     exit $?
   fi
 
-  # begin systemd 2 deep
-  case "$2" in
+  case "$2" in # begin systemd 2 deep
   systemd)
     shift 1
     case $2 in
@@ -767,7 +1109,7 @@ server | service)
     status | *)
       shift 2
       __system_service_exists notes_server.service || printf_exit 2 0 "Notes server is not installed"
-      sudo systemctl status notes_server | printf_readline "255"
+      sudo systemctl status notes_server | printf_readline "$NOTES_OUTPUT_COLOR_1"
       ;;
     esac
     ;;
@@ -799,7 +1141,7 @@ server | service)
 
   edit)
     shift 2
-    if [ "$1" = prev ]; then
+    if [ "$1" = "prev" ]; then
       ssh -qt "$NOTES_SERVER_NAME" notes open "$NOTES_PREV_FILE"
     elif [ "$1" = "all" ]; then
       ssh -qt "$NOTES_SERVER_NAME" notes all
@@ -851,7 +1193,15 @@ sync)
 
 show)
   shift 1
-  [ -f "$NOTES_PATH" ] && cat "$NOTES_PATH" 2>/dev/null | printf_readline "7" || printf_exit ""
+  if [ -f "$NOTES_PATH" ]; then
+    MESSAGE="$(grep -s '^## ' "$NOTES_PATH" | sed 's|^## ||g;s| ##$||g' | grep -v '$^' | grep '^' || echo 'Found the the following notes')"
+    printf '\n'
+    printf_yellow "${MESSAGE}"
+    grep -vs '^## ' "$NOTES_PATH" 2>/dev/null | printf_readline "$NOTES_OUTPUT_COLOR_2"
+    printf '\n'
+  else
+    printf_exit ""
+  fi
   ;;
 
 list)
@@ -865,7 +1215,7 @@ search)
   search_results="$(cat "$NOTES_HOME/all.txt" "$NOTES_PREV_FILE" "$NOTES_PATH" | grep -si "$1" 2>/dev/null)"
   if [ -n "$search_results" ]; then
     printf_green "Search results: "
-    echo "$search_results" | printf_readline "7"
+    echo "$search_results" | printf_readline "$NOTES_OUTPUT_COLOR_2"
     exitCode=0
   else
     printf_red "No results found"
@@ -879,11 +1229,11 @@ open)
   if [ "$1" = list ] || [ $# = 0 ]; then
     __list_all
   else
-    if [ "$1" = "$NOTES_HOME/all.txt" ] || [[ "$1" = */all* ]] || [[ "$1" = all ]]; then
+    if [[ "$1" = */all* ]] || [ "$1" = "$NOTES_HOME/all.txt" ] || [ "$1" = all ]; then
       filename="$NOTES_HOME/all.txt"
-    elif [[ "$1" = prev ]]; then
+    elif [ "$1" = prev ]; then
       filename="$NOTES_PREV_FILE"
-    elif [[ "$1" = cur ]]; then
+    elif [ "$1" = cur ]; then
       filename="$NOTES_PATH"
     else
       filepath="$(__get_full_file "$1")"
@@ -930,6 +1280,9 @@ stdin | -)
   exit ${exitCode:-$?}
   ;;
 esac
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set exit code
+exitCode="${exitCode:-$?}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

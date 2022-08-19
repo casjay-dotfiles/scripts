@@ -1,28 +1,42 @@
 #!/usr/bin/env bash
+# shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202207042242-git
-# @Author            :  Jason Hempstead
-# @Contact           :  jason@casjaysdev.com
-# @License           :  WTFPL
-# @ReadME            :  gen-html --help
-# @Copyright         :  Copyright: (c) 2021 Jason Hempstead, Casjays Developments
-# @Created           :  Thursday, Aug 19, 2021 01:17 EDT
-# @File              :  gen-html
-# @Description       :  Create a html file
-# @TODO              :
-# @Other             :
-# @Resource          :
+##@Version           :  202208080003-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  jason@casjaysdev.com
+# @@License          :  WTFPL
+# @@ReadME           :  gen-html --help
+# @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
+# @@Created          :  Monday, Aug 08, 2022 00:03 EDT
+# @@File             :  gen-html
+# @@Description      :  Create a html file
+# @@Changelog        :  New script
+# @@TODO             :  Better documentation
+# @@Other            :
+# @@Resource         :
+# @@Terminal App     :  no
+# @@sudo/root        :  no
+# @@Template         :  bash/system
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0" 2>/dev/null)"
-VERSION="202108190117-git"
+VERSION="202208080003-git"
 HOME="${USER_HOME:-$HOME}"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${SUDO_USER:-$USER}"
-SRC_DIR="${BASH_SOURCE%/*}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+GEN_HTML_REQUIRE_SUDO="${GEN_HTML_REQUIRE_SUDO:-no}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set bash options
-if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
-
+# Reopen in a terminal
+#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initial debugging
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# pipes fail
+set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
@@ -36,65 +50,113 @@ elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
   . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
 else
   echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
-  exit 90
+  exit 1
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# user system devenv dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+# Options are: *_install
+# desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr
+#   pkmgr system systemmgr thememgr user wallpapermgr
 user_install && __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set functions
-__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
+# Send all output to /dev/null
+__devnull() {
+  tee &>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# Send errors to /dev/null
+__devnull2() {
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# See if the executable exists
+__cmd_exists() {
+  exitCode=0
+  [ -n "$1" ] && local exitCode="" || return 0
+  for cmd in "$@"; do
+    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
+  done
+  [ $exitCode -eq 0 ] || exitCode=3
+  return ${exitCode:-$?}
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__replace() { $sed -i 's|'"$1"'|'"$2"'|g' "$3" &>/dev/null; }
+# Check for a valid internet connection
+__am_i_online() {
+  local exitCode=0
+  curl -q -LSsfI --max-time 1 --retry 0 "${1:-http://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
+  return ${exitCode:-$?}
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# colorization
+if [ "$SHOW_RAW" = "true" ]; then
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional printf_ colors
+__printf_head() { printf_blue "$1"; }
+__printf_opts() { printf_purple "$1"; }
+__printf_line() { printf_cyan "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# output version
+__version() { printf_cyan "$VERSION"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# list options
+__list_options() {
+  printf_color "$1: " "$5"
+  echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g'
+  printf_newline
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create the config file
 __gen_config() {
-  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Generating the config file in"
-  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "$GEN_HTML_CONFIG_DIR/$GEN_HTML_CONFIG_FILE"
+  local NOTIFY_CLIENT_NAME="$APPNAME"
+  if [ "$INIT_CONFIG" != "TRUE" ]; then
+    printf_blue "Generating the config file in"
+    printf_cyan "$GEN_HTML_CONFIG_DIR/$GEN_HTML_CONFIG_FILE"
+  fi
   [ -d "$GEN_HTML_CONFIG_DIR" ] || mkdir -p "$GEN_HTML_CONFIG_DIR"
   [ -d "$GEN_HTML_CONFIG_BACKUP_DIR" ] || mkdir -p "$GEN_HTML_CONFIG_BACKUP_DIR"
   [ -f "$GEN_HTML_CONFIG_DIR/$GEN_HTML_CONFIG_FILE" ] &&
     cp -Rf "$GEN_HTML_CONFIG_DIR/$GEN_HTML_CONFIG_FILE" "$GEN_HTML_CONFIG_BACKUP_DIR/$GEN_HTML_CONFIG_FILE.$$"
   cat <<EOF >"$GEN_HTML_CONFIG_DIR/$GEN_HTML_CONFIG_FILE"
 # Settings for gen-html
-# Default directory
-GEN_HTML_CONFIG_DIR="${GEN_HTML_CONFIG_DIR:-$HOME/.config/myscripts/gen-html}"
-# Default files directory
-GEN_HTML_DIR_FILES="${GEN_HTML_DIR_FILES:-$GEN_HTML_CONFIG_DIR/files}"
-# Default custom directory
-GEN_HTML_DIR_FILES_CUSTOM="${GEN_HTML_DIR_FILES_CUSTOM:-$GEN_HTML_CONFIG_DIR/custom}"
-# Default html file
-GEN_HTML_DEFAULT_HTML="${GEN_HTML_DEFAULT_HTML:-${GEN_HTML_DIR_FILES:-$CASJAYSDEVDIR/templates}/template.html}"
-# Default git repo
+GEN_HTML_AUTHOR="${GEN_HTML_AUTHOR:-}"
+GEN_HTML_BODY="${GEN_HTML_BODY:-}"
+GEN_HTML_TITLE="${GEN_HTML_TITLE:-}"
 GEN_HTML_REPO="${GEN_HTML_REPO:-}"
-# Default Raw URL
 GEN_HTML_REPO_RAW="${GEN_HTML_REPO_RAW:-}"
-# Default name
-GEN_HTML_GIT_USER="${GEN_HTML_GIT_USER:-$USER}"
-# Default e-mail
-GEN_HTML_GIT_EMAIL="${GEN_HTML_GIT_EMAIL:-$USER@$HOSTNAME}"
-
-# Notification settings
-GEN_HTML_GOOD_MESSAGE="${GEN_HTML_GOOD_MESSAGE:-Everything Went OK}"
-GEN_HTML_ERROR_MESSAGE="${GEN_HTML_ERROR_MESSAGE:-Well something seems to have gone wrong}"
-GEN_HTML_NOTIFY_ENABLED="${GEN_HTML_NOTIFY_ENABLED:-yes}"
-GEN_HTML_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
-GEN_HTML_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$GEN_HTML_NOTIFY_CLIENT_ICON}"
-
-# Colorization settings
-GEN_HTML_OUTPUT_COLOR="${GEN_HTML_OUTPUT_COLOR:-5}"
-GEN_HTML_OUTPUT_COLOR_GOOD="${GEN_HTML_OUTPUT_COLOR_GOOD:-2}"
-GEN_HTML_OUTPUT_COLOR_ERROR="${GEN_HTML_OUTPUT_COLOR_ERROR:-1}"
+GEN_HTML_GIT_USER="${GEN_HTML_GIT_USER:-}"
+GEN_HTML_GIT_EMAIL="${GEN_HTML_GIT_EMAIL:-}"
+GEN_HTML_DIR_FILES="${GEN_HTML_DIR_FILES:-}"
+GEN_HTML_DIR_FILES_CUSTOM="${GEN_HTML_DIR_FILES_CUSTOM:-}"
+GEN_HTML_DEFAULT_HTML="${GEN_HTML_DEFAULT_HTML:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+GEN_HTML_OUTPUT_COLOR_1="${GEN_HTML_OUTPUT_COLOR_1:-}"
+GEN_HTML_OUTPUT_COLOR_2="${GEN_HTML_OUTPUT_COLOR_2:-}"
+GEN_HTML_OUTPUT_COLOR_GOOD="${GEN_HTML_OUTPUT_COLOR_GOOD:-}"
+GEN_HTML_OUTPUT_COLOR_ERROR="${GEN_HTML_OUTPUT_COLOR_ERROR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+GEN_HTML_NOTIFY_ENABLED="${GEN_HTML_NOTIFY_ENABLED:-}"
+GEN_HTML_GOOD_NAME="${GEN_HTML_GOOD_NAME:-}"
+GEN_HTML_ERROR_NAME="${GEN_HTML_ERROR_NAME:-}"
+GEN_HTML_GOOD_MESSAGE="${GEN_HTML_GOOD_MESSAGE:-}"
+GEN_HTML_ERROR_MESSAGE="${GEN_HTML_ERROR_MESSAGE:-}"
+GEN_HTML_NOTIFY_CLIENT_NAME="${GEN_HTML_NOTIFY_CLIENT_NAME:-}"
+GEN_HTML_NOTIFY_CLIENT_ICON="${GEN_HTML_NOTIFY_CLIENT_ICON:-}"
+GEN_HTML_NOTIFY_CLIENT_URGENCY="${GEN_HTML_NOTIFY_CLIENT_URGENCY:-}"
 
 EOF
+  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
   if [ -f "$GEN_HTML_CONFIG_DIR/$GEN_HTML_CONFIG_FILE" ]; then
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
     . "$GEN_HTML_CONFIG_DIR/$GEN_HTML_CONFIG_FILE"
-    [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for $APPNAME has been created"
     exitCode=0
-    if [[ "$INIT_CONFIG" = "TRUE" ]]; then
-      copy_templates &>/dev/null
-      exec $APPNAME "$*"
-      exit
-    fi
   else
     printf_red "Failed to create the config file"
     exitCode=1
@@ -102,21 +164,146 @@ EOF
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Additional functions
+# Help function - Align to 50
+__help() {
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "gen-html:  Create a html file - $VERSION"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Usage: gen-html [options] [commands]"
+  __printf_line "custom     - "
+  __printf_line "download   - "
+  __printf_line "list       - "
+  __printf_line "redirect [url] [filename]       - Create a redirect"
+  __printf_line "--title [title]                 - Set document title"
+  __printf_line "--body [html]                   - Document body"
+  __printf_line "--copy                          - "
+  __printf_line "--dir                           - Sets the working directory"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Other Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--help                          - Shows this message"
+  __printf_line "--config                        - Generate user config file"
+  __printf_line "--version                       - Show script version"
+  __printf_line "--options                       - Shows all available options"
+  __printf_line "--debug                         - Enables script debugging"
+  __printf_line "--raw                           - Removes all formatting on output"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() {
+  { [ $(id -u) -ne 0 ] || [ $EUID -ne 0 ] || [ "$WHOAMI" != "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep -s "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# # Get sudo password
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run sudo
+__sudorun() {
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo
+__can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User can run sudo
+__sudoif() {
+  __user_is_root && return 0
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run command as root
+requiresudo() {
+  if [ "$GEN_HTML_REQUIRE_SUDO" = "yes" ] && [ -z "$GEN_HTML_REQUIRE_SUDO_RUN" ]; then
+    export GEN_HTML_REQUIRE_SUDO="no"
+    export GEN_HTML_REQUIRE_SUDO_RUN="true"
+    __sudo "$@"
+    exit $?
+  else
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  CMD="${1:-echo}" && shift 1
+  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  [ "$(basename "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  if __sudoif; then
+    export PATH="$PATH"
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    exitCode=$?
+  else
+    printf '%s\n' "This requires root to run"
+    exitCode=1
+  fi
+  return ${exitCode:-1}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  exitCode=${exitCode:-$?}
+  [ -f "$GEN_HTML_TEMP_FILE" ] && rm -Rf "$GEN_HTML_TEMP_FILE" &>/dev/null
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined functions
+__find_replace() {
+  sed="$(builtin type -P gsed || builtin type -P sed)"
+  find -L "$3" -type f -exec "$sed" -i 's#'$1'#'$2'#g' {} \; 2>/dev/null
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__cat_input() {
+  cat <<EOF | tee
+${@:-}
+EOF
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__make_html_file() {
+  sed -e 's/[&%\\]/\\&/g' \
+    -e '$!s/$/\\/' \
+    -e '1s/^/s%'$1'%/' \
+    -e '$s/$/%g/' <<<"$2" | sed -f - "$3"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gen_body() {
+  local -a input=("$@")
+  [ $# -ne 0 ] && [ "$1" != "" ] && __cat_input "${input[@]}" | sed 'N;s|\n|<br />\n|;s|^<br />$||g' || true
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __file_failed() {
   printf_error "Failed to get the html file"
   printf_exit 1 1 "from: $1"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 get_remote_file() {
-  [[ -n "$GEN_HTML_REPO" ]] || return 1
+  [ -n "$GEN_HTML_REPO" ] || return 1
   local filename name default_ext
   filename="$1"
   name="$(__basename "$filename")"
   check_uri "$1" filename="$1" || filename="$GEN_HTML_REPO_RAW/$name"
-  [[ "$filename" = -q ]] || printf_green "Attempting to get $filename"
+  [ "$filename" = -q ] || printf_green "Attempting to get $filename"
   __urlverify "$filename" && __curl "$filename" | tee "$GEN_HTML_DIR_FILES_CUSTOM/$name" &>/dev/null
-  if [ -f "$GEN_HTML_DIR_FILES_CUSTOM/$name" ] && [[ -s "$GEN_HTML_DIR_FILES_CUSTOM/$name" ]]; then
+  if [ -f "$GEN_HTML_DIR_FILES_CUSTOM/$name" ] && [ -s "$GEN_HTML_DIR_FILES_CUSTOM/$name" ]; then
     printf_cyan "Successfully saved $name to $GEN_HTML_DIR_FILES_CUSTOM"
     create_local_file "$GEN_HTML_DIR_FILES_CUSTOM/$name"
     return 0
@@ -128,8 +315,8 @@ get_remote_file() {
 copy_templates() {
   local TEMPLATE_REPO=""
   printf_green "Installing the html files to:"
-  printf_blue "$GEN_HTML_DIR_FILES"
-  if am_i_online && [[ -n "$GEN_HTML_REPO" ]]; then
+  printf_blue "$GEN_HTML_DIR_FILES_DIR"
+  if am_i_online && [ -n "$GEN_HTML_REPO" ]; then
     if [ -d "$GEN_HTML_CONFIG_DIR/gitrepo/.git" ]; then
       git -C "$GEN_HTML_CONFIG_DIR/gitrepo" pull -q &>/dev/null
       TEMPLATE_REPO="$(__git_remote_fetch $GEN_HTML_CONFIG_DIR/gitrepo)"
@@ -137,25 +324,25 @@ copy_templates() {
       if git clone -q "$GEN_HTML_REPO" "$GEN_HTML_CONFIG_DIR/gitrepo" &>/dev/null; then
         TEMPLATE_REPO="$GEN_HTML_REPO"
       else
-        __cp_rf "${CASJAYSDEVDIR}/templates/template.html" "$GEN_HTML_DIR_FILES/"
+        __cp_rf "${CASJAYSDEVDIR}/templates/html/template.html" "$GEN_HTML_DIR_FILES_DIR/"
         TEMPLATE_REPO="${CASJAYSDEVDIR}/templates"
       fi
     fi
   else
-    if [ -f "${CASJAYSDEVDIR}/templates/template.html" ]; then
-      __cp_rf "${CASJAYSDEVDIR}/templates/template.html" "$GEN_HTML_DIR_FILES/"
+    if [ -f "${CASJAYSDEVDIR}/templates/html/template.html" ]; then
+      __cp_rf "${CASJAYSDEVDIR}/templates/html/template.html" "$GEN_HTML_DIR_FILES_DIR/"
       TEMPLATE_REPO="${CASJAYSDEVDIR}/templates"
     else
       printf_exit 1 1 "Can not get html files"
     fi
   fi
   if [ -d "$GEN_HTML_CONFIG_DIR/gitrepo/files" ]; then
-    __cp_rf "$GEN_HTML_CONFIG_DIR/gitrepo/files/." "$GEN_HTML_DIR_FILES/"
+    __cp_rf "$GEN_HTML_CONFIG_DIR/gitrepo/files/." "$GEN_HTML_DIR_FILES_DIR/"
   fi
-  if [ "$(__count_files "$GEN_HTML_DIR_FILES" "2")" -ne 0 ]; then
+  if [ "$(__count_files "$GEN_HTML_DIR_FILES_DIR" "2")" -ne 0 ]; then
     printf_green "Successfully copied the template files"
   else
-    if [ "$(__count_files "$GEN_HTML_DIR_FILES" "2")" -eq 0 ]; then
+    if [ "$(__count_files "$GEN_HTML_DIR_FILES_DIR" "2")" -eq 0 ]; then
       printf_red "could not copy the html files"
       printf_red "from $TEMPLATE_REPO"
     fi
@@ -163,11 +350,20 @@ copy_templates() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _modify_html_file() {
-  local fileName="$1"
+  fileName="${1:-index.html}"
+  YEAR="$(date +'%Y')"
+  MODIFIED="$(date +'%a %b %m, %Y at %M:%H:%S')"
+  if [[ "$fileName" = index.* ]]; then
+    SiteName="$(__foldername "$fileName")"
+  else
+    SiteName="${fileName%.*}"
+  fi
   if [ -f "$fileName" ]; then
-    __replace "GEN_HTML_REPLACE_YEAR" "$(date +'%Y')" "$fileName"
-    __replace "GEN_HTML_REPLACE_AUTHOR" "$GEN_HTML_GIT_USER" "$fileName"
-    __replace "GEN_HTML_REPLACE_EMAIL" "$GEN_HTML_GIT_EMAIL" "$fileName"
+    __find_replace "GEN_SCRIPT_REPLACE_YEAR" "$YEAR" "$fileName"
+    __find_replace "GEN_SCRIPT_REPLACE_MODIFIED" "$MODIFIED" "$fileName"
+    __find_replace "GEN_SCRIPT_REPLACE_AUTHOR" "$GEN_HTML_GIT_USER" "$fileName"
+    __find_replace "GEN_SCRIPT_REPLACE_EMAIL" "$GEN_HTML_GIT_EMAIL" "$fileName"
+    __find_replace "GEN_SCRIPT_REPLACE_TITLE" "${GEN_HTML_TITLE:-$SiteName}" "$fileName"
   else
     printf_exit "Failed to find the file at $fileName"
   fi
@@ -178,31 +374,40 @@ __create_redirect() {
 <!DOCTYPE html>
 <html>
   <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="Keywords" content="Casjay, CasjaysDev, Jason M. Hempstead, Website, About Me" />
+    <meta name="Description" content="Created By Casjays Developments" />
+    <meta name="generator" content="CasjaysDev" />
     <meta http-equiv="refresh" content="1; url='${1:-/}'" />
+    <title>${GEN_HTML_TITLE:-Resource moved}</title>
   </head>
   <body>
-    <p>Please follow <a href="${1:-/}">${1:-/}</a></p>
+    <p>Page has moved <a href="${1:-/}">${1:-/}</a></p>
   </body>
 </html>
 EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 create_local_file() {
-  local default_file default_ext default_ext post_mess html_base html_name fileName
-  fileName="${1:-$GEN_HTML_CWD/index.html}"
+  local default_file default_ext default_ext post_mess html_base html_name fileName body
+  fileName="$(realpath "${1:-$GEN_HTML_CWD/index.html}")"
   default_file="$(basename ${2:-$GEN_HTML_DEFAULT_HTML} 2>/dev/null)"
   post_mess="$fileName for $GEN_HTML_CWD"
   html_base="$(basename "${default_file^^*}" 2>/dev/null)"
   html_name="${html_base%.*}"
+  backup_ext="bak"
+  body="$(__gen_body "$GEN_HTML_BODY")"
   # Search custom dir
-  if [ -f "$GEN_HTML_DIR_FILES_CUSTOM/${default_file//$GEN_HTML_DIR_FILES\//}" ]; then
-    template="$GEN_HTML_DIR_FILES_CUSTOM/${default_file//$GEN_HTML_DIR_FILES\//}"
+  if [ -f "$GEN_HTML_DIR_FILES_CUSTOM/${default_file//$GEN_HTML_DIR_FILES_DIR\//}" ]; then
+    template="$GEN_HTML_DIR_FILES_CUSTOM/${default_file//$GEN_HTML_DIR_FILES_DIR\//}"
     message="Using $html_name $post_mess"
   # Search template dir
-  elif [ -f "$GEN_HTML_DIR_FILES/${GEN_HTML_DEFAULT_HTML//$GEN_HTML_DIR_FILES\//}" ]; then
-    template="$GEN_HTML_DIR_FILES/${GEN_HTML_DEFAULT_HTML//$GEN_HTML_DIR_FILES\//}"
+  elif [ -f "$GEN_HTML_DIR_FILES_DIR/${GEN_HTML_DEFAULT_HTML//$GEN_HTML_DIR_FILES_DIR\//}" ]; then
+    template="$GEN_HTML_DIR_FILES_DIR/${GEN_HTML_DEFAULT_HTML//$GEN_HTML_DIR_FILES_DIR\//}"
     message="Using Default $GEN_HTML_DEFAULT_HTML $post_mess"
-  elif [[ -f "$GEN_HTML_DEFAULT_HTML" ]]; then
+  elif [ -f "$GEN_HTML_DEFAULT_HTML" ]; then
     template="$GEN_HTML_DEFAULT_HTML"
     message="Using file from $GEN_HTML_DEFAULT_HTML"
   else
@@ -210,8 +415,8 @@ create_local_file() {
   fi
   printf_green "$message"
   [ -f "$template" ] || __file_failed "$template"
-  [[ -f "$fileName" ]] && mv -f "$fileName" "$fileName.$$"
-  cat "$template" >"$fileName" 2>/dev/null
+  [ -f "$fileName" ] && mv -f "$fileName" "$fileName.$backup_ext"
+  __make_html_file "GEN_HTML_REPLACE_BODY" "${body[@]}" "$template" | tee "$fileName" &>/dev/null
   if [ -f "$fileName" ] && [ -s "$fileName" ]; then
     _modify_html_file "$fileName"
     printf_green "$fileName has been created"
@@ -220,89 +425,143 @@ create_local_file() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Default variables
-exitCode="0"
+# User defined variables/import external variables
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application Folders
-GEN_HTML_LOG_DIR="${GEN_HTML_LOG_DIR:-$HOME/.local/log/gen-html}"
-GEN_HTML_CACHE_DIR="${GEN_HTML_CACHE_DIR:-$HOME/.cache/gen-html}"
+GEN_HTML_CONFIG_FILE="${GEN_HTML_CONFIG_FILE:-settings.conf}"
 GEN_HTML_CONFIG_DIR="${GEN_HTML_CONFIG_DIR:-$HOME/.config/myscripts/gen-html}"
 GEN_HTML_CONFIG_BACKUP_DIR="${GEN_HTML_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/gen-html/backups}"
+GEN_HTML_LOG_DIR="${GEN_HTML_LOG_DIR:-$HOME/.local/log/gen-html}"
 GEN_HTML_TEMP_DIR="${GEN_HTML_TEMP_DIR:-$HOME/.local/tmp/system_scripts/gen-html}"
-GEN_HTML_OPTIONS_DIR="${GEN_HTML_OPTIONS_DIR:-$HOME/.local/share/myscripts/gen-html/options}"
-GEN_HTML_CONFIG_FILE="${GEN_HTML_CONFIG_FILE:-settings.conf}"
+GEN_HTML_CACHE_DIR="${GEN_HTML_CACHE_DIR:-$HOME/.cache/gen-html}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
-GEN_HTML_OUTPUT_COLOR="${GEN_HTML_OUTPUT_COLOR:-4}"
-GEN_HTML_OUTPUT_COLOR_2="${GEN_HTML_OUTPUT_COLOR:-6}"
+GEN_HTML_OUTPUT_COLOR_1="${GEN_HTML_OUTPUT_COLOR_1:-4}"
+GEN_HTML_OUTPUT_COLOR_2="${GEN_HTML_OUTPUT_COLOR_2:-5}"
 GEN_HTML_OUTPUT_COLOR_GOOD="${GEN_HTML_OUTPUT_COLOR_GOOD:-2}"
 GEN_HTML_OUTPUT_COLOR_ERROR="${GEN_HTML_OUTPUT_COLOR_ERROR:-1}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Notification Settings
-GEN_HTML_GOOD_MESSAGE="${GEN_HTML_GOOD_MESSAGE:-Everything Went OK}"
-GEN_HTML_ERROR_MESSAGE="${GEN_HTML_ERROR_MESSAGE:-Well something seems to have gone wrong}"
 GEN_HTML_NOTIFY_ENABLED="${GEN_HTML_NOTIFY_ENABLED:-yes}"
-GEN_HTML_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
-GEN_HTML_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$GEN_HTML_NOTIFY_CLIENT_ICON}"
+GEN_HTML_GOOD_NAME="${GEN_HTML_GOOD_NAME:-Great:}"
+GEN_HTML_ERROR_NAME="${GEN_HTML_ERROR_NAME:-Error:}"
+GEN_HTML_GOOD_MESSAGE="${GEN_HTML_GOOD_MESSAGE:-No errors reported}"
+GEN_HTML_ERROR_MESSAGE="${GEN_HTML_ERROR_MESSAGE:-Errors were reported}"
+GEN_HTML_NOTIFY_CLIENT_NAME="${GEN_HTML_NOTIFY_CLIENT_NAME:-$APPNAME}"
+GEN_HTML_NOTIFY_CLIENT_ICON="${GEN_HTML_NOTIFY_CLIENT_ICON:-notification-new}"
+GEN_HTML_NOTIFY_CLIENT_URGENCY="${GEN_HTML_NOTIFY_CLIENT_URGENCY:-normal}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional Variables
-GEN_HTML_DIR_FILES="${GEN_HTML_DIR_FILES:-${GEN_HTML_DIR/files:-$CASJAYSDEVDIR/templates}}"
-GEN_HTML_DIR_FILES_CUSTOM="${GEN_HTML_DIR_FILES_CUSTOM:-$GEN_HTML_CONFIG_DIR/custom}"
+GEN_HTML_AUTHOR="${GEN_HTML_AUTHOR:-$USER}"
+GEN_HTML_BODY="${GEN_HTML_BODY:-<p><h1>Welcome to your new page</h1><br /></p><br />}"
+GEN_HTML_TITLE="${GEN_HTML_TITLE:-NewDocument}"
 GEN_HTML_REPO="${GEN_HTML_REPO:-}"
 GEN_HTML_REPO_RAW="${GEN_HTML_REPO_RAW:-}"
 GEN_HTML_GIT_USER="${GEN_HTML_GIT_USER:-$(__git_globaluser)}"
 GEN_HTML_GIT_EMAIL="${GEN_HTML_GIT_EMAIL:-$(__git_globalemail)}"
+GEN_HTML_DIR_FILES="${GEN_HTML_DIR_FILES:-${GEN_HTML_DIR/files:-$CASJAYSDEVDIR/templates}}"
+GEN_HTML_DIR_FILES_CUSTOM="${GEN_HTML_DIR_FILES_CUSTOM:-$GEN_HTML_CONFIG_DIR/custom}"
 GEN_HTML_DEFAULT_HTML="${GEN_HTML_DEFAULT_HTML:-${GEN_HTML_DIR_FILES:-$CASJAYSDEVDIR/templates}/template.html}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Generate non-existing config files
-[ -f "$GEN_HTML_CONFIG_DIR/$GEN_HTML_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# Generate config files
+[ -f "$GEN_HTML_CONFIG_DIR/$GEN_HTML_CONFIG_FILE" ] ||
+  [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import config
-[ -f "$GEN_HTML_CONFIG_DIR/$GEN_HTML_CONFIG_FILE" ] && . "$GEN_HTML_CONFIG_DIR/$GEN_HTML_CONFIG_FILE"
+[ -f "$GEN_HTML_CONFIG_DIR/$GEN_HTML_CONFIG_FILE" ] &&
+  . "$GEN_HTML_CONFIG_DIR/$GEN_HTML_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Ensure Directories and files exist
-[ -d "$GEN_HTML_LOG_DIR" ] || mkdir -p "$GEN_HTML_LOG_DIR" &>/dev/null
-[ -d "$GEN_HTML_TEMP_DIR" ] || mkdir -p "$GEN_HTML_TEMP_DIR" &>/dev/null
-[ -d "$GEN_HTML_CACHE_DIR" ] || mkdir -p "$GEN_HTML_CACHE_DIR" &>/dev/null
-[ -d "$GEN_HTML_DIR_FILES" ] || mkdir -p "$GEN_HTML_DIR_FILES" &>/dev/null
-[ -d "$GEN_HTML_DIR_FILES_CUSTOM" ] || mkdir -p "$GEN_HTML_DIR_FILES_CUSTOM" &>/dev/null
+# Ensure Directories exist
+[ -d "$GEN_HTML_LOG_DIR" ] ||
+  mkdir -p "$GEN_HTML_LOG_DIR" |& __devnull
+[ -d "$GEN_HTML_TEMP_DIR" ] ||
+  mkdir -p "$GEN_HTML_TEMP_DIR" |& __devnull
+[ -d "$GEN_HTML_CACHE_DIR" ] ||
+  mkdir -p "$GEN_HTML_CACHE_DIR" |& __devnull
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 GEN_HTML_TEMP_FILE="${GEN_HTML_TEMP_FILE:-$(mktemp $GEN_HTML_TEMP_DIR/XXXXXX 2>/dev/null)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup trap to remove temp file
-trap 'exitCode=${exitCode:-$?};[ -n "$GEN_HTML_TEMP_FILE" ] && [ -f "$GEN_HTML_TEMP_FILE" ] && rm -Rf "$GEN_HTML_TEMP_FILE" &>/dev/null' EXIT
+trap '__trap_exit' EXIT
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup notification function
-if [ "$GEN_HTML_NOTIFY_ENABLED" = "yes" ]; then
-  __notifications() {
-    export NOTIFY_GOOD_MESSAGE="${GEN_HTML_GOOD_MESSAGE}"
-    export NOTIFY_ERROR_MESSAGE="${GEN_HTML_ERROR_MESSAGE}"
-    export NOTIFY_CLIENT_NAME="${GEN_HTML_NOTIFY_CLIENT_NAME}"
-    export NOTIFY_CLIENT_ICON="${GEN_HTML_NOTIFY_CLIENT_ICON}"
-    notifications "$@" || return 1
-  }
-else
-  __notifications() { false; }
-fi
+__notifications() {
+  __cmd_exists notifications || return
+  [ "$GEN_HTML_NOTIFY_ENABLED" = "yes" ] || return
+  [ "$SEND_NOTIFICATION" = "no" ] && return
+  (
+    set +x
+    export SCRIPT_OPTS="" _DEBUG=""
+    export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$GEN_HTML_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$GEN_HTML_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$GEN_HTML_NOTIFY_CLIENT_ICON}"
+    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$GEN_HTML_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$GEN_HTML_NOTIFY_CLIENT_URGENCY}"
+    notifications "$@"
+    retval=$?
+    return $retval
+  ) |& __devnull &
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Show warn message if variables are missing
+# Set custom actions
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# # Set additional variables/Argument/Option settings
-SETARGS="$*"
-SHORTOPTS=""
-LONGOPTS="options,config,version,help,dir:,copy"
-ARRAY="custom download list"
+# Argument/Option settings
+SETARGS=("$@")
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
+SHORTOPTS=""
+SHORTOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
+LONGOPTS+=",copy,body:,title:"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ARRAY="custom download list redirect"
+ARRAY+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LIST=""
+LIST+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$APPNAME" -- "$@" 2>/dev/null)
 eval set -- "${setopts[@]}" 2>/dev/null
 while :; do
-  case $1 in
+  case "$1" in
+  --raw)
+    shift 1
+    export SHOW_RAW="true"
+    printf_column() { tee | grep '^'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    ;;
+  --debug)
+    shift 1
+    set -xo pipefail
+    export SCRIPT_OPTS="--debug"
+    export _DEBUG="on"
+    __devnull() { tee || return 1; }
+    __devnull2() { eval "$@" |& tee || return 1; }
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
+    ;;
   --options)
     shift 1
-    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
-    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
-    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
-    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' 4
+    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' 4
+    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
     exit $?
     ;;
   --version)
@@ -317,18 +576,30 @@ while :; do
     ;;
   --config)
     shift 1
-    { [ "$GEN_HTML_DEFAULT_HTML" = "config" ] || [ "$GEN_HTML_FILE" = "config" ]; } &&
-      html_file="$WHICH_HTML_DEF" || html_file="$GEN_HTML_DEFAULT_HTML"
     __gen_config
     exit $?
     ;;
+  --silent)
+    shift 1
+    GEN_HTML_SILENT="true"
+    ;;
   --dir)
+    CWD_IS_SET="TRUE"
     GEN_HTML_CWD="$2"
+    [ -d "$GEN_HTML_CWD" ] || mkdir -p "$GEN_HTML_CWD" |& __devnull
     shift 2
     ;;
   --copy)
     copy_templates
     exit $?
+    ;;
+  --body)
+    GEN_HTML_BODY="$2"
+    shift 2
+    ;;
+  --title)
+    GEN_HTML_TITLE="$2"
+    shift 2
     ;;
   --)
     shift 1
@@ -336,31 +607,54 @@ while :; do
     ;;
   esac
 done
-#set -- "$SETARGS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Actions based on env
-[[ -n "$GEN_HTML_CWD" ]] || GEN_HTML_CWD="$(dirname "$(readlink -f "$1")" 2>/dev/null)"
-[ "$GEN_HTML_CWD" = "." ] && GEN_HTML_CWD="$(__basedir ".")"
+# Get directory from args
+# set -- "$@"
+# for arg in "$@"; do
+# if [ -d "$arg" ]; then
+# GEN_HTML_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
+# elif [ -f "$arg" ]; then
+# GEN_HTML_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
+# else
+# SET_NEW_ARGS+=("$arg")
+# fi
+# done
+# set -- "${SET_NEW_ARGS[@]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set directory to first argument
+[ -d "$1" ] && GEN_HTML_CWD="$1" && shift 1 || GEN_HTML_CWD="${GEN_HTML_CWD:-$PWD}"
+GEN_HTML_CWD="$(realpath "${GEN_HTML_CWD:-$PWD}" 2>/dev/null)"
+if [ -d "$GEN_HTML_CWD" ] && cd "$GEN_HTML_CWD"; then
+  if [ "$GEN_HTML_SILENT" != "true" ]; then
+    printf_cyan "Setting working dir to $GEN_HTML_CWD"
+  fi
+else
+  printf_exit "💔 $GEN_HTML_CWD does not exist 💔"
+fi
+export GEN_HTML_CWD
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set actions based on variables
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
-cmd_exists --error --ask bash curl git || exit 1 # exit 1 if not found
-#am_i_online --error || exit 1     # exit 1 if no internet
+#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+#cmd_exists --error --ask bash || exit 3 # exit 3 if not found
+#am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
-
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 GEN_HTML_CHOICE="${1:-$GEN_HTML_DEFAULT_HTML}"
 GEN_HTML_FILE="$(basename ${GEN_HTML_CHOICE:-$WHICH_HTML_DEF} 2>/dev/null)"
 GEN_HTML_WHICH_FILE="$(echo "${1:-$GEN_HTML_FILE}")"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 case "${1:-$GEN_HTML_WHICH_FILE}" in
 list)
   shift 1
   if [ "$(__count_files "$GEN_HTML_DIR_FILES")" -eq 0 ]; then
-    [[ -f "${CASJAYSDEVDIR}/helpers/gen-html/array" ]] &&
-      cat "${CASJAYSDEVDIR}/helpers/gen-html/array" | printf_readline "2"
+    $APPNAME --options
   else
     __find "$GEN_HTML_DIR_FILES" | printf_readline "2"
     [ "$(__count_files "$GEN_HTML_DIR_FILES_CUSTOM")" -eq 0 ] ||
@@ -374,16 +668,15 @@ download)
   tmpfolder="/tmp/html.$$"
   printf_green "Cloning the repo to $tmpfolder"
   __git_clone "$GEN_HTML_REPO_RAW" "$tmpfolder"
-  if [[ -d "$tmpfolder/files" ]]; then
+  if [ -d "$tmpfolder/files" ]; then
     printf_green "Copying files to $GEN_HTML_DIR_FILES_CUSTOM"
     __cp_rf "$tmpfolder/files/." "$GEN_HTML_DIR_FILES_CUSTOM/"
     __rm_rf "$tmpfolder"
   fi
-  if [ -d "$GEN_HTML_DIR_FILES_CUSTOM" ] && [ "$(__count_files "$GEN_HTML_DIR_FILES_CUSTOM" "2")" -ne 0 ]; then
-    printf_green "Done cloning and copying the files"
-  else
+  [ -d "$GEN_HTML_DIR_FILES_CUSTOM" ] &&
+    [ "$(__count_files "$GEN_HTML_DIR_FILES_CUSTOM" "2")" -ne 0 ] &&
+    printf_green "Done cloning and copying the files" ||
     printf_red "Failed to setup custom html file"
-  fi
   ;;
 
 custom)
@@ -397,21 +690,43 @@ custom)
 
 redirect)
   shift 1
-  if [[ $# -eq 1 ]]; then
+  if [ $# -eq 1 ]; then
     __create_redirect "$1"
-  elif [[ $# -eq 2 ]]; then
+  elif [ $# -eq 2 ]; then
     __create_redirect "$1" >"$2"
-    [ -f $2 ] && printf_green "Created redirect file: $2" ||
+    [ -f $2 ] &&
+      printf_green "Created redirect file: $2" ||
       printf_red "Failed to create redirect file: $2"
   else
     printf_exit "No redirect url provided"
   fi
   ;;
 
+site)
+  shift 1
+  domain="$(hostname -f)"
+  doc_root="$GEN_HTML_CWD"
+  copyright_year="$(date +'%Y')"
+  author="${GEN_HTML_AUTHOR:-$USER}"
+  modified_on="$(date +'%a %b %d, %Y at %H:%M:%S %Z')"
+  __cp_rf "$CASJAYSDEVDIR/templates/html/." "$doc_root/"
+  __find_replace "GEN_SCRIPT_REPLACE_YEAR" "$copyright_year" "$doc_root"
+  __find_replace "GEN_SCRIPT_REPLACE_DOMAIN" "$domain" "$doc_root"
+  __find_replace "GEN_SCRIPT_REPLACE_HTMLROOT" "$static_files" "$doc_root"
+  __find_replace "GEN_SCRIPT_REPLACE_AUTHOR" "$author" "$doc_root"
+  __find_replace "GEN_SCRIPT_REPLACE_MODIFIED" "$modified_on" "$doc_root"
+  __find_replace "GEN_SCRIPT_REPLACE_TITLE" "$domain" "$doc_root"
+  __find_replace "GEN_SCRIPT_REPLACE_BODY" "<h3>Welcome to your new site</h1>" "$doc_root"
+  ;;
+
 *)
+  if [ -p "/dev/stdin" ]; then GEN_HTML_BODY="$(<"/dev/stdin")"; fi
   create_local_file "$@"
   ;;
 esac
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set exit code
+exitCode="${exitCode:-$?}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

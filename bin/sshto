@@ -1,29 +1,42 @@
 #!/usr/bin/env bash
+# shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202207042242-git
-# @Author            :  Jason Hempstead
-# @Contact           :  jason@casjaysdev.com
-# @License           :  WTFPL
-# @ReadME            :  sshto --help
-# @Copyright         :  Copyright: (c) 2021 Jason Hempstead, Casjays Developments
-# @Created           :  Thursday, Aug 19, 2021 01:17 EDT
-# @File              :  sshto
-# @Description       :  Menu driven ssh client
-# @TODO              :
-# @Other             :
-# @Resource          :  https://github.com/vaniacer/sshto
+##@Version           :  202208162302-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  jason@casjaysdev.com
+# @@License          :  WTFPL
+# @@ReadME           :  sshto --help
+# @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
+# @@Created          :  Tuesday, Aug 16, 2022 23:02 EDT
+# @@File             :  sshto
+# @@Description      :  Menu driven ssh client
+# @@Changelog        :  New script
+# @@TODO             :  Better documentation
+# @@Other            :
+# @@Resource         :  https://github.com/vaniacer/sshto
+# @@Terminal App     :  no
+# @@sudo/root        :  no
+# @@Template         :  bash/system
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0" 2>/dev/null)"
-VERSION="202108190117-git"
+VERSION="202208162302-git"
 HOME="${USER_HOME:-$HOME}"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${SUDO_USER:-$USER}"
-SRC_DIR="${BASH_SOURCE%/*}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+SSHTO_REQUIRE_SUDO="${SSHTO_REQUIRE_SUDO:-no}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set bash options
-if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
-trap bye INT
-
+# Reopen in a terminal
+if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initial debugging
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# pipes fail
+set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
@@ -37,52 +50,108 @@ elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
   . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
 else
   echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
-  exit 90
+  exit 1
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# user system devenv dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+# Options are: *_install
+# desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr
+#   pkmgr system systemmgr thememgr user wallpapermgr
 user_install && __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set functions
-__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
+# Send all output to /dev/null
+__devnull() {
+  tee &>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# Send errors to /dev/null
+__devnull2() {
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# See if the executable exists
+__cmd_exists() {
+  exitCode=0
+  [ -n "$1" ] && local exitCode="" || return 0
+  for cmd in "$@"; do
+    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
+  done
+  [ $exitCode -eq 0 ] || exitCode=3
+  return ${exitCode:-$?}
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for a valid internet connection
+__am_i_online() {
+  local exitCode=0
+  curl -q -LSsfI --max-time 1 --retry 0 "${1:-http://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# colorization
+if [ "$SHOW_RAW" = "true" ]; then
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional printf_ colors
+__printf_head() { printf_blue "$1"; }
+__printf_opts() { printf_purple "$1"; }
+__printf_line() { printf_cyan "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# output version
+__version() { printf_cyan "$VERSION"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# list options
+__list_options() {
+  printf_color "$1: " "$5"
+  echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g'
+  printf_newline
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create the config file
 __gen_config() {
-  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Generating the config file in"
-  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "$SSHTO_CONFIG_DIR/$SSHTO_CONFIG_FILE"
+  local NOTIFY_CLIENT_NAME="$APPNAME"
+  if [ "$INIT_CONFIG" != "TRUE" ]; then
+    printf_blue "Generating the config file in"
+    printf_cyan "$SSHTO_CONFIG_DIR/$SSHTO_CONFIG_FILE"
+  fi
   [ -d "$SSHTO_CONFIG_DIR" ] || mkdir -p "$SSHTO_CONFIG_DIR"
   [ -d "$SSHTO_CONFIG_BACKUP_DIR" ] || mkdir -p "$SSHTO_CONFIG_BACKUP_DIR"
   [ -f "$SSHTO_CONFIG_DIR/$SSHTO_CONFIG_FILE" ] &&
     cp -Rf "$SSHTO_CONFIG_DIR/$SSHTO_CONFIG_FILE" "$SSHTO_CONFIG_BACKUP_DIR/$SSHTO_CONFIG_FILE.$$"
   cat <<EOF >"$SSHTO_CONFIG_DIR/$SSHTO_CONFIG_FILE"
 # Settings for sshto
-# Remote port for tunneling.
-SSHTO_REMOTE_PORT=${SSHTO_REMOTE_PORT:-8080}
-# Local  port for tunneling.
-SSHTO_LOCAL_PORT=${SSHTO_LOCAL_PORT:-18080}
-# Destination folder on target server to download\upload files.
-SSHTO_DEST_DIR=${SSHTO_DEST_DIR:-'~'}
-# Timer for tunneling command.
+SSHTO_TUNNEL_REMOTE_PORT=${SSHTO_TUNNEL_REMOTE_PORT:-}
+SSHTO_TUNNEL_LOCAL_PORT=${SSHTO_TUNNEL_LOCAL_PORT:-}
+SSHTO_DEST_DIR=${SSHTO_DEST_DIR:-}
 SSHTO_TIMER=${SSHTO_TIMER:-60}
-# Alternative username to login with.
-SSHTO_SSHTO_GUEST_USERNAME=${SSHTO_SSHTO_GUEST_USERNAME:-root}
-# SSH key to use
-SSHTO_SSH_KEY="${SSHTO_SSH_KEY:-$HOME/.ssh/id_rsa.pub}"
-
-# Notification settings
-SSHTO_GOOD_MESSAGE="${SSHTO_GOOD_MESSAGE:-Everything Went OK}"
-SSHTO_ERROR_MESSAGE="${SSHTO_ERROR_MESSAGE:-Well something seems to have gone wrong}"
-SSHTO_NOTIFY_ENABLED="${SSHTO_NOTIFY_ENABLED:-yes}"
-SSHTO_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
-SSHTO_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$SSHTO_NOTIFY_CLIENT_ICON}"
-
-# Colorization settings
-SSHTO_OUTPUT_COLOR="${SSHTO_OUTPUT_COLOR:-5}"
-SSHTO_OUTPUT_COLOR_GOOD="${SSHTO_OUTPUT_COLOR_GOOD:-2}"
-SSHTO_OUTPUT_COLOR_ERROR="${SSHTO_OUTPUT_COLOR_ERROR:-1}"
+SSHTO_SSHTO_GUEST_USERNAME=${SSHTO_SSHTO_GUEST_USERNAME:-}
+SSHTO_SSH_KEY="${SSHTO_SSH_KEY:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+SSHTO_OUTPUT_COLOR_1="${SSHTO_OUTPUT_COLOR_1:-}"
+SSHTO_OUTPUT_COLOR_2="${SSHTO_OUTPUT_COLOR_2:-}"
+SSHTO_OUTPUT_COLOR_GOOD="${SSHTO_OUTPUT_COLOR_GOOD:-}"
+SSHTO_OUTPUT_COLOR_ERROR="${SSHTO_OUTPUT_COLOR_ERROR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+SSHTO_NOTIFY_ENABLED="${SSHTO_NOTIFY_ENABLED:-}"
+SSHTO_GOOD_NAME="${SSHTO_GOOD_NAME:-}"
+SSHTO_ERROR_NAME="${SSHTO_ERROR_NAME:-}"
+SSHTO_GOOD_MESSAGE="${SSHTO_GOOD_MESSAGE:-}"
+SSHTO_ERROR_MESSAGE="${SSHTO_ERROR_MESSAGE:-}"
+SSHTO_NOTIFY_CLIENT_NAME="${SSHTO_NOTIFY_CLIENT_NAME:-}"
+SSHTO_NOTIFY_CLIENT_ICON="${SSHTO_NOTIFY_CLIENT_ICON:-}"
+SSHTO_NOTIFY_CLIENT_URGENCY="${SSHTO_NOTIFY_CLIENT_URGENCY:-}"
 
 EOF
+  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
   if [ -f "$SSHTO_CONFIG_DIR/$SSHTO_CONFIG_FILE" ]; then
-    [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for $APPNAME has been created"
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
+    . "$SSHTO_CONFIG_DIR/$SSHTO_CONFIG_FILE"
     exitCode=0
   else
     printf_red "Failed to create the config file"
@@ -91,35 +160,187 @@ EOF
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Additional functions
-#Add your commands to this list
-cmdlist_renew() { cmdlist=(
-  #Command#  #Description#
-  "Username" "Change ssh username to \Z2$SSHTO_GUEST_USERNAME\Z0"
-  '' ''
-  "ls  -la" "List Files"
-  "free -h" "Show free memory"
-  "df  -ih" "Show free inodes"
-  "df   -h" "Show free disk space"
-  "${new_custom:-$RUN_CUSTOM}" "Execute Custom Command"
-  '' ''
-  "Info" "Full system info"
-  "Sshkey" "Add my ssh key to \Z4$target\Z0"
-  "Alias" "Add my usefull aliases to \Z4$target\Z0"
-  "Copy" "Copy selected file or dir to \Z4$target\Z0"
-  '' ''
-  "Custom" "CMD: \Z1${new_custom:-$RUN_CUSTOM}\Z0"
-  '' ''
-  "Dest" "Change destination folder \Z4$SSHTO_DEST_DIR\Z0 on \Z4$target\Z0"
-  "Upload" "Upload   file or folder from \Z4$PWD\Z0 to \Z4$target:${SSHTO_DEST_DIR}\Z0"
-  "Download" "Download file or folder from \Z4$target:${SSHTO_DEST_DIR}\Z0 to \Z4$PWD\Z0"
-  '' ''
-  "Local" "Change local  port \Z1$SSHTO_LOCAL_PORT\Z0"
-  "Remote" "Change remote port \Z1$SSHTO_REMOTE_PORT\Z0"
-  "Tunnel" "Start portunneling from \Z4$target\Z0 port \Z1$SSHTO_REMOTE_PORT\Z0 to local port \Z1$SSHTO_LOCAL_PORT\Z0"
-); }
+# Help function - Align to 50
+__help() {
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "sshto:  Menu driven ssh client - $VERSION"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Usage: sshto [options] [commands]"
+  __printf_line " - "
+  __printf_line " - "
+  __printf_line "--dir                           - Sets the working directory"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Other Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--help                          - Shows this message"
+  __printf_line "--config                        - Generate user config file"
+  __printf_line "--version                       - Show script version"
+  __printf_line "--options                       - Shows all available options"
+  __printf_line "--debug                         - Enables script debugging"
+  __printf_line "--raw                           - Removes all formatting on output"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Colorization
+# Is current user root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() {
+  { [ $(id -u) -ne 0 ] || [ $EUID -ne 0 ] || [ "$WHOAMI" != "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep -s "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# # Get sudo password
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run sudo
+__sudorun() {
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo
+__can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User can run sudo
+__sudoif() {
+  __user_is_root && return 0
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run command as root
+requiresudo() {
+  if [ "$SSHTO_REQUIRE_SUDO" = "yes" ] && [ -z "$SSHTO_REQUIRE_SUDO_RUN" ]; then
+    export SSHTO_REQUIRE_SUDO="no"
+    export SSHTO_REQUIRE_SUDO_RUN="true"
+    __sudo "$@"
+    exit $?
+  else
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  CMD="${1:-echo}" && shift 1
+  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  [ "$(basename "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  if __sudoif; then
+    export PATH="$PATH"
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    exitCode=$?
+  else
+    printf '%s\n' "This requires root to run"
+    exitCode=1
+  fi
+  return ${exitCode:-1}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  exitCode=${exitCode:-$?}
+  [ -f "$SSHTO_TEMP_FILE" ] && rm -Rf "$SSHTO_TEMP_FILE" &>/dev/null
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined functions
+__ssh() { ssh -q "$@"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gen_config_local() {
+  cat <<EOF | tee "$SSHTO_CONFIG_DIR/cmdlist.txt" |& __devnull
+# Format is "Command"  "Description"
+cmdlist+=(
+"ls         -A      " "List all files"
+"ls         -hla    " "List all files in human readable"
+"free       -h      " "Show free memory"
+"df         -ih     " "Show free inodes"
+"df         -h      " "Show free disk space"
+
+)
+
+EOF
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit_local() {
+  bye
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+cmdlist_renew() {
+  cmdlist=()
+  [ -f "$SSHTO_CONFIG_DIR/cmdlist.txt" ] && . "$SSHTO_CONFIG_DIR/cmdlist.txt"
+  cmdlist+=(
+    '' ''
+    "${new_custom:-$RUN_CUSTOM}" "Execute Custom Command"
+    '' ''
+    "Info" "Full system info"
+    "Sshkey" "Add my ssh key to \Z4$target\Z0"
+    "Alias" "Add my usefull aliases to \Z4$target\Z0"
+    "Copy" "Copy selected file or dir to \Z4$target\Z0"
+    '' ''
+    "Custom" "CMD: \Z1${new_custom:-$RUN_CUSTOM}\Z0"
+    '' ''
+    "Dest" "Change destination folder \Z4$SSHTO_DEST_DIR\Z0 on \Z4$target\Z0"
+    "Upload" "Upload   file or folder from \Z4$PWD\Z0 to \Z4$target:${SSHTO_DEST_DIR}\Z0"
+    "Download" "Download file or folder from \Z4$target:${SSHTO_DEST_DIR}\Z0 to \Z4$PWD\Z0"
+    '' ''
+    "Local" "Change local  port \Z1$SSHTO_LOCAL_PORT\Z0"
+    "Remote" "Change remote port \Z1$SSHTO_REMOTE_PORT\Z0"
+    "Tunnel" "Start portunneling from \Z4$target\Z0 port \Z1$SSHTO_REMOTE_PORT\Z0 to local port \Z1$SSHTO_LOCAL_PORT\Z0"
+    '' ''
+    "Username" "Change ssh username to \Z2$SSHTO_GUEST_USERNAME\Z0"
+
+  )
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__execute_sshto() {
+  trap '' SIGINT
+  __colors
+  IFSOLD=$IFS
+  IFS=$'\n'
+  hosts="$(grep -h "Host " ~/.ssh/config* | sed '/\*/d; s/Host //g;')"
+  for host in $hosts; do
+    name="${host// #*/}" # Get HostName
+    desc="${host//*#/}"  # Get Description
+    case $name in
+    '#DUMMY')
+      desc="${host%\#*}"
+      desc="${desc##*\#}"
+      name="{ $desc }"
+      length=$(((40 - ${#name}) / 2))
+      name=$(
+        line - $length
+        printf "$name"
+        line - $length
+      )
+      [[ ${#name} -lt 40 ]] && name=-"$name"
+      content+=("$desc")
+      desc=$(line - 20)
+      ;;
+    '#'*) continue ;;
+    esac
+    fullist+=("$name" "$desc") #Add HostName and Description to the list
+  done
+  IFS=$IFSOLD
+  list=("${fullist[@]}")
+  [[ $filter ]] && new_list
+  first_dialog
+  bye
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __colors() {
   #--------------------------------------------------------------------+
   #Color picker, usage: printf ${BLD}${CUR}${RED}${BBLU}"Hello!)"${DEF}|
@@ -173,25 +394,26 @@ __colors() {
   CON='\e[?25h' #Cursor On                                             |
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-XY() { printf "\e[${2};${1}H${3}"; }
+XY() { printf "\e[%b;%sH%s" "$1" "$2" "$2"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 line() {
   printf -v LINE "%$2s"
-  printf -- "${LINE// /$1}"
+  printf '-- %s' "${LINE// /$1}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 cnt() {
   printf -v _N %$1s
-  _N=(${_N// / 1})
-  printf "${!_N[*]}"
+  _N=("${_N// / 1}")
+  printf '%s' "${!_N[*]}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ssh_yes() {
+  __cmd_exists expect || return 1
   # If connecting first time send 'yes' on ssh's request.
   # Expect must be installed on server. Options: $1 - ssh address with parameters(if needed)
   # Usage example: ssh_yes "-p22 user@localhost"
   expect <<EOF
-spawn ssh $1
+spawn __ssh $1
 expect {
     "(yes/no)?" {
         send "yes\n"
@@ -209,7 +431,7 @@ EOF
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 system_info() {
   clear
-  ssh $SSH_OPT $target "
+  __ssh $SSH_OPT $target "
         printf '\n${BLD}Hostname:${DEF}\n'
         hostname
         printf '\n${BLD}Interfaces:${DEF}\n'
@@ -244,7 +466,7 @@ pause() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 go_to_target() {
   clear
-  ssh $SSH_OPT $target || pause
+  __ssh $SSH_OPT $target || pause
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 add_aliases() {
@@ -254,7 +476,7 @@ add_aliases() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 run_command() {
   clear
-  ssh $SSH_OPT -t $target $command
+  __ssh $SSH_OPT -t $target $command
   pause
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -264,17 +486,19 @@ add_sshkey() {
   ssh-copy-id -i $SSHTO_SSH_KEY $SSH_OPT $target
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-portunneling() { ssh $SSH_OPT $target -f -L 127.0.0.1:$SSHTO_LOCAL_PORT:127.0.0.1:$SSHTO_REMOTE_PORT sleep $SSHTO_TIMER; }
+portunneling() {
+  __ssh $SSH_OPT $target -f -L 127.0.0.1:$SSHTO_TUNNEL_LOCAL_PORT:127.0.0.1:$SSHTO_TUNNEL_REMOTE_PORT sleep $SSHTO_TIMER
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 bye() {
-  clear
+  [ "$_DEBUG" = "TRUE" ] || [ -n "$INIT_CONFIG" ] || clear
   exit 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 copy_files() {
   filename=$(dialog --ok-label "COPY" --cancel-label "BACK" --output-fd 1 --aspect 100 --colors --fselect $PWD/ 10 80)
   case $filename:$? in
-  $PWD | $PWD/:0) return ;;
+  "$PWD" | "$PWD/":0) return ;;
   *:0) scp -r $SSH_OPT $filename $target:~ ;;
   *:*) return ;;
   esac
@@ -299,13 +523,13 @@ custom_run() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 local_port() {
-  new_local=$(dialog --ok-label "CHANGE" --cancel-label "BACK" --output-fd 1 --max-input 5 --aspect 100 --colors --inputbox 'Change local port' 10 30 $SSHTO_LOCAL_PORT)
-  SSHTO_LOCAL_PORT=${new_local:-$SSHTO_LOCAL_PORT}
+  new_local=$(dialog --ok-label "CHANGE" --cancel-label "BACK" --output-fd 1 --max-input 5 --aspect 100 --colors --inputbox 'Change local port' 10 30 $SSHTO_TUNNEL_LOCAL_PORT)
+  SSHTO_TUNNEL_LOCAL_PORT=${new_local:-$SSHTO_TUNNEL_LOCAL_PORT}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 remote_port() {
-  new_remote=$(dialog --ok-label "CHANGE" --cancel-label "BACK" --output-fd 1 --max-input 5 --aspect 100 --colors --inputbox 'Change remote port' 10 30 $SSHTO_REMOTE_PORT)
-  SSHTO_REMOTE_PORT=${new_remote:-$SSHTO_REMOTE_PORT}
+  new_remote=$(dialog --ok-label "CHANGE" --cancel-label "BACK" --output-fd 1 --max-input 5 --aspect 100 --colors --inputbox 'Change remote port' 10 30 $SSHTO_TUNNEL_REMOTE_PORT)
+  SSHTO_TUNNEL_REMOTE_PORT=${new_remote:-$SSHTO_TUNNEL_REMOTE_PORT}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 downpath() {
@@ -323,7 +547,7 @@ upload() {
   upload
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-dlst() { filelist=($(ssh $SSH_OPT $target ls -sh1 $SSHTO_DEST_DIR | awk '{print $2,$1}')) || second_dialog; }
+dlst() { filelist=($(__ssh $SSH_OPT $target ls -sh1 $SSHTO_DEST_DIR | awk '{print $2,$1}')) || second_dialog; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 down() {
   filename=$(dialog --output-fd 1 --ok-label "DOWNLOAD" --cancel-label "BACK" --menu "Select file\folder to download:" 0 0 0 "${filelist[@]:2}")
@@ -396,86 +620,134 @@ second_dialog() {
   second_dialog
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Default variables
-exitCode="0"
+# User defined variables/import external variables
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application Folders
-SSHTO_LOG_DIR="${SSHTO_LOG_DIR:-$HOME/.local/log/sshto}"
-SSHTO_CACHE_DIR="${SSHTO_CACHE_DIR:-$HOME/.cache/sshto}"
+SSHTO_CONFIG_FILE="${SSHTO_CONFIG_FILE:-settings.conf}"
 SSHTO_CONFIG_DIR="${SSHTO_CONFIG_DIR:-$HOME/.config/myscripts/sshto}"
 SSHTO_CONFIG_BACKUP_DIR="${SSHTO_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/sshto/backups}"
+SSHTO_LOG_DIR="${SSHTO_LOG_DIR:-$HOME/.local/log/sshto}"
 SSHTO_TEMP_DIR="${SSHTO_TEMP_DIR:-$HOME/.local/tmp/system_scripts/sshto}"
-SSHTO_OPTIONS_DIR="${SSHTO_OPTIONS_DIR:-$HOME/.local/share/myscripts/sshto/options}"
-SSHTO_CONFIG_FILE="${SSHTO_CONFIG_FILE:-settings.conf}"
+SSHTO_CACHE_DIR="${SSHTO_CACHE_DIR:-$HOME/.cache/sshto}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
-SSHTO_OUTPUT_COLOR="${SSHTO_OUTPUT_COLOR:-4}"
-SSHTO_OUTPUT_COLOR_2="${SSHTO_OUTPUT_COLOR:-6}"
+SSHTO_OUTPUT_COLOR_1="${SSHTO_OUTPUT_COLOR_1:-4}"
+SSHTO_OUTPUT_COLOR_2="${SSHTO_OUTPUT_COLOR_2:-5}"
 SSHTO_OUTPUT_COLOR_GOOD="${SSHTO_OUTPUT_COLOR_GOOD:-2}"
 SSHTO_OUTPUT_COLOR_ERROR="${SSHTO_OUTPUT_COLOR_ERROR:-1}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Notification Settings
-SSHTO_GOOD_MESSAGE="${SSHTO_GOOD_MESSAGE:-Everything Went OK}"
-SSHTO_ERROR_MESSAGE="${SSHTO_ERROR_MESSAGE:-Well something seems to have gone wrong}"
 SSHTO_NOTIFY_ENABLED="${SSHTO_NOTIFY_ENABLED:-yes}"
-SSHTO_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
-SSHTO_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$SSHTO_NOTIFY_CLIENT_ICON}"
+SSHTO_GOOD_NAME="${SSHTO_GOOD_NAME:-Great:}"
+SSHTO_ERROR_NAME="${SSHTO_ERROR_NAME:-Error:}"
+SSHTO_GOOD_MESSAGE="${SSHTO_GOOD_MESSAGE:-No errors reported}"
+SSHTO_ERROR_MESSAGE="${SSHTO_ERROR_MESSAGE:-Errors were reported}"
+SSHTO_NOTIFY_CLIENT_NAME="${SSHTO_NOTIFY_CLIENT_NAME:-$APPNAME}"
+SSHTO_NOTIFY_CLIENT_ICON="${SSHTO_NOTIFY_CLIENT_ICON:-notification-new}"
+SSHTO_NOTIFY_CLIENT_URGENCY="${SSHTO_NOTIFY_CLIENT_URGENCY:-normal}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional Variables
-SSHTO_REMOTE_PORT=${SSHTO_REMOTE_PORT:-8080}
-SSHTO_LOCAL_PORT=${SSHTO_LOCAL_PORT:-18080}
-SSHTO_DEST_DIR=${SSHTO_DEST_DIR:-'~'}
-SSHTO_TIMER=${SSHTO_TIMER:-60}
-SSHTO_SSHTO_GUEST_USERNAME=${SSHTO_SSHTO_GUEST_USERNAME:-root}
-SSHTO_SSH_KEY="${SSHTO_SSH_KEY:-$HOME/.ssh/id_rsa.pub}"
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Generate non-existing config files
-[ -f "$SSHTO_CONFIG_DIR/$SSHTO_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# Generate config files
+[ -f "$SSHTO_CONFIG_DIR/$SSHTO_CONFIG_FILE" ] ||
+  [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import config
-[ -f "$SSHTO_CONFIG_DIR/$SSHTO_CONFIG_FILE" ] && . "$SSHTO_CONFIG_DIR/$SSHTO_CONFIG_FILE"
+[ -f "$SSHTO_CONFIG_DIR/$SSHTO_CONFIG_FILE" ] &&
+  . "$SSHTO_CONFIG_DIR/$SSHTO_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Ensure Directories and files exist
-[ -d "$SSHTO_LOG_DIR" ] || mkdir -p "$SSHTO_LOG_DIR" &>/dev/null
-[ -d "$SSHTO_TEMP_DIR" ] || mkdir -p "$SSHTO_TEMP_DIR" &>/dev/null
-[ -d "$SSHTO_CACHE_DIR" ] || mkdir -p "$SSHTO_CACHE_DIR" &>/dev/null
+# Ensure Directories exist
+[ -d "$SSHTO_LOG_DIR" ] ||
+  mkdir -p "$SSHTO_LOG_DIR" |& __devnull
+[ -d "$SSHTO_TEMP_DIR" ] ||
+  mkdir -p "$SSHTO_TEMP_DIR" |& __devnull
+[ -d "$SSHTO_CACHE_DIR" ] ||
+  mkdir -p "$SSHTO_CACHE_DIR" |& __devnull
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SSHTO_TEMP_FILE="${SSHTO_TEMP_FILE:-$(mktemp $SSHTO_TEMP_DIR/XXXXXX 2>/dev/null)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup trap to remove temp file
-trap 'exitCode=${exitCode:-$?};[ -n "$SSHTO_TEMP_FILE" ] && [ -f "$SSHTO_TEMP_FILE" ] && rm -Rf "$SSHTO_TEMP_FILE" &>/dev/null' EXIT
+trap '__trap_exit' EXIT
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup notification function
-if [ "$SSHTO_NOTIFY_ENABLED" = "yes" ]; then
-  __notifications() {
-    export NOTIFY_GOOD_MESSAGE="${SSHTO_GOOD_MESSAGE}"
-    export NOTIFY_ERROR_MESSAGE="${SSHTO_ERROR_MESSAGE}"
-    export NOTIFY_CLIENT_NAME="${SSHTO_NOTIFY_CLIENT_NAME}"
-    export NOTIFY_CLIENT_ICON="${SSHTO_NOTIFY_CLIENT_ICON}"
-    notifications "$@" || return 1
-  }
-else
-  __notifications() { false; }
-fi
+__notifications() {
+  __cmd_exists notifications || return
+  [ "$SSHTO_NOTIFY_ENABLED" = "yes" ] || return
+  [ "$SEND_NOTIFICATION" = "no" ] && return
+  (
+    set +x
+    export SCRIPT_OPTS="" _DEBUG=""
+    export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$SSHTO_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$SSHTO_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$SSHTO_NOTIFY_CLIENT_ICON}"
+    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$SSHTO_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$SSHTO_NOTIFY_CLIENT_URGENCY}"
+    notifications "$@"
+    retval=$?
+    return $retval
+  ) |& __devnull &
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Show warn message if variables are missing
+# Set custom actions
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set additional variables/Argument/Option settings
-SETARGS="$*"
-SHORTOPTS=""
-LONGOPTS="options,config,version,help,dir:"
-ARRAY=""
+# Argument/Option settings
+SETARGS=("$@")
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
+SHORTOPTS=""
+SHORTOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
+LONGOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ARRAY=""
+ARRAY+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LIST=""
+LIST+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$APPNAME" -- "$@" 2>/dev/null)
 eval set -- "${setopts[@]}" 2>/dev/null
 while :; do
-  case $1 in
+  case "$1" in
+  --raw)
+    shift 1
+    export SHOW_RAW="true"
+    printf_column() { tee | grep '^'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    ;;
+  --debug)
+    shift 1
+    set -xo pipefail
+    export SCRIPT_OPTS="--debug"
+    export _DEBUG="on"
+    __devnull() { tee || return 1; }
+    __devnull2() { eval "$@" |& tee || return 1; }
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
+    ;;
   --options)
     shift 1
-    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
-    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
-    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
-    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' 4
+    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' 4
+    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
     exit $?
     ;;
   --version)
@@ -490,11 +762,18 @@ while :; do
     ;;
   --config)
     shift 1
+    INIT_CONFIG="REGEN"
     __gen_config
     exit $?
     ;;
+  --silent)
+    shift 1
+    SSHTO_SILENT="true"
+    ;;
   --dir)
+    CWD_IS_SET="TRUE"
     SSHTO_CWD="$2"
+    #[ -d "$SSHTO_CWD" ] || mkdir -p "$SSHTO_CWD" |& __devnull
     shift 2
     ;;
   --)
@@ -503,49 +782,51 @@ while :; do
     ;;
   esac
 done
-#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get directory from args
+# set -- "$@"
+# for arg in "$@"; do
+# if [ -d "$arg" ]; then
+# SSHTO_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
+# elif [ -f "$arg" ]; then
+# SSHTO_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
+# else
+# SET_NEW_ARGS+=("$arg")
+# fi
+# done
+# set -- "${SET_NEW_ARGS[@]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set directory to first argument
+# [ -d "$1" ] && SSHTO_CWD="$1" && shift 1 || SSHTO_CWD="${SSHTO_CWD:-$PWD}"
+SSHTO_CWD="$(realpath "${SSHTO_CWD:-$PWD}" 2>/dev/null)"
+# if [ -d "$SSHTO_CWD" ] && cd "$SSHTO_CWD"; then
+# if [ "$SSHTO_SILENT" != "true" ]; then
+# printf_cyan "Setting working dir to $SSHTO_CWD"
+# fi
+# else
+# printf_exit "💔 $SSHTO_CWD does not exist 💔"
+# fi
+export SSHTO_CWD
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set actions based on variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+#cmd_exists --error --ask bash || exit 3 # exit 3 if not found
+#am_i_online --error || exit 4           # exit 4 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+[ -n "$1" ] && RUN_CUSTOM="${*}" || RUN_CUSTOM="pkmgr update"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Check for required applications/Network check
-cmd_exists --error --ask bash dialog expect || exit 1 # exit 1 if not found
-#am_i_online --error || exit 1     # exit 1 if no internet
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# APP Variables overrides
-[ -n "$1" ] && RUN_CUSTOM="${*}" || RUN_CUSTOM="pkmgr update"
-__colors
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
-IFSOLD=$IFS
-IFS=$'\n'
-for host in $(grep -h "Host " ~/.ssh/config* | sed '/\*/d; s/Host //g;'); do
-  name="${host// #*/}" # Get HostName
-  desc="${host//*#/}"  # Get Description
-  case $name in
-  '#DUMMY')
-    desc="${host%\#*}"
-    desc="${desc##*\#}"
-    name="{ $desc }"
-    length=$(((40 - ${#name}) / 2))
-    name=$(
-      line - $length
-      printf "$name"
-      line - $length
-    )
-    [[ ${#name} -lt 40 ]] && name=-$name
-    content+=("$desc")
-    desc=$(line - 20)
-    ;;
-  '#'*) continue ;;
-  esac
-  fullist+=("$name" "$desc") #Add HostName and Description to the list
-done
-IFS=$IFSOLD
-list=("${fullist[@]}")
-[[ $filter ]] && new_list
-first_dialog
-bye
+__execute_sshto
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set exit code
+exitCode="${exitCode:-$?}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

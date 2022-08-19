@@ -1,28 +1,42 @@
 #!/usr/bin/env bash
+# shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202207042242-git
-# @Author            :  Jason Hempstead
-# @Contact           :  jason@casjaysdev.com
-# @License           :  WTFPL
-# @ReadME            :  virt-display --help
-# @Copyright         :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
-# @Created           :  Wednesday, Jan 12, 2022 06:10 EST
-# @File              :  virt-display
-# @Description       :  Connect to a virtual machine via spice
-# @TODO              :
-# @Other             :
-# @Resource          :
+##@Version           :  202208181757-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  jason@casjaysdev.com
+# @@License          :  WTFPL
+# @@ReadME           :  virt-display --help
+# @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
+# @@Created          :  Thursday, Aug 18, 2022 17:57 EDT
+# @@File             :  virt-display
+# @@Description      :  Connect to a virtual machine via spice
+# @@Changelog        :  New script
+# @@TODO             :  Better documentation/move to virt-manager
+# @@Other            :
+# @@Resource         :
+# @@Terminal App     :  no
+# @@sudo/root        :  no
+# @@Template         :  bash/system
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0" 2>/dev/null)"
-VERSION="202201120610-git"
+VERSION="202208181757-git"
 HOME="${USER_HOME:-$HOME}"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${SUDO_USER:-$USER}"
-SRC_DIR="${BASH_SOURCE%/*}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+VIRT_DISPLAY_REQUIRE_SUDO="${VIRT_DISPLAY_REQUIRE_SUDO:-no}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set bash options
-if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
-
+# Reopen in a terminal
+#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initial debugging
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# pipes fail
+set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
@@ -36,44 +50,106 @@ elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
   . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
 else
   echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
-  exit 90
+  exit 1
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# user system devenv dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+# Options are: *_install
+# desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr
+#   pkmgr system systemmgr thememgr user wallpapermgr
 user_install && __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set functions
-__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
+# Send all output to /dev/null
+__devnull() {
+  tee &>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# Send errors to /dev/null
+__devnull2() {
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# See if the executable exists
+__cmd_exists() {
+  exitCode=0
+  [ -n "$1" ] && local exitCode="" || return 0
+  for cmd in "$@"; do
+    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
+  done
+  [ $exitCode -eq 0 ] || exitCode=3
+  return ${exitCode:-$?}
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for a valid internet connection
+__am_i_online() {
+  local exitCode=0
+  curl -q -LSsfI --max-time 1 --retry 0 "${1:-http://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# colorization
+if [ "$SHOW_RAW" = "true" ]; then
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional printf_ colors
+__printf_head() { printf_blue "$1"; }
+__printf_opts() { printf_purple "$1"; }
+__printf_line() { printf_cyan "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# output version
+__version() { printf_cyan "$VERSION"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# list options
+__list_options() {
+  printf_color "$1: " "$5"
+  echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g'
+  printf_newline
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create the config file
 __gen_config() {
-  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Generating the config file in"
-  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "$VIRT_DISPLAY_CONFIG_DIR/$VIRT_DISPLAY_CONFIG_FILE"
+  local NOTIFY_CLIENT_NAME="$APPNAME"
+  if [ "$INIT_CONFIG" != "TRUE" ]; then
+    printf_blue "Generating the config file in"
+    printf_cyan "$VIRT_DISPLAY_CONFIG_DIR/$VIRT_DISPLAY_CONFIG_FILE"
+  fi
   [ -d "$VIRT_DISPLAY_CONFIG_DIR" ] || mkdir -p "$VIRT_DISPLAY_CONFIG_DIR"
   [ -d "$VIRT_DISPLAY_CONFIG_BACKUP_DIR" ] || mkdir -p "$VIRT_DISPLAY_CONFIG_BACKUP_DIR"
   [ -f "$VIRT_DISPLAY_CONFIG_DIR/$VIRT_DISPLAY_CONFIG_FILE" ] &&
     cp -Rf "$VIRT_DISPLAY_CONFIG_DIR/$VIRT_DISPLAY_CONFIG_FILE" "$VIRT_DISPLAY_CONFIG_BACKUP_DIR/$VIRT_DISPLAY_CONFIG_FILE.$$"
   cat <<EOF >"$VIRT_DISPLAY_CONFIG_DIR/$VIRT_DISPLAY_CONFIG_FILE"
 # Settings for virt-display
-VIRT_DISPLAY_VM_RAM_SIZE="${VIRT_DISPLAY_VM_RAM_SIZE:-2048}"
-VIRT_DISPLAY_VM_NETWORK="${VIRT_DISPLAY_VM_NETWORK:-network=default}"
-VIRT_DISPLAY_VM_DISK_TYPE="${VIRT_DISPLAY_VM_DISK_TYPE:-qcow2}"
-VIRT_DISPLAY_VM_DISK_SIZE="${VIRT_DISPLAY_VM_DISK_SIZE:-100}"
-
-# Notification settings
-VIRT_DISPLAY_GOOD_MESSAGE="${VIRT_DISPLAY_GOOD_MESSAGE:-Everything Went OK}"
-VIRT_DISPLAY_ERROR_MESSAGE="${VIRT_DISPLAY_ERROR_MESSAGE:-Well something seems to have gone wrong}"
-VIRT_DISPLAY_NOTIFY_ENABLED="${VIRT_DISPLAY_NOTIFY_ENABLED:-yes}"
-VIRT_DISPLAY_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
-VIRT_DISPLAY_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$VIRT_DISPLAY_NOTIFY_CLIENT_ICON}"
-
-# Colorization settings
-VIRT_DISPLAY_OUTPUT_COLOR="${VIRT_DISPLAY_OUTPUT_COLOR:-5}"
-VIRT_DISPLAY_OUTPUT_COLOR_GOOD="${VIRT_DISPLAY_OUTPUT_COLOR_GOOD:-2}"
-VIRT_DISPLAY_OUTPUT_COLOR_ERROR="${VIRT_DISPLAY_OUTPUT_COLOR_ERROR:-1}"
+VIRT_DISPLAY_VM_RAM_SIZE="${VIRT_DISPLAY_VM_RAM_SIZE:-}"
+VIRT_DISPLAY_VM_NETWORK="${VIRT_DISPLAY_VM_NETWORK:-}"
+VIRT_DISPLAY_VM_DISK_TYPE="${VIRT_DISPLAY_VM_DISK_TYPE:-}"
+VIRT_DISPLAY_VM_DISK_SIZE="${VIRT_DISPLAY_VM_DISK_SIZE:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+VIRT_DISPLAY_OUTPUT_COLOR_1="${VIRT_DISPLAY_OUTPUT_COLOR_1:-}"
+VIRT_DISPLAY_OUTPUT_COLOR_2="${VIRT_DISPLAY_OUTPUT_COLOR_2:-}"
+VIRT_DISPLAY_OUTPUT_COLOR_GOOD="${VIRT_DISPLAY_OUTPUT_COLOR_GOOD:-}"
+VIRT_DISPLAY_OUTPUT_COLOR_ERROR="${VIRT_DISPLAY_OUTPUT_COLOR_ERROR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+VIRT_DISPLAY_NOTIFY_ENABLED="${VIRT_DISPLAY_NOTIFY_ENABLED:-}"
+VIRT_DISPLAY_GOOD_NAME="${VIRT_DISPLAY_GOOD_NAME:-}"
+VIRT_DISPLAY_ERROR_NAME="${VIRT_DISPLAY_ERROR_NAME:-}"
+VIRT_DISPLAY_GOOD_MESSAGE="${VIRT_DISPLAY_GOOD_MESSAGE:-}"
+VIRT_DISPLAY_ERROR_MESSAGE="${VIRT_DISPLAY_ERROR_MESSAGE:-}"
+VIRT_DISPLAY_NOTIFY_CLIENT_NAME="${VIRT_DISPLAY_NOTIFY_CLIENT_NAME:-}"
+VIRT_DISPLAY_NOTIFY_CLIENT_ICON="${VIRT_DISPLAY_NOTIFY_CLIENT_ICON:-}"
+VIRT_DISPLAY_NOTIFY_CLIENT_URGENCY="${VIRT_DISPLAY_NOTIFY_CLIENT_URGENCY:-}"
 
 EOF
+  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
   if [ -f "$VIRT_DISPLAY_CONFIG_DIR/$VIRT_DISPLAY_CONFIG_FILE" ]; then
-    [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for $APPNAME has been created"
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
+    . "$VIRT_DISPLAY_CONFIG_DIR/$VIRT_DISPLAY_CONFIG_FILE"
     exitCode=0
   else
     printf_red "Failed to create the config file"
@@ -82,20 +158,149 @@ EOF
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Additional functions
-__virsh() { sudo virsh "$@" 2>/dev/null || return 1; }
-__list_ips() { __virsh net-dhcp-leases default 2>/dev/null || return 1; }
-__list_running() { sudo virsh list --all 2>/dev/null | grep -E 'running|shut off' | grep '^' || return 1; }
-__list_vms() { __virsh list --all | grep -Ev 'Id.*.Name.*.State|----|^$' 2>/dev/null | awk '{print $2}' | grep '^' || return 1; }
-__get_pid() { sudo ps aux 2>/dev/null | grep "qemu" | grep "$1" | grep -v 'grep' | awk '{print $2}' | grep '^' || return 1; }
-__get_port() { sudo netstat -apn 2>/dev/null | grep "$(__get_pid "$1")" | grep 'tcp' | awk '{print $4}' | grep '^' || return 1; }
-__viewer() { __local_viewer "$1" || __remote_viewer "$1" || return 1; }
-__printf_reset() { printf_color "\r\t\t$1 " ${2:-1}; }
+# Help function - Align to 50
+__help() { #* list start restore create new delete ip ssh open
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "virt-display:  Connect to a virtual machine via spice - $VERSION"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Usage: virt-display [options] [commands] [name]"
+  __printf_line "* [name]                        - Show All running vms or shows status of [name]"
+  __printf_line "list [name]                     - List"
+  __printf_line "start [name]                    - Start"
+  __printf_line "restore [name]                  - Restore"
+  __printf_line "create [name]                   - Create"
+  __printf_line "new [name]                      - New"
+  __printf_line "delete [name]                   - Delete"
+  __printf_line "ip [name]                       - IP"
+  __printf_line "ssh [name]                      - SSH"
+  __printf_line "open [name]                     - Open"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Other Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--help                          - Shows this message"
+  __printf_line "--config                        - Generate user config file"
+  __printf_line "--version                       - Show script version"
+  __printf_line "--options                       - Shows all available options"
+  __printf_line "--debug                         - Enables script debugging"
+  __printf_line "--raw                           - Removes all formatting on output"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() {
+  { [ $(id -u) -ne 0 ] || [ $EUID -ne 0 ] || [ "$WHOAMI" != "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep -s "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# # Get sudo password
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run sudo
+__sudorun() {
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo
+__can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User can run sudo
+__sudoif() {
+  __user_is_root && return 0
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run command as root
+requiresudo() {
+  if [ "$VIRT_DISPLAY_REQUIRE_SUDO" = "yes" ] && [ -z "$VIRT_DISPLAY_REQUIRE_SUDO_RUN" ]; then
+    export VIRT_DISPLAY_REQUIRE_SUDO="no"
+    export VIRT_DISPLAY_REQUIRE_SUDO_RUN="true"
+    __sudo "$@"
+    exit $?
+  else
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  CMD="${1:-echo}" && shift 1
+  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  [ "$(basename "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  if __sudoif; then
+    export PATH="$PATH"
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    exitCode=$?
+  else
+    printf '%s\n' "This requires root to run"
+    exitCode=1
+  fi
+  return ${exitCode:-1}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  exitCode=${exitCode:-$?}
+  [ -f "$VIRT_DISPLAY_TEMP_FILE" ] && rm -Rf "$VIRT_DISPLAY_TEMP_FILE" &>/dev/null
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined functions
+__virsh() {
+  sudo virsh "$@" 2>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__list_ips() {
+  __virsh net-dhcp-leases default 2>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__list_running() {
+  __sudo virsh list --all 2>/dev/null | grep -E 'running|shut off' | grep '^' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__list_vms() {
+  __virsh list --all | grep -Ev 'Id.*.Name.*.State|----|^$' 2>/dev/null | awk '{print $2}' | grep '^' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_pid() {
+  __sudo ps aux 2>/dev/null | grep "qemu" | grep "$1" | grep -v 'grep' | awk '{print $2}' | grep '^' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_port() {
+  __
+  sudo netstat -apn 2>/dev/null | grep "$(__get_pid "$1")" | grep 'tcp' | awk '{print $4}' | grep '^' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__viewer() {
+  __local_viewer "$1" || __remote_viewer "$1" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__printf_reset() {
+  printf_color "\r\t\t$1 " ${2:-1}
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __check_vm_args() {
-  if [[ $# -eq 0 ]]; then
-    local running="$(__list_running | grep -w 'running' | awk '{print $2}' | tr '\n' ' ' | grep '^')"
-    [[ -n "$running" ]] && printf_red "Please provide the vm name: ${GREEN}$running${RESET}" || printf_red "Please provide the vm name"
+  local running=""
+  if [ $# -eq 0 ] || [ $1 = "" ]; then
+    running="$(__list_running | grep -w 'running' | awk '{print $2}' | tr '\n' ' ' | grep '^')"
+    [ -n "$running" ] && printf_red "Please provide the vm name: ${GREEN}$running${RESET}" || printf_red "Please provide the vm name"
     exit 1
   else
     __list_vms | grep -wq "$1" || printf_exit "Can not find the vm named $1"
@@ -108,7 +313,7 @@ __ssh() {
   local user="${2:-root}"
   local idFile="$3"
   local sshcmd="-l ${user} ${ip} ${VIRT_DISPLAY_SSH_OPTS:-}"
-  [[ -n "$idFile" ]] && ssh -i "$id_file" $sshcmd 2>/dev/null || ssh $sshcmd 2>/dev/null || return 1
+  [ -n "$idFile" ] && ssh -i "$id_file" $sshcmd 2>/dev/null || ssh $sshcmd 2>/dev/null || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __vm_rm() {
@@ -135,17 +340,17 @@ __get_id_file() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_ip() {
-  local name="$1"
   local ip="" mac=""
+  local name="$1"
   ip="$(__list_ips | grep -w "$name" | awk '{print $5}' | grep '[0-9]' | awk -F '/' '{print $1}')"
   mac="$(__virsh dumpxml "$name" 2>/dev/null | grep "mac address" | awk -F\' '{ print $2}')"
-  [[ -n "$ip" ]] && printf '%s\n' "$ip" || arp -an 2>/dev/null | grep "$mac" | grep '^' || return 1
+  [ -n "$ip" ] && printf '%s\n' "$ip" || arp -an 2>/dev/null | grep "$mac" | grep '^' || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __test_connection() {
-  local ip="$1"
-  local status=$({ cmd_exists nmap && nmap "$ip" -Pn -p 22 | grep -qioE 'open' && echo 'true'; } || { ping -w 1 -c1 "$ip" &>/dev/null && echo 'true'; } || return 1)
-  if [[ $status == "true" ]]; then
+  local ip="$1" status=""
+  status=$({ cmd_exists nmap && nmap "$ip" -Pn -p 22 | grep -qioE 'open' && echo 'true'; } || { ping -w 1 -c1 "$ip" &>/dev/null && echo 'true'; } || return 1)
+  if [ $status == "true" ]; then
     return 0
   elif ssh -q -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=1 $ip 'exit 0' &>/dev/null; then
     return 0
@@ -155,22 +360,23 @@ __test_connection() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __ssh_viewer() {
+  local ip="" idFile="" tries=""
   local name="$1"
   local user="$2"
   local idFile="${3:-$2}"
-  local ip="$(__get_ip "${name}" | tail -n1)"
-  local idFile="$(__get_id_file "$idFile")"
-  local tries=10
+  ip="$(__get_ip "${name}" | tail -n1)"
+  idFile="$(__get_id_file "$idFile")"
+  tries=10
   clear
   while [ $tries -gt 0 ]; do
     __printf_reset "Attempting to connect to ${ip}..." 3
     __start "$name" &>/dev/null && sleep 2 || sleep .5
-    [[ -n "$ip" ]] && break || tries=$((tries - 1))
+    [ -n "$ip" ] && break || tries=$((tries - 1))
     sleep 1 && ip="$(__get_ip "$ip")"
   done
   echo ''
   id_file="$(__get_id_file "$idFile" || __get_id_file "$ip")"
-  if [[ -n "$ip" ]]; then
+  if [ -n "$ip" ]; then
     if __test_connection "$ip"; then
       clear
       __ssh "${ip}" "${user}" "${id_file}" && clear
@@ -188,7 +394,7 @@ __ssh_viewer() {
 __local_viewer() {
   local running=""
   running="$(__list_running | grep 'running' | grep "$1" | grep '^' || echo '')"
-  [[ -n "$running" ]] || printf_exit "$1 is not running"
+  [ -n "$running" ] || printf_exit "$1 is not running"
   { sudo virt-viewer "$1" 2>/dev/null || return 1; } &
   return $?
 }
@@ -207,9 +413,9 @@ __snapshot() {
   destroy="$([ "$3" != "no-stop" ] && __virsh destroy --domain "$domain" &>/dev/null || false)"
   snapshot="$(__virsh snapshot-create-as "${snapshot:-Default}" --domain "$domain" &>/dev/null)"
   created="$(snapshot-list --domain $domain 2>&1 | grep -q "$snapshot" || echo 'Failed')"
-  [[ -z "$created" ]] || printf_return "Failed to create snapshot $snapshot"
+  [ -z "$created" ] || printf_return "Failed to create snapshot $snapshot"
   start="$(__virsh start --domain "$domain" 2>&1 | grep -qiv ' started')"
-  [[ -n "$start" ]] || printf_return "Failed to start $domain"
+  [ -n "$start" ] || printf_return "Failed to start $domain"
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -218,30 +424,31 @@ __restore() {
   snapshot="${2:-Default}"
   printf_green "Restoring snapshot for $domain using $snapshot"
   restore="$(__virsh snapshot-revert --domain $domain $snapshot 2>&1 | grep -Eqi 'error:|failed:' && echo 'Failed')"
-  [[ -z "$restore" ]] && printf_green "Restore was successful" || printf_return "Failed to restore snapshot"
+  [ -z "$restore" ] && printf_green "Restore was successful" || printf_return "Failed to restore snapshot"
   start="$(__virsh start --domain $domain 2>&1 | grep -qi ' started' || echo 'Failed')"
-  [[ -z "$start" ]] && printf_green "Started $domain" || printf_return "Failed to start $domain"
+  [ -z "$start" ] && printf_green "Started $domain" || printf_return "Failed to start $domain"
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __start() {
   domain="$1"
   start="$(__virsh start --domain $domain 2>&1 | grep -qiE 'error:|failed:' && echo 'Failed')"
-  [[ -z "$start" ]] && printf_green "$domain has been started" || printf_return "Failed to start $domain"
+  [ -z "$start" ] && printf_green "$domain has been started" || printf_return "Failed to start $domain"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __vm_new() {
+  local ovmf="" disk="" snapshot="" pid="" TPM=""
   local name="$1"
   local cdimage="$2"
   local retries=10
-  local ovmf="$(dirname $(find /usr/share/edk2* -name 'OVMF_CODE.secboot.fd' | grep -v '32' 2>/dev/null) 2>/dev/null)"
-  if [[ "$name" = "tails" || "$name" = "heads" ]]; then
+  ovmf="$(dirname $(find /usr/share/edk2* -name 'OVMF_CODE.secboot.fd' | grep -v '32' 2>/dev/null) 2>/dev/null)"
+  if [ "$name" = "tails" ] || [ "$name" = "heads" ]; then
     __virsh undefine "$name" &>/dev/null || true &>/dev/null
-    local disk="--disk none"
-    local snapshot="true"
+    disk="--disk none"
+    snapshot="true"
   else
-    local disk="--disk /var/lib/libvirt/images/$name.$VIRT_DISPLAY_VM_DISK_TYPE,device=disk,size=$VIRT_DISPLAY_VM_DISK_SIZE,bus=virtio,format=$VIRT_DISPLAY_VM_DISK_TYPE"
-    local snapshot="__snapshot $name default no-stop &>/dev/null"
+    disk="--disk /var/lib/libvirt/images/$name.$VIRT_DISPLAY_VM_DISK_TYPE,device=disk,size=$VIRT_DISPLAY_VM_DISK_SIZE,bus=virtio,format=$VIRT_DISPLAY_VM_DISK_TYPE"
+    snapshot="__snapshot $name default no-stop &>/dev/null"
   fi
   if __list_running | grep -w "$name" | grep -qi 'running'; then
     printf_red "The vm is already running"
@@ -254,7 +461,7 @@ __vm_new() {
   else
     printf_cyan "Creating $name using ISO: $(basename "$cdimage")"
   fi
-  type -P swtpm &>/dev/null && local TPM="--tpm backend.type=emulator,backend.version=2.0,model=tpm-tis"
+  type -P swtpm &>/dev/null && TPM="--tpm backend.type=emulator,backend.version=2.0,model=tpm-tis"
   {
     sudo virt-install \
       --os-variant "linux2020" \
@@ -266,7 +473,7 @@ __vm_new() {
       --network $VIRT_DISPLAY_VM_NETWORK,model=virtio \
       --graphics spice \
       --boot hd,cdrom,menu=on | tee "$VIRT_DISPLAY_LOG_DIR/virt-install.log" &>/dev/null &
-    local pid=$!
+    pid=$!
     sleep 10
     if grep -iqs 'virt-install: error:' "$VIRT_DISPLAY_LOG_DIR/virt-install.log"; then
       printf_exit "Failed to create vm"
@@ -281,87 +488,141 @@ __vm_new() {
     printf '\r\t\tAttempting to create and start %s  ' "$name"
     sleep 10
     ((retries--))
-    [[ $retries -eq 0 ]] && echo '' && printf_exit "Failed to create and start $name"
+    [ $retries -eq 0 ] && echo '' && printf_exit "Failed to create and start $name"
   done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Default variables
-exitCode="0"
+# User defined variables/import external variables
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application Folders
-VIRT_DISPLAY_LOG_DIR="${VIRT_DISPLAY_LOG_DIR:-$HOME/.local/log/virt-display}"
-VIRT_DISPLAY_CACHE_DIR="${VIRT_DISPLAY_CACHE_DIR:-$HOME/.cache/virt-display}"
-VIRT_DISPLAY_CONFIG_DIR="${VIRT_DISPLAY_CONFIG_DIR:-$HOME/.config/myscripts/virt-display}"
-VIRT_DISPLAY_OPTIONS_DIR="${VIRT_DISPLAY_OPTIONS_DIR:-$HOME/.local/share/myscripts/virt-display/options}"
-VIRT_DISPLAY_CONFIG_BACKUP_DIR="${VIRT_DISPLAY_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/virt-display/backups}"
-VIRT_DISPLAY_TEMP_DIR="${VIRT_DISPLAY_TEMP_DIR:-$HOME/.local/tmp/system_scripts/virt-display}"
 VIRT_DISPLAY_CONFIG_FILE="${VIRT_DISPLAY_CONFIG_FILE:-settings.conf}"
-VIRT_DISPLAY_GOOD_MESSAGE="${VIRT_DISPLAY_GOOD_MESSAGE:-Everything Went OK}"
-VIRT_DISPLAY_ERROR_MESSAGE="${VIRT_DISPLAY_ERROR_MESSAGE:-Well something seems to have gone wrong}"
-VIRT_DISPLAY_NOTIFY_ENABLED="${VIRT_DISPLAY_NOTIFY_ENABLED:-yes}"
-VIRT_DISPLAY_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
-VIRT_DISPLAY_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$VIRT_DISPLAY_NOTIFY_CLIENT_ICON}"
-VIRT_DISPLAY_OUTPUT_COLOR="${VIRT_DISPLAY_OUTPUT_COLOR:-5}"
+VIRT_DISPLAY_CONFIG_DIR="${VIRT_DISPLAY_CONFIG_DIR:-$HOME/.config/myscripts/virt-display}"
+VIRT_DISPLAY_CONFIG_BACKUP_DIR="${VIRT_DISPLAY_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/virt-display/backups}"
+VIRT_DISPLAY_LOG_DIR="${VIRT_DISPLAY_LOG_DIR:-$HOME/.local/log/virt-display}"
+VIRT_DISPLAY_TEMP_DIR="${VIRT_DISPLAY_TEMP_DIR:-$HOME/.local/tmp/system_scripts/virt-display}"
+VIRT_DISPLAY_CACHE_DIR="${VIRT_DISPLAY_CACHE_DIR:-$HOME/.cache/virt-display}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+VIRT_DISPLAY_OUTPUT_COLOR_1="${VIRT_DISPLAY_OUTPUT_COLOR_1:-4}"
+VIRT_DISPLAY_OUTPUT_COLOR_2="${VIRT_DISPLAY_OUTPUT_COLOR_2:-5}"
 VIRT_DISPLAY_OUTPUT_COLOR_GOOD="${VIRT_DISPLAY_OUTPUT_COLOR_GOOD:-2}"
 VIRT_DISPLAY_OUTPUT_COLOR_ERROR="${VIRT_DISPLAY_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+VIRT_DISPLAY_NOTIFY_ENABLED="${VIRT_DISPLAY_NOTIFY_ENABLED:-yes}"
+VIRT_DISPLAY_GOOD_NAME="${VIRT_DISPLAY_GOOD_NAME:-Great:}"
+VIRT_DISPLAY_ERROR_NAME="${VIRT_DISPLAY_ERROR_NAME:-Error:}"
+VIRT_DISPLAY_GOOD_MESSAGE="${VIRT_DISPLAY_GOOD_MESSAGE:-No errors reported}"
+VIRT_DISPLAY_ERROR_MESSAGE="${VIRT_DISPLAY_ERROR_MESSAGE:-Errors were reported}"
+VIRT_DISPLAY_NOTIFY_CLIENT_NAME="${VIRT_DISPLAY_NOTIFY_CLIENT_NAME:-$APPNAME}"
+VIRT_DISPLAY_NOTIFY_CLIENT_ICON="${VIRT_DISPLAY_NOTIFY_CLIENT_ICON:-notification-new}"
+VIRT_DISPLAY_NOTIFY_CLIENT_URGENCY="${VIRT_DISPLAY_NOTIFY_CLIENT_URGENCY:-normal}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional Variables
 VIRT_DISPLAY_VM_RAM_SIZE="${VIRT_DISPLAY_VM_RAM_SIZE:-2048}"
 VIRT_DISPLAY_VM_NETWORK="${VIRT_DISPLAY_VM_NETWORK:-network=default}"
 VIRT_DISPLAY_VM_DISK_TYPE="${VIRT_DISPLAY_VM_DISK_TYPE:-qcow2}"
 VIRT_DISPLAY_VM_DISK_SIZE="${VIRT_DISPLAY_VM_DISK_SIZE:-100}"
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
-[ -f "$VIRT_DISPLAY_CONFIG_DIR/$VIRT_DISPLAY_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+[ -f "$VIRT_DISPLAY_CONFIG_DIR/$VIRT_DISPLAY_CONFIG_FILE" ] ||
+  [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import config
-[ -f "$VIRT_DISPLAY_CONFIG_DIR/$VIRT_DISPLAY_CONFIG_FILE" ] && . "$VIRT_DISPLAY_CONFIG_DIR/$VIRT_DISPLAY_CONFIG_FILE"
+[ -f "$VIRT_DISPLAY_CONFIG_DIR/$VIRT_DISPLAY_CONFIG_FILE" ] &&
+  . "$VIRT_DISPLAY_CONFIG_DIR/$VIRT_DISPLAY_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Ensure Directories and files exist
-[ -d "$VIRT_DISPLAY_LOG_DIR" ] || mkdir -p "$VIRT_DISPLAY_LOG_DIR" &>/dev/null
-[ -d "$VIRT_DISPLAY_TEMP_DIR" ] || mkdir -p "$VIRT_DISPLAY_TEMP_DIR" &>/dev/null
-[ -d "$VIRT_DISPLAY_CACHE_DIR" ] || mkdir -p "$VIRT_DISPLAY_CACHE_DIR" &>/dev/null
+# Ensure Directories exist
+[ -d "$VIRT_DISPLAY_LOG_DIR" ] ||
+  mkdir -p "$VIRT_DISPLAY_LOG_DIR" |& __devnull
+[ -d "$VIRT_DISPLAY_TEMP_DIR" ] ||
+  mkdir -p "$VIRT_DISPLAY_TEMP_DIR" |& __devnull
+[ -d "$VIRT_DISPLAY_CACHE_DIR" ] ||
+  mkdir -p "$VIRT_DISPLAY_CACHE_DIR" |& __devnull
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 VIRT_DISPLAY_TEMP_FILE="${VIRT_DISPLAY_TEMP_FILE:-$(mktemp $VIRT_DISPLAY_TEMP_DIR/XXXXXX 2>/dev/null)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup trap to remove temp file
-trap 'exitCode=${exitCode:-$?};[ -n "$VIRT_DISPLAY_TEMP_FILE" ] && [ -f "$VIRT_DISPLAY_TEMP_FILE" ] && rm -Rf "$VIRT_DISPLAY_TEMP_FILE" &>/dev/null' EXIT
+trap '__trap_exit' EXIT
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup notification function
-if [ "$VIRT_DISPLAY_NOTIFY_ENABLED" = "yes" ]; then
-  __notifications() {
-    export NOTIFY_GOOD_MESSAGE="${VIRT_DISPLAY_GOOD_MESSAGE}"
-    export NOTIFY_ERROR_MESSAGE="${VIRT_DISPLAY_ERROR_MESSAGE}"
-    export NOTIFY_CLIENT_NAME="${VIRT_DISPLAY_NOTIFY_CLIENT_NAME}"
-    export NOTIFY_CLIENT_ICON="${VIRT_DISPLAY_NOTIFY_CLIENT_ICON}"
-    notifications "$@" && exitCode=0 || exitCode=1
-    unset NOTIFY_CLIENT_NAME NOTIFY_CLIENT_ICON NOTIFY_GOOD_MESSAGE NOTIFY_ERROR_MESSAGE
-    return ${exitCode:-$?}
-  }
-else
-  __notifications() { false; }
-fi
+__notifications() {
+  __cmd_exists notifications || return
+  [ "$VIRT_DISPLAY_NOTIFY_ENABLED" = "yes" ] || return
+  [ "$SEND_NOTIFICATION" = "no" ] && return
+  (
+    set +x
+    export SCRIPT_OPTS="" _DEBUG=""
+    export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$VIRT_DISPLAY_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$VIRT_DISPLAY_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$VIRT_DISPLAY_NOTIFY_CLIENT_ICON}"
+    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$VIRT_DISPLAY_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$VIRT_DISPLAY_NOTIFY_CLIENT_URGENCY}"
+    notifications "$@"
+    retval=$?
+    return $retval
+  ) |& __devnull &
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Show warn message if variables are missing
+# Set custom actions
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set additional variables/Argument/Option settings
-SETARGS="$*"
+# Argument/Option settings
+SETARGS=("$@")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SHORTOPTS=""
-LONGOPTS="options,config,version,help,dir:"
+SHORTOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
+LONGOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="list start ssh restore create new delete open"
+ARRAY+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LIST=""
+LIST+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup application options
-setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$APPNAME" -- "$@" 2>/dev/null)
 eval set -- "${setopts[@]}" 2>/dev/null
 while :; do
   case "$1" in
+  --raw)
+    shift 1
+    export SHOW_RAW="true"
+    printf_column() { tee | grep '^'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    ;;
+  --debug)
+    shift 1
+    set -xo pipefail
+    export SCRIPT_OPTS="--debug"
+    export _DEBUG="on"
+    __devnull() { tee || return 1; }
+    __devnull2() { eval "$@" |& tee || return 1; }
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
+    ;;
   --options)
     shift 1
-    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
-    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
-    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
-    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' 4
+    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' 4
+    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
     exit $?
     ;;
   --version)
@@ -370,8 +631,8 @@ while :; do
     exit $?
     ;;
   --help)
-    __help
     shift 1
+    __help
     exit $?
     ;;
   --config)
@@ -379,8 +640,14 @@ while :; do
     __gen_config
     exit $?
     ;;
+  --silent)
+    shift 1
+    VIRT_DISPLAY_SILENT="true"
+    ;;
   --dir)
+    CWD_IS_SET="TRUE"
     VIRT_DISPLAY_CWD="$2"
+    #[ -d "$VIRT_DISPLAY_CWD" ] || mkdir -p "$VIRT_DISPLAY_CWD" |& __devnull
     shift 2
     ;;
   --)
@@ -389,16 +656,44 @@ while :; do
     ;;
   esac
 done
-#set -- "$SETARGS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Actions based on env
+# Get directory from args
+# set -- "$@"
+# for arg in "$@"; do
+# if [ -d "$arg" ]; then
+# VIRT_DISPLAY_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
+# elif [ -f "$arg" ]; then
+# VIRT_DISPLAY_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
+# else
+# SET_NEW_ARGS+=("$arg")
+# fi
+# done
+# set -- "${SET_NEW_ARGS[@]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set directory to first argument
+# [ -d "$1" ] && VIRT_DISPLAY_CWD="$1" && shift 1 || VIRT_DISPLAY_CWD="${VIRT_DISPLAY_CWD:-$PWD}"
+VIRT_DISPLAY_CWD="$(realpath "${VIRT_DISPLAY_CWD:-$PWD}" 2>/dev/null)"
+# if [ -d "$VIRT_DISPLAY_CWD" ] && cd "$VIRT_DISPLAY_CWD"; then
+# if [ "$VIRT_DISPLAY_SILENT" != "true" ]; then
+# printf_cyan "Setting working dir to $VIRT_DISPLAY_CWD"
+# fi
+# else
+# printf_exit "💔 $VIRT_DISPLAY_CWD does not exist 💔"
+# fi
+export VIRT_DISPLAY_CWD
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set actions based on variables
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
-cmd_exists --error --ask bash || exit 1 # exit 1 if not found
-#am_i_online --error || exit 1     # exit 1 if no internet
+#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+#cmd_exists --error --ask bash || exit 3 # exit 3 if not found
+#am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
@@ -408,13 +703,13 @@ list)
   paused="$(__list_running | grep 'paused' | awk '{print $2}' | tr '\n' ' ')"
   running="$(__list_running | grep 'running' | awk '{print $2}' | tr '\n' ' ')"
   stopped="$(__list_running | grep 'shut off' | awk '{print $2}' | tr '\n' ' ')"
-  if [[ -n "$running" ]]; then
+  if [ -n "$running" ]; then
     printf_green "Running: $running"
   fi
-  if [[ -n "$stopped" ]]; then
+  if [ -n "$stopped" ]; then
     printf_red "Stopped: $stopped"
   fi
-  if [[ -n "$paused" ]]; then
+  if [ -n "$paused" ]; then
     printf_yellow "Paused: $paused"
   fi
   exit $?
@@ -443,7 +738,7 @@ create)
 
 new)
   shift 1
-  [[ $# -ne 2 ]] && printf_exit "Usage: $APPNAME new <name> <isoFile>"
+  [ $# -ne 2 ] && printf_exit "Usage: $APPNAME new <name> <isoFile>"
   __vm_new "$@"
   exit $?
   ;;
@@ -456,7 +751,7 @@ delete)
 
 ip)
   shift 1
-  if [[ $# -ne 0 ]]; then
+  if [ $# -ne 0 ]; then
     __check_vm_args $1
     ip="$(__get_ip "$1")"
     if [ -n "$ip" ]; then
@@ -483,11 +778,19 @@ open)
   __list_running | grep -q "$1" && __viewer "$1"
   exit $?
   ;;
+
 *)
-  __check_vm_args $1
-  __list_running | grep -q "$1" && __viewer "$1"
+  if [ $# -ne 0 ]; then
+    __check_vm_args $1
+    __list_running | grep -q "$1" && __viewer "$1"
+  else
+    __list_running | printf_column $VIRT_DISPLAY_OUTPUT_COLOR_1 || printf_exit "There are no running vms"
+  fi
   ;;
 esac
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set exit code
+exitCode="${exitCode:-$?}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

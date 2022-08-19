@@ -1,28 +1,42 @@
 #!/usr/bin/env bash
+# shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202207042242-git
-# @Author            :  Jason Hempstead
-# @Contact           :  jason@casjaysdev.com
-# @License           :  WTFPL
-# @ReadME            :  timeis --help
-# @Copyright         :  Copyright: (c) 2021 Jason Hempstead, Casjays Developments
-# @Created           :  Friday, Dec 17, 2021 17:04 EST
-# @File              :  timeis
-# @Description       :  get current time for any timezone
-# @TODO              :
-# @Other             :
-# @Resource          :
+##@Version           :  202208171519-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  jason@casjaysdev.com
+# @@License          :  WTFPL
+# @@ReadME           :  timeis --help
+# @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
+# @@Created          :  Wednesday, Aug 17, 2022 15:19 EDT
+# @@File             :  timeis
+# @@Description      :  get current time for any timezone
+# @@Changelog        :  New script
+# @@TODO             :  Better documentation
+# @@Other            :
+# @@Resource         :
+# @@Terminal App     :  no
+# @@sudo/root        :  no
+# @@Template         :  bash/system
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0" 2>/dev/null)"
-VERSION="202112171704-git"
+VERSION="202208171519-git"
 HOME="${USER_HOME:-$HOME}"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${SUDO_USER:-$USER}"
-SRC_DIR="${BASH_SOURCE%/*}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+TIMEIS_REQUIRE_SUDO="${TIMEIS_REQUIRE_SUDO:-no}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set bash options
-if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
-
+# Reopen in a terminal
+#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initial debugging
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# pipes fail
+set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
@@ -36,41 +50,103 @@ elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
   . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
 else
   echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
-  exit 90
+  exit 1
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# user system devenv dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+# Options are: *_install
+# desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr
+#   pkmgr system systemmgr thememgr user wallpapermgr
 user_install && __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set functions
-__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
+# Send all output to /dev/null
+__devnull() {
+  tee &>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# Send errors to /dev/null
+__devnull2() {
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# See if the executable exists
+__cmd_exists() {
+  exitCode=0
+  [ -n "$1" ] && local exitCode="" || return 0
+  for cmd in "$@"; do
+    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
+  done
+  [ $exitCode -eq 0 ] || exitCode=3
+  return ${exitCode:-$?}
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for a valid internet connection
+__am_i_online() {
+  local exitCode=0
+  curl -q -LSsfI --max-time 1 --retry 0 "${1:-http://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# colorization
+if [ "$SHOW_RAW" = "true" ]; then
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional printf_ colors
+__printf_head() { printf_blue "$1"; }
+__printf_opts() { printf_purple "$1"; }
+__printf_line() { printf_cyan "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# output version
+__version() { printf_cyan "$VERSION"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# list options
+__list_options() {
+  printf_color "$1: " "$5"
+  echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g'
+  printf_newline
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create the config file
 __gen_config() {
-  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Generating the config file in"
-  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "$TIMEIS_CONFIG_DIR/$TIMEIS_CONFIG_FILE"
+  local NOTIFY_CLIENT_NAME="$APPNAME"
+  if [ "$INIT_CONFIG" != "TRUE" ]; then
+    printf_blue "Generating the config file in"
+    printf_cyan "$TIMEIS_CONFIG_DIR/$TIMEIS_CONFIG_FILE"
+  fi
   [ -d "$TIMEIS_CONFIG_DIR" ] || mkdir -p "$TIMEIS_CONFIG_DIR"
   [ -d "$TIMEIS_CONFIG_BACKUP_DIR" ] || mkdir -p "$TIMEIS_CONFIG_BACKUP_DIR"
   [ -f "$TIMEIS_CONFIG_DIR/$TIMEIS_CONFIG_FILE" ] &&
     cp -Rf "$TIMEIS_CONFIG_DIR/$TIMEIS_CONFIG_FILE" "$TIMEIS_CONFIG_BACKUP_DIR/$TIMEIS_CONFIG_FILE.$$"
   cat <<EOF >"$TIMEIS_CONFIG_DIR/$TIMEIS_CONFIG_FILE"
 # Settings for timeis
-TIMEIS_API_URL="${TIMEIS_API_URL:-http://worldtimeapi.org/api}"
-
-# Notification settings
-TIMEIS_GOOD_MESSAGE="${TIMEIS_GOOD_MESSAGE:-Everything Went OK}"
-TIMEIS_ERROR_MESSAGE="${TIMEIS_ERROR_MESSAGE:-Well something seems to have gone wrong}"
-TIMEIS_NOTIFY_ENABLED="${TIMEIS_NOTIFY_ENABLED:-yes}"
-TIMEIS_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
-TIMEIS_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$TIMEIS_NOTIFY_CLIENT_ICON}"
-
-# Colorization settings
-TIMEIS_OUTPUT_COLOR="${TIMEIS_OUTPUT_COLOR:-5}"
-TIMEIS_OUTPUT_COLOR_GOOD="${TIMEIS_OUTPUT_COLOR_GOOD:-2}"
-TIMEIS_OUTPUT_COLOR_ERROR="${TIMEIS_OUTPUT_COLOR_ERROR:-1}"
+TIMEIS_API_URL="${TIMEIS_API_URL:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+TIMEIS_OUTPUT_COLOR_1="${TIMEIS_OUTPUT_COLOR_1:-}"
+TIMEIS_OUTPUT_COLOR_2="${TIMEIS_OUTPUT_COLOR_2:-}"
+TIMEIS_OUTPUT_COLOR_GOOD="${TIMEIS_OUTPUT_COLOR_GOOD:-}"
+TIMEIS_OUTPUT_COLOR_ERROR="${TIMEIS_OUTPUT_COLOR_ERROR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+TIMEIS_NOTIFY_ENABLED="${TIMEIS_NOTIFY_ENABLED:-}"
+TIMEIS_GOOD_NAME="${TIMEIS_GOOD_NAME:-}"
+TIMEIS_ERROR_NAME="${TIMEIS_ERROR_NAME:-}"
+TIMEIS_GOOD_MESSAGE="${TIMEIS_GOOD_MESSAGE:-}"
+TIMEIS_ERROR_MESSAGE="${TIMEIS_ERROR_MESSAGE:-}"
+TIMEIS_NOTIFY_CLIENT_NAME="${TIMEIS_NOTIFY_CLIENT_NAME:-}"
+TIMEIS_NOTIFY_CLIENT_ICON="${TIMEIS_NOTIFY_CLIENT_ICON:-}"
+TIMEIS_NOTIFY_CLIENT_URGENCY="${TIMEIS_NOTIFY_CLIENT_URGENCY:-}"
 
 EOF
+  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
   if [ -f "$TIMEIS_CONFIG_DIR/$TIMEIS_CONFIG_FILE" ]; then
-    [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for $APPNAME has been created"
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
+    . "$TIMEIS_CONFIG_DIR/$TIMEIS_CONFIG_FILE"
     exitCode=0
   else
     printf_red "Failed to create the config file"
@@ -79,7 +155,497 @@ EOF
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Additional functions
+# Help function - Align to 50
+__help() { #convert get
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "timeis:  get current time for any timezone - $VERSION"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Usage: timeis [options] [commands]"
+  __printf_line "*                               - Outputs current tim info"
+  __printf_line "convert [TimeZone]              - Converts a time to your local time"
+  __printf_line "get [TimeZone]                  - Show the information for the timezone"
+  __printf_line "search [TimeZone]               - search for a timezone"
+  __printf_line "list                            - List all timeszones"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Other Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--help                          - Shows this message"
+  __printf_line "--config                        - Generate user config file"
+  __printf_line "--version                       - Show script version"
+  __printf_line "--options                       - Shows all available options"
+  __printf_line "--debug                         - Enables script debugging"
+  __printf_line "--raw                           - Removes all formatting on output"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() {
+  { [ $(id -u) -ne 0 ] || [ $EUID -ne 0 ] || [ "$WHOAMI" != "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep -s "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# # Get sudo password
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run sudo
+__sudorun() {
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo
+__can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User can run sudo
+__sudoif() {
+  __user_is_root && return 0
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run command as root
+requiresudo() {
+  if [ "$TIMEIS_REQUIRE_SUDO" = "yes" ] && [ -z "$TIMEIS_REQUIRE_SUDO_RUN" ]; then
+    export TIMEIS_REQUIRE_SUDO="no"
+    export TIMEIS_REQUIRE_SUDO_RUN="true"
+    __sudo "$@"
+    exit $?
+  else
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  CMD="${1:-echo}" && shift 1
+  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  [ "$(basename "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  if __sudoif; then
+    export PATH="$PATH"
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    exitCode=$?
+  else
+    printf '%s\n' "This requires root to run"
+    exitCode=1
+  fi
+  return ${exitCode:-1}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  exitCode=${exitCode:-$?}
+  [ -f "$TIMEIS_TEMP_FILE" ] && rm -Rf "$TIMEIS_TEMP_FILE" &>/dev/null
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined functions
+timezones() {
+  cat <<EOF
+Africa/Abidjan
+Africa/Accra
+Africa/Algiers
+Africa/Bissau
+Africa/Cairo
+Africa/Casablanca
+Africa/Ceuta
+Africa/El_Aaiun
+Africa/Johannesburg
+Africa/Juba
+Africa/Khartoum
+Africa/Lagos
+Africa/Maputo
+Africa/Monrovia
+Africa/Nairobi
+Africa/Ndjamena
+Africa/Sao_Tome
+Africa/Tripoli
+Africa/Tunis
+Africa/Windhoek
+America/Adak
+America/Anchorage
+America/Araguaina
+America/Argentina/Buenos_Aires
+America/Argentina/Catamarca
+America/Argentina/Cordoba
+America/Argentina/Jujuy
+America/Argentina/La_Rioja
+America/Argentina/Mendoza
+America/Argentina/Rio_Gallegos
+America/Argentina/Salta
+America/Argentina/San_Juan
+America/Argentina/San_Luis
+America/Argentina/Tucuman
+America/Argentina/Ushuaia
+America/Asuncion
+America/Atikokan
+America/Bahia
+America/Bahia_Banderas
+America/Barbados
+America/Belem
+America/Belize
+America/Blanc-Sablon
+America/Boa_Vista
+America/Bogota
+America/Boise
+America/Cambridge_Bay
+America/Campo_Grande
+America/Cancun
+America/Caracas
+America/Cayenne
+America/Chicago
+America/Chihuahua
+America/Costa_Rica
+America/Creston
+America/Cuiaba
+America/Curacao
+America/Danmarkshavn
+America/Dawson
+America/Dawson_Creek
+America/Denver
+America/Detroit
+America/Edmonton
+America/Eirunepe
+America/El_Salvador
+America/Fort_Nelson
+America/Fortaleza
+America/Glace_Bay
+America/Goose_Bay
+America/Grand_Turk
+America/Guatemala
+America/Guayaquil
+America/Guyana
+America/Halifax
+America/Havana
+America/Hermosillo
+America/Indiana/Indianapolis
+America/Indiana/Knox
+America/Indiana/Marengo
+America/Indiana/Petersburg
+America/Indiana/Tell_City
+America/Indiana/Vevay
+America/Indiana/Vincennes
+America/Indiana/Winamac
+America/Inuvik
+America/Iqaluit
+America/Jamaica
+America/Juneau
+America/Kentucky/Louisville
+America/Kentucky/Monticello
+America/La_Paz
+America/Lima
+America/Los_Angeles
+America/Maceio
+America/Managua
+America/Manaus
+America/Martinique
+America/Matamoros
+America/Mazatlan
+America/Menominee
+America/Merida
+America/Metlakatla
+America/Mexico_City
+America/Miquelon
+America/Moncton
+America/Monterrey
+America/Montevideo
+America/Nassau
+America/New_York
+America/Nipigon
+America/Nome
+America/Noronha
+America/North_Dakota/Beulah
+America/North_Dakota/Center
+America/North_Dakota/New_Salem
+America/Nuuk
+America/Ojinaga
+America/Panama
+America/Pangnirtung
+America/Paramaribo
+America/Phoenix
+America/Port-au-Prince
+America/Port_of_Spain
+America/Porto_Velho
+America/Puerto_Rico
+America/Punta_Arenas
+America/Rainy_River
+America/Rankin_Inlet
+America/Recife
+America/Regina
+America/Resolute
+America/Rio_Branco
+America/Santarem
+America/Santiago
+America/Santo_Domingo
+America/Sao_Paulo
+America/Scoresbysund
+America/Sitka
+America/St_Johns
+America/Swift_Current
+America/Tegucigalpa
+America/Thule
+America/Thunder_Bay
+America/Tijuana
+America/Toronto
+America/Vancouver
+America/Whitehorse
+America/Winnipeg
+America/Yakutat
+America/Yellowknife
+Antarctica/Casey
+Antarctica/Davis
+Antarctica/DumontDUrville
+Antarctica/Macquarie
+Antarctica/Mawson
+Antarctica/Palmer
+Antarctica/Rothera
+Antarctica/Syowa
+Antarctica/Troll
+Antarctica/Vostok
+Asia/Almaty
+Asia/Amman
+Asia/Anadyr
+Asia/Aqtau
+Asia/Aqtobe
+Asia/Ashgabat
+Asia/Atyrau
+Asia/Baghdad
+Asia/Baku
+Asia/Bangkok
+Asia/Barnaul
+Asia/Beirut
+Asia/Bishkek
+Asia/Brunei
+Asia/Chita
+Asia/Choibalsan
+Asia/Colombo
+Asia/Damascus
+Asia/Dhaka
+Asia/Dili
+Asia/Dubai
+Asia/Dushanbe
+Asia/Famagusta
+Asia/Gaza
+Asia/Hebron
+Asia/Ho_Chi_Minh
+Asia/Hong_Kong
+Asia/Hovd
+Asia/Irkutsk
+Asia/Jakarta
+Asia/Jayapura
+Asia/Jerusalem
+Asia/Kabul
+Asia/Kamchatka
+Asia/Karachi
+Asia/Kathmandu
+Asia/Khandyga
+Asia/Kolkata
+Asia/Krasnoyarsk
+Asia/Kuala_Lumpur
+Asia/Kuching
+Asia/Macau
+Asia/Magadan
+Asia/Makassar
+Asia/Manila
+Asia/Nicosia
+Asia/Novokuznetsk
+Asia/Novosibirsk
+Asia/Omsk
+Asia/Oral
+Asia/Pontianak
+Asia/Pyongyang
+Asia/Qatar
+Asia/Qostanay
+Asia/Qyzylorda
+Asia/Riyadh
+Asia/Sakhalin
+Asia/Samarkand
+Asia/Seoul
+Asia/Shanghai
+Asia/Singapore
+Asia/Srednekolymsk
+Asia/Taipei
+Asia/Tashkent
+Asia/Tbilisi
+Asia/Tehran
+Asia/Thimphu
+Asia/Tokyo
+Asia/Tomsk
+Asia/Ulaanbaatar
+Asia/Urumqi
+Asia/Ust-Nera
+Asia/Vladivostok
+Asia/Yakutsk
+Asia/Yangon
+Asia/Yekaterinburg
+Asia/Yerevan
+Atlantic/Azores
+Atlantic/Bermuda
+Atlantic/Canary
+Atlantic/Cape_Verde
+Atlantic/Faroe
+Atlantic/Madeira
+Atlantic/Reykjavik
+Atlantic/South_Georgia
+Atlantic/Stanley
+Australia/Adelaide
+Australia/Brisbane
+Australia/Broken_Hill
+Australia/Darwin
+Australia/Eucla
+Australia/Hobart
+Australia/Lindeman
+Australia/Lord_Howe
+Australia/Melbourne
+Australia/Perth
+Australia/Sydney
+CET
+CST6CDT
+EET
+EST
+EST5EDT
+Etc/GMT
+Etc/GMT+1
+Etc/GMT+10
+Etc/GMT+11
+Etc/GMT+12
+Etc/GMT+2
+Etc/GMT+3
+Etc/GMT+4
+Etc/GMT+5
+Etc/GMT+6
+Etc/GMT+7
+Etc/GMT+8
+Etc/GMT+9
+Etc/GMT-1
+Etc/GMT-10
+Etc/GMT-11
+Etc/GMT-12
+Etc/GMT-13
+Etc/GMT-14
+Etc/GMT-2
+Etc/GMT-3
+Etc/GMT-4
+Etc/GMT-5
+Etc/GMT-6
+Etc/GMT-7
+Etc/GMT-8
+Etc/GMT-9
+Etc/UTC
+Europe/Amsterdam
+Europe/Andorra
+Europe/Astrakhan
+Europe/Athens
+Europe/Belgrade
+Europe/Berlin
+Europe/Brussels
+Europe/Bucharest
+Europe/Budapest
+Europe/Chisinau
+Europe/Copenhagen
+Europe/Dublin
+Europe/Gibraltar
+Europe/Helsinki
+Europe/Istanbul
+Europe/Kaliningrad
+Europe/Kiev
+Europe/Kirov
+Europe/Lisbon
+Europe/London
+Europe/Luxembourg
+Europe/Madrid
+Europe/Malta
+Europe/Minsk
+Europe/Monaco
+Europe/Moscow
+Europe/Oslo
+Europe/Paris
+Europe/Prague
+Europe/Riga
+Europe/Rome
+Europe/Samara
+Europe/Saratov
+Europe/Simferopol
+Europe/Sofia
+Europe/Stockholm
+Europe/Tallinn
+Europe/Tirane
+Europe/Ulyanovsk
+Europe/Uzhgorod
+Europe/Vienna
+Europe/Vilnius
+Europe/Volgograd
+Europe/Warsaw
+Europe/Zaporozhye
+Europe/Zurich
+HST
+Indian/Chagos
+Indian/Christmas
+Indian/Cocos
+Indian/Kerguelen
+Indian/Mahe
+Indian/Maldives
+Indian/Mauritius
+Indian/Reunion
+MET
+MST
+MST7MDT
+PST8PDT
+Pacific/Apia
+Pacific/Auckland
+Pacific/Bougainville
+Pacific/Chatham
+Pacific/Chuuk
+Pacific/Easter
+Pacific/Efate
+Pacific/Enderbury
+Pacific/Fakaofo
+Pacific/Fiji
+Pacific/Funafuti
+Pacific/Galapagos
+Pacific/Gambier
+Pacific/Guadalcanal
+Pacific/Guam
+Pacific/Honolulu
+Pacific/Kiritimati
+Pacific/Kosrae
+Pacific/Kwajalein
+Pacific/Majuro
+Pacific/Marquesas
+Pacific/Nauru
+Pacific/Niue
+Pacific/Norfolk
+Pacific/Noumea
+Pacific/Pago_Pago
+Pacific/Palau
+Pacific/Pitcairn
+Pacific/Pohnpei
+Pacific/Port_Moresby
+Pacific/Rarotonga
+Pacific/Tahiti
+Pacific/Tarawa
+Pacific/Tongatapu
+Pacific/Wake
+Pacific/Wallis
+WET
+EOF
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __api() {
   local options response
   options="${options:-$*}"
@@ -203,16 +769,16 @@ __convert() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __showtime() {
   local TZIN TZOUT FORMAT
-  TZIN=$1
-  TZOUT=$2
+  TZIN="$1"
+  TZOUT="$2"
   FORMAT='%H:%M:%S'
   TZ=$TZOUT date --date='TZ="'$TZIN'"'" $time" +"$FORMAT"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __showdate() {
   local TZIN TZOUT FORMAT
-  TZIN=$1
-  TZOUT=$2
+  TZIN="$1"
+  TZOUT="$2"
   FORMAT='%Y-%m-%d'
   TZ=$TZOUT date --date='TZ="'$TZIN'"'" $time" +"$FORMAT"
 }
@@ -240,80 +806,134 @@ __footer() {
   printf_purple 'https://www.timeanddate.com/time/map/'
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Default variables
-exitCode="0"
+# User defined variables/import external variables
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application Folders
-TIMEIS_LOG_DIR="${TIMEIS_LOG_DIR:-$HOME/.local/log/timeis}"
-TIMEIS_CACHE_DIR="${TIMEIS_CACHE_DIR:-$HOME/.cache/timeis}"
-TIMEIS_CONFIG_DIR="${TIMEIS_CONFIG_DIR:-$HOME/.config/myscripts/timeis}"
-TIMEIS_OPTIONS_DIR="${TIMEIS_OPTIONS_DIR:-$HOME/.local/share/myscripts/timeis/options}"
-TIMEIS_CONFIG_BACKUP_DIR="${TIMEIS_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/timeis/backups}"
-TIMEIS_TEMP_DIR="${TIMEIS_TEMP_DIR:-$HOME/.local/tmp/system_scripts/timeis}"
 TIMEIS_CONFIG_FILE="${TIMEIS_CONFIG_FILE:-settings.conf}"
-TIMEIS_GOOD_MESSAGE="${TIMEIS_GOOD_MESSAGE:-Everything Went OK}"
-TIMEIS_ERROR_MESSAGE="${TIMEIS_ERROR_MESSAGE:-Well something seems to have gone wrong}"
-TIMEIS_NOTIFY_ENABLED="${TIMEIS_NOTIFY_ENABLED:-yes}"
-TIMEIS_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
-TIMEIS_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$TIMEIS_NOTIFY_CLIENT_ICON}"
-TIMEIS_OUTPUT_COLOR="${TIMEIS_OUTPUT_COLOR:-5}"
+TIMEIS_CONFIG_DIR="${TIMEIS_CONFIG_DIR:-$HOME/.config/myscripts/timeis}"
+TIMEIS_CONFIG_BACKUP_DIR="${TIMEIS_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/timeis/backups}"
+TIMEIS_LOG_DIR="${TIMEIS_LOG_DIR:-$HOME/.local/log/timeis}"
+TIMEIS_TEMP_DIR="${TIMEIS_TEMP_DIR:-$HOME/.local/tmp/system_scripts/timeis}"
+TIMEIS_CACHE_DIR="${TIMEIS_CACHE_DIR:-$HOME/.cache/timeis}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+TIMEIS_OUTPUT_COLOR_1="${TIMEIS_OUTPUT_COLOR_1:-4}"
+TIMEIS_OUTPUT_COLOR_2="${TIMEIS_OUTPUT_COLOR_2:-5}"
 TIMEIS_OUTPUT_COLOR_GOOD="${TIMEIS_OUTPUT_COLOR_GOOD:-2}"
 TIMEIS_OUTPUT_COLOR_ERROR="${TIMEIS_OUTPUT_COLOR_ERROR:-1}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+TIMEIS_NOTIFY_ENABLED="${TIMEIS_NOTIFY_ENABLED:-yes}"
+TIMEIS_GOOD_NAME="${TIMEIS_GOOD_NAME:-Great:}"
+TIMEIS_ERROR_NAME="${TIMEIS_ERROR_NAME:-Error:}"
+TIMEIS_GOOD_MESSAGE="${TIMEIS_GOOD_MESSAGE:-No errors reported}"
+TIMEIS_ERROR_MESSAGE="${TIMEIS_ERROR_MESSAGE:-Errors were reported}"
+TIMEIS_NOTIFY_CLIENT_NAME="${TIMEIS_NOTIFY_CLIENT_NAME:-$APPNAME}"
+TIMEIS_NOTIFY_CLIENT_ICON="${TIMEIS_NOTIFY_CLIENT_ICON:-notification-new}"
+TIMEIS_NOTIFY_CLIENT_URGENCY="${TIMEIS_NOTIFY_CLIENT_URGENCY:-normal}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional Variables
 TIMEIS_API_URL="${TIMEIS_API_URL:-http://worldtimeapi.org/api}"
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
-[ -f "$TIMEIS_CONFIG_DIR/$TIMEIS_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+[ -f "$TIMEIS_CONFIG_DIR/$TIMEIS_CONFIG_FILE" ] ||
+  [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import config
-[ -f "$TIMEIS_CONFIG_DIR/$TIMEIS_CONFIG_FILE" ] && . "$TIMEIS_CONFIG_DIR/$TIMEIS_CONFIG_FILE"
+[ -f "$TIMEIS_CONFIG_DIR/$TIMEIS_CONFIG_FILE" ] &&
+  . "$TIMEIS_CONFIG_DIR/$TIMEIS_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Ensure Directories and files exist
-[ -d "$TIMEIS_LOG_DIR" ] || mkdir -p "$TIMEIS_LOG_DIR" &>/dev/null
-[ -d "$TIMEIS_TEMP_DIR" ] || mkdir -p "$TIMEIS_TEMP_DIR" &>/dev/null
-[ -d "$TIMEIS_CACHE_DIR" ] || mkdir -p "$TIMEIS_CACHE_DIR" &>/dev/null
+# Ensure Directories exist
+[ -d "$TIMEIS_LOG_DIR" ] ||
+  mkdir -p "$TIMEIS_LOG_DIR" |& __devnull
+[ -d "$TIMEIS_TEMP_DIR" ] ||
+  mkdir -p "$TIMEIS_TEMP_DIR" |& __devnull
+[ -d "$TIMEIS_CACHE_DIR" ] ||
+  mkdir -p "$TIMEIS_CACHE_DIR" |& __devnull
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 TIMEIS_TEMP_FILE="${TIMEIS_TEMP_FILE:-$(mktemp $TIMEIS_TEMP_DIR/XXXXXX 2>/dev/null)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup trap to remove temp file
-trap 'exitCode=${exitCode:-$?};[ -n "$TIMEIS_TEMP_FILE" ] && [ -f "$TIMEIS_TEMP_FILE" ] && rm -Rf "$TIMEIS_TEMP_FILE" &>/dev/null' EXIT
+trap '__trap_exit' EXIT
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup notification function
-if [ "$TIMEIS_NOTIFY_ENABLED" = "yes" ]; then
-  __notifications() {
-    export NOTIFY_GOOD_MESSAGE="${TIMEIS_GOOD_MESSAGE}"
-    export NOTIFY_ERROR_MESSAGE="${TIMEIS_ERROR_MESSAGE}"
-    export NOTIFY_CLIENT_NAME="${TIMEIS_NOTIFY_CLIENT_NAME}"
-    export NOTIFY_CLIENT_ICON="${TIMEIS_NOTIFY_CLIENT_ICON}"
-    notifications "$@" && exitCode=0 || exitCode=1
-    unset NOTIFY_CLIENT_NAME NOTIFY_CLIENT_ICON NOTIFY_GOOD_MESSAGE NOTIFY_ERROR_MESSAGE
-    return ${exitCode:-$?}
-  }
-else
-  __notifications() { false; }
-fi
+__notifications() {
+  __cmd_exists notifications || return
+  [ "$TIMEIS_NOTIFY_ENABLED" = "yes" ] || return
+  [ "$SEND_NOTIFICATION" = "no" ] && return
+  (
+    set +x
+    export SCRIPT_OPTS="" _DEBUG=""
+    export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$TIMEIS_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$TIMEIS_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$TIMEIS_NOTIFY_CLIENT_ICON}"
+    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$TIMEIS_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$TIMEIS_NOTIFY_CLIENT_URGENCY}"
+    notifications "$@"
+    retval=$?
+    return $retval
+  ) |& __devnull &
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Show warn message if variables are missing
+# Set custom actions
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set additional variables/Argument/Option settings
-SETARGS="$*"
+# Argument/Option settings
+SETARGS=("$@")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SHORTOPTS=""
-LONGOPTS="options,config,version,help,dir:"
-ARRAY=""
+SHORTOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
+LONGOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ARRAY="convert get"
+ARRAY+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LIST=""
+LIST+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup application options
-setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$APPNAME" -- "$@" 2>/dev/null)
 eval set -- "${setopts[@]}" 2>/dev/null
 while :; do
-  case $1 in
+  case "$1" in
+  --raw)
+    shift 1
+    export SHOW_RAW="true"
+    printf_column() { tee | grep '^'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    ;;
+  --debug)
+    shift 1
+    set -xo pipefail
+    export SCRIPT_OPTS="--debug"
+    export _DEBUG="on"
+    __devnull() { tee || return 1; }
+    __devnull2() { eval "$@" |& tee || return 1; }
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
+    ;;
   --options)
     shift 1
-    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
-    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
-    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
-    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' 4
+    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' 4
+    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
     exit $?
     ;;
   --version)
@@ -322,8 +942,8 @@ while :; do
     exit $?
     ;;
   --help)
-    __help
     shift 1
+    __help
     exit $?
     ;;
   --config)
@@ -331,13 +951,15 @@ while :; do
     __gen_config
     exit $?
     ;;
-  --dir)
-    TIMEIS_CWD="$2"
-    shift 2
-    ;;
-  --ts)
+  --silent)
     shift 1
-    __date
+    TIMEIS_SILENT="true"
+    ;;
+  --dir)
+    CWD_IS_SET="TRUE"
+    TIMEIS_CWD="$2"
+    [ -d "$TIMEIS_CWD" ] || mkdir -p "$TIMEIS_CWD" |& __devnull
+    shift 2
     ;;
   --)
     shift 1
@@ -345,15 +967,44 @@ while :; do
     ;;
   esac
 done
-#set -- "$SETARGS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Actions based on env
+# Get directory from args
+# set -- "$@"
+# for arg in "$@"; do
+# if [ -d "$arg" ]; then
+# TIMEIS_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
+# elif [ -f "$arg" ]; then
+# TIMEIS_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
+# else
+# SET_NEW_ARGS+=("$arg")
+# fi
+# done
+# set -- "${SET_NEW_ARGS[@]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set directory to first argument
+# [ -d "$1" ] && TIMEIS_CWD="$1" && shift 1 || TIMEIS_CWD="${TIMEIS_CWD:-$PWD}"
+TIMEIS_CWD="$(realpath "${TIMEIS_CWD:-$PWD}" 2>/dev/null)"
+# if [ -d "$TIMEIS_CWD" ] && cd "$TIMEIS_CWD"; then
+# if [ "$TIMEIS_SILENT" != "true" ]; then
+# printf_cyan "Setting working dir to $TIMEIS_CWD"
+# fi
+# else
+# printf_exit "💔 $TIMEIS_CWD does not exist 💔"
+# fi
+export TIMEIS_CWD
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set actions based on variables
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
-cmd_exists --error --ask bash curl jq || exit 1 # exit 1 if not found
+#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+#cmd_exists --error --ask bash || exit 3 # exit 3 if not found
+#am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
@@ -366,8 +1017,26 @@ convert)
 
 get)
   shift 1
-  am_i_online --error || exit 1 # exit 1 if no internet
+  am_i_online --error || exit 1
   __get "$@"
+  ;;
+
+list)
+  shift 1
+  timezones | printf_column "$TIMEIS_OUTPUT_COLOR_2"
+  exit
+  ;;
+
+search)
+  shift 1
+  res="$(timezones | grep -i "$1")"
+  if [ -n "$res" ]; then
+    printf_cyan "Found the following timezone[s]"
+    echo "$res" | printf_column "$TIMEIS_OUTPUT_COLOR_2"
+  else
+    printf_exit "$1 is not a valid timezone"
+  fi
+  exit
   ;;
 
 *)
@@ -377,8 +1046,10 @@ get)
     __get "$@"
   fi
   ;;
-
 esac
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set exit code
+exitCode="${exitCode:-$?}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

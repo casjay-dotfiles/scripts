@@ -1,31 +1,41 @@
 #!/usr/bin/env bash
+# shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202207190925-git
+##@Version           :  202208082310-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.com
 # @@License          :  WTFPL
 # @@ReadME           :  gen-script --help
 # @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
-# @@Created          :  Tuesday, Jul 19, 2022 09:25 EDT
+# @@Created          :  Monday, Aug 08, 2022 23:10 EDT
 # @@File             :  gen-script
 # @@Description      :  Create a script from template
 # @@Changelog        :  Updating to use new template
 # @@TODO             :  Reactor code/Group Functions/Create separate gen-header script
 # @@Other            :
 # @@Resource         :
+# @@Terminal App     :  no
 # @@sudo/root        :  no
 # @@Template         :  bash/system
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0" 2>/dev/null)"
-VERSION="202207190925-git"
+VERSION="202208082310-git"
 HOME="${USER_HOME:-$HOME}"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${SUDO_USER:-$USER}"
-SRC_DIR="${BASH_SOURCE%/*}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+GEN_SCRIPT_REQUIRE_SUDO="${GEN_SCRIPT_REQUIRE_SUDO:-no}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set bash options
-[[ "$1" == "--debug" ]] && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
-[[ "$1" == "--raw" ]] && export SHOW_RAW="true"
+# Reopen in a terminal
+#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initial debugging
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# pipes fail
 set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
@@ -43,39 +53,56 @@ else
   exit 1
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Options are: desktopmgr_install devenvmgr_install dfmgr_install dockermgr_install fontmgr_install iconmgr_install
-# pkmgr_install system_install systemmgr_install thememgr_install user_install wallpapermgr_install
+# Options are: *_install
+# desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr
+#   pkmgr system systemmgr thememgr user wallpapermgr
 user_install && __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set functions
+# Send all output to /dev/null
 __devnull() {
-  tee &>/dev/null || exitCode=1
+  tee &>/dev/null && exitCode=0 || exitCode=1
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# Send errors to /dev/null
 __devnull2() {
-  eval "$*" 2>/dev/null || exitCode=1
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
-__logr() {
-  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
-  if [ "$#" -ne 0 ]; then
-    eval "$*" 2>>"${LOGFILE:-$AM_I_ONLINE_LOG_DIR/$APPNAME.log}.err" >>"${LOGFILE:-$AM_I_ONLINE_LOG_DIR/$APPNAME.log}" || exitCode=1
-  else
-    cat - &> >(tee -ia "${LOGFILE:-$AM_I_ONLINE_LOG_DIR/$APPNAME.log}" &>/dev/null) || exitCode=1
-  fi
+# See if the executable exists
+__cmd_exists() {
+  exitCode=0
+  [ -n "$1" ] && local exitCode="" || return 0
+  for cmd in "$@"; do
+    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
+  done
+  [ $exitCode -eq 0 ] || exitCode=3
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__cmd_exist() {
+# Check for a valid internet connection
+__am_i_online() {
   local exitCode=0
-  for cmd in "$@"; do builtin command -v "$cmd" |& __devnull && true || exitCode+=1; done
+  curl -q -LSsfI --max-time 1 --retry 0 "${1:-http://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
   return ${exitCode:-$?}
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# colorization
+if [ "$SHOW_RAW" = "true" ]; then
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional printf_ colors
+__printf_head() { printf_blue "$1"; }
+__printf_opts() { printf_purple "$1"; }
+__printf_line() { printf_cyan "$1"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # output version
-__version() { __app_version; }
+__version() { printf_cyan "$VERSION"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # list options
 __list_options() {
@@ -84,48 +111,13 @@ __list_options() {
   printf_newline
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Help function - Align to 50
-__help() {
-  __printf_head() { printf_purple "$*"; }
-  __printf_opts() { printf_cyan "$*"; }
-  __printf_line() { printf_blue "$*"; }
-  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_opts "gen-script:  Create a script from template"
-  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_line "Usage: gen-script [options] [template] [filename]"
-  __printf_line "-a, --all                       -  Show options"
-  __printf_line "-f, --functions                 -  Shows functions"
-  __printf_line "-d, --description               -  Creates the description for file header"
-  __printf_line "-t, --todo                      -  Add a TODO to file header"
-  __printf_line "-c, --copyright                 -  Adds a copyright to file header"
-  __printf_line "-o, --other                     -  Adds an other to the file header"
-  __printf_line "-r, --res                       -  Adds resources to the file header"
-  __printf_line "-i, --type                      -  Adds type to functions: user system"
-  __printf_line "-p, --prev                      -  Will set header based on an existing file"
-  __printf_line "-u, --user                      -  Generate a script for suitable for local user"
-  __printf_line "-l, --license                   -  Adds the license type to header"
-  __printf_line "-e, --no                        -  Don't ask to edit file"
-  __printf_line "-k, --keep                      -  Will not overwrite an existing file"
-  __printf_line "--replace                       -  Imports and creates a new header to replace an older one"
-  __printf_line ""
-  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_opts "Other Options"
-  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_line "gen-script --help               - Shows this message"
-  __printf_line "gen-script --config             - Generate user config file"
-  __printf_line "gen-script --version            - Show script version"
-  __printf_line "gen-script --options            - Shows all available options"
-  __printf_line "gen-script --debug              - enable debugging"
-  __printf_line "gen-script --raw                - removes all formatting on output"
-  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_opts "types: desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr"
-  printf '\n'
-  exit
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create the config file
 __gen_config() {
-  printf_blue "Generating the config file in"
-  printf_cyan "$GEN_SCRIPT_CONFIG_DIR/$GEN_SCRIPT_CONFIG_FILE"
+  local NOTIFY_CLIENT_NAME="$APPNAME"
+  if [ "$INIT_CONFIG" != "TRUE" ]; then
+    printf_blue "Generating the config file in"
+    printf_cyan "$GEN_SCRIPT_CONFIG_DIR/$GEN_SCRIPT_CONFIG_FILE"
+  fi
   [ -d "$GEN_SCRIPT_CONFIG_DIR" ] || mkdir -p "$GEN_SCRIPT_CONFIG_DIR"
   [ -d "$GEN_SCRIPT_CONFIG_BACKUP_DIR" ] || mkdir -p "$GEN_SCRIPT_CONFIG_BACKUP_DIR"
   [ -f "$GEN_SCRIPT_CONFIG_DIR/$GEN_SCRIPT_CONFIG_FILE" ] &&
@@ -150,58 +142,204 @@ GEN_SCRIPT_GIT_DEFAULT_BRANCH="${GEN_SCRIPT_GIT_DEFAULT_BRANCH:-main}"
 GEN_SCRIPT_DEFAULT_TEMPLATE="${GEN_SCRIPT_DEFAULT_TEMPLATE:-shell/bash}"
 GEN_SCRIPT_REPLACE_ENV="\$(echo "\$GEN_SCRIPT_NEWFILE" | tr [a-z] [A-Z] | sed 's#-#_#g;s# #_#g;s/\./_/g')"
 GEN_SCRIPT_REPLACE_CONFIG_FILE="\$(echo "\$GEN_SCRIPT_NEWFILE" | tr [a-z] [A-Z])_CONFIG_DIR"
-
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Make file options
-GEN_SCRIPT_OVERWRITE="\${GEN_SCRIPT_OVERWRITE:-Y}"             # Default is to overwrite
-GEN_SCRIPT_EDITFILE="\${GEN_SCRIPT_EDITFILE:-N}"               # Skip editing file
-GEN_SCRIPT_EDIT_NEWFILE="\${GEN_SCRIPT_EDIT_NEWFILE:-N}"       # edit files created using the new option
-GEN_SCRIPT_MAKEFILE="\${GEN_SCRIPT_MAKEFILE:-Y}"               # This should always be Y
-
+GEN_SCRIPT_OVERWRITE="${GEN_SCRIPT_OVERWRITE:-}"            # Default is to overwrite
+GEN_SCRIPT_EDITFILE="${GEN_SCRIPT_EDITFILE:-}"              # Skip editing file
+GEN_SCRIPT_EDIT_NEWFILE="${GEN_SCRIPT_EDIT_NEWFILE:-}"      # edit files created using the new option
+GEN_SCRIPT_MAKEFILE="${GEN_SCRIPT_MAKEFILE:-}"              # This should always be Y
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
-GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR:-}"
-GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_2="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR:-}"
-GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_GOOD="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_GOOD:-}"
-GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_ERROR="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_ERROR:-}"
-
+GEN_SCRIPT_OUTPUT_COLOR_1="${GEN_SCRIPT_OUTPUT_COLOR_1:-}"
+GEN_SCRIPT_OUTPUT_COLOR_2="${GEN_SCRIPT_OUTPUT_COLOR_2:-}"
+GEN_SCRIPT_OUTPUT_COLOR_GOOD="${GEN_SCRIPT_OUTPUT_COLOR_GOOD:-}"
+GEN_SCRIPT_OUTPUT_COLOR_ERROR="${GEN_SCRIPT_OUTPUT_COLOR_ERROR:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Notification Settings
-GEN_SCRIPT_REPLACE_ENV_NOTIFY_ENABLED="${GEN_SCRIPT_REPLACE_ENV_NOTIFY_ENABLED:-}"
-GEN_SCRIPT_REPLACE_ENV_GOOD_NAME="${GEN_SCRIPT_REPLACE_ENV_GOOD_NAME:-}"
-GEN_SCRIPT_REPLACE_ENV_ERROR_NAME="${GEN_SCRIPT_REPLACE_ENV_ERROR_NAME:-}"
-GEN_SCRIPT_REPLACE_ENV_GOOD_MESSAGE="${GEN_SCRIPT_REPLACE_ENV_GOOD_MESSAGE:-}"
-GEN_SCRIPT_REPLACE_ENV_ERROR_MESSAGE="${GEN_SCRIPT_REPLACE_ENV_ERROR_MESSAGE:-}"
-GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_NAME="${GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_NAME:-}"
-GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_ICON="${GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_ICON:-}"
-GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_URGENCY="${GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_URGENCY:-}"
+GEN_SCRIPT_NOTIFY_ENABLED="${GEN_SCRIPT_NOTIFY_ENABLED:-}"
+GEN_SCRIPT_GOOD_NAME="${GEN_SCRIPT_GOOD_NAME:-}"
+GEN_SCRIPT_ERROR_NAME="${GEN_SCRIPT_ERROR_NAME:-}"
+GEN_SCRIPT_GOOD_MESSAGE="${GEN_SCRIPT_GOOD_MESSAGE:-}"
+GEN_SCRIPT_ERROR_MESSAGE="${GEN_SCRIPT_ERROR_MESSAGE:-}"
+GEN_SCRIPT_NOTIFY_CLIENT_NAME="${GEN_SCRIPT_NOTIFY_CLIENT_NAME:-}"
+GEN_SCRIPT_NOTIFY_CLIENT_ICON="${GEN_SCRIPT_NOTIFY_CLIENT_ICON:-}"
+GEN_SCRIPT_NOTIFY_CLIENT_URGENCY="${GEN_SCRIPT_NOTIFY_CLIENT_URGENCY:-}"
 
 EOF
+  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
   if [ -f "$GEN_SCRIPT_CONFIG_DIR/$GEN_SCRIPT_CONFIG_FILE" ]; then
-    [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for $APPNAME has been created"
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
     . "$GEN_SCRIPT_CONFIG_DIR/$GEN_SCRIPT_CONFIG_FILE"
     exitCode=0
   else
     printf_red "Failed to create the config file"
-    exitCode=
+    exitCode=1
   fi
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Help function - Align to 50
+__help() {
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "gen-script:  Create a script from template - $VERSION"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Usage: gen-script [options] [template] [filename]"
+  __printf_line "-f, --functions                 - Shows functions"
+  __printf_line "-d, --description               - Creates the description for file header"
+  __printf_line "-t, --todo                      - Add a TODO to file header"
+  __printf_line "-c, --copyright                 - Adds a copyright to file header"
+  __printf_line "-o, --other                     - Adds an other to the file header"
+  __printf_line "-r, --res                       - Adds resources to the file header"
+  __printf_line "-i, --type                      - Adds type to functions: user system"
+  __printf_line "-p, --prev                      - Will set header based on an existing file"
+  __printf_line "-u, --user                      - Generate a script suitable for local user"
+  __printf_line "-l, --license                   - Adds the license type to header"
+  __printf_line "-e, --no                        - Don't ask to edit file"
+  __printf_line "-k, --keep                      - Will not overwrite an existing file"
+  __printf_line "--replace                       - Imports and creates a new header to replace an older one"
+  __printf_line "--dir                           - Sets the working directory"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Other Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--help                          - Shows this message"
+  __printf_line "--config                        - Generate user config file"
+  __printf_line "--version                       - Show script version"
+  __printf_line "--options                       - Shows all available options"
+  __printf_line "--debug                         - Enables script debugging"
+  __printf_line "--raw                           - Removes all formatting on output"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() {
+  { [ $(id -u) -ne 0 ] || [ $EUID -ne 0 ] || [ "$WHOAMI" != "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep -s "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# # Get sudo password
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run sudo
+__sudorun() {
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo
+__can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User can run sudo
+__sudoif() {
+  __user_is_root && return 0
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run command as root
+requiresudo() {
+  if [ "$GEN_SCRIPT_REQUIRE_SUDO" = "yes" ] && [ -z "$GEN_SCRIPT_REQUIRE_SUDO_RUN" ]; then
+    export GEN_SCRIPT_REQUIRE_SUDO="no"
+    export GEN_SCRIPT_REQUIRE_SUDO_RUN="true"
+    __sudo "$@"
+    exit $?
+  else
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  CMD="${1:-echo}" && shift 1
+  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  [ "$(basename "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  if __sudoif; then
+    export PATH="$PATH"
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    exitCode=$?
+  else
+    printf '%s\n' "This requires root to run"
+    exitCode=1
+  fi
+  return ${exitCode:-1}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  exitCode=${exitCode:-$?}
+  [ -f "$GEN_SCRIPT_TEMP_FILE" ] && rm -Rf "$GEN_SCRIPT_TEMP_FILE" &>/dev/null
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
-__filename() { basename "$1" 2>/dev/null; } && export -f __filename
-__dirname() { if [ "$(dirname "$1" 2>/dev/null)" = . ]; then echo "$PWD"; else dirname "$1" 2>/dev/null; fi; }
-__sed() { $sed -i 's|'"$1"'|'"$2"'|g' "$3" |& __devnull; }
-__providefilename() { [ -f "$(__fullfilename "${1:-$filename}")" ] || printf_exit "Please provide a filename"; }
-__remove_opts() { echo "$*" | tr ' ' '\n' | grep -sv '^-' | head -n1 | grep '^' || return 1; }
-__gen_env_vars() { echo "$1" | tr '[a-z]' '[A-Z]' | sed 's#-#_#g;s# #_#g;s/\./_/g'; }
-__print_wait() { printf_pause "$*" && printf_newline "\n"; }
-__sed_remove_empty() { sed '/^\#/d;/^$/d;s#^ ##g'; }
-__sed_head_remove() { awk -F'  :' '{print $2}'; }
-__sed_head() { sed -E 's|^.*#||g;s#^ ##g;s|^@||g'; }
-__grep_head() { grep -sE '[".#]?@[A-Z]' "${2:-$command}" | grep "${1:-}" | head -n 12 | __sed_head | __sed_remove_empty | grep '^' || return 1; }
-__grep_head_remove() { grep -sE '[".#]?@[A-Z]' "${2:-$command}" | grep "${1:-}" | grep -Ev 'GEN_SCRIPT_*|\${|\$\(' | sed_head_remove | sed '/^\#/d;/^$/d;s#^ ##g' | grep '^' || return 1; }
-__grep_version() { grep_head ''${1:-Version}'' "${2:-$command}" | __sed_head | __sed_head_remove | __sed_remove_empty | head -n1 | grep '^'; }
-__grep() { grep -sE ^'.*#?@'${2:-$headerfield}'.*  :' "${3:-$filename}" | grep -Ev '${.*}|\$|GEN_SCRIPT_' | head -n1 | grep ${1:-} '^' || return 1; }
+__filename() {
+  basename "$1" 2>/dev/null
+} && export -f __filename
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__dirname() {
+  if [ "$(dirname "$1" 2>/dev/null)" = . ]; then echo "$PWD"; else dirname "$1" 2>/dev/null; fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__sed() {
+  $sed -i 's|'"$1"'|'"$2"'|g' "$3" |& __devnull
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__providefilename() {
+  [ -f "$(__fullfilename "${1:-$filename}")" ] || printf_exit "Please provide a filename"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__remove_opts() {
+  echo "$*" | tr ' ' '\n' | grep -sv '^-' | head -n1 | grep '^' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gen_env_vars() {
+  echo "$1" | tr '[a-z]' '[A-Z]' | sed 's#-#_#g;s# #_#g;s/\./_/g'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__print_wait() {
+  printf_pause "$*" && printf_newline "\n"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__sed_remove_empty() {
+  $sed '/^\#/d;/^$/d;s#^ ##g'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__sed_head_remove() {
+  awk -F'  :' '{print $2}'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__sed_head() { $sed -E 's|^.*#||g;s#^ ##g;s|^@||g'; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__grep_head() {
+  grep -sE '[".#]?@[A-Z]' "${2:-$command}" | grep "${1:-}" | head -n 12 | __sed_head | __sed_remove_empty | grep '^' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__grep_head_remove() {
+  grep -sE '[".#]?@[A-Z]' "${2:-$command}" | grep "${1:-}" | grep -Ev 'GEN_SCRIPT_*|\${|\$\(' | sed_head_remove | sed '/^\#/d;/^$/d;s#^ ##g' | grep '^' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__grep_version() {
+  grep_head ''${1:-Version}'' "${2:-$command}" | __sed_head | __sed_head_remove | __sed_remove_empty | head -n1 | grep '^'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__grep() {
+  grep -sE ^'.*#?@'${2:-$headerfield}'.*  :' "${3:-$filename}" | grep -Ev '${.*}|\$|GEN_SCRIPT_' | head -n1 | grep ${1:-} '^' || return 1
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __fullfilename() {
   found_name="$(builtin type -P "$(basename "$1" 2>/dev/null)" || builtin command -v "$(basename "$1" 2>/dev/null)" || ls -A "$1" 2>/dev/null)"
@@ -209,8 +347,9 @@ __fullfilename() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_header() {
+  local command search
   local PATH="/usr/local/bin:/usr/bin:/usr/sbin:/$HOME/.local/bin"
-  local command="$(__fullfilename "$filename")"
+  command="$(__fullfilename "$filename")"
   if [ -f "$command" ] && __check_header "$command"; then
     if [ "$1" = "all" ]; then
       shift 1
@@ -221,8 +360,8 @@ __get_header() {
       shift 1
       grep -sE '^.*#.@'*'.*  :' -B1 -A1 "$command" 2>/dev/null | head -n${1:-20} | grep -Ev '${.*}|\$|GEN_SCRIPT_' | grep '^' || return 1
     else
-      local search="$1"
-      local command="${2:-$command}"
+      search="$1"
+      command="${2:-$command}"
       #grep -sE '^.*#.@'$1'' "$command" 2>/dev/null | grep ' :' | grep -Ev '${.*}|\$|GEN_SCRIPT_' | head -n1 | sed 's/.*#.@'*'.*  ://g;s#^ ##g' | grep '^' || return 1
       __grep_head_remove "$search" "$command" | grep -Ev '${.*}|\$|GEN_SCRIPT_' | head -n1 || return 1
     fi
@@ -230,19 +369,20 @@ __get_header() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __check_header() {
+  local command
   local PATH="/usr/local/bin:/usr/bin:/usr/sbin:/$HOME/.local/bin:$PWD"
-  local command="$(__fullfilename "${command:-$filename}")"
+  command="$(__fullfilename "${command:-$filename}")"
   grep -s ^'.*##@Version.*:' "${command:-$filename}" 2>/dev/null | grep -Ev '${.*}|\$|GEN_SCRIPT_' | head -n1 | grep -q '^' || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #__update_header "$file" "$search" "$replace"
 __update_header() {
-  #printf_exit "$1 $2 $3"
-  local filename="$1"
-  local headerfield="$2"
-  local replace="$3"
+  local filename headerfield replace search
+  filename="$1"
+  headerfield="$2"
+  replace="$3"
   if __grep -q; then
-    local search="$(__grep | head -n1 | awk -F': ' '{print $2}' | grep '^')"
+    search="$(__grep | head -n1 | awk -F': ' '{print $2}' | grep '^')"
     if [ -z "$search" ]; then
       search="$(__grep)"
       replace="$search$replace"
@@ -257,12 +397,13 @@ __update_header() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_prev() {
-  local filename="${1:-$filename}"
+  local filename command
   local PATH="/usr/local/bin:/usr/bin:/usr/sbin:/$HOME/.local/bin"
-  local command="$(__fullfilename "$filename")"
+  filename="${1:-$filename}"
+  command="$(__fullfilename "$filename")"
   if [ -f "$command" ] && __check_header "$command"; then
     if [ -z "$get_prev_shown" ]; then
-      [[ "$SILENT" = "true" ]] || printf_green "setting desc todo other and res from $(basename "$command" 2>/dev/null)"
+      [ "$GEN_SCRIPT_SILENT" = "true" ] || printf_green "setting desc todo other and res from $(basename "$command" 2>/dev/null)"
     fi
     get_desc="$(__get_header 'Description' || echo)"
     get_changelog="$(__get_header 'Changelog' || echo)"
@@ -291,22 +432,22 @@ __no_header() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __set_header() {
   __header_opts "$@"
-  [[ "$SILENT" = "true" ]] || printf_blue "Setting header options for ${header_type:-system}"
+  [ "$GEN_SCRIPT_SILENT" = "true" ] || printf_blue "Setting header options for ${header_type:-system}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set up options
 __header_opts() {
   set -- "${SETARGS[@]}"
-  local LONGOPTS="all:,no,help,user,raw,desc:,todo:,copyright:,other:,res:,"
-  local LONGOPTS+="type:,functions:,name:,prev,replace,keep,pause,system,"
-  local LONGOPTS+="silent,license:"
-  local SHORTOPTS="a:,e,h,d:,t:,c:,o:,r:,i:,f:,n:,u,l:,p,k,s"
-  local parsed=$(getopt --options="$SHORTOPTS" --longoptions="$LONGOPTS" -- "$@" 2>/dev/null)
+  local LONGOPTS SHORTOPTS parsed
+  LONGOPTS="all:,no,help,user,raw,desc:,todo:,copyright:,other:,res:,"
+  LONGOPTS+="type:,functions:,name:,prev,replace,keep,pause,system,"
+  LONGOPTS+="silent,license:"
+  SHORTOPTS="a:,e,h,d:,t:,c:,o:,r:,i:,f:,n:,u,l:,p,k,s"
+  parsed=$(getopt --options="$SHORTOPTS" --longoptions="$LONGOPTS" -- "$@" 2>/dev/null)
   eval set -- "${parsed[@]}" 2>/dev/null
   while :; do
     case "$1" in
     -a | --all)
-      shift 1
       if [ "$1" = "--long" ]; then echo "--$LONGOPTS " | sed 's#:##g;s#,# --#g'; fi
       if [ "$1" = "--short" ]; then echo "-$SHORTOPTS " | sed 's#:##g;s#,# -#g'; fi
       if [ "$1" = "--all" ]; then
@@ -314,84 +455,92 @@ __header_opts() {
         echo -n "--$LONGOPTS " | sed 's#:##g;s#,# --#g'
       fi
       return 0
+      shift 2
       ;;
     -f | --functions)
       shift 1
       showFunctions=true
-      header_type="${1:-system}"
+      header_type="${2:-system}"
+      shift 2
       ;;
     -d | --desc)
-      shift 1
-      desc="$1"
+      desc="$2"
+      shift 2
       ;;
     -t | --todo)
-      shift 1
-      todo="$1"
+      todo="$2"
+      shift 2
       ;;
     -c | --copyright)
-      shift 1
-      GEN_SCRIPT_COPYRIGHT="$1"
+      GEN_SCRIPT_COPYRIGHT="$2"
+      shift 2
       ;;
     -o | --other)
-      shift 1
-      other="$1"
+      other="$2"
+      shift 2
       ;;
     -r | --res)
-      shift 1
-      res="$1"
+      res="$2"
+      shift 2
       ;;
     -i | --type)
-      shift 1
-      default_type="$1"
-      header_type="$1"
-      new_type="$1"
+      default_type="$2"
+      header_type="$2"
+      new_type="$2"
+      shift 2
       ;;
     -p | --prev)
       gen_header_prev=true
       ;;
     -n | --name)
-      shift 1
-      GEN_FILENAME="$1"
+      GEN_FILENAME="$2"
+      shift 2
       ;;
     -u | --user)
       header_type=user
       gen_header_user=true
+      shift 1
       ;;
     -s | --system)
       header_type=system
+      shift 1
       ;;
     -l | --license)
-      shift 1
       GEN_SCRIPT_CUSTOM_LICENSE="true"
-      GEN_SCRIPT_DEFLICENSE="$1"
+      GEN_SCRIPT_DEFLICENSE="$2"
+      shift 2
       ;;
     --clip | --silent)
-      SILENT="true"
+      GEN_SCRIPT_SILENT="true"
+      shift 1
       ;;
     -e | --no)
       printf_red "Setting overwrite to yes and edit to no"
       GEN_SCRIPT_OVERWRITE="Y"
       GEN_SCRIPT_EDITFILE="N"
       GEN_SCRIPT_MAKEFILE="${MAKEFILE:-yes}"
+      shift 1
       ;;
     -k | --keep)
       printf_red "Setting overwrite to no and edit to no"
       GEN_SCRIPT_OVERWRITE="N"
       GEN_SCRIPT_EDITFILE="N"
       GEN_SCRIPT_MAKEFILE="N"
+      shift 1
       ;;
     --replace)
       gen_header_replace=true
+      shift 1
       ;;
     --pause)
       pause=true
+      shift 1
       ;;
     --)
       shift
       break
       ;;
     esac
-    shift 1
   done
   HEADER_ARGS="$*"
 }
@@ -400,7 +549,7 @@ __copy_files() {
   printf_green "Copying the template files"
   printf_yellow "from: $CASJAYSDEVDIR/templates/scripts"
   printf_yellow "to: $GEN_SCRIPT_CONFIG_DIR/files"
-  [[ -d "$GEN_SCRIPT_CONFIG_DIR/files" ]] || mkdir -p "$GEN_SCRIPT_CONFIG_DIR/files"
+  [ -d "$GEN_SCRIPT_CONFIG_DIR/files" ] || mkdir -p "$GEN_SCRIPT_CONFIG_DIR/files"
   rsync -avhP "$CASJAYSDEVDIR/templates/scripts/." "$GEN_SCRIPT_CONFIG_DIR/files/" |& __devnull
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -462,20 +611,21 @@ __file_is() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __makefile() {
-  local temp="$1"
-  local new="${newfile:-$2}"
-  local newdir="$(__dirname "$new")"
-  local newfile="$(basename "$2" 2>/dev/null)"
+  local temp new newdir newfile newcmd compfile entrypointfile manfile
+  temp="$1"
+  new="${newfile:-$2}"
+  newdir="$(__dirname "$new")"
+  newfile="$(basename "$2" 2>/dev/null)"
   shift $#
   __mkd "$newdir"
   __vars "$new"
   __cp_rf "$temp" "$new" || return 1
   __get_prev "$new" || return 1
   __edit_header "$new" || return 1
-  local newcmd="$(command -v "$new" || type -P "$new" || ls -A "$new")"
+  newcmd="$(command -v "$new" || type -P "$new" || ls -A "$new")"
   chmod -f 755 "$new" || return 1
   if __file_is "completion"; then
-    local compfile="_$(basename "$new" 2>/dev/null)_completions"
+    compfile="_$(basename "$new" 2>/dev/null)_completions"
     filename="$(basename "$destfolder/$compfile" 2>/dev/null)"
     destfolder="$(dirname "$destfolder/$compfile" 2>/dev/null)"
     printf_cyan "Creating and moving the completion file:"
@@ -486,7 +636,7 @@ __makefile() {
       filename="$compfile" &&
       chmod 664 "$destfolder/$filename" && exitCode=0 || exitCode=1
   elif __file_is "entrypoint-docker"; then
-    local entrypointfile="$(basename "$new" 2>/dev/null)"
+    entrypointfile="$(basename "$new" 2>/dev/null)"
     filename="$(basename "$destfolder/$entrypointfile" 2>/dev/null)"
     destfolder="$(dirname "$destfolder/$entrypointfile" 2>/dev/null)"
     printf_cyan "Creating and moving the completion file:"
@@ -496,7 +646,7 @@ __makefile() {
       filename="$entrypointfile" &&
       chmod 755 "$destfolder/$filename" && exitCode=0 || exitCode=1
   elif __file_is "manual"; then
-    local manfile="$(basename "$new" 2>/dev/null).1"
+    manfile="$(basename "$new" 2>/dev/null).1"
     filename="$(basename "$destfolder/$manfile" 2>/dev/null)"
     destfolder="$(dirname "$destfolder/$manfile" 2>/dev/null)"
     printf_cyan "Creating and moving the completion file:"
@@ -568,6 +718,7 @@ __edit_header() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gen_header() {
+  local GEN_SCRIPT_DEFREADME GEN_SCRIPT_NEWFILE GEN_SCRIPT_REPLACE_ENV
   [ -z "$pause" ] || { clear && printf_newline "\n\n\n"; }
   rerun() {
     unset gen_header_replace exitCode
@@ -578,14 +729,14 @@ __gen_header() {
   if [ "$rerun" != "true" ]; then
     __set_header "$@"
     __vars "$filename"
-    [[ "$SILENT" = "true" ]] || printf_green "New header info for $filename"
+    [ "$GEN_SCRIPT_SILENT" = "true" ] || printf_green "New header info for $filename"
     __get_prev "$filename"
-    local GEN_SCRIPT_DEFREADME="$(__filename $filename 2>/dev/null) --help"
-    local GEN_SCRIPT_NEWFILE="$filename"
-    local GEN_SCRIPT_REPLACE_ENV="$(__gen_env_vars "$filename")"
-    [[ "$SILENT" = "true" ]] || [ -n "${desc:-$get_desc}" ] ||
+    GEN_SCRIPT_DEFREADME="$(__filename $filename 2>/dev/null) --help"
+    GEN_SCRIPT_NEWFILE="$filename"
+    GEN_SCRIPT_REPLACE_ENV="$(__gen_env_vars "$filename")"
+    [ "$GEN_SCRIPT_SILENT" = "true" ] || [ -n "${desc:-$get_desc}" ] ||
       printf_yellow "Description: ${desc:-None provided}"
-    [[ "$SILENT" = "true" ]] || [ -n "${todo:-$get_todo}" ] ||
+    [ "$GEN_SCRIPT_SILENT" = "true" ] || [ -n "${todo:-$get_todo}" ] ||
       printf_yellow "TODO: ${todo:-None provided}"
   fi
   if [ -n "$gen_header_prev" ]; then
@@ -594,7 +745,7 @@ __gen_header() {
     printf_blue "Imported header from $(__fullfilename "$filename")"
     printf_newline
     __prev_header
-  elif [ "$gen_header_replace" = true ]; then
+  elif [ "$gen_header_replace" = "true" ]; then
     __check_header "$filename" || __no_header
     __providefilename "$filename"
     printf_blue "Imported header from $(__fullfilename "$filename")"
@@ -617,7 +768,7 @@ EOF
     __gen_functions "$@"
   fi
   printf_newline
-  [ ${exitCode:-$?} -ne 0 ] || [[ "$SILENT" = "true" ]] || printf_blue "Your header is ready for use"
+  [ ${exitCode:-$?} -ne 0 ] || [ "$GEN_SCRIPT_SILENT" = "true" ] || printf_blue "Your header is ready for use"
   [ -z "$pause" ] || __print_wait "Press any key when done"
   printf_newline
   return ${exitCode:-$?}
@@ -692,12 +843,13 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __backup_file() {
-  local BASEDIR="${GEN_SCRIPT_CONFIG_BACKUP_DIR:-$GEN_SCRIPT_CONFIG_DIR/backups}"
-  local BACKUPDIR="$BASEDIR/${destfolder/\//}"
-  local NAME="$filename-$(date +'%m%d%Y%H%M%S' 2>/dev/null)"
+  local BASEDIR BACKUPDIR NAME BACKUP_NAME
+  NAME="$(basename "${1:-$filename}")"
+  BACKUP_NAME="${NAME%.*}-$(date +'%m%d%Y%H%M%S' 2>/dev/null).${NAME##*.}.bak"
+  BACKUPDIR="$GEN_SCRIPT_BACKUP_DIR/${destfolder/\//}"
+  cp -Rf "$destfolder/$filename" "$destfolder/$BACKUP_NAME" |& __devnull
   [ -d "$BACKUPDIR" ] || __mkd "$BACKUPDIR"
-  cp -Rf "$destfolder/$filename" "$destfolder/${NAME}.bak" |& __devnull
-  if cp -Rf "$destfolder/$filename" "$BACKUPDIR/$NAME" |& __devnull; then
+  if mv -f "$destfolder/$filename" "$BACKUPDIR/$NAME" |& __devnull; then
     printf_blue "copied $filename to ${BACKUPDIR/$GEN_SCRIPT_CONFIG_DIR\//}/$NAME"
   else
     printf_red "Failed to copy $filename BACKUPDIR/$NAME"
@@ -711,7 +863,7 @@ __vars() {
   else
     GEN_SCRIPT_DEFREADME="$(basename "$1" 2>/dev/null) --help"
   fi
-  if [ -f "$GEN_SCRIPT_TOP_DIR/LICENSE.md" ] && [[ -z "$GEN_SCRIPT_CUSTOM_LICENSE" ]]; then
+  if [ -f "$GEN_SCRIPT_TOP_DIR/LICENSE.md" ] && [ -z "$GEN_SCRIPT_CUSTOM_LICENSE" ]; then
     GEN_SCRIPT_DEFLICENSE="LICENSE.md"
   else
     GEN_SCRIPT_DEFLICENSE="${GEN_SCRIPT_DEFLICENSE:-}"
@@ -785,7 +937,7 @@ __gen_opts() {
   local LONG_OPTS="--help,version,options,copy,config,function"
   local HEADER_OPTS="--no,help,user,raw,desc,todo,copy,other,res,type"
   local HEADER_OPTSC="--functions,name,prev,replace,keep,pause,system"
-  [ "$1" = --force ] && shift 1 && recreate=true && gen_opts_seen=""
+  [ "$1" = --force ] && shift 1 && recreate="true" && gen_opts_seen=""
   shift
   [ -d "$GEN_SCRIPT_OPTSDIR" ] && [ -z "$recreate" ] && gen_opts_seen=yes || __mkd "$GEN_SCRIPT_OPTSDIR"
   if [ -z "$gen_opts_seen" ]; then
@@ -793,7 +945,7 @@ __gen_opts() {
     printf_cyan "$GEN_SCRIPT_OPTSDIR"
     gen_opts_seen="true"
   fi
-  if [[ -z "$OPTS" ]]; then
+  if [ -z "$OPTS" ]; then
     printf_green "See $APPNAME --help or $APPNAME COMMAND --help for usage"
     printf_blue "Short: ${SHORT_OPTS//,/ -}"
     printf_yellow "Long: ${LONG_OPTS//,/ --}"
@@ -824,18 +976,19 @@ __git_setup_new_commit() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_new() {
+  local file create_filename
   dir="${GEN_SCRIPT_CWD}"
   name="$(basename "$(readlink -f "$dir" 2>/dev/null)" 2>/dev/null)"
   action="$1" && shift 1
   [ -n "$1" ] && create_filename="$1" && shift 1 || create_filename="newScript"
   [ -n "$2" ] && template="$*" || template="bash/$action"
-  [[ -d "$dir/bin" ]] || mkdir -p "$dir/bin"
-  [[ -d "$dir/man" ]] || mkdir -p "$dir/man"
-  [[ -d "$dir/completions" ]] || mkdir -p "$dir/completions"
+  [ -d "$dir/bin" ] || mkdir -p "$dir/bin"
+  [ -d "$dir/man" ] || mkdir -p "$dir/man"
+  [ -d "$dir/completions" ] || mkdir -p "$dir/completions"
   cd "$dir" || printf_exit "Failed"
   case "$action" in
   _remove_)
-    local files=""
+    files=""
     printf_cyan "Deleting ${create_filename} from $dir"
     files="$dir/${create_filename} "
     files+="$dir/bin/$create_filename "
@@ -845,19 +998,19 @@ __setup_new() {
       [ -f "$file" ] && printf_green "Deleting $file"
       __rm_rf "$file"
     done
-    [[ "$GEN_SCRIPT_EDIT_NEWFILE" = "Y" ]] && __cmd_exists code && code -w "$files"
+    [ "$GEN_SCRIPT_EDIT_NEWFILE" = "Y" ] && __cmd_exists code && code -w "$files"
     __git_setup_new_commit "$(printf '%s\n\n%s\n' "➖ Delete: ${create_filename} ➖" "Deleted ${create_filename} from $name")" -a
     printf_newline
     exit
     ;;
   user)
-    local files=""
-    local create_filename="${create_filename// /_}"
+    files=""
+    create_filename="${create_filename// /_}"
     export PATH="${SRC_DIR}:${PATH}" GEN_SCRIPT_EDITFILE="N"
     export GEN_SCRIPT_MAKEFILE="Y" GEN_SCRIPT_OVERWRITE="Y"
-    { [[ -f "$dir/${create_filename}" ]] || [[ -f "$dir/bin/$create_filename" ]]; } &&
-      [[ -f "$dir/man/${create_filename}.1" ]] &&
-      [[ -f "$dir/completions/_${create_filename}_completions" ]] &&
+    { [ -f "$dir/${create_filename}" ] || [ -f "$dir/bin/$create_filename" ]; } &&
+      [ -f "$dir/man/${create_filename}.1" ] &&
+      [ -f "$dir/completions/_${create_filename}_completions" ] &&
       printf_exit "Can not create ${create_filename} due to it existing"
     printf_cyan "Creating ${create_filename} for $action using $template in: $dir"
     $0 $template ${create_filename} |& __devnull
@@ -877,13 +1030,13 @@ __setup_new() {
     exit
     ;;
   system)
-    local files=""
-    local create_filename="${create_filename// /_}"
+    files=""
+    create_filename="${create_filename// /_}"
     export PATH="${SRC_DIR}:${PATH}" GEN_SCRIPT_EDITFILE="N"
     export GEN_SCRIPT_MAKEFILE="Y" GEN_SCRIPT_OVERWRITE="Y"
-    { [[ -f "$dir/${create_filename}" ]] || [[ -f "$dir/bin/${create_filename}" ]]; } &&
-      [[ -f "$dir/man/${create_filename}.1" ]] &&
-      [[ -f "$dir/completions/_${create_filename}_completions" ]] &&
+    { [ -f "$dir/${create_filename}" ] || [ -f "$dir/bin/${create_filename}" ]; } &&
+      [ -f "$dir/man/${create_filename}.1" ] &&
+      [ -f "$dir/completions/_${create_filename}_completions" ] &&
       printf_exit "Can not create ${create_filename} due to it existing"
     printf_cyan "Creating ${create_filename} for $action using $template in: $dir"
     $0 $template "$create_filename" |& __devnull
@@ -908,8 +1061,8 @@ __setup_new() {
   esac
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Defaults
-exitCode=0
+# User defined variables/import external variables
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application Folders
 GEN_SCRIPT_CONFIG_FILE="${GEN_SCRIPT_CONFIG_FILE:-settings.conf}"
@@ -920,26 +1073,26 @@ GEN_SCRIPT_TEMP_DIR="${GEN_SCRIPT_TEMP_DIR:-$HOME/.local/tmp/system_scripts/gen-
 GEN_SCRIPT_CACHE_DIR="${GEN_SCRIPT_CACHE_DIR:-$HOME/.cache/gen-script}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
-GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR:-4}"
-GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_2="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR:-5}"
-GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_GOOD="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_GOOD:-2}"
-GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_ERROR="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_ERROR:-1}"
+GEN_SCRIPT_OUTPUT_COLOR_1="${GEN_SCRIPT_OUTPUT_COLOR_1:-4}"
+GEN_SCRIPT_OUTPUT_COLOR_2="${GEN_SCRIPT_OUTPUT_COLOR_2:-5}"
+GEN_SCRIPT_OUTPUT_COLOR_GOOD="${GEN_SCRIPT_OUTPUT_COLOR_GOOD:-2}"
+GEN_SCRIPT_OUTPUT_COLOR_ERROR="${GEN_SCRIPT_OUTPUT_COLOR_ERROR:-1}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Notification Settings
-GEN_SCRIPT_REPLACE_ENV_NOTIFY_ENABLED="${GEN_SCRIPT_REPLACE_ENV_NOTIFY_ENABLED:-yes}"
-GEN_SCRIPT_REPLACE_ENV_GOOD_NAME="${GEN_SCRIPT_REPLACE_ENV_GOOD_NAME:-Great:}"
-GEN_SCRIPT_REPLACE_ENV_ERROR_NAME="${GEN_SCRIPT_REPLACE_ENV_ERROR_NAME:-Error:}"
-GEN_SCRIPT_REPLACE_ENV_GOOD_MESSAGE="${GEN_SCRIPT_REPLACE_ENV_GOOD_MESSAGE:-No errors reported}"
-GEN_SCRIPT_REPLACE_ENV_ERROR_MESSAGE="${GEN_SCRIPT_REPLACE_ENV_ERROR_MESSAGE:-Error reported}"
-GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_NAME="${GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_NAME:-$APPNAME}"
-GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_ICON="${GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_ICON:-notification-new}"
-GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_URGENCY="${GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_URGENCY:-normal}"
+GEN_SCRIPT_NOTIFY_ENABLED="${GEN_SCRIPT_NOTIFY_ENABLED:-yes}"
+GEN_SCRIPT_GOOD_NAME="${GEN_SCRIPT_GOOD_NAME:-Great:}"
+GEN_SCRIPT_ERROR_NAME="${GEN_SCRIPT_ERROR_NAME:-Error:}"
+GEN_SCRIPT_GOOD_MESSAGE="${GEN_SCRIPT_GOOD_MESSAGE:-No errors reported}"
+GEN_SCRIPT_ERROR_MESSAGE="${GEN_SCRIPT_ERROR_MESSAGE:-Errors were reported}"
+GEN_SCRIPT_NOTIFY_CLIENT_NAME="${GEN_SCRIPT_NOTIFY_CLIENT_NAME:-$APPNAME}"
+GEN_SCRIPT_NOTIFY_CLIENT_ICON="${GEN_SCRIPT_NOTIFY_CLIENT_ICON:-notification-new}"
+GEN_SCRIPT_NOTIFY_CLIENT_URGENCY="${GEN_SCRIPT_NOTIFY_CLIENT_URGENCY:-normal}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional Variables
-GEN_SCRIPT_EDIT_NEWFILE="${GEN_SCRIPT_EDIT_NEWFILE:-N}"
-GEN_SCRIPT_OVERWRITE="${GEN_SCRIPT_OVERWRITE:-A}" # Default ask to overwrite
-GEN_SCRIPT_EDITFILE="${GEN_SCRIPT_EDITFILE:-A}"   # Skip editing file
-GEN_SCRIPT_MAKEFILE="${GEN_SCRIPT_MAKEFILE:-Y}"   # This should always be Y
+GEN_SCRIPT_EDIT_NEWFILE="${GEN_SCRIPT_EDIT_NEWFILE:-N}" # Open editor
+GEN_SCRIPT_OVERWRITE="${GEN_SCRIPT_OVERWRITE:-A}"       # Default ask to overwrite
+GEN_SCRIPT_EDITFILE="${GEN_SCRIPT_EDITFILE:-A}"         # Skip editing file
+GEN_SCRIPT_MAKEFILE="${GEN_SCRIPT_MAKEFILE:-Y}"         # This should always be Y
 GEN_SCRIPT_TOP_DIR="$(__git_top_dir "$GEN_SCRIPT_CWD" || echo $GEN_SCRIPT_CWD 2>/dev/null)"
 GEN_SCRIPT_YEAR="${GEN_SCRIPT_YEAR:-$(date +%Y 2>/dev/null)}"
 GEN_SCRIPT_EMAIL="${GEN_SCRIPT_EMAIL:-${USER}@$(hostname -f 2>/dev/null)}"
@@ -961,7 +1114,7 @@ GEN_SCRIPT_DEFAULT_TEMPLATE="${GEN_SCRIPT_DEFAULT_TEMPLATE:-shell/bash}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$GEN_SCRIPT_CONFIG_DIR/$GEN_SCRIPT_CONFIG_FILE" ] ||
-  [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+  [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import config
 [ -f "$GEN_SCRIPT_CONFIG_DIR/$GEN_SCRIPT_CONFIG_FILE" ] &&
@@ -978,71 +1131,87 @@ GEN_SCRIPT_DEFAULT_TEMPLATE="${GEN_SCRIPT_DEFAULT_TEMPLATE:-shell/bash}"
 GEN_SCRIPT_TEMP_FILE="${GEN_SCRIPT_TEMP_FILE:-$(mktemp $GEN_SCRIPT_TEMP_DIR/XXXXXX 2>/dev/null)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup trap to remove temp file
-trap 'exitCode=${exitCode:-$?};[ -n "$GEN_SCRIPT_TEMP_FILE" ] && [ -f "$GEN_SCRIPT_TEMP_FILE" ] && rm -Rf "$GEN_SCRIPT_TEMP_FILE" |&__devnull' EXIT
+trap '__trap_exit' EXIT
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup notification function
-if [ "$GEN_SCRIPT_NOTIFY_ENABLED" = "yes" ]; then
-  __notifications() {
+__notifications() {
+  __cmd_exists notifications || return
+  [ "$GEN_SCRIPT_NOTIFY_ENABLED" = "yes" ] || return
+  [ "$SEND_NOTIFICATION" = "no" ] && return
+  (
+    set +x
+    export SCRIPT_OPTS="" _DEBUG=""
     export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$GEN_SCRIPT_GOOD_MESSAGE}"
     export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$GEN_SCRIPT_ERROR_MESSAGE}"
     export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$GEN_SCRIPT_NOTIFY_CLIENT_ICON}"
     export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$GEN_SCRIPT_NOTIFY_CLIENT_NAME}"
-    notifications "$@" && exitCode=0 || exitCode=1
-    unset NOTIFY_CLIENT_NAME NOTIFY_CLIENT_ICON NOTIFY_GOOD_MESSAGE NOTIFY_ERROR_MESSAGE
-    return ${exitCode:-$?}
-  }
-else
-  __notifications() { false; }
-fi
+    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$GEN_SCRIPT_NOTIFY_CLIENT_URGENCY}"
+    notifications "$@"
+    retval=$?
+    return $retval
+  ) |& __devnull &
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Show warn message if variables are missing
-[ -f "$GEN_SCRIPT_CONFIG_DIR" ] && __rm_rf "$GEN_SCRIPT_CONFIG_DIR"
-[ -d "$GEN_SCRIPT_CONFIG_DIR" ] || __mkd "$GEN_SCRIPT_CONFIG_DIR"
+# Set custom actions
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Argument/Option settings
-SETARGS="$*"
-SHORTOPTS="a:,e,h,d:,t:,c:,o:,r:,i:,f:,n:,u,l:,p,k,s "
-LONGOPTS="copy,config,debug,dir:,help,options,raw,version,"
-LONGOPTS+="all:,no,help,user,raw,desc:,todo:,copyright:,other:,res:,"
-LONGOPTS+="type:,functions:,name:,prev,replace,keep,pause,system,"
-LONGOPTS+="silent,license:"
-ARRAY="bash completions installers man new os other shell "
-
+SETARGS=("$@")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SHORTOPTS="e,h,d:,t:,c:,o:,r:,i:,f:,n:,u,l:,p,k,s"
+SHORTOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
+LONGOPTS+=",copy,no,help,raw,desc:,todo:,changelog:,copyright:,other:,res:"
+LONGOPTS+=",type:,functions,name:,prev,replace,keep,pause,system,user"
+LONGOPTS+=",silent,license:,skip,profile,sudo:"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ARRAY="bash completions installers man new os other shell"
+ARRAY+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LIST=""
+LIST+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup application options
-setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$APPNAME" -- "$@" 2>/dev/null)
 eval set -- "${setopts[@]}" 2>/dev/null
 while :; do
   case "$1" in
   --raw)
     shift 1
     export SHOW_RAW="true"
-    printf_color() {
-      printf '%b' "$1" | tr -d '\t' |
-        sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'
-    }
+    printf_column() { tee | grep '^'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
     ;;
   --debug)
     shift 1
     set -xo pipefail
-    __devnull() {
-      tee || exitCode=1
-      return ${exitCode:-$?}
-    }
-    __devnull2() {
-      eval "$*" || exitCode=1
-      return ${exitCode:-$?}
-    }
     export SCRIPT_OPTS="--debug"
     export _DEBUG="on"
+    __devnull() { tee || return 1; }
+    __devnull2() { eval "$@" |& tee || return 1; }
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
     ;;
   --options)
     shift 1
-    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}" "5"
-    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' "4"
-    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' "4"
-    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' "4"
+    printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' 4
+    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' 4
+    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
     exit $?
     ;;
   --version)
@@ -1060,95 +1229,126 @@ while :; do
     __gen_config
     exit $?
     ;;
-  --dir)
-    GEN_SCRIPT_CWD="$2"
-    shift 2
-    ;;
-  -a | --all)
+  --silent)
     shift 1
-    if [ "$1" = "long" ]; then echo "--$LONGOPTS " | sed 's#:##g;s#,# --#g'; fi
-    if [ "$1" = "short" ]; then echo "-$SHORTOPTS " | sed 's#:##g;s#,# -#g'; fi
-    if [ "$1" = "all" ]; then
-      echo -n "-$SHORTOPTS " | sed 's#:##g;s#,# -#g'
-      echo -n "--$LONGOPTS " | sed 's#:##g;s#,# --#g'
-    fi
-    exit 0
+    GEN_SCRIPT_SILENT="true"
+    ;;
+  --dir)
+    CWD_IS_SET="TRUE"
+    GEN_SCRIPT_CWD="$2"
+    [ -d "$GEN_SCRIPT_CWD" ] || mkdir -p "$GEN_SCRIPT_CWD" |& __devnull
+    shift 2
     ;;
   -g | --copy)
     shift 1
     __copy_templates "$@"
     exit $?
     ;;
+  --folders)
+    shift 1
+    showFolders="true"
+    ;;
   -f | --functions)
     shift 1
-    showFunctions=true
-    header_type="${1:-system}"
+    showFunctions="true"
+    header_type="${header_type:-system}"
     ;;
-  -c | --copyright)
-    shift 1
-    GEN_SCRIPT_COPYRIGHT="$1"
+  --changelog)
+    changelog="$2"
+    shift 2
     ;;
   -d | --desc)
-    shift 1
-    desc="$1"
+    desc="$2"
+    shift 2
     ;;
   -t | --todo)
-    shift 1
-    todo="$1"
+    todo="$2"
+    shift 2
+    ;;
+  -c | --copyright)
+    GEN_SCRIPT_COPYRIGHT="$2"
+    shift 2
     ;;
   -o | --other)
-    shift 1
-    other="$1"
+    other="$2"
+    shift 2
     ;;
   -r | --res)
-    shift 1
-    res="$1"
+    res="$2"
+    shift 2
+    ;;
+  --sudo)
+    sudo="$2"
+    shift 2
     ;;
   -i | --type)
-    shift 1
-    default_type="$1"
-    header_type="$1"
-    new_type="$1"
+    default_type="$2"
+    header_type="$2"
+    new_type="$2"
+    shift 2
     ;;
   -p | --prev)
-    gen_header_prev=true
+    gen_header_prev="true"
+    shift 1
     ;;
   -n | --name)
-    shift 1
-    GEN_FILENAME="$1"
-    ;;
-  -u | --user)
-    header_type=user
-    gen_header_user=true
-    ;;
-  -s | --system)
-    header_type=system
+    GEN_FILENAME="$2"
+    shift 2
     ;;
   -l | --license)
-    shift 1
     GEN_SCRIPT_CUSTOM_LICENSE="true"
-    GEN_SCRIPT_DEFLICENSE="$1"
+    GEN_SCRIPT_DEFLICENSE="$2"
+    shift 2
     ;;
-  --clip | --silent)
-    SILENT="true"
+  --clip)
+    GEN_SCRIPT_SILENT="true"
+    shift 1
     ;;
   -e | --no)
     printf_red "Setting overwrite to yes and edit to no"
-    GEN_SCRIPT_OVERWRITE="Y"
-    GEN_SCRIPT_EDITFILE="N"
-    GEN_SCRIPT_MAKEFILE="${MAKEFILE:-yes}"
+    GEN_HEADER_OVERWRITE="Y"
+    GEN_HEADER_EDITFILE="N"
+    GEN_HEADER_MAKEFILE="${MAKEFILE:-yes}"
+    shift 1
     ;;
   -k | --keep)
     printf_red "Setting overwrite to no and edit to no"
-    GEN_SCRIPT_OVERWRITE="N"
-    GEN_SCRIPT_EDITFILE="N"
-    GEN_SCRIPT_MAKEFILE="N"
+    GEN_HEADER_OVERWRITE="N"
+    GEN_HEADER_EDITFILE="N"
+    GEN_HEADER_MAKEFILE="N"
+    shift 1
     ;;
   --replace)
-    gen_header_replace=true
+    gen_header_replace="true"
+    shift 1
     ;;
   --pause)
-    pause=true
+    pause="true"
+    shift 1
+    ;;
+  --skip)
+    GEN_HEADER_OVERWRITE="Y"
+    OPENEDIT="N"
+    shift 1
+    ;;
+  -u | --user)
+    showFunctions="true"
+    showFolders="true"
+    header_type="user"
+    gen_header_user="true"
+    shift 1
+    ;;
+  -s | --system)
+    showFunctions="true"
+    showFolders="true"
+    header_type="system"
+    shift 1
+    ;;
+  --profile)
+    showFunctions="true"
+    showFolders="true"
+    header_type="profile"
+    shift 1
     ;;
   --)
     shift 1
@@ -1156,27 +1356,58 @@ while :; do
     ;;
   esac
 done
-#set -- "$SETARGS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Redefine functions based on options
+# Get directory from args
+# set -- "$@"
+# for arg in "$@"; do
+# if [ -d "$arg" ]; then
+# GEN_SCRIPT_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
+# elif [ -f "$arg" ]; then
+# GEN_SCRIPT_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
+# else
+# SET_NEW_ARGS+=("$arg")
+# fi
+# done
+# set -- "${SET_NEW_ARGS[@]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set directory to first argument
+[ -d "$1" ] && GEN_SCRIPT_CWD="$1" && shift 1 || GEN_SCRIPT_CWD="${GEN_SCRIPT_CWD:-$PWD}"
+GEN_SCRIPT_CWD="$(realpath "${GEN_SCRIPT_CWD:-$PWD}" 2>/dev/null)"
+if [ -d "$GEN_SCRIPT_CWD" ] && cd "$GEN_SCRIPT_CWD"; then
+  if [ "$GEN_SCRIPT_SILENT" != "true" ]; then
+    printf_cyan "Setting working dir to $GEN_SCRIPT_CWD"
+  fi
+else
+  printf_exit "💔 $GEN_SCRIPT_CWD does not exist 💔"
+fi
+export GEN_SCRIPT_CWD
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set actions based on variables
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
-cmd_exists --error bash || exit 1 # exit 1 if not found
-#am_i_online --error || exit 1     # exit 1 if no internet
+#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+#cmd_exists --error --ask bash || exit 3 # exit 3 if not found
+#am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
-GEN_SCRIPT_OPTS="$SETARGS"
+GEN_SCRIPT_OPTS=("${SETARGS[@]}")
 GEN_SCRIPT_VERSION="$(date +"${GEN_SCRIPT_VERSIONFMT}" 2>/dev/null)"
 GEN_SCRIPT_CREATED="$(date +"${GEN_SCRIPT_DATEFMT}" 2>/dev/null)"
+GEN_SCRIPT_MAKEFILE="${GEN_SCRIPT_MAKEFILE:-Y}"
+GEN_SCRIPT_EDITFILE="${EDITFILE:-$GEN_SCRIPT_EDITFILE}"
 GEN_SCRIPT_OVERWRITE="${OVERWRITE:-$GEN_SCRIPT_OVERWRITE}"
-[ "$OVERWRITE" = "Y" ] && GEN_SCRIPT_OVERWRITE="Y" && OPENEDIT="N"
-[ -d "$GEN_SCRIPT_CONFIG_DIR/files" ] &&
-  GEN_SCRIPT_TEMPLATE_DIR="$GEN_SCRIPT_CONFIG_DIR/files" ||
-  GEN_SCRIPT_TEMPLATE_DIR="${GEN_SCRIPT_TEMPLATE_DIR:-$CASJAYSDEVDIR/templates/scripts}"
+GEN_SCRIPT_EDIT_NEWFILE="${EDITFILE:-$GEN_SCRIPT_EDIT_NEWFILE}"
+GEN_SCRIPT_BACKUP_DIR="${GEN_SCRIPT_CONFIG_BACKUP_DIR:-$GEN_SCRIPT_CONFIG_DIR/backups}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
-[[ "$1" = "all" ]] && shift 1
+[ -d "$GEN_SCRIPT_BACKUP_DIR" ] || mkdir -p "$GEN_SCRIPT_BACKUP_DIR"
+[ "$GEN_SCRIPT_OVERWRITE" = "Y" ] && GEN_SCRIPT_OVERWRITE="Y" && OPENEDIT="N"
+if [ -d "$GEN_SCRIPT_CONFIG_DIR/files" ]; then
+  GEN_SCRIPT_TEMPLATE_DIR="$GEN_SCRIPT_CONFIG_DIR/files"
+else
+  GEN_SCRIPT_TEMPLATE_DIR="${GEN_SCRIPT_TEMPLATE_DIR:-$CASJAYSDEVDIR/templates/scripts}"
+fi
 if [ "$(__count_files $GEN_SCRIPT_CONFIG_DIR/files "3")" -eq 0 ]; then
   __mkd "$GEN_SCRIPT_CONFIG_DIR/files"
   if [ "$(__count_files "$CASJAYSDEVDIR/templates/scripts" "2")" -ne 0 ]; then
@@ -1187,77 +1418,67 @@ if [ "$(__count_files $GEN_SCRIPT_CONFIG_DIR/files "3")" -eq 0 ]; then
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# I'm sure there is a better way to do this
-if [[ -d "$1" ]]; then
-  GEN_SCRIPT_CWD="$1"
-  shift 1
-else
-  GEN_SCRIPT_CWD="${GEN_SCRIPT_CWD:-$PWD}"
-fi
-if [ "$GEN_SCRIPT_CWD" = "." ]; then GEN_SCRIPT_CWD="$(__basedir ".")"; fi
-cd "$GEN_SCRIPT_CWD" || exit 5
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 case "$1" in
-new)
-  shift 1
-  { [[ $# -lt 1 ]] || [[ $1 = "help" ]]; } && printf_exit "Usage: $APPNAME new [user|system|_remove_] [name] [template]"
-  __setup_new "$@"
-  exit
-  ;;
-
 all) ## Bash Completion list
   shift 1
-  [[ -z "$1" || "$1" = "help" ]] && printf_exit "6" "2" "Usage: $APPNAME [templateName] [fileName] [options]" && printf_newline
+  { [ -z "$1" ] || [ "$1" = "help" ]; } && printf_exit "6" "2" "Usage: $APPNAME [templateName] [fileName] [options]" && printf_newline
   filename="${2:-$1}"
   __default_name "${2:-$1}" "${filename}"
   __find_file "$@"
   ;;
 
 completions)
-  [[ -z "$2" || "$2" = "help" ]] && printf_exit "6" "2" "Usage: $APPNAME $1 [templateName] [fileName] [options]" && printf_newline
+  { [ -z "$2" ] || [ "$2" = "help" ]; } && printf_exit "6" "2" "Usage: $APPNAME $1 [templateName] [fileName] [options]" && printf_newline
   filename="${3:-$2}"
   __default_name "${3:-$2}" "${filename}"
   __find_file "$@"
   ;;
 
 bash)
-  [[ -z "$2" || "$2" = "help" ]] && printf_exit "6" "2" "Usage: $APPNAME $1 [templateName] [fileName] [options]" && printf_newline
+  { [ -z "$2" ] || [ "$2" = "help" ]; } && printf_exit "6" "2" "Usage: $APPNAME $1 [templateName] [fileName] [options]" && printf_newline
   filename="${3:-$2}"
   __default_name "${3:-$2}" "${filename}"
   __find_file "$@"
   ;;
 
 installers)
-  [[ -z "$2" || "$2" = "help" ]] && printf_exit "6" "2" "Usage: $APPNAME $1 [templateName] [fileName] [options]" && printf_newline
-  [[ -n "$3" ]] && filename="${3:-$2}" || filename="install.sh"
+  { [ -z "$2" ] || [ "$2" = "help" ]; } && printf_exit "6" "2" "Usage: $APPNAME $1 [templateName] [fileName] [options]" && printf_newline
+  [ -n "$3" ] && filename="${3:-$2}" || filename="install.sh"
   __default_name "${3:-$2}" "${filename}"
   __find_file "$@"
   ;;
 
 os)
-  [[ -z "$2" || "$2" = "help" ]] && printf_exit "6" "2" "Usage: $APPNAME $1 [templateName] [fileName] [options]" && printf_newline
+  { [ -z "$2" ] || [ "$2" = "help" ]; } && printf_exit "6" "2" "Usage: $APPNAME $1 [templateName] [fileName] [options]" && printf_newline
   filename="${3:-$2}"
   __default_name "${3:-$2}" "${filename}"
   __find_file "$@"
   ;;
 
 shell)
-  [[ -z "$2" || "$2" = "help" ]] && printf_exit "6" "2" "Usage: $APPNAME $1 [templateName] [fileName] [options]" && printf_newline
+  { [ -z "$2" ] || [ "$2" = "help" ]; } && printf_exit "6" "2" "Usage: $APPNAME $1 [templateName] [fileName] [options]" && printf_newline
   filename="${3:-$2}"
   __default_name "${3:-$2}" "${filename}"
   __find_file "$@"
   ;;
 
 man)
-  [[ -z "$2" || "$2" = "help" ]] && printf_exit "6" "2" "Usage: $APPNAME $1 [templateName] [fileName] [options]" && printf_newline
+  { [ -z "$2" ] || [ "$2" = "help" ]; } && printf_exit "6" "2" "Usage: $APPNAME $1 [templateName] [fileName] [options]" && printf_newline
   filename="${3:-$2}"
   __default_name "${3:-$2}" "${filename}"
   __find_file "$@"
   ;;
 
+new)
+  shift 1
+  { [ $# -lt 1 ] || [ "$1" = "help" ]; } && printf_exit "Usage: $APPNAME new [user|system|_remove_] [name] [template]"
+  __setup_new "$@"
+  exit
+  ;;
+
 *) ## Allows drop in without need to update this
-  [[ -z "$1" || "$1" = "help" ]] && printf_exit "6" "2" "Usage: $APPNAME [templateName] [fileName] [options]" && printf_newline
+  { [ -z "$1" ] || [ "$1" = "help" ]; } && printf_exit "6" "2" "Usage: $APPNAME [templateName] [fileName] [options]" && printf_newline
   __find_file "$@"
   ;;
 esac
@@ -1285,11 +1506,12 @@ if [ -f "$destfolder/$filename" ] && [ "$GEN_SCRIPT_OVERWRITE" != "Y" ]; then
   printf_read_question "3" "Should we overwrite this file?" "1" "YN" ""
   if printf_answer_yes "$YN"; then
     printf_read_question "3" "Should i display file before overwrite?" "1" "SHOW" ""
-    printf_answer_yes "$SHOW" && cat "$destfolder/$filename" || __backup_file
+    printf_answer_yes "$SHOW" && cat "$destfolder/$filename"
   else
     printf_exit 1 1 "Refusing to overwrite existing file!"
   fi
 fi
+[ -f "$destfolder/$filename" ] && __backup_file "$destfolder/$filename"
 if [ "$GEN_SCRIPT_MAKEFILE" != "N" ]; then
   printf_green "Copying the file ${template//$GEN_SCRIPT_TEMPLATE_DIR\//} to"
   printf_yellow "$destfolder/$filename"
@@ -1307,8 +1529,11 @@ if [ "$GEN_SCRIPT_EDITFILE" != "N" ]; then
   [ -n "$OPENEDIT" ] || printf_read_question "3" "Should we edit this file?" "1" "EDIT" ""
   printf_answer_yes "$EDIT" && $EDITOR "$destfolder/$filename" || true
 fi
-[[ -f "$destfolder/$filename" ]] && exitCode=0 || exitCode=2
+[ -f "$destfolder/$filename" ] && exitCode=0 || exitCode=2
 printf_newline
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set exit code
+exitCode="${exitCode:-$?}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

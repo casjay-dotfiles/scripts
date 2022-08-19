@@ -1,37 +1,47 @@
 #!/usr/bin/env bash
+# shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202207202201-git
+##@Version           :  202208041705-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.com
 # @@License          :  WTFPL
 # @@ReadME           :  am_i_online --help
 # @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
-# @@Created          :  Wednesday, Jul 20, 2022 22:01 EDT
+# @@Created          :  Thursday, Aug 04, 2022 17:05 EDT
 # @@File             :  am_i_online
 # @@Description      :  Check for internet connection
 # @@Changelog        :  Refactor the code
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
+# @@Terminal App     :  no
 # @@sudo/root        :  no
 # @@Template         :  bash/system
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0" 2>/dev/null)"
-VERSION="202207202201-git"
+VERSION="202208041705-git"
 HOME="${USER_HOME:-$HOME}"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${SUDO_USER:-$USER}"
-SRC_DIR="${BASH_SOURCE%/*}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+AM_I_ONLINE_REQUIRE_SUDO="${AM_I_ONLINE_REQUIRE_SUDO:-no}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set bash options
-[[ "$1" == "--debug" ]] && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
-[[ "$1" == "--raw" ]] && export SHOW_RAW="true"
+# Reopen in a terminal
+#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initial debugging
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# pipes fail
 set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
 SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
-SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-minimal.bash}"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
 SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
@@ -43,26 +53,58 @@ else
   exit 1
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Options are: desktopmgr_install devenvmgr_install dfmgr_install dockermgr_install fontmgr_install iconmgr_install
-# pkmgr_install system_install systemmgr_install thememgr_install user_install wallpapermgr_install
+# Options are: *_install
+# desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr
+#   pkmgr system systemmgr thememgr user wallpapermgr
 user_install && __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set functions
+# Send all output to /dev/null
 __devnull() {
-  tee &>/dev/null || exitCode=1
+  tee &>/dev/null && exitCode=0 || exitCode=1
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
-__cmd_exist() {
-  local exitCode=0
+# Send errors to /dev/null
+__devnull2() {
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# See if the executable exists
+__cmd_exists() {
+  exitCode=0
+  [ -n "$1" ] && local exitCode="" || return 0
   for cmd in "$@"; do
-    builtin command -v "$cmd" |& __devnull && true || exitCode+=1
+    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
   done
+  [ $exitCode -eq 0 ] || exitCode=3
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for a valid internet connection
+__am_i_online() {
+  local exitCode=0
+  curl -q -LSsfI --max-time 1 --retry 0 "${1:-http://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# colorization
+if [ "$SHOW_RAW" = "true" ]; then
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional printf_ colors
+__printf_head() { printf_blue "$1"; }
+__printf_opts() { printf_purple "$1"; }
+__printf_line() { printf_cyan "$1"; }
+__printf_good() { printf '\r\b\t\t%b%s %s %b %c' "$GREEN" "${1}" "${2}" "$NC" " "; }
+__printf_error() { printf '\r\b\t\t%b%s %s %b %c' "$RED" "${1}" "${2}" "$NC" " "; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # output version
-__version() { printf_color "$VERSION" "2"; }
+__version() { printf_cyan "$VERSION"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # list options
 __list_options() {
@@ -71,9 +113,13 @@ __list_options() {
   printf_newline
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create the config file
 __gen_config() {
-  printf_blue "Generating the config file in"
-  printf_cyan "$AM_I_ONLINE_CONFIG_DIR/$AM_I_ONLINE_CONFIG_FILE"
+  local NOTIFY_CLIENT_NAME="$APPNAME"
+  if [ "$INIT_CONFIG" != "TRUE" ]; then
+    printf_blue "Generating the config file in"
+    printf_cyan "$AM_I_ONLINE_CONFIG_DIR/$AM_I_ONLINE_CONFIG_FILE"
+  fi
   [ -d "$AM_I_ONLINE_CONFIG_DIR" ] || mkdir -p "$AM_I_ONLINE_CONFIG_DIR"
   [ -d "$AM_I_ONLINE_CONFIG_BACKUP_DIR" ] || mkdir -p "$AM_I_ONLINE_CONFIG_BACKUP_DIR"
   [ -f "$AM_I_ONLINE_CONFIG_DIR/$AM_I_ONLINE_CONFIG_FILE" ] &&
@@ -82,18 +128,16 @@ __gen_config() {
 # Settings for am_i_online
 AM_I_ONLINE_TIMEOUT="${AM_I_ONLINE_TIMEOUT:-}"
 AM_I_ONLINE_PING_COUNT="${AM_I_ONLINE_PING_COUNT:-}"
-AM_I_ONLINE_TEST_SITE="${AM_I_ONLINE_TEST_SITE:-}"
+AM_I_ONLINE_TEST_SITE_URL="${AM_I_ONLINE_TEST_SITE_URL:-}"
 AM_I_ONLINE_TEST_SITE_PING="${AM_I_ONLINE_TEST_SITE_PING:-}"
 AM_I_ONLINE_TEST_SITE_HTTP="${AM_I_ONLINE_TEST_SITE_HTTP:-}"
 AM_I_ONLINE_TEST_SITE_HTTP_STATUS="${AM_I_ONLINE_TEST_SITE_HTTP_STATUS:-}"
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
-AM_I_ONLINE_OUTPUT_COLOR="${AM_I_ONLINE_OUTPUT_COLOR:-}"
-AM_I_ONLINE_OUTPUT_COLOR_2="${AM_I_ONLINE_OUTPUT_COLOR:-}"
+AM_I_ONLINE_OUTPUT_COLOR_1="${AM_I_ONLINE_OUTPUT_COLOR_1:-}"
+AM_I_ONLINE_OUTPUT_COLOR_2="${AM_I_ONLINE_OUTPUT_COLOR_2:-}"
 AM_I_ONLINE_OUTPUT_COLOR_GOOD="${AM_I_ONLINE_OUTPUT_COLOR_GOOD:-}"
 AM_I_ONLINE_OUTPUT_COLOR_ERROR="${AM_I_ONLINE_OUTPUT_COLOR_ERROR:-}"
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Notification Settings
 AM_I_ONLINE_NOTIFY_ENABLED="${AM_I_ONLINE_NOTIFY_ENABLED:-}"
@@ -106,53 +150,128 @@ AM_I_ONLINE_NOTIFY_CLIENT_ICON="${AM_I_ONLINE_NOTIFY_CLIENT_ICON:-}"
 AM_I_ONLINE_NOTIFY_CLIENT_URGENCY="${AM_I_ONLINE_NOTIFY_CLIENT_URGENCY:-}"
 
 EOF
+  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
   if [ -f "$AM_I_ONLINE_CONFIG_DIR/$AM_I_ONLINE_CONFIG_FILE" ]; then
-    [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for $APPNAME has been created"
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
     . "$AM_I_ONLINE_CONFIG_DIR/$AM_I_ONLINE_CONFIG_FILE"
     exitCode=0
   else
     printf_red "Failed to create the config file"
-    exitCode=
+    exitCode=1
   fi
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Help function - Align to 55
+# Help function - Align to 50
 __help() {
-  __printf_head() { printf_purple "$*"; }
-  __printf_opts() { printf_cyan "$*"; }
-  __printf_line() { printf_blue "$*"; }
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_opts "am_i_online:  Check for internet connection"
+  __printf_opts "am_i_online:  Check for internet connection - $VERSION"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "Usage: am_i_online [options] [commands]"
-  __printf_line "am_i_online --force            - force true"
-  __printf_line "am_i_online --error            - show only errors"
-  __printf_line "am_i_online --console          - show output messages"
-  __printf_line "am_i_online --message          - set custom message"
-  __printf_line "am_i_online --site             - specify site"
-  __printf_line "am_i_online --code             - custom http status code"
-  __printf_line "am_i_online --loop             - keeps running on a 10 second loop"
-  __printf_line ""
+  __printf_line "--message myMessage             - Set custom message"
+  __printf_line "--site 1.1.1.1                  - Specify site"
+  __printf_line "--code 200                      - Custom http status code"
+  __printf_line "--force                         - Force true"
+  __printf_line "--error                         - Show only errors"
+  __printf_line "--console                       - Show output messages"
+  __printf_line "--loop                          - Keeps running on a 15 second loop"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_line "am_i_online --help             - Shows this message"
-  __printf_line "am_i_online --config           - Generate user config file"
-  __printf_line "am_i_online --version          - Show script version"
-  __printf_line "am_i_online --options          - Shows all available options"
-  __printf_line "am_i_online --debug            - enable debugging"
-  __printf_line "am_i_online --raw              - removes all formatting on output"
+  __printf_line "--help                          - Shows this message"
+  __printf_line "--config                        - Generate user config file"
+  __printf_line "--version                       - Show script version"
+  __printf_line "--options                       - Shows all available options"
+  __printf_line "--debug                         - Enables script debugging"
+  __printf_line "--raw                           - Removes all formatting on output"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-  printf '\n'
-  exit
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() {
+  { [ $(id -u) -ne 0 ] || [ $EUID -ne 0 ] || [ "$WHOAMI" != "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep -s "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# # Get sudo password
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run sudo
+__sudorun() {
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo
+__can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User can run sudo
+__sudoif() {
+  __user_is_root && return 0
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run command as root
+requiresudo() {
+  if [ "$AM_I_ONLINE_REQUIRE_SUDO" = "yes" ] && [ -z "$AM_I_ONLINE_REQUIRE_SUDO_RUN" ]; then
+    export AM_I_ONLINE_REQUIRE_SUDO="no"
+    export AM_I_ONLINE_REQUIRE_SUDO_RUN="true"
+    __sudo "$@"
+    exit $?
+  else
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  CMD="${1:-echo}" && shift 1
+  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  [ "$(basename "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  if __sudoif; then
+    export PATH="$PATH"
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    exitCode=$?
+  else
+    printf '%s\n' "This requires root to run"
+    exitCode=1
+  fi
+  return ${exitCode:-1}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  exitCode=${exitCode:-$?}
+  [ -f "$AM_I_ONLINE_TEMP_FILE" ] && rm -Rf "$AM_I_ONLINE_TEMP_FILE" &>/dev/null
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
 __local_network() {
-  if [ "$1" = "localhost" ] || [ "$1" = "$(hostname -s)" ] || [ "$1" = "$(hostname -f)" ] ||
-    [[ "$1" =~ *."$(hostname -d)" ]] || [[ "$1" =~ 10.*.*.* ]] || [[ "$1" =~ 192.168.*.* ]] ||
-    [[ "$1" =~ 172.16.*.* ]] || [[ "$1" =~ 127.*.*.* ]] || [[ "$1" = *.local ]] || [[ "$1" = *.localdomain ]]; then
+  local hostname="" domainname="" domain=""
+  domainname="$(hostname -f 2>/dev/null)"
+  hostname="$(hostname -s 2>/dev/null)"
+  domain="$(hostname -d 2>/dev/null)"
+  if [[ "$1" = "localhost" ]] || [[ "$1" = "$hostname" ]] || [[ "$1" = "$domainname" ]] || [[ "$1" = *."$hostname.$domain" ]] ||
+    [[ "$1" = "$domainname" ]] || [[ "$1" =~ 10.*.*.* ]] || [[ "$1" =~ 192.168.*.* ]] || [[ "$1" =~ 172.16.*.* ]] ||
+    [[ "$1" =~ 127.*.*.* ]] || [[ "$1" = *.local ]] || [[ "$1" = *.localdomain ]]; then
     return 0
   else
     return 1
@@ -160,18 +279,17 @@ __local_network() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 test_site() {
-  site="http://1.1.1.1"
   curl -q --connect-timeout 1 \
-    --fail --retry 0 -ILSsf "$site" 2>/dev/null | grep -q 'server:.*cloudflare'
+    --fail --retry 0 -ILSsf "http://1.1.1.1" 2>/dev/null | grep -q 'server:.*cloudflare'
   siteExit="$?"
   export siteExit
   return $siteExit
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 test_ping() {
-  [[ -z "$no_ping" ]] || return
+  [ -z "$no_ping" ] || return
   local definesite="${site:-$AM_I_ONLINE_TEST_SITE_PING}"
-  local site="${definesite:-$AM_I_ONLINE_TEST_SITE}"
+  local site="${definesite:-$AM_I_ONLINE_TEST_SITE_URL}"
   local timeout="${AM_I_ONLINE_TIMEOUT:-1}"
   local count="${AM_I_ONLINE_PING_COUNT:-0}"
   timeout $timeout ping -c$count "$site" &>/dev/null && true || false
@@ -181,9 +299,9 @@ test_ping() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 test_http() {
-  [[ -z "$no_http" ]] || return
+  [ -z "$no_http" ] || return
   local timeout="${AM_I_ONLINE_TIMEOUT:-1}"
-  local site="${site:-$AM_I_ONLINE_TEST_SITE}"
+  local site="${site:-$AM_I_ONLINE_TEST_SITE_URL}"
   local definestatus="${status:-200}"
   local definesite="${site:-$AM_I_ONLINE_TEST_SITE_HTTP}"
   local status="${definestatus:-$AM_I_ONLINE_TEST_SITE_HTTP_STATUS}"
@@ -194,38 +312,10 @@ test_http() {
   return $httpExit
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__run_loop() {
-  trap 'exitCode=$?;[ -n "$AM_I_ONLINE_CACHE_DIR" ] && [ -f "$AM_I_ONLINE_CACHE_DIR/am_i_online_no" ] && rm -f "$AM_I_ONLINE_CACHE_DIR/am_i_online_no" &>/dev/null;exit ${exitCode:-$?}' EXIT
-  shift $#
-  local date onmess ofmess site
-  site="${AM_I_ONLINE_TEST_SITE}"
-  date="$(date +'%H:%M:%S')"
-  onmess="You appear to be back online at"
-  ofmess="You still appear to be offline at"
-  printf_blue "Starting loop on $date to site: $site"
-  while :; do
-    __execute_main && true || false
-    date="$(date +'%H:%M:%S')"
-    if [[ $? = 0 ]]; then
-      printf '\r\t\t%b%s %s%s ' "$GREEN" "$onmess" "$date" "$NC"
-      __notifications "$onmess $date"
-      rm -f "$AM_I_ONLINE_CACHE_DIR/am_i_online_no"
-      #break
-    else
-      printf '\r\t\t%s%s %s%s ' "$RED" "$ofmess" "$date" "$NC"
-      touch "$AM_I_ONLINE_CACHE_DIR/am_i_online_no"
-      sleep 10
-      continue
-    fi
-  done
-  printf_newline
-  return ${exitCode:-$?}
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __execute_main() {
-  pingExit=
-  httpExit=
   exitCode="0"
+  pingExit=""
+  httpExit=""
   if [ -n "$AM_I_ONLINE_FORCE_CONNECTION" ] || __local_network "$site"; then
     httpExit=0
     pingExit=0
@@ -242,23 +332,27 @@ __execute_main() {
       exitCode=1
     fi
   fi
+  [ "$AM_I_ONLINE_RUN_LOOP" = "yes" ] && return "${exitCode:-$?}"
   options_used_message="PingSite:${site:-$AM_I_ONLINE_TEST_SITE_PING}|HTTPSite:${site:-$AM_I_ONLINE_TEST_SITE_HTTP}|StatusCode:$AM_I_ONLINE_TEST_SITE_HTTP_STATUS"
   if [ "$pingExit" = 0 ] || [ "$httpExit" = 0 ] || [ "$exitCode" = 0 ]; then
-    export AM_I_ONLINE_NOTIFY_CLIENT_ICON="connect_established"
-    if [ "$AM_I_ONLINE_SHOW" = "yes" ]; then
-      printf_green "you seem to be connected to the internet"
-      __notifications "$AM_I_ONLINE_GOOD_NAME ${AM_I_ONLINE_MESSAGE:-$AM_I_ONLINE_GOOD_MESSAGE}"
-    elif [ "$AM_I_ONLINE_SHOW_CONSOLE" = "yes" ]; then
-      printf_green "Options Used - $options_used_message"
-      printf_green "you seem to be connected to the internet"
-    fi
     exitCode=0
+    export AM_I_ONLINE_NOTIFY_CLIENT_ICON="connect_established"
+    if [ "$AM_I_ONLINE_SHOW_MESSAGE" = "yes" ]; then
+      if [ "$AM_I_ONLINE_ERROR" != "true" ] && [ "$AM_I_ONLINE_SHOW_ERROR" != "yes" ]; then
+        printf_green "$AM_I_ONLINE_GOOD_MESSAGE"
+        __notifications "$AM_I_ONLINE_GOOD_NAME ${AM_I_ONLINE_GOOD_MESSAGE}"
+      fi
+    fi
+    if [ "$AM_I_ONLINE_SHOW_CONSOLE" = "yes" ]; then
+      printf_green "Options Used - $options_used_message"
+      printf_green "$AM_I_ONLINE_GOOD_MESSAGE"
+    fi
   else
     if [ "$AM_I_ONLINE_SHOW_CONSOLE" = "yes" ]; then
-      AM_I_ONLINE_SHOW_ERROR=no
+      AM_I_ONLINE_SHOW_ERROR="no"
       printf_green "Options Used - $options_used_message"
       printf_red exitCode:$exitCode httpExit:$httpExit pingExit:$pingExit
-      printf_red "you appear to be offline" >&2
+      printf_red "$AM_I_ONLINE_MESSAGE" >&2
     fi
     if [ "$AM_I_ONLINE_SHOW_ERROR" = "yes" ]; then
       printf_return 1 1 "${AM_I_ONLINE_MESSAGE:-$AM_I_ONLINE_ERROR_MESSAGE}" >&2
@@ -269,8 +363,61 @@ __execute_main() {
   return "${exitCode:-$?}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Defaults
-exitCode=0
+__run_loop() {
+  if [ -n "$1" ]; then __validate_ip "$1" && AM_I_ONLINE_TEST_SITE_URL="$1" || printf_exit "Please provide a valid IP address"; fi
+  trap 'exitCode=$?;[ -n "$AM_I_ONLINE_CACHE_DIR" ] && [ -f "$AM_I_ONLINE_CACHE_DIR/am_i_online_no" ] && rm -f "$AM_I_ONLINE_CACHE_DIR/am_i_online_no" &>/dev/null;echo;exit ${exitCode:-$?}' SIGINT SIGQUIT SIGTSTP EXIT
+  local date onmess="" ofmess="" onmessorig="" ofmessorig=""
+  local send_notify_status="" exitCode="" interval="" site=""
+  exitCode="1"
+  interval="15"
+  site="${AM_I_ONLINE_TEST_SITE_URL}"
+  date="$(date +'%H:%M:%S')"
+  onmessorig="You appear to be online at"
+  ofmessorig="You appear to be offline at"
+  printf_yellow "To exit the loop press control+c"
+  printf_blue "Starting loop on $date to site: $site"
+  printf_cyan "And checking the site every $interval seconds"
+  send_notify="false"
+  AM_I_ONLINE_MESSAGE=""
+  while :; do
+    __execute_main
+    if [ ${exitCode:-$?} -eq 0 ]; then
+      [ -n "$onmess" ] && onmess="You still appear to be online at" || onmess="$onmessorig"
+      [ "$send_notify_status" = "offline" ] && send_notify=""
+      __printf_good "${onmess}" "$date"
+      [ "$send_notify" = "true" ] || __notifications "${onmess} $date"
+      rm -f "$AM_I_ONLINE_CACHE_DIR/am_i_online_no"
+      send_notify="true"
+      send_notify_status="online"
+      sleep $interval
+      #break
+    else
+      [ -n "$ofmess" ] && ofmess="You still appear to be offline at" || ofmess="$ofmessorig"
+      [ "$send_notify_status" = "online" ] && send_notify=""
+      __printf_error "${ofmess}" "$date"
+      [ "$send_notify" = "true" ] || __notifications "${ofmess} $date"
+      touch "$AM_I_ONLINE_CACHE_DIR/am_i_online_no"
+      send_notify="true"
+      send_notify_status="offline"
+      sleep $interval
+      continue
+    fi
+    date="$(date +'%H:%M:%S')"
+  done
+  printf_newline
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_ip() { getent ahostsv4 "$1" | grep 'RAW' | awk '{print $1}' | head -n 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__validate_ip() {
+  ip="$(__get_ip "$1")"
+  echo "$ip" | grep -q -E -o "(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)"
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined variables/import external variables
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application Folders
 AM_I_ONLINE_CONFIG_FILE="${AM_I_ONLINE_CONFIG_FILE:-settings.conf}"
@@ -281,36 +428,32 @@ AM_I_ONLINE_TEMP_DIR="${AM_I_ONLINE_TEMP_DIR:-$HOME/.local/tmp/system_scripts/am
 AM_I_ONLINE_CACHE_DIR="${AM_I_ONLINE_CACHE_DIR:-$HOME/.cache/am_i_online}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
-AM_I_ONLINE_OUTPUT_COLOR="${AM_I_ONLINE_OUTPUT_COLOR:-4}"
-AM_I_ONLINE_OUTPUT_COLOR_2="${AM_I_ONLINE_OUTPUT_COLOR:-5}"
+AM_I_ONLINE_OUTPUT_COLOR_1="${AM_I_ONLINE_OUTPUT_COLOR_1:-4}"
+AM_I_ONLINE_OUTPUT_COLOR_2="${AM_I_ONLINE_OUTPUT_COLOR_2:-5}"
 AM_I_ONLINE_OUTPUT_COLOR_GOOD="${AM_I_ONLINE_OUTPUT_COLOR_GOOD:-2}"
 AM_I_ONLINE_OUTPUT_COLOR_ERROR="${AM_I_ONLINE_OUTPUT_COLOR_ERROR:-1}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Notification Settings
-AM_I_ONLINE_GOOD_NAME="${AM_I_ONLINE_GOOD_NAME:-Connected:}"
-AM_I_ONLINE_ERROR_NAME="${AM_I_ONLINE_ERROR_NAME:-Disconnected:}"
-AM_I_ONLINE_GOOD_MESSAGE="${AM_I_ONLINE_GOOD_MESSAGE:-you seem to be connected to the internet}"
-AM_I_ONLINE_ERROR_MESSAGE="${AM_I_ONLINE_ERROR_MESSAGE:-internet appears to be down and I require a working connection}"
 AM_I_ONLINE_NOTIFY_ENABLED="${AM_I_ONLINE_NOTIFY_ENABLED:-yes}"
+AM_I_ONLINE_GOOD_NAME="${AM_I_ONLINE_GOOD_NAME:-Great:}"
+AM_I_ONLINE_ERROR_NAME="${AM_I_ONLINE_ERROR_NAME:-Error:}"
+AM_I_ONLINE_GOOD_MESSAGE="${AM_I_ONLINE_GOOD_MESSAGE:-🆗 you seem to be connected to the internet 🆗}"
+AM_I_ONLINE_ERROR_MESSAGE="${AM_I_ONLINE_ERROR_MESSAGE:-🚫 No internet connection 🚫}"
 AM_I_ONLINE_NOTIFY_CLIENT_NAME="${AM_I_ONLINE_NOTIFY_CLIENT_NAME:-$APPNAME}"
 AM_I_ONLINE_NOTIFY_CLIENT_ICON="${AM_I_ONLINE_NOTIFY_CLIENT_ICON:-network}"
 AM_I_ONLINE_NOTIFY_CLIENT_URGENCY="${AM_I_ONLINE_NOTIFY_CLIENT_URGENCY:-normal}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional Variables
-AM_I_ONLINE_TIMEOUT="${AM_I_ONLINE_TIMEOUT:-2}"
-AM_I_ONLINE_PING_COUNT="${AM_I_ONLINE_PING_COUNT:-2}"
-AM_I_ONLINE_TEST_SITE="${AM_I_ONLINE_TEST_SITE:-1.1.1.1}"
+AM_I_ONLINE_TIMEOUT="${AM_I_ONLINE_TIMEOUT:-1}"
+AM_I_ONLINE_PING_COUNT="${AM_I_ONLINE_PING_COUNT:-1}"
+AM_I_ONLINE_TEST_SITE_URL="${AM_I_ONLINE_TEST_SITE_URL:-1.1.1.1}"
 AM_I_ONLINE_TEST_SITE_PING="${AM_I_ONLINE_TEST_SITE_PING:-1.1.1.1}"
 AM_I_ONLINE_TEST_SITE_HTTP="${AM_I_ONLINE_TEST_SITE_HTTP:-1.1.1.1}"
 AM_I_ONLINE_TEST_SITE_HTTP_STATUS="${AM_I_ONLINE_TEST_SITE_HTTP_STATUS:-[200|301]}"
-AM_I_ONLINE_SHOW_ERROR="${AM_I_ONLINE_SHOW_ERROR:-}"
-AM_I_ONLINE_SHOW="${AM_I_ONLINE_SHOW:-}"
-AM_I_ONLINE_MESSAGE="${AM_I_ONLINE_MESSAGE:-}"
-AM_I_ONLINE_SHOW_CONSOLE="${AM_I_ONLINE_SHOW_CONSOLE:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$AM_I_ONLINE_CONFIG_DIR/$AM_I_ONLINE_CONFIG_FILE" ] ||
-  [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+  [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import config
 [ -f "$AM_I_ONLINE_CONFIG_DIR/$AM_I_ONLINE_CONFIG_FILE" ] &&
@@ -327,35 +470,47 @@ AM_I_ONLINE_SHOW_CONSOLE="${AM_I_ONLINE_SHOW_CONSOLE:-}"
 AM_I_ONLINE_TEMP_FILE="${AM_I_ONLINE_TEMP_FILE:-$(mktemp $AM_I_ONLINE_TEMP_DIR/XXXXXX 2>/dev/null)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup trap to remove temp file
-trap 'exitCode=${exitCode:-$?};[ -n "$AM_I_ONLINE_TEMP_FILE" ] && [ -f "$AM_I_ONLINE_TEMP_FILE" ] && rm -Rf "$AM_I_ONLINE_TEMP_FILE" |&__devnull' EXIT
+trap '__trap_exit' EXIT
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup notification function
-if [ "$AM_I_ONLINE_NOTIFY_ENABLED" = "yes" ]; then
-  __notifications() {
+__notifications() {
+  __cmd_exists notifications || return
+  [ "$AM_I_ONLINE_NOTIFY_ENABLED" = "yes" ] || return
+  [ "$SEND_NOTIFICATION" = "no" ] && return
+  (
+    set +x
+    export SCRIPT_OPTS="" _DEBUG=""
     export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$AM_I_ONLINE_GOOD_MESSAGE}"
     export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$AM_I_ONLINE_ERROR_MESSAGE}"
     export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$AM_I_ONLINE_NOTIFY_CLIENT_ICON}"
     export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$AM_I_ONLINE_NOTIFY_CLIENT_NAME}"
     export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$AM_I_ONLINE_NOTIFY_CLIENT_URGENCY}"
-    notifications "$@" && exitCode=0 || exitCode=1
-    unset NOTIFY_CLIENT_NAME NOTIFY_CLIENT_ICON NOTIFY_GOOD_MESSAGE NOTIFY_ERROR_MESSAGE
-    return ${exitCode:-$?}
-  }
-else
-  __notifications() { false; }
-fi
+    notifications "$@"
+    retval=$?
+    return $retval
+  ) |& __devnull &
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Show warn message if variables are missing
+# Set custom actions
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Argument/Option settings
-SETARGS="$*"
+SETARGS=("$@")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SHORTOPTS="f,l,m:,s:"
-LONGOPTS="config,debug,help,options,raw,version,error,show,console,force,message:,site:,code:,loop"
+SHORTOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LONGOPTS="completions:,config,debug,help,options,raw,version,silent"
+LONGOPTS+=",error,show,console,force,message:,site:,code:,loop"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY=""
+ARRAY+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LIST=""
+LIST+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup application options
-setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$APPNAME" -- "$@" 2>/dev/null)
 eval set -- "${setopts[@]}" 2>/dev/null
 while :; do
   case "$1" in
@@ -363,20 +518,32 @@ while :; do
     shift 1
     export SHOW_RAW="true"
     printf_column() { tee | grep '^'; }
-    printf_color() {
-      printf '%b' "$1" | tr -d '\t' |
-        sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'
-    }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    __printf_good() { printf '\r\b%s %s %c' "${1}" "${2}" " "; }
+    __printf_error() { printf '\r\b%s %s %c' "${1}" "${2}" " "; }
     ;;
   --debug)
     shift 1
     set -xo pipefail
-    __devnull() {
-      tee || exitCode=1
-      return ${exitCode:-$?}
-    }
     export SCRIPT_OPTS="--debug"
     export _DEBUG="on"
+    __devnull() { tee || return 1; }
+    __devnull2() { eval "$@" |& tee || return 1; }
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
     ;;
   --options)
     shift 1
@@ -401,14 +568,19 @@ while :; do
     __gen_config
     exit $?
     ;;
+  --silent)
+    shift 1
+    AM_I_ONLINE_SILENT="true"
+    ;;
   --error)
     shift 1
+    AM_I_ONLINE_ERROR="true"
     AM_I_ONLINE_SHOW_ERROR="yes"
     ;;
   --show)
     shift 1
-    AM_I_ONLINE_SHOW="yes"
-    AM_I_ONLINE_SHOW_ERROR="yes"
+    AM_I_ONLINE_SHOW_MESSAGE="yes"
+    AM_I_ONLINE_SHOW_ERROR=""
     ;;
   --console)
     shift 1
@@ -425,11 +597,10 @@ while :; do
     ;;
   -l | --loop)
     shift 1
-    __run_loop "$@"
-    exit $?
+    AM_I_ONLINE_RUN_LOOP="yes"
     ;;
   -m | --message)
-    AM_I_ONLINE_SHOW="yes"
+    AM_I_ONLINE_SHOW_MESSAGE="yes"
     AM_I_ONLINE_SHOW_ERROR="yes"
     AM_I_ONLINE_MESSAGE="$2"
     shift 2
@@ -444,23 +615,60 @@ while :; do
     ;;
   esac
 done
-#set -- "$SETARGS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Redefine functions based on options
+# Get directory from args
+# set -- "$@"
+# for arg in "$@"; do
+# if [ -d "$arg" ]; then
+# AM_I_ONLINE_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
+# elif [ -f "$arg" ]; then
+# AM_I_ONLINE_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
+# else
+# SET_NEW_ARGS+=("$arg")
+# fi
+# done
+# set -- "${SET_NEW_ARGS[@]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set directory to first argument
+# [ -d "$1" ] && AM_I_ONLINE_CWD="$1" && shift 1 || AM_I_ONLINE_CWD="${AM_I_ONLINE_CWD:-$PWD}"
+AM_I_ONLINE_CWD="$(realpath "${AM_I_ONLINE_CWD:-$PWD}" 2>/dev/null)"
+# if [ -d "$AM_I_ONLINE_CWD" ] && cd "$AM_I_ONLINE_CWD"; then
+# if [ "$AM_I_ONLINE_SILENT" != "true" ]; then
+# printf_cyan "Setting working dir to $AM_I_ONLINE_CWD"
+# fi
+# else
+# printf_exit "💔 $AM_I_ONLINE_CWD does not exist 💔"
+# fi
+export AM_I_ONLINE_CWD
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set actions based on variables
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
-cmd_exists --error bash ping || exit 3 # exit 3 if not found
-#am_i_online --error || exit 4     # exit 4 if no internet
+#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+cmd_exists --error --ask curl || exit 3 # exit 3 if not found
+#am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
-
+AM_I_ONLINE_ERROR="${AM_I_ONLINE_ERROR:-}"
+AM_I_ONLINE_MESSAGE="${AM_I_ONLINE_MESSAGE:-}"
+AM_I_ONLINE_SHOW_ERROR="${AM_I_ONLINE_SHOW_ERROR:-}"
+AM_I_ONLINE_SHOW_MESSAGE="${AM_I_ONLINE_SHOW_MESSAGE:-}"
+AM_I_ONLINE_SHOW_CONSOLE="${AM_I_ONLINE_SHOW_CONSOLE:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
-__execute_main "$@"
+if [ "$AM_I_ONLINE_RUN_LOOP" = "yes" ]; then
+  __run_loop "$@"
+  exit $?
+else
+  __execute_main "$@"
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set exit code
+exitCode="${exitCode:-$?}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

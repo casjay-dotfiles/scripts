@@ -1,28 +1,42 @@
 #!/usr/bin/env bash
+# shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202207042242-git
-# @Author            :  Jason Hempstead
-# @Contact           :  jason@casjaysdev.com
-# @License           :  WTFPL
-# @ReadME            :  gitadmin --help
-# @Copyright         :  Copyright: (c) 2021 Jason Hempstead, Casjays Developments
-# @Created           :  Thursday, Aug 19, 2021 01:17 EDT
-# @File              :  gitadmin
-# @Description       :  push/clone/pull from github/gitlab/private repo
-# @TODO              :  Organize this a lot better
-# @Other             :  Somethings may be broken due to variable changes
-# @Resource          :
+##@Version           :  202208082322-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  jason@casjaysdev.com
+# @@License          :  WTFPL
+# @@ReadME           :  gitadmin --help
+# @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
+# @@Created          :  Monday, Aug 08, 2022 23:22 EDT
+# @@File             :  gitadmin
+# @@Description      :  push/clone/pull from github/gitlab/private repo
+# @@Changelog        :  New script
+# @@TODO             :  Organize this a lot better
+# @@Other            :  Somethings may be broken due to variable changes
+# @@Resource         :
+# @@Terminal App     :  no
+# @@sudo/root        :  no
+# @@Template         :  bash/system
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0" 2>/dev/null)"
-VERSION="202108190117-git"
+VERSION="202208082322-git"
 HOME="${USER_HOME:-$HOME}"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${SUDO_USER:-$USER}"
-SRC_DIR="${BASH_SOURCE%/*}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+GITADMIN_REQUIRE_SUDO="${GITADMIN_REQUIRE_SUDO:-no}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set bash options
-if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
-
+# Reopen in a terminal
+#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initial debugging
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# pipes fail
+set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
@@ -36,57 +50,126 @@ elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
   . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
 else
   echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
-  exit 90
+  exit 1
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# user system devenv dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+# Options are: *_install
+# desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr
+#   pkmgr system systemmgr thememgr user wallpapermgr
 user_install && __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set functions
-__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
+# Send all output to /dev/null
+__devnull() {
+  tee &>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# Send errors to /dev/null
+__devnull2() {
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# See if the executable exists
+__cmd_exists() {
+  exitCode=0
+  [ -n "$1" ] && local exitCode="" || return 0
+  for cmd in "$@"; do
+    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
+  done
+  [ $exitCode -eq 0 ] || exitCode=3
+  return ${exitCode:-$?}
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for a valid internet connection
+__am_i_online() {
+  local exitCode=0
+  curl -q -LSsfI --max-time 1 --retry 0 "${1:-http://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# colorization
+if [ "$SHOW_RAW" = "true" ]; then
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional printf_ colors
+__printf_head() { printf_blue "$1"; }
+__printf_opts() { printf_purple "$1"; }
+__printf_line() { printf_cyan "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+printf_help() {
+  printf '\n\n'
+  printf_purple "$*\n\n"
+  exit
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# output version
+__version() { printf_cyan "$VERSION"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# list options
+__list_options() {
+  printf_color "$1: " "$5"
+  echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g'
+  printf_newline
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create the config file
 __gen_config() {
-  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Generating the config file in"
-  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "$GITADMIN_CONFIG_DIR/$GITADMIN_CONFIG_FILE"
+  local NOTIFY_CLIENT_NAME="$APPNAME"
+  if [ "$INIT_CONFIG" != "TRUE" ]; then
+    printf_blue "Generating the config file in"
+    printf_cyan "$GITADMIN_CONFIG_DIR/$GITADMIN_CONFIG_FILE"
+  fi
   [ -d "$GITADMIN_CONFIG_DIR" ] || mkdir -p "$GITADMIN_CONFIG_DIR"
   [ -d "$GITADMIN_CONFIG_BACKUP_DIR" ] || mkdir -p "$GITADMIN_CONFIG_BACKUP_DIR"
   [ -f "$GITADMIN_CONFIG_DIR/$GITADMIN_CONFIG_FILE" ] &&
     cp -Rf "$GITADMIN_CONFIG_DIR/$GITADMIN_CONFIG_FILE" "$GITADMIN_CONFIG_BACKUP_DIR/$GITADMIN_CONFIG_FILE.$$"
   cat <<EOF >"$GITADMIN_CONFIG_DIR/$GITADMIN_CONFIG_FILE"
 # Settings for gitadmin
-GITADMIN_DEFAULT_GIT_DIR="${GITADMIN_DEFAULT_GIT_DIR:-$HOME/Projects}"
-GITADMIN_DEFAULT_GIT_DIR_GITHUB="${GITADMIN_DEFAULT_GIT_DIR_GITHUB:-$GITADMIN_DEFAULT_GIT_DIR/github}"
-GITADMIN_DEFAULT_GIT_DIR_GITLAB="${GITADMIN_DEFAULT_GIT_DIR_GITLAB:-$GITADMIN_DEFAULT_GIT_DIR/gitlab}"
-GITADMIN_DEFAULT_GIT_DIR_PRIVATE="${GITADMIN_DEFAULT_GIT_DIR_PRIVATE:-$GITADMIN_DEFAULT_GIT_DIR/Private}"
-GITADMIN_DEFAULT_BRANCH="${GITADMIN_DEFAULT_BRANCH:-main}"
-GITADMIN_DEFAULT_MAINCONFIG="${GITADMIN_DEFAULT_MAINCONFIG:-gitmainconfig}"
 GITADMIN_DEFAULT_USERNAME="${GITADMIN_DEFAULT_USERNAME:-$GITHUB_USERNAME}"
-GITADMIN_DEFAULT_USER_DOMAIN="${GITADMIN_DEFAULT_USER_DOMAIN:-}"
-GITADMIN_GITHUB_AUTH_TOKEN="${GITADMIN_GITHUB_AUTH_TOKEN:-$GITHUB_ACCESS_TOKEN}"
+GITADMIN_DEFAULT_BRANCH="${GITADMIN_DEFAULT_BRANCH:-main}"
 GITADMIN_DEFAULT_REPO_BASE="${REPO_URL:-https://github.com}"
-GITADMIN_DOMAIN_TEMPLATE="${GITADMIN_DOMAIN_TEMPLATE:-https://github.com/casjay-templates/domain-template}"
 GITADMIN_DEFAULT_README="${GITADMIN_DEFAULT_README:-default}"
-GITADMIN_DEFAULT_LICENSE="${GITADMIN_DEFAULT_LICENSE:-$MY_LICENSE_FILE}"
-GITADMIN_VERSION_DATE_FORMAT="${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}"
-GITADMIN_GITLAB_AUTH_TOKEN="${GITADMIN_GITLAB_AUTH_TOKEN:-$GITLAB_ACCESS_TOKEN}"
+GITADMIN_DEFAULT_LICENSE="${MY_LICENSE_FILE:-$CASJAYSDEVDIR/templates/wtfpl.md}"
+GITADMIN_DEFAULT_PROJECT_DIR="${GITADMIN_DEFAULT_PROJECT_DIR:-$HOME/Projects}"
+GITADMIN_DEFAULT_GIT_DIR_GITHUB="${GITADMIN_DEFAULT_GIT_DIR_GITHUB:-$GITADMIN_DEFAULT_PROJECT_DIR/github}"
+GITADMIN_DEFAULT_GIT_DIR_GITLAB="${GITADMIN_DEFAULT_GIT_DIR_GITLAB:-$GITADMIN_DEFAULT_PROJECT_DIR/gitlab}"
+GITADMIN_DEFAULT_GIT_DIR_PRIVATE="${GITADMIN_DEFAULT_GIT_DIR_PRIVATE:-$GITADMIN_DEFAULT_PROJECT_DIR/Private}"
+GITADMIN_DEFAULT_USER_DOMAIN="${GITADMIN_DEFAULT_USER_DOMAIN:-}"
 GITADMIN_PERSONAL_GIT_HOST="${GITADMIN_PERSONAL_GIT_HOST:-$GIT_PRIVATE_URL}"
+GITADMIN_GITHUB_AUTH_TOKEN="${GITADMIN_GITHUB_AUTH_TOKEN:-$GITHUB_ACCESS_TOKEN}"
+GITADMIN_DEFAULT_VERSION_FILE="${GITADMIN_DEFAULT_VERSION_FILE:-version.txt}"
+GITADMIN_DEFAULT_VERSION_FORMAT="${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}"
+GITADMIN_GITLAB_AUTH_TOKEN="${GITADMIN_GITLAB_AUTH_TOKEN:-$GITLAB_ACCESS_TOKEN}"
 GITADMIN_PRIVATE_AUTH_TOKEN="${GITADMIN_PRIVATE_AUTH_TOKEN:-$GIT_PRIVATE_ACCESS_TOKEN}"
-
-# Notification settings
-GITADMIN_GOOD_MESSAGE="${GITADMIN_GOOD_MESSAGE:-Everything Went OK}"
-GITADMIN_ERROR_MESSAGE="${GITADMIN_ERROR_MESSAGE:-Well something seems to have gone wrong}"
-GITADMIN_NOTIFY_ENABLED="${GITADMIN_NOTIFY_ENABLED:-yes}"
-GITADMIN_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
-GITADMIN_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$GITADMIN_NOTIFY_CLIENT_ICON}"
-
-# Colorization settings
-GITADMIN_OUTPUT_COLOR="${GITADMIN_OUTPUT_COLOR:-5}"
-GITADMIN_OUTPUT_COLOR_GOOD="${GITADMIN_OUTPUT_COLOR_GOOD:-2}"
-GITADMIN_OUTPUT_COLOR_ERROR="${GITADMIN_OUTPUT_COLOR_ERROR:-1}"
+GITADMIN_DOMAIN_TEMPLATE="${GITADMIN_DOMAIN_TEMPLATE:-https://github.com/casjay-templates/domain-template}"
+GITADMIN_DEFAULT_MAINCONFIG="${GITADMIN_DEFAULT_MAINCONFIG:-gitmainconfig}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+GITADMIN_OUTPUT_COLOR_1="${GITADMIN_OUTPUT_COLOR_1:-}"
+GITADMIN_OUTPUT_COLOR_2="${GITADMIN_OUTPUT_COLOR_2:-}"
+GITADMIN_OUTPUT_COLOR_GOOD="${GITADMIN_OUTPUT_COLOR_GOOD:-}"
+GITADMIN_OUTPUT_COLOR_ERROR="${GITADMIN_OUTPUT_COLOR_ERROR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+GITADMIN_NOTIFY_ENABLED="${GITADMIN_NOTIFY_ENABLED:-}"
+GITADMIN_GOOD_NAME="${GITADMIN_GOOD_NAME:-}"
+GITADMIN_ERROR_NAME="${GITADMIN_ERROR_NAME:-}"
+GITADMIN_GOOD_MESSAGE="${GITADMIN_GOOD_MESSAGE:-}"
+GITADMIN_ERROR_MESSAGE="${GITADMIN_ERROR_MESSAGE:-}"
+GITADMIN_NOTIFY_CLIENT_NAME="${GITADMIN_NOTIFY_CLIENT_NAME:-}"
+GITADMIN_NOTIFY_CLIENT_ICON="${GITADMIN_NOTIFY_CLIENT_ICON:-}"
+GITADMIN_NOTIFY_CLIENT_URGENCY="${GITADMIN_NOTIFY_CLIENT_URGENCY:-}"
 
 EOF
+  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
   if [ -f "$GITADMIN_CONFIG_DIR/$GITADMIN_CONFIG_FILE" ]; then
-    [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for $APPNAME has been created"
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
+    . "$GITADMIN_CONFIG_DIR/$GITADMIN_CONFIG_FILE"
     exitCode=0
   else
     printf_red "Failed to create the config file"
@@ -95,10 +178,197 @@ EOF
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Additional functions
+# Help function - Align to 50
+__help() {
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "gitadmin:  push/clone/pull from github/gitlab/private repo - $VERSION"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Usage: gitadmin [options] [directory] [commands]"
+  __printf_line "init                            - Initialize current project into a git repo"
+  __printf_line "setup                           - Initialize current project into a git repo"
+  __printf_line "stow                            - Keep your dotfiles in a repo"
+  __printf_line "status                          - Show repo status"
+  __printf_line "log                             - Show the git log"
+  __printf_line "branch                          - Rename the current branch"
+  __printf_line "commit                          - Commit the current changes"
+  __printf_line "update                          - Run git pull on all repos"
+  __printf_line "repos [userName]                - Show all your public repo"
+  __printf_line "push [directory]                - Push a project to a remote repo"
+  __printf_line "pull [directory]                - Update a local git repo"
+  __printf_line "clone [repo] [directory]        - Clone a git repo"
+  __printf_line "create [userName] [repoName]    - Create a new github repo"
+  __printf_line "delete [userName] [repoName]    - Deletes a github repo"
+  __printf_line "shorten  [URL] [name]           - Shorten any github url"
+  __printf_line "newsite [sitename] [repo]       - Create a site using template [$GITADMIN_DOMAIN_TEMPLATE]"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Remote Repo: [show,add] [remoteURL]"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "remote show                     - Show the current remote server "
+  __printf_line "remote add [remoteURL]          - Add new remote url"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "User: [options] [userName]"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "user [userName]                 - Clone/Pull all repos owned by you"
+  __printf_line "user list [userName]            - List all repos owned by you"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Organization: [all,push,pull,clone] [userName]"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "orgs all [userName]             - Clone/Pull all orgs owned by you"
+  __printf_line "orgs push [userName]            - Push all your local repos to remote"
+  __printf_line "orgs pull [userName]            - Update all your local repos from remote"
+  __printf_line "orgs clone [userName]           - Clone a repo"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Github Gist: [clone,create,delete,edit,list,search] [userName]"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "gist clone [id] [directory]     - Clone a gist repo"
+  __printf_line "gist create [userName]          - Create a new github gist"
+  __printf_line "gist delete [userName]          - Delete a github gist"
+  __printf_line "gist edit [userName]            - Edit github gist"
+  __printf_line "gist list [userName]            - List github gists"
+  __printf_line "gist search [userName]          - Search for github gist"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Single Actions: [all,init,clone,push,pull] [arguments]"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "single all                      - Push all repos in ~/Projects/*/[userName]/*"
+  __printf_line "single init [directory]         - single init"
+  __printf_line "single clone [RemoteURL]        - Clone a repo"
+  __printf_line "single push [directory]         - Push your local repo to remote"
+  __printf_line "single pull [directory]         - Run git pull on repo"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Github Repo Actions: [init,clone,push,pull,remote] [userName/repo]"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "github init [directory]         - single init"
+  __printf_line "github clone [directory]        - Clone a repo [RemoteURL]"
+  __printf_line "github push [directory]         - Push your local repo to remote"
+  __printf_line "github pull [directory]         - Run git pull on repo"
+  __printf_line "github remote [directory]       - Add new remote url [userName/repoName]"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Gitlab Repo Actions: [init,clone,push,pull,remote] [userName/repo]"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "gitlab init [directory]         - single init"
+  __printf_line "gitlab clone [directory]        - Clone a repo [RemoteURL]"
+  __printf_line "gitlab push [directory]         - Push your local repo to remote"
+  __printf_line "gitlab pull [directory]         - Run git pull on repo"
+  __printf_line "gitlab remote [directory]       - Add new remote url [userName/repoName]"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Private Repo Actions: [init,clone,push,pull,remote] [userName/repo]"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "private init [directory]        - single init"
+  __printf_line "private clone [directory]       - Clone a repo [RemoteURL]"
+  __printf_line "private push [directory]        - Push your local repo to remote"
+  __printf_line "private pull [directory]        - Run git pull on repo"
+  __printf_line "private remote [directory]      - Add new remote url [userName/repoName]"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Github Issue: [list,count,create,edit] [userName] [repoName]"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "issues count                    - Show how many issues exist"
+  __printf_line "issues list [repo]              - Show current github issues for current project"
+  __printf_line "issues create [repo]            - Create a new issue"
+  __printf_line "issues edit [id]                - Edit a current issue"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Repo options: [--user,--org,--dir,--cd] [arguments]"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--user [userName]               - List user repos"
+  __printf_line "--org [orgNAME]                 - List organization repos "
+  __printf_line "--single [repoURL]              - clone a single repo "
+  __printf_line "--dir [directory]               - Sets the working directory"
+  __printf_line "--cd                            - cd into repo upon update/clone"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Other Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--help                          - Shows this message"
+  __printf_line "--config                        - Generate user config file"
+  __printf_line "--version                       - Show script version"
+  __printf_line "--options                       - Shows all available options"
+  __printf_line "--debug                         - Enables script debugging"
+  __printf_line "--raw                           - Removes all formatting on output"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "This is a work in progress"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "cron                            - Autoupdate all repos using cron"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() {
+  { [ $(id -u) -ne 0 ] || [ $EUID -ne 0 ] || [ "$WHOAMI" != "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep -s "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# # Get sudo password
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run sudo
+__sudorun() {
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo
+__can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User can run sudo
+__sudoif() {
+  __user_is_root && return 0
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run command as root
+requiresudo() {
+  if [ "$GITADMIN_REQUIRE_SUDO" = "yes" ] && [ -z "$GITADMIN_REQUIRE_SUDO_RUN" ]; then
+    export GITADMIN_REQUIRE_SUDO="no"
+    export GITADMIN_REQUIRE_SUDO_RUN="true"
+    __sudo "$@"
+    exit $?
+  else
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  CMD="${1:-echo}" && shift 1
+  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  [ "$(basename "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  if __sudoif; then
+    export PATH="$PATH"
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    exitCode=$?
+  else
+    printf '%s\n' "This requires root to run"
+    exitCode=1
+  fi
+  return ${exitCode:-1}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  exitCode=${exitCode:-$?}
+  [ -f "$GITADMIN_TEMP_FILE" ] && rm -Rf "$GITADMIN_TEMP_FILE" &>/dev/null
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined functions
 __gitea_update_repo() {
-  { [ $# = 0 ] || [ "$1" == "help" ]; } && __update_usage
+  local repo="" data="" json=""
+  { [ $# = 0 ] || [ "$1" = "help" ]; } && __update_usage
   echo "$1" | grep -q '.*./.*.' || echo "$1" | grep -q '.*.=.*.' || __update_usage
   repo="$1" && shift 1
   while :; do
@@ -121,8 +391,7 @@ __gitea_update_repo() {
     "https://$GITADMIN_PERSONAL_GIT_HOST/api/v1/repos/$repo" 2>&1 | grep -q 'HTTP/.*.20.' &&
     {
       printf_green "Successfully updated $repo with the following data:"
-      #echo "$data" | jq -r | sed 's|[\}\{]||g' | grep -v '^$' | printf_readline
-      printf "$data" | jq -c | grep -v '^$' | printf_readline
+      printf '%s\n' "$data" | jq -c | grep -v '^$' | printf_readline
       exitCode=0
     } || {
     printf_red "Failed to update $repo"
@@ -132,7 +401,8 @@ __gitea_update_repo() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gitea_orgs() {
-  local resp="$(
+  local resp=""
+  resp="$(
     curl -q -LSsf -X 'GET' \
       -H "Authorization: token $GIT_PRIVATE_ACCESS_TOKEN" \
       -H 'accept: application/json' \
@@ -150,7 +420,8 @@ __gitea_orgs() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gitea_users() {
-  local resp="$(
+  local resp=""
+  resp="$(
     curl -q -LSsf -X 'GET' \
       -H "Content-Type: application/json" \
       -H "Authorization: token $GIT_PRIVATE_ACCESS_TOKEN" \
@@ -169,7 +440,8 @@ __gitea_users() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gitea_users_orgs() {
-  local resp="$(
+  local resp=""
+  resp="$(
     curl -q -LSsf -X 'GET' \
       -H "Authorization: token $GIT_PRIVATE_ACCESS_TOKEN" \
       -H "Content-Type: application/json" \
@@ -188,7 +460,8 @@ __gitea_users_orgs() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gitea_delete_repo() {
-  local resp="$(
+  local resp=""
+  resp="$(
     curl -q -LSsf -X 'POST' \
       -H "Authorization: token $GIT_PRIVATE_ACCESS_TOKEN" \
       -H "Content-Type: application/json" \
@@ -207,7 +480,8 @@ __gitea_delete_repo() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gitea_create_repo() {
-  local resp="$(
+  local resp=""
+  resp="$(
     curl -q -LSsf -X 'POST' \
       -H "Authorization: token $GIT_PRIVATE_ACCESS_TOKEN" \
       -H "Content-Type: application/json" \
@@ -265,7 +539,8 @@ __update_repo_usage() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __update_repo() {
-  { [ $# = 0 ] || [ "$1" == "help" ]; } && __update_usage
+  local repo="" data="" json=""
+  { [ $# = 0 ] || [ "$1" = "help" ]; } && __update_usage
   echo "$1" | grep -q '.*./.*.' || echo "$1" | grep -q '.*.=.*.' || __update_usage
   repo="$1" && shift 1
   while :; do
@@ -299,14 +574,18 @@ __update_repo() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #set folder name based on githost
-__git_hostname() { echo "$@" | sed -e "s/[^/]*\/\/\([^@]*@\)\?\([^:/]*\).*/\2/" | awk -F. '{print $(NF-1) "." $NF}' | sed 's#\..*##g'; }
+__git_hostname() {
+  echo "$@" | sed -e "s/[^/]*\/\/\([^@]*@\)\?\([^:/]*\).*/\2/" |
+    awk -F. '{print $(NF-1) "." $NF}' | sed 's#\..*##g'
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #setup directory structure
 __git_username_repo() {
-  unset url protocol separator hostname username userrepo
-  local url="$1"
-  local re="^(https?|git|ssh)(:\/\/|@)([^\/:]+)[\/:]([^\/:]+)\/(.+)$"
-  local githostname="$(__git_hostname $url 2>/dev/null)"
+  local re=""
+  protocol="" separator="" hostname="" username="" userrepo="" githostname=""
+  url="$1"
+  re="^(https?|git|ssh)(:\/\/|@)([^\/:]+)[\/:]([^\/:]+)\/(.+)$"
+  githostname="$(__git_hostname $url 2>/dev/null)"
   if [ -d "$url" ]; then
     protocol=
     separator=
@@ -314,7 +593,7 @@ __git_username_repo() {
     userrepo="$(__basename "$url")"
     username="$(__basename "$(dirname "$url")")"
     folder="local"
-    projectdir="${GITADMIN_DEFAULT_GIT_DIR:-$HOME/Projects}/$folder/$username-$userrepo"
+    GITADMIN_NEW_PROJECT_DIR="${GITADMIN_DEFAULT_PROJECT_DIR:-$HOME/Projects}/$folder/$username-$userrepo"
   elif [[ $url =~ $re ]]; then
     protocol=${BASH_REMATCH[1]}
     separator=${BASH_REMATCH[2]}
@@ -322,7 +601,7 @@ __git_username_repo() {
     username=${BASH_REMATCH[4]}
     userrepo=${BASH_REMATCH[5]}
     folder=$githostname
-    projectdir="${GITADMIN_DEFAULT_GIT_DIR:-$HOME/Projects}/$folder/$username/$userrepo"
+    GITADMIN_NEW_PROJECT_DIR="${GITADMIN_DEFAULT_PROJECT_DIR:-$HOME/Projects}/$folder/$username/$userrepo"
   else
     return 1
   fi
@@ -331,7 +610,8 @@ __git_username_repo() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # issues API
 __api_issues_token() {
-  { [ $# = 2 ] && local git_repo="$1/$2"; } || { [ $# = 1 ] && local git_repo="$1"; }
+  local git_repo
+  { [ $# = 2 ] && git_repo="$1/$2"; } || { [ $# = 1 ] && git_repo="$1"; }
   [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && export CURL_HEADER="" || export CURL_HEADER='-H "Authorization: token '$GITADMIN_GITHUB_AUTH_TOKEN'"'
   ISSUE_HTML="https://github.com/$git_repo/issues"
   ISSUE_API="https://api.github.com/repos/$git_repo/issues"
@@ -340,13 +620,15 @@ __api_issues_token() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # call the issues api
 __api_issues() {
-  local resp="$(curl -q -LSsf -X ${1:-GET} "'$CURL_HEADER'" -H "'Accept: application/vnd.github.v3+json'" "${2:-$ISSUE_API}" 2>/dev/null)"
+  local resp=""
+  resp="$(curl -q -LSsf -X ${1:-GET} "'$CURL_HEADER'" -H "'Accept: application/vnd.github.v3+json'" "${2:-$ISSUE_API}" 2>/dev/null)"
   [ -n "$resp" ] && printf "%s" "$resp" || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Gist API
 __api_gist() {
-  local user="${1:-$USERNAME}"
+  local user=""
+  user="${1:-$GITADMIN_DEFAULT_USERNAME}"
   [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && CURL_HEADER="" || CURL_HEADER='-H "Authorization: token '$GITADMIN_GITHUB_AUTH_TOKEN'"'
   curl -q -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" -H "Accept: application/vnd.github.v3+json" \
     -LSs "https://api.github.com/users/$user/gists"
@@ -354,20 +636,22 @@ __api_gist() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set Message for token - user
 __api_user_token() {
-  local user="${1:-$USERNAME}"
+  local user=""
+  user="${1:-$GITADMIN_DEFAULT_USERNAME}"
   [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && CURL_HEADER="" || CURL_HEADER='-H "Authorization: token '$GITADMIN_GITHUB_AUTH_TOKEN'"'
   if [ -n "$GITADMIN_GITHUB_AUTH_TOKEN" ]; then
     export GITHUBAPIREPO="https://api.github.com/users/$user/repos?per_page=1000&type=owner"
     export MESSAGE="Getting the repos for $user using\n\t\tgithub token $GITADMIN_GITHUB_AUTH_TOKEN"
   else
     export GITHUBAPIREPO="https://api.github.com/users/$user/repos?per_page=1000"
-    export MESSAGE="Getting the repos for $USERNAME"
+    export MESSAGE="Getting the repos for $GITADMIN_DEFAULT_USERNAME"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User api
 __api_user() {
-  local user="${1:-$USERNAME}"
+  local user=""
+  user="${1:-$GITADMIN_DEFAULT_USERNAME}"
   [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && CURL_HEADER="" || CURL_HEADER='-H "Authorization: token '$GITADMIN_GITHUB_AUTH_TOKEN'"'
   __api_user_token "$user"
   __urlverify "$GITHUBAPIREPO" || return 1
@@ -377,7 +661,8 @@ __api_user() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set Message for token - org
 __api_org_token() {
-  local user="${1:-$USERNAME}"
+  local user=""
+  user="${1:-$GITADMIN_DEFAULT_USERNAME}"
   [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && CURL_HEADER="" || CURL_HEADER='-H "Authorization: token '$GITADMIN_GITHUB_AUTH_TOKEN'"'
   if [ -n "$GITADMIN_GITHUB_AUTH_TOKEN" ]; then
     export GITHUBAPIREPO="https://api.github.com/orgs/$user/repos?per_page=1000&type=owner"
@@ -390,7 +675,8 @@ __api_org_token() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Organization API
 __api_org() {
-  local user="${1:-$USERNAME}"
+  local user=""
+  user="${1:-$GITADMIN_DEFAULT_USERNAME}"
   [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && CURL_HEADER="" || CURL_HEADER='-H "Authorization: token '$GITADMIN_GITHUB_AUTH_TOKEN'"'
   __api_user_token "$user"
   __urlverify "$GITHUBAPIREPO" || return 1
@@ -399,13 +685,16 @@ __api_org() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Call the API
-__api_url() { __api_user "${1:-$USERNAME}" || __api_org "${1:-$USERNAME}" || return 1; }
+__api_url() {
+  __api_user "${1:-$GITADMIN_DEFAULT_USERNAME}" || __api_org "${1:-$GITADMIN_DEFAULT_USERNAME}" || return 1
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # pull function
 __git_pull() {
-  local git_dir="${1:-$GITADMIN_CWD}" && shift 1
-  local args="$*"
-  local regex="(https?|ftp|file|git|ssh)://[-A-Za-z0-9\+&@#/%?=~_|!:,.;]*[-A-Za-z0-9\+&@#/%=~_|]"
+  local git_dir="" args="" regex=""
+  git_dir="${1:-$GITADMIN_CWD}" && shift 1
+  args="$*"
+  regex="(https?|ftp|file|git|ssh)://[-A-Za-z0-9\+&@#/%?=~_|!:,.;]*[-A-Za-z0-9\+&@#/%=~_|]"
   if [[ "$(__git_remote_origin "$git_dir")" =~ $regex ]]; then
     if am_i_online; then
       git -C "$git_dir" pull $args -f -q &>/dev/null && return 0 || return 1
@@ -417,10 +706,11 @@ __git_pull() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Push function
 __git_push() {
-  local git_dir="${1:-$GITADMIN_CWD}" && shift 1
-  local args="$*"
-  local regex="(https?|ftp|file|git|ssh)://[-A-Za-z0-9\+&@#/%?=~_|!:,.;]*[-A-Za-z0-9\+&@#/%=~_|]"
-  [[ -f "$git_dir/.no_push" ]] || return 0
+  local git_dir="" args="" regex=""
+  git_dir="${1:-$GITADMIN_CWD}" && shift 1
+  args="$*"
+  regex="(https?|ftp|file|git|ssh)://[-A-Za-z0-9\+&@#/%?=~_|!:,.;]*[-A-Za-z0-9\+&@#/%=~_|]"
+  [ -f "$git_dir/.no_push" ] || return 0
   if [[ "$(__git_remote_origin "$git_dir")" =~ $regex ]]; then
     if am_i_online; then
       git -C "$git_dir" push $args -q &>/dev/null && return 0 || return 1
@@ -434,10 +724,11 @@ __git_push() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Clone function
 __git_clone() {
-  local git_url="$1" && shift 1
-  local git_dir="$1" && shift 1
-  local args="$*" && shift $#
-  local regex="(https?|ftp|file|git|ssh)://[-A-Za-z0-9\+&@#/%?=~_|!:,.;]*[-A-Za-z0-9\+&@#/%=~_|]"
+  local git_url="" git_dir="" args="" regex=""
+  git_url="$1" && shift 1
+  git_dir="$1" && shift 1
+  args="$*" && shift $#
+  regex="(https?|ftp|file|git|ssh)://[-A-Za-z0-9\+&@#/%?=~_|!:,.;]*[-A-Za-z0-9\+&@#/%=~_|]"
   if [[ "$git_url" =~ $regex ]]; then
     if am_i_online; then
       git clone "$git_url" "$git_dir" -q $args &>/dev/null && return 0 || return 1
@@ -451,14 +742,15 @@ __git_clone() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Creates a README.md file if one doesn't exist
 create_new_readme_template() {
-  [[ "$NOREADME" = "yes" ]] && return 0
-  local git_dir="${1:-$GITADMIN_CWD}"
+  local git_dir="" author="" GitBaseDir="" BaseDir=""
+  [ "$NOREADME" = "yes" ] && return 0
+  git_dir="${1:-$GITADMIN_CWD}"
   if [ -f "$(command -v gen-readme)" ] && [ ! -f "$git_dir/README.md" ]; then
     gen-readme "$git_dir" "$(basename "${GITADMIN_DEFAULT_README:-default}")" "README.md" &>/dev/null
   else
-    local author="$(__git_globaluser)"
-    local GitBaseDir="$(__git_top_dir "$git_dir")"
-    local BaseDir="${GitBaseDir##*/}"
+    author="$(__git_globaluser)"
+    GitBaseDir="$(__git_top_dir "$git_dir")"
+    BaseDir="${GitBaseDir##*/}"
     [ -f "$CASJAYSDEVDIR/templates/readmes/projects/default.md" ] &&
       cat "$CASJAYSDEVDIR/templates/readmes/projects/default.md" >"$git_dir/README.md"
     [ -f "$git_dir/README.md" ] && __sed -i "s#ProjectName#${BaseDir}#g" "$git_dir/README.md"
@@ -468,13 +760,14 @@ create_new_readme_template() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Creates a license if a LICENSE.md file doesn't exist
 create_new_license() {
-  [[ "$NOLICENSE" = "yes" ]] && return 0
-  local git_dir="${1:-$GITADMIN_CWD}"
+  local git_dir="" author="" year=""
+  [ "$NOLICENSE" = "yes" ] && return 0
+  git_dir="${1:-$GITADMIN_CWD}"
   if [ -f "$(command -v gen-license)" ] && [ ! -f "$git_dir/LICENSE.md" ]; then
     gen-license "$git_dir" "$(basename "$GITADMIN_DEFAULT_LICENSE")" &>/dev/null
   else
-    local author="$(__git_globaluser)"
-    local year="$(date +'%Y')"
+    author="$(__git_globaluser)"
+    year="$(date +'%Y')"
     [ -f "$GITADMIN_DEFAULT_LICENSE" ] && cat "$GITADMIN_DEFAULT_LICENSE" >"$git_dir/LICENSE.md"
     [ -f "$git_dir/LICENSE.md" ] && __sed -i "s#CURYEAR#${year}#g" "$git_dir/LICENSE.md"
     [ -f "$git_dir/LICENSE.md" ] && __sed -i "s#AuthorName#${author}#g" "$git_dir/LICENSE.md"
@@ -496,7 +789,7 @@ create_new_private_repo_template() {
   "has_projects" : false
 }
 EOF
-  JSON_OUTPUT=$(printf '%s' '%s' '$s' '%s' "$JSON_TEMPLATE" "$REPO_NAME" "$DESCRIPTION" "$GITADMIN_DEFAULT_USER_DOMAIN")
+  JSON_OUTPUT=$(printf '%s' '%s' '%s' '%s' "$JSON_TEMPLATE" "$REPO_NAME" "$DESCRIPTION" "$GITADMIN_DEFAULT_USER_DOMAIN")
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # The template to create a new public github repo
@@ -519,8 +812,9 @@ EOF
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check if input is a url
 do_not_add_a_url() {
-  local string="$1"
-  local regex="(https?|ftp|file)://[-A-Za-z0-9\+&@#/%?=~_|!:,.;]*[-A-Za-z0-9\+&@#/%=~_|]"
+  local string="" regex=""
+  string="$1"
+  regex="(https?|ftp|file)://[-A-Za-z0-9\+&@#/%?=~_|!:,.;]*[-A-Za-z0-9\+&@#/%=~_|]"
   if [[ "$string" =~ $regex ]]; then
     printf_red "Do not provide the full url"
     printf_red "only provide the username/repo"
@@ -530,12 +824,12 @@ do_not_add_a_url() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # The initialize git function
 run_git_init() {
-  local GITADMIN_EXITCODE=0
-  local git_dir="${1:-$GITADMIN_CWD}"
-  local git_repo="${git_remote_repo:-$git_repo}"
-  local git_push=""
-  local git_confirm=""
-  local git_confirm_repo=""
+  local GITADMIN_EXITCODE=0 git_dir="" git_repo="" git_push="" git_confirm="" git_confirm_repo=""
+  git_dir="${1:-$GITADMIN_CWD}"
+  git_repo="${git_remote_repo:-$git_repo}"
+  git_push=""
+  git_confirm=""
+  git_confirm_repo=""
   if [ -n "$git_repo" ]; then
     git -C "$git_dir" remote add origin "$git_repo" &>/dev/null &&
       printf_cyan "$git_repo has been added" || printf_exit 'Failed to add $git_repo'
@@ -546,12 +840,12 @@ run_git_init() {
         if [ -f "$git_dir/$GITADMIN_DEFAULT_MAINCONFIG" ]; then
           cp -Rf "$git_dir/$GITADMIN_DEFAULT_MAINCONFIG" "$git_dir/.git/config"
         fi
-        [[ -f "$git_dir/.no_push" ]] || git -C "$git_dir" push -q -f --set-upstream origin "$GITADMIN_DEFAULT_BRANCH" &>/dev/null
+        [ -f "$git_dir/.no_push" ] || git -C "$git_dir" push -q -f --set-upstream origin "$GITADMIN_DEFAULT_BRANCH" &>/dev/null
         git remote show origin 2>&1 | grep -q 'Repository not found' && git_push="n"
-        [[ "$git_push" = "n" ]] || __git_push "$git_dir"
+        [ "$git_push" = "n" ] || __git_push "$git_dir"
         GITADMIN_EXITCODE=$?
         if [ -d "$git_dir/.git" ] && [ "$GITADMIN_EXITCODE" = 0 ]; then
-          [[ "$git_push" = "n" ]] && printf_yellow "The remote repository wasn't found: not pushing" || __git_push "$git_dir"
+          [ "$git_push" = "n" ] && printf_yellow "The remote repository wasn't found: not pushing" || __git_push "$git_dir"
           GITADMIN_EXITCODE=0
         else
           printf_red "Push to $git_repo has failed"
@@ -573,11 +867,12 @@ run_git_init() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 run_git_init_automated() {
-  local git_dir="${1:-$GITADMIN_CWD}"
-  local git_repo="${git_remote_repo:-$git_repo}"
-  local git_push="y"
-  local git_confirm="y"
-  local git_confirm_repo="y"
+  local git_dir="" git_repo="" git_push="" git_confirm="" git_confirm_repo=""
+  git_dir="${1:-$GITADMIN_CWD}"
+  git_repo="${git_remote_repo:-$git_repo}"
+  git_push="y"
+  git_confirm="y"
+  git_confirm_repo="y"
   if [ -n "$git_repo" ]; then
     git -C "$git_dir" remote add origin "$git_repo" &>/dev/null &&
       printf_cyan "$git_repo has been added" || printf_exit 'Failed to add $git_repo'
@@ -586,12 +881,12 @@ run_git_init_automated() {
         if [ -f "$git_dir/$GITADMIN_DEFAULT_MAINCONFIG" ]; then
           cp -Rf "$git_dir/$GITADMIN_DEFAULT_MAINCONFIG" "$git_dir/.git/config"
         fi
-        [[ -f "$git_dir/.no_push" ]] || git -C "$git_dir" push -q -f --set-upstream origin "$GITADMIN_DEFAULT_BRANCH" &>/dev/null
+        [ -f "$git_dir/.no_push" ] || git -C "$git_dir" push -q -f --set-upstream origin "$GITADMIN_DEFAULT_BRANCH" &>/dev/null
         git remote show origin 2>&1 | grep -q 'Repository not found' && git_push="n"
-        [[ "$git_push" = "n" ]] && printf_yellow "The remote repository wasn't found: not pushing" || __git_push "$git_dir"
+        [ "$git_push" = "n" ] && printf_yellow "The remote repository wasn't found: not pushing" || __git_push "$git_dir"
         GITADMIN_EXITCODE=$?
         if [ -d "$git_dir/.git" ] && [ "$GITADMIN_EXITCODE" = 0 ]; then
-          [[ "$git_push" = "n" ]] || printf_green "Successfully pushed to $git_repo"
+          [ "$git_push" = "n" ] || printf_green "Successfully pushed to $git_repo"
           GITADMIN_EXITCODE=0
         else
           printf_red "Push to $git_repo has failed"
@@ -617,16 +912,16 @@ __split_create_repo() {
   local repo="$1"
   shift 1
   if [[ "$repo" =~ github.com ]]; then
-    if [[ "$1" = "username" ]]; then
+    if [ "$1" = "username" ]; then
       username="$(echo "$repo" | sed 's|.*//||g' | awk -F'/' '{print $(NF-1)}' | grep '^')"
-      [[ "$username" ]] && echo "$username"
-    elif [[ "$1" = "reponame" ]]; then
+      [ -z "$username" ] || echo "$username"
+    elif [ "$1" = "reponame" ]; then
       reponame="$(echo "$repo" | sed 's|.*//||g' | awk -F'/' '{print $NF}' | grep '^')"
-      [[ "$reponame" ]] && echo "$reponame"
+      [ -z "$reponame" ] || echo "$reponame"
     else
       username="$(echo "$repo" | sed 's|.*//||g' | awk -F'/' '{print $(NF-1)}' | grep '^')"
       reponame="$(echo "$repo" | sed 's|.*//||g' | awk -F'/' '{print $NF}' | grep '^')"
-      if [[ "$username" ]] && [[ "$reponame" ]]; then
+      if [ -n "$username" ] && [ -n "$reponame" ]; then
         ghcreate "$username" "$reponame" "Repo for $reponame" &>/dev/null
         return $?
       fi
@@ -639,19 +934,20 @@ __split_create_repo() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup a new git repo
 run_git_setup() {
-  local GITADMIN_EXITCODE=0
-  local git_dir="$(__basedir "$GITADMIN_CWD/.git")"
-  local git_continue="${continue:-}"
-  local git_reuse="${reuse:-}"
-  local git_version_file="$VERSIONFILE"
-  local git_version_fmt="$VERSION_DATE_FORMAT"
-  local remote_repo="${2:-$1}"
-  local git_tmpprev="$(git -C "$git_dir" remote -v 2>/dev/null | grep push | head -n 1 | awk '{print $2}' 2>/dev/null | grep '^')"
-  local GITCOMMIT_MESSAGE="${GITCOMMIT_MESSAGE:- 🦈🏠🐜❗ Initial Commit ❗🐜🦈🏠 }"
+  local GITADMIN_EXITCODE=0 git_dir="" git_continue="" git_reuse="" git_version_file=""
+  local git_version_fmt="" remote_repo="" git_tmpprev=""
+  git_dir="$(__basedir "$GITADMIN_CWD/.git")"
+  git_continue="${continue:-}"
+  git_reuse="${reuse:-}"
+  git_version_file="$GITADMIN_DEFAULT_VERSION_FILE"
+  git_version_fmt="$GITADMIN_DEFAULT_VERSION_FORMAT"
+  remote_repo="${2:-$1}"
+  git_tmpprev="$(git -C "$git_dir" remote -v 2>/dev/null | grep push | head -n 1 | awk '{print $2}' 2>/dev/null | grep '^')"
+  GITCOMMIT_MESSAGE="${GITCOMMIT_MESSAGE:- 🦈🏠🐜❗ Initial Commit ❗🐜🦈🏠 }"
   check_uri "$remote_repo" && tmprepo="${remote_repo// /_}" || tmprepo=""
   git_prev="${tmprepo:-$git_tmpprev}"
   printf_green "Initializing the repo in $git_dir"
-  [[ -f "$git_dir/.gitignore" ]] || gitignore "$git_dir" default --automated
+  [ -f "$git_dir/.gitignore" ] || gitignore "$git_dir" default --automated
   if [ -d "$git_dir/.git" ]; then
     printf_error "This project already has git setup"
     if [ -n "$git_prev" ]; then
@@ -708,19 +1004,20 @@ run_git_setup() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run git setup with no interactions
 run_git_setup_automated() {
-  local GITADMIN_EXITCODE=0
-  local git_dir="$(__basedir "$GITADMIN_CWD/.git")"
-  local git_continue="${continue:-}"
-  local git_reuse="${reuse:-}"
-  local git_version_file="$VERSIONFILE"
-  local git_version_fmt="$VERSION_DATE_FORMAT"
-  local remote_repo="${2:-$1}"
-  local git_tmpprev="$(git -C "$git_dir" remote -v 2>/dev/null | grep push | head -n 1 | awk '{print $2}' 2>/dev/null | grep '^')"
-  local GITCOMMIT_MESSAGE="${GITCOMMIT_MESSAGE:- 🦈🏠🐜❗ Initial Commit ❗🐜🦈🏠 }"
+  local GITADMIN_EXITCODE=0 git_dir="" git_continue="" git_reuse="" git_version_file=""
+  local git_version_fmt="" remote_repo="" git_tmpprev=""
+  git_dir="$(__basedir "$GITADMIN_CWD/.git")"
+  git_continue="${continue:-}"
+  git_reuse="${reuse:-}"
+  git_version_file="$GITADMIN_DEFAULT_VERSION_FILE"
+  git_version_fmt="$GITADMIN_DEFAULT_VERSION_FORMAT"
+  remote_repo="${2:-$1}"
+  git_tmpprev="$(git -C "$git_dir" remote -v 2>/dev/null | grep push | head -n 1 | awk '{print $2}' 2>/dev/null | grep '^')"
+  GITCOMMIT_MESSAGE="${GITCOMMIT_MESSAGE:- 🦈🏠🐜❗ Initial Commit ❗🐜🦈🏠 }"
   check_uri "$remote_repo" && tmprepo="${remote_repo// /_}" || tmprepo=""
   git_prev="${tmprepo:-$git_tmpprev}"
   printf_green "Initializing the repo in $git_dir"
-  [[ -f "$git_dir/.gitignore" ]] || gitignore "$git_dir" default --automated
+  [ -f "$git_dir/.gitignore" ] || gitignore "$git_dir" default --automated
   if [ -n "$git_prev" ]; then
     printf_green "Remote repo is: $git_prev"
     __rm_rf "$git_dir/.git"
@@ -765,19 +1062,20 @@ run_git_setup_automated() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Makes a new jeckyll site
 make_newsite() {
-  local site_dir="$HOME/Public/sites"
-  local site_folder="${1:-newsite}"
-  local site_repo="${2:-$GITADMIN_DOMAIN_TEMPLATE}"
+  local site_dir="" site_folder="" site_repo=""
+  site_dir="$HOME/Public/sites"
+  site_folder="${1:-newsite}"
+  site_repo="${2:-$GITADMIN_DOMAIN_TEMPLATE}"
   printf_green "Setting up site in: $site_dir/$site_folder"
   printf_blue "Using $site_repo as template"
   if __git_clone "$site_repo" "$site_dir/$site_folder"; then
     cd "$site_dir/$site_folder" || return 1
     __rm_rf "$site_dir/$site_folder/.git"
     [[ "$EDITOR" =~ code ]] && code . || "$EDITOR" _config.yml
-    printf_pause
+    printf_pause "Prease any key when you are done."
     gitadmin "$site_dir/$site_folder" setup
   else
-    printf_error "Failed to clone $DOMAIN_TEMPLATE"
+    printf_error "Failed to clone $GITADMIN_DOMAIN_TEMPLATE"
     false
   fi
   exit $?
@@ -785,7 +1083,7 @@ make_newsite() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Gets the organizations from the user
 git_all_orgs() {
-  git_user="${1:-$USERNAME}"
+  git_user="${1:-$GITADMIN_DEFAULT_USERNAME}"
   api_url="https://api.github.com/users/$git_user/orgs?per_page=1000&type=owner"
   if [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ]; then
     git_user="$(curl -q -H "Accept: application/vnd.github.v3+json" -LSs "$api_url" 2>/dev/null | jq '.[].login' 2>/dev/null | sed 's#"##g')"
@@ -796,17 +1094,18 @@ git_all_orgs() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 git_all_orgs_clone() {
-  git_all_orgs "${1:-$USERNAME}"
-  for org in $USERNAME $GIT_ALL_REPOS; do
+  git_all_orgs "${1:-$GITADMIN_DEFAULT_USERNAME}"
+  for org in $GITADMIN_DEFAULT_USERNAME $GIT_ALL_REPOS; do
     $APPNAME orgs clone "$org"
   done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Initializes a repo with default options
 repos_init() {
-  local git_dir="$(__basedir "${1:-$GITADMIN_CWD}/.git")"
-  local git_version_file="$VERSIONFILE"
-  local git_version_fmt="$VERSION_DATE_FORMAT"
+  local git_dir="" git_version_file="" git_version_fmt=""
+  git_dir="$(__basedir "${1:-$GITADMIN_CWD}/.git")"
+  git_version_file="$GITADMIN_DEFAULT_VERSION_FILE"
+  git_version_fmt="$GITADMIN_DEFAULT_VERSION_FORMAT"
   [ -f "$git_version_file" ] && date +"$git_version_fmt" >"$git_version_file"
   git -C "$git_dir" add .
   if [ -f "$git_dir/$GITADMIN_DEFAULT_MAINCONFIG" ]; then
@@ -817,10 +1116,11 @@ repos_init() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Initializes a repo for github
 git_init() {
-  local git_dir="$(__basedir "${1:-$GITADMIN_CWD}/.git")"
-  local git_version_file="$VERSIONFILE"
-  local git_version_fmt="$VERSION_DATE_FORMAT"
-  local git_remote=""
+  local git_dir="" git_version_file="" git_version_fmt="" git_remote=""
+  git_dir="$(__basedir "${1:-$GITADMIN_CWD}/.git")"
+  git_version_file="$GITADMIN_DEFAULT_VERSION_FILE"
+  git_version_fmt="$GITADMIN_DEFAULT_VERSION_FORMAT"
+  git_remote=""
   [ "$1" = "" ] && printf_red "Usage: userName repoName\n" && return 1
   [ "$2" = "" ] && printf_red "Usage: userName repoName\n" && return 1
   git_setup "$git_dir"
@@ -836,14 +1136,16 @@ git_init() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # List gists
 ghgist_list() {
-  local user="${1:-$USERNAME}"
+  local user=""
+  user="${1:-$GITADMIN_DEFAULT_USERNAME}"
   shift 1
   __api_gist "$user" | jq ".[] | .description, .id" 2>/dev/null | awk 'NR%2{printf "%s ",$0;next;}1' | sed 's|""|"No Description"|g;s/" "/ | ID: /g;s|^"|Gist Title: |g;s|"||g' && return 0 || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # search gists
 search_list() {
-  local user="${1:-$USERNAME}"
+  local user=""
+  user="${1:-$GITADMIN_DEFAULT_USERNAME}"
   shift 1
   __api_gist "$1" | jq ".[] | .description, .id" 2>/dev/null | awk 'NR%2{printf "%s ",$0;next;}1' |
     sed 's|""|"No Description"|g;s/" "/ | ID: /g;s|^"|Gist Title: |g;s|"||g' | grep -is "$2" &&
@@ -852,28 +1154,41 @@ search_list() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Delete gist
 ghgist_delete() {
-  local gist_id="$(basename $1)"
-  local gist_exit="0"
-  local gist_succes="Deleted gist: $gist_id"
-  local gist_failed="failed to delete gist: $gist_id"
-  shift 1
-  if [ -z "$gist_id" ]; then printf_exit "Please provide the gist ID"; fi
+  local gist_id="" gist_exit="" gist_succes="" gist_failed=""
+  gist_id="$(basename "$1")" && shift 1
+  gist_exit="0"
+  gist_succes="Deleted gist: $gist_id"
+  gist_failed="failed to delete gist: $gist_id"
+  [ -n "$gist_id" ] || printf_exit "Please provide the gist ID"
   curl -q -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" -H "Accept: application/vnd.github.v3+json" \
-    -LSs -X DELETE "https://api.github.com/gists/$gist_id" >"$GITADMIN_TEMP_FILE"
-  grep -viqs "Not Found" "$GITADMIN_TEMP_FILE" && gist_exit=1 || gist_exit=0
+    -LSs -X DELETE "https://api.github.com/gists/$gist_id" >"$GITADMIN_TEMP_FILE" && gist_exit=0 || gist_exit=1
+  if grep -viqs "Not Found" "$GITADMIN_TEMP_FILE"; then
+    gist_succes="[ ✖ ] gist: $gist_id was not found"
+    gist_exit=0
+  fi
   __getexitcode $gist_exit "$gist_succes" "$gist_failed"
   return $gist_exit
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Creates a new gist
+format_file_as_JSON_string() {
+  sed -e 's/\\/\\\\/g' \
+    -e 's/$/\\n/g' \
+    -e 's/"/\\"/g' \
+    -e 's/\t/\\t/g' |
+    tr -d "\n"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Creates a new gist from - https://github.com/kathawala/gist/blob/master/gist.sh
 ghgist_create() {
+  local gist_exit="" gist_describe="" gist_filename="" gist_content="" gist_succes="" gist_failed=""
   [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_exit "ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set"
   [ $# -eq 3 ] || printf_exit "Usage: $APPNAME gist create description filename contents"
-  local gist_exit=0
-  local gist_describe="$1"
-  local gist_filename="$2"
-  [ -f "$3" ] && local gist_content="$(<"$3")" || local gist_content="$3"
-  local gist_content="$(printf "%s\r" "{\"description\": \"$gist_describe\",\"public\": true,\"files\": {\"$gist_filename\": {\"content\": \"$gist_content\"}}}" >${GITADMIN_TEMP_FILE}-data.txt)"
+  gist_exit=0
+  gist_describe="$(echo "$1" | awk '{gsub(/"/, "\\\"")} 1')"
+  gist_filename="$(basename "$2")"
+  [ -f "$3" ] && gist_content="$(<"$3")" || gist_content="$3"
+  format_gist="$(echo "$gist_content" | format_file_as_JSON_string)"
+  gist_content="$(printf "%s\r" "{\"description\": \"$gist_describe\",\"public\": true,\"files\": {\"$gist_filename\": {\"content\": \"$format_gist\"}}}" >${GITADMIN_TEMP_FILE}-data.txt)"
   printf_green "Creating gist with Description $gist_describe and filename: $gist_filename"
   curl -q -X POST --fail -LSsif -H "Content-Type: application/json" -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" --data @"${GITADMIN_TEMP_FILE}-data.txt" "https://api.github.com/gists" 2>${GITADMIN_TEMP_FILE}.err | grep -w "html_url" | grep "gist" | awk '{print $2}' | __sed 's/\,//;s|"||g' 2>${GITADMIN_TEMP_FILE}.err >"${GITADMIN_TEMP_FILE}"
   results="$(grep -qs '^' "${GITADMIN_TEMP_FILE}" && echo Success || echo '')"
@@ -886,7 +1201,7 @@ ghgist_create() {
   else
     gist_exit=1
     gist_failed="Failed to create the gist"
-    [[ -f "${GITADMIN_TEMP_FILE}.err" ]] && cat "${GITADMIN_TEMP_FILE}.err" | printf_readline '1'
+    [ -f "${GITADMIN_TEMP_FILE}.err" ] && cat "${GITADMIN_TEMP_FILE}.err" | printf_readline '1'
   fi
   __getexitcode $gist_exit "$gist_succes" "$gist_failed"
   return $gist_exit
@@ -894,13 +1209,14 @@ ghgist_create() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Edits a gist
 ghgist_edit() {
+  local gist_exit="" gist_id="" gist_describe="" gist_filename="" gist_content="" gist_succes="" gist_failed=""
   [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_exit "ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set"
-  local gist_exit=0
-  local gist_id="$1"
-  local gist_describe="$2"
-  local gist_filename="$3"
-  local gist_content="$4"
-  local gist_content="$(printf "%s\r" "{\"description\": \"$gist_describe\",\"public\": true,\"files\": {\"$gist_filename\": {\"content\": \"$gist_content\"}}}" >$GITADMIN_TEMP_FILE-data.txt)"
+  gist_exit=0
+  gist_id="$1"
+  gist_describe="$2"
+  gist_filename="$3"
+  gist_content="$4"
+  gist_content="$(printf "%s\r" "{\"description\": \"$gist_describe\",\"public\": true,\"files\": {\"$gist_filename\": {\"content\": \"$gist_content\"}}}" >$GITADMIN_TEMP_FILE-data.txt)"
   printf_green "Editing $gist_id with Description $gist_describe and filename: $gist_filename"
   if curl -q -X PATCH -LSsi -H "Content-Type: application/json" -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" --data @$GITADMIN_TEMP_FILE-data.txt https://api.github.com/gists/$gist_id |
     grep -w "html_url" | grep "gist" | awk '{print $2}' | __sed 's/\,//;s|"||g' 2>/dev/null >"$GITADMIN_TEMP_FILE"; then
@@ -919,10 +1235,12 @@ ghgist_edit() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Reusable function for delete
 ghdelete-user() {
+  local git_user="" git_repo=""
   [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_exit "ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set"
-  local git_user="${1:-$USERNAME}"
-  local git_repo="${2:-$REPONAME}"
-  curl -q -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" -LSs -XDELETE "https://api.github.com/repos/$git_user/$git_repo" >"$GITADMIN_TEMP_FILE" 2>/dev/null
+  git_user="${1:-$GITADMIN_DEFAULT_USERNAME}"
+  git_repo="${2:-$REPONAME}"
+  curl -q -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" -LSs \
+    -XDELETE "https://api.github.com/repos/$git_user/$git_repo" >"$GITADMIN_TEMP_FILE" 2>/dev/null
   if grep -qs 'Not Found' "$GITADMIN_TEMP_FILE"; then
     return 0
   elif __api_user "$git_user" | grep -qvi "$git_repo"; then
@@ -934,11 +1252,12 @@ ghdelete-user() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Deletes a github repo
 ghdelete() {
-  local git_user="$1"
-  local git_repo="$2"
-  local git_failed="💢 Deletion of http://github.com/$git_user/$git_repo failed 💢"
-  local git_succes="🌱 Deletion of http://github.com/$git_user/$git_repo successful 🌱"
-  local GITADMIN_EXITCODE=0
+  local git_user="" git_repo="" git_failed="" git_succes="" GITADMIN_EXITCODE=""
+  git_user="$1"
+  git_repo="$2"
+  git_failed="💢 Deletion of http://github.com/$git_user/$git_repo failed 💢"
+  git_succes="🌱 Deletion of http://github.com/$git_user/$git_repo successful 🌱"
+  GITADMIN_EXITCODE=0
   printf_green "Deleting repo $git_repo for user $git_user"
   if ! ghdelete-user "$git_user" "$git_repo"; then
     GITADMIN_EXITCODE=1
@@ -949,26 +1268,27 @@ ghdelete() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Reusable function for create repo
 curl_orgs_create() {
+  local HOMEPAGE="" GITADMIN_DEFAULT_USERNAME="" REPONAME="" DESCR SITE="" VISIBLE=""
   [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_exit "ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set"
-  local HOMEPAGE="${GITADMIN_DEFAULT_USER_DOMAIN:-http://github.com/$USERNAME}"
-  local USERNAME="$1"
-  local REPONAME="$2"
-  local DESCR="${3:-$DESCR}"
-  local SITE="${4:-$HOMEPAGE}"
-  local VISIBLE="${5:-$VISIBLE}"
-  curl -q -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" -LSs "https://api.github.com/orgs/$USERNAME/repos" \
+  HOMEPAGE="${GITADMIN_DEFAULT_USER_DOMAIN:-http://github.com/$GITADMIN_DEFAULT_USERNAME}"
+  GITADMIN_DEFAULT_USERNAME="$1"
+  REPONAME="$2"
+  DESCR="${3:-$DESCR}"
+  SITE="${4:-$HOMEPAGE}"
+  VISIBLE="${5:-$VISIBLE}"
+  curl -q -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" -LSs "https://api.github.com/orgs/$GITADMIN_DEFAULT_USERNAME/repos" \
     -d "{\"name\": \"$REPONAME\", \"description\": \"$DESCR\", \"homepage\": \"$SITE\", \"visibility\": \"${VISIBLE:-public}\", \"has_issues\": \"true\" }" &>"$GITADMIN_TEMP_FILE"
 
-  if grep -qis '"full_name": "'$USERNAME'/'$REPONAME'"' "$GITADMIN_TEMP_FILE"; then
-    printf_green "https://github.com/$USERNAME/$REPONAME has been created"
+  if grep -qis '"full_name": "'$GITADMIN_DEFAULT_USERNAME'/'$REPONAME'"' "$GITADMIN_TEMP_FILE"; then
+    printf_green "https://github.com/$GITADMIN_DEFAULT_USERNAME/$REPONAME has been created"
     return 0
   elif grep -qis 'name already exists on this account' "$GITADMIN_TEMP_FILE"; then
-    printf_green "https://github.com/$USERNAME/$REPONAME already exists"
+    printf_green "https://github.com/$GITADMIN_DEFAULT_USERNAME/$REPONAME already exists"
     return 0
   elif grep -qis 'Not Found' "$GITADMIN_TEMP_FILE"; then
     return 1
   else
-    if [[ -f "$GITADMIN_TEMP_FILE" ]]; then
+    if [ -f "$GITADMIN_TEMP_FILE" ]; then
       cat "$GITADMIN_TEMP_FILE" | jq -r '.errors | .[].message' 2>/dev/null | printf_readline
     fi
     return 1
@@ -976,24 +1296,25 @@ curl_orgs_create() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 curl_user_create() {
+  local HOMEPAGE="" GITADMIN_DEFAULT_USERNAME="" REPONAME="" DESCR SITE="" VISIBLE=""
   [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_exit "ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set"
-  local HOMEPAGE="${GITADMIN_DEFAULT_USER_DOMAIN:-http://github.com/$USERNAME}"
-  local USERNAME="$1"
-  local REPONAME="$2"
-  local DESCR="${3:-$DESCR}"
-  local SITE="${4:-$HOMEPAGE}"
-  local VISIBLE="${5:-$VISIBLE}"
+  HOMEPAGE="${GITADMIN_DEFAULT_USER_DOMAIN:-http://github.com/$GITADMIN_DEFAULT_USERNAME}"
+  GITADMIN_DEFAULT_USERNAME="$1"
+  REPONAME="$2"
+  DESCR="${3:-$DESCR}"
+  SITE="${4:-$HOMEPAGE}"
+  VISIBLE="${5:-$VISIBLE}"
   curl -q -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" -LSs "https://api.github.com/user/repos" \
     -d "{\"name\": \"$REPONAME\", \"description\": \"$DESCR\", \"homepage\": \"$SITE\", \"visibility\": \"${VISIBLE:-public}\", \"has_issues\": \"true\", \"has_projects\": \"false\" }" &>"$GITADMIN_TEMP_FILE"
 
-  if grep -qis '"full_name": "'$USERNAME'/'$REPONAME'"' "$GITADMIN_TEMP_FILE"; then
+  if grep -qis '"full_name": "'$GITADMIN_DEFAULT_USERNAME'/'$REPONAME'"' "$GITADMIN_TEMP_FILE"; then
     return 0
   elif grep -qis 'name already exists on this account' "$GITADMIN_TEMP_FILE"; then
     return 0
   elif grep -qis 'Not Found' "$GITADMIN_TEMP_FILE"; then
     return 1
   else
-    if [[ -f "$GITADMIN_TEMP_FILE" ]]; then
+    if [ -f "$GITADMIN_TEMP_FILE" ]; then
       cat "$GITADMIN_TEMP_FILE" | jq -r '.errors | .[].message' 2>/dev/null | printf_readline
     fi
     return 1
@@ -1002,13 +1323,14 @@ curl_user_create() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Creates a new repo on github
 ghcreate() {
+  local git_user="" git_repo="" git_describe="" git_failed="" git_succes GITADMIN_EXITCODE
   [ "$GITADMIN_GITHUB_AUTH_TOKEN" = "" ] && printf_red "No auth token set - GITHUB_ACCESS_TOKEN\n" && return 1
-  local git_user="$1"
-  local git_repo="$2"
-  local git_describe="$3"
-  local git_failed="👿 Creation of $git_repo failed 👿"
-  local git_succes="😻 Success: https://github.com/$1/$2 😻"
-  local GITADMIN_EXITCODE=0
+  git_user="$1"
+  git_repo="$2"
+  git_describe="$3"
+  git_failed="👿 Creation of $git_repo failed 👿"
+  git_succes="😻 Success: https://github.com/$1/$2 😻"
+  GITADMIN_EXITCODE=0
   printf_blue "This may take a few seconds."
   printf_blue "Sending your request to the github API."
   printf_green "Creating $git_repo for user $git_user"
@@ -1030,10 +1352,11 @@ ghsinglerepo() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # push local repo
 git_push_single() {
-  SUCCESS_MSG() { echo "👾 Push to $(__git_remote_origin "${projectdir:-$GITADMIN_CWD}") has completed 👾"; }
-  FAILED_MSG() { echo "😿 Push to $(__git_remote_origin "${projectdir:-$GITADMIN_CWD}") has failed 😿"; }
-  local git_dir="$(__basedir "${1:-$GITADMIN_CWD}/.git")"
-  local GITADMIN_EXITCODE=0
+  local git_dir="" GITADMIN_EXITCODE="" username="" user_repo=""
+  SUCCESS_MSG() { echo "👾 Push to $(__git_remote_origin "${GITADMIN_NEW_PROJECT_DIR:-$GITADMIN_CWD}") has completed 👾"; }
+  FAILED_MSG() { echo "😿 Push to $(__git_remote_origin "${GITADMIN_NEW_PROJECT_DIR:-$GITADMIN_CWD}") has failed 😿"; }
+  git_dir="$(__basedir "${1:-$GITADMIN_CWD}/.git")"
+  GITADMIN_EXITCODE=0
   if [ -d "$git_dir/.git" ]; then
     printf_custom "4" "🐛 Pushing the repo in $git_dir 🐛"
     __git_push "$git_dir" && GITADMIN_EXITCODE=0 || GITADMIN_EXITCODE=1
@@ -1041,16 +1364,16 @@ git_push_single() {
   else
     if [ -n "$1" ]; then
       GITADMIN_CWD_NAME="$(__git_hostname "$1")"
-      projectdir="$1"
+      GITADMIN_NEW_PROJECT_DIR="$1"
       __git_username_repo "$1"
-      local username="$username"
-      local userrepo="$userrepo"
+      username="$username"
+      userrepo="$userrepo"
     else
-      projectdir="${projectdir:-$PROJECT_BASE/$GITADMIN_CWD_NAME/$username/$userrepo}"
+      GITADMIN_NEW_PROJECT_DIR="${GITADMIN_NEW_PROJECT_DIR:-$GITADMIN_DEFAULT_PROJECT_DIR/$GITADMIN_CWD_NAME/$username/$userrepo}"
     fi
-    if [ -d "$projectdir/.git" ]; then
-      printf_custom "4" "🐛 Pushing the repo in $projectdir 🐛"
-      __git_push "$projectdir" && GITADMIN_EXITCODE=0 || GITADMIN_EXITCODE=1
+    if [ -d "$GITADMIN_NEW_PROJECT_DIR/.git" ]; then
+      printf_custom "4" "🐛 Pushing the repo in $GITADMIN_NEW_PROJECT_DIR 🐛"
+      __git_push "$GITADMIN_NEW_PROJECT_DIR" && GITADMIN_EXITCODE=0 || GITADMIN_EXITCODE=1
       __getexitcode $GITADMIN_EXITCODE "$(SUCCESS_MSG)" "$(FAILED_MSG)"
     else
       GITADMIN_EXITCODE=1
@@ -1061,10 +1384,11 @@ git_push_single() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # pull a single repo
 git_pull_single() {
-  SUCCESS_MSG() { echo "Pull from $(__git_remote_origin "${projectdir:-$GITADMIN_CWD}") has completed"; }
-  FAILED_MSG() { echo "Pull from $(__git_remote_origin "${projectdir:-$GITADMIN_CWD}") has failed"; }
-  local GITADMIN_CWD="$(__basedir "${1:-$GITADMIN_CWD}/.git")"
-  local GITADMIN_EXITCODE=0
+  local GITADMIN_CWD="" GITADMIN_EXITCODE="" GITADMIN_NEW_PROJECT_DIR=""
+  SUCCESS_MSG() { echo "Pull from $(__git_remote_origin "${GITADMIN_NEW_PROJECT_DIR:-$GITADMIN_CWD}") has completed"; }
+  FAILED_MSG() { echo "Pull from $(__git_remote_origin "${GITADMIN_NEW_PROJECT_DIR:-$GITADMIN_CWD}") has failed"; }
+  GITADMIN_CWD="$(__basedir "${1:-$GITADMIN_CWD}/.git")"
+  GITADMIN_EXITCODE=0
   if [ -d "$GITADMIN_CWD/.git" ]; then
     printf_custom "4" "Pulling the repo in $GITADMIN_CWD"
     __git_pull "$GITADMIN_CWD" && GITADMIN_EXITCODE=0 || GITADMIN_EXITCODE=1
@@ -1072,15 +1396,15 @@ git_pull_single() {
   else
     if [ -n "$1" ]; then
       GITADMIN_CWD_NAME="$(__git_hostname "$1")"
-      projectdir="$1"
+      GITADMIN_NEW_PROJECT_DIR="$1"
       __git_username_repo "$1"
     else
-      projectdir="${projectdir:-$PROJECT_BASE/$GITADMIN_CWD_NAME/$username/$userrepo}"
+      GITADMIN_NEW_PROJECT_DIR="${GITADMIN_NEW_PROJECT_DIR:-$GITADMIN_DEFAULT_PROJECT_DIR/$GITADMIN_CWD_NAME/$username/$userrepo}"
     fi
-    if [ -d "$projectdir/.git" ]; then
-      printf_custom "4" "Pulling the repo in $projectdir"
-      __git_pull "$projectdir" && GITADMIN_EXITCODE=0 || GITADMIN_EXITCODE=1
-      __getexitcode $projectdir "$(SUCCESS_MSG)" "$(FAILED_MSG)"
+    if [ -d "$GITADMIN_NEW_PROJECT_DIR/.git" ]; then
+      printf_custom "4" "Pulling the repo in $GITADMIN_NEW_PROJECT_DIR"
+      __git_pull "$GITADMIN_NEW_PROJECT_DIR" && GITADMIN_EXITCODE=0 || GITADMIN_EXITCODE=1
+      __getexitcode $GITADMIN_NEW_PROJECT_DIR "$(SUCCESS_MSG)" "$(FAILED_MSG)"
     else
       return 1
     fi
@@ -1090,20 +1414,21 @@ git_pull_single() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # clone a single repo
 git_clone_single() {
+  local git_url="" GITADMIN_NEW_PROJECT_DIR="" FAILED_MSG="" SUCCESS_MSG="" GITADMIN_EXITCODE=""
   __git_username_repo "$1"
-  local git_url="$1"
-  local projectdir="${2:-$projectdir}"
-  local projectdir="${projectdir:-$PROJECT_BASE/$GITADMIN_CWD_NAME/$username/$userrepo}"
-  local FAILED_MSG="😿 Cloning from $git_url has failed 😿"
-  local SUCCESS_MSG="😻 Cloning from $git_url has completed 😻"
-  local GITADMIN_EXITCODE=0
-  if [ -d "$projectdir/.git" ]; then
-    printf_custom "4" "👾 Updating the repo in $projectdir 👾"
-    __git_pull "$projectdir" && GITADMIN_EXITCODE=0 || GITADMIN_EXITCODE=1
+  git_url="$1"
+  GITADMIN_NEW_PROJECT_DIR="${2:-$GITADMIN_NEW_PROJECT_DIR}"
+  GITADMIN_NEW_PROJECT_DIR="${GITADMIN_NEW_PROJECT_DIR:-$GITADMIN_DEFAULT_PROJECT_DIR/$GITADMIN_CWD_NAME/$username/$userrepo}"
+  FAILED_MSG="😿 Cloning from $git_url has failed 😿"
+  SUCCESS_MSG="😻 Cloning from $git_url has completed 😻"
+  GITADMIN_EXITCODE=0
+  if [ -d "$GITADMIN_NEW_PROJECT_DIR/.git" ]; then
+    printf_custom "4" "👾 Updating the repo in $GITADMIN_NEW_PROJECT_DIR 👾"
+    __git_pull "$GITADMIN_NEW_PROJECT_DIR" && GITADMIN_EXITCODE=0 || GITADMIN_EXITCODE=1
     __getexitcode $GITADMIN_EXITCODE "$SUCCESS_MSG" "$FAILED_MSG"
   else
-    printf_custom "4" "👾 Cloning the repo to $projectdir 👾 "
-    __git_clone "$git_url" "$projectdir" && GITADMIN_EXITCODE=0 || GITADMIN_EXITCODE=1
+    printf_custom "4" "👾 Cloning the repo to $GITADMIN_NEW_PROJECT_DIR 👾 "
+    __git_clone "$git_url" "$GITADMIN_NEW_PROJECT_DIR" && GITADMIN_EXITCODE=0 || GITADMIN_EXITCODE=1
     __getexitcode $GITADMIN_EXITCODE "$SUCCESS_MSG" "$FAILED_MSG"
   fi
   exit "$?"
@@ -1113,13 +1438,13 @@ git_clone_single() {
 git_update_loop() {
   if [[ "$*" =~ "--while" ]]; then
     while true; do
-      for project in $(ls -d "$HOME"/Projects/*/*/*); do
+      for project in $(ls -d "$GITADMIN_DEFAULT_PROJECT_DIR"/*/*/*); do
         printf_green "Updating $project $(__devnull __git_pull "$project") $(__getexitcode)"
       done && clear
       printf_custom "3" "Sleeping for a minute $(sleep 60)"
     done
   else
-    for project in $(ls -d "$HOME"/Projects/*/*/*); do
+    for project in $(ls -d "$GITADMIN_DEFAULT_PROJECT_DIR"/*/*/*); do
       printf_green "Updating $project $(__devnull __git_pull "$project") $(__getexitcode)"
     done
   fi
@@ -1148,8 +1473,9 @@ __run_cron() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Shorten URL
 git_io() {
-  local short_url="$1"
-  local short_name="$2"
+  local short_url="" short_name=""
+  short_url="$1"
+  short_name="$2"
   printf_blue "Attempting to create $short_url on git.io"
   if [ -n "$short_name" ]; then
     MESSAGE="$(curl -q -LSsi https://git.io -F "url=$short_url" -F "code=$short_name" 2>/dev/null | grep 'Location: ')"
@@ -1165,10 +1491,11 @@ git_io() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # rename branch
 __rename_branch_api() {
+  local git_branch="" git_user="" git_repo=""
   [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_exit "ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set"
-  local git_branch="$1"
-  local git_user="${2:-$(basename "$(dirname "$GITADMIN_CWD")")}"
-  local git_repo="${3:-$(basename "$GITADMIN_CWD")}"
+  git_branch="$1"
+  git_user="${2:-$(basename "$(dirname "$GITADMIN_CWD")")}"
+  git_repo="${3:-$(basename "$GITADMIN_CWD")}"
   curl -q -LSs -X PATCH -H "Accept: application/vnd.github.v3+json" -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" "https://api.github.com/repos/$git_user/$git_repo" \
     -d '{"default_branch":"'$git_branch'"}' | grep -qs '"default_branch": "'$git_branch'"' &>/dev/null &&
     git -C "$GITADMIN_CWD" push --delete origin ${git_old_branch:-master} -fq &>/dev/null &&
@@ -1178,9 +1505,10 @@ __rename_branch_api() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # rename master to main
 __rename_branch() {
-  local git_branch="$1"
-  local git_user="${2:-$(basename "$(dirname "$GITADMIN_CWD")")}"
-  local git_repo="${3:-$(basename "$GITADMIN_CWD")}"
+  local git_branch="" git_user="" git_repo=""
+  git_branch="$1"
+  git_user="${2:-$(basename "$(dirname "$GITADMIN_CWD")")}"
+  git_repo="${3:-$(basename "$GITADMIN_CWD")}"
   printf_blue "Changing git branch to $git_branch on $git_repo"
   git -C "$GITADMIN_CWD" branch -m ${git_old_branch:-master} "$git_branch" &>/dev/null
   git -C "$GITADMIN_CWD" push -u origin "$git_branch" -fq &>/dev/null
@@ -1198,139 +1526,201 @@ __rename_branch() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # main cloning function
 main() {
+  local git_user="" git_repo="" git_base="" git_dir="" git_failed="" git_succes="" user_repo=""
   sleep 3
   __git_username_repo "$1"
-  local git_user="$1"
-  local git_repo="${2:-$REPO_URL}"
-  local git_base="${projectdir:-$GITADMIN_DEFAULT_GIT_DIR/github}"
-  printf_yellow "ProjectDir: ${projectdir:-$PROJECT_DIR/$USERNAME}"
+  git_user="$1"
+  git_repo="${2:-$GITADMIN_DEFAULT_REPO_BASE}"
+  git_base="${GITADMIN_NEW_PROJECT_DIR:-$GITADMIN_DEFAULT_PROJECT_DIR/github}"
+  printf_yellow "ProjectDir: ${GITADMIN_NEW_PROJECT_DIR:-$GITADMIN_DEFAULT_PROJECT_DIR/$GITADMIN_DEFAULT_USERNAME}"
   printf_yellow "BaseRepo URL: $git_repo"
   echo ""
   for i in $(<"$GITADMIN_TEMP_FILE"); do
-    local git_dir="$git_base/$git_user/$i"
-    local user_repo="$git_repo/$i"
+    git_dir="$git_base/$git_user/$i"
+    user_repo="$git_repo/$i"
     if [ -d "$git_base/$git_user/$i/.git" ]; then
-      local git_failed="👿 Failed to update repo in $git_dir 👿"
-      local git_sucess="😼 Updated git repo in $git_dir 😼 "
+      git_failed="👿 Failed to update repo in $git_dir 👿"
+      git_succes="😼 Updated git repo in $git_dir 😼 "
       printf_purple "💽 Now running git pull $user_repo 💽"
       if [ -f "$git_dir/$GITADMIN_DEFAULT_MAINCONFIG" ]; then
         cp -Rf "$git_dir/$GITADMIN_DEFAULT_MAINCONFIG" "$git_dir/.git/config"
       fi
       __git_pull "$git_dir"
-      __getexitcode "$git_sucess" "$git_failed"
+      __getexitcode "$git_succes" "$git_failed"
     else
       git_failed="👿 Failed to clone to $git_dir 👿 "
-      git_sucess="😼 Successfully cloned to $git_dir 😼 "
+      git_succes="😼 Successfully cloned to $git_dir 😼 "
       printf_purple "🌀 Now running git clone $user_repo 🌀"
       __git_clone "$user_repo" "$git_dir"
-      __getexitcode "$git_sucess" "$git_failed"
+      __getexitcode "$git_succes" "$git_failed"
     fi
     echo ""
   done
   exit "${EXIT:-$?}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Default variables
-exitCode="0"
+__cd_into() {
+  [ "$GITADMIN_AUTO_CD" = "true" ] || return 0
+  if [ $PWD != "$1" ] || [ "$GITADMIN_CWD" != "$1" ]; then
+    if [ -d "$1" ] && builtin cd "$1"; then
+      printf_green "Changing the directory to $1"
+      printf_yellow "Type exit to return to your previous directory"
+      exec bash || exit 1
+      exit $?
+    else
+      exit 1
+    fi
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__strip_git_url() { echo "$1" | sed 's|\.git||g' | sed -e "s/\r//g"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined variables/import external variables
+REPO_URL="${REPO_URL:-}"
+PROJECT_DIR="${PROJECT_DIR:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application Folders
-GITADMIN_LOG_DIR="${GITADMIN_LOG_DIR:-$HOME/.local/log/gitadmin}"
-GITADMIN_CACHE_DIR="${GITADMIN_CACHE_DIR:-$HOME/.cache/gitadmin}"
+GITADMIN_CONFIG_FILE="${GITADMIN_CONFIG_FILE:-settings.conf}"
 GITADMIN_CONFIG_DIR="${GITADMIN_CONFIG_DIR:-$HOME/.config/myscripts/gitadmin}"
 GITADMIN_CONFIG_BACKUP_DIR="${GITADMIN_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/gitadmin/backups}"
+GITADMIN_LOG_DIR="${GITADMIN_LOG_DIR:-$HOME/.local/log/gitadmin}"
 GITADMIN_TEMP_DIR="${GITADMIN_TEMP_DIR:-$HOME/.local/tmp/system_scripts/gitadmin}"
-GITADMIN_OPTIONS_DIR="${GITADMIN_OPTIONS_DIR:-$HOME/.local/share/myscripts/gitadmin/options}"
-GITADMIN_CONFIG_FILE="${GITADMIN_CONFIG_FILE:-settings.conf}"
+GITADMIN_CACHE_DIR="${GITADMIN_CACHE_DIR:-$HOME/.cache/gitadmin}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
-GITADMIN_OUTPUT_COLOR="${GITADMIN_OUTPUT_COLOR:-4}"
-GITADMIN_OUTPUT_COLOR_2="${GITADMIN_OUTPUT_COLOR:-6}"
+GITADMIN_OUTPUT_COLOR_1="${GITADMIN_OUTPUT_COLOR_1:-4}"
+GITADMIN_OUTPUT_COLOR_2="${GITADMIN_OUTPUT_COLOR_2:-5}"
 GITADMIN_OUTPUT_COLOR_GOOD="${GITADMIN_OUTPUT_COLOR_GOOD:-2}"
 GITADMIN_OUTPUT_COLOR_ERROR="${GITADMIN_OUTPUT_COLOR_ERROR:-1}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Notification Settings
-GITADMIN_GOOD_MESSAGE="${GITADMIN_GOOD_MESSAGE:-Everything Went OK}"
-GITADMIN_ERROR_MESSAGE="${GITADMIN_ERROR_MESSAGE:-Well something seems to have gone wrong}"
 GITADMIN_NOTIFY_ENABLED="${GITADMIN_NOTIFY_ENABLED:-yes}"
-GITADMIN_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
-GITADMIN_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$GITADMIN_NOTIFY_CLIENT_ICON}"
+GITADMIN_GOOD_NAME="${GITADMIN_GOOD_NAME:-Great:}"
+GITADMIN_ERROR_NAME="${GITADMIN_ERROR_NAME:-Error:}"
+GITADMIN_GOOD_MESSAGE="${GITADMIN_GOOD_MESSAGE:-No errors reported}"
+GITADMIN_ERROR_MESSAGE="${GITADMIN_ERROR_MESSAGE:-Errors were reported}"
+GITADMIN_NOTIFY_CLIENT_NAME="${GITADMIN_NOTIFY_CLIENT_NAME:-$APPNAME}"
+GITADMIN_NOTIFY_CLIENT_ICON="${GITADMIN_NOTIFY_CLIENT_ICON:-notification-new}"
+GITADMIN_NOTIFY_CLIENT_URGENCY="${GITADMIN_NOTIFY_CLIENT_URGENCY:-normal}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional Variables
-GITADMIN_VERSION_DATE_FORMAT="${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}"
-GITADMIN_DEFAULT_BRANCH="${GITADMIN_DEFAULT_BRANCH:-main}"
 GITADMIN_DEFAULT_USERNAME="${GITADMIN_DEFAULT_USERNAME:-$GITHUB_USERNAME}"
-GITADMIN_GITHUB_AUTH_TOKEN="${GITADMIN_GITHUB_AUTH_TOKEN:-$GITHUB_ACCESS_TOKEN}"
+GITADMIN_DEFAULT_BRANCH="${GITADMIN_DEFAULT_BRANCH:-main}"
 GITADMIN_DEFAULT_REPO_BASE="${REPO_URL:-https://github.com}"
-GITADMIN_DEFAULT_LICENSE="${MY_LICENSE_FILE:-$CASJAYSDEVDIR/templates/wtfpl.md}"
-GITADMIN_VERSION_DATE_FORMAT="${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}"
-GITADMIN_DOMAIN_TEMPLATE="${GITADMIN_DOMAIN_TEMPLATE:-https://github.com/casjay-templates/domain-template}"
 GITADMIN_DEFAULT_README="${GITADMIN_DEFAULT_README:-default}"
-GITADMIN_DEFAULT_GIT_DIR="${GITADMIN_DEFAULT_GIT_DIR:-$HOME/Projects}"
-GITADMIN_DEFAULT_GIT_DIR_GITHUB="${GITADMIN_DEFAULT_GIT_DIR_GITHUB:-$GITADMIN_DEFAULT_GIT_DIR/github}"
-GITADMIN_DEFAULT_GIT_DIR_GITLAB="${GITADMIN_DEFAULT_GIT_DIR_GITLAB:-$GITADMIN_DEFAULT_GIT_DIR/gitlab}"
-GITADMIN_DEFAULT_GIT_DIR_PRIVATE="${GITADMIN_DEFAULT_GIT_DIR_PRIVATE:-$GITADMIN_DEFAULT_GIT_DIR/Private}"
-GITADMIN_PERSONAL_GIT_HOST="${GITADMIN_PERSONAL_GIT_HOST:-$GIT_PRIVATE_URL}"
+GITADMIN_DEFAULT_LICENSE="${MY_LICENSE_FILE:-$CASJAYSDEVDIR/templates/wtfpl.md}"
+GITADMIN_DEFAULT_PROJECT_DIR="${GITADMIN_DEFAULT_PROJECT_DIR:-$HOME/Projects}"
+GITADMIN_DEFAULT_GIT_DIR_GITHUB="${GITADMIN_DEFAULT_GIT_DIR_GITHUB:-$GITADMIN_DEFAULT_PROJECT_DIR/github}"
+GITADMIN_DEFAULT_GIT_DIR_GITLAB="${GITADMIN_DEFAULT_GIT_DIR_GITLAB:-$GITADMIN_DEFAULT_PROJECT_DIR/gitlab}"
+GITADMIN_DEFAULT_GIT_DIR_PRIVATE="${GITADMIN_DEFAULT_GIT_DIR_PRIVATE:-$GITADMIN_DEFAULT_PROJECT_DIR/Private}"
 GITADMIN_DEFAULT_USER_DOMAIN="${GITADMIN_DEFAULT_USER_DOMAIN:-}"
+GITADMIN_PERSONAL_GIT_HOST="${GITADMIN_PERSONAL_GIT_HOST:-$GIT_PRIVATE_URL}"
+GITADMIN_GITHUB_AUTH_TOKEN="${GITADMIN_GITHUB_AUTH_TOKEN:-$GITHUB_ACCESS_TOKEN}"
+GITADMIN_DEFAULT_VERSION_FILE="${GITADMIN_DEFAULT_VERSION_FILE:-version.txt}"
+GITADMIN_DEFAULT_VERSION_FORMAT="${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}"
 GITADMIN_GITLAB_AUTH_TOKEN="${GITADMIN_GITLAB_AUTH_TOKEN:-$GITLAB_ACCESS_TOKEN}"
 GITADMIN_PRIVATE_AUTH_TOKEN="${GITADMIN_PRIVATE_AUTH_TOKEN:-$GIT_PRIVATE_ACCESS_TOKEN}"
+GITADMIN_DOMAIN_TEMPLATE="${GITADMIN_DOMAIN_TEMPLATE:-https://github.com/casjay-templates/domain-template}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Generate non-existing config files
-[ -f "$GITADMIN_CONFIG_DIR/$GITADMIN_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# Generate config files
+[ -f "$GITADMIN_CONFIG_DIR/$GITADMIN_CONFIG_FILE" ] ||
+  [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import config
-[ -f "$GITADMIN_CONFIG_DIR/$GITADMIN_CONFIG_FILE" ] && . "$GITADMIN_CONFIG_DIR/$GITADMIN_CONFIG_FILE"
+[ -f "$GITADMIN_CONFIG_DIR/$GITADMIN_CONFIG_FILE" ] &&
+  . "$GITADMIN_CONFIG_DIR/$GITADMIN_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Ensure Directories and files exist
-[ -d "$GITADMIN_LOG_DIR" ] || mkdir -p "$GITADMIN_LOG_DIR" &>/dev/null
-[ -d "$GITADMIN_TEMP_DIR" ] || mkdir -p "$GITADMIN_TEMP_DIR" &>/dev/null
-[ -d "$GITADMIN_CACHE_DIR" ] || mkdir -p "$GITADMIN_CACHE_DIR" &>/dev/null
+# Ensure Directories exist
+[ -d "$GITADMIN_LOG_DIR" ] ||
+  mkdir -p "$GITADMIN_LOG_DIR" |& __devnull
+[ -d "$GITADMIN_TEMP_DIR" ] ||
+  mkdir -p "$GITADMIN_TEMP_DIR" |& __devnull
+[ -d "$GITADMIN_CACHE_DIR" ] ||
+  mkdir -p "$GITADMIN_CACHE_DIR" |& __devnull
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 GITADMIN_TEMP_FILE="${GITADMIN_TEMP_FILE:-$(mktemp $GITADMIN_TEMP_DIR/XXXXXX 2>/dev/null)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup trap to remove temp file
-trap 'exitCode=${exitCode:-$?};[ -n "$GITADMIN_TEMP_FILE" ] && [ -f "$GITADMIN_TEMP_FILE" ] && rm -Rf "$GITADMIN_TEMP_FILE" &>/dev/null' EXIT
+trap '__trap_exit' EXIT
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup notification function
-if [ "$GITADMIN_NOTIFY_ENABLED" = "yes" ]; then
-  __notifications() {
-    export NOTIFY_GOOD_MESSAGE="${GITADMIN_GOOD_MESSAGE}"
-    export NOTIFY_ERROR_MESSAGE="${GITADMIN_ERROR_MESSAGE}"
-    export NOTIFY_CLIENT_NAME="${GITADMIN_NOTIFY_CLIENT_NAME}"
-    export NOTIFY_CLIENT_ICON="${GITADMIN_NOTIFY_CLIENT_ICON}"
-    notifications "$@" || return 1
-  }
-else
-  __notifications() { false; }
-fi
+__notifications() {
+  __cmd_exists notifications || return
+  [ "$GITADMIN_NOTIFY_ENABLED" = "yes" ] || return
+  [ "$SEND_NOTIFICATION" = "no" ] && return
+  (
+    set +x
+    export SCRIPT_OPTS="" _DEBUG=""
+    export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$GITADMIN_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$GITADMIN_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$GITADMIN_NOTIFY_CLIENT_ICON}"
+    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$GITADMIN_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$GITADMIN_NOTIFY_CLIENT_URGENCY}"
+    notifications "$@"
+    retval=$?
+    return $retval
+  ) |& __devnull &
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Show warn message if variables are missing
-[ -n "$GITADMIN_DEFAULT_USERNAME" ] || printf_yellow "Please set GITADMIN_DEFAULT_USERNAME or GITHUB_USERNAME variable in settings"
-[ -n "$GITADMIN_GITHUB_AUTH_TOKEN" ] || printf_yellow "Please set GITADMIN_GITHUB_AUTH_TOKEN or GITHUB_ACCESS_TOKEN variable in settings"
-if [ -d "$1" ]; then
-  GITADMIN_CWD="$1"
-  shift 1
-else
-  GITADMIN_CWD="$PWD"
-fi
-[ "$GITADMIN_CWD" = "." ] && GITADMIN_CWD="$(__basedir ".")"
+# Set custom actions
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set additional variables/Argument/Option settings
-SETARGS="$*"
+# Argument/Option settings
+SETARGS=("$@")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SHORTOPTS="u:,o:,s:"
-LONGOPTS="options,config,version,help,dir:,user:,org:,single:,nolicense,noreadme,automated"
+SHORTOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
+LONGOPTS+=",user:,org:,single:,nolicense,noreadme,automated,cd"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="repos stow setup newsite private gitlab github single init gist orgs remote list "
 ARRAY+="delete create pull clone push user update commit branch log status cron issues squash "
 ARRAY+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
+LIST=""
+LIST+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$APPNAME" -- "$@" 2>/dev/null)
 eval set -- "${setopts[@]}" 2>/dev/null
 while :; do
-  case $1 in
+  case "$1" in
+  --raw)
+    shift 1
+    export SHOW_RAW="true"
+    printf_column() { tee | grep '^'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    ;;
+  --debug)
+    shift 1
+    set -xo pipefail
+    export SCRIPT_OPTS="--debug"
+    export _DEBUG="on"
+    __devnull() { tee || return 1; }
+    __devnull2() { eval "$@" |& tee || return 1; }
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
+    ;;
   --options)
     shift 1
-    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
-    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
-    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
-    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' 4
+    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' 4
+    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
     exit $?
     ;;
   --version)
@@ -1348,25 +1738,31 @@ while :; do
     __gen_config
     exit $?
     ;;
+  --silent)
+    shift 1
+    GITADMIN_SILENT="true"
+    ;;
   --dir)
+    CWD_IS_SET="TRUE"
     GITADMIN_CWD="$2"
+    [ -d "$GITADMIN_CWD" ] || mkdir -p "$GITADMIN_CWD" |& __devnull
     shift 2
     ;;
   -s | --single)
     shift 1
-    [ "$1" == "help" ] && printf_help "Usage: $APPNAME --single | clone a single repo"
+    [ "$2" == "help" ] && printf_help "Usage: $APPNAME --single | clone a single repo"
     ghsinglerepo "$@"
     exit $?
     ;;
   -u | --user)
-    [ "$1" == "help" ] && printf_help "Usage: $APPNAME --user | List user repos"
-    __api_user "${2:-$USERNAME}" | jq -r '.[] | .name' 2>/dev/null | printf_column '4'
+    [ "$2" == "help" ] && printf_help "Usage: $APPNAME --user | List user repos"
+    __api_user "${2:-$GITADMIN_DEFAULT_USERNAME}" | jq -r '.[] | .name' 2>/dev/null | printf_column '4'
     shift 2
     exit $?
     ;;
   -o | --org)
-    [ "$1" == "help" ] && printf_help "Usage: $APPNAME --org | List organization repos"
-    __api_org "${2:-$USERNAME}" | jq -r '.[] | .name' 2>/dev/null | printf_column '4'
+    [ "$2" == "help" ] && printf_help "Usage: $APPNAME --org | List organization repos"
+    __api_org "${2:-$GITADMIN_DEFAULT_USERNAME}" | jq -r '.[] | .name' 2>/dev/null | printf_column '4'
     shift 2
     exit $?
     ;;
@@ -1382,88 +1778,125 @@ while :; do
     shift 1
     AUTOMATED="true"
     ;;
+  --cd)
+    shift 1
+    GITADMIN_AUTO_CD="true"
+    ;;
   --)
     shift 1
     break
     ;;
   esac
 done
-#set -- "$SETARGS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Actions based on env
+# Get directory from args
+# set -- "$@"
+# for arg in "$@"; do
+# if [ -d "$arg" ]; then
+# GITADMIN_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
+# elif [ -f "$arg" ]; then
+# GITADMIN_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
+# else
+# SET_NEW_ARGS+=("$arg")
+# fi
+# done
+# set -- "${SET_NEW_ARGS[@]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set directory to first argument
+# [ -d "$1" ] && GITADMIN_CWD="$1" && shift 1 || GITADMIN_CWD="${GITADMIN_CWD:-$PWD}"
+GITADMIN_CWD="$(realpath "${GITADMIN_CWD:-$PWD}" 2>/dev/null)"
+# if [ -d "$GITADMIN_CWD" ] && cd "$GITADMIN_CWD"; then
+# if [ "$GITADMIN_SILENT" != "true" ]; then
+# printf_cyan "Setting working dir to $GITADMIN_CWD"
+# fi
+# else
+# printf_exit "💔 $GITADMIN_CWD does not exist 💔"
+# fi
+export GITADMIN_CWD
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set actions based on variables
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
-cmd_exists --error --ask bash git curl || exit 1 # exit 1 if not found
-#am_i_online --error || exit 1     # exit 1 if no internet
+#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+#cmd_exists --error --ask bash || exit 3 # exit 3 if not found
+#am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
-unset PREVREPO
-GITADMIN_CWD="$(__git_top_dir "$GITADMIN_CWD" 2>/dev/null)"
-USERNAME="${GITADMIN_DEFAULT_USERNAME:-}"
-REPO_URL="${REPO_URL:-$GITADMIN_DEFAULT_REPO_BASE}"
-PROJECT_BASE="$GITADMIN_DEFAULT_GIT_DIR"
-PROJECT_DIR="${PROJECT_DIR:-$PROJECT_BASE}"
-GITADMIN_TEMP_FILE="${GITADMIN_TEMP_FILE:-/tmp/gitadmin-XXXXXXXXX}"
-VERSIONFILE="$(__git_top_dir "$GITADMIN_CWD" 2>/dev/null)/version.txt"
-VERSION_DATE_FORMAT="${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}"
-DOMAIN_TEMPLATE="$GITADMIN_DOMAIN_TEMPLATE"
+PREVREPO=""
+[ -d "$GITADMIN_CWD/.git" ] && GITADMIN_CWD="$(__git_top_dir "$GITADMIN_CWD" 2>/dev/null)"
+[ -f "$GITADMIN_CWD/$GITADMIN_DEFAULT_VERSION_FILE" ] && GITADMIN_DEFAULT_VERSION_FILE="$GITADMIN_CWD/$GITADMIN_DEFAULT_VERSION_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+[ -n "$GITADMIN_DEFAULT_USERNAME" ] || printf_yellow "Please set GITADMIN_DEFAULT_USERNAME or GITHUB_USERNAME variable in settings"
+[ -n "$GITADMIN_GITHUB_AUTH_TOKEN" ] || printf_yellow "Please set GITADMIN_GITHUB_AUTH_TOKEN or GITHUB_ACCESS_TOKEN variable in settings"
 if [ "$(git config --get user.name | wc -m)" -lt 2 ]; then
   printf_read_input "What is you Name" "120" "GIT_NAME"
   git config --global user.name "$GIT_NAME" 2>/dev/null
+  unset GIT_NAME
 fi
 if [ "$(git config --get user.email | wc -m)" -lt 2 ]; then
   printf_read_input "What is you Email" "120" "GIT_EMAIL"
   git config --global user.email "$GIT_EMAIL" 2>/dev/null
+  unset GIT_EMAIL
 fi
-[ -d "$GITADMIN_CWD" ] || printf_exit "$GITADMIN_CWD doesn't seem to be a directory"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 case "$1" in
-shorten)
+shorten) # github url shortner
   shift 1
-  [[ "$1" = "help" || -z "$1" ]] && printf_help "Usage: gitadmin shorten [url] [name]"
+  { [ "$1" = "help" ] || [ -z "$1" ]; } && printf_help "Usage: gitadmin shorten [url] [name]"
   git_io "$@"
   ;;
 
-latest)
+latest) # get the latest release
   shift 1
-  [[ "$1" = "help" || -z "$1" ]] && printf_help "Usage: gitadmin latest [userName] [repoName] [arch]"
+  { [ "$1" = "help" ] || [ -z "$1" ]; } && printf_help "Usage: gitadmin latest [userName] [repoName] [arch]"
   printf_red "This has been moved to install-latest"
   install-latest install "$@"
   ;;
 
-newsite)
+newsite) # create a new site
   shift 1
-  [[ "$1" = "help" || -z "$1" ]] && printf_help "Usage: gitadmin newsite [sitename] [template:default]"
+  { [ "$1" = "help" ] || [ -z "$1" ]; } && printf_help "Usage: gitadmin newsite [sitename] [template:default]"
   make_newsite "$@"
   ;;
 
-s | status)
+stow) # backup dotfiles
   shift 1
-  [[ "$1" = "help" ]] && printf_help "Usage: gitadmin status"
+  { [ "$1" = "help" ] || [ -z "$1" ]; } && printf_help "Usage: gitadmin stow [files]"
+  config "$@"
+  ;;
+
+s | status) # repo status
+  shift 1
+  [ "$1" = "help" ] && printf_help "Usage: gitadmin status"
+  [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
   [ -d "$GITADMIN_CWD/.git" ] || printf_exit "$GITADMIN_CWD doesn't seem to be a git repo"
   __git_status "$GITADMIN_CWD"
   exit $?
   ;;
 
-l | log)
+l | log) # git log
   shift 1
-  [[ "$1" = "help" ]] && printf_help "Usage: gitadmin log"
+  [ "$1" = "help" ] && printf_help "Usage: gitadmin log"
+  [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
   [ -d "$GITADMIN_CWD/.git" ] || printf_exit "$GITADMIN_CWD doesn't seem to be a git repo"
   __git_log "$GITADMIN_CWD"
   exit $?
   ;;
 
-init)
+init) # initialize repo
   shift 1
-  [[ "$1" = "help" ]] && printf_help "Usage: gitadmin init"
+  [ "$1" = "help" ] && printf_help "Usage: gitadmin init"
+  [ -d "$1" ] && GITADMIN_CWD="$1" && shift 1
   git_init "$@"
   ;;
 
-setup | reset)
+setup | reset) # initialize repo
   shift 1
-  [[ "$1" = "help" ]] && printf_help "Usage: gitadmin setup [--automated]"
+  [ "$1" = "help" ] && printf_help "Usage: gitadmin setup [--automated]"
+  [ -d "$1" ] && GITADMIN_CWD="$1" && shift 1
   if [ "$AUTOMATED" = "true" ]; then
     run_git_setup_automated "$@"
   else
@@ -1471,18 +1904,13 @@ setup | reset)
   fi
   ;;
 
-stow)
-  shift 1
-  [[ "$1" = "help" || -z "$1" ]] && printf_help "Usage: gitadmin stow [files]"
-  config "$@"
-  ;;
-
-branch)
+branch) # branch options
   shift 1
   case $1 in
   rename)
     shift 1
-    [[ "$1" = "help" ]] && printf_exit 1 2 "Usage: $APPNAME branch rename fromBranch toBranch - $APPNAME branch rename master main"
+    { [ $# = 0 ] || [ "$1" = "help" ] && printf_exit 1 2 "Usage: $APPNAME branch rename fromBranch toBranch - $APPNAME branch rename master main"; }
+    [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
     fromBranch="${1:-master}"
     toBranch="${2:-main}"
     git -C "$GITADMIN_CWD" branch -m $fromBranch $toBranch
@@ -1495,116 +1923,129 @@ branch)
     ;;
 
   *)
-    [[ "$1" = "help" || -z "$1" ]] && printf_help "Usage: gitadmin branch newname userName repoName"
+    { [ $# = 0 ] || [ "$1" = "help" ]; } && printf_help "Usage: gitadmin branch newname userName repoName"
+    [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
     [ -d "$GITADMIN_CWD/.git" ] || printf_exit "$GITADMIN_CWD doesn't seem to be a git repo"
     __rename_branch "${1:-main}" "$2" "$3"
     ;;
   esac
   ;;
 
-commit)
+commit) # commit changes
   shift 1
-  [[ "$1" = "help" || -z "$1" ]] && printf_help "Usage: gitadmin commit [message]"
-  gitcommit -d "$GITADMIN_CWD" "$@"
+  { [ $# = 0 ] || [ "$1" = "help" ]; } && printf_help "Usage: gitadmin commit [message]"
+  [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
+  gitcommit --dir "$GITADMIN_CWD" "${@:-all}"
   ;;
 
-update)
+update) # update local repos
   shift 1
-  [[ "$1" = "help" || -z "$1" ]] && printf_help "Usage: gitadmin update [--while]"
+  { [ $# = 0 ] || [ "$1" = "help" ]; } && printf_help "Usage: gitadmin update [--while]"
   git_update_loop "$@"
   ;;
 
-create)
+create) # create github repo
   shift 1
-  [[ "$1" = "help" || $# -lt 2 ]] && printf_help "Usage: gitadmin create userName repoName Description"
-  USERNAME="${1:-$USERNAME}"
+  { [ $# -le 2 ] || [ "$1" = "help" ]; } && printf_help "Usage: gitadmin create userName repoName Description"
+  GITADMIN_DEFAULT_USERNAME="${1:-$GITADMIN_DEFAULT_USERNAME}"
   REPONAME="$2"
   ghcreate "$@"
   exit ${gist_exit:-$?}
   ;;
 
-delete)
+delete) # delete github repo
   shift 1
-  [[ "$1" = "help" || -z "$2" ]] && printf_help "Usage: gitadmin delete userName repoName"
-  USERNAME="${1:-$USERNAME}"
-  REPO="$2"
-  ghdelete "$USERNAME" "$REPO"
+  { [ $# -le 2 ] || [ "$1" = "help" ]; } && printf_help "Usage: gitadmin delete userName repoName"
+  GITADMIN_DEFAULT_USERNAME="${1:-$GITADMIN_DEFAULT_USERNAME}"
+  REPO_URL="$2"
+  ghdelete "$GITADMIN_DEFAULT_USERNAME" "$REPO_URL"
   exit ${gist_exit:-$?}
   ;;
 
 push) # push a repo
   shift 1
-  [[ "$1" = "help" ]] && printf_help "Usage: gitadmin push [MyProjectDir,all]"
-  USERNAME="${1:-$USERNAME}"
+  [ "$1" = "help" ] && printf_help "Usage: gitadmin push [MyProjectDir,all]"
+  [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
+  GITADMIN_DEFAULT_USERNAME="${1:-$GITADMIN_DEFAULT_USERNAME}"
   if [ "$1" = "all" ]; then
-    for dir in $(find "$GITADMIN_DEFAULT_GIT_DIR"/*/$USERNAME/* -maxdepth 0 -type d); do
+    repo_dirs="$(find "$GITADMIN_DEFAULT_PROJECT_DIR"/*/"$GITADMIN_DEFAULT_USERNAME"/* -maxdepth 0 -type d | grep '^' || echo '')"
+    [ -n "$repo_dirs" ] || printf_exit "Could not find any directories for $GITADMIN_DEFAULT_USERNAME in $GITADMIN_DEFAULT_PROJECT_DIR"
+    for dir in $repo_dirs; do
       git_push_single "$dir"
     done
   else
-    git_push_single "$@"
+    git_push_single "${@:-$GITADMIN_CWD}"
   fi
   ;;
 
 pull) # update repo
   shift 1
-  [[ "$1" = "help" ]] && printf_help "Usage: gitadmin pull [MyProjectDir]"
-  USERNAME="${1:-$USERNAME}"
+  [ "$1" = "help" ] && printf_help "Usage: gitadmin pull [MyProjectDir]"
+  [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
+  GITADMIN_DEFAULT_USERNAME="${1:-$GITADMIN_DEFAULT_USERNAME}"
   if [ "$1" = "all" ]; then
-    for dir in $(find "$GITADMIN_DEFAULT_GIT_DIR"/*/$USERNAME/* -maxdepth 0 -type d); do
+    repo_dirs="$(find "$GITADMIN_DEFAULT_PROJECT_DIR"/*/"$GITADMIN_DEFAULT_USERNAME"/* -maxdepth 0 -type d | grep '^' || echo '')"
+    [ -n "$repo_dirs" ] || printf_exit "Could not find any directories for $GITADMIN_DEFAULT_USERNAME in $GITADMIN_DEFAULT_PROJECT_DIR"
+    for dir in $repo_dirs; do
       git_pull_single "$dir"
     done
   else
-    git_pull_single "$@"
+    git_pull_single "${@:-$GITADMIN_CWD}"
   fi
 
   ;;
 
 clone) # Clone repo from url
   shift 1
-  [[ "$1" = "help" || -z "$1" ]] && printf_help "Usage: gitadmin clone MyURL"
-  git_clone_single "$@"
+  { [ $# = 0 ] || [ "$1" = "help" ]; } && printf_help "Usage: gitadmin clone MyURL"
+  REPO_URL="$(__strip_git_url "$1")"
+  git_clone_single "${1:-$REPO_URL}" ${2:-}
   ;;
 
-repos)
+repos) # Show repos owned by user
   shift 1
-  [[ "$1" = "help" || -z "$1" ]] && printf_help "Usage: gitadmin repos [userName]"
-  USERNAME="${1:-$USERNAME}"
-  REPO_URL="https://github.com/$USERNAME"
-  __api_user_token "$USERNAME"
+  { [ $# = 0 ] || [ "$1" = "help" ]; } && printf_help "Usage: gitadmin repos [userName]"
+  GITADMIN_DEFAULT_USERNAME="${1:-$GITADMIN_DEFAULT_USERNAME}"
+  GITADMIN_DEFAULT_REPO_BASE="https://github.com/$GITADMIN_DEFAULT_USERNAME"
+  __api_user_token "$GITADMIN_DEFAULT_USERNAME"
   curl -q -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" -Ls "$GITHUBAPIREPO" | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
   COUNT="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
-  [[ -n "$COUNT" ]] || printf_exit "No repos found for $USERNAME"
+  [ -n "$COUNT" ] || printf_exit "No repos found for $GITADMIN_DEFAULT_USERNAME"
   printf_green "$MESSAGE"
   printf_blue "There's currently $COUNT repos available"
-  printf_green "Initialing $REPO_URL"
+  printf_green "Initialing $GITADMIN_DEFAULT_REPO_BASE"
   cat "$GITADMIN_TEMP_FILE" | printf_column "5"
   ;;
 
 merge) # merge options
   shift 1
-  [[ "$1" = "help" || -z "$1" ]] && printf_help "Usage: gitadmin merge [toBranch] [fromBranch]"
+  { [ $# = 0 ] || [ "$1" = "help" ]; } && printf_help "Usage: gitadmin merge [toBranch] [fromBranch]"
+  [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
   git -C "$GITADMIN_CWD" switch $1
   git -C "$GITADMIN_CWD" merge $2
   ;;
 
 rebase) # rebase options
   shift 1
-  [[ "$1" = "help" || -z "$1" ]] && printf_help "Usage: gitadmin rebase [fromBranch] [toBranch]"
+  { [ $# = 0 ] || [ "$1" = "help" ]; } && printf_help "Usage: gitadmin rebase [fromBranch] [toBranch]"
+  [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
   git -C "$GITADMIN_CWD" switch $1
   git -C "$GITADMIN_CWD" rebase $2
   ;;
 
-switch)
+switch) # switch between branches
   shift 1
   case $1 in
   create)
-    [[ "$1" = "help" || -z "$1" ]] && printf_help "Usage: gitadmin switch create [branchName]"
+    { [ $# = 0 ] || [ "$1" = "help" ]; } && printf_help "Usage: gitadmin switch create [branchName]"
+    [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
     git -C "$GITADMIN_CWD" switch -c $1
     exit $?
     ;;
 
   *)
-    [[ "$1" = "help" || -z "$1" ]] && printf_help "Usage: gitadmin switch [branchName]"
+    { [ $# = 0 ] || [ "$1" = "help" ]; } && printf_help "Usage: gitadmin switch [branchName]"
+    [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
     git -C "$GITADMIN_CWD" switch $1
     exit $?
     ;;
@@ -1616,137 +2057,169 @@ squash) # squash options
   case $1 in
   head)
     shift 1
-    [[ "$1" = "help" || -z "$1" ]] && printf_help "Usage: gitadmin squash head [number]"
+    { [ $# = 0 ] || [ "$1" = "help" ]; } && printf_help "Usage: gitadmin squash head [number]"
+    [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
     git -C "$GITADMIN_CWD" rebase -i HEAD~$1
     exit $?
     ;;
   merge)
-    [[ "$1" = "help" || -z "$1" ]] && printf_help "Usage: gitadmin squash head [hash]"
     shift 1
+    { [ $# = 0 ] || [ "$1" = "help" ]; } && printf_help "Usage: gitadmin squash merge [hash]"
+    [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
+    [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
     git -C "$GITADMIN_CWD" merge --squash $1
     exit $?
     ;;
-  hash)
+  rebase)
     shift 1
-    [[ "$1" = "help" || -z "$1" ]] && printf_help "Usage: gitadmin squash head [hash]"
+    { [ $# = 0 ] || [ "$1" = "help" ]; } && printf_help "Usage: gitadmin squash rebase [hash]"
+    [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
     git -C "$GITADMIN_CWD" rebase -i $1
     exit $?
     ;;
   *)
-    [[ "$1" = "help" || -z "$1" ]] && printf_help "Usage: gitadmin squash [hash]"
+    { [ $# = 0 ] || [ "$1" = "help" ]; } && printf_help "Usage: gitadmin squash [hash]"
+    [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
     git -C "$GITADMIN_CWD" rebase -i $1
     exit $?
     ;;
   esac
   ;;
 
-# Remote options
-remote)
+remote) # Remote options
   shift 1
-  [[ "$1" = "help" || -z "$1" ]] && printf_help "Usage: gitadmin remote [show,add]"
+  { [ $# = 0 ] || [ "$1" = "help" ]; } && printf_help "Usage: gitadmin remote [show,add]"
+  [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
   case "$2" in
   show)
     shift 1
-    [[ "$1" = "help" ]] && printf_help "Usage: gitadmin remote show"
-    git -C "$GITADMIN_CWD" remote show origin
+    [ "$1" = "help" ] && printf_help "Usage: gitadmin remote show [name]"
+    [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
+    git -C "$GITADMIN_CWD" remote show "${1:-origin}"
     ;;
   add)
     shift 1
-    [[ "$1" = "help" ]] && printf_help "Usage: gitadmin remote add [remoteURL]"
-    git -C "$GITADMIN_CWD" remote add origin "$1"
+    [ "$1" = "help" ] && printf_help "Usage: gitadmin remote add [remoteURL] [name]"
+    [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
+    REPO_URL="$(__strip_git_url "$1")"
+    git -C "$GITADMIN_CWD" remote add ${2:-origin} "$REPO_URL"
     ;;
   *)
-    git -C "$GITADMIN_CWD" remote show origin
+    [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
+    git -C "$GITADMIN_CWD" remote show ${1:-origin}
     ;;
   esac
   ;;
 
-list)
+list) # list user repos
   shift 1
-  if [[ $1 = raw ]]; then
+  [ "$1" = "help" ] && printf_help "Usage: gitadmin list [username]"
+  if [ "$1" = "raw" ]; then
     shift 1
-    USERNAME="${1:-$GITADMIN_DEFAULT_USERNAME}"
-    [ -n "$USERNAME" ] || printf_exit "Usage: $APPNAME list [raw] github_user"
-    git_all_orgs "$USERNAME"
+    GITADMIN_DEFAULT_USERNAME="${1:-$GITADMIN_DEFAULT_USERNAME}"
+    [ -n "$GITADMIN_DEFAULT_USERNAME" ] || printf_exit "Usage: $APPNAME list [raw] github_user"
+    git_all_orgs "$GITADMIN_DEFAULT_USERNAME"
     echo "$GIT_ALL_REPOS" | tr ' ' '\n'
   else
-    USERNAME="${1:-$GITADMIN_DEFAULT_USERNAME}"
-    [ -n "$USERNAME" ] || printf_exit "Usage: $APPNAME list [raw] github_user"
-    git_all_orgs "$USERNAME"
+    GITADMIN_DEFAULT_USERNAME="${1:-$GITADMIN_DEFAULT_USERNAME}"
+    [ -n "$GITADMIN_DEFAULT_USERNAME" ] || printf_exit "Usage: $APPNAME list [raw] github_user"
+    git_all_orgs "$GITADMIN_DEFAULT_USERNAME"
     printf_green "I have found the following organizations"
     echo "$GIT_ALL_REPOS" | tr ' ' '\n' | printf_column "5"
     printf_newline
   fi
   ;;
 
-# gist options
-gist)
+gist) # gist options
   shift 1
-  [[ "$1" = "help" || -z "$1" ]] && printf_help "Usage: gitadmin gist [userName]"
+  { [ $# = 0 ] || [ "$1" = "help" ]; } && printf_help "Usage: gitadmin gist [clone,create,delete,edit,list,search,] [userName]"
   case "$1" in
-  create)
-    [ -z "$1" ] && printf_help "Usage: gitadmin gist create description filename text\n"
+  clone)
     shift 1
-    ghgist_create "$@"
+    [ $# -lt 1 ] && printf_help "Usage: gitadmin gist clone id [directory]\n"
+    SET_REPO="$(curl -q -LSsfI "https://gist.github.com/$1" | grep 'location: https://' | head -n1 | awk -F': ' '{print $2}' | grep "$1" || echo '')"
+    REPO_URL="$(__strip_git_url "$SET_REPO")"
+    GIST_USER="$(basename "$(dirname "$SET_REPO")" | grep '^')"
+    GISTNAME="$(basename "$REPO_URL")"
+    GISTDIR="${2:-$GITADMIN_DEFAULT_PROJECT_DIR/gists/$GIST_USER/$GISTNAME}"
+    printf_cyan "Cloning $REPO_URL"
+    printf_yellow "to: $GISTDIR"
+    __git_clone "$REPO_URL" "$GISTDIR"
+    exit $?
+    ;;
+
+  create)
+    shift 1
+    [ "$1" = "help" ] && printf_help "Usage: gitadmin gist create description filename text\n"
+    if [ -p "/dev/stdin" ]; then
+      cat - >"$GITADMIN_TEMP_FILE" 2>/dev/null
+      filename="${2:-gitadmin-$(basename "$GITADMIN_TEMP_FILE")}"
+      descript="${1:-$(grep -s ' @@Description' "$GITADMIN_TEMP_FILE" | awk -F ':  ' '{print $2}' | sed 's|^  ||g' | head -n1 | grep '^' || echo 'Posting new gist')}"
+    else
+      descript="${1:-New Gist}"
+      filename="${2:-$(basename "$GITADMIN_TEMP_FILE")}"
+    fi
+    ghgist_create "$descript" "$filename" "$GITADMIN_TEMP_FILE"
+    gist_exit=$?
     exit ${gist_exit:-$?}
     ;;
 
   delete)
     shift 1
-    [ "$1" -lt 3 ] && printf_help "Usage: gitadmin gist delete [GIT_URL or GIST_ID]\n"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && printf_help "Usage: gitadmin gist delete [GIT_URL or GIST_ID]\n"
     ghgist_delete "$@"
     exit ${gist_exit:-$?}
     ;;
 
   edit)
     shift 1
-    [ "$1" -lt 3 ] && printf_help "Usage: gitadmin gist edit GIST_ID description filename text\n"
+    { [ $# -lt 3 ] || [ "$1" = "help" ]; } && printf_help "Usage: gitadmin gist edit GIST_ID description filename text\n"
     ghgist_edit "$@"
     exit ${gist_exit:-$?}
     ;;
 
   list)
     shift 1
-    [ -z "$1" ] && printf_help "Usage: gitadmin gist list GIST_USER\n"
+    { [ $# = 0 ] || [ "$1" = "help" ]; } && printf_help "Usage: gitadmin gist list GIST_USER\n"
     ghgist_list "$@"
     exit ${gist_exit:-$?}
     ;;
+
   search)
-    [ -z "$1" ] && printf_help "Usage: gitadmin gist search GIST_USER SearchTerm"
+    { [ $# = 0 ] || [ "$1" = "help" ]; } && printf_help "Usage: gitadmin gist search GIST_USER SearchTerm"
     search_list "$@"
     exit ${gist_exit:-$?}
     ;;
   esac
   ;;
 
-# Single repo options
-single)
+single) # Single repo options
   shift 1
-  [ "$1" = "help" ] && __help
-  [ -z "$1" ] && __help
+  { [ $# = 0 ] || [ "$1" = "help" ]; } && __help
   case $1 in
   init) # init a github repo
     shift 1
-    if [ "$#" -ne 1 ]; then printf_exit "Usage: gitadmin single init RepoName"; fi
-    if [[ "$1" = "help" ]]; then printf_exit "Create a new single project\n\t\tUsage: gitadmin single init RepoName"; fi
-    do_not_add_a_url "$1"
-    if echo "$1" | grep -q '\.git$'; then
-      homerepo="$(echo "$1" | grep '\.git$' | __sed 's/\",//;s/\.[^.]*$//;s#"##g')"
+    { [ $# = 0 ] || [ "$1" = "help" ]; } && printf_exit "Usage: gitadmin single init RepoName"
+    do_not_add_a_url "${1:-$GITADMIN_CWD}"
+    if echo "${1:-$GITADMIN_CWD}" | grep -q '\.git$'; then
+      homerepo="$(echo "${1:-$GITADMIN_CWD}" | grep '\.git$' | __sed 's/\",//;s/\.[^.]*$//;s#"##g')"
     else
-      homerepo="$(echo "$1")"
+      homerepo="$(__strip_git_url "${1:-$GITADMIN_CWD}")"
     fi
-    __mkd "$1"
-    [ -d "$homerepo/.git" ] && __cd_into "$homerepo" || printf_exit 1 1 "failed to initialize $homerepo"
-    repos_init "$GITADMIN_CWD"
+    __mkd "$homerepo" && [ ! -d "$homerepo/.git" ] && __cd_into "$homerepo" || printf_exit 1 1 "failed to initialize $homerepo"
+    repos_init "$homerepo"
     exit "$?"
     ;;
 
   push) # push a repo
     shift 1
-    [ "$1" == "help" ] && printf_help "Usage: $APPNAME push | push the repo"
-    USERNAME="${1:-$USERNAME}"
+    [ "$1" = "help" ] && printf_help "Usage: $APPNAME push | push the repo"
+    [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
+    GITADMIN_DEFAULT_USERNAME="${1:-$GITADMIN_DEFAULT_USERNAME}"
     if [ "$1" = "all" ]; then
-      for dir in $(find "$GITADMIN_DEFAULT_GIT_DIR"/*/$USERNAME/* -maxdepth 0 -type d); do
+      repo_dirs="$(find "$GITADMIN_DEFAULT_PROJECT_DIR"/*/"$GITADMIN_DEFAULT_USERNAME"/* -maxdepth 0 -type d | grep '^' || echo '')"
+      [ -n "$repo_dirs" ] || printf_exit "Could not find any directories for $GITADMIN_DEFAULT_USERNAME in $GITADMIN_DEFAULT_PROJECT_DIR"
+      for dir in $repo_dirs; do
         git_push_single "$dir"
       done
     else
@@ -1756,84 +2229,87 @@ single)
 
   pull) # update repo
     shift 1
-    [ "$1" == "help" ] && printf_help "Usage: $APPNAME update | pull the repos"
-    git_push_single "$@"
+    [ "$1" = "help" ] && printf_help "Usage: $APPNAME update | pull the repos"
+    [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
+    git_push_single "${@:-$GITADMIN_CWD}"
     ;;
 
   clone) # Clone repo from url
     shift 1
-    [ "$1" == "help" ] && printf_help "Usage: $APPNAME clone | clone the repos"
-    git_clone_single "$@"
+    { [ $# = 0 ] || [ "$1" = "help" ]; } && printf_help "Usage: $APPNAME clone [URL] [directory] | clone the repos"
+    [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
+    [ $# -eq 0 ] && printf_help "Usage: $APPNAME clone [URL] [directory] | clone the repos"
+    REPO_URL="$(__strip_git_url "$1")"
+    git_clone_single "$REPO_URL" "${2:-$GITADMIN_CWD}"
     ;;
   esac
   ;;
 
-# User repos
-user)
+user) # User repos
   shift 1
-  [[ "$1" = "help" || -z "$1" ]] && printf_help "Usage: gitadmin user [userName]"
+  { [ $# = 0 ] || [ "$1" = "help" ]; } && printf_help "Usage: gitadmin user [list,clone] [userName]"
   case "$1" in
   list)
     shift 1
-    USERNAME="${1:-$USERNAME}"
-    __api_user "$USERNAME" | jq '.[].full_name' 2>/dev/null | sed 's#"##g' | printf_column "5"
+    GITADMIN_DEFAULT_USERNAME="${1:-$GITADMIN_DEFAULT_USERNAME}"
+    __api_user "$GITADMIN_DEFAULT_USERNAME" | jq '.[].full_name' 2>/dev/null | sed 's#"##g' | printf_column "5"
     ;;
 
   *)
-    USERNAME="${1:-$USERNAME}"
-    REPO_URL="$REPO_URL/$USERNAME"
-    __api_user_token "$USERNAME"
+    [ "$1" = "clone" ] && shift 1
+    GITADMIN_DEFAULT_USERNAME="${1:-$GITADMIN_DEFAULT_USERNAME}"
+    GITADMIN_DEFAULT_REPO_BASE="$GITADMIN_DEFAULT_REPO_BASE/$GITADMIN_DEFAULT_USERNAME"
+    __api_user_token "$GITADMIN_DEFAULT_USERNAME"
     curl -q -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" -Ls "$GITHUBAPIREPO" | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
     COUNT="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
-    [[ -n "$COUNT" ]] || printf_exit "No repos found for $USERNAME"
+    [ -n "$COUNT" ] || printf_exit "No repos found for $GITADMIN_DEFAULT_USERNAME"
     printf_green "$MESSAGE"
     printf_blue "There's currently $COUNT repos available"
-    printf_green "Initialing $REPO_URL"
-    main "$USERNAME"
+    printf_green "Initialing $GITADMIN_DEFAULT_REPO_BASE"
+    main "$GITADMIN_DEFAULT_USERNAME"
     ;;
   esac
   ;;
 
-# organization options
-orgs)
+orgs) # organization options
   shift 1
-  [[ "$1" = "help" ]] && printf_help "Usage: gitadmin org [all,push,pull,clone] [userName]"
+  { [ $# = 0 ] || [ "$1" = "help" ]; } && printf_help "Usage: gitadmin org [all,push,pull,clone] [userName]"
   case "$1" in
   all)
     shift 1
-    [[ "$1" = "help" || -z "$1" ]] && printf_help "Usage: gitadmin org all [userName]"
-    USERNAME="${1:-$USERNAME}"
-    git_all_orgs_clone "$USERNAME"
+    { [ $# = 0 ] || [ "$1" = "help" ]; } && printf_help "Usage: gitadmin org all [userName]"
+    GITADMIN_DEFAULT_USERNAME="${1:-$GITADMIN_DEFAULT_USERNAME}"
+    git_all_orgs_clone "$GITADMIN_DEFAULT_USERNAME"
     ;;
 
   push)
     shift 1
-    [[ "$1" = "help" ]] && printf_help "Usage: gitadmin org push [userName]"
+    [ "$1" = "help" ] && printf_help "Usage: gitadmin org push [userName]"
     [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_exit "ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set"
-    USERNAME="${1:-$USERNAME}"
-    REPO_URL="$REPO_URL/$USERNAME"
-    __api_user_token "$USERNAME"
+    GITADMIN_DEFAULT_USERNAME="${1:-$GITADMIN_DEFAULT_USERNAME}"
+    GITADMIN_DEFAULT_REPO_BASE="$GITADMIN_DEFAULT_REPO_BASE/$GITADMIN_DEFAULT_USERNAME"
+    __api_user_token "$GITADMIN_DEFAULT_USERNAME"
     curl -q -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" -Ls "$GITHUBAPIREPO" | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
     COUNT="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
-    [[ -n "$COUNT" ]] || printf_exit "No repos found for $USERNAME"
+    [ -n "$COUNT" ] || printf_exit "No repos found for $GITADMIN_DEFAULT_USERNAME"
     printf_green "$MESSAGE"
     printf_blue "There's currently $COUNT repos available"
-    printf_green "Initialing $REPO_URL"
+    printf_green "Initialing $GITADMIN_DEFAULT_REPO_BASE"
     for i in $(<"$GITADMIN_TEMP_FILE"); do
-      if [ -d "$PROJECT_DIR/$USERNAME/$i" ]; then
+      if [ -d "$GITADMIN_DEFAULT_PROJECT_DIR/$GITADMIN_DEFAULT_USERNAME/$i" ]; then
         printf_purple "Now running git push $1/$i"
-        ERROR="git push failed for $USERNAME/$i"
-        SUCCES="git push completed for $USERNAME/$i"
-        if [ -f "$PROJECT_DIR/$USERNAME/$i/gitmasterconfig" ]; then
-          cp -Rf "$PROJECT_DIR/$USERNAME/$i/gitmasterconfig" "$PROJECT_DIR/$USERNAME/$i/.git/config"
+        ERROR="git push failed for $GITADMIN_DEFAULT_USERNAME/$i"
+        SUCCES="git push completed for $GITADMIN_DEFAULT_USERNAME/$i"
+        if [ -f "$GITADMIN_DEFAULT_PROJECT_DIR/$GITADMIN_DEFAULT_USERNAME/$i/gitmasterconfig" ]; then
+          cp -Rf "$GITADMIN_DEFAULT_PROJECT_DIR/$GITADMIN_DEFAULT_USERNAME/$i/gitmasterconfig" "$GITADMIN_DEFAULT_PROJECT_DIR/$GITADMIN_DEFAULT_USERNAME/$i/.git/config"
         fi
-        if (__devnull2 git -C "$PROJECT_DIR/$USERNAME/$i" status | grep -q "working tree clean"); then
+        if (__devnull2 git -C "$GITADMIN_DEFAULT_PROJECT_DIR/$GITADMIN_DEFAULT_USERNAME/$i" status | grep -q "working tree clean"); then
           __getexitcode "$?" "$ERROR" "$SUCCES"
         else
-          [ -f "$PROJECT_DIR/$USERNAME/$i/version.txt" ] && date +"$VERSION_DATE_FORMAT" >"$PROJECT_DIR/$USERNAME/$i/version.txt"
-          __devnull git -C "$PROJECT_DIR/$USERNAME/$i" add . &&
-            __devnull git -C "$PROJECT_DIR/$USERNAME/$i" commit -a -m " ❇🦈🏠❗ General Fixes ❗🏠🦈❇ " &&
-            __devnull __git_push "$PROJECT_DIR/$USERNAME/$i"
+          [ -f "$GITADMIN_DEFAULT_PROJECT_DIR/$GITADMIN_DEFAULT_USERNAME/$i/version.txt" ] && date +"$GITADMIN_DEFAULT_VERSION_FORMAT" >"$GITADMIN_DEFAULT_PROJECT_DIR/$GITADMIN_DEFAULT_USERNAME/$i/version.txt"
+          __devnull git -C "$GITADMIN_DEFAULT_PROJECT_DIR/$GITADMIN_DEFAULT_USERNAME/$i" add . &&
+            __devnull git -C "$GITADMIN_DEFAULT_PROJECT_DIR/$GITADMIN_DEFAULT_USERNAME/$i" commit -a -m " ❇🦈🏠❗ General Fixes ❗🏠🦈❇ " &&
+            __devnull __git_push "$GITADMIN_DEFAULT_PROJECT_DIR/$GITADMIN_DEFAULT_USERNAME/$i"
           __getexitcode "$?" "$ERROR" "$SUCCES"
         fi
       fi
@@ -1844,88 +2320,83 @@ orgs)
 
   pull)
     shift 1
-    [[ "$1" = "help" || -z "$1" ]] && printf_help "Usage: gitadmin org pull [userName]"
-    USERNAME="${1:-$USERNAME}"
-    REPO_URL="$REPO_URL/$USERNAME"
-    __api_user_token "$USERNAME"
+    { [ $# = 0 ] || [ "$1" = "help" ]; } && printf_help "Usage: gitadmin org pull [userName]"
+    GITADMIN_DEFAULT_USERNAME="${1:-$GITADMIN_DEFAULT_USERNAME}"
+    GITADMIN_DEFAULT_REPO_BASE="$GITADMIN_DEFAULT_REPO_BASE/$GITADMIN_DEFAULT_USERNAME"
+    __api_user_token "$GITADMIN_DEFAULT_USERNAME"
     curl -q -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" -Ls "$GITHUBAPIREPO" | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
     COUNT="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
-    [[ -n "$COUNT" ]] || printf_exit "No repos found for $USERNAME"
+    [ -n "$COUNT" ] || printf_exit "No repos found for $GITADMIN_DEFAULT_USERNAME"
     printf_green "$MESSAGE"
     printf_blue "There's currently $COUNT repos available"
-    printf_green "Initialing $REPO_URL"
-    main "$USERNAME"
+    printf_green "Initialing $GITADMIN_DEFAULT_REPO_BASE"
+    main "$GITADMIN_DEFAULT_USERNAME"
     ;;
 
   clone)
     shift 1
-    [[ "$1" = "help" ]] && printf_help "Usage: gitadmin org clone [userName]"
-    USERNAME="${1:-$USERNAME}"
-    REPO_URL="$REPO_URL/$USERNAME"
-    __api_user_token "$USERNAME"
+    { [ $# -le 1 ] || [ "$1" = "help" ]; } && printf_help "Usage: gitadmin org clone [userName]"
+    GITADMIN_DEFAULT_USERNAME="${1:-$GITADMIN_DEFAULT_USERNAME}"
+    GITADMIN_DEFAULT_REPO_BASE="$GITADMIN_DEFAULT_REPO_BASE/$GITADMIN_DEFAULT_USERNAME"
+    __api_user_token "$GITADMIN_DEFAULT_USERNAME"
     curl -q -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" -Ls $GITHUBAPIREPO | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
     COUNT="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
-    [[ -n "$COUNT" ]] || printf_exit "No repos found for $USERNAME"
+    [ -n "$COUNT" ] || printf_exit "No repos found for $GITADMIN_DEFAULT_USERNAME"
     printf_green "$MESSAGE"
     printf_blue "There's currently $COUNT repos available"
-    printf_green "Initialing $REPO_URL"
-    main "$USERNAME"
+    printf_green "Initialing $GITADMIN_DEFAULT_REPO_BASE"
+    main "$GITADMIN_DEFAULT_USERNAME"
     ;;
 
   list)
     shift 1
-    [[ "$1" = "help" ]] && printf_help "Usage: gitadmin org list [userName]"
-    USERNAME="$1"
-    git_all_orgs "$USERNAME"
+    [ "$1" = "help" ] && printf_help "Usage: gitadmin org list [userName]"
+    GITADMIN_DEFAULT_USERNAME="$1"
+    git_all_orgs "$GITADMIN_DEFAULT_USERNAME"
     printf_newline
     printf_green "I have found the following organizations"
     echo "$GIT_ALL_REPOS" | tr ' ' '\n' | printf_column "5"
     ;;
 
   *)
-    [[ "$1" = "help" ]] && printf_help "Usage: gitadmin org [userName]"
-    USERNAME="${1:-$USERNAME}"
-    REPO_URL="$REPO_URL/$USERNAME"
-    __api_org_token "$USERNAME"
+    [ "$1" = "help" ] && printf_help "Usage: gitadmin org [userName]"
+    GITADMIN_DEFAULT_USERNAME="${1:-$GITADMIN_DEFAULT_USERNAME}"
+    GITADMIN_DEFAULT_REPO_BASE="$GITADMIN_DEFAULT_REPO_BASE/$GITADMIN_DEFAULT_USERNAME"
+    __api_org_token "$GITADMIN_DEFAULT_USERNAME"
     curl -q -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" -Ls "$GITHUBAPIREPO" | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
     COUNT="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
-    [[ -n "$COUNT" ]] || printf_exit "No repos found for $USERNAME"
+    [ -n "$COUNT" ] || printf_exit "No repos found for $GITADMIN_DEFAULT_USERNAME"
     printf_green "$MESSAGE"
     printf_blue "There's currently $COUNT repos available"
-    printf_green "Initialing $REPO_URL"
-    main "$USERNAME"
+    printf_green "Initialing $GITADMIN_DEFAULT_REPO_BASE"
+    main "$GITADMIN_DEFAULT_USERNAME"
     ;;
   esac
   ;;
 
-# github repos commands
 github) # github repo
   shift 1
-  [ "$1" = "help" ] && __help
-  [ -z "$1" ] && __help
+  { [ $# = 0 ] || [ "$1" = "help" ]; } && __help
   case $1 in
   init) # init a github repo
     shift 1
-    if [ "$#" -ne 1 ]; then printf_exit "Usage: gitadmin github init RepoName"; fi
-    if [[ "$1" = "help" ]]; then printf_exit "Create a new github project\n\t\tUsage: gitadmin github init RepoName"; fi
+    { [ $# = 0 ] || [ "$1" = "help" ]; } && printf_exit "Usage: gitadmin github init RepoName"
     do_not_add_a_url "$1"
     if echo "$GITADMIN_DEFAULT_GIT_DIR_GITHUB/$1" | grep -q '\.git$'; then
       homerepo="$(echo "$GITADMIN_DEFAULT_GIT_DIR_GITHUB/$1" | grep '\.git$' | __sed 's/\",//;s/\.[^.]*$//;s#"##g')"
     else
       homerepo="$(echo "$GITADMIN_DEFAULT_GIT_DIR_GITHUB/$1")"
     fi
-    __mkd "$GITADMIN_DEFAULT_GIT_DIR_GITHUB/$homerepo"
-    [ -d "$homerepo/.git" ] && __cd_into "$homerepo" || printf_exit 1 1 "failed to initialize $homerepo"
+    __mkd "$homerepo" && [ ! -d "$homerepo/.git" ] && __cd_into "$homerepo" || printf_exit 1 1 "failed to initialize $homerepo"
     repos_init "$homerepo"
     exit "$?"
     ;;
 
   clone) # Clone repo from github
     shift 1
-    if [ "$#" -ne 1 ]; then printf_exit "Usage: gitadmin github clone username/projectname"; fi
-    if [ "$1" = "help" ]; then printf_exit "Clone a github project\n\t\tUsage: gitadmin github clone username/projectname"; fi
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && printf_exit "Usage: gitadmin github clone username/projectname"
     do_not_add_a_url "$1"
-    remote_repo="https://github.com/$1.git"
+    remote_repo="https://github.com/$(__strip_git_url "$1").git"
     if echo "$GITADMIN_DEFAULT_GIT_DIR_GITHUB/$1" | grep -q '\.git$'; then
       homerepo="$(echo "$GITADMIN_DEFAULT_GIT_DIR_GITHUB/$1" | grep '\.git$' | __sed 's/\",//;s/\.[^.]*$//;s#"##g')"
     else
@@ -1939,28 +2410,31 @@ github) # github repo
       mkdir -p "$homerepo"
       __git_clone "$remote_repo" "$homerepo"
     fi
-    [ -d "$homerepo/.git" ] && __cd_into "$homerepo" || printf_exit 1 1 "failed to clone $homerepo"
+    __mkd "$homerepo" && [ -d "$homerepo/.git" ] && __cd_into "$homerepo" || printf_exit 1 1 "failed to clone to $homerepo"
     exit "$?"
     ;;
 
   push) # Push
     shift 1
     homerepo="$(echo "$GITADMIN_DEFAULT_GIT_DIR_GITHUB/$1")"
-    git_push_single "$homerepo/$1"
+    __mkd "$homerepo" && [ -d "$homerepo/.git" ] && __cd_into "$homerepo" || printf_exit 1 1 "failed to push from: $homerepo"
+    git_push_single "$homerepo"
     ;;
 
   pull) # update repo
     shift 1
-    [ "$1" == "help" ] && printf_help "Usage: $APPNAME update | pull the repos"
-    git_pull_single "$@"
+    [ "$1" = "help" ] && printf_help "Usage: $APPNAME update | pull the repos"
+    homerepo="$(echo "$GITADMIN_DEFAULT_GIT_DIR_GITHUB/$1")"
+    __mkd "$homerepo" && [ -d "$homerepo/.git" ] && __cd_into "$homerepo" || printf_exit 1 1 "failed to pull to: $homerepo"
+    git_pull_single "$homerepo"
     ;;
 
   remote) # add github to remote
     shift 1
-    if [ "$#" -ne 2 ]; then printf_exit "Usage: gitadmin github remote username/projectname"; fi
-    [ "$1" = "help" ] && printf_exit "Add a github project to remote\n\t\tUsage: gitadmin github remote username/projectname"
+    { [ $# -lt 2 ] || [ "$1" = "help" ]; } && printf_exit "Usage: gitadmin github remote [username/projectname] [name]"
+    [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
     do_not_add_a_url "$1"
-    git remote add "$1" "https://github.com/$2.git"
+    git -C "$GITADMIN_CWD" remote add "${2:-orgin}" "https://github.com/$1.git"
     exit "$?"
     ;;
 
@@ -1972,34 +2446,30 @@ github) # github repo
   esac
   ;;
 
-# gitlab repos commands
-gitlab)
+gitlab) # gitlab repos commands
   shift 1
   [ "$1" = "help" ] && __help
   [ -z "$1" ] && __help
   case $1 in
   init) # init a gitlab repo
     shift 1
-    if [ "$#" -ne 1 ]; then printf_exit "Usage: gitadmin gitlab init RepoName"; fi
-    if [[ "$1" = "help" ]]; then printf_exit "Create a new gitlab project\n\t\tUsage: gitadmin gitlab init RepoName"; fi
+    { [ $# = 0 ] || [ "$1" = "help" ]; } && printf_exit "Usage: gitadmin gitlab init RepoName"
     do_not_add_a_url "$1"
     if echo "$GITADMIN_DEFAULT_GIT_DIR_GITLAB/$1" | grep -q '\.git$'; then
       homerepo="$(echo "$GITADMIN_DEFAULT_GIT_DIR_GITLAB/$1" | grep '\.git$' | __sed 's/\",//;s/\.[^.]*$//;s#"##g')"
     else
       homerepo="$(echo "$GITADMIN_DEFAULT_GIT_DIR_GITLAB/$1")"
     fi
-    __mkd "$GITADMIN_DEFAULT_GIT_DIR_GITLAB/$1"
-    [ -d "$homerepo/.git" ] && __cd_into "$homerepo" || printf_exit 1 1 "failed to initialize $homerepo"
+    __mkd "$homerepo" && [ ! -d "$homerepo/.git" ] && __cd_into "$homerepo" || printf_exit 1 1 "failed to initialize $homerepo"
     repos_init "$homerepo"
     exit "$?"
     ;;
 
   clone) # Clone repo from gitlab
     shift 1
-    if [ "$#" -ne 1 ]; then printf_exit "Usage: gitadmin gitlab clone username/projectname"; fi
-    if [ "$1" = "help" ]; then printf_exit "Clone a gitlab project\n\t\tUsage: gitadmin gitlab clone username/projectname"; fi
+    { [ $# = 0 ] || [ "$1" = "help" ]; } && printf_exit "Usage: gitadmin gitlab clone username/projectname"
     do_not_add_a_url "$1"
-    remote_repo="https://gitlab.com/$1"
+    remote_repo="https://gitlab.com/$(__strip_git_url "$1")"
     if echo "$GITADMIN_DEFAULT_GIT_DIR_GITLAB/$1" | grep -q '\.git$'; then
       homerepo="$(echo "$GITADMIN_DEFAULT_GIT_DIR_GITLAB/$1" | grep '\.git$' | __sed 's/\",//;s/\.[^.]*$//;s#"##g')"
     else
@@ -2013,30 +2483,29 @@ gitlab)
       mkdir -p "$homerepo"
       __git_clone "$remote_repo" "$homerepo"
     fi
-    [ -d "$homerepo/.git" ] && __cd_into "$homerepo" || printf_exit 1 1 "failed to clone $homerepo"
+    __mkd "$homerepo" && [ -d "$homerepo/.git" ] && __cd_into "$homerepo" || printf_exit 1 1 "failed to clone to: $homerepo"
     exit "$?"
     ;;
 
   push)
     shift 1
     homerepo="$(echo "$GITADMIN_DEFAULT_GIT_DIR_GITLAB/$1")"
-    git_push_single "$homerepo/$1"
+    git_push_single "$homerepo"
     ;;
 
   pull) # update repo
     shift 1
-    [ "$1" == "help" ] && printf_help "Usage: $APPNAME update | pull the repos"
+    [ "$1" = "help" ] && printf_help "Usage: $APPNAME update | pull the repos"
     homerepo="$(echo "$GITADMIN_DEFAULT_GIT_DIR_GITLAB/$1")"
-    git_pull_single "$homerepo/$1"
+    git_pull_single "$homerepo"
     ;;
 
   remote) # add gitlab to remote
     shift 1
-    if [ "$#" -ne 2 ]; then printf_exit "Usage: gitadmin gitlab remote username/projectname"; fi
-    [ "$1" = "help" ] && printf_exit "Add a gitlab project to remote\n\t\tUsage: gitadmin gitlab remote username/projectname"
+    { [ $# -ne 0 ] || [ "$1" = "help" ]; } && printf_exit "Usage: gitadmin gitlab remote [username/projectname] [name]"
     do_not_add_a_url "$1"
-    remote_repo="https://gitlab.com/$1"
-    git remote add "$1" "$remote_repo"
+    remote_repo="https://gitlab.com/$(__strip_git_url "$1")"
+    git -C "$GITADMIN_CWD" remote add "${2:-orgin}" "https://github.com/$1.git"
     exit "$?"
     ;;
 
@@ -2048,43 +2517,41 @@ gitlab)
 
   branch)
     shift 1
-    [ "$1" = "help" ] && printf_help "Usage: gitadmin gitlab branch projectID branch"
-    [ -z "$1" ] && printf_exit "Usage: gitadmin gitlab branch projectID branch"
+    { [ $# -ne 2 ] || [ "$1" = "help" ]; } && printf_help "Usage: gitadmin gitlab branch projectID branch"
     __gitlab_branch "$@"
     exit $?
     ;;
   esac
   ;;
 
-# private repos commands
-private)
+private) # private repos commands
   shift 1
-  if [ -z "$GITADMIN_PERSONAL_GIT_HOST" ]; then printf_exit "You dont have the env variable GITADMIN_PERSONAL_GIT_HOST set"; fi
-  [ "$1" = "help" ] && printf_green "Useful if you have a private server such as gitea" && exit 0
-  [ -z "$1" ] && printf_green "Useful if you have a private server such as gitea" && exit 0
+  if [ $# = 0 ] || [ "$1" = "help" ] || [ -z "$GITADMIN_PERSONAL_GIT_HOST" ]; then
+    [ -n "$GITADMIN_PERSONAL_GIT_HOST" ] || printf_red "You dont have the env variable GITADMIN_PERSONAL_GIT_HOST set"
+    printf_green "Useful if you have a private server such as gitea"
+    printf_green "Useful if you have a private server such as gitea"
+    exit 0
+  fi
   case $1 in
   init) # init a private repo
     shift 1
-    if [ "$#" -ne 1 ]; then printf_exit "Usage: gitadmin private init RepoName"; fi
-    if [[ "$1" = "help" ]]; then printf_exit "Create a new private project\n\t\tUsage: gitadmin private init RepoName"; fi
+    { [ $# = 0 ] || [ "$1" = "help" ]; } && printf_exit "Usage: gitadmin private init RepoName"
     do_not_add_a_url "$1"
     if echo "$GITADMIN_DEFAULT_GIT_DIR_PRIVATE/$1" | grep -q '\.git$'; then
       homerepo="$(echo "$GITADMIN_DEFAULT_GIT_DIR_PRIVATE/$1" | grep '\.git$' | __sed 's/\",//;s/\.[^.]*$//;s#"##g')"
     else
       homerepo="$(echo "$GITADMIN_DEFAULT_GIT_DIR_PRIVATE/$1")"
     fi
-    __mkd "$GITADMIN_DEFAULT_GIT_DIR_PRIVATE/$1"
-    [ -d "$homerepo/.git" ] && __cd_into "$homerepo" || printf_exit 1 1 "failed to initialize $homerepo"
+    __mkd "$homerepo" && [ ! -d "$homerepo/.git" ] && __cd_into "$homerepo" || printf_exit 1 1 "failed to initialize $homerepo"
     repos_init "$homerepo"
     exit "$?"
     ;;
 
   clone) # Clone repo from private
     shift 1
-    if [ "$#" -ne 1 ]; then printf_exit "Usage: gitadmin private clone username/projectname"; fi
-    if [ "$1" = "help" ]; then printf_exit "Clone a private project\n\t\tUsage: gitadmin private clone username/projectname"; fi
+    { [ $# = 0 ] || [ "$1" = "help" ]; } && printf_exit "Usage: gitadmin private clone username/projectname"
     do_not_add_a_url "$1"
-    remote_repo="$GITADMIN_PERSONAL_GIT_HOST/$1"
+    remote_repo="$GITADMIN_PERSONAL_GIT_HOST/$(__strip_git_url "$1")"
     if echo "$GITADMIN_DEFAULT_GIT_DIR_PRIVATE/$1" | grep -q '\.git$'; then
       homerepo="$(echo "$GITADMIN_DEFAULT_GIT_DIR_PRIVATE/$1" | grep '\.git$' | __sed 's/\",//;s/\.[^.]*$//;s#"##g')"
     else
@@ -2098,29 +2565,28 @@ private)
       mkdir -p "$homerepo"
       __git_clone "$remote_repo" "$homerepo"
     fi
-    [ -d "$homerepo/.git" ] && __cd_into "$homerepo" || printf_exit 1 1 "failed to clone $homerepo"
+    __mkd "$homerepo" && [ -d "$homerepo/.git" ] && __cd_into "$homerepo" || printf_exit 1 1 "failed to initialize $homerepo"
     exit "$?"
     ;;
 
   push)
     shift 1
     homerepo="$(echo "$GITADMIN_DEFAULT_GIT_DIR_PRIVATE/$1")"
-    git_push_single "$homerepo/$1"
+    git_push_single "$homerepo"
     ;;
 
   pull) # update repo
     shift 1
-    [ "$1" == "help" ] && printf_help "Usage: $APPNAME update | pull the repos"
+    [ "$1" = "help" ] && printf_help "Usage: $APPNAME update | pull the repos"
     homerepo="$(echo "$GITADMIN_DEFAULT_GIT_DIR_PRIVATE/$1")"
-    git_pull_single "$homerepo/$1"
+    git_pull_single "$homerepo"
     ;;
 
   remote) # add private to remote
     shift 1
-    if [ "$#" -ne 2 ]; then printf_exit "Usage: gitadmin private remote username/projectname"; fi
-    [ "$1" = "help" ] && printf_exit "Add a private project to remote\n\t\tUsage: gitadmin private remote username/projectname"
+    { [ $# -ne 2 ] || [ "$1" = "help" ]; } && printf_exit "Usage: gitadmin private remote username/projectname [name]"
     do_not_add_a_url "$1"
-    git remote add "$1" "$GITADMIN_PERSONAL_GIT_HOST/$2.git"
+    git -C "$GITADMIN_DEFAULT_GIT_DIR_PRIVATE/$2" remote add "${2:-orgin}" "https://github.com/$(__strip_git_url "$1").git"
     exit "$?"
     ;;
 
@@ -2135,16 +2601,14 @@ private)
     case "$1" in
     repo) # create a private repo
       shift 1
-      [ "$1" = "help" ] && printf_exit "Usage: gitadmin private create RepoName 'description'"
-      [ -z "$1" ] && printf_exit "Usage: gitadmin private create RepoName 'description'"
+      { [ $# = 0 ] || [ "$1" = "help" ]; } && printf_exit "Usage: gitadmin private create RepoName 'description'"
       __gitea_create_repo "$@"
       exit "$?"
       ;;
 
     org) # create a private org
       shift 1
-      [ "$1" = "help" ] && printf_exit "Usage: gitadmin private create orgname 'reponame' 'description'"
-      [ -z "$1" ] && printf_exit "Usage: gitadmin private create orgname 'reponame' 'description'"
+      { [ $# = 0 ] || [ "$1" = "help" ]; } && printf_exit "Usage: gitadmin private create orgname 'reponame' 'description'"
       __gitea_create_org "$@"
       exit "$?"
       ;;
@@ -2154,7 +2618,6 @@ private)
   branch) # create a branch
     shift 1
     [ "$1" = "help" ] && printf_help "Usage: gitadmin private branch RepoName branch"
-    [ -z "$1" ] && printf_exit "Usage: gitadmin private branch RepoName branch"
     __gitea_branch "$@"
     exit "$?"
     ;;
@@ -2163,12 +2626,10 @@ private)
     shift 1
     if [ "$1" = "delete" ]; then
       shift 1
-      [ "$1" = "help" ] && printf_exit "Usage: gitadmin private repos delete RepoName"
-      [ -z "$1" ] && printf_exit "Usage: gitadmin private repos delete RepoName"
+      { [ $# = 0 ] || [ "$1" = "help" ] && printf_exit "Usage: gitadmin private repos delete RepoName"; }
       __gitea_delete_repo "$@"
     else
-      [ "$1" = "help" ] && printf_help "Usage: gitadmin private repos"
-      [ -z "$1" ] && printf_exit "Usage: gitadmin private repos"
+      { [ $# = 0 ] || [ "$1" = "help" ] && printf_help "Usage: gitadmin private repos"; }
       __gitea_users "$@"
     fi
     exit "$?"
@@ -2209,7 +2670,7 @@ issues) # Issue options
   create)
     shift 1
     { [ $# = 0 ] || [ "$1" = "help" ] && printf_help "Usage: gitadmin issues count username/projectname"; }
-    user="${1:-$USERNAME}" && shift 1
+    user="${1:-$GITADMIN_DEFAULT_USERNAME}" && shift 1
     issue_repo="$1" && shift 1
     issue_title="$1" && shift 1
     [ -f "$1" ] && issue_body="$(cat "$1" | sed 's|^| |g')" || issue_body="$1"
@@ -2226,7 +2687,7 @@ issues) # Issue options
     shift 1
     { [ $# = 0 ] || [ "$1" = "help" ] && printf_help "Usage: gitadmin issues count username/projectname"; }
     issue_number="$1" && shift 1
-    user="${1:-$USERNAME}" && shift 1
+    user="${1:-$GITADMIN_DEFAULT_USERNAME}" && shift 1
     issue_repo="$1" && shift 1
     issue_title="$1" && shift 1
     [ -f "$1" ] && issue_body="$(cat "$1" | sed 's|^| |g')" || issue_body="$1"
@@ -2257,7 +2718,7 @@ issues) # Issue options
 
 cron | updater)
   shift 1
-  [[ "$1" = "help" || -z "$1" ]] && printf_help "Usage: gitadmin cron [run,remove,add]"
+  { [ $# = 0 ] || [ "$1" = "help" ]; } && printf_help "Usage: gitadmin cron [run,remove,add]"
   case "$1" in
   run)
     shift 1
@@ -2275,13 +2736,16 @@ cron | updater)
   ;;
 
 *)
-  if [[ -z "$1" ]]; then
+  if [ -z "$1" ]; then
     __help
   else
     $(builtin type -P git 2>/dev/null) "$@"
   fi
   ;;
 esac
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set exit code
+exitCode="${exitCode:-$?}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

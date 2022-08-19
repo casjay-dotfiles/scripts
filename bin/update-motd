@@ -1,29 +1,42 @@
 #!/usr/bin/env bash
+# shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202207042242-git
-# @Author            :  Jason Hempstead
-# @Contact           :  jason@casjaysdev.com
-# @License           :  WTFPL
-# @ReadME            :  update-motd --help
-# @Copyright         :  Copyright: (c) 2021 Jason Hempstead, Casjays Developments
-# @Created           :  Tuesday, Aug 17, 2021 22:03 EDT
-# @File              :  update-motd
-# @Description       :  Update the MOTD and ISSUE files
-# @TODO              :
-# @Other             :
-# @Resource          :
+##@Version           :  202208180148-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  jason@casjaysdev.com
+# @@License          :  WTFPL
+# @@ReadME           :  update-motd --help
+# @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
+# @@Created          :  Thursday, Aug 18, 2022 01:48 EDT
+# @@File             :  update-motd
+# @@Description      :  Update the MOTD and ISSUE files
+# @@Changelog        :  New script
+# @@TODO             :  Better documentation
+# @@Other            :
+# @@Resource         :
+# @@Terminal App     :  no
+# @@sudo/root        :  yes
+# @@Template         :  bash/system
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0" 2>/dev/null)"
-VERSION="202108172203-git"
+VERSION="202208180148-git"
 HOME="${USER_HOME:-$HOME}"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${SUDO_USER:-$USER}"
-SRC_DIR="${BASH_SOURCE%/*}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+UPDATE_MOTD_REQUIRE_SUDO="${UPDATE_MOTD_REQUIRE_SUDO:-yes}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set bash options
-if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
-PATH="/usr/games:$PATH"
-
+# Reopen in a terminal
+#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initial debugging
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# pipes fail
+set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
@@ -36,49 +49,110 @@ if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
 elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
   . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
 else
-  printf '%s\n' "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
   exit 1
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# user system devenv dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+# Options are: *_install
+# desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr
+#   pkmgr system systemmgr thememgr user wallpapermgr
 user_install && __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set functions
-__devnull() { sudo tee "${*:-}" &>/dev/null; }
-__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
+# Send all output to /dev/null
+__devnull() {
+  tee &>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# Send errors to /dev/null
+__devnull2() {
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# See if the executable exists
+__cmd_exists() {
+  exitCode=0
+  [ -n "$1" ] && local exitCode="" || return 0
+  for cmd in "$@"; do
+    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
+  done
+  [ $exitCode -eq 0 ] || exitCode=3
+  return ${exitCode:-$?}
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for a valid internet connection
+__am_i_online() {
+  local exitCode=0
+  curl -q -LSsfI --max-time 1 --retry 0 "${1:-http://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# colorization
+if [ "$SHOW_RAW" = "true" ]; then
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional printf_ colors
+__printf_head() { printf_blue "$1"; }
+__printf_opts() { printf_purple "$1"; }
+__printf_line() { printf_cyan "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# output version
+__version() { printf_cyan "$VERSION"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# list options
+__list_options() {
+  printf_color "$1: " "$5"
+  echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g'
+  printf_newline
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create the config file
 __gen_config() {
-  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Generating the config file in"
-  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "$UPDATE_MOTD_CONFIG_DIR/$UPDATE_MOTD_CONFIG_FILE"
+  local NOTIFY_CLIENT_NAME="$APPNAME"
+  if [ "$INIT_CONFIG" != "TRUE" ]; then
+    printf_blue "Generating the config file in"
+    printf_cyan "$UPDATE_MOTD_CONFIG_DIR/$UPDATE_MOTD_CONFIG_FILE"
+  fi
   [ -d "$UPDATE_MOTD_CONFIG_DIR" ] || mkdir -p "$UPDATE_MOTD_CONFIG_DIR"
   [ -d "$UPDATE_MOTD_CONFIG_BACKUP_DIR" ] || mkdir -p "$UPDATE_MOTD_CONFIG_BACKUP_DIR"
   [ -f "$UPDATE_MOTD_CONFIG_DIR/$UPDATE_MOTD_CONFIG_FILE" ] &&
     cp -Rf "$UPDATE_MOTD_CONFIG_DIR/$UPDATE_MOTD_CONFIG_FILE" "$UPDATE_MOTD_CONFIG_BACKUP_DIR/$UPDATE_MOTD_CONFIG_FILE.$$"
   cat <<EOF >"$UPDATE_MOTD_CONFIG_DIR/$UPDATE_MOTD_CONFIG_FILE"
 # Settings for update-motd
-UPDATE_MOTD_ENABLED="${UPDATE_MOTD_ENABLED:-true}"
-UPDATE_MOTD_COWSAY="${UPDATE_MOTD_COWSAY:-true}"
-UPDATE_MOTD_COWSAY_PROGRAM="${UPDATE_MOTD_COWSAY_PROGRAM:-cowsay}"
-UPDATE_MOTD_MESSAGE_DIR="${UPDATE_MOTD_MESSAGE_DIR:-/etc/casjaysdev/messages}"
-UPDATE_MOTD_VERSION_DIR="${UPDATE_MOTD_VERSION_DIR:-/etc/casjaysdev/updates/versions}"
-UPDATE_MOTD_GIT_VERSION_FORMAT="${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}"
-UPDATE_MOTD_DEFAULT_MESSAGE="${UPDATE_MOTD_DEFAULT_MESSAGE:-Well I guess its work time...}"
-
-# Notification settings
-UPDATE_MOTD_GOOD_MESSAGE="${UPDATE_MOTD_GOOD_MESSAGE:-Everything Went OK}"
-UPDATE_MOTD_ERROR_MESSAGE="${UPDATE_MOTD_ERROR_MESSAGE:-Well something seems to have gone wrong}"
-UPDATE_MOTD_NOTIFY_ENABLED="${UPDATE_MOTD_NOTIFY_ENABLED:-yes}"
-UPDATE_MOTD_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
-UPDATE_MOTD_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$UPDATE_MOTD_NOTIFY_CLIENT_ICON}"
-
-# Colorization settings
-UPDATE_MOTD_OUTPUT_COLOR="${UPDATE_MOTD_OUTPUT_COLOR:-5}"
-UPDATE_MOTD_OUTPUT_COLOR_GOOD="${UPDATE_MOTD_OUTPUT_COLOR_GOOD:-2}"
-UPDATE_MOTD_OUTPUT_COLOR_ERROR="${UPDATE_MOTD_OUTPUT_COLOR_ERROR:-1}"
+UPDATE_MOTD_ENABLED="${UPDATE_MOTD_ENABLED:-}"
+UPDATE_MOTD_COWSAY_FILE="${UPDATE_MOTD_COWSAY_FILE:-}"
+UPDATE_MOTD_COWSAY_PROGRAM="${UPDATE_MOTD_COWSAY_PROGRAM:-}"
+UPDATE_MOTD_MESSAGE_DIR="${UPDATE_MOTD_MESSAGE_DIR:-}"
+UPDATE_MOTD_VERSION_DIR="${UPDATE_MOTD_VERSION_DIR:-}"
+UPDATE_MOTD_GIT_VERSION_FORMAT="${VERSION_DATE_FORMAT:-}"
+UPDATE_MOTD_DEFAULT_MESSAGE="${UPDATE_MOTD_DEFAULT_MESSAGE:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+UPDATE_MOTD_OUTPUT_COLOR_1="${UPDATE_MOTD_OUTPUT_COLOR_1:-}"
+UPDATE_MOTD_OUTPUT_COLOR_2="${UPDATE_MOTD_OUTPUT_COLOR_2:-}"
+UPDATE_MOTD_OUTPUT_COLOR_GOOD="${UPDATE_MOTD_OUTPUT_COLOR_GOOD:-}"
+UPDATE_MOTD_OUTPUT_COLOR_ERROR="${UPDATE_MOTD_OUTPUT_COLOR_ERROR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+UPDATE_MOTD_NOTIFY_ENABLED="${UPDATE_MOTD_NOTIFY_ENABLED:-}"
+UPDATE_MOTD_GOOD_NAME="${UPDATE_MOTD_GOOD_NAME:-}"
+UPDATE_MOTD_ERROR_NAME="${UPDATE_MOTD_ERROR_NAME:-}"
+UPDATE_MOTD_GOOD_MESSAGE="${UPDATE_MOTD_GOOD_MESSAGE:-}"
+UPDATE_MOTD_ERROR_MESSAGE="${UPDATE_MOTD_ERROR_MESSAGE:-}"
+UPDATE_MOTD_NOTIFY_CLIENT_NAME="${UPDATE_MOTD_NOTIFY_CLIENT_NAME:-}"
+UPDATE_MOTD_NOTIFY_CLIENT_ICON="${UPDATE_MOTD_NOTIFY_CLIENT_ICON:-}"
+UPDATE_MOTD_NOTIFY_CLIENT_URGENCY="${UPDATE_MOTD_NOTIFY_CLIENT_URGENCY:-}"
 
 EOF
+  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
   if [ -f "$UPDATE_MOTD_CONFIG_DIR/$UPDATE_MOTD_CONFIG_FILE" ]; then
-    [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for $APPNAME has been created"
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
+    . "$UPDATE_MOTD_CONFIG_DIR/$UPDATE_MOTD_CONFIG_FILE"
     exitCode=0
   else
     printf_red "Failed to create the config file"
@@ -87,10 +161,130 @@ EOF
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Additional functions
-sudo -n true || exit 1
+# Help function - Align to 50
+__help() {
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "update-motd:  Update the MOTD and ISSUE files - $VERSION"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Usage: update-motd [options] [commands]"
+  __printf_line " - "
+  __printf_line " - "
+  __printf_line "--dir                           - Sets the working directory"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Other Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--help                          - Shows this message"
+  __printf_line "--config                        - Generate user config file"
+  __printf_line "--version                       - Show script version"
+  __printf_line "--options                       - Shows all available options"
+  __printf_line "--debug                         - Enables script debugging"
+  __printf_line "--raw                           - Removes all formatting on output"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() {
+  { [ $(id -u) -ne 0 ] || [ $EUID -ne 0 ] || [ "$WHOAMI" != "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep -s "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# # Get sudo password
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run sudo
+__sudorun() {
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo
+__can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User can run sudo
+__sudoif() {
+  __user_is_root && return 0
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run command as root
+requiresudo() {
+  if [ "$UPDATE_MOTD_REQUIRE_SUDO" = "yes" ] && [ -z "$UPDATE_MOTD_REQUIRE_SUDO_RUN" ]; then
+    export UPDATE_MOTD_REQUIRE_SUDO="no"
+    export UPDATE_MOTD_REQUIRE_SUDO_RUN="true"
+    __sudo "$@"
+    exit $?
+  else
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  CMD="${1:-echo}" && shift 1
+  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  [ "$(basename "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  if __sudoif; then
+    export PATH="$PATH"
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    exitCode=$?
+  else
+    printf '%s\n' "This requires root to run"
+    exitCode=1
+  fi
+  return ${exitCode:-1}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  exitCode=${exitCode:-$?}
+  [ -f "$UPDATE_MOTD_TEMP_FILE" ] && rm -Rf "$UPDATE_MOTD_TEMP_FILE" &>/dev/null
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined functions
+__getlipaddr() {
+  local CHANGE_IP_VAR_DIR="" IFCONFIG""
+  CHANGE_IP_VAR_DIR="${CHANGE_IP_VAR_DIR:-/var/lib/system-scripts/checkip}"
+  [ -d "$CHANGE_IP_VAR_DIR" ] || sudo mkdir -p "$CHANGE_IP_VAR_DIR"
+  if [[ "$OSTYPE" =~ ^darwin ]]; then
+    NETDEV="$(route get default 2>/dev/null | grep interface | awk '{print $2}')"
+  else
+    NETDEV="$(ip route 2>/dev/null | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//" | awk '{print $1}' | grep '^' || echo 'eth0')"
+  fi
+  IFCONFIG="$(builtin type -P /sbin/ifconfig || builtin type -P ifconfig)"
+  if [ -f "$IFCONFIG" ]; then
+    # net-tools package
+    CURRIP4="$(/sbin/ifconfig $NETDEV 2>/dev/null | grep -E "venet|inet" | grep -v "127.0.0." | grep 'inet' | grep -v inet6 | awk '{print $2}' | sed s/addr://g | head -n1 | grep '^')"
+    CURRIP6="$(/sbin/ifconfig $NETDEV 2>/dev/null | grep -E "venet|inet" | grep 'inet6' | grep -i global | awk '{print $2}' | head -n1 | grep '^')"
+  else
+    CURRIP4="$(ip -o -f inet address show $NETDEV | awk -F'/' '{print $1}' | awk '{print $NF}' | head -n 1 | grep '^')"
+    CURRIP6="$(ip -o -f inet6 address show $NETDEV | awk -F'/' '{print $1}' | awk '{print $NF}' | head -n 1 | grep '^')"
+  fi
+  [ -n "$NETDEV" ] || NETDEV="lo"
+  [ -n "$CURRIP4" ] || CURRIP4="127.0.0.1"
+  [ -n "$CURRIP6" ] || CURRIP6="::1"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __restart_motd_services() {
-  local SYSTEMD_MOTD_SERVICES="$(systemctl --all | grep motd | awk '{print $1}' | sort -u | grep -v '^$')"
+  local SYSTEMD_MOTD_SERVICES=""
+  SYSTEMD_MOTD_SERVICES="$(systemctl --all | grep 'motd' | awk '{print $1}' | sort -u | grep -v '^$')"
   for service in $SYSTEMD_MOTD_SERVICES; do
     systemctl restart $service |& __devnull
   done
@@ -104,19 +298,18 @@ __remove_duplicate_motd() {
     for file in $(ls "$motd_d_dir" 2>/dev/null); do
       motd_file="$motd_d_dir/$(basename $file 2>/dev/null)"
       issue_file="$(find "$issue_d_dir/" -iname "$file*" 2>/dev/null | head -n1)"
-      [ -f "$issue_file" ] && sudo -HE rm -f "$issue_file"
+      [ -f "$issue_file" ] && __sudo rm -f "$issue_file"
     done
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gen_fortune_motd() {
+  local cow_text="" fortune_text="" cow_file="" fortune_file=""
   local PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/games:/usr/games"
-  local cow_text=""
-  local fortune_text=""
-  local cow_file="/tmp/cow.txt"
-  local fortune_file="$(builtin type -P fortune)"
+  cow_file="/tmp/cow.txt"
+  fortune_file="$(builtin type -P fortune)"
   fortune_text="$(eval "$fortune_file" -s 2>/dev/null | grep '^' || echo "${UPDATE_MOTD_DEFAULT_MESSAGE:-Well then.....}")"
-  if [ "$UPDATE_MOTD_COWSAY" = "true" ] && cmd_exists $UPDATE_MOTD_COWSAY_PROGRAM; then
+  if [ "$UPDATE_MOTD_COWSAY_FILE" = "true" ] && cmd_exists $UPDATE_MOTD_COWSAY_PROGRAM; then
     cow_text=$(printf '%s\n' "$fortune_text" | $UPDATE_MOTD_COWSAY_PROGRAM 2>/dev/null | grep '^')
   else
     cow_text="$fortune_text"
@@ -159,7 +352,7 @@ __update_legal() {
     sudo -HE ${sed:-sed} -i 's|MYHOSTIP|'$CURRIP4'|g' "$UPDATE_MOTD_MESSAGE_DIR/legal/000.txt" |& __devnull
     sudo -HE ${sed:-sed} -i 's|MYHOSTIP6|'$CURRIP6'|g' "$UPDATE_MOTD_MESSAGE_DIR/legal/000.txt" |& __devnull
     sudo -HE find "$UPDATE_MOTD_MESSAGE_DIR" -type f -exec "${sed:-sed}" -i 's|.*Welcome to.*!|Welcome to '$HOSTNAME'!#g' {} \; |& __devnull
-    sudo -HE find "$UPDATE_MOTD_MESSAGE_DIR" -type f -exec "${sed:-sed}" -i 's|.*MY Hostname is.*|MY Hostname is       : '$HOSTSHORT'|g' {} \; |& __devnull
+    sudo -HE find "$UPDATE_MOTD_MESSAGE_DIR" -type f -exec "${sed:-sed}" -i 's|.*MY Hostname is.*|MY Hostname is     : '$HOSTSHORT'|g' {} \; |& __devnull
     sudo -HE find "$UPDATE_MOTD_MESSAGE_DIR" -type f -exec "${sed:-sed}" -i 's|.*MY IP Address is.*|MY IP Address is   : '$CURRIP4'|g' {} \; |& __devnull
     sudo -HE find "$UPDATE_MOTD_MESSAGE_DIR" -type f -exec "${sed:-sed}" -i 's|.*MY IP6 Address is.*|MY IP6 Address is : '$CURRIP6'|g' {} \; |& __devnull
     for f in $UPDATE_MOTD_MESSAGE_DIR/legal/*.txt; do
@@ -203,88 +396,249 @@ __update_motd() {
     done
   fi
 }
+__execute_update_motd() {
+  [ "$UPDATE_MOTD_ENABLED" = "true" ] || printf_exit "Update MOTD is disabled"
+  __getlipaddr
+  __remove_duplicate_motd
+  __restart_motd_services
+  sed="$(command -v gsed 2>/dev/null || command -v sed 2>/dev/null)"
+  HOSTNAME="$(hostname -f 2>/dev/null || printf '%s\n' 'localhost.local')"
+  HOSTSHORT="$(hostname -s 2>/dev/null || printf '%s\n' 'localhost')"
+  CURRIP4=${CURRIP4:-127.0.0.1}
+  CURRIP6=${CURRIP6:-::1}
+  dategit="$(date +"${UPDATE_MOTD_GIT_VERSION_FORMAT:-%Y%m%d%H%M-git}")"
+  datever="$(date +"%b %d, %Y at %H:%M")"
+  OS_RELEASE="$(printf '%s: %s\n' "$(__os_name)" "$(__os_version)")"
+  if [ "$force_removal" = "true" ]; then
+    sudo -HE rm -Rf $UPDATE_MOTD_MESSAGE_DIR/*/*.txt |& __devnull
+    sudo -HE mkdir -p $UPDATE_MOTD_MESSAGE_DIR/{legal,issue,motd} |& __devnull
+    sudo -HE touch $UPDATE_MOTD_MESSAGE_DIR/{legal,issue,motd}/000.txt |& __devnull
+    if [ -f "$CASJAYSDEVDIR/templates/casjaysdev-legal.txt" ]; then
+      sudo -HE cp -Rf "$SCRIPTSFUNCTDIR/templates/casjaysdev-legal.txt" "$UPDATE_MOTD_MESSAGE_DIR/legal/000.txt"
+    fi
+  fi
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  [ -s "$UPDATE_MOTD_MESSAGE_DIR/legal/000.txt" ] || sudo -HE cp -Rf "$CASJAYSDEVDIR/templates/casjaysdev-legal.txt" "$UPDATE_MOTD_MESSAGE_DIR/legal/000.txt"
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  sudo -HE rm -Rf /etc/issue /etc/motd |& __devnull
+  sudo -HE rm -Rf /etc/issue.net /etc/motd.net |& __devnull
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  if [ -f "$UPDATE_MOTD_VERSION_DIR/scripts.txt" ] && [ -s "$UPDATE_MOTD_VERSION_DIR/scripts.txt" ]; then
+    scriptsversion="$(<"$UPDATE_MOTD_VERSION_DIR/scripts.txt")"
+  else
+    scriptsversion="$dategit"
+    printf '%s\n' "$scriptsversion" | sudo -HE tee "$UPDATE_MOTD_VERSION_DIR/scripts.txt" |& __devnull
+  fi
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  if [ -f "$UPDATE_MOTD_VERSION_DIR/configs.txt" ] && [ -s "$UPDATE_MOTD_VERSION_DIR/configs.txt" ]; then
+    configsversion="$(<"$UPDATE_MOTD_VERSION_DIR/configs.txt")"
+  else
+    configsversion="$dategit"
+    printf '%s\n' "$configsversion" | sudo -HE tee "$UPDATE_MOTD_VERSION_DIR/configs.txt" |& __devnull
+  fi
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  if [ -f "$UPDATE_MOTD_VERSION_DIR/date.scripts.txt" ] && [ -s "$UPDATE_MOTD_VERSION_DIR/date.scripts.txt" ]; then
+    scriptsdate="$(<"$UPDATE_MOTD_VERSION_DIR/date.scripts.txt")"
+  else
+    scriptsdate="$datever"
+    printf '%s\n' "$scriptsdate" | sudo -HE tee "$UPDATE_MOTD_VERSION_DIR/date.scripts.txt" |& __devnull
+  fi
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  if [ -f "$UPDATE_MOTD_VERSION_DIR/date.configs.txt" ] && [ -s "$UPDATE_MOTD_VERSION_DIR/date.configs.txt" ]; then
+    configsdate="$(<"$UPDATE_MOTD_VERSION_DIR/date.configs.txt")"
+  else
+    configsdate="$datever"
+    printf '%s\n' "$configsdate" | sudo -HE tee "$UPDATE_MOTD_VERSION_DIR/date.configs.txt" |& __devnull
+  fi
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  distro_version="${DISTRO_VERSION=-N/A}"
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  # update issue file
+  (
+    __update_legal
+    __update_issue
+  ) | sudo -HE tee "/etc/issue" |& __devnull
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  # update motd file
+  (
+    __update_motd
+    __gen_fortune_motd
+    __gen_versions
+  ) | sudo -HE tee /etc/motd |& __devnull
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  if [ -n "$OS_RELEASE" ]; then
+    printf '%s\n' "$OS_RELEASE" | sudo -HE tee "$UPDATE_MOTD_VERSION_DIR/osversion.txt" |& __devnull
+    __os_fix_name "$UPDATE_MOTD_VERSION_DIR/osversion.txt"
+  else
+    printf 'Unknown OS 1.0\n' | sudo -HE tee "$UPDATE_MOTD_VERSION_DIR/osname.txt" |& __devnull
+  fi
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  sudo -HE cp -Rf /etc/motd /etc/motd.net |& __devnull
+  sudo -HE cp -Rf /etc/issue /etc/issue.net |& __devnull
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  [ -d "/etc/casjaysdev/banners" ] || sudo -HE mkdir -p "/etc/casjaysdev/banners"
+  for file in /etc/casjaysdev/banners/*; do
+    [ -f "$file" ] && cat /etc/issue /etc/motd | sudo -HE tee "$file" |& __devnull || true
+  done
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  if [ "$show_console" = "true" ] && [ "$show_debug" != "true" ]; then
+    cat /etc/issue /etc/motd | printf_readline "$UPDATE_MOTD_OUTPUT_COLOR_1"
+  fi
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  if [ "$show_debug" = "true" ]; then
+    __if_os_id
+    cat /etc/issue /etc/motd | printf_readline "$UPDATE_MOTD_OUTPUT_COLOR_1"
+    printf_green "OS Release           :  $OS_RELEASE"
+    printf_green "distro name          :  $distro_id"
+    printf_green "distro version       :  $distro_version"
+    printf_green "scripts version      :  $scriptsversion"
+    printf_green "configs version      :  $configsversion"
+    printf_green "scripts date         :  $scriptsdate"
+    printf_green "configs date         :  $configsdate"
+    printf_green "hostname short       :  $HOSTSHORT"
+    printf_green "hostname full        :  $HOSTNAME"
+    printf_green "current ip4          :  $CURRIP4"
+    printf_green "current ip6          :  $CURRIP6"
+  fi
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  [ -s "/etc/motd" ] && [ -s "/etc/motd.net" ] &&
+    [ -s "/etc/issue" ] && [ -s "/etc/issue.net" ] || sudo -HE $APPNAME
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Default variables
-exitCode="0"
+# User defined variables/import external variables
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application Folders
-UPDATE_MOTD_LOG_DIR="${UPDATE_MOTD_LOG_DIR:-$HOME/.local/log/update-motd}"
-UPDATE_MOTD_CACHE_DIR="${UPDATE_MOTD_CACHE_DIR:-$HOME/.cache/update-motd}"
+UPDATE_MOTD_CONFIG_FILE="${UPDATE_MOTD_CONFIG_FILE:-settings.conf}"
 UPDATE_MOTD_CONFIG_DIR="${UPDATE_MOTD_CONFIG_DIR:-$HOME/.config/myscripts/update-motd}"
 UPDATE_MOTD_CONFIG_BACKUP_DIR="${UPDATE_MOTD_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/update-motd/backups}"
+UPDATE_MOTD_LOG_DIR="${UPDATE_MOTD_LOG_DIR:-$HOME/.local/log/update-motd}"
 UPDATE_MOTD_TEMP_DIR="${UPDATE_MOTD_TEMP_DIR:-$HOME/.local/tmp/system_scripts/update-motd}"
-UPDATE_MOTD_OPTIONS_DIR="${UPDATE_MOTD_OPTIONS_DIR:-$HOME/.local/share/myscripts/update-motd/options}"
-UPDATE_MOTD_CONFIG_FILE="${UPDATE_MOTD_CONFIG_FILE:-settings.conf}"
-UPDATE_MOTD_MESSAGE_DIR="${UPDATE_MOTD_MESSAGE_DIR:-/etc/casjaysdev/messages}"
-UPDATE_MOTD_VERSION_DIR="${UPDATE_MOTD_VERSION_DIR:-/etc/casjaysdev/updates/versions}"
+UPDATE_MOTD_CACHE_DIR="${UPDATE_MOTD_CACHE_DIR:-$HOME/.cache/update-motd}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
-UPDATE_MOTD_OUTPUT_COLOR="${UPDATE_MOTD_OUTPUT_COLOR:-4}"
-UPDATE_MOTD_OUTPUT_COLOR_2="${UPDATE_MOTD_OUTPUT_COLOR:-6}"
+UPDATE_MOTD_OUTPUT_COLOR_1="${UPDATE_MOTD_OUTPUT_COLOR_1:-4}"
+UPDATE_MOTD_OUTPUT_COLOR_2="${UPDATE_MOTD_OUTPUT_COLOR_2:-5}"
 UPDATE_MOTD_OUTPUT_COLOR_GOOD="${UPDATE_MOTD_OUTPUT_COLOR_GOOD:-2}"
 UPDATE_MOTD_OUTPUT_COLOR_ERROR="${UPDATE_MOTD_OUTPUT_COLOR_ERROR:-1}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Notification Settings
-UPDATE_MOTD_GOOD_MESSAGE="${UPDATE_MOTD_GOOD_MESSAGE:-Everything Went OK}"
-UPDATE_MOTD_ERROR_MESSAGE="${UPDATE_MOTD_ERROR_MESSAGE:-Well something seems to have gone wrong}"
 UPDATE_MOTD_NOTIFY_ENABLED="${UPDATE_MOTD_NOTIFY_ENABLED:-yes}"
-UPDATE_MOTD_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
-UPDATE_MOTD_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$UPDATE_MOTD_NOTIFY_CLIENT_ICON}"
+UPDATE_MOTD_GOOD_NAME="${UPDATE_MOTD_GOOD_NAME:-Great:}"
+UPDATE_MOTD_ERROR_NAME="${UPDATE_MOTD_ERROR_NAME:-Error:}"
+UPDATE_MOTD_GOOD_MESSAGE="${UPDATE_MOTD_GOOD_MESSAGE:-No errors reported}"
+UPDATE_MOTD_ERROR_MESSAGE="${UPDATE_MOTD_ERROR_MESSAGE:-Errors were reported}"
+UPDATE_MOTD_NOTIFY_CLIENT_NAME="${UPDATE_MOTD_NOTIFY_CLIENT_NAME:-$APPNAME}"
+UPDATE_MOTD_NOTIFY_CLIENT_ICON="${UPDATE_MOTD_NOTIFY_CLIENT_ICON:-notification-new}"
+UPDATE_MOTD_NOTIFY_CLIENT_URGENCY="${UPDATE_MOTD_NOTIFY_CLIENT_URGENCY:-normal}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional Variables
-UPDATE_MOTD_GIT_VERSION_FORMAT="${VERSION_DATE_FORMAT:-${UPDATE_MOTD_GIT_VERSION_FORMAT:-%Y%m%d%H%M-git}}"
 UPDATE_MOTD_ENABLED="${UPDATE_MOTD_ENABLED:-true}"
-UPDATE_MOTD_COWSAY="${UPDATE_MOTD_COWSAY:-true}"
+UPDATE_MOTD_COWSAY_FILE="${UPDATE_MOTD_COWSAY_FILE:-true}"
 UPDATE_MOTD_COWSAY_PROGRAM="${UPDATE_MOTD_COWSAY_PROGRAM:-cowsay}"
+UPDATE_MOTD_MESSAGE_DIR="${UPDATE_MOTD_MESSAGE_DIR:-/etc/casjaysdev/messages}"
+UPDATE_MOTD_VERSION_DIR="${UPDATE_MOTD_VERSION_DIR:-/etc/casjaysdev/updates/versions}"
+UPDATE_MOTD_GIT_VERSION_FORMAT="${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}"
 UPDATE_MOTD_DEFAULT_MESSAGE="${UPDATE_MOTD_DEFAULT_MESSAGE:-Well I guess its work time...}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Generate non-existing config files
-[ -f "$UPDATE_MOTD_CONFIG_DIR/$UPDATE_MOTD_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# Generate config files
+[ -f "$UPDATE_MOTD_CONFIG_DIR/$UPDATE_MOTD_CONFIG_FILE" ] ||
+  [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import config
-[ -f "$UPDATE_MOTD_CONFIG_DIR/$UPDATE_MOTD_CONFIG_FILE" ] && . "$UPDATE_MOTD_CONFIG_DIR/$UPDATE_MOTD_CONFIG_FILE"
+[ -f "$UPDATE_MOTD_CONFIG_DIR/$UPDATE_MOTD_CONFIG_FILE" ] &&
+  . "$UPDATE_MOTD_CONFIG_DIR/$UPDATE_MOTD_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Ensure Directories and files exist
-[ -d "$UPDATE_MOTD_LOG_DIR" ] || mkdir -p "$UPDATE_MOTD_LOG_DIR" |& __devnull
-[ -d "$UPDATE_MOTD_TEMP_DIR" ] || mkdir -p "$UPDATE_MOTD_TEMP_DIR" |& __devnull
-[ -d "$UPDATE_MOTD_CACHE_DIR" ] || mkdir -p "$UPDATE_MOTD_CACHE_DIR" |& __devnull
+# Ensure Directories exist
+[ -d "$UPDATE_MOTD_LOG_DIR" ] ||
+  mkdir -p "$UPDATE_MOTD_LOG_DIR" |& __devnull
+[ -d "$UPDATE_MOTD_TEMP_DIR" ] ||
+  mkdir -p "$UPDATE_MOTD_TEMP_DIR" |& __devnull
+[ -d "$UPDATE_MOTD_CACHE_DIR" ] ||
+  mkdir -p "$UPDATE_MOTD_CACHE_DIR" |& __devnull
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 UPDATE_MOTD_TEMP_FILE="${UPDATE_MOTD_TEMP_FILE:-$(mktemp $UPDATE_MOTD_TEMP_DIR/XXXXXX 2>/dev/null)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup trap to remove temp file
-trap 'exitCode=${exitCode:-$?};[ -n "$UPDATE_MOTD_TEMP_FILE" ] && [ -f "$UPDATE_MOTD_TEMP_FILE" ] && rm -Rf "$UPDATE_MOTD_TEMP_FILE" |& __devnull' EXIT
+trap '__trap_exit' EXIT
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup notification function
-if [ "$UPDATE_MOTD_NOTIFY_ENABLED" = "yes" ]; then
-  __notifications() {
-    export NOTIFY_GOOD_MESSAGE="${UPDATE_MOTD_GOOD_MESSAGE}"
-    export NOTIFY_ERROR_MESSAGE="${UPDATE_MOTD_ERROR_MESSAGE}"
-    export NOTIFY_CLIENT_NAME="${UPDATE_MOTD_NOTIFY_CLIENT_NAME}"
-    export NOTIFY_CLIENT_ICON="${UPDATE_MOTD_NOTIFY_CLIENT_ICON}"
-    notifications "$@" || return 1
-  }
-else
-  __notifications() { false; }
-fi
+__notifications() {
+  __cmd_exists notifications || return
+  [ "$UPDATE_MOTD_NOTIFY_ENABLED" = "yes" ] || return
+  [ "$SEND_NOTIFICATION" = "no" ] && return
+  (
+    set +x
+    export SCRIPT_OPTS="" _DEBUG=""
+    export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$UPDATE_MOTD_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$UPDATE_MOTD_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$UPDATE_MOTD_NOTIFY_CLIENT_ICON}"
+    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$UPDATE_MOTD_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$UPDATE_MOTD_NOTIFY_CLIENT_URGENCY}"
+    notifications "$@"
+    retval=$?
+    return $retval
+  ) |& __devnull &
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Show warn message if variables are missing
-sudo -HE true || exit 1
+# Set custom actions
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set additional variables/Argument/Option settings
-SETARGS="$*"
+# Argument/Option settings
+SETARGS=("$@")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SHORTOPTS=""
-LONGOPTS="options,config,version,help,dir:,force,console,debug"
-ARRAY=""
+SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
+LONGOPTS+=",force,console"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ARRAY=""
+ARRAY+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LIST=""
+LIST+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$APPNAME" -- "$@" 2>/dev/null)
 eval set -- "${setopts[@]}" 2>/dev/null
 while :; do
-  case $1 in
+  case "$1" in
+  --raw)
+    shift 1
+    export SHOW_RAW="true"
+    printf_column() { tee | grep '^'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    ;;
+  --debug)
+    shift 1
+    set -xo pipefail
+    export SCRIPT_OPTS="--debug"
+    export _DEBUG="on"
+    __devnull() { tee || return 1; }
+    __devnull2() { eval "$@" |& tee || return 1; }
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
+    ;;
   --options)
     shift 1
-    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
-    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
-    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
-    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' 4
+    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' 4
+    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
     exit $?
     ;;
   --version)
@@ -302,8 +656,14 @@ while :; do
     __gen_config
     exit $?
     ;;
+  --silent)
+    shift 1
+    UPDATE_MOTD_SILENT="true"
+    ;;
   --dir)
+    CWD_IS_SET="TRUE"
     UPDATE_MOTD_CWD="$2"
+    [ -d "$UPDATE_MOTD_CWD" ] || mkdir -p "$UPDATE_MOTD_CWD" |& __devnull
     shift 2
     ;;
   --force)
@@ -314,135 +674,57 @@ while :; do
     shift 1
     show_console="true"
     ;;
-  --debug)
-    shift 1
-    show_debug="true"
-    printf_red "Debugging enabled: logging to $UPDATE_MOTD_LOG_DIR/debug.log"
-    __devnull() { sudo tee "${*:-}" "$UPDATE_MOTD_LOG_DIR/debug.log"; }
-    ;;
   --)
     shift 1
     break
     ;;
   esac
 done
-#set -- "$SETARGS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Actions based on env
-[ "$UPDATE_MOTD_ENABLED" = "true" ] || printf_exit "Update MOTD is disabled"
-__remove_duplicate_motd
-__restart_motd_services
+# Get directory from args
+# set -- "$@"
+# for arg in "$@"; do
+# if [ -d "$arg" ]; then
+# UPDATE_MOTD_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
+# elif [ -f "$arg" ]; then
+# UPDATE_MOTD_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
+# else
+# SET_NEW_ARGS+=("$arg")
+# fi
+# done
+# set -- "${SET_NEW_ARGS[@]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set directory to first argument
+# [ -d "$1" ] && UPDATE_MOTD_CWD="$1" && shift 1 || UPDATE_MOTD_CWD="${UPDATE_MOTD_CWD:-$PWD}"
+UPDATE_MOTD_CWD="$(realpath "${UPDATE_MOTD_CWD:-$PWD}" 2>/dev/null)"
+# if [ -d "$UPDATE_MOTD_CWD" ] && cd "$UPDATE_MOTD_CWD"; then
+# if [ "$UPDATE_MOTD_SILENT" != "true" ]; then
+# printf_cyan "Setting working dir to $UPDATE_MOTD_CWD"
+# fi
+# else
+# printf_exit "💔 $UPDATE_MOTD_CWD does not exist 💔"
+# fi
+export UPDATE_MOTD_CWD
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set actions based on variables
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
-cmd_exists --error --ask bash || exit 1 # exit 1 if not found
-#am_i_online --error || exit 1     # exit 1 if no internet
+#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+#cmd_exists --error --ask bash || exit 3 # exit 3 if not found
+#am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
-__getlipaddr
-sed="$(command -v gsed 2>/dev/null || command -v sed 2>/dev/null)"
-HOSTNAME="$(hostname -f 2>/dev/null || printf '%s\n' 'localhost.local')"
-HOSTSHORT="$(hostname -s 2>/dev/null || printf '%s\n' 'localhost')"
-CURRIP4=${CURRIP4:-127.0.0.1}
-CURRIP6=${CURRIP6:-::1}
-dategit="$(date +"${UPDATE_MOTD_GIT_VERSION_FORMAT:-%Y%m%d%H%M-git}")"
-datever="$(date +"%b %d, %Y at %H:%M")"
-OS_RELEASE="$(printf '%s: %s\n' "$(__os_name)" "$(__os_version)")"
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+__sudoif
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
-if [ "$force_removal" = "true" ]; then
-  sudo -HE rm -Rf $UPDATE_MOTD_MESSAGE_DIR/*/*.txt |& __devnull
-  sudo -HE mkdir -p $UPDATE_MOTD_MESSAGE_DIR/{legal,issue,motd} |& __devnull
-  sudo -HE touch $UPDATE_MOTD_MESSAGE_DIR/{legal,issue,motd}/000.txt |& __devnull
-  if [ -f "$CASJAYSDEVDIR/templates/casjaysdev-legal.txt" ]; then
-    sudo -HE cp -Rf "$SCRIPTSFUNCTDIR/templates/casjaysdev-legal.txt" "$UPDATE_MOTD_MESSAGE_DIR/legal/000.txt"
-  fi
-fi
+__execute_update_motd
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-[ -s "$UPDATE_MOTD_MESSAGE_DIR/legal/000.txt" ] || sudo -HE cp -Rf "$CASJAYSDEVDIR/templates/casjaysdev-legal.txt" "$UPDATE_MOTD_MESSAGE_DIR/legal/000.txt"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-sudo -HE rm -Rf /etc/issue /etc/motd |& __devnull
-sudo -HE rm -Rf /etc/issue.net /etc/motd.net |& __devnull
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ -f "$UPDATE_MOTD_VERSION_DIR/scripts.txt" ] && [ -s "$UPDATE_MOTD_VERSION_DIR/scripts.txt" ]; then
-  scriptsversion="$(<"$UPDATE_MOTD_VERSION_DIR/scripts.txt")"
-else
-  scriptsversion="$dategit"
-  printf '%s\n' "$scriptsversion" | sudo -HE tee "$UPDATE_MOTD_VERSION_DIR/scripts.txt" |& __devnull
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ -f "$UPDATE_MOTD_VERSION_DIR/configs.txt" ] && [ -s "$UPDATE_MOTD_VERSION_DIR/configs.txt" ]; then
-  configsversion="$(<"$UPDATE_MOTD_VERSION_DIR/configs.txt")"
-else
-  configsversion="$dategit"
-  printf '%s\n' "$configsversion" | sudo -HE tee "$UPDATE_MOTD_VERSION_DIR/configs.txt" |& __devnull
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ -f "$UPDATE_MOTD_VERSION_DIR/date.scripts.txt" ] && [ -s "$UPDATE_MOTD_VERSION_DIR/date.scripts.txt" ]; then
-  scriptsdate="$(<"$UPDATE_MOTD_VERSION_DIR/date.scripts.txt")"
-else
-  scriptsdate="$datever"
-  printf '%s\n' "$scriptsdate" | sudo -HE tee "$UPDATE_MOTD_VERSION_DIR/date.scripts.txt" |& __devnull
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ -f "$UPDATE_MOTD_VERSION_DIR/date.configs.txt" ] && [ -s "$UPDATE_MOTD_VERSION_DIR/date.configs.txt" ]; then
-  configsdate="$(<"$UPDATE_MOTD_VERSION_DIR/date.configs.txt")"
-else
-  configsdate="$datever"
-  printf '%s\n' "$configsdate" | sudo -HE tee "$UPDATE_MOTD_VERSION_DIR/date.configs.txt" |& __devnull
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-distro_version="${distro_version:-N/A}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# update issue file
-(
-  __update_legal
-  __update_issue
-) | sudo -HE tee "/etc/issue" #|& __devnull
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# update motd file
-(
-  __update_motd
-  __gen_fortune_motd
-  __gen_versions
-) | sudo -HE tee /etc/motd |& __devnull
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ -n "$OS_RELEASE" ]; then
-  printf '%s\n' "$OS_RELEASE" | sudo -HE tee "$UPDATE_MOTD_VERSION_DIR/osversion.txt" |& __devnull
-  __os_fix_name "$UPDATE_MOTD_VERSION_DIR/osversion.txt"
-else
-  printf 'Unknown OS 1.0\n' | sudo -HE tee "$UPDATE_MOTD_VERSION_DIR/osname.txt" |& __devnull
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-sudo -HE cp -Rf /etc/motd /etc/motd.net |& __devnull
-sudo -HE cp -Rf /etc/issue /etc/issue.net |& __devnull
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-[ -d "/etc/casjaysdev/banners" ] || sudo -HE mkdir -p "/etc/casjaysdev/banners"
-for file in /etc/casjaysdev/banners/*; do
-  [ -f "$file" ] && cat /etc/issue /etc/motd | sudo -HE tee "$file" |& __devnull || true
-done
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ "$show_console" = "true" ] && [ "$show_debug" != "true" ]; then
-  cat /etc/issue /etc/motd | printf_readline "$UPDATE_MOTD_OUTPUT_COLOR"
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ "$show_debug" = "true" ]; then
-  __if_os_id
-  cat /etc/issue /etc/motd | printf_readline "$UPDATE_MOTD_OUTPUT_COLOR"
-  printf_green "OS Release           :  $OS_RELEASE"
-  printf_green "distro name          :  $distro_id"
-  printf_green "distro version       :  $distro_version"
-  printf_green "scripts version      :  $scriptsversion"
-  printf_green "configs version      :  $configsversion"
-  printf_green "scripts date         :  $scriptsdate"
-  printf_green "configs date         :  $configsdate"
-  printf_green "hostname short       :  $HOSTSHORT"
-  printf_green "hostname full        :  $HOSTNAME"
-  printf_green "current ip4          :  $CURRIP4"
-  printf_green "current ip6          :  $CURRIP6"
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-[ -s "/etc/motd" ] && [ -s "/etc/motd.net" ] &&
-  [ -s "/etc/issue" ] && [ -s "/etc/issue.net" ] || sudo -HE $APPNAME
+# Set exit code
+exitCode="${exitCode:-$?}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

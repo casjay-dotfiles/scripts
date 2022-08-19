@@ -143,7 +143,7 @@ printf_custom() {
   local msg="$*"
   shift
   printf_color "\t\t$msg" "$color"
-  echo ""
+  printf '\n'
 }
 ##################################################################################################
 printf_head() {

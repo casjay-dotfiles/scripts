@@ -256,7 +256,7 @@ printf_return() {
   local msg="$*"
   shift
   printf_color "\t\t$msg" "$color" 1>&2
-  echo ""
+  printf '\n'
   return "$exitCode"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -265,7 +265,8 @@ printf_readline() {
   set -o pipefail
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="6"
   while read line; do
-    printf_color "\t\t$line\n" "$color"
+    printf_color "\t\t$line" "$color"
+    printf '\n'
   done
   set +o pipefail
 }

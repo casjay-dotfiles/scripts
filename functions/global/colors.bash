@@ -248,7 +248,7 @@ printf_readline() {
   set +o pipefail
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-printf_readline_tunc() {
+printf_readline_trunc() {
   set -o pipefail  
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="6"
   while read line; do

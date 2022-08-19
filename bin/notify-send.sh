@@ -293,7 +293,6 @@ __notify_send() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __notify_send_all() {
-  set -x
   local msg="$2"
   local title="$1"
   local NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$CLIENT_ICON}"

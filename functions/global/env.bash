@@ -59,6 +59,6 @@ unset TMPPATH
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # OS Settings
 if [ -f "$CASJAYSDEVDIR/bin/detectostype" ]; then
-  . "$CASJAYSDEVDIR/bin/detectostype"
+  "$CASJAYSDEVDIR/bin/detectostype"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

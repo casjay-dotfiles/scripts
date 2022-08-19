@@ -367,7 +367,6 @@ printf_readline_trunc() {
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="6"
   while read line; do                                                  
     printf_color "\t\t$line" "${PRINTF_COLOR:-$color}" |& cat - | cut -c 1-${TRUNC_IT:-130} | tee
-    printf "\n"                              
   done
   set +o pipefail                                                      
 }

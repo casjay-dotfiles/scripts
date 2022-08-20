@@ -1236,10 +1236,6 @@ trim() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 execute() {
-  local log_dir="${LOG_DIR:-$HOME/.local/log}"
-  local -r LOG_FILE="$log_dir/${APPNAME:-scripts}/install_${CMDS}.log"
-  local -r ERR_FILE="$log_dir/${APPNAME:-scripts}/install_${CMDS}.err.log"
-  [ -d "$log_dir" ] || mkdir -p "$log_dir"
   [[ -n "$_DEBUG" ]] && set -x
   kill_all_subprocesses() {
     [[ -n "$_DEBUG" ]] && set -x
@@ -1267,6 +1263,10 @@ execute() {
   }
   local -r CMDS="$1"
   local -r MSG="${2:-$1} "
+  local log_dir="${LOG_DIR:-$HOME/.local/log}"
+  local -r LOG_FILE="$log_dir/${APPNAME:-scripts}/install_${CMDS}.log"
+  local -r ERR_FILE="$log_dir/${APPNAME:-scripts}/install_${CMDS}.err.log"
+  [ -d "$log_dir" ] || mkdir -p "$log_dir"
   local exitCode=0
   local cmdsPID=""
   set_trap "EXIT" "kill_all_subprocesses"

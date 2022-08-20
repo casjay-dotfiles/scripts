@@ -1,0 +1,753 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version           :  202208201626-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  jason@casjaysdev.com
+# @@License          :  WTFPL
+# @@ReadME           :  cdd --help
+# @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
+# @@Created          :  Saturday, Aug 20, 2022 16:26 EDT
+# @@File             :  cdd
+# @@Description      :  cd into directories using shortcuts
+# @@Changelog        :  New script
+# @@TODO             :  Better documentation
+# @@Other            :
+# @@Resource         :
+# @@Terminal App     :  no
+# @@sudo/root        :  no
+# @@Template         :  bash/system
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="$(basename "$0" 2>/dev/null)"
+VERSION="202208201626-git"
+HOME="${USER_HOME:-$HOME}"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${SUDO_USER:-$USER}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+CDD_REQUIRE_SUDO="${CDD_REQUIRE_SUDO:-no}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Reopen in a terminal
+#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initial debugging
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# pipes fail
+set -o pipefail
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import functions
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+  . "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  exit 1
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Options are: *_install
+# desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr
+#   pkmgr system systemmgr thememgr user wallpapermgr
+user_install && __options "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Send all output to /dev/null
+__devnull() {
+  tee &>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# Send errors to /dev/null
+__devnull2() {
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# See if the executable exists
+__cmd_exists() {
+  exitCode=0
+  [ -n "$1" ] && local exitCode="" || return 0
+  for cmd in "$@"; do
+    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
+  done
+  [ $exitCode -eq 0 ] || exitCode=3
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for a valid internet connection
+__am_i_online() {
+  local exitCode=0
+  curl -q -LSsfI --max-time 1 --retry 0 "${1:-http://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# colorization
+if [ "$SHOW_RAW" = "true" ]; then
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional printf_ colors
+__printf_head() { printf_blue "$1"; }
+__printf_opts() { printf_purple "$1"; }
+__printf_line() { printf_cyan "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# output version
+__version() { printf_cyan "$VERSION"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# list options
+__list_options() {
+  printf_color "$1: " "$5"
+  echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g'
+  printf_newline
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create the config file
+__gen_config() {
+  local NOTIFY_CLIENT_NAME="$APPNAME"
+  if [ "$INIT_CONFIG" != "TRUE" ]; then
+    printf_blue "Generating the config file in"
+    printf_cyan "$CDD_CONFIG_DIR/$CDD_CONFIG_FILE"
+  fi
+  [ -d "$CDD_CONFIG_DIR" ] || mkdir -p "$CDD_CONFIG_DIR"
+  [ -d "$CDD_CONFIG_BACKUP_DIR" ] || mkdir -p "$CDD_CONFIG_BACKUP_DIR"
+  [ -f "$CDD_CONFIG_DIR/$CDD_CONFIG_FILE" ] &&
+    cp -Rf "$CDD_CONFIG_DIR/$CDD_CONFIG_FILE" "$CDD_CONFIG_BACKUP_DIR/$CDD_CONFIG_FILE.$$"
+  cat <<EOF >"$CDD_CONFIG_DIR/$CDD_CONFIG_FILE"
+# Settings for cdd
+CDD_OPTIONS_DEFAULT_PROJECT_NAME="${CDD_OPTIONS_DEFAULT_PROJECT_NAME:-default}"
+CDD_OPTIONS_PROJECT_DIR="${CDD_OPTIONS_PROJECT_DIR:-$HOME/.local/share/cdd/projects}"
+CDD_GREP_COLORS="${CDD_GREP_COLORS:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+CDD_OUTPUT_COLOR_1="${CDD_OUTPUT_COLOR_1:-}"
+CDD_OUTPUT_COLOR_2="${CDD_OUTPUT_COLOR_2:-}"
+CDD_OUTPUT_COLOR_GOOD="${CDD_OUTPUT_COLOR_GOOD:-}"
+CDD_OUTPUT_COLOR_ERROR="${CDD_OUTPUT_COLOR_ERROR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+CDD_NOTIFY_ENABLED="${CDD_NOTIFY_ENABLED:-}"
+CDD_GOOD_NAME="${CDD_GOOD_NAME:-}"
+CDD_ERROR_NAME="${CDD_ERROR_NAME:-}"
+CDD_GOOD_MESSAGE="${CDD_GOOD_MESSAGE:-}"
+CDD_ERROR_MESSAGE="${CDD_ERROR_MESSAGE:-}"
+CDD_NOTIFY_CLIENT_NAME="${CDD_NOTIFY_CLIENT_NAME:-}"
+CDD_NOTIFY_CLIENT_ICON="${CDD_NOTIFY_CLIENT_ICON:-}"
+CDD_NOTIFY_CLIENT_URGENCY="${CDD_NOTIFY_CLIENT_URGENCY:-}"
+
+EOF
+  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
+  if [ -f "$CDD_CONFIG_DIR/$CDD_CONFIG_FILE" ]; then
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
+    . "$CDD_CONFIG_DIR/$CDD_CONFIG_FILE"
+    exitCode=0
+  else
+    printf_red "Failed to create the config file"
+    exitCode=1
+  fi
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Help function - Align to 50
+__help() {
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "cdd:  cd into directories using shortcuts - $VERSION"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Usage: cdd [options] [commands]"
+  __printf_line "-l, --list                      -  List aliases"
+  __printf_line "-a, --add [alias] [dir]         -  Add an alias"
+  __printf_line "-m, --modify [alias] [dir]      -  Modify an alias"
+  __printf_line "-r, --remove [alias]            -  remove an alias"
+  __printf_line "-s, --shell [shell]             -  change shell"
+  __printf_line "-d, --delete [alias]            -  Delete all files in dir"
+  __printf_line ""
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Other Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--help                          - Shows this message"
+  __printf_line "--config                        - Generate user config file"
+  __printf_line "--version                       - Show script version"
+  __printf_line "--options                       - Shows all available options"
+  __printf_line "--debug                         - Enables script debugging"
+  __printf_line "--raw                           - Removes all formatting on output"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() {
+  { [ $(id -u) -ne 0 ] || [ $EUID -ne 0 ] || [ "$WHOAMI" != "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep -s "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# # Get sudo password
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run sudo
+__sudorun() {
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo
+__can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User can run sudo
+__sudoif() {
+  __user_is_root && return 0
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run command as root
+requiresudo() {
+  if [ "$CDD_REQUIRE_SUDO" = "yes" ] && [ -z "$CDD_REQUIRE_SUDO_RUN" ]; then
+    export CDD_REQUIRE_SUDO="no"
+    export CDD_REQUIRE_SUDO_RUN="true"
+    __sudo "$@"
+    exit $?
+  else
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  CMD="${1:-echo}" && shift 1
+  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  [ "$(basename "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  if __sudoif; then
+    export PATH="$PATH"
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    exitCode=$?
+  else
+    printf '%s\n' "This requires root to run"
+    exitCode=1
+  fi
+  return ${exitCode:-1}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  exitCode=${exitCode:-$?}
+  [ -f "$CDD_TEMP_FILE" ] && rm -Rf "$CDD_TEMP_FILE" &>/dev/null
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined functions
+__gen_config_local() {
+  __gen_alias &>/dev/null
+  [ -f "$CDD_CONFIG_BACKUP_DIR/$CDD_ALIAS_FILE.$$" ] && rm -Rf "$CDD_CONFIG_BACKUP_DIR/$CDD_ALIAS_FILE.$$" || true
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gen_alias() {
+  if [[ -f "$CDD_CONFIG_DIR/$CDD_ALIAS_FILE" ]]; then
+    cdd_update=true
+    printf_green "Updating the aliases file in"
+  else
+    printf_green "Generating the aliases file in"
+  fi
+  printf_green "$CDD_CONFIG_DIR/$CDD_ALIAS_FILE"
+  tempfile="$CDD_CONFIG_DIR/$CDD_ALIAS_FILE.bak"
+  [[ -d "$CDD_CONFIG_DIR" ]] || mkdir -p "$CDD_CONFIG_DIR"
+  [[ -d "$CDD_CONFIG_BACKUP_DIR" ]] || mkdir -p "$CDD_CONFIG_BACKUP_DIR"
+  [[ -f "$CDD_CONFIG_DIR/$CDD_ALIAS_FILE" ]] && cp -Rf "$CDD_CONFIG_DIR/$CDD_ALIAS_FILE" "$tempfile"
+  cat <<EOF >"$CDD_CONFIG_DIR/$CDD_ALIAS_FILE"
+# Alias settings for cdd - format: name = "/mydir"
+default = "$CDD_OPTIONS_PROJECT_DIR/${CDD_OPTIONS_DEFAULT_PROJECT_NAME}"
+screen = "$CDD_OPTIONS_PROJECT_DIR/dev-screen"
+tmux = "$CDD_OPTIONS_PROJECT_DIR/dev-tmux"
+testing = "${TMPDIR:-/tmp}/testing"
+projects = "$HOME/Projects"
+pictures = "$HOME/Pictures"
+music = "$HOME/Music"
+share = "$HOME/.local/share"
+
+EOF
+
+  if [[ -f "$tempfile" ]] && [[ "$(<"$tempfile")" != "$(<"$CDD_CONFIG_DIR/$CDD_ALIAS_FILE")" ]]; then
+    cp -Rf "$CDD_CONFIG_DIR/$CDD_ALIAS_FILE" "$CDD_CONFIG_BACKUP_DIR/$CDD_ALIAS_FILE.$$"
+    printf '%s' '# Settings for '$PROG'\n' >"$CDD_CONFIG_DIR/$CDD_ALIAS_FILE"
+    grep -v ^'# Settings' "$tempfile" | sort -u | grep -v '^$' >>"$CDD_CONFIG_DIR/$CDD_ALIAS_FILE"
+    printf '\n' >>"$CDD_CONFIG_DIR/$CDD_ALIAS_FILE"
+  fi
+  if [[ -f "$CDD_CONFIG_DIR/$CDD_ALIAS_FILE" ]] && [[ -f "$CDD_CONFIG_DIR/$CDD_CONFIG_FILE" ]]; then
+    printf_green "Your config file for cdd has been created"
+    true
+  else
+    printf_red "Failed to create the config file"
+    false
+  fi
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+quit() { printf_red "Exiting the cdd enviroment" && sleep 3 && builtin exit &>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+_cd() {
+  _find() { find ${1:-$PWD/} -maxdepth 1 -type d 2>/dev/null | sed 's|'"$CDD_CWD_DIR/"'||g' | grep -sv '^$'; }
+  prev=
+  COMPREPLY=($(compgen -W '$(_find ${cur})' -- "${cur}"))
+} && complete -F _cd cd
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+cd_cdd() {
+  if [[ -z "$CDD_CWD_DIR" ]]; then
+    builtin cd "$1" || return 1
+  else
+    cd() { export CD_CMD="cdd" && cd_cdd "$@"; }
+    printf_return() { printf_red "$*" && return 1; }
+    local exitCode=0
+    local ORIG_PATH="$PATH"
+    local REPO_UPDATED="${REPO_UPDATED:-}"
+    CD_INTO_DIR="${1:-$CDD_CWD_DIR}"
+    CD_INTO_CUR="$CDD_CWD_DIR/${CD_INTO_DIR//$CDD_CWD_DIR/}"
+    TOP_DIR="$(__git_top_dir "${CD_INTO_CUR:-$PWD}")"
+    [[ -f "$TOP_DIR/.env" ]] && . "$TOP_DIR/.env"
+    [[ -n "$OLDPATH" ]] && PATH="${OLDPATH//::/:}" || OLDPATH="${PATH//::/:}"
+    [[ -d "$TOP_DIR/bin" ]] && PATH="$TOP_DIR/bin:${OLDPATH:$PATH}" || OLDPATH="$PATH"
+    [[ -d "$TOP_DIR/node_modules/.bin" ]] && PATH="$TOP_DIR/node_modules/.bin:${OLDPATH:$PATH}" || PATH="$OLDPATH"
+    if [[ -d "$TOP_DIR/.git" ]] && [[ -z "$REPO_UPDATED" ]]; then
+      { printf_green "Updating Repo" && git -C "$CD_INTO_DIR" pull -q; } &&
+        REPO_UPDATED="yes"
+    fi
+    if echo "$PATH" | grep -q "$HOME/.local/bin"; then
+      export PATH="$HOME/.local/bin:$PATH"
+    fi
+    if [[ $# == 0 ]] || [[ "$CD_INTO_DIR" = "/" ]]; then
+      if ! builtin cd "$CDD_CWD_DIR" &>/dev/null; then
+        exitCode=1
+        printf_return "cd into $CDD_CWD_DIR failed"
+      fi
+    else
+      if ! builtin cd "$CD_INTO_CUR" &>/dev/null; then
+        exitCode=1
+        printf_return "cd into $CD_INTO_CUR failed"
+      fi
+    fi
+    export -f cd
+  fi
+  export PATH
+  exitCode=${exitCode:-$?}
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+cd_goto() {
+  local dir="" folder="" message="" message_add="" name="" exitCode=""
+  [[ "$CDD_STATUS" = "running" ]] && [[ "$1" = ./* ]] && cd "$1" && return
+  [[ -f "$CDD_CONFIG_DIR/$CDD_ALIAS_FILE" ]] || __gen_config "$@"
+  if [[ -n "$CDD_STATUS" ]]; then
+    printf_pause "cdd already appears to be active "
+    return 1
+  fi
+  if [[ "$CDD_STATUS" != "running" ]] && { [[ "$1" = "current_project" ]] || [[ "$1" = "." ]] || [[ "$1" = "$PWD" ]]; }; then
+    dir="$PWD"
+    folder="$(basename $(dirname "$PWD/."))"
+    message="Entering into $dir with alias $folder"
+  elif [[ -n "$(list_aliases "folder" "$1")" ]]; then
+    dir="$(list_aliases "folder" "$1")"
+    folder="$(list_aliases alias "$1")"
+    message="entering into $dir"
+  elif [[ -z "$dir" ]]; then
+    name="${1:-$CDD_OPTIONS_DEFAULT_PROJECT_NAME}"
+    dir="$CDD_OPTIONS_PROJECT_DIR/$name"
+    folder="$(basename "$dir/")"
+    message="Entering $name"
+    message_add="see $PROG -l or $PROG -a name directory"
+  fi
+  exitCode=0
+  STATUS="running"
+  SHELL="${SHELL:-bash}"
+  PS1_ADD_CDD="$PS1_ADD cdd: ${folder:-$dir}"
+  GREP_COLORS="$GREP_COLORS;$CDD_GREP_COLORS"
+  clear
+  printf '\n'
+  AUTO="true" add_alias "${name:-$folder}" "$dir"
+  [[ -d "$dir" ]] || mkdir -p "$dir"
+  [[ -d "$dir" ]] && builtin cd "$dir" || printf_exit "Failed to enter $dir"
+  [[ -n "$message" ]] && printf_green "$message using $(basename "$SHELL" 2>/dev/null)"
+  [[ -n "$message_add" ]] && printf_blue "$message_add"
+  printf_cyan "Type quit to return to your previous directory/shell"
+  printf_red "cd out of $dir is not recommended while using cdd"
+  export -f quit _cd cd_cdd __git_top_dir
+  export SHELL GREP_COLORS CDD_CWD_DIR="$PWD" PS1_ADD="$PS1_ADD_CDD" CDD_STATUS="$STATUS"
+  export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games:."
+  eval "$SHELL"
+  exitCode=$?
+  sleep .5
+  export PATH="${ORIG_PATH:-$PATH}" CDD_CWD_DIR="" PS1_ADD="" CDD_STATUS=""
+  [[ "$exitCode" = 0 ]] && clear
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+add_alias() {
+  [[ $# = 2 ]] || printf_exit "Usage: $PROG add name Directory"
+  if ! list_aliases alias "$1" | grep -qx "$1"; then
+    printf_green "Adding the alias $1 to config"
+    grep -v '^$' "$CDD_CONFIG_DIR/$CDD_ALIAS_FILE" >"$CDD_CONFIG_DIR/$CDD_ALIAS_FILE.tmp"
+    printf "%s = %s\n\n" "$1" "$2" >>"$CDD_CONFIG_DIR/$CDD_ALIAS_FILE.tmp"
+    mv -f "$CDD_CONFIG_DIR/$CDD_ALIAS_FILE.tmp" "$CDD_CONFIG_DIR/$CDD_ALIAS_FILE"
+  else
+    [ -n "$AUTO" ] || printf_red "It appears that $1 has already been added"
+  fi
+  [ -n "$AUTO" ] || __list_array "$CDD_OPTIONS_DIR" "$ARRAY"
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+rm_alias() {
+  local folder
+  [[ $# = 1 ]] || printf_exit "Usage: $PROG delete alias"
+  folder="$(list_aliases alias "$1")"
+  if list_aliases alias '*' | grep -qx "$folder"; then
+    printf_green "Removing the alias $folder from config"
+    grep -sxv ^"$folder = .*" "$CDD_CONFIG_DIR/$CDD_ALIAS_FILE" >"$CDD_CONFIG_DIR/$CDD_ALIAS_FILE.tmp" &&
+      mv -f "$CDD_CONFIG_DIR/$CDD_ALIAS_FILE.tmp" "$CDD_CONFIG_DIR/$CDD_ALIAS_FILE" || return 1
+    __list_array "$CDD_OPTIONS_DIR" "$ARRAY"
+  else
+    printf_red "The alias $1 doesn't exist"
+  fi
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+list_aliases() {
+  if [[ ! -f "$CDD_CONFIG_DIR/$CDD_ALIAS_FILE" ]]; then __gen_config &>/dev/null; fi
+  __grep() { grep -sE ^''$1' =*..*'$ "$CDD_CONFIG_DIR/$CDD_ALIAS_FILE" | sed 's|"||g' 2>/dev/null; }
+  if [[ "$1" = "folder" ]]; then
+    shift 1
+    __grep "$1" | awk -F'= ' '{print $2}' | sed -e 's#" ##g' 2>/dev/null | grep -Ev '^$|^#' | grep '^'
+  elif [[ "$1" = "alias" ]]; then
+    shift 1
+    __grep "$1" | awk -F' =' '{print $1}' | sed -e 's#"##g' 2>/dev/null | grep -Ev '^$|^#' | grep '^'
+  else
+    __grep "$1" | awk -F' =' '{print $1,$2}' | sed -e 's#"##g' 2>/dev/null | grep -Ev '^$|^#' | grep '^'
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+delete() {
+  if [[ -n "$CDD_CWD_DIR" ]] && [[ "$CDD_STATUS" = "running" ]]; then
+    FILES_TO_DELETE="$(find "$CDD_CWD_DIR/" -maxdepth 1 2>/dev/null | grep -v "^$CDD_CWD_DIR/$1")"
+    if [[ -n "$FILES_TO_DELETE" ]]; then
+      printf_blue "Deleting all files in $CDD_CWD_DIR"
+      for file in ${FILES_TO_DELETE}; do
+        if [[ -d "$file" ]]; then
+          printf_yellow "Deleting folder: $file" && rm -Rf "${file}" &>/dev/null
+        elif [[ -f "$file" ]]; then
+          printf_yellow "Deleting file: $file" && rm -Rf "${file}" &>/dev/null
+        elif [[ -e "$file" ]]; then
+          printf_yellow "Deleting: $file" && rm -Rf "${file}" &>/dev/null
+        fi
+      done
+      exitCode=0
+    else
+      printf_red "There are no files to delete"
+      exitCode=1
+    fi
+  else
+    printf_red "cdd is not active refusing to delete files"
+    exitCode=1
+  fi
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined variables/import external variables
+CDD_OPTIONS_DEFAULT_PROJECT_NAME="${CDD_OPTIONS_DEFAULT_PROJECT_NAME:-}"
+CDD_OPTIONS_PROJECT_DIR="${CDD_OPTIONS_PROJECT_DIR:-}"
+CDD_OPTIONS_TMP_DIR="${CDD_OPTIONS_TMP_DIR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application Folders
+CDD_CONFIG_FILE="${CDD_CONFIG_FILE:-settings.conf}"
+CDD_CONFIG_DIR="${CDD_CONFIG_DIR:-$HOME/.config/myscripts/cdd}"
+CDD_CONFIG_BACKUP_DIR="${CDD_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/cdd/backups}"
+CDD_LOG_DIR="${CDD_LOG_DIR:-$HOME/.local/log/cdd}"
+CDD_TEMP_DIR="${CDD_TEMP_DIR:-$HOME/.local/tmp/system_scripts/cdd}"
+CDD_CACHE_DIR="${CDD_CACHE_DIR:-$HOME/.cache/cdd}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+CDD_OUTPUT_COLOR_1="${CDD_OUTPUT_COLOR_1:-4}"
+CDD_OUTPUT_COLOR_2="${CDD_OUTPUT_COLOR_2:-5}"
+CDD_OUTPUT_COLOR_GOOD="${CDD_OUTPUT_COLOR_GOOD:-2}"
+CDD_OUTPUT_COLOR_ERROR="${CDD_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+CDD_NOTIFY_ENABLED="${CDD_NOTIFY_ENABLED:-yes}"
+CDD_GOOD_NAME="${CDD_GOOD_NAME:-Great:}"
+CDD_ERROR_NAME="${CDD_ERROR_NAME:-Error:}"
+CDD_GOOD_MESSAGE="${CDD_GOOD_MESSAGE:-No errors reported}"
+CDD_ERROR_MESSAGE="${CDD_ERROR_MESSAGE:-Errors were reported}"
+CDD_NOTIFY_CLIENT_NAME="${CDD_NOTIFY_CLIENT_NAME:-$APPNAME}"
+CDD_NOTIFY_CLIENT_ICON="${CDD_NOTIFY_CLIENT_ICON:-notification-new}"
+CDD_NOTIFY_CLIENT_URGENCY="${CDD_NOTIFY_CLIENT_URGENCY:-normal}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional Variables
+CDD_ALIAS_FILE="${CDD_ALIAS_FILE:-aliases.conf}"
+CDD_GREP_COLORS="${CDD_GREP_COLORS:-mt=38;5;220;1}"
+CDD_OPTIONS_DEFAULT_PROJECT_NAME="${CDD_OPTIONS_DEFAULT_PROJECT_NAME:-default}"
+CDD_OPTIONS_PROJECT_DIR="${CDD_OPTIONS_PROJECT_DIR:-$HOME/.local/share/cdd/projects}"
+CDD_OPTIONS_TMP_DIR="${CDD_OPTIONS_TMP_DIR:-$HOME/.local/tmp/cdd}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$CDD_CONFIG_DIR/$CDD_CONFIG_FILE" ] ||
+  [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$CDD_CONFIG_DIR/$CDD_CONFIG_FILE" ] &&
+  . "$CDD_CONFIG_DIR/$CDD_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$CDD_LOG_DIR" ] ||
+  mkdir -p "$CDD_LOG_DIR" |& __devnull
+[ -d "$CDD_TEMP_DIR" ] ||
+  mkdir -p "$CDD_TEMP_DIR" |& __devnull
+[ -d "$CDD_CACHE_DIR" ] ||
+  mkdir -p "$CDD_CACHE_DIR" |& __devnull
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+CDD_TEMP_FILE="${CDD_TEMP_FILE:-$(mktemp $CDD_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap '__trap_exit' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+__notifications() {
+  __cmd_exists notifications || return
+  [ "$CDD_NOTIFY_ENABLED" = "yes" ] || return
+  [ "$SEND_NOTIFICATION" = "no" ] && return
+  (
+    set +x
+    export SCRIPT_OPTS="" _DEBUG=""
+    export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$CDD_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$CDD_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$CDD_NOTIFY_CLIENT_ICON}"
+    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$CDD_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$CDD_NOTIFY_CLIENT_URGENCY}"
+    notifications "$@"
+    retval=$?
+    return $retval
+  ) |& __devnull &
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set custom actions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Argument/Option settings
+SETARGS=("$@")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SHORTOPTS="c,v,h,m::,r:,l,s:,a::,d:"
+SHORTOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
+LONGOPTS+=",modify::,remove:,list,shell:,add::,delete:"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ARRAY="$(list_aliases '*' | awk '{print $1}')"
+ARRAY+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LIST=""
+LIST+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$APPNAME" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case "$1" in
+  --raw)
+    shift 1
+    export SHOW_RAW="true"
+    printf_column() { tee | grep '^'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    ;;
+  --debug)
+    shift 1
+    set -xo pipefail
+    export SCRIPT_OPTS="--debug"
+    export _DEBUG="on"
+    __devnull() { tee || return 1; }
+    __devnull2() { eval "$@" |& tee || return 1; }
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
+    ;;
+  --options)
+    shift 1
+    printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' 4
+    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' 4
+    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  --silent)
+    shift 1
+    CDD_SILENT="true"
+    ;;
+  --dir)
+    CWD_IS_SET="TRUE"
+    CDD_CWD="$2"
+    [ -d "$CDD_CWD" ] || mkdir -p "$CDD_CWD" |& __devnull
+    shift 2
+    ;;
+  -a | --add)
+    add_alias "$2" "$3"
+    shift 3
+    exit $?
+    ;;
+  -m | --modify)
+    [[ -z "$2" ]] && [[ -z "$3" ]] && [[ -n "$EDITOR" ]] && $EDITOR "$CDD_CONFIG_DIR/$CDD_ALIAS_FILE"
+    add_alias "$2" "$3"
+    shift 2
+    exit $?
+    ;;
+  -r | --remove)
+    rm_alias "$2"
+    shift 2
+    exit $?
+    ;;
+  -d | --delete)
+    delete "$2" || false
+    shift 2
+    exit $?
+    ;;
+  -l | --list)
+    shift 1
+    list_aliases alias '*'
+    exit $?
+    ;;
+  -s | --shell)
+    if [[ -f "$2" ]] || cmd_exists "$2"; then
+      SHELL="$2"
+    else
+      printf_exit "$2 seems to be an invalid shell"
+    fi
+    shift 1
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get directory from args
+# set -- "$@"
+# for arg in "$@"; do
+# if [ -d "$arg" ]; then
+# CDD_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
+# elif [ -f "$arg" ]; then
+# CDD_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
+# else
+# SET_NEW_ARGS+=("$arg")
+# fi
+# done
+# set -- "${SET_NEW_ARGS[@]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set directory to first argument
+# [ -d "$1" ] && CDD_CWD="$1" && shift 1 || CDD_CWD="${CDD_CWD:-$PWD}"
+CDD_CWD="$(realpath "${CDD_CWD:-$PWD}" 2>/dev/null)"
+# if [ -d "$CDD_CWD" ] && cd "$CDD_CWD"; then
+# if [ "$CDD_SILENT" != true ]; then
+# printf_cyan "Setting working dir to $CDD_CWD"
+# fi
+# else
+# printf_exit "💔 $CDD_CWD does not exist 💔"
+# fi
+export CDD_CWD
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set actions based on variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+cmd_exists --error --ask bash || exit 3 # exit 3 if not found
+#am_i_online --error || exit 4           # exit 4 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+case "$1" in
+list)
+  shift 1
+  list_aliases alias '*'
+  ;;
+
+add)
+  shift 1
+  add_alias "$1" "$2"
+  ;;
+
+modify)
+  shift 1
+  [[ -z "$1" ]] && [[ -z "$2" ]] && [[ -n "$EDITOR" ]] &&
+    $EDITOR "$CDD_CONFIG_DIR/$CDD_ALIAS_FILE" || printf_exit "Usage: modify alias directory"
+  add_alias "$1" "$2"
+  ;;
+
+remove)
+  shift 1
+  rm_alias "$@"
+  ;;
+
+*)
+  [ $# -ne 1 ] || printf_exit "Usage: [alias]"
+  cd_goto "$1"
+  ;;
+esac
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set exit code
+exitCode="${exitCode:-$?}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-$?}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# end

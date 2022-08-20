@@ -1263,9 +1263,9 @@ execute() {
   }
   local -r CMDS="$1"
   local -r MSG="${2:-$1} "
-  local log_dir="${LOG_DIR:-$HOME/.local/log}"
-  local -r LOG_FILE="$log_dir/${APPNAME:-scripts}/install_${CMDS}.log"
-  local -r ERR_FILE="$log_dir/${APPNAME:-scripts}/install_${CMDS}.err.log"
+  local -r log_dir="/tmp/log/${APPNAME:-scripts}"
+  local -r LOG_FILE="$log_dir/install_${CMDS}.log"
+  local -r ERR_FILE="$log_dir/install_${CMDS}.err.log"
   [ -d "$log_dir" ] || mkdir -p "$log_dir"
   local exitCode=0
   local cmdsPID=""

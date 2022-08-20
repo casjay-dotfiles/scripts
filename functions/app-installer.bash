@@ -215,7 +215,7 @@ printf_error_stream() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_execute_error_stream() {
   while read -r line; do
-    printf_execute_error "↳ ERROR: $line $1" | 
+    printf_execute_error "↳ ERROR: $line $1"
   done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

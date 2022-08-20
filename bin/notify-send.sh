@@ -273,11 +273,9 @@ __notify_send() {
     XUSERS=($(who | grep -E "\(:[0-9](\.[0-9])*\)" | awk '{print $1$5}' | sort -u | grep "$USER"))
     [ -n "$SSH_CONNECTION" ] && return
     if cmd_exists notify-send.py; then
-      contents="$(printf '%b\n' "$*")"
-      notify-send.py --app-name="$CLIENT_NAME" -u "$CLIENT_URGENCY" -i "$CLIENT_ICON" "$contents" 2>/dev/null
+      notify-send.py --app-name="$CLIENT_NAME" -u "$CLIENT_URGENCY" -i "$CLIENT_ICON" "${2:-$1}" 2>/dev/null
     elif cmd_exists notify-send; then
-      contents="$(printf '%b\n' "$*")"
-      notify-send --app-name="$CLIENT_NAME" -u "$CLIENT_URGENCY" -i "$CLIENT_ICON" "$contents" 2>/dev/null
+      notify-send --app-name="$CLIENT_NAME" -u "$CLIENT_URGENCY" -i "$CLIENT_ICON" "${2:-$1}" 2>/dev/null
     else
       if [ -n "$1" ]; then
         echo "$*" >/dev/null

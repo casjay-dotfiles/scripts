@@ -1265,8 +1265,8 @@ execute() {
   local -r MSG="${2:-$1} "
   local -r CMD="$(echo "$1" | awk '{print $1}')"
   local -r LOG_DIR="/tmp/log/${APPNAME:-scripts}"
-  local -r LOG_FILE="$log_dir/install_${CMD// /_}.log"
-  local -r ERR_FILE="$log_dir/install_${CMD// /_}.err.log"
+  local -r LOG_FILE="$LOG_DIR/install_${CMD// /_}.log"
+  local -r ERR_FILE="$LOG_DIR/install_${CMD// /_}.err.log"
   [ -d "$LOG_DIR" ] || mkdir -p "$LOG_DIR"
   local exitCode=0
   local cmdsPID=""

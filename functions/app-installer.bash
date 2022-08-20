@@ -1263,14 +1263,15 @@ execute() {
   }
   local -r CMDS="$1"
   local -r MSG="${2:-$1} "
-  local -r log_dir="/tmp/log/${APPNAME:-scripts}"
-  local -r LOG_FILE="$log_dir/install_${CMDS}.log"
-  local -r ERR_FILE="$log_dir/install_${CMDS}.err.log"
-  [ -d "$log_dir" ] || mkdir -p "$log_dir"
+  local -r CMD="$(echo "$1" | awk '{print $1}')"
+  local -r LOG_DIR="/tmp/log/${APPNAME:-scripts}"
+  local -r LOG_FILE="$log_dir/install_${CMD// /_}.log"
+  local -r ERR_FILE="$log_dir/install_${CMD// /_}.err.log"
+  [ -d "$LOG_DIR" ] || mkdir -p "$LOG_DIR"
   local exitCode=0
   local cmdsPID=""
   set_trap "EXIT" "kill_all_subprocesses"
-  eval "$CMDS" >"$LOG_FILE" 2>"$ERR_FILE" &
+  eval "$CMDS" >>"$LOG_FILE" 2>>"$ERR_FILE" &
   cmdsPID=$!
   show_spinner "$cmdsPID" "$CMDS" "$MSG"
   wait "$cmdsPID" &>/dev/null

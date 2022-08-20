@@ -13,7 +13,7 @@
 # @Other             :
 # @Resource          :
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-trap '__trap_exit_app_install;trap - EXIT' SIGINT
+trap '__trap_exit_app_install;exit 2' SIGINT
 FUNCFILE="app-installer.bash"
 RUN_USER="$(logname 2>/dev/null)"
 SUDO_USER="${RUN_USER:-$SUDO_USER}"
@@ -1237,6 +1237,9 @@ trim() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 execute() {
   local log_dir="${LOG_DIR:-$HOME/.local/log}"
+  local -r LOG_FILE="$log_dir/${APPNAME:-scripts}/install_${CMDS}.log"
+  local -r ERR_FILE="$log_dir/${APPNAME:-scripts}/install_${CMDS}.err.log"
+  [ -d "$log_dir" ] || mkdir -p "$log_dir"
   [[ -n "$_DEBUG" ]] && set -x
   kill_all_subprocesses() {
     [[ -n "$_DEBUG" ]] && set -x
@@ -1264,24 +1267,23 @@ execute() {
   }
   local -r CMDS="$1"
   local -r MSG="${2:-$1} "
-  local -r LOG_FILE="$log_dir/${APPNAME:-scripts}/install_${CMDS}.log"
-  local -r TMP_FILE="$log_dir/${APPNAME:-scripts}/install_${CMDS}.err.log"
   local exitCode=0
   local cmdsPID=""
   set_trap "EXIT" "kill_all_subprocesses"
-  eval "$CMDS" >"$LOG_FILE" 2>"$TMP_FILE" &
+  eval "$CMDS" >"$LOG_FILE" 2>"$ERR_FILE" &
   cmdsPID=$!
   show_spinner "$cmdsPID" "$CMDS" "$MSG"
   wait "$cmdsPID" &>/dev/null
   exitCode=$?
   printf_execute_result $exitCode "$MSG"
   if [ $exitCode -ne 0 ]; then
-    printf_execute_error_stream <"$TMP_FILE"
-  else
+    printf_execute_error_stream <"$ERR_FILE"
     [ -s "$LOG_FILE" ] && rm -Rf "$LOG_FILE" || true 
-    [ -s "$TMP_FILE" ] && rm -Rf "$TMP_FILE" || true
+    [ -s "$TMP_FILE" ] && rm -Rf "$ERR_FILE" || true
+  else
+    [ -f "$LOG_FILE" ] && rm -Rf "$LOG_FILE" || true 
+    [ -f "$TMP_FILE" ] && rm -Rf "$ERR_FILE" || true
   fi
-  rm -rf "$TMP_FILE"
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

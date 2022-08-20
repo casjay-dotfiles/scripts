@@ -13,6 +13,7 @@
 # @Other             :
 # @Resource          :
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+trap '__trap_exit_app_install;trap - EXIT' SIGINT
 FUNCFILE="app-installer.bash"
 RUN_USER="$(logname 2>/dev/null)"
 SUDO_USER="${RUN_USER:-$SUDO_USER}"
@@ -71,7 +72,12 @@ for check in git curl wget; do
 done
 # trap errors
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-trap_exit() { true; }
+__trap_exit_app_install() { 
+  local tmp_file="${TMP:-/tmp}/${APPNAME:-scripts}.tmp"
+  local tmp_inst_file="${TMP:-/tmp}/${APPNAME:-scripts}.inst.tmp"
+  [ -f "$tmp_file" ] && rm -Rf "$tmp_file" || true
+  [ -f "$tmp_inst_file" ] && rm -Rf "$tmp_inst_file" || true 
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cmd_exists() {
   for f in "$@"; do
@@ -209,7 +215,7 @@ printf_error_stream() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_execute_error_stream() {
   while read -r line; do
-    printf_execute_error "↳ ERROR: $line"
+    printf_execute_error "↳ ERROR: $line $1" | 
   done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1240,7 +1246,7 @@ execute() {
     done
   }
   show_spinner() {
-    [[ -n "$_DEBUG" ]] && set -x
+    [ -n "$_DEBUG" ] && set -x
     local -r FRAMES='/-\|'
     local -r NUMBER_OR_FRAMES=${#FRAMES}
     local -r CMDS="$2"
@@ -1257,11 +1263,12 @@ execute() {
   }
   local -r CMDS="$1"
   local -r MSG="${2:-$1} "
-  local -r TMP_FILE="$(mktemp /tmp/XXXXX)"
+  local -r LOG_FILE="${LOG_DIR:-$HOME/.local/log}/${APPNAME:-scripts}/install_${CMDS}.log"
+  local -r TMP_FILE="${LOG_DIR:-$HOME/.local/log}/${APPNAME:-scripts}/install_${CMDS}.err.log"
   local exitCode=0
   local cmdsPID=""
   set_trap "EXIT" "kill_all_subprocesses"
-  eval "$CMDS" >/dev/null 2>"$TMP_FILE" &
+  eval "$CMDS" >"$LOG_FILE" 2>"$TMP_FILE" &
   cmdsPID=$!
   show_spinner "$cmdsPID" "$CMDS" "$MSG"
   wait "$cmdsPID" &>/dev/null
@@ -1269,6 +1276,9 @@ execute() {
   printf_execute_result $exitCode "$MSG"
   if [ $exitCode -ne 0 ]; then
     printf_execute_error_stream <"$TMP_FILE"
+  else
+    [ -s "$LOG_FILE" ] && rm -Rf "$LOG_FILE" || true 
+    [ -s "$TMP_FILE" ] && rm -Rf "$TMP_FILE" || true
   fi
   rm -rf "$TMP_FILE"
   return $exitCode

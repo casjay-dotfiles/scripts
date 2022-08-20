@@ -564,7 +564,7 @@ __update_repo() {
     {
       printf_green "Successfully updated $repo with the following data:"
       #echo "$data" | jq -r | sed 's|[\}\{]||g' | grep -v '^$' | printf_readline
-      printf "$data" | jq -c | grep -v '^$' | printf_readline
+      printf '%s\n' "$data" | jq -c | grep -v '^$' | printf_readline
       exitCode=0
     } || {
     printf_red "Failed to update $repo"
@@ -724,19 +724,36 @@ __git_push() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Clone function
 __git_clone() {
-  local git_url="" git_dir="" args="" regex=""
+  local git_url="" git_dir="" args="" regex="" exitCode=0
   git_url="$1" && shift 1
   git_dir="$1" && shift 1
   args="$*" && shift $#
   regex="(https?|ftp|file|git|ssh)://[-A-Za-z0-9\+&@#/%?=~_|!:,.;]*[-A-Za-z0-9\+&@#/%=~_|]"
   if [[ "$git_url" =~ $regex ]]; then
     if am_i_online; then
-      git clone "$git_url" "$git_dir" -q $args &>/dev/null && return 0 || return 1
+      [ -d "$git_dir" ] &&
+        git pull "$git_dir" -q &>/dev/null ||
+        git clone "$git_url" "$git_dir" -q $args &>/dev/null 
+      exitCode=$?
     else
       return 1
     fi
   else
-    git clone "$git_url" "$git_dir" -q $args &>/dev/null && return 0 || return 1
+    [ -d "$git_dir" ] &&
+      git pull "$git_dir" -q &>/dev/null ||      
+      git clone "$git_url" "$git_dir" -q $args &>/dev/null 
+    exitCode=$?
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__clone_success() {
+  exitCode=${1:-$?}
+  git_dir="${2:-$1}"
+  if [ -d "$git_dir/.git" ] && [ $exitCode = 0 ]; then
+    printf_cyan "Successfully cloned to $git_dir"
+  else
+   printf_red "Failed to clone $git_url"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1117,12 +1134,14 @@ repos_init() {
 # Initializes a repo for github
 git_init() {
   local git_dir="" git_version_file="" git_version_fmt="" git_remote=""
-  git_dir="$(__basedir "${1:-$GITADMIN_CWD}/.git")"
+  username="$(echo "$*" | grep -q '/' && echo "$*" | awk '{print $1}'||echo "$1")"
+  reponame="$(echo "$*" | grep -q '/' && echo "$*" | awk '{print $2}'||echo "$2")"
+  git_dir="$(__basedir "${username:-$GITADMIN_CWD}/.git")"
   git_version_file="$GITADMIN_DEFAULT_VERSION_FILE"
   git_version_fmt="$GITADMIN_DEFAULT_VERSION_FORMAT"
   git_remote=""
-  [ "$1" = "" ] && printf_red "Usage: userName repoName\n" && return 1
-  [ "$2" = "" ] && printf_red "Usage: userName repoName\n" && return 1
+  [ "${1:-$username}" = "" ] && printf_red "Usage: userName repoName\n" && return 1
+  [ "${2:-$reponame}" = "" ] && printf_red "Usage: userName repoName\n" && return 1
   git_setup "$git_dir"
   [ -f "$git_version_file" ] && date +"$git_version_fmt" >"$git_version_file"
   __devnull2 git -C "$git_dir" add .
@@ -1345,8 +1364,10 @@ ghcreate() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # clone a single repo from user
 ghsinglerepo() {
-  [ "$1" = "" ] && printf_red "Usage: --single userName repoName" && return 1
-  [ "$2" = "" ] && printf_red "Usage: --single userName repoName" && return 1
+  username="$(echo "$*" | grep -q '/' && echo "$*" | awk '{print $1}'||echo "$1")"
+  reponame="$(echo "$*" | grep -q '/' && echo "$*" | awk '{print $2}'||echo "$2")"
+  [ "${1:-$username}" = "" ] && printf_red "Usage: --single userName repoName" && return 1
+  [ "${2:-$reponame}" = "" ] && printf_red "Usage: --single userName repoName" && return 1
   __git_clone "https://github.com/$1/$2" "${3:-}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -2395,23 +2416,26 @@ github) # github repo
   clone) # Clone repo from github
     shift 1
     { [ $# -lt 1 ] || [ "$1" = "help" ]; } && printf_exit "Usage: gitadmin github clone username/projectname"
-    do_not_add_a_url "$1"
-    remote_repo="https://github.com/$(__strip_git_url "$1").git"
+    url="$(echo "$*" | tr ' ' '/')"
+    do_not_add_a_url "$url"
+    remote_repo="https://github.com/$(__strip_git_url "$url").git"
     if echo "$GITADMIN_DEFAULT_GIT_DIR_GITHUB/$1" | grep -q '\.git$'; then
-      homerepo="$(echo "$GITADMIN_DEFAULT_GIT_DIR_GITHUB/$1" | grep '\.git$' | __sed 's/\",//;s/\.[^.]*$//;s#"##g')"
+      homerepo="$(echo "$GITADMIN_DEFAULT_GIT_DIR_GITHUB/$url" | grep '\.git$' | __sed 's/\",//;s/\.[^.]*$//;s#"##g')"
     else
-      homerepo="$(echo "$GITADMIN_DEFAULT_GIT_DIR_GITHUB/$1")"
+      homerepo="$(echo "$GITADMIN_DEFAULT_GIT_DIR_GITHUB/$url")"
     fi
     if [ -d "$homerepo/.git" ]; then
       printf_green "The repo already exists so attempting update"
-      __git_pull "$homerepo"
+      git_pull_single "$homerepo"
+      retVal=$?
     else
       printf_green "Cloning the repo from $remote_repo"
       mkdir -p "$homerepo"
-      __git_clone "$remote_repo" "$homerepo"
+      git_clone_single "$remote_repo" "$homerepo"
+      retVal=$?
     fi
-    __mkd "$homerepo" && [ -d "$homerepo/.git" ] && __cd_into "$homerepo" || printf_exit 1 1 "failed to clone to $homerepo"
-    exit "$?"
+    [ -d "$homerepo/.git" ] && __cd_into "$homerepo" || printf_exit 1 1 "failed to clone to $homerepo"
+    exit "$retVal"
     ;;
 
   push) # Push
@@ -2478,12 +2502,15 @@ gitlab) # gitlab repos commands
     if [ -d "$homerepo/.git" ]; then
       printf_green "The repo already exists so attempting update"
       __git_pull "$homerepo"
+      retVal=$?    
     else
       printf_green "Cloning the repo from $remote_repo"
       mkdir -p "$homerepo"
       __git_clone "$remote_repo" "$homerepo"
+      retVal=$?    
     fi
-    __mkd "$homerepo" && [ -d "$homerepo/.git" ] && __cd_into "$homerepo" || printf_exit 1 1 "failed to clone to: $homerepo"
+    __clone_success $retVal "$homerepo"
+    [ -d "$homerepo/.git" ] && __cd_into "$homerepo" || printf_exit 1 1 "failed to clone to: $homerepo"
     exit "$?"
     ;;
 
@@ -2560,12 +2587,15 @@ private) # private repos commands
     if [ -d "$homerepo" ]; then
       printf_green "The repo already exists so attempting update"
       __git_pull "$homerepo"
+      retVal=$?    
     else
       printf_green "Cloning the repo from $remote_repo"
       mkdir -p "$homerepo"
       __git_clone "$remote_repo" "$homerepo"
+      retVal=$?    
     fi
-    __mkd "$homerepo" && [ -d "$homerepo/.git" ] && __cd_into "$homerepo" || printf_exit 1 1 "failed to initialize $homerepo"
+    __clone_success $retVal "$homerepo"
+    [ -d "$homerepo/.git" ] && __cd_into "$homerepo" || printf_exit 1 1 "failed to initialize $homerepo"
     exit "$?"
     ;;
 

@@ -291,6 +291,7 @@ printf_custom_question() {
 printf_question_term() {
   printf_read_question "4" "$1" "1" "REPLY" "-s"
   printf_answer_yes "$REPLY" && eval "${2:-true}" && exitCode=0 || exitCode=1
+  [ -z "$REPLY" ] && printf '\n' && exitCode=1 || exitCode=${exitCode:-$?}
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -345,6 +346,7 @@ printf_read_error() {
 printf_answer() {
   read -t 10 -r -s -n 1 "${1:-$REPLY}"
   if [ -z "$reply" ]; then
+    printf '\n'
     return 1
   fi
   #history -s "${1:-$REPLY}"
@@ -355,13 +357,19 @@ printf_answer_yes() {
   if [[ "${1:-$REPLY}" =~ ${2:-^[Yy]$} ]]; then
     exitCode=0
   else
+    printf '\n'
     exitCode=1
   fi
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_answer_no() {
-  [[ "${1:-$REPLY}" =~ ${2:-^[Nn]$} ]] && return 1 || return 0
+  if [ "${1:-$REPLY}" =~ ${2:-^[Nn]$} ]; then 
+    printf '\n'
+    return 1 
+  else 
+    return 0
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_head() {

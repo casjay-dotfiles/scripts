@@ -1,3 +1,12 @@
+#### Changelog: 2022-08-20 at 20:16:59  
+#### Fixed  
+  
+bin/gitcommit      🚀  
+  
+#### End of changes for 202208202014-git - 2022-08-20 at 20:16:59  
+  
+----  
+  
 #### Changelog: 2022-08-20 at 20:14:21  
 #### 🗃️ Committing everything that changed 🗃️  
   

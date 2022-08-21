@@ -1,3 +1,11 @@
+#### Changelog: 2022-08-21 at 12:52:45  
+
+bin/gen-dockerfile : Fixed - shebang line 🚀  
+  
+#### End of changes for 202208210208-git - 2022-08-21 at 12:52:45  
+  
+----  
+  
 #### Changelog: 2022-08-21 at 02:08:54  
 
 bin/cdd : 🗃️ Committing everything that changed 🗃️ 🚀  

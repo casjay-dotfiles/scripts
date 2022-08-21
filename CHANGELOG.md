@@ -1,3 +1,10 @@
+#### Changelog: 2022-08-21 at 15:46:41  
+
+  
+#### End of changes for 202208211359-git - 2022-08-21 at 15:46:41  
+  
+----  
+  
 #### Changelog: 2022-08-21 at 13:59:09  
 
 functions/global/colors.bash : 🗃️ Fixed read_ functions 🗃️ 🚀  

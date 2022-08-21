@@ -27,7 +27,7 @@ SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
 CDD_REQUIRE_SUDO="${CDD_REQUIRE_SUDO:-no}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Reopen in a terminal
-#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Initial debugging
 [ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
@@ -305,7 +305,9 @@ EOF
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-quit() { printf_red "Exiting the cdd enviroment" && sleep 3 && builtin exit &>/dev/null; }
+quit() {
+  printf_red "Exiting the cdd enviroment" && sleep 3 && builtin exit &>/dev/null
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _cd() {
   _find() { find ${1:-$PWD/} -maxdepth 1 -type d 2>/dev/null | sed 's|'"$CDD_CWD_DIR/"'||g' | grep -sv '^$'; }
@@ -313,22 +315,29 @@ _cd() {
   COMPREPLY=($(compgen -W '$(_find ${cur})' -- "${cur}"))
 } && complete -F _cd cd
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+cd() {
+  cd_cdd "$1" || return 1
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 cd_cdd() {
   if [[ -z "$CDD_CWD_DIR" ]]; then
     builtin cd "$1" || return 1
   else
-    cd() { export CD_CMD="cdd" && cd_cdd "$@"; }
+    unalias cd &>/dev/null
     printf_return() { printf_red "$*" && return 1; }
-    local exitCode=0
+    local exitCode=0 realpath=""
     local ORIG_PATH="$PATH"
     local REPO_UPDATED="${REPO_UPDATED:-}"
     CD_INTO_DIR="${1:-$CDD_CWD_DIR}"
     CD_INTO_CUR="$CDD_CWD_DIR/${CD_INTO_DIR//$CDD_CWD_DIR/}"
     TOP_DIR="$(__git_top_dir "${CD_INTO_CUR:-$PWD}")"
+    realpath="$(realpath "$CD_INTO_DIR")"
     [[ -f "$TOP_DIR/.env" ]] && . "$TOP_DIR/.env"
     [[ -n "$OLDPATH" ]] && PATH="${OLDPATH//::/:}" || OLDPATH="${PATH//::/:}"
     [[ -d "$TOP_DIR/bin" ]] && PATH="$TOP_DIR/bin:${OLDPATH:$PATH}" || OLDPATH="$PATH"
     [[ -d "$TOP_DIR/node_modules/.bin" ]] && PATH="$TOP_DIR/node_modules/.bin:${OLDPATH:$PATH}" || PATH="$OLDPATH"
+    [[ "$realpath" =~ $CDD_CWD_DIR/** ]] || { printf_red "Can not cd out of cdd project dir" && return 1; }
     if [[ -d "$TOP_DIR/.git" ]] && [[ -z "$REPO_UPDATED" ]]; then
       { printf_green "Updating Repo" && git -C "$CD_INTO_DIR" pull -q; } &&
         REPO_UPDATED="yes"
@@ -390,8 +399,9 @@ cd_goto() {
   [[ -n "$message" ]] && printf_green "$message using $(basename "$SHELL" 2>/dev/null)"
   [[ -n "$message_add" ]] && printf_blue "$message_add"
   printf_cyan "Type quit to return to your previous directory/shell"
-  printf_red "cd out of $dir is not recommended while using cdd"
-  export -f quit _cd cd_cdd __git_top_dir
+  printf_red "cd out of $dir is not allowed while"
+  printf_red "using cdd which will cause issues with applications"
+  export -f quit _cd cd_cdd __git_top_dir printf_red
   export SHELL GREP_COLORS CDD_CWD_DIR="$PWD" PS1_ADD="$PS1_ADD_CDD" CDD_STATUS="$STATUS"
   export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games:."
   eval "$SHELL"
@@ -710,7 +720,12 @@ cmd_exists --error --ask bash || exit 3 # exit 3 if not found
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
-
+if [ "$TERMINAL_APP" = "TRUE" ]; then
+  printf '\n\n'
+  find "$CDD_OPTIONS_PROJECT_DIR"/ -maxdepth 1 | sed 's|'$CDD_OPTIONS_PROJECT_DIR/'||g' | printf_column $CDD_OUTPUT_COLOR_2
+  printf_read_input "4" "What project would you like to work on? " "120" CDD_PROJECT
+  [ -n "$CDD_PROJECT" ] || { printf_newline && printf_pause "No project selected. Exiting" && exit 1; }
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 case "$1" in
@@ -737,8 +752,8 @@ remove)
   ;;
 
 *)
-  [ $# -ne 1 ] || printf_exit "Usage: [alias]"
-  cd_goto "$1"
+  [ $# -le 1 ] || printf_exit "Usage: [alias]"
+  cd_goto "${CDD_PROJECT:-$1}"
   ;;
 esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

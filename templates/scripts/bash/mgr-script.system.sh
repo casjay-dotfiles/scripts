@@ -195,7 +195,8 @@ __rm_rf() { if [ -e "$1" ]; then rm -Rf "$@" &>/dev/null; else return 0; fi; }
 __run_install_version() {
   local upd file exitCode=0
   if [ -d "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" ] && ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" 2>&1 | grep -q '^'; then
-    export file="$(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM/$1" 2>/dev/null)"
+    file="$(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM/$1" 2>/dev/null)"
+    export file
     if [ -f "$file" ]; then
       appname="$(__basename "$file")"
       eval "$file" "--version $appname"
@@ -210,7 +211,8 @@ __cron_updater() {
   local upd file exitCode=0
   if [ -z "$1" ] && [ -d "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" ] && ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" 2>&1 | grep -q '^'; then
     for upd in $(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM"); do
-      export file="$(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM/$upd" 2>/dev/null)"
+      file="$(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM/$upd" 2>/dev/null)"
+      export file
       if [ -f "$file" ]; then
         appname="$(__basename "$file")"
         eval "$file" "--cron $appname"
@@ -219,7 +221,8 @@ __cron_updater() {
     done
   else
     if [ -d "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" ] && ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" 2>&1 | grep -q '^'; then
-      export file="$(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM/$1" 2>/dev/null)"
+      file="$(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM/$1" 2>/dev/null)"
+      export file
       if [ -f "$file" ]; then
         appname="$(__basename "$file")"
         bash -c "$file --cron $appname"
@@ -300,6 +303,8 @@ __download() {
   local DIR_NAME="${2:-$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR/$REPO_NAME}"
   local REPO_URL="$GEN_SCRIPT_REPLACE_ENV_REPO_URL"
   local exitCode=0
+  local USER_IS="${SUDO_USER:-$RUN_USER}"
+  sudo chown -Rf "$USER_IS":"$USER_IS" "$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR"
   if __cmd_exists gitadmin; then
     if [ -d "$DIR_NAME/.git" ]; then
       gitadmin pull "$DIR_NAME"
@@ -318,8 +323,8 @@ __download() {
     fi
   fi
   if [ -d "$DIR_NAME/.git" ]; then
-    if [ -n "${SUDO_USER:-$RUN_USER}" ]; then
-      sudo chown -Rf ${SUDO_USER:-$RUN_USER}:${SUDO_USER:-$RUN_USER} "$DIR_NAME"
+    if [ -n "$USER_IS" ]; then
+      sudo chown -Rf "$USER_IS":"$USER_IS" "$DIR_NAME"
     fi
     exitCode=0
   fi
@@ -651,9 +656,9 @@ export GEN_SCRIPT_REPLACE_ENV_CWD
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
-__requiresudo "$0" "$@" || exit 2 # exit 2 if errors
-__cmd_exists bash || exit 3       # exit with error code 3 if not found
-__am_i_online "1.1.1.1" || exit 4 # exit with error code 4 if no internet
+__sudoif && __requiresudo "$0" "${SETARGS[@]}" || exit 2 # exit 2 if errors
+# __cmd_exists bash || exit 3                              # exit with error code 3 if not found
+# __am_i_online "1.1.1.1" || exit 4                        # exit with error code 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
 declare -a LISTARRAY=()
@@ -705,7 +710,9 @@ remove)
   for rmf in "${LISTARRAY[@]}"; do
     MESSAGE="Removing $rmf from $GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR/$rmf"
     __installer_delete "$rmf"
-    [ $? = 0 ] && __notifications "Deletion of $APPNAME was successfull" || __notifications "Deletetion of $APPNAME has failed"
+    retVal=$?
+    [ $retVal = 0 ] && __notifications "Deletion of $APPNAME was successfull" || __notifications "Deletetion of $APPNAME has failed"
+    exitCode=$(($retVal + $exitCode))
     printf '\n'
   done
   exit ${exitCode:-$?}
@@ -726,7 +733,9 @@ install)
     else
       APPNAME="$ins"
       __run_install_update "$APPNAME"
-      [ $? = 0 ] && __notifications "Successfully installed $APPNAME" || __notifications "Installation of $APPNAME has failed"
+      retVal=$?
+      [ $retVal = 0 ] && __notifications "Successfully installed $APPNAME" || __notifications "Installation of $APPNAME has failed"
+      exitCode=$(($retVal + $exitCode))
     fi
   done
   exit ${exitCode:-$?}
@@ -743,15 +752,17 @@ update)
     for ins in "${LISTARRAY[@]}"; do
       APPNAME="$ins"
       __run_install_update "$APPNAME"
-      exitCode=$(($? + $exitCode))
-      [ $exitCode = 0 ] && __notifications "Successfully updated $APPNAME" || __notifications "Update of $APPNAME has failed"
+      retVal=$?
+      [ $retVal = 0 ] && __notifications "Successfully updated $APPNAME" || __notifications "Update of $APPNAME has failed"
+      exitCode=$(($retVal + $exitCode))
     done
   elif [ -d "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" ] && [ ${#LISTARRAY} -ne 0 ]; then
     for upd in $(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" 2>/dev/null); do
       APPNAME="$upd"
       __run_install_update "$APPNAME"
-      exitCode=$(($? + $exitCode))
-      [ $exitCode = 0 ] && __notifications "Successfully updated $APPNAME" || __notifications "Update of $APPNAME has failed"
+      retVal-$?
+      [ $retVal = 0 ] && __notifications "Successfully updated $APPNAME" || __notifications "Update of $APPNAME has failed"
+      exitCode=$(($retVal + $exitCode))
     done
   else
     printf_yellow "There doesn't seem to be any packages installed"
@@ -770,8 +781,9 @@ download | clone)
   if [ -n "${LISTARRAY[*]}" ]; then
     for pkgs in "${LISTARRAY[@]}"; do
       __download "$pkgs"
-      exitCode=$(($? + $exitCode))
-      [ $exitCode = 0 ] && __notifications "Downloaded $APPNAME" || __notifications "Download of $APPNAME has failed"
+      retVal=$?
+      [ $retVal = 0 ] && __notifications "Downloaded $APPNAME" || __notifications "Download of $APPNAME has failed"
+      exitCode=$(($retVal + $exitCode))
     done
   else
     printf_exit "No packages selected for download"
@@ -808,7 +820,7 @@ version)
   printf_blue "Script Name: $APPNAME"
   printf_cyan "Version: $VERSION"
   printf_yellow "Config Dir: $GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR"
-  printf_purple "Current Working directory: $GEN_SCRIPT_REPLACE_ENV_CWD"
+  printf_purple "Git Source Dir: $GEN_SCRIPT_REPLACE_ENV_CLONE_DIR"
   __help
   ;;
 esac

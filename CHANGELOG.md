@@ -1,3 +1,11 @@
+#### Changelog: 2022-08-20 at 23:58:35  
+
+bin/gen-caddy : Fixed 🚀  
+  
+#### End of changes for 202208202350-git - 2022-08-20 at 23:58:35  
+  
+----  
+  
 #### Changelog: 2022-08-20 at 23:50:50  
 
 bin/gen-caddy : 🗃️ Committing everything that changed 🗃️ 🚀  

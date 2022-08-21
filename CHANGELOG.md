@@ -1,3 +1,11 @@
+#### Changelog: 2022-08-21 at 16:36:06  
+
+bin/cdd : 🗃️ Fixed cdd cd function 🗃️ 🚀  
+  
+#### End of changes for 202208211359-git - 2022-08-21 at 16:36:06  
+  
+----  
+  
 #### Changelog: 2022-08-21 at 15:46:41  
 
   

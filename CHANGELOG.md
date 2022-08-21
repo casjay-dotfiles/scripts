@@ -1,3 +1,12 @@
+#### Changelog: 2022-08-21 at 18:18:29  
+
+templates/scripts/bash/mgr-script.system.sh : 🗃️ Committing everything that changed 🗃️ 🚀  
+templates/scripts/bash/mgr-script.user.sh : 🗃️ Committing everything that changed 🗃️ 🚀  
+  
+#### End of changes for 202208211744-git - 2022-08-21 at 18:18:29  
+  
+----  
+  
 #### Changelog: 2022-08-21 at 17:44:53  
 
 bin/systemmgr : 🗃️ Committing everything that changed 🗃️ 🚀  

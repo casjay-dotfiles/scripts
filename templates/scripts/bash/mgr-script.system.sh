@@ -214,7 +214,7 @@ __cron_updater() {
       if [ -f "$file" ]; then
         appname="$(__basename "$file")"
         eval "$file" "--cron $appname"
-        exitCode=$?
+        exitCode=$(($exitCode + $?))
       fi
     done
   else
@@ -223,7 +223,7 @@ __cron_updater() {
       if [ -f "$file" ]; then
         appname="$(__basename "$file")"
         bash -c "$file --cron $appname"
-        exitCode=$?
+        exitCode=$(($exitCode + $?))
       fi
     fi
   fi
@@ -300,7 +300,7 @@ __download() {
   local DIR_NAME="${2:-$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR/$REPO_NAME}"
   local REPO_URL="$GEN_SCRIPT_REPLACE_ENV_REPO_URL"
   local exitCode=0
-  if cmd_exists gitadmin; then
+  if __cmd_exists gitadmin; then
     if [ -d "$DIR_NAME/.git" ]; then
       gitadmin pull "$DIR_NAME"
       exitCode=$?
@@ -743,13 +743,15 @@ update)
     for ins in "${LISTARRAY[@]}"; do
       APPNAME="$ins"
       __run_install_update "$APPNAME"
-      [ $? = 0 ] && __notifications "Successfully updated $APPNAME" || __notifications "Update of $APPNAME has failed"
+      exitCode=$(($? + $exitCode))
+      [ $exitCode = 0 ] && __notifications "Successfully updated $APPNAME" || __notifications "Update of $APPNAME has failed"
     done
   elif [ -d "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" ] && [ ${#LISTARRAY} -ne 0 ]; then
     for upd in $(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" 2>/dev/null); do
       APPNAME="$upd"
       __run_install_update "$APPNAME"
-      [ $? = 0 ] && __notifications "Successfully updated $APPNAME" || __notifications "Update of $APPNAME has failed"
+      exitCode=$(($? + $exitCode))
+      [ $exitCode = 0 ] && __notifications "Successfully updated $APPNAME" || __notifications "Update of $APPNAME has failed"
     done
   else
     printf_yellow "There doesn't seem to be any packages installed"
@@ -768,7 +770,8 @@ download | clone)
   if [ -n "${LISTARRAY[*]}" ]; then
     for pkgs in "${LISTARRAY[@]}"; do
       __download "$pkgs"
-      [ $? = 0 ] && __notifications "Downloaded $APPNAME" || __notifications "Download of $APPNAME has failed"
+      exitCode=$(($? + $exitCode))
+      [ $exitCode = 0 ] && __notifications "Downloaded $APPNAME" || __notifications "Download of $APPNAME has failed"
     done
   else
     printf_exit "No packages selected for download"
@@ -783,6 +786,7 @@ cron)
   for cron in "${LISTARRAY[@]}"; do
     APPNAME="$cron"
     __cron_updater "$APPNAME"
+    exitCode=$(($? + $exitCode))
   done
   exit ${exitCode:-$?}
   ;;
@@ -793,6 +797,7 @@ version)
   for ver in "${LISTARRAY[@]}"; do
     APPNAME="$ver"
     __run_install_version "$ver"
+    exitCode=$(($? + $exitCode))
   done
   exit ${exitCode:-$?}
   ;;

@@ -1,3 +1,11 @@
+#### Changelog: 2022-08-21 at 17:38:45  
+
+bin/passmgr : 🗃️ Updated 🗃️ 🚀  
+  
+#### End of changes for 202208211636-git - 2022-08-21 at 17:38:45  
+  
+----  
+  
 #### Changelog: 2022-08-21 at 16:36:06  
 
 bin/cdd : 🗃️ Fixed cdd cd function 🗃️ 🚀  

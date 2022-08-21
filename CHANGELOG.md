@@ -1,3 +1,11 @@
+#### Changelog: 2022-08-20 at 23:50:50  
+
+bin/gen-caddy : 🗃️ Committing everything that changed 🗃️ 🚀  
+  
+#### End of changes for 202208202318-git - 2022-08-20 at 23:50:50  
+  
+----  
+  
 #### Changelog: 2022-08-20 at 23:18:57  
 
 bin/detectostype : 🗃️ Fixed builtin to be sh compatible 🗃️ 🚀  

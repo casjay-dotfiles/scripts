@@ -1,3 +1,11 @@
+#### Changelog: 2022-08-21 at 19:29:09  
+
+bin/spellcheck : 🗃️ Fixed aspell variable 🗃️ 🚀  
+  
+#### End of changes for 202208211818-git - 2022-08-21 at 19:29:09  
+  
+----  
+  
 #### Changelog: 2022-08-21 at 18:18:29  
 
 templates/scripts/bash/mgr-script.system.sh : 🗃️ Committing everything that changed 🗃️ 🚀  

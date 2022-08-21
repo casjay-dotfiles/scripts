@@ -1,3 +1,26 @@
+#### Changelog: 2022-08-21 at 01:05:19  
+
+bin/gitcommit : Amended commit - Modified the --amend option 🚀  
+  
+#### End of changes for 202208210102-git - 2022-08-21 at 01:05:19  
+  
+----  
+  
+#### Changelog: 2022-08-21 at 01:02:19  
+
+bin/gitcommit : 🗃️ Committing everything that changed 🗃️ 🚀  
+  
+#### End of changes for 202208210102-git - 2022-08-21 at 01:02:19  
+  
+----  
+  
+#### Changelog: 2022-08-21 at 01:02:04  
+
+  
+#### End of changes for 202208210101-git - 2022-08-21 at 01:02:04  
+  
+----  
+  
 #### Changelog: 2022-08-21 at 01:00:01  
 
 bin/gitcommit : 🗃️ Committing everything that changed 🗃️ 🚀  

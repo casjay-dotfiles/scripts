@@ -302,7 +302,8 @@ printf_read_input() {
   local reply="${1:-REPLY}" && shift 1
   local readopts="${1:-}" && shift 1
   printf_color "\t\t$msg " "${PRINTF_COLOR:-$color}"
-  read -e -r -n $lines ${readopts:-} ${reply:-} || return 1
+  read -e -r -n $lines ${readopts:-} ${reply:-} 
+  [ -z "$reply" ] && printf '\n' && return 1 || return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #printf_read_question "color" "message" "maxLines" "answerVar" "readopts"
@@ -315,7 +316,8 @@ printf_read_question() {
   local reply="${1:-REPLY}" && shift 1
   local readopts="${1:-}" && shift 1
   printf_color "\t\t$msg " "${PRINTF_COLOR:-$color}"
-  read -t 30 -e -r -n $lines ${readopts:-} ${reply:-} || return 1
+  read -t 30 -e -r -n $lines ${readopts:-} ${reply:-} 
+  [ -z "$reply" ] && printf '\n' && return 1 || return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #printf_read_question "color" "message" "maxLines" "answerVar" "readopts"
@@ -327,6 +329,7 @@ printf_read_question_nt() {
   local readopts="${1:-}" && shift 1
   printf_color "\t\t$msg " "${PRINTF_COLOR:-$color}"
   read -e -r -n $lines ${readopts} ${reply} || return 1
+  [ -z "$reply" ] && printf '\n' && return 1 || return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_read_passwd() {

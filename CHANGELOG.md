@@ -1,3 +1,11 @@
+#### Changelog: 2022-08-21 at 13:50:46  
+
+functions/global/colors.bash : 🗃️ Fixed read_ functions 🗃️ 🚀  
+  
+#### End of changes for 202208210208-git - 2022-08-21 at 13:50:46  
+  
+----  
+  
 #### Changelog: 2022-08-21 at 12:52:45  
 
 bin/gen-dockerfile : Fixed - shebang line 🚀  

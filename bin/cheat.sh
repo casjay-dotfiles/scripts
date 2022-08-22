@@ -510,7 +510,7 @@ done
 # [ -d "$1" ] && CHEAT_SH_CWD="$1" && shift 1 || CHEAT_SH_CWD="${CHEAT_SH_CWD:-$PWD}"
 CHEAT_SH_CWD="$(realpath "${CHEAT_SH_CWD:-$PWD}" 2>/dev/null)"
 # if [ -d "$CHEAT_SH_CWD" ] && cd "$CHEAT_SH_CWD"; then
-# if [ "$CHEAT_SH_SILENT" != "true" ]; then
+# if [ "$CHEAT_SH_SILENT" != "true" ] || [ "$CWD_SILENCE" != "true" ]; then
 # printf_cyan "Setting working dir to $CHEAT_SH_CWD"
 # fi
 # else

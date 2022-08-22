@@ -516,7 +516,7 @@ done
 # [ -d "$1" ] && TRANSFER_SH_CWD="$1" && shift 1 || TRANSFER_SH_CWD="${TRANSFER_SH_CWD:-$PWD}"
 TRANSFER_SH_CWD="$(realpath "${TRANSFER_SH_CWD:-$PWD}" 2>/dev/null)"
 # if [ -d "$TRANSFER_SH_CWD" ] && cd "$TRANSFER_SH_CWD"; then
-# if [ "$TRANSFER_SH_SILENT" != "true" ]; then
+# if [ "$TRANSFER_SH_SILENT" != "true" ] || [ "$CWD_SILENCE" != "true" ]; then
 # printf_cyan "Setting working dir to $TRANSFER_SH_CWD"
 # fi
 # else

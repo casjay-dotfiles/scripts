@@ -575,7 +575,7 @@ done
 # [ -d "$1" ] && IX_IO_CWD="$1" && shift 1 || IX_IO_CWD="${IX_IO_CWD:-$PWD}"
 IX_IO_CWD="$(realpath "${IX_IO_CWD:-$PWD}" 2>/dev/null)"
 # if [ -d "$IX_IO_CWD" ] && cd "$IX_IO_CWD"; then
-# if [ "$IX_IO_SILENT" != "true" ]; then
+# if [ "$IX_IO_SILENT" != "true" ] || [ "$CWD_SILENCE" != "true" ]; then
 # printf_cyan "Setting working dir to $IX_IO_CWD"
 # fi
 # else

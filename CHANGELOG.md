@@ -1,3 +1,12 @@
+#### Changelog: 2022-08-22 at 00:00:09  
+
+bin/pkmgr : Fixed - Added user not root check and formating 🚀  
+bin/reqpkgs : Fixed - Added user not root check and formating 🚀  
+  
+#### End of changes for 202208212240-git - 2022-08-22 at 00:00:09  
+  
+----  
+  
 #### Changelog: 2022-08-21 at 23:18:59  
 
 bin/pkmgr : Fixed - Added user not root check 🚀  

@@ -44,10 +44,10 @@ TMPPATH+="/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:$PATH:."
 PATH="$(echo "$TMPPATH" | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 's#::#:.#g')"
 unset TMPPATH
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-local -r LOG_DIR="/tmp/log/${APPNAME:-scripts}"
-local -r LOG_FILE="$LOG_DIR/install_${CMD// /_}.log"
-local -r ERR_FILE="$LOG_DIR/install_${CMD// /_}.err.log"
-[ -d "$LOG_DIR" ] || mkdir -p "$LOG_DIR"
+export INSTALLER_LOG_DIR="/tmp/log/${APPNAME:-scripts}"
+export INSTALLER_LOG_FILE="$INSTALLER_LOG_DIR/install_${CMD// /_}.log"
+export INSTALLER_ERR_FILE="$INSTALLER_LOG_DIR/install_${CMD// /_}.err.log"
+[ -d "$INSTALLER_LOG_DIR" ] || mkdir -p "$INSTALLER_LOG_DIR"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Fail if git, curl, and wget are not installed
 for check in git curl wget; do
@@ -1272,19 +1272,19 @@ execute() {
   local exitCode=0
   local cmdsPID=""
   set_trap "EXIT" "kill_all_subprocesses"
-  eval "$CMDS" >>"$LOG_FILE" 2>>"$ERR_FILE" &
+  eval "$CMDS" >>"$INSTALLER_LOG_FILE" 2>>"$INSTALLER_ERR_FILE" &
   cmdsPID=$!
   show_spinner "$cmdsPID" "$CMDS" "$MSG"
   wait "$cmdsPID" &>/dev/null
   exitCode=$?
   printf_execute_result $exitCode "$MSG"
   if [ $exitCode -ne 0 ]; then
-    printf_execute_error_stream <"$ERR_FILE"
-    [ -s "$LOG_FILE" ] && rm -Rf "$LOG_FILE" || true 
-    [ -s "$TMP_FILE" ] && rm -Rf "$ERR_FILE" || true
+    printf_execute_error_stream <"$INSTALLER_ERR_FILE"
+    [ -s "$INSTALLER_LOG_FILE" ] && rm -Rf "$INSTALLER_LOG_FILE" || true 
+    [ -s "$INSTALLER_TMP_FILE" ] && rm -Rf "$INSTALLER_ERR_FILE" || true
   else
-    [ -f "$LOG_FILE" ] && rm -Rf "$LOG_FILE" || true 
-    [ -f "$TMP_FILE" ] && rm -Rf "$ERR_FILE" || true
+    [ -f "$INSTALLER_LOG_FILE" ] && rm -Rf "$INSTALLER_LOG_FILE" || true 
+    [ -f "$INSTALLER_TMP_FILE" ] && rm -Rf "$INSTALLER_ERR_FILE" || true
   fi
   return $exitCode
 }

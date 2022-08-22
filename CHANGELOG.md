@@ -1,3 +1,11 @@
+#### Changelog: 2022-08-21 at 23:18:59  
+
+bin/pkmgr : Fixed - Added user not root check 🚀  
+  
+#### End of changes for 202208212240-git - 2022-08-21 at 23:18:59  
+  
+----  
+  
 #### Changelog: 2022-08-21 at 22:40:10  
 
 functions/app-installer.bash : 🗃️ Working on error logging 🗃️ 🚀  

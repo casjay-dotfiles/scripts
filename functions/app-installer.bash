@@ -44,7 +44,11 @@ TMPPATH+="/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:$PATH:."
 PATH="$(echo "$TMPPATH" | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 's#::#:.#g')"
 unset TMPPATH
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-export INSTALLER_LOG_DIR="/tmp/log/${APPNAME:-scripts}"
+if [ "$UID" = "0" ] || [ "$USER" = "root" ]; then
+  export INSTALLER_LOG_DIR="/tmp/log/${APPNAME:-scripts}"
+else
+  export INSTALLER_LOG_DIR="${LOG_DIR:-$HOME/.local/log}/${APPNAME:-scripts}"
+fi
 export INSTALLER_LOG_FILE="$INSTALLER_LOG_DIR/install_${CMD// /_}.log"
 export INSTALLER_ERR_FILE="$INSTALLER_LOG_DIR/install_${CMD// /_}.err.log"
 [ -d "$INSTALLER_LOG_DIR" ] || mkdir -p "$INSTALLER_LOG_DIR"

@@ -1,3 +1,11 @@
+#### Changelog: 2022-08-22 at 01:10:25  
+
+functions/app-installer.bash : Fixed - LOG_DIR env 🚀  
+  
+#### End of changes for 202208212240-git - 2022-08-22 at 01:10:25  
+  
+----  
+  
 #### Changelog: 2022-08-22 at 00:00:09  
 
 bin/pkmgr : Fixed - Added user not root check and formating 🚀  

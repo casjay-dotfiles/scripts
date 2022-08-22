@@ -1,3 +1,11 @@
+#### Changelog: 2022-08-21 at 22:40:10  
+
+functions/app-installer.bash : 🗃️ Working on error logging 🗃️ 🚀  
+  
+#### End of changes for 202208212237-git - 2022-08-21 at 22:40:10  
+  
+----  
+  
 #### Changelog: 2022-08-21 at 22:37:06  
 
 bin/pkmgr : 🗃️ Working on error logging 🗃️ 🚀  

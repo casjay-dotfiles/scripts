@@ -1090,9 +1090,9 @@ install_required() {
       printf_yellow "Still missing: $MISSING"
       printf_yellow "Installing from package list"
       if [ -f "$(builtin type -P yay 2>/dev/null)" ]; then
-        pkmgr --enable-log --enable-aur dotfiles "$APPNAME" 2>>"$ERR_FILE"
+        pkmgr --enable-log --enable-aur dotfiles "$APPNAME" 2>>"$INSTALLER_ERR_FILE"
       else
-        pkmgr --enable-log dotfiles "$APPNAME" 2>>"$ERR_FILE"
+        pkmgr --enable-log dotfiles "$APPNAME" 2>>"$INSTALLER_ERR_FILE"
       fi
     fi
   fi
@@ -1125,9 +1125,9 @@ install_packages() {
       printf_warning "$MISSING"
       for miss in $MISSING; do
         if [ -f "$(builtin type -P yay 2>/dev/null)" ]; then
-          execute "pkmgr --enable-log --enable-aur silent install $miss 2>>$ERR_FILE" "Installing $miss"
+          execute "pkmgr --enable-log --enable-aur silent install $miss 2>>$INSTALLER_ERR_FILE" "Installing $miss"
         else
-          execute "pkmgr silent install $miss 2>>$ERR_FILE" "Installing $miss"
+          execute "pkmgr silent install $miss 2>>$INSTALLER_ERR_FILE" "Installing $miss"
         fi
       done
     fi
@@ -1148,9 +1148,9 @@ install_python() {
       printf_warning "$MISSING"
       for miss in $MISSING; do
         if [ -f "$(builtin type -P yay 2>/dev/null)" ]; then
-          execute "pkmgr --enable-aur silent install $miss 2>>$ERR_FILE" "Installing $miss"
+          execute "pkmgr --enable-aur silent install $miss 2>>$INSTALLER_ERR_FILE" "Installing $miss"
         else
-          execute "pkmgr silent install $miss 2>>$ERR_FILE" "Installing $miss"
+          execute "pkmgr silent install $miss 2>>$INSTALLER_ERR_FILE" "Installing $miss"
         fi
       done
     fi
@@ -1170,7 +1170,7 @@ install_perl() {
       printf_warning "Attempting to install missing perl packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr perl install $miss 2>>$ERR_FILE" "Installing $miss"
+        execute "pkmgr perl install $miss 2>>$INSTALLER_ERR_FILE" "Installing $miss"
       done
     fi
   fi
@@ -1189,7 +1189,7 @@ install_pip() {
       printf_warning "Attempting to install missing pip packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr pip install $miss 2>>$ERR_FILE" "Installing $miss"
+        execute "pkmgr pip install $miss 2>>$INSTALLER_ERR_FILE" "Installing $miss"
       done
     fi
   fi
@@ -1208,7 +1208,7 @@ install_cpan() {
       printf_warning "Attempting to install missing cpan packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr cpan install $miss 2>>$ERR_FILE" "Installing $miss"
+        execute "pkmgr cpan install $miss 2>>$INSTALLER_ERR_FILE" "Installing $miss"
       done
     fi
   fi
@@ -1227,7 +1227,7 @@ install_gem() {
       printf_warning "Attempting to install missing gem packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr gem install $miss 2>>$ERR_FILE" "Installing $miss"
+        execute "pkmgr gem install $miss 2>>$INSTALLER_ERR_FILE" "Installing $miss"
       done
     fi
   fi

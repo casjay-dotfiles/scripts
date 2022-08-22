@@ -1,3 +1,17 @@
+#### Changelog: 2022-08-21 at 20:59:42  
+
+templates/scripts/bash/mgr-script.system.sh : 🗃️ Updated: _SILENT" != "true" ] || [ "CWD_SILENCE" != "true" ]; then 🗃️ 🚀  
+templates/scripts/bash/mgr-script.user.sh : 🗃️ Updated: _SILENT" != "true" ] || [ "CWD_SILENCE" != "true" ]; then 🗃️ 🚀  
+templates/scripts/bash/simple : 🗃️ Updated: _SILENT" != "true" ] || [ "CWD_SILENCE" != "true" ]; then 🗃️ 🚀  
+templates/scripts/bash/system : 🗃️ Updated: _SILENT" != "true" ] || [ "CWD_SILENCE" != "true" ]; then 🗃️ 🚀  
+templates/scripts/bash/terminal : 🗃️ Updated: _SILENT" != "true" ] || [ "CWD_SILENCE" != "true" ]; then 🗃️ 🚀  
+templates/scripts/bash/user : 🗃️ Updated: _SILENT" != "true" ] || [ "CWD_SILENCE" != "true" ]; then 🗃️ 🚀  
+version.txt : 🗃️ Updated: _SILENT" != "true" ] || [ "CWD_SILENCE" != "true" ]; then 🗃️ 🚀  
+  
+#### End of changes for 202208212057-git - 2022-08-21 at 20:59:42  
+  
+----  
+  
 #### Changelog: 2022-08-21 at 20:11:27  
 
 bin/send-notify : 🗃️ Added display check 🗃️ 🚀  

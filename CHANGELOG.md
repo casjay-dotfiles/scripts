@@ -1,3 +1,11 @@
+#### Changelog: 2022-08-21 at 22:36:02  
+
+bin/pkmgr : 🗃️ Working on error logging 🗃️ 🚀  
+  
+#### End of changes for 202208212230-git - 2022-08-21 at 22:36:02  
+  
+----  
+  
 #### Changelog: 2022-08-21 at 22:30:24  
 
 bin/pkmgr : 🗃️ Working on error logging 🗃️ 🚀  

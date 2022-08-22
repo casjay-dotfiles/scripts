@@ -1,3 +1,11 @@
+#### Changelog: 2022-08-21 at 21:56:38  
+
+functions/app-installer.bash : Modified - Updating for logging 🚀  
+  
+#### End of changes for 202208212122-git - 2022-08-21 at 21:56:38  
+  
+----  
+  
 #### Changelog: 2022-08-21 at 21:22:47  
 
 bin/gitcommit : 🗃️ Committing everything that changed 🗃️ 🚀  

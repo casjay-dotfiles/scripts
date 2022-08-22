@@ -44,6 +44,11 @@ TMPPATH+="/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:$PATH:."
 PATH="$(echo "$TMPPATH" | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 's#::#:.#g')"
 unset TMPPATH
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+local -r LOG_DIR="/tmp/log/${APPNAME:-scripts}"
+local -r LOG_FILE="$LOG_DIR/install_${CMD// /_}.log"
+local -r ERR_FILE="$LOG_DIR/install_${CMD// /_}.err.log"
+[ -d "$LOG_DIR" ] || mkdir -p "$LOG_DIR"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Fail if git, curl, and wget are not installed
 for check in git curl wget; do
   if [ -z "$(builtin type -P "$check" 2>/dev/null)" ]; then
@@ -929,7 +934,7 @@ scripts_check() {
     printf_question_timeout "4" "Would you like to do that now" "1" "choice" "-s"
     if [[ $choice == "y" || $choice == "Y" ]]; then
       urlverify "$SYSTEMMGRREPO/installer/raw/$GIT_REPO_BRANCH/install.sh" &&
-        sudo -HE bash -c "$(__curl "$SYSTEMMGRREPO/installer/raw/$GIT_REPO_BRANCH/install.sh")" && echo
+        sudo -HE bash -c "$(curl -q -LSsf "$SYSTEMMGRREPO/installer/raw/$GIT_REPO_BRANCH/install.sh")" && echo
     else
       touch "$HOME/.config/local/noscripts"
       exit 1
@@ -1085,9 +1090,9 @@ install_required() {
       printf_yellow "Still missing: $MISSING"
       printf_yellow "Installing from package list"
       if [ -f "$(builtin type -P yay 2>/dev/null)" ]; then
-        pkmgr --enable-aur dotfiles "$APPNAME" 2>/dev/null
+        pkmgr --enable-log --enable-aur dotfiles "$APPNAME" 2>>"$ERR_FILE"
       else
-        pkmgr dotfiles "$APPNAME" 2>/dev/null
+        pkmgr --enable-log dotfiles "$APPNAME" 2>>"$ERR_FILE"
       fi
     fi
   fi
@@ -1120,9 +1125,9 @@ install_packages() {
       printf_warning "$MISSING"
       for miss in $MISSING; do
         if [ -f "$(builtin type -P yay 2>/dev/null)" ]; then
-          execute "pkmgr --enable-aur silent install $miss &>/dev/null" "Installing $miss"
+          execute "pkmgr --enable-log --enable-aur silent install $miss 2>>$ERR_FILE" "Installing $miss"
         else
-          execute "pkmgr silent install $miss &>/dev/null" "Installing $miss"
+          execute "pkmgr silent install $miss 2>>$ERR_FILE" "Installing $miss"
         fi
       done
     fi
@@ -1143,9 +1148,9 @@ install_python() {
       printf_warning "$MISSING"
       for miss in $MISSING; do
         if [ -f "$(builtin type -P yay 2>/dev/null)" ]; then
-          execute "pkmgr --enable-aur silent install $miss &>/dev/null" "Installing $miss"
+          execute "pkmgr --enable-aur silent install $miss 2>>$ERR_FILE" "Installing $miss"
         else
-          execute "pkmgr silent install $miss &>/dev/null" "Installing $miss"
+          execute "pkmgr silent install $miss 2>>$ERR_FILE" "Installing $miss"
         fi
       done
     fi
@@ -1165,7 +1170,7 @@ install_perl() {
       printf_warning "Attempting to install missing perl packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr perl install $miss" "Installing $miss"
+        execute "pkmgr perl install $miss 2>>$ERR_FILE" "Installing $miss"
       done
     fi
   fi
@@ -1184,7 +1189,7 @@ install_pip() {
       printf_warning "Attempting to install missing pip packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr pip install $miss" "Installing $miss"
+        execute "pkmgr pip install $miss 2>>$ERR_FILE" "Installing $miss"
       done
     fi
   fi
@@ -1203,7 +1208,7 @@ install_cpan() {
       printf_warning "Attempting to install missing cpan packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr cpan install $miss" "Installing $miss"
+        execute "pkmgr cpan install $miss 2>>$ERR_FILE" "Installing $miss"
       done
     fi
   fi
@@ -1222,7 +1227,7 @@ install_gem() {
       printf_warning "Attempting to install missing gem packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr gem install $miss" "Installing $miss"
+        execute "pkmgr gem install $miss 2>>$ERR_FILE" "Installing $miss"
       done
     fi
   fi
@@ -1264,10 +1269,6 @@ execute() {
   local -r CMDS="$1"
   local -r MSG="${2:-$1} "
   local -r CMD="$(echo "$1" | awk '{print $1}')"
-  local -r LOG_DIR="/tmp/log/${APPNAME:-scripts}"
-  local -r LOG_FILE="$LOG_DIR/install_${CMD// /_}.log"
-  local -r ERR_FILE="$LOG_DIR/install_${CMD// /_}.err.log"
-  [ -d "$LOG_DIR" ] || mkdir -p "$LOG_DIR"
   local exitCode=0
   local cmdsPID=""
   set_trap "EXIT" "kill_all_subprocesses"

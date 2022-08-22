@@ -1,3 +1,11 @@
+#### Changelog: 2022-08-21 at 20:11:27  
+
+bin/send-notify : 🗃️ Added display check 🗃️ 🚀  
+  
+#### End of changes for 202208211950-git - 2022-08-21 at 20:11:27  
+  
+----  
+  
 #### Changelog: 2022-08-21 at 19:50:38  
 
 templates/scripts/bash/mgr-script.system.sh : 🗃️ Committing everything that changed 🗃️ 🚀  

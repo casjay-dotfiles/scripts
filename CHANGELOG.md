@@ -1,3 +1,11 @@
+#### Changelog: 2022-08-23 at 11:14:57  
+
+bin/latest-releases : Modified - Added a check to search subfolders for file 🚀  
+  
+#### End of changes for 202208212240-git - 2022-08-23 at 11:14:57  
+  
+----  
+  
 #### Changelog: 2022-08-23 at 11:01:27  
 
 bin/latest-releases : Modified - extract xz archive 🚀  

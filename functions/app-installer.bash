@@ -49,8 +49,8 @@ if [ "$UID" = "0" ] || [ "$USER" = "root" ]; then
 else
   export INSTALLER_LOG_DIR="${LOG_DIR:-$HOME/.local/log}/${APPNAME:-scripts}"
 fi
-export INSTALLER_LOG_FILE="$INSTALLER_LOG_DIR/install_${CMD// /_}.log"
-export INSTALLER_ERR_FILE="$INSTALLER_LOG_DIR/install_${CMD// /_}.err.log"
+export INSTALLER_LOG_FILE="$INSTALLER_LOG_DIR/${SCRIPTS_PREFIX:-apps}/install_${CMD// /_}.log"
+export INSTALLER_ERR_FILE="$INSTALLER_LOG_DIR/${SCRIPTS_PREFIX:-apps}/install_${CMD// /_}.err.log"
 [ -d "$INSTALLER_LOG_DIR" ] || mkdir -p "$INSTALLER_LOG_DIR"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Fail if git, curl, and wget are not installed
@@ -81,11 +81,11 @@ for check in git curl wget; do
 done
 # trap errors
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__trap_exit_app_install() { 
+__trap_exit_app_install() {
   local tmp_file="${TMP:-/tmp}/${APPNAME:-scripts}.tmp"
   local tmp_inst_file="${TMP:-/tmp}/${APPNAME:-scripts}.inst.tmp"
   [ -f "$tmp_file" ] && rm -Rf "$tmp_file" || true
-  [ -f "$tmp_inst_file" ] && rm -Rf "$tmp_inst_file" || true 
+  [ -f "$tmp_inst_file" ] && rm -Rf "$tmp_inst_file" || true
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cmd_exists() {
@@ -308,7 +308,7 @@ printf_question_timeout() {
   reply="${1:-REPLY}" && shift 1
   readopts="${1:-}" && shift 1
   printf_color "\t\t$msg " "${PRINTF_COLOR:-$color}"
-  read -t 30 -r -n ${lines} ${readopts} ${reply}
+  read -t 30 -r -n $lines $readopts $reply
   printf_newline
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -779,7 +779,7 @@ sudoreq() {
   [[ $sudo_check == "SUDO_OK" ]] && return
   if [[ $UID != 0 ]]; then
     if builtin type -P ask_for_password &>/dev/null; then
-      [[ "$SUDO_SUCCESS" = "TRUE" ]] || ask_for_password ${*:-true}
+      [[ "$SUDO_SUCCESS" = "TRUE" ]] || ask_for_password "${@:-true}"
       export SUDO_SUCCESS="TRUE"
       return 0
     else
@@ -917,16 +917,23 @@ versioncheck() {
       printf_blue "New version is $NEWVERSION and currentversion is $OLDVERSION"
       printf_question_timeout "4" "Would you like to update" "1" "choice" "-s"
       if [[ $choice == "y" || $choice == "Y" ]]; then
-        [ -f "$INSTDIR/install.sh" ] && bash -c "$INSTDIR/install.sh" && echo ||
-          git -C "$INSTDIR" pull -q &&
-          printf_green "Updated to $NEWVERSION" ||
+        if [ -f "$INSTDIR/install.sh" ] && bash -c "$INSTDIR/install.sh"; then
+          echo
+          exitCode=0
+        elif [ -d "$INSTDIR/.git" ] && git -C "$INSTDIR" pull -q; then
+          printf_green "Updated to $NEWVERSION"
+          exitCode=0
+        else
           printf_red "Failed to update"
+          exitCode=1
+        fi
       else
         printf_cyan "You decided not to update"
+        exitCode=1
       fi
     fi
   fi
-  exit $?
+  exit ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 scripts_check() {
@@ -1033,14 +1040,18 @@ git_update() {
   local myappdir="${1:-$INSTDIR}"
   local exitCode="0"
   if __am_i_online; then
-    local repo="$(git remote -v | grep fetch | head -n 1 | awk '{print $2}')"
-    devnull git -C "$myappdir" reset --hard
-    devnull git -C "$myappdir" pull --recurse-submodules
-    devnull git -C "$myappdir" submodule update --init --recursive
-    devnull git -C "$myappdir" reset --hard -q
-    devnull git -C "$myappdir" pull --recurse-submodules && exitCode=0 || exitCode=1
-    if [ "$exitCode" -ne 0 ] && [ -n "$repo" ] && [ ! -d "$myappdir/.git" ]; then
+    if [ -d "$myappdir/.git" ]; then
+      local repo="$(git remote -v | grep fetch | head -n 1 | awk '{print $2}')"
+      devnull git -C "$myappdir" reset --hard
+      devnull git -C "$myappdir" pull --recurse-submodules
+      devnull git -C "$myappdir" submodule update --init --recursive
+      devnull git -C "$myappdir" reset --hard -q
+      devnull git -C "$myappdir" pull --recurse-submodules && exitCode=0 || exitCode=1
+    else
       rm_rf "$myappdir"
+      exitCode=1
+    fi
+    if [ "$exitCode" -ne 0 ] && [ -n "$repo" ] && [ ! -d "$myappdir/.git" ]; then
       git_clone "$repo" "$myappdir"
     fi
   fi
@@ -1064,7 +1075,7 @@ dotfilesreq() {
   local -a LISTARRAY="$*"
   local confdir="$USRUPDATEDIR"
   local conf=""
-  for conf in ${LISTARRAY[*]}; do
+  for conf in "${LISTARRAY[@]}"; do
     local TMPINST="$TMPDIR/${conf}.inst.tmp"
     [ -d "$confdir/$conf" ] || [ -f "$TMPINST" ] || dotfilesreqcmd "$conf"
   done
@@ -1075,7 +1086,7 @@ dotfilesreqadmin() {
   local -a LISTARRAY="$*"
   local confdir="$SYSUPDATEDIR"
   local conf=""
-  for conf in ${LISTARRAY[*]}; do
+  for conf in "${LISTARRAY[@]}"; do
     local TMPINST="$TMPDIR/${conf}.inst.tmp"
     [ -d "$confdir/$conf" ] || [ -f "$TMPINST" ] || dotfilesreqadmincmd "$conf"
   done
@@ -1284,10 +1295,10 @@ execute() {
   printf_execute_result $exitCode "$MSG"
   if [ $exitCode -ne 0 ]; then
     printf_execute_error_stream <"$INSTALLER_ERR_FILE"
-    [ -s "$INSTALLER_LOG_FILE" ] && rm -Rf "$INSTALLER_LOG_FILE" || true 
+    [ -s "$INSTALLER_LOG_FILE" ] && rm -Rf "$INSTALLER_LOG_FILE" || true
     [ -s "$INSTALLER_TMP_FILE" ] && rm -Rf "$INSTALLER_ERR_FILE" || true
   else
-    [ -f "$INSTALLER_LOG_FILE" ] && rm -Rf "$INSTALLER_LOG_FILE" || true 
+    [ -f "$INSTALLER_LOG_FILE" ] && rm -Rf "$INSTALLER_LOG_FILE" || true
     [ -f "$INSTALLER_TMP_FILE" ] && rm -Rf "$INSTALLER_ERR_FILE" || true
   fi
   return $exitCode
@@ -1788,7 +1799,7 @@ show_optvars() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 installer_noupdate() {
-  __git_update() { git -C "${1:-$INSTDIR}" reset --hard -q &>/dev/null && git -C "${1:-$INSTDIR}" pull &>/dev/null && return 0 || return 1; }
+  __git_update() { [ -d "${1:-$INSTDIR}/.git" ] && git -C "${1:-$INSTDIR}" reset --hard -q &>/dev/null && git -C "${1:-$INSTDIR}" pull &>/dev/null && return 0 || return 1; }
   [[ -n "$_DEBUG" ]] && set -xeo
   [ "$1" = "--force" ] && return 0
   if [ "$FORCE_INSTALL" = "true" ]; then
@@ -2594,7 +2605,7 @@ run_install_list() {
       printf_red "No dotfiles are installed"
       exit
     else
-      for df in ${LSINST[*]}; do
+      for df in "${LSINST[@]}"; do
         printf_green "$df"
       done
     fi

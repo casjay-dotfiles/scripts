@@ -126,6 +126,9 @@ __gen_config() {
   cat <<EOF >"$PKMGR_CONFIG_DIR/$PKMGR_CONFIG_FILE"
 # Settings for pkmgr
 PKMGR_FORCE_INSTALL="false"
+PKMGR_GIT_REPO="${PKMGR_GIT_REPO:-}"
+PKMGR_GIT_BRANCH="${PKMGR_GIT_BRANCH:-}"
+PKMGR_GIT_DOTFILES="${PKMGR_GIT_DOTFILES:-}"
 PKMGR_NOTIFICATION_EMAIL="${PKMGR_NOTIFICATION_EMAIL:-}"
 PKMGR_OUTPUT_TRUNCATE="${PKMGR_OUTPUT_TRUNCATE:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -257,8 +260,8 @@ __trap_exit() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
-__logging() { 
-  eval "$*"; 
+__logging() {
+  eval "$*"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __log_info() {
@@ -375,7 +378,7 @@ gem_run() {
   fi
 }
 gem_remove() {
-  gem="$(type -P cpan 2>/dev/null | grep -v "$HOME" | grep '^' || return)"
+  gem="$(type -P gem 2>/dev/null | grep -v "$HOME" | grep '^' || return)"
   if [[ -n "$gem" ]]; then
     sudo $gem uninstall --no-user-install --force -aIx "$*" 2>/dev/null || return 1
   fi
@@ -388,7 +391,7 @@ npm_run() {
   PATH="$NODE_PATH:$PATH"
   if __cmd_exists fnm; then
     eval $(fnm env)
-    fnm use 18 &>/dev/null
+    fnm use default &>/dev/null
     npm i -g "$*" 2>/dev/null | grep -v '^$' || return 1
   elif __cmd_exists npm; then
     npm install -g "$*" 2>/dev/null | grep -v '^$' || return 1
@@ -404,7 +407,7 @@ npm_remove() {
   PATH="$NODE_PATH:$PATH"
   if __cmd_exists fnm; then
     eval $(fnm env)
-    fnm use 18 &>/dev/null
+    fnm use default &>/dev/null
     npm remove -g "$*" 2>/dev/null | grep -v '^$' || return 1
   elif __cmd_exists npm; then
     npm remove -g "$*" 2>/dev/null | grep -v '^$' || return 1
@@ -462,7 +465,7 @@ curl_run() {
     __urlverify "$url"
     __curl "$url" | tee "$PKMGR_TEMP_FILE" &>/dev/null
   else
-    url="$REPO/$1/raw/$GIT_REPO_BRANCH/lists/$2.list"
+    url="$PKMGR_GIT_REPO/$1/raw/$PKMGR_GIT_BRANCH/lists/$2.list"
     shift "$#"
     __urlverify "$url"
     __curl "$url" | tee "$PKMGR_TEMP_FILE" &>/dev/null
@@ -557,7 +560,7 @@ dotfiles_run() {
   f=""
   echo >"$PKMGR_TEMP_FILE"
   for f in $file; do
-    url="$dotfilesrepo/$f.list"
+    url="$dotfilesrepo_raw/$f.list"
     __urlverify "$url" && __curl "$url" | tee -a "$PKMGR_TEMP_FILE" &>/dev/null || return 1
   done
 }
@@ -584,7 +587,8 @@ show_info() {
   printf_yellow "Kernel version              $KERNEL_VERSION"
   if [ "$1" = "truncate" ]; then
     truncate="true"
-    printf_cyan "Repo:                       ${dotfilesrepo:0:$col}"
+    printf_cyan "Repo:                       ${dotfilesrepo_url:0:$col}"
+    printf_cyan "Repo Raw:                   ${dotfilesrepo_raw:0:$col}"
     printf_cyan "system package manager:     ${pkgmgrbin:0:$col}"
     printf_cyan "Install cmd:                ${pkgmgrbinins:0:$col}"
     printf_cyan "Install silent cmd:         ${pkgmgrbininssil:0:$col}"
@@ -597,7 +601,8 @@ show_info() {
     printf_cyan "Make cache cmd:             ${pkgmgrbincac:0:$col}"
   else
     truncate="false"
-    printf_cyan "Repo:                       ${dotfilesrepo}"
+    printf_cyan "Repo:                       ${dotfilesrepo_url}"
+    printf_cyan "Repo:                       ${dotfilesrepo_raw}"
     printf_cyan "system package manager:     ${pkgmgrbin}"
     printf_cyan "Install cmd:                ${pkgmgrbinins}"
     printf_cyan "Install silent cmd:         ${pkgmgrbininssil}"
@@ -641,12 +646,12 @@ exportpkg() {
 update_mirrors() {
   __cmd_exists pacman || return 0
   sudo pacman -S --noconfirm --needed reflector &>/dev/null
-  __cmd_exists reflector || return 
+  __cmd_exists reflector || return
   (
     sudo reflector --protocol 'https' --ipv4 --latest 100 \
       --country us --fastest 20 --sort rate --threads 5 \
-      --download-timeout 1 --connection-timeout 1 --save /tmp/mirrorlist.new
-    rankmirrors -n 0 /tmp/mirrorlist.new >/tmp/mirrorlist
+      --download-timeout 1 --connection-timeout 1 --save "/tmp/mirrorlist.new"
+    rankmirrors -n 0 "/tmp/mirrorlist.new" >"/tmp/mirrorlist"
   ) |& tee &>/dev/null
   if [ -f "/tmp/mirrorlist" ] && [ -s "/tmp/mirrorlist" ]; then
     sudo mv -f "/tmp/mirrorlist" "/etc/pacman.d/mirrorlist" &>/dev/null
@@ -674,11 +679,12 @@ __initialize_variables() {
   case "$PKMGR_OS_NAME" in
   linux)
     # apt-get debian based setup                                                                                                                     #
-    if [ -f "$(builtin type -P apt-get 2>/dev/null)" ]; then                                                                              #
-      pkmgrcheckbin_opts="-q -y --ignore-hold --allow-change-held-packages --allow-unauthenticated -s dist-upgrade"                       #
-      export DEBIAN_FRONTEND=noninteractive                                                                                               #
-      export APT_OPTS='-o Dpkg::Options::='--force-confdef' -o Dpkg::Options::='--force-confold''                                         #
-      dotfilesrepo="$REPODF/apt"                                                                                                          #
+    if [ -f "$(builtin type -P apt-get 2>/dev/null)" ]; then                                                        #
+      pkmgrcheckbin_opts="-q -y --ignore-hold --allow-change-held-packages --allow-unauthenticated -s dist-upgrade" #
+      export DEBIAN_FRONTEND=noninteractive                                                                         #
+      export APT_OPTS='-o Dpkg::Options::='--force-confdef' -o Dpkg::Options::='--force-confold''                   #
+      dotfilesrepo_url="$PKMGR_GIT_REPO/$PKMGR_GIT_DOTFILES/apt"                                                    #
+      dotfilesrepo_raw="$PKMGR_GIT_REPO/$PKMGR_GIT_DOTFILES/raw/$PKMGR_GIT_BRANCH/apt"
       pkgmgrbin="sudo --preserve-env=PATH /usr/bin/apt-get"                                                                               #
       pkgmgrbinins="$pkgmgrbin install"                                                                                                   #
       pkgmgrbininssil="$pkgmgrbin install $APT_OPTS --ignore-missing -yy -qq --allow-unauthenticated --assume-yes"                        #
@@ -696,9 +702,10 @@ __initialize_variables() {
     # apt-get debian based setup                                                                                                                     #
     elif [ -f "$(builtin type -P apt 2>/dev/null)" ]; then #
       pkmgrcheckbin_opts="-q -y --ignore-hold --allow-change-held-packages --allow-unauthenticated -s dist-upgrade"
-      export DEBIAN_FRONTEND=noninteractive                                                                                               #
-      export APT_OPTS="-o Dpkg::Options::='--force-confdef' -o Dpkg::Options::='--force-confold'"                                         #
-      dotfilesrepo="$REPODF/apt"                                                                                                          #
+      export DEBIAN_FRONTEND=noninteractive                                                       #
+      export APT_OPTS="-o Dpkg::Options::='--force-confdef' -o Dpkg::Options::='--force-confold'" #
+      dotfilesrepo_url="$PKMGR_GIT_REPO/$PKMGR_GIT_DOTFILES/apt"                                  #
+      dotfilesrepo_raw="$PKMGR_GIT_REPO/$PKMGR_GIT_DOTFILES/raw/$PKMGR_GIT_BRANCH/apt"
       pkgmgrbin="sudo --preserve-env=PATH /usr/bin/apt"                                                                                   #
       pkgmgrbinins="$pkgmgrbin install"                                                                                                   #
       pkgmgrbininssil="$pkgmgrbin install $APT_OPTS --ignore-missing -yy -qq --allow-unauthenticated --assume-yes"                        #
@@ -714,8 +721,9 @@ __initialize_variables() {
       pkmgrcheckupdates() { [ -n "$pkmgrcheckbin" ] && $pkmgrcheckbin $pkmgrcheckbin_opts 2>/dev/null | grep '^Inst' | wc -l || echo 0; } #
       pkgmgrexport() { dpkg -l | grep ^ii | awk '{print $2}' | sed "s#:.*##g" | sort -u; }                                                #
     # pacman archlinux based setup                                                                                                                     #
-    elif [ -f "$(builtin type -P pacman 2>/dev/null)" ]; then                                                                       #
-      dotfilesrepo="$REPODF/pacman"                                                                                                 #
+    elif [ -f "$(builtin type -P pacman 2>/dev/null)" ]; then       #
+      dotfilesrepo_url="$PKMGR_GIT_REPO/$PKMGR_GIT_DOTFILES/pacman" #
+      dotfilesrepo_raw="$PKMGR_GIT_REPO/$PKMGR_GIT_DOTFILES/raw/$PKMGR_GIT_BRANCH/pacman"
       pkgmgrbin="sudo --preserve-env=PATH /usr/bin/pacman"                                                                          #
       pkgmgrbinins="$pkgmgrbin -S --noconfirm --overwrite='*'"                                                                      #
       pkgmgrbininssil="$pkgmgrbin -S --noconfirm --needed --overwrite='*' "                                                         #
@@ -731,8 +739,9 @@ __initialize_variables() {
       pkmgrcheckupdates() { [ -n "$pkmgrcheckbin" ] && $pkmgrcheckbin -Qu 2>/dev/null | wc -l || echo 0; }                          #
       pkgmgrexport() { pacman -Qqe | grep -v "$(pacman -Qqm)" && echo '###' && pacman -Qqet | grep -v "$(pacman -Qqm)" | sort -u; } #
     # pamac archlinux based setup                                                                                                                     #
-    elif [ -f "$(builtin type -P pamac 2>/dev/null)" ]; then                                                           #
-      dotfilesrepo="$REPODF/pacman"                                                                                    #
+    elif [ -f "$(builtin type -P pamac 2>/dev/null)" ]; then        #
+      dotfilesrepo_url="$PKMGR_GIT_REPO/$PKMGR_GIT_DOTFILES/pacman" #
+      dotfilesrepo_raw="$PKMGR_GIT_REPO/$PKMGR_GIT_DOTFILES/raw/$PKMGR_GIT_BRANCH/pacman"
       pkgmgrbin="sudo  /usr/bin/pamac"                                                                                 #
       pkgmgrbinins="$pkgmgrbin install --noconfirm"                                                                    #
       pkgmgrbininssil="$pkgmgrbin install --noconfirm"                                                                 #
@@ -748,8 +757,9 @@ __initialize_variables() {
       pkmgrcheckupdates() { [ -n "$pkmgrcheckbin" ] && $pkmgrcheckbin checkupdates -a 2>/dev/null | wc -l || echo 0; } #
       pkgmgrexport() { pacman -Qqet | grep -v "$(pacman -Qqm)" | sort -u; }                                            #
     # dnf fedora based setup                                                                                                                     #
-    elif [ -f "$(builtin type -P dnf 2>/dev/null)" ]; then                                                                                #
-      dotfilesrepo="$REPODF/yum"                                                                                                          #
+    elif [ -f "$(builtin type -P dnf 2>/dev/null)" ]; then       #
+      dotfilesrepo_url="$PKMGR_GIT_REPO/$PKMGR_GIT_DOTFILES/yum" #
+      dotfilesrepo_raw="$PKMGR_GIT_REPO/$PKMGR_GIT_DOTFILES/raw/$PKMGR_GIT_BRANCH/yum"
       pkgmgrbin="sudo --preserve-env=PATH /usr/bin/dnf"                                                                                   #
       pkgmgrbinins="$pkgmgrbin install"                                                                                                   #
       pkgmgrbininssil="$pkgmgrbin install -y -q"                                                                                          #
@@ -765,8 +775,9 @@ __initialize_variables() {
       pkmgrcheckupdates() { [ -n "$pkmgrcheckbin" ] && $pkmgrcheckbin -q check-update 2>/dev/null | grep -v Security | wc -l || echo 0; } #
       pkgmgrexport() { rpm -qa --qf '%{name}\n' | grep -v gpg-pubkey | sort -u; }                                                         #
     # yum fedora based setup                                                                                                                     #
-    elif [ -f "$(builtin type -P yum 2>/dev/null)" ]; then                                                                                #
-      dotfilesrepo="$REPODF/yum"                                                                                                          #
+    elif [ -f "$(builtin type -P yum 2>/dev/null)" ]; then       #
+      dotfilesrepo_url="$PKMGR_GIT_REPO/$PKMGR_GIT_DOTFILES/yum" #
+      dotfilesrepo_raw="$PKMGR_GIT_REPO/$PKMGR_GIT_DOTFILES/raw/$PKMGR_GIT_BRANCH/yum"
       pkgmgrbin="sudo --preserve-env=PATH /usr/bin/yum"                                                                                   #
       pkgmgrbinins="$pkgmgrbin install"                                                                                                   #
       pkgmgrbininssil="$pkgmgrbin install -y -q"                                                                                          #
@@ -782,8 +793,9 @@ __initialize_variables() {
       pkmgrcheckupdates() { [ -n "$pkmgrcheckbin" ] && $pkmgrcheckbin -q check-update 2>/dev/null | grep -v Security | wc -l || echo 0; } #
       pkgmgrexport() { rpm -qa --qf '%{name}\n' | grep -v gpg-pubkey | sort -u; }                                                         #
     # tdnf photon based setup                                                                                                                     #
-    elif [ -f "$(builtin type -P tdnf 2>/dev/null)" ]; then                                                                                 #
-      dotfilesrepo="$REPODF/yum"                                                                                                            #
+    elif [ -f "$(builtin type -P tdnf 2>/dev/null)" ]; then       #
+      dotfilesrepo_url="$PKMGR_GIT_REPO/$PKMGR_GIT_DOTFILES/tdnf" #
+      dotfilesrepo_raw="$PKMGR_GIT_REPO/$PKMGR_GIT_DOTFILES/raw/$PKMGR_GIT_BRANCH/tdnf"
       pkgmgrbin="sudo --preserve-env=PATH /usr/bin/tdnf"                                                                                    #
       pkgmgrbinins="$pkgmgrbin install"                                                                                                     #
       pkgmgrbininssil="$pkgmgrbin install -y -q"                                                                                            #
@@ -799,25 +811,27 @@ __initialize_variables() {
       pkmgrcheckupdates() { [ -n "$pkmgrcheckbin" ] && $pkmgrcheckbin -q check-update 2>/dev/null | grep -v 'Security' | wc -l || echo 0; } #
       pkgmgrexport() { rpm -qa --qf '%{name}\n' | grep -v gpg-pubkey | sort -u; }                                                           #
     # apk alpine based setup                                                                                                              #
-    elif [ -f "$(builtin type -P apk 2>/dev/null)" ]; then #
-      dotfilesrepo="$REPODF/apk"                           #
-      pkgmgrbin="$(builtin type -P apk 2>/dev/null)"       #
-      pkgmgrbinins="$pkgmgrbin add"                        #
-      pkgmgrbininssil="$pkgmgrbin add -f"                  #
-      pkgmgrbinremsil="$pkgmgrbin del -f"                  #
-      pkgmgrbinupdsil="$pkgmgrbin -U upgrade -f"           #
-      pkgmgrbinupdcron="$pkgmgrbin -U upgrade  -f"         #
-      pkgmgrbindel="$pkgmgrbin del"                        #
-      pkgmgrbinsea="$pkgmgrbin search"                     #
-      pkgmgrbinupd="$pkgmgrbin update"                     #
-      pkgmgrbincle="rm -rf /var/lib/apk/"                  #
-      pkgmgrbincac="true"                                  #
-      pkmgrcheckbin="$(builtin type -P apk 2>/dev/null)"   #
-      pkmgrcheckupdates() { apk -u list | wc -l; }         #
-      pkgmgrexport() { apk info | sort -u; }               #
+    elif [ -f "$(builtin type -P apk 2>/dev/null)" ]; then       #
+      dotfilesrepo_url="$PKMGR_GIT_REPO/$PKMGR_GIT_DOTFILES/apk" #
+      dotfilesrepo_raw="$PKMGR_GIT_REPO/$PKMGR_GIT_DOTFILES/raw/$PKMGR_GIT_BRANCH/apk"
+      pkgmgrbin="$(builtin type -P apk 2>/dev/null)"     #
+      pkgmgrbinins="$pkgmgrbin add"                      #
+      pkgmgrbininssil="$pkgmgrbin add -f"                #
+      pkgmgrbinremsil="$pkgmgrbin del -f"                #
+      pkgmgrbinupdsil="$pkgmgrbin -U upgrade -f"         #
+      pkgmgrbinupdcron="$pkgmgrbin -U upgrade  -f"       #
+      pkgmgrbindel="$pkgmgrbin del"                      #
+      pkgmgrbinsea="$pkgmgrbin search"                   #
+      pkgmgrbinupd="$pkgmgrbin update"                   #
+      pkgmgrbincle="rm -rf /var/lib/apk/"                #
+      pkgmgrbincac="true"                                #
+      pkmgrcheckbin="$(builtin type -P apk 2>/dev/null)" #
+      pkmgrcheckupdates() { apk -u list | wc -l; }       #
+      pkgmgrexport() { apk info | sort -u; }             #
     # xbps-* voidlinux based setup                         #
-    elif [ -f "$(builtin type -P xbps-install 2>/dev/null)" ]; then                                    #
-      dotfilesrepo="$REPODF/xbps"                                                                      #
+    elif [ -f "$(builtin type -P xbps-install 2>/dev/null)" ]; then #
+      dotfilesrepo_url="$PKMGR_GIT_REPO/$PKMGR_GIT_DOTFILES/xbps"   #
+      dotfilesrepo_raw="$PKMGR_GIT_REPO/$PKMGR_GIT_DOTFILES/raw/$PKMGR_GIT_BRANCH/xbps"
       pkgmgrbin="sudo --preserve-env=PATH /usr/bin/xbps-install"                                       #
       pkgmgrbinins="$pkgmgrbin -S"                                                                     #
       pkgmgrbininssil="$pkgmgrbin -Sy"                                                                 #
@@ -835,9 +849,10 @@ __initialize_variables() {
     fi                                                                                                 #
     ;;                                                                                                 #
     # MacOS brew                                                                                       #
-  darwin)                                                                                                       #
-    if [ -n "$(builtin type -P brew 2>/dev/null)" ]; then                                                       #
-      dotfilesrepo="$REPODF/brew"                                                                               #
+  darwin)                                                         #
+    if [ -n "$(builtin type -P brew 2>/dev/null)" ]; then         #
+      dotfilesrepo_url="$PKMGR_GIT_REPO/$PKMGR_GIT_DOTFILES/brew" #
+      dotfilesrepo_raw="$PKMGR_GIT_REPO/$PKMGR_GIT_DOTFILES/raw/$PKMGR_GIT_BRANCH/brew"
       if [ "$1" = "--cask" ]; then                                                                              #
         pkgmgrbin="sudo --preserve-env=PATH -u $RUN_USER brew --cask"                                           #
       else                                                                                                      #
@@ -859,8 +874,9 @@ __initialize_variables() {
     fi                                                                                                          #
     ;;                                                                                                          #
     # Windows chocolatey based setup                                                                            #
-  cygwin* | mingw* | msys*)                                                                          #
-    dotfilesrepo="$REPODF/win"                                                                       #
+  cygwin* | mingw* | msys*)                                    #
+    dotfilesrepo_url="$PKMGR_GIT_REPO/$PKMGR_GIT_DOTFILES/win" #
+    dotfilesrepo_raw="$PKMGR_GIT_REPO/$PKMGR_GIT_DOTFILES/raw/$PKMGR_GIT_BRANCH/win"
     pkgmgrbin="choco"                                                                                #
     pkgmgrbinins="choco install"                                                                     #
     pkgmgrbininssil="choco install -yf"                                                              #
@@ -880,8 +896,9 @@ __initialize_variables() {
     ;;                                                                                               #
   esac                                                                                               #
   #
-  if [ -f "$(builtin type -P yay 2>/dev/null)" ] && [ "$ENABLE_AUR" = "true" ]; then                                               #
-    dotfilesrepo="$REPODF/pacman"                                                                                                  #
+  if [ -f "$(builtin type -P yay 2>/dev/null)" ] && [ "$ENABLE_AUR" = "true" ]; then #
+    dotfilesrepo_url="$PKMGR_GIT_REPO/$PKMGR_GIT_DOTFILES/pacman"                    #
+    dotfilesrepo_raw="$PKMGR_GIT_REPO/$PKMGR_GIT_DOTFILES/raw/$PKMGR_GIT_BRANCH/pacman"
     pkgmgrbin="sudo --preserve-env=PATH -u $RUN_USER /usr/bin/yay"                                                                 #
     pkgmgrbinins="$pkgmgrbin -S --cleanafter --overwrite='*'"                                                                      #
     pkgmgrbininssil="$pkgmgrbin -Sy --needed --noconfirm --cleanafter --overwrite='*'"                                             #
@@ -1516,8 +1533,11 @@ CHECK_FOR_UPDATES_CACHE_DIR="${CHECK_FOR_UPDATES_CACHE_DIR:-$HOME/.cache/check_a
 PKMGR_FORCE_INSTALL="${PKMGR_FORCE_INSTALL:-false}"
 PKMGR_NOTIFICATION_EMAIL="${PKMGR_NOTIFICATION_EMAIL:-root}"
 PKMGR_OUTPUT_TRUNCATE="${PKMGR_OUTPUT_TRUNCATE:-110}"
-PKMGR_LOG_ERROR="${INSTALLER_LOG_ERR:-$PKMGR_LOG_DIR/$APPNAME.err.log}" 
-PKMGR_LOG_INFO="${INSTALLER_LOG_FILE:-$PKMGR_LOG_DIR/$APPNAME.log}" 
+PKMGR_LOG_ERROR="${INSTALLER_LOG_ERR:-$PKMGR_LOG_DIR/$APPNAME.err.log}"
+PKMGR_LOG_INFO="${INSTALLER_LOG_FILE:-$PKMGR_LOG_DIR/$APPNAME.log}"
+PKMGR_GIT_REPO="${PKMGR_GIT_REPO:-$PKMGRREPO}"
+PKMGR_GIT_BRANCH="${PKMGR_GIT_BRANCH:-main}"
+PKMGR_GIT_DOTFILES="${PKMGR_GIT_DOTFILES:-dotfiles}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$PKMGR_CONFIG_DIR/$PKMGR_CONFIG_FILE" ] ||
@@ -1705,7 +1725,7 @@ export PKMGR_CWD
 #am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
-
+[ -n "$PKMGR_GIT_REPO" ] || PKMGR_GIT_REPO="${PKMGRREPO:-https://github.com/pkmgr}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
 if __user_is_not_root; then

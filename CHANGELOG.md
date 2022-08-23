@@ -1,3 +1,12 @@
+#### Changelog: 2022-08-23 at 19:48:07  
+
+bin/pkmgr : 🗃️ Fixes 🗃️ 🚀  
+functions/app-installer.bash : 🗃️ Fixes 🗃️ 🚀  
+  
+#### End of changes for 202208231409-git - 2022-08-23 at 19:48:07  
+  
+----  
+  
 #### Changelog: 2022-08-23 at 14:09:21  
 
 bin/pkmgr : 🗃️ Committing everything that changed 🗃️ 🚀  

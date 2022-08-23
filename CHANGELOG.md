@@ -1,3 +1,11 @@
+#### Changelog: 2022-08-23 at 19:50:53  
+
+bin/detectostype : 🗃️ Fixes 🗃️ 🚀  
+  
+#### End of changes for 202208231948-git - 2022-08-23 at 19:50:53  
+  
+----  
+  
 #### Changelog: 2022-08-23 at 19:48:07  
 
 bin/pkmgr : 🗃️ Fixes 🗃️ 🚀  

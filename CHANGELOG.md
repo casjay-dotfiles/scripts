@@ -1,3 +1,11 @@
+#### Changelog: 2022-08-23 at 10:36:01  
+
+bin/desktopmgr : Updated - Using new template 🚀  
+  
+#### End of changes for 202208212240-git - 2022-08-23 at 10:36:01  
+  
+----  
+  
 #### Changelog: 2022-08-22 at 01:10:25  
 
 functions/app-installer.bash : Fixed - LOG_DIR env 🚀  

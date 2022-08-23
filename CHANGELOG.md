@@ -1,3 +1,11 @@
+#### Changelog: 2022-08-23 at 11:01:27  
+
+bin/latest-releases : Modified - extract xz archive 🚀  
+  
+#### End of changes for 202208212240-git - 2022-08-23 at 11:01:27  
+  
+----  
+  
 #### Changelog: 2022-08-23 at 10:36:01  
 
 bin/desktopmgr : Updated - Using new template 🚀  

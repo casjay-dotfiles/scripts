@@ -1072,7 +1072,7 @@ dotfilesreqadmincmd() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 dotfilesreq() {
-  local -a LISTARRAY="$*"
+  local -a LISTARRAY=("$@")
   local confdir="$USRUPDATEDIR"
   local conf=""
   for conf in "${LISTARRAY[@]}"; do
@@ -1083,7 +1083,7 @@ dotfilesreq() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 dotfilesreqadmin() {
-  local -a LISTARRAY="$*"
+  local -a LISTARRAY=("$@")
   local confdir="$SYSUPDATEDIR"
   local conf=""
   for conf in "${LISTARRAY[@]}"; do

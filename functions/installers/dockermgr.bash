@@ -9,8 +9,6 @@ dockermgr_install() {
   REPORAW="${REPORAW:-$REPO/raw/$GIT_REPO_BRANCH}"
   USRUPDATEDIR="$SHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"
   SYSUPDATEDIR="$SYSSHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"
-  ARRAY="$(grep -s '^' $CASJAYSDEVDIR/helpers/$SCRIPTS_PREFIX/array)"
-  LIST="$(grep -s '^' $CASJAYSDEVDIR/helpers/$SCRIPTS_PREFIX/list)"
   user_is_root && SYSSHARE="$CASJAYSDEVSAPPDIR/dockermgr/$APPNAME" || SYSSHARE="$HOME/.local/share/CasjaysDev/dockermgr/$APPNAME"
   user_is_root && SRV_DIR="/srv/docker" || SRV_DIR="$HOME/.local/share/srv/docker"
   [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && APPDIR="${APPDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"

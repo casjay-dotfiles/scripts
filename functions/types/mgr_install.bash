@@ -14,6 +14,7 @@
 # @Resource          :
 # @sudo/root         :  no
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SCRIPTS_PREFIX="${SCRIPTS_PREFIX:-dfmgr}"
 ###################### devenvmgr settings ######################
 devenvmgr_install() {
   SCRIPTS_PREFIX="devenvmgr"

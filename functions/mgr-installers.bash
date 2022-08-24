@@ -908,9 +908,11 @@ versioncheck() {
       printf_question_timeout "4" "Would you like to update" "1" "choice" "-s"
       if [[ $choice == "y" || $choice == "Y" ]]; then
         [ -f "$INSTDIR/install.sh" ] && bash -c "$INSTDIR/install.sh" && echo ||
-          git -C "$INSTDIR" pull -q &&
-          printf_green "Updated to $NEWVERSION" ||
-          printf_red "Failed to update"
+          if [ -d "$INSTDIR/.git" ]; then
+            git -C "$INSTDIR" pull -q &&
+              printf_green "Updated to $NEWVERSION" ||
+              printf_red "Failed to update"
+          fi
       else
         printf_cyan "You decided not to update"
       fi
@@ -1032,7 +1034,7 @@ git_update() {
   local myappdir="${1:-$INSTDIR}"
   local exitCode="0"
   if __am_i_online; then
-    local repo="$(git remote -v | grep fetch | head -n 1 | awk '{print $2}')"
+    local repo="$([ -d "$myappdir/.git" ] && git -C "$myappdir" remote -v | grep fetch | head -n 1 | awk '{print $2}' || echo "$myappdir")"
     devnull git -C "$myappdir" reset --hard
     devnull git -C "$myappdir" pull --recurse-submodules
     devnull git -C "$myappdir" submodule update --init --recursive
@@ -1797,7 +1799,11 @@ show_optvars() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 installer_noupdate() {
-  __git_update() { git -C "${1:-$INSTDIR}" reset --hard -q &>/dev/null && git -C "${1:-$INSTDIR}" pull &>/dev/null && return 0 || return 1; }
+  __git_update() {
+    [ -d "${1:-$INSTDIR}/.git" ] && git -C "${1:-$INSTDIR}" reset --hard -q &>/dev/null &&
+      git -C "${1:-$INSTDIR}" pull &>/dev/null && return 0 || return 1
+  }
+  ##
   [[ -n "$_DEBUG" ]] && set -xeo
   [ "$1" = "--force" ] && return 0
   if [ "$FORCE_INSTALL" = "true" ]; then

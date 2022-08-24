@@ -27,7 +27,6 @@ __git_globalemail() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __git() {
-  local args="$*" && shift $#
   local exitCode=0
   local args="$*" && shift $#
   local tmpfile="${TMPDIR:-/tmp}/gitlog.$$.tmp"

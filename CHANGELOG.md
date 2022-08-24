@@ -1,3 +1,26 @@
+#### Changelog: 2022-08-24 at 13:58:36  
+
+bin/am_i_online : 🗃️ Committing everything that changed 🗃️ 🚀  
+bin/pkmgr : 🗃️ Committing everything that changed 🗃️ 🚀  
+functions/global/git.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+functions/installers/devenvmgr.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+functions/installers/dfmgr.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+functions/installers/dockermgr.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+functions/installers/fontmgr.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+functions/installers/iconmgr.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+functions/installers/lxdmgr.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+functions/installers/passmgr.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+functions/installers/pkmgr.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+functions/installers/systemmgr.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+functions/installers/thememgr.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+functions/installers/wallpapermgr.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+functions/mgr-installers.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+functions/types/mgr_install.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+  
+#### End of changes for 202208232048-git - 2022-08-24 at 13:58:36  
+  
+----  
+  
 #### Changelog: 2022-08-23 at 20:48:59  
 
 functions/app-installer.bash : 🗃️ Committing everything that changed 🗃️ 🚀  

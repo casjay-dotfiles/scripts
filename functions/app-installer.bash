@@ -51,7 +51,7 @@ else
 fi
 export INSTALLER_LOG_FILE="$INSTALLER_LOG_DIR/${SCRIPTS_PREFIX:-apps}/install_${CMD// /_}.log"
 export INSTALLER_ERR_FILE="$INSTALLER_LOG_DIR/${SCRIPTS_PREFIX:-apps}/install_${CMD// /_}.err.log"
-[ -d "$INSTALLER_LOG_DIR" ] || mkdir -p "$INSTALLER_LOG_DIR"
+[ -d "$INSTALLER_LOG_DIR/${SCRIPTS_PREFIX:-apps}" ] || mkdir -p "$INSTALLER_LOG_DIR/${SCRIPTS_PREFIX:-apps}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Fail if git, curl, and wget are not installed
 for check in git curl wget; do
@@ -1094,6 +1094,7 @@ dotfilesreqadmin() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_required() {
+  local name=$APPNAME
   local REQUIRED="$*"
   local MISSING=""
   local cmd=""
@@ -1105,9 +1106,9 @@ install_required() {
       printf_yellow "Still missing: $MISSING"
       printf_yellow "Installing from package list"
       if [ -f "$(builtin type -P yay 2>/dev/null)" ]; then
-        pkmgr --enable-log --enable-aur dotfiles "$APPNAME" 2>>"$INSTALLER_ERR_FILE"
+        pkmgr --enable-log --enable-aur dotfiles "$name" 2>>"$INSTALLER_ERR_FILE"
       else
-        pkmgr --enable-log dotfiles "$APPNAME" 2>>"$INSTALLER_ERR_FILE"
+        pkmgr --enable-log dotfiles "$name" 2>>"$INSTALLER_ERR_FILE"
       fi
     fi
   fi
@@ -1116,7 +1117,7 @@ install_required() {
     builtin type -p "$cmd" &>/dev/null || MISSING+="$cmd "
   done
   if [ -n "$MISSING" ]; then
-    printf_warning "Can not install all the required packages for $APPNAME"
+    printf_warning "Can not install all the required packages for $name"
     return 1
   fi
   unset MISSING

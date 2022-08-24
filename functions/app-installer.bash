@@ -45,13 +45,13 @@ PATH="$(echo "$TMPPATH" | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 's
 unset TMPPATH
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ "$UID" = "0" ] || [ "$USER" = "root" ]; then
-  export INSTALLER_LOG_DIR="/tmp/log/${APPNAME:-scripts}"
+  export INSTALLER_LOG_DIR="/tmp/log/${SCRIPTS_PREFIX:-apps}/${APPNAME:-scripts}"
 else
-  export INSTALLER_LOG_DIR="${LOG_DIR:-$HOME/.local/log}/${APPNAME:-scripts}"
+  export INSTALLER_LOG_DIR="${LOG_DIR:-$HOME/.local/log}/${SCRIPTS_PREFIX:-apps}/${APPNAME:-scripts}"
 fi
-export INSTALLER_LOG_FILE="$INSTALLER_LOG_DIR/${SCRIPTS_PREFIX:-apps}/install_${CMD// /_}.log"
-export INSTALLER_ERR_FILE="$INSTALLER_LOG_DIR/${SCRIPTS_PREFIX:-apps}/install_${CMD// /_}.err.log"
-[ -d "$INSTALLER_LOG_DIR/${SCRIPTS_PREFIX:-apps}" ] || mkdir -p "$INSTALLER_LOG_DIR/${SCRIPTS_PREFIX:-apps}"
+export INSTALLER_LOG_FILE="$INSTALLER_LOG_DIR/install_${CMD// /_}.log"
+export INSTALLER_ERR_FILE="$INSTALLER_LOG_DIR/install_${CMD// /_}.err.log"
+[ -d "$INSTALLER_LOG_DIR" ] || mkdir -p "$INSTALLER_LOG_DIR"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Fail if git, curl, and wget are not installed
 for check in git curl wget; do

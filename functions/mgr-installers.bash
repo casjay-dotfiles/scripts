@@ -302,7 +302,7 @@ printf_question_timeout() {
   reply="${1:-REPLY}" && shift 1
   readopts="${1:-}" && shift 1
   printf_color "\t\t$msg " "${PRINTF_COLOR:-$color}"
-  read -t 30 -r -n ${lines} ${readopts} ${reply}
+  read -t 30 -r -n ${lines} ${readopts?} ${reply?}
   printf_newline
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -950,7 +950,7 @@ scripts_check() {
 is_url() { echo "$1" | grep -qE 'http://|ftp://|git://|https://'; }
 #strip_url() { echo "$1" | sed 's#git+##g' | awk -F//*/ '{print $2}' | sed 's#.*./##g' | sed 's#python-##g'; }
 cmd_missing() {
-  if builtin type -p "$1" &>/dev/null; then
+  if builtin type -P "$1" &>/dev/null; then
     return 0
   else
     MISSING+="$1 "
@@ -1071,10 +1071,10 @@ dotfilesreqadmincmd() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 dotfilesreq() {
-  local -a LISTARRAY="$*"
+  local LISTARRAY="$*"
   local confdir="$USRUPDATEDIR"
   local conf=""
-  for conf in ${LISTARRAY[*]}; do
+  for conf in $LISTARRAY; do
     local TMPINST="$TMPDIR/${conf}.inst.tmp"
     [ -d "$confdir/$conf" ] || [ -f "$TMPINST" ] || dotfilesreqcmd "$conf"
   done
@@ -1082,10 +1082,10 @@ dotfilesreq() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 dotfilesreqadmin() {
-  local -a LISTARRAY="$*"
+  local LISTARRAY="$*"
   local confdir="$SYSUPDATEDIR"
   local conf=""
-  for conf in ${LISTARRAY[*]}; do
+  for conf in $LISTARRAY; do
     local TMPINST="$TMPDIR/${conf}.inst.tmp"
     [ -d "$confdir/$conf" ] || [ -f "$TMPINST" ] || dotfilesreqadmincmd "$conf"
   done
@@ -1097,7 +1097,7 @@ install_required() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    builtin type -p "$cmd" &>/dev/null || MISSING+="$cmd "
+    builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
@@ -1112,7 +1112,7 @@ install_required() {
   fi
   unset MISSING
   for cmd in $REQUIRED; do
-    builtin type -p "$cmd" &>/dev/null || MISSING+="$cmd "
+    builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
   done
   if [ -n "$MISSING" ]; then
     printf_warning "Can not install all the required packages for $APPNAME"
@@ -1127,7 +1127,7 @@ install_packages() {
   local cmd=""
   if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
     for cmd in $REQUIRED; do
-      builtin type -p "$cmd" &>/dev/null || MISSING+="$cmd "
+      builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
     done
     if [ -n "$MISSING" ]; then
       printf_warning "Attempting to install missing packages as $RUN_USER"
@@ -1172,7 +1172,7 @@ install_perl() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    builtin type -p "$cmd" &>/dev/null || perl_missing "$cmd"
+    builtin type -P "$cmd" &>/dev/null || perl_missing "$cmd"
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
@@ -1191,7 +1191,7 @@ install_pip() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    builtin type -p "$cmd" &>/dev/null || pip_missing "$cmd"
+    builtin type -P "$cmd" &>/dev/null || pip_missing "$cmd"
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
@@ -1210,7 +1210,7 @@ install_cpan() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    builtin type -p "$cmd" &>/dev/null || cpan_missing "$cmd"
+    builtin type -P "$cmd" &>/dev/null || cpan_missing "$cmd"
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
@@ -1229,7 +1229,7 @@ install_gem() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    builtin type -p "$cmd" &>/dev/null || gem_missing "$cmd"
+    builtin type -P "$cmd" &>/dev/null || gem_missing "$cmd"
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
@@ -1244,7 +1244,7 @@ install_gem() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_node() {
-  builtin type -p "npm" &>/dev/null || builtin type -p "yarn" &>/dev/null || return 1
+  builtin type -P "npm" &>/dev/null || builtin type -P "yarn" &>/dev/null || return 1
   local REQUIRED="$*"
   local MISSING=""
   local cmd=""
@@ -1390,10 +1390,10 @@ if_os_id() {
   elif [ -f "/etc/redhat-release" ]; then
     distroname=$(awk '{print $1}' /etc/redhat-release | tr '[:upper:]' '[:lower:]' | sed 's#"##g')
     distroversion=$(awk '{print $4}' /etc/redhat-release | tr '[:upper:]' '[:lower:]' | sed 's#"##g')
-  elif builtin type -p lsb_release &>/dev/null; then
+  elif builtin type -P lsb_release &>/dev/null; then
     distroname="$(lsb_release -a 2>/dev/null | grep 'Distributor ID' | awk '{print $3}' | tr '[:upper:]' '[:lower:]' | sed 's#"##g')"
     distroversion="$(lsb_release -a 2>/dev/null | grep 'Release' | awk '{print $2}')"
-  elif builtin type -p lsb-release &>/dev/null; then
+  elif builtin type -P lsb-release &>/dev/null; then
     distroname="$(lsb-release -a 2>/dev/null | grep 'Distributor ID' | awk '{print $3}' | tr '[:upper:]' '[:lower:]' | sed 's#"##g')"
     distroversion="$(lsb-release -a 2>/dev/null | grep 'Release' | awk '{print $2}')"
   else

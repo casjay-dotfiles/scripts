@@ -89,7 +89,7 @@ __go_exists() {
 __check_pip() {
   local ARGS="$*"
   local MISSING=""
-  for cmd in $ARGS; do type -P "$cmd" &>/dev/null || MISSING+="$cmd "; done
+  for cmd in $ARGS; do builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "; done
   if [ -n "$MISSING" ]; then
     printf_read_question "2" "$1 is not installed Would you like install it? [y/N]" "1" "choice" "-s"
     if printf_answer_yes "$choice"; then
@@ -105,7 +105,7 @@ __check_pip() {
 #check_cpan "cpanname"
 __check_cpan() {
   local MISSING=""
-  for cmd in "$@"; do builtin type -p "$cmd" &>/dev/null || MISSING+="$cmd "; done
+  for cmd in "$@"; do builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "; done
   if [ -n "$MISSING" ]; then
     printf_question "2" "$1 is not installed Would you like install it? [y/N]" "1" "choice" "-s"
     if printf_answer_yes "$choice"; then
@@ -127,7 +127,7 @@ __check_app() {
   export APP="${APPNAME:-$PROG}"
   export NOTIFY_CLIENT_ICON="software"
   export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APP}"
-  for cmd in $ARGS; do type -p "$cmd" &>/dev/null || MISSING+="$cmd "; done
+  for cmd in $ARGS; do builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "; done
   if [ -n "$MISSING" ]; then
     notifications "${NOTIFY_CLIENT_NAME:-$APPNAME}" "Missing $MISSING"
     if [ -n "$DESKTOP_SESSION" ]; then
@@ -151,7 +151,7 @@ __check_app() {
 __requires() {
   local ARGS="$*"
   for cmd in $ARGS; do
-    type -p "$cmd" &>/dev/null || local CMD+="$cmd "
+    builtin type -P "$cmd" &>/dev/null || local CMD+="$cmd "
   done
   if [ -n "$CMD" ]; then __require_app "$CMD"; fi
   [ "$?" = 0 ] && return 0 || exit 1

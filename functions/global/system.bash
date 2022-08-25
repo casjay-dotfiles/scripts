@@ -151,10 +151,10 @@ __if_os_id() {
   elif [ -f "/etc/redhat-release" ]; then
     distroname=$(awk '{print $1}' /etc/redhat-release | tr '[:upper:]' '[:lower:]' | sed 's#"##g')
     distroversion=$(awk '{print $4}' /etc/redhat-release | tr '[:upper:]' '[:lower:]' | sed 's#"##g')
-  elif builtin type -p lsb_release &>/dev/null; then
+  elif builtin type -P lsb_release &>/dev/null; then
     distroname="$(lsb_release -a 2>/dev/null | grep 'Distributor ID' | awk '{print $3}' | tr '[:upper:]' '[:lower:]' | sed 's#"##g')"
     distroversion="$(lsb_release -a 2>/dev/null | grep 'Release' | awk '{print $2}')"
-  elif builtin type -p lsb-release &>/dev/null; then
+  elif builtin type -P lsb-release &>/dev/null; then
     distroname="$(lsb-release -a 2>/dev/null | grep 'Distributor ID' | awk '{print $3}' | tr '[:upper:]' '[:lower:]' | sed 's#"##g')"
     distroversion="$(lsb-release -a 2>/dev/null | grep 'Release' | awk '{print $2}')"
   else

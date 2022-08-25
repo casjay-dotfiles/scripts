@@ -969,7 +969,7 @@ is_url() { echo "$1" | grep -qE 'http://|ftp://|git://|https://'; }
 # }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 cmd_missing() {
-  if builtin type -p "$1" &>/dev/null; then
+  if builtin type -P "$1" &>/dev/null; then
     return 0
   else
     MISSING+="$1 "
@@ -1112,7 +1112,7 @@ install_required() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    builtin type -p "$cmd" &>/dev/null || MISSING+="$cmd "
+    builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
@@ -1127,7 +1127,7 @@ install_required() {
   fi
   unset MISSING
   for cmd in $REQUIRED; do
-    builtin type -p "$cmd" &>/dev/null || MISSING+="$cmd "
+    builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
   done
   if [ -n "$MISSING" ]; then
     printf_warning "Can not install all the required packages for $name"
@@ -1142,7 +1142,7 @@ install_packages() {
   local cmd=""
   if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
     for cmd in $REQUIRED; do
-      if ! builtin type -p "$cmd" &>/dev/null; then
+      if ! builtin type -P "$cmd" &>/dev/null; then
         MISSING+="$cmd "
       fi
     done
@@ -1189,7 +1189,7 @@ install_perl() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    builtin type -p "$cmd" &>/dev/null || perl_missing "$cmd"
+    builtin type -P "$cmd" &>/dev/null || perl_missing "$cmd"
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
@@ -1208,7 +1208,7 @@ install_pip() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    builtin type -p "$cmd" &>/dev/null || pip_missing "$cmd"
+    builtin type -P "$cmd" &>/dev/null || pip_missing "$cmd"
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
@@ -1227,7 +1227,7 @@ install_cpan() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    builtin type -p "$cmd" &>/dev/null || cpan_missing "$cmd"
+    builtin type -P "$cmd" &>/dev/null || cpan_missing "$cmd"
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
@@ -1246,7 +1246,7 @@ install_gem() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    builtin type -p "$cmd" &>/dev/null || gem_missing "$cmd"
+    builtin type -P "$cmd" &>/dev/null || gem_missing "$cmd"
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
@@ -1392,10 +1392,10 @@ if_os_id() {
   elif [ -f "/etc/redhat-release" ]; then
     distroname=$(awk '{print $1}' /etc/redhat-release | tr '[:upper:]' '[:lower:]' | sed 's#"##g')
     distroversion=$(awk '{print $4}' /etc/redhat-release | tr '[:upper:]' '[:lower:]' | sed 's#"##g')
-  elif builtin type -p lsb_release &>/dev/null; then
+  elif builtin type -P lsb_release &>/dev/null; then
     distroname="$(lsb_release -a 2>/dev/null | grep 'Distributor ID' | awk '{print $3}' | tr '[:upper:]' '[:lower:]' | sed 's#"##g')"
     distroversion="$(lsb_release -a 2>/dev/null | grep 'Release' | awk '{print $2}')"
-  elif builtin type -p lsb-release &>/dev/null; then
+  elif builtin type -P lsb-release &>/dev/null; then
     distroname="$(lsb-release -a 2>/dev/null | grep 'Distributor ID' | awk '{print $3}' | tr '[:upper:]' '[:lower:]' | sed 's#"##g')"
     distroversion="$(lsb-release -a 2>/dev/null | grep 'Release' | awk '{print $2}')"
   else

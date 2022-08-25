@@ -184,9 +184,9 @@ run_install_list() {
 run_install_search() {
   [ $# = 0 ] && printf_exit "Nothing to search for"
   [ -n "$LIST" ] || printf_exit "The enviroment variable LIST does not exist"
-  local -a LSINST="$*"
+  local LSINST="$*"
   local results=""
-  for app in ${LSINST[*]}; do
+  for app in $LSINST; do
     export APPNAME="$app" REPO="$REPO/$APPNAME" REPORAW="$REPO/raw/$GIT_REPO_BRANCH"
     local -a result+="$(echo -e "$LIST" | tr ' ' '\n' | grep -Fi "$app" | grep -sv '^$') "
   done
@@ -206,7 +206,7 @@ run_install_available() {
   if __api_test ${1:-}; then
     __curl_api "$app" | jq -r '.[] | .name' 2>/dev/null | printf_readline "4"
   else
-    __list_available ${*:-} | printf_column "${PRINTF_COLOR:-4}"
+    __list_available "${*:-}" | printf_column "${PRINTF_COLOR:-4}"
   fi
   unset app
 }

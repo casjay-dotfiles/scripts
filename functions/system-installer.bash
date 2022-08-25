@@ -200,7 +200,7 @@ hostname2ip() { getent hosts "$1" | cut -d' ' -f1 | head -n1; }
 __command() {
   local cmd
   for cmd in "$@"; do
-    type -P "$1" | grep -q "/" 2>/dev/null
+    builtin type -P "$1" | grep -q "/" 2>/dev/null
   done
 }
 set_trap() { trap -p "$1" | grep "$2" &>/dev/null || trap '$2' "$1"; }
@@ -433,7 +433,7 @@ sudoreq() {
   [[ $sudo_check == "SUDO_OK" ]] && return
   if [[ $UID != 0 ]]; then
     if builtin type -P ask_for_password &>/dev/null; then
-      [[ "$SUDO_SUCCESS" = "TRUE" ]] || ask_for_password ${*:-true}
+      [[ "$SUDO_SUCCESS" = "TRUE" ]] || ask_for_password "${*:-true}"
       export SUDO_SUCCESS="TRUE"
       return 0
     else
@@ -697,8 +697,11 @@ install_gem() {
 ##################################################################################################
 trim() {
   local IFS=' '
-  local trimmed="${@//[[:space:]]/}"
-  echo "$trimmed"
+  local trimmed=""
+  local -a trim=("$@")
+  for trimmed in "${trim[@]}"; do
+    printf '%s\n' "${trimmed//[[:space:]]/}"
+  done
 }
 ##################################################################################################
 execute() {

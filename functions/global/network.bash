@@ -180,7 +180,7 @@ __validateIP() {
   if [[ $ip =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
     OIFS=$IFS
     IFS='.'
-    ip=($ip)
+    ip=("$ip")
     IFS=$OIFS
     [[ ${ip[0]} -le 255 && ${ip[1]} -le 255 &&
       ${ip[2]} -le 255 && ${ip[3]} -le 255 ]]
@@ -219,7 +219,7 @@ __generate_random_port() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #function to get network device
 __getlipaddr() {
-  local CHANGE_IP_VAR_DIR="" IFCONFIG""                                             
+  local CHANGE_IP_VAR_DIR="" IFCONFIG""
   if [[ "$OSTYPE" =~ ^darwin ]]; then
     NETDEV="$(route get default 2>/dev/null | grep interface | awk '{print $2}')"
   else

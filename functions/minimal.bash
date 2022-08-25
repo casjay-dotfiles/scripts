@@ -245,7 +245,7 @@ printf_execute_result() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_not_found() {
-  if builtin type -p "$1" &>/dev/null; then
+  if builtin type -P "$1" &>/dev/null; then
     printf_exit "The command $1 is not installed"
   fi
 }
@@ -441,7 +441,7 @@ printf_read_question_nt() {
   local reply="${1:-REPLY}" && shift 1
   local readopts="${1:-}" && shift 1
   printf_color "\t\t$msg " "${PRINTF_COLOR:-$color}"
-  read -e -r -n $lines ${readopts} ${reply} || return 1
+  read -e -r -n $lines ${readopts?} ${reply?} || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_read_passwd() {
@@ -736,7 +736,7 @@ __vim() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #keeps output color
-if ! type -P unbuffer &>/dev/null; then
+if ! builtin type -P unbuffer &>/dev/null; then
   unbuffer() {
     exec "$@"
   }

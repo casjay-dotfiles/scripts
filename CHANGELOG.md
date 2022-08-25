@@ -1,3 +1,25 @@
+#### Changelog: 2022-08-25 at 16:56:51  
+
+2 : 🗃️ Committing everything that changed 🗃️ 🚀  
+functions/app-installer.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+functions/global/colors.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+functions/global/fixes.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+functions/global/menu.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+functions/global/network.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+functions/global/os.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+functions/global/pkgs.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+functions/global/sudo.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+functions/global/system.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+functions/global/version.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+functions/mgr-installers.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+functions/minimal.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+functions/system-installer.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+functions/types/main.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+  
+#### End of changes for 202208251615-git - 2022-08-25 at 16:56:51  
+  
+----  
+  
 #### Changelog: 2022-08-25 at 16:15:49  
 
 bin/update-motd : 🗃️ Committing everything that changed 🗃️ 🚀  

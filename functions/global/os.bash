@@ -92,49 +92,27 @@ __foldername() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # dirname dir
-__dirname() {
-  cd "$1" 2>/dev/null && echo "$PWD" || return 1
-}
+__dirname() { cd "$1" 2>/dev/null && echo "$PWD" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #to_lowercase "args"
-__to_lowercase() {
-  echo "$@" |
-    tr '[A-Z]' '[a-z]'
-}
+__to_lowercase() { echo "$@" | tr '[A-Z]' '[a-z]'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #to_uppercase "args"
-__to_uppercase() {
-  echo "$@" |
-    tr '[a-z]' '[A-Z]'
-}
+__to_uppercase() { echo "$@" | tr '[a-z]' '[A-Z]'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #strip_ext "Filename"
-__strip_ext() {
-  echo "$@" |
-    sed 's#\..*##g'
-}
+__strip_ext() { echo "${@%.*}"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #get_full_file "file"
-__get_full_file() {
-  ls -A "$*" 2>/dev/null
-}
+__get_full_file() { ls -A "$*" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #cat file | rmcomments
-__rmcomments() {
-  $sed 's/[[:space:]]*#.*//;/^[[:space:]]*$/d'
-}
+__rmcomments() { $sed 's/[[:space:]]*#.*//;/^[[:space:]]*$/d'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #countwd file
-__countwd() {
-  cat "$@" |
-    wc -l |
-    __rmcomments
-}
+__countwd() { cat "$@" | wc -l | __rmcomments; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__column() {
-  builtin type -P column &>/dev/null &&
-    column || tee
-}
+__column() { builtin type -P column &>/dev/null && column || tee; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #getuser "username" "grep options"
 __getuser() {
@@ -186,7 +164,7 @@ __vim() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #keeps output color
-if ! type -P unbuffer &>/dev/null; then
+if ! builtin type -P unbuffer &>/dev/null; then
   unbuffer() {
     exec "$@"
   }

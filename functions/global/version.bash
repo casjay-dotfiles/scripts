@@ -135,18 +135,18 @@ grep_version() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 get_desc() {
   local PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/usr/sbin"
-  local appname="$(type -P "${PROG:-$APPNAME}" 2>/dev/null || builtin type -p "${PROG:-$APPNAME}" 2>/dev/null)"
+  local appname="$(builtin type -P "${PROG:-$APPNAME}" 2>/dev/null || builtin type -P "${PROG:-$APPNAME}" 2>/dev/null)"
   local desc="$(grep_head_remove "Description" "$appname" | head -n1)"
   [ -n "$desc" ] && printf '%s' "$desc" || printf '%s' "$(__basename $appname) --help"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __version() { __app_version; } # TODO: to be removed on refactor
 __app_version() {
-  local name="${1:-$(__basename $0)}"          # get from os
-  local prog="${APPNAME:-$PROG}"               # get from file
-  local appname="${prog:-$name}"               # figure out wich one
-  filename="$(type -P "$appname" 2>/dev/null)" # get filename
-  if [ -f "$filename" ]; then                  # check for file
+  local name="${1:-$(__basename $0)}"                  # get from os
+  local prog="${APPNAME:-$PROG}"                       # get from file
+  local appname="${prog:-$name}"                       # figure out wich one
+  filename="$(builtin type -P "$appname" 2>/dev/null)" # get filename
+  if [ -f "$filename" ]; then                          # check for file
     printf_newline
     printf_green "Getting info for $appname"
     [ -n "$WHOAMI" ] && printf_yellow "WhoamI            :  $WHOAMI"

@@ -34,7 +34,7 @@ __attemp_install_menus() {
     sleep 2
     clear
     __pkmgr_gui "$prog"
-    type -P "$prog" &>/dev/null && pkmgr_exitCode=0 || pkmgr_exitCode=1
+    builtin type -P "$prog" &>/dev/null && pkmgr_exitCode=0 || pkmgr_exitCode=1
     if [ "$pkmgr_exitCode" = 0 ]; then
       zenity --timeout=10 --width=400 --text-info --title="Success" --text="Successfully installed $prog"
       return 0
@@ -60,7 +60,7 @@ __custom_menus() {
 __open_file_menus() {
   local prog="$1" && shift 1
   local args="$*" && shift $#
-  if builtin type -p "$prog" &>/dev/null; then
+  if builtin type -P "$prog" &>/dev/null; then
     if __cmd_exists zenity && [ -n "$DISPLAY" ]; then
       __zenity_custom_question "Would you like to open files or folders" "Files" "Folders" &&
         local file="$(zenity --file-selection --multiple --title="File Chooser")" ||

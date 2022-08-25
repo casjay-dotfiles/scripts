@@ -28,15 +28,16 @@ WHOAMI="${USER}"
 export RUN_USER="${RUN_USER:-$USER}"
 export USER="${SUDO_USER:-$USER}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-sudo() { PATH="$PATH" builtin command \sudo --preserve-env=PATH -HE "${@:-true}" || return 1 ;}
+SUDO="$(builint type -P sudo)"
+sudo() { PATH="$PATH" $SUDO --preserve-env=PATH -HE "${@:-true}" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__sudo() { PATH="$PATH" builtin command \sudo --preserve-env=PATH -HE "$@" || return 1; }
+__sudo() { PATH="$PATH" $SUDO --preserve-env=PATH -HE "${@:-true}" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 sudorun() { sudoif && sudo "$@" || eval "$@"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __sudo_group() { grep "${1:-$USER}" /etc/group | grep -Eq 'wheel|adm|sudo' || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__sudo_group "$USER" && __passwd() { sudo passwd "$*"; }|| __passwd() { passwd "$*"; }
+__sudo_group "$USER" && __passwd() { sudo passwd "$*"; } || __passwd() { passwd "$*"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 sudoif() { (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -62,7 +63,7 @@ sudoreq() {
   [[ $sudo_check == "SUDO_OK" ]] && return
   if [[ $UID != 0 ]]; then
     if builtin type -P ask_for_password &>/dev/null; then
-      [[ "$SUDO_SUCCESS" = "TRUE" ]] || ask_for_password ${*:-true}
+      [[ "$SUDO_SUCCESS" = "TRUE" ]] || ask_for_password "${@:-true}"
       export SUDO_SUCCESS="TRUE"
       return 0
     else
@@ -94,8 +95,8 @@ __sudoexit() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__requiresudo() { __can_i_sudo && __sudoask && __sudoexit && return 0 ||
-  { printf_red "You dont have access to sudo\n\t\tPlease contact the syadmin for access" && return 1; }
+__requiresudo() {
+  __can_i_sudo && __sudoask && __sudoexit && return 0 ||
+    { printf_red "You dont have access to sudo\n\t\tPlease contact the syadmin for access" && return 1; }
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-

@@ -129,7 +129,7 @@ printf_execute_result() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_not_found() {
-  if builtin type -p "$1" &>/dev/null; then
+  if builtin type -P "$1" &>/dev/null; then
     printf_exit "The command $1 is not installed"
   fi
 }
@@ -329,7 +329,7 @@ printf_read_question_nt() {
   local reply="${1:-REPLY}" && shift 1
   local readopts="${1:-}" && shift 1
   printf_color "\t\t$msg " "${PRINTF_COLOR:-$color}"
-  read -e -r -n $lines ${readopts} ${reply} || return 1
+  read -e -r -n $lines ${readopts?} ${reply?} || return 1
   [ -z "$reply" ] && printf '\n' && return 1 || return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -404,13 +404,13 @@ printf_header() {
   local msg7="$1" && shift 1 || msg7=
   shift
   [ -z "$msg1" ] || printf "##################################################\n"
-  [ -z "$msg1" ] || printf "$msg1\n"
-  [ -z "$msg2" ] || printf "$msg2\n"
-  [ -z "$msg3" ] || printf "$msg3\n"
-  [ -z "$msg4" ] || printf "$msg4\n"
-  [ -z "$msg5" ] || printf "$msg5\n"
-  [ -z "$msg6" ] || printf "$msg6\n"
-  [ -z "$msg7" ] || printf "$msg7\n"
+  [ -z "$msg1" ] || printf '%s\n' "$msg1"
+  [ -z "$msg2" ] || printf '%s\n' "$msg2"
+  [ -z "$msg3" ] || printf '%s\n' "$msg3"
+  [ -z "$msg4" ] || printf '%s\n' "$msg4"
+  [ -z "$msg5" ] || printf '%s\n' "$msg5"
+  [ -z "$msg6" ] || printf '%s\n' "$msg6"
+  [ -z "$msg7" ] || printf '%s\n' "$msg7"
   [ -z "$msg1" ] || printf "##################################################\n"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

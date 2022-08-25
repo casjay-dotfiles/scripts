@@ -1,3 +1,11 @@
+#### Changelog: 2022-08-25 at 17:47:38  
+
+functions/global/sudo.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+  
+#### End of changes for 202208251734-git - 2022-08-25 at 17:47:38  
+  
+----  
+  
 #### Changelog: 2022-08-25 at 17:34:57  
 
 2 : 🗃️ Committing everything that changed 🗃️ 🚀  

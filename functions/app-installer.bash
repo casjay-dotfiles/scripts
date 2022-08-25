@@ -963,7 +963,11 @@ scripts_check() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 is_url() { echo "$1" | grep -qE 'http://|ftp://|git://|https://'; }
-#strip_url() { echo "$1" | sed 's#git+##g' | awk -F//*/ '{print $2}' | sed 's#.*./##g' | sed 's#python-##g'; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# strip_url() {
+#   echo "$1" | sed 's#git+##g' | awk -F//*/ '{print $2}' | sed 's#.*./##g' | sed 's#python-##g'
+# }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 cmd_missing() {
   if builtin type -p "$1" &>/dev/null; then
     return 0
@@ -1104,10 +1108,10 @@ dotfilesreqadmin() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_required() {
   local name=$APPNAME
-  local REQUIRED="$*"
+  local REQUIRED=("$@")
   local MISSING=""
   local cmd=""
-  for cmd in $REQUIRED; do
+  for cmd in "${REQUIRED[@]}"; do
     builtin type -p "$cmd" &>/dev/null || MISSING+="$cmd "
   done
   if [ -n "$MISSING" ]; then
@@ -1122,7 +1126,7 @@ install_required() {
     fi
   fi
   unset MISSING
-  for cmd in $REQUIRED; do
+  for cmd in "${REQUIRED[@]}"; do
     builtin type -p "$cmd" &>/dev/null || MISSING+="$cmd "
   done
   if [ -n "$MISSING" ]; then
@@ -1133,11 +1137,11 @@ install_required() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_packages() {
-  local REQUIRED="$*"
+  local REQUIRED=("$@")
   local MISSING=""
   local cmd=""
   if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
-    for cmd in $REQUIRED; do
+    for cmd in "${REQUIRED[@]}"; do
       # if gem_exists "$cmd"; then true
       # elif python_exists "$cmd"; then true
       # elif perl_exists "$cmd"; then true
@@ -1161,10 +1165,10 @@ install_packages() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_python() {
-  local REQUIRED="$*"
+  local REQUIRED=("$@")
   local MISSING=""
   local cmd=""
-  for cmd in $REQUIRED; do
+  for cmd in "${REQUIRED[@]}"; do
     python_missing "$cmd"
   done
   if [ -n "$MISSING" ]; then
@@ -1184,10 +1188,10 @@ install_python() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_perl() {
-  local REQUIRED="$*"
+  local REQUIRED=("$@")
   local MISSING=""
   local cmd=""
-  for cmd in $REQUIRED; do
+  for cmd in "${REQUIRED[@]}"; do
     builtin type -p "$cmd" &>/dev/null || perl_missing "$cmd"
   done
   if [ -n "$MISSING" ]; then
@@ -1203,10 +1207,10 @@ install_perl() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_pip() {
-  local REQUIRED="$*"
+  local REQUIRED=("$@")
   local MISSING=""
   local cmd=""
-  for cmd in $REQUIRED; do
+  for cmd in "${REQUIRED[@]}"; do
     builtin type -p "$cmd" &>/dev/null || pip_missing "$cmd"
   done
   if [ -n "$MISSING" ]; then
@@ -1222,10 +1226,10 @@ install_pip() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_cpan() {
-  local REQUIRED="$*"
+  local REQUIRED=("$@")
   local MISSING=""
   local cmd=""
-  for cmd in $REQUIRED; do
+  for cmd in "${REQUIRED[@]}"; do
     builtin type -p "$cmd" &>/dev/null || cpan_missing "$cmd"
   done
   if [ -n "$MISSING" ]; then
@@ -1241,10 +1245,10 @@ install_cpan() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_gem() {
-  local REQUIRED="$*"
+  local REQUIRED=("$@")
   local MISSING=""
   local cmd=""
-  for cmd in $REQUIRED; do
+  for cmd in "${REQUIRED[@]}"; do
     builtin type -p "$cmd" &>/dev/null || gem_missing "$cmd"
   done
   if [ -n "$MISSING" ]; then

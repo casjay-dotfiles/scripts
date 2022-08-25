@@ -50,6 +50,11 @@ else
   unset cmdMissing
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# OS Settings
+if [ -f "$CASJAYSDEVDIR/bin/detectostype" ] && [ -z "$DISTRO_NAME" ]; then
+  "$CASJAYSDEVDIR/bin/detectostype"
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __os_fix_name() { [[ -f "${1:-/etc/casjaysdev/updates/versions/osversion.txt}" ]] && sudo sed -i 's|[",]||g;s| [lL]inux:||g' "${1:-/etc/casjaysdev/updates/versions/osversion.txt}" || return 0; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __os_name() {

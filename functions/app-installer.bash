@@ -102,6 +102,11 @@ __am_i_online() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# OS Settings
+if [ -f "$CASJAYSDEVDIR/bin/detectostype" ] && [ -z "$DISTRO_NAME" ]; then
+  "$CASJAYSDEVDIR/bin/detectostype"
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -n "$SUDO_USER" ]; then
   export RUN_USER="${RUN_USER:-$SUDO_USER}"
 else

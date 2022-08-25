@@ -1,3 +1,15 @@
+#### Changelog: 2022-08-25 at 13:22:15  
+
+functions/app-installer.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+functions/global/env.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+functions/mgr-installers.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+functions/minimal.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+functions/system-installer.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+  
+#### End of changes for 202208251306-git - 2022-08-25 at 13:22:15  
+  
+----  
+  
 #### Changelog: 2022-08-25 at 13:06:35  
 
 bin/update-motd : 🗃️ Committing everything that changed 🗃️ 🚀  

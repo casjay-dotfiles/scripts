@@ -69,8 +69,13 @@ for check in git curl wget; do
     exit 1
   fi
 done
-# trap errors
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# OS Settings
+if [ -f "$CASJAYSDEVDIR/bin/detectostype" ] && [ -z "$DISTRO_NAME" ]; then
+  "$CASJAYSDEVDIR/bin/detectostype"
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# trap errors
 trap_exit() { true; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cmd_exists() {

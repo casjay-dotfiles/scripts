@@ -1,3 +1,11 @@
+#### Changelog: 2022-08-25 at 16:58:50  
+
+functions/global/sudo.bash : 🗃️ Fixed spelling 🗃️ 🚀  
+  
+#### End of changes for 202208251656-git - 2022-08-25 at 16:58:50  
+  
+----  
+  
 #### Changelog: 2022-08-25 at 16:56:51  
 
 2 : 🗃️ Committing everything that changed 🗃️ 🚀  

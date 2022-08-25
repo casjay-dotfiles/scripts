@@ -166,9 +166,9 @@ printf_head() {
 }
 ##################################################################################################
 printf_result() {
-  [ ! -z "$1" ] && EXIT="$1" || EXIT="$?"
-  [ ! -z "$2" ] && local OK="$2" || local OK="Command executed successfully"
-  [ ! -z "$2" ] && local FAIL="$2" || local FAIL="Command has failed"
+  [ -n "$1" ] && EXIT="$1" || EXIT="$?"
+  [ -n "$2" ] && local OK="$2" || local OK="Command executed successfully"
+  [ -n "$2" ] && local FAIL="$2" || local FAIL="Command has failed"
   if [ "$EXIT" -eq 0 ]; then
     printf_success "$OK"
     exit 0
@@ -288,8 +288,8 @@ retry_cmd() {
 ##################################################################################################
 backupapp() {
   local filename count backupdir rmpre4vbackup
-  [ ! -z "$1" ] && local myappdir="$1" || local myappdir="$APPDIR"
-  [ ! -z "$2" ] && local myappname="$2" || local myappname="$APPNAME"
+  [ -n "$1" ] && local myappdir="$1" || local myappdir="$APPDIR"
+  [ -n "$2" ] && local myappname="$2" || local myappname="$APPNAME"
   local backupdir="${MY_BACKUP_DIR:-$HOME/.local/backups/dotfiles}"
   local filename="$myappname-$(date +%Y-%m-%d-%H-%M-%S).tar.gz"
   local count="$(ls $backupdir/$myappname*.tar.gz 2>/dev/null | wc -l 2>/dev/null)"
@@ -330,8 +330,8 @@ getexitcode() {
 ##################################################################################################
 failexitcode() {
   local RETVAL="$?"
-  [ ! -z "$1" ] && local fail="$1" || local fail="Command has failed"
-  [ ! -z "$2" ] && local success="$2" || local success=""
+  [ -n "$1" ] && local fail="$1" || local fail="Command has failed"
+  [ -n "$2" ] && local success="$2" || local success=""
   if [ "$RETVAL" -ne 0 ]; then
     printf_error "$fail"
     exit 1
@@ -534,25 +534,25 @@ pythonif() {
 }
 ##################################################################################################
 cmd_missing() { cmdif "$1" || MISSING+="$1 "; }
-perl_missing() { perlif $1 || MISSING+="perl-$1 "; }
+perl_missing() { perlif "$1" || MISSING+="perl-$1 "; }
 python_missing() { pythonif "$1" || MISSING+="$PYTHONVER-$1 "; }
 ##################################################################################################
 git_clone() {
   local repo="$1"
-  [ ! -z "$2" ] && local myappdir="$2" || local myappdir="$APPDIR"
+  [ -n "$2" ] && local myappdir="$2" || local myappdir="$APPDIR"
   [ ! -d "$myappdir" ] || rm_rf "$myappdir"
   devnull git clone --depth=1 -q --recursive "$@"
 }
 ##################################################################################################
 git_update() {
-  cd "$APPDIR"
-  local repo="$(git remote -v | grep fetch | head -n 1 | awk '{print $2}')"
+  cd "$APPDIR" || return
+  local repo="$([ -d "$APPDIR/.git" ] && git remote -v | grep fetch | head -n 1 | awk '{print $2}')"
   devnull git reset --hard &&
     devnull git pull --recurse-submodules -fq &&
     devnull git submodule update --init --recursive -q &&
     devnull git reset --hard -q
   if [ "$?" -ne "0" ]; then
-    cd "$HOME"
+    cd "$HOME" || return
     backupapp "$APPDIR" "$APPNAME" &&
       devnull rm_rf "$APPDIR" &&
       git_clone "$repo" "$APPDIR"
@@ -587,7 +587,7 @@ install_packages() {
   local MISSING=""
   local USER="$USER"
   for cmd in "$@"; do cmdif $cmd || MISSING+="$cmd "; done
-  if [ ! -z "$MISSING" ]; then
+  if [ -n "$MISSING" ]; then
     if builtin command -v "pkmgr" &>/dev/null; then
       printf_warning "Attempting to install missing packages"
       printf_warning "$MISSING"
@@ -605,7 +605,7 @@ install_packages() {
 install_required() {
   local MISSING=""
   for cmd in "$@"; do cmdif $cmd || MISSING+="$cmd "; done
-  if [ ! -z "$MISSING" ]; then
+  if [ -n "$MISSING" ]; then
     if builtin command -v "pkmgr" &>/dev/null; then
       printf_warning "Installing from package list"
       if builtin command -v yay &>/dev/null; then
@@ -620,7 +620,7 @@ install_required() {
 install_python() {
   local MISSING=""
   for cmd in "$@"; do python_missing "$cmd"; done
-  if [ ! -z "$MISSING" ]; then
+  if [ -n "$MISSING" ]; then
     if builtin command -v "pkmgr" &>/dev/null; then
       printf_warning "Attempting to install missing python packages"
       printf_warning "$MISSING"
@@ -638,7 +638,7 @@ install_python() {
 install_perl() {
   local MISSING=""
   for cmd in "$@"; do perl_missing "$cmd"; done
-  if [ ! -z "$MISSING" ]; then
+  if [ -n "$MISSING" ]; then
     if builtin command -v "pkmgr" &>/dev/null; then
       printf_warning "Attempting to install missing perl packages"
       printf_warning "$MISSING"
@@ -656,7 +656,7 @@ install_perl() {
 install_pip() {
   local MISSING=""
   for cmd in "$@"; do cmdif $cmd || pip_missing $cmd; done
-  if [ ! -z "$MISSING" ]; then
+  if [ -n "$MISSING" ]; then
     if builtin command -v "pkmgr" &>/dev/null; then
       printf_warning "Attempting to install missing pip packages"
       printf_warning "$MISSING"
@@ -670,7 +670,7 @@ install_pip() {
 install_cpan() {
   local MISSING=""
   for cmd in "$@"; do cmdif $cmd || cpan_missing "$cmd"; done
-  if [ ! -z "$MISSING" ]; then
+  if [ -n "$MISSING" ]; then
     if builtin command -v "pkmgr" &>/dev/null; then
       printf_warning "Attempting to install missing cpan packages"
       printf_warning "$MISSING"
@@ -684,7 +684,7 @@ install_cpan() {
 install_gem() {
   local MISSING=""
   for cmd in "$@"; do cmdif $cmd || gem_missing $cmd; done
-  if [ ! -z "$MISSING" ]; then
+  if [ -n "$MISSING" ]; then
     if builtin command -v "pkmgr" &>/dev/null; then
       printf_warning "Attempting to install missing gem packages"
       printf_warning "$MISSING"

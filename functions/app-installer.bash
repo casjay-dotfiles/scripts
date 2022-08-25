@@ -1119,9 +1119,9 @@ install_required() {
       printf_yellow "Still missing: $MISSING"
       printf_yellow "Installing from package list"
       if [ -f "$(builtin type -P yay 2>/dev/null)" ]; then
-        pkmgr --enable-log --enable-aur dotfiles "$name" 2>>"$INSTALLER_ERR_FILE"
+        pkmgr --enable-log --enable-aur dotfiles "$name" 2>"$INSTALLER_ERR_FILE"
       else
-        pkmgr --enable-log dotfiles "$name" 2>>"$INSTALLER_ERR_FILE"
+        pkmgr --enable-log dotfiles "$name" 2>"$INSTALLER_ERR_FILE"
       fi
     fi
   fi
@@ -1301,7 +1301,7 @@ execute() {
   local exitCode=0
   local cmdsPID=""
   set_trap "EXIT" "kill_all_subprocesses"
-  eval "$CMDS" >>"$INSTALLER_LOG_FILE" 2>>"$INSTALLER_ERR_FILE" &
+  eval "$CMDS" >>"$INSTALLER_LOG_FILE" 2>"$INSTALLER_ERR_FILE" &
   cmdsPID=$!
   show_spinner "$cmdsPID" "$CMDS" "$MSG"
   wait "$cmdsPID" &>/dev/null

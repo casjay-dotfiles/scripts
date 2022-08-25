@@ -32,7 +32,7 @@ __git() {
   local tmpfile="${TMPDIR:-/tmp}/gitlog.$$.tmp"
   local PATH="/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin"
   git $args &>"$tmpfile"
-  grep -Evqi "[rejectected]|error:|fatal:" "$tmpfile" && exitCode=0 || exitCode=1
+  grep -Eqi "[rejectected]|error:|fatal:" "$tmpfile" && exitCode=1 || exitCode=0
   __rm_rf "$tmpfile"
   return ${exitCode:$?}
 }
@@ -115,7 +115,8 @@ __git_init() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #set folder name based on githost
 __git_hostname() {
-  echo "$@" | sed -e "s/[^/]*\/\/\([^@]*@\)\?\([^:/]*\).*/\2/" | awk -F. '{print $(NF-1) "." $NF}' | sed 's#\..*##g'
+  echo "$@" | sed -e "s/[^/]*\/\/\([^@]*@\)\?\([^:/]*\).*/\2/" |
+    awk -F. '{print $(NF-1) "." $NF}' | sed 's#\..*##g'
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #setup directory structure

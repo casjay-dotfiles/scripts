@@ -233,7 +233,7 @@ printf_read() {
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="6"
   while read line; do
     printf_color "\t\t$line" "${PRINTF_COLOR:-$color}"
-  done 
+  done
   printf "\n"
   set +o pipefail
 }
@@ -249,13 +249,13 @@ printf_readline() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_readline_trunc() {
-  set -o pipefail  
+  set -o pipefail
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="6"
   test -n "$2" && test -z "${2//[0-9]/}" && local TRUNC_IT="$2" && shift 1 || local TRUNC_IT="${TRUNC_IT:-110}"
   while read line; do
     printf_color "\t\t$line" "${PRINTF_COLOR:-$color}" |& cat - |& cut -c 1-${TRUNC_IT} |& tee
   done
-  set +o pipefail                       
+  set +o pipefail
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_column() {
@@ -303,7 +303,7 @@ printf_read_input() {
   local reply="${1:-REPLY}" && shift 1
   local readopts="${1:-}" && shift 1
   printf_color "\t\t$msg " "${PRINTF_COLOR:-$color}"
-  read -e -r -n $lines ${readopts:-} ${reply:-} 
+  read -e -r -n $lines ${readopts:-} ${reply:-}
   [ -z "$reply" ] && printf '\n' && return 1 || return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -317,7 +317,7 @@ printf_read_question() {
   local reply="${1:-REPLY}" && shift 1
   local readopts="${1:-}" && shift 1
   printf_color "\t\t$msg " "${PRINTF_COLOR:-$color}"
-  read -t 30 -e -r -n $lines ${readopts:-} ${reply:-} 
+  read -t 30 -e -r -n $lines ${readopts:-} ${reply:-}
   [ -z "$reply" ] && printf '\n' && return 1 || return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -364,10 +364,10 @@ printf_answer_yes() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_answer_no() {
-  if [ "${1:-$REPLY}" =~ ${2:-^[Nn]$} ]; then 
+  if [[ "${1:-$REPLY}" =~ ${2:-^[Nn]$} ]]; then
     printf '\n'
-    return 1 
-  else 
+    return 1
+  else
     return 0
   fi
 }

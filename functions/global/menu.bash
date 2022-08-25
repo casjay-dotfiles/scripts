@@ -14,9 +14,13 @@
 # @Resource          :
 # @sudo/root         :  no
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__zenity_custom_question() { zenity --question --text "$1" --no-wrap --ok-label "$2" --cancel-label "$3"; }
+__zenity_custom_question() {
+  zenity --question --text "$1" --no-wrap --ok-label "$2" --cancel-label "$3"
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__run_menu_failed() { clear && echo -e "\n\n\n\n\n\n" && printf_red "${1:-An error has occured}" && sleep 3 && return 1; }
+__run_menu_failed() {
+  clear && echo -e "\n\n\n\n\n\n" && printf_red "${1:-An error has occured}" && sleep 3 && return 1
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #attemp_install_menus "programname"
 __attemp_install_menus() {

@@ -1107,7 +1107,7 @@ dotfilesreqadmin() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_required() {
-  local name=$APPNAME
+  local name="$APPNAME"
   local REQUIRED=("$@")
   local MISSING=""
   local cmd=""

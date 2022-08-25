@@ -1,3 +1,11 @@
+#### Changelog: 2022-08-25 at 17:31:55  
+
+functions/global/sudo.bash : 🗃️ Fixes 🗃️ 🚀  
+  
+#### End of changes for 202208251722-git - 2022-08-25 at 17:31:55  
+  
+----  
+  
 #### Changelog: 2022-08-25 at 17:22:07  
 
 bin/update-motd : 🗃️ Committing everything that changed 🗃️ 🚀  

@@ -28,10 +28,10 @@ WHOAMI="${USER}"
 export RUN_USER="${RUN_USER:-$USER}"
 export USER="${SUDO_USER:-$USER}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-SUDO="$(builtin type -P sudo)"
-sudo() { PATH="$PATH" $SUDO --preserve-env=PATH -HE "${@:-true}" || return 1; }
+SUDO_COMMAND="$(builtin type -P sudo)"
+sudo() { PATH="$PATH" $SUDO_COMMAND --preserve-env=PATH -HE "${@:-true}" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__sudo() { PATH="$PATH" $SUDO --preserve-env=PATH -HE "${@:-true}" || return 1; }
+__sudo() { PATH="$PATH" $SUDO_COMMAND --preserve-env=PATH -HE "${@:-true}" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 sudorun() { sudoif && sudo "$@" || eval "$@"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

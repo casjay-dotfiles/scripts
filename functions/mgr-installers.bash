@@ -778,7 +778,7 @@ sudoreq() {
   [[ $sudo_check == "SUDO_OK" ]] && return
   if [[ $UID != 0 ]]; then
     if builtin type -P ask_for_password &>/dev/null; then
-      [[ "$SUDO_SUCCESS" = "TRUE" ]] || ask_for_password ${*:-true}
+      [[ "$SUDO_SUCCESS" = "TRUE" ]] || ask_for_password "${@:-true}"
       export SUDO_SUCCESS="TRUE"
       return 0
     else
@@ -2597,6 +2597,7 @@ run_exit() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 run_install_list() {
+  local LSINST="" file=""
   if [ -d "$USRUPDATEDIR" ] && [ -n "$(ls -A "$USRUPDATEDIR/$1" 2>/dev/null)" ]; then
     file="$(ls -A "$USRUPDATEDIR/$1" 2>/dev/null)"
     if [ -f "$file" ]; then
@@ -2606,12 +2607,12 @@ run_install_list() {
       exit
     fi
   else
-    declare -a LSINST="$(ls "$USRUPDATEDIR/" 2>/dev/null)"
-    if [ -z "${LSINST[0]}" ]; then
+    LSINST="$(ls "$USRUPDATEDIR/" 2>/dev/null)"
+    if [ -z "$LSINST" ]; then
       printf_red "No dotfiles are installed"
       exit
     else
-      for df in ${LSINST[*]}; do
+      for df in $LSINST; do
         printf_green "$df"
       done
     fi

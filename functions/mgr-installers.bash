@@ -71,9 +71,11 @@ for check in git curl wget; do
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # OS Settings
-if [ -f "$CASJAYSDEVDIR/bin/detectostype" ] && [ -z "$DISTRO_NAME" ]; then
-  "$CASJAYSDEVDIR/bin/detectostype"
-fi
+__detect_os() {
+  if [ -f "$CASJAYSDEVDIR/bin/detectostype" ] && [ -z "$DISTRO_NAME" ]; then
+    . "$CASJAYSDEVDIR/bin/detectostype"
+  fi
+} && __detect_os
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # trap errors
 trap_exit() { true; }

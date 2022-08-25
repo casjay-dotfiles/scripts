@@ -59,9 +59,11 @@ PATH="$(echo "$TMPPATH" | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 's
 unset TMPPATH
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # OS Settings
-if [ -f "$CASJAYSDEVDIR/bin/detectostype" ] && [ -z "$DISTRO_NAME" ]; then
-  "$CASJAYSDEVDIR/bin/detectostype"
-fi
+__detect_os() {
+  if [ -f "$CASJAYSDEVDIR/bin/detectostype" ] && [ -z "$DISTRO_NAME" ]; then
+    . "$CASJAYSDEVDIR/bin/detectostype"
+  fi
+} && __detect_os
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 user_install() {
   SCRIPTS_PREFIX="${SCRIPTS_PREFIX:-dfmgr}"

@@ -53,14 +53,16 @@ fi
 __os_fix_name() { [[ -f "${1:-/etc/casjaysdev/updates/versions/osversion.txt}" ]] && sudo sed -i 's|[",]||g;s| [lL]inux:||g' "${1:-/etc/casjaysdev/updates/versions/osversion.txt}" || return 0; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __os_name() {
-  grep -s '^NAME=' /etc/os-release | awk -F '=' '{print $2}' | grep '^' ||
-    grep -s '^ID=' /etc/os-release | awk -F '=' '{print $2}' | grep '^' ||
+  [ -n "$DISTRO_NAME" ] && printf '%s\n' "$DISTRO_NAME" ||
+    grep -s '^NAME=' "/etc/os-release" | awk -F '=' '{print $2}' | grep '^' ||
+    grep -s '^ID=' "/etc/os-release" | awk -F '=' '{print $2}' | grep '^' ||
     echo "OS: Unknown"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __os_version() {
-  grep -s '^VERSION=' /etc/os-release 2>/dev/null | sed 's/[^.0-9]*//g' | grep '^' ||
-    grep -s 'BUILD_ID' /etc/os-release 2>/dev/null | awk -F '=' '{print $2}' | grep '^' ||
+  [ -n "$DISTRO_VERSION" ] && printf '%s\n' "$DISTRO_VERSION" ||
+    grep -s '^VERSION=' "/etc/os-release" 2>/dev/null | sed 's/[^.0-9]*//g' | grep '^' ||
+    grep -s 'BUILD_ID' "/etc/os-release" 2>/dev/null | awk -F '=' '{print $2}' | grep '^' ||
     echo "Version: Unknown"
 }
 ###################### builtins ######################
@@ -356,7 +358,7 @@ ask_for_confirmation() {
 }
 ##################################################################################################
 __getip() {
-  local CHANGE_IP_VAR_DIR="" IFCONFIG""                                             
+  local CHANGE_IP_VAR_DIR="" IFCONFIG""
   if [[ "$OSTYPE" =~ ^darwin ]]; then
     NETDEV="$(route get default 2>/dev/null | grep interface | awk '{print $2}')"
   else

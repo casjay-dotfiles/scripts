@@ -347,7 +347,7 @@ printf_read() {
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="6"
   while read line; do
     printf_color "\t\t$line" "${PRINTF_COLOR:-$color}"
-  done 
+  done
   printf "\n"
   set +o pipefail
 }
@@ -362,14 +362,14 @@ printf_readline() {
   set +o pipefail
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-printf_readline_trunc() {              
-  set -o pipefail                  
+printf_readline_trunc() {
+  set -o pipefail
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="6"
   test -n "$2" && test -z "${2//[0-9]/}" && local TRUNC_IT="$2" && shift 1 || local TRUNC_IT="${TRUNC_IT:-110}"
-  while read line; do                                                  
+  while read line; do
     printf_color "\t\t$line" "${PRINTF_COLOR:-$color}" |& cat - | cut -c 1-${TRUNC_IT} | tee
   done
-  set +o pipefail                                                      
+  set +o pipefail
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_column() {
@@ -579,14 +579,16 @@ __os_fix_name() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __os_name() {
-  grep -s '^NAME=' /etc/os-release | awk -F '=' '{print $2}' | grep '^' ||
-    grep -s '^ID=' /etc/os-release | awk -F '=' '{print $2}' | grep '^' ||
+  [ -n "$DISTRO_NAME" ] && printf '%s\n' "$DISTRO_NAME" ||
+    grep -s '^NAME=' "/etc/os-release" | awk -F '=' '{print $2}' | grep '^' ||
+    grep -s '^ID=' "/etc/os-release" | awk -F '=' '{print $2}' | grep '^' ||
     echo "OS: Unknown"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __os_version() {
-  grep -s '^VERSION=' /etc/os-release 2>/dev/null | sed 's/[^.0-9]*//g' | grep '^' ||
-    grep -s 'BUILD_ID' /etc/os-release 2>/dev/null | awk -F '=' '{print $2}' | grep '^' ||
+  [ -n "$DISTRO_VERSION" ] && printf '%s\n' "$DISTRO_VERSION" ||
+    grep -s '^VERSION=' "/etc/os-release" 2>/dev/null | sed 's/[^.0-9]*//g' | grep '^' ||
+    grep -s 'BUILD_ID' "/etc/os-release" 2>/dev/null | awk -F '=' '{print $2}' | grep '^' ||
     echo "Version: Unknown"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

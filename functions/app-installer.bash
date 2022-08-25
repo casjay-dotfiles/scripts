@@ -1108,10 +1108,10 @@ dotfilesreqadmin() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_required() {
   local name="$APPNAME"
-  local REQUIRED=("$@")
+  local REQUIRED="$*"
   local MISSING=""
   local cmd=""
-  for cmd in "${REQUIRED[@]}"; do
+  for cmd in $REQUIRED; do
     builtin type -p "$cmd" &>/dev/null || MISSING+="$cmd "
   done
   if [ -n "$MISSING" ]; then
@@ -1126,7 +1126,7 @@ install_required() {
     fi
   fi
   unset MISSING
-  for cmd in "${REQUIRED[@]}"; do
+  for cmd in $REQUIRED; do
     builtin type -p "$cmd" &>/dev/null || MISSING+="$cmd "
   done
   if [ -n "$MISSING" ]; then
@@ -1137,14 +1137,11 @@ install_required() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_packages() {
-  local REQUIRED=("$@")
+  local REQUIRED="$*"
   local MISSING=""
   local cmd=""
   if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
-    for cmd in "${REQUIRED[@]}"; do
-      # if gem_exists "$cmd"; then true
-      # elif python_exists "$cmd"; then true
-      # elif perl_exists "$cmd"; then true
+    for cmd in $REQUIRED; do
       if ! builtin type -p "$cmd" &>/dev/null; then
         MISSING+="$cmd "
       fi
@@ -1154,9 +1151,9 @@ install_packages() {
       printf_warning "$MISSING"
       for miss in $MISSING; do
         if [ -f "$(builtin type -P yay 2>/dev/null)" ]; then
-          execute "pkmgr --enable-log --enable-aur silent install $miss 2>>$INSTALLER_ERR_FILE" "Installing $miss"
+          execute "pkmgr --enable-log --enable-aur silent install $miss 2>$INSTALLER_ERR_FILE" "Installing $miss"
         else
-          execute "pkmgr silent install $miss 2>>$INSTALLER_ERR_FILE" "Installing $miss"
+          execute "pkmgr silent install $miss 2>$INSTALLER_ERR_FILE" "Installing $miss"
         fi
       done
     fi
@@ -1165,10 +1162,10 @@ install_packages() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_python() {
-  local REQUIRED=("$@")
+  local REQUIRED="$*"
   local MISSING=""
   local cmd=""
-  for cmd in "${REQUIRED[@]}"; do
+  for cmd in $REQUIRED; do
     python_missing "$cmd"
   done
   if [ -n "$MISSING" ]; then
@@ -1177,9 +1174,9 @@ install_python() {
       printf_warning "$MISSING"
       for miss in $MISSING; do
         if [ -f "$(builtin type -P yay 2>/dev/null)" ]; then
-          execute "pkmgr --enable-aur silent install $miss 2>>$INSTALLER_ERR_FILE" "Installing $miss"
+          execute "pkmgr --enable-aur silent install $miss 2>$INSTALLER_ERR_FILE" "Installing $miss"
         else
-          execute "pkmgr silent install $miss 2>>$INSTALLER_ERR_FILE" "Installing $miss"
+          execute "pkmgr silent install $miss 2>$INSTALLER_ERR_FILE" "Installing $miss"
         fi
       done
     fi
@@ -1188,10 +1185,10 @@ install_python() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_perl() {
-  local REQUIRED=("$@")
+  local REQUIRED="$*"
   local MISSING=""
   local cmd=""
-  for cmd in "${REQUIRED[@]}"; do
+  for cmd in $REQUIRED; do
     builtin type -p "$cmd" &>/dev/null || perl_missing "$cmd"
   done
   if [ -n "$MISSING" ]; then
@@ -1207,10 +1204,10 @@ install_perl() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_pip() {
-  local REQUIRED=("$@")
+  local REQUIRED="$*"
   local MISSING=""
   local cmd=""
-  for cmd in "${REQUIRED[@]}"; do
+  for cmd in $REQUIRED; do
     builtin type -p "$cmd" &>/dev/null || pip_missing "$cmd"
   done
   if [ -n "$MISSING" ]; then
@@ -1218,7 +1215,7 @@ install_pip() {
       printf_warning "Attempting to install missing pip packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr pip install $miss 2>>$INSTALLER_ERR_FILE" "Installing $miss"
+        execute "pkmgr pip install $miss 2>$INSTALLER_ERR_FILE" "Installing $miss"
       done
     fi
   fi
@@ -1226,10 +1223,10 @@ install_pip() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_cpan() {
-  local REQUIRED=("$@")
+  local REQUIRED="$*"
   local MISSING=""
   local cmd=""
-  for cmd in "${REQUIRED[@]}"; do
+  for cmd in $REQUIRED; do
     builtin type -p "$cmd" &>/dev/null || cpan_missing "$cmd"
   done
   if [ -n "$MISSING" ]; then
@@ -1237,7 +1234,7 @@ install_cpan() {
       printf_warning "Attempting to install missing cpan packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr cpan install $miss 2>>$INSTALLER_ERR_FILE" "Installing $miss"
+        execute "pkmgr cpan install $miss 2>$INSTALLER_ERR_FILE" "Installing $miss"
       done
     fi
   fi
@@ -1245,10 +1242,10 @@ install_cpan() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_gem() {
-  local REQUIRED=("$@")
+  local REQUIRED="$*"
   local MISSING=""
   local cmd=""
-  for cmd in "${REQUIRED[@]}"; do
+  for cmd in $REQUIRED; do
     builtin type -p "$cmd" &>/dev/null || gem_missing "$cmd"
   done
   if [ -n "$MISSING" ]; then
@@ -1256,7 +1253,7 @@ install_gem() {
       printf_warning "Attempting to install missing gem packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr gem install $miss 2>>$INSTALLER_ERR_FILE" "Installing $miss"
+        execute "pkmgr gem install $miss 2>$INSTALLER_ERR_FILE" "Installing $miss"
       done
     fi
   fi

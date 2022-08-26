@@ -1652,6 +1652,7 @@ app_uninstall() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 show_optvars() {
   __main_installer_info &>/dev/null
+  local SHORTOPTS=""
   local LONGOPTS="installed,full,location,uninstall,remove,version,help,stow,cron:,update,debug,force,raw"
   setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$FUNCFILE" -- "$@" 2>/dev/null)
   eval set -- "${setopts[@]}" 2>/dev/null

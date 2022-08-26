@@ -11,7 +11,7 @@
 # @@File             :  pve-spice
 # @@Description      :
 # @@Changelog        :  New script
-# @@TODO             :  Better documentation
+# @@TODO             :  Turn this into a full proxmox client
 # @@Other            :
 # @@Resource         :
 # @@Terminal App     :  no
@@ -263,6 +263,11 @@ printf_answer_no() {
   printf_answer_yes "$1" && return 1 || return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__curl_auth() {
+  curl -q -f -s -S -k -b "PVEAuthCookie=$TICKET" -H "CSRFPreventionToken: $CSRF" "$@"
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __query_server() {
   curl -q -LfsSk \
     --data-urlencode "username=$USERNAME" \
@@ -271,16 +276,34 @@ __query_server() {
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_config() {
+  local url_qemu="https://$PVE_SPICE_DEFAULT_SERVER:$PVE_SPICE_DEFAULT_PORT/api2/spiceconfig/nodes/$PVE_SPICE_DEFAULT_NODE_ID/qemu"
+  local url_lxc="https://$PVE_SPICE_DEFAULT_SERVER:$PVE_SPICE_DEFAULT_PORT/api2/spiceconfig/nodes/$PVE_SPICE_DEFAULT_NODE_ID/lxc"
+  __curl_auth "$url_qemu/$PVE_SPICE_DEFAULT_MACHINE/config" 2>/dev/null && return 0 ||
+    __curl_auth "$url_lxc/$PVE_SPICE_DEFAULT_MACHINE/config" && return 0
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_status() {
+  local url_qemu="https://$PVE_SPICE_DEFAULT_SERVER:$PVE_SPICE_DEFAULT_PORT/api2/spiceconfig/nodes/$PVE_SPICE_DEFAULT_NODE_ID/qemu"
+  local url_lxc="https://$PVE_SPICE_DEFAULT_SERVER:$PVE_SPICE_DEFAULT_PORT/api2/spiceconfig/nodes/$PVE_SPICE_DEFAULT_NODE_ID/lxc"
+  local url_status="$PVE_SPICE_DEFAULT_MACHINE/status/current"
+  __curl_auth "$url_qemu/$url_status" 2>/dev/null && return 0 ||
+    __curl_auth "$url_lxc/$url_status" && return 0
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_spice_file() {
-  curl -q -f -s -S -k -b "PVEAuthCookie=$TICKET" -H "CSRFPreventionToken: $CSRF" \
-    "https://$PVE_SPICE_DEFAULT_SERVER:$PVE_SPICE_DEFAULT_PORT/api2/spiceconfig/nodes/$PVE_SPICE_DEFAULT_NODE_ID/qemu/$PVE_SPICE_DEFAULT_MACHINE/spiceproxy" \
-    -d "proxy=$PVE_SPICE_DEFAULT_SERVER" >"$FILENAME" 2>/dev/null && return 0
+  local url_qemu="https://$PVE_SPICE_DEFAULT_SERVER:$PVE_SPICE_DEFAULT_PORT/api2/spiceconfig/nodes/$PVE_SPICE_DEFAULT_NODE_ID/qemu"
+  local url_lxc="https://$PVE_SPICE_DEFAULT_SERVER:$PVE_SPICE_DEFAULT_PORT/api2/spiceconfig/nodes/$PVE_SPICE_DEFAULT_NODE_ID/lxc"
+  __get_status | grep '^status=running' || printf_exit "VM $PVE_SPICE_DEFAULT_MACHINE is not running"
+  __curl_auth "$url_qemu/$PVE_SPICE_DEFAULT_MACHINE/spiceproxy" -d "proxy=$PVE_SPICE_DEFAULT_SERVER" >"$FILENAME" 2>/dev/null && return 0
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_spice_viewer() {
   local FILE="${1:-$FILENAME}"
-  local RUN="${1:-$FILENAME}.spice"
+  local RUN="${2:-$FILENAME}.spice"
   sed 's|delete-this-file=1|delete-this-file=0|g' "$FILE"
   cp -Rf "$FILE" "$RUN"
   remote-viewer "$RUN" &>/dev/null &
@@ -288,18 +311,33 @@ __run_spice_viewer() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_curl() {
-  local DATA="${1:-$DATA}"
-  local FILENAME="${2:-$FILENAME}"
-  local TICKET="${DATA//\"/}"
-  local TICKET="${TICKET##*ticket:}"
-  local TICKET="${TICKET%%,*}"
-  local TICKET="${TICKET%%\}*}"
-  local CSRF="${DATA//\"/}"
-  local CSRF="${CSRF##*CSRFPreventionToken:}"
-  local CSRF="${CSRF%%,*}"
-  local CSRF="${CSRF%%\}*}"
+  DATA="${1:-$DATA}"
+  FILENAME="${2:-$FILENAME}"
+  TICKET="${DATA//\"/}"
+  TICKET="${TICKET##*ticket:}"
+  TICKET="${TICKET%%,*}"
+  TICKET="${TICKET%%\}*}"
+  CSRF="${DATA//\"/}"
+  CSRF="${CSRF##*CSRFPreventionToken:}"
+  CSRF="${CSRF%%,*}"
+  CSRF="${CSRF%%\}*}"
   if [ -n "$CSRF" ]; then
-    __get_spice_file && printf_purple "Saving to $FILENAME" && return 0 || printf_exit "Failed to get the spice file"
+    if [ -n "$PVE_SPICE_GET_CONFIG" ]; then
+      __get_config || printf_exit "Failed to get the configuration for $PVE_SPICE_DEFAULT_MACHINE"
+      exit $?
+    elif [ -n "$PVE_SPICE_GET_STAUS" ]; then
+      __get_status || printf_exit "Failed to get the status for $PVE_SPICE_DEFAULT_MACHINE"
+    else
+      __get_spice_file && printf_purple "Saving to $FILENAME" || printf_exit "Failed to get the spice file"
+      if __cmd_exists remote-viewer; then
+        printf_yellow "Attempting to launch the client " && sleep 2
+        __run_spice_viewer "$FILENAME" &>/dev/null
+        return $?
+      else
+        printf_yellow "remote-viewer is required: 'virt-viewer' or 'remote-viewer'"
+        return 1
+      fi
+    fi
   else
     printf_red "Failed to retrieve auth token"
     return 1
@@ -377,14 +415,22 @@ __get_serverport() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __initialize_app() {
+  while :; do
+    case "$1" in
+    config) PVE_SPICE_GET_CONFIG="true" && shift 1 ;;
+    reset) PVE_SPICE_FORCE="true" && shift 1 ;;
+    status) PVE_SPICE_GET_STAUS="true" && shift 1 ;;
+    *) break ;;
+    esac
+  done
   PVE_SPICE_DEFAULT_MACHINE="${1:-$PVE_SPICE_DEFAULT_MACHINE}"
   PVE_SPICE_DEFAULT_NODE_ID="${2:-$PVE_SPICE_DEFAULT_NODE_ID}"
   PVE_SPICE_DEFAULT_SERVER="${3:-$PVE_SPICE_DEFAULT_SERVER}"
   PVE_SPICE_DEFAULT_PORT="${4:-$PVE_SPICE_DEFAULT_PORT}"
-  [ "$1" = "reset" ] && PVE_SPICE_FORCE="true" && shift 1 && PVE_SPICE_FORCED="complete"
-  if [ -n "$PVE_SPICE_CONFIG_DIR" ] && [ -n "$PVE_SPICE_DEFAULT_NODE_ID" ]; then
-    [ "$PVE_SPICE_FORCE" = "true" ] && rm -Rf "$PVE_SPICE_NODE_CONFIG_FILE"
+  if [ "$PVE_SPICE_FORCE" = "true" ]; then
     PVE_SPICE_NEW_INSTALL="true"
+    PVE_SPICE_FORCED="complete"
+    rm -Rf "$PVE_SPICE_NODE_CONFIG_FILE"
   fi
   if [ ! -f "$PVE_SPICE_NODE_CONFIG_FILE" ]; then
     __get_username
@@ -393,6 +439,8 @@ __initialize_app() {
     __get_servername
     __get_serverport
   fi
+  # Set vm id
+  [ -n "$PVE_SPICE_DEFAULT_MACHINE" ] || __get_vm_id
   # Get/confirm username
   [ -z "$PVE_SPICE_DEFAULT_USERNAME" ] && __get_username
   # Get/confirm password
@@ -414,28 +462,22 @@ __initialize_app() {
     PVE_SPICE_NEW_INSTALL=""
     PVE_SPICE_FORCE=""
     return 0
-  else
+  elif [ ! -f "$PVE_SPICE_NODE_CONFIG_FILE" ]; then
     printf_exit "Something went wrong"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__execute_pve-spice() {
+__execute_pve_spice() {
   USERNAME="$PVE_SPICE_DEFAULT_USERNAME"
   PASSWORD="$PVE_SPICE_DEFAULT_PASSWORD"
   SPICEDIR="$PVE_SPICE_SAVE_DIR"
   FILENAME="$PVE_SPICE_SAVE_DIR/${PVE_SPICE_DEFAULT_NODE_ID}_${PVE_SPICE_DEFAULT_MACHINE}"
-  [ -n "$PVE_SPICE_DEFAULT_MACHINE" ] || __get_vm_id
 
   DATA="$(__query_server || echo '')"
   if [ -n "$DATA" ]; then
     printf_blue "Authentication with server was a success"
-    if __run_curl "$DATA"; then
-      if __cmd_exists remote-viewer; then
-        __run_spice_viewer "${FILENAME}" &>/dev/null
-        return $?
-      else
-        printf_yellow "remote-viewer is required: 'virt-viewer' or 'remote-viewer'"
-      fi
+    if __run_curl "$DATA" "$FILENAME"; then
+      exitCode=0
       return
     else
       printf_red "Failed to get spice file from server"
@@ -673,10 +715,10 @@ export PVE_SPICE_CWD
 [ -f "$PVE_SPICE_NODE_CONFIG_FILE" ] && . "$PVE_SPICE_NODE_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
-__initialize_app "$1"
+__initialize_app "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
-__execute_pve-spice "$@"
+__execute_pve_spice
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set exit code
 exitCode="${exitCode:-$?}"

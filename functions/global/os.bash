@@ -238,7 +238,7 @@ __count_lines() {
 #count_files "dir"
 __count_files() {
   find -L "${1:-./}" -maxdepth "${2:-1}" \
-    -not -path "${1:-./}/.git/*" -type l,f 2>/dev/null |
+    -not -path "${1:-./}/.git/*" -type f 2>/dev/null |
     wc -l
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -316,7 +316,7 @@ __ln_sf() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #find_mtime "file/dir" "time minutes"
 __find_mtime() {
-  if [ "$(find ${1:-.} -maxdepth 1 -type l,f -cmin ${2:-60} 2>/dev/null | wc -l)" -ne 0 ]; then
+  if [ "$(find ${1:-.} -maxdepth 1 -type f -cmin ${2:-60} 2>/dev/null | wc -l)" -ne 0 ]; then
     return 0
   else
     return 1
@@ -325,7 +325,7 @@ __find_mtime() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #find "dir" "options"
 __find() {
-  local DEF_OPTS="-type l,f,d"
+  local DEF_OPTS="-type f,d"
   local opts="${FIND_OPTS:-$DEF_OPTS}"
   find "${*:-.}" -not -path "$dir/.git/*" $opts 2>/dev/null
 }
@@ -335,7 +335,7 @@ __find_old() {
   [ -d "$1" ] && local dir="$1" && shift 1
   local time="$1" && shift 1
   local action="$1" && shift 1
-  find "${dir:-$HOME/.local/tmp}" -type l,f -mmin +${time:-120} -${action:-delete} 2>/dev/null
+  find "${dir:-$HOME/.local/tmp}" -type f -mmin +${time:-120} -${action:-delete} 2>/dev/null
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #find "dir" - return path relative to dir

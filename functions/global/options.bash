@@ -89,8 +89,9 @@ __full_app_info() {
 ###################### call options ######################
 __options() {
   $installtype
+  local SHORTOPTS=""
   local LONGOPTS="test,debug,vdebug,full-info,remove:,uninstall:,raw"
-  setopts=$(getopt --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
+  setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "options.sh" -- "$@" 2>/dev/null)
   eval set -- "${setopts[@]}" 2>/dev/null
   while :; do
     case "$1" in
@@ -154,6 +155,9 @@ __options() {
       ;;
     --)
       shift 1
+      break
+      ;;
+    *)
       break
       ;;
     esac

@@ -303,15 +303,18 @@ __gui() {
   [ -n "$DISPLAY" ] || return 1
   [ -z "$SSH_CONNECTION" ] || return 1
   url="$(INPUT_NAME="$APPNAME" ask_for_input "What is the url to iso?" || echo '')"
-  [ -n "$url" ] && iso="$(INPUT_NAME="$APPNAME" ask_for_input "Saved name relative to\n$LATEST_ISO_CWD" || echo '')"
-  file=$LATEST_ISO_CWD/${iso}.iso
+  iso="$(INPUT_NAME="$APPNAME" ask_for_input "Saved name relative to\n$LATEST_ISO_CWD" || echo '')"
+  file=$LATEST_ISO_CWD/${iso%.*}.iso
+  [ -n "$url" ] || printf_exit "URL is missing or invalid"
+  [ -n "$iso" ] || printf_exit "Filename is missing"
   __notifications "Downloading from $url"
   if [ -n "$url" ] && [ -n "$iso" ]; then
     __latest_iso "$url" "$file" &>"$LATEST_ISO_LOG_DIR/gui.log" && __notifications "Download saved to $file"
+    exitCode=$?
   else
     __notifications "Download has failed"
   fi
-  return $?
+  exit $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_all() {
@@ -502,7 +505,7 @@ __grab_iso() {
     printf_purple "$download_file"
     [ -n "$remote_filesize" ] && printf_cyan "Remote file size is: $remote_filesize"
     __filesize_local "$download_file"
-    exitCode="5"
+    exitCode="0"
   elif [ -n "$latest" ]; then
     if { [ "$LATEST_ISO_OVERWRITE" = "yes" ] || [ ! -f "$file" ] || [ "$FORCE_INST" = "yes" ]; }; then
       printf_green "Attempting to locate the ISO from: "
@@ -528,10 +531,10 @@ __grab_iso() {
       exitCode=${exitFailed:-0}
     elif ! __verify_filesizes $local_file_size $remote_filesize; then
       printf_red "Downloading of the ISO was unsuccessful"
-      exitCode=2
+      exitCode="1"
     else
       printf_red "Error downloading the ISO"
-      exitCode=1
+      exitCode="2"
     fi
   fi
   echo ""
@@ -540,9 +543,9 @@ __grab_iso() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __verify_filesizes() {
   local local_version="" remote_version=""
-  local_version="$(printf '%s' "$1" | tr -d '\n')"
-  remote_version="$(printf '%s' "$2" | tr -d '\n')"
-  if [ "$remote_version" = $local_version ]; then
+  local_version="$(printf '%s' "$1" | sed 's/[^0-9]*//g' | tr -d '\n')"
+  remote_version="$(printf '%s' "$2" | sed 's/[^0-9]*//g' | tr -d '\n')"
+  if [ "$remote_version" -le $local_version ]; then
     return 0
   else
     return 1
@@ -623,6 +626,158 @@ __github_api() {
     jq -r '.[]' | grep 'browser_download_url' | awk -F'": ' '{print $2}' |
     sed 's|"||g' | grep '.iso$' | sort | head -n1 | grep '^')"
   [ -n "$results" ] && echo "$results" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__latest_list() {
+  local statusCode=0
+  while :; do
+    case $1 in
+    alma)
+      shift 1
+      isourl="$(curl -q -LSsf "$LATEST_ISO_ALMA_URL" 2>/dev/null | __sort_v)/isos/x86_64"
+      isoname="$(curl -q -LSsf "$LATEST_ISO_ALMA_URL/$isourl" 2>/dev/null | __strip_tags | grep "${1:-minimal}.iso$" | head -n1)"
+      __latest_iso "$LATEST_ISO_ALMA_URL/$isourl/$isoname" "$LATEST_ISO_CWD/alma.iso"
+      statusCode=$(($? + $statusCode))
+      ;;
+    alpine)
+      shift 1
+      isourl="$(curl -q -LSsf https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/${arch:-x86_64} | __strip_tags | sort -rV | grep -E "extended" | grep '.iso$' | head -n1 | grep '^')"
+      [ -z "$isourl" ] && isourl="$(curl -q -LSsf https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/${arch:-x86_64} | __strip_tags | sort -rV | grep -E "standard" | grep '.iso$' | head -n1 | grep '^')"
+      __latest_iso "$LATEST_ISO_ALPINE_URL" "$LATEST_ISO_CWD/alpine.iso"
+      statusCode=$(($? + $statusCode))
+      ;;
+    arch)
+      shift 1
+      isourl="$(curl -q -LSsf "$LATEST_ISO_ARCHLINUX_URL" | __strip_tags | __strip_iso | head -n1)"
+      __latest_iso "$LATEST_ISO_ARCHLINUX_URL/$isourl" "$LATEST_ISO_CWD/arch.iso"
+      statusCode=$(($? + $statusCode))
+      ;;
+    archcraft)
+      shift 1
+      isourl="$(__github_api "$LATEST_ISO_ARCHCRAFT_URL")"
+      __latest_iso "$isourl" "$LATEST_ISO_CWD/archcraft.iso"
+      statusCode=$(($? + $statusCode))
+      ;;
+    arco)
+      shift 1
+      isourl="$(curl -q -LSsf "$LATEST_ISO_ARCOLINUX_URL" | __strip_tags | grep 'v[0-9]' | sort -ruV | head -n1)"
+      isoname="$(curl -q -LSsf "$LATEST_ISO_ARCOLINUX_URL/$isourl" | __strip_tags | grep 'arcolinuxl' | __strip_iso | head -n1)"
+      __latest_iso "$LATEST_ISO_ARCOLINUX_URL/$isourl/$isoname" "$LATEST_ISO_CWD/arco.iso"
+      statusCode=$(($? + $statusCode))
+      ;;
+    centos)
+      shift 1
+      __latest_iso "$LATEST_ISO_CENTOS_URL" "$LATEST_ISO_CWD/centos.iso"
+      statusCode=$(($? + $statusCode))
+      ;;
+    clear)
+      shift 1
+      isourl="$(curl -q -LSsf "$LATEST_ISO_CLEAR_URL/" | __strip_tags | __sort_v)"
+      isoname="$(curl -q -LSsf "$LATEST_ISO_CLEAR_URL/$isourl/clear/" | __strip_tags | grep -i 'desktop' | __strip_iso)"
+      __latest_iso "$LATEST_ISO_CLEAR_URL/$isourl/clear/$isoname" "$LATEST_ISO_CWD/clear.iso"
+      statusCode=$(($? + $statusCode))
+      ;;
+    debian)
+      shift 1
+      __latest_iso "$LATEST_ISO_DEBIAN_URL" "$LATEST_ISO_CWD/debian.iso"
+      statusCode=$(($? + $statusCode))
+      ;;
+    endeavour)
+      shift 1
+      isourl="$(curl -q -LSsf "$LATEST_ISO_ENDEAVOUR_URL" | __strip_tags | grep 'iso$' | grep "Artemis" | head -n1)"
+      isoname="$LATEST_ISO_ENDEAVOUR_URL/$isourl"
+      __latest_iso "$isoname" "$LATEST_ISO_CWD/endeavour.iso"
+      statusCode=$(($? + $statusCode))
+      ;;
+    fedora)
+      shift 1
+      __latest_iso "$LATEST_ISO_FEDORA_URL" "$LATEST_ISO_CWD/fedora.iso"
+      statusCode=$(($? + $statusCode))
+      ;;
+    garuda)
+      shift 1
+      __latest_iso "$LATEST_ISO_GARUDA_URL" "$LATEST_ISO_CWD/garuda.iso"
+      statusCode=$(($? + $statusCode))
+      ;;
+    heads)
+      shift 1
+      __latest_iso "$LATEST_ISO_HEADS_URL" "$LATEST_ISO_CWD/heads.iso"
+      statusCode=$(($? + $statusCode))
+      ;;
+    kali)
+      shift 1
+      __latest_iso "$LATEST_ISO_KALI_URL" "$LATEST_ISO_CWD/kali.iso"
+      statusCode=$(($? + $statusCode))
+      ;;
+    manjaro)
+      shift 1
+      isoname="$(curl -q -LSsf "$LATEST_ISO_MANJARO_URL" | __strip_tags | grep 'xfce' | grep 'iso$' | sort -V | head -n1)"
+      __latest_iso "$isoname" "$LATEST_ISO_CWD/manjaro.iso"
+      statusCode=$(($? + $statusCode))
+      ;;
+    openvz)
+      shift 1
+      isourl="$(curl -q -LSsf "$LATEST_ISO_OPENVZ_URL" | __sort_v)"
+      isoname="$(curl -q -LSsf "$LATEST_ISO_OPENVZ_URL/$isourl/x86_64/iso/" | __strip_tags | __strip_iso | head -n1)"
+      __latest_iso "$LATEST_ISO_OPENVZ_URL/$isourl/x86_64/iso/$isoname" "$LATEST_ISO_CWD/openvz.iso"
+      statusCode=$(($? + $statusCode))
+      ;;
+    parrot)
+      shift 1
+      isourl="$(__get_iso "$LATEST_ISO_PARROT_URL" "security" | head -n1)"
+      isoname="$LATEST_ISO_PARROT_URL/$isourl"
+      __latest_iso "$isoname" "$LATEST_ISO_CWD/parrot.iso"
+      statusCode=$(($? + $statusCode))
+      ;;
+    peppermint)
+      shift 1
+      isoname="$(curl -q -LSsf "$LATEST_ISO_PEPPERMINT_URL/" | __strip_tags | __strip_iso | grep -E 'x86_64|amd64')"
+      __latest_iso "$isoname" "$LATEST_ISO_CWD/peppermint.iso"
+      statusCode=$(($? + $statusCode))
+      ;;
+    photon)
+      shift 1
+      __latest_iso "$LATEST_ISO_PHOTON_URL" "$LATEST_ISO_CWD/photon.iso"
+      statusCode=$(($? + $statusCode))
+      ;;
+    proxmox)
+      shift 1
+      isourl="$(curl -q -LSsf "$LATEST_ISO_PROXMOX_URL" 2>/dev/null | __sort_rv | grep -i 'proxmox-ve_')"
+      __latest_iso "$LATEST_ISO_PROXMOX_URL/$isourl" "$LATEST_ISO_CWD/proxmox.iso"
+      statusCode=$(($? + $statusCode))
+      ;;
+    rocky)
+      shift 1
+      isourl="$(curl -q -LSsf "$LATEST_ISO_ROCKY_URL" 2>/dev/null | __sort_v)/isos/x86_64"
+      isoname="$LATEST_ISO_ROCKY_URL/$isourl/$(curl -q -LSsf "$LATEST_ISO_ROCKY_URL/$isourl" 2>/dev/null | __strip_tags | grep 'minimal.iso$')"
+      __latest_iso "$isoname" "$LATEST_ISO_CWD/rocky.iso"
+      statusCode=$(($? + $statusCode))
+      ;;
+    ubuntu)
+      shift 1
+      isoname="$LATEST_ISO_UBUNTU_URL/$(curl -q -LSsf "$LATEST_ISO_UBUNTU_URL" 2>/dev/null | __sort_v)/release"
+      __latest_iso "$isoname" "$LATEST_ISO_CWD/ubuntu.iso"
+      statusCode=$(($? + $statusCode))
+      ;;
+    tails)
+      shift 1
+      __latest_iso "$LATEST_ISO_TAILS_URL" "$LATEST_ISO_CWD/tails.iso"
+      statusCode=$(($? + $statusCode))
+      ;;
+    tiny)
+      shift 1
+      isoversion="$(curl -q -LSsf "http://tinycorelinux.net/downloads.html" | __strip_tags | grep '.iso$' | grep -i 'plus' | head -n1)"
+      isoname="$LATEST_ISO_TINYCORE_URL/$isoversion"
+      __latest_iso "$isoname" "$LATEST_ISO_CWD/tiny.iso"
+      statusCode=$(($? + $statusCode))
+      ;;
+    *)
+      break
+      ;;
+    esac
+  done
+  exitCode=$statusCode
+  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
@@ -868,132 +1023,18 @@ arch="$(__get_arch)"
 case "$1" in
 iso)
   shift 1
-  [ $# -eq 2 ] || printf_exit "Usage: $APPNAME iso <url> <filename>"
-  __latest_iso "$1" "$LATEST_ISO_CWD/$2"
-  ;;
-alma)
-  shift 1
-  isourl="$(curl -q -LSsf "$LATEST_ISO_ALMA_URL" 2>/dev/null | __sort_v)/isos/x86_64"
-  isoname="$(curl -q -LSsf "$LATEST_ISO_ALMA_URL/$isourl" 2>/dev/null | __strip_tags | grep "${1:-minimal}.iso$" | head -n1)"
-  __latest_iso "$LATEST_ISO_ALMA_URL/$isourl/$isoname" "$LATEST_ISO_CWD/alma.iso"
-  ;;
-alpine)
-  shift 1
-  isourl="$(curl -q -LSsf https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/${arch:-x86_64} | __strip_tags | sort -rV | grep -E "extended" | grep '.iso$' | head -n1 | grep '^')"
-  [ -z "$isourl" ] && isourl="$(curl -q -LSsf https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/${arch:-x86_64} | __strip_tags | sort -rV | grep -E "standard" | grep '.iso$' | head -n1 | grep '^')"
-  __latest_iso "$LATEST_ISO_ALPINE_URL" "$LATEST_ISO_CWD/alpine.iso"
-  ;;
-arch)
-  shift 1
-  isourl="$(curl -q -LSsf "$LATEST_ISO_ARCHLINUX_URL" | __strip_tags | __strip_iso | head -n1)"
-  __latest_iso "$LATEST_ISO_ARCHLINUX_URL/$isourl" "$LATEST_ISO_CWD/arch.iso"
-  ;;
-archcraft)
-  shift 1
-  isourl="$(__github_api "$LATEST_ISO_ARCHCRAFT_URL")"
-  __latest_iso "$isourl" "$LATEST_ISO_CWD/archcraft.iso"
-  ;;
-arco)
-  shift 1
-  isourl="$(curl -q -LSsf "$LATEST_ISO_ARCOLINUX_URL" | __strip_tags | grep 'v[0-9]' | sort -ruV | head -n1)"
-  isoname="$(curl -q -LSsf "$LATEST_ISO_ARCOLINUX_URL/$isourl" | __strip_tags | grep 'arcolinuxl' | __strip_iso | head -n1)"
-  __latest_iso "$LATEST_ISO_ARCOLINUX_URL/$isourl/$isoname" "$LATEST_ISO_CWD/arco.iso"
-  ;;
-centos)
-  shift 1
-  __latest_iso "$LATEST_ISO_CENTOS_URL" "$LATEST_ISO_CWD/centos.iso"
-  ;;
-clear)
-  shift 1
-  isourl="$(curl -q -LSsf "$LATEST_ISO_CLEAR_URL/" | __strip_tags | __sort_v)"
-  isoname="$(curl -q -LSsf "$LATEST_ISO_CLEAR_URL/$isourl/clear/" | __strip_tags | grep -i 'desktop' | __strip_iso)"
-  __latest_iso "$LATEST_ISO_CLEAR_URL/$isourl/clear/$isoname" "$LATEST_ISO_CWD/clear.iso"
-  ;;
-debian)
-  shift 1
-  __latest_iso "$LATEST_ISO_DEBIAN_URL" "$LATEST_ISO_CWD/debian.iso"
-  ;;
-endeavour)
-  shift 1
-  isourl="$(curl -q -LSsf "$LATEST_ISO_ENDEAVOUR_URL" | __strip_tags | grep 'iso$' | grep "Artemis" | head -n1)"
-  isoname="$LATEST_ISO_ENDEAVOUR_URL/$isourl"
-  __latest_iso "$isoname" "$LATEST_ISO_CWD/endeavour.iso"
-  ;;
-fedora)
-  shift 1
-  __latest_iso "$LATEST_ISO_FEDORA_URL" "$LATEST_ISO_CWD/fedora.iso"
-  ;;
-garuda)
-  shift 1
-  __latest_iso "$LATEST_ISO_GARUDA_URL" "$LATEST_ISO_CWD/garuda.iso"
-  ;;
-heads)
-  shift 1
-  __latest_iso "$LATEST_ISO_HEADS_URL" "$LATEST_ISO_CWD/heads.iso"
-  ;;
-kali)
-  shift 1
-  __latest_iso "$LATEST_ISO_KALI_URL" "$LATEST_ISO_CWD/kali.iso"
-  ;;
-manjaro)
-  shift 1
-  isoname="$(curl -q -LSsf "$LATEST_ISO_MANJARO_URL" | __strip_tags | grep 'xfce' | grep 'iso$' | sort -V | head -n1)"
-  __latest_iso "$isoname" "$LATEST_ISO_CWD/manjaro.iso"
-  ;;
-openvz)
-  shift 1
-  isourl="$(curl -q -LSsf "$LATEST_ISO_OPENVZ_URL" | __sort_v)"
-  isoname="$(curl -q -LSsf "$LATEST_ISO_OPENVZ_URL/$isourl/x86_64/iso/" | __strip_tags | __strip_iso | head -n1)"
-  __latest_iso "$LATEST_ISO_OPENVZ_URL/$isourl/x86_64/iso/$isoname" "$LATEST_ISO_CWD/openvz.iso"
-  ;;
-parrot)
-  shift 1
-  isourl="$(__get_iso "$LATEST_ISO_PARROT_URL" "security" | head -n1)"
-  isoname="$LATEST_ISO_PARROT_URL/$isourl"
-  __latest_iso "$isoname" "$LATEST_ISO_CWD/parrot.iso"
-  ;;
-peppermint)
-  shift 1
-  isoname="$(curl -q -LSsf "$LATEST_ISO_PEPPERMINT_URL/" | __strip_tags | __strip_iso | grep -E 'x86_64|amd64')"
-  __latest_iso "$isoname" "$LATEST_ISO_CWD/peppermint.iso"
-  ;;
-photon)
-  shift 1
-  __latest_iso "$LATEST_ISO_PHOTON_URL" "$LATEST_ISO_CWD/photon.iso"
-  ;;
-proxmox)
-  shift 1
-  isourl="$(curl -q -LSsf "$LATEST_ISO_PROXMOX_URL" 2>/dev/null | __sort_rv | grep -i 'proxmox-ve_')"
-  __latest_iso "$LATEST_ISO_PROXMOX_URL/$isourl" "$LATEST_ISO_CWD/proxmox.iso"
-  ;;
-rocky)
-  shift 1
-  isourl="$(curl -q -LSsf "$LATEST_ISO_ROCKY_URL" 2>/dev/null | __sort_v)/isos/x86_64"
-  isoname="$LATEST_ISO_ROCKY_URL/$isourl/$(curl -q -LSsf "$LATEST_ISO_ROCKY_URL/$isourl" 2>/dev/null | __strip_tags | grep 'minimal.iso$')"
-  __latest_iso "$isoname" "$LATEST_ISO_CWD/rocky.iso"
-  ;;
-ubuntu)
-  shift 1
-  isoname="$LATEST_ISO_UBUNTU_URL/$(curl -q -LSsf "$LATEST_ISO_UBUNTU_URL" 2>/dev/null | __sort_v)/release"
-  __latest_iso "$isoname" "$LATEST_ISO_CWD/ubuntu.iso"
-  ;;
-tails)
-  shift 1
-  __latest_iso "$LATEST_ISO_TAILS_URL" "$LATEST_ISO_CWD/tails.iso"
-  ;;
-tiny)
-  shift 1
-  isoversion="$(curl -q -LSsf "http://tinycorelinux.net/downloads.html" | __strip_tags | grep '.iso$' | grep -i 'plus' | head -n1)"
-  isoname="$LATEST_ISO_TINYCORE_URL/$isoversion"
-  __latest_iso "$isoname" "$LATEST_ISO_CWD/tiny.iso"
-  ;;
-*)
-  if [ $# = 0 ] && __gui; then
-    exit
+  if [ $# -eq 0 ]; then
+    __gui
+  elif [ $# -le 2 ]; then
+    __latest_iso "$1" "$LATEST_ISO_CWD/$(basename "${2:-$1}")"
   else
-    TERMINAL_APP="true" myterminal -e "$APPNAME"
+    printf_exit "Usage: $APPNAME iso <url> <filename>"
   fi
-  [ $# = 2 ] && __latest_iso "$1" "$LATEST_ISO_CWD/$2" || __help
+  exit $?
+  ;;
+
+*)
+  __latest_list "$@"
   ;;
 esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

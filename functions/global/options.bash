@@ -15,8 +15,7 @@
 # @sudo/root         :  no
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __list_available() {
-  echo ${*:-$ARRAY} |
-    __sed 's|,--| --|g;s|,-| -|g;s|,| |g;s|:||g'
+  echo "${*:-$ARRAY}" | __sed 's|,--| --|g;s|,-| -|g;s|,| |g;s|:||g'
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __list_array() {
@@ -90,7 +89,7 @@ __full_app_info() {
 ###################### call options ######################
 __options() {
   $installtype
-  local LONGOPTS="test,vdebug,full-info,remove:,uninstall:,raw"
+  local LONGOPTS="test,debug,vdebug,full-info,remove:,uninstall:,raw"
   setopts=$(getopt --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
   eval set -- "${setopts[@]}" 2>/dev/null
   while :; do

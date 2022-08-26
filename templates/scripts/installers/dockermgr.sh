@@ -32,12 +32,6 @@ SCRIPTS_PREFIX="dockermgr"
 [ "$1" = "--raw" ] && export SHOW_RAW="true"
 set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Define pre-install scripts
-run_pre_install() {
-
-  return ${?:-0}
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
 SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
@@ -57,6 +51,14 @@ else
   exit 90
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Define pre-install scripts
+run_pre_install() {
+
+  return ${?:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Define custom functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
   . "$PWD/$SCRIPTSFUNCTFILE"
 elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
@@ -69,11 +71,11 @@ else
   exit 90
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# trap the cleanup function
-trap_exit
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Call the main function
 dockermgr_install
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# trap the cleanup function
+trap_exit
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define extra functions
 __sudo() { sudo -n true && eval sudo "$*" || eval "$*" || return 1; }

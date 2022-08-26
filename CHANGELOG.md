@@ -1,3 +1,20 @@
+#### Changelog: 2022-08-26 at 09:38:55  
+
+functions/mgr-installers.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+templates/scripts/installers/desktopmgr.sh : 🗃️ Committing everything that changed 🗃️ 🚀  
+templates/scripts/installers/devenvmgr.sh : 🗃️ Committing everything that changed 🗃️ 🚀  
+templates/scripts/installers/dfmgr.sh : 🗃️ Committing everything that changed 🗃️ 🚀  
+templates/scripts/installers/dockermgr.sh : 🗃️ Committing everything that changed 🗃️ 🚀  
+templates/scripts/installers/fontmgr.sh : 🗃️ Committing everything that changed 🗃️ 🚀  
+templates/scripts/installers/iconmgr.sh : 🗃️ Committing everything that changed 🗃️ 🚀  
+templates/scripts/installers/systemmgr.sh : 🗃️ Committing everything that changed 🗃️ 🚀  
+templates/scripts/installers/thememgr.sh : 🗃️ Committing everything that changed 🗃️ 🚀  
+templates/scripts/installers/wallpapermgr.sh : 🗃️ Committing everything that changed 🗃️ 🚀  
+  
+#### End of changes for 202208260315-git - 2022-08-26 at 09:38:55  
+  
+----  
+  
 #### Changelog: 2022-08-26 at 03:15:35  
 
 bin/latest-releases : 🗃️ Committing everything that changed 🗃️ 🚀  

@@ -1653,7 +1653,7 @@ app_uninstall() {
 show_optvars() {
   __main_installer_info &>/dev/null
   local LONGOPTS="installed,full,location,uninstall,remove,version,help,stow,cron:,update,debug,force,raw"
-  setopts=$(getopt --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
+  setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$FUNCFILE" -- "$@" 2>/dev/null)
   eval set -- "${setopts[@]}" 2>/dev/null
   while :; do
     case "$1" in
@@ -1662,7 +1662,6 @@ show_optvars() {
       export SHOW_RAW="true"
       unset -f printf_color
       printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
-
       ;;
 
     --force)
@@ -1703,13 +1702,7 @@ show_optvars() {
 
     --help)
       shift 1
-      #    if [ -f "$(builtin type -P  2>/dev/null)" ] xdg-open; then
-      #      xdg-open "$REPO"
-      #    elif [ -f "$(builtin type -P  2>/dev/null)" ] open; then
-      #      open "$REPO"
-      #    else
       printf_cyan "Go to $REPO for help"
-      #    fi
       exit
       ;;
 

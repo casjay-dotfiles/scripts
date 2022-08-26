@@ -32,12 +32,6 @@ SCRIPTS_PREFIX="thememgr"
 [ "$1" = "--raw" ] && export SHOW_RAW="true"
 set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Define pre-install scripts
-run_pre_install() {
-
-  return ${?:-0}
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
 SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
@@ -57,8 +51,20 @@ else
   exit 90
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Define pre-install scripts
+run_pre_install() {
+
+  return ${?:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Define custom functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Call the main function
 thememgr_install
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# trap the cleanup function
+trap_exit
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Make sure the scripts repo is installed
 scripts_check

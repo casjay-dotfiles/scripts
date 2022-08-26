@@ -1,3 +1,12 @@
+#### Changelog: 2022-08-26 at 02:05:40  
+
+functions/installers/dockermgr.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+functions/mgr-installers.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+  
+#### End of changes for 202208260202-git - 2022-08-26 at 02:05:40  
+  
+----  
+  
 #### Changelog: 2022-08-26 at 02:02:14  
 
 functions/app-installer.bash : 🗃️ Committing everything that changed 🗃️ 🚀  

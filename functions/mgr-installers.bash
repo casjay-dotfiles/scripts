@@ -2058,7 +2058,9 @@ desktopmgr_install_version() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 dockermgr_install() {
   user_installdirs
-  #[ -f "$(builtin type -P  2>/dev/null)" ] docker || printf_exit 1 1 "This requires docker, however, docker wasn't found"
+  if [ ! -f "$(builtin type -P 2>/dev/null)" ]; then
+    printf_exit 1 1 "This requires docker, however, docker wasn't found"
+  fi
   SCRIPTS_PREFIX="dockermgr"
   [[ -n "$_DEBUG" ]] && set -x && echo "$SCRIPTS_PREFIX"
   APPNAME="${APPNAME:-$SCRIPTS_PREFIX}"

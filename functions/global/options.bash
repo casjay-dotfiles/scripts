@@ -153,7 +153,8 @@ __options() {
       unset -f printf_color
       printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
       ;;
-    *)
+    --)
+      shift 1
       break
       ;;
     esac

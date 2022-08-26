@@ -1,3 +1,14 @@
+#### Changelog: 2022-08-26 at 09:51:06  
+
+functions/app-installer.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+functions/global/options.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+functions/mgr-installers.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+functions/minimal.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+  
+#### End of changes for 202208260948-git - 2022-08-26 at 09:51:06  
+  
+----  
+  
 #### Changelog: 2022-08-26 at 09:48:43  
 
 functions/app-installer.bash : 🗃️ Committing everything that changed 🗃️ 🚀  

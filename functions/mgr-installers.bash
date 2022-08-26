@@ -1794,7 +1794,8 @@ show_optvars() {
         printf_readline "5"
       exit $?
       ;;
-    *)
+    --)
+      shift 1
       break
       ;;
     esac

@@ -1,3 +1,14 @@
+#### Changelog: 2022-08-26 at 11:14:17  
+
+bin/desktopmgr : 🗃️ Fixed mistyped variable 🗃️ 🚀  
+bin/systemmgr : 🗃️ Fixed mistyped variable 🗃️ 🚀  
+templates/scripts/bash/mgr-script.system.sh : 🗃️ Fixed mistyped variable 🗃️ 🚀  
+templates/scripts/bash/mgr-script.user.sh : 🗃️ Fixed mistyped variable 🗃️ 🚀  
+  
+#### End of changes for 202208261109-git - 2022-08-26 at 11:14:17  
+  
+----  
+  
 #### Changelog: 2022-08-26 at 11:09:01  
 
 bin/systemmgr : 🗃️ Committing everything that changed 🗃️ 🚀  

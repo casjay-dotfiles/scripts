@@ -1,8 +1,5 @@
 ###################### dockermgr settings ######################
 dockermgr_install() {
-  if [ ! -f "$(builtin type -P 2>/dev/null)" ]; then
-    printf_exit 1 1 "This requires docker, however, docker wasn't found"
-  fi
   user_install
   SCRIPTS_PREFIX="dockermgr"
   APPDIR="${APPDIR:-$HOME/.local/share/srv/docker}"

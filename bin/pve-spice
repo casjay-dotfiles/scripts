@@ -126,8 +126,8 @@ __gen_config() {
 # Settings for pve-spice
 PVE_SPICE_DEFAULT_USERNAME="${PVE_SPICE_DEFAULT_USERNAME:-}"
 PVE_SPICE_DEFAULT_PASSWORD="${PVE_SPICE_DEFAULT_PASSWORD:-}"
-PVE_SPICE_DEFAULT_NODE="${PVE_SPICE_DEFAULT_NODE:-}"
-PVE_SPICE_DEFAULT_HOST="${PVE_SPICE_DEFAULT_HOST:-}"
+PVE_SPICE_DEFAULT_NODE_ID="${PVE_SPICE_DEFAULT_NODE_ID:-}"
+PVE_SPICE_DEFAULT_SERVER="${PVE_SPICE_DEFAULT_SERVER:-}"
 PVE_SPICE_DEFAULT_PORT="${PVE_SPICE_DEFAULT_PORT:-}"
 PVE_SPICE_SAVE_DIR="${PVE_SPICE_SAVE_DIR:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -259,7 +259,7 @@ __trap_exit() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
 printf_answer_no() {
-  [ -n "$1" ] || { echo && return 1; }
+  [ -n "$1" ] || return 1
   printf_answer_yes "$1" && return 1 || return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -267,19 +267,18 @@ __query_server() {
   curl -q -LfsSk \
     --data-urlencode "username=$USERNAME" \
     --data-urlencode "password=$PASSWORD" \
-    "https://$PROXY:$PORT/api2/json/access/ticket" 2>/dev/null
+    "https://$PVE_SPICE_DEFAULT_SERVER:$PVE_SPICE_DEFAULT_PORT/api2/json/access/ticket" 2>/dev/null
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_spice_file() {
-  curl -q -LfsSkb -d "proxy=$PROXY" \
-    "PVEAuthCookie=$TICKET" -H "CSRFPreventionToken: $CSRF" \
-    "https://$PROXY:$PORT/api2/spiceconfig/nodes/$NODE/qemu/$VMID/spiceproxy" >"$FILENAME" 2>/dev/null
+  curl -q -f -s -S -k -b "PVEAuthCookie=$TICKET" -H "CSRFPreventionToken: $CSRF" \
+    "https://$PVE_SPICE_DEFAULT_SERVER:$PVE_SPICE_DEFAULT_PORT/api2/spiceconfig/nodes/$PVE_SPICE_DEFAULT_NODE_ID/qemu/$PVE_SPICE_DEFAULT_MACHINE/spiceproxy" \
+    -d "proxy=$PVE_SPICE_DEFAULT_SERVER" >"$FILENAME" 2>/dev/null && return 0
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_spice_viewer() {
-  __cmd_exists remote-viewer || printf_exit "remote-viewer is required"
   local FILE="${1:-$FILENAME}"
   local RUN="${1:-$FILENAME}.spice"
   sed 's|delete-this-file=1|delete-this-file=0|g' "$FILE"
@@ -307,83 +306,112 @@ __run_curl() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__initialize_app() {
-  [ "$1" = "reset" ] && PVE_SPICE_FORCE="true" && shift 1 && PVE_SPICE_FORCED="complete"
-  [ "$PVE_SPICE_FORCE" = "true" ] && rm -Rf "$PVE_SPICE_CONFIG_DIR/initialized"
-  [ -f "$PVE_SPICE_CONFIG_DIR/initialized" ] && return 0
-  local orig_user="$PVE_SPICE_DEFAULT_USERNAME"
-  local orig_password="$PVE_SPICE_DEFAULT_PASSWORD"
-  local orig_node="$PVE_SPICE_DEFAULT_NODE"
-  local orig_server="$PVE_SPICE_DEFAULT_HOST"
-  local orig_port="$PVE_SPICE_DEFAULT_PORT"
-  # Get/confirm username
-  if [ "$PVE_SPICE_DEFAULT_USERNAME" = "root@pam" ]; then
-    printf_read_question "5" "Is the username correct? [y/N]: [$PVE_SPICE_DEFAULT_USERNAME]" "1" "option_user"
-    if printf_answer_no "$option_user"; then
-      printf_read_input "What is your password? " "120" "PVE_SPICE_DEFAULT_NODE" "-s"
-    else
-      PVE_SPICE_DEFAULT_USERNAME="${orig_user:-}"
-    fi
+__get_vm_id() {
+  printf_read_input "What is your vm id number? " "120" "set_vmid"
+  PVE_SPICE_DEFAULT_MACHINE="${set_vmid:-}"
+  [ -n "$PVE_SPICE_DEFAULT_MACHINE" ] || printf_exit "VM ID is required"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_username() {
+  local change_user="" option_user=""
+  printf_read_question "5" "Is the username correct? [y/N]: [$PVE_SPICE_DEFAULT_USERNAME]" "1" "change_user"
+  if printf_answer_no "$change_user"; then
+    printf_read_input "What is your username? " "120" "option_user" "-s"
+    PVE_SPICE_DEFAULT_USERNAME="$option_user"
   fi
-  [ -n "$PVE_SPICE_DEFAULT_USERNAME" ] || printf_exit "Password is required"
-
-  # Get/confirm password
-  if [ "$PVE_SPICE_DEFAULT_PASSWORD" = "Password" ]; then
-    printf_read_question "5" "Is the password correct? [y/N]: [$PVE_SPICE_DEFAULT_PASSWORD]" "1" "option_pass"
-    if printf_answer_no "$option_pass"; then
-      printf_read_input "What is your password? " "120" "PVE_SPICE_DEFAULT_NODE" "-s"
-    else
-      PVE_SPICE_DEFAULT_PASSWORD="${orig_password:-}"
+  [ -n "$PVE_SPICE_DEFAULT_USERNAME" ] || printf_exit "Username is required"
+  grep -sq "PVE_SPICE_DEFAULT_USERNAME=" "$PVE_SPICE_NODE_CONFIG_FILE" ||
+    printf '%s\n' 'PVE_SPICE_DEFAULT_USERNAME="'$PVE_SPICE_DEFAULT_USERNAME'"' >>"$PVE_SPICE_NODE_CONFIG_FILE"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_password() {
+  local change_pass="" option_pass_new="" option_pass_confirm=""
+  printf_read_question "5" "Would you like to change the password? [y/N]: [$PVE_SPICE_DEFAULT_PASSWORD]" "1" "change_pass"
+  if printf_answer_no "$change_pass"; then
+    printf_read_passwd "What is your password? " "120" "option_pass_new" "-s"
+    printf_read_passwd "confirm your password? " "120" "option_pass_confirm" "-s"
+    if [ "$option_pass_new" != "$option_pass_confirm" ]; then
+      while :; do
+        printf_red "Error: the passwords do not match"
+        __get_password && break
+      done
     fi
+    PVE_SPICE_DEFAULT_PASSWORD="${option_pass_new:-}"
   fi
   [ -n "$PVE_SPICE_DEFAULT_PASSWORD" ] || printf_exit "Password is required"
-
-  # Get/confirm node name
-  if [ "$PVE_SPICE_DEFAULT_NODE" = "pve" ]; then
-    printf_read_question "5" "Is the node name correct? [y/N]: [$PVE_SPICE_DEFAULT_NODE]" "1" "option_node"
-    if printf_answer_no "$option_node"; then
-      printf_read_input "What is node name? " "120" "PVE_SPICE_DEFAULT_NODE"
-    else
-      PVE_SPICE_DEFAULT_NODE="${orig_node:-}"
-    fi
+  grep -sq "PVE_SPICE_DEFAULT_PASSWORD=" "$PVE_SPICE_NODE_CONFIG_FILE" ||
+    printf '%s\n' 'PVE_SPICE_DEFAULT_PASSWORD="'$PVE_SPICE_DEFAULT_PASSWORD'"' >>"$PVE_SPICE_NODE_CONFIG_FILE"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_node_name() {
+  local change_node=""
+  printf_read_question "5" "Is the node name correct? [y/N]: [$PVE_SPICE_DEFAULT_NODE_ID]" "1" "change_node"
+  if printf_answer_no "$change_node"; then
+    printf_read_input "What is node name? " "120" "PVE_SPICE_DEFAULT_NODE_ID"
   fi
-  [ -n "$PVE_SPICE_DEFAULT_NODE" ] || printf_exit "The node name is required"
-
-  # Get/confirm servername
-  if [ "$PVE_SPICE_DEFAULT_HOST" = "pve.local" ]; then
-    printf_read_question "5" "is the server address correct? [y/N]: [$PVE_SPICE_DEFAULT_HOST]" "1" "option_server"
-    if printf_answer_no "$option_server"; then
-      printf_read_input "What is the server address? " "120" "PVE_SPICE_DEFAULT_HOST"
-    else
-      PVE_SPICE_DEFAULT_HOST="${orig_server:-}"
-    fi
+  [ -n "$PVE_SPICE_DEFAULT_NODE_ID" ] || printf_exit "The node name is required"
+  grep -sq "PVE_SPICE_DEFAULT_NODE_ID=" "$PVE_SPICE_NODE_CONFIG_FILE" ||
+    printf '%s\n' 'PVE_SPICE_DEFAULT_NODE_ID="'$PVE_SPICE_DEFAULT_NODE_ID'"' >>"$PVE_SPICE_NODE_CONFIG_FILE"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_servername() {
+  local change_server=""
+  printf_read_question "5" "is the server address correct? [y/N]: [$PVE_SPICE_DEFAULT_SERVER]" "1" "change_server"
+  if printf_answer_no "$change_server"; then
+    printf_read_input "What is the server address? " "120" "PVE_SPICE_DEFAULT_SERVER"
   fi
-  [ -n "$PVE_SPICE_DEFAULT_HOST" ] || printf_exit "The host is required"
-
-  # Set port
-  if [ -z "$PVE_SPICE_DEFAULT_PORT" ]; then
-    printf_read_question "5" "is the port correct? [y/N]: [$PVE_SPICE_DEFAULT_PORT]" "1" "option_port"
-    if printf_answer_no "$option_port"; then
-      printf_read_input "What is the port? " "120" "PVE_SPICE_DEFAULT_PORT"
-    else
-      PVE_SPICE_DEFAULT_PASSWORD="${orig_port:-}"
-    fi
+  [ -n "$PVE_SPICE_DEFAULT_SERVER" ] || printf_exit "The host is required"
+  grep -sq "PVE_SPICE_DEFAULT_SERVER=" "$PVE_SPICE_NODE_CONFIG_FILE" ||
+    printf '%s\n' 'PVE_SPICE_DEFAULT_SERVER="'$PVE_SPICE_DEFAULT_SERVER'"' >>"$PVE_SPICE_NODE_CONFIG_FILE"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_serverport() {
+  local change_port=""
+  printf_read_question "5" "is the port correct? [y/N]: [$PVE_SPICE_DEFAULT_PORT]" "1" "change_port"
+  if printf_answer_no "$change_port"; then
+    printf_read_input "What is the port? " "120" "PVE_SPICE_DEFAULT_PORT"
   fi
   [ -n "$PVE_SPICE_DEFAULT_PORT" ] || printf_exit "The port is required"
-
+  grep -sq "PVE_SPICE_DEFAULT_PORT=" "$PVE_SPICE_NODE_CONFIG_FILE" ||
+    printf '%s\n' 'PVE_SPICE_DEFAULT_PORT="'$PVE_SPICE_DEFAULT_PORT'"' >>"$PVE_SPICE_NODE_CONFIG_FILE"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__initialize_app() {
+  PVE_SPICE_DEFAULT_MACHINE="${1:-$PVE_SPICE_DEFAULT_MACHINE}"
+  PVE_SPICE_DEFAULT_NODE_ID="${2:-$PVE_SPICE_DEFAULT_NODE_ID}"
+  PVE_SPICE_DEFAULT_SERVER="${3:-$PVE_SPICE_DEFAULT_SERVER}"
+  PVE_SPICE_DEFAULT_PORT="${4:-$PVE_SPICE_DEFAULT_PORT}"
+  [ "$1" = "reset" ] && PVE_SPICE_FORCE="true" && shift 1 && PVE_SPICE_FORCED="complete"
+  if [ -n "$PVE_SPICE_CONFIG_DIR" ] && [ -n "$PVE_SPICE_DEFAULT_NODE_ID" ]; then
+    [ "$PVE_SPICE_FORCE" = "true" ] && rm -Rf "$PVE_SPICE_NODE_CONFIG_FILE"
+    PVE_SPICE_NEW_INSTALL="true"
+  fi
+  if [ ! -f "$PVE_SPICE_NODE_CONFIG_FILE" ]; then
+    __get_username
+    __get_password
+    __get_node_name
+    __get_servername
+    __get_serverport
+  fi
+  # Get/confirm username
+  [ -z "$PVE_SPICE_DEFAULT_USERNAME" ] && __get_username
+  # Get/confirm password
+  [ -z "$PVE_SPICE_DEFAULT_PASSWORD" ] && __get_password
+  # Get/confirm servername
+  [ -z "$PVE_SPICE_DEFAULT_NODE_ID" ] && __get_node_name
+  # Get/confirm node name
+  [ -z "$PVE_SPICE_DEFAULT_SERVER" ] && __get_servername
+  # Get/confirm port
+  [ -z "$PVE_SPICE_DEFAULT_PORT" ] && __get_serverport
   # Write settings to file
-  printf '%s\n' 'PVE_SPICE_DEFAULT_USERNAME="'$PVE_SPICE_DEFAULT_USERNAME'"' >>"$PVE_SPICE_CONFIG_DIR/initialized"
-  printf '%s\n' 'PVE_SPICE_DEFAULT_PASSWORD="'$PVE_SPICE_DEFAULT_PASSWORD'"' >>"$PVE_SPICE_CONFIG_DIR/initialized"
-  printf '%s\n' 'PVE_SPICE_DEFAULT_NODE="'$PVE_SPICE_DEFAULT_NODE'"' >>"$PVE_SPICE_CONFIG_DIR/initialized"
-  printf '%s\n' 'PVE_SPICE_DEFAULT_HOST="'$PVE_SPICE_DEFAULT_HOST'"' >>"$PVE_SPICE_CONFIG_DIR/initialized"
-  printf '%s\n' 'PVE_SPICE_DEFAULT_PORT="'$PVE_SPICE_DEFAULT_PORT'"' >>"$PVE_SPICE_CONFIG_DIR/initialized"
-  if [ -f "$PVE_SPICE_CONFIG_DIR/initialized" ]; then
-    [ -d "$SPICEDIR" ] || mkdir -p "$SPICEDIR" &>/dev/null
+  if [ -f "$PVE_SPICE_NODE_CONFIG_FILE" ] && [ "$PVE_SPICE_NEW_INSTALL" = "true" ]; then
+    [ -d "$PVE_SPICE_SAVE_DIR" ] || mkdir -p "$PVE_SPICE_SAVE_DIR" &>/dev/null
     printf_blue "Updating the configuration and setting permissions"
-    chmod 600 "$PVE_SPICE_CONFIG_DIR/initialized" "$PVE_SPICE_CONFIG_DIR/$PVE_SPICE_CONFIG_FILE"
-    touch "$PVE_SPICE_CONFIG_DIR/initialized"
-    . "$PVE_SPICE_CONFIG_DIR/initialized"
+    chmod 600 "$PVE_SPICE_NODE_CONFIG_FILE" "$PVE_SPICE_CONFIG_DIR/$PVE_SPICE_CONFIG_FILE"
+    touch "$PVE_SPICE_NODE_CONFIG_FILE"
+    . "$PVE_SPICE_NODE_CONFIG_FILE"
     __gen_config &>/dev/null
+    PVE_SPICE_NEW_INSTALL=""
     PVE_SPICE_FORCE=""
     return 0
   else
@@ -392,26 +420,23 @@ __initialize_app() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __execute_pve-spice() {
-  VMID="${1:-$PVE_SPICE_DEFAULT_MACHINE}"
-  NODE="${2:-$PVE_SPICE_DEFAULT_NODE}"
-  PROXY="${3:-$PVE_SPICE_DEFAULT_HOST}"
-  PORT="${4:-$PVE_SPICE_DEFAULT_PORT}"
   USERNAME="$PVE_SPICE_DEFAULT_USERNAME"
   PASSWORD="$PVE_SPICE_DEFAULT_PASSWORD"
   SPICEDIR="$PVE_SPICE_SAVE_DIR"
-  FILENAME="$SPICEDIR/${NODE}_${VMID}"
-  [ -n "$VMID" ] || printf_exit "VMID is required"
-  [ -n "$NODE" ] || printf_exit "NODE is required"
-  [ -n "$HOST" ] || printf_exit "HOST is required"
-  [ -n "$PORT" ] || printf_exit "PORT is required"
-  [ -n "$USERNAME" ] || printf_exit "Username is required"
-  [ -n "$PASSWORD" ] || printf_exit "Password is required"
+  FILENAME="$PVE_SPICE_SAVE_DIR/${PVE_SPICE_DEFAULT_NODE_ID}_${PVE_SPICE_DEFAULT_MACHINE}"
+  [ -n "$PVE_SPICE_DEFAULT_MACHINE" ] || __get_vm_id
 
   DATA="$(__query_server || echo '')"
-  if [[ -n "$DATA" ]]; then
+  if [ -n "$DATA" ]; then
     printf_blue "Authentication with server was a success"
     if __run_curl "$DATA"; then
-      __run_spice_viewer "${FILENAME}" &>/dev/null || exitCode=1
+      if __cmd_exists remote-viewer; then
+        __run_spice_viewer "${FILENAME}" &>/dev/null
+        return $?
+      else
+        printf_yellow "remote-viewer is required: 'virt-viewer' or 'remote-viewer'"
+      fi
+      return
     else
       printf_red "Failed to get spice file from server"
       exitCode=1
@@ -452,10 +477,11 @@ PVE_SPICE_NOTIFY_CLIENT_URGENCY="${PVE_SPICE_NOTIFY_CLIENT_URGENCY:-normal}"
 # Additional Variables
 PVE_SPICE_DEFAULT_USERNAME="${PVE_SPICE_DEFAULT_USERNAME:-root@pam}"
 PVE_SPICE_DEFAULT_PASSWORD="${PVE_SPICE_DEFAULT_PASSWORD:-Password}"
-PVE_SPICE_DEFAULT_NODE="${PVE_SPICE_DEFAULT_NODE:-pve}"
-PVE_SPICE_DEFAULT_HOST="${PVE_SPICE_DEFAULT_HOST:-pve.local}"
+PVE_SPICE_DEFAULT_NODE_ID="${PVE_SPICE_DEFAULT_NODE_ID:-pve}"
+PVE_SPICE_DEFAULT_SERVER="${PVE_SPICE_DEFAULT_SERVER:-pve.local}"
 PVE_SPICE_DEFAULT_PORT="${PVE_SPICE_DEFAULT_PORT:-8006}"
 PVE_SPICE_SAVE_DIR="${PVE_SPICE_SAVE_DIR:-$HOME/Documents/Spice}"
+PVE_SPICE_NODE_CONFIG_FILE="${PVE_SPICE_NODE_CONFIG_FILE:-$PVE_SPICE_CONFIG_DIR/$PVE_SPICE_DEFAULT_NODE_ID}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$PVE_SPICE_CONFIG_DIR/$PVE_SPICE_CONFIG_FILE" ] ||
@@ -507,7 +533,7 @@ SHORTOPTS="u:,p:,m:"
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
-LONGOPTS+=",force"
+LONGOPTS+=",force,node:"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY=""
 ARRAY+=""
@@ -586,6 +612,11 @@ while :; do
     shift 1
     PVE_SPICE_FORCE="true"
     ;;
+  --node)
+    PVE_SPICE_DEFAULT_NODE_ID="$2"
+    PVE_SPICE_NODE_CONFIG_FILE="$PVE_SPICE_CONFIG_DIR/$2"
+    shift 2
+    ;;
   -u)
     PVE_SPICE_DEFAULT_USERNAME="$2"
     shift 2
@@ -639,11 +670,10 @@ export PVE_SPICE_CWD
 #am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
-
+[ -f "$PVE_SPICE_NODE_CONFIG_FILE" ] && . "$PVE_SPICE_NODE_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
 __initialize_app "$1"
-[ "$PVE_SPICE_FORCED" = "complete" ] && shift 1
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 __execute_pve-spice "$@"

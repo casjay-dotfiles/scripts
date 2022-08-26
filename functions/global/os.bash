@@ -325,7 +325,7 @@ __find_mtime() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #find "dir" "options"
 __find() {
-  local DEF_OPTS="-type f,d"
+  local DEF_OPTS=""
   local opts="${FIND_OPTS:-$DEF_OPTS}"
   find "${*:-.}" -not -path "$dir/.git/*" $opts 2>/dev/null
 }

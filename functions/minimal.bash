@@ -897,7 +897,7 @@ __find_mtime() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #find "dir" "options"
 __find() {
-  local DEF_OPTS="-type f,d"
+  local DEF_OPTS=""
   local opts="${FIND_OPTS:-$DEF_OPTS}"
   find "${*:-.}" -not -path "$dir/.git/*" $opts 2>/dev/null
 }
@@ -917,8 +917,8 @@ __find_rel() {
   local DEF_TYPE="${FIND_TYPE:-f,l}"
   local DEF_DEPTH="${FIND_DEPTH:-1}"
   local DEF_OPTS="${FIND_OPTS:-}"
-  find $DIR/* -maxdepth $DEF_DEPTH -type $DEF_TYPE $DEF_OPTS -not \
-    -path "$dir/.git/*" -print 2>/dev/null | $sed 's#'$DIR'/##g'
+  find $DIR/* -maxdepth $DEF_DEPTH -type $DEF_TYPE $DEF_OPTS \
+    -not -path "$dir/.git/*" -print 2>/dev/null | $sed 's#'$DIR'/##g'
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #cd "dir"

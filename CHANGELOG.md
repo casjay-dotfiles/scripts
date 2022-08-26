@@ -1,3 +1,11 @@
+#### Changelog: 2022-08-25 at 21:51:59  
+
+bin/latest-iso : 🗃️ Committing everything that changed 🗃️ 🚀  
+  
+#### End of changes for 202208252130-git - 2022-08-25 at 21:51:59  
+  
+----  
+  
 #### Changelog: 2022-08-25 at 21:30:05  
 
 bin/pve-spice : 🗃️ Committing everything that changed 🗃️ 🚀  

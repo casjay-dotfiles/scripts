@@ -1,3 +1,12 @@
+#### Changelog: 2022-08-26 at 02:02:14  
+
+functions/app-installer.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+functions/global/sudo.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+  
+#### End of changes for 202208252320-git - 2022-08-26 at 02:02:14  
+  
+----  
+  
 #### Changelog: 2022-08-25 at 23:20:29  
 
 bin/latest-iso : 🗃️ Committing everything that changed 🗃️ 🚀  

@@ -759,7 +759,7 @@ __getphpver() {
   echo $PHPVER
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__sudo() { if sudo -n true; then eval sudo "$*"; else eval "$*"; fi; }
+__sudo() { sudo "$*"; }
 sudorun() { if sudoif; then sudo -HE "$@"; else "$@"; fi; }
 sudoif() { (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

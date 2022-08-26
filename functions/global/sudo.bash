@@ -28,6 +28,8 @@ WHOAMI="${USER}"
 export RUN_USER="${RUN_USER:-$USER}"
 export USER="${SUDO_USER:-$USER}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__sudo() { \sudo -HE "$@"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 sudorun() { sudoif && sudo "$@" || eval "$@"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __sudo_group() { grep "${1:-$USER}" /etc/group | grep -Eq 'wheel|adm|sudo' || return 1; }

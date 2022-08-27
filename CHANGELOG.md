@@ -1,3 +1,11 @@
+#### Changelog: 2022-08-27 at 09:33:23  
+
+bin/pkmgr : 🗃️ Committing everything that changed 🗃️ 🚀  
+  
+#### End of changes for 202208261420-git - 2022-08-27 at 09:33:23  
+  
+----  
+  
 #### Changelog: 2022-08-26 at 14:20:59  
 
 bin/screenshot-menu : 🗃️ Committing everything that changed 🗃️ 🚀  

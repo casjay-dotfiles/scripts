@@ -600,10 +600,18 @@ gem_exists() {
   gem list | grep -q "$package" && return 0 || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-node_exists() {
-  [ -n "$(builtin type -P npm 2>/dev/null)" ] || return
+npm_exists() {
+  [ -n "$(builtin type -P npm 2>/dev/null || builtin type -P yarn || echo '')" ] || return
   local package="$1"
-  npm list -g --depth=0 2>&1 | grep -q "$package@" && return 0 || return 1
+  if __cmd_exists "$package"; then
+    return 0
+  elif __cmd_exists npm && npm list -g --depth=0 2>&1 | grep -q "$package@"; then
+    return 0
+  elif __cmd_exists yarn && yarn list --depth=0 2>&1 | grep -q "$package"; then
+    return 0
+  else
+    return 1
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 perl_exists() {
@@ -949,7 +957,11 @@ scripts_check() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 is_url() { echo "$1" | grep -qE 'http://|ftp://|git://|https://'; }
-#strip_url() { echo "$1" | sed 's#git+##g' | awk -F//*/ '{print $2}' | sed 's#.*./##g' | sed 's#python-##g'; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# strip_url() {
+#   echo "$1" | sed 's#git+##g' | awk -F//*/ '{print $2}' | sed 's#.*./##g' | sed 's#python-##g'
+# }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 cmd_missing() {
   if builtin type -p "$1" &>/dev/null; then
     return 0
@@ -977,8 +989,8 @@ gem_missing() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-node_missing() {
-  if node_exists "$1"; then
+npm_missing() {
+  if npm_exists "$1"; then
     return 0
   else
     MISSING+="$1 "
@@ -997,15 +1009,6 @@ perl_missing() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 pip_missing() {
   if python_exists "$1"; then
-    return 0
-  else
-    MISSING+="$1 "
-    return 1
-  fi
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-npm_missing() {
-  if npm list -g 2>&1 | grep -q "$1"; then
     return 0
   else
     MISSING+="$1 "
@@ -1107,7 +1110,7 @@ install_required() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
+    builtin type -p "$cmd" &>/dev/null || MISSING+="$cmd "
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
@@ -1122,7 +1125,7 @@ install_required() {
   fi
   unset MISSING
   for cmd in $REQUIRED; do
-    builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
+    __cmd_exists "$cmd" &>/dev/null || MISSING+="$cmd "
   done
   if [ -n "$MISSING" ]; then
     printf_warning "Can not install all the required packages for $APPNAME"
@@ -1137,7 +1140,7 @@ install_packages() {
   local cmd=""
   if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
     for cmd in $REQUIRED; do
-      builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
+      __cmd_exists "$cmd" &>/dev/null || MISSING+="$cmd "
     done
     if [ -n "$MISSING" ]; then
       printf_warning "Attempting to install missing packages as $RUN_USER"
@@ -1177,31 +1180,12 @@ install_python() {
   unset MISSING
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-install_npm() {
-  local REQUIRED="$*"
-  local MISSING=""
-  local cmd=""
-  for cmd in $REQUIRED; do
-    builtin type -P "$cmd" &>/dev/null || npm_missing "$cmd"
-  done
-  if [ -n "$MISSING" ]; then
-    if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
-      printf_warning "Attempting to install missing pip packages"
-      printf_warning "$MISSING"
-      for miss in $MISSING; do
-        execute "pkmgr npm install $miss 2>$INSTALLER_ERR_FILE" "Installing $miss"
-      done
-    fi
-  fi
-  unset MISSING
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_perl() {
   local REQUIRED="$*"
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    builtin type -P "$cmd" &>/dev/null || perl_missing "$cmd"
+    __cmd_exists "$cmd" &>/dev/null || perl_missing "$cmd"
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
@@ -1220,7 +1204,7 @@ install_pip() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    builtin type -P "$cmd" &>/dev/null || pip_missing "$cmd"
+    __cmd_exists "$cmd" &>/dev/null || pip_missing "$cmd"
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
@@ -1239,7 +1223,7 @@ install_cpan() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    builtin type -P "$cmd" &>/dev/null || cpan_missing "$cmd"
+    __cmd_exists "$cmd" &>/dev/null || cpan_missing "$cmd"
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
@@ -1258,7 +1242,7 @@ install_gem() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    builtin type -P "$cmd" &>/dev/null || gem_missing "$cmd"
+    __cmd_exists "$cmd" &>/dev/null || gem_missing "$cmd"
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
@@ -1272,13 +1256,13 @@ install_gem() {
   unset MISSING
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-install_node() {
+install_npm() {
   builtin type -P "npm" &>/dev/null || builtin type -P "yarn" &>/dev/null || return 1
   local REQUIRED="$*"
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    node_missing "$cmd" &>/dev/null
+    npm_missing "$cmd" &>/dev/null
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then

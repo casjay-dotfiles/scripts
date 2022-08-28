@@ -82,7 +82,7 @@ trap_exit() { true; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cmd_exists() {
   for f in "$@"; do
-    builtin type -P "$f" &>/dev/null && return 0 || return 1
+    builtin type -p "$f" &>/dev/null && return 0 || return 1
   done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -951,7 +951,7 @@ scripts_check() {
 is_url() { echo "$1" | grep -qE 'http://|ftp://|git://|https://'; }
 #strip_url() { echo "$1" | sed 's#git+##g' | awk -F//*/ '{print $2}' | sed 's#.*./##g' | sed 's#python-##g'; }
 cmd_missing() {
-  if builtin type -P "$1" &>/dev/null; then
+  if builtin type -p "$1" &>/dev/null; then
     return 0
   else
     MISSING+="$1 "

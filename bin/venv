@@ -126,6 +126,7 @@ __gen_config() {
 # Settings for venv
 VENV_VIRTUAL_DIR="${VENV_VIRTUAL_DIR:-}"
 VENV_PYTHON_BIN="${VENV_PYTHON_BIN:-}"
+VENV_VIRTUAL_PATH="${VENV_VIRTUAL_PATH:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
 VENV_OUTPUT_COLOR_1="${VENV_OUTPUT_COLOR_1:-}"
@@ -165,7 +166,7 @@ __help() {
   __printf_line "*                               - Activate virtual environment if one exists"
   __printf_line "list                            - List virtual environments"
   __printf_line "activate                        - Activate virtual environment"
-  __printf_line "deactivate                      - Deactiavet the virtual environment"
+  __printf_line "deactivate                      - Deactivate the virtual environment"
   __printf_line "create [name]                   - Create a new virtual environment"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
@@ -258,44 +259,40 @@ __trap_exit() {
 # User defined functions
 __if_venv() {
   [ -z "$VIRTUAL_ENV" ] || return 1
-  local pyvenv=""
-  pyvenv="$([ -f "$PWD/pyvenv.cfg" ] && grep 'home = ' | awk -F'= ' '{print $2}' | grep '^' || echo '')"
-  [ -z "$pyvenv" ] && pyvenv="$([ -f "$PWD/.venv/pyvenv.cfg" ] && grep 'home = ' | awk -F'= ' '{print $2}' | grep '^' || echo '')"
-  if { [ -n "$VENV_VIRTUAL_FILE" ] && [ -f "$VENV_VIRTUAL_FILE" ]; }; then
-    VENV_VIRTUAL_NAME="$(basename "$VENV_VIRTUAL_DIR")"
-    VENV_VIRTUAL_DIR="$(realpath "$(dirname "$VENV_VIRTUAL_FILE")"/.. 2>/dev/null | grep '^')"
-  elif [ -n "$pyvenv" ] && [ -f "$pyvenv/activate" ]; then
-    VENV_VIRTUAL_DIR="$(realpath "$pyvenv"/.. 2>/dev/null | grep '^')"
-    VENV_VIRTUAL_NAME="$(basename "$VENV_VIRTUAL_DIR")"
-    VENV_VIRTUAL_FILE="$pyvenv/activate"
-  elif [ -f "$VENV_VIRTUAL_DIR/bin/activate" ]; then
-    VENV_VIRTUAL_NAME="$(basename "$VENV_VIRTUAL_DIR")"
-    VENV_VIRTUAL_FILE="$VENV_VIRTUAL_DIR/bin/activate"
+  if [ -f "$1/bin/activate" ]; then
+    VENV_VIRTUAL_DIR="$1"
+    VENV_VIRTUAL_FILE="$1/bin/activate"
+  elif [ -f "$PWD/.venv_name" ]; then
+    . "$PWD/.venv_name"
   elif [ -f "$PWD/.venv/bin/activate" ]; then
     VENV_VIRTUAL_DIR="$PWD/.venv"
-    VENV_VIRTUAL_FILE="$PWD/.venv/bin/activate"
+    VENV_VIRTUAL_FILE="$VENV_VIRTUAL_DIR/bin/activate"
   elif [ -f "$PWD/venv/bin/activate" ]; then
     VENV_VIRTUAL_DIR="$PWD/venv"
-    VENV_VIRTUAL_FILE="$PWD/venv/bin/activate"
+    VENV_VIRTUAL_FILE="$VENV_VIRTUAL_DIR/bin/activate"
   elif [ -f "$PWD/bin/activate" ]; then
     VENV_VIRTUAL_DIR="$PWD"
-    VENV_VIRTUAL_FILE="$PWD/bin/activate"
+    VENV_VIRTUAL_FILE="$VENV_VIRTUAL_DIR/bin/activate"
   else
     return 1
   fi
-  if [ ! -L "$PWD/.venv" ] && [ "$PWD/.venv" != "$VENV_VIRTUAL_DIR" ]; then
-    ln -sf "$VENV_VIRTUAL_DIR" "$PWD/.venv"
-  fi
+  [ -n "$VENV_VIRTUAL_NAME" ] || VENV_VIRTUAL_NAME="$(basename "$VENV_VIRTUAL_DIR")"
+  [ -L "$VENV_VIRTUAL_PATH/$VENV_VIRTUAL_NAME" ] || ln -sf "$VENV_VIRTUAL_DIR" "$VENV_VIRTUAL_PATH/$VENV_VIRTUAL_NAME"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 activate() {
   [ -n "$VIRTUAL_ENV" ] && return 0
+  if [ -n "$1" ]; then
+    VENV_VIRTUAL_NAME="$(basename "$1")"
+    VENV_VIRTUAL_DIR="$1"
+  fi
   if [ -n "$VENV_VIRTUAL_DIR" ] && [ -d "$VENV_VIRTUAL_DIR" ] && [ -f "$VENV_VIRTUAL_DIR/bin/activate" ]; then
-    VENV_VIRTUAL_NAME="${VENV_VIRTUAL_NAME:-$(basename "$1")}"
-    VENV_VIRTUAL_DIR="${VENV_VIRTUAL_DIR:-$1}"
-    . "$1/bin/activate"
+    printf_green "virtual environment has been initiated"
+    export -f activate
   elif __if_venv; then
-    [ -f "$VENV_VIRTUAL_FILE" ] && . "$VENV_VIRTUAL_FILE"
+    [ -f "$VENV_VIRTUAL_FILE" ] && . "$VENV_VIRTUAL_FILE" || printf_exit "Could not find the activate file"
+  elif [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
+    exitCode=0
   else
     printf_red "Could not find $VENV_VIRTUAL_DIR/bin/activate"
     return 1
@@ -305,13 +302,14 @@ activate() {
 __create_venv() {
   if [ -n "$VIRTUAL_ENV" ]; then
     printf_yellow "A virtual environment is already active"
-    exit 1
+    return 1
   fi
   if [ -d "$VENV_VIRTUAL_DIR" ]; then
     printf_red "$VENV_VIRTUAL_NAME already exists"
+    return 1
   elif [ -n "$1" ] && [ ! -d "$VENV_VIRTUAL_DIR" ]; then
     {
-      printf '%s\n' 'VENV_VIRTUAL_NAME='${VENV_VIRTUAL_NAME:-"$(basename "$PWD/.venv_name")"}''
+      printf '%s\n' 'VENV_VIRTUAL_NAME='${VENV_VIRTUAL_NAME:-"$(basename "$PWD")"}''
       printf '%s\n' 'VENV_VIRTUAL_DIR='"$VENV_VIRTUAL_DIR"''
       printf '%s\n' 'VENV_VIRTUAL_FILE='"$VENV_VIRTUAL_DIR/bin/activate"''
     } >"$PWD/.venv_name"
@@ -321,41 +319,39 @@ __create_venv() {
   printf_cyan "Creating a new environment for $VENV_VIRTUAL_NAME"
   if $VENV_PYTHON_BIN -m venv "$VENV_VIRTUAL_DIR" &>"/tmp/$VENV_VIRTUAL_NAME.log"; then
     if [ -f "$VENV_VIRTUAL_DIR/bin/activate" ]; then
-      if [ ! -L "$PWD/.venv" ] && [ "$PWD/.venv" != "$VENV_VIRTUAL_DIR" ]; then
-        ln -sf "$VENV_VIRTUAL_DIR" "$PWD/.venv"
+      if [ ! -L "$VENV_VIRTUAL_PATH/$VENV_VIRTUAL_NAME" ]; then
+        ln -sf "$VENV_VIRTUAL_DIR" "$VENV_VIRTUAL_PATH/$VENV_VIRTUAL_NAME"
       fi
       printf_green "virtual environment has been initiated"
-      printf_blue "Type quit to exit the virtual environment"
-      exec bash -s "$VENV_VIRTUAL_DIR/bin/activate"
+      printf_yellow "To activate the virtual env type activate"
     else
       printf_yellow "Something went wrong"
     fi
   else
     printf_red "Failed to initiate the virtual environment"
     printf_yellow "in: $VENV_VIRTUAL_DIR"
-    [ -d "$VENV_VIRTUAL_DIR" ] && rm -Rf "$VENV_VIRTUAL_DIR"
     [ -f "$PWD/.venv_name" ] && rm -Rf "$PWD/.venv_name"
+    [ -d "$VENV_VIRTUAL_DIR" ] && rm -Rf "$VENV_VIRTUAL_DIR"
     [ -s "/tmp/$VENV_VIRTUAL_NAME.log" ] && cat "/tmp/$VENV_VIRTUAL_NAME.log" | printf_readline
-    exit 1
+    return 1
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __set_env() {
-  if [ "$1" = "." ]; then
-    VENV_VIRTUAL_NAME="$(basename "$(realpath ".")")"
-    VENV_VIRTUAL_DIR="$VENV_VIRTUAL_DIR/$VENV_VIRTUAL_NAME"
+  if [ "${1:-$VENV_VIRTUAL_DIR}" = "." ]; then
+    VENV_VIRTUAL_DIR="$PWD/.venv"
+    VENV_VIRTUAL_NAME="$(basename "$PWD")"
   elif echo "$1" | grep -q "/"; then
-    VENV_VIRTUAL_NAME="$(basename "$(realpath "$1")")"
     VENV_VIRTUAL_DIR="$(realpath "$1")"
+    VENV_VIRTUAL_NAME="$(basename "$(realpath "$1")")"
   else
-    VENV_VIRTUAL_NAME="$(basename "${1:-$VENV_VIRTUAL_DIR}")"
-    VENV_VIRTUAL_DIR="$VENV_VIRTUAL_DIR/$VENV_VIRTUAL_NAME"
+    VENV_VIRTUAL_DIR="$VENV_VIRTUAL_DIR/${1:-.venv}"
+    VENV_VIRTUAL_NAME="$(basename "$VENV_VIRTUAL_DIR")"
   fi
-  VENV_VIRTUAL_DIR="${VENV_VIRTUAL_DIR//\/\///}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
-VENV_VIRTUAL_DIR="$SETV_VIRTUAL_DIR_PATH"
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application Folders
 VENV_CONFIG_FILE="${VENV_CONFIG_FILE:-settings.conf}"
@@ -382,7 +378,8 @@ VENV_NOTIFY_CLIENT_ICON="${VENV_NOTIFY_CLIENT_ICON:-notification-new}"
 VENV_NOTIFY_CLIENT_URGENCY="${VENV_NOTIFY_CLIENT_URGENCY:-normal}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional Variables
-VENV_VIRTUAL_DIR="${VENV_VIRTUAL_DIR:-$HOME/.local/share/python/setvenv}"
+VENV_VIRTUAL_DIR="${VENV_VIRTUAL_DIR:-.}"
+VENV_VIRTUAL_PATH="${SETV_VIRTUAL_DIR_PATH:-$VENV_VIRTUAL_PATH}"
 VENV_PYTHON_BIN="${VENV_PYTHON_BIN:-$(builtin type -P /usr/local/bin/python3 || builtin type -P /usr/bin/python3 || echo '')}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
@@ -574,7 +571,7 @@ list)
 activate)
   shift 1
   __set_env "$@"
-  activate "$@" && exec bash
+  activate "$@"
   ;;
 
 deativate)
@@ -605,6 +602,6 @@ exitCode="${exitCode:-$?}"
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # lets exit with code
-exit ${exitCode:-$?}
+[[ "${BASH_SOURCE[0]}" != "${0}" ]] && return ${exitCode:-$?} || exit ${exitCode:-$?}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # end

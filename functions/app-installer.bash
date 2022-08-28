@@ -1013,6 +1013,15 @@ pip_missing() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+npm_missing() {
+  if npm list -g 2>&1 | grep -q "$1"; then
+    return 0
+  else
+    MISSING+="$1 "
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -f "$(builtin type -P pacman 2>/dev/null)" ]; then
   python_missing() {
     if python_exists "$1"; then
@@ -1216,6 +1225,25 @@ install_pip() {
       printf_warning "$MISSING"
       for miss in $MISSING; do
         execute "pkmgr pip install $miss 2>$INSTALLER_ERR_FILE" "Installing $miss"
+      done
+    fi
+  fi
+  unset MISSING
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+install_npm() {
+  local REQUIRED="$*"
+  local MISSING=""
+  local cmd=""
+  for cmd in $REQUIRED; do
+    builtin type -P "$cmd" &>/dev/null || npm_missing "$cmd"
+  done
+  if [ -n "$MISSING" ]; then
+    if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
+      printf_warning "Attempting to install missing pip packages"
+      printf_warning "$MISSING"
+      for miss in $MISSING; do
+        execute "pkmgr npm install $miss 2>$INSTALLER_ERR_FILE" "Installing $miss"
       done
     fi
   fi

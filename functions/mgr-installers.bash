@@ -601,13 +601,15 @@ gem_exists() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 npm_exists() {
-  [ -n "$(builtin type -P npm 2>/dev/null || builtin type -P yarn || echo '')" ] || return
+  [ -n "$(builtin type -P npm 2>/dev/null || builtin type -P yarn || builtin type -P pnpm || echo '')" ] || return
   local package="$1"
   if __cmd_exists "$package"; then
     return 0
   elif __cmd_exists npm && npm list -g --depth=0 2>&1 | grep -q "$package@"; then
     return 0
-  elif __cmd_exists yarn && yarn list --depth=0 2>&1 | grep -q "$package"; then
+  elif __cmd_exists yarn && yarn list -g --depth=0 2>&1 | grep -q "$package"; then
+    return 0
+  elif __cmd_exists pnpm && pnpm list -g --depth=0 2>&1 | grep -q "$package"; then
     return 0
   else
     return 1

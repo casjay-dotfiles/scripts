@@ -1,3 +1,11 @@
+#### Changelog: 2022-08-28 at 18:51:15  
+
+functions/mgr-installers.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+  
+#### End of changes for 202208281821-git - 2022-08-28 at 18:51:15  
+  
+----  
+  
 #### Changelog: 2022-08-28 at 18:21:59  
 
 functions/mgr-installers.bash : 🗃️ Committing everything that changed 🗃️ 🚀  

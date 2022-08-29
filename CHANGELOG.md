@@ -1,3 +1,11 @@
+#### Changelog: 2022-08-28 at 20:45:19  
+
+bin/tmux-new : Added 🚀  
+  
+#### End of changes for 202208281851-git - 2022-08-28 at 20:45:19  
+  
+----  
+  
 #### Changelog: 2022-08-28 at 18:51:15  
 
 functions/mgr-installers.bash : 🗃️ Committing everything that changed 🗃️ 🚀  

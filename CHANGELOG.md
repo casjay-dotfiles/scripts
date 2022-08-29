@@ -1,3 +1,11 @@
+#### Changelog: 2022-08-29 at 08:39:52  
+
+bin/pkmgr : 🗃️ Committing everything that changed 🗃️ 🚀  
+  
+#### End of changes for 202208281851-git - 2022-08-29 at 08:39:52  
+  
+----  
+  
 #### Changelog: 2022-08-28 at 20:45:19  
 
 bin/tmux-new : Added 🚀  

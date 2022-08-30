@@ -1,3 +1,11 @@
+#### Changelog: 2022-08-30 at 11:00:02  
+
+bin/tmux-new : 🗃️ Committing everything that changed 🗃️ 🚀  
+  
+#### End of changes for 202208300952-git - 2022-08-30 at 11:00:02  
+  
+----  
+  
 #### Changelog: 2022-08-30 at 10:17:02  
 
 bin/devenvmgr : Fixed - gitadmin setup commands 🚀  

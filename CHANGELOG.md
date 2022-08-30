@@ -1,3 +1,17 @@
+#### Changelog: 2022-08-30 at 10:17:02  
+
+bin/devenvmgr : Fixed - gitadmin setup commands 🚀  
+bin/gen-dockerfile : Fixed - gitadmin setup commands 🚀  
+bin/gitadmin : Fixed - gitadmin setup commands 🚀  
+bin/gitcommit : Fixed - gitadmin setup commands 🚀  
+bin/notes : Fixed - gitadmin setup commands 🚀  
+bin/todo : Fixed - gitadmin setup commands 🚀  
+functions/global/git.bash : Fixed - gitadmin setup commands 🚀  
+  
+#### End of changes for 202208300952-git - 2022-08-30 at 10:17:02  
+  
+----  
+  
 #### Changelog: 2022-08-30 at 09:52:13  
 
 bin/gitadmin : 🗃️ Committing everything that changed 🗃️ 🚀  

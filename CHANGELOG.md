@@ -1,3 +1,11 @@
+#### Changelog: 2022-08-30 at 09:39:22  
+
+bin/gitadmin : 🗃️ Fixing git commands 🗃️ 🚀  
+  
+#### End of changes for 202208291547-git - 2022-08-30 at 09:39:22  
+  
+----  
+  
 #### Changelog: 2022-08-30 at 09:24:45  
 
 functions/mgr-installers.bash : Fixed 🚀  

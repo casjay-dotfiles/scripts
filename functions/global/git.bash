@@ -99,7 +99,7 @@ __git_init() {
   [ -n "$1" ] && local dir="$1" && shift 1 || local dir="${APPDIR:-.}"
   if builtin type -P gitadmin &>/dev/null; then
     if [ -d "$2" ]; then shift 1; fi
-    gitadmin "$dir" setup
+    gitadmin --dir "$dir" setup
   else
     set --
     __mkd "$dir"

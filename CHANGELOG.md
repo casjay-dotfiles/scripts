@@ -1,3 +1,11 @@
+#### Changelog: 2022-08-30 at 12:17:23  
+
+bin/tmux-new : Improved 🚀  
+  
+#### End of changes for 202208301100-git - 2022-08-30 at 12:17:23  
+  
+----  
+  
 #### Changelog: 2022-08-30 at 11:00:02  
 
 bin/tmux-new : 🗃️ Committing everything that changed 🗃️ 🚀  

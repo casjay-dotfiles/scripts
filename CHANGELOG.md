@@ -1,3 +1,11 @@
+#### Changelog: 2022-08-30 at 09:24:45  
+
+functions/mgr-installers.bash : Fixed 🚀  
+  
+#### End of changes for 202208291547-git - 2022-08-30 at 09:24:45  
+  
+----  
+  
 #### Changelog: 2022-08-29 at 15:47:44  
 
 bin/define : 🗃️ Added sanity check 🗃️ 🚀  

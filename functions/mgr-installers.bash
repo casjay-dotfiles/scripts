@@ -2401,7 +2401,7 @@ run_install_init() {
     printf_purple "$REPORAW/install.sh"
     urlcheck "$REPORAW/install.sh" || {
       printf_red "Failed to initialize the installer from:"
-      print_yellow "$REPORAW/install.sh\n"
+      printf_yellow "$REPORAW/install.sh\n"
       run_cleanup
       exit 5
     }

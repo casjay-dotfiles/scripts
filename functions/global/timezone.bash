@@ -14,9 +14,10 @@
 # @Resource          :
 # @sudo/root         :  no
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ -f "/etc/timezone" ]; then
-  TIMEZONE="$(<"/etc/timezone")"
+if [ -n "$TIMEZONE" ]; then
   TZ="$TIMEZONE"
+elif [ -n "TZ" ]; then
+  TIMEZONE="$TZ"
 else
   TIMEZONE="America/New_York"
   TZ="$TIMEZONE"

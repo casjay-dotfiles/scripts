@@ -51,7 +51,7 @@ Only linux is supported
   
 Manual install:  
 
-  ```shell
+```shell
 APPDIR="$HOME/.local/share/CasjaysDev/desktopmgr/GEN_README_REPLACE_APPNAME"
 mv -fv "$HOME/.config/GEN_README_REPLACE_APPNAME" "$HOME/.config/GEN_README_REPLACE_APPNAME.bak"
 git clone "https://github.com/desktopmgr/GEN_README_REPLACE_APPNAME" "$APPDIR"

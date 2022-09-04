@@ -45,7 +45,7 @@ brew install GEN_README_REPLACE_APPNAME
   
 #### Manual install  
 
-  ```shell
+```shell
 APPDIR="$HOME/.local/share/CasjaysDev/dfmgr/GEN_README_REPLACE_APPNAME"
 mv -fv "$HOME/.config/GEN_README_REPLACE_APPNAME" "$HOME/.config/GEN_README_REPLACE_APPNAME.bak"
 git clone https://github.com/dfmgr/GEN_README_REPLACE_APPNAME "$APPDIR"

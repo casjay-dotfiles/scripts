@@ -1,3 +1,13 @@
+#### Changelog: 2022-09-04 at 09:24:16  
+
+templates/readmes/installers/desktopmgr.md : 🗃️ Committing everything that changed 🗃️ 🚀  
+templates/readmes/installers/dfmgr.md : 🗃️ Committing everything that changed 🗃️ 🚀  
+templates/readmes/installers/pkmgr.md : 🗃️ Committing everything that changed 🗃️ 🚀  
+  
+#### End of changes for 202209030018-git - 2022-09-04 at 09:24:16  
+  
+----  
+  
 #### Changelog: 2022-09-03 at 00:18:49  
 
 functions/global/timezone.bash : 🗃️ Committing everything that changed 🗃️ 🚀  

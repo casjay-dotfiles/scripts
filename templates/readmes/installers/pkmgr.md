@@ -7,8 +7,9 @@ GEN_README_REPLACE_DESCRIBE
 
 ```shell
 sudo bash -c "$(curl -q -LSsf "https://github.com/pkmgr/installer/raw/GEN_README_REPLACE_DEFAULT_BRANCH/install.sh")" && sudo pkmgr install installer  
+```
 
-### Automatic install/update:  
+### Automatic install/update  
 
 ```shell
 bash -c "$(curl -q -LSsf "https://github.com/pkmgr/installer/raw/GEN_README_REPLACE_DEFAULT_BRANCH/install.sh")"

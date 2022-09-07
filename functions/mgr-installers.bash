@@ -2068,7 +2068,7 @@ desktopmgr_install_version() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 dockermgr_install() {
   user_installdirs
-  if [ ! -f "$(builtin type -P 2>/dev/null)" ]; then
+  if [ ! -f "$(builtin type -P docker 2>/dev/null)" ]; then
     printf_exit 1 1 "This requires docker, however, docker wasn't found"
   fi
   SCRIPTS_PREFIX="dockermgr"

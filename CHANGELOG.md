@@ -1,3 +1,12 @@
+#### Changelog: 2022-09-07 at 00:19:18  
+
+functions/app-installer.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+functions/mgr-installers.bash : 🗃️ Committing everything that changed 🗃️ 🚀  
+  
+#### End of changes for 202209062316-git - 2022-09-07 at 00:19:18  
+  
+----  
+  
 #### Changelog: 2022-09-06 at 23:16:11  
 
 bin/buildx : 🗃️ Committing everything that changed 🗃️ 🚀  

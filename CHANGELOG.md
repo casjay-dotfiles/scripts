@@ -1,3 +1,11 @@
+#### Changelog: 2022-09-06 at 22:59:37  
+
+bin/buildx : 🗃️ Committing everything that changed 🗃️ 🚀  
+  
+#### End of changes for 202209062105-git - 2022-09-06 at 22:59:37  
+  
+----  
+  
 #### Changelog: 2022-09-06 at 21:05:21  
 
 install.sh : 🗃️ Committing everything that changed 🗃️ 🚀  

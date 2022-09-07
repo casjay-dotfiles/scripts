@@ -149,19 +149,17 @@ run_postinst() {
   systemmgr_run_post
   motdDir="/etc/casjaysdev/messages"
   verDir="/etc/casjaysdev/updates/versions"
-  fontdir="$(ls "$CASJAYSDEVSAPPDIR/fontmgr" | wc -l)"
+  fontdir="$(ls -A "$CASJAYSDEVSAPPDIR/fontmgr/" | wc -l)"
   git config --global pull.rebase true
   ln_rm "$SHARE/applications/"
   mkdir -p "$motdDir/motd" "$motdDir/issue" "$motdDir/legal"
   mkdir -p "$verDir" "/usr/local/share/CasjaysDev/apps/fontmgr"
-  grep -sRiq "git" "$verDir/configs.txt" && sudo rm -Rfv "$verDir/configs.txt"
   [ "$fontdir" = "0" ] && sudo fontmgr install Hack all-the-icons fontawesome LigatureSymbols
   for app in $(ls "$CASJAYSDEVDIR/applications"); do
     ln_sf "$CASJAYSDEVDIR/applications/$app" "$SYSSHARE/applications/$app"
   done
-  if [ -f "$INSTDIR/templates/casjaysdev-legal.txt" ]; then
-    [ -f /etc/casjaysdev/messages/legal/000.txt ] ||
-      cp_rf "$INSTDIR/templates/casjaysdev-legal.txt" "/etc/casjaysdev/messages/legal/000.txt"
+  if [ -f "$INSTDIR/templates/casjaysdev-legal.txt" ] && [ ! -f "/etc/casjaysdev/messages/legal/000.txt" ]; then
+    cp_rf "$INSTDIR/templates/casjaysdev-legal.txt" "/etc/casjaysdev/messages/legal/000.txt"
   fi
   [ -f "$verDir/configs.txt" ] || date +"${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}" | sudo tee "$verDir/configs.txt" &>/dev/null
   [ -f "$verDir/date.configs.txt" ] || date +"%b %d, %Y at %H:%M" | sudo tee "$verDir/date.configs.txt" &>/dev/null
@@ -182,7 +180,7 @@ run_postinst() {
   done
   cmd_exists --config &>/dev/null
   cmd_exists update-ip && update-ip
-  cmd_exists update-motd && update-motd || true
+  cmd_exists update-motd && update-motd
   for mgr in devenvmgr dfmgr dockermgr fontmgr iconmgr passmgr pkmgr systemmgr thememgr wallpapermgr; do
     eval "$mgr" --config &>/dev/null
   done

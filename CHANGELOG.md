@@ -1,3 +1,11 @@
+#### Changelog: 2022-09-07 at 01:56:31  
+
+bin/dockermgr : 🗃️ Committing everything that changed 🗃️ 🚀  
+  
+#### End of changes for 202209070019-git - 2022-09-07 at 01:56:31  
+  
+----  
+  
 #### Changelog: 2022-09-07 at 00:19:18  
 
 functions/app-installer.bash : 🗃️ Committing everything that changed 🗃️ 🚀  

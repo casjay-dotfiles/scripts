@@ -334,7 +334,7 @@ printf_read_question_nt() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_read_passwd() {
-  printf_read_question_nt ${1:-3} "${2:-$1}:" "100" "${3:-$2}" "-s"
+  printf_read_question_nt ${1:-3} "${2:-$1}:" "100" "${3:-password}" "-s"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_read_error() {

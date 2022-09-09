@@ -441,7 +441,7 @@ printf_read_question_nt() {
   local reply="${1:-REPLY}" && shift 1
   local readopts="${1:-}" && shift 1
   printf_color "\t\t$msg " "${PRINTF_COLOR:-$color}"
-  read -e -r -n $lines ${readopts?} ${reply?} || return 1
+  read -e -r -n $lines ${readopts:-} ${reply:-} || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_read_passwd() {

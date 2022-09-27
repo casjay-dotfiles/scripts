@@ -426,7 +426,7 @@ __sudo() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run command as root
 __requiresudo() {
-  [ "$1" = "install" ] || [ "$1" = "remove" ] || [ "$1" = "cron" ] || [ "$1" = "update" ] || return 0
+  [ "$2" = "install" ] || [ "$2" = "remove" ] || [ "$2" = "cron" ] || [ "$2" = "update" ] || return 0
   if [ "$GEN_SCRIPT_REPLACE_ENV_REQUIRE_SUDO" = "yes" ] && [ -z "$GEN_SCRIPT_REPLACE_ENV_REQUIRE_SUDO_RUN" ]; then
     export GEN_SCRIPT_REPLACE_ENV_REQUIRE_SUDO="no"
     export GEN_SCRIPT_REPLACE_ENV_REQUIRE_SUDO_RUN="true"
@@ -652,7 +652,7 @@ export GEN_SCRIPT_REPLACE_ENV_CWD
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
-__sudoif && __requiresudo "$0" "${SETARGS[@]}" || exit 2 # exit 2 if errors
+__sudoif && __requiresudo "$0" "$@" || exit 2 # exit 2 if errors
 # __cmd_exists bash || exit 3                              # exit with error code 3 if not found
 # __am_i_online "1.1.1.1" || exit 4                        # exit with error code 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

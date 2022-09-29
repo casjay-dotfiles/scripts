@@ -106,6 +106,8 @@ SERVER_SSL_DIR="$DATADIR/ssl"
 SERVER_DATA_DIR="$DATADIR/data"
 SERVER_CONFIG_DIR="$DATADIR/config"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+DOCKER_HOST_IP="${DOCKER_HOST_IP:-$(ip a show docker0 | grep -w 'inet' | awk -F'/' '{print $1}' | awk '{print $2}' | grep '^')}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Override container variables
 LOCAL_SSL_DIR="${LOCAL_SSL_DIR:-$SERVER_SSL_DIR}"
 LOCAL_DATA_DIR="${LOCAL_DATA_DIR:-$SERVER_DATA_DIR}"
@@ -136,8 +138,8 @@ SERVER_PORT_ADMIN_EXT="${SERVER_PORT_ADMIN_EXT:-}"
 SERVER_PORT_ADMIN_INT="${SERVER_PORT_ADMIN_INT:-}"
 SERVER_PORT_OTHER_EXT="${SERVER_PORT_OTHER_EXT:-}"
 SERVER_PORT_OTHER_INT="${SERVER_PORT_OTHER_INT:-}"
-SERVER_WEB_PORT="${SERVER_WEB_PORT:-$SERVER_PORT}"
-SERVER_PROXY="${SERVER_PROXY:-https://$SERVER_LISTEN:$SERVER_PORT}"
+SERVER_WEB_PORT="${SERVER_WEB_PORT:-$SERVER_PORT_EXT}"
+SERVER_PROXY="${SERVER_PROXY:-https://$SERVER_LISTEN:$SERVER_PORT_EXT}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show user info message
 SERVER_MESSAGE_USER=""
@@ -151,8 +153,7 @@ HUB_URL="hello-world"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # import global variables
 if [ -f "$APPDIR/env.sh" ] && [ ! -f "$DOCKERMGR_HOME/env/$APPNAME" ]; then
-  mkdir -p "$DOCKERMGR_HOME/env" &&
-    cp -Rf "$APPDIR/env.sh" "$DOCKERMGR_HOME/env/$APPNAME"
+  cp -Rf "$APPDIR/env.sh" "$DOCKERMGR_HOME/env/$APPNAME"
 fi
 [ -f "$DOCKERMGR_HOME/env/$APPNAME" ] && . "$DOCKERMGR_HOME/env/$APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

@@ -1,3 +1,12 @@
+#### Changelog: 2022-09-29 at 13:55:46  
+
+bin/dockermgr : 🗃️ Committing everything that changed 🗃️ 🚀  
+templates/scripts/installers/dockermgr.sh : 🗃️ Committing everything that changed 🗃️ 🚀  
+  
+#### End of changes for 202209291250-git - 2022-09-29 at 13:55:46  
+  
+----  
+  
 #### Changelog: 2022-09-29 at 12:50:29  
 
 bin/buildx : 🗃️ Committing everything that changed 🗃️ 🚀  

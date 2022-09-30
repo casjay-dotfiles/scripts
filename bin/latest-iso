@@ -489,10 +489,10 @@ __grab_iso() {
   url="${url:-$1}"
   latest="${1:-$latest}"
   latest_file="${2:-$download_file}"
-  remote_filesize="$(__remote_filesize "$latest")"
   system_arch="$(__get_arch)"
   iso_arch="$(__verify_arch "$latest")"
   download_file="$(__set_filename ${latest_file:-$download_file} "$iso_arch")"
+  __remote_filesize "$latest"
   [ -z "$FORCE_INST" ] || __rm_rf "$download_file"
   [ -d "$LATEST_ISO_DOWNLOAD_DIR" ] || mkdir -p "$LATEST_ISO_DOWNLOAD_DIR"
   [ "$system_arch" = "$iso_arch" ] && set_system_arch="$system_arch" || set_system_arch="$iso_arch"
@@ -525,11 +525,13 @@ __grab_iso() {
       curl -q -LSsf -o "$download_file" "$latest" 2>/dev/null && success="true" || success=""
     fi
     [ -f "$download_file" ] && __filesize_local "$download_file"
-    if __verify_filesizes $local_file_size $remote_filesize; then
-      printf_green "Downloading of the ISO was successful" ||
-        { printf_red "Downloading of the ISO was unsuccessful" && exitFailed=1; }
+    if __verify_filesizes "$local_file_size_raw" "$remote_file_size_raw"; then
+      printf_green "Downloading of the ISO was successful"
       exitCode=${exitFailed:-0}
-    elif ! __verify_filesizes $local_file_size $remote_filesize; then
+    elif __verify_filesizes "$local_file_size" "$remote_file_size"; then
+      printf_green "Downloading of the ISO was successful"
+      exitCode=${exitFailed:-0}
+    elif ! __verify_filesizes "$local_file_size_raw" "$remote_file_size_raw"; then
       printf_red "Downloading of the ISO was unsuccessful"
       exitCode="1"
     else
@@ -542,10 +544,10 @@ __grab_iso() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __verify_filesizes() {
-  local local_version="" remote_version=""
-  local_version="$(printf '%s' "$1" | sed 's/[^0-9]*//g' | tr -d '\n')"
-  remote_version="$(printf '%s' "$2" | sed 's/[^0-9]*//g' | tr -d '\n')"
-  if [ "$remote_version" -le $local_version ]; then
+  local local_size="" remote_size=""
+  local_size="$(__get_numbers "$1")"
+  remote_size="$(__get_numbers "$2")"
+  if [ "$local_size" -ge "$remote_size" ]; then
     return 0
   else
     return 1
@@ -554,13 +556,13 @@ __verify_filesizes() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __filesize_local() {
   set -o pipefail
-  local local_file=""
-  local_file="${1:-$download_file}"
-  local_file_size=""
-  if [ -f "$local_file" ]; then
-    local_file_size="$(find "$download_file" -type f -exec du -h {} \; | awk '{print $1}' | grep -v '^$' || echo '')"
+  local filename="${1:-$download_file}"
+  if [ -f "$filename" ]; then
+    local_file_size="$(find "$filename" -type f -exec du -h {} \; | awk '{print $1}' | grep -v '^$' || echo '0')"
+    local_file_size_raw="$(find "$filename" -type f -exec du -b {} \; | awk '{print $1}' | grep -v '^$' || echo '0')"
     if [ -n "$local_file_size" ]; then
       printf_cyan "The size of the local file is: $local_file_size"
+      return 0
     else
       return 1
     fi
@@ -581,14 +583,16 @@ __remote_filesize() {
   fi
   if [ "$content_length" = 0B ]; then
     content_length=""
+    remote_file_size_raw="0"
   fi
   [ -n "$content_length" ] || content_length=0
+  [ -n "$remote_file_size_raw" ] || remote_file_size_raw="$content_length"
   if cmd_exists numfmt; then
-    numfmt --to=iec-i --suffix=B "$content_length" | sed 's|iB$||g'
+    remote_filesize="$(numfmt --to=iec-i --suffix=B "$content_length" | sed 's|iB$||g')"
   elif cmd_exists gnumfmt; then
-    gnumfmt --to=iec-i --suffix=B "$content_length" | sed 's|iB$||g'
+    remote_filesize="$(gnumfmt --to=iec-i --suffix=B "$content_length" | sed 's|iB$||g')"
   else
-    printf '%s\n' "$content_length"
+    remote_filesize="$(printf '%s\n' "$content_length")"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -780,6 +784,10 @@ __latest_list() {
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_numbers() {
+  printf '%s' "$1" | sed 's/[^0-9]*//g' | tr -d '\n' | grep '^' || printf '0'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -883,7 +891,7 @@ SHORTOPTS="C"
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
-LONGOPTS+=",force,all,ask"
+LONGOPTS+=",force,all,ask,filename:"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="iso alma alpine arch archcraft arco centos clear "
 ARRAY+="debian endeavour fedora garuda heads kali manjaro "
@@ -973,6 +981,10 @@ while :; do
     shift 1
     export LATEST_ISO_OVERWRITE="yes"
     ;;
+  --filename)
+    LATEST_ISO_FILENAME="$2"
+    shift 2
+    ;;
   --)
     shift 1
     break
@@ -1026,20 +1038,32 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 case "$1" in
+gui)
+  shift 1
+  __gui
+  ;;
 iso)
   shift 1
   if [ $# -eq 0 ]; then
-    __gui
-  elif [ $# -le 2 ]; then
-    __latest_iso "$1" "$LATEST_ISO_DOWNLOAD_DIR/$(basename "${2:-$1}")"
-  else
     printf_exit "Usage: $APPNAME iso <url> <filename>"
+  elif [ $# -eq 1 ]; then
+    LATEST_ISO_FILENAME="${LATEST_ISO_FILENAME:-$(basename "$1")}"
+    __grab_iso "$1" "$LATEST_ISO_DOWNLOAD_DIR/$LATEST_ISO_FILENAME"
+    exitCode=$?
+  elif [ $# -eq 2 ]; then
+    LATEST_ISO_FILENAME="${LATEST_ISO_FILENAME:-$(basename "$2")}"
+    __grab_iso "$1" "$LATEST_ISO_DOWNLOAD_DIR/$LATEST_ISO_FILENAME"
+    exitCode=$?
   fi
-  exit $?
+  exit ${exitCode:-1}
   ;;
 
 *)
-  __latest_list "$@"
+  if [ $# -ne 0 ]; then
+    __latest_list "$@"
+  else
+    __help
+  fi
   ;;
 esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

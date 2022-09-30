@@ -1,3 +1,61 @@
+#### Changelog: 2022-09-29 at 21:27:18  
+
+bin/latest-iso : Fixed 🚀  
+version.txt : Fixed 🚀  
+  
+#### End of changes for 202209292126-git - 2022-09-29 at 21:27:18  
+  
+----  
+  
+#### Changelog: 2022-09-29 at 21:26:52  
+
+bin/latest-iso : 🗃️ Committing everything that changed 🗃️ 🚀  
+kinetic-desktop-amd64.x86_64.iso : 🗃️ Committing everything that changed 🗃️ 🚀  
+version.txt : 🗃️ Committing everything that changed 🗃️ 🚀  
+  
+#### End of changes for 202209292125-git - 2022-09-29 at 21:26:52  
+  
+----  
+  
+#### Changelog: 2022-09-29 at 21:25:22  
+
+bin/latest-iso : 🗃️ Committing everything that changed 🗃️ 🚀  
+kinetic-desktop-amd64.x86_64.iso : 🗃️ Committing everything that changed 🗃️ 🚀  
+version.txt : 🗃️ Committing everything that changed 🗃️ 🚀  
+  
+#### End of changes for 202209292124-git - 2022-09-29 at 21:25:22  
+  
+----  
+  
+#### Changelog: 2022-09-29 at 21:24:48  
+
+bin/latest-iso : 🗃️ Committing everything that changed 🗃️ 🚀  
+kinetic-desktop-amd64.x86_64.iso : 🗃️ Committing everything that changed 🗃️ 🚀  
+version.txt : 🗃️ Committing everything that changed 🗃️ 🚀  
+  
+#### End of changes for 202209292124-git - 2022-09-29 at 21:24:48  
+  
+----  
+  
+#### Changelog: 2022-09-29 at 21:24:27  
+
+bin/latest-iso : 🗃️ Committing everything that changed 🗃️ 🚀  
+kinetic-desktop-amd64.x86_64.iso : 🗃️ Committing everything that changed 🗃️ 🚀  
+version.txt : 🗃️ Committing everything that changed 🗃️ 🚀  
+  
+#### End of changes for 202209292123-git - 2022-09-29 at 21:24:27  
+  
+----  
+  
+#### Changelog: 2022-09-29 at 21:23:45  
+
+bin/latest-iso : 🗃️ Committing everything that changed 🗃️ 🚀  
+kinetic-desktop-amd64.x86_64.iso : 🗃️ Committing everything that changed 🗃️ 🚀  
+  
+#### End of changes for 202209291855-git - 2022-09-29 at 21:23:45  
+  
+----  
+  
 #### Changelog: 2022-09-29 at 18:55:25  
 
 bin/buildx : 🗃️ Committing everything that changed 🗃️ 🚀  

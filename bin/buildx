@@ -266,6 +266,20 @@ __trap_exit() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
+__is_buildx_installed() {
+  if docker buildx 2>&1 | grep -q 'is not a docker command' &>/dev/null; then
+    printf_exit "The module 'docker buildx' is not installed"
+  fi
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__is_docker_installed() {
+  if ! type -p docker &>/dev/null; then
+    printf_red "Docker is not installed either run dockermgr init"
+    printf_exit "or refer to docker documentation for installation"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __is_initialized() {
   [ "$BUILDX_FORCE" != "true" ] && [ -n "$builder_id" ] &&
     [ -n "$qemu_imagename" ] && [ -n "$binfmt_imagename" ] &&
@@ -334,38 +348,30 @@ __buildx_init() {
   if [ "$BUILDX_FORCE" = "true" ]; then
     __docker rm -f "$builder_id" "$qemu_imagename" "$binfmt_imagename" &>/dev/null
   fi
-  # Fail if no buildx support
-  if __docker buildx | grep 'Usage' | head -n1 | grep -qv 'docker buildx'; then
-    printf_exit "The module 'docker buildx' is not installed"
-  fi
   # Exit if already setup
   if __is_initialized; then
     printf_cyan "buildx seems to be already setup"
     return 0
   else
     printf_yellow "Initializing docker build"
-    if ! type -P docker &>/dev/null; then
-      printf_red "Docker is not installed either run dockermgr init"
-      printf_exit "or refer to docker documentation for installation"
-    fi
-
     if [ -n "$binfmt" ] || [ -n "$qemu" ]; then
       printf_yellow "Removing old containers: $qemu_imagename,$binfmt_imagename"
       __docker rm -f "$qemu_imagename" &>/dev/null
       __docker rm -f "$binfmt_imagename" &>/dev/null
     fi
-    # Setup qemu
-    printf_yellow "Setting up the qemu image - multiarch/qemu-user-static as $qemu_imagename"
-    __docker run -d --name "$qemu_imagename" --privileged multiarch/qemu-user-static --reset -p yes &>/dev/null
-    # Setup binfmt
-    printf_yellow "Setting up the binfmt image - tonistiigi/binfmt as $binfmt_imagename"
-    __docker run -d --name "$binfmt_imagename" --privileged tonistiigi/binfmt --install all &>/dev/null
-    # setup buildx
-    printf_blue "Setting up docker build to use buildx"
-    __docker buildx create --name "$name" --use &>/dev/null
-    __docker buildx use "$name" &>/dev/null
-    __docker buildx inspect --bootstrap &>/dev/null
-
+    if [ "$(uname -m)" = "x86_64" ]; then
+      # Setup qemu
+      printf_yellow "Setting up the qemu image - multiarch/qemu-user-static as $qemu_imagename"
+      __docker run -d --name "$qemu_imagename" --privileged multiarch/qemu-user-static --reset -p yes &>/dev/null
+      # Setup binfmt
+      printf_yellow "Setting up the binfmt image - tonistiigi/binfmt as $binfmt_imagename"
+      __docker run -d --name "$binfmt_imagename" --privileged tonistiigi/binfmt --install all &>/dev/null
+      # setup buildx
+      printf_blue "Setting up docker build to use buildx"
+      __docker buildx create --name "$name" --use &>/dev/null
+      __docker buildx use "$name" &>/dev/null
+      __docker buildx inspect --bootstrap &>/dev/null
+    fi
     printf_blue "Making sure docker service is running"
     if sudo systemctl status docker.service docker.socket | grep -q 'daemon-reload'; then
       sudo systemctl daemon-reload
@@ -449,6 +455,7 @@ __build_cmd() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __execute_buildx() {
+  __is_buildx_installed
   echo "$*" | grep -q '.*.:.*.' && __usage
   [ $# -ne 0 ] || __usage
   exitCode=0
@@ -553,14 +560,14 @@ __api_search() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __api_source() {
   local list
-  list="$(__curl "https://api.github.com/orgs/$BUILDX_GIT_REPO_USER/repos?per_page=1000" | __jq -r '.[].name' | grep '^')"
-  [ -n "$list" ] || list="$(__curl -q -LSsf "https://api.github.com/users/${1:-casjaysdevdocker}/repos?per_page=1000" | __jq -r '.[].name' | grep '^')"
+  list="$(__curl "https://api.github.com/orgs/${1:-$BUILDX_GIT_REPO_USER}/repos?per_page=1000" | __jq -r '.[].name' | grep '^')"
+  [ -n "$list" ] || list="$(__curl -q -LSsf "https://api.github.com/users/${1:-BUILDX_GIT_REPO_USER}/repos?per_page=1000" | __jq -r '.[].name' | grep '^')"
   [ -n "$list" ] && echo "$list" | grep -vE 'tools|templates|.github' | grep '^' || exit 2
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __api_clone() {
   local repos git_url
-  [ "$1" = "all" ] && repos="$(__api_source "$BUILDX_GIT_REPO_USER")" || repos="$(__api_source "$1" | grep "$1" | head -n1)"
+  [ "$1" = "all" ] && repos="$(__api_source "$BUILDX_GIT_REPO_USER")" || repos="$(__api_source "$BUILDX_GIT_REPO_USER" | grep "$1" | head -n1)"
   git_url="${2:-$BUILDX_GIT_REPO_PROVIDER/$BUILDX_GIT_REPO_USER}"
   [ -n "$repo" ] || exit 2
   [ -n "$git_url" ] || exit 2
@@ -782,7 +789,7 @@ export BUILDX_CWD
 export DOCKER_PLATFORMS DOCKER_CLI_EXPERIMENTAL
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
-
+__is_docker_installed
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 case "$1" in

@@ -226,8 +226,8 @@ else
     --restart=always \
     --privileged \
     -e TZ="$SERVER_TIMEZONE" \
-    -v $LOCAL_DATA_DIR:/app/data \
-    -v $LOCAL_CONFIG_DIR:/app/config \
+    -v $LOCAL_DATA_DIR:/data:z \
+    -v $LOCAL_CONFIG_DIR:/config:z \
     -p $SERVER_LISTEN:$SERVER_PORT_EXT:$SERVER_PORT_INT \
     "$HUB_URL" &>/dev/null
 fi

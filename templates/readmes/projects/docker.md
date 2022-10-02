@@ -18,8 +18,8 @@ docker run -d \
 --name casjaysdevdocker-ProjectName \
 --hostname casjaysdev-ProjectName \
 -e TZ=${TIMEZONE:-America/New_York} \
--v $HOME/.local/share/docker/storage/ProjectName/ProjectName/data:/data \
--v $HOME/.local/share/docker/storage/ProjectName/ProjectName/config:/config \
+-v $HOME/.local/share/srv/docker/ProjectName/files/data:/data:z \
+-v $HOME/.local/share/srv/docker/ProjectName/files/config:/config:z \
 -p 80:80 \
 casjaysdevdocker/ProjectName:latest
 ```
@@ -36,8 +36,8 @@ services:
       - TZ=America/New_York
       - HOSTNAME=casjaysdev-ProjectName
     volumes:
-      - $HOME/.local/share/docker/storage/ProjectName/data:/data:z
-      - $HOME/.local/share/docker/storage/ProjectName/config:/config:z
+      - $HOME/.local/share/srv/docker/ProjectName/files/data:/data:z
+      - $HOME/.local/share/srv/docker/ProjectName/files/config:/config:z
     ports:
       - 80:80
     restart: always
@@ -46,4 +46,4 @@ services:
 ## Authors  
 
 🤖 AuthorName: [Github](https://github.com/AuthorName) [Docker](https://hub.docker.com/r/AuthorName) 🤖  
-⛵ CasjaysDevdDocker: [Github](https://github.com/casjaysdev) [Docker](https://hub.docker.com/r/casjaysdevdocker) ⛵  
+⛵ CasjaysDevDocker: [Github](https://github.com/casjaysdevdocker) [Docker](https://hub.docker.com/r/casjaysdevdocker) ⛵  

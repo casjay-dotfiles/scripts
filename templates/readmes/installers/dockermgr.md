@@ -36,7 +36,7 @@ sudo docker run -d \
 -v "$HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/files/data":/data:z \
 -v "$HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/files/config":/config:z \
 -p PORT:INT_PORT \
-TEMPLATE/TEMPLATE 1>/dev/null
+casjaysdevdocker/GEN_README_REPLACE_APPNAME 1>/dev/null
 ```
 
 ## Author

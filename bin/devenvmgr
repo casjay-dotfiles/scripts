@@ -1,27 +1,42 @@
-#!/usr/bin/env bash
+v #!/usr/bin/env bash
+# shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202207042242-git
-# @Author            :  jason
-# @Contact           :  jason
-# @License           :  WTFPL
-# @ReadME            :  devenvmgr --help
-# @Copyright         :  Copyright: (c) 2021 jason, jason
-# @Created           :  Saturday, Jul 10, 2021 21:18 EDT
-# @File              :  devenvmgr
-# @Description       :  Setup a development environment
-# @TODO              :  Create user config
-# @Other             :
-# @Resource          :
+##@Version           :  202210031720-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  jason@casjaysdev.com
+# @@License          :  WTFPL
+# @@ReadME           :  devenvmgr --help
+# @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
+# @@Created          :  Monday, Oct 03, 2022 17:20 EDT
+# @@File             :  devenvmgr
+# @@Description      :  Setup a development environment
+# @@Changelog        :  New script
+# @@TODO             :  Create user config
+# @@Other            :
+# @@Resource         :
+# @@Terminal App     :  no
+# @@sudo/root        :  no
+# @@Template         :  bash/system
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0" 2>/dev/null)"
-VERSION="202107102117-git"
-USER="${SUDO_USER:-${USER}}"
-HOME="${USER_HOME:-${HOME}}"
-SRC_DIR="${BASH_SOURCE%/*}"
+VERSION="202210031720-git"
+HOME="${USER_HOME:-$HOME}"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${SUDO_USER:-$USER}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+DEVENVMGR_REQUIRE_SUDO="${DEVENVMGR_REQUIRE_SUDO:-no}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set bash options
-if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
-
+# Reopen in a terminal
+#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initial debugging
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# pipes fail
+set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
@@ -35,52 +50,113 @@ elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
   . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
 else
   echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
-  exit 90
+  exit 1
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# user system devenv dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+# Options are: *_install
+# desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr
+#   pkmgr system systemmgr thememgr user wallpapermgr
 user_install && __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# I'm sure there is a better way to do this
-if [ -d "$1" ]; then
-  sitedir="$(__basedir "$1/showcurdir")"
-  shift 1
-elif [ "$1" = "-d" ] || [ "$1" = "-dir" ] || [ "$1" = "--dir" ]; then
-  sitedir="$(__dirname "$2")"
-  shift 2
-  [ -d "$sitedir" ] || printf_exit "$sitedir doesn't seem to be a directory"
-else
-  sitedir="$(__basedir "$PWD/.")"
-fi
-if [ "$sitedir" = "." ]; then sitedir="$(__basedir ".")"; fi
+# Send all output to /dev/null
+__devnull() {
+  tee &>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# Send errors to /dev/null
+__devnull2() {
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# See if the executable exists
+__cmd_exists() {
+  exitCode=0
+  [ -n "$1" ] && local exitCode="" || return 0
+  for cmd in "$@"; do
+    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
+  done
+  [ $exitCode -eq 0 ] || exitCode=3
+  return ${exitCode:-$?}
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for a valid internet connection
+__am_i_online() {
+  local exitCode=0
+  curl -q -LSsfI --max-time 1 --retry 0 "${1:-http://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# colorization
+if [ "$SHOW_RAW" = "true" ]; then
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional printf_ colors
+__printf_head() { printf_blue "$1"; }
+__printf_opts() { printf_purple "$1"; }
+__printf_line() { printf_cyan "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# output version
+__version() { printf_cyan "$VERSION"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# list options
+__list_options() {
+  printf_color "$1: " "$5"
+  echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g'
+  printf_newline
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create the config file
 __gen_config() {
-  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Generating the config file in"
-  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "$DEVENVMGR_CONFIG_DIR/$DEVENVMGR_CONFIG_FILE"
+  local NOTIFY_CLIENT_NAME="$APPNAME"
+  if [ "$INIT_CONFIG" != "TRUE" ]; then
+    printf_blue "Generating the config file in"
+    printf_cyan "$DEVENVMGR_CONFIG_DIR/$DEVENVMGR_CONFIG_FILE"
+  fi
   [ -d "$DEVENVMGR_CONFIG_DIR" ] || mkdir -p "$DEVENVMGR_CONFIG_DIR"
   [ -d "$DEVENVMGR_CONFIG_BACKUP_DIR" ] || mkdir -p "$DEVENVMGR_CONFIG_BACKUP_DIR"
   [ -f "$DEVENVMGR_CONFIG_DIR/$DEVENVMGR_CONFIG_FILE" ] &&
     cp -Rf "$DEVENVMGR_CONFIG_DIR/$DEVENVMGR_CONFIG_FILE" "$DEVENVMGR_CONFIG_BACKUP_DIR/$DEVENVMGR_CONFIG_FILE.$$"
   cat <<EOF >"$DEVENVMGR_CONFIG_DIR/$DEVENVMGR_CONFIG_FILE"
-# Settings for DEVENV
-DEVENVMGR_DEFAULT_GITHUB_ORG="${DEVENVMGR_DEFAULT_GITHUB_ORG:-$DEFAULT_GITHUB_ORG}"
-DEVENVMGR_BASEDIR="${DEVENVMGR_BASEDIR:-$HOME/.local/share/devenvmgr}"
-DEVENVMGR_GIT_PROJECT_DIR="${DEVENVMGR_GIT_PROJECT_DIR:-$HOME/Projects/devenvmgr}"
-DEVENVMGR_TEMPLATESDIR="$CASJAYSDEVDIR/templates"
-DEVENVMGR_COMMAND="$DEVENVMGR_COMMAND"
-DEVENVMGR_FILEMANAGER="$DEVENVMGR_FILEMANAGER"
-DEVENVMGR_COMMAND_TERM="vim"
-DEVENVMGR_TMUX_CMD="tmux"
-DEVENVMGR_SCREEN_CMD="screen"
-DEVENVMGR_TMUX_CONF="$HOME/.config/tmux/dev/tmux.conf"
-DEVENVMGR_SCREEN_CONF="$HOME/.config/screen/dev/singlerc"
-DEVENVMGR_NOTIFY_ENABLED="yes"
-DEVENVMGR_NOTIFY_CLIENT_NAME="\${NOTIFY_CLIENT_NAME:-\$APPNAME}"
-DEVENVMGR_NOTIFY_CLIENT_ICON="\${NOTIFY_CLIENT_ICON:-\$DEVENVMGR_NOTIFY_CLIENT_ICON}"
+# Settings for devenvmgr
+DEVENVMGR_DEFAULT_GITHUB_ORG="${DEVENVMGR_DEFAULT_GITHUB_ORG:-}"
+DEVENVMGR_BASEDIR="${DEVENVMGR_BASEDIR:-}"
+DEVENVMGR_GIT_PROJECT_DIR="${DEVENVMGR_GIT_PROJECT_DIR:-}"
+DEVENVMGR_TEMPLATESDIR="${DEVENVMGR_TEMPLATESDIR:-}"
+DEVENVMGR_FILEMANAGER="${DEVENVMGR_FILEMANAGER:-}"
+DEVENVMGR_COMMAND="${DEVENVMGR_COMMAND:-}"
+DEVENVMGR_COMMAND_TERM="${DEVENVMGR_COMMAND_TERM:-}"
+DEVENVMGR_TMUX_CMD="${DEVENVMGR_TMUX_CMD:-}"
+DEVENVMGR_SCREEN_CMD="${DEVENVMGR_SCREEN_CMD:-}"
+DEVENVMGR_TMUX_CONF="${DEVENVMGR_TMUX_CONF:-}"
+DEVENVMGR_SCREEN_CONF="${DEVENVMGR_SCREEN_CONF:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+DEVENVMGR_OUTPUT_COLOR_1="${DEVENVMGR_OUTPUT_COLOR_1:-}"
+DEVENVMGR_OUTPUT_COLOR_2="${DEVENVMGR_OUTPUT_COLOR_2:-}"
+DEVENVMGR_OUTPUT_COLOR_GOOD="${DEVENVMGR_OUTPUT_COLOR_GOOD:-}"
+DEVENVMGR_OUTPUT_COLOR_ERROR="${DEVENVMGR_OUTPUT_COLOR_ERROR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+DEVENVMGR_NOTIFY_ENABLED="${DEVENVMGR_NOTIFY_ENABLED:-}"
+DEVENVMGR_GOOD_NAME="${DEVENVMGR_GOOD_NAME:-}"
+DEVENVMGR_ERROR_NAME="${DEVENVMGR_ERROR_NAME:-}"
+DEVENVMGR_GOOD_MESSAGE="${DEVENVMGR_GOOD_MESSAGE:-}"
+DEVENVMGR_ERROR_MESSAGE="${DEVENVMGR_ERROR_MESSAGE:-}"
+DEVENVMGR_NOTIFY_CLIENT_NAME="${DEVENVMGR_NOTIFY_CLIENT_NAME:-}"
+DEVENVMGR_NOTIFY_CLIENT_ICON="${DEVENVMGR_NOTIFY_CLIENT_ICON:-}"
+DEVENVMGR_NOTIFY_CLIENT_URGENCY="${DEVENVMGR_NOTIFY_CLIENT_URGENCY:-}"
 
 EOF
+  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
   if [ -f "$DEVENVMGR_CONFIG_DIR/$DEVENVMGR_CONFIG_FILE" ]; then
-    [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for $APPNAME has been created"
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
+    . "$DEVENVMGR_CONFIG_DIR/$DEVENVMGR_CONFIG_FILE"
     exitCode=0
   else
     printf_red "Failed to create the config file"
@@ -89,6 +165,104 @@ EOF
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Help function - Align to 50
+__help() {
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "devenvmgr:  Setup a development environment - $VERSION"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Usage: devenvmgr [options] [commands]"
+  __printf_line " - "
+  __printf_line " - "
+  __printf_line "--dir                           - Sets the working directory"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Other Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--help                          - Shows this message"
+  __printf_line "--config                        - Generate user config file"
+  __printf_line "--version                       - Show script version"
+  __printf_line "--options                       - Shows all available options"
+  __printf_line "--debug                         - Enables script debugging"
+  __printf_line "--raw                           - Removes all formatting on output"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 1 || return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep -s "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# # Get sudo password
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run sudo
+__sudorun() {
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo
+__can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User can run sudo
+__sudoif() {
+  __user_is_root && return 0
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run command as root
+requiresudo() {
+  if [ "$DEVENVMGR_REQUIRE_SUDO" = "yes" ] && [ -z "$DEVENVMGR_REQUIRE_SUDO_RUN" ]; then
+    export DEVENVMGR_REQUIRE_SUDO="no"
+    export DEVENVMGR_REQUIRE_SUDO_RUN="true"
+    __sudo "$@"
+    exit $?
+  else
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  CMD="${1:-echo}" && shift 1
+  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  [ "$(basename "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  if __sudoif; then
+    export PATH="$PATH"
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    exitCode=$?
+  else
+    printf '%s\n' "This requires root to run"
+    exitCode=1
+  fi
+  return ${exitCode:-1}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  exitCode=${exitCode:-$?}
+  [ -f "$DEVENVMGR_TEMP_FILE" ] && rm -Rf "$DEVENVMGR_TEMP_FILE" &>/dev/null
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined functions
 __requires() {
   local COMMAND="$1"
   shift 1
@@ -128,9 +302,9 @@ __start_servers() {
   jekyll)
     __requires jekyll || printf_exit 1 1 "jekyll can't be found"
     if [ -f "$sitedir/_config.yml" ]; then
-      if __requires watchy; then
+      if __cmd_exists watchy; then
         watchy -w "$sitedir/_config.yml" -- jekyll serve --host=0.0.0.0
-      elif __requires jekyll; then
+      elif __cmd_exists jekyll; then
         jekyll serve --host=0.0.0.0
       else
         printf_exit "There was a problem staring - no config found"
@@ -203,12 +377,8 @@ __start_new_project() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__list_available() {
-  echo -e "$ARRAY" | tr ' ' '\n'
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # check for sample files
-if_sample() {
+__if_sample() {
   if [ -f .env.sample ] || [ -f .env ]; then cp -Rf .env.sample .env; fi
   if [ -f .config.sample ] || [ -f .config ]; then cp -Rf .config.sample .config; fi
   if [ -f config.example.js ] || [ -f config.js ]; then cp -Rf config.example.js config.js; fi
@@ -275,6 +445,7 @@ __execute_npm_modules() {
 __run_static_site() {
   printf_blue "Enter location for your new or existing site"
   printf_read_input "3" "enter . for current:" "200" "sitedir" "-i ${sitedir:-$DEVENVMGR_BASEDIR/$PROGNAME}"
+  __run_new_site
   if cd "$sitedir"; then
     if cmd_exists run_server && cmd_exists caddy; then
       run_server static "${1:-20000}"
@@ -290,7 +461,6 @@ __run_static_site() {
 # Import new site from git
 __run_import_site() {
   local import=""
-  local cursite="$sitedir"
   printf_read_input "3" "Enter the url to your git repo:" "200" "import"
   printf_read_input "3" "Enter location for your new site: " "200" "sitedir" "-i ${sitedir:-$DEVENVMGR_BASEDIR/$PROGNAME}"
   [ -n "$sitedir" ] || [ -n "$import" ] || printf_exit "Something went wrong"
@@ -306,7 +476,6 @@ __run_import_site() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set site directory
 __set_sitedir() {
-  local cursite="$sitedir"
   printf_green "Enter the full path for your new project!"
   printf_read_input "3" "enter . for current:" "300" "sitedir" "-i ${sitedir:-$DEVENVMGR_BASEDIR/$PROGNAME}"
   printf_green "Enter a project name!"
@@ -318,7 +487,6 @@ __set_sitedir() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Create a new site dir
 __run_new_site() {
-  local cursite="$sitedir"
   __set_sitedir || return 1
   [ -d "$sitedir" ] || __mkd "$sitedir"
   cd "$sitedir" || printf_exit 1 1 "$sitedir doesn't exist"
@@ -333,6 +501,7 @@ __run_html() {
   local templatedir="$TEMPLATESDIR"
   if [ "$*" = "new" ]; then echo "$appname" && exit; fi
   if [ "$*" = "help" ]; then __help; fi
+  __run_new_site
   __mkd css images js
   __touch css/.gitkeep images/.gitkeep js/.gitkeep
   if [ ! -f "index.html" ]; then
@@ -354,8 +523,9 @@ __run_jekyll() {
   local project=jekyll
   if [ "$*" = "new" ]; then echo "$appname" && exit; fi
   if [ "$*" = "help" ]; then __help; fi
+  __run_new_site
   __requires "$appname" "pkmgr gem install $appname" || printf_exit "$appname is not installed"
-  if_sample
+  __if_sample
   __start_new_project
   exit $?
 }
@@ -367,7 +537,8 @@ __run_hugo() {
   if [ "$*" = "new" ]; then echo "$appname" && exit; fi
   if [ "$*" = "help" ]; then __help; fi
   __requires "$appname" "pkmgr silent install $appname" || printf_exit "$appname is not installed"
-  if_sample
+  __run_new_site
+  __if_sample
   __start_new_project
   exit $?
 }
@@ -379,7 +550,8 @@ __run_ruby() {
   if [ "$*" = "new" ]; then echo "$appname" && exit; fi
   if [ "$*" = "help" ]; then __help; fi
   __requires "$appname" "pkmgr silent install $appname" || printf_exit "$appname is not installed"
-  if_sample
+  __run_new_site
+  __if_sample
   __start_new_project
   exit $?
 }
@@ -391,7 +563,8 @@ __run_python() {
   if [ "$*" = "new" ]; then echo "$appname" && exit; fi
   if [ "$*" = "help" ]; then __help; fi
   __requires "$appname" "pkmgr silent install $appname" || printf_exit "$appname is not installed"
-  if_sample
+  __run_new_site
+  __if_sample
   if [ "$(command -v python3 2>/dev/null)" ] && [[ ! -d "$sitedir/venv" ]]; then
     printf_green "Setting up python virtual enviroment"
     mkdir -p "$sitedir" && cd "$sitedir" && python3 -m venv venv
@@ -407,7 +580,8 @@ __run_perl() {
   if [ "$*" = "new" ]; then echo "$appname" && exit; fi
   if [ "$*" = "help" ]; then __help; fi
   __requires "$appname" "pkmgr silent install $appname" || printf_exit "$appname is not installed"
-  if_sample
+  __run_new_site
+  __if_sample
   __start_new_project
   exit $?
 }
@@ -419,7 +593,8 @@ __run_php() {
   if [ "$*" = "new" ]; then echo "$appname" && exit; fi
   if [ "$*" = "help" ]; then __help; fi
   __requires "$appname" "pkmgr silent install $appname" || printf_exit "$appname is not installed"
-  if_sample
+  __run_new_site
+  __if_sample
   __start_new_project
   exit $?
 }
@@ -431,7 +606,8 @@ __run_node() {
   if [ "$*" = "new" ]; then echo "$appname" && exit; fi
   if [ "$*" = "help" ]; then __help; fi
   __requires "$appname" "pkmgr silent install $appname" || printf_exit "$appname is not installed"
-  if_sample
+  __run_new_site
+  __if_sample
   if [ -f "$sitedir/package.json" ]; then
     printf_red "A package.json already exist"
   else
@@ -448,7 +624,8 @@ __run_deno() {
   if [ "$*" = "new" ]; then echo "$appname" && exit; fi
   if [ "$*" = "help" ]; then __help; fi
   type -p $appname &>/dev/null || printf_exit "$appname is not installed"
-  if_sample
+  __run_new_site
+  __if_sample
   cd "$sitedir" || return 1
   deno run --quiet -A -r https://fresh.deno.dev .
   __start_new_project
@@ -461,9 +638,10 @@ __run_vuecli() {
   local project=node
   if [ "$*" = "new" ]; then echo "$appname" && exit; fi
   if [ "$*" = "help" ]; then __help; fi
-  __execute_npm_modules "-g @vue/cli"
   type -p $appname &>/dev/null || printf_exit "$appname is not installed"
-  if_sample
+  __execute_npm_modules "-g @vue/cli"
+  __run_new_site
+  __if_sample
   if [ -f "$sitedir/package.json" ]; then printf_exit 1 1 "The package.json file already exits"; fi
   cd "$sitedir" || return 1
   npx $appname create .
@@ -477,9 +655,10 @@ __run_reactcli() {
   local project=javascript
   if [ "$*" = "new" ]; then echo "$appname" && exit; fi
   if [ "$*" = "help" ]; then __help; fi
-  __execute_npm_modules "-g create-react-app"
   type -p $appname &>/dev/null || printf_exit "$appname is not installed"
-  if_sample
+  __run_new_site
+  __if_sample
+  __execute_npm_modules "-g create-react-app"
   if [ -f "$sitedir/package.json" ]; then printf_exit 1 1 "The package.json file already exits"; fi
   $appname
   __start_new_project
@@ -492,11 +671,10 @@ __run_expresscli() {
   local project=javascript
   if [ "$*" = "new" ]; then echo "$appname" && exit; fi
   if [ "$*" = "help" ]; then __help; fi
-  __execute_npm_modules "-g express-generator"
   type -p $appname &>/dev/null || printf_exit "$appname is not installed"
-  if_sample
-  #if [ -f "$sitedir/package.json" ]; then printf_exit 1 1 "The package.json file already exits"; fi
-  #$appname --view ejs --git --force &>/dev/null
+  __run_new_site
+  __if_sample
+  __execute_npm_modules "-g express-generator"
   if [ "$1" = "template" ] || [ "$TEMPLATE" = "yes" ]; then
     __download "create-express-app"
     __execute_npm &>/dev/null
@@ -516,9 +694,10 @@ __run_create-project() {
   local project=javascript
   if [ "$*" = "new" ]; then echo "$appname" && exit; fi
   if [ "$*" = "help" ]; then __help; fi
-  __execute_npm_modules "-g create-project"
   type -p $appname &>/dev/null || printf_exit "$appname is not installed"
-  if_sample
+  __run_new_site
+  __if_sample
+  __execute_npm_modules "-g create-project"
   if [ -f "$sitedir/package.json" ]; then printf_exit 1 1 "The package.json file already exits"; fi
   __gen_nodeconfig "$sitedir"
   __start_new_project
@@ -534,7 +713,8 @@ __run_mevn() {
   if [ "$*" = "help" ]; then __help; fi
   __requires "git" "pkmgr silent install git" || printf_exit "git is not installed"
   __requires "npm" "pkmgr silent install node" || printf_exit "node is not installed"
-  if_sample
+  __run_new_site
+  __if_sample
   if [ -f "$sitedir/package.json" ]; then printf_exit 1 1 "The package.json file already exits"; fi
   git clone -q "$gitrepo" "$sitedir"
   __start_new_project
@@ -639,7 +819,7 @@ __run_git() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Download the repo
 __download() {
-  [[ "$1" = "list" || -n "$LIST" ]] && __download_list
+  [ "$1" = "list" ] || [ -n "$LIST" ] && __download_list
   local REPO="$DEVENVMGRREPO/$1"
   local DIR="${2:-$sitedir}"
   shift $#
@@ -666,88 +846,149 @@ __download_list() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __api_list() {
-  local api_url="https://api.github.com/orgs/devenvmgr/repos?per_page=1000"
+  local api_url="https://api.github.com/orgs/$DEVENVMGR_DEFAULT_GITHUB_ORG/repos?per_page=1000"
   am_i_online && curl -q -H "Accept: application/vnd.github.v3+json" -LSs "$api_url" 2>/dev/null |
     jq '.[].name' 2>/dev/null | sed 's#"##g' | grep -v 'template' || __list_available
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Defaults
-exitCode="0"
-DEVENVMGR_CONFIG_FILE="settings.conf"
-DEVENVMGR_CONFIG_DIR="$HOME/.config/myscripts/devenvmgr"
-DEVENVMGR_CONFIG_BACKUP_DIR="$HOME/.local/share/myscripts/devenvmgr/backups"
-DEVENVMGR_OPTIONS_DIR="$HOME/.local/share/myscripts/devenvmgr/options"
+# User defined variables/import external variables
+DEFAULT_GITHUB_ORG="${DEFAULT_GITHUB_ORG:-devenvmgr}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application Folders
+DEVENVMGR_CONFIG_FILE="${DEVENVMGR_CONFIG_FILE:-settings.conf}"
+DEVENVMGR_CONFIG_DIR="${DEVENVMGR_CONFIG_DIR:-$HOME/.config/myscripts/devenvmgr}"
+DEVENVMGR_CONFIG_BACKUP_DIR="${DEVENVMGR_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/devenvmgr/backups}"
+DEVENVMGR_LOG_DIR="${DEVENVMGR_LOG_DIR:-$HOME/.local/log/devenvmgr}"
+DEVENVMGR_RUN_DIR="${DEVENVMGR_RUN_DIR:-$HOME/.local/run/system_scripts/$DEVENVMGR_SCRIPTS_PREFIX}"
+DEVENVMGR_TEMP_DIR="${DEVENVMGR_TEMP_DIR:-$HOME/.local/tmp/system_scripts/devenvmgr}"
+DEVENVMGR_CACHE_DIR="${DEVENVMGR_CACHE_DIR:-$HOME/.cache/devenvmgr}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+DEVENVMGR_OUTPUT_COLOR_1="${DEVENVMGR_OUTPUT_COLOR_1:-4}"
+DEVENVMGR_OUTPUT_COLOR_2="${DEVENVMGR_OUTPUT_COLOR_2:-5}"
+DEVENVMGR_OUTPUT_COLOR_GOOD="${DEVENVMGR_OUTPUT_COLOR_GOOD:-2}"
+DEVENVMGR_OUTPUT_COLOR_ERROR="${DEVENVMGR_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
 DEVENVMGR_NOTIFY_ENABLED="${DEVENVMGR_NOTIFY_ENABLED:-yes}"
-DEVENVMGR_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
-DEVENVMGR_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$DEVENVMGR_NOTIFY_CLIENT_ICON}"
-DEVENVMGR_TEMP_FILE="${TMPDIR:-/tmp}/devenvmgr"
-DEVENVMGR_COMMAND="${DEVENVMGR_COMMAND:-myeditor}"
-DEVENVMGR_FILEMANAGER="${FILEMANAGER:-ranger}"
-DEVENVMGR_TMUX_CONF="${DEVENVMGR_TMUX_CONF:-$HOME/.config/tmux/dev/tmux.conf}"
-DEVENVMGR_SCREEN_CONF="${DEVENVMGR_SCREEN_CONF:-$HOME/.config/screen/dev/singlerc}"
-DEVENVMGR_TMUX_CMD="${DEVENVMGR_TMUX_CMD:-tmux}"
-DEVENVMGR_SCREEN_CMD="${DEVENVMGR_SCREEN_CMD:-screen}"
-DEVENVMGR_COMMAND_TERM="${DEVENVMGR_COMMAND_TERM:-vim}"
-DEVENVMGR_TEMPLATESDIR="$CASJAYSDEVDIR/templates"
+DEVENVMGR_GOOD_NAME="${DEVENVMGR_GOOD_NAME:-Great:}"
+DEVENVMGR_ERROR_NAME="${DEVENVMGR_ERROR_NAME:-Error:}"
+DEVENVMGR_GOOD_MESSAGE="${DEVENVMGR_GOOD_MESSAGE:-No errors reported}"
+DEVENVMGR_ERROR_MESSAGE="${DEVENVMGR_ERROR_MESSAGE:-Errors were reported}"
+DEVENVMGR_NOTIFY_CLIENT_NAME="${DEVENVMGR_NOTIFY_CLIENT_NAME:-$APPNAME}"
+DEVENVMGR_NOTIFY_CLIENT_ICON="${DEVENVMGR_NOTIFY_CLIENT_ICON:-notification-new}"
+DEVENVMGR_NOTIFY_CLIENT_URGENCY="${DEVENVMGR_NOTIFY_CLIENT_URGENCY:-normal}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional Variables
+DEVENVMGR_DEFAULT_GITHUB_ORG="${DEVENVMGR_DEFAULT_GITHUB_ORG:-$DEFAULT_GITHUB_ORG}"
 DEVENVMGR_BASEDIR="${DEVENVMGR_BASEDIR:-$HOME/.local/share/devenvmgr}"
 DEVENVMGR_GIT_PROJECT_DIR="${DEVENVMGR_GIT_PROJECT_DIR:-$HOME/Projects/devenvmgr}"
+DEVENVMGR_TEMPLATESDIR="${DEVENVMGR_TEMPLATESDIR:-$CASJAYSDEVDIR/templates}"
+DEVENVMGR_COMMAND="${DEVENVMGR_COMMAND:-}"
+DEVENVMGR_FILEMANAGER="${DEVENVMGR_FILEMANAGER:-}"
+DEVENVMGR_COMMAND_TERM="${DEVENVMGR_COMMAND_TERM:-vim}"
+DEVENVMGR_TMUX_CMD="${DEVENVMGR_TMUX_CMD:-tmux}"
+DEVENVMGR_SCREEN_CMD="${DEVENVMGR_SCREEN_CMD:-screen}"
+DEVENVMGR_TMUX_CONF="${DEVENVMGR_TMUX_CONF:-$HOME/.config/tmux/dev/tmux.conf}"
+DEVENVMGR_SCREEN_CONF="${DEVENVMGR_SCREEN_CONF:-$HOME/.config/screen/dev/singlerc}"
+DEVENVMGR_SILENT="${DEVENVMGR_SILENT:-true}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Generate non-existing config files
-[ -f "$DEVENVMGR_CONFIG_DIR/$DEVENVMGR_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# Generate config files
+[ -f "$DEVENVMGR_CONFIG_DIR/$DEVENVMGR_CONFIG_FILE" ] ||
+  [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import config
-[ -f "$DEVENVMGR_CONFIG_DIR/$DEVENVMGR_CONFIG_FILE" ] && . "$DEVENVMGR_CONFIG_DIR/$DEVENVMGR_CONFIG_FILE"
-[ ! -f "$DEVENVMGR_TMUX_CONF" ] && [ -f "$CASJAYSDEVDIR/templates/tmux/simple.conf" ] && __cp_rf $CASJAYSDEVDIR/templates/tmux/simple.conf "$DEVENVMGR_TMUX_CONF"
-[ ! -f "$DEVENVMGR_SCREEN_CONF" ] && [ -f "$CASJAYSDEVDIR/templates/screen.conf" ] && __cp_rf $CASJAYSDEVDIR/templates/screen.conf "$DEVENVMGR_SCREEN_CONF"
-if [ -d "$DEVENVMGR_TEMPLATESDIR" ]; then
-  TEMPLATESDIR="$DEVENVMGR_TEMPLATESDIR"
-else
-  TEMPLATESDIR="$CASJAYSDEVDIR/templates"
-fi
+[ -f "$DEVENVMGR_CONFIG_DIR/$DEVENVMGR_CONFIG_FILE" ] &&
+  . "$DEVENVMGR_CONFIG_DIR/$DEVENVMGR_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure Directories exist
-#[ -d "$DEVENVMGR_CACHE_DIR" ] || mkdir -p "$DEVENVMGR_CACHE_DIR" &>/dev/null
-[ -f "$DEVENVMGR_OPTIONS_DIR/options" ] || __list_options "$DEVENVMGR_OPTIONS_DIR" &>/dev/null
-[ -f "$DEVENVMGR_OPTIONS_DIR/array" ] || __list_array "$DEVENVMGR_OPTIONS_DIR" "$ARRAY" &>/dev/null
-[ -f "$DEVENVMGR_OPTIONS_DIR/available" ] || __list_available >"$DEVENVMGR_OPTIONS_DIR/available" 2>/dev/null
-[ -f "$DEVENVMGR_TEMP_FILE" ] || touch "$DEVENVMGR_TEMP_FILE" &>/dev/null
+[ -d "$DEVENVMGR_RUN_DIR" ] || mkdir -p "$DEVENVMGR_RUN_DIR" |& __devnull
+[ -d "$DEVENVMGR_LOG_DIR" ] || mkdir -p "$DEVENVMGR_LOG_DIR" |& __devnull
+[ -d "$DEVENVMGR_TEMP_DIR" ] || mkdir -p "$DEVENVMGR_TEMP_DIR" |& __devnull
+[ -d "$DEVENVMGR_CACHE_DIR" ] || mkdir -p "$DEVENVMGR_CACHE_DIR" |& __devnull
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+DEVENVMGR_TEMP_FILE="${DEVENVMGR_TEMP_FILE:-$(mktemp $DEVENVMGR_TEMP_DIR/XXXXXX 2>/dev/null)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup trap to remove temp file
-trap 'exitCode=${exitCode:-$?};[ -n "$DEVENVMGR_TEMP_FILE" ] && [ -f "$DEVENVMGR_TEMP_FILE" ] && rm -Rf "$DEVENVMGR_TEMP_FILE" &>/dev/null' EXIT
+trap '__trap_exit' EXIT
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup notification function
-if [ "$DEVENVMGR_NOTIFY_ENABLED" = "yes" ]; then
-  __notifications() {
-    export NOTIFY_GOOD_MESSAGE="${DEVENVMGR_GOOD_MESSAGE}"
-    export NOTIFY_ERROR_MESSAGE="${DEVENVMGR_ERROR_MESSAGE}"
-    export NOTIFY_CLIENT_NAME="${DEVENVMGR_NOTIFY_CLIENT_NAME}"
-    export NOTIFY_CLIENT_ICON="${DEVENVMGR_NOTIFY_CLIENT_ICON}"
-    notifications "$@" || return 1
-  }
-else
-  __notifications() { false; }
-fi
+__notifications() {
+  __cmd_exists notifications || return
+  [ "$DEVENVMGR_NOTIFY_ENABLED" = "yes" ] || return
+  [ "$SEND_NOTIFICATION" = "no" ] && return
+  (
+    set +x
+    export SCRIPT_OPTS="" _DEBUG=""
+    export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$DEVENVMGR_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$DEVENVMGR_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$DEVENVMGR_NOTIFY_CLIENT_ICON}"
+    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$DEVENVMGR_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$DEVENVMGR_NOTIFY_CLIENT_URGENCY}"
+    notifications "$@"
+    retval=$?
+    return $retval
+  ) |& __devnull &
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Show warn message if variables are missing
+# Set custom actions
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set additional variables/Argument/Option settings
-SETARGS="$*"
-SHORTOPTS="l"
-LONGOPTS="options,config,version,help,start:,list,all,template"
+# Argument/Option settings
+SETARGS=("$@")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SHORTOPTS=""
+SHORTOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
+LONGOPTS+=",start:,list,all,template"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="import static jekyll hugo ruby python perl php deno node vue react express create-project "
 ARRAY+="html mevn shellcheck editorconfig package prettier eslint download "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# options
+LIST=""
+LIST+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
 setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$APPNAME" -- "$@" 2>/dev/null)
 eval set -- "${setopts[@]}" 2>/dev/null
 while :; do
-  case $1 in
+  case "$1" in
+  --raw)
+    shift 1
+    export SHOW_RAW="true"
+    printf_column() { tee | grep '^'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    ;;
+  --debug)
+    shift 1
+    set -xo pipefail
+    export SCRIPT_OPTS="--debug"
+    export _DEBUG="on"
+    __devnull() { tee || return 1; }
+    __devnull2() { eval "$@" |& tee || return 1; }
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
+    ;;
   --options)
     shift 1
-    __list_array "$DEVENVMGR_OPTIONS_DIR" "$ARRAY"
-    __list_options "$DEVENVMGR_OPTIONS_DIR"
-    __list_available >"$DEVENVMGR_OPTIONS_DIR/available"
+    printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' 4
+    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' 4
+    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
     exit $?
     ;;
   --version)
@@ -765,13 +1006,22 @@ while :; do
     __gen_config
     exit $?
     ;;
+  --silent)
+    shift 1
+    DEVENVMGR_SILENT="true"
+    ;;
+  --dir)
+    CWD_IS_SET="TRUE"
+    DEVENVMGR_CWD="$2"
+    [ -d "$DEVENVMGR_CWD" ] || mkdir -p "$DEVENVMGR_CWD" |& __devnull
+    shift 2
+    ;;
   --start)
     shift 1
     __start_servers "$1"
-    shift 1
     exit $?
     ;;
-  -l | --list)
+  --list)
     shift 1
     LIST="true"
     ;;
@@ -789,19 +1039,53 @@ while :; do
     ;;
   esac
 done
-#set -- "$SETARGS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Actions based on env
+# Get directory from args
+# set -- "$@"
+# for arg in "$@"; do
+# if [ -d "$arg" ]; then
+# DEVENVMGR_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
+# elif [ -f "$arg" ]; then
+# DEVENVMGR_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
+# else
+# SET_NEW_ARGS+=("$arg")
+# fi
+# done
+# set -- "${SET_NEW_ARGS[@]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set directory to first argument
+[ -d "$1" ] && DEVENVMGR_CWD="$1" && shift 1 || DEVENVMGR_CWD="${DEVENVMGR_CWD:-$PWD}"
+DEVENVMGR_CWD="$(realpath "${DEVENVMGR_CWD:-$PWD}" 2>/dev/null)"
+if [ -d "$DEVENVMGR_CWD" ] && cd "$DEVENVMGR_CWD"; then
+  if [ "$DEVENVMGR_SILENT" != "true" ] || [ "$CWD_SILENCE" != "true" ]; then
+    printf_cyan "Setting working dir to $DEVENVMGR_CWD"
+  fi
+else
+  printf_exit "💔 $DEVENVMGR_CWD does not exist 💔"
+fi
+export DEVENVMGR_CWD
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set actions based on variables
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
-cmd_exists --error --ask bash || exit 1
+#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+cmd_exists --error --ask bash || exit 3 # exit 3 if not found
+#am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# APP Variables
+# APP Variables overrides
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
 PROGNAME="$1"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 case "$1" in
+available)
+  shift 1
+  __api_list
+  exit $?
+  ;;
 import)
   __run_import_site
   ;;
@@ -811,59 +1095,59 @@ static)
   ;;
 jekyll)
   shift 1
-  __run_new_site && __run_jekyll "$@"
+  __run_jekyll "$@"
   ;;
 hugo)
   shift 1
-  __run_new_site && __run_hugo "$@"
+  __run_hugo "$@"
   ;;
 ruby)
   shift 1
-  __run_new_site && __run_ruby "$@"
+  __run_ruby "$@"
   ;;
 python)
   shift 1
-  __run_new_site && __run_python "$@"
+  __run_python "$@"
   ;;
 perl)
   shift 1
-  __run_new_site && __run_perl "$@"
+  __run_perl "$@"
   ;;
 php)
   shift 1
-  __run_new_site && __run_php "$@"
+  __run_php "$@"
   ;;
 deno)
   shift 1
-  __run_new_site && __run_deno "$@"
+  __run_deno "$@"
   ;;
 node)
   shift 1
-  __run_new_site && __run_node "$@"
+  __run_node "$@"
   ;;
 vue)
   shift 1
-  __run_new_site && __run_vuecli "$@"
+  __run_vuecli "$@"
   ;;
 react)
   shift 1
-  __run_new_site && __run_reactcli "$@"
+  __run_reactcli "$@"
   ;;
 express)
   shift 1
-  __run_new_site && __run_expresscli "$@"
+  __run_expresscli "$@"
   ;;
 create-project)
   shift 1
-  __run_new_site && __run_create-project "$@"
+  __run_create-project "$@"
   ;;
 mevn)
   shift 1
-  __run_new_site && __run_mevn "$@"
+  __run_mevn "$@"
   ;;
 html)
   shift 1
-  __run_new_site && __run_html "$@"
+  __run_html "$@"
   ;;
 package)
   shift 1
@@ -901,15 +1185,14 @@ download)
     __set_sitedir && __download "$@"
   fi
   ;;
-available)
-  shift 1
-  __api_list
-  ;;
 *)
   __help "$@"
   ;;
 esac
 __run_git "$sitedir"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set exit code
+exitCode="${exitCode:-$?}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

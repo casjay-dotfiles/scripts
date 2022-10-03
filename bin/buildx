@@ -277,7 +277,7 @@ __trap_exit_local() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __is_buildx_installed() {
   if docker buildx 2>&1 | grep -q 'is not a docker command' &>/dev/null; then
-    printf_exit "The module 'docker buildx' is not installed"
+    return 1
   fi
   return 0
 }
@@ -437,13 +437,32 @@ __buildx_status() {
   return ${e:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__run_docker_build() {
+  if __is_buildx_installed; then
+    __docker buildx build ${BUILDX_REMOVE_BUILD:-} \
+      --platform "${DOCKER_PLATFORMS// /,}" \
+      --push \
+      --output type=registry \
+      --progress auto \
+      --no-cache \
+      -f ${Dockerfile:-Dockerfile} \
+      -t "$tagged_name" "${dir:-$PWD}" 2>&1
+    return $?
+  else
+    __docker build \
+      -f ${Dockerfile:-Dockerfile} \
+      --pull \
+      --force-rm \
+      --no-cache \
+      -t "$tagged_name" "${dir:-$PWD}" 2>&1 && __docker push "$tagged_name" 2>&1
+    return $?
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __build_cmd() {
   set -e -o pipefail
   local exitCodeS=1
   local dir="${1:-$REALPATH}"
-  local logfolder="$(dirname "$tagged_name" | sed 's|.*://||g')"
-  local logfile="$BUILDX_LOG_DIR/$(echo "$tagged_name" | awk -F':' '{print $1}').log"
-  local date="$(date +'%Y-%m-%d at %H:%M')"
   if [ -f "$dir/.build_failed" ]; then
     cat "$dir/.build_failed" | grep '^'
     printf_red "Please check the error log and fix all problems"
@@ -453,15 +472,8 @@ __build_cmd() {
   printf_blue "Log is being written to:"
   printf_cyan "${logfile//$HOME/~}"
   mkdir -p "$BUILDX_LOG_DIR/$logfolder"
-  printf '%s\n' "Building $tagged_name on : $date" >>"$logfile"
-  sudo docker buildx build ${BUILDX_REMOVE_BUILD:-} \
-    --platform "${DOCKER_PLATFORMS// /,}" \
-    --push \
-    --output type=registry \
-    --progress auto \
-    --no-cache \
-    -f ${Dockerfile:-Dockerfile} \
-    -t "$tagged_name" "${dir:-$PWD}" 2>&1 | tee -a "$logfile" &>/dev/null && exitCodeS=0 || exitCodeS=1
+  printf '%s\n' "# Building $tagged_name on : $date" >>"$logfile"
+  __run_docker_build | tee -a "$logfile" &>/dev/null && exitCodeS=0 || exitCodeS=1
   if [ "$exitCodeS" -ne 0 ]; then
     printf_yellow "The last 50 lines of the log are in:"
     printf_cyan "$dir/.build_failed"
@@ -479,7 +491,6 @@ __execute_buildx() {
   else
     echo "$BUILDX_PID_NUMBER" >"$BUILDX_PID_FILE"
   fi
-  __is_buildx_installed
   echo "$*" | grep -q '.*.:.*.' && __usage
   [ $# -ne 0 ] || __usage
   exitCode=0
@@ -539,6 +550,9 @@ __execute_buildx() {
   [ -d "$REALPATH/bin" ] || mkdir -p "$REALPATH/bin"
   [ -d "$REALPATH/data" ] || mkdir -p "$REALPATH/data"
   [ -d "$REALPATH/config" ] || mkdir -p "$REALPATH/config"
+  date="$(date +'%Y-%m-%d at %H:%M')"
+  logfolder="$(dirname "$tagged_name" | sed 's|.*://||g')"
+  logfile="$BUILDX_LOG_DIR/$(echo "$tagged_name" | awk -F':' '{print $1}').log"
   if __build_cmd "$REALPATH"; then
     echo "Successfully built $name" | tee -a "$logfile" &>/dev/null
     __notifications "Successfully built $name"
@@ -549,6 +563,7 @@ __execute_buildx() {
       echo "Successfully pulled $tagged_name" | tee -a "$logfile" &>/dev/null
       __notifications "Successfully pulled $tagged_name"
       printf_green "Successfully pulled $tagged_name"
+      exitCode+=0
     else
       echo "Failed to pull $tagged_name" | tee -a "$logfile" &>/dev/null
       __notifications "Failed to pull $tagged_name"

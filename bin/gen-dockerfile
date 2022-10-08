@@ -263,20 +263,19 @@ __make_file() {
     __alpine_file "$1"
     ;;
   *)
-    shift 1
-    __alpine_file "$1"
+    __alpine_file "${2:-$1}"
     ;;
   esac
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __alpine_file() {
-  local file="${1:-$file}"
+  local Dfile="${1:-$file}"
   if [ -f "$GEN_DOCKERFILE_CONFIG_DIR/Dockerfile" ]; then
-    cat <<EOF | tee "$file" &>/dev/null
+    cat <<EOF | tee "$Dfile" &>/dev/null
 $(. "$GEN_DOCKERFILE_CONFIG_DIR/Dockerfile")
 EOF
   else
-    cat <<EOF | tee "$file" &>/dev/null
+    cat <<EOF | tee "$Dfile" &>/dev/null
 FROM ${GEN_DOCKERFILE_DEFAULT_IMAGE:-casjaysdevdocker/alpine:latest} as build
 
 ARG alpine_version=edge \\
@@ -343,7 +342,7 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __docker_file() {
-  local file name repo dir bak_ext
+  local name repo dir bak_ext
   docker_template="${docker_template:-alpine}"
   file="${1:-$GEN_DOCKERFILE_CWD/Dockerfile}"
   name="${2:-$(basename "$GEN_DOCKERFILE_CWD")}"
@@ -354,56 +353,59 @@ __docker_file() {
   if [ "$GEN_DOCKER_AUTOMATED" != "true" ]; then
     [ -f "$file" ] && printf_pause "If this is what you want press enter or control-c to exit"
   fi
-
   if [ -f "$file" ]; then
     printf_yellow "Found an existing Dockerfile at: $file"
     printf_cyan "Backing up to: $file.$bak_ext"
     mv -f "$file" "$file.$bak_ext"
   fi
-
-  printf_purple "Creating Directories: bin data config"
-  mkdir -p "$dir" "$dir/bin" "$dir/data" "$dir/config"
-  touch "$dir/bin/.gitkeep" "$dir/data/.gitkeep" "$dir/config/.gitkeep"
-  printf_purple "Generating your Dockerfile"
-  __make_file "$docker_template" "$file"
-  __dockerignore
-  if [ -f "$file" ]; then
-    printf_blue "Creating $dir/bin/entrypoint-$name.sh"
-    if [ -f "$dir/bin/entrypoint-$name.sh" ]; then
-      printf_yellow "Found existing entrypoint... Backing up"
-      mv -f "$dir/bin/entrypoint-$name.sh" "$dir/bin/entrypoint-$name.sh.$bak_ext"
-    fi
-    if GEN_SCRIPT_EDITFILE="N" gen-script other docker-entrypoint "$dir/bin/entrypoint-$name.sh" &>/dev/null; then
-      printf_green "Created the entrypoint script"
-    else
-      printf_red "Failed to create the entrypoint file"
-    fi
-    [ -f "$dir/README.md" ] || gen-readme projects docker.md "$dir/README.md"
-    [ -f "$dir/LICENSE.md" ] || gen-license wtfpl "$dir/LICENSE.md"
-    printf_green "Using $repo as VCS url"
-    printf_green "Your Dockerfile for $name has been created in:"
-    printf_cyan "$(readlink -f "$dir")"
-    if [ -d "$dir/bin" ] && [ -d "$dir/data" ] && [ -d "$dir/config" ]; then
-      printf_blue "All files and Directories have been created"
-      if [ "$GEN_DOCKER_GIT_AUTO_INIT" = "yes" ]; then
-        if [ ! -d "$dir/.git" ] && [ ! -f "$dir/.nogit" ]; then
-          if [ "$GEN_DOCKER_AUTOMATED" = "true" ]; then
-            gitignore "$dir" default --automated
-            gitadmin --dir "$dir" setup "$repo" --automated
-          else
-            [ -f "$dir/.gitignore" ] || gitignore "$dir" default
-            gitadmin --dir "$dir" setup "$repo"
+  if [ -n "$GEN_DOCKERFILE_TEMPLATE" ]; then
+    __make_file "${GEN_DOCKERFILE_TEMPLATE-$docker_template}" "$file"
+    exit $?
+  else
+    printf_purple "Creating Directories: bin data config"
+    mkdir -p "$dir" "$dir/bin" "$dir/data" "$dir/config"
+    touch "$dir/bin/.gitkeep" "$dir/data/.gitkeep" "$dir/config/.gitkeep"
+    printf_purple "Generating your Dockerfile"
+    __make_file "$docker_template" "$file"
+    __dockerignore
+    if [ -f "$file" ]; then
+      printf_blue "Creating $dir/bin/entrypoint-$name.sh"
+      if [ -f "$dir/bin/entrypoint-$name.sh" ]; then
+        printf_yellow "Found existing entrypoint... Backing up"
+        mv -f "$dir/bin/entrypoint-$name.sh" "$dir/bin/entrypoint-$name.sh.$bak_ext"
+      fi
+      if GEN_SCRIPT_EDITFILE="N" gen-script other docker-entrypoint "$dir/bin/entrypoint-$name.sh" &>/dev/null; then
+        printf_green "Created the entrypoint script"
+      else
+        printf_red "Failed to create the entrypoint file"
+      fi
+      [ -f "$dir/README.md" ] || gen-readme projects docker.md "$dir/README.md"
+      [ -f "$dir/LICENSE.md" ] || gen-license wtfpl "$dir/LICENSE.md"
+      printf_green "Using $repo as VCS url"
+      printf_green "Your Dockerfile for $name has been created in:"
+      printf_cyan "$(readlink -f "$dir")"
+      if [ -d "$dir/bin" ] && [ -d "$dir/data" ] && [ -d "$dir/config" ]; then
+        printf_blue "All files and Directories have been created"
+        if [ "$GEN_DOCKER_GIT_AUTO_INIT" = "yes" ]; then
+          if [ ! -d "$dir/.git" ] && [ ! -f "$dir/.nogit" ]; then
+            if [ "$GEN_DOCKER_AUTOMATED" = "true" ]; then
+              gitignore "$dir" default --automated
+              gitadmin --dir "$dir" setup "$repo" --automated
+            else
+              [ -f "$dir/.gitignore" ] || gitignore "$dir" default
+              gitadmin --dir "$dir" setup "$repo"
+            fi
           fi
         fi
+        exitCode=$?
+      else
+        printf_red "Well something went horribly wrong"
+        exitCode=1
       fi
-      exitCode=$?
     else
-      printf_red "Well something went horribly wrong"
+      printf_red "Failed to create Dockerfile for $name in $dir"
       exitCode=1
     fi
-  else
-    printf_red "Failed to create Dockerfile for $name in $dir"
-    exitCode=1
   fi
   printf '\n'
   return ${exitCode:-$?}
@@ -412,7 +414,7 @@ __docker_file() {
 __execute_gen_dockerfile() {
   if [ $# -lt 3 ]; then
     name="$(basename $GEN_DOCKERFILE_CWD)"
-    __docker_file "$GEN_DOCKERFILE_CWD/Dockerfile" "$name" "${2:-$1}"
+    __docker_file "${1:-$GEN_DOCKERFILE_CWD/Dockerfile}" "$name" "${2:-$1}"
   elif [ $# -eq 3 ]; then
     __docker_file "${1:1:$GEN_DOCKERFILE_CWD}" "$2" ${3:-$GEN_DOCKERFILE_GIT_BASE}
   else
@@ -505,7 +507,7 @@ SHORTOPTS=""
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
-LONGOPTS+=",nogit"
+LONGOPTS+=",nogit,template:"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY=""
 ARRAY+=""
@@ -583,6 +585,10 @@ while :; do
   --nogit)
     shift 1
     GEN_DOCKER_GIT_AUTO_INIT="no"
+    ;;
+  --template)
+    GEN_DOCKERFILE_TEMPLATE="$2"
+    shift 2
     ;;
   --)
     shift 1

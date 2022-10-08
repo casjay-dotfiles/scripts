@@ -108,10 +108,27 @@ SERVER_CONFIG_DIR="$DATADIR/config"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 DOCKER_HOST_IP="${DOCKER_HOST_IP:-$(ip a show docker0 | grep -w 'inet' | awk -F'/' '{print $1}' | awk '{print $2}' | grep '^')}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set to true for container to listen on localhost
+SERVER_LISTEN_LOCAL="${SERVER_LISTEN_LOCAL:-false}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Override container variables
+TZ="${TZ:-$TIMEZONE}"
+LOCAL_IP="${LOCAL_IP:-127.0.0.1}"
+SERVER_HOST="${SERVER_HOST:-}"
+SERVER_DOMAIN="${SERVER_DOMAIN:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Define folders
 LOCAL_SSL_DIR="${LOCAL_SSL_DIR:-$SERVER_SSL_DIR}"
 LOCAL_DATA_DIR="${LOCAL_DATA_DIR:-$SERVER_DATA_DIR}"
 LOCAL_CONFIG_DIR="${LOCAL_CONFIG_DIR:-$SERVER_CONFIG_DIR}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Define additional variables add -e myvar=var
+ADDITION_ENV=''
+ADDITION_ENV+=''
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Define additional mounts [ -v /dir:/dir ]
+ADDITIONAL_MOUNTS=""
+ADDITIONAL_MOUNTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # SSL Setup
 SERVER_SSL_DIR="${SERVER_SSL_DIR:-/etc/ssl/CA/CasjaysDev}"
@@ -120,26 +137,30 @@ SERVER_SSL_CRT="${SERVER_SSL_CRT:-$SERVER_SSL_DIR/certs/localhost.crt}"
 SERVER_SSL_KEY="${SERVER_SSL_KEY:-$SERVER_SSL_DIR/private/localhost.key}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup variables
-SERVER_IP="${CURRIP4:-127.0.0.1}"
+SERVER_IP="${CURRIP4:-$LOCAL_IP}"
 SERVER_LISTEN="${SERVER_LISTEN:-$SERVER_IP}"
 SERVER_DOMAIN="${SERVER_DOMAIN:-"$(hostname -d 2>/dev/null | grep '^' || echo local)"}"
 SERVER_HOST="${SERVER_HOST:-$APPNAME.$SERVER_DOMAIN}"
-SERVER_TIMEZONE="${TZ:-${TIMEZONE:-America/New_York}}"
+SERVER_TIMEZONE="${TZ:-America/New_York}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup nginx proxy variables
 NGINX_HTTP="${NGINX_HTTP:-80}"
 NGINX_HTTPS="${NGINX_HTTPS:-443}"
 NGINX_PORT="${NGINX_HTTPS:-$NGINX_HTTP}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Port Setup [ _INT is container port ] [ _EXT is docker ]
+# Port Setup [ _EXT is docker ] [ _INT is container ]
 SERVER_PORT_EXT="${SERVER_PORT_EXT:-}"
 SERVER_PORT_INT="${SERVER_PORT_INT:-}"
-SERVER_PORT_ADMIN_EXT="${SERVER_PORT_ADMIN_EXT:-}"
-SERVER_PORT_ADMIN_INT="${SERVER_PORT_ADMIN_INT:-}"
+SERVER_PORT_ADD_EXT="${SERVER_PORT_ADD_EXT:-}"
+SERVER_PORT_ADD_INT="${SERVER_PORT_ADD_INT:-}"
 SERVER_PORT_OTHER_EXT="${SERVER_PORT_OTHER_EXT:-}"
 SERVER_PORT_OTHER_INT="${SERVER_PORT_OTHER_INT:-}"
 SERVER_WEB_PORT="${SERVER_WEB_PORT:-$SERVER_PORT_EXT}"
 SERVER_PROXY="${SERVER_PROXY:-https://$SERVER_LISTEN:$SERVER_PORT_EXT}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Add -p LISTEN_IP:EXT_PORT:INT_PORT for each additional port
+SERVER_PORT_ADD_CUSTOM=""
+SERVER_PORT_ADD_CUSTOM+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show user info message
 SERVER_MESSAGE_USER=""
@@ -149,15 +170,17 @@ SERVER_MESSAGE_PASS=""
 SERVER_MESSAGE_POST=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # URL to container image [docker pull URL]
-HUB_URL="hello-world"
+HUB_URL="casjaysdevdocker/GEN_SCRIPT_REPLACE_APPNAME:latest"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # import global variables
-if [ -f "$APPDIR/env.sh" ] && [ ! -f "$DOCKERMGR_HOME/env/$APPNAME" ]; then
-  cp -Rf "$APPDIR/env.sh" "$DOCKERMGR_HOME/env/$APPNAME"
+if [ -f "$APPDIR/env.sh" ] && [ ! -f "$APPDIR/.env" ]; then
+  cp -Rf "$APPDIR/env.sh" "$APPDIR/.env"
 fi
-[ -f "$DOCKERMGR_HOME/env/$APPNAME" ] && . "$DOCKERMGR_HOME/env/$APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ -z "$HUB_URL" ] || [ "$HUB_URL" = "hello-world" ]; then
+[ -f "$APPDIR/.env" ] && . "$APPDIR/.env"
+[ -f "$DOCKERMGR_HOME/.env.sh" ] && . "$DOCKERMGR_HOME/.env.sh"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -z "$HUB_URL" ] || [ "$HUB_URL" = "hello-world" ] || echo "$HUB_URL" | grep -q "GEN_SCRIPT_REPLACE_APPNAME"; then
   printf_exit "Please set the url to the containers image"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -183,6 +206,22 @@ ensure_perms
 mkdir -p "$LOCAL_DATA_DIR"
 mkdir -p "$LOCAL_CONFIG_DIR"
 chmod -Rf 777 "$APPDIR"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+DEFINE_PORTS=""
+DEFINE_LISTEN="$SERVER_LISTEN"
+if [ "$SERVER_LISTEN_LOCAL" = "true" ]; then
+  DEFINE_LISTEN="$SERVER_LISTEN_LOCAL:"
+fi
+if [ -n "$SERVER_PORT_EXT" ] && [ -n "$SERVER_PORT_INT" ]; then
+  DEFINE_PORTS+="-p $DEFINE_LISTEN$SERVER_PORT_EXT:$SERVER_PORT_INT "
+fi
+if [ -n "$SERVER_PORT_ADD_EXT" ] && [ -n "$SERVER_PORT_ADD_INT" ]; then
+  DEFINE_PORTS+="-p $DEFINE_LISTEN$SERVER_PORT_EXT:$SERVER_PORT_INT "
+fi
+if [ -n "$SERVER_PORT_OTHER_EXT" ] && [ -n "$SERVER_PORT_OTHER_INT" ]; then
+  DEFINE_PORTS+="-p $DEFINE_LISTEN$SERVER_PORT_EXT:$SERVER_PORT_INT "
+fi
+[ -n "$SERVER_PORT_ADD_CUSTOM" ] && DEFINE_PORTS+="$SERVER_PORT_ADD_CUSTOM "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Clone/update the repo
 if __am_i_online; then
@@ -220,15 +259,15 @@ if cmd_exists docker-compose && [ -f "$INSTDIR/docker-compose.yml" ]; then
 else
   __sudo docker stop "$APPNAME" &>/dev/null
   __sudo docker rm -f "$APPNAME" &>/dev/null
+  __sudo docker pull "$APPNAME" &>/dev/null
   __sudo docker run -d \
+    --privileged \
+    --restart=always \
     --name="$APPNAME" \
     --hostname "$SERVER_HOST" \
-    --restart=always \
-    --privileged \
-    -e TZ="$SERVER_TIMEZONE" \
+    -e TZ="$SERVER_TIMEZONE" $ADDITION_ENV \
     -v $LOCAL_DATA_DIR:/data:z \
-    -v $LOCAL_CONFIG_DIR:/config:z \
-    -p $SERVER_LISTEN:$SERVER_PORT_EXT:$SERVER_PORT_INT \
+    -v $LOCAL_CONFIG_DIR:/config:z $ADDITIONAL_MOUNTS $DEFINE_PORTS \
     "$HUB_URL" &>/dev/null
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

@@ -3,44 +3,30 @@
 GEN_README_REPLACE_DESCRIBE  
   
   
-## Run container
+## Install my system scripts  
 
 ```shell
-dockermgr update ProjectName
+ sudo bash -c "$(curl -q -LSsf "https://github.com/dockermgr/installer/raw/GEN_README_REPLACE_DEFAULT_BRANCH/install.sh")"
+ sudo dockermgr --config && sudo dockermgr install scripts  
 ```
 
-### via command line
+## Get source files  
 
 ```shell
-docker pull casjaysdevdocker/ProjectName:latest && \
-docker run -d \
---restart always \
---name casjaysdevdocker-ProjectName \
---hostname casjaysdev-ProjectName \
--e TZ=${TIMEZONE:-America/New_York} \
--v $HOME/.local/share/srv/docker/ProjectName/files/data:/data:z \
--v $HOME/.local/share/srv/docker/ProjectName/files/config:/config:z \
--p 80:80 \
-casjaysdevdocker/ProjectName:latest
+dockermgr download src ProjectName
 ```
 
-### via docker-compose
+OR
 
-```yaml
-version: "2"
-services:
-  ProjectName:
-    image: casjaysdevdocker/ProjectName
-    container_name: ProjectName
-    environment:
-      - TZ=America/New_York
-      - HOSTNAME=casjaysdev-ProjectName
-    volumes:
-      - $HOME/.local/share/srv/docker/ProjectName/files/data:/data:z
-      - $HOME/.local/share/srv/docker/ProjectName/files/config:/config:z
-    ports:
-      - 80:80
-    restart: always
+```shell
+git clone "https://github.com/casjaysdevdocker/$ProjectName" "$HOME/Projects/github/casjaysdevdocker/$ProjectName"
+```
+
+## Build container  
+
+```shell
+cd "$HOME/Projects/github/casjaysdevdocker/$ProjectName"
+buildx 
 ```
 
 ## Authors  

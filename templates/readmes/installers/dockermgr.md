@@ -3,28 +3,28 @@
 GEN_README_REPLACE_DESCRIBE  
   
   
-### Requires scripts to be installed  
+## Requires scripts to be installed  
 
 ```shell
  sudo bash -c "$(curl -q -LSsf "https://github.com/systemmgr/installer/raw/GEN_README_REPLACE_DEFAULT_BRANCH/install.sh")"
  systemmgr --config && systemmgr install scripts  
 ```
 
-OR
-
-### Automatic install/update  
+## Automatic install/update  
 
 ```shell
 dockermgr update GEN_README_REPLACE_APPNAME
 ```
 
-### via command line  
+OR
 
 ```shell
 mkdir -p "$HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/dataDir"
 git clone "https://github.com/dockermgr/GEN_README_REPLACE_APPNAME" "$HOME/.local/share/CasjaysDev/dockermgr/GEN_README_REPLACE_APPNAME"
 cp -Rfva "$HOME/.local/share/CasjaysDev/dockermgr/GEN_README_REPLACE_APPNAME/dataDir/." "$HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/dataDir/"
 ```
+
+## via command line  
 
 ```shell
 docker pull casjaysdevdocker/ProjectName:latest && \
@@ -40,7 +40,7 @@ docker run -d \
 casjaysdevdocker/ProjectName:latest
 ```
 
-### via docker-compose  
+## via docker-compose  
 
 ```yaml
 version: "2"
@@ -59,7 +59,7 @@ services:
     restart: always
 ```
 
-## Author
+## Author  
 
 🤖 AuthorName: [Github](https://github.com/AuthorName) 🤖  
 ⛵ dockermgr: [Github](https://github.com/dockermgr) ⛵  

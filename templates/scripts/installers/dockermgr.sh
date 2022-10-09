@@ -229,22 +229,22 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_ENV=""
 for env in $ADDITION_ENV; do
-  [ -z "$env" ] || SET_ENV+="-e $env "
+  [ -z "$env" ] || SET_ENV+="--env $env "
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_DEV=""
 for dev in $ADDITION_DEVICES; do
-  [ -z "$env" ] || SET_DEV+="-d $dev "
+  [ -z "$env" ] || SET_DEV+="--device $dev "
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_MNT=""
 for mnt in $ADDITIONAL_MOUNTS; do
-  [ -z "$env" ] || SET_MNT+="-v $mnt "
+  [ -z "$env" ] || SET_MNT+="--volume $mnt "
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_PORT=""
 for port in $DEFINE_PORTS $SERVER_PORT_ADD_CUSTOM; do
-  [ -z "$port" ] || SET_PORT+="-p $port "
+  [ -z "$port" ] || SET_PORT+="--publish $port "
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Clone/update the repo

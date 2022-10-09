@@ -2393,6 +2393,7 @@ run_install_init() {
   local APPNAME="${APPNAME:-$PROG}"
   local TMPFILE="$TMPDIR/$APPNAME.tmp"
   local TMPINST="$TMPDIR/$APPNAME.inst.tmp"
+  local SETREPORAW="${REPORAW//$APPNAME\/$APPNAME/$APPNAME}"
   [[ -f "$TMPINST" ]] && exit 5 || touch "$TMPINST"
   export APPDIR INSTDIR
   SET_SUDO_PROMPT="$(printf "\n\t\t\033[1;31m")[sudo]$(printf "\033[1;36m") password for $(printf "\033[1;32m")%p: $(printf "\033[0m")"
@@ -2403,10 +2404,10 @@ run_install_init() {
     printf ""
     touch "$TMPFILE"
     printf_yellow "Grabbing install file from:"
-    printf_purple "$REPORAW/install.sh"
-    urlcheck "$REPORAW/install.sh" || {
+    printf_purple "$SETREPORAW/install.sh"
+    urlcheck "$SETREPORAW/install.sh" || {
       printf_red "Failed to initialize the installer from:"
-      printf_yellow "$REPORAW/install.sh\n"
+      printf_yellow "$SETREPORAW/install.sh\n"
       run_cleanup
       exit 5
     }

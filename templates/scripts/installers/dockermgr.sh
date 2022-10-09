@@ -131,7 +131,7 @@ ADDITION_DEVICES=''
 ADDITION_DEVICES+=''
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define additional mounts [ -v /dir:/dir ]
-ADDITIONAL_MOUNTS=''
+ADDITIONAL_MOUNTS='-v "'$LOCAL_DATA_DIR:/data:z'" -v "'$LOCAL_CONFIG_DIR:/config:z'" '
 ADDITIONAL_MOUNTS+=''
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # SSL Setup
@@ -263,15 +263,14 @@ if cmd_exists docker-compose && [ -f "$INSTDIR/docker-compose.yml" ]; then
 else
   __sudo docker stop "$APPNAME" &>/dev/null
   __sudo docker rm -f "$APPNAME" &>/dev/null
-  __sudo docker pull "$APPNAME" &>/dev/null
+  __sudo docker pull "$HUB_URL" &>/dev/null
   __sudo docker run -d \
     --privileged \
     --restart=always \
     --name="$APPNAME" \
     --hostname "$SERVER_HOST_NAME" \
-    -e TZ="$SERVER_TIMEZONE" $ADDITION_ENV $ADDITION_DEVICES \
-    -v $LOCAL_DATA_DIR:/data:z \
-    -v $LOCAL_CONFIG_DIR:/config:z $ADDITIONAL_MOUNTS $DEFINE_PORTS \
+    -e TZ="$SERVER_TIMEZONE" \
+    $ADDITION_ENV $ADDITION_DEVICES $ADDITIONAL_MOUNTS $DEFINE_PORTS \
     "$HUB_URL" &>/dev/null
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

@@ -6,8 +6,8 @@ GEN_README_REPLACE_DESCRIBE
 ### Requires scripts to be installed  
 
 ```shell
- sudo bash -c "$(curl -q -LSsf "https://github.com/dockermgr/installer/raw/GEN_README_REPLACE_DEFAULT_BRANCH/install.sh")"
- dockermgr --config && dockermgr install scripts  
+ sudo bash -c "$(curl -q -LSsf "https://github.com/systemmgr/installer/raw/GEN_README_REPLACE_DEFAULT_BRANCH/install.sh")"
+ systemmgr --config && systemmgr install scripts  
 ```
 
 OR

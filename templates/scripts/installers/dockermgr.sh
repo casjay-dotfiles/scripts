@@ -276,7 +276,7 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Copy over data files - keep the same stucture as -v dataDir/mnt:/mount
 if [ -d "$INSTDIR/dataDir" ] && [ ! -f "$DATADIR/.installed" ]; then
-  printf_blue "Copying files to $DATADIR"
+  printf_yellow "Copying files to $DATADIR"
   cp -Rf "$INSTDIR/dataDir/." "$DATADIR/"
   find "$DATADIR" -name ".gitkeep" -type f -exec rm -rf {} \; &>/dev/null
 fi
@@ -288,7 +288,7 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main progam
 if cmd_exists docker-compose && [ -f "$INSTDIR/docker-compose.yml" ]; then
-  printf_blue "Installing containers using docker-compose"
+  printf_yellow "Installing containers using docker-compose"
   sed -i 's|REPLACE_DATADIR|'$DATADIR'' "$INSTDIR/docker-compose.yml"
   if cd "$INSTDIR"; then
     __sudo docker-compose pull &>/dev/null
@@ -354,10 +354,10 @@ dockermgr_install_version
 # run exit function
 if docker ps -a | grep -qs "$APPNAME"; then
   printf_cyan "$APPNAME has been installed to $INSTDIR"
-  printf_blue "The DATADIR is in $DATADIR"
+  printf_yellow "The DATADIR is in $DATADIR"
   [ -z "$SERVER_PORT" ] && printf_yellow "This container does not have a web interface"
-  [ -n "$SERVER_LISTEN_ADDR" ] && [ -n "$SERVER_PORT" ] && printf_blue "Service is running on: $SERVER_LISTEN_ADDR:$SERVER_PORT"
-  [ -n "$SERVER_LISTEN_ADDR" ] && [ -n "$SERVER_PORT" ] && printf_blue "and should be available at: $NGINX_PROXY or $SERVER_PROTO//$SERVER_HOST_NAME:$SERVER_PORT"
+  [ -n "$SERVER_LISTEN_ADDR" ] && [ -n "$SERVER_PORT" ] && printf_yellow "Service is running on: $SERVER_LISTEN_ADDR:$SERVER_PORT"
+  [ -n "$SERVER_LISTEN_ADDR" ] && [ -n "$SERVER_PORT" ] && printf_yellow "and should be available at: $NGINX_PROXY or $SERVER_PROTO//$SERVER_HOST_NAME:$SERVER_PORT"
   [ -n "$SERVER_MESSAGE_USER" ] && printf_cyan "Username is:  $SERVER_MESSAGE_USER"
   [ -n "$SERVER_MESSAGE_PASS" ] && printf_purple "Password is:  $SERVER_MESSAGE_PASS"
   [ -n "$SERVER_MESSAGE_POST" ] && printf_green "$SERVER_MESSAGE_POST"

@@ -34,8 +34,8 @@ docker run -d \
 --name casjaysdevdocker-ProjectName \
 --hostname casjaysdev-ProjectName \
 -e TZ=${TIMEZONE:-America/New_York} \
--v $HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/dataDir/dataDir/data:/data:z \
--v $HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/dataDir/dataDir/config:/config:z \
+-v $HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/dataDir/data:/data:z \
+-v $HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/dataDir/config:/config:z \
 -p 80:80 \
 casjaysdevdocker/ProjectName:latest
 ```
@@ -52,8 +52,8 @@ services:
       - TZ=America/New_York
       - HOSTNAME=casjaysdev-ProjectName
     volumes:
-      - $HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/dataDir/dataDir/data:/data:z
-      - $HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/dataDir/dataDir/config:/config:z
+      - $HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/dataDir/data:/data:z
+      - $HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/dataDir/config:/config:z
     ports:
       - 80:80
     restart: always

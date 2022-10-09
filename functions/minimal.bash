@@ -985,11 +985,18 @@ __do_not_add_a_url() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __options() {
+  local SHORTOPTS="d"
   local LONGOPTS="debug,raw"
-  setopts=$(getopt --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
+  setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$FUNCFILE" -- "$@" 2>/dev/null)
   eval set -- "${setopts[@]}" 2>/dev/null
   while :; do
     case "$1" in
+    -d)
+      shift 1
+      export SCRIPT_OPTS=""
+      export _DEBUG=""
+      ;;
+
     --debug)
       shift 1
       set -xo pipefail

@@ -89,12 +89,17 @@ __full_app_info() {
 ###################### call options ######################
 __options() {
   $installtype
-  local SHORTOPTS=""
+  local SHORTOPTS="d"
   local LONGOPTS="test,debug,vdebug,full-info,remove:,uninstall:,raw"
-  setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "options.sh" -- "$@" 2>/dev/null)
+  setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$FUNCFILE" -- "$@" 2>/dev/null)
   eval set -- "${setopts[@]}" 2>/dev/null
   while :; do
     case "$1" in
+    -d)
+      shift 1
+      export SCRIPT_OPTS=""
+      export _DEBUG=""
+      ;;
     --test)
       shift 1
       [ "$1" = "--x" ] && set -x && shift 1

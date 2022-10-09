@@ -114,8 +114,8 @@ SERVER_LISTEN_LOCAL="${SERVER_LISTEN_LOCAL:-false}"
 # Override container variables
 TZ="${TZ:-$TIMEZONE}"
 LOCAL_IP="${LOCAL_IP:-127.0.0.1}"
-SERVER_HOST="${SERVER_HOST:-}"
-SERVER_DOMAIN="${SERVER_DOMAIN:-}"
+SERVER_HOST_NAME="${SERVER_HOST_NAME:-}"
+SERVER_DOMAIN_NAME="${SERVER_DOMAIN_NAME:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define folders
 LOCAL_SSL_DIR="${LOCAL_SSL_DIR:-$SERVER_SSL_DIR}"
@@ -125,6 +125,10 @@ LOCAL_CONFIG_DIR="${LOCAL_CONFIG_DIR:-$SERVER_CONFIG_DIR}"
 # Define additional variables add -e myvar=var
 ADDITION_ENV=''
 ADDITION_ENV+=''
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Define additional devices add -d /dev:/d
+ADDITION_DEVICES=''
+ADDITION_DEVICES+=''
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define additional mounts [ -v /dir:/dir ]
 ADDITIONAL_MOUNTS=""
@@ -139,8 +143,8 @@ SERVER_SSL_KEY="${SERVER_SSL_KEY:-$SERVER_SSL_DIR/private/localhost.key}"
 # Setup variables
 SERVER_IP="${CURRIP4:-$LOCAL_IP}"
 SERVER_LISTEN="${SERVER_LISTEN:-$SERVER_IP}"
-SERVER_DOMAIN="${SERVER_DOMAIN:-"$(hostname -d 2>/dev/null | grep '^' || echo local)"}"
-SERVER_HOST="${SERVER_HOST:-$APPNAME.$SERVER_DOMAIN}"
+SERVER_DOMAIN_NAME="${SERVER_DOMAIN_NAME:-"$(hostname -d 2>/dev/null | grep '^' || echo local)"}"
+SERVER_HOST_NAME="${SERVER_HOST_NAME:-$APPNAME.$SERVER_DOMAIN_NAME}"
 SERVER_TIMEZONE="${TZ:-America/New_York}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup nginx proxy variables
@@ -264,23 +268,23 @@ else
     --privileged \
     --restart=always \
     --name="$APPNAME" \
-    --hostname "$SERVER_HOST" \
-    -e TZ="$SERVER_TIMEZONE" $ADDITION_ENV \
+    --hostname "$SERVER_HOST_NAME" \
+    -e TZ="$SERVER_TIMEZONE" $ADDITION_ENV $ADDITION_DEVICES \
     -v $LOCAL_DATA_DIR:/data:z \
     -v $LOCAL_CONFIG_DIR:/config:z $ADDITIONAL_MOUNTS $DEFINE_PORTS \
     "$HUB_URL" &>/dev/null
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Install nginx proxy
-if [ ! -f "/etc/nginx/vhosts.d/$SERVER_HOST.conf" ] && [ -f "$INSTDIR/nginx/proxy.conf" ]; then
-  cp -f "$INSTDIR/nginx/proxy.conf" "/tmp/$$.$SERVER_HOST.conf"
-  sed -i "s|REPLACE_APPNAME|$APPNAME|g" "/tmp/$$.$SERVER_HOST.conf" &>/dev/null
-  sed -i "s|REPLACE_NGINX_PORT|$NGINX_PORT|g" "/tmp/$$.$SERVER_HOST.conf" &>/dev/null
-  sed -i "s|REPLACE_SERVER_PORT|$SERVER_PORT_EXT|g" "/tmp/$$.$SERVER_HOST.conf" &>/dev/null
-  sed -i "s|REPLACE_SERVER_HOST|$SERVER_DOMAIN|g" "/tmp/$$.$SERVER_HOST.conf" &>/dev/null
-  sed -i "s|REPLACE_SERVER_PROXY|$SERVER_PROXY|g" "/tmp/$$.$SERVER_HOST.conf" &>/dev/null
-  __sudo_root mv -f "/tmp/$$.$SERVER_HOST.conf" "/etc/nginx/vhosts.d/$SERVER_HOST.conf"
-  [ -f "/etc/nginx/vhosts.d/$SERVER_HOST.conf" ] && printf_green "[ ✅ ] Copying the nginx configuration"
+if [ ! -f "/etc/nginx/vhosts.d/$SERVER_HOST_NAME.conf" ] && [ -f "$INSTDIR/nginx/proxy.conf" ]; then
+  cp -f "$INSTDIR/nginx/proxy.conf" "/tmp/$$.$SERVER_HOST_NAME.conf"
+  sed -i "s|REPLACE_APPNAME|$APPNAME|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
+  sed -i "s|REPLACE_NGINX_PORT|$NGINX_PORT|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
+  sed -i "s|REPLACE_SERVER_PORT|$SERVER_PORT_EXT|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
+  sed -i "s|REPLACE_SERVER_HOST|$SERVER_DOMAIN_NAME|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
+  sed -i "s|REPLACE_SERVER_PROXY|$SERVER_PROXY|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
+  __sudo_root mv -f "/tmp/$$.$SERVER_HOST_NAME.conf" "/etc/nginx/vhosts.d/$SERVER_HOST_NAME.conf"
+  [ -f "/etc/nginx/vhosts.d/$SERVER_HOST_NAME.conf" ] && printf_green "[ ✅ ] Copying the nginx configuration"
   systemctl status nginx | grep -q enabled &>/dev/null && __sudo_root systemctl reload nginx &>/dev/null
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -288,13 +292,13 @@ fi
 run_postinst() {
   dockermgr_run_post
   [ -w "/etc/hosts" ] || return 0
-  if ! grep -sq "$SERVER_HOST" /etc/hosts; then
+  if ! grep -sq "$SERVER_HOST_NAME" /etc/hosts; then
     if [ -n "$SERVER_PORT_INT" ]; then
       if [ $(hostname -d 2>/dev/null | grep '^') = 'local' ]; then
         echo "$SERVER_LISTEN     $APPNAME.local" | sudo tee -a /etc/hosts &>/dev/null
       else
         echo "$SERVER_LISTEN     $APPNAME.local" | sudo tee -a /etc/hosts &>/dev/null
-        echo "$SERVER_LISTEN     $SERVER_HOST" | sudo tee -a /etc/hosts &>/dev/null
+        echo "$SERVER_LISTEN     $SERVER_HOST_NAME" | sudo tee -a /etc/hosts &>/dev/null
       fi
     fi
   fi
@@ -315,7 +319,7 @@ if docker ps -a | grep -qs "$APPNAME"; then
   printf_blue "DATADIR in $DATADIR"
   printf_cyan "Installed to $INSTDIR"
   [ -n "$SERVER_IP" ] && [ -n "$SERVER_PORT_EXT" ] && printf_blue "Service is running on: $SERVER_IP:$SERVER_PORT_EXT"
-  [ -n "$SERVER_LISTEN" ] && [ -n "$SERVER_WEB_PORT" ] && printf_blue "and should be available at: http://$SERVER_LISTEN:$SERVER_WEB_PORT or http://$SERVER_HOST:$SERVER_WEB_PORT"
+  [ -n "$SERVER_LISTEN" ] && [ -n "$SERVER_WEB_PORT" ] && printf_blue "and should be available at: http://$SERVER_LISTEN:$SERVER_WEB_PORT or http://$SERVER_HOST_NAME:$SERVER_WEB_PORT"
   [ -z "$SERVER_WEB_PORT" ] && printf_yellow "This container does not have a web interface"
   [ -n "$SERVER_MESSAGE_USER" ] && printf_cyan "Username is:  $SERVER_MESSAGE_USER"
   [ -n "$SERVER_MESSAGE_PASS" ] && printf_purple "Password is:  $SERVER_MESSAGE_PASS"

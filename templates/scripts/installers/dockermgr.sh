@@ -79,7 +79,8 @@ APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
 INSTDIR="$HOME/.local/share/CasjaysDev/dockermgr/GEN_SCRIPT_REPLACE_APPNAME"
 APPDIR="$HOME/.local/share/srv/docker/GEN_SCRIPT_REPLACE_APPNAME"
 DATADIR="$HOME/.local/share/srv/docker/GEN_SCRIPT_REPLACE_APPNAME/files"
-DOCKERMGR_HOME="${DOCKERMGR_HOME:-$HOME/.config/myscripts/dockermgr}"
+DOCKERMGR_CONFIG_DIR="${DOCKERMGR_CONFIG_DIR:-$HOME/.config/myscripts/dockermgr}"
+DOCKER_HOST_IP="${DOCKER_HOST_IP:-$(ip a show 'docker0' | grep -w 'inet' | awk -F'/' '{print $1}' | awk '{print $2}' | grep '^')}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Call the main function
 dockermgr_install
@@ -93,12 +94,8 @@ dockermgr_req_version "$APPVERSION"
 # Setup variables
 TZ="${TZ:-$TIMEZONE}"
 LOCAL_IP="${LOCAL_IP:-127.0.0.1}"
-SERVER_IP="${CURRIP4:-$LOCAL_IP}"
 SERVER_HOST_NAME="${SERVER_HOST_NAME:-}"
 SERVER_DOMAIN_NAME="${SERVER_DOMAIN_NAME:-}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set docker host IP address
-DOCKER_HOST_IP="${DOCKER_HOST_IP:-$(ip a show 'docker0' | grep -w 'inet' | awk -F'/' '{print $1}' | awk '{print $2}' | grep '^')}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # URL to container image [docker pull URL]
 HUB_IMAGE_URL="casjaysdevdocker/GEN_SCRIPT_REPLACE_APPNAME"
@@ -106,11 +103,20 @@ HUB_IMAGE_URL="casjaysdevdocker/GEN_SCRIPT_REPLACE_APPNAME"
 # image tag [docker pull HUB_IMAGE_URL:tag]
 HUB_IMAGE_TAG="latest"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set to true for container SSL support and set mount point IE: [/data/ssl/ca.crt]
+SSL_ENABLED="false"
+SSL_CA=""
+SSL_KEY=""
+SSL_CERT=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set to true for container to listen on localhost only
 SERVER_LISTEN_LOCAL="false"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set this to 0.0.0.0 to listen on all or specify addresses
 DEFINE_LISTEN=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set this to the protocol the the container will use [http]
+SERVER_PROTO="http"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define additional variables [ myvar=var ]
 ADDITION_ENV=""
@@ -140,13 +146,9 @@ SERVER_MESSAGE_PASS=""
 # Show post install message
 SERVER_MESSAGE_POST=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Directory variables for container
-SERVER_SSL_DIR="$DATADIR/ssl"
+# Define folders
 SERVER_DATA_DIR="$DATADIR/data"
 SERVER_CONFIG_DIR="$DATADIR/config"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Define folders
-LOCAL_SSL_DIR="${LOCAL_SSL_DIR:-$SERVER_SSL_DIR}"
 LOCAL_DATA_DIR="${LOCAL_DATA_DIR:-$SERVER_DATA_DIR}"
 LOCAL_CONFIG_DIR="${LOCAL_CONFIG_DIR:-$SERVER_CONFIG_DIR}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -157,16 +159,12 @@ SERVER_SSL_CRT="${SERVER_SSL_CRT:-$SERVER_SSL_DIR/certs/localhost.crt}"
 SERVER_SSL_KEY="${SERVER_SSL_KEY:-$SERVER_SSL_DIR/private/localhost.key}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup nginx proxy variables
+NGINX_SSL="true"
 NGINX_HTTP="${NGINX_HTTP:-80}"
 NGINX_HTTPS="${NGINX_HTTPS:-443}"
-NGINX_PORT="${NGINX_HTTPS:-$NGINX_HTTP}"
+NGINX_PROXY="${NGINX_PROXY:-http://$SERVER_LISTEN_ADDR:$SERVER_WEB_PORT}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Variables - Do not change
-SERVER_LISTEN_ADDR="${DEFINE_LISTEN:-$SERVER_IP}"
-SERVER_DOMAIN_NAME="${SERVER_DOMAIN_NAME:-"$(hostname -d 2>/dev/null | grep '^' || echo 'local')"}"
-SERVER_HOST_NAME="${SERVER_HOST_NAME:-$APPNAME.$SERVER_DOMAIN_NAME}"
-SERVER_TIMEZONE="${TZ:-America/New_York}"
-SERVER_PROXY="${SERVER_PROXY:-https://$SERVER_LISTEN_ADDR:$SERVER_WEB_PORT}"
+# End of configuration
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # import global variables
 if [ -f "$APPDIR/env.sh" ] && [ ! -f "$APPDIR/.env" ]; then
@@ -174,9 +172,10 @@ if [ -f "$APPDIR/env.sh" ] && [ ! -f "$APPDIR/.env" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [ -f "$APPDIR/.env" ] && . "$APPDIR/.env"
-[ -f "$DOCKERMGR_HOME/.env.sh" ] && . "$DOCKERMGR_HOME/.env.sh"
+[ -f "$DOCKERMGR_CONFIG_DIR/.env.sh" ] && . "$DOCKERMGR_CONFIG_DIR/.env.sh"
+[ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME" ] && . "$DOCKERMGR_CONFIG_DIR/env/$APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ -z "$HUB_IMAGE_URL" ] || [ "$HUB_IMAGE_URL" = "hello-world" ] || echo "$HUB_IMAGE_URL" | grep -q "GEN_SCRIPT_REPLACE_APPNAME"; then
+if [ -z "$HUB_IMAGE_URL" ] || [ "$HUB_IMAGE_URL" = "hello-world" ]; then
   printf_exit "Please set the url to the containers image"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -203,13 +202,26 @@ mkdir -p "$LOCAL_DATA_DIR"
 mkdir -p "$LOCAL_CONFIG_DIR"
 chmod -Rf 777 "$APPDIR"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Variables - Do not change
+SERVER_IP="${CURRIP4:-$LOCAL_IP}"
+SERVER_PROTO="${SERVER_PROTO:-http}"
+SERVER_TIMEZONE="${TZ:-America/New_York}"
 SERVER_MESSAGE_POST="${SERVER_MESSAGE_POST:-}"
+SERVER_LISTEN_ADDR="${DEFINE_LISTEN:-$SERVER_IP}"
 DEFINE_LISTEN="${DEFINE_LISTEN:-$SERVER_LISTEN_ADDR}:"
-if [ "$SERVER_LISTEN_LOCAL" = "true" ]; then
-  DEFINE_LISTEN="${LOCAL_IP:-127.0.0.1}:"
-fi
+SERVER_DOMAIN_NAME="${SERVER_DOMAIN_NAME:-"$(hostname -d 2>/dev/null | grep '^' || echo 'local')"}"
+SERVER_HOST_NAME="${SERVER_HOST_NAME:-$APPNAME.$SERVER_DOMAIN_NAME}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+[ -d "$DATADIR/ssl" ] && SERVER_SSL_DIR="$DATADIR/ssl" SERVER_SSL_CA
+[ "$SERVER_LISTEN_LOCAL" = "true" ] && DEFINE_LISTEN="${LOCAL_IP:-127.0.0.1}:"
 [ "$DOCKER_SOCKET_ENABLED" = "true" ] && ADDITIONAL_MOUNTS+="$DOCKER_SOCKET_MOUNT:/var/run/docker.sock "
+[ "$NGINX_SSL" = "true" ] && [ -n "$NGINX_HTTPS" ] && NGINX_PORT="${NGINX_HTTPS:-443}" || NGINX_PORT="${NGINX_HTTP:-80}"
+if [ "$SSL_ENABLED" = "true" ]; then
+  [ "$SERVER_PROTO" = "http" ] && NGINX_PROXY="https://$SERVER_LISTEN_ADDR:$SERVER_WEB_PORT" && SERVER_PROTO="${SERVER_PROTO:-https}"
+  [ -f "$SERVER_SSL_CA/localhost.crt" ] && SERVER_SSL_CA="$SERVER_SSL_DIR/ca.crt" && ADDITIONAL_MOUNTS+="$SERVER_SSL_DIR/localhost.crt:${SSL_CA:-/data/ca.crt} "
+  [ -f "$SERVER_SSL_DIR/localhost.key" ] && SERVER_SSL_KEY="$SERVER_SSL_DIR/localhost.key" && ADDITIONAL_MOUNTS+="$SERVER_SSL_DIR/localhost.key:${SSL_KEY:-/data/ssl.key} "
+  [ -f "$SERVER_SSL_DIR/localhost.crt" ] && SERVER_SSL_CRT="$SERVER_SSL_DIR/localhost.crt" && ADDITIONAL_MOUNTS+="$SERVER_SSL_DIR/localhost.crt:${SSL_CERT:-/data/ssl.crt} "
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_ENV=""
 for env in $ADDITION_ENV; do
@@ -286,7 +298,7 @@ if [ ! -f "/etc/nginx/vhosts.d/$SERVER_HOST_NAME.conf" ] && [ -f "$INSTDIR/nginx
   sed -i "s|REPLACE_NGINX_PORT|$NGINX_PORT|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
   sed -i "s|REPLACE_SERVER_PORT|$SERVER_WEB_PORT|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
   sed -i "s|REPLACE_SERVER_HOST|$SERVER_DOMAIN_NAME|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
-  sed -i "s|REPLACE_SERVER_PROXY|$SERVER_PROXY|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
+  sed -i "s|REPLACE_SERVER_PROXY|$NGINX_PROXY|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
   if [ -d "/etc/nginx/vhosts.d" ]; then
     __sudo_root mv -f "/tmp/$$.$SERVER_HOST_NAME.conf" "/etc/nginx/vhosts.d/$SERVER_HOST_NAME.conf"
     [ -f "/etc/nginx/vhosts.d/$SERVER_HOST_NAME.conf" ] && printf_green "[ ✅ ] Copying the nginx configuration"
@@ -326,7 +338,7 @@ if docker ps -a | grep -qs "$APPNAME"; then
   printf_blue "The DATADIR is in $DATADIR"
   [ -z "$SERVER_WEB_PORT" ] && printf_yellow "This container does not have a web interface"
   [ -n "$SERVER_LISTEN_ADDR" ] && [ -n "$SERVER_WEB_PORT" ] && printf_blue "Service is running on: $SERVER_LISTEN_ADDR:$SERVER_WEB_PORT"
-  [ -n "$SERVER_LISTEN_ADDR" ] && [ -n "$SERVER_WEB_PORT" ] && printf_blue "and should be available at: http://$SERVER_LISTEN_ADDR:$SERVER_WEB_PORT or http://$SERVER_HOST_NAME:$SERVER_WEB_PORT"
+  [ -n "$SERVER_LISTEN_ADDR" ] && [ -n "$SERVER_WEB_PORT" ] && printf_blue "and should be available at: $NGINX_PROXY or $SERVER_PROTO//$SERVER_HOST_NAME:$SERVER_WEB_PORT"
   [ -n "$SERVER_MESSAGE_USER" ] && printf_cyan "Username is:  $SERVER_MESSAGE_USER"
   [ -n "$SERVER_MESSAGE_PASS" ] && printf_purple "Password is:  $SERVER_MESSAGE_PASS"
   [ -n "$SERVER_MESSAGE_POST" ] && printf_green "$SERVER_MESSAGE_POST"

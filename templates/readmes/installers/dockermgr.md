@@ -21,21 +21,21 @@ dockermgr update GEN_README_REPLACE_APPNAME
 ### via command line  
 
 ```shell
-DATADIR="$HOME/.local/docker/storage/airsonic"
-mkdir -p "$HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/"
+mkdir -p "$HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/dataDir"
 git clone "https://github.com/dockermgr/GEN_README_REPLACE_APPNAME" "$HOME/.local/share/CasjaysDev/dockermgr/GEN_README_REPLACE_APPNAME"
-cp -Rfva "$HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/dataDir/." "$HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/"
+cp -Rfva "$HOME/.local/share/CasjaysDev/dockermgr/GEN_README_REPLACE_APPNAME/dataDir/." "$HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/dataDir/"
 ```
 
 ```shell
 docker pull casjaysdevdocker/ProjectName:latest && \
 docker run -d \
 --restart always \
+--privileged \
 --name casjaysdevdocker-ProjectName \
 --hostname casjaysdev-ProjectName \
 -e TZ=${TIMEZONE:-America/New_York} \
--v $HOME/.local/share/srv/docker/ProjectName/files/data:/data:z \
--v $HOME/.local/share/srv/docker/ProjectName/files/config:/config:z \
+-v $HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/dataDir/dataDir/data:/data:z \
+-v $HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/dataDir/dataDir/config:/config:z \
 -p 80:80 \
 casjaysdevdocker/ProjectName:latest
 ```
@@ -52,8 +52,8 @@ services:
       - TZ=America/New_York
       - HOSTNAME=casjaysdev-ProjectName
     volumes:
-      - $HOME/.local/share/srv/docker/ProjectName/files/data:/data:z
-      - $HOME/.local/share/srv/docker/ProjectName/files/config:/config:z
+      - $HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/dataDir/dataDir/data:/data:z
+      - $HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/dataDir/dataDir/config:/config:z
     ports:
       - 80:80
     restart: always

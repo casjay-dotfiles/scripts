@@ -108,8 +108,17 @@ SERVER_CONFIG_DIR="$DATADIR/config"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 DOCKER_HOST_IP="${DOCKER_HOST_IP:-$(ip a show docker0 | grep -w 'inet' | awk -F'/' '{print $1}' | awk '{print $2}' | grep '^')}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set to true for container to listen on localhost
-SERVER_LISTEN_LOCAL="${SERVER_LISTEN_LOCAL:-false}"
+# URL to container image [docker pull URL]
+HUB_IMAGE_URL="casjaysdevdocker/GEN_SCRIPT_REPLACE_APPNAME"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# image tag [docker pull HUB_IMAGE_URL:tag]
+HUB_IMAGE_TAG="latest"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set to true for container to listen on localhost only
+SERVER_LISTEN_LOCAL="false"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set this to 0.0.0.0 to listen on all or specify addresses
+DEFINE_LISTEN=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Override container variables
 TZ="${TZ:-$TIMEZONE}"
@@ -123,16 +132,20 @@ LOCAL_DATA_DIR="${LOCAL_DATA_DIR:-$SERVER_DATA_DIR}"
 LOCAL_CONFIG_DIR="${LOCAL_CONFIG_DIR:-$SERVER_CONFIG_DIR}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define additional variables add -e myvar=var
-ADDITION_ENV=''
-ADDITION_ENV+=''
+ADDITION_ENV=""
+ADDITION_ENV+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define additional devices add -d /dev:/d
-ADDITION_DEVICES=''
-ADDITION_DEVICES+=''
+ADDITION_DEVICES=""
+ADDITION_DEVICES+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define additional mounts [ -v /dir:/dir ]
-ADDITIONAL_MOUNTS='-v "'$LOCAL_DATA_DIR:/data:z'" -v "'$LOCAL_CONFIG_DIR:/config:z'" '
-ADDITIONAL_MOUNTS+=''
+ADDITIONAL_MOUNTS="-v $LOCAL_CONFIG_DIR:/config:z -v $LOCAL_DATA_DIR:/data:z "
+ADDITIONAL_MOUNTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Mount docker socket [pathToSocket]
+DOCKER_SOCKET_ENABLED="false"
+DOCKER_SOCKET_MOUNT="/var/run/docker.sock"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # SSL Setup
 SERVER_SSL_DIR="${SERVER_SSL_DIR:-/etc/ssl/CA/CasjaysDev}"
@@ -173,9 +186,6 @@ SERVER_MESSAGE_PASS=""
 # Show post install message
 SERVER_MESSAGE_POST=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# URL to container image [docker pull URL]
-HUB_URL="casjaysdevdocker/GEN_SCRIPT_REPLACE_APPNAME:latest"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # import global variables
 if [ -f "$APPDIR/env.sh" ] && [ ! -f "$APPDIR/.env" ]; then
   cp -Rf "$APPDIR/env.sh" "$APPDIR/.env"
@@ -184,7 +194,7 @@ fi
 [ -f "$APPDIR/.env" ] && . "$APPDIR/.env"
 [ -f "$DOCKERMGR_HOME/.env.sh" ] && . "$DOCKERMGR_HOME/.env.sh"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ -z "$HUB_URL" ] || [ "$HUB_URL" = "hello-world" ] || echo "$HUB_URL" | grep -q "GEN_SCRIPT_REPLACE_APPNAME"; then
+if [ -z "$HUB_IMAGE_URL" ] || [ "$HUB_IMAGE_URL" = "hello-world" ] || echo "$HUB_IMAGE_URL" | grep -q "GEN_SCRIPT_REPLACE_APPNAME"; then
   printf_exit "Please set the url to the containers image"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -212,9 +222,9 @@ mkdir -p "$LOCAL_CONFIG_DIR"
 chmod -Rf 777 "$APPDIR"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 DEFINE_PORTS=""
-DEFINE_LISTEN="$SERVER_LISTEN"
+DEFINE_LISTEN="${DEFINE_LISTEN:-$SERVER_LISTEN}:"
 if [ "$SERVER_LISTEN_LOCAL" = "true" ]; then
-  DEFINE_LISTEN="$SERVER_LISTEN_LOCAL:"
+  DEFINE_LISTEN="127.0.0.1:"
 fi
 if [ -n "$SERVER_PORT_EXT" ] && [ -n "$SERVER_PORT_INT" ]; then
   DEFINE_PORTS+="-p $DEFINE_LISTEN$SERVER_PORT_EXT:$SERVER_PORT_INT "
@@ -226,6 +236,7 @@ if [ -n "$SERVER_PORT_OTHER_EXT" ] && [ -n "$SERVER_PORT_OTHER_INT" ]; then
   DEFINE_PORTS+="-p $DEFINE_LISTEN$SERVER_PORT_EXT:$SERVER_PORT_INT "
 fi
 [ -n "$SERVER_PORT_ADD_CUSTOM" ] && DEFINE_PORTS+="$SERVER_PORT_ADD_CUSTOM "
+[ "$DOCKER_SOCKET_ENABLED" = "true" ] && DOCKER_SOCKET_MOUNT="-v $DOCKER_SOCKET_MOUNT:/var/run/docker.sock"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Clone/update the repo
 if __am_i_online; then
@@ -263,15 +274,15 @@ if cmd_exists docker-compose && [ -f "$INSTDIR/docker-compose.yml" ]; then
 else
   __sudo docker stop "$APPNAME" &>/dev/null
   __sudo docker rm -f "$APPNAME" &>/dev/null
-  __sudo docker pull "$HUB_URL" &>/dev/null
+  __sudo docker pull "$HUB_IMAGE_URL" &>/dev/null
   __sudo docker run -d \
     --privileged \
     --restart=always \
     --name="$APPNAME" \
     --hostname "$SERVER_HOST_NAME" \
     -e TZ="$SERVER_TIMEZONE" \
-    $ADDITION_ENV $ADDITION_DEVICES $ADDITIONAL_MOUNTS $DEFINE_PORTS \
-    "$HUB_URL" &>/dev/null
+    $ADDITION_ENV $ADDITION_DEVICES $ADDITIONAL_MOUNTS $DOCKER_SOCKET_MOUNT $DEFINE_PORTS \
+    "$HUB_IMAGE_URL:${HUB_IMAGE_TAG:-latest}" &>/dev/null
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Install nginx proxy

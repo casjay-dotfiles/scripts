@@ -91,6 +91,18 @@ trap_exit
 # Require a higher version
 dockermgr_req_version "$APPVERSION"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Define folders
+SERVER_DATA_DIR="$DATADIR/data"
+SERVER_CONFIG_DIR="$DATADIR/config"
+LOCAL_DATA_DIR="${LOCAL_DATA_DIR:-$SERVER_DATA_DIR}"
+LOCAL_CONFIG_DIR="${LOCAL_CONFIG_DIR:-$SERVER_CONFIG_DIR}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# SSL Setup
+SERVER_SSL_DIR="${SERVER_SSL_DIR:-/etc/ssl/CA/CasjaysDev}"
+SERVER_SSL_CA="${SERVER_SSL_CA:-$SERVER_SSL_DIR/certs/ca.crt}"
+SERVER_SSL_CRT="${SERVER_SSL_CRT:-$SERVER_SSL_DIR/certs/localhost.crt}"
+SERVER_SSL_KEY="${SERVER_SSL_KEY:-$SERVER_SSL_DIR/private/localhost.key}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup variables
 TZ="America/New_York"
 SERVER_HOST_NAME=""
@@ -147,18 +159,6 @@ SERVER_MESSAGE_PASS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show post install message
 SERVER_MESSAGE_POST=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Define folders
-SERVER_DATA_DIR="$DATADIR/data"
-SERVER_CONFIG_DIR="$DATADIR/config"
-LOCAL_DATA_DIR="${LOCAL_DATA_DIR:-$SERVER_DATA_DIR}"
-LOCAL_CONFIG_DIR="${LOCAL_CONFIG_DIR:-$SERVER_CONFIG_DIR}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# SSL Setup
-SERVER_SSL_DIR="${SERVER_SSL_DIR:-/etc/ssl/CA/CasjaysDev}"
-SERVER_SSL_CA="${SERVER_SSL_CA:-$SERVER_SSL_DIR/certs/ca.crt}"
-SERVER_SSL_CRT="${SERVER_SSL_CRT:-$SERVER_SSL_DIR/certs/localhost.crt}"
-SERVER_SSL_KEY="${SERVER_SSL_KEY:-$SERVER_SSL_DIR/private/localhost.key}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup nginx proxy variables
 NGINX_SSL="true"
@@ -240,7 +240,7 @@ done
 SET_DEV=""
 for dev in $ADDITION_DEVICES; do
   if [ -n "$dev" ]; then
-    echo "$dev" | grep ':' || dev="$dev:$dev"
+    echo "$dev" | grep -q ':' || dev="$dev:$dev"
     SET_DEV+="--device $dev "
   fi
 done
@@ -248,7 +248,7 @@ done
 SET_MNT=""
 for mnt in $ADDITIONAL_MOUNTS; do
   if [ -n "$mnt" ]; then
-    echo "$mnt" | grep ':' || port="$mnt:$mnt"
+    echo "$mnt" | grep -q ':' || port="$mnt:$mnt"
     SET_MNT+="--volume $mnt "
   fi
 done
@@ -256,7 +256,7 @@ done
 SET_PORT=""
 for port in $SERVER_WEB_PORT $SERVER_PORT_ADD_CUSTOM; do
   if [ -n "$port" ]; then
-    echo "$port" | grep ':' || port="$port:$port"
+    echo "$port" | grep -q ':' || port="$port:$port"
     SET_PORT+="--publish $DEFINE_LISTEN:$port "
   fi
 done

@@ -162,7 +162,7 @@ SERVER_SSL_KEY="${SERVER_SSL_KEY:-$SERVER_SSL_DIR/private/localhost.key}"
 NGINX_SSL="true"
 NGINX_HTTP="${NGINX_HTTP:-80}"
 NGINX_HTTPS="${NGINX_HTTPS:-443}"
-NGINX_PROXY="${NGINX_PROXY:-http://$SERVER_LISTEN_ADDR:$SERVER_WEB_PORT}"
+NGINX_PROXY=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End of configuration
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -205,23 +205,28 @@ chmod -Rf 777 "$APPDIR"
 # Variables - Do not change
 SERVER_IP="${CURRIP4:-$LOCAL_IP}"
 SERVER_PROTO="${SERVER_PROTO:-http}"
+SERVER_PORT="${SERVER_WEB_PORT//:*/}"
 SERVER_TIMEZONE="${TZ:-America/New_York}"
 SERVER_MESSAGE_POST="${SERVER_MESSAGE_POST:-}"
 SERVER_LISTEN_ADDR="${DEFINE_LISTEN:-$SERVER_IP}"
-DEFINE_LISTEN="${DEFINE_LISTEN:-$SERVER_LISTEN_ADDR}:"
+DEFINE_LISTEN="${DEFINE_LISTEN:-$SERVER_LISTEN_ADDR}"
 SERVER_DOMAIN_NAME="${SERVER_DOMAIN_NAME:-"$(hostname -d 2>/dev/null | grep '^' || echo 'local')"}"
 SERVER_HOST_NAME="${SERVER_HOST_NAME:-$APPNAME.$SERVER_DOMAIN_NAME}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [ -d "$DATADIR/ssl" ] && SERVER_SSL_DIR="$DATADIR/ssl" SERVER_SSL_CA
-[ "$SERVER_LISTEN_LOCAL" = "true" ] && DEFINE_LISTEN="${LOCAL_IP:-127.0.0.1}:"
+[ "$SERVER_LISTEN_LOCAL" = "true" ] && DEFINE_LISTEN="${LOCAL_IP:-127.0.0.1}"
 [ "$DOCKER_SOCKET_ENABLED" = "true" ] && ADDITIONAL_MOUNTS+="$DOCKER_SOCKET_MOUNT:/var/run/docker.sock "
 [ "$NGINX_SSL" = "true" ] && [ -n "$NGINX_HTTPS" ] && NGINX_PORT="${NGINX_HTTPS:-443}" || NGINX_PORT="${NGINX_HTTP:-80}"
 if [ "$SSL_ENABLED" = "true" ]; then
-  [ "$SERVER_PROTO" = "http" ] && NGINX_PROXY="https://$SERVER_LISTEN_ADDR:$SERVER_WEB_PORT" && SERVER_PROTO="${SERVER_PROTO:-https}"
+  [ "$SERVER_PROTO" = "http" ] && NGINX_PROXY="https://$SERVER_LISTEN_ADDR:$SERVER_PORT" && SERVER_PROTO="${SERVER_PROTO:-https}"
   [ -f "$SERVER_SSL_CA/localhost.crt" ] && SERVER_SSL_CA="$SERVER_SSL_DIR/ca.crt" && ADDITIONAL_MOUNTS+="$SERVER_SSL_DIR/localhost.crt:${SSL_CA:-/data/ca.crt} "
   [ -f "$SERVER_SSL_DIR/localhost.key" ] && SERVER_SSL_KEY="$SERVER_SSL_DIR/localhost.key" && ADDITIONAL_MOUNTS+="$SERVER_SSL_DIR/localhost.key:${SSL_KEY:-/data/ssl.key} "
   [ -f "$SERVER_SSL_DIR/localhost.crt" ] && SERVER_SSL_CRT="$SERVER_SSL_DIR/localhost.crt" && ADDITIONAL_MOUNTS+="$SERVER_SSL_DIR/localhost.crt:${SSL_CERT:-/data/ssl.crt} "
+else
+  SERVER_PROTO="${SERVER_PROTO:-http}"
 fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+NGINX_PROXY="${NGINX_PROXY:-$SERVER_PROTO://$SERVER_LISTEN_ADDR:$SERVER_PORT}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_ENV=""
 for env in $ADDITION_ENV; do
@@ -279,6 +284,7 @@ if cmd_exists docker-compose && [ -f "$INSTDIR/docker-compose.yml" ]; then
 else
   __sudo docker stop "$APPNAME" &>/dev/null
   __sudo docker rm -f "$APPNAME" &>/dev/null
+  printf_cyan "Updating the image from $HUB_IMAGE_URL"
   __sudo docker pull "$HUB_IMAGE_URL" &>/dev/null
   __sudo docker run -d \
     --privileged \
@@ -296,7 +302,7 @@ if [ ! -f "/etc/nginx/vhosts.d/$SERVER_HOST_NAME.conf" ] && [ -f "$INSTDIR/nginx
   cp -f "$INSTDIR/nginx/proxy.conf" "/tmp/$$.$SERVER_HOST_NAME.conf"
   sed -i "s|REPLACE_APPNAME|$APPNAME|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
   sed -i "s|REPLACE_NGINX_PORT|$NGINX_PORT|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
-  sed -i "s|REPLACE_SERVER_PORT|$SERVER_WEB_PORT|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
+  sed -i "s|REPLACE_SERVER_PORT|$SERVER_PORT|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
   sed -i "s|REPLACE_SERVER_HOST|$SERVER_DOMAIN_NAME|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
   sed -i "s|REPLACE_SERVER_PROXY|$NGINX_PROXY|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
   if [ -d "/etc/nginx/vhosts.d" ]; then
@@ -311,7 +317,7 @@ run_postinst() {
   dockermgr_run_post
   [ -w "/etc/hosts" ] || return 0
   if ! grep -sq "$SERVER_HOST_NAME" "/etc/hosts"; then
-    if [ -n "$SERVER_WEB_PORT" ]; then
+    if [ -n "$SERVER_PORT" ]; then
       if [ $(hostname -d 2>/dev/null | grep '^') = 'local' ]; then
         echo "$SERVER_LISTEN_ADDR     $APPNAME.local" | sudo tee -a "/etc/hosts" &>/dev/null
       else
@@ -336,9 +342,9 @@ dockermgr_install_version
 if docker ps -a | grep -qs "$APPNAME"; then
   printf_cyan "$APPNAME has been installed to $INSTDIR"
   printf_blue "The DATADIR is in $DATADIR"
-  [ -z "$SERVER_WEB_PORT" ] && printf_yellow "This container does not have a web interface"
-  [ -n "$SERVER_LISTEN_ADDR" ] && [ -n "$SERVER_WEB_PORT" ] && printf_blue "Service is running on: $SERVER_LISTEN_ADDR:$SERVER_WEB_PORT"
-  [ -n "$SERVER_LISTEN_ADDR" ] && [ -n "$SERVER_WEB_PORT" ] && printf_blue "and should be available at: $NGINX_PROXY or $SERVER_PROTO//$SERVER_HOST_NAME:$SERVER_WEB_PORT"
+  [ -z "$SERVER_PORT" ] && printf_yellow "This container does not have a web interface"
+  [ -n "$SERVER_LISTEN_ADDR" ] && [ -n "$SERVER_PORT" ] && printf_blue "Service is running on: $SERVER_LISTEN_ADDR:$SERVER_PORT"
+  [ -n "$SERVER_LISTEN_ADDR" ] && [ -n "$SERVER_PORT" ] && printf_blue "and should be available at: $NGINX_PROXY or $SERVER_PROTO//$SERVER_HOST_NAME:$SERVER_PORT"
   [ -n "$SERVER_MESSAGE_USER" ] && printf_cyan "Username is:  $SERVER_MESSAGE_USER"
   [ -n "$SERVER_MESSAGE_PASS" ] && printf_purple "Password is:  $SERVER_MESSAGE_PASS"
   [ -n "$SERVER_MESSAGE_POST" ] && printf_green "$SERVER_MESSAGE_POST"

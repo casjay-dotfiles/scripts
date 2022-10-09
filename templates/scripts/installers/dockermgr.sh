@@ -140,8 +140,12 @@ ADDITION_DEVICES=""
 ADDITION_DEVICES+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define additional mounts [ -v /dir:/dir ]
-ADDITIONAL_MOUNTS="-v $LOCAL_CONFIG_DIR:/config:z -v $LOCAL_DATA_DIR:/data:z "
+ADDITIONAL_MOUNTS="$LOCAL_CONFIG_DIR:/config:z $LOCAL_DATA_DIR:/data:z "
 ADDITIONAL_MOUNTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Add LISTEN_IP:EXT_PORT:INT_PORT for each additional port
+SERVER_PORT_ADD_CUSTOM=""
+SERVER_PORT_ADD_CUSTOM+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mount docker socket [pathToSocket]
 DOCKER_SOCKET_ENABLED="false"
@@ -174,10 +178,6 @@ SERVER_PORT_OTHER_EXT="${SERVER_PORT_OTHER_EXT:-}"
 SERVER_PORT_OTHER_INT="${SERVER_PORT_OTHER_INT:-}"
 SERVER_WEB_PORT="${SERVER_WEB_PORT:-$SERVER_PORT_EXT}"
 SERVER_PROXY="${SERVER_PROXY:-https://$SERVER_LISTEN:$SERVER_PORT_EXT}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Add -p LISTEN_IP:EXT_PORT:INT_PORT for each additional port
-SERVER_PORT_ADD_CUSTOM=""
-SERVER_PORT_ADD_CUSTOM+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show user info message
 SERVER_MESSAGE_USER=""
@@ -227,16 +227,36 @@ if [ "$SERVER_LISTEN_LOCAL" = "true" ]; then
   DEFINE_LISTEN="127.0.0.1:"
 fi
 if [ -n "$SERVER_PORT_EXT" ] && [ -n "$SERVER_PORT_INT" ]; then
-  DEFINE_PORTS+="-p $DEFINE_LISTEN$SERVER_PORT_EXT:$SERVER_PORT_INT "
+  DEFINE_PORTS+="$DEFINE_LISTEN$SERVER_PORT_EXT:$SERVER_PORT_INT "
 fi
 if [ -n "$SERVER_PORT_ADD_EXT" ] && [ -n "$SERVER_PORT_ADD_INT" ]; then
-  DEFINE_PORTS+="-p $DEFINE_LISTEN$SERVER_PORT_EXT:$SERVER_PORT_INT "
+  DEFINE_PORTS+="$DEFINE_LISTEN$SERVER_PORT_EXT:$SERVER_PORT_INT "
 fi
 if [ -n "$SERVER_PORT_OTHER_EXT" ] && [ -n "$SERVER_PORT_OTHER_INT" ]; then
-  DEFINE_PORTS+="-p $DEFINE_LISTEN$SERVER_PORT_EXT:$SERVER_PORT_INT "
+  DEFINE_PORTS+="$DEFINE_LISTEN$SERVER_PORT_EXT:$SERVER_PORT_INT "
 fi
-[ -n "$SERVER_PORT_ADD_CUSTOM" ] && DEFINE_PORTS+="$SERVER_PORT_ADD_CUSTOM "
-[ "$DOCKER_SOCKET_ENABLED" = "true" ] && DOCKER_SOCKET_MOUNT="-v $DOCKER_SOCKET_MOUNT:/var/run/docker.sock"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+[ "$DOCKER_SOCKET_ENABLED" = "true" ] && ADDITIONAL_MOUNTS+="$DOCKER_SOCKET_MOUNT:/var/run/docker.sock "
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SET_ENV=""
+for env in $ADDITION_ENV; do
+  [ -z "$env" ] || SET_ENV+="-e $env "
+done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SET_DEV=""
+for dev in $ADDITION_DEVICES; do
+  [ -z "$env" ] || SET_DEV+="-d $dev "
+done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SET_MNT=""
+for mnt in $ADDITIONAL_MOUNTS; do
+  [ -z "$env" ] || SET_MNT+="-v $mnt "
+done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SET_PORT=""
+for port in $DEFINE_PORTS $SERVER_PORT_ADD_CUSTOM; do
+  [ -z "$port" ] || SET_PORT+="-p $port "
+done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Clone/update the repo
 if __am_i_online; then
@@ -281,7 +301,7 @@ else
     --name="$APPNAME" \
     --hostname "$SERVER_HOST_NAME" \
     -e TZ="$SERVER_TIMEZONE" \
-    $ADDITION_ENV $ADDITION_DEVICES $ADDITIONAL_MOUNTS $DOCKER_SOCKET_MOUNT $DEFINE_PORTS \
+    $SET_ENV $SET_DEV $SET_MNT $SET_PORT \
     "$HUB_IMAGE_URL:${HUB_IMAGE_TAG:-latest}" &>/dev/null
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

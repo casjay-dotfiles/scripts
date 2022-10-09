@@ -93,7 +93,6 @@ dockermgr_req_version "$APPVERSION"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup variables
 TZ="America/New_York"
-LOCAL_IP="127.0.0.1"
 SERVER_HOST_NAME=""
 SERVER_DOMAIN_NAME=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -109,7 +108,8 @@ SSL_CA=""
 SSL_KEY=""
 SSL_CERT=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set to true for container to listen on localhost only
+# Set to true for container to listen on LOCAL_IP only
+LOCAL_IP="127.0.0.1"
 SERVER_LISTEN_LOCAL="false"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set this to 0.0.0.0 to listen on all or specify addresses

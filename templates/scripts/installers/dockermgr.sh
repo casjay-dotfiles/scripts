@@ -92,10 +92,10 @@ trap_exit
 dockermgr_req_version "$APPVERSION"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup variables
-TZ="${TZ:-$TIMEZONE}"
-LOCAL_IP="${LOCAL_IP:-127.0.0.1}"
-SERVER_HOST_NAME="${SERVER_HOST_NAME:-}"
-SERVER_DOMAIN_NAME="${SERVER_DOMAIN_NAME:-}"
+TZ="America/New_York"
+LOCAL_IP="127.0.0.1"
+SERVER_HOST_NAME=""
+SERVER_DOMAIN_NAME=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # URL to container image [docker pull URL]
 HUB_IMAGE_URL="casjaysdevdocker/GEN_SCRIPT_REPLACE_APPNAME"
@@ -130,8 +130,10 @@ ADDITION_DEVICES+=""
 ADDITIONAL_MOUNTS="$LOCAL_CONFIG_DIR:/config:z $LOCAL_DATA_DIR:/data:z "
 ADDITIONAL_MOUNTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Add EXT_PORT:INT_PORT for each additional port - LISTEN will be added
+# Add Add main port [port] or [port:port] - LISTEN will be added
 SERVER_WEB_PORT=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Same as SERVER_WEB_PORT and do not add SERVER_WEB_PORT here as it will be added
 SERVER_PORT_ADD_CUSTOM=""
 SERVER_PORT_ADD_CUSTOM+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -160,8 +162,8 @@ SERVER_SSL_KEY="${SERVER_SSL_KEY:-$SERVER_SSL_DIR/private/localhost.key}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup nginx proxy variables
 NGINX_SSL="true"
-NGINX_HTTP="${NGINX_HTTP:-80}"
-NGINX_HTTPS="${NGINX_HTTPS:-443}"
+NGINX_HTTP="80"
+NGINX_HTTPS="443"
 NGINX_PROXY=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End of configuration
@@ -204,9 +206,9 @@ chmod -Rf 777 "$APPDIR"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Variables - Do not change
 SERVER_IP="${CURRIP4:-$LOCAL_IP}"
-SERVER_PROTO="${SERVER_PROTO:-http}"
 SERVER_PORT="${SERVER_WEB_PORT//:*/}"
-SERVER_TIMEZONE="${TZ:-America/New_York}"
+SERVER_PROTO="${SERVER_PROTO:-http}"
+SERVER_TIMEZONE="${TZ:-$TIMEZONE}"
 SERVER_MESSAGE_POST="${SERVER_MESSAGE_POST:-}"
 SERVER_LISTEN_ADDR="${DEFINE_LISTEN:-$SERVER_IP}"
 DEFINE_LISTEN="${DEFINE_LISTEN:-$SERVER_LISTEN_ADDR}"
@@ -230,22 +232,33 @@ NGINX_PROXY="${NGINX_PROXY:-$SERVER_PROTO://$SERVER_LISTEN_ADDR:$SERVER_PORT}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_ENV=""
 for env in $ADDITION_ENV; do
-  [ -z "$env" ] || SET_ENV+="--env $env "
+  if [ -n "$env" ]; then
+    SET_ENV+="--env $env "
+  fi
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_DEV=""
 for dev in $ADDITION_DEVICES; do
-  [ -z "$env" ] || SET_DEV+="--device $dev "
+  if [ -n "$dev" ]; then
+    echo "$dev" | grep ':' || dev="$dev:$dev"
+    SET_DEV+="--device $dev "
+  fi
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_MNT=""
 for mnt in $ADDITIONAL_MOUNTS; do
-  [ -z "$env" ] || SET_MNT+="--volume $mnt "
+  if [ -n "$mnt" ]; then
+    echo "$mnt" | grep ':' || port="$mnt:$mnt"
+    SET_MNT+="--volume $mnt "
+  fi
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_PORT=""
 for port in $SERVER_WEB_PORT $SERVER_PORT_ADD_CUSTOM; do
-  [ -z "$port" ] || SET_PORT+="--publish $DEFINE_LISTEN:$port "
+  if [ -n "$port" ]; then
+    echo "$port" | grep ':' || port="$port:$port"
+    SET_PORT+="--publish $DEFINE_LISTEN:$port "
+  fi
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Clone/update the repo

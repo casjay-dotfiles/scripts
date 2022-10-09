@@ -19,7 +19,7 @@ SUDO_USER="${RUN_USER:-$SUDO_USER}"
 export RUN_USER SUDO_USER _DEBUG
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
-[[ "$_DEBUG" = "on" ]] && set -xo pipefail
+[ "$_DEBUG" = "on" ] && set -xo pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 CASJAYSDEVDIR="/usr/local/share/CasjaysDev/scripts"
 CASJAYSDEV_USERDIR="${CASJAYSDEV_USERDIR:-$HOME/.local/share/CasjaysDev}"
@@ -126,7 +126,7 @@ devnull2() { "$@" >/dev/null 2>&1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __os_fix_name() {
   local file="${1:-/etc/casjaysdev/updates/versions/osversion.txt}"
-  if [[ -f "$file" ]]; then
+  if [ -f "$file" ]; then
     sudo sed -i 's|[",]||g;s| [lL]inux:||g' "$file"
   else
     return 0
@@ -194,7 +194,7 @@ else
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_newline() {
-  [[ -n "$1" ]] && printf '%b\n' "${*:-}" || printf '\n'
+  [ -n "$1" ] && printf '%b\n' "${*:-}" || printf '\n'
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_normal() { printf_color "\t\t$1\n" "$2"; }
@@ -552,7 +552,7 @@ broken_symlinks() { devnull find "$*" -xtype l -exec rm {} \;; }
 mv_f() { if [ -e "$1" ]; then devnull mv -f "$@"; else return 0; fi; }
 rm_rf() { if [ -e "$1" ]; then devnull rm -Rf "$@"; else return 0; fi; }
 cp_rf() { if [ -e "$1" ]; then devnull cp -Rfa "$@"; else return 0; fi; }
-replace() { [[ -e "$1" ]] && find "$1" -not -path "$1/.git/*" -type f -exec sed -i 's|'$2'|'$3'|g' {} \; >/dev/null 2>&1 || return 0; }
+replace() { [ -e "$1" ] && find "$1" -not -path "$1/.git/*" -type f -exec sed -i 's|'$2'|'$3'|g' {} \; >/dev/null 2>&1 || return 0; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 urlcheck() {
   devnull curl --config /dev/null \
@@ -732,7 +732,7 @@ __getpythonver() {
   else
     PYTHONBIN="python"
   fi
-  [[ -n "$PYTHONBIN" ]] || return 1
+  [ -n "$PYTHONBIN" ] || return 1
   if [[ "$($PYTHONBIN -V 2>/dev/null)" =~ "Python 3" ]]; then
     PYTHONVER="python3"
     PIP="pip3"
@@ -765,7 +765,7 @@ sudorun() { if sudoif; then sudo -HE "$@"; else "$@"; fi; }
 sudoif() { (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 user_is_root() {
-  if [[ $(id -u) -eq 0 ]] || [[ $EUID -eq 0 ]] || [[ "$WHOAMI" = "root" ]]; then
+  if [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; then
     return 0
   else
     return 1
@@ -774,7 +774,7 @@ user_is_root() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 sudorerun() {
   local ARGS="$ARGS"
-  if [[ $UID != 0 ]]; then
+  if [ $UID != 0 ]; then
     if sudoif; then
       sudo -HE "$APPNAME" "$ARGS"
       exit $?
@@ -786,10 +786,10 @@ sudorerun() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 sudoreq() {
   sudo_check=$(sudo -H -S -- echo SUDO_OK 2>&1 &)
-  [[ $sudo_check == "SUDO_OK" ]] && return
-  if [[ $UID != 0 ]]; then
+  [ $sudo_check == "SUDO_OK" ] && return
+  if [ $UID != 0 ]; then
     if builtin type -P ask_for_password &>/dev/null; then
-      [[ "$SUDO_SUCCESS" = "TRUE" ]] || ask_for_password "${@:-true}"
+      [ "$SUDO_SUCCESS" = "TRUE" ] || ask_for_password "${@:-true}"
       export SUDO_SUCCESS="TRUE"
       return 0
     else
@@ -860,7 +860,7 @@ crontab_add() {
   case "$action" in
   remove)
     shift 1
-    if [[ $EUID -ne 0 ]]; then
+    if [ $EUID -ne 0 ]; then
       printf_green "Removing $file from $WHOAMI crontab"
       crontab -l | grep -v -F "$file" | crontab - &>/dev/null
       printf_custom "2" "$file has been removed from automatically updating"
@@ -874,7 +874,7 @@ crontab_add() {
   add)
     shift 1
     [ -f "$file" ] || printf_exit "1" "Can not find $file"
-    if [[ "$EUID" -ne 0 ]]; then
+    if [ "$EUID" -ne 0 ]; then
       local croncmd="logr"
       local additional='bash -c "sleep $(expr $RANDOM \% 300) && '$file' &"'
       printf_green "Adding $frequency $croncmd $additional to $WHOAMI crontab"
@@ -894,7 +894,7 @@ crontab_add() {
 
   *)
     [ -f "$file" ] || printf_exit "1" "Can not find $file"
-    if [[ "$EUID" -ne 0 ]]; then
+    if [ "$EUID" -ne 0 ]; then
       local croncmd="logr"
       local additional='bash -c "sleep $(expr $RANDOM \% 300) && '$file' &"'
       printf_green "Adding $frequency $croncmd $additional to $WHOAMI crontab"
@@ -926,7 +926,7 @@ versioncheck() {
       printf_blue "There is an update available"
       printf_blue "New version is $NEWVERSION and currentversion is $OLDVERSION"
       printf_question_timeout "4" "Would you like to update" "1" "choice" "-s"
-      if [[ $choice == "y" || $choice == "Y" ]]; then
+      if [ $choice == "y" ] || [ $choice == "Y" ]; then
         [ -f "$INSTDIR/install.sh" ] && bash -c "$INSTDIR/install.sh" && echo ||
           if [ -d "$INSTDIR/.git" ]; then
             git -C "$INSTDIR" pull -q &&
@@ -948,7 +948,7 @@ scripts_check() {
   if [ -z "$(builtin type -P pkmgr 2>/dev/null)" ] && [ ! -f "$HOME/.config/local/noscripts" ]; then
     printf_red "Please install my scripts repo - requires root/sudo"
     printf_question_timeout "4" "Would you like to do that now" "1" "choice" "-s"
-    if [[ $choice == "y" || $choice == "Y" ]]; then
+    if [ $choice == "y" ] || [ $choice == "Y" ]; then
       urlverify "$SYSTEMMGRREPO/installer/raw/$GIT_REPO_BRANCH/install.sh" &&
         sudo -HE bash -c "$(__curl "$SYSTEMMGRREPO/installer/raw/$GIT_REPO_BRANCH/install.sh")" && echo
     else
@@ -1285,9 +1285,9 @@ trim() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 execute() {
-  [[ -n "$_DEBUG" ]] && set -x
+  [ -n "$_DEBUG" ] && set -x
   kill_all_subprocesses() {
-    [[ -n "$_DEBUG" ]] && set -x
+    [ -n "$_DEBUG" ] && set -x
     local i=""
     for i in $(jobs -p); do
       kill "$i"
@@ -1295,7 +1295,7 @@ execute() {
     done
   }
   show_spinner() {
-    [[ -n "$_DEBUG" ]] && set -x
+    [ -n "$_DEBUG" ] && set -x
     local -r FRAMES='/-\|'
     local -r NUMBER_OR_FRAMES=${#FRAMES}
     local -r CMDS="$2"
@@ -1475,7 +1475,7 @@ user_installdirs() {
   SCRIPTS_PREFIX="${SCRIPTS_PREFIX:-dfmgr}"
   APPNAME="${APPNAME:-installer}"
   REPORAW="${REPORAW:-}"
-  if [[ $(id -u) -eq 0 ]] || [[ $EUID -eq 0 ]] || [[ "$WHOAMI" = "root" ]]; then
+  if [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; then
     INSTALL_TYPE=user
     if [[ $(uname -s) =~ Darwin ]]; then HOME="/usr/local/home/root"; fi
     BIN="$HOME/.local/bin"
@@ -1533,7 +1533,7 @@ system_installdirs() {
   SCRIPTS_PREFIX="${SCRIPTS_PREFIX:-dfmgr}"
   APPNAME="${APPNAME:-installer}"
   REPORAW="${REPORAW:-}"
-  if [[ $(id -u) -eq 0 ]] || [[ $EUID -eq 0 ]] || [[ "$WHOAMI" = "root" ]]; then
+  if [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; then
     if [[ $(uname -s) =~ Darwin ]]; then HOME="/usr/local/home/root"; fi
     BACKUPDIR="$HOME/.local/backups"
     BIN="/usr/local/bin"
@@ -1586,7 +1586,7 @@ system_installdirs() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ensure_dirs() {
-  if [[ $EUID -ne 0 ]] || [[ "$WHOAMI" != "root" ]]; then
+  if [ $EUID -ne 0 ] || [ "$WHOAMI" != "root" ]; then
     mkd "$BIN"
     mkd "$SHARE"
     mkd "$LOGDIR"
@@ -1828,7 +1828,7 @@ installer_noupdate() {
       git -C "${1:-$INSTDIR}" pull &>/dev/null && return 0 || return 1
   }
   ##
-  [[ -n "$_DEBUG" ]] && set -xeo
+  [ -n "$_DEBUG" ] && set -xeo
   [ "$1" = "--force" ] && return 0
   if [ "$FORCE_INSTALL" = "true" ]; then
     rm_rf "$APPDIR/.installed" "$INSTDIR/.installed"
@@ -1840,7 +1840,7 @@ installer_noupdate() {
     printf_yellow "This can be changed with the --force flag"
     printf_yellow "Updating the git repository only"
     ln_sf "$INSTDIR/install.sh" "$SYSUPDATEDIR/$APPNAME"
-    [[ -d "$INSTDIR/.git" ]] || { rm -Rf "$INSTDIR" && git clone -q "$REPO" "$INSTDIR" &>/dev/null; }
+    [ -d "$INSTDIR/.git" ] || { rm -Rf "$INSTDIR" && git clone -q "$REPO" "$INSTDIR" &>/dev/null; }
     if __git_update "$INSTDIR"; then
       printf_cyan "$APPNAME has been updated"
       exit 0
@@ -1853,7 +1853,7 @@ installer_noupdate() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __install_fonts() {
-  [[ -n "$_DEBUG" ]] && set -x && echo __install_fonts
+  [ -n "$_DEBUG" ] && set -x && echo __install_fonts
   if [ -d "$INSTDIR/fontconfig" ]; then
     local fontconfdir="$FONTCONF"
     ln_sf "$INSTDIR/fontconfig"/* "$fontconfdir/"
@@ -1876,7 +1876,7 @@ __install_fonts() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __install_icons() {
-  [[ -n "$_DEBUG" ]] && set -x && echo __install_icons
+  [ -n "$_DEBUG" ] && set -x && echo __install_icons
   if [ -d "$INSTDIR/icons" ]; then
     local icondir="$ICONDIR"
     local icons="$(ls "$INSTDIR/icons" 2>/dev/null | wc -l)"
@@ -1900,7 +1900,7 @@ __install_icons() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __install_theme() {
-  [[ -n "$_DEBUG" ]] && set -x && echo __install_theme
+  [ -n "$_DEBUG" ] && set -x && echo __install_theme
   if [ -d "$INSTDIR/theme" ]; then
     local themedir="$THEMEDIR"
     local theme="$(ls "$INSTDIR/theme" 2>/dev/null | wc -l)"
@@ -1927,7 +1927,7 @@ __install_theme() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __install_wallpapers() {
-  [[ -n "$_DEBUG" ]] && set -x && echo __install_wallpapers
+  [ -n "$_DEBUG" ] && set -x && echo __install_wallpapers
   if [ -d "$INSTDIR/images" ]; then
     mkdir -p "$WALLPAPERS/$APPNAME"
     local wallpapers="$(ls $INSTDIR/images/ 2>/dev/null | wc -l)"
@@ -1959,7 +1959,7 @@ __install_wallpapers() {
 devenvmgr_install() {
   user_installdirs
   SCRIPTS_PREFIX="devenvmgr"
-  [[ -n "$_DEBUG" ]] && set -x && echo "$SCRIPTS_PREFIX"
+  [ -n "$_DEBUG" ] && set -x && echo "$SCRIPTS_PREFIX"
   APPDIR="${APPDIR:-$SHARE/$SCRIPTS_PREFIX/$APPNAME}"
   INSTDIR="${INSTDIR:-$SHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME}"
   REPO="${REPO:-$DEVENVMGRREPO/$APPNAME}"
@@ -1998,7 +1998,7 @@ devenvmgr_install_version() {
 dfmgr_install() {
   user_installdirs
   SCRIPTS_PREFIX="dfmgr"
-  [[ -n "$_DEBUG" ]] && set -x && echo "$SCRIPTS_PREFIX"
+  [ -n "$_DEBUG" ] && set -x && echo "$SCRIPTS_PREFIX"
   APPDIR="${APPDIR:-$CONF/$APPNAME}"
   INSTDIR="${INSTDIR:-$SHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME}"
   REPO="${REPO:-$DFMGRREPO/$APPNAME}"
@@ -2036,7 +2036,7 @@ dfmgr_install_version() {
 desktopmgr_install() {
   user_installdirs
   SCRIPTS_PREFIX="desktopmgr"
-  [[ -n "$_DEBUG" ]] && set -x && echo "$SCRIPTS_PREFIX"
+  [ -n "$_DEBUG" ] && set -x && echo "$SCRIPTS_PREFIX"
   DESKTOPMGR_APPDIR="${DESKTOPMGR_APPDIR:-$CONF/$APPNAME}"
   DESKTOPMGR_INSTDIR="${DESKTOPMGR_INSTDIR:-$CASJAYSDEVSHARE/desktopmgr/$APPNAME}"
   DESKTOPMGR_REPO_BRANCH="${GIT_REPO_BRANCH:-main}"
@@ -2077,7 +2077,7 @@ dockermgr_install() {
     printf_exit 1 1 "This requires docker, however, docker wasn't found"
   fi
   SCRIPTS_PREFIX="dockermgr"
-  [[ -n "$_DEBUG" ]] && set -x && echo "$SCRIPTS_PREFIX"
+  [ -n "$_DEBUG" ] && set -x && echo "$SCRIPTS_PREFIX"
   APPNAME="${APPNAME:-$SCRIPTS_PREFIX}"
   APPDIR="${APPDIR:-$HOME/.local/share/srv/docker/$APPNAME}"
   DATADIR="${DATADIR:-$HOME/.local/share/srv/docker/$APPNAME/files}"
@@ -2098,8 +2098,8 @@ dockermgr_install() {
   fi
   mkd "$USRUPDATEDIR" "$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX"
   export installtype="dockermgr_install"
-  [[ -d "$HOME/.docker" ]] || mkdir -p "$HOME/.docker" &>/dev/null
-  [[ -f "$HOME/.docker/config.json" ]] || touch "$HOME/.docker/config.json" &>/dev/null
+  [ -d "$HOME/.docker" ] || mkdir -p "$HOME/.docker" &>/dev/null
+  [ -f "$HOME/.docker/config.json" ] || touch "$HOME/.docker/config.json" &>/dev/null
 }
 ######## Installer Functions ########
 dockermgr_run_init() {
@@ -2107,18 +2107,19 @@ dockermgr_run_init() {
 }
 dockermgr_run_post() {
   dockermgr_install
-  local NGINX_TMPL="$APPDIR/nginx/nginx.conf"
-  local NGINX_CONF="/etc/nginx/vhosts.d/$APPNAME.conf"
-  [[ -f "$APPDIR/nginx/template" ]] && NGINX_TMPL="$APPDIR/nginx/template"
-  [[ -f "$APPDIR/nginx/proxy.conf" ]] && NGINX_TMPL="$APPDIR/nginx/proxy.conf"
-  if [[ -f "$NGINX_TMPL" ]]; then
-    sed -i "s|REPLACE_APPNAME|$APPNAME|g" "$NGINX_TMPL" &>/dev/null
-    sed -i "s|REPLACE_NGINX_HTTP|$NGINX_HTTP|g" "$NGINX_TMPL" &>/dev/null
-    sed -i "s|REPLACE_NGINX_HTTPS|$NGINX_HTTPS|g" "$NGINX_TMPL" &>/dev/null
-    sed -i "s|REPLACE_SERVER_PORT|$SERVER_PORT|g" "$NGINX_TMPL" &>/dev/null
-    sed -i "s|REPLACE_SERVER_LISTEN|$SERVER_LISTEN|g" "$NGINX_TMPL" &>/dev/null
-    [[ -f "$NGINX_CONF" ]] || ln_sf "$NGINX_TMPL" "$NGINX_CONF"
-  fi
+  # local NGINX_DIR="/etc/nginx/nginx.conf"
+  # local NGINX_TMPL="$APPDIR/nginx/nginx.conf"
+  # local NGINX_CONF="/etc/nginx/vhosts.d/$APPNAME.conf"
+  # [ -f "$APPDIR/nginx/template" ] && NGINX_TMPL="$APPDIR/nginx/template"
+  # [ -f "$APPDIR/nginx/proxy.conf" ] && NGINX_TMPL="$APPDIR/nginx/proxy.conf"
+  # if [ -f "$NGINX_TMPL" ] && [ -f "$NGINX_DIR" ]; then
+  #   sed -i "s|REPLACE_APPNAME|$APPNAME|g" "$NGINX_TMPL" &>/dev/null
+  #   sed -i "s|REPLACE_NGINX_HTTP|$NGINX_HTTP|g" "$NGINX_TMPL" &>/dev/null
+  #   sed -i "s|REPLACE_NGINX_HTTPS|$NGINX_HTTPS|g" "$NGINX_TMPL" &>/dev/null
+  #   sed -i "s|REPLACE_SERVER_PORT|$SERVER_PORT|g" "$NGINX_TMPL" &>/dev/null
+  #   sed -i "s|REPLACE_SERVER_LISTEN|$SERVER_LISTEN|g" "$NGINX_TMPL" &>/dev/null
+  #   if [ -d "/etc/nginx/vhosts.d" ]; then [ -f "$NGINX_CONF" ] || ln_sf "$NGINX_TMPL" "$NGINX_CONF"; fi
+  # fi
 }
 dockermgr_install_version() {
   dockermgr_install
@@ -2131,7 +2132,7 @@ dockermgr_install_version() {
 fontmgr_install() {
   system_installdirs
   SCRIPTS_PREFIX="fontmgr"
-  [[ -n "$_DEBUG" ]] && set -x && echo "$SCRIPTS_PREFIX"
+  [ -n "$_DEBUG" ] && set -x && echo "$SCRIPTS_PREFIX"
   APPDIR="${APPDIR:-$SHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME}"
   INSTDIR="${INSTDIR:-$SHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME}"
   REPO="${REPO:-$FONTMGRREPO/$APPNAME}"
@@ -2393,8 +2394,8 @@ run_install_init() {
   local APPNAME="${APPNAME:-$PROG}"
   local TMPFILE="$TMPDIR/$APPNAME.tmp"
   local TMPINST="$TMPDIR/$APPNAME.inst.tmp"
-  local SETREPORAW="${REPORAW//$APPNAME\/$APPNAME/$APPNAME}"
-  [[ -f "$TMPINST" ]] && exit 5 || touch "$TMPINST"
+  local SETREPORAW="${REPORAW//$APPNAME\/$APPNAME\//$APPNAME}"
+  [ -f "$TMPINST" ] && exit 5 || touch "$TMPINST"
   export APPDIR INSTDIR
   SET_SUDO_PROMPT="$(printf "\n\t\t\033[1;31m")[sudo]$(printf "\033[1;36m") password for $(printf "\033[1;32m")%p: $(printf "\033[0m")"
   (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null || sudo -n true &>/dev/null || SUDO_PROMPT="$SET_SUDO_PROMPT" sudo true
@@ -2416,7 +2417,7 @@ run_install_init() {
     else
       printf_green "Installing ${1:-$APPNAME} to ${APPDIR/$HOME/\~}"
     fi
-    if [[ "$INSTDIR" = "$APPDIR" ]]; then
+    if [ "$INSTDIR" = "$APPDIR" ]; then
       printf_cyan "$ICON_INFO Note: The INSTDIR and APPDIR are the same"
       true
     else
@@ -2430,7 +2431,7 @@ run_install_init() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 run_postinst_global() {
   $installtype
-  if [[ "$APPNAME" = "scripts" ]] || [[ "$APPNAME" = "installer" ]]; then
+  if [ "$APPNAME" = "scripts" ] || [ "$APPNAME" = "installer" ]; then
     # Only run on the scripts install
     ln_rm "$SYSBIN/"
     ln_rm "$COMPDIR/"
@@ -2559,7 +2560,7 @@ run_postinst_global() {
     [ "$installtype" = "wallpapermgr_install" ] || __install_wallpapers
   fi
   #
-  if [[ "$APPDIR" != "$INSTDIR" ]] && [ -d "$APPDIR" ] && [[ -z "$DF_NO_REPLACE" ]]; then
+  if [ "$APPDIR" != "$INSTDIR" ] && [ -d "$APPDIR" ] && [ -z "$DF_NO_REPLACE" ]; then
     grep -qR '/home/jason' "$APPDIR" && replace "$APPDIR" "/home/jason" "$HOME"
     grep -qR 'replacehome' "$APPDIR" && replace "$APPDIR" "replacehome" "$HOME"
     true
@@ -2649,7 +2650,7 @@ __appversion() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __required_version() {
-  [[ -d "$CASJAYSDEV_USERDIR/apps/$SCRIPTS_PREFIX/new_update" ]] &&
+  [ -d "$CASJAYSDEV_USERDIR/apps/$SCRIPTS_PREFIX/new_update" ] &&
     rm_rf "$CASJAYSDEV_USERDIR/apps/$SCRIPTS_PREFIX/new_update"
   local requiredVersion="${1:-$requiredVersion}"
   local NEW_DIR="$CASJAYSDEV_USERDIR/apps/$SCRIPTS_PREFIX/$new_update"

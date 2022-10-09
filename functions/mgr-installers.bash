@@ -2394,7 +2394,7 @@ run_install_init() {
   local APPNAME="${APPNAME:-$PROG}"
   local TMPFILE="$TMPDIR/$APPNAME.tmp"
   local TMPINST="$TMPDIR/$APPNAME.inst.tmp"
-  local SETREPORAW="${REPORAW//$APPNAME\/$APPNAME\//$APPNAME}"
+  local SETREPORAW="${REPORAW//$APPNAME\/$APPNAME\//$APPNAME\/}"
   [ -f "$TMPINST" ] && exit 5 || touch "$TMPINST"
   export APPDIR INSTDIR
   SET_SUDO_PROMPT="$(printf "\n\t\t\033[1;31m")[sudo]$(printf "\033[1;36m") password for $(printf "\033[1;32m")%p: $(printf "\033[0m")"

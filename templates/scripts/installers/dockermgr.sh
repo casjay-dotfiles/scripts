@@ -131,8 +131,8 @@ ADDITION_DEVICES=''
 ADDITION_DEVICES+=''
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define additional mounts [ -v /dir:/dir ]
-ADDITIONAL_MOUNTS=""
-ADDITIONAL_MOUNTS+=""
+ADDITIONAL_MOUNTS=''
+ADDITIONAL_MOUNTS+=''
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # SSL Setup
 SERVER_SSL_DIR="${SERVER_SSL_DIR:-/etc/ssl/CA/CasjaysDev}"

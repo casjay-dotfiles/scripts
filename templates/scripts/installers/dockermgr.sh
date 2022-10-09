@@ -345,6 +345,7 @@ if docker ps -a | grep -qs "$APPNAME"; then
   [ -n "$SERVER_MESSAGE_POST" ] && printf_green "$SERVER_MESSAGE_POST"
 else
   printf_error "Something seems to have gone wrong with the install"
+  printf '\n\n'
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # exit

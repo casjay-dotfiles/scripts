@@ -281,8 +281,6 @@ if cmd_exists docker-compose && [ -f "$INSTDIR/docker-compose.yml" ]; then
     __sudo docker-compose up -d &>/dev/null
   fi
 else
-  set -x
-  echo "
   __sudo docker stop "$APPNAME" &>/dev/null
   __sudo docker rm -f "$APPNAME" &>/dev/null
   __sudo docker pull "$HUB_IMAGE_URL" &>/dev/null
@@ -293,8 +291,7 @@ else
     --hostname "$SERVER_HOST_NAME" \
     -e TZ="$SERVER_TIMEZONE" \
     $SET_ENV $SET_DEV $SET_MNT $SET_PORT \
-    "$HUB_IMAGE_URL:${HUB_IMAGE_TAG:-latest}" " #&>/dev/null
-  set +x
+    "$HUB_IMAGE_URL:${HUB_IMAGE_TAG:-latest}" &>/dev/null
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Install nginx proxy

@@ -56,7 +56,7 @@ __sudo() { sudo -n true && eval sudo "$*" || eval "$*" || return 1; }
 __sudo_root() { sudo -n true && ask_for_password true && eval sudo "$*" || return 1; }
 __enable_ssl() { [ "$SERVER_SSL" = "yes" ] && [ "$SERVER_SSL" = "true" ] && return 0 || return 1; }
 __ssl_certs() { [ -f "${1:-$SERVER_SSL_CRT}" ] && [ -f "${2:-SERVER_SSL_KEY}" ] && return 0 || return 1; }
-__port_not_in_use() { [ -d "/etc/nginx/vhosts.d" ] && grep -wRsq "${1:-$SERVER_PORT_EXT}" /etc/nginx/vhosts.d && return 0 || return 1; }
+__port_not_in_use() { [ -d "/etc/nginx/vhosts.d" ] && grep -wRsq "${1:-$SERVER_WEB_PORT}" /etc/nginx/vhosts.d && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define pre-install scripts
 run_pre_install() {
@@ -90,12 +90,15 @@ trap_exit
 # Require a higher version
 dockermgr_req_version "$APPVERSION"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Directory variables for container
-SERVER_SSL_DIR="$DATADIR/ssl"
-SERVER_DATA_DIR="$DATADIR/data"
-SERVER_CONFIG_DIR="$DATADIR/config"
+# Setup variables
+TZ="${TZ:-$TIMEZONE}"
+LOCAL_IP="${LOCAL_IP:-127.0.0.1}"
+SERVER_IP="${CURRIP4:-$LOCAL_IP}"
+SERVER_HOST_NAME="${SERVER_HOST_NAME:-}"
+SERVER_DOMAIN_NAME="${SERVER_DOMAIN_NAME:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-DOCKER_HOST_IP="${DOCKER_HOST_IP:-$(ip a show docker0 | grep -w 'inet' | awk -F'/' '{print $1}' | awk '{print $2}' | grep '^')}"
+# Set docker host IP address
+DOCKER_HOST_IP="${DOCKER_HOST_IP:-$(ip a show 'docker0' | grep -w 'inet' | awk -F'/' '{print $1}' | awk '{print $2}' | grep '^')}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # URL to container image [docker pull URL]
 HUB_IMAGE_URL="casjaysdevdocker/GEN_SCRIPT_REPLACE_APPNAME"
@@ -109,30 +112,20 @@ SERVER_LISTEN_LOCAL="false"
 # Set this to 0.0.0.0 to listen on all or specify addresses
 DEFINE_LISTEN=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Override container variables
-TZ="${TZ:-$TIMEZONE}"
-LOCAL_IP="${LOCAL_IP:-127.0.0.1}"
-SERVER_HOST_NAME="${SERVER_HOST_NAME:-}"
-SERVER_DOMAIN_NAME="${SERVER_DOMAIN_NAME:-}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Define folders
-LOCAL_SSL_DIR="${LOCAL_SSL_DIR:-$SERVER_SSL_DIR}"
-LOCAL_DATA_DIR="${LOCAL_DATA_DIR:-$SERVER_DATA_DIR}"
-LOCAL_CONFIG_DIR="${LOCAL_CONFIG_DIR:-$SERVER_CONFIG_DIR}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Define additional variables add -e myvar=var
+# Define additional variables [ myvar=var ]
 ADDITION_ENV=""
 ADDITION_ENV+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Define additional devices add -d /dev:/d
+# Define additional devices [ /dev:/dev ]
 ADDITION_DEVICES=""
 ADDITION_DEVICES+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Define additional mounts [ -v /dir:/dir ]
+# Define additional mounts [ /dir:/dir ]
 ADDITIONAL_MOUNTS="$LOCAL_CONFIG_DIR:/config:z $LOCAL_DATA_DIR:/data:z "
 ADDITIONAL_MOUNTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Add LISTEN_IP:EXT_PORT:INT_PORT for each additional port
+# Add EXT_PORT:INT_PORT for each additional port - LISTEN will be added
+SERVER_WEB_PORT=""
 SERVER_PORT_ADD_CUSTOM=""
 SERVER_PORT_ADD_CUSTOM+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -140,40 +133,40 @@ SERVER_PORT_ADD_CUSTOM+=""
 DOCKER_SOCKET_ENABLED="false"
 DOCKER_SOCKET_MOUNT="/var/run/docker.sock"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# SSL Setup
-SERVER_SSL_DIR="${SERVER_SSL_DIR:-/etc/ssl/CA/CasjaysDev}"
-SERVER_SSL_CA="${SERVER_SSL_CA:-$SERVER_SSL_DIR/certs/ca.crt}"
-SERVER_SSL_CRT="${SERVER_SSL_CRT:-$SERVER_SSL_DIR/certs/localhost.crt}"
-SERVER_SSL_KEY="${SERVER_SSL_KEY:-$SERVER_SSL_DIR/private/localhost.key}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup variables
-SERVER_IP="${CURRIP4:-$LOCAL_IP}"
-SERVER_LISTEN="${SERVER_LISTEN:-$SERVER_IP}"
-SERVER_DOMAIN_NAME="${SERVER_DOMAIN_NAME:-"$(hostname -d 2>/dev/null | grep '^' || echo local)"}"
-SERVER_HOST_NAME="${SERVER_HOST_NAME:-$APPNAME.$SERVER_DOMAIN_NAME}"
-SERVER_TIMEZONE="${TZ:-America/New_York}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup nginx proxy variables
-NGINX_HTTP="${NGINX_HTTP:-80}"
-NGINX_HTTPS="${NGINX_HTTPS:-443}"
-NGINX_PORT="${NGINX_HTTPS:-$NGINX_HTTP}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Port Setup [ _EXT is docker ] [ _INT is container ]
-SERVER_PORT_EXT="${SERVER_PORT_EXT:-}"
-SERVER_PORT_INT="${SERVER_PORT_INT:-}"
-SERVER_PORT_ADD_EXT="${SERVER_PORT_ADD_EXT:-}"
-SERVER_PORT_ADD_INT="${SERVER_PORT_ADD_INT:-}"
-SERVER_PORT_OTHER_EXT="${SERVER_PORT_OTHER_EXT:-}"
-SERVER_PORT_OTHER_INT="${SERVER_PORT_OTHER_INT:-}"
-SERVER_WEB_PORT="${SERVER_WEB_PORT:-$SERVER_PORT_EXT}"
-SERVER_PROXY="${SERVER_PROXY:-https://$SERVER_LISTEN:$SERVER_PORT_EXT}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show user info message
 SERVER_MESSAGE_USER=""
 SERVER_MESSAGE_PASS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show post install message
 SERVER_MESSAGE_POST=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Directory variables for container
+SERVER_SSL_DIR="$DATADIR/ssl"
+SERVER_DATA_DIR="$DATADIR/data"
+SERVER_CONFIG_DIR="$DATADIR/config"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Define folders
+LOCAL_SSL_DIR="${LOCAL_SSL_DIR:-$SERVER_SSL_DIR}"
+LOCAL_DATA_DIR="${LOCAL_DATA_DIR:-$SERVER_DATA_DIR}"
+LOCAL_CONFIG_DIR="${LOCAL_CONFIG_DIR:-$SERVER_CONFIG_DIR}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# SSL Setup
+SERVER_SSL_DIR="${SERVER_SSL_DIR:-/etc/ssl/CA/CasjaysDev}"
+SERVER_SSL_CA="${SERVER_SSL_CA:-$SERVER_SSL_DIR/certs/ca.crt}"
+SERVER_SSL_CRT="${SERVER_SSL_CRT:-$SERVER_SSL_DIR/certs/localhost.crt}"
+SERVER_SSL_KEY="${SERVER_SSL_KEY:-$SERVER_SSL_DIR/private/localhost.key}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup nginx proxy variables
+NGINX_HTTP="${NGINX_HTTP:-80}"
+NGINX_HTTPS="${NGINX_HTTPS:-443}"
+NGINX_PORT="${NGINX_HTTPS:-$NGINX_HTTP}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Variables - Do not change
+SERVER_LISTEN_ADDR="${DEFINE_LISTEN:-$SERVER_IP}"
+SERVER_DOMAIN_NAME="${SERVER_DOMAIN_NAME:-"$(hostname -d 2>/dev/null | grep '^' || echo 'local')"}"
+SERVER_HOST_NAME="${SERVER_HOST_NAME:-$APPNAME.$SERVER_DOMAIN_NAME}"
+SERVER_TIMEZONE="${TZ:-America/New_York}"
+SERVER_PROXY="${SERVER_PROXY:-https://$SERVER_LISTEN_ADDR:$SERVER_WEB_PORT}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # import global variables
 if [ -f "$APPDIR/env.sh" ] && [ ! -f "$APPDIR/.env" ]; then
@@ -210,19 +203,10 @@ mkdir -p "$LOCAL_DATA_DIR"
 mkdir -p "$LOCAL_CONFIG_DIR"
 chmod -Rf 777 "$APPDIR"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-DEFINE_PORTS=""
-DEFINE_LISTEN="${DEFINE_LISTEN:-$SERVER_LISTEN}:"
+SERVER_MESSAGE_POST="${SERVER_MESSAGE_POST:-}"
+DEFINE_LISTEN="${DEFINE_LISTEN:-$SERVER_LISTEN_ADDR}:"
 if [ "$SERVER_LISTEN_LOCAL" = "true" ]; then
-  DEFINE_LISTEN="127.0.0.1:"
-fi
-if [ -n "$SERVER_PORT_EXT" ] && [ -n "$SERVER_PORT_INT" ]; then
-  DEFINE_PORTS+="$DEFINE_LISTEN$SERVER_PORT_EXT:$SERVER_PORT_INT "
-fi
-if [ -n "$SERVER_PORT_ADD_EXT" ] && [ -n "$SERVER_PORT_ADD_INT" ]; then
-  DEFINE_PORTS+="$DEFINE_LISTEN$SERVER_PORT_EXT:$SERVER_PORT_INT "
-fi
-if [ -n "$SERVER_PORT_OTHER_EXT" ] && [ -n "$SERVER_PORT_OTHER_INT" ]; then
-  DEFINE_PORTS+="$DEFINE_LISTEN$SERVER_PORT_EXT:$SERVER_PORT_INT "
+  DEFINE_LISTEN="${LOCAL_IP:-127.0.0.1}:"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [ "$DOCKER_SOCKET_ENABLED" = "true" ] && ADDITIONAL_MOUNTS+="$DOCKER_SOCKET_MOUNT:/var/run/docker.sock "
@@ -243,8 +227,8 @@ for mnt in $ADDITIONAL_MOUNTS; do
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_PORT=""
-for port in $DEFINE_PORTS $SERVER_PORT_ADD_CUSTOM; do
-  [ -z "$port" ] || SET_PORT+="--publish $port "
+for port in $SERVER_WEB_PORT $SERVER_PORT_ADD_CUSTOM; do
+  [ -z "$port" ] || SET_PORT+="--publish $DEFINE_LISTEN:$port "
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Clone/update the repo
@@ -290,8 +274,9 @@ else
     --name="$APPNAME" \
     --hostname "$SERVER_HOST_NAME" \
     -e TZ="$SERVER_TIMEZONE" \
-    $SET_ENV $SET_DEV $SET_MNT $SET_PORT \
-    "$HUB_IMAGE_URL:${HUB_IMAGE_TAG:-latest}" &>/dev/null
+    -e TIMEZONE="$SERVER_TIMEZONE" $SET_ENV $SET_DEV $SET_MNT $SET_PORT \
+    "$HUB_IMAGE_URL:${HUB_IMAGE_TAG:-latest}" 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log" &&
+    rm -Rf "${TMP:-/tmp}/$APPNAME.err.log"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Install nginx proxy
@@ -299,7 +284,7 @@ if [ ! -f "/etc/nginx/vhosts.d/$SERVER_HOST_NAME.conf" ] && [ -f "$INSTDIR/nginx
   cp -f "$INSTDIR/nginx/proxy.conf" "/tmp/$$.$SERVER_HOST_NAME.conf"
   sed -i "s|REPLACE_APPNAME|$APPNAME|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
   sed -i "s|REPLACE_NGINX_PORT|$NGINX_PORT|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
-  sed -i "s|REPLACE_SERVER_PORT|$SERVER_PORT_EXT|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
+  sed -i "s|REPLACE_SERVER_PORT|$SERVER_WEB_PORT|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
   sed -i "s|REPLACE_SERVER_HOST|$SERVER_DOMAIN_NAME|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
   sed -i "s|REPLACE_SERVER_PROXY|$SERVER_PROXY|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
   if [ -d "/etc/nginx/vhosts.d" ]; then
@@ -313,13 +298,13 @@ fi
 run_postinst() {
   dockermgr_run_post
   [ -w "/etc/hosts" ] || return 0
-  if ! grep -sq "$SERVER_HOST_NAME" /etc/hosts; then
-    if [ -n "$SERVER_PORT_INT" ]; then
+  if ! grep -sq "$SERVER_HOST_NAME" "/etc/hosts"; then
+    if [ -n "$SERVER_WEB_PORT" ]; then
       if [ $(hostname -d 2>/dev/null | grep '^') = 'local' ]; then
-        echo "$SERVER_LISTEN     $APPNAME.local" | sudo tee -a /etc/hosts &>/dev/null
+        echo "$SERVER_LISTEN_ADDR     $APPNAME.local" | sudo tee -a "/etc/hosts" &>/dev/null
       else
-        echo "$SERVER_LISTEN     $APPNAME.local" | sudo tee -a /etc/hosts &>/dev/null
-        echo "$SERVER_LISTEN     $SERVER_HOST_NAME" | sudo tee -a /etc/hosts &>/dev/null
+        echo "$SERVER_LISTEN_ADDR     $APPNAME.local" | sudo tee -a "/etc/hosts" &>/dev/null
+        echo "$SERVER_LISTEN_ADDR     $SERVER_HOST_NAME" | sudo tee -a "/etc/hosts" &>/dev/null
       fi
     fi
   fi
@@ -337,11 +322,11 @@ dockermgr_install_version
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run exit function
 if docker ps -a | grep -qs "$APPNAME"; then
-  printf_blue "DATADIR in $DATADIR"
-  printf_cyan "Installed to $INSTDIR"
-  [ -n "$SERVER_IP" ] && [ -n "$SERVER_PORT_EXT" ] && printf_blue "Service is running on: $SERVER_IP:$SERVER_PORT_EXT"
-  [ -n "$SERVER_LISTEN" ] && [ -n "$SERVER_WEB_PORT" ] && printf_blue "and should be available at: http://$SERVER_LISTEN:$SERVER_WEB_PORT or http://$SERVER_HOST_NAME:$SERVER_WEB_PORT"
+  printf_cyan "$APPNAME has been installed to $INSTDIR"
+  printf_blue "The DATADIR is in $DATADIR"
   [ -z "$SERVER_WEB_PORT" ] && printf_yellow "This container does not have a web interface"
+  [ -n "$SERVER_LISTEN_ADDR" ] && [ -n "$SERVER_WEB_PORT" ] && printf_blue "Service is running on: $SERVER_LISTEN_ADDR:$SERVER_WEB_PORT"
+  [ -n "$SERVER_LISTEN_ADDR" ] && [ -n "$SERVER_WEB_PORT" ] && printf_blue "and should be available at: http://$SERVER_LISTEN_ADDR:$SERVER_WEB_PORT or http://$SERVER_HOST_NAME:$SERVER_WEB_PORT"
   [ -n "$SERVER_MESSAGE_USER" ] && printf_cyan "Username is:  $SERVER_MESSAGE_USER"
   [ -n "$SERVER_MESSAGE_PASS" ] && printf_purple "Password is:  $SERVER_MESSAGE_PASS"
   [ -n "$SERVER_MESSAGE_POST" ] && printf_green "$SERVER_MESSAGE_POST"

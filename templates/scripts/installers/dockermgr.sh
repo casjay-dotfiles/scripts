@@ -282,6 +282,7 @@ if cmd_exists docker-compose && [ -f "$INSTDIR/docker-compose.yml" ]; then
   fi
 else
   set -x
+  echo "
   __sudo docker stop "$APPNAME" &>/dev/null
   __sudo docker rm -f "$APPNAME" &>/dev/null
   __sudo docker pull "$HUB_IMAGE_URL" &>/dev/null
@@ -292,7 +293,7 @@ else
     --hostname "$SERVER_HOST_NAME" \
     -e TZ="$SERVER_TIMEZONE" \
     $SET_ENV $SET_DEV $SET_MNT $SET_PORT \
-    "$HUB_IMAGE_URL:${HUB_IMAGE_TAG:-latest}" &>/dev/null
+    "$HUB_IMAGE_URL:${HUB_IMAGE_TAG:-latest}" " #&>/dev/null
   set +x
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -304,9 +305,11 @@ if [ ! -f "/etc/nginx/vhosts.d/$SERVER_HOST_NAME.conf" ] && [ -f "$INSTDIR/nginx
   sed -i "s|REPLACE_SERVER_PORT|$SERVER_PORT_EXT|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
   sed -i "s|REPLACE_SERVER_HOST|$SERVER_DOMAIN_NAME|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
   sed -i "s|REPLACE_SERVER_PROXY|$SERVER_PROXY|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
-  __sudo_root mv -f "/tmp/$$.$SERVER_HOST_NAME.conf" "/etc/nginx/vhosts.d/$SERVER_HOST_NAME.conf"
-  [ -f "/etc/nginx/vhosts.d/$SERVER_HOST_NAME.conf" ] && printf_green "[ ✅ ] Copying the nginx configuration"
-  systemctl status nginx | grep -q enabled &>/dev/null && __sudo_root systemctl reload nginx &>/dev/null
+  if [ -d "/etc/nginx/vhosts.d" ]; then
+    __sudo_root mv -f "/tmp/$$.$SERVER_HOST_NAME.conf" "/etc/nginx/vhosts.d/$SERVER_HOST_NAME.conf"
+    [ -f "/etc/nginx/vhosts.d/$SERVER_HOST_NAME.conf" ] && printf_green "[ ✅ ] Copying the nginx configuration"
+    systemctl status nginx | grep -q enabled &>/dev/null && __sudo_root systemctl reload nginx &>/dev/null
+  fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run post install scripts

@@ -115,7 +115,7 @@ printf_green() { printf_color "\t\t$1\n" 2; }
 printf_red() { printf_color "\t\t$1\n" 1; }
 printf_purple() { printf_color "\t\t$1\n" 5; }
 printf_yellow() { printf_color "\t\t$1\n" 3; }
-printf_blue() { printf_color "\t\t$1\n" 4; }
+printf_blue() { printf_color "\t\t$1\n" 33; }
 printf_cyan() { printf_color "\t\t$1\n" 6; }
 printf_info() { printf_color "\t\t[ ℹ️ ] $1\n" 3; }
 printf_exit() {

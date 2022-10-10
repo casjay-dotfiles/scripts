@@ -199,7 +199,7 @@ printf_yellow() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_blue() {
-  printf_color "\t\t$1" 4
+  printf_color "\t\t$1" 33
   printf "\n"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

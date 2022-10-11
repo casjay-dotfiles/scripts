@@ -142,6 +142,9 @@ ADDITION_DEVICES+=""
 ADDITIONAL_MOUNTS="$LOCAL_CONFIG_DIR:/config:z $LOCAL_DATA_DIR:/data:z "
 ADDITIONAL_MOUNTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Define additional docker arguments - see docker run --help
+CUSTOM_ARGUMENTS="--shm-size=256MB"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Add Add main port [port] or [port:port] - LISTEN will be added
 SERVER_WEB_PORT=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -303,7 +306,7 @@ else
     --privileged \
     --restart=always \
     --name="$APPNAME" \
-    --hostname "$SERVER_HOST_NAME" \
+    --hostname "$SERVER_HOST_NAME" $CUSTOM_ARGUMENTS \
     -e TZ="$SERVER_TIMEZONE" \
     -e TIMEZONE="$SERVER_TIMEZONE" $SET_ENV $SET_DEV $SET_MNT $SET_PORT \
     "$HUB_IMAGE_URL:${HUB_IMAGE_TAG:-latest}" 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log" &&

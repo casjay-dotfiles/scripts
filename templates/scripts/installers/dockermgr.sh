@@ -56,7 +56,7 @@ __sudo() { sudo -n true && eval sudo "$*" || eval "$*" || return 1; }
 __sudo_root() { sudo -n true && ask_for_password true && eval sudo "$*" || return 1; }
 __enable_ssl() { [ "$SERVER_SSL" = "yes" ] && [ "$SERVER_SSL" = "true" ] && return 0 || return 1; }
 __ssl_certs() { [ -f "${1:-$SERVER_SSL_CRT}" ] && [ -f "${2:-SERVER_SSL_KEY}" ] && return 0 || return 1; }
-__port_not_in_use() { [ -d "/etc/nginx/vhosts.d" ] && grep -wRsq "${1:-$SERVER_WEB_PORT}" /etc/nginx/vhosts.d && return 0 || return 1; }
+__port_not_in_use() { [ -d "/etc/nginx/vhosts.d" ] && grep -wRsq "${1:-$CONTAINER_HTTP_PORT}" /etc/nginx/vhosts.d && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define pre-install scripts
 run_pre_install() {
@@ -127,9 +127,6 @@ SERVER_LISTEN_LOCAL="false"
 # Set this to 0.0.0.0 to listen on all or specify addresses
 DEFINE_LISTEN=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set this to the protocol the the container will use [http]
-SERVER_PROTO="http"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define additional variables [ myvar=var ]
 ADDITION_ENV=""
 ADDITION_ENV+=""
@@ -145,8 +142,13 @@ ADDITIONAL_MOUNTS+=""
 # Define additional docker arguments - see docker run --help
 CUSTOM_ARGUMENTS="--shm-size=256MB"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Add Add main port [port] or [port:port] - LISTEN will be added
-SERVER_WEB_PORT=""
+# Add Add container port [port] or [port:port] - LISTEN will be added if defined [DEFINE_LISTEN]
+CONTAINER_HTTP_PORT=""
+CONTAINER_HTTPS_PORT=""
+CONTAINER_SERVICE_PORT=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set this to the protocol the the container will use [http]
+CONTAINER_HTTP_PROTO="http"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Same as SERVER_WEB_PORT and do not add SERVER_WEB_PORT here as it will be added
 SERVER_PORT_ADD_CUSTOM=""
@@ -210,7 +212,7 @@ chmod -Rf 777 "$APPDIR"
 # Variables - Do not change
 SERVER_IP="${CURRIP4:-$LOCAL_IP}"
 SERVER_PORT="${SERVER_WEB_PORT//:*/}"
-SERVER_PROTO="${SERVER_PROTO:-http}"
+CONTAINER_HTTP_PROTO="${CONTAINER_HTTP_PROTO:-http}"
 SERVER_TIMEZONE="${TZ:-$TIMEZONE}"
 SERVER_MESSAGE_POST="${SERVER_MESSAGE_POST:-}"
 SERVER_LISTEN_ADDR="${DEFINE_LISTEN:-$SERVER_IP}"
@@ -220,18 +222,20 @@ SERVER_HOST_NAME="${SERVER_HOST_NAME:-$APPNAME.$SERVER_DOMAIN_NAME}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [ -d "$DATADIR/ssl" ] && SERVER_SSL_DIR="$DATADIR/ssl" SERVER_SSL_CA
 [ "$SERVER_LISTEN_LOCAL" = "true" ] && DEFINE_LISTEN="${LOCAL_IP:-127.0.0.1}"
+[ -n "$DEFINE_LISTEN" ] && DEFINE_LISTEN="${DEFINE_LISTEN//:/}:" || DEFINE_LISTEN=""
 [ "$DOCKER_SOCKET_ENABLED" = "true" ] && ADDITIONAL_MOUNTS+="$DOCKER_SOCKET_MOUNT:/var/run/docker.sock "
 [ "$NGINX_SSL" = "true" ] && [ -n "$NGINX_HTTPS" ] && NGINX_PORT="${NGINX_HTTPS:-443}" || NGINX_PORT="${NGINX_HTTP:-80}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ "$SSL_ENABLED" = "true" ]; then
-  [ "$SERVER_PROTO" = "http" ] && NGINX_PROXY="https://$SERVER_LISTEN_ADDR:$SERVER_PORT" && SERVER_PROTO="${SERVER_PROTO:-https}"
+  [ "$CONTAINER_HTTP_PROTO" = "http" ] && NGINX_PROXY="https://$SERVER_LISTEN_ADDR:$SERVER_PORT" && CONTAINER_HTTP_PROTO="${CONTAINER_HTTP_PROTO:-https}"
   [ -f "$SERVER_SSL_CA/localhost.crt" ] && SERVER_SSL_CA="$SERVER_SSL_DIR/ca.crt" && ADDITIONAL_MOUNTS+="$SERVER_SSL_DIR/localhost.crt:${SSL_CA:-/data/ca.crt} "
   [ -f "$SERVER_SSL_DIR/localhost.key" ] && SERVER_SSL_KEY="$SERVER_SSL_DIR/localhost.key" && ADDITIONAL_MOUNTS+="$SERVER_SSL_DIR/localhost.key:${SSL_KEY:-/data/ssl.key} "
   [ -f "$SERVER_SSL_DIR/localhost.crt" ] && SERVER_SSL_CRT="$SERVER_SSL_DIR/localhost.crt" && ADDITIONAL_MOUNTS+="$SERVER_SSL_DIR/localhost.crt:${SSL_CERT:-/data/ssl.crt} "
 else
-  SERVER_PROTO="${SERVER_PROTO:-http}"
+  CONTAINER_HTTP_PROTO="${CONTAINER_HTTP_PROTO:-http}"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-NGINX_PROXY="${NGINX_PROXY:-$SERVER_PROTO://$SERVER_LISTEN_ADDR:$SERVER_PORT}"
+NGINX_PROXY="${NGINX_PROXY:-$CONTAINER_HTTP_PROTO://$SERVER_LISTEN_ADDR:$SERVER_PORT}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_ENV=""
 for env in $ADDITION_ENV; do
@@ -257,10 +261,10 @@ for mnt in $ADDITIONAL_MOUNTS; do
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_PORT=""
-for port in $SERVER_WEB_PORT $SERVER_PORT_ADD_CUSTOM; do
+for port in $CONTAINER_HTTP_PORT $CONTAINER_SERVICE_PORT $CONTAINER_HTTPS_PORT $SERVER_PORT_ADD_CUSTOM; do
   if [ -n "$port" ]; then
     echo "$port" | grep -q ':' || port="$port:$port"
-    SET_PORT+="--publish $DEFINE_LISTEN:$port "
+    SET_PORT+="--publish $DEFINE_LISTEN$port "
   fi
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -360,7 +364,7 @@ if docker ps -a | grep -qs "$APPNAME"; then
   printf_yellow "The DATADIR is in $DATADIR"
   [ -z "$SERVER_PORT" ] && printf_yellow "This container does not have a web interface"
   [ -n "$SERVER_LISTEN_ADDR" ] && [ -n "$SERVER_PORT" ] && printf_yellow "Service is running on: $SERVER_LISTEN_ADDR:$SERVER_PORT"
-  [ -n "$SERVER_LISTEN_ADDR" ] && [ -n "$SERVER_PORT" ] && printf_yellow "and should be available at: $NGINX_PROXY or $SERVER_PROTO//$SERVER_HOST_NAME:$SERVER_PORT"
+  [ -n "$SERVER_LISTEN_ADDR" ] && [ -n "$SERVER_PORT" ] && printf_yellow "and should be available at: $NGINX_PROXY or $CONTAINER_HTTP_PROTO//$SERVER_HOST_NAME:$SERVER_PORT"
   [ -n "$SERVER_MESSAGE_USER" ] && printf_cyan "Username is:  $SERVER_MESSAGE_USER"
   [ -n "$SERVER_MESSAGE_PASS" ] && printf_purple "Password is:  $SERVER_MESSAGE_PASS"
   [ -n "$SERVER_MESSAGE_POST" ] && printf_green "$SERVER_MESSAGE_POST"

@@ -34,15 +34,6 @@ __list_options() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ###################### Set options ######################
-__vdebug() {
-  if [ -f ./applications.debug ]; then . ./applications.debug; fi
-  DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
-  printf_debug 'APP:'$APPNAME' - ARGS:'$*''
-  printf_debug "USER:$USER HOME:$HOME PREFIX:$SCRIPTS_PREFIX REPO:$REPO REPORAW:$REPORAW CONF:$CONF SHARE:$SHARE"
-  printf_debug "APPDIR:$APPDIR USRUPDATEDIR:$USRUPDATEDIR SYSUPDATEDIR:$SYSUPDATEDIR"
-  printf_custom "4" "FUNCTIONSDir:$DIR"
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __full_app_info() {
   printf_info "APPNAME:                   $APPNAME"
   printf_info "App Dir:                   ${APPDIR:-$INSTDIR}"
@@ -89,20 +80,15 @@ __full_app_info() {
 ###################### call options ######################
 __options() {
   $installtype
-  local SHORTOPTS="d"
+  local SHORTOPTS=""
   local LONGOPTS="test,debug,vdebug,full-info,remove:,uninstall:,raw"
-  setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$FUNCFILE" -- "$@" 2>/dev/null)
+  setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "options.sh" -- "$@" 2>/dev/null)
   eval set -- "${setopts[@]}" 2>/dev/null
   while :; do
     case "$1" in
-    -d)
-      shift 1
-      export SCRIPT_OPTS=""
-      export _DEBUG=""
-      ;;
     --test)
       shift 1
-      [ "$1" = "--x" ] && set -x && shift 1
+      [ -n "$_DEBUG" ] && set -x && shift 1
       export LOG_FILE_DEBUG="${TMP:-$HOME/.local/tmp}/${APPNAME}_debug/$(date +'%Y-%m-%d').log"
       export LOG_FILE_ERROR="${TMP:-$HOME/.local/tmp}/${APPNAME}_debug/$(date +'%Y-%m-%d').err"
       mkdir -p "${TMP:-$HOME/.local/tmp}/${APPNAME}_debug"
@@ -135,11 +121,6 @@ __options() {
       set -xo pipefail
       export SCRIPT_OPTS="--debug"
       export _DEBUG="on"
-      ;;
-
-    --vdebug) ###################### basic debug ######################
-      shift 1
-      __vdebug "$*"
       ;;
 
     --full-info) ###################### debug settings ######################

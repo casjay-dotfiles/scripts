@@ -28,6 +28,7 @@ SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
 # Set bash options
 [ "$1" == "--debug" ] && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
 [ "$1" == "--raw" ] && export SHOW_RAW="true"
+[ -n "$DEBUG" ] && _DEBUG="on" && set -x
 set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set functions
@@ -49,6 +50,7 @@ __exec_command() {
 __heath_check() {
   local status=0
   #curl -q -LSsf -o /dev/null -s -w "200" "http://localhost/server-health" || status=$(($status + 1))
+  echo "$(uname -s) $(uname -m) is running"
   return ${status:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -56,13 +58,13 @@ __heath_check() {
 TZ="${TZ:-America/New_York}"
 LOCAL_BIN_DIR="${LOCAL_BIN_DIR:-/usr/local/bin}"
 HOSTNAME="${HOSTNAME:-casjaysdev-GEN_SCRIPT_REPLACE_APPNAME}"
-TEMPLATE_DATA_DIR="$(__find /usr/local/share/template-files/data/ 2>/dev/null | grep '^' || echo '')"
-TEMPLATE_CONFIG_DIR="$(__find /usr/local/share/template-files/config/ 2>/dev/null | grep '^' || echo '')"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional variables and variable overrides
-SSL="false"
-DATA_COPY="false"
-CONFIG_COPY="false"
+SSL="${SSL:-false}"
+SSL_DIR="${SSL_DIR:-/config/ssl}"
+SSL_CA="${SSL_CA:-$SSL_DIR/ca.crt}"
+SSL_KEY="${SSL_KEY:-$SSL_DIR/server.key}"
+SSL_CERT="${SSL_CERT:-$SSL_DIR/server.crt}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # import variables from file
 [ -f "/root/env.sh" ] && . "/root/env.sh"
@@ -79,63 +81,27 @@ if [ -n "${HOSTNAME}" ]; then
   echo "127.0.0.1 ${HOSTNAME} localhost ${HOSTNAME}.local" >"/etc/hosts"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Export variables
+export TZ HOSTNAME SSL SSL_CA SSL SSL_KEY SSL_CERT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Delete any gitkeep files
-[ -n "${TEMPLATE_DATA_DIR}" ] && { [ -d "${TEMPLATE_DATA_DIR}/.gitkeep" ] && rm -Rf "${TEMPLATE_DATA_DIR}/.gitkeep"; }
-[ -n "${TEMPLATE_CONFIG_DIR}" ] && { [ -f "${TEMPLATE_CONFIG_DIR}/.gitkeep" ] && rm -Rf "${TEMPLATE_CONFIG_DIR}/.gitkeep"; }
-[ -n "${LOCAL_BIN_DIR}" ] && { [ -d "${LOCAL_BIN_DIR}" ] && rm -Rf "${LOCAL_BIN_DIR}/.gitkeep" || mkdir -p "/usr/local/bin/"; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Copy data files to /data
-if [ -n "${TEMPLATE_DATA_DIR}" ]; then
-  for data_template in ${TEMPLATE_DATA_DIR}; do
-    if [ -d "/usr/local/share/template-files/data/$data_template" ]; then
-      if [ ! -d "/data/$data_template" ]; then
-        mkdir -p "/data/$data_template"
-        cp -Rf "/usr/local/share/template-files/data/$data_template/." "/data/$data_template/"
-      fi
-    elif [ -f "/usr/local/share/template-files/data/$data_template" ]; then
-      if [ ! -f "/data/$data_template" ]; then
-        cp -Rf "/usr/local/share/template-files/data/$data_template" "/data/$data_template"
-      fi
-    fi
-  done
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Copy config files to /config
-if [ -n "${TEMPLATE_CONFIG_DIR}" ]; then
-  for config_template in ${TEMPLATE_CONFIG_DIR}; do
-    if [ -d "/usr/local/share/template-files/config/$config_template" ]; then
-      if [ ! -d "/config/$config_template" ]; then
-        mkdir -p "/config/$config_template"
-        cp -Rf "/usr/local/share/template-files/config/$config_template/." "/config/$config_template/"
-      fi
-    elif [ -f "/usr/local/share/template-files/config/$config_template" ]; then
-      if [ ! -f "/config/$config_template" ]; then
-        cp -Rf "/usr/local/share/template-files/config/$config_template" "/config/$config_template"
-      fi
-    fi
-  done
-fi
+[ -d "/usr/local/bin" ] && rm -Rf "/usr/local/bin/.gitkeep"
+[ -d "/data" ] && rm -Rf "/data/.gitkeep" "/data"/*/*.gitkeep
+[ -d "/config" ] && rm -Rf "/config/.gitkeep" "/data"/*/*.gitkeep
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ "$SSL" = "true" ] || [ "$SSL" = "yes" ]; then
   if [ -f "/config/ssl/server.crt" ] && [ -f "/config/ssl/server.key" ]; then
-    SSL="on"
-    SSL_CERT="/config/ssl/server.crt"
-    SSL_KEY="/config/ssl/server.key"
-    if [ -f "/config/ssl/ca.crt" ]; then
+    export SSL="true"
+    if [ -n "$SSL_CA" ] && [ -f "$SSL_CA" ]; then
       mkdir -p "/etc/ssl/certs"
-      cat "/config/ssl/ca.crt" >>"/etc/ssl/certs/ca-certificates.crt"
+      cat "$SSL_CA" >>"/etc/ssl/certs/ca-certificates.crt"
     fi
   else
-    [ -d "/config/ssl" ] || mkdir -p "/config/ssl"
-    create-ssl-cert "/config/ssl"
+    [ -d "$SSL_DIR" ] || mkdir -p "$SSL_DIR"
+    create-ssl-cert
   fi
+  type update-ca-certificates &>/dev/null && update-ca-certificates
 fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Update ssl certificates
-type update-ca-certificates &>/dev/null && update-ca-certificates
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Export variables
-export TZ HOSTNAME
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional commands
 
@@ -145,26 +111,25 @@ case "$1" in
   echo 'Docker container for '$APPNAME''
   echo "Usage: $APPNAME [healthcheck, bash, command]"
   echo "Failed command will have exit code 10"
-  echo
-  exitCode=$?
+  echo ""
+  exit ${exitCode:-$?}
   ;;
 
 healthcheck) # Docker healthcheck
-  __heath_check || exit 10
-  echo "$(uname -s) $(uname -m) is running"
-  exitCode=$?
+  __heath_check || exitCode=10
+  exit ${exitCode:-$?}
   ;;
 
 */bin/sh | */bin/bash | bash | shell | sh) # Launch shell
   shift 1
   __exec_command "${@:-/bin/bash}"
-  exitCode=$?
+  exit ${exitCode:-$?}
   ;;
 
 *) # Execute primary command
   if [ $# -eq 0 ]; then
     __exec_command "/bin/bash"
-    exitCode=$?
+    exit ${exitCode:-$?}
   else
     __exec_command "$@"
     exitCode=$?

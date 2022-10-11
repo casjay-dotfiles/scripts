@@ -262,10 +262,10 @@ __sudo() {
 # End of sudo functions
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __trap_exit() {
-  exitCode=${exitCode:-$?}
+  local trapexitCode=${exitCode:-$?}
   [ -f "$BUILDX_TEMP_FILE" ] && rm -Rf "$BUILDX_TEMP_FILE" &>/dev/null
   if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
-  return $exitCode
+  return $trapexitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
@@ -280,6 +280,7 @@ __remove_pid() {
   if [ "$BUILDX_IS_RUNNING" = "true" ] && [ -f "$BUILDX_PID_FILE" ]; then
     rm -Rf "$BUILDX_PID_FILE"
   fi
+  return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __is_buildx_installed() {
@@ -312,14 +313,14 @@ __usage() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __docker() {
-  eval "$BUILDX_DOCKER_CMD" "$@" 2>/dev/null && return 0
+  eval "$BUILDX_DOCKER_CMD" "$@" 2>/dev/null && true
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __docker_push() {
   __docker push "$tagged_name" |& tee -a "$logfile" &>/dev/null ||
     __docker push "$tagged_name" |& tee -a "$logfile" &>/dev/null ||
-    __docker push "$tagged_name" |& tee -a "$logfile" &>/dev/null
+    __docker push "$tagged_name" |& tee -a "$logfile" &>/dev/null && true
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -432,8 +433,9 @@ __buildx_init() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __buildx_status() {
-  a="$*"
+  local a="" e="" c="" r="" s=""
   e=0
+  a="$*"
   c="$(__docker buildx inspect ${1:-$BUILDX_BUILDER_NAME} || false)"
   r="$(__docker buildx ls | grep ${1:-$BUILDX_BUILDER_NAME} | grep -qi 'running' && echo 'running' || false)"
   s="$(echo "$c" | grep -i 'Status:' | grep -qi 'running' && echo 'Running' || false)"
@@ -452,7 +454,7 @@ __buildx_status() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_docker_build() {
-  local buildx_status="" ADD_HOST=""
+  local buildx_status="2" ADD_HOST=""
   local namespace="$BUILDX_ADD_REPO"
   local platforms="${BUILDX_DOCKER_PLATFORMS// /,}"
   local image_name="${tagged_name//$BUILDX_DEFAULT_REPO\//}"
@@ -488,8 +490,8 @@ __run_docker_build() {
       --progress auto \
       --output=type=registry \
       -t "$tagged_name" $ADD_HOST "${dir:-$PWD}" \
-      -f ${Dockerfile:-Dockerfile} |& tee -a "$logfile" &>/dev/null &&
-      buildx_status=0 || buildx_status=1
+      -f ${Dockerfile:-Dockerfile} |& tee -a "$logfile" &>/dev/null || false
+    buildx_status=$?
   else
     printf '%s\n' "# Building $tagged_name using build on : $(date +'%Y-%m-%d at %H:%M')" >>"$logfile"
     eval "$BUILDX_DOCKER_CMD" build \
@@ -497,8 +499,8 @@ __run_docker_build() {
       --pull \
       --force-rm \
       --no-cache \
-      -t "$push_tag" $ADD_HOST "${dir:-$PWD}" |& tee -a "$logfile" &>/dev/null &&
-      buildx_status=0 || buildx_status=1
+      -t "$push_tag" $ADD_HOST "${dir:-$PWD}" |& tee -a "$logfile" &>/dev/null || false
+    buildx_status=$?
     if [ "$buildx_status" = 0 ]; then
       if __docker_push; then
         printf '\n%s\n' "# Pushing of $push_tag completed on : $(date +'%Y-%m-%d at %H:%M')" >>"$logfile"
@@ -517,7 +519,7 @@ __run_docker_build() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __build_cmd() {
-  local exitCodeS=1
+  local exitCodeS="1"
   local dir="${1:-$REALPATH}"
   if [ -f "$dir/.build_failed" ]; then
     cat "$dir/.build_failed" | grep '^'
@@ -532,7 +534,8 @@ __build_cmd() {
     echo "$BUILDX_PID_NUMBER" >"$BUILDX_PID_FILE"
   fi
   printf_blue "Log is being written to: ${logfile//$HOME/~}"
-  __run_docker_build && exitCodeS=0 || exitCodeS=1
+  __run_docker_build
+  exitCodeS=$?
   if [ "$exitCodeS" -ne 0 ]; then
     printf_yellow "The last 50 lines of the log are in:"
     printf_cyan "$dir/.build_failed"
@@ -772,7 +775,7 @@ SHORTOPTS+=""
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
 LONGOPTS+=",force,cleanup,registry:,repo:,no-registry,no-repo"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-ARRAY="init status version api"
+ARRAY="init status version api "
 ARRAY+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
@@ -919,6 +922,7 @@ export DOCKER_CLI_EXPERIMENTAL="$BUILDX_DOCKER_CLI_EXPERIMENTAL"
 # Actions based on env
 __is_docker_installed
 [ -f "$BUILDX_PID_FILE" ] && BUILDX_CLEANUP=""
+[ -d "$HOME/.docker/buildx" ] || __buildx_init
 [ -d "$HOME/.local/run/$APPNAME" ] || mkdir -p "$HOME/.local/run/$APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app

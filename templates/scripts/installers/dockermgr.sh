@@ -142,15 +142,17 @@ ADDITIONAL_MOUNTS+=""
 # Define additional docker arguments - see docker run --help
 CUSTOM_ARGUMENTS="--shm-size=256MB"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Add Add container port [port] or [port:port] - LISTEN will be added if defined [DEFINE_LISTEN]
+# Set this to the protocol the the container will use [http]
+CONTAINER_HTTP_PROTO="http"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Add Add sevicee port [port] or [port:port] - LISTEN will be added if defined [DEFINE_LISTEN]
+# Only ONE HTTP or HTTPS if web server or SERVICE port for mysql pgsql ftp etc.
 CONTAINER_HTTP_PORT=""
 CONTAINER_HTTPS_PORT=""
 CONTAINER_SERVICE_PORT=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set this to the protocol the the container will use [http]
-CONTAINER_HTTP_PROTO="http"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Same as SERVER_WEB_PORT and do not add SERVER_WEB_PORT here as it will be added
+# Add Add sevicee port [port] or [port:port] - LISTEN will be added if defined [DEFINE_LISTEN]
+# DO NOT add SERVER_WEB_PORT here as it will be added
 SERVER_PORT_ADD_CUSTOM=""
 SERVER_PORT_ADD_CUSTOM+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -210,6 +212,7 @@ mkdir -p "$LOCAL_CONFIG_DIR"
 chmod -Rf 777 "$APPDIR"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Variables - Do not change
+SERVER_WEB_PORT="${CONTAINER_HTTPS_PORT:-$CONTAINER_HTTP_PORT}"
 SERVER_IP="${CURRIP4:-$LOCAL_IP}"
 SERVER_PORT="${SERVER_WEB_PORT//:*/}"
 CONTAINER_HTTP_PROTO="${CONTAINER_HTTP_PROTO:-http}"
@@ -220,6 +223,7 @@ DEFINE_LISTEN="${DEFINE_LISTEN:-$SERVER_LISTEN_ADDR}"
 SERVER_DOMAIN_NAME="${SERVER_DOMAIN_NAME:-"$(hostname -d 2>/dev/null | grep '^' || echo 'local')"}"
 SERVER_HOST_NAME="${SERVER_HOST_NAME:-$APPNAME.$SERVER_DOMAIN_NAME}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+[ "$CONTAINER_HTTPS_PORT" = "https" ] && CONTAINER_HTTP_PROTO="https"
 [ -d "$DATADIR/ssl" ] && SERVER_SSL_DIR="$DATADIR/ssl" SERVER_SSL_CA
 [ "$SERVER_LISTEN_LOCAL" = "true" ] && DEFINE_LISTEN="${LOCAL_IP:-127.0.0.1}"
 [ -n "$DEFINE_LISTEN" ] && DEFINE_LISTEN="${DEFINE_LISTEN//:/}:" || DEFINE_LISTEN=""
@@ -325,6 +329,7 @@ if [ ! -f "/etc/nginx/vhosts.d/$SERVER_HOST_NAME.conf" ] && [ -f "$INSTDIR/nginx
   sed -i "s|REPLACE_SERVER_PORT|$SERVER_PORT|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
   sed -i "s|REPLACE_SERVER_HOST|$SERVER_DOMAIN_NAME|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
   sed -i "s|REPLACE_SERVER_PROXY|$NGINX_PROXY|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
+  sed -i "s|REPLACE_REVPROXY_PROTO|$CONTAINER_HTTPS_PORT|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
   if [ -d "/etc/nginx/vhosts.d" ]; then
     __sudo_root mv -f "/tmp/$$.$SERVER_HOST_NAME.conf" "/etc/nginx/vhosts.d/$SERVER_HOST_NAME.conf"
     [ -f "/etc/nginx/vhosts.d/$SERVER_HOST_NAME.conf" ] && printf_green "[ ✅ ] Copying the nginx configuration"
@@ -360,14 +365,14 @@ dockermgr_install_version
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run exit function
 if docker ps -a | grep -qs "$APPNAME"; then
-  printf_cyan "$APPNAME has been installed to $INSTDIR"
   printf_yellow "The DATADIR is in $DATADIR"
-  [ -z "$SERVER_PORT" ] && printf_yellow "This container does not have a web interface"
-  [ -n "$SERVER_LISTEN_ADDR" ] && [ -n "$SERVER_PORT" ] && printf_yellow "Service is running on: $SERVER_LISTEN_ADDR:$SERVER_PORT"
-  [ -n "$SERVER_LISTEN_ADDR" ] && [ -n "$SERVER_PORT" ] && printf_yellow "and should be available at: $NGINX_PROXY or $CONTAINER_HTTP_PROTO//$SERVER_HOST_NAME:$SERVER_PORT"
-  [ -n "$SERVER_MESSAGE_USER" ] && printf_cyan "Username is:  $SERVER_MESSAGE_USER"
-  [ -n "$SERVER_MESSAGE_PASS" ] && printf_purple "Password is:  $SERVER_MESSAGE_PASS"
-  [ -n "$SERVER_MESSAGE_POST" ] && printf_green "$SERVER_MESSAGE_POST"
+  printf_cyan "$APPNAME has been installed to $INSTDIR"
+  [ -z "$CONTAINER_SERVICE_PORT" ] && printf_yellow "This container does not have a web interface" || print_cyan "Service is running on $SERVER_HOST_NAME:$SERVER_PORT"
+  [ -z "$SERVER_PORT" ] || printf_yellow "Service is running on: $SERVER_LISTEN_ADDR:$SERVER_PORT"
+  [ -z "$SERVER_PORT" ] || printf_yellow "and should be available at: $NGINX_PROXY or $CONTAINER_HTTP_PROTO//$SERVER_HOST_NAME:$SERVER_PORT"
+  [ -z "$SERVER_MESSAGE_USER" ] && printf_cyan "Username is:  $SERVER_MESSAGE_USER"
+  [ -z "$SERVER_MESSAGE_PASS" ] && printf_purple "Password is:  $SERVER_MESSAGE_PASS"
+  [ -z "$SERVER_MESSAGE_POST" ] && printf_green "$SERVER_MESSAGE_POST"
 else
   printf_error "Something seems to have gone wrong with the install"
   printf '\n\n'

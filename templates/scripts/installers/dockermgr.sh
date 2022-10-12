@@ -345,7 +345,7 @@ else
     -e TZ="$SERVER_TIMEZONE" \
     -e TIMEZONE="$SERVER_TIMEZONE" $SET_ENV $SET_DEV $SET_MNT $SET_PORT \
     "$HUB_IMAGE_URL:$HUB_IMAGE_TAG" 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log" &&
-    rm -Rf "${TMP:-/tmp}/$APPNAME.err.log" || printf_red "Errors logged to ${TMP:-/tmp}/$APPNAME.err.log"
+    rm -Rf "${TMP:-/tmp}/$APPNAME.err.log" || ERROR_LOG="true"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Install nginx proxy
@@ -404,6 +404,7 @@ if docker ps -a | grep -qs "$APPNAME"; then
   [ -z "$SERVER_MESSAGE_PASS" ] || printf_purple "Password is:  $SERVER_MESSAGE_PASS"
   [ -z "$SERVER_MESSAGE_POST" ] || printf_green "$SERVER_MESSAGE_POST"
 else
+  printf_yellow "Errors logged to ${TMP:-/tmp}/$APPNAME.err.log"
   printf_error "Something seems to have gone wrong with the install"
   printf '\n\n'
 fi

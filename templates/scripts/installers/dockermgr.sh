@@ -223,6 +223,7 @@ mkdir -p "$LOCAL_CONFIG_DIR"
 chmod -Rf 777 "$APPDIR"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Variables - Do not change
+NGINX_LISTEN_OPTS=""
 SERVER_IP="${CURRIP4:-$LOCAL_IP}"
 SERVER_TIMEZONE="${TZ:-$TIMEZONE}"
 SERVER_MESSAGE_POST="${SERVER_MESSAGE_POST:-}"
@@ -248,6 +249,7 @@ SERVER_HOST_NAME="${SERVER_HOST_NAME:-$APPNAME.$SERVER_DOMAIN_NAME}"
 if [ "$SSL_ENABLED" = "true" ]; then
   if [ "$CONTAINER_HTTP_PROTO" = "http" ]; then
     NGINX_PROXY="https://$SERVER_LISTEN_ADDR:$SERVER_PORT"
+    NGINX_LISTEN_OPTS="ssl http2"
     CONTAINER_HTTP_PROTO="${CONTAINER_HTTP_PROTO:-https}"
   fi
   if [ -f "$SERVER_SSL_CRT" ] && [ -f "$SERVER_SSL_KEY" ]; then
@@ -352,13 +354,16 @@ if [ ! -f "/etc/nginx/vhosts.d/$SERVER_HOST_NAME.conf" ] && [ -f "$INSTDIR/nginx
   sed -i "s|REPLACE_APPNAME|$APPNAME|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
   sed -i "s|REPLACE_NGINX_PORT|$NGINX_PORT|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
   sed -i "s|REPLACE_SERVER_PORT|$SERVER_PORT|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
-  sed -i "s|REPLACE_SERVER_HOST|$SERVER_DOMAIN_NAME|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
   sed -i "s|REPLACE_SERVER_PROXY|$NGINX_PROXY|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
+  sed -i "s|REPLACE_SERVER_HOST|$SERVER_DOMAIN_NAME|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
   sed -i "s|REPLACE_REVPROXY_PROTO|$CONTAINER_HTTP_PROTO|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
+  sed -i "s|REPLACE_SERVER_LISTEN_OPTS|$NGINX_LISTEN_OPTS|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
   if [ -d "/etc/nginx/vhosts.d" ]; then
     __sudo_root mv -f "/tmp/$$.$SERVER_HOST_NAME.conf" "/etc/nginx/vhosts.d/$SERVER_HOST_NAME.conf"
     [ -f "/etc/nginx/vhosts.d/$SERVER_HOST_NAME.conf" ] && printf_green "[ ✅ ] Copying the nginx configuration"
     systemctl status nginx | grep -q enabled &>/dev/null && __sudo_root systemctl reload nginx &>/dev/null
+  else
+    mv -f "/tmp/$$.$SERVER_HOST_NAME.conf" "$INSTDIR/nginx/$SERVER_HOST_NAME.conf" &>/dev/null
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

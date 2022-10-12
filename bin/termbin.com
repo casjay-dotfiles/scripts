@@ -466,7 +466,7 @@ done
 # [ -d "$1" ] && TERMBIN_COM_CWD="$1" && shift 1 || TERMBIN_COM_CWD="${TERMBIN_COM_CWD:-$PWD}"
 TERMBIN_COM_CWD="$(realpath "${TERMBIN_COM_CWD:-$PWD}" 2>/dev/null)"
 # if [ -d "$TERMBIN_COM_CWD" ] && cd "$TERMBIN_COM_CWD"; then
-# if [ "$TERMBIN_COM_SILENT" != "true" ] || [ "$CWD_SILENCE" != "true" ]; then
+# if [ "$TERMBIN_COM_SILENT" != "true" ] && [ "$CWD_SILENCE" != "true" ]; then
 # printf_cyan "Setting working dir to $TERMBIN_COM_CWD"
 # fi
 # else

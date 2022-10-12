@@ -195,7 +195,7 @@ fi
 [ -f "$DOCKERMGR_CONFIG_DIR/.env.sh" ] && . "$DOCKERMGR_CONFIG_DIR/.env.sh"
 [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME" ] && . "$DOCKERMGR_CONFIG_DIR/env/$APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ -z "$HUB_IMAGE_URL" ] || [ "$HUB_IMAGE_URL" = "hello-world" ]; then
+if [ -z "$HUB_IMAGE_URL" ] || [ "$HUB_IMAGE_URL" = " " ]; then
   printf_exit "Please set the url to the containers image"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -395,9 +395,9 @@ if docker ps -a | grep -qs "$APPNAME"; then
   [ -z "$CONTAINER_SERVICE_PORT" ] && printf_yellow "This container does not have a web interface" || print_cyan "Service is running on $SERVER_HOST_NAME:$SERVER_PORT"
   [ -z "$SERVER_PORT" ] || printf_yellow "Service is running on: $SERVER_LISTEN_ADDR:$SERVER_PORT"
   [ -z "$SERVER_PORT" ] || printf_yellow "and should be available at: $NGINX_PROXY or $CONTAINER_HTTP_PROTO//$SERVER_HOST_NAME:$SERVER_PORT"
-  [ -z "$SERVER_MESSAGE_USER" ] && printf_cyan "Username is:  $SERVER_MESSAGE_USER"
-  [ -z "$SERVER_MESSAGE_PASS" ] && printf_purple "Password is:  $SERVER_MESSAGE_PASS"
-  [ -z "$SERVER_MESSAGE_POST" ] && printf_green "$SERVER_MESSAGE_POST"
+  [ -z "$SERVER_MESSAGE_USER" ] || printf_cyan "Username is:  $SERVER_MESSAGE_USER"
+  [ -z "$SERVER_MESSAGE_PASS" ] || printf_purple "Password is:  $SERVER_MESSAGE_PASS"
+  [ -z "$SERVER_MESSAGE_POST" ] || printf_green "$SERVER_MESSAGE_POST"
 else
   printf_error "Something seems to have gone wrong with the install"
   printf '\n\n'

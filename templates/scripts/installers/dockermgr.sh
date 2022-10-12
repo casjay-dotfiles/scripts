@@ -51,12 +51,15 @@ else
   exit 90
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Make sure the scripts repo is installed
+scripts_check
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define extra functions
-__sudo() { sudo -n true && eval sudo "$*" || eval "$*" || return 1; }
-__sudo_root() { sudo -n true && ask_for_password true && eval sudo "$*" || return 1; }
-__enable_ssl() { [ "$SERVER_SSL" = "yes" ] && [ "$SERVER_SSL" = "true" ] && return 0 || return 1; }
-__ssl_certs() { [ -f "${1:-$SERVER_SSL_CRT}" ] && [ -f "${2:-SERVER_SSL_KEY}" ] && return 0 || return 1; }
-__port_not_in_use() { [ -d "/etc/nginx/vhosts.d" ] && grep -wRsq "${1:-$CONTAINER_HTTP_PORT}" /etc/nginx/vhosts.d && return 0 || return 1; }
+__sudo() { sudo -n true && eval sudo "$@" || eval "$@" || return 1; }
+__sudo_root() { sudo -n true && ask_for_password true && eval sudo "$@" || return 1; }
+__enable_ssl() { { [ "$SSL_ENABLED" = "yes" ] || [ "$SSL_ENABLED" = "true" ]; } && return 0 || return 1; }
+__ssl_certs() { [ -f "$SERVER_SSL_CA" ] && [ -f "$SERVER_SSL_CRT" ] && [ -f "$SERVER_SSL_KEY" ] && return 0 || return 1; }
+__port_not_in_use() { [ -d "/etc/nginx/vhosts.d" ] && grep -wRsq "${1:-$CONTAINER_HTTP_PORT}" "/etc/nginx/vhosts.d" && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define pre-install scripts
 run_pre_install() {
@@ -66,9 +69,6 @@ run_pre_install() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define custom functions
 
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Make sure the scripts repo is installed
-scripts_check
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Repository variables
 REPO="${DOCKERMGRREPO:-https://github.com/dockermgr}/GEN_SCRIPT_REPLACE_APPNAME"
@@ -88,7 +88,7 @@ dockermgr_install
 # trap the cleanup function
 trap_exit
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Require a higher version
+# Require a certain version
 dockermgr_req_version "$APPVERSION"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define folders
@@ -97,16 +97,11 @@ SERVER_CONFIG_DIR="$DATADIR/config"
 LOCAL_DATA_DIR="${LOCAL_DATA_DIR:-$SERVER_DATA_DIR}"
 LOCAL_CONFIG_DIR="${LOCAL_CONFIG_DIR:-$SERVER_CONFIG_DIR}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# SSL Setup
-SERVER_SSL_DIR="${SERVER_SSL_DIR:-/etc/ssl/CA/CasjaysDev}"
-SERVER_SSL_CA="${SERVER_SSL_CA:-$SERVER_SSL_DIR/certs/ca.crt}"
-SERVER_SSL_CRT="${SERVER_SSL_CRT:-$SERVER_SSL_DIR/certs/localhost.crt}"
-SERVER_SSL_KEY="${SERVER_SSL_KEY:-$SERVER_SSL_DIR/private/localhost.key}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup variables
 TZ="America/New_York"
 SERVER_HOST_NAME=""
 SERVER_DOMAIN_NAME=""
+CONTAINER_SHM_SIZE="128M"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # URL to container image [docker pull URL]
 HUB_IMAGE_URL="casjaysdevdocker/GEN_SCRIPT_REPLACE_APPNAME"
@@ -114,18 +109,37 @@ HUB_IMAGE_URL="casjaysdevdocker/GEN_SCRIPT_REPLACE_APPNAME"
 # image tag [docker pull HUB_IMAGE_URL:tag]
 HUB_IMAGE_TAG="latest"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# SSL Setup server mounts
+SERVER_SSL_DIR="${SERVER_SSL_DIR:-/etc/ssl/CA/CasjaysDev}"
+SERVER_SSL_CA="${SERVER_SSL_CA:-$SERVER_SSL_DIR/certs/ca.crt}"
+SERVER_SSL_CRT="${SERVER_SSL_CRT:-$SERVER_SSL_DIR/certs/localhost.crt}"
+SERVER_SSL_KEY="${SERVER_SSL_KEY:-$SERVER_SSL_DIR/private/localhost.key}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# SSL Setup container mounts
+CONTAINER_SSL_DIR="${SERVER_CONFIG_DIR:-$DATADIR/config/ssl}"
+CONTAINER_SSL_CA="${CONTAINER_SSL_CA:-$CONTAINER_SSL_DIR/ca.crt}"
+CONTAINER_SSL_CRT="${CONTAINER_SSL_CRT:-$CONTAINER_SSL_DIR/localhost.crt}"
+CONTAINER_SSL_KEY="${CONTAINER_SSL_KEY:-$CONTAINER_SSL_DIR/localhost.key}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set to true for container SSL support and set mount point IE: [/data/ssl/ca.crt]
 SSL_ENABLED="false"
-SSL_CA=""
-SSL_KEY=""
-SSL_CERT=""
+SSL_CA="$SERVER_SSL_CA"
+SSL_KEY="$SERVER_SSL_KEY"
+SSL_CERT="$SERVER_SSL_CRT"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set to true for container to listen on LOCAL_IP only
 LOCAL_IP="127.0.0.1"
 SERVER_LISTEN_LOCAL="false"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set the SHM Size - default 64M
+CONTAINER_SHM_SIZE="128M"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set this to 0.0.0.0 to listen on all or specify addresses
 DEFINE_LISTEN=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Define additional mounts [ /dir:/dir ]
+ADDITIONAL_MOUNTS="$LOCAL_CONFIG_DIR:/config:z $LOCAL_DATA_DIR:/data:z "
+ADDITIONAL_MOUNTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define additional variables [ myvar=var ]
 ADDITION_ENV=""
@@ -135,12 +149,9 @@ ADDITION_ENV+=""
 ADDITION_DEVICES=""
 ADDITION_DEVICES+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Define additional mounts [ /dir:/dir ]
-ADDITIONAL_MOUNTS="$LOCAL_CONFIG_DIR:/config:z $LOCAL_DATA_DIR:/data:z "
-ADDITIONAL_MOUNTS+=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define additional docker arguments - see docker run --help
-CUSTOM_ARGUMENTS="--shm-size=256MB"
+CUSTOM_ARGUMENTS="--shm-size=$CONTAINER_SHM_SIZE "
+CUSTOM_ARGUMENTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set this to the protocol the the container will use [http]
 CONTAINER_HTTP_PROTO="http"
@@ -212,29 +223,38 @@ mkdir -p "$LOCAL_CONFIG_DIR"
 chmod -Rf 777 "$APPDIR"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Variables - Do not change
-SERVER_WEB_PORT="${CONTAINER_HTTPS_PORT:-$CONTAINER_HTTP_PORT}"
 SERVER_IP="${CURRIP4:-$LOCAL_IP}"
-SERVER_PORT="${SERVER_WEB_PORT//:*/}"
-CONTAINER_HTTP_PROTO="${CONTAINER_HTTP_PROTO:-http}"
 SERVER_TIMEZONE="${TZ:-$TIMEZONE}"
 SERVER_MESSAGE_POST="${SERVER_MESSAGE_POST:-}"
+CONTAINER_HTTP_PROTO="${CONTAINER_HTTP_PROTO:-http}"
 SERVER_LISTEN_ADDR="${DEFINE_LISTEN:-$SERVER_IP}"
 DEFINE_LISTEN="${DEFINE_LISTEN:-$SERVER_LISTEN_ADDR}"
+SERVER_WEB_PORT="${CONTAINER_HTTPS_PORT:-$CONTAINER_HTTP_PORT}"
 SERVER_DOMAIN_NAME="${SERVER_DOMAIN_NAME:-"$(hostname -d 2>/dev/null | grep '^' || echo 'local')"}"
 SERVER_HOST_NAME="${SERVER_HOST_NAME:-$APPNAME.$SERVER_DOMAIN_NAME}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Configure variables
 [ "$CONTAINER_HTTPS_PORT" = "https" ] && CONTAINER_HTTP_PROTO="https"
-[ -d "$DATADIR/ssl" ] && SERVER_SSL_DIR="$DATADIR/ssl" SERVER_SSL_CA
 [ "$SERVER_LISTEN_LOCAL" = "true" ] && DEFINE_LISTEN="${LOCAL_IP:-127.0.0.1}"
-[ -n "$DEFINE_LISTEN" ] && DEFINE_LISTEN="${DEFINE_LISTEN//:/}:" || DEFINE_LISTEN=""
 [ "$DOCKER_SOCKET_ENABLED" = "true" ] && ADDITIONAL_MOUNTS+="$DOCKER_SOCKET_MOUNT:/var/run/docker.sock "
 [ "$NGINX_SSL" = "true" ] && [ -n "$NGINX_HTTPS" ] && NGINX_PORT="${NGINX_HTTPS:-443}" || NGINX_PORT="${NGINX_HTTP:-80}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# rewrite variables
+[ -n "$HUB_IMAGE_TAG" ] || HUB_IMAGE_TAG="latest"
+[ -n "$SERVER_WEB_PORT" ] && SERVER_PORT="${SERVER_WEB_PORT//:*/}"
+[ -n "$DEFINE_LISTEN" ] && DEFINE_LISTEN="${DEFINE_LISTEN//:/}:" || DEFINE_LISTEN=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# SSL setup
 if [ "$SSL_ENABLED" = "true" ]; then
-  [ "$CONTAINER_HTTP_PROTO" = "http" ] && NGINX_PROXY="https://$SERVER_LISTEN_ADDR:$SERVER_PORT" && CONTAINER_HTTP_PROTO="${CONTAINER_HTTP_PROTO:-https}"
-  [ -f "$SERVER_SSL_CA/localhost.crt" ] && SERVER_SSL_CA="$SERVER_SSL_DIR/ca.crt" && ADDITIONAL_MOUNTS+="$SERVER_SSL_DIR/localhost.crt:${SSL_CA:-/data/ca.crt} "
-  [ -f "$SERVER_SSL_DIR/localhost.key" ] && SERVER_SSL_KEY="$SERVER_SSL_DIR/localhost.key" && ADDITIONAL_MOUNTS+="$SERVER_SSL_DIR/localhost.key:${SSL_KEY:-/data/ssl.key} "
-  [ -f "$SERVER_SSL_DIR/localhost.crt" ] && SERVER_SSL_CRT="$SERVER_SSL_DIR/localhost.crt" && ADDITIONAL_MOUNTS+="$SERVER_SSL_DIR/localhost.crt:${SSL_CERT:-/data/ssl.crt} "
+  if [ "$CONTAINER_HTTP_PROTO" = "http" ]; then
+    NGINX_PROXY="https://$SERVER_LISTEN_ADDR:$SERVER_PORT"
+    CONTAINER_HTTP_PROTO="${CONTAINER_HTTP_PROTO:-https}"
+  fi
+  if [ -f "$SERVER_SSL_CRT" ] && [ -f "$SERVER_SSL_KEY" ]; then
+    [ -f "$CONTAINER_SSL_CA" ] && ADDITIONAL_MOUNTS+="$SERVER_SSL_CA:$CONTAINER_SSL_CA "
+    ADDITIONAL_MOUNTS+="$SERVER_SSL_CRT:$CONTAINER_SSL_CRT "
+    ADDITIONAL_MOUNTS+="$SERVER_SSL_KEY:$CONTAINER_SSL_KEY "
+  fi
 else
   CONTAINER_HTTP_PROTO="${CONTAINER_HTTP_PROTO:-http}"
 fi
@@ -243,6 +263,7 @@ NGINX_PROXY="${NGINX_PROXY:-$CONTAINER_HTTP_PROTO://$SERVER_LISTEN_ADDR:$SERVER_
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_ENV=""
 for env in $ADDITION_ENV; do
+  [ "$env" = " " ] && env=""
   if [ -n "$env" ]; then
     SET_ENV+="--env $env "
   fi
@@ -250,6 +271,7 @@ done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_DEV=""
 for dev in $ADDITION_DEVICES; do
+  [ "$dev" = " " ] && dev=""
   if [ -n "$dev" ]; then
     echo "$dev" | grep -q ':' || dev="$dev:$dev"
     SET_DEV+="--device $dev "
@@ -258,6 +280,7 @@ done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_MNT=""
 for mnt in $ADDITIONAL_MOUNTS; do
+  [ "$mnt" = " " ] && mnt=""
   if [ -n "$mnt" ]; then
     echo "$mnt" | grep -q ':' || port="$mnt:$mnt"
     SET_MNT+="--volume $mnt "
@@ -266,6 +289,7 @@ done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_PORT=""
 for port in $CONTAINER_HTTP_PORT $CONTAINER_SERVICE_PORT $CONTAINER_HTTPS_PORT $SERVER_PORT_ADD_CUSTOM; do
+  [ "$port" = " " ] && port=""
   if [ -n "$port" ]; then
     echo "$port" | grep -q ':' || port="$port:$port"
     SET_PORT+="--publish $DEFINE_LISTEN$port "
@@ -308,8 +332,9 @@ if cmd_exists docker-compose && [ -f "$INSTDIR/docker-compose.yml" ]; then
 else
   __sudo docker stop "$APPNAME" &>/dev/null
   __sudo docker rm -f "$APPNAME" &>/dev/null
-  printf_cyan "Updating the image from $HUB_IMAGE_URL"
+  printf_cyan "Updating the image from $HUB_IMAGE_URL with tag $HUB_IMAGE_TAG"
   __sudo docker pull "$HUB_IMAGE_URL" &>/dev/null
+  printf_cyan "Creating container $APPNAME"
   __sudo docker run -d \
     --privileged \
     --restart=always \
@@ -317,8 +342,8 @@ else
     --hostname "$SERVER_HOST_NAME" $CUSTOM_ARGUMENTS \
     -e TZ="$SERVER_TIMEZONE" \
     -e TIMEZONE="$SERVER_TIMEZONE" $SET_ENV $SET_DEV $SET_MNT $SET_PORT \
-    "$HUB_IMAGE_URL:${HUB_IMAGE_TAG:-latest}" 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log" &&
-    rm -Rf "${TMP:-/tmp}/$APPNAME.err.log"
+    "$HUB_IMAGE_URL:$HUB_IMAGE_TAG" 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log" &&
+    rm -Rf "${TMP:-/tmp}/$APPNAME.err.log" || printf_red "Errors logged to ${TMP:-/tmp}/$APPNAME.err.log"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Install nginx proxy
@@ -329,7 +354,7 @@ if [ ! -f "/etc/nginx/vhosts.d/$SERVER_HOST_NAME.conf" ] && [ -f "$INSTDIR/nginx
   sed -i "s|REPLACE_SERVER_PORT|$SERVER_PORT|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
   sed -i "s|REPLACE_SERVER_HOST|$SERVER_DOMAIN_NAME|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
   sed -i "s|REPLACE_SERVER_PROXY|$NGINX_PROXY|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
-  sed -i "s|REPLACE_REVPROXY_PROTO|$CONTAINER_HTTPS_PORT|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
+  sed -i "s|REPLACE_REVPROXY_PROTO|$CONTAINER_HTTP_PROTO|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
   if [ -d "/etc/nginx/vhosts.d" ]; then
     __sudo_root mv -f "/tmp/$$.$SERVER_HOST_NAME.conf" "/etc/nginx/vhosts.d/$SERVER_HOST_NAME.conf"
     [ -f "/etc/nginx/vhosts.d/$SERVER_HOST_NAME.conf" ] && printf_green "[ ✅ ] Copying the nginx configuration"

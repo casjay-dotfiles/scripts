@@ -127,6 +127,9 @@ SSL_CA="$SERVER_SSL_CA"
 SSL_KEY="$SERVER_SSL_KEY"
 SSL_CERT="$SERVER_SSL_CRT"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set this to 0.0.0.0 to listen on all or specify addresses
+DEFINE_LISTEN=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set to true for container to listen on LOCAL_IP only
 LOCAL_IP="127.0.0.1"
 SERVER_LISTEN_LOCAL="false"
@@ -134,8 +137,13 @@ SERVER_LISTEN_LOCAL="false"
 # Set the SHM Size - default 64M
 CONTAINER_SHM_SIZE="128M"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set this to 0.0.0.0 to listen on all or specify addresses
-DEFINE_LISTEN=""
+# Enable display in container
+SERVER_DISPLAY="false"
+X11_SOCKET="/tmp/.X11-unix"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Mount docker socket [pathToSocket]
+DOCKER_SOCKET_ENABLED="false"
+DOCKER_SOCKET_MOUNT="/var/run/docker.sock"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define additional mounts [ /dir:/dir ]
 ADDITIONAL_MOUNTS="$LOCAL_CONFIG_DIR:/config:z $LOCAL_DATA_DIR:/data:z "
@@ -166,10 +174,6 @@ CONTAINER_SERVICE_PORT=""
 # DO NOT add SERVER_WEB_PORT here as it will be added
 SERVER_PORT_ADD_CUSTOM=""
 SERVER_PORT_ADD_CUSTOM+=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Mount docker socket [pathToSocket]
-DOCKER_SOCKET_ENABLED="false"
-DOCKER_SOCKET_MOUNT="/var/run/docker.sock"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show user info message
 SERVER_MESSAGE_USER=""
@@ -236,6 +240,7 @@ SERVER_HOST_NAME="${SERVER_HOST_NAME:-$APPNAME.$SERVER_DOMAIN_NAME}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Configure variables
 [ "$CONTAINER_HTTPS_PORT" = "https" ] && CONTAINER_HTTP_PROTO="https"
+[ -n "$SERVER_DISPLAY" ] && ADDITIONAL_MOUNTS+="${X11_SOCKET:-/tmp/.X11-unix}:/tmp/.X11-unix "
 [ "$SERVER_LISTEN_LOCAL" = "true" ] && DEFINE_LISTEN="${LOCAL_IP:-127.0.0.1}"
 [ "$DOCKER_SOCKET_ENABLED" = "true" ] && ADDITIONAL_MOUNTS+="$DOCKER_SOCKET_MOUNT:/var/run/docker.sock "
 [ "$NGINX_SSL" = "true" ] && [ -n "$NGINX_HTTPS" ] && NGINX_PORT="${NGINX_HTTPS:-443}" || NGINX_PORT="${NGINX_HTTP:-80}"

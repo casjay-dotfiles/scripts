@@ -268,6 +268,95 @@ __make_file() {
   esac
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__debian_file() {
+  local Dfile="${1:-$file}"
+  if [ -f "$GEN_DOCKERFILE_CONFIG_DIR/Dockerfile" ]; then
+    cat <<EOF | tee "$Dfile" &>/dev/null
+$(. "$GEN_DOCKERFILE_CONFIG_DIR/Dockerfile")
+EOF
+  else
+    cat <<EOF | tee "$Dfile" &>/dev/null
+FROM ${GEN_DOCKERFILE_DEFAULT_IMAGE:-casjaysdevdocker/debian:latest} AS build
+
+ARG TIMEZONE="America/New_York" \\
+  IMAGE_NAME="$name" \\
+  LICENSE="MIT" \\
+  PORTS=""
+
+ENV DEBIAN_FRONTEND=noninteractive \\
+  TZ="\$TIMEZONE" \\
+  SHELL="/bin/bash" \\
+  TERM="xterm-256color" \\
+  HOSTNAME="\${HOSTNAME:-casjaysdev-\$IMAGE_NAME}"
+
+RUN set -ex; \\
+  echo 'export DEBIAN_FRONTEND=noninteractive' >/etc/profile.d/apt.sh && \\
+  chmod 755 /etc/profile.d/apt.sh && \\
+  apt update -yy && \\
+  apt upgrade -yy && \\
+  apt install -yy \\
+  sudo \\
+  bash \\
+  wget \\
+  curl \\
+  postfix \\
+  unzip \\
+  git \\
+  tini && \\
+  update-alternatives --install /bin/sh sh /bin/bash 1
+
+COPY ./bin/. /usr/local/bin/
+COPY ./data/. /usr/local/share/template-files/data/
+COPY ./config/. /usr/local/share/template-files/config/
+
+RUN rm -Rf /bin/.gitkeep /usr/local/bin/.gitkeep /config /data /var/lib/apt/lists/*
+
+FROM scratch
+ARG BUILD_DATE="$(date +'%Y-%m-%d')" \\
+  BUILD_VERSION="latest"
+
+LABEL maintainer="CasjaysDev <docker-admin@casjaysdev.com>" \\
+  org.opencontainers.image.vcs-type="Git" \\
+  org.opencontainers.image.name="$name" \\
+  org.opencontainers.image.base.name="$name" \\
+  org.opencontainers.image.license="\$LICENSE" \\
+  org.opencontainers.image.vcs-ref="\$BUILD_VERSION" \\
+  org.opencontainers.image.build-date="\$BUILD_DATE" \\
+  org.opencontainers.image.version="\$BUILD_VERSION" \\
+  org.opencontainers.image.schema-version="\$BUILD_VERSION" \\
+  org.opencontainers.image.url="$GEN_DOCKERFILE_HUB_BASE/$name" \\
+  org.opencontainers.image.vcs-url="$GEN_DOCKERFILE_GIT_BASE/$name" \\
+  org.opencontainers.image.url.source="$GEN_DOCKERFILE_GIT_BASE/$name" \\
+  org.opencontainers.image.documentation="$GEN_DOCKERFILE_HUB_BASE/$name" \\
+  org.opencontainers.image.vendor="CasjaysDev" \\
+  org.opencontainers.image.authors="CasjaysDev" \\
+  org.opencontainers.image.description="Containerized version of $name"
+
+ENV SHELL="/bin/bash" \\
+  TERM="xterm-256color" \\
+  HOSTNAME="casjaysdev-$name" \\
+  TZ="\${TZ:-America/New_York}" \\
+  TIMEZONE="\$${TZ:-\$TIMEZONE}" \\
+  PHP_SERVER="none" \\
+  PORT=""
+
+COPY --from=build /. /
+
+WORKDIR /root
+
+VOLUME [ "/config","/data" ]
+
+EXPOSE \$PORTS
+
+ENTRYPOINT [ "tini", "-p", "SIGTERM", "--" ]
+CMD [ "/usr/local/bin/entrypoint-$name.sh" ]
+HEALTHCHECK --start-period=1m --interval=2m --timeout=3s CMD [ "/usr/local/bin/entrypoint-$name.sh", "healthcheck" ]
+
+EOF
+  fi
+  [ -f "$Dfile" ] && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __alpine_file() {
   local Dfile="${1:-$file}"
   if [ -f "$GEN_DOCKERFILE_CONFIG_DIR/Dockerfile" ]; then
@@ -302,7 +391,7 @@ COPY ./bin/. /usr/local/bin/
 COPY ./data/. /usr/local/share/template-files/data/
 COPY ./config/. /usr/local/share/template-files/config/
 
-RUN rm -Rf /bin/.gitkeep /config /data /var/cache/apk/*
+RUN rm -Rf /bin/.gitkeep /usr/local/bin/.gitkeep /config /data /var/cache/apk/*
 
 FROM scratch
 ARG BUILD_DATE="$(date +'%Y-%m-%d')" \\
@@ -352,7 +441,7 @@ EOF
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __docker_file() {
   local name repo dir bak_ext
-  docker_template="${docker_template:-alpine}"
+  GEN_DOCKERFILE_TEMPLATE="${GEN_DOCKERFILE_TEMPLATE:-alpine}"
   file="${1:-$GEN_DOCKERFILE_CWD/Dockerfile}"
   name="${2:-$(basename "$GEN_DOCKERFILE_CWD")}"
   repo="${3:-$GEN_DOCKERFILE_GIT_BASE/$name}"
@@ -368,11 +457,11 @@ __docker_file() {
     mv -f "$file" "$file.$bak_ext"
   fi
   if [ -n "$GEN_DOCKERFILE_TEMPLATE" ]; then
-    __make_file "${GEN_DOCKERFILE_TEMPLATE-$docker_template}" "$file"
+    __make_file "$GEN_DOCKERFILE_TEMPLATE" "$file"
     exit $?
   else
     printf_purple "Generating your Dockerfile"
-    __make_file "$docker_template" "$file"
+    __make_file "$GEN_DOCKERFILE_TEMPLATE" "$file"
     if [ -f "$file" ]; then
       printf_green "Your Dockerfile for $name has been created in: $(readlink -f "$dir")"
       if [ "$GEN_DOCKER_ONLY_DOCKERFILE" != "true" ]; then
@@ -647,15 +736,16 @@ export GEN_DOCKERFILE_CWD
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
-
+GEN_DOCKERFILE_TEMPLATE="alpine"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 case "$1" in
 alpine)
   shift 1
-  docker_template="alpine"
+  GEN_DOCKERFILE_TEMPLATE="alpine"
   ;;
-*)
-  docker_template="alpine"
+debian)
+  shift 1
+  GEN_DOCKERFILE_TEMPLATE="debian"
   ;;
 esac
 __execute_gen_dockerfile "$@"

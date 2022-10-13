@@ -266,7 +266,7 @@ else
   CONTAINER_HTTP_PROTO="${CONTAINER_HTTP_PROTO:-http}"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-SERVER_SERVICE_ADDR="$SERVER_LISTEN_ADDR:$CONTAINER_SERVICE_PORT"
+SERVER_SERVICE_ADDR="$SERVER_LISTEN_ADDR:${CONTAINER_SERVICE_PORT//:*/}"
 NGINX_PROXY="${NGINX_PROXY:-$CONTAINER_HTTP_PROTO://$SERVER_LISTEN_ADDR:$SERVER_PORT}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_ENV=""

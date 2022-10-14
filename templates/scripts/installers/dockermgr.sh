@@ -306,6 +306,7 @@ done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Clone/update the repo
 if __am_i_online; then
+  urlverify "$REPO" || printf_exit "$REPO was not found"
   if [ -d "$INSTDIR/.git" ]; then
     message="Updating $APPNAME configurations"
     execute "git_update $INSTDIR" "$message"

@@ -101,7 +101,6 @@ LOCAL_CONFIG_DIR="${LOCAL_CONFIG_DIR:-$SERVER_CONFIG_DIR}"
 TZ="America/New_York"
 SERVER_HOST_NAME=""
 SERVER_DOMAIN_NAME=""
-CONTAINER_SHM_SIZE="128M"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # URL to container image [docker pull URL]
 HUB_IMAGE_URL="casjaysdevdocker/GEN_SCRIPT_REPLACE_APPNAME"
@@ -158,7 +157,7 @@ ADDITION_DEVICES=""
 ADDITION_DEVICES+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define additional docker arguments - see docker run --help
-CUSTOM_ARGUMENTS="--shm-size=$CONTAINER_SHM_SIZE "
+CUSTOM_ARGUMENTS=""
 CUSTOM_ARGUMENTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set this to the protocol the the container will use [http]
@@ -239,9 +238,10 @@ SERVER_DOMAIN_NAME="${SERVER_DOMAIN_NAME:-"$(hostname -d 2>/dev/null | grep '^' 
 SERVER_HOST_NAME="${SERVER_HOST_NAME:-$APPNAME.$SERVER_DOMAIN_NAME}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Configure variables
+[ -n "$SERVER_TIMEZONE" ] || SERVER_TIMEZONE="America/New_York"
 [ "$CONTAINER_HTTPS_PORT" = "https" ] && CONTAINER_HTTP_PROTO="https"
-[ -n "$SERVER_DISPLAY" ] && ADDITIONAL_MOUNTS+="${X11_SOCKET:-/tmp/.X11-unix}:/tmp/.X11-unix "
 [ "$SERVER_LISTEN_LOCAL" = "true" ] && DEFINE_LISTEN="${LOCAL_IP:-127.0.0.1}"
+[ -n "$SERVER_DISPLAY" ] && ADDITIONAL_MOUNTS+="${X11_SOCKET:-/tmp/.X11-unix}:/tmp/.X11-unix "
 [ "$DOCKER_SOCKET_ENABLED" = "true" ] && ADDITIONAL_MOUNTS+="$DOCKER_SOCKET_MOUNT:/var/run/docker.sock "
 [ "$NGINX_SSL" = "true" ] && [ -n "$NGINX_HTTPS" ] && NGINX_PORT="${NGINX_HTTPS:-443}" || NGINX_PORT="${NGINX_HTTP:-80}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -344,10 +344,9 @@ else
   printf_cyan "Updating the image from $HUB_IMAGE_URL with tag $HUB_IMAGE_TAG"
   __sudo docker pull "$HUB_IMAGE_URL" &>/dev/null
   printf_cyan "Creating container $APPNAME"
-  __sudo docker run -d \
-    --privileged \
-    --restart=always \
+  __sudo docker run -d --tty --privileged --restart=always \
     --name="$APPNAME" \
+    --shm-size=${CONTAINER_SHM_SIZE:-64M} \
     --hostname "$SERVER_HOST_NAME" $CUSTOM_ARGUMENTS \
     -e TZ="$SERVER_TIMEZONE" \
     -e TIMEZONE="$SERVER_TIMEZONE" $SET_ENV $SET_DEV $SET_MNT $SET_PORT \

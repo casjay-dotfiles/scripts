@@ -188,6 +188,8 @@ __help() {
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__grep() { grep "$@" 2>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __broken_symlinks() { find "$*" -xtype l -exec rm {} \; &>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __rm_rf() { if [ -e "$1" ]; then rm -Rf "$@" &>/dev/null; else return 0; fi; }
@@ -445,9 +447,7 @@ __trap_exit() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
-__grep() {
-  grep "$@" 2>/dev/null
-}
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
 

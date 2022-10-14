@@ -31,6 +31,8 @@ SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
 # Set functions
 __find() { find "$1" -mindepth 1 -type f,d 2>/dev/null | grep '^' || return 10; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__pid_grep() { ps aux | grep -F "$1" | grep -v 'grep' || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __start_shell() {
   local l="$(which zsh || which bash || which sh || echo 'false')"
   echo "$l"
@@ -45,18 +47,26 @@ __exec_command() {
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Functions
 __heath_check() {
   local status=0
+  local health="Good"
+  #__pid_grep "bash" || status=$(($status + 1))
   #curl -q -LSsf -o /dev/null -s -w "200" "http://localhost/server-health" || status=$(($status + 1))
-  echo "$(uname -s) $(uname -m) is running"
+  [ "$status" -eq 0 ] || health="Errors reported see docker logs --follow $CONTAINER_NAME"
+  echo "$(uname -s) $(uname -m) is running and the health is: $health"
   return ${status:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define default variables - do not change these - redifine with -e or set under Additional
 LANG="${LANG:-C.UTF-8}"
-TZ="${TZ:-America/New_York}"
 DOMANNAME="${DOMANNAME:-}"
+TZ="${TZ:-America/New_York}"
+HTTP_PORT="${HTTP_PORT:-80}"
+HTTPS_PORT="${HTTPS_PORT:-443}"
+SERVICE_PORT="${SERVICE_PORT:-}"
 HOSTNAME="${HOSTNAME:-casjaysdev-GEN_SCRIPT_REPLACE_APPNAME}"
 HOSTADMIN="${HOSTADMIN:-root@${DOMANNAME:-$HOSTNAME}}"
 SSL_ENABLED="${SSL_ENABLED:-false}"
@@ -64,15 +74,14 @@ SSL_DIR="${SSL_DIR:-/config/ssl}"
 SSL_CA="${SSL_CA:-$SSL_DIR/ca.crt}"
 SSL_KEY="${SSL_KEY:-$SSL_DIR/server.key}"
 SSL_CERT="${SSL_CERT:-$SSL_DIR/server.crt}"
-HTTP_PORT="${HTTP_PORT:-80}"
-HTTPS_PORT="${HTTPS_PORT:-443}"
-SERVICE_PORT="${SERVICE_PORT:-}"
 LOCAL_BIN_DIR="${LOCAL_BIN_DIR:-/usr/local/bin}"
-DEFAULT_CONF_DIR="${DEFAULT_CONF_DIR:-/usr/local/share/template-files/config/defaults}"
+DEFAULT_DATA_DIR="${DEFAULT_CONF_DIR:-/usr/local/share/template-files/data}"
+DEFAULT_CONF_DIR="${DEFAULT_CONF_DIR:-/usr/local/share/template-files/config}"
+DEFAULT_TEMPLATE_DIR="${DEFAULT_TEMPLATE_DIR:-/usr/local/share/template-files/defaults}"
 CONTAINER_IP_ADDRESS="$(ip a | grep 'inet' | grep -v '127.0.0.1' | awk '{print $2}' | sed 's|/*||g')"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional variables and variable overrides
-
+MY_VAR=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # export variables
 export MY_VAR
@@ -109,7 +118,7 @@ fi
 # Create directories
 [ -d "/etc/ssl" ] || mkdir -p "/etc/ssl"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Create additional files
+# Create files
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ "$SSL_ENABLED" = "true" ] || [ "$SSL_ENABLED" = "yes" ]; then
@@ -130,26 +139,37 @@ fi
 [ -f "$SSL_KEY" ] && cp -Rfv "$SSL_KEY" "/etc/ssl/server.key"
 [ -f "$SSL_CERT" ] && cp -Rfv "$SSL_CERT" "/etc/ssl/server.crt"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Create default config
-if [ ! -e "/config/$APPNAME" ] && [ -e "$DEFAULT_CONF_DIR/$APPNAME" ]; then
-  cp -Rf "$DEFAULT_CONF_DIR/$APPNAME" "/config/$APPNAME"
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup bin directory
 if [ -d "/data/bin" ]; then
-  for bin in /data/bin/*; do
-    name="$(basename "$bin")"
-    ln -sf "$bin" "/usr/local/bin/$name"
+  for create_bin in /data/bin/*; do
+    create_bin_name="$(basename "$create_bin")"
+    ln -sf "$create_bin" "/usr/local/bin/$create_bin_name"
   done
+  unset create_bin create_bin_name
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Create default config
+if [ -n "$DEFAULT_TEMPLATE_DIR" ] && [ -d "$DEFAULT_TEMPLATE_DIR" ]; then
+  for create_template in "$DEFAULT_TEMPLATE_DIR"/*; do
+    create_template_name="$(basename "$create_template")"
+    if [ ! -e "/config/$create_template_name" ]; then
+      cp -Rf "$create_template" "/config/$create_template_name"
+    fi
+  done
+  unset create_template create_template_name
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Create config symlinks
-for conf in /config/*; do
-  if [ -e "/etc/$conf" ]; then
-    rm -Rf "/etc/${conf:?}"
-    ln -sf "/config/$conf" "/etc/$conf"
-  fi
-done
+if [ -d "/config" ]; then
+  for create_conf in /config/*; do
+    create_conf_name="$(basename "$create_conf")"
+    if [ -e "/etc/$create_conf_name" ]; then
+      rm -Rf "/etc/${create_conf_name:?}"
+      ln -sf "$create_conf" "/etc/$create_conf_name"
+    fi
+  done
+  unset create_conf create_conf_name
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional commands
 

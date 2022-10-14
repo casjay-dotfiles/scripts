@@ -69,14 +69,15 @@ HTTPS_PORT="${HTTPS_PORT:-443}"
 SERVICE_PORT="${SERVICE_PORT:-}"
 LOCAL_BIN_DIR="${LOCAL_BIN_DIR:-/usr/local/bin}"
 DEFAULT_CONF_DIR="${DEFAULT_CONF_DIR:-/usr/local/share/template-files/config/defaults}"
+CONTAINER_IP_ADDRESS="$(ip a | grep 'inet' | grep -v '127.0.0.1' | awk '{print $2}' | sed 's|/*||g')"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional variables and variable overrides
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # export variables
 export MY_VAR
-export LANG TZ DOMANNAME HOSTNAME HOSTADMIN SSL_ENABLED SSL_DIR SSL_CA
-export SSL_KEY SSL_DIR HTTP_PORT HTTPS_PORT LOCAL_BIN_DIR DEFAULT_CONF_DIR
+export LANG TZ DOMANNAME HOSTNAME HOSTADMIN SSL_ENABLED SSL_DIR SSL_CA SSL_KEY
+export SSL_DIR HTTP_PORT HTTPS_PORT LOCAL_BIN_DIR DEFAULT_CONF_DIR CONTAINER_IP_ADDRESS
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # import variables from file
 [ -f "/root/env.sh" ] && . "/root/env.sh"
@@ -93,21 +94,20 @@ if [ -n "${HOSTNAME}" ]; then
   echo "127.0.0.1 ${HOSTNAME} localhost ${HOSTNAME}.local" >"/etc/hosts"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Add domain to hosts file
+if [ -n "$DOMANNAME" ]; then
+  echo "${HOSTNAME}.${DOMANNAME:-local}" >"/etc/hostname"
+  echo "127.0.0.1 ${HOSTNAME} localhost ${HOSTNAME}.local" >"/etc/hosts"
+  echo "${CONTAINER_IP_ADDRESS:-127.0.0.1} ${HOSTNAME}.${DOMANNAME}" >>"/etc/hosts"
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Delete any gitkeep files
 [ -d "/data" ] && rm -Rf "/data/.gitkeep" "/data"/*/*.gitkeep
 [ -d "/config" ] && rm -Rf "/config/.gitkeep" "/data"/*/*.gitkeep
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup bin directory
-if [ -d "/config/bin" ]; then
-  for bin in /config/bin/*; do
-    name="$(basename "$bin")"
-    ln -sf "$bin" "/usr/local/bin/$name"
-  done
-fi
+[ -f "/usr/local/bin/.gitkeep" ] && rm -Rf "/usr/local/bin/.gitkeep"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Create directories
 [ -d "/etc/ssl" ] || mkdir -p "/etc/ssl"
-[ -d "/usr/local/bin" ] && rm -Rf "/usr/local/bin/.gitkeep"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ "$SSL_ENABLED" = "true" ] || [ "$SSL_ENABLED" = "yes" ]; then
   if [ -f "/config/ssl/server.crt" ] && [ -f "/config/ssl/server.key" ]; then
@@ -132,9 +132,17 @@ if [ ! -e "/config/$APPNAME" ] && [ -e "$DEFAULT_CONF_DIR/$APPNAME" ]; then
   cp -Rf "$DEFAULT_CONF_DIR/$APPNAME" "/config/$APPNAME"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup bin directory
+if [ -d "/config/bin" ]; then
+  for bin in /config/bin/*; do
+    name="$(basename "$bin")"
+    ln -sf "$bin" "/usr/local/bin/$name"
+  done
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Create config symlinks
 if [ -d "/config" ] || [ -n "$(__find "/config" 2>/dev/null)" ]; then
-  for conf in /config/*; do
+  for conf in [ "$(ls -A "/config")" ]; do
     if [ -e "/etc/$conf" ]; then
       rm -Rf "/etc/${conf:?}"
       ln -sf "/config/$conf" "/etc/$conf"
@@ -167,6 +175,7 @@ healthcheck) # Docker healthcheck
 
 *) # Execute primary command
   if [ $# -eq 0 ]; then
+    echo "Container ip address is: $CONTAINER_IP_ADDRESS"
     __exec_command "/bin/bash" -l
     exit ${exitCode:-$?}
   else

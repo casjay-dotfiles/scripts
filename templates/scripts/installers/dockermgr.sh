@@ -172,8 +172,8 @@ CONTAINER_SERVICE_PORT=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Add Add sevicee port [port] or [port:port] - LISTEN will be added if defined [DEFINE_LISTEN]
 # DO NOT add SERVER_WEB_PORT here as it will be added
-SERVER_PORT_ADD_CUSTOM=""
-SERVER_PORT_ADD_CUSTOM+=""
+CONTAINER_ADD_CUSTOM_PORT=""
+CONTAINER_ADD_CUSTOM_PORT+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show user info message
 SERVER_MESSAGE_USER=""
@@ -188,7 +188,7 @@ NGINX_HTTP="80"
 NGINX_HTTPS="443"
 NGINX_PROXY=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# End of configuration
+# End of configuration options
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # import global variables
 if [ -f "$APPDIR/env.sh" ] && [ ! -f "$APPDIR/.env" ]; then
@@ -248,14 +248,14 @@ SERVER_HOST_NAME="${SERVER_HOST_NAME:-$APPNAME.$SERVER_DOMAIN_NAME}"
 # rewrite variables
 [ -n "$HUB_IMAGE_TAG" ] || HUB_IMAGE_TAG="latest"
 [ -n "$SERVER_WEB_PORT" ] && SERVER_PORT="${SERVER_WEB_PORT//:*/}"
-[ -n "$DEFINE_LISTEN" ] && DEFINE_LISTEN="${DEFINE_LISTEN//:/}:" || DEFINE_LISTEN=""
+[ -n "$DEFINE_LISTEN" ] && DEFINE_LISTEN="${DEFINE_LISTEN//:*/}:" || DEFINE_LISTEN=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # SSL setup
 if [ "$SSL_ENABLED" = "true" ]; then
   if [ "$CONTAINER_HTTP_PROTO" = "http" ]; then
-    NGINX_PROXY="https://$SERVER_LISTEN_ADDR:$SERVER_PORT"
     NGINX_LISTEN_OPTS="ssl http2"
-    CONTAINER_HTTP_PROTO="${CONTAINER_HTTP_PROTO:-https}"
+    NGINX_PROXY="https://$SERVER_LISTEN_ADDR:$SERVER_PORT"
+    CONTAINER_HTTP_PROTO="https"
   fi
   if [ -f "$SERVER_SSL_CRT" ] && [ -f "$SERVER_SSL_KEY" ]; then
     [ -f "$CONTAINER_SSL_CA" ] && ADDITIONAL_MOUNTS+="$SERVER_SSL_CA:$CONTAINER_SSL_CA "
@@ -296,7 +296,7 @@ for mnt in $ADDITIONAL_MOUNTS; do
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_PORT=""
-for port in $CONTAINER_HTTP_PORT $CONTAINER_SERVICE_PORT $CONTAINER_HTTPS_PORT $SERVER_PORT_ADD_CUSTOM; do
+for port in $CONTAINER_HTTP_PORT $CONTAINER_SERVICE_PORT $CONTAINER_HTTPS_PORT $CONTAINER_ADD_CUSTOM_PORT; do
   [ "$port" = " " ] && port=""
   if [ -n "$port" ]; then
     echo "$port" | grep -q ':' || port="$port:$port"

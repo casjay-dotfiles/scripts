@@ -236,6 +236,7 @@ DEFINE_LISTEN="${DEFINE_LISTEN:-$SERVER_LISTEN_ADDR}"
 SERVER_WEB_PORT="${CONTAINER_HTTPS_PORT:-$CONTAINER_HTTP_PORT}"
 SERVER_DOMAIN_NAME="${SERVER_DOMAIN_NAME:-"$(hostname -d 2>/dev/null | grep '^' || echo 'local')"}"
 SERVER_HOST_NAME="${SERVER_HOST_NAME:-$APPNAME.$SERVER_DOMAIN_NAME}"
+SERVER_SERVICE_PORT="${CONTAINER_SERVICE_PORT//:*/}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Configure variables
 [ -n "$SERVER_TIMEZONE" ] || SERVER_TIMEZONE="America/New_York"
@@ -266,7 +267,6 @@ else
   CONTAINER_HTTP_PROTO="${CONTAINER_HTTP_PROTO:-http}"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-SERVER_SERVICE_ADDR="$SERVER_LISTEN_ADDR:${CONTAINER_SERVICE_PORT//:*/}"
 NGINX_PROXY="${NGINX_PROXY:-$CONTAINER_HTTP_PROTO://$SERVER_LISTEN_ADDR:$SERVER_PORT}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_ENV=""
@@ -403,7 +403,7 @@ dockermgr_install_version
 if docker ps -a | grep -qs "$APPNAME"; then
   printf_yellow "The DATADIR is in $DATADIR"
   printf_cyan "$APPNAME has been installed to $INSTDIR"
-  [ -z "$CONTAINER_SERVICE_PORT" ] && printf_yellow "This container does not have service" || printf_cyan "Service is running on $SERVER_SERVICE_ADDR or $SERVER_HOST_NAME:$CONTAINER_SERVICE_PORT"
+  [ -z "$SERVER_SERVICE_PORT" ] && printf_yellow "This container does not have service" || printf_cyan "Service is running on $SERVER_LISTEN_ADDR:$SERVER_SERVICE_PORT or $SERVER_HOST_NAME:$SERVER_SERVICE_PORT"
   [ -z "$SERVER_PORT" ] || printf_yellow "Service is running on: $SERVER_LISTEN_ADDR:$SERVER_PORT"
   [ -z "$SERVER_PORT" ] || printf_yellow "and should be available at: $NGINX_PROXY or $CONTAINER_HTTP_PROTO//$SERVER_HOST_NAME:$SERVER_PORT"
   [ -z "$SERVER_MESSAGE_USER" ] || printf_cyan "Username is:  $SERVER_MESSAGE_USER"

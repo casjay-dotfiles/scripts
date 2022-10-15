@@ -144,6 +144,10 @@ X11_SOCKET="/tmp/.X11-unix"
 DOCKER_SOCKET_ENABLED="false"
 DOCKER_SOCKET_MOUNT="/var/run/docker.sock"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set capabilites
+ADD_CAPABILITIES="SYS_ADMIN "
+ADD_CAPABILITIES+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define additional mounts [ /dir:/dir ]
 ADDITIONAL_MOUNTS="$LOCAL_CONFIG_DIR:/config:z $LOCAL_DATA_DIR:/data:z "
 ADDITIONAL_MOUNTS+=""
@@ -269,6 +273,14 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 NGINX_PROXY="${NGINX_PROXY:-$CONTAINER_HTTP_PROTO://$SERVER_LISTEN_ADDR:$SERVER_PORT}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SET_CAP=""
+for cap in $ADD_CAPABILITIES; do
+  [ "$cap" = " " ] && cap=""
+  if [ -n "$cap" ]; then
+    SET_CAP+="--cap-add $cap "
+  fi
+done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_ENV=""
 for env in $ADDITION_ENV; do
   [ "$env" = " " ] && env=""
@@ -347,7 +359,7 @@ else
   __sudo docker run -d --tty --privileged --restart=always \
     --name="$APPNAME" \
     --shm-size=${CONTAINER_SHM_SIZE:-64M} \
-    --hostname "$SERVER_HOST_NAME" $CUSTOM_ARGUMENTS \
+    --hostname "$SERVER_HOST_NAME" $SET_CAP $CUSTOM_ARGUMENTS \
     -e TZ="$SERVER_TIMEZONE" \
     -e TIMEZONE="$SERVER_TIMEZONE" $SET_ENV $SET_DEV $SET_MNT $SET_PORT \
     "$HUB_IMAGE_URL:$HUB_IMAGE_TAG" 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log" &&

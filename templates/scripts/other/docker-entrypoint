@@ -29,10 +29,6 @@ RUN_USER="${SUDO_USER:-$USER}"
 SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set functions
-__find() { find "$1" -mindepth 1 -type f,d 2>/dev/null | grep '^' || return 10; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__pid_grep() { ps aux | grep -F "$1" | grep -v 'grep' || return 1; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __start_shell() {
   local l="$(which zsh || which bash || which sh || echo 'false')"
   echo "$l"
@@ -50,17 +46,35 @@ __exec_command() {
 __heath_check() {
   local status=0
   local health="Good"
-  #__pid_grep "bash" || status=$(($status + 1))
-  #curl -q -LSsf -o /dev/null -s -w "200" "http://localhost/server-health" || status=$(($status + 1))
+  #__pgrep "bash" || status=$(($status + 1))
+  #__curl "http://localhost/server-health" || status=$(($status + 1))
   [ "$status" -eq 0 ] || health="Errors reported see docker logs --follow $CONTAINER_NAME"
   echo "$(uname -s) $(uname -m) is running and the health is: $health"
   return ${status:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional functions
-
+__pgrep() { ps aux 2>/dev/null | grep -F "$@" | grep -qv 'grep' || return 10; }
+__find() { find "$1" -mindepth 1 -type f,d 2>/dev/null | grep '^' || return 10; }
+__curl() { curl -q -LSsf -o /dev/null -s -w "200" "$@" 2>/dev/null || return 10; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__certbot() {
+  [ -n "$SSL_CERT_BOT" ] && type -P certbot &>/dev/null || { export SSL_CERT_BOT="" return 10; }
+  certbot certonly --webroot -w "${WWW_ROOT_DIR:-/data/htdocs/www}" -d $DOMANNAME -d $DOMANNAME \
+    --put-all-related-files-into "$SSL_DIR" –key-path "$SSL_KEY" –fullchain-path "$SSL_CERT"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__heath_check() {
+  local status=0 health="Good"
+  __pgrep "$SERVICE" || status=$(($status + 1))
+  #__curl "http://localhost/server-health" || status=$(($status + 1))
+  [ "$status" -eq 0 ] || health="Errors reported see docker logs --follow $CONTAINER_NAME"
+  echo "$(uname -s) $(uname -m) is running and the health is: $health"
+  return ${status:-$?}
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define default variables - do not change these - redifine with -e or set under Additional
+SERVICE="$CONTAINER_NAME"
 LANG="${LANG:-C.UTF-8}"
 DOMANNAME="${DOMANNAME:-}"
 TZ="${TZ:-America/New_York}"
@@ -69,11 +83,14 @@ HTTPS_PORT="${HTTPS_PORT:-443}"
 SERVICE_PORT="${SERVICE_PORT:-}"
 HOSTNAME="${HOSTNAME:-casjaysdev-GEN_SCRIPT_REPLACE_APPNAME}"
 HOSTADMIN="${HOSTADMIN:-root@${DOMANNAME:-$HOSTNAME}}"
+SSL_CERT_BOT="${SSL_CERT_BOT:-false}"
 SSL_ENABLED="${SSL_ENABLED:-false}"
 SSL_DIR="${SSL_DIR:-/config/ssl}"
 SSL_CA="${SSL_CA:-$SSL_DIR/ca.crt}"
 SSL_KEY="${SSL_KEY:-$SSL_DIR/server.key}"
 SSL_CERT="${SSL_CERT:-$SSL_DIR/server.crt}"
+SSL_CONTAINER_DIR="${SSL_CONTAINER_DIR:-/etc/ssl/CA}"
+WWW_ROOT_DIR="${WWW_ROOT_DIR:-/data/htdocs}"
 LOCAL_BIN_DIR="${LOCAL_BIN_DIR:-/usr/local/bin}"
 DEFAULT_DATA_DIR="${DEFAULT_CONF_DIR:-/usr/local/share/template-files/data}"
 DEFAULT_CONF_DIR="${DEFAULT_CONF_DIR:-/usr/local/share/template-files/config}"
@@ -87,6 +104,7 @@ MY_VAR=""
 export MY_VAR
 export LANG TZ DOMANNAME HOSTNAME HOSTADMIN SSL_ENABLED SSL_DIR SSL_CA SSL_KEY
 export SSL_DIR HTTP_PORT HTTPS_PORT LOCAL_BIN_DIR DEFAULT_CONF_DIR CONTAINER_IP_ADDRESS
+export SSL_CONTAINER_DIR SSL_CERT_BOT
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # import variables from file
 [ -f "/root/env.sh" ] && . "/root/env.sh"
@@ -116,7 +134,7 @@ fi
 [ -f "/usr/local/bin/.gitkeep" ] && rm -Rf "/usr/local/bin/.gitkeep"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Create directories
-[ -d "/etc/ssl" ] || mkdir -p "/etc/ssl"
+[ -d "/etc/ssl" ] || mkdir -p "$SSL_CONTAINER_DIR"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Create files
 
@@ -125,8 +143,9 @@ if [ "$SSL_ENABLED" = "true" ] || [ "$SSL_ENABLED" = "yes" ]; then
   if [ -f "/config/ssl/server.crt" ] && [ -f "/config/ssl/server.key" ]; then
     export SSL_ENABLED="true"
     if [ -n "$SSL_CA" ] && [ -f "$SSL_CA" ]; then
-      mkdir -p "/etc/ssl/certs"
+      mkdir -p "$SSL_CONTAINER_DIR/certs"
       cat "$SSL_CA" >>"/etc/ssl/certs/ca-certificates.crt"
+      cp -Rf "/config/ssl/." "$SSL_CONTAINER_DIR/"
     fi
   else
     [ -d "$SSL_DIR" ] || mkdir -p "$SSL_DIR"
@@ -135,9 +154,9 @@ if [ "$SSL_ENABLED" = "true" ] || [ "$SSL_ENABLED" = "yes" ]; then
   type update-ca-certificates &>/dev/null && update-ca-certificates
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-[ -f "$SSL_CA" ] && cp -Rfv "$SSL_CA" "/etc/ssl/ca.crt"
-[ -f "$SSL_KEY" ] && cp -Rfv "$SSL_KEY" "/etc/ssl/server.key"
-[ -f "$SSL_CERT" ] && cp -Rfv "$SSL_CERT" "/etc/ssl/server.crt"
+[ -f "$SSL_CA" ] && cp -Rfv "$SSL_CA" "$SSL_CONTAINER_DIR/ca.crt"
+[ -f "$SSL_KEY" ] && cp -Rfv "$SSL_KEY" "$SSL_CONTAINER_DIR/server.key"
+[ -f "$SSL_CERT" ] && cp -Rfv "$SSL_CERT" "$SSL_CONTAINER_DIR/server.crt"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup bin directory
 if [ -d "/data/bin" ]; then

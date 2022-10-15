@@ -1,5 +1,5 @@
-#!/usr/bin/env bash
-# shellcheck shell=bash
+#!/usr/bin/env sh
+# shellcheck shell=sh
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ##@Version           :  GEN_SCRIPT_REPLACE_VERSION
 # @@Author           :  GEN_SCRIPT_REPLACE_AUTHOR
@@ -19,21 +19,60 @@
 # @@Template         :  bash/simple
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set functions
-__curl() { curl -q -LSsf "$@" 2>/dev/null || return 1; }
-__pgrep() { ps aux 2>/dev/null | grep -F "$@" | grep -qv 'grep' || return 1; }
+__pgrep() { ps aux 2>/dev/null | grep -F "$@" | grep -qv 'grep' || return 10; }
+__find() { find "$1" -mindepth 1 -type f,d 2>/dev/null | grep '^' || return 10; }
+__curl() { curl -q -LSsf -o /dev/null -s -w "200" "$@" 2>/dev/null || return 10; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__certbot() {
+  [ -n "$SSL_CERT_BOT" ] && [ -n "$(which certbot)" ] || { export SSL_CERT_BOT="" return 10; }
+  certbot certonly --webroot -w "${WWW_ROOT_DIR:-/data/htdocs/www}" -d $DOMANNAME -d $DOMANNAME \
+    --put-all-related-files-into "$SSL_DIR" –key-path "$SSL_KEY" –fullchain-path "$SSL_CERT"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__heath_check() {
+  status=0 health="Good"
+  __pgrep "$SERVICE" || status=$(($status + 1))
+  #__curl "http://localhost/server-health" || status=$(($status + 1))
+  [ "$status" -eq 0 ] || health="Errors reported see docker logs --follow $CONTAINER_NAME"
+  echo "$(uname -s) $(uname -m) is running and the health is: $health"
+  return ${status:-$?}
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set variables
+SERVICE="$CONTAINER_NAME"
+LANG="${LANG:-C.UTF-8}"
+DOMANNAME="${DOMANNAME:-}"
+TZ="${TZ:-America/New_York}"
+HTTP_PORT="${HTTP_PORT:-80}"
+HTTPS_PORT="${HTTPS_PORT:-443}"
+SERVICE_PORT="${SERVICE_PORT:-}"
+HOSTNAME="${HOSTNAME:-casjaysdev-GEN_SCRIPT_REPLACE_APPNAME}"
+HOSTADMIN="${HOSTADMIN:-root@${DOMANNAME:-$HOSTNAME}}"
+SSL_CERT_BOT="${SSL_CERT_BOT:-false}"
+SSL_ENABLED="${SSL_ENABLED:-false}"
+SSL_DIR="${SSL_DIR:-/config/ssl}"
+SSL_CA="${SSL_CA:-$SSL_DIR/ca.crt}"
+SSL_KEY="${SSL_KEY:-$SSL_DIR/server.key}"
+SSL_CERT="${SSL_CERT:-$SSL_DIR/server.crt}"
+SSL_CONTAINER_DIR="${SSL_CONTAINER_DIR:-/etc/ssl/CA}"
+WWW_ROOT_DIR="${WWW_ROOT_DIR:-/data/htdocs}"
+LOCAL_BIN_DIR="${LOCAL_BIN_DIR:-/usr/local/bin}"
+DEFAULT_DATA_DIR="${DEFAULT_CONF_DIR:-/usr/local/share/template-files/data}"
+DEFAULT_CONF_DIR="${DEFAULT_CONF_DIR:-/usr/local/share/template-files/config}"
+DEFAULT_TEMPLATE_DIR="${DEFAULT_TEMPLATE_DIR:-/usr/local/share/template-files/defaults}"
+CONTAINER_IP_ADDRESS="$(ip a | grep 'inet' | grep -v '127.0.0.1' | awk '{print $2}' | sed 's|/*||g')"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Overwrite variables
+# SERVICE=""
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SHORTOPTS=" "
-SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LONGOPTS=" "
-LONGOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup application options
 setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$(basename "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
-eval set -- "${setopts[@]}" 2>/dev/null
+eval set -- "$setopts" 2>/dev/null
 while :; do
   case "$1" in
   " ")
@@ -46,14 +85,51 @@ while :; do
   esac
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Create default config
+if [ -n "$DEFAULT_TEMPLATE_DIR" ] && [ -d "$DEFAULT_TEMPLATE_DIR/$SERVICE" ]; then
+  if [ ! -e "/config/$SERVICE" ]; then
+    cp -Rf "$DEFAULT_TEMPLATE_DIR/$SERVICE" "/config/$SERVICE"
+  fi
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Copy custom config files
+if [ -n "$DEFAULT_CONF_DIR" ] && [ ! -e "/config/$SERVICE" ]; then
+  cp -Rf "$DEFAULT_CONF_DIR/$SERVICE" "/config/$SERVICE"
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Copy custom data files
+if [ -n "$DEFAULT_DATA_DIR" ] && [ ! -e "/data/$SERVICE" ]; then
+  cp -Rf "$DEFAULT_DATA_DIR/$SERVICE" "/data/$SERVICE"
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Copy html files
+if [ -z "$(__find "$WWW_ROOT_DIR/www")" ] && [ -d "$DEFAULT_DATA_DIR/data/htdocs" ]; then
+  cp -Rf "$DEFAULT_DATA_DIR/data/htdocs/." "$WWW_ROOT_DIR/"
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
-
+[ -f "/root/env.sh" ] && . "/root/env.sh"
+[ -f "/config/env.sh" ] && "/config/env.sh"
+[ -f "/config/.env.sh" ] && . "/config/.env.sh"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
-echo "Configured"
+case "$1" in
+healthcheck)
+  shift 1
+  __heath_check
+  exit $?
+  ;;
+*)
+  if __pgrep "$SERVICE"; then
+    echo "$SERVICE is running"
+  else
+    exec $SERVICE
+  fi
+  ;;
+esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set exit code
 exitCode="${exitCode:-$?}"

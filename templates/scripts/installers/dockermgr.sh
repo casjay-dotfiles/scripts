@@ -120,8 +120,8 @@ CONTAINER_SSL_CA="${CONTAINER_SSL_CA:-$CONTAINER_SSL_DIR/ca.crt}"
 CONTAINER_SSL_CRT="${CONTAINER_SSL_CRT:-$CONTAINER_SSL_DIR/localhost.crt}"
 CONTAINER_SSL_KEY="${CONTAINER_SSL_KEY:-$CONTAINER_SSL_DIR/localhost.key}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set to true for container SSL support and set mount point IE: [/data/ssl/ca.crt]
-SSL_ENABLED="false"
+# Set to yes for container SSL support and set mount point IE: [/data/ssl/ca.crt]
+SSL_ENABLED="no"
 SSL_CA="$SERVER_SSL_CA"
 SSL_KEY="$SERVER_SSL_KEY"
 SSL_CERT="$SERVER_SSL_CRT"
@@ -129,19 +129,22 @@ SSL_CERT="$SERVER_SSL_CRT"
 # Set this to 0.0.0.0 to listen on all or specify addresses
 DEFINE_LISTEN=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set to true for container to listen on LOCAL_IP only
+# Set to yes for container to listen on LOCAL_IP only
 LOCAL_IP="127.0.0.1"
-SERVER_LISTEN_LOCAL="false"
+SERVER_LISTEN_LOCAL="no"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Enable privileged container
+CONTAINER_IS_PRIVILEGED="yes"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the SHM Size - default 64M
 CONTAINER_SHM_SIZE="128M"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Enable display in container
-SERVER_DISPLAY="false"
+SERVER_DISPLAY="no"
 X11_SOCKET="/tmp/.X11-unix"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mount docker socket [pathToSocket]
-DOCKER_SOCKET_ENABLED="false"
+DOCKER_SOCKET_ENABLED="no"
 DOCKER_SOCKET_MOUNT="/var/run/docker.sock"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set capabilites
@@ -186,7 +189,7 @@ SERVER_MESSAGE_PASS=""
 SERVER_MESSAGE_POST=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup nginx proxy variables
-NGINX_SSL="true"
+NGINX_SSL="yes"
 NGINX_HTTP="80"
 NGINX_HTTPS="443"
 NGINX_PROXY=""
@@ -245,10 +248,11 @@ SERVER_SERVICE_PORT="${CONTAINER_SERVICE_PORT//:*/}"
 # Configure variables
 [ -n "$SERVER_TIMEZONE" ] || SERVER_TIMEZONE="America/New_York"
 [ "$CONTAINER_HTTPS_PORT" = "https" ] && CONTAINER_HTTP_PROTO="https"
-[ "$SERVER_LISTEN_LOCAL" = "true" ] && DEFINE_LISTEN="${LOCAL_IP:-127.0.0.1}"
+[ "$SERVER_LISTEN_LOCAL" = "yes" ] && DEFINE_LISTEN="${LOCAL_IP:-127.0.0.1}"
 [ -n "$SERVER_DISPLAY" ] && ADDITIONAL_MOUNTS+="${X11_SOCKET:-/tmp/.X11-unix}:/tmp/.X11-unix "
-[ "$DOCKER_SOCKET_ENABLED" = "true" ] && ADDITIONAL_MOUNTS+="$DOCKER_SOCKET_MOUNT:/var/run/docker.sock "
-[ "$NGINX_SSL" = "true" ] && [ -n "$NGINX_HTTPS" ] && NGINX_PORT="${NGINX_HTTPS:-443}" || NGINX_PORT="${NGINX_HTTP:-80}"
+[ "$DOCKER_SOCKET_ENABLED" = "yes" ] && ADDITIONAL_MOUNTS+="$DOCKER_SOCKET_MOUNT:/var/run/docker.sock "
+[ "$CONTAINER_IS_PRIVILEGED" = "yes" ] && CONTAINER_IS_PRIVILEGED="--privileged" || CONTAINER_IS_PRIVILEGED=""
+[ "$NGINX_SSL" = "yes" ] && [ -n "$NGINX_HTTPS" ] && NGINX_PORT="${NGINX_HTTPS:-443}" || NGINX_PORT="${NGINX_HTTP:-80}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # rewrite variables
 [ -n "$HUB_IMAGE_TAG" ] || HUB_IMAGE_TAG="latest"
@@ -256,7 +260,7 @@ SERVER_SERVICE_PORT="${CONTAINER_SERVICE_PORT//:*/}"
 [ -n "$DEFINE_LISTEN" ] && DEFINE_LISTEN="${DEFINE_LISTEN//:*/}:" || DEFINE_LISTEN=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # SSL setup
-if [ "$SSL_ENABLED" = "true" ]; then
+if [ "$SSL_ENABLED" = "yes" ]; then
   if [ "$CONTAINER_HTTP_PROTO" = "http" ]; then
     NGINX_LISTEN_OPTS="ssl http2"
     NGINX_PROXY="https://$SERVER_LISTEN_ADDR:$SERVER_PORT"
@@ -356,7 +360,7 @@ else
   printf_cyan "Updating the image from $HUB_IMAGE_URL with tag $HUB_IMAGE_TAG"
   __sudo docker pull "$HUB_IMAGE_URL" &>/dev/null
   printf_cyan "Creating container $APPNAME"
-  __sudo docker run -d --tty --privileged --restart=always \
+  __sudo docker run -d --tty $CONTAINER_IS_PRIVILEGED --restart=always \
     --name="$APPNAME" \
     --shm-size=${CONTAINER_SHM_SIZE:-64M} \
     --hostname "$SERVER_HOST_NAME" $SET_CAP $CUSTOM_ARGUMENTS \
@@ -422,7 +426,7 @@ if docker ps -a | grep -qs "$APPNAME"; then
   [ -z "$SERVER_MESSAGE_PASS" ] || printf_purple "Password is:  $SERVER_MESSAGE_PASS"
   [ -z "$SERVER_MESSAGE_POST" ] || printf_green "$SERVER_MESSAGE_POST"
 else
-  printf_yellow "Errors logged to ${TMP:-/tmp}/$APPNAME.err.log"
+  [ "$ERROR_LOG" = "true" ] && printf_yellow "Errors logged to ${TMP:-/tmp}/$APPNAME.err.log"
   printf_error "Something seems to have gone wrong with the install"
   printf '\n\n'
 fi

@@ -257,7 +257,7 @@ CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME.$CONTAINER_DOMAINNAME}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Configure variables
 [ "$CONTAINER_HTTPS_PORT" = "https" ] && CONTAINER_HTTP_PROTO="https"
-[ "$HOST_LISTEN_LOCAL" = "yes" ] && DEFINE_LISTEN="${LOCAL_IP:-127.0.0.1}"
+[ "$HOST_LISTEN_LOCAL" = "yes" ] && DEFINE_LISTEN="${LOCAL_IP:-127.0.0.1}" || HOST_LISTEN_LOCAL=""
 [ "$DOCKER_SOCKET_ENABLED" = "yes" ] && ADDITIONAL_MOUNTS+="$DOCKER_SOCKET_MOUNT:/var/run/docker.sock "
 [ "$NGINX_SSL" = "yes" ] && [ -n "$NGINX_HTTPS" ] && NGINX_PORT="${NGINX_HTTPS:-443}" || NGINX_PORT="${NGINX_HTTP:-80}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -265,13 +265,23 @@ CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME.$CONTAINER_DOMAINNAME}"
 [ -n "$HUB_IMAGE_TAG" ] || HUB_IMAGE_TAG="latest"
 [ -n "$HOST_TIMEZONE" ] || HOST_TIMEZONE="America/New_York"
 [ -n "$HOST_WEB_PORT" ] && HOST_PORT="${HOST_WEB_PORT//:*/}"
-[ -n "$CONTAINER_X11_XAUTH" ] || CONTAINER_X11_XAUTH="/home/x11user/.Xauthority"
 [ -n "$DEFINE_LISTEN" ] && DEFINE_LISTEN="${DEFINE_LISTEN//:*/}:" || DEFINE_LISTEN=""
-[ -n "$CONTAINER_DISPLAY" ] && ADDITIONAL_MOUNTS+="${HOST_X11_SOCKET:-/tmp/.X11-unix}:/tmp/.X11-unix $HOST_X11_XAUTH:$CONTAINER_X11_XAUTH "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-[ "$CONTAINER_TTY" = "yes" ] && CONTAINER_TTY="-t"
-[ "$CONTAINER_INTERACTIVE" = "yes" ] && CONTAINER_INTERACTIVE="-i"
+[ "$CONTAINER_TTY" = "yes" ] && CONTAINER_TTY="--tty" || CONTAINER_TTY=""
+[ "$CONTAINER_INTERACTIVE" = "yes" ] && CONTAINER_INTERACTIVE="--interactive" || CONTAINER_INTERACTIVE=""
 [ "$CONTAINER_IS_PRIVILEGED" = "yes" ] && CONTAINER_IS_PRIVILEGED="--privileged" || CONTAINER_IS_PRIVILEGED=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup display if enabled
+if [ "$CONTAINER_DISPLAY" = "yes" ]; then
+  ADDITIONAL_MOUNTS+="${HOST_X11_SOCKET:-/tmp/.X11-unix}:/tmp/.X11-unix " ||
+    if [ -n "$HOST_X11_XAUTH" ] && [ -n "$CONTAINER_X11_XAUTH" ]; then
+      ADDITIONAL_MOUNTS+="$HOST_X11_XAUTH:$CONTAINER_X11_XAUTH "
+    fi
+else
+  HOST_X11_XAUTH=""
+  CONTAINER_DISPLAY=""
+  CONTAINER_X11_XAUTH=""
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # SSL setup
 if [ "$SSL_ENABLED" = "yes" ]; then
@@ -374,7 +384,7 @@ else
   printf_cyan "Updating the image from $HUB_IMAGE_URL with tag $HUB_IMAGE_TAG"
   __sudo docker pull "$HUB_IMAGE_URL" &>/dev/null
   printf_cyan "Creating container $APPNAME"
-  __sudo docker run -d --tty $CONTAINER_IS_PRIVILEGED --restart=always --name="$APPNAME" \
+  __sudo docker run -d $CONTAINER_IS_PRIVILEGED --restart=always --name="$APPNAME" \
     --shm-size=$CONTAINER_SHM_SIZE $CONTAINER_TTY $CONTAINER_INTERACTIVE \
     --hostname "$CONTAINER_HOSTNAME" -e TZ="$HOST_TIMEZONE" \
     -e TIMEZONE="$HOST_TIMEZONE" $SET_ENV $SET_DEV $SET_MNT $SET_PORT $SET_CAP $CUSTOM_ARGUMENTS $HOST_NETWORK_TYPE \

@@ -127,6 +127,7 @@ __gen_config() {
 ANONYMIZE_HOME="${ANONYMIZE_HOME:-}"
 ANONYMIZE_I2P_JAR="${ANONYMIZE_I2P_JAR:-}"
 ANONYMIZE_FREENET_JAR="${ANONYMIZE_FREENET_JAR:-}"
+ANONYMIZE_TOR_ARM64="${ANONYMIZE_TOR_ARM64:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
 ANONYMIZE_OUTPUT_COLOR_1="${ANONYMIZE_OUTPUT_COLOR_1:-}"
@@ -163,6 +164,7 @@ __help() {
   __printf_opts "anonymize:  Anonymous web access - $VERSION"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "Usage: anonymize [options] [command]"
+  __printf_line "init                            - Installs tor browser if it isn't installed"
   __printf_line "proxy                           - Set proxy"
   __printf_line "tor                             - Launch tor browser"
   __printf_line "i2p                             - Launch i2p server"
@@ -293,8 +295,44 @@ __proxy_setup() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __curl_dl() {
-  curl -q -LSsf --max-time 1 --retry 1 "$1" -o "$2" 2>/dev/null
+  curl -q -LSsf --retry 1 "$1" -o "$2" 2>/dev/null || return 1
   return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__install_tor() {
+  if [ "$(uname -m)" = "aarch64" ]; then
+    printf_exit "Unsupported architecture "
+    local tor_home="$HOME/.local/share/tor/browser"
+    printf_cyan "Grabbing tor-browser from $ANONYMIZE_TOR_ARM64"
+    rm -Rf "$tor_home"
+    mkdir -p "$tor_home"
+    __curl_dl "$ANONYMIZE_TOR_ARM64" "$ANONYMIZE_TEMP_FILE" &&
+      tar xf "$ANONYMIZE_TEMP_FILE" -C "$tor_home" --strip-components=1 && rm -Rf "$ANONYMIZE_TEMP_FILE" || exitCode=1
+    if [ -f "$tor_home/start-tor-browser.desktop" ]; then
+      cd "$tor_home" && eval "$tor_home/start-tor-browser.desktop" --register-app | printf_readline
+      printf_green "torbrowser has been installed to $tor_home"
+      exitCode=0
+    else
+      exitCode=1
+    fi
+  elif ! __cmd_exists tor-browser; then
+    exitCode=1
+  elif ! __cmd_exists torbrowser; then
+    exitCode=1
+  else
+    exitCode=1
+  fi
+  if [ "$exitCode" -ne 0 ]; then
+    printf_green "Intalling tor browser"
+    if pkmgr silent install tor-browser || pkmgr silent install torbrowser; then
+      printf_green "torbrowser has been installed to $(command -v torbrowser || command -v tor-browser)"
+      exitCode=0
+    else
+      printf_red "Failed to install the tor browser"
+      exitCode=1
+    fi
+  fi
+  return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
@@ -325,9 +363,10 @@ ANONYMIZE_NOTIFY_CLIENT_ICON="${ANONYMIZE_NOTIFY_CLIENT_ICON:-notification-new}"
 ANONYMIZE_NOTIFY_CLIENT_URGENCY="${ANONYMIZE_NOTIFY_CLIENT_URGENCY:-normal}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional Variables
+ANONYMIZE_HOME="${ANONYMIZE_HOME:-$HOME/.local/share/anonymize}"
 ANONYMIZE_I2P_JAR="${ANONYMIZE_I2P_JAR:-https://download.i2p2.de/releases/1.5.0/i2pinstall_1.5.0.jar}"
 ANONYMIZE_FREENET_JAR="${ANONYMIZE_FREENET_JAR:-https://github.com/freenet/fred/releases/download/build01492/new_installer_offline_1492.jar}"
-ANONYMIZE_HOME="${ANONYMIZE_HOME:-$HOME/.local/share/anonymize}"
+ANONYMIZE_TOR_ARM64="${ANONYMIZE_TOR_ARM64:-https://sourceforge.net/projects/tor-browser-ports/files/11.0/tor-browser-linux-arm64-11.0_en-US.tar.xz}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$ANONYMIZE_CONFIG_DIR/$ANONYMIZE_CONFIG_FILE" ] ||
@@ -506,6 +545,12 @@ export ANONYMIZE_CWD
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 case "$1" in
+init)
+  shift 1
+  __install_tor
+  exit $?
+  ;;
+
 proxy)
   shift 1
   __proxy_setup "$@"
@@ -515,7 +560,7 @@ proxy)
 tor)
   shift 1
   LINK="${1:-http://imtulbcjer7mohs62lpycyod2c3pnil2x6xjirrojedbluh4d7z2g6ad.onion}"
-  cmd_exists tor-browser || cmd_exists torbrowser || { printf_green "Intalling tor browser" && pkmgr silent install tor-browser || printf_exit "Failed to install the tor browser"; }
+  __install_tor
   if [ $? -ne 0 ]; then printf_red "Tor browser does not seem to be installed" && __notifications "Please install Tor Browser"; fi
   if cmd_exists tor-browser; then
     __notifications "Launching tor-browser -new-tab --allow-remote"

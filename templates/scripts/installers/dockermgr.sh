@@ -142,6 +142,10 @@ CONTAINER_IS_PRIVILEGED="yes"
 # Set the SHM Size - default 64M
 CONTAINER_SHM_SIZE="128M"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Enable tty and interactive [yes,no]
+CONTAINER_TTY=""
+CONTAINER_INTERACTIVE=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Enable display in container
 CONTAINER_DISPLAY="no"
 HOST_X11_SOCKET="/tmp/.X11-unix"
@@ -252,19 +256,22 @@ CONTAINER_DOMAINNAME="${CONTAINER_DOMAINNAME:-"$(hostname -d 2>/dev/null | grep 
 CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME.$CONTAINER_DOMAINNAME}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Configure variables
-[ -n "$HOST_TIMEZONE" ] || HOST_TIMEZONE="America/New_York"
 [ "$CONTAINER_HTTPS_PORT" = "https" ] && CONTAINER_HTTP_PROTO="https"
 [ "$HOST_LISTEN_LOCAL" = "yes" ] && DEFINE_LISTEN="${LOCAL_IP:-127.0.0.1}"
-[ -n "$CONTAINER_X11_XAUTH" ] || CONTAINER_X11_XAUTH="/home/x11user/.Xauthority"
 [ "$DOCKER_SOCKET_ENABLED" = "yes" ] && ADDITIONAL_MOUNTS+="$DOCKER_SOCKET_MOUNT:/var/run/docker.sock "
-[ "$CONTAINER_IS_PRIVILEGED" = "yes" ] && CONTAINER_IS_PRIVILEGED="--privileged" || CONTAINER_IS_PRIVILEGED=""
 [ "$NGINX_SSL" = "yes" ] && [ -n "$NGINX_HTTPS" ] && NGINX_PORT="${NGINX_HTTPS:-443}" || NGINX_PORT="${NGINX_HTTP:-80}"
-[ -n "$CONTAINER_DISPLAY" ] && ADDITIONAL_MOUNTS+="${HOST_X11_SOCKET:-/tmp/.X11-unix}:/tmp/.X11-unix $HOST_X11_XAUTH:$CONTAINER_X11_XAUTH "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # rewrite variables
 [ -n "$HUB_IMAGE_TAG" ] || HUB_IMAGE_TAG="latest"
+[ -n "$HOST_TIMEZONE" ] || HOST_TIMEZONE="America/New_York"
 [ -n "$HOST_WEB_PORT" ] && HOST_PORT="${HOST_WEB_PORT//:*/}"
+[ -n "$CONTAINER_X11_XAUTH" ] || CONTAINER_X11_XAUTH="/home/x11user/.Xauthority"
 [ -n "$DEFINE_LISTEN" ] && DEFINE_LISTEN="${DEFINE_LISTEN//:*/}:" || DEFINE_LISTEN=""
+[ -n "$CONTAINER_DISPLAY" ] && ADDITIONAL_MOUNTS+="${HOST_X11_SOCKET:-/tmp/.X11-unix}:/tmp/.X11-unix $HOST_X11_XAUTH:$CONTAINER_X11_XAUTH "
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+[ "$CONTAINER_TTY" = "yes" ] && CONTAINER_TTY="-t"
+[ "$CONTAINER_INTERACTIVE" = "yes" ] && CONTAINER_INTERACTIVE="-i"
+[ "$CONTAINER_IS_PRIVILEGED" = "yes" ] && CONTAINER_IS_PRIVILEGED="--privileged" || CONTAINER_IS_PRIVILEGED=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # SSL setup
 if [ "$SSL_ENABLED" = "yes" ]; then
@@ -368,7 +375,8 @@ else
   __sudo docker pull "$HUB_IMAGE_URL" &>/dev/null
   printf_cyan "Creating container $APPNAME"
   __sudo docker run -d --tty $CONTAINER_IS_PRIVILEGED --restart=always --name="$APPNAME" \
-    --shm-size=$CONTAINER_SHM_SIZE --hostname "$CONTAINER_HOSTNAME" -e TZ="$HOST_TIMEZONE" \
+    --shm-size=$CONTAINER_SHM_SIZE $CONTAINER_TTY $CONTAINER_INTERACTIVE \
+    --hostname "$CONTAINER_HOSTNAME" -e TZ="$HOST_TIMEZONE" \
     -e TIMEZONE="$HOST_TIMEZONE" $SET_ENV $SET_DEV $SET_MNT $SET_PORT $SET_CAP $CUSTOM_ARGUMENTS $HOST_NETWORK_TYPE \
     "$HUB_IMAGE_URL:$HUB_IMAGE_TAG" 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log" &&
     rm -Rf "${TMP:-/tmp}/$APPNAME.err.log" || ERROR_LOG="true"

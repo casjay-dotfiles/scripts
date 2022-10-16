@@ -987,7 +987,7 @@ __do_not_add_a_url() {
 __options() {
   local SHORTOPTS="d"
   local LONGOPTS="debug,raw"
-  setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -a -n "$FUNCFILE" -- "$@" 2>/dev/null)
+  setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$FUNCFILE" -- "$@" 2>/dev/null)
   eval set -- "${setopts[@]}" 2>/dev/null
   while :; do
     case "$1" in

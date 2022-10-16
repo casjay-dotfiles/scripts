@@ -58,7 +58,7 @@ scripts_check
 __sudo() { sudo -n true && eval sudo "$@" || eval "$@" || return 1; }
 __sudo_root() { sudo -n true && ask_for_password true && eval sudo "$@" || return 1; }
 __enable_ssl() { { [ "$SSL_ENABLED" = "yes" ] || [ "$SSL_ENABLED" = "true" ]; } && return 0 || return 1; }
-__ssl_certs() { [ -f "$SERVER_SSL_CA" ] && [ -f "$SERVER_SSL_CRT" ] && [ -f "$SERVER_SSL_KEY" ] && return 0 || return 1; }
+__ssl_certs() { [ -f "$HOST_SSL_CA" ] && [ -f "$HOST_SSL_CRT" ] && [ -f "$HOST_SSL_KEY" ] && return 0 || return 1; }
 __port_not_in_use() { [ -d "/etc/nginx/vhosts.d" ] && grep -wRsq "${1:-$CONTAINER_HTTP_PORT}" "/etc/nginx/vhosts.d" && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define pre-install scripts
@@ -92,15 +92,15 @@ trap_exit
 dockermgr_req_version "$APPVERSION"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define folders
-SERVER_DATA_DIR="$DATADIR/data"
-SERVER_CONFIG_DIR="$DATADIR/config"
-LOCAL_DATA_DIR="${LOCAL_DATA_DIR:-$SERVER_DATA_DIR}"
-LOCAL_CONFIG_DIR="${LOCAL_CONFIG_DIR:-$SERVER_CONFIG_DIR}"
+HOST_DATA_DIR="$DATADIR/data"
+HOST_CONFIG_DIR="$DATADIR/config"
+LOCAL_DATA_DIR="${LOCAL_DATA_DIR:-$HOST_DATA_DIR}"
+LOCAL_CONFIG_DIR="${LOCAL_CONFIG_DIR:-$HOST_CONFIG_DIR}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup variables
-TZ="America/New_York"
-SERVER_HOST_NAME=""
-SERVER_DOMAIN_NAME=""
+TZ=""
+CONTAINER_DOMAINNAME=""
+CONTAINER_HOSTNAME=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # URL to container image [docker pull URL]
 HUB_IMAGE_URL="casjaysdevdocker/GEN_SCRIPT_REPLACE_APPNAME"
@@ -109,29 +109,32 @@ HUB_IMAGE_URL="casjaysdevdocker/GEN_SCRIPT_REPLACE_APPNAME"
 HUB_IMAGE_TAG="latest"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # SSL Setup server mounts
-SERVER_SSL_DIR="${SERVER_SSL_DIR:-/etc/ssl/CA/CasjaysDev}"
-SERVER_SSL_CA="${SERVER_SSL_CA:-$SERVER_SSL_DIR/certs/ca.crt}"
-SERVER_SSL_CRT="${SERVER_SSL_CRT:-$SERVER_SSL_DIR/certs/localhost.crt}"
-SERVER_SSL_KEY="${SERVER_SSL_KEY:-$SERVER_SSL_DIR/private/localhost.key}"
+HOST_SSL_DIR="${HOST_SSL_DIR:-/etc/ssl/CA/CasjaysDev}"
+HOST_SSL_CA="${HOST_SSL_CA:-$HOST_SSL_DIR/certs/ca.crt}"
+HOST_SSL_CRT="${HOST_SSL_CRT:-$HOST_SSL_DIR/certs/localhost.crt}"
+HOST_SSL_KEY="${HOST_SSL_KEY:-$HOST_SSL_DIR/private/localhost.key}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # SSL Setup container mounts
-CONTAINER_SSL_DIR="${SERVER_CONFIG_DIR:-$DATADIR/config/ssl}"
+CONTAINER_SSL_DIR="${CONTAINER_SSL_DIR:-/config/ssl}"
 CONTAINER_SSL_CA="${CONTAINER_SSL_CA:-$CONTAINER_SSL_DIR/ca.crt}"
 CONTAINER_SSL_CRT="${CONTAINER_SSL_CRT:-$CONTAINER_SSL_DIR/localhost.crt}"
 CONTAINER_SSL_KEY="${CONTAINER_SSL_KEY:-$CONTAINER_SSL_DIR/localhost.key}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set to yes for container SSL support and set mount point IE: [/data/ssl/ca.crt]
 SSL_ENABLED="no"
-SSL_CA="$SERVER_SSL_CA"
-SSL_KEY="$SERVER_SSL_KEY"
-SSL_CERT="$SERVER_SSL_CRT"
+SSL_CA="$HOST_SSL_CA"
+SSL_KEY="$HOST_SSL_KEY"
+SSL_CERT="$HOST_SSL_CRT"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set this to 0.0.0.0 to listen on all or specify addresses
 DEFINE_LISTEN=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set to yes for container to listen on LOCAL_IP only
 LOCAL_IP="127.0.0.1"
-SERVER_LISTEN_LOCAL="no"
+HOST_LISTEN_LOCAL="no"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set the network type - bridge,host [bridge]
+HOST_NETWORK_TYPE="bridge"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Enable privileged container
 CONTAINER_IS_PRIVILEGED="yes"
@@ -140,8 +143,10 @@ CONTAINER_IS_PRIVILEGED="yes"
 CONTAINER_SHM_SIZE="128M"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Enable display in container
-SERVER_DISPLAY="no"
-X11_SOCKET="/tmp/.X11-unix"
+CONTAINER_DISPLAY="no"
+HOST_X11_SOCKET="/tmp/.X11-unix"
+HOST_X11_XAUTH="$HOME/.Xauthority"
+CONTAINER_X11_XAUTH="/home/x11user/.Xauthority"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mount docker socket [pathToSocket]
 DOCKER_SOCKET_ENABLED="no"
@@ -171,22 +176,21 @@ CUSTOM_ARGUMENTS+=""
 CONTAINER_HTTP_PROTO="http"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Add Add sevicee port [port] or [port:port] - LISTEN will be added if defined [DEFINE_LISTEN]
-# Only ONE HTTP or HTTPS if web server or SERVICE port for mysql pgsql ftp etc.
+# Only ONE HTTP or HTTPS if web server or SERVICE port for mysql pgsql ftp etc. add more to CONTAINER_ADD_CUSTOM_PORT
 CONTAINER_HTTP_PORT=""
 CONTAINER_HTTPS_PORT=""
 CONTAINER_SERVICE_PORT=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Add Add sevicee port [port] or [port:port] - LISTEN will be added if defined [DEFINE_LISTEN]
-# DO NOT add SERVER_WEB_PORT here as it will be added
 CONTAINER_ADD_CUSTOM_PORT=""
 CONTAINER_ADD_CUSTOM_PORT+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show user info message
-SERVER_MESSAGE_USER=""
-SERVER_MESSAGE_PASS=""
+POST_SHOW_MESSAGE_USER=""
+POST_SHOW_MESSAGE_PASS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show post install message
-SERVER_MESSAGE_POST=""
+POST_SHOW_MESSAGE_FINISHED=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup nginx proxy variables
 NGINX_SSL="yes"
@@ -234,48 +238,51 @@ chmod -Rf 777 "$APPDIR"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Variables - Do not change
 NGINX_LISTEN_OPTS=""
-SERVER_IP="${CURRIP4:-$LOCAL_IP}"
-SERVER_TIMEZONE="${TZ:-$TIMEZONE}"
-SERVER_MESSAGE_POST="${SERVER_MESSAGE_POST:-}"
+HOST_IP="${CURRIP4:-$LOCAL_IP}"
+HOST_TIMEZONE="${TZ:-$TIMEZONE}"
+HOST_LISTEN_ADDR="${DEFINE_LISTEN:-$HOST_IP}"
+CONTAINER_SHM_SIZE="${CONTAINER_SHM_SIZE:-64M}"
+HOST_SERVICE_PORT="${CONTAINER_SERVICE_PORT//:*/}"
+DEFINE_LISTEN="${DEFINE_LISTEN:-$HOST_LISTEN_ADDR}"
 CONTAINER_HTTP_PROTO="${CONTAINER_HTTP_PROTO:-http}"
-SERVER_LISTEN_ADDR="${DEFINE_LISTEN:-$SERVER_IP}"
-DEFINE_LISTEN="${DEFINE_LISTEN:-$SERVER_LISTEN_ADDR}"
-SERVER_WEB_PORT="${CONTAINER_HTTPS_PORT:-$CONTAINER_HTTP_PORT}"
-SERVER_DOMAIN_NAME="${SERVER_DOMAIN_NAME:-"$(hostname -d 2>/dev/null | grep '^' || echo 'local')"}"
-SERVER_HOST_NAME="${SERVER_HOST_NAME:-$APPNAME.$SERVER_DOMAIN_NAME}"
-SERVER_SERVICE_PORT="${CONTAINER_SERVICE_PORT//:*/}"
+HOST_NETWORK_TYPE="--network ${HOST_NETWORK_TYPE:-bridge}"
+POST_SHOW_MESSAGE_FINISHED="${POST_SHOW_MESSAGE_FINISHED:-}"
+HOST_WEB_PORT="${CONTAINER_HTTPS_PORT:-$CONTAINER_HTTP_PORT}"
+CONTAINER_DOMAINNAME="${CONTAINER_DOMAINNAME:-"$(hostname -d 2>/dev/null | grep '^' || echo 'local')"}"
+CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME.$CONTAINER_DOMAINNAME}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Configure variables
-[ -n "$SERVER_TIMEZONE" ] || SERVER_TIMEZONE="America/New_York"
+[ -n "$HOST_TIMEZONE" ] || HOST_TIMEZONE="America/New_York"
 [ "$CONTAINER_HTTPS_PORT" = "https" ] && CONTAINER_HTTP_PROTO="https"
-[ "$SERVER_LISTEN_LOCAL" = "yes" ] && DEFINE_LISTEN="${LOCAL_IP:-127.0.0.1}"
-[ -n "$SERVER_DISPLAY" ] && ADDITIONAL_MOUNTS+="${X11_SOCKET:-/tmp/.X11-unix}:/tmp/.X11-unix "
+[ "$HOST_LISTEN_LOCAL" = "yes" ] && DEFINE_LISTEN="${LOCAL_IP:-127.0.0.1}"
+[ -n "$CONTAINER_X11_XAUTH" ] || CONTAINER_X11_XAUTH="/home/x11user/.Xauthority"
 [ "$DOCKER_SOCKET_ENABLED" = "yes" ] && ADDITIONAL_MOUNTS+="$DOCKER_SOCKET_MOUNT:/var/run/docker.sock "
 [ "$CONTAINER_IS_PRIVILEGED" = "yes" ] && CONTAINER_IS_PRIVILEGED="--privileged" || CONTAINER_IS_PRIVILEGED=""
 [ "$NGINX_SSL" = "yes" ] && [ -n "$NGINX_HTTPS" ] && NGINX_PORT="${NGINX_HTTPS:-443}" || NGINX_PORT="${NGINX_HTTP:-80}"
+[ -n "$CONTAINER_DISPLAY" ] && ADDITIONAL_MOUNTS+="${HOST_X11_SOCKET:-/tmp/.X11-unix}:/tmp/.X11-unix $HOST_X11_XAUTH:$CONTAINER_X11_XAUTH "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # rewrite variables
 [ -n "$HUB_IMAGE_TAG" ] || HUB_IMAGE_TAG="latest"
-[ -n "$SERVER_WEB_PORT" ] && SERVER_PORT="${SERVER_WEB_PORT//:*/}"
+[ -n "$HOST_WEB_PORT" ] && HOST_PORT="${HOST_WEB_PORT//:*/}"
 [ -n "$DEFINE_LISTEN" ] && DEFINE_LISTEN="${DEFINE_LISTEN//:*/}:" || DEFINE_LISTEN=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # SSL setup
 if [ "$SSL_ENABLED" = "yes" ]; then
   if [ "$CONTAINER_HTTP_PROTO" = "http" ]; then
     NGINX_LISTEN_OPTS="ssl http2"
-    NGINX_PROXY="https://$SERVER_LISTEN_ADDR:$SERVER_PORT"
+    NGINX_PROXY="https://$HOST_LISTEN_ADDR:$HOST_PORT"
     CONTAINER_HTTP_PROTO="https"
   fi
-  if [ -f "$SERVER_SSL_CRT" ] && [ -f "$SERVER_SSL_KEY" ]; then
-    [ -f "$CONTAINER_SSL_CA" ] && ADDITIONAL_MOUNTS+="$SERVER_SSL_CA:$CONTAINER_SSL_CA "
-    ADDITIONAL_MOUNTS+="$SERVER_SSL_CRT:$CONTAINER_SSL_CRT "
-    ADDITIONAL_MOUNTS+="$SERVER_SSL_KEY:$CONTAINER_SSL_KEY "
+  if [ -f "$HOST_SSL_CRT" ] && [ -f "$HOST_SSL_KEY" ]; then
+    [ -f "$CONTAINER_SSL_CA" ] && ADDITIONAL_MOUNTS+="$HOST_SSL_CA:$CONTAINER_SSL_CA "
+    ADDITIONAL_MOUNTS+="$HOST_SSL_CRT:$CONTAINER_SSL_CRT "
+    ADDITIONAL_MOUNTS+="$HOST_SSL_KEY:$CONTAINER_SSL_KEY "
   fi
 else
   CONTAINER_HTTP_PROTO="${CONTAINER_HTTP_PROTO:-http}"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-NGINX_PROXY="${NGINX_PROXY:-$CONTAINER_HTTP_PROTO://$SERVER_LISTEN_ADDR:$SERVER_PORT}"
+NGINX_PROXY="${NGINX_PROXY:-$CONTAINER_HTTP_PROTO://$HOST_LISTEN_ADDR:$HOST_PORT}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_CAP=""
 for cap in $ADD_CAPABILITIES; do
@@ -360,32 +367,29 @@ else
   printf_cyan "Updating the image from $HUB_IMAGE_URL with tag $HUB_IMAGE_TAG"
   __sudo docker pull "$HUB_IMAGE_URL" &>/dev/null
   printf_cyan "Creating container $APPNAME"
-  __sudo docker run -d --tty $CONTAINER_IS_PRIVILEGED --restart=always \
-    --name="$APPNAME" \
-    --shm-size=${CONTAINER_SHM_SIZE:-64M} \
-    --hostname "$SERVER_HOST_NAME" $SET_CAP $CUSTOM_ARGUMENTS \
-    -e TZ="$SERVER_TIMEZONE" \
-    -e TIMEZONE="$SERVER_TIMEZONE" $SET_ENV $SET_DEV $SET_MNT $SET_PORT \
+  __sudo docker run -d --tty $CONTAINER_IS_PRIVILEGED --restart=always --name="$APPNAME" \
+    --shm-size=$CONTAINER_SHM_SIZE --hostname "$CONTAINER_HOSTNAME" -e TZ="$HOST_TIMEZONE" \
+    -e TIMEZONE="$HOST_TIMEZONE" $SET_ENV $SET_DEV $SET_MNT $SET_PORT $SET_CAP $CUSTOM_ARGUMENTS $HOST_NETWORK_TYPE \
     "$HUB_IMAGE_URL:$HUB_IMAGE_TAG" 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log" &&
     rm -Rf "${TMP:-/tmp}/$APPNAME.err.log" || ERROR_LOG="true"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Install nginx proxy
-if [ ! -f "/etc/nginx/vhosts.d/$SERVER_HOST_NAME.conf" ] && [ -f "$INSTDIR/nginx/proxy.conf" ]; then
-  cp -f "$INSTDIR/nginx/proxy.conf" "/tmp/$$.$SERVER_HOST_NAME.conf"
-  sed -i "s|REPLACE_APPNAME|$APPNAME|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
-  sed -i "s|REPLACE_NGINX_PORT|$NGINX_PORT|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
-  sed -i "s|REPLACE_SERVER_PORT|$SERVER_PORT|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
-  sed -i "s|REPLACE_SERVER_PROXY|$NGINX_PROXY|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
-  sed -i "s|REPLACE_SERVER_HOST|$SERVER_DOMAIN_NAME|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
-  sed -i "s|REPLACE_REVPROXY_PROTO|$CONTAINER_HTTP_PROTO|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
-  sed -i "s|REPLACE_SERVER_LISTEN_OPTS|$NGINX_LISTEN_OPTS|g" "/tmp/$$.$SERVER_HOST_NAME.conf" &>/dev/null
+if [ ! -f "/etc/nginx/vhosts.d/$CONTAINER_HOSTNAME.conf" ] && [ -f "$INSTDIR/nginx/proxy.conf" ]; then
+  cp -f "$INSTDIR/nginx/proxy.conf" "/tmp/$$.$CONTAINER_HOSTNAME.conf"
+  sed -i "s|REPLACE_APPNAME|$APPNAME|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
+  sed -i "s|REPLACE_NGINX_PORT|$NGINX_PORT|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
+  sed -i "s|REPLACE_HOST_PORT|$HOST_PORT|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
+  sed -i "s|REPLACE_HOST_PROXY|$NGINX_PROXY|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
+  sed -i "s|REPLACE_HOST_HOST|$CONTAINER_DOMAINNAME|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
+  sed -i "s|REPLACE_REVPROXY_PROTO|$CONTAINER_HTTP_PROTO|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
+  sed -i "s|REPLACE_HOST_LISTEN_OPTS|$NGINX_LISTEN_OPTS|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
   if [ -d "/etc/nginx/vhosts.d" ]; then
-    __sudo_root mv -f "/tmp/$$.$SERVER_HOST_NAME.conf" "/etc/nginx/vhosts.d/$SERVER_HOST_NAME.conf"
-    [ -f "/etc/nginx/vhosts.d/$SERVER_HOST_NAME.conf" ] && printf_green "[ ✅ ] Copying the nginx configuration"
+    __sudo_root mv -f "/tmp/$$.$CONTAINER_HOSTNAME.conf" "/etc/nginx/vhosts.d/$CONTAINER_HOSTNAME.conf"
+    [ -f "/etc/nginx/vhosts.d/$CONTAINER_HOSTNAME.conf" ] && printf_green "[ ✅ ] Copying the nginx configuration"
     systemctl status nginx | grep -q enabled &>/dev/null && __sudo_root systemctl reload nginx &>/dev/null
   else
-    mv -f "/tmp/$$.$SERVER_HOST_NAME.conf" "$INSTDIR/nginx/$SERVER_HOST_NAME.conf" &>/dev/null
+    mv -f "/tmp/$$.$CONTAINER_HOSTNAME.conf" "$INSTDIR/nginx/$CONTAINER_HOSTNAME.conf" &>/dev/null
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -393,13 +397,13 @@ fi
 run_postinst() {
   dockermgr_run_post
   [ -w "/etc/hosts" ] || return 0
-  if ! grep -sq "$SERVER_HOST_NAME" "/etc/hosts"; then
-    if [ -n "$SERVER_PORT" ]; then
+  if ! grep -sq "$CONTAINER_HOSTNAME" "/etc/hosts"; then
+    if [ -n "$HOST_PORT" ]; then
       if [ $(hostname -d 2>/dev/null | grep '^') = 'local' ]; then
-        echo "$SERVER_LISTEN_ADDR     $APPNAME.local" | sudo tee -a "/etc/hosts" &>/dev/null
+        echo "$HOST_LISTEN_ADDR     $APPNAME.local" | sudo tee -a "/etc/hosts" &>/dev/null
       else
-        echo "$SERVER_LISTEN_ADDR     $APPNAME.local" | sudo tee -a "/etc/hosts" &>/dev/null
-        echo "$SERVER_LISTEN_ADDR     $SERVER_HOST_NAME" | sudo tee -a "/etc/hosts" &>/dev/null
+        echo "$HOST_LISTEN_ADDR     $APPNAME.local" | sudo tee -a "/etc/hosts" &>/dev/null
+        echo "$HOST_LISTEN_ADDR     $CONTAINER_HOSTNAME" | sudo tee -a "/etc/hosts" &>/dev/null
       fi
     fi
   fi
@@ -419,12 +423,12 @@ dockermgr_install_version
 if docker ps -a | grep -qs "$APPNAME"; then
   printf_yellow "The DATADIR is in $DATADIR"
   printf_cyan "$APPNAME has been installed to $INSTDIR"
-  [ -z "$SERVER_SERVICE_PORT" ] && printf_yellow "This container does not have service" || printf_cyan "Service is running on $SERVER_LISTEN_ADDR:$SERVER_SERVICE_PORT or $SERVER_HOST_NAME:$SERVER_SERVICE_PORT"
-  [ -z "$SERVER_PORT" ] || printf_yellow "Service is running on: $SERVER_LISTEN_ADDR:$SERVER_PORT"
-  [ -z "$SERVER_PORT" ] || printf_yellow "and should be available at: $NGINX_PROXY or $CONTAINER_HTTP_PROTO//$SERVER_HOST_NAME:$SERVER_PORT"
-  [ -z "$SERVER_MESSAGE_USER" ] || printf_cyan "Username is:  $SERVER_MESSAGE_USER"
-  [ -z "$SERVER_MESSAGE_PASS" ] || printf_purple "Password is:  $SERVER_MESSAGE_PASS"
-  [ -z "$SERVER_MESSAGE_POST" ] || printf_green "$SERVER_MESSAGE_POST"
+  [ -z "$HOST_SERVICE_PORT" ] && printf_yellow "This container does not have service" || printf_cyan "Service is running on $HOST_LISTEN_ADDR:$HOST_SERVICE_PORT or $CONTAINER_HOSTNAME:$HOST_SERVICE_PORT"
+  [ -z "$HOST_PORT" ] || printf_yellow "Service is running on: $HOST_LISTEN_ADDR:$HOST_PORT"
+  [ -z "$HOST_PORT" ] || printf_yellow "and should be available at: $NGINX_PROXY or $CONTAINER_HTTP_PROTO//$CONTAINER_HOSTNAME:$HOST_PORT"
+  [ -z "$POST_SHOW_MESSAGE_USER" ] || printf_cyan "Username is:  $POST_SHOW_MESSAGE_USER"
+  [ -z "$POST_SHOW_MESSAGE_PASS" ] || printf_purple "Password is:  $POST_SHOW_MESSAGE_PASS"
+  [ -z "$POST_SHOW_MESSAGE_FINISHED" ] || printf_green "$POST_SHOW_MESSAGE_FINISHED"
 else
   [ "$ERROR_LOG" = "true" ] && printf_yellow "Errors logged to ${TMP:-/tmp}/$APPNAME.err.log"
   printf_error "Something seems to have gone wrong with the install"

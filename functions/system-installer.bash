@@ -9,7 +9,7 @@
 # @Description : installer functions for apps
 #
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-[[ $(id -u) != 0 ]] || [[ "$EUID" != 0 ]] || [[ "$WHOAMI" != "root" ]] || { echo -e "\t\t\033[0;31mThis script requires sudo or root\033[0m" && exit 1; }
+[[ $(id -u) != 0 ]] || [[ "$EUID" != 0 ]] || [[ "$WHOAMI" != "root" ]] || { echo -e "\033[0;31mThis script requires sudo or root\033[0m" && exit 1; }
 PATH="$(echo "$PATH" | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 's#::#:.#g')"
 USER="${USER:-}"
 RUN_USER="$(logname 2>/dev/null)"
@@ -30,7 +30,7 @@ elif builtin command -v yum &>/dev/null; then
 elif builtin command -v choco &>/dev/null; then
   __install() { eval choco install "$*" -y &>/dev/null; }
 else
-  echo -e "\t\t\033[0;31mCan not determine you packager manager\033[0m"
+  echo -e "\033[0;31mCan not determine you packager manager\033[0m"
   exit 1
 fi
 
@@ -43,7 +43,7 @@ for check in git curl wget; do
   fi
 done
 if [[ -n "$cmdMissing" ]]; then
-  echo -e "\n\n\t\t\033[0;31m$cmdMissing is not installed\033[0m\n"
+  echo -e "\n\n\033[0;31m$cmdMissing is not installed\033[0m\n"
   [ -f "/tmp/system-installer.bash" ] && rm -Rf /tmp/system-installer.bash
   exit 1
 else
@@ -110,27 +110,27 @@ else
     printf "%b" "$(tput setaf "$2" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"
   }
 fi
-printf_normal() { printf_color "\t\t$1\n" "$2"; }
-printf_green() { printf_color "\t\t$1\n" 2; }
-printf_red() { printf_color "\t\t$1\n" 1; }
-printf_purple() { printf_color "\t\t$1\n" 5; }
-printf_yellow() { printf_color "\t\t$1\n" 3; }
-printf_blue() { printf_color "\t\t$1\n" 33; }
-printf_cyan() { printf_color "\t\t$1\n" 6; }
-printf_info() { printf_color "\t\t[ ℹ️ ] $1\n" 3; }
+printf_normal() { printf_color "$1\n" "$2"; }
+printf_green() { printf_color "$1\n" 2; }
+printf_red() { printf_color "$1\n" 1; }
+printf_purple() { printf_color "$1\n" 5; }
+printf_yellow() { printf_color "$1\n" 3; }
+printf_blue() { printf_color "$1\n" 33; }
+printf_cyan() { printf_color "$1\n" 6; }
+printf_info() { printf_color "[ ℹ️ ] $1\n" 3; }
 printf_exit() {
-  printf_color "\t\t$1\n" 1 1>&2
+  printf_color "$1\n" 1 1>&2
   exit 1
 }
-printf_help() { printf_color "\t\t$1\n" 1; }
-printf_read() { printf_color "\t\t$1" 5; }
-printf_success() { printf_color "\t\t[ ✔ ] $1\n" 2; }
-printf_error() { printf_color "\t\t[ ✖ ] $1 $2\n" 1 1>&2; }
-printf_warning() { printf_color "\t\t[ ❗ ] $1\n" 3; }
-printf_question() { printf_color "\t\t[ ❓ ] $1 [❓] " 6; }
+printf_help() { printf_color "$1\n" 1; }
+printf_read() { printf_color "$1" 5; }
+printf_success() { printf_color "[ ✔ ] $1\n" 2; }
+printf_error() { printf_color "[ ✖ ] $1 $2\n" 1 1>&2; }
+printf_warning() { printf_color "[ ❗ ] $1\n" 3; }
+printf_question() { printf_color "[ ❓ ] $1 [❓] " 6; }
 printf_error_stream() { while read -r line; do printf_error "↳ ERROR: $line"; done; }
-printf_execute_success() { printf_color "\t\t[ ✔ ] $1 \n" 2; }
-printf_execute_error() { printf_color "\t\t[ ✖ ] $1 $2 \n" 1; }
+printf_execute_success() { printf_color "[ ✔ ] $1 \n" 2; }
+printf_execute_error() { printf_color "[ ✖ ] $1 $2 \n" 1; }
 printf_execute_result() {
   if [ "$1" -eq 0 ]; then printf_execute_success "$2"; else printf_execute_error "$2"; fi
   return "$1"
@@ -151,7 +151,7 @@ printf_custom() {
   [[ $1 == ?(-)+([0-9]) ]] && local color="$1" && shift 1 || local color="1"
   local msg="$*"
   shift
-  printf_color "\t\t$msg" "$color"
+  printf_color "$msg" "$color"
   printf '\n'
 }
 ##################################################################################################
@@ -160,9 +160,9 @@ printf_head() {
   local msg="$*"
   shift
   printf_color "
-\t\t##################################################
-\t\t$msg
-\t\t##################################################\n" "$color"
+##################################################
+$msg
+##################################################\n" "$color"
 }
 ##################################################################################################
 printf_result() {
@@ -182,7 +182,7 @@ printf_return() {
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="1"
   test -n "$1" && test -z "${1//[0-9]/}" && local exitCode="$1" && shift 1 || local exitCode="1"
   local msg="$*"
-  [ ${#msg} = 0 ] || { printf_color "\t\t$msg" "$color" 1>&2 && printf "\n"; }
+  [ ${#msg} = 0 ] || { printf_color "$msg" "$color" 1>&2 && printf "\n"; }
   return ${exitCode:-2}
 }
 ##################################################################################################
@@ -248,8 +248,8 @@ replace() { find "$1" -not -path "$1/.git/*" -type f -exec sed -i "s#$2#$3#g" {}
 rmcomments() { sed 's/[[:space:]]*#.*//;/^[[:space:]]*$/d'; }
 countwd() { cat "$@" | wc-l | rmcomments; }
 urlcheck() { devnull curl --output /dev/null --silent --head --fail "$1"; }
-urlinvalid() { if [ -z "$1" ]; then printf_red "\t\tInvalid URL\n"; else
-  printf_red "\t\tCan't find $1\n"
+urlinvalid() { if [ -z "$1" ]; then printf_red "Invalid URL\n"; else
+  printf_red "Can't find $1\n"
   exit 1
 fi; }
 urlverify() { urlcheck $1 || urlinvalid $1; }
@@ -473,14 +473,14 @@ requiresudo() {
       sudoexit && sudo "$@"
     fi
   else
-    printf_red "You dont have access to sudo\n\t\tPlease contact the syadmin for access"
+    printf_red "You dont have access to sudo\nPlease contact the syadmin for access"
     exit 1
   fi
 }
 ##################################################################################################
 versioncheck() {
   if [ -f $APPDIR/version.txt ]; then
-    printf_green "\t\tChecking for updates\n"
+    printf_green "Checking for updates\n"
     local NEWVERSION="$(echo $APPVERSION | grep -v "#" | tail -n 1)"
     local OLDVERSION="$(cat $APPDIR/version.txt | grep -v "#" | tail -n 1)"
     if [ "$NEWVERSION" == "$OLDVERSION" ]; then
@@ -495,7 +495,7 @@ versioncheck() {
         cd $APPDIR && git pull -q
         printf_green "Updated to latest version = $NEWVERSION"
       else
-        printf_cyan "\t\tYou decided not to update\n"
+        printf_cyan "You decided not to update\n"
       fi
     fi
   fi
@@ -505,7 +505,7 @@ versioncheck() {
 scripts_check() {
   local REPO="${DOTFILESREPO:-https://github.com/dfmgr}"
   if ! builtin command -v "pkmgr" &>/dev/null && [ ! -f "$HOME/.noscripts" ]; then
-    printf_red "\t\tPlease install my scripts repo - requires root/sudo\n"
+    printf_red "Please install my scripts repo - requires root/sudo\n"
     printf_question "Would you like to do that now" [y/N]
     read -n 1 -s choice
     echo ""

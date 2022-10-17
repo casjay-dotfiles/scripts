@@ -40,7 +40,7 @@ printf_green "$PWD"
 
 # main program
 if [[ "$OSTYPE" =~ ^linux ]] && [ -d /home/travis/build/casjay-dotfiles/scripts ]; then
-  echo -e "\n\t\t-----------------------------------------------------\n"
+  echo -e "\n-----------------------------------------------------\n"
   printf_green "Setting up git for push"
   curl -q -LSsf -H "Authorization: token ${GITHUB_API_KEY}" "https://${PERSONAL_GIT_REPO}/etc/skel/.config/git/git-credentials" -o "$HOME/.config/git/git-credentials" >/dev/null 2>&1
   git clone -q https://github.com/casjay-dotfiles/scripts "$HOME/push-scripts" >/dev/null 2>&1
@@ -53,88 +53,88 @@ if [[ "$OSTYPE" =~ ^linux ]] && [ -d /home/travis/build/casjay-dotfiles/scripts 
   git -C "$HOME/push-scripts" push -q -f https://${GITHUB_API_KEY}@github.com/wallpapermgr/installer >/dev/null 2>&1 && printf_green "Successfully pushed to wallpapermgr/installer" || printf_red "Failed to push to wallpapermgr/installer"
 fi
 
-echo -e "\n\t\t-----------------------------------------------------\n"
+echo -e "\n-----------------------------------------------------\n"
 printf_green "Testing scripts install"
 sudo bash -c "$(curl -q -LSsf https://github.com/dfmgr/installer/raw/$GIT_DEFAULT_BRANCH/install.sh)"
 
-echo -e "\n\t\t-----------------------------------------------------\n"
+echo -e "\n-----------------------------------------------------\n"
 printf_green "Printing full info"
 ./install.sh --full
 
-#echo -e "\n\t\t-----------------------------------------------------\n"
+#echo -e "\n-----------------------------------------------------\n"
 #printf_green "Running system upgrade - pkmgr silent upgrade"
 #sudo pkmgr silent upgrade
 
-echo -e "\n\t\t-----------------------------------------------------\n"
+echo -e "\n-----------------------------------------------------\n"
 printf_green "Installing packages"
 for installpkgs in cmake cmake-data cmatrix conky cowsay cscope curl dmenu exo-utils figlet neovim neofetch fish zsh tmux; do
   __execute "sudo pkmgr silent $installpkgs" "Installing $installpkgs"
   exitCode=$?
 done
 
-echo -e "\n\t\t-----------------------------------------------------\n"
+echo -e "\n-----------------------------------------------------\n"
 printf_green "Updating the installer"
 sudo systemmgr install installer
 
-echo -e "\n\t\t-----------------------------------------------------\n"
+echo -e "\n-----------------------------------------------------\n"
 printf_green "Testing systemmgr"
 sudo systemmgr install cron ssl
 
-echo -e "\n\t\t-----------------------------------------------------\n"
+echo -e "\n-----------------------------------------------------\n"
 printf_green "Testing dfmgr"
 dfmgr install misc bash bashtop neofetch
 
-echo -e "\n\t\t-----------------------------------------------------\n"
+echo -e "\n-----------------------------------------------------\n"
 printf_green "Testing fontmgr"
 fontmgr install hack
 
-echo -e "\n\t\t-----------------------------------------------------\n"
+echo -e "\n-----------------------------------------------------\n"
 printf_green "Testing wallpapermgr"
 wallpapermgr install casjay
 
-echo -e "\n\t\t-----------------------------------------------------\n"
+echo -e "\n-----------------------------------------------------\n"
 printf_green "Testing pkmgr pip install"
 __execute "pkmgr pip wakatime"
 __execute "pkmgr pip youtube-dl"
 
-echo -e "\n\t\t-----------------------------------------------------\n"
+echo -e "\n-----------------------------------------------------\n"
 printf_green "Testing pkmgr gem install"
 __execute "pkmgr gem Test"
 
-echo -e "\n\t\t-----------------------------------------------------\n"
+echo -e "\n-----------------------------------------------------\n"
 printf_green "printing installed app locations"
 for app in speedtest-cli links wakatime cpan; do
   command -v $app | printf_readline
 done
 
-echo -e "\n\t\t-----------------------------------------------------\n"
+echo -e "\n-----------------------------------------------------\n"
 printf_green "Printing dfmgr bash"
 for f in $(ls $HOME/.local/share/CasjaysDev/dfmgr/*/install.sh); do
   bash -c "$f --version"
 done
 
-# echo -e "\n\t\t-----------------------------------------------------\n"
+# echo -e "\n-----------------------------------------------------\n"
 # printf_green "Printing version for all apps"
 # for f in $(ls /usr/local/share/CasjaysDev/scripts/bin); do
 #   $f --version
 # done
 
-echo -e "\n\t\t-----------------------------------------------------\n"
+echo -e "\n-----------------------------------------------------\n"
 printf_green "printing pkmgr aliases"
 pkmgr aliases
 
-echo -e "\n\t\t-----------------------------------------------------\n"
+echo -e "\n-----------------------------------------------------\n"
 printf_green "Printing help"
 ./install.sh --help
 
-echo -e "\n\t\t-----------------------------------------------------\n"
+echo -e "\n-----------------------------------------------------\n"
 printf_green "Printing version"
 ./install.sh --version
 
-echo -e "\n\t\t-----------------------------------------------------\n"
+echo -e "\n-----------------------------------------------------\n"
 printf_green "Printing location"
 ./install.sh --location
 
-echo -e "\n\n\t\t-----------------------------------------------------\n"
+echo -e "\n\n-----------------------------------------------------\n"
 exit $?
 ## end

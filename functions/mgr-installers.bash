@@ -46,7 +46,7 @@ unset TMPPATH
 # Fail if git, curl, and wget are not installed
 for check in git curl wget; do
   if [ -z "$(builtin type -P "$check" 2>/dev/null)" ]; then
-    echo -e "\t\t\033[0;31mAttempting to install $check\033[0m"
+    echo -e "\033[0;31mAttempting to install $check\033[0m"
     if [ -f "$(builtin type -P brew 2>/dev/null)" ]; then
       brew install -f "$check" &>/dev/null
     elif [ -f "$(builtin type -P apt 2>/dev/null)" ]; then
@@ -60,12 +60,12 @@ for check in git curl wget; do
     elif [ -f "$(builtin type -P choco 2>/dev/null)" ]; then
       choco install "$check" -y &>/dev/null
     else
-      echo -e "\t\t\033[0;31m$check can not be install automatically\033[0m"
+      echo -e "\033[0;31m$check can not be install automatically\033[0m"
       exit 1
     fi
   fi
   if [ -z "$(builtin type -P "$check" 2>/dev/null)" ]; then
-    echo -e "\t\t\033[0;31m$check was not installed\033[0m"
+    echo -e "\033[0;31m$check was not installed\033[0m"
     exit 1
   fi
 done
@@ -111,7 +111,7 @@ export HOME="${USER_HOME:-$HOME}"
 export LOGDIR="${LOGDIR:-$HOME/.local/log}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -z "$SUDO_PROMPT" ]; then
-  export SUDO_PROMPT="$(printf "\n\t\t\033[1;31m")[sudo]$(printf "\033[1;36m") password for $(printf "\033[1;32m")%p: $(printf "\033[0m" && echo)"
+  export SUDO_PROMPT="$(printf "\n\033[1;31m")[sudo]$(printf "\033[1;36m") password for $(printf "\033[1;32m")%p: $(printf "\033[0m" && echo)"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Timezone data
@@ -197,18 +197,18 @@ printf_newline() {
   [ -n "$1" ] && printf '%b\n' "${*:-}" || printf '\n'
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-printf_normal() { printf_color "\t\t$1\n" "$2"; }
-printf_green() { printf_color "\t\t$1\n" 2; }
-printf_red() { printf_color "\t\t$1\n" 1; }
-printf_purple() { printf_color "\t\t$1\n" 5; }
-printf_yellow() { printf_color "\t\t$1\n" 3; }
-printf_blue() { printf_color "\t\t$1\n" 33; }
-printf_cyan() { printf_color "\t\t$1\n" 6; }
-printf_info() { printf_color "\t\t$ICON_INFO $1\n" 3; }
-printf_success() { printf_color "\t\t$ICON_GOOD $1\n" 2; }
-printf_warning() { printf_color "\t\t$ICON_WARN $1\n" 3; }
-printf_execute_success() { printf_color "\t\t$ICON_GOOD $1\n" 2; }
-printf_execute_error() { printf_color "\t\t$ICON_WARN $1 $2\n" 1; }
+printf_normal() { printf_color "$1\n" "$2"; }
+printf_green() { printf_color "$1\n" 2; }
+printf_red() { printf_color "$1\n" 1; }
+printf_purple() { printf_color "$1\n" 5; }
+printf_yellow() { printf_color "$1\n" 3; }
+printf_blue() { printf_color "$1\n" 33; }
+printf_cyan() { printf_color "$1\n" 6; }
+printf_info() { printf_color "$ICON_INFO $1\n" 3; }
+printf_success() { printf_color "$ICON_GOOD $1\n" 2; }
+printf_warning() { printf_color "$ICON_WARN $1\n" 3; }
+printf_execute_success() { printf_color "$ICON_GOOD $1\n" 2; }
+printf_execute_error() { printf_color "$ICON_WARN $1 $2\n" 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_error_stream() {
   while read -r line; do
@@ -235,7 +235,7 @@ printf_question() {
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="4"
   local msg="$*"
   shift
-  printf_color "\t\t$ICON_QUESTION $msg? " "$color"
+  printf_color "$ICON_QUESTION $msg? " "$color"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #printf_error "color" "exitcode" "message"
@@ -243,7 +243,7 @@ printf_error() {
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="1"
   test -n "$1" && test -z "${1//[0-9]/}" && local exitCode="$1" && shift 1 || local exitCode="1"
   local msg="$*"
-  printf_color "\t\t$msg" "$color" 1>&2
+  printf_color "$msg" "$color" 1>&2
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -253,7 +253,7 @@ printf_exit() {
   test -n "$1" && test -z "${1//[0-9]/}" && local exitCode="$1" && shift 1 || local exitCode="1"
   local msg="$*"
   shift
-  printf_color "\t\t$msg" "$color" 1>&2
+  printf_color "$msg" "$color" 1>&2
   echo ""
   exit "$exitCode"
 }
@@ -264,7 +264,7 @@ printf_return() {
   test -n "$1" && test -z "${1//[0-9]/}" && local exitCode="$1" && shift 1 || local exitCode="1"
   local msg="$*"
   shift
-  printf_color "\t\t$msg" "$color" 1>&2
+  printf_color "$msg" "$color" 1>&2
   echo ""
   return "$exitCode"
 }
@@ -274,7 +274,7 @@ printf_readline() {
   set -o pipefail
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="6"
   while read line; do
-    printf_color "\t\t$line" "$color"
+    printf_color "$line" "$color"
     printf '\n'
   done
   set +o pipefail
@@ -284,7 +284,7 @@ printf_custom() {
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="5"
   local msg="$*"
   shift
-  printf_color "\t\t$msg" "$color"
+  printf_color "$msg" "$color"
   printf '\n'
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -292,7 +292,7 @@ printf_custom_question() {
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="1"
   local msg="$*"
   shift
-  printf_color "\t\t$msg " "$color"
+  printf_color "$msg " "$color"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_question_timeout() {
@@ -301,7 +301,7 @@ printf_question_timeout() {
   test -n "$1" && test -z "${1//[0-9]/}" && local lines="$1" && shift 1 || local lines="120"
   reply="${1:-REPLY}" && shift 1
   readopts="${1:-}" && shift 1
-  printf_color "\t\t$msg " "${PRINTF_COLOR:-$color}"
+  printf_color "$msg " "${PRINTF_COLOR:-$color}"
   read -t 30 -r -n ${lines} ${readopts?} ${reply?}
   printf_newline
 }
@@ -316,15 +316,15 @@ printf_head() {
   local msg6="$1" && shift 1 || msg6=
   local msg7="$1" && shift 1 || msg7=
   shift
-  [ -z "$msg1" ] || printf_color "\t\t##################################################\n" "$color"
-  [ -z "$msg1" ] || printf_color "\t\t$msg1\n" "$color"
-  [ -z "$msg2" ] || printf_color "\t\t$msg2\n" "$color"
-  [ -z "$msg3" ] || printf_color "\t\t$msg3\n" "$color"
-  [ -z "$msg4" ] || printf_color "\t\t$msg4\n" "$color"
-  [ -z "$msg5" ] || printf_color "\t\t$msg5\n" "$color"
-  [ -z "$msg6" ] || printf_color "\t\t$msg6\n" "$color"
-  [ -z "$msg7" ] || printf_color "\t\t$msg7\n" "$color"
-  [ -z "$msg1" ] || printf_color "\t\t##################################################\n" "$color"
+  [ -z "$msg1" ] || printf_color "##################################################\n" "$color"
+  [ -z "$msg1" ] || printf_color "$msg1\n" "$color"
+  [ -z "$msg2" ] || printf_color "$msg2\n" "$color"
+  [ -z "$msg3" ] || printf_color "$msg3\n" "$color"
+  [ -z "$msg4" ] || printf_color "$msg4\n" "$color"
+  [ -z "$msg5" ] || printf_color "$msg5\n" "$color"
+  [ -z "$msg6" ] || printf_color "$msg6\n" "$color"
+  [ -z "$msg7" ] || printf_color "$msg7\n" "$color"
+  [ -z "$msg1" ] || printf_color "##################################################\n" "$color"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_result() {
@@ -2397,7 +2397,7 @@ run_install_init() {
   local SETREPORAW="${REPORAW//$APPNAME\/$APPNAME\//$APPNAME\/}"
   [ -f "$TMPINST" ] && exit 5 || touch "$TMPINST"
   export APPDIR INSTDIR
-  SET_SUDO_PROMPT="$(printf "\n\t\t\033[1;31m")[sudo]$(printf "\033[1;36m") password for $(printf "\033[1;32m")%p: $(printf "\033[0m")"
+  SET_SUDO_PROMPT="$(printf "\n\033[1;31m")[sudo]$(printf "\033[1;36m") password for $(printf "\033[1;32m")%p: $(printf "\033[0m")"
   (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null || sudo -n true &>/dev/null || SUDO_PROMPT="$SET_SUDO_PROMPT" sudo true
   __main_installer_info &>/dev/null
   [ -n "$PLUGNAMES" ] && [ -n "$PLUGDIR" ] && [ -d "$PLUGDIR" ] || mkd "$PLUGDIR"

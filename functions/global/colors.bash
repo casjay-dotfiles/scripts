@@ -54,56 +54,56 @@ else
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_reset() {
-  printf_color "\r\t\t$1 " ${2:-1}
+  printf_color "\r$1 " ${2:-1}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_normal() {
-  printf_color "\t\t$1" "$2"
+  printf_color "$1" "$2"
   printf "\n"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_green() {
-  printf_color "\t\t$1" 2
+  printf_color "$1" 2
   printf "\n"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_red() {
-  printf_color "\t\t$1" 1
+  printf_color "$1" 1
   printf "\n"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_purple() {
-  printf_color "\t\t$1" 5
+  printf_color "$1" 5
   printf "\n"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_yellow() {
-  printf_color "\t\t$1" 3
+  printf_color "$1" 3
   printf "\n"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_blue() {
-  printf_color "\t\t$1" 33
+  printf_color "$1" 33
   printf "\n"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_cyan() {
-  printf_color "\t\t$1" 6
+  printf_color "$1" 6
   printf "\n"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_info() {
-  printf_color "\t\t$ICON_INFO $1" 3
+  printf_color "$ICON_INFO $1" 3
   printf "\n"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_success() {
-  printf_color "\t\t$ICON_GOOD $1" 2
+  printf_color "$ICON_GOOD $1" 2
   printf "\n"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_warning() {
-  printf_color "\t\t$ICON_WARN $1" 3
+  printf_color "$ICON_WARN $1" 3
   printf "\n"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -114,12 +114,12 @@ printf_error_stream() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_execute_success() {
-  printf_color "\t\t$ICON_GOOD $1" 2
+  printf_color "$ICON_GOOD $1" 2
   printf "\n"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_execute_error() {
-  printf_color "\t\t$ICON_WARN $1 $2" 1
+  printf_color "$ICON_WARN $1 $2" 1
   printf "\n"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -141,7 +141,7 @@ printf_execute_error_stream() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_help() {
-  printf "%b" "$(tput setaf "${2:-4}" 2>/dev/null)" "\t\t$1" "$(tput sgr0 2>/dev/null)"
+  printf "%b" "$(tput setaf "${2:-4}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"
   printf '\n'
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -150,14 +150,14 @@ printf_console() {
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="1"
   local msg="$*"
   shift
-  printf_color "\n\t\t$msg" "${PRINTF_COLOR:-$color}"
+  printf_color "\n$msg" "${PRINTF_COLOR:-$color}"
   printf "\n\n"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_pause() {
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="5"
   local msg="${*:-Press any key to continue}"
-  printf_color "\t\t$msg " "${PRINTF_COLOR:-$color}"
+  printf_color "$msg " "${PRINTF_COLOR:-$color}"
   read -r -n 1 -s
   printf "\n"
 }
@@ -172,7 +172,7 @@ printf_return() {
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="1"
   test -n "$1" && test -z "${1//[0-9]/}" && local exitCode="$1" && shift 1 || local exitCode="1"
   local msg="$*"
-  [ ${#msg} = 0 ] || { printf_color "\t\t$msg" "$color" 1>&2 && printf "\n"; }
+  [ ${#msg} = 0 ] || { printf_color "$msg" "$color" 1>&2 && printf "\n"; }
   return ${exitCode:-2}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -181,7 +181,7 @@ printf_error() {
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="1"
   test -n "$1" && test -z "${1//[0-9]/}" && local exitCode="$1" && shift 1 || local exitCode="1"
   local msg="$*"
-  printf_color "\t\t$ICON_ERROR $msg" "$color" 1>&2
+  printf_color "$ICON_ERROR $msg" "$color" 1>&2
   printf "\n"
   return $exitCode
 }
@@ -192,7 +192,7 @@ printf_exit() {
   test -n "$1" && test -z "${1//[0-9]/}" && local exitCode="$1" && shift 1 || local exitCode="1"
   local msg="$*"
   shift
-  printf_color "\t\t$msg" "$color" 1>&2
+  printf_color "$msg" "$color" 1>&2
   printf "\n"
   exit "$exitCode"
 }
@@ -213,9 +213,9 @@ printf_help() {
   shift
   echo ""
   if [ "${PROG:-$APPNAME}" ]; then
-    printf_color "\t\t$(grep ^"# @Description" "$(builtin type -P "${PROG:-$APPNAME}")" 2>/dev/null | grep ' : ' | sed 's#..* : ##g' || "${PROG:-$APPNAME}" help)\n" 2
+    printf_color "$(grep ^"# @Description" "$(builtin type -P "${PROG:-$APPNAME}")" 2>/dev/null | grep ' : ' | sed 's#..* : ##g' || "${PROG:-$APPNAME}" help)\n" 2
   fi
-  printf_color "\t\t$msg" "${PRINTF_COLOR:-$color}"
+  printf_color "$msg" "${PRINTF_COLOR:-$color}"
   printf "\n\n"
   exit 0
 }
@@ -224,7 +224,7 @@ printf_custom() {
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="5"
   local msg="$*"
   shift
-  printf_color "\t\t$msg" "${PRINTF_COLOR:-$color}"
+  printf_color "$msg" "${PRINTF_COLOR:-$color}"
   printf "\n"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -232,7 +232,7 @@ printf_read() {
   set -o pipefail
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="6"
   while read line; do
-    printf_color "\t\t$line" "${PRINTF_COLOR:-$color}"
+    printf_color "$line" "${PRINTF_COLOR:-$color}"
   done
   printf "\n"
   set +o pipefail
@@ -242,7 +242,7 @@ printf_readline() {
   set -o pipefail
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="6"
   while read line; do
-    printf_color "\t\t$line" "${PRINTF_COLOR:-$color}"
+    printf_color "$line" "${PRINTF_COLOR:-$color}"
     printf "\n"
   done
   set +o pipefail
@@ -253,7 +253,7 @@ printf_readline_trunc() {
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="6"
   test -n "$2" && test -z "${2//[0-9]/}" && local TRUNC_IT="$2" && shift 1 || local TRUNC_IT="${TRUNC_IT:-110}"
   while read line; do
-    printf_color "\t\t$line" "${PRINTF_COLOR:-$color}" |& cat - |& cut -c 1-${TRUNC_IT} |& tee
+    printf_color "$line" "${PRINTF_COLOR:-$color}" |& cat - |& cut -c 1-${TRUNC_IT} |& tee
   done
   set +o pipefail
 }
@@ -278,14 +278,14 @@ printf_question() {
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="4"
   local msg="$*"
   shift
-  printf_color "\t\t$ICON_QUESTION $msg? " "${PRINTF_COLOR:-$color}"
+  printf_color "$ICON_QUESTION $msg? " "${PRINTF_COLOR:-$color}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_custom_question() {
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="1"
   local msg="$*"
   shift
-  printf_color "\t\t$msg " "${PRINTF_COLOR:-$color}"
+  printf_color "$msg " "${PRINTF_COLOR:-$color}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_question_term() {
@@ -302,7 +302,7 @@ printf_read_input() {
   test -n "$1" && test -z "${1//[0-9]/}" && local lines="$1" && shift 1 || local lines="120"
   local reply="${1:-REPLY}" && shift 1
   local readopts="${1:-}" && shift 1
-  printf_color "\t\t$msg " "${PRINTF_COLOR:-$color}"
+  printf_color "$msg " "${PRINTF_COLOR:-$color}"
   read -e -r -n $lines ${readopts:-} ${reply:-}
   [ -z "$reply" ] && printf '\n' && return 1 || return 0
 }
@@ -316,7 +316,7 @@ printf_read_question() {
   test -n "$1" && test -z "${1//[0-9]/}" && local lines="$1" && shift 1 || local lines="120"
   local reply="${1:-REPLY}" && shift 1
   local readopts="${1:-}" && shift 1
-  printf_color "\t\t$msg " "${PRINTF_COLOR:-$color}"
+  printf_color "$msg " "${PRINTF_COLOR:-$color}"
   read -t 30 -e -r -n $lines ${readopts:-} ${reply:-}
   [ -z "$reply" ] && printf '\n' && return 1 || return 0
 }
@@ -328,7 +328,7 @@ printf_read_question_nt() {
   test -n "$1" && test -z "${1//[0-9]/}" && local lines="$1" && shift 1 || local lines="120"
   local reply="${1:-REPLY}" && shift 1
   local readopts="${1:-}" && shift 1
-  printf_color "\t\t$msg " "${PRINTF_COLOR:-$color}"
+  printf_color "$msg " "${PRINTF_COLOR:-$color}"
   read -e -r -n $lines ${readopts:-} ${reply:-} || return 1
   [ -z "$reply" ] && printf '\n' && return 1 || return 0
 }
@@ -382,15 +382,15 @@ printf_head() {
   local msg6="$1" && shift 1 || msg6=
   local msg7="$1" && shift 1 || msg7=
   shift
-  [ -z "$msg1" ] || printf_color "\t\t##################################################\n" "${PRINTF_COLOR:-$color}"
-  [ -z "$msg1" ] || printf_color "\t\t$msg1\n" "${PRINTF_COLOR:-$color}"
-  [ -z "$msg2" ] || printf_color "\t\t$msg2\n" "${PRINTF_COLOR:-$color}"
-  [ -z "$msg3" ] || printf_color "\t\t$msg3\n" "${PRINTF_COLOR:-$color}"
-  [ -z "$msg4" ] || printf_color "\t\t$msg4\n" "${PRINTF_COLOR:-$color}"
-  [ -z "$msg5" ] || printf_color "\t\t$msg5\n" "${PRINTF_COLOR:-$color}"
-  [ -z "$msg6" ] || printf_color "\t\t$msg6\n" "${PRINTF_COLOR:-$color}"
-  [ -z "$msg7" ] || printf_color "\t\t$msg7\n" "${PRINTF_COLOR:-$color}"
-  [ -z "$msg1" ] || printf_color "\t\t##################################################\n" "${PRINTF_COLOR:-$color}"
+  [ -z "$msg1" ] || printf_color "##################################################\n" "${PRINTF_COLOR:-$color}"
+  [ -z "$msg1" ] || printf_color "$msg1\n" "${PRINTF_COLOR:-$color}"
+  [ -z "$msg2" ] || printf_color "$msg2\n" "${PRINTF_COLOR:-$color}"
+  [ -z "$msg3" ] || printf_color "$msg3\n" "${PRINTF_COLOR:-$color}"
+  [ -z "$msg4" ] || printf_color "$msg4\n" "${PRINTF_COLOR:-$color}"
+  [ -z "$msg5" ] || printf_color "$msg5\n" "${PRINTF_COLOR:-$color}"
+  [ -z "$msg6" ] || printf_color "$msg6\n" "${PRINTF_COLOR:-$color}"
+  [ -z "$msg7" ] || printf_color "$msg7\n" "${PRINTF_COLOR:-$color}"
+  [ -z "$msg1" ] || printf_color "##################################################\n" "${PRINTF_COLOR:-$color}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # same as printf_head but no formatting

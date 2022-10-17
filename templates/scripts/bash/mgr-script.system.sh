@@ -98,9 +98,9 @@ else
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional printf_ colors
-__printf_head() { printf_color "\t\t$1\n" "5"; }
-__printf_opts() { printf_color "\t\t$1\n" "6"; }
-__printf_line() { printf_color "\t\t$1\n" "4"; }
+__printf_head() { printf_color "$1\n" "5"; }
+__printf_opts() { printf_color "$1\n" "6"; }
+__printf_line() { printf_color "$1\n" "4"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # list all packages
 __list_available() {

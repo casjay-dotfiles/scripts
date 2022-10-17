@@ -132,7 +132,7 @@ __supported_oses() {
 __unsupported_oses() {
   for os in "$@"; do
     if [[ "$(echo $1 | tr '[:upper:]' '[:lower:]')" =~ $(os_support) ]]; then
-      printf_red "\t\t$(os_support $os) is not supported\n"
+      printf_red "$(os_support $os) is not supported\n"
       exit 1
     fi
   done

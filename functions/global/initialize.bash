@@ -16,7 +16,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Fail if git, curl, wget are not installed
 if ! builtin type -P git &>/dev/null; then
-  echo -e "\t\t\033[0;31mAttempting to install git\033[0m"
+  echo -e "\033[0;31mAttempting to install git\033[0m"
   if builtin type -P brew &>/dev/null; then
     brew install -f git &>/dev/null
   elif builtin type -P apt &>/dev/null; then
@@ -28,11 +28,11 @@ if ! builtin type -P git &>/dev/null; then
   elif builtin type -P choco &>/dev/null; then
     choco install git -y &>/dev/null
     if builtin type -P git &>/dev/null; then
-      echo -e "\t\t\033[0;31mGit was not installed\033[0m"
+      echo -e "\033[0;31mGit was not installed\033[0m"
       exit 1
     fi
   else
-    echo -e "\t\t\033[0;31mGit is not installed\033[0m"
+    echo -e "\033[0;31mGit is not installed\033[0m"
     exit 1
   fi
 fi

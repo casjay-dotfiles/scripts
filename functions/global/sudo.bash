@@ -21,7 +21,7 @@
 #   sudo() { builtin command sudo -A $*; }
 # else
 #   export SUDO_ASKPASS="${SUDO_ASKPASS:-}"
-#   export SUDO_PROMPT="$(printf "\n\t\t\033[1;31m")[sudo]$(printf "\033[1;36m") password for $(printf "\033[1;32m")%p: $(printf "\033[0m" && echo)"
+#   export SUDO_PROMPT="$(printf "\n\033[1;31m")[sudo]$(printf "\033[1;36m") password for $(printf "\033[1;32m")%p: $(printf "\033[0m" && echo)"
 # fi
 WHOAMI="${USER}"
 [ -n "$SUDO_USER" ] && RUN_USER=${RUN_USER:-$SUDO_USER} || RUN_USER=${RUN_USER:-$WHOAMI}
@@ -94,6 +94,6 @@ __sudoexit() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __requiresudo() {
   __can_i_sudo && __sudoask && __sudoexit && return 0 ||
-    { printf_red "You dont have access to sudo\n\t\tPlease contact the syadmin for access" && return 1; }
+    { printf_red "You dont have access to sudo\nPlease contact the syadmin for access" && return 1; }
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

@@ -150,6 +150,9 @@ CONTAINER_IS_PRIVILEGED="yes"
 # Set the SHM Size - default is 64M
 CONTAINER_SHM_SIZE="128M"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Restart container [always,no,on-failure,unless-stopped]
+CONTAINER_AUTO_RESTART="always"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Delete container after exit [yes,no]
 CONTAINER_AUTO_DELETE="no"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -282,9 +285,10 @@ CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME.$CONTAINER_DOMAINNAME}"
 PRETTY_PORT="${HOST_SERVICE_PORT:-$HOST_PORT}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [ "$CONTAINER_TTY" = "yes" ] && DOCKER_OPTS+="--tty " || CONTAINER_TTY=""
-[ "$CONTAINER_AUTO_DELETE" = "yes" ] && DOCKER_OPTS+="--rm " || CONTAINER_AUTO_DELETE=""
 [ "$CONTAINER_INTERACTIVE" = "yes" ] && DOCKER_OPTS+="--interactive " || CONTAINER_INTERACTIVE=""
 [ "$CONTAINER_IS_PRIVILEGED" = "yes" ] && DOCKER_OPTS+="--privileged " || CONTAINER_IS_PRIVILEGED=""
+[ "$CONTAINER_AUTO_DELETE" = "yes" ] && DOCKER_OPTS+="--rm " && CONTAINER_AUTO_RESTART="" || CONTAINER_AUTO_DELETE=""
+[ -n "$CONTAINER_AUTO_RESTART" ] && DOCKER_OPTS+="--restart=$CONTAINER_AUTO_RESTART "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup display if enabled
 if [ "$CONTAINER_DISPLAY" = "yes" ]; then
@@ -399,8 +403,7 @@ else
   printf_cyan "Updating the image from $HUB_IMAGE_URL with tag $HUB_IMAGE_TAG"
   __sudo docker pull "$HUB_IMAGE_URL" &>/dev/null
   printf_cyan "Creating container $APPNAME"
-  __sudo docker run -d \
-    --restart=always --name="$APPNAME" \
+  __sudo docker run -d --name="$APPNAME" \
     --shm-size=$CONTAINER_SHM_SIZE $DOCKER_OPTS \
     --hostname "$CONTAINER_HOSTNAME" --env TZ="$HOST_TIMEZONE" \
     --env TIMEZONE="$HOST_TIMEZONE" $SET_ENV $SET_DEV $SET_MNT $SET_PORT $SET_CAP $CUSTOM_ARGUMENTS $HOST_NETWORK_TYPE \

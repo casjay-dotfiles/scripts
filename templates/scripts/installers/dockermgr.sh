@@ -292,7 +292,7 @@ PRETTY_PORT="${HOST_SERVICE_PORT:-$HOST_PORT}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup display if enabled
 if [ "$CONTAINER_DISPLAY" = "yes" ]; then
-  ADDITION_ENV="DISPLAY=:${TEST_DISPLAY//*:/} "
+  ADDITION_ENV="DISPLAY=:${DISPLAY//*:/} "
   ADDITIONAL_MOUNTS+="${HOST_X11_SOCKET:-/tmp/.X11-unix}:/tmp/.X11-unix " ||
     if [ -n "$HOST_X11_XAUTH" ] && [ -n "$CONTAINER_X11_XAUTH" ]; then
       ADDITIONAL_MOUNTS+="$HOST_X11_XAUTH:$CONTAINER_X11_XAUTH "

@@ -61,8 +61,14 @@ __enable_ssl() { { [ "$SSL_ENABLED" = "yes" ] || [ "$SSL_ENABLED" = "true" ]; } 
 __ssl_certs() { [ -f "$HOST_SSL_CA" ] && [ -f "$HOST_SSL_CRT" ] && [ -f "$HOST_SSL_KEY" ] && return 0 || return 1; }
 __port_not_in_use() { [ -d "/etc/nginx/vhosts.d" ] && grep -wRsq "${1:-$CONTAINER_HTTP_PORT}" "/etc/nginx/vhosts.d" && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Define pre-install scripts
+# Define any pre-install scripts
 run_pre_install() {
+
+  return ${?:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Define any post-install scripts
+run_post_install() {
 
   return ${?:-0}
 }
@@ -97,10 +103,12 @@ HOST_CONFIG_DIR="$DATADIR/config"
 LOCAL_DATA_DIR="${LOCAL_DATA_DIR:-$HOST_DATA_DIR}"
 LOCAL_CONFIG_DIR="${LOCAL_CONFIG_DIR:-$HOST_CONFIG_DIR}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup variables
+# Set container timezone - Default America/New_York
 TZ=""
-CONTAINER_DOMAINNAME=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set container hostname and domain - Default GEN_SCRIPT_REPLACE_APPNAME
 CONTAINER_HOSTNAME=""
+CONTAINER_DOMAINNAME=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # URL to container image [docker pull URL]
 HUB_IMAGE_URL="casjaysdevdocker/GEN_SCRIPT_REPLACE_APPNAME"
@@ -126,28 +134,28 @@ SSL_CA="$HOST_SSL_CA"
 SSL_KEY="$HOST_SSL_KEY"
 SSL_CERT="$HOST_SSL_CRT"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set to yes for container to listen on LOCAL_IP only
+HOST_LOCAL_ONLY="no"
+LOCAL_IP="127.0.0.1"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set this to 0.0.0.0 to listen on all or specify addresses
 DEFINE_LISTEN=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set to yes for container to listen on LOCAL_IP only
-LOCAL_IP="127.0.0.1"
-HOST_LISTEN_LOCAL="no"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set the network type - bridge,host [bridge]
+# Set the network type - bridge,host - default is bridge
 HOST_NETWORK_TYPE="bridge"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Enable privileged container
 CONTAINER_IS_PRIVILEGED="yes"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set the SHM Size - default 64M
+# Set the SHM Size - default is 64M
 CONTAINER_SHM_SIZE="128M"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Delete container afet exit [yes,no]
+# Delete container after exit [yes,no]
 CONTAINER_AUTO_DELETE="no"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Enable tty and interactive [yes,no]
-CONTAINER_TTY=""
-CONTAINER_INTERACTIVE=""
+CONTAINER_TTY="yes"
+CONTAINER_INTERACTIVE="no"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Enable display in container
 CONTAINER_DISPLAY="no"
@@ -179,7 +187,7 @@ ADDITION_DEVICES+=""
 CUSTOM_ARGUMENTS=""
 CUSTOM_ARGUMENTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set this to the protocol the the container will use [http]
+# Set this to the protocol the the container will use [http,https,git,ftp,etc]
 CONTAINER_HTTP_PROTO="http"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Add Add sevicee port [port] or [port:port] - LISTEN will be added if defined [DEFINE_LISTEN]
@@ -261,7 +269,7 @@ CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME.$CONTAINER_DOMAINNAME}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Configure variables
 [ "$CONTAINER_HTTPS_PORT" = "https" ] && CONTAINER_HTTP_PROTO="https"
-[ "$HOST_LISTEN_LOCAL" = "yes" ] && DEFINE_LISTEN="${LOCAL_IP:-127.0.0.1}" || HOST_LISTEN_LOCAL=""
+[ "$HOST_LOCAL_ONLY" = "yes" ] && DEFINE_LISTEN="${LOCAL_IP:-127.0.0.1}" || HOST_LOCAL_ONLY=""
 [ "$DOCKER_SOCKET_ENABLED" = "yes" ] && ADDITIONAL_MOUNTS+="$DOCKER_SOCKET_MOUNT:/var/run/docker.sock "
 [ "$NGINX_SSL" = "yes" ] && [ -n "$NGINX_HTTPS" ] && NGINX_PORT="${NGINX_HTTPS:-443}" || NGINX_PORT="${NGINX_HTTP:-80}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -271,6 +279,8 @@ CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME.$CONTAINER_DOMAINNAME}"
 [ -n "$HOST_WEB_PORT" ] && HOST_PORT="${HOST_WEB_PORT//:*/}"
 [ -n "$DEFINE_LISTEN" ] && DEFINE_LISTEN="${DEFINE_LISTEN//:*/}:" || DEFINE_LISTEN=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+PRETTY_PORT="${HOST_SERVICE_PORT:-$HOST_PORT}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [ "$CONTAINER_TTY" = "yes" ] && DOCKER_OPTS+="--tty " || CONTAINER_TTY=""
 [ "$CONTAINER_AUTO_DELETE" = "yes" ] && DOCKER_OPTS+="--rm " || CONTAINER_AUTO_DELETE=""
 [ "$CONTAINER_INTERACTIVE" = "yes" ] && DOCKER_OPTS+="--interactive " || CONTAINER_INTERACTIVE=""
@@ -278,6 +288,7 @@ CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME.$CONTAINER_DOMAINNAME}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup display if enabled
 if [ "$CONTAINER_DISPLAY" = "yes" ]; then
+  ADDITION_ENV="DISPLAY "
   ADDITIONAL_MOUNTS+="${HOST_X11_SOCKET:-/tmp/.X11-unix}:/tmp/.X11-unix " ||
     if [ -n "$HOST_X11_XAUTH" ] && [ -n "$CONTAINER_X11_XAUTH" ]; then
       ADDITIONAL_MOUNTS+="$HOST_X11_XAUTH:$CONTAINER_X11_XAUTH "
@@ -289,9 +300,9 @@ CONTAINER_X11_XAUTH=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # SSL setup
 if [ "$SSL_ENABLED" = "yes" ]; then
-  if [ "$CONTAINER_HTTP_PROTO" = "http" ]; then
+  if [ "$CONTAINER_HTTP_PROTO" = "https" ]; then
     NGINX_LISTEN_OPTS="ssl http2"
-    NGINX_PROXY="https://$HOST_LISTEN_ADDR:$HOST_PORT"
+    NGINX_PROXY="https://$HOST_LISTEN_ADDR:$PRETTY_PORT"
     CONTAINER_HTTP_PROTO="https"
   fi
   if [ -f "$HOST_SSL_CRT" ] && [ -f "$HOST_SSL_KEY" ]; then
@@ -303,7 +314,7 @@ else
   CONTAINER_HTTP_PROTO="${CONTAINER_HTTP_PROTO:-http}"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-NGINX_PROXY="${NGINX_PROXY:-$CONTAINER_HTTP_PROTO://$HOST_LISTEN_ADDR:$HOST_PORT}"
+NGINX_PROXY="${NGINX_PROXY:-$CONTAINER_HTTP_PROTO://$HOST_LISTEN_ADDR:$PRETTY_PORT}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_CAP=""
 for cap in $ADD_CAPABILITIES; do
@@ -388,10 +399,11 @@ else
   printf_cyan "Updating the image from $HUB_IMAGE_URL with tag $HUB_IMAGE_TAG"
   __sudo docker pull "$HUB_IMAGE_URL" &>/dev/null
   printf_cyan "Creating container $APPNAME"
-  __sudo docker run -d --restart=always --name="$APPNAME" \
+  __sudo docker run -d \
+    --restart=always --name="$APPNAME" \
     --shm-size=$CONTAINER_SHM_SIZE $DOCKER_OPTS \
-    --hostname "$CONTAINER_HOSTNAME" -e TZ="$HOST_TIMEZONE" \
-    -e TIMEZONE="$HOST_TIMEZONE" $SET_ENV $SET_DEV $SET_MNT $SET_PORT $SET_CAP $CUSTOM_ARGUMENTS $HOST_NETWORK_TYPE \
+    --hostname "$CONTAINER_HOSTNAME" --env TZ="$HOST_TIMEZONE" \
+    --env TIMEZONE="$HOST_TIMEZONE" $SET_ENV $SET_DEV $SET_MNT $SET_PORT $SET_CAP $CUSTOM_ARGUMENTS $HOST_NETWORK_TYPE \
     "$HUB_IMAGE_URL:$HUB_IMAGE_TAG" 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log" &&
     rm -Rf "${TMP:-/tmp}/$APPNAME.err.log" || ERROR_LOG="true"
 fi
@@ -401,7 +413,7 @@ if [ ! -f "/etc/nginx/vhosts.d/$CONTAINER_HOSTNAME.conf" ] && [ -f "$INSTDIR/ngi
   cp -f "$INSTDIR/nginx/proxy.conf" "/tmp/$$.$CONTAINER_HOSTNAME.conf"
   sed -i "s|REPLACE_APPNAME|$APPNAME|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
   sed -i "s|REPLACE_NGINX_PORT|$NGINX_PORT|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
-  sed -i "s|REPLACE_HOST_PORT|$HOST_PORT|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
+  sed -i "s|REPLACE_HOST_PORT|$PRETTY_PORT|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
   sed -i "s|REPLACE_HOST_PROXY|$NGINX_PROXY|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
   sed -i "s|REPLACE_HOST_HOST|$CONTAINER_DOMAINNAME|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
   sed -i "s|REPLACE_REVPROXY_PROTO|$CONTAINER_HTTP_PROTO|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
@@ -420,7 +432,7 @@ run_postinst() {
   dockermgr_run_post
   [ -w "/etc/hosts" ] || return 0
   if ! grep -sq "$CONTAINER_HOSTNAME" "/etc/hosts"; then
-    if [ -n "$HOST_PORT" ]; then
+    if [ -n "$PRETTY_PORT" ]; then
       if [ $(hostname -d 2>/dev/null | grep '^') = 'local' ]; then
         echo "$HOST_LISTEN_ADDR     $APPNAME.local" | sudo tee -a "/etc/hosts" &>/dev/null
       else
@@ -436,7 +448,7 @@ run_postinst() {
 execute "run_postinst" "Running post install scripts"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Output post install message
-
+run_post_install
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # create version file
 dockermgr_install_version
@@ -445,9 +457,13 @@ dockermgr_install_version
 if docker ps -a | grep -qs "$APPNAME"; then
   printf_yellow "The DATADIR is in $DATADIR"
   printf_cyan "$APPNAME has been installed to $INSTDIR"
-  [ -z "$HOST_SERVICE_PORT" ] && printf_yellow "This container does not have service" || printf_cyan "Service is running on $HOST_LISTEN_ADDR:$HOST_SERVICE_PORT or $CONTAINER_HOSTNAME:$HOST_SERVICE_PORT"
-  [ -z "$HOST_PORT" ] || printf_yellow "Service is running on: $HOST_LISTEN_ADDR:$HOST_PORT"
-  [ -z "$HOST_PORT" ] || printf_yellow "and should be available at: $NGINX_PROXY or $CONTAINER_HTTP_PROTO//$CONTAINER_HOSTNAME:$HOST_PORT"
+  if [ -z "$PRETTY_PORT" ]; then
+    printf_yellow "This container does not have service"
+  else
+    printf_yellow "Service is running on: $HOST_LISTEN_ADDR:${PRETTY_PORT}"
+    printf_cyan "Service is listening on $HOST_LISTEN_ADDR:$PRETTY_PORT or $CONTAINER_HOSTNAME:$PRETTY_PORT"
+    printf_yellow "and should be available at: $NGINX_PROXY or $CONTAINER_HTTP_PROTO//$CONTAINER_HOSTNAME:$PRETTY_PORT"
+  fi
   [ -z "$POST_SHOW_MESSAGE_USER" ] || printf_cyan "Username is:  $POST_SHOW_MESSAGE_USER"
   [ -z "$POST_SHOW_MESSAGE_PASS" ] || printf_purple "Password is:  $POST_SHOW_MESSAGE_PASS"
   [ -z "$POST_SHOW_MESSAGE_FINISHED" ] || printf_green "$POST_SHOW_MESSAGE_FINISHED"

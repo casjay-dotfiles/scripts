@@ -142,6 +142,9 @@ CONTAINER_IS_PRIVILEGED="yes"
 # Set the SHM Size - default 64M
 CONTAINER_SHM_SIZE="128M"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Delete container afet exit [yes,no]
+CONTAINER_AUTO_DELETE="no"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Enable tty and interactive [yes,no]
 CONTAINER_TTY=""
 CONTAINER_INTERACTIVE=""
@@ -240,7 +243,8 @@ mkdir -p "$LOCAL_DATA_DIR"
 mkdir -p "$LOCAL_CONFIG_DIR"
 chmod -Rf 777 "$APPDIR"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Variables - Do not change
+# Variables - Do not change anything below this line
+DOCKER_OPTS=""
 NGINX_LISTEN_OPTS=""
 HOST_IP="${CURRIP4:-$LOCAL_IP}"
 HOST_TIMEZONE="${TZ:-$TIMEZONE}"
@@ -267,9 +271,10 @@ CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME.$CONTAINER_DOMAINNAME}"
 [ -n "$HOST_WEB_PORT" ] && HOST_PORT="${HOST_WEB_PORT//:*/}"
 [ -n "$DEFINE_LISTEN" ] && DEFINE_LISTEN="${DEFINE_LISTEN//:*/}:" || DEFINE_LISTEN=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-[ "$CONTAINER_TTY" = "yes" ] && CONTAINER_TTY="--tty" || CONTAINER_TTY=""
-[ "$CONTAINER_INTERACTIVE" = "yes" ] && CONTAINER_INTERACTIVE="--interactive" || CONTAINER_INTERACTIVE=""
-[ "$CONTAINER_IS_PRIVILEGED" = "yes" ] && CONTAINER_IS_PRIVILEGED="--privileged" || CONTAINER_IS_PRIVILEGED=""
+[ "$CONTAINER_TTY" = "yes" ] && DOCKER_OPTS+="--tty " || CONTAINER_TTY=""
+[ "$CONTAINER_AUTO_DELETE" = "yes" ] && DOCKER_OPTS+="--rm " || CONTAINER_AUTO_DELETE=""
+[ "$CONTAINER_INTERACTIVE" = "yes" ] && DOCKER_OPTS+="--interactive " || CONTAINER_INTERACTIVE=""
+[ "$CONTAINER_IS_PRIVILEGED" = "yes" ] && DOCKER_OPTS+="--privileged " || CONTAINER_IS_PRIVILEGED=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup display if enabled
 if [ "$CONTAINER_DISPLAY" = "yes" ]; then
@@ -277,11 +282,10 @@ if [ "$CONTAINER_DISPLAY" = "yes" ]; then
     if [ -n "$HOST_X11_XAUTH" ] && [ -n "$CONTAINER_X11_XAUTH" ]; then
       ADDITIONAL_MOUNTS+="$HOST_X11_XAUTH:$CONTAINER_X11_XAUTH "
     fi
-else
-  HOST_X11_XAUTH=""
-  CONTAINER_DISPLAY=""
-  CONTAINER_X11_XAUTH=""
 fi
+HOST_X11_XAUTH=""
+CONTAINER_DISPLAY=""
+CONTAINER_X11_XAUTH=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # SSL setup
 if [ "$SSL_ENABLED" = "yes" ]; then
@@ -384,8 +388,8 @@ else
   printf_cyan "Updating the image from $HUB_IMAGE_URL with tag $HUB_IMAGE_TAG"
   __sudo docker pull "$HUB_IMAGE_URL" &>/dev/null
   printf_cyan "Creating container $APPNAME"
-  __sudo docker run -d $CONTAINER_IS_PRIVILEGED --restart=always --name="$APPNAME" \
-    --shm-size=$CONTAINER_SHM_SIZE $CONTAINER_TTY $CONTAINER_INTERACTIVE \
+  __sudo docker run -d --restart=always --name="$APPNAME" \
+    --shm-size=$CONTAINER_SHM_SIZE $DOCKER_OPTS \
     --hostname "$CONTAINER_HOSTNAME" -e TZ="$HOST_TIMEZONE" \
     -e TIMEZONE="$HOST_TIMEZONE" $SET_ENV $SET_DEV $SET_MNT $SET_PORT $SET_CAP $CUSTOM_ARGUMENTS $HOST_NETWORK_TYPE \
     "$HUB_IMAGE_URL:$HUB_IMAGE_TAG" 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log" &&

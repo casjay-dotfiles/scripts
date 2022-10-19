@@ -572,15 +572,19 @@ __run_help() {
   exit 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__container_is_running() { __docker ps -a -q -f status=running -f name=^/$1$ | grep '^' || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__container_exists() { docker ps -a -q -f name=^/$1$ | grep '^' || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_main() {
   NAME="$(echo "$1" | sed 's/[!@#\$%^&*():]//g' | sed 's|/|-|g')"
   IMAGE="${2:-$1}"
-  EXISTS="$(__docker ps -q -f status=running -f name=^/${NAME}$ | grep '^' || false)"
+  EXISTS="$(__container_is_running "$NAME" || false)"
   if [ -n "$EXISTS" ]; then
     __docker container exec -it "$NAME" "/bin/bash"
   else
     if [ -n "$1" ]; then
-      __docker run -d "${DOCKER_ARG[@]}" --network host -it --name "$NAME" --restart always "$IMAGE"
+      __docker run -d $DOCKER_ARG --network host -it --name "$NAME" --restart always "$IMAGE"
       __docker container exec -it "$NAME" "/bin/bash" || printf_exit "Failed to run $NAME"
     else
       printf_exit "Error: No container name was given"
@@ -1182,11 +1186,11 @@ test)
   image_name="casjaysdev-$(basename "$image")"
   name="$(echo "$image_name" | sed 's|:.*||g')"
   args="${*:-/bin/sh}"
-  status="$(docker ps -a 2>/dev/null | grep -F "$name" | grep '^' || false)"
+  status="$(__container_exists || false)"
   [ -n "$image" ] || printf_exit "Please provide the imageName [myuser/myimage]"
   printf_blue "Attempting to pull $image"
   __docker_pull "$image" &>/dev/null
-  if echo "$status" | grep -qi 'up' &>/dev/null; then
+  if __container_is_running; then
     printf_purple "Entering container: $name"
     __docker exec -it "$name" $args 2>/dev/null
     printf_read_question "4" "Should I delete the container?" "1"
@@ -1200,14 +1204,14 @@ test)
       printf_answer_yes && __docker rm -f "$name" &>/dev/null
       exit 0
     else
-      printf_return "An error has occured"
+      printf_return "An error has occured while entering $name"
       cat "$DOCKERMGR_TEMP_FILE" | printf_readline
       exit 1
     fi
   else
     printf_purple "Creating container: $name with image: $image"
-    __docker_run --name "$name" --hostname "$name" $DOCKER_ARG "$image" $args 2>"$DOCKERMGR_TEMP_FILE"
-    if docker ps | grep "$name"; then
+    __docker_run --name "$name" --hostname "$name" $DOCKER_ARG "$image" $args 2>"$DOCKERMGR_TEMP_FILE" || true
+    if __docker ps | grep -q "$name"; then
       printf_read_question "4" "Should I delete the container?" "1"
       printf_answer_yes && __docker rm -f "$name" &>/dev/null
       exit 0
@@ -1232,7 +1236,7 @@ enter)
     shift 1
     printf_cyan "Attempting to grab $image"
     __docker_pull "$image" &>/dev/null
-    __docker run -ti --name "$name" "${DOCKER_ARG[@]}" "$image" "${@:-/bin/sh}"
+    __docker run -ti --name "$name" $DOCKER_ARG "$image" "${@:-/bin/sh}"
   else
     printf_return "There is no such container"
   fi

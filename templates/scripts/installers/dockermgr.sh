@@ -214,7 +214,7 @@ CONTAINER_ADD_CUSTOM_PORT=""
 CONTAINER_ADD_CUSTOM_PORT+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show post install message
-POST_SHOW_MESSAGE_FINISHED=""
+POST_SHOW_FINISHED_MESSAGE=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup nginx proxy variables
 NGINX_SSL="yes"
@@ -274,7 +274,7 @@ CONTAINER_SHM_SIZE="${CONTAINER_SHM_SIZE:-64M}"
 HOST_SERVICE_PORT="${CONTAINER_SERVICE_PORT//:*/}"
 CONTAINER_HTTP_PROTO="${CONTAINER_HTTP_PROTO:-http}"
 HOST_NETWORK_TYPE="--network ${HOST_NETWORK_TYPE:-bridge}"
-POST_SHOW_MESSAGE_FINISHED="${POST_SHOW_MESSAGE_FINISHED:-}"
+POST_SHOW_FINISHED_MESSAGE="${POST_SHOW_FINISHED_MESSAGE:-}"
 HOST_WEB_PORT="${CONTAINER_HTTPS_PORT:-$CONTAINER_HTTP_PORT}"
 CONTAINER_DOMAINNAME="${CONTAINER_DOMAINNAME:-"$(hostname -d 2>/dev/null | grep '^' || echo 'local')"}"
 CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME.$CONTAINER_DOMAINNAME}"
@@ -317,9 +317,9 @@ CONTAINER_X11_XAUTH=""
 # SSL setup
 if [ "$SSL_ENABLED" = "yes" ]; then
   if [ "$CONTAINER_HTTP_PROTO" = "https" ]; then
+    CONTAINER_HTTP_PROTO="https"
     NGINX_LISTEN_OPTS="ssl http2"
     NGINX_PROXY="https://$HOST_LISTEN_ADDR:$PRETTY_PORT"
-    CONTAINER_HTTP_PROTO="https"
   fi
   if [ -f "$HOST_SSL_CRT" ] && [ -f "$HOST_SSL_KEY" ]; then
     [ -f "$CONTAINER_SSL_CA" ] && ADDITIONAL_MOUNTS+="$HOST_SSL_CA:$CONTAINER_SSL_CA "
@@ -495,7 +495,7 @@ if docker ps -a | grep -qs "$APPNAME"; then
   fi
   [ -z "$CONTAINER_USER_NAME" ] || printf_cyan "Username is:  $CONTAINER_USER_NAME"
   [ -z "$CONTAINER_USER_PASS" ] || printf_purple "Password is:  $CONTAINER_USER_PASS"
-  [ -z "$POST_SHOW_MESSAGE_FINISHED" ] || printf_green "$POST_SHOW_MESSAGE_FINISHED"
+  [ -z "$POST_SHOW_FINISHED_MESSAGE" ] || printf_green "$POST_SHOW_FINISHED_MESSAGE"
 else
   [ "$ERROR_LOG" = "true" ] && printf_yellow "Errors logged to ${TMP:-/tmp}/$APPNAME.err.log"
   printf_error "Something seems to have gone wrong with the install"

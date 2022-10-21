@@ -174,6 +174,10 @@ DOCKER_SOCKET_MOUNT="/var/run/docker.sock"
 ADD_CAPABILITIES="SYS_ADMIN "
 ADD_CAPABILITIES+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set sysctl
+ADD_SYSCTL=""
+ADD_SYSCTL+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define additional mounts [ /dir:/dir ]
 ADDITIONAL_MOUNTS="$LOCAL_CONFIG_DIR:/config:z $LOCAL_DATA_DIR:/data:z "
 ADDITIONAL_MOUNTS+=""
@@ -328,6 +332,14 @@ for cap in $ADD_CAPABILITIES; do
   fi
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SET_SYSCTL=""
+for sysctl in $ADD_SYSCTL; do
+  [ "$sysctl" = " " ] && sysctl=""
+  if [ -n "$sysctl" ]; then
+    SET_SYSCTL+="--sysctl $sysctl "
+  fi
+done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_ENV=""
 for env in $ADDITION_ENV; do
   [ "$env" = " " ] && env=""
@@ -406,9 +418,9 @@ else
   __sudo docker pull "$HUB_IMAGE_URL" &>/dev/null
   printf_cyan "Creating container $APPNAME"
   __sudo docker run -d --name="$APPNAME" \
-    --shm-size=$CONTAINER_SHM_SIZE $DOCKER_OPTS \
+    --shm-size=$CONTAINER_SHM_SIZE $DOCKER_OPTS $SET_CAP $SET_SYSCTL \
     --hostname "$CONTAINER_HOSTNAME" --env TZ="$HOST_TIMEZONE" \
-    --env TIMEZONE="$HOST_TIMEZONE" $SET_ENV $SET_DEV $SET_MNT $SET_PORT $SET_CAP $CUSTOM_ARGUMENTS $HOST_NETWORK_TYPE \
+    --env TIMEZONE="$HOST_TIMEZONE" $SET_ENV $SET_DEV $SET_MNT $SET_PORT $CUSTOM_ARGUMENTS $HOST_NETWORK_TYPE \
     "$HUB_IMAGE_URL:$HUB_IMAGE_TAG" 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log" &&
     rm -Rf "${TMP:-/tmp}/$APPNAME.err.log" || ERROR_LOG="true"
 fi

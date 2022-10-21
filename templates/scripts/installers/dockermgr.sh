@@ -268,10 +268,10 @@ DOCKER_OPTS=""
 NGINX_LISTEN_OPTS=""
 HOST_IP="${CURRIP4:-$LOCAL_IP}"
 HOST_TIMEZONE="${TZ:-$TIMEZONE}"
+DEFINE_LISTEN="${DEFINE_LISTEN:-}"
 HOST_LISTEN_ADDR="${DEFINE_LISTEN:-$HOST_IP}"
 CONTAINER_SHM_SIZE="${CONTAINER_SHM_SIZE:-64M}"
 HOST_SERVICE_PORT="${CONTAINER_SERVICE_PORT//:*/}"
-DEFINE_LISTEN="${DEFINE_LISTEN:-$HOST_LISTEN_ADDR}"
 CONTAINER_HTTP_PROTO="${CONTAINER_HTTP_PROTO:-http}"
 HOST_NETWORK_TYPE="--network ${HOST_NETWORK_TYPE:-bridge}"
 POST_SHOW_MESSAGE_FINISHED="${POST_SHOW_MESSAGE_FINISHED:-}"
@@ -379,7 +379,11 @@ for port in $CONTAINER_HTTP_PORT $CONTAINER_SERVICE_PORT $CONTAINER_HTTPS_PORT $
   [ "$port" = " " ] && port=""
   if [ -n "$port" ]; then
     echo "$port" | grep -q ':' || port="${port//\/*/}:$port"
-    SET_PORT+="--publish $DEFINE_LISTEN$port "
+    if [ -n "$DEFINE_LISTEN" ]; then
+      SET_PORT+="--publish $DEFINE_LISTEN$port "
+    else
+      SET_PORT+="--publish $port "
+    fi
   fi
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

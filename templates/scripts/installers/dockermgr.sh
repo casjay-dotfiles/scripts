@@ -374,7 +374,7 @@ SET_PORT=""
 for port in $CONTAINER_HTTP_PORT $CONTAINER_SERVICE_PORT $CONTAINER_HTTPS_PORT $CONTAINER_ADD_CUSTOM_PORT; do
   [ "$port" = " " ] && port=""
   if [ -n "$port" ]; then
-    echo "$port" | grep -q ':' || port="$port:$port"
+    echo "$port" | grep -q ':' || port="${port//\/*/}:$port"
     SET_PORT+="--publish $DEFINE_LISTEN$port "
   fi
 done

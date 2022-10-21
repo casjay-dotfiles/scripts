@@ -166,6 +166,12 @@ HOST_X11_SOCKET="/tmp/.X11-unix"
 HOST_X11_XAUTH="$HOME/.Xauthority"
 CONTAINER_X11_XAUTH="/home/x11user/.Xauthority"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set container username and password and the env name [Default to -e username=name -e password=pass]
+CONTAINER_USER_NAME=""
+CONTAINER_USER_PASS=""
+CONTAINER_ENV_USER_NAME=""
+CONTAINER_ENV_USER_PASS=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mount docker socket [pathToSocket]
 DOCKER_SOCKET_ENABLED="no"
 DOCKER_SOCKET_MOUNT="/var/run/docker.sock"
@@ -206,10 +212,6 @@ CONTAINER_SERVICE_PORT=""
 # Add Add sevicee port [port] or [port:port] - LISTEN will be added if defined [DEFINE_LISTEN]
 CONTAINER_ADD_CUSTOM_PORT=""
 CONTAINER_ADD_CUSTOM_PORT+=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Show user info message
-POST_SHOW_MESSAGE_USER=""
-POST_SHOW_MESSAGE_PASS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show post install message
 POST_SHOW_MESSAGE_FINISHED=""
@@ -285,6 +287,8 @@ CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME.$CONTAINER_DOMAINNAME}"
 [ -n "$HOST_TIMEZONE" ] || HOST_TIMEZONE="America/New_York"
 [ -n "$HOST_WEB_PORT" ] && HOST_PORT="${HOST_WEB_PORT//:*/}"
 [ -n "$DEFINE_LISTEN" ] && DEFINE_LISTEN="${DEFINE_LISTEN//:*/}:" || DEFINE_LISTEN=""
+[ -z "$CONTAINER_USER_PASS" ] || ADDITION_ENV+="${CONTAINER_ENV_USER_PASS:-password}=$CONTAINER_USER_PASS "
+[ -z "$CONTAINER_USER_NAME" ] || ADDITION_ENV+="${CONTAINER_ENV_USER_NAME:-username}=$CONTAINER_USER_NAME "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 PRETTY_PORT="${HOST_SERVICE_PORT:-$HOST_PORT}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -296,7 +300,7 @@ PRETTY_PORT="${HOST_SERVICE_PORT:-$HOST_PORT}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup display if enabled
 if [ "$CONTAINER_DISPLAY" = "yes" ]; then
-  ADDITION_ENV="DISPLAY=:${DISPLAY//*:/} "
+  ADDITION_ENV+="DISPLAY=:${DISPLAY//*:/} "
   ADDITIONAL_MOUNTS+="${HOST_X11_SOCKET:-/tmp/.X11-unix}:/tmp/.X11-unix " ||
     if [ -n "$HOST_X11_XAUTH" ] && [ -n "$CONTAINER_X11_XAUTH" ]; then
       ADDITIONAL_MOUNTS+="$HOST_X11_XAUTH:$CONTAINER_X11_XAUTH "
@@ -481,8 +485,8 @@ if docker ps -a | grep -qs "$APPNAME"; then
     printf_cyan "Service is listening on $HOST_LISTEN_ADDR:$PRETTY_PORT or $CONTAINER_HOSTNAME:$PRETTY_PORT"
     printf_yellow "and should be available at: $NGINX_PROXY or $CONTAINER_HTTP_PROTO//$CONTAINER_HOSTNAME:$PRETTY_PORT"
   fi
-  [ -z "$POST_SHOW_MESSAGE_USER" ] || printf_cyan "Username is:  $POST_SHOW_MESSAGE_USER"
-  [ -z "$POST_SHOW_MESSAGE_PASS" ] || printf_purple "Password is:  $POST_SHOW_MESSAGE_PASS"
+  [ -z "$CONTAINER_USER_NAME" ] || printf_cyan "Username is:  $CONTAINER_USER_NAME"
+  [ -z "$CONTAINER_USER_PASS" ] || printf_purple "Password is:  $CONTAINER_USER_PASS"
   [ -z "$POST_SHOW_MESSAGE_FINISHED" ] || printf_green "$POST_SHOW_MESSAGE_FINISHED"
 else
   [ "$ERROR_LOG" = "true" ] && printf_yellow "Errors logged to ${TMP:-/tmp}/$APPNAME.err.log"

@@ -91,7 +91,7 @@ __check_pip() {
   local MISSING=""
   for cmd in $ARGS; do builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "; done
   if [ -n "$MISSING" ]; then
-    printf_read_question "2" "$1 is not installed Would you like install it? [y/N]" "1" "choice" "-s"
+    printf_read_question "2" "$1 is not installed Would you like install it? [y/N]" "1" "choice"
     if printf_answer_yes "$choice"; then
       for miss in $MISSING; do
         __execute "pkmgr pip $miss" "Installing $miss"
@@ -134,7 +134,7 @@ __check_app() {
       __ask_confirm "Would you like install $MISSING" "pkmgr silent-install $MISSING" || return 1
     else
       printf_red "The following apps are missing: $MISSING"
-      printf_read_question "2" "Would you like install the missing packages? [y/N]" "1" "choice" "-s"
+      printf_read_question "2" "Would you like install the missing packages? [y/N]" "1" "choice"
       if printf_answer_yes "$choice"; then
         for miss in $MISSING; do
           __execute "pkmgr silent-install $miss" "Installing $miss" || return 1

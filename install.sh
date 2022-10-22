@@ -150,8 +150,9 @@ run_postinst() {
   motdDir="/etc/casjaysdev/messages"
   verDir="/etc/casjaysdev/updates/versions"
   fontdir="$(ls -A "$CASJAYSDEVSAPPDIR/fontmgr/" | wc -l)"
-  git config --global pull.rebase true
+  git config --global pull.rebase 'true'
   ln_rm "$SHARE/applications/"
+  mkdir -p "/root/.local/backups/systemmgr/ssh"
   mkdir -p "$motdDir/motd" "$motdDir/issue" "$motdDir/legal"
   mkdir -p "$verDir" "/usr/local/share/CasjaysDev/apps/fontmgr"
   [ "$fontdir" = "0" ] && sudo fontmgr install Hack all-the-icons fontawesome LigatureSymbols
@@ -176,8 +177,10 @@ run_postinst() {
       sed --follow-symlinks -i 's|dir=~/Maildir||g' "$f"
   done
   for file in multi_clipboard se sentaku tdrop; do
-    [[ -f "/usr/local/bin/$file" ]] || ln_sf "$APPDIR/sources/$file" "/usr/local/bin/$file"
+    [ -f "/usr/local/bin/$file" ] || ln_sf "$APPDIR/sources/$file" "/usr/local/bin/$file"
   done
+  [ -f "/etc/casjaysdev/banners/ssh.txt" ] || touch "/etc/casjaysdev/banners/ssh.txt"
+  [ -f "/etc/casjaysdev/banners/rsync.txt" ] || touch "/etc/casjaysdev/banners/rsync.txt"
   cmd_exists --config &>/dev/null
   cmd_exists update-ip && update-ip
   cmd_exists update-motd && update-motd

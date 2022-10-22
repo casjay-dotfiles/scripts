@@ -289,7 +289,7 @@ printf_custom_question() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_question_term() {
-  printf_read_question "4" "$1" "1" "REPLY" "-s"
+  printf_read_question "4" "$1" "1" "REPLY"
   printf_answer_yes "$REPLY" && eval "${2:-true}" && exitCode=0 || exitCode=1
   [ -z "$REPLY" ] && printf '\n' && exitCode=1 || exitCode=${exitCode:-$?}
   return ${exitCode:-$?}

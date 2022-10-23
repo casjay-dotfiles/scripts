@@ -165,9 +165,9 @@ __docker_pull() {
 __docker_run() {
   [ "$_DEBUG" = "on" ] && set -xe
   local arguments="$*"
-  __docker run -ti --privileged --cap-add SYS_ADMIN -e DISPLAY=$DISPLAY \
+  __docker run -ti --privileged --cap-add NET_ADMIN --cap-add SYS_ADMIN -e DISPLAY=$DISPLAY \
     -v /sys/fs/cgroup/:/sys/fs/cgroup:ro -v /tmp/.X11-unix:/tmp/.X11-unix \
-    -v "$HOME/.Xauthority:/home/x11user/.Xauthority" $arguments 2>"$DOCKERMGR_TEMP_FILE" || return 1
+    -v "$HOME/.Xauthority:/home/x11user/.Xauthority" $arguments #2>"$DOCKERMGR_TEMP_FILE" || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __docker_stop() {
@@ -604,7 +604,7 @@ __docker_exec() {
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__container_exists() { docker ps -a -q -f name=^/$1$ | grep '^' || return 1; }
+__container_exists() { docker ps -a -q -f name=^$1$ | grep '^' || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __container_is_running() { __docker ps -a -q -f status=running -f name=^/$1$ | grep '^' || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1005,7 +1005,7 @@ fi
 SETARGS="$*"
 SHORTOPTS="p:,P,v:,m:,e:,d,u:,w:"
 LONGOPTS="raw,options,config,version,help,dir:"
-LONGOPTS+=",force,all,describe:,platform:,dockerfile"
+LONGOPTS+=",force,all,describe:,platform:,dockerfile,name:"
 ARRAY="enter test exec active available connect cron download enter inactive init install k3b minikube "
 ARRAY+="list log ps rancher remove rm rmi run search status update version ds network helm prune generate "
 LIST="airsonic daapd ddns dictd gitea headphones hub ifconfig "
@@ -1113,6 +1113,10 @@ while :; do
     DOCKERHUB_DESCRIPTION="$2"
     shift 2
     ;;
+  --name)
+    DOCKERMGR_CONTAINER_NAME="$2"
+    shift 2
+    ;;
   --)
     shift 1
     break
@@ -1214,13 +1218,21 @@ api)
 
 test)
   shift 1
-  [ $# -ne 0 ] && image="$1" && shift 1 || printf_Exit ""
+  [ $# -ne 0 ] && set_image="$1" && shift 1 || printf_exit "Please provide the imageName [myuser/myimage]"
   args="${*:-/bin/sh}"
-  image_name="casjaysdev-$(basename "$image")"
-  name="$(echo "$image_name" | sed 's|:.*||g')"
+  fmt_name="${set_image//:*/}"
+  docker_args="${DOCKER_ARG[*]}"
+  base_name="$(basename "$fmt_name")"
+  set_name="$DOCKERMGR_CONTAINER_NAME"
+  name="${set_name:-casjaysdev-$base_name}"
   status="$(__container_exists "$name" || false)"
   mktemp="$DOCKERMGR_TEMP_DIR/volumes/${name// /_}"
-  [ -n "$image" ] || printf_exit "Please provide the imageName [myuser/myimage]"
+  echo "$image" | grep -q ':.*' || set_image="$set_image:latest"
+  if echo "$image" | grep -q '/'; then
+    image="$set_image"
+  else
+    image="$DOCKERMGR_REGISTRY_USERNAME/$set_image"
+  fi
   printf_blue "Attempting to pull $image"
   __docker_pull "$image" &>/dev/null
   if __container_is_running; then
@@ -1241,7 +1253,7 @@ test)
   else
     printf_purple "Creating container: $name with image: $image"
     mkdir -p "$mktemp"
-    __docker_run --name "$name" --hostname "$name" -v $mktemp/config:/config -v $mktemp/data:/data ${DOCKER_ARG//--publish-all/} "$image" $args 2>"$DOCKERMGR_TEMP_FILE"
+    __docker_run --name "$name" --hostname "$name" $docker_args -v $mktemp/config:/config -v $mktemp/data:/data "$image" $args 2>"$DOCKERMGR_TEMP_FILE"
     sudo chown -Rf $USER:$USER $mktemp
     if [ -n "$(__container_exists "$name" || false)" ]; then
       printf_read_question "4" "Should I delete the container?" "1"
@@ -1300,6 +1312,13 @@ run)
   shift 1
   [ "$1" = "help" ] && __run_help
   __run_main "$@"
+  exit $?
+  ;;
+
+tag)
+  shift 1
+  [ $# -eq 2 ] || printf_exit "Usage: $APPNAME tag from_tag to_tag [alpine:latest alpine:dev]"
+  __docker tag "$1" "$2" 2>/dev/null
   exit $?
   ;;
 
@@ -1362,11 +1381,10 @@ rm)
   [ "${#ARGS}" -ne 0 ] || [ "$INSTALL_ALL" = "true" ] || __docker ps -a
   if [ "$INSTALL_ALL" = "true" ]; then
     shift 1
-    containers="$(__docker ps -aq)"
     printf_red "Deleting all docker containers"
     printf_yellow "However, your data files will remain in"
     printf_blue "$HOME/.local/share/srv/docker"
-    __docker rm "$containers" -f &>/dev/null
+    __docker_rm &>/dev/null
     exit $?
   else
     for container in $ARGS; do

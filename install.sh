@@ -164,11 +164,11 @@ run_postinst() {
   fi
   [ -f "$verDir/configs.txt" ] || date +"${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}" | sudo tee "$verDir/configs.txt" &>/dev/null
   [ -f "$verDir/date.configs.txt" ] || date +"%b %d, %Y at %H:%M" | sudo tee "$verDir/date.configs.txt" &>/dev/null
-  date +"%b %d, %Y at %H:%M" | sudo tee "$verDir/date.scripts.txt" &>/dev/null
   cp_rf "$INSTDIR/version.txt" "$verDir/scripts.txt"
   replace "/etc/casjaysdev/messages/" "MYHOSTIP" "$CURRIP4"
   replace "/etc/casjaysdev/messages/" "MYHOSTNAME" "$(hostname -s)"
   replace "/etc/casjaysdev/messages/" "MYFULLHOSTNAME" "$(hostname -f)"
+  date +"%b %d, %Y at %H:%M" | sudo tee "$verDir/date.scripts.txt" &>/dev/null
   echo 'for f in '$CASJAYSDEVDIR/completions/*'; do source "$f" >/dev/null 2>&1; done' >"$COMPDIR/_my_scripts_completions"
   ln_sf "$APPDIR" "$SYSSHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME"
   ln_sf "$APPDIR" "$SYSSHARE/CasjaysDev/$SCRIPTS_PREFIX/installer"
@@ -187,10 +187,10 @@ run_postinst() {
   for mgr in devenvmgr dfmgr dockermgr fontmgr iconmgr passmgr pkmgr systemmgr thememgr wallpapermgr; do
     eval "$mgr" --config &>/dev/null
   done
-  grep 'Defaults.*.env_reset' "/etc/sudoers" | grep -q '!' || sed -i 's|env_reset|!env_reset|g' "/etc/sudoers"
-  grep 'Defaults.*.secure_path' "/etc/sudoers" && sed -i 's|secure_path =.*|secure_path = "/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin"|g' "/etc/sudoers"
-  printf '# update scripts \n5 4 * * * root [ -f $(builtin type -P systemmgr 2>/dev/null) ] && systemmgr update scripts cron ssl &>/dev/null\n' | tee "/etc/cron.d/systemmgr" &>/dev/null
-  printf '%s: %s\n' "$(__os_name)" "$(__os_version)" | sed 's| [lL]inux:||g' >"/etc/casjaysdev/updates/versions/osversion.txt"
+  grep 'Defaults.*.env_reset' "/etc/sudoers" | grep -q '!' || sudo sed -i 's|env_reset|!env_reset|g' "/etc/sudoers"
+  grep 'Defaults.*.secure_path' "/etc/sudoers" && sudo sed -i 's|secure_path =.*|secure_path = "/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin"|g' "/etc/sudoers"
+  printf '# update scripts \n5 4 * * * root systemmgr update scripts cron ssl &>/dev/null\n' | sudo tee "/etc/cron.d/systemmgr" &>/dev/null
+  printf '%s: %s\n' "$(__os_name)" "$(__os_version)" | sed 's| [lL]inux:||g' | sudo tee "/etc/casjaysdev/updates/versions/osversion.txt" &>/dev/null
   __os_fix_name "/etc/casjaysdev/updates/versions/osversion.txt"
 }
 #

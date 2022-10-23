@@ -726,7 +726,7 @@ install)
     LISTARRAY=("$@")
   fi
   for ins in "${LISTARRAY[@]}"; do
-    if [ -e "$GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR/$ins" ] || [ -e "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM/$ins" ] || [ -e "$GEN_SCRIPT_REPLACE_ENV_DIR_USER/$ins" ] || [ -e "$SHARE/CasjaysDev/$SCRIPTS_PREFIX/$app" ]; then
+    if [ -e "$GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR/$ins" ] || [ -e "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM/$ins" ] || [ -e "$GEN_SCRIPT_REPLACE_ENV_DIR_USER/$ins" ] || [ -e "$SHARE/CasjaysDev/$SCRIPTS_PREFIX/$ins" ]; then
       __notifications "$ins is already installed"
       continue
     else

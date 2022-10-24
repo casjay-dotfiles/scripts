@@ -166,6 +166,11 @@ HOST_X11_SOCKET="/tmp/.X11-unix"
 HOST_X11_XAUTH="$HOME/.Xauthority"
 CONTAINER_X11_XAUTH="/home/x11user/.Xauthority"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set container user and group ID [true,false]
+SET_USER_ID=""
+CONTAINER_USER_ID=""
+CONTAINER_GROUP_ID=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set container username and password and the env name [Default to -e username=name -e password=pass]
 CONTAINER_USER_NAME=""
 CONTAINER_USER_PASS=""
@@ -301,6 +306,13 @@ PRETTY_PORT="${PRETTY_PORT//\/*/}"
 [ "$CONTAINER_IS_PRIVILEGED" = "yes" ] && DOCKER_OPTS+="--privileged " || CONTAINER_IS_PRIVILEGED=""
 [ "$CONTAINER_AUTO_DELETE" = "yes" ] && DOCKER_OPTS+="--rm " && CONTAINER_AUTO_RESTART="" || CONTAINER_AUTO_DELETE=""
 [ -n "$CONTAINER_AUTO_RESTART" ] && DOCKER_OPTS+="--restart=$CONTAINER_AUTO_RESTART "
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ "$SET_USER_ID" = "true" ]; then
+  [ -n "$CONTAINER_USER_ID" ] && ADDITION_ENV+="PUID=$CONTAINER_USER_ID " || ADDITION_ENV+="PUID=$(id -u) "
+  [ -n "$CONTAINER_GROUP_ID" ] && ADDITION_ENV+="PGID=$CONTAINER_GROUP_ID " || ADDITION_ENV+="PGID=$(id -g) "
+fi
+CONTAINER_USER_ID=""
+CONTAINER_GROUP_ID=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup display if enabled
 if [ "$CONTAINER_DISPLAY" = "yes" ]; then

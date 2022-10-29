@@ -555,6 +555,8 @@ rm_rf() { if [ -e "$1" ]; then devnull rm -Rf "$@"; else return 0; fi; }
 cp_rf() { if [ -e "$1" ]; then devnull cp -Rfa "$@"; else return 0; fi; }
 replace() { [ -e "$1" ] && find "$1" -not -path "$1/.git/*" -type f -exec sed -i 's|'$2'|'$3'|g' {} \; >/dev/null 2>&1 || return 0; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__urlcheck() { urlcheck "$@"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 urlcheck() {
   devnull curl --config /dev/null \
     --connect-timeout 3 \
@@ -1661,7 +1663,7 @@ app_uninstall() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-show_optvars() {
+__options() {
   __main_installer_info &>/dev/null
   local SHORTOPTS="d"
   local LONGOPTS="installed,full,location,uninstall,remove,version,help,stow,cron:,update,debug,force,raw"

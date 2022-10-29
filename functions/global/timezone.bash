@@ -16,7 +16,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -n "$TIMEZONE" ]; then
   TZ="$TIMEZONE"
-elif [ -n "TZ" ]; then
+elif [ -n "$TZ" ]; then
   TIMEZONE="$TZ"
 else
   TIMEZONE="America/New_York"

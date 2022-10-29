@@ -81,9 +81,8 @@ REPO="${HAKMGRREPO:-https://github.com/hakmgr}/$APPNAME"
 REPORAW="$REPO/raw/$REPO_BRANCH"
 APPVERSION="$(__appversion "$REPORAW/version.txt")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup plugins
-PLUGNAMES=""
-PLUGDIR="${PLUGDIR:-$HOME/.local/share}/$APPNAME"
+# enable plugins - git repos
+PLUGINS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Require a version higher than
 hakmgr_req_version "$APPVERSION"
@@ -171,17 +170,7 @@ if __am_i_online; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Plugins
-if __am_i_online; then
-  if [ "$PLUGNAMES" != "" ]; then
-    if [ -d "$PLUGDIR/PLUREP/.git" ]; then
-      execute "git_update $PLUGDIR/PLUGREP" "Updating plugin PLUGNAME"
-    else
-      execute "git_clone PLUGINREPO $PLUGDIR/PLUGREP" "Installing plugin PLUGREP"
-    fi
-  fi
-  # exit on fail
-  failexitcode $? "Git has failed"
-fi
+plugin_setup "$PLUGINS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run post install scripts
 run_postinst() {

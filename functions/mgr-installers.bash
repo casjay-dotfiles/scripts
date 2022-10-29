@@ -1071,6 +1071,31 @@ git_update() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+plugin_setup() {
+  [ $# -ne 0 ] || return 0
+  __am_i_online || return 1
+  local name=""
+  local repo=""
+  local plugins=""
+  local statusCode=0
+  local dir="${PLUGDIR:-$SHARE/$SCRIPTS_PREFIX}"
+  for plugin in "$@"; do
+    if [ "$plugin" != "" ]; then
+      repo="$plugin"
+      name="$(basename "${repo//.git/}")"
+      if [ -d "$dir/$name/.git" ]; then
+        execute "git_update $dir/$name" "Updating plugin $name"
+        statusCode=$((statusCode + $?))
+      else
+        execute "git_clone $repo $dir/$name" "Installing plugin $name"
+        statusCode=$((statusCode + $?))
+      fi
+    fi
+  done
+  # exit on fail
+  failexitcode $statusCode "Git has failed to install plugins"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 dotfilesreqcmd() {
   local gitrepo="${DFMGRREPO:-https://github.com/dfmgr}/${1:-$conf}"
   urlverify "$gitrepo/raw/$GIT_REPO_BRANCH/install.sh" &&
@@ -2194,7 +2219,7 @@ hakmgr_install() {
   INSTDIR="${INSTDIR:-$SHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME}"
   REPO="${REPO:-$HAKMGRREPO/$APPNAME}"
   REPORAW="${REPORAW:-$REPO/raw/$GIT_REPO_BRANCH}"
-  PLUGDIR="${PLUGDIR:-$HOME/.local/share/$APPNAME}"
+  PLUGDIR="${PLUGDIR:-HOME/.local/share/$SCRIPTS_PREFIX/tools/$APPNAME}"
   USRUPDATEDIR="$SHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"
   SYSUPDATEDIR="$SYSSHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"
   LIST="${LIST:-}"

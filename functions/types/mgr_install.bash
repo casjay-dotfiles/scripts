@@ -54,6 +54,15 @@ fontmgr_install() {
   source "$CASJAYSDEVDIR/functions/installers/${SCRIPTS_PREFIX}.bash"
   #__main_installer_info
 }
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+###################### hakmgr settings ######################
+hakmgr_install() {
+  SCRIPTS_PREFIX="hakmgr"
+  installtype="hakmgr_install"
+  source "$CASJAYSDEVDIR/functions/installers/${SCRIPTS_PREFIX}.bash"
+  #__main_installer_info
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ###################### iconmgr settings ######################
 iconmgr_install() {

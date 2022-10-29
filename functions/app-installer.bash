@@ -1142,6 +1142,7 @@ install_required() {
   local REQUIRED="$*"
   local MISSING=""
   local cmd=""
+  [ "$SCRIPTS_PREFIX" = "dfmgr" ] || [ "$SCRIPTS_PREFIX" = "systemmgr" ] || return 0
   for cmd in $REQUIRED; do
     builtin type -p "$cmd" &>/dev/null || MISSING+="$cmd "
   done

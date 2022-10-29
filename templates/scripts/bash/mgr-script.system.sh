@@ -61,33 +61,33 @@ GEN_SCRIPT_REPLACE_FILENAME_install && __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Send all output to /dev/null
 __devnull() {
-  tee &>/dev/null && exitCode=0 || exitCode=1
-  return ${exitCode:-$?}
+  tee &>/dev/null && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0 || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
+  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
 # Send errors to /dev/null
 __devnull2() {
   [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
-  eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
-  return ${exitCode:-$?}
+  eval $cmd "$*" 2>/dev/null && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0 || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
+  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
 # See if the executable exists
 __cmd_exists() {
-  exitCode=0
-  [ -n "$1" ] && local exitCode="" || return 0
+  GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
+  [ -n "$1" ] && local GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS="" || return 0
   for cmd in "$@"; do
-    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
+    builtin command -v "$cmd" &>/dev/null && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS+=$(($GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS + 0)) || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS+=$(($GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS + 1))
   done
-  [ $exitCode -eq 0 ] || exitCode=3
-  return ${exitCode:-$?}
+  [ $GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS -eq 0 ] || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=3
+  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for a valid internet connection
 __am_i_online() {
-  local exitCode=0
-  curl -q -LSsfI --max-time 1 --retry 0 "${1:-http://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
-  return ${exitCode:-$?}
+  local GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
+  curl -q -LSsfI --max-time 1 --retry 0 "${1:-http://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=4
+  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # colorization
@@ -153,12 +153,12 @@ EOF
   if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
   if [ -f "$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE" ]; then
     [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
-    exitCode=0
+    GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
   else
     printf_red "Failed to create the config file"
-    exitCode=11
+    GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=11
   fi
-  return ${exitCode:-$?}
+  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Help function - Align to 50
@@ -195,22 +195,22 @@ __broken_symlinks() { find "$*" -xtype l -exec rm {} \; &>/dev/null; }
 __rm_rf() { if [ -e "$1" ]; then rm -Rf "$@" &>/dev/null; else return 0; fi; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_install_version() {
-  local upd file exitCode=0
+  local upd file GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
   if [ -d "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" ] && ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" 2>&1 | grep -q '^'; then
     file="$(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM/$1" 2>/dev/null)"
     export file
     if [ -f "$file" ]; then
       appname="$(__basename "$file")"
       eval "$file" "--version $appname"
-      exitCode=$?
+      GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$?
     fi
   fi
-  [ "$exitCode" = 0 ] && exitCode=0 || exitCode=1
-  return ${exitCode:-$?}
+  [ "$GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS" = 0 ] && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0 || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
+  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cron_updater() {
-  local upd file exitCode=0
+  local upd file GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
   if [ -z "$1" ] && [ -d "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" ] && ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" 2>&1 | grep -q '^'; then
     for upd in $(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM"); do
       file="$(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM/$upd" 2>/dev/null)"
@@ -218,7 +218,7 @@ __cron_updater() {
       if [ -f "$file" ]; then
         appname="$(__basename "$file")"
         eval "$file" "--cron $appname"
-        exitCode=$(($exitCode + $?))
+        GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$(($GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS + $?))
       fi
     done
   else
@@ -228,17 +228,17 @@ __cron_updater() {
       if [ -f "$file" ]; then
         appname="$(__basename "$file")"
         bash -c "$file --cron $appname"
-        exitCode=$(($exitCode + $?))
+        GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$(($GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS + $?))
       fi
     fi
   fi
-  [ "$exitCode" = 0 ] && exitCode=0 || exitCode=1
-  return ${exitCode:-$?}
+  [ "$GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS" = 0 ] && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0 || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
+  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __installer_delete() {
   local app="${1:-}"
-  local exitCode=0
+  local GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
   local APP_DIR_NAME="$GEN_SCRIPT_REPLACE_ENV_APP_DIR"
   local INSTALL_DIR_NAME="$GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR"
   local MESSAGE="${MESSAGE:-Removing $app from ${msg:-your system}}"
@@ -260,35 +260,35 @@ __installer_delete() {
     fi
     printf_yellow "Removing any broken symlinks"
     __broken_symlinks "$BIN" "$SHARE" "$COMPDIR" "$CONF" "$THEMEDIR" "$FONTDIR" "$ICONDIR"
-    { [ -e "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER/$app" ] || [ -d "$INSTALL_DIR_NAME/$app" ] || [ -d "$APP_DIR_NAME/$app" ]; } && exitCode=1 || exitCode=0
-    [ $exitCode = 0 ] && printf_cyan "$app has been removed"
-    return $exitCode
+    { [ -e "$GEN_SCRIPT_REPLACE_ENV_VERSION_DIR_USER/$app" ] || [ -d "$INSTALL_DIR_NAME/$app" ] || [ -d "$APP_DIR_NAME/$app" ]; } && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1 || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
+    [ $GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS = 0 ] && printf_cyan "$app has been removed"
+    return $GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS
   else
     printf_error "$app doesn't seem to be installed"
   fi
-  return ${exitCode}
+  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_install_init() {
   local app="$1"
-  local exitCode=0
+  local GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
   local INSTALL_DIR_NAME="$GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR"
   export SUDO_USER
   if __urlcheck "$GEN_SCRIPT_REPLACE_ENV_REPO_URL/$app/$GEN_SCRIPT_REPLACE_ENV_REPO_RAW/install.sh"; then
     export FORCE_INSTALL="$FORCE_INSTALL"
     bash -c "$(curl -q -LSsf "$GEN_SCRIPT_REPLACE_ENV_REPO_URL/$app/$GEN_SCRIPT_REPLACE_ENV_REPO_RAW/install.sh")" 2>/dev/null
-    exitCode=$?
+    GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$?
   else
     printf_error "Failed to initialize the installer from:"
     printf_red "$GEN_SCRIPT_REPLACE_ENV_REPO_URL/$app/$GEN_SCRIPT_REPLACE_ENV_REPO_RAW/install.sh\n"
-    exitCode=1
+    GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
   fi
-  [ "$exitCode" = 0 ] && exitCode=0 || exitCode=1
-  return ${exitCode:-$?}
+  [ "$GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS" = 0 ] && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0 || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
+  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_install_update() {
-  local app APPNAME exitCode=0
+  local app APPNAME GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
   local USER_SHARE_DIR="$SYSSHARE/CasjaysDev/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX"
   local SYSTEM_SHARE_DIR="$SYSSHARE/CasjaysDev/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX"
   local USRUPDATEDIR="$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM"
@@ -296,41 +296,41 @@ __run_install_update() {
   local NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME}"
   local NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON}"
   export NOTIFY_CLIENT_NAME NOTIFY_CLIENT_ICON
-  __run_install_init "$1" && exitCode=0 || exitCode=1
-  return ${exitCode:-$?}
+  __run_install_init "$1" && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0 || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
+  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __download() {
   local REPO_NAME="$1"
   local DIR_NAME="${2:-$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR/$REPO_NAME}"
   local REPO_URL="$GEN_SCRIPT_REPLACE_ENV_REPO_URL"
-  local exitCode=0
+  local GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
   if __cmd_exists gitadmin; then
     if [ -d "$DIR_NAME/.git" ]; then
       gitadmin pull "$DIR_NAME"
-      exitCode=$?
+      GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$?
     else
       gitadmin clone "$REPO_URL/$REPO_NAME" "$DIR_NAME"
-      exitCode=$?
+      GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$?
     fi
   else
     if [ -d "$DIR_NAME/.git" ]; then
       git -C "$DIR_NAME" pull
-      exitCode=$?
+      GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$?
     else
       git clone "$REPO_URL/$REPO_NAME" "$DIR_NAME"
-      exitCode=$?
+      GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$?
     fi
   fi
   if [ -d "$DIR_NAME/.git" ]; then
-    exitCode=0
+    GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
   fi
-  [ "$exitCode" = 0 ] && exitCode=0 || exitCode=1
-  return ${exitCode:-$?}
+  [ "$GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS" = 0 ] && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0 || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
+  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __api_list() {
-  local exitCode=0
+  local GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
   local api_call=""
   local prefix="$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX"
   local per_page="${GEN_SCRIPT_REPLACE_ENV_REPO_API_PER_PAGE:-1000}"
@@ -342,13 +342,13 @@ __api_list() {
     else
       __list_available "$LIST"
     fi
-    exitCode=$?
+    GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$?
   else
     __list_available "$LIST"
-    exitCode=$?
+    GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$?
   fi
-  [ "$exitCode" = 0 ] && exitCode=0 || exitCode=1
-  return ${exitCode:-$?}
+  [ "$GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS" = 0 ] && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0 || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
+  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_search() {
@@ -361,13 +361,13 @@ __run_search() {
   results="$(echo "$result" | sort -u | tr '\n' ' ' | sed 's| | |g' | grep '^')"
   if [ -n "$results" ]; then
     printf '%s\n' "$results" | printf_column "${PRINTF_COLOR:-4}"
-    exitCode=0
+    GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
   else
     printf_exit "Your search produced no results"
-    exitCode=1
+    GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
   fi
-  [ "$exitCode" = 0 ] && exitCode=0 || exitCode=1
-  return ${exitCode:-$?}
+  [ "$GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS" = 0 ] && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0 || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
+  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Is current user root
@@ -418,12 +418,12 @@ __sudo() {
   if __sudoif; then
     export PATH="$PATH"
     $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
-    exitCode=$?
+    GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$?
   else
     printf '%s\n' "This requires root to run"
-    exitCode=1
+    GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
   fi
-  return ${exitCode:-1}
+  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-1}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run command as root
@@ -441,10 +441,10 @@ __requiresudo() {
 # End of sudo functions
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __trap_exit() {
-  exitCode=${exitCode:-$?}
+  GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
   [ -f "$GEN_SCRIPT_REPLACE_ENV_TEMP_FILE" ] && rm -Rf "$GEN_SCRIPT_REPLACE_ENV_TEMP_FILE" &>/dev/null
   if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
-  return $exitCode
+  return $GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
@@ -454,6 +454,7 @@ __trap_exit() {
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default variables
+GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
 GEN_SCRIPT_REPLACE_ENV_USER_DIR="${GEN_SCRIPT_REPLACE_ENV_USER_DIR:-$USRUPDATEDIR}"
 GEN_SCRIPT_REPLACE_ENV_SYSTEM_DIR="${GEN_SCRIPT_REPLACE_ENV_SYSTEM_DIR:-$SYSUPDATEDIR}"
 GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR="${GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR:-$SHARE/CasjaysDev/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX}"
@@ -675,7 +676,7 @@ list)
   LISTARRAY=("$(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" 2>/dev/null)")
   [ -n "${LISTARRAY[*]}" ] && printf '%s\n' "${LISTARRAY[@]}" | printf_column '5' ||
     printf_exit "There doesn't seem to be any packages installed"
-  exit ${exitCode:-$?}
+  exit ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
   ;;
 
 available)
@@ -685,18 +686,19 @@ available)
   if [ -n "$api_info" ]; then
     printf_purple "$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX currently has $pkg_count packages available"
     printf '%s\n' "$api_info" | printf_column '6'
-    true
+    GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
   else
-    false
+    GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
   fi
-  exit ${exitCode:-$?}
+  exit ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
   ;;
 
 search)
   shift 1
   [ $# = 0 ] && printf_exit "Nothing to search for"
   __run_search "$@"
-  exit ${exitCode:-$?}
+  GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$?
+  exit ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
   ;;
 
 remove)
@@ -712,10 +714,10 @@ remove)
     __installer_delete "$rmf"
     retVal=$?
     [ $retVal = 0 ] && __notifications "Deletion of $APPNAME was successfull" || __notifications "Deletetion of $APPNAME has failed"
-    exitCode=$(($retVal + $exitCode))
+    GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$(($retVal + $GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS))
     printf '\n'
   done
-  exit ${exitCode:-$?}
+  exit ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
   ;;
 
 install)
@@ -735,10 +737,10 @@ install)
       __run_install_update "$APPNAME"
       retVal=$?
       [ $retVal = 0 ] && __notifications "Successfully installed $APPNAME" || __notifications "Installation of $APPNAME has failed"
-      exitCode=$(($retVal + $exitCode))
+      GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$(($retVal + $GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS))
     fi
   done
-  exit ${exitCode:-$?}
+  exit ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
   ;;
 
 update)
@@ -754,7 +756,7 @@ update)
       __run_install_update "$APPNAME"
       retVal=$?
       [ $retVal = 0 ] && __notifications "Successfully updated $APPNAME" || __notifications "Update of $APPNAME has failed"
-      exitCode=$(($retVal + $exitCode))
+      GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$(($retVal + $GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS))
     done
   elif [ -d "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" ] && [ ${#LISTARRAY} -ne 0 ]; then
     for upd in $(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" 2>/dev/null); do
@@ -762,13 +764,13 @@ update)
       __run_install_update "$APPNAME"
       retVal=$?
       [ $retVal = 0 ] && __notifications "Successfully updated $APPNAME" || __notifications "Update of $APPNAME has failed"
-      exitCode=$(($retVal + $exitCode))
+      GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$(($retVal + $GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS))
     done
   else
     printf_yellow "There doesn't seem to be any packages installed"
     __notifications "There doesn't seem to be any packages installed"
   fi
-  exit ${exitCode:-$?}
+  exit ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
   ;;
 
 download | clone)
@@ -783,12 +785,13 @@ download | clone)
       __download "$pkgs"
       retVal=$?
       [ $retVal = 0 ] && __notifications "Downloaded $APPNAME" || __notifications "Download of $APPNAME has failed"
-      exitCode=$(($retVal + $exitCode))
+      GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$(($retVal + $GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS))
     done
   else
-    printf_exit "No packages selected for download"
+    printf_red "No packages selected for download"
+    GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
   fi
-  exit ${exitCode:-$?}
+  exit ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
   ;;
 
 cron)
@@ -798,9 +801,9 @@ cron)
   for cron in "${LISTARRAY[@]}"; do
     APPNAME="$cron"
     __cron_updater "$APPNAME"
-    exitCode=$(($? + $exitCode))
+    GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$(($? + $GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS))
   done
-  exit ${exitCode:-$?}
+  exit ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
   ;;
 
 version)
@@ -809,28 +812,30 @@ version)
   for ver in "${LISTARRAY[@]}"; do
     APPNAME="$ver"
     __run_install_version "$ver"
-    exitCode=$(($? + $exitCode))
+    GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$(($? + $GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS))
   done
-  exit ${exitCode:-$?}
+  exit ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
   ;;
 
 *)
+  printf '#### Script info \n'
   printf_red "User ID: $UID"
   printf_green "User Name: $RUN_USER"
   printf_blue "Script Name: $APPNAME"
   printf_cyan "Version: $VERSION"
   printf_yellow "Config Dir: $GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR"
   printf_purple "Git Source Dir: $GEN_SCRIPT_REPLACE_ENV_CLONE_DIR"
+  printf '#### Help \n'
   __help
   ;;
 esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set exit code
-exitCode="${exitCode:-$?}"
+GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS="${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # lets exit with code
-exit ${exitCode:-$?}
+exit ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # end

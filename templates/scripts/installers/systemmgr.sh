@@ -103,6 +103,7 @@ execute "run_pre_install" "Running pre-installation commands"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # end with a space
 APP="$APPNAME "
+AUR=""
 PERL=""
 PYTH=""
 PIPS=""
@@ -115,6 +116,9 @@ install_packages "$APP"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # install required packages using file
 install_required "$APP"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# install required packages using the aur - Requires yay to be installed
+install_aur "$AUR"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # check for perl modules and install using system package manager
 install_perl "$PERL"

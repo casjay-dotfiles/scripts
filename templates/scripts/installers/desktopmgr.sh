@@ -103,12 +103,16 @@ execute "run_pre_install" "Running pre-installation commands"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # end with a space
 APP="$APPNAME "
+AUR=""
 PERL=""
 PYTH=""
 PIPS=""
 CPAN=""
 GEMS=""
 NPM=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# install required packages using the aur - Requires yay to be installed
+install_aur "$AUR"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # install packages - useful for package that have the same name on all oses
 install_packages "$APP"

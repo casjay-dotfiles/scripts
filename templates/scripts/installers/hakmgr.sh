@@ -112,12 +112,16 @@ if_os_id debian && APP+=""
 if_os_id darwin && APP+=""
 if_os_id windows && APP+=""
 #
+AUR=""
 PERL=""
 PYTH=""
 PIPS=""
 CPAN=""
 GEMS=""
 NPM=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# install required packages using the aur - Requires yay to be installed
+install_aur "$AUR"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # install packages - useful for package that have the same name on all oses
 install_packages "$APP"

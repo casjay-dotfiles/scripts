@@ -1095,9 +1095,9 @@ dotfilesreqadmincmd() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 dotfilesreq() {
+  [ "$SCRIPTS_PREFIX" = "dfmgr" ] || return 0
   local -a LISTARRAY=("$@")
-  local confdir="$USRUPDATEDIR"
-  local conf=""
+  local confdir="$USRUPDATEDIR" conf=""
   for conf in "${LISTARRAY[@]}"; do
     local TMPINST="$TMPDIR/${conf}.inst.tmp"
     [ -d "$confdir/$conf" ] || [ -f "$TMPINST" ] || dotfilesreqcmd "$conf"
@@ -1116,6 +1116,27 @@ dotfilesreqadmin() {
   run_cleanup
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+install_aur() {
+  local REQUIRED="$*"
+  local cmd="" MISSING=""
+  [ -f "$(builtin type -P yay 2>/dev/null)" ] || return 0
+  if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
+    for cmd in $REQUIRED; do
+      if ! builtin type -p "$cmd" &>/dev/null; then
+        MISSING+="$cmd "
+      fi
+    done
+    if [ -n "$MISSING" ]; then
+      printf_warning "Attempting to install missing packages as $RUN_USER"
+      printf_warning "$MISSING"
+      for miss in $MISSING; do
+        execute "pkmgr --enable-log --enable-aur silent install $miss 2>$INSTALLER_ERR_FILE" "Installing $miss"
+      done
+    fi
+  fi
+  unset MISSING
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_required() {
   local name="$APPNAME"
   local REQUIRED="$*"
@@ -1128,17 +1149,13 @@ install_required() {
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
       printf_yellow "Still missing: $MISSING"
       printf_yellow "Installing from package list"
-      if [ -f "$(builtin type -P yay 2>/dev/null)" ]; then
-        pkmgr --enable-log --enable-aur dotfiles "$name" 2>"$INSTALLER_ERR_FILE"
-      else
-        pkmgr --enable-log dotfiles "$name" 2>"$INSTALLER_ERR_FILE"
-      fi
+      pkmgr --enable-log dotfiles "$name" 2>"$INSTALLER_ERR_FILE"
     fi
+    unset MISSING
+    for cmd in $REQUIRED; do
+      builtin type -p "$cmd" &>/dev/null || MISSING+="$cmd "
+    done
   fi
-  unset MISSING
-  for cmd in $REQUIRED; do
-    builtin type -p "$cmd" &>/dev/null || MISSING+="$cmd "
-  done
   if [ -n "$MISSING" ]; then
     printf_warning "Can not install all the required packages for $name"
     return 1
@@ -1160,11 +1177,7 @@ install_packages() {
       printf_warning "Attempting to install missing packages as $RUN_USER"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        if [ -f "$(builtin type -P yay 2>/dev/null)" ]; then
-          execute "pkmgr --enable-log --enable-aur silent install $miss 2>$INSTALLER_ERR_FILE" "Installing $miss"
-        else
-          execute "pkmgr silent install $miss 2>$INSTALLER_ERR_FILE" "Installing $miss"
-        fi
+        execute "pkmgr --enable-log silent install $miss 2>$INSTALLER_ERR_FILE" "Installing $miss"
       done
     fi
   fi
@@ -1183,11 +1196,7 @@ install_python() {
       printf_warning "Attempting to install missing python packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        if [ -f "$(builtin type -P yay 2>/dev/null)" ]; then
-          execute "pkmgr --enable-aur silent install $miss 2>$INSTALLER_ERR_FILE" "Installing $miss"
-        else
-          execute "pkmgr silent install $miss 2>$INSTALLER_ERR_FILE" "Installing $miss"
-        fi
+        execute "pkmgr silent install $miss 2>$INSTALLER_ERR_FILE" "Installing $miss"
       done
     fi
   fi

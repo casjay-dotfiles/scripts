@@ -7,8 +7,8 @@
 # @ReadME            :  README.md
 # @Copyright         :  Copyright: (c) 2021 Jason Hempstead, CasjaysDev
 # @Created           :  Tuesday, Feb 09, 2021 17:17 EST
-# @File              :  app-installer.bash
-# @Description       :  Installer functions for apps
+# @File              :  hakmgr-installer.bash
+# @Description       :  Functions for hakmgr
 # @TODO              :  Refactor code - It is a mess
 # @Other             :
 # @Resource          :
@@ -136,8 +136,8 @@ else
   export TIMEZONE="America/New_York"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+devnull2() { "$@" 2>/dev/null; }
 devnull() { "$@" >/dev/null 2>&1; }
-devnull2() { "$@" >/dev/null 2>&1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __os_fix_name() {
   local file="${1:-/etc/casjaysdev/updates/versions/osversion.txt}"
@@ -164,18 +164,8 @@ __os_version() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set Main Repo for dotfiles
 export GIT_REPO_BRANCH="${GIT_DEFAULT_BRANCH:-main}"
-export DOTFILESREPO="${DOTFILESREPO:-https://github.com/dfmgr}"
-export DESKTOPMGRREPO="${DESKTOPMGRREPO:-https://github.com/desktopmgr}"
-export DFMGRREPO="${DFMGRREPO:-https://github.com/dfmgr}"
-export PKMGRREPO="${PKMGRREPO:-https://github.com/pkmgr}"
-export DEVENVMGRREPO="${DEVENVMGR:-https://github.com/devenvmgr}"
-export DOCKERMGRREPO="${DOCKERMGRREPO:-https://github.com/dockermgr}"
-export ICONMGRREPO="${ICONMGRREPO:-https://github.com/iconmgr}"
-export FONTMGRREPO="${FONTMGRREPO:-https://github.com/fontmgr}"
-export HAKMGRREPO="${FONTMGRREPO:-https://github.com/hakmgr}"
-export THEMEMGRREPO="${THEMEMGRREPO:-https://github.com/thememgr}"
-export SYSTEMMGRREPO="${SYSTEMMGRREPO:-https://github.com/systemmgr}"
-export WALLPAPERMGRREPO="${WALLPAPERMGRREPO:-https://github.com/wallpapermgr}"
+export HAKMGRREPO="${HAKMGRREPO:-https://github.com/hakmgr}"
+export SYSTEM_SCRIPTS_REPO="${SYSTEM_SCRIPTS_REPO:-https://github.com/casjay-dotfiles/scripts}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Colors
 NC="$(tput sgr0 2>/dev/null)"
@@ -954,8 +944,8 @@ scripts_check() {
     printf_red "Please install my scripts repo - requires root/sudo"
     printf_question_timeout "4" "Would you like to do that now" "1" "choice" "-s"
     if [ "$choice" = "y" ] || [ "$choice" = "Y" ]; then
-      urlverify "$SYSTEMMGRREPO/installer/raw/$GIT_REPO_BRANCH/install.sh" &&
-        sudo -HE bash -c "$(curl -q -LSsf "$SYSTEMMGRREPO/installer/raw/$GIT_REPO_BRANCH/install.sh")" && echo
+      urlverify "$SYSTEM_SCRIPTS_REPO/installer/raw/$GIT_REPO_BRANCH/install.sh" &&
+        sudo -HE bash -c "$(curl -q -LSsf "$SYSTEM_SCRIPTS_REPO/installer/raw/$GIT_REPO_BRANCH/install.sh")" && echo
     else
       touch "$HOME/.config/local/noscripts"
       exit 1
@@ -1044,7 +1034,7 @@ else
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 git_repo_urls() {
-  REPO="${REPO:-https://github.com/dfmgr}"
+  REPO="${REPO:-https://github.com/hakmgr}"
   REPORAW="${REPORAW:-$REPO/$APPNAME/raw/$GIT_REPO_BRANCH}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1081,14 +1071,14 @@ git_update() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 dotfilesreqcmd() {
-  local gitrepo="${DFMGRREPO:-https://github.com/dfmgr}/${1:-$conf}"
+  local gitrepo="${hakmgrREPO:-https://github.com/hakmgr}/${1:-$conf}"
   urlverify "$gitrepo/raw/$GIT_REPO_BRANCH/install.sh" &&
     bash -c "$(curl -q -LSsf $gitrepo/raw/$GIT_REPO_BRANCH/install.sh)" &>/dev/null ||
     return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 dotfilesreqadmincmd() {
-  local gitrepoadmin="${SYSTEMMGRREPO:-https://github.com/systemmgr}/${1:-$conf}"
+  local gitrepoadmin="${SYSTEM_SCRIPTS_REPO:-https://github.com/systemmgr}/${1:-$conf}"
   urlverify "$gitrepoadmin/raw/$GIT_REPO_BRANCH/install.sh" &&
     sudo -HE bash -c "$(curl -q -LSsf $gitrepoadmin/raw/$GIT_REPO_BRANCH/install.sh)" &>/dev/null ||
     return 1
@@ -1488,7 +1478,7 @@ if_os_id() {
 }
 ###################### setup folders - user ######################
 user_installdirs() {
-  SCRIPTS_PREFIX="${SCRIPTS_PREFIX:-dfmgr}"
+  SCRIPTS_PREFIX="${SCRIPTS_PREFIX:-hakmgr}"
   APPNAME="${APPNAME:-installer}"
   REPORAW="${REPORAW:-}"
   if [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; then
@@ -1512,8 +1502,8 @@ user_installdirs() {
     CASJAYSDEVSHARE="$SHARE/CasjaysDev"
     CASJAYSDEVSAPPDIR="$CASJAYSDEVSHARE/apps"
     WALLPAPERS="${WALLPAPERS:-$SYSSHARE/wallpapers}"
-    USRUPDATEDIR="$SHARE/CasjaysDev/apps/${SCRIPTS_PREFIX:-dfmgr}"
-    SYSUPDATEDIR="$SYSSHARE/CasjaysDev/apps/${SCRIPTS_PREFIX:-dfmgr}"
+    USRUPDATEDIR="$SHARE/CasjaysDev/apps/${SCRIPTS_PREFIX:-hakmgr}"
+    SYSUPDATEDIR="$SYSSHARE/CasjaysDev/apps/${SCRIPTS_PREFIX:-hakmgr}"
   else
     INSTALL_TYPE=user
     HOME="${HOME:-/tmp/$USER}"
@@ -1535,8 +1525,8 @@ user_installdirs() {
     CASJAYSDEVSHARE="$SHARE/CasjaysDev"
     CASJAYSDEVSAPPDIR="$CASJAYSDEVSHARE/apps"
     WALLPAPERS="$HOME/.local/share/wallpapers"
-    USRUPDATEDIR="$SHARE/CasjaysDev/apps/${SCRIPTS_PREFIX:-dfmgr}"
-    SYSUPDATEDIR="$SYSSHARE/CasjaysDev/apps/${SCRIPTS_PREFIX:-dfmgr}"
+    USRUPDATEDIR="$SHARE/CasjaysDev/apps/${SCRIPTS_PREFIX:-hakmgr}"
+    SYSUPDATEDIR="$SYSSHARE/CasjaysDev/apps/${SCRIPTS_PREFIX:-hakmgr}"
   fi
   DOCKERMGR_HOME="${DOCKERMGR_HOME:-$HOME/.config/myscripts/dockermgr}"
   APPDIR="${APPDIR:-$HOME/.local/share/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME}"
@@ -1546,7 +1536,7 @@ user_installdirs() {
 }
 ###################### setup folders - system ######################
 system_installdirs() {
-  SCRIPTS_PREFIX="${SCRIPTS_PREFIX:-dfmgr}"
+  SCRIPTS_PREFIX="${SCRIPTS_PREFIX:-hakmgr}"
   APPNAME="${APPNAME:-installer}"
   REPORAW="${REPORAW:-}"
   if [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; then
@@ -1569,8 +1559,8 @@ system_installdirs() {
     CASJAYSDEVSHARE="/usr/local/share/CasjaysDev"
     CASJAYSDEVSAPPDIR="/usr/local/share/CasjaysDev/apps"
     WALLPAPERS="/usr/local/share/wallpapers"
-    USRUPDATEDIR="/usr/local/share/CasjaysDev/apps/${SCRIPTS_PREFIX:-dfmgr}"
-    SYSUPDATEDIR="/usr/local/share/CasjaysDev/apps/${SCRIPTS_PREFIX:-dfmgr}"
+    USRUPDATEDIR="/usr/local/share/CasjaysDev/apps/${SCRIPTS_PREFIX:-hakmgr}"
+    SYSUPDATEDIR="/usr/local/share/CasjaysDev/apps/${SCRIPTS_PREFIX:-hakmgr}"
   else
     INSTALL_TYPE=system
     HOME="${HOME:-/home/$WHOAMI}"
@@ -1592,8 +1582,8 @@ system_installdirs() {
     CASJAYSDEVSHARE="$HOME/.local/share/CasjaysDev"
     CASJAYSDEVSAPPDIR="$HOME/.local/share/CasjaysDev/apps"
     WALLPAPERS="$HOME/.local/share/wallpapers"
-    USRUPDATEDIR="$HOME/.local/share/CasjaysDev/apps/${SCRIPTS_PREFIX:-dfmgr}"
-    SYSUPDATEDIR="$HOME/.local/share/CasjaysDev/apps/${SCRIPTS_PREFIX:-dfmgr}"
+    USRUPDATEDIR="$HOME/.local/share/CasjaysDev/apps/${SCRIPTS_PREFIX:-hakmgr}"
+    SYSUPDATEDIR="$HOME/.local/share/CasjaysDev/apps/${SCRIPTS_PREFIX:-hakmgr}"
   fi
   APPDIR="${APPDIR:-$HOME/.local/share/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME}"
   INSTDIR="${INSTDIR:-$HOME/.local/share/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME}"
@@ -1605,20 +1595,10 @@ ensure_dirs() {
   if [ $EUID -ne 0 ] || [ "$WHOAMI" != "root" ]; then
     mkd "$BIN"
     mkd "$SHARE"
-    mkd "$LOGDIR"
-    mkd "$LOGDIR/dfmgr"
-    mkd "$LOGDIR/fontmg"
-    mkd "$LOGDIR/iconmgr"
-    mkd "$LOGDIR/systemmgr"
-    mkd "$LOGDIR/thememgr"
-    mkd "$LOGDIR/wallpapermgr"
+    mkd "$LOGDIR/hakmgr"
     mkd "$COMPDIR"
     mkd "$STARTUP"
     mkd "$BACKUPDIR"
-    mkd "$FONTDIR"
-    mkd "$ICONDIR"
-    mkd "$THEMEDIR"
-    mkd "$FONTCONF"
     mkd "$CASJAYSDEVSHARE"
     mkd "$CASJAYSDEVSAPPDIR"
     mkd "$USRUPDATEDIR"
@@ -1802,23 +1782,11 @@ show_optvars() {
       printf_info "SysLogDir:                 $SYSLOGDIR"
       printf_info "SysBackUpDir:              $BACKUPDIR"
       printf_info "ApplicationsDir:           $SHARE/applications"
-      printf_info "IconDir:                   $ICONDIR"
-      printf_info "ThemeDir                   $THEMEDIR"
-      printf_info "FontDir:                   $FONTDIR"
-      printf_info "FontConfDir:               $FONTCONF"
       printf_info "CompletionsDir:            $COMPDIR"
       printf_info "CasjaysDevDir:             $CASJAYSDEVSHARE"
       printf_info "CASJAYSDEVSAPPDIR:         $CASJAYSDEVSAPPDIR"
       printf_info "USRUPDATEDIR:              $USRUPDATEDIR"
       printf_info "SYSUPDATEDIR:              $SYSUPDATEDIR"
-      printf_info "DOTFILESREPO:              $DOTFILESREPO"
-      printf_info "DevEnv Repo:               $DEVENVMGRREPO"
-      printf_info "Package Manager Repo:      $PKMGRREPO"
-      printf_info "Icon Manager Repo:         $ICONMGRREPO"
-      printf_info "Font Manager Repo:         $FONTMGRREPO"
-      printf_info "Theme Manager Repo         $THEMEMGRREPO"
-      printf_info "System Manager Repo:       $SYSTEMMGRREPO"
-      printf_info "Wallpaper Manager Repo:    $WALLPAPERMGRREPO"
       printf_info "Downloaded to:             $INSTDIR"
       printf_info "REPORAW:                   $REPORAW"
       printf_info "Prefix:                    $SCRIPTS_PREFIX"
@@ -1870,154 +1838,13 @@ installer_noupdate() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__install_fonts() {
-  [ -n "$_DEBUG" ] && set -x && echo __install_fonts
-  if [ -d "$INSTDIR/fontconfig" ]; then
-    local fontconfdir="$FONTCONF"
-    ln_sf "$INSTDIR/fontconfig"/* "$fontconfdir/"
-    [ -f "$(builtin type -P fc-cache 2>/dev/null)" ] && fc-cache -f "$FONTCONF"
-  fi
-  if [ -d "$HOME/Library/Fonts" ]; then
-    local fontdir="$HOME/Library/Fonts"
-  else
-    local fontdir="$FONTDIR"
-  fi
-  if [ -d "$INSTDIR/fonts" ]; then
-    [ -d "$fontdir/$APPNAME" ] && rm_rf "$fontdir/$APPNAME"
-    find -L "$INSTDIR/fonts/" -mindepth 1 -maxdepth 1 -type f -name '*.*' -print0 |
-      while IFS= read -r -d '' file; do
-        filename="$(basename "$file")"
-        ln_sf "$file" "$fontdir/$filename"
-      done
-    [ -f "$(builtin type -P fc-cache 2>/dev/null)" ] && fc-cache -f "$FONTDIR"
-  fi
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__install_icons() {
-  [ -n "$_DEBUG" ] && set -x && echo __install_icons
-  if [ -d "$INSTDIR/icons" ]; then
-    local icondir="$ICONDIR"
-    local icons="$(ls "$INSTDIR/icons" 2>/dev/null | wc -l)"
-    if [ "$icons" != "0" ]; then
-      find -L "$INSTDIR/icons/" -mindepth 1 -maxdepth 1 -type d -name '*.*' -print0 |
-        while IFS= read -r -d '' file; do
-          filename="$(basename "$file")"
-          ln_sf "$file" "$icondir/$filename"
-          find -L "$ICONDIR" -mindepth 1 -maxdepth 1 -type d | while read -r ICON; do
-            if [ -f "$ICON/index.theme" ]; then
-              [ -f "$(builtin type -P gtk-update-icon-cache 2>/dev/null)" ] && gtk-update-icon-cache -f -q "$ICON"
-            fi
-          done
-        done
-      devnull find "$ICONDIR" -type d -exec chmod 755 {} \;
-      devnull find "$ICONDIR" -type f -exec chmod 644 {} \;
-      [ -f "$(builtin type -P gtk-update-icon-cache 2>/dev/null)" ] && devnull gtk-update-icon-cache -q -t -f "$ICONDIR"
-    fi
-  fi
-  return 0
-}
-__install_theme() {
-  [ -n "$_DEBUG" ] && set -x && echo __install_theme
-  if [ -d "$INSTDIR/theme" ]; then
-    local themedir="$THEMEDIR"
-    local theme="$(ls "$INSTDIR/theme" 2>/dev/null | wc -l)"
-    mkd "$themedir/$APPNAME"
-    if [ "$theme" != "0" ]; then
-      fFiles="$(ls $INSTDIR/theme --ignore='.uuid')"
-      for f in $fFiles; do
-        ln_sf "$INSTDIR/theme/$f" "$themedir/$APPNAME/$f"
-        find -L "$THEMEDIR" -mindepth 1 -maxdepth 2 -type d | while read -r THEME; do
-          if [ -f "$THEME/index.theme" ]; then
-            [ -f "$(builtin type -P gtk-update-icon-cache 2>/dev/null)" ] && gtk-update-icon-cache -f -q "$THEME"
-          fi
-        done
-      done
-    fi
-    ln_rm "$THEMEDIR"
-    find "$THEMEDIR" -mindepth 1 -maxdepth 2 -type d -not -path "*/.git/*" | while read -r THEME; do
-      if [ -f "$THEME/index.theme" ]; then
-        [ -f "$(builtin type -P gtk-update-icon-cache 2>/dev/null)" ] && gtk-update-icon-cache -f -q "$THEME"
-      fi
-    done
-  fi
-  return 0
-}
-__install_wallpapers() {
-  [ -n "$_DEBUG" ] && set -x && echo __install_wallpapers
-  if [ -d "$INSTDIR/images" ]; then
-    mkdir -p "$WALLPAPERS/$APPNAME"
-    local wallpapers="$(ls $INSTDIR/images/ 2>/dev/null | wc -l)"
-    if [ "$wallpapers" != "0" ]; then
-      wallpaperFiles="$(ls $INSTDIR/images/)"
-      for wallpaper in $wallpaperFiles; do
-        cp_rf "$INSTDIR/images/$wallpaper" "$WALLPAPERS/$APPNAME/$wallpaper"
-      done
-    fi
-  fi
-
-  # if [ -d "$INSTDIR/images" ]; then
-  #   local wallpapers="$(ls $INSTDIR/images/ 2>/dev/null | wc -l)"
-  #   local wallpaperdir="$WALLPAPERS/$APPNAME"
-  #   if [ "$wallpapers" != "0" ]; then
-  #     if [ "$INSTDIR" != "$APPDIR" ] && [ -e "$APPDIR" ]; then rm_rf "$APPDIR"; fi
-  #     mkd "$wallpaperdir"
-  #     find -L "$INSTDIR/images/" -mindepth 1 -maxdepth 1 -type d -name '*.*' -print0 |
-  #       while IFS= read -r -d '' file; do
-  #         filename="$(basename "$file")"
-  #         cp_rf "$file" "$wallpaperdir/$filename"
-  #       done
-  #   fi
-  # fi
-  return 0
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-###################### devenv settings ######################
-devenvmgr_install() {
+hakmgr_install() {
   user_installdirs
-  SCRIPTS_PREFIX="devenvmgr"
-  [ -n "$_DEBUG" ] && set -x && echo "$SCRIPTS_PREFIX"
-  APPDIR="${APPDIR:-$SHARE/$SCRIPTS_PREFIX/$APPNAME}"
-  INSTDIR="${INSTDIR:-$SHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME}"
-  REPO="${REPO:-$DEVENVMGRREPO/$APPNAME}"
-  REPORAW="${REPORAW:-$REPO/raw/$GIT_REPO_BRANCH}"
-  USRUPDATEDIR="$SHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"
-  SYSUPDATEDIR="$SYSSHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"
-  ARRAY="${ARRAY:-}"
-  LIST="${LIST:-}"
-  [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && APPDIR="${APPDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
-  [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && INSTDIR="${INSTDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
-  if [ -f "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME" ]; then
-    APPVERSION="$(grep -sv '#' "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME")"
-  else
-    APPVERSION="$currentVersion"
-  fi
-  mkd "$USRUPDATEDIR" "$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX"
-  user_is_root && mkd "$SYSUPDATEDIR"
-  export installtype="devenvmgr_install"
-}
-######## Installer Functions ########
-devenvmgr_run_init() {
-  run_install_init "dev enviroment"
-}
-devenvmgr_run_post() {
-  devenvmgr_install
-  run_postinst_global
-}
-devenvmgr_install_version() {
-  devenvmgr_install
-  install_version
-  # if [ -f "$INSTDIR/install.sh" ] && [ -f "$INSTDIR/version.txt" ]; then
-  #   ln_sf "$INSTDIR/install.sh" "$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX/$APPNAME"
-  # fi
-}
-###################### dfmgr settings ######################
-dfmgr_install() {
-  user_installdirs
-  SCRIPTS_PREFIX="dfmgr"
+  SCRIPTS_PREFIX="hakmgr"
   [ -n "$_DEBUG" ] && set -x && echo "$SCRIPTS_PREFIX"
   APPDIR="${APPDIR:-$CONF/$APPNAME}"
   INSTDIR="${INSTDIR:-$SHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME}"
-  REPO="${REPO:-$DFMGRREPO/$APPNAME}"
+  REPO="${REPO:-$hakmgrREPO/$APPNAME}"
   REPORAW="${REPORAW:-$REPO/raw/$GIT_REPO_BRANCH}"
   USRUPDATEDIR="$SHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"
   SYSUPDATEDIR="$SYSSHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"
@@ -2031,362 +1858,22 @@ dfmgr_install() {
     APPVERSION="$currentVersion"
   fi
   mkd "$USRUPDATEDIR" "$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX"
-  export installtype="dfmgr_install"
+  export installtype="hakmgr_install"
 }
 ######## Installer Functions ########
-dfmgr_run_init() {
+hakmgr_run_init() {
   run_install_init "configurations"
 }
-dfmgr_run_post() {
-  dfmgr_install
+hakmgr_run_post() {
+  hakmgr_install
   run_postinst_global
 }
-dfmgr_install_version() {
-  dfmgr_install
+hakmgr_install_version() {
+  hakmgr_install
   install_version
   # if [ -f "$INSTDIR/install.sh" ] && [ -f "$INSTDIR/version.txt" ]; then
   #   ln_sf "$INSTDIR/install.sh" "$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX/$APPNAME"
   # fi
-}
-###################### desktopmgr settings ######################
-desktopmgr_install() {
-  user_installdirs
-  SCRIPTS_PREFIX="desktopmgr"
-  [ -n "$_DEBUG" ] && set -x && echo "$SCRIPTS_PREFIX"
-  DESKTOPMGR_APPDIR="${DESKTOPMGR_APPDIR:-$CONF/$APPNAME}"
-  DESKTOPMGR_INSTDIR="${DESKTOPMGR_INSTDIR:-$CASJAYSDEVSHARE/desktopmgr/$APPNAME}"
-  DESKTOPMGR_REPO_BRANCH="${GIT_REPO_BRANCH:-main}"
-  DESKTOPMGR_REPO="${DESKTOPMGR:-https://github.com/desktopmgr}/$APPNAME"
-  DESKTOPMGR_REPORAW="${DESKTOPMGR_REPORAW:-$REPO/raw/$REPO_BRANCH}"
-  DESKTOPMGR_APPVERSION="${DESKTOPMGR_APPVERSION:-$(__appversion "$REPORAW/version.txt")}"
-  DESKTOPMGR_USRUPDATEDIR="${DESKTOPMGR_USRUPDATEDIR:-$SHARE/CasjaysDev/apps/$SCRIPTS_PREFIX}"
-  DESKTOPMGR_SYSUPDATEDIR="${DESKTOPMGR_SYSUPDATEDIR:-$SYSSHARE/CasjaysDev/apps/$SCRIPTS_PREFIX}"
-  [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && DESKTOPMGR_APPDIR="${APPDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
-  [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && DESKTOPMGR_INSTDIR="${INSTDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
-  if [ -f "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME" ]; then
-    APPVERSION="$(grep -sv '#' "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME")"
-  else
-    APPVERSION="$currentVersion"
-  fi
-  mkd "$DESKTOPMGR_USRUPDATEDIR" "$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX"
-  export installtype="desktopmgr_install"
-}
-######## Installer Functions ########
-desktopmgr_run_init() {
-  run_install_init "configurations"
-}
-desktopmgr_run_post() {
-  desktopmgr_install
-  run_postinst_global
-}
-desktopmgr_install_version() {
-  desktopmgr_install
-  install_version
-  # if [ -f "$INSTDIR/install.sh" ] && [ -f "$INSTDIR/version.txt" ]; then
-  #   ln_sf "$INSTDIR/install.sh" "$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX/$APPNAME"
-  # fi
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-dockermgr_install() {
-  user_installdirs
-  #[ -f "$(builtin type -P docker 2>/dev/null)" ] || printf_exit 1 1 "This requires docker, however, docker wasn't found"
-  SCRIPTS_PREFIX="dockermgr"
-  [ -n "$_DEBUG" ] && set -x && echo "$SCRIPTS_PREFIX"
-  APPNAME="${APPNAME:-$SCRIPTS_PREFIX}"
-  APPDIR="${APPDIR:-$HOME/.local/share/srv/docker/$APPNAME}"
-  DATADIR="${DATADIR:-$HOME/.local/share/srv/docker/$APPNAME/files}"
-  INSTDIR="${INSTDIR:-$HOME/.local/share/CasjaysDev/dockermgr/$APPNAME}"
-  REPO="${REPO:-$DOCKERMGRREPO/$APPNAME}"
-  REPO_BRANCH="${GIT_REPO_BRANCH:-main}"
-  REPORAW="${REPORAW:-$REPO/raw/$GIT_REPO_BRANCH}"
-  USRUPDATEDIR="$SHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"
-  SYSUPDATEDIR="$SYSSHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"
-  ARRAY="${ARRAY:-}"
-  LIST="${LIST:-}"
-  [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && APPDIR="${APPDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
-  [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && INSTDIR="${INSTDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
-  if [ -f "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME" ]; then
-    APPVERSION="$(grep -sv ' #' "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME")"
-  else
-    APPVERSION="$currentVersion"
-  fi
-  mkd "$USRUPDATEDIR" "$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX"
-  export installtype="dockermgr_install"
-  [ -d "$HOME/.docker" ] || mkdir -p "$HOME/.docker" &>/dev/null
-  [ -f "$HOME/.docker/config.json" ] || touch "$HOME/.docker/config.json" &>/dev/null
-}
-######## Installer Functions ########
-dockermgr_run_init() {
-  run_install_init "docker configurations"
-}
-dockermgr_run_post() {
-  dockermgr_install
-  # local NGINX_DIR="/etc/nginx/nginx.conf"
-  # local NGINX_TMPL="$APPDIR/nginx/nginx.conf"
-  # local NGINX_CONF="/etc/nginx/vhosts.d/$APPNAME.conf"
-  # [ -f "$APPDIR/nginx/template" ] && NGINX_TMPL="$APPDIR/nginx/template"
-  # [ -f "$APPDIR/nginx/proxy.conf" ] && NGINX_TMPL="$APPDIR/nginx/proxy.conf"
-  # if [ -f "$NGINX_TMPL" ] && [ -f "$NGINX_DIR" ]; then
-  #   sed -i "s|REPLACE_APPNAME|$APPNAME|g" "$NGINX_TMPL" &>/dev/null
-  #   sed -i "s|REPLACE_NGINX_HTTP|$NGINX_HTTP|g" "$NGINX_TMPL" &>/dev/null
-  #   sed -i "s|REPLACE_NGINX_HTTPS|$NGINX_HTTPS|g" "$NGINX_TMPL" &>/dev/null
-  #   sed -i "s|REPLACE_SERVER_PORT|$SERVER_PORT|g" "$NGINX_TMPL" &>/dev/null
-  #   sed -i "s|REPLACE_SERVER_LISTEN|$SERVER_LISTEN|g" "$NGINX_TMPL" &>/dev/null
-  #   if [ -d "/etc/nginx/vhosts.d" ]; then [ -f "$NGINX_CONF" ] || ln_sf "$NGINX_TMPL" "$NGINX_CONF"; fi
-  # fi
-}
-dockermgr_install_version() {
-  dockermgr_install
-  install_version
-  # if [ -f "$INSTDIR/install.sh" ] && [ -f "$INSTDIR/version.txt" ]; then
-  #   ln_sf "$INSTDIR/install.sh" "$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX/$APPNAME"
-  # fi
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-fontmgr_install() {
-  system_installdirs
-  SCRIPTS_PREFIX="fontmgr"
-  [ -n "$_DEBUG" ] && set -x && echo "$SCRIPTS_PREFIX"
-  APPDIR="${APPDIR:-$SHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME}"
-  INSTDIR="${INSTDIR:-$SHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME}"
-  REPO="${REPO:-$FONTMGRREPO/$APPNAME}"
-  REPORAW="${REPORAW:-$REPO/raw/$GIT_REPO_BRANCH}"
-  USRUPDATEDIR="$SHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"
-  SYSUPDATEDIR="$SYSSHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"
-  FONTDIR="${FONTDIR:-$SHARE/fonts}"
-  ARRAY="${ARRAY:-}"
-  LIST="${LIST:-}"
-  [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && APPDIR="${APPDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
-  [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && INSTDIR="${INSTDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
-  if [ -f "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME" ]; then
-    APPVERSION="$(grep -sv '#' "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME")"
-  else
-    APPVERSION="$currentVersion"
-  fi
-  mkd "$USRUPDATEDIR" "$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX"
-  export installtype="fontmgr_install"
-}
-######## Installer Functions ########
-fontmgr_run_init() {
-  run_install_init "fonts"
-}
-fontmgr_run_post() {
-  fontmgr_install
-  run_postinst_global
-  __install_fonts
-}
-fontmgr_install_version() {
-  fontmgr_install
-  install_version
-  # if [ -f "$INSTDIR/install.sh" ] && [ -f "$INSTDIR/version.txt" ]; then
-  #   ln_sf "$INSTDIR/install.sh" "$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX/$APPNAME"
-  # fi
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-iconmgr_install() {
-  system_installdirs
-  SCRIPTS_PREFIX="iconmgr"
-  APPDIR="${APPDIR:-$SYSSHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME}"
-  INSTDIR="${INSTDIR:-$SYSSHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME}"
-  REPO="${REPO:-$ICONMGRREPO/$APPNAME}"
-  REPORAW="${REPORAW:-$REPO/raw/$GIT_REPO_BRANCH}"
-  USRUPDATEDIR="$SHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"
-  SYSUPDATEDIR="$SYSSHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"
-  ICONDIR="${ICONDIR:-$SHARE/icons}"
-  ARRAY="${ARRAY:-}"
-  LIST="${LIST:-}"
-  [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && APPDIR="${APPDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
-  [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && INSTDIR="${INSTDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
-  if [ -f "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME" ]; then
-    APPVERSION="$(grep -sv '#' "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME")"
-  else
-    APPVERSION="$currentVersion"
-  fi
-  mkd "$USRUPDATEDIR" "$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX"
-  export installtype="iconmgr_install"
-}
-######## Installer Functions ########
-iconmgr_run_init() {
-  run_install_init "icons"
-}
-iconmgr_run_post() {
-  iconmgr_install
-  run_postinst_global
-  __install_icons
-}
-iconmgr_install_version() {
-  iconmgr_install
-  install_version
-  # if [ -f "$INSTDIR/install.sh" ] && [ -f "$INSTDIR/version.txt" ]; then
-  #   ln_sf "$INSTDIR/install.sh" "$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX/$APPNAME"
-  # fi
-}
-generate_icon_index() {
-  iconmgr_install
-  ICONDIR="${ICONDIR:-$SHARE/icons}"
-  [ -f "$(builtin type -P fc-cache 2>/dev/null)" ] && fc-cache -f "$ICONDIR"
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-pkmgr_install() {
-  system_installdirs
-  SCRIPTS_PREFIX="pkmgr"
-  APPDIR="${APPDIR:-$SYSSHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME}"
-  INSTDIR="${INSTDIR:-$SHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME}"
-  REPO="${REPO:-$PKMGRREPO/$APPNAME}"
-  REPORAW="${REPORAW:-$REPO/raw/$GIT_REPO_BRANCH}"
-  USRUPDATEDIR="$SHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"
-  SYSUPDATEDIR="$SYSSHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"
-  REPODF="https://raw.githubusercontent.com/pkmgr/dotfiles/$GIT_REPO_BRANCH"
-  ARRAY="${ARRAY:-}"
-  LIST="${LIST:-}"
-  [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && APPDIR="${APPDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
-  [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && INSTDIR="${INSTDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
-  if [ -f "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME" ]; then
-    APPVERSION="$(grep -sv '#' "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME")"
-  else
-    APPVERSION="$currentVersion"
-  fi
-  mkd "$USRUPDATEDIR" "$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX"
-  export installtype="pkmgr_install"
-}
-######## Installer Functions ########
-pkmgr_run_init() {
-  run_install_init "packages"
-}
-pkmgr_run_post() {
-  pkmgr_install
-  run_postinst_global
-}
-pkmgr_install_version() {
-  pkmgr_install
-  install_version
-  # if [ -f "$INSTDIR/install.sh" ] && [ -f "$INSTDIR/version.txt" ]; then
-  #   ln_sf "$INSTDIR/install.sh" "$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX/$APPNAME"
-  # fi
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-systemmgr_install() {
-  requiresudo "true" || { sudo -n true 2>&1 | grep -q ' required' && sudo true || printf_exit "sudo is required"; }
-  system_installdirs
-  SCRIPTS_PREFIX="systemmgr"
-  APPDIR="${APPDIR:-/usr/local/etc/$APPNAME}"
-  INSTDIR="${INSTDIR:-$SYSSHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME}"
-  CONF="/usr/local/etc"
-  SHARE="/usr/local/share"
-  REPO="${REPO:-$SYSTEMMGRREPO/$APPNAME}"
-  REPORAW="${REPORAW:-$REPO/raw/$GIT_REPO_BRANCH}"
-  USRUPDATEDIR="/usr/local/share/CasjaysDev/apps/$SCRIPTS_PREFIX"
-  SYSUPDATEDIR="/usr/local/share/CasjaysDev/apps/$SCRIPTS_PREFIX"
-  ARRAY="${ARRAY:-}"
-  LIST="${LIST:-}"
-  [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && APPDIR="${APPDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
-  [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && INSTDIR="${INSTDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
-  if [ -f "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME" ]; then
-    APPVERSION="$(grep -sv '#' "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME")"
-  else
-    APPVERSION="$currentVersion"
-  fi
-  if [ "$APPNAME" = "scripts" ] || [ "$APPNAME" = "installer" ]; then
-    APPDIR="/usr/local/share/CasjaysDev/scripts"
-    INSTDIR="/usr/local/share/CasjaysDev/scripts"
-  fi
-  mkd "$USRUPDATEDIR" "$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX"
-  export installtype="systemmgr_install"
-}
-######## Installer Functions ########
-systemmgr_run_init() {
-  sudoif || sudo true
-  run_install_init "configurations"
-  #printf_blue "running as user: $USER"
-}
-systemmgr_run_post() {
-  systemmgr_install
-  run_postinst_global
-}
-systemmgr_install_version() {
-  systemmgr_install
-  install_version
-  # if [ -f "$INSTDIR/install.sh" ] && [ -f "$INSTDIR/version.txt" ]; then
-  #   ln_sf "$INSTDIR/install.sh" "$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX/$APPNAME"
-  # fi
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-thememgr_install() {
-  system_installdirs
-  SCRIPTS_PREFIX="thememgr"
-  APPDIR="${APPDIR:-$SHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME}"
-  INSTDIR="${INSTDIR:-$SHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME}"
-  REPO="${REPO:-$THEMEMGRREPO/$APPNAME}"
-  REPORAW="${REPORAW:-$REPO/raw/$GIT_REPO_BRANCH}"
-  USRUPDATEDIR="$SHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"
-  SYSUPDATEDIR="$SYSSHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"
-  THEMEDIR="${THEMEDIR:-$SHARE/themes}"
-  ARRAY="${ARRAY:-}"
-  LIST="${LIST:-}"
-  [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && APPDIR="${APPDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
-  [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && INSTDIR="${INSTDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
-  if [ -f "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME" ]; then
-    APPVERSION="$(grep -sv '#' $CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME)"
-  else
-    APPVERSION="$currentVersion"
-  fi
-  mkd "$USRUPDATEDIR" "$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX"
-  export installtype="thememgr_install"
-}
-generate_theme_index() {
-  thememgr_install
-}
-######## Installer Functions ########
-thememgr_run_init() {
-  run_install_init "theme"
-}
-thememgr_run_post() {
-  thememgr_install
-  run_postinst_global
-  __install_theme
-  generate_theme_index
-}
-thememgr_install_version() {
-  thememgr_install
-  install_version
-  # if [ -f "$INSTDIR/install.sh" ] && [ -f "$INSTDIR/version.txt" ]; then
-  #   ln_sf "$INSTDIR/install.sh" "$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX/$APPNAME"
-  # fi
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-wallpapermgr_install() {
-  system_installdirs
-  SCRIPTS_PREFIX="wallpapermgr"
-  APPDIR="${APPDIR:-$SHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME}"
-  INSTDIR="${INSTDIR:-$SHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME}"
-  REPO="${REPO:-$WALLPAPERMGRREPO/$APPNAME}"
-  REPORAW="${REPORAW:-$REPO/raw/$GIT_REPO_BRANCH}"
-  USRUPDATEDIR="$SHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"
-  SYSUPDATEDIR="$SYSSHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"
-  ARRAY="${ARRAY:-}"
-  LIST="${LIST:-}"
-  [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && APPDIR="${APPDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
-  [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && INSTDIR="${INSTDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
-  if [ -f "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME" ]; then
-    APPVERSION="$(grep -sv '#' "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME")"
-  else
-    APPVERSION="$currentVersion"
-  fi
-  mkd "$USRUPDATEDIR" "$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX"
-  export installtype="wallpapermgr_install"
-}
-######## Installer Functions ########
-wallpapermgr_run_init() {
-  run_install_init "wallpapers"
-}
-wallpapermgr_run_post() {
-  wallpapermgr_install
-  run_postinst_global
-  __install_wallpapers
-}
-wallpapermgr_install_version() {
-  wallpapermgr_install
-  install_version
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __main_installer_info() {
@@ -2397,7 +1884,7 @@ __main_installer_info() {
     INSTDIR="/usr/local/share/CasjaysDev/scripts"
     PLUGDIR="/usr/local/share/CasjaysDev/apps/$SCRIPTS_PREFIX"
     SYSBIN="/usr/local/bin"
-    REPO="$SYSTEMMGRREPO/installer"
+    REPO="$SYSTEM_SCRIPTS_REPO/installer"
     REPORAW="$REPO/raw/$GIT_REPO_BRANCH"
   fi
 }
@@ -2469,17 +1956,6 @@ run_postinst_global() {
       [ -d "$INSTDIR/etc" ] && mkd "$APPDIR" && cp_rf "$INSTDIR/etc/." "$APPDIR/"
     fi
 
-    if [ -d "$INSTDIR/backgrounds" ]; then
-      mkdir -p "$WALLPAPERS/system"
-      local wallpapers="$(ls $INSTDIR/backgrounds/ 2>/dev/null | wc -l)"
-      if [ "$wallpapers" != "0" ]; then
-        wallpaperFiles="$(ls $INSTDIR/backgrounds/)"
-        for wallpaper in $wallpaperFiles; do
-          cp_rf "$INSTDIR/backgrounds/$wallpaper" "$WALLPAPERS/system/$wallpaper"
-        done
-      fi
-    fi
-
     if [ -d "$INSTDIR/startup" ]; then
       local autostart="$(ls $INSTDIR/startup/ 2>/dev/null | wc -l)"
       if [ "$autostart" != "0" ]; then
@@ -2524,10 +2000,6 @@ run_postinst_global() {
       fi
       ln_rm "$SHARE/applications/"
     fi
-    [ "$installtype" = "fontmgr_install" ] || __install_fonts
-    [ "$installtype" = "iconmgr_install" ] || __install_icons
-    [ "$installtype" = "thememgr_install" ] || __install_theme
-    [ "$installtype" = "wallpapermgr_install" ] || __install_wallpapers
   fi
   # man pages
   __install_man_pages
@@ -2691,26 +2163,8 @@ __required_version() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __required_version "$requiredVersion"
-#[ "$installtype" = "devenvmgr_install" ] &&
-desktopmgr_req_version() { __required_version "$1"; }
-#[ "$installtype" = "devenvmgr_install" ] &&
-devenvmgr_req_version() { __required_version "$1"; }
-#[ "$installtype" = "dfmgr_install" ] &&
-dfmgr_req_version() { __required_version "$1"; }
-#[ "$installtype" = "dockermgr_install" ] &&
-dockermgr_req_version() { __required_version "$1"; }
-#[ "$installtype" = "fontmgr_install" ] &&
-fontmgr_req_version() { __required_version "$1"; }
-#[ "$installtype" = "iconmgr_install" ] &&
-iconmgr_req_version() { __required_version "$1"; }
-#[ "$installtype" = "pkmgr_install" ] &&
-pkmgr_req_version() { __required_version "$1"; }
-#[ "$installtype" = "systemmgr_install" ] &&
-systemmgr_req_version() { __required_version "$1"; }
-#[ "$installtype" = "thememgr_install" ] &&
-thememgr_req_version() { __required_version "$1"; }
-#[ "$installtype" = "wallpapermgr_install" ] &&
-wallpapermgr_req_version() { __required_version "$1"; }
+#[ "$installtype" = "hakmgr_install" ] &&
+hakmgr_req_version() { __required_version "$1"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 vdebug() {
   echo -e "VAR - ARGS:${*:-no arguments given}"

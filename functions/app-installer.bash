@@ -1130,7 +1130,7 @@ install_aur() {
       printf_warning "Attempting to install missing packages as $RUN_USER"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr --enable-log --enable-aur silent install $miss 2>$INSTALLER_ERR_FILE" "Installing $miss"
+        execute "pkmgr --enable-log --enable-aur silent install $miss" "Installing $miss"
       done
     fi
   fi
@@ -1178,7 +1178,7 @@ install_packages() {
       printf_warning "Attempting to install missing packages as $RUN_USER"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr --enable-log silent install $miss 2>$INSTALLER_ERR_FILE" "Installing $miss"
+        execute "pkmgr --enable-log silent install $miss" "Installing $miss"
       done
     fi
   fi
@@ -1197,7 +1197,7 @@ install_python() {
       printf_warning "Attempting to install missing python packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr silent install $miss 2>$INSTALLER_ERR_FILE" "Installing $miss"
+        execute "pkmgr silent install $miss" "Installing $miss"
       done
     fi
   fi
@@ -1235,7 +1235,7 @@ install_pip() {
       printf_warning "Attempting to install missing pip packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr pip install $miss 2>$INSTALLER_ERR_FILE" "Installing $miss"
+        execute "pkmgr pip install $miss" "Installing $miss"
       done
     fi
   fi
@@ -1254,7 +1254,7 @@ install_npm() {
       printf_warning "Attempting to install missing pip packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr npm install $miss 2>$INSTALLER_ERR_FILE" "Installing $miss"
+        execute "pkmgr npm install $miss" "Installing $miss"
       done
     fi
   fi
@@ -1273,7 +1273,7 @@ install_cpan() {
       printf_warning "Attempting to install missing cpan packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr cpan install $miss 2>$INSTALLER_ERR_FILE" "Installing $miss"
+        execute "pkmgr cpan install $miss" "Installing $miss"
       done
     fi
   fi
@@ -1292,7 +1292,7 @@ install_gem() {
       printf_warning "Attempting to install missing gem packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr gem install $miss 2>$INSTALLER_ERR_FILE" "Installing $miss"
+        execute "pkmgr gem install $miss" "Installing $miss"
       done
     fi
   fi

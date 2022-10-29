@@ -17,40 +17,40 @@
 SCRIPTS_PREFIX="${SCRIPTS_PREFIX:-dfmgr}"
 ###################### devenvmgr settings ######################
 devenvmgr_install() {
-  SCRIPTS_PREFIX="devenvmgr"
-  installtype="devenvmgr_install"
+  export SCRIPTS_PREFIX="devenvmgr"
+  export installtype="devenvmgr_install"
   source "$CASJAYSDEVDIR/functions/installers/${SCRIPTS_PREFIX}.bash"
   #__main_installer_info
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ###################### dfmgr settings ######################
 dfmgr_install() {
-  SCRIPTS_PREFIX="dfmgr"
-  installtype="dfmgr_install"
+  export SCRIPTS_PREFIX="dfmgr"
+  export installtype="dfmgr_install"
   source "$CASJAYSDEVDIR/functions/installers/${SCRIPTS_PREFIX}.bash"
   #__main_installer_info
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ###################### desktopmgr settings ######################
 desktopmgr_install() {
-  SCRIPTS_PREFIX="desktopmgr"
-  installtype="desktopmgr_install"
+  export SCRIPTS_PREFIX="desktopmgr"
+  export installtype="desktopmgr_install"
   source "$CASJAYSDEVDIR/functions/installers/${SCRIPTS_PREFIX}.bash"
   #__main_installer_info
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ###################### dockermgr settings ######################
 dockermgr_install() {
-  SCRIPTS_PREFIX="dockermgr"
-  installtype="dockermgr_install"
+  export SCRIPTS_PREFIX="dockermgr"
+  export installtype="dockermgr_install"
   source "$CASJAYSDEVDIR/functions/installers/${SCRIPTS_PREFIX}.bash"
   #__main_installer_info
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ###################### fontmgr settings ######################
 fontmgr_install() {
-  SCRIPTS_PREFIX="fontmgr"
-  installtype="fontmgr_install"
+  export SCRIPTS_PREFIX="fontmgr"
+  export installtype="fontmgr_install"
   source "$CASJAYSDEVDIR/functions/installers/${SCRIPTS_PREFIX}.bash"
   #__main_installer_info
 }
@@ -58,48 +58,48 @@ fontmgr_install() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ###################### hakmgr settings ######################
 hakmgr_install() {
-  SCRIPTS_PREFIX="hakmgr"
-  installtype="hakmgr_install"
+  export SCRIPTS_PREFIX="hakmgr"
+  export installtype="hakmgr_install"
   source "$CASJAYSDEVDIR/functions/installers/${SCRIPTS_PREFIX}.bash"
   #__main_installer_info
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ###################### iconmgr settings ######################
 iconmgr_install() {
-  SCRIPTS_PREFIX="iconmgr"
-  installtype="iconmgr_install"
+  export SCRIPTS_PREFIX="iconmgr"
+  export installtype="iconmgr_install"
   source "$CASJAYSDEVDIR/functions/installers/${SCRIPTS_PREFIX}.bash"
   #__main_installer_info
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ###################### pkmgr settings ######################
 pkmgr_install() {
-  SCRIPTS_PREFIX="pkmgr"
-  installtype="pkmgr_install"
+  export SCRIPTS_PREFIX="pkmgr"
+  export installtype="pkmgr_install"
   source "$CASJAYSDEVDIR/functions/installers/${SCRIPTS_PREFIX}.bash"
 }
 #__main_installer_info
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ###################### systemmgr settings ######################
 systemmgr_install() {
-  SCRIPTS_PREFIX="systemmgr"
-  installtype="systemmgr_install"
+  export SCRIPTS_PREFIX="systemmgr"
+  export installtype="systemmgr_install"
   source "$CASJAYSDEVDIR/functions/installers/${SCRIPTS_PREFIX}.bash"
   #__main_installer_info
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ###################### thememgr settings ######################
 thememgr_install() {
-  SCRIPTS_PREFIX="thememgr"
-  installtype="thememgr_install"
+  export SCRIPTS_PREFIX="thememgr"
+  export installtype="thememgr_install"
   source "$CASJAYSDEVDIR/functions/installers/${SCRIPTS_PREFIX}.bash"
   #__main_installer_info
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ###################### wallpapermgr settings ######################
 wallpapermgr_install() {
-  SCRIPTS_PREFIX="wallpapermgr"
-  installtype="wallpapermgr_install"
+  export SCRIPTS_PREFIX="wallpapermgr"
+  export installtype="wallpapermgr_install"
   source "$CASJAYSDEVDIR/functions/installers/${SCRIPTS_PREFIX}.bash"
   #__main_installer_info
 }

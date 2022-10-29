@@ -1086,10 +1086,10 @@ dotfilesreqadmincmd() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 dotfilesreq() {
-  local LISTARRAY="$*"
-  local confdir="$USRUPDATEDIR"
-  local conf=""
-  for conf in $LISTARRAY; do
+  [ "$SCRIPTS_PREFIX" = "dfmgr" ] || return 0
+  local -a LISTARRAY=("$@")
+  local confdir="$USRUPDATEDIR" conf=""
+  for conf in "${LISTARRAY[@]}"; do
     local TMPINST="$TMPDIR/${conf}.inst.tmp"
     [ -d "$confdir/$conf" ] || [ -f "$TMPINST" ] || dotfilesreqcmd "$conf"
   done
@@ -1097,20 +1097,43 @@ dotfilesreq() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 dotfilesreqadmin() {
-  local LISTARRAY="$*"
+  local -a LISTARRAY=("$@")
   local confdir="$SYSUPDATEDIR"
   local conf=""
-  for conf in $LISTARRAY; do
+  for conf in "${LISTARRAY[@]}"; do
     local TMPINST="$TMPDIR/${conf}.inst.tmp"
     [ -d "$confdir/$conf" ] || [ -f "$TMPINST" ] || dotfilesreqadmincmd "$conf"
   done
   run_cleanup
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+install_aur() {
+  local REQUIRED="$*"
+  local cmd="" MISSING=""
+  [ -f "$(builtin type -P yay 2>/dev/null)" ] || return 0
+  if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
+    for cmd in $REQUIRED; do
+      if ! builtin type -p "$cmd" &>/dev/null; then
+        MISSING+="$cmd "
+      fi
+    done
+    if [ -n "$MISSING" ]; then
+      printf_warning "Attempting to install missing packages as $RUN_USER"
+      printf_warning "$MISSING"
+      for miss in $MISSING; do
+        execute "pkmgr --enable-log --enable-aur silent install $miss" "Installing $miss"
+      done
+    fi
+  fi
+  unset MISSING
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_required() {
+  local name="$APPNAME"
   local REQUIRED="$*"
   local MISSING=""
   local cmd=""
+  [ "$SCRIPTS_PREFIX" = "dfmgr" ] || [ "$SCRIPTS_PREFIX" = "systemmgr" ] || return 0
   for cmd in $REQUIRED; do
     builtin type -p "$cmd" &>/dev/null || MISSING+="$cmd "
   done
@@ -1118,19 +1141,15 @@ install_required() {
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
       printf_yellow "Still missing: $MISSING"
       printf_yellow "Installing from package list"
-      if [ -f "$(builtin type -P yay 2>/dev/null)" ]; then
-        pkmgr --enable-aur dotfiles "$APPNAME" 2>/dev/null
-      else
-        pkmgr dotfiles "$APPNAME" 2>/dev/null
-      fi
+      pkmgr --enable-log dotfiles "$name" 2>"$INSTALLER_ERR_FILE"
     fi
+    unset MISSING
+    for cmd in $REQUIRED; do
+      builtin type -p "$cmd" &>/dev/null || MISSING+="$cmd "
+    done
   fi
-  unset MISSING
-  for cmd in $REQUIRED; do
-    __cmd_exists "$cmd" &>/dev/null || MISSING+="$cmd "
-  done
   if [ -n "$MISSING" ]; then
-    printf_warning "Can not install all the required packages for $APPNAME"
+    printf_warning "Can not install all the required packages for $name"
     return 1
   fi
   unset MISSING
@@ -1142,17 +1161,15 @@ install_packages() {
   local cmd=""
   if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
     for cmd in $REQUIRED; do
-      __cmd_exists "$cmd" &>/dev/null || MISSING+="$cmd "
+      if ! builtin type -p "$cmd" &>/dev/null; then
+        MISSING+="$cmd "
+      fi
     done
     if [ -n "$MISSING" ]; then
       printf_warning "Attempting to install missing packages as $RUN_USER"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        if [ -f "$(builtin type -P yay 2>/dev/null)" ]; then
-          execute "pkmgr --enable-aur silent install $miss &>/dev/null" "Installing $miss"
-        else
-          execute "pkmgr silent install $miss &>/dev/null" "Installing $miss"
-        fi
+        execute "pkmgr --enable-log silent install $miss" "Installing $miss"
       done
     fi
   fi
@@ -2163,6 +2180,44 @@ fontmgr_run_post() {
 }
 fontmgr_install_version() {
   fontmgr_install
+  install_version
+  # if [ -f "$INSTDIR/install.sh" ] && [ -f "$INSTDIR/version.txt" ]; then
+  #   ln_sf "$INSTDIR/install.sh" "$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX/$APPNAME"
+  # fi
+}
+###################### hakmgr settings ######################
+hakmgr_install() {
+  user_installdirs
+  SCRIPTS_PREFIX="hakmgr"
+  [ -n "$_DEBUG" ] && set -x && echo "$SCRIPTS_PREFIX"
+  APPDIR="${APPDIR:-$CONF/$APPNAME}"
+  INSTDIR="${INSTDIR:-$SHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME}"
+  REPO="${REPO:-$HAKMGRREPO/$APPNAME}"
+  REPORAW="${REPORAW:-$REPO/raw/$GIT_REPO_BRANCH}"
+  USRUPDATEDIR="$SHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"
+  SYSUPDATEDIR="$SYSSHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"
+  ARRAY="${ARRAY:-}"
+  LIST="${LIST:-}"
+  [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && APPDIR="${APPDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
+  [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && INSTDIR="${INSTDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
+  if [ -f "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME" ]; then
+    APPVERSION="$(grep -sv '#' "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME")"
+  else
+    APPVERSION="$currentVersion"
+  fi
+  mkd "$USRUPDATEDIR" "$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX"
+  export installtype="hakmgr_install"
+}
+######## Installer Functions ########
+hakmgr_run_init() {
+  run_install_init "configurations"
+}
+hakmgr_run_post() {
+  hakmgr_install
+  run_postinst_global
+}
+hakmgr_install_version() {
+  hakmgr_install
   install_version
   # if [ -f "$INSTDIR/install.sh" ] && [ -f "$INSTDIR/version.txt" ]; then
   #   ln_sf "$INSTDIR/install.sh" "$CASJAYSDEVSAPPDIR/$SCRIPTS_PREFIX/$APPNAME"

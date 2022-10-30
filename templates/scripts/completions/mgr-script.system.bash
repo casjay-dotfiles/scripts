@@ -32,7 +32,7 @@ _GEN_SCRIPT_REPLACE_FILENAME_completion() {
   #####################################################################
   local SHORTOPTS="-a -f "
   #####################################################################
-  local LONGOPTS="--completions --config --debug --help --options --raw --version "
+  local LONGOPTS="--completions --options --config --version --help --force --all --raw "
   #####################################################################
   local ARRAY="download list search available remove version update install cron "
   #####################################################################
@@ -48,7 +48,11 @@ _GEN_SCRIPT_REPLACE_FILENAME_completion() {
   if [[ ${cur} == --* ]]; then
     COMPREPLY=($(compgen -W '${LONGOPTS}' -- ${cur}))
   elif [[ ${cur} == -* ]]; then
-    COMPREPLY=($(compgen -W '${SHORTOPTS:---}' -- ${cur})) && compopt -o nospace
+    if [ -n "$SHORTOPTS" ]; then
+      COMPREPLY=($(compgen -W '${SHORTOPTS}' -- ${cur}))
+    else
+      COMPREPLY=($(compgen -W '${LONGOPTS}' -- ${cur}))
+    fi
   else
     case "${prev:-${COMP_WORDS[1]}}" in
     --completions)
@@ -60,7 +64,7 @@ _GEN_SCRIPT_REPLACE_FILENAME_completion() {
       return 0
       ;;
     --all)
-      COMPREPLY=($(compgen -W '${LIST}' -- "$cur"))
+      COMPREPLY=($(compgen -W '' -- "$cur"))
       ;;
     *)
       [ $cword -gt 2 ] && COMPREPLY=($(compgen -W '${LIST}' -- "$cur")) ||
@@ -114,3 +118,5 @@ _GEN_SCRIPT_REPLACE_FILENAME_completion() {
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # enable completions
   complete -F _GEN_SCRIPT_REPLACE_FILENAME_completion GEN_SCRIPT_REPLACE_FILENAME
+
+# ex: ts=2 sw=2 et filetype=sh

@@ -210,3 +210,5 @@ exit ${EXIT:-$exitCode}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+# ex: ts=2 sw=2 et filetype=sh

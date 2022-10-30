@@ -48,7 +48,11 @@ _GEN_SCRIPT_REPLACE_FILENAME_completion() {
   if [[ ${cur} == --* ]]; then
     COMPREPLY=($(compgen -W '${LONGOPTS}' -- ${cur}))
   elif [[ ${cur} == -* ]]; then
-    COMPREPLY=($(compgen -W '${SHORTOPTS:---}' -- ${cur})) && compopt -o nospace
+    if [ -n "$SHORTOPTS" ]; then
+      COMPREPLY=($(compgen -W '${SHORTOPTS}' -- ${cur}))
+    else
+      COMPREPLY=($(compgen -W '${LONGOPTS}' -- ${cur}))
+    fi
   else
     case "${prev:-${COMP_WORDS[1]}}" in
     --completions)
@@ -61,8 +65,7 @@ _GEN_SCRIPT_REPLACE_FILENAME_completion() {
       ;;
     --dir)
       prev="dir"
-      [ "$cword" -le 2 ] && _filedir -d ||
-        COMPREPLY=($(compgen -W '${ARRAY}' -- "$cur"))
+      [ "$cword" -le 2 ] && _filedir -d || COMPREPLY=($(compgen -W '${ARRAY}' -- "$cur"))
       ;;
     *)
       COMPREPLY=($(compgen -W '${ARRAY}' -- "$cur"))
@@ -114,4 +117,6 @@ _GEN_SCRIPT_REPLACE_FILENAME_completion() {
 } &&
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # enable completions
-  complete -F _GEN_SCRIPT_REPLACE_FILENAME_completion GEN_SCRIPT_REPLACE_FILENAME
+  complete -F _GEN_SCRIPT_REPLACE_FILENAME_completion -o default GEN_SCRIPT_REPLACE_FILENAME
+
+# ex: ts=2 sw=2 et filetype=sh

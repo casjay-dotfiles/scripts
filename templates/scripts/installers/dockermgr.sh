@@ -523,4 +523,5 @@ run_exit &>/dev/null
 # lets exit with code
 exit ${exitCode:-$?}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# end
+# End application
+# ex: ts=2 sw=2 et filetype=sh

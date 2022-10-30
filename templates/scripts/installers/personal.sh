@@ -311,3 +311,5 @@ main "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # lets exit with code
 exit "${exitCode:-$?}"
+
+# ex: ts=2 sw=2 et filetype=sh

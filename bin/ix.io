@@ -375,7 +375,7 @@ IX_IO_TEMP_DIR="${IX_IO_TEMP_DIR:-$HOME/.local/tmp/system_scripts/ix.io}"
 IX_IO_CACHE_DIR="${IX_IO_CACHE_DIR:-$HOME/.cache/ix.io}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
-IX_IO_OUTPUT_COLOR_1="${IX_IO_OUTPUT_COLOR_1:-4}"
+IX_IO_OUTPUT_COLOR_1="${IX_IO_OUTPUT_COLOR_1:-33}"
 IX_IO_OUTPUT_COLOR_2="${IX_IO_OUTPUT_COLOR_2:-5}"
 IX_IO_OUTPUT_COLOR_GOOD="${IX_IO_OUTPUT_COLOR_GOOD:-2}"
 IX_IO_OUTPUT_COLOR_ERROR="${IX_IO_OUTPUT_COLOR_ERROR:-1}"

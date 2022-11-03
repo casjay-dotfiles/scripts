@@ -303,7 +303,7 @@ printf_read_input() {
   local reply="${1:-REPLY}" && shift 1
   local readopts="${1:-}" && shift 1
   printf_color "$msg " "${PRINTF_COLOR:-$color}"
-  read -e -r -n $lines ${readopts:-} ${reply:-}
+  read -e -r -n $lines ${readopts:-} ${reply:-} || return 1
   [ -z "$reply" ] && printf '\n' && return 1 || return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -315,7 +315,7 @@ printf_read_question() {
   local reply="${1:-REPLY}" && shift 1
   local readopts="${1:-}" && shift 1
   printf_color "$msg " "${PRINTF_COLOR:-$color}"
-  read -t 30 -e -r -n $lines ${readopts:-} ${reply:-}
+  read -t 30 -e -r -n $lines ${readopts:-} ${reply:-} || return 1
   [ -z "$reply" ] && printf '\n' && return 1 || return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -331,8 +331,13 @@ printf_read_question_nt() {
   [ -z "$reply" ] && printf '\n' && return 1 || return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# printf_read_passwd "color" "message" "varName"
 printf_read_passwd() {
-  printf_read_question_nt ${1:-3} "${2:-$1}:" "100" "${3:-password}" "-s"
+  test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="3"
+  local msg="$1" && shift 1
+  local password="${1:-password}"
+  printf_read_question_nt $color "$msg:" "100" "$password" "-s"
+  return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_read_error() {
@@ -352,20 +357,28 @@ printf_answer() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #printf_answer_yes "var" "response"
 printf_answer_yes() {
-  if [[ "${1:-$REPLY}" =~ ${2:-^[Yy]$} ]]; then
+  local answerVar="${1:-$REPLY}"
+  if [[ "$answerVar" =~ ${2:-^[Yy]$} ]]; then
     exitCode=0
-  else
+  elif [ -z "$answerVar" ] || [ "$answerVar" = "" ]; then
     printf '\n'
+    exitCode=1
+  else
+    #printf '\n'
     exitCode=1
   fi
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_answer_no() {
-  if [[ "${1:-$REPLY}" =~ ${2:-^[Nn]$} ]]; then
+  local answerVar="${1:-$REPLY}"
+  if [[ "$answerVar" =~ ${2:-^[Nn]$} ]]; then
+    return 1
+  elif [ -z "$answerVar" ] || [ "$answerVar" = "" ]; then
     printf '\n'
     return 1
   else
+    #printf '\n'
     return 0
   fi
 }

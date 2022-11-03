@@ -159,7 +159,7 @@ printf_newline() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ "$SHOW_RAW" = "true" ]; then
-  unset -f __printf_color
+  unset -f printf_color
   printf_color() { printf '%b' "$1" | tr -d '\t'; }
   __printf_color() { printf_color "$1"; }
 else
@@ -369,7 +369,7 @@ printf_readline_trunc() {
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="6"
   test -n "$2" && test -z "${2//[0-9]/}" && local TRUNC_IT="$2" && shift 1 || local TRUNC_IT="${TRUNC_IT:-110}"
   while read line; do
-    printf_color "$line" "${PRINTF_COLOR:-$color}" |& cat - | cut -c 1-${TRUNC_IT} | tee
+    printf_color "$line" "${PRINTF_COLOR:-$color}" |& cat - |& cut -c 1-${TRUNC_IT} |& tee
   done
   set +o pipefail
 }
@@ -382,6 +382,7 @@ printf_column() {
   printf "\n"
   set +o pipefail
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_cat() {
   file=${1:--}
   while IFS= read -r line; do
@@ -406,6 +407,7 @@ printf_custom_question() {
 printf_question_term() {
   printf_read_question "4" "$1" "1" "REPLY"
   printf_answer_yes "$REPLY" && eval "${2:-true}" && exitCode=0 || exitCode=1
+  [ -z "$REPLY" ] && printf '\n' && exitCode=1 || exitCode=${exitCode:-$?}
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -418,19 +420,19 @@ printf_read_input() {
   local readopts="${1:-}" && shift 1
   printf_color "$msg " "${PRINTF_COLOR:-$color}"
   read -e -r -n $lines ${readopts:-} ${reply:-} || return 1
+  [ -z "$reply" ] && printf '\n' && return 1 || return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #printf_read_question "color" "message" "maxLines" "answerVar" "readopts"
 printf_read_question() {
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="1"
   local msg="$1" && shift 1
-  local readopts=""
-  local reply=""
   test -n "$1" && test -z "${1//[0-9]/}" && local lines="$1" && shift 1 || local lines="120"
   local reply="${1:-REPLY}" && shift 1
   local readopts="${1:-}" && shift 1
   printf_color "$msg " "${PRINTF_COLOR:-$color}"
   read -t 30 -e -r -n $lines ${readopts:-} ${reply:-} || return 1
+  [ -z "$reply" ] && printf '\n' && return 1 || return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #printf_read_question "color" "message" "maxLines" "answerVar" "readopts"
@@ -442,16 +444,18 @@ printf_read_question_nt() {
   local readopts="${1:-}" && shift 1
   printf_color "$msg " "${PRINTF_COLOR:-$color}"
   read -e -r -n $lines ${readopts:-} ${reply:-} || return 1
+  [ -z "$reply" ] && printf '\n' && return 1 || return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# printf_read_passwd "color" "message" "varName"
 printf_read_passwd() {
-  test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="1"
+  test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="3"
   local msg="$1" && shift 1
   test -n "$1" && test -z "${1//[0-9]/}" && local lines="$1" && shift 1 || local lines="120"
   local reply="${1:-REPLY}" && shift 1
-  local readopts="${1:-}" && shift 1
   printf_color "$msg " "${PRINTF_COLOR:-$color}"
-  read -r -s -n $lines ${readopts:-} ${reply:-} || return 1
+  read -r -s -n $lines ${reply:-} || return 1
+  [ -z "$reply" ] && printf '\n' && return 1 || return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_read_error() {
@@ -463,6 +467,7 @@ printf_read_error() {
 printf_answer() {
   read -t 10 -r -s -n 1 "${1:-$REPLY}"
   if [ -z "$reply" ]; then
+    printf '\n'
     return 1
   fi
   #history -s "${1:-$REPLY}"
@@ -470,16 +475,30 @@ printf_answer() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #printf_answer_yes "var" "response"
 printf_answer_yes() {
-  if [[ "${1:-$REPLY}" =~ ${2:-^[Yy]$} ]]; then
+  local answerVar="${1:-$REPLY}"
+  if [[ "$answerVar" =~ ${2:-^[Yy]$} ]]; then
     exitCode=0
+  elif [ -z "$answerVar" ] || [ "$answerVar" = "" ]; then
+    printf '\n'
+    exitCode=1
   else
+    #printf '\n'
     exitCode=1
   fi
   return ${exitCode:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_answer_no() {
-  [[ "${1:-$REPLY}" =~ ${2:-^[Nn]$} ]] && return 1 || return 0
+  local answerVar="${1:-$REPLY}"
+  if [[ "$answerVar" =~ ${2:-^[Nn]$} ]]; then
+    return 1
+  elif [ -z "$answerVar" ] || [ "$answerVar" = "" ]; then
+    printf '\n'
+    return 1
+  else
+    #printf '\n'
+    return 0
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_head() {
@@ -556,6 +575,28 @@ printf_counter() {
     ((temp_cnt--))
   done
   printf_newline "\n\n"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+printf_debug() {
+  printf_yellow "Running in debug mode "
+  for d in "$@"; do
+    echo "$d" | printf_readline "5"
+  done
+  exit 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#counter time "color" "message" "seconds(s) "
+__counter() {
+  local wait_time="$1" # seconds
+  local color="$2"
+  local msg="$3"
+  local duration="${4:-}"
+  local temp_cnt=${wait_time}
+  while [[ ${temp_cnt} -gt 0 ]]; do
+    printf "\r%s\r" "$(printf_custom "${PRINTF_COLOR:-$color}" $msg $duration ${temp_cnt} "$4")"
+    sleep 1
+    ((temp_cnt--))
+  done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_debug() {

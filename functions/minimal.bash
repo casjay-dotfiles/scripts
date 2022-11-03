@@ -450,10 +450,10 @@ printf_read_question_nt() {
 # printf_read_passwd "color" "message" "varName"
 printf_read_passwd() {
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="3"
-  local msg="$1" && shift 1
+  local passmesg="$1 " && shift 1
   test -n "$1" && test -z "${1//[0-9]/}" && local lines="$1" && shift 1 || local lines="120"
-  local reply="${1:-REPLY}" && shift $#
-  printf_color "$msg " "${PRINTF_COLOR:-$color}"
+  local reply="${1:-REPLY}" && shift
+  printf_color "$passmesg" "${PRINTF_COLOR:-$color}"
   read -s -r -n $lines ${reply:-} || return 1
   [ -z "$reply" ] && printf '\n' && return 1 || return 0
 }

@@ -333,11 +333,14 @@ printf_read_question_nt() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # printf_read_passwd "color" "message" "varName"
 printf_read_passwd() {
-  test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="3"
+  test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="1"
   local msg="$1" && shift 1
-  local password="${1:-password}"
-  printf_read_question_nt $color "$msg:" "100" "$password" "-s"
-  return $?
+  test -n "$1" && test -z "${1//[0-9]/}" && local lines="$1" && shift 1 || local lines="120"
+  local reply="${1:-REPLY}" && shift 1
+  local readopts="${1:-}" && shift 1
+  printf_color "$msg " "${PRINTF_COLOR:-$color}"
+  read -e -r -n $lines -s ${readopts:-} ${reply:-} || return 1
+  [ -z "$reply" ] && printf '\n' && return 1 || return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_read_error() {

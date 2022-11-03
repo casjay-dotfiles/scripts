@@ -336,9 +336,9 @@ printf_read_passwd() {
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="3"
   local msg="$1" && shift 1
   test -n "$1" && test -z "${1//[0-9]/}" && local lines="$1" && shift 1 || local lines="120"
-  local reply="${1:-REPLY}" && shift 1
+  local reply="${1:-REPLY}" && shift $#
   printf_color "$msg " "${PRINTF_COLOR:-$color}"
-  read -r -s -n $lines ${reply:-} || return 1
+  read -s -r -n $lines ${reply:-} || return 1
   [ -z "$reply" ] && printf '\n' && return 1 || return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

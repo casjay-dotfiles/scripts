@@ -445,7 +445,13 @@ printf_read_question_nt() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_read_passwd() {
-  printf_read_question_nt ${1:-3} "${2:-$1}:" "100" "${3:-password}" "-s"
+  test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="1"
+  local msg="$1" && shift 1
+  test -n "$1" && test -z "${1//[0-9]/}" && local lines="$1" && shift 1 || local lines="120"
+  local reply="${1:-REPLY}" && shift 1
+  local readopts="${1:-}" && shift 1
+  printf_color "$msg " "${PRINTF_COLOR:-$color}"
+  read -r -s -n $lines ${readopts:-} ${reply:-} || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_read_error() {

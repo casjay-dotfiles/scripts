@@ -211,15 +211,18 @@ CUSTOM_ARGUMENTS+=""
 # Set this to the protocol the the container will use [http,https,git,ftp,etc]
 CONTAINER_HTTP_PROTO="http"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Add Add sevicee port [port] or [port:port] - LISTEN will be added if defined [DEFINE_LISTEN]
+# Add Add service port [port] or [port:port] - LISTEN will be added if defined [DEFINE_LISTEN]
 # Only ONE HTTP or HTTPS if web server or SERVICE port for mysql pgsql ftp etc. add more to CONTAINER_ADD_CUSTOM_PORT
 CONTAINER_HTTP_PORT=""
 CONTAINER_HTTPS_PORT=""
 CONTAINER_SERVICE_PORT=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Add Add sevicee port [port] or [port:port] - LISTEN will be added if defined [DEFINE_LISTEN]
+# Add Add service port [port] or [port:port] - LISTEN will be added if defined [DEFINE_LISTEN]
 CONTAINER_ADD_CUSTOM_PORT=""
 CONTAINER_ADD_CUSTOM_PORT+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Add Add service port [listen]:[externalPort:internalPort]/[tcp,udp]
+CONTAINER_ADD_CUSTOM_LISTEN=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show post install message
 POST_SHOW_FINISHED_MESSAGE=""
@@ -401,6 +404,12 @@ for port in $CONTAINER_HTTP_PORT $CONTAINER_SERVICE_PORT $CONTAINER_HTTPS_PORT $
     fi
   fi
 done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -n "$CONTAINER_ADD_CUSTOM_LISTEN" ]; then
+  for list in $CONTAINER_ADD_CUSTOM_LISTEN; do
+    SET_PORT+="--publish $list "
+  done
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [ -d "$APPDIR/files" ] && [ ! -d "$DATADIR" ] && mv -f "$APPDIR/files" "$DATADIR"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

@@ -174,11 +174,11 @@ SET_USER_ID=""
 CONTAINER_USER_ID=""
 CONTAINER_GROUP_ID=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set container username and password and the env name [Default to -e username=name -e password=pass]
+# Set container username and password and the env name [-e CONTAINER_ENV_USER_NAME=CONTAINER_USER_NAME] [-e password=pass]
 CONTAINER_USER_NAME=""
 CONTAINER_USER_PASS=""
 CONTAINER_ENV_USER_NAME=""
-CONTAINER_ENV_USER_PASS=""
+CONTAINER_ENV_PASS_NAME=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mount docker socket [pathToSocket]
 DOCKER_SOCKET_ENABLED="no"
@@ -301,7 +301,7 @@ CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME.$CONTAINER_DOMAINNAME}"
 [ -n "$HOST_TIMEZONE" ] || HOST_TIMEZONE="America/New_York"
 [ -n "$HOST_WEB_PORT" ] && HOST_PORT="${HOST_WEB_PORT//:*/}"
 [ -n "$DEFINE_LISTEN" ] && DEFINE_LISTEN="${DEFINE_LISTEN//:*/}:" || DEFINE_LISTEN=""
-[ -z "$CONTAINER_USER_PASS" ] || ADDITION_ENV+="${CONTAINER_ENV_USER_PASS:-password}=$CONTAINER_USER_PASS "
+[ -z "$CONTAINER_USER_PASS" ] || ADDITION_ENV+="${CONTAINER_ENV_PASS_NAME:-password}=$CONTAINER_USER_PASS "
 [ -z "$CONTAINER_USER_NAME" ] || ADDITION_ENV+="${CONTAINER_ENV_USER_NAME:-username}=$CONTAINER_USER_NAME "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 PRETTY_PORT="${HOST_SERVICE_PORT:-$HOST_PORT}"
@@ -323,10 +323,10 @@ CONTAINER_GROUP_ID=""
 # Setup display if enabled
 if [ "$CONTAINER_DISPLAY" = "yes" ]; then
   ADDITION_ENV+="DISPLAY=:${DISPLAY//*:/} "
-  ADDITIONAL_MOUNTS+="${HOST_X11_SOCKET:-/tmp/.X11-unix}:/tmp/.X11-unix " ||
-    if [ -n "$HOST_X11_XAUTH" ] && [ -n "$CONTAINER_X11_XAUTH" ]; then
-      ADDITIONAL_MOUNTS+="$HOST_X11_XAUTH:$CONTAINER_X11_XAUTH "
-    fi
+  ADDITIONAL_MOUNTS+="${HOST_X11_SOCKET:-/tmp/.X11-unix}:/tmp/.X11-unix "
+  if [ -n "$HOST_X11_XAUTH" ] && [ -n "$CONTAINER_X11_XAUTH" ]; then
+    ADDITIONAL_MOUNTS+="$HOST_X11_XAUTH:$CONTAINER_X11_XAUTH "
+  fi
 fi
 HOST_X11_XAUTH=""
 CONTAINER_DISPLAY=""

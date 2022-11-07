@@ -33,6 +33,8 @@ elif builtin command -v apt &>/dev/null; then
   __install() { eval apt install -yy -q "$*" &>/dev/null; }
 elif builtin command -v pacman &>/dev/null; then
   __install() { eval pacman -S --noconfirm "$*" &>/dev/null; }
+elif builtin command -v dnf &>/dev/null; then
+  __install() { eval dnf install -yy -q "$*" &>/dev/null; }
 elif builtin command -v yum &>/dev/null; then
   __install() { eval yum install -yy -q "$*" &>/dev/null; }
 elif builtin command -v choco &>/dev/null; then
@@ -43,15 +45,13 @@ else
 fi
 
 for check in git curl wget; do
-  if builtin command -v "$check" &>/dev/null; then
-    true
-  else
+  if ! builtin command -v "$check" &>/dev/null; then
     __install "$check" && true || false
-    builtin command -v "$check" &>/dev/null || cmdMissing="$check "
+    builtin command -v "$check" &>/dev/null || cmdMissing="${cmdMissing}${check} "
   fi
 done
 if [[ -n "$cmdMissing" ]]; then
-  printf '%b\n' "\n\033[0;31m$cmdMissing is not installed\033[0m\n"
+  printf '%b%s%s%b\n' "\n\033[0;31m" "$cmdMissing" "is not installed" "\033[0m\n"
   [ -f "/tmp/system-installer.bash" ] && rm -Rf /tmp/system-installer.bash
   exit 1
 else

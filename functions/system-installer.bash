@@ -1,15 +1,23 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# @Author          :  Jason
-# @Contact         :  casjaysdev@casjay.net
-# @File            :  system-installer.sh
-# @Created         :  Wed, Aug 05, 2020, 02:00 EST
-# @License         :  WTFPL
-# @Copyright       :  Copyright (c) CasjaysDev
-# @Description : installer functions for apps
-#
+##@Version           :  202211061825-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  git-admin@casjaysdev.com
+# @@License          :  LICENSE.md
+# @@ReadME           :  system-installer.sh --help
+# @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
+# @@Created          :  Sunday, Nov 06, 2022 19:42 EST
+# @@File             :  system-installer.sh
+# @@Description      :  installer functions for system
+# @@Changelog        :  newScript
+# @@TODO             :  Refactor code
+# @@Other            :
+# @@Resource         :
+# @@Terminal App     :  no
+# @@sudo/root        :  no
+# @@Template         :
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-[[ $(id -u) != 0 ]] || [[ "$EUID" != 0 ]] || [[ "$WHOAMI" != "root" ]] || { echo -e "\033[0;31mThis script requires sudo or root\033[0m" && exit 1; }
+[[ $(id -u) != 0 ]] || [[ "$EUID" != 0 ]] || [[ "$WHOAMI" != "root" ]] || { printf '%b\n' "\033[0;31mThis script requires sudo or root\033[0m" && exit 1; }
 PATH="$(echo "$PATH" | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 's#::#:.#g')"
 USER="${USER:-}"
 RUN_USER="$(logname 2>/dev/null)"
@@ -30,7 +38,7 @@ elif builtin command -v yum &>/dev/null; then
 elif builtin command -v choco &>/dev/null; then
   __install() { eval choco install "$*" -y &>/dev/null; }
 else
-  echo -e "\033[0;31mCan not determine you packager manager\033[0m"
+  printf '%b\n' "\033[0;31mCan not determine you packager manager\033[0m"
   exit 1
 fi
 
@@ -43,7 +51,7 @@ for check in git curl wget; do
   fi
 done
 if [[ -n "$cmdMissing" ]]; then
-  echo -e "\n\n\033[0;31m$cmdMissing is not installed\033[0m\n"
+  printf '%b\n' "\n\033[0;31m$cmdMissing is not installed\033[0m\n"
   [ -f "/tmp/system-installer.bash" ] && rm -Rf /tmp/system-installer.bash
   exit 1
 else
@@ -99,6 +107,11 @@ ORANGE="\033[0;33m"
 LIGHTRED='\033[1;31m'
 BG_GREEN="\[$(tput setab 2 2>/dev/null)\]"
 BG_RED="\[$(tput setab 9 2>/dev/null)\]"
+ICON_INFO="[ ℹ️ ]"
+ICON_GOOD="[ ✔ ]"
+ICON_WARN="[ ❗ ]"
+ICON_ERROR="[ ✖ ]"
+ICON_QUESTION="[ ❓ ]"
 ##################################################################################################
 if [ "$SHOW_RAW" = "true" ]; then
   unset -f __printf_color
@@ -301,7 +314,7 @@ backupapp() {
     echo "# Backing up $myappdir" >>"$backupdir/$myappname.log"
     echo "#################################" >>"$backupdir/$myappname.log"
     tar cfzv "$backupdir/$filename" "$myappdir" >>"$backupdir/$myappname.log" 2>&1 &&
-      echo -e "Backup has completed successfully\n#################################\n\n" >>"$backupdir/$myappname.log"
+      printf '%b\n' "Backup has completed successfully\n#################################\n\n" >>"$backupdir/$myappname.log"
     rm -Rf "$myappdir"
   fi
   if [ "$count" -gt "3" ]; then rm_rf $rmpre4vbackup; fi

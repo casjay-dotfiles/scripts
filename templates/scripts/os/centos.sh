@@ -46,6 +46,13 @@ system_service_exists() { systemctl status "$1" 2>&1 | grep -iq "$1" && return 0
 system_service_enable() { systemctl status "$1" 2>&1 | grep -iq 'inactive' && execute "systemctl enable $1" "Enabling service: $1" || return 1; }
 system_service_disable() { systemctl status "$1" 2>&1 | grep -iq 'active' && execute "systemctl disable --now $1" "Disabling service: $1" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__dnf_yum() {
+  local rhel_pkgmgr=""
+  rhel_pkgmgr="$(builtin type -P dnf || builtin type -P yum || false)"
+  $rhel_pkgmgr "$@"
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 test_pkg() {
   for pkg in "$@"; do
     if rpm -q "$pkg" &>/dev/null; then
@@ -58,16 +65,18 @@ test_pkg() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 remove_pkg() {
-  test_pkg "$*" &>/dev/null || execute "yum remove -q -y $*" "Removing: $*"
+  test_pkg "$*" &>/dev/null || execute "__dnf_yum remove -q -y $*" "Removing: $*"
   test_pkg "$*" &>/dev/null || return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_pkg() {
-  test_pkg "$*" && if execute "yum install -q -y --skip-broken $*" "Installing: $*"; then
-    test_pkg "$*" &>/dev/null && return 0 || return 1
+  local statusCode=0
+  test_pkg "$*" && if execute "__dnf_yum install -q -y --skip-broken $*" "Installing: $*"; then
+    test_pkg "$*" &>/dev/null && statusCode=0 || statusCode=1
   else
-    return 1
+    statusCode=1
   fi
+  return $statusCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 detect_selinux() {
@@ -88,7 +97,7 @@ disable_selinux() {
 ssh_key() {
   [ -n "$GITHUB_USER" ] && local ssh_key="" || return 0
   printf_green "Grabbing ssh key for  $GITHUB_USER"
-  ssh_key="$(curl -q -LSsf "https://github.com/$GITHUB_USER.keys" 2>/dev/null || echo '')"
+  ssh_key="$(curl -q -LSsf "https://github.com/$GITHUB_USER.keys" 2>/dev/null | grep '^' || echo '')"
   if [ -n "$ssh_key" ]; then
     [ -d "/root/.ssh" ] || mkdir -p "/root/.ssh"
     [ -f "/root/.ssh/authorized_keys" ] || touch "/root/.ssh/authorized_keys"

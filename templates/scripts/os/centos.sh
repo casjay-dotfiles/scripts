@@ -57,7 +57,7 @@ system_service_disable() { systemctl status "$1" 2>&1 | grep -iq 'active' && exe
 __dnf_yum() {
   local rhel_pkgmgr=""
   rhel_pkgmgr="$(builtin type -P dnf || builtin type -P yum || false)"
-  $rhel_pkgmgr "$@"
+  $rhel_pkgmgr "$@" || false
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -79,10 +79,11 @@ remove_pkg() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_pkg() {
   local statusCode=0
-  test_pkg "$*" && if execute "__dnf_yum install -q -y --skip-broken $*" "Installing: $*"; then
-    test_pkg "$*" &>/dev/null && statusCode=0 || statusCode=1
+  if test_pkg "$*"; then
+    execute "__dnf_yum install -q -y --skip-broken $*" "Installing: $*"
+    test_pkg "$*" &>/dev/null && statusCode=1 || statusCode=0
   else
-    statusCode=1
+    statusCode=0
   fi
   return $statusCode
 }
@@ -109,7 +110,9 @@ ssh_key() {
   if [ -n "$ssh_key" ]; then
     [ -d "/root/.ssh" ] || mkdir -p "/root/.ssh"
     [ -f "/root/.ssh/authorized_keys" ] || touch "/root/.ssh/authorized_keys"
-    if ! grep -sq "$ssh_key" "/root/.ssh/authorized_keys"; then
+    if grep -sq "$ssh_key" "/root/.ssh/authorized_keys"; then
+      printf_cyan "key for $GITHUB_USER already exists in ~/.ssh/authorized_keys"
+    else
       echo "$ssh_key" | tee -a "/root/.ssh/authorized_keys" &>/dev/null
       printf_green "Successfully added github ssh key"
     fi
@@ -139,7 +142,7 @@ rm_if_exists() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 retrieve_repo_file() {
   local RELEASE_FILE IFS
-  if [ "$RELEASE_NAME" = "centos" ]; then
+  if [ "$RELEASE_NAME" = "centos" ] && [ "$(hostname -s)" != "pbx" ]; then
     if [ "$RELEASE_VER" -ge "9" ]; then
       YUM_DELETE="no"
       RELEASE_FILE="https://github.com/rpm-devel/casjay-release/raw/main/casjay.rh9.repo"
@@ -211,6 +214,7 @@ if [ -f "/etc/casjaysdev/updates/versions/$SCRIPT_NAME.txt" ]; then
 else
   install_pkg vnstat && system_service_enable vnstat
   touch "/etc/casjaysdev/updates/versions/$SCRIPT_NAME.txt"
+  run_external "yum clean all"
 fi
 if ! builtin type -P systemmgr &>/dev/null; then
   if [ -d "/usr/local/share/CasjaysDev/scripts" ]; then
@@ -219,13 +223,11 @@ if ! builtin type -P systemmgr &>/dev/null; then
     run_external "git clone https://github.com/casjay-dotfiles/scripts /usr/local/share/CasjaysDev/scripts"
   fi
   run_external /usr/local/share/CasjaysDev/scripts/install.sh
-  run_external systemmgr --config &>/dev/null
-  run_external systemmgr install scripts
+  run_external /usr/local/share/CasjaysDev/scripts/bin/systemmgr --config &>/dev/null
+  run_external /usr/local/share/CasjaysDev/scripts/bin/systemmgr update scripts
   run_external "yum clean all"
 fi
-if [ "$(hostname -s)" != "pbx" ]; then
-  retrieve_repo_file
-fi
+retrieve_repo_file
 printf_green "Installer has been initialized"
 
 ##################################################################################################################
@@ -238,10 +240,10 @@ printf_head "Configuring cores for compiling"
 ##################################################################################################################
 numberofcores=$(grep -c ^processor /proc/cpuinfo)
 printf_yellow "Total cores avaliable: $numberofcores"
-if [ -f /etc/makepkg.conf ]; then
+if [ -f "/etc/makepkg.conf" ]; then
   if [ $numberofcores -gt 1 ]; then
-    sed -i 's/#MAKEFLAGS="-j2"/MAKEFLAGS="-j'$(($numberofcores + 1))'"/g' /etc/makepkg.conf
-    sed -i 's/COMPRESSXZ=(xz -c -z -)/COMPRESSXZ=(xz -c -T '"$numberofcores"' -z -)/g' /etc/makepkg.conf
+    sed -i 's/#MAKEFLAGS="-j2"/MAKEFLAGS="-j'$(($numberofcores + 1))'"/g' "/etc/makepkg.conf"
+    sed -i 's/COMPRESSXZ=(xz -c -z -)/COMPRESSXZ=(xz -c -T '"$numberofcores"' -z -)/g' "/etc/makepkg.conf"
   fi
 fi
 ##################################################################################################################
@@ -252,8 +254,12 @@ ssh_key
 ##################################################################################################################
 printf_head "Configuring the system"
 ##################################################################################################################
+run_external timedatectl set-timezone America/New_York
+for rpms in cronie-anacron sendmail sendmail-cf; do rpm -ev --nodeps $rpms &>/dev/null; done
 run_external yum clean all
 run_external yum update -q -y --skip-broken
+install_pkg cronie-noanacron
+install_pkg postfix
 install_pkg net-tools
 install_pkg wget
 install_pkg curl
@@ -264,15 +270,8 @@ install_pkg redhat-lsb
 install_pkg neovim
 install_pkg unzip
 rm_if_exists /tmp/dotfiles
-run_external timedatectl set-timezone America/New_York
-install_pkg cronie-noanacron
-for rpms in echo cronie-anacron sendmail sendmail-cf; do
-  rpm -ev --nodeps $rpms &>/dev/null
-done
 rm_if_exists /root/anaconda-ks.cfg /var/log/anaconda
-if [ "$(hostname -s)" != "pbx" ]; then
-  retrieve_repo_file
-fi
+retrieve_repo_file
 run_external yum clean all
 run_external yum update -q -y --skip-broken
 
@@ -322,14 +321,14 @@ remove_pkg "packages_to_remove"
 ##################################################################################################################
 printf_head "Installer version: $(retrieve_version_file)"
 ##################################################################################################################
-mkdir -p" /etc/casjaysdev/updates/versions"
+mkdir -p "/etc/casjaysdev/updates/versions"
 echo "$VERSION" >"/etc/casjaysdev/updates/versions/configs.txt"
 chmod -Rf 664 "/etc/casjaysdev/updates/versions/configs.txt"
 
 ##################################################################################################################
 printf_head "Finished setting uo $(hostname -f)"
 ##################################################################################################################
-printf_newline
+printf '\n'
 
 ##################################################################################################################
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

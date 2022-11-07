@@ -99,7 +99,7 @@ test_pkg() {
   set --
 }
 remove_pkg() {
-  if ! test_pkg "$1"; then execute "sudo pacman -R  --noconfirm $1" "Removing: $1"; fi
+  if ! test_pkg "$1"; then execute "sudo pacman -R --noconfirm $1" "Removing: $1"; fi
   setexitstatus
   set --
 }

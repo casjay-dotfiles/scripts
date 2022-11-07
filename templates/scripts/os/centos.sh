@@ -86,15 +86,21 @@ disable_selinux() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ssh_key() {
-  printf_green "Grabbing $GITHUB_USER ssh key"
-  [ -d "/root/.ssh" ] || mkdir -p "/root/.ssh"
-  if urlverify "https://github.com/$GITHUB_USER.keys"; then
-    curl -q -SLs "https://github.com/$GITHUB_USER.keys" | tee "/root/.ssh/authorized_keys" &>/dev/null &&
-      printf_green "Successfully added github ssh key" || printf_return "Failed to add github ssh key"
+  [ -n "$GITHUB_USER" ] && local ssh_key="" || return 0
+  printf_green "Grabbing ssh key for  $GITHUB_USER"
+  ssh_key="$(curl -q -LSsf "https://github.com/$GITHUB_USER.keys" 2>/dev/null || echo '')"
+  if [ -n "$ssh_key" ]; then
+    [ -d "/root/.ssh" ] || mkdir -p "/root/.ssh"
+    [ -f "/root/.ssh/authorized_keys" ] || touch "/root/.ssh/authorized_keys"
+    if ! grep -sq "$ssh_key" "/root/.ssh/authorized_keys"; then
+      echo "$ssh_key" | tee -a "/root/.ssh/authorized_keys" &>/dev/null
+      printf_green "Successfully added github ssh key"
+    fi
+    return 0
   else
     printf_return "Can not get key from https://github.com/$GITHUB_USER.keys"
+    return 1
   fi
-  return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 rm_repo_files() { [ "${1:-$YUM_DELETE}" = "yes" ] && rm -Rf "/etc/yum.repos" || true; }

@@ -223,7 +223,7 @@ if ! builtin type -P systemmgr &>/dev/null; then
     run_external "git clone https://github.com/casjay-dotfiles/scripts /usr/local/share/CasjaysDev/scripts"
   fi
   run_external /usr/local/share/CasjaysDev/scripts/install.sh
-  run_external /usr/local/share/CasjaysDev/scripts/bin/systemmgr --config &>/dev/null
+  run_external /usr/local/share/CasjaysDev/scripts/bin/systemmgr --config
   run_external /usr/local/share/CasjaysDev/scripts/bin/systemmgr update scripts
   run_external "yum clean all"
 fi
@@ -269,11 +269,11 @@ install_pkg e2fsprogs
 install_pkg redhat-lsb
 install_pkg neovim
 install_pkg unzip
-rm_if_exists /tmp/dotfiles
-rm_if_exists /root/anaconda-ks.cfg /var/log/anaconda
 retrieve_repo_file
 run_external yum clean all
 run_external yum update -q -y --skip-broken
+rm_if_exists /tmp/dotfiles
+rm_if_exists /root/anaconda-ks.cfg /var/log/anaconda
 
 ##################################################################################################################
 printf_head "Installing the packages for $SCRIPT_DESCRIBE"

@@ -103,7 +103,7 @@ disable_selinux() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-ssh_key() {
+get_user_ssh_key() {
   [ -n "$GITHUB_USER" ] && local ssh_key="" || return 0
   printf_green "Grabbing ssh key for  $GITHUB_USER"
   ssh_key="$(curl -q -LSsf "https://github.com/$GITHUB_USER.keys" 2>/dev/null | grep '^' || echo '')"
@@ -208,12 +208,13 @@ fix_network_device_name() {
 printf_head_clear "Initializing the installer for $SCRIPT_NAME"
 ##################################################################################################################
 if [ -f "/etc/casjaysdev/updates/versions/$SCRIPT_NAME.txt" ]; then
-  printf_red "This has already been installed"
+  printf_red "$(<"/etc/casjaysdev/updates/versions/$SCRIPT_NAME.txt")"
   printf_red "To reinstall please remove the version file in"
-  printf_exit "/etc/casjaysdev/updates/versions/$SCRIPT_NAME.txt"
+  printf_red "/etc/casjaysdev/updates/versions/$SCRIPT_NAME.txt"
+  exit 1
 else
-  install_pkg vnstat && system_service_enable vnstat
-  touch "/etc/casjaysdev/updates/versions/$SCRIPT_NAME.txt"
+  install_pkg vnstat && system_service_enable vnstat && systemctl start vnstat &>/dev/null
+  printf '%s\n' "Installed on $(date +'%Y-%m-%d at %H:%M %Z')" >"/etc/casjaysdev/updates/versions/$SCRIPT_NAME.txt"
   run_external "yum clean all"
 fi
 if ! builtin type -P systemmgr &>/dev/null; then
@@ -249,7 +250,7 @@ fi
 ##################################################################################################################
 printf_head "Grabbing ssh key from github"
 ##################################################################################################################
-ssh_key
+get_user_ssh_key
 
 ##################################################################################################################
 printf_head "Configuring the system"
@@ -286,7 +287,7 @@ printf_head "Fixing packages"
 run_grub
 
 ##################################################################################################################
-printf_head "setting up config files"
+printf_head "Removing un-needed config files"
 ##################################################################################################################
 rm_if_exists /etc/named*
 rm_if_exists /var/named*
@@ -297,6 +298,38 @@ rm_if_exists /etc/cron*/0*
 rm_if_exists /etc/cron*/dailyjobs
 rm_if_exists /var/ftp/uploads
 rm_if_exists /tmp/configs
+
+##################################################################################################################
+printf_head "setting up config files"
+##################################################################################################################
+devnull git clone -q "https://github.com/casjay-base/centos" "/tmp/configs"
+hostname -f 2>&1 | grep -q 'casjay.in' || devnull rm -Rf "/tmp/configs/etc/etc/sysconfig/network-scripts/ifcfg-eth0"
+devnull find /tmp/configs -type f -iname "*.sh" -exec chmod 755 {} \;
+devnull find /tmp/configs -type f -iname "*.pl" -exec chmod 755 {} \;
+devnull find /tmp/configs -type f -iname "*.cgi" -exec chmod 755 {} \;
+devnull find /tmp/configs -type f -exec sed -i "s#myserverdomainname#$(hostname -f)#g" {} \;
+devnull find /tmp/configs -type f -exec sed -i "s#myhostnameshort#$(hostname -s)#g" {} \;
+devnull find /tmp/configs -type f -exec sed -i "s#mydomainname#$(domain_name)#g" {} \;
+devnull cp -Rf /tmp/configs/{etc,root,usr,var}* /
+devnull mkdir -p /etc/rsync.d /var/log/named
+devnull chown -Rf named:named /etc/named* /var/named /var/log/named
+devnull chown -Rf apache:apache /var/www /usr/share/httpd
+devnull sed -i "s#myserverdomainname#$(echo "$HOSTNAME")#g" /etc/sysconfig/network
+devnull sed -i "s#mydomain#$(domain_name)#g" /etc/sysconfig/network
+devnull domainname $(domain_name) && echo "kernel.domainname=$(domain_name)" >>/etc/sysctl.conf
+devnull chmod 644 -Rf /etc/cron.d/* /etc/logrotate.d/*
+devnull touch /etc/postfix/mydomains.pcre
+devnull chattr +i /etc/resolv.conf
+if devnull postmap /etc/postfix/transport /etc/postfix/canonical /etc/postfix/virtual /etc/postfix/mydomains; then
+  newaliases &>/dev/null || newaliases.postfix -I &>/dev/null
+fi
+
+##################################################################################################################
+printf_head "Installing custom dotfiles"
+##################################################################################################################
+run_post "dfmgr install misc"
+run_post "dfmgr install git"
+run_post "dfmgr install bash"
 
 ##################################################################################################################
 printf_head "Enabling services"

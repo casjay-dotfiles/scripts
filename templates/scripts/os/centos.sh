@@ -30,8 +30,8 @@ SCRIPTSFUNCTURL="${SCRIPTSFUNCTURL:-https://github.com/casjay-dotfiles/scripts/r
 SCRIPTSFUNCTDIR="${SCRIPTSFUNCTDIR:-/usr/local/share/CasjaysDev/scripts}"
 SCRIPTSFUNCTFILE="${SCRIPTSFUNCTFILE:-system-installer.bash}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ -f "../functions/$SCRIPTSFUNCTFILE" ]; then
-  . "../functions/$SCRIPTSFUNCTFILE"
+if [ -f "./functions/$SCRIPTSFUNCTFILE" ]; then
+  . "./functions/$SCRIPTSFUNCTFILE"
 elif [ -f "$SCRIPTSFUNCTDIR/functions/$SCRIPTSFUNCTFILE" ]; then
   . "$SCRIPTSFUNCTDIR/functions/$SCRIPTSFUNCTFILE"
 else
@@ -55,40 +55,6 @@ grep --no-filename -sE '^ID=|^ID_LIKE=|^NAME=' /etc/*-release | grep -qiwE "$SCR
 system_service_exists() { systemctl status "$1" 2>&1 | grep -iq "$1" && return 0 || return 1; }
 system_service_enable() { systemctl status "$1" 2>&1 | grep -iq 'inactive' && execute "systemctl enable $1" "Enabling service: $1" || return 1; }
 system_service_disable() { systemctl status "$1" 2>&1 | grep -iq 'active' && execute "systemctl disable --now $1" "Disabling service: $1" || return 1; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__dnf_yum() {
-  local rhel_pkgmgr=""
-  rhel_pkgmgr="$(builtin type -P dnf || builtin type -P yum || false)"
-  $rhel_pkgmgr "$@" || false
-  return $?
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-test_pkg() {
-  for pkg in "$@"; do
-    if rpm -q "$pkg" &>/dev/null; then
-      printf_blue "[ ✔ ] $pkg is already installed"
-      return 1
-    else
-      return 0
-    fi
-  done
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-remove_pkg() {
-  test_pkg "$*" &>/dev/null || execute "__dnf_yum remove -q -y $*" "Removing: $*"
-  test_pkg "$*" &>/dev/null || return 0
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-install_pkg() {
-  local statusCode=0
-  if test_pkg "$*"; then
-    execute "__dnf_yum install -q -y --skip-broken $*" "Installing: $*"
-    test_pkg "$*" &>/dev/null && statusCode=1 || statusCode=0
-  else
-    statusCode=0
-  fi
-  return $statusCode
-}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 detect_selinux() {
   selinuxenabled
@@ -130,7 +96,6 @@ rm_repo_files() { [ "${1:-$YUM_DELETE}" = "yes" ] && rm -Rf "/etc/yum.repos" || 
 run_external() { printf_green "Executing $*" && eval "$*" >/dev/null 2>&1 || return 1; }
 save_remote_file() { urlverify "$1" && curl -q -SLs "$1" | tee "$2" &>/dev/null || exit 1; }
 domain_name() { hostname -f | awk -F'.' '{$1="";OFS="." ; print $0}' | sed 's/^.//;s| |.|g' | grep '^'; }
-retrieve_version_file() { grab_remote_file "https://github.com/casjay-base/centos/raw/main/version.txt" | head -n1 || echo "Unknown version"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 rm_if_exists() {
   local file_loc=("$@") && shift $#
@@ -141,37 +106,13 @@ rm_if_exists() {
   done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-retrieve_repo_file() {
-  local RELEASE_FILE IFS
-  if [ "$RELEASE_NAME" = "centos" ] && [ "$(hostname -s)" != "pbx" ]; then
-    if [ "$RELEASE_VER" -ge "9" ]; then
-      YUM_DELETE="no"
-      RELEASE_FILE="https://github.com/rpm-devel/casjay-release/raw/main/casjay.rh9.repo"
-    elif [ "$RELEASE_VER" -ge "8" ]; then
-      YUM_DELETE="yes"
-      RELEASE_FILE="https://github.com/rpm-devel/casjay-release/raw/main/casjay.rh8.repo"
-    elif [ "$RELEASE_VER" -lt "8" ]; then
-      YUM_DELETE="yes"
-      RELEASE_FILE="https://github.com/rpm-devel/casjay-release/raw/main/casjay.rh.repo"
-    else
-      return
-    fi
-  else
-    YUM_DELETE="no"
-  fi
-  if [ -n "$RELEASE_FILE" ]; then
-    rm_repo_files "$YUM_DELETE"
-    save_remote_file "$RELEASE_FILE" "/etc/yum.repos.d/casjay.repo"
-  fi
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 run_grub() {
-  printf_green "Setting up ${grub_bin_name//-mkconfig/}"
   local cfg="" efi="" grub_cfg="" grub_efi="" grub_bin="" grub_bin_name=""
   grub_cfg="$(find /boot/grub*/* -name 'grub*.cfg' | grep '^' || false)"
   grub_efi="$(find /boot/efi/EFI/* -name 'grub*.cfg' | grep '^' || false)"
   grub_bin="$(builtin type -P grub-mkconfig 2>/dev/null || builtin type -P grub2-mkconfig 2>/dev/null || false)"
   grub_bin_name="$(basename "$grub_bin" 2>/dev/null)"
+  printf_green "Setting up ${grub_bin_name//-mkconfig/}"
   if [ -n "$grub_bin" ]; then
     rm_if_exists /boot/*rescue*
     if [ -n "$grub_cfg" ]; then
@@ -205,6 +146,67 @@ fix_network_device_name() {
   printf_green "Setting network device name to $device in $1"
   find "$1" -type f -exec sed -i 's|eth0|'$device'|g' {} +
 }
+##################################################################################################################
+#### OS Specific
+retrieve_repo_file() {
+  local RELEASE_FILE IFS
+  if [ "$RELEASE_NAME" = "centos" ] && [ "$(hostname -s)" != "pbx" ]; then
+    if [ "$RELEASE_VER" -ge "9" ]; then
+      YUM_DELETE="no"
+      RELEASE_FILE="https://github.com/rpm-devel/casjay-release/raw/main/casjay.rh9.repo"
+    elif [ "$RELEASE_VER" -ge "8" ]; then
+      YUM_DELETE="yes"
+      RELEASE_FILE="https://github.com/rpm-devel/casjay-release/raw/main/casjay.rh8.repo"
+    elif [ "$RELEASE_VER" -lt "8" ]; then
+      YUM_DELETE="yes"
+      RELEASE_FILE="https://github.com/rpm-devel/casjay-release/raw/main/casjay.rh.repo"
+    else
+      return
+    fi
+  else
+    YUM_DELETE="no"
+  fi
+  if [ -n "$RELEASE_FILE" ]; then
+    rm_repo_files "$YUM_DELETE"
+    save_remote_file "$RELEASE_FILE" "/etc/yum.repos.d/casjay.repo"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__dnf_yum() {
+  local rhel_pkgmgr=""
+  rhel_pkgmgr="$(builtin type -P dnf || builtin type -P yum || false)"
+  $rhel_pkgmgr "$@" || false
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+test_pkg() {
+  for pkg in "$@"; do
+    if rpm -q "$pkg" &>/dev/null; then
+      printf_blue "[ ✔ ] $pkg is already installed"
+      return 1
+    else
+      return 0
+    fi
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+remove_pkg() {
+  test_pkg "$*" &>/dev/null || execute "__dnf_yum remove -q -y $*" "Removing: $*"
+  test_pkg "$*" &>/dev/null || return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+install_pkg() {
+  local statusCode=0
+  if test_pkg "$*"; then
+    execute "__dnf_yum install -q -y --skip-broken $*" "Installing: $*"
+    test_pkg "$*" &>/dev/null && statusCode=1 || statusCode=0
+  else
+    statusCode=0
+  fi
+  return $statusCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+retrieve_version_file() { grab_remote_file "https://github.com/casjay-base/centos/raw/main/version.txt" | head -n1 || echo "Unknown version"; }
 ##################################################################################################################
 printf_head_clear "Initializing the installer for $SCRIPT_NAME"
 ##################################################################################################################

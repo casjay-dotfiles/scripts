@@ -51,7 +51,7 @@ for check in git curl wget; do
   fi
 done
 if [[ -n "$cmdMissing" ]]; then
-  printf '%b%s%s%b\n' "\n\033[0;31m" "$cmdMissing" "is not installed" "\033[0m\n"
+  printf '%b%s%s%b\n' "\n\033[1;31m" "$cmdMissing" "is not installed" "\033[0m\n"
   [ -f "/tmp/system-installer.bash" ] && rm -Rf /tmp/system-installer.bash
   exit 1
 else
@@ -96,7 +96,7 @@ export GIT_REPO_BRANCH="${GIT_DEFAULT_BRANCH:-main}"
 NC="$(tput sgr0 2>/dev/null)"
 RESET="$(tput sgr0 2>/dev/null)"
 BLACK="\033[0;30m"
-RED="\033[0;31m"
+RED="\033[1;31m"
 GREEN="\033[0;32m"
 YELLOW="\033[0;33m"
 BLUE="\033[0;34m"

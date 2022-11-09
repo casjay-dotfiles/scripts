@@ -56,7 +56,7 @@ export INSTALLER_ERR_FILE="$INSTALLER_LOG_DIR/install_${CMD// /_}.err.log"
 # Fail if git, curl, and wget are not installed
 for check in git curl wget; do
   if [ -z "$(builtin type -P "$check" 2>/dev/null)" ]; then
-    echo -e "\033[0;31mAttempting to install $check\033[0m"
+    printf '%b\n' "\033[1;31mAttempting to install $check\033[0m"
     if [ -f "$(builtin type -P brew 2>/dev/null)" ]; then
       brew install -f "$check" &>/dev/null
     elif [ -f "$(builtin type -P apt 2>/dev/null)" ]; then
@@ -70,12 +70,12 @@ for check in git curl wget; do
     elif [ -f "$(builtin type -P choco 2>/dev/null)" ]; then
       choco install "$check" -y &>/dev/null
     else
-      echo -e "\033[0;31m$check can not be install automatically\033[0m"
+      printf '%b\n' "\033[1;31m$check can not be install automatically\033[0m"
       exit 1
     fi
   fi
   if [ -z "$(builtin type -P "$check" 2>/dev/null)" ]; then
-    echo -e "\033[0;31m$check was not installed\033[0m"
+    printf '%b\n' "\033[1;31m$check was not installed\033[0m"
     exit 1
   fi
 done
@@ -181,7 +181,7 @@ export WALLPAPERMGRREPO="${WALLPAPERMGRREPO:-https://github.com/wallpapermgr}"
 NC="$(tput sgr0 2>/dev/null)"
 RESET="$(tput sgr0 2>/dev/null)"
 BLACK="\033[0;30m"
-RED="\033[0;31m"
+RED="\033[1;31m"
 GREEN="\033[0;32m"
 YELLOW="\033[0;33m"
 BLUE="\033[0;34m"

@@ -107,7 +107,6 @@ disable_selinux() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 get_user_ssh_key() {
   [ -n "$GITHUB_USER" ] && local ssh_key="" || return 0
-  printf_green "Grabbing ssh key for  $GITHUB_USER"
   ssh_key="$(curl -q -LSsf "https://github.com/$GITHUB_USER.keys" 2>/dev/null | grep '^' || echo '')"
   if [ -n "$ssh_key" ]; then
     [ -d "/root/.ssh" ] || mkdir -p "/root/.ssh"
@@ -116,7 +115,7 @@ get_user_ssh_key() {
       printf_cyan "key for $GITHUB_USER already exists in ~/.ssh/authorized_keys"
     else
       echo "$ssh_key" | tee -a "/root/.ssh/authorized_keys" &>/dev/null
-      printf_green "Successfully added github ssh key"
+      printf_green "Successfully added ssh key to ~/.ssh/authorized_keys"
     fi
     return 0
   else

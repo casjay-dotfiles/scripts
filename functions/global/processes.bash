@@ -26,7 +26,7 @@ __ps() {
   local proc="$(__basename "$1")"
   local prog="${APPNAME:-$PROG}"
   [ -n "$proc" ] || return 1
-  ps -aux | grep -v 'grep ' | grep -E '?' | grep -w "$proc" 2>/dev/null
+  ps -aux | grep -v 'grep ' | grep -E '\?' | grep -w "$proc" 2>/dev/null
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #kill "app"

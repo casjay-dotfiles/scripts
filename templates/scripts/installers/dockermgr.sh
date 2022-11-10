@@ -27,7 +27,6 @@ SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
 export SCRIPTS_PREFIX="dockermgr"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
-#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
 [ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
 [ "$1" = "--raw" ] && export SHOW_RAW="true"
 set -o pipefail
@@ -93,6 +92,17 @@ DOCKER_HOST_IP="${DOCKER_HOST_IP:-$(ip a show 'docker0' 2>/dev/null | grep -w 'i
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Call the main function
 dockermgr_install
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Script options IE: --help
+while :; do
+  case "$1" in
+  -e | --env) ENV_VAR="$2 $ENV_VAR" && shift 2 ;;
+  -p | --port) PORT_VAR="$2 $PORT_VAR" && shift 2 ;;
+  *) break ;;
+  esac
+done
+# Script options IE: --help
+show_optvars "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # trap the cleanup function
 trap_exit
@@ -211,7 +221,7 @@ CUSTOM_ARGUMENTS+=""
 # Set this to the protocol the the container will use [http,https,git,ftp,etc]
 CONTAINER_HTTP_PROTO="http"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Add Add service port [port] or [port:port] - LISTEN will be added if defined [DEFINE_LISTEN]
+# Add service port [port] or [port:port] - LISTEN will be added if defined [DEFINE_LISTEN]
 # Only ONE HTTP or HTTPS if web server or SERVICE port for mysql pgsql ftp etc. add more to CONTAINER_ADD_CUSTOM_PORT
 CONTAINER_HTTP_PORT=""
 CONTAINER_HTTPS_PORT=""
@@ -251,9 +261,6 @@ elif echo "$HUB_IMAGE_URL" | grep -q ':'; then
   HUB_IMAGE_TAG="$(echo "$HUB_IMAGE_URL" | awk -F':' '{print $2}')"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Script options IE: --help
-show_optvars "$@"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Requires root - no point in continuing
 #sudoreq "$0 $*" # sudo required
 #sudorun # sudo optional
@@ -270,9 +277,9 @@ execute "run_pre_install" "Running pre-installation commands"
 # Ensure directories exist
 ensure_dirs
 ensure_perms
+chmod -Rf 777 "$APPDIR"
 mkdir -p "$LOCAL_DATA_DIR"
 mkdir -p "$LOCAL_CONFIG_DIR"
-chmod -Rf 777 "$APPDIR"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Variables - Do not change anything below this line
 DOCKER_OPTS=""
@@ -311,7 +318,7 @@ PRETTY_PORT="${PRETTY_PORT//\/*/}"
 [ "$CONTAINER_INTERACTIVE" = "yes" ] && DOCKER_OPTS+="--interactive " || CONTAINER_INTERACTIVE=""
 [ "$CONTAINER_IS_PRIVILEGED" = "yes" ] && DOCKER_OPTS+="--privileged " || CONTAINER_IS_PRIVILEGED=""
 [ "$CONTAINER_AUTO_DELETE" = "yes" ] && DOCKER_OPTS+="--rm " && CONTAINER_AUTO_RESTART="" || CONTAINER_AUTO_DELETE=""
-[ -n "$CONTAINER_AUTO_RESTART" ] && DOCKER_OPTS+="--restart=$CONTAINER_AUTO_RESTART "
+[ -n "$CONTAINER_AUTO_RESTART" ] && DOCKER_OPTS+="--restart=$CONTAINER_AUTO_RESTART " || DOCKER_OPTS+="--restart=unless-stopped "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ "$SET_USER_ID" = "true" ]; then
   [ -n "$CONTAINER_USER_ID" ] && ADDITION_ENV+="PUID=$CONTAINER_USER_ID " || ADDITION_ENV+="PUID=$(id -u) "
@@ -367,6 +374,11 @@ for sysctl in $ADD_SYSCTL; do
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_ENV=""
+if [ -n "$ENV_VAR" ]; then
+  for env in $ENV_VAR; do
+    SET_ENV+="--env $env "
+  done
+fi
 for env in $ADDITION_ENV; do
   [ "$env" = " " ] && env=""
   if [ -n "$env" ]; then
@@ -393,6 +405,11 @@ for mnt in $ADDITIONAL_MOUNTS; do
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_PORT=""
+if [ -n "$PORT_VAR" ]; then
+  for port in $PORT_VAR; do
+    SET_PORT+="--publish $port "
+  done
+fi
 for port in $CONTAINER_HTTP_PORT $CONTAINER_SERVICE_PORT $CONTAINER_HTTPS_PORT $CONTAINER_ADD_CUSTOM_PORT; do
   [ "$port" = " " ] && port=""
   if [ -n "$port" ]; then

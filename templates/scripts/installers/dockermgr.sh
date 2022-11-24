@@ -202,6 +202,9 @@ ADD_CAPABILITIES+=""
 ADD_SYSCTL=""
 ADD_SYSCTL+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set link [ containerName ]
+CONTAINER_LINK=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define additional mounts [ /dir:/dir ]
 ADDITIONAL_MOUNTS="$LOCAL_CONFIG_DIR:/config:z $LOCAL_DATA_DIR:/data:z "
 ADDITIONAL_MOUNTS+=""
@@ -213,6 +216,10 @@ ADDITION_ENV+=""
 # Define additional devices [ /dev:/dev ]
 ADDITION_DEVICES=""
 ADDITION_DEVICES+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Define labels [ traefik.enable=true ]
+ADDITION_LABELS=""
+ADDITION_LABELS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define additional docker arguments - see docker run --help
 CUSTOM_ARGUMENTS=""
@@ -358,6 +365,22 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 NGINX_PROXY="${NGINX_PROXY:-$CONTAINER_HTTP_PROTO://$HOST_LISTEN_ADDR:$PRETTY_PORT}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SET_LINK=""
+for link in $CONTAINER_LINK; do
+  [ "$link" = " " ] && link=""
+  if [ -n "$link" ]; then
+    SET_LINK+="--link $link "
+  fi
+done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SET_LABELS=""
+for label in $ADDITION_LABELS; do
+  [ "$label" = " " ] && label=""
+  if [ -n "$label" ]; then
+    SET_LABELS+="--label $label "
+  fi
+done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_CAP=""
 for cap in $ADD_CAPABILITIES; do
   [ "$cap" = " " ] && cap=""
@@ -398,6 +421,7 @@ done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_MNT=""
 for mnt in $ADDITIONAL_MOUNTS; do
+  [ "$mnt" = "" ] && mnt=""
   [ "$mnt" = " " ] && mnt=""
   if [ -n "$mnt" ]; then
     echo "$mnt" | grep -q ':' || port="$mnt:$mnt"
@@ -408,10 +432,13 @@ done
 SET_PORT=""
 if [ -n "$PORT_VAR" ]; then
   for port in $PORT_VAR; do
+    [ "$port" = "" ] && port=""
+    [ "$port" = " " ] && port=""
     SET_PORT+="--publish $port "
   done
 fi
 for port in $CONTAINER_HTTP_PORT $CONTAINER_SERVICE_PORT $CONTAINER_HTTPS_PORT $CONTAINER_ADD_CUSTOM_PORT; do
+  [ "$port" = "" ] && port=""
   [ "$port" = " " ] && port=""
   if [ -n "$port" ]; then
     echo "$port" | grep -q ':' || port="${port//\/*/}:$port"
@@ -471,7 +498,7 @@ else
   printf_cyan "Updating the image from $HUB_IMAGE_URL with tag $HUB_IMAGE_TAG"
   __sudo docker pull "$HUB_IMAGE_URL" &>/dev/null
   printf_cyan "Creating container $APPNAME"
-  __sudo docker run -d --name="$APPNAME" \
+  __sudo docker run -d --name="$APPNAME" $SET_LABELS $SET_LINK \
     --shm-size=$CONTAINER_SHM_SIZE $DOCKER_OPTS $SET_CAP $SET_SYSCTL \
     --hostname "$CONTAINER_HOSTNAME" --env TZ="$HOST_TIMEZONE" \
     --env TIMEZONE="$HOST_TIMEZONE" $SET_ENV $SET_DEV $SET_MNT $SET_PORT $CUSTOM_ARGUMENTS $HOST_NETWORK_TYPE \

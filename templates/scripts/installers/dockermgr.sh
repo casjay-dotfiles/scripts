@@ -110,6 +110,11 @@ trap_exit
 # Require a certain version
 dockermgr_req_version "$APPVERSION"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# import global variables
+[ -f "$APPDIR/env.sh" ] && . "$APPDIR/env.sh"
+[ -f "$DOCKERMGR_CONFIG_DIR/.env.sh" ] && . "$DOCKERMGR_CONFIG_DIR/.env.sh"
+[ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME" ] && . "$DOCKERMGR_CONFIG_DIR/env/$APPNAME"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define folders
 HOST_DATA_DIR="$DATADIR/data"
 HOST_CONFIG_DIR="$DATADIR/config"
@@ -118,6 +123,9 @@ LOCAL_CONFIG_DIR="${LOCAL_CONFIG_DIR:-$HOST_CONFIG_DIR}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set container timezone - Default America/New_York
 TZ=""
+# Get username and password from env if variables exist
+GEN_SCRIPT_REPLACE_APPNAME_USERNAME="${GEN_SCRIPT_REPLACE_APPNAME_USERNAME:-$DEFAULT_USERNAME}"
+GEN_SCRIPT_REPLACE_APPNAME_PASSWORD="${GEN_SCRIPT_REPLACE_APPNAME_PASSWORD:-$DEFAULT_PASSWORD}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set container hostname and domain - Default GEN_SCRIPT_REPLACE_APPNAME
 CONTAINER_HOSTNAME=""
@@ -184,9 +192,9 @@ SET_USER_ID=""
 CONTAINER_USER_ID=""
 CONTAINER_GROUP_ID=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set container username and password and the env name [-e CONTAINER_ENV_USER_NAME=CONTAINER_USER_NAME] [-e password=pass]
-CONTAINER_USER_NAME=""
-CONTAINER_USER_PASS=""
+# Set container username and password and the env name [-e CONTAINER_ENV_USER_NAME=CONTAINER_USER_NAME] - [-e password=pass]
+CONTAINER_USER_NAME="${GEN_SCRIPT_REPLACE_APPNAME_USERNAME:-} "
+CONTAINER_USER_PASS="${GEN_SCRIPT_REPLACE_APPNAME_PASSWORD:-}"
 CONTAINER_ENV_USER_NAME=""
 CONTAINER_ENV_PASS_NAME=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -256,15 +264,6 @@ NGINX_PROXY=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End of configuration options
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# import global variables
-if [ -f "$APPDIR/env.sh" ] && [ ! -f "$APPDIR/.env" ]; then
-  cp -Rf "$APPDIR/env.sh" "$APPDIR/.env"
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-[ -f "$APPDIR/.env" ] && . "$APPDIR/.env"
-[ -f "$DOCKERMGR_CONFIG_DIR/.env.sh" ] && . "$DOCKERMGR_CONFIG_DIR/.env.sh"
-[ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME" ] && . "$DOCKERMGR_CONFIG_DIR/env/$APPNAME"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -z "$HUB_IMAGE_URL" ] || [ "$HUB_IMAGE_URL" = " " ]; then
   printf_exit "Please set the url to the containers image"
 elif echo "$HUB_IMAGE_URL" | grep -q ':'; then
@@ -291,6 +290,7 @@ ensure_perms
 chmod -Rf 777 "$APPDIR"
 mkdir -p "$LOCAL_DATA_DIR"
 mkdir -p "$LOCAL_CONFIG_DIR"
+mkdir -p "$DOCKERMGR_CONFIG_DIR/env"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Variables - Do not change anything below this line
 DOCKER_OPTS=""

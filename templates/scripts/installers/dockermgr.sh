@@ -62,14 +62,14 @@ __port_not_in_use() { [ -d "/etc/nginx/vhosts.d" ] && grep -wRsq "${1:-$CONTAINE
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define any pre-install scripts
 run_pre_install() {
-
-  return ${?:-0}
+  true
+  return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define any post-install scripts
 run_post_install() {
-
-  return ${?:-0}
+  true
+  return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define custom functions
@@ -123,9 +123,10 @@ LOCAL_CONFIG_DIR="${LOCAL_CONFIG_DIR:-$HOST_CONFIG_DIR}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set container timezone - Default America/New_York
 TZ=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Get username and password from env if variables exist
-GEN_SCRIPT_REPLACE_APPNAME_USERNAME="${GEN_SCRIPT_REPLACE_APPNAME_USERNAME:-$DEFAULT_USERNAME}"
-GEN_SCRIPT_REPLACE_APPNAME_PASSWORD="${GEN_SCRIPT_REPLACE_APPNAME_PASSWORD:-$DEFAULT_PASSWORD}"
+GEN_SCRIPT_REPLACE_ENV_APPNAME_USERNAME="${GEN_SCRIPT_REPLACE_ENV_APPNAME_USERNAME:-$DEFAULT_USERNAME}"
+GEN_SCRIPT_REPLACE_ENV_APPNAME_PASSWORD="${GEN_SCRIPT_REPLACE_ENV_APPNAME_PASSWORD:-$DEFAULT_PASSWORD}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set container hostname and domain - Default GEN_SCRIPT_REPLACE_APPNAME
 CONTAINER_HOSTNAME=""
@@ -193,8 +194,8 @@ CONTAINER_USER_ID=""
 CONTAINER_GROUP_ID=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set container username and password and the env name [-e CONTAINER_ENV_USER_NAME=CONTAINER_USER_NAME] - [-e password=pass]
-CONTAINER_USER_NAME="${GEN_SCRIPT_REPLACE_APPNAME_USERNAME:-} "
-CONTAINER_USER_PASS="${GEN_SCRIPT_REPLACE_APPNAME_PASSWORD:-}"
+CONTAINER_USER_NAME="${GEN_SCRIPT_REPLACE_ENV_APPNAME_USERNAME:-} "
+CONTAINER_USER_PASS="${GEN_SCRIPT_REPLACE_ENV_APPNAME_PASSWORD:-}"
 CONTAINER_ENV_USER_NAME=""
 CONTAINER_ENV_PASS_NAME=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

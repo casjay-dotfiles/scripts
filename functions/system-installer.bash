@@ -17,14 +17,16 @@
 # @@sudo/root        :  no
 # @@Template         :
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-[[ $(id -u) != 0 ]] || [[ "$EUID" != 0 ]] || [[ "$WHOAMI" != "root" ]] || { printf '%b\n' "\033[0;31mThis script requires sudo or root\033[0m" && exit 1; }
-PATH="$(echo "$PATH" | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 's#::#:.#g')"
+[ $(id -u) != 0 ] || [ "$EUID" != 0 ] || [ "$WHOAMI" != "root" ] || { printf '%b\n' "\033[0;31mThis script requires sudo or root\033[0m" && exit 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 USER="${USER:-}"
-RUN_USER="$(logname 2>/dev/null)"
-SUDO_USER="${RUN_USER:-$SUDO_USER}"
 TMP="${TMP:-/tmp}"
 TEMP="${TEMP:-/tmp}"
-export RUN_USER SUDO_USER WHOAMI USER PATH
+RUN_USER="$(logname 2>/dev/null)"
+SUDO_USER="${RUN_USER:-$SUDO_USER}"
+APPNAME="${APPNAME:-system-installer}"
+PATH="$(echo "$PATH" | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 's#::#:.#g')"
+export RUN_USER SUDO_USER WHOAMI USER PATH APPNAME TEMP TMP
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # fail if git is not installed
 if builtin command -v brew &>/dev/null; then
@@ -354,7 +356,7 @@ failexitcode() {
 }
 ##################################################################################################
 setexitstatus() {
-  [ -z "$EXIT" ] && local EXIT="$?" || local EXIT="$EXIT"
+  EXIT="${EXIT:-$?}"
   local EXITSTATUS+="$EXIT"
   if [ -z "$EXITSTATUS" ] || [ "$EXITSTATUS" -ne 0 ]; then
     BG_EXIT="${BG_RED}"

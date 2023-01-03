@@ -166,6 +166,9 @@ DEFINE_LISTEN=""
 # Set the network type - bridge,host - default is bridge
 HOST_NETWORK_TYPE="bridge"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set location to resolv.conf
+HOST_RESOLVE_FILE="/etc/resolv.conf"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Enable privileged container
 CONTAINER_IS_PRIVILEGED="yes"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -506,7 +509,7 @@ else
   printf_cyan "Creating container $APPNAME"
   __sudo docker run -d --name="$APPNAME" $SET_LABELS $SET_LINK \
     --shm-size=$CONTAINER_SHM_SIZE $DOCKER_OPTS $SET_CAP $SET_SYSCTL \
-    --hostname "$CONTAINER_HOSTNAME" --env TZ="$HOST_TIMEZONE" \
+    --hostname "$CONTAINER_HOSTNAME" --env TZ="$HOST_TIMEZONE" -v $HOST_RESOLVE_FILE:/etc/resolv.conf \
     --env TIMEZONE="$HOST_TIMEZONE" $SET_ENV $SET_DEV $SET_MNT $SET_PORT $CUSTOM_ARGUMENTS $HOST_NETWORK_TYPE \
     "$HUB_IMAGE_URL:$HUB_IMAGE_TAG" $CONTAINER_COMMANDS 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log" &&
     rm -Rf "${TMP:-/tmp}/$APPNAME.err.log" || ERROR_LOG="true"

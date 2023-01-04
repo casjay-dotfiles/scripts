@@ -165,7 +165,7 @@ run_postinst() {
   [ -f "$verDir/configs.txt" ] || date +"${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}" | sudo tee "$verDir/configs.txt" &>/dev/null
   [ -f "$verDir/date.configs.txt" ] || date +"%b %d, %Y at %H:%M" | sudo tee "$verDir/date.configs.txt" &>/dev/null
   cp_rf "$INSTDIR/version.txt" "$verDir/scripts.txt"
-  replace "/etc/casjaysdev/messages/" "MYHOSTIP" "$CURRIP4"
+  replace "/etc/casjaysdev/messages/" "MYHOSTIP" "$CURRENT_IP_4"
   replace "/etc/casjaysdev/messages/" "MYHOSTNAME" "$(hostname -s)"
   replace "/etc/casjaysdev/messages/" "MYFULLHOSTNAME" "$(hostname -f)"
   date +"%b %d, %Y at %H:%M" | sudo tee "$verDir/date.scripts.txt" &>/dev/null

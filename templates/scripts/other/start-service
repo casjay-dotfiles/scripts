@@ -56,13 +56,35 @@ __exec_pre_start() {
   true
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__exec_service_start() {
+  local exitCode=0
+  local cmd="${*:-false}"
+  echo "Setting up service to run as $SERVICE_USER"
+  echo "Executing: $cmd "
+  if [ "$SERVICE_USER" = "root" ]; then
+    $cmd || exitCode=1
+  elif [ "$(builtin type -P su)" ]; then
+    su_cmd() { su -s /bin/sh - $SERVICE_USER -c "$@" || return 1; }
+  elif [ "$(builtin type -P runuser)" ]; then
+    su_cmd() { runuser -u $SERVICE_USER "$@" || return 1; }
+  elif [ "$(builtin type -P sudo)" ]; then
+    su_cmd() { sudo -u $SERVICE_USER "$@" || return 1; }
+  else
+    echo "Can not switch to $SERVICE_USER"
+    exit 10
+  fi
+  su_cmd "$cmd" || exitCode=1
+  su_cmd "touch /tmp/$SERVICE_NAME.pid"
+  [ "$exitCode" = 0 ] || exitCode=10
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __start_message() {
   if [ "$ENTRYPOINT_MESSAGE" = "false" ]; then
     echo "Starting $SERVICE_NAME on port: $SERVICE_PORT"
   else
     echo "Starting $SERVICE_NAME on: $CONTAINER_IP_ADDRESS:$SERVICE_PORT"
   fi
-  touch "/tmp/$SERVICE_NAME.pid"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set variables
@@ -96,6 +118,7 @@ CONTAINER_IP_ADDRESS="$(ip a 2>/dev/null | grep 'inet' | grep -v '127.0.0.1' | a
 WORKDIR=""
 SERVICE_PORT="$PORT"
 SERVICE_NAME="REPLACE_SERVICE_NAME"
+SERVICE_USER="${SERVICE_USER:-root}"
 SERVICE_COMMAND="$SERVICE_NAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [ "$SERVICE_PORT" = "443" ] && SSL_ENABLED="true"
@@ -173,7 +196,7 @@ certbot)
   else
     __start_message
     __exec_pre_start
-    __exec_command "$SERVICE_COMMAND" || rm -Rf "/tmp/$SERVICE_NAME.pid"
+    __exec_service_start "$SERVICE_COMMAND" || rm -Rf "/tmp/$SERVICE_NAME.pid"
   fi
   ;;
 esac

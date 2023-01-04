@@ -389,15 +389,15 @@ __getip() {
   IFCONFIG="$(builtin type -P /sbin/ifconfig || builtin type -P ifconfig)"
   if [ -f "$IFCONFIG" ]; then
     # net-tools package
-    CURRIP4="$(/sbin/ifconfig $NETDEV 2>/dev/null | grep -E "venet|inet" | grep -v "127.0.0." | grep 'inet' | grep -v inet6 | awk '{print $2}' | sed s/addr://g | head -n1 | grep '^')"
-    CURRIP6="$(/sbin/ifconfig $NETDEV 2>/dev/null | grep -E "venet|inet" | grep 'inet6' | grep -i global | awk '{print $2}' | head -n1 | grep '^')"
+    CURRENT_IP_4="$(/sbin/ifconfig $NETDEV 2>/dev/null | grep -E "venet|inet" | grep -v "127.0.0." | grep 'inet' | grep -v inet6 | awk '{print $2}' | sed s/addr://g | head -n1 | grep '^')"
+    CURRENT_IP_6="$(/sbin/ifconfig $NETDEV 2>/dev/null | grep -E "venet|inet" | grep 'inet6' | grep -i global | awk '{print $2}' | head -n1 | grep '^')"
   else
-    CURRIP4="$(ip -o -f inet address show $NETDEV | awk -F'/' '{print $1}' | awk '{print $NF}' | head -n 1 | grep '^')"
-    CURRIP6="$(ip -o -f inet6 address show $NETDEV | awk -F'/' '{print $1}' | awk '{print $NF}' | head -n 1 | grep '^')"
+    CURRENT_IP_4="$(ip -o -f inet address show $NETDEV | awk -F'/' '{print $1}' | awk '{print $NF}' | head -n 1 | grep '^')"
+    CURRENT_IP_6="$(ip -o -f inet6 address show $NETDEV | awk -F'/' '{print $1}' | awk '{print $NF}' | head -n 1 | grep '^')"
   fi
   [ -n "$NETDEV" ] || NETDEV="lo"
-  [ -n "$CURRIP4" ] || CURRIP4="127.0.0.1"
-  [ -n "$CURRIP6" ] || CURRIP6="::1"
+  [ -n "$CURRENT_IP_4" ] || CURRENT_IP_4="127.0.0.1"
+  [ -n "$CURRENT_IP_6" ] || CURRENT_IP_6="::1"
 }
 __getip
 ##################################################################################################

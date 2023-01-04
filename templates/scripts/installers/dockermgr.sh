@@ -314,7 +314,7 @@ CONTAINER_DOMAINNAME="${CONTAINER_DOMAINNAME:-"$(hostname -d 2>/dev/null | grep 
 CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME.$CONTAINER_DOMAINNAME}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Configure variables
-[ "$CONTAINER_HTTPS_PORT" = "https" ] && CONTAINER_HTTP_PROTO="https"
+[ "$CONTAINER_HTTPS_PORT" = "" ] || CONTAINER_HTTP_PROTO="https"
 [ "$DOCKER_SOCKET_ENABLED" = "yes" ] && ADDITIONAL_MOUNTS+="$DOCKER_SOCKET_MOUNT:/var/run/docker.sock "
 [ "$NGINX_SSL" = "yes" ] && [ -n "$NGINX_HTTPS" ] && NGINX_PORT="${NGINX_HTTPS:-443}" || NGINX_PORT="${NGINX_HTTP:-80}"
 [ "$HOST_RESOLVE_MOUNT" = "yes" ] && ADDITIONAL_MOUNTS+="$HOST_RESOLVE_MOUNT:/etc/resolv.conf " || HOST_RESOLVE_MOUNT=""
@@ -324,23 +324,22 @@ CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME.$CONTAINER_DOMAINNAME}"
 [ -n "$HUB_IMAGE_TAG" ] || HUB_IMAGE_TAG="latest"
 [ -n "$CONTAINER_COMMANDS" ] || CONTAINER_COMMANDS=""
 [ -n "$HOST_TIMEZONE" ] || HOST_TIMEZONE="America/New_York"
-[ -n "$HOST_WEB_PORT" ] && HOST_PORT="${HOST_WEB_PORT//:*/}"
+[ -n "$HOST_WEB_PORT" ] && HOST_PORT="${HOST_WEB_PORT//*:/}"
 [ -n "$DEFINE_LISTEN" ] && DEFINE_LISTEN="${DEFINE_LISTEN//:*/}" || DEFINE_LISTEN=""
 [ -z "$CONTAINER_USER_PASS" ] || ADDITION_ENV+="${CONTAINER_ENV_PASS_NAME:-password}=$CONTAINER_USER_PASS "
 [ -z "$CONTAINER_USER_NAME" ] || ADDITION_ENV+="${CONTAINER_ENV_USER_NAME:-username}=$CONTAINER_USER_NAME "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if echo "${HOST_LISTEN_ADDR}" | grep -qE '://'; then
-  HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR//*:\/\//}"
-elif echo "${HOST_LISTEN_ADDR}" | grep -qE '*.:.*.:[0-9]'; then
-  HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR//:*:*/}"
-elif echo "${HOST_LISTEN_ADDR}" | grep -qE '*\.:[0-9]'; then
-  HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR//*.*:/}"
-else
-  HOST_LISTEN_ADDR="${HOST_LISTEN_PROTO//:*/}"
-fi
 HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR//:*/}"
 PRETTY_PORT="${HOST_SERVICE_PORT:-$HOST_PORT}"
-PRETTY_PORT="${PRETTY_PORT//\/*/}"
+PRETTY_PORT="${PRETTY_PORT//*\/\/*:/}"
+if echo "$PRETTY_PORT" | grep -qE '.*:.*.:[0-9]'; then
+  HOST_PORT="$(echo "$PRETTY_PORT" | awk -F ':' '{printf $2}')"
+  PRETTY_PORT="$(echo "$PRETTY_PORT" | awk -F ':' '{printf $NF}' | grep '^' || echo "$PRETTY_PORT")"
+elif echo "$PRETTY_PORT" | grep -qE ':[0-9]'; then
+  HOST_PORT="$(echo "$PRETTY_PORT" | awk -F ':' '{printf $1}')"
+  PRETTY_PORT="$(echo "$PRETTY_PORT" | awk -F ':' '{printf $NF}' | grep '^' || echo "$PRETTY_PORT")"
+fi
+PRETTY_PORT="${PRETTY_PORT//*:/}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [ "$HOST_NETWORK_TYPE" = "host" ] && HOST_NETWORK_TYPE="--net-host"
 [ "$CONTAINER_TTY" = "yes" ] && DOCKER_OPTS+="--tty " || CONTAINER_TTY=""

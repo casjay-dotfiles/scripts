@@ -331,15 +331,16 @@ CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME.$CONTAINER_DOMAINNAME}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR//:*/}"
 PRETTY_PORT="${HOST_SERVICE_PORT:-$HOST_PORT}"
-PRETTY_PORT="${PRETTY_PORT//*\/\/*:/}"
+PRETTY_PORT="${PRETTY_PORT//*:\/\//}"
 if echo "$PRETTY_PORT" | grep -qE '.*:.*.:[0-9]'; then
-  HOST_PORT="$(echo "$PRETTY_PORT" | awk -F ':' '{printf $2}')"
-  PRETTY_PORT="$(echo "$PRETTY_PORT" | awk -F ':' '{printf $NF}' | grep '^' || echo "$PRETTY_PORT")"
+  HOST_PORT="$(echo "$PRETTY_PORT" | awk -F ':' '{printf $1}')"
+  PRETTY_PORT="$(echo "$PRETTY_PORT" | awk -F ':' '{printf $2}' | grep '^' || echo "$PRETTY_PORT")"
 elif echo "$PRETTY_PORT" | grep -qE ':[0-9]'; then
   HOST_PORT="$(echo "$PRETTY_PORT" | awk -F ':' '{printf $1}')"
   PRETTY_PORT="$(echo "$PRETTY_PORT" | awk -F ':' '{printf $NF}' | grep '^' || echo "$PRETTY_PORT")"
 fi
 PRETTY_PORT="${PRETTY_PORT//*:/}"
+PRETTY_PORT="${PRETTY_PORT//\/*/}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [ "$HOST_NETWORK_TYPE" = "host" ] && HOST_NETWORK_TYPE="--net-host"
 [ "$CONTAINER_TTY" = "yes" ] && DOCKER_OPTS+="--tty " || CONTAINER_TTY=""

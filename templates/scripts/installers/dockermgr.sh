@@ -325,7 +325,7 @@ CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME.$CONTAINER_DOMAINNAME}"
 [ -n "$CONTAINER_COMMANDS" ] || CONTAINER_COMMANDS=""
 [ -n "$HOST_TIMEZONE" ] || HOST_TIMEZONE="America/New_York"
 [ -n "$HOST_WEB_PORT" ] && HOST_PORT="${HOST_WEB_PORT//:*/}"
-[ -n "$DEFINE_LISTEN" ] && DEFINE_LISTEN="${DEFINE_LISTEN//:*/}:" || DEFINE_LISTEN=""
+[ -n "$DEFINE_LISTEN" ] && DEFINE_LISTEN="${DEFINE_LISTEN//:*/}" || DEFINE_LISTEN=""
 [ -z "$CONTAINER_USER_PASS" ] || ADDITION_ENV+="${CONTAINER_ENV_PASS_NAME:-password}=$CONTAINER_USER_PASS "
 [ -z "$CONTAINER_USER_NAME" ] || ADDITION_ENV+="${CONTAINER_ENV_USER_NAME:-username}=$CONTAINER_USER_NAME "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -441,7 +441,7 @@ for mnt in $ADDITIONAL_MOUNTS; do
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_PORT=""
-SET_LISTEN="$DEFINE_LISTEN"
+SET_LISTEN="${DEFINE_LISTEN//:*/}"
 if [ -n "$PORT_VAR" ]; then
   for port in $PORT_VAR; do
     [ "$port" = "" ] && port=""
@@ -454,17 +454,17 @@ for port in $CONTAINER_HTTP_PORT $CONTAINER_SERVICE_PORT $CONTAINER_HTTPS_PORT $
   [ "$port" = " " ] && port=""
   if [ -n "$port" ]; then
     if echo "$port" | grep -E '[a-z,A-Z,0-9]\.[a-z,A-Z,0-9]' | grep -q ':.*.'; then
+      SET_LISTEN="$(echo "$port" | awk -F":" '{print $1}'):"
       port="$(echo "$port" | awk -F":" '{print $2}')"
-      SET_LISTEN="$(echo "$port" | awk -F":" '{print $1}')"
     elif echo "$port" | grep -q ':'; then
+      SET_LISTEN="$DEFINE_LISTEN"
       port="${port//\/*/}:${port//\/*/}"
-      SET_LISTEN="$DEFINE_LISTEN"
     else
-      port="${port//\/*/}:$port"
       SET_LISTEN="$DEFINE_LISTEN"
+      port="${port//\/*/}:$port"
     fi
     if [ -n "${SET_LISTEN}" ]; then
-      SET_PORT+="--publish $SET_LISTEN$port "
+      SET_PORT+="--publish $SET_LISTEN:$port "
     else
       SET_PORT+="--publish $port "
     fi

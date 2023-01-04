@@ -329,6 +329,8 @@ CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME.$CONTAINER_DOMAINNAME}"
 [ -z "$CONTAINER_USER_PASS" ] || ADDITION_ENV+="${CONTAINER_ENV_PASS_NAME:-password}=$CONTAINER_USER_PASS "
 [ -z "$CONTAINER_USER_NAME" ] || ADDITION_ENV+="${CONTAINER_ENV_USER_NAME:-username}=$CONTAINER_USER_NAME "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+HOST_LISTEN_PROTO="${HOST_LISTEN_ADDR//*:\/\//}"
+HOST_LISTEN_ADDR="${HOST_LISTEN_PROTO//:*/}"
 PRETTY_PORT="${HOST_SERVICE_PORT:-$HOST_PORT}"
 PRETTY_PORT="${PRETTY_PORT//\/*/}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -454,8 +456,9 @@ for port in $CONTAINER_HTTP_PORT $CONTAINER_SERVICE_PORT $CONTAINER_HTTPS_PORT $
   [ "$port" = " " ] && port=""
   if [ -n "$port" ]; then
     if echo "$port" | grep -E '[a-z,A-Z,0-9]\.[a-z,A-Z,0-9]' | grep -q ':.*.'; then
-      SET_LISTEN="$(echo "$port" | awk -F":" '{print $1}'):"
+      SET_LISTEN="$(echo "$port" | awk -F":" '{print $1}')"
       port="$(echo "$port" | awk -F":" '{print $2}')"
+      port="${port//\/*/}:${port//\/*/}"
     elif echo "$port" | grep -q ':'; then
       SET_LISTEN="$DEFINE_LISTEN"
       port="${port//\/*/}:${port//\/*/}"

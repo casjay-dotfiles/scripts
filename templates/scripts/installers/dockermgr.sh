@@ -441,6 +441,7 @@ for mnt in $ADDITIONAL_MOUNTS; do
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_PORT=""
+SET_LISTEN="$DEFINE_LISTEN"
 if [ -n "$PORT_VAR" ]; then
   for port in $PORT_VAR; do
     [ "$port" = "" ] && port=""
@@ -452,9 +453,18 @@ for port in $CONTAINER_HTTP_PORT $CONTAINER_SERVICE_PORT $CONTAINER_HTTPS_PORT $
   [ "$port" = "" ] && port=""
   [ "$port" = " " ] && port=""
   if [ -n "$port" ]; then
-    echo "$port" | grep -q ':' || port="${port//\/*/}:$port"
-    if [ -n "$DEFINE_LISTEN" ]; then
-      SET_PORT+="--publish $DEFINE_LISTEN$port "
+    if echo "$port" | grep -E '[a-z,A-Z,0-9]\.[a-z,A-Z,0-9]' | grep -q ':.*.'; then
+      port="$(echo "$port" | awk -F":" '{print $2}')"
+      SET_LISTEN="$(echo "$port" | awk -F":" '{print $1}')"
+    elif echo "$port" | grep -q ':'; then
+      port="${port//\/*/}:${port//\/*/}"
+      SET_LISTEN="$DEFINE_LISTEN"
+    else
+      port="${port//\/*/}:$port"
+      SET_LISTEN="$DEFINE_LISTEN"
+    fi
+    if [ -n "${SET_LISTEN}" ]; then
+      SET_PORT+="--publish $SET_LISTEN$port "
     else
       SET_PORT+="--publish $port "
     fi

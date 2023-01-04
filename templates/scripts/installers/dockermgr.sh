@@ -166,7 +166,8 @@ DEFINE_LISTEN=""
 # Set the network type - bridge,host - default is bridge
 HOST_NETWORK_TYPE="bridge"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set location to resolv.conf
+# Set location to resolv.conf [yes,no]
+HOST_RESOLVE_MOUNT="no"
 HOST_RESOLVE_FILE="/etc/resolv.conf"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Enable privileged container
@@ -316,6 +317,7 @@ CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME.$CONTAINER_DOMAINNAME}"
 [ "$CONTAINER_HTTPS_PORT" = "https" ] && CONTAINER_HTTP_PROTO="https"
 [ "$DOCKER_SOCKET_ENABLED" = "yes" ] && ADDITIONAL_MOUNTS+="$DOCKER_SOCKET_MOUNT:/var/run/docker.sock "
 [ "$NGINX_SSL" = "yes" ] && [ -n "$NGINX_HTTPS" ] && NGINX_PORT="${NGINX_HTTPS:-443}" || NGINX_PORT="${NGINX_HTTP:-80}"
+[ "$HOST_RESOLVE_MOUNT" = "yes" ] && ADDITIONAL_MOUNTS+="$HOST_RESOLVE_MOUNT:/etc/resolv.conf " || HOST_RESOLVE_MOUNT=""
 [ "$HOST_LOCAL_ONLY" = "yes" ] && DEFINE_LISTEN="${LOCAL_IP:-127.0.0.1}" && HOST_LISTEN_ADDR="${LOCAL_IP:-127.0.0.1}" || HOST_LOCAL_ONLY=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # rewrite variables
@@ -509,7 +511,7 @@ else
   printf_cyan "Creating container $APPNAME"
   __sudo docker run -d --name="$APPNAME" $SET_LABELS $SET_LINK \
     --shm-size=$CONTAINER_SHM_SIZE $DOCKER_OPTS $SET_CAP $SET_SYSCTL \
-    --hostname "$CONTAINER_HOSTNAME" --env TZ="$HOST_TIMEZONE" -v $HOST_RESOLVE_FILE:/etc/resolv.conf \
+    --hostname "$CONTAINER_HOSTNAME" --env TZ="$HOST_TIMEZONE" \
     --env TIMEZONE="$HOST_TIMEZONE" $SET_ENV $SET_DEV $SET_MNT $SET_PORT $CUSTOM_ARGUMENTS $HOST_NETWORK_TYPE \
     "$HUB_IMAGE_URL:$HUB_IMAGE_TAG" $CONTAINER_COMMANDS 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log" &&
     rm -Rf "${TMP:-/tmp}/$APPNAME.err.log" || ERROR_LOG="true"

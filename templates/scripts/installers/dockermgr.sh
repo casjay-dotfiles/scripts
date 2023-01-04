@@ -329,8 +329,16 @@ CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME.$CONTAINER_DOMAINNAME}"
 [ -z "$CONTAINER_USER_PASS" ] || ADDITION_ENV+="${CONTAINER_ENV_PASS_NAME:-password}=$CONTAINER_USER_PASS "
 [ -z "$CONTAINER_USER_NAME" ] || ADDITION_ENV+="${CONTAINER_ENV_USER_NAME:-username}=$CONTAINER_USER_NAME "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-HOST_LISTEN_PROTO="${HOST_LISTEN_ADDR//*:\/\//}"
-HOST_LISTEN_ADDR="${HOST_LISTEN_PROTO//:*/}"
+if echo "${HOST_LISTEN_ADDR}" | grep -qE '://'; then
+  HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR//*:\/\//}"
+elif echo "${HOST_LISTEN_ADDR}" | grep -qE '*.:.*.:[0-9]'; then
+  HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR//:*:*/}"
+elif echo "${HOST_LISTEN_ADDR}" | grep -qE '*\.:[0-9]'; then
+  HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR//*.*:/}"
+else
+  HOST_LISTEN_ADDR="${HOST_LISTEN_PROTO//:*/}"
+fi
+HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR//:*/}"
 PRETTY_PORT="${HOST_SERVICE_PORT:-$HOST_PORT}"
 PRETTY_PORT="${PRETTY_PORT//\/*/}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

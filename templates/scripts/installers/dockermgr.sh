@@ -252,6 +252,10 @@ CONTAINER_HTTP_PORT=""
 CONTAINER_HTTPS_PORT=""
 CONTAINER_SERVICE_PORT=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set to true to only have HTTP or Service to listen only on localhost
+CONTAINER_PRIVATE="no"
+CONTAINER_LISTEN="127.0.0.1"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Add Add service port [port] or [port:port] - LISTEN will be added if defined [DEFINE_LISTEN]
 CONTAINER_ADD_CUSTOM_PORT=""
 CONTAINER_ADD_CUSTOM_PORT+=""
@@ -337,19 +341,9 @@ echo "$CONTAINER_HOSTNAME" | grep -Fq '.' || CONTAINER_HOSTNAME="$APPNAME.$SERVE
 [ -z "$CONTAINER_USER_PASS" ] || ADDITION_ENV+="${CONTAINER_ENV_PASS_NAME:-password}=$CONTAINER_USER_PASS "
 [ -z "$CONTAINER_USER_NAME" ] || ADDITION_ENV+="${CONTAINER_ENV_USER_NAME:-username}=$CONTAINER_USER_NAME "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR//:*/}"
+IS_PRIVATE="${HOST_WEB_PORT:-$CONTAINER_SERVICE_PORT}"
 PRETTY_PORT="${HOST_SERVICE_PORT:-$HOST_PORT}"
-PRETTY_PORT="${PRETTY_PORT//*:\/\//}"
-if echo "$PRETTY_PORT" | grep -qE '\.*:.*.:[0-9]'; then
-  PRETTY_PORT="$(echo "$PRETTY_PORT" | awk -F ':' '{printf $2}' | grep '^' || echo "$PRETTY_PORT")"
-elif echo "$PRETTY_PORT" | grep -qE '.*:.*.:[0-9]'; then
-  PRETTY_PORT="$(echo "$PRETTY_PORT" | awk -F ':' '{printf $2}' | grep '^' || echo "$PRETTY_PORT")"
-elif echo "$PRETTY_PORT" | grep -qE ':[0-9]'; then
-  PRETTY_PORT="$(echo "$PRETTY_PORT" | awk -F ':' '{printf $NF}' | grep '^' || echo "$PRETTY_PORT")"
-fi
-PRETTY_PORT="${PRETTY_PORT//*:/}"
 PRETTY_PORT="${PRETTY_PORT//\/*/}"
-HOST_PORT="$PRETTY_PORT"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [ "$HOST_NETWORK_TYPE" = "host" ] && HOST_NETWORK_TYPE="--net-host"
 [ "$CONTAINER_TTY" = "yes" ] && DOCKER_OPTS+="--tty " || CONTAINER_TTY=""
@@ -473,28 +467,18 @@ SET_PORT=""
 SET_LISTEN="${DEFINE_LISTEN//:*/}"
 if [ -n "$PORT_VAR" ]; then
   for port in $PORT_VAR; do
-    [ "$port" = "" ] && port=""
-    [ "$port" = " " ] && port=""
-    SET_PORT+="--publish $port "
+    if [ "$port" != "" ] && [ "$port" != " " ]; then
+      SET_PORT+="--publish $port "
+    fi
   done
 fi
 for port in $CONTAINER_HTTP_PORT $CONTAINER_SERVICE_PORT $CONTAINER_HTTPS_PORT $CONTAINER_ADD_CUSTOM_PORT; do
-  [ "$port" = "" ] && port=""
-  [ "$port" = " " ] && port=""
-  if [ -n "$port" ]; then
-    if echo "$port" | grep -E '[a-z,A-Z,0-9]\.[a-z,A-Z,0-9]' | grep -q ':.*.'; then
-      SET_LISTEN="$(echo "$port" | awk -F":" '{print $1}')"
-      port="$(echo "$port" | awk -F":" '{print $2}')"
-      port="${port//\/*/}:${port//\/*/}"
-    elif echo "$port" | grep -q ':'; then
-      SET_LISTEN="$DEFINE_LISTEN"
-      port="${port//\/*/}:${port//\/*/}"
-    else
-      SET_LISTEN="$DEFINE_LISTEN"
-      port="${port//\/*/}:$port"
-    fi
-    if [ -n "${SET_LISTEN}" ]; then
-      SET_PORT+="--publish $SET_LISTEN:$port "
+  if [ "$port" != " " ] && [ -n "$port" ]; then
+    echo "$port" | grep -q ':' || port="${port//\/*/}:$port"
+    if [ "$CONTAINER_PRIVATE" = "yes" ] && [ "$port" = "$IS_PRIVATE" ]; then
+      SET_PORT+="--publish $CONTAINER_LISTEN:$port "
+    elif [ -n "$DEFINE_LISTEN" ]; then
+      SET_PORT+="--publish $DEFINE_LISTEN$port "
     else
       SET_PORT+="--publish $port "
     fi

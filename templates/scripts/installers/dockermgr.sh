@@ -483,9 +483,9 @@ fi
 # SSL setup
 NGINX_PROXY_URL=""
 if [ "$SSL_ENABLED" = "yes" ]; then
+  CONTAINER_HTTP_PROTO="https"
+  NGINX_LISTEN_OPTS="ssl http2"
   if [ "$CONTAINER_HTTP_PROTO" = "https" ]; then
-    CONTAINER_HTTP_PROTO="https"
-    NGINX_LISTEN_OPTS="ssl http2"
     NGINX_PROXY_URL="https://$HOST_LISTEN_ADDR:$NGINX_PROXY_PORT"
   fi
   if [ -f "$HOST_SSL_CRT" ] && [ -f "$HOST_SSL_KEY" ]; then

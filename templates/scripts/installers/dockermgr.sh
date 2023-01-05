@@ -377,10 +377,12 @@ CONTAINER_DISPLAY=""
 CONTAINER_X11_XAUTH=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ "$NGINX_AUTH" = "yes" ]; then
+  I2P_USERNAME="${I2P_USERNAME:-root}"
+  I2P_PASSWORD="${I2P_PASSWORD:-toor}"
   [ -d "/etc/nginx/auth" ] || mkdir -p "/etc/nginx/auth"
   if [ ! -f "/etc/nginx/auth/$APPNAME" ] && [ -n "$(builtin type -P htpasswd)" ]; then
-    printf_yellow "Creating auth with user: root and pass: tor in /etc/nginx/auth/$APPNAME"
-    htpasswd -b -c "/etc/nginx/auth/$APPNAME" "${GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME:-root}" "${GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD:-toor}" &>/dev/null
+    printf_yellow "Creating auth /etc/nginx/auth/$APPNAME"
+    htpasswd -b -c "/etc/nginx/auth/$APPNAME" "$I2P_USERNAME" "${I2P_PASSWORD}" &>/dev/null
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

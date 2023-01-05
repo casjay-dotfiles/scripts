@@ -567,7 +567,8 @@ if [ ! -f "/etc/nginx/vhosts.d/$CONTAINER_HOSTNAME.conf" ] && [ -f "$INSTDIR/ngi
 else
   NGINX_PROXY=""
 fi
-[ -f "/etc/nginx/vhosts.d/$CONTAINER_HOSTNAME.conf" ] && NGINX_PROXY="$CONTAINER_DOMAINNAME"
+SERVER_URL="$CONTAINER_HTTP_PROTO://$CONTAINER_HOSTNAME:$PRETTY_PORT"
+[ -f "/etc/nginx/vhosts.d/$CONTAINER_HOSTNAME.conf" ] && NGINX_PROXY="$CONTAINER_HTTP_PROTO://$CONTAINER_HOSTNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run post install scripts
 run_postinst() {
@@ -600,11 +601,11 @@ if docker ps -a | grep -qs "$APPNAME"; then
   printf_yellow "The DATADIR is in $DATADIR"
   printf_cyan "$APPNAME has been installed to $INSTDIR"
   if [ -z "$PRETTY_PORT" ]; then
-    printf_yellow "This container does not have service"
+    printf_yellow "This container does not have services configured"
   else
-    printf_yellow "Service is running on: $HOST_LISTEN_ADDR:${PRETTY_PORT}"
-    printf_cyan "Service is listening on $HOST_LISTEN_ADDR:$PRETTY_PORT or $CONTAINER_HOSTNAME:$PRETTY_PORT"
-    printf_yellow "and should be available at: $CONTAINER_HTTP_PROTO//${NGINX_PROXY:-$CONTAINER_HOSTNAME:$PRETTY_PORT}"
+    printf_cyan"Service is running on: $HOST_LISTEN_ADDR:$PRETTY_PORT"
+    printf_cyan "Service is listening on $HOST_LISTEN_ADDR:$PRETTY_PORT"
+    printf_cyan "and should be available at: ${NGINX_PROXY:-$SERVER_URL}"
   fi
   [ -z "$SET_USER_NAME" ] || printf_cyan "Username is:  $SET_USER_NAME"
   [ -z "$SET_USER_PASS" ] || printf_purple "Password is:  $SET_USER_PASS"

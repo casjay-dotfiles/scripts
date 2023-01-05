@@ -341,10 +341,12 @@ echo "$CONTAINER_HOSTNAME" | grep -Fq '.' || CONTAINER_HOSTNAME="$APPNAME.$SERVE
 [ -z "$CONTAINER_USER_NAME" ] || ADDITION_ENV+="${CONTAINER_ENV_USER_NAME:-username}=$CONTAINER_USER_NAME "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 IS_PRIVATE="${HOST_WEB_PORT:-$CONTAINER_SERVICE_PORT}"
-PRETTY_PORT="${HOST_SERVICE_PORT:-$HOST_PORT}"
-PRETTY_PORT="${PRETTY_PORT//\/*/}"
-echo "$PRETTY_PORT" | grep -q ':' && PRETTY_PORT="$(echo "$PRETTY_PORT" | awk -F: '{print $1}')"
+CLEANUP_PORT="${HOST_SERVICE_PORT:-$HOST_PORT}"
+CLEANUP_PORT="${CLEANUP_PORT//\/*/}"
+PRETTY_PORT="$CLEANUP_PORT"
+echo "$PRETTY_PORT" | grep -q ':' && PRETTY_PORT="$(echo "$PRETTY_PORT" | awk -F':' '{print $1}')"
 HOST_PORT="$PRETTY_PORT"
+NGINX_PROXY_PORT="$(echo "$CLEANUP_PORT" | awk -F':' '{printf $NF}' | grep '^' || echo "$CLEANUP_PORT")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [ "$HOST_NETWORK_TYPE" = "host" ] && HOST_NETWORK_TYPE="--net-host"
 [ "$CONTAINER_TTY" = "yes" ] && DOCKER_OPTS+="--tty " || CONTAINER_TTY=""
@@ -387,7 +389,7 @@ if [ "$SSL_ENABLED" = "yes" ]; then
   if [ "$CONTAINER_HTTP_PROTO" = "https" ]; then
     CONTAINER_HTTP_PROTO="https"
     NGINX_LISTEN_OPTS="ssl http2"
-    NGINX_PROXY="https://$HOST_LISTEN_ADDR:$PRETTY_PORT"
+    NGINX_PROXY="https://$HOST_LISTEN_ADDR:$NGINX_PROXY_PORT"
   fi
   if [ -f "$HOST_SSL_CRT" ] && [ -f "$HOST_SSL_KEY" ]; then
     [ -f "$CONTAINER_SSL_CA" ] && ADDITIONAL_MOUNTS+="$HOST_SSL_CA:$CONTAINER_SSL_CA "
@@ -398,7 +400,7 @@ else
   CONTAINER_HTTP_PROTO="${CONTAINER_HTTP_PROTO:-http}"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-NGINX_PROXY="${NGINX_PROXY:-$CONTAINER_HTTP_PROTO://$HOST_LISTEN_ADDR:$PRETTY_PORT}"
+NGINX_PROXY="${NGINX_PROXY:-$CONTAINER_HTTP_PROTO://$HOST_LISTEN_ADDR:$NGINX_PROXY_PORT}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_LINK=""
 for link in $CONTAINER_LINK; do
@@ -562,6 +564,9 @@ if [ ! -f "/etc/nginx/vhosts.d/$CONTAINER_HOSTNAME.conf" ] && [ -f "$INSTDIR/ngi
   else
     mv -f "/tmp/$$.$CONTAINER_HOSTNAME.conf" "$INSTDIR/nginx/$CONTAINER_HOSTNAME.conf" &>/dev/null
   fi
+  NGINX_PROXY="$CONTAINER_DOMAINNAME"
+else
+  NGINX_PROXY=""
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run post install scripts
@@ -599,7 +604,7 @@ if docker ps -a | grep -qs "$APPNAME"; then
   else
     printf_yellow "Service is running on: $HOST_LISTEN_ADDR:${PRETTY_PORT}"
     printf_cyan "Service is listening on $HOST_LISTEN_ADDR:$PRETTY_PORT or $CONTAINER_HOSTNAME:$PRETTY_PORT"
-    printf_yellow "and should be available at: $NGINX_PROXY or $CONTAINER_HTTP_PROTO//$CONTAINER_HOSTNAME:$PRETTY_PORT"
+    printf_yellow "and should be available at: $CONTAINER_HTTP_PROTO//${NGINX_PROXY:-$CONTAINER_HOSTNAME:$PRETTY_PORT}"
   fi
   [ -z "$SET_USER_NAME" ] || printf_cyan "Username is:  $SET_USER_NAME"
   [ -z "$SET_USER_PASS" ] || printf_purple "Password is:  $SET_USER_PASS"

@@ -268,7 +268,7 @@ NGINX_AUTH="no"
 NGINX_SSL="yes"
 NGINX_HTTP="80"
 NGINX_HTTPS="443"
-NGINX_PROXY=""
+NGINX_UPDATE_CONF=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End of configuration options
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -385,11 +385,12 @@ if [ "$NGINX_AUTH" = "yes" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # SSL setup
+NGINX_PROXY_URL=""
 if [ "$SSL_ENABLED" = "yes" ]; then
   if [ "$CONTAINER_HTTP_PROTO" = "https" ]; then
     CONTAINER_HTTP_PROTO="https"
     NGINX_LISTEN_OPTS="ssl http2"
-    NGINX_PROXY="https://$HOST_LISTEN_ADDR:$NGINX_PROXY_PORT"
+    NGINX_PROXY_URL="https://$HOST_LISTEN_ADDR:$NGINX_PROXY_PORT"
   fi
   if [ -f "$HOST_SSL_CRT" ] && [ -f "$HOST_SSL_KEY" ]; then
     [ -f "$CONTAINER_SSL_CA" ] && ADDITIONAL_MOUNTS+="$HOST_SSL_CA:$CONTAINER_SSL_CA "
@@ -400,7 +401,7 @@ else
   CONTAINER_HTTP_PROTO="${CONTAINER_HTTP_PROTO:-http}"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-NGINX_PROXY="${NGINX_PROXY:-$CONTAINER_HTTP_PROTO://$HOST_LISTEN_ADDR:$NGINX_PROXY_PORT}"
+NGINX_PROXY_URL="${NGINX_PROXY_URL:-$CONTAINER_HTTP_PROTO://$HOST_LISTEN_ADDR:$NGINX_PROXY_PORT}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_LINK=""
 for link in $CONTAINER_LINK; do
@@ -550,11 +551,11 @@ else
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Install nginx proxy
-if [ ! -f "/etc/nginx/vhosts.d/$CONTAINER_HOSTNAME.conf" ] && [ -f "$INSTDIR/nginx/proxy.conf" ]; then
+if [ -z "$NGINX_UPDATE_CONF" ] && [ -f "$INSTDIR/nginx/proxy.conf" ]; then
   cp -f "$INSTDIR/nginx/proxy.conf" "/tmp/$$.$CONTAINER_HOSTNAME.conf"
   sed -i "s|REPLACE_APPNAME|$APPNAME|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
   sed -i "s|REPLACE_NGINX_PORT|$NGINX_PORT|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
-  sed -i "s|REPLACE_HOST_PROXY|$NGINX_PROXY|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
+  sed -i "s|REPLACE_HOST_PROXY|$NGINX_PROXY_URL|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
   sed -i "s|REPLACE_NGINX_HOST|$CONTAINER_DOMAINNAME|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
   sed -i "s|REPLACE_HOST_LISTEN_OPTS|$NGINX_LISTEN_OPTS|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
   if [ -d "/etc/nginx/vhosts.d" ]; then
@@ -565,10 +566,10 @@ if [ ! -f "/etc/nginx/vhosts.d/$CONTAINER_HOSTNAME.conf" ] && [ -f "$INSTDIR/ngi
     mv -f "/tmp/$$.$CONTAINER_HOSTNAME.conf" "$INSTDIR/nginx/$CONTAINER_HOSTNAME.conf" &>/dev/null
   fi
 else
-  NGINX_PROXY=""
+  NGINX_PROXY_URL=""
 fi
 SERVER_URL="$CONTAINER_HTTP_PROTO://$CONTAINER_HOSTNAME:$PRETTY_PORT"
-[ -f "/etc/nginx/vhosts.d/$CONTAINER_HOSTNAME.conf" ] && NGINX_PROXY="$CONTAINER_HTTP_PROTO://$CONTAINER_HOSTNAME"
+[ -f "/etc/nginx/vhosts.d/$CONTAINER_HOSTNAME.conf" ] && NGINX_PROXY_URL="$CONTAINER_HTTP_PROTO://$CONTAINER_HOSTNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run post install scripts
 run_postinst() {
@@ -605,7 +606,7 @@ if docker ps -a | grep -qs "$APPNAME"; then
   else
     printf_cyan "Service is running on: $HOST_LISTEN_ADDR:$PRETTY_PORT"
     printf_cyan "Service is listening on $HOST_LISTEN_ADDR:$PRETTY_PORT"
-    printf_cyan "and should be available at: ${NGINX_PROXY:-$SERVER_URL}"
+    printf_cyan "and should be available at: ${NGINX_PROXY_URL:-$SERVER_URL}"
   fi
   [ -z "$SET_USER_NAME" ] || printf_cyan "Username is:  $SET_USER_NAME"
   [ -z "$SET_USER_PASS" ] || printf_purple "Password is:  $SET_USER_PASS"

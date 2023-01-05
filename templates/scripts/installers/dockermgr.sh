@@ -129,8 +129,8 @@ GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME="${GEN_SCRIPT_REPLACE_APPENV_NAME_USERNA
 GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD="${GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD:-$DEFAULT_PASSWORD}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set container hostname and domain - Default GEN_SCRIPT_REPLACE_APPNAME
-CONTAINER_HOSTNAME=""
-CONTAINER_DOMAINNAME=""
+CONTAINER_HOSTNAME="$APPNAME"
+CONTAINER_DOMAINNAME="$HOSTNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # URL to container image [docker pull URL]
 HUB_IMAGE_URL="casjaysdevdocker/GEN_SCRIPT_REPLACE_APPNAME"
@@ -262,6 +262,7 @@ CONTAINER_ADD_CUSTOM_LISTEN=""
 POST_SHOW_FINISHED_MESSAGE=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup nginx proxy variables
+NGINX_AUTH="no"
 NGINX_SSL="yes"
 NGINX_HTTP="80"
 NGINX_HTTPS="443"
@@ -310,8 +311,9 @@ CONTAINER_HTTP_PROTO="${CONTAINER_HTTP_PROTO:-http}"
 HOST_NETWORK_TYPE="--network ${HOST_NETWORK_TYPE:-bridge}"
 POST_SHOW_FINISHED_MESSAGE="${POST_SHOW_FINISHED_MESSAGE:-}"
 HOST_WEB_PORT="${CONTAINER_HTTPS_PORT:-$CONTAINER_HTTP_PORT}"
-CONTAINER_DOMAINNAME="${CONTAINER_DOMAINNAME:-"$(hostname -d 2>/dev/null | grep '^' || echo 'local')"}"
-CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME.$CONTAINER_DOMAINNAME}"
+SERVER_SHORT_DOMAIN="$(hostname -f 2>/dev/null | grep '^')"
+SERVER_FULL_DOMAIN="$(hostname -d 2>/dev/null | grep '^' || echo 'home')"
+CONTAINER_DOMAINNAME="${CONTAINER_DOMAINNAME:-$SERVER_SHORT_DOMAIN.$SERVER_FULL_DOMAIN}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Configure variables
 [ "$CONTAINER_HTTPS_PORT" = "" ] || CONTAINER_HTTP_PROTO="https"
@@ -319,6 +321,7 @@ CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME.$CONTAINER_DOMAINNAME}"
 [ "$NGINX_SSL" = "yes" ] && [ -n "$NGINX_HTTPS" ] && NGINX_PORT="${NGINX_HTTPS:-443}" || NGINX_PORT="${NGINX_HTTP:-80}"
 [ "$HOST_RESOLVE_MOUNT" = "yes" ] && ADDITIONAL_MOUNTS+="$HOST_RESOLVE_MOUNT:/etc/resolv.conf " || HOST_RESOLVE_MOUNT=""
 [ "$HOST_LOCAL_ONLY" = "yes" ] && DEFINE_LISTEN="${LOCAL_IP:-127.0.0.1}" && HOST_LISTEN_ADDR="${LOCAL_IP:-127.0.0.1}" || HOST_LOCAL_ONLY=""
+[[ "$CONTAINER_DOMAINNAME" = server.* ]] && CONTAINER_HOSTNAME="$APPNAME.$SERVER_FULL_DOMAIN" || CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME.$CONTAINER_DOMAINNAME}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # rewrite variables
 [ -n "$HUB_IMAGE_TAG" ] || HUB_IMAGE_TAG="latest"
@@ -367,6 +370,13 @@ fi
 HOST_X11_XAUTH=""
 CONTAINER_DISPLAY=""
 CONTAINER_X11_XAUTH=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ "$NGINX_AUTH" = "yes" ]; then
+  [ -d "/etc/nginx/auth" ] || mkdir -p "/etc/nginx/auth"
+  if [ ! -f "/etc/nginx/auth/$APPNAME" ] && [ -n "$(builtin type -P htpasswd)" ] && [ -n "$GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME" ] && [ -n "$GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD" ]; then
+    htpasswd -c "/etc/nginx/auth/$APPNAME" "$GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME" "$GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD"
+  fi
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # SSL setup
 if [ "$SSL_ENABLED" = "yes" ]; then
@@ -561,10 +571,10 @@ run_postinst() {
   [ -w "/etc/hosts" ] || return 0
   if ! grep -sq "$CONTAINER_HOSTNAME" "/etc/hosts"; then
     if [ -n "$PRETTY_PORT" ]; then
-      if [ $(hostname -d 2>/dev/null | grep '^') = 'local' ]; then
-        echo "$HOST_LISTEN_ADDR     $APPNAME.local" | sudo tee -a "/etc/hosts" &>/dev/null
+      if [ $(hostname -d 2>/dev/null | grep '^') = 'home' ]; then
+        echo "$HOST_LISTEN_ADDR     $APPNAME.home" | sudo tee -a "/etc/hosts" &>/dev/null
       else
-        echo "$HOST_LISTEN_ADDR     $APPNAME.local" | sudo tee -a "/etc/hosts" &>/dev/null
+        echo "$HOST_LISTEN_ADDR     $APPNAME.home" | sudo tee -a "/etc/hosts" &>/dev/null
         echo "$HOST_LISTEN_ADDR     $CONTAINER_HOSTNAME" | sudo tee -a "/etc/hosts" &>/dev/null
       fi
     fi

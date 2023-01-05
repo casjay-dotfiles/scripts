@@ -344,6 +344,7 @@ echo "$CONTAINER_HOSTNAME" | grep -Fq '.' || CONTAINER_HOSTNAME="$APPNAME.$SERVE
 IS_PRIVATE="${HOST_WEB_PORT:-$CONTAINER_SERVICE_PORT}"
 PRETTY_PORT="${HOST_SERVICE_PORT:-$HOST_PORT}"
 PRETTY_PORT="${PRETTY_PORT//\/*/}"
+echo "$PRETTY_PORT" | grep -q ':' && PRETTY_PORT="$(echo "$PRETTY_PORT" | awk -F: '{print $1}')"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [ "$HOST_NETWORK_TYPE" = "host" ] && HOST_NETWORK_TYPE="--net-host"
 [ "$CONTAINER_TTY" = "yes" ] && DOCKER_OPTS+="--tty " || CONTAINER_TTY=""
@@ -477,8 +478,8 @@ for port in $CONTAINER_HTTP_PORT $CONTAINER_SERVICE_PORT $CONTAINER_HTTPS_PORT $
     echo "$port" | grep -q ':' || port="${port//\/*/}:$port"
     if [ "$CONTAINER_PRIVATE" = "yes" ] && [ "$port" = "$IS_PRIVATE" ]; then
       SET_PORT+="--publish $CONTAINER_LISTEN:$port "
-    elif [ -n "$DEFINE_LISTEN" ]; then
-      SET_PORT+="--publish $DEFINE_LISTEN$port "
+    elif [ -n "$SET_LISTEN" ]; then
+      SET_PORT+="--publish $SET_LISTEN$port "
     else
       SET_PORT+="--publish $port "
     fi
@@ -521,6 +522,7 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main progam
 EXECUTE_DOCKER_CMD="docker run -d --name=$APPNAME $SET_LABELS $SET_LINK --shm-size=$CONTAINER_SHM_SIZE $DOCKER_OPTS $SET_CAP $SET_SYSCTL --hostname $CONTAINER_HOSTNAME --env TZ=$HOST_TIMEZONE --env TIMEZONE=$HOST_TIMEZONE $SET_ENV $SET_DEV $SET_MNT $SET_PORT $CUSTOM_ARGUMENTS $HOST_NETWORK_TYPE $HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS"
+EXECUTE_DOCKER_CMD="${EXECUTE_DOCKER_CMD//  / }"
 if cmd_exists docker-compose && [ -f "$INSTDIR/docker-compose.yml" ]; then
   printf_yellow "Installing containers using docker-compose"
   sed -i 's|REPLACE_DATADIR|'$DATADIR'' "$INSTDIR/docker-compose.yml"

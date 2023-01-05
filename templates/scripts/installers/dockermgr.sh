@@ -603,7 +603,7 @@ if docker ps -a | grep -qs "$APPNAME"; then
   if [ -z "$PRETTY_PORT" ]; then
     printf_yellow "This container does not have services configured"
   else
-    printf_cyan"Service is running on: $HOST_LISTEN_ADDR:$PRETTY_PORT"
+    printf_cyan "Service is running on: $HOST_LISTEN_ADDR:$PRETTY_PORT"
     printf_cyan "Service is listening on $HOST_LISTEN_ADDR:$PRETTY_PORT"
     printf_cyan "and should be available at: ${NGINX_PROXY:-$SERVER_URL}"
   fi

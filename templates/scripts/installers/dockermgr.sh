@@ -159,7 +159,7 @@ SSL_CERT="$HOST_SSL_CRT"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set to yes for container to listen on LOCAL_IP only
 HOST_LOCAL_ONLY="no"
-LOCAL_IP="127.0.0.1"
+LOCAL_IP="127.0.0.253"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set this to 0.0.0.0 to listen on all or specify addresses
 DEFINE_LISTEN=""
@@ -246,17 +246,14 @@ CUSTOM_ARGUMENTS+=""
 # Set this to the protocol the the container will use [http,https,git,ftp,etc]
 CONTAINER_HTTP_PROTO="http"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Add service port [port] or [port:port] - LISTEN will be added if defined [DEFINE_LISTEN]
+# Set to true to have HTTP[S] or SERVICE to listen only on localhost
+CONTAINER_PRIVATE="no"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Add service port [port] or [port:port] - LISTEN will be added if defined [DEFINE_LISTEN] or CONTAINER_PRIVATE=yes
 # Only ONE HTTP or HTTPS if web server or SERVICE port for mysql pgsql ftp etc. add more to CONTAINER_ADD_CUSTOM_PORT
 CONTAINER_HTTP_PORT=""
 CONTAINER_HTTPS_PORT=""
 CONTAINER_SERVICE_PORT=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set to true to only have HTTP or Service to listen only on localhost
-CONTAINER_PRIVATE="no"
-CONTAINER_LISTEN="127.0.0.1"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Add Add service port [port] or [port:port] - LISTEN will be added if defined [DEFINE_LISTEN]
 CONTAINER_ADD_CUSTOM_PORT=""
 CONTAINER_ADD_CUSTOM_PORT+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -304,23 +301,25 @@ mkdir -p "$LOCAL_CONFIG_DIR"
 mkdir -p "$DOCKERMGR_CONFIG_DIR/env"
 mkdir -p "$DOCKERMGR_CONFIG_DIR/scripts"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SERVER_SHORT_DOMAIN="$(hostname -s 2>/dev/null | grep '^')"
+SERVER_FULL_DOMAIN="$(hostname -d 2>/dev/null | grep '^' || echo 'home')"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Variables - Do not change anything below this line
 DOCKER_OPTS=""
 NGINX_LISTEN_OPTS=""
-HOST_IP="${CURRENT_IP_4:-$LOCAL_IP}"
+CONTAINER_LISTEN="127.0.0.1"
 HOST_TIMEZONE="${TZ:-$TIMEZONE}"
 DEFINE_LISTEN="${DEFINE_LISTEN:-}"
+HOST_IP="${CURRENT_IP_4:-$LOCAL_IP}"
 HOST_LISTEN_ADDR="${DEFINE_LISTEN:-$HOST_IP}"
 CONTAINER_SHM_SIZE="${CONTAINER_SHM_SIZE:-64M}"
 HOST_SERVICE_PORT="${CONTAINER_SERVICE_PORT:-}"
 CONTAINER_HTTP_PROTO="${CONTAINER_HTTP_PROTO:-http}"
-SET_USER_NAME="${CONTAINER_USER_NAME:-$GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME}"
-SET_USER_PASS="${CONTAINER_USER_PASS:-$GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD}"
 HOST_NETWORK_TYPE="--network ${HOST_NETWORK_TYPE:-bridge}"
 POST_SHOW_FINISHED_MESSAGE="${POST_SHOW_FINISHED_MESSAGE:-}"
 HOST_WEB_PORT="${CONTAINER_HTTPS_PORT:-$CONTAINER_HTTP_PORT}"
-SERVER_SHORT_DOMAIN="$(hostname -s 2>/dev/null | grep '^')"
-SERVER_FULL_DOMAIN="$(hostname -d 2>/dev/null | grep '^' || echo 'home')"
+SET_USER_NAME="${CONTAINER_USER_NAME:-$GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME}"
+SET_USER_PASS="${CONTAINER_USER_PASS:-$GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD}"
 CONTAINER_DOMAINNAME="${CONTAINER_DOMAINNAME:-$APPNAME.$SERVER_SHORT_DOMAIN.$SERVER_FULL_DOMAIN}"
 echo "$CONTAINER_HOSTNAME" | grep -Fq '.' || CONTAINER_HOSTNAME="$APPNAME.$SERVER_SHORT_DOMAIN.$SERVER_FULL_DOMAIN"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -470,10 +469,12 @@ SET_LISTEN="${DEFINE_LISTEN//:*/}"
 if [ -n "$PORT_VAR" ]; then
   for port in $PORT_VAR; do
     if [ "$port" != "" ] && [ "$port" != " " ]; then
+      echo "$port" | grep -q ':' || port="${port//\/*/}:$port"
       SET_PORT+="--publish $port "
     fi
   done
 fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 for port in $CONTAINER_HTTP_PORT $CONTAINER_SERVICE_PORT $CONTAINER_HTTPS_PORT $CONTAINER_ADD_CUSTOM_PORT; do
   if [ "$port" != " " ] && [ -n "$port" ]; then
     echo "$port" | grep -q ':' || port="${port//\/*/}:$port"

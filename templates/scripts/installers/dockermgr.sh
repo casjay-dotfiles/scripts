@@ -345,6 +345,7 @@ IS_PRIVATE="${HOST_WEB_PORT:-$CONTAINER_SERVICE_PORT}"
 PRETTY_PORT="${HOST_SERVICE_PORT:-$HOST_PORT}"
 PRETTY_PORT="${PRETTY_PORT//\/*/}"
 echo "$PRETTY_PORT" | grep -q ':' && PRETTY_PORT="$(echo "$PRETTY_PORT" | awk -F: '{print $1}')"
+HOST_PORT="$PRETTY_PORT"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [ "$HOST_NETWORK_TYPE" = "host" ] && HOST_NETWORK_TYPE="--net-host"
 [ "$CONTAINER_TTY" = "yes" ] && DOCKER_OPTS+="--tty " || CONTAINER_TTY=""
@@ -476,7 +477,7 @@ fi
 for port in $CONTAINER_HTTP_PORT $CONTAINER_SERVICE_PORT $CONTAINER_HTTPS_PORT $CONTAINER_ADD_CUSTOM_PORT; do
   if [ "$port" != " " ] && [ -n "$port" ]; then
     echo "$port" | grep -q ':' || port="${port//\/*/}:$port"
-    if [ "$CONTAINER_PRIVATE" = "yes" ] && [ "$port" = "$IS_PRIVATE" ]; then
+    if [ "$CONTAINER_PRIVATE" = "yes" ] && [ "$port" = "${IS_PRIVATE//\/*/}" ]; then
       SET_PORT+="--publish $CONTAINER_LISTEN:$port "
     elif [ -n "$SET_LISTEN" ]; then
       SET_PORT+="--publish $SET_LISTEN$port "
@@ -488,6 +489,7 @@ done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -n "$CONTAINER_ADD_CUSTOM_LISTEN" ]; then
   for list in $CONTAINER_ADD_CUSTOM_LISTEN; do
+    echo "$list" | grep -q ':' || list="${list//\/*/}:$list"
     SET_PORT+="--publish $list "
   done
 fi
@@ -536,7 +538,7 @@ else
   printf_cyan "Updating the image from $HUB_IMAGE_URL with tag $HUB_IMAGE_TAG"
   __sudo docker pull "$HUB_IMAGE_URL" &>/dev/null
   printf_cyan "Creating container $APPNAME"
-  printf '#!/usr/bin/env bash\n\n%s\n' "$EXECUTE_DOCKER_CMD" >"$DOCKERMGR_CONFIG_DIR/scripts/$APPNAME"
+  printf '#!/usr/bin/env bash\n\n%s\n\n' "$EXECUTE_DOCKER_CMD" >"$DOCKERMGR_CONFIG_DIR/scripts/$APPNAME"
   if __sudo $EXECUTE_DOCKER_CMD 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log"; then
     rm -Rf "${TMP:-/tmp}/$APPNAME.err.log"
   else

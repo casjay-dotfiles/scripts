@@ -111,6 +111,7 @@ trap_exit
 dockermgr_req_version "$APPVERSION"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # import global variables
+[ -f "$INSTDIR/env.sh" ] && . "$INSTDIR/env.sh"
 [ -f "$APPDIR/env.sh" ] && . "$APPDIR/env.sh"
 [ -f "$DOCKERMGR_CONFIG_DIR/.env.sh" ] && . "$DOCKERMGR_CONFIG_DIR/.env.sh"
 [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME" ] && . "$DOCKERMGR_CONFIG_DIR/env/$APPNAME"
@@ -308,6 +309,8 @@ HOST_LISTEN_ADDR="${DEFINE_LISTEN:-$HOST_IP}"
 CONTAINER_SHM_SIZE="${CONTAINER_SHM_SIZE:-64M}"
 HOST_SERVICE_PORT="${CONTAINER_SERVICE_PORT:-}"
 CONTAINER_HTTP_PROTO="${CONTAINER_HTTP_PROTO:-http}"
+SET_USER_NAME="${CONTAINER_USER_NAME:-$GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME}"
+SET_USER_PASS="${CONTAINER_USER_PASS:-$GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD}"
 HOST_NETWORK_TYPE="--network ${HOST_NETWORK_TYPE:-bridge}"
 POST_SHOW_FINISHED_MESSAGE="${POST_SHOW_FINISHED_MESSAGE:-}"
 HOST_WEB_PORT="${CONTAINER_HTTPS_PORT:-$CONTAINER_HTTP_PORT}"
@@ -375,8 +378,9 @@ CONTAINER_X11_XAUTH=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ "$NGINX_AUTH" = "yes" ]; then
   [ -d "/etc/nginx/auth" ] || mkdir -p "/etc/nginx/auth"
-  if [ ! -f "/etc/nginx/auth/$APPNAME" ] && [ -n "$(builtin type -P htpasswd)" ] && [ -n "$GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME" ] && [ -n "$GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD" ]; then
-    htpasswd -c "/etc/nginx/auth/$APPNAME" "$GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME" "$GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD"
+  if [ ! -f "/etc/nginx/auth/$APPNAME" ] && [ -n "$(builtin type -P htpasswd)" ]; then
+    printf_yellow "Creating auth with user: root and pass: tor in /etc/nginx/auth/$APPNAME"
+    htpasswd -b -c "/etc/nginx/auth/$APPNAME" "${GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME:-root}" "${GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD:-toor}" &>/dev/null
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -604,8 +608,8 @@ if docker ps -a | grep -qs "$APPNAME"; then
     printf_cyan "Service is listening on $HOST_LISTEN_ADDR:$PRETTY_PORT or $CONTAINER_HOSTNAME:$PRETTY_PORT"
     printf_yellow "and should be available at: $NGINX_PROXY or $CONTAINER_HTTP_PROTO//$CONTAINER_HOSTNAME:$PRETTY_PORT"
   fi
-  [ -z "$CONTAINER_USER_NAME" ] || printf_cyan "Username is:  $CONTAINER_USER_NAME"
-  [ -z "$CONTAINER_USER_PASS" ] || printf_purple "Password is:  $CONTAINER_USER_PASS"
+  [ -z "$SET_USER_NAME" ] || printf_cyan "Username is:  $SET_USER_NAME"
+  [ -z "$SET_USER_PASS" ] || printf_purple "Password is:  $SET_USER_PASS"
   [ -z "$POST_SHOW_FINISHED_MESSAGE" ] || printf_green "$POST_SHOW_FINISHED_MESSAGE"
 else
   [ "$ERROR_LOG" = "true" ] && printf_yellow "Errors logged to ${TMP:-/tmp}/$APPNAME.err.log"

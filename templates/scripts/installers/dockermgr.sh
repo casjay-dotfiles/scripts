@@ -384,25 +384,6 @@ if [ "$NGINX_AUTH" = "yes" ]; then
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# SSL setup
-NGINX_PROXY_URL=""
-if [ "$SSL_ENABLED" = "yes" ]; then
-  if [ "$CONTAINER_HTTP_PROTO" = "https" ]; then
-    CONTAINER_HTTP_PROTO="https"
-    NGINX_LISTEN_OPTS="ssl http2"
-    NGINX_PROXY_URL="https://$HOST_LISTEN_ADDR:$NGINX_PROXY_PORT"
-  fi
-  if [ -f "$HOST_SSL_CRT" ] && [ -f "$HOST_SSL_KEY" ]; then
-    [ -f "$CONTAINER_SSL_CA" ] && ADDITIONAL_MOUNTS+="$HOST_SSL_CA:$CONTAINER_SSL_CA "
-    ADDITIONAL_MOUNTS+="$HOST_SSL_CRT:$CONTAINER_SSL_CRT "
-    ADDITIONAL_MOUNTS+="$HOST_SSL_KEY:$CONTAINER_SSL_KEY "
-  fi
-else
-  CONTAINER_HTTP_PROTO="${CONTAINER_HTTP_PROTO:-http}"
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-NGINX_PROXY_URL="${NGINX_PROXY_URL:-$CONTAINER_HTTP_PROTO://$HOST_LISTEN_ADDR:$NGINX_PROXY_PORT}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_LINK=""
 for link in $CONTAINER_LINK; do
   [ "$link" = " " ] && link=""
@@ -482,6 +463,7 @@ for port in $CONTAINER_HTTP_PORT $CONTAINER_SERVICE_PORT $CONTAINER_HTTPS_PORT $
   if [ "$port" != " " ] && [ -n "$port" ]; then
     echo "$port" | grep -q ':' || port="${port//\/*/}:$port"
     if [ "$CONTAINER_PRIVATE" = "yes" ] && [ "$port" = "${IS_PRIVATE//\/*/}" ]; then
+      HOST_LISTEN_ADDR="$CONTAINER_LISTEN"
       SET_PORT+="--publish $CONTAINER_LISTEN:$port "
     elif [ -n "$SET_LISTEN" ]; then
       SET_PORT+="--publish $SET_LISTEN$port "
@@ -497,6 +479,25 @@ if [ -n "$CONTAINER_ADD_CUSTOM_LISTEN" ]; then
     SET_PORT+="--publish $list "
   done
 fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# SSL setup
+NGINX_PROXY_URL=""
+if [ "$SSL_ENABLED" = "yes" ]; then
+  if [ "$CONTAINER_HTTP_PROTO" = "https" ]; then
+    CONTAINER_HTTP_PROTO="https"
+    NGINX_LISTEN_OPTS="ssl http2"
+    NGINX_PROXY_URL="https://$HOST_LISTEN_ADDR:$NGINX_PROXY_PORT"
+  fi
+  if [ -f "$HOST_SSL_CRT" ] && [ -f "$HOST_SSL_KEY" ]; then
+    [ -f "$CONTAINER_SSL_CA" ] && ADDITIONAL_MOUNTS+="$HOST_SSL_CA:$CONTAINER_SSL_CA "
+    ADDITIONAL_MOUNTS+="$HOST_SSL_CRT:$CONTAINER_SSL_CRT "
+    ADDITIONAL_MOUNTS+="$HOST_SSL_KEY:$CONTAINER_SSL_KEY "
+  fi
+else
+  CONTAINER_HTTP_PROTO="${CONTAINER_HTTP_PROTO:-http}"
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+NGINX_PROXY_URL="${NGINX_PROXY_URL:-$CONTAINER_HTTP_PROTO://$HOST_LISTEN_ADDR:$NGINX_PROXY_PORT}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [ -d "$APPDIR/files" ] && [ ! -d "$DATADIR" ] && mv -f "$APPDIR/files" "$DATADIR"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

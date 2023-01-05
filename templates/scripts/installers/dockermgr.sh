@@ -311,9 +311,10 @@ CONTAINER_HTTP_PROTO="${CONTAINER_HTTP_PROTO:-http}"
 HOST_NETWORK_TYPE="--network ${HOST_NETWORK_TYPE:-bridge}"
 POST_SHOW_FINISHED_MESSAGE="${POST_SHOW_FINISHED_MESSAGE:-}"
 HOST_WEB_PORT="${CONTAINER_HTTPS_PORT:-$CONTAINER_HTTP_PORT}"
-SERVER_SHORT_DOMAIN="$(hostname -f 2>/dev/null | grep '^')"
+SERVER_SHORT_DOMAIN="$(hostname -s 2>/dev/null | grep '^')"
 SERVER_FULL_DOMAIN="$(hostname -d 2>/dev/null | grep '^' || echo 'home')"
-CONTAINER_DOMAINNAME="${CONTAINER_DOMAINNAME:-$SERVER_SHORT_DOMAIN.$SERVER_FULL_DOMAIN}"
+CONTAINER_DOMAINNAME="${CONTAINER_DOMAINNAME:-$APPNAME.$SERVER_SHORT_DOMAIN.$SERVER_FULL_DOMAIN}"
+echo "$HOSTNAME" | grep -Fq '.' || CONTAINER_HOSTNAME="$APPNAME.$SERVER_SHORT_DOMAIN.$SERVER_FULL_DOMAIN"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Configure variables
 [ "$CONTAINER_HTTPS_PORT" = "" ] || CONTAINER_HTTP_PROTO="https"
@@ -335,15 +336,16 @@ CONTAINER_DOMAINNAME="${CONTAINER_DOMAINNAME:-$SERVER_SHORT_DOMAIN.$SERVER_FULL_
 HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR//:*/}"
 PRETTY_PORT="${HOST_SERVICE_PORT:-$HOST_PORT}"
 PRETTY_PORT="${PRETTY_PORT//*:\/\//}"
-if echo "$PRETTY_PORT" | grep -qE '.*:.*.:[0-9]'; then
-  HOST_PORT="$(echo "$PRETTY_PORT" | awk -F ':' '{printf $2}')"
-  PRETTY_PORT="$(echo "$HOST_PORT" | awk -F ':' '{printf $1}' | grep '^' || echo "$PRETTY_PORT")"
+if echo "$PRETTY_PORT" | grep -qE '\.*:.*.:[0-9]'; then
+  PRETTY_PORT="$(echo "$PRETTY_PORT" | awk -F ':' '{printf $1}' | grep '^' || echo "$PRETTY_PORT")"
+elif echo "$PRETTY_PORT" | grep -qE '.*:.*.:[0-9]'; then
+  PRETTY_PORT="$(echo "$PRETTY_PORT" | awk -F ':' '{printf $1}' | grep '^' || echo "$PRETTY_PORT")"
 elif echo "$PRETTY_PORT" | grep -qE ':[0-9]'; then
-  HOST_PORT="$(echo "$PRETTY_PORT" | awk -F ':' '{printf $1}')"
-  PRETTY_PORT="$(echo "$HOST_PORT" | awk -F ':' '{printf $NF}' | grep '^' || echo "$PRETTY_PORT")"
+  PRETTY_PORT="$(echo "$PRETTY_PORT" | awk -F ':' '{printf $NF}' | grep '^' || echo "$PRETTY_PORT")"
 fi
 PRETTY_PORT="${PRETTY_PORT//*:/}"
 PRETTY_PORT="${PRETTY_PORT//\/*/}"
+HOST_PORT="$PRETTY_PORT"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [ "$HOST_NETWORK_TYPE" = "host" ] && HOST_NETWORK_TYPE="--net-host"
 [ "$CONTAINER_TTY" = "yes" ] && DOCKER_OPTS+="--tty " || CONTAINER_TTY=""

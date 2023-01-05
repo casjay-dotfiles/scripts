@@ -157,12 +157,29 @@ SSL_CA="$HOST_SSL_CA"
 SSL_KEY="$HOST_SSL_KEY"
 SSL_CERT="$HOST_SSL_CRT"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set to yes for container to listen on LOCAL_IP only
+# Set to yes to have HTTP[S] or SERVICE to listen only on localhost
+CONTAINER_PRIVATE="no"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Add service port [port] or [port:port] - LISTEN will be added if defined [DEFINE_LISTEN] or CONTAINER_PRIVATE=yes
+# Only ONE HTTP or HTTPS if web server or SERVICE port for mysql pgsql ftp etc. add more to CONTAINER_ADD_CUSTOM_PORT
+CONTAINER_HTTP_PORT=""
+CONTAINER_HTTPS_PORT=""
+CONTAINER_SERVICE_PORT=""
+CONTAINER_ADD_CUSTOM_PORT=""
+CONTAINER_ADD_CUSTOM_PORT+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Add Add service port [listen]:[externalPort:internalPort]/[tcp,udp]
+CONTAINER_ADD_CUSTOM_LISTEN=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set to yes for all ports to listen on LOCAL_IP only
 HOST_LOCAL_ONLY="no"
 LOCAL_IP="127.0.0.253"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set this to 0.0.0.0 to listen on all or specify addresses
+# Set this to 0.0.0.0 to listen on all or specific addresses
 DEFINE_LISTEN=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set this to the protocol the the container will use [http,https,git,ftp,etc]
+CONTAINER_HTTP_PROTO="http"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the network type - bridge,host - default is bridge
 HOST_NETWORK_TYPE="bridge"
@@ -242,23 +259,6 @@ ADDITION_LABELS+=""
 # Define additional docker arguments - see docker run --help
 CUSTOM_ARGUMENTS=""
 CUSTOM_ARGUMENTS+=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set this to the protocol the the container will use [http,https,git,ftp,etc]
-CONTAINER_HTTP_PROTO="http"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set to true to have HTTP[S] or SERVICE to listen only on localhost
-CONTAINER_PRIVATE="no"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Add service port [port] or [port:port] - LISTEN will be added if defined [DEFINE_LISTEN] or CONTAINER_PRIVATE=yes
-# Only ONE HTTP or HTTPS if web server or SERVICE port for mysql pgsql ftp etc. add more to CONTAINER_ADD_CUSTOM_PORT
-CONTAINER_HTTP_PORT=""
-CONTAINER_HTTPS_PORT=""
-CONTAINER_SERVICE_PORT=""
-CONTAINER_ADD_CUSTOM_PORT=""
-CONTAINER_ADD_CUSTOM_PORT+=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Add Add service port [listen]:[externalPort:internalPort]/[tcp,udp]
-CONTAINER_ADD_CUSTOM_LISTEN=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show post install message
 POST_SHOW_FINISHED_MESSAGE=""

@@ -298,6 +298,7 @@ chmod -Rf 777 "$APPDIR"
 mkdir -p "$LOCAL_DATA_DIR"
 mkdir -p "$LOCAL_CONFIG_DIR"
 mkdir -p "$DOCKERMGR_CONFIG_DIR/env"
+mkdir -p "$DOCKERMGR_CONFIG_DIR/scripts"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Variables - Do not change anything below this line
 DOCKER_OPTS=""
@@ -535,6 +536,7 @@ else
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main progam
+EXECUTE_DOCKER_CMD="docker run -d --name=$APPNAME $SET_LABELS $SET_LINK --shm-size=$CONTAINER_SHM_SIZE $DOCKER_OPTS $SET_CAP $SET_SYSCTL --hostname $CONTAINER_HOSTNAME --env TZ=$HOST_TIMEZONE --env TIMEZONE=$HOST_TIMEZONE $SET_ENV $SET_DEV $SET_MNT $SET_PORT $CUSTOM_ARGUMENTS $HOST_NETWORK_TYPE $HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS"
 if cmd_exists docker-compose && [ -f "$INSTDIR/docker-compose.yml" ]; then
   printf_yellow "Installing containers using docker-compose"
   sed -i 's|REPLACE_DATADIR|'$DATADIR'' "$INSTDIR/docker-compose.yml"
@@ -548,12 +550,12 @@ else
   printf_cyan "Updating the image from $HUB_IMAGE_URL with tag $HUB_IMAGE_TAG"
   __sudo docker pull "$HUB_IMAGE_URL" &>/dev/null
   printf_cyan "Creating container $APPNAME"
-  __sudo docker run -d --name="$APPNAME" $SET_LABELS $SET_LINK \
-    --shm-size=$CONTAINER_SHM_SIZE $DOCKER_OPTS $SET_CAP $SET_SYSCTL \
-    --hostname "$CONTAINER_HOSTNAME" --env TZ="$HOST_TIMEZONE" \
-    --env TIMEZONE="$HOST_TIMEZONE" $SET_ENV $SET_DEV $SET_MNT $SET_PORT $CUSTOM_ARGUMENTS $HOST_NETWORK_TYPE \
-    "$HUB_IMAGE_URL:$HUB_IMAGE_TAG" $CONTAINER_COMMANDS 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log" &&
-    rm -Rf "${TMP:-/tmp}/$APPNAME.err.log" || ERROR_LOG="true"
+  printf '#!/usr/bin/env bash\n\n%s\n' "$EXECUTE_DOCKER_CMD" >"$DOCKERMGR_CONFIG_DIR/scripts/$APPNAME"
+  if __sudo $EXECUTE_DOCKER_CMD 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log"; then
+    rm -Rf "${TMP:-/tmp}/$APPNAME.err.log"
+  else
+    ERROR_LOG="true"
+  fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Install nginx proxy

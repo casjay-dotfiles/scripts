@@ -292,22 +292,57 @@ __netstat() { netstat -taupln 2>/dev/null || return 1; }
 __number_test() { test -n "$1" && test -z "${1//[0-9]/}" && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_daemon_name() {
-  __netstat | grep LISTEN | grep -w "$RUN_SERVER_PORT" |
-    grep -v 'TIME_WAIT' | awk -F'/' '{print $NF}' | sed 's| ||g'
+  __netstat | grep -F ":$RUN_SERVER_PORT" |
+    grep -v 'TIME_WAIT' | awk -F'/' '{print $NF}' | sed 's| ||g;s|:.*||g'
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_server_pid() {
   local prog="${RUN_SERVER_DAEMON:-$RUN_SERVER_PROGRAM}"
-  __netstat | grep -v 'TIME_WAIT' | grep -w "$RUN_SERVER_PORT" |
+  __netstat | grep -F ":$RUN_SERVER_PORT" |
     grep "${prog:-^}" | sed 's|.*LISTEN||g;s| *||g' |
-    awk -F'/' '{print $1}' | grep '^' || return 1
+    awk -F'/' '{print $1}' | awk -F ':' '{print $1}' | grep '^' || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_server_prog() {
   local basename=""
-  __netstat | grep LISTEN | grep -w "$RUN_SERVER_PORT" |
-    sed 's|.*LISTEN||g;s| *||g' | awk -F'/' '{print $2}' |
-    sed 's|:$||g' | head -n1 | xargs basename | grep '^' || echo ''
+  basename="$(__netstat | grep LISTEN | grep -F "${1:-$RUN_SERVER_PORT}" | sed 's|.*LISTEN||g;s| *||g' | awk -F'/' '{print $2}' | awk -F ':' '{print $1}' | sed 's|:$||g' | head -n1 | grep '^' || echo '')"
+  [ -n "$basename" ] && echo "$basename" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__nginx_config() {
+  cat <<EOF || tee
+worker_processes                  1;
+daemon                            off;
+error_log                         /dev/stdout info;
+pid                               /tmp/nginx.pid;
+worker_rlimit_nofile              8192;
+
+events {
+    worker_connections            1024;
+}
+
+http {
+    server_names_hash_bucket_size 128;
+    access_log                    /dev/stdout;
+    include                       /etc/nginx/mime.types;
+    default_type                  text/html;
+    sendfile                      on;
+
+  server {
+    listen                        $RUN_SERVER_PORT;
+    root                          $RUN_SERVER_CWD;
+    index                         index.html index.htm;
+    server_name                   $HOSTNAME;
+
+  location / {
+    default_type                  "text/html";
+    autoindex                     on;
+    #try_files                     $uri.html $uri $uri/ /index.html;
+  }
+}
+}
+
+EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __screen_config() {
@@ -474,6 +509,8 @@ __return_error() {
   printf_red "Failed to start the server"
   printf_pause "$APPNAME will now be killed"
   kill -9 "$RUN_SERVER_MAIN_PID" &>/dev/null
+  sleep 5
+  return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __lsof() {
@@ -517,12 +554,21 @@ __caddy() {
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__nginx() {
+  [ "$RUN_SERVER_IS_RUNNING" = "true" ] && return 0
+  __cmd_exists nginx || return 1
+  cd "$RUN_SERVER_CWD" || return 1
+  nginx -c "$RUN_SERVER_CACHE_DIR/nginx.conf" &>>"$RUN_SERVER_LOG" &&
+    echo nginx started &>>"$RUN_SERVER_LOG" || return 1
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __proxy() {
   [ "$RUN_SERVER_IS_RUNNING" = "true" ] && return 0
   __cmd_exists caddy || return 1
   cd "$RUN_SERVER_CWD" || return 1
   caddy reverse-proxy -to 127.0.0.1:${port:-3000} -from :${other_port:-20000} &>>"$RUN_SERVER_LOG" &&
-    echo caddy started &>>"$RUN_SERVER_LOG" && other_port="${other_port:-20000}" || return 1
+    echo caddy started &>>"$RUN_SERVER_LOG" && other_port="$RUN_SERVER_LOG" || return 1
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -775,9 +821,9 @@ start_run_server() {
   #  i=$((i + 1))
   #done
   __run_server "$1"
-  sleep 3
+  sleep 5
   RUN_SERVER_DAEMON="$(__get_daemon_name)"
-  RUN_SERVER_SRV_PID="$(__get_server_pid || echo '')"
+  RUN_SERVER_SRV_PID="$(__get_server_pid || __get_server_prog "$RUN_SERVER_DAEMON" || echo '')"
   export RUN_SERVER_DAEMON="${RUN_SERVER_DAEMON:-$(__get_server_prog "$RUN_SERVER_SRV_PID" || echo '')}"
   export RUN_SERVER_SRV_PID RUN_SERVER_DAEMON
   echo "$RUN_SERVER_PORT" >"$RUN_SERVER_RUN_DIR/$RUN_SERVER_MAIN_PID"
@@ -869,13 +915,14 @@ __execute_run_server() {
   # # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # begin main app
   case "$1" in
-  static)
+  static | nginx)
     shift 1
-    prog="static"
-    export -f __static
+    prog="nginx"
+    export -f __nginx
+    __nginx_config >"$RUN_SERVER_CACHE_DIR/nginx.conf"
     __prog_check "$prog"
     __set_vars $1
-    __main__ "__static $RUN_SERVER_PORT"
+    __main__ "__nginx"
     exit $?
     ;;
 
@@ -981,7 +1028,7 @@ __execute_run_server() {
 
   netcat | nc)
     shift 1
-    prog="$(basename $(type -P netcat 2>/dev/null || type -P nc 2>/dev/null))"
+    prog="$(basename $(type -P netcat 2>/dev/null || type -P nc 2>/dev/null) 2>/dev/null)"
     export -f __netcat_serv
     __prog_check "$prog"
     __set_vars $1
@@ -1127,7 +1174,7 @@ LONGOPTS+=",bg,screen,editor,filemanager,browser,console"
 LONGOPTS+=",enable-browser,enable-filemanager,enable-editor,enable-all"
 LONGOPTS+=",disable-browser,disable-filemanager,disable-editor,disable-all,allow-root"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-ARRAY="default proxy static caddy go jekyll js php rails ruby python2 python3 netcat"
+ARRAY="default proxy nginx static caddy go jekyll js php rails ruby python2 python3 netcat"
 ARRAY+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""

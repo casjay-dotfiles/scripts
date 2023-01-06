@@ -38,6 +38,8 @@ __curl() { curl -q -LSsf -o /dev/null "$@" &>/dev/null || return 10; }
 __find() { find "$1" -mindepth 1 -type ${2:-f,d} 2>/dev/null | grep '^' || return 10; }
 __pcheck() { [ -n "$(which pgrep 2>/dev/null)" ] && pgrep -x "$1" &>/dev/null || return 10; }
 __pgrep() { __pcheck "${1:-$SERVICE_NAME}" || ps aux 2>/dev/null | grep -Fw " ${1:-$SERVICE_NAME}" | grep -qv ' grep' || return 10; }
+__get_ip6() { ip a 2>/dev/null | grep -w 'inet6' | awk '{print $2}' | grep -vE '^::1|^fe' | sed 's|/.*||g' | head -n1 | grep '^' || echo ''; }
+__get_ip4() { ip a 2>/dev/null | grep -w 'inet' | awk '{print $2}' | grep -vE '^127.0.0' | sed 's|/.*||g' | head -n1 | grep '^' || echo '127.0.0.1'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __certbot() {
   [ -n "$DOMAINNAME" ] && [ -n "$CERT_BOT_MAIL" ] || { echo "The variables DOMAINNAME and CERT_BOT_MAIL are set" && exit 1; }
@@ -51,7 +53,7 @@ __heath_check() {
   start-GEN_SCRIPT_REPLACE_APPNAME.sh healthcheck || status=$((status + 1))
   [ "$status" -eq 0 ] || health="Errors reported see docker logs --follow $CONTAINER_NAME"
   echo "$(uname -s) $(uname -m) is running and the health is: $health"
-  return ${status:-$?}
+  return $status
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __start_all_services() {
@@ -63,9 +65,11 @@ __start_all_services() {
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # export functions
-export -f __exec_command __pcheck __pgrep __find __curl __heath_check __certbot __start_all_services
+export -f __exec_command __pcheck __pgrep __find __curl __heath_check __certbot
+export -f __start_all_services __get_ip4 __get_ip6
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define default variables - do not change these - redefine with -e or set under Additional
+USER="${USER:-root}"
 DISPLAY="${DISPLAY:-}"
 LANG="${LANG:-C.UTF-8}"
 DOMAINNAME="${DOMAINNAME:-}"
@@ -87,7 +91,8 @@ LOCAL_BIN_DIR="${LOCAL_BIN_DIR:-/usr/local/bin}"
 DEFAULT_DATA_DIR="${DEFAULT_DATA_DIR:-/usr/local/share/template-files/data}"
 DEFAULT_CONF_DIR="${DEFAULT_CONF_DIR:-/usr/local/share/template-files/config}"
 DEFAULT_TEMPLATE_DIR="${DEFAULT_TEMPLATE_DIR:-/usr/local/share/template-files/defaults}"
-CONTAINER_IP_ADDRESS="$(ip a 2>/dev/null | grep 'inet' | grep -v '127.0.0.1' | awk '{print $2}' | sed 's|/.*||g')"
+CONTAINER_IP_ADDRESS="$(__get_ip4)"
+CONTAINER_IP6_ADDRESS="$(__get_ip6)"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional variables and variable overrides
 SERVICE_NAME="GEN_SCRIPT_REPLACE_APPNAME"
@@ -104,9 +109,10 @@ echo "Executing entrypoint script for $SERVICE_NAME"
 [ -f "/config/.docker_has_run" ] && CONFIG_DIR_INITIALIZED="true" || CONFIG_DIR_INITIALIZED="false"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # export variables
-export LANG TZ DOMAINNAME HOSTNAME HOSTADMIN SSL_ENABLED SSL_DIR SSL_CA SSL_KEY SERVICE_NAME
-export SSL_DIR LOCAL_BIN_DIR DEFAULT_CONF_DIR CONTAINER_IP_ADDRESS SSL_CONTAINER_DIR
-export SSL_CERT_BOT DISPLAY CONFIG_DIR_INITIALIZED DATA_DIR_INITIALIZED SERVICE_USER
+export USER LANG TZ DOMAINNAME HOSTNAME HOSTADMIN SSL_ENABLED SSL_DIR SSL_CA
+export SSL_KEY SERVICE_NAME SSL_DIR LOCAL_BIN_DIR SSL_CONTAINER_DIR SSL_CERT_BOT
+export DEFAULT_CONF_DIR CONTAINER_IP_ADDRESS DISPLAY CONFIG_DIR_INITIALIZED DATA_DIR_INITIALIZED
+export SERVICE_USER
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # import variables from file
 [ -f "/root/env.sh" ] && . "/root/env.sh"
@@ -114,20 +120,24 @@ export SSL_CERT_BOT DISPLAY CONFIG_DIR_INITIALIZED DATA_DIR_INITIALIZED SERVICE_
 [ -f "/config/.env.sh" ] && . "/config/.env.sh"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set timezone
-[ -n "$TZ" ] && echo "$TZ" >"/etc/timezone"
-[ -f "/usr/share/zoneinfo/$TZ" ] && ln -sf "/usr/share/zoneinfo/$TZ" "/etc/localtime"
+[ -n "$TZ" ] && [ -w "/etc/timezone" ] && echo "$TZ" >"/etc/timezone"
+[ -f "/usr/share/zoneinfo/$TZ" ] && [ -w "/etc/localtime" ] && ln -sf "/usr/share/zoneinfo/$TZ" "/etc/localtime"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set hostname
 if [ -n "$HOSTNAME" ]; then
   echo "$HOSTNAME" >"/etc/hostname"
-  echo "127.0.0.1 $HOSTNAME localhost $HOSTNAME.local" >"/etc/hosts"
+  if [ -w "/etc/hosts" ]; then
+    echo "127.0.0.1 $HOSTNAME localhost $HOSTNAME.local" >"/etc/hosts"
+  fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Add domain to hosts file
 if [ -n "$DOMAINNAME" ]; then
   echo "$HOSTNAME.${DOMAINNAME:-local}" >"/etc/hostname"
-  echo "127.0.0.1 $HOSTNAME localhost $HOSTNAME.local" >"/etc/hosts"
-  echo "${CONTAINER_IP_ADDRESS:-127.0.0.1} $HOSTNAME.$DOMAINNAME" >>"/etc/hosts"
+  if [ -w "/etc/hosts" ]; then
+    echo "127.0.0.1 $HOSTNAME localhost $HOSTNAME.local" >"/etc/hosts"
+    echo "${CONTAINER_IP_ADDRESS:-127.0.0.1} $HOSTNAME.$DOMAINNAME" >>"/etc/hosts"
+  fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Delete any gitkeep files
@@ -264,7 +274,7 @@ case "$1" in
   echo "Usage: $APPNAME [healthcheck, bash, command]"
   echo "Failed command will have exit code 10"
   echo ""
-  exit ${exitCode:-$?}
+  exit 0
   ;;
 
 healthcheck) # Docker healthcheck

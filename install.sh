@@ -190,7 +190,7 @@ run_postinst() {
   grep 'Defaults.*.env_reset' "/etc/sudoers" | grep -q '!' || sudo sed -i 's|env_reset|!env_reset|g' "/etc/sudoers"
   grep 'Defaults.*.secure_path' "/etc/sudoers" && sudo sed -i 's|secure_path =.*|secure_path = "/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin"|g' "/etc/sudoers"
   printf '# update scripts \n5 4 * * * root systemmgr update scripts cron ssl &>/dev/null\n' | sudo tee "/etc/cron.d/systemmgr" &>/dev/null
-  printf '# Fix resolver \n*/5 * * * * root [ -f "/etc/resolv.conf" ] || echo nameserver 1.1.1.1 >/etc/resolv.conf\n' | sudo tee "/etc/cron.d/resolver" &>/dev/null
+  printf '# Fix resolver \n*/5 * * * * root [ -f "/etc/resolv.conf" ] || echo nameserver 1.1.1.1 >/etc/resolv.conf\n' | sudo tee "/etc/update-resolver" &>/dev/null
   printf '%s: %s\n' "$(__os_name)" "$(__os_version)" | sed 's| [lL]inux:||g' | sudo tee "/etc/casjaysdev/updates/versions/osversion.txt" &>/dev/null
   __os_fix_name "/etc/casjaysdev/updates/versions/osversion.txt"
 }

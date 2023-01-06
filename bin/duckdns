@@ -168,7 +168,7 @@ __help() {
   __printf_line "update [domain]                 - Automatically sets ip addresses and updates domain"
   __printf_line "--api [apiKey]                  - Sets the API key"
   __printf_line "--domain [domain]               - Set the domain"
-  __printf_line "--ip [ipAddress]                - Set the ip address"
+  __printf_line "--ip4 [ip4Address]              - Set the ipv4 address"
   __printf_line "--ip6 [ip6Address]              - Set the ipv6 address"
   __printf_line "--txt [textRecord]              - Set the text record"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -260,6 +260,8 @@ __trap_exit() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
+__curl() { curl -q -LSsf "$@" 2>/dev/null || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __duckdns_api() {
   __curl "$DUCKDNS_API_URL/${*}" && return 0 || return 1
 }
@@ -273,27 +275,32 @@ __get_external_ip6() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __var_check() {
-  if [ -n "${1:-$DUCKDNS_DOMAIN}" ]; then
-    export DUCKDNS_DOMAIN="${1:-$DUCKDNS_DOMAIN}"
+  local set_domain="${1:-$DUCKDNS_DOMAIN}"
+  local ip4="$2" ip6="$3"
+  if [ -n "$set_domain" ]; then
+    printf_cyan "Attempting to update $set_domain"
+    [ "$DUCKDNS_IP4" = "yes" ] && DUCKDNS_NOIP4="true" && DUCKDNS_IP4="$(__get_external_ip4)"
+    [ "$DUCKDNS_IP6" = "yes" ] && DUCKDNS_NOIP6="true" && DUCKDNS_IP6="$(__get_external_ip6)"
+    export DUCKDNS_DOMAIN="$set_domain" DUCKDNS_IP4="${DUCKDNS_IP4:-$ip4}" DUCKDNS_IP6="${DUCKDNS_IP6:-$ip6}"
   else
     printf_exit "Please set the domain you want to update"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __duckdns_update() {
-  local domain ip ip6 verbose clear token
-  [ -n "${1:-$DUCKDNS_DOMAIN}" ] && domains="domains=${1:-$DUCKDNS_DOMAIN}"
-  [ -n "${2:-$DUCKDNS_IP}" ] && ip="&ip=${2:-$DUCKDNS_IP}"
-  [ -n "${3:-$DUCKDNS_IP6}" ] && ipv6="&ipv6=${3:-$DUCKDNS_IP6}"
-  [ -z "${ip:-$DUCKDNS_EXTERNAL_IP}" ] && ip="$(__get_external_ip4 || echo "")"
-  [ -z "${ip6:-$DUCKDNS_EXTERNAL_IP6}" ] && ip6="$(__get_external_ip6 || echo "")"
+  local domain="$1" verbose clear token
+  [ -n "${domain:-$DUCKDNS_DOMAIN}" ] && domains="domains=${1:-$DUCKDNS_DOMAIN}"
+  [ -z "$DUCKDNS_IP4" ] && [ "$DUCKDNS_NOIP4" != "true" ] && DUCKDNS_IP4="$(__get_external_ip4 || echo "")"
+  [ -z "$DUCKDNS_IP6" ] && [ "$DUCKDNS_NOIP6" != "true" ] && DUCKDNS_IP6="$(__get_external_ip6 || echo "")"
+  [ -n "$DUCKDNS_IP4" ] && ip4='&ip='${DUCKDNS_IP4}''
+  [ -n "$DUCKDNS_IP6" ] && ip6='&ipv6='${DUCKDNS_IP6}''
   clear="&clear=${DUCKDNS_CLEAR:-false}"
   token="&token=${DUCKDNS_API_KEY:-}"
   if [ -n "$DUCKDNS_TEXT" ]; then
     textrecord="$(__uriencode "$DUCKDNS_TEXT")"
-    resp="$(__duckdns_api "update/?${domains}${token}${ip}${ip6}${clear}&verbose=true&txt=${textrecord}")"
+    resp="$(__duckdns_api "update/?${domains}${token}${ip4}${ip6}${clear}&verbose=true&txt=${textrecord}")"
   else
-    resp="$(__duckdns_api "update/?${domains}${token}${ip}${ip6}${clear}&verbose=true")"
+    resp="$(__duckdns_api "update/?${domains}${token}${ip4}${ip6}${clear}&verbose=true")"
   fi
   changed4="$(echo "$resp" | __ipv4_valid)"
   changed6="$(echo "$resp" | __ipv6_valid)"
@@ -306,7 +313,7 @@ __duckdns_update() {
         printf_green "Successfully updated $DUCKDNS_DOMAIN with txt: ${DUCKDNS_TEXT}"
       fi
       if [ -n "$changed4" ]; then
-        printf_green "Successfully updated $DUCKDNS_DOMAIN with ip: ${changed4}"
+        printf_green "Successfully updated $DUCKDNS_DOMAIN with ip4: ${changed4}"
       fi
       if [ -n "$changed6" ]; then
         printf_green "Successfully updated $DUCKDNS_DOMAIN with ip6: ${changed6}"
@@ -314,8 +321,7 @@ __duckdns_update() {
     fi
     return 0
   else
-    printf_red "Failed to update $1"
-    echo "$resp" | printf_readline 1
+    printf_red "Update of $domain has failed with error: ${CYAN}$resp${NC}"
     return 1
   fi
 }
@@ -434,7 +440,7 @@ SHORTOPTS=""
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LONGOPTS="completions:,config,debug,help,options,raw,version,silent"
-LONGOPTS+=",api:,domain:,ip:,ip6:,txt:"
+LONGOPTS+=",api:,domain:,ip4:,ip6:,txt:"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="update"
 ARRAY+=""
@@ -511,8 +517,8 @@ while :; do
     DUCKDNS_DOMAIN="$2"
     shift 2
     ;;
-  --ip)
-    DUCKDNS_IP="$2"
+  --ip4)
+    DUCKDNS_IP4="$2"
     shift 2
     ;;
   --ip6)

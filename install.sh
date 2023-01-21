@@ -148,28 +148,29 @@ fi
 run_postinst() {
   systemmgr_run_post
   motdDir="/etc/casjaysdev/messages"
+  bannerDir="/etc/casjaysdev/banners"
   verDir="/etc/casjaysdev/updates/versions"
   fontdir="$(ls -A "$CASJAYSDEVSAPPDIR/fontmgr/" | wc -l)"
   git config --global pull.rebase 'true'
   ln_rm "$SHARE/applications/"
   mkdir -p "$motdDir/motd" "$motdDir/issue" "$motdDir/legal"
   mkdir -p "$verDir" "/usr/local/share/CasjaysDev/apps/fontmgr"
-  mkdir -p "/root/.local/backups/systemmgr/ssh" "/etc/casjaysdev/banners"
+  mkdir -p "/root/.local/backups/systemmgr/ssh" "$bannerDir"
   [ "$fontdir" = "0" ] && sudo fontmgr install Hack all-the-icons fontawesome LigatureSymbols
   for app in $(ls "$CASJAYSDEVDIR/applications"); do
     ln_sf "$CASJAYSDEVDIR/applications/$app" "$SYSSHARE/applications/$app"
   done
-  if [ -f "$INSTDIR/templates/casjaysdev-legal.txt" ] && [ ! -f "/etc/casjaysdev/messages/legal/000.txt" ]; then
-    cp_rf "$INSTDIR/templates/casjaysdev-legal.txt" "/etc/casjaysdev/messages/legal/000.txt"
+  if [ -f "$INSTDIR/templates/casjaysdev-legal.txt" ] && [ ! -f "$motdDir/legal/000.txt" ]; then
+    cp_rf "$INSTDIR/templates/casjaysdev-legal.txt" "$motdDir/legal/000.txt"
   fi
   [ -f "$verDir/configs.txt" ] || date +"${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}" | sudo tee "$verDir/configs.txt" &>/dev/null
   [ -f "$verDir/date.configs.txt" ] || date +"%b %d, %Y at %H:%M" | sudo tee "$verDir/date.configs.txt" &>/dev/null
-  [ -f "/etc/casjaysdev/banners/ssh.txt" ] || touch "/etc/casjaysdev/banners/ssh.txt"
-  [ -f "/etc/casjaysdev/banners/rsync.txt" ] || touch "/etc/casjaysdev/banners/rsync.txt"
+  [ -f "$bannerDir/ssh.txt" ] || touch "$bannerDir/ssh.txt"
+  [ -f "$bannerDir/rsync.txt" ] || touch "$bannerDir/rsync.txt"
   cp_rf "$INSTDIR/version.txt" "$verDir/scripts.txt"
-  replace "/etc/casjaysdev/messages/" "MYHOSTIP" "$CURRENT_IP_4"
-  replace "/etc/casjaysdev/messages/" "MYHOSTNAME" "$(hostname -s)"
-  replace "/etc/casjaysdev/messages/" "MYFULLHOSTNAME" "$(hostname -f)"
+  replace "$motdDir/" "MYHOSTIP" "$CURRENT_IP_4"
+  replace "$motdDir/" "MYHOSTNAME" "$(hostname -s)"
+  replace "$motdDir/" "MYFULLHOSTNAME" "$(hostname -f)"
   date +"%b %d, %Y at %H:%M" | sudo tee "$verDir/date.scripts.txt" &>/dev/null
   ln_sf "$APPDIR" "$SYSSHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME"
   ln_sf "$APPDIR" "$SYSSHARE/CasjaysDev/$SCRIPTS_PREFIX/installer"
@@ -180,19 +181,19 @@ run_postinst() {
   for file in multi_clipboard se sentaku tdrop; do
     [ -f "/usr/local/bin/$file" ] || ln_sf "$APPDIR/sources/$file" "/usr/local/bin/$file"
   done
-  cmd_exists --config &>/dev/null
-  cmd_exists update-ip && update-ip &>/dev/null
-  cmd_exists update-motd && update-motd &>/dev/null
   for mgr in devenvmgr dfmgr dockermgr fontmgr iconmgr passmgr pkmgr systemmgr thememgr wallpapermgr; do
     eval "$mgr" --config &>/dev/null
   done
+  cmd_exists --config &>/dev/null
+  cmd_exists update-ip && update-ip &>/dev/null
+  cmd_exists update-motd && update-motd &>/dev/null
   grep 'Defaults.*.env_reset' "/etc/sudoers" | grep -q '!' || sudo sed -i 's|env_reset|!env_reset|g' "/etc/sudoers"
   grep 'Defaults.*.secure_path' "/etc/sudoers" && sudo sed -i 's|secure_path =.*|secure_path = "/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin"|g' "/etc/sudoers"
   echo 'for f in '$CASJAYSDEVDIR/completions/*'; do source "$f" >/dev/null 2>&1; done' >"$COMPDIR/_my_scripts_completions"
   printf '# update scripts \n5 4 * * * root systemmgr update scripts cron ssl >/var/log/systemmgr\n' | sudo tee "/etc/cron.d/systemmgr" &>/dev/null
   printf '# Fix resolver \n*/5 * * * * root [ -f "/etc/resolv.conf" ] || echo nameserver 1.1.1.1 >/etc/resolv.conf\n' | sudo tee "/etc/cron.d/update-resolver" &>/dev/null
-  printf '%s: %s\n' "$(__os_name)" "$(__os_version)" | sed 's| [lL]inux:||g' | sudo tee "/etc/casjaysdev/updates/versions/osversion.txt" &>/dev/null
-  __os_fix_name "/etc/casjaysdev/updates/versions/osversion.txt"
+  printf '%s: %s\n' "$(__os_name)" "$(__os_version)" | sed 's| [lL]inux:||g' | sudo tee "$verDir/osversion.txt" &>/dev/null
+  __os_fix_name "$verDir/osversion.txt"
 }
 #
 execute "run_postinst" "Running post install scripts"

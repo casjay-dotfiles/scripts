@@ -190,9 +190,9 @@ run_postinst() {
   grep 'Defaults.*.env_reset' "/etc/sudoers" | grep -q '!' || sudo sed -i 's|env_reset|!env_reset|g' "/etc/sudoers"
   grep 'Defaults.*.secure_path' "/etc/sudoers" && sudo sed -i 's|secure_path =.*|secure_path = "/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin"|g' "/etc/sudoers"
   echo 'for f in '$CASJAYSDEVDIR/completions/*'; do source "$f" >/dev/null 2>&1; done' >"$COMPDIR/_my_scripts_completions"
+  printf '%s: %s\n' "$(__os_name)" "$(__os_version)" | sed 's| [lL]inux:||g' | sudo tee "$verDir/osversion.txt" &>/dev/null
   printf '# update scripts \n5 4 * * * root systemmgr update scripts cron ssl >/var/log/systemmgr\n' | sudo tee "/etc/cron.d/systemmgr" &>/dev/null
   printf '# Fix resolver \n*/5 * * * * root [ -f "/etc/resolv.conf" ] || echo nameserver 1.1.1.1 >/etc/resolv.conf\n' | sudo tee "/etc/cron.d/update-resolver" &>/dev/null
-  printf '%s: %s\n' "$(__os_name)" "$(__os_version)" | sed 's| [lL]inux:||g' | sudo tee "$verDir/osversion.txt" &>/dev/null
   __os_fix_name "$verDir/osversion.txt"
 }
 #

@@ -109,5 +109,6 @@ __help() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run functions
+__getlipaddr
 __getpythonver
 ###################### end application functions ######################

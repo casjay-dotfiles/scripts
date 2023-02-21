@@ -351,6 +351,7 @@ answer_is_yes() { [[ "$REPLY" =~ ^[Yy]$ ]] && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __curl() {
   __am_i_online && curl -q -LSs --connect-timeout 3 --retry 0 "$@"
+  return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __start() {
@@ -1044,30 +1045,28 @@ git_repo_urls() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 git_clone() {
-  if __am_i_online; then
-    local repo="$1"
-    local myappdir="${2:-$INSTDIR}"
-    if [ ! -d "$myappdir/.git" ]; then
-      rm_rf "$myappdir"
-    fi
-    devnull git clone -q --recursive "$repo" "$myappdir"
+  __am_i_online || return 1
+  local repo="$1"
+  local myappdir="${2:-$INSTDIR}"
+  if [ ! -d "$myappdir/.git" ]; then
+    rm_rf "$myappdir"
   fi
+  devnull git clone -q --recursive "$repo" "$myappdir"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 git_update() {
+  __am_i_online || return 1
   local myappdir="${1:-$INSTDIR}"
   local exitCode="0"
-  if __am_i_online; then
-    local repo="$([ -d "$myappdir/.git" ] && git -C "$myappdir" remote -v | grep fetch | head -n 1 | awk '{print $2}' || echo "$myappdir")"
-    devnull git -C "$myappdir" reset --hard
-    devnull git -C "$myappdir" pull --recurse-submodules
-    devnull git -C "$myappdir" submodule update --init --recursive
-    devnull git -C "$myappdir" reset --hard -q
-    devnull git -C "$myappdir" pull --recurse-submodules && exitCode=0 || exitCode=1
-    if [ "$exitCode" -ne 0 ] && [ -n "$repo" ] && [ ! -d "$myappdir/.git" ]; then
-      rm_rf "$myappdir"
-      git_clone "$repo" "$myappdir"
-    fi
+  local repo="$([ -d "$myappdir/.git" ] && git -C "$myappdir" remote -v | grep fetch | head -n 1 | awk '{print $2}' || echo "$myappdir")"
+  devnull git -C "$myappdir" reset --hard
+  devnull git -C "$myappdir" pull --recurse-submodules
+  devnull git -C "$myappdir" submodule update --init --recursive
+  devnull git -C "$myappdir" reset --hard -q
+  devnull git -C "$myappdir" pull --recurse-submodules && exitCode=0 || exitCode=1
+  if [ "$exitCode" -ne 0 ] && [ -n "$repo" ] && [ ! -d "$myappdir/.git" ]; then
+    rm_rf "$myappdir"
+    git_clone "$repo" "$myappdir"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

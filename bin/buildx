@@ -130,7 +130,7 @@ BUILDX_DOCKER_CMD="${BUILDX_DOCKER_CMD:-}"
 BUILDX_BUILDER_NAME="${BUILDX_BUILDER_NAME:-}"
 BUILDX_DEFAULT_REPO="${BUILDX_DEFAULT_REPO:-}"
 BUILDX_DEFAULT_HUB="${BUILDX_DEFAULT_HUB:-}"
-BUILDX_DEFAULT_TAG="${BUILDX_DEFAULT_TAG:-}"
+BUILDX_DEFAULT_VERSION="${BUILDX_DEFAULT_VERSION:-}"
 BUILDX_REMOVE_BUILD="${BUILDX_REMOVE_BUILD:-}"
 BUILDX_GIT_REPO_USER="${BUILDX_GIT_REPO_USER:-}"
 BUILDX_GIT_REPO_PROVIDER="${BUILDX_GIT_REPO_PROVIDER:-}"
@@ -439,13 +439,13 @@ __tag_versions() {
   local add_new_host="" add_image_name="" add_full_host=""
   add_image_name="${image_name//:*/}"
   add_full_host="${1:-$host/$namespace/$add_image_name}"
-  if [ -n "$BUILDX_VERSION_TAG" ]; then
+  if [ "$BUILDX_ADD_TAG" = "true" ]; then
     for tag in $BUILDX_VERSION_TAG; do
       add_new_host+="-t $add_full_host:$tag "
     done
     export ADD_HOST="$add_new_host"
   else
-    add_new_host+="-t $add_full_host:latest "
+    add_new_host+="-t $add_full_host:$tag_version "
     export image_name="$add_new_host"
   fi
 }
@@ -479,8 +479,10 @@ __run_docker_build() {
   local platforms="${BUILDX_DOCKER_PLATFORMS// /,}"
   local image_name="${tagged_name//$BUILDX_DEFAULT_REPO\//}"
   if [ -n "$BUILDX_ADD_REGISTRY" ]; then
-    [ "$BUILDX_ADD_REPO" = "" ] && namespace="library"
-    [ "$BUILDX_ADD_REPO" = "_" ] && namespace="library"
+    if [ "$BUILDX_ENABLE_REGISTRY" = "true" ]; then
+      [ "$BUILDX_ADD_REPO" = "" ] && namespace="library"
+      [ "$BUILDX_ADD_REPO" = "_" ] && namespace="library"
+    fi
     for host in $BUILDX_ADD_REGISTRY; do
       if [ -n "$BUILDX_ADD_REPO" ]; then
         if echo "$image_name" | grep -q ":"; then
@@ -575,6 +577,7 @@ __execute_buildx() {
   [ $# -ne 0 ] || __usage
   buildxexitCode=0
   notify_message=""
+  tag_version="${BUILDX_DEFAULT_VERSION:-latest}"
   if [ -f "$1" ]; then
     Dockerfile="$1"
     REALPATH="$(dirname "$(realpath "$Dockerfile")")"
@@ -595,16 +598,16 @@ __execute_buildx() {
     REALPATH="$(dirname "$(realpath "$Dockerfile")")"
     dirname="$(basename "$(dirname "$(realpath "$Dockerfile")")")"
   fi
-  if [ -n "$REALPATH" ] && [ -f "$Dockerfile" ]; then
+  if [ -n "$REALPATH" ] && [ -f "$REALPATH/Dockerfile" ]; then
     builtin cd "$REALPATH" || exit 15
   else
     printf_exit "Well something went wrong while looking for Dockerfile"
   fi
   if [ $# -eq 1 ]; then
-    name="${1:-$dirname}:${BUILDX_VERSION_TAG:-latest}"
+    name="${1:-$dirname}:${tag_version}"
     shift 1
   elif [ $# -eq 2 ]; then
-    name="${1:-$dirname}:${2:-latest}"
+    name="${1:-$dirname}:${2:-$tag_version}"
     shift 2
   else
     REALPATH="$(dirname "$(realpath "$PWD/Dockerfile")")"
@@ -613,7 +616,7 @@ __execute_buildx() {
   name="$(echo "$name" | tr '[:upper:]' '[:lower:]')"
   dirname="$(echo "$dirname" | tr '[:upper:]' '[:lower:]')"
   if [ ! -f "$Dockerfile" ] || [ -z "$(ls -A "$Dockerfile" 2>/dev/null)" ]; then
-    printf_exit "Can not find a Dockerfile in $REALPATH/Dockerfile"
+    printf_exit "Can not find a $Dockerfile in $REALPATH"
   fi
   if [ "$BUILDX_DEFAULT_HUB" = "docker.io" ]; then
     tagged_name="$BUILDX_DEFAULT_REPO/$name"
@@ -625,7 +628,7 @@ __execute_buildx() {
     git -C "$REALPATH" pull -q &>/dev/null
   fi
   if [ -n "$Dockerfile" ]; then
-    printf_cyan "Using $Dockerfile to build $tagged_name"
+    printf_cyan "Using $Dockerfile to build $tagged_name:$tag_version"
   else
     printf_cyan "Building $tagged_name"
   fi
@@ -634,7 +637,7 @@ __execute_buildx() {
   fi
   logfolder="$(dirname "$tagged_name" | sed 's|.*://||g')"
   logfile="$BUILDX_LOG_DIR/$(echo "$tagged_name" | awk -F':' '{print $1}').log"
-  push_tag="$tagged_name:${BUILDX_DEFAULT_TAG:-latest}"
+  push_tag="$tagged_name:$tag_version"
   set_tag="${push_tag//$BUILDX_DEFAULT_HUB\//}"
   pretty_name="${set_tag/:*/}"
   [ -d "$BUILDX_LOG_DIR/$logfolder" ] || mkdir -p "$BUILDX_LOG_DIR/$logfolder"
@@ -710,7 +713,7 @@ __api_clone() {
 BUILDX_FORCE="${BUILDX_FORCE:-}"
 BUILDX_DEFAULT_REPO="${BUILDX_DEFAULT_REPO:-casjaysdevdocker}"
 BUILDX_DEFAULT_HUB="${BUILDX_DEFAULT_HUB:-docker.io}"
-BUILDX_DEFAULT_TAG="${BUILDX_DEFAULT_TAG:-latest}"
+BUILDX_DEFAULT_VERSION="${BUILDX_DEFAULT_VERSION:-latest}"
 BUILDX_REMOVE_BUILD="${BUILDX_REMOVE_BUILD:-}"
 BUILDX_BUILDER_NAME="${BUILDX_BUILDER_NAME:-mybuilder}"
 BUILDX_GIT_REPO_USER="${BUILDX_GIT_REPO_USER:-casjaysdevdocker}"
@@ -748,6 +751,7 @@ BUILDX_CLEANUP="true"
 BUILDX_IS_RUNNING=""
 BUILDX_ADD_REGISTRY=""
 BUILDX_SET_PLATFORM=""
+BUILDX_ENABLE_REGISTRY="false"
 BUILDX_DOCKER_CMD="${BUILDX_DOCKER_CMD:-sudo -HE docker}"
 BUILDX_DOCKER_PLATFORMS="${BUILDX_DOCKER_PLATFORMS:-linux/amd64,linux/arm64}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -801,7 +805,7 @@ SHORTOPTS=""
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
-LONGOPTS+=",force,cleanup,registry:,repo:,no-registry,no-repo,platform:,tag:"
+LONGOPTS+=",force,cleanup,registry:,repo:,no-registry,no-repo,platform:,tag:,add-tag:"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="init status version api "
 ARRAY+=""
@@ -885,6 +889,7 @@ while :; do
     BUILDX_CLEANUP="true"
     ;;
   --registry)
+    BUILDX_ENABLE_REGISTRY="true"
     BUILDX_ADD_REGISTRY+="$2"
     shift 2
     ;;
@@ -908,8 +913,13 @@ while :; do
     BUILDX_SET_PLATFORM=""
     shift 2
     ;;
-  --tag)
+  --add-tag)
+    BUILDX_ADD_TAG="true"
     BUILDX_VERSION_TAG="$2"
+    shift 2
+    ;;
+  --tag)
+    BUILDX_DEFAULT_TAG="$2"
     shift 2
     ;;
   --)

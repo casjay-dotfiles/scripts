@@ -31,8 +31,10 @@ __pgrep() { __pcheck "$1" || ps aux 2>/dev/null | grep -Fw " $1" | grep -qv ' gr
 __certbot() {
   [ -n "$DOMAINNAME" ] && [ -n "$CERT_BOT_MAIL" ] || { echo "The variables DOMAINNAME and CERT_BOT_MAIL are set" && exit 1; }
   [ "$SSL_CERT_BOT" = "true" ] && type -P certbot &>/dev/null || { export SSL_CERT_BOT="" && return 10; }
-  certbot $1 --agree-tos -m $CERT_BOT_MAIL certonly --webroot -w "${WWW_ROOT_DIR:-/data/htdocs/www}" -d $DOMAINNAME -d $DOMAINNAME \
+  certbot $1 --agree-tos -m $CERT_BOT_MAIL certonly --webroot \
+    -w "${WWW_ROOT_DIR:-/data/htdocs/www}" -d $DOMAINNAME -d $DOMAINNAME \
     --put-all-related-files-into "$SSL_DIR" -key-path "$SSL_KEY" -fullchain-path "$SSL_CERT"
+  return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __heath_check() {
@@ -40,25 +42,21 @@ __heath_check() {
   #__pgrep ${1:-$SERVICE_NAME} &>/dev/null || healthStatus=$((healthStatus + 1))
   #__curl "http://localhost:$SERVICE_PORT/server-health" || healthStatus=$((healthStatus + 1))
   [ "$healthStatus" -eq 0 ] || health="Errors reported see docker logs --follow $CONTAINER_NAME"
-  return ${healthStatus:-$?}
+  return $healthStatus
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __exec_command() {
   local exitCode=0
   local cmd="${*:-bash -l}"
   echo "Executing: $cmd"
-  $cmd || exitCode=1
+  eval $cmd || exitCode=1
   [ "$exitCode" = 0 ] || exitCode=10
-  return ${exitCode:-$?}
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__exec_pre_start() {
-  true
+  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __exec_service_start() {
-  set -x
-  local exitCode=0 cmd="$*"
+  [ -n "$DEBUG" ] && set -x
+  local exitCode=0 cmd="${SERVICE_COMMAND:-false}"
   echo "Setting up service to run as $SERVICE_USER"
   echo "Executing: $cmd "
   if [ "$SERVICE_USER" = "root" ]; then
@@ -73,10 +71,9 @@ __exec_service_start() {
     echo "Can not switch to $SERVICE_USER"
     exit 10
   fi
-  su_cmd "$cmd" || exitCode=1
-  su_cmd "touch /tmp/$SERVICE_NAME.pid"
+  su_cmd "$cmd" && su_cmd "touch /tmp/$SERVICE_NAME.pid" || exitCode=1
   [ "$exitCode" -ne 0 ] && exitCode=10 && rm -Rf "/tmp/$SERVICE_NAME.pid"
-  return ${exitCode:-$?}
+  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __start_message() {
@@ -86,6 +83,11 @@ __start_message() {
   else
     echo "Starting $SERVICE_NAME on: $CONTAINER_IP_ADDRESS:$SERVICE_PORT"
   fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__exec_pre_start() {
+  __start_message
+
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_backup() {
@@ -209,9 +211,7 @@ certbot)
   ;;
 
 *)
-  __start_message
-  __exec_pre_start
-  __exec_service_start "$SERVICE_COMMAND" || rm -Rf "/tmp/$SERVICE_NAME.pid"
+  __exec_pre_start && __exec_service_start
   ;;
 esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

@@ -125,7 +125,8 @@ LOCAL_DATA_DIR="${LOCAL_DATA_DIR:-$HOST_DATA_DIR}"
 LOCAL_CONFIG_DIR="${LOCAL_CONFIG_DIR:-$HOST_CONFIG_DIR}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set container timezone - Default America/New_York
-TZ="${TZ:-TIMEZONE}"
+TZ="${TZ:-$TIMEZONE}"
+TIMEZONE="${TZ:-$TIMEZONE}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Get username and password from env if variables exist
 GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME="${GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME:-$DEFAULT_USERNAME}"
@@ -185,11 +186,11 @@ CONTAINER_HTTP_PROTO="http"
 # Set the network type - bridge,host - default is bridge
 HOST_NETWORK_TYPE="bridge"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set location to resolv.conf [yes,no]
+# Set location to resolv.conf [yes/no]
 HOST_RESOLVE_MOUNT="no"
 HOST_RESOLVE_FILE="/etc/resolv.conf"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Enable privileged container
+# Enable privileged container [ yes/no ]
 CONTAINER_IS_PRIVILEGED="yes"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the SHM Size - default is 64M
@@ -198,10 +199,10 @@ CONTAINER_SHM_SIZE="128M"
 # Restart container [always,no,on-failure,unless-stopped]
 CONTAINER_AUTO_RESTART="always"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Delete container after exit [yes,no]
+# Delete container after exit [yes/no]
 CONTAINER_AUTO_DELETE="no"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Enable tty and interactive [yes,no]
+# Enable tty and interactive [yes/no]
 CONTAINER_TTY="yes"
 CONTAINER_INTERACTIVE="no"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -211,12 +212,12 @@ HOST_X11_SOCKET="/tmp/.X11-unix"
 HOST_X11_XAUTH="$HOME/.Xauthority"
 CONTAINER_X11_XAUTH="/home/x11user/.Xauthority"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set container user and group ID [true,false]
-SET_USER_ID=""
+# Set container user and group ID [yes/no]
+SET_USER_ID="no"
 CONTAINER_USER_ID=""
 CONTAINER_GROUP_ID=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set container username and password and the env name [-e CONTAINER_ENV_USER_NAME=CONTAINER_USER_NAME] - [-e password=pass]
+# Set container username and password and the env name [ CONTAINER_ENV_USER_NAME=CONTAINER_USER_NAME] - [ password=pass]
 CONTAINER_USER_NAME="${GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME:-}"
 CONTAINER_USER_PASS="${GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD:-}"
 CONTAINER_ENV_USER_NAME=""
@@ -230,8 +231,8 @@ DOCKER_SOCKET_MOUNT="/var/run/docker.sock"
 CONTAINER_COMMANDS=""
 CONTAINER_COMMANDS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set capabilites
-ADD_CAPABILITIES="SYS_ADMIN "
+# Set capabilites [ CAP,OTHERCAP ]
+ADD_CAPABILITIES="SYS_ADMIN,SYS_TIME "
 ADD_CAPABILITIES+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set sysctl
@@ -241,23 +242,27 @@ ADD_SYSCTL+=""
 # Set link [ containerName ]
 CONTAINER_LINK=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Define additional mounts [ /dir:/dir ]
-ADDITIONAL_MOUNTS="$LOCAL_CONFIG_DIR:/config:z $LOCAL_DATA_DIR:/data:z "
+# Define additional mounts [ /dir:/dir,/otherdir:/otherdir ]
+ADDITIONAL_MOUNTS="$LOCAL_CONFIG_DIR:/config:z,$LOCAL_DATA_DIR:/data:z "
 ADDITIONAL_MOUNTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Define additional variables [ myvar=var ]
+# Define additional variables [ myvar=var,myothervar=othervar ]
 ADDITION_ENV=""
 ADDITION_ENV+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Define additional devices [ /dev:/dev ]
+# Define additional devices [ /dev:/dev,/otherdev:/otherdev ]
 ADDITION_DEVICES=""
 ADDITION_DEVICES+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Define labels [ traefik.enable=true ]
+# Enable cgroups [yes/no]
+CGROUP_ENABLED="no"
+CGROUP_MOUNTS="/sys/fs/cgroup:/sys/fs/cgroup:ro"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Define labels [ traefik.enable=true ] [ label=label,otherlabel=label2 ]
 ADDITION_LABELS=""
 ADDITION_LABELS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Define additional docker arguments - see docker run --help
+# Define additional docker arguments - see docker run --help [ arg1,arg2 ]
 CUSTOM_ARGUMENTS=""
 CUSTOM_ARGUMENTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -327,6 +332,7 @@ echo "$CONTAINER_HOSTNAME" | grep -Fq '.' || CONTAINER_HOSTNAME="$APPNAME.$SERVE
 # Configure variables
 [ "$HOST_LOCAL_ONLY" = "yes" ] && CONTAINER_PRIVATE="yes"
 [ "$CONTAINER_HTTPS_PORT" = "" ] || CONTAINER_HTTP_PROTO="https"
+[ "$CGROUP_ENABLED" = "yes" ] && ADDITIONAL_MOUNTS="$CGROUP_MOUNTS "
 [ "$DOCKER_SOCKET_ENABLED" = "yes" ] && ADDITIONAL_MOUNTS+="$DOCKER_SOCKET_MOUNT:/var/run/docker.sock "
 [ "$HOST_LOCAL_ONLY" = "yes" ] && DEFINE_LISTEN="127.0.0.1" && HOST_LISTEN_ADDR="127.0.0.1" || HOST_LOCAL_ONLY=""
 [ "$HOST_RESOLVE_MOUNT" = "yes" ] && ADDITIONAL_MOUNTS+="$HOST_RESOLVE_MOUNT:/etc/resolv.conf " || HOST_RESOLVE_MOUNT=""
@@ -335,10 +341,11 @@ echo "$CONTAINER_HOSTNAME" | grep -Fq '.' || CONTAINER_HOSTNAME="$APPNAME.$SERVE
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # rewrite variables
 [ -n "$HUB_IMAGE_TAG" ] || HUB_IMAGE_TAG="latest"
-[ -n "$CONTAINER_COMMANDS" ] || CONTAINER_COMMANDS=""
 [ -n "$HOST_TIMEZONE" ] || HOST_TIMEZONE="America/New_York"
 [ -n "$HOST_WEB_PORT" ] && HOST_PORT="${HOST_WEB_PORT:-}"
+[ -n "$CUSTOM_ARGUMENTS" ] && CUSTOM_ARGUMENTS="${CUSTOM_ARGUMENTS//,/ }"
 [ -n "$DEFINE_LISTEN" ] && DEFINE_LISTEN="${DEFINE_LISTEN//:*/}" || DEFINE_LISTEN=""
+[ -n "$CONTAINER_COMMANDS" ] && CONTAINER_COMMANDS="${CONTAINER_COMMANDS//,/ }" || CONTAINER_COMMANDS=""
 [ -z "$CONTAINER_USER_PASS" ] || ADDITION_ENV+="${CONTAINER_ENV_PASS_NAME:-password}=$CONTAINER_USER_PASS "
 [ -z "$CONTAINER_USER_NAME" ] || ADDITION_ENV+="${CONTAINER_ENV_USER_NAME:-username}=$CONTAINER_USER_NAME "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -358,7 +365,7 @@ NGINX_PROXY_PORT="$PRETTY_PORT"
 [ "$CONTAINER_AUTO_DELETE" = "yes" ] && DOCKER_OPTS+="--rm " && CONTAINER_AUTO_RESTART="" || CONTAINER_AUTO_DELETE=""
 [ -n "$CONTAINER_AUTO_RESTART" ] && DOCKER_OPTS+="--restart=$CONTAINER_AUTO_RESTART " || DOCKER_OPTS+="--restart=unless-stopped "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ "$SET_USER_ID" = "true" ]; then
+if [ "$SET_USER_ID" = "yes" ]; then
   [ -n "$CONTAINER_USER_ID" ] && ADDITION_ENV+="PUID=$CONTAINER_USER_ID " || ADDITION_ENV+="PUID=$(id -u) "
   [ -n "$CONTAINER_GROUP_ID" ] && ADDITION_ENV+="PGID=$CONTAINER_GROUP_ID " || ADDITION_ENV+="PGID=$(id -g) "
 fi
@@ -388,6 +395,7 @@ if [ "$NGINX_AUTH" = "yes" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_LINK=""
+CONTAINER_LINK="${CONTAINER_LINK//, /}"
 for link in $CONTAINER_LINK; do
   [ "$link" = " " ] && link=""
   if [ -n "$link" ]; then
@@ -396,6 +404,7 @@ for link in $CONTAINER_LINK; do
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_LABELS=""
+ADDITION_LABELS="${ADDITION_LABELS//, /}"
 for label in $ADDITION_LABELS; do
   [ "$label" = " " ] && label=""
   if [ -n "$label" ]; then
@@ -404,6 +413,7 @@ for label in $ADDITION_LABELS; do
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_CAP=""
+ADD_CAPABILITIES="${ADD_CAPABILITIES//, /}"
 for cap in $ADD_CAPABILITIES; do
   [ "$cap" = " " ] && cap=""
   if [ -n "$cap" ]; then
@@ -412,6 +422,7 @@ for cap in $ADD_CAPABILITIES; do
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_SYSCTL=""
+ADD_SYSCTL="${ADD_SYSCTL//, /}"
 for sysctl in $ADD_SYSCTL; do
   [ "$sysctl" = " " ] && sysctl=""
   if [ -n "$sysctl" ]; then
@@ -420,6 +431,8 @@ for sysctl in $ADD_SYSCTL; do
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_ENV=""
+ENV_VAR="${ENV_VAR//, /}"
+ADDITION_ENV="${ADDITION_ENV//, /}"
 if [ -n "$ENV_VAR" ]; then
   for env in $ENV_VAR; do
     SET_ENV+="--env $env "
@@ -433,6 +446,7 @@ for env in $ADDITION_ENV; do
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_DEV=""
+ADDITION_DEVICES="${ADDITION_DEVICES//, /}"
 for dev in $ADDITION_DEVICES; do
   [ "$dev" = " " ] && dev=""
   if [ -n "$dev" ]; then
@@ -442,6 +456,7 @@ for dev in $ADDITION_DEVICES; do
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_MNT=""
+ADDITIONAL_MOUNTS="${ADDITIONAL_MOUNTS//, /}"
 for mnt in $ADDITIONAL_MOUNTS; do
   [ "$mnt" = "" ] && mnt=""
   [ "$mnt" = " " ] && mnt=""
@@ -452,6 +467,7 @@ for mnt in $ADDITIONAL_MOUNTS; do
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_PORT=""
+PORT_VAR="${PORT_VAR//,/ }"
 SET_LISTEN="${DEFINE_LISTEN//:*/}"
 if [ -n "$PORT_VAR" ]; then
   for port in $PORT_VAR; do
@@ -462,7 +478,9 @@ if [ -n "$PORT_VAR" ]; then
   done
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-for port in $CONTAINER_HTTP_PORT $CONTAINER_SERVICE_PORT $CONTAINER_HTTPS_PORT $CONTAINER_ADD_CUSTOM_PORT; do
+SET_SERVER_PORTS="$CONTAINER_HTTP_PORT $CONTAINER_SERVICE_PORT $CONTAINER_HTTPS_PORT $CONTAINER_ADD_CUSTOM_PORT"
+SET_SERVER_PORTS="${SET_SERVER_PORTS//,/ }"
+for port in $SET_SERVER_PORTS; do
   if [ "$port" != " " ] && [ -n "$port" ]; then
     echo "$port" | grep -q ':' || port="${port//\/*/}:$port"
     if [ "$CONTAINER_PRIVATE" = "yes" ] && [ "$port" = "${IS_PRIVATE//\/*/}" ]; then
@@ -476,6 +494,7 @@ for port in $CONTAINER_HTTP_PORT $CONTAINER_SERVICE_PORT $CONTAINER_HTTPS_PORT $
   fi
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+CONTAINER_ADD_CUSTOM_LISTEN="${CONTAINER_ADD_CUSTOM_LISTEN//, /}"
 if [ -n "$CONTAINER_ADD_CUSTOM_LISTEN" ]; then
   for list in $CONTAINER_ADD_CUSTOM_LISTEN; do
     echo "$list" | grep -q ':' || list="${list//\/*/}:$list"

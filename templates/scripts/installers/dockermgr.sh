@@ -98,6 +98,8 @@ while :; do
   case "$1" in
   -e | --env) ENV_VAR="$2 $ENV_VAR" && shift 2 ;;
   -p | --port) PORT_VAR="$2 $PORT_VAR" && shift 2 ;;
+  -h | --host) CONTAINER_HOSTNAME="$2" && shift 2 ;;
+  -d | --domain) CONTAINER_DOMAINNAME="$2" && shift 2 ;;
   *) break ;;
   esac
 done
@@ -123,15 +125,15 @@ LOCAL_DATA_DIR="${LOCAL_DATA_DIR:-$HOST_DATA_DIR}"
 LOCAL_CONFIG_DIR="${LOCAL_CONFIG_DIR:-$HOST_CONFIG_DIR}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set container timezone - Default America/New_York
-TZ=""
+TZ="${TZ:-TIMEZONE}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Get username and password from env if variables exist
 GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME="${GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME:-$DEFAULT_USERNAME}"
 GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD="${GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD:-$DEFAULT_PASSWORD}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set container hostname and domain - Default GEN_SCRIPT_REPLACE_APPNAME
-CONTAINER_HOSTNAME="$APPNAME"
-CONTAINER_DOMAINNAME="$HOSTNAME"
+CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME}"
+CONTAINER_DOMAINNAME="${CONTAINER_DOMAINNAME:-$HOSTNAME}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # URL to container image [docker pull URL]
 HUB_IMAGE_URL="casjaysdevdocker/GEN_SCRIPT_REPLACE_APPNAME"

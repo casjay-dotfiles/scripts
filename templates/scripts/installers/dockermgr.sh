@@ -555,6 +555,7 @@ else
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main progam
+EXECUTE_PRE_INSTALL="docker stop $APPNAME;docker rm -f $APPNAME"
 EXECUTE_DOCKER_CMD="docker run -d --name=$APPNAME $SET_LABELS $SET_LINK --shm-size=$CONTAINER_SHM_SIZE $DOCKER_OPTS $SET_CAP $SET_SYSCTL --hostname $CONTAINER_HOSTNAME --env TZ=$HOST_TIMEZONE --env TIMEZONE=$HOST_TIMEZONE $SET_ENV $SET_DEV $SET_MNT $SET_PORT $CUSTOM_ARGUMENTS $HOST_NETWORK_TYPE $HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS"
 EXECUTE_DOCKER_CMD="${EXECUTE_DOCKER_CMD//  / }"
 if cmd_exists docker-compose && [ -f "$INSTDIR/docker-compose.yml" ]; then
@@ -572,13 +573,12 @@ else
   EXECUTE_DOCKER_SCRIPT="$EXECUTE_DOCKER_CMD"
 fi
 if [ -n "$EXECUTE_DOCKER_SCRIPT" ]; then
-  __sudo docker stop "$APPNAME" &>/dev/null
-  __sudo docker rm -f "$APPNAME" &>/dev/null
+  __sudo "$EXECUTE_PRE_INSTALL" &>/dev/null
   printf_cyan "Updating the image from $HUB_IMAGE_URL with tag $HUB_IMAGE_TAG"
   __sudo docker pull "$HUB_IMAGE_URL" &>/dev/null
   printf_cyan "Creating container $APPNAME"
   if [ "$EXECUTE_DOCKER_ENABLE" = "yes" ]; then
-    printf '#!/usr/bin/env bash\n\n%s\n\n' "$EXECUTE_DOCKER_CMD" >"$DOCKERMGR_CONFIG_DIR/scripts/$APPNAME"
+    printf '#!/usr/bin/env bash\n\n%s\n%s\n\n' "$EXECUTE_PRE_INSTALL" "$EXECUTE_DOCKER_CMD" >"$DOCKERMGR_CONFIG_DIR/scripts/$APPNAME"
     [ -f "$DOCKERMGR_CONFIG_DIR/scripts/$APPNAME" ] && chmod -Rf 755 "$DOCKERMGR_CONFIG_DIR/scripts/$APPNAME"
   fi
   if __sudo "$EXECUTE_DOCKER_SCRIPT" 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log"; then

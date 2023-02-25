@@ -566,20 +566,26 @@ if cmd_exists docker-compose && [ -f "$INSTDIR/docker-compose.yml" ]; then
     __sudo docker-compose up -d &>/dev/null
   fi
 elif [ -f "$DOCKERMGR_CONFIG_DIR/scripts/$APPNAME" ]; then
-  EXECUTE_DOCKER_CMD="$DOCKERMGR_CONFIG_DIR/scripts/$APPNAME"
+  EXECUTE_DOCKER_SCRIPT="$DOCKERMGR_CONFIG_DIR/scripts/$APPNAME"
 else
+  EXECUTE_DOCKER_ENABLE="yes"
+  EXECUTE_DOCKER_SCRIPT="$EXECUTE_DOCKER_CMD"
+fi
+if [ -n "$EXECUTE_DOCKER_SCRIPT" ]; then
   __sudo docker stop "$APPNAME" &>/dev/null
   __sudo docker rm -f "$APPNAME" &>/dev/null
   printf_cyan "Updating the image from $HUB_IMAGE_URL with tag $HUB_IMAGE_TAG"
   __sudo docker pull "$HUB_IMAGE_URL" &>/dev/null
   printf_cyan "Creating container $APPNAME"
-  printf '#!/usr/bin/env bash\n\n%s\n\n' "$EXECUTE_DOCKER_CMD" >"$DOCKERMGR_CONFIG_DIR/scripts/$APPNAME"
-  [ -f "$DOCKERMGR_CONFIG_DIR/scripts/$APPNAME" ] && chmod -Rf 755 "$DOCKERMGR_CONFIG_DIR/scripts/$APPNAME"
-fi
-if __sudo "$EXECUTE_DOCKER_CMD" 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log"; then
-  rm -Rf "${TMP:-/tmp}/$APPNAME.err.log"
-else
-  ERROR_LOG="true"
+  if [ "$EXECUTE_DOCKER_ENABLE" = "yes" ]; then
+    printf '#!/usr/bin/env bash\n\n%s\n\n' "$EXECUTE_DOCKER_CMD" >"$DOCKERMGR_CONFIG_DIR/scripts/$APPNAME"
+    [ -f "$DOCKERMGR_CONFIG_DIR/scripts/$APPNAME" ] && chmod -Rf 755 "$DOCKERMGR_CONFIG_DIR/scripts/$APPNAME"
+  fi
+  if __sudo "$EXECUTE_DOCKER_SCRIPT" 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log"; then
+    rm -Rf "${TMP:-/tmp}/$APPNAME.err.log"
+  else
+    ERROR_LOG="true"
+  fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Install nginx proxy

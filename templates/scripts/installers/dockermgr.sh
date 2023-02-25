@@ -561,9 +561,12 @@ if cmd_exists docker-compose && [ -f "$INSTDIR/docker-compose.yml" ]; then
   printf_yellow "Installing containers using docker-compose"
   sed -i 's|REPLACE_DATADIR|'$DATADIR'' "$INSTDIR/docker-compose.yml"
   if cd "$INSTDIR"; then
+    EXECUTE_DOCKER_CMD=""
     __sudo docker-compose pull &>/dev/null
     __sudo docker-compose up -d &>/dev/null
   fi
+elif [ -f "$DOCKERMGR_CONFIG_DIR/scripts/$APPNAME" ]; then
+  EXECUTE_DOCKER_CMD="$DOCKERMGR_CONFIG_DIR/scripts/$APPNAME"
 else
   __sudo docker stop "$APPNAME" &>/dev/null
   __sudo docker rm -f "$APPNAME" &>/dev/null
@@ -571,11 +574,12 @@ else
   __sudo docker pull "$HUB_IMAGE_URL" &>/dev/null
   printf_cyan "Creating container $APPNAME"
   printf '#!/usr/bin/env bash\n\n%s\n\n' "$EXECUTE_DOCKER_CMD" >"$DOCKERMGR_CONFIG_DIR/scripts/$APPNAME"
-  if __sudo $EXECUTE_DOCKER_CMD 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log"; then
-    rm -Rf "${TMP:-/tmp}/$APPNAME.err.log"
-  else
-    ERROR_LOG="true"
-  fi
+  [ -f "$DOCKERMGR_CONFIG_DIR/scripts/$APPNAME" ] && chmod -Rf 755 "$DOCKERMGR_CONFIG_DIR/scripts/$APPNAME"
+fi
+if __sudo "$EXECUTE_DOCKER_CMD" 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log"; then
+  rm -Rf "${TMP:-/tmp}/$APPNAME.err.log"
+else
+  ERROR_LOG="true"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Install nginx proxy

@@ -300,11 +300,14 @@ __run_install_update() {
   return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__download() {
+__run_download() {
   local REPO_NAME="$1"
   local DIR_NAME="${2:-$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR/$REPO_NAME}"
   local REPO_URL="$GEN_SCRIPT_REPLACE_ENV_REPO_URL"
   local GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
+  if ! curl -q -LSsfI "$REPO_URL/$REPO_NAME" &>/dev/null; then
+    printf_exit 3 3 "$REPO_URL/$REPO_NAME has returned an error"
+  fi
   if __cmd_exists gitadmin; then
     if [ -d "$DIR_NAME/.git" ]; then
       gitadmin pull "$DIR_NAME"
@@ -545,10 +548,10 @@ SETARGS=("$@")
 SHORTOPTS="a,f"
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-LONGOPTS="completions:,options,config,version,help,force,all,raw"
+LONGOPTS="all,completions:,config,debug,force,help,options,raw,version"
 LONGOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-ARRAY="download,list,search,available,remove,version,update,install,cron"
+ARRAY="available,cron,download,install,list,remove,search,update,version"
 ARRAY+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
@@ -788,7 +791,7 @@ download | clone)
   fi
   if [ -n "${LISTARRAY[*]}" ]; then
     for pkgs in "${LISTARRAY[@]}"; do
-      __download "$pkgs"
+      __run_download "$pkgs"
       retVal=$?
       [ $retVal = 0 ] && __notifications "Downloaded $APPNAME" || __notifications "Download of $APPNAME has failed"
       GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$(($retVal + $GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS))

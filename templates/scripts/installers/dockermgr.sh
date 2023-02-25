@@ -400,7 +400,7 @@ if [ "$NGINX_AUTH" = "yes" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_LINK=""
-CONTAINER_LINK="${CONTAINER_LINK//, /}"
+CONTAINER_LINK="${CONTAINER_LINK//,/ }"
 for link in $CONTAINER_LINK; do
   [ "$link" = " " ] && link=""
   if [ -n "$link" ]; then
@@ -409,7 +409,7 @@ for link in $CONTAINER_LINK; do
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_LABELS=""
-ADDITION_LABELS="${ADDITION_LABELS//, /}"
+ADDITION_LABELS="${ADDITION_LABELS//,/ }"
 for label in $ADDITION_LABELS; do
   [ "$label" = " " ] && label=""
   if [ -n "$label" ]; then
@@ -418,7 +418,7 @@ for label in $ADDITION_LABELS; do
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_CAP=""
-ADD_CAPABILITIES="${ADD_CAPABILITIES//, /}"
+ADD_CAPABILITIES="${ADD_CAPABILITIES//,/ }"
 for cap in $ADD_CAPABILITIES; do
   [ "$cap" = " " ] && cap=""
   if [ -n "$cap" ]; then
@@ -427,7 +427,7 @@ for cap in $ADD_CAPABILITIES; do
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_SYSCTL=""
-ADD_SYSCTL="${ADD_SYSCTL//, /}"
+ADD_SYSCTL="${ADD_SYSCTL//,/ }"
 for sysctl in $ADD_SYSCTL; do
   [ "$sysctl" = " " ] && sysctl=""
   if [ -n "$sysctl" ]; then
@@ -436,8 +436,8 @@ for sysctl in $ADD_SYSCTL; do
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_ENV=""
-ENV_VAR="${ENV_VAR//, /}"
-ADDITION_ENV="${ADDITION_ENV//, /}"
+ENV_VAR="${ENV_VAR//,/ }"
+ADDITION_ENV="${ADDITION_ENV//,/ }"
 if [ -n "$ENV_VAR" ]; then
   for env in $ENV_VAR; do
     SET_ENV+="--env $env "
@@ -451,7 +451,7 @@ for env in $ADDITION_ENV; do
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_DEV=""
-ADDITION_DEVICES="${ADDITION_DEVICES//, /}"
+ADDITION_DEVICES="${ADDITION_DEVICES//,/ }"
 for dev in $ADDITION_DEVICES; do
   [ "$dev" = " " ] && dev=""
   if [ -n "$dev" ]; then
@@ -461,7 +461,7 @@ for dev in $ADDITION_DEVICES; do
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_MNT=""
-ADDITIONAL_MOUNTS="${ADDITIONAL_MOUNTS//, /}"
+ADDITIONAL_MOUNTS="${ADDITIONAL_MOUNTS//,/ }"
 for mnt in $ADDITIONAL_MOUNTS; do
   [ "$mnt" = "" ] && mnt=""
   [ "$mnt" = " " ] && mnt=""
@@ -499,7 +499,7 @@ for port in $SET_SERVER_PORTS; do
   fi
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-CONTAINER_ADD_CUSTOM_LISTEN="${CONTAINER_ADD_CUSTOM_LISTEN//, /}"
+CONTAINER_ADD_CUSTOM_LISTEN="${CONTAINER_ADD_CUSTOM_LISTEN//,/ }"
 if [ -n "$CONTAINER_ADD_CUSTOM_LISTEN" ]; then
   for list in $CONTAINER_ADD_CUSTOM_LISTEN; do
     echo "$list" | grep -q ':' || list="${list//\/*/}:$list"

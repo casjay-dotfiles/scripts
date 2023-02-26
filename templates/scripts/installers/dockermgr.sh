@@ -9,7 +9,7 @@
 # @@Copyright        :  GEN_SCRIPT_REPLACE_COPYRIGHT
 # @@Created          :  GEN_SCRIPT_REPLACE_DATE
 # @@File             :  GEN_SCRIPT_REPLACE_FILENAME
-# @@Description      :  docker installer for GEN_SCRIPT_REPLACE_APPNAME
+# @@Description      :  docker installer script for GEN_SCRIPT_REPLACE_APPNAME
 # @@Changelog        :  GEN_SCRIPT_REPLACE_CHANGELOG
 # @@TODO             :  GEN_SCRIPT_REPLACE_TODO
 # @@Other            :  GEN_SCRIPT_REPLACE_OTHER
@@ -99,17 +99,21 @@ LOCAL_IP="$(ifconfig $LOCAL_NET_DEV 2>/dev/null | grep -w 'inet' | awk -F ' ' '{
 dockermgr_install
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Script options IE: --help
+show_optvars "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "e:,p:,h:,d:" --long "options,env:,port:,host:,domain:" -n "$APPNAME" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
 while :; do
   case "$1" in
   -e | --env) ENV_VAR="$2 $ENV_VAR" && shift 2 ;;
   -p | --port) PORT_VAR="$2 $PORT_VAR" && shift 2 ;;
   -h | --host) CONTAINER_HOSTNAME="$2" && shift 2 ;;
   -d | --domain) CONTAINER_DOMAINNAME="$2" && shift 2 ;;
+  --options) shift 1 && echo "-e -p -h -d --options --env --port --host --domain" && exit 1 ;;
   *) break ;;
   esac
 done
-# Script options IE: --help
-show_optvars "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # trap the cleanup function
 trap_exit

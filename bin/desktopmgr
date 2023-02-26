@@ -109,7 +109,7 @@ __list_available() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # list options
 __list_options() {
-  printf_custom "5" "$1: $(echo ${2:-$ARRAY} | __sed 's|:||g;s|'$3'| '$4'|g' 2>/dev/null)"
+  printf_custom "5" "$1: $(echo ${2:-$ARRAY} | __sed 's|:||g;s|'$3'| '$4'|g' 2>/dev/null|tr '\n' ' ')"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # create the config file

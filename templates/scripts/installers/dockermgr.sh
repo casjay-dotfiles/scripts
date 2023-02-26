@@ -110,7 +110,7 @@ while :; do
   -p | --port) PORT_VAR="$2 $PORT_VAR" && shift 2 ;;
   -h | --host) CONTAINER_HOSTNAME="$2" && shift 2 ;;
   -d | --domain) CONTAINER_DOMAINNAME="$2" && shift 2 ;;
-  --options) shift 1 && echo "-e -p -h -d --options --env --port --host --domain" && exit 1 ;;
+  --options) shift 1 && echo "Options: -e -p -h -d --options --env --port --host --domain" && exit 1 ;;
   *) break ;;
   esac
 done

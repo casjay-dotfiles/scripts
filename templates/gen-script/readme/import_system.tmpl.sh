@@ -28,7 +28,7 @@ __printf_help "5" "Usage: GEN_SCRIPT_REPLACE_APPNAME []"
 # Begin import
 $PREV_README
 # End Import
-__printf_help "4" " -  "
+__printf_help "4" "  - "
 
 __printf_head "5" "Other GEN_SCRIPT_REPLACE_FILENAME Options"
 __printf_help "4" "GEN_SCRIPT_REPLACE_FILENAME --config              - Generate user config file"

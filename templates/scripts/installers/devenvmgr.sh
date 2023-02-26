@@ -9,7 +9,7 @@
 # @@Copyright        :  GEN_SCRIPT_REPLACE_COPYRIGHT
 # @@Created          :  GEN_SCRIPT_REPLACE_DATE
 # @@File             :  GEN_SCRIPT_REPLACE_FILENAME
-# @@Description      :  GEN_SCRIPT_REPLACE_DESC
+# @@Description      :  Setup GEN_SCRIPT_REPLACE_APPNAME development environment
 # @@Changelog        :  GEN_SCRIPT_REPLACE_CHANGELOG
 # @@TODO             :  GEN_SCRIPT_REPLACE_TODO
 # @@Other            :  GEN_SCRIPT_REPLACE_OTHER

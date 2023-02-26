@@ -19,29 +19,37 @@
 # @@Template         :  installers/simple
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _GEN_SCRIPT_REPLACE_FILENAME_completion() {
+  _init_completion || return
+  #####################################################################
+  local cur prev words cword opts split CONFDIR="" CONFFILE="" SEARCHDIR=""
+  local SHOW_COMP_OPTS="" SHORTOPTS="" LONGOPTS="" ARRAY="" LIST="" SHOW_COMP_OPTS_SEP=""
+  #####################################################################
   ___ls() { ls -A "$1" 2>/dev/null | grep -v '^$' | grep '^' || false; }
   ___grep() { GREP_COLORS="" grep -sE '^.*=*..*$' "$1" 2>/dev/null | sed 's|"||g' 2>/dev/null | grep '^' || false; }
   ___findcmd() { find -L "${1:-$CONFDIR/}" -maxdepth ${3:-3} -type ${2:-f} 2>/dev/null | sed 's#'${1:-$CONFDIR}'##g' | grep '^' || return 1; }
-  local cur prev words cword
-  local cur="${COMP_WORDS[$COMP_CWORD]}"
-  local prev="${COMP_WORDS[$COMP_CWORD - 1]}"
   #####################################################################
-  local CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+  cur="${COMP_WORDS[$COMP_CWORD]}"
+  prev="${COMP_WORDS[$COMP_CWORD - 1]}"
+  CONFFILE="settings.conf"
   #####################################################################
-  local SHOW_COMP_OPTS=""
+  CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
   #####################################################################
-  local SHORTOPTS=""
+  SHOW_COMP_OPTS=""
   #####################################################################
-  local LONGOPTS="--completions --config --debug --help --options --raw --version "
+  SHORTOPTS=""
+  SHORTOPTS+=""
   #####################################################################
-  local ARRAY=""
+  LONGOPTS="--completions --config --debug --help --options --raw --version "
+  LONGOPTS+=""
   #####################################################################
-  local LIST=""
+  ARRAY=""
+  ARRAY+=""
   #####################################################################
-  _init_completion || return
+  LIST=""
+  LIST+=""
   #####################################################################
   if [ "$SHOW_COMP_OPTS" != "" ]; then
-    local SHOW_COMP_OPTS_SEP="$(echo "$SHOW_COMP_OPTS" | tr ',' ' ')"
+    SHOW_COMP_OPTS_SEP="${SHOW_COMP_OPTS//,/ }"
     compopt -o $SHOW_COMP_OPTS_SEP
   fi
   #####################################################################

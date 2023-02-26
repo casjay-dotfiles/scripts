@@ -58,7 +58,11 @@ __sudo() { sudo -n true && eval sudo "$@" || eval "$@" || return 1; }
 __sudo_root() { sudo -n true && ask_for_password true && eval sudo "$@" || return 1; }
 __enable_ssl() { { [ "$SSL_ENABLED" = "yes" ] || [ "$SSL_ENABLED" = "true" ]; } && return 0 || return 1; }
 __ssl_certs() { [ -f "$HOST_SSL_CA" ] && [ -f "$HOST_SSL_CRT" ] && [ -f "$HOST_SSL_KEY" ] && return 0 || return 1; }
-__port_not_in_use() { [ -d "/etc/nginx/vhosts.d" ] && grep -wRsq "${1:-$CONTAINER_HTTP_PORT}" "/etc/nginx/vhosts.d" && return 0 || return 1; }
+__port_in_use() { { [ -d "/etc/nginx/vhosts.d" ] && grep -wRsq "${1:-$CONTAINER_HTTP_PORT}" "/etc/nginx/vhosts.d" || netstat -taupln 2>/dev/null | grep -q "${1:-$CONTAINER_HTTP_PORT}"; } && return 1 || return 0; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__public_ip() { curl -q -LSsf "http://ifconfig.co" | grep '^'; }
+__docker_gateway_ip() { sudo docker network inspect -f '{{json .IPAM.Config}}' bridge | jq -r '.[].Gateway'; }
+__local_lan_ip() { [ -n "$LOCAL_IP" ] && { echo "$LOCAL_IP" | grep -E '192\.168\.[0-255]\.[0-255]' 2>/dev/null || echo "$LOCAL_IP" | grep -E '10\.[0-255]\.[0-255]\.[0-255]' 2>/dev/null || echo "$LOCAL_IP" | grep -E '172\.[16-31]\.[0-255]\.[0-255]' 2>/dev/null; }; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define any pre-install scripts
 run_pre_install() {
@@ -88,7 +92,8 @@ APPDIR="$HOME/.local/share/srv/docker/GEN_SCRIPT_REPLACE_APPNAME"
 INSTDIR="$HOME/.local/share/CasjaysDev/dockermgr/GEN_SCRIPT_REPLACE_APPNAME"
 DATADIR="$HOME/.local/share/srv/docker/GEN_SCRIPT_REPLACE_APPNAME/rootfs"
 DOCKERMGR_CONFIG_DIR="${DOCKERMGR_CONFIG_DIR:-$HOME/.config/myscripts/dockermgr}"
-DOCKER_HOST_IP="${DOCKER_HOST_IP:-$(ip a show 'docker0' 2>/dev/null | grep -w 'inet' | awk -F'/' '{print $1}' | awk '{print $2}' | grep '^')}"
+LOCAL_NET_DEV="$(ip route 2>/dev/null | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//" | awk '{print $1}' | grep '^' || echo 'eth0')"
+LOCAL_IP="$(ifconfig $LOCAL_NET_DEV 2>/dev/null | grep -w 'inet' | awk -F ' ' '{print $2}' | grep -vE '127\.[0-255]\.[0-255]\.[0-255]' | tr ' ' '\n' | grep '^')"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Call the main function
 dockermgr_install
@@ -160,7 +165,10 @@ SSL_CA="$HOST_SSL_CA"
 SSL_KEY="$HOST_SSL_KEY"
 SSL_CERT="$HOST_SSL_CRT"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set to yes for all ports to listen on localhost only
+# Set this to 0.0.0.0 to listen on all or specific addresses
+DEFINE_LISTEN="0.0.0.0"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Listen on local address only [no,local,lan,docker]
 HOST_LOCAL_ONLY="no"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set to yes to have HTTP[S] or SERVICE to listen on localhost only
@@ -174,11 +182,8 @@ CONTAINER_SERVICE_PORT=""
 CONTAINER_ADD_CUSTOM_PORT=""
 CONTAINER_ADD_CUSTOM_PORT+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Add Add service port [listen]:[externalPort:internalPort]/[tcp,udp]
+# Add service port [listen]:[externalPort:internalPort]/[tcp,udp]
 CONTAINER_ADD_CUSTOM_LISTEN=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set this to 0.0.0.0 to listen on all or specific addresses
-DEFINE_LISTEN=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set this to the protocol the the container will use [http,https,git,ftp,etc]
 CONTAINER_HTTP_PROTO="http"
@@ -314,13 +319,17 @@ mkdir -p "$DOCKERMGR_CONFIG_DIR/scripts"
 SERVER_SHORT_DOMAIN="$(hostname -s 2>/dev/null | grep '^')"
 SERVER_FULL_DOMAIN="$(hostname -d 2>/dev/null | grep '^' || echo 'home')"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# rewrite variables
+[ -n "$HOST_LOCAL_ONLY" ] || HOST_LOCAL_ONLY="no"
+[ "$DEFINE_LISTEN" = "public" ] && DEFINE_LISTEN="0.0.0.0"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Variables - Do not change anything below this line
 DOCKER_OPTS=""
 NGINX_LISTEN_OPTS=""
 CONTAINER_LISTEN="127.0.0.1"
 HOST_TIMEZONE="${TZ:-$TIMEZONE}"
 DEFINE_LISTEN="${DEFINE_LISTEN:-}"
-HOST_IP="${CURRENT_IP_4:-127.0.0.1}"
+HOST_IP="${CURRENT_IP_4:-$(__local_lan_ip)}"
 HOST_LISTEN_ADDR="${DEFINE_LISTEN:-$HOST_IP}"
 CONTAINER_SHM_SIZE="${CONTAINER_SHM_SIZE:-64M}"
 HOST_SERVICE_PORT="${CONTAINER_SERVICE_PORT:-}"
@@ -335,11 +344,14 @@ echo "$CONTAINER_HOSTNAME" | grep -Fq '.' || CONTAINER_HOSTNAME="$APPNAME.$SERVE
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Configure variables
 [ "$HOST_LOCAL_ONLY" = "yes" ] && CONTAINER_PRIVATE="yes"
+[ "$HOST_LOCAL_ONLY" = "local" ] && DEFINE_LISTEN="127.0.0.1"
 [ "$CONTAINER_HTTPS_PORT" = "" ] || CONTAINER_HTTP_PROTO="https"
 [ "$CGROUP_ENABLED" = "yes" ] && ADDITIONAL_MOUNTS="$CGROUP_MOUNTS "
 [ "$HOST_ETC_HOSTS_FILE" = "yes" ] && ADDITIONAL_MOUNTS+="/etc/hosts:/usr/local/etc/hosts:ro "
 [ "$DOCKER_SOCKET_ENABLED" = "yes" ] && ADDITIONAL_MOUNTS+="$DOCKER_SOCKET_MOUNT:/var/run/docker.sock "
 [ "$HOST_LOCAL_ONLY" = "yes" ] && DEFINE_LISTEN="127.0.0.1" && HOST_LISTEN_ADDR="127.0.0.1" || HOST_LOCAL_ONLY=""
+[ "$HOST_LOCAL_ONLY" = "lan" ] && DEFINE_LISTEN="$(__local_lan_ip)" && HOST_LISTEN_ADDR="$(__local_lan_ip)" || HOST_LOCAL_ONLY=""
+[ "$HOST_LOCAL_ONLY" = "docker" ] && DEFINE_LISTEN="$(__docker_gateway_ip)" && HOST_LISTEN_ADDR="$(__docker_gateway_ip)" || HOST_LOCAL_ONLY=""
 [ "$HOST_RESOLVE_MOUNT" = "yes" ] && ADDITIONAL_MOUNTS+="$HOST_RESOLVE_MOUNT:/etc/resolv.conf " || HOST_RESOLVE_MOUNT=""
 [ "$NGINX_SSL" = "yes" ] && [ -n "$NGINX_HTTPS" ] && NGINX_PORT="${NGINX_HTTPS:-443}" && NGINX_LISTEN_OPTS="ssl http2" || NGINX_PORT="${NGINX_HTTP:-80}"
 [[ "$CONTAINER_DOMAINNAME" = server.* ]] && CONTAINER_HOSTNAME="$APPNAME.$SERVER_FULL_DOMAIN" || CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME.$CONTAINER_DOMAINNAME}"
@@ -573,9 +585,9 @@ else
   EXECUTE_DOCKER_SCRIPT="$EXECUTE_DOCKER_CMD"
 fi
 if [ -n "$EXECUTE_DOCKER_SCRIPT" ]; then
-  __sudo "$EXECUTE_PRE_INSTALL" &>/dev/null
   printf_cyan "Updating the image from $HUB_IMAGE_URL with tag $HUB_IMAGE_TAG"
-  __sudo docker pull "$HUB_IMAGE_URL" &>/dev/null
+  __sudo "$EXECUTE_PRE_INSTALL" &>/dev/null
+  __sudo docker pull "$HUB_IMAGE_URL" 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log"
   printf_cyan "Creating container $APPNAME"
   if [ "$EXECUTE_DOCKER_ENABLE" = "yes" ]; then
     printf '#!/usr/bin/env bash\n\n%s\n%s\n\n' "$EXECUTE_PRE_INSTALL" "$EXECUTE_DOCKER_CMD" >"$DOCKERMGR_CONFIG_DIR/scripts/$APPNAME"

@@ -741,6 +741,7 @@ if docker ps -a | grep -qs "$APPNAME"; then
     printf_yellow "This container does not have services configured"
   else
     for service in $SET_PORT; do
+      service="${service//\/*/}"
       listen="${service//0.0.0.0/$HOST_LISTEN_ADDR}"
       printf_blue "$Service is running on: $listen"
     done

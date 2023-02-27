@@ -11,7 +11,7 @@
 # @@File             :  GEN_SCRIPT_REPLACE_FILENAME
 # @@Description      :  docker installer script for GEN_SCRIPT_REPLACE_APPNAME
 # @@Changelog        :  GEN_SCRIPT_REPLACE_CHANGELOG
-# @@TODO             :  GEN_SCRIPT_REPLACE_TODO
+# @@TODO             :  GEN_SCRIPT_REPLACE_TODO # Wakeup and Refactor code/optimize
 # @@Other            :  GEN_SCRIPT_REPLACE_OTHER
 # @@Resource         :  GEN_SCRIPT_REPLACE_RES
 # @@Terminal App     :  GEN_SCRIPT_REPLACE_TERMINAL

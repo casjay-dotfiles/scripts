@@ -453,7 +453,7 @@ CONTAINER_X11_XAUTH=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ "$WEB_SERVER_AUTH" = "yes" ]; then
   CONTAINER_USER_NAME="${CONTAINER_USER_NAME:-root}"
-  CONTAINER_USER_PASS="${CONTAINER_USER_PASS:-$(password)}"
+  CONTAINER_USER_PASS="${CONTAINER_USER_PASS:-$RANDOM_PASS}"
   SET_USER_NAME="$CONTAINER_USER_NAME"
   SET_USER_PASS="$CONTAINER_USER_PASS"
   [ -d "/etc/nginx/auth" ] || mkdir -p "/etc/nginx/auth"

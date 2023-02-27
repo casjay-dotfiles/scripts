@@ -184,17 +184,16 @@ HOST_SSL_CA="${HOST_SSL_CA:-$HOST_SSL_DIR/certs/ca.crt}"
 HOST_SSL_CRT="${HOST_SSL_CRT:-$HOST_SSL_DIR/certs/localhost.crt}"
 HOST_SSL_KEY="${HOST_SSL_KEY:-$HOST_SSL_DIR/private/localhost.key}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# set mount ssl points IE: [/data/ssl/ca.crt]
+SSL_CA="$HOST_SSL_CA"
+SSL_KEY="$HOST_SSL_KEY"
+SSL_CERT="$HOST_SSL_CRT"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # SSL Setup container mounts
 CONTAINER_SSL_DIR="${CONTAINER_SSL_DIR:-/config/ssl}"
 CONTAINER_SSL_CA="${CONTAINER_SSL_CA:-$CONTAINER_SSL_DIR/ca.crt}"
 CONTAINER_SSL_CRT="${CONTAINER_SSL_CRT:-$CONTAINER_SSL_DIR/localhost.crt}"
 CONTAINER_SSL_KEY="${CONTAINER_SSL_KEY:-$CONTAINER_SSL_DIR/localhost.key}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set to yes for container SSL support and set mount point IE: [/data/ssl/ca.crt]
-SSL_ENABLED="no"
-SSL_CA="$HOST_SSL_CA"
-SSL_KEY="$HOST_SSL_KEY"
-SSL_CERT="$HOST_SSL_CRT"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set this to 0.0.0.0 to listen on all or specific addresses
 DEFINE_LISTEN="0.0.0.0"
@@ -202,8 +201,18 @@ DEFINE_LISTEN="0.0.0.0"
 # Listen on local address only [no,local,lan,docker]
 HOST_LOCAL_ONLY="no"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set to yes to have HTTP[S] or SERVICE to listen on localhost only
-CONTAINER_PRIVATE="no"
+# Setup nginx proxy variables [yes,no]
+NGINX_PROXY="yes"
+NGINX_AUTH="no"
+NGINX_SSL="yes"
+NGINX_HTTP="80"
+NGINX_HTTPS="443"
+NGINX_UPDATE_CONF="yes"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Enable this is container is running a webserver [yes/no] [yes/no] [internalPort]
+WEB_SERVER="no"
+WEB_SSL_ENABLE="no"
+WEB_SERVER_PORT="80"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Add service port [port] or [port:port] - LISTEN will be added if defined [DEFINE_LISTEN] or CONTAINER_PRIVATE=yes
 # Only ONE HTTP or HTTPS if web server or SERVICE port for mysql pgsql ftp etc. add more to CONTAINER_ADD_CUSTOM_PORT
@@ -219,15 +228,14 @@ CONTAINER_ADD_CUSTOM_LISTEN=""
 # Set this to the protocol the the container will use [http,https,git,ftp,etc]
 CONTAINER_HTTP_PROTO="http"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set to yes to have HTTP[S] or SERVICE to listen on localhost only
+CONTAINER_PRIVATE="no"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the network type - bridge,host - default is bridge
 HOST_NETWORK_TYPE="bridge"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Enable hosts /etc/hosts file [yes/no]
-HOST_ETC_HOSTS_FILE="yes"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set location to resolv.conf [yes/no]
-HOST_RESOLVE_MOUNT="no"
-HOST_RESOLVE_FILE="/etc/resolv.conf"
+# Set link [ containerName ]
+CONTAINER_LINK=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Enable privileged container [ yes/no ]
 CONTAINER_IS_PRIVILEGED="yes"
@@ -251,6 +259,50 @@ HOST_X11_SOCKET="/tmp/.X11-unix"
 HOST_X11_XAUTH="$HOME/.Xauthority"
 CONTAINER_X11_XAUTH="/home/x11user/.Xauthority"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Enable hosts /etc/hosts file [yes/no]
+HOST_ETC_HOSTS_FILE="yes"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Enable cgroups [yes/no]
+CGROUP_ENABLED="no"
+CGROUP_MOUNTS="/sys/fs/cgroup:/sys/fs/cgroup:ro"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set location to resolv.conf [yes/no]
+HOST_RESOLVE_MOUNT="no"
+HOST_RESOLVE_FILE="/etc/resolv.conf"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Mount docker socket [pathToSocket]
+DOCKER_SOCKET_ENABLED="no"
+DOCKER_SOCKET_MOUNT="/var/run/docker.sock"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Mount docker config [~/.docker/config.json]
+DOCKER_CONFIG_ENABLED="no"
+DOCKER_CONFIG_MOUNT="$HOME/.docker/config.json"
+DOCKER_CONFIG_TO_MOUNT="/root/.docker/config.json"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Define additional mounts [ /dir:/dir,/otherdir:/otherdir ]
+ADDITIONAL_MOUNTS="$LOCAL_CONFIG_DIR:/config:z,$LOCAL_DATA_DIR:/data:z "
+ADDITIONAL_MOUNTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Define additional devices [ /dev:/dev,/otherdev:/otherdev ]
+ADDITION_DEVICES=""
+ADDITION_DEVICES+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Define additional variables [ myvar=var,myothervar=othervar ]
+ADDITION_ENV=""
+ADDITION_ENV+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set sysctl []
+ADD_SYSCTL=""
+ADD_SYSCTL+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set capabilites [ CAP,OTHERCAP ]
+ADD_CAPABILITIES="SYS_ADMIN,SYS_TIME "
+ADD_CAPABILITIES+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Define labels [ traefik.enable=true ] [ label=label,otherlabel=label2 ]
+ADDITION_LABELS=""
+ADDITION_LABELS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set container user and group ID [yes/no]
 SET_USER_ID="no"
 CONTAINER_USER_ID=""
@@ -262,44 +314,9 @@ CONTAINER_USER_PASS="${GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD:-}"
 CONTAINER_ENV_USER_NAME=""
 CONTAINER_ENV_PASS_NAME=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Mount docker socket [pathToSocket]
-DOCKER_SOCKET_ENABLED="no"
-DOCKER_SOCKET_MOUNT="/var/run/docker.sock"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Specify container arguments
+# Specify container arguments - will run in container [/path/to/script]
 CONTAINER_COMMANDS=""
 CONTAINER_COMMANDS+=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set capabilites [ CAP,OTHERCAP ]
-ADD_CAPABILITIES="SYS_ADMIN,SYS_TIME "
-ADD_CAPABILITIES+=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set sysctl
-ADD_SYSCTL=""
-ADD_SYSCTL+=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set link [ containerName ]
-CONTAINER_LINK=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Define additional mounts [ /dir:/dir,/otherdir:/otherdir ]
-ADDITIONAL_MOUNTS="$LOCAL_CONFIG_DIR:/config:z,$LOCAL_DATA_DIR:/data:z "
-ADDITIONAL_MOUNTS+=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Define additional variables [ myvar=var,myothervar=othervar ]
-ADDITION_ENV=""
-ADDITION_ENV+=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Define additional devices [ /dev:/dev,/otherdev:/otherdev ]
-ADDITION_DEVICES=""
-ADDITION_DEVICES+=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Enable cgroups [yes/no]
-CGROUP_ENABLED="no"
-CGROUP_MOUNTS="/sys/fs/cgroup:/sys/fs/cgroup:ro"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Define labels [ traefik.enable=true ] [ label=label,otherlabel=label2 ]
-ADDITION_LABELS=""
-ADDITION_LABELS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define additional docker arguments - see docker run --help [ arg1,arg2 ]
 CUSTOM_ARGUMENTS=""
@@ -307,14 +324,6 @@ CUSTOM_ARGUMENTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show post install message
 POST_SHOW_FINISHED_MESSAGE=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup nginx proxy variables [yes,no]
-NGINX_PROXY="yes"
-NGINX_AUTH="no"
-NGINX_SSL="yes"
-NGINX_HTTP="80"
-NGINX_HTTPS="443"
-NGINX_UPDATE_CONF=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End of configuration options
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -380,12 +389,17 @@ echo "$CONTAINER_HOSTNAME" | grep -Fq '.' || CONTAINER_HOSTNAME="$APPNAME.$SERVE
 [ "$CGROUP_ENABLED" = "yes" ] && ADDITIONAL_MOUNTS="$CGROUP_MOUNTS "
 [ "$HOST_ETC_HOSTS_FILE" = "yes" ] && ADDITIONAL_MOUNTS+="/etc/hosts:/usr/local/etc/hosts:ro "
 [ "$DOCKER_SOCKET_ENABLED" = "yes" ] && ADDITIONAL_MOUNTS+="$DOCKER_SOCKET_MOUNT:/var/run/docker.sock "
+[ "$DOCKER_CONFIG_ENABLED" = "yes" ] && ADDITIONAL_MOUNTS="$DOCKER_CONFIG_MOUNT:$DOCKER_CONFIG_TO_MOUNT:ro "
 [ "$HOST_LOCAL_ONLY" = "yes" ] && DEFINE_LISTEN="127.0.0.1" && HOST_LISTEN_ADDR="127.0.0.1" || HOST_LOCAL_ONLY=""
 [ "$HOST_LOCAL_ONLY" = "lan" ] && DEFINE_LISTEN="$(__local_lan_ip)" && HOST_LISTEN_ADDR="$(__local_lan_ip)" || HOST_LOCAL_ONLY=""
 [ "$HOST_LOCAL_ONLY" = "docker" ] && DEFINE_LISTEN="$(__docker_gateway_ip)" && HOST_LISTEN_ADDR="$(__docker_gateway_ip)" || HOST_LOCAL_ONLY=""
 [ "$HOST_RESOLVE_MOUNT" = "yes" ] && ADDITIONAL_MOUNTS+="$HOST_RESOLVE_MOUNT:/etc/resolv.conf " || HOST_RESOLVE_MOUNT=""
 [ "$NGINX_SSL" = "yes" ] && [ -n "$NGINX_HTTPS" ] && NGINX_PORT="${NGINX_HTTPS:-443}" && NGINX_LISTEN_OPTS="ssl http2" || NGINX_PORT="${NGINX_HTTP:-80}"
 [[ "$CONTAINER_DOMAINNAME" = server.* ]] && CONTAINER_HOSTNAME="$APPNAME.$SERVER_FULL_DOMAIN" || CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME.$CONTAINER_DOMAINNAME}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Auto create web server
+[ "$WEB_SERVER" = "yes" ] && CONTAINER_HTTP_PORT="$(__docker_gateway_ip):$RANDOM_PORT:$WEB_SERVER_PORT"
+[ "$WEB_SERVER" = "yes" ] && [ "$WEB_SSL_ENABLE" = "yes" ] && CONTAINER_HTTPS_PORT="$(__docker_gateway_ip):$RANDOM_PORT:$WEB_SERVER_PORT" && CONTAINER_HTTP_PORT="" && CONTAINER_HTTP_PROTO="https"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # rewrite variables
 [ -n "$HUB_IMAGE_TAG" ] || HUB_IMAGE_TAG="latest"

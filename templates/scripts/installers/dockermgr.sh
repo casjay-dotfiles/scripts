@@ -29,7 +29,7 @@ export SCRIPTS_PREFIX="dockermgr"
 # Set bash options
 [ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
 [ "$1" = "--raw" ] && export SHOW_RAW="true"
-set -o pipefail -xE
+set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
@@ -107,15 +107,15 @@ __show_post_message() {
 # Ensure docker is installed
 __docker_check || __docker_init
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup networking
+SET_LOCAL_NET_DEV="$(__route | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//" | awk '{print $1}' | grep '^' || echo 'eth0')"
+SET_LOCAL_IP="$(__ifconfig $LOCAL_NET_DEV | grep -w 'inet' | awk -F ' ' '{print $2}' | grep -vE '127\.[0-255]\.[0-255]\.[0-255]' | tr ' ' '\n' | grep '^')"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Pre-define variables
 RANDOM_PORT="$(__rport)"
 RANDOM_PASS="$(__password)"
 SET_HOSTNAME="$(__host_name)"
 SET_DOMAINNAME="$(__domain_name)"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup networking
-SET_LOCAL_NET_DEV="$(__route | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//" | awk '{print $1}' | grep '^' || echo 'eth0')"
-SET_LOCAL_IP="$(__ifconfig $LOCAL_NET_DEV | grep -w 'inet' | awk -F ' ' '{print $2}' | grep -vE '127\.[0-255]\.[0-255]\.[0-255]' | tr ' ' '\n' | grep '^')"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Repository variables
 REPO="${DOCKERMGRREPO:-https://github.com/dockermgr}/GEN_SCRIPT_REPLACE_APPNAME"
@@ -372,7 +372,6 @@ SERVER_SHORT_DOMAIN="${SET_HOSTNAME:-$(hostname -s 2>/dev/null | grep '^')}"
 SERVER_FULL_DOMAIN="${SET_DOMAINNAME:-$(hostname -d 2>/dev/null | grep '^' || echo 'home')}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Variables - Do not change anything below this line
-ENV_PORTS=""
 DOCKER_OPTS=""
 NGINX_LISTEN_OPTS=""
 CONTAINER_LISTEN="127.0.0.1"
@@ -502,9 +501,7 @@ if [ "$WEB_SERVER" = "yes" ]; then
   for web_ports in $WEB_SERVER_PORT; do
     RANDOM_PORT="$(__rport)"
     TYPE="$(echo "$web_ports" | awk -F '/' '{print $NF}' | grep '^' || echo '')"
-    SET_WEB_PORT="$WEB_SERVER_IP:$RANDOM_PORT"
-    #[ -n "$TYPE" ] &&
-    # CONTAINER_ADD_CUSTOM_LISTEN+="$WEB_SERVER_IP:$RANDOM_PORT:$web_ports/$TYPE " ||
+    SET_WEB_PORT+="$WEB_SERVER_IP:$RANDOM_PORT "
     CONTAINER_ADD_CUSTOM_LISTEN+="$WEB_SERVER_IP:$RANDOM_PORT:$web_ports "
   done
   [ "$WEB_SSL_ENABLE" = "yes" ] && CONTAINER_HTTP_PROTO="https" || CONTAINER_HTTP_PROTO="http"
@@ -671,8 +668,7 @@ else
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main progam
-SET_CONTAINER_HOSTNAME="${HOST_LISTEN_ADDR//:*/}"
-ENV_PORTS+="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | grep ':.*.:' | awk -F ':' '{print $1":"$3}')"
+ENV_PORTS="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | grep ':.*.:' | awk -F ':' '{print $1":"$3}')"
 ENV_PORTS+="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | grep -v ':.*.:' | awk -F ':' '{print $1":"$2}')"
 ENV_PORTS="$(echo "$ENV_PORTS" | tr ' ' '\n' | sort -u | grep '^')"
 ENV_PORTS="${ENV_PORTS//--publish/}"

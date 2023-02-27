@@ -274,7 +274,7 @@ CONTAINER_WEB_SERVER_PORT="80"
 # Set this to the protocol the the container will use [http/https/git/ftp/pgsql/mysql/mongodb]
 CONTAINER_HTTP_PROTO="http"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Add service port [port] or [port:port] - LISTEN will be added if defined [DEFINE_LISTEN] or CONTAINER_PRIVATE=yes
+# Add service port [port] or [port:port] - LISTEN will be added if defined [HOST_DEFINE_LISTEN] or CONTAINER_PRIVATE=yes
 # Only ONE of HTTP or HTTPS if web server or SERVICE port for mysql/pgsql/ftp/pgsql. add more to CONTAINER_ADD_CUSTOM_PORT
 CONTAINER_HTTP_PORT=""
 CONTAINER_HTTPS_PORT=""
@@ -323,8 +323,8 @@ CONTAINER_COMMANDS=""
 CONTAINER_COMMANDS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define additional docker arguments - see docker run --help [--option arg1,--option2]
-HOST_CUSTOM_ARGUMENTS=""
-HOST_CUSTOM_ARGUMENTS+=""
+DOCKER_CUSTOM_ARGUMENTS=""
+DOCKER_CUSTOM_ARGUMENTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show post install message
 POST_SHOW_FINISHED_MESSAGE=""
@@ -371,20 +371,21 @@ DOCKER_SET_PUBLISH=""
 [ "$GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME" = "random" ] && CONTAINER_USER_PASS="$RANDOM_PASS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set network Variables
-DEFINE_LISTEN=""
-HOST_NETWORK_ADDR=""
-CONTAINER_HOSTNAME="${CONTAINER_DOMAINNAME:-$APPNAME.$SERVER_SHORT_DOMAIN.$SERVER_FULL_DOMAIN}"
+HOST_DEFINE_LISTEN="${HOST_DEFINE_LISTEN:-SET_LOCAL_IP}"
+CONTAINER_DOMAINNAME="${CONTAINER_DOMAINNAME:-$SERVER_FULL_DOMAIN}"
+CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME.$CONTAINER_DOMAINNAME}"
 [[ "$CONTAINER_HOSTNAME" = server.* ]] && CONTAINER_HOSTNAME="$APPNAME.$SERVER_FULL_DOMAIN"
-[ "$HOST_NETWORK_ADDR" = "local" ] && DEFINE_LISTEN="127.0.0.1" && HOST_LISTEN_ADDR="127.0.0.1"
-[ "$HOST_NETWORK_ADDR" = "public" ] && DEFINE_LISTEN="0.0.0.0" && HOST_LISTEN_ADDR="$(__local_lan_ip)"
-[ "$HOST_NETWORK_ADDR" = "lan" ] && DEFINE_LISTEN="$(__local_lan_ip)" && HOST_LISTEN_ADDR="$(__local_lan_ip)"
-[ "$HOST_NETWORK_ADDR" = "yes" ] && CONTAINER_PRIVATE="yes" && DEFINE_LISTEN="127.0.0.1" && HOST_LISTEN_ADDR="127.0.0.1"
-[ "$HOST_NETWORK_ADDR" = "docker" ] && DEFINE_LISTEN="$(__docker_gateway_ip)" && HOST_LISTEN_ADDR="$(__docker_gateway_ip)"
+[ "$HOST_NETWORK_ADDR" = "local" ] && HOST_DEFINE_LISTEN="127.0.0.1" && HOST_LISTEN_ADDR="127.0.0.1"
+[ "$HOST_NETWORK_ADDR" = "public" ] && HOST_DEFINE_LISTEN="0.0.0.0" && HOST_LISTEN_ADDR="$(__local_lan_ip)"
+[ "$HOST_NETWORK_ADDR" = "lan" ] && HOST_DEFINE_LISTEN="$(__local_lan_ip)" && HOST_LISTEN_ADDR="$(__local_lan_ip)"
+[ "$HOST_NETWORK_ADDR" = "yes" ] && CONTAINER_PRIVATE="yes" && HOST_DEFINE_LISTEN="127.0.0.1" && HOST_LISTEN_ADDR="127.0.0.1"
+[ "$HOST_NETWORK_ADDR" = "docker" ] && HOST_DEFINE_LISTEN="$(__docker_gateway_ip)" && HOST_LISTEN_ADDR="$(__docker_gateway_ip)"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # rewrite variables
 [ -n "$HUB_IMAGE_TAG" ] || HUB_IMAGE_TAG="latest"
 [ -n "$CONTAINER_TIMEZONE" ] || CONTAINER_TIMEZONE="America/New_York"
-[ -n "$DEFINE_LISTEN" ] && DEFINE_LISTEN="${DEFINE_LISTEN//:*/}" || DEFINE_LISTEN=""
+[ -n "$HOST_DEFINE_LISTEN" ] && HOST_DEFINE_LISTEN="${HOST_DEFINE_LISTEN//:*/}"
+[ ! -f "/etc/nginx/vhosts.d/$CONTAINER_HOSTNAME.conf" ] && HOST_NGINX_UPDATE_CONF="yes"
 [ -n "$CONTAINER_COMMANDS" ] && CONTAINER_COMMANDS="${CONTAINER_COMMANDS//,/ }" || CONTAINER_COMMANDS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 IS_PRIVATE="${CONTAINER_WEB_SERVER_PORT:-$CONTAINER_SERVICE_PORT}"
@@ -403,21 +404,21 @@ fi
 [ -n "$DOCKER_CUSTOM_ARGUMENTS" ] && DOCKER_CUSTOM_ARGUMENTS+="${DOCKER_CUSTOM_ARGUMENTS//,/ } "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set docker options from env
-[ "$CONTAINER_TTY" = "yes" ] && DOCKER_SET_OPTIONS+="--tty " || CONTAINER_TTY=""
 [ -n "$CONTAINER_DOMAINNAME" ] && DOCKER_SET_OPTIONS+="--domainname $CONTAINER_DOMAINNAME "
-[ "$CONTAINER_INTERACTIVE" = "yes" ] && DOCKER_SET_OPTIONS+="--interactive " || CONTAINER_INTERACTIVE=""
-[ "$CONTAINER_IS_PRIVILEGED" = "yes" ] && DOCKER_SET_OPTIONS+="--privileged " || CONTAINER_IS_PRIVILEGED=""
+[ "$CONTAINER_TTY_ENABLED" = "yes" ] && DOCKER_SET_OPTIONS+="--tty " || CONTAINER_TTY_ENABLED=""
+[ "$CONTAINER_PRIVILEGED_ENABLED" = "yes" ] && DOCKER_SET_OPTIONS+="--privileged " || CONTAINER_PRIVILEGED_ENABLED=""
+[ "$CONTAINER_INTERACTIVE_ENABLED" = "yes" ] && DOCKER_SET_OPTIONS+="--interactive " || CONTAINER_INTERACTIVE_ENABLED=""
 [ "$CONTAINER_AUTO_DELETE" = "yes" ] && DOCKER_SET_OPTIONS+="--rm " && CONTAINER_AUTO_RESTART="" || CONTAINER_AUTO_DELETE=""
-[ "$HOST_NETWORK_TYPE" = "host" ] && DOCKER_SET_OPTIONS="--net-host " || HOST_NETWORK_TYPE="--network ${HOST_NETWORK_TYPE:-bridge} "
+[ "$HOST_DOCKER_NETWORK" = "host" ] && DOCKER_SET_OPTIONS="--net-host " || HOST_NETWORK_TYPE="--network ${HOST_DOCKER_NETWORK:-bridge} "
 [ -n "$CONTAINER_AUTO_RESTART" ] && DOCKER_SET_OPTIONS+="--restart=$CONTAINER_AUTO_RESTART " || DOCKER_SET_OPTIONS+="--restart unless-stopped "
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mounts from env
-[ "$CGROUP_ENABLED" = "yes" ] && CONTAINER_MOUNTS+="$CGROUP_MOUNTS "
-[ "$HOST_ETC_HOSTS_FILE" = "yes" ] && CONTAINER_MOUNTS+="/etc/hosts:/usr/local/etc/hosts:ro "
+[ "$CGROUPS_ENABLED" = "yes" ] && CONTAINER_MOUNTS+="$CGROUPS_MOUNTS "
+[ "$HOST_ETC_HOSTS_ENABLED" = "yes" ] && CONTAINER_MOUNTS+="/etc/hosts:/etc/hosts:ro "
 [ "$DOCKER_SOCKET_ENABLED" = "yes" ] && CONTAINER_MOUNTS+="$DOCKER_SOCKET_MOUNT:/var/run/docker.sock "
-[ "$DOCKER_CONFIG_ENABLED" = "yes" ] && CONTAINER_MOUNTS="$DOCKER_CONFIG_MOUNT:$DOCKER_CONFIG_TO_MOUNT:ro "
-[ "$HOST_RESOLVE_MOUNT" = "yes" ] && CONTAINER_MOUNTS+="$HOST_RESOLVE_MOUNT:/etc/resolv.conf " || HOST_RESOLVE_MOUNT=""
+[ "$DOCKER_CONFIG_ENABLED" = "yes" ] && CONTAINER_MOUNTS="$HOST_DOCKER_CONFIG:$CONTAINER_DOCKER_CONFIG_FILE:ro "
+[ "$HOST_RESOLVE_ENABLED" = "yes" ] && CONTAINER_MOUNTS+="$HOST_RESOLVE_FILE:/etc/resolv.conf " || HOST_RESOLVE_FILE=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # env variables from env
 [ -z "$CONTAINER_USER_NAME" ] || ADDITION_ENV+="${CONTAINER_ENV_USER_NAME:-username}=$CONTAINER_USER_NAME "
@@ -438,24 +439,27 @@ if [ "$CONTAINER_X11_ENABLED" = "yes" ] && [ -f "$HOST_X11_SOCKET" ] && [ -f "$H
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # nginx settings
-if [ "$HOST_NGINX_SSL_ENABLED" = "yes" ] && [ -n "$HOST_NGINX_HTTPS_PORT" ]; then
-  NGINX_PORT="${HOST_NGINX_HTTPS_PORT:-443}" && NGINX_LISTEN_OPTS="ssl http2"
-else
-  NGINX_PORT="${HOST_NGINX_HTTP_PORT:-80}"
-fi
-if [ "$CONTAINER_WEB_SERVER_AUTH_ENABLED" = "yes" ]; then
-  CONTAINER_USER_NAME="${CONTAINER_USER_NAME:-root}"
-  CONTAINER_USER_PASS="${CONTAINER_USER_PASS:-$RANDOM_PASS}"
-  SET_USER_NAME="$CONTAINER_USER_NAME"
-  SET_USER_PASS="$CONTAINER_USER_PASS"
-  [ -d "/etc/nginx/auth" ] || mkdir -p "/etc/nginx/auth"
-  if [ -n "$(builtin type -P htpasswd)" ]; then
-    if ! grep -q "$CONTAINER_USER_NAME"; then
-      printf_yellow "Creating auth /etc/nginx/auth/$APPNAME"
-      if [ -f "/etc/nginx/auth/$APPNAME" ]; then
-        htpasswd -b "/etc/nginx/auth/$APPNAME" "$CONTAINER_USER_NAME" "$CONTAINER_USER_PASS" &>/dev/null
-      else
-        htpasswd -b -c "/etc/nginx/auth/$APPNAME" "$CONTAINER_USER_NAME" "$CONTAINER_USER_PASS" &>/dev/null
+if [ "$HOST_NGINX_ENABLED" = "yes" ]; then
+  if [ "$HOST_NGINX_SSL_ENABLED" = "yes" ] && [ -n "$HOST_NGINX_HTTPS_PORT" ]; then
+    NGINX_LISTEN_OPTS="ssl http2"
+    NGINX_PORT="${HOST_NGINX_HTTPS_PORT:-443}"
+  else
+    NGINX_PORT="${HOST_NGINX_HTTP_PORT:-80}"
+  fi
+  if [ "$CONTAINER_WEB_SERVER_AUTH_ENABLED" = "yes" ]; then
+    CONTAINER_USER_NAME="${CONTAINER_USER_NAME:-root}"
+    CONTAINER_USER_PASS="${CONTAINER_USER_PASS:-$RANDOM_PASS}"
+    SET_USER_NAME="$CONTAINER_USER_NAME"
+    SET_USER_PASS="$CONTAINER_USER_PASS"
+    [ -d "/etc/nginx/auth" ] || mkdir -p "/etc/nginx/auth"
+    if [ -n "$(builtin type -P htpasswd)" ]; then
+      if ! grep -q "$CONTAINER_USER_NAME"; then
+        printf_yellow "Creating auth /etc/nginx/auth/$APPNAME"
+        if [ -f "/etc/nginx/auth/$APPNAME" ]; then
+          htpasswd -b "/etc/nginx/auth/$APPNAME" "$CONTAINER_USER_NAME" "$CONTAINER_USER_PASS" &>/dev/null
+        else
+          htpasswd -b -c "/etc/nginx/auth/$APPNAME" "$CONTAINER_USER_NAME" "$CONTAINER_USER_PASS" &>/dev/null
+        fi
       fi
     fi
   fi
@@ -560,7 +564,7 @@ done
 CONTAINER_MOUNTS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 CONTAINER_OPT_PORT_VAR="${CONTAINER_OPT_PORT_VAR//,/ }"
-SET_LISTEN="${DEFINE_LISTEN//:*/}"
+SET_LISTEN="${HOST_DEFINE_LISTEN//:*/}"
 if [ -n "$CONTAINER_OPT_PORT_VAR" ]; then
   for port in $CONTAINER_OPT_PORT_VAR; do
     if [ "$port" != "" ] && [ "$port" != " " ]; then
@@ -572,7 +576,7 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_SERVER_PORTS="$CONTAINER_HTTP_PORT $CONTAINER_HTTPS_PORT $CONTAINER_SERVICE_PORT $CONTAINER_ADD_CUSTOM_PORT"
 SET_SERVER_PORTS="${SET_SERVER_PORTS//,/ }"
-SET_LISTEN="${DEFINE_LISTEN//:*/}"
+SET_LISTEN="${HOST_DEFINE_LISTEN//:*/}"
 for port in $SET_SERVER_PORTS; do
   if [ "$port" != " " ] && [ -n "$port" ]; then
     echo "$port" | grep -q ':' || port="${port//\/*/}:$port"
@@ -606,7 +610,7 @@ if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ]; then
     SET_WEB_PORT+="$CONTAINER_WEB_SERVER_IP:$RANDOM_PORT "
     SET_WEB_SERVER_PORTS+="$CONTAINER_WEB_SERVER_IP:$RANDOM_PORT:$web_ports "
   done
-  [ "$WEB_SSL_ENABLE" = "yes" ] && CONTAINER_HTTP_PROTO="https" || CONTAINER_HTTP_PROTO="http"
+  [ "$CONTAINER_WEB_SERVER_SSL_ENABLED" = "yes" ] && CONTAINER_HTTP_PROTO="https" || CONTAINER_HTTP_PROTO="http"
   NGINX_PROXY_PORT="$(echo "$SET_WEB_SERVER_PORTS" | tr ' ' '\n' | awk -F':' '{print $1":"$2}' | awk -F ':' '{print $1":"$2}' | head -n1)"
   CLEANUP_PORT="$NGINX_PROXY_PORT"
   CLEANUP_PORT="${CLEANUP_PORT//\/*/}"
@@ -671,7 +675,7 @@ DOCKER_SET_PORTS_ENV="${DOCKER_SET_PORTS_ENV_TMP//--publish/}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main progam
 EXECUTE_PRE_INSTALL="docker stop $CONTAINER_NAME;docker rm -f $CONTAINER_NAME"
-EXECUTE_DOCKER_CMD="docker run -d --name=$DOCKER_SET_NAME $DOCKER_SET_LABELS $DOCKER_SET_LINK --shm-size=$DOCKER_SET_SHM_SIZE $DOCKER_SET_OPTIONS $DOCKER_SET_CAP $DOCKER_SET_SYSCTL --hostname $DOCKER_SET_HOSTNAME --env TZ=$DOCKER_SET_TZ --env ENV_PORTS=\"$DOCKER_SET_PORTS_ENV\" --env TIMEZONE=$DOCKER_SET_TZ $SET_ENV $DOCKER_SET_ENV $DOCKER_SET_MNT $DOCKER_SET_PUBLISH $DOCKER_CUSTOM_ARGUMENTS $DOCKER_HOST_NETWORK_TYPE $HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS"
+EXECUTE_DOCKER_CMD="docker run -d --name=$DOCKER_SET_NAME $DOCKER_SET_LABELS $DOCKER_SET_LINK --shm-size=$CONTAINER_SHM_SIZE $DOCKER_SET_OPTIONS $DOCKER_SET_CAP $DOCKER_SET_SYSCTL --hostname $DOCKER_SET_HOSTNAME --env TZ=$DOCKER_SET_TZ --env ENV_PORTS=\"$DOCKER_SET_PORTS_ENV\" --env TIMEZONE=$DOCKER_SET_TZ $SET_ENV $DOCKER_SET_ENV $DOCKER_SET_MNT $DOCKER_SET_PUBLISH $DOCKER_CUSTOM_ARGUMENTS $DOCKER_HOST_NETWORK_TYPE $HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS"
 EXECUTE_DOCKER_CMD="${EXECUTE_DOCKER_CMD//  / }"
 if cmd_exists docker-compose && [ -f "$INSTDIR/docker-compose.yml" ]; then
   printf_yellow "Installing containers using docker-compose"
@@ -704,42 +708,39 @@ if [ -n "$EXECUTE_DOCKER_SCRIPT" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Install nginx proxy
-set -x
-[ ! -f "$INSTDIR/nginx/proxy.conf" ] && NGINX_UPDATE_CONF="yes"
 if [ "$NGINX_PROXY" = "yes" ]; then
-  if [ "$NGINX_UPDATE_CONF" = "yes" ] && [ -f "$INSTDIR/nginx/proxy.conf" ]; then
-    cp -f "$INSTDIR/nginx/proxy.conf" "/tmp/$$.$SET_CONTAINER_HOSTNAME.conf"
-    sed -i "s|REPLACE_APPNAME|$APPNAME|g" "/tmp/$$.$SET_CONTAINER_HOSTNAME.conf" &>/dev/null
-    sed -i "s|REPLACE_NGINX_PORT|$NGINX_PORT|g" "/tmp/$$.$SET_CONTAINER_HOSTNAME.conf" &>/dev/null
-    sed -i "s|REPLACE_HOST_PROXY|$NGINX_PROXY_URL|g" "/tmp/$$.$SET_CONTAINER_HOSTNAME.conf" &>/dev/null
-    sed -i "s|REPLACE_NGINX_HOST|$SET_CONTAINER_HOSTNAME|g" "/tmp/$$.$SET_CONTAINER_HOSTNAME.conf" &>/dev/null
-    sed -i "s|REPLACE_SERVER_LISTEN_OPTS|$NGINX_LISTEN_OPTS|g" "/tmp/$$.$SET_CONTAINER_HOSTNAME.conf" &>/dev/null
+  if [ "$HOST_NGINX_UPDATE_CONF" = "yes" ] && [ -f "$INSTDIR/nginx/proxy.conf" ]; then
+    cp -f "$INSTDIR/nginx/proxy.conf" "/tmp/$$.$CONTAINER_HOSTNAME.conf"
+    sed -i "s|REPLACE_APPNAME|$APPNAME|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
+    sed -i "s|REPLACE_NGINX_PORT|$NGINX_PORT|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
+    sed -i "s|REPLACE_HOST_PROXY|$NGINX_PROXY_URL|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
+    sed -i "s|REPLACE_NGINX_HOST|$CONTAINER_HOSTNAME|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
+    sed -i "s|REPLACE_SERVER_LISTEN_OPTS|$NGINX_LISTEN_OPTS|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
     if [ -d "/etc/nginx/vhosts.d" ]; then
-      __sudo_root mv -f "/tmp/$$.$SET_CONTAINER_HOSTNAME.conf" "/etc/nginx/vhosts.d/$SET_CONTAINER_HOSTNAME.conf"
-      [ -f "/etc/nginx/vhosts.d/$SET_CONTAINER_HOSTNAME.conf" ] && printf_green "[ ✅ ] Copying the nginx configuration"
+      __sudo_root mv -f "/tmp/$$.$CONTAINER_HOSTNAME.conf" "/etc/nginx/vhosts.d/$CONTAINER_HOSTNAME.conf"
+      [ -f "/etc/nginx/vhosts.d/$CONTAINER_HOSTNAME.conf" ] && printf_green "[ ✅ ] Copying the nginx configuration"
       systemctl status nginx | grep -q enabled &>/dev/null && __sudo_root systemctl reload nginx &>/dev/null
     else
-      mv -f "/tmp/$$.$SET_CONTAINER_HOSTNAME.conf" "$INSTDIR/nginx/$SET_CONTAINER_HOSTNAME.conf" &>/dev/null
+      mv -f "/tmp/$$.$CONTAINER_HOSTNAME.conf" "$INSTDIR/nginx/$CONTAINER_HOSTNAME.conf" &>/dev/null
     fi
   else
     NGINX_PROXY_URL=""
   fi
-  SERVER_URL="$CONTAINER_HTTP_PROTO://$SET_CONTAINER_HOSTNAME:$PRETTY_PORT"
-  [ -f "/etc/nginx/vhosts.d/$SET_CONTAINER_HOSTNAME.conf" ] && NGINX_PROXY_URL="$CONTAINER_HTTP_PROTO://$SET_CONTAINER_HOSTNAME"
+  SERVER_URL="$CONTAINER_HTTP_PROTO://$CONTAINER_HOSTNAME:$PRETTY_PORT"
+  [ -f "/etc/nginx/vhosts.d/$CONTAINER_HOSTNAME.conf" ] && NGINX_PROXY_URL="$CONTAINER_HTTP_PROTO://$CONTAINER_HOSTNAME"
 fi
-set +x
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run post install scripts
 run_postinst() {
   dockermgr_run_post
   [ -w "/etc/hosts" ] || return 0
-  if ! grep -sq "$SET_CONTAINER_HOSTNAME" "/etc/hosts"; then
+  if ! grep -sq "$CONTAINER_HOSTNAME" "/etc/hosts"; then
     if [ -n "$PRETTY_PORT" ]; then
       if [ $(hostname -d 2>/dev/null | grep '^') = 'home' ]; then
         echo "$HOST_LISTEN_ADDR     $APPNAME.home" | sudo tee -a "/etc/hosts" &>/dev/null
       else
         echo "$HOST_LISTEN_ADDR     $APPNAME.home" | sudo tee -a "/etc/hosts" &>/dev/null
-        echo "$HOST_LISTEN_ADDR     $SET_CONTAINER_HOSTNAME" | sudo tee -a "/etc/hosts" &>/dev/null
+        echo "$HOST_LISTEN_ADDR     $CONTAINER_HOSTNAME" | sudo tee -a "/etc/hosts" &>/dev/null
       fi
     fi
   fi

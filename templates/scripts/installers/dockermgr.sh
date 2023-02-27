@@ -409,7 +409,7 @@ echo "$CONTAINER_HOSTNAME" | grep -Fq '.' || CONTAINER_HOSTNAME="$APPNAME.$SERVE
 # rewrite variables
 [ -n "$HUB_IMAGE_TAG" ] || HUB_IMAGE_TAG="latest"
 [ -n "$HOST_TIMEZONE" ] || HOST_TIMEZONE="America/New_York"
-[ -n "$HOST_WEB_PORT" ] && HOST_PORT="${HOST_WEB_PORT:-}"
+[ -n "$HOST_WEB_PORT" ] && HOST_WEB_PORT="${HOST_WEB_PORT:-}"
 [ -n "$CUSTOM_ARGUMENTS" ] && CUSTOM_ARGUMENTS="${CUSTOM_ARGUMENTS//,/ }"
 [ -n "$DEFINE_LISTEN" ] && DEFINE_LISTEN="${DEFINE_LISTEN//:*/}" || DEFINE_LISTEN=""
 [ -n "$CONTAINER_DOMAINNAME" ] && CUSTOM_ARGUMENTS+="--domainname $CONTAINER_DOMAINNAME "
@@ -418,13 +418,12 @@ echo "$CONTAINER_HOSTNAME" | grep -Fq '.' || CONTAINER_HOSTNAME="$APPNAME.$SERVE
 [ -z "$CONTAINER_USER_PASS" ] || ADDITION_ENV+="${CONTAINER_ENV_PASS_NAME:-password}=$CONTAINER_USER_PASS "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 IS_PRIVATE="${HOST_WEB_PORT:-$CONTAINER_SERVICE_PORT}"
-CLEANUP_PORT="${HOST_SERVICE_PORT:-$HOST_PORT}"
+CLEANUP_PORT="${HOST_SERVICE_PORT:-$IS_PRIVATE}"
 CLEANUP_PORT="${CLEANUP_PORT//\/*/}"
 PRETTY_PORT="$CLEANUP_PORT"
-echo "$PRETTY_PORT" | grep -q ':' && PRETTY_PORT="$(echo "$PRETTY_PORT" | awk -F':' '{print $1}')"
-HOST_PORT="$PRETTY_PORT"
 NGINX_PROXY_PORT="$PRETTY_PORT"
 #NGINX_PROXY_PORT="$(echo "$CLEANUP_PORT" | awk -F':' '{printf $NF}' | grep '^' || echo "$CLEANUP_PORT")"
+#echo "$PRETTY_PORT" | grep -q ':' && PRETTY_PORT="$(echo "$PRETTY_PORT" | awk -F':' '{print $1}')"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [ "$HOST_NETWORK_TYPE" = "host" ] && HOST_NETWORK_TYPE="--net-host"
 [ "$CONTAINER_TTY" = "yes" ] && DOCKER_OPTS+="--tty " || CONTAINER_TTY=""
@@ -579,7 +578,7 @@ if [ -n "$PORT_VAR" ]; then
   done
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-SET_SERVER_PORTS="$CONTAINER_HTTP_PORT $CONTAINER_HTTPS_PORT $CONTAINER_SERVICE_PORT  $CONTAINER_ADD_CUSTOM_PORT"
+SET_SERVER_PORTS="$CONTAINER_HTTP_PORT $CONTAINER_HTTPS_PORT $CONTAINER_SERVICE_PORT $CONTAINER_ADD_CUSTOM_PORT"
 SET_SERVER_PORTS="${SET_SERVER_PORTS//,/ }"
 for port in $SET_SERVER_PORTS; do
   if [ "$port" != " " ] && [ -n "$port" ]; then
@@ -743,11 +742,13 @@ if docker ps -a | grep -qs "$APPNAME"; then
     for service in $SET_PORT; do
       service="${service//\/*/}"
       listen="${service//0.0.0.0/$HOST_LISTEN_ADDR}"
-      printf_blue "$Service is running on: $listen"
+      printf_blue "$service is running on: $listen"
     done
-    [ -z "$CONTAINER_ADD_CUSTOM_PORT" ] || printf_cyan "Service is running on: $HOST_LISTEN_ADDR:$PRETTY_PORT"
-    [ -z "$CONTAINER_SERVICE_PORT" ] || printf_cyan "Service is listening on $HOST_LISTEN_ADDR:$PRETTY_PORT"
-    [ -z "$HOST_WEB_PORT" ] || printf_cyan "and should be available at: ${NGINX_PROXY_URL:-$SERVER_URL}"
+    for service in $HOST_WEB_PORT; do
+      service="${service//\/*/}"
+      listen="${service//0.0.0.0/$HOST_LISTEN_ADDR}"
+      printf_blue "Web service is running on: $CONTAINER_HTTP_PROTO://$listen"
+    done
   fi
   [ -z "$SET_USER_NAME" ] || printf_cyan "Username is:  $SET_USER_NAME"
   [ -z "$SET_USER_PASS" ] || printf_purple "Password is:  $SET_USER_PASS"

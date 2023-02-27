@@ -740,9 +740,13 @@ if docker ps -a | grep -qs "$APPNAME"; then
   if [ -z "$PRETTY_PORT" ]; then
     printf_yellow "This container does not have services configured"
   else
-    printf_cyan "Service is running on: $HOST_LISTEN_ADDR:$PRETTY_PORT"
-    printf_cyan "Service is listening on $HOST_LISTEN_ADDR:$PRETTY_PORT"
-    printf_cyan "and should be available at: ${NGINX_PROXY_URL:-$SERVER_URL}"
+    for service in $SET_PORT; do
+      listen="${service//0.0.0.0/$HOST_LISTEN_ADDR}"
+      printf_blue "$Service is running on: $listen"
+    done
+    [ -z "$CONTAINER_ADD_CUSTOM_PORT" ] || printf_cyan "Service is running on: $HOST_LISTEN_ADDR:$PRETTY_PORT"
+    [ -z "$CONTAINER_SERVICE_PORT" ] || printf_cyan "Service is listening on $HOST_LISTEN_ADDR:$PRETTY_PORT"
+    [ -z "$HOST_WEB_PORT" ] || printf_cyan "and should be available at: ${NGINX_PROXY_URL:-$SERVER_URL}"
   fi
   [ -z "$SET_USER_NAME" ] || printf_cyan "Username is:  $SET_USER_NAME"
   [ -z "$SET_USER_PASS" ] || printf_purple "Password is:  $SET_USER_PASS"

@@ -166,7 +166,7 @@ LOCAL_CONFIG_DIR="${LOCAL_CONFIG_DIR:-$HOST_CONFIG_DIR}"
 TZ="${TZ:-$TIMEZONE}"
 TIMEZONE="${TZ:-$TIMEZONE}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Get username and password from env if variables exist
+# Get username and password from env if variables exist [username] [pass,random]
 GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME="${GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME:-$DEFAULT_USERNAME}"
 GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD="${GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD:-$DEFAULT_PASSWORD}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -395,6 +395,7 @@ echo "$CONTAINER_HOSTNAME" | grep -Fq '.' || CONTAINER_HOSTNAME="$APPNAME.$SERVE
 [ "$HOST_LOCAL_ONLY" = "local" ] && DEFINE_LISTEN="127.0.0.1"
 [ "$CONTAINER_HTTPS_PORT" = "" ] || CONTAINER_HTTP_PROTO="https"
 [ "$CGROUP_ENABLED" = "yes" ] && ADDITIONAL_MOUNTS="$CGROUP_MOUNTS "
+[ "$SET_USER_PASS" = "random" ] && CONTAINER_USER_PASS="$RANDOM_PASS"
 [ "$HOST_ETC_HOSTS_FILE" = "yes" ] && ADDITIONAL_MOUNTS+="/etc/hosts:/usr/local/etc/hosts:ro "
 [ "$DOCKER_SOCKET_ENABLED" = "yes" ] && ADDITIONAL_MOUNTS+="$DOCKER_SOCKET_MOUNT:/var/run/docker.sock "
 [ "$DOCKER_CONFIG_ENABLED" = "yes" ] && ADDITIONAL_MOUNTS="$DOCKER_CONFIG_MOUNT:$DOCKER_CONFIG_TO_MOUNT:ro "
@@ -462,6 +463,22 @@ if [ "$WEB_SERVER_AUTH" = "yes" ]; then
       printf_yellow "Creating auth /etc/nginx/auth/$APPNAME"
       htpasswd -b -c "/etc/nginx/auth/$APPNAME" "$CONTAINER_USER_NAME" "$CONTAINER_USER_PASS" &>/dev/null
     fi
+  fi
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Add username and password to env file
+if [ -n "$SET_USER_NAME" ]; then
+  if ! grep -qs "$GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME" "$DOCKERMGR_CONFIG_DIR/env/$APPNAME"; then
+    cat <<EOF >>"$DOCKERMGR_CONFIG_DIR/env/$APPNAME"
+GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME="${SET_USER_NAME:-$GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME}"
+EOF
+  fi
+fi
+if [ -n "$SET_USER_PASS" ]; then
+  if ! grep -qs "$GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD" "$DOCKERMGR_CONFIG_DIR/env/$APPNAME"; then
+    cat <<EOF >>"$DOCKERMGR_CONFIG_DIR/env/$APPNAME"
+GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD="${SET_USER_PASS:-$GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD}"
+EOF
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

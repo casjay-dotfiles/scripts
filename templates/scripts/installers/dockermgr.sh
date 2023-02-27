@@ -245,8 +245,8 @@ CONTAINER_DOMAINNAME=""
 # Set the network type - default is bridge [bridge/host]
 HOST_NETWORK_TYPE="bridge"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Listen on local address only [no/local/lan/docker/public]
-HOST_LOCAL_ONLY="no"
+# Set listen type - Default default all [all/yes/lan/docker/public]
+HOST_NETWORK_ADDR="all"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set this to 0.0.0.0 to listen on all or specific addresses
 DEFINE_LISTEN="0.0.0.0"
@@ -363,7 +363,8 @@ mkdir -p "$DOCKERMGR_CONFIG_DIR/env"
 mkdir -p "$DOCKERMGR_CONFIG_DIR/scripts"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # rewrite variables
-[ -n "$HOST_LOCAL_ONLY" ] || HOST_LOCAL_ONLY="no"
+[ -n "$HOST_NETWORK_ADDR" ] || HOST_NETWORK_ADDR="no"
+[ "$HOST_NETWORK_ADDR" = "all" ] || HOST_NETWORK_ADDR="yes"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SERVER_SHORT_DOMAIN="$(hostname -s 2>/dev/null | grep '^')"
 SERVER_FULL_DOMAIN="$(hostname -d 2>/dev/null | grep '^' || echo 'home')"
@@ -372,9 +373,7 @@ SERVER_FULL_DOMAIN="$(hostname -d 2>/dev/null | grep '^' || echo 'home')"
 ENV_PORTS=""
 DOCKER_OPTS=""
 NGINX_LISTEN_OPTS=""
-TZ="${TZ:-TIMEZONE}"
 CONTAINER_LISTEN="127.0.0.1"
-TIMEZONE="${TZ:-America/New_York}"
 HOST_TIMEZONE="${TZ:-$TIMEZONE}"
 DEFINE_LISTEN="${DEFINE_LISTEN:-}"
 HOST_IP="${CURRENT_IP_4:-$(__local_lan_ip)}"
@@ -397,18 +396,18 @@ echo "$CONTAINER_HOSTNAME" | grep -Fq '.' || CONTAINER_HOSTNAME="$APPNAME.$SERVE
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Configure variables
 [ -n "$CONTAINER_NAME" ] || CONTAINER_NAME="$(__name)"
-[ "$HOST_LOCAL_ONLY" = "yes" ] && CONTAINER_PRIVATE="yes"
+[ "$HOST_NETWORK_ADDR" = "yes" ] && CONTAINER_PRIVATE="yes"
 [ "$CONTAINER_HTTPS_PORT" = "" ] || CONTAINER_HTTP_PROTO="https"
 [ "$CGROUP_ENABLED" = "yes" ] && ADDITIONAL_MOUNTS="$CGROUP_MOUNTS "
 [ "$SET_USER_PASS" = "random" ] && CONTAINER_USER_PASS="$RANDOM_PASS"
 [ "$HOST_ETC_HOSTS_FILE" = "yes" ] && ADDITIONAL_MOUNTS+="/etc/hosts:/usr/local/etc/hosts:ro "
 [ "$DOCKER_SOCKET_ENABLED" = "yes" ] && ADDITIONAL_MOUNTS+="$DOCKER_SOCKET_MOUNT:/var/run/docker.sock "
 [ "$DOCKER_CONFIG_ENABLED" = "yes" ] && ADDITIONAL_MOUNTS="$DOCKER_CONFIG_MOUNT:$DOCKER_CONFIG_TO_MOUNT:ro "
-[ "$HOST_LOCAL_ONLY" = "yes" ] && DEFINE_LISTEN="127.0.0.1" && HOST_LISTEN_ADDR="127.0.0.1" || HOST_LOCAL_ONLY=""
-[ "$HOST_LOCAL_ONLY" = "local" ] && DEFINE_LISTEN="127.0.0.1" && HOST_LISTEN_ADDR="127.0.0.1" || HOST_LOCAL_ONLY=""
-[ "$HOST_LOCAL_ONLY" = "public" ] && DEFINE_LISTEN="0.0.0.0" && HOST_LISTEN_ADDR="$(__local_lan_ip)" || HOST_LOCAL_ONLY=""
-[ "$HOST_LOCAL_ONLY" = "lan" ] && DEFINE_LISTEN="$(__local_lan_ip)" && HOST_LISTEN_ADDR="$(__local_lan_ip)" || HOST_LOCAL_ONLY=""
-[ "$HOST_LOCAL_ONLY" = "docker" ] && DEFINE_LISTEN="$(__docker_gateway_ip)" && HOST_LISTEN_ADDR="$(__docker_gateway_ip)" || HOST_LOCAL_ONLY=""
+[ "$HOST_NETWORK_ADDR" = "yes" ] && DEFINE_LISTEN="127.0.0.1" && HOST_LISTEN_ADDR="127.0.0.1" || HOST_NETWORK_ADDR=""
+[ "$HOST_NETWORK_ADDR" = "local" ] && DEFINE_LISTEN="127.0.0.1" && HOST_LISTEN_ADDR="127.0.0.1" || HOST_NETWORK_ADDR=""
+[ "$HOST_NETWORK_ADDR" = "public" ] && DEFINE_LISTEN="0.0.0.0" && HOST_LISTEN_ADDR="$(__local_lan_ip)" || HOST_NETWORK_ADDR=""
+[ "$HOST_NETWORK_ADDR" = "lan" ] && DEFINE_LISTEN="$(__local_lan_ip)" && HOST_LISTEN_ADDR="$(__local_lan_ip)" || HOST_NETWORK_ADDR=""
+[ "$HOST_NETWORK_ADDR" = "docker" ] && DEFINE_LISTEN="$(__docker_gateway_ip)" && HOST_LISTEN_ADDR="$(__docker_gateway_ip)" || HOST_NETWORK_ADDR=""
 [ "$HOST_RESOLVE_MOUNT" = "yes" ] && ADDITIONAL_MOUNTS+="$HOST_RESOLVE_MOUNT:/etc/resolv.conf " || HOST_RESOLVE_MOUNT=""
 [ "$NGINX_SSL" = "yes" ] && [ -n "$NGINX_HTTPS" ] && NGINX_PORT="${NGINX_HTTPS:-443}" && NGINX_LISTEN_OPTS="ssl http2" || NGINX_PORT="${NGINX_HTTP:-80}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -670,6 +669,7 @@ else
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main progam
+CONTAINER_HOSTNAME="${HOST_LISTEN_ADDR//:*/}"
 ENV_PORTS+="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | grep ':.*.:' | awk -F ':' '{print $1":"$3}')"
 ENV_PORTS+="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | grep -v ':.*.:' | awk -F ':' '{print $1":"$2}')"
 ENV_PORTS="$(echo "$ENV_PORTS" | tr ' ' '\n' | sort -u | grep '^')"

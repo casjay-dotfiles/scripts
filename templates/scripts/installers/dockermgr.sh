@@ -366,8 +366,8 @@ mkdir -p "$DOCKERMGR_CONFIG_DIR/scripts"
 [ -n "$HOST_NETWORK_ADDR" ] || HOST_NETWORK_ADDR="no"
 [ "$HOST_NETWORK_ADDR" = "all" ] || HOST_NETWORK_ADDR="yes"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-SERVER_SHORT_DOMAIN="$(hostname -s 2>/dev/null | grep '^')"
-SERVER_FULL_DOMAIN="$(hostname -d 2>/dev/null | grep '^' || echo 'home')"
+SERVER_SHORT_DOMAIN="${SET_HOSTNAME:-$(hostname -s 2>/dev/null | grep '^')}"
+SERVER_FULL_DOMAIN="${SET_DOMAINNAME:-$(hostname -d 2>/dev/null | grep '^' || echo 'home')}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Variables - Do not change anything below this line
 ENV_PORTS=""
@@ -400,7 +400,7 @@ echo "$CONTAINER_HOSTNAME" | grep -Fq '.' || CONTAINER_HOSTNAME="$APPNAME.$SERVE
 [ "$CONTAINER_HTTPS_PORT" = "" ] || CONTAINER_HTTP_PROTO="https"
 [ "$CGROUP_ENABLED" = "yes" ] && ADDITIONAL_MOUNTS="$CGROUP_MOUNTS "
 [ "$SET_USER_PASS" = "random" ] && CONTAINER_USER_PASS="$RANDOM_PASS"
-[ -n "$CONTAINER_HOSTNAME" ] && SET_CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-}"
+[ -n "$CONTAINER_HOSTNAME" ] && SET_CONTAINER_HOSTNAME="$CONTAINER_HOSTNAME"
 [ "$HOST_ETC_HOSTS_FILE" = "yes" ] && ADDITIONAL_MOUNTS+="/etc/hosts:/usr/local/etc/hosts:ro "
 [ "$DOCKER_SOCKET_ENABLED" = "yes" ] && ADDITIONAL_MOUNTS+="$DOCKER_SOCKET_MOUNT:/var/run/docker.sock "
 [ "$DOCKER_CONFIG_ENABLED" = "yes" ] && ADDITIONAL_MOUNTS="$DOCKER_CONFIG_MOUNT:$DOCKER_CONFIG_TO_MOUNT:ro "
@@ -511,7 +511,6 @@ if [ "$WEB_SERVER" = "yes" ]; then
   CLEANUP_PORT="${CLEANUP_PORT//\/*/}"
   PRETTY_PORT="$CLEANUP_PORT"
   NGINX_PROXY_PORT="$PRETTY_PORT"
-  SET_CONTAINER_HOSTNAME="$HOST_LISTEN_ADDR"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_LINK=""

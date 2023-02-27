@@ -55,10 +55,12 @@ scripts_check
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define extra functions
 __port() { echo "$((50000 + $RANDOM % 1000))"; }
-__sudo() { sudo -n true && eval sudo "$@" || eval "$@" || return 1; }
+__sudo() { sudo -n true && eval sudo "$*" || eval "$*" || return 1; }
 __docker_check() { [ -n "$(type -p docker 2>/dev/null)" ] || return 1; }
-__sudo_root() { sudo -n true && ask_for_password true && eval sudo "$@" || return 1; }
+__route() { [ -n "$(type -P ip)" ] && eval ip route 2>/dev/null || return 1; }
+__sudo_root() { sudo -n true && ask_for_password true && eval sudo "$*" || return 1; }
 __password() { cat "/dev/urandom" | tr -dc '[0-9][a-z][A-Z]@$' | head -c14 && echo ""; }
+__ifconfig() { [ -n "$(type -P ifconfig)" ] && eval ifconfig "$*" 2>/dev/null || return 1; }
 __name() { echo "$HUB_IMAGE_URL-${HUB_IMAGE_TAG:-latest}" | awk -F '/' '{print $(NF-1)"-"$NF}'; }
 __enable_ssl() { { [ "$SSL_ENABLED" = "yes" ] || [ "$SSL_ENABLED" = "true" ]; } && return 0 || return 1; }
 __ssl_certs() { [ -f "$HOST_SSL_CA" ] && [ -f "$HOST_SSL_CRT" ] && [ -f "$HOST_SSL_KEY" ] && return 0 || return 1; }
@@ -69,7 +71,7 @@ __port_in_use() { { [ -d "/etc/nginx/vhosts.d" ] && grep -wRsq "${1:-$CONTAINER_
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __public_ip() { curl -q -LSsf "http://ifconfig.co" | grep '^'; }
 __docker_gateway_ip() { sudo docker network inspect -f '{{json .IPAM.Config}}' bridge | jq -r '.[].Gateway'; }
-__local_lan_ip() { [ -n "$LOCAL_IP" ] && { echo "$LOCAL_IP" | grep -E '192\.168\.[0-255]\.[0-255]' 2>/dev/null || echo "$LOCAL_IP" | grep -E '10\.[0-255]\.[0-255]\.[0-255]' 2>/dev/null || echo "$LOCAL_IP" | grep -E '172\.[16-31]\.[0-255]\.[0-255]' 2>/dev/null; }; }
+__local_lan_ip() { [ -n "$SET_LOCAL_IP" ] && { echo "$SET_LOCAL_IP" | grep -E '192\.168\.[0-255]\.[0-255]' 2>/dev/null || echo "$SET_LOCAL_IP" | grep -E '10\.[0-255]\.[0-255]\.[0-255]' 2>/dev/null || echo "$SET_LOCAL_IP" | grep -E '172\.[16-31]\.[0-255]\.[0-255]' 2>/dev/null; } || echo "$CURRENT_IP_4"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __rport() {
   local port

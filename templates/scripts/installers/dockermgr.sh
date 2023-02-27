@@ -402,6 +402,7 @@ echo "$CONTAINER_HOSTNAME" | grep -Fq '.' || CONTAINER_HOSTNAME="$APPNAME.$SERVE
 [ "$WEB_SERVER" = "yes" ] && [ "$WEB_SSL_ENABLE" = "yes" ] && CONTAINER_HTTPS_PORT="$(__docker_gateway_ip):$RANDOM_PORT:$WEB_SERVER_PORT" && CONTAINER_HTTP_PORT="" && CONTAINER_HTTP_PROTO="https"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # rewrite variables
+CUSTOM_ARGUMENTS+="--domainname $CONTAINER_DOMAINNAME "
 [ -n "$HUB_IMAGE_TAG" ] || HUB_IMAGE_TAG="latest"
 [ -n "$HOST_TIMEZONE" ] || HOST_TIMEZONE="America/New_York"
 [ -n "$HOST_WEB_PORT" ] && HOST_PORT="${HOST_WEB_PORT:-}"

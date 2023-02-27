@@ -170,9 +170,6 @@ TIMEZONE="${TZ:-$TIMEZONE}"
 GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME="${GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME:-$DEFAULT_USERNAME}"
 GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD="${GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD:-$DEFAULT_PASSWORD}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set the container name [username/repo-tag]
-CONTAINER_NAME=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set container hostname and domain - Default GEN_SCRIPT_REPLACE_APPNAME
 CONTAINER_HOSTNAME=""
 CONTAINER_DOMAINNAME=""
@@ -182,6 +179,9 @@ HUB_IMAGE_URL="casjaysdevdocker/GEN_SCRIPT_REPLACE_APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # image tag [docker pull HUB_IMAGE_URL:tag]
 HUB_IMAGE_TAG="latest"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set the container name default [casjaysdevdocker/GEN_SCRIPT_REPLACE_APPNAME-$HUB_IMAGE_TAG]
+CONTAINER_NAME=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # SSL Setup server mounts
 HOST_SSL_DIR="${HOST_SSL_DIR:-/etc/ssl/CA/CasjaysDev}"

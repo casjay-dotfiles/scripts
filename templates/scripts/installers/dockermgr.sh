@@ -29,7 +29,7 @@ export SCRIPTS_PREFIX="dockermgr"
 # Set bash options
 [ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
 [ "$1" = "--raw" ] && export SHOW_RAW="true"
-set -o pipefail
+set -o pipefail -xE
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
@@ -56,12 +56,14 @@ scripts_check
 # Define extra functions
 __port() { echo "$((50000 + $RANDOM % 1000))"; }
 __sudo() { sudo -n true && eval sudo "$@" || eval "$@" || return 1; }
+__docker_check() { [ -n "$(type -p docker 2>/dev/null)" ] || return 1; }
 __sudo_root() { sudo -n true && ask_for_password true && eval sudo "$@" || return 1; }
 __password() { cat "/dev/urandom" | tr -dc '[0-9][a-z][A-Z]@$' | head -c14 && echo ""; }
 __name() { echo "$HUB_IMAGE_URL-${HUB_IMAGE_TAG:-latest}" | awk -F '/' '{print $(NF-1)"-"$NF}'; }
 __enable_ssl() { { [ "$SSL_ENABLED" = "yes" ] || [ "$SSL_ENABLED" = "true" ]; } && return 0 || return 1; }
 __ssl_certs() { [ -f "$HOST_SSL_CA" ] && [ -f "$HOST_SSL_CRT" ] && [ -f "$HOST_SSL_KEY" ] && return 0 || return 1; }
 __host_name() { hostname -f 2>/dev/null | grep '\.' | grep '^' || hostname -f 2>/dev/null | grep '^' || echo "$HOSTNAME"; }
+__docker_init() { [ -n "$(type -p dockermgr 2>/dev/null)" ] && dockermgr init || printf_exit "Failed to Initialize the docker installer"; }
 __domain_name() { hostname -f 2>/dev/null | awk -F '.' '{print $(NF-1)"."$NF}' | grep '\.' | grep '^' || hostname -f 2>/dev/null | grep '^' || return 1; }
 __port_in_use() { { [ -d "/etc/nginx/vhosts.d" ] && grep -wRsq "${1:-$CONTAINER_HTTP_PORT}" "/etc/nginx/vhosts.d" || netstat -taupln 2>/dev/null | grep -q "${1:-$CONTAINER_HTTP_PORT}"; } && return 1 || return 0; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -103,7 +105,7 @@ __show_post_message() {
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure docker is installed
-[ -n "$(type -p docker 2>/dev/null)" ] || [ -n "$DOCKERMGR_CLI" ] || dockermgr init
+__docker_check || __docker_init
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Pre-define variables
 RANDOM_PORT="$(__rport)"
@@ -179,9 +181,8 @@ CONTAINER_SSL_CA="${CONTAINER_SSL_CA:-$CONTAINER_SSL_DIR/ca.crt}"
 CONTAINER_SSL_CRT="${CONTAINER_SSL_CRT:-$CONTAINER_SSL_DIR/localhost.crt}"
 CONTAINER_SSL_KEY="${CONTAINER_SSL_KEY:-$CONTAINER_SSL_DIR/localhost.key}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set container timezone - Default America/New_York
-TZ="${TZ:-$TIMEZONE}"
-TIMEZONE="${TZ:-$TIMEZONE}"
+# Set container timezone - Default: America/New_York
+TIMEZONE=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Get username and password from env if variables exist [username] [pass,random]
 GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME="${GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME:-$DEFAULT_USERNAME}"
@@ -193,7 +194,7 @@ HUB_IMAGE_URL="casjaysdevdocker/GEN_SCRIPT_REPLACE_APPNAME"
 # image tag [docker pull HUB_IMAGE_URL:tag]
 HUB_IMAGE_TAG="latest"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set the container name default [casjaysdevdocker/GEN_SCRIPT_REPLACE_APPNAME-$HUB_IMAGE_TAG]
+# Set the container name Default: [casjaysdevdocker/GEN_SCRIPT_REPLACE_APPNAME-$HUB_IMAGE_TAG]
 CONTAINER_NAME=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set container user and group ID [yes/no] [id]
@@ -204,7 +205,7 @@ CONTAINER_GROUP_ID=""
 # Enable privileged container [ yes/no ]
 CONTAINER_IS_PRIVILEGED="yes"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set the SHM Size - default is 64M
+# Set the SHM Size - Default: 64M
 CONTAINER_SHM_SIZE="128M"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Restart container [no/always/on-failure/unless-stopped]
@@ -237,9 +238,15 @@ DOCKER_CONFIG_TO_MOUNT="/root/.docker/config.json"
 # Enable hosts /etc/hosts file [yes/no]
 HOST_ETC_HOSTS_FILE="yes"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set container hostname and domain - Default GEN_SCRIPT_REPLACE_APPNAME
+# Set container hostname and domain - Default: GEN_SCRIPT_REPLACE_APPNAME
 CONTAINER_HOSTNAME=""
 CONTAINER_DOMAINNAME=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set the network type - default is bridge [bridge/host]
+HOST_NETWORK_TYPE="bridge"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Listen on local address only [no/local/lan/docker/public]
+HOST_LOCAL_ONLY="no"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set this to 0.0.0.0 to listen on all or specific addresses
 DEFINE_LISTEN="0.0.0.0"
@@ -247,19 +254,13 @@ DEFINE_LISTEN="0.0.0.0"
 # Set to yes to have HTTP[S] or SERVICE to listen on localhost only
 CONTAINER_PRIVATE="no"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set the network type - default is bridge [bridge/host]
-HOST_NETWORK_TYPE="bridge"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Listen on local address only [no/local/lan/docker]
-HOST_LOCAL_ONLY="no"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup nginx proxy variables [yes,no]
 NGINX_PROXY="yes"
 NGINX_SSL="yes"
 NGINX_HTTP="80"
 NGINX_HTTPS="443"
 NGINX_UPDATE_CONF="yes"
-# - - - - - - - - - - - - - - - - - - -bridge,host - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Enable this is container is running a webserver [yes/no] [yes/no] [internalPort,otherPort]
 WEB_SERVER="no"
 WEB_SSL_ENABLE="no"
@@ -314,10 +315,10 @@ ADDITION_LABELS=""
 ADDITION_LABELS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set container username and password and the env name [ CONTAINER_ENV_USER_NAME=CONTAINER_USER_NAME] - [ password=pass]
-CONTAINER_USER_NAME="${GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME:-}"
-CONTAINER_USER_PASS="${GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD:-}"
 CONTAINER_ENV_USER_NAME=""
 CONTAINER_ENV_PASS_NAME=""
+CONTAINER_USER_NAME="${GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME:-}"
+CONTAINER_USER_PASS="${GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Specify container arguments - will run in container [/path/to/script]
 CONTAINER_COMMANDS=""
@@ -363,7 +364,6 @@ mkdir -p "$DOCKERMGR_CONFIG_DIR/scripts"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # rewrite variables
 [ -n "$HOST_LOCAL_ONLY" ] || HOST_LOCAL_ONLY="no"
-[ "$DEFINE_LISTEN" = "public" ] && DEFINE_LISTEN="0.0.0.0"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SERVER_SHORT_DOMAIN="$(hostname -s 2>/dev/null | grep '^')"
 SERVER_FULL_DOMAIN="$(hostname -d 2>/dev/null | grep '^' || echo 'home')"
@@ -372,7 +372,9 @@ SERVER_FULL_DOMAIN="$(hostname -d 2>/dev/null | grep '^' || echo 'home')"
 ENV_PORTS=""
 DOCKER_OPTS=""
 NGINX_LISTEN_OPTS=""
+TZ="${TZ:-TIMEZONE}"
 CONTAINER_LISTEN="127.0.0.1"
+TIMEZONE="${TZ:-America/New_York}"
 HOST_TIMEZONE="${TZ:-$TIMEZONE}"
 DEFINE_LISTEN="${DEFINE_LISTEN:-}"
 HOST_IP="${CURRENT_IP_4:-$(__local_lan_ip)}"
@@ -391,11 +393,11 @@ SET_USER_NAME="${CONTAINER_USER_NAME:-$GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME}"
 SET_USER_PASS="${CONTAINER_USER_PASS:-$GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD}"
 CONTAINER_DOMAINNAME="${CONTAINER_DOMAINNAME:-$APPNAME.$SERVER_SHORT_DOMAIN.$SERVER_FULL_DOMAIN}"
 echo "$CONTAINER_HOSTNAME" | grep -Fq '.' || CONTAINER_HOSTNAME="$APPNAME.$SERVER_SHORT_DOMAIN.$SERVER_FULL_DOMAIN"
+[[ "$CONTAINER_DOMAINNAME" = server.* ]] && CONTAINER_HOSTNAME="$APPNAME.$SERVER_FULL_DOMAIN" || CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME.$CONTAINER_DOMAINNAME}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Configure variables
 [ -n "$CONTAINER_NAME" ] || CONTAINER_NAME="$(__name)"
 [ "$HOST_LOCAL_ONLY" = "yes" ] && CONTAINER_PRIVATE="yes"
-[ "$HOST_LOCAL_ONLY" = "local" ] && DEFINE_LISTEN="127.0.0.1"
 [ "$CONTAINER_HTTPS_PORT" = "" ] || CONTAINER_HTTP_PROTO="https"
 [ "$CGROUP_ENABLED" = "yes" ] && ADDITIONAL_MOUNTS="$CGROUP_MOUNTS "
 [ "$SET_USER_PASS" = "random" ] && CONTAINER_USER_PASS="$RANDOM_PASS"
@@ -403,11 +405,12 @@ echo "$CONTAINER_HOSTNAME" | grep -Fq '.' || CONTAINER_HOSTNAME="$APPNAME.$SERVE
 [ "$DOCKER_SOCKET_ENABLED" = "yes" ] && ADDITIONAL_MOUNTS+="$DOCKER_SOCKET_MOUNT:/var/run/docker.sock "
 [ "$DOCKER_CONFIG_ENABLED" = "yes" ] && ADDITIONAL_MOUNTS="$DOCKER_CONFIG_MOUNT:$DOCKER_CONFIG_TO_MOUNT:ro "
 [ "$HOST_LOCAL_ONLY" = "yes" ] && DEFINE_LISTEN="127.0.0.1" && HOST_LISTEN_ADDR="127.0.0.1" || HOST_LOCAL_ONLY=""
+[ "$HOST_LOCAL_ONLY" = "local" ] && DEFINE_LISTEN="127.0.0.1" && HOST_LISTEN_ADDR="127.0.0.1" || HOST_LOCAL_ONLY=""
+[ "$HOST_LOCAL_ONLY" = "public" ] && DEFINE_LISTEN="0.0.0.0" && HOST_LISTEN_ADDR="$(__local_lan_ip)" || HOST_LOCAL_ONLY=""
 [ "$HOST_LOCAL_ONLY" = "lan" ] && DEFINE_LISTEN="$(__local_lan_ip)" && HOST_LISTEN_ADDR="$(__local_lan_ip)" || HOST_LOCAL_ONLY=""
 [ "$HOST_LOCAL_ONLY" = "docker" ] && DEFINE_LISTEN="$(__docker_gateway_ip)" && HOST_LISTEN_ADDR="$(__docker_gateway_ip)" || HOST_LOCAL_ONLY=""
 [ "$HOST_RESOLVE_MOUNT" = "yes" ] && ADDITIONAL_MOUNTS+="$HOST_RESOLVE_MOUNT:/etc/resolv.conf " || HOST_RESOLVE_MOUNT=""
 [ "$NGINX_SSL" = "yes" ] && [ -n "$NGINX_HTTPS" ] && NGINX_PORT="${NGINX_HTTPS:-443}" && NGINX_LISTEN_OPTS="ssl http2" || NGINX_PORT="${NGINX_HTTP:-80}"
-[[ "$CONTAINER_DOMAINNAME" = server.* ]] && CONTAINER_HOSTNAME="$APPNAME.$SERVER_FULL_DOMAIN" || CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME.$CONTAINER_DOMAINNAME}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # rewrite variables
 [ -n "$HUB_IMAGE_TAG" ] || HUB_IMAGE_TAG="latest"
@@ -424,9 +427,13 @@ IS_PRIVATE="${HOST_WEB_PORT:-$CONTAINER_SERVICE_PORT}"
 CLEANUP_PORT="${HOST_SERVICE_PORT:-$IS_PRIVATE}"
 CLEANUP_PORT="${CLEANUP_PORT//\/*/}"
 PRETTY_PORT="$CLEANUP_PORT"
-NGINX_PROXY_PORT="$PRETTY_PORT"
-#NGINX_PROXY_PORT="$(echo "$CLEANUP_PORT" | awk -F':' '{printf $NF}' | grep '^' || echo "$CLEANUP_PORT")"
-#echo "$PRETTY_PORT" | grep -q ':' && PRETTY_PORT="$(echo "$PRETTY_PORT" | awk -F':' '{print $1}')"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if echo "$PRETTY_PORT" | grep -q ':.*.:'; then
+  NGINX_PROXY_PORT="$(echo "$PRETTY_PORT" | grep ':.*.:' | awk -F':' '{print $2}' | grep '^')"
+else
+  NGINX_PROXY_PORT="$(echo "$PRETTY_PORT" | grep -v ':.*.:' | awk -F':' '{print $2}' | grep '^')"
+fi
+[ -n "$NGINX_PROXY_PORT" ] || NGINX_PROXY_PORT="$CLEANUP_PORT"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [ "$HOST_NETWORK_TYPE" = "host" ] && HOST_NETWORK_TYPE="--net-host"
 [ "$CONTAINER_TTY" = "yes" ] && DOCKER_OPTS+="--tty " || CONTAINER_TTY=""
@@ -504,6 +511,7 @@ if [ "$WEB_SERVER" = "yes" ]; then
   CLEANUP_PORT="${CLEANUP_PORT//\/*/}"
   PRETTY_PORT="$CLEANUP_PORT"
   NGINX_PROXY_PORT="$PRETTY_PORT"
+  CONTAINER_HOSTNAME="$HOST_LISTEN_ADDR"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_LINK=""
@@ -664,7 +672,8 @@ fi
 # Main progam
 ENV_PORTS+="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | grep ':.*.:' | awk -F ':' '{print $1":"$3}')"
 ENV_PORTS+="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | grep -v ':.*.:' | awk -F ':' '{print $1":"$2}')"
-ENV_PORTS="$(echo "$ENV_PORTS" | tr ' ' '\n' | sed | sort -u | grep '^')"
+ENV_PORTS="$(echo "$ENV_PORTS" | tr ' ' '\n' | sort -u | grep '^')"
+ENV_PORTS="${ENV_PORTS//--publish/}"
 EXECUTE_PRE_INSTALL="docker stop $CONTAINER_NAME;docker rm -f $CONTAINER_NAME"
 EXECUTE_DOCKER_CMD="docker run -d --name=$CONTAINER_NAME $SET_LABELS $SET_LINK --shm-size=$CONTAINER_SHM_SIZE $DOCKER_OPTS $SET_CAP $SET_SYSCTL --hostname $CONTAINER_HOSTNAME --env TZ=$HOST_TIMEZONE --env ENV_PORTS=\"$ENV_PORTS\" --env TIMEZONE=$HOST_TIMEZONE $SET_ENV $SET_DEV $SET_MNT $SET_PORT $CUSTOM_ARGUMENTS $HOST_NETWORK_TYPE $HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS"
 EXECUTE_DOCKER_CMD="${EXECUTE_DOCKER_CMD//  / }"
@@ -699,8 +708,10 @@ if [ -n "$EXECUTE_DOCKER_SCRIPT" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Install nginx proxy
+set -x
+[ ! -f "$INSTDIR/nginx/proxy.conf" ] && NGINX_UPDATE_CONF="yes"
 if [ "$NGINX_PROXY" = "yes" ]; then
-  if [ -z "$NGINX_UPDATE_CONF" ] && [ -f "$INSTDIR/nginx/proxy.conf" ]; then
+  if [ "$NGINX_UPDATE_CONF" = "yes" ] && [ -f "$INSTDIR/nginx/proxy.conf" ]; then
     cp -f "$INSTDIR/nginx/proxy.conf" "/tmp/$$.$CONTAINER_HOSTNAME.conf"
     sed -i "s|REPLACE_APPNAME|$APPNAME|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
     sed -i "s|REPLACE_NGINX_PORT|$NGINX_PORT|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
@@ -720,6 +731,7 @@ if [ "$NGINX_PROXY" = "yes" ]; then
   SERVER_URL="$CONTAINER_HTTP_PROTO://$CONTAINER_HOSTNAME:$PRETTY_PORT"
   [ -f "/etc/nginx/vhosts.d/$CONTAINER_HOSTNAME.conf" ] && NGINX_PROXY_URL="$CONTAINER_HTTP_PROTO://$CONTAINER_HOSTNAME"
 fi
+set +x
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run post install scripts
 run_postinst() {
@@ -748,6 +760,8 @@ run_post_install
 dockermgr_install_version
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run exit function
+SET_PORT="${SET_PORT//--publish/}"
+HOST_WEB_PORT="${HOST_WEB_PORT//--publish/}"
 if docker ps -a | grep -qs "$APPNAME"; then
   printf_yellow "The DATADIR is in $DATADIR"
   printf_cyan "$APPNAME has been installed to $INSTDIR"
@@ -755,15 +769,23 @@ if docker ps -a | grep -qs "$APPNAME"; then
     printf_yellow "This container does not have services configured"
   else
     for service in $SET_PORT; do
+      if [ "$service" != "--publish" ]; then
+        service="${service//\/*/}"
+        set_service="$(echo "$service" | tr ' ' '\n' | awk -F ':' '{$NF}' | grep '^' || echo "$service")"
+        set_listen="$(echo "$service" | tr ' ' '\n' | grep ':.*.*:' | awk -F ':' '{print $1":"$2}' | grep '^' || echo "$service")"
+        set_listen+="$(echo "$service" | tr ' ' '\n' | grep -v ':.*.*:' | awk -F ':' '{print $1":"$2}' | grep '^' || echo "$service")"
+        listen="${set_listen//0.0.0.0/$HOST_LISTEN_ADDR}"
+        printf_blue "$service is running on: $listen"
+      fi
+    done
+    if [ "$service" != "--publish" ]; then
       service="${service//\/*/}"
-      listen="${service//0.0.0.0/$HOST_LISTEN_ADDR}"
+      set_service="$(echo "$service" | tr ' ' '\n' | awk -F ':' '{$NF}' | grep '^' || echo "$service")"
+      set_listen="$(echo "$service" | tr ' ' '\n' | grep ':.*.*:' | awk -F ':' '{print $1":"$2}' | grep '^' || echo "$service")"
+      set_listen+="$(echo "$service" | tr ' ' '\n' | grep -v ':.*.*:' | awk -F ':' '{print $1":"$2}' | grep '^' || echo "$service")"
+      listen="${set_listen//0.0.0.0/$HOST_LISTEN_ADDR}"
       printf_blue "$service is running on: $listen"
-    done
-    for service in $HOST_WEB_PORT; do
-      service="${service//\/*/}"
-      listen="${service//0.0.0.0/$HOST_LISTEN_ADDR}"
-      printf_blue "Web service is running on: $CONTAINER_HTTP_PROTO://$listen"
-    done
+    fi
   fi
   [ -z "$SET_USER_NAME" ] || printf_cyan "Username is:  $SET_USER_NAME"
   [ -z "$SET_USER_PASS" ] || printf_purple "Password is:  $SET_USER_PASS"

@@ -499,6 +499,7 @@ if [ "$WEB_SERVER" = "yes" ]; then
   done
   [ "$WEB_SSL_ENABLE" = "yes" ] && CONTAINER_HTTP_PROTO="https"
 fi
+NGINX_PROXY_PORT="$(echo "$CONTAINER_ADD_CUSTOM_LISTEN" | tr ' ' '\n' | awk -F':' '{print $1":"$2}' | awk -F ':' '{print $1":"$2}' | head -n1)"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_LINK=""
 CONTAINER_LINK="${CONTAINER_LINK//,/ }"

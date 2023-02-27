@@ -91,7 +91,7 @@ run_post_install() {
 #
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __show_post_message() {
-  if [ -f "$DATADIR/config/registry/auth/htpasswd" ]; then
+  if [ -f "$DATADIR/config/auth/htpasswd" ]; then
     printf_purple "Username: root and Password: toor"
   fi
   return $?

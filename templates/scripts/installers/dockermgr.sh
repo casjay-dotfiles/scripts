@@ -112,8 +112,10 @@ RANDOM_PORT="$(__rport)"
 RANDOM_PASS="$(__password)"
 SET_HOSTNAME="$(__host_name)"
 SET_DOMAINNAME="$(__domain_name)"
-LOCAL_NET_DEV="$(ip route 2>/dev/null | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//" | awk '{print $1}' | grep '^' || echo 'eth0')"
-LOCAL_IP="$(ifconfig $LOCAL_NET_DEV 2>/dev/null | grep -w 'inet' | awk -F ' ' '{print $2}' | grep -vE '127\.[0-255]\.[0-255]\.[0-255]' | tr ' ' '\n' | grep '^')"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup networking
+SET_LOCAL_NET_DEV="$(__route | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//" | awk '{print $1}' | grep '^' || echo 'eth0')"
+SET_LOCAL_IP="$(__ifconfig $LOCAL_NET_DEV | grep -w 'inet' | awk -F ' ' '{print $2}' | grep -vE '127\.[0-255]\.[0-255]\.[0-255]' | tr ' ' '\n' | grep '^')"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Repository variables
 REPO="${DOCKERMGRREPO:-https://github.com/dockermgr}/GEN_SCRIPT_REPLACE_APPNAME"

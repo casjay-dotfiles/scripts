@@ -208,7 +208,6 @@ HOST_LOCAL_ONLY="no"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup nginx proxy variables [yes,no]
 NGINX_PROXY="yes"
-NGINX_AUTH="no"
 NGINX_SSL="yes"
 NGINX_HTTP="80"
 NGINX_HTTPS="443"
@@ -217,6 +216,7 @@ NGINX_UPDATE_CONF="yes"
 # Enable this is container is running a webserver [yes/no] [yes/no] [internalPort]
 WEB_SERVER="no"
 WEB_SSL_ENABLE="no"
+WEB_SERVER_AUTH="no"
 WEB_SERVER_PORT="80"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Add service port [port] or [port:port] - LISTEN will be added if defined [DEFINE_LISTEN] or CONTAINER_PRIVATE=yes
@@ -405,20 +405,16 @@ echo "$CONTAINER_HOSTNAME" | grep -Fq '.' || CONTAINER_HOSTNAME="$APPNAME.$SERVE
 [ "$NGINX_SSL" = "yes" ] && [ -n "$NGINX_HTTPS" ] && NGINX_PORT="${NGINX_HTTPS:-443}" && NGINX_LISTEN_OPTS="ssl http2" || NGINX_PORT="${NGINX_HTTP:-80}"
 [[ "$CONTAINER_DOMAINNAME" = server.* ]] && CONTAINER_HOSTNAME="$APPNAME.$SERVER_FULL_DOMAIN" || CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME.$CONTAINER_DOMAINNAME}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Auto create web server
-[ "$WEB_SERVER" = "yes" ] && CONTAINER_HTTP_PORT="$(__docker_gateway_ip):$RANDOM_PORT:$WEB_SERVER_PORT"
-[ "$WEB_SERVER" = "yes" ] && [ "$WEB_SSL_ENABLE" = "yes" ] && CONTAINER_HTTPS_PORT="$(__docker_gateway_ip):$RANDOM_PORT:$WEB_SERVER_PORT" && CONTAINER_HTTP_PORT="" && CONTAINER_HTTP_PROTO="https"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # rewrite variables
-CUSTOM_ARGUMENTS+="--domainname $CONTAINER_DOMAINNAME "
 [ -n "$HUB_IMAGE_TAG" ] || HUB_IMAGE_TAG="latest"
 [ -n "$HOST_TIMEZONE" ] || HOST_TIMEZONE="America/New_York"
 [ -n "$HOST_WEB_PORT" ] && HOST_PORT="${HOST_WEB_PORT:-}"
 [ -n "$CUSTOM_ARGUMENTS" ] && CUSTOM_ARGUMENTS="${CUSTOM_ARGUMENTS//,/ }"
 [ -n "$DEFINE_LISTEN" ] && DEFINE_LISTEN="${DEFINE_LISTEN//:*/}" || DEFINE_LISTEN=""
+[ -n "$CONTAINER_DOMAINNAME" ] && CUSTOM_ARGUMENTS+="--domainname $CONTAINER_DOMAINNAME "
 [ -n "$CONTAINER_COMMANDS" ] && CONTAINER_COMMANDS="${CONTAINER_COMMANDS//,/ }" || CONTAINER_COMMANDS=""
-[ -z "$CONTAINER_USER_PASS" ] || ADDITION_ENV+="${CONTAINER_ENV_PASS_NAME:-password}=$CONTAINER_USER_PASS "
 [ -z "$CONTAINER_USER_NAME" ] || ADDITION_ENV+="${CONTAINER_ENV_USER_NAME:-username}=$CONTAINER_USER_NAME "
+[ -z "$CONTAINER_USER_PASS" ] || ADDITION_ENV+="${CONTAINER_ENV_PASS_NAME:-password}=$CONTAINER_USER_PASS "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 IS_PRIVATE="${HOST_WEB_PORT:-$CONTAINER_SERVICE_PORT}"
 CLEANUP_PORT="${HOST_SERVICE_PORT:-$HOST_PORT}"
@@ -455,14 +451,31 @@ HOST_X11_XAUTH=""
 CONTAINER_DISPLAY=""
 CONTAINER_X11_XAUTH=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ "$NGINX_AUTH" = "yes" ]; then
-  I2P_USERNAME="${I2P_USERNAME:-root}"
-  I2P_PASSWORD="${I2P_PASSWORD:-toor}"
+if [ "$WEB_SERVER_AUTH" = "yes" ]; then
+  CONTAINER_USER_NAME="${CONTAINER_USER_NAME:-root}"
+  CONTAINER_USER_PASS="${CONTAINER_USER_PASS:-$(password)}"
+  SET_USER_NAME="$CONTAINER_USER_NAME"
+  SET_USER_PASS="$CONTAINER_USER_PASS"
   [ -d "/etc/nginx/auth" ] || mkdir -p "/etc/nginx/auth"
   if [ ! -f "/etc/nginx/auth/$APPNAME" ] && [ -n "$(builtin type -P htpasswd)" ]; then
-    printf_yellow "Creating auth /etc/nginx/auth/$APPNAME"
-    htpasswd -b -c "/etc/nginx/auth/$APPNAME" "$I2P_USERNAME" "${I2P_PASSWORD}" &>/dev/null
+    if ! grep -q "$CONTAINER_USER_NAME"; then
+      printf_yellow "Creating auth /etc/nginx/auth/$APPNAME"
+      htpasswd -b -c "/etc/nginx/auth/$APPNAME" "$CONTAINER_USER_NAME" "$CONTAINER_USER_PASS" &>/dev/null
+    fi
   fi
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Auto create web server
+if [ "$WEB_SERVER" = "yes" ]; then
+  WEB_SERVER_IP="$(__docker_gateway_ip)"
+  WEB_SERVER_PORT="${WEB_SERVER_PORT//,/ }"
+  CONTAINER_HTTP_PORT=""
+  CONTAINER_HTTPS_PORT=""
+  for web_ports in $WEB_SERVER_PORT; do
+    RANDOM_PORT="$(__random_port)"
+    CONTAINER_ADD_CUSTOM_LISTEN+="$WEB_SERVER_IP:$RANDOM_PORT:$web_ports "
+  done
+  [ "$WEB_SSL_ENABLE" = "yes" ] && CONTAINER_HTTP_PROTO="https"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_LINK=""
@@ -549,7 +562,7 @@ if [ -n "$PORT_VAR" ]; then
   done
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-SET_SERVER_PORTS="$CONTAINER_HTTP_PORT $CONTAINER_SERVICE_PORT $CONTAINER_HTTPS_PORT $CONTAINER_ADD_CUSTOM_PORT"
+SET_SERVER_PORTS="$CONTAINER_HTTP_PORT $CONTAINER_HTTPS_PORT $CONTAINER_SERVICE_PORT  $CONTAINER_ADD_CUSTOM_PORT"
 SET_SERVER_PORTS="${SET_SERVER_PORTS//,/ }"
 for port in $SET_SERVER_PORTS; do
   if [ "$port" != " " ] && [ -n "$port" ]; then

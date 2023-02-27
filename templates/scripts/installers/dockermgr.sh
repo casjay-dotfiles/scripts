@@ -107,8 +107,8 @@ __show_post_message() {
 # Pre-define variables
 RANDOM_PASS="$(__password)"
 RANDOM_PORT="$(__random_port)"
-CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$(__host_name)}"
-CONTAINER_DOMAINNAME="${CONTAINER_DOMAINNAME:-$(__domain_name)}"
+SET_HOSTNAME="${CONTAINER_HOSTNAME:-$(__host_name)}"
+SET_DOMAINNAME="${CONTAINER_DOMAINNAME:-$(__domain_name)}"
 LOCAL_NET_DEV="$(ip route 2>/dev/null | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//" | awk '{print $1}' | grep '^' || echo 'eth0')"
 LOCAL_IP="$(ifconfig $LOCAL_NET_DEV 2>/dev/null | grep -w 'inet' | awk -F ' ' '{print $2}' | grep -vE '127\.[0-255]\.[0-255]\.[0-255]' | tr ' ' '\n' | grep '^')"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -170,8 +170,8 @@ GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME="${GEN_SCRIPT_REPLACE_APPENV_NAME_USERNA
 GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD="${GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD:-$DEFAULT_PASSWORD}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set container hostname and domain - Default GEN_SCRIPT_REPLACE_APPNAME
-CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME}"
-CONTAINER_DOMAINNAME="${CONTAINER_DOMAINNAME:-$HOSTNAME}"
+CONTAINER_HOSTNAME=""
+CONTAINER_DOMAINNAME=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # URL to container image [docker pull URL]
 HUB_IMAGE_URL="casjaysdevdocker/GEN_SCRIPT_REPLACE_APPNAME"
@@ -357,12 +357,12 @@ mkdir -p "$LOCAL_CONFIG_DIR"
 mkdir -p "$DOCKERMGR_CONFIG_DIR/env"
 mkdir -p "$DOCKERMGR_CONFIG_DIR/scripts"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-SERVER_SHORT_DOMAIN="$(hostname -s 2>/dev/null | grep '^')"
-SERVER_FULL_DOMAIN="$(hostname -d 2>/dev/null | grep '^' || echo 'home')"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # rewrite variables
 [ -n "$HOST_LOCAL_ONLY" ] || HOST_LOCAL_ONLY="no"
 [ "$DEFINE_LISTEN" = "public" ] && DEFINE_LISTEN="0.0.0.0"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SERVER_SHORT_DOMAIN="$(hostname -s 2>/dev/null | grep '^')"
+SERVER_FULL_DOMAIN="$(hostname -d 2>/dev/null | grep '^' || echo 'home')"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Variables - Do not change anything below this line
 DOCKER_OPTS=""
@@ -375,9 +375,11 @@ HOST_LISTEN_ADDR="${DEFINE_LISTEN:-$HOST_IP}"
 CONTAINER_SHM_SIZE="${CONTAINER_SHM_SIZE:-64M}"
 HOST_SERVICE_PORT="${CONTAINER_SERVICE_PORT:-}"
 CONTAINER_HTTP_PROTO="${CONTAINER_HTTP_PROTO:-http}"
+CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-SET_HOSTNAME}"
 HOST_NETWORK_TYPE="--network ${HOST_NETWORK_TYPE:-bridge}"
 POST_SHOW_FINISHED_MESSAGE="${POST_SHOW_FINISHED_MESSAGE:-}"
 HOST_WEB_PORT="${CONTAINER_HTTPS_PORT:-$CONTAINER_HTTP_PORT}"
+CONTAINER_DOMAINNAME="${CONTAINER_DOMAINNAME:-SET_DOMAINNAME}"
 SET_USER_NAME="${CONTAINER_USER_NAME:-$GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME}"
 SET_USER_PASS="${CONTAINER_USER_PASS:-$GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD}"
 CONTAINER_DOMAINNAME="${CONTAINER_DOMAINNAME:-$APPNAME.$SERVER_SHORT_DOMAIN.$SERVER_FULL_DOMAIN}"

@@ -69,7 +69,8 @@ __docker_gateway_ip() { __sudo docker network inspect -f '{{json .IPAM.Config}}'
 __local_lan_ip() { [ -n "$LOCAL_IP" ] && { echo "$LOCAL_IP" | grep -E '192\.168\.[0-255]\.[0-255]' 2>/dev/null || echo "$LOCAL_IP" | grep -E '10\.[0-255]\.[0-255]\.[0-255]' 2>/dev/null || echo "$LOCAL_IP" | grep -E '172\.[16-31]\.[0-255]\.[0-255]' 2>/dev/null; }; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __random_port() {
-  local port="$(__port)"
+  local port
+  port="$(__port)"
   while :; do
     { [ $port -lt 50000 ] && [ $port -gt 50999 ]; } && port="$(__port)"
     __port_in_use "$port" && break

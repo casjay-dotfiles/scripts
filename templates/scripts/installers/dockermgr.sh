@@ -69,7 +69,7 @@ __public_ip() { curl -q -LSsf "http://ifconfig.co" | grep '^'; }
 __docker_gateway_ip() { __sudo docker network inspect -f '{{json .IPAM.Config}}' bridge | jq -r '.[].Gateway'; }
 __local_lan_ip() { [ -n "$LOCAL_IP" ] && { echo "$LOCAL_IP" | grep -E '192\.168\.[0-255]\.[0-255]' 2>/dev/null || echo "$LOCAL_IP" | grep -E '10\.[0-255]\.[0-255]\.[0-255]' 2>/dev/null || echo "$LOCAL_IP" | grep -E '172\.[16-31]\.[0-255]\.[0-255]' 2>/dev/null; }; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__random_port() {
+__rport() {
   local port
   port="$(__port)"
   while :; do
@@ -106,10 +106,10 @@ __show_post_message() {
 [ -n "$(type -p docker 2>/dev/null)" ] || [ -n "$DOCKERMGR_CLI" ] || dockermgr init
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Pre-define variables
+RANDOM_PORT="$(__rport)"
 RANDOM_PASS="$(__password)"
-RANDOM_PORT="$(__random_port)"
-SET_HOSTNAME="${CONTAINER_HOSTNAME:-$(__host_name)}"
-SET_DOMAINNAME="${CONTAINER_DOMAINNAME:-$(__domain_name)}"
+SET_HOSTNAME="$(__host_name)"
+SET_DOMAINNAME="$(__domain_name)"
 LOCAL_NET_DEV="$(ip route 2>/dev/null | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//" | awk '{print $1}' | grep '^' || echo 'eth0')"
 LOCAL_IP="$(ifconfig $LOCAL_NET_DEV 2>/dev/null | grep -w 'inet' | awk -F ' ' '{print $2}' | grep -vE '127\.[0-255]\.[0-255]\.[0-255]' | tr ' ' '\n' | grep '^')"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -135,10 +135,10 @@ setopts=$(getopt -o "e:,p:,h:,d:" --long "options,env:,port:,host:,domain:" -n "
 eval set -- "${setopts[@]}" 2>/dev/null
 while :; do
   case "$1" in
-  -e | --env) ENV_VAR="$2 $ENV_VAR" && shift 2 ;;
-  -p | --port) PORT_VAR="$2 $PORT_VAR" && shift 2 ;;
-  -h | --host) CONTAINER_HOSTNAME="$2" && shift 2 ;;
-  -d | --domain) CONTAINER_DOMAINNAME="$2" && shift 2 ;;
+  -e | --env) OPT_ENV_VAR="$2 $OPT_ENV_VAR" && shift 2 ;;
+  -p | --port) OPT_PORT_VAR="$2 $OPT_PORT_VAR" && shift 2 ;;
+  -h | --host) OPT_CONTAINER_HOSTNAME="$2" && shift 2 ;;
+  -d | --domain) OPT_CONTAINER_DOMAINNAME="$2" && shift 2 ;;
   --options) shift 1 && echo "Options: -e -p -h -d --options --env --port --host --domain" && exit 1 ;;
   *) break ;;
   esac
@@ -162,27 +162,6 @@ HOST_CONFIG_DIR="$DATADIR/config"
 LOCAL_DATA_DIR="${LOCAL_DATA_DIR:-$HOST_DATA_DIR}"
 LOCAL_CONFIG_DIR="${LOCAL_CONFIG_DIR:-$HOST_CONFIG_DIR}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set container timezone - Default America/New_York
-TZ="${TZ:-$TIMEZONE}"
-TIMEZONE="${TZ:-$TIMEZONE}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Get username and password from env if variables exist [username] [pass,random]
-GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME="${GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME:-$DEFAULT_USERNAME}"
-GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD="${GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD:-$DEFAULT_PASSWORD}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set container hostname and domain - Default GEN_SCRIPT_REPLACE_APPNAME
-CONTAINER_HOSTNAME=""
-CONTAINER_DOMAINNAME=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# URL to container image [docker pull URL]
-HUB_IMAGE_URL="casjaysdevdocker/GEN_SCRIPT_REPLACE_APPNAME"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# image tag [docker pull HUB_IMAGE_URL:tag]
-HUB_IMAGE_TAG="latest"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set the container name default [casjaysdevdocker/GEN_SCRIPT_REPLACE_APPNAME-$HUB_IMAGE_TAG]
-CONTAINER_NAME=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # SSL Setup server mounts
 HOST_SSL_DIR="${HOST_SSL_DIR:-/etc/ssl/CA/CasjaysDev}"
 HOST_SSL_CA="${HOST_SSL_CA:-$HOST_SSL_DIR/certs/ca.crt}"
@@ -200,47 +179,27 @@ CONTAINER_SSL_CA="${CONTAINER_SSL_CA:-$CONTAINER_SSL_DIR/ca.crt}"
 CONTAINER_SSL_CRT="${CONTAINER_SSL_CRT:-$CONTAINER_SSL_DIR/localhost.crt}"
 CONTAINER_SSL_KEY="${CONTAINER_SSL_KEY:-$CONTAINER_SSL_DIR/localhost.key}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set this to 0.0.0.0 to listen on all or specific addresses
-DEFINE_LISTEN="0.0.0.0"
+# Set container timezone - Default America/New_York
+TZ="${TZ:-$TIMEZONE}"
+TIMEZONE="${TZ:-$TIMEZONE}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Listen on local address only [no,local,lan,docker]
-HOST_LOCAL_ONLY="no"
+# Get username and password from env if variables exist [username] [pass,random]
+GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME="${GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME:-$DEFAULT_USERNAME}"
+GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD="${GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD:-$DEFAULT_PASSWORD}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup nginx proxy variables [yes,no]
-NGINX_PROXY="yes"
-NGINX_SSL="yes"
-NGINX_HTTP="80"
-NGINX_HTTPS="443"
-NGINX_UPDATE_CONF="yes"
+# URL to container image [docker pull URL]
+HUB_IMAGE_URL="casjaysdevdocker/GEN_SCRIPT_REPLACE_APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Enable this is container is running a webserver [yes/no] [yes/no] [internalPort]
-WEB_SERVER="no"
-WEB_SSL_ENABLE="no"
-WEB_SERVER_AUTH="no"
-WEB_SERVER_PORT="80"
+# image tag [docker pull HUB_IMAGE_URL:tag]
+HUB_IMAGE_TAG="latest"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Add service port [port] or [port:port] - LISTEN will be added if defined [DEFINE_LISTEN] or CONTAINER_PRIVATE=yes
-# Only ONE HTTP or HTTPS if web server or SERVICE port for mysql pgsql ftp etc. add more to CONTAINER_ADD_CUSTOM_PORT
-CONTAINER_HTTP_PORT=""
-CONTAINER_HTTPS_PORT=""
-CONTAINER_SERVICE_PORT=""
-CONTAINER_ADD_CUSTOM_PORT=""
-CONTAINER_ADD_CUSTOM_PORT+=""
+# Set the container name default [casjaysdevdocker/GEN_SCRIPT_REPLACE_APPNAME-$HUB_IMAGE_TAG]
+CONTAINER_NAME=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Add service port [listen]:[externalPort:internalPort]/[tcp,udp]
-CONTAINER_ADD_CUSTOM_LISTEN=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set this to the protocol the the container will use [http,https,git,ftp,etc]
-CONTAINER_HTTP_PROTO="http"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set to yes to have HTTP[S] or SERVICE to listen on localhost only
-CONTAINER_PRIVATE="no"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set the network type - bridge,host - default is bridge
-HOST_NETWORK_TYPE="bridge"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set link [ containerName ]
-CONTAINER_LINK=""
+# Set container user and group ID [yes/no] [id]
+SET_USER_ID="no"
+CONTAINER_USER_ID=""
+CONTAINER_GROUP_ID=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Enable privileged container [ yes/no ]
 CONTAINER_IS_PRIVILEGED="yes"
@@ -248,7 +207,7 @@ CONTAINER_IS_PRIVILEGED="yes"
 # Set the SHM Size - default is 64M
 CONTAINER_SHM_SIZE="128M"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Restart container [always,no,on-failure,unless-stopped]
+# Restart container [no/always/on-failure/unless-stopped]
 CONTAINER_AUTO_RESTART="always"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Delete container after exit [yes/no]
@@ -257,15 +216,6 @@ CONTAINER_AUTO_DELETE="no"
 # Enable tty and interactive [yes/no]
 CONTAINER_TTY="yes"
 CONTAINER_INTERACTIVE="no"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Enable display in container
-CONTAINER_DISPLAY="no"
-HOST_X11_SOCKET="/tmp/.X11-unix"
-HOST_X11_XAUTH="$HOME/.Xauthority"
-CONTAINER_X11_XAUTH="/home/x11user/.Xauthority"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Enable hosts /etc/hosts file [yes/no]
-HOST_ETC_HOSTS_FILE="yes"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Enable cgroups [yes/no]
 CGROUP_ENABLED="no"
@@ -283,6 +233,61 @@ DOCKER_SOCKET_MOUNT="/var/run/docker.sock"
 DOCKER_CONFIG_ENABLED="no"
 DOCKER_CONFIG_MOUNT="$HOME/.docker/config.json"
 DOCKER_CONFIG_TO_MOUNT="/root/.docker/config.json"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Enable hosts /etc/hosts file [yes/no]
+HOST_ETC_HOSTS_FILE="yes"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set container hostname and domain - Default GEN_SCRIPT_REPLACE_APPNAME
+CONTAINER_HOSTNAME=""
+CONTAINER_DOMAINNAME=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set this to 0.0.0.0 to listen on all or specific addresses
+DEFINE_LISTEN="0.0.0.0"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set to yes to have HTTP[S] or SERVICE to listen on localhost only
+CONTAINER_PRIVATE="no"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set the network type - default is bridge [bridge/host]
+HOST_NETWORK_TYPE="bridge"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Listen on local address only [no/local/lan/docker]
+HOST_LOCAL_ONLY="no"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup nginx proxy variables [yes,no]
+NGINX_PROXY="yes"
+NGINX_SSL="yes"
+NGINX_HTTP="80"
+NGINX_HTTPS="443"
+NGINX_UPDATE_CONF="yes"
+# - - - - - - - - - - - - - - - - - - -bridge,host - - - - - - - - - - - - - - - -
+# Enable this is container is running a webserver [yes/no] [yes/no] [internalPort,otherPort]
+WEB_SERVER="no"
+WEB_SSL_ENABLE="no"
+WEB_SERVER_AUTH="no"
+WEB_SERVER_PORT="80"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set this to the protocol the the container will use [http/https/git/ftp/pgsql/mysql/mongodb]
+CONTAINER_HTTP_PROTO="http"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Add service port [port] or [port:port] - LISTEN will be added if defined [DEFINE_LISTEN] or CONTAINER_PRIVATE=yes
+# Only ONE of HTTP or HTTPS if web server or SERVICE port for mysql/pgsql/ftp/pgsql. add more to CONTAINER_ADD_CUSTOM_PORT
+CONTAINER_HTTP_PORT=""
+CONTAINER_HTTPS_PORT=""
+CONTAINER_SERVICE_PORT=""
+CONTAINER_ADD_CUSTOM_PORT=""
+CONTAINER_ADD_CUSTOM_PORT+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Add service port [listen]:[externalPort:internalPort]/[tcp,udp]
+CONTAINER_ADD_CUSTOM_LISTEN=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set link [ containerName ]
+CONTAINER_LINK=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Enable display in container
+CONTAINER_DISPLAY="no"
+HOST_X11_SOCKET="/tmp/.X11-unix"
+HOST_X11_XAUTH="$HOME/.Xauthority"
+CONTAINER_X11_XAUTH="/home/x11user/.Xauthority"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define additional mounts [ /dir:/dir,/otherdir:/otherdir ]
 ADDITIONAL_MOUNTS="$LOCAL_CONFIG_DIR:/config:z,$LOCAL_DATA_DIR:/data:z "
@@ -307,11 +312,6 @@ ADD_CAPABILITIES+=""
 # Define labels [ traefik.enable=true ] [ label=label,otherlabel=label2 ]
 ADDITION_LABELS=""
 ADDITION_LABELS+=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set container user and group ID [yes/no]
-SET_USER_ID="no"
-CONTAINER_USER_ID=""
-CONTAINER_GROUP_ID=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set container username and password and the env name [ CONTAINER_ENV_USER_NAME=CONTAINER_USER_NAME] - [ password=pass]
 CONTAINER_USER_NAME="${GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME:-}"
@@ -380,8 +380,10 @@ HOST_LISTEN_ADDR="${DEFINE_LISTEN:-$HOST_IP}"
 CONTAINER_SHM_SIZE="${CONTAINER_SHM_SIZE:-64M}"
 HOST_SERVICE_PORT="${CONTAINER_SERVICE_PORT:-}"
 CONTAINER_HTTP_PROTO="${CONTAINER_HTTP_PROTO:-http}"
+SET_HOSTNAME="${OPT_CONTAINER_HOSTNAME:-SET_HOSTNAME}"
 CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-SET_HOSTNAME}"
 HOST_NETWORK_TYPE="--network ${HOST_NETWORK_TYPE:-bridge}"
+SET_DOMAINNAME="${OPT_CONTAINER_DOMAINNAME:-SET_DOMAINNAME}"
 POST_SHOW_FINISHED_MESSAGE="${POST_SHOW_FINISHED_MESSAGE:-}"
 HOST_WEB_PORT="${CONTAINER_HTTPS_PORT:-$CONTAINER_HTTP_PORT}"
 CONTAINER_DOMAINNAME="${CONTAINER_DOMAINNAME:-SET_DOMAINNAME}"
@@ -489,8 +491,11 @@ if [ "$WEB_SERVER" = "yes" ]; then
   CONTAINER_HTTP_PORT=""
   CONTAINER_HTTPS_PORT=""
   for web_ports in $WEB_SERVER_PORT; do
-    RANDOM_PORT="$(__random_port)"
-    CONTAINER_ADD_CUSTOM_LISTEN+="$WEB_SERVER_IP:$RANDOM_PORT:$web_ports "
+    RANDOM_PORT="$(__rport)"
+    TYPE="$(echo "$web_ports" | awk -F '/' '{print $NF}' | grep '^' || echo '')"
+    [ -n "$TYPE" ] &&
+      CONTAINER_ADD_CUSTOM_LISTEN+="$WEB_SERVER_IP:$RANDOM_PORT:$web_ports/$TYPE " ||
+      CONTAINER_ADD_CUSTOM_LISTEN+="$WEB_SERVER_IP:$RANDOM_PORT:$web_ports "
   done
   [ "$WEB_SSL_ENABLE" = "yes" ] && CONTAINER_HTTP_PROTO="https"
 fi
@@ -532,10 +537,10 @@ for sysctl in $ADD_SYSCTL; do
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_ENV=""
-ENV_VAR="${ENV_VAR//,/ }"
+OPT_ENV_VAR="${OPT_ENV_VAR//,/ }"
 ADDITION_ENV="${ADDITION_ENV//,/ }"
-if [ -n "$ENV_VAR" ]; then
-  for env in $ENV_VAR; do
+if [ -n "$OPT_ENV_VAR" ]; then
+  for env in $OPT_ENV_VAR; do
     SET_ENV+="--env $env "
   done
 fi
@@ -568,10 +573,10 @@ for mnt in $ADDITIONAL_MOUNTS; do
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_PORT=""
-PORT_VAR="${PORT_VAR//,/ }"
+OPT_PORT_VAR="${OPT_PORT_VAR//,/ }"
 SET_LISTEN="${DEFINE_LISTEN//:*/}"
-if [ -n "$PORT_VAR" ]; then
-  for port in $PORT_VAR; do
+if [ -n "$OPT_PORT_VAR" ]; then
+  for port in $OPT_PORT_VAR; do
     if [ "$port" != "" ] && [ "$port" != " " ]; then
       echo "$port" | grep -q ':' || port="${port//\/*/}:$port"
       SET_PORT+="--publish $port "

@@ -878,10 +878,11 @@ if docker ps -a | grep -qs "$CONTAINER_NAME"; then
   else
     for service in $SET_PORT; do
       if [ "$service" != "--publish" ] && [ "$service" != " " ] && [ -n "$service" ]; then
-        service="${service//\/*/}"
-        set_listen="${service%:*}"
-        set_service="${service//*:[^:]*:/}"
-        listen="${set_listen//0.0.0.0/$SET_ADDR}"
+        service=${service//\/*/}
+        set_listen=${service%:*}
+        set_service=${service//*:[^:]*:/}
+        listen_ip=${set_listen//0.0.0.0/$SET_ADDR}
+        listen=${listen_ip//^:/$listen_ip}
         [ -z "$listen" ] || printf_cyan "Port $set_service is mapped to: $listen"
       fi
     done

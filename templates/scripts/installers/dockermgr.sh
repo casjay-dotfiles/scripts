@@ -264,6 +264,7 @@ HOST_DOCKER_NETWORK="bridge"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set listen type - Default default all [all/local/lan/docker/public]
 HOST_NETWORK_ADDR="all"
+HOST_NETWORK_LOCAL_ADDR="127.0.0.1"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set this to 0.0.0.0 to listen on all
 HOST_DEFINE_LISTEN="0.0.0.0"
@@ -615,7 +616,7 @@ fi
 # container web server configuration
 if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ]; then
   SET_WEB_PORT=""
-  CONTAINER_WEB_SERVER_IP="$(__docker_gateway_ip)"
+  CONTAINER_WEB_SERVER_IP="$HOST_NETWORK_LOCAL_ADDR"
   CONTAINER_WEB_SERVER_PORT="${CONTAINER_WEB_SERVER_PORT//,/ }"
   for port in $CONTAINER_WEB_SERVER_PORT; do
     if [ "$port" != " " ] && [ -n "$port" ]; then
@@ -822,7 +823,7 @@ if docker ps -a | grep -qs "$CONTAINER_NAME"; then
         set_listen="${service%:*}"
         set_service="${service//*:[^:]*:/}"
         listen="${set_listen//0.0.0.0/$SET_ADDR}"
-        [ -z "$listen" ] || printf_cyan "Port $set_service is listening on: $listen"
+        [ -z "$listen" ] || printf_cyan "Port $set_service is mapped to: $listen"
       fi
     done
   fi

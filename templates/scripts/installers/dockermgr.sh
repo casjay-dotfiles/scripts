@@ -80,7 +80,7 @@ __rport() {
     { [ $port -lt 50000 ] && [ $port -gt 50999 ]; } && port="$(__port)"
     __port_in_use "$port" && break
   done
-  echo "$port"
+  echo "$port" | head -n1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define any pre-install scripts
@@ -404,13 +404,6 @@ CLEANUP_PORT="${HOST_SERVICE_PORT:-$IS_PRIVATE}"
 CLEANUP_PORT="${CLEANUP_PORT//\/*/}"
 PRETTY_PORT="$CLEANUP_PORT"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if echo "$PRETTY_PORT" | grep -q ':.*.:'; then
-  NGINX_PROXY_PORT="$(echo "$PRETTY_PORT" | grep ':.*.:' | awk -F':' '{print $2}' | grep '^')"
-else
-  NGINX_PROXY_PORT="$(echo "$PRETTY_PORT" | grep -v ':.*.:' | awk -F':' '{print $2}' | grep '^')"
-fi
-[ -n "$NGINX_PROXY_PORT" ] || NGINX_PROXY_PORT="$CLEANUP_PORT"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Docker arguments from env
 [ -n "$DOCKER_CUSTOM_ARGUMENTS" ] && DOCKER_CUSTOM_ARGUMENTS+="${DOCKER_CUSTOM_ARGUMENTS//,/ } "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -622,7 +615,15 @@ if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ]; then
   [ -n "$SET_WEB_PORT" ] && SET_NGINX_PROXY_PORT="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | grep -v '^$' | sed 's|--publish||g' | awk -F':' '{print $1":"$2}' | sort -u | tr '\n' ' ' | head -n1 | grep '^')"
   [ -n "$SET_WEB_PORT" ] && CLEANUP_PORT="$SET_NGINX_PROXY_PORT" CLEANUP_PORT="${CLEANUP_PORT//\/*/}"
   [ -n "$SET_WEB_PORT" ] && PRETTY_PORT="$CLEANUP_PORT" NGINX_PROXY_PORT="$PRETTY_PORT"
+  [ -n "$SET_NGINX_PROXY_PORT" ] && NGINX_PROXY_PORT="$SET_NGINX_PROXY_PORT"
 fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if echo "$PRETTY_PORT" | grep -q ':.*.:'; then
+  NGINX_PROXY_PORT="$(echo "$PRETTY_PORT" | grep ':.*.:' | awk -F':' '{print $2}' | grep '^')"
+else
+  NGINX_PROXY_PORT="$(echo "$PRETTY_PORT" | grep -v ':.*.:' | awk -F':' '{print $2}' | grep '^')"
+fi
+[ -n "$NGINX_PROXY_PORT" ] || NGINX_PROXY_PORT="$CLEANUP_PORT"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # SSL setup
 NGINX_PROXY_URL=""
@@ -689,9 +690,9 @@ DOCKER_SET_MNT="${DOCKER_SET_MNT:-}"
 DOCKER_SET_LINK="${DOCKER_SET_LINK:-}"
 DOCKER_SET_LABELS="${DOCKER_SET_LABELS:-}"
 DOCKER_SET_SYSCTL="${DOCKER_SET_SYSCTL:-}"
-DOCKER_SET_PUBLISH="${DOCKER_SET_PUBLISH:-}"
 DOCKER_SET_OPTIONS="${DOCKER_SET_OPTIONS:-}"
 CONTAINER_COMMANDS="${CONTAINER_COMMANDS:-}"
+DOCKER_SET_PUBLISH="$(echo "${DOCKER_SET_PUBLISH:-}" | tr ' ' '\n' | sort -u | grep -v '^$' | grep '[0-9]' | grep -v '::.*' | tr '\n' ' ' | grep '^')"
 EXECUTE_PRE_INSTALL="docker stop $CONTAINER_NAME;docker rm -f $CONTAINER_NAME"
 EXECUTE_DOCKER_CMD="docker run -d $DOCKER_SET_OPTIONS $DOCKER_SET_LINK $DOCKER_SET_LABELS $DOCKER_SET_CAP $DOCKER_SET_SYSCTL $DOCKER_SET_ENV $DOCKER_SET_DEV $DOCKER_SET_MNT $DOCKER_SET_PUBLISH $HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS"
 EXECUTE_DOCKER_CMD="${EXECUTE_DOCKER_CMD//  / }"

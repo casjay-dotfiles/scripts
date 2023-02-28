@@ -809,22 +809,20 @@ dockermgr_install_version
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run exit function
 SET_ADDR="${HOST_LISTEN_ADDR//:*/}"
-SET_PORT="$DOCKER_SET_PUBLISH"
-HOST_WEB_PORT="$HOST_WEB_PORT"
+SET_PORT="${DOCKER_SET_PUBLISH//--publish/ }"
 if docker ps -a | grep -qs "$CONTAINER_NAME"; then
   printf_yellow "The DATADIR is in $DATADIR"
   printf_cyan "$APPNAME has been installed to $INSTDIR"
-  if [ -z "$PRETTY_PORT" ]; then
+  if [ -z "$SET_PORT" ]; then
     printf_yellow "This container does not have services configured"
   else
     for service in $SET_PORT; do
       if [ "$service" != "--publish" ] && [ "$service" != " " ] && [ -n "$service" ]; then
         service="${service//\/*/}"
-        set_service="$(echo "$service" | tr ' ' '\n' | awk -F ':' '{$NF}' | grep '^' || echo "$service")"
-        set_listen="$(echo "$service" | tr ' ' '\n' | grep ':.*.*:' | awk -F ':' '{print $1":"$2}' | grep '^' || echo "$service")"
-        set_listen="$set_listen $(echo "$service" | tr ' ' '\n' | grep -v ':.*.*:' | awk -F ':' '{print $1":"$2}' | grep '^' || echo "$service")"
+        set_service="${service%:*}"
+        set_listen="${service//*:[^:]*:/}"
         listen="${set_listen//0.0.0.0/$SET_ADDR}"
-        [ -z "$listen" ] || printf_blue "$set_service is running on: $listen"
+        [ -z "$listen" ] || printf_cyan "$set_service is running on: $listen"
       fi
     done
   fi

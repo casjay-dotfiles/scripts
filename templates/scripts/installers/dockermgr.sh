@@ -69,9 +69,9 @@ __docker_init() { [ -n "$(type -p dockermgr 2>/dev/null)" ] && dockermgr init ||
 __domain_name() { hostname -f 2>/dev/null | awk -F '.' '{print $(NF-1)"."$NF}' | grep '\.' | grep '^' || hostname -f 2>/dev/null | grep '^' || return 1; }
 __port_in_use() { { [ -d "/etc/nginx/vhosts.d" ] && grep -wRsq "${1:-443}" "/etc/nginx/vhosts.d" || netstat -taupln 2>/dev/null | grep '[0-9]:[0-9]' | grep 'LISTEN' | grep -q "${1:-443}"; } && return 1 || return 0; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__public_ip() { curl -q -LSsf "http://ifconfig.co" | grep '^'; }
-__docker_gateway_ip() { sudo docker network inspect -f '{{json .IPAM.Config}}' bridge | jq -r '.[].Gateway' | grep -v '^$' | grep '^' || echo '172.17.0.1'; }
-__local_lan_ip() { [ -n "$SET_LOCAL_IP" ] && { echo "$SET_LOCAL_IP" | grep -E '192\.168\.[0-255]\.[0-255]' 2>/dev/null || echo "$SET_LOCAL_IP" | grep -E '10\.[0-255]\.[0-255]\.[0-255]' 2>/dev/null || echo "$SET_LOCAL_IP" | grep -E '172\.[16-31]\.[0-255]\.[0-255]' 2>/dev/null; } || echo "$CURRENT_IP_4"; }
+__public_ip() { curl -q -LSsf "http://ifconfig.co" | grep -v '^$' | head -n1 | grep '^'; }
+__docker_gateway_ip() { sudo docker network inspect -f '{{json .IPAM.Config}}' bridge | jq -r '.[].Gateway' | grep -v '^$' | head -n1 | grep '^' || echo '172.17.0.1'; }
+__local_lan_ip() { [ -n "$SET_LOCAL_IP" ] && { echo "$SET_LOCAL_IP" | grep -E '192\.168\.[0-255]\.[0-255]' 2>/dev/null || echo "$SET_LOCAL_IP" | grep -E '10\.[0-255]\.[0-255]\.[0-255]' 2>/dev/null || echo "$SET_LOCAL_IP" | grep -E '172\.[16-31]\.[0-255]\.[0-255]' 2>/dev/null; } | grep -v '^$' || grep -v '172\.17\.0\.1' | head -n1 | grep '^' || echo "$CURRENT_IP_4"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __rport() {
   local port
@@ -160,17 +160,17 @@ while :; do
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup networking
-SET_LOCAL_NET_DEV="$(__route | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//" | awk '{print $1}' | grep '^' || echo 'eth0')"
-SET_LOCAL_IP="$(__ifconfig $LOCAL_NET_DEV | grep -w 'inet' | awk -F ' ' '{print $2}' | grep -vE '127\.[0-255]\.[0-255]\.[0-255]' | tr ' ' '\n' | grep '^')"
+SET_LOCAL_NET_DEV=$(__route | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//" | awk '{print $1}' | grep '^' || echo 'eth0')
+SET_LOCAL_IP=$(__ifconfig $LOCAL_NET_DEV | grep -w 'inet' | awk -F ' ' '{print $2}' | grep -vE '127\.[0-255]\.[0-255]\.[0-255]' | tr ' ' '\n' | grep '^')
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # get variables from host
-SET_RANDOM_PORT="$(__rport)"
-SET_RANDOM_PASS="$(__password)"
-SET_LOCAL_HOSTNAME="$(__host_name)"
-SET_LOCAL_DOMAINNAME="$(__domain_name)"
-SET_LONG_HOSTNAME=""$(hostname -f 2>/dev/null | grep '^')
-SET_SHORT_HOSTNAME="$(hostname -s 2>/dev/null | grep '^')"
-SET_DOMAIN_NAME="$(hostname -d 2>/dev/null | grep '^' || echo 'home')"
+SET_RANDOM_PORT=$(__rport)
+SET_RANDOM_PASS=$(__password)
+SET_LOCAL_HOSTNAME=$(__host_name)
+SET_LOCAL_DOMAINNAME=$(__domain_name)
+SET_LONG_HOSTNAME=$(hostname -f 2>/dev/null | grep '^')
+SET_SHORT_HOSTNAME=$(hostname -s 2>/dev/null | grep '^')
+SET_DOMAIN_NAME=$(hostname -d 2>/dev/null | grep '^' || echo 'home')
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define folders
 HOST_DATA_DIR="$DATADIR/data"
@@ -244,6 +244,11 @@ DOCKER_CONFIG_ENABLED="no"
 HOST_DOCKER_CONFIG="$HOME/.docker/config.json"
 CONTAINER_DOCKER_CONFIG_FILE="/root/.docker/config.json"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Mount soundcard [/dev/snd]
+DOCKER_SOUND_ENABLED="no"
+HOST_SOUND_CONFIG="/dev/snd"
+CONTAINER_SOUND_CONFIG_FILE="/dev/snd"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Enable display in container
 CONTAINER_X11_ENABLED="no"
 HOST_X11_DISPLAY=""
@@ -260,21 +265,21 @@ CONTAINER_HOSTNAME=""
 CONTAINER_DOMAINNAME=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the network type - default is bridge [bridge/host]
-HOST_DOCKER_NETWORK="bridge"
+HOST_DOCKER_NETWORK=bridge
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set listen type - Default default all [all/local/lan/docker/public]
-HOST_NETWORK_ADDR="all"
-HOST_NETWORK_LOCAL_ADDR="127.0.0.1"
+HOST_NETWORK_ADDR=all
+HOST_NETWORK_LOCAL_ADDR=127.0.0.1
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set this to 0.0.0.0 to listen on all
-HOST_DEFINE_LISTEN="0.0.0.0"
+HOST_DEFINE_LISTEN=0.0.0.0
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup nginx proxy variables [yes,no]
-HOST_NGINX_ENABLED="yes"
-HOST_NGINX_SSL_ENABLED="yes"
-HOST_NGINX_HTTP_PORT="80"
-HOST_NGINX_HTTPS_PORT="443"
-HOST_NGINX_UPDATE_CONF="yes"
+HOST_NGINX_ENABLED=yes
+HOST_NGINX_SSL_ENABLED=yes
+HOST_NGINX_HTTP_PORT=80
+HOST_NGINX_HTTPS_PORT=443
+HOST_NGINX_UPDATE_CONF=yes
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Enable this if container is running a webserver [yes/no] [yes/no] [internalPort,otherPort]
 CONTAINER_WEB_SERVER_ENABLED="no"
@@ -291,7 +296,6 @@ CONTAINER_HTTP_PORT=""
 CONTAINER_HTTPS_PORT=""
 CONTAINER_SERVICE_PORT=""
 CONTAINER_ADD_CUSTOM_PORT=""
-CONTAINER_ADD_CUSTOM_PORT+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Add service port [listen:externalPort:internalPort/tcp,udp]
 CONTAINER_ADD_CUSTOM_LISTEN=""
@@ -412,9 +416,9 @@ DOCKER_SET_TMP_PUBLISH=("")
 LOCAL_NET_IP="$(__local_lan_ip)"
 LOCAL_NET_IP="${LOCAL_NET_IP:-$SET_LOCAL_IP}"
 HOST_DEFINE_LISTEN="${HOST_DEFINE_LISTEN:-SET_LOCAL_IP}"
-[ "$HOST_NETWORK_ADDR" = "public" ] && HOST_DEFINE_LISTEN="0.0.0.0" && HOST_LISTEN_ADDR="$(__local_lan_ip)"
-[ "$HOST_NETWORK_ADDR" = "lan" ] && HOST_DEFINE_LISTEN="$(__local_lan_ip)" && HOST_LISTEN_ADDR="$(__local_lan_ip)"
-[ "$HOST_NETWORK_ADDR" = "docker" ] && HOST_DEFINE_LISTEN="$(__docker_gateway_ip)" && HOST_LISTEN_ADDR="$(__docker_gateway_ip)"
+[ "$HOST_NETWORK_ADDR" = "public" ] && HOST_DEFINE_LISTEN=0.0.0.0 && HOST_LISTEN_ADDR=$(__local_lan_ip)
+[ "$HOST_NETWORK_ADDR" = "lan" ] && HOST_DEFINE_LISTEN=$(__local_lan_ip) && HOST_LISTEN_ADDR=$(__local_lan_ip)
+[ "$HOST_NETWORK_ADDR" = "docker" ] && HOST_DEFINE_LISTEN=$(__docker_gateway_ip) && HOST_LISTEN_ADDR=$(__docker_gateway_ip)
 [ "$HOST_NETWORK_ADDR" = "yes" ] && CONTAINER_PRIVATE="yes" && HOST_DEFINE_LISTEN="127.0.0.1" && HOST_LISTEN_ADDR="127.0.0.1" && CONTAINER_PRIVATE="yes"
 [ "$HOST_NETWORK_ADDR" = "local" ] && CONTAINER_PRIVATE="yes" && HOST_DEFINE_LISTEN="127.0.0.1" && HOST_LISTEN_ADDR="127.0.0.1" && CONTAINER_PRIVATE="yes"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -453,6 +457,7 @@ DOCKER_SET_OPTIONS="${DOCKER_CUSTOM_ARGUMENTS:-}"
 [ "$HOST_ETC_HOSTS_ENABLED" = "yes" ] && CONTAINER_MOUNTS+="/etc/hosts:/etc/hosts:ro "
 [ "$HOST_RESOLVE_ENABLED" = "yes" ] && CONTAINER_MOUNTS+="$HOST_RESOLVE_FILE:/etc/resolv.conf "
 [ "$DOCKER_SOCKET_ENABLED" = "yes" ] && CONTAINER_MOUNTS+="$DOCKER_SOCKET_MOUNT:/var/run/docker.sock "
+[ "$DOCKER_SOUND_ENABLED" = "yes" ] && CONTAINER_MOUNTS+="$HOST_SOUND_CONFIG:$CONTAINER_SOUND_CONFIG_FILE "
 [ "$DOCKER_CONFIG_ENABLED" = "yes" ] && CONTAINER_MOUNTS+="$HOST_DOCKER_CONFIG:$CONTAINER_DOCKER_CONFIG_FILE:ro "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # env variables from env
@@ -642,15 +647,15 @@ if [ -n "$CONTAINER_ADD_CUSTOM_LISTEN" ]; then
   for set_port in $CONTAINER_ADD_CUSTOM_LISTEN; do
     port=$set_port
     if [ "$port" != " " ] && [ -n "$port" ]; then
-      echo "$port" | grep -q ':' || port="${list//\/*/}:$port"
+      echo "$port" | grep -q ':' || port="${port//\/*/}:$port"
       DOCKER_SET_TMP_PUBLISH+=("--publish $port")
     fi
   done
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # container web server configuration
+SET_WEB_PORT=""
 if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ]; then
-  SET_WEB_PORT=""
   CONTAINER_WEB_SERVER_IP=$HOST_NETWORK_LOCAL_ADDR
   CONTAINER_WEB_SERVER_PORT="${CONTAINER_WEB_SERVER_PORT//,/ }"
   CONTAINER_WEB_SERVER_PORT="${CONTAINER_WEB_SERVER_PORT//  / }"

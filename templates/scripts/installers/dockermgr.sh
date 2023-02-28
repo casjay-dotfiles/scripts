@@ -83,6 +83,13 @@ __rport() {
   echo "$port" | head -n1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trim() {
+  local var="$*"
+  var="${var#"${var%%[![:space:]]*}"}" # remove leading whitespace characters
+  var="${var%"${var##*[![:space:]]}"}" # remove trailing whitespace characters
+  printf '%s' "$var"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define any pre-install scripts
 run_pre_install() {
   true
@@ -680,24 +687,25 @@ DOCKER_SET_PORTS_ENV_TMP=""
 DOCKER_SET_PORTS_ENV_TMP+="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | grep ':.*.:' | awk -F ':' '{print $1":"$3}' | tr '\n' ',' | grep '^')"
 DOCKER_SET_PORTS_ENV_TMP+="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | grep -v ':.*.:' | awk -F ':' '{print $1":"$2}' | tr '\n' ',' | grep '^')"
 DOCKER_SET_PORTS_ENV_TMP+="$(echo "$DOCKER_SET_PORTS_ENV_TMP" | tr ' ' '\n' | grep '[0-9]:[0-9]' | sort -u | sed 's|/.*||g' grep -v '^$' | tr '\n' ',' | grep '^' || echo '')"
-DOCKER_SET_PORTS_ENV="${DOCKER_SET_PORTS_ENV_TMP//,/ }" DOCKER_SET_PORTS_ENV_TMP=""
+DOCKER_SET_PORTS_ENV="$(__trim "${DOCKER_SET_PORTS_ENV_TMP//,/ }")"
 [ -n "$DOCKER_SET_PORTS_ENV" ] && DOCKER_SET_OPTIONS+="--env ENV_PORTS=\"${DOCKER_SET_PORTS_ENV//: /}\""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main progam
-HUB_IMAGE_URL="${HUB_IMAGE_URL:-}"
-HUB_IMAGE_TAG="${HUB_IMAGE_TAG:-}"
-DOCKER_SET_CAP="${DOCKER_SET_CAP:-}"
-DOCKER_SET_ENV="${DOCKER_SET_ENV:-}"
-DOCKER_SET_DEV="${DOCKER_SET_DEV:-}"
-DOCKER_SET_MNT="${DOCKER_SET_MNT:-}"
-DOCKER_SET_LINK="${DOCKER_SET_LINK:-}"
-DOCKER_SET_LABELS="${DOCKER_SET_LABELS:-}"
-DOCKER_SET_SYSCTL="${DOCKER_SET_SYSCTL:-}"
-DOCKER_SET_OPTIONS="${DOCKER_SET_OPTIONS:-}"
-CONTAINER_COMMANDS="${CONTAINER_COMMANDS[*]:-}"
-DOCKER_SET_PUBLISH="${DOCKER_SET_PUBLISH:-}"
+HUB_IMAGE_URL="$(__trim "{HUB_IMAGE_URL:-}")"
+HUB_IMAGE_TAG="$(__trim "{HUB_IMAGE_TAG:-}")"
+DOCKER_SET_CAP="$(__trim "${DOCKER_SET_CAP:-}")"
+DOCKER_SET_ENV="$(__trim "${DOCKER_SET_ENV:-}")"
+DOCKER_SET_DEV="$(__trim "${DOCKER_SET_DEV:-}")"
+DOCKER_SET_MNT="$(__trim "${DOCKER_SET_MNT:-}")"
+DOCKER_SET_LINK="$(__trim "${DOCKER_SET_LINK:-}")"
+DOCKER_SET_LABELS="$(__trim "${DOCKER_SET_LABELS:-}")"
+DOCKER_SET_SYSCTL="$(__trim "${DOCKER_SET_SYSCTL:-}")"
+DOCKER_SET_OPTIONS="$(__trim "${DOCKER_SET_OPTIONS:-}")"
+CONTAINER_COMMANDS="$(__trim "${CONTAINER_COMMANDS:-}")"
+DOCKER_SET_PUBLISH="$(__trim "${DOCKER_SET_PUBLISH:-}")"
 EXECUTE_PRE_INSTALL="docker stop $CONTAINER_NAME;docker rm -f $CONTAINER_NAME"
-EXECUTE_DOCKER_CMD="eval docker run -d $DOCKER_SET_OPTIONS $DOCKER_SET_LINK $DOCKER_SET_LABELS $DOCKER_SET_CAP $DOCKER_SET_SYSCTL $DOCKER_SET_ENV $DOCKER_SET_DEV $DOCKER_SET_MNT $DOCKER_SET_PUBLISH $HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS"
+EXECUTE_DOCKER_CMD="docker run -d $DOCKER_SET_OPTIONS $DOCKER_SET_LINK $DOCKER_SET_LABELS $DOCKER_SET_CAP $DOCKER_SET_SYSCTL $DOCKER_SET_ENV $DOCKER_SET_DEV $DOCKER_SET_MNT $DOCKER_SET_PUBLISH $HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS"
+EXECUTE_DOCKER_CMD="$(__trim "$EXECUTE_DOCKER_CMD")"
 if cmd_exists docker-compose && [ -f "$INSTDIR/docker-compose.yml" ]; then
   printf_yellow "Installing containers using docker-compose"
   sed -i 's|REPLACE_DATADIR|'$DATADIR'' "$INSTDIR/docker-compose.yml"
@@ -723,12 +731,13 @@ if [ -n "$EXECUTE_DOCKER_SCRIPT" ]; then
 # Install script for $CONTAINER_NAME
 
 $EXECUTE_PRE_INSTALL
-$EXECUTE_DOCKER_CMD
+${EXECUTE_DOCKER_CMD[@]}
+exit \$?
 
 EOF
     [ -f "$DOCKERMGR_CONFIG_DIR/scripts/$CONTAINER_NAME" ] && chmod -Rf 755 "$DOCKERMGR_CONFIG_DIR/scripts/$CONTAINER_NAME"
   fi
-  if __sudo $EXECUTE_DOCKER_CMD 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log"; then
+  if __sudo "${EXECUTE_DOCKER_CMD[@]}" 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log"; then
     rm -Rf "${TMP:-/tmp}/$APPNAME.err.log"
   else
     ERROR_LOG="true"

@@ -602,18 +602,18 @@ if [ -n "$CONTAINER_ADD_CUSTOM_LISTEN" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # container web server configuration
-SET_WEB_PORT="" SET_WEB_SERVER_PORTS=""
 if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ]; then
   CONTAINER_WEB_SERVER_IP="$(__docker_gateway_ip)"
-  CONTAINER_WEB_SERVER_PORT="${WEB_SERVER_PORT//,/ }"
+  CONTAINER_WEB_SERVER_PORT="${CONTAINER_WEB_SERVER_PORT//,/ }"
   for web_ports in $CONTAINER_WEB_SERVER_PORT; do
     if [ "$web_ports" != " " ] && [ -n "$web_ports" ]; then
+      echo "$web_ports" | grep -q ':' || web_ports="${web_ports//\/*/}:$web_ports"
       RANDOM_PORT="$(__rport)"
       SET_WEB_PORT+="$CONTAINER_WEB_SERVER_IP:$RANDOM_PORT "
       TYPE="$(echo "$web_ports" | awk -F '/' '{print $NF}' | grep '^' || echo '')"
       if [ -n "$TYPE" ]; then
-        SET_WEB_SERVER_PORTS+="--publish $CONTAINER_WEB_SERVER_IP:$RANDOM_PORT:$web_ports/$TYPE " \
-          else
+        SET_WEB_SERVER_PORTS+="--publish $CONTAINER_WEB_SERVER_IP:$RANDOM_PORT:$web_ports/$TYPE "
+      else
         SET_WEB_SERVER_PORTS+="--publish $CONTAINER_WEB_SERVER_IP:$RANDOM_PORT:$web_ports "
       fi
     fi
@@ -683,8 +683,12 @@ DOCKER_SET_PORTS_ENV="${DOCKER_SET_PORTS_ENV_TMP//,/ }" DOCKER_SET_PORTS_ENV_TMP
 [ -n "$DOCKER_SET_PORTS_ENV" ] && DOCKER_SET_OPTIONS+="--env ENV_PORTS=\"$DOCKER_SET_PORTS_ENV\""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main progam
+HUB_IMAGE_URL="${HUB_IMAGE_URL:-}" HUB_IMAGE_TAG="${HUB_IMAGE_TAG:-}" DOCKER_SET_CAP="${DOCKER_SET_CAP:-}"
+DOCKER_SET_ENV="${DOCKER_SET_ENV:-}" DOCKER_SET_DEV="${DOCKER_SET_DEV:-}" DOCKER_SET_MNT="${DOCKER_SET_MNT:-}"
+DOCKER_SET_LINK="${DOCKER_SET_LINK:-}" DOCKER_SET_LABELS="${DOCKER_SET_LABELS:-}" DOCKER_SET_SYSCTL="${DOCKER_SET_SYSCTL:-}"
+DOCKER_SET_PUBLISH="${DOCKER_SET_PUBLISH:-}" DOCKER_SET_OPTIONS="${DOCKER_SET_OPTIONS:-}" CONTAINER_COMMANDS="${CONTAINER_COMMANDS:-}"
 EXECUTE_PRE_INSTALL="docker stop $CONTAINER_NAME;docker rm -f $CONTAINER_NAME"
-EXECUTE_DOCKER_CMD="docker run -d $DOCKER_SET_LINK $DOCKER_SET_LABELS $DOCKER_SET_CAP $DOCKER_SET_SYSCTL $DOCKER_SET_ENV $DOCKER_SET $DOCKER_SET_MNT $DOCKER_SET_PUBLISH $DOCKER_SET_OPTIONS $HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS"
+EXECUTE_DOCKER_CMD="docker run -d  $DOCKER_SET_OPTIONS $DOCKER_SET_LINK $DOCKER_SET_LABELS $DOCKER_SET_CAP $DOCKER_SET_SYSCTL $DOCKER_SET_ENV $DOCKER_SET_DEV $DOCKER_SET_MNT $DOCKER_SET_PUBLISH $HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS"
 EXECUTE_DOCKER_CMD="${EXECUTE_DOCKER_CMD//  / }"
 if cmd_exists docker-compose && [ -f "$INSTDIR/docker-compose.yml" ]; then
   printf_yellow "Installing containers using docker-compose"
@@ -709,7 +713,7 @@ if [ -n "$EXECUTE_DOCKER_SCRIPT" ]; then
     printf '#!/usr/bin/env bash\n\n%s\n%s\n\n' "$EXECUTE_PRE_INSTALL" "$EXECUTE_DOCKER_CMD" >"$DOCKERMGR_CONFIG_DIR/scripts/$CONTAINER_NAME"
     [ -f "$DOCKERMGR_CONFIG_DIR/scripts/$CONTAINER_NAME" ] && chmod -Rf 755 "$DOCKERMGR_CONFIG_DIR/scripts/$CONTAINER_NAME"
   fi
-  if __sudo "$EXECUTE_DOCKER_SCRIPT" 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log"; then
+  if __sudo $EXECUTE_DOCKER_SCRIPT 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log"; then
     rm -Rf "${TMP:-/tmp}/$APPNAME.err.log"
   else
     ERROR_LOG="true"
@@ -767,8 +771,8 @@ dockermgr_install_version
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run exit function
 SET_ADDR="${HOST_LISTEN_ADDR//:*/}"
-SET_PORT="${DOCKER_SET_PUBLISH//--publish/}"
-HOST_WEB_PORT="${HOST_WEB_PORT//--publish/}"
+SET_PORT="$DOCKER_SET_PUBLISH"
+HOST_WEB_PORT="$HOST_WEB_PORT"
 if docker ps -a | grep -qs "$APPNAME"; then
   printf_yellow "The DATADIR is in $DATADIR"
   printf_cyan "$APPNAME has been installed to $INSTDIR"

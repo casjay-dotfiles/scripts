@@ -70,7 +70,7 @@ __domain_name() { hostname -f 2>/dev/null | awk -F '.' '{print $(NF-1)"."$NF}' |
 __port_in_use() { { [ -d "/etc/nginx/vhosts.d" ] && grep -wRsq "${1:-$CONTAINER_HTTP_PORT}" "/etc/nginx/vhosts.d" || netstat -taupln 2>/dev/null | grep -q "${1:-$CONTAINER_HTTP_PORT}"; } && return 1 || return 0; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __public_ip() { curl -q -LSsf "http://ifconfig.co" | grep '^'; }
-__docker_gateway_ip() { sudo docker network inspect -f '{{json .IPAM.Config}}' bridge | jq -r '.[].Gateway'; }
+__docker_gateway_ip() { sudo docker network inspect -f '{{json .IPAM.Config}}' bridge | jq -r '.[].Gateway' | grep '^' || echo '172.17.0.1'; }
 __local_lan_ip() { [ -n "$SET_LOCAL_IP" ] && { echo "$SET_LOCAL_IP" | grep -E '192\.168\.[0-255]\.[0-255]' 2>/dev/null || echo "$SET_LOCAL_IP" | grep -E '10\.[0-255]\.[0-255]\.[0-255]' 2>/dev/null || echo "$SET_LOCAL_IP" | grep -E '172\.[16-31]\.[0-255]\.[0-255]' 2>/dev/null; } || echo "$CURRENT_IP_4"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __rport() {
@@ -497,90 +497,75 @@ EOF
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-DOCKER_SET_LINK=""
-CONTAINER_LINK="${CONTAINER_LINK//,/ }"
+DOCKER_SET_LINK="" CONTAINER_LINK="${CONTAINER_LINK//,/ }"
 for link in $CONTAINER_LINK; do
-  [ "$link" = " " ] && link=""
-  if [ -n "$link" ]; then
+  if [ "$link" != "" ] && [ "$link" != " " ]; then
     DOCKER_SET_LINK+="--link $link "
   fi
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-DOCKER_SET_LABELS=""
-CONTAINER_LABELS="${CONTAINER_LABELS//,/ }"
+DOCKER_SET_LABELS="" CONTAINER_LABELS="${CONTAINER_LABELS//,/ }"
 for label in $CONTAINER_LABELS; do
-  [ "$label" = " " ] && label=""
-  if [ -n "$label" ]; then
+  if [ "$label" != "" ] && [ "$label" != " " ]; then
     DOCKER_SET_LABELS+="--label $label "
   fi
 done
 CONTAINER_LABELS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-DOCKER_SET_CAP=""
-CONTAINER_CAPABILITIES="${CONTAINER_CAPABILITIES//,/ }"
+DOCKER_SET_CAP="" CONTAINER_CAPABILITIES="${CONTAINER_CAPABILITIES//,/ }"
 for cap in $CONTAINER_CAPABILITIES; do
-  [ "$cap" = " " ] && cap=""
-  if [ -n "$cap" ]; then
+  if [ "$cap" != "" ] && [ "$cap" != " " ]; then
     DOCKER_SET_CAP+="--cap-add $cap "
   fi
 done
 CONTAINER_CAPABILITIES=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-DOCKER_SET_SYSCTL=""
-CONTAINER_SYSCTL="${CONTAINER_SYSCTL//,/ }"
+DOCKER_SET_SYSCTL="" CONTAINER_SYSCTL="${CONTAINER_SYSCTL//,/ }"
 for sysctl in $CONTAINER_SYSCTL; do
-  [ "$sysctl" = " " ] && sysctl=""
-  if [ -n "$sysctl" ]; then
+  if [ "$sysctl" != "" ] && [ "$sysctl" != " " ]; then
     DOCKER_SET_SYSCTL+="--sysctl $sysctl "
   fi
 done
 CONTAINER_SYSCTL=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-DOCKER_SET_ENV1=""
-CONTAINER_OPT_ENV_VAR="${SET_CONTAINER_OPT_ENV_VAR//,/ }"
+DOCKER_SET_ENV1="" CONTAINER_OPT_ENV_VAR="${SET_CONTAINER_OPT_ENV_VAR//,/ }"
 if [ -n "$OPT_ENV_VAR" ]; then
   for env in $OPT_ENV_VAR; do
-    DOCKER_SET_ENV1+="--env $env "
+    if [ "$env" != "" ] && [ "$env" != " " ]; then
+      DOCKER_SET_ENV1+="--env $env "
+    fi
   done
 fi
 CONTAINER_OPT_ENV_VAR=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-DOCKER_SET_ENV2=""
-CONTAINER_ENV="${ADDITION_ENV//,/ }"
+DOCKER_SET_ENV2="" CONTAINER_ENV="${ADDITION_ENV//,/ }"
 for env in $ADDITION_ENV; do
-  [ "$env" = " " ] && env=""
-  if [ -n "$env" ]; then
+  if [ "$env" != "" ] && [ "$env" != " " ]; then
     DOCKER_SET_ENV2+="--env $env "
   fi
 done
 CONTAINER_ENV=""
 DOCKER_SET_ENV="$DOCKER_SET_ENV1 $DOCKER_SET_ENV2"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-DOCKER_SET_DEV=""
-CONTAINER_DEVICES="${CONTAINER_DEVICES//,/ }"
+DOCKER_SET_DEV="" CONTAINER_DEVICES="${CONTAINER_DEVICES//,/ }"
 for dev in $CONTAINER_DEVICES; do
-  [ "$dev" = " " ] && dev=""
-  if [ -n "$dev" ]; then
+  if [ "$dev" != "" ] && [ "$dev" != " " ]; then
     echo "$dev" | grep -q ':' || dev="$dev:$dev"
     DOCKER_SET_DEV+="--device $dev "
   fi
 done
 CONTAINER_DEVICES=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-DOCKER_SET_MNT=""
-CONTAINER_MOUNTS="${CONTAINER_MOUNTS//,/ }"
+DOCKER_SET_MNT="" CONTAINER_MOUNTS="${CONTAINER_MOUNTS//,/ }"
 for mnt in $CONTAINER_MOUNTS; do
-  [ "$mnt" = "" ] && mnt=""
-  [ "$mnt" = " " ] && mnt=""
-  if [ -n "$mnt" ]; then
+  if [ "$mnt" != "" ] && [ "$mnt" != " " ]; then
     echo "$mnt" | grep -q ':' || port="$mnt:$mnt"
     DOCKER_SET_MNT+="--volume $mnt "
   fi
 done
 CONTAINER_MOUNTS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-CONTAINER_OPT_PORT_VAR="${CONTAINER_OPT_PORT_VAR//,/ }"
-SET_LISTEN="${HOST_DEFINE_LISTEN//:*/}"
+CONTAINER_OPT_PORT_VAR="${CONTAINER_OPT_PORT_VAR//,/ }" SET_LISTEN="${HOST_DEFINE_LISTEN//:*/}"
 if [ -n "$CONTAINER_OPT_PORT_VAR" ]; then
   for port in $CONTAINER_OPT_PORT_VAR; do
     if [ "$port" != "" ] && [ "$port" != " " ]; then
@@ -591,8 +576,7 @@ if [ -n "$CONTAINER_OPT_PORT_VAR" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_SERVER_PORTS="$CONTAINER_HTTP_PORT $CONTAINER_HTTPS_PORT $CONTAINER_SERVICE_PORT $CONTAINER_ADD_CUSTOM_PORT"
-SET_SERVER_PORTS="${SET_SERVER_PORTS//,/ }"
-SET_LISTEN="${HOST_DEFINE_LISTEN//:*/}"
+SET_SERVER_PORTS="${SET_SERVER_PORTS//,/ }" SET_LISTEN="${HOST_DEFINE_LISTEN//:*/}"
 for port in $SET_SERVER_PORTS; do
   if [ "$port" != " " ] && [ -n "$port" ]; then
     echo "$port" | grep -q ':' || port="${port//\/*/}:$port"
@@ -610,25 +594,32 @@ done
 CONTAINER_ADD_CUSTOM_LISTEN="${CONTAINER_ADD_CUSTOM_LISTEN//,/ }"
 if [ -n "$CONTAINER_ADD_CUSTOM_LISTEN" ]; then
   for list in $CONTAINER_ADD_CUSTOM_LISTEN; do
-    echo "$list" | grep -q ':' || list="${list//\/*/}:$list"
-    DOCKER_SET_PUBLISH+="--publish $list "
+    if [ "$list" != " " ] && [ -n "$list" ]; then
+      echo "$list" | grep -q ':' || list="${list//\/*/}:$list"
+      DOCKER_SET_PUBLISH+="--publish $list "
+    fi
   done
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # container web server configuration
-SET_WEB_PORT=""
-SET_WEB_SERVER_PORTS=""
+SET_WEB_PORT="" SET_WEB_SERVER_PORTS=""
 if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ]; then
   CONTAINER_WEB_SERVER_IP="$(__docker_gateway_ip)"
   CONTAINER_WEB_SERVER_PORT="${WEB_SERVER_PORT//,/ }"
   for web_ports in $CONTAINER_WEB_SERVER_PORT; do
-    RANDOM_PORT="$(__rport)"
-    TYPE="$(echo "$web_ports" | awk -F '/' '{print $NF}' | grep '^' || echo '')"
-    SET_WEB_PORT+="$CONTAINER_WEB_SERVER_IP:$RANDOM_PORT "
-    SET_WEB_SERVER_PORTS+="$CONTAINER_WEB_SERVER_IP:$RANDOM_PORT:$web_ports "
+    if [ "$web_ports" != " " ] && [ -n "$web_ports" ]; then
+      RANDOM_PORT="$(__rport)"
+      SET_WEB_PORT+="$CONTAINER_WEB_SERVER_IP:$RANDOM_PORT "
+      TYPE="$(echo "$web_ports" | awk -F '/' '{print $NF}' | grep '^' || echo '')"
+      if [ -n "$TYPE" ]; then
+        SET_WEB_SERVER_PORTS+="--publish $CONTAINER_WEB_SERVER_IP:$RANDOM_PORT:$web_ports/$TYPE " \
+          else
+        SET_WEB_SERVER_PORTS+="--publish $CONTAINER_WEB_SERVER_IP:$RANDOM_PORT:$web_ports "
+      fi
+    fi
   done
   [ "$CONTAINER_WEB_SERVER_SSL_ENABLED" = "yes" ] && CONTAINER_HTTP_PROTO="https" || CONTAINER_HTTP_PROTO="http"
-  NGINX_PROXY_PORT="$(echo "$SET_WEB_SERVER_PORTS" | tr ' ' '\n' | awk -F':' '{print $1":"$2}' | awk -F ':' '{print $1":"$2}' | head -n1)"
+  NGINX_PROXY_PORT="$(echo "$SET_WEB_SERVER_PORTS" | tr ' ' '\n' | sed 's|--publish ||g' | awk -F':' '{print $1":"$2}' | awk -F ':' '{print $1":"$2}' | head -n1)"
   CLEANUP_PORT="$NGINX_PROXY_PORT"
   CLEANUP_PORT="${CLEANUP_PORT//\/*/}"
   PRETTY_PORT="$CLEANUP_PORT"
@@ -785,22 +776,22 @@ if docker ps -a | grep -qs "$APPNAME"; then
     printf_yellow "This container does not have services configured"
   else
     for service in $SET_PORT; do
-      if [ "$service" != "--publish" ]; then
+      if [ "$service" != "--publish" ] && [ "$service" != " " ] && [ -n "$service" ]; then
         service="${service//\/*/}"
         set_service="$(echo "$service" | tr ' ' '\n' | awk -F ':' '{$NF}' | grep '^' || echo "$service")"
         set_listen="$(echo "$service" | tr ' ' '\n' | grep ':.*.*:' | awk -F ':' '{print $1":"$2}' | grep '^' || echo "$service")"
-        set_listen+="$(echo "$service" | tr ' ' '\n' | grep -v ':.*.*:' | awk -F ':' '{print $1":"$2}' | grep '^' || echo "$service")"
+        set_listen="$set_listen $(echo "$service" | tr ' ' '\n' | grep -v ':.*.*:' | awk -F ':' '{print $1":"$2}' | grep '^' || echo "$service")"
         listen="${set_listen//0.0.0.0/$SET_ADDR}"
-        printf_blue "$service is running on: $listen"
+        [ -z "$listen" ] || printf_blue "$service is running on: $listen"
       fi
     done
-    if [ "$service" != "--publish" ]; then
+    if [ "$service" != "--publish" ] && [ "$service" != " " ] && [ -n "$service" ]; then
       service="${service//\/*/}"
       set_service="$(echo "$service" | tr ' ' '\n' | awk -F ':' '{$NF}' | grep '^' || echo "$service")"
       set_listen="$(echo "$service" | tr ' ' '\n' | grep ':.*.*:' | awk -F ':' '{print $1":"$2}' | grep '^' || echo "$service")"
-      set_listen+="$(echo "$service" | tr ' ' '\n' | grep -v ':.*.*:' | awk -F ':' '{print $1":"$2}' | grep '^' || echo "$service")"
+      set_listen="$set_listen $(echo "$service" | tr ' ' '\n' | grep -v ':.*.*:' | awk -F ':' '{print $1":"$2}' | grep '^' || echo "$service")"
       listen="${set_listen//0.0.0.0/$SET_ADDR}"
-      printf_blue "$service is running on: $listen"
+      [ -z "$listen" ] || printf_blue "$service is running on: $listen"
     fi
   fi
   [ -z "$SET_USER_NAME" ] || printf_cyan "Username is:  $SET_USER_NAME"

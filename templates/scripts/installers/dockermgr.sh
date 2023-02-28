@@ -300,7 +300,7 @@ CONTAINER_ADD_CUSTOM_LISTEN=""
 CONTAINER_LINK=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define additional mounts [/dir:/dir,/otherdir:/otherdir]
-CONTAINER_MOUNTS="$LOCAL_CONFIG_DIR:/config:z,$LOCAL_DATA_DIR:/data:z "
+CONTAINER_MOUNTS="$LOCAL_CONFIG_DIR:/config:z,$LOCAL_DATA_DIR:/data:z,"
 CONTAINER_MOUNTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define additional devices [/dev:/dev,/otherdev:/otherdev]
@@ -317,7 +317,7 @@ CONTAINER_SYSCTL+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set capabilites [CAP,OTHERCAP]
 CONTAINER_CAPABILITIES="SYS_ADMIN,SYS_TIME "
-CONTAINER_CAPABILITIES+=""
+CONTAINER_CAPABILITIES+=","
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define labels [traefik.enable=true,label=label,otherlabel=label2]
 CONTAINER_LABELS=""
@@ -371,6 +371,9 @@ mkdir -p "$LOCAL_CONFIG_DIR"
 mkdir -p "$DOCKERMGR_CONFIG_DIR/env"
 mkdir -p "$DOCKERMGR_CONFIG_DIR/scripts"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+CONTAINER_HTTP_PORT=" " CONTAINER_HTTPS_PORT=" "
+CONTAINER_SERVICE_PORT=" " CONTAINER_ADD_CUSTOM_PORT=" "
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # variable cleanup
 CONTAINER_ENV="${CONTAINER_ENV//  / }"
 CONTAINER_LABELS="${CONTAINER_LABELS//  / }"
@@ -395,11 +398,15 @@ else
   CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME.$HOST_FULL_HOST}"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Redfine variables
+# Setup arrays
 DOCKER_SET_PUBLISH=""
+DOCKER_SET_TMP_PUBLISH=("")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Redfine variables
 [ -n "$CONTAINER_NAME" ] || CONTAINER_NAME="$(__name)"
 [ "$CONTAINER_HTTPS_PORT" = "" ] || CONTAINER_HTTP_PROTO="https"
 [ "$GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME" = "random" ] && CONTAINER_USER_PASS="$RANDOM_PASS"
+[ -n "$CONTAINER_LINK" ] && { [ "$HOST_DOCKER_NETWORK" = "bridge" ] || [ "$HOST_DOCKER_NETWORK" = "host" ]; } && CONTAINER_LINK=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set network Variables
 LOCAL_NET_IP="$(__local_lan_ip)"
@@ -428,15 +435,15 @@ PRETTY_PORT="$CLEANUP_PORT"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set docker options from env
 DOCKER_SET_OPTIONS="${DOCKER_CUSTOM_ARGUMENTS:-}"
-[ "$CONTAINER_TTY_ENABLED" = "yes" ] && DOCKER_SET_OPTIONS+="--tty "
 [ -n "$CONTAINER_NAME" ] && DOCKER_SET_OPTIONS+="--name=$CONTAINER_NAME "
+[ "$CONTAINER_TTY_ENABLED" = "yes" ] && DOCKER_SET_OPTIONS+="--tty "
 [ "$CONTAINER_PRIVILEGED_ENABLED" = "yes" ] && DOCKER_SET_OPTIONS+="--privileged "
 [ "$CONTAINER_INTERACTIVE_ENABLED" = "yes" ] && DOCKER_SET_OPTIONS+="--interactive "
 [ -n "$CONTAINER_SHM_SIZE" ] && DOCKER_SET_OPTIONS+="--shm-size=$CONTAINER_SHM_SIZE "
 [ "$CONTAINER_AUTO_DELETE" = "yes" ] && DOCKER_SET_OPTIONS+="--rm " && CONTAINER_AUTO_RESTART=""
 [ -n "$CONTAINER_TIMEZONE" ] && DOCKER_SET_OPTIONS+="--env TZ=$CONTAINER_TIMEZONE --env TIMEZONE=$CONTAINER_TIMEZONE "
 [ -n "$CONTAINER_HOSTNAME" ] && DOCKER_SET_OPTIONS+="--hostname $CONTAINER_HOSTNAME --env HOSTNAME=$CONTAINER_HOSTNAME "
-[ -n "$CONTAINER_DOMAINNAME" ] && DOCKER_SET_OPTIONS+="--domainname $CONTAINER_DOMAINNAME --env DOMAINNAME=$FULL_DOMAIN_NAME --env HOSTADMIN= "
+[ -n "$CONTAINER_DOMAINNAME" ] && DOCKER_SET_OPTIONS+="--domainname $CONTAINER_DOMAINNAME --env DOMAINNAME=$HOST_FULL_DOMAIN --env HOSTADMIN= "
 [ "$HOST_DOCKER_NETWORK" = "host" ] && DOCKER_SET_OPTIONS+="--net-host " || DOCKER_SET_OPTIONS+="--network ${HOST_DOCKER_NETWORK:-bridge} "
 [ -n "$CONTAINER_AUTO_RESTART" ] && DOCKER_SET_OPTIONS+="--restart=$CONTAINER_AUTO_RESTART " || DOCKER_SET_OPTIONS+="--restart unless-stopped "
 
@@ -449,7 +456,7 @@ DOCKER_SET_OPTIONS="${DOCKER_CUSTOM_ARGUMENTS:-}"
 [ "$DOCKER_CONFIG_ENABLED" = "yes" ] && CONTAINER_MOUNTS+="$HOST_DOCKER_CONFIG:$CONTAINER_DOCKER_CONFIG_FILE:ro "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # env variables from env
-ADDITION_ENV+="STAR_SERVICES=INIT"
+ADDITION_ENV+="START_SERVICES=INIT"
 [ -z "$CONTAINER_USER_NAME" ] || ADDITION_ENV+="${CONTAINER_ENV_USER_NAME:-username}=$CONTAINER_USER_NAME "
 [ -z "$CONTAINER_USER_PASS" ] || ADDITION_ENV+="${CONTAINER_ENV_PASS_NAME:-password}=$CONTAINER_USER_PASS "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -510,14 +517,18 @@ EOF
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-DOCKER_SET_LINK="" CONTAINER_LINK="${CONTAINER_LINK//,/ }"
+DOCKER_SET_LINK=""
+CONTAINER_LINK="${CONTAINER_LINK//,/ }"
+CONTAINER_LINK="${CONTAINER_LINK//  / }"
 for link in $CONTAINER_LINK; do
   if [ "$link" != "" ] && [ "$link" != " " ]; then
     DOCKER_SET_LINK+="--link $link "
   fi
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-DOCKER_SET_LABELS="" CONTAINER_LABELS="${CONTAINER_LABELS//,/ }"
+DOCKER_SET_LABELS=""
+CONTAINER_LABELS="${CONTAINER_LABELS//,/ }"
+CONTAINER_LABELS="${CONTAINER_LABELS//  / }"
 for label in $CONTAINER_LABELS; do
   if [ "$label" != "" ] && [ "$label" != " " ]; then
     DOCKER_SET_LABELS+="--label $label "
@@ -525,7 +536,9 @@ for label in $CONTAINER_LABELS; do
 done
 CONTAINER_LABELS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-DOCKER_SET_CAP="" CONTAINER_CAPABILITIES="${CONTAINER_CAPABILITIES//,/ }"
+DOCKER_SET_CAP=""
+CONTAINER_CAPABILITIES="${CONTAINER_CAPABILITIES//,/ }"
+CONTAINER_CAPABILITIES="${CONTAINER_CAPABILITIES//  / }"
 for cap in $CONTAINER_CAPABILITIES; do
   if [ "$cap" != "" ] && [ "$cap" != " " ]; then
     DOCKER_SET_CAP+="--cap-add $cap "
@@ -533,7 +546,9 @@ for cap in $CONTAINER_CAPABILITIES; do
 done
 CONTAINER_CAPABILITIES=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-DOCKER_SET_SYSCTL="" CONTAINER_SYSCTL="${CONTAINER_SYSCTL//,/ }"
+DOCKER_SET_SYSCTL=""
+CONTAINER_SYSCTL="${CONTAINER_SYSCTL//,/ }"
+CONTAINER_SYSCTL="${CONTAINER_SYSCTL//  / }"
 for sysctl in $CONTAINER_SYSCTL; do
   if [ "$sysctl" != "" ] && [ "$sysctl" != " " ]; then
     DOCKER_SET_SYSCTL+="--sysctl $sysctl "
@@ -541,7 +556,9 @@ for sysctl in $CONTAINER_SYSCTL; do
 done
 CONTAINER_SYSCTL=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-DOCKER_SET_ENV1="" CONTAINER_OPT_ENV_VAR="${SET_CONTAINER_OPT_ENV_VAR//,/ }"
+DOCKER_SET_ENV1=""
+CONTAINER_OPT_ENV_VAR="${SET_CONTAINER_OPT_ENV_VAR//,/ }"
+CONTAINER_OPT_ENV_VAR="${SET_CONTAINER_OPT_ENV_VAR//  / }"
 if [ -n "$OPT_ENV_VAR" ]; then
   for env in $OPT_ENV_VAR; do
     if [ "$env" != "" ] && [ "$env" != " " ]; then
@@ -551,7 +568,9 @@ if [ -n "$OPT_ENV_VAR" ]; then
 fi
 CONTAINER_OPT_ENV_VAR=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-DOCKER_SET_ENV2="" CONTAINER_ENV="${ADDITION_ENV//,/ }"
+DOCKER_SET_ENV2=""
+CONTAINER_ENV="${ADDITION_ENV//,/ }"
+CONTAINER_ENV="${ADDITION_ENV//  / }"
 for env in $ADDITION_ENV; do
   if [ "$env" != "" ] && [ "$env" != " " ]; then
     DOCKER_SET_ENV2+="--env $env "
@@ -560,7 +579,9 @@ done
 CONTAINER_ENV=""
 DOCKER_SET_ENV="$DOCKER_SET_ENV1 $DOCKER_SET_ENV2"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-DOCKER_SET_DEV="" CONTAINER_DEVICES="${CONTAINER_DEVICES//,/ }"
+DOCKER_SET_DEV=""
+CONTAINER_DEVICES="${CONTAINER_DEVICES//,/ }"
+CONTAINER_DEVICES="${CONTAINER_DEVICES//  / }"
 for dev in $CONTAINER_DEVICES; do
   if [ "$dev" != "" ] && [ "$dev" != " " ]; then
     echo "$dev" | grep -q ':' || dev="$dev:$dev"
@@ -569,7 +590,9 @@ for dev in $CONTAINER_DEVICES; do
 done
 CONTAINER_DEVICES=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-DOCKER_SET_MNT="" CONTAINER_MOUNTS="${CONTAINER_MOUNTS//,/ }"
+DOCKER_SET_MNT=""
+CONTAINER_MOUNTS="${CONTAINER_MOUNTS//,/ }"
+CONTAINER_MOUNTS="${CONTAINER_MOUNTS//  / }"
 for mnt in $CONTAINER_MOUNTS; do
   if [ "$mnt" != "" ] && [ "$mnt" != " " ]; then
     echo "$mnt" | grep -q ':' || port="$mnt:$mnt"
@@ -578,38 +601,49 @@ for mnt in $CONTAINER_MOUNTS; do
 done
 CONTAINER_MOUNTS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-CONTAINER_OPT_PORT_VAR="${CONTAINER_OPT_PORT_VAR//,/ }" SET_LISTEN="${HOST_DEFINE_LISTEN//:*/}"
+CONTAINER_OPT_PORT_VAR="${CONTAINER_OPT_PORT_VAR//,/ }"
+CONTAINER_OPT_PORT_VAR="${CONTAINER_OPT_PORT_VAR//  / }"
+SET_LISTEN="${HOST_DEFINE_LISTEN//:*/}"
 if [ -n "$CONTAINER_OPT_PORT_VAR" ]; then
-  for port in $CONTAINER_OPT_PORT_VAR; do
-    if [ "$port" != "" ] && [ "$port" != " " ]; then
+  for set_port in $CONTAINER_OPT_PORT_VAR; do
+    if [ "$set_port" != "" ] && [ "$set_port" != " " ]; then
+      port=$set_port
       echo "$port" | grep -q ':' || port="${port//\/*/}:$port"
-      DOCKER_SET_PUBLISH+="--publish $port "
+      DOCKER_SET_TMP_PUBLISH+=("--publish $port")
     fi
   done
+  set_port=""
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-SET_SERVER_PORTS="$CONTAINER_HTTP_PORT $CONTAINER_HTTPS_PORT $CONTAINER_SERVICE_PORT $CONTAINER_ADD_CUSTOM_PORT"
-SET_SERVER_PORTS="${SET_SERVER_PORTS//,/ }" SET_LISTEN="${HOST_DEFINE_LISTEN//:*/}"
-for port in $SET_SERVER_PORTS; do
-  if [ "$port" != " " ] && [ -n "$port" ]; then
+SET_SERVER_PORTS_TMP="${CONTAINER_HTTP_PORT//,/ }"
+SET_SERVER_PORTS_TMP+="${CONTAINER_HTTPS_PORT//,/ }"
+SET_SERVER_PORTS_TMP+="${CONTAINER_SERVICE_PORT//,/ }"
+SET_SERVER_PORTS_TMP+="${CONTAINER_ADD_CUSTOM_PORT//,/ }"
+SET_SERVER_PORTS="${SET_SERVER_PORTS_TMP//  / }"
+SET_LISTEN=${HOST_DEFINE_LISTEN//:*/}
+for set_port in $SET_SERVER_PORTS; do
+  if [ "$set_port" != " " ] && [ -n "$set_port" ]; then
+    port=$set_port
     echo "$port" | grep -q ':' || port="${port//\/*/}:$port"
     if [ "$CONTAINER_PRIVATE" = "yes" ] && [ "$port" = "${IS_PRIVATE//\/*/}" ]; then
-      ADDR="127.0.0.2"
-      DOCKER_SET_PUBLISH+="--publish $ADDR:$port "
+      ADDR="${HOST_NETWORK_LOCAL_ADDR:-127.0.0.1}"
+      DOCKER_SET_TMP_PUBLISH+=("--publish $ADDR:$port")
     elif [ -n "$SET_LISTEN" ]; then
-      DOCKER_SET_PUBLISH+="--publish $SET_LISTEN:$port "
+      DOCKER_SET_TMP_PUBLISH+=("--publish $SET_LISTEN:$port")
     else
-      DOCKER_SET_PUBLISH+="--publish $port "
+      DOCKER_SET_TMP_PUBLISH+=("--publish $port")
     fi
   fi
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 CONTAINER_ADD_CUSTOM_LISTEN="${CONTAINER_ADD_CUSTOM_LISTEN//,/ }"
+CONTAINER_ADD_CUSTOM_LISTEN="${CONTAINER_ADD_CUSTOM_LISTEN//  / }"
 if [ -n "$CONTAINER_ADD_CUSTOM_LISTEN" ]; then
-  for port in $CONTAINER_ADD_CUSTOM_LISTEN; do
+  for set_port in $CONTAINER_ADD_CUSTOM_LISTEN; do
+    port=$set_port
     if [ "$port" != " " ] && [ -n "$port" ]; then
       echo "$port" | grep -q ':' || port="${list//\/*/}:$port"
-      DOCKER_SET_PUBLISH+="--publish $port "
+      DOCKER_SET_TMP_PUBLISH+=("--publish $port")
     fi
   done
 fi
@@ -617,16 +651,18 @@ fi
 # container web server configuration
 if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ]; then
   SET_WEB_PORT=""
-  CONTAINER_WEB_SERVER_IP="$HOST_NETWORK_LOCAL_ADDR"
+  CONTAINER_WEB_SERVER_IP=$HOST_NETWORK_LOCAL_ADDR
   CONTAINER_WEB_SERVER_PORT="${CONTAINER_WEB_SERVER_PORT//,/ }"
-  for port in $CONTAINER_WEB_SERVER_PORT; do
-    if [ "$port" != " " ] && [ -n "$port" ]; then
+  CONTAINER_WEB_SERVER_PORT="${CONTAINER_WEB_SERVER_PORT//  / }"
+  for set_port in $CONTAINER_WEB_SERVER_PORT; do
+    if [ "$set_port" != " " ] && [ -n "$set_port" ]; then
+      port=$set_port
       RANDOM_PORT="$(__rport)"
       TYPE="$(echo "$port" | grep '/' | awk -F '/' '{print $NF}' | head -n1 | grep '^' || echo '')"
       if [ -z "$TYPE" ]; then
-        DOCKER_SET_PUBLISH+="--publish $CONTAINER_WEB_SERVER_IP:$RANDOM_PORT:$port "
+        DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_WEB_SERVER_IP:$RANDOM_PORT:$port")
       else
-        DOCKER_SET_PUBLISH+="--publish $CONTAINER_WEB_SERVER_IP:$RANDOM_PORT:$port/$TYPE "
+        DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_WEB_SERVER_IP:$RANDOM_PORT:$port/$TYPE")
       fi
       SET_WEB_PORT+="$CONTAINER_WEB_SERVER_IP:$RANDOM_PORT "
     fi
@@ -687,9 +723,9 @@ if [ -d "$INSTDIR/rootfs" ] && [ ! -f "$DATADIR/.installed" ]; then
   find "$DATADIR" -name ".gitkeep" -type f -exec rm -rf {} \; &>/dev/null
 fi
 if [ -f "$DATADIR/.installed" ]; then
-  sudo -HE date +'Updated on %Y-%m-%d at %H:%M' >"$DATADIR/.installed" 2>/dev/null
+  sudo -HE date +'Updated on %Y-%m-%d at %H:%M' | tee "$DATADIR/.installed" &>/dev/null
 else
-  sudo -HE date +'installed on %Y-%m-%d at %H:%M' >"$DATADIR/.installed" 2>/dev/null
+  sudo -HE date +'installed on %Y-%m-%d at %H:%M' | tee "$DATADIR/.installed" &>/dev/null
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set temp env for PORTS ENV variable
@@ -701,18 +737,18 @@ DOCKER_SET_PORTS_ENV="$(__trim "${DOCKER_SET_PORTS_ENV_TMP//,/ }")"
 [ -n "$DOCKER_SET_PORTS_ENV" ] && DOCKER_SET_OPTIONS+="--env ENV_PORTS=\"${DOCKER_SET_PORTS_ENV//: /}\""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main progam
-HUB_IMAGE_URL="$(__trim "${HUB_IMAGE_URL:-}")"
-HUB_IMAGE_TAG="$(__trim "${HUB_IMAGE_TAG:-}")"
-DOCKER_SET_CAP="$(__trim "${DOCKER_SET_CAP:-}")"
-DOCKER_SET_ENV="$(__trim "${DOCKER_SET_ENV:-}")"
-DOCKER_SET_DEV="$(__trim "${DOCKER_SET_DEV:-}")"
-DOCKER_SET_MNT="$(__trim "${DOCKER_SET_MNT:-}")"
-DOCKER_SET_LINK="$(__trim "${DOCKER_SET_LINK:-}")"
-DOCKER_SET_LABELS="$(__trim "${DOCKER_SET_LABELS:-}")"
-DOCKER_SET_SYSCTL="$(__trim "${DOCKER_SET_SYSCTL:-}")"
-DOCKER_SET_OPTIONS="$(__trim "${DOCKER_SET_OPTIONS:-}")"
-CONTAINER_COMMANDS="$(__trim "${CONTAINER_COMMANDS:-}")"
-DOCKER_SET_PUBLISH="$(__trim "${DOCKER_SET_PUBLISH:-}")"
+HUB_IMAGE_URL="$(__trim "${HUB_IMAGE_URL[*]:-}")"
+HUB_IMAGE_TAG="$(__trim "${HUB_IMAGE_TAG[*]:-}")"
+DOCKER_SET_CAP="$(__trim "${DOCKER_SET_CAP[*]:-}")"
+DOCKER_SET_ENV="$(__trim "${DOCKER_SET_ENV[*]:-}")"
+DOCKER_SET_DEV="$(__trim "${DOCKER_SET_DEV[*]:-}")"
+DOCKER_SET_MNT="$(__trim "${DOCKER_SET_MNT[*]:-}")"
+DOCKER_SET_LINK="$(__trim "${DOCKER_SET_LINK[*]:-}")"
+DOCKER_SET_LABELS="$(__trim "${DOCKER_SET_LABELS[*]:-}")"
+DOCKER_SET_SYSCTL="$(__trim "${DOCKER_SET_SYSCTL[*]:-}")"
+DOCKER_SET_OPTIONS="$(__trim "${DOCKER_SET_OPTIONS[*]:-}")"
+CONTAINER_COMMANDS="$(__trim "${CONTAINER_COMMANDS[*]:-}")"
+DOCKER_SET_PUBLISH="$(__trim "${DOCKER_SET_TMP_PUBLISH[*]:-}")"
 EXECUTE_PRE_INSTALL="docker stop $CONTAINER_NAME;docker rm -f $CONTAINER_NAME"
 EXECUTE_DOCKER_CMD="docker run -d $DOCKER_SET_OPTIONS $DOCKER_SET_LINK $DOCKER_SET_LABELS $DOCKER_SET_CAP $DOCKER_SET_SYSCTL $DOCKER_SET_DEV $DOCKER_SET_MNT $DOCKER_SET_ENV $DOCKER_SET_PUBLISH $HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS"
 EXECUTE_DOCKER_CMD="$(__trim "$EXECUTE_DOCKER_CMD")"
@@ -741,13 +777,13 @@ if [ -n "$EXECUTE_DOCKER_SCRIPT" ]; then
 # Install script for $CONTAINER_NAME
 
 $EXECUTE_PRE_INSTALL
-${EXECUTE_DOCKER_CMD[@]}
+$EXECUTE_DOCKER_CMD
 exit \$?
 
 EOF
     [ -f "$DOCKERMGR_CONFIG_DIR/scripts/$CONTAINER_NAME" ] && chmod -Rf 755 "$DOCKERMGR_CONFIG_DIR/scripts/$CONTAINER_NAME"
   fi
-  if __sudo "${EXECUTE_DOCKER_CMD[@]}" 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log"; then
+  if __sudo ${EXECUTE_DOCKER_CMD} 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log"; then
     rm -Rf "${TMP:-/tmp}/$APPNAME.err.log"
   else
     ERROR_LOG="true"
@@ -812,7 +848,7 @@ dockermgr_install_version
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run exit function
 SET_ADDR="${HOST_LISTEN_ADDR//:*/}"
-SET_PORT="${DOCKER_SET_PUBLISH//--publish/ }"
+SET_PORT="${DOCKER_SET_PUBLISH//--publish /}"
 if docker ps -a | grep -qs "$CONTAINER_NAME"; then
   printf_yellow "The DATADIR is in $DATADIR"
   printf_cyan "$APPNAME has been installed to $INSTDIR"

@@ -346,10 +346,32 @@ CONTAINER_COMMANDS+=""
 DOCKER_CUSTOM_ARGUMENTS=""
 DOCKER_CUSTOM_ARGUMENTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Enable debugging [yes/no] [Eex]
+CONTAINER_DEBUG_ENABLED="no"
+CONTAINER_DEBUG_OPTIONS=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show post install message
 POST_SHOW_FINISHED_MESSAGE=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End of configuration options
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure directories exist
+ensure_dirs
+ensure_perms
+chmod -Rf 777 "$APPDIR"
+mkdir -p "$LOCAL_DATA_DIR"
+mkdir -p "$LOCAL_CONFIG_DIR"
+mkdir -p "$DOCKERMGR_CONFIG_DIR/env"
+mkdir -p "$DOCKERMGR_CONFIG_DIR/scripts"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+if [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME" ]; then
+  . "$DOCKERMGR_CONFIG_DIR/env/$APPNAME"
+else
+  cat <<EOF >"$DOCKERMGR_CONFIG_DIR/env/$APPNAME"
+# Enviroment variables for $APPNAME
+
+EOF
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -z "$HUB_IMAGE_URL" ] || [ "$HUB_IMAGE_URL" = " " ]; then
   printf_exit "Please set the url to the containers image"
@@ -370,15 +392,6 @@ dockermgr_run_init
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run pre-install commands
 execute "run_pre_install" "Running pre-installation commands"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Ensure directories exist
-ensure_dirs
-ensure_perms
-chmod -Rf 777 "$APPDIR"
-mkdir -p "$LOCAL_DATA_DIR"
-mkdir -p "$LOCAL_CONFIG_DIR"
-mkdir -p "$DOCKERMGR_CONFIG_DIR/env"
-mkdir -p "$DOCKERMGR_CONFIG_DIR/scripts"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # variable cleanup
 CONTAINER_ENV="${CONTAINER_ENV//  / }"
@@ -464,6 +477,8 @@ DOCKER_SET_OPTIONS="${DOCKER_CUSTOM_ARGUMENTS:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # env variables from env
 ADDITION_ENV+="START_SERVICES=INIT"
+[ -n "$CONTAINER_DEBUG_ENABLED" ] && DOCKER_SET_OPTIONS+="--env DEBUGGER=on "
+[ -n "$CONTAINER_DEBUG_OPTIONS" ] && DOCKER_SET_OPTIONS+="--env DEBUGGER_OPTIONS=$CONTAINER_DEBUG_OPTIONS "
 [ -z "$CONTAINER_USER_NAME" ] || ADDITION_ENV+="${CONTAINER_ENV_USER_NAME:-username}=$CONTAINER_USER_NAME "
 [ -z "$CONTAINER_USER_PASS" ] || ADDITION_ENV+="${CONTAINER_ENV_PASS_NAME:-password}=$CONTAINER_USER_PASS "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

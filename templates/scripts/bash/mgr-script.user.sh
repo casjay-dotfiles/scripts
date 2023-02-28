@@ -109,7 +109,7 @@ __list_available() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # list options
 __list_options() {
-  printf_custom "5" "$1: $(echo ${2:-$ARRAY} | __sed 's|:||g;s|'$3'| '$4'|g' 2>/dev/null|tr '\n' ' ')"
+  printf_custom "5" "$1: $(echo ${2:-$ARRAY} | __sed 's|:||g;s|'$3'| '$4'|g' 2>/dev/null | tr '\n' ' ')"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # create the config file
@@ -132,6 +132,7 @@ GEN_SCRIPT_REPLACE_ENV_REPO_RAW="${GEN_SCRIPT_REPLACE_ENV_REPO_RAW:-}"
 GEN_SCRIPT_REPLACE_ENV_REPO_API_URL="${GEN_SCRIPT_REPLACE_ENV_REPO_API_URL:-}"
 GEN_SCRIPT_REPLACE_ENV_REPO_API_PER_PAGE="${GEN_SCRIPT_REPLACE_ENV_REPO_API_PER_PAGE:-}"
 GEN_SCRIPT_REPLACE_ENV_FORCE_INSTALL="${GEN_SCRIPT_REPLACE_ENV_FORCE_INSTALL:-}"
+GEN_SCRIPT_REPLACE_ENV_TEMPLATE_NAME="${GEN_SCRIPT_REPLACE_ENV_TEMPLATE_NAME:-installers/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX.sh}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
 GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_1="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_1:-}"
@@ -193,6 +194,13 @@ __grep() { grep "$@" 2>/dev/null; }
 __broken_symlinks() { find "$*" -xtype l -exec rm {} \; &>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __rm_rf() { if [ -e "$1" ]; then rm -Rf "$@" &>/dev/null; else return 0; fi; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__run_container() {
+  local docker_bin="$(type -P docker || type -P podman)"
+  [ -n "$docker_bin" ] || printf_exit "This feature requires docker/podman"
+  eval $docker_bin "$*"
+  return $?
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_install_version() {
   local upd file GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
@@ -304,9 +312,12 @@ __run_download() {
   local REPO_NAME="$1"
   local DIR_NAME="${2:-$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR/$REPO_NAME}"
   local REPO_URL="$GEN_SCRIPT_REPLACE_ENV_REPO_URL"
+  local REPO_CHECK="${REPO_URL//*:\/\/https:\/\//}"
+  local ERROR_CODE="$(curl -q -LSsfI "$REPO_CHECK" && echo '')"
   local GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
-  if ! curl -q -LSsfI "$REPO_URL/$REPO_NAME" &>/dev/null; then
-    printf_exit 3 3 "$REPO_URL/$REPO_NAME has returned an error"
+  if [ -n "$REPO_CHECK" ]; then
+    printf_cyan "The requested URL returned error: $ERROR_CODE"
+    printf_exit 3 3 "$REPO_URL/$REPO_NAME"
   fi
   if __cmd_exists gitadmin; then
     if [ -d "$DIR_NAME/.git" ]; then
@@ -486,17 +497,18 @@ GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_ICON="${GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIEN
 GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_URGENCY="${GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_URGENCY:-normal}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional Variables
+GEN_SCRIPT_REPLACE_ENV_DIR_USER="${GEN_SCRIPT_REPLACE_ENV_DIR_USER:-$USRUPDATEDIR}"
+GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM="${GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM:-$SYSUPDATEDIR}"
+GEN_SCRIPT_REPLACE_ENV_FORCE_INSTALL="${GEN_SCRIPT_REPLACE_ENV_FORCE_INSTALL:-false}"
 GEN_SCRIPT_REPLACE_ENV_GIT_REPO_BRANCH="${GEN_SCRIPT_REPLACE_ENV_GIT_REPO_BRANCH:-main}"
+GEN_SCRIPT_REPLACE_ENV_REPO_API_PER_PAGE="${GEN_SCRIPT_REPLACE_ENV_REPO_API_PER_PAGE:-1000}"
+GEN_SCRIPT_REPLACE_ENV_REPO_RAW="${GEN_SCRIPT_REPLACE_ENV_REPO_RAW:-raw/$GEN_SCRIPT_REPLACE_ENV_GIT_REPO_BRANCH}"
 GEN_SCRIPT_REPLACE_ENV_APP_DIR="${GEN_SCRIPT_REPLACE_ENV_APP_DIR:-$SHARE/CasjaysDev/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX}"
 GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR="${GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR:-$SHARE/CasjaysDev/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX}"
 GEN_SCRIPT_REPLACE_ENV_CLONE_DIR="${GEN_SCRIPT_REPLACE_ENV_CLONE_DIR:-$HOME/Projects/github/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX}"
+GEN_SCRIPT_REPLACE_ENV_TEMPLATE_NAME="${GEN_SCRIPT_REPLACE_ENV_TEMPLATE_NAME:-installers/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX.sh}"
 GEN_SCRIPT_REPLACE_ENV_REPO_URL="${GEN_SCRIPT_REPLACE_ENV_REPO_URL:-https://github.com/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX}"
-GEN_SCRIPT_REPLACE_ENV_REPO_RAW="${GEN_SCRIPT_REPLACE_ENV_REPO_RAW:-raw/$GEN_SCRIPT_REPLACE_ENV_GIT_REPO_BRANCH}"
 GEN_SCRIPT_REPLACE_ENV_REPO_API_URL="${GEN_SCRIPT_REPLACE_ENV_REPO_API_URL:-https://api.github.com/orgs/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX/repos}"
-GEN_SCRIPT_REPLACE_ENV_REPO_API_PER_PAGE="${GEN_SCRIPT_REPLACE_ENV_REPO_API_PER_PAGE:-1000}"
-GEN_SCRIPT_REPLACE_ENV_FORCE_INSTALL="${GEN_SCRIPT_REPLACE_ENV_FORCE_INSTALL:-false}"
-GEN_SCRIPT_REPLACE_ENV_DIR_USER="${GEN_SCRIPT_REPLACE_ENV_DIR_USER:-$USRUPDATEDIR}"
-GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM="${GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM:-$SYSUPDATEDIR}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Export variables
 export SCRIPTS_PREFIX="$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX"
@@ -826,14 +838,14 @@ version)
   ;;
 
 *)
-  printf '#### Script info \n'
-  printf_red "User ID: $UID"
-  printf_green "User Name: $RUN_USER"
-  printf_blue "Script Name: $APPNAME"
-  printf_cyan "Version: $VERSION"
-  printf_yellow "Config Dir: $GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR"
+  printf_cyan '#### Script info \n'
+  printf_blue "Script Name:    $APPNAME - $VERSION"
+  printf_green "User Name:      $RUN_USER"
+  printf_red "User ID:        $UID"
+  printf_yellow "Config Dir:     $GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR"
   printf_purple "Git Source Dir: $GEN_SCRIPT_REPLACE_ENV_CLONE_DIR"
-  printf '#### Help \n'
+  printf_purple "Git Source URL: $GEN_SCRIPT_REPLACE_ENV_REPO_URL"
+  printf_cyan '#### Help \n'
   __help
   ;;
 esac

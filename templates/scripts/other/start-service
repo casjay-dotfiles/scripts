@@ -93,6 +93,8 @@ __run_backup() {
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+while :; do [ "$1" = " " ] && shift 1 || break; done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set variables
 DISPLAY="${DISPLAY:-}"
 LANG="${LANG:-C.UTF-8}"

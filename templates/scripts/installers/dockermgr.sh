@@ -71,7 +71,7 @@ __port_in_use() { { [ -d "/etc/nginx/vhosts.d" ] && grep -wRsq "${1:-443}" "/etc
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __public_ip() { curl -q -LSsf "http://ifconfig.co" | grep -v '^$' | head -n1 | grep '^'; }
 __docker_gateway_ip() { sudo docker network inspect -f '{{json .IPAM.Config}}' bridge | jq -r '.[].Gateway' | grep -v '^$' | head -n1 | grep '^' || echo '172.17.0.1'; }
-__local_lan_ip() { [ -n "$SET_LOCAL_IP" ] && { echo "$SET_LOCAL_IP" | grep -E '192\.168\.[0-255]\.[0-255]' 2>/dev/null || echo "$SET_LOCAL_IP" | grep -E '10\.[0-255]\.[0-255]\.[0-255]' 2>/dev/null || echo "$SET_LOCAL_IP" | grep -E '172\.[16-31]\.[0-255]\.[0-255]' 2>/dev/null; } | grep -v '^$' || grep -v '172\.17\.0\.1' | head -n1 | grep '^' || echo "$CURRENT_IP_4"; }
+__local_lan_ip() { [ -n "$SET_LAN_IP" ] && (echo "$SET_LAN_IP" | grep -E '192\.168\.[0-255]\.[0-255]' 2>/dev/null || echo "$SET_LAN_IP" | grep -E '10\.[0-255]\.[0-255]\.[0-255]' 2>/dev/null || echo "$SET_LAN_IP" | grep -E '172\.[16-31]\.[0-255]\.[0-255]' 2>/dev/null) | grep -v '172\.17\.0\.1' | grep -v '^$' | head -n1 | grep '^' || echo "$CURRENT_IP_4"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __rport() {
   local port
@@ -161,7 +161,11 @@ done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup networking
 SET_LOCAL_NET_DEV=$(__route | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//" | awk '{print $1}' | grep '^' || echo 'eth0')
-SET_LOCAL_IP=$(__ifconfig $LOCAL_NET_DEV | grep -w 'inet' | awk -F ' ' '{print $2}' | grep -vE '127\.[0-255]\.[0-255]\.[0-255]' | tr ' ' '\n' | grep '^')
+SET_LAN_IP=$(__ifconfig $SET_LOCAL_NET_DEV | grep -w 'inet' | awk -F ' ' '{print $2}' | grep -vE '127\.[0-255]\.[0-255]\.[0-255]' | tr ' ' '\n' | grep '^')
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SET_LOCAL_IP="127.0.0.2"
+SET_LAN_IP="$(__local_lan_ip)"
+SET_DOCKER_IP="$(__docker_gateway_ip)"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # get variables from host
 SET_RANDOM_PORT=$(__rport)
@@ -265,27 +269,28 @@ CONTAINER_HOSTNAME=""
 CONTAINER_DOMAINNAME=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the network type - default is bridge [bridge/host]
-HOST_DOCKER_NETWORK=bridge
+HOST_DOCKER_NETWORK="bridge"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set listen type - Default default all [all/local/lan/docker/public]
-HOST_NETWORK_ADDR=all
-HOST_NETWORK_LOCAL_ADDR=127.0.0.1
+HOST_NETWORK_ADDR="all"
+HOST_NETWORK_LOCAL_ADDR="127.0.0.1"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set this to 0.0.0.0 to listen on all
-HOST_DEFINE_LISTEN=0.0.0.0
+HOST_DEFINE_LISTEN="0.0.0.0"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup nginx proxy variables [yes,no]
-HOST_NGINX_ENABLED=yes
-HOST_NGINX_SSL_ENABLED=yes
-HOST_NGINX_HTTP_PORT=80
-HOST_NGINX_HTTPS_PORT=443
-HOST_NGINX_UPDATE_CONF=yes
+HOST_NGINX_ENABLED="yes"
+HOST_NGINX_SSL_ENABLED="yes"
+HOST_NGINX_HTTP_PORT="80"
+HOST_NGINX_HTTPS_PORT="443"
+HOST_NGINX_UPDATE_CONF="yes"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Enable this if container is running a webserver [yes/no] [yes/no] [internalPort,otherPort]
 CONTAINER_WEB_SERVER_ENABLED="no"
 CONTAINER_WEB_SERVER_SSL_ENABLED="no"
 CONTAINER_WEB_SERVER_AUTH_ENABLED="no"
 CONTAINER_WEB_SERVER_PORT="80"
+CONTAINER_WEB_SERVER_EMAIL=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set this to the protocol the the container will use [http/https/git/ftp/pgsql/mysql/mongodb]
 CONTAINER_HTTP_PROTO="http"
@@ -375,9 +380,6 @@ mkdir -p "$LOCAL_CONFIG_DIR"
 mkdir -p "$DOCKERMGR_CONFIG_DIR/env"
 mkdir -p "$DOCKERMGR_CONFIG_DIR/scripts"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-CONTAINER_HTTP_PORT=" " CONTAINER_HTTPS_PORT=" "
-CONTAINER_SERVICE_PORT=" " CONTAINER_ADD_CUSTOM_PORT=" "
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # variable cleanup
 CONTAINER_ENV="${CONTAINER_ENV//  / }"
 CONTAINER_LABELS="${CONTAINER_LABELS//  / }"
@@ -411,11 +413,11 @@ DOCKER_SET_TMP_PUBLISH=("")
 [ "$CONTAINER_HTTPS_PORT" = "" ] || CONTAINER_HTTP_PROTO="https"
 [ "$GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME" = "random" ] && CONTAINER_USER_PASS="$RANDOM_PASS"
 [ -n "$CONTAINER_LINK" ] && { [ "$HOST_DOCKER_NETWORK" = "bridge" ] || [ "$HOST_DOCKER_NETWORK" = "host" ]; } && CONTAINER_LINK=""
+[ -n "$CONTAINER_WEB_SERVER_EMAIL" ] && CONTAINER_HOST_EMAIL="$CONTAINER_WEB_SERVER_EMAIL" || CONTAINER_HOST_EMAIL="root@$HOST_FULL_DOMAIN"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set network Variables
-LOCAL_NET_IP="$(__local_lan_ip)"
-LOCAL_NET_IP="${LOCAL_NET_IP:-$SET_LOCAL_IP}"
-HOST_DEFINE_LISTEN="${HOST_DEFINE_LISTEN:-SET_LOCAL_IP}"
+LOCAL_NET_IP="${LOCAL_NET_IP:-$SET_LAN_IP}"
+HOST_DEFINE_LISTEN="${HOST_DEFINE_LISTEN:-LOCAL_NET_IP}"
 [ "$HOST_NETWORK_ADDR" = "public" ] && HOST_DEFINE_LISTEN=0.0.0.0 && HOST_LISTEN_ADDR=$(__local_lan_ip)
 [ "$HOST_NETWORK_ADDR" = "lan" ] && HOST_DEFINE_LISTEN=$(__local_lan_ip) && HOST_LISTEN_ADDR=$(__local_lan_ip)
 [ "$HOST_NETWORK_ADDR" = "docker" ] && HOST_DEFINE_LISTEN=$(__docker_gateway_ip) && HOST_LISTEN_ADDR=$(__docker_gateway_ip)
@@ -439,18 +441,18 @@ PRETTY_PORT="$CLEANUP_PORT"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set docker options from env
 DOCKER_SET_OPTIONS="${DOCKER_CUSTOM_ARGUMENTS:-}"
-[ -n "$CONTAINER_NAME" ] && DOCKER_SET_OPTIONS+="--name=$CONTAINER_NAME "
 [ "$CONTAINER_TTY_ENABLED" = "yes" ] && DOCKER_SET_OPTIONS+="--tty "
+[ -n "$CONTAINER_NAME" ] && DOCKER_SET_OPTIONS+="--name=$CONTAINER_NAME "
 [ "$CONTAINER_PRIVILEGED_ENABLED" = "yes" ] && DOCKER_SET_OPTIONS+="--privileged "
 [ "$CONTAINER_INTERACTIVE_ENABLED" = "yes" ] && DOCKER_SET_OPTIONS+="--interactive "
 [ -n "$CONTAINER_SHM_SIZE" ] && DOCKER_SET_OPTIONS+="--shm-size=$CONTAINER_SHM_SIZE "
 [ "$CONTAINER_AUTO_DELETE" = "yes" ] && DOCKER_SET_OPTIONS+="--rm " && CONTAINER_AUTO_RESTART=""
+[ -n "$CONTAINER_WEB_SERVER_EMAIL" ] && DOCKER_SET_OPTIONS+="--env CONTAINER_HOST_EMAIL=$HOST_FULL_DOMAIN "
 [ -n "$CONTAINER_TIMEZONE" ] && DOCKER_SET_OPTIONS+="--env TZ=$CONTAINER_TIMEZONE --env TIMEZONE=$CONTAINER_TIMEZONE "
 [ -n "$CONTAINER_HOSTNAME" ] && DOCKER_SET_OPTIONS+="--hostname $CONTAINER_HOSTNAME --env HOSTNAME=$CONTAINER_HOSTNAME "
-[ -n "$CONTAINER_DOMAINNAME" ] && DOCKER_SET_OPTIONS+="--domainname $CONTAINER_DOMAINNAME --env DOMAINNAME=$HOST_FULL_DOMAIN --env HOSTADMIN= "
 [ "$HOST_DOCKER_NETWORK" = "host" ] && DOCKER_SET_OPTIONS+="--net-host " || DOCKER_SET_OPTIONS+="--network ${HOST_DOCKER_NETWORK:-bridge} "
 [ -n "$CONTAINER_AUTO_RESTART" ] && DOCKER_SET_OPTIONS+="--restart=$CONTAINER_AUTO_RESTART " || DOCKER_SET_OPTIONS+="--restart unless-stopped "
-
+[ -n "$CONTAINER_DOMAINNAME" ] && DOCKER_SET_OPTIONS+="--domainname $CONTAINER_DOMAINNAME --env DOMAINNAME=$HOST_FULL_DOMAIN "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mounts from env
 [ "$CGROUPS_ENABLED" = "yes" ] && CONTAINER_MOUNTS+="$CGROUPS_MOUNTS "
@@ -734,10 +736,9 @@ else
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set temp env for PORTS ENV variable
-DOCKER_SET_PORTS_ENV_TMP=""
-DOCKER_SET_PORTS_ENV_TMP+="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | grep ':.*.:' | awk -F ':' '{print $1":"$3}' | tr '\n' ',' | grep '^')"
-DOCKER_SET_PORTS_ENV_TMP+="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | grep -v ':.*.:' | awk -F ':' '{print $1":"$2}' | tr '\n' ',' | grep '^')"
-DOCKER_SET_PORTS_ENV_TMP+="$(echo "$DOCKER_SET_PORTS_ENV_TMP" | tr ' ' '\n' | grep '[0-9]:[0-9]' | sort -u | sed 's|/.*||g' | grep -v '^$' | tr '\n' ',' | grep '^' || echo '')"
+DOCKER_SET_PORTS_ENV_TMP="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | grep ':.*.:' | awk -F ':' '{print $1":"$3}' | grep '^')"
+DOCKER_SET_PORTS_ENV_TMP+="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | grep -v ':.*.:' | awk -F ':' '{print $1":"$2}' | grep '^')"
+DOCKER_SET_PORTS_ENV_TMP="$(echo "$DOCKER_SET_PORTS_ENV_TMP" | tr ',' '\n' | grep '[0-9]:[0-9]' | sort -u | sed 's|/.*||g' | grep -v '^$' | tr '\n' ',' | grep '^' || echo '')"
 DOCKER_SET_PORTS_ENV="$(__trim "${DOCKER_SET_PORTS_ENV_TMP//,/ }")"
 [ -n "$DOCKER_SET_PORTS_ENV" ] && DOCKER_SET_OPTIONS+="--env ENV_PORTS=\"${DOCKER_SET_PORTS_ENV//: /}\""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

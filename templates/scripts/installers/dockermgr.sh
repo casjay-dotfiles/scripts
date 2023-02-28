@@ -449,6 +449,7 @@ DOCKER_SET_OPTIONS="${DOCKER_CUSTOM_ARGUMENTS:-}"
 [ "$DOCKER_CONFIG_ENABLED" = "yes" ] && CONTAINER_MOUNTS+="$HOST_DOCKER_CONFIG:$CONTAINER_DOCKER_CONFIG_FILE:ro "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # env variables from env
+ADDITION_ENV+="STAR_SERVICES=INIT"
 [ -z "$CONTAINER_USER_NAME" ] || ADDITION_ENV+="${CONTAINER_ENV_USER_NAME:-username}=$CONTAINER_USER_NAME "
 [ -z "$CONTAINER_USER_PASS" ] || ADDITION_ENV+="${CONTAINER_ENV_PASS_NAME:-password}=$CONTAINER_USER_PASS "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

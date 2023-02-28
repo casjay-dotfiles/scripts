@@ -811,7 +811,7 @@ dockermgr_install_version
 SET_ADDR="${HOST_LISTEN_ADDR//:*/}"
 SET_PORT="$DOCKER_SET_PUBLISH"
 HOST_WEB_PORT="$HOST_WEB_PORT"
-if docker ps -a | grep -qs "$APPNAME"; then
+if docker ps -a | grep -qs "$CONTAINER_NAME"; then
   printf_yellow "The DATADIR is in $DATADIR"
   printf_cyan "$APPNAME has been installed to $INSTDIR"
   if [ -z "$PRETTY_PORT" ]; then
@@ -828,11 +828,13 @@ if docker ps -a | grep -qs "$APPNAME"; then
       fi
     done
   fi
+  printf_yellow "The container name is: $CONTAINER_NAME"
   [ -z "$SET_USER_NAME" ] || printf_cyan "Username is:  $SET_USER_NAME"
   [ -z "$SET_USER_PASS" ] || printf_purple "Password is:  $SET_USER_PASS"
   __show_post_message
   [ -z "$POST_SHOW_FINISHED_MESSAGE" ] || printf_green "$POST_SHOW_FINISHED_MESSAGE"
 else
+  printf_cyan "The container $CONTAINER_NAME seems to have failed"
   [ "$ERROR_LOG" = "true" ] && printf_yellow "Errors logged to ${TMP:-/tmp}/$APPNAME.err.log"
   printf_error "Something seems to have gone wrong with the install"
   printf '\n\n'

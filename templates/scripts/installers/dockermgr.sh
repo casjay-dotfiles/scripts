@@ -404,12 +404,17 @@ fi
 [ -n "$DOCKER_CUSTOM_ARGUMENTS" ] && DOCKER_CUSTOM_ARGUMENTS+="${DOCKER_CUSTOM_ARGUMENTS//,/ } "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set docker options from env
+DOCKER_SET_OPTIONS=""
+[ "$CONTAINER_TTY_ENABLED" = "yes" ] && DOCKER_SET_OPTIONS+="--tty "
+[ -n "$CONTAINER_NAME" ] && DOCKER_SET_OPTIONS+="--name=$CONTAINER_NAME "
+[ "$CONTAINER_PRIVILEGED_ENABLED" = "yes" ] && DOCKER_SET_OPTIONS+="--privileged "
+[ "$CONTAINER_INTERACTIVE_ENABLED" = "yes" ] && DOCKER_SET_OPTIONS+="--interactive "
+[ -n "$CONTAINER_SHM_SIZE" ] && DOCKER_SET_OPTIONS+="--shm-size=$CONTAINER_SHM_SIZE "
+[ -n "$CONTAINER_HOSTNAME" ] && DOCKER_SET_OPTIONS+="--hostname $CONTAINER_HOSTNAME "
 [ -n "$CONTAINER_DOMAINNAME" ] && DOCKER_SET_OPTIONS+="--domainname $CONTAINER_DOMAINNAME "
-[ "$CONTAINER_TTY_ENABLED" = "yes" ] && DOCKER_SET_OPTIONS+="--tty " || CONTAINER_TTY_ENABLED=""
-[ "$CONTAINER_PRIVILEGED_ENABLED" = "yes" ] && DOCKER_SET_OPTIONS+="--privileged " || CONTAINER_PRIVILEGED_ENABLED=""
-[ "$CONTAINER_INTERACTIVE_ENABLED" = "yes" ] && DOCKER_SET_OPTIONS+="--interactive " || CONTAINER_INTERACTIVE_ENABLED=""
-[ "$CONTAINER_AUTO_DELETE" = "yes" ] && DOCKER_SET_OPTIONS+="--rm " && CONTAINER_AUTO_RESTART="" || CONTAINER_AUTO_DELETE=""
-[ "$HOST_DOCKER_NETWORK" = "host" ] && DOCKER_SET_OPTIONS="--net-host " || HOST_NETWORK_TYPE="--network ${HOST_DOCKER_NETWORK:-bridge} "
+[ "$CONTAINER_AUTO_DELETE" = "yes" ] && DOCKER_SET_OPTIONS+="--rm " && CONTAINER_AUTO_RESTART=""
+[ -n "$CONTAINER_TIMEZONE" ] && DOCKER_SET_OPTIONS+="--env TZ=$CONTAINER_TIMEZONE --env TIMEZONE=$CONTAINER_TIMEZONE "
+[ "$HOST_DOCKER_NETWORK" = "host" ] && DOCKER_SET_OPTIONS+="--net-host " || DOCKER_SET_OPTIONS+="--network ${HOST_DOCKER_NETWORK:-bridge} "
 [ -n "$CONTAINER_AUTO_RESTART" ] && DOCKER_SET_OPTIONS+="--restart=$CONTAINER_AUTO_RESTART " || DOCKER_SET_OPTIONS+="--restart unless-stopped "
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -668,14 +673,15 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set temp env for PORTS ENV variable
 DOCKER_SET_PORTS_ENV_TMP=""
-DOCKER_SET_PORTS_ENV_TMP+="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | grep ':.*.:' | awk -F ':' '{print $1":"$3}')"
-DOCKER_SET_PORTS_ENV_TMP+="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | grep -v ':.*.:' | awk -F ':' '{print $1":"$2}')"
-DOCKER_SET_PORTS_ENV_TMP+="$(echo "$DOCKER_SET_PORTS_ENV" | tr ' ' '\n' | sort -u | grep '^')"
-DOCKER_SET_PORTS_ENV="${DOCKER_SET_PORTS_ENV_TMP//--publish/}"
+DOCKER_SET_PORTS_ENV_TMP+="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | grep ':.*.:' | awk -F ':' '{print $1":"$3}' | sed 's|/.*||g')"
+DOCKER_SET_PORTS_ENV_TMP+="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | grep -v ':.*.:' | awk -F ':' '{print $1":"$2}' | sed 's|/.*||g')"
+DOCKER_SET_PORTS_ENV_TMP+="$(echo "$DOCKER_SET_PORTS_ENV_TMP" | tr ' ' '\n' | sort -u | grep '.*:*.' | grep '^' || echo '')"
+DOCKER_SET_PORTS_ENV="${DOCKER_SET_PORTS_ENV_TMP//--publish/}" DOCKER_SET_PORTS_ENV_TMP=""
+[ -n "$DOCKER_SET_PORTS_ENV" ] && DOCKER_SET_OPTIONS+="--env ENV_PORTS=\"$DOCKER_SET_PORTS_ENV\""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main progam
 EXECUTE_PRE_INSTALL="docker stop $CONTAINER_NAME;docker rm -f $CONTAINER_NAME"
-EXECUTE_DOCKER_CMD="docker run -d --name=$DOCKER_SET_NAME $DOCKER_SET_LABELS $DOCKER_SET_LINK --shm-size=$CONTAINER_SHM_SIZE $DOCKER_SET_OPTIONS $DOCKER_SET_CAP $DOCKER_SET_SYSCTL --hostname $DOCKER_SET_HOSTNAME --env TZ=$DOCKER_SET_TZ --env ENV_PORTS=\"$DOCKER_SET_PORTS_ENV\" --env TIMEZONE=$DOCKER_SET_TZ $SET_ENV $DOCKER_SET_ENV $DOCKER_SET_MNT $DOCKER_SET_PUBLISH $DOCKER_CUSTOM_ARGUMENTS $DOCKER_HOST_NETWORK_TYPE $HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS"
+EXECUTE_DOCKER_CMD="docker run -d $DOCKER_SET_LINK $DOCKER_SET_LABELS $DOCKER_SET_CAP $DOCKER_SET_SYSCTL $DOCKER_SET_ENV $DOCKER_SET $DOCKER_SET_MNT $DOCKER_SET_PUBLISH $DOCKER_SET_OPTIONS $DOCKER_CUSTOM_ARGUMENTS $HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS"
 EXECUTE_DOCKER_CMD="${EXECUTE_DOCKER_CMD//  / }"
 if cmd_exists docker-compose && [ -f "$INSTDIR/docker-compose.yml" ]; then
   printf_yellow "Installing containers using docker-compose"

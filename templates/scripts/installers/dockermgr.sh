@@ -612,7 +612,7 @@ if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ]; then
     fi
   done
   [ "$CONTAINER_WEB_SERVER_SSL_ENABLED" = "yes" ] && CONTAINER_HTTP_PROTO="https" || CONTAINER_HTTP_PROTO="http"
-  [ -n "$SET_WEB_PORT" ] && SET_NGINX_PROXY_PORT="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | grep -v '^$' | sed 's|--publish||g' | awk -F':' '{print $1":"$2}' | sort -u | tr '\n' ' ' | head -n1 | grep '^')"
+  [ -n "$SET_WEB_PORT" ] && SET_NGINX_PROXY_PORT="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | grep -v '^$' | awk -F':' '{print $1":"$2}' | sort -u | sed 's|--publish||g' | tr '\n' ' ' | head -n1 | grep '^')"
   [ -n "$SET_WEB_PORT" ] && CLEANUP_PORT="$SET_NGINX_PROXY_PORT" CLEANUP_PORT="${CLEANUP_PORT//\/*/}"
   [ -n "$SET_WEB_PORT" ] && PRETTY_PORT="$CLEANUP_PORT" NGINX_PROXY_PORT="$PRETTY_PORT"
   [ -n "$SET_NGINX_PROXY_PORT" ] && NGINX_PROXY_PORT="$SET_NGINX_PROXY_PORT"
@@ -661,15 +661,16 @@ if __am_i_online; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Copy over data files - keep the same stucture as -v dataDir/mnt:/mount
+[ "$SUDO_USER" = "root" ] || sudo -HE chown -Rf "$SUDO_USER":"$SUDO_USER" "$DATADIR" "$INSTDIR" &>/dev/null
 if [ -d "$INSTDIR/rootfs" ] && [ ! -f "$DATADIR/.installed" ]; then
   printf_yellow "Copying files to $DATADIR"
-  cp -Rf "$INSTDIR/rootfs/." "$DATADIR/"
+  cp -Rf "$INSTDIR/rootfs/." "$DATADIR/" &>/dev/null
   find "$DATADIR" -name ".gitkeep" -type f -exec rm -rf {} \; &>/dev/null
 fi
 if [ -f "$DATADIR/.installed" ]; then
-  date +'Updated on %Y-%m-%d at %H:%M' >"$DATADIR/.installed"
+  date +'Updated on %Y-%m-%d at %H:%M' >"$DATADIR/.installed" 2>/dev/null
 else
-  date +'installed on %Y-%m-%d at %H:%M' >"$DATADIR/.installed"
+  date +'installed on %Y-%m-%d at %H:%M' >"$DATADIR/.installed" 2>/dev/null
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set temp env for PORTS ENV variable

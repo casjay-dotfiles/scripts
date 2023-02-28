@@ -602,7 +602,7 @@ if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ]; then
   for port in $CONTAINER_WEB_SERVER_PORT; do
     if [ "$port" != " " ] && [ -n "$port" ]; then
       RANDOM_PORT="$(__rport)"
-      TYPE="$(echo "$port" | awk -F '/' '{print $NF}' | head -n1 | grep '^' || echo '')"
+      TYPE="$(echo "$port" | grep '/' | awk -F '/' '{print $NF}' | head -n1 | grep '^' || echo '')"
       if [ -z "$TYPE" ]; then
         DOCKER_SET_PUBLISH+="--publish $CONTAINER_WEB_SERVER_IP:$RANDOM_PORT:$port "
       else
@@ -612,8 +612,8 @@ if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ]; then
     fi
   done
   [ "$CONTAINER_WEB_SERVER_SSL_ENABLED" = "yes" ] && CONTAINER_HTTP_PROTO="https" || CONTAINER_HTTP_PROTO="http"
-  [ -n "$SET_WEB_PORT" ] && SET_NGINX_PROXY_PORT="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | grep -v '^$' | awk -F':' '{print $1":"$2}' | sort -u | sed 's|--publish||g' | tr '\n' ' ' | head -n1 | grep '^')"
-  [ -n "$SET_WEB_PORT" ] && CLEANUP_PORT="$SET_NGINX_PROXY_PORT" CLEANUP_PORT="${CLEANUP_PORT//\/*/}"
+  [ -n "$SET_WEB_PORT" ] && SET_NGINX_PROXY_PORT="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | awk -F':' '{print $1":"$2}' | grep -v '^$' | tr '\n' ' ' | head -n1 | grep '^')"
+  [ -n "$SET_WEB_PORT" ] && CLEANUP_PORT="${SET_NGINX_PROXY_PORT//--publish /}" CLEANUP_PORT="${CLEANUP_PORT//\/*/}"
   [ -n "$SET_WEB_PORT" ] && PRETTY_PORT="$CLEANUP_PORT" NGINX_PROXY_PORT="$PRETTY_PORT"
   [ -n "$SET_NGINX_PROXY_PORT" ] && NGINX_PROXY_PORT="$SET_NGINX_PROXY_PORT"
 fi

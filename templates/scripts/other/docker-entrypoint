@@ -36,9 +36,18 @@ __curl() { curl -q -LSsf -o /dev/null "$@" &>/dev/null || return 10; }
 __netstat() { [ -f "$(type -P netstat)" ] && netstat "$@" || return 10; }
 __find() { find "$1" -mindepth 1 -type ${2:-f,d} 2>/dev/null | grep '^' || return 10; }
 __pcheck() { [ -n "$(which pgrep 2>/dev/null)" ] && pgrep -x "$1" &>/dev/null || return 10; }
-__pgrep() { __pcheck "${1:-$SERVICE_NAME}" || __ps aux 2>/dev/null | grep -Fw " ${1:-$SERVICE_NAME}" | grep -qv ' grep' || return 10; }
+__pgrep() { __pcheck "${1:-GEN_SCRIPT_REPLACE_APPNAME}" || __ps aux 2>/dev/null | grep -Fw " ${1:-$GEN_SCRIPT_REPLACE_APPNAME}" | grep -qv ' grep' || return 10; }
 __get_ip6() { ip a 2>/dev/null | grep -w 'inet6' | awk '{print $2}' | grep -vE '^::1|^fe' | sed 's|/.*||g' | head -n1 | grep '^' || echo ''; }
 __get_ip4() { ip a 2>/dev/null | grep -w 'inet' | awk '{print $2}' | grep -vE '^127.0.0' | sed 's|/.*||g' | head -n1 | grep '^' || echo '127.0.0.1'; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__create_env() {
+  local file="${1:-/usr/local/share/template-files/config/env.sample}"
+  [ -f "/config/env.sh" ] && return
+  [ -f "/usr/local/share/template-files/config/env.sample" ] || return 0
+  cat <<EOF | tee "$file" &>/dev/null
+$(<"/usr/local/share/template-files/config/env.sample")
+EOF
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __show_procs() {
   local ps=""
@@ -60,6 +69,8 @@ __certbot() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __heath_check() {
+  local ports="${WEB_SERVER_PORTS:-}"
+  local HEALTH_ENABLED="${HEALTH_ENABLED:-}"
   local healthStatus=0 health="Good"
   for proc in $SERVICES_LIST; do
     if ! __pgrep "$proc"; then
@@ -67,7 +78,12 @@ __heath_check() {
       status=$((status + 1))
     fi
   done
-  #__curl "http://localhost:$SERVICE_PORT/server-health" || healthStatus=$((healthStatus + 1))
+  for port in $ports; do
+    __curl "http://localhost:$port/server-health" || healthStatus=$((healthStatus + 1))
+  done
+  if [ -n "$HEALTH_ENABLED" ]; then
+    __curl "${HEALTH_URL:-http://localhost:$port/server-health}" || healthStatus=$((healthStatus + 1))
+  fi
   [ "$healthStatus" -eq 0 ] || health="Errors reported see docker logs --follow $CONTAINER_NAME"
   return $healthStatus
 }
@@ -86,8 +102,8 @@ __start_all_services() {
 while :; do [ "$1" = " " ] && shift 1 || break; done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # export functions
-export -f __exec_command __pcheck __pgrep __find __curl __heath_check __certbot
-export -f __start_all_services __get_ip4 __get_ip6
+export -f __exec_command __pcheck __pgrep __find __curl __heath_check
+export -f __certbot __start_all_services __get_ip4 __get_ip6
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define default variables - do not change these - redefine with -e or set under Additional
 USER="${USER:-root}"
@@ -97,6 +113,8 @@ ENV_PORTS="${ENV_PORTS:-}"
 DOMAINNAME="${DOMAINNAME:-}"
 TZ="${TZ:-America/New_York}"
 PHP_VERSION="${PHP_VERSION//php/}"
+HEALTH_ENABLED="${HEALTH_ENABLED:-}"
+HEALTH_URL="${HEALTH_URL:-}"
 SERVICE_USER="${SERVICE_USER:-root}"
 SERVICE_PORT="${SERVICE_PORT:-$PORT}"
 WEB_SERVER_PORTS="${WEB_SERVER_PORTS:-}"
@@ -129,7 +147,7 @@ SERVICE_NAME="GEN_SCRIPT_REPLACE_APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show start message
 ENTRYPOINT_MESSAGE="false"
-echo "Executing entrypoint script for $SERVICE_NAME"
+echo "Executing entrypoint script for GEN_SCRIPT_REPLACE_APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [ "$WEB_SERVER_PORT" = "443" ] && SSL_ENABLED="true"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -144,6 +162,9 @@ export SSL_KEY SERVICE_NAME SSL_DIR LOCAL_BIN_DIR SSL_CONTAINER_DIR SSL_CERT_BOT
 export DEFAULT_CONF_DIR CONTAINER_IP4_CONTAINER_IP6_ADDRESS ADDRESS DISPLAY
 export CONFIG_DIR_INITIALIZED DATA_DIR_INITIALIZED SERVICE_USER ENTRYPOINT_MESSAGE
 export WEB_SERVER_PORTS PHP_VERSION SERVICES_LIST FULL_DOMAIN_NAME DEBUGGER
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Create the env file
+__create_env "/config/env.sh"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # import variables from file
 [ -f "/root/env.sh" ] && . "/root/env.sh"

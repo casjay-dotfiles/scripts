@@ -449,7 +449,7 @@ DOCKER_SET_TMP_PUBLISH=("")
 [ "$CONTAINER_HTTPS_PORT" = "" ] || CONTAINER_HTTP_PROTO="https"
 [ -n "$CONTAINER_MOUNT_DATA_MOUNT_DIR" ] || CONTAINER_MOUNT_DATA_MOUNT_DIR="/data"
 [ -n "$CONTAINER_MOUNT_CONFIG_MOUNT_DIR" ] || CONTAINER_MOUNT_CONFIG_MOUNT_DIR="/config"
-[ "$GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME" = "random" ] && CONTAINER_USER_PASS="$RANDOM_PASS"
+[ "$REGISTRY_USERNAME" = "random" ] && CONTAINER_USER_PASS="$RANDOM_PASS"
 
 [ -n "$CONTAINER_WEB_SERVER_EMAIL" ] && CONTAINER_HOST_EMAIL="$CONTAINER_WEB_SERVER_EMAIL" || CONTAINER_HOST_EMAIL="root@$HOST_FULL_DOMAIN"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -535,45 +535,18 @@ if [ "$CONTAINER_X11_ENABLED" = "yes" ] && [ -f "$HOST_X11_SOCKET" ] && [ -f "$H
   CONTAINER_MOUNTS+="$HOST_X11_XAUTH:${CONTAINER_X11_XAUTH:-/home/x11user/.Xauthority} "
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# nginx settings
-if [ "$HOST_NGINX_ENABLED" = "yes" ]; then
-  if [ "$HOST_NGINX_SSL_ENABLED" = "yes" ] && [ -n "$HOST_NGINX_HTTPS_PORT" ]; then
-    NGINX_LISTEN_OPTS="ssl http2"
-    NGINX_PORT="${HOST_NGINX_HTTPS_PORT:-443}"
-  else
-    NGINX_PORT="${HOST_NGINX_HTTP_PORT:-80}"
-  fi
-  if [ "$CONTAINER_WEB_SERVER_AUTH_ENABLED" = "yes" ]; then
-    CONTAINER_USER_NAME="${CONTAINER_USER_NAME:-root}"
-    CONTAINER_USER_PASS="${CONTAINER_USER_PASS:-$RANDOM_PASS}"
-    SET_USER_NAME="$CONTAINER_USER_NAME"
-    SET_USER_PASS="$CONTAINER_USER_PASS"
-    [ -d "/etc/nginx/auth" ] || mkdir -p "/etc/nginx/auth"
-    if [ -n "$(builtin type -P htpasswd)" ]; then
-      if ! grep -q "$CONTAINER_USER_NAME"; then
-        printf_yellow "Creating auth /etc/nginx/auth/$APPNAME"
-        if [ -f "/etc/nginx/auth/$APPNAME" ]; then
-          htpasswd -b "/etc/nginx/auth/$APPNAME" "$CONTAINER_USER_NAME" "$CONTAINER_USER_PASS" &>/dev/null
-        else
-          htpasswd -b -c "/etc/nginx/auth/$APPNAME" "$CONTAINER_USER_NAME" "$CONTAINER_USER_PASS" &>/dev/null
-        fi
-      fi
-    fi
-  fi
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Add username and password to env file
 if [ -n "$SET_USER_NAME" ]; then
-  if ! grep -qs "$GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME" "$DOCKERMGR_CONFIG_DIR/env/$APPNAME"; then
+  if ! grep -qs "$REGISTRY_USERNAME" "$DOCKERMGR_CONFIG_DIR/env/$APPNAME"; then
     cat <<EOF >>"$DOCKERMGR_CONFIG_DIR/env/$APPNAME"
-GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME="${SET_USER_NAME:-$GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME}"
+REGISTRY_USERNAME="${SET_USER_NAME:-$REGISTRY_USERNAME}"
 EOF
   fi
 fi
 if [ -n "$SET_USER_PASS" ]; then
-  if ! grep -qs "$GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD" "$DOCKERMGR_CONFIG_DIR/env/$APPNAME"; then
+  if ! grep -qs "$REGISTRY_PASSWORD" "$DOCKERMGR_CONFIG_DIR/env/$APPNAME"; then
     cat <<EOF >>"$DOCKERMGR_CONFIG_DIR/env/$APPNAME"
-GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD="${SET_USER_PASS:-$GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD}"
+REGISTRY_PASSWORD="${SET_USER_PASS:-$REGISTRY_PASSWORD}"
 EOF
   fi
 fi
@@ -700,8 +673,16 @@ if [ -n "$CONTAINER_ADD_CUSTOM_LISTEN" ]; then
   done
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Create network if needed
+DOCKER_CREATE_NET="$(__docker_net_create)"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR:-$HOST_DEFINE_LISTEN}"
+HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR//0.0.0.0/$LOCAL_NET_IP}"
+HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR//:*/}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # container web server configuration
 SET_WEB_PORT=""
+NGINX_PROXY_PORT=""
 if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ]; then
   CONTAINER_WEB_SERVER_IP=$HOST_NETWORK_LOCAL_ADDR
   CONTAINER_WEB_SERVER_PORT="${CONTAINER_WEB_SERVER_PORT//,/ }"
@@ -722,16 +703,43 @@ if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ]; then
   [ "$CONTAINER_WEB_SERVER_SSL_ENABLED" = "yes" ] && CONTAINER_HTTP_PROTO="https" || CONTAINER_HTTP_PROTO="http"
   [ -n "$SET_WEB_PORT" ] && SET_NGINX_PROXY_PORT="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | awk -F':' '{print $1":"$2}' | grep -v '^$' | tr '\n' ' ' | head -n1 | grep '^')"
   [ -n "$SET_WEB_PORT" ] && CLEANUP_PORT="${SET_NGINX_PROXY_PORT//--publish /}" CLEANUP_PORT="${CLEANUP_PORT//\/*/}"
-  [ -n "$SET_WEB_PORT" ] && PRETTY_PORT="$CLEANUP_PORT" NGINX_PROXY_PORT="$PRETTY_PORT"
+  [ -n "$SET_WEB_PORT" ] && PRETTY_PORT="$CLEANUP_PORT" NGINX_PROXY_PORT="$CLEANUP_PORT"
   [ -n "$SET_NGINX_PROXY_PORT" ] && NGINX_PROXY_PORT="$SET_NGINX_PROXY_PORT"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Fix/create port
 if echo "$PRETTY_PORT" | grep -q ':.*.:'; then
   NGINX_PROXY_PORT="$(echo "$PRETTY_PORT" | grep ':.*.:' | awk -F':' '{print $2}' | grep '^')"
 else
   NGINX_PROXY_PORT="$(echo "$PRETTY_PORT" | grep -v ':.*.:' | awk -F':' '{print $2}' | grep '^')"
 fi
-[ -n "$NGINX_PROXY_PORT" ] || NGINX_PROXY_PORT="$CLEANUP_PORT"
+[ -n "$NGINX_PROXY_PORT" ] && PRETTY_PORT="$NGINX_PROXY_PORT" || NGINX_PROXY_PORT="$CLEANUP_PORT"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ "$HOST_NGINX_ENABLED" = "yes" ]; then
+  if [ "$HOST_NGINX_SSL_ENABLED" = "yes" ] && [ -n "$HOST_NGINX_HTTPS_PORT" ]; then
+    NGINX_LISTEN_OPTS="ssl http2"
+    NGINX_PORT="${HOST_NGINX_HTTPS_PORT:-443}"
+  else
+    NGINX_PORT="${HOST_NGINX_HTTP_PORT:-80}"
+  fi
+  if [ "$CONTAINER_WEB_SERVER_AUTH_ENABLED" = "yes" ]; then
+    CONTAINER_USER_NAME="${CONTAINER_USER_NAME:-root}"
+    CONTAINER_USER_PASS="${CONTAINER_USER_PASS:-$RANDOM_PASS}"
+    SET_USER_NAME="$CONTAINER_USER_NAME"
+    SET_USER_PASS="$CONTAINER_USER_PASS"
+    [ -d "/etc/nginx/auth" ] || mkdir -p "/etc/nginx/auth"
+    if [ -n "$(builtin type -P htpasswd)" ]; then
+      if ! grep -q "$CONTAINER_USER_NAME"; then
+        printf_yellow "Creating auth /etc/nginx/auth/$APPNAME"
+        if [ -f "/etc/nginx/auth/$APPNAME" ]; then
+          htpasswd -b "/etc/nginx/auth/$APPNAME" "$CONTAINER_USER_NAME" "$CONTAINER_USER_PASS" &>/dev/null
+        else
+          htpasswd -b -c "/etc/nginx/auth/$APPNAME" "$CONTAINER_USER_NAME" "$CONTAINER_USER_PASS" &>/dev/null
+        fi
+      fi
+    fi
+  fi
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # SSL setup
 NGINX_PROXY_URL=""
@@ -779,9 +787,6 @@ if [ -f "$DATADIR/.installed" ]; then
 else
   sudo -HE date +'installed on %Y-%m-%d at %H:%M' | tee "$DATADIR/.installed" &>/dev/null
 fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Create network if needed
-DOCKER_CREATE_NET="$(__docker_net_create)"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set temp env for PORTS ENV variable
 DOCKER_SET_PORTS_ENV_TMP="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | grep ':.*.:' | awk -F ':' '{print $1":"$3}' | grep '^')"
@@ -873,10 +878,12 @@ fi
 # finalize
 if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
   SET_PORT="${DOCKER_SET_PUBLISH//--publish /}"
-  HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR//:*/}"
-  HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR//0.0.0.0/$LOCAL_NET_IP}"
+  printf_yellow "The container name is: $CONTAINER_NAME"
   printf_yellow "The DATADIR is in $DATADIR"
   printf_cyan "$APPNAME has been installed to $INSTDIR"
+  if [ "$DOCKER_CREATE_NET" ]; then
+    printf_purple "Created docker network $HOST_DOCKER_NETWORK"
+  fi
   if ! grep -sq "$CONTAINER_HOSTNAME" "/etc/hosts" && [ -w "/etc/hosts" ]; then
     if [ -n "$PRETTY_PORT" ]; then
       if [ "$HOST_LISTEN_ADDR" = 'home' ]; then
@@ -906,8 +913,6 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
       fi
     done
   fi
-  printf_yellow "The container name is: $CONTAINER_NAME"
-  [ "$DOCKER_CREATE_NET" ] && printf_purple "Created docker network $HOST_DOCKER_NETWORK"
   [ -n "$NGINX_PROXY_URL" ] && printf_blue "$NGINX_PROXY_URL"
   [ -z "$SET_USER_NAME" ] || printf_cyan "Username is:  $SET_USER_NAME"
   [ -z "$SET_USER_PASS" ] || printf_purple "Password is:  $SET_USER_PASS"
@@ -932,13 +937,13 @@ run_postinst() {
 #
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run post install scripts
-execute "run_postinst" "Running post install scripts"
+execute "run_postinst" "Running post install scripts" 1>/dev/null
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Output post install message
-run_post_install >/dev/null
+run_post_install &>/dev/null
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # create version file
-dockermgr_install_version >/dev/null
+dockermgr_install_version &>/dev/null
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # exit
 run_exit >/dev/null

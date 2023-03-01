@@ -60,9 +60,9 @@ __docker_check() { [ -n "$(type -p docker 2>/dev/null)" ] || return 1; }
 __route() { [ -n "$(type -P ip)" ] && eval ip route 2>/dev/null || return 1; }
 __sudo_root() { sudo -n true && ask_for_password true && eval sudo "$*" || return 1; }
 __password() { cat "/dev/urandom" | tr -dc '[0-9][a-z][A-Z]@$' | head -c14 && echo ""; }
-__docker_ps() { docker ps -a 2>&1 | grep -qs "$CONTAINER_NAME" && return 0 || return 1; }
 __ifconfig() { [ -n "$(type -P ifconfig)" ] && eval ifconfig "$*" 2>/dev/null || return 1; }
 __docker_net_ls() { docker network ls 2>&1 | grep -v 'NETWORK ID' | awk -F ' ' '{print $2}'; }
+__docker_ps() { docker ps -a 2>&1 | grep -qs "${1:-$CONTAINER_NAME}" && return 0 || return 1; }
 __name() { echo "$HUB_IMAGE_URL-${HUB_IMAGE_TAG:-latest}" | awk -F '/' '{print $(NF-1)"-"$NF}'; }
 __enable_ssl() { { [ "$SSL_ENABLED" = "yes" ] || [ "$SSL_ENABLED" = "true" ]; } && return 0 || return 1; }
 __ssl_certs() { [ -f "$HOST_SSL_CA" ] && [ -f "$HOST_SSL_CRT" ] && [ -f "$HOST_SSL_KEY" ] && return 0 || return 1; }
@@ -832,7 +832,7 @@ if [ -n "$EXECUTE_DOCKER_SCRIPT" ]; then
 # Install script for $CONTAINER_NAME
 
 $EXECUTE_PRE_INSTALL
-$EXECUTE_DOCKER_CMD
+$EXECUTE_DOCKER_CMD && docker ps -a 2>&1 | grep -q "$CONTAINER_NAME"
 exit \$?
 
 EOF
@@ -844,7 +844,8 @@ EOF
     ERROR_LOG="true"
   fi
 fi
-sleep 10 && __docker_ps && CONTAINER_INSTALLED="true"
+sleep 10
+__docker_ps && CONTAINER_INSTALLED="true"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Install nginx proxy
 if [ "$NGINX_PROXY" = "yes" ] && [ -w "/etc/nginx/vhosts.d" ]; then
@@ -870,7 +871,7 @@ if [ "$NGINX_PROXY" = "yes" ] && [ -w "/etc/nginx/vhosts.d" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # finalize
-if [ "$CONTAINER_INSTALLED" = "yes" ] || __docker_ps; then
+if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
   SET_PORT="${DOCKER_SET_PUBLISH//--publish /}"
   HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR//:*/}"
   HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR//0.0.0.0/$LOCAL_NET_IP}"
@@ -916,6 +917,7 @@ if [ "$CONTAINER_INSTALLED" = "yes" ] || __docker_ps; then
     printf_purple "File:       /config/auth/htpasswd"
   fi
   [ -z "$POST_SHOW_FINISHED_MESSAGE" ] || printf_green "$POST_SHOW_FINISHED_MESSAGE"
+  __show_post_message
 else
   printf_cyan "The container $CONTAINER_NAME seems to have failed"
   [ "$ERROR_LOG" = "true" ] && printf_yellow "Errors logged to ${TMP:-/tmp}/$APPNAME.err.log"
@@ -933,16 +935,13 @@ run_postinst() {
 execute "run_postinst" "Running post install scripts"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Output post install message
-run_post_install
+run_post_install >/dev/null
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # create version file
-dockermgr_install_version
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# run exit function
-__show_post_message
+dockermgr_install_version >/dev/null
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # exit
-run_exit &>/dev/null
+run_exit >/dev/null
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

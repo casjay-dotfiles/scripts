@@ -843,6 +843,7 @@ EOF
     ERROR_LOG="true"
   fi
 fi
+sleep 10
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Install nginx proxy
 if [ "$NGINX_PROXY" = "yes" ] && [ -w "/etc/nginx/vhosts.d" ]; then

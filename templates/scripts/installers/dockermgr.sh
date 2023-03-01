@@ -59,9 +59,9 @@ __port() { echo "$((50000 + $RANDOM % 1000))" | grep '^' || return 1; }
 __docker_check() { [ -n "$(type -p docker 2>/dev/null)" ] || return 1; }
 __route() { [ -n "$(type -P ip)" ] && eval ip route 2>/dev/null || return 1; }
 __sudo_root() { sudo -n true && ask_for_password true && eval sudo "$*" || return 1; }
-__password() { cat "/dev/urandom" | tr -dc '[0-9][a-z][A-Z]@$' | head -c14 && echo ""; }
 __ifconfig() { [ -n "$(type -P ifconfig)" ] && eval ifconfig "$*" 2>/dev/null || return 1; }
 __docker_net_ls() { docker network ls 2>&1 | grep -v 'NETWORK ID' | awk -F ' ' '{print $2}'; }
+__password() { cat "/dev/urandom" | tr -dc '[0-9][a-z][A-Z]@$' | head -c${1:-14} && echo ""; }
 __docker_ps() { docker ps -a 2>&1 | grep -qs "${1:-$CONTAINER_NAME}" && return 0 || return 1; }
 __name() { echo "$HUB_IMAGE_URL-${HUB_IMAGE_TAG:-latest}" | awk -F '/' '{print $(NF-1)"-"$NF}'; }
 __enable_ssl() { { [ "$SSL_ENABLED" = "yes" ] || [ "$SSL_ENABLED" = "true" ]; } && return 0 || return 1; }
@@ -315,11 +315,11 @@ CONTAINER_COUCHDB_ENABLED=""
 CONTAINER_POSTGRES_ENABLED=""
 CONTAINER_SUPABASE_ENABLED=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Database root user [user] [pass]
+# Database root user [user] [pass/random]
 CONTAINER_DATABASE_USER_ROOT="root"
 CONTAINER_DATABASE_PASS_ROOT=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Database non-root user [user] [pass]
+# Database non-root user [user] [pass/random]
 CONTAINER_DATABASE_USER_NORMAL=""
 CONTAINER_DATABASE_PASS_NORMAL=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -328,6 +328,7 @@ CONTAINER_EMAIL_ENABLED=""
 CONTAINER_EMAIL_USER=""
 CONTAINER_EMAIL_DOMAIN=""
 CONTAINER_EMAIL_RELAY=""
+CONTAINER_EMAIL_PORTS="25,465,587"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Add the names of proccesses [apache,mysql]
 CONTAINER_SERVICES_LIST=""
@@ -469,7 +470,7 @@ DOCKER_SET_TMP_PUBLISH=("")
 [ -n "$CONTAINER_MOUNT_DATA_MOUNT_DIR" ] || CONTAINER_MOUNT_DATA_MOUNT_DIR="/data"
 [ -n "$CONTAINER_MOUNT_CONFIG_MOUNT_DIR" ] || CONTAINER_MOUNT_CONFIG_MOUNT_DIR="/config"
 [ "$REGISTRY_USERNAME" = "random" ] && CONTAINER_USER_PASS="$RANDOM_PASS"
-
+[ "$CONTAINER_EMAIL_ENABLED" = "yes" ] && [ -n "$CONTAINER_EMAIL_PORTS" ] && CONTAINER_ADD_CUSTOM_PORT="$CONTAINER_EMAIL_PORTS "
 [ -n "$CONTAINER_WEB_SERVER_EMAIL" ] && CONTAINER_HOST_EMAIL="$CONTAINER_WEB_SERVER_EMAIL" || CONTAINER_HOST_EMAIL="root@$HOST_FULL_DOMAIN"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set network Variables
@@ -531,43 +532,59 @@ if [ "$CONTAINER_REDIS_ENABLED" = "yes" ]; then
   DATABASE_DIR_REDIS="${DATABASE_DIR_REDIS:-$DATABASE_BASE_DIR/redis}"
   CONTAINER_MOUNTS+="$LOCAL_DATA_DIR/db/redis:/$DATABASE_DIR_REDIS:z "
   DOCKER_SET_OPTIONS+="--env DATABASE_DIR_REDIS=$DATABASE_DIR_REDIS "
+  MESSAGE_REDIS="redis is listening on 6379 and data is in: $DATABASE_DIR_REDIS"
 fi
 if [ "$CONTAINER_POSTGRES_ENABLED" = "yes" ]; then
   DOCKER_SET_TMP_PUBLISH=("$CONTAINER_DATABASE_LISTEN:5432:5432")
   DATABASE_DIR_PGSQL="${DATABASE_DIR_PGSQL:-$DATABASE_BASE_DIR/pgsql}"
   CONTAINER_MOUNTS+="$LOCAL_DATA_DIR/db/pgsql:/$DATABASE_DIR_PGSQL:z "
   DOCKER_SET_OPTIONS+="--env DATABASE_DIR_PGSQL=$DATABASE_DIR_PGSQL "
+  REDIS_MESSAGE="postgres is listening on 5432 and data is in: $DATABASE_DIR_PGSQL"
 fi
 if [ "$CONTAINER_MARIADB_ENABLED" = "yes" ]; then
   DOCKER_SET_TMP_PUBLISH=("$CONTAINER_DATABASE_LISTEN:3306:3306")
   DATABASE_DIR_MARIADB="${DATABASE_DIR_MARIADB:-$DATABASE_BASE_DIR/mysql}"
   CONTAINER_MOUNTS+="$LOCAL_DATA_DIR/db/mysql:/$DATABASE_DIR_MARIADB:z "
   DOCKER_SET_OPTIONS+="--env DATABASE_DIR_MARIADB=$DATABASE_DIR_MARIADB "
+  REDIS_MESSAGE="mariadb is listening on 3306 and data is in: $DATABASE_DIR_MARIADB"
 fi
 if [ "$CONTAINER_COUCHDB_ENABLED" = "yes" ]; then
   DOCKER_SET_TMP_PUBLISH=("$CONTAINER_DATABASE_LISTEN:5984:5984")
   DATABASE_DIR_COUCHDB="${DATABASE_DIR_COUCHDB:-$DATABASE_BASE_DIR/couchdb}"
   CONTAINER_MOUNTS+="$LOCAL_DATA_DIR/db/couchdb:/$DATABASE_DIR_COUCHDB:z "
   DOCKER_SET_OPTIONS+="--env DATABASE_DIR_COUCHDB=$DATABASE_DIR_COUCHDB "
+  REDIS_MESSAGE="couchdb is listening on 5984 and data is in: $DATABASE_DIR_COUCHDB"
 fi
 if [ "$CONTAINER_MONGODB_ENABLED" = "yes" ]; then
   DOCKER_SET_TMP_PUBLISH=("$CONTAINER_DATABASE_LISTEN:27017:27017")
   DATABASE_DIR_MONGODB="${DATABASE_DIR_MONGODB:-$DATABASE_BASE_DIR/mongodb}"
   CONTAINER_MOUNTS+="$LOCAL_DATA_DIR/db/mongodb:/$DATABASE_DIR_MONGODB:z "
   DOCKER_SET_OPTIONS+="--env DATABASE_DIR_MONGODB=$DATABASE_DIR_MONGODB "
+  REDIS_MESSAGE="mongodb is listening on 27017 and data is in: $DATABASE_DIR_MONGODB"
 fi
 if [ "$CONTAINER_SUPABASE_ENABLED" = "yes" ]; then
   DOCKER_SET_TMP_PUBLISH=("$CONTAINER_DATABASE_LISTEN:5432:5432")
   DATABASE_DIR_SUPABASE="${DATABASE_DIR_SUPABASE:-$DATABASE_BASE_DIR/supabase}"
   CONTAINER_MOUNTS+="$LOCAL_DATA_DIR/db/supabase:/$DATABASE_DIR_SUPABASE:z "
   DOCKER_SET_OPTIONS+="--env DATABASE_DIR_SUPABASE=$DATABASE_DIR_SUPABASE "
+  MESSAGE_SUPABASE="supabase is listening on 5432 and data is in: $DATABASE_DIR_SUPABASE"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #
-[ -n "$CONTAINER_DATABASE_USER_ROOT" ] && DOCKER_SET_OPTIONS+="--env DATABASE_USER_ROOT=$CONTAINER_DATABASE_USER_ROOT "
-[ -n "$CONTAINER_DATABASE_PASS_ROOT" ] && DOCKER_SET_OPTIONS+="--env DATABASE_PASS_ROOT=$CONTAINER_DATABASE_PASS_ROOT "
-[ -n "$CONTAINER_DATABASE_USER_NORMAL" ] && DOCKER_SET_OPTIONS+="--env DATABASE_USER_NORMAL=$CONTAINER_DATABASE_USER_NORMAL "
-[ -n "$CONTAINER_DATABASE_PASS_NORMAL" ] && DOCKER_SET_OPTIONS+="--env DATABASE_PASS_NORMAL=$CONTAINER_DATABASE_PASS_NORMAL "
+if [ -n "$CONTAINER_DATABASE_USER_ROOT" ]; then
+  DOCKER_SET_OPTIONS+="--env DATABASE_USER_ROOT=$CONTAINER_DATABASE_USER_ROOT "
+fi
+if [ -n "$CONTAINER_DATABASE_PASS_ROOT" ]; then
+  [ "$CONTAINER_DATABASE_PASS_NORMAL" = "random" ] && CONTAINER_DATABASE_PASS_ROOT="$(__password)"
+  DOCKER_SET_OPTIONS+="--env DATABASE_PASS_ROOT=$CONTAINER_DATABASE_PASS_ROOT "
+fi
+if [ -n "$CONTAINER_DATABASE_USER_NORMAL" ]; then
+  DOCKER_SET_OPTIONS+="--env DATABASE_USER_NORMAL=$CONTAINER_DATABASE_USER_NORMAL "
+fi
+if [ -n "$CONTAINER_DATABASE_PASS_NORMAL" ]; then
+  [ "$CONTAINER_DATABASE_PASS_NORMAL" = "random" ] && CONTAINER_DATABASE_PASS_NORMAL="$(__password)"
+  DOCKER_SET_OPTIONS+="--env DATABASE_PASS_NORMAL=$CONTAINER_DATABASE_PASS_NORMAL "
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # env variables from env
 ADDITION_ENV+="START_SERVICES=INIT"
@@ -729,6 +746,7 @@ for set_port in $SET_SERVER_PORTS; do
     fi
   fi
 done
+unset SET_SERVER_PORTS_TMP
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 CONTAINER_ADD_CUSTOM_LISTEN="${CONTAINER_ADD_CUSTOM_LISTEN//,/ }"
 CONTAINER_ADD_CUSTOM_LISTEN="${CONTAINER_ADD_CUSTOM_LISTEN//  / }"
@@ -993,7 +1011,19 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
     printf_cyan "Username is:                    $SET_USER_NAME"
   fi
   if [ -z "$SET_USER_PASS" ]; then
-    printf_purple "Password is:                    $SET_USER_PASS"
+    printf_blue "Password is:                    $SET_USER_PASS"
+  fi
+  if [ "$CONTAINER_DATABASE_USER_ROOT" ]; then
+    printf_blue "Database root user:             $CONTAINER_DATABASE_USER_ROOT"
+  fi
+  if [ "$CONTAINER_DATABASE_PASS_ROOT" ]; then
+    printf_blue "Database root password:         $CONTAINER_DATABASE_PASS_ROOT"
+  fi
+  if [ "$CONTAINER_DATABASE_USER_NORMAL" ]; then
+    printf_blue "Database user:                 $CONTAINER_DATABASE_USER_NORMAL"
+  fi
+  if [ "$CONTAINER_DATABASE_PASS_NORMAL" ]; then
+    printf_blue "Database password:             $CONTAINER_DATABASE_PASS_NORMAL"
   fi
   if [ -f "$DATADIR/config/auth/htpasswd" ]; then
     printf_purple "Username:                       root"

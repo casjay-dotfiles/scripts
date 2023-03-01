@@ -633,7 +633,8 @@ if [ -n "$CONTAINER_OPT_PORT_VAR" ]; then
   for set_port in $CONTAINER_OPT_PORT_VAR; do
     if [ "$set_port" != "" ] && [ "$set_port" != " " ]; then
       port=$set_port
-      echo "$port" | grep -q ':' || port="${port//\/*/}:$port"
+      echo "$port" | grep -q ':.*.:' || random_port="$(__rport)"
+      echo "$port" | grep -q ':' || port="${random_port:-$port//\/*/}:$port"
       DOCKER_SET_TMP_PUBLISH+=("--publish $port")
     fi
   done
@@ -649,7 +650,8 @@ SET_LISTEN=${HOST_DEFINE_LISTEN//:*/}
 for set_port in $SET_SERVER_PORTS; do
   if [ "$set_port" != " " ] && [ -n "$set_port" ]; then
     port=$set_port
-    echo "$port" | grep -q ':' || port="${port//\/*/}:$port"
+    echo "$port" | grep -q ':.*.:' || random_port="$(__rport)"
+    echo "$port" | grep -q ':' || port="${random_port:-$port//\/*/}:$port"
     if [ "$CONTAINER_PRIVATE" = "yes" ] && [ "$port" = "${IS_PRIVATE//\/*/}" ]; then
       ADDR="${HOST_NETWORK_LOCAL_ADDR:-127.0.0.1}"
       DOCKER_SET_TMP_PUBLISH+=("--publish $ADDR:$port")
@@ -665,9 +667,10 @@ CONTAINER_ADD_CUSTOM_LISTEN="${CONTAINER_ADD_CUSTOM_LISTEN//,/ }"
 CONTAINER_ADD_CUSTOM_LISTEN="${CONTAINER_ADD_CUSTOM_LISTEN//  / }"
 if [ -n "$CONTAINER_ADD_CUSTOM_LISTEN" ]; then
   for set_port in $CONTAINER_ADD_CUSTOM_LISTEN; do
-    port=$set_port
     if [ "$port" != " " ] && [ -n "$port" ]; then
-      echo "$port" | grep -q ':' || port="${port//\/*/}:$port"
+      port=$set_port
+      echo "$port" | grep -q ':.*.:' || random_port="$(__rport)"
+      echo "$port" | grep -q ':' || port="${random_port:-$port//\/*/}:$port"
       DOCKER_SET_TMP_PUBLISH+=("--publish $port")
     fi
   done
@@ -690,14 +693,14 @@ if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ]; then
   for set_port in $CONTAINER_WEB_SERVER_INT_PORT; do
     if [ "$set_port" != " " ] && [ -n "$set_port" ]; then
       port=$set_port
-      RANDOM_PORT="$(__rport)"
+      random_port="$(__rport)"
       TYPE="$(echo "$port" | grep '/' | awk -F '/' '{print $NF}' | head -n1 | grep '^' || echo '')"
       if [ -z "$TYPE" ]; then
-        DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_WEB_SERVER_IP:$RANDOM_PORT:$port")
+        DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_WEB_SERVER_IP:$random_port:$port")
       else
-        DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_WEB_SERVER_IP:$RANDOM_PORT:$port/$TYPE")
+        DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_WEB_SERVER_IP:$random_port:$port/$TYPE")
       fi
-      SET_WEB_PORT+="$CONTAINER_WEB_SERVER_IP:$RANDOM_PORT "
+      SET_WEB_PORT+="$CONTAINER_WEB_SERVER_IP:$random_port "
     fi
   done
   [ "$CONTAINER_WEB_SERVER_SSL_ENABLED" = "yes" ] && CONTAINER_HTTP_PROTO="https" || CONTAINER_HTTP_PROTO="http"

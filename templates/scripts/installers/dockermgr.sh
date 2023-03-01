@@ -876,21 +876,22 @@ if [ "$NGINX_PROXY" = "yes" ] && [ -w "/etc/nginx/vhosts.d" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # finalize
+printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
 if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
   SET_PORT="${DOCKER_SET_PUBLISH//--publish /}"
   printf_yellow "The container name is: $CONTAINER_NAME"
   printf_yellow "The DATADIR is in $DATADIR"
   printf_cyan "$APPNAME has been installed to $INSTDIR"
   if [ "$DOCKER_CREATE_NET" ]; then
-    printf_purple "Created docker network $HOST_DOCKER_NETWORK"
+    printf_purple "Created docker network:  $HOST_DOCKER_NETWORK"
   fi
   if ! grep -sq "$CONTAINER_HOSTNAME" "/etc/hosts" && [ -w "/etc/hosts" ]; then
     if [ -n "$PRETTY_PORT" ]; then
       if [ "$HOST_LISTEN_ADDR" = 'home' ]; then
-        echo "$HOST_LISTEN_ADDR     $APPNAME.home" | sudo tee -a "/etc/hosts" &>/dev/null
+        echo "$HOST_LISTEN_ADDR        $APPNAME.home" | sudo tee -a "/etc/hosts" &>/dev/null
       else
-        echo "$HOST_LISTEN_ADDR     $APPNAME.home" | sudo tee -a "/etc/hosts" &>/dev/null
-        echo "$HOST_LISTEN_ADDR     $CONTAINER_HOSTNAME" | sudo tee -a "/etc/hosts" &>/dev/null
+        echo "$HOST_LISTEN_ADDR        $APPNAME.home" | sudo tee -a "/etc/hosts" &>/dev/null
+        echo "$HOST_LISTEN_ADDR        $CONTAINER_HOSTNAME" | sudo tee -a "/etc/hosts" &>/dev/null
       fi
     fi
   fi
@@ -909,17 +910,25 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
         set_service=${service//*:[^:]*:/}
         listen_ip=${set_listen//0.0.0.0/$HOST_LISTEN_ADDR}
         listen=${listen_ip//^:/$listen_ip}
-        [ -z "$listen" ] || printf_cyan "Port $set_service is mapped to: $listen"
+        if [ -n "$listen" ]; then
+          printf_cyan "Port $set_service is mapped to: $listen"
+        fi
       fi
     done
   fi
-  [ -n "$NGINX_PROXY_URL" ] && printf_blue "$NGINX_PROXY_URL"
-  [ -z "$SET_USER_NAME" ] || printf_cyan "Username is:  $SET_USER_NAME"
-  [ -z "$SET_USER_PASS" ] || printf_purple "Password is:  $SET_USER_PASS"
+  if [ -n "$SET_PORT" ] && [ -n "$NGINX_PROXY_URL" ]; then
+    printf_blue "Server address:                 $NGINX_PROXY_URL"
+  fi
+  if [ -n "$SET_USER_NAME" ]; then
+    printf_cyan "Username is:                    $SET_USER_NAME"
+  fi
+  if [ -z "$SET_USER_PASS" ]; then
+    printf_purple "Password is:                    $SET_USER_PASS"
+  fi
   if [ -f "$DATADIR/config/auth/htpasswd" ]; then
-    printf_purple "Username:   root"
-    printf_purple "Password:   ${SET_USER_PASS:-toor}"
-    printf_purple "File:       /config/auth/htpasswd"
+    printf_purple "Username:                       root"
+    printf_purple "Password:                       ${SET_USER_PASS:-toor}"
+    printf_purple "htpasswd File:                  /config/auth/htpasswd"
   fi
   [ -z "$POST_SHOW_FINISHED_MESSAGE" ] || printf_green "$POST_SHOW_FINISHED_MESSAGE"
   __show_post_message
@@ -927,8 +936,8 @@ else
   printf_cyan "The container $CONTAINER_NAME seems to have failed"
   [ "$ERROR_LOG" = "true" ] && printf_yellow "Errors logged to ${TMP:-/tmp}/$APPNAME.err.log"
   printf_error "Something seems to have gone wrong with the install"
-  printf '\n\n'
 fi
+printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n\n'
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run post install scripts
 run_postinst() {

@@ -871,11 +871,11 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # finalize
 if [ "$CONTAINER_INSTALLED" = "yes" ] || __docker_ps; then
-  SET_ADDR="${HOST_LISTEN_ADDR//:*/}"
   SET_PORT="${DOCKER_SET_PUBLISH//--publish /}"
+  HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR//:*/}"
+  HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR//0.0.0.0/$LOCAL_NET_IP}"
   printf_yellow "The DATADIR is in $DATADIR"
   printf_cyan "$APPNAME has been installed to $INSTDIR"
-  [ "$HOST_LISTEN_ADDR" = "0.0.0.0" ] && HOST_LISTEN_ADDR="$LOCAL_NET_IP"
   if ! grep -sq "$CONTAINER_HOSTNAME" "/etc/hosts" && [ -w "/etc/hosts" ]; then
     if [ -n "$PRETTY_PORT" ]; then
       if [ "$HOST_LISTEN_ADDR" = 'home' ]; then
@@ -899,7 +899,7 @@ if [ "$CONTAINER_INSTALLED" = "yes" ] || __docker_ps; then
         service=${service//\/*/}
         set_listen=${service%:*}
         set_service=${service//*:[^:]*:/}
-        listen_ip=${set_listen//0.0.0.0/$SET_ADDR}
+        listen_ip=${set_listen//0.0.0.0/$HOST_LISTEN_ADDR}
         listen=${listen_ip//^:/$listen_ip}
         [ -z "$listen" ] || printf_cyan "Port $set_service is mapped to: $listen"
       fi

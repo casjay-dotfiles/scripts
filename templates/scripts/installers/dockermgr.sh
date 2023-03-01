@@ -60,6 +60,7 @@ __docker_check() { [ -n "$(type -p docker 2>/dev/null)" ] || return 1; }
 __route() { [ -n "$(type -P ip)" ] && eval ip route 2>/dev/null || return 1; }
 __sudo_root() { sudo -n true && ask_for_password true && eval sudo "$*" || return 1; }
 __password() { cat "/dev/urandom" | tr -dc '[0-9][a-z][A-Z]@$' | head -c14 && echo ""; }
+__docker_ps() { docker ps -a 2>&1 | grep -qs "$CONTAINER_NAME" && return 0 || return 1; }
 __ifconfig() { [ -n "$(type -P ifconfig)" ] && eval ifconfig "$*" 2>/dev/null || return 1; }
 __docker_net_ls() { docker network ls 2>&1 | grep -v 'NETWORK ID' | awk -F ' ' '{print $2}'; }
 __name() { echo "$HUB_IMAGE_URL-${HUB_IMAGE_TAG:-latest}" | awk -F '/' '{print $(NF-1)"-"$NF}'; }
@@ -843,7 +844,7 @@ EOF
     ERROR_LOG="true"
   fi
 fi
-sleep 10
+sleep 10 && __docker_ps && CONTAINER_INSTALLED="true"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Install nginx proxy
 if [ "$NGINX_PROXY" = "yes" ] && [ -w "/etc/nginx/vhosts.d" ]; then
@@ -868,19 +869,20 @@ if [ "$NGINX_PROXY" = "yes" ] && [ -w "/etc/nginx/vhosts.d" ]; then
   [ -f "/etc/nginx/vhosts.d/$CONTAINER_HOSTNAME.conf" ] && NGINX_PROXY_URL="$CONTAINER_HTTP_PROTO://$CONTAINER_HOSTNAME"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# run post install scripts
-run_postinst() {
-  dockermgr_run_post
-  local addr="$HOST_LISTEN_ADDR"
-  [ -w "/etc/hosts" ] || return 0
-  [ "$HOST_LISTEN_ADDR" = "0.0.0.0" ] && addr="$LOCAL_NET_IP"
-  if ! grep -sq "$CONTAINER_HOSTNAME" "/etc/hosts"; then
+# finalize
+if [ "$CONTAINER_INSTALLED" = "yes" ] || __docker_ps; then
+  SET_ADDR="${HOST_LISTEN_ADDR//:*/}"
+  SET_PORT="${DOCKER_SET_PUBLISH//--publish /}"
+  printf_yellow "The DATADIR is in $DATADIR"
+  printf_cyan "$APPNAME has been installed to $INSTDIR"
+  [ "$HOST_LISTEN_ADDR" = "0.0.0.0" ] && HOST_LISTEN_ADDR="$LOCAL_NET_IP"
+  if ! grep -sq "$CONTAINER_HOSTNAME" "/etc/hosts" && [ -w "/etc/hosts" ]; then
     if [ -n "$PRETTY_PORT" ]; then
-      if [ "$addr" = 'home' ]; then
-        echo "$addr     $APPNAME.home" | sudo tee -a "/etc/hosts" &>/dev/null
+      if [ "$HOST_LISTEN_ADDR" = 'home' ]; then
+        echo "$HOST_LISTEN_ADDR     $APPNAME.home" | sudo tee -a "/etc/hosts" &>/dev/null
       else
-        echo "$addr     $APPNAME.home" | sudo tee -a "/etc/hosts" &>/dev/null
-        echo "$addr     $CONTAINER_HOSTNAME" | sudo tee -a "/etc/hosts" &>/dev/null
+        echo "$HOST_LISTEN_ADDR     $APPNAME.home" | sudo tee -a "/etc/hosts" &>/dev/null
+        echo "$HOST_LISTEN_ADDR     $CONTAINER_HOSTNAME" | sudo tee -a "/etc/hosts" &>/dev/null
       fi
     fi
   fi
@@ -889,24 +891,6 @@ run_postinst() {
     sudo -HE chown -f "$SUDO_USER":"$SUDO_USER" "$DATADIR" "$INSTDIR" "$INSTDIR" &>/dev/null
     true
   fi
-}
-#
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# run post install scripts
-execute "run_postinst" "Running post install scripts"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Output post install message
-run_post_install
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# create version file
-dockermgr_install_version
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# run exit function
-SET_ADDR="${HOST_LISTEN_ADDR//:*/}"
-SET_PORT="${DOCKER_SET_PUBLISH//--publish /}"
-if docker ps -a 2>&1 | grep -qs "$CONTAINER_NAME"; then
-  printf_yellow "The DATADIR is in $DATADIR"
-  printf_cyan "$APPNAME has been installed to $INSTDIR"
   if [ -z "$SET_PORT" ]; then
     printf_yellow "This container does not have services configured"
   else
@@ -932,13 +916,30 @@ if docker ps -a 2>&1 | grep -qs "$CONTAINER_NAME"; then
     printf_purple "File:       /config/auth/htpasswd"
   fi
   [ -z "$POST_SHOW_FINISHED_MESSAGE" ] || printf_green "$POST_SHOW_FINISHED_MESSAGE"
-  __show_post_message
 else
   printf_cyan "The container $CONTAINER_NAME seems to have failed"
   [ "$ERROR_LOG" = "true" ] && printf_yellow "Errors logged to ${TMP:-/tmp}/$APPNAME.err.log"
   printf_error "Something seems to have gone wrong with the install"
   printf '\n\n'
 fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# run post install scripts
+run_postinst() {
+  dockermgr_run_post
+}
+#
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# run post install scripts
+execute "run_postinst" "Running post install scripts"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Output post install message
+run_post_install
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create version file
+dockermgr_install_version
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# run exit function
+__show_post_message
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # exit
 run_exit &>/dev/null

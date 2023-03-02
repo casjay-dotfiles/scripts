@@ -22,25 +22,32 @@ __listening() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __certbot() {
-  if { [ -n "$HOSTNAME" ] || [ -n "$DOMAINNAME" ]; } && [ -n "$CERT_BOT_MAIL" ]; then
-    [ "$SSL_CERT_BOT" = "true" ] && type -P certbot &>/dev/null || { export SSL_CERT_BOT="" && return 10; }
-    certbot $1 --agree-tos -m $CERT_BOT_MAIL certonly --webroot \
-      -w "${WWW_ROOT_DIR:-/data/htdocs/www}" -d $DOMAINNAME -d $DOMAINNAME \
-      --put-all-related-files-into "$SSL_DIR" -key-path "$SSL_KEY" -fullchain-path "$SSL_CERT"
-    return $?
-  else
-    echo "The variables DOMAINNAME and CERT_BOT_MAIL are set" exit 1
-    return 1
-  fi
+  local options="$1" && shift 1
+  [ "$SSL_CERT_BOT" = "true" ] && [ -f "$(type -P certbot)" ] || { export SSL_CERT_BOT="" && return 10; }
+  [ -n "$CERT_BOT_MAIL" ] || echo "The variable CERT_BOT_MAIL is not set" && return 1
+  [ -n "$DOMAINNAME" ] || echo "The variable DOMAINNAME is not set" && return 1
+  certbot $options --agree-tos -m $CERT_BOT_MAIL certonly --webroot -w "${WWW_ROOT_DIR:-/data/htdocs/www}" \
+    -d $DOMAINNAME -d www.$DOMAINNAME -d mail.$DOMAINNAME $CERTBOT_DOMAINS --put-all-related-files-into "$SSL_DIR" \
+    -key-path "$SSL_KEY" -fullchain-path "$SSL_CERT"
+  return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_env() {
-  local file="${1:-/usr/local/share/template-files/config/env.sample}"
-  [ -f "/config/env.sh" ] && return
+  local dir=""
+  local envStatus=0
+  local file="${1:-}"
   [ -f "/usr/local/share/template-files/config/env.sample" ] || return 0
-  cat <<EOF | tee "$file" &>/dev/null
+  for create_env in "/usr/local/share/casjaysdev/env/default.sh" "/config/env/default.sh" $file; do
+    dir="$(dirname "$create_env")"
+    [ -d "$dir" ] || mkdir -p "$dir"
+    if [ ! -f "$create_env" ]; then
+      cat <<EOF | tee "$create_env" &>/dev/null
 $(<"/usr/local/share/template-files/config/env.sample")
 EOF
+    fi
+    [ -f "$create_env" ] || envStatus=$((1 + envStatus))
+  done
+  return $envStatus
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_backup() {
@@ -189,3 +196,20 @@ EOF
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__exec_pre_start() {
+  local statusCode=0
+  __start_message
+  statusCode+=$(($? + $statusCode))
+  return $statusCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__start_message() {
+  local service="${1:-$SERVICE_NAME}"
+  __pgrep "$service" && [ -f "/tmp/$service.pid" ] && echo "$service is running" && exit 0
+  if [ "$ENTRYPOINT_MESSAGE" = "false" ]; then
+    echo "Starting services: $SERVICES_LIST"
+  else
+    echo "Starting services: $SERVICES_LIST on: $CONTAINER_IP4_ADDRESS"
+  fi
+  return 0
+}

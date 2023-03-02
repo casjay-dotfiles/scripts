@@ -2680,6 +2680,9 @@ run_exit() {
   printf_yellow "$ICON_GOOD Running exit commands"
   [ -e "$APPDIR/$APPNAME" ] || rm_rf "$APPDIR/$APPNAME"
   [ -e "$INSTDIR/$APPNAME" ] || rm_rf "$INSTDIR/$APPNAME"
+  if __cmd_exists sudo; then
+    sudo -HE chown -f "$SUDO_USER":"$SUDO_USER" "$DATADIR" "$INSTDIR" "$INSTDIR" &>/dev/null
+  fi
   if [ -d "$APPDIR" ] && [ ! -f "$APPDIR/.installed" ]; then
     date '+Installed on: %m/%d/%y @ %H:%M:%S' >"$APPDIR/.installed" 2>/dev/null
   fi

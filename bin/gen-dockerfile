@@ -262,10 +262,12 @@ __trap_exit() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
 __create_start_script() {
-  cat <<EOF | tee "$1" &>/dev/null
+  local filename="/usr/local/etc/docker/init.d/$1"
+  printf_cyan "Creating the startup script"
+  cat <<EOF | tee "$filename" &>/dev/null
 #!/usr/bin/emv bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-trap -- 'retVal=$?; [ -f "/tmp/\$cmd.pid" ] && rm -Rf "/tmp/\$cmd.pid";exit $retVal' SIGINIT SIGTERM ERR
+trap -- 'retVal=\$?; [ -f "/tmp/\$cmd.pid" ] && rm -Rf "/tmp/\$cmd.pid";exit \$retVal' SIGINIT SIGTERM ERR
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 set -Eeuo pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -286,22 +288,22 @@ __exec_service_start() {
   [ -f "\$(type -P "\$cmd")" ] || { echo "\$cmd is not a valid command" && exit 1; }
   echo "Setting up service to run as \$run_as"
   if [ "\$run_as" = "root" ]; then
-    su_cmd() { eval "\$@" || return 1; }
+    su_cmd() { eval "\${@:-\$cmd}" || return 1; }
   elif [ "\$(builtin type -P su)" ]; then
-    su_cmd() { su -s /bin/sh - \$run_as -c "\$@" || return 1; }
+    su_cmd() { su -s /bin/sh - \$run_as -c "\${@:-\$cmd}" || return 1; }
   elif [ "\$(builtin type -P runuser)" ]; then
-    su_cmd() { runuser -u \$run_as "\$@" || return 1; }
+    su_cmd() { runuser -u \$run_as "\${@:-\$cmd}" || return 1; }
   elif [ "\$(builtin type -P sudo)" ]; then
-    su_cmd() { sudo -u \$run_as "\$@" || return 1; }
+    su_cmd() { sudo -u \$run_as "\${@:-\$cmd}" || return 1; }
   else
     echo "Can not switch to \$run_as"
     exit 10
   fi
   sleep 30
-  su_cmd "touch /tmp/\$cmd.pid"
+  su_cmd "touch /tmp/\$SERVICE_NAME.pid"
   echo "Executing: \$cmd "
   su_cmd "\$cmd" || exitCode=1
-  [ "\$exitCode" -ne 0 ] && exitCode=10 && rm -Rf "/tmp/\$cmd.pid"
+  [ "\$exitCode" -ne 0 ] && exitCode=10 && rm -Rf "/tmp/\$SERVICE_NAME.pid"
   return \$exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -309,6 +311,7 @@ __start_message && __exec_service_start \$SERVICE_COMMAND
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 exit \$?
 EOF
+  [ -f "$filename" ] && printf_cyan "Created $filename"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_env() {
@@ -1611,7 +1614,7 @@ __docker_file() {
   fi
   if [ ! -f "$template_dir/config" ]; then
     mkdir -p "/usr/local/etc/docker/init.d"
-    __create_start_script "/usr/local/etc/docker/init.d/$name.sample"
+    __create_start_script "$name.sample"
   fi
   if [ -f "$file" ] && [ -f "$file.$bak_ext" ]; then
     printf_yellow "Found an existing Dockerfile at: $file"
@@ -1792,7 +1795,7 @@ SHORTOPTS=""
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
-LONGOPTS+=",dockerfile,nogit,template:,image:,repo:"
+LONGOPTS+=",dockerfile,nogit,template:,image:,repo:startup:"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="alpine arch debian ubuntu rhel xorg web"
 ARRAY+=""
@@ -1884,6 +1887,11 @@ while :; do
   --image)
     GEN_DOCKERFILE_DEFAULT_IMAGE="$2"
     shift 2
+    ;;
+  --startup)
+    __create_start_script "$2"
+    shift 2
+    exit $?
     ;;
   --)
     shift 1

@@ -22,12 +22,16 @@ __listening() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __certbot() {
-  [ -n "$DOMAINNAME" ] && [ -n "$CERT_BOT_MAIL" ] || { echo "The variables DOMAINNAME and CERT_BOT_MAIL are set" && exit 1; }
-  [ "$SSL_CERT_BOT" = "true" ] && type -P certbot &>/dev/null || { export SSL_CERT_BOT="" && return 10; }
-  certbot $1 --agree-tos -m $CERT_BOT_MAIL certonly --webroot \
-    -w "${WWW_ROOT_DIR:-/data/htdocs/www}" -d $DOMAINNAME -d $DOMAINNAME \
-    --put-all-related-files-into "$SSL_DIR" -key-path "$SSL_KEY" -fullchain-path "$SSL_CERT"
-  return $?
+  if { [ -n "$HOSTNAME" ] || [ -n "$DOMAINNAME" ]; } && [ -n "$CERT_BOT_MAIL" ]; then
+    [ "$SSL_CERT_BOT" = "true" ] && type -P certbot &>/dev/null || { export SSL_CERT_BOT="" && return 10; }
+    certbot $1 --agree-tos -m $CERT_BOT_MAIL certonly --webroot \
+      -w "${WWW_ROOT_DIR:-/data/htdocs/www}" -d $DOMAINNAME -d $DOMAINNAME \
+      --put-all-related-files-into "$SSL_DIR" -key-path "$SSL_KEY" -fullchain-path "$SSL_CERT"
+    return $?
+  else
+    echo "The variables DOMAINNAME and CERT_BOT_MAIL are set" exit 1
+    return 1
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_env() {
@@ -40,9 +44,10 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_backup() {
-  local save="${1:-$BACKUP_DIR}" date="" file="" backupExit=0
-  date="$(date '+%Y%m%d-%H%M')"
-  file="$save/$date.tar.gz"
+  local save="${1:-$BACKUP_DIR}"
+  local backupExit=0
+  local date="$(date '+%Y%m%d-%H%M')"
+  local file="$save/$date.tar.gz"
   echo "Backing up /data /config to $file"
   sleep 1
   tar cfvz "$file" --exclude="$save" "/data" "/config" || backupExit=1
@@ -70,29 +75,36 @@ __exec_command() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __heath_check() {
+  local healthStatus=0
+  local healthMessage="Everything seems to be running"
   local ports="${WEB_SERVER_PORTS:-}"
-  local HEALTH_ENABLED="${HEALTH_ENABLED:-}"
-  local healthStatus=0 health="Good"
-  for proc in $SERVICES_LIST; do
-    if ! __pgrep "$proc"; then
-      echo "$proc is not running" >&2
-      status=$((status + 1))
+  local services="${SERVICES_LIST:-$@}"
+  local healthEnabled="${HEALTH_ENABLED:-}"
+  for proc in $services; do
+    if [ -n "$proc" ]; then
+      if ! __pgrep "$proc"; then
+        echo "$proc is not running" >&2
+        status=$((status + 1))
+      fi
     fi
   done
   for port in $ports; do
-    __curl "http://localhost:$port/server-health" || healthStatus=$((healthStatus + 1))
+    if [ -n "$port" ]; then
+      __curl "http://localhost:$port/server-health" || healthStatus=$((healthStatus + 1))
+    fi
   done
-  if [ -n "$HEALTH_ENABLED" ]; then
+  if [ -n "$healthEnabled" ]; then
     __curl "${HEALTH_URL:-http://localhost:$port/server-health}" || healthStatus=$((healthStatus + 1))
   fi
-  [ "$healthStatus" -eq 0 ] || health="Errors reported see docker logs --follow $CONTAINER_NAME"
+  [ "$healthStatus" -eq 0 ] || healthMessage="Errors reported see: docker logs --follow $CONTAINER_NAME"
+  [ -n "$healthMessage" ] && echo "$healthMessage"
   return $healthStatus
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup init scripts
 __start_init_scripts() {
-  init_pids=""
-  initStatus=0
+  local init_pids=""
+  local initStatus=0
   if [ -d "$DEFAULT_TEMPLATE_DIR/init.d" ]; then
     for init in "$DEFAULT_TEMPLATE_DIR/init.d"/*.sh; do
       [ -f "$init" ] && $init &
@@ -121,11 +133,11 @@ __start_all_services() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __exec_service_start() {
-  EXEC_CMD="${EXEC_CMD:-${SERVICE_NAME:-$1}}"                          # command to execute
-  SERVICE_ARGS="${SERVICE_ARGS:-${SERVICE_COMMAND:-${@//$EXEC_CMD/}}}" # command arguments
-  SERVICE_USER="${SERVICE_USER:-$USER}"                                # execute command as another user
-  PRE_EXEC_MESSAGE="${PRE_EXEC_MESSAGE:-}"                             # Show message before execute
-  SERVICE_EXIT_CODE=0                                                  # default exit code
+  local EXEC_CMD="${EXEC_CMD:-${SERVICE_NAME:-$1}}"                          # command to execute
+  local SERVICE_ARGS="${SERVICE_ARGS:-${SERVICE_COMMAND:-${@//$EXEC_CMD/}}}" # command arguments
+  local SERVICE_USER="${SERVICE_USER:-$USER}"                                # execute command as another user
+  local PRE_EXEC_MESSAGE="${PRE_EXEC_MESSAGE:-}"                             # Show message before execute
+  local SERVICE_EXIT_CODE=0                                                  # default exit code
   echo "Setting up service to run as $SERVICE_USER"
   if [ "$SERVICE_USER" = "root" ] || [ -z "$SERVICE_USER" ]; then
     su_cmd() { eval "$@" || return 1; }

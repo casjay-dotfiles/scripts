@@ -121,25 +121,33 @@ __start_all_services() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __exec_service_start() {
-  local exitCode=0 cmd="${1:-$SERVICE_COMMAND}"
-  [ -f "$(type -P "$cmd")" ] && sleep 5 || { echo "$cmd does not exist" && exit 10; }
+  EXEC_CMD="${EXEC_CMD:-${SERVICE_NAME:-$1}}"                          # command to execute
+  SERVICE_ARGS="${SERVICE_ARGS:-${SERVICE_COMMAND:-${@//$EXEC_CMD/}}}" # command arguments
+  SERVICE_USER="${SERVICE_USER:-$USER}"                                # execute command as another user
+  PRE_EXEC_MESSAGE="${PRE_EXEC_MESSAGE:-}"                             # Show message before execute
+  SERVICE_EXIT_CODE=0                                                  # default exit code
   echo "Setting up service to run as $SERVICE_USER"
-  if [ "$SERVICE_USER" = "root" ]; then
-    su_cmd() { eval "${@:-$cmd}" || return 1; }
+  if [ "$SERVICE_USER" = "root" ] || [ -z "$SERVICE_USER" ]; then
+    su_cmd() { eval "$@" || return 1; }
+  elif [ "$(builtin type -P gosu)" ]; then
+    su_cmd() { gosu $SERVICE_USER "$@" || return 1; }
   elif [ "$(builtin type -P su)" ]; then
-    su_cmd() { su -s /bin/sh - $SERVICE_USER -c "${@:-$cmd}" || return 1; }
+    su_cmd() { su -s /bin/sh - $SERVICE_USER -c "$@" || return 1; }
   elif [ "$(builtin type -P runuser)" ]; then
-    su_cmd() { runuser -u $SERVICE_USER "${@:-$cmd}" || return 1; }
+    su_cmd() { runuser -u $SERVICE_USER "$@" || return 1; }
   elif [ "$(builtin type -P sudo)" ]; then
-    su_cmd() { sudo -u $SERVICE_USER "${@:-$cmd}" || return 1; }
+    su_cmd() { sudo -u $SERVICE_USER "$@" || return 1; }
   else
     echo "Can not switch to $SERVICE_USER"
     exit 10
   fi
-  echo "Executing: $cmd "
-  su_cmd "touch /tmp/$SERVICE_NAME.pid"
-  su_cmd "$cmd" || exitCode=1
-  [ "$exitCode" -ne 0 ] && exitCode=10 && rm -Rf "/tmp/$SERVICE_NAME.pid"
+  sleep 30
+  [ -n "$PRE_EXEC_MESSAGE" ] && echo "$PRE_EXEC_MESSAGE"
+  __pre_execute
+  echo "Starting service: $EXEC_CMD $CMD_ARGS"
+  su_cmd "touch /tmp/$EXEC_CMD.pid"
+  su_cmd "$EXEC_CMD $CMD_ARGS" || echo "Failed to execute: $EXEC_CMD $CMD_ARGS"
+  [ "$?" -ne 0 ] && SERVICE_EXIT_CODE=10 && rm -Rf "/tmp/$EXEC_CMD.pid"
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

@@ -474,7 +474,12 @@ DOCKER_SET_TMP_PUBLISH=("")
 [ -n "$CONTAINER_MOUNT_CONFIG_MOUNT_DIR" ] || CONTAINER_MOUNT_CONFIG_MOUNT_DIR="/config"
 [ "$REGISTRY_USERNAME" = "random" ] && CONTAINER_USER_PASS="$RANDOM_PASS"
 [ -n "$CONTAINER_WEB_SERVER_EMAIL" ] && CONTAINER_HOST_EMAIL="$CONTAINER_WEB_SERVER_EMAIL" || CONTAINER_HOST_EMAIL="root@$HOST_FULL_DOMAIN"
-[ "$CONTAINER_EMAIL_ENABLED" = "yes" ] && [ -n "$CONTAINER_EMAIL_PORTS" ] && CONTAINER_ADD_CUSTOM_PORT="$CONTAINER_EMAIL_PORTS " && DOCKER_SET_OPTIONS+="--env ENV_PORTS=\"${CONTAINER_EMAIL_PORTS//,/ }\" "
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ "$CONTAINER_EMAIL_ENABLED" = "yes" ]; then
+  CONTAINER_ADD_CUSTOM_PORT="$CONTAINER_EMAIL_PORTS "
+  DOCKER_SET_OPTIONS+="--env ENV_PORTS=\"${CONTAINER_EMAIL_PORTS//,/ }\" "
+  DOCKER_SET_OPTIONS+="--env EMAIL_ENABLED=$CONTAINER_EMAIL_ENABLED "
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set network Variables
 LOCAL_NET_IP="${LOCAL_NET_IP:-$SET_LAN_IP}"
@@ -517,7 +522,7 @@ DOCKER_SET_OPTIONS="${DOCKER_CUSTOM_ARGUMENTS:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mounts from env
 [ "$CGROUPS_ENABLED" = "yes" ] && CONTAINER_MOUNTS+="$CGROUPS_MOUNTS "
-[ "$HOST_ETC_HOSTS_ENABLED" = "yes" ] && CONTAINER_MOUNTS+="/etc/hosts:/etc/hosts:ro "
+[ "$HOST_ETC_HOSTS_ENABLED" = "yes" ] && CONTAINER_MOUNTS+="/etc/hosts:/usr/local/etc/hosts:ro "
 [ "$HOST_RESOLVE_ENABLED" = "yes" ] && CONTAINER_MOUNTS+="$HOST_RESOLVE_FILE:/etc/resolv.conf "
 [ "$CONTAINER_MOUNT_CONFIG_ENABLED" = "yes" ] && CONTAINER_MOUNTS+="$LOCAL_CONFIG_DIR:/config:z "
 [ "$DOCKER_SOCKET_ENABLED" = "yes" ] && CONTAINER_MOUNTS+="$DOCKER_SOCKET_MOUNT:/var/run/docker.sock "

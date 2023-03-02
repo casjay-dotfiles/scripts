@@ -49,6 +49,31 @@ $(<"/usr/local/share/template-files/config/env.sample")
 EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_mta() {
+  echo "$EMAIL_RELAY" | grep ':[0-9]' || EMAIL_RELAY="$EMAIL_RELAY:465"
+  [ -d "/etc/ssmtp" ] && rm -Rf "/etc/ssmtp"
+  [ -d "/config/ssmtp" ] || mkdir -p "/config/ssmtp"
+  cat <<EOF | tee "/config/ssmtp/ssmtp.conf" &>dev/null
+# sSMTP config.
+root=${EMAIL_ADMIN}${EMAIL_DOMAIN}
+mailhub=$EMAIL_RELAY
+rewriteDomain=$EMAIL_DOMAIN
+hostname=$HOSTNAME
+TLS_CA_FILE=/etc/ssl/certs/ca-certificates.crt
+UseTLS=Yes
+UseSTARTTLS=No
+AuthMethod=LOGIN
+FromLineOverride=yes
+#AuthUser=username
+#AuthPass=password
+EOF
+  if [ -f "/config/ssmtp/ssmtp.conf" ]; then
+    SERVICES_LIST+="ssmtp "
+    ln -sf "/config/ssmtp" "/etc/ssmtp"
+    __exec_command ssmtp "/etc/ssmtp/ssmtp.conf" &
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __show_procs() {
   local ps=""
   ps="$(__ps axco command | grep -vE 'COMMAND|grep|ps' | sort -u || grep '^' || echo '')"
@@ -88,9 +113,25 @@ __heath_check() {
   return $healthStatus
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup init scripts
+__start_init_scripts() {
+  init_pids=""
+  initStatus=""
+  if [ -d "$DEFAULT_TEMPLATE_DIR/init.d" ]; then
+    for init in "$DEFAULT_TEMPLATE_DIR/init.d"/*; do
+      [ -f "$init" ] && $init &
+      init_pids+="$! " initStatus=$(($? + serviceStatus))
+    done
+  fi
+  sleep 10
+  return $initStatus
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __start_all_services() {
   local serviceStatus=0
   echo "$$" >"/tmp/entrypoint.pid"
+  __start_init_scripts
+  serviceStatus=$(($? + serviceStatus))
   start-GEN_SCRIPT_REPLACE_APPNAME.sh &
   serviceStatus=$(($? + serviceStatus))
   return $serviceStatus
@@ -106,38 +147,14 @@ export -f __exec_command __pcheck __pgrep __find __curl __heath_check
 export -f __certbot __start_all_services __get_ip4 __get_ip6
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define default variables - do not change these - redefine with -e or set under Additional
-USER="${USER:-root}"
-DISPLAY="${DISPLAY:-}"
-LANG="${LANG:-C.UTF-8}"
-ENV_PORTS="${ENV_PORTS:-}"
-DOMAINNAME="${DOMAINNAME:-}"
-TZ="${TZ:-America/New_York}"
-PHP_VERSION="${PHP_VERSION//php/}"
-HEALTH_ENABLED="${HEALTH_ENABLED:-}"
-HEALTH_URL="${HEALTH_URL:-}"
-SERVICE_USER="${SERVICE_USER:-root}"
-SERVICE_PORT="${SERVICE_PORT:-$PORT}"
-WEB_SERVER_PORTS="${WEB_SERVER_PORTS:-}"
-SERVICES_LIST="${PROCS_LIST:-$SERVICES_LIST} "
-FULL_DOMAIN_NAME="${FULL_DOMAIN_NAME:-$DOMAINNAME}"
-HOSTNAME="${HOSTNAME:-casjaysdev-GEN_SCRIPT_REPLACE_APPNAME}"
-EMAIL_ADMIN="${HOSTADMIN:-root@${EMAIL_DOMAIN:-$DOMAINNAME}}"
-EMAIL_RELAY="${EMAIL_RELAY:-}"
-CERT_BOT_MAIL="${CERT_BOT_MAIL:-certbot-mail@casjay.net}"
-SSL_CERT_BOT="${SSL_CERT_BOT:-false}"
-SSL_ENABLED="${SSL_ENABLED:-false}"
-SSL_DIR="${SSL_DIR:-/config/ssl}"
-SSL_CA="${SSL_CA:-$SSL_DIR/ca.crt}"
-SSL_KEY="${SSL_KEY:-$SSL_DIR/server.key}"
-SSL_CERT="${SSL_CERT:-$SSL_DIR/server.crt}"
-SSL_CONTAINER_DIR="${SSL_CONTAINER_DIR:-/etc/ssl/CA}"
-WWW_ROOT_DIR="${WWW_ROOT_DIR:-/data/htdocs}"
-LOCAL_BIN_DIR="${LOCAL_BIN_DIR:-/usr/local/bin}"
-DEFAULT_DATA_DIR="${DEFAULT_DATA_DIR:-/usr/local/share/template-files/data}"
-DEFAULT_CONF_DIR="${DEFAULT_CONF_DIR:-/usr/local/share/template-files/config}"
-DEFAULT_TEMPLATE_DIR="${DEFAULT_TEMPLATE_DIR:-/usr/local/share/template-files/defaults}"
-CONTAINER_IP4_ADDRESS="$(__get_ip4)"
-CONTAINER_IP6_ADDRESS="$(__get_ip6)"
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Create the env file
+__create_env "/config/env.sh"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# import variables from file
+[ -f "/root/env.sh" ] && . "/root/env.sh"
+[ -f "/config/env.sh" ] && . "/config/env.sh"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional variables and variable overrides
 SERVICE_NAME="GEN_SCRIPT_REPLACE_APPNAME"
@@ -162,13 +179,6 @@ export SSL_KEY SERVICE_NAME SSL_DIR LOCAL_BIN_DIR SSL_CONTAINER_DIR SSL_CERT_BOT
 export DEFAULT_CONF_DIR CONTAINER_IP4_CONTAINER_IP6_ADDRESS ADDRESS DISPLAY
 export CONFIG_DIR_INITIALIZED DATA_DIR_INITIALIZED SERVICE_USER ENTRYPOINT_MESSAGE
 export WEB_SERVER_PORTS PHP_VERSION SERVICES_LIST FULL_DOMAIN_NAME DEBUGGER
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Create the env file
-__create_env "/config/env.sh"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# import variables from file
-[ -f "/root/env.sh" ] && . "/root/env.sh"
-[ -f "/config/env.sh" ] && . "/config/env.sh"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set timezone
 [ -n "$TZ" ] && [ -w "/etc/timezone" ] && echo "$TZ" >"/etc/timezone"
@@ -322,6 +332,9 @@ if [ -n "$ENV_PORTS" ]; then
   for a in $ENV_PORTS; do printf '%s ' "$a"; done
 fi
 echo ""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# setup the smtp server
+[ "$EMAIL_ENABLED" = "yes" ] && __setup_mta
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Unset unneeded variables
 unset a SET_USR_BIN create_bin create_bin_name create_template create_template_name

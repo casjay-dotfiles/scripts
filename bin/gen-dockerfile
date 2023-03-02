@@ -261,6 +261,56 @@ __trap_exit() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
+__create_start_script() {
+  cat <<EOF | tee "$1" &>/dev/null
+#!/usr/bin/emv bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+trap -- 'retVal=$?; [ -f "/tmp/\$cmd.pid" ] && rm -Rf "/tmp/\$cmd.pid";exit $retVal' SIGINIT SIGTERM ERR
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+set -Eeuo pipefail
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SERVICE_NAME=""
+SERVICE_COMMAND=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__start_message() {
+  __pgrep "\$SERVICE_NAME" && [ -f "/tmp/\$SERVICE_NAME.pid" ] && echo "\$SERVICE_NAME is running" && exit 0
+  if [ "\$ENTRYPOINT_MESSAGE" = "false" ]; then
+    echo "Starting services: \$SERVICES_LIST"
+  else
+    echo "Starting services: \$SERVICES_LIST on: \$CONTAINER_IP4_ADDRESS"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__exec_service_start() {
+  local exitCode=0 run_as="\${SERVICE_USER}" cmd="\${1:-\$SERVICE_COMMAND}"
+  [ -f "\$(type -P "\$cmd")" ] || { echo "\$cmd is not a valid command" && exit 1; }
+  echo "Setting up service to run as \$run_as"
+  if [ "\$run_as" = "root" ]; then
+    su_cmd() { eval "\$@" || return 1; }
+  elif [ "\$(builtin type -P su)" ]; then
+    su_cmd() { su -s /bin/sh - \$run_as -c "\$@" || return 1; }
+  elif [ "\$(builtin type -P runuser)" ]; then
+    su_cmd() { runuser -u \$run_as "\$@" || return 1; }
+  elif [ "\$(builtin type -P sudo)" ]; then
+    su_cmd() { sudo -u \$run_as "\$@" || return 1; }
+  else
+    echo "Can not switch to \$run_as"
+    exit 10
+  fi
+  sleep 30
+  su_cmd "touch /tmp/\$cmd.pid"
+  echo "Executing: \$cmd "
+  su_cmd "\$cmd" || exitCode=1
+  [ "\$exitCode" -ne 0 ] && exitCode=10 && rm -Rf "/tmp/\$cmd.pid"
+  return \$exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__start_message && __exec_service_start \$SERVICE_COMMAND
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+exit \$?
+EOF
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_env() {
   cat <<EOF | tee "$1" &>/dev/null
 # GLOBAL enviroment variables
@@ -284,8 +334,8 @@ HOSTNAME="\${HOSTNAME:-casjaysdev-GEN_SCRIPT_REPLACE_APPNAME}"
 DOMAINNAME="\${DOMAINNAME:-}"
 HOSTADMIN="\${HOSTADMIN:-root@\${EMAIL_DOMAIN:-\$DOMAINNAME}}"
 EMAIL_RELAY="\${EMAIL_RELAY:-}"
-CONTAINER_IP4_ADDRESS="\${CONTAINER_IP4_ADDRESS:-}"
-CONTAINER_IP6_ADDRESS="\${CONTAINER_IP6_ADDRESS:-}"
+CONTAINER_IP4_ADDRESS="\${CONTAINER_IP4_ADDRESS:-\$(__get_ip4)}"
+CONTAINER_IP6_ADDRESS="\${CONTAINER_IP6_ADDRESS:-\$(__get_ip6)}"
 # cerbot
 SSL_CERT_BOT="\${SSL_CERT_BOT:-false}"
 CERT_BOT_MAIL="\${CERT_BOT_MAIL:-}"
@@ -302,7 +352,31 @@ LOCAL_BIN_DIR="\${LOCAL_BIN_DIR:-/usr/local/bin}"
 DEFAULT_DATA_DIR="\${DEFAULT_DATA_DIR:-/usr/local/share/template-files/data}"
 DEFAULT_CONF_DIR="\${DEFAULT_CONF_DIR:-/usr/local/share/template-files/config}"
 DEFAULT_TEMPLATE_DIR="\${DEFAULT_TEMPLATE_DIR:-/usr/local/share/template-files/defaults}"
-
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# postgresql env
+PGDATA="\${DATABASE_DIR_PGSQL:-\$PGDATA}"
+POSTGRES_USER="\${DATABASE_USER_ROOT:-\$POSTGRES_USER}"
+POSTGRES_PASSWORD="\${DATABASE_PASS_ROOT:-\$POSTGRES_PASSWORD}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# mariadb env
+MARIADB_ROOT_HOST="\${MARIADB_ROOT_HOST:-%}"
+MARIADB_AUTO_UPGRADE="\${MARIADB_AUTO_UPGRADE:-yes}"
+MARIADB_DATABASE="\${DATABASE_CREATE:-\$MARIADB_DATABASE}"
+MARIADB_USER="\${DATABASE_USER_NORMAL:-\$MARIADB_USER}"
+MARIADB_PASSWORD="\${DATABASE_PASS_NORMAL:-\$MARIADB_PASSWORD}"
+MARIADB_ROOT_PASSWORD="\${DATABASE_PASS_ROOT:-\$MARIADB_ROOT_PASSWORD}"
+MARIADB_ALLOW_EMPTY_ROOT_PASSWORD="\${MARIADB_ALLOW_EMPTY_ROOT_PASSWORD:-}"
+MARIADB_INITDB_SKIP_TZINFO="\${MARIADB_INITDB_SKIP_TZINFO}:-"
+MARIADB_RANDOM_ROOT_PASSWORD="\${MARIADB_RANDOM_ROOT_PASSWORD:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#mongodb env
+NITDB_ROOT_USERNAME="\${DATABASE_USER_ROOT:-\$NITDB_ROOT_USERNAME}"
+MONGO_INITDB_ROOT_PASSWORD="\${DATABASE_PASS_ROOT:-\$MONGO_INITDB_ROOT_PASSWORD}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#couchdb env
+COUCHDB_USER="\${DATABASE_USER_ROOT:-\$COUCHDB_USER}"
+COUCHDB_PASSWORD="\${DATABASE_PASS_ROOT:-\$COUCHDB_PASSWORD}"
+NODENAME="\${NODENAME:-}"
 EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1534,6 +1608,10 @@ __docker_file() {
   fi
   if [ ! -f "$template_dir/config" ]; then
     __create_env "$template_dir/config/env.sample"
+  fi
+  if [ ! -f "$template_dir/config" ]; then
+    mkdir -p "/usr/local/etc/docker/init.d"
+    __create_start_script "/usr/local/etc/docker/init.d/$name.sample"
   fi
   if [ -f "$file" ] && [ -f "$file.$bak_ext" ]; then
     printf_yellow "Found an existing Dockerfile at: $file"

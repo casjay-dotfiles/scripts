@@ -979,9 +979,10 @@ fi
 # finalize
 if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
   SET_PORT="${DOCKER_SET_PUBLISH//--publish /}"
-  printf_yellow "The container name is: $CONTAINER_NAME"
-  printf_yellow "The DATADIR is in $DATADIR"
-  printf_cyan "$APPNAME has been installed to $INSTDIR"
+  printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
+  printf_yellow "The container name is:          $CONTAINER_NAME"
+  printf_cyan "$APPNAME has been installed to:   $INSTDIR"
+  printf_yellow "Containers data is saved in:    $DATADIR"
   if [ "$DOCKER_CREATE_NET" ]; then
     printf_purple "Created docker network:         $HOST_DOCKER_NETWORK"
   fi
@@ -1025,7 +1026,7 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
     MESSAGE="true"
     printf_cyan "Username is:                    $SET_USER_NAME"
   fi
-  if [ -z "$SET_USER_PASS" ]; then
+  if [ -n "$SET_USER_PASS" ]; then
     MESSAGE="true"
     printf_blue "Password is:                    $SET_USER_PASS"
   fi

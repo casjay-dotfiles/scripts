@@ -332,7 +332,7 @@ CONTAINER_EMAIL_DOMAIN=""
 CONTAINER_EMAIL_RELAY=""
 CONTAINER_EMAIL_PORTS="25,465,587"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Add the names of proccesses [apache,mysql]
+# Add the names of processes [apache,mysql]
 CONTAINER_SERVICES_LIST=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set this to the protocol the the container will use [http/https/git/ftp/pgsql/mysql/mongodb]

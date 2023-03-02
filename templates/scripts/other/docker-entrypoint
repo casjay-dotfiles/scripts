@@ -21,167 +21,38 @@
 # Set bash options
 [ "$DEBUGGER" = "on" ] && echo "Enabling debugging" && set -o pipefail -x$DEBUGGER_OPTIONS || set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set functions
-__ps() { [ -f "$(type -P ps)" ] && ps "$@" || return 10; }
-__curl() { curl -q -LSsf -o /dev/null "$@" &>/dev/null || return 10; }
-__netstat() { [ -f "$(type -P netstat)" ] && netstat "$@" || return 10; }
-__find() { find "$1" -mindepth 1 -type ${2:-f,d} 2>/dev/null | grep '^' || return 10; }
-__pcheck() { [ -n "$(which pgrep 2>/dev/null)" ] && pgrep -x "$1" &>/dev/null || return 10; }
-__pgrep() { __pcheck "${1:-GEN_SCRIPT_REPLACE_APPNAME}" || __ps aux 2>/dev/null | grep -Fw " ${1:-$GEN_SCRIPT_REPLACE_APPNAME}" | grep -qv ' grep' || return 10; }
-__get_ip6() { ip a 2>/dev/null | grep -w 'inet6' | awk '{print $2}' | grep -vE '^::1|^fe' | sed 's|/.*||g' | head -n1 | grep '^' || echo ''; }
-__get_ip4() { ip a 2>/dev/null | grep -w 'inet' | awk '{print $2}' | grep -vE '^127.0.0' | sed 's|/.*||g' | head -n1 | grep '^' || echo '127.0.0.1'; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__show_procs() {
-  local ps=""
-  ps="$(__ps axco command | grep -vE 'COMMAND|grep|ps' | sort -u || grep '^' || echo '')"
-  [ -n "$ps" ] && printf '%s\n%s\n' "Found the following proccesses" "$ps" || return 1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__listening() {
-  local ports=""
-  ports="$(__netstat -taupln | awk -F ' ' '{print $4}' | awk -F ':' '{print $2}' | sort --unique --version-sort | grep -v '^$' | grep '^' || echo '')"
-  [ -n "$ports" ] && printf '%s\n%s\n' "The followinf are servers:" "$ports" || return 1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__certbot() {
-  [ -n "$DOMAINNAME" ] && [ -n "$CERT_BOT_MAIL" ] || { echo "The variables DOMAINNAME and CERT_BOT_MAIL are set" && exit 1; }
-  [ "$SSL_CERT_BOT" = "true" ] && type -P certbot &>/dev/null || { export SSL_CERT_BOT="" && return 10; }
-  certbot $1 --agree-tos -m $CERT_BOT_MAIL certonly --webroot -w "${WWW_ROOT_DIR:-/data/htdocs/www}" -d $DOMAINNAME -d $DOMAINNAME \
-    --put-all-related-files-into "$SSL_DIR" -key-path "$SSL_KEY" -fullchain-path "$SSL_CERT"
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__create_env() {
-  local file="${1:-/usr/local/share/template-files/config/env.sample}"
-  [ -f "/config/env.sh" ] && return
-  [ -f "/usr/local/share/template-files/config/env.sample" ] || return 0
-  cat <<EOF | tee "$file" &>/dev/null
-$(<"/usr/local/share/template-files/config/env.sample")
-EOF
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__setup_mta() {
-  echo "$EMAIL_RELAY" | grep ':[0-9]' || EMAIL_RELAY="$EMAIL_RELAY:465"
-  [ -d "/etc/ssmtp" ] && rm -Rf "/etc/ssmtp"
-  [ -d "/config/ssmtp" ] || mkdir -p "/config/ssmtp"
-  cat <<EOF | tee "/config/ssmtp/ssmtp.conf" &>dev/null
-# sSMTP config.
-root=${EMAIL_ADMIN}${EMAIL_DOMAIN}
-mailhub=$EMAIL_RELAY
-rewriteDomain=$EMAIL_DOMAIN
-hostname=$HOSTNAME
-TLS_CA_FILE=/etc/ssl/certs/ca-certificates.crt
-UseTLS=Yes
-UseSTARTTLS=No
-AuthMethod=LOGIN
-FromLineOverride=yes
-#AuthUser=username
-#AuthPass=password
-EOF
-  if [ -f "/config/ssmtp/ssmtp.conf" ] && [ ! -f "/tmp/run/ssmtp.init.pid" ]; then
-    SERVICES_LIST+="ssmtp "
-    ln -sf "/config/ssmtp" "/etc/ssmtp"
-    __exec_command ssmtp "/etc/ssmtp/ssmtp.conf" &
-    [ $? -eq 0 ] && touch "/tmp/run/ssmtp.init.pid"
-  fi
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__exec_command() {
-  local exitCode=0
-  local cmdExec="${*:-bash -l}"
-  local prog="$(type -P "$1" 2>/dev/null)"
-  if [ -f "$prog" ]; then
-    echo "${exec_message:-Executing command: $cmdExec}"
-    $cmdExec || exitCode=1
-    [ "$exitCode" = 0 ] || exitCode=10
-  elif [ -f "$prog" ] && [ ! -x "$prog" ]; then
-    echo "$prog is not executable"
-    exitCode=4
-  else
-    echo "$prog does not exist"
-    exitCode=5
-  fi
-  return $exitCode
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__heath_check() {
-  local ports="${WEB_SERVER_PORTS:-}"
-  local HEALTH_ENABLED="${HEALTH_ENABLED:-}"
-  local healthStatus=0 health="Good"
-  for proc in $SERVICES_LIST; do
-    if ! __pgrep "$proc"; then
-      echo "$proc is not running" >&2
-      status=$((status + 1))
-    fi
-  done
-  for port in $ports; do
-    __curl "http://localhost:$port/server-health" || healthStatus=$((healthStatus + 1))
-  done
-  if [ -n "$HEALTH_ENABLED" ]; then
-    __curl "${HEALTH_URL:-http://localhost:$port/server-health}" || healthStatus=$((healthStatus + 1))
-  fi
-  [ "$healthStatus" -eq 0 ] || health="Errors reported see docker logs --follow $CONTAINER_NAME"
-  return $healthStatus
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup init scripts
-__start_init_scripts() {
-  init_pids=""
-  initStatus=0
-  if [ -d "$DEFAULT_TEMPLATE_DIR/init.d" ]; then
-    for init in "$DEFAULT_TEMPLATE_DIR/init.d"/*.sh; do
-      [ -f "$init" ] && $init &
-      init_pids+="$! " initStatus=$(($? + initStatus))
-      sleep 1
-    done
-  fi
-  sleep 10
-  return $initStatus
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__start_all_services() {
-  local serviceStatus=0
-  [ "$START_SERVICES" = "yes" ] || [ ! -f "/tmp/entrypoint.pid" ] || return 0
-  echo "$$" >"/tmp/entrypoint.pid"
-  __start_init_scripts
-  serviceStatus=$(($? + serviceStatus))
-  __exec_command start-GEN_SCRIPT_REPLACE_APPNAME.sh &
-  serviceStatus=$(($? + serviceStatus))
-  return $serviceStatus
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Additional functions
-
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# remove whitespaces from beginning argument
 while :; do [ "$1" = " " ] && shift 1 || break; done
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# export functions
-export -f __exec_command __pcheck __pgrep __find __curl __heath_check
-export -f __certbot __start_all_services __get_ip4 __get_ip6
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Define default variables - do not change these - redefine with -e or set under Additional
-
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Create the env file
-__create_env "/config/env.sh"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # import variables from file
 [ -f "/root/env.sh" ] && . "/root/env.sh"
 [ -f "/config/env.sh" ] && . "/config/env.sh"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Additional variables and variable overrides
+# Define default variables - do not change these - redefine with -e or set under Additional
 SERVICE_NAME="GEN_SCRIPT_REPLACE_APPNAME"
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if this is a new container
+DATA_DIR_INITIALIZED="false" CONFIG_DIR_INITIALIZED="false" START_SERVICES="yes"
+[ -f "/tmp/entrypoint.pid" ] && START_SERVICES="" && ENTRYPOINT_MESSAGE="yes"
+[ -f "/data/.docker_has_run" ] && DATA_DIR_INITIALIZED="true" && ENTRYPOINT_MESSAGE="yes"
+[ -f "/config/.docker_has_run" ] && CONFIG_DIR_INITIALIZED="true" && ENTRYPOINT_MESSAGE="yes"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show start message
-ENTRYPOINT_MESSAGE="false"
-echo "Executing entrypoint script for GEN_SCRIPT_REPLACE_APPNAME"
+ENTRYPOINT_MESSAGE="${ENTRYPOINT_MESSAGE:-no}"
+if [ "$CONFIG_DIR_INITIALIZED" = "false" ] || [ "$DATA_DIR_INITIALIZED" = "false" ]; then
+  [ "$ENTRYPOINT_MESSAGE" = "no" ] && echo "Executing entrypoint script for GEN_SCRIPT_REPLACE_APPNAME"
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# import the file functions
+if [ -f "/usr/local/share/casjaysdev/functions/entrypoint.sh" ]; then
+  . "/usr/local/share/casjaysdev/functions/entrypoint.sh"
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Create the env file
+__create_env "/config/env.sh"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [ "$WEB_SERVER_PORT" = "443" ] && SSL_ENABLED="true"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Check if this is a new container
-[ -f "/tmp/entrypoint.pid" ] && START_SERVICES="" || START_SERVICES="yes"
-[ -f "/data/.docker_has_run" ] && DATA_DIR_INITIALIZED="true" || DATA_DIR_INITIALIZED="false"
-[ -f "/config/.docker_has_run" ] && CONFIG_DIR_INITIALIZED="true" || CONFIG_DIR_INITIALIZED="false"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # export variables
 export USER LANG TZ DOMAINNAME HOSTNAME HOSTADMIN SSL_ENABLED SSL_DIR SSL_CA
@@ -212,23 +83,15 @@ if [ -w "/etc/hosts" ] && [ -n "$DOMAINNAME" ]; then
   echo "${CONTAINER_IP4_ADDRESS:-127.0.0.1}    $HOSTNAME.$DOMAINNAME" >>"/etc/hosts"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# import hosts file into container
-[ -f "/usr/local/etc/hosts" ] && [ -w "/etc/hosts" ] && cat "/usr/local/etc/hosts" >>"/etc/hosts"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Delete any gitkeep files
 [ -d "/data" ] && rm -Rf "/data/.gitkeep" "/data"/*/*.gitkeep
 [ -d "/config" ] && rm -Rf "/config/.gitkeep" "/data"/*/*.gitkeep
 [ -f "/usr/local/bin/.gitkeep" ] && rm -Rf "/usr/local/bin/.gitkeep"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Create directories
+# import hosts file into container
+[ -f "/usr/local/etc/hosts" ] && [ -w "/etc/hosts" ] && cat "/usr/local/etc/hosts" >>"/etc/hosts"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [ -d "/etc/ssl" ] || mkdir -p "$SSL_CONTAINER_DIR"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Create files
-
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Create symlinks
-
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ "$SSL_ENABLED" = "true" ] || [ "$SSL_ENABLED" = "yes" ]; then
   if [ -f "/config/ssl/server.crt" ] && [ -f "/config/ssl/server.key" ]; then
     export SSL_ENABLED="true"
@@ -262,7 +125,7 @@ if [ -n "$SET_USR_BIN" ]; then
   done
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Create default config
+# Copy default config
 if [ "$CONFIG_DIR_INITIALIZED" = "false" ] && [ -d "/config" ]; then
   echo "Copying default config files"
   if [ -n "$DEFAULT_TEMPLATE_DIR" ] && [ -d "$DEFAULT_TEMPLATE_DIR" ]; then
@@ -330,18 +193,21 @@ if [ -d "/config" ]; then
   done
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Copy html files
+if [ "$DATA_DIR_INITIALIZED" = "false" ] && [ -d "$DEFAULT_DATA_DIR/data/htdocs" ]; then
+  [ -d "$DEFAULT_DATA_DIR/data/htdocs" ] && cp -Rf "$DEFAULT_DATA_DIR/data/htdocs/." "$WWW_ROOT_DIR/" 2>/dev/null
+fi
 if [ -d "$DEFAULT_DATA_DIR/htdocs/www" ] && [ ! -d "$WWW_ROOT_DIR" ]; then
   mkdir -p "$WWW_ROOT_DIR"
   cp -Rf "$DEFAULT_DATA_DIR/htdocs/www/" "$WWW_ROOT_DIR"
   [ -f "$WWW_ROOT_DIR/htdocs/www/server-health" ] || echo "OK" >"$WWW_ROOT_DIR/htdocs/www/server-health"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Show configured listing proccesses
-if [ -n "$ENV_PORTS" ]; then
-  echo "The following ports are open"
-  for a in $ENV_PORTS; do printf '%s ' "$a"; done
-fi
-echo ""
+[ -f "/data/.docker_has_run" ] || { [ -d "/data" ] && echo "Initialized on: $(date)" >"/data/.docker_has_run"; }
+[ -f "/config/.docker_has_run" ] || { [ -d "/config" ] && echo "Initialized on: $(date)" >"/config/.docker_has_run"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Create the backup dir
+[ -d "$BACKUP_DIR" ] || mkdir -p "$BACKUP_DIR"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # setup the smtp server
 [ "$EMAIL_ENABLED" = "yes" ] && __setup_mta
@@ -350,8 +216,14 @@ echo ""
 unset a SET_USR_BIN create_bin create_bin_name create_template create_template_name
 unset create_data create_data_name create_config create_config_name create_conf create_conf_name
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-[ -f "/data/.docker_has_run" ] || { [ -d "/data" ] && echo "Initialized on: $(date)" >"/data/.docker_has_run"; }
-[ -f "/config/.docker_has_run" ] || { [ -d "/config" ] && echo "Initialized on: $(date)" >"/config/.docker_has_run"; }
+# Create directories
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Create files
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Create symlinks
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
 
@@ -359,16 +231,24 @@ unset create_data create_data_name create_config create_config_name create_conf 
 # Additional commands
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show configured listing processes
+if [ -n "$ENV_PORTS" ]; then
+  echo "The following ports are open"
+  for a in $ENV_PORTS; do printf '%s ' "$a"; done
+fi
+echo ""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show message
 echo "Container ip address is: $CONTAINER_IP4_ADDRESS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Just start services
-if [ -n "$START_SERVICES" ]; then
-  __start_all_services
+if [ "$START_SERVICES" = "yes" ]; then
+  __start_all_services "start-GEN_SCRIPT_REPLACE_APPNAME.sh"
   wait -f $!
   exit $?
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Begin options
 case "$1" in
 --help) # Help message
   echo 'Docker container for '$APPNAME''
@@ -416,6 +296,12 @@ certbot)
   exit $?
   ;;
 
+backup)
+  shift 1
+  __run_backup "${1:-$BACKUP_DIR}"
+  exit $?
+  ;;
+
 exec)
   shift 1
   __exec_command "${@:-bash}"
@@ -424,7 +310,7 @@ exec)
 
 *) # Execute primary command
   if [ $# -eq 0 ]; then
-    __start_all_services
+    __start_all_services "start-GEN_SCRIPT_REPLACE_APPNAME.sh"
     exit $?
   else
     __exec_command "$@"

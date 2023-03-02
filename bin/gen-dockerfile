@@ -261,59 +261,244 @@ __trap_exit() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__dockerignore() { __cmd_exists dockerignore && dockerignore || true; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__execute_gen_dockerfile() {
+  if [ $# -lt 3 ]; then
+    name="$(basename "$GEN_DOCKERFILE_CWD")"
+    __docker_file "${1:-$GEN_DOCKERFILE_CWD/Dockerfile}" "$name" "${2:-$1}"
+  elif [ $# -eq 3 ]; then
+    __docker_file "$1" "$2" ${3:-$GEN_DOCKERFILE_GIT_BASE}
+  else
+    printf_red "Usage: [Dockerfile] [name] [gitRepoBase]"
+    printf_exit "IE: ./Dockerfile alpine https://github.com/casjaysdevdocker"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__docker_file() {
+  local date name repo dir bak_ext="bak"
+  date="$(date +'%Y%m%d%H%M')"
+  file="${1:-$GEN_DOCKERFILE_CWD/Dockerfile}"
+  name="${2:-$(basename "$GEN_DOCKERFILE_CWD")}"
+  repo="${3:-$GEN_DOCKERFILE_GIT_BASE/$name}"
+  dir="${GEN_DOCKERFILE_CWD:-$(dirname "$file")}"
+  rootfs_dir="$dir/rootfs"
+  init_dir="$rootfs_dir/usr/local/etc/docker/init.d"
+  IMAGE_REPO="$(echo "${GEN_DOCKERFILE_HUB_BASE//http*:\/\//}" | awk -F '/' '{print $NF}')/$name"
+  template_dir="$rootfs_dir/usr/local/share/template-files"
+  make_directories="$dir $rootfs_dir $template_dir/config $template_dir/data $template_dir/defaults"
+  GEN_DOCKERFILE_TEMPLATE="${GEN_DOCKERFILE_TEMPLATE:-alpine}"
+  printf_yellow "This will create a new Dockerfile in $GEN_DOCKERFILE_CWD"
+  if [ "$GEN_DOCKER_AUTOMATED" != "true" ]; then
+    [ -f "$file" ] && printf_pause "If this is what you want press enter or control-c to exit"
+  fi
+  if [ ! -f "$template_dir/config" ]; then
+    __create_env "$template_dir/config/env.sample"
+  fi
+  if [ -f "$file" ] && [ -f "$file.$bak_ext" ]; then
+    printf_yellow "Found an existing Dockerfile at: $file"
+    printf_cyan "Backing up to: $file.$date.$bak_ext"
+    mv -f "$file.bak" "$file.$date.$bak_ext"
+    mv -f "$file" "$file.$bak_ext"
+  elif [ -f "$file" ]; then
+    printf_yellow "Found an existing Dockerfile at: $file"
+    printf_cyan "Backing up to: $file.$bak_ext"
+    mv -f "$file" "$file.$bak_ext"
+  fi
+  __create_start_script "$name.sample"
+  if [ -f "$rootfs_dir/usr/local/bin/entrypoint.sh" ] && [ -f "$file.$bak_ext" ]; then
+    printf_purple "Generating your Dockerfile using template: $GEN_DOCKERFILE_TEMPLATE"
+    if __make_file "$GEN_DOCKERFILE_TEMPLATE" "$file"; then
+      printf_green "Your Dockerfile for $name has been created in: $(readlink -f "$dir")"
+      exit 0
+    else
+      printf_green "Failed to create Dockerfile for $name"
+      exit 1
+    fi
+  else
+    printf_purple "Generating your Dockerfile using template: $GEN_DOCKERFILE_TEMPLATE"
+    __make_file "$GEN_DOCKERFILE_TEMPLATE" "$file"
+    if [ -f "$file" ]; then
+      printf_green "Your Dockerfile for $name has been created in: $(readlink -f "$dir")"
+      if [ "$GEN_DOCKER_ONLY_DOCKERFILE" != "true" ]; then
+        for create_dir in $make_directories; do
+          printf_purple "Creating Directory: ${create_dir//$dir\//}"
+          mkdir -p "$create_dir" && touch "$create_dir/.gitkeep"
+        done
+        # Create entrypoint script
+        printf_blue "Creating $rootfs_dir/usr/local/bin/entrypoint.sh"
+        if [ -f "$rootfs_dir/usr/local/bin/entrypoint.sh" ]; then
+          printf_yellow "Found existing entrypoint... ${GREEN}Backing up${NC}"
+          mv -f "$rootfs_dir/usr/local/bin/entrypoint.sh" "$rootfs_dir/usr/local/bin/entrypoint.sh.$bak_ext"
+        fi
+        if GEN_SCRIPT_EDITFILE="N" gen-script --name "$name" other docker-entrypoint "$rootfs_dir/usr/local/bin/entrypoint.sh" &>/dev/null; then
+          printf_green "Created the entrypoint script"
+        else
+          printf_red "Failed to create the entrypoint script"
+        fi
+        # create functions file
+        printf_blue "Creating $rootfs_dir/usr/local/share/casjaysdev/functions/entrypoint.sh"
+        [ -d "$rootfs_dir/usr/local/share/casjaysdev/functions" ] || mkdir -p "$rootfs_dir/usr/local/share/casjaysdev/functions"
+        gen-script --name "$name" functions/docker-entrypoint docker-entrypoint "$rootfs_dir/usr/local/share/casjaysdev/functions/entrypoint.sh"
+        # Create start-service script
+        printf_blue "Creating $rootfs_dir/usr/local/bin/start-$name.sh"
+        if [ -f "$rootfs_dir/usr/local/bin/start-$name.sh" ]; then
+          printf_yellow "Found existing start-$name script... ${GREEN}Backing up${NC}"
+          mv -f "$rootfs_dir/usr/local/bin/start-$name.sh" "$rootfs_dir/usr/local/bin/start-$name.sh.$bak_ext"
+        fi
+        if GEN_SCRIPT_EDITFILE="N" gen-script --name "$name" other start-service "$rootfs_dir/usr/local/bin/start-$name.sh" &>/dev/null; then
+          sed -i 's|REPLACE_SERVICE_NAME|'$name'|g' "$rootfs_dir/usr/local/bin/start-$name.sh"
+          printf_green "Created the start script"
+        else
+          printf_red "Failed to create the start-$name script"
+        fi
+        # Create .dockerignore README.md LICENSE.md and directories
+        __dockerignore
+        [ -f "$dir/README.md" ] || gen-readme projects docker.md "$dir/README.md"
+        [ -f "$dir/LICENSE.md" ] || gen-license wtfpl "$dir/LICENSE.md"
+        printf_green "Using $repo as VCS url"
+        if [ -d "$rootfs_dir/usr/local/bin" ] && [ -d "$template_dir/data" ] && [ -d "$template_dir/config" ]; then
+          printf_blue "All files and Directories have been created"
+          if [ "$GEN_DOCKER_GIT_AUTO_INIT" = "yes" ]; then
+            if [ ! -d "$dir/.git" ] && [ ! -f "$dir/.nogit" ]; then
+              if [ "$GEN_DOCKER_AUTOMATED" = "true" ]; then
+                gitignore "$dir" default --automated
+                gitadmin --dir "$dir" setup "$repo" --automated
+              else
+                [ -f "$dir/.gitignore" ] || gitignore "$dir" default
+                gitadmin --dir "$dir" setup "$repo"
+              fi
+            fi
+          fi
+        fi
+      fi
+      exitCode=$?
+    else
+      printf_red "Failed to create Dockerfile for $name in $dir"
+      exitCode=1
+    fi
+  fi
+  printf '\n'
+  return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__make_file() {
+  case "$1" in
+  alpine)
+    shift 1
+    __alpine_file "$1"
+    ;;
+
+  arch)
+    shift 1
+    __arch_file "$1"
+    ;;
+
+  debian)
+    shift 1
+    __debian_file "$1"
+    ;;
+
+  ubuntu)
+    shift 1
+    __ubuntu_file "$1"
+    ;;
+
+  rhel)
+    shift 1
+    __rhel "$1"
+    ;;
+
+  web)
+    shift 1
+    __web "$1"
+    ;;
+
+  xorg)
+    shift 1
+    __xorg "$1"
+    ;;
+
+  *)
+    __alpine_file "${2:-$1}"
+    ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_start_script() {
   local script_filename="$(basename "$1")"
   local rootfs_dir="${dir:-${GEN_DOCKERFILE_CWD:-$PWD}}/rootfs"
   local init_dir="$rootfs_dir/usr/local/etc/docker/init.d"
   local script_file="$init_dir/$script_filename"
-  printf_cyan "Creating the startup script"
+  printf_cyan "Creating the startup script for $script_filename"
   [ -d "$init_dir" ] || mkdir -p "$init_dir"
   cat <<EOF | tee "$script_file" &>/dev/null
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-trap -- 'retVal=\$?; [ -f "/tmp/\$cmd.pid" ] && rm -Rf "/tmp/\$cmd.pid";exit \$retVal' SIGINIT SIGTERM ERR
+# run trap command on exit
+trap -- 'retVal=\$?; [ -f "/tmp/\$EXEC_CMD.pid" ] && rm -Rf "/tmp/\$EXEC_CMD.pid";exit \$retVal' SIGINIT SIGTERM ERR EXIT
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-set -Eeuo pipefail
+# https://www.gnu.org/software/bash/manual/html_node/The-Set-Builtin.html
+[ "\$DEBUGGER" = "on" ] && echo "Enabling debugging" && set -o pipefail -x\$DEBUGGER_OPTIONS || set -Eeuo pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-SERVICE_NAME=""
-SERVICE_COMMAND=""
+# execute command options
+EXEC_CMD="$script_filename"                 # command to execute
+SERVICE_ARGS=""                             # command arguments
+SERVICE_USER=""                             # execute command as another user
+PRE_EXEC_MESSAGE=""                         # Show message before execute
+SERVICE_EXIT_CODE=0                         # default exit code
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__start_message() {
-  __pgrep "\$SERVICE_NAME" && [ -f "/tmp/\$SERVICE_NAME.pid" ] && echo "\$SERVICE_NAME is running" && exit 0
-  if [ "\$ENTRYPOINT_MESSAGE" = "false" ]; then
-    echo "Starting services: \$SERVICES_LIST"
-  else
-    echo "Starting services: \$SERVICES_LIST on: \$CONTAINER_IP4_ADDRESS"
-  fi
+# function to run before executing
+__pre_execute() {
+  return
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__exec_service_start() {
-  local exitCode=0 run_as="\${SERVICE_USER}" cmd="\${1:-\$SERVICE_COMMAND}"
-  [ -f "\$(type -P "\$cmd")" ] || { echo "\$cmd is not a valid command" && exit 1; }
-  echo "Setting up service to run as \$run_as"
-  if [ "\$run_as" = "root" ]; then
-    su_cmd() { eval "\${@:-\$cmd}" || return 1; }
-  elif [ "\$(builtin type -P su)" ]; then
-    su_cmd() { su -s /bin/sh - \$run_as -c "\${@:-\$cmd}" || return 1; }
-  elif [ "\$(builtin type -P runuser)" ]; then
-    su_cmd() { runuser -u \$run_as "\${@:-\$cmd}" || return 1; }
-  elif [ "\$(builtin type -P sudo)" ]; then
-    su_cmd() { sudo -u \$run_as "\${@:-\$cmd}" || return 1; }
-  else
-    echo "Can not switch to \$run_as"
-    exit 10
-  fi
-  sleep 30
-  su_cmd "touch /tmp/\$SERVICE_NAME.pid"
-  echo "Executing: \$cmd "
-  su_cmd "\$cmd" || exitCode=1
-  [ "\$exitCode" -ne 0 ] && exitCode=10 && rm -Rf "/tmp/\$SERVICE_NAME.pid"
-  return \$exitCode
-}
+# import variables
+[ -f "/root/env.sh" ] && . "/root/env.sh"
+[ -f "/config/env.sh" ] && . "/config/env.sh"
+[ -f "/config/env/\$EXEC_CMD" ] && . "/config/env/\$EXEC_CMD"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__start_message && __exec_service_start \$SERVICE_COMMAND
+# check is process is already running
+__pcheck() { [ -n "$(type -P pgrep 2>/dev/null)" ] && pgrep -x "\$1" &>/dev/null && return 0 || return 10; }
+__pgrep() { __pcheck "\${1:-EXEC_CMD}" || __ps aux 2>/dev/null | grep -Fw " \${1:-\$EXEC_CMD}" | grep -qv ' grep' | grep '^' && return 0 || return 10; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-exit \$?
+if [ ! -f "\$(type -P "\$EXEC_CMD")" ] && [ -z "\$EXEC_CMD" ]; then
+echo "\$EXEC_CMD is not a valid command"
+exit 2
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if __pgrep "\$EXEC_CMD"; then
+echo "\$EXEC_CMD is running"
+exit 0
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+echo "Setting up service to run as \$SERVICE_USER"
+if [ "\$SERVICE_USER" = "root" ] || [ -z "\$SERVICE_USER" ]; then
+  su_cmd() { eval "\$@" || return 1; }
+elif [ "\$(builtin type -P gosu)" ]; then
+  su_cmd() { gosu \$SERVICE_USER "\$@" || return 1; }
+elif [ "\$(builtin type -P su)" ]; then
+  su_cmd() { su -s /bin/sh - \$SERVICE_USER -c "\$@" || return 1; }
+elif [ "\$(builtin type -P runuser)" ]; then
+  su_cmd() { runuser -u \$SERVICE_USER "\$@" || return 1; }
+elif [ "\$(builtin type -P sudo)" ]; then
+  su_cmd() { sudo -u \$SERVICE_USER "\$@" || return 1; }
+else
+  echo "Can not switch to \$SERVICE_USER"
+  exit 10
+fi
+sleep 30
+[ -n "$\PRE_EXEC_MESSAGE" ] && echo "\$PRE_EXEC_MESSAGE"
+__pre_execute
+echo "Starting service: \$EXEC_CMD \$CMD_ARGS"
+su_cmd "touch /tmp/\$EXEC_CMD.pid"
+su_cmd "\$EXEC_CMD \$CMD_ARGS" || echo "Failed to execute: \$EXEC_CMD \$CMD_ARGS"
+[ "\$?" -ne 0 ] && SERVICE_EXIT_CODE=10 && rm -Rf "/tmp/\$EXEC_CMD.pid"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+exit \$SERVICE_EXIT_CODE
+
 EOF
   [ -f "$script_file" ] && printf_cyan "Created $script_file"
 }
@@ -385,51 +570,6 @@ COUCHDB_USER="\${DATABASE_USER_ROOT:-\$COUCHDB_USER}"
 COUCHDB_PASSWORD="\${DATABASE_PASS_ROOT:-\$COUCHDB_PASSWORD}"
 NODENAME="\${NODENAME:-}"
 EOF
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__dockerignore() { __cmd_exists dockerignore && dockerignore || true; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__make_file() {
-  case "$1" in
-  alpine)
-    shift 1
-    __alpine_file "$1"
-    ;;
-
-  arch)
-    shift 1
-    __arch_file "$1"
-    ;;
-
-  debian)
-    shift 1
-    __debian_file "$1"
-    ;;
-
-  ubuntu)
-    shift 1
-    __ubuntu_file "$1"
-    ;;
-
-  rhel)
-    shift 1
-    __rhel "$1"
-    ;;
-
-  web)
-    shift 1
-    __web "$1"
-    ;;
-
-  xorg)
-    shift 1
-    __xorg "$1"
-    ;;
-
-  *)
-    __alpine_file "${2:-$1}"
-    ;;
-  esac
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __web() {
@@ -1595,122 +1735,6 @@ HEALTHCHECK --start-period=1m --interval=2m --timeout=3s CMD [ "/usr/local/bin/e
 EOF
   fi
   [ -f "$Dfile" ] && return 0 || return 1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__docker_file() {
-  local date name repo dir bak_ext="bak"
-  date="$(date +'%Y%m%d%H%M')"
-  file="${1:-$GEN_DOCKERFILE_CWD/Dockerfile}"
-  name="${2:-$(basename "$GEN_DOCKERFILE_CWD")}"
-  repo="${3:-$GEN_DOCKERFILE_GIT_BASE/$name}"
-  dir="${GEN_DOCKERFILE_CWD:-$(dirname "$file")}"
-  rootfs_dir="$dir/rootfs"
-  init_dir="$rootfs_dir/usr/local/etc/docker/init.d"
-  IMAGE_REPO="$(echo "${GEN_DOCKERFILE_HUB_BASE//http*:\/\//}" | awk -F '/' '{print $NF}')/$name"
-  template_dir="$rootfs_dir/usr/local/share/template-files"
-  make_directories="$dir $rootfs_dir $template_dir/config $template_dir/data $template_dir/defaults"
-  GEN_DOCKERFILE_TEMPLATE="${GEN_DOCKERFILE_TEMPLATE:-alpine}"
-  printf_yellow "This will create a new Dockerfile in $GEN_DOCKERFILE_CWD"
-  if [ "$GEN_DOCKER_AUTOMATED" != "true" ]; then
-    [ -f "$file" ] && printf_pause "If this is what you want press enter or control-c to exit"
-  fi
-  if [ ! -f "$template_dir/config" ]; then
-    __create_env "$template_dir/config/env.sample"
-  fi
-  if [ -f "$file" ] && [ -f "$file.$bak_ext" ]; then
-    printf_yellow "Found an existing Dockerfile at: $file"
-    printf_cyan "Backing up to: $file.$date.$bak_ext"
-    mv -f "$file.bak" "$file.$date.$bak_ext"
-    mv -f "$file" "$file.$bak_ext"
-  elif [ -f "$file" ]; then
-    printf_yellow "Found an existing Dockerfile at: $file"
-    printf_cyan "Backing up to: $file.$bak_ext"
-    mv -f "$file" "$file.$bak_ext"
-  fi
-  __create_start_script "$name.sample"
-  if [ -f "$rootfs_dir/usr/local/bin/entrypoint.sh" ] && [ -f "$file.$bak_ext" ]; then
-    printf_purple "Generating your Dockerfile using template: $GEN_DOCKERFILE_TEMPLATE"
-    if __make_file "$GEN_DOCKERFILE_TEMPLATE" "$file"; then
-      printf_green "Your Dockerfile for $name has been created in: $(readlink -f "$dir")"
-      exit 0
-    else
-      printf_green "Failed to create Dockerfile for $name"
-      exit 1
-    fi
-  else
-    printf_purple "Generating your Dockerfile using template: $GEN_DOCKERFILE_TEMPLATE"
-    __make_file "$GEN_DOCKERFILE_TEMPLATE" "$file"
-    if [ -f "$file" ]; then
-      printf_green "Your Dockerfile for $name has been created in: $(readlink -f "$dir")"
-      if [ "$GEN_DOCKER_ONLY_DOCKERFILE" != "true" ]; then
-        for create_dir in $make_directories; do
-          printf_purple "Creating Directory: ${create_dir//$dir\//}"
-          mkdir -p "$create_dir" && touch "$create_dir/.gitkeep"
-        done
-        # Create entrypoint script
-        printf_blue "Creating $rootfs_dir/usr/local/bin/entrypoint.sh"
-        if [ -f "$rootfs_dir/usr/local/bin/entrypoint.sh" ]; then
-          printf_yellow "Found existing entrypoint... ${GREEN}Backing up${NC}"
-          mv -f "$rootfs_dir/usr/local/bin/entrypoint.sh" "$rootfs_dir/usr/local/bin/entrypoint.sh.$bak_ext"
-        fi
-        if GEN_SCRIPT_EDITFILE="N" gen-script --name "$name" other docker-entrypoint "$rootfs_dir/usr/local/bin/entrypoint.sh" &>/dev/null; then
-          printf_green "Created the entrypoint script"
-        else
-          printf_red "Failed to create the entrypoint script"
-        fi
-        # Create start-service script
-        printf_blue "Creating $rootfs_dir/usr/local/bin/start-$name.sh"
-        if [ -f "$rootfs_dir/usr/local/bin/start-$name.sh" ]; then
-          printf_yellow "Found existing start-$name script... ${GREEN}Backing up${NC}"
-          mv -f "$rootfs_dir/usr/local/bin/start-$name.sh" "$rootfs_dir/usr/local/bin/start-$name.sh.$bak_ext"
-        fi
-        if GEN_SCRIPT_EDITFILE="N" gen-script --name "$name" other start-service "$rootfs_dir/usr/local/bin/start-$name.sh" &>/dev/null; then
-          sed -i 's|REPLACE_SERVICE_NAME|'$name'|g' "$rootfs_dir/usr/local/bin/start-$name.sh"
-          printf_green "Created the start script"
-        else
-          printf_red "Failed to create the start-$name script"
-        fi
-        # Create .dockerignore README.md LICENSE.md and directories
-        __dockerignore
-        [ -f "$dir/README.md" ] || gen-readme projects docker.md "$dir/README.md"
-        [ -f "$dir/LICENSE.md" ] || gen-license wtfpl "$dir/LICENSE.md"
-        printf_green "Using $repo as VCS url"
-        if [ -d "$rootfs_dir/usr/local/bin" ] && [ -d "$template_dir/data" ] && [ -d "$template_dir/config" ]; then
-          printf_blue "All files and Directories have been created"
-          if [ "$GEN_DOCKER_GIT_AUTO_INIT" = "yes" ]; then
-            if [ ! -d "$dir/.git" ] && [ ! -f "$dir/.nogit" ]; then
-              if [ "$GEN_DOCKER_AUTOMATED" = "true" ]; then
-                gitignore "$dir" default --automated
-                gitadmin --dir "$dir" setup "$repo" --automated
-              else
-                [ -f "$dir/.gitignore" ] || gitignore "$dir" default
-                gitadmin --dir "$dir" setup "$repo"
-              fi
-            fi
-          fi
-        fi
-      fi
-      exitCode=$?
-    else
-      printf_red "Failed to create Dockerfile for $name in $dir"
-      exitCode=1
-    fi
-  fi
-  printf '\n'
-  return ${exitCode:-$?}
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__execute_gen_dockerfile() {
-  if [ $# -lt 3 ]; then
-    name="$(basename "$GEN_DOCKERFILE_CWD")"
-    __docker_file "${1:-$GEN_DOCKERFILE_CWD/Dockerfile}" "$name" "${2:-$1}"
-  elif [ $# -eq 3 ]; then
-    __docker_file "$1" "$2" ${3:-$GEN_DOCKERFILE_GIT_BASE}
-  else
-    printf_red "Usage: [Dockerfile] [name] [gitRepoBase]"
-    printf_exit "IE: ./Dockerfile alpine https://github.com/casjaysdevdocker"
-  fi
-  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables

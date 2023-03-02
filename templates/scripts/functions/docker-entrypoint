@@ -1,0 +1,171 @@
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__cd() { [ -d "$1" ] && builtin cd "$1" || return 1; }
+__ps() { [ -f "$(type -P ps)" ] && ps "$@" || return 10; }
+__curl() { curl -q -LSsf -o /dev/null "$@" &>/dev/null || return 10; }
+__netstat() { [ -f "$(type -P netstat)" ] && netstat "$@" || return 10; }
+__find() { find "$1" -mindepth 1 -type ${2:-f,d} 2>/dev/null | grep '^' || return 10; }
+__pcheck() { [ -n "$(which pgrep 2>/dev/null)" ] && pgrep -x "$1" &>/dev/null || return 10; }
+__pgrep() { __pcheck "${1:-GEN_SCRIPT_REPLACE_APPNAME}" || __ps aux 2>/dev/null | grep -Fw " ${1:-$GEN_SCRIPT_REPLACE_APPNAME}" | grep -qv ' grep' || return 10; }
+__get_ip6() { ip a 2>/dev/null | grep -w 'inet6' | awk '{print $2}' | grep -vE '^::1|^fe' | sed 's|/.*||g' | head -n1 | grep '^' || echo ''; }
+__get_ip4() { ip a 2>/dev/null | grep -w 'inet' | awk '{print $2}' | grep -vE '^127.0.0' | sed 's|/.*||g' | head -n1 | grep '^' || echo '127.0.0.1'; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__show_procs() {
+  local ps=""
+  ps="$(__ps axco command | grep -vE 'COMMAND|grep|ps' | sort -u || grep '^' || echo '')"
+  [ -n "$ps" ] && printf '%s\n%s\n' "Found the following processes" "$ps" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__listening() {
+  local ports=""
+  ports="$(__netstat -taupln | awk -F ' ' '{print $4}' | awk -F ':' '{print $2}' | sort --unique --version-sort | grep -v '^$' | grep '^' || echo '')"
+  [ -n "$ports" ] && printf '%s\n%s\n' "The followinf are servers:" "$ports" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__certbot() {
+  [ -n "$DOMAINNAME" ] && [ -n "$CERT_BOT_MAIL" ] || { echo "The variables DOMAINNAME and CERT_BOT_MAIL are set" && exit 1; }
+  [ "$SSL_CERT_BOT" = "true" ] && type -P certbot &>/dev/null || { export SSL_CERT_BOT="" && return 10; }
+  certbot $1 --agree-tos -m $CERT_BOT_MAIL certonly --webroot \
+    -w "${WWW_ROOT_DIR:-/data/htdocs/www}" -d $DOMAINNAME -d $DOMAINNAME \
+    --put-all-related-files-into "$SSL_DIR" -key-path "$SSL_KEY" -fullchain-path "$SSL_CERT"
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__create_env() {
+  local file="${1:-/usr/local/share/template-files/config/env.sample}"
+  [ -f "/config/env.sh" ] && return
+  [ -f "/usr/local/share/template-files/config/env.sample" ] || return 0
+  cat <<EOF | tee "$file" &>/dev/null
+$(<"/usr/local/share/template-files/config/env.sample")
+EOF
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__run_backup() {
+  local save="${1:-$BACKUP_DIR}" date="" file="" backupExit=0
+  date="$(date '+%Y%m%d-%H%M')"
+  file="$save/$date.tar.gz"
+  echo "Backing up /data /config to $file"
+  sleep 1
+  tar cfvz "$file" --exclude="$save" "/data" "/config" || backupExit=1
+  backupExit=$?
+  [ $backupExit -eq 0 ] && echo "Backed up /data /config has finished" || echo "Backup of /data /config has failed"
+  return $backupExit
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__exec_command() {
+  local exitCode=0
+  local cmdExec="${*:-bash -l}"
+  local prog="$(type -P "$1" 2>/dev/null)"
+  if [ -f "$prog" ]; then
+    echo "${exec_message:-Executing command: $cmdExec}"
+    $cmdExec || exitCode=1
+    [ "$exitCode" = 0 ] || exitCode=10
+  elif [ -f "$prog" ] && [ ! -x "$prog" ]; then
+    echo "$prog is not executable"
+    exitCode=4
+  else
+    echo "$prog does not exist"
+    exitCode=5
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__heath_check() {
+  local ports="${WEB_SERVER_PORTS:-}"
+  local HEALTH_ENABLED="${HEALTH_ENABLED:-}"
+  local healthStatus=0 health="Good"
+  for proc in $SERVICES_LIST; do
+    if ! __pgrep "$proc"; then
+      echo "$proc is not running" >&2
+      status=$((status + 1))
+    fi
+  done
+  for port in $ports; do
+    __curl "http://localhost:$port/server-health" || healthStatus=$((healthStatus + 1))
+  done
+  if [ -n "$HEALTH_ENABLED" ]; then
+    __curl "${HEALTH_URL:-http://localhost:$port/server-health}" || healthStatus=$((healthStatus + 1))
+  fi
+  [ "$healthStatus" -eq 0 ] || health="Errors reported see docker logs --follow $CONTAINER_NAME"
+  return $healthStatus
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup init scripts
+__start_init_scripts() {
+  init_pids=""
+  initStatus=0
+  if [ -d "$DEFAULT_TEMPLATE_DIR/init.d" ]; then
+    for init in "$DEFAULT_TEMPLATE_DIR/init.d"/*.sh; do
+      [ -f "$init" ] && $init &
+      init_pids+="$! " initStatus=$(($? + initStatus))
+      sleep 1
+    done
+  fi
+  sleep 10
+  return $initStatus
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__start_all_services() {
+  local serviceStatus=0
+  local start_commands=("$@")
+  [ "$START_SERVICES" = "yes" ] || [ ! -f "/tmp/entrypoint.pid" ] || return 0
+  echo "$$" >"/tmp/entrypoint.pid"
+  __start_init_scripts
+  serviceStatus=$(($? + serviceStatus))
+  if [ -n "${start_commands[*]}" ]; then
+    for execute in "${start_commands[@]}"; do
+      __exec_command $execute &
+      serviceStatus=$(($? + serviceStatus))
+    done
+  fi
+  return $serviceStatus
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__exec_service_start() {
+  local exitCode=0 cmd="${1:-$SERVICE_COMMAND}"
+  [ -f "$(type -P "$cmd")" ] && sleep 5 || { echo "$cmd does not exist" && exit 10; }
+  echo "Setting up service to run as $SERVICE_USER"
+  if [ "$SERVICE_USER" = "root" ]; then
+    su_cmd() { eval "${@:-$cmd}" || return 1; }
+  elif [ "$(builtin type -P su)" ]; then
+    su_cmd() { su -s /bin/sh - $SERVICE_USER -c "${@:-$cmd}" || return 1; }
+  elif [ "$(builtin type -P runuser)" ]; then
+    su_cmd() { runuser -u $SERVICE_USER "${@:-$cmd}" || return 1; }
+  elif [ "$(builtin type -P sudo)" ]; then
+    su_cmd() { sudo -u $SERVICE_USER "${@:-$cmd}" || return 1; }
+  else
+    echo "Can not switch to $SERVICE_USER"
+    exit 10
+  fi
+  echo "Executing: $cmd "
+  su_cmd "touch /tmp/$SERVICE_NAME.pid"
+  su_cmd "$cmd" || exitCode=1
+  [ "$exitCode" -ne 0 ] && exitCode=10 && rm -Rf "/tmp/$SERVICE_NAME.pid"
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_mta() {
+  echo "$EMAIL_RELAY" | grep ':[0-9]' || EMAIL_RELAY="$EMAIL_RELAY:465"
+  [ -d "/etc/ssmtp" ] && rm -Rf "/etc/ssmtp"
+  [ -d "/config/ssmtp" ] || mkdir -p "/config/ssmtp"
+  cat <<EOF | tee "/config/ssmtp/ssmtp.conf" &>dev/null
+# sSMTP config.
+root=${EMAIL_ADMIN}${EMAIL_DOMAIN}
+mailhub=$EMAIL_RELAY
+rewriteDomain=$EMAIL_DOMAIN
+hostname=$HOSTNAME
+TLS_CA_FILE=/etc/ssl/certs/ca-certificates.crt
+UseTLS=Yes
+UseSTARTTLS=No
+AuthMethod=LOGIN
+FromLineOverride=yes
+#AuthUser=username
+#AuthPass=password
+EOF
+  if [ -f "/config/ssmtp/ssmtp.conf" ] && [ ! -f "/tmp/run/ssmtp.init.pid" ]; then
+    SERVICES_LIST+="ssmtp "
+    ln -sf "/config/ssmtp" "/etc/ssmtp"
+    __exec_command ssmtp "/etc/ssmtp/ssmtp.conf" &
+    [ $? -eq 0 ] && touch "/tmp/run/ssmtp.init.pid"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

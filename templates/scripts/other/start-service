@@ -21,92 +21,16 @@
 # Set bash options
 [ "$DEBUGGER" = "on" ] && echo "Enabling debugging" && set -o pipefail -x$DEBUGGER_OPTIONS || set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set functions
-__cd() { [ -d "$1" ] && builtin cd "$1" || return 1; }
-__curl() { curl -q -LSsf -o /dev/null "$@" &>/dev/null || return 10; }
-__find() { find "$1" -mindepth 1 -type ${2:-f,d} 2>/dev/null | grep '^' || return 10; }
-__pcheck() { [ -n "$(which pgrep 2>/dev/null)" ] && pgrep -x "$1" &>/dev/null || return 10; }
-__pgrep() { __pcheck "$1" || ps aux 2>/dev/null | grep -Fw " $1" | grep -qv ' grep' || return 10; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__certbot() {
-  [ -n "$DOMAINNAME" ] && [ -n "$CERT_BOT_MAIL" ] || { echo "The variables DOMAINNAME and CERT_BOT_MAIL are set" && exit 1; }
-  [ "$SSL_CERT_BOT" = "true" ] && type -P certbot &>/dev/null || { export SSL_CERT_BOT="" && return 10; }
-  certbot $1 --agree-tos -m $CERT_BOT_MAIL certonly --webroot \
-    -w "${WWW_ROOT_DIR:-/data/htdocs/www}" -d $DOMAINNAME -d $DOMAINNAME \
-    --put-all-related-files-into "$SSL_DIR" -key-path "$SSL_KEY" -fullchain-path "$SSL_CERT"
-  return $?
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__exec_command() {
-  local exitCode=0
-  local cmdExec="${*:-bash -l}"
-  local prog="$(type -P "$1" 2>/dev/null)"
-  if [ -f "$prog" ]; then
-    echo "${exec_message:-Executing command: $cmdExec}"
-    $cmdExec || exitCode=1
-    [ "$exitCode" = 0 ] || exitCode=10
-  elif [ -f "$prog" ] && [ ! -x "$prog" ]; then
-    echo "$prog is not executable"
-    exitCode=4
-  else
-    echo "$prog does not exist"
-    exitCode=5
-  fi
-  return $exitCode
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__exec_service_start() {
-  local exitCode=0 cmd="${1:-$SERVICE_COMMAND}"
-  [ -f "$(type -P "$cmd")" ] && sleep 5 || { echo "$cmd does not exist" && exit 10; }
-  echo "Setting up service to run as $SERVICE_USER"
-  if [ "$SERVICE_USER" = "root" ]; then
-    su_cmd() { eval "${@:-$cmd}" || return 1; }
-  elif [ "$(builtin type -P su)" ]; then
-    su_cmd() { su -s /bin/sh - $SERVICE_USER -c "${@:-$cmd}" || return 1; }
-  elif [ "$(builtin type -P runuser)" ]; then
-    su_cmd() { runuser -u $SERVICE_USER "${@:-$cmd}" || return 1; }
-  elif [ "$(builtin type -P sudo)" ]; then
-    su_cmd() { sudo -u $SERVICE_USER "${@:-$cmd}" || return 1; }
-  else
-    echo "Can not switch to $SERVICE_USER"
-    exit 10
-  fi
-  echo "Executing: $cmd "
-  su_cmd "touch /tmp/$SERVICE_NAME.pid"
-  su_cmd "$cmd" || exitCode=1
-  [ "$exitCode" -ne 0 ] && exitCode=10 && rm -Rf "/tmp/$SERVICE_NAME.pid"
-  return $exitCode
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__start_message() {
-  __pgrep "$SERVICE_NAME" && [ -f "/tmp/$SERVICE_NAME.pid" ] && echo "$SERVICE_NAME is running" && exit 0
-  if [ "$ENTRYPOINT_MESSAGE" = "false" ]; then
-    echo "Starting services: $SERVICES_LIST"
-  else
-    echo "Starting services: $SERVICES_LIST on: $CONTAINER_IP4_ADDRESS"
-  fi
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__exec_pre_start() {
-  local statusCode=0
-  __start_message
-  statusCode+=$(($? + $statusCode))
-  return $statusCode
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__run_backup() {
-  local save="" date=""
-  save="${1:-$BACKUP_DIR}"
-  date="$(date '+%Y%m%d-%H%M')"
-  tar cfvz "$save/$date.tar.gz" --exclude="$save" "/data" "/config"
-  return $?
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 while :; do [ "$1" = " " ] && shift 1 || break; done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set variables
+# Import variables
 [ -f "/root/env.sh" ] && . "/root/env.sh"
 [ -f "/config/env.sh" ] && . "/config/env.sh"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# import the file functions
+if [ -f "/usr/local/share/casjaysdev/functions/entrypoint.sh" ]; then
+  . "/usr/local/share/casjaysdev/functions/entrypoint.sh"
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Custom variables
 WORKDIR=""
@@ -121,8 +45,26 @@ SERVICE_COMMAND="REPLACE_SERVICE_NAME"
 [ -n "$SERVICE_NAME" ] || SERVICE_NAME="REPLACE_SERVICE_NAME"
 [ "$WEB_SERVER_PORT" = "443" ] && SSL_ENABLED="true"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Pre copy commands
+# Pre setup commands
 
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set functions
+__exec_pre_start() {
+  local statusCode=0
+  __start_message
+  statusCode+=$(($? + $statusCode))
+  return $statusCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__start_message() {
+  __pgrep "$SERVICE_NAME" && [ -f "/tmp/$SERVICE_NAME.pid" ] && echo "$SERVICE_NAME is running" && exit 0
+  if [ "$ENTRYPOINT_MESSAGE" = "false" ]; then
+    echo "Starting services: $SERVICES_LIST"
+  else
+    echo "Starting services: $SERVICES_LIST on: $CONTAINER_IP4_ADDRESS"
+  fi
+  return
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check if this is a new container
 [ -z "$DATA_DIR_INITIALIZED" ] && [ -f "/data/.docker_has_run" ] && DATA_DIR_INITIALIZED="true"
@@ -145,11 +87,8 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Copy html files
 if [ "$DATA_DIR_INITIALIZED" = "false" ] && [ -d "$DEFAULT_DATA_DIR/data/htdocs" ]; then
-  [ -d "/data" ] && cp -Rf "$DEFAULT_DATA_DIR/data/htdocs/." "$WWW_ROOT_DIR/" 2>/dev/null
+  [ -d "$DEFAULT_DATA_DIR/data/htdocs" ] && cp -Rf "$DEFAULT_DATA_DIR/data/htdocs/." "$WWW_ROOT_DIR/" 2>/dev/null
 fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Create the backup dir
-[ -d "$BACKUP_DIR" ] || mkdir -p "$BACKUP_DIR"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Initialized
 [ -d "/data" ] && touch "/data/.docker_has_run"
@@ -172,12 +111,6 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 case "$1" in
-backup)
-  shift 1
-  __run_backup "${1:-$BACKUP_DIR}"
-  exit $?
-  ;;
-
 certbot)
   shift 1
   SSL_CERT_BOT="true"

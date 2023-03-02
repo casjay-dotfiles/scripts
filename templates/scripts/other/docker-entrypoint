@@ -22,15 +22,6 @@
 [ "$DEBUGGER" = "on" ] && echo "Enabling debugging" && set -o pipefail -x$DEBUGGER_OPTIONS || set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set functions
-__exec_command() {
-  local exitCode=0
-  local cmd="${*:-bash -l}"
-  echo "${exec_message:-Executing command: $cmd}"
-  $cmd || exitCode=1
-  [ "$exitCode" = 0 ] || exitCode=10
-  return ${exitCode:-$?}
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __ps() { [ -f "$(type -P ps)" ] && ps "$@" || return 10; }
 __curl() { curl -q -LSsf -o /dev/null "$@" &>/dev/null || return 10; }
 __netstat() { [ -f "$(type -P netstat)" ] && netstat "$@" || return 10; }
@@ -39,6 +30,25 @@ __pcheck() { [ -n "$(which pgrep 2>/dev/null)" ] && pgrep -x "$1" &>/dev/null ||
 __pgrep() { __pcheck "${1:-GEN_SCRIPT_REPLACE_APPNAME}" || __ps aux 2>/dev/null | grep -Fw " ${1:-$GEN_SCRIPT_REPLACE_APPNAME}" | grep -qv ' grep' || return 10; }
 __get_ip6() { ip a 2>/dev/null | grep -w 'inet6' | awk '{print $2}' | grep -vE '^::1|^fe' | sed 's|/.*||g' | head -n1 | grep '^' || echo ''; }
 __get_ip4() { ip a 2>/dev/null | grep -w 'inet' | awk '{print $2}' | grep -vE '^127.0.0' | sed 's|/.*||g' | head -n1 | grep '^' || echo '127.0.0.1'; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__show_procs() {
+  local ps=""
+  ps="$(__ps axco command | grep -vE 'COMMAND|grep|ps' | sort -u || grep '^' || echo '')"
+  [ -n "$ps" ] && printf '%s\n%s\n' "Found the following proccesses" "$ps" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__listening() {
+  local ports=""
+  ports="$(__netstat -taupln | awk -F ' ' '{print $4}' | awk -F ':' '{print $2}' | sort --unique --version-sort | grep -v '^$' | grep '^' || echo '')"
+  [ -n "$ports" ] && printf '%s\n%s\n' "The followinf are servers:" "$ports" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__certbot() {
+  [ -n "$DOMAINNAME" ] && [ -n "$CERT_BOT_MAIL" ] || { echo "The variables DOMAINNAME and CERT_BOT_MAIL are set" && exit 1; }
+  [ "$SSL_CERT_BOT" = "true" ] && type -P certbot &>/dev/null || { export SSL_CERT_BOT="" && return 10; }
+  certbot $1 --agree-tos -m $CERT_BOT_MAIL certonly --webroot -w "${WWW_ROOT_DIR:-/data/htdocs/www}" -d $DOMAINNAME -d $DOMAINNAME \
+    --put-all-related-files-into "$SSL_DIR" -key-path "$SSL_KEY" -fullchain-path "$SSL_CERT"
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_env() {
   local file="${1:-/usr/local/share/template-files/config/env.sample}"
@@ -67,30 +77,30 @@ FromLineOverride=yes
 #AuthUser=username
 #AuthPass=password
 EOF
-  if [ -f "/config/ssmtp/ssmtp.conf" ]; then
+  if [ -f "/config/ssmtp/ssmtp.conf" ] && [ ! -f "/tmp/run/ssmtp.init.pid" ]; then
     SERVICES_LIST+="ssmtp "
     ln -sf "/config/ssmtp" "/etc/ssmtp"
     __exec_command ssmtp "/etc/ssmtp/ssmtp.conf" &
+    [ $? -eq 0 ] && touch "/tmp/run/ssmtp.init.pid"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__show_procs() {
-  local ps=""
-  ps="$(__ps axco command | grep -vE 'COMMAND|grep|ps' | sort -u || grep '^' || echo '')"
-  [ -n "$ps" ] && printf '%s\n%s\n' "Found the following proccesses" "$ps" || return 1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__listening() {
-  local ports=""
-  ports="$(__netstat -taupln | awk -F ' ' '{print $4}' | awk -F ':' '{print $2}' | sort --unique --version-sort | grep -v '^$' | grep '^' || echo '')"
-  [ -n "$ports" ] && printf '%s\n%s\n' "The followinf are servers:" "$ports" || return 1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__certbot() {
-  [ -n "$DOMAINNAME" ] && [ -n "$CERT_BOT_MAIL" ] || { echo "The variables DOMAINNAME and CERT_BOT_MAIL are set" && exit 1; }
-  [ "$SSL_CERT_BOT" = "true" ] && type -P certbot &>/dev/null || { export SSL_CERT_BOT="" && return 10; }
-  certbot $1 --agree-tos -m $CERT_BOT_MAIL certonly --webroot -w "${WWW_ROOT_DIR:-/data/htdocs/www}" -d $DOMAINNAME -d $DOMAINNAME \
-    --put-all-related-files-into "$SSL_DIR" -key-path "$SSL_KEY" -fullchain-path "$SSL_CERT"
+__exec_command() {
+  local exitCode=0
+  local cmdExec="${*:-bash -l}"
+  local prog="$(type -P "$1" 2>/dev/null)"
+  if [ -f "$prog" ]; then
+    echo "${exec_message:-Executing command: $cmdExec}"
+    $cmdExec || exitCode=1
+    [ "$exitCode" = 0 ] || exitCode=10
+  elif [ -f "$prog" ] && [ ! -x "$prog" ]; then
+    echo "$prog is not executable"
+    exitCode=4
+  else
+    echo "$prog does not exist"
+    exitCode=5
+  fi
+  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __heath_check() {
@@ -116,11 +126,12 @@ __heath_check() {
 # Setup init scripts
 __start_init_scripts() {
   init_pids=""
-  initStatus=""
+  initStatus=0
   if [ -d "$DEFAULT_TEMPLATE_DIR/init.d" ]; then
     for init in "$DEFAULT_TEMPLATE_DIR/init.d"/*.sh; do
       [ -f "$init" ] && $init &
-      init_pids+="$! " initStatus=$(($? + serviceStatus))
+      init_pids+="$! " initStatus=$(($? + initStatus))
+      sleep 1
     done
   fi
   sleep 10
@@ -133,7 +144,7 @@ __start_all_services() {
   echo "$$" >"/tmp/entrypoint.pid"
   __start_init_scripts
   serviceStatus=$(($? + serviceStatus))
-  start-GEN_SCRIPT_REPLACE_APPNAME.sh &
+  __exec_command start-GEN_SCRIPT_REPLACE_APPNAME.sh &
   serviceStatus=$(($? + serviceStatus))
   return $serviceStatus
 }

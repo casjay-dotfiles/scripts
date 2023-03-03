@@ -252,28 +252,46 @@ __trap_exit() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
+__ssh_retry() {
+  local exitCode=0 count=1
+  while :; do
+    printf '\r%b' "Attempting to connect to $1: try number $count " && sleep 2
+    eval ssh "$*" #2>/dev/null && break
+    exitCode=$?
+    count=$((1 + count))
+  done
+  printf '\n'
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __ssh_cli() {
-  local hostname="${1:-$hostname}"
-  [[ -n "$username" ]] || username=
+  local hostname="${1:-$hostname}" connection=""
+  [ -n "$username" ] || username=
   clear
-  if [[ -n "$username" ]]; then
-    __notifications "Attempting to connect to $hostname as $username"
-    ssh -l ${username} ${hostname} || {
-      exitCode=1
-      __notifications "Failed to connect to $hostname as $username"
-      printf_pause "Press any key to continue"
-    }
-  elif [[ -n "$hostname" ]]; then
-    __notifications "Attempting to connect to $hostname"
-    ssh ${hostname} || {
-      exitCode=1
-      __notifications "Failed to connect to $hostname"
-      printf_pause "Press any key to continue"
-    }
+  if [ -n "$username" ]; then
+    connect_notify="Attempting to connect to $hostname as $username"
+    failed_notify="Failed to connect to $hostname as $username"
+    connection="${username}@${hostname}"
+  elif [ -n "$hostname" ]; then
+    connect_notify="Attempting to connect to $hostname"
+    failed_notify="Failed to connect to $hostname"
+    connection="${hostname}"
   else
     printf_red "No hostname specified"
     exitCode=1
   fi
+  if [ "$MYSSH_RETRY" = "true" ]; then
+    __notifications "$connect_notify"
+    __ssh_retry ${connection}
+  else
+    __notifications "$connect_notify"
+    ssh "${connection}" || {
+      exitCode=1
+      __notifications "$failed_notify"
+      printf_pause "Press any key to continue"
+    }
+  fi
+
   clear
   printf_newline '\n\n\n\n'
   printf_yellow "Connection closed with status code ${exitCode:-$?}"
@@ -282,7 +300,7 @@ __ssh_cli() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __ssh_new_host() {
-  [[ -d "$HOME/.ssh/known_hosts.d" ]] || mkdir -p "$HOME/.ssh/known_hosts.d" &>/dev/null
+  [ -d "$HOME/.ssh/known_hosts.d" ] || mkdir -p "$HOME/.ssh/known_hosts.d" &>/dev/null
   if [ ! -f "${1:-$MYSSH_SSH_CONFIG_FILE}" ]; then
     cat <<EOF | tee >"${1:-$MYSSH_SSH_CONFIG_FILE}"
 Host *
@@ -333,7 +351,7 @@ __gen_hosts() {
           printf "$name"
           line - $length
         )
-        [[ ${#name} -lt 40 ]] && name=-$name
+        [ ${#name} -lt 40 ] && name=-$name
         content+=("$desc")
         desc=$(line - 20)
         ;;
@@ -364,7 +382,7 @@ __addhost() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __add_error() {
-  if [[ -n "${grepin}" ]]; then
+  if [ -n "${grepin}" ]; then
     printf_red "$grepin is already in your confg file"
     printf_pause "Press any key to continue"
     __addhost
@@ -451,7 +469,7 @@ __term() {
       [ -d "$HOME/.ssh/known_hosts.d" ] || mkdir -p "$HOME/.ssh/known_hosts.d"
       find -L "$HOME/.ssh/known_hosts.d" -type f -printf '%P\n' | printf_column 2>/dev/null
       printf_read_input "5" "Enter filename" "180" "file" "-e"
-      if [[ -f "$HOME/.ssh/known_hosts.d/$file" ]]; then
+      if [ -f "$HOME/.ssh/known_hosts.d/$file" ]; then
         rm -f "$HOME/.ssh/known_hosts.d/$file" &&
           printf_green "Removed $file" || printf_return "Failed to remove $file"
       else
@@ -587,7 +605,7 @@ SHORTOPTS=""
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
-LONGOPTS+=",term"
+LONGOPTS+=",term,loop"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY=""
 ARRAY+=""
@@ -668,6 +686,10 @@ while :; do
     shift 1
     __term "$@"
     exit $?
+    ;;
+  --loop)
+    shift 1
+    MYSSH_RETRY="true"
     ;;
   --)
     shift 1

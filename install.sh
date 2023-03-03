@@ -92,7 +92,7 @@ if if_os mac; then
   APP="jq sudo curl wget cowsay fortune "
 elif if_os linux; then
   APP="ruby expect byobu killall setcap nethogs iftop iotop iperf rsync locate pass python rsync "
-  APP+="bash ifconfig fc-cache jq tf sudo xclip curl wget dialog qalc links html2text dict cowsay fortune"
+  APP+="bash ifconfig jq sudo curl wget dialog html2text cowsay fortune"
 fi
 PERL="CPAN "
 PYTH="pip "

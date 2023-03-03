@@ -1,84 +1,63 @@
 #!/usr/bin/env bash
-# shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  GEN_SCRIPT_REPLACE_VERSION
-# @@Author           :  GEN_SCRIPT_REPLACE_AUTHOR
-# @@Contact          :  GEN_SCRIPT_REPLACE_EMAIL
-# @@License          :  GEN_SCRIPT_REPLACE_LICENSE
-# @@ReadME           :  GEN_SCRIPT_REPLACE_FILENAME --help
-# @@Copyright        :  GEN_SCRIPT_REPLACE_COPYRIGHT
-# @@Created          :  GEN_SCRIPT_REPLACE_DATE
-# @@File             :  GEN_SCRIPT_REPLACE_FILENAME
-# @@Description      :  script to start GEN_SCRIPT_REPLACE_APPNAME
-# @@Changelog        :  GEN_SCRIPT_REPLACE_CHANGELOG
-# @@TODO             :  GEN_SCRIPT_REPLACE_TODO
-# @@Other            :  GEN_SCRIPT_REPLACE_OTHER
-# @@Resource         :  GEN_SCRIPT_REPLACE_RES
-# @@Terminal App     :  GEN_SCRIPT_REPLACE_TERMINAL
-# @@sudo/root        :  GEN_SCRIPT_REPLACE_SUDO
-# @@Template         :  other/start-service
+# run trap command on exit
+trap -- 'retVal=$?; [ -f "/tmp/$EXEC_CMD.pid" ] && rm -Rf "/tmp/$EXEC_CMD.pid";exit $retVal' SIGINIT SIGTERM ERR EXIT
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set bash options
-[ "$DEBUGGER" = "on" ] && echo "Enabling debugging" && set -o pipefail -x$DEBUGGER_OPTIONS || set -o pipefail
+# https://www.gnu.org/software/bash/manual/html_node/The-Set-Builtin.html
+[ "$DEBUGGER" = "on" ] && echo "Enabling debugging" && set -o pipefail -x$DEBUGGER_OPTIONS || set -Eeuo pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-while :; do [ "$1" = " " ] && shift 1 || break; done
+# execute command options
+EXEC_CMD="$script_filename" # command to execute
+SERVICE_ARGS=""             # command arguments
+SERVICE_USER=""             # execute command as another user
+PRE_EXEC_MESSAGE=""         # Show message before execute
+SERVICE_EXIT_CODE=0         # default exit code
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Custom variables
-WORKDIR=""
-SERVICE_PORT=""
-SERVICE_NAME=""
-SERVICE_USER=""
-SERVICE_NAME="GEN_SCRIPT_REPLACE_APPNAME"
-SERVICE_COMMAND="REPLACE_SERVICE_NAME"
+# function to run before executing
+__pre_execute() {
+  return
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Overwrite variables
-[ -n "$SERVICE_PORT" ] || SERVICE_PORT="$PORT"
-[ -n "$SERVICE_USER" ] || SERVICE_USER="root"
-[ -n "$SERVICE_NAME" ] || SERVICE_NAME="REPLACE_SERVICE_NAME"
-[ "$WEB_SERVER_PORT" = "443" ] && SSL_ENABLED="true"
+# import variables
+[ -f "/root/env.sh" ] && . "/root/env.sh"
+[ -f "/config/env.sh" ] && . "/config/env.sh"
+[ -f "/config/env/$EXEC_CMD" ] && . "/config/env/$EXEC_CMD"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# export variables
-
+# check is process is already running
+__pcheck() { [ -n "$(type -P pgrep 2>/dev/null)" ] && pgrep -x "$1" &>/dev/null && return 0 || return 10; }
+__pgrep() { __pcheck "${1:-EXEC_CMD}" || __ps aux 2>/dev/null | grep -Fw " ${1:-$EXEC_CMD}" | grep -qv ' grep' | grep '^' && return 0 || return 10; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Pre setup commands
-
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set functions
-
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# import the functions file
-if [ -f "/usr/local/share/casjaysdev/functions/entrypoint.sh" ]; then
-  . "/usr/local/share/casjaysdev/functions/entrypoint.sh"
-else
-  echo "Can not load functions from /usr/local/share/casjaysdev/functions/entrypoint.sh"
-  exit 1
+if [ ! -f "$(type -P "$EXEC_CMD")" ] && [ -z "$EXEC_CMD" ]; then
+  echo "$EXEC_CMD is not a valid command"
+  exit 2
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# import variables from files
-for set_env in "/usr/local/share/casjaysdev/env"/* "/root/env.sh" "/config/env.sh" "/config/env"/*; do
-  [ -f "$set_env" ] && . "$set_env"
-done
+if __pgrep "$EXEC_CMD"; then
+  echo "$EXEC_CMD is running"
+  exit 0
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Initialized
-[ -d "/data" ] && touch "/data/.docker_has_run"
-[ -d "/config" ] && touch "/config/.docker_has_run"
+echo "Setting up service to run as $SERVICE_USER"
+if [ "$SERVICE_USER" = "root" ] || [ -z "$SERVICE_USER" ]; then
+  su_cmd() { eval "$@" || return 1; }
+elif [ "$(builtin type -P gosu)" ]; then
+  su_cmd() { gosu $SERVICE_USER "$@" || return 1; }
+elif [ "$(builtin type -P su)" ]; then
+  su_cmd() { su -s /bin/sh - $SERVICE_USER -c "$@" || return 1; }
+elif [ "$(builtin type -P runuser)" ]; then
+  su_cmd() { runuser -u $SERVICE_USER "$@" || return 1; }
+elif [ "$(builtin type -P sudo)" ]; then
+  su_cmd() { sudo -u $SERVICE_USER "$@" || return 1; }
+else
+  echo "Can not switch to $SERVICE_USER"
+  exit 10
+fi
+sleep 30
+[ -n "$PRE_EXEC_MESSAGE" ] && echo "$PRE_EXEC_MESSAGE"
+__pre_execute
+echo "Starting service: $EXEC_CMD $CMD_ARGS"
+su_cmd "touch /tmp/$EXEC_CMD.pid"
+su_cmd "$EXEC_CMD $CMD_ARGS" || echo "Failed to execute: $EXEC_CMD $CMD_ARGS"
+[ "$?" -ne 0 ] && SERVICE_EXIT_CODE=10 && rm -Rf "/tmp/$EXEC_CMD.pid"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Actions based on env
-
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Post copy commands
-
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Other commands
-
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Change to working dir
-[ -n "$WORKDIR" ] && __cd "$WORKDIR"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# begin main app
-__exec_pre_start && __exec_service_start
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# End application
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-
-# ex: ts=2 sw=2 et filetype=sh
+exit $SERVICE_EXIT_CODE

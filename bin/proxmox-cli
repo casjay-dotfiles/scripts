@@ -280,6 +280,11 @@ __curl_auth() {
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__curl_get() {
+  curl -q -s -S -k --fail -b "PVEAuthCookie=$TICKET" -H "CSRFPreventionToken: $CSRF" -X GET "$@"
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __curl_post() {
   curl -q -s -S -k --fail -b "PVEAuthCookie=$TICKET" -H "CSRFPreventionToken: $CSRF" -X POST "$@"
   return $?
@@ -355,6 +360,16 @@ __start_stop_vm() {
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__pve_agent() {
+  local url="https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/${1:-$PROXMOX_CLI_DEFAULT_NODE_ID}/${2:-qemu}/${3:-$PROXMOX_CLI_DEFAULT_MACHINE}/agent"
+  if [ -n "$4" ]; then
+    __curl_get "$url/$4" | jq -r '.data .result|.[]|.' 2>/dev/null
+  else
+    __curl_get "$url" | jq -rc '. | .[] | .[] | .name' 2>/dev/null
+  fi
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_spice_viewer() {
   local FILE="${1:-$FILENAME}"
   local RUN="${2:-$FILENAME}.spice"
@@ -397,6 +412,9 @@ __run_curl() {
         printf_exit "Failed to send $PROXMOX_CLI_POWER_OPTION command to proxmox: $PROXMOX_CLI_DEFAULT_MACHINE"
         exit 1
       fi
+    elif [ -n "$PROXMOX_CLI_GET_AGENT" ]; then
+      __pve_agent "$PROXMOX_CLI_DEFAULT_NODE_ID" "qemu" "$PROXMOX_CLI_DEFAULT_MACHINE" "$PROXMOX_CLI_AGENT_OPTION"
+      exit $?
     else
       __get_spice_file && printf_purple "Saving to $FILENAME" || printf_exit "Failed to get the spice file"
       if __cmd_exists remote-viewer; then
@@ -492,11 +510,12 @@ __initialize_app() {
   while :; do
     case "$1" in
     reset) PROXMOX_CLI_FORCE="true" && shift 1 ;;
+    web) shift 1 && __open_web && exit 0 || exit 1 ;;
+    ssh) shift 1 && __open__ssh && exit 0 || exit 1 ;;
     config) PROXMOX_CLI_GET_CONFIG="true" && shift 1 ;;
     status) PROXMOX_CLI_GET_STATUS="true" && shift 1 ;;
     power | turn) PROXMOX_CLI_POWER_CYCLE="true" && PROXMOX_CLI_POWER_OPTION="$2" && shift 2 ;;
-    web) shift 1 && __open_web && exit 0 || exit 1 ;;
-    ssh) shift 1 && __open__ssh && exit 0 || exit 1 ;;
+    agent) PROXMOX_CLI_GET_AGENT="true" && PROXMOX_CLI_DEFAULT_MACHINE="$2" PROXMOX_CLI_AGENT_OPTION="$3" && shift $# ;;
     *) break ;;
     esac
   done
@@ -554,7 +573,7 @@ __execute_proxmox_cli() {
   [ -d "$SPICEDIR" ] || mkdir -p "$SPICEDIR"
   DATA="$(__query_server || echo '')"
   if [ -n "$DATA" ]; then
-    printf_blue "Authentication with server was a success"
+    # printf_blue "Authentication with server was a success"
     if __run_curl "$DATA" "$FILENAME"; then
       statusCode=0
     else

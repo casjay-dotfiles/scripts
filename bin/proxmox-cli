@@ -175,7 +175,7 @@ __help() {
   __printf_line "status [id]                     - Get the status about vm"
   __printf_line "power [on/off] [id]             - Power on or off a vm"
   __printf_line "reset                           - Reset script variables"
-  __printf_line "ssh                             - Connect to proxmox server "
+  __printf_line "ssh                             - Connect to proxmox vm "
   __printf_line "web                             - Open the proxmox web interface"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
@@ -415,6 +415,9 @@ __run_curl() {
     elif [ -n "$PROXMOX_CLI_GET_AGENT" ]; then
       __pve_agent "$PROXMOX_CLI_DEFAULT_NODE_ID" "qemu" "$PROXMOX_CLI_DEFAULT_MACHINE" "$PROXMOX_CLI_AGENT_OPTION"
       exit $?
+    elif [ -n "$PROXMOX_CLI_SSH_IP" ]; then
+      host="$(__pve_agent "$PROXMOX_CLI_DEFAULT_NODE_ID" "qemu" "$PROXMOX_CLI_DEFAULT_MACHINE" network-get-interfaces | grep 'ip-address.*[0-9]\.' | grep -vE '127.0.0.1|172.17.0.1' | sed 's|[", ]||g;s|ip-address:||g' || echo '')"
+      [ -n "$host" ] && __open_ssh ${host:-$PROXMOX_CLI_DEFAULT_MACHINE} ${PROXMOX_CLI_SSH_USER:-$USER} || printf_exit "Failed to get ip addess for $PROXMOX_CLI_DEFAULT_NODE_ID"
     else
       __get_spice_file && printf_purple "Saving to $FILENAME" || printf_exit "Failed to get the spice file"
       if __cmd_exists remote-viewer; then
@@ -509,9 +512,9 @@ __get_serverport() {
 __initialize_app() {
   while :; do
     case "$1" in
+    ssh) PROXMOX_CLI_SSH_IP="true" && shift 1 ;;
     reset) PROXMOX_CLI_FORCE="true" && shift 1 ;;
     web) shift 1 && __open_web && exit 0 || exit 1 ;;
-    ssh) shift 1 && __open__ssh && exit 0 || exit 1 ;;
     config) PROXMOX_CLI_GET_CONFIG="true" && shift 1 ;;
     status) PROXMOX_CLI_GET_STATUS="true" && shift 1 ;;
     power | turn) PROXMOX_CLI_POWER_CYCLE="true" && PROXMOX_CLI_POWER_OPTION="$2" && shift 2 ;;
@@ -519,6 +522,10 @@ __initialize_app() {
     *) break ;;
     esac
   done
+  if [ -n "$PROXMOX_CLI_SSH_ROOT" ]; then
+    __open_ssh $PROXMOX_CLI_DEFAULT_SERVER_HOST ${PROXMOX_CLI_SSH_USER:-root}
+    exit $?
+  fi
   PROXMOX_CLI_DEFAULT_MACHINE="${1:-$PROXMOX_CLI_DEFAULT_MACHINE}"
   PROXMOX_CLI_DEFAULT_NODE_ID="${2:-$PROXMOX_CLI_DEFAULT_NODE_ID}"
   PROXMOX_CLI_DEFAULT_SERVER_HOST="${3:-$PROXMOX_CLI_DEFAULT_SERVER_HOST}"
@@ -599,9 +606,10 @@ __open_web() {
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__open__ssh() {
-  local url="$PROXMOX_CLI_DEFAULT_SERVER_HOST"
-  ssh -l root $url
+__open_ssh() {
+  local url="${1:-$PROXMOX_CLI_DEFAULT_SERVER_HOST}" user=""
+  [ -n "$2" ] && user="-l $2"
+  ssh $user $url
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -691,9 +699,9 @@ SHORTOPTS="u:,p:,m:"
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
-LONGOPTS+=",force,node:"
+LONGOPTS+=",force,node:,ssh,user:"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-ARRAY="web ssh reset config status power"
+ARRAY="web __open_sshreset config status power"
 ARRAY+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
@@ -772,6 +780,10 @@ while :; do
     shift 1
     PROXMOX_CLI_FORCE="true"
     ;;
+  --ssh)
+    shift 1
+    PROXMOX_CLI_SSH_ROOT="yes"
+    ;;
   --node)
     PROXMOX_CLI_DEFAULT_NODE_ID="$2"
     PROXMOX_CLI_NODE_CONFIG_FILE="$PROXMOX_CLI_CONFIG_DIR/$2"
@@ -787,6 +799,10 @@ while :; do
     ;;
   -m)
     PROXMOX_CLI_DEFAULT_MACHINE="$2"
+    shift 2
+    ;;
+  --user)
+    PROXMOX_CLI_SSH_USER="$2"
     shift 2
     ;;
   --)

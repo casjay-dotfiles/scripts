@@ -1,43 +1,54 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run trap command on exit
-trap -- 'retVal=$?;[ -f "/tmp/$EXEC_CMD.pid" ] && rm -Rf "/tmp/$EXEC_CMD.pid";exit $retVal' SIGINIT SIGTERM ERR EXIT
+trap -- 'retVal=$?;[ -f "/tmp/$EXEC_CMD_BIN.pid" ] && rm -Rf "/tmp/$EXEC_CMD_BIN.pid";exit $retVal' SIGINIT SIGTERM ERR EXIT
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # https://www.gnu.org/software/bash/manual/html_node/The-Set-Builtin.html
 [ "$DEBUGGER" = "on" ] && echo "Enabling debugging" && set -o pipefail -x$DEBUGGER_OPTIONS || set -Eeuo pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # execute command options
-EXEC_CMD="GEN_SCRIPT_REPLACE_APPNAME" # command to execute
-SERVICE_ARGS=""                       # command arguments
-SERVICE_USER=""                       # execute command as another user
-PRE_EXEC_MESSAGE=""                   # Show message before execute
-SERVICE_EXIT_CODE=0                   # default exit code
+SERVICE_USER=""                           # execute command as another user
+SERVICE_UID=""                            # set the user id
+SERVICE_PORT=""                           # port which service is listening on
+EXEC_CMD_BIN="GEN_SCRIPT_REPLACE_APPNAME" # command to execute
+EXEC_CMD_ARGS=" "                         # command arguments
+PRE_EXEC_MESSAGE=""                       # Show message before execute
+SERVICE_EXIT_CODE=0                       # default exit code
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # function to run before executing
 __pre_execute() {
-  return
+  __create_service_user "$SERVICE_USER" "${SERVICE_UID:-$SERVICE_PORT}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # import variables
 [ -f "/root/env.sh" ] && . "/root/env.sh"
 [ -f "/config/env.sh" ] && . "/config/env.sh"
-[ -f "/config/env/$EXEC_CMD" ] && . "/config/env/$EXEC_CMD"
+[ -f "/config/env/$EXEC_CMD_BIN" ] && . "/config/env/$EXEC_CMD_BIN"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# check is process is already running
+# process check functions
 __pcheck() { [ -n "$(type -P pgrep 2>/dev/null)" ] && pgrep -x "$1" &>/dev/null && return 0 || return 10; }
-__pgrep() { __pcheck "${1:-EXEC_CMD}" || __ps aux 2>/dev/null | grep -Fw " ${1:-$EXEC_CMD}" | grep -qv ' grep' | grep '^' && return 0 || return 10; }
+__pgrep() { __pcheck "${1:-EXEC_CMD_BIN}" || __ps aux 2>/dev/null | grep -Fw " ${1:-$EXEC_CMD_BIN}" | grep -qv ' grep' | grep '^' && return 0 || return 10; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ ! -f "$(type -P "$EXEC_CMD")" ] && [ -z "$EXEC_CMD" ]; then
-  echo "$EXEC_CMD is not a valid command"
+# ensure the command exists
+if [ ! -f "$(type -P "$EXEC_CMD_BIN")" ] && [ -z "$EXEC_CMD_BIN" ]; then
+  echo "$EXEC_CMD_BIN is not a valid command"
   exit 2
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if __pgrep "$EXEC_CMD"; then
-  echo "$EXEC_CMD is running"
+# check if process is already running
+if __pgrep "$EXEC_CMD_BIN"; then
+  echo "$EXEC_CMD_BIN is running"
   exit 0
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-echo "Setting up service to run as $SERVICE_USER"
+# show message if env exists
+[ -n "$SERVICE_USER" ] && echo "Setting up service to run as $SERVICE_USER"
+[ -n "$SERVICE_PORT" ] && echo "$SERVICE_NAME will be running on $SERVICE_PORT"
+[ -n "$PRE_EXEC_MESSAGE" ] && echo "$PRE_EXEC_MESSAGE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# run the pre execute commands
+__pre_execute
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ "$SERVICE_USER" = "root" ] || [ -z "$SERVICE_USER" ]; then
   su_cmd() { eval "$@" || return 1; }
 elif [ "$(builtin type -P gosu)" ]; then
@@ -53,11 +64,9 @@ else
   exit 10
 fi
 sleep 30
-[ -n "$PRE_EXEC_MESSAGE" ] && echo "$PRE_EXEC_MESSAGE"
-__pre_execute
-echo "Starting service: $EXEC_CMD $CMD_ARGS"
-su_cmd "touch /tmp/$EXEC_CMD.pid"
-su_cmd "$EXEC_CMD $CMD_ARGS" || echo "Failed to execute: $EXEC_CMD $CMD_ARGS"
-[ "$?" -ne 0 ] && SERVICE_EXIT_CODE=10 && rm -Rf "/tmp/$EXEC_CMD.pid"
+echo "Starting service: $EXEC_CMD_BIN $EXEC_CMD_ARGS"
+su_cmd "touch /tmp/$EXEC_CMD_BIN.pid"
+su_cmd "$EXEC_CMD_BIN $EXEC_CMD_ARGS" || echo "Failed to execute: $EXEC_CMD_BIN $EXEC_CMD_ARGS"
+[ "$?" -ne 0 ] && SERVICE_EXIT_CODE=10 && rm -Rf "/tmp/$EXEC_CMD_BIN.pid"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 exit $SERVICE_EXIT_CODE

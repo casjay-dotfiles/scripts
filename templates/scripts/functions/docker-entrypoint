@@ -1,4 +1,5 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__rm() { [ -f "$1" ] && rm -Rf "${1:?}"; }
 __cd() { [ -d "$1" ] && builtin cd "$1" || return 1; }
 __ps() { [ -f "$(type -P ps)" ] && ps "$@" || return 10; }
 __netstat() { [ -f "$(type -P netstat)" ] && netstat "$@" || return 10; }
@@ -22,6 +23,7 @@ __find_pgsql_conf() { find -L '/var/lib' '/etc' -maxdepth 8 -type f -name 'postg
 __random_password() { cat "/dev/urandom" | tr -dc '[0-9][a-z][A-Z]@$' | head -c${1:-14} && echo ""; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __replace() {
+  [ -f "$3" ] || return
   sed -i 's|'$1'|'$2'|g' "$3" &>/dev/null
   grep -s -q "$2" "$3" && printf '%s\n' "Changed $1 to $2 in $3" && return 0 || {
     printf '%s\n' "Failed to change $1 in $3" && return 10
@@ -29,6 +31,7 @@ __replace() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __file_copy() {
+  [ -f "$1" ] || return
   [ -f "$2" ] && mv -f "$2" "$2.bak"
   [ -n "$1" ] && [ -n "$2" ] && [ $# -eq 2 ] && [ -f "$1" ] && cp -Rf "$1" "$2"
   [ -f "$1" ] && [ -f "$2" ] && printf '%s\n' "Copied: $1 > $2" && return 0 || {
@@ -207,16 +210,24 @@ __start_init_scripts() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_mta() {
-  [ "$EMAIL_ENABLED" = "yes" ] || return 1
-  echo "$EMAIL_RELAY" | grep ':[0-9]' || EMAIL_RELAY="$EMAIL_RELAY:465"
-  [ -d "/etc/ssmtp" ] && rm -Rf "/etc/ssmtp"
-  [ -d "/config/ssmtp" ] || mkdir -p "/config/ssmtp"
-  cat <<EOF | tee "/config/ssmtp/ssmtp.conf" &>dev/null
-# sSMTP config.
-root=${EMAIL_ADMIN}${EMAIL_DOMAIN}
-mailhub=$EMAIL_RELAY
-rewriteDomain=$EMAIL_DOMAIN
-hostname=$HOSTNAME
+  local exitCode=0
+  local relay_port="${EMAIL_RELAY//*:/}"
+  local relay_server="${EMAIL_RELAY//:*/}"
+  local local_hostname="${FULL_DOMAIN_NAME:-}"
+  local account_user="${SERVER_ADMIN//@*/}"
+  local account_domain="${EMAIL_DOMAIN//*@/}"
+  echo "$EMAIL_RELAY" | grep '[0-9][0-9]' || relay_port="465"
+
+  if [ -d "/etc/ssmtp" ] || [ -d "/config/ssmtp" ]; then
+    # sSMTP relay setup
+    [ -d "/etc/ssmtp" ] && rm -Rf "/etc/ssmtp" || return 0
+    [ -d "/config/ssmtp" ] || mkdir -p "/config/ssmtp"
+    cat <<EOF | tee "/config/ssmtp/ssmtp.conf" &>/dev/null
+# ssmtp configuration.
+root=${account_user:-root}@${account_domain:-$HOSTNAME}
+mailhub=${relay_server:-172.17.0.1}:$relay_port
+rewriteDomain=$local_hostname
+hostname=$local_hostname
 TLS_CA_FILE=/etc/ssl/certs/ca-certificates.crt
 UseTLS=Yes
 UseSTARTTLS=No
@@ -224,31 +235,56 @@ AuthMethod=LOGIN
 FromLineOverride=yes
 #AuthUser=username
 #AuthPass=password
+
 EOF
-  if [ -f "/config/ssmtp/ssmtp.conf" ] && [ ! -f "/tmp/run/ssmtp.init.pid" ]; then
-    SERVICES_LIST+="ssmtp "
-    ln -sf "/config/ssmtp" "/etc/ssmtp"
-    __exec_command ssmtp "/etc/ssmtp/ssmtp.conf" &
-    [ $? -eq 0 ] && touch "/tmp/run/ssmtp.init.pid" || return 1
+    # if [ -f "/config/ssmtp/ssmtp.conf" ] && [ ! -f "/run/ssmtp.init.pid" ]; then
+    # SERVICES_LIST+="ssmtp "
+    # cp -Rf "/config/ssmtp/." "/etc/ssmtp/"
+    # __exec_command ssmtp "/etc/ssmtp/ssmtp.conf" &
+    # [ $? -eq 0 ] && touch "/run/ssmtp.init.pid" || exitCode=1
+    # fi
+    # postfix relay setup
+  elif [ -d "/config/postfix" ] || [ -d "/etc/postfix" ]; then
+    cat <<EOF | tee "/config/postfix/main.cf" &>/dev/null
+# postfix configuration.
+smtpd_banner = \$myhostname ESMTP CasjaysDev mail
+compatibility_level = 2
+alias_maps = hash:/etc/aliases
+alias_database = hash:/etc/aliases
+mynetworks = /etc/postfix/mynetworks
+transport_maps = hash:/etc/postfix/transport
+virtual_alias_maps = hash:/etc/postfix/virtual
+relay_domains = hash:/etc/postfix/mydomains, regexp:/etc/postfix/mydomains.pcre
+tls_random_source = dev:/dev/urandom
+smtp_use_tls = yes
+smtpd_use_tls = yes
+smtpd_tls_session_cache_database = btree:/etc/postfix/smtpd_scache
+smtpd_tls_dh1024_param_file = /etc/ssl/dhparam/1024.pem
+smtpd_tls_exclude_ciphers = aNULL, eNULL, EXPORT, DES, RC4, MD5, PSK, aECDH, EDH-DSS-DES-CBC3-SHA, EDH-RSA-DES-CBC3-SHA, KRB5-DES, CBC3-SHA
+smtpd_relay_restrictions = permit_mynetworks, permit_sasl_authenticated, defer_unauth_destination
+mydestination =
+inet_interfaces = all
+append_dot_mydomain = yes
+myorigin = $local_hostname
+myhostname = $local_hostname
+local_transport=error: local delivery disabled
+relayhost = [$relay_server]:$relay_port
+inet_protocols = ipv4
+
+EOF
+    touch "/etc/aliases" "/etc/postfix/mynetworks" "/etc/postfix/transport"
+    touch "/etc/postfix/mydomains.pcre" "/etc/postfix/mydomains" "/etc/postfix/virtual"
+    postmap "/etc/aliases" "/etc/postfix/mynetworks" "/etc/postfix/transport" &>/dev/null
+    postmap "/etc/postfix/mydomains.pcre" "/etc/postfix/mydomains" "/etc/postfix/virtual" &>/dev/null
+    if [ -f "/config/postfix/main.cf" ] && [ ! -f "/run/postfix.init.pid" ]; then
+      SERVICES_LIST+="postfix "
+      cp -Rf "/config/postfix/." "/etc/postfix/"
+      __exec_command postfix "/etc/postfix/main.cf" &
+      [ $? -eq 0 ] && touch "/run/postfix.init.pid" || exitCode=1
+    fi
   fi
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__exec_pre_start() {
-  local statusCode=0
-  __start_message
-  statusCode+=$(($? + $statusCode))
-  return $statusCode
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__start_message() {
-  local service="${1:-$SERVICE_NAME}"
-  __pgrep "$service" && [ -f "/tmp/$service.pid" ] && echo "$service is running" && return 0
-  if [ "$ENTRYPOINT_MESSAGE" = "false" ]; then
-    echo "Starting services: $SERVICES_LIST"
-  else
-    echo "Starting services: $SERVICES_LIST on: $CONTAINER_IP4_ADDRESS"
-  fi
-  return 0
+  [ -f "/root/dead.letter" ] && rm -Rf "/root/dead.letter"
+  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # set variables from function calls
@@ -267,9 +303,8 @@ POSTGRES_CONFIG_FILE="${POSTGRES_CONFIG_FILE:-$(__find_pgsql_conf)}"
 export -f __cd __ps __curl __netstat __find __pcheck __pgrep __get_ip6
 export -f __get_ip4 __show_procs __listening create-ssl-cert __certbot
 export -f __create_env __run_backup __exec_command __heath_check __start_init_scripts
-export -f __setup_mta __exec_pre_start __create_service_user __start_message
-export -f __replace __find_php_bin __find_php_ini __find_nginx_conf
-export -f __find_httpd_conf __find_lighttpd_conf __find_mysql_conf
+export -f __setup_mta __create_service_user __replace __find_php_bin __find_php_ini
+export -f __find_nginx_conf __find_httpd_conf __find_lighttpd_conf __find_mysql_conf
 export -f __find_pgsql_conf __file_copy
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # export variables

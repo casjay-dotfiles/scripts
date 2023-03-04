@@ -23,27 +23,18 @@ __random_password() { cat "/dev/urandom" | tr -dc '[0-9][a-z][A-Z]@$' | head -c$
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __replace() {
   sed -i 's|'$1'|'$2'|g' "$3" &>/dev/null
-  if grep -s -qw "$2" "$3"; then
-    printf '%s\n' "Changed $1 to $2 in $3"
-    return 0
-  else
-    printf '%s\n' "Failed to change $1 in $3"
-    return 10
-  fi
+  grep -s -q "$2" "$3" && printf '%s\n' "Changed $1 to $2 in $3" && return 0 || {
+    printf '%s\n' "Failed to change $1 in $3" && return 10
+  }
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__setup_ssl() {
-  [ "$1" = "" ] && return 0
-  [ $# -eq 2 ] || return 1
-  [ "$SSL_ENABLED" = "true" ] || return 0
-  [ -f "$1" ] && cp -Rf "$1" "$2"
-  if [ -f "$1" ] && [ -f "$1" ]; then
-    printf '%s\n' "Copied: $1 > $2"
-    return 0
-  else
+__file_copy() {
+  [ -f "$2" ] && mv -f "$2" "$2.bak"
+  [ -n "$1" ] && [ -n "$2" ] && [ $# -eq 2 ] && [ -f "$1" ] && cp -Rf "$1" "$2"
+  [ -f "$1" ] && [ -f "$2" ] && printf '%s\n' "Copied: $1 > $2" && return 0 || {
     printf '%s\n' "Copy failed: $1 < $2"
     return 1
-  fi
+  }
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_service_user() {
@@ -154,10 +145,10 @@ __run_backup() {
 __exec_command() {
   local exitCode=0
   local cmdExec="${*:-bash -l}"
-  local prog="$(type -P "$1" 2>/dev/null)"
+  local prog="$(type -P "${1:-bash}" 2>/dev/null)"
   if [ -f "$prog" ]; then
     echo "${exec_message:-Executing command: $cmdExec}"
-    $cmdExec || exitCode=1
+    eval $cmdExec || exitCode=1
     [ "$exitCode" = 0 ] || exitCode=10
   elif [ -f "$prog" ] && [ ! -x "$prog" ]; then
     echo "$prog is not executable"
@@ -197,76 +188,22 @@ __heath_check() {
   return $healthStatus
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup init scripts
+# Setup the server init scripts
 __start_init_scripts() {
+  [ "$DEBUGGER" = "on" ] && echo "Enabling debugging" && set -o pipefail -x$DEBUGGER_OPTIONS || set -o pipefail
+  local basename=""
   local init_pids=""
   local initStatus=0
-  if [ -d "$DEFAULT_TEMPLATE_DIR/init.d" ]; then
-    for init in "$DEFAULT_TEMPLATE_DIR/init.d"/*.sh; do
-      [ -f "$init" ] && $init &
+  if [ -d "${1:-/usr/local/etc/docker/init.d}" ]; then
+    for init in "${1:-/usr/local/etc/docker/init.d}"/*.sh; do
+      [ -f "$init" ] && eval $init 2>/dev/stderr >/dev/stdout &
       init_pids+="$! " initStatus=$(($? + initStatus))
-      sleep 1
+      sleep 2
     done
   fi
+  touch "/tmp/entrypoint.pid"
   sleep 10
   return $initStatus
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__start_all_services() {
-  local serviceStatus=0
-  local start_commands=("$@")
-  [ "$START_SERVICES" = "yes" ] || [ ! -f "/tmp/entrypoint.pid" ] || return 0
-  echo "$$" >"/tmp/entrypoint.pid"
-  __start_init_scripts
-  serviceStatus=$(($? + serviceStatus))
-  if [ -n "${start_commands[*]}" ]; then
-    for execute in "${start_commands[@]}"; do
-      __exec_command $execute &
-      serviceStatus=$(($? + serviceStatus))
-    done
-  fi
-  return $serviceStatus
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__exec_service_start() {
-  [ -n "$1" ] && EXEC_CMD="$1" && shift 1
-  [ -n "$1" ] && EXEC_CMD="$*" && shift $1
-  local EXEC_CMD="${EXEC_CMD:-$SERVICE_NAME}"            # command to execute
-  local SERVICE_ARGS="${SERVICE_ARGS:-$SERVICE_COMMAND}" # command arguments
-  local SERVICE_USER="${SERVICE_USER:-$USER}"            # execute command as another user
-  local PRE_EXEC_MESSAGE="${PRE_EXEC_MESSAGE:-}"         # Show message before execute
-  local SERVICE_EXIT_CODE=0                              # default exit code
-  echo "Determining whether we need to switch user"
-  if [ "$SERVICE_USER" = "root" ] || [ -z "$SERVICE_USER" ]; then
-    su_cmd_bin="eval"
-    su_cmd() { eval "$@" || return 1; }
-  elif [ "$(builtin type -P gosu)" ]; then
-    su_cmd_bin="gosu $SERVICE_USER"
-    su_cmd() { gosu $SERVICE_USER "$@" || return 1; }
-  elif [ "$(builtin type -P su)" ]; then
-    su_cmd_bin="su -s /bin/sh - $SERVICE_USER"
-    su_cmd() { su -s /bin/sh - $SERVICE_USER -c "$@" || return 1; }
-  elif [ "$(builtin type -P runuser)" ]; then
-    su_cmd_bin="runuser -u $SERVICE_USER"
-    su_cmd() { runuser -u $SERVICE_USER "$@" || return 1; }
-  elif [ "$(builtin type -P sudo)" ]; then
-    su_cmd_bin="sudo -u $SERVICE_USER"
-    su_cmd() { sudo -u $SERVICE_USER "$@" || return 1; }
-  else
-    echo "Can not switch to $SERVICE_USER"
-    exit 10
-  fi
-  if [ -n "$WORKDIR" ] && [ -n "$SERVICE_USER" ]; then
-    echo "Fixing file permissions"
-    su_cmd chown -Rf $SERVICE_USER $WORKDIR
-    sleep 1
-  fi
-  echo "Starting service: $EXEC_CMD_BIN $EXEC_CMD_ARGS"
-  SERVICE_IS_RUNNING="true"
-  su_cmd "touch /tmp/$EXEC_CMD_BIN.pid"
-  su_cmd "$EXEC_CMD_BIN $EXEC_CMD_ARGS" || echo "Failed to execute: $EXEC_CMD_BIN $EXEC_CMD_ARGS"
-  [ "$?" -ne 0 ] && SERVICE_IS_RUNNING="false" && SERVICE_EXIT_CODE=10 && rm -Rf "/tmp/$EXEC_CMD_BIN.pid"
-  return $SERVICE_EXIT_CODE
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_mta() {
@@ -330,9 +267,9 @@ POSTGRES_CONFIG_FILE="${POSTGRES_CONFIG_FILE:-$(__find_pgsql_conf)}"
 export -f __cd __ps __curl __netstat __find __pcheck __pgrep __get_ip6
 export -f __get_ip4 __show_procs __listening create-ssl-cert __certbot
 export -f __create_env __run_backup __exec_command __heath_check __start_init_scripts
-export -f __start_all_services __exec_service_start __setup_mta __exec_pre_start
-export -f __create_service_user __start_message __replace __find_php_bin __find_php_ini
-export -f __find_nginx_conf __find_httpd_conf __find_lighttpd_conf __find_mysql_conf
+export -f __setup_mta __exec_pre_start __create_service_user __start_message
+export -f __replace __find_php_bin __find_php_ini __find_nginx_conf
+export -f __find_httpd_conf __find_lighttpd_conf __find_mysql_conf
 export -f __find_pgsql_conf
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # export variables

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-PATH="/usr/local/share/casjaysdev/bin:$PATH"
+export PATH="/usr/local/share/casjaysdev/bin:/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run trap command on exit
-trap -- 'retVal=$?;[ "$SERVICE_IS_RUNNING" != "true" ] && [ -f "/tmp/$EXEC_CMD_BIN.pid" ] && rm -Rf "/tmp/$EXEC_CMD_BIN.pid";exit $retVal' SIGINT SIGTERM ERR EXIT
+trap -- 'retVal=$?;[ "$SERVICE_IS_RUNNING" != "true" ] && [ -f "/tmp/$EXEC_CMD_BIN.pid" ] && rm -Rf "/tmp/$EXEC_CMD_BIN.pid";exit $retVal' SIGINT SIGTERM EXIT
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # https://www.gnu.org/software/bash/manual/html_node/The-Set-Builtin.html
-[ "$DEBUGGER" = "on" ] && echo "Enabling debugging" && set -o pipefail -x$DEBUGGER_OPTIONS || set -Eeo pipefail
+[ "$DEBUGGER" = "on" ] && echo "Enabling debugging" && set -o pipefail -x$DEBUGGER_OPTIONS || set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # import the functions file
 if [ -f "/usr/local/share/casjaysdev/functions/entrypoint.sh" ]; then
@@ -29,13 +29,33 @@ SERVICE_EXIT_CODE=0                       # default exit code
 # use this function to update config files - IE: change port
 __update_conf_files() {
   # __replace "FROM" "TO" "FILE"
-  # __setup_ssl "/config/apache2/httpd.ssl.conf" "/config/apache2/httpd.conf"
+  __replace "SERVER_PORT" "$SERVER_PORT" "/etc/nginx/nginx.conf"
+  __replace "SERVER_PORT" "$SERVER_PORT" "/etc/nginx/vhosts.d/nginx.conf"
+  __replace "SERVERNAME" "${SERVERNAME:-HOSTNAME}" "/etc/apache2/httpd.conf"
+  __replace "SERVER_PORT" "Listen ${SERVICE_PORT:-80}" "/etc/apache2/httpd.conf"
+  __replace "SERVERADMIN" "${HOSTADMIN:-root@$SERVERNAME}" "/etc/apache2/httpd.conf"
+  __replace "SERVER_PORT" "${SERVICE_PORT:-80}" "/etc/apache2/vhosts.d/default.conf"
   return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup webserver ssl
+__setup_ssl() {
+  local ssl_conf=""
+  if [ "$SSL_ENABLED" = "true" ]; then
+    __file_copy "/config/nginx/nginx.ssl.conf" "/etc/nginx/nginx.ssl.conf"
+    __file_copy "/config/apache2/httpd.ssl.conf" "/etc/apache2/httpd.conf"
+    __file_copy "/config/apache2/vhosts.d/default.ssl.conf" "/etc/apache2/vhosts.d/default.ssl.conf"
+  else
+    for ssl_conf in "/etc/nginx/nginx.ssl.conf" "/config/apache2/httpd.ssl.conf" "/etc/apache2/vhosts.d/default.ssl.conf"; do
+      [ -n "$ssl_conf" ] && [ -f "$ssl_conf" ] && rm -Rf "${ssl_conf:?}"
+    done
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # function to run before executing
 __pre_execute() {
   __create_service_user "$SERVICE_USER" "${SERVICE_UID:-$SERVICE_PORT}"
+
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # import variables
@@ -66,6 +86,7 @@ fi
 [ -n "$WORKDIR" ] && mkdir -p "$WORKDIR" && __cd "$WORKDIR" && echo "Changed to $PWD"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Updating config files
+__setup_ssl
 __update_conf_files
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run the pre execute commands
@@ -80,15 +101,15 @@ if [ "$SERVICE_USER" = "root" ] || [ -z "$SERVICE_USER" ]; then
 elif [ "$(builtin type -P gosu)" ]; then
   su_cmd_bin="gosu $SERVICE_USER"
   su_cmd() { gosu $SERVICE_USER "$@" || return 1; }
-elif [ "$(builtin type -P su)" ]; then
-  su_cmd_bin="su -s /bin/sh - $SERVICE_USER"
-  su_cmd() { su -s /bin/sh - $SERVICE_USER -c "$@" || return 1; }
 elif [ "$(builtin type -P runuser)" ]; then
   su_cmd_bin="runuser -u $SERVICE_USER"
   su_cmd() { runuser -u $SERVICE_USER "$@" || return 1; }
 elif [ "$(builtin type -P sudo)" ]; then
   su_cmd_bin="sudo -u $SERVICE_USER"
   su_cmd() { sudo -u $SERVICE_USER "$@" || return 1; }
+elif [ "$(builtin type -P su)" ]; then
+  su_cmd_bin="su -s /bin/sh - $SERVICE_USER"
+  su_cmd() { su -s /bin/sh - $SERVICE_USER -c "$@" || return 1; }
 else
   echo "Can not switch to $SERVICE_USER"
   exit 10
@@ -96,10 +117,9 @@ fi
 if [ -n "$WORKDIR" ] && [ -n "$SERVICE_USER" ]; then
   echo "Fixing file permissions"
   su_cmd chown -Rf $SERVICE_USER $WORKDIR
-  sleep 1
 fi
 echo "Starting service: $EXEC_CMD_BIN $EXEC_CMD_ARGS"
-SERVICE_IS_RUNNING="true"
+sleep 30 && SERVICE_IS_RUNNING="true"
 su_cmd "touch /tmp/$EXEC_CMD_BIN.pid"
 su_cmd "$EXEC_CMD_BIN $EXEC_CMD_ARGS" || echo "Failed to execute: $EXEC_CMD_BIN $EXEC_CMD_ARGS"
 [ "$?" -ne 0 ] && SERVICE_IS_RUNNING="false" && SERVICE_EXIT_CODE=10 && rm -Rf "/tmp/$EXEC_CMD_BIN.pid"

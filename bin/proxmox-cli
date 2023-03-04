@@ -320,11 +320,6 @@ __get_status() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_spice_file() {
-  local vm_exists="$(__get_status | grep '^' || false)"
-  local vm_status="$(echo "$vm_exists" | grep -q '^status=running' && echo 'on' || echo "off")"
-  local vm_name="$(echo "$vm_exists" | grep '^name=' | awk -F '=' '{print $2}' | grep '^' || echo "$PROXMOX_CLI_DEFAULT_MACHINE")"
-  local url_lxc="https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/spiceconfig/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/lxc"
-  local url_qemu="https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/spiceconfig/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/qemu"
   if [ -z "$vm_exists" ]; then
     printf_exit "$vm_name does not exist"
   elif [ "$vm_status" = "off" ]; then
@@ -341,7 +336,6 @@ __get_spice_file() {
     fi
   fi
   if [ "$vm_status" = "on" ]; then
-    printf_cyan "Initializing the connection to $vm_name ($PROXMOX_CLI_DEFAULT_MACHINE)"
     __save_spice_file "$url_qemu" || __save_spice_file "$url_lxc"
     return $?
   else
@@ -379,6 +373,78 @@ __run_spice_viewer() {
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_nodes() {
+  local logdir="$PROXMOX_CLI_TEMP_DIR"
+  local USERNAME="$PROXMOX_CLI_DEFAULT_USERNAME"
+  local PASSWORD="$PROXMOX_CLI_DEFAULT_PASSWORD"
+  local FORMAT="${PROXMOX_CLI_NODE_FORMAT:-json}"
+  local TOKEN=$(curl -s -k --data-urlencode "username=$USERNAME" --data-urlencode "password=$PASSWORD" https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/access/ticket | jq -r .data.ticket)
+  if [ "${PIPESTATUS[0]}" != "0" ]; then
+    echo Auth failed
+    exit 1
+  fi
+  function csv() {
+    echo $VMID,$NODE,$1,$NAME,$HWADDR,$IP
+  }
+  function start_csv() {
+    echo vmid,node,type,name,mac,ip
+  }
+  function end_csv() {
+    echo -n
+  }
+  function json() {
+    if [ "$2" != "0" ]; then
+      echo ","
+    fi
+    echo "{"
+    echo "\"vmid\": \"$VMID\","
+    echo "\"node\": \"$NODE\","
+    echo "\"type\": \"$1\","
+    echo "\"name\": \"$NAME\","
+    echo "\"mac\": \"$HWADDR\","
+    echo "\"ip\": \"$IP\""
+    echo -n "}"
+  }
+  function start_json() {
+    echo "["
+  }
+  function end_json() {
+    echo "]"
+  }
+  start_$FORMAT
+  POS=0
+  NODES=$(curl -s -k https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes -b "PVEAuthCookie=$TOKEN" | jq -r '.data[].node')
+  for NODE in $(echo $NODES); do
+    curl -s -k https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$NODE/lxc -b "PVEAuthCookie=$TOKEN" >$logdir/proxvm-lxc.json
+    curl -s -k https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$NODE/qemu -b "PVEAuthCookie=$TOKEN" >$logdir/proxvm-qemu.json
+    for VMID in $(cat $logdir/proxvm-lxc.json | jq -r '.data[].vmid'); do
+      curl -s -k https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$NODE/lxc/$VMID/config -b "PVEAuthCookie=$TOKEN" >$logdir/proxvm-$VMID.json
+      JSON=$(cat $logdir/proxvm-lxc.json | jq -r ".data[] | select(.vmid | tonumber | contains($VMID))")
+      NAME=$(echo $JSON | jq -r .name)
+      NET=$(cat $logdir/proxvm-$VMID.json | jq -r .data.net0)
+      HWADDR=$(echo $NET | sed -re "s/.*hwaddr=([a-zA-Z0-9:]+),[a-zA-Z0-9]+=.*/\1/g")
+      IP=$(arp -a | grep $HWADDR | sed -re "s/.*\(([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+).*/\1/g")
+      $FORMAT lxc $POS
+      POS=$(expr $POS + 1)
+    done
+    for VMID in $(cat $logdir/proxvm-qemu.json | jq -r '.data[].vmid'); do
+      curl -s -k https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$NODE/qemu/$VMID/config -b "PVEAuthCookie=$TOKEN" >$logdir/proxvm-$VMID.json
+      JSON=$(cat $logdir/proxvm-qemu.json | jq -r ".data[] | select(.vmid | tonumber | contains($VMID))")
+      NAME=$(echo $JSON | jq -r .name)
+      NET=$(cat $logdir/proxvm-$VMID.json | jq -r .data.net0)
+      HWADDR=$(echo $NET | sed -re "s/[a-zA-Z0-9]+=([a-zA-Z0-9:]+),.*/\1/g")
+      IP=$(arp -a | grep $HWADDR | sed -re "s/.*\(([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+).*/\1/g")
+      $FORMAT qemu $POS
+      POS=$(expr $POS + 1)
+    done
+  done
+
+  end_$FORMAT
+  cat $logdir/proxvm-*.json | jq -rc '.'
+  rm $logdir/proxvm-*.json
+  exit
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_curl() {
   DATA="${1:-$DATA}"
   FILENAME="${2:-$FILENAME}"
@@ -390,7 +456,13 @@ __run_curl() {
   CSRF="${CSRF##*CSRFPreventionToken:}"
   CSRF="${CSRF%%,*}"
   CSRF="${CSRF%%\}*}"
+  url_lxc="https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/spiceconfig/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/lxc"
+  url_qemu="https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/spiceconfig/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/qemu"
   if [ -n "$CSRF" ]; then
+    vm_exists="$(__get_status | grep '^' || false)"
+    vm_status="$(echo "$vm_exists" | grep -q '^status=running' && echo 'on' || echo "off")"
+    vm_name="$(echo "$vm_exists" | grep '^name=' | awk -F '=' '{print $2}' | grep '^' || echo "$PROXMOX_CLI_DEFAULT_MACHINE")"
+    printf_cyan "Initializing the connection to $vm_name ($PROXMOX_CLI_DEFAULT_MACHINE)"
     if [ -n "$PROXMOX_CLI_GET_CONFIG" ]; then
       __get_config || printf_exit "Failed to get the configuration for $PROXMOX_CLI_DEFAULT_MACHINE"
       exit $?
@@ -512,6 +584,7 @@ __get_serverport() {
 __initialize_app() {
   while :; do
     case "$1" in
+    nodes) __get_nodes && shift 1 ;;
     ssh) PROXMOX_CLI_SSH_IP="true" && shift 1 ;;
     reset) PROXMOX_CLI_FORCE="true" && shift 1 ;;
     web) shift 1 && __open_web && exit 0 || exit 1 ;;

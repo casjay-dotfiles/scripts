@@ -1,23 +1,37 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
 __cd() { [ -d "$1" ] && builtin cd "$1" || return 1; }
 __ps() { [ -f "$(type -P ps)" ] && ps "$@" || return 10; }
-__curl() { curl -q -LSsf -o /dev/null "$@" &>/dev/null || return 10; }
 __netstat() { [ -f "$(type -P netstat)" ] && netstat "$@" || return 10; }
+__curl() { curl -q -sfI --max-time 3 -k -o /dev/null "$@" &>/dev/null || return 10; }
 __find() { find "$1" -mindepth 1 -type ${2:-f,d} 2>/dev/null | grep '^' || return 10; }
 __pcheck() { [ -n "$(which pgrep 2>/dev/null)" ] && pgrep -x "$1" &>/dev/null || return 10; }
 __pgrep() { __pcheck "${1:-GEN_SCRIPT_REPLACE_APPNAME}" || __ps aux 2>/dev/null | grep -Fw " ${1:-$GEN_SCRIPT_REPLACE_APPNAME}" | grep -qv ' grep' || return 10; }
 __get_ip6() { ip a 2>/dev/null | grep -w 'inet6' | awk '{print $2}' | grep -vE '^::1|^fe' | sed 's|/.*||g' | head -n1 | grep '^' || echo ''; }
 __get_ip4() { ip a 2>/dev/null | grep -w 'inet' | awk '{print $2}' | grep -vE '^127.0.0' | sed 's|/.*||g' | head -n1 | grep '^' || echo '127.0.0.1'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__replace() {
+  sed -i 's|'$1'|'$2'|g' "$3" &>/dev/null
+  if grep -s -qw "$2" "$3"; then
+    printf '%s\n' "Changed $1 to $2 in $3"
+    return 0
+  else
+    printf '%s\n' "Failed to change $1 in $3"
+    return 10
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_service_user() {
   local create_user="$1" create_gid="$1"
+  local home_dir="/opt/$create_user" set_home_dir=""
   [ -n "$SERVICE_USER" ] || return 0
   if ! grep -q "$create_user" "/etc/passwd"; then
     echo "creating system user $create_user"
     addgroup -g ${create_gid} -S $create_user &>/dev/null
-    adduser -u ${create_gid} -D -h /opt/$create_user -g $create_user $create_user &>/dev/null
-    grep -q "$create_user" "/etc/passwd" "/etc/groups" && return 0 || return 1
+    adduser -u ${create_gid} -D -h "$home_dir" -g $create_user $create_user &>/dev/null
+    grep -q "$create_user" "/etc/passwd" "/etc/groups" && set_home_dir="$home_dir" && exitStatus=0 || exitStatus=0
   fi
+  export HOMEDIR="${set_home_dir:-$HOME}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __show_procs() {
@@ -132,10 +146,11 @@ __exec_command() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __heath_check() {
   local healthStatus=0
-  local healthMessage="Everything seems to be running"
   local ports="${WEB_SERVER_PORTS:-}"
   local services="${SERVICES_LIST:-$@}"
   local healthEnabled="${HEALTH_ENABLED:-}"
+  local healthMessage="Everything seems to be running"
+  services="${services//,/ }"
   for proc in $services; do
     if [ -n "$proc" ]; then
       if ! __pgrep "$proc"; then
@@ -268,7 +283,7 @@ export -f __cd __ps __curl __netstat __find __pcheck __pgrep __get_ip6
 export -f __get_ip4 __show_procs __listening create-ssl-cert __certbot
 export -f __create_env __run_backup __exec_command __heath_check __start_init_scripts
 export -f __start_all_services __exec_service_start __setup_mta __exec_pre_start
-export -f __create_service_user __start_message
+export -f __create_service_user __start_message __replace
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # set variables from function calls
 CONTAINER_IP4_ADDRESS="${CONTAINER_IP4_ADDRESS:-$(__get_ip4)}"

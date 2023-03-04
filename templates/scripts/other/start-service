@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run trap command on exit
-trap -- 'retVal=$?;[ -f "/tmp/$EXEC_CMD_BIN.pid" ] && rm -Rf "/tmp/$EXEC_CMD_BIN.pid";exit $retVal' SIGINIT SIGTERM ERR EXIT
+trap -- 'retVal=$?;[ "$SERVICE_IS_RUNNING" != "true" ] && [ -f "/tmp/$EXEC_CMD_BIN.pid" ] && rm -Rf "/tmp/$EXEC_CMD_BIN.pid";exit $retVal' SIGINIT SIGTERM ERR EXIT
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # https://www.gnu.org/software/bash/manual/html_node/The-Set-Builtin.html
 [ "$DEBUGGER" = "on" ] && echo "Enabling debugging" && set -o pipefail -x$DEBUGGER_OPTIONS || set -Eeuo pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # execute command options
+WORKDIR=""                                # change to directory
 SERVICE_USER=""                           # execute command as another user
 SERVICE_UID=""                            # set the user id
 SERVICE_PORT=""                           # port which service is listening on
@@ -14,6 +15,13 @@ EXEC_CMD_BIN="GEN_SCRIPT_REPLACE_APPNAME" # command to execute
 EXEC_CMD_ARGS=" "                         # command arguments
 PRE_EXEC_MESSAGE=""                       # Show message before execute
 SERVICE_EXIT_CODE=0                       # default exit code
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# use this function to update config files - IE: change port
+__update_conf_files() {
+  # __replace "FROM" "TO" "FILE"
+
+  return $?
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # function to run before executing
 __pre_execute() {
@@ -37,6 +45,7 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # check if process is already running
 if __pgrep "$EXEC_CMD_BIN"; then
+  SERVICE_IS_RUNNING="true"
   echo "$EXEC_CMD_BIN is running"
   exit 0
 fi
@@ -44,25 +53,36 @@ fi
 # show message if env exists
 [ -n "$SERVICE_USER" ] && echo "Setting up service to run as $SERVICE_USER"
 [ -n "$SERVICE_PORT" ] && echo "$SERVICE_NAME will be running on $SERVICE_PORT"
-[ -n "$PRE_EXEC_MESSAGE" ] && echo "$PRE_EXEC_MESSAGE"
+[ -n "$WORKDIR" ] && mkdir -p "$WORKDIR" && __cd "$WORKDIR" && echo "Changed to $PWD"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Updating config files
+__update_conf_files
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run the pre execute commands
+[ -n "$PRE_EXEC_MESSAGE" ] && echo "$PRE_EXEC_MESSAGE"
 __pre_execute
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+WORKDIR="${WORKDIR:-$HOME}"
 if [ "$SERVICE_USER" = "root" ] || [ -z "$SERVICE_USER" ]; then
+  su_cmd="eval"
   su_cmd() { eval "$@" || return 1; }
 elif [ "$(builtin type -P gosu)" ]; then
+  sudo_cmd="gosu $SERVICE_USER"
   su_cmd() { gosu $SERVICE_USER "$@" || return 1; }
 elif [ "$(builtin type -P su)" ]; then
+  sudo_cmd="su -s /bin/sh - $SERVICE_USER"
   su_cmd() { su -s /bin/sh - $SERVICE_USER -c "$@" || return 1; }
 elif [ "$(builtin type -P runuser)" ]; then
+  sudo_cmd="runuser -u $SERVICE_USER"
   su_cmd() { runuser -u $SERVICE_USER "$@" || return 1; }
 elif [ "$(builtin type -P sudo)" ]; then
+  sudo_cmd="sudo -u $SERVICE_USER"
   su_cmd() { sudo -u $SERVICE_USER "$@" || return 1; }
 else
   echo "Can not switch to $SERVICE_USER"
   exit 10
 fi
+echo "Fixing file permissions"
 sleep 30
 echo "Starting service: $EXEC_CMD_BIN $EXEC_CMD_ARGS"
 su_cmd "touch /tmp/$EXEC_CMD_BIN.pid"

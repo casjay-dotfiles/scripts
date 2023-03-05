@@ -478,74 +478,11 @@ __create_start_script() {
   local rootfs_dir="${dir:-${GEN_DOCKERFILE_CWD:-$PWD}}/rootfs"
   local init_dir="${init_dir:-$rootfs_dir/usr/local/etc/docker/init.d}"
   local script_file="$init_dir/$script_filename"
-  printf_cyan "Creating the startup script for $script_filename"
+  local mess="startup script"
+  [ "$script_filename" = "service.sample" ] && mess="example start script"
+  printf_cyan "Creating the $mess for $script_filename"
   [ -d "$init_dir" ] || mkdir -p "$init_dir"
-  cat <<EOF | tee "$script_file" &>/dev/null
-#!/usr/bin/env bash
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# run trap command on exit
-trap -- 'retVal=\$?; [ -f "/tmp/\$EXEC_CMD.pid" ] && rm -Rf "/tmp/\$EXEC_CMD.pid";exit \$retVal' SIGINIT SIGTERM ERR EXIT
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# https://www.gnu.org/software/bash/manual/html_node/The-Set-Builtin.html
-[ "\$DEBUGGER" = "on" ] && echo "Enabling debugging" && set -o pipefail -x\$DEBUGGER_OPTIONS || set -o pipefail
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# execute command options
-EXEC_CMD="$script_filename"                 # command to execute
-SERVICE_ARGS=""                             # command arguments
-SERVICE_USER=""                             # execute command as another user
-PRE_EXEC_MESSAGE=""                         # Show message before execute
-SERVICE_EXIT_CODE=0                         # default exit code
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# function to run before executing
-__pre_execute() {
-  return
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# import variables
-[ -f "/root/env.sh" ] && . "/root/env.sh"
-[ -f "/config/env.sh" ] && . "/config/env.sh"
-[ -f "/config/env/\$EXEC_CMD" ] && . "/config/env/\$EXEC_CMD"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# check is process is already running
-__pcheck() { [ -n "\$(type -P pgrep 2>/dev/null)" ] && pgrep -x "\$1" &>/dev/null && return 0 || return 10; }
-__pgrep() { __pcheck "\${1:-EXEC_CMD}" || __ps aux 2>/dev/null | grep -Fw " \${1:-\$EXEC_CMD}" | grep -qv ' grep' | grep '^' && return 0 || return 10; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ ! -f "\$(type -P "\$EXEC_CMD")" ] && [ -z "\$EXEC_CMD" ]; then
-echo "\$EXEC_CMD is not a valid command"
-exit 2
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if __pgrep "\$EXEC_CMD"; then
-echo "\$EXEC_CMD is running"
-exit 0
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-echo "Setting up service to run as \$SERVICE_USER"
-if [ "\$SERVICE_USER" = "root" ] || [ -z "\$SERVICE_USER" ]; then
-  su_cmd() { eval "\$@" || return 1; }
-elif [ "\$(builtin type -P gosu)" ]; then
-  su_cmd() { gosu \$SERVICE_USER "\$@" || return 1; }
-elif [ "\$(builtin type -P su)" ]; then
-  su_cmd() { su -s /bin/sh - \$SERVICE_USER -c "\$@" || return 1; }
-elif [ "\$(builtin type -P runuser)" ]; then
-  su_cmd() { runuser -u \$SERVICE_USER "\$@" || return 1; }
-elif [ "\$(builtin type -P sudo)" ]; then
-  su_cmd() { sudo -u \$SERVICE_USER "\$@" || return 1; }
-else
-  echo "Can not switch to \$SERVICE_USER"
-  exit 10
-fi
-sleep 30
-[ -n "\$PRE_EXEC_MESSAGE" ] && echo "\$PRE_EXEC_MESSAGE"
-__pre_execute
-echo "Starting service: \$EXEC_CMD \$CMD_ARGS"
-su_cmd "touch /tmp/\$EXEC_CMD.pid"
-su_cmd "\$EXEC_CMD \$CMD_ARGS" || echo "Failed to execute: \$EXEC_CMD \$CMD_ARGS"
-[ "\$?" -ne 0 ] && SERVICE_EXIT_CODE=10 && rm -Rf "/tmp/\$EXEC_CMD.pid"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-exit \$SERVICE_EXIT_CODE
-
-EOF
+  gen-script other start-service --name $script_filename $init_dir &>/dev/null
   [ -f "$script_file" ] && printf_cyan "Created $script_file"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -563,6 +500,7 @@ SERVICE_USER="\${SERVICE_USER:-root}"
 BACKUP_DIR="\${BACKUP_DIR:-/data/backups}"
 WWW_ROOT_DIR="\${WWW_ROOT_DIR:-/data/htdocs}"
 LOCAL_BIN_DIR="\${LOCAL_BIN_DIR:-/usr/local/bin}"
+DATABASE_BASE_DIR="\${DATABASE_BASE_DIR:-/data/db}"
 DEFAULT_DATA_DIR="\${DEFAULT_DATA_DIR:-/usr/local/share/template-files/data}"
 DEFAULT_CONF_DIR="\${DEFAULT_CONF_DIR:-/usr/local/share/template-files/config}"
 DEFAULT_TEMPLATE_DIR="\${DEFAULT_TEMPLATE_DIR:-/usr/local/share/template-files/defaults}"
@@ -621,8 +559,12 @@ HTTPD_CONFIG_FILE="\${HTTPD_CONFIG_FILE:-\$(__find_httpd_conf)}"
 NGINX_CONFIG_FILE="\${NGINX_CONFIG_FILE:-\$(__find_nginx_conf)}"
 LIGHTTPD_CONFIG_FILE="\${LIGHTTPD_CONFIG_FILE:-\$(__find_lighttpd_conf)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# redis env
+  DATABASE_DIR_REDIS="\${DATABASE_DIR_REDIS:-\$DATABASE_BASE_DIR/redis}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # postgresql env
-PGDATA="\${DATABASE_DIR_PGSQL:-\$PGDATA}"
+DATABASE_DIR_PGSQL="\${DATABASE_DIR_PGSQL:-\$PGDATA}"
+PGDATA="\${DATABASE_DIR_PGSQL:-\$DATABASE_BASE_DIR/pgsql}"
 POSTGRES_USER="\${DATABASE_USER_ROOT:-\$POSTGRES_USER}"
 POSTGRES_PASSWORD="\${DATABASE_PASS_ROOT:-\$POSTGRES_PASSWORD}"
 POSTGRES_CONFIG_FILE="\${POSTGRES_CONFIG_FILE:-\$(__find_pgsql_conf)}"
@@ -633,6 +575,7 @@ MARIADB_AUTO_UPGRADE="\${MARIADB_AUTO_UPGRADE:-yes}"
 MARIADB_DATABASE="\${DATABASE_CREATE:-\$MARIADB_DATABASE}"
 MARIADB_USER="\${DATABASE_USER_NORMAL:-\$MARIADB_USER}"
 MARIADB_PASSWORD="\${DATABASE_PASS_NORMAL:-\$MARIADB_PASSWORD}"
+DATABASE_DIR_MARIADB="\${DATABASE_DIR_MARIADB:-\$DATABASE_BASE_DIR/mysql}"
 MARIADB_ROOT_PASSWORD="\${DATABASE_PASS_ROOT:-\$MARIADB_ROOT_PASSWORD}"
 MARIADB_ALLOW_EMPTY_ROOT_PASSWORD="\${MARIADB_ALLOW_EMPTY_ROOT_PASSWORD:-}"
 MARIADB_INITDB_SKIP_TZINFO="\${MARIADB_INITDB_SKIP_TZINFO}:-"
@@ -641,14 +584,20 @@ MARIADB_CONFIG_FILE="\${MARIADB_CONFIG_FILE:-\$(__find_mysql_conf)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # mongodb env
 NITDB_ROOT_USERNAME="\${DATABASE_USER_ROOT:-\$NITDB_ROOT_USERNAME}"
+DATABASE_DIR_MONGODB="\${DATABASE_DIR_MONGODB:-\$DATABASE_BASE_DIR/mongodb}"
 MONGO_INITDB_ROOT_PASSWORD="\${DATABASE_PASS_ROOT:-\$MONGO_INITDB_ROOT_PASSWORD}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # couchdb env
+NODENAME="\${NODENAME:-}"
 COUCHDB_USER="\${DATABASE_USER_ROOT:-\$COUCHDB_USER}"
 COUCHDB_PASSWORD="\${DATABASE_PASS_ROOT:-\$COUCHDB_PASSWORD}"
-NODENAME="\${NODENAME:-}"
+DATABASE_DIR_COUCHDB="\${DATABASE_DIR_COUCHDB:-\$DATABASE_BASE_DIR/couchdb}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Supabase
+DATABASE_DIR_SUPABASE="\${DATABASE_DIR_SUPABASE:-\$DATABASE_BASE_DIR/supabase}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # other
+INIT_DATE="\${INIT_DATE:-\$(date)}
 ENTRYPOINT_MESSAGE="\${ENTRYPOINT_MESSAGE:-no}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
@@ -2001,7 +1950,6 @@ while :; do
     [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' 4
     [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
     [ -z "$LIST" ] || __list_options "Base Options" "${LIST}" ',' '' 4
-    echo ""
     exit $?
     ;;
   --version)

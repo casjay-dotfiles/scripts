@@ -32,7 +32,12 @@ else
   exit 1
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Define default variables
+# import variables from files
+for set_env in "/usr/local/share/casjaysdev/env"/* "/root/env.sh" "/config/env.sh" "/config/env"/*; do
+  [ -f "$set_env" ] && . "$set_env"
+done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Define script variables
 SERVICE_USER="root"   # execute command as another user
 SERVICE_UID="0"       # set the user id for creation of user
 SERVICE_PORT=""       # specifiy port which service is listening on
@@ -61,12 +66,10 @@ __run_pre() {
     true
   fi # end run on start
   # Run everytime container starts
-  __replace "SERVER_PORT" "$SERVER_PORT" "/etc/nginx/nginx.conf"
-  __replace "SERVER_PORT" "$SERVER_PORT" "/etc/nginx/vhosts.d/nginx.conf"
-  __replace "SERVER_NAME" "${SERVER_NAME:-HOSTNAME}" "/etc/apache2/httpd.conf"
-  __replace "SERVER_PORT" "Listen ${SERVICE_PORT:-80}" "/etc/apache2/httpd.conf"
-  __replace "SERVER_ADMIN" "${SERVER_ADMIN:-root@$SERVER_NAME}" "/etc/apache2/httpd.conf"
-  __replace "SERVER_PORT" "${SERVICE_PORT:-80}" "/etc/apache2/vhosts.d/default.conf"
+  # __init_apache
+  # __init_nginx
+  # __init_mysql
+  # __init_php
   # end
   return 0
 }
@@ -102,11 +105,6 @@ mkdir -p "/run" && chmod -f 755 "/run"
 mkdir -p "/tmp" && chmod -f 755 "/tmp"
 mkdir -p "/root" && chmod -f 700 "/root"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# import variables from files
-for set_env in "/usr/local/share/casjaysdev/env"/* "/root/env.sh" "/config/env.sh" "/config/env"/*; do
-  [ -f "$set_env" ] && . "$set_env"
-done
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Create the default env files
 __create_env "/root/env.sh" "/config/env.sh" &>/dev/null
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -114,9 +112,10 @@ __create_env "/root/env.sh" "/config/env.sh" &>/dev/null
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check if this is a new container
 DATA_DIR_INITIALIZED="false" CONFIG_DIR_INITIALIZED="false" START_SERVICES="yes"
-[ -f "/run/entrypoint.pid" ] && START_SERVICES="" && ENTRYPOINT_MESSAGE="yes"
+[ -f "/run/entrypoint.init.pid" ] && START_SERVICES="" && ENTRYPOINT_MESSAGE="yes"
 [ -f "/data/.docker_has_run" ] && DATA_DIR_INITIALIZED="true" && ENTRYPOINT_MESSAGE="yes"
 [ -f "/config/.docker_has_run" ] && CONFIG_DIR_INITIALIZED="true" && ENTRYPOINT_MESSAGE="yes"
+export DATA_DIR_INITIALIZED CONFIG_DIR_INITIALIZED START_SERVICES
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show start message
 if [ "$CONFIG_DIR_INITIALIZED" = "false" ] || [ "$DATA_DIR_INITIALIZED" = "false" ]; then
@@ -187,7 +186,7 @@ if [ -n "$SET_USR_BIN" ]; then
       fi
     fi
   done
-  unset create_bin_template create_bin_name
+  unset create_bin_template create_bin_name SET_USR_BIN
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Copy default config
@@ -276,18 +275,14 @@ if [ -d "$DEFAULT_DATA_DIR/htdocs/www" ] && [ ! -d "$WWW_ROOT_DIR" ]; then
   [ -f "$WWW_ROOT_DIR/htdocs/www/server-health" ] || echo "OK" >"$WWW_ROOT_DIR/htdocs/www/server-health"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-[ -f "/data/.docker_has_run" ] || { [ -d "/data" ] && echo "Initialized on: $(date)" >"/data/.docker_has_run"; }
-[ -f "/config/.docker_has_run" ] || { [ -d "/config" ] && echo "Initialized on: $(date)" >"/config/.docker_has_run"; }
+[ -f "/data/.docker_has_run" ] || { [ -d "/data" ] && echo "Initialized on: $INIT_DATE" >"/data/.docker_has_run"; }
+[ -f "/config/.docker_has_run" ] || { [ -d "/config" ] && echo "Initialized on: $INIT_DATE" >"/config/.docker_has_run"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Create the backup dir
 [ -n "$BACKUP_DIR" ] && [ -d "$BACKUP_DIR" ] || mkdir -p "$BACKUP_DIR"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # setup the smtp server
 __setup_mta
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Unset unneeded variables
-unset SET_USR_BIN create_bin create_bin_name create_template create_template_name
-unset create_data create_data_name create_config create_config_name create_conf create_conf_name
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_ssl
 __run_pre
@@ -305,18 +300,19 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Just start services
 START_SERVICES="${START_SERVICES:-SYSTEM_INIT}"
-if [ "$START_SERVICES" = "yes" ] && [ ! -f "/run/entrypoint.pid" ]; then
-  echo "$$" >"/run/entrypoint.pid"
+if [ "$START_SERVICES" = "yes" ] && [ ! -f "/run/entrypoint.init.pid" ]; then
+  echo "$$" >"/run/entrypoint.init.pid"
   __start_init_scripts "/usr/local/etc/docker/init.d" || {
     exec ${SHELL:-bash} -l
   }
+  tail -f /dev/std*
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Begin options
 case "$1" in
 --help) # Help message
   echo 'Docker container for '$APPNAME''
-  echo "Usage: $APPNAME [healthcheck, ports, procs, bash, certbot, backup,  command]"
+  echo "Usage: $APPNAME [healthcheck, ports, procs, bash, certbot, backup, command]"
   echo "Failed command will have exit code 10"
   echo ""
   exit 0

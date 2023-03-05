@@ -394,25 +394,6 @@ __check_header() {
   grep -s ^'.*##@Version.*:' "${command:-$filename}" 2>/dev/null | grep -Ev '${.*}|\$|GEN_SCRIPT_' | head -n1 | grep -q '^' || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#__update_header "$file" "$search" "$replace"
-__update_header() {
-  local filename="$1"
-  local headerfield="$2"
-  local replace="$3"
-  if __grep -q; then
-    local search="$(__grep | head -n1 | awk -F': ' '{print $2}' | grep '^')"
-    if [ -z "$search" ]; then
-      search="$(__grep)"
-      replace="$search$replace"
-    fi
-    __sed "$search" "$replace" "$filename" &&
-      printf_green "Changed $headerfield to $replace" ||
-      printf_red "Change $headerfield to $replace has failed"
-  else
-    printf_exit "Failed to change $search to $3 pattern was not found"
-  fi
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_prev() {
   local filename="${1:-$filename}"
   local PATH="/usr/local/bin:/usr/bin:/usr/sbin:/$HOME/.local/bin"
@@ -661,13 +642,65 @@ EOF
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# "$file" "$search" "$replace"
+__update_header() {
+  local filename="$1"
+  local headerfield="$2"
+  local replace="$3"
+  local exitCode=0
+  local search="" status="" pretty_header=""
+  updateheader="$(grep -s '# @@'$headerfield'.*: ' "$filename" | head -n1 | awk -F':' '{print $1}' || echo '')"
+  updatevalue="$(grep -s '# @@'$headerfield'.*: ' "$filename" | head -n1 | awk -F':' '{print $2}' || echo 'New Value')"
+  if [ "$headerfield" = "Version" ]; then
+    __update_version "$filename"
+    return $?
+  fi
+  [ -z "$replace" ] && [ "$headerfield" = "Author" ] && replace="$GEN_HEADER_AUTHOR"
+  [ -z "$replace" ] && [ "$headerfield" = "Contact" ] && replace="$GEN_HEADER_EMAIL"
+  [ -z "$replace" ] && [ "$headerfield" = "License" ] && replace="$GEN_HEADER_DEFLICENSE"
+  [ -z "$replace" ] && [ "$headerfield" = "ReadME" ] && replace="$GEN_HEADER_DEFREADME"
+  [ -z "$replace" ] && [ "$headerfield" = "Copyright" ] && replace="$GEN_HEADER_COPYRIGHT"
+  [ -z "$replace" ] && [ "$headerfield" = "File" ] && replace="$(basename "$filename")"
+  [ -z "$replace" ] && [ "$headerfield" = "Description" ] && replace="$updatevalue"
+  [ -z "$replace" ] && [ "$headerfield" = "Changelog" ] && replace="Updated header info"
+  [ -z "$replace" ] && [ "$headerfield" = "TODO" ] && replace="Update Documentation"
+  [ -z "$replace" ] && [ "$headerfield" = "Other" ] && replace="$updatevalue"
+  [ -z "$replace" ] && [ "$headerfield" = "Resource" ] && replace="$updatevalue"
+  [ -z "$replace" ] && [ "$headerfield" = "Terminal" ] && replace="$updatevalue"
+  [ -z "$replace" ] && [ "$headerfield" = "sudo" ] && replace="$updatevalue"
+  [ -z "$replace" ] && [ "$headerfield" = "Template" ] && replace="$updatevalue"
+  [ -f "$filename" ] || printf_exit "Please provide a filename"
+  [ -n "$headerfield" ] || printf_exit "Please provide the header"
+  [ -n "$replace" ] || printf_exit "Please provide a value"
+  updateheader="$(grep -s '# @@'$headerfield'.*: ' "$filename" | head -n1 | awk -F':' '{print $1}' || echo '')"
+  if [ -n "$updateheader" ]; then
+    if [ -n "$file" ] && [ -f "$file" ]; then
+      printf_cyan "Updating $headerfield in $file"
+      sed -i "0,/# @@$headerfield.*      :.*/s||$updateheader:  $replace|" "$file" &>/dev/null
+      status="$(grep -s "$updateheader" "$file" | head -n1 | grep "$replace")"
+      pretty_header="${updateheader//# @@/}"
+      pretty_message="${pretty_header//:*/}:  $replace"
+      if [ -n "$status" ]; then
+        printf_green "Changed header to: $pretty_message"
+      else
+        printf_yellow "Failed to update header to: $pretty_message"
+        exitCode=$((1 + exitCode))
+      fi
+    fi
+  else
+    printf_red "Failed to change $search to $replace pattern was not found"
+    exitCode=$((1 + exitCode))
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __update_version() {
   local exitCode=0
   local new_version="$(date +"$GEN_HEADER_VERSIONFMT")"
   for file in "$@"; do
     if [ -n "$file" ] && [ -f "$file" ]; then
       printf_cyan "Changing version to $new_version in $file"
-      sed -i '0,/##@Version           :  .*/s//##@Version           :  '$new_version'/' "$file" 2>/dev/null
+      sed -i '0,/##@Version           :.*/s//##@Version           :  '$new_version'/' "$file" 2>/dev/null
       if ! grep -s '##@Version.*: ' "$file" | head -n1 | grep -q "$new_version"; then
         printf_yellow "Failed to update the version"
         exitCode=$((1 + exitCode))
@@ -1054,6 +1087,7 @@ folders)
   __show_message printf_pause
   exit $?
   ;;
+
 functions)
   shift 1
   [ "$1" = "u" ] && gen_header_user=true && shift 1
@@ -1063,11 +1097,12 @@ functions)
   printf_green "End of functions"
   exit $?
   ;;
+
 replace)
   shift 1
   filename="${1:-$GEN_FILENAME}"
   [ -f "$1" ] && filename="$1" || filename="$(type -P "$(basename "$filename" 2>/dev/null)")"
-  if [ $# -ne 3 ]; then
+  if [ $# -lt 2 ]; then
     printf_exit "Requires filename search replace"
   else
     __update_header "$filename" "$2" "$3"

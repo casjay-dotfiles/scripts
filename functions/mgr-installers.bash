@@ -1116,7 +1116,7 @@ dotfilesreq() {
   for conf in "${LISTARRAY[@]}"; do
     local TMPINST="$TMPDIR/${conf}.inst.tmp"
     if [ ! -d "$confdir/$conf" ] || [ ! -f "$TMPINST" ]; then
-      printf_green "Installing required $conf"
+      printf_cyan "💠 Installing required $conf 💠"
       dotfilesreqcmd "$conf"
     fi
   done
@@ -1130,7 +1130,7 @@ dotfilesreqadmin() {
   for conf in "${LISTARRAY[@]}"; do
     local TMPINST="$TMPDIR/${conf}.inst.tmp"
     if [ ! -d "$confdir/$conf" ] || [ ! -f "$TMPINST" ]; then
-      printf_green "Installing required $conf"
+      printf_cyan "💠 Installing required $conf 💠"
       dotfilesreqadmincmd "$conf"
     fi
   done

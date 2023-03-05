@@ -579,7 +579,8 @@ dotfilesreq() {
   local conf=""
   local confdir="$HOME/.local/share/CasjaysDev/apps"
   for conf in "$@"; do
-    if [ ! -f "$confdir/$conf" ]; then
+    if [ ! -d "$confdir/$conf" ] || [ ! -f "$TMPINST" ]; then
+      printf_green "Installing required $conf"
       urlverify "$REPO/$conf/raw/$GIT_DEFAULT_BRANCH/install.sh"
       bash -c "$(curl -q -LSsf $REPO/$conf/raw/$GIT_DEFAULT_BRANCH/install.sh)"
     fi
@@ -591,7 +592,8 @@ dotfilesreqadmin() {
   local conf=""
   local confdir="$HOME/.local/share/CasjaysDev/apps"
   for conf in "$@"; do
-    if [ ! -f "$confdir/$conf" ]; then
+    printf_green "Installing required $conf"
+    if [ ! -d "$confdir/$conf" ] || [ ! -f "$TMPINST" ]; then
       urlverify "$REPO/$conf/raw/$GIT_DEFAULT_BRANCH/install.sh"
       sudo bash -c "$(curl -q -LSsf $REPO/$conf/raw/$GIT_DEFAULT_BRANCH/install.sh)"
     fi

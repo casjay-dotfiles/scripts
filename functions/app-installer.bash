@@ -1099,8 +1099,10 @@ dotfilesreq() {
   local -a LISTARRAY=("$@")
   local confdir="$USRUPDATEDIR" conf=""
   for conf in "${LISTARRAY[@]}"; do
-    local TMPINST="$TMPDIR/${conf}.inst.tmp"
-    [ -d "$confdir/$conf" ] || [ -f "$TMPINST" ] || dotfilesreqcmd "$conf"
+    if [ ! -d "$confdir/$conf" ] || [ ! -f "$TMPINST" ]; then
+      printf_green "Installing required $conf"
+      dotfilesreqcmd "$conf"
+    fi
   done
   run_cleanup
 }
@@ -1110,8 +1112,12 @@ dotfilesreqadmin() {
   local confdir="$SYSUPDATEDIR"
   local conf=""
   for conf in "${LISTARRAY[@]}"; do
+    printf_green "Installing required $conf"
     local TMPINST="$TMPDIR/${conf}.inst.tmp"
-    [ -d "$confdir/$conf" ] || [ -f "$TMPINST" ] || dotfilesreqadmincmd "$conf"
+    if [ ! -d "$confdir/$conf" ] || [ ! -f "$TMPINST" ]; then
+      printf_green "Installing required $conf"
+      dotfilesreqadmincmd "$conf"
+    fi
   done
   run_cleanup
 }

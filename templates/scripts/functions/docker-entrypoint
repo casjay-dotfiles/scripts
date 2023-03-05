@@ -25,41 +25,61 @@ __find_pgsql_conf() { find -L '/var/lib' '/etc' -maxdepth 8 -type f -name 'postg
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __random_password() { cat "/dev/urandom" | tr -dc '[0-9][a-z][A-Z]@$' | head -c${1:-14} && echo ""; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__create_ssl_cert() {
-  local SSL_DIR="${1:-$SSL_DIR}"
-  local FORCE_SSL="${FORCE_SSL:-}"
-  local SSL_DIR="${SSL_DIR:-/etc/ssl/CA}"
-  local SSL_CA="${SSL_CA:-$SSL_DIR/ca.crt}"
-  local SSL_KEY="${SSL_KEY:-$SSL_DIR/server.key}"
-  local SSL_CERT="${SSL_CERT:-$SSL_DIR/server.crt}"
-  local COUNTRY="${COUNTRY:-US}"
-  local STATE="${STATE:-NW}"
-  local CITY="${CITY:-GNU}"
-  local UNIT="${UNIT:-AlpineLinux}"
-  local ORG="${ORG:-"Casjays Developments"}"
-  local CN="${CN:-localhost}"
-  local VALID_FOR="${VALID_FOR:-3650}"
-  local RSA="${RSA:-4096}"
+__setup_ssl() {
   [ -f "/config/env/ssl.sh" ] && . "/config/env/ssl.sh"
-  [ -n "$SSL_DIR" ] || { echo "SSL_DIR is unset" && return 1; }
-  [ -d "$SSL_DIR" ] || mkdir -p "$SSL_DIR"
-  if [ -n "$FORCE_SSL" ] || [ ! -f "$SSL_CERT" ] || [ ! -f "$SSL_KEY" ]; then
-    echo "Setting Country to $COUNTRY and Setting State/Province to $STATE and Setting City to $CITY"
-    echo "Setting OU to $UNIT and Setting ORG to $ORG and Setting server to $CN"
-    echo "All variables can be overwritten by creating a /config/.ssl.env and setting the variables there"
-    echo "Creating ssl key and certificate in $SSL_DIR and will be valid for $((VALID_FOR / 365)) year[s]"
-    #
-    openssl req \
-      -new \
-      -newkey rsa:$RSA \
-      -days $VALID_FOR \
-      -nodes \
-      -x509 \
-      -subj "/C=${COUNTRY// /\\ }/ST=${STATE// /\\ }/L=${CITY// /\\ }/O=${ORG// /\\ }/OU=${UNIT// /\\ }/CN=${CN// /\\ }" \
-      -keyout "$SSL_KEY" \
-      -out "$SSL_CERT"
+  if [ -f "$SSL_CERT" ] && [ -f "$SSL_KEY" ]; then
+    mkdir -p /etc/ssl
+    [ -f "$SSL_CA" ] && cp -Rf "$SSL_CA" "/etc/ssl/$SSL_CA"
+    [ -f "$SSL_KEY" ] && cp -Rf "$SSL_KEY" "/etc/ssl/$SSL_KEY"
+    [ -f "$SSL_CERT" ] && cp -Rf "$SSL_CERT" "/etc/ssl/$SSL_CERT"
   fi
-  [ -f "$SSL_CERT" ] && [ -f "$SSL_KEY" ] && return 0 || return 2
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__certbot() {
+  local options="$1" && shift 1
+  domain_list="$DOMAINNAME www.$DOMAINNAME mail.$DOMAINNAME $CERTBOT_DOMAINS"
+  [ -f "/config/env/ssl.sh" ] && . "/config/env/ssl.sh"
+  [ "$SSL_CERT_BOT" = "true" ] && [ -f "$(type -P certbot)" ] || { export SSL_CERT_BOT="" && return 10; }
+  [ -n "$CERT_BOT_MAIL" ] || echo "The variable CERT_BOT_MAIL is not set" && return 1
+  [ -n "$DOMAINNAME" ] || echo "The variable DOMAINNAME is not set" && return 1
+  for domain in $$CERTBOT_DOMAINS; do
+    [ -n "$domain" ] && ADD_CERTBOT_DOMAINS="-d $domain "
+  done
+  certbot $options --agree-tos -m $CERT_BOT_MAIL certonly --webroot \
+    -w "${WWW_ROOT_DIR:-/data/htdocs/www}" \
+    $ADD_CERTBOT_DOMAINS --put-all-related-files-into "$SSL_DIR" \
+    -key-path "$SSL_KEY" -fullchain-path "$SSL_CERT"
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__create_ssl_cert() {
+  if ! __certbot; then
+    [ -f "/config/env/ssl.sh" ] && . "/config/env/ssl.sh"
+    [ -n "$SSL_DIR" ] || { echo "SSL_DIR is unset" && return 1; }
+    [ -d "$SSL_DIR" ] || mkdir -p "$SSL_DIR"
+    if [ -n "$FORCE_SSL" ] || [ ! -f "$SSL_CERT" ] || [ ! -f "$SSL_KEY" ]; then
+      echo "Setting Country to $COUNTRY and Setting State/Province to $STATE and Setting City to $CITY"
+      echo "Setting OU to $UNIT and Setting ORG to $ORG and Setting server to $CN"
+      echo "All variables can be overwritten by creating a /config/.ssl.env and setting the variables there"
+      echo "Creating ssl key and certificate in $SSL_DIR and will be valid for $((VALID_FOR / 365)) year[s]"
+      #
+      openssl req \
+        -new \
+        -newkey rsa:$RSA \
+        -days $VALID_FOR \
+        -nodes \
+        -x509 \
+        -subj "/C=${COUNTRY// /\\ }/ST=${STATE// /\\ }/L=${CITY// /\\ }/O=${ORG// /\\ }/OU=${UNIT// /\\ }/CN=${CN// /\\ }" \
+        -keyout "$SSL_KEY" \
+        -out "$SSL_CERT"
+    fi
+  fi
+  if [ -f "$SSL_CERT" ] && [ -f "$SSL_KEY" ]; then
+    __setup_ssl
+    return 0
+  else
+    return 2
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __init_apache() {
@@ -192,17 +212,6 @@ __listening() {
   local ports=""
   ports="$(__netstat -taupln | awk -F ' ' '{print $4}' | awk -F ':' '{print $2}' | sort --unique --version-sort | grep -v '^$' | grep '^' || echo '')"
   [ -n "$ports" ] && printf '%s\n%s\n' "The followinf are servers:" "$ports" || return 1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__certbot() {
-  local options="$1" && shift 1
-  [ "$SSL_CERT_BOT" = "true" ] && [ -f "$(type -P certbot)" ] || { export SSL_CERT_BOT="" && return 10; }
-  [ -n "$CERT_BOT_MAIL" ] || echo "The variable CERT_BOT_MAIL is not set" && return 1
-  [ -n "$DOMAINNAME" ] || echo "The variable DOMAINNAME is not set" && return 1
-  certbot $options --agree-tos -m $CERT_BOT_MAIL certonly --webroot -w "${WWW_ROOT_DIR:-/data/htdocs/www}" \
-    -d $DOMAINNAME -d www.$DOMAINNAME -d mail.$DOMAINNAME $CERTBOT_DOMAINS --put-all-related-files-into "$SSL_DIR" \
-    -key-path "$SSL_KEY" -fullchain-path "$SSL_CERT"
-  return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_env() {

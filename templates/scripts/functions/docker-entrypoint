@@ -85,26 +85,26 @@ __create_ssl_cert() {
 __init_apache() {
   local etc_dir="/etc/${1:-apache2}"
   local conf_dir="/config/${1:-apache2}"
-  local www_dir="${WWW_ROOT_DIR:-/data/htdocs}"
+  local www_dir="${WWW_ROOT_DIR:-/data/htdocs/www}"
   apache_bin="$(type -P 'httpd' || type -P 'apache2')"
   [ -e "$conf_dir" ] && [ -n "$apache_bin" ] || return 0
   echo "Initializing apache web server in $conf_dir"
   [ -d "$conf_dir" ] && mkdir -p "$etc_dir"
   [ -d "$etc_dir/conf.d" ] && rm -R $etc_dir/conf.d/*
-  mkdir -p "$www_dir"
-  cp -Rf "$conf_dir/." "$etc_dir/"
+  [ -d "$www_dir" ] || mkdir -p "$www_dir"
+  [ -d "$conf_dir" ] && cp -Rf "$conf_dir/." "$etc_dir/" || cp -Rf "$conf_dir" "$etc_dir"
   if [ "$SSL_ENABLED" = "true" ]; then
-    __file_copy "/config/apache2/httpd.ssl.conf" "/etc/apache2/httpd.conf"
-    __file_copy "/config/apache2/vhosts.d/default.ssl.conf" "/etc/apache2/vhosts.d/default.ssl.conf"
+    __file_copy "$conf_dir/httpd.ssl.conf" "$etc_dir/httpd.conf"
+    __file_copy "$conf_dir/vhosts.d/default.ssl.conf" "$etc_dir/vhosts.d/default.ssl.conf"
   else
-    for ssl_conf in "/config/apache2/httpd.ssl.conf" "/etc/apache2/vhosts.d/default.ssl.conf"; do
+    for ssl_conf in "$conf_dir/httpd.ssl.conf" "$etc_dir/vhosts.d/default.ssl.conf"; do
       [ -n "$ssl_conf" ] && [ -f "$ssl_conf" ] && rm -Rf "$ssl_conf"
     done
   fi
+  __replace "SERVER_PORT" "${SERVICE_PORT:-80}" "$etc_dir/httpd.conf"
   __replace "SERVER_NAME" "${SERVER_NAME:-HOSTNAME}" "$etc_dir/httpd.conf"
-  __replace "SERVER_PORT" "Listen ${SERVICE_PORT:-80}" "$etc_dir/httpd.conf"
-  __replace "SERVER_ADMIN" "${SERVER_ADMIN:-root@$SERVER_NAME}" "$etc_dir/httpd.conf"
   __replace "SERVER_PORT" "${SERVICE_PORT:-80}" "$etc_dir/vhosts.d/default.conf"
+  __replace "SERVER_ADMIN" "${SERVER_ADMIN:-root@$SERVER_NAME}" "$etc_dir/httpd.conf"
   __replace "SERVER_SOFTWARE" "apache" "/data/htdocs/www/index.php"
   __replace "SERVER_SOFTWARE" "apache" "/data/htdocs/www/index.html"
   return 0
@@ -119,14 +119,14 @@ __init_nginx() {
   echo "Initializing nginx web server in $conf_dir"
   mkdir -p "$www_dir"
   [ -d "$conf_dir" ] && mkdir -p "$etc_dir"
-  cp -Rf "$conf_dir/." "$etc_dir/"
+  [ -d "$conf_dir" ] && cp -Rf "$conf_dir/." "$etc_dir/" || cp -Rf "$conf_dir" "$etc_dir"
   if [ "$SSL_ENABLED" = "true" ]; then
     __file_copy "/config/nginx/nginx.ssl.conf" "/etc/nginx/nginx.ssl.conf"
   else
     [ -n "$ssl_conf" ] && [ -f "$ssl_conf" ] && rm -Rf "/etc/nginx/nginx.ssl.conf"
   fi
-  __replace "SERVER_PORT" "$SERVER_PORT" "$etc_dir/nginx.conf"
-  __replace "SERVER_PORT" "$SERVER_PORT" "$etc_dir/vhosts.d/nginx.conf"
+  __replace "SERVER_PORT" "${SERVICE_PORT:-80}" "$etc_dir/nginx.conf"
+  __replace "SERVER_PORT" "${SERVICE_PORT:-80}" "$etc_dir/vhosts.d/nginx.conf"
   __replace "SERVER_SOFTWARE" "nginx" "$www_dir/www/index.php"
   __replace "SERVER_SOFTWARE" "nginx" "$www_dir/www/index.html"
   return 0
@@ -134,14 +134,14 @@ __init_nginx() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __init_php() {
   local etc_dir="/etc/${1:-php}"
-  local conf_dir="/config/${1:-php}"
+  local conf_dir="${PHP_INI_DIR:-/config/${1:-php}}"
   php_bin="$(type -P "$PHP_BIN_DIR")"
   [ -e "$conf_dir" ] && [ -n "$php_bin" ] || return 0
   echo "Initializing php in $conf_dir"
   [ -d "$conf_dir" ] && mkdir -p "$etc_dir/"
   rm -R $etc_dir/conf.d/*
-  cp -Rf "$conf_dir/." "$etc_dir/"
-  [ -d "$etc_dir" ] || return 0
+  [ -d "$conf_dir" ] && cp -Rf "$conf_dir/." "$etc_dir/" || cp -Rf "$conf_dir" "$etc_dir"
+  [ "$etc_dir" = "/etc/php" ] || ln -sf "$etc_dir" "/etc/php"
   [ -d "/config/php" ] && cp -Rf "/config/php/." "$PHP_INI_DIR"
   __replace "SERVER_SOFTWARE" "php" "/data/htdocs/www/index.php"
   __replace "SERVER_SOFTWARE" "php" "/data/htdocs/www/index.html"
@@ -157,10 +157,20 @@ __init_mysql() {
   [ -e "$conf_dir" ] && [ -n "$mysqld_bin" ] || return 0
   echo "Initializing mysql database server in $conf_dir"
   [ -d "$conf_dir" ] && mkdir -p "$etc_dir/"
-  [ -d "$conf_dir" ] && cp -Rf "$conf_dir/." "$etc_dir/"
+  [ -d "$conf_dir" ] && cp -Rf "$conf_dir/." "$etc_dir/" || cp -Rf "$conf_dir" "$etc_dir"
   [ -d "$db_dir" ] || mysql_install_db --datadir=$db_dir --user=mysql
   chown -Rf $db_user:$db_user $db_dir
   return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__init_mongodb() {
+
+  return
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__init_postgres() {
+
+  return
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_once() {
@@ -302,7 +312,6 @@ __start_init_scripts() {
     for init in "$init_dir"/*.sh; do
       if [ -f "$init" ]; then
         name="$(basename "$init")"
-        echo "Attempting to start $name"
         (eval "$init" 2>/dev/stderr >/dev/stdout &)
         initStatus=$(($? + initStatus))
         sleep 2

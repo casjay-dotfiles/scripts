@@ -1,4 +1,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set bash options
+[ "$DEBUGGER" = "on" ] && echo "Enabling debugging" && set -o pipefail -x$DEBUGGER_OPTIONS || set -o pipefail
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __rm() { [ -f "$1" ] && rm -Rf "${1:?}"; }
 __cd() { [ -d "$1" ] && builtin cd "$1" || return 1; }
 __ps() { [ -f "$(type -P ps)" ] && ps "$@" || return 10; }
@@ -23,10 +26,15 @@ __find_pgsql_conf() { find -L '/var/lib' '/etc' -maxdepth 8 -type f -name 'postg
 __random_password() { cat "/dev/urandom" | tr -dc '[0-9][a-z][A-Z]@$' | head -c${1:-14} && echo ""; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __init_apache() {
-  local etc_dir="${1:-/etc/apache2}"
-  local conf_dir="/config/apache2"
-  [ -d "$etc_dir" ] || return 0
-  rm -R $etc_dir/conf.d/*
+  local etc_dir="/etc/${1:-apache2}"
+  local conf_dir="/config/${1:-apache2}"
+  local www_dir="${WWW_ROOT_DIR:-/data/htdocs}"
+  apache_bin="$(type -P 'httpd' || type -P 'apache2')"
+  [ -e "$conf_dir" ] && [ -n "$apache_bin" ] || return 0
+  echo "Initializing apache web server in $conf_dir"
+  [ -d "$conf_dir" ] && mkdir -p "$etc_dir"
+  [ -d "$etc_dir/conf.d" ] && rm -R $etc_dir/conf.d/*
+  mkdir -p "$www_dir"
   cp -Rf "$conf_dir/." "$etc_dir/"
   __replace "SERVER_NAME" "${SERVER_NAME:-HOSTNAME}" "$etc_dir/httpd.conf"
   __replace "SERVER_PORT" "Listen ${SERVICE_PORT:-80}" "$etc_dir/httpd.conf"
@@ -38,20 +46,31 @@ __init_apache() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __init_nginx() {
-  local etc_dir="${1:-/etc/apache2}"
-  local conf_dir="/config/apache2"
-  [ -d "$etc_dir" ] || return 0
+  local etc_dir="${1:-/etc/nginx}"
+  local conf_dir="/config/nginx"
+  local www_dir="${WWW_ROOT_DIR:-/data/htdocs}"
+  nginx_bin="$(type -P 'nginx')"
+  [ -e "$conf_dir" ] && [ -n "$nginx_bin" ] || return 0
+  echo "Initializing nginx web server in $conf_dir"
+  mkdir -p "$www_dir"
+  [ -d "$conf_dir" ] && mkdir -p "$etc_dir"
   cp -Rf "$conf_dir/." "$etc_dir/"
   __replace "SERVER_PORT" "$SERVER_PORT" "$etc_dir/nginx.conf"
   __replace "SERVER_PORT" "$SERVER_PORT" "$etc_dir/vhosts.d/nginx.conf"
-  __replace "SERVER_SOFTWARE" "nginx" "/data/htdocs/www/index.php"
-  __replace "SERVER_SOFTWARE" "nginx" "/data/htdocs/www/index.html"
+  __replace "SERVER_SOFTWARE" "nginx" "$www_dir/www/index.php"
+  __replace "SERVER_SOFTWARE" "nginx" "$www_dir/www/index.html"
   return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __init_php() {
-  local etc_dir="$PHP_INI_DIR"
-  local conf_dir="/config/php"
+  local etc_dir="/etc/${1:-php}"
+  local conf_dir="/config/${1:-php}"
+  php_bin="$(type -P "$PHP_BIN_DIR")"
+  [ -e "$conf_dir" ] && [ -n "$php_bin" ] || return 0
+  echo "Initializing php in $conf_dir"
+  [ -d "$conf_dir" ] && mkdir -p "$etc_dir/"
+  rm -R $etc_dir/conf.d/*
+  cp -Rf "$conf_dir/." "$etc_dir/"
   [ -d "$etc_dir" ] || return 0
   [ -d "/config/php" ] && cp -Rf "/config/php/." "$PHP_INI_DIR"
   __replace "SERVER_SOFTWARE" "php" "/data/htdocs/www/index.php"
@@ -60,10 +79,15 @@ __init_php() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __init_mysql() {
+  local etc_dir="/etc/${1:-mysql}"
+  local conf_dir="/config/${1:-mysql}"
   local db_user="${SERVICE_USER:-mysql}"
   local db_dir="${DATABASE_DIR_MARIADB:-/data/db/mysql}"
-  [ -d "/etc/mysql" ] || return 0
-  [ -d "/config/mysql" ] && cp -Rf "/config/mysql/." "/etc/mysql/"
+  mysqld_bin="$(type -P 'mysqld')"
+  [ -e "$conf_dir" ] && [ -n "$mysqld_bin" ] || return 0
+  echo "Initializing mysql database server in $conf_dir"
+  [ -d "$conf_dir" ] && mkdir -p "$etc_dir/"
+  [ -d "$conf_dir" ] && cp -Rf "$conf_dir/." "$etc_dir/"
   [ -d "$db_dir" ] || mysql_install_db --datadir=$db_dir --user=mysql
   chown -Rf $db_user:$db_user $db_dir
   return 0
@@ -97,6 +121,7 @@ __file_copy() {
 __create_service_user() {
   local create_user="$1" create_gid="$1"
   local create_home_dir="/opt/$create_user" set_home_dir=""
+  [ "$ENTRYPOINT_FIRST_RUN" = "no" ] || return 0
   [ -n "$SERVICE_USER" ] || [ "$SERVICE_USER" != "root" ] || return 0
   if ! grep -q "$create_user" "/etc/passwd"; then
     echo "creating system user $create_user"
@@ -134,8 +159,7 @@ create-ssl-cert() {
   local CN="${CN:-localhost}"
   local VALID_FOR="${VALID_FOR:-3650}"
   local RSA="${RSA:-4096}"
-  [ -f "/config/env.sh" ] && . "/config/env.sh"
-  [ -f "/config/ssl.env" ] && . "/config/ssl.env"
+  [ -f "/config/env/ssl.sh" ] && . "/config/env/ssl.sh"
   [ -n "$SSL_DIR" ] || { echo "SSL_DIR is unset" && return 1; }
   [ -d "$SSL_DIR" ] || mkdir -p "$SSL_DIR"
   if [ -n "$FORCE_SSL" ] || [ ! -f "$SSL_CERT" ] || [ ! -f "$SSL_KEY" ]; then
@@ -341,6 +365,9 @@ EOF
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# export the functions
+#export -f
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # set variables from function calls
 SET_RANDOM_PASS="${SET_RANDOM_PASS:-$(__random_password)}"
 CONTAINER_IP4_ADDRESS="${CONTAINER_IP4_ADDRESS:-$(__get_ip4)}"
@@ -353,18 +380,10 @@ LIGHTTPD_CONFIG_FILE="${LIGHTTPD_CONFIG_FILE:-$(__find_lighttpd_conf)}"
 MARIADB_CONFIG_FILE="${MARIADB_CONFIG_FILE:-$(__find_mysql_conf)}"
 POSTGRES_CONFIG_FILE="${POSTGRES_CONFIG_FILE:-$(__find_pgsql_conf)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# export the functions
-export -f __cd __ps __curl __netstat __find __pcheck __pgrep __get_ip6
-export -f __get_ip4 __show_procs __listening create-ssl-cert __certbot
-export -f __create_env __run_backup __exec_command __heath_check __start_init_scripts
-export -f __setup_mta __create_service_user __replace __find_php_bin __find_php_ini
-export -f __find_nginx_conf __find_httpd_conf __find_lighttpd_conf __find_mysql_conf
-export -f __find_pgsql_conf __file_copy
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # export variables
 export CONTAINER_IP4_ADDRESS CONTAINER_IP6_ADDRESS
 export PHP_INI_DIR PHP_BIN_DIR HTTPD_CONFIG_FILE
 export NGINX_CONFIG_FILE MYSQL_CONFIG_FILE PGSQL_CONFIG_FILE
-
+export ENTRYPOINT_FIRST_RUN
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # end of functions

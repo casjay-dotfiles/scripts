@@ -49,6 +49,12 @@ SERVICE_UID="0"       # set the user id for creation of user
 SERVICE_PORT=""       # specifiy port which service is listening on
 SERVICES_LIST="tini " # comma seperated list of processes for the healthcheck
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Healthcheck variables
+HEALTH_ENABLED="${HEALTH_ENABLED:-}"     #
+SERVICES_LIST="${SERVICES_LIST:-}"       #
+WEB_SERVER_PORTS="${WEB_SERVER_PORTS:-}" # ports : 80 443
+HEALTH_ENDPOINTS="${HEALTH_ENDPOINTS:-}" # url endpoints: http://localhost/test
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional
 PHP_INI_DIR="$(__find_php_ini)"
 PHP_BIN_DIR="$(__find_php_bin)"
@@ -316,24 +322,63 @@ case "$1" in
 
 backup) # backup data and config dirs
   shift 1
-  __run_backup "${1:-$BACKUP_DIR}"
-  exit $?
+  save="${1:-$BACKUP_DIR}"
+  backupExit=0
+  date="$(date '+%Y%m%d-%H%M')"
+  file="$save/$date.tar.gz"
+  echo "Backing up /data /config to $file"
+  sleep 1
+  tar cfvz "$file" --exclude="$save" "/data" "/config" || backupExit=1
+  backupExit=$?
+  [ $backupExit -eq 0 ] && echo "Backed up /data /config has finished" || echo "Backup of /data /config has failed"
+  exit $backupExit
   ;;
 
 healthcheck) # Docker healthcheck
-  __heath_check
-  exit $?
+  healthStatus=0
+  services="${SERVICES_LIST:-$@}"
+  healthEnabled="${HEALTH_ENABLED:-}"
+  healthPorts="${WEB_SERVER_PORTS:-}"
+  healthEndPoints="${HEALTH_ENDPOINTS:-}"
+  healthMessage="Everything seems to be running"
+  services="${services//,/ }"
+  for proc in $services; do
+    if [ -n "$proc" ]; then
+      if ! __pgrep "$proc"; then
+        echo "$proc is not running" >&2
+        status=$((status + 1))
+      fi
+    fi
+  done
+  for port in $ports; do
+    if [ -n "$(type -P netstat)" ] && [ -n "$port" ]; then
+      netstat -taupln | grep -q ":$port " || healthStatus=$((healthStatus + 1))
+    fi
+  done
+  for endpoint in $healthEndPoints; do
+    if [ -n "$endpoint" ]; then
+      __curl "$endpoint" || healthStatus=$((healthStatus + 1))
+    fi
+  done
+  if [ -n "$healthEnabled" ]; then
+    __curl "${HEALTH_URL:-http://localhost:$port/server-health}" || healthStatus=$((healthStatus + 1))
+  fi
+  [ "$healthStatus" -eq 0 ] || healthMessage="Errors reported see: docker logs --follow $CONTAINER_NAME"
+  [ -n "$healthMessage" ] && echo "$healthMessage"
+  exit $healthStatus
   ;;
 
 ports) # show open ports
   shift 1
-  __listening
+  ports="$(__netstat -taupln | awk -F ' ' '{print $4}' | awk -F ':' '{print $2}' | sort --unique --version-sort | grep -v '^$' | grep '^' || echo '')"
+  [ -n "$ports" ] && printf '%s\n%s\n' "The followinf are servers:" "$ports"
   exit $?
   ;;
 
 procs) # show running processes
   shift 1
-  __show_procs
+  ps="$(__ps axco command | grep -vE 'COMMAND|grep|ps' | sort -u || grep '^' || echo '')"
+  [ -n "$ps" ] && printf '%s\n%s\n' "Found the following processes" "$ps"
   exit $?
   ;;
 
@@ -384,7 +429,7 @@ start) # show/start an init script
 
 exec) # execute commands
   shift 1
-  __exec_command "${@:-bash}"
+  __exec_command "${@:-/bin/bash}"
   exit $?
   ;;
 

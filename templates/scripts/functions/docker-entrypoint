@@ -22,6 +22,7 @@ __find_lighttpd_conf() { find -L '/etc' -maxdepth 4 -type f -iname 'lighttpd.con
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __find_mysql_conf() { find -L '/etc' -maxdepth 4 -type f -name 'my.cnf' 2>/dev/null | grep '^' || echo ''; }
 __find_pgsql_conf() { find -L '/var/lib' '/etc' -maxdepth 8 -type f -name 'postgresql.conf' 2>/dev/null | grep '^' || echo ''; }
+__find_mongodb_conf() { return; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __random_password() { cat "/dev/urandom" | tr -dc '[0-9][a-z][A-Z]@$' | head -c${1:-14} && echo ""; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -91,10 +92,12 @@ __init_apache() {
   apache_bin="$(type -P 'httpd' || type -P 'apache2')"
   [ -e "$conf_dir" ] && [ -n "$apache_bin" ] || return 0
   echo "Initializing apache web server in $conf_dir"
-  [ -d "$conf_dir" ] && mkdir -p "$etc_dir"
-  [ -d "$etc_dir/conf.d" ] && rm -R $etc_dir/conf.d/*
-  [ -d "$www_dir" ] || mkdir -p "$www_dir"
-  [ -d "$conf_dir" ] && cp -Rf "$conf_dir/." "$etc_dir/" || cp -Rf "$conf_dir" "$etc_dir"
+  if [ -d "$conf_dir" ]; then
+    [ -f "$etc_dir" ] && rm -Rf "$etc_dir"
+    mkdir -p "$etc_dir" && cp -Rf "$conf_dir/." "$etc_dir/"
+  elif [ -e "$conf_dir" ]; then
+    cp -Rf "$conf_dir" "$etc_dir"
+  fi
   if [ "$SSL_ENABLED" = "true" ]; then
     __file_copy "$conf_dir/httpd.ssl.conf" "$etc_dir/httpd.conf"
     __file_copy "$conf_dir/vhosts.d/default.ssl.conf" "$etc_dir/vhosts.d/default.ssl.conf"
@@ -103,6 +106,8 @@ __init_apache() {
       [ -n "$ssl_conf" ] && [ -f "$ssl_conf" ] && rm -Rf "$ssl_conf"
     done
   fi
+  [ -d "$www_dir" ] || mkdir -p "$www_dir"
+  [ -d "$etc_dir/conf.d" ] && rm -R $etc_dir/conf.d/*
   __replace "SERVER_PORT" "${SERVICE_PORT:-80}" "$etc_dir/httpd.conf"
   __replace "SERVER_NAME" "${SERVER_NAME:-HOSTNAME}" "$etc_dir/httpd.conf"
   __replace "SERVER_PORT" "${SERVICE_PORT:-80}" "$etc_dir/vhosts.d/default.conf"
@@ -122,8 +127,12 @@ __init_nginx() {
   [ -e "$conf_dir" ] && [ -n "$nginx_bin" ] || return 0
   echo "Initializing nginx web server in $conf_dir"
   mkdir -p "$www_dir"
-  [ -d "$conf_dir" ] && mkdir -p "$etc_dir"
-  [ -d "$conf_dir" ] && cp -Rf "$conf_dir/." "$etc_dir/" || cp -Rf "$conf_dir" "$etc_dir"
+  if [ -d "$conf_dir" ]; then
+    [ -f "$etc_dir" ] && rm -Rf "$etc_dir"
+    mkdir -p "$etc_dir" && cp -Rf "$conf_dir/." "$etc_dir/"
+  elif [ -e "$conf_dir" ]; then
+    cp -Rf "$conf_dir" "$etc_dir"
+  fi
   if [ "$SSL_ENABLED" = "true" ]; then
     __file_copy "/config/nginx/nginx.ssl.conf" "/etc/nginx/nginx.ssl.conf"
   else
@@ -141,13 +150,25 @@ __init_php() {
   local home="${PHP_INI_DIR:-$(__find_php_ini)}"
   local etc_dir="${home:-/etc/${1:-php}}"
   local conf_dir="/config/${1:-php}"
+  local php_bin="$(type -P "${PHP_BIN_DIR:-$(__find_php_bin)}")"
   #
-  php_bin="$(type -P "${PHP_BIN_DIR:-$(__find_php_bin)}")"
   [ -e "$conf_dir" ] && [ -n "$php_bin" ] || return 0
   echo "Initializing php in $conf_dir"
-  [ -d "$conf_dir" ] && mkdir -p "$etc_dir/"
-  rm -R $etc_dir/conf.d/*
-  [ -d "$conf_dir" ] && cp -Rf "$conf_dir/." "$etc_dir/" || cp -Rf "$conf_dir" "$etc_dir"
+  if [ -n "$PHP_VERSION" ] && [ ! -d "/etc/php" ]; then
+    [ -d "/etc/php" ] && rm -Rf "/etc/php"
+    if [ -d "/etc/${PHP_VERSION}" ]; then
+      mv -f "/etc/${PHP_VERSION}" "/etc/php"
+    elif [ -d "/etc/php${PHP_VERSION}" ]; then
+      mv -f "/etc/php${PHP_VERSION}" "/etc/php"
+    fi
+  fi
+  if [ -d "$conf_dir" ]; then
+    [ -f "$etc_dir" ] && rm -Rf "$etc_dir"
+    mkdir -p "$etc_dir" && cp -Rf "$conf_dir/." "$etc_dir/"
+  elif [ -e "$conf_dir" ]; then
+    cp -Rf "$conf_dir" "$etc_dir"
+  fi
+  [ -d "$conf_dir/conf.d" ] && rm -R $etc_dir/conf.d/*
   [ "$etc_dir" = "/etc/php" ] || ln -sf "$etc_dir" "/etc/php"
   [ -d "/config/php" ] && cp -Rf "/config/php/." "$PHP_INI_DIR"
   __replace "SERVER_SOFTWARE" "php" "/data/htdocs/www/index.php"
@@ -165,8 +186,12 @@ __init_mysql() {
   mysqld_bin="$(type -P 'mysqld')"
   [ -e "$conf_dir" ] && [ -n "$mysqld_bin" ] || return 0
   echo "Initializing mysql database server in $conf_dir"
-  [ -d "$conf_dir" ] && mkdir -p "$etc_dir/"
-  [ -d "$conf_dir" ] && cp -Rf "$conf_dir/." "$etc_dir/" || cp -Rf "$conf_dir" "$etc_dir"
+  if [ -d "$conf_dir" ]; then
+    [ -f "$etc_dir" ] && rm -Rf "$etc_dir"
+    mkdir -p "$etc_dir" && cp -Rf "$conf_dir/." "$etc_dir/"
+  elif [ -e "$conf_dir" ]; then
+    cp -Rf "$conf_dir" "$etc_dir"
+  fi
   [ -d "$db_dir" ] || mysql_install_db --datadir=$db_dir --user=mysql &>/dev/null
   chown -Rf $db_user:$db_user $db_dir
   sleep 5
@@ -174,6 +199,7 @@ __init_mysql() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __init_mongodb() {
+  local home="${MONGODB_CONFIG_FILE:-$(__find_mongodb_conf)}"
   [ -f "/usr/local/share/casjaysdev/helpers/mongodb" ] && . "/usr/local/share/casjaysdev/helpers/mongodb"
 
   return
@@ -182,6 +208,7 @@ __init_mongodb() {
 __init_postgres() {
   local home="${PGSQL_CONFIG_FILE:-$(__find_pgsql_conf)}"
   [ -f "/usr/local/share/casjaysdev/helpers/pgsql" ] && . "/usr/local/share/casjaysdev/helpers/pgsql"
+
   return
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -319,7 +346,10 @@ __start_init_scripts() {
   local basename=""
   local init_pids=""
   local init_dir="${1:-/usr/local/etc/docker/init.d}"
+  mkdir -p "/tmp" "/run" "/run/init.d"
+  chmod -R 777 "/tmp" "/run" "/run/init.d"
   if [ -d "$init_dir" ]; then
+    chmod -Rf 755 "$init_dir/"
     [ -f "$init_dir/service.sample" ] && rm -Rf "$init_dir/service.sample"
     for init in "$init_dir"/*.sh; do
       if [ -f "$init" ]; then

@@ -203,14 +203,18 @@ __help() {
   __printf_opts "gen-dockerfile:  Create a Dockerfile - $VERSION"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "Usage: gen-dockerfile [options] [dir] [template] [imageName] [repo]"
+  __printf_line "scratch                         - A simple template"
   __printf_line "alpine                          - Use alpine template"
   __printf_line "debian                          - Use debian template"
   __printf_line "rhel                            - Use rockylinux template"
-  __printf_line "web                             - Use web template"
   __printf_line "xorg                            - Use xorg template"
+  __printf_line "web                             - Use web template"
   __printf_line "--nogit                         - Do not Initialize a git repo"
   __printf_line "--template                      - Specifiy the template"
+  __printf_line "--image                         - Specifiy the image"
+  __printf_line "--distro                       - Create an init scripts"
   __printf_line "--dockerfile                    - Create only a Dockerfile"
+  __printf_line "--startup                       - Create an init scripts"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -482,6 +486,11 @@ __make_file() {
     __xorg "$1"
     ;;
 
+  scratch)
+    shift 1
+    __scratch "$1"
+    ;;
+
   *)
     __alpine_file "${2:-$1}"
     ;;
@@ -633,10 +642,139 @@ EOF
   [ -f "$1" ] && printf_cyan "Created default env file in $1" || printf_red "failed to create $1"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__scratch() {
+  local Dfile="${1:-$file}"
+  local packages="${GEN_DOCKER_FILE_PKGS_ALL//,/ } "
+  local packages="${packages//  / }"
+  local GEN_DOCKERFILE_SET_DISTRO_NAME=""
+  local GEN_DOCKERFILE_SET_DISTRO_VERSION=""
+  if [ -f "$GEN_DOCKERFILE_CONFIG_DIR/Dockerfile" ]; then
+    cat <<EOF | tee "$Dfile" &>/dev/null
+$(. "$GEN_DOCKERFILE_CONFIG_DIR/Dockerfile")
+EOF
+  else
+    cat <<EOF | tee "$Dfile" &>/dev/null
+# Docker image for $name using the $GEN_DOCKERFILE_TEMPLATE template
+ARG LICENSE="MIT"
+ARG IMAGE_NAME="$name"
+ARG LANGUAGE="en_US.UTF-8"
+ARG TIMEZONE="America/New_York"
+
+ARG IMAGE_REPO="${GEN_DOCKERFILE_SET_REPO:-}"
+ARG IMAGE_VERSION="$GEN_DOCKERFILE_SET_TAG"
+ARG CONTAINER_VERSION="$GEN_DOCKERFILE_SET_VERSION"
+
+ARG USER="root"
+ARG DISTRO_VERSION="$GEN_DOCKERFILE_SET_DISTRO_VERSION"
+ARG BUILD_VERSION="$GEN_DOCKERFILE_SET_BUILD"
+
+FROM \${IMAGE_REPO}:\${IMAGE_VERSION} AS build
+ARG USER
+ARG LICENSE
+ARG LANGUAGE
+ARG TIMEZONE
+ARG IMAGE_NAME
+
+ARG PACK_LIST="$packages "
+
+ENV ENV=~/.bashrc
+ENV SHELL="/bin/sh"
+ENV TZ="\${TIMEZONE}"
+ENV TIMEZONE="\${TZ}"
+ENV container="docker"
+ENV LANG="\${LANGUAGE}"
+ENV TERM="xterm-256color"
+ENV HOSTNAME="casjaysdev-$name"
+
+USER \${USER}
+WORKDIR /root
+
+COPY ./rootfs/. /
+
+RUN echo \${PACK_LIST}
+
+RUN set -ex ; \\
+  echo
+
+RUN [ -f "/root/env.sh" ] && [ -d "/etc/profile.d" ] && \\
+  cp -Rf "/root/env.sh" "/etc/profile.d" && chmod 755 "/etc/profile.d"
+
+RUN echo 'Running cleanup' ; \\
+  yum clean all ; \\
+  rm -Rf "/config" "/data" ; \\
+  ln -sf /bin/bash /bin/sh ; \\
+  rm -rf /etc/systemd/system/*.wants/* ; \\
+  rm -rf /lib/systemd/system/systemd-update-utmp* ; \\
+  rm -rf /lib/systemd/system/anaconda.target.wants/*; \\
+  rm -rf /lib/systemd/system/local-fs.target.wants/* ; \\
+  rm -rf /lib/systemd/system/multi-user.target.wants/* ; \\
+  rm -rf /lib/systemd/system/sockets.target.wants/*udev* ; \\
+  rm -rf /lib/systemd/system/sockets.target.wants/*initctl* ; \\
+  rm -Rf /usr/share/doc/* /usr/share/info/* /tmp/* /var/tmp/* ; \\
+  rm -Rf /usr/local/bin/.gitkeep /config /data /var/cache/yum/* ; \\
+  if [ -d "/lib/systemd/system/sysinit.target.wants" ]; then cd "/lib/systemd/system/sysinit.target.wants" && rm -f \$(ls | grep -v systemd-tmpfiles-setup) ; fi
+
+FROM scratch
+ARG USER
+ARG LICENSE
+ARG LANGUAGE
+ARG TIMEZONE
+ARG IMAGE_NAME
+
+USER \${USER}
+WORKDIR /root
+
+LABEL maintainer="CasjaysDev <docker-admin@casjaysdev.com>"
+LABEL org.opencontainers.image.vendor="CasjaysDev"
+LABEL org.opencontainers.image.authors="CasjaysDev"
+LABEL org.opencontainers.image.vcs-type="Git"
+LABEL org.opencontainers.image.name="\${IMAGE_NAME}"
+LABEL org.opencontainers.image.base.name="\${IMAGE_NAME}"
+LABEL org.opencontainers.image.license="\${LICENSE}"
+LABEL org.opencontainers.image.vcs-ref="\${BUILD_VERSION}"
+LABEL org.opencontainers.image.build-date="\${BUILD_DATE}"
+LABEL org.opencontainers.image.version="\${BUILD_VERSION}"
+LABEL org.opencontainers.image.schema-version="\${BUILD_VERSION}"
+LABEL org.opencontainers.image.url="$GEN_DOCKERFILE_HUB_BASE/\${IMAGE_NAME}"
+LABEL org.opencontainers.image.vcs-url="$GEN_DOCKERFILE_GIT_BASE/\${IMAGE_NAME}"
+LABEL org.opencontainers.image.url.source="$GEN_DOCKERFILE_GIT_BASE/\${IMAGE_NAME}"
+LABEL org.opencontainers.image.documentation="$GEN_DOCKERFILE_HUB_BASE/\${IMAGE_NAME}"
+LABEL org.opencontainers.image.description="Containerized version of \${IMAGE_NAME}"
+LABEL com.github.containers.toolbox="false"
+
+ENV ENV=~/.bashrc
+ENV SHELL="/bin/bash"
+ENV TZ="\${TIMEZONE}"
+ENV TIMEZONE="\${TZ}"
+ENV container="docker"
+ENV LANG="\${LANGUAGE}"
+ENV TERM="xterm-256color"
+ENV CONTAINER_NAME="\${IMAGE_NAME}"
+ENV HOSTNAME="casjaysdev-\${IMAGE_NAME}"
+ENV USER="\${USER}"
+
+COPY --from=build /. /
+
+VOLUME [ "/config","/data" ]
+
+EXPOSE \${EXPOSE_PORTS}
+
+ENTRYPOINT [ "/usr/sbin/init" ]
+CMD [ "/usr/local/bin/entrypoint.sh" ]
+HEALTHCHECK --start-period=1m --interval=2m --timeout=3s CMD [ "/usr/local/bin/entrypoint.sh", "healthcheck" ]
+
+EOF
+  fi
+  [ -f "$Dfile" ] && return 0 || return 1
+
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __web() {
   local Dfile="${1:-$file}"
   local packages="${GEN_DOCKER_FILE_PKGS_ALL//,/ } ${GEN_DOCKER_FILE_PKGS_DEBIAN//,/ }"
   local packages="${packages//  / }"
+  local GEN_DOCKERFILE_SET_DISTRO_NAME=""
+  local GEN_DOCKERFILE_SET_DISTRO_VERSION="bullseye"
   if [ -f "$GEN_DOCKERFILE_CONFIG_DIR/Dockerfile" ]; then
     cat <<EOF | tee "$Dfile" &>/dev/null
 $(. "$GEN_DOCKERFILE_CONFIG_DIR/Dockerfile")
@@ -667,7 +805,7 @@ ARG NODE_VERSION="system"
 ARG NODE_MANAGER="system"
 
 ARG USER="root"
-ARG DISTRO_VERSION="bullseye"
+ARG DISTRO_VERSION="$GEN_DOCKERFILE_SET_DISTRO_VERSION"
 ARG BUILD_VERSION="$GEN_DOCKERFILE_SET_BUILD"
 
 FROM tianon/gosu:latest AS gosu
@@ -800,7 +938,7 @@ COPY --from=build /. /
 
 VOLUME [ "/tmp/.X11-unix", "\$HOME/.Xauthority", ]
 
-EXPOSE \$EXPOSE_PORTS
+EXPOSE \${EXPOSE_PORTS}
 
 #CMD [ "" ]
 ENTRYPOINT [ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]
@@ -815,6 +953,8 @@ __xorg() {
   local Dfile="${1:-$file}"
   local packages="${GEN_DOCKER_FILE_PKGS_ALL//,/ } ${GEN_DOCKER_FILE_PKGS_DEBIAN//,/ }"
   local packages="${packages//  / }"
+  local GEN_DOCKERFILE_SET_DISTRO_NAME=""
+  local GEN_DOCKERFILE_SET_DISTRO_VERSION="bullseye"
   if [ -f "$GEN_DOCKERFILE_CONFIG_DIR/Dockerfile" ]; then
     cat <<EOF | tee "$Dfile" &>/dev/null
 $(. "$GEN_DOCKERFILE_CONFIG_DIR/Dockerfile")
@@ -845,7 +985,7 @@ ARG NODE_VERSION="system"
 ARG NODE_MANAGER="system"
 
 ARG USER="root"
-ARG DISTRO_VERSION="bullseye"
+ARG DISTRO_VERSION="$GEN_DOCKERFILE_SET_DISTRO_VERSION"
 ARG BUILD_VERSION="$GEN_DOCKERFILE_SET_BUILD"
 
 FROM tianon/gosu:latest AS gosu
@@ -984,7 +1124,7 @@ COPY --from=build /. /
 
 VOLUME [ "/tmp/.X11-unix", "\${WORKDIR}/.Xauthority", ]
 
-EXPOSE \$EXPOSE_PORTS
+EXPOSE \${EXPOSE_PORTS}
 
 #CMD [ "" ]
 ENTRYPOINT [ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]
@@ -999,6 +1139,8 @@ __debian_file() {
   local Dfile="${1:-$file}"
   local packages="${GEN_DOCKER_FILE_PKGS_ALL//,/ } ${GEN_DOCKER_FILE_PKGS_DEBIAN//,/ }"
   local packages="${packages//  / }"
+  local GEN_DOCKERFILE_SET_DISTRO_NAME=""
+  local GEN_DOCKERFILE_SET_DISTRO_VERSION=""
   if [ -f "$GEN_DOCKERFILE_CONFIG_DIR/Dockerfile" ]; then
     cat <<EOF | tee "$Dfile" &>/dev/null
 $(. "$GEN_DOCKERFILE_CONFIG_DIR/Dockerfile")
@@ -1029,7 +1171,7 @@ ARG NODE_VERSION="system"
 ARG NODE_MANAGER="system"
 
 ARG USER="root"
-ARG DISTRO_VERSION="bullseye"
+ARG DISTRO_VERSION="$GEN_DOCKERFILE_SET_DISTRO_VERSION"
 ARG BUILD_VERSION="$GEN_DOCKERFILE_SET_BUILD"
 
 FROM tianon/gosu:latest AS gosu
@@ -1161,7 +1303,7 @@ COPY --from=build /. /
 
 VOLUME [ "/config","/data" ]
 
-EXPOSE \$EXPOSE_PORTS
+EXPOSE \${EXPOSE_PORTS}
 
 #CMD [ "" ]
 ENTRYPOINT [ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]
@@ -1176,6 +1318,8 @@ __ubuntu_file() {
   local Dfile="${1:-$file}"
   local packages="${GEN_DOCKER_FILE_PKGS_ALL//,/ } ${GEN_DOCKER_FILE_PKGS_UBUNTU//,/ }"
   local packages="${packages//  / }"
+  local GEN_DOCKERFILE_SET_DISTRO_NAME=""
+  local GEN_DOCKERFILE_SET_DISTRO_VERSION="focal"
   if [ -f "$GEN_DOCKERFILE_CONFIG_DIR/Dockerfile" ]; then
     cat <<EOF | tee "$Dfile" &>/dev/null
 $(. "$GEN_DOCKERFILE_CONFIG_DIR/Dockerfile")
@@ -1206,7 +1350,7 @@ ARG NODE_VERSION="system"
 ARG NODE_MANAGER="system"
 
 ARG USER="root"
-ARG DISTRO_VERSION="focal"
+ARG DISTRO_VERSION="$GEN_DOCKERFILE_SET_DISTRO_VERSION"
 ARG BUILD_VERSION="$GEN_DOCKERFILE_SET_BUILD"
 
 FROM tianon/gosu:latest AS gosu
@@ -1338,7 +1482,7 @@ COPY --from=build /. /
 
 VOLUME [ "/config","/data" ]
 
-EXPOSE \$EXPOSE_PORTS
+EXPOSE \${EXPOSE_PORTS}
 
 #CMD [ "" ]
 ENTRYPOINT [ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]
@@ -1353,6 +1497,9 @@ __rhel() {
   local Dfile="${1:-$file}"
   local packages="${GEN_DOCKER_FILE_PKGS_ALL//,/ } ${GEN_DOCKER_FILE_PKGS_ROCKY//,/ }"
   local packages="${packages//  / }"
+  local GEN_DOCKERFILE_SET_DISTRO_NAME=""
+  local GEN_DOCKERFILE_SET_DISTRO_VERSION="8"
+  local GEN_DOCKERFILE_SET_TAG="${GEN_DOCKERFILE_SET_TAG//latest/8}"
   if [ -f "$GEN_DOCKERFILE_CONFIG_DIR/Dockerfile" ]; then
     cat <<EOF | tee "$Dfile" &>/dev/null
 $(. "$GEN_DOCKERFILE_CONFIG_DIR/Dockerfile")
@@ -1383,7 +1530,7 @@ ARG NODE_VERSION="system"
 ARG NODE_MANAGER="system"
 
 ARG USER="root"
-ARG DISTRO_VERSION="9"
+ARG DISTRO_VERSION="$GEN_DOCKERFILE_SET_DISTRO_VERSION"
 ARG BUILD_VERSION="$GEN_DOCKERFILE_SET_BUILD"
 
 FROM tianon/gosu:latest AS gosu
@@ -1511,7 +1658,7 @@ COPY --from=build /. /
 
 VOLUME [ "/config","/data" ]
 
-EXPOSE \$EXPOSE_PORTS
+EXPOSE \${EXPOSE_PORTS}
 
 ENTRYPOINT [ "/usr/sbin/init" ]
 CMD [ "/usr/local/bin/entrypoint.sh" ]
@@ -1526,6 +1673,8 @@ __alpine_file() {
   local Dfile="${1:-$file}"
   local packages="${GEN_DOCKER_FILE_PKGS_ALL//,/ } ${GEN_DOCKER_FILE_PKGS_ALPINE//,/ }"
   local packages="${packages//  / }"
+  local GEN_DOCKERFILE_SET_DISTRO_NAME=""
+  local GEN_DOCKERFILE_SET_DISTRO_VERSION="${GEN_DOCKERFILE_SET_DISTRO_VERSION//latest/3.17}"
   local IMAGE_REPO="$GEN_DOCKERFILE_DEFAULT_IMAGE"
   if [ -f "$GEN_DOCKERFILE_CONFIG_DIR/Dockerfile" ]; then
     cat <<EOF | tee "$Dfile" &>/dev/null
@@ -1557,7 +1706,7 @@ ARG NODE_VERSION="system"
 ARG NODE_MANAGER="system"
 
 ARG USER="root"
-ARG DISTRO_VERSION="3.17"
+ARG DISTRO_VERSION="$GEN_DOCKERFILE_SET_DISTRO_VERSION"
 ARG BUILD_VERSION="$GEN_DOCKERFILE_SET_BUILD"
 
 FROM tianon/gosu:latest AS gosu
@@ -1698,7 +1847,7 @@ COPY --from=build /. /
 
 VOLUME [ "/config","/data" ]
 
-EXPOSE \$EXPOSE_PORTS
+EXPOSE \${EXPOSE_PORTS}
 
 #CMD [ "" ]
 ENTRYPOINT [ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]
@@ -1713,6 +1862,8 @@ __arch_file() {
   local Dfile="${1:-$file}"
   local packages="${GEN_DOCKER_FILE_PKGS_ALL//,/ } ${GEN_DOCKER_FILE_PKGS_ARCH//,/ }"
   local packages="${packages//  / }"
+  local GEN_DOCKERFILE_SET_DISTRO_NAME=""
+  local GEN_DOCKERFILE_SET_DISTRO_VERSION=""
   if [ -f "$GEN_DOCKERFILE_CONFIG_DIR/Dockerfile" ]; then
     cat <<EOF | tee "$Dfile" &>/dev/null
 $(. "$GEN_DOCKERFILE_CONFIG_DIR/Dockerfile")
@@ -1887,7 +2038,7 @@ COPY --from=build /. /
 
 VOLUME [ "/config","/data" ]
 
-EXPOSE \$EXPOSE_PORTS
+EXPOSE \${EXPOSE_PORTS}
 
 #CMD [ "" ]
 ENTRYPOINT [ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]
@@ -2006,7 +2157,7 @@ SHORTOPTS=""
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
-LONGOPTS+=",dockerfile,nogit,template:,image:,repo:startup"
+LONGOPTS+=",dockerfile,nogit,template:,image:,repo:,startup,distro-*:"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="alpine arch debian ubuntu rhel xorg web"
 ARRAY+=""
@@ -2104,6 +2255,21 @@ while :; do
     GEN_DOCKER_CREATE_START_SCRIPT="true"
     exit $?
     ;;
+  --distro-*)
+    case "$1" in
+    *-name)
+      GEN_DOCKERFILE_SET_DISTRO_NAME="$2"
+      shift 2
+      ;;
+    *-version)
+      GEN_DOCKERFILE_SET_DISTRO_VERSION="$2"
+      shift 2
+      ;;
+    *)
+      shift 1
+      ;;
+    esac
+    ;;
   --)
     shift 1
     break
@@ -2153,6 +2319,8 @@ GEN_DOCKERFILE_DEFAULT_IMAGE="${GEN_DOCKERFILE_DEFAULT_IMAGE//:*/}"
 [ -n "$GEN_DOCKERFILE_SET_TAG" ] || GEN_DOCKERFILE_SET_TAG="latest"
 [ -n "$GEN_DOCKERFILE_SET_BUILD" ] || GEN_DOCKERFILE_SET_BUILD='${DISTRO_VERSION}'
 [ -n "$GEN_DOCKERFILE_SET_VERSION" ] || GEN_DOCKERFILE_SET_VERSION='${IMAGE_VERSION}'
+[ -n "$GEN_DOCKERFILE_SET_DISTRO_NAME" ] || GEN_DOCKERFILE_SET_DISTRO_NAME=""
+[ -n "$GEN_DOCKERFILE_SET_DISTRO_VERSION" ] || GEN_DOCKERFILE_SET_DISTRO_VERSION=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
 GEN_DOCKERFILE_TEMPLATE="${GEN_DOCKERFILE_TEMPLATE:-alpine}"
@@ -2162,7 +2330,7 @@ alpine)
   shift 1
   GEN_DOCKERFILE_TEMPLATE="alpine"
   ;;
-arch)
+arch | archlinux)
   shift 1
   GEN_DOCKERFILE_TEMPLATE="arch"
   ;;
@@ -2170,13 +2338,13 @@ debian)
   shift 1
   GEN_DOCKERFILE_TEMPLATE="debian"
   ;;
+rhel | rocky* | alma* | oracle* | redhat | centos)
+  shift 1
+  GEN_DOCKERFILE_TEMPLATE="rhel"
+  ;;
 ubuntu)
   shift 1
   GEN_DOCKERFILE_TEMPLATE="ubuntu"
-  ;;
-rhel)
-  shift 1
-  GEN_DOCKERFILE_TEMPLATE="rhel"
   ;;
 xorg)
   shift 1

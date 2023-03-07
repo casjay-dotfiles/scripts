@@ -386,8 +386,7 @@ __is_docker_installed() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __is_initialized() {
   { [ -e "/root/.docker/buildx/instances/$name" ] || [ -e "$HOME/.docker/buildx/instances/$name" ]; } &&
-    [ -n "$builder_id" ] && [ -n "$qemu_id" ] && [ -n "$binfmt_id" ] &&
-    return 0 || return 1
+    [ -n "$builder_id" ] && [ -n "$qemu_id" ] && [ -n "$binfmt_id" ] && return 0 || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __jq() { jq "${@:--r}" 2>/dev/null; }
@@ -456,6 +455,7 @@ __buildx_vars() {
   export qemu_id="$(__docker_init ps -a | awk '{print $NF}' | grep "$qemu_imagename" || echo '')"
   export binfmt_id="$(__docker_init ps -a | awk '{print $NF}' | grep "$binfmt_imagename" || echo '')"
   export builder_id="$(__docker_init ps -a | awk '{print $NF}' | grep "$name" | grep "buildkit" || __docker_init buildx ls | grep "$name" | awk -F ' ' '{print $1}' | head -n1 || echo '')"
+  BUILDX_BUILDER_NAME="$name"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __buildx_version() {
@@ -464,7 +464,13 @@ __buildx_version() {
     printf_red "Experimental Features: no"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__builder_init() {
+  __buildx_vars "${BUILDX_BUILDER_NAME:-$name}"
+  [ -n "$qemu_id" ] && [ -n "$binfmt_id" ] && [ -n "$builder_id" ] && return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __reinit_buildx() {
+  __is_buildx_installed || return 0
   [ "$BUILDX_INIT_RAN" = "true" ] && return
   local force="${BUILDX_FORCE_REINSTALL:-$BUILDX_CLEAN_FORCE}"
   printf_cyan "Reinitializing buildx $name on $(date)"
@@ -478,13 +484,15 @@ __reinit_buildx() {
   __docker_init buildx use "$name" |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
   __docker_init buildx inspect --bootstrap |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
   BUILDX_FORCE_REINSTALL="" BUILDX_FORCE="" BUILDX_INIT_RAN="true"
-  __is_initialized && __is_buildx_installed && return 0 || return 1
+  __is_initialized && BUILDX_INSTALLED="true"
+  return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __buildx_cleanup() {
   if [ "$BUILDX_CLEANUP" = "true" ] && [ "$BUILDX_IS_RUNNING" = "true" ]; then
     printf_yellow "Cleaning up containers"
     __docker rm -f $builder_id $qemu_imagename $binfmt_imagename &>/dev/null
+    __builder_init && return 1
   fi
   return 0
 }

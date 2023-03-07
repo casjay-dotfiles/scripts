@@ -351,10 +351,10 @@ __get_dockerfile_ver() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __buildx_run() {
   if [ $# -ne 0 ]; then
-    __buildx_init &>/dev/null && __execute_buildx "$@"
+    __buildx_init && __execute_buildx "$@"
     exitCode=$?
   elif [ -f "$BUILDX_CWD/Dockerfile" ]; then
-    __buildx_init &>/dev/null && __execute_buildx "$BUILDX_CWD/Dockerfile"
+    __buildx_init && __execute_buildx "$BUILDX_CWD/Dockerfile"
     exitCode=$?
   else
     printf_red "Can not find a Dockerfile in ${BUILDX_CWD}"
@@ -474,16 +474,26 @@ __buildx_cleanup() {
 __buildx_init() {
   __buildx_vars "$1"
   local buildx_log_file="$HOME/.local/log/buildx/$name.log"
+  if [ "$BUILDX_FORCE" = "true" ]; then
+    [ -d "$HOME/.docker/buildx" ] && rm -Rf "$HOME/.docker/buildx"
+    [ -d "/root/.docker/buildx" ] && __sudo rm -Rf "$HOME/.docker/buildx"
+    __docker_init rm -f $builder_id $qemu_imagename $binfmt_imagename |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+  fi
   if __is_initialized && [ "$BUILDX_FORCE" != "true" ]; then
     printf_cyan "buildx seems to be already setup"
     return 0
+  elif [ "$BUILDX_INSTALLED" = "yes" ] && [ "$BUILDX_FORCE" = "true" ]; then
+    printf_cyan "Reinitializing buildx $name on $(date)"
+    echo "Reinitializing buildx $name on $(date)" |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+    __docker_init rm -f "$qemu_imagename" |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+    __docker_init rm -f "$binfmt_imagename" |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+    __docker_init run -d --name "$qemu_imagename" ---privileged multiarch/qemu-user-static --reset -p yes --credential yes |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+    __docker_init run -d --name "$binfmt_imagename" --privileged tonistiigi/binfmt --install all |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+    __docker_init buildx create --driver docker-container --driver-opt network=host --driver-opt image=moby/buildkit:master --name ${name:-mybuilder} --use |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+    __docker_init buildx use "$name" |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+    __docker_init buildx inspect --bootstrap |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
   else
     echo "Starting buildx init for $name on $(date)" |& tee "$HOME/.local/log/buildx/$name.log"
-    if [ "$BUILDX_FORCE" = "true" ]; then
-      [ -d "$HOME/.docker/buildx" ] && rm -Rf "$HOME/.docker/buildx"
-      [ -d "/root/.docker/buildx" ] && __sudo rm -Rf "$HOME/.docker/buildx"
-      __docker_init rm -f $builder_id $qemu_imagename $binfmt_imagename |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
-    fi
     printf_yellow "Initializing docker build"
     printf_cyan "Setting logfile to: $buildx_log_file"
     if [ "$BUILDX_CLEANUP" = "true" ] || { [ -n "$binfmt" ] && [ -n "$qemu" ]; }; then
@@ -1184,7 +1194,7 @@ while :; do
     unset url urls
     shift 2
     ;;
-  no-script)
+  --no-script)
     shift 1
     BUILDX_RUN_SCRIPT="false"
     ;;
@@ -1351,7 +1361,7 @@ all)
   printf_cyan "Building all Dockerfiles in $BUILDX_CWD"
   for file in "$BUILDX_CWD/Dockerfile"*; do
     file="$(realpath "$file" 2>/dev/null || echo '')"
-    [ -n "$file" ] && [ -f "$file" ] && buildx "$file" || {
+    [ -n "$file" ] && [ -f "$file" ] && __buildx_run "$file" || {
       printf_yellow "Can not find Dockerfile in $BUILDX_CWD" && exit 1
     }
   done

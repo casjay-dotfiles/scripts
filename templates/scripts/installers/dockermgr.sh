@@ -400,6 +400,10 @@ CONTAINER_DEBUG_OPTIONS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show post install message
 POST_SHOW_FINISHED_MESSAGE=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Export variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End of configuration options
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure directories exist

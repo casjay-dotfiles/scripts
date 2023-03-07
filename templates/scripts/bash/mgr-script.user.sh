@@ -685,6 +685,9 @@ declare -a LISTARRAY=()
 # Actions based on env
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Export variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 case "$1" in
 list)

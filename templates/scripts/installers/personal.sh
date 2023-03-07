@@ -75,6 +75,9 @@ DOTFILES_TEMP_FILE="$(mktemp /tmp/dfmpersonal-XXXXXXXXX)"
 # Set Options
 INSTALL_OPTIONS="$*"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Export variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 rm -Rf "$DOTFILES_TEMP_FILE" /tmp/dfmpersonal-* &>/dev/null
 if cmd_exists sudo; then sudo echo; fi
 clear

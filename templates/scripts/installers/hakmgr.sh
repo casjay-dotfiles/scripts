@@ -81,6 +81,9 @@ REPO="${HAKMGRREPO:-https://github.com/hakmgr}/$APPNAME"
 REPORAW="$REPO/raw/$REPO_BRANCH"
 APPVERSION="$(__appversion "$REPORAW/version.txt")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Export variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # enable plugins - git repos
 PLUGINS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

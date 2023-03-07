@@ -78,6 +78,9 @@ REPO="${SYSTEMMGRREPO:-https://github.com/systemmgr}/$APPNAME"
 REPORAW="$REPO/raw/$REPO_BRANCH"
 APPVERSION="$(__appversion "$REPORAW/version.txt")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Export variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup plugins
 PLUGNAMES=""
 PLUGDIR="${SHARE:-$HOME/.local/share}/$APPNAME"

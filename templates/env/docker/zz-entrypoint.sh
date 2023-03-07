@@ -15,27 +15,9 @@ DATA_DIR_INITIALIZED="${DATA_DIR_INITIALIZED:-false}"
 CONFIG_DIR_INITIALIZED="${CONFIG_DIR_INITIALIZED:-false}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check if this is a new container
-if [ ! -f "$ENTRYPOINT_CONFIG_INIT_FILE" ]; then
-  echo "Initialized on: $INIT_DATE" >"$ENTRYPOINT_CONFIG_INIT_FILE"
-fi
+[ -f "$ENTRYPOINT_PID_FILE" ] && START_SERVICES="no"
+[ -f "$ENTRYPOINT_CONFIG_INIT_FILE" ] && ENTRYPOINT_FIRST_RUN="no"
+[ -f "$ENTRYPOINT_DATA_INIT_FILE" ] && DATA_DIR_INITIALIZED="true"
+[ -f "$ENTRYPOINT_CONFIG_INIT_FILE" ] && CONFIG_DIR_INITIALIZED="true"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ -f "$ENTRYPOINT_DATA_INIT_FILE" ]; then
-  DATA_DIR_INITIALIZED="true"
-  ENTRYPOINT_MESSAGE="no"
-elif [ -d "/data" ]; then
-  echo "Initialized on: $INIT_DATE" >"$ENTRYPOINT_DATA_INIT_FILE"
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ -f "$ENTRYPOINT_CONFIG_INIT_FILE" ]; then
-  CONFIG_DIR_INITIALIZED="true"
-  ENTRYPOINT_MESSAGE="no"
-elif [ -d "/config" ]; then
-  echo "Initialized on: $INIT_DATE" >"$ENTRYPOINT_CONFIG_INIT_FILE"
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ -f "$ENTRYPOINT_PID_FILE" ]; then
-  START_SERVICES="no"
-  ENTRYPOINT_MESSAGE="no"
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-export DATA_DIR_INITIALIZED CONFIG_DIR_INITIALIZED START_SERVICES ENTRYPOINT_FIRST_RUN ENTRYPOINT_MESSAGE
+export DATA_DIR_INITIALIZED CONFIG_DIR_INITIALIZED START_SERVICES ENTRYPOINT_MESSAGE ENTRYPOINT_FIRST_RUN

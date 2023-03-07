@@ -16,7 +16,7 @@ CONFIG_DIR_INITIALIZED="${CONFIG_DIR_INITIALIZED:-false}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check if this is a new container
 if [ ! -f "$ENTRYPOINT_CONFIG_INIT_FILE" ]; then
-  "Initialized on: $INIT_DATE" >"$ENTRYPOINT_CONFIG_INIT_FILE"
+  echo "Initialized on: $INIT_DATE" >"$ENTRYPOINT_CONFIG_INIT_FILE"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -f "$ENTRYPOINT_DATA_INIT_FILE" ]; then

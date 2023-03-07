@@ -463,6 +463,20 @@ __buildx_version() {
     printf_red "Experimental Features: no"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__reinit_buildx() {
+  local force="${BUILDX_FORCE_REINSTALL:-$BUILDX_CLEAN_FORCE}"
+  printf_cyan "Reinitializing buildx $name on $(date)"
+  echo "Reinitializing buildx $name on $(date)" |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+  [ "$BUILDX_CLEAN_FORCE" = "true" ] || __docker_init rm -f $builder_id |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+  [ "$BUILDX_CLEAN_FORCE" = "true" ] || __docker_init rm -f "$qemu_imagename" |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+  [ "$BUILDX_CLEAN_FORCE" = "true" ] || __docker_init rm -f "$binfmt_imagename" |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+  __docker_init run -d --name "$qemu_imagename" ---privileged multiarch/qemu-user-static --reset -p yes --credential yes |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+  __docker_init run -d --name "$binfmt_imagename" --privileged tonistiigi/binfmt --install all |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+  __docker_init buildx create --driver docker-container --driver-opt network=host --driver-opt image=moby/buildkit:master --name ${name:-mybuilder} --use |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+  __docker_init buildx use "$name" |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+  __docker_init buildx inspect --bootstrap |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __buildx_cleanup() {
   if [ "$BUILDX_CLEANUP" = "true" ] && [ "$BUILDX_IS_RUNNING" = "true" ]; then
     printf_yellow "Cleaning up containers"
@@ -478,20 +492,11 @@ __buildx_init() {
     [ -d "$HOME/.docker/buildx" ] && rm -Rf "$HOME/.docker/buildx"
     [ -d "/root/.docker/buildx" ] && __sudo rm -Rf "$HOME/.docker/buildx"
     BUILDX_CLEAN_FORCE="true"
-    BUILDX_REINSTALLED="true"
+    BUILDX_FORCE_REINSTALL="true"
     __docker_init rm -f $builder_id $qemu_imagename $binfmt_imagename |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
   fi
-  if [ "${BUILDX_INSTALLED:-$BUILDX_REINSTALLED}" = "true" ] && [ "$BUILDX_FORCE" = "true" ]; then
-    printf_cyan "Reinitializing buildx $name on $(date)"
-    echo "Reinitializing buildx $name on $(date)" |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
-    [ "$BUILDX_CLEAN_FORCE" = "true" ] || __docker_init rm -f $builder_id |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
-    [ "$BUILDX_CLEAN_FORCE" = "true" ] || __docker_init rm -f "$qemu_imagename" |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
-    [ "$BUILDX_CLEAN_FORCE" = "true" ] || __docker_init rm -f "$binfmt_imagename" |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
-    __docker_init run -d --name "$qemu_imagename" ---privileged multiarch/qemu-user-static --reset -p yes --credential yes |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
-    __docker_init run -d --name "$binfmt_imagename" --privileged tonistiigi/binfmt --install all |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
-    __docker_init buildx create --driver docker-container --driver-opt network=host --driver-opt image=moby/buildkit:master --name ${name:-mybuilder} --use |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
-    __docker_init buildx use "$name" |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
-    __docker_init buildx inspect --bootstrap |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+  if [ "$BUILDX_FORCE_REINSTALL" = "true" ] || [ "$BUILDX_CLEAN_FORCE" = "true" ]; then
+    __reinit_buildx
   elif __is_initialized && [ "$BUILDX_FORCE" != "true" ]; then
     printf_cyan "buildx seems to be already setup"
     return 0
@@ -1063,7 +1068,7 @@ SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
 LONGOPTS+=",force,cleanup,registry:,repo:,no-registry,no-repo,platform:"
-LONGOPTS+=",tag:,add-tag:,all,build,url:,no-script"
+LONGOPTS+=",tag:,add-tag:,all,build,url:,no-script,init"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="run[Dockerfile] init status version api[tags,list,search,sources,clone] "
 ARRAY+=""
@@ -1204,6 +1209,10 @@ while :; do
   --build)
     shift 1
     BUILDX_ENABLED="no"
+    ;;
+  --init)
+    shift 1
+    BUILDX_FORCE_REINSTALL="true"
     ;;
   --)
     shift 1

@@ -184,6 +184,7 @@ run_postinst() {
   for mgr in devenvmgr dfmgr dockermgr fontmgr iconmgr passmgr pkmgr systemmgr thememgr wallpapermgr; do
     eval "$mgr" --config &>/dev/null
   done
+  [ -n "$(type -P hostname)" ] || ln_sf "/usr/local/bin/hostnamecli" "/usr/local/bin/hostname"
   cmd_exists --config &>/dev/null
   cmd_exists update-ip && update-ip &>/dev/null
   cmd_exists update-motd && update-motd &>/dev/null

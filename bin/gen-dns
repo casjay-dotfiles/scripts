@@ -385,8 +385,6 @@ _xmpp-server.pubsub._tcp.xmpp          SRV             10  1   5269    xmpp.is. 
 _xmpp-client._tcp.xmpp                 SRV             10  1   5222    xmpp.is.  ; xmpp.is
 _xmpp-server._tcp.xmpp                 SRV             10  1   5269    xmpp.is.  ; xmpp.is
 _jabber._tcp.xmpp                      SRV             5   0   5269    xmpp.is.  ; xmpp.is
-xmpp                                   HINFO           "Web" "XMPP"
-xmpp                                   TXT             "Chat provided by xmpp.is"
 
 ;  ********** google chat settings **********
 chat                                   CNAME           xmpp-server.l.google.com.
@@ -400,16 +398,12 @@ _jabber._tcp.chat                      SRV             20  0   5269    xmpp-serv
 _jabber._tcp.chat                      SRV             20  0   5269    xmpp-server2.l.google.com.  ; google xmpp
 _jabber._tcp.chat                      SRV             20  0   5269    xmpp-server3.l.google.com.  ; google xmpp
 _jabber._tcp.chat                      SRV             20  0   5269    xmpp-server4.l.google.com.  ; google xmpp
-chat                                   HINFO           "Web" "Chat"
-chat                                   TXT             "Chat provided by google.com"
 
 ;  ********** irc settings **********
 irc                                    CNAME           chat.freenode.net.
 webchat                                CNAME           webchat.freenode.net.
 _irc._tcp                              SRV             10 10   6667    chat.freenode.net.
 _ircs._tcp                             SRV             10 10   6697    chat.freenode.net.
-irc                                    HINFO           "Web" "IRC"
-irc                                    TXT             "Chat provided by freenode.net"
 
 ;  ********** email settings **********
 gsuite                                 CNAME           gsuite.mail.casjay.net.redirect.center.
@@ -430,22 +424,16 @@ autodiscover                           CNAME           mail
 *                                      SPF             "v=spf1 a mx ptr all"
 @                                      TXT             "v=spf1 a mx ptr all"
 *                                      TXT             "v=spf1 a mx ptr all"
-mail                                   HINFO           "Web" "E-Mail"
-mail                                   TXT             "email provided by google.com"
 
 ;  ********** nntp settings **********
 nntp                                   CNAME           $domain.
 news                                   CNAME           nntp
 lists                                  CNAME           nntp
-news                                   HINFO           "Web" "nntp"
-news                                   TXT             "news provided by casjaysdev.com"
 
 ;  ********** ntp settings **********
 ntp                                    CNAME           $domain.
 pool.ntp                               CNAME           casjay.pool.ntp.org.
 *.pool.ntp                             CNAME           casjay.pool.ntp.org.
-ntp                                    HINFO           "Web" "XMPP"
-ntp                                    TXT             "ntp provided by casjay.pool.ntp.org"
 
 ;  ********** gsuite settings **********
 office                                 CNAME           gsuite.casjay.net.redirect.center.
@@ -455,8 +443,6 @@ cloud                                  CNAME           gsuite.drive.casjay.net.r
 groups                                 CNAME           gsuite.groups.casjay.net.redirect.center.
 calendar                               CNAME           gsuite.calendar.casjay.net.redirect.center.
 admin.gsuite                           CNAME           google.com.opts-slash.a.opts-slash.casjay.net.opts-https.redirect.center.
-gsuite                                 HINFO           "Web" "Office"
-gsuite                                 TXT             "Office provided by google.com"
 
 ;  ********** sip settings **********
 pbx                                    CNAME           casjay.tel.
@@ -473,8 +459,8 @@ wiki                                   CNAME           help.casjay.net.redirect.
 support                                CNAME           help.casjay.net.redirect.center.
 
 ;  ********** vpn settings **********
-ppp                                     A              $host_ipv4
-vpn                                     A              $host_ipv4
+ppp                                    A               $host_ipv4
+vpn                                    A               $host_ipv4
 
 ;  ********* *misc settings **********
 
@@ -497,10 +483,19 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __named_conf() {
-  [ -f "$GEN_DNS_FILE_ZONE_DIR/named.conf" ] && return
   tsig_key="$(type -P tsig-keygen || false)"
-  cat <<EOF | tee "$GEN_DNS_FILE_BIND_DIR/named.conf" &>/dev/null
-; default options
+  if [ -w "/etc/named.conf" ] && __user_is_root; then
+    NAMED_CONF="/etc/named.conf"
+    NAMED_COPY="true"
+    [ -d "/var/named/master" ] || mkdir -p "/var/named/master"
+  else
+    NAMED_CONF="$GEN_DNS_FILE_BIND_DIR/named.conf"
+    [ -d "$GEN_DNS_FILE_CONF_DIR" ] || mkdir -p "$GEN_DNS_FILE_CONF_DIR"
+    [ -d "$GEN_DNS_FILE_ZONE_DIR" ] || mkdir -p "$GEN_DNS_FILE_ZONE_DIR"
+  fi
+  if [ ! -f "$NAMED_CONF" ]; then
+    cat <<EOF | tee "$NAMED_CONF" &>/dev/null
+# default options
 options {
   version "";
   directory "/var/named";
@@ -510,11 +505,10 @@ options {
   statistics-file "/var/log/named/named.stats";
   zone-statistics yes;
   max-cache-size 60m;
-  cleaning-interval 60;
   interface-interval 60;
   max-ncache-ttl 10800;
   max-udp-size 4096;
-  allow-transfer { ${GEN_DNS_FORWARDERS:-trusted}; };
+  allow-transfer { 1.1.1.1; };
   allow-query { any; };
   allow-recursion { any; };
   allow-query-cache { any; };
@@ -524,159 +518,76 @@ options {
   auth-nxdomain no;
   forwarders { 1.1.1.1; 8.8.8.8; 8.8.4.4; };
   notify yes;
-  also-notify { ${GEN_DNS_FORWARDERS:-none}; };
-  dnssec-enable yes;
+  also-notify { 1.1.1.1; };
   dnssec-validation auto;
   managed-keys-directory "/etc/named/keys/";
 };
 
-; access settings
-acl "trusted" {
-  10.0.0.0/8;
-  127.0.0.0/8;
-  172.16.0.0/12;
-  192.168.0.0/16;
-};
+# access settings
+acl "trusted" { 10.0.0.0/8; 127.0.0.0/8; 172.16.0.0/12; 192.168.0.0/16; };
 
-; rndc keys
-key "rndc-key" {
-  algorithm hmac-sha256;
-  secret "$($tsig_key -a hmac-sha256 | grep 'secret' | sed 's|.*secret ||g;s|"||g;s|;||g' | grep '^' || echo '5wcf6AT7ci1QChSYBYl4oss6ZjLQB91jrQOvnJ+3bLw=')";
-};
+# rndc keys
+key "rndc-key" { algorithm hmac-sha256; secret "FtGLAmmo/SIbLHPNTRKDz4ZVgE06soxscvvBKCAFsFE="; };
+key "dhcp-key" { algorithm hmac-sha256; secret "/AhLrqJZHYt6/gzjeUvcI7Yo/5R2ZIg40s1SQrPBeA0="; };
+key "certbot." { algorithm hmac-sha256; secret "0dAuoHLjXqyYvbto08if3qUxPesAAr6cjs3Z90OFg90="; };
 
-key "dhcp-key" {
-  algorithm hmac-sha256;
-  secret "$($tsig_key -a hmac-sha256 | grep 'secret' | sed 's|.*secret ||g;s|"||g;s|;||g' | grep '^' || echo 'Q4sSmlAj8thx4uHQ7DbR+RQgeuUroSJ66cKlJgSpD6Q=')";
-};
+# rndc settings
+controls { inet 127.0.0.1 allow { trusted; } keys { "rndc-key"; }; };
 
-key "certbot." {
-  algorithm hmac-sha256;
-  secret "$($tsig_key -a hmac-sha256 | grep 'secret' | sed 's|.*secret ||g;s|"||g;s|;||g' | grep '^' || echo 'gO9q2bOXslPL/5GuW2pQJrsrXOWMXPwuVI0LkW6t/70=')";
-};
-
-; rndc settings
-controls {
-  inet 127.0.0.1 allow { trusted; } keys { "rndc-key"; };
-};
-
-; named logging options
+# named logging options
 logging {
-
-channel security {
-  file "/var/log/named/security.log";
-  severity dynamic;
-  print-severity yes;
-  print-time yes;
-  };
-
-channel default {
-  file "/var/log/named/default.log";
-  severity debug;
-  print-category yes;
-  print-severity yes;
-  print-time yes;
-  };
-
-channel xfer-in {
-  file "/var/log/named/xfer-in.log";
-  severity info;
-  print-category yes;
-  print-severity yes;
-  print-time yes;
-  };
-
-channel xfer-out {
-  file "/var/log/named/xfer-out.log";
-  severity info;
-  print-category yes;
-  print-severity yes;
-  print-time yes;
-  };
-
-channel update {
-  file "/var/log/named/update.log";
-  severity info;
-  print-category yes;
-  print-severity yes;
-  print-time yes;
-  };
-
-channel notify {
-  file "/var/log/named/notify.log";
-  severity info;
-  print-category yes;
-  print-severity yes;
-  print-time yes;
-  };
-
-channel querylog {
-  file "/var/log/named/query.log";
-  severity info;
-  print-time yes;
-  };
-
-channel debug {
-  file "/var/log/named/debug.log";
-  severity debug;
-  };
-category lame-servers {
-  default;
-  };
-category dispatch {
-  default;
-  };
-category queries {
-  querylog;
-  };
-category update {
-  default;
-  update;
-  };
-category network {
-  default;
-  };
-category unmatched {
-  default;
-  };
-category client {
-  default;
-  };
-category notify {
-  notify;
-  };
-category xfer-out {
-  xfer-out;
-  };
-category xfer-in {
-  xfer-in;
-  };
-category resolver {
-  default;
-  };
-category config {
-  default;
-  };
-category security {
-  security;
-  };
-category database {
-  default;
-  };
-category general {
-  default;
-  };
-category default {
-  default;
-  debug;
-  };
-category dnssec {
-  security;
-  };
+channel security { file "/var/log/named/security.log"; severity dynamic; print-severity yes; print-time yes; };
+channel xfer-in { file "/var/log/named/xfer-in.log"; severity info; print-category yes; print-severity yes; print-time yes; };
+channel default { file "/var/log/named/default.log"; severity debug; print-category yes; print-severity yes; print-time yes; };
+channel xfer-out { file "/var/log/named/xfer-out.log"; severity info; print-category yes; print-severity yes; print-time yes; };
+channel update { file "/var/log/named/update.log"; severity info; print-category yes; print-severity yes; print-time yes; };
+channel notify { file "/var/log/named/notify.log"; severity info; print-category yes; print-severity yes; print-time yes; };
+channel querylog { file "/var/log/named/query.log"; severity info; print-time yes; };
+channel debug { file "/var/log/named/debug.log"; severity debug; };
+category lame-servers { default; };
+category dispatch { default; };
+category queries { querylog; };
+category update { default; update; };
+category network { default; };
+category unmatched { default; };
+category client { default; };
+category notify { notify; };
+category xfer-out { xfer-out; };
+category xfer-in { xfer-in; };
+category resolver { default; };
+category config { default; };
+category security { security; };
+category database { default; };
+category general { default; };
+category default { default; debug; };
+category dnssec { security; };
 };
-
-; ********** begin domain configuration **********
 
 EOF
+
+    printf_green "Created $NAMED_CONF"
+  fi
+
+  if [ -f "$GEN_DNS_FILE_CONF_DIR/$GEN_DNS_DEFAULT_DOMAIN.conf" ]; then
+    if [ "$NAMED_COPY" = "true" ]; then
+      prinf_cyan "Adding domain to $NAMED_CONF"
+      printf '#  ********** begin %s **********\n' "$GEN_DNS_DEFAULT_DOMAIN" >>"$NAMED_CONF"
+      cat $GEN_DNS_FILE_CONF_DIR/$GEN_DNS_DEFAULT_DOMAIN.conf | sed 's|'$GEN_DNS_FILE_CONF_DIR'||g' | grep -v '^$' >>"$NAMED_CONF"
+      printf '#  ********** end %s **********\n\n' "$GEN_DNS_DEFAULT_DOMAIN" >>"$NAMED_CONF"
+      cp -Rf "$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone" "/var/named/master/"
+    fi
+    if grep -s -q "$GEN_DNS_DEFAULT_DOMAIN" "$NAMED_CONF"; then
+      printf_yellow "$GEN_DNS_DEFAULT_DOMAIN already exists in $NAMED_CONF"
+    else
+      printf '#  ********** begin %s **********\n' "$GEN_DNS_DEFAULT_DOMAIN" >>"$NAMED_CONF"
+      cat $GEN_DNS_FILE_CONF_DIR/$GEN_DNS_DEFAULT_DOMAIN.conf | sed 's|'$GEN_DNS_FILE_CONF_DIR'||g' | grep -v '^$' >>"$NAMED_CONF"
+      printf '#  ********** end %s **********\n\n' "$GEN_DNS_DEFAULT_DOMAIN" >>"$NAMED_CONF"
+      printf_green "Add the contents of $GEN_DNS_FILE_CONF_DIR/$GEN_DNS_DEFAULT_DOMAIN.conf to /etc/named.conf file"
+    fi
+  else
+    printf_exit "Failed to create $GEN_DNS_FILE_CONF_DIR/$GEN_DNS_DEFAULT_DOMAIN.conf"
+  fi
+
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __addtonamed() {
@@ -690,25 +601,6 @@ __addtonamed() {
     };
 
 EOF
-  __named_conf
-  if [ -f "$GEN_DNS_FILE_CONF_DIR/$GEN_DNS_DEFAULT_DOMAIN.conf" ]; then
-    if [ -w "/etc/named.conf" ] || __user_is_root; then
-      [ -d "/var/named/master" ] || mkdir -p "/var/named/master"
-      cp -Rf "$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone" "/var/named/master/"
-      if grep -s -q "$GEN_DNS_DEFAULT_DOMAIN" "/etc/named.conf"; then
-        printf_yellow "$GEN_DNS_DEFAULT_DOMAIN already exists in /etc/named"
-      else
-        printf '; ********** begin %s **********\n' "$GEN_DNS_DEFAULT_DOMAIN" >>"/etc/named.conf"
-        cat $GEN_DNS_FILE_CONF_DIR/$GEN_DNS_DEFAULT_DOMAIN.conf | sed 's|'$GEN_DNS_FILE_CONF_DIR'||g' | grep -v '^$' >>"/etc/named.conf"
-        printf '; ********** end %s **********\n\n' "$GEN_DNS_DEFAULT_DOMAIN" >>"/etc/named.conf"
-      fi
-    else
-      printf '; ********** begin %s **********\n' "$GEN_DNS_DEFAULT_DOMAIN" >>"$GEN_DNS_FILE_BIND_DIR/named.conf"
-      cat $GEN_DNS_FILE_CONF_DIR/$GEN_DNS_DEFAULT_DOMAIN.conf | sed 's|'$GEN_DNS_FILE_CONF_DIR'||g' | grep -v '^$' >>"$GEN_DNS_FILE_BIND_DIR/named.conf"
-      printf '; ********** end %s **********\n\n' "$GEN_DNS_DEFAULT_DOMAIN" >>"$GEN_DNS_FILE_BIND_DIR/named.conf"
-      printf_yellow "Add the contents of $GEN_DNS_FILE_CONF_DIR/$GEN_DNS_DEFAULT_DOMAIN.conf to your $GEN_DNS_FILE_BIND_DIR/named.conf file"
-    fi
-  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gen_dns_conf() { # actions to preform on an existing config
@@ -748,9 +640,8 @@ __gen_dns() {
     echo "" >>"$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone"
   fi
   if [ $? = 0 ] && [ -f "$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone" ]; then
-    printf_green "zone for $GEN_DNS_DEFAULT_DOMAIN has been setup and saved to "
-    printf_yellow "$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone"
-    __addtonamed
+    printf_green "zone for $GEN_DNS_DEFAULT_DOMAIN has been setup and saved to $GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone"
+    __addtonamed && __named_conf
     exitCode=0
   else
     exitCode=1

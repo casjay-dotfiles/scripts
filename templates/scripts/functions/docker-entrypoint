@@ -26,7 +26,7 @@ __find_mongodb_conf() { return; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __random_password() { cat "/dev/urandom" | tr -dc '[0-9][a-z][A-Z]@$' | head -c${1:-14} && echo ""; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__setup_ssl() {
+__update_ssl_certs() {
   [ -f "/config/env/ssl.sh" ] && . "/config/env/ssl.sh"
   if [ -f "$SSL_CERT" ] && [ -f "$SSL_KEY" ]; then
     mkdir -p /etc/ssl
@@ -54,7 +54,7 @@ __certbot() {
     certbot $options --agree-tos -m $CERT_BOT_MAIL certonly --webroot \
       -w "${WWW_ROOT_DIR:-/data/htdocs/www}" \
       $ADD_CERTBOT_DOMAINS --put-all-related-files-into "$SSL_DIR" \
-      -key-path "$SSL_KEY" -fullchain-path "$SSL_CERT" && __setup_ssl
+      -key-path "$SSL_KEY" -fullchain-path "$SSL_CERT" && __update_ssl_certs
   fi
   return $?
 }
@@ -82,7 +82,7 @@ __create_ssl_cert() {
     fi
   fi
   if [ -f "$SSL_CERT" ] && [ -f "$SSL_KEY" ]; then
-    __setup_ssl
+    __update_ssl_certs
     return 0
   else
     return 2
@@ -285,7 +285,7 @@ __init_mongodb
 __init_postgres
 __init_couchdb
 __certbot
-__setup_ssl
+__update_ssl_certs
 __create_ssl_cert
 '
   return
@@ -496,7 +496,7 @@ export NGINX_CONFIG_FILE MYSQL_CONFIG_FILE PGSQL_CONFIG_FILE
 export ENTRYPOINT_FIRST_RUN SET_RANDOM_PASS
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # export the functions
-export -f __setup_ssl __certbot __create_ssl_cert __init_apache __init_nginx
+export -f __update_ssl_certs __certbot __create_ssl_cert __init_apache __init_nginx
 export -f __init_php __init_mysql __init_mongodb __init_postgres __init_couchdb
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # end of functions

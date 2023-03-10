@@ -90,10 +90,8 @@ __run_pre() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_message() {
-  if [ "$ENTRYPOINT_MESSAGE" = "yes" ]; then
-    echo "Container ip address is: $CONTAINER_IP4_ADDRESS"
 
-  fi
+  return
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # rewrite variables
@@ -118,6 +116,11 @@ export DEFAULT_DATA_DIR="${DEFAULT_DATA_DIR:-/usr/local/share/template-files/dat
 export DEFAULT_CONF_DIR="${DEFAULT_CONF_DIR:-/usr/local/share/template-files/config}"
 export DEFAULT_TEMPLATE_DIR="${DEFAULT_TEMPLATE_DIR:-/usr/local/share/template-files/defaults}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show start message
+if [ "$CONFIG_DIR_INITIALIZED" = "false" ] || [ "$DATA_DIR_INITIALIZED" = "false" ]; then
+  [ "$ENTRYPOINT_MESSAGE" = "yes" ] && echo "Executing entrypoint script for GEN_SCRIPT_REPLACE_APPNAME"
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Create the backup dir
 [ -n "$BACKUP_DIR" ] && [ -d "$BACKUP_DIR" ] || mkdir -p "$BACKUP_DIR"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -130,11 +133,6 @@ mkdir -p "/config/secure" && chmod -f 777 "/config/secure"
 [ -f "/config/.enable_ssh" ] && export SSL_ENABLED="true"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [ "$WEB_SERVER_PORT" = "443" ] && SSL_ENABLED="true"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Show start message
-if [ "$CONFIG_DIR_INITIALIZED" = "false" ] || [ "$DATA_DIR_INITIALIZED" = "false" ]; then
-  [ "$ENTRYPOINT_MESSAGE" = "yes" ] && echo "Executing entrypoint script for GEN_SCRIPT_REPLACE_APPNAME"
-fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set timezone
 [ -n "$TZ" ] && [ -w "/etc/timezone" ] && echo "$TZ" >"/etc/timezone"
@@ -290,9 +288,6 @@ __setup_mta
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_pre
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Show message
-__run_message
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -f "$ENTRYPOINT_CONFIG_INIT_FILE" ]; then
   ENTRYPOINT_FIRST_RUN="no"
 elif [ -d "/config" ]; then
@@ -317,7 +312,9 @@ if [ -f "$ENTRYPOINT_PID_FILE" ]; then
   ENTRYPOINT_MESSAGE="no"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-export DATA_DIR_INITIALIZED CONFIG_DIR_INITIALIZED START_SERVICES ENTRYPOINT_MESSAGE
+export DATA_DIR_INITIALIZED CONFIG_DIR_INITIALIZED START_SERVICES ENTRYPOINT_MESSAGE ENTRYPOINT_FIRST_RUN
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+[ "$ENTRYPOINT_MESSAGE" = "yes" ] && echo "Container ip address is: $CONTAINER_IP4_ADDRESS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show configured listing processes
 if [ -n "$ENV_PORTS" ]; then
@@ -326,7 +323,9 @@ if [ -n "$ENV_PORTS" ]; then
   printf '%s\n' "The following ports are open: $show_port"
   unset port show_port
 fi
-
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show message
+__run_message
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Just start services
 START_SERVICES="${START_SERVICES:-SYSTEM_INIT}"
@@ -427,12 +426,6 @@ certbot) # manage ssl certificate
   exit $?
   ;;
 
-init) # show/execute init functions
-  shift 1
-  __init_${1:-help}
-  exit $?
-  ;;
-
 start) # show/start an init script
   shift 1
   PATH="/usr/local/etc/docker/init.d:$PATH"
@@ -440,16 +433,14 @@ start) # show/start an init script
     scripts="$(ls -A "/usr/local/etc/docker/init.d")"
     [ -n "$scripts" ] && echo "$scripts" || echo "No scripts found in: /usr/local/etc/docker/init.d"
   elif [ -f "/usr/local/etc/docker/init.d/$1" ]; then
-    exec "/usr/local/etc/docker/init.d/$1"
+    eval "/usr/local/etc/docker/init.d/$1"
+    wait -f $!
   elif [ "$1" = "all" ]; then
-    eval "$0"
+    shift $#
+    echo "$$" >"/run/init.d/entrypoint.pid"
+    __start_init_scripts "/usr/local/etc/docker/init.d"
+    wait -f $!
   fi
-  exit $?
-  ;;
-
-exec) # execute commands
-  shift 1
-  __exec_command "${@:-/bin/bash}"
   exit $?
   ;;
 
@@ -457,7 +448,8 @@ exec) # execute commands
   if [ "$START_SERVICES" = "yes" ] && [ ! -f "/run/init.d/entrypoint.pid" ]; then
     echo "$$" >"/run/init.d/entrypoint.pid"
     __start_init_scripts "/usr/local/etc/docker/init.d" && sleep 3 || sleep 1
-    [ -n "$1" ] && exec "$*" || exec "${SHELL:-bash -l}"
+    [ -n "$1" ] && exec "$*"
+    wait -f $!
     exit 0
   else
     __exec_command "$@"

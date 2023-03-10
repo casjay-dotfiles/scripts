@@ -112,8 +112,8 @@ __pre_execute
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 WORKDIR="${WORKDIR:-}"
 if [ "$SERVICE_USER" = "root" ] || [ -z "$SERVICE_USER" ]; then
-  su_cmd_bin="eval"
-  su_cmd() { "$@" || return 1; }
+  su_cmd_bin=""
+  su_cmd() { eval $su_cmd_bin "$@" || return 1; }
 elif [ "$(builtin type -P gosu)" ]; then
   su_cmd_bin="gosu $SERVICE_USER"
   su_cmd() { eval $su_cmd_bin "$@" || return 1; }
@@ -134,11 +134,14 @@ if [ -n "$WORKDIR" ] && [ -n "$SERVICE_USER" ]; then
   echo "Fixing file permissions"
   su_cmd chown -Rf $SERVICE_USER $WORKDIR
 fi
-echo "Starting service: $EXEC_CMD_BIN $EXEC_CMD_ARGS"
-export -f __run_start_script
-export SERVICE_IS_RUNNING="true"
-su_cmd "touch /run/init.d/$EXEC_CMD_BIN.pid"
-su_cmd __run_start_script "$@" || echo "Failed to execute: $EXEC_CMD_BIN $EXEC_CMD_ARGS"
-[ "$?" -ne 0 ] && SERVICE_IS_RUNNING="false" && SERVICE_EXIT_CODE=10 && rm -Rf "/run/init.d/$EXEC_CMD_BIN.pid"
+if __pgrep $EXEC_CMD_BIN || [ -f "/run/init.d/$EXEC_CMD_BIN.pid" ]; then
+  SERVICE_EXIT_CODE=1
+  echo "$EXEC_CMD_BIN" is already running
+else
+  echo "Starting service: $EXEC_CMD_BIN $EXEC_CMD_ARGS"
+  su_cmd touch /run/init.d/$EXEC_CMD_BIN.pid
+  __run_start_script "$@" |& tee -a "/tmp/entrypoint.log" || echo "Failed to execute: $EXEC_CMD_BIN $EXEC_CMD_ARGS"
+  [ "$?" -ne 0 ] && SERVICE_IS_RUNNING="false" && SERVICE_EXIT_CODE=10 && rm -Rf "/run/init.d/$EXEC_CMD_BIN.pid"
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 exit $SERVICE_EXIT_CODE

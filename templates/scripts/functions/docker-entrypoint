@@ -47,7 +47,7 @@ __certbot() {
     local options="${1:-create}" && shift 1
     domain_list="$DOMAINNAME www.$DOMAINNAME mail.$DOMAINNAME $CERTBOT_DOMAINS"
     [ -f "/config/env/ssl.sh" ] && . "/config/env/ssl.sh"
-    [ "$SSL_CERT_BOT" = "true" ] && [ -f "$(type -P certbot)" ] || { SSL_CERT_BOT="" && return 10; }
+    [ "$SSL_CERT_BOT" = "true" ] && [ -f "$(type -P certbot)" ] || { export SSL_CERT_BOT="" && return 10; }
     [ -n "$CERT_BOT_MAIL" ] || echo "The variable CERT_BOT_MAIL is not set" && return 1
     [ -n "$DOMAINNAME" ] || echo "The variable DOMAINNAME is not set" && return 1
     for domain in $$CERTBOT_DOMAINS; do
@@ -92,19 +92,21 @@ __create_ssl_cert() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __init_apache() {
-  local etc_dir="/etc/${1:-apache2}"
-  local conf_dir="/config/${1:-apache2}"
-  local www_dir="${WWW_ROOT_DIR:-/data/htdocs/www}"
-  local apache_bin="$(type -P 'httpd' || type -P 'apache2')"
+  local etc_dir="" conf_dir="" conf_dir="" www_dir="" apache_bin=""
+  etc_dir="/etc/${1:-apache2}"
+  conf_dir="/config/${1:-apache2}"
+  www_dir="${WWW_ROOT_DIR:-/data/htdocs/www}"
+  apache_bin="$(type -P 'httpd' || type -P 'apache2')"
   #
   return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __init_nginx() {
-  local etc_dir="/etc/${1:-nginx}"
-  local conf_dir="/config/${1:-nginx}"
-  local www_dir="${WWW_ROOT_DIR:-/data/htdocs}"
-  local nginx_bin="$(type -P 'nginx')"
+  local etc_dir="" conf_dir="" www_dir="" nginx_bin=""
+  etc_dir="/etc/${1:-nginx}"
+  conf_dir="/config/${1:-nginx}"
+  www_dir="${WWW_ROOT_DIR:-/data/htdocs}"
+  nginx_bin="$(type -P 'nginx')"
   #
   return 0
 }
@@ -118,14 +120,15 @@ __init_php() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __init_mysql() {
-  local db_dir="/data/db/mysql"
-  local etc_dir="${home:-/etc/${1:-mysql}}"
-  local db_user="${SERVICE_USER:-mysql}"
-  local conf_dir="/config/${1:-mysql}"
-  local user_pass="${MARIADB_PASSWORD:-$MARIADB_ROOT_PASSWORD}"
-  local user_db="${MARIADB_DATABASE}" user_name="${MARIADB_USER:-root}"
-  local root_pass="$MARIADB_ROOT_PASSWORD"
-  local mysqld_bin="$(type -P 'mysqld')"
+  local db_dir="" etc_dir="" db_user="" conf_dir="" user_pass="" user_db="" root_pass="" mysqld_bin=""
+  db_dir="/data/db/mysql"
+  etc_dir="${home:-/etc/${1:-mysql}}"
+  db_user="${SERVICE_USER:-mysql}"
+  conf_dir="/config/${1:-mysql}"
+  user_pass="${MARIADB_PASSWORD:-$MARIADB_ROOT_PASSWORD}"
+  user_db="${MARIADB_DATABASE}" user_name="${MARIADB_USER:-root}"
+  root_pass="$MARIADB_ROOT_PASSWORD"
+  mysqld_bin="$(type -P 'mysqld')"
   #
   return 0
 }
@@ -265,11 +268,12 @@ __start_init_scripts() {
     for init in "$init_dir"/*.sh; do
       if [ -f "$init" ]; then
         name="$(basename "$init")"
-        eval "$init" 2>/dev/stderr >/dev/stdout
+        (eval "$init" | tee -a /var/log/entrypoint.log &)
         initStatus=$(($? + initStatus))
-        sleep 5
+        sleep 10
+        echo ""
       fi
-    done &
+    done
   fi
   return $initStatus
 }
@@ -283,11 +287,12 @@ __setup_mta() {
   local account_domain="${EMAIL_DOMAIN//*@/}"
   echo "$EMAIL_RELAY" | grep '[0-9][0-9]' || relay_port="465"
 
-  if [ -d "/etc/ssmtp" ] || [ -d "/config/ssmtp" ]; then
-    # sSMTP relay setup
-    [ -d "/etc/ssmtp" ] && rm -Rf "/etc/ssmtp" || return 0
+  ################# sSMTP relay setup
+  if [ -n "$(type -P 'ssmtp')" ] || [ -d "/etc/ssmtp" ] || [ -d "/config/ssmtp" ]; then
     [ -d "/config/ssmtp" ] || mkdir -p "/config/ssmtp"
-    cat <<EOF | tee "/config/ssmtp/ssmtp.conf" &>/dev/null
+    [ -f "/etc/ssmtp/ssmtp.conf" ] && rm -Rf "/etc/ssmtp/ssmtp.conf"
+    if [ ! -f "/config/ssmtp/ssmtp.conf" ]; then
+      cat <<EOF | tee "/config/ssmtp/ssmtp.conf" &>/dev/null
 # ssmtp configuration.
 root=${account_user:-root}@${account_domain:-$HOSTNAME}
 mailhub=${relay_server:-172.17.0.1}:$relay_port
@@ -302,12 +307,19 @@ FromLineOverride=yes
 #AuthPass=password
 
 EOF
+    fi
+    if [ -f "/config/ssmtp/ssmtp.conf" ]; then
+      cp -Rf "/config/ssmtp/." "/etc/ssmtp/"
+    fi
 
-    # postfix relay setup
-  elif [ -d "/config/postfix" ] || [ -d "/etc/postfix" ]; then
-    cat <<EOF | tee "/config/postfix/main.cf" &>/dev/null
+    ################# postfix relay setup
+  elif [ -n "$(type -P 'postfix')" ] || [ -d "/config/postfix" ] || [ -d "/etc/postfix" ]; then
+    [ -d "/etc/postfix" ] || mkdir -p "/etc/postfix"
+    [ -f "/etc/postfix/main.cf" ] && rm -Rf "/etc/postfix/main.cf"
+    if [ ! -f "/config/postfix/main.cf" ]; then
+      cat <<EOF | tee "/config/postfix/main.cf" &>/dev/null
 # postfix configuration.
-smtpd_banner = \$myhostname ESMTP CasjaysDev mail
+smtpd_banner = \$myhostname ESMTP email server
 compatibility_level = 2
 alias_maps = hash:/etc/postfix/aliases
 alias_database = hash:/etc/postfix/aliases
@@ -331,6 +343,7 @@ relayhost = [$relay_server]:$relay_port
 inet_protocols = ipv4
 
 EOF
+    fi
     touch "/config/postfix/aliases" "/config/postfix/mynetworks" "/config/postfix/transport"
     touch "/config/postfix/mydomains.pcre" "/config/postfix/mydomains" "/config/postfix/virtual"
     if [ -f "/config/postfix/main.cf" ] && [ ! -f "/run/init.d/postfix.pid" ]; then

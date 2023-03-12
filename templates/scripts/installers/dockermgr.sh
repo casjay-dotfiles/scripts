@@ -85,10 +85,10 @@ __ifconfig() { [ -n "$(type -P ifconfig)" ] && eval ifconfig "$*" 2>/dev/null ||
 __docker_net_ls() { docker network ls 2>&1 | grep -v 'NETWORK ID' | awk -F ' ' '{print $2}'; }
 __password() { cat "/dev/urandom" | tr -dc '[0-9][a-z][A-Z]@$' | head -c${1:-14} && echo ""; }
 __docker_ps() { docker ps -a 2>&1 | grep -qs "$CONTAINER_NAME" && return 0 || return 1; }
-__name() { echo "$HUB_IMAGE_URL-${HUB_IMAGE_TAG:-latest}" | awk -F '/' '{print $(NF-1)"-"$NF}'; }
 __enable_ssl() { { [ "$SSL_ENABLED" = "yes" ] || [ "$SSL_ENABLED" = "true" ]; } && return 0 || return 1; }
 __ssl_certs() { [ -f "$HOST_SSL_CA" ] && [ -f "$HOST_SSL_CRT" ] && [ -f "$HOST_SSL_KEY" ] && return 0 || return 1; }
 __host_name() { hostname -f 2>/dev/null | grep '\.' | grep '^' || hostname -f 2>/dev/null | grep '^' || echo "$HOSTNAME"; }
+__container_name() { echo "$HUB_IMAGE_URL-${HUB_IMAGE_TAG:-latest}" | awk -F '/' '{print $(NF-1)"-"$NF}' | grep '^' || return 1; }
 __domain_name() { hostname -f 2>/dev/null | awk -F '.' '{print $(NF-1)"."$NF}' | grep '\.' | grep '^' || hostname -f 2>/dev/null | grep '^' || return 1; }
 __port_in_use() { { [ -d "/etc/nginx/vhosts.d" ] && grep -wRsq "${1:-443}" "/etc/nginx/vhosts.d" || netstat -taupln 2>/dev/null | grep '[0-9]:[0-9]' | grep 'LISTEN' | grep -q "${1:-443}"; } && return 1 || return 0; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -232,8 +232,8 @@ CONTAINER_DOCKER_CONFIG_FILE=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mount soundcard [yes/no] [/dev/snd]
 DOCKER_SOUND_ENABLED="no"
-HOST_SOUND_CONFIG="/dev/snd"
-CONTAINER_SOUND_CONFIG_FILE="/dev/snd"
+HOST_SOUND_DEVICE="/dev/snd"
+CONTAINER_SOUND_DEVICE_FILE="/dev/snd"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Enable display in container [yes/no] [0] [/tmp/.X11-unix] [~/.Xauthority]
 CONTAINER_X11_ENABLED="no"
@@ -380,13 +380,14 @@ __container_import_variables() {
   local base_file="$1"
   mkdir -p "$(dirname "$base_dir/$base_file" 2>/dev/null)"
   cat <<EOF | tee "$base_dir/$base_file" &>/dev/null
+
 EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __dockermgr_variables() {
+  [ -d "$DOCKERMGR_CONFIG_DIR/env" ] || mkdir -p "$DOCKERMGR_CONFIG_DIR/env"
   cat <<EOF | tee | tr '|' '\n'
 # Enviroment variables for $APPNAME
-${DOCKERMGR_CUSTOM_VARIABLE_IMPORT}HUB_IMAGE_URL="${HUB_IMAGE_URL:-}"|HUB_IMAGE_TAG="${HUB_IMAGE_TAG:-}"|CONTAINER_NAME="${CONTAINER_NAME:-}"|USER_ID_ENABLED="${USER_ID_ENABLED:-}"|CONTAINER_USER_ID="${CONTAINER_USER_ID:-}"|CONTAINER_GROUP_ID="${CONTAINER_GROUP_ID:-}"|CONTAINER_PRIVILEGED_ENABLED="${CONTAINER_PRIVILEGED_ENABLED:-}"|CONTAINER_SHM_SIZE="${CONTAINER_SHM_SIZE:-}"|CONTAINER_AUTO_RESTART="${CONTAINER_AUTO_RESTART:-}"|CONTAINER_AUTO_DELETE="${CONTAINER_AUTO_DELETE:-}"|CONTAINER_TTY_ENABLED="${CONTAINER_TTY_ENABLED:-}"|CONTAINER_INTERACTIVE_ENABLED="${CONTAINER_INTERACTIVE_ENABLED:-}"|CGROUPS_ENABLED="${CGROUPS_ENABLED:-}"|CGROUPS_MOUNTS="${CGROUPS_MOUNTS:-}"|HOST_RESOLVE_ENABLED="${HOST_RESOLVE_ENABLED:-}"|HOST_RESOLVE_FILE="${HOST_RESOLVE_FILE:-}"|DOCKER_SOCKET_ENABLED="${DOCKER_SOCKET_ENABLED:-}"|DOCKER_SOCKET_MOUNT="${DOCKER_SOCKET_MOUNT:-}"|DOCKER_CONFIG_ENABLED="${DOCKER_CONFIG_ENABLED:-}"|HOST_DOCKER_CONFIG="${HOST_DOCKER_CONFIG:-}"|DOCKER_SOUND_ENABLED="${DOCKER_SOUND_ENABLED:-}"|HOST_SOUND_CONFIG="${HOST_SOUND_CONFIG:-}"|HOST_ETC_HOSTS_ENABLED="${HOST_ETC_HOSTS_ENABLED:-}"|CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-}"|CONTAINER_DOMAINNAME="${CONTAINER_DOMAINNAME:-}"|HOST_DOCKER_NETWORK="${HOST_DOCKER_NETWORK:-}"|HOST_NETWORK_ADDR="${HOST_NETWORK_ADDR:-}"|HOST_NETWORK_LOCAL_ADDR="${HOST_NETWORK_LOCAL_ADDR:-}"|HOST_DEFINE_LISTEN="${HOST_DEFINE_LISTEN:-}"|HOST_NGINX_ENABLED="${HOST_NGINX_ENABLED:-}"|HOST_NGINX_SSL_ENABLED="${HOST_NGINX_SSL_ENABLED:-}"|HOST_NGINX_HTTP_PORT="${HOST_NGINX_HTTP_PORT:-}"|HOST_NGINX_HTTPS_PORT="${HOST_NGINX_HTTPS_PORT:-}"|HOST_NGINX_UPDATE_CONF="${HOST_NGINX_UPDATE_CONF:-}"|CONTAINER_WEB_SERVER_ENABLED="${CONTAINER_WEB_SERVER_ENABLED:-}"|CONTAINER_WEB_SERVER_SSL_ENABLED="${CONTAINER_WEB_SERVER_SSL_ENABLED:-}"|CONTAINER_WEB_SERVER_AUTH_ENABLED="${CONTAINER_WEB_SERVER_AUTH_ENABLED:-}"|CONTAINER_WEB_SERVER_INT_PORT="${CONTAINER_WEB_SERVER_INT_PORT:-}"|CONTAINER_WEB_SERVER_EMAIL="${CONTAINER_WEB_SERVER_EMAIL:-}"|CONTAINER_HTTP_PROTO="${CONTAINER_HTTP_PROTO:-}"|HOST_NETWORK_ADDR="${HOST_NETWORK_ADDR:-}"|CONTAINER_HTTP_PORT="${CONTAINER_HTTP_PORT:-}"|CONTAINER_HTTPS_PORT="${CONTAINER_HTTPS_PORT:-}"|CONTAINER_SERVICE_PORT="${CONTAINER_SERVICE_PORT:-}"|CONTAINER_ADD_CUSTOM_PORT="${CONTAINER_ADD_CUSTOM_PORT:-}"|CONTAINER_ADD_CUSTOM_LISTEN="${CONTAINER_ADD_CUSTOM_LISTEN:-}"||CONTAINER_MOUNT_DATA_ENABLED="${CONTAINER_MOUNT_DATA_ENABLED:-}"|CONTAINER_MOUNT_DATA_MOUNT_DIR="${CONTAINER_MOUNT_DATA_MOUNT_DIR:-}"|CONTAINER_MOUNT_CONFIG_ENABLED="${CONTAINER_MOUNT_CONFIG_ENABLED:-}"|CONTAINER_MOUNT_CONFIG_MOUNT_DIR="${CONTAINER_MOUNT_CONFIG_MOUNT_DIR:-}"|CONTAINER_MOUNTS="${CONTAINER_MOUNTS:-}"|CONTAINER_DEVICES="${CONTAINER_DEVICES:-}"|CONTAINER_ENV="${CONTAINER_ENV:-}"|CONTAINER_SYSCTL="${CONTAINER_SYSCTL:-}"|CONTAINER_CAPABILITIES="${CONTAINER_CAPABILITIES:-}"|CONTAINER_LABELS="${CONTAINER_LABELS:-}"|CONTAINER_ENV_USER_NAME="${CONTAINER_ENV_USER_NAME:-}"|CONTAINER_ENV_PASS_NAME="${CONTAINER_ENV_PASS_NAME:-}"|CONTAINER_USER_NAME="${CONTAINER_USER_NAME:-}"|CONTAINER_USER_PASS="${CONTAINER_USER_PASS:-}"|CONTAINER_COMMANDS="${CONTAINER_COMMANDS:-}"|DOCKER_CUSTOM_ARGUMENTS="${DOCKER_CUSTOM_ARGUMENTS:-}"|CONTAINER_DEBUG_ENABLED="${CONTAINER_DEBUG_ENABLED:-}"|CONTAINER_DEBUG_OPTIONS="${CONTAINER_DEBUG_OPTIONS:-}"|POST_SHOW_FINISHED_MESSAGE="${POST_SHOW_FINISHED_MESSAGE:-}"
 
 EOF
 }
@@ -434,7 +435,7 @@ CONTAINER_ADD_CUSTOM_PORT="${CONTAINER_ADD_CUSTOM_PORT//  / }"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup arrays
 DOCKER_SET_PUBLISH=""
-DOCKER_SET_TMP_PUBLISH=("")
+DOCKER_SET_TMP_PUBLISH=()
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure that the image has a tag
 if [ -z "$HUB_IMAGE_TAG" ]; then
@@ -449,7 +450,7 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set containers name
 if [ -z "$CONTAINER_NAME" ]; then
-  CONTAINER_NAME="$(__name)"
+  CONTAINER_NAME="$(__container_name || echo "casjaysdevdocker/GEN_SCRIPT_REPLACE_APPNAME-$HUB_IMAGE_TAG")"
 fi
 DOCKER_SET_OPTIONS+="--name=$CONTAINER_NAME "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -569,14 +570,14 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mount sound card in container
 if [ "$DOCKER_SOUND_ENABLED" = "yes" ]; then
-  if [ -z "$HOST_SOUND_CONFIG_FILE" ] && [ -f "/dev/snd" ]; then
-    HOST_SOUND_CONFIG_FILE="/dev/snd"
+  if [ -z "$HOST_SOUND_DEVICE_FILE" ] && [ -f "/dev/snd" ]; then
+    HOST_SOUND_DEVICE_FILE="/dev/snd"
   fi
-  if [ -z "$CONTAINER_SOUND_CONFIG_FILE" ]; then
-    CONTAINER_SOUND_CONFIG_FILE="/dev/snd"
+  if [ -z "$CONTAINER_SOUND_DEVICE_FILE" ]; then
+    CONTAINER_SOUND_DEVICE_FILE="/dev/snd"
   fi
-  if [ -n "$HOST_SOUND_CONFIG_FILE" ] && [ -n "$CONTAINER_SOUND_CONFIG_FILE" ]; then
-    DOCKER_SET_OPTIONS+="--volume $HOST_SOUND_CONFIG_FILE:$CONTAINER_SOUND_CONFIG_FILE "
+  if [ -n "$HOST_SOUND_DEVICE_FILE" ] && [ -n "$CONTAINER_SOUND_DEVICE_FILE" ]; then
+    DOCKER_SET_OPTIONS+="--device $HOST_SOUND_DEVICE_FILE:$CONTAINER_SOUND_DEVICE_FILE "
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -723,6 +724,27 @@ if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ]; then
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# SSL setup
+NGINX_PROXY_URL=""
+PROXY_HTTP_PROTO="$CONTAINER_HTTP_PROTO"
+if [ "$NGINX_SSL" = "yes" ]; then
+  if [ "$SSL_ENABLED" = "yes" ]; then
+    PROXY_HTTP_PROTO="https"
+  fi
+  if [ "$PROXY_HTTP_PROTO" = "https" ]; then
+    NGINX_PROXY_URL="$PROXY_HTTP_PROTO://$HOST_LISTEN_ADDR:$NGINX_PROXY_PORT"
+    if [ -f "$HOST_SSL_CRT" ] && [ -f "$HOST_SSL_KEY" ]; then
+      if [ -f "$CONTAINER_SSL_CA" ]; then
+        CONTAINER_MOUNTS+="$HOST_SSL_CA:$CONTAINER_SSL_CA "
+      fi
+      CONTAINER_MOUNTS+="$HOST_SSL_CRT:$CONTAINER_SSL_CRT "
+      CONTAINER_MOUNTS+="$HOST_SSL_KEY:$CONTAINER_SSL_KEY "
+    fi
+  fi
+else
+  CONTAINER_HTTP_PROTO="${CONTAINER_HTTP_PROTO:-http}"
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup ports
 SET_SERVER_PORTS_TMP=""
 if [ -n "$CONTAINER_HTTP_PORT" ]; then
@@ -768,7 +790,7 @@ if [ -z "$DATABASE_BASE_DIR" ]; then
 fi
 if [ "$CONTAINER_REDIS_ENABLED" = "yes" ]; then
   CONTAINER_DATABASE_ENABLED="yes"
-  DOCKER_SET_TMP_PUBLISH=("$CONTAINER_DATABASE_LISTEN:6379:6379")
+  DOCKER_SET_TMP_PUBLISH+=("$CONTAINER_DATABASE_LISTEN:6379:6379")
   DATABASE_DIR_REDIS="${DATABASE_DIR_REDIS:-$DATABASE_BASE_DIR/redis}"
   DOCKER_SET_OPTIONS+="--volume $LOCAL_DATA_DIR/db/redis:/$DATABASE_DIR_REDIS:z "
   DOCKER_SET_OPTIONS+="--env ENV_PORTS=6379 "
@@ -777,7 +799,7 @@ if [ "$CONTAINER_REDIS_ENABLED" = "yes" ]; then
 fi
 if [ "$CONTAINER_POSTGRES_ENABLED" = "yes" ]; then
   CONTAINER_DATABASE_ENABLED="yes"
-  DOCKER_SET_TMP_PUBLISH=("$CONTAINER_DATABASE_LISTEN:5432:5432")
+  DOCKER_SET_TMP_PUBLISH+=("$CONTAINER_DATABASE_LISTEN:5432:5432")
   DATABASE_DIR_PGSQL="${DATABASE_DIR_PGSQL:-$DATABASE_BASE_DIR/pgsql}"
   DOCKER_SET_OPTIONS+="--volume $LOCAL_DATA_DIR/db/pgsql:/$DATABASE_DIR_PGSQL:z "
   DOCKER_SET_OPTIONS+="--env ENV_PORTS=5432 "
@@ -786,7 +808,7 @@ if [ "$CONTAINER_POSTGRES_ENABLED" = "yes" ]; then
 fi
 if [ "$CONTAINER_MARIADB_ENABLED" = "yes" ]; then
   CONTAINER_DATABASE_ENABLED="yes"
-  DOCKER_SET_TMP_PUBLISH=("$CONTAINER_DATABASE_LISTEN:3306:3306")
+  DOCKER_SET_TMP_PUBLISH+=("$CONTAINER_DATABASE_LISTEN:3306:3306")
   DATABASE_DIR_MARIADB="${DATABASE_DIR_MARIADB:-$DATABASE_BASE_DIR/mysql}"
   DOCKER_SET_OPTIONS+="--volume $LOCAL_DATA_DIR/db/mysql:/$DATABASE_DIR_MARIADB:z "
   DOCKER_SET_OPTIONS+="--env ENV_PORTS=3306 "
@@ -795,7 +817,7 @@ if [ "$CONTAINER_MARIADB_ENABLED" = "yes" ]; then
 fi
 if [ "$CONTAINER_COUCHDB_ENABLED" = "yes" ]; then
   CONTAINER_DATABASE_ENABLED="yes"
-  DOCKER_SET_TMP_PUBLISH=("$CONTAINER_DATABASE_LISTEN:5984:5984")
+  DOCKER_SET_TMP_PUBLISH+=("$CONTAINER_DATABASE_LISTEN:5984:5984")
   DATABASE_DIR_COUCHDB="${DATABASE_DIR_COUCHDB:-$DATABASE_BASE_DIR/couchdb}"
   DOCKER_SET_OPTIONS+="--volume $LOCAL_DATA_DIR/db/couchdb:/$DATABASE_DIR_COUCHDB:z "
   DOCKER_SET_OPTIONS+="--env ENV_PORTS=5984 "
@@ -804,7 +826,7 @@ if [ "$CONTAINER_COUCHDB_ENABLED" = "yes" ]; then
 fi
 if [ "$CONTAINER_MONGODB_ENABLED" = "yes" ]; then
   CONTAINER_DATABASE_ENABLED="yes"
-  DOCKER_SET_TMP_PUBLISH=("$CONTAINER_DATABASE_LISTEN:27017:27017")
+  DOCKER_SET_TMP_PUBLISH+=("$CONTAINER_DATABASE_LISTEN:27017:27017")
   DATABASE_DIR_MONGODB="${DATABASE_DIR_MONGODB:-$DATABASE_BASE_DIR/mongodb}"
   DOCKER_SET_OPTIONS+="--volume $LOCAL_DATA_DIR/db/mongodb:/$DATABASE_DIR_MONGODB:z "
   DOCKER_SET_OPTIONS+="--env ENV_PORTS=27017 "
@@ -813,7 +835,7 @@ if [ "$CONTAINER_MONGODB_ENABLED" = "yes" ]; then
 fi
 if [ "$CONTAINER_SUPABASE_ENABLED" = "yes" ]; then
   CONTAINER_DATABASE_ENABLED="yes"
-  DOCKER_SET_TMP_PUBLISH=("$CONTAINER_DATABASE_LISTEN:5432:5432")
+  DOCKER_SET_TMP_PUBLISH+=("$CONTAINER_DATABASE_LISTEN:5432:5432")
   DATABASE_DIR_SUPABASE="${DATABASE_DIR_SUPABASE:-$DATABASE_BASE_DIR/supabase}"
   DOCKER_SET_OPTIONS+="--volume $LOCAL_DATA_DIR/db/supabase:/$DATABASE_DIR_SUPABASE:z "
   DOCKER_SET_OPTIONS+="--env ENV_PORTS=5432 "
@@ -909,7 +931,7 @@ if [ "$CONTAINER_MOUNT_CONFIG_ENABLED" = "yes" ]; then
     CONTAINER_MOUNT_CONFIG_MOUNT_DIR="/config"
   fi
   CONTAINER_MOUNT_CONFIG_MOUNT_DIR="${CONTAINER_MOUNT_CONFIG_MOUNT_DIR//:*/}"
-  DOCKER_SET_OPTIONS+="--volume $LOCAL_DATA_DIR:/$CONTAINER_MOUNT_CONFIG_MOUNT_DIR:z "
+  DOCKER_SET_OPTIONS+="--volume $LOCAL_CONFIG_DIR:/$CONTAINER_MOUNT_CONFIG_MOUNT_DIR:z "
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # additional docker arguments
@@ -930,73 +952,18 @@ if [ -n "$CONTAINER_COMMANDS" ]; then
   CONTAINER_COMMANDS="${CONTAINER_COMMANDS//,/ } "
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup container labels
-if [ -n "$CONTAINER_LABELS" ]; then
-  DOCKER_SET_LABELS=""
-  CONTAINER_LABELS="${CONTAINER_LABELS//,/ }"
-  CONTAINER_LABELS="${CONTAINER_LABELS//  / }"
-  for label in $CONTAINER_LABELS; do
-    if [ "$label" != "" ] && [ "$label" != " " ]; then
-      DOCKER_SET_LABELS+="--label $label "
+# Setup mounts
+if [ -n "$CONTAINER_MOUNTS" ]; then
+  DOCKER_SET_MNT=""
+  CONTAINER_MOUNTS="${CONTAINER_MOUNTS//,/ }"
+  CONTAINER_MOUNTS="${CONTAINER_MOUNTS//  / }"
+  for mnt in $CONTAINER_MOUNTS; do
+    if [ "$mnt" != "" ] && [ "$mnt" != " " ]; then
+      echo "$mnt" | grep -q ':' || port="$mnt:$mnt"
+      DOCKER_SET_MNT+="--volume $mnt "
     fi
   done
 fi
-CONTAINER_LABELS=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup capabilites
-if [ -n "$CONTAINER_CAPABILITIES" ]; then
-  DOCKER_SET_CAP=""
-  CONTAINER_CAPABILITIES="${CONTAINER_CAPABILITIES//,/ }"
-  CONTAINER_CAPABILITIES="${CONTAINER_CAPABILITIES//  / }"
-  for cap in $CONTAINER_CAPABILITIES; do
-    if [ "$cap" != "" ] && [ "$cap" != " " ]; then
-      DOCKER_SET_CAP+="--cap-add $cap "
-    fi
-  done
-fi
-CONTAINER_CAPABILITIES=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup sysctl
-if [ -n "$CONTAINER_SYSCTL" ]; then
-  DOCKER_SET_SYSCTL=""
-  CONTAINER_SYSCTL="${CONTAINER_SYSCTL//,/ }"
-  CONTAINER_SYSCTL="${CONTAINER_SYSCTL//  / }"
-  for sysctl in $CONTAINER_SYSCTL; do
-    if [ "$sysctl" != "" ] && [ "$sysctl" != " " ]; then
-      DOCKER_SET_SYSCTL+="--sysctl $sysctl "
-    fi
-  done
-fi
-CONTAINER_SYSCTL=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup optional enviroment variables
-if [ -n "$SET_CONTAINER_OPT_ENV_VAR" ]; then
-  DOCKER_SET_ENV1=""
-  CONTAINER_OPT_ENV_VAR="${SET_CONTAINER_OPT_ENV_VAR//,/ }"
-  CONTAINER_OPT_ENV_VAR="${SET_CONTAINER_OPT_ENV_VAR//  / }"
-  if [ -n "$OPT_ENV_VAR" ]; then
-    for env in $OPT_ENV_VAR; do
-      if [ "$env" != "" ] && [ "$env" != " " ]; then
-        DOCKER_SET_ENV1+="--env $env "
-      fi
-    done
-  fi
-fi
-CONTAINER_OPT_ENV_VAR=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup enviroment variables
-if [ -n "$ADDITION_ENV" ]; then
-  DOCKER_SET_ENV2=""
-  CONTAINER_ENV="${ADDITION_ENV//,/ }"
-  CONTAINER_ENV="${ADDITION_ENV//  / }"
-  for env in $ADDITION_ENV; do
-    if [ "$env" != "" ] && [ "$env" != " " ]; then
-      DOCKER_SET_ENV2+="--env $env "
-    fi
-  done
-fi
-CONTAINER_ENV=""
-DOCKER_SET_ENV="$DOCKER_SET_ENV1 $DOCKER_SET_ENV2"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup devices
 if [ -n "$CONTAINER_DEVICES" ]; then
@@ -1010,33 +977,73 @@ if [ -n "$CONTAINER_DEVICES" ]; then
     fi
   done
 fi
-CONTAINER_DEVICES=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup mounts
-if [ -n "$CONTAINER_MOUNTS" ]; then
-  DOCKER_SET_MNT=""
-  CONTAINER_MOUNTS="${CONTAINER_MOUNTS//,/ }"
-  CONTAINER_MOUNTS="${CONTAINER_MOUNTS//  / }"
-  for mnt in $CONTAINER_MOUNTS; do
-    if [ "$mnt" != "" ] && [ "$mnt" != " " ]; then
-      echo "$mnt" | grep -q ':' || port="$mnt:$mnt"
-      DOCKER_SET_MNT+="--volume $mnt "
+# Setup enviroment variables
+if [ -n "$CONTAINER_ENV" ]; then
+  DOCKER_SET_ENV=""
+  CONTAINER_ENV="${CONTAINER_ENV//,/ }"
+  CONTAINER_ENV="${CONTAINER_ENV//  / }"
+  for env in $CONTAINER_ENV; do
+    if [ "$env" != "" ] && [ "$env" != " " ]; then
+      DOCKER_SET_ENV+="--env $env "
     fi
   done
 fi
-CONTAINER_MOUNTS=""
+if [ -n "$CONTAINER_OPT_ENV_VAR" ]; then
+  CONTAINER_OPT_ENV_VAR="${CONTAINER_OPT_ENV_VAR//,/ }"
+  CONTAINER_OPT_ENV_VAR="${CONTAINER_OPT_ENV_VAR//  / }"
+  for env in $CONTAINER_OPT_ENV_VAR; do
+    if [ "$env" != "" ] && [ "$env" != " " ]; then
+      DOCKER_SET_ENV+="--env $env "
+    fi
+  done
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup capabilites
+if [ -n "$CONTAINER_CAPABILITIES" ]; then
+  DOCKER_SET_CAP=""
+  CONTAINER_CAPABILITIES="${CONTAINER_CAPABILITIES//,/ }"
+  CONTAINER_CAPABILITIES="${CONTAINER_CAPABILITIES//  / }"
+  for cap in $CONTAINER_CAPABILITIES; do
+    if [ "$cap" != "" ] && [ "$cap" != " " ]; then
+      DOCKER_SET_CAP+="--cap-add $cap "
+    fi
+  done
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup sysctl
+if [ -n "$CONTAINER_SYSCTL" ]; then
+  DOCKER_SET_SYSCTL=""
+  CONTAINER_SYSCTL="${CONTAINER_SYSCTL//,/ }"
+  CONTAINER_SYSCTL="${CONTAINER_SYSCTL//  / }"
+  for sysctl in $CONTAINER_SYSCTL; do
+    if [ "$sysctl" != "" ] && [ "$sysctl" != " " ]; then
+      DOCKER_SET_SYSCTL+="--sysctl $sysctl "
+    fi
+  done
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup container labels
+if [ -n "$CONTAINER_LABELS" ]; then
+  DOCKER_SET_LABELS=""
+  CONTAINER_LABELS="${CONTAINER_LABELS//,/ }"
+  CONTAINER_LABELS="${CONTAINER_LABELS//  / }"
+  for label in $CONTAINER_LABELS; do
+    if [ "$label" != "" ] && [ "$label" != " " ]; then
+      DOCKER_SET_LABELS+="--label $label "
+    fi
+  done
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup optional ports
 if [ -n "$CONTAINER_OPT_PORT_VAR" ]; then
   CONTAINER_OPT_PORT_VAR="${CONTAINER_OPT_PORT_VAR//,/ }"
   CONTAINER_OPT_PORT_VAR="${CONTAINER_OPT_PORT_VAR//  / }"
-  SET_LISTEN="${HOST_DEFINE_LISTEN//:*/}"
   if [ -n "$CONTAINER_OPT_PORT_VAR" ]; then
     for set_port in $CONTAINER_OPT_PORT_VAR; do
       if [ "$set_port" != "" ] && [ "$set_port" != " " ]; then
         port=$set_port
-        echo "$port" | grep -q ':.*.:' || random_port="$(__rport)"
-        echo "$port" | grep -q ':' || port="${random_port:-$port//\/*/}:$port"
+        echo "$port" | grep -q ':' || port="${port//\/*/}:$port"
         DOCKER_SET_TMP_PUBLISH+=("--publish $port")
       fi
     done
@@ -1046,14 +1053,15 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup ports
 if [ -n "$SET_SERVER_PORTS" ]; then
+  SET_LISTEN="${HOST_DEFINE_LISTEN//:*/}"
   for set_port in $SET_SERVER_PORTS; do
     if [ "$set_port" != " " ] && [ -n "$set_port" ]; then
       port=$set_port
       echo "$port" | grep -q ':.*.:' || random_port="$(__rport)"
       echo "$port" | grep -q ':' || port="${random_port:-$port//\/*/}:$port"
       if [ "$CONTAINER_PRIVATE" = "yes" ] && [ "$port" = "${IS_PRIVATE//\/*/}" ]; then
-        ADDR="${HOST_LISTEN_ADDR:-127.0.0.1}"
-        DOCKER_SET_TMP_PUBLISH+=("--publish $ADDR:$port")
+        SET_ADDR="${HOST_LISTEN_ADDR:-127.0.0.1}"
+        DOCKER_SET_TMP_PUBLISH+=("--publish $SET_ADDR:$port")
       elif [ -n "$SET_LISTEN" ]; then
         DOCKER_SET_TMP_PUBLISH+=("--publish $SET_LISTEN:$port")
       else
@@ -1061,18 +1069,16 @@ if [ -n "$SET_SERVER_PORTS" ]; then
       fi
     fi
   done
+  set_port=""
 fi
-unset SET_SERVER_PORTS_TMP
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup custom ports
 if [ -n "$CONTAINER_ADD_CUSTOM_LISTEN" ]; then
-  SET_CUSTOM_PORTS=""
   for set_port in $CONTAINER_ADD_CUSTOM_LISTEN; do
-    if [ "$port" != " " ] && [ -n "$port" ]; then
+    if [ "$set_port" != " " ] && [ -n "$set_port" ]; then
       port=$set_port
-      echo "$port" | grep -q ':.*.:' || random_port="$(__rport)"
-      echo "$port" | grep -q ':' || port="${random_port:-$port//\/*/}:$port"
-      TYPE="$(echo "$port" | grep '/' | awk -F '/' '{print $NF}' | head -n1 | grep '^' || echo '')"
+      echo "$port" | grep -q ':' || port="${port//\/*/}:$port"
+      TYPE="$(echo "$set_port" | grep '/' | awk -F '/' '{print $NF}' | head -n1 | grep '^' || echo '')"
       if [ -z "$TYPE" ]; then
         DOCKER_SET_TMP_PUBLISH+=("--publish $port")
       else
@@ -1080,6 +1086,7 @@ if [ -n "$CONTAINER_ADD_CUSTOM_LISTEN" ]; then
       fi
     fi
   done
+  set_port=""
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # container web server configuration
@@ -1130,23 +1137,6 @@ if [ -n "$NGINX_PROXY_PORT" ]; then
   PRETTY_PORT="$NGINX_PROXY_PORT"
 else
   NGINX_PROXY_PORT="$CLEANUP_PORT"
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# SSL setup
-NGINX_PROXY_URL=""
-PROXY_HTTP_PROTO="http"
-if [ "$NGINX_SSL" = "yes" ]; then
-  [ "$SSL_ENABLED" = "yes" ] && PROXY_HTTP_PROTO="https"
-  if [ "$PROXY_HTTP_PROTO" = "https" ]; then
-    NGINX_PROXY_URL="$PROXY_HTTP_PROTO://$HOST_LISTEN_ADDR:$NGINX_PROXY_PORT"
-    if [ -f "$HOST_SSL_CRT" ] && [ -f "$HOST_SSL_KEY" ]; then
-      [ -f "$CONTAINER_SSL_CA" ] && CONTAINER_MOUNTS+="$HOST_SSL_CA:$CONTAINER_SSL_CA "
-      CONTAINER_MOUNTS+="$HOST_SSL_CRT:$CONTAINER_SSL_CRT "
-      CONTAINER_MOUNTS+="$HOST_SSL_KEY:$CONTAINER_SSL_KEY "
-    fi
-  fi
-else
-  CONTAINER_HTTP_PROTO="${CONTAINER_HTTP_PROTO:-http}"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 NGINX_PROXY_URL="${NGINX_PROXY_URL:-$PROXY_HTTP_PROTO://$HOST_LISTEN_ADDR:$NGINX_PROXY_PORT}"
@@ -1201,10 +1191,10 @@ DOCKER_SET_LABELS="$(__trim "${DOCKER_SET_LABELS[*]:-}")"
 DOCKER_SET_SYSCTL="$(__trim "${DOCKER_SET_SYSCTL[*]:-}")"
 DOCKER_SET_OPTIONS="$(__trim "${DOCKER_SET_OPTIONS[*]:-}")"
 CONTAINER_COMMANDS="$(__trim "${CONTAINER_COMMANDS[*]:-}")"
+DOCKER_SET_CUSTOM="$(__trim "${DOCKER_CUSTOM_ARRAY[*]:-}")"
 DOCKER_SET_PUBLISH="$(__trim "${DOCKER_SET_TMP_PUBLISH[*]:-}")"
-DOCKER_CUSTOM_ARRAY=("$(__trim "${DOCKER_CUSTOM_ARRAY[*]:-}")")
 EXECUTE_PRE_INSTALL="docker stop $CONTAINER_NAME;docker rm -f $CONTAINER_NAME"
-EXECUTE_DOCKER_CMD="docker run -d $DOCKER_SET_OPTIONS ${DOCKER_CUSTOM_ARRAY[*]} $DOCKER_SET_LINK $DOCKER_SET_LABELS $DOCKER_SET_CAP $DOCKER_SET_SYSCTL $DOCKER_SET_DEV $DOCKER_SET_MNT $DOCKER_SET_ENV $DOCKER_SET_PUBLISH $HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS"
+EXECUTE_DOCKER_CMD="docker run -d $DOCKER_SET_OPTIONS $DOCKER_SET_CUSTOM $DOCKER_SET_LINK $DOCKER_SET_LABELS $DOCKER_SET_CAP $DOCKER_SET_SYSCTL $DOCKER_SET_DEV $DOCKER_SET_MNT $DOCKER_SET_ENV $DOCKER_SET_PUBLISH $HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS"
 EXECUTE_DOCKER_CMD="$(__trim "$EXECUTE_DOCKER_CMD")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run functions
@@ -1307,13 +1297,18 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
     for service in $SET_PORT; do
       if [ "$service" != "--publish" ] && [ "$service" != " " ] && [ -n "$service" ]; then
+        type="${service//*\//}"
         service=${service//\/*/}
         set_listen=${service%:*}
         set_service=${service//*:[^:]*:/}
         listen_ip=${set_listen//0.0.0.0/$HOST_LISTEN_ADDR}
         listen=${listen_ip//^:/$listen_ip}
         if [ -n "$listen" ]; then
-          printf_cyan "Port $set_service is mapped to: $listen"
+          if [ -n "$type" ]; then
+            printf_cyan "Port $set_service is mapped to: $listen/$type"
+          else
+            printf_cyan "Port $set_service is mapped to: $listen"
+          fi
         fi
       fi
     done

@@ -11,7 +11,7 @@
 # @@File             :  GEN_SCRIPT_REPLACE_FILENAME
 # @@Description      :  Container installer script for GEN_SCRIPT_REPLACE_APPNAME
 # @@Changelog        :  GEN_SCRIPT_REPLACE_CHANGELOG
-# @@TODO             :  GEN_SCRIPT_REPLACE_TODO
+# @@TODO             :  Completely rewrite/refactor/variable cleanup
 # @@Other            :  GEN_SCRIPT_REPLACE_OTHER
 # @@Resource         :  GEN_SCRIPT_REPLACE_RES
 # @@Terminal App     :  GEN_SCRIPT_REPLACE_TERMINAL
@@ -76,10 +76,21 @@ __docker_gateway_ip() { sudo docker network inspect -f '{{json .IPAM.Config}}' $
 __docker_net_create() { __docker_net_ls | grep -q "$HOST_DOCKER_NETWORK" && return 0 || { docker network create -d bridge --attachable $HOST_DOCKER_NETWORK &>/dev/null && __docker_net_ls | grep -q "$HOST_DOCKER_NETWORK" && echo "$HOST_DOCKER_NETWORK" && return 0 || return 1; }; }
 __local_lan_ip() { [ -n "$SET_LAN_IP" ] && (echo "$SET_LAN_IP" | grep -E '192\.168\.[0-255]\.[0-255]' 2>/dev/null || echo "$SET_LAN_IP" | grep -E '10\.[0-255]\.[0-255]\.[0-255]' 2>/dev/null || echo "$SET_LAN_IP" | grep -E '172\.[10-32]' | grep -v '172\.[10-15]' 2>/dev/null) | grep -v '172\.17' | grep -v '^$' | head -n1 | grep '^' || echo "$CURRENT_IP_4" | grep '^'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__variables() {
+__dockermgr_variables() {
   cat <<EOF | tee | tr '|' '\n'
 # Enviroment variables for $APPNAME
-HUB_IMAGE_URL="${HUB_IMAGE_URL:-}"|HUB_IMAGE_TAG="${HUB_IMAGE_TAG:-}"|CONTAINER_NAME="${CONTAINER_NAME:-}"|USER_ID_ENABLED="${USER_ID_ENABLED:-}"|CONTAINER_USER_ID="${CONTAINER_USER_ID:-}"|CONTAINER_GROUP_ID="${CONTAINER_GROUP_ID:-}"|CONTAINER_PRIVILEGED_ENABLED="${CONTAINER_PRIVILEGED_ENABLED:-}"|CONTAINER_SHM_SIZE="${CONTAINER_SHM_SIZE:-}"|CONTAINER_AUTO_RESTART="${CONTAINER_AUTO_RESTART:-}"|CONTAINER_AUTO_DELETE="${CONTAINER_AUTO_DELETE:-}"|CONTAINER_TTY_ENABLED="${CONTAINER_TTY_ENABLED:-}"|CONTAINER_INTERACTIVE_ENABLED="${CONTAINER_INTERACTIVE_ENABLED:-}"|CGROUPS_ENABLED="${CGROUPS_ENABLED:-}"|CGROUPS_MOUNTS="${CGROUPS_MOUNTS:-}"|HOST_RESOLVE_ENABLED="${HOST_RESOLVE_ENABLED:-}"|HOST_RESOLVE_FILE="${HOST_RESOLVE_FILE:-}"|DOCKER_SOCKET_ENABLED="${DOCKER_SOCKET_ENABLED:-}"|DOCKER_SOCKET_MOUNT="${DOCKER_SOCKET_MOUNT:-}"|DOCKER_CONFIG_ENABLED="${DOCKER_CONFIG_ENABLED:-}"|HOST_DOCKER_CONFIG="${HOST_DOCKER_CONFIG:-}"|DOCKER_SOUND_ENABLED="${DOCKER_SOUND_ENABLED:-}"|HOST_SOUND_CONFIG="${HOST_SOUND_CONFIG:-}"|HOST_ETC_HOSTS_ENABLED="${HOST_ETC_HOSTS_ENABLED:-}"|CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-}"|CONTAINER_DOMAINNAME="${CONTAINER_DOMAINNAME:-}"|HOST_DOCKER_NETWORK="${HOST_DOCKER_NETWORK:-}"|HOST_NETWORK_ADDR="${HOST_NETWORK_ADDR:-}"|HOST_NETWORK_LOCAL_ADDR="${HOST_NETWORK_LOCAL_ADDR:-}"|HOST_DEFINE_LISTEN="${HOST_DEFINE_LISTEN:-}"|HOST_NGINX_ENABLED="${HOST_NGINX_ENABLED:-}"|HOST_NGINX_SSL_ENABLED="${HOST_NGINX_SSL_ENABLED:-}"|HOST_NGINX_HTTP_PORT="${HOST_NGINX_HTTP_PORT:-}"|HOST_NGINX_HTTPS_PORT="${HOST_NGINX_HTTPS_PORT:-}"|HOST_NGINX_UPDATE_CONF="${HOST_NGINX_UPDATE_CONF:-}"|CONTAINER_WEB_SERVER_ENABLED="${CONTAINER_WEB_SERVER_ENABLED:-}"|CONTAINER_WEB_SERVER_SSL_ENABLED="${CONTAINER_WEB_SERVER_SSL_ENABLED:-}"|CONTAINER_WEB_SERVER_AUTH_ENABLED="${CONTAINER_WEB_SERVER_AUTH_ENABLED:-}"|CONTAINER_WEB_SERVER_INT_PORT="${CONTAINER_WEB_SERVER_INT_PORT:-}"|CONTAINER_WEB_SERVER_EMAIL="${CONTAINER_WEB_SERVER_EMAIL:-}"|CONTAINER_HTTP_PROTO="${CONTAINER_HTTP_PROTO:-}"|HOST_NETWORK_ADDR="${HOST_NETWORK_ADDR:-}"|CONTAINER_HTTP_PORT="${CONTAINER_HTTP_PORT:-}"|CONTAINER_HTTPS_PORT="${CONTAINER_HTTPS_PORT:-}"|CONTAINER_SERVICE_PORT="${CONTAINER_SERVICE_PORT:-}"|CONTAINER_ADD_CUSTOM_PORT="${CONTAINER_ADD_CUSTOM_PORT:-}"|CONTAINER_ADD_CUSTOM_LISTEN="${CONTAINER_ADD_CUSTOM_LISTEN:-}"||CONTAINER_MOUNT_DATA_ENABLED="${CONTAINER_MOUNT_DATA_ENABLED:-}"|CONTAINER_MOUNT_DATA_MOUNT_DIR="${CONTAINER_MOUNT_DATA_MOUNT_DIR:-}"|CONTAINER_MOUNT_CONFIG_ENABLED="${CONTAINER_MOUNT_CONFIG_ENABLED:-}"|CONTAINER_MOUNT_CONFIG_MOUNT_DIR="${CONTAINER_MOUNT_CONFIG_MOUNT_DIR:-}"|CONTAINER_MOUNTS="${CONTAINER_MOUNTS:-}"|CONTAINER_DEVICES="${CONTAINER_DEVICES:-}"|CONTAINER_ENV="${CONTAINER_ENV:-}"|CONTAINER_SYSCTL="${CONTAINER_SYSCTL:-}"|CONTAINER_CAPABILITIES="${CONTAINER_CAPABILITIES:-}"|CONTAINER_LABELS="${CONTAINER_LABELS:-}"|CONTAINER_ENV_USER_NAME="${CONTAINER_ENV_USER_NAME:-}"|CONTAINER_ENV_PASS_NAME="${CONTAINER_ENV_PASS_NAME:-}"|CONTAINER_USER_NAME="${CONTAINER_USER_NAME:-}"|CONTAINER_USER_PASS="${CONTAINER_USER_PASS:-}"|CONTAINER_COMMANDS="${CONTAINER_COMMANDS:-}"|DOCKER_CUSTOM_ARGUMENTS="${DOCKER_CUSTOM_ARGUMENTS:-}"|CONTAINER_DEBUG_ENABLED="${CONTAINER_DEBUG_ENABLED:-}"|CONTAINER_DEBUG_OPTIONS="${CONTAINER_DEBUG_OPTIONS:-}"|POST_SHOW_FINISHED_MESSAGE="${POST_SHOW_FINISHED_MESSAGE:-}"
+${DOCKERMGR_CUSTOM_VARIABLE_IMPORT}HUB_IMAGE_URL="${HUB_IMAGE_URL:-}"|HUB_IMAGE_TAG="${HUB_IMAGE_TAG:-}"|CONTAINER_NAME="${CONTAINER_NAME:-}"|USER_ID_ENABLED="${USER_ID_ENABLED:-}"|CONTAINER_USER_ID="${CONTAINER_USER_ID:-}"|CONTAINER_GROUP_ID="${CONTAINER_GROUP_ID:-}"|CONTAINER_PRIVILEGED_ENABLED="${CONTAINER_PRIVILEGED_ENABLED:-}"|CONTAINER_SHM_SIZE="${CONTAINER_SHM_SIZE:-}"|CONTAINER_AUTO_RESTART="${CONTAINER_AUTO_RESTART:-}"|CONTAINER_AUTO_DELETE="${CONTAINER_AUTO_DELETE:-}"|CONTAINER_TTY_ENABLED="${CONTAINER_TTY_ENABLED:-}"|CONTAINER_INTERACTIVE_ENABLED="${CONTAINER_INTERACTIVE_ENABLED:-}"|CGROUPS_ENABLED="${CGROUPS_ENABLED:-}"|CGROUPS_MOUNTS="${CGROUPS_MOUNTS:-}"|HOST_RESOLVE_ENABLED="${HOST_RESOLVE_ENABLED:-}"|HOST_RESOLVE_FILE="${HOST_RESOLVE_FILE:-}"|DOCKER_SOCKET_ENABLED="${DOCKER_SOCKET_ENABLED:-}"|DOCKER_SOCKET_MOUNT="${DOCKER_SOCKET_MOUNT:-}"|DOCKER_CONFIG_ENABLED="${DOCKER_CONFIG_ENABLED:-}"|HOST_DOCKER_CONFIG="${HOST_DOCKER_CONFIG:-}"|DOCKER_SOUND_ENABLED="${DOCKER_SOUND_ENABLED:-}"|HOST_SOUND_CONFIG="${HOST_SOUND_CONFIG:-}"|HOST_ETC_HOSTS_ENABLED="${HOST_ETC_HOSTS_ENABLED:-}"|CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-}"|CONTAINER_DOMAINNAME="${CONTAINER_DOMAINNAME:-}"|HOST_DOCKER_NETWORK="${HOST_DOCKER_NETWORK:-}"|HOST_NETWORK_ADDR="${HOST_NETWORK_ADDR:-}"|HOST_NETWORK_LOCAL_ADDR="${HOST_NETWORK_LOCAL_ADDR:-}"|HOST_DEFINE_LISTEN="${HOST_DEFINE_LISTEN:-}"|HOST_NGINX_ENABLED="${HOST_NGINX_ENABLED:-}"|HOST_NGINX_SSL_ENABLED="${HOST_NGINX_SSL_ENABLED:-}"|HOST_NGINX_HTTP_PORT="${HOST_NGINX_HTTP_PORT:-}"|HOST_NGINX_HTTPS_PORT="${HOST_NGINX_HTTPS_PORT:-}"|HOST_NGINX_UPDATE_CONF="${HOST_NGINX_UPDATE_CONF:-}"|CONTAINER_WEB_SERVER_ENABLED="${CONTAINER_WEB_SERVER_ENABLED:-}"|CONTAINER_WEB_SERVER_SSL_ENABLED="${CONTAINER_WEB_SERVER_SSL_ENABLED:-}"|CONTAINER_WEB_SERVER_AUTH_ENABLED="${CONTAINER_WEB_SERVER_AUTH_ENABLED:-}"|CONTAINER_WEB_SERVER_INT_PORT="${CONTAINER_WEB_SERVER_INT_PORT:-}"|CONTAINER_WEB_SERVER_EMAIL="${CONTAINER_WEB_SERVER_EMAIL:-}"|CONTAINER_HTTP_PROTO="${CONTAINER_HTTP_PROTO:-}"|HOST_NETWORK_ADDR="${HOST_NETWORK_ADDR:-}"|CONTAINER_HTTP_PORT="${CONTAINER_HTTP_PORT:-}"|CONTAINER_HTTPS_PORT="${CONTAINER_HTTPS_PORT:-}"|CONTAINER_SERVICE_PORT="${CONTAINER_SERVICE_PORT:-}"|CONTAINER_ADD_CUSTOM_PORT="${CONTAINER_ADD_CUSTOM_PORT:-}"|CONTAINER_ADD_CUSTOM_LISTEN="${CONTAINER_ADD_CUSTOM_LISTEN:-}"||CONTAINER_MOUNT_DATA_ENABLED="${CONTAINER_MOUNT_DATA_ENABLED:-}"|CONTAINER_MOUNT_DATA_MOUNT_DIR="${CONTAINER_MOUNT_DATA_MOUNT_DIR:-}"|CONTAINER_MOUNT_CONFIG_ENABLED="${CONTAINER_MOUNT_CONFIG_ENABLED:-}"|CONTAINER_MOUNT_CONFIG_MOUNT_DIR="${CONTAINER_MOUNT_CONFIG_MOUNT_DIR:-}"|CONTAINER_MOUNTS="${CONTAINER_MOUNTS:-}"|CONTAINER_DEVICES="${CONTAINER_DEVICES:-}"|CONTAINER_ENV="${CONTAINER_ENV:-}"|CONTAINER_SYSCTL="${CONTAINER_SYSCTL:-}"|CONTAINER_CAPABILITIES="${CONTAINER_CAPABILITIES:-}"|CONTAINER_LABELS="${CONTAINER_LABELS:-}"|CONTAINER_ENV_USER_NAME="${CONTAINER_ENV_USER_NAME:-}"|CONTAINER_ENV_PASS_NAME="${CONTAINER_ENV_PASS_NAME:-}"|CONTAINER_USER_NAME="${CONTAINER_USER_NAME:-}"|CONTAINER_USER_PASS="${CONTAINER_USER_PASS:-}"|CONTAINER_COMMANDS="${CONTAINER_COMMANDS:-}"|DOCKER_CUSTOM_ARGUMENTS="${DOCKER_CUSTOM_ARGUMENTS:-}"|CONTAINER_DEBUG_ENABLED="${CONTAINER_DEBUG_ENABLED:-}"|CONTAINER_DEBUG_OPTIONS="${CONTAINER_DEBUG_OPTIONS:-}"|POST_SHOW_FINISHED_MESSAGE="${POST_SHOW_FINISHED_MESSAGE:-}"
+
+EOF
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# this function will create an env file in the containers filesystem - see CONTAINER_ENV_FILE_ENABLED
+__container_import_variables() {
+  [ "$CONTAINER_ENV_FILE_ENABLED" = "yes" ] || return 0
+  local base_dir="$DATADIR"
+  local base_file="$1"
+  mkdir -p "$(dirname "$base_dir/$base_file" 2>/dev/null)"
+  cat <<EOF | tee "$base_dir/$base_file" &>/dev/null
 
 EOF
 }
@@ -167,22 +178,6 @@ while :; do
   *) break ;;
   esac
 done
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup networking
-SET_LOCAL_NET_DEV=$(__route | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//" | awk '{print $1}' | grep '^' || echo 'eth0')
-SET_LAN_IP=$(__ifconfig $SET_LOCAL_NET_DEV | grep -w 'inet' | awk -F ' ' '{print $2}' | grep -vE '127\.[0-255]\.[0-255]\.[0-255]' | tr ' ' '\n' | grep '^')
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-SET_LOCAL_IP="127.0.0.2"
-SET_LAN_IP="$(__local_lan_ip)"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# get variables from host
-SET_RANDOM_PORT=$(__rport)
-SET_RANDOM_PASS=$(__password)
-SET_LOCAL_HOSTNAME=$(__host_name)
-SET_LOCAL_DOMAINNAME=$(__domain_name)
-SET_LONG_HOSTNAME=$(hostname -f 2>/dev/null | grep '^')
-SET_SHORT_HOSTNAME=$(hostname -s 2>/dev/null | grep '^')
-SET_DOMAIN_NAME=$(hostname -d 2>/dev/null | grep '^' || echo 'home')
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define folders
 HOST_DATA_DIR="$DATADIR/data"
@@ -295,6 +290,9 @@ HOST_NETWORK_LOCAL_ADDR="127.0.0.1"
 # Set this to 0.0.0.0 to listen on all
 HOST_DEFINE_LISTEN="0.0.0.0"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set this to the protocol the the container will use [http/https/git/ftp/pgsql/mysql/mongodb]
+CONTAINER_HTTP_PROTO="http"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup nginx proxy variables [yes,no]
 HOST_NGINX_ENABLED="yes"
 HOST_NGINX_SSL_ENABLED="yes"
@@ -307,6 +305,16 @@ CONTAINER_WEB_SERVER_ENABLED="no"
 CONTAINER_WEB_SERVER_INT_PORT="80"
 CONTAINER_WEB_SERVER_SSL_ENABLED="no"
 CONTAINER_WEB_SERVER_AUTH_ENABLED="no"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Add service port [port] or [port:port] - LISTEN will be added if defined [HOST_DEFINE_LISTEN] or HOST_NETWORK_ADDR=local
+# Only ONE of HTTP or HTTPS if web server or SERVICE port for mysql/pgsql/ftp/pgsql. add more to CONTAINER_ADD_CUSTOM_PORT
+CONTAINER_HTTP_PORT=""
+CONTAINER_HTTPS_PORT=""
+CONTAINER_SERVICE_PORT=""
+CONTAINER_ADD_CUSTOM_PORT=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Add service port [listen:externalPort:internalPort/tcp,udp]
+CONTAINER_ADD_CUSTOM_LISTEN=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Database settings [listen] [yes/no]
 CONTAINER_DATABASE_LISTEN=""
@@ -325,6 +333,12 @@ CONTAINER_DATABASE_PASS_ROOT=""
 CONTAINER_DATABASE_USER_NORMAL=""
 CONTAINER_DATABASE_PASS_NORMAL=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set container username and password and the env name [CONTAINER_ENV_USER_NAME=CONTAINER_USER_NAME] - [password=pass]
+CONTAINER_ENV_USER_NAME=""
+CONTAINER_ENV_PASS_NAME=""
+CONTAINER_USER_NAME="${GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME:-}"
+CONTAINER_USER_PASS="${GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # mail settings [yes/no] [user] [domainname] [server]
 CONTAINER_EMAIL_ENABLED=""
 CONTAINER_EMAIL_USER=""
@@ -334,19 +348,6 @@ CONTAINER_EMAIL_PORTS="25,465,587"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Add the names of processes [apache,mysql]
 CONTAINER_SERVICES_LIST=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set this to the protocol the the container will use [http/https/git/ftp/pgsql/mysql/mongodb]
-CONTAINER_HTTP_PROTO="http"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Add service port [port] or [port:port] - LISTEN will be added if defined [HOST_DEFINE_LISTEN] or HOST_NETWORK_ADDR=local
-# Only ONE of HTTP or HTTPS if web server or SERVICE port for mysql/pgsql/ftp/pgsql. add more to CONTAINER_ADD_CUSTOM_PORT
-CONTAINER_HTTP_PORT=""
-CONTAINER_HTTPS_PORT=""
-CONTAINER_SERVICE_PORT=""
-CONTAINER_ADD_CUSTOM_PORT=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Add service port [listen:externalPort:internalPort/tcp,udp]
-CONTAINER_ADD_CUSTOM_LISTEN=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mount container data dir [yes/no] [/data]
 CONTAINER_MOUNT_DATA_ENABLED="yes"
@@ -368,6 +369,12 @@ CONTAINER_DEVICES+=""
 CONTAINER_ENV=""
 CONTAINER_ENV+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# This will create the file in the containers filesystem mount:[/config/env]
+CONTAINER_ENV_FILE_ENABLED="no"
+CONTAINER_ENV_FILE_MOUNT="/config/env"
+CONTAINER_ENV_FILE_DOCKER_ARG=""
+CONTAINER_ENV_FILE_CONTAINER_ARG=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set sysctl []
 CONTAINER_SYSCTL=""
 CONTAINER_SYSCTL+=""
@@ -379,12 +386,6 @@ CONTAINER_CAPABILITIES+=","
 # Define labels [traefik.enable=true,label=label,otherlabel=label2]
 CONTAINER_LABELS=""
 CONTAINER_LABELS+=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set container username and password and the env name [CONTAINER_ENV_USER_NAME=CONTAINER_USER_NAME] - [password=pass]
-CONTAINER_ENV_USER_NAME=""
-CONTAINER_ENV_PASS_NAME=""
-CONTAINER_USER_NAME="${GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME:-}"
-CONTAINER_USER_PASS="${GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Specify container arguments - will run in container [/path/to/script]
 CONTAINER_COMMANDS=""
@@ -404,7 +405,20 @@ POST_SHOW_FINISHED_MESSAGE=""
 # Export variables
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
 # End of configuration options
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup networking
+SET_LOCAL_NET_DEV=$(__route | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//" | awk '{print $1}' | grep '^' || echo 'eth0')
+SET_LAN_IP=$(__ifconfig $SET_LOCAL_NET_DEV | grep -w 'inet' | awk -F ' ' '{print $2}' | grep -vE '127\.[0-255]\.[0-255]\.[0-255]' | tr ' ' '\n' | grep '^')
+SET_LAN_IP="${SET_LAN_IP:-$(__local_lan_ip)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# get variables from host
+SET_LOCAL_HOSTNAME=$(__host_name)
+SET_LOCAL_DOMAINNAME=$(__domain_name)
+SET_LONG_HOSTNAME=$(hostname -f 2>/dev/null | grep '^')
+SET_SHORT_HOSTNAME=$(hostname -s 2>/dev/null | grep '^')
+SET_DOMAIN_NAME=$(hostname -d 2>/dev/null | grep '^' || echo 'home')
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure directories exist
 ensure_dirs
@@ -457,7 +471,7 @@ SET_DOCKER_IP="$(__docker_gateway_ip)"
 HOST_SHORT_HOST="${SET_LOCAL_HOSTNAME:-$SET_SHORT_HOSTNAME}"
 HOST_FULL_HOST="${SET_LOCAL_HOSTNAME:-$SET_LONG_HOSTNAME}"
 HOST_FULL_DOMAIN="${SET_LOCAL_DOMAINNAME:-$SET_DOMAIN_NAME}"
-if [[ "$HOST_FULL_HOST" = server.* ]]; then
+if [[ "$HOST_FULL_HOST" = server.* ]] && [ -z "$CONTAINER_HOSTNAME" ]; then
   HOST_FULL_DOMAIN="$SET_LOCAL_DOMAINNAME"
   CONTAINER_DOMAINNAME="$SET_LOCAL_DOMAINNAME"
   CONTAINER_HOSTNAME="$APPNAME.$HOST_FULL_DOMAIN"
@@ -508,9 +522,10 @@ PRETTY_PORT="$CLEANUP_PORT"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Docker arguments from env
 [ -n "$DOCKER_CUSTOM_ARGUMENTS" ] && DOCKER_CUSTOM_ARGUMENTS+="${DOCKER_CUSTOM_ARGUMENTS//,/ } "
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set docker options from env
-DOCKER_SET_OPTIONS="${DOCKER_CUSTOM_ARGUMENTS:-}"
+DOCKER_SET_OPTIONS+="${DOCKER_CUSTOM_ARGUMENTS:-} "
 [ "$CONTAINER_TTY_ENABLED" = "yes" ] && DOCKER_SET_OPTIONS+="--tty "
 [ -n "$CONTAINER_NAME" ] && DOCKER_SET_OPTIONS+="--name=$CONTAINER_NAME "
 [ "$CONTAINER_PRIVILEGED_ENABLED" = "yes" ] && DOCKER_SET_OPTIONS+="--privileged "
@@ -904,6 +919,13 @@ DOCKER_SET_PORTS_ENV_TMP="$(echo "$DOCKER_SET_PORTS_ENV_TMP" | tr ',' '\n' | gre
 DOCKER_SET_PORTS_ENV="$(__trim "${DOCKER_SET_PORTS_ENV_TMP//,/ }")"
 [ -n "$DOCKER_SET_PORTS_ENV" ] && DOCKER_SET_OPTIONS+="--env ENV_PORTS=\"${DOCKER_SET_PORTS_ENV//: /}\""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ "$CONTAINER_ENV_FILE_ENABLED" = "yes" ]; then
+  [ -n "$CONTAINER_ENV_FILE_MOUNT" ] && CONTAINER_MOUNTS+="$DATADIR/$CONTAINER_ENV_FILE_MOUNT:$CONTAINER_ENV_FILE_MOUNT:z "
+  [ -n "$CONTAINER_ENV_FILE_DOCKER_ARG" ] && DOCKER_SET_OPTIONS+="$CONTAINER_ENV_FILE_DOCKER_ARG $CONTAINER_ENV_FILE_MOUNT "
+  [ -n "$CONTAINER_ENV_FILE_CONTAINER_ARG" ] && CONTAINER_COMMANDS+="$CONTAINER_ENV_FILE_CONTAINER_ARG $CONTAINER_ENV_FILE_MOUNT "
+  DOCKERMGR_CUSTOM_VARIABLE_IMPORT=". $DATADIR/$CONTAINER_ENV_FILE_MOUNT|" || DOCKERMGR_CUSTOM_VARIABLE_IMPORT=""
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main progam
 HUB_IMAGE_URL="$(__trim "${HUB_IMAGE_URL[*]:-}")"
 HUB_IMAGE_TAG="$(__trim "${HUB_IMAGE_TAG[*]:-}")"
@@ -920,7 +942,8 @@ DOCKER_SET_PUBLISH="$(__trim "${DOCKER_SET_TMP_PUBLISH[*]:-}")"
 EXECUTE_PRE_INSTALL="docker stop $CONTAINER_NAME;docker rm -f $CONTAINER_NAME"
 EXECUTE_DOCKER_CMD="docker run -d $DOCKER_SET_OPTIONS $DOCKER_SET_LINK $DOCKER_SET_LABELS $DOCKER_SET_CAP $DOCKER_SET_SYSCTL $DOCKER_SET_DEV $DOCKER_SET_MNT $DOCKER_SET_ENV $DOCKER_SET_PUBLISH $HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS"
 EXECUTE_DOCKER_CMD="$(__trim "$EXECUTE_DOCKER_CMD")"
-__variables >"$DOCKERMGR_CONFIG_DIR/env/$APPNAME"
+__container_import_variables "$CONTAINER_ENV_FILE_MOUNT"
+__dockermgr_variables >"$DOCKERMGR_CONFIG_DIR/env/$APPNAME"
 if cmd_exists docker-compose && [ -f "$INSTDIR/docker-compose.yml" ]; then
   printf_yellow "Installing containers using docker-compose"
   sed -i 's|REPLACE_DATADIR|'$DATADIR'' "$INSTDIR/docker-compose.yml" &>/dev/null

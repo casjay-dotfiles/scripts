@@ -337,6 +337,16 @@ POST_SHOW_FINISHED_MESSAGE=""
 # Set custom docker arguments user for a list of container variables
 DOCKER_CUSTOM_ARRAY=()
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# this function will create an env file in the containers filesystem - see CONTAINER_ENV_FILE_ENABLED
+__container_import_variables() {
+  [ "$CONTAINER_ENV_FILE_ENABLED" = "yes" ] || return 0
+  local base_dir="$DATADIR"
+  local base_file="$1"
+  mkdir -p "$(dirname "$base_dir/$base_file" 2>/dev/null)"
+  cat <<EOF | tee "$base_dir/$base_file" &>/dev/null
+EOF
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define extra functions
 __sudo() { sudo -n true && eval sudo "$*" || eval "$*" || return 1; }
 __port() { echo "$((50000 + $RANDOM % 1000))" | grep '^' || return 1; }
@@ -1167,7 +1177,7 @@ if [ -n "$DOCKER_SET_PORTS_ENV" ]; then
   DOCKER_SET_OPTIONS+="--env ENV_PORTS=\"${DOCKER_SET_PORTS_ENV//: /}\""
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Main progam
+# Clean up variables
 HUB_IMAGE_URL="$(__trim "${HUB_IMAGE_URL[*]:-}")"
 HUB_IMAGE_TAG="$(__trim "${HUB_IMAGE_TAG[*]:-}")"
 DOCKER_SET_CAP="$(__trim "${DOCKER_SET_CAP[*]:-}")"
@@ -1184,8 +1194,12 @@ DOCKER_CUSTOM_ARRAY=("$(__trim "${DOCKER_CUSTOM_ARRAY[*]:-}")")
 EXECUTE_PRE_INSTALL="docker stop $CONTAINER_NAME;docker rm -f $CONTAINER_NAME"
 EXECUTE_DOCKER_CMD="docker run -d $DOCKER_SET_OPTIONS ${DOCKER_CUSTOM_ARRAY[*]} $DOCKER_SET_LINK $DOCKER_SET_LABELS $DOCKER_SET_CAP $DOCKER_SET_SYSCTL $DOCKER_SET_DEV $DOCKER_SET_MNT $DOCKER_SET_ENV $DOCKER_SET_PUBLISH $HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS"
 EXECUTE_DOCKER_CMD="$(__trim "$EXECUTE_DOCKER_CMD")"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run functions
 __container_import_variables "$CONTAINER_ENV_FILE_MOUNT"
 __dockermgr_variables >"$DOCKERMGR_CONFIG_DIR/env/$APPNAME"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Main progam
 if cmd_exists docker-compose && [ -f "$INSTDIR/docker-compose.yml" ]; then
   printf_yellow "Installing containers using docker-compose"
   sed -i 's|REPLACE_DATADIR|'$DATADIR'' "$INSTDIR/docker-compose.yml" &>/dev/null

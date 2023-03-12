@@ -422,6 +422,15 @@ dockermgr_run_init
 # Run pre-install commands
 execute "run_pre_install" "Running pre-installation commands"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ensure_dirs
+ensure_perms
+chmod -Rf 777 "$APPDIR"
+mkdir -p "$LOCAL_DATA_DIR"
+mkdir -p "$LOCAL_CONFIG_DIR"
+mkdir -p "$DOCKERMGR_CONFIG_DIR/env"
+mkdir -p "$DOCKERMGR_CONFIG_DIR/scripts"
+mkdir -p "$DOCKERMGR_CONFIG_DIR/containers"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # variable cleanup
 CONTAINER_ENV="${CONTAINER_ENV//  / }"
 CONTAINER_LABELS="${CONTAINER_LABELS//  / }"

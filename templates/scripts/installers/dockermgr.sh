@@ -77,10 +77,11 @@ trap_exit
 dockermgr_req_version "$APPVERSION"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Custom required functions
-__sudo() { sudo -n true && eval sudo "$*" || eval "$*" || return 1; }
+__sudo() { [ -n "$(type -P 'sudo')" ] && sudo -n true && eval sudo "$*" || eval "$*" || return 1; }
+__sudo_root() { [ -n "$(type -P 'sudo')" ] && sudo -n true && ask_for_password true && sudo "$*" || eval "$*" || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __port() { echo "$((50000 + $RANDOM % 1000))" | grep '^' || return 1; }
 __route() { [ -n "$(type -P ip)" ] && eval ip route 2>/dev/null || return 1; }
-__sudo_root() { sudo -n true && ask_for_password true && eval sudo "$*" || return 1; }
 __ifconfig() { [ -n "$(type -P ifconfig)" ] && eval ifconfig "$*" 2>/dev/null || return 1; }
 __docker_net_ls() { docker network ls 2>&1 | grep -v 'NETWORK ID' | awk -F ' ' '{print $2}'; }
 __password() { cat "/dev/urandom" | tr -dc '[0-9][a-z][A-Z]@$' | head -c${1:-14} && echo ""; }
@@ -121,13 +122,14 @@ __show_post_message() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup application options
-setopts=$(getopt -o "e:,p:,h:,d:" --long "options,env:,port:,host:,domain:" -n "$APPNAME" -- "$@" 2>/dev/null)
+setopts=$(getopt -o "e:,m:,p:,h:,d:" --long "options,env:,mount:,port:,host:,domain:" -n "$APPNAME" -- "$@" 2>/dev/null)
 set -- "${setopts[@]}" 2>/dev/null
 while :; do
   case "$1" in
   -h | --host) CONTAINER_OPT_HOSTNAME="$2" && shift 2 ;;
   -d | --domain) CONTAINER_OPT_DOMAINNAME="$2" && shift 2 ;;
   -e | --env) CONTAINER_OPT_ENV_VAR="$2 $CONTAINER_OPT_ENV_VAR" && shift 2 ;;
+  -m | --mount) CONTAINER_OPT_MOUNT_VAR="$2 $CONTAINER_OPT_ENV_VAR" && shift 2 ;;
   -p | --port) CONTAINER_OPT_PORT_VAR="$2 $CONTAINER_OPT_PORT_VAR" && shift 2 ;;
   --options) shift 1 && echo "Options: -e -p -h -d --options --env --port --host --domain" && exit 1 ;;
   *) break ;;
@@ -370,7 +372,9 @@ POST_SHOW_FINISHED_MESSAGE=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set custom docker arguments user for a list of container variables
 __custom_docker_env() {
-  DOCKER_CUSTOM_ARRAY=()
+  cat <<EOF | tee
+
+EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # this function will create an env file in the containers filesystem - see CONTAINER_ENV_FILE_ENABLED
@@ -972,6 +976,20 @@ if [ -n "$CONTAINER_MOUNTS" ]; then
       DOCKER_SET_MNT+="--volume $mnt "
     fi
   done
+  mnt=""
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -n "$CONTAINER_OPT_MOUNT_VAR" ]; then
+  DOCKER_SET_MNT=""
+  CONTAINER_OPT_MOUNT_VAR="${CONTAINER_OPT_MOUNT_VAR//,/ }"
+  CONTAINER_OPT_MOUNT_VAR="${CONTAINER_OPT_MOUNT_VAR//  / }"
+  for mnt in $CONTAINER_OPT_MOUNT_VAR; do
+    if [ "$mnt" != "" ] && [ "$mnt" != " " ]; then
+      echo "$mnt" | grep -q ':' || port="$mnt:$mnt"
+      DOCKER_SET_MNT+="--volume $mnt "
+    fi
+  done
+  mnt=""
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup devices
@@ -985,6 +1003,7 @@ if [ -n "$CONTAINER_DEVICES" ]; then
       DOCKER_SET_DEV+="--device $dev "
     fi
   done
+  dev=""
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup enviroment variables
@@ -997,6 +1016,7 @@ if [ -n "$CONTAINER_ENV" ]; then
       DOCKER_SET_ENV+="--env $env "
     fi
   done
+  env=""
 fi
 if [ -n "$CONTAINER_OPT_ENV_VAR" ]; then
   CONTAINER_OPT_ENV_VAR="${CONTAINER_OPT_ENV_VAR//,/ }"
@@ -1006,6 +1026,7 @@ if [ -n "$CONTAINER_OPT_ENV_VAR" ]; then
       DOCKER_SET_ENV+="--env $env "
     fi
   done
+  env=""
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup capabilites
@@ -1018,6 +1039,7 @@ if [ -n "$CONTAINER_CAPABILITIES" ]; then
       DOCKER_SET_CAP+="--cap-add $cap "
     fi
   done
+  cap=""
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup sysctl
@@ -1030,6 +1052,7 @@ if [ -n "$CONTAINER_SYSCTL" ]; then
       DOCKER_SET_SYSCTL+="--sysctl $sysctl "
     fi
   done
+  sysctl=""
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup container labels
@@ -1042,6 +1065,7 @@ if [ -n "$CONTAINER_LABELS" ]; then
       DOCKER_SET_LABELS+="--label $label "
     fi
   done
+  label=""
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup optional ports
@@ -1120,6 +1144,7 @@ if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ]; then
       SET_WEB_PORT+="$CONTAINER_WEB_SERVER_LISTEN_ON:$random_port "
     fi
   done
+  set_port=""
   if [ -n "$SET_WEB_PORT" ]; then
     SET_NGINX_PROXY_PORT="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | awk -F':' '{print $1":"$2}' | grep -v '^$' | tr '\n' ' ' | head -n1 | grep '^')"
   fi
@@ -1150,35 +1175,6 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 NGINX_PROXY_URL="${NGINX_PROXY_URL:-$PROXY_HTTP_PROTO://$HOST_LISTEN_ADDR:$NGINX_PROXY_PORT}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-[ -d "$APPDIR/files" ] && [ ! -d "$DATADIR" ] && mv -f "$APPDIR/files" "$DATADIR"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Clone/update the repo
-if __am_i_online; then
-  urlverify "$REPO" || printf_exit "$REPO was not found"
-  if [ -d "$INSTDIR/.git" ]; then
-    message="Updating $APPNAME configurations"
-    execute "git_update $INSTDIR" "$message"
-  else
-    message="Installing $APPNAME configurations"
-    execute "git_clone $REPO $INSTDIR" "$message"
-  fi
-  # exit on fail
-  failexitcode $? "$message has failed"
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Copy over data files - keep the same stucture as -v dataDir/mnt:/mount
-if [ -d "$INSTDIR/rootfs" ] && [ ! -f "$DATADIR/.installed" ]; then
-  printf_yellow "Copying files to $DATADIR"
-  sudo -HE cp -Rf "$INSTDIR/rootfs/." "$DATADIR/" &>/dev/null
-  find "$DATADIR" -name ".gitkeep" -type f -exec rm -rf {} \; &>/dev/null
-fi
-if [ -f "$DATADIR/.installed" ]; then
-  sudo -HE date +'Updated on %Y-%m-%d at %H:%M' | tee "$DATADIR/.installed" &>/dev/null
-else
-  sudo -HE chown -f "$SUDO_USER":"$SUDO_USER" "$DATADIR" "$INSTDIR" "$INSTDIR" &>/dev/null
-  sudo -HE date +'installed on %Y-%m-%d at %H:%M' | tee "$DATADIR/.installed" &>/dev/null
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set temp env for PORTS ENV variable
 DOCKER_SET_PORTS_ENV_TMP="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | grep ':.*.:' | awk -F ':' '{print $1":"$3}' | grep '^')"
 DOCKER_SET_PORTS_ENV_TMP+="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | grep -v ':.*.:' | awk -F ':' '{print $1":"$2}' | grep '^')"
@@ -1187,6 +1183,8 @@ DOCKER_SET_PORTS_ENV="$(__trim "${DOCKER_SET_PORTS_ENV_TMP//,/ }")"
 if [ -n "$DOCKER_SET_PORTS_ENV" ]; then
   DOCKER_SET_OPTIONS+="--env ENV_PORTS=\"${DOCKER_SET_PORTS_ENV//: /}\""
 fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+DOCKER_CUSTOM_ARRAY="$(__custom_docker_env)"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Clean up variables
 HUB_IMAGE_URL="$(__trim "${HUB_IMAGE_URL[*]:-}")"
@@ -1207,11 +1205,41 @@ EXECUTE_DOCKER_CMD="docker run -d $DOCKER_SET_OPTIONS $DOCKER_SET_CUSTOM $DOCKER
 EXECUTE_DOCKER_CMD="$(__trim "$EXECUTE_DOCKER_CMD")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run functions
-__custom_docker_env
 __container_import_variables "$CONTAINER_ENV_FILE_MOUNT"
 __dockermgr_variables >"$DOCKERMGR_CONFIG_DIR/env/$APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main progam
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+[ -d "$APPDIR/files" ] && [ ! -d "$DATADIR" ] && mv -f "$APPDIR/files" "$DATADIR"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Clone/update the repo
+if __am_i_online; then
+  urlverify "$REPO" || printf_exit "$REPO was not found"
+  if [ -d "$INSTDIR/.git" ]; then
+    message="Updating $APPNAME configurations"
+    execute "git_update $INSTDIR" "$message"
+  else
+    message="Installing $APPNAME configurations"
+    execute "git_clone $REPO $INSTDIR" "$message"
+  fi
+  # exit on fail
+  failexitcode $? "$message has failed"
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Copy over data files - keep the same stucture as -v dataDir/mnt:/mount
+if [ -d "$INSTDIR/rootfs" ] && [ ! -f "$DATADIR/.installed" ]; then
+  printf_yellow "Copying files to $DATADIR"
+  __sudo -HE cp -Rf "$INSTDIR/rootfs/." "$DATADIR/" &>/dev/null
+  find "$DATADIR" -name ".gitkeep" -type f -exec rm -rf {} \; &>/dev/null
+fi
+if [ -f "$DATADIR/.installed" ]; then
+  __sudo -HE date +'Updated on %Y-%m-%d at %H:%M' | tee "$DATADIR/.installed" &>/dev/null
+else
+  __sudo -HE chown -f "$SUDO_USER":"$SUDO_USER" "$DATADIR" "$INSTDIR" "$INSTDIR" &>/dev/null
+  __sudo -HE date +'installed on %Y-%m-%d at %H:%M' | tee "$DATADIR/.installed" &>/dev/null
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# setup the container
 if cmd_exists docker-compose && [ -f "$INSTDIR/docker-compose.yml" ]; then
   printf_yellow "Installing containers using docker-compose"
   sed -i 's|REPLACE_DATADIR|'$DATADIR'' "$INSTDIR/docker-compose.yml" &>/dev/null
@@ -1278,13 +1306,17 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # finalize
 if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
-  SET_PORT="${DOCKER_SET_PUBLISH//--publish /}"
+  SET_PORT="$(echo "${DOCKER_SET_PUBLISH//--publish /}" | tr ' ' '\n' | sort -u)"
   printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   printf_yellow "The container name is:          $CONTAINER_NAME"
+  printf_yellow "The container is listening on:  $HOST_LISTEN_ADDR"
+  printf_yellow "The hostname name is set to:    $CONTAINER_HOSTNAME"
   printf_cyan "$APPNAME has been installed to:   $INSTDIR"
   printf_yellow "Containers data is saved in:    $DATADIR"
   if [ "$DOCKER_CREATE_NET" ]; then
+    printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
     printf_purple "Created docker network:         $HOST_DOCKER_NETWORK"
+    printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
   if ! grep -sq "$CONTAINER_HOSTNAME" "/etc/hosts" && [ -w "/etc/hosts" ]; then
     if [ -n "$PRETTY_PORT" ]; then
@@ -1297,7 +1329,7 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
     fi
   fi
   if [ "$SUDO_USER" != "root" ] && [ -n "$SUDO_USER" ]; then
-    sudo -HE chown -f "$SUDO_USER":"$SUDO_USER" "$DATADIR" "$INSTDIR" "$INSTDIR" &>/dev/null
+    __sudo -HE chown -f "$SUDO_USER":"$SUDO_USER" "$DATADIR" "$INSTDIR" &>/dev/null
     true
   fi
   if [ -z "$SET_PORT" ]; then
@@ -1306,7 +1338,7 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
     for service in $SET_PORT; do
       if [ "$service" != "--publish" ] && [ "$service" != " " ] && [ -n "$service" ]; then
-        type="${service//*\//}"
+        type="${service//:*\//}"
         service=${service//\/*/}
         set_listen=${service%:*}
         set_service=${service//*:[^:]*:/}

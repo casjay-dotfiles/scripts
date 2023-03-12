@@ -200,10 +200,6 @@ CONTAINER_SSL_KEY="${CONTAINER_SSL_KEY:-$CONTAINER_SSL_DIR/localhost.key}"
 # Set container timezone - Default: [America/New_York]
 CONTAINER_TIMEZONE=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Get username and password from env if variables exist [username] [pass,random]
-GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME="${GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME:-$DEFAULT_USERNAME}"
-GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD="${GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD:-$DEFAULT_PASSWORD}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # URL to container image - docker pull [URL]
 HUB_IMAGE_URL="casjaysdevdocker/GEN_SCRIPT_REPLACE_APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -333,11 +329,13 @@ CONTAINER_DATABASE_PASS_ROOT=""
 CONTAINER_DATABASE_USER_NORMAL=""
 CONTAINER_DATABASE_PASS_NORMAL=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# [user] [pass/random]
+CONTAINER_USER_NAME=""
+CONTAINER_USER_PASS=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set container username and password and the env name [CONTAINER_ENV_USER_NAME=CONTAINER_USER_NAME] - [password=pass]
 CONTAINER_ENV_USER_NAME=""
 CONTAINER_ENV_PASS_NAME=""
-CONTAINER_USER_NAME="${GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME:-}"
-CONTAINER_USER_PASS="${GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # mail settings [yes/no] [user] [domainname] [server]
 CONTAINER_EMAIL_ENABLED=""
@@ -405,7 +403,12 @@ POST_SHOW_FINISHED_MESSAGE=""
 # Export variables
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# a list of docker arguments [--env,arg --port,80:90]
+__custom_docker_arguments() {
+  cat <<EOF | tee
 
+EOF
+}
 # End of configuration options
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup networking
@@ -484,13 +487,18 @@ fi
 DOCKER_SET_PUBLISH=""
 DOCKER_SET_TMP_PUBLISH=("")
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+CONTAINER_USER_NAME="${GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME:-}"
+CONTAINER_USER_PASS="${GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD:-}"
+GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME="${GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME:-${CONTAINER_USER_NAME:-$DEFAULT_USERNAME}}"
+GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD="${GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD:-${CONTAINER_USER_PASS:-$DEFAULT_PASSWORD}}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Redfine variables
 [ -n "$CONTAINER_NAME" ] || CONTAINER_NAME="$(__name)"
 [ "$CONTAINER_HTTPS_PORT" = "" ] || CONTAINER_HTTP_PROTO="https"
 [ -n "$CONTAINER_DATABASE_LISTEN" ] || CONTAINER_DATABASE_LISTEN="0.0.0.0"
 [ -n "$CONTAINER_MOUNT_DATA_MOUNT_DIR" ] || CONTAINER_MOUNT_DATA_MOUNT_DIR="/data"
 [ -n "$CONTAINER_MOUNT_CONFIG_MOUNT_DIR" ] || CONTAINER_MOUNT_CONFIG_MOUNT_DIR="/config"
-[ "$REGISTRY_USERNAME" = "random" ] && CONTAINER_USER_PASS="$RANDOM_PASS"
+[ "$GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME" = "random" ] && CONTAINER_USER_PASS="$RANDOM_PASS"
 [ -n "$CONTAINER_WEB_SERVER_EMAIL" ] && CONTAINER_HOST_EMAIL="$CONTAINER_WEB_SERVER_EMAIL" || CONTAINER_HOST_EMAIL="root@$HOST_FULL_DOMAIN"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ "$CONTAINER_EMAIL_ENABLED" = "yes" ]; then
@@ -632,8 +640,8 @@ ADDITION_ENV+="START_SERVICES=INIT"
 [ -n "$CONTAINER_EMAIL_DOMAIN" ] && DOCKER_SET_OPTIONS+="--env EMAIL_DOMAIN=$CONTAINER_EMAIL_DOMAIN "
 [ -n "$CONTAINER_SERVICE_PORT" ] && DOCKER_SET_OPTIONS+="--env SERVICE_PORT=$CONTAINER_SERVICE_PORT "
 [ -n "$CONTAINER_DEBUG_OPTIONS" ] && DOCKER_SET_OPTIONS+="--env DEBUGGER_OPTIONS=$CONTAINER_DEBUG_OPTIONS "
-[ -z "$CONTAINER_USER_NAME" ] || ADDITION_ENV+="${CONTAINER_ENV_USER_NAME:-username}=$CONTAINER_USER_NAME "
-[ -z "$CONTAINER_USER_PASS" ] || ADDITION_ENV+="${CONTAINER_ENV_PASS_NAME:-password}=$CONTAINER_USER_PASS "
+[ -z "$CONTAINER_USER_NAME" ] || { [ -n "$CONTAINER_ENV_USER_NAME" ] && ADDITION_ENV+="${CONTAINER_ENV_USER_NAME:-username}=$CONTAINER_USER_NAME "; }
+[ -z "$CONTAINER_USER_PASS" ] || { [ -n "$CONTAINER_ENV_PASS_NAME" ] && ADDITION_ENV+="${CONTAINER_ENV_PASS_NAME:-password}=$CONTAINER_USER_PASS "; }
 [ -n "$CONTAINER_USER_RUN" ] && DOCKER_SET_OPTIONS+="--env USER=$CONTAINER_USER_RUN --env SERVICE_USER=$CONTAINER_USER_RUN "
 if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ]; then
   [ "$CONTAINER_WEB_SERVER_SSL_ENABLED" = "yes" ] && DOCKER_SET_OPTIONS+="--env SSL_ENABLED=true "
@@ -656,19 +664,24 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Add username and password to env file
 if [ -n "$SET_USER_NAME" ]; then
-  if ! grep -qs "$REGISTRY_USERNAME" "$DOCKERMGR_CONFIG_DIR/env/$APPNAME"; then
+  if ! grep -qs "$GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME" "$DOCKERMGR_CONFIG_DIR/env/$APPNAME"; then
     cat <<EOF >>"$DOCKERMGR_CONFIG_DIR/env/$APPNAME"
-REGISTRY_USERNAME="${SET_USER_NAME:-$REGISTRY_USERNAME}"
+GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME="${SET_USER_NAME:-$GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME}"
 EOF
   fi
 fi
 if [ -n "$SET_USER_PASS" ]; then
-  if ! grep -qs "$REGISTRY_PASSWORD" "$DOCKERMGR_CONFIG_DIR/env/$APPNAME"; then
+  if ! grep -qs "$GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD" "$DOCKERMGR_CONFIG_DIR/env/$APPNAME"; then
     cat <<EOF >>"$DOCKERMGR_CONFIG_DIR/env/$APPNAME"
-REGISTRY_PASSWORD="${SET_USER_PASS:-$REGISTRY_PASSWORD}"
+GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD="${SET_USER_PASS:-$GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD}"
 EOF
   fi
 fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# import from __custom_docker_arguments
+while IFS= read -r line; do
+  [ -n "$line" ] && DOCKER_SET_OPTIONS+="${line//,/ } "
+done <<<$(__custom_docker_arguments)
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 DOCKER_SET_LABELS=""
 CONTAINER_LABELS="${CONTAINER_LABELS//,/ }"

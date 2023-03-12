@@ -270,7 +270,7 @@ __rm_rf() {
   rm -Rf "$@" 2>/dev/null
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__get_ip() {
+__get_ip4() {
   curl -q -LSs -4 "https://ifconfig.co" ||
     curl -q -s -4 "https://api.ipify.org" ||
     curl -q -s -4 "https://ipv4.icanhazip.com/"
@@ -296,7 +296,7 @@ __message() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __api_verify() {
-  curl -q -LSs -X GET "https://api.cloudflare.com/client/v4/user/tokens/verify" \
+  curl -q -LSs -X GET "$CLOUDFLARE_API_URL/user/tokens/verify" \
     -H 'Authorization: Bearer '$CLOUDFLARE_API_KEY'' 2>/dev/null |
     jq -r '.messages | .[] | .message' | grep 'valid and active' || false
   return $?
@@ -308,7 +308,7 @@ __zone_identifier() {
     curl -q -LSsf -X GET \
       -H 'Authorization: Bearer '$CLOUDFLARE_API_KEY'' \
       -H "Content-Type: application/json" \
-      "https://api.cloudflare.com/client/v4/zones?name=$CLOUDFLARE_ZONE" 2>/dev/null
+      "$CLOUDFLARE_API_URL/zones?name=$CLOUDFLARE_ZONE" 2>/dev/null
     exitCode="$?"
     return ${exitCode:-$?}
   }
@@ -326,7 +326,7 @@ __record_identifier() {
     curl -q -LSs -X GET \
       -H 'Authorization: Bearer '$CLOUDFLARE_API_KEY'' \
       -H "Content-Type: application/json" \
-      "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" 2>/dev/null
+      "$CLOUDFLARE_API_URL/zones/$ZONE_ID/dns_records" 2>/dev/null
     exitCode=$?
     return ${exitCode:-$?}
   }
@@ -347,7 +347,7 @@ __api() {
     curl -q -LSs -X GET \
       -H 'Authorization: Bearer '$CLOUDFLARE_API_KEY'' \
       -H "Content-Type: application/json" \
-      "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" 2>/dev/null
+      "$CLOUDFLARE_API_URL/zones/$ZONE_ID/dns_records" 2>/dev/null
     exitCode="$?"
   }
   results=$(get_api || echo '')
@@ -364,7 +364,7 @@ __api_full() {
     curl -q -LSs -X GET \
       -H 'Authorization: Bearer '$CLOUDFLARE_API_KEY'' \
       -H "Content-Type: application/json" \
-      "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" 2>/dev/null
+      "$CLOUDFLARE_API_URL/zones/$ZONE_ID/dns_records" 2>/dev/null
     exitCode=$?
   }
   #get_api | jq '.result|.[]'|jq -rc '{name:.name,type:.type,content:.content,proxiable:.proxiable,proxied:.proxied}
@@ -378,12 +378,20 @@ __delete_record() {
     curl -q -LSs -X DELETE \
       -H 'Authorization: Bearer '$CLOUDFLARE_API_KEY'' \
       -H "Content-Type: application/json" \
-      "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$RECORD_ID" 2>/dev/null
+      "$CLOUDFLARE_API_URL/zones/$ZONE_ID/dns_records/$RECORD_ID" 2>/dev/null
     exitCode=$?
   }
   get_api >"$CLOUDFLARE_TEMP_FILE"
   __message "Successfully deleted $CLOUDFLARE_RECORD"
   return ${exitCode:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__bulk_delete() {
+  for dns_record in $(curl -X GET "$CLOUDFLARE_API_URL/zones/$ZONE_ID/dns_records?page=1&per_page=1000" -H "Authorization: Bearer $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" | jq -r ".result [] .id"); do
+    printf_blue "Attempting to delete host: $dns_record"
+    curl -X DELETE "$CLOUDFLARE_API_URL/zones/$ZONE_ID/dns_records/$dns_record" -H "Content-Type: application/json" -H "Authorization: Bearer $CLOUDFLARE_API_KEY" >"$CLOUDFLARE_TEMP_FILE"
+    __message "Successfully deleted $dns_record"
+  done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_record() {
@@ -396,7 +404,7 @@ __create_record() {
       -H "Content-Type: application/json" \
       -H 'Authorization: Bearer '$CLOUDFLARE_API_KEY'' \
       --data "{\"type\":\"${CLOUDFLARE_DNS_TYPE}\",\"name\":\"${CLOUDFLARE_RECORD}\",\"content\":\"${CLOUDFLARE_IP_ADDR}\",\"ttl\":120,\"priority\":0,\"proxied\":${CLOUDFLARE_PROXY}}" \
-      "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" 2>/dev/null
+      "$CLOUDFLARE_API_URL/zones/$ZONE_ID/dns_records" 2>/dev/null
     exitCode=$?
   }
   get_api >"$CLOUDFLARE_TEMP_FILE"
@@ -414,7 +422,7 @@ __update_record() {
       -H 'Authorization: Bearer '$CLOUDFLARE_API_KEY'' \
       -H "Content-Type: application/json" \
       --data "{\"id\":\"${CLOUDFLARE_ZONE}\",\"type\":\"${CLOUDFLARE_DNS_TYPE}\",\"proxied\":${CLOUDFLARE_PROXY},\"name\":\"${CLOUDFLARE_RECORD}\",\"content\":\"${CLOUDFLARE_IP_ADDR}\"}" \
-      "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$RECORD_ID" 2>/dev/null
+      "$CLOUDFLARE_API_URL/zones/$ZONE_ID/dns_records/$RECORD_ID" 2>/dev/null
     exitCode=$?
   }
   get_api >"$CLOUDFLARE_TEMP_FILE"
@@ -435,9 +443,9 @@ __cloudflare_zone() {
   elif [ "$CLOUDFLARE_DNS_TYPE" == "AAAA" ]; then
     CLOUDFLARE_IP_ADDR=${CLOUDFLARE_IP_ADDR:-$(__get_ip6)}
   else
-    CLOUDFLARE_IP_ADDR=${CLOUDFLARE_IP_ADDR:-$(__get_ip)}
+    CLOUDFLARE_IP_ADDR=${CLOUDFLARE_IP_ADDR:-$(__get_ip4)}
   fi
-  [ -n "$CLOUDFLARE_IP_ADDR" ] || CLOUDFLARE_IP_ADDR=${IP_ADDR:-$(__get_ip)}
+  [ -n "$CLOUDFLARE_IP_ADDR" ] || CLOUDFLARE_IP_ADDR=${IP_ADDR:-$(__get_ip4)}
   [ -n "$CLOUDFLARE_PROXY" ] || CLOUDFLARE_PROXY="true"
   [ -n "$CLOUDFLARE_ZONE" ] || __usage $CLOUDFLARE_ZONE || exit 1
 }
@@ -500,6 +508,7 @@ CLOUDFLARE_DNS_TYPE="${CLOUDFLARE_DNS_TYPE:-A}"
 CLOUDFLARE_PROXY="${CLOUDFLARE_PROXY:-}"
 CLOUDFLARE_ZONE="${CLOUDFLARE_ZONE:-}"
 CLOUDFLARE_IP_ADDR="${CLOUDFLARE_IP_ADDR:-}"
+CLOUDFLARE_API_URL="${CLOUDFLARE_API_URL:-https://api.cloudflare.com/client/v4}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$CLOUDFLARE_CONFIG_DIR/$CLOUDFLARE_CONFIG_FILE" ] ||
@@ -549,7 +558,7 @@ SHORTOPTS=""
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LONGOPTS="completions:,config,debug,help,options,raw,version,silent"
-LONGOPTS+=",ip:,zone:,proxy:,record:,api,key:"
+LONGOPTS+=",ip:,zone:,proxy:,record:,api,key:,delete-all"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="create update delete list verify tunnel"
 ARRAY+=""
@@ -619,6 +628,14 @@ while :; do
     shift 1
     CLOUDFLARE_SILENT="true"
     ;;
+  --api)
+    SET_API="full"
+    shift 1
+    ;;
+  --delete-all)
+    shift 1
+    CLOUDFLARE_BULK_DELETE="true"
+    ;;
   --ip)
     CLOUDFLARE_IP_ADDR="$2"
     shift 2
@@ -634,10 +651,6 @@ while :; do
   --record)
     CLOUDFLARE_RECORD="$2"
     shift 2
-    ;;
-  --api)
-    SET_API="full"
-    shift 1
     ;;
   --key)
     CLOUDFLARE_API_KEY="$2"
@@ -735,7 +748,11 @@ update)
 delete)
   shift 1
   __cloudflare_zone "$@"
-  __delete_record "$CLOUDFLARE_RECORD"
+  if [ "$CLOUDFLARE_BULK_DELETE" = "true" ]; then
+    __bulk_delete
+  else
+    __delete_record "$CLOUDFLARE_RECORD"
+  fi
   exit $?
   ;;
 

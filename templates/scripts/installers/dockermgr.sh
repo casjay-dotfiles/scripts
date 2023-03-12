@@ -78,21 +78,6 @@ __show_post_message() {
 
   return $?
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# this function will create an env file in the containers filesystem - see CONTAINER_ENV_FILE_ENABLED
-__container_import_variables() {
-  [ "$CONTAINER_ENV_FILE_ENABLED" = "yes" ] || return 0
-  local base_dir="$DATADIR"
-  local base_file="$1"
-  mkdir -p "$(dirname "$base_dir/$base_file" 2>/dev/null)"
-  cat <<EOF | tee "$base_dir/$base_file" &>/dev/null
-
-EOF
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Define custom functions
-
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure docker is installed
 __docker_check || __docker_init
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -348,8 +333,9 @@ CONTAINER_DEBUG_OPTIONS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show post install message
 POST_SHOW_FINISHED_MESSAGE=""
-# Set custom functions
-
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set custom docker arguments user for a list of container variables
+DOCKER_CUSTOM_ARRAY=()
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define extra functions
 __sudo() { sudo -n true && eval sudo "$*" || eval "$*" || return 1; }
@@ -396,6 +382,12 @@ __trim() {
 [ -f "$APPDIR/env.sh" ] && . "$APPDIR/env.sh"
 [ -f "$DOCKERMGR_CONFIG_DIR/.env.sh" ] && . "$DOCKERMGR_CONFIG_DIR/.env.sh"
 [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME" ] && . "$DOCKERMGR_CONFIG_DIR/env/$APPNAME"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initialize the installer
+dockermgr_run_init
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run pre-install commands
+execute "run_pre_install" "Running pre-installation commands"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # variable cleanup
 CONTAINER_ENV="${CONTAINER_ENV//  / }"
@@ -1139,7 +1131,6 @@ NGINX_PROXY_URL="${NGINX_PROXY_URL:-$PROXY_HTTP_PROTO://$HOST_LISTEN_ADDR:$NGINX
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [ -d "$APPDIR/files" ] && [ ! -d "$DATADIR" ] && mv -f "$APPDIR/files" "$DATADIR"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#
 # Clone/update the repo
 if __am_i_online; then
   urlverify "$REPO" || printf_exit "$REPO was not found"
@@ -1189,8 +1180,9 @@ DOCKER_SET_SYSCTL="$(__trim "${DOCKER_SET_SYSCTL[*]:-}")"
 DOCKER_SET_OPTIONS="$(__trim "${DOCKER_SET_OPTIONS[*]:-}")"
 CONTAINER_COMMANDS="$(__trim "${CONTAINER_COMMANDS[*]:-}")"
 DOCKER_SET_PUBLISH="$(__trim "${DOCKER_SET_TMP_PUBLISH[*]:-}")"
+DOCKER_CUSTOM_ARRAY=("$(__trim "${DOCKER_CUSTOM_ARRAY[*]:-}")")
 EXECUTE_PRE_INSTALL="docker stop $CONTAINER_NAME;docker rm -f $CONTAINER_NAME"
-EXECUTE_DOCKER_CMD="docker run -d $DOCKER_SET_OPTIONS $DOCKER_SET_LINK $DOCKER_SET_LABELS $DOCKER_SET_CAP $DOCKER_SET_SYSCTL $DOCKER_SET_DEV $DOCKER_SET_MNT $DOCKER_SET_ENV $DOCKER_SET_PUBLISH $HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS"
+EXECUTE_DOCKER_CMD="docker run -d $DOCKER_SET_OPTIONS ${DOCKER_CUSTOM_ARRAY[*]} $DOCKER_SET_LINK $DOCKER_SET_LABELS $DOCKER_SET_CAP $DOCKER_SET_SYSCTL $DOCKER_SET_DEV $DOCKER_SET_MNT $DOCKER_SET_ENV $DOCKER_SET_PUBLISH $HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS"
 EXECUTE_DOCKER_CMD="$(__trim "$EXECUTE_DOCKER_CMD")"
 __container_import_variables "$CONTAINER_ENV_FILE_MOUNT"
 __dockermgr_variables >"$DOCKERMGR_CONFIG_DIR/env/$APPNAME"

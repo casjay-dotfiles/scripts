@@ -202,7 +202,7 @@ __cron() {
     eval "$command"
     sleep $interval
     [ -f "/run/cron/$cmd" ] || break
-  done |& tee /var/log/entrypoint.log
+  done |& tee /data/logs/entrypoint.log
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __replace() {

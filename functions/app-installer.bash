@@ -1256,7 +1256,7 @@ install_npm() {
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
-      printf_warning "Attempting to install missing pip packages"
+      printf_warning "Attempting to install missing npm packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
         execute "pkmgr npm install $miss" "Installing $miss"

@@ -114,7 +114,7 @@ __check_cpan() {
       done
     fi
   else
-    return $?
+    return 1
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

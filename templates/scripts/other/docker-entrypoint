@@ -212,7 +212,7 @@ if [ -n "$DEFAULT_TEMPLATE_DIR" ]; then
         create_template_name="$(basename "$create_config_template")"
         if [ -d "$create_config_template" ]; then
           mkdir -p "/config/$create_template_name/"
-          [ -e "/config/$create_template_name" ] || cp -Rf "$create_config_template/." "/config/$create_template_name/" 2>/dev/null
+          __is_dir_empty "/config/$create_template_name" || cp -Rf "$create_config_template/." "/config/$create_template_name/" 2>/dev/null
         elif [ -e "$create_config_template" ]; then
           [ -e "/config/$create_template_name" ] || cp -Rf "$create_config_template" "/config/$create_template_name" 2>/dev/null
         fi
@@ -231,7 +231,7 @@ if [ -n "$DEFAULT_CONF_DIR" ]; then
       if [ -n "$create_config_template" ]; then
         if [ -d "$create_config_template" ]; then
           mkdir -p "/config/$create_config_name"
-          [ -e "/config/$create_config_name" ] || cp -Rf "$create_config_template/." "/config/$create_config_name/" 2>/dev/null
+          __is_dir_empty "/config/$create_config_name" || cp -Rf "$create_config_template/." "/config/$create_config_name/" 2>/dev/null
         elif [ -e "$create_config_template" ]; then
           [ -e "/config/$create_config_name" ] || cp -Rf "$create_config_template" "/config/$create_config_name" 2>/dev/null
         fi
@@ -250,7 +250,7 @@ if [ -d "/data" ]; then
       if [ -n "$create_data_template" ]; then
         if [ -d "$create_data_template" ]; then
           mkdir -p "/data/$create_data_name"
-          [ -e "/data/$create_data_name" ] || cp -Rf "$create_data_template/." "/data/$create_data_name/" 2>/dev/null
+          __is_dir_empty "/data/$create_data_name" || cp -Rf "$create_data_template/." "/data/$create_data_name/" 2>/dev/null
         elif [ -e "$create_data_template" ]; then
           [ -e "/data/$create_data_name" ] || cp -Rf "$create_data_template" "/data/$create_data_name" 2>/dev/null
         fi
@@ -282,14 +282,14 @@ fi
 # Copy html files
 if [ "$DATA_DIR_INITIALIZED" = "false" ] && [ -n "$WWW_ROOT_DIR" ]; then
   if [ -d "$DEFAULT_DATA_DIR/data/htdocs" ]; then
-    [ "$(ls -A "$WWW_ROOT_DIR/" 2>/dev/null | wc -l)" -ne 0 ] || cp -Rf "$DEFAULT_DATA_DIR/data/htdocs/." "$WWW_ROOT_DIR/" 2>/dev/null
+    __is_dir_empty "$WWW_ROOT_DIR/" || cp -Rf "$DEFAULT_DATA_DIR/data/htdocs/." "$WWW_ROOT_DIR/" 2>/dev/null
   fi
 fi
 if [ -n "$WWW_ROOT_DIR" ]; then
   if [ -d "$DEFAULT_DATA_DIR/htdocs/www" ] && [ ! -d "$WWW_ROOT_DIR" ]; then
     mkdir -p "$WWW_ROOT_DIR"
     cp -Rf "$DEFAULT_DATA_DIR/htdocs/www/" "$WWW_ROOT_DIR"
-    [ -f "$WWW_ROOT_DIR/htdocs/www/server-health" ] || echo "OK" >"$WWW_ROOT_DIR/htdocs/www/server-health"
+    [ -f "$WWW_ROOT_DIR/htdocs/www/health/index.txt" ] || echo "OK" >"$WWW_ROOT_DIR/htdocs/www/health/index.txt"
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

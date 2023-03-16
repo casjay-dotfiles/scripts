@@ -131,13 +131,13 @@ __check_app() {
   if [ -n "$MISSING" ]; then
     notifications "${NOTIFY_CLIENT_NAME:-$APPNAME}" "Missing $MISSING"
     if [ -n "$DESKTOP_SESSION" ]; then
-      __ask_confirm "Would you like install $MISSING" "pkmgr silent-install $MISSING" || return 1
+      __ask_confirm "Would you like install $MISSING" "pkmgr silent install $MISSING" || return 1
     else
       printf_red "The following apps are missing: $MISSING"
       printf_read_question "2" "Would you like install the missing packages? [y/N]" "1" "choice"
       if printf_answer_yes "$choice"; then
         for miss in $MISSING; do
-          __execute "pkmgr silent-install $miss" "Installing $miss" || return 1
+          __execute "pkmgr silent install $miss" "Installing $miss" || return 1
         done
       else
         return 1

@@ -568,6 +568,68 @@ __gitea_branch() {
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__github_to_gitea() {
+  GITHUB_USERNAME="$1"
+  GITHUB_ORGANISATION="$2"
+  GITEA_USERNAME="$3"
+  GITEA_REPO_OWNER="$4"
+  GITEA_DOMAIN="$GITADMIN_DEFAULT_USER_DOMAIN"
+  GITHUB_TOKEN="$GITHUB_ACCESS_TOKEN"
+  GITEA_TOKEN="$GITADMIN_PRIVATE_AUTH_TOKEN"
+  [ $# -eq 4 ] || printf_exit "Usage: [github_user] [github_org] [gitea_user] [gitea_org]"
+  [ -n "$GITHUB_USERNAME" ] || printf_exit "Please provide the the username of the org owner on github"
+  [ -n "$GITHUB_ORGANISATION" ] || printf_exit "Please provide the github org/username"
+  [ -n "$GITEA_USERNAME" ] || printf_exit "Please provide the the username of the org owner on gitea"
+  [ -n "$GITEA_REPO_OWNER" ] || printf_exit "Please provide the gitea org/username"
+  [ -n "$GITEA_DOMAIN" ] || printf_exit "Please provide the gitea url: GITADMIN_DEFAULT_USER_DOMAIN"
+  [ -n "$GITHUB_TOKEN" ] || printf_exit "Please provide the github API Token: GITHUB_ACCESS_TOKEN"
+  [ -n "$GITEA_TOKEN" ] || printf_exit "Please provide the github API Token: GITADMIN_PRIVATE_AUTH_TOKEN"
+
+  GET_REPOS="$(curl -H 'Accept: application/vnd.github.v3+json' -u $GITHUB_USERNAME:$GITHUB_TOKEN -s "https://api.github.com/orgs/$GITHUB_ORGANISATION/repos?per_page=200&type=all" | jq -r '.[].html_url')"
+
+  for URL in $GET_REPOS; do
+    REPO_NAME=$(echo "$URL" | sed 's|https://github.com/$GITHUB_ORGANISATION/||g' | grep '^' || return)
+    printf_cyan "🚀🚀 Found $REPO_NAME, importing... 🚀🚀"
+
+    curl -q -LSsf -X POST "https://$GITEA_DOMAIN/api/v1/repos/migrate" -u $GITEA_USERNAME:$GITEA_TOKEN -H "accept: application/json" -H "Content-Type: application/json" -d "{  \
+    \"auth_username\": \"$GITHUB_USERNAME\", \
+    \"auth_password\": \"$GITHUB_TOKEN\", \
+    \"clone_addr\": \"$URL\", \
+    \"mirror\": true, \
+    \"private\": false, \
+    \"repo_name\": \"$REPO_NAME\", \
+    \"repo_owner\": \"$GITEA_REPO_OWNER\", \
+    \"service\": \"git\", \
+    \"uid\": 0, \
+    \"wiki\": true}" && printf_blue "🔽 Successfully imported $URL 🔽"
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gitea_migrate_delete() {
+  GITHUB_USERNAME="$1"
+  GITHUB_ORGANISATION="$2"
+  GITEA_USERNAME="$3"
+  GITEA_REPO_OWNER="$4"
+  GITEA_DOMAIN="$GITADMIN_DEFAULT_USER_DOMAIN"
+  GITHUB_TOKEN="$GITHUB_ACCESS_TOKEN"
+  GITEA_TOKEN="$GITADMIN_PRIVATE_AUTH_TOKEN"
+  [ $# -eq 4 ] || printf_exit "Usage: [github_user] [github_org] [gitea_user] [gitea_org]"
+  [ -n "$GITHUB_USERNAME" ] || printf_exit "Please provide the the username of the org owner on github"
+  [ -n "$GITHUB_ORGANISATION" ] || printf_exit "Please provide the github org/username"
+  [ -n "$GITEA_USERNAME" ] || printf_exit "Please provide the the username of the org owner on gitea"
+  [ -n "$GITEA_REPO_OWNER" ] || printf_exit "Please provide the gitea org/username"
+  [ -n "$GITEA_DOMAIN" ] || printf_exit "Please provide the gitea url: GITADMIN_DEFAULT_USER_DOMAIN"
+  [ -n "$GITHUB_TOKEN" ] || printf_exit "Please provide the github API Token: GITHUB_ACCESS_TOKEN"
+  [ -n "$GITEA_TOKEN" ] || printf_exit "Please provide the github API Token: GITADMIN_PRIVATE_AUTH_TOKEN"
+
+  GET_REPOS=$(curl -H 'Accept: application/vnd.github.v3+json' -u $GITHUB_USERNAME:$GITHUB_TOKEN -s "https://api.github.com/orgs/$GITHUB_ORGANISATION/repos?per_page=200&type=all" | jq -r '.[].html_url')
+  for URL in $GET_REPOS; do
+    REPO_NAME=$(echo $URL | sed 's|https://github.com/$GITHUB_ORGANISATION/||g')
+    echo "Deleting $REPO_NAME if it exists on Gitea ..."
+    curl -q -LSsf -X DELETE "https://$GITEA_DOMAIN/api/v1/repos/$GITEA_REPO_OWNER/$name" -u $GITEA_USERNAME:$GITEA_TOKEN -H "accept: application/json"
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gitlab_orgs() {
   printf_exit "Not implemented yet"
   return $?
@@ -1735,7 +1797,7 @@ LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
 LONGOPTS+=",user:,org:,single:,nolicense,noreadme,automated,cd,desc:,site:"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="repos stow setup newsite private gitlab github single init gist orgs remote list "
-ARRAY+="delete create pull clone push user update commit branch log status cron issues squash "
+ARRAY+="delete create pull clone push user update commit branch log status cron issues squash,migrate: "
 ARRAY+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
@@ -1850,6 +1912,14 @@ while :; do
   --site)
     SITE="$2"
     shift 2
+    ;;
+  --migrate)
+    case "$2" in
+    delete)
+      GITADMIN_MIGRATE_DELETE="true"
+      shift 2
+      ;;
+    esac
     ;;
   --)
     shift 1
@@ -2722,6 +2792,16 @@ private) # private repos commands
       __gitea_users "$@"
     fi
     exit "$?"
+    ;;
+
+  migrate)
+    shift 1
+    if [ "$GITADMIN_MIGRATE_DELETE" = "true" ]; then
+      __gitea_migrate_delete "$@"
+    else
+      __github_to_gitea "$@"
+    fi
+    exit $?
     ;;
 
   esac

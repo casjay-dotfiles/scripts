@@ -1346,9 +1346,9 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
   fi
   if [ "$NGINX_IS_INSTALLED" = "yes" ] && [ -f "$NGINX_CONF_FILE" ]; then 
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
-    prinf_cyan "nginx vhost name:                $CONTAINER_HOSTNAME"
-    prinf_cyan "nginx proxy to port:             $NGINX_PROXY_URL"
-    prinf_cyan "nginx config file installed to:  $NGINX_CONF_FILE"
+    printf_cyan "nginx vhost name:                $CONTAINER_HOSTNAME"
+    printf_cyan "nginx proxy to port:             $NGINX_PROXY_URL"
+    printf_cyan "nginx config file installed to:  $NGINX_CONF_FILE"
   fi
   printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   if [ -n "$SET_PORT" ] && [ -n "$NGINX_PROXY_URL" ]; then

@@ -375,7 +375,7 @@ POST_SHOW_FINISHED_MESSAGE=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set custom docker arguments user for a list of container variables
 __custom_docker_env() {
-  cat <<EOF | tee
+  cat <<EOF | tee | tr '\n' ' '
 
 EOF
 }

@@ -77,7 +77,7 @@ trap_exit
 dockermgr_req_version "$APPVERSION"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Custom required functions
-__sudo() { [ -n "$(type -P 'sudo')" ] && sudo -n true && eval sudo "$*" || eval "$*" || return 1; }
+__sudo() { [ -n "$(type -P 'sudo')" ] && sudo -n true && sudo -HE "$*" || eval "$*" || return 1; }
 __sudo_root() { [ -n "$(type -P 'sudo')" ] && sudo -n true && ask_for_password true && sudo "$*" || eval "$*" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __port() { echo "$((50000 + $RANDOM % 1000))" | grep '^' || return 1; }
@@ -1240,14 +1240,14 @@ fi
 # Copy over data files - keep the same stucture as -v dataDir/mnt:/mount
 if [ -d "$INSTDIR/rootfs" ] && [ ! -f "$DATADIR/.installed" ]; then
   printf_yellow "Copying files to $DATADIR"
-  __sudo -HE cp -Rf "$INSTDIR/rootfs/." "$DATADIR/" &>/dev/null
+  __sudo cp -Rf "$INSTDIR/rootfs/." "$DATADIR/" &>/dev/null
   find "$DATADIR" -name ".gitkeep" -type f -exec rm -rf {} \; &>/dev/null
 fi
 if [ -f "$DATADIR/.installed" ]; then
-  __sudo -HE date +'Updated on %Y-%m-%d at %H:%M' | tee "$DATADIR/.installed" &>/dev/null
+  __sudo date +'Updated on %Y-%m-%d at %H:%M' | tee "$DATADIR/.installed" &>/dev/null
 else
-  __sudo -HE chown -f "$SUDO_USER":"$SUDO_USER" "$DATADIR" "$INSTDIR" "$INSTDIR" &>/dev/null
-  __sudo -HE date +'installed on %Y-%m-%d at %H:%M' | tee "$DATADIR/.installed" &>/dev/null
+  __sudo chown -f "$SUDO_USER":"$SUDO_USER" "$DATADIR" "$INSTDIR" "$INSTDIR" &>/dev/null
+  __sudo date +'installed on %Y-%m-%d at %H:%M' | tee "$DATADIR/.installed" &>/dev/null
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # setup the container
@@ -1340,7 +1340,7 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
     fi
   fi
   if [ "$SUDO_USER" != "root" ] && [ -n "$SUDO_USER" ]; then
-    __sudo -HE chown -f "$SUDO_USER":"$SUDO_USER" "$DATADIR" "$INSTDIR" &>/dev/null
+    __sudo chown -f "$SUDO_USER":"$SUDO_USER" "$DATADIR" "$INSTDIR" &>/dev/null
     true
   fi
   if [ -z "$SET_PORT" ]; then

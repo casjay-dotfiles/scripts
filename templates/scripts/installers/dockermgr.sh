@@ -1344,30 +1344,6 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
     __sudo chown -f "$SUDO_USER":"$SUDO_USER" "$DATADIR" "$INSTDIR" &>/dev/null
     true
   fi
-  if [ -z "$SET_PORT" ]; then
-    printf_yellow "This container does not have services configured"
-  else
-    printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
-    for service in $SET_PORT; do
-      if [ "$service" != "--publish" ] && [ "$service" != " " ] && [ -n "$service" ]; then
-        get_type="${service//:*\//}"
-        type="${get_type//$service/}"
-        service=${service//\/*/}
-        set_listen=${service%:*}
-        set_service=${service//*:*[^:]*:/}
-        listen_ip=${set_listen//0.0.0.0/$HOST_LISTEN_ADDR}
-        listen=${listen_ip//*^:/$listen_ip}
-        echo "$listen" | grep -q ":" || listen="$listen_ip"
-        if [ -n "$listen" ]; then
-          if [ -n "$type" ]; then
-            printf_cyan "Port $set_service is mapped to: $listen/$type"
-          else
-            printf_cyan "Port $set_service is mapped to: $listen"
-          fi
-        fi
-      fi
-    done
-  fi
   printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   if [ -n "$SET_PORT" ] && [ -n "$NGINX_PROXY_URL" ]; then
     MESSAGE="true"
@@ -1443,6 +1419,31 @@ else
   fi
   exit 10
 fi
+  if [ -z "$SET_PORT" ]; then
+    printf_yellow "This container does not have services configured"
+  else
+    printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
+    for service in $SET_PORT; do
+      if [ "$service" != "--publish" ] && [ "$service" != " " ] && [ -n "$service" ]; then
+        get_type="${service//*\//}"
+        get_type="${get_type//$service/}"
+        type=${get_type//*\//}
+        service=${service//\/*/}
+        set_listen=${service%:*}
+        set_service=${service//*:*[^:]*:/}
+        listen_ip=${set_listen//0.0.0.0/$HOST_LISTEN_ADDR}
+        listen=${listen_ip//*^:/$listen_ip}
+        echo "$listen" | grep -q ":" || listen="$listen_ip"
+        if [ -n "$listen" ]; then
+          if [ -n "$type" ]; then
+            printf_cyan "Port ${set_service//*:} is mapped to: $listen/$type"
+          else
+            printf_cyan "Port ${set_service//*:} is mapped to: $listen"
+          fi
+        fi
+      fi
+    done
+  fi
 if [ "$MESSAGE" = "true" ]; then
   printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n\n'
 fi

@@ -215,13 +215,17 @@ CONTAINER_AUTO_DELETE="no"
 CONTAINER_TTY_ENABLED="yes"
 CONTAINER_INTERACTIVE_ENABLED="no"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Enable cgroups [yes/no] []
+# Enable cgroups [yes/no] [/sys/fs/cgroup]
 CGROUPS_ENABLED="no"
 CGROUPS_MOUNTS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set location to resolv.conf [yes/no] [/etc/resolv.conf]
 HOST_RESOLVE_ENABLED="no"
 HOST_RESOLVE_FILE=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Enable hosts /etc/hosts file [yes/no] [/usr/local/etc/hosts]
+HOST_ETC_HOSTS_ENABLED="yes"
+HOST_ETC_HOSTS_MOUNT=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mount docker socket [yes/no] [/var/run/docker.sock]
 DOCKER_SOCKET_ENABLED="no"
@@ -245,16 +249,15 @@ HOST_X11_XAUTH=""
 CONTAINER_X11_SOCKET="/tmp/.X11-unix"
 CONTAINER_X11_XAUTH="/home/x11user/.Xauthority"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Enable hosts /etc/hosts file [yes/no] [/usr/local/etc/hosts]
-HOST_ETC_HOSTS_ENABLED="yes"
-HOST_ETC_HOSTS_MOUNT=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set container hostname and domain - Default: GEN_SCRIPT_REPLACE_APPNAME
 CONTAINER_HOSTNAME=""
 CONTAINER_DOMAINNAME=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the network type - default is bridge [bridge/host]
 HOST_DOCKER_NETWORK="bridge"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Link to an existing container [name:alias,name]
+HOST_DOCKER_LINK=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set listen type - Default default all [all/local/lan/docker/public] [127.0.0.1]
 HOST_NETWORK_ADDR="all"
@@ -963,6 +966,14 @@ fi
 # Send command to container
 if [ -n "$CONTAINER_COMMANDS" ]; then
   CONTAINER_COMMANDS="${CONTAINER_COMMANDS//,/ } "
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup links
+if [ -n "$HOST_DOCKER_LINK" ]; then
+  for link in $HOST_DOCKER_LINK; do
+    [ -n "$link" ] && DOCKER_SET_LINK="--link $link "
+  done
+  link=""
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup mounts

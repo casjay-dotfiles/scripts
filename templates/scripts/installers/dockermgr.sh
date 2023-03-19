@@ -983,7 +983,7 @@ if [ -n "$CONTAINER_MOUNTS" ]; then
   CONTAINER_MOUNTS="${CONTAINER_MOUNTS//  / }"
   for mnt in $CONTAINER_MOUNTS; do
     if [ "$mnt" != "" ] && [ "$mnt" != " " ]; then
-      echo "$mnt" | grep -q ':' || port="$mnt:$mnt"
+      echo "$mnt" | grep -q ':' || mnt="$mnt:$mnt"
       DOCKER_SET_MNT+="--volume $mnt "
     fi
   done
@@ -996,7 +996,7 @@ if [ -n "$CONTAINER_OPT_MOUNT_VAR" ]; then
   CONTAINER_OPT_MOUNT_VAR="${CONTAINER_OPT_MOUNT_VAR//  / }"
   for mnt in $CONTAINER_OPT_MOUNT_VAR; do
     if [ "$mnt" != "" ] && [ "$mnt" != " " ]; then
-      echo "$mnt" | grep -q ':' || port="$mnt:$mnt"
+      echo "$mnt" | grep -q ':' || mnt="$mnt:$mnt"
       DOCKER_SET_MNT+="--volume $mnt "
     fi
   done

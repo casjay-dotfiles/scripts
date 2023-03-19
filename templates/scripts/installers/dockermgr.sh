@@ -1294,7 +1294,7 @@ sleep 10
 __docker_ps && CONTAINER_INSTALLED="true"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Install nginx proxy
-if [ "$NGINX_PROXY" = "yes" ] && [ -w "$NGINX_DIR/vhosts.d" ]; then
+if [ -w "$NGINX_DIR/vhosts.d" ]; then
   if [ "$HOST_NGINX_UPDATE_CONF" = "yes" ] && [ -f "$INSTDIR/nginx/proxy.conf" ]; then
     cp -f "$INSTDIR/nginx/proxy.conf" "/tmp/$$.$CONTAINER_HOSTNAME.conf"
     sed -i "s|REPLACE_APPNAME|$APPNAME|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null

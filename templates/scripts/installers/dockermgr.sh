@@ -1304,7 +1304,7 @@ if [ -w "$NGINX_DIR/vhosts.d" ]; then
     sed -i "s|REPLACE_SERVER_LISTEN_OPTS|$NGINX_LISTEN_OPTS|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
     if [ -d "$NGINX_DIR/vhosts.d" ]; then
       __sudo_root mv -f "/tmp/$$.$CONTAINER_HOSTNAME.conf" "$NGINX_DIR/vhosts.d/$CONTAINER_HOSTNAME.conf"
-      [ -f "$NGINX_DIR/vhosts.d/$CONTAINER_HOSTNAME.conf" ] && printf_green "[ ✅ ] Copying the nginx configuration"
+      [ -f "$NGINX_DIR/vhosts.d/$CONTAINER_HOSTNAME.conf" ] && NGINX_IS_INSTALLED="yes" && NGINX_CONF_FILE="$NGINX_DIR/vhosts.d/$CONTAINER_HOSTNAME.conf"
       systemctl status nginx | grep -q enabled &>/dev/null && __sudo_root systemctl reload nginx &>/dev/null
     else
       mv -f "/tmp/$$.$CONTAINER_HOSTNAME.conf" "$INSTDIR/nginx/$CONTAINER_HOSTNAME.conf" &>/dev/null
@@ -1343,6 +1343,12 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
   if [ "$SUDO_USER" != "root" ] && [ -n "$SUDO_USER" ]; then
     __sudo chown -f "$SUDO_USER":"$SUDO_USER" "$DATADIR" "$INSTDIR" &>/dev/null
     true
+  fi
+  if [ "$NGINX_IS_INSTALLED" = "yes" ] && [ -f "$NGINX_CONF_FILE" ]; then 
+    printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
+    prinf_cyan "nginx vhost name:                $CONTAINER_HOSTNAME"
+    prinf_cyan "nginx proxy to port:             $NGINX_PROXY_URL"
+    prinf_cyan "nginx config file installed to:  $NGINX_CONF_FILE"
   fi
   printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   if [ -n "$SET_PORT" ] && [ -n "$NGINX_PROXY_URL" ]; then

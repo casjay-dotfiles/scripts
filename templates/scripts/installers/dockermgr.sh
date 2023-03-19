@@ -77,8 +77,8 @@ trap_exit
 dockermgr_req_version "$APPVERSION"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Custom required functions
-__sudo() { [ -n "$(type -P 'sudo')" ] && sudo -n true && sudo -HE "$*" || eval "$*" || return 1; }
-__sudo_root() { [ -n "$(type -P 'sudo')" ] && sudo -n true && ask_for_password true && sudo "$*" || eval "$*" || return 1; }
+__sudo() { [ -n "$(type -P 'sudo')" ] && sudo -n true && sudo -HE "$@" || eval "$*" || return 1; }
+__sudo_root() { [ -n "$(type -P 'sudo')" ] && sudo -n true && ask_for_password true && sudo "$@" || eval "$*" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __port() { echo "$((50000 + $RANDOM % 1000))" | grep '^' || return 1; }
 __route() { [ -n "$(type -P ip)" ] && eval ip route 2>/dev/null || return 1; }

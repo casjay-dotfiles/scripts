@@ -1350,12 +1350,13 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
     for service in $SET_PORT; do
       if [ "$service" != "--publish" ] && [ "$service" != " " ] && [ -n "$service" ]; then
-        type="${service//:*\//}"
+        get_type="${service//:*\//}"
+        type="${get_type//$service/}"
         service=${service//\/*/}
         set_listen=${service%:*}
         set_service=${service//*:[^:]*:/}
         listen_ip=${set_listen//0.0.0.0/$HOST_LISTEN_ADDR}
-        listen=${listen_ip//^:/$listen_ip}
+        listen=${listen_ip//*^:/$listen_ip}
         if [ -n "$listen" ]; then
           if [ -n "$type" ]; then
             printf_cyan "Port $set_service is mapped to: $listen/$type"

@@ -78,7 +78,7 @@ __detect_os() {
 } && __detect_os
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # trap errors
-trap_exit() { true; }
+trap_exit() { run_cleanup; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cmd_exists() {
   for f in "$@"; do
@@ -2475,7 +2475,6 @@ __main_installer_info() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 run_install_init() {
-  trap 'retVal=$?;run_cleanup;exit $retVal' ERR SIGINT EXIT
   local exitCode=0
   local TMPDIR="${TMPDIR:-/tmp}"
   local APPNAME="${APPNAME:-$PROG}"

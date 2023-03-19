@@ -715,7 +715,7 @@ if [ "$HOST_NGINX_ENABLED" = "yes" ]; then
     fi
   fi
   if [ "$HOST_NGINX_UPDATE_CONF" = "yes" ]; then
-    mkdir -p "$$NGINX_DIR/vhosts.d"
+    mkdir -p "$NGINX_DIR/vhosts.d"
   fi
   if [ ! -f "$NGINX_DIR/vhosts.d/$CONTAINER_HOSTNAME.conf" ]; then
     HOST_NGINX_UPDATE_CONF="yes"

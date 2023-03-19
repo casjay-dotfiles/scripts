@@ -1294,7 +1294,7 @@ sleep 10
 __docker_ps && CONTAINER_INSTALLED="true"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Install nginx proxy
-if [ "$NGINX_PROXY" = "yes" ] && [ -w "/etc/nginx/vhosts.d" ]; then
+if [ "$NGINX_PROXY" = "yes" ] && [ -w "$NGINX_DIR/vhosts.d" ]; then
   if [ "$HOST_NGINX_UPDATE_CONF" = "yes" ] && [ -f "$INSTDIR/nginx/proxy.conf" ]; then
     cp -f "$INSTDIR/nginx/proxy.conf" "/tmp/$$.$CONTAINER_HOSTNAME.conf"
     sed -i "s|REPLACE_APPNAME|$APPNAME|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
@@ -1302,9 +1302,9 @@ if [ "$NGINX_PROXY" = "yes" ] && [ -w "/etc/nginx/vhosts.d" ]; then
     sed -i "s|REPLACE_HOST_PROXY|$NGINX_PROXY_URL|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
     sed -i "s|REPLACE_NGINX_HOST|$CONTAINER_HOSTNAME|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
     sed -i "s|REPLACE_SERVER_LISTEN_OPTS|$NGINX_LISTEN_OPTS|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
-    if [ -d "/etc/nginx/vhosts.d" ]; then
-      __sudo_root mv -f "/tmp/$$.$CONTAINER_HOSTNAME.conf" "/etc/nginx/vhosts.d/$CONTAINER_HOSTNAME.conf"
-      [ -f "/etc/nginx/vhosts.d/$CONTAINER_HOSTNAME.conf" ] && printf_green "[ ✅ ] Copying the nginx configuration"
+    if [ -d "$NGINX_DIR/vhosts.d" ]; then
+      __sudo_root mv -f "/tmp/$$.$CONTAINER_HOSTNAME.conf" "$NGINX_DIR/vhosts.d/$CONTAINER_HOSTNAME.conf"
+      [ -f "$NGINX_DIR/vhosts.d/$CONTAINER_HOSTNAME.conf" ] && printf_green "[ ✅ ] Copying the nginx configuration"
       systemctl status nginx | grep -q enabled &>/dev/null && __sudo_root systemctl reload nginx &>/dev/null
     else
       mv -f "/tmp/$$.$CONTAINER_HOSTNAME.conf" "$INSTDIR/nginx/$CONTAINER_HOSTNAME.conf" &>/dev/null
@@ -1313,7 +1313,7 @@ if [ "$NGINX_PROXY" = "yes" ] && [ -w "/etc/nginx/vhosts.d" ]; then
     NGINX_PROXY_URL=""
   fi
   SERVER_URL="$CONTAINER_HTTP_PROTO://$CONTAINER_HOSTNAME:$PRETTY_PORT"
-  [ -f "/etc/nginx/vhosts.d/$CONTAINER_HOSTNAME.conf" ] && NGINX_PROXY_URL="$CONTAINER_HTTP_PROTO://$CONTAINER_HOSTNAME"
+  [ -f "$NGINX_DIR/vhosts.d/$CONTAINER_HOSTNAME.conf" ] && NGINX_PROXY_URL="$CONTAINER_HTTP_PROTO://$CONTAINER_HOSTNAME"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # finalize
@@ -1419,31 +1419,31 @@ else
   fi
   exit 10
 fi
-  if [ -z "$SET_PORT" ]; then
-    printf_yellow "This container does not have services configured"
-  else
-    printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
-    for service in $SET_PORT; do
-      if [ "$service" != "--publish" ] && [ "$service" != " " ] && [ -n "$service" ]; then
-        get_type="${service//*\//}"
-        get_type="${get_type//$service/}"
-        type=${get_type//*\//}
-        service=${service//\/*/}
-        set_listen=${service%:*}
-        set_service=${service//*:*[^:]*:/}
-        listen_ip=${set_listen//0.0.0.0/$HOST_LISTEN_ADDR}
-        listen=${listen_ip//*^:/$listen_ip}
-        echo "$listen" | grep -q ":" || listen="$listen_ip"
-        if [ -n "$listen" ]; then
-          if [ -n "$type" ]; then
-            printf_cyan "Port ${set_service//*:} is mapped to:           $listen/$type"
-          else
-            printf_cyan "Port ${set_service//*:} is mapped to:           $listen"
-          fi
+if [ -z "$SET_PORT" ]; then
+  printf_yellow "This container does not have services configured"
+else
+  printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
+  for service in $SET_PORT; do
+    if [ "$service" != "--publish" ] && [ "$service" != " " ] && [ -n "$service" ]; then
+      get_type="${service//*\//}"
+      get_type="${get_type//$service/}"
+      type=${get_type//*\//}
+      service=${service//\/*/}
+      set_listen=${service%:*}
+      set_service=${service//*:*[^:]*:/}
+      listen_ip=${set_listen//0.0.0.0/$HOST_LISTEN_ADDR}
+      listen=${listen_ip//*^:/$listen_ip}
+      echo "$listen" | grep -q ":" || listen="$listen_ip"
+      if [ -n "$listen" ]; then
+        if [ -n "$type" ]; then
+          printf_cyan "Port ${set_service//*:/} is mapped to:           $listen/$type"
+        else
+          printf_cyan "Port ${set_service//*:/} is mapped to:           $listen"
         fi
       fi
-    done
-  fi
+    fi
+  done
+fi
 if [ "$MESSAGE" = "true" ]; then
   printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n\n'
 fi

@@ -2475,6 +2475,7 @@ __main_installer_info() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 run_install_init() {
+  trap 'retVal=$?;run_cleanup;exit $retVal' ERR SIGINT EXIT
   local exitCode=0
   local TMPDIR="${TMPDIR:-/tmp}"
   local APPNAME="${APPNAME:-$PROG}"

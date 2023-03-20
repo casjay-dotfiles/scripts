@@ -1373,7 +1373,6 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
   fi
   if [ "$SUDO_USER" != "root" ] && [ -n "$SUDO_USER" ]; then
     __sudo chown -f "$SUDO_USER":"$SUDO_USER" "$DATADIR" "$INSTDIR" &>/dev/null
-    true
   fi
   if [ "$NGINX_IS_INSTALLED" = "yes" ] && [ -f "$NGINX_CONF_FILE" ]; then
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
@@ -1383,35 +1382,35 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
   fi
   if [ -n "$SET_PORT" ] && [ -n "$NGINX_PROXY_URL" ]; then
     MESSAGE="true"
-    printf_blue "Server address:                 $NGINX_PROXY_URL"
+    printf_blue "Server address:                  $NGINX_PROXY_URL"
   fi
   if [ -n "$CONTAINER_USER_NAME" ]; then
     MESSAGE="true"
-    printf_cyan "Username is:                    $CONTAINER_USER_NAME"
+    printf_cyan "Username is:                     $CONTAINER_USER_NAME"
   fi
   if [ -n "$CONTAINER_USER_PASS" ]; then
     MESSAGE="true"
-    printf_blue "Password is:                    $CONTAINER_USER_PASS"
-    if [ "$CONTAINER_DATABASE_USER_ROOT" ]; then
-      MESSAGE="true"
-      printf_blue "Database root user:            $CONTAINER_DATABASE_USER_ROOT"
-    fi
-    if [ "$CONTAINER_DATABASE_PASS_ROOT" ]; then
-      MESSAGE="true"
-      printf_blue "Database root password:        $CONTAINER_DATABASE_PASS_ROOT"
-    fi
-    if [ "$CONTAINER_DATABASE_USER_NORMAL" ]; then
-      MESSAGE="true"
-      printf_blue "Database user:                 $CONTAINER_DATABASE_USER_NORMAL"
-    fi
-    if [ "$CONTAINER_DATABASE_PASS_NORMAL" ]; then
-      MESSAGE="true"
-      printf_blue "Database password:             $CONTAINER_DATABASE_PASS_NORMAL"
-    fi
+    printf_blue "Password is:                     $CONTAINER_USER_PASS"
+  fi
+  if [ "$CONTAINER_DATABASE_USER_ROOT" ]; then
+    MESSAGE="true"
+    printf_blue "Database root user:              $CONTAINER_DATABASE_USER_ROOT"
+  fi
+  if [ "$CONTAINER_DATABASE_PASS_ROOT" ]; then
+    MESSAGE="true"
+    printf_blue "Database root password:          $CONTAINER_DATABASE_PASS_ROOT"
+  fi
+  if [ "$CONTAINER_DATABASE_USER_NORMAL" ]; then
+    MESSAGE="true"
+    printf_blue "Database user:                   $CONTAINER_DATABASE_USER_NORMAL"
+  fi
+  if [ "$CONTAINER_DATABASE_PASS_NORMAL" ]; then
+    MESSAGE="true"
+    printf_blue "Database password:               $CONTAINER_DATABASE_PASS_NORMAL"
   fi
   if [ "$SHOW_DATABASE_INFO" = "true" ]; then
     MESSAGE="true"
-    printf_yellow "Database is running on         $CONTAINER_DATABASE_PROTO"
+    printf_yellow "Database is running on:          $CONTAINER_DATABASE_PROTO"
     if [ -n "$MESSAGE_COUCHDB" ]; then
       printf_cyan "$MESSAGE_COUCHDB"
     fi
@@ -1434,9 +1433,10 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
   fi
   if [ -f "$DATADIR/config/auth/htpasswd" ]; then
     MESSAGE="true"
-    printf_purple "Username:                       root"
-    printf_purple "Password:                       ${SET_USER_PASS:-toor}"
-    printf_purple "htpasswd File:                  /config/auth/htpasswd"
+    printf_purple "Username:                        root"
+    printf_purple "Password:                        ${SET_USER_PASS:-toor}"
+    printf_purple "htpasswd File:                   /config/auth/htpasswd"
+    printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
   if [ -n "$POST_SHOW_FINISHED_MESSAGE" ]; then
     printf_green "$POST_SHOW_FINISHED_MESSAGE"

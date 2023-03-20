@@ -70,20 +70,46 @@ __run_start_script() {
   local cmd="$EXEC_CMD_BIN $EXEC_CMD_ARGS"
   local lc_type="${LC_ALL:-${LC_CTYPE:-$LANG}}"
   local home="${workdir//\/root/\/tmp\/docker}"
-  local path="/usr/local/bin:/usr/bin:/bin:/usr/sbin"
-  [ -n "$home" ] && __cd "$home" || __cd /home/docker
+  local path="/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin"
+  # create home
+  [ -d "$workdir" ] && true || mkdir -p "$workdir" || workdir="/tmp"
+  # fix permissions
+  if [ -n "$workdir" ] && [ "${user:-$USER}" != "root" ]; then
+    echo "Fixing file permissions"
+    su_cmd chown -Rf "$user" "$etc_dir" "$var_dir" "$log_dir" "$workdir"
+  fi
+  # execute
   case "$1" in
-  check) shift 1 && __pgrep $EXEC_CMD_BIN || return 5 ;;
-  *) su_cmd env -i PWD="$home" HOME="$home" LC_CTYPE="$lc_type" PATH="$path" USER="$user" sh -c "$cmd" || return 10 ;;
+  check)
+    shift 1
+    __proc_check || return 5
+    ;;
+  *)
+    __proc_check
+    [ -n "$home" ] && __cd "$home"
+    su_cmd env -i HOME="$home" LC_CTYPE="$lc_type" PATH="$path" USER="$user" "$cmd" || return 10
+    ;;
   esac
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # simple cd function
-__cd() { su_cmd mkdir -p "$1" && su_cmd \cd "$1" || exit 1; }
+__cd() { mkdir -p "$1" && builtin cd "$1" || exit 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # process check functions
 __pcheck() { [ -n "$(type -P pgrep 2>/dev/null)" ] && pgrep -x "$1" &>/dev/null && return 0 || return 10; }
 __pgrep() { __pcheck "${1:-EXEC_CMD_BIN}" || __ps aux 2>/dev/null | grep -Fw " ${1:-$EXEC_CMD_BIN}" | grep -qv ' grep' | grep '^' && return 0 || return 10; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# check if process is already running
+__proc_check() {
+  local cmd_bin="${1:-$EXEC_CMD_NAME}"
+  local cmd_name="$(basename "${1:-$EXEC_CMD_NAME}")"
+  if __pgrep "$cmd_bin" || __pgrep "$cmd_bin"; then
+    SERVICE_IS_RUNNING="true"
+    touch "$SERVICE_PID_FILE"
+    echo "$cmd_name is already running"
+    exit 0
+  fi
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Allow ENV_ variable - Import env file
 [ -f "/config/env/$EXEC_CMD_BIN.sh" ] && "/config/env/$EXEC_CMD_BIN.sh"
@@ -113,14 +139,6 @@ EXEC_CMD_NAME="$(basename "$EXEC_CMD_BIN")"          # set the binary name
 if [ ! -f "$(type -P "$EXEC_CMD_BIN")" ] && [ -z "$EXEC_CMD_BIN" ]; then
   echo "$EXEC_CMD_BIN is not a valid command"
   exit 2
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# check if process is already running
-if __pgrep "$EXEC_CMD_NAME" || __pgrep "$EXEC_CMD_BIN"; then
-  SERVICE_IS_RUNNING="true"
-  touch "$SERVICE_PID_FILE"
-  echo "$EXEC_CMD_NAME is already running"
-  exit 0
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # show message if env exists
@@ -159,10 +177,6 @@ __update_conf_files
 [ -n "$PRE_EXEC_MESSAGE" ] && echo "$PRE_EXEC_MESSAGE"
 __pre_execute
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ -n "$WORKDIR" ] && [ "${SERVICE_USER:-$USER}" != "root" ]; then
-  echo "Fixing file permissions"
-  su_cmd chown -Rf $SERVICE_USER $WORKDIR $etc_dir $var_dir $log_dir
-fi
 echo "Starting service: $EXEC_CMD_BIN $EXEC_CMD_ARGS"
 su_cmd touch $SERVICE_PID_FILE
 __run_start_script "$@" |& tee -a "/data/logs/entrypoint.log"

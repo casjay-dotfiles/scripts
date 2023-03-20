@@ -397,12 +397,20 @@ __dockermgr_variables() {
   cat <<EOF | tee | tr '|' '\n'
 # Enviroment variables for $APPNAME
 ENV_CONTAINER_USER_NAME="${CONTAINER_USER_NAME:-}"
-ENV_CONTAINER_USER_PASS="${CONTAINER_USER_PASS:-}"
 ENV_CONTAINER_ENV_USER_NAME="${CONTAINER_ENV_USER_NAME:-}"
-ENV_CONTAINER_ENV_PASS_NAME="${CONTAINER_ENV_PASS_NAME:-}"
 ENV_CONTAINER_DATABASE_USER_ROOT="${CONTAINER_DATABASE_USER_ROOT:-}"
-ENV_CONTAINER_DATABASE_PASS_ROOT="${CONTAINER_DATABASE_PASS_ROOT:-}"
 ENV_CONTAINER_DATABASE_USER_NORMAL="${CONTAINER_DATABASE_USER_NORMAL:-}"
+
+EOF
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__dockermgr_password_variables() {
+  [ -d "$DOCKERMGR_CONFIG_DIR/secure" ] || mkdir -p "$DOCKERMGR_CONFIG_DIR/secure"
+  cat <<EOF | tee | tr '|' '\n'
+# Enviroment variables for $APPNAME
+ENV_CONTAINER_USER_PASS="${CONTAINER_USER_PASS:-}"
+ENV_CONTAINER_ENV_PASS_NAME="${CONTAINER_ENV_PASS_NAME:-}"
+ENV_CONTAINER_DATABASE_PASS_ROOT="${CONTAINER_DATABASE_PASS_ROOT:-}"
 ENV_CONTAINER_DATABASE_PASS_NORMAL="${CONTAINER_DATABASE_PASS_NORMAL:-}"
 
 EOF
@@ -431,6 +439,7 @@ __trim() {
 [ -f "$APPDIR/env.sh" ] && . "$APPDIR/env.sh"
 [ -f "$DOCKERMGR_CONFIG_DIR/.env.sh" ] && . "$DOCKERMGR_CONFIG_DIR/.env.sh"
 [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME" ] && . "$DOCKERMGR_CONFIG_DIR/env/$APPNAME"
+[ -r "$DOCKERMGR_CONFIG_DIR/secure/$APPNAME" ] && . "$DOCKERMGR_CONFIG_DIR/secure/$APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Initialize the installer
 dockermgr_run_init
@@ -1250,6 +1259,8 @@ EXECUTE_DOCKER_CMD="$(__trim "$EXECUTE_DOCKER_CMD")"
 # Run functions
 __container_import_variables "$CONTAINER_ENV_FILE_MOUNT"
 __dockermgr_variables >"$DOCKERMGR_CONFIG_DIR/env/$APPNAME"
+__dockermgr_password_variables >"$DOCKERMGR_CONFIG_DIR/secure/$APPNAME"
+chmod -f 600 "$DOCKERMGR_CONFIG_DIR/secure/$APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main progam
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1278,6 +1289,7 @@ fi
 if [ -f "$DATADIR/.installed" ]; then
   __sudo date +'Updated on %Y-%m-%d at %H:%M' | tee "$DATADIR/.installed" &>/dev/null
 else
+  __sudo chown -Rf "$SUDO_USER":"$SUDO_USER" "$DOCKERMGR_CONFIG_DIR" &>/dev/null
   __sudo chown -f "$SUDO_USER":"$SUDO_USER" "$DATADIR" "$INSTDIR" "$INSTDIR" &>/dev/null
   __sudo date +'installed on %Y-%m-%d at %H:%M' | tee "$DATADIR/.installed" &>/dev/null
 fi

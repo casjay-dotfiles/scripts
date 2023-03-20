@@ -1366,7 +1366,6 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
   printf_yellow "The container name is:          $CONTAINER_NAME"
   printf_yellow "The container is listening on:  $HOST_LISTEN_ADDR"
   printf_yellow "The hostname name is set to:    $CONTAINER_HOSTNAME"
-  printf_cyan "$APPNAME has been installed to:   $INSTDIR"
   printf_yellow "Containers data is saved in:    $DATADIR"
   if [ "$DOCKER_CREATE_NET" ]; then
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
@@ -1391,10 +1390,12 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
     printf_cyan "nginx vhost name:                $CONTAINER_HOSTNAME"
     printf_cyan "nginx proxy to port:             $NGINX_PROXY_URL"
     printf_cyan "nginx config file installed to:  $NGINX_CONF_FILE"
+    printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
   if [ -n "$SET_PORT" ] && [ -n "$NGINX_PROXY_URL" ]; then
     MESSAGE="true"
     printf_blue "Server address:                  $NGINX_PROXY_URL"
+    printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
   if [ -n "$CONTAINER_USER_NAME" ]; then
     MESSAGE="true"
@@ -1421,6 +1422,7 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
     printf_blue "Database password:               $CONTAINER_DATABASE_PASS_NORMAL"
   fi
   if [ "$SHOW_DATABASE_INFO" = "true" ]; then
+    printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
     MESSAGE="true"
     printf_yellow "Database is running on:          $CONTAINER_DATABASE_PROTO"
     if [ -n "$MESSAGE_COUCHDB" ]; then
@@ -1494,6 +1496,8 @@ fi
 if [ "$MESSAGE" = "true" ]; then
   printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n\n'
 fi
+printf_cyan "$APPNAME has been installed to:   $INSTDIR"
+printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n\n'
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run post install scripts
 run_postinst() {

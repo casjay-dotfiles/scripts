@@ -1494,7 +1494,7 @@ else
   done
 fi
 if [ "$MESSAGE" = "true" ]; then
-  printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n\n'
+  printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
 fi
 printf_cyan "$APPNAME has been installed to:   $INSTDIR"
 printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n\n'

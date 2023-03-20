@@ -842,7 +842,7 @@ if [ "$CONTAINER_REDIS_ENABLED" = "yes" ]; then
   DOCKER_SET_OPTIONS+="--volume $LOCAL_DATA_DIR/db/redis:/$DATABASE_DIR_REDIS:z "
   DOCKER_SET_OPTIONS+="--env ENV_PORTS=6379 "
   DOCKER_SET_OPTIONS+="--env DATABASE_DIR_REDIS=$DATABASE_DIR_REDIS "
-  MESSAGE_REDIS="Databse files are saved to:       $DATABASE_DIR_REDIS"
+  MESSAGE_REDIS="Database files are saved to:      $DATABASE_DIR_REDIS"
 fi
 if [ "$CONTAINER_POSTGRES_ENABLED" = "yes" ]; then
   SHOW_DATABASE_INFO="true"
@@ -853,7 +853,7 @@ if [ "$CONTAINER_POSTGRES_ENABLED" = "yes" ]; then
   DOCKER_SET_OPTIONS+="--volume $LOCAL_DATA_DIR/db/pgsql:/$DATABASE_DIR_PGSQL:z "
   DOCKER_SET_OPTIONS+="--env ENV_PORTS=5432 "
   DOCKER_SET_OPTIONS+="--env DATABASE_DIR_PGSQL=$DATABASE_DIR_PGSQL "
-  MESSAGE_PGSQL="Databse files are saved to:       $DATABASE_DIR_PGSQL"
+  MESSAGE_PGSQL="Database files are saved to:      $DATABASE_DIR_PGSQL"
 fi
 if [ "$CONTAINER_MARIADB_ENABLED" = "yes" ]; then
   SHOW_DATABASE_INFO="true"
@@ -864,7 +864,7 @@ if [ "$CONTAINER_MARIADB_ENABLED" = "yes" ]; then
   DOCKER_SET_OPTIONS+="--volume $LOCAL_DATA_DIR/db/mysql:/$DATABASE_DIR_MARIADB:z "
   DOCKER_SET_OPTIONS+="--env ENV_PORTS=3306 "
   DOCKER_SET_OPTIONS+="--env DATABASE_DIR_MARIADB=$DATABASE_DIR_MARIADB "
-  MESSAGE_MARIADB="Databse files are saved to:       $DATABASE_DIR_MARIADB"
+  MESSAGE_MARIADB="Database files are saved to:      $DATABASE_DIR_MARIADB"
 fi
 if [ "$CONTAINER_COUCHDB_ENABLED" = "yes" ]; then
   SHOW_DATABASE_INFO="true"
@@ -875,7 +875,7 @@ if [ "$CONTAINER_COUCHDB_ENABLED" = "yes" ]; then
   DOCKER_SET_OPTIONS+="--volume $LOCAL_DATA_DIR/db/couchdb:/$DATABASE_DIR_COUCHDB:z "
   DOCKER_SET_OPTIONS+="--env ENV_PORTS=5984 "
   DOCKER_SET_OPTIONS+="--env DATABASE_DIR_COUCHDB=$DATABASE_DIR_COUCHDB "
-  MESSAGE_COUCHDB="Databse files are saved to:       $DATABASE_DIR_COUCHDB"
+  MESSAGE_COUCHDB="Database files are saved to:      $DATABASE_DIR_COUCHDB"
 fi
 if [ "$CONTAINER_MONGODB_ENABLED" = "yes" ]; then
   SHOW_DATABASE_INFO="true"
@@ -886,7 +886,7 @@ if [ "$CONTAINER_MONGODB_ENABLED" = "yes" ]; then
   DOCKER_SET_OPTIONS+="--volume $LOCAL_DATA_DIR/db/mongodb:/$DATABASE_DIR_MONGODB:z "
   DOCKER_SET_OPTIONS+="--env ENV_PORTS=27017 "
   DOCKER_SET_OPTIONS+="--env DATABASE_DIR_MONGODB=$DATABASE_DIR_MONGODB "
-  MESSAGE_MONGODB="Databse files are saved to:       $DATABASE_DIR_MONGODB"
+  MESSAGE_MONGODB="Database files are saved to:      $DATABASE_DIR_MONGODB"
 fi
 if [ "$CONTAINER_SUPABASE_ENABLED" = "yes" ]; then
   SHOW_DATABASE_INFO="true"
@@ -897,7 +897,7 @@ if [ "$CONTAINER_SUPABASE_ENABLED" = "yes" ]; then
   DOCKER_SET_OPTIONS+="--volume $LOCAL_DATA_DIR/db/supabase:/$DATABASE_DIR_SUPABASE:z "
   DOCKER_SET_OPTIONS+="--env ENV_PORTS=5432 "
   DOCKER_SET_OPTIONS+="--env DATABASE_DIR_SUPABASE=$DATABASE_DIR_SUPABASE "
-  MESSAGE_SUPABASE="Databse files are saved to:       $DATABASE_DIR_SUPABASE"
+  MESSAGE_SUPABASE="Database files are saved to:      $DATABASE_DIR_SUPABASE"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #

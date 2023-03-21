@@ -27,21 +27,21 @@ done
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Predefined variables
-WORKDIR=""                                                      # set working directory
-DATA_DIR="/data"                                                # set data directory
-ETC_DIR="/etc/GEN_SCRIPT_REPLACE_APPNAME"                       # set etc directory
-CONF_DIR="/config/GEN_SCRIPT_REPLACE_APPNAME"                   # set data directory
-LOG_DIR="/data/logs/GEN_SCRIPT_REPLACE_APPNAME"                 # set log directory
-WWW_DIR="/data/www/htdocs"                                      # set the web root
-DATABASE_DIR="/data/db/GEN_SCRIPT_REPLACE_APPNAME"              # set the database directory
-ROOT_FILE_PREFIX="/data/secure/GEN_SCRIPT_REPLACE_APPNAME_root" # where to save password for root user
-USER_FILE_PREFIX="/data/secure/GEN_SCRIPT_REPLACE_APPNAME_user" # where to save password for normal user
+WORKDIR=""                                                        # set working directory
+DATA_DIR="/data"                                                  # set data directory
+ETC_DIR="/etc/GEN_SCRIPT_REPLACE_APPNAME"                         # set etc directory
+CONF_DIR="/config/GEN_SCRIPT_REPLACE_APPNAME"                     # set data directory
+LOG_DIR="/data/logs/GEN_SCRIPT_REPLACE_APPNAME"                   # set log directory
+WWW_DIR="/data/www/htdocs"                                        # set the web root
+DATABASE_DIR="/data/db/GEN_SCRIPT_REPLACE_APPNAME"                # set the database directory
+ROOT_FILE_PREFIX="/config/secure/GEN_SCRIPT_REPLACE_APPNAME_root" # where to save password for root user
+USER_FILE_PREFIX="/config/secure/GEN_SCRIPT_REPLACE_APPNAME_user" # where to save password for normal user
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Predefined custom
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # lets use environment if available
-[ -n "$DATABASE_DIR_${SERVICE_NAME^^}" ] && DATABASE_DIR="$DATABASE_DIR_${SERVICE_NAME^^}"
+[ -n "$DATABASE_DIR_REPLACE_ENV" ] && DATABASE_DIR="$DATABASE_DIR_REPLACE_ENV"
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # port which service is listening on
@@ -135,8 +135,8 @@ EOF
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # script to start server
 __run_start_script() {
+  local workdir="${WORKDIR:-}"
   local user="${SERVICE_USER:-root}"
-  local workdir="${WORKDIR:-$HOME}"
   local cmd="$EXEC_CMD_BIN $EXEC_CMD_ARGS"
   local lc_type="${LC_ALL:-${LC_CTYPE:-$LANG}}"
   local home="${workdir//\/root/\/tmp\/docker}"
@@ -145,28 +145,14 @@ __run_start_script() {
   [ "$home" = "/root" ] && home="/tmp/docker"
   [ "$home" = "$workdir" ] && workdir=""
   # create home
-  [ -n "$home" ] && [ -d "$home" ] && true || mkdir -p "$home"
-  [ -n "$workdir" ] && [ -d "$workdir" ] && true || mkdir -p "$workdir" || workdir="/tmp"
-  chmod -f 777 "$home" "$LOG_DIR"
-  # fix permissions
-  if [ -n "$workdir" ] && [ "${user:-$USER}" != "root" ]; then
-    echo "Fixing file permissions"
-    chmod -f 777 "$workdir" "$LOG_DIR"
-    chown -Rf "$user" "$ETC_DIR" "$LOG_DIR" "$home" "$workdir"
-  fi
-  # execute
-  case "$1" in
-  check)
-    shift 1
-    __proc_check || return 5
-    ;;
-  *)
-    __proc_check && exit
-    [ -n "$home" ] && __cd "$home"
-    __post_execute >>"/data/logs/entrypoint.log" &
-    su_cmd env -i HOME="$home" LC_CTYPE="$lc_type" PATH="$path" USER="$user" sh -c "$cmd" || return 10
-    ;;
-  esac
+  [ -n "$home" ] && { [ -d "$home" ] || mkdir -p "$home"; }
+  [ -n "$workdir" ] && { [ -d "$workdir" ] || mkdir -p "$workdir" || workdir="/tmp"; }
+  [ -n "$workdir" ] && __cd "$workdir" || { [ -n "$home" ] && __cd "$home"; } || __cd "/tmp"
+  echo "Starting service: $EXEC_CMD_BIN $EXEC_CMD_ARGS"
+  su_cmd touch $SERVICE_PID_FILE
+  __post_execute >>"/data/logs/entrypoint.log" &
+  su_cmd env -i HOME="$home" LC_CTYPE="$lc_type" PATH="$path" USER="$user" sh -c "$cmd" || return 10
+
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # simple cd function
@@ -178,13 +164,16 @@ __pgrep() { __pcheck "${1:-EXEC_CMD_BIN}" || __ps aux 2>/dev/null | grep -Fw " $
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # check if process is already running
 __proc_check() {
-  local cmd_bin="${1:-$EXEC_CMD_NAME}"
-  local cmd_name="$(basename "${1:-$EXEC_CMD_NAME}")"
-  if __pgrep "$cmd_bin" || __pgrep "$cmd_bin"; then
+  local cmd_bin="" cmd_name=""
+  cmd_bin="${1:-$EXEC_CMD_NAME}"
+  cmd_name="$(basename "${1:-$EXEC_CMD_NAME}")"
+  if __pgrep "$cmd_bin" || __pgrep "$cmd_name"; then
     SERVICE_IS_RUNNING="true"
     touch "$SERVICE_PID_FILE"
     echo "$cmd_name is already running"
     return 0
+  else
+    return 1
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -218,6 +207,12 @@ EXEC_CMD_BIN="$(type -P "$EXEC_CMD_BIN" || echo "$EXEC_CMD_BIN")" # set full pat
 if [ ! -f "$(type -P "$EXEC_CMD_BIN")" ] && [ -z "$EXEC_CMD_BIN" ]; then
   echo "$EXEC_CMD_BIN is not a valid command"
   exit 2
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Only run check
+if [ "$1" = "check" ]; then
+  __proc_check "$EXEC_CMD_NAME"
+  exit $?
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # show message if env exists
@@ -260,8 +255,7 @@ __update_conf_files
 [ -n "$PRE_EXEC_MESSAGE" ] && echo "$PRE_EXEC_MESSAGE"
 __pre_execute
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-echo "Starting service: $EXEC_CMD_BIN $EXEC_CMD_ARGS"
-su_cmd touch $SERVICE_PID_FILE
+__proc_check "$EXEC_CMD_NAME" && exit 1
 __run_start_script "$@" |& tee -a "/data/logs/entrypoint.log"
 if [ "$?" -ne 0 ]; then
   echo "Failed to execute: $EXEC_CMD_BIN $EXEC_CMD_ARGS"

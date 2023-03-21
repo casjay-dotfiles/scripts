@@ -27,12 +27,15 @@ done
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Predefined variables
-WORKDIR=""                                         # set working directory
-DATA_DIR="/data"                                   # set data directory
-WWW_DIR="/data/www"                                # set the web root
-ETC_DIR="/etc/GEN_SCRIPT_REPLACE_APPNAME"          # set etc directory
-CONF_DIR="/config/GEN_SCRIPT_REPLACE_APPNAME"      # set data directory
-DATABASE_DIR="/data/db/GEN_SCRIPT_REPLACE_APPNAME" # set the database directory
+WORKDIR=""                                                      # set working directory
+DATA_DIR="/data"                                                # set data directory
+ETC_DIR="/etc/GEN_SCRIPT_REPLACE_APPNAME"                       # set etc directory
+CONF_DIR="/config/GEN_SCRIPT_REPLACE_APPNAME"                   # set data directory
+LOG_DIR="/dat/lag/GEN_SCRIPT_REPLACE_APPNAME"                   # set log directory
+WWW_DIR="/data/www/htdocs"                                      # set the web root
+DATABASE_DIR="/data/db/GEN_SCRIPT_REPLACE_APPNAME"              # set the database directory
+ROOT_FILE_PREFIX="/data/secure/GEN_SCRIPT_REPLACE_APPNAME_root" # where to save password for root user
+USER_FILE_PREFIX="/data/secure/GEN_SCRIPT_REPLACE_APPNAME_user" # where to save password for normal user
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # lets use environment if available
 if [ -n "$DATABASE_DIR_${SERVICE_NAME^^}" ]; then
@@ -52,6 +55,33 @@ EXEC_CMD_ARGS=" "                         # command arguments
 # Additional variables
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# usernnames
+user_name=""
+root_user_name=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# passwords
+if [ -f "${USER_FILE_PREFIX}_pass" ]; then
+  user_pass="$(<"{USER_FILE_PREFIX}_pass")"
+else
+  user_pass=""
+fi
+if [ -f "${ROOT_FILE_PREFIX}_pass" ]; then
+  root_pass_word="$(<"${ROOT_FILE_PREFIX}_pass")"
+else
+  root_pass_word=""
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# use this function to update config files - IE: change port
+__pre_message() {
+  local exitCode=0
+  [ -n "$user_name" ] && echo "username is:       $username"
+  [ -n "$user_pass" ] && echo "password is:       saved to ${USER_FILE_PREFIX}_pass" && echo "$user_pass" >"${USER_FILE_PREFIX}_pass"
+  [ -n "$root_user_name" ] && echo "root username is:  $root_user_name"
+  [ -n "$root_pass_word" ] && echo "root password is:  saved to ${ROOT_FILE_PREFIX}_pass" && echo "$root_pass_word" >"${ROOT_FILE_PREFIX}_pass"
+
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # use this function to update config files - IE: change port
 __update_conf_files() {
   local exitCode=0
@@ -59,15 +89,22 @@ __update_conf_files() {
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# use this function to setup ssl support
-__update_ssl_conf() {
+# function to run before executing
+__pre_execute() {
   local exitCode=0
 
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# function to run before executing
-__pre_execute() {
+# function to run after executing
+__post_execute() {
+  local exitCode=0
+
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# use this function to setup ssl support
+__update_ssl_conf() {
   local exitCode=0
 
   return $exitCode
@@ -94,18 +131,24 @@ EOF
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # script to start server
 __run_start_script() {
-  local user="${SERVICE_USER:-}"
+  local user="${SERVICE_USER:-root}"
   local workdir="${WORKDIR:-$HOME}"
   local cmd="$EXEC_CMD_BIN $EXEC_CMD_ARGS"
   local lc_type="${LC_ALL:-${LC_CTYPE:-$LANG}}"
   local home="${workdir//\/root/\/tmp\/docker}"
   local path="/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin"
+  [ -z "$home" ] && home="${workdir:-/tmp/docker}"
+  [ "$home" = "/root" ] && home="/tmp/docker"
+  [ "$home" = "$workdir" ] && workdir=""
   # create home
-  [ -d "$workdir" ] && true || mkdir -p "$workdir" || workdir="/tmp"
+  [ -n "$home" ] && [ -d "$home" ] && true || mkdir -p "$home"
+  [ -n "$workdir" ] && [ -d "$workdir" ] && true || mkdir -p "$workdir" || workdir="/tmp"
+  chmod -f 777 "$home"
   # fix permissions
   if [ -n "$workdir" ] && [ "${user:-$USER}" != "root" ]; then
     echo "Fixing file permissions"
-    su_cmd chown -Rf "$user" "$etc_dir" "$var_dir" "$log_dir" "$workdir"
+    chmod -f 777 "$workdir" "$LOG_DIR"
+    chown -Rf "$user" "$ETC_DIR" "$LOG_DIR" "$home" "$workdir"
   fi
   # execute
   case "$1" in
@@ -114,9 +157,10 @@ __run_start_script() {
     __proc_check || return 5
     ;;
   *)
-    __proc_check
+    __proc_check && exit
     [ -n "$home" ] && __cd "$home"
-    su_cmd env -i HOME="$home" LC_CTYPE="$lc_type" PATH="$path" USER="$user" "$cmd" || return 10
+    (sleep 60 && __post_execute) >"/data/logs/entrypoint.log" &
+    su_cmd env -i HOME="$home" LC_CTYPE="$lc_type" PATH="$path" USER="$user" sh -c "$cmd" || return 10
     ;;
   esac
 }
@@ -136,7 +180,7 @@ __proc_check() {
     SERVICE_IS_RUNNING="true"
     touch "$SERVICE_PID_FILE"
     echo "$cmd_name is already running"
-    exit 0
+    return 0
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -196,6 +240,9 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Change to working directory
 [ -n "$WORKDIR" ] && __cd "$WORKDIR" && echo "Changed to $PWD"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# show init message
+__pre_message
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Initialize ssl
 __update_ssl_conf

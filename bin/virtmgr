@@ -279,6 +279,10 @@ __get_port() { __sudo netstat -apn 2>/dev/null | grep "$(__get_pid "$1")" | grep
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __viewer() { __local_viewer "$1" || __remote_viewer "$1" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__is_installed() { __cmd_exists qemu-img virt-manager && return 0 || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__64bit_check() { grep -q -o -w 'lm' /proc/cpuinfo &>/dev/null && return 0 || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __check_vm_args() {
   local running=""
   if [ $# = 0 ] || [ "$1" = "" ]; then
@@ -477,6 +481,98 @@ __vm_new() {
     ((retries--))
     [ $retries -eq 0 ] && echo '' && printf_exit "Failed to create and start $name"
   done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__virt_check() {
+  if grep -sq -o -E '(vmx|svm)' /proc/cpuinfo &>/dev/null; then
+    return 0
+  elif grep -sq hvm "/sys/hypervisor/properties/capabilities" &>/dev/null; then
+    return 0
+  else
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__virt_ok() {
+  if __virt_check; then
+    printf_green "Virtualization is enabled"
+    ask_yes_no_question "Do you want to rerun the install script it?" true && VIRTMGR_FORCE="true" ||
+      printf_exit "User cancelled installation"
+  else
+    printf_exit "This system does not have virtualization support"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__enable_services() {
+  local exitCode=0
+  __sudo systemctl enable --now libvirtd &>/dev/null && printf_cyan "Enabled libvirtd" || exitCode=$((exitCode + 1))
+  __sudo systemctl enable --now virtlogd &>/dev/null && printf_cyan "Enabled virtlogd" || exitCode=$((exitCode + 1))
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__nested_enabled() {
+  if [ -f '/etc/modprobe.d/kvm.conf' ]; then
+    grep -s 'nested=' '/etc/modprobe.d/kvm.conf' | grep -q 'options' && return 0 || return 1
+  else
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__modprobe_kvm() {
+  CPU=$(grep -o -E 'model name.*:.*' /proc/cpuinfo | sed 's/model name.*: //g' | head -n 1 | grep '^')
+  sudo modprobe kvm &>/dev/null
+  echo 1 | sudo tee /sys/module/kvm/parameters/ignore_msrs &>/dev/null
+  if [[ "$CPU" =~ [aA]md ]]; then
+    CPU_NAME="AMD"
+    if ! __nested_enabled; then
+      echo 'options kvm_amd nested=1' | sudo tee -a /etc/modprobe.d/kvm.conf &>/dev/null
+    fi
+  elif [[ "$CPU" =~ [iI]ntel ]]; then
+    CPU_NAME="Intel"
+    if ! __nested_enabled; then
+      echo 'options kvm_intel nested=1' | sudo tee -a /etc/modprobe.d/kvm.conf &>/dev/null
+    fi
+  fi
+  if __nested_enabled; then
+    printf_green "Enabled nested virtualization for $CPU_NAME"
+    return 0
+  else
+    printf_red "nested virtualization is not enabled for $CPU_NAME"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__init() {
+  local exitCode=0
+  [ -z "$VIRTMGR_FORCE" ] && __is_installed && return $exitCode
+  printf_green "Installing virtualization packages"
+  if [ "$(__cmd_exists pacman 2>/dev/null)" ]; then # ARCH
+    local pkgs="qemu libvirt dnsmasq virt-manager "
+    local pkgs+="bridge-utils flex bison edk2-ovmf "
+    #local pkgs+="iptables-nft "
+    #sudo pacman -R --noconfirm iptables &>/dev/null||true
+    __sudo pacman -Syyu $pkgs --noconfirm --needed &>/dev/null || exitCode=1
+  elif [ "$(__cmd_exists apt 2>/dev/null)" ]; then # UBUNTU DEBIAN
+    local pkgs="qemu qemu-kvm libvirt-clients libvirt-daemon-system "
+    local pkgs+="bridge-utils virt-manager libguestfs-tools "
+    __sudo apt install $pkgs -yy &>/dev/null || exitCode=1
+  elif [ "$(__cmd_exists dnf 2>/dev/null)" ]; then # FEDORA
+    local pkgs="libvirt qemu-kvm virt-manager bridge-utils "
+    __sudo dnf install -y $pkgs &>/dev/null || exitCode=1
+  elif [ "$(__cmd_exists yum 2>/dev/null)" ]; then # CENTOS RHEL
+    pkgs="libvirt qemu-kvm virt-manager bridge-utils "
+    __sudo yum install -y $pkgs &>/dev/null || exitCode=1
+  fi
+  if __is_installed; then
+    printf_green "Installed the virtualization packages"
+    __modprobe_kvm
+    __enable_services
+    return 0
+  else
+    printf_red "Failed to install the virtualization packages"
+    printf_blue "$pkgs"
+    exit 1
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
@@ -686,6 +782,25 @@ export VIRT_DISPLAY_CWD
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 case "$1" in
+init)
+  shift 1
+  if __64bit_check && __virt_check; then
+    __init
+    exitCode=$?
+  else
+    printf_red "64-bit OS is required and"
+    printf_red "virtualization must be enabled"
+    printf '\n'
+    exitCode=2
+  fi
+  exit $exitCode
+  ;;
+status)
+  printf_red "64-bit OS is required and"
+  printf_red "virtualization must be enabled"
+  printf '\n'
+  exit $?
+  ;;
 list)
   shift 1
   paused="$(__list_running | grep 'paused' | awk '{print $2}' | tr '\n' ' ')"

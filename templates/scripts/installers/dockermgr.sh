@@ -306,17 +306,17 @@ CONTAINER_SUPABASE_ENABLED=""
 # Database root user [user] [pass/random]
 CONTAINER_DATABASE_USER_ROOT=""
 CONTAINER_DATABASE_PASS_ROOT=""
-CONTAINER_DATABASE_LENGTH_ROOT="12"
+CONTAINER_DATABASE_LENGTH_ROOT="20"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Database non-root user [user] [pass/random]
 CONTAINER_DATABASE_USER_NORMAL=""
 CONTAINER_DATABASE_PASS_NORMAL=""
-CONTAINER_DATABASE_LENGTH_NORMAL="12"
+CONTAINER_DATABASE_LENGTH_NORMAL="20"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # [user] [pass/random]
 CONTAINER_USER_NAME=""
 CONTAINER_USER_PASS=""
-CONTAINER_PASS_LENGTH="12"
+CONTAINER_PASS_LENGTH="18"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set container username and password env name [CONTAINER_ENV_USER_NAME=$CONTAINER_USER_NAME]
 CONTAINER_ENV_USER_NAME=""
@@ -356,8 +356,8 @@ CONTAINER_SYSCTL=""
 CONTAINER_SYSCTL+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set capabilites [CAP,OTHERCAP]
-CONTAINER_CAPABILITIES="SYS_ADMIN,SYS_TIME "
-CONTAINER_CAPABILITIES+=","
+CONTAINER_CAPABILITIES="SYS_ADMIN,SYS_TIME,"
+CONTAINER_CAPABILITIES+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define labels [traefik.enable=true,label=label,otherlabel=label2]
 CONTAINER_LABELS=""
@@ -477,8 +477,9 @@ CONTAINER_DATABASE_PASS_NORMAL="${ENV_CONTAINER_DATABASE_PASS_NORMAL:-$CONTAINER
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup arrays
 DOCKER_SET_PUBLISH=""
-CONTAINER_CONTAINER_ENV_PORTS=("")
+CONTAINER_CONTAINER_ENV_PORTS=()
 DOCKER_SET_TMP_PUBLISH=()
+DOCKER_SET_OPTIONS=()
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure that the image has a tag
 if [ -z "$HUB_IMAGE_TAG" ]; then
@@ -493,20 +494,20 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set containers name
 if [ -z "$CONTAINER_NAME" ]; then
-  CONTAINER_NAME="$(__container_name || echo "casjaysdevdocker/pihole-$HUB_IMAGE_TAG")"
+  CONTAINER_NAME="$(__container_name || echo "casjaysdevdocker/GEN_SCRIPT_REPLACE_APPNAME-$HUB_IMAGE_TAG")"
 fi
-DOCKER_SET_OPTIONS+="--name=$CONTAINER_NAME "
+DOCKER_SET_OPTIONS+=("--name=$CONTAINER_NAME")
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup time zone
 if [ -z "$CONTAINER_TIMEZONE" ]; then
   CONTAINER_TIMEZONE="America/New_York"
 fi
-DOCKER_SET_OPTIONS+="--env TZ=$CONTAINER_TIMEZONE "
+DOCKER_SET_OPTIONS+=("--env TZ=$CONTAINER_TIMEZONE")
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # set working dir
 if [ -n "$CONTAINER_WORK_DIR" ]; then
-  DOCKER_SET_OPTIONS+="--workdir $CONTAINER_WORK_DIR "
-  DOCKER_SET_OPTIONS+="--env WORKDIR=$CONTAINER_WORK_DIR "
+  DOCKER_SET_OPTIONS+=("--workdir $CONTAINER_WORK_DIR")
+  DOCKER_SET_OPTIONS+=("--env WORKDIR=$CONTAINER_WORK_DIR")
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the html directory
@@ -514,88 +515,88 @@ if [ -n "$CONTAINER_HTML_DIR" ]; then
   if [ -z "$CONTAINER_HTML_ENV" ]; then
     CONTAINER_HTML_ENV="WWW_ROOT_DIR"
   fi
-  DOCKER_SET_OPTIONS+="--env $CONTAINER_HTML_ENV=$CONTAINER_HTML_DIR "
+  DOCKER_SET_OPTIONS+=("--env $CONTAINER_HTML_ENV=$CONTAINER_HTML_DIR")
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set user ID
 if [ "$USER_ID_ENABLED" = "yes" ]; then
   if [ -z "$CONTAINER_USER_ID" ]; then
-    DOCKER_SET_OPTIONS+="--env PUID=$(id -u) "
+    DOCKER_SET_OPTIONS+=("--env PUID=$(id -u)")
   else
-    DOCKER_SET_OPTIONS+="--env PUID=$CONTAINER_USER_ID "
+    DOCKER_SET_OPTIONS+=("--env PUID=$CONTAINER_USER_ID")
   fi
   if [ -z "$CONTAINER_GROUP_ID" ]; then
-    DOCKER_SET_OPTIONS+="--env PGID=$(id -g) "
+    DOCKER_SET_OPTIONS+=("--env PGID=$(id -g)")
   else
-    DOCKER_SET_OPTIONS+="--env PGID=$CONTAINER_GROUP_ID "
+    DOCKER_SET_OPTIONS+=("--env PGID=$CONTAINER_GROUP_ID")
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the process owner
 if [ -n "$CONTAINER_USER_RUN" ]; then
-  DOCKER_SET_OPTIONS+="--env USER=$CONTAINER_USER_RUN "
-  DOCKER_SET_OPTIONS+="--env SERVICE_USER=$CONTAINER_USER_RUN "
+  DOCKER_SET_OPTIONS+=("--env USER=$CONTAINER_USER_RUN")
+  DOCKER_SET_OPTIONS+=("--env SERVICE_USER=$CONTAINER_USER_RUN")
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run the container privileged
 if [ "$CONTAINER_PRIVILEGED_ENABLED" = "yes" ]; then
-  DOCKER_SET_OPTIONS+="--privileged "
+  DOCKER_SET_OPTIONS+=("--privileged")
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the containers SHM size
 if [ -z "$CONTAINER_SHM_SIZE" ]; then
-  DOCKER_SET_OPTIONS+="--shm-size=128M "
+  DOCKER_SET_OPTIONS+=("--shm-size=128M")
 else
-  DOCKER_SET_OPTIONS+="--shm-size=$CONTAINER_SHM_SIZE "
+  DOCKER_SET_OPTIONS+=("--shm-size=$CONTAINER_SHM_SIZE")
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Auto restart the container
 if [ -z "$CONTAINER_AUTO_RESTART" ]; then
-  DOCKER_SET_OPTIONS+="--restart unless-stopped "
+  DOCKER_SET_OPTIONS+=("--restart unless-stopped")
 else
-  DOCKER_SET_OPTIONS+="--restart=$CONTAINER_AUTO_RESTART "
+  DOCKER_SET_OPTIONS+=("--restart=$CONTAINER_AUTO_RESTART")
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Only run the container to execute command and then delete
 if [ "$CONTAINER_AUTO_DELETE" = "yes" ]; then
-  DOCKER_SET_OPTIONS+="--rm "
+  DOCKER_SET_OPTIONS+=("--rm")
   CONTAINER_AUTO_RESTART=""
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Enable the tty
 if [ "$CONTAINER_TTY_ENABLED" = "yes" ]; then
-  DOCKER_SET_OPTIONS+="--tty "
+  DOCKER_SET_OPTIONS+=("--tty")
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run in interactive mode
 if [ "$CONTAINER_INTERACTIVE_ENABLED" = "yes" ]; then
-  DOCKER_SET_OPTIONS+="--interactive "
+  DOCKER_SET_OPTIONS+=("--interactive")
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mount cgroups in the container
 if [ "$CGROUPS_ENABLED" = "yes" ]; then
   if [ -z "$CGROUPS_MOUNTS" ]; then
-    DOCKER_SET_OPTIONS+="--volume /sys/fs/cgroup:/sys/fs/cgroup:ro "
+    DOCKER_SET_OPTIONS+=("--volume /sys/fs/cgroup:/sys/fs/cgroup:ro")
   else
-    DOCKER_SET_OPTIONS+="--volume $CGROUPS_MOUNTS "
+    DOCKER_SET_OPTIONS+=("--volume $CGROUPS_MOUNTS")
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mount hosts resolv.conf in the container
 if [ "$HOST_RESOLVE_ENABLED" = "yes" ]; then
   if [ -z "$HOST_RESOLVE_FILE" ]; then
-    DOCKER_SET_OPTIONS+="--volume /etc/resolv.conf:/etc/resolv.conf:ro "
+    DOCKER_SET_OPTIONS+=("--volume /etc/resolv.conf:/etc/resolv.conf:ro")
   else
-    DOCKER_SET_OPTIONS+="--volume $HOST_RESOLVE_FILE:/etc/resolv.conf:ro "
+    DOCKER_SET_OPTIONS+=("--volume $HOST_RESOLVE_FILE:/etc/resolv.conf:ro")
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mount the docker socket
 if [ "$DOCKER_SOCKET_ENABLED" = "yes" ]; then
   if [ -z "$DOCKER_SOCKET_MOUNT" ]; then
-    DOCKER_SET_OPTIONS+="--volume /var/run/docker.sock:/var/run/docker.sock "
+    DOCKER_SET_OPTIONS+=("--volume /var/run/docker.sock:/var/run/docker.sock")
   else
-    DOCKER_SET_OPTIONS+="--volume $DOCKER_SOCKET_MOUNT:/var/run/docker.sock "
+    DOCKER_SET_OPTIONS+=("--volume $DOCKER_SOCKET_MOUNT:/var/run/docker.sock")
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -605,9 +606,9 @@ if [ "$DOCKER_CONFIG_ENABLED" = "yes" ]; then
     CONTAINER_DOCKER_CONFIG_FILE="/root/.docker/config.json"
   fi
   if [ -n "$HOST_DOCKER_CONFIG" ]; then
-    DOCKER_SET_OPTIONS+="--volume $HOST_DOCKER_CONFIG:$CONTAINER_DOCKER_CONFIG_FILE:ro "
+    DOCKER_SET_OPTIONS+=("--volume $HOST_DOCKER_CONFIG:$CONTAINER_DOCKER_CONFIG_FILE:ro")
   elif [ -f "$HOME/.docker/config.json" ]; then
-    DOCKER_SET_OPTIONS+="--volume $HOME/.docker/config.json:$CONTAINER_DOCKER_CONFIG_FILE:ro "
+    DOCKER_SET_OPTIONS+=("--volume $HOME/.docker/config.json:$CONTAINER_DOCKER_CONFIG_FILE:ro")
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -620,7 +621,7 @@ if [ "$DOCKER_SOUND_ENABLED" = "yes" ]; then
     CONTAINER_SOUND_DEVICE_FILE="/dev/snd"
   fi
   if [ -n "$HOST_SOUND_DEVICE_FILE" ] && [ -n "$CONTAINER_SOUND_DEVICE_FILE" ]; then
-    DOCKER_SET_OPTIONS+="--device $HOST_SOUND_DEVICE_FILE:$CONTAINER_SOUND_DEVICE_FILE "
+    DOCKER_SET_OPTIONS+=("--device $HOST_SOUND_DEVICE_FILE:$CONTAINER_SOUND_DEVICE_FILE")
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -636,9 +637,9 @@ if [ "$CONTAINER_X11_ENABLED" = "yes" ]; then
     HOST_X11_XAUTH="$HOME/.Xauthority"
   fi
   if [ -n "$HOST_X11_DISPLAY" ] && [ -n "$HOST_X11_SOCKET" ] && [ -n "$HOST_X11_XAUTH" ]; then
-    DOCKER_SET_OPTIONS+="--env DISPLAY=:$HOST_X11_DISPLAY "
-    DOCKER_SET_OPTIONS+="--volume $HOST_X11_SOCKET:${CONTAINER_X11_SOCKET:-/tmp/.X11-unix} "
-    DOCKER_SET_OPTIONS+="--volume $HOST_X11_XAUTH:${CONTAINER_X11_XAUTH:-/home/x11user/.Xauthority} "
+    DOCKER_SET_OPTIONS+=("--env DISPLAY=:$HOST_X11_DISPLAY")
+    DOCKER_SET_OPTIONS+=("--volume $HOST_X11_SOCKET:${CONTAINER_X11_SOCKET:-/tmp/.X11-unix}")
+    DOCKER_SET_OPTIONS+=("--volume $HOST_X11_XAUTH:${CONTAINER_X11_XAUTH:-/home/x11user/.Xauthority}")
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -647,7 +648,7 @@ if [ "$HOST_ETC_HOSTS_ENABLED" = "yes" ]; then
   if [ -z "$HOST_ETC_HOSTS_MOUNT" ]; then
     HOST_ETC_HOSTS_MOUNT="/usr/local/etc/host"
   fi
-  DOCKER_SET_OPTIONS+="--volume /etc/hosts:$HOST_ETC_HOSTS_MOUNT:ro "
+  DOCKER_SET_OPTIONS+=("--volume /etc/hosts:$HOST_ETC_HOSTS_MOUNT:ro")
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup containers hostname
@@ -658,27 +659,27 @@ else
   CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME.$SET_HOST_FULL_HOST}"
 fi
 if [ -n "$CONTAINER_HOSTNAME" ]; then
-  DOCKER_SET_OPTIONS+="--hostname $CONTAINER_HOSTNAME "
-  DOCKER_SET_OPTIONS+="--env HOSTNAME=$CONTAINER_HOSTNAME "
+  DOCKER_SET_OPTIONS+=("--hostname $CONTAINER_HOSTNAME")
+  DOCKER_SET_OPTIONS+=("--env HOSTNAME=$CONTAINER_HOSTNAME")
 else
-  DOCKER_SET_OPTIONS+="--hostname $CONTAINER_NAME "
-  DOCKER_SET_OPTIONS+="--env HOSTNAME=$CONTAINER_NAME "
+  DOCKER_SET_OPTIONS+=("--hostname $CONTAINER_NAME")
+  DOCKER_SET_OPTIONS+=("--env HOSTNAME=$CONTAINER_NAME")
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the domain name
 if [ -n "$CONTAINER_DOMAINNAME" ]; then
-  DOCKER_SET_OPTIONS+="--domainname $CONTAINER_DOMAINNAME "
-  DOCKER_SET_OPTIONS+="--env DOMAINNAME=$HOST_FULL_DOMAIN "
+  DOCKER_SET_OPTIONS+=("--domainname $CONTAINER_DOMAINNAME")
+  DOCKER_SET_OPTIONS+=("--env DOMAINNAME=$HOST_FULL_DOMAIN")
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the docker network
 if [ "$HOST_DOCKER_NETWORK" = "host" ]; then
-  DOCKER_SET_OPTIONS+="--net-host "
+  DOCKER_SET_OPTIONS+=("--net-host")
 else
   if [ -z "$HOST_DOCKER_NETWORK" ]; then
     HOST_DOCKER_NETWORK="bridge"
   fi
-  DOCKER_SET_OPTIONS+="--network $HOST_DOCKER_NETWORK "
+  DOCKER_SET_OPTIONS+=("--network $HOST_DOCKER_NETWORK")
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Create network if needed
@@ -752,10 +753,11 @@ fi
 # Setup containers web server
 if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ]; then
   if [ "$CONTAINER_WEB_SERVER_SSL_ENABLED" = "yes" ]; then
-    DOCKER_SET_OPTIONS+="--env SSL_ENABLED=true "
+    DOCKER_SET_OPTIONS+=("--env SSL_ENABLED=true")
   fi
   if [ -n "$CONTAINER_WEB_SERVER_INT_PORT" ]; then
-    DOCKER_SET_OPTIONS+="--env WEB_PORT=${CONTAINER_WEB_SERVER_INT_PORT//,/ } "
+    CONTAINER_WEB_SERVER_INT_PORT="${CONTAINER_WEB_SERVER_INT_PORT//,/ }"
+    DOCKER_SET_OPTIONS+=("--env WEB_PORT=\"$CONTAINER_WEB_SERVER_INT_PORT\"")
   fi
   if [ "$CONTAINER_WEB_SERVER_SSL_ENABLED" = "yes" ]; then
     CONTAINER_PROTOCOL="https"
@@ -820,7 +822,7 @@ if [ -z "$CONTAINER_DATABASE_LISTEN" ]; then
 fi
 if [ -z "$DATABASE_BASE_DIR" ]; then
   DATABASE_BASE_DIR="/data/db"
-  DOCKER_SET_OPTIONS+="--env DATABASE_BASE_DIR=$DATABASE_BASE_DIR "
+  DOCKER_SET_OPTIONS+=("--env DATABASE_BASE_DIR=$DATABASE_BASE_DIR")
 fi
 if [ "$CONTAINER_REDIS_ENABLED" = "yes" ]; then
   SHOW_DATABASE_INFO="true"
@@ -829,8 +831,8 @@ if [ "$CONTAINER_REDIS_ENABLED" = "yes" ]; then
   CONTAINER_DATABASE_PROTO="redis://$HOST_LISTEN_ADDR:6379"
   DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_DATABASE_LISTEN:6379:6379")
   DATABASE_DIR_REDIS="${DATABASE_DIR_REDIS:-$DATABASE_BASE_DIR/redis}"
-  DOCKER_SET_OPTIONS+="--volume $LOCAL_DATA_DIR/db/redis:/$DATABASE_DIR_REDIS:z "
-  DOCKER_SET_OPTIONS+="--env DATABASE_DIR_REDIS=$DATABASE_DIR_REDIS "
+  DOCKER_SET_OPTIONS+=("--volume $LOCAL_DATA_DIR/db/redis:/$DATABASE_DIR_REDIS:z")
+  DOCKER_SET_OPTIONS+=("--env DATABASE_DIR_REDIS=$DATABASE_DIR_REDIS")
   MESSAGE_REDIS="Database files are saved to:      $DATABASE_DIR_REDIS"
 fi
 if [ "$CONTAINER_POSTGRES_ENABLED" = "yes" ]; then
@@ -840,8 +842,8 @@ if [ "$CONTAINER_POSTGRES_ENABLED" = "yes" ]; then
   CONTAINER_DATABASE_PROTO="postgresql://$HOST_LISTEN_ADDR:5432"
   DOCKER_SET_TMP_PUBLISH+=(--publish "$CONTAINER_DATABASE_LISTEN:5432:5432")
   DATABASE_DIR_POSTGRES="${DATABASE_DIR_POSTGRES:-$DATABASE_BASE_DIR/pgsql}"
-  DOCKER_SET_OPTIONS+="--volume $LOCAL_DATA_DIR/db/postgres:/$DATABASE_DIR_POSTGRES:z "
-  DOCKER_SET_OPTIONS+="--env DATABASE_DIR_POSTGRES=$DATABASE_DIR_POSTGRES "
+  DOCKER_SET_OPTIONS+=("--volume $LOCAL_DATA_DIR/db/postgres:/$DATABASE_DIR_POSTGRES:z")
+  DOCKER_SET_OPTIONS+=("--env DATABASE_DIR_POSTGRES=$DATABASE_DIR_POSTGRES")
   MESSAGE_PGSQL="Database files are saved to:      $DATABASE_DIR_POSTGRES"
 fi
 if [ "$CONTAINER_MARIADB_ENABLED" = "yes" ]; then
@@ -851,8 +853,8 @@ if [ "$CONTAINER_MARIADB_ENABLED" = "yes" ]; then
   CONTAINER_DATABASE_PROTO="mysql://$HOST_LISTEN_ADDR:3306"
   DOCKER_SET_TMP_PUBLISH+=(--publish "$CONTAINER_DATABASE_LISTEN:3306:3306")
   DATABASE_DIR_MARIADB="${DATABASE_DIR_MARIADB:-$DATABASE_BASE_DIR/mariadb}"
-  DOCKER_SET_OPTIONS+="--volume $LOCAL_DATA_DIR/db/mariadb:/$DATABASE_DIR_MARIADB:z "
-  DOCKER_SET_OPTIONS+="--env DATABASE_DIR_MARIADB=$DATABASE_DIR_MARIADB "
+  DOCKER_SET_OPTIONS+=("--volume $LOCAL_DATA_DIR/db/mariadb:/$DATABASE_DIR_MARIADB:z")
+  DOCKER_SET_OPTIONS+=("--env DATABASE_DIR_MARIADB=$DATABASE_DIR_MARIADB")
   MESSAGE_MARIADB="Database files are saved to:      $DATABASE_DIR_MARIADB"
 fi
 if [ "$CONTAINER_COUCHDB_ENABLED" = "yes" ]; then
@@ -862,8 +864,8 @@ if [ "$CONTAINER_COUCHDB_ENABLED" = "yes" ]; then
   CONTAINER_DATABASE_PROTO="http://$HOST_LISTEN_ADDR:5984"
   DOCKER_SET_TMP_PUBLISH+=(--publish "$CONTAINER_DATABASE_LISTEN:5984:5984")
   DATABASE_DIR_COUCHDB="${DATABASE_DIR_COUCHDB:-$DATABASE_BASE_DIR/couchdb}"
-  DOCKER_SET_OPTIONS+="--volume $LOCAL_DATA_DIR/db/couchdb:/$DATABASE_DIR_COUCHDB:z "
-  DOCKER_SET_OPTIONS+="--env DATABASE_DIR_COUCHDB=$DATABASE_DIR_COUCHDB "
+  DOCKER_SET_OPTIONS+=("--volume $LOCAL_DATA_DIR/db/couchdb:/$DATABASE_DIR_COUCHDB:z")
+  DOCKER_SET_OPTIONS+=("--env DATABASE_DIR_COUCHDB=$DATABASE_DIR_COUCHDB")
   MESSAGE_COUCHDB="Database files are saved to:      $DATABASE_DIR_COUCHDB"
 fi
 if [ "$CONTAINER_MONGODB_ENABLED" = "yes" ]; then
@@ -873,8 +875,8 @@ if [ "$CONTAINER_MONGODB_ENABLED" = "yes" ]; then
   CONTAINER_DATABASE_PROTO="mongodb://$HOST_LISTEN_ADDR:27017"
   DOCKER_SET_TMP_PUBLISH+=(--publish "$CONTAINER_DATABASE_LISTEN:27017:27017")
   DATABASE_DIR_MONGODB="${DATABASE_DIR_MONGODB:-$DATABASE_BASE_DIR/mongodb}"
-  DOCKER_SET_OPTIONS+="--volume $LOCAL_DATA_DIR/db/mongodb:/$DATABASE_DIR_MONGODB:z "
-  DOCKER_SET_OPTIONS+="--env DATABASE_DIR_MONGODB=$DATABASE_DIR_MONGODB "
+  DOCKER_SET_OPTIONS+=("--volume $LOCAL_DATA_DIR/db/mongodb:/$DATABASE_DIR_MONGODB:z")
+  DOCKER_SET_OPTIONS+=("--env DATABASE_DIR_MONGODB=$DATABASE_DIR_MONGODB")
   MESSAGE_MONGODB="Database files are saved to:      $DATABASE_DIR_MONGODB"
 fi
 if [ "$CONTAINER_SUPABASE_ENABLED" = "yes" ]; then
@@ -884,82 +886,82 @@ if [ "$CONTAINER_SUPABASE_ENABLED" = "yes" ]; then
   CONTAINER_DATABASE_PROTO="http://$HOST_LISTEN_ADDR:8000"
   DOCKER_SET_TMP_PUBLISH+=(--publish "$CONTAINER_DATABASE_LISTEN:5432:5432")
   DATABASE_DIR_SUPABASE="${DATABASE_DIR_SUPABASE:-$DATABASE_BASE_DIR/supabase}"
-  DOCKER_SET_OPTIONS+="--volume $LOCAL_DATA_DIR/db/supabase:/$DATABASE_DIR_SUPABASE:z "
-  DOCKER_SET_OPTIONS+="--env DATABASE_DIR_SUPABASE=$DATABASE_DIR_SUPABASE "
+  DOCKER_SET_OPTIONS+=("--volume $LOCAL_DATA_DIR/db/supabase:/$DATABASE_DIR_SUPABASE:z")
+  DOCKER_SET_OPTIONS+=("--env DATABASE_DIR_SUPABASE=$DATABASE_DIR_SUPABASE")
   MESSAGE_SUPABASE="Database files are saved to:      $DATABASE_DIR_SUPABASE"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #
 if [ "$CONTAINER_DATABASE_ENABLED" = "yes" ]; then
   if [ -n "$CONTAINER_DATABASE_USER_ROOT" ]; then
-    DOCKER_SET_OPTIONS+="--env DATABASE_USER_ROOT=${CONTAINER_DATABASE_USER_ROOT:-root} "
+    DOCKER_SET_OPTIONS+=("--env DATABASE_USER_ROOT=${CONTAINER_DATABASE_USER_ROOT:-root}")
   fi
   if [ -n "$CONTAINER_DATABASE_PASS_ROOT" ]; then
     if [ "$CONTAINER_DATABASE_PASS_ROOT" = "random" ]; then
       CONTAINER_DATABASE_PASS_ROOT="$(__password "${CONTAINER_DATABASE_LENGTH_ROOT:-12}")"
     fi
-    DOCKER_SET_OPTIONS+="--env DATABASE_PASS_ROOT=$CONTAINER_DATABASE_PASS_ROOT "
+    DOCKER_SET_OPTIONS+=("--env DATABASE_PASS_ROOT=$CONTAINER_DATABASE_PASS_ROOT")
   fi
   if [ -n "$CONTAINER_DATABASE_USER_NORMAL" ]; then
-    DOCKER_SET_OPTIONS+="--env DATABASE_USER_NORMAL=${CONTAINER_DATABASE_USER_NORMAL:-$USER} "
+    DOCKER_SET_OPTIONS+=("--env DATABASE_USER_NORMAL=${CONTAINER_DATABASE_USER_NORMAL:-$USER}")
   fi
   if [ -n "$CONTAINER_DATABASE_PASS_NORMAL" ]; then
     if [ "$CONTAINER_DATABASE_PASS_NORMAL" = "random" ]; then
       CONTAINER_DATABASE_PASS_NORMAL="$(__password "${CONTAINER_DATABASE_LENGTH_NORMAL:-12}")"
     fi
-    DOCKER_SET_OPTIONS+="--env DATABASE_PASS_NORMAL=$CONTAINER_DATABASE_PASS_NORMAL "
+    DOCKER_SET_OPTIONS+=("--env DATABASE_PASS_NORMAL=$CONTAINER_DATABASE_PASS_NORMAL")
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # containers username and password configuration
-if [ -n "$PIHOLE_USERNAME" ]; then
-  CONTAINER_USER_NAME="$PIHOLE_USERNAME"
+if [ -n "$GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME" ]; then
+  CONTAINER_USER_NAME="$GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME"
 fi
 if [ -n "$CONTAINER_USER_NAME" ]; then
-  CONTAINER_USER_NAME="${PIHOLE_USERNAME:-${CONTAINER_USER_NAME:-$DEFAULT_USERNAME}}"
+  CONTAINER_USER_NAME="${GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME:-${CONTAINER_USER_NAME:-$DEFAULT_USERNAME}}"
 fi
 if [ -n "$CONTAINER_USER_NAME" ]; then
   if [ -n "$CONTAINER_ENV_USER_NAME" ]; then
-    ADDITION_ENV+="${CONTAINER_ENV_USER_NAME:-username}=$CONTAINER_USER_NAME "
+    DOCKER_SET_OPTIONS+=("--env ${CONTAINER_ENV_USER_NAME:-username}=\"$CONTAINER_USER_NAME\"")
   fi
 fi
-if [ -n "$PIHOLE_PASSWORD" ]; then
-  CONTAINER_USER_PASS="$PIHOLE_PASSWORD"
+if [ -n "$GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD" ]; then
+  CONTAINER_USER_PASS="$GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD"
 fi
 if [ -n "$CONTAINER_USER_PASS" ]; then
   if [ "$CONTAINER_USER_PASS" = "random" ]; then
-    CONTAINER_USER_PASS="$(__password "${CONTAINER_PASS_LENGTH:-10}")"
+    CONTAINER_USER_PASS="$(__password "${CONTAINER_PASS_LENGTH:-16}")"
   fi
-  CONTAINER_USER_PASS="${PIHOLE_PASSWORD:-${CONTAINER_USER_PASS:-$DEFAULT_PASSWORD}}"
+  CONTAINER_USER_PASS="${GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD:-${CONTAINER_USER_PASS:-$DEFAULT_PASSWORD}}"
 fi
 if [ -n "$CONTAINER_USER_PASS" ]; then
   if [ -n "$CONTAINER_ENV_PASS_NAME" ]; then
-    ADDITION_ENV+="${CONTAINER_ENV_PASS_NAME:-password}=$CONTAINER_USER_PASS "
+    DOCKER_SET_OPTIONS+=("--env ${CONTAINER_ENV_PASS_NAME:-PASSWORD}=\"$CONTAINER_USER_PASS\"")
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup email variables
-if [ -n "$CONTAINER_EMAIL_USER" ]; then
-  DOCKER_SET_OPTIONS+="--env EMAIL_ADMIN=$CONTAINER_EMAIL_USER@ "
-fi
 if [ -n "$CONTAINER_EMAIL_DOMAIN" ]; then
-  DOCKER_SET_OPTIONS+="--env EMAIL_DOMAIN=$CONTAINER_EMAIL_DOMAIN "
+  DOCKER_SET_OPTIONS+=("--env EMAIL_DOMAIN=$CONTAINER_EMAIL_DOMAIN")
 fi
 if [ -n "$CONTAINER_EMAIL_RELAY" ]; then
-  DOCKER_SET_OPTIONS+="--env EMAIL_RELAY=$CONTAINER_EMAIL_RELAY "
+  DOCKER_SET_OPTIONS+=("--env EMAIL_RELAY=$CONTAINER_EMAIL_RELAY")
+fi
+if [ -n "$CONTAINER_EMAIL_USER" ]; then
+  DOCKER_SET_OPTIONS+=("--env EMAIL_ADMIN=$CONTAINER_EMAIL_USER@")
 fi
 if [ -z "$CONTAINER_EMAIL_PORTS" ]; then
   CONTAINER_EMAIL_PORTS="25,465,587"
 fi
 if [ "$CONTAINER_EMAIL_ENABLED" = "yes" ]; then
-  DOCKER_SET_OPTIONS+="--env EMAIL_ENABLED=$CONTAINER_EMAIL_ENABLED "
+  DOCKER_SET_OPTIONS+=("--env EMAIL_ENABLED=$CONTAINER_EMAIL_ENABLED")
   CONTAINER_EMAIL_PORTS="$(echo "${CONTAINER_EMAIL_PORTS//,/ }" | tr ' ' '\n')"
   CONTAINER_ENV_PORTS+=("$CONTAINER_EMAIL_PORTS")
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # process list
 if [ -n "$CONTAINER_SERVICES_LIST" ]; then
-  DOCKER_SET_OPTIONS+="--env PROCS_LIST=$CONTAINER_SERVICES_LIST "
+  DOCKER_SET_OPTIONS+=("--env PROCS_LIST=$CONTAINER_SERVICES_LIST")
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup data mount point
@@ -968,7 +970,7 @@ if [ "$CONTAINER_MOUNT_DATA_ENABLED" = "yes" ]; then
     CONTAINER_MOUNT_DATA_MOUNT_DIR="/data"
   fi
   CONTAINER_MOUNT_DATA_MOUNT_DIR="${CONTAINER_MOUNT_DATA_MOUNT_DIR//:*/}"
-  DOCKER_SET_OPTIONS+="--volume $LOCAL_DATA_DIR:$CONTAINER_MOUNT_DATA_MOUNT_DIR:z "
+  DOCKER_SET_OPTIONS+=("--volume $LOCAL_DATA_DIR:$CONTAINER_MOUNT_DATA_MOUNT_DIR:z")
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set config mount point
@@ -977,19 +979,20 @@ if [ "$CONTAINER_MOUNT_CONFIG_ENABLED" = "yes" ]; then
     CONTAINER_MOUNT_CONFIG_MOUNT_DIR="/config"
   fi
   CONTAINER_MOUNT_CONFIG_MOUNT_DIR="${CONTAINER_MOUNT_CONFIG_MOUNT_DIR//:*/}"
-  DOCKER_SET_OPTIONS+="--volume $LOCAL_CONFIG_DIR:$CONTAINER_MOUNT_CONFIG_MOUNT_DIR:z "
+  DOCKER_SET_OPTIONS+=("--volume $LOCAL_CONFIG_DIR:$CONTAINER_MOUNT_CONFIG_MOUNT_DIR:z")
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # additional docker arguments
 if [ -n "$DOCKER_CUSTOM_ARGUMENTS" ]; then
-  DOCKER_SET_OPTIONS+="${DOCKER_CUSTOM_ARGUMENTS//,/ } "
+  DOCKER_CUSTOM_ARGUMENTS="${DOCKER_CUSTOM_ARGUMENTS//,/ }"
+  DOCKER_SET_OPTIONS+=("$DOCKER_CUSTOM_ARGUMENTS")
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # debugging
 if [ "$CONTAINER_DEBUG_ENABLED" = "yes" ]; then
-  DOCKER_SET_OPTIONS+="--env DEBUGGER=on "
+  DOCKER_SET_OPTIONS+=("--env DEBUGGER=on")
   if [ -n "$CONTAINER_DEBUG_OPTIONS" ]; then
-    DOCKER_SET_OPTIONS+="--env DEBUGGER_OPTIONS=$CONTAINER_DEBUG_OPTIONS "
+    DOCKER_SET_OPTIONS+=("--env DEBUGGER_OPTIONS=$CONTAINER_DEBUG_OPTIONS")
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1205,6 +1208,7 @@ else
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 NGINX_PROXY_URL="${NGINX_PROXY_URL:-$PROXY_HTTP_PROTO://$NGINX_PROXY_ADDRESS:$NGINX_PROXY_PORT}"
+NGINX_PROXY_URL="${NGINX_PROXY_URL// /}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set temp env for PORTS ENV variable
 DOCKER_SET_PORTS_ENV_TMP="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | grep ':.*.:' | awk -F ':' '{print $1":"$3}' | grep '^')"
@@ -1215,30 +1219,31 @@ DOCKER_SET_PORTS_ENV="${DOCKER_SET_PORTS_ENV//*:/}"
 DOCKER_SET_PORTS_ENV="$(__trim "${DOCKER_SET_PORTS_ENV[*]}")"
 ENV_PORTS="$(echo "$DOCKER_SET_PORTS_ENV" "${CONTAINER_ENV_PORTS[*]}" | tr ' ' '\n' | sort -u)"
 if [ -n "$ENV_PORTS" ]; then
-  DOCKER_SET_OPTIONS+="--env ENV_PORTS=\"$ENV_PORTS\""
+  DOCKER_SET_OPTIONS+=("--env ENV_PORTS=\"$ENV_PORTS\"")
   unset DOCKER_SET_PORTS_ENV ENV_PORTS
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 DOCKER_CUSTOM_ARRAY="$(__custom_docker_env)"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Clean up variables
-HUB_IMAGE_URL="$(__trim "${HUB_IMAGE_URL[*]:-}")"
-HUB_IMAGE_TAG="$(__trim "${HUB_IMAGE_TAG[*]:-}")"
-DOCKER_SET_CAP="$(__trim "${DOCKER_SET_CAP[*]:-}")"
-DOCKER_SET_ENV="$(__trim "${DOCKER_SET_ENV[*]:-}")"
-DOCKER_SET_DEV="$(__trim "${DOCKER_SET_DEV[*]:-}")"
-DOCKER_SET_MNT="$(__trim "${DOCKER_SET_MNT[*]:-}")"
-DOCKER_SET_LINK="$(__trim "${DOCKER_SET_LINK[*]:-}")"
-DOCKER_SET_LABELS="$(__trim "${DOCKER_SET_LABELS[*]:-}")"
-DOCKER_SET_SYSCTL="$(__trim "${DOCKER_SET_SYSCTL[*]:-}")"
-DOCKER_SET_OPTIONS="$(__trim "${DOCKER_SET_OPTIONS[*]:-}")"
-CONTAINER_COMMANDS="$(__trim "${CONTAINER_COMMANDS[*]:-}")"
-DOCKER_SET_CUSTOM="$(__trim "${DOCKER_CUSTOM_ARRAY[*]:-}")"
-DOCKER_SET_PUBLISH="$(__trim "${DOCKER_SET_TMP_PUBLISH[*]:-}")"
+HUB_IMAGE_URL="$(__trim "${HUB_IMAGE_URL[*]:-}")"               # image url
+HUB_IMAGE_TAG="$(__trim "${HUB_IMAGE_TAG[*]:-}")"               # image tag
+DOCKER_GET_CAP="$(__trim "${DOCKER_SET_CAP[*]:-}")"             # --capabilites
+DOCKER_GET_ENV="$(__trim "${DOCKER_SET_ENV[*]:-}")"             # --env
+DOCKER_GET_DEV="$(__trim "${DOCKER_SET_DEV[*]:-}")"             # --device
+DOCKER_GET_MNT="$(__trim "${DOCKER_SET_MNT[*]:-}")"             # --volume
+DOCKER_GET_LINK="$(__trim "${DOCKER_SET_LINK[*]:-}")"           # --link
+DOCKER_GET_LABELS="$(__trim "${DOCKER_SET_LABELS[*]:-}")"       # --labels
+DOCKER_GET_SYSCTL="$(__trim "${DOCKER_SET_SYSCTL[*]:-}")"       # --sysctl
+DOCKER_GET_OPTIONS="$(__trim "${DOCKER_SET_OPTIONS[*]:-}")"     # --env
+DOCKER_GET_CUSTOM="$(__trim "${DOCKER_CUSTOM_ARRAY[*]:-}")"     # --tty --rm --interactive
+DOCKER_GET_PUBLISH="$(__trim "${DOCKER_SET_TMP_PUBLISH[*]:-}")" # --publish ports
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# set docker commands
+CONTAINER_COMMANDS="$(__trim "${CONTAINER_COMMANDS[*]:-}")" # pass command to container
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# set docker commands - script creation
 EXECUTE_PRE_INSTALL="docker stop $CONTAINER_NAME;docker rm -f $CONTAINER_NAME"
-EXECUTE_DOCKER_CMD="docker run -d $DOCKER_SET_OPTIONS $DOCKER_SET_CUSTOM $DOCKER_SET_LINK $DOCKER_SET_LABELS $DOCKER_SET_CAP $DOCKER_SET_SYSCTL $DOCKER_SET_DEV $DOCKER_SET_MNT $DOCKER_SET_ENV $DOCKER_SET_PUBLISH $HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS"
+EXECUTE_DOCKER_CMD="docker run -d $DOCKER_GET_OPTIONS $DOCKER_GET_CUSTOM $DOCKER_GET_LINK $DOCKER_GET_LABELS $DOCKER_GET_CAP $DOCKER_GET_SYSCTL $DOCKER_GET_DEV $DOCKER_GET_MNT $DOCKER_GET_ENV $DOCKER_GET_PUBLISH $HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run functions
 __container_import_variables "$CONTAINER_ENV_FILE_MOUNT"

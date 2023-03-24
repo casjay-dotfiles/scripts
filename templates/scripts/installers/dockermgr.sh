@@ -81,23 +81,24 @@ dockermgr_req_version "$APPVERSION"
 __sudo() { [ -n "$(type -P 'sudo')" ] && sudo -n true && sudo -HE "$@" || eval "$*" || return 1; }
 __sudo_root() { [ -n "$(type -P 'sudo')" ] && sudo -n true && ask_for_password true && sudo "$@" || eval "$*" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__remove_extra_spaces() { sed 's/\( \)*/\1/g;s|^ ||g'; }
 __port() { echo "$((50000 + $RANDOM % 1000))" | grep '^' || return 1; }
-__route() { [ -n "$(type -P ip)" ] && eval ip route 2>/dev/null || return 1; }
-__ifconfig() { [ -n "$(type -P ifconfig)" ] && eval ifconfig "$*" 2>/dev/null || return 1; }
-__docker_net_ls() { docker network ls 2>&1 | grep -v 'NETWORK ID' | awk -F ' ' '{print $2}'; }
+__docker_check() { [ -n "$(type -p docker 2>/dev/null)" ] || return 1; }
 __password() { cat "/dev/urandom" | tr -dc '0-9a-zA-Z' | head -c${1:-16} && echo ""; }
 __docker_ps() { docker ps -a 2>&1 | grep -qs "$CONTAINER_NAME" && return 0 || return 1; }
 __enable_ssl() { { [ "$SSL_ENABLED" = "yes" ] || [ "$SSL_ENABLED" = "true" ]; } && return 0 || return 1; }
 __ssl_certs() { [ -f "$HOST_SSL_CA" ] && [ -f "$HOST_SSL_CRT" ] && [ -f "$HOST_SSL_KEY" ] && return 0 || return 1; }
 __host_name() { hostname -f 2>/dev/null | grep '\.' | grep '^' || hostname -f 2>/dev/null | grep '^' || echo "$HOSTNAME"; }
 __container_name() { echo "$HUB_IMAGE_URL-${HUB_IMAGE_TAG:-latest}" | awk -F '/' '{print $(NF-1)"-"$NF}' | grep '^' || return 1; }
+__docker_init() { [ -n "$(type -p dockermgr 2>/dev/null)" ] && dockermgr init || printf_exit "Failed to Initialize the docker installer"; }
 __domain_name() { hostname -f 2>/dev/null | awk -F '.' '{print $(NF-1)"."$NF}' | grep '\.' | grep '^' || hostname -f 2>/dev/null | grep '^' || return 1; }
 __port_in_use() { { [ -d "/etc/nginx/vhosts.d" ] && grep -wRsq "${1:-443}" "/etc/nginx/vhosts.d" || netstat -taupln 2>/dev/null | grep '[0-9]:[0-9]' | grep 'LISTEN' | grep -q "${1:-443}"; } && return 1 || return 0; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__docker_check() { [ -n "$(type -p docker 2>/dev/null)" ] || return 1; }
-__docker_init() { [ -n "$(type -p dockermgr 2>/dev/null)" ] && dockermgr init || printf_exit "Failed to Initialize the docker installer"; }
+__route() { [ -n "$(type -P ip)" ] && eval ip route 2>/dev/null || return 1; }
 __public_ip() { curl -q -LSsf "http://ifconfig.co" | grep -v '^$' | head -n1 | grep '^'; }
-__docker_gateway_ip() { sudo docker network inspect -f '{{json .IPAM.Config}}' ${HOST_DOCKER_NETWORK:-bridge} | jq -r '.[].Gateway' | grep -v '^$' | head -n1 | grep '^' || echo '172.17.0.1'; }
+__ifconfig() { [ -n "$(type -P ifconfig)" ] && eval ifconfig "$*" 2>/dev/null || return 1; }
+__docker_net_ls() { docker network ls 2>&1 | grep -v 'NETWORK ID' | awk -F ' ' '{print $2}'; }
+__docker_gateway_ip() { sudo docker network inspect -f '{{json .IPAM.Config}}' ${HOST_DOCKER_NETWORK:-bridge} 2>/dev/null | jq -r '.[].Gateway' | grep -v '^$' | head -n1 | grep '^' || echo '172.17.0.1'; }
 __docker_net_create() { __docker_net_ls | grep -q "$HOST_DOCKER_NETWORK" && return 0 || { docker network create -d bridge --attachable $HOST_DOCKER_NETWORK &>/dev/null && __docker_net_ls | grep -q "$HOST_DOCKER_NETWORK" && echo "$HOST_DOCKER_NETWORK" && return 0 || return 1; }; }
 __local_lan_ip() { [ -n "$SET_LAN_IP" ] && (echo "$SET_LAN_IP" | grep -E '192\.168\.[0-255]\.[0-255]' 2>/dev/null || echo "$SET_LAN_IP" | grep -E '10\.[0-255]\.[0-255]\.[0-255]' 2>/dev/null || echo "$SET_LAN_IP" | grep -E '172\.[10-32]' | grep -v '172\.[10-15]' 2>/dev/null) | grep -v '172\.17' | grep -v '^$' | head -n1 | grep '^' || echo "$CURRENT_IP_4" | grep '^'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -215,6 +216,10 @@ CONTAINER_AUTO_DELETE="no"
 # Enable tty and interactive [yes/no]
 CONTAINER_TTY_ENABLED="yes"
 CONTAINER_INTERACTIVE_ENABLED="no"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create an env file [yes/no] [/config/.env]
+CONTAINER_ENV_FILE_ENABLED="no"
+CONTAINER_ENV_FILE_MOUNT=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Enable cgroups [yes/no] [/sys/fs/cgroup]
 CGROUPS_ENABLED="no"
@@ -374,9 +379,9 @@ CONTAINER_DEBUG_OPTIONS=""
 # Show post install message
 POST_SHOW_FINISHED_MESSAGE=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set custom docker arguments user for a list of container variables
+# Set custom container enviroment variables - [--env MYVAR="VAR"]
 __custom_docker_env() {
-  cat <<EOF | tee | tr '\n' ' '
+  cat <<EOF | tee | sed 's|,| --env |g' | tr '\n' ' ' | __remove_extra_spaces
 
 EOF
 }
@@ -384,17 +389,17 @@ EOF
 # this function will create an env file in the containers filesystem - see CONTAINER_ENV_FILE_ENABLED
 __container_import_variables() {
   [ "$CONTAINER_ENV_FILE_ENABLED" = "yes" ] || return 0
-  local base_dir="$DATADIR"
   local base_file="$1"
-  mkdir -p "$(dirname "$base_dir/$base_file" 2>/dev/null)"
-  cat <<EOF | tee "$base_dir/$base_file" &>/dev/null
+  local base_dir="$(realpath "$DATADIR")"
+  [ -d "$base_dir" ] || mkdir -p "$base_dir"
+  cat <<EOF | __remove_extra_spaces | tee "$base_dir/$base_file" &>/dev/null
 
 EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __dockermgr_variables() {
   [ -d "$DOCKERMGR_CONFIG_DIR/env" ] || mkdir -p "$DOCKERMGR_CONFIG_DIR/env"
-  cat <<EOF | tee | tr '|' '\n'
+  cat <<EOF | tee | tr '|' '\n' | __remove_extra_spaces
 # Enviroment variables for $APPNAME
 ENV_CONTAINER_USER_NAME="${CONTAINER_USER_NAME:-}"
 ENV_CONTAINER_ENV_USER_NAME="${CONTAINER_ENV_USER_NAME:-}"
@@ -406,7 +411,7 @@ EOF
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __dockermgr_password_variables() {
   [ -d "$DOCKERMGR_CONFIG_DIR/secure" ] || mkdir -p "$DOCKERMGR_CONFIG_DIR/secure"
-  cat <<EOF | tee | tr '|' '\n'
+  cat <<EOF | tee | tr '|' '\n' | __remove_extra_spaces
 # Enviroment variables for $APPNAME
 ENV_CONTAINER_USER_PASS="${CONTAINER_USER_PASS:-}"
 ENV_CONTAINER_ENV_PASS_NAME="${CONTAINER_ENV_PASS_NAME:-}"
@@ -431,7 +436,7 @@ __trim() {
   local var="$*"
   var="${var#"${var%%[![:space:]]*}"}" # remove leading whitespace characters
   var="${var%"${var##*[![:space:]]}"}" # remove trailing whitespace characters
-  printf '%s' "$var" | grep -v '^$'
+  printf '%s' "$var" | grep -v '^$' | __remove_extra_spaces
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # import variables from a file
@@ -1233,10 +1238,12 @@ NGINX_PROXY_URL="${NGINX_PROXY_URL:-$PROXY_HTTP_PROTO://$NGINX_PROXY_ADDRESS:$NG
 DOCKER_SET_PORTS_ENV_TMP="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | grep ':.*.:' | awk -F ':' '{print $1":"$3}' | grep '^')"
 DOCKER_SET_PORTS_ENV_TMP+="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | grep -v ':.*.:' | awk -F ':' '{print $1":"$2}' | grep '^')"
 DOCKER_SET_PORTS_ENV_TMP="$(echo "$DOCKER_SET_PORTS_ENV_TMP" | tr ',' '\n' | grep '[0-9]:[0-9]' | sort -u | sed 's|/.*||g' | grep -v '^$' | tr '\n' ',' | grep '^' || echo '')"
-DOCKER_SET_PORTS_ENV="$(__trim "${DOCKER_SET_PORTS_ENV_TMP//,/ }")"
+DOCKER_SET_PORTS_ENV="${DOCKER_SET_PORTS_ENV_TMP//,/ }"
 DOCKER_SET_PORTS_ENV="${DOCKER_SET_PORTS_ENV//*:/}"
+DOCKER_SET_PORTS_ENV="$(__trim "${DOCKER_SET_PORTS_ENV[*]}")"
 if [ -n "$DOCKER_SET_PORTS_ENV" ]; then
-  DOCKER_SET_OPTIONS+="--env ENV_PORTS=\"${DOCKER_SET_PORTS_ENV//: /}\""
+  DOCKER_SET_OPTIONS+="--env ENV_PORTS=\"$DOCKER_SET_PORTS_ENV\""
+  unset DOCKER_SET_PORTS_ENV
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 DOCKER_CUSTOM_ARRAY="$(__custom_docker_env)"

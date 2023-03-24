@@ -1353,7 +1353,7 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # finalize
 if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
-  DOCKER_PORTS="$(__trim "${DOCKER_SET_PUBLISH//--publish/}")"
+  DOCKER_PORTS="$(__trim "${DOCKER_GET_PUBLISH//--publish/}")"
   SET_PORT="$(echo "$DOCKER_PORTS" | tr ' ' '\n' | sort -u | grep -v '^$')"
   printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   printf_yellow "The container name is:          $CONTAINER_NAME"

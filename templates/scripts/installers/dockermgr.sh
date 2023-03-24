@@ -388,8 +388,8 @@ EOF
 # this function will create an env file in the containers filesystem - see CONTAINER_ENV_FILE_ENABLED
 __container_import_variables() {
   [ "$CONTAINER_ENV_FILE_ENABLED" = "yes" ] || return 0
-  local base_file="$1"
-  local base_dir="$(realpath "$DATADIR")"
+  local base_file="$1" base_dir=""
+  base_dir="$(realpath "$DATADIR")"
   [ -d "$base_dir" ] || mkdir -p "$base_dir"
   cat <<EOF | __remove_extra_spaces | tee "$base_dir/$base_file" &>/dev/null
 
@@ -477,6 +477,7 @@ CONTAINER_DATABASE_PASS_NORMAL="${ENV_CONTAINER_DATABASE_PASS_NORMAL:-$CONTAINER
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup arrays
 DOCKER_SET_PUBLISH=""
+CONTAINER_CONTAINER_ENV_PORTS=("")
 DOCKER_SET_TMP_PUBLISH=()
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure that the image has a tag
@@ -492,7 +493,7 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set containers name
 if [ -z "$CONTAINER_NAME" ]; then
-  CONTAINER_NAME="$(__container_name || echo "casjaysdevdocker/GEN_SCRIPT_REPLACE_APPNAME-$HUB_IMAGE_TAG")"
+  CONTAINER_NAME="$(__container_name || echo "casjaysdevdocker/pihole-$HUB_IMAGE_TAG")"
 fi
 DOCKER_SET_OPTIONS+="--name=$CONTAINER_NAME "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -823,67 +824,67 @@ if [ -z "$DATABASE_BASE_DIR" ]; then
 fi
 if [ "$CONTAINER_REDIS_ENABLED" = "yes" ]; then
   SHOW_DATABASE_INFO="true"
+  CONTAINER_ENV_PORTS+=("6379")
   CONTAINER_DATABASE_ENABLED="yes"
   CONTAINER_DATABASE_PROTO="redis://$HOST_LISTEN_ADDR:6379"
   DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_DATABASE_LISTEN:6379:6379")
   DATABASE_DIR_REDIS="${DATABASE_DIR_REDIS:-$DATABASE_BASE_DIR/redis}"
   DOCKER_SET_OPTIONS+="--volume $LOCAL_DATA_DIR/db/redis:/$DATABASE_DIR_REDIS:z "
-  DOCKER_SET_OPTIONS+="--env ENV_PORTS=6379 "
   DOCKER_SET_OPTIONS+="--env DATABASE_DIR_REDIS=$DATABASE_DIR_REDIS "
   MESSAGE_REDIS="Database files are saved to:      $DATABASE_DIR_REDIS"
 fi
 if [ "$CONTAINER_POSTGRES_ENABLED" = "yes" ]; then
   SHOW_DATABASE_INFO="true"
+  CONTAINER_ENV_PORTS+=("5432")
   CONTAINER_DATABASE_ENABLED="yes"
   CONTAINER_DATABASE_PROTO="postgresql://$HOST_LISTEN_ADDR:5432"
   DOCKER_SET_TMP_PUBLISH+=(--publish "$CONTAINER_DATABASE_LISTEN:5432:5432")
   DATABASE_DIR_POSTGRES="${DATABASE_DIR_POSTGRES:-$DATABASE_BASE_DIR/pgsql}"
   DOCKER_SET_OPTIONS+="--volume $LOCAL_DATA_DIR/db/postgres:/$DATABASE_DIR_POSTGRES:z "
-  DOCKER_SET_OPTIONS+="--env ENV_PORTS=5432 "
   DOCKER_SET_OPTIONS+="--env DATABASE_DIR_POSTGRES=$DATABASE_DIR_POSTGRES "
   MESSAGE_PGSQL="Database files are saved to:      $DATABASE_DIR_POSTGRES"
 fi
 if [ "$CONTAINER_MARIADB_ENABLED" = "yes" ]; then
   SHOW_DATABASE_INFO="true"
+  CONTAINER_ENV_PORTS+=("3306")
   CONTAINER_DATABASE_ENABLED="yes"
   CONTAINER_DATABASE_PROTO="mysql://$HOST_LISTEN_ADDR:3306"
   DOCKER_SET_TMP_PUBLISH+=(--publish "$CONTAINER_DATABASE_LISTEN:3306:3306")
   DATABASE_DIR_MARIADB="${DATABASE_DIR_MARIADB:-$DATABASE_BASE_DIR/mariadb}"
   DOCKER_SET_OPTIONS+="--volume $LOCAL_DATA_DIR/db/mariadb:/$DATABASE_DIR_MARIADB:z "
-  DOCKER_SET_OPTIONS+="--env ENV_PORTS=3306 "
   DOCKER_SET_OPTIONS+="--env DATABASE_DIR_MARIADB=$DATABASE_DIR_MARIADB "
   MESSAGE_MARIADB="Database files are saved to:      $DATABASE_DIR_MARIADB"
 fi
 if [ "$CONTAINER_COUCHDB_ENABLED" = "yes" ]; then
   SHOW_DATABASE_INFO="true"
+  CONTAINER_ENV_PORTS+=("5984")
   CONTAINER_DATABASE_ENABLED="yes"
   CONTAINER_DATABASE_PROTO="http://$HOST_LISTEN_ADDR:5984"
   DOCKER_SET_TMP_PUBLISH+=(--publish "$CONTAINER_DATABASE_LISTEN:5984:5984")
   DATABASE_DIR_COUCHDB="${DATABASE_DIR_COUCHDB:-$DATABASE_BASE_DIR/couchdb}"
   DOCKER_SET_OPTIONS+="--volume $LOCAL_DATA_DIR/db/couchdb:/$DATABASE_DIR_COUCHDB:z "
-  DOCKER_SET_OPTIONS+="--env ENV_PORTS=5984 "
   DOCKER_SET_OPTIONS+="--env DATABASE_DIR_COUCHDB=$DATABASE_DIR_COUCHDB "
   MESSAGE_COUCHDB="Database files are saved to:      $DATABASE_DIR_COUCHDB"
 fi
 if [ "$CONTAINER_MONGODB_ENABLED" = "yes" ]; then
   SHOW_DATABASE_INFO="true"
+  CONTAINER_ENV_PORTS+=("27017")
   CONTAINER_DATABASE_ENABLED="yes"
   CONTAINER_DATABASE_PROTO="mongodb://$HOST_LISTEN_ADDR:27017"
   DOCKER_SET_TMP_PUBLISH+=(--publish "$CONTAINER_DATABASE_LISTEN:27017:27017")
   DATABASE_DIR_MONGODB="${DATABASE_DIR_MONGODB:-$DATABASE_BASE_DIR/mongodb}"
   DOCKER_SET_OPTIONS+="--volume $LOCAL_DATA_DIR/db/mongodb:/$DATABASE_DIR_MONGODB:z "
-  DOCKER_SET_OPTIONS+="--env ENV_PORTS=27017 "
   DOCKER_SET_OPTIONS+="--env DATABASE_DIR_MONGODB=$DATABASE_DIR_MONGODB "
   MESSAGE_MONGODB="Database files are saved to:      $DATABASE_DIR_MONGODB"
 fi
 if [ "$CONTAINER_SUPABASE_ENABLED" = "yes" ]; then
   SHOW_DATABASE_INFO="true"
+  CONTAINER_ENV_PORTS+=("5432")
   CONTAINER_DATABASE_ENABLED="yes"
   CONTAINER_DATABASE_PROTO="http://$HOST_LISTEN_ADDR:8000"
   DOCKER_SET_TMP_PUBLISH+=(--publish "$CONTAINER_DATABASE_LISTEN:5432:5432")
   DATABASE_DIR_SUPABASE="${DATABASE_DIR_SUPABASE:-$DATABASE_BASE_DIR/supabase}"
   DOCKER_SET_OPTIONS+="--volume $LOCAL_DATA_DIR/db/supabase:/$DATABASE_DIR_SUPABASE:z "
-  DOCKER_SET_OPTIONS+="--env ENV_PORTS=5432 "
   DOCKER_SET_OPTIONS+="--env DATABASE_DIR_SUPABASE=$DATABASE_DIR_SUPABASE "
   MESSAGE_SUPABASE="Database files are saved to:      $DATABASE_DIR_SUPABASE"
 fi
@@ -911,25 +912,25 @@ if [ "$CONTAINER_DATABASE_ENABLED" = "yes" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # containers username and password configuration
-if [ -n "$GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME" ]; then
-  CONTAINER_USER_NAME="$GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME"
+if [ -n "$PIHOLE_USERNAME" ]; then
+  CONTAINER_USER_NAME="$PIHOLE_USERNAME"
 fi
 if [ -n "$CONTAINER_USER_NAME" ]; then
-  CONTAINER_USER_NAME="${GEN_SCRIPT_REPLACE_APPENV_NAME_USERNAME:-${CONTAINER_USER_NAME:-$DEFAULT_USERNAME}}"
+  CONTAINER_USER_NAME="${PIHOLE_USERNAME:-${CONTAINER_USER_NAME:-$DEFAULT_USERNAME}}"
 fi
 if [ -n "$CONTAINER_USER_NAME" ]; then
   if [ -n "$CONTAINER_ENV_USER_NAME" ]; then
     ADDITION_ENV+="${CONTAINER_ENV_USER_NAME:-username}=$CONTAINER_USER_NAME "
   fi
 fi
-if [ -n "$GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD" ]; then
-  CONTAINER_USER_PASS="$GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD"
+if [ -n "$PIHOLE_PASSWORD" ]; then
+  CONTAINER_USER_PASS="$PIHOLE_PASSWORD"
 fi
 if [ -n "$CONTAINER_USER_PASS" ]; then
   if [ "$CONTAINER_USER_PASS" = "random" ]; then
     CONTAINER_USER_PASS="$(__password "${CONTAINER_PASS_LENGTH:-10}")"
   fi
-  CONTAINER_USER_PASS="${GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD:-${CONTAINER_USER_PASS:-$DEFAULT_PASSWORD}}"
+  CONTAINER_USER_PASS="${PIHOLE_PASSWORD:-${CONTAINER_USER_PASS:-$DEFAULT_PASSWORD}}"
 fi
 if [ -n "$CONTAINER_USER_PASS" ]; then
   if [ -n "$CONTAINER_ENV_PASS_NAME" ]; then
@@ -938,11 +939,6 @@ if [ -n "$CONTAINER_USER_PASS" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup email variables
-if [ "$CONTAINER_EMAIL_ENABLED" = "yes" ]; then
-  CONTAINER_ADD_CUSTOM_PORT="$CONTAINER_EMAIL_PORTS "
-  DOCKER_SET_OPTIONS+="--env ENV_PORTS=\"${CONTAINER_EMAIL_PORTS//,/ }\" "
-  DOCKER_SET_OPTIONS+="--env EMAIL_ENABLED=$CONTAINER_EMAIL_ENABLED "
-fi
 if [ -n "$CONTAINER_EMAIL_USER" ]; then
   DOCKER_SET_OPTIONS+="--env EMAIL_ADMIN=$CONTAINER_EMAIL_USER@ "
 fi
@@ -954,6 +950,11 @@ if [ -n "$CONTAINER_EMAIL_RELAY" ]; then
 fi
 if [ -z "$CONTAINER_EMAIL_PORTS" ]; then
   CONTAINER_EMAIL_PORTS="25,465,587"
+fi
+if [ "$CONTAINER_EMAIL_ENABLED" = "yes" ]; then
+  DOCKER_SET_OPTIONS+="--env EMAIL_ENABLED=$CONTAINER_EMAIL_ENABLED "
+  CONTAINER_EMAIL_PORTS="$(echo "${CONTAINER_EMAIL_PORTS//,/ }" | tr ' ' '\n')"
+  CONTAINER_ENV_PORTS+=("$CONTAINER_EMAIL_PORTS")
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # process list
@@ -1212,9 +1213,10 @@ DOCKER_SET_PORTS_ENV_TMP="$(echo "$DOCKER_SET_PORTS_ENV_TMP" | tr ',' '\n' | gre
 DOCKER_SET_PORTS_ENV="${DOCKER_SET_PORTS_ENV_TMP//,/ }"
 DOCKER_SET_PORTS_ENV="${DOCKER_SET_PORTS_ENV//*:/}"
 DOCKER_SET_PORTS_ENV="$(__trim "${DOCKER_SET_PORTS_ENV[*]}")"
-if [ -n "$DOCKER_SET_PORTS_ENV" ]; then
-  DOCKER_SET_OPTIONS+="--env ENV_PORTS=\"$DOCKER_SET_PORTS_ENV\""
-  unset DOCKER_SET_PORTS_ENV
+ENV_PORTS="$(echo "$DOCKER_SET_PORTS_ENV" "${CONTAINER_ENV_PORTS[*]}" | tr ' ' '\n' | sort -u)"
+if [ -n "$ENV_PORTS" ]; then
+  DOCKER_SET_OPTIONS+="--env ENV_PORTS=\"$ENV_PORTS\""
+  unset DOCKER_SET_PORTS_ENV ENV_PORTS
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 DOCKER_CUSTOM_ARRAY="$(__custom_docker_env)"

@@ -180,7 +180,7 @@ HUB_IMAGE_URL="casjaysdevdocker/GEN_SCRIPT_REPLACE_APPNAME"
 # image tag [docker pull HUB_IMAGE_URL:tag]
 HUB_IMAGE_TAG="latest"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set the container name Default: [casjaysdevdocker/GEN_SCRIPT_REPLACE_APPNAME-$HUB_IMAGE_TAG]
+# Set the container name Default: [org-repo-tag]
 CONTAINER_NAME=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set container timezone - Default: [America/New_York]
@@ -265,7 +265,7 @@ HOST_DOCKER_NETWORK="bridge"
 # Link to an existing container [name:alias,name]
 HOST_DOCKER_LINK=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set listen type - Default default all [all/local/lan/docker/public] [127.0.0.1]
+# Set listen type - Default default all [all/local/lan/docker/public]
 HOST_NETWORK_ADDR="all"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup nginx proxy variables [yes/no] [yes/no] [http] [https] [yes/no]
@@ -280,20 +280,19 @@ CONTAINER_WEB_SERVER_ENABLED="no"
 CONTAINER_WEB_SERVER_INT_PORT="80"
 CONTAINER_WEB_SERVER_SSL_ENABLED="no"
 CONTAINER_WEB_SERVER_AUTH_ENABLED="no"
-CONTAINER_WEB_SERVER_LISTEN_ON="127.0.0.1"
+CONTAINER_WEB_SERVER_LISTEN_ON="127.0.0.10"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Add service port [port] or [port:port] or [ip:port:port]
-# Only ONE of HTTP or HTTPS if web server or SERVICE port for mysql/pgsql/ftp/pgsql.
-CONTAINER_HTTP_PORT=""
-CONTAINER_HTTPS_PORT=""
+# Add service port [port]
 CONTAINER_SERVICE_PORT=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Add custom port [port] or [port:port]
 CONTAINER_ADD_CUSTOM_PORT=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Add service port [listen:externalPort:internalPort/[tcp,udp]]
+# Add custom listening ports [listen:externalPort:internalPort/[tcp,udp]]
 CONTAINER_ADD_CUSTOM_LISTEN=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set this to the protocol the the container will use [http/https/git/ftp/pgsql/mysql/mongodb]
-CONTAINER_HTTP_PROTO="http"
+CONTAINER_PROTOCOL="http"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Database settings [listen] [yes/no]
 CONTAINER_DATABASE_LISTEN=""
@@ -423,7 +422,7 @@ EOF
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define extra functions
 __rport() {
-  local port
+  local port=""
   port="$(__port)"
   while :; do
     { [ $port -lt 50000 ] && [ $port -gt 50999 ]; } && port="$(__port)"
@@ -464,15 +463,7 @@ mkdir -p "$DOCKERMGR_CONFIG_DIR/installed"
 mkdir -p "$DOCKERMGR_CONFIG_DIR/containers"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # variable cleanup
-CONTAINER_ENV="${CONTAINER_ENV//  / }"
-CONTAINER_LABELS="${CONTAINER_LABELS//  / }"
-CONTAINER_SYSCTL="${CONTAINER_SYSCTL//  / }"
-CONTAINER_MOUNTS="${CONTAINER_MOUNTS//  / }"
-CONTAINER_DEVICES="${CONTAINER_DEVICES//  / }"
-CONTAINER_COMMANDS="${CONTAINER_COMMANDS//  / }"
-CONTAINER_CAPABILITIES="${CONTAINER_CAPABILITIES//  / }"
-DOCKER_CUSTOM_ARGUMENTS="${DOCKER_CUSTOM_ARGUMENTS//  / }"
-CONTAINER_ADD_CUSTOM_PORT="${CONTAINER_ADD_CUSTOM_PORT//  / }"
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # rewrite variables from env file
 CONTAINER_USER_NAME="${ENV_CONTAINER_USER_NAME:-$CONTAINER_USER_NAME}"
@@ -766,9 +757,9 @@ if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ]; then
     DOCKER_SET_OPTIONS+="--env WEB_PORT=${CONTAINER_WEB_SERVER_INT_PORT//,/ } "
   fi
   if [ "$CONTAINER_WEB_SERVER_SSL_ENABLED" = "yes" ]; then
-    CONTAINER_HTTP_PROTO="https"
+    CONTAINER_PROTOCOL="https"
   else
-    CONTAINER_HTTP_PROTO="http"
+    CONTAINER_PROTOCOL="http"
   fi
   if [ -z "$CONTAINER_WEB_SERVER_LISTEN_ON" ]; then
     CONTAINER_WEB_SERVER_LISTEN_ON="$HOST_LISTEN_ADDR"
@@ -778,7 +769,7 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # SSL setup
 NGINX_PROXY_URL=""
-PROXY_HTTP_PROTO="$CONTAINER_HTTP_PROTO"
+PROXY_HTTP_PROTO="$CONTAINER_PROTOCOL"
 if [ "$NGINX_SSL" = "yes" ]; then
   if [ "$SSL_ENABLED" = "yes" ]; then
     PROXY_HTTP_PROTO="https"
@@ -794,25 +785,16 @@ if [ "$NGINX_SSL" = "yes" ]; then
     fi
   fi
 else
-  CONTAINER_HTTP_PROTO="${CONTAINER_HTTP_PROTO:-http}"
+  CONTAINER_PROTOCOL="${CONTAINER_PROTOCOL:-http}"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup ports
 SET_SERVER_PORTS_TMP=""
-if [ -n "$CONTAINER_HTTP_PORT" ]; then
-  SET_SERVER_PORTS_TMP+="${CONTAINER_HTTP_PORT//,/ }"
-fi
-if [ -n "$CONTAINER_HTTPS_PORT" ]; then
-  SET_SERVER_PORTS_TMP+="${CONTAINER_HTTPS_PORT//,/ }"
-fi
-if [ -n "$CONTAINER_SERVICE_PORT" ]; then
-  SET_SERVER_PORTS_TMP+="${CONTAINER_SERVICE_PORT//,/ }"
-fi
 if [ -n "$CONTAINER_ADD_CUSTOM_PORT" ]; then
   SET_SERVER_PORTS_TMP+="${CONTAINER_ADD_CUSTOM_PORT//,/ }"
 fi
 if [ -n "$SET_SERVER_PORTS_TMP" ]; then
-  SET_SERVER_PORTS="${SET_SERVER_PORTS_TMP//  / }"
+  SET_SERVER_PORTS="$SET_SERVER_PORTS_TMP"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup the listen address
@@ -821,7 +803,6 @@ if [ -n "$HOST_DEFINE_LISTEN" ]; then
 fi
 if [ -n "$CONTAINER_ADD_CUSTOM_LISTEN" ]; then
   CONTAINER_ADD_CUSTOM_LISTEN="${CONTAINER_ADD_CUSTOM_LISTEN//,/ }"
-  CONTAINER_ADD_CUSTOM_LISTEN="${CONTAINER_ADD_CUSTOM_LISTEN//  / }"
 fi
 HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR:-$HOST_DEFINE_LISTEN}"
 HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR//0.0.0.0/$SET_LAN_IP}"
@@ -829,7 +810,7 @@ HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR//:*/}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #
 if [ "$CONTAINER_HTTPS_PORT" != "" ]; then
-  CONTAINER_HTTP_PROTO="https"
+  CONTAINER_PROTOCOL="https"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Database setup
@@ -1028,7 +1009,6 @@ fi
 if [ -n "$CONTAINER_MOUNTS" ]; then
   DOCKER_SET_MNT=""
   CONTAINER_MOUNTS="${CONTAINER_MOUNTS//,/ }"
-  CONTAINER_MOUNTS="${CONTAINER_MOUNTS//  / }"
   for mnt in $CONTAINER_MOUNTS; do
     if [ "$mnt" != "" ] && [ "$mnt" != " " ]; then
       echo "$mnt" | grep -q ':' || mnt="$mnt:$mnt"
@@ -1041,7 +1021,6 @@ fi
 if [ -n "$CONTAINER_OPT_MOUNT_VAR" ]; then
   DOCKER_SET_MNT=""
   CONTAINER_OPT_MOUNT_VAR="${CONTAINER_OPT_MOUNT_VAR//,/ }"
-  CONTAINER_OPT_MOUNT_VAR="${CONTAINER_OPT_MOUNT_VAR//  / }"
   for mnt in $CONTAINER_OPT_MOUNT_VAR; do
     if [ "$mnt" != "" ] && [ "$mnt" != " " ]; then
       echo "$mnt" | grep -q ':' || mnt="$mnt:$mnt"
@@ -1055,7 +1034,6 @@ fi
 if [ -n "$CONTAINER_DEVICES" ]; then
   DOCKER_SET_DEV=""
   CONTAINER_DEVICES="${CONTAINER_DEVICES//,/ }"
-  CONTAINER_DEVICES="${CONTAINER_DEVICES//  / }"
   for dev in $CONTAINER_DEVICES; do
     if [ "$dev" != "" ] && [ "$dev" != " " ]; then
       echo "$dev" | grep -q ':' || dev="$dev:$dev"
@@ -1069,7 +1047,6 @@ fi
 if [ -n "$CONTAINER_ENV" ]; then
   DOCKER_SET_ENV=""
   CONTAINER_ENV="${CONTAINER_ENV//,/ }"
-  CONTAINER_ENV="${CONTAINER_ENV//  / }"
   for env in $CONTAINER_ENV; do
     if [ "$env" != "" ] && [ "$env" != " " ]; then
       DOCKER_SET_ENV+="--env $env "
@@ -1079,7 +1056,6 @@ if [ -n "$CONTAINER_ENV" ]; then
 fi
 if [ -n "$CONTAINER_OPT_ENV_VAR" ]; then
   CONTAINER_OPT_ENV_VAR="${CONTAINER_OPT_ENV_VAR//,/ }"
-  CONTAINER_OPT_ENV_VAR="${CONTAINER_OPT_ENV_VAR//  / }"
   for env in $CONTAINER_OPT_ENV_VAR; do
     if [ "$env" != "" ] && [ "$env" != " " ]; then
       DOCKER_SET_ENV+="--env $env "
@@ -1092,7 +1068,6 @@ fi
 if [ -n "$CONTAINER_CAPABILITIES" ]; then
   DOCKER_SET_CAP=""
   CONTAINER_CAPABILITIES="${CONTAINER_CAPABILITIES//,/ }"
-  CONTAINER_CAPABILITIES="${CONTAINER_CAPABILITIES//  / }"
   for cap in $CONTAINER_CAPABILITIES; do
     if [ "$cap" != "" ] && [ "$cap" != " " ]; then
       DOCKER_SET_CAP+="--cap-add $cap "
@@ -1105,7 +1080,6 @@ fi
 if [ -n "$CONTAINER_SYSCTL" ]; then
   DOCKER_SET_SYSCTL=""
   CONTAINER_SYSCTL="${CONTAINER_SYSCTL//,/ }"
-  CONTAINER_SYSCTL="${CONTAINER_SYSCTL//  / }"
   for sysctl in $CONTAINER_SYSCTL; do
     if [ "$sysctl" != "" ] && [ "$sysctl" != " " ]; then
       DOCKER_SET_SYSCTL+="--sysctl $sysctl "
@@ -1118,7 +1092,6 @@ fi
 if [ -n "$CONTAINER_LABELS" ]; then
   DOCKER_SET_LABELS=""
   CONTAINER_LABELS="${CONTAINER_LABELS//,/ }"
-  CONTAINER_LABELS="${CONTAINER_LABELS//  / }"
   for label in $CONTAINER_LABELS; do
     if [ "$label" != "" ] && [ "$label" != " " ]; then
       DOCKER_SET_LABELS+="--label $label "
@@ -1130,7 +1103,6 @@ fi
 # Setup optional ports
 if [ -n "$CONTAINER_OPT_PORT_VAR" ]; then
   CONTAINER_OPT_PORT_VAR="${CONTAINER_OPT_PORT_VAR//,/ }"
-  CONTAINER_OPT_PORT_VAR="${CONTAINER_OPT_PORT_VAR//  / }"
   if [ -n "$CONTAINER_OPT_PORT_VAR" ]; then
     for set_port in $CONTAINER_OPT_PORT_VAR; do
       if [ "$set_port" != "" ] && [ "$set_port" != " " ]; then
@@ -1168,8 +1140,8 @@ fi
 if [ -n "$CONTAINER_ADD_CUSTOM_LISTEN" ]; then
   for set_port in $CONTAINER_ADD_CUSTOM_LISTEN; do
     if [ "$set_port" != " " ] && [ -n "$set_port" ]; then
-      port=$set_port
-      echo "$port" | grep -q ':' || port="${port//\/*/}:$port"
+      port=${set_port//\/*/}
+      echo "$port" | grep -q ':' || port="$port:$port"
       TYPE="$(echo "$set_port" | grep '/' | awk -F '/' '{print $NF}' | head -n1 | grep '^' || echo '')"
       if [ -z "$TYPE" ]; then
         DOCKER_SET_TMP_PUBLISH+=("--publish $port")
@@ -1184,15 +1156,14 @@ fi
 # container web server configuration
 SET_WEB_PORT=""
 NGINX_PROXY_PORT=""
-CLEANUP_PORT="${CONTAINER_WEB_SERVER_INT_PORT:-${CONTAINER_SERVICE_PORT:-$HOST_SERVICE_PORT}}"
+CLEANUP_PORT="${CONTAINER_WEB_SERVER_INT_PORT:-$CONTAINER_SERVICE_PORT}"
 CLEANUP_PORT="${CLEANUP_PORT//\/*/}"
 PRETTY_PORT="$CLEANUP_PORT"
 if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ]; then
   CONTAINER_WEB_SERVER_INT_PORT="${CONTAINER_WEB_SERVER_INT_PORT//,/ }"
-  CONTAINER_WEB_SERVER_INT_PORT="${CONTAINER_WEB_SERVER_INT_PORT//  / }"
   for set_port in $CONTAINER_WEB_SERVER_INT_PORT; do
     if [ "$set_port" != " " ] && [ -n "$set_port" ]; then
-      port=$set_port
+      port=${set_port//\/*/}
       random_port="$(__rport)"
       TYPE="$(echo "$port" | grep '/' | awk -F '/' '{print $NF}' | head -n1 | grep '^' || echo '')"
       if [ -z "$TYPE" ]; then
@@ -1262,9 +1233,10 @@ DOCKER_SET_OPTIONS="$(__trim "${DOCKER_SET_OPTIONS[*]:-}")"
 CONTAINER_COMMANDS="$(__trim "${CONTAINER_COMMANDS[*]:-}")"
 DOCKER_SET_CUSTOM="$(__trim "${DOCKER_CUSTOM_ARRAY[*]:-}")"
 DOCKER_SET_PUBLISH="$(__trim "${DOCKER_SET_TMP_PUBLISH[*]:-}")"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# set docker commands
 EXECUTE_PRE_INSTALL="docker stop $CONTAINER_NAME;docker rm -f $CONTAINER_NAME"
 EXECUTE_DOCKER_CMD="docker run -d $DOCKER_SET_OPTIONS $DOCKER_SET_CUSTOM $DOCKER_SET_LINK $DOCKER_SET_LABELS $DOCKER_SET_CAP $DOCKER_SET_SYSCTL $DOCKER_SET_DEV $DOCKER_SET_MNT $DOCKER_SET_ENV $DOCKER_SET_PUBLISH $HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS"
-EXECUTE_DOCKER_CMD="$(__trim "$EXECUTE_DOCKER_CMD")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run functions
 __container_import_variables "$CONTAINER_ENV_FILE_MOUNT"
@@ -1293,7 +1265,7 @@ fi
 # Write the container name to file
 echo "$CONTAINER_NAME" >"$DOCKERMGR_CONFIG_DIR/installed/$APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Copy over data files - keep the same stucture as -v dataDir/mnt:/mount
+# Copy over data files - keep the same stucture as -v DATADIR/mnt:/mnt
 if [ -d "$INSTDIR/rootfs" ] && [ ! -f "$DATADIR/.installed" ]; then
   printf_yellow "Copying files to $DATADIR"
   __sudo cp -Rf "$INSTDIR/rootfs/." "$DATADIR/" &>/dev/null
@@ -1368,13 +1340,14 @@ if [ -w "$NGINX_DIR/vhosts.d" ]; then
   else
     NGINX_PROXY_URL=""
   fi
-  SERVER_URL="$CONTAINER_HTTP_PROTO://$CONTAINER_HOSTNAME:$PRETTY_PORT"
-  [ -f "$NGINX_DIR/vhosts.d/$CONTAINER_HOSTNAME.conf" ] && NGINX_PROXY_URL="$CONTAINER_HTTP_PROTO://$CONTAINER_HOSTNAME"
+  SERVER_URL="$CONTAINER_PROTOCOL://$CONTAINER_HOSTNAME:$PRETTY_PORT"
+  [ -f "$NGINX_DIR/vhosts.d/$CONTAINER_HOSTNAME.conf" ] && NGINX_PROXY_URL="$CONTAINER_PROTOCOL://$CONTAINER_HOSTNAME"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # finalize
 if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
-  SET_PORT="$(echo "${DOCKER_SET_PUBLISH//--publish /}" | tr ' ' '\n' | sort -u)"
+  DOCKER_PORTS="$(__trim "${DOCKER_SET_PUBLISH//--publish/}")"
+  SET_PORT="$(echo "$DOCKER_PORTS" | tr ' ' '\n' | sort -u | grep -v '^$')"
   printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   printf_yellow "The container name is:          $CONTAINER_NAME"
   printf_yellow "The container is listening on:  $HOST_LISTEN_ADDR"

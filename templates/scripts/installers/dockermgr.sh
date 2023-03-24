@@ -613,7 +613,7 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mount sound card in container
 if [ "$DOCKER_SOUND_ENABLED" = "yes" ]; then
-  if [ -z "$HOST_SOUND_DEVICE_FILE" ] && [ -f "/dev/snd" ]; then
+  if [ -z "$HOST_SOUND_DEVICE_FILE" ]; then
     HOST_SOUND_DEVICE_FILE="/dev/snd"
   fi
   if [ -z "$CONTAINER_SOUND_DEVICE_FILE" ]; then
@@ -625,14 +625,14 @@ if [ "$DOCKER_SOUND_ENABLED" = "yes" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup display if enabled
-if [ "$CONTAINER_X11_ENABLED" = "yes" ] && [ -f "$HOST_X11_SOCKET" ] && [ -f "$HOST_X11_XAUTH" ]; then
+if [ "$CONTAINER_X11_ENABLED" = "yes" ]; then
   if [ -z "$HOST_X11_DISPLAY" ] && [ -n "$DISPLAY" ]; then
     HOST_X11_DISPLAY="${DISPLAY//*:/}"
   fi
-  if [ -z "$HOST_X11_SOCKET" ] && [ -f "/tmp/.X11-unix" ]; then
+  if [ -z "$HOST_X11_SOCKET" ]; then
     HOST_X11_SOCKET="/tmp/.X11-unix"
   fi
-  if [ -z "$HOST_X11_XAUTH" ] && [ -f "$HOME/.Xauthority" ]; then
+  if [ -z "$HOST_X11_XAUTH" ]; then
     HOST_X11_XAUTH="$HOME/.Xauthority"
   fi
   if [ -n "$HOST_X11_DISPLAY" ] && [ -n "$HOST_X11_SOCKET" ] && [ -n "$HOST_X11_XAUTH" ]; then

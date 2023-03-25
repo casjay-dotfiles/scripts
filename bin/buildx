@@ -431,13 +431,16 @@ __get_dockerfile_ver() {
   #
   local set_ver_tag=""
   local iver="" cver=""
-  iver="$(basename "$fileloc" 2>/dev/null | sed 's/^[^\.]*\./rel:/' | awk -F ':' '{print $2}' | grep '^' || echo '')"
-  cver="$(grep -s 'ARG.*CONTAINER_VERSION=' "$fileloc" | __get_version || grep -s 'ARG.*IMAGE_VERSION=' "$fileloc" | __get_version || echo '')"
+  new_tag="${set_newtag:-$new_tag}"
+  iver="$(basename "$fileloc" 2>/dev/null | sed 's/^[^\.]*\./rel:/' | awk -F ':' '{print $2}' | grep '^' || echo 'latest')"
+  cver="$(grep -s 'ARG.*CONTAINER_VERSION=' "$fileloc" | __get_version || grep -s 'ARG.*IMAGE_VERSION=' "$fileloc" | __get_version || echo 'latest')"
+  #
+  set_default_tag="$(echo "$iver" "$cver" | tr ' ' '\n' | grep -v '^$' | head -n1 | grep '^' || echo "${new_tag:-latest}")"
   #
   { [ -z "$iver" ] || [ "$iver" = " " ]; } && iver=""
   { [ -z "$cver" ] || [ "$cver" = " " ]; } && cver=""
-  [ -z "$iver" ] && [ -z "$cver" ] && new_tag=${name:-latest}
-  [ "$cver" = "$iver" ] && cver="" && iver="" && new_tag=${new_tag:-${iver:-$cver}}
+  [ -z "$iver" ] && [ -z "$cver" ] && new_tag="$set_default_tag"
+  [ "$cver" = "$iver" ] && cver="" && iver="" && new_tag="$set_default_tag"
   #
   for version in $iver $cver; do
     BUILDX_ADD_TAG="true"
@@ -452,7 +455,7 @@ __get_dockerfile_ver() {
         set_ver_tag+="next,"
       elif echo "$version" | grep -q '[0-9]'; then
         set_ver_tag+="$version,"
-      elif echo "$version" | grep -Eq 'latest'; then
+      elif echo "$version" | grep -Eq 'latest' && [ "$version" != "$new_tag" ]; then
         set_ver_tag+="latest,"
       else
         set_ver_tag+="$version,"
@@ -462,23 +465,18 @@ __get_dockerfile_ver() {
     fi
   done
   #
-  new_tag="$(echo "${new_tag}" | grep '^' || echo ${name:-latest})"
-  [ -n "$set_ver_tag" ] && set_ver_tag="$(echo "$set_ver_tag" | tr ',' '\n' | sort -u | grep -v '^$' | grep -v "${new_tag:-$name}" | grep '^' | tr '\n' ',' | sed 's|,$||g' || false)"
-  #
-  set_ver_tag="${set_ver_tag//,,/,}"
-  version_tag="${set_ver_tag[*]}"
-  #
+  new_tag="$(echo "${new_tag}" | grep '^' || echo 'latest')"
+  [ -n "$set_ver_tag" ] && set_ver_tag="$(echo "$set_ver_tag" | tr ',' '\n' | sort -u | grep -v '^$' | grep -v "${new_tag:-$name}" | grep '^' | tr '\n' ' ' | sed 's|,$||g' || false)"
   tag_count="$(echo "${set_ver_tag[@]}" | wc -l)"
-  if [ "$tag_count" -gt 1 ]; then
-    BUILDX_VERSION_TAG="${version_tag[*]}"
-    BUILDX_ADD_TAG="${BUILDX_ADD_TAG:-true}"
-  fi
   #
-  if [ -n "${version_tag[*]}" ]; then
-    BUILDX_VERSION_TAG="${version_tag[*]}"
+  #
+  set_ver_tag="${set_ver_tag// /,}"
+  set_ver_tag="${set_ver_tag//,,/,}"
+  if [ "$tag_count" -gt 1 ]; then
+    BUILDX_VERSION_TAG="$set_ver_tag"
     BUILDX_ADD_TAG="${BUILDX_ADD_TAG:-true}"
   else
-    BUILDX_ADD_TAG="${buildx_enable_tag:-}"
+    BUILDX_ADD_TAG="$buildx_enable_tag"
   fi
   #
   BUILDX_IMAGE_INFO="$(printf '%s\n%s\n' "Image version is: $new_tag" "setting tag to $new_tag")"
@@ -1009,12 +1007,8 @@ __execute_buildx() {
   tag_version="${new_tag:-$set_newtag}"
   tag_version="${tag_version,,}"
   BUILDX_DEFAULT_VERSION="$tag_version"
-  SET_LATEST="$(grep --no-filename 'CONTAINER_VERSION=' "$Dockerfile" 2>/dev/null | grep 'latest' | awk -F '=' '{print $2}' | head -n1 | grep '' || echo '')"
   #
   if [ "$(basename "$Dockerfile" 2>/dev/null)" = "Dockerfile" ] && [ "$tag_version" != "latest" ]; then
-    BUILDX_ADD_TAG="true"
-    BUILDX_VERSION_TAG="${BUILDX_VERSION_TAG},latest"
-  elif [ -n "$SET_LATEST" ] && [ "$tag_version" != "latest" ]; then
     BUILDX_ADD_TAG="true"
     BUILDX_VERSION_TAG="${BUILDX_VERSION_TAG},latest"
   fi

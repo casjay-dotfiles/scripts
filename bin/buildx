@@ -422,50 +422,58 @@ __get_tags() {
 __get_dockerfile_ver() {
   # TODO: rewrite this function
   [ -n "$DEBUGGER" ] && set -x
-  local dver="" iver="" filename="" fileloc="" exitC=0
+  local version_tag="" fileloc="" exitC="0"
   local buildx_enable_tag="$BUILDX_ADD_TAG"
   fileloc="$(realpath "${1:-$Dockerfile}" 2>/dev/null)"
   [ -f "$fileloc" ] || return 1
-  filename="$(basename "$fileloc" 2>/dev/null)"
-  get_vers="$(grep -s -E 'ARG.*CONTAINER_VERSION=|ARG.*DISTRO_VERSION=|ARG.*IMAGE_VERSION=' "$fileloc")"
+  get_vers="$(grep -s 'ARG.*CONTAINER_VERSION=' "$fileloc")"
   #
-  iver="$(basename "$filename" 2>/dev/null | sed 's/^[^\.]*\./rel:/' | awk -F ':' '{print $2}' | grep '^' || echo '')"
-  cver="$(echo "$get_vers" | grep 'ARG.*CONTAINER_VERSION=' | awk -F '=' '{print $2}' | sed 's|"||g' | head -n1 | grep -Ev '\${.*_.*}|latest' | grep '^' || echo "")"
-  cver="${cver:-$iver}"
+  iver="$(basename "$fileloc" 2>/dev/null | sed 's/^[^\.]*\./rel:/' | awk -F ':' '{print $2}' | grep '^' || echo '')"
+  cver="$(echo "$get_vers" | awk -F '=' '{print $2}' | sed 's|"||g' | head -n1 | grep -Ev '\${.*_.*}' | grep '^' || echo '')"
+  versions="$cver $iver"
   #
-  dver="$(echo "$get_vers" | grep 'ARG.*DISTRO_VERSION=' | awk -F '=' '{print $2}' | sed 's|"||g' | head -n1 | grep -Ev '\${.*_.*}|latest|edge|rolling' | grep '^' || echo "")"
-  iver="$(echo "$get_vers" | grep 'ARG.*IMAGE_VERSION=' | awk -F '=' '{print $2}' | sed 's|"||g' | head -n1 | grep -Ev '\${.*_.*}|latest|edge|rolling' | grep '^' || echo "${cver:-${dver:-$iver}}")"
-  dver="${dver:-$iver}"
+  [ "$cver" = "$iver" ] && new_tag="$cver" && versions=""
   #
-  [ "$cver" = "dev" ] && cver="devel"
-  [ "$dver" = "dev" ] && dver="devel"
-  #
-  if [ -n "$cver" ] && [ -n "$dver" ] && [ "$cver" != "$dver" ]; then
-    BUILDX_ADD_TAG="true"
-    BUILDX_VERSION_TAG="$BUILDX_VERSION_TAG $cver $dver latest"
-    new_tag="$iver"
-  elif [ -n "$dver" ]; then
-    new_tag="$dver"
-  elif [ -n "$iver" ]; then
-    new_tag="$iver"
-  elif echo "$iver" | grep -q '[0-9]'; then
-    new_tag="$iver"
-  elif echo "$iver" | grep -Eq 'edge'; then
-    new_tag='edge'
-  elif echo "$iver" | grep -Eq 'latest'; then
-    new_tag='latest'
-  elif echo "$iver" | grep -Eq 'rolling'; then
-    new_tag='rolling'
-  elif echo "$iver" | grep -Eq 'next|beta|alpha|test|testing'; then
-    new_tag='next'
-  elif [ -n "$iver" ]; then
-    new_tag="$iver"
-  else
-    exitC=1
+  if [ -n "$versions" ]; then
+    for version in $versions; do
+      if echo "$version" | grep -Eq 'edge'; then
+        new_tag=('edge')
+      elif echo "$version" | grep -Eq 'latest'; then
+        new_tag=('latest')
+      elif echo "$version" | grep -Eq 'rolling'; then
+        new_tag=('rolling')
+      elif echo "$version" | grep -Eq 'dev|devel'; then
+        new_tag=('devel')
+      elif echo "$version" | grep -Eq 'next|beta|alpha|test|testing'; then
+        new_tag=('next')
+      elif echo "$version" | grep -q '[0-9]'; then
+        new_tag=("$version")
+      elif [ "$version" != "latest" ]; then
+        BUILDX_ADD_TAG="true"
+        new_tag=("$version")
+        version_tag=("$version_tag")
+      elif [ -n "$version" ]; then
+        new_tag=("$version")
+      else
+        exitC=1
+      fi
+    done
   fi
-  [ -n "$BUILDX_VERSION_TAG" ] || BUILDX_ADD_TAG="${buildx_enable_tag:-}"
   #
-  BUILDX_IMAGE_INFO="$(printf '%s\n%s\n%s\n' "Image version is: ${cver:-latest}" "Container version is: ${dver:-latest}" "setting tag to $new_tag")"
+  tag_count="$(echo "${new_tag[@]}" | wc -l)"
+  if [ "$tag_count" -gt 1 ]; then
+    BUILDX_VERSION_TAG="${version_tag[*]}"
+    BUILDX_ADD_TAG="${BUILDX_ADD_TAG:-true}"
+  fi
+  #
+  if [ -n "${version_tag[*]}" ]; then
+    BUILDX_VERSION_TAG="${version_tag[*]}"
+    BUILDX_ADD_TAG="${BUILDX_ADD_TAG:-true}"
+  else
+    BUILDX_ADD_TAG="${buildx_enable_tag:-}"
+  fi
+  #
+  BUILDX_IMAGE_INFO="$(printf '%s\n%s\n' "Image version is: ${new_tag[*]}" "setting tag to ${new_tag[*]}")"
   #
   return $exitC
 }
@@ -574,9 +582,8 @@ __binfmt_version() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __buildx_vars() {
-
-  export name="${1:-$BUILDX_BUILDER_NAME}"
-  export name="${name:-mybuilder}"
+  local name="${1:-$BUILDX_BUILDER_NAME}"
+  local name="${name:-mybuilder}"
   export qemu_imagename="buildx-qemu"
   export binfmt_imagename="buildx-binfmt"
   export qemu_id="$(__docker_init ps -a | awk '{print $NF}' | grep "$qemu_imagename" || echo '')"
@@ -866,12 +873,12 @@ __run_docker_build() {
   [ -n "$image_name" ] && tagged_name="$image_name" || tagged_name="$push_tag"
   if [ "$BUILDX_RUN_SCRIPT" != "false" ] && [ -f "$BUILDX_CWD/build.sh" ]; then
     printf_blue "Building $tagged_name using script on : $(date +'%Y-%m-%d at %H:%M')"
-    printf '%s\n' "# Building $dirname using script on : $(date +'%Y-%m-%d at %H:%M')" | tee -a "$logfile" &>/dev/null
+    printf '%s\n' "# Building $SET_DIR_NAME using script on : $(date +'%Y-%m-%d at %H:%M')" | tee -a "$logfile" &>/dev/null
     __run_docker_script
     buildx_status=$?
     # elif __cmd_exists dockermgr; then
     #printf_blue "Building $tagged_name using dockermgr on : $(date +'%Y-%m-%d at %H:%M')"
-    #printf '%s\n' "# Building $dirname using dockermgr on : $(date +'%Y-%m-%d at %H:%M')" | tee -a "$logfile" &>/dev/null
+    #printf '%s\n' "# Building $SET_DIR_NAME using dockermgr on : $(date +'%Y-%m-%d at %H:%M')" | tee -a "$logfile" &>/dev/null
     # __run_dockermgr_script "$1"
     buildx_status=$?
   elif [ "$BUILDX_INSTALLED" = "true" ]; then
@@ -906,7 +913,7 @@ __run_docker_build() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __build_cmd() {
   local exitCodeS="1"
-  local dir="${1:-$REALPATH}"
+  local dir="${1:-$FULL_DIR_PATH}"
   __last_build_check "$dir"
   if [ -f "$BUILDX_PID_FILE" ]; then
     printf_exit "$APPNAME is already running"
@@ -937,60 +944,65 @@ __execute_buildx() {
   set_name="${BUILDX_SET_IMAGE:-$BUILDX_SET_NAME}"
   if [ -f "$1" ]; then
     Dockerfile="$(realpath "$1")"
-    REALPATH="$(dirname "$Dockerfile")"
-    dirname="$(basename "$REALPATH")"
+    FULL_DIR_PATH="$(dirname "$Dockerfile")"
+    SET_DIR_NAME="$(basename "$FULL_DIR_PATH")"
     shift 1
   elif [ -d "$1" ]; then
     Dockerfile="$(realpath "${1//$PWD\//}/Dockerfile")"
-    REALPATH="$(dirname "$Dockerfile")"
-    dirname="$(basename "$REALPATH")"
+    FULL_DIR_PATH="$(dirname "$Dockerfile")"
+    SET_DIR_NAME="$(basename "$FULL_DIR_PATH")"
     shift 1
   elif [ -f "$PWD/$1" ]; then
     Dockerfile="$(realpath "${1//$PWD\//}")"
-    REALPATH="$(dirname "$Dockerfile")"
-    dirname="$(basename "$(dirname "$(realpath "$Dockerfile")")")"
+    FULL_DIR_PATH="$(dirname "$Dockerfile")"
+    SET_DIR_NAME="$(basename "$(dirname "$(realpath "$Dockerfile")")")"
     shift 1
   elif [ -f "$BUILDX_CWD/Dockerfile.latest" ]; then
     Dockerfile="$(realpath "$BUILDX_CWD/Dockerfile.latest")"
-    REALPATH="$(dirname "$Dockerfile")"
-    dirname="$(basename "$(dirname "$(realpath "$Dockerfile")")")"
+    FULL_DIR_PATH="$(dirname "$Dockerfile")"
+    SET_DIR_NAME="$(basename "$(dirname "$(realpath "$Dockerfile")")")"
   elif [ -f "$BUILDX_CWD/Dockerfile.next" ]; then
     Dockerfile="$(realpath "$BUILDX_CWD/Dockerfile.next")"
-    REALPATH="$(dirname "$Dockerfile")"
-    dirname="$(basename "$(dirname "$(realpath "$Dockerfile")")")"
+    FULL_DIR_PATH="$(dirname "$Dockerfile")"
+    SET_DIR_NAME="$(basename "$(dirname "$(realpath "$Dockerfile")")")"
   elif [ -f "$BUILDX_CWD/Dockerfile" ]; then
     Dockerfile="$(realpath "$BUILDX_CWD/Dockerfile")"
-    REALPATH="$(dirname "$Dockerfile")"
-    dirname="$(basename "$(dirname "$(realpath "$Dockerfile")")")"
+    FULL_DIR_PATH="$(dirname "$Dockerfile")"
+    SET_DIR_NAME="$(basename "$(dirname "$(realpath "$Dockerfile")")")"
   fi
-  if [ -n "$REALPATH" ] && [ -f "$Dockerfile" ]; then
-    builtin cd "$REALPATH" || exit 15
+  if [ -n "$FULL_DIR_PATH" ] && [ -f "$Dockerfile" ]; then
+    builtin cd "$FULL_DIR_PATH" || exit 15
   else
     printf_exit "Well something went wrong while looking for $Dockerfile"
   fi
   if [ $# -eq 1 ]; then
-    name="${1:-$dirname}"
+    set_name="${1:-}"
     shift 1
   elif [ $# -eq 2 ]; then
-    name="${1:-$dirname}"
-    BUILDX_DEFAULT_VERSION="${2:-$BUILDX_DEFAULT_VERSION}"
+    set_name="${1:-}"
+    set_newtag="${2:-$BUILDX_DEFAULT_VERSION}"
     shift 2
   else
-    REALPATH="$(dirname "$(realpath "$PWD/Dockerfile")")"
-    name="$(basename "$REALPATH")"
+    default_name="$(basename "$FULL_DIR_PATH")"
+    FULL_DIR_PATH="$(dirname "$(realpath "$PWD/Dockerfile")")"
   fi
   if [ ! -f "$Dockerfile" ] || [ -z "$(ls -A "$Dockerfile" 2>/dev/null)" ]; then
-    printf_exit "Can not find a $Dockerfile in $REALPATH"
+    printf_exit "Can not find a $Dockerfile in $FULL_DIR_PATH"
   fi
-  name="${set_name:-$name}"
-  __get_dockerfile_ver "$Dockerfile"
+  #
+  image_name="$(grep -s 'ARG.*IMAGE_NAME=' "$Dockerfile" | awk -F'=' '{print $2}' | grep '^' || echo "$default_name")"
+  #
+  name="${set_name:-$image_name}"
+  set_newtag="${set_newtag//*:/}"
   name="$(echo "$name" | tr '[:upper:]' '[:lower:]')"
-  dirname="$(echo "$dirname" | tr '[:upper:]' '[:lower:]')"
-  BUILDX_DEFAULT_VERSION="${BUILDX_DEFAULT_VERSION//*:/}"
-  tag_version="${new_tag:-$BUILDX_DEFAULT_VERSION}"
+  SET_DIR_NAME="$(echo "$SET_DIR_NAME" | tr '[:upper:]' '[:lower:]')"
+  #
+  __get_dockerfile_ver "$Dockerfile"
+  tag_version="${new_tag:-$set_newtag}"
   tag_version="${tag_version,,}"
   BUILDX_DEFAULT_VERSION="$tag_version"
   SET_LATEST="$(grep --no-filename 'CONTAINER_VERSION=' "$Dockerfile" 2>/dev/null | grep 'latest' | awk -F '=' '{print $2}' | head -n1 | grep '' || echo '')"
+  #
   if [ "$(basename "$Dockerfile" 2>/dev/null)" = "Dockerfile" ] && [ "$tag_version" != "latest" ]; then
     BUILDX_ADD_TAG="true"
     BUILDX_VERSION_TAG="${BUILDX_VERSION_TAG},latest"
@@ -1003,7 +1015,7 @@ __execute_buildx() {
   else
     tagged_name="$BUILDX_DEFAULT_HUB/$BUILDX_DEFAULT_REPO/$name"
   fi
-  if [ -d "$REALPATH/.git" ]; then
+  if [ -d "$FULL_DIR_PATH/.git" ]; then
     __run_git_pull
     #printf_yellow "This seems to be a git repo: running git pull"
   fi
@@ -1019,10 +1031,10 @@ __execute_buildx() {
   pretty_name="${set_tag/:*/}"
   printf_blue "Log is being written to: ${logfile//$HOME/~}"
   if [ -f "$Dockerfile" ]; then
-    [ -d "$REALPATH/rootfs" ] || mkdir -p "$REALPATH/rootfs"
+    [ -d "$FULL_DIR_PATH/rootfs" ] || mkdir -p "$FULL_DIR_PATH/rootfs"
   fi
   [ -d "$BUILDX_LOG_DIR/$logfolder" ] || mkdir -p "$BUILDX_LOG_DIR/$logfolder"
-  if __build_cmd "$REALPATH"; then
+  if __build_cmd "$FULL_DIR_PATH"; then
     notify_message+="Successfully built $set_tag $ADDITIONAL_PRETTY|"
     printf_green "Successfully built container: $pretty_name"
     printf_green "Pulling the updated image"

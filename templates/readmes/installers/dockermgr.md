@@ -19,9 +19,9 @@ dockermgr update GEN_README_REPLACE_APPNAME
 OR
 
 ```shell
-mkdir -p "$HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/dataDir"
+mkdir -p "$HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/rootfs"
 git clone "https://github.com/dockermgr/GEN_README_REPLACE_APPNAME" "$HOME/.local/share/CasjaysDev/dockermgr/GEN_README_REPLACE_APPNAME"
-cp -Rfva "$HOME/.local/share/CasjaysDev/dockermgr/GEN_README_REPLACE_APPNAME/dataDir/." "$HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/dataDir/"
+cp -Rfva "$HOME/.local/share/CasjaysDev/dockermgr/GEN_README_REPLACE_APPNAME/rootfs/." "$HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/rootfs/"
 ```
 
 ## via command line  
@@ -34,8 +34,8 @@ docker run -d \
 --name casjaysdevdocker-ProjectName \
 --hostname casjaysdev-ProjectName \
 -e TZ=${TIMEZONE:-America/New_York} \
--v $HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/dataDir/data:/data:z \
--v $HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/dataDir/config:/config:z \
+-v $HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/rootfs/data:/data:z \
+-v $HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/rootfs/config:/config:z \
 -p 80:80 \
 casjaysdevdocker/ProjectName:latest
 ```
@@ -52,8 +52,8 @@ services:
       - TZ=America/New_York
       - HOSTNAME=casjaysdev-ProjectName
     volumes:
-      - $HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/dataDir/data:/data:z
-      - $HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/dataDir/config:/config:z
+      - $HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/rootfs/data:/data:z
+      - $HOME/.local/share/srv/docker/GEN_README_REPLACE_APPNAME/rootfs/config:/config:z
     ports:
       - 80:80
     restart: always

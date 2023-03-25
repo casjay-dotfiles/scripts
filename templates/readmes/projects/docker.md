@@ -3,6 +3,13 @@
 GEN_README_REPLACE_DESCRIBE  
   
   
+## Run container
+
+```shell
+docker run casjaysdevdocker/ProjectName bash
+```
+  
+  
 ## Install my system scripts  
 
 ```shell
@@ -31,6 +38,6 @@ buildx
 
 ## Authors  
 
-📽 dockermgr: [Github](https://github.com/dockermgr) 📽  
+📽 dockermgr: [Github](https://github.com/dockermgr) [Docker](https://hub.docker.com/r/casjaysdevdocker) 📽  
 🤖 AuthorName: [Github](https://github.com/AuthorName) [Docker](https://hub.docker.com/r/AuthorName) 🤖  
 ⛵ CasjaysDevDocker: [Github](https://github.com/casjaysdevdocker) [Docker](https://hub.docker.com/r/casjaysdevdocker) ⛵  

@@ -26,21 +26,20 @@ done
 # Custom functions
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show message before execute
+PRE_EXEC_MESSAGE=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default predefined variables
 WORKDIR=""                                         # set working directory
 DATA_DIR="/data"                                   # set data directory
+RUN_DIR="/run/init.d"                              # set scripts pid dir
 ETC_DIR="/etc/GEN_SCRIPT_REPLACE_APPNAME"          # set etc directory
 CONF_DIR="/config/GEN_SCRIPT_REPLACE_APPNAME"      # set data directory
 LOG_DIR="/data/logs/GEN_SCRIPT_REPLACE_APPNAME"    # set log directory
 WWW_DIR="/data/htdocs/www"                         # set the web root
-RUN_DIR="/run/init.d"                              # set scripts pid dir
 DATABASE_DIR="/data/db/GEN_SCRIPT_REPLACE_APPNAME" # set the database directory
 ROOT_FILE_PREFIX="/config/secure/auth/root"        # directory to save password for root user
 USER_FILE_PREFIX="/config/secure/auth/user"        # directory to save password for normal user
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Is this service a database server
-IS_WEB_SERVER="no"
-IS_DATABASE_SERVICE="no"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # lets use environment for database dir if available
 [ -n "$DATABASE_DIR_REPLACE_ENV" ] && DATABASE_DIR="$DATABASE_DIR_REPLACE_ENV"
@@ -51,14 +50,15 @@ IS_DATABASE_SERVICE="no"
 # port which service is listening on
 SERVICE_PORT=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Show message before execute
-PRE_EXEC_MESSAGE=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # execute command variables
 SERVICE_UID="0"                           # set the user id
 SERVICE_USER="root"                       # execute command as another user
 EXEC_CMD_BIN="GEN_SCRIPT_REPLACE_APPNAME" # command to execute
 EXEC_CMD_ARGS=""                          # command arguments
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is this service a database server
+IS_WEB_SERVER="no"
+IS_DATABASE_SERVICE="no"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional variables
 
@@ -218,19 +218,36 @@ __run_start_script() {
   local lc_type="${LC_ALL:-${LC_CTYPE:-$LANG}}"
   local home="${workdir//\/root/\/tmp\/docker}"
   local path="/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin"
-  [ -z "$home" ] && home="${workdir:-/tmp/docker}"
-  [ "$home" = "/root" ] && home="/tmp/docker"
-  [ "$home" = "$workdir" ] && workdir=""
-  # create home
-  [ -n "$home" ] && { [ -d "$home" ] || mkdir -p "$home"; }
-  [ -n "$workdir" ] && { [ -d "$workdir" ] || mkdir -p "$workdir" || workdir="/tmp"; }
-  [ -n "$workdir" ] && __cd "$workdir" || { [ -n "$home" ] && __cd "$home"; } || __cd "/tmp"
-  [ "$user" != "root " ] && [ -d "$home" ] && chmod -f 777 "$home"
-  [ "$user" != "root " ] && [ -d "$workdir" ] && chmod -f 777 "$workdir"
-  echo "Starting service: $EXEC_CMD_NAME $EXEC_CMD_ARGS"
-  su_cmd touch "$SERVICE_PID_FILE"
-  __post_execute 2>/dev/stderr 2>&1 |& tee -a "$LOG_DIR/init.txt" &>/dev/null &
-  su_cmd env -i HOME="$home" LC_CTYPE="$lc_type" PATH="$path" USER="$user" sh -c "$cmd" || return 10
+  if [ -n "$EXEC_CMD_BIN" ]; then
+    # ensure the command exists
+    if [ ! -x "$(type -P "$EXEC_CMD_BIN")" ]; then
+      echo "$EXEC_CMD_NAME is not a valid executable"
+      exit 2
+    fi
+    # set working directories
+    [ -z "$home" ] && home="${workdir:-/tmp/docker}"
+    [ "$home" = "/root" ] && home="/tmp/docker"
+    [ "$home" = "$workdir" ] && workdir=""
+    # create needed directories
+    [ -n "$home" ] && { [ -d "$home" ] || mkdir -p "$home"; }
+    [ -n "$workdir" ] && { [ -d "$workdir" ] || mkdir -p "$workdir" || workdir="/tmp"; }
+    [ -n "$workdir" ] && __cd "$workdir" || { [ -n "$home" ] && __cd "$home"; } || __cd "/tmp"
+    [ "$user" != "root " ] && [ -d "$home" ] && chmod -f 777 "$home"
+    [ "$user" != "root " ] && [ -d "$workdir" ] && chmod -f 777 "$workdir"
+    # check and exit if already running
+    if __proc_check "$EXEC_CMD_NAME" || __proc_check "$EXEC_CMD_BIN"; then
+      echo "$EXEC_CMD_NAME is already running" >&2
+      exit 0
+    else
+      echo "Starting service: $EXEC_CMD_NAME $EXEC_CMD_ARGS"
+      su_cmd touch "$SERVICE_PID_FILE"
+      __post_execute 2>/dev/stderr 2>&1 |& tee -a "$LOG_DIR/init.txt" &>/dev/null &
+      su_cmd env -i HOME="$home" LC_CTYPE="$lc_type" PATH="$path" USER="$user" sh -c "$cmd" || return 10
+    fi
+  else
+    echo "Initializing $SCRIPT_NAME has completed"
+    __post_execute 2>/dev/stderr 2>&1 |& tee -a "$LOG_DIR/init.txt" &>/dev/null &
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # username and password actions
@@ -258,7 +275,7 @@ __cd() { mkdir -p "$1" && builtin cd "$1" || exit 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # process check functions
 __pcheck() { [ -n "$(type -P pgrep 2>/dev/null)" ] && pgrep -x "$1" &>/dev/null && return 0 || return 10; }
-__pgrep() { __pcheck "${1:-EXEC_CMD_BIN}" || __ps aux 2>/dev/null | grep -Fw " ${1:-$EXEC_CMD_BIN}" | grep -qv ' grep' | grep '^' && return 0 || return 10; }
+__pgrep() { __pcheck "${1:-$EXEC_CMD_BIN}" || __ps aux 2>/dev/null | grep -Fw " ${1:-$EXEC_CMD_BIN}" | grep -qv ' grep' | grep '^' && return 0 || return 10; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # check if process is already running
 __proc_check() {
@@ -324,22 +341,16 @@ fi
 # Allow variables via imports - Overwrite existing
 [ -f "/config/env/${SERVICE_NAME:-$SCRIPT_NAME}.sh" ] && . "/config/env/${SERVICE_NAME:-$SCRIPT_NAME}.sh"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# ensure the command exists
-if [ ! -f "$(type -P "$EXEC_CMD_BIN")" ] && [ -z "$EXEC_CMD_BIN" ]; then
-  echo "$EXEC_CMD_BIN is not a valid command"
-  exit 2
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Only run check
 if [ "$1" = "check" ]; then
-  __proc_check "$EXEC_CMD_NAME"
+  __proc_check "$EXEC_CMD_NAME" || __proc_check "$EXEC_CMD_BIN"
   exit $?
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # show message if env exists
 if [ -n "$EXEC_CMD_BIN" ]; then
   [ -n "$SERVICE_USER" ] && echo "Setting up service to run as $SERVICE_USER" || SERVICE_USER="root"
-  [ -n "$SERVICE_PORT" ] && echo "$EXEC_CMD_BIN will be running on $SERVICE_PORT" || SERVICE_PORT=""
+  [ -n "$SERVICE_PORT" ] && echo "$EXEC_CMD_NAME will be running on $SERVICE_PORT" || SERVICE_PORT=""
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # set switch user command
@@ -359,7 +370,7 @@ else
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Change to working directory
-[ -n "$WORKDIR" ] && __cd "$WORKDIR" && echo "Changed to $PWD"
+[ -n "$WORKDIR" ] && [ -n "$EXEC_CMD_BIN" ] && __cd "$WORKDIR" && echo "Changed to $PWD"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # show init message
 __pre_message
@@ -377,9 +388,8 @@ __update_conf_files
 __pre_execute
 __run_secure_function
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__proc_check "$EXEC_CMD_NAME" && exit 1
 __run_start_script "$@" |& tee -a "/data/logs/entrypoint.log" &>/dev/null
-if [ "$?" -ne 0 ]; then
+if [ "$?" -ne 0 ] && [ -n "$EXEC_CMD_BIN" ]; then
   echo "Failed to execute: $EXEC_CMD_BIN $EXEC_CMD_ARGS"
   SERVICE_EXIT_CODE=10 SERVICE_IS_RUNNING="false"
   su_cmd rm -Rf "$SERVICE_PID_FILE"

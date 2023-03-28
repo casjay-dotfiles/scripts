@@ -84,46 +84,14 @@ _GEN_SCRIPT_REPLACE_FILENAME_completion() {
       ;;
     esac
   fi
-  #
-  # if [ -n "$FILEDIR" ]; then _filedir; fi
-  # if [ $cword -gt 2 ]; then
-  #   return
-  # elif [ $cword == 2 ]; then
-  #   _filedir
-  #   compopt -o nospace
-  #   return
-  # elif [ $cword -eq 1 ]; then
-  #   COMPREPLY=($(compgen -W '{a..z}{a..z}' -- "${cur}"))
-  #   compopt -o nospace
-  #   return
-  # if [ "$ARRAY" = "show__none" ]; then
-  #   COMPREPLY=($(compgen -W '' -- "${cur}"))
-  # elif [ "$ARRAY" = "show__filedir" ]; then
-  #   _filedir
-  # elif [ "$ARRAY" = "show__commands" ]; then
-  #   COMPREPLY=($(compgen -c -- "${cur}"))
-  # elif [ "$ARRAY" != "" ]; then
-  #   COMPREPLY=($(compgen -W '${ARRAY}' -- "${cur}"))
-  # elif [ -n "$OPTS" ]; then
-  #   COMPREPLY=($(compgen -W '${OPTS}' -- "${cur}"))
-  # else
-  #   COMPREPLY=($(compgen -W '${ARRAY}' -- "${cur}"))
-  # elif [ $cword -gt 2 ]; then
-  #   return
-  # elif [ $cword == 2 ]; then
-  #   _filedir
-  #   compopt -o nospace
-  #   return
-  # elif [ $cword -eq 1 ]; then
-  #   COMPREPLY=($(compgen -W '{a..z}{a..z}' -- "${cur}"))
-  #   compopt -o nospace
-  #   return
-  # fi
-  # [ ${cword} == 2 ] && _filedir && compopt -o nospace
+  # [ "${ARRAY}" = "show__filedir" ] && _filedir
+  # [ ${cword} = 2 ] && _filedir && compopt -o nospace
+  # [ "${ARRAY}" != "" ] && COMPREPLY=($(compgen -W '${ARRAY}' -- "${cur}"))
+  # [ "${ARRAY}" = "show__none" ] && COMPREPLY=($(compgen -W '' -- "${cur}"))
+  # [ "${ARRAY}" = "show__commands" ] && COMPREPLY=($(compgen -c -- "${cur}"))
   # [ $COMP_CWORD -eq 2 ] && COMPREPLY=($(compgen -W '{a..z} {A..Z} {0..9}' -o nospace -- "${cur}"))
   # [ $COMP_CWORD -eq 3 ] && COMPREPLY=($(compgen -W '$(_filedir)' -o filenames -o dirnames -- "${cur}"))
   # [ $COMP_CWORD -gt 3 ] && COMPREPLY=($(compgen -W '' -- "${cur}"))
-  # prev=""
   # compopt -o nospace
 } &&
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

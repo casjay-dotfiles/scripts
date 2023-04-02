@@ -183,6 +183,9 @@ HUB_IMAGE_TAG="latest"
 # Set the container name Default: [org-repo-tag]
 CONTAINER_NAME=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set this if the container depend on external file/app
+CONTAINER_REQUIRES=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set container timezone - Default: [America/New_York]
 CONTAINER_TIMEZONE=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -473,6 +476,21 @@ mkdir -p "$DOCKERMGR_CONFIG_DIR/containers"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # variable cleanup
 
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# verify required file exists
+if [ -n "$CONTAINER_REQUIRES" ]; then
+  CONTAINER_REQUIRES="${CONTAINER_REQUIRES//,/}"
+  for required in $CONTAINER_REQUIRES; do
+    if [ ! -e "$required" ] || [ -z "$(type "$required" 2>/dev/null)" ]; then
+      required_missing="$required $required_missing"
+    fi
+  done
+  [ "$required_missing" != " " ] || unset required_missing
+  if [ -n "$required_missing" ]; then
+    echo "Missing required: $required_missing"
+    exit 1
+  fi
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # rewrite variables from env file
 CONTAINER_USER_NAME="${ENV_CONTAINER_USER_NAME:-$CONTAINER_USER_NAME}"

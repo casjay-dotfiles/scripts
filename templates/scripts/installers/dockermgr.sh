@@ -174,10 +174,10 @@ CONTAINER_SSL_CA="${CONTAINER_SSL_CA:-$CONTAINER_SSL_DIR/ca.crt}"
 CONTAINER_SSL_CRT="${CONTAINER_SSL_CRT:-$CONTAINER_SSL_DIR/localhost.crt}"
 CONTAINER_SSL_KEY="${CONTAINER_SSL_KEY:-$CONTAINER_SSL_DIR/localhost.key}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# URL to container image - docker pull [URL]
+# URL to container image - docker pull - [URL]
 HUB_IMAGE_URL="casjaysdevdocker/GEN_SCRIPT_REPLACE_APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# image tag [docker pull HUB_IMAGE_URL:tag]
+# image tag - [docker pull HUB_IMAGE_URL:tag]
 HUB_IMAGE_TAG="latest"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the container name Default: [org-repo-tag]
@@ -186,68 +186,77 @@ CONTAINER_NAME=""
 # Set container timezone - Default: [America/New_York]
 CONTAINER_TIMEZONE=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set the working dir [/root]
+# Set the working dir - [/root]
 CONTAINER_WORK_DIR=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set the html dir [/data/www/html] [WWW_ROOT_DIR]
+# Set the html dir - [/data/www/html] [WWW_ROOT_DIR]
 CONTAINER_HTML_DIR=""
 CONTAINER_HTML_ENV=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set container user and group ID [yes/no] [id]
+# Set container user and group ID - [yes/no] [id]
 USER_ID_ENABLED="no"
 CONTAINER_USER_ID=""
 CONTAINER_GROUP_ID=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set runas user - default root [mysql]
+# Set runas user - default root - [mysql]
 CONTAINER_USER_RUN=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Enable privileged container [ yes/no ]
+# Enable privileged container - [ yes/no ]
 CONTAINER_PRIVILEGED_ENABLED="yes"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set the SHM Size - Default: 64M
+# Set the SHM Size - Default: 64M - [128M]
 CONTAINER_SHM_SIZE="128M"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Restart container [no/always/on-failure/unless-stopped]
+# Set the RAM Size in Megs - [1024]
+CONTAINER_RAM_SIZE=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set the SWAP Size in Megs - [512]
+CONTAINER_SWAP_SIZE=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set the number of cpus - [2]
+CONTAINER_CPU_COUNT="2"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Restart container - [no/always/on-failure/unless-stopped]
 CONTAINER_AUTO_RESTART="always"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Delete container after exit [yes/no]
+# Delete container after exit - [yes/no]
 CONTAINER_AUTO_DELETE="no"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Enable tty and interactive [yes/no]
+# Enable tty and interactive - [yes/no]
 CONTAINER_TTY_ENABLED="yes"
 CONTAINER_INTERACTIVE_ENABLED="no"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# create an env file [yes/no] [/config/.env]
+# create an env file - [yes/no] [/config/.env]
 CONTAINER_ENV_FILE_ENABLED="no"
 CONTAINER_ENV_FILE_MOUNT=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Enable cgroups [yes/no] [/sys/fs/cgroup]
+# Enable cgroups - [yes/no] [/sys/fs/cgroup]
 CGROUPS_ENABLED="no"
 CGROUPS_MOUNTS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set location to resolv.conf [yes/no] [/etc/resolv.conf]
+# Set location to resolv.conf - [yes/no] [/etc/resolv.conf]
 HOST_RESOLVE_ENABLED="no"
 HOST_RESOLVE_FILE=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Enable hosts /etc/hosts file [yes/no] [/usr/local/etc/hosts]
+# Enable hosts /etc/hosts file - [yes/no] [/usr/local/etc/hosts]
 HOST_ETC_HOSTS_ENABLED="yes"
 HOST_ETC_HOSTS_MOUNT=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Mount docker socket [yes/no] [/var/run/docker.sock]
+# Mount docker socket - [yes/no] [/var/run/docker.sock]
 DOCKER_SOCKET_ENABLED="no"
 DOCKER_SOCKET_MOUNT=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Mount docker config [yes/no] [~/.docker/config.json]
+# Mount docker config - [yes/no] [~/.docker/config.json] [/root/.docker/config.json]
 DOCKER_CONFIG_ENABLED="no"
 HOST_DOCKER_CONFIG=""
 CONTAINER_DOCKER_CONFIG_FILE=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Mount soundcard [yes/no] [/dev/snd]
+# Mount soundcard - [yes/no] [/dev/snd] [/dev/snd]
 DOCKER_SOUND_ENABLED="no"
 HOST_SOUND_DEVICE="/dev/snd"
 CONTAINER_SOUND_DEVICE_FILE="/dev/snd"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Enable display in container [yes/no] [0] [/tmp/.X11-unix] [~/.Xauthority]
+# Enable display in container - [yes/no] [0] [/tmp/.X11-unix] [~/.Xauthority]
 CONTAINER_X11_ENABLED="no"
 HOST_X11_DISPLAY=""
 HOST_X11_SOCKET=""
@@ -255,46 +264,46 @@ HOST_X11_XAUTH=""
 CONTAINER_X11_SOCKET="/tmp/.X11-unix"
 CONTAINER_X11_XAUTH="/home/x11user/.Xauthority"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set container hostname and domain - Default: GEN_SCRIPT_REPLACE_APPNAME
+# Set container hostname and domain - Default: [GEN_SCRIPT_REPLACE_APPNAME.$SET_HOST_FULL_HOST] [$SET_HOST_FULL_DOMAIN]
 CONTAINER_HOSTNAME=""
 CONTAINER_DOMAINNAME=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set the network type - default is bridge [bridge/host]
+# Set the network type - default is bridge - [bridge/host]
 HOST_DOCKER_NETWORK="bridge"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Link to an existing container [name:alias,name]
+# Link to an existing container - [name:alias,name]
 HOST_DOCKER_LINK=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set listen type - Default default all [all/local/lan/docker/public]
+# Set listen type - Default all - [all/local/lan/docker/public]
 HOST_NETWORK_ADDR="all"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup nginx proxy variables [yes/no] [yes/no] [http] [https] [yes/no]
+# Setup nginx proxy variables - [yes/no] [yes/no] [http] [https] [yes/no]
 HOST_NGINX_ENABLED="yes"
 HOST_NGINX_SSL_ENABLED="yes"
 HOST_NGINX_HTTP_PORT="80"
 HOST_NGINX_HTTPS_PORT="443"
 HOST_NGINX_UPDATE_CONF="yes"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Enable this if container is running a webserver [yes/no] [internalPort] [yes/no] [yes/no]
+# Enable this if container is running a webserver - [yes/no] [internalPort] [yes/no] [yes/no] [listen]
 CONTAINER_WEB_SERVER_ENABLED="no"
 CONTAINER_WEB_SERVER_INT_PORT="80"
 CONTAINER_WEB_SERVER_SSL_ENABLED="no"
 CONTAINER_WEB_SERVER_AUTH_ENABLED="no"
 CONTAINER_WEB_SERVER_LISTEN_ON="127.0.0.10"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Add service port [port]
+# Add service port - [port]
 CONTAINER_SERVICE_PORT=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Add custom port [port] or [port:port]
+# Add custom port - [port] or [port:port]
 CONTAINER_ADD_CUSTOM_PORT=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Add custom listening ports [listen:externalPort:internalPort/[tcp,udp]]
+# Add custom listening ports - [listen:externalPort:internalPort/[tcp,udp]]
 CONTAINER_ADD_CUSTOM_LISTEN=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set this to the protocol the the container will use [http/https/git/ftp/pgsql/mysql/mongodb]
+# Set this to the protocol the the container will use - [http/https/git/ftp/pgsql/mysql/mongodb]
 CONTAINER_PROTOCOL="http"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Database settings [listen] [yes/no]
+# Database settings - [listen] [yes/no]
 CONTAINER_DATABASE_LISTEN=""
 CONTAINER_REDIS_ENABLED=""
 CONTAINER_MARIADB_ENABLED=""
@@ -303,75 +312,75 @@ CONTAINER_COUCHDB_ENABLED=""
 CONTAINER_POSTGRES_ENABLED=""
 CONTAINER_SUPABASE_ENABLED=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Database root user [user] [pass/random]
+# Database root user - [user] [pass/random]
 CONTAINER_DATABASE_USER_ROOT=""
 CONTAINER_DATABASE_PASS_ROOT=""
 CONTAINER_DATABASE_LENGTH_ROOT="20"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Database non-root user [user] [pass/random]
+# Database non-root user - [user] [pass/random]
 CONTAINER_DATABASE_USER_NORMAL=""
 CONTAINER_DATABASE_PASS_NORMAL=""
 CONTAINER_DATABASE_LENGTH_NORMAL="20"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# [user] [pass/random]
+# Set a username and password - [user] [pass/random]
 CONTAINER_USER_NAME=""
 CONTAINER_USER_PASS=""
 CONTAINER_PASS_LENGTH="18"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set container username and password env name [CONTAINER_ENV_USER_NAME=$CONTAINER_USER_NAME]
+# Set container username and password env name - [CONTAINER_ENV_USER_NAME=$CONTAINER_USER_NAME]
 CONTAINER_ENV_USER_NAME=""
 CONTAINER_ENV_PASS_NAME=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# mail settings [yes/no] [user] [domainname] [server]
+# mail settings - [yes/no] [user] [domainname] [server]
 CONTAINER_EMAIL_ENABLED=""
 CONTAINER_EMAIL_USER=""
 CONTAINER_EMAIL_DOMAIN=""
 CONTAINER_EMAIL_RELAY=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Add the names of processes [apache,mysql]
+# Add the names of processes - [apache,mysql]
 CONTAINER_SERVICES_LIST=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Mount container data dir [yes/no] [/data]
+# Mount container data dir - [yes/no] [/data]
 CONTAINER_MOUNT_DATA_ENABLED="yes"
 CONTAINER_MOUNT_DATA_MOUNT_DIR=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Mount container config dir [yes/no] [/config]
+# Mount container config dir - [yes/no] [/config]
 CONTAINER_MOUNT_CONFIG_ENABLED="yes"
 CONTAINER_MOUNT_CONFIG_MOUNT_DIR=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Define additional mounts [/dir:/dir,/otherdir:/otherdir]
+# Define additional mounts - [/dir:/dir,/otherdir:/otherdir]
 CONTAINER_MOUNTS=""
 CONTAINER_MOUNTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Define additional devices [/dev:/dev,/otherdev:/otherdev]
+# Define additional devices - [/dev:/dev,/otherdev:/otherdev]
 CONTAINER_DEVICES=""
 CONTAINER_DEVICES+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Define additional variables [myvar=var,myothervar=othervar]
+# Define additional variables - [myvar=var,myothervar=othervar]
 CONTAINER_ENV=""
 CONTAINER_ENV+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set sysctl []
+# Set sysctl - []
 CONTAINER_SYSCTL=""
 CONTAINER_SYSCTL+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set capabilites [CAP,OTHERCAP]
+# Set capabilites - [CAP,OTHERCAP]
 CONTAINER_CAPABILITIES="SYS_ADMIN,SYS_TIME,"
 CONTAINER_CAPABILITIES+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Define labels [traefik.enable=true,label=label,otherlabel=label2]
+# Define labels - [traefik.enable=true,label=label,otherlabel=label2]
 CONTAINER_LABELS=""
 CONTAINER_LABELS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Specify container arguments - will run in container [/path/to/script]
+# Specify container arguments - will run in container  -[/path/to/script]
 CONTAINER_COMMANDS=""
 CONTAINER_COMMANDS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Define additional docker arguments - see docker run --help [--option arg1,--option2]
+# Define additional docker arguments - see docker run --help - [--option arg1,--option2]
 DOCKER_CUSTOM_ARGUMENTS=""
 DOCKER_CUSTOM_ARGUMENTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Enable debugging [yes/no] [Eex]
+# Enable debugging - [yes/no] [Eex]
 CONTAINER_DEBUG_ENABLED="no"
 CONTAINER_DEBUG_OPTIONS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -541,6 +550,26 @@ fi
 # Run the container privileged
 if [ "$CONTAINER_PRIVILEGED_ENABLED" = "yes" ]; then
   DOCKER_SET_OPTIONS+=("--privileged")
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set ram size
+if [ -n "$CONTAINER_RAM_SIZE" ]; then
+  CONTAINER_RAM_SIZE=$((1024 * 1024 * $CONTAINER_RAM_SIZE))
+  DOCKER_SET_OPTIONS+=("--memory $CONTAINER_RAM_SIZE")
+  unset CONTAINER_RAM_SIZE
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set swap size
+if [ -n "$CONTAINER_SWAP_SIZE" ]; then
+  CONTAINER_SWAP_SIZE=$((1024 * 1024 * $CONTAINER_SWAP_SIZE))
+  DOCKER_SET_OPTIONS+=("--memory-swap $CONTAINER_SWAP_SIZE")
+  unset CONTAINER_SWAP_SIZE
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set CPU count
+if [ -n "$CONTAINER_CPU_COUNT" ]; then
+  DOCKER_SET_OPTIONS+=("--cpus $CONTAINER_CPU_COUNT")
+  unset CONTAINER_CPU_COUNT
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the containers SHM size

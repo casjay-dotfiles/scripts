@@ -144,6 +144,10 @@ SET_LAN_IP=$(__ifconfig $SET_LAN_DEV | grep -w 'inet' | awk -F ' ' '{print $2}' 
 SET_LAN_IP="${SET_LAN_IP:-$(__local_lan_ip)}"
 SET_DOCKER_IP="$(__docker_gateway_ip)"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# get variables from env
+ENV_HOSTNAME="${ENV_HOSTNAME:-$SET_HOSTNAME}"
+ENV_DOMAINNAME="${ENV_DOMAINNAME:-$SET_DOMAIN}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # get variables from host
 SET_LOCAL_HOSTNAME=$(__host_name)
 SET_LOCAL_DOMAINNAME=$(__domain_name)
@@ -493,6 +497,8 @@ if [ -n "$CONTAINER_REQUIRES" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # rewrite variables from env file
+CONTAINER_HOSTNAME="${ENV_HOSTNAME:-$CONTAINER_HOSTNAME}"
+CONTAINER_DOMAINNAME="${ENV_DOMAINNAME:-$CONTAINER_DOMAINNAME}"
 CONTAINER_USER_NAME="${ENV_CONTAINER_USER_NAME:-$CONTAINER_USER_NAME}"
 CONTAINER_USER_PASS="${ENV_CONTAINER_USER_PASS:-$CONTAINER_USER_PASS}"
 CONTAINER_ENV_USER_NAME="${ENV_CONTAINER_ENV_USER_NAME:-$CONTAINER_ENV_USER_NAME}"

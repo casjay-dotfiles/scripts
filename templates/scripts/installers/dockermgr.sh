@@ -1633,16 +1633,6 @@ fi
 if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
   DOCKER_PORTS="$(__trim "${DOCKER_GET_PUBLISH//--publish/}")"
   SET_PORT="$(echo "$DOCKER_PORTS" | tr ' ' '\n' | sort -u | grep -v '^$')"
-  printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
-  printf_yellow "The container name is:          $CONTAINER_NAME"
-  printf_yellow "The container is listening on:  $HOST_LISTEN_ADDR"
-  printf_yellow "The hostname name is set to:    $CONTAINER_HOSTNAME"
-  printf_yellow "Containers data is saved in:    $DATADIR"
-  if [ "$DOCKER_CREATE_NET" ]; then
-    printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
-    printf_purple "Created docker network:         $HOST_DOCKER_NETWORK"
-    printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
-  fi
   if ! grep -sq "$CONTAINER_HOSTNAME" "/etc/hosts" && [ -w "/etc/hosts" ]; then
     if [ -n "$PRETTY_PORT" ]; then
       if [ "$HOST_LISTEN_ADDR" = 'home' ]; then
@@ -1653,11 +1643,29 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
       fi
     fi
   fi
+  printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
+  printf_yellow "The container name is:          $CONTAINER_NAME"
+  printf_yellow "The container is listening on:  $HOST_LISTEN_ADDR"
+  printf_yellow "The hostname name is set to:    $CONTAINER_HOSTNAME"
+  printf_yellow "Containers data is saved in:    $DATADIR"
+  printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
+  if [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME" ] || [ -f "$DOCKERMGR_CONFIG_DIR/env/custom.$APPNAME" ]; then
+    if [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME" ]; then
+      printf_green "variables saved to: $DOCKERMGR_CONFIG_DIR/env/$APPNAME"
+    fi
+    if [ -f "$DOCKERMGR_CONFIG_DIR/env/custom.$APPNAME" ]; then
+      printf_green "Container variables saved to: $DOCKERMGR_CONFIG_DIR/env/custom.$APPNAME"
+    fi
+    printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
+  fi
+  if [ "$DOCKER_CREATE_NET" ]; then
+    printf_purple "Created docker network:         $HOST_DOCKER_NETWORK"
+    printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
+  fi
   if [ "$SUDO_USER" != "root" ] && [ -n "$SUDO_USER" ]; then
     __sudo chown -f "$SUDO_USER":"$SUDO_USER" "$DATADIR" "$INSTDIR" &>/dev/null
   fi
   if [ "$NGINX_IS_INSTALLED" = "yes" ] && [ -f "$NGINX_CONF_FILE" ]; then
-    printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
     printf_cyan "nginx vhost name:                $CONTAINER_HOSTNAME"
     printf_cyan "nginx proxy to port:             $NGINX_PROXY_URL"
     printf_cyan "nginx config file installed to:  $NGINX_CONF_FILE"
@@ -1693,7 +1701,6 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
     printf_blue "Database password:               $CONTAINER_DATABASE_PASS_NORMAL"
   fi
   if [ "$SHOW_DATABASE_INFO" = "true" ]; then
-    printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
     MESSAGE="true"
     printf_yellow "Database is running on:          $CONTAINER_DATABASE_PROTO"
     if [ -n "$MESSAGE_COUCHDB" ]; then

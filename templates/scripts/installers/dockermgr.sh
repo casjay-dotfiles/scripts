@@ -1649,15 +1649,6 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
   printf_yellow "The hostname name is set to:    $CONTAINER_HOSTNAME"
   printf_yellow "Containers data is saved in:    $DATADIR"
   printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
-  if [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME" ] || [ -f "$DOCKERMGR_CONFIG_DIR/env/custom.$APPNAME" ]; then
-    if [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME" ]; then
-      printf_green "variables saved to: $DOCKERMGR_CONFIG_DIR/env/$APPNAME"
-    fi
-    if [ -f "$DOCKERMGR_CONFIG_DIR/env/custom.$APPNAME" ]; then
-      printf_green "Container variables saved to: $DOCKERMGR_CONFIG_DIR/env/custom.$APPNAME"
-    fi
-    printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
-  fi
   if [ "$DOCKER_CREATE_NET" ]; then
     printf_purple "Created docker network:         $HOST_DOCKER_NETWORK"
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
@@ -1772,6 +1763,15 @@ else
   done
 fi
 if [ "$MESSAGE" = "true" ]; then
+  printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
+fi
+if [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME" ] || [ -f "$DOCKERMGR_CONFIG_DIR/env/custom.$APPNAME" ]; then
+  if [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME" ]; then
+    printf_green "variables saved to:              $DOCKERMGR_CONFIG_DIR/env/$APPNAME"
+  fi
+  if [ -f "$DOCKERMGR_CONFIG_DIR/env/custom.$APPNAME" ]; then
+    printf_green "Container variables saved to:    $DOCKERMGR_CONFIG_DIR/env/custom.$APPNAME"
+  fi
   printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
 fi
 printf_cyan "$APPNAME has been installed to:   $INSTDIR"

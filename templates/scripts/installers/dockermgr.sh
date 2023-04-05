@@ -1601,14 +1601,15 @@ __docker_ps && CONTAINER_INSTALLED="true"
 # Install nginx proxy
 if [ -w "$NGINX_DIR/vhosts.d" ]; then
   NGINX_VHOST_ENABLED="true"
-  NGINX_VHOST_NAMES="$CONTAINER_HOSTNAME ${CONTAINER_WEB_SERVER_VHOSTS//,/ }"
+  NGINX_VHOST_NAMES="${CONTAINER_WEB_SERVER_VHOSTS//,/ }"
   NGINX_CONFIG_NAME="${CONTAINER_WEB_SERVER_CONFIG_NAME:-$CONTAINER_HOSTNAME}"
   if [ "$HOST_NGINX_UPDATE_CONF" = "yes" ] && [ -f "$INSTDIR/nginx/proxy.conf" ]; then
     cp -f "$INSTDIR/nginx/proxy.conf" "/tmp/$$.$CONTAINER_HOSTNAME.conf"
     sed -i "s|REPLACE_APPNAME|$APPNAME|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
     sed -i "s|REPLACE_NGINX_PORT|$NGINX_PORT|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
     sed -i "s|REPLACE_HOST_PROXY|$NGINX_PROXY_URL|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
-    sed -i "s|REPLACE_NGINX_HOST|$NGINX_VHOST_NAMES|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
+    sed -i "s|REPLACE_NGINX_HOST|$CONTAINER_HOSTNAME|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
+    sed -i "s|REPLACE_NGINX_VHOSTS|$NGINX_VHOST_NAMES|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
     sed -i "s|REPLACE_SERVER_LISTEN_OPTS|$NGINX_LISTEN_OPTS|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
     if [ -d "$NGINX_DIR/vhosts.d" ]; then
       __sudo_root mv -f "/tmp/$$.$CONTAINER_HOSTNAME.conf" "$NGINX_DIR/vhosts.d/$NGINX_CONFIG_NAME.conf"

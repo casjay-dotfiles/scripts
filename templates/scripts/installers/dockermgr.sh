@@ -459,6 +459,7 @@ __trim() {
 [ -f "$APPDIR/env.sh" ] && . "$APPDIR/env.sh"
 [ -f "$DOCKERMGR_CONFIG_DIR/.env.sh" ] && . "$DOCKERMGR_CONFIG_DIR/.env.sh"
 [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME" ] && . "$DOCKERMGR_CONFIG_DIR/env/$APPNAME"
+[ -f "$DOCKERMGR_CONFIG_DIR/env/custom.$APPNAME" ] && . "$DOCKERMGR_CONFIG_DIR/env/custom.$APPNAME"
 [ -r "$DOCKERMGR_CONFIG_DIR/secure/$APPNAME" ] && . "$DOCKERMGR_CONFIG_DIR/secure/$APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Initialize the installer
@@ -469,7 +470,6 @@ execute "run_pre_install" "Running pre-installation commands"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ensure_dirs
 ensure_perms
-chmod -Rf 777 "$APPDIR"
 mkdir -p "$LOCAL_DATA_DIR"
 mkdir -p "$LOCAL_CONFIG_DIR"
 mkdir -p "$DOCKERMGR_CONFIG_DIR/env"
@@ -477,6 +477,11 @@ mkdir -p "$DOCKERMGR_CONFIG_DIR/secure"
 mkdir -p "$DOCKERMGR_CONFIG_DIR/scripts"
 mkdir -p "$DOCKERMGR_CONFIG_DIR/installed"
 mkdir -p "$DOCKERMGR_CONFIG_DIR/containers"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# fix directory permissions
+chmod -f 777 "$APPDIR"
+chmod -f 777 "$LOCAL_DATA_DIR"
+chmod -f 777 "$LOCAL_CONFIG_DIR"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # variable cleanup
 
@@ -1301,6 +1306,7 @@ EXECUTE_DOCKER_CMD="docker run -d $DOCKER_GET_OPTIONS $DOCKER_GET_CUSTOM $DOCKER
 # Run functions
 __container_import_variables "$CONTAINER_ENV_FILE_MOUNT"
 __dockermgr_variables >"$DOCKERMGR_CONFIG_DIR/env/$APPNAME"
+__custom_docker_env >"$DOCKERMGR_CONFIG_DIR/env/custom.$APPNAME"
 __dockermgr_password_variables >"$DOCKERMGR_CONFIG_DIR/secure/$APPNAME"
 chmod -f 600 "$DOCKERMGR_CONFIG_DIR/secure/$APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

@@ -300,6 +300,12 @@ CONTAINER_WEB_SERVER_LISTEN_ON="127.0.0.10"
 CONTAINER_WEB_SERVER_VHOSTS=""
 CONTAINER_WEB_SERVER_CONFIG_NAME=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# mail settings - [yes/no] [user] [domainname] [server]
+CONTAINER_EMAIL_ENABLED=""
+CONTAINER_EMAIL_USER=""
+CONTAINER_EMAIL_DOMAIN=""
+CONTAINER_EMAIL_RELAY=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Add service port - [port]
 CONTAINER_SERVICE_PORT=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -340,12 +346,6 @@ CONTAINER_PASS_LENGTH="18"
 # Set container username and password env name - [CONTAINER_ENV_USER_NAME=$CONTAINER_USER_NAME]
 CONTAINER_ENV_USER_NAME=""
 CONTAINER_ENV_PASS_NAME=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# mail settings - [yes/no] [user] [domainname] [server]
-CONTAINER_EMAIL_ENABLED=""
-CONTAINER_EMAIL_USER=""
-CONTAINER_EMAIL_DOMAIN=""
-CONTAINER_EMAIL_RELAY=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Add the names of processes - [apache,mysql]
 CONTAINER_SERVICES_LIST=""
@@ -394,6 +394,9 @@ DOCKER_CUSTOM_ARGUMENTS+=""
 CONTAINER_DEBUG_ENABLED="no"
 CONTAINER_DEBUG_OPTIONS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# additional directories to create - [/config/dir1,/data/dir2]
+CONTAINER_CREATE_DIRECTORY=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show post install message
 POST_SHOW_FINISHED_MESSAGE=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -408,7 +411,7 @@ EOF
 __container_import_variables() {
   [ "$CONTAINER_ENV_FILE_ENABLED" = "yes" ] || return 0
   local base_dir="" base_file="$1"
-  base_dir="$(realpath "$DATADIR/$(dirname "$base_file")")"
+  base_dir="$(realpath "$DATADIR")/$(dirname "$base_file")"
   [ -d "$base_dir" ] || mkdir -p "$base_dir"
   cat <<EOF | __remove_extra_spaces | tee "$base_dir/$base_file" &>/dev/null
 
@@ -579,8 +582,6 @@ execute "run_pre_install" "Running pre-installation commands"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ensure_dirs
 ensure_perms
-mkdir -p "$LOCAL_DATA_DIR"
-mkdir -p "$LOCAL_CONFIG_DIR"
 mkdir -p "$DOCKERMGR_CONFIG_DIR/env"
 mkdir -p "$DOCKERMGR_CONFIG_DIR/secure"
 mkdir -p "$DOCKERMGR_CONFIG_DIR/scripts"
@@ -589,8 +590,6 @@ mkdir -p "$DOCKERMGR_CONFIG_DIR/containers"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # fix directory permissions
 chmod -f 777 "$APPDIR"
-chmod -f 777 "$LOCAL_DATA_DIR"
-chmod -f 777 "$LOCAL_CONFIG_DIR"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # variable cleanup
 
@@ -679,8 +678,8 @@ CONTAINER_SOUND_DEVICE_FILE="${ENV_CONTAINER_SOUND_DEVICE_FILE:-$CONTAINER_SOUND
 CONTAINER_X11_ENABLED="${ENV_CONTAINER_X11_ENABLED:-$CONTAINER_X11_ENABLED}"
 CONTAINER_X11_SOCKET="${ENV_CONTAINER_X11_SOCKET:-$CONTAINER_X11_SOCKET}"
 CONTAINER_X11_XAUTH="${ENV_CONTAINER_X11_XAUTH:-$CONTAINER_X11_XAUTH}"
-CONTAINER_HOSTNAME="${ENV_CONTAINER_HOSTNAME:-$CONTAINER_HOSTNAME}"
-CONTAINER_DOMAINNAME="${ENV_CONTAINER_DOMAINNAME:-$CONTAINER_DOMAINNAME}"
+CONTAINER_HOSTNAME="${ENV_CONTAINER_HOSTNAME:-$SET_HOST_FULL_HOST}"
+CONTAINER_DOMAINNAME="${CONTAINER_DOMAINNAME:-SET_HOST_FULL_DOMAIN}"
 CONTAINER_WEB_SERVER_ENABLED="${ENV_CONTAINER_WEB_SERVER_ENABLED:-$CONTAINER_WEB_SERVER_ENABLED}"
 CONTAINER_WEB_SERVER_INT_PORT="${ENV_CONTAINER_WEB_SERVER_INT_PORT:-$CONTAINER_WEB_SERVER_INT_PORT}"
 CONTAINER_WEB_SERVER_SSL_ENABLED="${ENV_CONTAINER_WEB_SERVER_SSL_ENABLED:-$CONTAINER_WEB_SERVER_SSL_ENABLED}"
@@ -944,7 +943,7 @@ fi
 # Set the domain name
 if [ -n "$CONTAINER_DOMAINNAME" ]; then
   DOCKER_SET_OPTIONS+=("--domainname $CONTAINER_DOMAINNAME")
-  DOCKER_SET_OPTIONS+=("--env DOMAINNAME=$HOST_FULL_DOMAIN")
+  DOCKER_SET_OPTIONS+=("--env DOMAINNAME=$CONTAINER_DOMAINNAME")
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the docker network
@@ -1103,76 +1102,76 @@ if [ "$CONTAINER_REDIS_ENABLED" = "yes" ]; then
   SHOW_DATABASE_INFO="true"
   CONTAINER_ENV_PORTS+=("6379")
   CONTAINER_DATABASE_ENABLED="yes"
-  CONTAINER_DATABASE_PROTO="redis://$HOST_LISTEN_ADDR:6379"
+  MESSAGE_REDIS="Database files are saved to:      $DATABASE_DIR_REDIS"
   DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_DATABASE_LISTEN:6379:6379")
   DATABASE_DIR_REDIS="${DATABASE_DIR_REDIS:-$DATABASE_BASE_DIR/redis}"
   DOCKER_SET_OPTIONS+=("--volume $LOCAL_DATA_DIR/db/redis:/$DATABASE_DIR_REDIS:z")
   DOCKER_SET_OPTIONS+=("--env DATABASE_DIR_REDIS=$DATABASE_DIR_REDIS")
-  MESSAGE_REDIS="Database files are saved to:      $DATABASE_DIR_REDIS"
+  CONTAINER_DATABASE_PROTO="redis://$HOST_LISTEN_ADDR:6379"
 fi
 if [ "$CONTAINER_SQLITE3_ENABLED" = "yes" ]; then
   SHOW_DATABASE_INFO="true"
   CONTAINER_DATABASE_ENABLED="yes"
-  CONTAINER_DATABASE_PROTO="sqlite3://$DATABASE_DIR_SQLITE3"
   DATABASE_DIR_SQLITE3="${DATABASE_DIR_SQLITE3:-$DATABASE_BASE_DIR/sqlite3}"
   DOCKER_SET_OPTIONS+=("--volume $LOCAL_DATA_DIR/db/sqlite3:/$DATABASE_DIR_SQLITE3:z")
   DOCKER_SET_OPTIONS+=("--env DATABASE_DIR_SQLITE3=$DATABASE_DIR_SQLITE3")
+  CONTAINER_DATABASE_PROTO="sqlite3://$DATABASE_DIR_SQLITE3"
   MESSAGE_SQLITE3="Database files are saved to:      $DATABASE_DIR_SQLITE3"
 fi
 if [ "$CONTAINER_POSTGRES_ENABLED" = "yes" ]; then
   SHOW_DATABASE_INFO="true"
   CONTAINER_ENV_PORTS+=("5432")
   CONTAINER_DATABASE_ENABLED="yes"
-  CONTAINER_DATABASE_PROTO="postgresql://$HOST_LISTEN_ADDR:5432"
-  DOCKER_SET_TMP_PUBLISH+=(--publish "$CONTAINER_DATABASE_LISTEN:5432:5432")
+  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_DATABASE_LISTEN:5432:5432")
   DATABASE_DIR_POSTGRES="${DATABASE_DIR_POSTGRES:-$DATABASE_BASE_DIR/pgsql}"
   DOCKER_SET_OPTIONS+=("--volume $LOCAL_DATA_DIR/db/postgres:/$DATABASE_DIR_POSTGRES:z")
   DOCKER_SET_OPTIONS+=("--env DATABASE_DIR_POSTGRES=$DATABASE_DIR_POSTGRES")
+  CONTAINER_DATABASE_PROTO="postgresql://$HOST_LISTEN_ADDR:5432"
   MESSAGE_PGSQL="Database files are saved to:      $DATABASE_DIR_POSTGRES"
 fi
 if [ "$CONTAINER_MARIADB_ENABLED" = "yes" ]; then
   SHOW_DATABASE_INFO="true"
   CONTAINER_ENV_PORTS+=("3306")
   CONTAINER_DATABASE_ENABLED="yes"
-  CONTAINER_DATABASE_PROTO="mysql://$HOST_LISTEN_ADDR:3306"
-  DOCKER_SET_TMP_PUBLISH+=(--publish "$CONTAINER_DATABASE_LISTEN:3306:3306")
+  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_DATABASE_LISTEN:3306:3306")
   DATABASE_DIR_MARIADB="${DATABASE_DIR_MARIADB:-$DATABASE_BASE_DIR/mariadb}"
   DOCKER_SET_OPTIONS+=("--volume $LOCAL_DATA_DIR/db/mariadb:/$DATABASE_DIR_MARIADB:z")
   DOCKER_SET_OPTIONS+=("--env DATABASE_DIR_MARIADB=$DATABASE_DIR_MARIADB")
+  CONTAINER_DATABASE_PROTO="mysql://$HOST_LISTEN_ADDR:3306"
   MESSAGE_MARIADB="Database files are saved to:      $DATABASE_DIR_MARIADB"
 fi
 if [ "$CONTAINER_COUCHDB_ENABLED" = "yes" ]; then
   SHOW_DATABASE_INFO="true"
   CONTAINER_ENV_PORTS+=("5984")
   CONTAINER_DATABASE_ENABLED="yes"
-  CONTAINER_DATABASE_PROTO="http://$HOST_LISTEN_ADDR:5984"
-  DOCKER_SET_TMP_PUBLISH+=(--publish "$CONTAINER_DATABASE_LISTEN:5984:5984")
+  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_DATABASE_LISTEN:5984:5984")
   DATABASE_DIR_COUCHDB="${DATABASE_DIR_COUCHDB:-$DATABASE_BASE_DIR/couchdb}"
   DOCKER_SET_OPTIONS+=("--volume $LOCAL_DATA_DIR/db/couchdb:/$DATABASE_DIR_COUCHDB:z")
   DOCKER_SET_OPTIONS+=("--env DATABASE_DIR_COUCHDB=$DATABASE_DIR_COUCHDB")
   MESSAGE_COUCHDB="Database files are saved to:      $DATABASE_DIR_COUCHDB"
+  CONTAINER_DATABASE_PROTO="http://$HOST_LISTEN_ADDR:5984"
 fi
 if [ "$CONTAINER_MONGODB_ENABLED" = "yes" ]; then
   SHOW_DATABASE_INFO="true"
   CONTAINER_ENV_PORTS+=("27017")
   CONTAINER_DATABASE_ENABLED="yes"
-  CONTAINER_DATABASE_PROTO="mongodb://$HOST_LISTEN_ADDR:27017"
-  DOCKER_SET_TMP_PUBLISH+=(--publish "$CONTAINER_DATABASE_LISTEN:27017:27017")
+  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_DATABASE_LISTEN:27017:27017")
   DATABASE_DIR_MONGODB="${DATABASE_DIR_MONGODB:-$DATABASE_BASE_DIR/mongodb}"
   DOCKER_SET_OPTIONS+=("--volume $LOCAL_DATA_DIR/db/mongodb:/$DATABASE_DIR_MONGODB:z")
   DOCKER_SET_OPTIONS+=("--env DATABASE_DIR_MONGODB=$DATABASE_DIR_MONGODB")
   MESSAGE_MONGODB="Database files are saved to:      $DATABASE_DIR_MONGODB"
+  CONTAINER_DATABASE_PROTO="mongodb://$HOST_LISTEN_ADDR:27017"
 fi
 if [ "$CONTAINER_SUPABASE_ENABLED" = "yes" ]; then
   SHOW_DATABASE_INFO="true"
   CONTAINER_ENV_PORTS+=("5432")
   CONTAINER_DATABASE_ENABLED="yes"
-  CONTAINER_DATABASE_PROTO="http://$HOST_LISTEN_ADDR:8000"
-  DOCKER_SET_TMP_PUBLISH+=(--publish "$CONTAINER_DATABASE_LISTEN:5432:5432")
+  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_DATABASE_LISTEN:5432:5432")
   DATABASE_DIR_SUPABASE="${DATABASE_DIR_SUPABASE:-$DATABASE_BASE_DIR/supabase}"
   DOCKER_SET_OPTIONS+=("--volume $LOCAL_DATA_DIR/db/supabase:/$DATABASE_DIR_SUPABASE:z")
   DOCKER_SET_OPTIONS+=("--env DATABASE_DIR_SUPABASE=$DATABASE_DIR_SUPABASE")
   MESSAGE_SUPABASE="Database files are saved to:      $DATABASE_DIR_SUPABASE"
+  CONTAINER_DATABASE_PROTO="http://$HOST_LISTEN_ADDR:8000"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #
@@ -1225,21 +1224,21 @@ if [ -n "$CONTAINER_USER_PASS" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup email variables
-if [ -n "$CONTAINER_EMAIL_DOMAIN" ]; then
-  DOCKER_SET_OPTIONS+=("--env EMAIL_DOMAIN=$CONTAINER_EMAIL_DOMAIN")
-fi
-if [ -n "$CONTAINER_EMAIL_RELAY" ]; then
-  DOCKER_SET_OPTIONS+=("--env EMAIL_RELAY=$CONTAINER_EMAIL_RELAY")
-fi
-if [ -n "$CONTAINER_EMAIL_USER" ]; then
-  DOCKER_SET_OPTIONS+=("--env EMAIL_ADMIN=$CONTAINER_EMAIL_USER@")
-fi
-if [ -z "$CONTAINER_EMAIL_PORTS" ]; then
-  CONTAINER_EMAIL_PORTS="25,465,587"
-fi
 if [ "$CONTAINER_EMAIL_ENABLED" = "yes" ]; then
-  DOCKER_SET_OPTIONS+=("--env EMAIL_ENABLED=$CONTAINER_EMAIL_ENABLED")
+  if [ -n "$CONTAINER_EMAIL_DOMAIN" ]; then
+    DOCKER_SET_OPTIONS+=("--env EMAIL_DOMAIN=$CONTAINER_EMAIL_DOMAIN")
+  fi
+  if [ -n "$CONTAINER_EMAIL_RELAY" ]; then
+    DOCKER_SET_OPTIONS+=("--env EMAIL_RELAY=$CONTAINER_EMAIL_RELAY")
+  fi
+  if [ -n "$CONTAINER_EMAIL_USER" ]; then
+    DOCKER_SET_OPTIONS+=("--env EMAIL_ADMIN=$CONTAINER_EMAIL_USER@")
+  fi
+  if [ -z "$CONTAINER_EMAIL_PORTS" ]; then
+    CONTAINER_EMAIL_PORTS="25,465,587"
+  fi
   CONTAINER_EMAIL_PORTS="$(echo "${CONTAINER_EMAIL_PORTS//,/ }" | tr ' ' '\n')"
+  DOCKER_SET_OPTIONS+=("--env EMAIL_ENABLED=$CONTAINER_EMAIL_ENABLED")
   CONTAINER_ENV_PORTS+=("$CONTAINER_EMAIL_PORTS")
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1539,7 +1538,7 @@ __custom_docker_env | tr ' ' '\n' | sed 's|--.*||g' | grep -v '^$' >"$DOCKERMGR_
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main progam
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-[ -d "$APPDIR/files" ] && [ ! -d "$DATADIR" ] && mv -f "$APPDIR/files" "$DATADIR"
+[ -d "$APPDIR/files" ] && { [ ! -d "$DATADIR" ] && mv -f "$APPDIR/files" "$DATADIR"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Clone/update the repo
 if __am_i_online; then
@@ -1557,6 +1556,25 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Write the container name to file
 echo "$CONTAINER_NAME" >"$DOCKERMGR_CONFIG_DIR/installed/$APPNAME"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ ! -d "$LOCAL_DATA_DIR" ]; then 
+  mkdir -p "$LOCAL_DATA_DIR"
+  chmod -f 777 "$LOCAL_DATA_DIR"
+fi
+if [ ! -d "$LOCAL_CONFIG_DIR" ]; then 
+  mkdir -p "$LOCAL_CONFIG_DIR"
+  chmod -f 777 "$LOCAL_CONFIG_DIR"
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -n "$CONTAINER_CREATE_DIRECTORY" ]; then
+  CONTAINER_CREATE_DIRECTORY="${CONTAINER_CREATE_DIRECTORY//, }"
+  for dir in $CONTAINER_CREATE_DIRECTORY;do
+    if [ ! -d "$DATADIR/$dir" ]; then
+      mkdir -p "$DATADIR/$dir"
+      chmod -f 777 "$DATADIR/$dir"
+    fi
+  done
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Copy over data files - keep the same stucture as -v DATADIR/mnt:/mnt
 if [ -d "$INSTDIR/rootfs" ] && [ ! -f "$DATADIR/.installed" ]; then

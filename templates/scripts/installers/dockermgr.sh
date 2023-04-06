@@ -592,7 +592,8 @@ mkdir -p "$DOCKERMGR_CONFIG_DIR/containers"
 chmod -f 777 "$APPDIR"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # variable cleanup
-
+HUB_IMAGE_TAG="${HUB_IMAGE_TAG//*:/}"
+HUB_IMAGE_URL="${HUB_IMAGE_URL//*:\/\//}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # verify required file exists
 if [ -n "$CONTAINER_REQUIRES" ]; then
@@ -647,9 +648,7 @@ HOST_NGINX_HTTP_PORT="${ENV_HOST_NGINX_HTTP_PORT:-$HOST_NGINX_HTTP_PORT}"
 HOST_NGINX_HTTPS_PORT="${ENV_HOST_NGINX_HTTPS_PORT:-$HOST_NGINX_HTTPS_PORT}"
 HOST_NGINX_UPDATE_CONF="${ENV_HOST_NGINX_UPDATE_CONF:-$HOST_NGINX_UPDATE_CONF}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-CONTAINER_NAME="${ENV_CONTAINER_NAME:-}"
-CONTAINER_HOSTNAME="${ENV_HOSTNAME:-}"
-CONTAINER_DOMAINNAME="${ENV_DOMAINNAME:-$CONTAINER_DOMAINNAME}"
+CONTAINER_NAME="${ENV_CONTAINER_NAME:-${CONTAINER_NAME:-$APPNAME}}"
 CONTAINER_SSL_DIR="${ENV_CONTAINER_SSL_DIR:-$CONTAINER_SSL_DIR}"
 CONTAINER_SSL_CA="${ENV_CONTAINER_SSL_CA:-$CONTAINER_SSL_CA}"
 CONTAINER_SSL_CRT="${ENV_CONTAINER_SSL_CRT:-$CONTAINER_SSL_CRT}"
@@ -678,8 +677,8 @@ CONTAINER_SOUND_DEVICE_FILE="${ENV_CONTAINER_SOUND_DEVICE_FILE:-$CONTAINER_SOUND
 CONTAINER_X11_ENABLED="${ENV_CONTAINER_X11_ENABLED:-$CONTAINER_X11_ENABLED}"
 CONTAINER_X11_SOCKET="${ENV_CONTAINER_X11_SOCKET:-$CONTAINER_X11_SOCKET}"
 CONTAINER_X11_XAUTH="${ENV_CONTAINER_X11_XAUTH:-$CONTAINER_X11_XAUTH}"
-CONTAINER_HOSTNAME="${ENV_CONTAINER_HOSTNAME:-$SET_HOST_FULL_HOST}"
-CONTAINER_DOMAINNAME="${CONTAINER_DOMAINNAME:-SET_HOST_FULL_DOMAIN}"
+CONTAINER_HOSTNAME="${ENV_HOSTNAME:-${ENV_CONTAINER_HOSTNAME:-$CONTAINER_HOSTNAME}}"
+CONTAINER_DOMAINNAME="${ENV_DOMAINNAME:-${ENV_CONTAINER_DOMAINNAME:-$CONTAINER_DOMAINNAME}}"
 CONTAINER_WEB_SERVER_ENABLED="${ENV_CONTAINER_WEB_SERVER_ENABLED:-$CONTAINER_WEB_SERVER_ENABLED}"
 CONTAINER_WEB_SERVER_INT_PORT="${ENV_CONTAINER_WEB_SERVER_INT_PORT:-$CONTAINER_WEB_SERVER_INT_PORT}"
 CONTAINER_WEB_SERVER_SSL_ENABLED="${ENV_CONTAINER_WEB_SERVER_SSL_ENABLED:-$CONTAINER_WEB_SERVER_SSL_ENABLED}"
@@ -739,16 +738,17 @@ DOCKER_SET_OPTIONS=()
 if [ -z "$HUB_IMAGE_TAG" ]; then
   HUB_IMAGE_TAG="latest"
 fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -z "$HUB_IMAGE_URL" ] || [ "$HUB_IMAGE_URL" = " " ]; then
   printf_exit "Please set the url to the containers image"
 elif echo "$HUB_IMAGE_URL" | grep -q ':'; then
   HUB_IMAGE_URL="$(echo "$HUB_IMAGE_URL" | awk -F':' '{print $1}')"
-  HUB_IMAGE_TAG="$(echo "$HUB_IMAGE_URL" | awk -F':' '{print $2}')"
+  HUB_IMAGE_TAG="${HUB_IMAGE_TAG:-$(echo "$HUB_IMAGE_URL" | awk -F':' '{print $2}')}"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set containers name
 if [ -z "$CONTAINER_NAME" ]; then
-  CONTAINER_NAME="$(__container_name || echo "casjaysdevdocker/GEN_SCRIPT_REPLACE_APPNAME-$HUB_IMAGE_TAG")"
+  CONTAINER_NAME="$(__container_name || echo "${HUB_IMAGE_URL//\/-/}-$HUB_IMAGE_TAG")"
 fi
 DOCKER_SET_OPTIONS+=("--name=$CONTAINER_NAME")
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1558,19 +1558,19 @@ fi
 # Write the container name to file
 echo "$CONTAINER_NAME" >"$DOCKERMGR_CONFIG_DIR/installed/$APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ ! -d "$LOCAL_DATA_DIR" ]; then 
+if [ ! -d "$LOCAL_DATA_DIR" ]; then
   mkdir -p "$LOCAL_DATA_DIR"
   chmod -f 777 "$LOCAL_DATA_DIR"
 fi
-if [ ! -d "$LOCAL_CONFIG_DIR" ]; then 
+if [ ! -d "$LOCAL_CONFIG_DIR" ]; then
   mkdir -p "$LOCAL_CONFIG_DIR"
   chmod -f 777 "$LOCAL_CONFIG_DIR"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 CONTAINER_CREATE_DIRECTORY="$(__trim "$CONTAINER_CREATE_DIRECTORY")"
 if [ -n "$CONTAINER_CREATE_DIRECTORY" ]; then
-  CONTAINER_CREATE_DIRECTORY="${CONTAINER_CREATE_DIRECTORY//, }"
-  for dir in $CONTAINER_CREATE_DIRECTORY;do
+  CONTAINER_CREATE_DIRECTORY="${CONTAINER_CREATE_DIRECTORY//, /}"
+  for dir in $CONTAINER_CREATE_DIRECTORY; do
     if [ -n "$dir" ] && [ ! -d "$DATADIR/$dir" ]; then
       mkdir -p "$DATADIR/$dir"
       chmod -f 777 "$DATADIR/$dir"

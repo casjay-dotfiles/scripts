@@ -400,7 +400,7 @@ CONTAINER_DEBUG_ENABLED="no"
 CONTAINER_DEBUG_OPTIONS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # additional directories to create - [/config/dir1,/data/dir2]
-CONTAINER_CREATE_DIRECTORY="/data/$APPNAME,/config/$APPNAME"
+CONTAINER_CREATE_DIRECTORY="/data/$APPNAME,/config/$APPNAME,"
 CONTAINER_CREATE_DIRECTORY+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show post install message
@@ -1574,6 +1574,10 @@ fi
 # Write the container name to file
 echo "$CONTAINER_NAME" >"$DOCKERMGR_CONFIG_DIR/installed/$APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ ! -d "$DATADIR" ]; then
+  mkdir -p "$DATADIR"
+  chmod -f 777 "$DATADIR"
+fi
 if [ ! -d "$LOCAL_DATA_DIR" ]; then
   mkdir -p "$LOCAL_DATA_DIR"
   chmod -f 777 "$LOCAL_DATA_DIR"
@@ -1583,6 +1587,7 @@ if [ ! -d "$LOCAL_CONFIG_DIR" ]; then
   chmod -f 777 "$LOCAL_CONFIG_DIR"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+CONTAINER_CREATE_DIRECTORY="${CONTAINER_CREATE_DIRECTORY//,/ }"
 CONTAINER_CREATE_DIRECTORY="$(__trim "$CONTAINER_CREATE_DIRECTORY")"
 if [ -n "$CONTAINER_CREATE_DIRECTORY" ]; then
   CONTAINER_CREATE_DIRECTORY="${CONTAINER_CREATE_DIRECTORY//, /}"
@@ -1593,6 +1598,7 @@ if [ -n "$CONTAINER_CREATE_DIRECTORY" ]; then
     fi
   done
 fi
+unset CONTAINER_CREATE_DIRECTORY
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Copy over data files - keep the same stucture as -v DATADIR/mnt:/mnt
 if [ -d "$INSTDIR/rootfs" ] && [ ! -f "$DATADIR/.installed" ]; then

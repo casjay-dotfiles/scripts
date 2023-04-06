@@ -1117,6 +1117,7 @@ if [ "$CONTAINER_SQLITE3_ENABLED" = "yes" ]; then
   DOCKER_SET_OPTIONS+=("--env DATABASE_DIR_SQLITE3=$DATABASE_DIR_SQLITE3")
   CONTAINER_DATABASE_PROTO="sqlite3://$DATABASE_DIR_SQLITE3"
   MESSAGE_SQLITE3="Database files are saved to:      $DATABASE_DIR_SQLITE3"
+  CONTAINER_CREATE_DIRECTORY="$DATABASE_DIR_SQLITE3 $CONTAINER_CREATE_DIRECTORY"
 fi
 if [ "$CONTAINER_POSTGRES_ENABLED" = "yes" ]; then
   SHOW_DATABASE_INFO="true"
@@ -1566,10 +1567,11 @@ if [ ! -d "$LOCAL_CONFIG_DIR" ]; then
   chmod -f 777 "$LOCAL_CONFIG_DIR"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+CONTAINER_CREATE_DIRECTORY="$(__trim "$CONTAINER_CREATE_DIRECTORY")"
 if [ -n "$CONTAINER_CREATE_DIRECTORY" ]; then
   CONTAINER_CREATE_DIRECTORY="${CONTAINER_CREATE_DIRECTORY//, }"
   for dir in $CONTAINER_CREATE_DIRECTORY;do
-    if [ ! -d "$DATADIR/$dir" ]; then
+    if [ -n "$dir" ] && [ ! -d "$DATADIR/$dir" ]; then
       mkdir -p "$DATADIR/$dir"
       chmod -f 777 "$DATADIR/$dir"
     fi

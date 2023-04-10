@@ -448,13 +448,16 @@ get_hosts() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 run_caddy_server() {
+  local statusCode=0
   if __caddy_user_install; then
-    $GEN_CADDY_BIN_FILE start -config="$GEN_CADDY_SERVER_FILE" -pidfile="$GEN_CADDY_FILE_DIR/caddy.pid" -watch 2>&1 | tee "$GEN_CADDY_LOG_DIR/caddy.log" &>/dev/null &
+    $GEN_CADDY_BIN_FILE start --config="$GEN_CADDY_SERVER_FILE" --pidfile="$GEN_CADDY_FILE_DIR/caddy.pid" --watch 2>&1 | tee "$GEN_CADDY_LOG_DIR/caddy.log" &>/dev/null || false &
+    statusCode=$?
   else
-    __sudo -HE -u "$GEN_CADDY_DEFAULT_USER" "$GEN_CADDY_BIN_FILE" start -config="$GEN_CADDY_SERVER_FILE" -pidfile="$GEN_CADDY_FILE_DIR/caddy.pid" -watch 2>&1 | tee "$GEN_CADDY_LOG_DIR/caddy.log" &>/dev/null &
+    __sudo -HE -u "$GEN_CADDY_DEFAULT_USER" "$GEN_CADDY_BIN_FILE" start --config="$GEN_CADDY_SERVER_FILE" --pidfile="$GEN_CADDY_FILE_DIR/caddy.pid" --watch 2>&1 | tee "$GEN_CADDY_LOG_DIR/caddy.log" &>/dev/null || false &
+    statusCode=$?
   fi
   sleep 1
-  return $?
+  return $statusCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 startcaddy() {
@@ -462,8 +465,8 @@ startcaddy() {
   caddypid="$GEN_CADDY_FILE_DIR/caddy.pid"
   if [ ! -f "$caddypid" ]; then
     mkdir -p "$(dirname "$caddypid" 2>/dev/null)" || (
-      printf_blue "error creating folder $caddypid"
-      printf_blue "try running with: sudo $APPNAME start"
+      printf_blue "error creating folder $caddypid" >&2
+      printf_blue "try running with: sudo $APPNAME start" >&2
       exit 1
     ) || exit 1
     [ -f "$caddypid" ] && chown "$GEN_CADDY_DEFAULT_USER" "$caddypid"
@@ -479,12 +482,10 @@ startcaddy() {
       run_caddy_server
     fi
     sleep 1
-    printf_blue "[$(tput setaf 2)DONE$(tput sgr0)]"
-    sleep 1
     # restart or reload php for smooth environment
     hash php 2>/dev/null && restartphpfpm
     pids=$(__get_caddy_pid)
-    caddystatus
+    caddystatus && printf_green "Caddy webserver is running" || printf_red "Error: $(tail -n1 $GEN_CADDY_LOG_DIR/caddy.log)"
   else
     printf_blue "$GEN_CADDY_NAME is already $(tput setaf 2)running$(tput sgr0) on: $pids (PID)"
   fi
@@ -492,10 +493,11 @@ startcaddy() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 stopcaddy() {
   pids=$(__get_caddy_pid)
+  caddypid="$GEN_CADDY_FILE_DIR/caddy.pid"
   if [ -z "$pids" ]; then
     printf_blue "$GEN_CADDY_NAME is $(tput setaf 1)NOT running$(tput sgr0)"
   else
-    secs=$(ps -p "$pids" -oetime= | tr '-' ':' | awk -F: '{ total=0; m=1; } { for (i=0; i < NF; i++) {total += $(NF-i)*m; m *= i >= 2 ? 24 : 60 }} {print total}')
+    secs=$(ps -p "$pids" -oetime= | tr '-' ':' | awk -F: '{ total=0; m=1; } { for (i=0; i < NF; i++) {total += $(NF-i)*m; m *= i >= 2 ? 24 : 60 }} {print total}' || echo '0')
     printf_blue "Shutting down $GEN_CADDY_NAME..."
     # Wait if Caddy uptime is less than 5 seconds
     if [ $secs -lt 5 ]; then
@@ -513,6 +515,7 @@ stopcaddy() {
       __sudo -HE $GEN_CADDY_DEFAULT_USER $GEN_CADDY_BIN_FILE stop &>/dev/null
     fi
     sleep 1
+    [ -f "$caddypid" ] && rm -Rf "$caddypid"
     printf_blue "[$(tput setaf 2)DONE$(tput sgr0)]"
   fi
 }
@@ -578,6 +581,7 @@ caddystatus() {
   pids=$(__get_caddy_pid)
   if [ -z "$pids" ]; then
     printf_blue "$GEN_CADDY_NAME is $(tput setaf 1)NOT running$(tput sgr0)"
+    return 1
   else
     secs=$(__get_caddy_uptime "$pids")
     caddyport=$(__get_caddy_port "$pids")

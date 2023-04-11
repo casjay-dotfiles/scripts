@@ -1122,8 +1122,11 @@ gen_caddy_config() {
   printf_read_input "5" "Domain protocol: [http/https]" "200" domainproto "-i http"
   [ -n "$domainname" ] || printf_read_input "5" "Domain name: " "200" domainname "-i ${HOSTNAME:-localhost}"
   printf_read_input "5" "Domain port: " "200" domainport "-i :${newport:-85}"
-  [ -f "$GEN_CADDY_SERVER_FILE" ] && printf_read_input "5" "Config name:" "200" GEN_CADDY_SERVER_FILE "-i $GEN_CADDY_SERVER_DIR/$domainname"
+  #printf_read_input "5" "Config name:" "200" config_file "-i $GEN_CADDY_SERVER_DIR/$domainname"
+  config_file="$GEN_CADDY_SERVER_DIR/$domainname"
   GEN_CADDY_DOMAIN_NAME="$domainname"
+  grep -qs "$domainport" "$GEN_CADDY_SERVER_FILE" && domainport=":$(generate_random_port)"
+  GEN_CADDY_DOMAIN_PORT="$domainport"
   if echo "$domainname" | grep -q ','; then
     domainlist=$(echo "$domainname" | tr ',' '\n')
     for domains in $domainlist; do
@@ -1135,8 +1138,8 @@ gen_caddy_config() {
     echo domainnameport+="${domainproto}://${domains}${domainport}" >>"$GEN_CADDY_CONFIG_DIR/domains.txt"
   fi
   GEN_CADDY_WWW_DIR="$GEN_CADDY_WWW_DIR/$(echo "$domainname" | awk -F',' '{print $1}' | sed 's|http.*//||g;s|:.*||g')"
-  if grep -qs "$domainnameport" "$GEN_CADDY_SERVER_FILE"; then
-    printf_blue "Looks like domain already already exist in: $GEN_CADDY_SERVER_FILE"
+  if grep -qs "$domainnameport" "$config_file"; then
+    printf_blue "Looks like domain already already exist in: $config_file"
   else
     # Check if its going to run locally
     if [ "$domainname" = "localhost" ] || [[ "$domainname" = localhost:* ]] || [[ "$domainname" = 127.0.0* ]] || [[ "$domainname" = 192.168.* ]] || [[ "$domainname" = 10.*.* ]] || [[ "$domainname" = 172.16.* ]]; then
@@ -1152,21 +1155,20 @@ gen_caddy_config() {
     fi
     if [ "$domainmail" = "off" ]; then
       domainmail=""
-      makeconfig | tee "$GEN_CADDY_SERVER_FILE" &>/dev/null
+      makeconfig | tee "$config_file" &>/dev/null
     else
-      makeconfig ssl | tee "$GEN_CADDY_SERVER_FILE" &>/dev/null
+      makeconfig ssl | tee "$config_file" &>/dev/null
+    fi
+    if [ -f "$config_file" ] && ! grep -qs "$domainnameport" "$GEN_CADDY_SERVER_FILE"; then
+      cat "$config_file" >>"$GEN_CADDY_SERVER_FILE"
     fi
     checkconfigfile || exit 10
   fi
-  if [ -f "$GEN_CADDY_SERVER_FILE" ]; then
-    cp -Rf "$GEN_CADDY_SERVER_FILE" "$GEN_CADDY_SERVER_FILE.orig"
-    # caddy adapt --config "$GEN_CADDY_SERVER_FILE" 2>/dev/null | jq | sudo tee "$GEN_CADDY_SERVER_FILE.tmp" &>/dev/null
-    # mv -f "$GEN_CADDY_SERVER_FILE.tmp" "$GEN_CADDY_SERVER_FILE"
+  if [ -f "$config_file" ]; then
+    cp -Rf "$config_file" "$config_file.orig"
+    # caddy adapt --config "$config_file" 2>/dev/null | jq | sudo tee "$config_file.tmp" &>/dev/null
+    # mv -f "$config_file.tmp" "$config_file"
   fi
-  # run command
-  conf_file="${GEN_CADDY_SERVER_FILE//$HOME/\~}"
-  pid_file="${GEN_CADDY_FILE_DIR//$HOME/\~}/caddy.pid"
-  run_cmd="--config=$conf_file --pidfile=$pid_file --watch"
   # Check if GEN_CADDY_WWW_DIR exist
   [ -d "$GEN_CADDY_WWW_DIR" ] || mkdir -p "$GEN_CADDY_WWW_DIR"
   [ -d "$GEN_CADDY_LOG_DIR" ] || mkdir -p "$GEN_CADDY_LOG_DIR"
@@ -1178,7 +1180,7 @@ gen_caddy_config() {
   # Generate example html
   make_example_html "$GEN_CADDY_WWW_DIR"
   printf_blue "Done. Caddy has been installed :)"
-  printf_blue "Run $(tput setaf 3)$APPNAME start $run_cmd$(tput sgr0) ${GREEN}to start $GEN_CADDY_NAME${NC}"
+  printf_blue "Run $(tput setaf 3)$APPNAME start --caddyfile=\"Caddyfile\"$(tput sgr0) ${GREEN}to start $GEN_CADDY_NAME${NC}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 global_config() {
@@ -1202,6 +1204,7 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 checkconfig() {
+  [ -f "$GEN_CADDY_SERVER_FILE" ] || { printf_red "Failed to create $GEN_CADDY_SERVER_FILE" && return 1; }
   if $GEN_CADDY_BIN_FILE validate --config "$GEN_CADDY_SERVER_FILE" --adapter caddyfile 2>&1 | grep -q 'caddy fmt'; then
     $GEN_CADDY_BIN_FILE fmt "$GEN_CADDY_SERVER_FILE" >"$GEN_CADDY_SERVER_FILE.fmt"
     mv -f "$GEN_CADDY_SERVER_FILE.fmt" "$GEN_CADDY_SERVER_FILE"
@@ -1315,7 +1318,7 @@ Group=$GEN_CADDY_DEFAULT_USER
 StartLimitInterval=86400
 StartLimitBurst=5
 LimitNOFILE=16535
-ExecStart=$GEN_CADDY_BIN_FILE start -watch -config="$GEN_CADDY_SERVER_FILE" -pidfile=$GEN_CADDY_FILE_DIR/caddy.pid
+ExecStart=$GEN_CADDY_BIN_FILE start --watch --config="$GEN_CADDY_SERVER_FILE" --pidfile=$GEN_CADDY_FILE_DIR/caddy.pid
 ExecReload=/bin/kill -USR1 $MAIN$MAINPID
 ExecStop=/bin/kill $MAIN$MAINPID
 PIDFile=$GEN_CADDY_FILE_DIR/caddy.pid
@@ -1866,7 +1869,7 @@ while :; do
     shift 2
     ;;
   --port)
-    GEN_CADDY_DOMAIN_PORT="$2"
+    [ "$2" = "random" ] && GEN_CADDY_DOMAIN_PORT="$(generate_random_port)" || GEN_CADDY_DOMAIN_PORT="$2"
     shift 2
     ;;
   --fpm)

@@ -463,6 +463,7 @@ run_caddy_server() {
 startcaddy() {
   isinstalled || exit 1
   caddypid="$GEN_CADDY_FILE_DIR/caddy.pid"
+  port="$(cat "$GEN_CADDY_SERVER_FILE" | head -n1 | sed 's|.*://||g;s| {||g' | awk -F ':' '{print $2}')"
   if [ ! -f "$caddypid" ]; then
     mkdir -p "$(dirname "$caddypid" 2>/dev/null)" || (
       printf_blue "error creating folder $caddypid" >&2
@@ -473,6 +474,7 @@ startcaddy() {
   fi
   # Detect if running or start
   pids=$(__get_caddy_pid)
+  pids="$(netstat -tauln | grep -v "2019" | grep -q "$port" && echo "$pids")"
   if [ -z "$pids" ]; then
     printf_blue "Starting $GEN_CADDY_NAME..."
     # If service exist use service
@@ -487,7 +489,7 @@ startcaddy() {
     pids=$(__get_caddy_pid)
     caddystatus && printf_green "Caddy webserver is running" || printf_red "Error: $(tail -n1 $GEN_CADDY_LOG_DIR/caddy.log)"
   else
-    printf_blue "$GEN_CADDY_NAME is already $(tput setaf 2)running$(tput sgr0) on: $pids (PID)"
+    printf_blue "$GEN_CADDY_NAME is already $(tput setaf 2)running$(tput sgr0) on ${RED}PORT $port: $pids (PID)${NC}"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1087,12 +1089,13 @@ checkconfigfile() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 gen_caddy_config() {
-  local fpmport newport
+  local fpmport newport domainname=""
   phpsetup
   newport="$GEN_CADDY_DOMAIN_PORT"
   fpmport="127.0.0.1:${phpfpm_listen:-$(phpfpm_init --show | awk -F':' '{print $2}' | grep '^' || echo '9001')}"
   move_bin &>/dev/null
-  [ "$1" ] && GEN_CADDY_SERVER_FILE="$GEN_CADDY_SERVER_DIR/$1"
+  [ -n "$1" ] && GEN_CADDY_SERVER_FILE="$GEN_CADDY_SERVER_DIR/$1"
+  [ -n "$2" ] && domainname="$2"
   [ -d "$GEN_CADDY_SERVER_DIR" ] || mkdir -p "$GEN_CADDY_SERVER_DIR"
   if [ -n "$phplisten" ]; then
     phpsock="$phplisten"
@@ -1115,12 +1118,12 @@ gen_caddy_config() {
   fi
   fpmport="${phpsock:-$fpmport}"
   # Check if Caddyfile exist & Generate Caddyfile
-  printf_blue "Enter your domain name"
-  printf_blue "Seperated by comma"
+  printf_blue "Enter your domain name seperated by comma"
   printf_read_input "5" "Domain protocol: [http/https]" "200" domainproto "-i http"
-  printf_read_input "5" "Domain name: " "200" domainname "-i ${HOSTNAME:-localhost}"
+  [ -n "$domainname" ] || printf_read_input "5" "Domain name: " "200" domainname "-i ${HOSTNAME:-localhost}"
   printf_read_input "5" "Domain port: " "200" domainport "-i :${newport:-85}"
   [ -f "$GEN_CADDY_SERVER_FILE" ] && printf_read_input "5" "Config name:" "200" GEN_CADDY_SERVER_FILE "-i $GEN_CADDY_SERVER_DIR/$domainname"
+  GEN_CADDY_DOMAIN_NAME="$domainname"
   if echo "$domainname" | grep -q ','; then
     domainlist=$(echo "$domainname" | tr ',' '\n')
     for domains in $domainlist; do
@@ -1133,8 +1136,7 @@ gen_caddy_config() {
   fi
   GEN_CADDY_WWW_DIR="$GEN_CADDY_WWW_DIR/$(echo "$domainname" | awk -F',' '{print $1}' | sed 's|http.*//||g;s|:.*||g')"
   if grep -qs "$domainnameport" "$GEN_CADDY_SERVER_FILE"; then
-    printf_blue "Looks like domain already already exist in:"
-    printf_blue "$GEN_CADDY_SERVER_FILE"
+    printf_blue "Looks like domain already already exist in: $GEN_CADDY_SERVER_FILE"
   else
     # Check if its going to run locally
     if [ "$domainname" = "localhost" ] || [[ "$domainname" = localhost:* ]] || [[ "$domainname" = 127.0.0* ]] || [[ "$domainname" = 192.168.* ]] || [[ "$domainname" = 10.*.* ]] || [[ "$domainname" = 172.16.* ]]; then
@@ -1161,7 +1163,10 @@ gen_caddy_config() {
     # caddy adapt --config "$GEN_CADDY_SERVER_FILE" 2>/dev/null | jq | sudo tee "$GEN_CADDY_SERVER_FILE.tmp" &>/dev/null
     # mv -f "$GEN_CADDY_SERVER_FILE.tmp" "$GEN_CADDY_SERVER_FILE"
   fi
-
+  # run command
+  conf_file="${GEN_CADDY_SERVER_FILE//$HOME/\~}"
+  pid_file="${GEN_CADDY_FILE_DIR//$HOME/\~}/caddy.pid"
+  run_cmd="--config=$conf_file --pidfile=$pid_file --watch"
   # Check if GEN_CADDY_WWW_DIR exist
   [ -d "$GEN_CADDY_WWW_DIR" ] || mkdir -p "$GEN_CADDY_WWW_DIR"
   [ -d "$GEN_CADDY_LOG_DIR" ] || mkdir -p "$GEN_CADDY_LOG_DIR"
@@ -1170,11 +1175,10 @@ gen_caddy_config() {
   touch "$GEN_CADDY_LOG_DIR" &>/dev/null
   __sudo chown -Rf $USER:$USER "$GEN_CADDY_LOG_DIR"
   __sudo chown -Rf $USER:$USER "$GEN_CADDY_CONFIG_DIR"
-
   # Generate example html
   make_example_html "$GEN_CADDY_WWW_DIR"
   printf_blue "Done. Caddy has been installed :)"
-  printf_blue "Run $(tput setaf 3)$APPNAME start$(tput sgr0) to start $GEN_CADDY_NAME"
+  printf_blue "Run $(tput setaf 3)$APPNAME start $run_cmd$(tput sgr0) ${GREEN}to start $GEN_CADDY_NAME${NC}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 global_config() {
@@ -1528,7 +1532,7 @@ restorecaddy() {
   exit
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__execute_gen-caddy() {
+__execute_gen_caddy() {
   GEN_CADDY_FILE_DIR="${GEN_CADDY_FILE_DIR:-}"
   GEN_CADDY_FPM_PORT="${GEN_CADDY_FPM_PORT:-}"
   GEN_CADDY_DOMAIN_NAME="${GEN_CADDY_DOMAIN_NAME:-}"
@@ -1619,7 +1623,7 @@ __execute_gen-caddy() {
   'config' | 'gen-config')
     shift 1
     amiroot
-    gen_caddy_config "$1"
+    gen_caddy_config "$@"
     exit $?
     ;;
   'html' | 'gen-html')
@@ -1870,7 +1874,11 @@ while :; do
     shift 2
     ;;
   --caddyfile)
-    GEN_CADDY_SERVER_FILE="$2"
+    if [ -f "$GEN_CADDY_SERVER_DIR/$2" ]; then
+      GEN_CADDY_SERVER_FILE="$GEN_CADDY_SERVER_DIR/$2"
+    elif [ -f "$2" ]; then
+      GEN_CADDY_SERVER_FILE="$2"
+    fi
     shift 2
     ;;
   --)
@@ -1921,7 +1929,7 @@ export GEN_CADDY_CWD
 __user_is_not_root && printf_cyan "Running caddy as $USER"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
-__execute_gen-caddy "$@"
+__execute_gen_caddy "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set exit code
 exitCode="${exitCode:-$?}"

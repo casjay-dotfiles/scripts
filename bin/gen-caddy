@@ -1094,8 +1094,7 @@ gen_caddy_config() {
   newport="$GEN_CADDY_DOMAIN_PORT"
   fpmport="127.0.0.1:${phpfpm_listen:-$(phpfpm_init --show | awk -F':' '{print $2}' | grep '^' || echo '9001')}"
   move_bin &>/dev/null
-  [ -n "$1" ] && GEN_CADDY_SERVER_FILE="$GEN_CADDY_SERVER_DIR/$1"
-  [ -n "$2" ] && domainname="$2"
+  [ -n "$1" ] && domainname="$1"
   [ -d "$GEN_CADDY_SERVER_DIR" ] || mkdir -p "$GEN_CADDY_SERVER_DIR"
   if [ -n "$phplisten" ]; then
     phpsock="$phplisten"
@@ -1123,8 +1122,8 @@ gen_caddy_config() {
   [ -n "$domainname" ] || printf_read_input "5" "Domain name: " "200" domainname "-i ${HOSTNAME:-localhost}"
   printf_read_input "5" "Domain port: " "200" domainport "-i :${newport:-85}"
   #printf_read_input "5" "Config name:" "200" config_file "-i $GEN_CADDY_SERVER_DIR/$domainname"
-  config_file="$GEN_CADDY_SERVER_DIR/$domainname"
   GEN_CADDY_DOMAIN_NAME="$domainname"
+  config_file="$GEN_CADDY_SERVER_DIR/$domainname"
   grep -qs "$domainport" "$GEN_CADDY_SERVER_FILE" && domainport=":$(generate_random_port)"
   GEN_CADDY_DOMAIN_PORT="$domainport"
   if echo "$domainname" | grep -q ','; then
@@ -1148,19 +1147,18 @@ gen_caddy_config() {
       printf_blue "Enter your email for automated ssl: [off]"
       printf_read_input "5" "Email: " "200" domainmail '-e'
       until [[ "$domainmail" = *@*.* ]] || [ "$domainmail" = "off" ]; do
-        printf_blue "Invalid email"
-        printf_blue "Type $(tput setaf 3)off$(tput sgr0) if you don't want https"
+        printf_blue "Invalid email: Type $(tput setaf 3)off$(tput sgr0) if you don't want https"
         printf_read_input "5" "Email: " "200" domainmail '-e'
       done
     fi
     if [ "$domainmail" = "off" ]; then
       domainmail=""
-      makeconfig | tee "$config_file" &>/dev/null
+      makeconfig "$domainnameport" | tee "$config_file" &>/dev/null
     else
-      makeconfig ssl | tee "$config_file" &>/dev/null
+      makeconfig ssl "$domainnameport" | tee "$config_file" &>/dev/null
     fi
-    if [ -f "$config_file" ] && ! grep -qs "$domainnameport" "$GEN_CADDY_SERVER_FILE"; then
-      cat "$config_file" >>"$GEN_CADDY_SERVER_FILE"
+    if [ ! -f "$GEN_CADDY_SERVER_FILE" ] || ! grep -qs "$domainname$domainport" "$GEN_CADDY_SERVER_FILE"; then
+      [ -f "$config_file" ] && cat "$config_file" >>"$GEN_CADDY_SERVER_FILE"
     fi
     checkconfigfile || exit 10
   fi
@@ -1185,7 +1183,7 @@ gen_caddy_config() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 global_config() {
   https_port="$(generate_random_port)"
-  fulldomain="$domainnameport"
+  fulldomain="${2:-${1:-$domainnameport}}"
   sslfulldomain="$(echo "$domainnameport" | sed 's/^http:\/\//https:\/\//g')"")"
   netstat -taupln 2>/dev/null | grep -q ":$https_port " || https_port="$(generate_random_port)"
   if [ "$1" = "all" ]; then
@@ -1215,9 +1213,11 @@ checkconfig() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 makeconfig() {
   phpfpm_caddy="$(phpfpm_caddy)"
+  local domain_name="${2:-${1:-$domainnameport}}"
   [ -d "$GEN_CADDY_LOG_DIR" ] || mkdir -p "$GEN_CADDY_LOG_DIR" &>/dev/null
   if [ "$1" = "ssl" ]; then
-    port="$(global_config ssl)"
+    shift 1
+    port="$(global_config ssl $domain_name)"
     cat <<EOF | tee
 $port {
   root * $GEN_CADDY_WWW_DIR
@@ -1234,7 +1234,8 @@ $port {
 
 EOF
   elif [ "$1" = "example" ]; then
-    port="$(global_config all)"
+    shift 1
+    port="$(global_config all $domain_name)"
     cat <<EOF | tee
 $port {
   root * $GEN_CADDY_WWW_DIR
@@ -1268,7 +1269,8 @@ $port {
 
 EOF
   elif [ "$1" = "reverse" ]; then
-    port="$(global_config)"
+    shift 1
+    port="$(global_config $domain_name)"
     cat <<EOF | tee
 $port {
   reverse_proxy localhost:3333
@@ -1276,7 +1278,7 @@ $port {
 
 EOF
   else
-    port="$(global_config)"
+    port="$(global_config $domain_name)"
     cat <<EOF | tee
 $port {
   root * $GEN_CADDY_WWW_DIR

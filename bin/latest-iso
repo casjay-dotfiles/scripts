@@ -138,6 +138,7 @@ LATEST_ISO_CENTOS_URL="${LATEST_ISO_CENTOS_URL:-}"
 LATEST_ISO_DEBIAN_URL="${LATEST_ISO_DEBIAN_URL:-}"
 LATEST_ISO_ENDEAVOUR_URL="${LATEST_ISO_ENDEAVOUR_URL:-}"
 LATEST_ISO_FEDORA_URL="${LATEST_ISO_FEDORA_URL:-}"
+LATEST_ISO_FREENAS_URL="${LATEST_ISO_FREENAS_URL:-}"
 LATEST_ISO_GARUDA_URL="${LATEST_ISO_GARUDA_URL:-}"
 LATEST_ISO_HEADS_URL="${LATEST_ISO_HEADS_URL:-}"
 LATEST_ISO_KALI_URL="${LATEST_ISO_KALI_URL:-}"
@@ -147,6 +148,7 @@ LATEST_ISO_OPENSUSE_URL="${LATEST_ISO_OPENSUSE_URL:-}"
 LATEST_ISO_OPENVZ_URL="${LATEST_ISO_OPENVZ_URL:-}"
 LATEST_ISO_PARROT_URL="${LATEST_ISO_PARROT_URL:-}"
 LATEST_ISO_PEPPERMINT_URL="${LATEST_ISO_PEPPERMINT_URL:-}"
+LATEST_ISO_PFSENSE_URL="${LATEST_ISO_PFSENSE_URL:-}"
 LATEST_ISO_PHOTON_URL="${LATEST_ISO_PHOTON_URL:-}"
 LATEST_ISO_PROXMOX_URL="${LATEST_ISO_PROXMOX_URL:-}"
 LATEST_ISO_REDCORE_URL="${LATEST_ISO_REDCORE_URL:-}"
@@ -207,6 +209,7 @@ __help() {
   __printf_line "debian                          - Download debian"
   __printf_line "endeavour                       - Download endeavour"
   __printf_line "fedora                          - Download fedora"
+  __printf_line "freenas                         - Download freenas"
   __printf_line "garuda                          - Download garuda"
   __printf_line "heads                           - Download heads"
   __printf_line "kali                            - Download kali"
@@ -215,6 +218,7 @@ __help() {
   __printf_line "openvz                          - Download openvz"
   __printf_line "parrot                          - Download parrot"
   __printf_line "peppermint                      - Download peppermint"
+  __printf_line "pfsense                         - Download pfsense"
   __printf_line "photon                          - Download photon"
   __printf_line "proxmox                         - Download proxmox"
   __printf_line "rocky                           - Download rockylinux"
@@ -314,8 +318,45 @@ __trap_exit() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
-__strip_url() { head -n1; }
+__cd() { [ -d "$iso_dir" ] && builtin cd "$1" || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__extractor() {
+  if echo "$1" | grep -qE '.tar$|.tar.gz$'; then
+    tar xfvz "$1"
+    return $?
+  elif echo "$1" | grep -q '.gz$'; then
+    gzip -fd "$1"
+    return $?
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__strip_url() { grep -v '^$' | head -n1 | grep '^'; }
 __grep_version() { grep "${LATEST_ISO_RELEASE:-^}" | grep "${RELEASE:-^}"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__ex() {
+  local archive="$(realpath "$1")"
+  local iso_dir="$(dirname "$archive")"
+  local name="${LATEST_RELEASE_ISO_NAME:-$(basename "$download_file" | sed 's|.gz$||g;s|.tar$||g')}"
+  if [ -f "$archive" ]; then
+    __cd "$iso_dir"
+    printf_cyan "extracting $archive"
+    echo "extracting $archive" >"$LATEST_ISO_LOG_DIR/ex.log"
+    __extractor "$archive" &>>"$LATEST_ISO_LOG_DIR/ex.log"
+    iso_file="$(find $iso_dir -type f -name '*.iso' | grep '.iso$' | head -n1 || echo '')"
+    if [ -n "$iso_file" ] && [ -f "$iso_file" ]; then
+      download_file="$LATEST_ISO_DOWNLOAD_DIR/$name"
+      printf_cyan "moving $iso_file to $download_file"
+      mv -f "$iso_file" "$download_file" && [ -f "$archive" ] && rm -Rf "$archive"
+      [ -f "$LATEST_ISO_LOG_DIR/ex.log" ] && rm -Rf "$LATEST_ISO_LOG_DIR/ex.log"
+    else
+      printf_red "Can not locate extracted ISO in $iso_dir"
+      return 1
+    fi
+  else
+    printf_red "Can not find file $archive"
+    return 1
+  fi
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gui() {
   [ -n "$DISPLAY" ] || return 1
@@ -352,8 +393,8 @@ __run_all() {
 __test_iso() {
   local test=""
   local verify=""
-  [ -n "$1" ] && test="$(echo "$1" | grep -aE 'https://|http://|ftp://' | grep -a '.iso$' | grep '^' || echo '')"
-  [ -n "$test" ] && verify="$(curl -q -LSsfI "$test" 2>/dev/null | grep -q 'HTTP/.* 200' && echo 'valid' || echo '')"
+  [ -n "$1" ] && test="$(echo "$1" | grep -aE 'https://|http://|ftp://' | grep -aE '.iso$|.tar$|.gz$' | grep '^' || echo '')"
+  [ -n "$test" ] && verify="$(curl -q -LSsfI --max-time 2 "$test" 2>/dev/null | grep -q 'HTTP/.* 200' && echo 'valid' || echo '')"
   if [ "$verify" = "valid" ]; then
     return 0
   else
@@ -368,7 +409,7 @@ __sort_rv() {
     sort -rV |
     head -n1 |
     sed 's|/$||g' |
-    sed 's|//|/|g'
+    sed 's|//|/|g' | grep '^' || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __sort_v() {
@@ -376,7 +417,7 @@ __sort_v() {
     grep '^[0-9]' |
     sort -rV |
     sed 's|/$||g' |
-    sed 's|//|/|g'
+    sed 's|//|/|g' | grep '^' || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __strip_iso() {
@@ -384,7 +425,7 @@ __strip_iso() {
     grep -av 'torrent' |
     grep -av 'target' |
     grep -av 'ti-download' |
-    grep -a '.iso$' | head -n1 | grep '^' || return 1
+    grep -aE '.iso$|.gz$|.tar$' | head -n1 | grep '^' || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __strip_tags() {
@@ -399,9 +440,10 @@ __strip_tags() {
     sed "s|$iso/download$|$iso|g" |
     sed 's|.iso.torrent|.iso|g' |
     sed 's|\t||g' |
+    sed 's| *||g' |
     sed 's|/index.html||g' |
     sed "s|'||g" |
-    grep -v '^$'
+    grep -v '^$' | grep '^' || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __verify_arch() {
@@ -481,8 +523,7 @@ __find_iso() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __latest_iso() {
-  local latest
-  local exitCode="0"
+  local latest exitCode="0"
   __get_torrent "$1"
   url="${1:-$url}"
   file="${2:-$file}"
@@ -493,7 +534,7 @@ __latest_iso() {
   [ -d "$LATEST_ISO_DOWNLOAD_DIR" ] || mkdir -p "$LATEST_ISO_DOWNLOAD_DIR"
   [ -n "$latest" ] || printf_exit "No iso found on $url\n"
   [ -d "$LATEST_ISO_DOWNLOAD_DIR" ] || printf_exit "The download file should not be a directory: $LATEST_ISO_DOWNLOAD_DIR\n"
-  echo "$latest" | grep -q '.iso$' || printf_exit "$latest seems to be invalid\n"
+  echo "$latest" | grep -qE '.iso$|.gz$|.tar$' || printf_exit "$latest seems to be invalid\n"
   __grab_iso "$latest" "$download_file" && exitCode="0" || exitCode="1"
   if [ "$exitCode" = 0 ]; then
     return 0
@@ -517,6 +558,7 @@ __grab_iso() {
   system_arch="$(__get_arch)"
   iso_arch="$(__verify_arch "$latest")"
   download_file="$(__set_filename ${latest_file:-$download_file} "$iso_arch")"
+  local save_message="Saving the ISO to:"
   __remote_filesize "$latest"
   [ -z "$FORCE_INST" ] || __rm_rf "$download_file"
   [ -d "$LATEST_ISO_DOWNLOAD_DIR" ] || mkdir -p "$LATEST_ISO_DOWNLOAD_DIR"
@@ -532,18 +574,24 @@ __grab_iso() {
     exitCode="0"
   elif [ -n "$latest" ]; then
     if { [ "$LATEST_ISO_OVERWRITE" = "yes" ] || [ ! -f "$file" ] || [ "$FORCE_INST" = "yes" ]; }; then
-      if echo "$url" | grep -q '.iso$' &>/dev/null; then
+      if echo "$url" | grep -qE '.tar$|.gz$' &>/dev/null; then
+        printf_cyan "Attempting to locate the compressed ISO from: $(dirname "$url")"
+        save_message="Saving the compressed ISO to:"
+      elif echo "$url" | grep -qE '.iso$' &>/dev/null; then
         printf_cyan "Attempting to locate the ISO from: $(dirname "$url")"
       else
         printf_cyan "Attempting to locate the ISO from: $url"
       fi
     fi
     printf_cyan "Grabbing iso for $LATEST_ISO_SYSTEM_ARCH from: ${GREEN}$latest"
-    printf_purple "Saving the ISO to: $download_file $remote_filesize"
+    printf_purple "$save_message $download_file $remote_filesize"
     if [ -f "$download_file" ] && [ "$LATEST_ISO_OVERWRITE" = "yes" ]; then
       curl -q -LSsf -o "$download_file" -C - "$latest" 2>/dev/null && success="true" || success=""
     else
       curl -q -LSsf -o "$download_file" "$latest" 2>/dev/null && success="true" || success=""
+    fi
+    if echo "$download_file" | grep -qE '.gz$|.tar$' && __ex "$download_file"; then
+      download_file="$LATEST_ISO_DOWNLOAD_DIR/$(basename "$latest" | sed 's|.gz$||g;s|.tar$||g')"
     fi
     [ -f "$download_file" ] && __filesize_local "$download_file"
     if __verify_filesizes "$local_file_size_raw" "$remote_file_size_raw"; then
@@ -732,6 +780,14 @@ __latest_list() {
       __latest_iso "$LATEST_ISO_FEDORA_URL" "$LATEST_ISO_DOWNLOAD_DIR/fedora.iso"
       statusCode=$(($? + $statusCode))
       ;;
+    freenas)
+      shift 1
+      RELEASE="${LATEST_RELEASE_VERSION:-${LATEST_ISO_FREENAS_RELEASE:-13.1}}"
+      isourl="$RELEASE/MASTER/latest/x64"
+      isoname="$(curl -q -LSsf "$LATEST_ISO_FREENAS_URL/$isourl" 2>/dev/null | __strip_tags | __strip_iso)"
+      __latest_iso "$LATEST_ISO_FREENAS_URL/$isourl/$isoname" "$LATEST_ISO_DOWNLOAD_DIR/freenas.iso"
+      statusCode=$(($? + $statusCode))
+      ;;
     garuda)
       shift 1
       __latest_iso "$LATEST_ISO_GARUDA_URL" "$LATEST_ISO_DOWNLOAD_DIR/garuda.iso"
@@ -783,6 +839,13 @@ __latest_list() {
       shift 1
       isoname="$(curl -q -LSsf "$LATEST_ISO_PEPPERMINT_URL/" | __strip_tags | grep -E 'x86_64|amd64' | __strip_iso)"
       __latest_iso "$isoname" "$LATEST_ISO_DOWNLOAD_DIR/peppermint.iso"
+      statusCode=$(($? + $statusCode))
+      ;;
+    pfsense)
+      shift 1
+      LATEST_RELEASE_ISO_NAME="pfsense.iso"
+      isoname="$(curl -q -LSs "$LATEST_ISO_PFSENSE_URL" | __strip_tags | grep '.iso.gz$' | __sort_rv)"
+      __latest_iso "$LATEST_ISO_PFSENSE_URL/$isoname" "$LATEST_ISO_TEMP_DIR/pfsense.iso.gz"
       statusCode=$(($? + $statusCode))
       ;;
     photon)
@@ -887,6 +950,7 @@ LATEST_ISO_CLEAR_URL="${LATEST_ISO_CLEAR_URL:-https://cdn.download.clearlinux.or
 LATEST_ISO_DEBIAN_URL="${LATEST_ISO_DEBIAN_URL:-https://www.debian.org/download}"
 LATEST_ISO_ENDEAVOUR_URL="${LATEST_ISO_ENDEAVOUR_URL:-https://mirror.linux.pizza/endeavouros/iso}"
 LATEST_ISO_FEDORA_URL="${LATEST_ISO_FEDORA_URL:-https://spins.fedoraproject.org/xfce/download/index.html}"
+LATEST_ISO_FREENAS_URL="${LATEST_ISO_FREENAS_URL:-https://download.freenas.org}"
 LATEST_ISO_GARUDA_URL="${LATEST_ISO_GARUDA_URL:-https://iso.builds.garudalinux.org/iso/latest/garuda/xfce/latest.iso}"
 LATEST_ISO_HEADS_URL="${LATEST_ISO_HEADS_URL:-https://files.dyne.org/heads}"
 LATEST_ISO_KALI_URL="${LATEST_ISO_KALI_URL:-https://www.kali.org/get-kali}"
@@ -896,6 +960,7 @@ LATEST_ISO_OPENSUSE_URL="${LATEST_ISO_OPENSUSE_URL:-https://download.opensuse.or
 LATEST_ISO_OPENVZ_URL="${LATEST_ISO_OPENVZ_URL:-https://download.openvz.org/virtuozzo/releases}"
 LATEST_ISO_PARROT_URL="${LATEST_ISO_PARROT_URL:-https://cdimage.parrotsec.org/parrot/iso/current}"
 LATEST_ISO_PEPPERMINT_URL="${LATEST_ISO_PEPPERMINT_URL:-https://sourceforge.net/projects/peppermintos/files}"
+LATEST_ISO_PFSENSE_URL="${LATEST_ISO_PFSENSE_URL:-https://atxfiles.netgate.com/mirror/downloads}"
 LATEST_ISO_PHOTON_URL="${LATEST_ISO_PHOTON_URL:-https://github.com/vmware/photon/wiki/Downloading-Photon-OS}"
 LATEST_ISO_PROXMOX_URL="${LATEST_ISO_PROXMOX_URL:-http://download.proxmox.com/iso}"
 LATEST_ISO_REDCORE_URL="${LATEST_ISO_REDCORE_URL:-https://mirror.math.princeton.edu/pub/redcorelinux/amd64/iso}"
@@ -958,7 +1023,7 @@ SHORTOPTS+=""
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
 LONGOPTS+=",force,all,ask,filename:,arch:,release:"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-ARRAY="alma alpine arch archcraft arco blackarch cachy centos clear debian endeavour fedora garuda heads kali "
+ARRAY="alma alpine arch archcraft arco blackarch cachy centos clear debian endeavour fedora freenas garuda heads kali "
 ARRAY+="manjaro nixos opensuse openvz parrot peppermint photon proxmox redcore rocky tails tiny ubuntu void "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""

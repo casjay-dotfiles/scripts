@@ -185,7 +185,7 @@ set --
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # lets exit with code
-exit ${exitCode:-$?}
+exit ${exitCode:-0}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # ex: ts=2 sw=2 et filetype=sh

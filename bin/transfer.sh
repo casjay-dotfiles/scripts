@@ -61,14 +61,14 @@ user_install && __options "$@"
 # Send all output to /dev/null
 __devnull() {
   tee &>/dev/null && exitCode=0 || exitCode=1
-  return ${exitCode:-$?}
+  return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
 # Send errors to /dev/null
 __devnull2() {
   [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
   eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
-  return ${exitCode:-$?}
+  return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
 # See if the executable exists
@@ -79,14 +79,14 @@ __cmd_exists() {
     builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
   done
   [ $exitCode -eq 0 ] || exitCode=3
-  return ${exitCode:-$?}
+  return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for a valid internet connection
 __am_i_online() {
   local exitCode=0
   curl -q -LSsfI --max-time 1 --retry 0 "${1:-http://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
-  return ${exitCode:-$?}
+  return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # colorization
@@ -156,7 +156,7 @@ EOF
     printf_red "Failed to create the config file"
     exitCode=1
   fi
-  return ${exitCode:-$?}
+  return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Help function - Align to 50
@@ -254,7 +254,7 @@ __sudo() {
 # End of sudo functions
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __trap_exit() {
-  exitCode=${exitCode:-$?}
+  exitCode=${exitCode:-0}
   [ -f "$TRANSFER_SH_TEMP_FILE" ] && rm -Rf "$TRANSFER_SH_TEMP_FILE" &>/dev/null
   if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
   return $exitCode
@@ -301,18 +301,18 @@ __curl_upload() {
   curl -q -LSsf -H "Max-Days: $TRANSFER_SH_DAYS_MAX" --connect-timeout 2 --retry 0 --upload-file "$1" "$2" 2>"$TRANSFER_SH_LOG_DIR/$TRANSFER_SH_UPLOAD_NAME"
   exitCode=$?
   sleep 1 # lets a a delay
-  return "${exitCode:-$?}"
+  return "${exitCode:-0}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __curl_put() {
   curl -q -LSsf -H "Max-Days: $TRANSFER_SH_DAYS_MAX" -X PUT --connect-timeout 2 --retry 0 --upload-file "$1" "$2" 2>"$TRANSFER_SH_LOG_DIR/$TRANSFER_SH_UPLOAD_NAME"
   exitCode=$?
   sleep 1 # lets a a delay
-  return "${exitCode:-$?}"
+  return "${exitCode:-0}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __upload_status() {
-  if [[ "${exitCode:-$?}" = 0 ]] && [[ -f "$TRANSFER_SH_STATUS_FILE" ]] && [[ -s "$TRANSFER_SH_STATUS_FILE" ]]; then
+  if [[ "${exitCode:-0}" = 0 ]] && [[ -f "$TRANSFER_SH_STATUS_FILE" ]] && [[ -s "$TRANSFER_SH_STATUS_FILE" ]]; then
     MESSAGE="$(cat "$TRANSFER_SH_STATUS_FILE" | grep -v '^$')"
     TRANSFER_SH_GOOD_MESSAGE="$(printf '%s: %s\n' "${1:-Link is}" "$MESSAGE")"
     printf_blue "$TRANSFER_SH_GOOD_MESSAGE"
@@ -328,7 +328,7 @@ __upload_status() {
       __notifications "$TRANSFER_SH_ERROR_MESSAGE\n"
     exitCode=1
   fi
-  return "${exitCode:-$?}"
+  return "${exitCode:-0}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
@@ -416,7 +416,7 @@ SETARGS=("$@")
 SHORTOPTS=""
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent,"
 LONGOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="list scan virustotal backup encrypt"
@@ -614,11 +614,11 @@ backup)
 esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set exit code
-exitCode="${exitCode:-$?}"
+exitCode="${exitCode:-0}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # lets exit with code
-exit ${exitCode:-$?}
+exit ${exitCode:-0}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # end

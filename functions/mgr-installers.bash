@@ -382,7 +382,7 @@ system_service_active() {
     systemctl show -p ActiveState $service 2>&1 | grep -wq 'ActiveState=active' ||
       exitCode+=1
   done
-  return ${exitCode:-$?}
+  return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #system_service_running "list of services to check"
@@ -392,7 +392,7 @@ system_service_running() {
     systemctl status $service 2>&1 | grep -i 'Active: ' | grep -iq 'running' ||
       exitCode+=1
   done
-  return ${exitCode:-$?}
+  return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #system_service_exists "servicename"
@@ -402,7 +402,7 @@ system_service_exists() {
     systemctl list-units --full -all | grep -E "service|socket" | grep -w "$service" ||
       exitCode+=1
   done
-  return ${exitCode:-$?}
+  return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #system_service_enable "servicename"
@@ -413,7 +413,7 @@ system_service_enable() {
       devnull "sudo -HE systemctl enable --now -f $service" ||
       exitCode+=1
   done
-  return ${exitCode:-$?}
+  return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #system_service_disable "servicename"
@@ -424,7 +424,7 @@ system_service_disable() {
       devnull "sudo -HE systemctl disable --now -f $service" ||
       exitCode+=1
   done
-  return ${exitCode:-$?}
+  return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #system_service_start "servicename"
@@ -436,7 +436,7 @@ system_service_start() {
       system_service_running " $service" ||
       exitCode+=1
   done
-  return ${exitCode:-$?}
+  return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #system_service_stop "servicename"
@@ -448,7 +448,7 @@ system_service_stop() {
       system_service_running " $service" && exitCode+=1 ||
       exitCode=0
   done
-  return ${exitCode:-$?}
+  return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #system_service_restart "servicename"
@@ -460,7 +460,7 @@ system_service_restart() {
       system_service_running " $service" ||
       exitCode+=1
   done
-  return ${exitCode:-$?}
+  return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 run_post() {

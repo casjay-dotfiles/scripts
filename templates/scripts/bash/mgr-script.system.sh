@@ -62,14 +62,14 @@ GEN_SCRIPT_REPLACE_FILENAME_install && __options "$@"
 # Send all output to /dev/null
 __devnull() {
   tee &>/dev/null && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0 || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
-  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
+  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
 # Send errors to /dev/null
 __devnull2() {
   [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
   eval $cmd "$*" 2>/dev/null && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0 || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
-  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
+  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
 # See if the executable exists
@@ -80,14 +80,14 @@ __cmd_exists() {
     builtin command -v "$cmd" &>/dev/null && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS+=$(($GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS + 0)) || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS+=$(($GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS + 1))
   done
   [ $GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS -eq 0 ] || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=3
-  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
+  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for a valid internet connection
 __am_i_online() {
   local GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
   curl -q -LSsfI --max-time 1 --retry 0 "${1:-http://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=4
-  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
+  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # colorization
@@ -159,7 +159,7 @@ EOF
     printf_red "Failed to create the config file"
     GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=11
   fi
-  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
+  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Help function - Align to 50
@@ -214,7 +214,7 @@ __run_install_version() {
     fi
   fi
   [ "$GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS" = 0 ] && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0 || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
-  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
+  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cron_updater() {
@@ -241,7 +241,7 @@ __cron_updater() {
     fi
   fi
   [ "$GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS" = 0 ] && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0 || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
-  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
+  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __installer_delete() {
@@ -292,7 +292,7 @@ __run_install_init() {
     GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
   fi
   [ "$GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS" = 0 ] && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0 || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
-  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
+  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_install_update() {
@@ -305,7 +305,7 @@ __run_install_update() {
   local NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON}"
   export NOTIFY_CLIENT_NAME NOTIFY_CLIENT_ICON
   __run_install_init "$1" && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0 || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
-  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
+  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_download() {
@@ -340,7 +340,7 @@ __run_download() {
     GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
   fi
   [ "$GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS" = 0 ] && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0 || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
-  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
+  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __api_list() {
@@ -362,7 +362,7 @@ __api_list() {
     GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$?
   fi
   [ "$GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS" = 0 ] && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0 || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
-  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
+  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_search() {
@@ -381,7 +381,7 @@ __run_search() {
     GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
   fi
   [ "$GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS" = 0 ] && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0 || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
-  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
+  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Is current user root
@@ -437,7 +437,7 @@ __sudo() {
     printf '%s\n' "This requires root to run"
     GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
   fi
-  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-1}
+  return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run command as root
@@ -455,7 +455,7 @@ __requiresudo() {
 # End of sudo functions
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __trap_exit() {
-  GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
+  GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
   [ -f "$GEN_SCRIPT_REPLACE_ENV_TEMP_FILE" ] && rm -Rf "$GEN_SCRIPT_REPLACE_ENV_TEMP_FILE" &>/dev/null
   if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
   return $GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS
@@ -704,7 +704,7 @@ list)
   LISTARRAY=("$(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" 2>/dev/null)")
   [ -n "${LISTARRAY[*]}" ] && printf '%s\n' "${LISTARRAY[@]}" | printf_column '5' ||
     printf_exit "There doesn't seem to be any packages installed"
-  exit ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
+  exit ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
   ;;
 
 available)
@@ -718,7 +718,7 @@ available)
   else
     GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
   fi
-  exit ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
+  exit ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
   ;;
 
 search)
@@ -726,7 +726,7 @@ search)
   [ $# = 0 ] && printf_exit "Nothing to search for"
   __run_search "$@"
   GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$?
-  exit ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
+  exit ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
   ;;
 
 remove)
@@ -745,7 +745,7 @@ remove)
     GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$(($retVal + $GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS))
     printf '\n'
   done
-  exit ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
+  exit ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
   ;;
 
 install)
@@ -768,7 +768,7 @@ install)
       GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$(($retVal + $GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS))
     fi
   done
-  exit ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
+  exit ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
   ;;
 
 update)
@@ -798,7 +798,7 @@ update)
     printf_yellow "There doesn't seem to be any packages installed"
     __notifications "There doesn't seem to be any packages installed"
   fi
-  exit ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
+  exit ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
   ;;
 
 download | clone)
@@ -819,7 +819,7 @@ download | clone)
     printf_red "No packages selected for download"
     GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
   fi
-  exit ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
+  exit ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
   ;;
 
 cron)
@@ -831,7 +831,7 @@ cron)
     __cron_updater "$APPNAME"
     GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$(($? + $GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS))
   done
-  exit ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
+  exit ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
   ;;
 
 version)
@@ -842,7 +842,7 @@ version)
     __run_install_version "$ver"
     GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$(($? + $GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS))
   done
-  exit ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
+  exit ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
   ;;
 
 *)
@@ -859,12 +859,12 @@ version)
 esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set exit code
-GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS="${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}"
+GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS="${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # lets exit with code
-exit ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-$?}
+exit ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # ex: ts=2 sw=2 et filetype=sh

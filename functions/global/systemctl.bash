@@ -20,7 +20,7 @@ __system_service_active() {
   for service in "$@"; do
     systemctl show -p ActiveState "$service" | cut -d'=' -f2 | grep -q ^active || { exitCode+=1 && false; }
   done
-  return ${exitCode:-$?}
+  return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #system_service_running "list of services to check"
@@ -31,7 +31,7 @@ __system_service_running() {
       exitCode+=1
     fi
   done
-  return ${exitCode:-$?}
+  return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #system_service_exists "servicename"
@@ -42,7 +42,7 @@ __system_service_exists() {
     exitCode+=$?
   done
   set --
-  return ${exitCode:-$?}
+  return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #system_service_enable "servicename"
@@ -53,7 +53,7 @@ __system_service_enable() {
     exitCode+=$?
   done
   set --
-  return ${exitCode:-$?}
+  return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #system_service_disable "servicename"
@@ -64,7 +64,7 @@ __system_service_disable() {
     exitCode+=$?
   done
   set --
-  return ${exitCode:-$?}
+  return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #system_service_start "servicename"
@@ -75,7 +75,7 @@ __system_service_start() {
     exitCode+=$?
   done
   set --
-  return ${exitCode:-$?}
+  return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #system_service_stop "servicename"
@@ -86,7 +86,7 @@ __system_service_stop() {
     exitCode+=$?
   done
   set --
-  return ${exitCode:-$?}
+  return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #system_service_restart "servicename"
@@ -97,6 +97,6 @@ __system_service_restart() {
     exitCode+=$?
   done
   set --
-  return ${exitCode:-$?}
+  return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

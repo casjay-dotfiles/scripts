@@ -218,6 +218,6 @@ __ask_confirm() {
   else
     __term "$question" "$command" || notify_error
   fi
-  return ${exitCode:-$?}
+  return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

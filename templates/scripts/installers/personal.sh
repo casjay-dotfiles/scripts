@@ -228,7 +228,7 @@ _gpg_init() {
     sudo GPG_TTY="$(tty)" gpg --import "$DOTFILES_TEMP"/tmp/*.asc 2>/dev/null &&
     sudo GPG_TTY="$(tty)" gpg --import-ownertrust "$DOTFILES_TEMP"/tmp/*.trust 2>/dev/null &&
     exitCode=0 || exitCode=1
-  return ${exitCode:-$?}
+  return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 main() {
@@ -314,6 +314,6 @@ main "$@"
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # lets exit with code
-exit "${exitCode:-$?}"
+exit "${exitCode:-0}"
 
 # ex: ts=2 sw=2 et filetype=sh

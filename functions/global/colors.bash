@@ -291,8 +291,8 @@ printf_custom_question() {
 printf_question_term() {
   printf_read_question "4" "$1" "1" "REPLY"
   printf_answer_yes "$REPLY" && eval "${2:-true}" && exitCode=0 || exitCode=1
-  [ -z "$REPLY" ] && printf '\n' && exitCode=1 || exitCode=${exitCode:-$?}
-  return ${exitCode:-$?}
+  [ -z "$REPLY" ] && printf '\n' && exitCode=1 || exitCode=${exitCode:-0}
+  return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #printf_read_input "color" "message" "maxLines" "answerVar" "readopts"
@@ -370,7 +370,7 @@ printf_answer_yes() {
     #printf '\n'
     exitCode=1
   fi
-  return ${exitCode:-$?}
+  return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_answer_no() {

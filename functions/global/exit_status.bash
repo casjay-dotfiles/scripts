@@ -25,7 +25,7 @@ __setexitstatus() {
     NEW_BG_EXIT="${BG_RED}"
   fi
   export NEW_BG_EXIT
-  return ${EXITCODE:-$?}
+  return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #returnexitcode $?
@@ -44,7 +44,7 @@ __returnexitcode() {
     NEW_PS_SYMBOL=" 😟 [ $EXITCODE] "
   fi
   export NEW_BG_EXIT NEW_PS_SYMBOL
-  return ${EXITCODE:-$?}
+  return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #getexitcode "$?" "OK Message" "Error Message"

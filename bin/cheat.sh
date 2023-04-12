@@ -61,14 +61,14 @@ user_install && __options "$@"
 # Send all output to /dev/null
 __devnull() {
   tee &>/dev/null && exitCode=0 || exitCode=1
-  return ${exitCode:-$?}
+  return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
 # Send errors to /dev/null
 __devnull2() {
   [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
   eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
-  return ${exitCode:-$?}
+  return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
 # See if the executable exists
@@ -79,14 +79,14 @@ __cmd_exists() {
     builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
   done
   [ $exitCode -eq 0 ] || exitCode=3
-  return ${exitCode:-$?}
+  return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for a valid internet connection
 __am_i_online() {
   local exitCode=0
   curl -q -LSsfI --max-time 1 --retry 0 "${1:-http://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
-  return ${exitCode:-$?}
+  return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # colorization
@@ -155,7 +155,7 @@ EOF
     printf_red "Failed to create the config file"
     exitCode=1
   fi
-  return ${exitCode:-$?}
+  return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Help function - Align to 50
@@ -255,7 +255,7 @@ __sudo() {
 # End of sudo functions
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __trap_exit() {
-  exitCode=${exitCode:-$?}
+  exitCode=${exitCode:-0}
   [ -f "$CHEAT_SH_TEMP_FILE" ] && rm -Rf "$CHEAT_SH_TEMP_FILE" &>/dev/null
   if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
   return $exitCode
@@ -407,8 +407,8 @@ SETARGS=("$@")
 SHORTOPTS=""
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-LONGOPTS="completions:,config,debug,help,options,raw,version,silent"
-LONGOPTS+=",shell:,standalone-install:,mode,update"
+LONGOPTS="completions:,config,debug,help,options,raw,version,silent,"
+LONGOPTS+="shell:,standalone-install:,mode,update"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY=""
 ARRAY+=""
@@ -540,11 +540,11 @@ __create_completion
 __execute_cheatsh "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set exit code
-exitCode="${exitCode:-$?}"
+exitCode="${exitCode:-0}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # lets exit with code
-exit ${exitCode:-$?}
+exit ${exitCode:-0}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # end

@@ -367,12 +367,9 @@ CHEAT_SH_BIN_DIR="${CHEAT_SH_BIN_DIR:-$CASJAYSDEVDIR/sources}"
   . "$CHEAT_SH_CONFIG_DIR/$CHEAT_SH_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure Directories exist
-[ -d "$CHEAT_SH_LOG_DIR" ] ||
-  mkdir -p "$CHEAT_SH_LOG_DIR" |& __devnull
-[ -d "$CHEAT_SH_TEMP_DIR" ] ||
-  mkdir -p "$CHEAT_SH_TEMP_DIR" |& __devnull
-[ -d "$CHEAT_SH_CACHE_DIR" ] ||
-  mkdir -p "$CHEAT_SH_CACHE_DIR" |& __devnull
+[ -d "$CHEAT_SH_LOG_DIR" ] || mkdir -p "$CHEAT_SH_LOG_DIR" |& __devnull
+[ -d "$CHEAT_SH_TEMP_DIR" ] || mkdir -p "$CHEAT_SH_TEMP_DIR" |& __devnull
+[ -d "$CHEAT_SH_CACHE_DIR" ] || mkdir -p "$CHEAT_SH_CACHE_DIR" |& __devnull
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 CHEAT_SH_TEMP_FILE="${CHEAT_SH_TEMP_FILE:-$(mktemp $CHEAT_SH_TEMP_DIR/XXXXXX 2>/dev/null)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

@@ -374,14 +374,10 @@ TRANSFER_SH_SAVED_LINKS="${TRANSFER_SH_SAVED_LINKS:-$HOME/Documents/myscripts/${
   . "$TRANSFER_SH_CONFIG_DIR/$TRANSFER_SH_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure Directories exist
-[ -d "$TRANSFER_SH_LOG_DIR" ] ||
-  mkdir -p "$TRANSFER_SH_LOG_DIR" |& __devnull
-[ -d "$TRANSFER_SH_TEMP_DIR" ] ||
-  mkdir -p "$TRANSFER_SH_TEMP_DIR" |& __devnull
-[ -d "$TRANSFER_SH_CACHE_DIR" ] ||
-  mkdir -p "$TRANSFER_SH_CACHE_DIR" |& __devnull
-[ -d "$(dirname "$TRANSFER_SH_SAVED_LINKS")" ] ||
-  mkdir -p "$(dirname "$TRANSFER_SH_SAVED_LINKS")" |& __devnull
+[ -d "$TRANSFER_SH_LOG_DIR" ] || mkdir -p "$TRANSFER_SH_LOG_DIR" |& __devnull
+[ -d "$TRANSFER_SH_TEMP_DIR" ] || mkdir -p "$TRANSFER_SH_TEMP_DIR" |& __devnull
+[ -d "$TRANSFER_SH_CACHE_DIR" ] || mkdir -p "$TRANSFER_SH_CACHE_DIR" |& __devnull
+[ -d "$(dirname "$TRANSFER_SH_SAVED_LINKS")" ] || mkdir -p "$(dirname "$TRANSFER_SH_SAVED_LINKS")" |& __devnull
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 TRANSFER_SH_TEMP_FILE="${TRANSFER_SH_TEMP_FILE:-$(mktemp $TRANSFER_SH_TEMP_DIR/XXXXXX 2>/dev/null)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

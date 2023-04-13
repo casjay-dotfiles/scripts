@@ -406,14 +406,10 @@ IX_IO_SAVED_URL_FILE="${IX_IO_SAVED_URL_FILE:-$HOME/Documents/myscripts/${APPNAM
   . "$IX_IO_CONFIG_DIR/$IX_IO_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure Directories exist
-[ -d "$IX_IO_LOG_DIR" ] ||
-  mkdir -p "$IX_IO_LOG_DIR" |& __devnull
-[ -d "$IX_IO_TEMP_DIR" ] ||
-  mkdir -p "$IX_IO_TEMP_DIR" |& __devnull
-[ -d "$IX_IO_CACHE_DIR" ] ||
-  mkdir -p "$IX_IO_CACHE_DIR" |& __devnull
-[ -d "$(dirname "$IX_IO_SAVED_URL_FILE")" ] ||
-  mkdir -p "$(dirname "$IX_IO_SAVED_URL_FILE")" |& __devnull
+[ -d "$IX_IO_LOG_DIR" ] || mkdir -p "$IX_IO_LOG_DIR" |& __devnull
+[ -d "$IX_IO_TEMP_DIR" ] || mkdir -p "$IX_IO_TEMP_DIR" |& __devnull
+[ -d "$IX_IO_CACHE_DIR" ] || mkdir -p "$IX_IO_CACHE_DIR" |& __devnull
+[ -d "$(dirname "$IX_IO_SAVED_URL_FILE")" ] || mkdir -p "$(dirname "$IX_IO_SAVED_URL_FILE")" |& __devnull
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 IX_IO_TEMP_FILE="${IX_IO_TEMP_FILE:-$(mktemp $IX_IO_TEMP_DIR/XXXXXX 2>/dev/null)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

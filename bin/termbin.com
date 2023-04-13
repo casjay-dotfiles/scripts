@@ -324,14 +324,10 @@ TERMBIN_COM_NETCAT_CMD="${TERMBIN_COM_NETCAT_CMD:-$(builtin type -P netcat 2>/de
   . "$TERMBIN_COM_CONFIG_DIR/$TERMBIN_COM_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure Directories exist
-[ -d "$TERMBIN_COM_LOG_DIR" ] ||
-  mkdir -p "$TERMBIN_COM_LOG_DIR" |& __devnull
-[ -d "$TERMBIN_COM_TEMP_DIR" ] ||
-  mkdir -p "$TERMBIN_COM_TEMP_DIR" |& __devnull
-[ -d "$TERMBIN_COM_CACHE_DIR" ] ||
-  mkdir -p "$TERMBIN_COM_CACHE_DIR" |& __devnull
-[ -d "$(dirname "$TERMBIN_COM_SAVED_FILE")" ] ||
-  mkdir -p "$(dirname "$TERMBIN_COM_SAVED_FILE")" |& __devnull
+[ -d "$TERMBIN_COM_LOG_DIR" ] || mkdir -p "$TERMBIN_COM_LOG_DIR" |& __devnull
+[ -d "$TERMBIN_COM_TEMP_DIR" ] || mkdir -p "$TERMBIN_COM_TEMP_DIR" |& __devnull
+[ -d "$TERMBIN_COM_CACHE_DIR" ] || mkdir -p "$TERMBIN_COM_CACHE_DIR" |& __devnull
+[ -d "$(dirname "$TERMBIN_COM_SAVED_FILE")" ] || mkdir -p "$(dirname "$TERMBIN_COM_SAVED_FILE")" |& __devnull
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 TERMBIN_COM_TEMP_FILE="${TERMBIN_COM_TEMP_FILE:-$(mktemp $TERMBIN_COM_TEMP_DIR/XXXXXX 2>/dev/null)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

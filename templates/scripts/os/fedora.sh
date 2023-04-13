@@ -160,5 +160,4 @@ set --
 # lets exit with code
 exit ${exitCode:-0}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# End application
 # ex: ts=2 sw=2 et filetype=sh

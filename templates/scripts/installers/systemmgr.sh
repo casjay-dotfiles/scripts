@@ -193,10 +193,9 @@ if ! cmd_exists "$APPNAME" && [ -f "$INSTDIR/build.sh" ]; then
   cmd_exists $APPNAME || printf_red "$APPNAME is not installed: run $INSTDIR/build.sh"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# lets exit with code
-exit ${EXIT:-$exitCode}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-
+# lets exit with code
+exit ${EXIT:-${exitCode:-0}}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # ex: ts=2 sw=2 et filetype=sh

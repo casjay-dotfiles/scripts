@@ -314,6 +314,6 @@ main "$@"
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # lets exit with code
-exit "${exitCode:-0}"
-
+exit ${EXIT:-${exitCode:-0}}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # ex: ts=2 sw=2 et filetype=sh

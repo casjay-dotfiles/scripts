@@ -203,6 +203,7 @@ __create_env() {
 # ENV_SERVICE_USER="${ENV_SERVICE_USER:-$SERVICE_USER}"             # execute command as another user
 # ENV_SERVICE_UID="${ENV_SERVICE_UID:-$SERVICE_UID}"                # set the user id
 # ENV_SERVICE_PORT="${ENV_SERVICE_PORT:-$SERVICE_PORT}"             # port which service is listening on
+# EXEC_PRE_SCRIPT="${ENV_EXEC_PRE_SCRIPT:-$EXEC_PRE_SCRIPT}"        # execute before commands
 # EXEC_CMD_BIN="${ENV_EXEC_CMD_BIN:-$EXEC_CMD_BIN}"                 # command to execute
 # EXEC_CMD_ARGS="${ENV_EXEC_CMD_ARGS:-$EXEC_CMD_ARGS}"              # command arguments
 # EXEC_CMD_NAME="$(basename "$EXEC_CMD_BIN")"                       # set the binary name
@@ -218,19 +219,22 @@ EOF
 # script to start server
 __run_start_script() {
   local user="${SERVICE_USER:-root}"
+  local cmd="${EXEC_CMD_BIN:-}"
+  local args="${EXEC_CMD_ARGS:-}"
+  local name="${EXEC_CMD_NAME:-}"
+  local pre="${EXEC_PRE_SCRIPT:-}"
   local workdir="${WORKDIR:-$WORK_DIR}"
-  local cmd="$EXEC_CMD_BIN $EXEC_CMD_ARGS"
   local lc_type="${LC_ALL:-${LC_CTYPE:-$LANG}}"
   local home="${workdir//\/root/\/tmp\/docker}"
   local path="/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin"
-  [ -n "$EXEC_PRE_SCRIPT" ] && [ -f "$EXEC_PRE_SCRIPT" ] && cmd="$EXEC_PRE_SCRIPT $cmd"
-  if [ -z "$EXEC_CMD_BIN" ]; then
+  local message=""
+  if [ -z "$cmd" ]; then
     __post_execute 2>"/dev/stderr" |& tee -a "$LOG_DIR/init.txt" &>/dev/null
     echo "Initializing $SCRIPT_NAME has completed"
   else
     # ensure the command exists
-    if [ ! -x "$EXEC_CMD_BIN" ]; then
-      echo "$EXEC_CMD_NAME is not a valid executable"
+    if [ ! -x "$cmd" ]; then
+      echo "$name is not a valid executable"
       exit 2
     fi
     # set working directories
@@ -244,14 +248,21 @@ __run_start_script() {
     [ "$user" != "root " ] && [ -d "$home" ] && chmod -f 777 "$home"
     [ "$user" != "root " ] && [ -d "$workdir" ] && chmod -f 777 "$workdir"
     # check and exit if already running
-    if __proc_check "$EXEC_CMD_NAME" || __proc_check "$EXEC_CMD_BIN"; then
-      echo "$EXEC_CMD_NAME is already running" >&2
+    if __proc_check "$name" || __proc_check "$cmd"; then
+      echo "$name is already running" >&2
       exit 0
     else
-      echo "Starting service: $EXEC_CMD_NAME $EXEC_CMD_ARGS"
+      if [ -n "$pre" ] && [ -f "$pre" ]; then
+        cmd_exec="$pre $cmd $args"
+        message="Starting service: $name $args through $pre"
+      else
+        cmd_exec="$cmd $args"
+        message="Starting service: $name $args"
+      fi
+      echo "$message"
       su_cmd touch "$SERVICE_PID_FILE"
       __post_execute 2>"/dev/stderr" 2>&1 |& tee -a "$LOG_DIR/init.txt" &>/dev/null &
-      su_cmd env -i HOME="$home" LC_CTYPE="$lc_type" PATH="$path" USER="$user" sh -c "$cmd" || return 10
+      su_cmd env -i HOME="$home" LC_CTYPE="$lc_type" PATH="$path" USER="$user" sh -c "$cmd_exec" || return 10
     fi
   fi
 }
@@ -313,12 +324,14 @@ SERVICE_PORT="${ENV_SERVICE_PORT:-$SERVICE_PORT}"             # port which servi
 PRE_EXEC_MESSAGE="${ENV_PRE_EXEC_MESSAGE:-$PRE_EXEC_MESSAGE}" # Show message before execute
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # application specific
-EXEC_CMD_BIN="${ENV_EXEC_CMD_BIN:-$EXEC_CMD_BIN}"                 # command to execute
-EXEC_CMD_BIN="$(type -P "$EXEC_CMD_BIN" || echo "$EXEC_CMD_BIN")" # set full path
-EXEC_CMD_NAME="$(basename "$EXEC_CMD_BIN")"                       # set the binary name
-SERVICE_PID_FILE="/run/init.d/$EXEC_CMD_NAME.pid"                 # set the pid file location
-EXEC_CMD_ARGS="${ENV_EXEC_CMD_ARGS:-$EXEC_CMD_ARGS}"              # command arguments
-SERVICE_PID_NUMBER="$(__pgrep)"                                   # check if running
+EXEC_PRE_SCRIPT="${ENV_EXEC_PRE_SCRIPT:-$EXEC_PRE_SCRIPT}"                 # Pre
+EXEC_CMD_BIN="${ENV_EXEC_CMD_BIN:-$EXEC_CMD_BIN}"                          # command to execute
+EXEC_CMD_NAME="$(basename "$EXEC_CMD_BIN")"                                # set the binary name
+SERVICE_PID_FILE="/run/init.d/$EXEC_CMD_NAME.pid"                          # set the pid file location
+EXEC_CMD_ARGS="${ENV_EXEC_CMD_ARGS:-$EXEC_CMD_ARGS}"                       # command arguments
+SERVICE_PID_NUMBER="$(__pgrep)"                                            # check if running
+EXEC_CMD_BIN="$(type -P "$EXEC_CMD_BIN" || echo "$EXEC_CMD_BIN")"          # set full path
+EXEC_PRE_SCRIPT="$(type -P "$EXEC_PRE_SCRIPT" || echo "$EXEC_PRE_SCRIPT")" # set full path
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # create auth directories
 [ -n "$USER_FILE_PREFIX" ] && { [ -d "$USER_FILE_PREFIX" ] || mkdir -p "$USER_FILE_PREFIX"; }

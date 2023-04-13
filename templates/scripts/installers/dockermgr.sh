@@ -284,6 +284,9 @@ HOST_DOCKER_LINK=""
 # Set listen type - Default all - [all/local/lan/docker/public]
 HOST_NETWORK_ADDR="all"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set this to the protocol the the container will use - [http/https/git/ftp/pgsql/mysql/mongodb]
+CONTAINER_PROTOCOL="http"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup nginx proxy variables - [yes/no] [yes/no] [http] [https] [yes/no]
 HOST_NGINX_ENABLED="yes"
 HOST_NGINX_SSL_ENABLED="yes"
@@ -300,12 +303,6 @@ CONTAINER_WEB_SERVER_LISTEN_ON="127.0.0.10"
 CONTAINER_WEB_SERVER_VHOSTS=""
 CONTAINER_WEB_SERVER_CONFIG_NAME=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# mail settings - [yes/no] [user] [domainname] [server]
-CONTAINER_EMAIL_ENABLED=""
-CONTAINER_EMAIL_USER=""
-CONTAINER_EMAIL_DOMAIN=""
-CONTAINER_EMAIL_RELAY=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Add service port - [port]
 CONTAINER_SERVICE_PORT=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -315,8 +312,11 @@ CONTAINER_ADD_CUSTOM_PORT=""
 # Add custom listening ports - [listen:externalPort:internalPort/[tcp,udp]]
 CONTAINER_ADD_CUSTOM_LISTEN=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set this to the protocol the the container will use - [http/https/git/ftp/pgsql/mysql/mongodb]
-CONTAINER_PROTOCOL="http"
+# mail settings - [yes/no] [user] [domainname] [server]
+CONTAINER_EMAIL_ENABLED=""
+CONTAINER_EMAIL_USER=""
+CONTAINER_EMAIL_DOMAIN=""
+CONTAINER_EMAIL_RELAY=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Database settings - [listen] [yes/no]
 CONTAINER_DATABASE_LISTEN=""
@@ -1478,21 +1478,29 @@ if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ]; then
       SET_WEB_PORT+="$CONTAINER_WEB_SERVER_LISTEN_ON:$random_port "
     fi
   done
-  set_port=""
-  if [ -n "$SET_WEB_PORT" ]; then
-    SET_NGINX_PROXY_PORT="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | awk -F':' '{print $1":"$2}' | grep -v '^$' | tr '\n' ' ' | head -n1 | grep '^')"
-  fi
-  if [ -n "$SET_WEB_PORT" ]; then
-    CLEANUP_PORT="${SET_NGINX_PROXY_PORT//--publish /}"
-    CLEANUP_PORT="${CLEANUP_PORT//\/*/}"
-  fi
-  if [ -n "$SET_WEB_PORT" ]; then
-    PRETTY_PORT="$CLEANUP_PORT"
-    NGINX_PROXY_PORT="$CLEANUP_PORT"
-  fi
-  if [ -n "$SET_NGINX_PROXY_PORT" ]; then
-    NGINX_PROXY_PORT="$SET_NGINX_PROXY_PORT"
-  fi
+elif [ -n "$CONTAINER_SERVICE_PORT" ]; then
+  CONTAINER_SERVICE_PORT="${CONTAINER_SERVICE_PORT//,/ }"
+  for set_port in $CONTAINER_SERVICE_PORT; do
+    if [ "$set_port" != " " ] && [ -n "$set_port" ]; then
+      port=${set_port//\/*/}
+      random_port="$(__rport)"
+      TYPE="$(echo "$port" | grep '/' | awk -F '/' '{print $NF}' | head -n1 | grep '^' || echo '')"
+      if [ -z "$TYPE" ]; then
+        DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_WEB_SERVER_LISTEN_ON:$random_port:$port")
+      else
+        DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_WEB_SERVER_LISTEN_ON:$random_port:$port/$TYPE")
+      fi
+      SET_WEB_PORT+="$CONTAINER_WEB_SERVER_LISTEN_ON:$random_port "
+    fi
+  done
+fi
+set_port=""
+if [ -n "$SET_WEB_PORT" ]; then
+  SET_NGINX_PROXY_PORT="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | awk -F':' '{print $1":"$2}' | grep -v '^$' | tr '\n' ' ' | head -n1 | grep '^')"
+  CLEANUP_PORT="${SET_NGINX_PROXY_PORT//--publish /}"
+  CLEANUP_PORT="${CLEANUP_PORT//\/*/}"
+  PRETTY_PORT="$CLEANUP_PORT"
+  NGINX_PROXY_PORT="$CLEANUP_PORT"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Fix/create port

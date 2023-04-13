@@ -1458,43 +1458,33 @@ if [ -n "$CONTAINER_ADD_CUSTOM_LISTEN" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # container web server configuration
-SET_WEB_PORT=""
-NGINX_PROXY_PORT=""
 CLEANUP_PORT="${CONTAINER_WEB_SERVER_INT_PORT:-$CONTAINER_SERVICE_PORT}"
 CLEANUP_PORT="${CLEANUP_PORT//\/*/}"
 PRETTY_PORT="$CLEANUP_PORT"
-if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ]; then
+if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ] && [ -n "$CONTAINER_WEB_SERVER_INT_PORT" ]; then
   CONTAINER_WEB_SERVER_INT_PORT="${CONTAINER_WEB_SERVER_INT_PORT//,/ }"
-  for set_port in $CONTAINER_WEB_SERVER_INT_PORT; do
-    if [ "$set_port" != " " ] && [ -n "$set_port" ]; then
-      port=${set_port//\/*/}
-      random_port="$(__rport)"
-      TYPE="$(echo "$port" | grep '/' | awk -F '/' '{print $NF}' | head -n1 | grep '^' || echo '')"
-      if [ -z "$TYPE" ]; then
-        DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_WEB_SERVER_LISTEN_ON:$random_port:$port")
-      else
-        DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_WEB_SERVER_LISTEN_ON:$random_port:$port/$TYPE")
-      fi
-      SET_WEB_PORT+="$CONTAINER_WEB_SERVER_LISTEN_ON:$random_port "
-    fi
-  done
-elif [ -n "$CONTAINER_SERVICE_PORT" ]; then
+  if [ "$CONTAINER_WEB_SERVER_INT_PORT" != " " ]; then
+    port=${CONTAINER_WEB_SERVER_INT_PORT//\/*/}
+    random_port="$(__rport)"
+    SET_WEB_PORT="$CONTAINER_WEB_SERVER_LISTEN_ON:$random_port"
+    DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_WEB_SERVER_LISTEN_ON:$random_port:$port")
+  fi
+fi
+if [ -n "$CONTAINER_SERVICE_PORT" ]; then
   CONTAINER_SERVICE_PORT="${CONTAINER_SERVICE_PORT//,/ }"
   for set_port in $CONTAINER_SERVICE_PORT; do
     if [ "$set_port" != " " ] && [ -n "$set_port" ]; then
       port=${set_port//\/*/}
       random_port="$(__rport)"
-      TYPE="$(echo "$port" | grep '/' | awk -F '/' '{print $NF}' | head -n1 | grep '^' || echo '')"
+      TYPE="$(echo "$set_port" | grep '/' | awk -F '/' '{print $NF}' | head -n1 | grep '^' || echo '')"
       if [ -z "$TYPE" ]; then
         DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_WEB_SERVER_LISTEN_ON:$random_port:$port")
       else
         DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_WEB_SERVER_LISTEN_ON:$random_port:$port/$TYPE")
       fi
-      SET_WEB_PORT+="$CONTAINER_WEB_SERVER_LISTEN_ON:$random_port "
     fi
   done
 fi
-set_port=""
 if [ -n "$SET_WEB_PORT" ]; then
   SET_NGINX_PROXY_PORT="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | awk -F':' '{print $1":"$2}' | grep -v '^$' | tr '\n' ' ' | head -n1 | grep '^')"
   CLEANUP_PORT="${SET_NGINX_PROXY_PORT//--publish /}"
@@ -1502,6 +1492,7 @@ if [ -n "$SET_WEB_PORT" ]; then
   PRETTY_PORT="$CLEANUP_PORT"
   NGINX_PROXY_PORT="$CLEANUP_PORT"
 fi
+unset SET_WEB_PORT_TMP set_port CONTAINER_SERVICE_PORT
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Fix/create port
 if echo "$PRETTY_PORT" | grep -q ':.*.:'; then

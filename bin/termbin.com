@@ -316,12 +316,10 @@ TERMBIN_COM_URL_HOST_PORT="${TERMBIN_COM_URL_HOST_PORT:-9999}"
 TERMBIN_COM_NETCAT_CMD="${TERMBIN_COM_NETCAT_CMD:-$(builtin type -P netcat 2>/dev/null || builtin type -P nc 2>/dev/null || false)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
-[ -f "$TERMBIN_COM_CONFIG_DIR/$TERMBIN_COM_CONFIG_FILE" ] ||
-  [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+[ -f "$TERMBIN_COM_CONFIG_DIR/$TERMBIN_COM_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import config
-[ -f "$TERMBIN_COM_CONFIG_DIR/$TERMBIN_COM_CONFIG_FILE" ] &&
-  . "$TERMBIN_COM_CONFIG_DIR/$TERMBIN_COM_CONFIG_FILE"
+[ -f "$TERMBIN_COM_CONFIG_DIR/$TERMBIN_COM_CONFIG_FILE" ] && . "$TERMBIN_COM_CONFIG_DIR/$TERMBIN_COM_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure Directories exist
 [ -d "$TERMBIN_COM_LOG_DIR" ] || mkdir -p "$TERMBIN_COM_LOG_DIR" |& __devnull

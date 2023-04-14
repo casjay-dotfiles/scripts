@@ -1064,7 +1064,7 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup the listen address
 if [ -n "$HOST_DEFINE_LISTEN" ]; then
-  SET_LISTEN_ADDRESS="${HOST_DEFINE_LISTEN//:*/}"
+  HOST_LISTEN_ADDR="${HOST_DEFINE_LISTEN//:*/}"
 fi
 HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR:-$HOST_DEFINE_LISTEN}"
 HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR//0.0.0.0/$SET_LAN_IP}"
@@ -1090,7 +1090,6 @@ if [ "$CONTAINER_CUSTOM_DATABASE_ENABLED" = "yes" ] && [ -n "$CONTAINER_CUSTOM_D
   DOCKER_SET_OPTIONS+=("--volume $LOCAL_DATA_DIR/db/$DATABASE_DIR_CUSTOM:/$DATABASE_DIR_CUSTOM:z")
   DOCKER_SET_OPTIONS+=("--env DATABASE_DIR_CUSTOM=$DATABASE_DIR_CUSTOM")
   if echo "$CONTAINER_CUSTOM_DATABASE_PORT" | grep -q "^[0-9][0-9]"; then
-    CONTAINER_ENV_PORTS+=("$CONTAINER_CUSTOM_DATABASE_PORT")
     DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_DATABASE_LISTEN:$CONTAINER_CUSTOM_DATABASE_PORT:$CONTAINER_CUSTOM_DATABASE_PORT")
     CONTAINER_DATABASE_PROTO="$HOST_LISTEN_ADDR:$CONTAINER_CUSTOM_DATABASE_PORT"
   else
@@ -1100,7 +1099,6 @@ if [ "$CONTAINER_CUSTOM_DATABASE_ENABLED" = "yes" ] && [ -n "$CONTAINER_CUSTOM_D
 fi
 if [ "$CONTAINER_REDIS_ENABLED" = "yes" ]; then
   SHOW_DATABASE_INFO="true"
-  CONTAINER_ENV_PORTS+=("6379")
   CONTAINER_DATABASE_ENABLED="yes"
   CONTAINER_DATABASE_PROTO="redis://$HOST_LISTEN_ADDR:6379"
   DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_DATABASE_LISTEN:6379:6379")
@@ -1121,7 +1119,6 @@ if [ "$CONTAINER_SQLITE3_ENABLED" = "yes" ]; then
 fi
 if [ "$CONTAINER_POSTGRES_ENABLED" = "yes" ]; then
   SHOW_DATABASE_INFO="true"
-  CONTAINER_ENV_PORTS+=("5432")
   CONTAINER_DATABASE_ENABLED="yes"
   DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_DATABASE_LISTEN:5432:5432")
   DATABASE_DIR_POSTGRES="${DATABASE_DIR_POSTGRES:-$DATABASE_BASE_DIR/pgsql}"
@@ -1132,7 +1129,6 @@ if [ "$CONTAINER_POSTGRES_ENABLED" = "yes" ]; then
 fi
 if [ "$CONTAINER_MARIADB_ENABLED" = "yes" ]; then
   SHOW_DATABASE_INFO="true"
-  CONTAINER_ENV_PORTS+=("3306")
   CONTAINER_DATABASE_ENABLED="yes"
   DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_DATABASE_LISTEN:3306:3306")
   DATABASE_DIR_MARIADB="${DATABASE_DIR_MARIADB:-$DATABASE_BASE_DIR/mariadb}"
@@ -1143,7 +1139,6 @@ if [ "$CONTAINER_MARIADB_ENABLED" = "yes" ]; then
 fi
 if [ "$CONTAINER_COUCHDB_ENABLED" = "yes" ]; then
   SHOW_DATABASE_INFO="true"
-  CONTAINER_ENV_PORTS+=("5984")
   CONTAINER_DATABASE_ENABLED="yes"
   DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_DATABASE_LISTEN:5984:5984")
   DATABASE_DIR_COUCHDB="${DATABASE_DIR_COUCHDB:-$DATABASE_BASE_DIR/couchdb}"
@@ -1154,7 +1149,6 @@ if [ "$CONTAINER_COUCHDB_ENABLED" = "yes" ]; then
 fi
 if [ "$CONTAINER_MONGODB_ENABLED" = "yes" ]; then
   SHOW_DATABASE_INFO="true"
-  CONTAINER_ENV_PORTS+=("27017")
   CONTAINER_DATABASE_ENABLED="yes"
   DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_DATABASE_LISTEN:27017:27017")
   DATABASE_DIR_MONGODB="${DATABASE_DIR_MONGODB:-$DATABASE_BASE_DIR/mongodb}"
@@ -1165,7 +1159,6 @@ if [ "$CONTAINER_MONGODB_ENABLED" = "yes" ]; then
 fi
 if [ "$CONTAINER_SUPABASE_ENABLED" = "yes" ]; then
   SHOW_DATABASE_INFO="true"
-  CONTAINER_ENV_PORTS+=("5432")
   CONTAINER_DATABASE_ENABLED="yes"
   CONTAINER_DATABASE_PROTO="http://$HOST_LISTEN_ADDR:8000"
   DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_DATABASE_LISTEN:5432:5432")
@@ -1240,12 +1233,14 @@ if [ "$CONTAINER_EMAIL_ENABLED" = "yes" ]; then
   fi
   CONTAINER_EMAIL_PORTS="$(echo "${CONTAINER_EMAIL_PORTS//,/ }" | tr ' ' '\n')"
   DOCKER_SET_OPTIONS+=("--env EMAIL_ENABLED=$CONTAINER_EMAIL_ENABLED")
-  CONTAINER_ENV_PORTS+=("$CONTAINER_EMAIL_PORTS")
+  for port in $CONTAINER_EMAIL_PORTS; do
+    DOCKER_SET_TMP_PUBLISH+=("--publish $HOST_LISTEN_ADDR:$port:$port")
+  done
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # process list
 if [ -n "$CONTAINER_SERVICES_LIST" ]; then
-  DOCKER_SET_OPTIONS+=("--env PROCS_LIST=$CONTAINER_SERVICES_LIST")
+  DOCKER_SET_OPTIONS+=("--env PROCS_LIST=${CONTAINER_SERVICES_LIST// /,}")
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup data mount point
@@ -1481,7 +1476,7 @@ NGINX_PROXY_URL="${NGINX_PROXY_URL:-$PROXY_HTTP_PROTO://$NGINX_PROXY_ADDRESS:$NG
 NGINX_PROXY_URL="${NGINX_PROXY_URL// /}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set temp env for PORTS ENV variable
-SET_PORTS_ENV_TMP="${SET_PORTS_ENV_PUB[*]},${DOCKER_SET_TMP_PUBLISH//--publish/}"
+SET_PORTS_ENV_TMP="${DOCKER_SET_TMP_PUBLISH//--publish/}"
 DOCKER_SET_PORTS_ENV_TMP="$(echo "${SET_PORTS_ENV_TMP//,/ }" | tr ' ' '\n' | grep ':' | awk -F ':' '{print $NF}' | sort -uV | grep '^')"
 DOCKER_SET_PORTS_ENV_TMP="$(echo "$DOCKER_SET_PORTS_ENV_TMP" | grep '[0-9]' | sed 's|/.*||g' | grep -v '^$' | tr '\n' ' ' | grep '^' || echo '')"
 ENV_PORTS="$(__trim "${DOCKER_SET_PORTS_ENV_TMP[*]}")"
@@ -1493,18 +1488,19 @@ unset DOCKER_SET_PORTS_ENV_TMP DOCKER_SET_PORTS_ENV ENV_PORTS SET_PORTS_ENV_TMP 
 DOCKER_CUSTOM_ARRAY="$(__custom_docker_env | grep '\--')"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Clean up variables
-HUB_IMAGE_URL="$(__trim "${HUB_IMAGE_URL[*]:-}")"               # image url
-HUB_IMAGE_TAG="$(__trim "${HUB_IMAGE_TAG[*]:-}")"               # image tag
-DOCKER_GET_CAP="$(__trim "${DOCKER_SET_CAP[*]:-}")"             # --capabilites
-DOCKER_GET_ENV="$(__trim "${DOCKER_SET_ENV[*]:-}")"             # --env
-DOCKER_GET_DEV="$(__trim "${DOCKER_SET_DEV[*]:-}")"             # --device
-DOCKER_GET_MNT="$(__trim "${DOCKER_SET_MNT[*]:-}")"             # --volume
-DOCKER_GET_LINK="$(__trim "${DOCKER_SET_LINK[*]:-}")"           # --link
-DOCKER_GET_LABELS="$(__trim "${DOCKER_SET_LABELS[*]:-}")"       # --labels
-DOCKER_GET_SYSCTL="$(__trim "${DOCKER_SET_SYSCTL[*]:-}")"       # --sysctl
-DOCKER_GET_OPTIONS="$(__trim "${DOCKER_SET_OPTIONS[*]:-}")"     # --env
-DOCKER_GET_CUSTOM="$(__trim "${DOCKER_CUSTOM_ARRAY[*]:-}")"     # --tty --rm --interactive
-DOCKER_GET_PUBLISH="$(__trim "${DOCKER_SET_TMP_PUBLISH[*]:-}")" # --publish ports
+DOCKER_SET_PUBLISH="$(printf '%s\n' "${DOCKER_SET_TMP_PUBLISH[@]}" | sort -Vu)" # ensure only one
+HUB_IMAGE_URL="$(__trim "${HUB_IMAGE_URL[*]:-}")"                               # image url
+HUB_IMAGE_TAG="$(__trim "${HUB_IMAGE_TAG[*]:-}")"                               # image tag
+DOCKER_GET_CAP="$(__trim "${DOCKER_SET_CAP[*]:-}")"                             # --capabilites
+DOCKER_GET_ENV="$(__trim "${DOCKER_SET_ENV[*]:-}")"                             # --env
+DOCKER_GET_DEV="$(__trim "${DOCKER_SET_DEV[*]:-}")"                             # --device
+DOCKER_GET_MNT="$(__trim "${DOCKER_SET_MNT[*]:-}")"                             # --volume
+DOCKER_GET_LINK="$(__trim "${DOCKER_SET_LINK[*]:-}")"                           # --link
+DOCKER_GET_LABELS="$(__trim "${DOCKER_SET_LABELS[*]:-}")"                       # --labels
+DOCKER_GET_SYSCTL="$(__trim "${DOCKER_SET_SYSCTL[*]:-}")"                       # --sysctl
+DOCKER_GET_OPTIONS="$(__trim "${DOCKER_SET_OPTIONS[*]:-}")"                     # --env
+DOCKER_GET_CUSTOM="$(__trim "${DOCKER_CUSTOM_ARRAY[*]:-}")"                     # --tty --rm --interactive
+DOCKER_GET_PUBLISH="$(__trim "${DOCKER_SET_PUBLISH[*]:-}")"                     # --publish ports
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 CONTAINER_COMMANDS="$(__trim "${CONTAINER_COMMANDS[*]:-}")" # pass command to container
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

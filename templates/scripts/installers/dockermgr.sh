@@ -1450,12 +1450,17 @@ if [ -n "$CONTAINER_ADD_WEB_PORTS" ] || { [ "$CONTAINER_WEB_SERVER_ENABLED" = "y
         NGINX_REPLACE_INCLUDE="yes"
         proxy_info="${proxy_info//proxy|/}"
         proxy_location="${proxy_info//|*/}"
-        proxy_url="$CONTAINER_WEB_SERVER_LISTEN_ON:$port"
+        proxy_url="$CONTAINER_WEB_SERVER_LISTEN_ON:$random_port"
+        if echo "$CONTAINER_PROTOCOL" | grep -q "^http"; then
+          nginx_proto="${CONTAINER_PROTOCOL:-http}"
+        else
+          nginx_proto="http"
+        fi
         if [ -n "$proxy_url" ] && [ -n "$proxy_location" ]; then
           cat <<EOF | tee -a "$NGINX_VHOSTS_INC_FILE_TMP" &>/dev/null
   location $proxy_location {
     proxy_redirect                          http:// https://;
-    proxy_pass                              http://$proxy_url/;
+    proxy_pass                              $nginx_proto://$proxy_url/;
     proxy_ssl_verify                        off;
     proxy_http_version                      1.1;
     proxy_connect_timeout                   3600;

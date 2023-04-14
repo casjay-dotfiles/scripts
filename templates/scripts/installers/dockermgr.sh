@@ -1686,7 +1686,7 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
     if [ -d "$NGINX_DIR/vhosts.d" ]; then
       if [ -f "$NGINX_VHOSTS_INC_FILE_TMP" ]; then
         __sudo_root mv -f "$NGINX_VHOSTS_INC_FILE_TMP" "$NGINX_INC_CONFIG"
-        sed -i "s|REPLACREPLACE_NGINX_INCLUDEE_INCLUDE|$NGINX_INC_CONFIG|g" "$NGINX_VHOSTS_CONF_FILE_TMP"
+        sed -i "s|REPLACE_NGINX_INCLUDE|$NGINX_INC_CONFIG|g" "$NGINX_VHOSTS_CONF_FILE_TMP"
       elif [ -f "$INSTDIR/nginx/conf.d/vhosts/include.conf" ]; then
         cat "$INSTDIR/nginx/conf.d/vhosts/include.conf" | tee "$NGINX_VHOSTS_INC_FILE_TMP" &>/dev/null
         __sudo_root mv -f "$NGINX_VHOSTS_INC_FILE_TMP" "$NGINX_INC_CONFIG"

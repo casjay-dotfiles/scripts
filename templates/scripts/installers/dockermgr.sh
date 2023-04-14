@@ -78,8 +78,8 @@ trap_exit
 dockermgr_req_version "$APPVERSION"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Custom required functions
-__sudo_root() { [ "$DOCKERMGR_USER_CAN_SUDO" = "true" ] && sudo "$@" || { [ "$USER" = "root" ] && eval "$*"; } || return 1; }
-__sudo_exec() { [ "$DOCKERMGR_USER_CAN_SUDO" = "true" ] && sudo -HE "$@" || { [ "$USER" = "root" ] && eval "$*"; } || return 1; }
+__sudo_root() { [ "$DOCKERMGR_USER_CAN_SUDO" = "true" ] && sudo "$@" || { [ "$USER" = "root" ] && eval "$*"; } || eval "$*" 2>/dev/null || return 1; }
+__sudo_exec() { [ "$DOCKERMGR_USER_CAN_SUDO" = "true" ] && sudo -HE "$@" || { [ "$USER" = "root" ] && eval "$*"; } || eval "$*" 2>/dev/null || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __remove_extra_spaces() { sed 's/\( \)*/\1/g;s|^ ||g'; }
 __port() { echo "$((50000 + $RANDOM % 1000))" | grep '^' || return 1; }
@@ -305,7 +305,7 @@ CONTAINER_WEB_SERVER_LISTEN_ON="127.0.0.10"
 CONTAINER_WEB_SERVER_VHOSTS=""
 CONTAINER_WEB_SERVER_CONFIG_NAME=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Add webserver ports - random portmapping - [port,otheport]
+# Add webserver ports - random portmapping - [port,otheport] or [proxy|/location|port]
 CONTAINER_ADD_WEB_PORTS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Add custom port - random portmapping -  [exter:inter] or [listen:exter:inter/[tcp,udp]] random:[inter]
@@ -750,6 +750,7 @@ SET_CAPABILITIES=()
 DOCKER_SET_OPTIONS=()
 DOCKER_SET_TMP_PUBLISH=()
 CONTAINER_CONTAINER_ENV_PORTS=()
+NGINX_REPLACE_INCLUDE=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure that the image has a tag
 if [ -z "$HUB_IMAGE_TAG" ]; then
@@ -1426,17 +1427,50 @@ if [ -n "$CONTAINER_OPT_PORT_VAR" ] || [ -n "$CONTAINER_ADD_CUSTOM_PORT" ]; then
   unset set_port
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# container web server configuration
+# container web server configuration proxy|/location|port
 if [ -n "$CONTAINER_ADD_WEB_PORTS" ] || { [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ] && [ -n "$CONTAINER_ADD_WEB_PORTS" ]; }; then
   CONTAINER_ADD_WEB_PORTS="${CONTAINER_ADD_WEB_PORTS//,/ }"
   CONTAINER_WEB_SERVER_INT_PORT="${CONTAINER_WEB_SERVER_INT_PORT//,/ }"
   for set_port in $CONTAINER_WEB_SERVER_INT_PORT $CONTAINER_ADD_WEB_PORTS; do
     if [ "$set_port" != " " ] && [ -n "$set_port" ]; then
+      proxy_url=""
+      proxy_location=""
+      proxy_info="${set_port}"
+      set_port="${set_port//*|/}"
       port=${set_port//\/*/}
       port="${port//*:/}"
       random_port="$(__rport)"
       SET_WEB_PORT_TMP+=("$CONTAINER_WEB_SERVER_LISTEN_ON:$random_port")
       DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_WEB_SERVER_LISTEN_ON:$random_port:$port")
+      if echo "$proxy_info" | grep -q "proxy|"; then
+        NGINX_REPLACE_INCLUDE="yes"
+        proxy_url="$CONTAINER_WEB_SERVER_LISTEN_ON:$random_port"
+        proxy_location="$(echo "${proxy_info//proxy|/|}" | awk -F "|" '{print $1}')"
+        if [ -n "$proxy_url" ] && [ -n "$proxy_location" ]; then
+          cat <<EOF | tee -a "/tmp/$$.$CONTAINER_HOSTNAME.inc.conf" &>/dev/null
+  location $proxy_location {
+    proxy_redirect                          http:// https://;
+    proxy_pass                              http://$proxy_location/;
+    proxy_ssl_verify                        off;
+    proxy_http_version                      1.1;
+    proxy_connect_timeout                   3600;
+    proxy_send_timeout                      3600;
+    proxy_read_timeout                      3600;
+    proxy_request_buffering                 off;
+    proxy_buffering                         off;
+    proxy_set_header                        Host              \$http_host;
+    proxy_set_header                        X-Real-IP         \$remote_addr;
+    proxy_set_header                        X-Forwarded-For   \$proxy_add_x_forwarded_for;
+    proxy_set_header                        X-Forwarded-Proto \$scheme;
+    proxy_set_header                        Upgrade           \$http_upgrade;
+    proxy_set_header                        Connection        \$connection_upgrade;
+    send_timeout                            3600;
+  }
+
+EOF
+        fi
+      fi
+
     fi
   done
   unset set_port
@@ -1632,6 +1666,7 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
   NGINX_VHOST_ENABLED="true"
   NGINX_VHOST_NAMES="${CONTAINER_WEB_SERVER_VHOSTS//,/ }"
   NGINX_CONFIG_NAME="${CONTAINER_WEB_SERVER_CONFIG_NAME:-$CONTAINER_HOSTNAME}"
+  [ -d "$NGINX_DIR/conf.d/vhosts" ] || __sudo_root mkdir -p "$NGINX_DIR/conf.d/vhosts"
   if [ "$HOST_NGINX_UPDATE_CONF" = "yes" ] && [ -f "$INSTDIR/nginx/proxy.conf" ]; then
     cp -f "$INSTDIR/nginx/proxy.conf" "/tmp/$$.$CONTAINER_HOSTNAME.conf"
     sed -i "s|REPLACE_APPNAME|$APPNAME|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
@@ -1641,6 +1676,17 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
     sed -i "s|REPLACE_NGINX_VHOSTS|$NGINX_VHOST_NAMES|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
     sed -i "s|REPLACE_SERVER_LISTEN_OPTS|$NGINX_LISTEN_OPTS|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
     if [ -d "$NGINX_DIR/vhosts.d" ]; then
+      if [ -f "/tmp/$$.$CONTAINER_HOSTNAME.inc.conf" ]; then
+        __sudo_root mv -f "/tmp/$$.$CONTAINER_HOSTNAME.inc.conf" "$NGINX_DIR/conf.d/vhosts/$CONTAINER_HOSTNAME.conf"
+        sed -i "s|REPLACREPLACE_NGINX_INCLUDEE_INCLUDE|$NGINX_DIR/conf.d/vhosts/$CONTAINER_HOSTNAME.conf|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf"
+      elif [ -f "$INSTDIR/nginx/conf.d/vhosts/include.conf" ]; then
+        cat "$INSTDIR/nginx/conf.d/vhosts/include.conf" | tee "/tmp/$$.$CONTAINER_HOSTNAME.inc.conf" &>/dev/null
+        __sudo_root mv -f "/tmp/$$.$CONTAINER_HOSTNAME.inc.conf" "$NGINX_DIR/conf.d/vhosts/$CONTAINER_HOSTNAME.conf"
+        sed -i "s|REPLACE_NGINX_INCLUDE|$NGINX_DIR/conf.d/vhosts/$CONTAINER_HOSTNAME.conf|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf"
+      fi
+      if [ ! -f "$NGINX_DIR/conf.d/vhosts/$CONTAINER_HOSTNAME.conf" ]; then
+        sed -i "s|include.*REPLACE_NGINX_INCLUDE||g" "/tmp/$$.$CONTAINER_HOSTNAME.conf"
+      fi
       __sudo_root mv -f "/tmp/$$.$CONTAINER_HOSTNAME.conf" "$NGINX_DIR/vhosts.d/$NGINX_CONFIG_NAME.conf"
       if [ -f "$NGINX_DIR/vhosts.d/$NGINX_CONFIG_NAME.conf" ]; then
         NGINX_IS_INSTALLED="yes"

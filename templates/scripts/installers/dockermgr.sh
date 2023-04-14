@@ -740,7 +740,8 @@ DOCKER_CAP_NET_ADMIN="${ENV_DOCKER_CAP_NET_ADMIN:-$DOCKER_CAP_NET_ADMIN}"
 DOCKER_CAP_NET_BIND_SERVICE="${ENV_DOCKER_CAP_NET_BIND_SERVICE:-$DOCKER_CAP_NET_BIND_SERVICE}"
 DOCKERMGR_ENABLE_INSTALL_SCRIPT="${SCRIPT_ENABLED:-$DOCKERMGR_ENABLE_INSTALL_SCRIPT}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup arrays
+# Setup arrays/empty variables
+PRETTY_PORT=""
 SET_WEB_PORT_TMP=()
 SET_CAPABILITIES=()
 DOCKER_SET_OPTIONS=()
@@ -1046,6 +1047,8 @@ if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ]; then
   if [ -n "$CONTAINER_WEB_SERVER_INT_PORT" ]; then
     CONTAINER_WEB_SERVER_INT_PORT="${CONTAINER_WEB_SERVER_INT_PORT//,/ }"
     DOCKER_SET_OPTIONS+=("--env WEB_PORT=\"$CONTAINER_WEB_SERVER_INT_PORT\"")
+    SET_NGINX_PROXY_PORT="$(echo "$CONTAINER_WEB_SERVER_INT_PORT" | tr ' ' '\n' | grep -v '^$' | head -n1)"
+    SET_PRETTY_PORT="$SET_NGINX_PROXY_PORT"
   fi
   if [ "$CONTAINER_WEB_SERVER_SSL_ENABLED" = "yes" ]; then
     CONTAINER_PROTOCOL="https"
@@ -1283,7 +1286,7 @@ if [ -n "$HOST_DOCKER_LINK" ]; then
   for link in $HOST_DOCKER_LINK; do
     [ -n "$link" ] && DOCKER_SET_LINK="--link $link "
   done
-  link=""
+  unset link
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup mounts
@@ -1296,7 +1299,7 @@ if [ -n "$CONTAINER_MOUNTS" ]; then
       DOCKER_SET_MNT+="--volume $mnt "
     fi
   done
-  mnt=""
+  unset mnt
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -n "$CONTAINER_OPT_MOUNT_VAR" ]; then
@@ -1308,7 +1311,7 @@ if [ -n "$CONTAINER_OPT_MOUNT_VAR" ]; then
       DOCKER_SET_MNT+="--volume $mnt "
     fi
   done
-  mnt=""
+  unset mnt
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup devices
@@ -1321,7 +1324,7 @@ if [ -n "$CONTAINER_DEVICES" ]; then
       DOCKER_SET_DEV+="--device $dev "
     fi
   done
-  dev=""
+  unset dev
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup enviroment variables
@@ -1333,7 +1336,7 @@ if [ -n "$CONTAINER_ENV" ]; then
       DOCKER_SET_ENV+="--env $env "
     fi
   done
-  env=""
+  unset env
 fi
 if [ -n "$CONTAINER_OPT_ENV_VAR" ]; then
   CONTAINER_OPT_ENV_VAR="${CONTAINER_OPT_ENV_VAR//,/ }"
@@ -1342,7 +1345,7 @@ if [ -n "$CONTAINER_OPT_ENV_VAR" ]; then
       DOCKER_SET_ENV+="--env $env "
     fi
   done
-  env=""
+  unset env
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # setup capabilites
@@ -1362,7 +1365,7 @@ if [ -n "$CONTAINER_CAPABILITIES" ]; then
       DOCKER_SET_CAP+="--cap-add $cap "
     fi
   done
-  cap=""
+  unset cap
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup sysctl
@@ -1374,7 +1377,7 @@ if [ -n "$CONTAINER_SYSCTL" ]; then
       DOCKER_SET_SYSCTL+="--sysctl $sysctl "
     fi
   done
-  sysctl=""
+  unset sysctl
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup container labels
@@ -1386,12 +1389,10 @@ if [ -n "$CONTAINER_LABELS" ]; then
       DOCKER_SET_LABELS+="--label $label "
     fi
   done
-  label=""
+  unset label
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup ports
-PRETTY_PORT=""
-SET_WEB_PORT_TMP=()
 SET_LISTEN="${HOST_DEFINE_LISTEN//:*/}"
 SET_ADDR="${HOST_LISTEN_ADDR:-127.0.0.1}"
 CONTAINER_WEB_SERVER_LISTEN_ON="${CONTAINER_WEB_SERVER_LISTEN_ON:-}"
@@ -1412,7 +1413,7 @@ if [ -n "$SET_SERVER_PORTS" ]; then
       fi
     fi
   done
-  set_port=""
+  unset set_port
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup custom ports
@@ -1430,7 +1431,7 @@ if [ -n "$CONTAINER_ADD_CUSTOM_LISTEN" ]; then
       fi
     fi
   done
-  set_port=""
+  unset set_port
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup optional ports
@@ -1449,12 +1450,11 @@ if [ -n "$CONTAINER_OPT_PORT_VAR" ]; then
         fi
       fi
     done
-    set_port=""
+    unset set_port
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # container web server configuration
-PRETTY_PORT=""
 if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ] && [ -n "$CONTAINER_WEB_SERVER_INT_PORT" ]; then
   CONTAINER_WEB_SERVER_INT_PORT="${CONTAINER_WEB_SERVER_INT_PORT//,/ }"
   for set_port in $CONTAINER_WEB_SERVER_INT_PORT; do
@@ -1467,6 +1467,7 @@ if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ] && [ -n "$CONTAINER_WEB_SERVER_IN
       fi
     fi
   done
+  unset set_port
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -n "$CONTAINER_SERVICE_PORT" ]; then
@@ -1484,17 +1485,18 @@ if [ -n "$CONTAINER_SERVICE_PORT" ]; then
       SET_WEB_PORT_TMP+=("$CONTAINER_WEB_SERVER_LISTEN_ON:$random_port")
     fi
   done
+  unset set_port
 fi
-unset SET_WEB_PORT_TMP set_port
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Fix/create port
 SET_WEB_PORT="${SET_WEB_PORT_TMP[*]}"
-if [ -n "$SET_WEB_PORT" ]; then
-  SET_NGINX_PROXY_PORT="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | awk -F':' '{print $1":"$2}' | sort -Vu | grep -v '^$' | head -n1 | grep '^')"
-  CLEANUP_PORT="${CLEANUP_PORT//\/*/}"
-  PRETTY_PORT="$CLEANUP_PORT"
-  NGINX_PROXY_PORT="$PRETTY_PORT"
+SET_NGINX_PROXY_PORT="$SET_NGINX_PROXY_PORT:-$(echo "$SET_WEB_PORT" | tr ' ' '\n' | awk -F':' '{print $1":"$2}' | sort -Vu | grep -v '^$' | head -n1 | grep '^' || echo '')}"
+if [ -n "$SET_NGINX_PROXY_PORT" ] || [ -n "$SET_WEB_PORT" ]; then
+  CLEANUP_PORT="${SET_NGINX_PROXY_PORT//\/*/}"
+  PRETTY_PORT="${SET_PRETTY_PORT:-$CLEANUP_PORT}"
+  NGINX_PROXY_PORT="${SET_NGINX_PROXY_PORT:-$PRETTY_PORT}"
 fi
+unset SET_PRETTY_PORT SET_NGINX_PROXY_PORT SET_WEB_PORT_TMP
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # SSL setup
 NGINX_PROXY_URL=""

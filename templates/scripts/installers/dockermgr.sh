@@ -1439,7 +1439,7 @@ if [ -n "$CONTAINER_ADD_WEB_PORTS" ] || { [ "$CONTAINER_WEB_SERVER_ENABLED" = "y
     if [ "$set_port" != " " ] && [ -n "$set_port" ]; then
       proxy_url=""
       proxy_location=""
-      proxy_info="${set_port}"
+      proxy_info="$set_port"
       set_port="${set_port//*|*|/}"
       port=${set_port//\/*/}
       port="${port//*:/}"
@@ -1448,13 +1448,14 @@ if [ -n "$CONTAINER_ADD_WEB_PORTS" ] || { [ "$CONTAINER_WEB_SERVER_ENABLED" = "y
       DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_WEB_SERVER_LISTEN_ON:$random_port:$port")
       if echo "$proxy_info" | grep -q "proxy|"; then
         NGINX_REPLACE_INCLUDE="yes"
-        proxy_url="$CONTAINER_WEB_SERVER_LISTEN_ON:$random_port"
-        proxy_location="$(echo "${proxy_url//:*/}:${set_port}")"
+        proxy_info="${proxy_info//proxy|/}"
+        proxy_location="${proxy_info//|*/}"
+        proxy_url="$CONTAINER_WEB_SERVER_LISTEN_ON:$port"
         if [ -n "$proxy_url" ] && [ -n "$proxy_location" ]; then
           cat <<EOF | tee -a "$NGINX_VHOSTS_INC_FILE_TMP" &>/dev/null
   location $proxy_location {
     proxy_redirect                          http:// https://;
-    proxy_pass                              http://$proxy_location/;
+    proxy_pass                              http://$proxy_url/;
     proxy_ssl_verify                        off;
     proxy_http_version                      1.1;
     proxy_connect_timeout                   3600;
@@ -1473,6 +1474,7 @@ if [ -n "$CONTAINER_ADD_WEB_PORTS" ] || { [ "$CONTAINER_WEB_SERVER_ENABLED" = "y
 
 EOF
         fi
+        unset proxy_info proxy_location proxy_url
       fi
 
     fi

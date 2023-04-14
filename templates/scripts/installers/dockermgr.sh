@@ -1685,23 +1685,22 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
     sed -i "s|REPLACE_SERVER_LISTEN_OPTS|$NGINX_LISTEN_OPTS|g" "$NGINX_VHOSTS_CONF_FILE_TMP" &>/dev/null
     if [ -d "$NGINX_DIR/vhosts.d" ]; then
       if [ -f "$NGINX_VHOSTS_INC_FILE_TMP" ]; then
-        __sudo_root mv -f "$NGINX_VHOSTS_INC_FILE_TMP" "$NGINX_INC_CONFIG"
         sed -i "s|REPLACE_NGINX_INCLUDE|$NGINX_INC_CONFIG|g" "$NGINX_VHOSTS_CONF_FILE_TMP"
+        __sudo_root mv -f "$NGINX_VHOSTS_INC_FILE_TMP" "$NGINX_INC_CONFIG"
       elif [ -f "$INSTDIR/nginx/conf.d/vhosts/include.conf" ]; then
         cat "$INSTDIR/nginx/conf.d/vhosts/include.conf" | tee "$NGINX_VHOSTS_INC_FILE_TMP" &>/dev/null
-        __sudo_root mv -f "$NGINX_VHOSTS_INC_FILE_TMP" "$NGINX_INC_CONFIG"
         sed -i "s|REPLACE_NGINX_INCLUDE|$NGINX_INC_CONFIG|g" "$NGINX_VHOSTS_CONF_FILE_TMP"
+        __sudo_root mv -f "$NGINX_VHOSTS_INC_FILE_TMP" "$NGINX_INC_CONFIG"
       fi
       if [ ! -f "$NGINX_INC_CONFIG" ]; then
         sed -i "s|include.*REPLACE_NGINX_INCLUDE;||g" "$NGINX_VHOSTS_CONF_FILE_TMP"
       fi
-      __sudo_root mv -f "$NGINX_VHOSTS_CONF_FILE_TMP" "$NGINX_MAIN_CONFIG"
       if [ -f "$NGINX_MAIN_CONFIG" ]; then
         NGINX_IS_INSTALLED="yes"
         NGINX_CONF_FILE="$NGINX_MAIN_CONFIG"
       fi
       if [ -f "/etc/nginx/nginx.conf" ]; then
-        systemctl status nginx 2>/dev/null | grep -q enabled &>/dev/null && __sudo_root systemctl reload nginx &>/dev/null
+        systemctl status nginx 2>/dev/null | grep -q enabled &>/dev/null && __sudo systemctl reload nginx &>/dev/null
       fi
     else
       mv -f "$NGINX_VHOSTS_CONF_FILE_TMP" "$INSTDIR/nginx/$NGINX_CONFIG_NAME.conf" &>/dev/null

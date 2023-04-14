@@ -1452,6 +1452,7 @@ if [ -n "$CONTAINER_ADD_WEB_PORTS" ] || { [ "$CONTAINER_WEB_SERVER_ENABLED" = "y
       proxy_location=""
       proxy_info="$set_port"
       set_port="${set_port//*|*|/}"
+      set_hostname="${set_port//|*/}"
       port=${set_port//\/*/}
       port="${port//*:/}"
       random_port="$(__rport)"
@@ -1459,8 +1460,8 @@ if [ -n "$CONTAINER_ADD_WEB_PORTS" ] || { [ "$CONTAINER_WEB_SERVER_ENABLED" = "y
       DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_WEB_SERVER_LISTEN_ON:$random_port:$port")
       if echo "$proxy_info" | grep -q '[a-zA-Z0-9]|/.*.|[0-9]'; then
         NGINX_REPLACE_INCLUDE="yes"
-        proxy_location="$(echo "$proxy_info" | awk -F '|' '{print $2}' | grep '^' || echo '')"
-        set_hostname="$(echo "$proxy_info" | awk -F '|' '{print $1}' | grep -v 'proxy' | grep '^' || echo '')"
+        set_hostname="$(echo "$set_hostname" | grep -v 'proxy$' | grep '^' || false)"
+        proxy_location="$(echo "$proxy_info" | awk -F '|' '{print $2}' | grep '^' || false)"
         proxy_url="$CONTAINER_WEB_SERVER_LISTEN_ON:$random_port"
         echo "$CONTAINER_PROTOCOL" | grep -q "^http" && nginx_proto="${CONTAINER_PROTOCOL:-http}" || nginx_proto="http"
         if [ -n "$proxy_url" ] && [ -n "$proxy_location" ]; then

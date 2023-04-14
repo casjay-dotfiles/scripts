@@ -308,11 +308,8 @@ CONTAINER_WEB_SERVER_CONFIG_NAME=""
 # Add webserver ports - random portmapping - [port,otheport]
 CONTAINER_ADD_WEB_PORTS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Add custom port - random portmapping - [port] or [port:port]
+# Add custom port - random portmapping -  [exter:inter] or [listen:exter:inter/[tcp,udp]] random:[inter]
 CONTAINER_ADD_CUSTOM_PORT=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Add custom listening ports - [listen:externalPort:internalPort/[tcp,udp]]
-CONTAINER_ADD_CUSTOM_LISTEN=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # mail settings - [yes/no] [user] [domainname] [server]
 CONTAINER_EMAIL_ENABLED=""
@@ -504,7 +501,6 @@ CONTAINER_WEB_SERVER_VHOSTS="\${ENV_CONTAINER_WEB_SERVER_VHOSTS:-$CONTAINER_WEB_
 CONTAINER_WEB_SERVER_CONFIG_NAME="\${ENV_CONTAINER_WEB_SERVER_CONFIG_NAME:-$CONTAINER_WEB_SERVER_CONFIG_NAME}"
 CONTAINER_ADD_WEB_PORTS="\${ENV_CONTAINER_SERVICE_PORT:-$CONTAINER_ADD_WEB_PORTS}"
 CONTAINER_ADD_CUSTOM_PORT="\${ENV_CONTAINER_ADD_CUSTOM_PORT:-$CONTAINER_ADD_CUSTOM_PORT}"
-CONTAINER_ADD_CUSTOM_LISTEN="\${ENV_CONTAINER_ADD_CUSTOM_LISTEN:-$CONTAINER_ADD_CUSTOM_LISTEN}"
 CONTAINER_PROTOCOL="\${ENV_CONTAINER_PROTOCOL:-$CONTAINER_PROTOCOL}"
 CONTAINER_DATABASE_LISTEN="\${ENV_CONTAINER_DATABASE_LISTEN:-$CONTAINER_DATABASE_LISTEN}"
 CONTAINER_REDIS_ENABLED="\${ENV_CONTAINER_REDIS_ENABLED:-$CONTAINER_REDIS_ENABLED}"
@@ -701,7 +697,6 @@ CONTAINER_WEB_SERVER_VHOSTS="${ENV_CONTAINER_WEB_SERVER_VHOSTS:-$CONTAINER_WEB_S
 CONTAINER_WEB_SERVER_CONFIG_NAME="${ENV_CONTAINER_WEB_SERVER_CONFIG_NAME:-$CONTAINER_WEB_SERVER_CONFIG_NAME}"
 CONTAINER_ADD_WEB_PORTS="${ENV_CONTAINER_SERVICE_PORT:-$CONTAINER_ADD_WEB_PORTS}"
 CONTAINER_ADD_CUSTOM_PORT="${ENV_CONTAINER_ADD_CUSTOM_PORT:-$CONTAINER_ADD_CUSTOM_PORT}"
-CONTAINER_ADD_CUSTOM_LISTEN="${ENV_CONTAINER_ADD_CUSTOM_LISTEN:-$CONTAINER_ADD_CUSTOM_LISTEN}"
 CONTAINER_PROTOCOL="${ENV_CONTAINER_PROTOCOL:-$CONTAINER_PROTOCOL}"
 CONTAINER_DATABASE_LISTEN="${ENV_CONTAINER_DATABASE_LISTEN:-$CONTAINER_DATABASE_LISTEN}"
 CONTAINER_REDIS_ENABLED="${ENV_CONTAINER_REDIS_ENABLED:-$CONTAINER_REDIS_ENABLED}"
@@ -1401,42 +1396,24 @@ if [ -n "$CONTAINER_LABELS" ]; then
   unset label
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup custom ports
-if [ -n "$CONTAINER_ADD_CUSTOM_LISTEN" ]; then
-  CONTAINER_ADD_CUSTOM_LISTEN="${CONTAINER_ADD_CUSTOM_LISTEN//,/ }"
-  for set_port in $CONTAINER_ADD_CUSTOM_LISTEN; do
-    if [ "$set_port" != " " ] && [ -n "$set_port" ]; then
-      new_port=${set_port//\/*/}
-      if echo "$new_port" | grep -q ':.*.:'; then
-        port="$new_port"
-      elif echo "$new_port" | grep -q ':'; then
-        port="$new_port:$new_port"
-      fi
-      TYPE="$(echo "$set_port" | grep '/' | awk -F '/' '{print $NF}' | head -n1 | grep '^' || echo '')"
-      if [ -z "$TYPE" ]; then
-        DOCKER_SET_TMP_PUBLISH+=("--publish $port")
-      else
-        DOCKER_SET_TMP_PUBLISH+=("--publish $port/$TYPE")
-      fi
-    fi
-  done
-  unset set_port
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup custom port mappings
 SET_LISTEN="${HOST_DEFINE_LISTEN//:*/}"
 SET_ADDR="${HOST_LISTEN_ADDR:-127.0.0.1}"
 CONTAINER_WEB_SERVER_LISTEN_ON="${CONTAINER_WEB_SERVER_LISTEN_ON:-}"
-if [ -n "$CONTAINER_ADD_CUSTOM_PORT" ]; then
+if [ -n "$CONTAINER_OPT_PORT_VAR" ] || [ -n "$CONTAINER_ADD_CUSTOM_PORT" ]; then
   SET_LISTEN="${SET_LISTEN:-$SET_ADDR}"
+  CONTAINER_OPT_PORT_VAR="${CONTAINER_OPT_PORT_VAR//,/ }"
   CONTAINER_ADD_CUSTOM_PORT="${CONTAINER_ADD_CUSTOM_PORT//,/ }"
-  for set_port in $CONTAINER_ADD_CUSTOM_PORT; do
+  for set_port in $CONTAINER_ADD_CUSTOM_PORT $CONTAINER_OPT_PORT_VAR; do
     if [ "$set_port" != " " ] && [ -n "$set_port" ]; then
       new_port=${set_port//\/*/}
       random_port="$(__rport)"
       TYPE="$(echo "$set_port" | grep '/' | awk -F '/' '{print $NF}' | head -n1 | grep '^' || echo '')"
-      if echo "$new_port" | grep -q ':.*.:'; then
+      if echo "$new_port" | grep -q 'random:'; then
+        port="$random_port:${new_port//*:/}"
+      elif echo "$new_port" | grep -q ':.*.:'; then
         port="$new_port"
+        set_listen_addr="false"
       elif echo "$new_port" | grep -q ':'; then
         port="$new_port"
       else
@@ -1444,7 +1421,7 @@ if [ -n "$CONTAINER_ADD_CUSTOM_PORT" ]; then
       fi
       if [ "$CONTAINER_PRIVATE" = "yes" ]; then
         port="$SET_ADDR:$port"
-      elif [ -n "$SET_LISTEN" ]; then
+      elif [ -z "$set_listen_addr" ]; then
         port="$SET_LISTEN:$port"
       fi
       [ -z "$TYPE" ] || port="$port/$TYPE"
@@ -1452,26 +1429,6 @@ if [ -n "$CONTAINER_ADD_CUSTOM_PORT" ]; then
     fi
   done
   unset set_port
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup optional ports
-if [ -n "$CONTAINER_OPT_PORT_VAR" ]; then
-  CONTAINER_OPT_PORT_VAR="${CONTAINER_OPT_PORT_VAR//,/ }"
-  if [ -n "$CONTAINER_OPT_PORT_VAR" ]; then
-    for set_port in $CONTAINER_OPT_PORT_VAR; do
-      if [ "$set_port" != "" ] && [ "$set_port" != " " ]; then
-        port=${set_port//\/*/}
-        echo "$port" | grep -q ':' || port="$port:$port"
-        TYPE="$(echo "$set_port" | grep '/' | awk -F '/' '{print $NF}' | head -n1 | grep '^' || echo '')"
-        if [ -z "$TYPE" ]; then
-          DOCKER_SET_TMP_PUBLISH+=("--publish $port")
-        else
-          DOCKER_SET_TMP_PUBLISH+=("--publish $port/$TYPE")
-        fi
-      fi
-    done
-    unset set_port
-  fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # container web server configuration

@@ -1490,7 +1490,7 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Fix/create port
 SET_WEB_PORT="${SET_WEB_PORT_TMP[*]}"
-SET_NGINX_PROXY_PORT="$SET_NGINX_PROXY_PORT:-$(echo "$SET_WEB_PORT" | tr ' ' '\n' | awk -F':' '{print $1":"$2}' | sort -Vu | grep -v '^$' | head -n1 | grep '^' || echo '')}"
+SET_NGINX_PROXY_PORT="$SET_NGINX_PROXY_PORT:-$(echo "$SET_WEB_PORT" | tr ' ' '\n' | sort -Vu | grep -v '^$' | head -n1 | grep '^' || echo '')}"
 if [ -n "$SET_NGINX_PROXY_PORT" ] || [ -n "$SET_WEB_PORT" ]; then
   CLEANUP_PORT="${SET_NGINX_PROXY_PORT//\/*/}"
   PRETTY_PORT="${SET_PRETTY_PORT:-$CLEANUP_PORT}"

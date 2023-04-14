@@ -1678,7 +1678,7 @@ __docker_ps && CONTAINER_INSTALLED="true"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Install nginx proxy
 NINGX_VHOSTS_WRITABLE="$(sudoif && sudo bash -c '[ -w "$NGINX_DIR/vhosts.d" ] && echo "true" || false' || echo 'false')"
-if [ "$NINGX_VHOSTS_WRITABLE" = "true" ] && [ -f "$NGINX_CONF_FILE" ]; then
+if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
   NGINX_VHOST_ENABLED="true"
   NGINX_VHOST_NAMES="${CONTAINER_WEB_SERVER_VHOSTS//,/ }"
   NGINX_CONFIG_NAME="${CONTAINER_WEB_SERVER_CONFIG_NAME:-$CONTAINER_HOSTNAME}"

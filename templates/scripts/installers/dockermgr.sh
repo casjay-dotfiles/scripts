@@ -1827,9 +1827,9 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
         listen="${set_host//0.0.0.0/$HOST_LISTEN_ADDR}:$set_port"
         if [ -n "$listen" ]; then
           if [ -n "$type" ]; then
-            printf_cyan "Port $set_service         is mapped to:          $listen/$type"
+            printf_cyan "Port $set_service is mapped to:          $listen/$type"
           else
-            printf_cyan "Port $set_service         is mapped to:          $listen"
+            printf_cyan "Port $set_service is mapped to:          $listen"
           fi
         fi
       fi

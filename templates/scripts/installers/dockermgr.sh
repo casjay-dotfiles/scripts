@@ -1004,7 +1004,7 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #
 if [ "$HOST_NGINX_ENABLED" = "yes" ]; then
-  NINGX_WRITABLE="$(sudoif && sudo bash -c '[ -w "/etc/nginx" ] && echo "true" || false' || echo 'false')"
+  NINGX_WRITABLE="$(sudo -n true && sudo bash -c '[ -w "/etc/nginx" ] && echo "true" || false' || echo 'false')"
   if [ "$HOST_NGINX_SSL_ENABLED" = "yes" ] && [ -n "$HOST_NGINX_HTTPS_PORT" ]; then
     NGINX_LISTEN_OPTS="ssl http2"
     NGINX_PORT="${HOST_NGINX_HTTPS_PORT:-443}"

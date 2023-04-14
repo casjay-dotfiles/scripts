@@ -1461,6 +1461,7 @@ if [ -n "$CONTAINER_ADD_WEB_PORTS" ] || { [ "$CONTAINER_WEB_SERVER_ENABLED" = "y
         fi
         if [ -n "$proxy_url" ] && [ -n "$proxy_location" ]; then
           if [ -n "$set_hostname" ]; then
+            echo "$set_hostname" | grep -qF '.' || set_hostname="$set_hostname.$CONTAINER_HOSTNAME"
             NGINX_CUSTOM_CONFIG="true"
             cat <<EOF | tee -a "$NGINX_VHOSTS_PROXY_FILE_TMP" &>/dev/null
 server {

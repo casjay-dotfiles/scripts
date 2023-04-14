@@ -406,6 +406,9 @@ CONTAINER_CREATE_DIRECTORY+=""
 # Show post install message
 POST_SHOW_FINISHED_MESSAGE=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run the script if it exists [yes/no]
+DOCKERMGR_ENABLE_INSTALL_SCRIPT="yes"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set custom container enviroment variables - [--env MYVAR="VAR"]
 __custom_docker_env() {
   cat <<EOF | tee | sed 's|,| --env |g' | tr '\n' ' ' | __remove_extra_spaces
@@ -735,8 +738,10 @@ DOCKER_CAP_NET_RAW="${ENV_DOCKER_CAP_NET_RAW:-$DOCKER_CAP_NET_RAW}"
 DOCKER_CAP_SYS_NICE="${ENV_DOCKER_CAP_SYS_NICE:-$DOCKER_CAP_SYS_NICE}"
 DOCKER_CAP_NET_ADMIN="${ENV_DOCKER_CAP_NET_ADMIN:-$DOCKER_CAP_NET_ADMIN}"
 DOCKER_CAP_NET_BIND_SERVICE="${ENV_DOCKER_CAP_NET_BIND_SERVICE:-$DOCKER_CAP_NET_BIND_SERVICE}"
+DOCKERMGR_ENABLE_INSTALL_SCRIPT="${SCRIPT_ENABLED:-$DOCKERMGR_ENABLE_INSTALL_SCRIPT}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup arrays
+SET_WEB_PORT_TMP=()
 SET_CAPABILITIES=()
 DOCKER_SET_OPTIONS=()
 DOCKER_SET_TMP_PUBLISH=()
@@ -1459,7 +1464,6 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # container web server configuration
 PRETTY_PORT=""
-SET_WEB_PORT_TMP=()
 if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ] && [ -n "$CONTAINER_WEB_SERVER_INT_PORT" ]; then
   CONTAINER_WEB_SERVER_INT_PORT="${CONTAINER_WEB_SERVER_INT_PORT//,/ }"
   for set_port in $CONTAINER_WEB_SERVER_INT_PORT; do
@@ -1619,6 +1623,7 @@ else
   __sudo chown -f "$SUDO_USER":"$SUDO_USER" "$DATADIR" "$INSTDIR" "$INSTDIR" &>/dev/null
   __sudo date +'installed on %Y-%m-%d at %H:%M' | tee "$DATADIR/.installed" &>/dev/null
 fi
+DOCKERMGR_INSTALL_SCRIPT="$DOCKERMGR_CONFIG_DIR/scripts/$CONTAINER_NAME.sh"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # setup the container
 if cmd_exists docker-compose && [ -f "$INSTDIR/docker-compose.yml" ]; then
@@ -1629,8 +1634,8 @@ if cmd_exists docker-compose && [ -f "$INSTDIR/docker-compose.yml" ]; then
     __sudo docker-compose pull &>/dev/null
     __sudo docker-compose up -d &>/dev/null
   fi
-elif [ -f "$DOCKERMGR_CONFIG_DIR/scripts/$CONTAINER_NAME" ]; then
-  EXECUTE_DOCKER_SCRIPT="$DOCKERMGR_CONFIG_DIR/scripts/$CONTAINER_NAME"
+elif [ -f "$DOCKERMGR_INSTALL_SCRIPT" ] && [ "$DOCKERMGR_ENABLE_INSTALL_SCRIPT" = "yes" ]; then
+  EXECUTE_DOCKER_SCRIPT="$DOCKERMGR_INSTALL_SCRIPT"
 else
   EXECUTE_DOCKER_ENABLE="yes"
   EXECUTE_DOCKER_SCRIPT="$EXECUTE_DOCKER_CMD"
@@ -1641,16 +1646,21 @@ if [ -n "$EXECUTE_DOCKER_SCRIPT" ]; then
   __sudo docker pull "$HUB_IMAGE_URL" 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log"
   printf_cyan "Creating container $CONTAINER_NAME"
   if [ "$EXECUTE_DOCKER_ENABLE" = "yes" ]; then
-    cat <<EOF >"$DOCKERMGR_CONFIG_DIR/scripts/$CONTAINER_NAME"
+    cat <<EOF >"$DOCKERMGR_INSTALL_SCRIPT"
 #!/usr/bin/env bash
 # Install script for $CONTAINER_NAME
-
-$EXECUTE_PRE_INSTALL
-$EXECUTE_DOCKER_CMD && docker ps -a 2>&1 | grep -q "$CONTAINER_NAME"
-exit \$?
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+$EXECUTE_PRE_INSTALL || { echo "Failed to execute pre-install" && exit 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+$EXECUTE_DOCKER_CMD || { echo "Failed to execute install script" && exit 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+docker ps -a 2>&1 | grep -q "$CONTAINER_NAME"|| { echo "$CONTAINER_NAME ist not running" && exit 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+exit 0
+# end script
 
 EOF
-    [ -f "$DOCKERMGR_CONFIG_DIR/scripts/$CONTAINER_NAME" ] && chmod -Rf 755 "$DOCKERMGR_CONFIG_DIR/scripts/$CONTAINER_NAME"
+    [ -f "$DOCKERMGR_INSTALL_SCRIPT" ] && chmod -Rf 755 "$DOCKERMGR_INSTALL_SCRIPT"
   fi
   if __sudo ${EXECUTE_DOCKER_CMD} 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log"; then
     rm -Rf "${TMP:-/tmp}/$APPNAME.err.log"
@@ -1838,8 +1848,8 @@ else
   else
     printf_red "Something seems to have gone wrong with the install"
   fi
-  if [ -f "$DOCKERMGR_CONFIG_DIR/scripts/$CONTAINER_NAME" ]; then
-    printf_yellow "Script: $DOCKERMGR_CONFIG_DIR/scripts/$CONTAINER_NAME"
+  if [ -f "$DOCKERMGR_INSTALL_SCRIPT" ]; then
+    printf_yellow "Script: $DOCKERMGR_INSTALL_SCRIPT"
   fi
   exit 10
 fi

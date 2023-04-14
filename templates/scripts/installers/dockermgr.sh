@@ -1006,6 +1006,7 @@ fi
 # # nginx
 NGINX_VHOSTS_CONF_FILE_TMP="/tmp/$$.$APPNAME.conf"
 NGINX_VHOSTS_INC_FILE_TMP="/tmp/$$.$APPNAME.inc.conf"
+NGINX_VHOSTS_PROXY_FILE_TMP="/tmp/$$.$APPNAME.custom.conf"
 if [ "$HOST_NGINX_ENABLED" = "yes" ]; then
   NINGX_WRITABLE="$(sudo -n true && sudo bash -c '[ -w "/etc/nginx" ] && echo "true" || false' || echo 'false')"
   if [ "$HOST_NGINX_SSL_ENABLED" = "yes" ] && [ -n "$HOST_NGINX_HTTPS_PORT" ]; then
@@ -1440,6 +1441,8 @@ if [ -n "$CONTAINER_ADD_WEB_PORTS" ] || { [ "$CONTAINER_WEB_SERVER_ENABLED" = "y
       proxy_url=""
       proxy_location=""
       proxy_info="$set_port"
+      set_hostname="${setport//|*/}"
+      set_hostname="${set_hostname//proxy/}"
       set_port="${set_port//*|*|/}"
       port=${set_port//\/*/}
       port="${port//*:/}"
@@ -1457,7 +1460,53 @@ if [ -n "$CONTAINER_ADD_WEB_PORTS" ] || { [ "$CONTAINER_WEB_SERVER_ENABLED" = "y
           nginx_proto="http"
         fi
         if [ -n "$proxy_url" ] && [ -n "$proxy_location" ]; then
-          cat <<EOF | tee -a "$NGINX_VHOSTS_INC_FILE_TMP" &>/dev/null
+          if [ -n "$set_hostname" ]; then
+            NGINX_CUSTOM_CONFIG="true"
+            cat <<EOF | tee -a "$NGINX_VHOSTS_PROXY_FILE_TMP" &>/dev/null
+server {
+  listen                                    443 ssl http2;
+  listen                                    [::]:443 ssl http2;
+  server_name                               $set_hostname;
+  access_log                                /var/log/nginx/access.$set_hostname.log;
+  error_log                                 /var/log/nginx/error.$set_hostname.log info;
+  keepalive_timeout                         75 75;
+  client_max_body_size                      0;
+  chunked_transfer_encoding                 on;
+  add_header Strict-Transport-Security      "max-age=7200";
+  ssl_protocols                             TLSv1.1 TLSv1.2;
+  ssl_ciphers                               'EECDH+AESGCM:EDH+AESGCM:AES256+EECDH:AES256+EDH';
+  ssl_prefer_server_ciphers                 on;
+  ssl_session_cache                         shared:SSL:10m;
+  ssl_session_timeout                       1d;
+  ssl_certificate                           /etc/letsencrypt/live/domain/fullchain.pem;
+  ssl_certificate_key                       /etc/letsencrypt/live/domain/privkey.pem;
+
+  include                                   /etc/nginx/global.d/nginx-defaults.conf;
+
+  location $proxy_location {
+    proxy_redirect                          http:// https://;
+    proxy_pass                              $nginx_proto://$proxy_url;
+    proxy_ssl_verify                        off;
+    proxy_http_version                      1.1;
+    proxy_connect_timeout                   3600;
+    proxy_send_timeout                      3600;
+    proxy_read_timeout                      3600;
+    proxy_request_buffering                 off;
+    proxy_buffering                         off;
+    proxy_set_header                        Host               \$http_host;
+    proxy_set_header                        X-Real-IP          \$remote_addr;
+    proxy_set_header                        X-Forwarded-For    \$proxy_add_x_forwarded_for;
+    proxy_set_header                        X-Forwarded-Proto  \$scheme;
+    proxy_set_header                        Upgrade            \$http_upgrade;
+    proxy_set_header                        Connection         \$connection_upgrade;
+    send_timeout                            3600;
+  }
+
+}
+
+EOF
+          else
+            cat <<EOF | tee -a "$NGINX_VHOSTS_INC_FILE_TMP" &>/dev/null
   location $proxy_location {
     proxy_redirect                          http:// https://;
     proxy_pass                              $nginx_proto://$proxy_url/;
@@ -1478,10 +1527,10 @@ if [ -n "$CONTAINER_ADD_WEB_PORTS" ] || { [ "$CONTAINER_WEB_SERVER_ENABLED" = "y
   }
 
 EOF
+          fi
         fi
-        unset proxy_info proxy_location proxy_url
+        unset proxy_info proxy_location proxy_url set_hostname
       fi
-
     fi
   done
   unset set_port
@@ -1678,6 +1727,7 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
   NGINX_VHOST_NAMES="${CONTAINER_WEB_SERVER_VHOSTS//,/ }"
   NGINX_CONFIG_NAME="${CONTAINER_WEB_SERVER_CONFIG_NAME:-$CONTAINER_HOSTNAME}"
   NGINX_MAIN_CONFIG="$NGINX_DIR/vhosts.d/$NGINX_CONFIG_NAME.conf"
+  NGINX_VHOST_CONFIG="$NGINX_DIR/vhosts.d/$NGINX_CONFIG_NAME.custom.conf"
   NGINX_INC_CONFIG="$NGINX_DIR/conf.d/vhosts/$NGINX_CONFIG_NAME.conf"
   [ -d "$NGINX_DIR/conf.d/vhosts" ] || __sudo_root mkdir -p "$NGINX_DIR/conf.d/vhosts"
   if [ "$HOST_NGINX_UPDATE_CONF" = "yes" ] && [ -f "$INSTDIR/nginx/proxy.conf" ]; then
@@ -1696,6 +1746,9 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
         cat "$INSTDIR/nginx/conf.d/vhosts/include.conf" | tee "$NGINX_VHOSTS_INC_FILE_TMP" &>/dev/null
         sed -i "s|REPLACE_NGINX_INCLUDE|$NGINX_INC_CONFIG|g" "$NGINX_VHOSTS_CONF_FILE_TMP"
         __sudo_root mv -f "$NGINX_VHOSTS_INC_FILE_TMP" "$NGINX_INC_CONFIG"
+      fi
+      if [ -f "$NGINX_VHOSTS_PROXY_FILE_TMP" ] && [ "$NGINX_CUSTOM_CONFIG" = "true" ]; then
+        __sudo_root mv -f "$NGINX_VHOSTS_PROXY_FILE_TMP" "$NGINX_VHOST_CONFIG"
       fi
       if [ ! -f "$NGINX_INC_CONFIG" ]; then
         sed -i "s|include.*REPLACE_NGINX_INCLUDE;||g" "$NGINX_VHOSTS_CONF_FILE_TMP"

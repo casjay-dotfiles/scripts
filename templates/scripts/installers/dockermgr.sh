@@ -1720,7 +1720,7 @@ fi
 # finalize
 if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
   DOCKER_PORTS="$(__trim "${DOCKER_GET_PUBLISH//--publish/}")"
-  SET_PORT="$(echo "$DOCKER_PORTS" | tr ' ' '\n' | sort -u | grep -v '^$')"
+  SET_PORT="$(echo "$DOCKER_PORTS" | tr ' ' '\n' | sort -Vu | grep -vE '^$|--' | grep '^')"
   if ! grep -sq "$CONTAINER_HOSTNAME" "/etc/hosts" && [ -w "/etc/hosts" ]; then
     if [ -n "$PRETTY_PORT" ]; then
       if [ "$HOST_LISTEN_ADDR" = 'home' ]; then

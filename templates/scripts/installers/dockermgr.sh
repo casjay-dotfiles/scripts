@@ -1663,7 +1663,7 @@ sleep 10
 __docker_ps && CONTAINER_INSTALLED="true"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Install nginx proxy
-if [ -w "$NGINX_DIR/vhosts.d" ]; then
+if [ -w "$NGINX_DIR/vhosts.d" ] && [ -f "$NGINX_CONF_FILE" ]; then
   NGINX_VHOST_ENABLED="true"
   NGINX_VHOST_NAMES="${CONTAINER_WEB_SERVER_VHOSTS//,/ }"
   NGINX_CONFIG_NAME="${CONTAINER_WEB_SERVER_CONFIG_NAME:-$CONTAINER_HOSTNAME}"
@@ -1677,8 +1677,13 @@ if [ -w "$NGINX_DIR/vhosts.d" ]; then
     sed -i "s|REPLACE_SERVER_LISTEN_OPTS|$NGINX_LISTEN_OPTS|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
     if [ -d "$NGINX_DIR/vhosts.d" ]; then
       __sudo_root mv -f "/tmp/$$.$CONTAINER_HOSTNAME.conf" "$NGINX_DIR/vhosts.d/$NGINX_CONFIG_NAME.conf"
-      [ -f "$NGINX_DIR/vhosts.d/$NGINX_CONFIG_NAME.conf" ] && NGINX_IS_INSTALLED="yes" && NGINX_CONF_FILE="$NGINX_DIR/vhosts.d/$NGINX_CONFIG_NAME.conf"
-      systemctl status nginx | grep -q enabled &>/dev/null && __sudo_root systemctl reload nginx &>/dev/null
+      if [ -f "$NGINX_DIR/vhosts.d/$NGINX_CONFIG_NAME.conf" ]; then
+        NGINX_IS_INSTALLED="yes"
+        NGINX_CONF_FILE="$NGINX_DIR/vhosts.d/$NGINX_CONFIG_NAME.conf"
+      fi
+      if [ -f "/etc/nginx/nginx.conf" ]; then
+        systemctl status nginx | grep -q enabled &>/dev/null && __sudo_root systemctl reload nginx &>/dev/null
+      fi
     else
       mv -f "/tmp/$$.$CONTAINER_HOSTNAME.conf" "$INSTDIR/nginx/$NGINX_CONFIG_NAME.conf" &>/dev/null
     fi
@@ -1784,9 +1789,47 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
     printf_purple "htpasswd File:                   /config/auth/htpasswd"
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
+  if [ -z "$SET_PORT" ]; then
+    printf_yellow "This container does not have services configured"
+    printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
+  else
+    for service in $SET_PORT; do
+      if [ "$service" != "--publish" ] && [ "$service" != " " ] && [ -n "$service" ]; then
+        get_type="${service//*\//}"
+        get_type="${get_type//$service/}"
+        type=${get_type//*\//}
+        service=${service//\/*/}
+        set_listen=${service%:*}
+        set_service=${service//*:*[^:]*:/}
+        listen_ip=${set_listen//0.0.0.0/$HOST_LISTEN_ADDR}
+        listen=${listen_ip//*^:/$listen_ip}
+        echo "$listen" | grep -q ":" || listen="$listen_ip"
+        if [ -n "$listen" ]; then
+          if [ -n "$type" ]; then
+            printf_cyan "Port ${set_service//*:/} is mapped to:           $listen/$type"
+          else
+            printf_cyan "Port ${set_service//*:/} is mapped to:           $listen"
+          fi
+        fi
+      fi
+    done
+    printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
+  fi
+  if [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME" ] || [ -f "$DOCKERMGR_CONFIG_DIR/env/custom.$APPNAME" ]; then
+    if [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME" ]; then
+      printf_green "variables saved to:              $DOCKERMGR_CONFIG_DIR/env/$APPNAME"
+    fi
+    if [ -f "$DOCKERMGR_CONFIG_DIR/env/custom.$APPNAME" ]; then
+      printf_green "Container variables saved to:    $DOCKERMGR_CONFIG_DIR/env/custom.$APPNAME"
+    fi
+    printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
+  fi
   if [ -n "$POST_SHOW_FINISHED_MESSAGE" ]; then
     printf_green "$POST_SHOW_FINISHED_MESSAGE"
+    printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
+  printf_cyan "$APPNAME has been installed to:   $INSTDIR"
+  printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n\n'
   __show_post_message
 else
   printf_cyan "The container $CONTAINER_NAME seems to have failed"
@@ -1800,45 +1843,6 @@ else
   fi
   exit 10
 fi
-if [ -z "$SET_PORT" ]; then
-  printf_yellow "This container does not have services configured"
-else
-  printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
-  for service in $SET_PORT; do
-    if [ "$service" != "--publish" ] && [ "$service" != " " ] && [ -n "$service" ]; then
-      get_type="${service//*\//}"
-      get_type="${get_type//$service/}"
-      type=${get_type//*\//}
-      service=${service//\/*/}
-      set_listen=${service%:*}
-      set_service=${service//*:*[^:]*:/}
-      listen_ip=${set_listen//0.0.0.0/$HOST_LISTEN_ADDR}
-      listen=${listen_ip//*^:/$listen_ip}
-      echo "$listen" | grep -q ":" || listen="$listen_ip"
-      if [ -n "$listen" ]; then
-        if [ -n "$type" ]; then
-          printf_cyan "Port ${set_service//*:/} is mapped to:           $listen/$type"
-        else
-          printf_cyan "Port ${set_service//*:/} is mapped to:           $listen"
-        fi
-      fi
-    fi
-  done
-fi
-if [ "$MESSAGE" = "true" ]; then
-  printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
-fi
-if [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME" ] || [ -f "$DOCKERMGR_CONFIG_DIR/env/custom.$APPNAME" ]; then
-  if [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME" ]; then
-    printf_green "variables saved to:              $DOCKERMGR_CONFIG_DIR/env/$APPNAME"
-  fi
-  if [ -f "$DOCKERMGR_CONFIG_DIR/env/custom.$APPNAME" ]; then
-    printf_green "Container variables saved to:    $DOCKERMGR_CONFIG_DIR/env/custom.$APPNAME"
-  fi
-  printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
-fi
-printf_cyan "$APPNAME has been installed to:   $INSTDIR"
-printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n\n'
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run post install scripts
 run_postinst() {

@@ -303,10 +303,10 @@ CONTAINER_WEB_SERVER_LISTEN_ON="127.0.0.10"
 CONTAINER_WEB_SERVER_VHOSTS=""
 CONTAINER_WEB_SERVER_CONFIG_NAME=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Add service port - [port]
-CONTAINER_SERVICE_PORT=""
+# Add webserver ports - random portmapping - [port,otheport]
+CONTAINER_ADD_WEB_PORTS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Add custom port - [port] or [port:port]
+# Add custom port - random portmapping - [port] or [port:port]
 CONTAINER_ADD_CUSTOM_PORT=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Add custom listening ports - [listen:externalPort:internalPort/[tcp,udp]]
@@ -500,7 +500,7 @@ CONTAINER_WEB_SERVER_AUTH_ENABLED="\${ENV_CONTAINER_WEB_SERVER_AUTH_ENABLED:-$CO
 CONTAINER_WEB_SERVER_LISTEN_ON="\${ENV_CONTAINER_WEB_SERVER_LISTEN_ON:-$CONTAINER_WEB_SERVER_LISTEN_ON}"
 CONTAINER_WEB_SERVER_VHOSTS="\${ENV_CONTAINER_WEB_SERVER_VHOSTS:-$CONTAINER_WEB_SERVER_VHOSTS}"
 CONTAINER_WEB_SERVER_CONFIG_NAME="\${ENV_CONTAINER_WEB_SERVER_CONFIG_NAME:-$CONTAINER_WEB_SERVER_CONFIG_NAME}"
-CONTAINER_SERVICE_PORT="\${ENV_CONTAINER_SERVICE_PORT:-$CONTAINER_SERVICE_PORT}"
+CONTAINER_ADD_WEB_PORTS="\${ENV_CONTAINER_SERVICE_PORT:-$CONTAINER_ADD_WEB_PORTS}"
 CONTAINER_ADD_CUSTOM_PORT="\${ENV_CONTAINER_ADD_CUSTOM_PORT:-$CONTAINER_ADD_CUSTOM_PORT}"
 CONTAINER_ADD_CUSTOM_LISTEN="\${ENV_CONTAINER_ADD_CUSTOM_LISTEN:-$CONTAINER_ADD_CUSTOM_LISTEN}"
 CONTAINER_PROTOCOL="\${ENV_CONTAINER_PROTOCOL:-$CONTAINER_PROTOCOL}"
@@ -697,7 +697,7 @@ CONTAINER_WEB_SERVER_AUTH_ENABLED="${ENV_CONTAINER_WEB_SERVER_AUTH_ENABLED:-$CON
 CONTAINER_WEB_SERVER_LISTEN_ON="${ENV_CONTAINER_WEB_SERVER_LISTEN_ON:-$CONTAINER_WEB_SERVER_LISTEN_ON}"
 CONTAINER_WEB_SERVER_VHOSTS="${ENV_CONTAINER_WEB_SERVER_VHOSTS:-$CONTAINER_WEB_SERVER_VHOSTS}"
 CONTAINER_WEB_SERVER_CONFIG_NAME="${ENV_CONTAINER_WEB_SERVER_CONFIG_NAME:-$CONTAINER_WEB_SERVER_CONFIG_NAME}"
-CONTAINER_SERVICE_PORT="${ENV_CONTAINER_SERVICE_PORT:-$CONTAINER_SERVICE_PORT}"
+CONTAINER_ADD_WEB_PORTS="${ENV_CONTAINER_SERVICE_PORT:-$CONTAINER_ADD_WEB_PORTS}"
 CONTAINER_ADD_CUSTOM_PORT="${ENV_CONTAINER_ADD_CUSTOM_PORT:-$CONTAINER_ADD_CUSTOM_PORT}"
 CONTAINER_ADD_CUSTOM_LISTEN="${ENV_CONTAINER_ADD_CUSTOM_LISTEN:-$CONTAINER_ADD_CUSTOM_LISTEN}"
 CONTAINER_PROTOCOL="${ENV_CONTAINER_PROTOCOL:-$CONTAINER_PROTOCOL}"
@@ -1065,21 +1065,9 @@ if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ]; then
   NGINX_PROXY_ADDRESS="${CONTAINER_WEB_SERVER_LISTEN_ON:-$HOST_LISTEN_ADDR}"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup ports
-SET_SERVER_PORTS_TMP=""
-if [ -n "$CONTAINER_ADD_CUSTOM_PORT" ]; then
-  SET_SERVER_PORTS_TMP+="${CONTAINER_ADD_CUSTOM_PORT//,/ }"
-fi
-if [ -n "$SET_SERVER_PORTS_TMP" ]; then
-  SET_SERVER_PORTS="$SET_SERVER_PORTS_TMP"
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup the listen address
 if [ -n "$HOST_DEFINE_LISTEN" ]; then
   SET_LISTEN_ADDRESS="${HOST_DEFINE_LISTEN//:*/}"
-fi
-if [ -n "$CONTAINER_ADD_CUSTOM_LISTEN" ]; then
-  CONTAINER_ADD_CUSTOM_LISTEN="${CONTAINER_ADD_CUSTOM_LISTEN//,/ }"
 fi
 HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR:-$HOST_DEFINE_LISTEN}"
 HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR//0.0.0.0/$SET_LAN_IP}"
@@ -1411,43 +1399,54 @@ if [ -n "$CONTAINER_LABELS" ]; then
   unset label
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup ports
-SET_LISTEN="${HOST_DEFINE_LISTEN//:*/}"
-SET_ADDR="${HOST_LISTEN_ADDR:-127.0.0.1}"
-CONTAINER_WEB_SERVER_LISTEN_ON="${CONTAINER_WEB_SERVER_LISTEN_ON:-}"
-if [ -n "$SET_SERVER_PORTS" ]; then
-  SET_LISTEN="${HOST_DEFINE_LISTEN//:*/}"
-  for set_port in $SET_SERVER_PORTS; do
-    if [ "$set_port" != " " ] && [ -n "$set_port" ]; then
-      port=$set_port
-      echo "$port" | grep -q ':.*.:' || random_port="$(__rport)"
-      echo "$port" | grep -q ':' || port="${random_port:-$port//\/*/}:$port"
-      if [ "$CONTAINER_PRIVATE" = "yes" ] && [ "$port" = "${IS_PRIVATE//\/*/}" ]; then
-        SET_ADDR="${HOST_LISTEN_ADDR:-127.0.0.1}"
-        DOCKER_SET_TMP_PUBLISH+=("--publish $SET_ADDR:$port")
-      elif [ -n "$SET_LISTEN" ]; then
-        DOCKER_SET_TMP_PUBLISH+=("--publish $SET_LISTEN:$port")
-      else
-        DOCKER_SET_TMP_PUBLISH+=("--publish $port")
-      fi
-    fi
-  done
-  unset set_port
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup custom ports
 if [ -n "$CONTAINER_ADD_CUSTOM_LISTEN" ]; then
   CONTAINER_ADD_CUSTOM_LISTEN="${CONTAINER_ADD_CUSTOM_LISTEN//,/ }"
   for set_port in $CONTAINER_ADD_CUSTOM_LISTEN; do
     if [ "$set_port" != " " ] && [ -n "$set_port" ]; then
-      port=${set_port//\/*/}
-      echo "$port" | grep -q ':' || port="$port:$port"
+      new_port=${set_port//\/*/}
+      if echo "$new_port" | grep -q ':.*.:'; then
+        port="$new_port"
+      elif echo "$new_port" | grep -q ':'; then
+        port="$new_port:$new_port"
+      fi
       TYPE="$(echo "$set_port" | grep '/' | awk -F '/' '{print $NF}' | head -n1 | grep '^' || echo '')"
       if [ -z "$TYPE" ]; then
         DOCKER_SET_TMP_PUBLISH+=("--publish $port")
       else
         DOCKER_SET_TMP_PUBLISH+=("--publish $port/$TYPE")
       fi
+    fi
+  done
+  unset set_port
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup custom port mappings
+SET_LISTEN="${HOST_DEFINE_LISTEN//:*/}"
+SET_ADDR="${HOST_LISTEN_ADDR:-127.0.0.1}"
+CONTAINER_WEB_SERVER_LISTEN_ON="${CONTAINER_WEB_SERVER_LISTEN_ON:-}"
+if [ -n "$CONTAINER_ADD_CUSTOM_PORT" ]; then
+  SET_LISTEN="${SET_LISTEN:-$SET_ADDR}"
+  CONTAINER_ADD_CUSTOM_PORT="${CONTAINER_ADD_CUSTOM_PORT//,/ }"
+  for set_port in $CONTAINER_ADD_CUSTOM_PORT; do
+    if [ "$set_port" != " " ] && [ -n "$set_port" ]; then
+      new_port=${set_port//\/*/}
+      random_port="$(__rport)"
+      TYPE="$(echo "$set_port" | grep '/' | awk -F '/' '{print $NF}' | head -n1 | grep '^' || echo '')"
+      if echo "$new_port" | grep -q ':.*.:'; then
+        port="$new_port"
+      elif echo "$new_port" | grep -q ':'; then
+        port="$new_port"
+      else
+        port="${random_port:-$port//\/*/}:$port"
+      fi
+      if [ "$CONTAINER_PRIVATE" = "yes" ]; then
+        port="$SET_ADDR:$port"
+      elif [ -n "$SET_LISTEN" ]; then
+        port="$SET_LISTEN:$port"
+      fi
+      [ -z "$TYPE" ] || port="$port/$TYPE"
+      DOCKER_SET_TMP_PUBLISH+=("--publish $port")
     fi
   done
   unset set_port
@@ -1474,34 +1473,16 @@ if [ -n "$CONTAINER_OPT_PORT_VAR" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # container web server configuration
-if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ] && [ -n "$CONTAINER_WEB_SERVER_INT_PORT" ]; then
+if [ -n "$CONTAINER_ADD_WEB_PORTS" ] || { [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ] && [ -n "$CONTAINER_ADD_WEB_PORTS" ]; }; then
+  CONTAINER_ADD_WEB_PORTS="${CONTAINER_ADD_WEB_PORTS//,/ }"
   CONTAINER_WEB_SERVER_INT_PORT="${CONTAINER_WEB_SERVER_INT_PORT//,/ }"
-  for set_port in $CONTAINER_WEB_SERVER_INT_PORT; do
-    if [ "$set_port" != " " ] && [ -n "$set_port" ]; then
-      if [ "$set_port" != " " ]; then
-        port=${set_port//\/*/}
-        random_port="$(__rport)"
-        SET_WEB_PORT_TMP+=("$CONTAINER_WEB_SERVER_LISTEN_ON:$random_port")
-        DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_WEB_SERVER_LISTEN_ON:$random_port:$port")
-      fi
-    fi
-  done
-  unset set_port
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ -n "$CONTAINER_SERVICE_PORT" ]; then
-  CONTAINER_SERVICE_PORT="${CONTAINER_SERVICE_PORT//,/ }"
-  for set_port in $CONTAINER_SERVICE_PORT; do
+  for set_port in $CONTAINER_WEB_SERVER_INT_PORT $CONTAINER_ADD_WEB_PORTS; do
     if [ "$set_port" != " " ] && [ -n "$set_port" ]; then
       port=${set_port//\/*/}
+      port="${port//*:/}"
       random_port="$(__rport)"
-      TYPE="$(echo "$set_port" | grep '/' | awk -F '/' '{print $NF}' | head -n1 | grep '^' || echo '')"
-      if [ -z "$TYPE" ]; then
-        DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_WEB_SERVER_LISTEN_ON:$random_port:$port")
-      else
-        DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_WEB_SERVER_LISTEN_ON:$random_port:$port/$TYPE")
-      fi
       SET_WEB_PORT_TMP+=("$CONTAINER_WEB_SERVER_LISTEN_ON:$random_port")
+      DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_WEB_SERVER_LISTEN_ON:$random_port:$port")
     fi
   done
   unset set_port

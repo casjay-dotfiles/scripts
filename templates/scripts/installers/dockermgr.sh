@@ -1440,7 +1440,7 @@ if [ -n "$CONTAINER_ADD_WEB_PORTS" ] || { [ "$CONTAINER_WEB_SERVER_ENABLED" = "y
       proxy_url=""
       proxy_location=""
       proxy_info="${set_port}"
-      set_port="${set_port//*|/}"
+      set_port="${set_port//*|/|}"
       port=${set_port//\/*/}
       port="${port//*:/}"
       random_port="$(__rport)"
@@ -1449,7 +1449,7 @@ if [ -n "$CONTAINER_ADD_WEB_PORTS" ] || { [ "$CONTAINER_WEB_SERVER_ENABLED" = "y
       if echo "$proxy_info" | grep -q "proxy|"; then
         NGINX_REPLACE_INCLUDE="yes"
         proxy_url="$CONTAINER_WEB_SERVER_LISTEN_ON:$random_port"
-        proxy_location="$(echo "${proxy_info//proxy|/}" | awk -F "|" '{print $1}')"
+        proxy_location="$(echo "${proxy_url//:*/}:${proxy_info//proxy|*|/}")"
         if [ -n "$proxy_url" ] && [ -n "$proxy_location" ]; then
           cat <<EOF | tee -a "$NGINX_VHOSTS_INC_FILE_TMP" &>/dev/null
   location $proxy_location {

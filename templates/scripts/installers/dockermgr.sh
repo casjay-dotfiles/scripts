@@ -1711,7 +1711,7 @@ fi
 # finalize
 if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
   DOCKER_PORTS="$(__trim "${DOCKER_GET_PUBLISH//--publish/}")"
-  SET_PORT="$(echo "$DOCKER_PORTS" | tr ' ' '\n' | sort -Vu | grep -vE '^$|--' | grep '^')"
+  SET_PORT="$(echo "$DOCKER_PORTS" | tr ' ' '\n' | grep -vE '^$|--' | sort -V | grep '^')"
   HOSTS_WRITABLE="$(sudoif && sudo bash -c '[ -w "/etc/hosts" ] && echo "true" || false' || echo 'false')"
   if ! grep -sq "$CONTAINER_HOSTNAME" "/etc/hosts" && [ "$HOSTS_WRITABLE" = "true" ]; then
     if [ -n "$PRETTY_PORT" ]; then

@@ -1481,15 +1481,10 @@ NGINX_PROXY_URL="${NGINX_PROXY_URL:-$PROXY_HTTP_PROTO://$NGINX_PROXY_ADDRESS:$NG
 NGINX_PROXY_URL="${NGINX_PROXY_URL// /}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set temp env for PORTS ENV variable
-SET_PORTS_ENV_PUB="${DOCKER_SET_TMP_PUBLISH//--publish/}"
-SET_PORTS_ENV_TMP="${SET_PORTS_ENV_PUB[*]} $SET_WEB_PORT"
-DOCKER_SET_PORTS_ENV_TMP="$(echo "$SET_PORTS_ENV_TMP" | tr ' ' '\n' | grep ':.*.:' | awk -F ':' '{print $1":"$3}' | grep '^')"
-DOCKER_SET_PORTS_ENV_TMP+="$(echo "$SET_PORTS_ENV_TMP" | tr ' ' '\n' | grep -v ':.*.:' | awk -F ':' '{print $1":"$2}' | grep '^')"
-DOCKER_SET_PORTS_ENV_TMP="$(echo "$DOCKER_SET_PORTS_ENV_TMP" | tr ',' '\n' | grep '[0-9]:[0-9]' | sort -u | sed 's|/.*||g' | grep -v '^$' | tr '\n' ',' | grep '^' || echo '')"
-DOCKER_SET_PORTS_ENV="${DOCKER_SET_PORTS_ENV_TMP//,/ }"
-DOCKER_SET_PORTS_ENV="${DOCKER_SET_PORTS_ENV//*:/}"
-DOCKER_SET_PORTS_ENV="$(__trim "${DOCKER_SET_PORTS_ENV[*]}")"
-ENV_PORTS="$(echo "$DOCKER_SET_PORTS_ENV" "${CONTAINER_ENV_PORTS[*]}" | tr ' ' '\n' | sort -u)"
+SET_PORTS_ENV_TMP="${SET_PORTS_ENV_PUB[*]},${DOCKER_SET_TMP_PUBLISH//--publish/}"
+DOCKER_SET_PORTS_ENV_TMP="$(echo "${SET_PORTS_ENV_TMP//,/ }" | tr ' ' '\n' | grep ':' | awk -F ':' '{print $NF}' | sort -uV | grep '^')"
+DOCKER_SET_PORTS_ENV_TMP="$(echo "$DOCKER_SET_PORTS_ENV_TMP" | grep '[0-9]' | sed 's|/.*||g' | grep -v '^$' | tr '\n' ' ' | grep '^' || echo '')"
+ENV_PORTS="$(__trim "${DOCKER_SET_PORTS_ENV_TMP[*]}")"
 if [ -n "$ENV_PORTS" ]; then
   DOCKER_SET_OPTIONS+=("--env ENV_PORTS=\"$ENV_PORTS\"")
 fi

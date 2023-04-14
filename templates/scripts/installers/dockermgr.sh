@@ -866,54 +866,64 @@ if [ "$CONTAINER_INTERACTIVE_ENABLED" = "yes" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mount cgroups in the container
-if [ "$CGROUPS_ENABLED" = "yes" ]; then
-  if [ -z "$CGROUPS_MOUNTS" ]; then
-    DOCKER_SET_OPTIONS+=("--volume /sys/fs/cgroup:/sys/fs/cgroup:ro")
-  else
-    DOCKER_SET_OPTIONS+=("--volume $CGROUPS_MOUNTS")
+if [ -e "$CGROUPS_MOUNTS" ] || [ -e "/sys/fs/cgroup" ]; then
+  if [ "$CGROUPS_ENABLED" = "yes" ]; then
+    if [ -z "$CGROUPS_MOUNTS" ]; then
+      DOCKER_SET_OPTIONS+=("--volume /sys/fs/cgroup:/sys/fs/cgroup:ro")
+    else
+      DOCKER_SET_OPTIONS+=("--volume $CGROUPS_MOUNTS")
+    fi
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mount hosts resolv.conf in the container
-if [ "$HOST_RESOLVE_ENABLED" = "yes" ]; then
-  if [ -z "$HOST_RESOLVE_FILE" ]; then
-    DOCKER_SET_OPTIONS+=("--volume /etc/resolv.conf:/etc/resolv.conf:ro")
-  else
-    DOCKER_SET_OPTIONS+=("--volume $HOST_RESOLVE_FILE:/etc/resolv.conf:ro")
+if [ -e "$HOST_RESOLVE_FILE" ] || [ -f "/etc/resolv.conf" ]; then
+  if [ "$HOST_RESOLVE_ENABLED" = "yes" ]; then
+    if [ -z "$HOST_RESOLVE_FILE" ]; then
+      DOCKER_SET_OPTIONS+=("--volume /etc/resolv.conf:/etc/resolv.conf:ro")
+    else
+      DOCKER_SET_OPTIONS+=("--volume $HOST_RESOLVE_FILE:/etc/resolv.conf:ro")
+    fi
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mount the docker socket
-if [ "$DOCKER_SOCKET_ENABLED" = "yes" ]; then
-  if [ -z "$DOCKER_SOCKET_MOUNT" ]; then
-    DOCKER_SET_OPTIONS+=("--volume /var/run/docker.sock:/var/run/docker.sock")
-  else
-    DOCKER_SET_OPTIONS+=("--volume $DOCKER_SOCKET_MOUNT:/var/run/docker.sock")
+if [ -f "$DOCKER_SOCKET_MOUNT" ] || [ -f "/var/run/docker.sock" ]; then
+  if [ "$DOCKER_SOCKET_ENABLED" = "yes" ]; then
+    if [ -z "$DOCKER_SOCKET_MOUNT" ]; then
+      DOCKER_SET_OPTIONS+=("--volume /var/run/docker.sock:/var/run/docker.sock")
+    else
+      DOCKER_SET_OPTIONS+=("--volume $DOCKER_SOCKET_MOUNT:/var/run/docker.sock")
+    fi
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mount docker config in the container
-if [ "$DOCKER_CONFIG_ENABLED" = "yes" ]; then
-  if [ -z "$CONTAINER_DOCKER_CONFIG_FILE" ]; then
-    CONTAINER_DOCKER_CONFIG_FILE="/root/.docker/config.json"
-  fi
-  if [ -n "$HOST_DOCKER_CONFIG" ]; then
-    DOCKER_SET_OPTIONS+=("--volume $HOST_DOCKER_CONFIG:$CONTAINER_DOCKER_CONFIG_FILE:ro")
-  elif [ -f "$HOME/.docker/config.json" ]; then
-    DOCKER_SET_OPTIONS+=("--volume $HOME/.docker/config.json:$CONTAINER_DOCKER_CONFIG_FILE:ro")
+if [ -f "$CONTAINER_DOCKER_CONFIG_FILE" ] || [ -f "/root/.docker/config.json" ] || [ -f "$HOME/.docker/config.json" ]; then
+  if [ "$DOCKER_CONFIG_ENABLED" = "yes" ]; then
+    if [ -z "$CONTAINER_DOCKER_CONFIG_FILE" ]; then
+      CONTAINER_DOCKER_CONFIG_FILE="/root/.docker/config.json"
+    fi
+    if [ -n "$HOST_DOCKER_CONFIG" ]; then
+      DOCKER_SET_OPTIONS+=("--volume $HOST_DOCKER_CONFIG:$CONTAINER_DOCKER_CONFIG_FILE:ro")
+    elif [ -f "$HOME/.docker/config.json" ]; then
+      DOCKER_SET_OPTIONS+=("--volume $HOME/.docker/config.json:$CONTAINER_DOCKER_CONFIG_FILE:ro")
+    fi
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mount sound card in container
-if [ "$DOCKER_SOUND_ENABLED" = "yes" ]; then
-  if [ -z "$HOST_SOUND_DEVICE_FILE" ]; then
-    HOST_SOUND_DEVICE_FILE="/dev/snd"
-  fi
-  if [ -z "$CONTAINER_SOUND_DEVICE_FILE" ]; then
-    CONTAINER_SOUND_DEVICE_FILE="/dev/snd"
-  fi
-  if [ -n "$HOST_SOUND_DEVICE_FILE" ] && [ -n "$CONTAINER_SOUND_DEVICE_FILE" ]; then
-    DOCKER_SET_OPTIONS+=("--device $HOST_SOUND_DEVICE_FILE:$CONTAINER_SOUND_DEVICE_FILE")
+if [ -e "$HOST_SOUND_DEVICE_FILE" ] || [ -e "/dev/snd" ]; then
+  if [ "$DOCKER_SOUND_ENABLED" = "yes" ]; then
+    if [ -z "$HOST_SOUND_DEVICE_FILE" ]; then
+      HOST_SOUND_DEVICE_FILE="/dev/snd"
+    fi
+    if [ -z "$CONTAINER_SOUND_DEVICE_FILE" ]; then
+      CONTAINER_SOUND_DEVICE_FILE="/dev/snd"
+    fi
+    if [ -n "$HOST_SOUND_DEVICE_FILE" ] && [ -n "$CONTAINER_SOUND_DEVICE_FILE" ]; then
+      DOCKER_SET_OPTIONS+=("--device $HOST_SOUND_DEVICE_FILE:$CONTAINER_SOUND_DEVICE_FILE")
+    fi
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

@@ -1101,7 +1101,7 @@ if [ "$CONTAINER_CUSTOM_DATABASE_ENABLED" = "yes" ] && [ -n "$CONTAINER_CUSTOM_D
   else
     CONTAINER_DATABASE_PROTO="file:///$DATABASE_DIR_CUSTOM/"
   fi
-  MESSAGE_CONTAINER_DATABASE="Database files are saved to:      $DATABASE_DIR_CUSTOM"
+  MESSAGE_CONTAINER_DATABASE="Database files are saved to:        $DATABASE_DIR_CUSTOM"
 fi
 if [ "$CONTAINER_REDIS_ENABLED" = "yes" ]; then
   SHOW_DATABASE_INFO="true"
@@ -1111,7 +1111,7 @@ if [ "$CONTAINER_REDIS_ENABLED" = "yes" ]; then
   DATABASE_DIR_REDIS="${DATABASE_DIR_REDIS:-$DATABASE_BASE_DIR/redis}"
   DOCKER_SET_OPTIONS+=("--volume $LOCAL_DATA_DIR/db/redis:/$DATABASE_DIR_REDIS:z")
   DOCKER_SET_OPTIONS+=("--env DATABASE_DIR_REDIS=$DATABASE_DIR_REDIS")
-  MESSAGE_REDIS="Database files are saved to:      $DATABASE_DIR_REDIS"
+  MESSAGE_REDIS="Database files are saved to:        $DATABASE_DIR_REDIS"
 fi
 if [ "$CONTAINER_SQLITE3_ENABLED" = "yes" ]; then
   SHOW_DATABASE_INFO="true"
@@ -1121,7 +1121,7 @@ if [ "$CONTAINER_SQLITE3_ENABLED" = "yes" ]; then
   DOCKER_SET_OPTIONS+=("--env DATABASE_DIR_SQLITE3=$DATABASE_DIR_SQLITE3")
   CONTAINER_DATABASE_PROTO="sqlite3://$DATABASE_DIR_SQLITE3"
   CONTAINER_CREATE_DIRECTORY+=" $DATABASE_DIR_SQLITE3"
-  MESSAGE_SQLITE3="Database files are saved to:      $DATABASE_DIR_SQLITE3"
+  MESSAGE_SQLITE3="Database files are saved to:        $DATABASE_DIR_SQLITE3"
 fi
 if [ "$CONTAINER_POSTGRES_ENABLED" = "yes" ]; then
   SHOW_DATABASE_INFO="true"
@@ -1131,7 +1131,7 @@ if [ "$CONTAINER_POSTGRES_ENABLED" = "yes" ]; then
   DOCKER_SET_OPTIONS+=("--volume $LOCAL_DATA_DIR/db/postgres:/$DATABASE_DIR_POSTGRES:z")
   DOCKER_SET_OPTIONS+=("--env DATABASE_DIR_POSTGRES=$DATABASE_DIR_POSTGRES")
   CONTAINER_DATABASE_PROTO="postgresql://$HOST_LISTEN_ADDR:5432"
-  MESSAGE_PGSQL="Database files are saved to:      $DATABASE_DIR_POSTGRES"
+  MESSAGE_PGSQL="Database files are saved to:        $DATABASE_DIR_POSTGRES"
 fi
 if [ "$CONTAINER_MARIADB_ENABLED" = "yes" ]; then
   SHOW_DATABASE_INFO="true"
@@ -1141,7 +1141,7 @@ if [ "$CONTAINER_MARIADB_ENABLED" = "yes" ]; then
   DOCKER_SET_OPTIONS+=("--volume $LOCAL_DATA_DIR/db/mariadb:/$DATABASE_DIR_MARIADB:z")
   DOCKER_SET_OPTIONS+=("--env DATABASE_DIR_MARIADB=$DATABASE_DIR_MARIADB")
   CONTAINER_DATABASE_PROTO="mysql://$HOST_LISTEN_ADDR:3306"
-  MESSAGE_MARIADB="Database files are saved to:      $DATABASE_DIR_MARIADB"
+  MESSAGE_MARIADB="Database files are saved to:        $DATABASE_DIR_MARIADB"
 fi
 if [ "$CONTAINER_COUCHDB_ENABLED" = "yes" ]; then
   SHOW_DATABASE_INFO="true"
@@ -1151,7 +1151,7 @@ if [ "$CONTAINER_COUCHDB_ENABLED" = "yes" ]; then
   DOCKER_SET_OPTIONS+=("--volume $LOCAL_DATA_DIR/db/couchdb:/$DATABASE_DIR_COUCHDB:z")
   DOCKER_SET_OPTIONS+=("--env DATABASE_DIR_COUCHDB=$DATABASE_DIR_COUCHDB")
   CONTAINER_DATABASE_PROTO="http://$HOST_LISTEN_ADDR:5984"
-  MESSAGE_COUCHDB="Database files are saved to:      $DATABASE_DIR_COUCHDB"
+  MESSAGE_COUCHDB="Database files are saved to:        $DATABASE_DIR_COUCHDB"
 fi
 if [ "$CONTAINER_MONGODB_ENABLED" = "yes" ]; then
   SHOW_DATABASE_INFO="true"
@@ -1161,7 +1161,7 @@ if [ "$CONTAINER_MONGODB_ENABLED" = "yes" ]; then
   DOCKER_SET_OPTIONS+=("--volume $LOCAL_DATA_DIR/db/mongodb:/$DATABASE_DIR_MONGODB:z")
   DOCKER_SET_OPTIONS+=("--env DATABASE_DIR_MONGODB=$DATABASE_DIR_MONGODB")
   CONTAINER_DATABASE_PROTO="mongodb://$HOST_LISTEN_ADDR:27017"
-  MESSAGE_MONGODB="Database files are saved to:      $DATABASE_DIR_MONGODB"
+  MESSAGE_MONGODB="Database files are saved to:        $DATABASE_DIR_MONGODB"
 fi
 if [ "$CONTAINER_SUPABASE_ENABLED" = "yes" ]; then
   SHOW_DATABASE_INFO="true"
@@ -1171,7 +1171,7 @@ if [ "$CONTAINER_SUPABASE_ENABLED" = "yes" ]; then
   DATABASE_DIR_SUPABASE="${DATABASE_DIR_SUPABASE:-$DATABASE_BASE_DIR/supabase}"
   DOCKER_SET_OPTIONS+=("--volume $LOCAL_DATA_DIR/db/supabase:/$DATABASE_DIR_SUPABASE:z")
   DOCKER_SET_OPTIONS+=("--env DATABASE_DIR_SUPABASE=$DATABASE_DIR_SUPABASE")
-  MESSAGE_SUPABASE="Database files are saved to:      $DATABASE_DIR_SUPABASE"
+  MESSAGE_SUPABASE="Database files are saved to:        $DATABASE_DIR_SUPABASE"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #
@@ -1441,26 +1441,18 @@ if [ -n "$CONTAINER_ADD_WEB_PORTS" ] || { [ "$CONTAINER_WEB_SERVER_ENABLED" = "y
       proxy_url=""
       proxy_location=""
       proxy_info="$set_port"
-      set_hostname="${proxy_info//proxy|/}"
-      set_hostname="${set_hostname//|*/}"
-      set_hostname="${set_hostname//\/*/}"
-      get_port="${set_port//*|*|/}"
-      port=${get_port//\/*/}
+      set_port="${set_port//*|*|/}"
+      port=${set_port//\/*/}
       port="${port//*:/}"
       random_port="$(__rport)"
       SET_WEB_PORT_TMP+=("$CONTAINER_WEB_SERVER_LISTEN_ON:$random_port")
       DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_WEB_SERVER_LISTEN_ON:$random_port:$port")
-      if echo "$proxy_info" | grep -q "|.*|" || [ -n "$set_hostname" ]; then
+      if echo "$proxy_info" | grep -q "proxy|"; then
         NGINX_REPLACE_INCLUDE="yes"
-        get_hostname="${set_hostname:-proxy}|"
-        proxy_location="${proxy_info//$get_hostname/}"
-        proxy_location="${proxy_location//|*/}"
+        set_hostname="$(echo "$proxy_info" | awk -F '|' '{print $1}' | grep -v 'proxy' | grep '^' || echo '')"
+        proxy_location="$(echo "$proxy_info" | awk -F '|' '{print $2}' | grep '^' || echo '')"
         proxy_url="$CONTAINER_WEB_SERVER_LISTEN_ON:$random_port"
-        if echo "$CONTAINER_PROTOCOL" | grep -q "^http"; then
-          nginx_proto="${CONTAINER_PROTOCOL:-http}"
-        else
-          nginx_proto="http"
-        fi
+        echo "$CONTAINER_PROTOCOL" | grep -q "^http" && nginx_proto="${CONTAINER_PROTOCOL:-http}" || nginx_proto="http"
         if [ -n "$proxy_url" ] && [ -n "$proxy_location" ]; then
           if [ -n "$set_hostname" ]; then
             echo "$set_hostname" | grep -qF '.' || set_hostname="$set_hostname.$CONTAINER_HOSTNAME"
@@ -1787,59 +1779,62 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
     fi
   fi
   printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
-  printf_yellow "The container name is:          $CONTAINER_NAME"
-  printf_yellow "The container is listening on:  $HOST_LISTEN_ADDR"
-  printf_yellow "The hostname name is set to:    $CONTAINER_HOSTNAME"
-  printf_yellow "Containers data is saved in:    $DATADIR"
+  printf_yellow "The container name is:            $CONTAINER_NAME"
+  printf_yellow "The container is listening on:    $HOST_LISTEN_ADDR"
+  printf_yellow "The hostname name is set to:      $CONTAINER_HOSTNAME"
+  printf_yellow "Containers data is saved in:      $DATADIR"
   printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   if [ "$DOCKER_CREATE_NET" ]; then
-    printf_purple "Created docker network:         $HOST_DOCKER_NETWORK"
+    printf_purple "Created docker network:           $HOST_DOCKER_NETWORK"
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
   if [ "$SUDO_USER" != "root" ] && [ -n "$SUDO_USER" ]; then
     __sudo_exec chown -f "$SUDO_USER":"$SUDO_USER" "$DATADIR" "$INSTDIR" &>/dev/null
   fi
   if [ "$NGINX_IS_INSTALLED" = "yes" ] && [ -f "$NGINX_CONF_FILE" ]; then
-    printf_cyan "nginx vhost name:                $CONTAINER_HOSTNAME"
-    printf_cyan "nginx proxy to port:             $NGINX_PROXY_URL"
-    printf_cyan "nginx config file installed to:  $NGINX_CONF_FILE"
-    if [ "$NGINX_CUSTOM_CONFIG" = "yes" ]; then
-      printf_cyan "nginx custom file installed to:  $NGINX_VHOST_CONFIG"
+    printf_cyan "nginx vhost name:                  $CONTAINER_HOSTNAME"
+    printf_cyan "nginx proxy to port:               $NGINX_PROXY_URL"
+    printf_cyan "nginx config file installed to:    $NGINX_CONF_FILE"
+    if [ -f "$NGINX_INC_CONFIG" ]; then
+      printf_cyan "nginx vhost file installed to:     $NGINX_INC_CONFIG"
+    fi
+    if [ -f "$NGINX_VHOST_CONFIG" ]; then
+      printf_cyan "nginx custom file installed to:    $NGINX_VHOST_CONFIG"
     fi
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
   if [ -n "$SET_PORT" ] && [ -n "$NGINX_PROXY_URL" ]; then
     MESSAGE="true"
-    printf_blue "Server address:                  $NGINX_PROXY_URL"
+    printf_blue "Server address:                    $NGINX_PROXY_URL"
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
   if [ -n "$CONTAINER_USER_NAME" ]; then
     MESSAGE="true"
-    printf_cyan "Username is:                     $CONTAINER_USER_NAME"
+    printf_cyan "Username is:                       $CONTAINER_USER_NAME"
   fi
   if [ -n "$CONTAINER_USER_PASS" ]; then
     MESSAGE="true"
-    printf_blue "Password is:                     $CONTAINER_USER_PASS"
+    printf_blue "Password is:                       $CONTAINER_USER_PASS"
   fi
   if [ "$CONTAINER_DATABASE_USER_ROOT" ]; then
     MESSAGE="true"
-    printf_blue "Database root user:              $CONTAINER_DATABASE_USER_ROOT"
+    printf_blue "Database root user:                $CONTAINER_DATABASE_USER_ROOT"
   fi
   if [ "$CONTAINER_DATABASE_PASS_ROOT" ]; then
     MESSAGE="true"
-    printf_blue "Database root password:          $CONTAINER_DATABASE_PASS_ROOT"
+    printf_blue "Database root password:            $CONTAINER_DATABASE_PASS_ROOT"
   fi
   if [ "$CONTAINER_DATABASE_USER_NORMAL" ]; then
     MESSAGE="true"
-    printf_blue "Database user:                   $CONTAINER_DATABASE_USER_NORMAL"
+    printf_blue "Database user:                     $CONTAINER_DATABASE_USER_NORMAL"
   fi
   if [ "$CONTAINER_DATABASE_PASS_NORMAL" ]; then
     MESSAGE="true"
-    printf_blue "Database password:               $CONTAINER_DATABASE_PASS_NORMAL"
+    printf_blue "Database password:                 $CONTAINER_DATABASE_PASS_NORMAL"
   fi
   if [ "$SHOW_DATABASE_INFO" = "true" ]; then
     MESSAGE="true"
-    printf_yellow "Database is running on:          $CONTAINER_DATABASE_PROTO"
+    printf_yellow "Database is running on:            $CONTAINER_DATABASE_PROTO"
     if [ -n "$MESSAGE_CONTAINER_DATABASE" ]; then
       printf_cyan "$MESSAGE_CONTAINER_DATABASE"
     fi
@@ -1868,9 +1863,9 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
   fi
   if [ -f "$DATADIR/config/auth/htpasswd" ]; then
     MESSAGE="true"
-    printf_purple "Username:                        root"
-    printf_purple "Password:                        ${SET_USER_PASS:-toor}"
-    printf_purple "htpasswd File:                   /config/auth/htpasswd"
+    printf_purple "Username:                          root"
+    printf_purple "Password:                          ${SET_USER_PASS:-toor}"
+    printf_purple "htpasswd File:                     /config/auth/htpasswd"
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
   if [ -z "$SET_PORT" ]; then
@@ -1891,9 +1886,9 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
         listen="${set_host//0.0.0.0/$HOST_LISTEN_ADDR}:$set_port"
         if [ -n "$listen" ]; then
           if [ -n "$type" ]; then
-            printf_cyan "Port $set_service is mapped to:          $listen/$type"
+            printf_cyan "Port $set_service is mapped to:            $listen/$type"
           else
-            printf_cyan "Port $set_service is mapped to:          $listen"
+            printf_cyan "Port $set_service is mapped to:            $listen"
           fi
         fi
       fi
@@ -1901,15 +1896,15 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
   if [ -f "$DOCKERMGR_INSTALL_SCRIPT" ]; then
-    printf_yellow "Script saved to:                 $DOCKERMGR_INSTALL_SCRIPT"
+    printf_yellow "Script saved to:                   $DOCKERMGR_INSTALL_SCRIPT"
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
   if [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME" ] || [ -f "$DOCKERMGR_CONFIG_DIR/env/custom.$APPNAME" ]; then
     if [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME" ]; then
-      printf_green "variables saved to:              $DOCKERMGR_CONFIG_DIR/env/$APPNAME"
+      printf_green "variables saved to:                $DOCKERMGR_CONFIG_DIR/env/$APPNAME"
     fi
     if [ -f "$DOCKERMGR_CONFIG_DIR/env/custom.$APPNAME" ]; then
-      printf_green "Container variables saved to:    $DOCKERMGR_CONFIG_DIR/env/custom.$APPNAME"
+      printf_green "Container variables saved to:      $DOCKERMGR_CONFIG_DIR/env/custom.$APPNAME"
     fi
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
@@ -1917,13 +1912,13 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
     printf_green "$POST_SHOW_FINISHED_MESSAGE"
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
-  printf_cyan "$APPNAME has been installed to:   $INSTDIR"
+  printf_cyan "$APPNAME has been installed to:     $INSTDIR"
   printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n\n'
   __show_post_message
 else
   printf_cyan "The container $CONTAINER_NAME seems to have failed"
   if [ "$ERROR_LOG" = "true" ]; then
-    printf_yellow "Errors logged to ${TMP:-/tmp}/$APPNAME.err.log"
+    printf_yellow "Errors logged to: ${TMP:-/tmp}/$APPNAME.err.log"
   else
     printf_red "Something seems to have gone wrong with the install"
   fi

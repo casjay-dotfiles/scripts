@@ -1455,7 +1455,7 @@ if [ -n "$CONTAINER_ADD_WEB_PORTS" ] || { [ "$CONTAINER_WEB_SERVER_ENABLED" = "y
       port=${get_port//\/*/}
       port="${port//*:/}"
       random_port="$(__rport)"
-      set_hostname="${set_port//|*/}"
+      set_hostname="${proxy_info//|*/}"
       SET_WEB_PORT_TMP+=("$CONTAINER_WEB_SERVER_LISTEN_ON:$random_port")
       DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_WEB_SERVER_LISTEN_ON:$random_port:$port")
       if echo "$proxy_info" | grep -q '[a-zA-Z0-9]|/.*.|[0-9]'; then

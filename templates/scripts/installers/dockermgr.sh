@@ -1458,17 +1458,20 @@ if [ -n "$CONTAINER_ADD_CUSTOM_LISTEN" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # container web server configuration
-CLEANUP_PORT="${CONTAINER_WEB_SERVER_INT_PORT:-$CONTAINER_SERVICE_PORT}"
-CLEANUP_PORT="${CLEANUP_PORT//\/*/}"
-PRETTY_PORT="$CLEANUP_PORT"
+PRETTY_PORT=""
+SET_WEB_PORT_TMP=()
 if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ] && [ -n "$CONTAINER_WEB_SERVER_INT_PORT" ]; then
   CONTAINER_WEB_SERVER_INT_PORT="${CONTAINER_WEB_SERVER_INT_PORT//,/ }"
-  if [ "$CONTAINER_WEB_SERVER_INT_PORT" != " " ]; then
-    port=${CONTAINER_WEB_SERVER_INT_PORT//\/*/}
-    random_port="$(__rport)"
-    SET_WEB_PORT="$CONTAINER_WEB_SERVER_LISTEN_ON:$random_port"
-    DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_WEB_SERVER_LISTEN_ON:$random_port:$port")
-  fi
+  for set_port in $CONTAINER_WEB_SERVER_INT_PORT; do
+    if [ "$set_port" != " " ] && [ -n "$set_port" ]; then
+      if [ "$set_port" != " " ]; then
+        port=${set_port//\/*/}
+        random_port="$(__rport)"
+        SET_WEB_PORT_TMP=("$CONTAINER_WEB_SERVER_LISTEN_ON:$random_port")
+        DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_WEB_SERVER_LISTEN_ON:$random_port:$port")
+      fi
+    fi
+  done
 fi
 if [ -n "$CONTAINER_SERVICE_PORT" ]; then
   CONTAINER_SERVICE_PORT="${CONTAINER_SERVICE_PORT//,/ }"
@@ -1482,9 +1485,11 @@ if [ -n "$CONTAINER_SERVICE_PORT" ]; then
       else
         DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_WEB_SERVER_LISTEN_ON:$random_port:$port/$TYPE")
       fi
+      SET_WEB_PORT_TMP=("$CONTAINER_WEB_SERVER_LISTEN_ON:$random_port")
     fi
   done
 fi
+SET_WEB_PORT="${SET_WEB_PORT_TMP[*]}"
 if [ -n "$SET_WEB_PORT" ]; then
   SET_NGINX_PROXY_PORT="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | awk -F':' '{print $1":"$2}' | grep -v '^$' | tr '\n' ' ' | head -n1 | grep '^')"
   CLEANUP_PORT="${SET_NGINX_PROXY_PORT//--publish /}"
@@ -1492,7 +1497,7 @@ if [ -n "$SET_WEB_PORT" ]; then
   PRETTY_PORT="$CLEANUP_PORT"
   NGINX_PROXY_PORT="$CLEANUP_PORT"
 fi
-unset SET_WEB_PORT_TMP set_port CONTAINER_SERVICE_PORT
+unset SET_WEB_PORT_TMP set_port
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Fix/create port
 if echo "$PRETTY_PORT" | grep -q ':.*.:'; then
@@ -1510,8 +1515,10 @@ NGINX_PROXY_URL="${NGINX_PROXY_URL:-$PROXY_HTTP_PROTO://$NGINX_PROXY_ADDRESS:$NG
 NGINX_PROXY_URL="${NGINX_PROXY_URL// /}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set temp env for PORTS ENV variable
-DOCKER_SET_PORTS_ENV_TMP="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | grep ':.*.:' | awk -F ':' '{print $1":"$3}' | grep '^')"
-DOCKER_SET_PORTS_ENV_TMP+="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | grep -v ':.*.:' | awk -F ':' '{print $1":"$2}' | grep '^')"
+SET_PORTS_ENV_PUB="${DOCKER_SET_TMP_PUBLISH//--publish/}"
+SET_PORTS_ENV_TMP="${SET_PORTS_ENV_PUB[*]} $SET_WEB_PORT"
+DOCKER_SET_PORTS_ENV_TMP="$(echo "$SET_PORTS_ENV_TMP" | tr ' ' '\n' | grep ':.*.:' | awk -F ':' '{print $1":"$3}' | grep '^')"
+DOCKER_SET_PORTS_ENV_TMP+="$(echo "$SET_PORTS_ENV_TMP" | tr ' ' '\n' | grep -v ':.*.:' | awk -F ':' '{print $1":"$2}' | grep '^')"
 DOCKER_SET_PORTS_ENV_TMP="$(echo "$DOCKER_SET_PORTS_ENV_TMP" | tr ',' '\n' | grep '[0-9]:[0-9]' | sort -u | sed 's|/.*||g' | grep -v '^$' | tr '\n' ',' | grep '^' || echo '')"
 DOCKER_SET_PORTS_ENV="${DOCKER_SET_PORTS_ENV_TMP//,/ }"
 DOCKER_SET_PORTS_ENV="${DOCKER_SET_PORTS_ENV//*:/}"
@@ -1519,8 +1526,8 @@ DOCKER_SET_PORTS_ENV="$(__trim "${DOCKER_SET_PORTS_ENV[*]}")"
 ENV_PORTS="$(echo "$DOCKER_SET_PORTS_ENV" "${CONTAINER_ENV_PORTS[*]}" | tr ' ' '\n' | sort -u)"
 if [ -n "$ENV_PORTS" ]; then
   DOCKER_SET_OPTIONS+=("--env ENV_PORTS=\"$ENV_PORTS\"")
-  unset DOCKER_SET_PORTS_ENV ENV_PORTS
 fi
+unset DOCKER_SET_PORTS_ENV_TMP DOCKER_SET_PORTS_ENV ENV_PORTS SET_PORTS_ENV_TMP SET_PORTS_ENV_PUB
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 DOCKER_CUSTOM_ARRAY="$(__custom_docker_env | grep '\--')"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

@@ -1441,18 +1441,20 @@ if [ -n "$CONTAINER_ADD_WEB_PORTS" ] || { [ "$CONTAINER_WEB_SERVER_ENABLED" = "y
       proxy_url=""
       proxy_location=""
       proxy_info="$set_port"
-      set_hostname="${setport//|*/}"
-      set_hostname="${set_hostname//proxy/}"
-      set_port="${set_port//*|*|/}"
-      port=${set_port//\/*/}
+      set_hostname="${proxy_info//proxy|/}"
+      set_hostname="${set_hostname//|*/}"
+      set_hostname="${set_hostname//\/*/}"
+      get_port="${set_port//*|*|/}"
+      port=${get_port//\/*/}
       port="${port//*:/}"
       random_port="$(__rport)"
       SET_WEB_PORT_TMP+=("$CONTAINER_WEB_SERVER_LISTEN_ON:$random_port")
       DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_WEB_SERVER_LISTEN_ON:$random_port:$port")
-      if echo "$proxy_info" | grep -q "proxy|"; then
+      if echo "$proxy_info" | grep -q "|.*|" || [ -n "$set_hostname" ]; then
         NGINX_REPLACE_INCLUDE="yes"
-        proxy_info="${proxy_info//proxy|/}"
-        proxy_location="${proxy_info//|*/}"
+        get_hostname="${set_hostname:-proxy}|"
+        proxy_location="${proxy_info//$get_hostname/}"
+        proxy_location="${proxy_location//|*/}"
         proxy_url="$CONTAINER_WEB_SERVER_LISTEN_ON:$random_port"
         if echo "$CONTAINER_PROTOCOL" | grep -q "^http"; then
           nginx_proto="${CONTAINER_PROTOCOL:-http}"
@@ -1801,6 +1803,9 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
     printf_cyan "nginx vhost name:                $CONTAINER_HOSTNAME"
     printf_cyan "nginx proxy to port:             $NGINX_PROXY_URL"
     printf_cyan "nginx config file installed to:  $NGINX_CONF_FILE"
+    if [ "$NGINX_CUSTOM_CONFIG" = "yes" ]; then
+      printf_cyan "nginx custom file installed to:  $NGINX_VHOST_CONFIG"
+    fi
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
   if [ -n "$SET_PORT" ] && [ -n "$NGINX_PROXY_URL" ]; then

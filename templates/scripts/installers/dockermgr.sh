@@ -1003,7 +1003,9 @@ if [ "$HOST_LISTEN_ADDR" = "0.0.0.0" ]; then
   HOST_LISTEN_ADDR="$SET_LAN_IP"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#
+# # nginx
+NGINX_VHOSTS_CONF_FILE_TMP="/tmp/$$.$APPNAME.conf"
+NGINX_VHOSTS_INC_FILE_TMP="/tmp/$$.$APPNAME.inc.conf"
 if [ "$HOST_NGINX_ENABLED" = "yes" ]; then
   NINGX_WRITABLE="$(sudo -n true && sudo bash -c '[ -w "/etc/nginx" ] && echo "true" || false' || echo 'false')"
   if [ "$HOST_NGINX_SSL_ENABLED" = "yes" ] && [ -n "$HOST_NGINX_HTTPS_PORT" ]; then
@@ -1038,7 +1040,7 @@ if [ "$HOST_NGINX_ENABLED" = "yes" ]; then
   if [ "$HOST_NGINX_UPDATE_CONF" = "yes" ]; then
     mkdir -p "$NGINX_DIR/vhosts.d"
   fi
-  if [ ! -f "$NGINX_DIR/vhosts.d/$NGINX_CONFIG_NAME.conf" ]; then
+  if [ ! -f "$NGINX_MAIN_CONFIG" ]; then
     HOST_NGINX_UPDATE_CONF="yes"
   fi
 fi
@@ -1061,6 +1063,8 @@ if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ]; then
     CONTAINER_WEB_SERVER_LISTEN_ON="$HOST_LISTEN_ADDR"
   fi
   NGINX_PROXY_ADDRESS="${CONTAINER_WEB_SERVER_LISTEN_ON:-$HOST_LISTEN_ADDR}"
+else
+  unset CONTAINER_WEB_SERVER_INT_PORT
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup the listen address
@@ -1428,7 +1432,7 @@ if [ -n "$CONTAINER_OPT_PORT_VAR" ] || [ -n "$CONTAINER_ADD_CUSTOM_PORT" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # container web server configuration proxy|/location|port
-if [ -n "$CONTAINER_ADD_WEB_PORTS" ] || { [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ] && [ -n "$CONTAINER_ADD_WEB_PORTS" ]; }; then
+if [ -n "$CONTAINER_ADD_WEB_PORTS" ] || { [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ] && [ -n "$CONTAINER_WEB_SERVER_INT_PORT" ]; }; then
   CONTAINER_ADD_WEB_PORTS="${CONTAINER_ADD_WEB_PORTS//,/ }"
   CONTAINER_WEB_SERVER_INT_PORT="${CONTAINER_WEB_SERVER_INT_PORT//,/ }"
   for set_port in $CONTAINER_WEB_SERVER_INT_PORT $CONTAINER_ADD_WEB_PORTS; do
@@ -1445,9 +1449,9 @@ if [ -n "$CONTAINER_ADD_WEB_PORTS" ] || { [ "$CONTAINER_WEB_SERVER_ENABLED" = "y
       if echo "$proxy_info" | grep -q "proxy|"; then
         NGINX_REPLACE_INCLUDE="yes"
         proxy_url="$CONTAINER_WEB_SERVER_LISTEN_ON:$random_port"
-        proxy_location="$(echo "${proxy_info//proxy|/|}" | awk -F "|" '{print $1}')"
+        proxy_location="$(echo "${proxy_info//proxy|/}" | awk -F "|" '{print $1}')"
         if [ -n "$proxy_url" ] && [ -n "$proxy_location" ]; then
-          cat <<EOF | tee -a "/tmp/$$.$CONTAINER_HOSTNAME.inc.conf" &>/dev/null
+          cat <<EOF | tee -a "$NGINX_VHOSTS_INC_FILE_TMP" &>/dev/null
   location $proxy_location {
     proxy_redirect                          http:// https://;
     proxy_pass                              http://$proxy_location/;
@@ -1666,42 +1670,44 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
   NGINX_VHOST_ENABLED="true"
   NGINX_VHOST_NAMES="${CONTAINER_WEB_SERVER_VHOSTS//,/ }"
   NGINX_CONFIG_NAME="${CONTAINER_WEB_SERVER_CONFIG_NAME:-$CONTAINER_HOSTNAME}"
+  NGINX_MAIN_CONFIG="$NGINX_DIR/vhosts.d/$NGINX_CONFIG_NAME.conf"
+  NGINX_INC_CONFIG="$NGINX_DIR/conf.d/vhosts/$CONTAINER_HOSTNAME.conf"
   [ -d "$NGINX_DIR/conf.d/vhosts" ] || __sudo_root mkdir -p "$NGINX_DIR/conf.d/vhosts"
   if [ "$HOST_NGINX_UPDATE_CONF" = "yes" ] && [ -f "$INSTDIR/nginx/proxy.conf" ]; then
-    cp -f "$INSTDIR/nginx/proxy.conf" "/tmp/$$.$CONTAINER_HOSTNAME.conf"
-    sed -i "s|REPLACE_APPNAME|$APPNAME|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
-    sed -i "s|REPLACE_NGINX_PORT|$NGINX_PORT|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
-    sed -i "s|REPLACE_HOST_PROXY|$NGINX_PROXY_URL|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
-    sed -i "s|REPLACE_NGINX_HOST|$CONTAINER_HOSTNAME|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
-    sed -i "s|REPLACE_NGINX_VHOSTS|$NGINX_VHOST_NAMES|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
-    sed -i "s|REPLACE_SERVER_LISTEN_OPTS|$NGINX_LISTEN_OPTS|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf" &>/dev/null
+    cp -f "$INSTDIR/nginx/proxy.conf" "$NGINX_VHOSTS_CONF_FILE_TMP"
+    sed -i "s|REPLACE_APPNAME|$APPNAME|g" "$NGINX_VHOSTS_CONF_FILE_TMP" &>/dev/null
+    sed -i "s|REPLACE_NGINX_PORT|$NGINX_PORT|g" "$NGINX_VHOSTS_CONF_FILE_TMP" &>/dev/null
+    sed -i "s|REPLACE_HOST_PROXY|$NGINX_PROXY_URL|g" "$NGINX_VHOSTS_CONF_FILE_TMP" &>/dev/null
+    sed -i "s|REPLACE_NGINX_HOST|$CONTAINER_HOSTNAME|g" "$NGINX_VHOSTS_CONF_FILE_TMP" &>/dev/null
+    sed -i "s|REPLACE_NGINX_VHOSTS|$NGINX_VHOST_NAMES|g" "$NGINX_VHOSTS_CONF_FILE_TMP" &>/dev/null
+    sed -i "s|REPLACE_SERVER_LISTEN_OPTS|$NGINX_LISTEN_OPTS|g" "$NGINX_VHOSTS_CONF_FILE_TMP" &>/dev/null
     if [ -d "$NGINX_DIR/vhosts.d" ]; then
-      if [ -f "/tmp/$$.$CONTAINER_HOSTNAME.inc.conf" ]; then
-        __sudo_root mv -f "/tmp/$$.$CONTAINER_HOSTNAME.inc.conf" "$NGINX_DIR/conf.d/vhosts/$CONTAINER_HOSTNAME.conf"
-        sed -i "s|REPLACREPLACE_NGINX_INCLUDEE_INCLUDE|$NGINX_DIR/conf.d/vhosts/$CONTAINER_HOSTNAME.conf|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf"
+      if [ -f "$NGINX_VHOSTS_INC_FILE_TMP" ]; then
+        __sudo_root mv -f "$NGINX_VHOSTS_INC_FILE_TMP" "$NGINX_INC_CONFIG"
+        sed -i "s|REPLACREPLACE_NGINX_INCLUDEE_INCLUDE|$NGINX_INC_CONFIG|g" "$NGINX_VHOSTS_CONF_FILE_TMP"
       elif [ -f "$INSTDIR/nginx/conf.d/vhosts/include.conf" ]; then
-        cat "$INSTDIR/nginx/conf.d/vhosts/include.conf" | tee "/tmp/$$.$CONTAINER_HOSTNAME.inc.conf" &>/dev/null
-        __sudo_root mv -f "/tmp/$$.$CONTAINER_HOSTNAME.inc.conf" "$NGINX_DIR/conf.d/vhosts/$CONTAINER_HOSTNAME.conf"
-        sed -i "s|REPLACE_NGINX_INCLUDE|$NGINX_DIR/conf.d/vhosts/$CONTAINER_HOSTNAME.conf|g" "/tmp/$$.$CONTAINER_HOSTNAME.conf"
+        cat "$INSTDIR/nginx/conf.d/vhosts/include.conf" | tee "$NGINX_VHOSTS_INC_FILE_TMP" &>/dev/null
+        __sudo_root mv -f "$NGINX_VHOSTS_INC_FILE_TMP" "$NGINX_INC_CONFIG"
+        sed -i "s|REPLACE_NGINX_INCLUDE|$NGINX_INC_CONFIG|g" "$NGINX_VHOSTS_CONF_FILE_TMP"
       fi
-      if [ ! -f "$NGINX_DIR/conf.d/vhosts/$CONTAINER_HOSTNAME.conf" ]; then
-        sed -i "s|include.*REPLACE_NGINX_INCLUDE||g" "/tmp/$$.$CONTAINER_HOSTNAME.conf"
+      if [ ! -f "$NGINX_INC_CONFIG" ]; then
+        sed -i "s|include.*REPLACE_NGINX_INCLUDE;||g" "$NGINX_VHOSTS_CONF_FILE_TMP"
       fi
-      __sudo_root mv -f "/tmp/$$.$CONTAINER_HOSTNAME.conf" "$NGINX_DIR/vhosts.d/$NGINX_CONFIG_NAME.conf"
-      if [ -f "$NGINX_DIR/vhosts.d/$NGINX_CONFIG_NAME.conf" ]; then
+      __sudo_root mv -f "$NGINX_VHOSTS_CONF_FILE_TMP" "$NGINX_MAIN_CONFIG"
+      if [ -f "$NGINX_MAIN_CONFIG" ]; then
         NGINX_IS_INSTALLED="yes"
-        NGINX_CONF_FILE="$NGINX_DIR/vhosts.d/$NGINX_CONFIG_NAME.conf"
+        NGINX_CONF_FILE="$NGINX_MAIN_CONFIG"
       fi
       if [ -f "/etc/nginx/nginx.conf" ]; then
         systemctl status nginx 2>/dev/null | grep -q enabled &>/dev/null && __sudo_root systemctl reload nginx &>/dev/null
       fi
     else
-      mv -f "/tmp/$$.$CONTAINER_HOSTNAME.conf" "$INSTDIR/nginx/$NGINX_CONFIG_NAME.conf" &>/dev/null
+      mv -f "$NGINX_VHOSTS_CONF_FILE_TMP" "$INSTDIR/nginx/$NGINX_CONFIG_NAME.conf" &>/dev/null
     fi
   else
     NGINX_PROXY_URL=""
   fi
-  [ -f "$NGINX_DIR/vhosts.d/$NGINX_CONFIG_NAME.conf" ] && NGINX_PROXY_URL="$CONTAINER_PROTOCOL://$CONTAINER_HOSTNAME"
+  [ -f "$NGINX_MAIN_CONFIG" ] && NGINX_PROXY_URL="$CONTAINER_PROTOCOL://$CONTAINER_HOSTNAME"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # finalize

@@ -1000,13 +1000,14 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #
 if [ "$HOST_NGINX_ENABLED" = "yes" ]; then
+  NINGX_WRITABLE="$(sudoif && sudo bash -c '[ -w "/etc/nginx" ] && echo "true" || false' || echo 'false')"
   if [ "$HOST_NGINX_SSL_ENABLED" = "yes" ] && [ -n "$HOST_NGINX_HTTPS_PORT" ]; then
     NGINX_LISTEN_OPTS="ssl http2"
     NGINX_PORT="${HOST_NGINX_HTTPS_PORT:-443}"
   else
     NGINX_PORT="${HOST_NGINX_HTTP_PORT:-80}"
   fi
-  if [ -f "/etc/nginx/nginx.conf" ] && [ -w "/etc/nginx" ]; then
+  if [ -f "/etc/nginx/nginx.conf" ] && [ "$NINGX_WRITABLE" = "true" ]; then
     NGINX_DIR="/etc/nginx"
   else
     NGINX_DIR="$HOME/.config/nginx"
@@ -1055,27 +1056,6 @@ if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ]; then
     CONTAINER_WEB_SERVER_LISTEN_ON="$HOST_LISTEN_ADDR"
   fi
   NGINX_PROXY_ADDRESS="${CONTAINER_WEB_SERVER_LISTEN_ON:-$HOST_LISTEN_ADDR}"
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# SSL setup
-NGINX_PROXY_URL=""
-PROXY_HTTP_PROTO="$CONTAINER_PROTOCOL"
-if [ "$NGINX_SSL" = "yes" ]; then
-  if [ "$SSL_ENABLED" = "yes" ]; then
-    PROXY_HTTP_PROTO="https"
-  fi
-  if [ "$PROXY_HTTP_PROTO" = "https" ]; then
-    NGINX_PROXY_URL="$PROXY_HTTP_PROTO://$NGINX_PROXY_ADDRESS:$NGINX_PROXY_PORT"
-    if [ -f "$HOST_SSL_CRT" ] && [ -f "$HOST_SSL_KEY" ]; then
-      if [ -f "$CONTAINER_SSL_CA" ]; then
-        CONTAINER_MOUNTS+="$HOST_SSL_CA:$CONTAINER_SSL_CA "
-      fi
-      CONTAINER_MOUNTS+="$HOST_SSL_CRT:$CONTAINER_SSL_CRT "
-      CONTAINER_MOUNTS+="$HOST_SSL_KEY:$CONTAINER_SSL_KEY "
-    fi
-  fi
-else
-  CONTAINER_PROTOCOL="${CONTAINER_PROTOCOL:-http}"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup ports
@@ -1510,22 +1490,32 @@ unset SET_WEB_PORT_TMP set_port
 # Fix/create port
 SET_WEB_PORT="${SET_WEB_PORT_TMP[*]}"
 if [ -n "$SET_WEB_PORT" ]; then
-  SET_NGINX_PROXY_PORT="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | awk -F':' '{print $1":"$2}' | grep -v '^$' | tr '\n' ' ' | head -n1 | grep '^')"
-  CLEANUP_PORT="${SET_NGINX_PROXY_PORT//--publish /}"
+  SET_NGINX_PROXY_PORT="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | awk -F':' '{print $1":"$2}' | sort -Vu | grep -v '^$' | head -n1 | grep '^')"
   CLEANUP_PORT="${CLEANUP_PORT//\/*/}"
   PRETTY_PORT="$CLEANUP_PORT"
-  NGINX_PROXY_PORT="$CLEANUP_PORT"
+  NGINX_PROXY_PORT="$PRETTY_PORT"
 fi
-# if echo "$PRETTY_PORT" | grep -q ':.*.:'; then
-# NGINX_PROXY_PORT="$(echo "$PRETTY_PORT" | grep ':.*.:' | awk -F':' '{print $2}' | grep '^')"
-# else
-# NGINX_PROXY_PORT="$(echo "$PRETTY_PORT" | grep -v ':.*.:' | awk -F':' '{print $2}' | grep '^')"
-# fi
-# if [ -n "$NGINX_PROXY_PORT" ]; then
-# PRETTY_PORT="$NGINX_PROXY_PORT"
-# else
-# NGINX_PROXY_PORT="$CLEANUP_PORT"
-# fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# SSL setup
+NGINX_PROXY_URL=""
+PROXY_HTTP_PROTO="$CONTAINER_PROTOCOL"
+if [ "$NGINX_SSL" = "yes" ]; then
+  if [ "$SSL_ENABLED" = "yes" ]; then
+    PROXY_HTTP_PROTO="https"
+  fi
+  if [ "$PROXY_HTTP_PROTO" = "https" ]; then
+    NGINX_PROXY_URL="$PROXY_HTTP_PROTO://$NGINX_PROXY_ADDRESS:$NGINX_PROXY_PORT"
+    if [ -f "$HOST_SSL_CRT" ] && [ -f "$HOST_SSL_KEY" ]; then
+      if [ -f "$CONTAINER_SSL_CA" ]; then
+        CONTAINER_MOUNTS+="$HOST_SSL_CA:$CONTAINER_SSL_CA "
+      fi
+      CONTAINER_MOUNTS+="$HOST_SSL_CRT:$CONTAINER_SSL_CRT "
+      CONTAINER_MOUNTS+="$HOST_SSL_KEY:$CONTAINER_SSL_KEY "
+    fi
+  fi
+else
+  CONTAINER_PROTOCOL="${CONTAINER_PROTOCOL:-http}"
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 NGINX_PROXY_URL="${NGINX_PROXY_URL:-$PROXY_HTTP_PROTO://$NGINX_PROXY_ADDRESS:$NGINX_PROXY_PORT}"
 NGINX_PROXY_URL="${NGINX_PROXY_URL// /}"
@@ -1686,7 +1676,8 @@ sleep 10
 __docker_ps && CONTAINER_INSTALLED="true"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Install nginx proxy
-if [ -w "$NGINX_DIR/vhosts.d" ] && [ -f "$NGINX_CONF_FILE" ]; then
+NINGX_VHOSTS_WRITABLE="$(sudoif && sudo bash -c '[ -w "$NGINX_DIR/vhosts.d" ] && echo "true" || false' || echo 'false')"
+if [ "$NINGX_VHOSTS_WRITABLE" = "true" ] && [ -f "$NGINX_CONF_FILE" ]; then
   NGINX_VHOST_ENABLED="true"
   NGINX_VHOST_NAMES="${CONTAINER_WEB_SERVER_VHOSTS//,/ }"
   NGINX_CONFIG_NAME="${CONTAINER_WEB_SERVER_CONFIG_NAME:-$CONTAINER_HOSTNAME}"
@@ -1713,7 +1704,6 @@ if [ -w "$NGINX_DIR/vhosts.d" ] && [ -f "$NGINX_CONF_FILE" ]; then
   else
     NGINX_PROXY_URL=""
   fi
-  SERVER_URL="$CONTAINER_PROTOCOL://$CONTAINER_HOSTNAME:$PRETTY_PORT"
   [ -f "$NGINX_DIR/vhosts.d/$NGINX_CONFIG_NAME.conf" ] && NGINX_PROXY_URL="$CONTAINER_PROTOCOL://$CONTAINER_HOSTNAME"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

@@ -1457,7 +1457,7 @@ if [ -n "$CONTAINER_ADD_WEB_PORTS" ] || { [ "$CONTAINER_WEB_SERVER_ENABLED" = "y
       random_port="$(__rport)"
       SET_WEB_PORT_TMP+=("$CONTAINER_WEB_SERVER_LISTEN_ON:$random_port")
       DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_WEB_SERVER_LISTEN_ON:$random_port:$port")
-      if echo $proxy_info | grep -q '[a-zA-Z0-9]|/.*.|[0-9]'; then
+      if echo "$proxy_info" | grep -q '[a-zA-Z0-9]|/.*.|[0-9]'; then
         NGINX_REPLACE_INCLUDE="yes"
         proxy_location="$(echo "$proxy_info" | awk -F '|' '{print $2}' | grep '^' || echo '')"
         set_hostname="$(echo "$proxy_info" | awk -F '|' '{print $1}' | grep -v 'proxy' | grep '^' || echo '')"
@@ -1465,8 +1465,8 @@ if [ -n "$CONTAINER_ADD_WEB_PORTS" ] || { [ "$CONTAINER_WEB_SERVER_ENABLED" = "y
         echo "$CONTAINER_PROTOCOL" | grep -q "^http" && nginx_proto="${CONTAINER_PROTOCOL:-http}" || nginx_proto="http"
         if [ -n "$proxy_url" ] && [ -n "$proxy_location" ]; then
           if [ -n "$set_hostname" ]; then
-            echo "$set_hostname" | grep -qF '.' || set_hostname="$set_hostname.$CONTAINER_HOSTNAME"
             NGINX_CUSTOM_CONFIG="true"
+            echo "$set_hostname" | grep -qF '.' || set_hostname="$set_hostname.$CONTAINER_HOSTNAME"
             cat <<EOF | tee -a "$NGINX_VHOSTS_PROXY_FILE_TMP" &>/dev/null
 server {
   listen                                    443 ssl http2;

@@ -1673,7 +1673,7 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
   NGINX_VHOST_NAMES="${CONTAINER_WEB_SERVER_VHOSTS//,/ }"
   NGINX_CONFIG_NAME="${CONTAINER_WEB_SERVER_CONFIG_NAME:-$CONTAINER_HOSTNAME}"
   NGINX_MAIN_CONFIG="$NGINX_DIR/vhosts.d/$NGINX_CONFIG_NAME.conf"
-  NGINX_INC_CONFIG="$NGINX_DIR/conf.d/vhosts/$CONTAINER_HOSTNAME.conf"
+  NGINX_INC_CONFIG="$NGINX_DIR/conf.d/vhosts/$NGINX_CONFIG_NAME.conf"
   [ -d "$NGINX_DIR/conf.d/vhosts" ] || __sudo_root mkdir -p "$NGINX_DIR/conf.d/vhosts"
   if [ "$HOST_NGINX_UPDATE_CONF" = "yes" ] && [ -f "$INSTDIR/nginx/proxy.conf" ]; then
     cp -f "$INSTDIR/nginx/proxy.conf" "$NGINX_VHOSTS_CONF_FILE_TMP"
@@ -1695,12 +1695,13 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
       if [ ! -f "$NGINX_INC_CONFIG" ]; then
         sed -i "s|include.*REPLACE_NGINX_INCLUDE;||g" "$NGINX_VHOSTS_CONF_FILE_TMP"
       fi
+      __sudo_root mv -f "$NGINX_VHOSTS_CONF_FILE_TMP" "$NGINX_MAIN_CONFIG"
       if [ -f "$NGINX_MAIN_CONFIG" ]; then
         NGINX_IS_INSTALLED="yes"
         NGINX_CONF_FILE="$NGINX_MAIN_CONFIG"
       fi
       if [ -f "/etc/nginx/nginx.conf" ]; then
-        systemctl status nginx 2>/dev/null | grep -q enabled &>/dev/null && __sudo systemctl reload nginx &>/dev/null
+        systemctl status nginx 2>/dev/null | grep -q enabled &>/dev/null && __sudo_root systemctl reload nginx &>/dev/null
       fi
     else
       mv -f "$NGINX_VHOSTS_CONF_FILE_TMP" "$INSTDIR/nginx/$NGINX_CONFIG_NAME.conf" &>/dev/null

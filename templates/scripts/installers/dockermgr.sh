@@ -1670,7 +1670,7 @@ fi
 # finalize
 if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
   DOCKER_PORTS="$(__trim "${DOCKER_GET_PUBLISH//--publish/}")"
-  SET_PORT="$(echo "$DOCKER_PORTS" | tr ' ' '\n' | grep -vE '^$|--' | sort -V | grep '^')"
+  SET_PORT="$(echo "$DOCKER_PORTS" | tr ' ' '\n' | grep -vE '^$|--' | sort -V | awk -F ':' '{print $1":"$3":"$2}' | grep '^')"
   HOSTS_WRITABLE="$(sudo -n true && sudo bash -c '[ -w "/etc/hosts" ] && echo "true" || false' || echo 'false')"
   if ! grep -sq "$CONTAINER_HOSTNAME" "/etc/hosts" && [ "$HOSTS_WRITABLE" = "true" ]; then
     if [ "$HOST_LISTEN_ADDR" = 'home' ]; then
@@ -1770,20 +1770,21 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
   else
     for service in $SET_PORT; do
       if [ "$service" != "--publish" ] && [ "$service" != " " ] && [ -n "$service" ]; then
-        get_type="${service//*\//}"
-        get_type="${get_type//$service/}"
-        type=${get_type//*\//}
-        service=${service//\/*/}
-        set_listen=${service%:*}
-        set_service=${service//*:*[^:]*:/}
-        listen_ip=${set_listen//0.0.0.0/$HOST_LISTEN_ADDR}
-        listen=${listen_ip//*^:/$listen_ip}
-        echo "$listen" | grep -q ":" || listen="$listen_ip"
+        if echo "$service" | grep -q ":.*.:"; then
+          set_host="$(echo "$service" | awk -F ':' '{print $1}')"
+          set_port="$(echo "$service" | awk -F ':' '{print $3}')"
+          set_service="$(echo "$service" | awk -F ':' '{print $2}')"
+        else
+          set_host="$SET_LISTEN"
+          set_port="$(echo "$service" | awk -F ':' '{print $1}')"
+          set_service="$(echo "$service" | awk -F ':' '{print $2}')"
+        fi
+        listen="${set_host//0.0.0.0/$HOST_LISTEN_ADDR}:$set_port"
         if [ -n "$listen" ]; then
           if [ -n "$type" ]; then
-            printf_cyan "Port ${set_service//*:/} is mapped to:           $listen/$type"
+            printf_cyan "Port $set_service         is mapped to:          $listen/$type"
           else
-            printf_cyan "Port ${set_service//*:/} is mapped to:           $listen"
+            printf_cyan "Port $set_service         is mapped to:          $listen"
           fi
         fi
       fi

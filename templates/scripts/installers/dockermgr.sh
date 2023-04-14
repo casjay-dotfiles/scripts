@@ -1505,7 +1505,9 @@ if [ -n "$CONTAINER_SERVICE_PORT" ]; then
     fi
   done
 fi
+unset SET_WEB_PORT_TMP set_port
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Fix/create port
 SET_WEB_PORT="${SET_WEB_PORT_TMP[*]}"
 if [ -n "$SET_WEB_PORT" ]; then
   SET_NGINX_PROXY_PORT="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | awk -F':' '{print $1":"$2}' | grep -v '^$' | tr '\n' ' ' | head -n1 | grep '^')"
@@ -1514,19 +1516,16 @@ if [ -n "$SET_WEB_PORT" ]; then
   PRETTY_PORT="$CLEANUP_PORT"
   NGINX_PROXY_PORT="$CLEANUP_PORT"
 fi
-unset SET_WEB_PORT_TMP set_port
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Fix/create port
-if echo "$PRETTY_PORT" | grep -q ':.*.:'; then
-  NGINX_PROXY_PORT="$(echo "$PRETTY_PORT" | grep ':.*.:' | awk -F':' '{print $2}' | grep '^')"
-else
-  NGINX_PROXY_PORT="$(echo "$PRETTY_PORT" | grep -v ':.*.:' | awk -F':' '{print $2}' | grep '^')"
-fi
-if [ -n "$NGINX_PROXY_PORT" ]; then
-  PRETTY_PORT="$NGINX_PROXY_PORT"
-else
-  NGINX_PROXY_PORT="$CLEANUP_PORT"
-fi
+# if echo "$PRETTY_PORT" | grep -q ':.*.:'; then
+# NGINX_PROXY_PORT="$(echo "$PRETTY_PORT" | grep ':.*.:' | awk -F':' '{print $2}' | grep '^')"
+# else
+# NGINX_PROXY_PORT="$(echo "$PRETTY_PORT" | grep -v ':.*.:' | awk -F':' '{print $2}' | grep '^')"
+# fi
+# if [ -n "$NGINX_PROXY_PORT" ]; then
+# PRETTY_PORT="$NGINX_PROXY_PORT"
+# else
+# NGINX_PROXY_PORT="$CLEANUP_PORT"
+# fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 NGINX_PROXY_URL="${NGINX_PROXY_URL:-$PROXY_HTTP_PROTO://$NGINX_PROXY_ADDRESS:$NGINX_PROXY_PORT}"
 NGINX_PROXY_URL="${NGINX_PROXY_URL// /}"

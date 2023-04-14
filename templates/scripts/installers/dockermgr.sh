@@ -1483,7 +1483,7 @@ ENV_PORTS="$(__trim "${DOCKER_SET_PORTS_ENV_TMP[*]}")"
 if [ -n "$ENV_PORTS" ]; then
   DOCKER_SET_OPTIONS+=("--env ENV_PORTS=\"$ENV_PORTS\"")
 fi
-unset DOCKER_SET_PORTS_ENV_TMP DOCKER_SET_PORTS_ENV ENV_PORTS SET_PORTS_ENV_TMP SET_PORTS_ENV_PUB
+unset DOCKER_SET_PORTS_ENV_TMP ENV_PORTS SET_PORTS_ENV_TMP
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 DOCKER_CUSTOM_ARRAY="$(__custom_docker_env | grep '\--')"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

@@ -1493,7 +1493,7 @@ SET_WEB_PORT="$(__trim "${SET_WEB_PORT_TMP[*]}")"
 SET_NGINX_PROXY_PORT="$(echo "$SET_WEB_PORT" | tr ' ' '\n' | grep -v '^$' | head -n1 | grep '^' || echo '')"
 if [ -n "$SET_NGINX_PROXY_PORT" ]; then
   CLEANUP_PORT="${SET_NGINX_PROXY_PORT//\/*/}"
-  NGINX_PROXY_PORT="${CLEANUP_PORT//$NGINX_PROXY_ADDRESS/}"
+  NGINX_PROXY_PORT="${CLEANUP_PORT//$NGINX_PROXY_ADDRESS:/}"
 fi
 unset SET_PRETTY_PORT SET_NGINX_PROXY_PORT SET_WEB_PORT_TMP CLEANUP_PORT
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

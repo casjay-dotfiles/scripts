@@ -89,6 +89,7 @@ __password() { cat "/dev/urandom" | tr -dc '0-9a-zA-Z' | head -c${1:-16} && echo
 __docker_ps() { docker ps -a 2>&1 | grep -qs "$CONTAINER_NAME" && return 0 || return 1; }
 __enable_ssl() { { [ "$SSL_ENABLED" = "yes" ] || [ "$SSL_ENABLED" = "true" ]; } && return 0 || return 1; }
 __ssl_certs() { [ -f "$HOST_SSL_CA" ] && [ -f "$HOST_SSL_CRT" ] && [ -f "$HOST_SSL_KEY" ] && return 0 || return 1; }
+__is_server() { echo "${SET_HOST_FULL_NAME:-$HOSTNAME}" | grep -q '^server\..*\..*[a-zA-Z0-9][a-zA-Z0-9]$' || return 1; }
 __host_name() { hostname -f 2>/dev/null | grep -F '.' | grep '^' || hostname -f 2>/dev/null | grep '^' || echo "$HOSTNAME"; }
 __container_name() { echo "$HUB_IMAGE_URL-${HUB_IMAGE_TAG:-latest}" | awk -F '/' '{print $(NF-1)"-"$NF}' | grep '^' || return 1; }
 __docker_init() { [ -n "$(type -p dockermgr 2>/dev/null)" ] && dockermgr init || printf_exit "Failed to Initialize the docker installer"; }
@@ -100,12 +101,10 @@ __public_ip() { curl -q -LSsf "http://ifconfig.co" | grep -v '^$' | head -n1 | g
 __ifconfig() { [ -n "$(type -P ifconfig)" ] && eval ifconfig "$*" 2>/dev/null || return 1; }
 __docker_net_ls() { docker network ls 2>&1 | grep -v 'NETWORK ID' | awk -F ' ' '{print $2}'; }
 __route() { [ -n "$(type -P ip)" ] && eval ip route 2>/dev/null | grep "${1:-default}" | grep -v '^$' | head -n1 || return 1; }
-__docker_gateway_ip() { sudo docker network inspect -f '{{json .IPAM.Config}}' ${HOST_DOCKER_NETWORK:-bridge} 2>/dev/null | jq -r '.[].Gateway' | grep -Ev '^$|null' | head -n1 | grep '^' || echo '172.17.0.1'; }
+__is_private_ip() { grep -E '192\.168\.[0-255]\.[0-255]|10\.[0-255]\.[0-255]\.[0-255]|172\.[10-32]|172\.[10-15]' 2>/dev/null | grep -vE '127\.[0-255]\.[0-255]\.[0-255]|172\.17'; }
+__docker_gateway_ip() { sudo docker network inspect -f '{{json .IPAM.Config}}' ${HOST_DOCKER_NETWORK:-bridge} 2>/dev/null | jq -r '.[].Gateway' | grep -Ev '^$|null' | head -n1 | grep '^' || return 1; }
 __docker_net_create() { __docker_net_ls | grep -q "$HOST_DOCKER_NETWORK" && return 0 || { docker network create -d bridge --attachable $HOST_DOCKER_NETWORK &>/dev/null && __docker_net_ls | grep -q "$HOST_DOCKER_NETWORK" && echo "$HOST_DOCKER_NETWORK" && return 0 || return 1; }; }
-__local_lan_ip() {
-  local GET_LAN_IP="$(ip address show $SET_LAN_DEV 2>&1 | grep 'inet ' | awk -F ' ' '{print $2}' | sed 's|/.*||g')"
-  (echo "$GET_LAN_IP" | grep -E '192\.168\.[0-255]\.[0-255]' 2>/dev/null || echo "$GET_LAN_IP" | grep -E '10\.[0-255]\.[0-255]\.[0-255]' 2>/dev/null || echo "$GET_LAN_IP" | grep -E '172\.[10-32]' | grep -v '172\.[10-15]' 2>/dev/null) | grep -v '172\.17' | grep -v '^$' | head -n1 | grep '^' || echo "$CURRENT_IP_4" | grep '^'
-}
+__local_lan_ip() { __ifconfig $SET_LAN_DEV | grep -w 'inet' | awk -F ' ' '{print $2}' | __is_private_ip | head -n1 | grep '^' || ip address show $SET_LAN_DEV 2>&1 | grep 'inet ' | awk -F ' ' '{print $2}' | sed 's|/.*||g' | __is_private_ip | grep -v '^$' | head -n1 | grep '^' || echo "$CURRENT_IP_4" | grep '^' || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure docker is installed
 __docker_check || __docker_init
@@ -146,9 +145,9 @@ done
 [ -n "$(type -P sudo)" ] && sudo -n true && sudo true && DOCKERMGR_USER_CAN_SUDO="true"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup networking
-SET_DOCKER_IP="$(__docker_gateway_ip)"
 SET_LAN_DEV=$(__route | sed -e "s/^.*dev.//" -e "s/.proto.*//" | awk '{print $1}' | grep '^' || echo 'eth0')
-SET_LAN_IP=$(__ifconfig $SET_LAN_DEV | grep -w 'inet' | awk -F ' ' '{print $2}' | grep -vE '127\.[0-255]\.[0-255]\.[0-255]' | tr ' ' '\n' | head -n1 | grep '^' || __local_lan_ip || echo '')
+SET_DOCKER_IP="$(__docker_gateway_ip || echo '172.17.0.1')"
+SET_LAN_IP=$(__local_lan_ip || echo '127.0.0.1')
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # get variables from env
 ENV_HOSTNAME="${ENV_HOSTNAME:-$SET_HOSTNAME}"
@@ -156,15 +155,13 @@ ENV_DOMAINNAME="${ENV_DOMAINNAME:-$SET_DOMAIN}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # get variables from host
 SET_LOCAL_HOSTNAME=$(__host_name)
-SET_LOCAL_DOMAINNAME=$(__domain_name)
 SET_LONG_HOSTNAME=$(hostname -f 2>/dev/null | grep '^')
 SET_SHORT_HOSTNAME=$(hostname -s 2>/dev/null | grep '^')
-SET_DOMAIN_NAME=$(hostname -d 2>/dev/null | grep '^' || echo 'home')
+SET_DOMAIN_NAME=$(__domain_name || hostname -d 2>/dev/null | grep -F '.' | grep '^' || echo 'home')
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set hostname and domain
-SET_HOST_SHORT_HOST="${SET_LOCAL_HOSTNAME:-$SET_SHORT_HOSTNAME}"
-SET_HOST_FULL_HOST="${SET_LOCAL_HOSTNAME:-$SET_LONG_HOSTNAME}"
-SET_HOST_FULL_DOMAIN="${SET_LOCAL_DOMAINNAME:-$SET_DOMAIN_NAME}"
+SET_HOST_FULL_NAME="${FULL_HOST:-$SET_LONG_HOSTNAME}"
+SET_HOST_FULL_DOMAIN="${FULL_DOMAIN:-$SET_DOMAIN_NAME}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define folders
 HOST_DATA_DIR="$DATADIR/data"
@@ -172,17 +169,15 @@ HOST_CONFIG_DIR="$DATADIR/config"
 LOCAL_DATA_DIR="${LOCAL_DATA_DIR:-$HOST_DATA_DIR}"
 LOCAL_CONFIG_DIR="${LOCAL_CONFIG_DIR:-$HOST_CONFIG_DIR}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# SSL Setup server mounts
-HOST_SSL_DIR="${HOST_SSL_DIR:-/etc/ssl/CA}"
-HOST_SSL_CA="${HOST_SSL_CA:-$HOST_SSL_DIR/certs/ca.crt}"
-HOST_SSL_CRT="${HOST_SSL_CRT:-$HOST_SSL_DIR/certs/localhost.crt}"
-HOST_SSL_KEY="${HOST_SSL_KEY:-$HOST_SSL_DIR/private/localhost.key}"
+# SSL Setup server mounts - [/etc/ssl/CA/certs/ca.crt] [/etc/ssl/CA/certs/host.crt] [/etc/ssl/CA/certs/host.key]
+HOST_SSL_CA=""
+HOST_SSL_CRT=""
+HOST_SSL_KEY=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# SSL Setup container mounts
-CONTAINER_SSL_DIR="${CONTAINER_SSL_DIR:-/config/ssl}"
-CONTAINER_SSL_CA="${CONTAINER_SSL_CA:-$CONTAINER_SSL_DIR/ca.crt}"
-CONTAINER_SSL_CRT="${CONTAINER_SSL_CRT:-$CONTAINER_SSL_DIR/localhost.crt}"
-CONTAINER_SSL_KEY="${CONTAINER_SSL_KEY:-$CONTAINER_SSL_DIR/localhost.key}"
+# SSL Setup container mounts - [/config/ssl/ca.crt] [/config/ssl/localhost.crt] [/config/ssl/localhost.key]
+CONTAINER_SSL_CA=""
+CONTAINER_SSL_CRT=""
+CONTAINER_SSL_KEY=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # URL to container image - docker pull - [URL]
 HUB_IMAGE_URL="casjaysdevdocker/GEN_SCRIPT_REPLACE_APPNAME"
@@ -206,7 +201,7 @@ CONTAINER_WORK_DIR=""
 CONTAINER_HTML_DIR=""
 CONTAINER_HTML_ENV=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set container user and group ID - [yes/no] [id]
+# Set container user and group ID - [yes/no] [id] [id]
 USER_ID_ENABLED="no"
 CONTAINER_USER_ID=""
 CONTAINER_GROUP_ID=""
@@ -277,7 +272,7 @@ HOST_X11_XAUTH=""
 CONTAINER_X11_SOCKET="/tmp/.X11-unix"
 CONTAINER_X11_XAUTH="/home/x11user/.Xauthority"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set container hostname and domain - Default: [GEN_SCRIPT_REPLACE_APPNAME.$SET_HOST_FULL_HOST] [$SET_HOST_FULL_DOMAIN]
+# Set container hostname and domain - Default: [GEN_SCRIPT_REPLACE_APPNAME.$SET_HOST_FULL_NAME] [$SET_HOST_FULL_DOMAIN]
 CONTAINER_HOSTNAME=""
 CONTAINER_DOMAINNAME=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -579,6 +574,19 @@ __trim() {
   printf '%s' "$var" | grep -v '^$' | __remove_extra_spaces
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__test_public_reachable() {
+  local exitCode=0
+  local port="${1:-$(__port)}"
+  local nc="$(builtin type -P nc || builtin type -P netcat || false)"
+  if [ -n "$nc" ]; then
+    (timeout 20 $nc -l $port &) &>/dev/null
+    curl -q -LSsf -4 "https://ifconfig.co/port/$port" | jq -rc '.reachable' | grep -q 'true' || exitCode=1
+  else
+    exitCode=1
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # import variables from a file
 [ -f "$INSTDIR/env.sh" ] && . "$INSTDIR/env.sh"
 [ -f "$APPDIR/env.sh" ] && . "$APPDIR/env.sh"
@@ -629,12 +637,10 @@ SET_LAN_IP="${ENV_SET_LAN_IP:-$SET_LAN_IP}"
 SET_LAN_IP="${ENV_SET_LAN_IP:-$SET_LAN_IP}"
 SET_DOCKER_IP="${ENV_SET_DOCKER_IP:-$SET_DOCKER_IP}"
 SET_LOCAL_HOSTNAME="${ENV_SET_LOCAL_HOSTNAME:-$SET_LOCAL_HOSTNAME}"
-SET_LOCAL_DOMAINNAME="${ENV_SET_LOCAL_DOMAINNAME:-$SET_LOCAL_DOMAINNAME}"
 SET_LONG_HOSTNAME="${ENV_SET_LONG_HOSTNAME:-$SET_LONG_HOSTNAME}"
 SET_SHORT_HOSTNAME="${ENV_SET_SHORT_HOSTNAME:-$SET_SHORT_HOSTNAME}"
 SET_DOMAIN_NAME="${ENV_SET_DOMAIN_NAME:-$SET_DOMAIN_NAME}"
-SET_HOST_SHORT_HOST="${ENV_SET_HOST_SHORT_HOST:-$SET_HOST_SHORT_HOST}"
-SET_HOST_FULL_HOST="${ENV_SET_HOST_FULL_HOST:-$SET_HOST_FULL_HOST}"
+SET_HOST_FULL_NAME="${ENV_SET_HOST_FULL_NAME:-$SET_HOST_FULL_NAME}"
 SET_HOST_FULL_DOMAIN="${ENV_SET_HOST_FULL_DOMAIN:-$SET_HOST_FULL_DOMAIN}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 HOST_DATA_DIR="${ENV_HOST_DATA_DIR:-$HOST_DATA_DIR}"
@@ -747,6 +753,49 @@ DOCKER_CAP_NET_ADMIN="${ENV_DOCKER_CAP_NET_ADMIN:-$DOCKER_CAP_NET_ADMIN}"
 DOCKER_CAP_NET_BIND_SERVICE="${ENV_DOCKER_CAP_NET_BIND_SERVICE:-$DOCKER_CAP_NET_BIND_SERVICE}"
 DOCKERMGR_ENABLE_INSTALL_SCRIPT="${SCRIPT_ENABLED:-$DOCKERMGR_ENABLE_INSTALL_SCRIPT}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# SSL Setup container mounts
+CONTAINER_SSL_DIR="${CONTAINER_SSL_DIR:-/config/ssl}"
+CONTAINER_SSL_CA="${CONTAINER_SSL_CA:-$CONTAINER_SSL_DIR/ca.crt}"
+CONTAINER_SSL_CRT="${CONTAINER_SSL_CRT:-$CONTAINER_SSL_DIR/localhost.crt}"
+CONTAINER_SSL_KEY="${CONTAINER_SSL_KEY:-$CONTAINER_SSL_DIR/localhost.key}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup ssl certs
+if [ "$CONTAINER_WEB_SERVER_SSL_ENABLED" = "true" ]; then
+  if [ -z "$HOST_SSL_CA" ]; then
+    if [ -f "/etc/ssl/cert.pem" ]; then
+      HOST_SSL_CA="/etc/ssl/cert.pem"
+    elif [ -f "/etc/ssl/certs/ca-bundle.crt" ]; then
+      HOST_SSL_CA="/etc/ssl/certs/ca-bundle.crt"
+    elif [ -f "/etc/ssl/CA/CasjaysDev/certs/ca.crt" ]; then
+      HOST_SSL_CA="/etc/ssl/CA/CasjaysDev/certs/ca.crt"
+    fi
+  fi
+  if [ -z "$HOST_SSL_CRT" ]; then
+    if [ -f "/etc/letsencrypt/live/domain/fullchain.pem" ]; then
+      HOST_SSL_CRT="/etc/letsencrypt/live/domain/fullchain.pem"
+    elif [ -f "/etc/ssl/CA/CasjaysDev/certs/localhost.crt" ]; then
+      HOST_SSL_CRT="/etc/ssl/CA/CasjaysDev/certs/localhost.crt"
+    fi
+  fi
+  if [ -z "$HOST_SSL_KEY" ]; then
+    if [ -f "/etc/letsencrypt/live/domain/privkey.pem" ]; then
+      HOST_SSL_KEY="/etc/letsencrypt/live/domain/privkey.pem"
+    elif [ -f "/etc/ssl/CA/CasjaysDev/private/localhost.key" ]; then
+      HOST_SSL_KEY="/etc/ssl/CA/CasjaysDev/private/localhost.key"
+    fi
+  fi
+  if [ -n "$HOST_SSL_CA" ]; then
+    HOST_SSL_CA="$(realpath "$HOST_SSL_CA")"
+  fi
+  if [ -n "$HOST_SSL_CRT" ]; then
+    HOST_SSL_CRT="$(realpath "$HOST_SSL_CRT")"
+  fi
+  if [ -n "$HOST_SSL_KEY" ]; then
+    HOST_SSL_KEY="$(realpath "$HOST_SSL_KEY")"
+  fi
+  SSL_ENABLED="yes"
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup arrays/empty variables
 PRETTY_PORT=""
 SET_WEB_PORT_TMP=()
@@ -834,6 +883,9 @@ if [ -n "$CONTAINER_SWAP_SIZE" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set CPU count
+if [ -z "$CONTAINER_CPU_COUNT" ] && [ -f "/proc/cpuinfo" ]; then
+  CONTAINER_CPU_COUNT="$(grep -c '^processor' /proc/cpuinfo || echo '1')"
+fi
 if [ -n "$CONTAINER_CPU_COUNT" ]; then
   DOCKER_SET_OPTIONS+=("--cpus $CONTAINER_CPU_COUNT")
   unset CONTAINER_CPU_COUNT
@@ -844,6 +896,7 @@ if [ -z "$CONTAINER_SHM_SIZE" ]; then
   DOCKER_SET_OPTIONS+=("--shm-size=128M")
 else
   DOCKER_SET_OPTIONS+=("--shm-size=$CONTAINER_SHM_SIZE")
+  unset CONTAINER_SHM_SIZE
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Auto restart the container
@@ -851,22 +904,25 @@ if [ -z "$CONTAINER_AUTO_RESTART" ]; then
   DOCKER_SET_OPTIONS+=("--restart unless-stopped")
 else
   DOCKER_SET_OPTIONS+=("--restart=$CONTAINER_AUTO_RESTART")
+  unset CONTAINER_AUTO_RESTART
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Only run the container to execute command and then delete
 if [ "$CONTAINER_AUTO_DELETE" = "yes" ]; then
   DOCKER_SET_OPTIONS+=("--rm")
-  CONTAINER_AUTO_RESTART=""
+  unset CONTAINER_AUTO_DELETE
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Enable the tty
 if [ "$CONTAINER_TTY_ENABLED" = "yes" ]; then
   DOCKER_SET_OPTIONS+=("--tty")
+  unset CONTAINER_TTY_ENABLED
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run in interactive mode
 if [ "$CONTAINER_INTERACTIVE_ENABLED" = "yes" ]; then
   DOCKER_SET_OPTIONS+=("--interactive")
+  unset CONTAINER_INTERACTIVE_ENABLED
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mount cgroups in the container
@@ -958,11 +1014,12 @@ if [ "$HOST_ETC_HOSTS_ENABLED" = "yes" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup containers hostname
-if [[ "$SET_HOST_FULL_HOST" = server.* ]] && [ -z "$CONTAINER_HOSTNAME" ]; then
+if __is_server && [ -z "$CONTAINER_HOSTNAME" ]; then
+  CONTAINER_DOMAINNAME="$SET_HOST_FULL_DOMAIN"
   CONTAINER_HOSTNAME="$APPNAME.$SET_HOST_FULL_DOMAIN"
 else
   CONTAINER_DOMAINNAME="${CONTAINER_DOMAINNAME:-$SET_HOST_FULL_DOMAIN}"
-  CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME.$SET_HOST_FULL_HOST}"
+  CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME.$SET_HOST_FULL_NAME}"
 fi
 if [ -n "$CONTAINER_HOSTNAME" ]; then
   DOCKER_SET_OPTIONS+=("--hostname $CONTAINER_HOSTNAME")
@@ -992,30 +1049,38 @@ fi
 DOCKER_CREATE_NET="$(__docker_net_create)"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Container listen address [address:extPort:intPort]
-if [ "$HOST_NETWORK_ADDR" = "public" ]; then
-  HOST_DEFINE_LISTEN=0.0.0.0
-  HOST_LISTEN_ADDR=$(__public_ip)
-elif [ "$HOST_NETWORK_ADDR" = "lan" ]; then
+HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR:-$SET_LAN_IP}"
+if [ "$HOST_NETWORK_ADDR" = "yes" ] || [ "$HOST_NETWORK_ADDR" = "lan" ]; then
   HOST_DEFINE_LISTEN="$SET_LAN_IP"
   HOST_LISTEN_ADDR="$SET_LAN_IP"
+elif [ "$HOST_NETWORK_ADDR" = "public" ]; then
+  if connect_test && __test_public_reachable; then
+    HOST_DEFINE_LISTEN=0.0.0.0
+    HOST_LISTEN_ADDR=$(__public_ip)
+  else
+    HOST_DEFINE_LISTEN="$SET_LAN_IP"
+    HOST_LISTEN_ADDR="$SET_LAN_IP"
+  fi
+elif [ "$HOST_NETWORK_ADDR" = "docker" ]; then
+  HOST_DEFINE_LISTEN="$SET_DOCKER_IP"
+  HOST_LISTEN_ADDR="$SET_DOCKER_IP"
 elif [ "$HOST_NETWORK_ADDR" = "local" ]; then
   HOST_DEFINE_LISTEN="127.0.0.1"
   HOST_LISTEN_ADDR="127.0.0.1"
   CONTAINER_PRIVATE="yes"
-elif [ "$HOST_NETWORK_ADDR" = "docker" ]; then
-  HOST_DEFINE_LISTEN="$SET_DOCKER_IP"
-  HOST_LISTEN_ADDR="$SET_DOCKER_IP"
-elif [ "$HOST_NETWORK_ADDR" = "yes" ]; then
-  HOST_DEFINE_LISTEN="127.0.0.1"
-  HOST_LISTEN_ADDR="127.0.0.1"
-  CONTAINER_PRIVATE="yes"
 else
-  HOST_DEFINE_LISTEN=0.0.0.0
+  HOST_DEFINE_LISTEN="0.0.0.0"
   HOST_LISTEN_ADDR="$SET_LAN_IP"
 fi
-if [ "$HOST_LISTEN_ADDR" = "0.0.0.0" ]; then
-  HOST_LISTEN_ADDR="$SET_LAN_IP"
+HOST_DEFINE_LISTEN="${HOST_DEFINE_LISTEN:-0.0.0.0}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup the listen address
+if [ -n "$HOST_DEFINE_LISTEN" ]; then
+  HOST_LISTEN_ADDR="${HOST_DEFINE_LISTEN//:*/}"
 fi
+HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR:-$HOST_DEFINE_LISTEN}"
+HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR//0.0.0.0/$SET_LAN_IP}"
+HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR//:*/}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # # nginx
 NGINX_VHOSTS_CONF_FILE_TMP="/tmp/$$.$APPNAME.conf"
@@ -1023,7 +1088,7 @@ NGINX_VHOSTS_INC_FILE_TMP="/tmp/$$.$APPNAME.inc.conf"
 NGINX_VHOSTS_PROXY_FILE_TMP="/tmp/$$.$APPNAME.custom.conf"
 if [ "$HOST_NGINX_ENABLED" = "yes" ]; then
   NINGX_WRITABLE="$(sudo -n true && sudo bash -c '[ -w "/etc/nginx" ] && echo "true" || false' || echo 'false')"
-  if __enable_ssl && [ -n "$HOST_NGINX_HTTPS_PORT" ]; then
+  if [ -n "$HOST_NGINX_HTTPS_PORT" ]; then
     NGINX_LISTEN_OPTS="ssl http2"
     NGINX_PORT="${HOST_NGINX_HTTPS_PORT:-443}"
   else
@@ -1062,7 +1127,7 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup containers web server
 if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ]; then
-  if [ "$CONTAINER_WEB_SERVER_SSL_ENABLED" = "yes" ]; then
+  if [ "$CONTAINER_WEB_SERVER_SSL_ENABLED" = "yes" ] || [ "$SSL_ENABLED" = "yes" ]; then
     DOCKER_SET_OPTIONS+=("--env SSL_ENABLED=true")
   fi
   if [ -n "$CONTAINER_WEB_SERVER_INT_PORT" ]; then
@@ -1081,14 +1146,6 @@ if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ]; then
 else
   unset CONTAINER_WEB_SERVER_INT_PORT
 fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup the listen address
-if [ -n "$HOST_DEFINE_LISTEN" ]; then
-  HOST_LISTEN_ADDR="${HOST_DEFINE_LISTEN//:*/}"
-fi
-HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR:-$HOST_DEFINE_LISTEN}"
-HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR//0.0.0.0/$SET_LAN_IP}"
-HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR//:*/}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #
 if [ "$CONTAINER_HTTPS_PORT" != "" ]; then
@@ -1564,13 +1621,6 @@ if [ "$NGINX_SSL" = "yes" ]; then
   fi
   if [ "$PROXY_HTTP_PROTO" = "https" ]; then
     NGINX_PROXY_URL="$PROXY_HTTP_PROTO://$NGINX_PROXY_ADDRESS:$NGINX_PROXY_PORT"
-    if [ -f "$HOST_SSL_CRT" ] && [ -f "$HOST_SSL_KEY" ]; then
-      if [ -f "$CONTAINER_SSL_CA" ]; then
-        CONTAINER_MOUNTS+="$HOST_SSL_CA:$CONTAINER_SSL_CA "
-      fi
-      CONTAINER_MOUNTS+="$HOST_SSL_CRT:$CONTAINER_SSL_CRT "
-      CONTAINER_MOUNTS+="$HOST_SSL_KEY:$CONTAINER_SSL_KEY "
-    fi
   fi
 else
   CONTAINER_PROTOCOL="${CONTAINER_PROTOCOL:-http}"
@@ -1807,17 +1857,34 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
   printf_yellow "The hostname name is set to:      $CONTAINER_HOSTNAME"
   printf_yellow "Containers data is saved in:      $DATADIR"
   printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
+  if __ssl_certs; then
+    mkdir -p "$CONTAINER_SSL_DIR"
+    __sudo_exec chmod -f 777 "$CONTAINER_SSL_DIR"
+    if __sudo_exec cp -Rf "$HOST_SSL_CA" "$CONTAINER_SSL_CA"; then
+      __sudo_exec chmod -Rf 666 "$CONTAINER_SSL_CA"
+      printf_yellow "Copied CA Cert to:                $CONTAINER_SSL_CA"
+    fi
+    if __sudo_exec cp -Rf "$HOST_SSL_CRT" "$CONTAINER_SSL_CRT"; then
+      __sudo_exec chmod -Rf 666 "$CONTAINER_SSL_DIR"
+      printf_yellow "Copied certificate to:            $CONTAINER_SSL_CRT"
+    fi
+    if __sudo_exec cp -Rf "$HOST_SSL_KEY" "$CONTAINER_SSL_KEY"; then
+      __sudo_exec chmod -Rf 666 "$CONTAINER_SSL_DIR"
+      printf_yellow "Copied private key to:            $CONTAINER_SSL_KEY"
+    fi
+    __sudo_exec chown -Rf "$USER":"$USER" "$CONTAINER_SSL_DIR" &>/dev/null
+    printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
+  fi
   if [ "$DOCKER_CREATE_NET" ]; then
     printf_purple "Created docker network:           $HOST_DOCKER_NETWORK"
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
-  if [ "$USER" != "root" ] && [ -n "$USER" ]; then
-    __sudo_exec chown -f "$USER":"$USER" "$DATADIR" "$INSTDIR" &>/dev/null
-  fi
-  if [ "$NGINX_IS_INSTALLED" = "yes" ] && [ -f "$NGINX_CONF_FILE" ]; then
+  if [ "$NGINX_IS_INSTALLED" = "yes" ]; then
     printf_cyan "nginx vhost name:                  $CONTAINER_HOSTNAME"
-    printf_cyan "nginx proxy to port:               $NGINX_PROXY_URL"
-    printf_cyan "nginx config file installed to:    $NGINX_CONF_FILE"
+    printf_cyan "nginx website:                     $NGINX_PROXY_URL"
+    if [ -f "$NGINX_CONF_FILE" ]; then
+      printf_cyan "nginx config file installed to:    $NGINX_CONF_FILE"
+    fi
     if [ -f "$NGINX_INC_CONFIG" ]; then
       printf_cyan "nginx vhost file installed to:     $NGINX_INC_CONFIG"
     fi
@@ -1907,6 +1974,8 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
           set_service="$(echo "$service" | awk -F ':' '{print $2}')"
         fi
         listen="${set_host//0.0.0.0/$HOST_LISTEN_ADDR}:$set_port"
+        characters=${#set_service}
+        spacing=$((20 - characters))
         if [ -n "$listen" ]; then
           if [ -n "$type" ]; then
             printf_cyan "Port $set_service is mapped to:            $listen/$type"
@@ -1949,6 +2018,9 @@ else
     printf_yellow "Script: $DOCKERMGR_INSTALL_SCRIPT"
   fi
   exit 10
+fi
+if [ "$USER" != "root" ] && [ -n "$USER" ]; then
+  __sudo_exec chown -f "$USER":"$USER" "$DATADIR" "$INSTDIR" &>/dev/null
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run post install scripts

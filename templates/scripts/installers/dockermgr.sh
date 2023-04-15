@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
+# shellcheck disable=SC2317
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ##@Version           :  GEN_SCRIPT_REPLACE_VERSION
 # @@Author           :  GEN_SCRIPT_REPLACE_AUTHOR
@@ -88,19 +89,23 @@ __password() { cat "/dev/urandom" | tr -dc '0-9a-zA-Z' | head -c${1:-16} && echo
 __docker_ps() { docker ps -a 2>&1 | grep -qs "$CONTAINER_NAME" && return 0 || return 1; }
 __enable_ssl() { { [ "$SSL_ENABLED" = "yes" ] || [ "$SSL_ENABLED" = "true" ]; } && return 0 || return 1; }
 __ssl_certs() { [ -f "$HOST_SSL_CA" ] && [ -f "$HOST_SSL_CRT" ] && [ -f "$HOST_SSL_KEY" ] && return 0 || return 1; }
-__host_name() { hostname -f 2>/dev/null | grep '\.' | grep '^' || hostname -f 2>/dev/null | grep '^' || echo "$HOSTNAME"; }
+__host_name() { hostname -f 2>/dev/null | grep -F '.' | grep '^' || hostname -f 2>/dev/null | grep '^' || echo "$HOSTNAME"; }
 __container_name() { echo "$HUB_IMAGE_URL-${HUB_IMAGE_TAG:-latest}" | awk -F '/' '{print $(NF-1)"-"$NF}' | grep '^' || return 1; }
 __docker_init() { [ -n "$(type -p dockermgr 2>/dev/null)" ] && dockermgr init || printf_exit "Failed to Initialize the docker installer"; }
 __domain_name() { hostname -f 2>/dev/null | awk -F '.' '{print $(NF-1)"."$NF}' | grep '\.' | grep '^' || hostname -f 2>/dev/null | grep '^' || return 1; }
-__port_in_use() { { [ -d "/etc/nginx/vhosts.d" ] && grep -wRsq "${1:-443}" "/etc/nginx/vhosts.d" || netstat -taupln 2>/dev/null | grep '[0-9]:[0-9]' | grep 'LISTEN' | grep -q "${1:-443}"; } && return 1 || return 0; }
+__netstat() { netstat -taupln 2>/dev/null | grep -vE 'WAIT|ESTABLISHED' | awk -F ' ' '{print $4}' | sed 's|.*:||g' | grep -E '[0-9]' | sort -Vu || return 1; }
+__port_in_use() { { [ -d "/etc/nginx/vhosts.d" ] && grep -wRsq "${1:-443}" "/etc/nginx/vhosts.d" || __netstat | grep -q "${1:-443}"; } && return 1 || return 0; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__route() { [ -n "$(type -P ip)" ] && eval ip route 2>/dev/null || return 1; }
 __public_ip() { curl -q -LSsf "http://ifconfig.co" | grep -v '^$' | head -n1 | grep '^'; }
 __ifconfig() { [ -n "$(type -P ifconfig)" ] && eval ifconfig "$*" 2>/dev/null || return 1; }
 __docker_net_ls() { docker network ls 2>&1 | grep -v 'NETWORK ID' | awk -F ' ' '{print $2}'; }
+__route() { [ -n "$(type -P ip)" ] && eval ip route 2>/dev/null | grep "${1:-default}" | grep -v '^$' | head -n1 || return 1; }
 __docker_gateway_ip() { sudo docker network inspect -f '{{json .IPAM.Config}}' ${HOST_DOCKER_NETWORK:-bridge} 2>/dev/null | jq -r '.[].Gateway' | grep -Ev '^$|null' | head -n1 | grep '^' || echo '172.17.0.1'; }
 __docker_net_create() { __docker_net_ls | grep -q "$HOST_DOCKER_NETWORK" && return 0 || { docker network create -d bridge --attachable $HOST_DOCKER_NETWORK &>/dev/null && __docker_net_ls | grep -q "$HOST_DOCKER_NETWORK" && echo "$HOST_DOCKER_NETWORK" && return 0 || return 1; }; }
-__local_lan_ip() { [ -n "$SET_LAN_IP" ] && (echo "$SET_LAN_IP" | grep -E '192\.168\.[0-255]\.[0-255]' 2>/dev/null || echo "$SET_LAN_IP" | grep -E '10\.[0-255]\.[0-255]\.[0-255]' 2>/dev/null || echo "$SET_LAN_IP" | grep -E '172\.[10-32]' | grep -v '172\.[10-15]' 2>/dev/null) | grep -v '172\.17' | grep -v '^$' | head -n1 | grep '^' || echo "$CURRENT_IP_4" | grep '^'; }
+__local_lan_ip() {
+  local GET_LAN_IP="$(ip address show $SET_LAN_DEV 2>&1 | grep 'inet ' | awk -F ' ' '{print $2}' | sed 's|/.*||g')"
+  (echo "$GET_LAN_IP" | grep -E '192\.168\.[0-255]\.[0-255]' 2>/dev/null || echo "$GET_LAN_IP" | grep -E '10\.[0-255]\.[0-255]\.[0-255]' 2>/dev/null || echo "$GET_LAN_IP" | grep -E '172\.[10-32]' | grep -v '172\.[10-15]' 2>/dev/null) | grep -v '172\.17' | grep -v '^$' | head -n1 | grep '^' || echo "$CURRENT_IP_4" | grep '^'
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure docker is installed
 __docker_check || __docker_init
@@ -141,10 +146,9 @@ done
 [ -n "$(type -P sudo)" ] && sudo -n true && sudo true && DOCKERMGR_USER_CAN_SUDO="true"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup networking
-SET_LAN_DEV=$(__route | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//" | awk '{print $1}' | grep '^' || echo 'eth0')
-SET_LAN_IP=$(__ifconfig $SET_LAN_DEV | grep -w 'inet' | awk -F ' ' '{print $2}' | grep -vE '127\.[0-255]\.[0-255]\.[0-255]' | tr ' ' '\n' | head -n1 | grep '^' || echo '')
-SET_LAN_IP="${SET_LAN_IP:-$(__local_lan_ip)}"
 SET_DOCKER_IP="$(__docker_gateway_ip)"
+SET_LAN_DEV=$(__route | sed -e "s/^.*dev.//" -e "s/.proto.*//" | awk '{print $1}' | grep '^' || echo 'eth0')
+SET_LAN_IP=$(__ifconfig $SET_LAN_DEV | grep -w 'inet' | awk -F ' ' '{print $2}' | grep -vE '127\.[0-255]\.[0-255]\.[0-255]' | tr ' ' '\n' | head -n1 | grep '^' || __local_lan_ip || echo '')
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # get variables from env
 ENV_HOSTNAME="${ENV_HOSTNAME:-$SET_HOSTNAME}"
@@ -992,8 +996,8 @@ if [ "$HOST_NETWORK_ADDR" = "public" ]; then
   HOST_DEFINE_LISTEN=0.0.0.0
   HOST_LISTEN_ADDR=$(__public_ip)
 elif [ "$HOST_NETWORK_ADDR" = "lan" ]; then
-  HOST_DEFINE_LISTEN=$(__local_lan_ip)
-  HOST_LISTEN_ADDR=$(__local_lan_ip)
+  HOST_DEFINE_LISTEN="$SET_LAN_IP"
+  HOST_LISTEN_ADDR="$SET_LAN_IP"
 elif [ "$HOST_NETWORK_ADDR" = "local" ]; then
   HOST_DEFINE_LISTEN="127.0.0.1"
   HOST_LISTEN_ADDR="127.0.0.1"
@@ -1007,7 +1011,7 @@ elif [ "$HOST_NETWORK_ADDR" = "yes" ]; then
   CONTAINER_PRIVATE="yes"
 else
   HOST_DEFINE_LISTEN=0.0.0.0
-  HOST_LISTEN_ADDR=$(__local_lan_ip)
+  HOST_LISTEN_ADDR="$SET_LAN_IP"
 fi
 if [ "$HOST_LISTEN_ADDR" = "0.0.0.0" ]; then
   HOST_LISTEN_ADDR="$SET_LAN_IP"
@@ -1019,7 +1023,7 @@ NGINX_VHOSTS_INC_FILE_TMP="/tmp/$$.$APPNAME.inc.conf"
 NGINX_VHOSTS_PROXY_FILE_TMP="/tmp/$$.$APPNAME.custom.conf"
 if [ "$HOST_NGINX_ENABLED" = "yes" ]; then
   NINGX_WRITABLE="$(sudo -n true && sudo bash -c '[ -w "/etc/nginx" ] && echo "true" || false' || echo 'false')"
-  if [ "$HOST_NGINX_SSL_ENABLED" = "yes" ] && [ -n "$HOST_NGINX_HTTPS_PORT" ]; then
+  if __enable_ssl && [ -n "$HOST_NGINX_HTTPS_PORT" ]; then
     NGINX_LISTEN_OPTS="ssl http2"
     NGINX_PORT="${HOST_NGINX_HTTPS_PORT:-443}"
   else
@@ -1605,8 +1609,8 @@ DOCKER_GET_PUBLISH="$(__trim "${DOCKER_SET_PUBLISH[*]:-}")"                     
 CONTAINER_COMMANDS="$(__trim "${CONTAINER_COMMANDS[*]:-}")" # pass command to container
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # set docker commands - script creation
-EXECUTE_PRE_INSTALL="docker stop $CONTAINER_NAME;docker rm -f $CONTAINER_NAME"
-EXECUTE_DOCKER_CMD="docker run -d $DOCKER_GET_OPTIONS $DOCKER_GET_CUSTOM $DOCKER_GET_LINK $DOCKER_GET_LABELS $DOCKER_GET_CAP $DOCKER_GET_SYSCTL $DOCKER_GET_DEV $DOCKER_GET_MNT $DOCKER_GET_ENV $DOCKER_GET_PUBLISH $HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS"
+EXECUTE_PRE_INSTALL="docker stop $CONTAINER_NAME >/dev/null 2>&1;docker rm -f $CONTAINER_NAME >/dev/null 2>&1;docker pull $HUB_IMAGE_URL:$HUB_IMAGE_TAG >/dev/null 2>&1 || { echo "Failed to pull $HUB_IMAGE_URL:$HUB_IMAGE_TAG" >&2 && exit 1; }"
+EXECUTE_DOCKER_CMD="docker run -d $DOCKER_GET_OPTIONS \;$DOCKER_GET_CUSTOM \;$DOCKER_GET_LINK \;$DOCKER_GET_LABELS \;$DOCKER_GET_CAP \;$DOCKER_GET_SYSCTL \;$DOCKER_GET_DEV \;$DOCKER_GET_MNT \;$DOCKER_GET_ENV \;$DOCKER_GET_PUBLISH \;$HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS || { echo "Failed to create $CONTAINER_NAME" >&2 && exit 1; }"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run functions
 __container_import_variables "$CONTAINER_ENV_FILE_MOUNT"
@@ -1614,7 +1618,7 @@ __dockermgr_variables >"$DOCKERMGR_CONFIG_DIR/env/$APPNAME"
 __dockermgr_password_variables >"$DOCKERMGR_CONFIG_DIR/secure/$APPNAME"
 chmod -f 600 "$DOCKERMGR_CONFIG_DIR/secure/$APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__custom_docker_env | tr ' ' '\n' | sed 's|--.*||g' | grep -v '^$' >"$DOCKERMGR_CONFIG_DIR/env/custom.$APPNAME"
+__custom_docker_env | tr ' ' '\n' | sed 's|^--.*||g' | grep -v '^$' >"$DOCKERMGR_CONFIG_DIR/env/custom.$APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main progam
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1672,21 +1676,30 @@ fi
 if [ -f "$DATADIR/.installed" ]; then
   __sudo_exec date +'Updated on %Y-%m-%d at %H:%M' | tee "$DATADIR/.installed" &>/dev/null
 else
-  __sudo_exec chown -Rf "$SUDO_USER":"$SUDO_USER" "$DOCKERMGR_CONFIG_DIR" &>/dev/null
-  __sudo_exec chown -f "$SUDO_USER":"$SUDO_USER" "$DATADIR" "$INSTDIR" "$INSTDIR" &>/dev/null
+  __sudo_exec chown -Rf "$USER":"$USER" "$DOCKERMGR_CONFIG_DIR" &>/dev/null
+  __sudo_exec chown -f "$USER":"$USER" "$DATADIR" "$INSTDIR" "$INSTDIR" &>/dev/null
   __sudo_exec date +'installed on %Y-%m-%d at %H:%M' | tee "$DATADIR/.installed" &>/dev/null
 fi
 DOCKERMGR_INSTALL_SCRIPT="$DOCKERMGR_CONFIG_DIR/scripts/$CONTAINER_NAME.sh"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # setup the container
 EXECUTE_DOCKER_CMD="$(__trim "${EXECUTE_DOCKER_CMD[*]}")"
-if cmd_exists docker-compose && [ -f "$INSTDIR/docker-compose.yml" ]; then
+DOCKER_COMPOSE_CMD="$(docker compose 2>&1 | grep -q 'is not a docker command.' && false || echo "true")"
+if [ "$DOCKER_COMPOSE_CMD" = "true" ] && [ -f "$INSTDIR/docker-compose.yml" ]; then
   printf_yellow "Installing containers using docker-compose"
   sed -i 's|REPLACE_DATADIR|'$DATADIR'' "$INSTDIR/docker-compose.yml" &>/dev/null
   if cd "$INSTDIR"; then
     EXECUTE_DOCKER_CMD=""
-    __sudo_exec docker-compose pull &>/dev/null
-    __sudo_exec docker-compose up -d &>/dev/null
+    docker compose pull &>/dev/null
+    docker compose up -d &>/dev/null
+  fi
+elif [ -n "$(type -P docker-compose)" ] && [ -f "$INSTDIR/docker-compose.yml" ]; then
+  printf_yellow "Installing containers using docker-compose"
+  sed -i 's|REPLACE_DATADIR|'$DATADIR'' "$INSTDIR/docker-compose.yml" &>/dev/null
+  if cd "$INSTDIR"; then
+    EXECUTE_DOCKER_CMD=""
+    docker-compose pull &>/dev/null
+    docker-compose up -d &>/dev/null
   fi
 elif [ -f "$DOCKERMGR_INSTALL_SCRIPT" ] && [ "$DOCKERMGR_ENABLE_INSTALL_SCRIPT" = "yes" ]; then
   EXECUTE_DOCKER_SCRIPT="$DOCKERMGR_INSTALL_SCRIPT"
@@ -1696,17 +1709,16 @@ else
 fi
 if [ -n "$EXECUTE_DOCKER_SCRIPT" ]; then
   printf_cyan "Updating the image from $HUB_IMAGE_URL with tag $HUB_IMAGE_TAG"
-  __sudo_exec "$EXECUTE_PRE_INSTALL" &>/dev/null
-  __sudo_exec docker pull "$HUB_IMAGE_URL" 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log"
+  eval "$EXECUTE_PRE_INSTALL" 2>"${TMP:-/tmp}/$APPNAME.err.log" >/dev/null
   printf_cyan "Creating container $CONTAINER_NAME"
   if [ "$EXECUTE_DOCKER_ENABLE" = "yes" ]; then
-    cat <<EOF >"$DOCKERMGR_INSTALL_SCRIPT"
+    cat <<EOF | tr ';' '\n' | grep -v '^$' | grep '^' >"$DOCKERMGR_INSTALL_SCRIPT"
 #!/usr/bin/env bash
 # Install script for $CONTAINER_NAME
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 $EXECUTE_PRE_INSTALL
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-$EXECUTE_DOCKER_CMD || { echo "Failed to execute install script" && exit 1; }
+$EXECUTE_DOCKER_CMD
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 docker ps -a 2>&1 | grep -q "$CONTAINER_NAME" || { echo "$CONTAINER_NAME ist not running" && exit 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1716,7 +1728,7 @@ exit 0
 EOF
     [ -f "$DOCKERMGR_INSTALL_SCRIPT" ] && chmod -Rf 755 "$DOCKERMGR_INSTALL_SCRIPT"
   fi
-  if __sudo_exec ${EXECUTE_DOCKER_CMD} 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log"; then
+  if ${EXECUTE_DOCKER_CMD} 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log"; then
     rm -Rf "${TMP:-/tmp}/$APPNAME.err.log"
     echo "$CONTAINER_NAME" >"$DOCKERMGR_CONFIG_DIR/containers/$APPNAME"
   else
@@ -1799,8 +1811,8 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
     printf_purple "Created docker network:           $HOST_DOCKER_NETWORK"
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
-  if [ "$SUDO_USER" != "root" ] && [ -n "$SUDO_USER" ]; then
-    __sudo_exec chown -f "$SUDO_USER":"$SUDO_USER" "$DATADIR" "$INSTDIR" &>/dev/null
+  if [ "$USER" != "root" ] && [ -n "$USER" ]; then
+    __sudo_exec chown -f "$USER":"$USER" "$DATADIR" "$INSTDIR" &>/dev/null
   fi
   if [ "$NGINX_IS_INSTALLED" = "yes" ] && [ -f "$NGINX_CONF_FILE" ]; then
     printf_cyan "nginx vhost name:                  $CONTAINER_HOSTNAME"

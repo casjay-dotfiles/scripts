@@ -593,7 +593,7 @@ __test_public_reachable() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_docker_script() {
   [ -n "$EXECUTE_DOCKER_CMD" ] || return
-  cat <<EOF | sed 's/ --/\n  --/g;s| -d| -d \\|g' | grep -v '^$' | grep '^' >"$DOCKERMGR_INSTALL_SCRIPT"
+  cat <<EOF | sed 's/ --/\n  --/g;s| -d| -d \\|g' | grep -v '^$' | sed '/  --/ s/$/ \\/' | grep '^' >"$DOCKERMGR_INSTALL_SCRIPT"
 #!/usr/bin/env bash
 # Install script for $CONTAINER_NAME
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -609,7 +609,7 @@ exit 0
 EOF
   [ -f "$DOCKERMGR_INSTALL_SCRIPT" ] || return 1
   chmod -Rf 755 "$DOCKERMGR_INSTALL_SCRIPT"
-  sed -i "s/$HUB_IMAGE_URL:$HUB_IMAGE_TAG.*/\\\\\n$HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS/g" "$DOCKERMGR_INSTALL_SCRIPT" 2>/dev/null
+  sed -i "s|$HUB_IMAGE_URL:$HUB_IMAGE_TAG|\\\\\n  $HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS|g" "$DOCKERMGR_INSTALL_SCRIPT" 2>/dev/null
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # import variables from a file

@@ -587,6 +587,26 @@ __test_public_reachable() {
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__create_docker_script() {
+  [ -n "$EXECUTE_DOCKER_CMD" ] || return
+  cat <<EOF | tr ';' '\n' | grep -vE '^$|^\$' | grep '^' >"$DOCKERMGR_INSTALL_SCRIPT"
+#!/usr/bin/env bash
+# Install script for $CONTAINER_NAME
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+$EXECUTE_PRE_INSTALL
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+$EXECUTE_DOCKER_CMD
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+docker ps -a 2>&1 | grep -q "$CONTAINER_NAME" || { echo "$CONTAINER_NAME ist not running" && exit 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+exit 0
+# end script
+
+EOF
+  [ -f "$DOCKERMGR_INSTALL_SCRIPT" ] || return 1
+  chmod -Rf 755 "$DOCKERMGR_INSTALL_SCRIPT"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # import variables from a file
 [ -f "$INSTDIR/env.sh" ] && . "$INSTDIR/env.sh"
 [ -f "$APPDIR/env.sh" ] && . "$APPDIR/env.sh"
@@ -1659,8 +1679,8 @@ DOCKER_GET_PUBLISH="$(__trim "${DOCKER_SET_PUBLISH[*]:-}")"                     
 CONTAINER_COMMANDS="$(__trim "${CONTAINER_COMMANDS[*]:-}")" # pass command to container
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # set docker commands - script creation
-EXECUTE_PRE_INSTALL="docker stop $CONTAINER_NAME >/dev/null 2>&1;docker rm -f $CONTAINER_NAME >/dev/null 2>&1;docker pull $HUB_IMAGE_URL:$HUB_IMAGE_TAG >/dev/null 2>&1 || { echo "Failed to pull $HUB_IMAGE_URL:$HUB_IMAGE_TAG" >&2 && exit 1; }"
-EXECUTE_DOCKER_CMD="docker run -d $DOCKER_GET_OPTIONS \;$DOCKER_GET_CUSTOM \;$DOCKER_GET_LINK \;$DOCKER_GET_LABELS \;$DOCKER_GET_CAP \;$DOCKER_GET_SYSCTL \;$DOCKER_GET_DEV \;$DOCKER_GET_MNT \;$DOCKER_GET_ENV \;$DOCKER_GET_PUBLISH \;$HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS || { echo "Failed to create $CONTAINER_NAME" >&2 && exit 1; }"
+EXECUTE_PRE_INSTALL="$(echo "docker stop $CONTAINER_NAME >/dev/null 2>&1;docker rm -f $CONTAINER_NAME >/dev/null 2>&1;docker pull $HUB_IMAGE_URL:$HUB_IMAGE_TAG >/dev/null 2>&1 || { echo \"Failed to pull $HUB_IMAGE_URL:$HUB_IMAGE_TAG\" >&2 && exit 1; }")"
+EXECUTE_DOCKER_CMD="$(echo "docker run -d $DOCKER_GET_OPTIONS \\;$DOCKER_GET_CUSTOM \\;$DOCKER_GET_LINK \\;$DOCKER_GET_LABELS \\;$DOCKER_GET_CAP \\;$DOCKER_GET_SYSCTL \\;$DOCKER_GET_DEV \\;$DOCKER_GET_MNT \\;$DOCKER_GET_ENV \\;$DOCKER_GET_PUBLISH \\;$HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS || { echo \"Failed to create $CONTAINER_NAME\" >&2 && exit 1; }")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run functions
 __container_import_variables "$CONTAINER_ENV_FILE_MOUNT"
@@ -1739,46 +1759,30 @@ if [ "$DOCKER_COMPOSE_CMD" = "true" ] && [ -f "$INSTDIR/docker-compose.yml" ]; t
   printf_yellow "Installing containers using docker-compose"
   sed -i 's|REPLACE_DATADIR|'$DATADIR'' "$INSTDIR/docker-compose.yml" &>/dev/null
   if cd "$INSTDIR"; then
-    EXECUTE_DOCKER_CMD=""
     docker compose pull &>/dev/null
     docker compose up -d &>/dev/null
+    EXECUTE_PRE_INSTALL="$(echo "cd \"$INSTDIR\" || {echo \"Failed to cd into $INSTDIR\" && exit 1}")"
+    EXECUTE_DOCKER_CMD="$(echo "docker compose pull && docker compose up -d || { echo \"Failed to bring up containers\" && exit 1}")"
   fi
 elif [ -n "$(type -P docker-compose)" ] && [ -f "$INSTDIR/docker-compose.yml" ]; then
   printf_yellow "Installing containers using docker-compose"
   sed -i 's|REPLACE_DATADIR|'$DATADIR'' "$INSTDIR/docker-compose.yml" &>/dev/null
   if cd "$INSTDIR"; then
-    EXECUTE_DOCKER_CMD=""
     docker-compose pull &>/dev/null
     docker-compose up -d &>/dev/null
+    EXECUTE_PRE_INSTALL="$(echo "cd \"$INSTDIR\" || {echo \"Failed to cd into $INSTDIR\" && exit 1}")"
+    EXECUTE_DOCKER_CMD="$(echo "docker-compose pull && docker-compose up -d || { echo \"Failed to bring up containers\" && exit 1}")"
   fi
 elif [ -f "$DOCKERMGR_INSTALL_SCRIPT" ] && [ "$DOCKERMGR_ENABLE_INSTALL_SCRIPT" = "yes" ]; then
   EXECUTE_DOCKER_SCRIPT="$DOCKERMGR_INSTALL_SCRIPT"
 else
-  EXECUTE_DOCKER_ENABLE="yes"
-  EXECUTE_DOCKER_SCRIPT="$EXECUTE_DOCKER_CMD"
+  EXECUTE_DOCKER_SCRIPT="${EXECUTE_DOCKER_CMD//\\;/}"
 fi
 if [ -n "$EXECUTE_DOCKER_SCRIPT" ]; then
   printf_cyan "Updating the image from $HUB_IMAGE_URL with tag $HUB_IMAGE_TAG"
   eval "$EXECUTE_PRE_INSTALL" 2>"${TMP:-/tmp}/$APPNAME.err.log" >/dev/null
   printf_cyan "Creating container $CONTAINER_NAME"
-  if [ "$EXECUTE_DOCKER_ENABLE" = "yes" ]; then
-    cat <<EOF | tr ';' '\n' | grep -v '^$' | grep '^' >"$DOCKERMGR_INSTALL_SCRIPT"
-#!/usr/bin/env bash
-# Install script for $CONTAINER_NAME
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-$EXECUTE_PRE_INSTALL
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-$EXECUTE_DOCKER_CMD
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-docker ps -a 2>&1 | grep -q "$CONTAINER_NAME" || { echo "$CONTAINER_NAME ist not running" && exit 1; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-exit 0
-# end script
-
-EOF
-    [ -f "$DOCKERMGR_INSTALL_SCRIPT" ] && chmod -Rf 755 "$DOCKERMGR_INSTALL_SCRIPT"
-  fi
-  if ${EXECUTE_DOCKER_CMD} 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log"; then
+  if ${EXECUTE_DOCKER_SCRIPT} 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log"; then
     rm -Rf "${TMP:-/tmp}/$APPNAME.err.log"
     echo "$CONTAINER_NAME" >"$DOCKERMGR_CONFIG_DIR/containers/$APPNAME"
   else

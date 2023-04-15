@@ -589,7 +589,7 @@ __test_public_reachable() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_docker_script() {
   [ -n "$EXECUTE_DOCKER_CMD" ] || return
-  cat <<EOF | sed 's|--|\n  --|g' | sed 's|$| \\|g' | grep -v '^$' | grep '^' >"$DOCKERMGR_INSTALL_SCRIPT"
+  cat <<EOF | sed 's|--|\n  --|g' | grep -v '^$' | sed '|^  --| s|$| \\|' | grep '^' >"$DOCKERMGR_INSTALL_SCRIPT"
 #!/usr/bin/env bash
 # Install script for $CONTAINER_NAME
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

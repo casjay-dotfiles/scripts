@@ -609,7 +609,7 @@ exit 0
 EOF
   [ -f "$DOCKERMGR_INSTALL_SCRIPT" ] || return 1
   chmod -Rf 755 "$DOCKERMGR_INSTALL_SCRIPT"
-  sed -i "s/$HUB_IMAGE_URL:$HUB_IMAGE_TAG.*/\\\\\n$HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS/g" "$DOCKERMGR_INSTALL_SCRIPT"
+  sed -i "s/$HUB_IMAGE_URL:$HUB_IMAGE_TAG.*/\\\\\n$HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS/g" "$DOCKERMGR_INSTALL_SCRIPT" 2>/dev/null
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # import variables from a file

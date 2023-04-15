@@ -1778,11 +1778,14 @@ elif [ -f "$DOCKERMGR_INSTALL_SCRIPT" ] && [ "$DOCKERMGR_ENABLE_INSTALL_SCRIPT" 
 else
   EXECUTE_DOCKER_SCRIPT="${EXECUTE_DOCKER_CMD//\\;/}"
 fi
+__create_docker_script
+EXECUTE_PRE_INSTALL="${EXECUTE_PRE_INSTALL// ||*/}"
+EXECUTE_DOCKER_SCRIPT="${EXECUTE_DOCKER_SCRIPT// ||*/}"
 if [ -n "$EXECUTE_DOCKER_SCRIPT" ]; then
   printf_cyan "Updating the image from $HUB_IMAGE_URL with tag $HUB_IMAGE_TAG"
   eval "$EXECUTE_PRE_INSTALL" 2>"${TMP:-/tmp}/$APPNAME.err.log" >/dev/null
   printf_cyan "Creating container $CONTAINER_NAME"
-  if ${EXECUTE_DOCKER_SCRIPT} 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log"; then
+  if eval $EXECUTE_DOCKER_SCRIPT 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log"; then
     rm -Rf "${TMP:-/tmp}/$APPNAME.err.log"
     echo "$CONTAINER_NAME" >"$DOCKERMGR_CONFIG_DIR/containers/$APPNAME"
   else

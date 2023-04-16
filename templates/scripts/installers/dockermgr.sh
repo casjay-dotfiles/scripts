@@ -98,8 +98,8 @@ __container_is_running() { docker ps 2>&1 | grep "$CONTAINER_NAME" | grep -qi 'a
 __container_name() { echo "$HUB_IMAGE_URL-${HUB_IMAGE_TAG:-latest}" | awk -F '/' '{print $(NF-1)"-"$NF}' | grep '^' || return 1; }
 __docker_init() { [ -n "$(type -p dockermgr 2>/dev/null)" ] && dockermgr init || printf_exit "Failed to Initialize the docker installer"; }
 __domain_name() { hostname -f 2>/dev/null | awk -F '.' '{print $(NF-1)"."$NF}' | grep '\.' | grep '^' || hostname -f 2>/dev/null | grep '^' || return 1; }
-__netstat() { netstat -taupln 2>/dev/null | grep -vE 'WAIT|ESTABLISHED' | awk -F ' ' '{print $4}' | sed 's|.*:||g' | grep -E '[0-9]' | sort -Vu || return 1; }
 __port_in_use() { { [ -d "/etc/nginx/vhosts.d" ] && grep -wRsq "${1:-443}" "/etc/nginx/vhosts.d" || __netstat | grep -q "${1:-443}"; } && return 1 || return 0; }
+__netstat() { netstat -taupln 2>/dev/null | grep -vE 'WAIT|ESTABLISHED' | awk -F ' ' '{print $4}' | sed 's|.*:||g' | grep -E '[0-9]' | sort -Vu | grep "^${1:-}$" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __public_ip() { curl -q -LSsf "http://ifconfig.co" | grep -v '^$' | head -n1 | grep '^'; }
 __ifconfig() { [ -n "$(type -P ifconfig)" ] && eval ifconfig "$*" 2>/dev/null || return 1; }
@@ -323,6 +323,16 @@ CONTAINER_EMAIL_ENABLED=""
 CONTAINER_EMAIL_USER=""
 CONTAINER_EMAIL_DOMAIN=""
 CONTAINER_EMAIL_RELAY=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Easy setup for services - [no/yes]
+CONTAINER_SERVICE_PUBLIC="yes"
+CONTAINER_IS_DNS_SERVER="no"
+CONTAINER_IS_SMTP_SERVER="no"
+CONTAINER_IS_POP3_SERVER="no"
+CONTAINER_IS_IMAP_SERVER="no"
+CONTAINER_IS_DHCP_SERVER="no"
+CONTAINER_IS_TIME_SERVER="no"
+CONTAINER_IS_NEWS_SERVER="no"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Database settings - [listen] [yes/no]
 CONTAINER_DATABASE_LISTEN=""
@@ -792,6 +802,56 @@ DOCKER_CAP_SYS_NICE="${ENV_DOCKER_CAP_SYS_NICE:-$DOCKER_CAP_SYS_NICE}"
 DOCKER_CAP_NET_ADMIN="${ENV_DOCKER_CAP_NET_ADMIN:-$DOCKER_CAP_NET_ADMIN}"
 DOCKER_CAP_NET_BIND_SERVICE="${ENV_DOCKER_CAP_NET_BIND_SERVICE:-$DOCKER_CAP_NET_BIND_SERVICE}"
 DOCKERMGR_ENABLE_INSTALL_SCRIPT="${SCRIPT_ENABLED:-$DOCKERMGR_ENABLE_INSTALL_SCRIPT}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup easy port settings
+[ "$CONTAINER_SERVICE_PUBLIC" ] && CONTAINER_SERVICE_PUBLIC="0.0.0.0" || CONTAINER_SERVICE_PUBLIC="127.0.0.1"
+if [ "$CONTAINER_IS_DNS_SERVER" = "yes" ]; then
+  service_port="$(__netstat "53" && __port || echo "53")"
+  CONTAINER_ADD_CUSTOM_PORT+="$CONTAINER_SERVICE_PUBLIC:$service_port:53/udp $CONTAINER_SERVICE_PUBLIC:$service_port:53/tcp "
+  unset service_port
+fi
+if [ "$CONTAINER_IS_DHCP_SERVER" = "yes" ]; then
+  service_port="$(__netstat "67" && __port || echo "67")"
+  CONTAINER_ADD_CUSTOM_PORT+="$CONTAINER_SERVICE_PUBLIC:$service_port:67/udp "
+  service_port="$(__netstat "69" && __port || echo "69")"
+  CONTAINER_ADD_CUSTOM_PORT+="$CONTAINER_SERVICE_PUBLIC:$service_port:69/udp "
+  unset service_port
+fi
+if [ "$CONTAINER_IS_SMTP_SERVER" = "yes" ]; then
+  service_port="$(__netstat "25" && __port || echo "25")"
+  CONTAINER_ADD_CUSTOM_PORT+="$CONTAINER_SERVICE_PUBLIC:$service_port:25/tcp "
+  service_port="$(__netstat "465" && __port || echo "465")"
+  CONTAINER_ADD_CUSTOM_PORT+="$CONTAINER_SERVICE_PUBLIC:$service_port:465/tcp "
+  service_port="$(__netstat "587" && __port || echo "587")"
+  CONTAINER_ADD_CUSTOM_PORT+="$CONTAINER_SERVICE_PUBLIC:$service_port:587/tcp "
+  unset service_port
+fi
+if [ "$CONTAINER_IS_POP3_SERVER" = "yes" ]; then
+  service_port="$(__netstat "110" && __port || echo "110")"
+  CONTAINER_ADD_CUSTOM_PORT+="$CONTAINER_SERVICE_PUBLIC:$service_port:110/tcp "
+  service_port="$(__netstat "995" && __port || echo "995")"
+  CONTAINER_ADD_CUSTOM_PORT+="$CONTAINER_SERVICE_PUBLIC:$service_port:995/tcp "
+  unset service_port
+fi
+if [ "$CONTAINER_IS_IMAP_SERVER" = "yes" ]; then
+  service_port="$(__netstat "143" && __port || echo "143")"
+  CONTAINER_ADD_CUSTOM_PORT+="$CONTAINER_SERVICE_PUBLIC:$service_port:143/tcp "
+  service_port="$(__netstat "993" && __port || echo "993")"
+  CONTAINER_ADD_CUSTOM_PORT+="$CONTAINER_SERVICE_PUBLIC:$service_port:993/tcp "
+  unset service_port
+fi
+if [ "$CONTAINER_IS_TIME_SERVER" = "yes" ]; then
+  service_port="$(__netstat "123" && __port || echo "123")"
+  CONTAINER_ADD_CUSTOM_PORT+="$CONTAINER_SERVICE_PUBLIC:$service_port:123/udp $CONTAINER_SERVICE_PUBLIC:$service_port:123/tcp "
+  unset service_port
+fi
+if [ "$CONTAINER_IS_TIME_SERVER" = "yes" ]; then
+  service_port="$(__netstat "119" && __port || echo "119")"
+  CONTAINER_ADD_CUSTOM_PORT+="$CONTAINER_SERVICE_PUBLIC:$service_port:119/tcp "
+  service_port="$(__netstat "433" && __port || echo "433")"
+  CONTAINER_ADD_CUSTOM_PORT+="$CONTAINER_SERVICE_PUBLIC:$service_port:433/tcp "
+  unset service_port
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # SSL Setup container mounts
 CONTAINER_SSL_DIR="${CONTAINER_SSL_DIR:-/config/ssl}"

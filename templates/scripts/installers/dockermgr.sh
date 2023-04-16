@@ -1884,7 +1884,7 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
       if ! grep -sq "$HOST_LISTEN_ADDR.* $APPNAME.home" "/etc/hosts"; then
         echo "$HOST_LISTEN_ADDR        $APPNAME.home" | sudo tee -a "/etc/hosts" &>/dev/null
       fi
-      printf_color "Adding $HOST_LISTEN_ADDR        $CONTAINER_HOSTNAME to /etc/hosts\m" "44"
+      printf_color "Adding $HOST_LISTEN_ADDR        $CONTAINER_HOSTNAME to /etc/hosts\n" "44"
       if ! grep -sq "$HOST_LISTEN_ADDR.* $CONTAINER_HOSTNAME" "/etc/hosts"; then
         echo "$HOST_LISTEN_ADDR        $CONTAINER_HOSTNAME" | sudo tee -a "/etc/hosts" &>/dev/null
       fi
@@ -1894,8 +1894,10 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
       NGINX_VHOST_NAMES="${NGINX_VHOST_NAMES//,/ }"
       for vhost in $NGINX_VHOST_NAMES; do
         if ! grep -sq "$CONTAINER_WEB_SERVER_LISTEN_ON.* $vhost" "/etc/hosts"; then
-          printf_color "Adding $CONTAINER_WEB_SERVER_LISTEN_ON        $vhost to /etc/hosts\n" "44"
-          echo "$CONTAINER_WEB_SERVER_LISTEN_ON        $vhost" | sudo tee -a "/etc/hosts" &>/dev/null
+          if echo "$vhost" | grep -qFv '*'; then
+            printf_color "Adding $CONTAINER_WEB_SERVER_LISTEN_ON        $vhost to /etc/hosts\n" "44"
+            echo "$CONTAINER_WEB_SERVER_LISTEN_ON        $vhost" | sudo tee -a "/etc/hosts" &>/dev/null
+          fi
         fi
       done
       show_hosts_messge_banner="true"

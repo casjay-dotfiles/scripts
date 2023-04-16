@@ -2055,6 +2055,7 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
   else
     for service in $SET_PORT; do
       if [ "$service" != "--publish" ] && [ "$service" != " " ] && [ -n "$service" ]; then
+        type=""
         if echo "$service" | grep -q ":.*.:"; then
           set_host="$(echo "$service" | awk -F ':' '{print $1}')"
           set_port="$(echo "$service" | awk -F ':' '{print $3}')"
@@ -2064,17 +2065,18 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
           set_port="$(echo "$service" | awk -F ':' '{print $1}')"
           set_service="$(echo "$service" | awk -F ':' '{print $2}')"
         fi
-        echo "$set_service" | grep -q '/' && set_service="${set_service//\//}" && type="${set_service//*\//}" || type=""
+        set_service="${set_service//\/*/}"
         characters=${#set_service}
         spacing=$((40 - 19 - characters))
         listen="${set_host//0.0.0.0/$HOST_LISTEN_ADDR}:$set_port"
+        echo "$set_service" | grep -qE '[0-9]/tcp|[0-9]/udp' && type="${set_service//*\//}" || unset type
         [ -n "$type" ] && get_listen="$listen/$type" || get_listen="$listen"
         set_listen=$(printf "%-${spacing}s" "" "$get_listen")
         if [ -n "$listen" ]; then
           printf_cyan "Port $set_service is mapped to:$set_listen"
         fi
       fi
-      unset characters spacing get_listen
+      unset characters spacing get_listen type
     done
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi

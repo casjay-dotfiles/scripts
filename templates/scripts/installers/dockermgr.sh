@@ -306,7 +306,7 @@ CONTAINER_WEB_SERVER_SSL_ENABLED="no"
 CONTAINER_WEB_SERVER_AUTH_ENABLED="no"
 CONTAINER_WEB_SERVER_LISTEN_ON="127.0.0.10"
 CONTAINER_WEB_SERVER_CONFIG_NAME=""
-# Specify custom nginx vhosts - autoconfigure: [.*/name.*/name.mydomain/name.myhostname] - [virtualhost,othervhostdom]
+# Specify custom nginx vhosts - autoconfigure: [*./name.all/name.mydomain/name.myhostname] - [virtualhost,othervhostdom]
 CONTAINER_WEB_SERVER_VHOSTS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Add webserver ports - random portmapping - [port,otheport] or [proxy|/location|port]
@@ -1809,8 +1809,8 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
       if [ -n "$vhost" ]; then
         if echo "$vhost" | grep -q '^[.]*'; then
           NGINX_VHOST_TMP_NAMES+=("*.$CONTAINER_HOSTNAME")
-        elif echo "$vhost" | grep -q "^[.]*$"; then
-          NGINX_VHOST_TMP_NAMES+=("$vhost.*")
+        elif echo "$vhost" | grep -q "[.]all$"; then
+          NGINX_VHOST_TMP_NAMES+=("${vhost//.all/}.*")
         elif echo "$vhost" | grep -q '[.]myhostname$'; then
           NGINX_VHOST_TMP_NAMES+=("${vhost//.mydomain/}.$CONTAINER_HOSTNAME")
         elif echo "$vhost" | grep -q '[.]mydomain$'; then

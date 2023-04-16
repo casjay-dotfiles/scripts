@@ -598,7 +598,7 @@ __test_public_reachable() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_docker_script() {
   [ -n "$EXECUTE_DOCKER_CMD" ] || return
-  cat <<EOF | sed 's/ --/\n  --/g;s| -d| -d \\|g' | grep -v '^$' | sed '/  --/ s/$/ \\/' | sed "s|$HUB_IMAGE_URL:$HUB_IMAGE_TAG.*|$HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS|g" | grep '^' >"$DOCKERMGR_INSTALL_SCRIPT"
+  cat <<EOF | sed 's/ --/\n  --/g;s| -d| -d \\|g' | grep -v '^$' | sed '/  --/ s/$/ \\/' | sed "s|$HUB_IMAGE_URL:$HUB_IMAGE_TAG.* |$HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS|g" | grep '^' >"$DOCKERMGR_INSTALL_SCRIPT"
 #!/usr/bin/env bash
 # Install script for $CONTAINER_NAME
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1695,9 +1695,10 @@ DOCKER_GET_OPTIONS="$(__trim "${DOCKER_SET_OPTIONS[*]:-}")"                     
 DOCKER_GET_CUSTOM="$(__trim "${DOCKER_CUSTOM_ARRAY[*]:-}")"                                   # --tty --rm --interactive
 DOCKER_GET_PUBLISH="$(__trim "${DOCKER_SET_PUBLISH[*]:-}")"                                   # --publish ports
 CONTAINER_COMMANDS="$(__trim "${CONTAINER_COMMANDS[*]:-}")"                                   # pass command to container
+[ -n "$CONTAINER_COMMANDS" ] || CONTAINER_COMMANDS="  "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # set docker commands - script creation - execute command #
-SET_EXECUTE_PRE_INSTALL="$(echo "docker stop $CONTAINER_NAME;docker rm -f $CONTAINER_NAME;docker pull $HUB_IMAGE_URL:$HUB_IMAGE_TAG || { echo \"Failed to pull $HUB_IMAGE_URL:$HUB_IMAGE_TAG\" >&2 && exit 1; }")"
+SET_EXECUTE_PRE_INSTALL="$(echo "docker stop $CONTAINER_NAME;docker rm -f $CONTAINER_NAME;docker pull $HUB_IMAGE_URL:$HUB_IMAGE_TAG || { echo \"Failed to pull $HUB_IMAGE_URL with tag $HUB_IMAGE_TAG\" >&2 && exit 1; }")"
 SET_EXECUTE_DOCKER_CMD="$(echo "docker run -d $DOCKER_GET_OPTIONS $DOCKER_GET_CUSTOM $DOCKER_GET_LINK $DOCKER_GET_LABELS $DOCKER_GET_CAP $DOCKER_GET_SYSCTL $DOCKER_GET_DEV $DOCKER_SET_DNS $DOCKER_GET_MNT $DOCKER_GET_ENV $DOCKER_GET_PUBLISH $HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run functions

@@ -1979,31 +1979,31 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
   if [ -n "$CONTAINER_USER_NAME" ]; then
-    MESSAGE="true"
+    show_user_footer="true"
     printf_cyan "Username is:                            $CONTAINER_USER_NAME"
   fi
   if [ -n "$CONTAINER_USER_PASS" ]; then
-    MESSAGE="true"
+    show_user_footer="true"
     printf_blue "Password is:                            $CONTAINER_USER_PASS"
   fi
   if [ "$CONTAINER_DATABASE_USER_ROOT" ]; then
-    MESSAGE="true"
+    show_user_footer="true"
     printf_blue "Database root user:                     $CONTAINER_DATABASE_USER_ROOT"
   fi
   if [ "$CONTAINER_DATABASE_PASS_ROOT" ]; then
-    MESSAGE="true"
+    show_user_footer="true"
     printf_blue "Database root password:                 $CONTAINER_DATABASE_PASS_ROOT"
   fi
   if [ "$CONTAINER_DATABASE_USER_NORMAL" ]; then
-    MESSAGE="true"
+    show_user_footer="true"
     printf_blue "Database user:                          $CONTAINER_DATABASE_USER_NORMAL"
   fi
   if [ "$CONTAINER_DATABASE_PASS_NORMAL" ]; then
-    MESSAGE="true"
+    show_user_footer="true"
     printf_blue "Database password:                     $CONTAINER_DATABASE_PASS_NORMAL"
   fi
+  [ "$show_user_footer" = "true" ] && printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   if [ "$SHOW_DATABASE_INFO" = "true" ]; then
-    MESSAGE="true"
     printf_yellow "Database is running on:                 $CONTAINER_DATABASE_PROTO"
     if [ -n "$MESSAGE_CONTAINER_DATABASE" ]; then
       printf_cyan "$MESSAGE_CONTAINER_DATABASE"

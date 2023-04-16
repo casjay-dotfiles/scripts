@@ -305,8 +305,9 @@ CONTAINER_WEB_SERVER_INT_PORT="80"
 CONTAINER_WEB_SERVER_SSL_ENABLED="no"
 CONTAINER_WEB_SERVER_AUTH_ENABLED="no"
 CONTAINER_WEB_SERVER_LISTEN_ON="127.0.0.10"
-CONTAINER_WEB_SERVER_VHOSTS=""
 CONTAINER_WEB_SERVER_CONFIG_NAME=""
+# Specify custom nginx vhosts - autoconfigure: [.*/name.*/name.mydomain/name.myhostname] - [virtualhost,othervhostdom]
+CONTAINER_WEB_SERVER_VHOSTS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Add webserver ports - random portmapping - [port,otheport] or [proxy|/location|port]
 CONTAINER_ADD_WEB_PORTS=""
@@ -1755,6 +1756,7 @@ if [ "$DOCKER_COMPOSE_CMD" = "true" ] && [ -f "$INSTDIR/docker-compose.yml" ]; t
   if cd "$INSTDIR"; then
     docker compose pull &>/dev/null
     docker compose up -d &>/dev/null
+    CONTAINER_INSTALLED="true"
     EXECUTE_PRE_INSTALL="$(echo 'cd "'$INSTDIR'" || { echo "Failed to cd into '$INSTDIR'" && exit 1}')"
     EXECUTE_DOCKER_CMD="$(echo 'docker compose pull && docker compose up -d || { echo "Failed to bring up containers" && exit 1 }')"
   fi
@@ -1764,6 +1766,7 @@ elif [ -n "$(type -P docker-compose)" ] && [ -f "$INSTDIR/docker-compose.yml" ];
   if cd "$INSTDIR"; then
     docker-compose pull &>/dev/null
     docker-compose up -d &>/dev/null
+    CONTAINER_INSTALLED="true"
     EXECUTE_PRE_INSTALL="$(echo 'cd "'$INSTDIR'" || { echo "Failed to cd into '$INSTDIR'" && exit 1 }')"
     EXECUTE_DOCKER_CMD="$(echo 'docker-compose pull && docker-compose up -d || { echo "Failed to bring up containers" && exit 1 }')"
   fi
@@ -1780,27 +1783,50 @@ if [ -n "$EXECUTE_DOCKER_SCRIPT" ]; then
   eval "$EXECUTE_PRE_INSTALL" 2>"${TMP:-/tmp}/$APPNAME.err.log" >/dev/null
   printf_cyan "Creating container $CONTAINER_NAME"
   if eval $EXECUTE_DOCKER_SCRIPT 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log"; then
-    __docker_ps_all | grep -q ' Up [0-9]' || __sudo_exec start $CONTAINER_NAME
+    sleep 10
+    __docker_ps || __sudo_exec docker start $CONTAINER_NAME
     rm -Rf "${TMP:-/tmp}/$APPNAME.err.log"
     echo "$CONTAINER_NAME" >"$DOCKERMGR_CONFIG_DIR/containers/$APPNAME"
+    __docker_ps_all -q && CONTAINER_INSTALLED="true"
   else
     ERROR_LOG="true"
   fi
 fi
-sleep 10
-__docker_ps_all -q && CONTAINER_INSTALLED="true"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Install nginx proxy
 NINGX_VHOSTS_WRITABLE="$(sudo -n true && sudo bash -c 'mkdir -p "$NGINX_DIR/vhosts.d";[ -w "$NGINX_DIR/vhosts.d" ] && echo "true" || false' || echo 'false')"
 if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
+  NGINX_VHOST_TMP_NAMES=()
   NGINX_VHOST_ENABLED="true"
-  NGINX_VHOST_NAMES="${CONTAINER_WEB_SERVER_VHOSTS//,/ }"
+  NGINX_VHOST_SET_NAMES="${CONTAINER_WEB_SERVER_VHOSTS//,/ }"
   NGINX_CONFIG_NAME="${CONTAINER_WEB_SERVER_CONFIG_NAME:-$CONTAINER_HOSTNAME}"
   NGINX_MAIN_CONFIG="$NGINX_DIR/vhosts.d/$NGINX_CONFIG_NAME.conf"
   NGINX_VHOST_CONFIG="$NGINX_DIR/vhosts.d/$NGINX_CONFIG_NAME.custom.conf"
   NGINX_INC_CONFIG="$NGINX_DIR/conf.d/vhosts/$NGINX_CONFIG_NAME.conf"
   [ -d "$NGINX_DIR/conf.d/vhosts" ] || __sudo_root mkdir -p "$NGINX_DIR/conf.d/vhosts"
   if [ "$HOST_NGINX_UPDATE_CONF" = "yes" ] && [ -f "$INSTDIR/nginx/proxy.conf" ]; then
+    for vhost in $NGINX_VHOST_SET_NAMES; do
+      if [ -n "$vhost" ]; then
+        if echo "$vhost" | grep -q '^[.]*'; then
+          NGINX_VHOST_TMP_NAMES+=("*.$CONTAINER_HOSTNAME")
+        elif echo "$vhost" | grep -q "^[.]*$"; then
+          NGINX_VHOST_TMP_NAMES+=("$vhost.*")
+        elif echo "$vhost" | grep -q '[.]myhostname$'; then
+          NGINX_VHOST_TMP_NAMES+=("${vhost//.mydomain/}.$CONTAINER_HOSTNAME")
+        elif echo "$vhost" | grep -q '[.]mydomain$'; then
+          NGINX_VHOST_TMP_NAMES+=("${vhost//.mydomain/}.${CONTAINER_DOMAINNAME:-$CONTAINER_HOSTNAME}")
+        else
+          NGINX_VHOST_TMP_NAMES+=("$vhost")
+        fi
+      fi
+    done
+    if [ -n "${NGINX_VHOST_TMP_NAMES[*]}" ]; then
+      NGINX_VHOST_NAMES="$(__trim "${NGINX_VHOST_TMP_NAMES[*]}")"
+      CONTAINER_WEB_SERVER_VHOSTS="$NGINX_VHOST_NAMES"
+      unset NGINX_VHOST_TMP_NAMES
+    else
+      NGINX_VHOST_NAMES="${NGINX_VHOST_NAMES:-}"
+    fi
     cp -f "$INSTDIR/nginx/proxy.conf" "$NGINX_VHOSTS_CONF_FILE_TMP"
     sed -i "s|REPLACE_APPNAME|$APPNAME|g" "$NGINX_VHOSTS_CONF_FILE_TMP" &>/dev/null
     sed -i "s|REPLACE_NGINX_PORT|$NGINX_PORT|g" "$NGINX_VHOSTS_CONF_FILE_TMP" &>/dev/null

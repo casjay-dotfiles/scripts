@@ -1988,13 +1988,11 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
         fi
         listen="${set_host//0.0.0.0/$HOST_LISTEN_ADDR}:$set_port"
         characters=${#set_service}
-        spacing=$((20 - characters))
+        spacing=$((31 - 12 - characters))
+        [ -n "$listen" ] && set_listen="$listen/$type" || set_listen="$listen"
+        set_listen=$(printf "%-${spacing}s" "" "$set_listen")
         if [ -n "$listen" ]; then
-          if [ -n "$type" ]; then
-            printf_cyan "Port $set_service is mapped to:            $listen/$type"
-          else
-            printf_cyan "Port $set_service is mapped to:            $listen"
-          fi
+          printf_cyan "Port $set_service is mapped to:            $set_listen"
         fi
       fi
     done

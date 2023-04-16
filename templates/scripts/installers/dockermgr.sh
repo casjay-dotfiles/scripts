@@ -1865,6 +1865,7 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
   fi
   [ -f "$NGINX_MAIN_CONFIG" ] && NGINX_PROXY_URL="$CONTAINER_PROTOCOL://$CONTAINER_HOSTNAME"
 fi
+{ [ "$NGINX_VHOST_NAMES" = "" ] || [ "$NGINX_VHOST_NAMES" = " " ]; } && unset NGINX_VHOST_NAMES
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # finalize
 if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
@@ -1872,12 +1873,24 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
   SET_PORT="$(echo "$DOCKER_PORTS" | tr ' ' '\n' | grep -vE '^$|--' | sort -V | awk -F ':' '{print $1":"$3":"$2}' | grep '^')"
   HOSTS_WRITABLE="$(sudo -n true && sudo bash -c '[ -w "/etc/hosts" ] && echo "true" || false' || echo 'false')"
   if ! grep -sq "$CONTAINER_HOSTNAME" "/etc/hosts" && [ "$HOSTS_WRITABLE" = "true" ]; then
+    printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
     if [ "$HOST_LISTEN_ADDR" = 'home' ]; then
+      printf_color "Adding $HOST_LISTEN_ADDR        $APPNAME.home to /etc/hosts" "44"
       echo "$HOST_LISTEN_ADDR        $APPNAME.home" | sudo tee -a "/etc/hosts" &>/dev/null
     else
+      printf_color "Adding $HOST_LISTEN_ADDR        $APPNAME.home to /etc/hosts" "44"
+      printf_color "Adding $HOST_LISTEN_ADDR        $CONTAINER_HOSTNAME to /etc/hosts" "44"
       echo "$HOST_LISTEN_ADDR        $APPNAME.home" | sudo tee -a "/etc/hosts" &>/dev/null
       echo "$HOST_LISTEN_ADDR        $CONTAINER_HOSTNAME" | sudo tee -a "/etc/hosts" &>/dev/null
     fi
+    if [ -n "$NGINX_VHOST_NAMES" ]; then
+      NGINX_VHOST_NAMES="${NGINX_VHOST_NAMES//,/ }"
+      for vhost in $NGINX_VHOST_NAMES; do
+        printf_color "Adding $CONTAINER_WEB_SERVER_LISTEN_ON        $vhost to /etc/hosts" "44"
+        echo "$CONTAINER_WEB_SERVER_LISTEN_ON        $vhost" | sudo tee -a "/etc/hosts" &>/dev/null
+      done
+    fi
+    printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
   printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   printf_yellow "The container name is:                  $CONTAINER_NAME"

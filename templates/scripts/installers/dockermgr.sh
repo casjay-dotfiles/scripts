@@ -1885,7 +1885,7 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
         echo "$HOST_LISTEN_ADDR        $APPNAME.home" | sudo tee -a "/etc/hosts" &>/dev/null
       fi
       printf_color "Adding $HOST_LISTEN_ADDR        $CONTAINER_HOSTNAME to /etc/hosts" "44"
-      if ! grep -sqx "$HOST_LISTEN_ADDR.* $CONTAINER_HOSTNAME" "/etc/hosts"; then
+      if ! grep -sq "$HOST_LISTEN_ADDR.* $CONTAINER_HOSTNAME" "/etc/hosts"; then
         echo "$HOST_LISTEN_ADDR        $CONTAINER_HOSTNAME" | sudo tee -a "/etc/hosts" &>/dev/null
       fi
       show_hosts_messge_banner="true"

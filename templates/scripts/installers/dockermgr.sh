@@ -91,10 +91,10 @@ __docker_check() { [ -n "$(type -p docker 2>/dev/null)" ] || return 1; }
 __password() { cat "/dev/urandom" | tr -dc '0-9a-zA-Z' | head -c${1:-16} && echo ""; }
 __docker_ps_all() { docker ps -a 2>&1 | grep ${1:-} "$CONTAINER_NAME" && return 0 || return 1; }
 __enable_ssl() { { [ "$SSL_ENABLED" = "yes" ] || [ "$SSL_ENABLED" = "true" ]; } && return 0 || return 1; }
-__container_is_running() { docker ps 2>&1 | grep "$CONTAINER_NAME" | grep -qi " running " && return 0 || return 1; }
 __ssl_certs() { [ -f "$HOST_SSL_CA" ] && [ -f "$HOST_SSL_CRT" ] && [ -f "$HOST_SSL_KEY" ] && return 0 || return 1; }
 __is_server() { echo "${SET_HOST_FULL_NAME:-$HOSTNAME}" | grep -q '^server\..*\..*[a-zA-Z0-9][a-zA-Z0-9]$' || return 1; }
 __host_name() { hostname -f 2>/dev/null | grep -F '.' | grep '^' || hostname -f 2>/dev/null | grep '^' || echo "$HOSTNAME"; }
+__container_is_running() { docker ps 2>&1 | grep "$CONTAINER_NAME" | grep -qi 'ago.* Up.* [0-9].* ' && return 0 || return 1; }
 __container_name() { echo "$HUB_IMAGE_URL-${HUB_IMAGE_TAG:-latest}" | awk -F '/' '{print $(NF-1)"-"$NF}' | grep '^' || return 1; }
 __docker_init() { [ -n "$(type -p dockermgr 2>/dev/null)" ] && dockermgr init || printf_exit "Failed to Initialize the docker installer"; }
 __domain_name() { hostname -f 2>/dev/null | awk -F '.' '{print $(NF-1)"."$NF}' | grep '\.' | grep '^' || hostname -f 2>/dev/null | grep '^' || return 1; }
@@ -1784,7 +1784,7 @@ if [ -n "$EXECUTE_DOCKER_SCRIPT" ]; then
   printf_cyan "Creating container $CONTAINER_NAME"
   if eval $EXECUTE_DOCKER_SCRIPT 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log"; then
     sleep 10
-    __container_is_running || __sudo_exec docker start $CONTAINER_NAME
+    __container_is_running || __sudo_exec docker start $CONTAINER_NAME &>/dev/null
     rm -Rf "${TMP:-/tmp}/$APPNAME.err.log"
     echo "$CONTAINER_NAME" >"$DOCKERMGR_CONFIG_DIR/containers/$APPNAME"
     __docker_ps_all -q && CONTAINER_INSTALLED="true"
@@ -1875,16 +1875,16 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
   printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   if [ "$HOSTS_WRITABLE" = "true" ]; then
     if [ "$HOST_LISTEN_ADDR" = 'home' ]; then
-      printf_color "Adding $HOST_LISTEN_ADDR        $APPNAME.home to /etc/hosts" "44"
+      printf_color "Adding $HOST_LISTEN_ADDR        $APPNAME.home to /etc/hosts\n" "44"
       if ! grep -sq "$HOST_LISTEN_ADDR.* $APPNAME.home" "/etc/hosts"; then
         echo "$HOST_LISTEN_ADDR        $APPNAME.home" | sudo tee -a "/etc/hosts" &>/dev/null
       fi
     else
-      printf_color "Adding $HOST_LISTEN_ADDR        $APPNAME.home to /etc/hosts" "44"
+      printf_color "Adding $HOST_LISTEN_ADDR        $APPNAME.home to /etc/hosts\n" "44"
       if ! grep -sq "$HOST_LISTEN_ADDR.* $APPNAME.home" "/etc/hosts"; then
         echo "$HOST_LISTEN_ADDR        $APPNAME.home" | sudo tee -a "/etc/hosts" &>/dev/null
       fi
-      printf_color "Adding $HOST_LISTEN_ADDR        $CONTAINER_HOSTNAME to /etc/hosts" "44"
+      printf_color "Adding $HOST_LISTEN_ADDR        $CONTAINER_HOSTNAME to /etc/hosts\m" "44"
       if ! grep -sq "$HOST_LISTEN_ADDR.* $CONTAINER_HOSTNAME" "/etc/hosts"; then
         echo "$HOST_LISTEN_ADDR        $CONTAINER_HOSTNAME" | sudo tee -a "/etc/hosts" &>/dev/null
       fi
@@ -1894,7 +1894,7 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
       NGINX_VHOST_NAMES="${NGINX_VHOST_NAMES//,/ }"
       for vhost in $NGINX_VHOST_NAMES; do
         if ! grep -sq "$CONTAINER_WEB_SERVER_LISTEN_ON.* $vhost" "/etc/hosts"; then
-          printf_color "Adding $CONTAINER_WEB_SERVER_LISTEN_ON        $vhost to /etc/hosts" "44"
+          printf_color "Adding $CONTAINER_WEB_SERVER_LISTEN_ON        $vhost to /etc/hosts\n" "44"
           echo "$CONTAINER_WEB_SERVER_LISTEN_ON        $vhost" | sudo tee -a "/etc/hosts" &>/dev/null
         fi
       done
@@ -1940,7 +1940,7 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
       printf_cyan "nginx vhost file installed to:          $NGINX_INC_CONFIG"
     fi
     if [ -f "$NGINX_VHOST_CONFIG" ]; then
-      printf_cyan "nginx custom file installed to:         $NGINX_VHOST_CONFIG"
+      printf_cyan "nginx custom vhost file installed to:   $NGINX_VHOST_CONFIG"
     fi
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi

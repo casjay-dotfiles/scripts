@@ -2007,7 +2007,7 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
   characters=${#APPNAME}
   spacing=$((characters))
   install_dir=$(printf "%-${spacing}s" "" "$APPDIR")
-  printf_cyan "$APPNAME has been installed to:  $install_dir"
+  printf_cyan "$APPNAME has been installed to:   $install_dir"
   printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n\n'
   __show_post_message
 else

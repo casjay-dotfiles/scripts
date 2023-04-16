@@ -894,14 +894,12 @@ fi
 if [ -n "$CONTAINER_RAM_SIZE" ]; then
   CONTAINER_RAM_SIZE=$((1024 * 1024 * $CONTAINER_RAM_SIZE))
   DOCKER_SET_OPTIONS+=("--memory $CONTAINER_RAM_SIZE")
-  unset CONTAINER_RAM_SIZE
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set swap size
 if [ -n "$CONTAINER_SWAP_SIZE" ]; then
   CONTAINER_SWAP_SIZE=$((1024 * 1024 * $CONTAINER_SWAP_SIZE))
   DOCKER_SET_OPTIONS+=("--memory-swap $CONTAINER_SWAP_SIZE")
-  unset CONTAINER_SWAP_SIZE
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set CPU count
@@ -910,7 +908,6 @@ if [ -z "$CONTAINER_CPU_COUNT" ] && [ -f "/proc/cpuinfo" ]; then
 fi
 if [ -n "$CONTAINER_CPU_COUNT" ]; then
   DOCKER_SET_OPTIONS+=("--cpus $CONTAINER_CPU_COUNT")
-  unset CONTAINER_CPU_COUNT
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the containers SHM size
@@ -918,7 +915,6 @@ if [ -z "$CONTAINER_SHM_SIZE" ]; then
   DOCKER_SET_OPTIONS+=("--shm-size=128M")
 else
   DOCKER_SET_OPTIONS+=("--shm-size=$CONTAINER_SHM_SIZE")
-  unset CONTAINER_SHM_SIZE
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Auto restart the container
@@ -926,25 +922,21 @@ if [ -z "$CONTAINER_AUTO_RESTART" ]; then
   DOCKER_SET_OPTIONS+=("--restart unless-stopped")
 else
   DOCKER_SET_OPTIONS+=("--restart=$CONTAINER_AUTO_RESTART")
-  unset CONTAINER_AUTO_RESTART
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Only run the container to execute command and then delete
 if [ "$CONTAINER_AUTO_DELETE" = "yes" ]; then
   DOCKER_SET_OPTIONS+=("--rm")
-  unset CONTAINER_AUTO_DELETE
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Enable the tty
 if [ "$CONTAINER_TTY_ENABLED" = "yes" ]; then
   DOCKER_SET_OPTIONS+=("--tty")
-  unset CONTAINER_TTY_ENABLED
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run in interactive mode
 if [ "$CONTAINER_INTERACTIVE_ENABLED" = "yes" ]; then
   DOCKER_SET_OPTIONS+=("--interactive")
-  unset CONTAINER_INTERACTIVE_ENABLED
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mount cgroups in the container
@@ -1165,8 +1157,6 @@ if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ]; then
     CONTAINER_WEB_SERVER_LISTEN_ON="$HOST_LISTEN_ADDR"
   fi
   NGINX_PROXY_ADDRESS="${CONTAINER_WEB_SERVER_LISTEN_ON:-$HOST_LISTEN_ADDR}"
-else
-  unset CONTAINER_WEB_SERVER_INT_PORT
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #
@@ -1737,7 +1727,6 @@ if [ -n "$CONTAINER_CREATE_DIRECTORY" ]; then
     fi
   done
 fi
-unset CONTAINER_CREATE_DIRECTORY
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Copy over data files - keep the same stucture as -v DATADIR/mnt:/mnt
 if [ -d "$INSTDIR/rootfs" ] && [ ! -f "$DATADIR/.installed" ]; then

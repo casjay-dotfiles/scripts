@@ -1877,16 +1877,16 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
   printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   if [ "$HOSTS_WRITABLE" = "true" ]; then
     if [ "$HOST_LISTEN_ADDR" = 'home' ]; then
-      __printf_color "44" "Adding $HOST_LISTEN_ADDR        $APPNAME.home to /etc/hosts"
+      __printf_color "44" "Adding to /etc/hosts:                   $APPNAME.home $HOST_LISTEN_ADDR"
       if ! grep -sq "$HOST_LISTEN_ADDR.* $APPNAME.home" "/etc/hosts"; then
         echo "$HOST_LISTEN_ADDR        $APPNAME.home" | sudo tee -a "/etc/hosts" &>/dev/null
       fi
     else
-      __printf_color "44" "Adding $HOST_LISTEN_ADDR        $APPNAME.home to /etc/hosts"
+      __printf_color "44" "Adding to /etc/hosts:                   $APPNAME.home $HOST_LISTEN_ADDR"
       if ! grep -sq "$HOST_LISTEN_ADDR.* $APPNAME.home" "/etc/hosts"; then
         echo "$HOST_LISTEN_ADDR        $APPNAME.home" | sudo tee -a "/etc/hosts" &>/dev/null
       fi
-      __printf_color "44" "Adding $HOST_LISTEN_ADDR        $CONTAINER_HOSTNAME to /etc/hosts"
+      __printf_color "44" "Adding to /etc/hosts:                    $CONTAINER_HOSTNAME $HOST_LISTEN_ADDR"
       if ! grep -sq "$HOST_LISTEN_ADDR.* $CONTAINER_HOSTNAME" "/etc/hosts"; then
         echo "$HOST_LISTEN_ADDR        $CONTAINER_HOSTNAME" | sudo tee -a "/etc/hosts" &>/dev/null
       fi
@@ -1897,7 +1897,7 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
       for vhost in $NGINX_VHOST_NAMES; do
         if ! grep -sq "$CONTAINER_WEB_SERVER_LISTEN_ON.* $vhost" "/etc/hosts"; then
           if echo "$vhost" | grep -qFv '*'; then
-            __printf_color "44" "Adding $CONTAINER_WEB_SERVER_LISTEN_ON        $vhost to /etc/hosts"
+            __printf_color "44" "Adding to /etc/hosts:                   $vhost $CONTAINER_WEB_SERVER_LISTEN_ON"
             echo "$CONTAINER_WEB_SERVER_LISTEN_ON        $vhost" | sudo tee -a "/etc/hosts" &>/dev/null
           fi
         fi
@@ -1951,6 +1951,12 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
   if [ -n "$SET_PORT" ] && [ -n "$NGINX_PROXY_URL" ]; then
     MESSAGE="true"
     printf_blue "Server address:                         $NGINX_PROXY_URL"
+    if [ -n "$NGINX_VHOST_NAMES" ]; then
+      NGINX_VHOST_NAMES="${NGINX_VHOST_NAMES//,/ }"
+      for vhost in $NGINX_VHOST_NAMES; do
+        printf_blue "vhost name:                             $vhost"
+      done
+    fi
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
   if [ -n "$CONTAINER_USER_NAME" ]; then

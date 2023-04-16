@@ -19,10 +19,11 @@
 # @@Template         :  completions/user
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _GEN_SCRIPT_REPLACE_FILENAME_completion() {
-  _init_completion || return
   #####################################################################
   local cur prev words cword opts split CONFDIR="" CONFFILE="" SEARCHDIR=""
   local SHOW_COMP_OPTS="" SHORTOPTS="" LONGOPTS="" ARRAY="" LIST="" SHOW_COMP_OPTS_SEP=""
+  #####################################################################
+  _init_completion || return
   #####################################################################
   ___ls() { ls -A "$1" 2>/dev/null | grep -v '^$' | grep '^' || false; }
   ___grep() { GREP_COLORS="" grep -sE '^.*=*..*$' "$1" 2>/dev/null | sed 's|"||g' 2>/dev/null | grep '^' || false; }

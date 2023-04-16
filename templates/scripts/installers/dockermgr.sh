@@ -89,9 +89,9 @@ __remove_extra_spaces() { sed 's/\( \)*/\1/g;s|^ ||g'; }
 __port() { echo "$((50000 + $RANDOM % 1000))" | grep '^' || return 1; }
 __docker_check() { [ -n "$(type -p docker 2>/dev/null)" ] || return 1; }
 __password() { cat "/dev/urandom" | tr -dc '0-9a-zA-Z' | head -c${1:-16} && echo ""; }
-__docker_ps() { docker ps | grep ${1:-} "$CONTAINER_NAME" && return 0 || return 1; }
 __docker_ps_all() { docker ps -a 2>&1 | grep ${1:-} "$CONTAINER_NAME" && return 0 || return 1; }
 __enable_ssl() { { [ "$SSL_ENABLED" = "yes" ] || [ "$SSL_ENABLED" = "true" ]; } && return 0 || return 1; }
+__container_is_running() { docker ps 2>&1 | grep "$CONTAINER_NAME" | grep -qi " running " && return 0 || return 1; }
 __ssl_certs() { [ -f "$HOST_SSL_CA" ] && [ -f "$HOST_SSL_CRT" ] && [ -f "$HOST_SSL_KEY" ] && return 0 || return 1; }
 __is_server() { echo "${SET_HOST_FULL_NAME:-$HOSTNAME}" | grep -q '^server\..*\..*[a-zA-Z0-9][a-zA-Z0-9]$' || return 1; }
 __host_name() { hostname -f 2>/dev/null | grep -F '.' | grep '^' || hostname -f 2>/dev/null | grep '^' || echo "$HOSTNAME"; }
@@ -1784,7 +1784,7 @@ if [ -n "$EXECUTE_DOCKER_SCRIPT" ]; then
   printf_cyan "Creating container $CONTAINER_NAME"
   if eval $EXECUTE_DOCKER_SCRIPT 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log"; then
     sleep 10
-    __docker_ps || __sudo_exec docker start $CONTAINER_NAME
+    __container_is_running || __sudo_exec docker start $CONTAINER_NAME
     rm -Rf "${TMP:-/tmp}/$APPNAME.err.log"
     echo "$CONTAINER_NAME" >"$DOCKERMGR_CONFIG_DIR/containers/$APPNAME"
     __docker_ps_all -q && CONTAINER_INSTALLED="true"
@@ -1872,27 +1872,37 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
   DOCKER_PORTS="$(__trim "${DOCKER_GET_PUBLISH//--publish/}")"
   SET_PORT="$(echo "$DOCKER_PORTS" | tr ' ' '\n' | grep -vE '^$|--' | sort -V | awk -F ':' '{print $1":"$3":"$2}' | grep '^')"
   HOSTS_WRITABLE="$(sudo -n true && sudo bash -c '[ -w "/etc/hosts" ] && echo "true" || false' || echo 'false')"
-  if ! grep -sq "$CONTAINER_HOSTNAME" "/etc/hosts" && [ "$HOSTS_WRITABLE" = "true" ]; then
-    printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
+  printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
+  if [ "$HOSTS_WRITABLE" = "true" ]; then
     if [ "$HOST_LISTEN_ADDR" = 'home' ]; then
       printf_color "Adding $HOST_LISTEN_ADDR        $APPNAME.home to /etc/hosts" "44"
-      echo "$HOST_LISTEN_ADDR        $APPNAME.home" | sudo tee -a "/etc/hosts" &>/dev/null
+      if ! grep -sq "$HOST_LISTEN_ADDR.* $APPNAME.home" "/etc/hosts"; then
+        echo "$HOST_LISTEN_ADDR        $APPNAME.home" | sudo tee -a "/etc/hosts" &>/dev/null
+      fi
     else
       printf_color "Adding $HOST_LISTEN_ADDR        $APPNAME.home to /etc/hosts" "44"
+      if ! grep -sq "$HOST_LISTEN_ADDR.* $APPNAME.home" "/etc/hosts"; then
+        echo "$HOST_LISTEN_ADDR        $APPNAME.home" | sudo tee -a "/etc/hosts" &>/dev/null
+      fi
       printf_color "Adding $HOST_LISTEN_ADDR        $CONTAINER_HOSTNAME to /etc/hosts" "44"
-      echo "$HOST_LISTEN_ADDR        $APPNAME.home" | sudo tee -a "/etc/hosts" &>/dev/null
-      echo "$HOST_LISTEN_ADDR        $CONTAINER_HOSTNAME" | sudo tee -a "/etc/hosts" &>/dev/null
+      if ! grep -sqx "$HOST_LISTEN_ADDR.* $CONTAINER_HOSTNAME" "/etc/hosts"; then
+        echo "$HOST_LISTEN_ADDR        $CONTAINER_HOSTNAME" | sudo tee -a "/etc/hosts" &>/dev/null
+      fi
+      show_hosts_messge_banner="true"
     fi
     if [ -n "$NGINX_VHOST_NAMES" ]; then
       NGINX_VHOST_NAMES="${NGINX_VHOST_NAMES//,/ }"
       for vhost in $NGINX_VHOST_NAMES; do
-        printf_color "Adding $CONTAINER_WEB_SERVER_LISTEN_ON        $vhost to /etc/hosts" "44"
-        echo "$CONTAINER_WEB_SERVER_LISTEN_ON        $vhost" | sudo tee -a "/etc/hosts" &>/dev/null
+        if ! grep -sq "$CONTAINER_WEB_SERVER_LISTEN_ON.* $vhost" "/etc/hosts"; then
+          printf_color "Adding $CONTAINER_WEB_SERVER_LISTEN_ON        $vhost to /etc/hosts" "44"
+          echo "$CONTAINER_WEB_SERVER_LISTEN_ON        $vhost" | sudo tee -a "/etc/hosts" &>/dev/null
+        fi
       done
+      show_hosts_messge_banner="true"
     fi
-    printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
+    [ "$show_hosts_messge_banner" = "true" ] && printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
+    unset show_hosts_messge_banner
   fi
-  printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   printf_yellow "The container name is:                  $CONTAINER_NAME"
   printf_yellow "The container is listening on:          $HOST_LISTEN_ADDR"
   printf_yellow "The hostname name is set to:            $CONTAINER_HOSTNAME"

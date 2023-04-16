@@ -1986,15 +1986,17 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
           set_port="$(echo "$service" | awk -F ':' '{print $1}')"
           set_service="$(echo "$service" | awk -F ':' '{print $2}')"
         fi
-        listen="${set_host//0.0.0.0/$HOST_LISTEN_ADDR}:$set_port"
+        echo "$set_service" | grep -q '/' && set_service="${set_service//\//}" && type="${set_service//*\//}" || type=""
         characters=${#set_service}
-        spacing=$((40 - 19 - ${#listen} - characters))
-        [ -n "$listen" ] && get_listen="$listen/$type" || get_listen="$listen"
-        set_listen=$(printf "%-${spacing}s" " " "$get_listen")
+        spacing=$((40 - 19 - characters))
+        listen="${set_host//0.0.0.0/$HOST_LISTEN_ADDR}:$set_port"
+        [ -n "$type" ] && get_listen="$listen/$type" || get_listen="$listen"
+        set_listen=$(printf "%-${spacing}s" "" "$get_listen")
         if [ -n "$listen" ]; then
           printf_cyan "Port $set_service is mapped to:$set_listen"
         fi
       fi
+      unset characters spacing get_listen
     done
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
@@ -2016,9 +2018,9 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps; then
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
   characters=${#APPNAME}
-  spacing=$((40 - characters))
+  spacing=$((40 - 33 - characters))
   install_dir=$(printf "%-${spacing}s" "" "$APPDIR")
-  printf_cyan "$APPNAME has been installed to:         $install_dir"
+  printf_cyan "$APPNAME has been installed to:  $install_dir"
   printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n\n'
   __show_post_message
 else

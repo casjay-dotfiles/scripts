@@ -270,9 +270,7 @@ __gen_config_local() { [ -f "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LI
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __grep() { grep "$@" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__grep_exclude() {
-  __grep -vE '*.txt$|*.pem$|*.sbom$|*.sig$|*.gpg$|*.md5$|*.sha512$|*.sha256$|*.txt"$|*.pem"$|*.sbom"$|*.sig"$|*.gpg"$|*.md5"$|*.sha512"$|*.sha256"$'
-}
+__grep_exclude() { sed 's|"||g' | __grep -vE '*.txt$|*.pem$|*.sbom$|*.sig$|*.gpg$|*.md5$|*.sha512$|*.sha256$'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 search_gh_api() {
   local -a results=()
@@ -361,19 +359,40 @@ __gitlab() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __add_to_latest() {
-  if ! __grep -qs "$1" "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST"; then
-    printf_purple "Added ${2:-$1} to $LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST"
-    printf '%s\n' "${2:-$1}" | tee -a "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST" &>/dev/null
-  fi
+  local repo binname description
+  local repo_list="$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST"
+  for repo in "$@"; do
+    if [ -n "$repo" ] && [ "$repo" != " " ]; then
+      if echo "$repo" | grep -q ':'; then
+        getrepo="$(echo "$repo" | awk -F':' '{print $1}')"
+        binname="$(echo "$repo" | awk -F':' '{print $2}')"
+        description="$(echo "$repo" | awk -F':' '{print $3}')"
+      else
+        getrepo="$repo"
+        binname="$(basename "$repo")"
+        description="$repo"
+      fi
+      description="${description//|/ }"
+      if __grep -qs "^$getrepo " "$repo_list"; then
+        printf_yellow "$getrepo is already in $repo_list"
+      else
+        printf_purple "Added $getrepo to $repo_list"
+        printf '%-40s%-30s#%s\n' "$getrepo" "$binname" " $description" | tee -a "$repo_list" &>/dev/null
+      fi
+    fi
+  done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __remove_from_latest() {
-  if __grep -qs "$1" "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST"; then
-    if __grep -v "$1" "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST" | tee "$LATEST_RELEASES_TEMP_FILE" &>/dev/null; then
-      __mv_f "$LATEST_RELEASES_TEMP_FILE" "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST"
-      printf_purple "Removed ${2:-$1} from $LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST"
+  local repo_list="$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST"
+  for repo in "$@"; do
+    if __grep -qs "^$repo" "$repo_list"; then
+      if __grep -v "^$repo" "$repo_list" | tee "$LATEST_RELEASES_TEMP_FILE" &>/dev/null; then
+        __mv_f "$LATEST_RELEASES_TEMP_FILE" "$repo_list"
+        printf_purple "Removed $repo from $repo_list"
+      fi
     fi
-  fi
+  done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gen_repolist() {
@@ -381,7 +400,7 @@ __gen_repolist() {
     __cp_rf "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST" "$LATEST_RELEASES_CONFIG_BACKUP_DIR/$LATEST_RELEASE_REPO_LIST.$$"
   else
     cat <<EOF | tee "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST" &>/dev/null
-# Format user/repo symlinkName # description
+# Format: org/repo  symlinkName  # description
 mvdan/sh                         shfmt                 # shfmt
 gokcehan/lf                      lf                    # filemanager
 go-gitea/gitea                   gitea                 # git Server
@@ -389,6 +408,7 @@ koalaman/shellcheck              shellcheck            # shellcheck
 caddyserver/caddy                caddy                 # caady webserver
 codeskyblue/gohttpserver         gohttpserver          # http server written in go
 jesseduffield/lazydocker         lazydocker            # docker script
+
 EOF
   fi
   if [ -f "$LATEST_RELEASES_CONFIG_BACKUP_DIR/$LATEST_RELEASE_REPO_LIST.$$" ]; then
@@ -422,8 +442,13 @@ __install_latest() {
   [ -n "$1" ] || return
   echo "$1" | __grep -qv '^#' || return
   echo "$1" | __grep -qv '^$' || [ -n "$LATEST_RELEASE_FULL_URL" ] || return
+  local search=""
+  local exitCode=0
+  local find_file=""
+  local bin_filename=""
+  local extractExitCode=0
   set_arch="$(uname -m)"
-  [ "$1" = search ] && search="true" && shift 1
+  [ "$1" = "search" ] && search="true" && shift 1
   if echo "$1" | __grep -q './.' || [ $# == 1 ]; then
     repo="$1"
     shift 1
@@ -470,12 +495,14 @@ __install_latest() {
   fi
   latest_download_url="https://github.com/$repo"
   basename="$(basename "$latest_download")"
+  base_repo="$(basename "$(dirname "$repo")")"
   basenamerepo="$(basename "$repo")"
   filename="$download_dir/$basename"
   extract_name="$(basename "$repo")"
-  extract_dir="$LATEST_RELEASE_INSTALL_DIR/$extract_name"
+  extract_dir="$LATEST_RELEASE_INSTALL_DIR/$repo"
   if [ "$search" = "true" ]; then
-    echo "$latest_json" | __grep -iE 'browser_download_url' | awk '{print $2}' | sed 's|"||g' | printf_readline '6'
+    echo "$latest_json" | __grep -iE 'browser_download_url' | awk '{print $2}' | sed 's|"||g' | grep '^' | printf_readline '6'
+    exit $?
   elif [ -n "$latest_download" ]; then
     printf_green "Attempting to download $latest_download "
     if __wget_latest "$latest_download" "$tempfile"; then
@@ -491,67 +518,80 @@ __install_latest() {
     *.tar.bz2)
       printf_blue "Extracting to $extract_dir"
       mkdir -p "$extract_dir"
-      tar xjf "$filename" -C "$extract_dir" &>/dev/null || printf_exit "Failed to extract $filename"
+      tar xjf "$filename" -C "$extract_dir" &>/dev/null || extractExitCode=1
       ;;
     *.bz2)
       printf_blue "Extracting to $extract_dir"
       mkdir -p "$extract_dir"
-      tar xjf "$filename" -C "$extract_dir" &>/dev/null || printf_exit "Failed to extract $filename"
+      tar xjf "$filename" -C "$extract_dir" &>/dev/null || extractExitCode=1
       ;;
     *.tar.gz)
       printf_blue "Extracting to $extract_dir"
       mkdir -p "$extract_dir"
-      tar xf "$filename" -C "$extract_dir" &>/dev/null || printf_exit "Failed to extract $filename"
+      tar xf "$filename" -C "$extract_dir" &>/dev/null || extractExitCode=1
       ;;
     *.tgz)
       printf_blue "Extracting to $extract_dir"
       mkdir -p "$extract_dir"
-      tar xf "$filename" -C "$extract_dir" &>/dev/null || printf_exit "Failed to extract $filename"
+      tar xf "$filename" -C "$extract_dir" &>/dev/null || extractExitCode=1
       ;;
     *.gz)
       printf_blue "Extracting to $extract_dir"
       mkdir -p "$extract_dir"
-      tar xf "$filename" -C "$extract_dir" &>/dev/null || printf_exit "Failed to extract $filename"
+      tar xf "$filename" -C "$extract_dir" &>/dev/null || extractExitCode=1
       ;;
     *.xz)
       printf_blue "Extracting to $extract_dir"
       mkdir -p "$extract_dir"
-      tar xf "$filename" -C "$extract_dir" &>/dev/null || printf_exit "Failed to extract $filename"
+      tar xf "$filename" -C "$extract_dir" &>/dev/null || extractExitCode=1
       ;;
     *.zip)
       printf_blue "Extracting to $extract_dir"
       mkdir -p "$extract_dir"
-      unzip "$filename" -d "$extract_dir" &>/dev/null || printf_exit "Failed to extract $filename"
+      unzip "$filename" -d "$extract_dir" &>/dev/null || extractExitCode=1
       ;;
     *.7z)
       printf_blue "Extracting to $extract_dir"
-      mkdir -p "$extract_dir"
-      7za x -y "$filename" -o"$extract_dir" my_dir && mv -f my_dir/* "$extract_dir" && rmdir my_dir &>/dev/null || printf_exit "Failed to extract $filename"
+      [ -d "$extract_dir" ] && rm -Rf "${extract_dir:?}"/* || mkdir -p "$extract_dir"
+      7za x -y "$filename" -o"$extract_dir" my_dir && mv -f my_dir/* "$extract_dir/" &>/dev/null || extractExitCode=1
+      [ -d "my_dir" ] && rm -Rf my_dir
       ;;
     *) ;;
     esac
-    find_file="$(find "$extract_dir" -maxdepth 3 -type f -name "$extract_name" 2>/dev/null | __grep "$extract_name$" | head -n1 | __grep '^')"
-    [ -z "$LATEST_RELEASES_BIN_NAME" ] && bin_filename="$extract_name" || bin_filename="$LATEST_RELEASES_BIN_NAME"
-    if [ "$(find "$extract_dir" -maxdepth 1 2>/dev/null | wc -l)" -gt 4 ]; then
-      ln -sf "$extract_dir/$extract_name" "$HOME/.local/bin/$bin_filename" &&
-        printf_cyan "Installed $extract_dir/$extract_name to $HOME/.local/bin/$bin_filename" ||
+    [ $extractExitCode -eq 0 ] || printf_exit "Failed to extract $filename"
+    if [ -d "$extract_dir" ]; then
+      find_file="$(find "$extract_dir" -maxdepth 3 -type f -executable -iname "$extract_name" 2>/dev/null | __grep -i "$extract_name$" | head -n1 | __grep '^')"
+      [ -x "$find_file" ] && basename "$find_file" | grep -qi "^agent$" && bin_filename="${base_repo,,}-${extract_name,,}"
+    fi
+    [ -z "$LATEST_RELEASES_BIN_NAME" ] && bin_filename="${bin_filename:-$extract_name}" || bin_filename="$LATEST_RELEASES_BIN_NAME"
+    if [ "$(find "$extract_dir" -maxdepth 1 2>/dev/null | wc -l)" -gt 4 ] && [ -x "$extract_dir/${bin_filename:-$extract_name}" ]; then
+      extract_name="$extract_dir/$bin_filename"
+      ln -sf "$extract_name" "$HOME/.local/bin/$bin_filename" &&
+        printf_cyan "Installed $extract_name to $HOME/.local/bin/$bin_filename" ||
         printf_red "Failed to install $extract_name to $HOME/.local/bin/$bin_filename"
-    elif [ -f "$extract_dir/$extract_name" ] && [ $(file --mime-type -b "$extract_dir/$extract_name") == "application/x-executable" ]; then
-      __cp_rf "$extract_dir/$extract_name" "$HOME/.local/bin/$bin_filename" &&
-        printf_cyan "Installed $extract_dir/$extract_name to $HOME/.local/bin/$bin_filename" ||
+    elif [ "$(find "$extract_dir" -maxdepth 1 2>/dev/null | wc -l)" -lt 4 ] && [ -x "$extract_dir/$bin_filename" ]; then
+      extract_name="$extract_dir/$bin_filename"
+      __cp_rf "$extract_name" "$HOME/.local/bin/$bin_filename" &&
+        printf_cyan "Installed $extract_name to $HOME/.local/bin/$bin_filename" ||
         printf_red "Failed to install $extract_name to $HOME/.local/bin/$bin_filename"
       __rm_rf "$extract_dir"
-    elif [ -f "$filename" ] && [ $(file --mime-type -b "$filename") == "application/x-executable" ]; then
-      __cp_rf "$filename" "$HOME/.local/bin/$bin_filename" &&
+    elif [ -x "$filename" ]; then
+      extract_name="$filename"
+      __cp_rf "$extract_name" "$HOME/.local/bin/$bin_filename" &&
         printf_cyan "Installed $filename to $HOME/.local/bin/$bin_filename" ||
         printf_red "Failed to install $filename to $HOME/.local/bin/$bin_filename"
-    elif [ -n "$find_file" ] && [ -f "$find_file" ] && [ $(file --mime-type -b "$find_file") == "application/x-executable" ]; then
-      __cp_rf "$find_file" "$HOME/.local/bin/$bin_filename" &&
+    elif [ -n "$find_file" ] && [ -x "$find_file" ]; then
+      extract_name="$find_file"
+      __cp_rf "$extract_name" "$HOME/.local/bin/$bin_filename" &&
         printf_cyan "Installed $find_file to $HOME/.local/bin/$bin_filename" ||
         printf_red "Failed to install $find_file to $HOME/.local/bin/$bin_filename"
       __rm_rf "$extract_dir"
     fi
-    [ -f "$HOME/.local/bin/$extract_name" ] && chmod -Rf 755 "$HOME/.local/bin/$extract_name"
+    if [ -f "$HOME/.local/bin/$bin_filename" ]; then
+      chmod -Rf 755 "$HOME/.local/bin/$bin_filename"
+    else
+      printf_exit "Failed to install to $HOME/.local/bin/$bin_filename"
+    fi
   else
     manual_dl="$(echo "$latest_json" | jq -r '.html_url')"
     printf_custom $LATEST_RELEASES_OUTPUT_COLOR_ERROR "No releases found from $repo matching $arch"
@@ -559,10 +599,10 @@ __install_latest() {
     exitCode=1
   fi
   if __can_i_sudo; then
-    if [ -f "$HOME/.local/bin/$extract_name" ]; then
+    if [ -x "$HOME/.local/bin/$bin_filename" ] && [ ! -L "$HOME/.local/bin/$bin_filename" ]; then
       __sudoask true
-      printf_green "Copying $bin_filename to /usr/local/bin"
-      sudo cp -Rf "$HOME/.local/bin/$extract_name" "/usr/local/bin/$bin_filename"
+      printf_green "Copying $bin_filename to /usr/local/bin/$bin_filename"
+      sudo cp -Rf "$HOME/.local/bin/$bin_filename" "/usr/local/bin/$bin_filename"
       sudo chmod -Rf 755 "/usr/local/bin/$bin_filename"
     fi
   fi
@@ -922,28 +962,28 @@ token)
   ;;
 add)
   shift 1
-  for l in "$@"; do
-    __add_to_latest "$l"
-  done
+  [ "$1" = "help" ] && { printf_cyan "Usage: $APPNAME add org/repo:binname:description" && exit; }
+  __add_to_latest "$@"
   exit
   ;;
 
 remove)
   shift 1
-  for l in "$@"; do
-    __remove_from_latest "$l"
-  done
+  [ "$1" = "help" ] && { printf_cyan "Usage: $APPNAME remove org/repo" && exit; }
+  __remove_from_latest "$@"
   exit
   ;;
 
 install)
   shift 1
+  [ "$1" = "help" ] && { printf_cyan "Usage: $APPNAME install org/repo" && exit; }
   __update_install "$@"
   exit $?
   ;;
 
 update)
   shift 1
+  [ "$1" = "help" ] && { printf_cyan "Usage: $APPNAME update org/repo" && exit; }
   __update_install "$@"
   exit $?
   ;;
@@ -960,10 +1000,10 @@ info)
 
 list)
   shift 1
-  show="$(grep -sv '^#' "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST" | grep -v '^$' | awk '{print $1}')"
-  if [ -n "$show" ]; then
-    printf_purple "The following packages are available for installation:"
-    printf '%s\n' "$show" | printf_column "$LATEST_RELEASES_OUTPUT_COLOR_1"
+  show=("$(grep -sv '^# ' "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST" | grep -v '^$')")
+  if [ -n "${show[*]}" ]; then
+    printf '%-33s%-22s%s\n' "Repository Name" "Installed Name" "Description" | printf_readline 4
+    printf '%s\n' "${show[@]}" | printf_column "$LATEST_RELEASES_OUTPUT_COLOR_1"
   else
     printf_return "There are no packages available"
   fi

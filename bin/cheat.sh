@@ -403,7 +403,7 @@ SHORTOPTS=""
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LONGOPTS="completions:,config,debug,help,options,raw,version,silent,"
-LONGOPTS+="shell:,standalone-install:,mode,update"
+LONGOPTS+=",shell:,standalone-install:,mode,update"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY=""
 ARRAY+=""

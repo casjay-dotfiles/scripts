@@ -442,8 +442,8 @@ SETARGS=("$@")
 SHORTOPTS="d:,i:,n:"
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent,"
-LONGOPTS+="anon,anonymous,user"
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
+LONGOPTS+=",anon,anonymous,user"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="latest user id raw post"
 ARRAY+=""

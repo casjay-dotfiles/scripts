@@ -273,11 +273,15 @@ __gen_config_local() { [ -f "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LI
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __grep() { grep "$@" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__clean_old_bin() { { [ -n "$1" ] && [ -e "$HOME/.local/bin/$1" ]; } && rm -Rf "$HOME/.local/bin/$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __grep_include() { sed 's|"||g' | __grep -Ei 'linux|mac|win|i386|arm|amd|x86|aarch|tar|gz|xz|zip|bz2|exe'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __grep_exclude() { sed 's|"||g' | __grep -viE '*.txt$|*.pem$|*.sbom$|*.sig$|*.gpg$|*.md5$|*.sha512$|*.sha256$'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __update_latest_list() { __add_to_latest "$1" "${2:-$1}" "${3:-$1}" &>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__check_if_repo() { echo "$1" | __grep -q '.*[a-zA-Z0-9]/[a-zA-Z0-9].*' || { printf_custom "${YELLOW}$1${NC} ${RED}is an invalid repo: format is user/repo${NC}" && return 1; }; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_arch() {
   [ "$1" = " " ] && shift 1
@@ -347,6 +351,8 @@ __gitea() {
   tempfile="$LATEST_RELEASES_TEMP_FILE"
   download_dir="$LATEST_RELEASE_DOWNLOADS"
   gitea_domain="${gitea_domain:-$LATEST_RELEASE_GITEA_DOMAIN}"
+  repo_description=""
+  __check_if_repo "$repo" || return
   [ -n "$gitea_domain" ] || printf_exit "ERROR: The variable LATEST_RELEASE_GITEA_DOMAIN is not set"
   url="$(curl -q -LSs -X 'GET' "$gitea_domain/api/v1/repos/$repo/releases" -H 'accept: application/json' 2>/dev/null | jq -rc '.[].assets | .[] | {name: .name, link: .browser_download_url}' | jq -c '.' | jq -r '.' | __grep ''$set_arch'"' | __grep -i "$set_os" | head -n1 | __grep 'link' | awk -F '":' '{print $2}' | sed 's|"||g;s| ||g')"
   printf_green "Attempting to download $filename from $url"
@@ -359,7 +365,7 @@ __gitea() {
     if [ -d "$HOME/.local/bin" ]; then
       cp -Rf "$download_dir/$filename" "$HOME/.local/bin/$filename"
     fi
-    [ -f "$download_dir/$filename" ] && __update_latest_list "gitea;$gitea_domain|$repo $filename"
+    [ -f "$download_dir/$filename" ] && __update_latest_list "gitea;$gitea_domain|$repo:$filename:$repo_description"
   else
     printf_exit "Failed to download the file"
   fi
@@ -395,6 +401,8 @@ __gitlab() {
   tempfile="$LATEST_RELEASES_TEMP_FILE"
   download_dir="$LATEST_RELEASE_DOWNLOADS"
   gitlab_domain="${gitlab_domain:-$LATEST_RELEASE_GITLAB_DOMAIN}"
+  repo_description
+  __check_if_repo "$repo" || return
   [ -n "$gitlab_domain" ] || printf_exit "ERROR: The variable LATEST_RELEASE_GITLAB_DOMAIN is not set"
   url="$(curl -q -LSs -X 'GET' "$gitlab_domain/api/v1/repos/$repo/releases" -H 'accept: application/json' 2>/dev/null | jq -rc '.[].assets | .[] | {name: .name, link: .browser_download_url}' | __grep ''$set_arch'"' | __grep -i "$set_os" | jq -c | head -n1 | jq -r | __grep link | awk -F '":' '{print $2}' | sed 's|"||g;s| ||g')"
   if [ -z "$url" ]; then
@@ -410,7 +418,7 @@ __gitlab() {
     if [ -d "$HOME/.local/bin" ]; then
       cp -Rf "$download_dir/$filename" "$HOME/.local/bin/$filename"
       chmod -Rf 755 "$HOME/.local/bin/$filename"
-      [ -f "$download_dir/$filename" ] && __update_latest_list "gitlab;$repo"
+      [ -f "$download_dir/$filename" ] && __update_latest_list "gitlab;$repo:$filename:$repo_description"
     fi
   else
     printf_exit "Failed to download the file"
@@ -509,8 +517,8 @@ __install_latest() {
   local search=""
   local exitCode=0
   local find_file=""
-  local bin_filename=""
   local extractExitCode=0
+  local repo_list="$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST"
   [ "$1" = "search" ] && search="true" && shift 1
   if echo "$1" | __grep -q '.*[a-zA-Z0-9]/[a-zA-Z0-9].*'; then
     repo="$1"
@@ -526,6 +534,7 @@ __install_latest() {
   tempfile="$LATEST_RELEASES_TEMP_FILE"
   download_dir="$LATEST_RELEASE_DOWNLOADS"
   api_url="https://api.github.com/repos/$repo/releases/latest"
+  __check_if_repo "$repo" || return
   __get_arch &>/dev/null
   if [ -n "$LATEST_RELEASE_GITHUB_TOKEN" ]; then
     printf_blue "Github API Auth token is set"
@@ -557,6 +566,9 @@ __install_latest() {
   filename="$download_dir/$basename"
   extract_name="$(basename "$repo")"
   extract_dir="$LATEST_RELEASE_INSTALL_DIR/$repo"
+  repo_description="$(curl -q -LSsf "https://api.github.com/repos/$repo" | jq -rc '.description' | grep '^' || echo "$basenamerepo")"
+  repo_description="${repo_description:0:40}"
+  [ -d "$HOME/.local/bin" ] || mkdir -p "$HOME/.local/bin"
   if [ "$search" = "true" ]; then
     echo "$latest_json" | __grep -iE 'browser_download_url' | awk '{print $2}' | sed 's|"||g' | grep '^' | printf_readline '6'
     exit $?
@@ -574,41 +586,49 @@ __install_latest() {
     case "$filename" in
     *.tar.bz2)
       printf_blue "Extracting to $extract_dir"
+      file_is_archive="true"
       mkdir -p "$extract_dir"
       tar xjf "$filename" -C "$extract_dir" &>/dev/null || extractExitCode=1
       ;;
     *.bz2)
       printf_blue "Extracting to $extract_dir"
+      file_is_archive="true"
       mkdir -p "$extract_dir"
       tar xjf "$filename" -C "$extract_dir" &>/dev/null || extractExitCode=1
       ;;
     *.tar.gz)
       printf_blue "Extracting to $extract_dir"
+      file_is_archive="true"
       mkdir -p "$extract_dir"
       tar xf "$filename" -C "$extract_dir" &>/dev/null || extractExitCode=1
       ;;
     *.tgz)
       printf_blue "Extracting to $extract_dir"
+      file_is_archive="true"
       mkdir -p "$extract_dir"
       tar xf "$filename" -C "$extract_dir" &>/dev/null || extractExitCode=1
       ;;
     *.gz)
       printf_blue "Extracting to $extract_dir"
+      file_is_archive="true"
       mkdir -p "$extract_dir"
       tar xf "$filename" -C "$extract_dir" &>/dev/null || extractExitCode=1
       ;;
     *.xz)
       printf_blue "Extracting to $extract_dir"
+      file_is_archive="true"
       mkdir -p "$extract_dir"
       tar xf "$filename" -C "$extract_dir" &>/dev/null || extractExitCode=1
       ;;
     *.zip)
       printf_blue "Extracting to $extract_dir"
+      file_is_archive="true"
       mkdir -p "$extract_dir"
       unzip "$filename" -d "$extract_dir" &>/dev/null || extractExitCode=1
       ;;
     *.7z)
       printf_blue "Extracting to $extract_dir"
+      file_is_archive="true"
       [ -d "$extract_dir" ] && rm -Rf "${extract_dir:?}"/* || mkdir -p "$extract_dir"
       7za x -y "$filename" -o"$extract_dir" my_dir && mv -f my_dir/* "$extract_dir/" &>/dev/null || extractExitCode=1
       [ -d "my_dir" ] && rm -Rf my_dir
@@ -620,41 +640,55 @@ __install_latest() {
       find_file="$(find "$extract_dir" -maxdepth 3 -type f -executable -iname "$extract_name" 2>/dev/null | __grep -i "$extract_name$" | head -n1 | __grep '^')"
       [ -n "$find_file" ] || find_file="$(find "$extract_dir" -maxdepth 3 -type f -iname "$extract_name" 2>/dev/null | __grep -i "$extract_name$" | head -n1 | __grep '^')"
       [ -x "$find_file" ] && basename "$find_file" | grep -qi "^agent$" && bin_filename="${base_repo,,}-${extract_name,,}"
-      for rm_file in "$extract_dir"/*.{md,txt} "$extract_dir/README" "$extract_dir/LICENSE"; do
+      for rm_file in "$extract_dir"/*.{md,txt} "$extract_dir/README" "$extract_dir/LICENSE" "$extract_dir"/.git*; do
         [ -f "$rm_file" ] && rm -rf $rm_file
       done
     fi
-    [ -z "$LATEST_RELEASES_BIN_NAME" ] && bin_filename="${bin_filename:-$extract_name}" || bin_filename="$LATEST_RELEASES_BIN_NAME"
-    if [ "$(find "$extract_dir" -maxdepth 1 2>/dev/null | wc -l)" -gt 4 ] && [ -x "$extract_dir/$extract_name" ]; then
-      extract_name="$extract_dir/$extract_name"
-      ln -sf "$extract_name" "$HOME/.local/bin/$bin_filename" &&
-        printf_cyan "Installed $extract_name to $HOME/.local/bin/$bin_filename" ||
-        printf_red "Failed to install $extract_name to $HOME/.local/bin/$bin_filename"
-    elif [ "$(find "$extract_dir" -maxdepth 1 2>/dev/null | wc -l)" -lt 4 ] && [ -x "$extract_dir/$bin_filename" ]; then
-      extract_name="$extract_dir/$bin_filename"
-      __cp_rf "$extract_name" "$HOME/.local/bin/$bin_filename" &&
-        printf_cyan "Installed $extract_name to $HOME/.local/bin/$bin_filename" ||
-        printf_red "Failed to install $extract_name to $HOME/.local/bin/$bin_filename"
-      __rm_rf "$extract_dir"
+    if [ -f "$repo_list" ]; then
+      grep -sq "^.*;$repo" "$repo_list" && bin_filename="$(grep -s "^.*;$repo" "$repo_list" | grep -v '^#' | sed 's|.*;||g;s|:*||g' | awk -F ' ' '{print $2}' | head -n1 | grep '^' || echo '')"
+    fi
+    [ -n "$LATEST_RELEASES_FILENAME" ] && extract_name="$LATEST_RELEASES_FILENAME"
+    [ -n "$LATEST_RELEASES_BIN_NAME" ] && bin_filename="$LATEST_RELEASES_BIN_NAME" || bin_filename="${bin_filename:-}"
+    local_archive_count="$(find "$extract_dir" -maxdepth 1 -type f 2>/dev/null | wc -l)"
+    if [ "$file_is_archive" = "true" ] && [ -z "$find_file" ]; then
+      search_name="${extract_name//-*/}"
+      find_file="$(find "$extract_dir" -maxdepth 3 -type f -executable -iname "$search_name" 2>/dev/null | __grep -iE "^$search_name|$search_name$" | head -n1 | __grep '^')"
+      if [ -z "$find_file" ]; then
+        search_name="${extract_name//*-/}"
+        find_file="$(find "$extract_dir" -maxdepth 3 -type f -executable -iname "$search_name" 2>/dev/null | __grep -iE "^$search_name|$search_name$" | head -n1 | __grep '^')"
+      fi
+      extract_name="${find_file:-$extract_name}"
+      bin_filename="$(basename "${bin_filename:-$extract_name}")"
+      if [ -n "$find_file" ]; then
+        if [ "$local_archive_count" = 1 ]; then
+          __clean_old_bin "$bin_filename"
+          __cp_rf "$extract_name" "$HOME/.local/bin/$bin_filename" && __rm_rf "$extract_dir"
+        else
+          ln -sf "$extract_name" "$HOME/.local/bin/$bin_filename"
+        fi &&
+          printf_cyan "Installed $extract_name to $HOME/.local/bin/$bin_filename"
+      else
+        printf_exit "Can not find anything matching $extract_name in $extract_dir"
+      fi
     elif [ -n "$find_file" ] && [ -x "$find_file" ]; then
       extract_name="$find_file"
-      __cp_rf "$extract_name" "$HOME/.local/bin/$bin_filename" &&
-        printf_cyan "Installed $extract_name to $HOME/.local/bin/$bin_filename" ||
-        printf_red "Failed to install $extract_name to $HOME/.local/bin/$bin_filename"
-      __rm_rf "$extract_dir"
+      bin_filename="$(basename "${bin_filename:-$extract_name}")"
+      __clean_old_bin "$bin_filename"
+      __cp_rf "$extract_name" "$HOME/.local/bin/$bin_filename" && printf_cyan "Installed $extract_name to $HOME/.local/bin/$bin_filename" && __rm_rf "$extract_dir"
     elif [ -f "$filename" ]; then
       extract_name="$filename"
-      __cp_rf "$extract_name" "$HOME/.local/bin/$bin_filename" &&
-        printf_cyan "Installed $extract_name to $HOME/.local/bin/$bin_filename" ||
-        printf_red "Failed to install $extract_name to $HOME/.local/bin/$bin_filename"
+      bin_filename="$(basename "${bin_filename:-$extract_name}")"
+      __clean_old_bin "$bin_filename"
+      __cp_rf "$extract_name" "$HOME/.local/bin/$bin_filename" && printf_cyan "Installed $extract_name to $HOME/.local/bin/$bin_filename"
     else
       printf_yellow "Can not find $filename"
       printf_exit "Download seems to have failed"
     fi
+    bin_filename="$(basename "${bin_filename:-$extract_name}")"
     if [ -f "$HOME/.local/bin/$bin_filename" ]; then
       chmod -Rf 755 "$HOME/.local/bin/$bin_filename"
     else
-      printf_exit "Failed to install to $HOME/.local/bin/$bin_filename"
+      printf_exit "Failed to install $extract_name to $HOME/.local/bin/$bin_filename"
     fi
   else
     manual_dl="$(echo "$latest_json" | jq -r '.html_url')"
@@ -672,7 +706,7 @@ __install_latest() {
       fi
     fi
   fi
-  [ -n "$latest_download" ] && __update_latest_list "github;$repo"
+  [ -n "$latest_download" ] && __update_latest_list "github;$repo:$bin_filename:$repo_description"
   [ -s "$tempfile" ] && __mv_f "$tempfile" "$filename"
   echo
   return $exitCode
@@ -921,7 +955,7 @@ SHORTOPTS="f:,t:,b:"
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent,force"
-LONGOPTS+="filename:,type:,bin:,gitlab:,gitea:"
+LONGOPTS+="filename:,binname:,type:,gitlab:,gitea:"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="add remove install update gitea gitlab info list search"
 ARRAY+=""
@@ -1009,7 +1043,7 @@ while :; do
     LATEST_RELEASES_ARCH="$2"
     shift 2
     ;;
-  -b | --bin)
+  -b | --binname)
     LATEST_RELEASES_BIN_NAME="$2"
     shift 2
     ;;
@@ -1177,11 +1211,7 @@ search)
 *)
   if [ $# -ne 0 ]; then
     for app in "$@"; do
-      if echo "$app" | __grep -q '/'; then
-        __install_latest "$app" && true || false
-      else
-        printf_custom "${YELLOW}$app${NC} ${RED}is an invalid repo: format is user/repo${NC}"
-      fi
+      __install_latest "$app" && true || false
     done
   else
     __show_latest

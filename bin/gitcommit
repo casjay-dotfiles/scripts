@@ -315,6 +315,8 @@ __emj_check() { sed 's/\xf0\x9f/\r&/g; s/\s*\r.//g'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_push() {
   [ -f "$GITCOMMIT_CWD/.no_push" ] && printf_yellow "㊗️ Push is disabled for $GITCOMMIT_CWD ㊗️ " && exit 0
+  export PUSH_ENABLE="${PUSH_ENABLE:-true}"
+  __changelog_create
   __git_push "$@" && export PUSH_ENABLE="" && export GITCOMMIT_PUSH="TRUE"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -352,14 +354,17 @@ __tar_release() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # TODO: Turn this into a seperate script
 __changelog_create() {
-  __cmd_exists gen-changelog || return 0
+  export PUSH_ENABLE="true"
   local get_changed_files="$1"
+  __cmd_exists gen-changelog || return 0
   set_commit_mess="${GITCOMMIT_MESSAGE_SHORT:-$GITCOMMIT_MESSAGE_FULL}"
   git_commit_mess="${set_commit_mess:-$changelog_message}"
   changed_files="${set_changed_files:-changed_files}"
   changed_files="${changed_files:-$(__changed_files "$get_changed_files")}"
   changed_icon="${icon:-$GITCOMMIT_CHANGELOG_ICON}"
-  gen-changelog --silent --message "$git_commit_mess" --files "$changed_files" --icon "$changed_icon"
+  gen-changelog --silent --message "$git_commit_mess" --files "$changed_files" --icon "$changed_icon" && GITCOMMIT_AMEND="true"
+  gen-changelog --silent --amend
+
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -442,7 +447,7 @@ __gitcommit() {
   fi
   add_changelog_to_commit="$(__changed_files changelog | grep '^' || echo '')"
   if [ -n "$add_changelog_to_commit" ]; then
-    git -C "$GITCOMMIT_CWD" add "CHANGELOG.md" &>/dev/null && git -C "$GITCOMMIT_CWD" commit --amend --no-edit &>/dev/null
+    __changelog_create "$add_changelog_to_commit"
   fi
   [ -f "$GITADMIN_DEFAULT_COMMIT_FILE" ] && rm -Rf "$GITADMIN_DEFAULT_COMMIT_FILE"
   export GITCOMMIT_RAN="true" GITADMIN_NO_ERROR_MESSAGE="true"
@@ -462,7 +467,6 @@ __git_init() {
   message="%{setmess:-$(printf '%b\n' "$initm")}"
   setmess="$(printf '%b\n' "$action $message $icon")"
   fullcommit_message="%{fullcommit_message:-$(printf '%b\n' "$setmess\n\n$message\n")}"
-  export PUSH_ENABLE
   __gitmessage "$setmess"
   __gitignore_init "$GITCOMMIT_CWD" &>/dev/null
   gitadmin --dir "$GITCOMMIT_CWD" setup "${REPO:-}" --message="$setmess" && exitCode=0 || exitCode=1
@@ -551,6 +555,7 @@ __git_updated() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_all() {
   local message="$*"
+  local exitCode=0
   local icon="${set_icon:-🗃}"
   local action="${set_action:-🗃}"
   local prepend="${prepend_name:-}"
@@ -568,15 +573,15 @@ __git_all() {
   setmess="$(printf '%b\n' "$action $prepend $icon")"
   fullcommit_message="${fullcommit_message:-$set_changed_files}"
   __gitmessage "$setmess"
-  __changelog_create
   git -C "$GITCOMMIT_CWD" add . &>/dev/null
-  __gitcommit "$setmess" && export PUSH_ENABLE=true || exitCode+="1"
+  __gitcommit "$setmess" || exitCode+=$((exitCode + 1))
   unset changed_files prepend
   return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_mod() {
   local message="$*"
+  local exitCode=0
   local icon="${set_icon:-🗃}"
   local action="${set_action:-🗃}"
   local prepend="${prepend_name:-Modified}"
@@ -595,9 +600,8 @@ __git_mod() {
     fullcommit_message="$(printf '%b\n' "$action $prepend $f $icon" | sed "s|$f.*.$f|$f|g")"
     append_changelog_message="$setmess"
     __gitmessage "$setmess"
-    __changelog_create
     git -C "$GITCOMMIT_CWD" add "$f" &>/dev/null
-    __gitcommit "$setmess" && export PUSH_ENABLE="true" || exitCode+="1"
+    __gitcommit "$setmess" || exitCode+=$((exitCode + 1))
   done
   unset changed_files prepend
   return ${exitCode:-0}
@@ -621,9 +625,8 @@ __git_add() {
     setmess="$(printf '%b\n' "$action $local_set_mess $icon")"
     fullcommit_message="$(printf '%b\n' "$action $prepend $f $icon" | sed "s|$f.*.$f|$f|g")"
     __gitmessage "$setmess"
-    __changelog_create
     git -C "$GITCOMMIT_CWD" add "$f" &>/dev/null
-    __gitcommit "$setmess" || exitCode+="1"
+    __gitcommit "$setmess" || exitCode+=$((exitCode + 1))
   done
   unset changed_files prepend
   return ${exitCode:-0}
@@ -647,9 +650,8 @@ __git_del() {
     setmess="$(printf '%b\n' "$action $local_set_mess $icon")"
     fullcommit_message="$(printf '%b\n' "$action $prepend $f $icon" | sed "s|$f.*.$f|$f|g")"
     __gitmessage "$setmess"
-    __changelog_create
-    git -C "$GITCOMMIT_CWD" add "$f" &>/dev/null
-    __gitcommit "$setmess" || exitCode+="1"
+    git -C "$GITCOMMIT_CWD" add "$f" &>/dev/null &
+    __gitcommit "$setmess" || exitCode+=$((exitCode + 1))
   done
   unset changed_files prepend
   return ${exitCode:-0}
@@ -659,6 +661,7 @@ __git_renamed() {
   local file_from="$1" && shift 1
   local file_move="$1" && shift 1
   local message="$*"
+  local exitCode=0
   local icon="${set_icon:-✔️}"
   local action="${set_action:-✔️}"
   local prepend="${prepend_name:-Renamed}:"
@@ -671,9 +674,9 @@ __git_renamed() {
   setmess="$(printf '%b\n' "$action $local_set_mess $icon")"
   fullcommit_message="$(printf '%b\n' "$action $prepend $file_from ➡ $file_move $icon" | sed "s|$f.*.$f|$f|g")"
   __gitmessage "$setmess"
-  __changelog_create
   git -C "$GITCOMMIT_CWD" rm "$file_from" -rf &>/dev/null
-  git -C "$GITCOMMIT_CWD" add "$file_move" &>/dev/null && __gitcommit "$setmess" && export PUSH_ENABLE=true
+  git -C "$GITCOMMIT_CWD" add "$file_move" &>/dev/null
+  __gitcommit "$setmess" || exitCode+=$((exitCode + 1))
   unset prepend
   return ${exitCode:-0}
 }
@@ -691,7 +694,7 @@ __files() {
   __gitmessage "$setmess"
   [ -n "$added_files" ] && git -C "$GITCOMMIT_CWD" add $added_files &>/dev/null || added_files=""
   [ -n "$deleted_files" ] && git -C "$GITCOMMIT_CWD" rm $deleted_files &>/dev/null || deleted_files=""
-  { [ -n "$added_files" ] || [ -n "$deleted_files" ]; } && __gitcommit "$setmess" && export PUSH_ENABLE="true"
+  { [ -n "$added_files" ] || [ -n "$deleted_files" ]; } && __gitcommit "$setmess"
   unset prepend
   return $?
 }
@@ -887,13 +890,12 @@ __commit_custom() {
   setmess="$(printf '%b\n' "$action $local_set_mess $icon")"
   fullcommit_message="${fullcommit_message:-$set_changed_files}"
   __gitmessage "$setmess"
-  __changelog_create
   printf_cyan "👊 Committing Changes with the following message: 👊"
   printf_yellow "$GITCOMMIT_MESSAGE_SHORT"
   __commit_custom_cmd "$@"
   exitCode=$?
   if [ "$exitCode" = 0 ]; then
-    export PUSH_ENABLE=true
+    __changelog_create
     if [ -f "$GITCOMMIT_CWD/$GITCOMMIT_CHANGELOG_FILE_NAME" ]; then
       GITCOMMIT_AMEND="true" __gitcommit_cmd
     fi
@@ -938,7 +940,7 @@ __set_version() {
     git_dir="$GITCOMMIT_CWD"
     git_succes="Successfully committed the new version to"
     git_failed="Failed to commit the version change in"
-    __commit_custom_cmd "update_version" "$GITCOMMIT_CWD/$GITCOMMIT_VERSION_FILE" && GITCOMMIT_EXITCODE=0 && export PUSH_ENABLE="true" || GITCOMMIT_EXITCODE=1
+    __commit_custom_cmd "update_version" "$GITCOMMIT_CWD/$GITCOMMIT_VERSION_FILE" && GITCOMMIT_EXITCODE=0 || GITCOMMIT_EXITCODE=1
     __getexitcode $GITCOMMIT_EXITCODE "🔗 $git_succes $(__git_repobase "$git_dir")🔗 " "🚫 $git_failed ${git_dir//$PWD/.} 🚫"
   fi
   export NO_MESSAGE="true"
@@ -1270,7 +1272,6 @@ if [ "$GITCOMMIT_RUN_AMEND" = "true" ]; then
   changelog_message="$GITCOMMIT_AMEND_MESS"
   append_changelog_message="$GITCOMMIT_AMEND_MESS"
   [ -f "$GITCOMMIT_CWD/.git/prev_commit_files.txt" ] && changed_files="$(<"$GITCOMMIT_CWD/.git/prev_commit_files.txt")"
-  __changelog_create
   git commit --amend -m "➕ $GITCOMMIT_AMEND_MESS ➕ "
   git push --force &>/dev/null
   exit $?
@@ -1382,7 +1383,6 @@ version) #
   changelog_message="$git_message"
   append_changelog_message="$new_version"
   fullcommit_message="$changed_files"
-  __changelog_create
   __write_version
   __set_version --force
   __run_push "$GITCOMMIT_CWD" --automated
@@ -1539,7 +1539,6 @@ new) #
   changed_files="$(__changed_files added)"
   git_message="${*:-$GITCOMMIT_MESSAGE_SHORT}"
   append_changelog_message="$git_message"
-  __changelog_create
   __git_add "$git_message" && __push "$GITADMIN_CWD"
   exit $?
   ;;
@@ -1582,7 +1581,6 @@ release) #
   changed_files="$(__changed_files deleted added modified)"
   git_message="${*:-$GITCOMMIT_MESSAGE_SHORT}"
   append_changelog_message="$git_message"
-  __changelog_create
   __set_version
   __default_git_action "$git_message" && __push "$GITADMIN_CWD"
   exit $?
@@ -1600,7 +1598,6 @@ deploy) #
   append_changelog_message="$git_message"
   fullcommit_message="$changed_files"
   __write_version
-  __changelog_create
   __default_git_action "$git_message" && __push "$GITADMIN_CWD"
   exit $?
   ;;
@@ -1910,7 +1907,6 @@ custom) #
     [ "${#setmessage}" -gt "4" ] || printf_exit "Message must be longer than 4 characters"
   fi
   changed_files="$(__changed_files all)"
-  __changelog_create
   __default_git_action "$setmessage"
   ;;
 esac

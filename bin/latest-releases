@@ -273,7 +273,9 @@ __gen_config_local() { [ -f "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LI
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __grep() { grep "$@" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__grep_exclude() { sed 's|"||g' | __grep -vE '*.txt$|*.pem$|*.sbom$|*.sig$|*.gpg$|*.md5$|*.sha512$|*.sha256$'; }
+__grep_include() { sed 's|"||g' | __grep -Ei 'linux|mac|win|i386|arm|amd|x86|aarch|tar|gz|xz|zip|bz2|exe'; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__grep_exclude() { sed 's|"||g' | __grep -viE '*.txt$|*.pem$|*.sbom$|*.sig$|*.gpg$|*.md5$|*.sha512$|*.sha256$'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __update_latest_list() { __add_to_latest "$1" "${2:-$1}" "${3:-$1}" &>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -534,8 +536,8 @@ __install_latest() {
   if [ -n "$LATEST_RELEASE_FULL_URL" ]; then
     latest_download="$LATEST_RELEASE_FULL_URL"
   elif [ -n "$LATEST_RELEASES_FILENAME" ]; then
-    latest_json="$(__curl_json_all "$repo")"
-    latest_download="$(echo "$latest_json" | __grep -i "$LATEST_RELEASES_FILENAME" | head -n1 | __grep '^')"
+    latest_json="$(__curl_json_all "$repo" | grep -v 'Error: ')"
+    latest_download="$(echo "$latest_json" | __grep -i "$LATEST_RELEASES_FILENAME" | __grep_exclude | head -n1 | __grep '^')"
   else
     latest_json="$(__curl_json)"
     latest_download="$(__browser_download_url "$latest_json" "$set_arch" || return 1)"
@@ -548,7 +550,7 @@ __install_latest() {
     latest_download="$(__browser_download_url "$latest_json" "$retry2_arch" || return 1)"
     get_arch="$retry2_arch"
   fi
-  latest_download_url="https://github.com/$repo"
+  latest_download_url="https://github.com/$repo/releases/latest"
   basename="$(basename "$latest_download")"
   base_repo="$(basename "$(dirname "$repo")")"
   basenamerepo="$(basename "$repo")"
@@ -686,18 +688,18 @@ __browser_download_url() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __wget_latest() {
+  local filename="${1:-$filename}"
+  local tempfile="${2:-$tempfile}"
   [ -d "$download_dir" ] || __mkd "$download_dir"
+  [ "$LATEST_RELEASE_FORCE_INSTALL" != "true" ] || rm -rf "$filename"
   if [ -s "$filename" ]; then
-    printf_yellow "Already downloaded $filename"
     printf_yellow "Reinstalling from $filename"
     __mv_f "$filename" "$tempfile"
-    return 0
-  elif [ -z "$LATEST_RELEASE_GITHUB_TOKEN" ]; then
-    wget -q "${1:-$latest_download}" -O "${2:-$tempfile}" 2>/dev/null
   else
-    wget -q --header="Authorization: token ${LATEST_RELEASE_GITHUB_TOKEN}" "${1:-$latest_download}" -O "${2:-$tempfile}" 2>/dev/null
+    [ -f "$filename" ] && rm -f "$filename"
+    __wget "${1:-$latest_download}" "${2:-$tempfile}"
+    [ -s "${2:-$tempfile}" ] && return 0 || return 1
   fi
-  [ -s "${2:-$tempfile}" ] && return 0 || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __curl_date() {
@@ -726,17 +728,19 @@ __curl_json() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __curl_json_all() {
   local results=""
+  local exitcode=0
   echo "$1" | __grep -qs './.' || printf_exit "Usage: $APPNAME username/reponame"
-  results="$(__curl_json "https://api.github.com/repos/${1:-$repo}/releases" 2>/dev/null)"
+  results="$(__curl_json "https://api.github.com/repos/${1:-$repo}/releases" 2>"$LATEST_RELEASES_LOG_DIR/error.log")"
   if [ -n "$results" ]; then
     links="$(printf '%s\n' "$results" | jq -r '.[]' | jq -r '.assets | .[].browser_download_url' | sort -rV | __grep '^' || echo '')"
     if [ -n "$links" ]; then
       printf '%s\n' "$links"
     else
-      printf '%s\n' "Error: "
-      return 1
+      printf '%s\n' "Error: $(<"$$LATEST_RELEASES_LOG_DIR/error.log")"
+      exitCode=1
     fi
   fi
+  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __show_latest() {
@@ -818,6 +822,20 @@ __search_help() {
   printf_red "Usage: $APPNAME username/reponame [filter] [grepOpts] - $APPNAME search api <query>"
   printf_exit "$APPNAME search PowerShell/PowerShell 'arm' '-E linux|amd' '-v alpine'"
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if __cmd_exists curl; then
+  if [ -z "$LATEST_RELEASE_GITHUB_TOKEN" ]; then
+    __wget() { curl -q -LSsf "$1" -o "$2" 2>/dev/null || return 1; }
+  else
+    __wget() { curl -q -LSsf -H "Authorization: token ${LATEST_RELEASE_GITHUB_TOKEN}" "$1" -o "$2" 2>/dev/null || return 1; }
+  fi
+elif __cmd_exists wget; then
+  if [ -z "$LATEST_RELEASE_GITHUB_TOKEN" ]; then
+    __wget() { wget -q "$1" -O "$2" 2>/dev/null || return 1; }
+  else
+    __wget() { wget -q --header="Authorization: token ${LATEST_RELEASE_GITHUB_TOKEN}" "$1" -O "$2" 2>/dev/null; }
+  fi
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
 
@@ -902,7 +920,7 @@ SETARGS=("$@")
 SHORTOPTS="f:,t:,b:"
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent,"
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent,force"
 LONGOPTS+="filename:,type:,bin:,gitlab:,gitea:"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="add remove install update gitea gitlab info list search"
@@ -978,6 +996,10 @@ while :; do
     LATEST_RELEASES_CWD="$2"
     [ -d "$LATEST_RELEASES_CWD" ] || mkdir -p "$LATEST_RELEASES_CWD" |& __devnull
     shift 2
+    ;;
+  --force)
+    shift 1
+    LATEST_RELEASE_FORCE_INSTALL="true"
     ;;
   -f | --filename)
     LATEST_RELEASES_FILENAME="$2"

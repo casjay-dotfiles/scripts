@@ -263,30 +263,49 @@ __cd() {
   ${SHELL:-bash}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__run_myssh() {
+  trap 'touch $kill_file;sleep 1;clear;printf_cyan "To relaunch run: $APPNAME loop $message"' SIGINT
+  local run_cmd="myssh"
+  local pid_number="$$"
+  local message="$RUN_OPTIONS_EXEC_MESSAGE"
+  local pid_file="$(__pid_tmp "${pid_number}_XXXX")"
+  local kill_file="$RUN_OPTIONS_TEMP_DIR/${pid_file}"
+  while :; do
+    sleep 1
+    if [ -f "$kill_file" ]; then
+      rm -rf "$kill_file"
+      break
+    else
+      clear && printf_cyan "Starting $message on a loop - ^c to exit $(date)"
+      $run_cmd --kill "$kill_file"
+    fi
+  done
+  exit $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_loop() {
-  trap -- 'touch $kill_file;sleep 1;clear;printf_cyan "To relaunch run: $APPNAME loop $message"' SIGINT
+  trap 'touch $kill_file;sleep 1;clear;printf_cyan "To relaunch run: $APPNAME loop $message"' SIGINT
   local run_cmd="$*"
   local pid_number="$$"
   local message="$RUN_OPTIONS_EXEC_MESSAGE"
   local pid_file="$(__pid_tmp "${pid_number}_XXXX")"
   local kill_file="$RUN_OPTIONS_TEMP_DIR/${pid_file}"
   while :; do
+    sleep 1
     if [ -f "$kill_file" ]; then
       rm -rf "$kill_file"
-      sleep 1
       break
     else
       clear && printf_cyan "Starting $message on a loop - ^c to exit $(date)"
-      sleep 1
-      eval $run_cmd
+      $run_cmd || break
     fi
   done
-  eval ${SHELL:-bash}
+  ${SHELL:-bash}
   exit $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_log() {
-  trap -- 'touch $kill_file;sleep 1;clear;printf_cyan "To relaunch run: $APPNAME log $message"' SIGINT
+  trap 'touch $kill_file;sleep 1;clear;printf_cyan "To relaunch run: $APPNAME log $message"' SIGINT
   local args="$(find "$@" -maxdepth 2 -type f 2>/dev/null)"
   local run_cmd="$args"
   local pid_number="$$"
@@ -294,16 +313,16 @@ __run_log() {
   local pid_file="$(__pid_tmp "pid_${pid_number}_XXXX")"
   local kill_file="$RUN_OPTIONS_TEMP_DIR/${pid_file}"
   while :; do
+    sleep 1
     if [ -f "$kill_file" ]; then
       rm -Rf "$kill_file"
-      sleep 1
       break
     else
       clear && printf_cyan "Starting $message on a loop - ^c to exit $(date)"
-      eval tail -f $run_cmd
+      tail -f $run_cmd || break
     fi
   done
-  eval ${SHELL:-bash}
+  ${SHELL:-bash}
   exit $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -513,59 +532,80 @@ cmd_exists --error --ask bash || exit 3 # exit 3 if not found
 # begin main app
 while :; do
   case "$1" in
+  ssh)
+    shift 1
+    RUN_OPTIONS_EXEC_MESSAGE="myssh"
+    __run_myssh
+    ;;
   cd)
-    RUN_OPTIONS_EXEC_ARGS="${2:-$RUN_OPTIONS_CWD}"
+    shift 1
+    RUN_OPTIONS_EXEC_ARGS="${1:-$RUN_OPTIONS_CWD}"
     RUN_OPTIONS_EXEC_MESSAGE="cd $RUN_OPTIONS_EXEC_ARGS"
     [ -w "$RUN_OPTIONS_EXEC_ARGS" ] && mkdir -p "$RUN_OPTIONS_EXEC_ARGS"
-    __cd "$RUN_OPTIONS_EXEC_ARGS"
-    shift 2
+    __cd "$RUN_OPTIONS_EXEC_ARGS" &
+    disown
+    shift 1
     ;;
   loop)
-    RUN_OPTIONS_EXEC_ARGS="${2:-${SHELL:-bash}}"
+    shift 1
+    RUN_OPTIONS_EXEC_ARGS="${1:-${SHELL:-bash}}"
     RUN_OPTIONS_EXEC_MESSAGE="$RUN_OPTIONS_EXEC_ARGS"
-    __run_loop "$RUN_OPTIONS_EXEC_ARGS"
-    shift 2
+    __run_loop "$RUN_OPTIONS_EXEC_ARGS" &
+    disown
+    shift 1
     ;;
   log)
-    RUN_OPTIONS_EXEC_ARGS="${2:-$RUN_OPTIONS_LOG_DIR/$APPNAME*}"
-    RUN_OPTIONS_EXEC_MESSAGE="${2:-$RUN_OPTIONS_LOG_DIR/$APPNAME*}"
+    shift 1
+    RUN_OPTIONS_EXEC_ARGS="${1:-$RUN_OPTIONS_LOG_DIR/$APPNAME*}"
+    RUN_OPTIONS_EXEC_MESSAGE="$RUN_OPTIONS_EXEC_ARGS"
     if [ -d "$RUN_OPTIONS_EXEC_ARGS" ]; then
-      __run_log "$RUN_OPTIONS_EXEC_ARGS"
+      __run_log "$RUN_OPTIONS_EXEC_ARGS" &
+      disown
     else
-      __run_log "$RUN_OPTIONS_EXEC_ARGS"
+      __run_log "$RUN_OPTIONS_EXEC_ARGS" &
+      disown
     fi
-    shift 2
+    shift 1
     ;;
   server)
-    RUN_OPTIONS_EXEC_ARGS="run_server --disable-all {2:-$PWD}"
+    shift 1
+    RUN_OPTIONS_EXEC_ARGS="run_server --disable-all ${1:-$PWD}"
     RUN_OPTIONS_EXEC_MESSAGE="$RUN_OPTIONS_EXEC_ARGS"
-    __run_loop "$RUN_OPTIONS_EXEC_ARGS"
-    shift 2
+    __run_loop "$RUN_OPTIONS_EXEC_ARGS" &
+    disown
+    shift 1
     ;;
   editor)
-    RUN_OPTIONS_EXEC_ARGS="myeditor --console ${2:-$PWD}"
+    shift 1
+    RUN_OPTIONS_EXEC_ARGS="myeditor --console ${1:-$PWD}"
     RUN_OPTIONS_EXEC_MESSAGE="$RUN_OPTIONS_EXEC_ARGS"
-    __run_loop "$RUN_OPTIONS_EXEC_ARGS"
-    shift 2
+    __run_loop "$RUN_OPTIONS_EXEC_ARGS" &
+    disown
+    shift 1
     ;;
   browser)
+    shift 1
     [ -n "$DISPLAY" ] && [ -z "$SSH_CONNECTION" ] && opts="" || opts="--console"
-    RUN_OPTIONS_EXEC_ARGS="mybrowser ${2:-} $opts"
+    RUN_OPTIONS_EXEC_ARGS="mybrowser ${1:-} $opts"
     RUN_OPTIONS_EXEC_MESSAGE="$RUN_OPTIONS_EXEC_ARGS"
-    __run_loop "$RUN_OPTIONS_EXEC_ARGS"
-    shift 2
+    __run_loop "$RUN_OPTIONS_EXEC_ARGS" &
+    disown
+    shift 1
     ;;
   files)
-    RUN_OPTIONS_EXEC_ARGS="myfilemanager --console ${2:-}"
+    shift 1
+    RUN_OPTIONS_EXEC_ARGS="myfilemanager --console ${1:-}"
     RUN_OPTIONS_EXEC_MESSAGE="$RUN_OPTIONS_EXEC_ARGS"
-    __run_loop "$RUN_OPTIONS_EXEC_ARGS"
-    shift 2
+    __run_loop "$RUN_OPTIONS_EXEC_ARGS" &
+    disown
+    shift 1
     ;;
   exec)
     shift 1
     RUN_OPTIONS_EXEC_ARGS="$*"
     RUN_OPTIONS_EXEC_MESSAGE="$RUN_OPTIONS_EXEC_ARGS"
-    __run_loop "$RUN_OPTIONS_EXEC_ARGS"
+    __run_loop "$RUN_OPTIONS_EXEC_ARGS" &
+    disown
     shift 1
     ;;
   *)

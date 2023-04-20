@@ -17,7 +17,7 @@
 # @@Resource         :  GEN_SCRIPT_REPLACE_RES
 # @@Terminal App     :  GEN_SCRIPT_REPLACE_TERMINAL
 # @@sudo/root        :  GEN_SCRIPT_REPLACE_SUDO
-# @@Template         :  completions/system
+# @@Template         :  completions/terminal
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _GEN_SCRIPT_REPLACE_FILENAME_completion() {
   #####################################################################
@@ -26,9 +26,13 @@ _GEN_SCRIPT_REPLACE_FILENAME_completion() {
   #####################################################################
   _init_completion || return
   #####################################################################
+  ___jq() { jq -rc "$@" 2>/dev/null; }
   ___ls() { ls -A "$1" 2>/dev/null | grep -v '^$' | grep '^' || false; }
-  ___grep() { GREP_COLORS="" grep -sE '^.*=*..*$' "$1" 2>/dev/null | sed 's|"||g' 2>/dev/null | grep '^' || false; }
-  ___findcmd() { find -L "${1:-$CONFDIR/}" -maxdepth ${3:-3} -type ${2:-f} 2>/dev/null | sed 's#'${1:-$CONFDIR}'##g' | grep '^' || return 1; }
+  ___curl() { curl -q -LSsf --max-time 1 --retry 0 "$@" 2>/dev/null || return 1; }
+  ___grep_file() { grep --no-filename -vsR '#' "$@" 2>/dev/null | grep '^' || return 1; }
+  ___find_cmd() { find -L "${1:-$CONFDIR/}" -maxdepth ${3:-3} -type ${2:-f} 2>/dev/null | grep '^' || return 1; }
+  ___grep_env() { GREP_COLORS="" grep -sE '^.*=*..*$' "$1" 2>/dev/null | sed 's|"||g' 2>/dev/null | grep '^' || false; }
+  ___find_rel() { find -L "${1:-$CONFDIR/}" -maxdepth ${3:-3} -type ${2:-f} -printf "%P\n" 2>/dev/null | grep '^' || return 1; }
   #####################################################################
   cur="${COMP_WORDS[$COMP_CWORD]}"
   prev="${COMP_WORDS[$COMP_CWORD - 1]}"

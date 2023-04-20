@@ -257,11 +257,26 @@ __trap_exit() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
 __docker_exec() { $DOCKERRUN_DOCKER_BIN exec --tty --interactive "$DOCKERRUN_NAME" $DOCKERRUN_EXEC || return 1; }
-__docker_run() { $DOCKERRUN_DOCKER_BIN run -d --restart always --network $DOCKERRUN_NETWORK -it --name "$DOCKERRUN_NAME" $DOCKERRUN_OPTS $DOCKERRUN_MOUNTS $DOCKERRUN_PORTS "$DOCKERRUN_IMAGE" >/dev/null 2>"$DOCKERRUN_TEMP_FILE" && sleep 10 || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__docker_run() {
+  cmd="$DOCKERRUN_DOCKER_BIN run -d --restart always --network $DOCKERRUN_NETWORK -it "
+  cmd+="--name $DOCKERRUN_NAME $DOCKERRUN_OPTS $DOCKERRUN_MOUNTS $DOCKERRUN_PORTS $DOCKERRUN_IMAGE"
+  #printf_purple "$cmd"
+  eval $cmd >/dev/null 2>"$DOCKERRUN_TEMP_FILE" && sleep 10 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__show_log_file() { tail -n2 "$DOCKERRUN_TEMP_FILE" | sed 's|docker: Error.*daemon: ||g;s|\. .*||g;s|: .*||g' | grep -v 'docker run --help' | grep '^' || tail -n1 "$DOCKERRUN_TEMP_FILE"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__docker_ps_listen() {
+  col=$(($COLUMNS - 10))
+  listen="$(docker ps --format '{{.Names}} {{.Ports}}' 2>&1 | grep "$DOCKERRUN_NAME" | sed "s|$DOCKERRUN_NAME ||g" | tr ' ' '\n' | grep -v '^$' | sed 's|,|;|g;s|:::|0.0.0.0:|g;s|/.*|;|g;s|  *| |g' | sort -urV | grep '^')"
+  [ ${#listen} -ge $col ] && listen="${listen:0:$col}..."
+  [ -n "$listen" ] && printf '%s port mappings: %s\n' "$DOCKERRUN_NAME" "${listen//0.0.0.0/$CURRENT_IP_4}" | tr '\n' ' ' | sed 's| $||g;s|;$||g' | grep '^' | printf_readline "$DOCKERRUN_OUTPUT_COLOR_2"
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_volume() {
   local mounts=()
-  for volume in "$DOCKERRUN_MOUNTS"; do
+  for volume in $DOCKERRUN_MOUNTS; do
     if echo "$volume" | grep -q ':'; then
       host="$(echo "$volume" | awk -F ':' '{print $1}' | sed 's|^/||g')"
       container="$(echo "$volume" | awk -F ':' '{print $2}' | sed 's|^/||g')"
@@ -359,7 +374,7 @@ SHORTOPTS=""
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent,force"
-LONGOPTS+=",network:,mount:,docker:,publish:"
+LONGOPTS+=",network:,mount:,docker:,publish:,ports:"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY=""
 ARRAY+=""
@@ -451,6 +466,11 @@ while :; do
     DOCKERRUN_SET_PORTS+=("--publish $2")
     shift 2
     ;;
+  --ports)
+    DOCKERRUN_NAME="$2"
+    __docker_ps_listen
+    exit $?
+    ;;
   --)
     shift 1
     break
@@ -492,14 +512,14 @@ cmd_exists --error --ask bash || exit 3 # exit 3 if not found
 #am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
-DOCKERRUN_NAME="$1"
+DOCKERRUN_NAME="${1//*\//}"
 DOCKERRUN_EXEC="${2:-/usr/bin/env sh}"
 DOCKERRUN_PORTS="${DOCKERRUN_SET_PORTS[*]:--P}"
 DOCKERRUN_NETWORK="${DOCKERRUN_SET_NETWORK:-bridge}"
 DOCKERRUN_OPTS="${DOCKERRUN_SET_OPTS[*]} --privileged"
 DOCKERRUN_MOUNTS="${DOCKERRUN_DEFAULT_MOUNTS[*]} ${DOCKERRUN_SET_MOUNTS[*]}"
 if [ $# -eq 1 ]; then
-  DOCKERRUN_IMAGE="$DOCKERRUN_DEFAULT_IMAGE"
+  echo "$1" | grep -q '/' && DOCKERRUN_IMAGE="$1" || DOCKERRUN_IMAGE="$DOCKERRUN_DEFAULT_IMAGE"
 elif [ $# -eq 2 ]; then
   DOCKERRUN_IMAGE="$2"
 elif [ $# -eq 3 ]; then
@@ -523,12 +543,14 @@ if [ -n "$($DOCKERRUN_DOCKER_BIN ps -q -f status=running -f name=^/${DOCKERRUN_N
 elif [ -n "$DOCKERRUN_CONTAINER_EXISTS" ]; then
   printf_exit "The container exists, however, it does not seem to be running"
 else
-  printf_cyan "Creating and starting $DOCKERRUN_NAME"
+  printf_cyan "Creating and starting $DOCKERRUN_NAME using image: $DOCKERRUN_IMAGE"
   __create_volume
   if __docker_run; then
     printf_blue "Your container has been created"
+    __docker_ps_listen
+    __docker_exec
   else
-    printf_return "Failed to created the container: $(tail -n1 "$DOCKERRUN_TEMP_FILE" | sed 's|docker: Error.*daemon: ||g;s|\. .*||g;s|: .*||g')"
+    printf_return "Failed to created the container: $(__show_log_file)"
   fi
 fi
 DOCKERRUN_EXIT_STATUS=$?

@@ -126,6 +126,7 @@ __gen_config() {
   cat <<EOF >"$DOCKERRUN_CONFIG_DIR/$DOCKERRUN_CONFIG_FILE"
 # Settings for dockerrun
 DOCKERRUN_DOCKER_BIN="${DOCKERRUN_DOCKER_BIN:-}"
+DOCKERUN_DEFAULT_REPO_LIST="${DOCKERUN_DEFAULT_REPO_LIST:-}"
 DOCKERRUN_DEFAULT_IMAGE="${DOCKERRUN_DEFAULT_IMAGE:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
@@ -256,8 +257,27 @@ __trap_exit() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
+__jq() { jq "$@" 2>/dev/null; }
+__gen_config_local() { __dockerrun_complete; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __docker_exec() { $DOCKERRUN_DOCKER_BIN exec --tty --interactive "$DOCKERRUN_NAME" $DOCKERRUN_EXEC || return 1; }
-__dockerrun_complete() { curl -q -LSsf "https://hub.docker.com/v2/repositories/${1:-casjaysdevdocker}?page_size=100" 2>/dev/null | jq -rc '.results|.[]|.name' >"$DOCKERRUN_CONFIG_DIR/${1:-casjaysdevdocker}.list"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__dockerrun_complete() {
+  local repo_list="${*:-$DOCKERUN_DEFAULT_REPO_LIST}"
+  local list_dir="$DOCKERRUN_CONFIG_DIR/lists"
+  local api="https://hub.docker.com/v2/repositories"
+  repo_list="${repo_list//,/ }"
+  [ -d "$list_dir" ] || mkdir -p "$list_dir"
+  for repo in $repo_list; do
+    if [ -n "$repo" ]; then
+      list_file="$list_dir/$repo.list"
+      count="$(curl -q -LSsf "$api/$repo" | jq -rc '.count' | grep '^[0-9]' | grep -v 'null' | grep '^' || echo '0')"
+      if [ $count -ne 0 ]; then
+        curl -q -LSsf "$api/${repo}?page_size=1000" 2>/dev/null | __jq -rc '.results|.[]|.name' >"$list_file"
+      fi
+    fi
+  done
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __docker_run() {
   cmd="$DOCKERRUN_DOCKER_BIN run -d --restart always --network $DOCKERRUN_NETWORK -it "
@@ -328,6 +348,7 @@ DOCKERRUN_NOTIFY_CLIENT_URGENCY="${DOCKERRUN_NOTIFY_CLIENT_URGENCY:-normal}"
 DOCKERRUN_DOCKER_BIN="${DOCKERRUN_DOCKER_BIN:-docker}"
 DOCKERRUN_DEFAULT_IMAGE="${DOCKERRUN_DEFAULT_IMAGE:-casjaysdev/alpine}"
 DOCKERRUN_DEFAULT_MOUNTS="app data config "
+DOCKERUN_DEFAULT_REPO_LIST="${DOCKERUN_DEFAULT_REPO_LIST:-casjaysdev,casjaysdevdocker}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$DOCKERRUN_CONFIG_DIR/$DOCKERRUN_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
@@ -366,7 +387,7 @@ __notifications() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set custom actions
-__dockerrun_complete
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Argument/Option settings
 SETARGS=("$@")
@@ -505,6 +526,7 @@ DOCKERRUN_CWD="$(realpath "${DOCKERRUN_CWD:-$PWD}" 2>/dev/null)"
 export DOCKERRUN_CWD
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set actions based on variables
+__dockerrun_complete ${1//\/*/}
 [ -n "$1" ] || printf_exit "Please provide the container name or ID"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check

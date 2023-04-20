@@ -280,6 +280,30 @@ __trap_exit_local() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_version() { awk -F '=' '{print $2}' | sed 's|"||g;s|,| |g' | tr ' ' '\n' | grep -Ev '\${.*_.*}' | grep -v '^$' | sort -Vu | tr '\n' ' ' | grep '^' || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__create_log_files() {
+  for directory in $BUILDX_PROJECT_DIR; do
+    dir_name="$(basename $directory)"
+    [ -d "$BUILDX_LOG_DIR/$dir_name" ] || mkdir -p "$BUILDX_LOG_DIR/$dir_name"
+    for file in $directory/*; do
+      [ -d "$file" ] && touch "$BUILDX_LOG_DIR/$dir_name/$(basename "$file").log"
+    done
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__create_update_docker_daemon_config() {
+  if __can_i_sudo; then
+    __sudo true
+    sudo mkdir -p "/etc/docker"
+    if grep -sq "experimental" "/etc/docker/daemon.json"; then
+      sudo sed -i 's|experimental":.*e|experimental": true|g' "/etc/docker/daemon.json"
+    elif [ ! -f "/etc/docker/daemon.json" ]; then
+      printf '{\n  %s\n}' "\"experimental\": true" | sudo tee -a "/etc/docker/daemon.json" &>/dev/null
+    else
+      echo "{\"experimental\": true}," | sudo tee -a "/etc/docker/daemon.json" &>/dev/null
+    fi
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __last_build_check() {
   if [ -f "${1:-$BUILDX_CWD}/.build_failed" ]; then
     printf_red "Please note the last build had failed!!"
@@ -516,10 +540,10 @@ __is_buildx_installed() {
   local buildx_installed=""
   buildx_installed="$(__docker_init buildx ls 2>&1 | grep -q 'NAME/NODE' && echo 'yes' || echo '')"
   if [ "$buildx_installed" = "yes" ]; then
-    export BUILDX_INSTALLED="true"
+    export BUILDX_INSTALLED="yes"
     return 0
   else
-    export BUILDX_INSTALLED="false"
+    export BUILDX_INSTALLED="no"
     return 1
   fi
 }
@@ -620,13 +644,15 @@ __builder_init() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __reinit_buildx() {
-  __buildx_vars "${BUILDX_BUILDER_NAME:-}"
+  local force_install="${BUILDX_FORCE:-$BUILDX_FORCE_REINSTALL}"
   name="${name:-init}"
-  [ "$BUILDX_INSTALLED" = "yes" ] || [ "$BUILDX_INIT_RAN" != "true" ] || return
-  [ "$BUILDX_FORCE_REINSTALL" = "yes" ] || [ -z "$builder_id" ] || [ -z "$binfmt_id" ] || [ -z "$qemu_id" ] || return 1
+  __buildx_vars "${BUILDX_BUILDER_NAME:-}"
+  [ "$BUILDX_INSTALLED" != "yes" ] || [ "$BUILDX_INIT_RAN" != "true" ] || return 1
+  [ "$force_install" = "yes" ] || [ -z "$builder_id" ] || [ -z "$binfmt_id" ] || [ -z "$qemu_id" ] || return 1
+  set -x
   printf_cyan "Reinitializing buildx $name on $(date)"
   echo "Reinitializing buildx $name on $(date)" |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
-  local force="${BUILDX_FORCE_REINSTALL:-$BUILDX_CLEAN_FORCE}"
+  local force="${force_install:-$BUILDX_CLEAN_FORCE}"
   [ -z "$builder_id" ] || __docker_init rm -f $builder_id |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
   [ -z "$binfmt_id" ] || __docker_init rm -f "$qemu_imagename" |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
   [ -z "$qemu_id" ] || __docker_init rm -f "$binfmt_imagename" |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
@@ -636,7 +662,8 @@ __reinit_buildx() {
   __docker_init buildx use "$name" |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
   __docker_init buildx inspect --bootstrap |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
   __buildx_vars "${BUILDX_BUILDER_NAME:-}"
-  [ -n "$builder_id" ] && BUILDX_INSTALLED="true" && BUILDX_FORCE_REINSTALL="" BUILDX_FORCE="" BUILDX_INIT_RAN="true" || { echo "Initializing of buildx failed" |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null && printf_yellow "Initializing of buildx failed"; }
+  __create_update_docker_daemon_config
+  [ -n "$builder_id" ] && BUILDX_INSTALLED="yes" && BUILDX_FORCE_REINSTALL="" BUILDX_FORCE="" BUILDX_INIT_RAN="true" || { echo "Initializing of buildx failed" |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null && printf_yellow "Initializing of buildx failed"; }
   return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -684,20 +711,21 @@ __buildx_init() {
   if [ "$BUILDX_FORCE" = "true" ]; then
     [ -d "$HOME/.docker/buildx" ] && rm -Rf "$HOME/.docker/buildx"
     [ -d "/root/.docker/buildx" ] && __sudo rm -Rf "$HOME/.docker/buildx"
-    BUILDX_CLEAN_FORCE="true"
-    BUILDX_FORCE_REINSTALL="true"
+    BUILDX_FORCE="yes"
+    BUILDX_CLEAN_FORCE="yes"
+    BUILDX_FORCE_REINSTALL="yes"
     __reinit_buildx
   fi
-  if [ "$BUILDX_FORCE_REINSTALL" = "true" ] || [ "$BUILDX_CLEAN_FORCE" = "true" ]; then
+  if [ "$BUILDX_FORCE_REINSTALL" = "yes" ] || [ "$BUILDX_CLEAN_FORCE" = "yes" ]; then
     __reinit_buildx
-  elif __is_initialized && [ "$BUILDX_FORCE" != "true" ]; then
+  elif __is_initialized && [ "$BUILDX_FORCE" != "yes" ]; then
     printf_cyan "buildx seems to be already setup"
     return 0
   else
     echo "Starting buildx init for $name on $(date)" |& tee "$HOME/.local/log/buildx/$name.log"
     printf_yellow "Initializing docker build"
     printf_cyan "Setting logfile to: $buildx_log_file"
-    if [ "$BUILDX_CLEANUP" = "true" ] || { [ -n "$binfmt" ] && [ -n "$qemu" ]; }; then
+    if [ "$BUILDX_CLEANUP" = "yes" ] || { [ -n "$binfmt" ] && [ -n "$qemu" ]; }; then
       printf_yellow "Removing old containers: $qemu_imagename,$binfmt_imagename"
       __docker_init rm -f "$qemu_imagename" |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
       __docker_init rm -f "$binfmt_imagename" |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
@@ -718,15 +746,11 @@ __buildx_init() {
       __docker_init buildx use "$name" |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
       __docker_init buildx inspect --bootstrap |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
     fi
-    if __can_i_sudo && ! grep -s "experimental" "/etc/docker/daemon.json" | grep 'true'; then
-      __sudo true
-      sudo mkdir -p "/etc/docker"
-      echo "{\"experimental\": true}" | sudo tee -a "/etc/docker/daemon.json" &>/dev/null
-    fi
+    # create docker daemon file
+    __create_update_docker_daemon_config
+    # setup service
     printf_blue "Making sure docker service is running"
-    if sudo systemctl status docker.service docker.socket | grep -q 'daemon-reload'; then
-      sudo systemctl daemon-reload
-    fi
+    sudo systemctl daemon-reload
     if ! systemctl status systemd-binfmt.service | grep -iq 'running'; then
       sudo systemctl enable -now systemd-binfmt.service &>/dev/null
       sudo systemctl restart systemd-binfmt.service &>/dev/null
@@ -735,8 +759,10 @@ __buildx_init() {
       sudo systemctl enable --now docker &>/dev/null
       sudo systemctl restart docker &>/dev/null
     fi
+    # login to docker hub
     printf_yellow "Making sure user is signed into to docker hub"
     __is_logged_in || __docker_init login || exit 2
+    # clean up
     printf_purple "Finishing up"
     [ -d "$HOME/.docker/buildx" ] || mkdir -p "$HOME/.docker/buildx"
     sudo bash -c '[ -d "/root/.docker/buildx" ] && [ "/root/.docker/buildx" != "'$HOME/.docker/buildx'" ] && cp -Rf /root/.docker/buildx/. "'$HOME/.docker/buildx/'"'
@@ -1429,7 +1455,7 @@ while :; do
     ;;
   --init)
     shift 1
-    export BUILDX_FORCE_REINSTALL="true"
+    export BUILDX_FORCE_REINSTALL="yes"
     ;;
   --)
     shift 1
@@ -1489,6 +1515,7 @@ export DOCKER_CLI_EXPERIMENTAL="$BUILDX_DOCKER_CLI_EXPERIMENTAL"
 # Actions based on env
 __is_docker_installed
 __is_buildx_installed
+__create_log_files
 [ -f "$BUILDX_PID_FILE" ] && BUILDX_CLEANUP=""
 [ "$1" = "init" ] || [ -d "$HOME/.docker/buildx" ] || __buildx_init
 [ -d "$HOME/.local/run/$APPNAME" ] || mkdir -p "$HOME/.local/run/$APPNAME"

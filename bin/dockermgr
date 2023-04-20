@@ -150,6 +150,37 @@ __get_arch() {
   [ -n "$arch" ] && [ -n "$osname" ] && export arch osname || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__docker_manifest_log() { [ $1 -eq 0 ] && rm -Rf "$DOCKERMGR_LOG_DIR/$2.log" || { [ -f "$DOCKERMGR_LOG_DIR/$2.log" ] && cat "$DOCKERMGR_LOG_DIR/$2.log" | printf_readline && false; } || exit 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__create_manifest() {
+  local image="$1" push="$2"
+  local code=0 AMEND=""
+  local platforms="x86_64 arm64"
+  local name="$(basename "$image")"
+  [ -n "$push" ] || printf_exit "Usage: $APPNAME manifest [image] [push]"
+  [ -n "$image" ] || printf_exit "Usage: $APPNAME manifest [image] [push]"
+  echo "$image" | grep -q ":" && set_tag="${image//*:/}" || tag=":latest"
+  for platform in $platforms; do
+    set_push="${push//:*/}"
+    set_tag="${set_tag:-$tag}"
+    echo "$set_tag" | grep -q ":" || set_tag=":$set_tag"
+    set_push="$push-$platform$set_tag"
+    printf_cyan "Attempting to build $image$tag for platform: $platform"
+    echo "FROM --platform="linux/$platform" $image$tag" | docker build --pull -t $set_push - 2>"$DOCKERMGR_LOG_DIR/$name.log" >/dev/null && amend+="--amend $set_push " || code=1
+    [ $code -ne 0 ] && printf_red "Failed to build $set_push" && __docker_manifest_log $code "$name"
+    printf_yellow "Pushing $set_push"
+    docker push -q $set_push >/dev/null 2>"$DOCKERMGR_LOG_DIR/$name.log"
+    [ $code -ne 0 ] && printf_red "Failed to build $set_push" && __docker_manifest_log $code "$name"
+  done
+  printf_blue "Running: docker manifest create $push$tag ${amend[*]}"
+  docker manifest create $push$tag $amend >/dev/null 2>"$DOCKERMGR_LOG_DIR/$name.log" || code=1
+  __docker_manifest_log $code "$name"
+  printf_cyan "Pushing $push$tag"
+  docker manifest push --purge $push$tag >/dev/null 2>>"$DOCKERMGR_LOG_DIR/$name.log" || code=1
+  __docker_manifest_log $code "$name"
+  return $code
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_readme() {
 
   return 1
@@ -1420,6 +1451,12 @@ api)
     printf_help "Usage: $APPNAME api [auth,list,delete,info,update,readme,sources,clone]"
     ;;
   esac
+  ;;
+
+manifest)
+  shift 1
+  __create_manifest "$@"
+  exit $?
   ;;
 
 multiarch)

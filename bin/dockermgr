@@ -152,6 +152,17 @@ __get_arch() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __docker_manifest_log() { [ $1 -eq 0 ] && rm -Rf "$DOCKERMGR_LOG_DIR/$2.log" || { [ -f "$DOCKERMGR_LOG_DIR/$2.log" ] && cat "$DOCKERMGR_LOG_DIR/$2.log" | printf_readline && false; } || exit 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__registry_delete_tag() {
+  if [ -f "$DOCKERMGR_CACHE_DIR/token" ]; then
+    local TOKEN="$(<"$DOCKERMGR_CACHE_DIR/token")"
+    local log_file="$DOCKERMGR_CACHE_DIR/delete.log"
+    printf '%s' "$(printf_cyan "Attempting to delete temporary tag: $1:$2"): "
+    curl -q -LSsfi -H "Authorization: Bearer $TOKEN" -X DELETE "$DOCKERMGR_REGISTRY_URL/v2/repositories/$1/tags/$2" &>"$log_file" || return 1
+  else
+    __api_auth_token && __registry_delete_tag "$1" "$2"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_manifest() {
   local image="$1" push="$2"
   local code=0 AMEND=""
@@ -159,14 +170,15 @@ __create_manifest() {
   local name="$(basename "$image")"
   [ -n "$push" ] || printf_exit "Usage: $APPNAME manifest [image] [push]"
   [ -n "$image" ] || printf_exit "Usage: $APPNAME manifest [image] [push]"
-  echo "$image" | grep -q ":" && set_tag="${image//*:/}" || tag=":latest"
+  echo "$image" | grep -q ":" && tag="${image//*:/}" || tag=":latest"
   for platform in $platforms; do
+    set_tag="$tag"
     set_push="${push//:*/}"
-    set_tag="${set_tag:-$tag}"
     echo "$set_tag" | grep -q ":" || set_tag=":$set_tag"
-    set_push="$push-$platform$set_tag"
+    new_tag="$set_tag-$platform"
+    set_push="$push$new_tag"
     printf_cyan "Attempting to build $image$tag for platform: $platform"
-    echo "FROM --platform="linux/$platform" $image$tag" | docker build --pull -t $set_push - 2>"$DOCKERMGR_LOG_DIR/$name.log" >/dev/null && amend+="--amend $set_push " || code=1
+    echo "FROM --platform="linux/$platform" $image$tag" | docker build --pull -t $set_push - 2>"$DOCKERMGR_LOG_DIR/$name.log" >/dev/null && amend+="--amend $set_push " delete_tag+="$new_tag " || code=1
     [ $code -ne 0 ] && printf_red "Failed to build $set_push" && __docker_manifest_log $code "$name"
     printf_yellow "Pushing $set_push"
     docker push -q $set_push >/dev/null 2>"$DOCKERMGR_LOG_DIR/$name.log"
@@ -178,6 +190,10 @@ __create_manifest() {
   printf_cyan "Pushing $push$tag"
   docker manifest push --purge $push$tag >/dev/null 2>>"$DOCKERMGR_LOG_DIR/$name.log" || code=1
   __docker_manifest_log $code "$name"
+  for tag in $delete_tag; do
+    tag="${tag//:/}"
+    __registry_delete_tag "$push" "$tag" && printf_green "Success 😺" || printf_red "Failed 😿"
+  done
   return $code
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -536,7 +552,7 @@ __minikube_init() {
       printf_exit "Docs: https://minikube.sigs.k8s.io/docs/drivers/"
     fi
   fi
-  [ -n "$uname" ] printf_exit "minikube is not supported on $uname"
+  [ -n "$uname" ] || printf_exit "minikube is not supported on $uname"
   printf_purple "Downloading minikube for $osname [$osarch]"
   if __minikube_curl $osname-$osarch; then
     if cmd_exists minikube; then
@@ -1384,7 +1400,7 @@ cmd_exists --error --ask bash || exit 1 # exexpectit 1 if not found
 #am_i_online --error || exit 1                  # exit 1 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
-cmd_exists expect_unbuffer && ! cmd_exists && unbuffer() { expect_unbuffer $*; }
+cmd_exists expect_unbuffer && ! cmd_exists && unbuffer() { expect_unbuffer "$@"; }
 [ -n "$(type unbuffer)" ] || unbuffer() { printf_exit "The command unbuffered is required: unbuffered or expect or expect-devel/expect-dev"; }
 cmd_exists podman && alias docker='podman ' && DOCKERMGR_CLI="podman"
 [ -d "$DOCKERMGR_HOME" ] || mkdir -p "$DOCKERMGR_HOME"
@@ -1406,8 +1422,8 @@ api)
     shift 1
     DOCKERHUB_USERNAME="${1:-$DOCKERHUB_USERNAME}"
     DOCKERHUB_PASSWORD="${2:-$DOCKERHUB_PASSWORD}"
-    [ -n "$DOCKERHUB_USERNAME" ] || printf_exit "usage: $APPNAME auth [username] [password]"
-    [ -n "$DOCKERHUB_PASSWORD" ] || printf_exit "usage: $APPNAME auth [$DOCKERHUB_USERNAME] [password]"
+    [ -n "$DOCKERHUB_USERNAME" ] || printf_read_question "What is your username: " "100" "DOCKERHUB_USERNAME" || printf_exit "usage: $APPNAME auth [username] [password]"
+    [ -n "$DOCKERHUB_PASSWORD" ] || printf_read_passwd "What is your password" "DOCKERHUB_USERNAME" || printf_exit "usage: $APPNAME auth [$DOCKERHUB_USERNAME] [password]"
     [ -f "$DOCKERMGR_CONFIG_DIR/.hub_username" ] || echo "$DOCKERHUB_USERNAME" >"$DOCKERMGR_CONFIG_DIR/.hub_username"
     [ -f "$DOCKERMGR_CONFIG_DIR/.hub_password" ] || echo "$DOCKERHUB_PASSWORD" >"$DOCKERMGR_CONFIG_DIR/.hub_password"
     __orgs_api_auth "$@"
@@ -1420,8 +1436,26 @@ api)
     ;;
   delete)
     shift 1
-    __orgs_api_delete "$@"
-    exit $?
+    case "$1" in
+    tag)
+      shift 1
+      [ $# -eq 2 ] || printf_exit "Usage: $APPNAME api delete tag [org/repo] [tag]"
+      __registry_delete_tag "$1" "$2"
+      exit $?
+      ;;
+    repo)
+      shift 1
+      [ $# -eq 1 ] || [ $# -eq 2 ] || printf_exit "Usage: $APPNAME api delete repo [org/repo]"
+      __orgs_api_delete "$@"
+      exit $?
+      ;;
+    *)
+      shift 1
+      [ $# -eq 1 ] || [ $# -eq 2 ] || printf_exit "Usage: $APPNAME api delete [org/repo]"
+      __orgs_api_delete "$@"
+      exit $?
+      ;;
+    esac
     ;;
   info)
     shift 1

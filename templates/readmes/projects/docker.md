@@ -20,19 +20,19 @@ docker run --name -REPLACE_REGISTRY_USER-REPLACE_PROJECT_NAME REPLACE_REGISTRY_U
 ## Get source files  
 
 ```shell
-dockermgr download src REPLACE_REGISTRY_USER/REPLACE_PROJECT_NAME
+dockermgr download src REPLACE_REGISTRY_USER/REPLACE_APPNAME
 ```
 
 OR
 
 ```shell
-git clone "https://github.com/REPLACE_REGISTRY_USER/REPLACE_PROJECT_NAME" "$HOME/Projects/github/REPLACE_REGISTRY_USER/REPLACE_PROJECT_NAME"
+git clone "https://github.com/REPLACE_REGISTRY_USER/REPLACE_APPNAME" "$HOME/Projects/github/REPLACE_REGISTRY_USER/REPLACE_APPNAME"
 ```
 
 ## Build container  
 
 ```shell
-cd "$HOME/Projects/github/REPLACE_REGISTRY_USER/REPLACE_PROJECT_NAME"
+cd "$HOME/Projects/github/REPLACE_REGISTRY_USER/REPLACE_APPNAME"
 buildx 
 ```
 

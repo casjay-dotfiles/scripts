@@ -39,9 +39,9 @@ __run_post() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __newpasswd() {
   local oldpassword newpassword newpasswordc
-  printf_read_passwd "3" "Enter old password for $1" "oldpassword"
-  printf_read_passwd "3" "Enter new password for $1" "newpassword"
-  printf_read_passwd "3" "Confirm new password for $1" "newpasswordc"
+  printf_read_password "3" "Enter old password for $1" "oldpassword"
+  printf_read_password "3" "Enter new password for $1" "newpassword"
+  printf_read_password "3" "Confirm new password for $1" "newpasswordc"
   [ "$oldpassword" = "$newpassword" ] && printf_exit "Password needs to be different"
   [ "$newpassword" = "$newpasswordc" ] || printf_exit "Passwords don't match"
   printf '%s\n%s\n%s' "$oldpassword" "$newpassword" "$newpasswordc" | __passwd "$1" &>/dev/null &&

@@ -515,6 +515,7 @@ __get_dockerfile_ver() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __buildx_run() {
+  __run_git_pull "$BUILDX_CWD"
   __reinit_buildx
   if [ $# -ne 0 ]; then
     __execute_buildx "$@"
@@ -523,7 +524,7 @@ __buildx_run() {
     __execute_buildx "$BUILDX_CWD/Dockerfile"
     exitCode=$?
   else
-    printf_red "Can not find a Dockerfile in ${BUILDX_CWD}"
+    printf_red "Can not find a Dockerfile in $BUILDX_CWD"
     exitCode=1
   fi
 }
@@ -641,8 +642,8 @@ __reinit_buildx() {
   __buildx_vars "${BUILDX_BUILDER_NAME:-}"
   [ "$BUILDX_INIT_RAN" != "true" ] || return 0
   [ "$force_install" = "yes" ] || [ -z "$builder_id" ] || [ -z "$binfmt_id" ] || [ -z "$qemu_id" ] || return 0
-  printf_cyan "Reinitializing buildx $name on $(date)"
-  echo "Reinitializing buildx $name on $(date)" |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+  printf_cyan "Reinitializing buildx: $name on: $(date)"
+  echo "Reinitializing buildx: $name on: $(date)" |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
   local force="${force_install:-$BUILDX_CLEAN_FORCE}"
   [ -z "$builder_id" ] || __docker_init rm -f $builder_id |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
   [ -z "$binfmt_id" ] || __docker_init rm -f "$qemu_imagename" |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
@@ -654,8 +655,18 @@ __reinit_buildx() {
   __docker_init buildx inspect --bootstrap |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
   __buildx_vars "${BUILDX_BUILDER_NAME:-}"
   __create_update_docker_daemon_config
-  [ -n "$builder_id" ] && __is_buildx_installed && BUILDX_FORCE_REINSTALL="" BUILDX_FORCE="" BUILDX_INIT_RAN="true" || { echo "Initializing of buildx failed" |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null && printf_yellow "Initializing of buildx failed"; }
-  return 0
+  if [ -n "$builder_id" ] && __is_buildx_installed; then
+    BUILDX_FORCE=""
+    BUILDX_INIT_RAN="true"
+    BUILDX_FORCE_REINSTALL=""
+    printf_cyan "Building for platforms: $BUILDX_DOCKER_PLATFORMS"
+    printf '%s\n' "# Building for platforms: $BUILDX_DOCKER_PLATFORMS" | tee -a "$logfile" &>/dev/null
+    return 0
+  else
+    echo "Initializing of buildx failed" |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+    printf_yellow "Initializing of buildx failed"
+    return 1
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __buildx_cleanup() {
@@ -807,7 +818,7 @@ __run_docker_script() {
   set_build_command="${set_build_command//  / }"
   build_command="$(echo "$set_build_command" | grep '^' | grep -v '^$' | sed 's|,,| \\\n|g')"
   set_build_command="${set_build_command//,,/}"
-  printf '%b%s: %b%s%b\n' "$GREEN" "Setting the build script to" "$CYAN" "$logscript_file" "$NC"
+  printf '%b%s: %b%s%b\n' "$GREEN" "Saving the build command to" "$CYAN" "$logscript_file" "$NC"
   printf 'Saving the build command to: %s\n' "$logscript_file" | tee -a "$logfile" &>/dev/null
   __save_build_script
   printf_blue "Setting default tag to: $set_tag"
@@ -817,8 +828,6 @@ __run_docker_script() {
     printf '%s\n' "# Adding tags: $ADDITIONAL_PRETTY" | tee -a "$logfile" &>/dev/null
   fi
   sleep 2
-  printf_cyan "Building for platforms: $platforms"
-  printf '%s\n' "# Building for platforms: $platforms" | tee -a "$logfile" &>/dev/null
   printf 'Executing: %s\n' "$set_build_command" | tee -a "$logfile" &>/dev/null
   eval "$set_build_command" |& tee -a "$logfile" &>/dev/null || false
   return $?
@@ -830,11 +839,11 @@ __run_dockermgr_script() {
   local build_tags="-t $tagged_name $ADDITIONAL_TAGS"
   local build_name="$(basename "${tagged_name//:*/}")"
   local buildfile="$(basename "${Dockerfile:-Dockerfile}")"
-  set_build_command='dockermgr --name '$build_name',, -- builder buildx_script "'$platforms'",, "'$build_tags'",, "'$dir'",, "'$dir/$buildfile'"'
+  set_build_command='dockermgr --name '$build_name',, -- builder buildx_script "'$BUILDX_DOCKER_PLATFORMS'",, "'$build_tags'",, "'$dir'",, "'$dir/$buildfile'"'
   set_build_command="${set_build_command//  / }"
   build_command="$(echo "$set_build_command" | grep '^' | grep -v '^$' | sed 's|,,| \\\n|g')"
   set_build_command="${set_build_command//,,/}"
-  printf '%b%s: %b%s%b\n' "$GREEN" "Setting the build script to" "$CYAN" "$logscript_file" "$NC"
+  printf '%b%s: %b%s%b\n' "$GREEN" "Saving the build command to" "$CYAN" "$logscript_file" "$NC"
   printf 'Saving the build command to: %s\n' "$logscript_file" | tee -a "$logfile" &>/dev/null
   __save_build_script
   printf_blue "Setting default tag to: $set_tag"
@@ -843,19 +852,17 @@ __run_dockermgr_script() {
     printf '%s\n' "# Adding tags: $ADDITIONAL_PRETTY" | tee -a "$logfile" &>/dev/null
   fi
   sleep 2
-  printf_cyan "Building for platforms: $platforms"
-  printf '%s\n' "# Building for platforms: $platforms" | tee -a "$logfile" &>/dev/null
   printf 'Executing: %s\n' "$build_command" | tee -a "$logfile" &>/dev/null
   eval "$set_build_command" |& tee -a "$logfile" &>/dev/null || false
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_buildx_script() {
-  set_build_command="$BUILDX_DOCKER_CMD buildx build ${BUILDX_REMOVE_BUILD:-},, --platform $platforms,, --rm --pull --push,, --no-cache --progress auto --output=type=registry,, -t $tagged_name $ADDITIONAL_TAGS,, ${dir:-$PWD},, -f ${Dockerfile:-Dockerfile}"
+  set_build_command="$BUILDX_DOCKER_CMD buildx build ${BUILDX_REMOVE_BUILD:-},, --platform $BUILDX_DOCKER_PLATFORMS,, --rm --pull --push,, --no-cache --progress auto --output=type=registry,, -t $tagged_name $ADDITIONAL_TAGS,, ${dir:-$PWD},, -f ${Dockerfile:-Dockerfile}"
   set_build_command="${set_build_command//  / }"
   build_command="$(echo "$set_build_command" | grep '^' | grep -v '^$' | sed 's|,,| \\\n|g')"
   set_build_command="${set_build_command//,,/}"
-  printf '%b%s: %b%s%b\n' "$GREEN" "Saving the build command to: " "$CYAN" "$logscript_file" "$NC"
+  printf '%b%s: %b%s%b\n' "$GREEN" "Saving the build command to" "$CYAN" "$logscript_file" "$NC"
   printf 'Saving the build command to: %s\n' "$logscript_file" | tee -a "$logfile" &>/dev/null
   __save_build_script
   printf_blue "Setting default tag to: $set_tag"
@@ -864,8 +871,6 @@ __run_buildx_script() {
     printf '%s\n' "# Adding tags: $ADDITIONAL_PRETTY" | tee -a "$logfile" &>/dev/null
   fi
   sleep 2
-  printf_cyan "Building for platforms: $platforms"
-  printf '%s\n' "# Building for platforms: $platforms" | tee -a "$logfile" &>/dev/null
   printf 'Executing: %s\n' "$set_build_command" | tee -a "$logfile" &>/dev/null
   eval "$set_build_command" |& tee -a "$logfile" &>/dev/null || false
   return $?
@@ -876,7 +881,7 @@ __run_build_script() {
   set_build_command="${set_build_command//  / }"
   build_command="$(echo "$set_build_command" | grep '^' | grep -v '^$' | sed 's|,,| \\\n|g')"
   set_build_command="${set_build_command//,,/}"
-  printf '%b%s: %b%s%b\n' "$GREEN" "Setting the build script to" "$CYAN" "$logscript_file" "$NC"
+  printf '%b%s: %b%s%b\n' "$GREEN" "Saving the build command to" "$CYAN" "$logscript_file" "$NC"
   printf 'Saving the build command to: %s\n' "$logscript_file" | tee -a "$logfile" &>/dev/null
   __save_build_script
   printf_blue "Setting default tag to: $set_tag"
@@ -885,8 +890,6 @@ __run_build_script() {
     printf '%s\n' "# Adding tags: $ADDITIONAL_PRETTY" | tee -a "$logfile" &>/dev/null
   fi
   sleep 2
-  printf_cyan "Building for platforms: $platforms"
-  printf '%s\n' "# Building for platforms: $platforms" | tee -a "$logfile" &>/dev/null
   printf 'Executing: %s\n' "$set_build_command" | tee -a "$logfile" &>/dev/null
   eval "$set_build_command" |& tee -a "$logfile" &>/dev/null || false
   return $?
@@ -912,7 +915,6 @@ __run_docker_build() {
   cd "$BUILDX_CWD" || return 1
   buildx_status="0" SET_ADD_HOST=("")
   namespace="$BUILDX_ADD_REPO"
-  platforms="${BUILDX_DOCKER_PLATFORMS// /,}"
   registry="${BUILDX_ADD_REGISTRY//,/ }"
   image_name="${tagged_name//$BUILDX_DEFAULT_REPO\//}"
   if [ -n "$BUILDX_ADD_REGISTRY" ] && [ "$BUILDX_ENABLE_REGISTRY" = "true" ]; then
@@ -936,22 +938,21 @@ __run_docker_build() {
   fi
   ADD_HOST="$(printf '%s\n' "${SET_ADD_HOST[@]}" | sort -u | tr '\n' ' ' | sed 's|  *| |g')"
   ADDITIONAL_TAGS="$REGISTRY_TAG ${ADD_HOST[*]}"
-  ADDITIONAL_TAGS="${ADDITIONAL_TAGS//  / }"
-  ADDITIONAL_PRETTY="${ADDITIONAL_TAGS//-t /}"
+  ADDITIONAL_PRETTY="$(echo "$ADDITIONAL_TAGS" | sed 's|--tag||g;s|-t||g' | tr ' ' '\n' | grep -v '^$' | tr '\n' ' ')"
   [ -n "$image_name" ] && tagged_name="$image_name" || tagged_name="$push_tag"
   if [ "$BUILDX_RUN_SCRIPT" = "true" ] && [ -f "$BUILDX_CWD/build.sh" ]; then
-    printf_blue "Building $tagged_name using script on : $(date +'%Y-%m-%d at %H:%M')"
-    printf '%s\n' "# Building $SET_DIR_NAME using script on : $(date +'%Y-%m-%d at %H:%M')" | tee -a "$logfile" &>/dev/null
+    printf_blue "Using $BUILDX_CWD/build.sh to build $tagged_name"
+    printf '%s\n' "# Using Using $BUILDX_CWD/build.sh to build $tagged_name" | tee -a "$logfile" &>/dev/null
     __run_docker_script
     buildx_status=$?
   elif __is_buildx_installed; then
-    printf_blue "Building $tagged_name using buildx on : $(date +'%Y-%m-%d at %H:%M')"
-    printf '%s\n' "# Building $tagged_name using buildx on : $(date +'%Y-%m-%d at %H:%M')" | tee -a "$logfile" &>/dev/null
+    printf_blue "Using docker buildx to build $tagged_name"
+    printf '%s\n' "# Using docker buildx to build $tagged_name" | tee -a "$logfile" &>/dev/null
     __run_buildx_script
     buildx_status=$?
   else
-    printf_blue "Building $tagged_name using build on : $(date +'%Y-%m-%d at %H:%M')"
-    printf '%s\n' "# Building $tagged_name using build on : $(date +'%Y-%m-%d at %H:%M')" | tee -a "$logfile" &>/dev/null
+    printf_blue "Using docker build to build $tagged_name"
+    printf '%s\n' "# Using docker build to build $tagged_name" | tee -a "$logfile" &>/dev/null
     __run_build_script
     buildx_status=$?
     if [ "$buildx_status" = 0 ]; then
@@ -1066,11 +1067,6 @@ __execute_buildx() {
   else
     tagged_name="$BUILDX_DEFAULT_HUB/$BUILDX_DEFAULT_REPO/$name"
   fi
-  if [ -d "$FULL_DIR_PATH/.git" ]; then
-    __run_git_pull
-    #printf_yellow "This seems to be a git repo: running git pull"
-  fi
-  [ -n "$Dockerfile" ] && printf_cyan "Setting Dockerfile to: ${Dockerfile//$PWD\//./}"
   tagged_name="${tagged_name//\/dockerfile/}"
   push_tag="$tagged_name:$tag_version"
   set_tag="${push_tag//$BUILDX_DEFAULT_HUB\//}"
@@ -1080,6 +1076,7 @@ __execute_buildx() {
   logscript_file="$logscript_dir/$(echo "$tagged_name" | awk -F '/' '{print $2}')-${tag_version}.sh"
   pretty_name="${set_tag/:*/}"
   printf_blue "Log is being written to: ${logfile//$HOME/~}"
+  [ -n "$Dockerfile" ] && printf_cyan "Setting Dockerfile to: ${Dockerfile//$PWD\//./}"
   if [ -f "$Dockerfile" ]; then
     [ -d "$FULL_DIR_PATH/rootfs" ] || mkdir -p "$FULL_DIR_PATH/rootfs"
   fi
@@ -1087,18 +1084,18 @@ __execute_buildx() {
   if __build_cmd "$FULL_DIR_PATH"; then
     notify_message+="Successfully built $set_tag $ADDITIONAL_PRETTY|"
     printf_green "Successfully built container: $pretty_name"
-    printf_green "Pulling the updated image"
+    printf '%s: ' "$(printf_green "Pulling the updated image")"
     if __docker pull "$push_tag" &>/dev/null; then
-      printf '\n%s\n' "# Successfully pulled $push_tag on : $(date +'%Y-%m-%d at %H:%M')" | tee -a "$logfile" &>/dev/null
-      notify_message+="Successfully pulled $push_tag|"
       printf_green "Successfully pulled $push_tag"
+      notify_message+="Successfully pulled $push_tag|"
+      printf '\n%s\n' "# Successfully pulled $push_tag on : $(date +'%Y-%m-%d at %H:%M')" | tee -a "$logfile" &>/dev/null
       __docker rmi "$push_tag" &>/dev/null || true
       __docker rmi "$pretty_name" &>/dev/null || true
       buildxexitCode=0
     else
-      printf '\n%s\n' "# Failed to pull $push_tag on : $(date +'%Y-%m-%d at %H:%M')" | tee -a "$logfile" &>/dev/null
-      notify_message+="Failed to pull $push_tag|"
       printf_red "Failed to pull $push_tag" 1>&2
+      notify_message+="Failed to pull $push_tag|"
+      printf '\n%s\n' "# Failed to pull $push_tag on : $(date +'%Y-%m-%d at %H:%M')" | tee -a "$logfile" &>/dev/null
       buildxexitCode+=1
     fi
   else
@@ -1159,7 +1156,7 @@ __buildx_all() {
   for file in "$BUILDX_CWD/Dockerfile"*; do
     file="$(realpath "$file" 2>/dev/null | grep '^' || echo '')"
     [ -n "$file" ] && [ -f "$file" ] || { printf_yellow "Can not find Dockerfile in $BUILDX_CWD" && statusCode=$((1 + statusCode)); }
-    eval $APPNAME "$file" || { printf_yellow "Can not find Dockerfile in $BUILDX_CWD" && statusCode=$((1 + statusCode)); }
+    eval $APPNAME --dir "$BUILDX_CWD" "$file" || { printf_yellow "Can not find Dockerfile in $BUILDX_CWD" && statusCode=$((1 + statusCode)); }
   done
   return $statusCode
 }
@@ -1169,14 +1166,14 @@ __automate() {
   BUILDX_CWD="$BUILDX_AUTOMATE_CWD"
   [ -f "$BUILDX_AUTOMATE_CWD" ] && BUILDX_AUTOMATE_CWD="$(dirname "$BUILDX_AUTOMATE_CWD" 2>/dev/null)"
   [ -d "$BUILDX_AUTOMATE_CWD" ] && BUILDX_AUTOMATE_CWD="${BUILDX_AUTOMATE_CWD:-$PWD}" || { printf_red "Usage: $APPNAME cron [dir]" && return 1; }
-  __run_git_pull "Rebuilding "
   __buildx_all "$BUILDX_AUTOMATE_CWD"
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_git_pull() {
-  local commit_cur="" commit_new=""
-  local dir="${REALPATH:-$BUILDX_CWD}"
+  local commit_cur="" commit_new="" dir=""
+  [ -z "$BUILDX_GIT_COMMIT_ID" ] || return 0
+  dir="$(realpath "${1:-$BUILDX_CWD}" 2>/dev/null || echo "${1:-$BUILDX_CWD}")"
   [ -d "$dir/.git" ] || return 1
   commit_cur="$(git -C "$dir" log 2>/dev/null | head -n1 | tr ' ' '\n' | grep '[0-9].*[0-9].*[a-z]' || false)"
   printf_cyan "Attempting to update repo in $dir"
@@ -1184,10 +1181,11 @@ __run_git_pull() {
   commit_new="$(git -C "$dir" log 2>/dev/null | head -n1 | tr ' ' '\n' | grep '[0-9].*[0-9].*[a-z]' || false)"
   [ -n "$commit_cur" ] && [ -n "$commit_new" ] || { printf_red "Failed to get the git commit history" && return 1; }
   if [ "$commit_cur" = "$commit_new" ]; then
-    printf_cyan "No commit changes detected! ${1:-}commit id: $commit_cur"
+    printf_cyan "No commit changes detected! commit id: $commit_cur"
   else
     printf_cyan "Updated to commit: $commit_new"
   fi
+  export BUILDX_GIT_COMMIT_ID="${commit_new:-$commit_cur}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
@@ -1494,6 +1492,7 @@ export BUILDX_CWD
 # APP Variables overrides
 BUILDX_PID_NUMBER="$$"
 BUILDX_PID_FILE="$HOME/.local/run/$APPNAME/$APPNAME.pid"
+BUILDX_DOCKER_PLATFORMS="${BUILDX_DOCKER_PLATFORMS// /,}"
 BUILDX_DEFAULT_VERSION="$(echo "${BUILDX_SET_VERSION:-$BUILDX_DEFAULT_VERSION}" | awk -F ' ' '{print $1}' | sed 's|"||g')"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Export variables

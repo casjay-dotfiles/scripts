@@ -1,8 +1,8 @@
-## 👋 Welcome to GEN_README_REPLACE_APPNAME 🚀  
+## 👋 Welcome to REPLACE_APPNAME 🚀  
 
-GEN_README_REPLACE_DESCRIBE  
+REPLACE_DESCRIBE  
   
   
 ## Author  
 
-🤖 AuthorName: [Github](https://github.com/AuthorName) 🤖  
+🤖 REPLACE_AUTHOR_NAME: [Github](https://github.com/REPLACE_AUTHOR_NAME) 🤖  

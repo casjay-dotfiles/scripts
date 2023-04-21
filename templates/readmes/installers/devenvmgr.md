@@ -1,12 +1,12 @@
-## 👋 Welcome to GEN_README_REPLACE_APPNAME 🚀  
+## 👋 Welcome to REPLACE_APPNAME 🚀  
 
-GEN_README_REPLACE_DESCRIBE  
+REPLACE_DESCRIBE  
   
   
 ### Requires scripts to be installed
 
 ```shell
-sudo bash -c "$(curl -q -LSsf <https://github.com/dfmgr/installer/raw/GEN_README_REPLACE_DEFAULT_BRANCH/install.sh>)" && sudo systemmgr install installer  
+sudo bash -c "$(curl -q -LSsf <https://github.com/dfmgr/installer/raw/REPLACE_DEFAULT_BRANCH/install.sh>)" && sudo systemmgr install installer  
 ```
 
 OR
@@ -14,26 +14,26 @@ OR
 ### Automatic install/update  
 
 ```shell
-devenvmgr update GEN_README_REPLACE_APPNAME
+devenvmgr update REPLACE_APPNAME
 ```
 
 OR  
 
 ```shell
-bash -c "$(curl -q -LSsf "https://github.com/devenvmgr/GEN_README_REPLACE_APPNAME/raw/GEN_README_REPLACE_DEFAULT_BRANCH/install.sh")"
+bash -c "$(curl -q -LSsf "https://github.com/devenvmgr/REPLACE_APPNAME/raw/REPLACE_DEFAULT_BRANCH/install.sh")"
 ```
   
 Manual install:  
 
 ```shell
-git clone "https://github.com/devenvmgr/GEN_README_REPLACE_APPNAME" "$HOME/.local/share/CasjaysDev/devenvmgr/GEN_README_REPLACE_APPNAME"
-rsync -avhP "$HOME/.local/share/CasjaysDev/devenvmgr/GEN_README_REPLACE_APPNAME/." "MyProject" --exclude=*/.git/*
+git clone "https://github.com/devenvmgr/REPLACE_APPNAME" "$HOME/.local/share/CasjaysDev/devenvmgr/REPLACE_APPNAME"
+rsync -avhP "$HOME/.local/share/CasjaysDev/devenvmgr/REPLACE_APPNAME/." "MyProject" --exclude=*/.git/*
 ```
   
 Manual update:  
 
 ```shell
-git -C "$HOME/.local/share/CasjaysDev/devenvmgr/GEN_README_REPLACE_APPNAME" pull
+git -C "$HOME/.local/share/CasjaysDev/devenvmgr/REPLACE_APPNAME" pull
 ```
 
 ## Author  

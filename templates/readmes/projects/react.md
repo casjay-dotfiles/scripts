@@ -1,6 +1,6 @@
-## 👋 Welcome to ProjectName 🚀  
+## 👋 Welcome to REPLACE_PROJECT_NAME 🚀  
 
-GEN_README_REPLACE_DESCRIBE  
+REPLACE_DESCRIBE  
   
   
 ## Run production  
@@ -19,4 +19,4 @@ npm run start
   
 ## Author  
 
-🤖 AuthorName: [Github](https://github.com/AuthorName) 🤖  
+🤖 REPLACE_AUTHOR_NAME: [Github](https://github.com/REPLACE_AUTHOR_NAME) 🤖  

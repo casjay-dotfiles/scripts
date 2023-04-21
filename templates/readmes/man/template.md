@@ -1,19 +1,19 @@
-% GEN_README_REPLACE_APPNAME(1) Version REPLACE_VERSION | "GEN_README_REPLACE_APPNAME" Documentation
+% REPLACE_APPNAME(1) Version REPLACE_VERSION | "REPLACE_APPNAME" Documentation
 
-GEN_README_REPLACE_APPNAME
+REPLACE_APPNAME
 ====
 
-GEN_README_REPLACE_APPNAME — Documentation
+REPLACE_APPNAME — Documentation
 
 SYNOPSIS
 ========
 
-| **GEN_README_REPLACE_APPNAME** \[**--help**|**--version**|**--debug**|**--options**]
+| **REPLACE_APPNAME** \[**--help**|**--version**|**--debug**|**--options**]
 
 DESCRIPTION
 ===========
 
-GEN_README_REPLACE_DESCRIBE
+REPLACE_DESCRIBE
 
 Options
 -------
@@ -56,19 +56,19 @@ _/etc/hello.conf_
 ENVIRONMENT
 ===========
 
-**GEN_README_REPLACE_APPNAME**
+**REPLACE_APPNAME**
 
-: GEN_README_REPLACE_DESCRIBE.  
+: REPLACE_DESCRIBE.  
 
 BUGS
 ====
 
-See GitHub Issues: <https://github.com/AuthorName/GEN_README_REPLACE_APPNAME/issues>
+See GitHub Issues: <https://github.com/REPLACE_AUTHOR_NAME/REPLACE_APPNAME/issues>
 
 AUTHOR
 ======
 
-AuthorName: [Github](https://github.com/AuthorName)
+AuthorName: [Github](https://github.com/REPLACE_AUTHOR_NAME)
 
 SEE ALSO
 ========

@@ -1,22 +1,22 @@
-## 👋 Welcome to GEN_README_REPLACE_APPNAME 🚀  
+## 👋 Welcome to REPLACE_APPNAME 🚀  
 
-GEN_README_REPLACE_DESCRIBE  
+REPLACE_DESCRIBE  
   
   
 ### Requires scripts to be installed
 
 ```shell
-sudo bash -c "$(curl -q -LSsf "https://github.com/pkmgr/installer/raw/GEN_README_REPLACE_DEFAULT_BRANCH/install.sh")" && sudo pkmgr install installer  
+sudo bash -c "$(curl -q -LSsf "https://github.com/pkmgr/installer/raw/REPLACE_DEFAULT_BRANCH/install.sh")" && sudo pkmgr install installer  
 ```
 
 ### Automatic install/update  
 
 ```shell
-bash -c "$(curl -q -LSsf "https://github.com/pkmgr/installer/raw/GEN_README_REPLACE_DEFAULT_BRANCH/install.sh")"
-pkmgr curl GEN_README_REPLACE_URL/GEN_README_REPLACE_APPNAME.sh
+bash -c "$(curl -q -LSsf "https://github.com/pkmgr/installer/raw/REPLACE_DEFAULT_BRANCH/install.sh")"
+pkmgr curl REPLACE_URL/REPLACE_APPNAME.sh
 ```
 
 ## Author  
 
-🤖 AuthorName: [Github](https://github.com/AuthorName) 🤖  
+🤖 REPLACE_AUTHOR_NAME: [Github](https://github.com/REPLACE_AUTHOR_NAME) 🤖  
 ⛵ pkmgr: [Github](https://github.com/pkmgr) ⛵  

@@ -38,6 +38,5 @@ buildx
 
 ## Authors  
 
-📽 dockermgr: [Github](https://github.com/dockermgr) [Docker](https://hub.docker.com/r/casjaysdev) 📽  
-🤖 REPLACE_AUTHOR_NAME: [Github](https://github.com/REPLACE_AUTHOR_NAME) [Docker](https://hub.docker.com/r/REPLACE_AUTHOR_NAME) 🤖  
+🤖 REPLACE_AUTHOR_NAME: [Github](https://github.com/REPLACE_AUTHOR_NAME) 🤖  
 ⛵ REPLACE_REGISTRY_USER: [Github](https://github.com/REPLACE_REGISTRY_USER) [Docker](https://hub.docker.com/r/REPLACE_REGISTRY_USER) ⛵  

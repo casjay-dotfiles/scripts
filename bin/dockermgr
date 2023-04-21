@@ -106,6 +106,7 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional functions
+__cd() { \builtin cd "$1" || return 1; }
 __jq_exclude() { grep -vEw 'tools|templates|.github|community|template|docker-compose' | sort -u | grep -v 'null' | grep '^'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __disk_usage_pre() { total_disk_usage="$(\df -k | grep '/$' | awk '{print $3}' | sed 's|[a-zA-Z]||g' | grep '^' || return 1)"; }
@@ -1247,10 +1248,10 @@ fi
 SETARGS="$*"
 SHORTOPTS="p:,P,v:,m:,e:,d,u:,w:"
 LONGOPTS="raw,options,config,version,help,dir:"
-LONGOPTS+=",force,all,describe:,platform:,dockerfile,name:,info,domain:,hostname:,network:"
+LONGOPTS+=",force,all,describe:,platform:,dockerfile,name:,info,domain:,hostname:,network:,registry:"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="attach multiarch builder api enter test exec active available connect cron download inactive init install k3b minikube "
-ARRAY+="list log ps rancher remove rm rmi run search status update version ds network helm prune generate "
+ARRAY+="list log ps rancher remove rm rmi run search status update version ds network helm prune generate manifest rebuild "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST="airsonic alpine apache aria2 buildah bun caddy cherokee couchdb daapd ddns "
 LIST+="debian deno dictd docker gitea gohttpserver golang headphones heimdall "
@@ -1383,6 +1384,10 @@ while :; do
     export CONTAINER_HOSTNAME="$2"
     shift 2
     ;;
+  --registry)
+    DOCKERMGR_SET_REGISTRY="$2"
+    shift 2
+    ;;
   --)
     shift 1
     break
@@ -1422,8 +1427,8 @@ api)
     shift 1
     DOCKERHUB_USERNAME="${1:-$DOCKERHUB_USERNAME}"
     DOCKERHUB_PASSWORD="${2:-$DOCKERHUB_PASSWORD}"
-    [ -n "$DOCKERHUB_USERNAME" ] || printf_read_question "What is your username: " "100" "DOCKERHUB_USERNAME" || printf_exit "usage: $APPNAME auth [username] [password]"
-    [ -n "$DOCKERHUB_PASSWORD" ] || printf_read_password "What is your password" "DOCKERHUB_USERNAME" || printf_exit "usage: $APPNAME auth [$DOCKERHUB_USERNAME] [password]"
+    [ -n "$DOCKERHUB_USERNAME" ] || { printf_read_question 4 "What is your username:" "100" "DOCKERHUB_USERNAME" || return 1; } || printf_exit "usage: $APPNAME auth [username] [password]"
+    [ -n "$DOCKERHUB_PASSWORD" ] || { printf_read_password 4 "What is your password" "DOCKERHUB_PASSWORD" || return 1; } || printf_exit "usage: $APPNAME auth [$DOCKERHUB_USERNAME] [password]"
     [ -f "$DOCKERMGR_CONFIG_DIR/.hub_username" ] || echo "$DOCKERHUB_USERNAME" >"$DOCKERMGR_CONFIG_DIR/.hub_username"
     [ -f "$DOCKERMGR_CONFIG_DIR/.hub_password" ] || echo "$DOCKERHUB_PASSWORD" >"$DOCKERMGR_CONFIG_DIR/.hub_password"
     __orgs_api_auth "$@"
@@ -1491,6 +1496,29 @@ manifest)
   shift 1
   __create_manifest "$@"
   exit $?
+  ;;
+
+rebuild)
+  shift 1
+  repo_name="$(basename "$1")"
+  if [ -d "$1" ]; then
+    [ -n "$(ls -A "$1"/Dockerfile* 2>/dev/null)" ] || printf_exit "Can not find a Dockerfile in $1"
+    __cd "$1" && buildx all --image ${DOCKERMGR_CONTAINER_NAME:-$repo_name}
+    exit $?
+  else
+    org_name="$(basename "$(dirname "$1")")"
+    TEMP_GIT_DIR="$DOCKERMGR_TEMP_DIR/${org_name}_${repo_name}"
+    if [ -d "$TEMP_GIT_DIR/.git" ]; then
+      printf_cyan "Updating repo in $TEMP_GIT_DIR > $TEMP_GIT_DIR"
+      git pull "$TEMP_GIT_DIR" -qE
+    else
+      printf_cyan "Cloning $1 > $TEMP_GIT_DIR"
+      git clone --depth 1 -q "$1" "$TEMP_GIT_DIR"
+    fi
+    [ -n "$(ls -A "$TEMP_GIT_DIR"/Dockerfile* 2>/dev/null)" ] || printf_exit "Can not find a Dockerfile in $$TEMP_GIT_DIR"
+    __cd "$TEMP_GIT_DIR" && buildx all --image ${DOCKERMGR_CONTAINER_NAME:-$repo_name} && rm -Rf "$TEMP_GIT_DIR"
+    exit $?
+  fi
   ;;
 
 multiarch)

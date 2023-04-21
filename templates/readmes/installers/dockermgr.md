@@ -27,17 +27,17 @@ cp -Rfva "$HOME/.local/share/CasjaysDev/dockermgr/REPLACE_APPNAME/rootfs/." "$HO
 ## via command line  
 
 ```shell
-docker pull casjaysdevdocker/ProjectName:latest && \
+docker pull REPLACE_REGISTRY_USER/REPLACE_PROJECT_NAME:latest && \
 docker run -d \
 --restart always \
 --privileged \
---name casjaysdevdocker-ProjectName \
---hostname casjaysdev-ProjectName \
+--name REPLACE_REGISTRY_USER-REPLACE_PROJECT_NAME \
+--hostname REPLACE_REGISTRY_USER-REPLACE_PROJECT_NAME \
 -e TZ=${TIMEZONE:-America/New_York} \
--v $HOME/.local/share/srv/docker/REPLACE_APPNAME/rootfs/data:/data:z \
--v $HOME/.local/share/srv/docker/REPLACE_APPNAME/rootfs/config:/config:z \
+-v $HOME/.local/share/srv/docker/REPLACE_REGISTRY_USER-REPLACE_PROJECT_NAME/rootfs/data:/data:z \
+-v $HOME/.local/share/srv/docker/REPLACE_REGISTRY_USER-REPLACE_PROJECT_NAME/rootfs/config:/config:z \
 -p 80:80 \
-casjaysdevdocker/ProjectName:latest
+REPLACE_REGISTRY_USER/REPLACE_PROJECT_NAME:latest
 ```
 
 ## via docker-compose  
@@ -46,14 +46,14 @@ casjaysdevdocker/ProjectName:latest
 version: "2"
 services:
   ProjectName:
-    image: casjaysdevdocker/ProjectName
+    image: REPLACE_REGISTRY_USER/REPLACE_PROJECT_NAME
     container_name: ProjectName
     environment:
       - TZ=America/New_York
-      - HOSTNAME=casjaysdev-ProjectName
+      - HOSTNAME=REPLACE_REGISTRY_USER-REPLACE_PROJECT_NAME
     volumes:
-      - $HOME/.local/share/srv/docker/REPLACE_APPNAME/rootfs/data:/data:z
-      - $HOME/.local/share/srv/docker/REPLACE_APPNAME/rootfs/config:/config:z
+      - $HOME/.local/share/srv/docker/REPLACE_REGISTRY_USER-REPLACE_PROJECT_NAME/rootfs/data:/data:z
+      - $HOME/.local/share/srv/docker/REPLACE_REGISTRY_USER-REPLACE_PROJECT_NAME/rootfs/config:/config:z
     ports:
       - 80:80
     restart: always
@@ -61,6 +61,5 @@ services:
 
 ## Author  
 
-📽 dockermgr: [Github](https://github.com/dockermgr) 📽  
+🤖 REPLACE_AUTHOR_NAME: [Github](https://github.com/REPLACE_AUTHOR_NAME) 🤖  
 🤖 REPLACE_REGISTRY_USER: [Github](https://github.com/REPLACE_REGISTRY_USER) [Docker](https://hub.docker.com/r/REPLACE_REGISTRY_USER) 🤖  
-⛵ CasjaysDevDocker: [Github](https://github.com/casjaysdevdocker) [Docker](https://hub.docker.com/r/casjaysdevdocker) ⛵  

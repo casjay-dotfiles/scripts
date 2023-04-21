@@ -20,7 +20,7 @@ docker run --name -REPLACE_REGISTRY_USER-REPLACE_PROJECT_NAME REPLACE_REGISTRY_U
 ## Get source files  
 
 ```shell
-dockermgr download src REPLACE_PROJECT_NAME
+dockermgr download src REPLACE_REGISTRY_USER/REPLACE_PROJECT_NAME
 ```
 
 OR

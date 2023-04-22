@@ -170,6 +170,7 @@ __help() {
   __printf_opts "run_server:  Start an HTTP server from a directory - $VERSION"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "Usage: run_server [options] [commands]"
+  __printf_line "write          - "
   __printf_line "static         - "
   __printf_line "proxy          - "
   __printf_line "caddy          - "
@@ -286,6 +287,8 @@ __trap_exit_local() {
   [ -n "$RUN_SERVER_MAIN_PID" ] && kill -15 "$RUN_SERVER_MAIN_PID" &>/dev/null || true
   return ${retval:-0}
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__random_port() { echo "$((51000 + $RANDOM % 100))" | grep '^' || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __netstat() { netstat -taupln 2>/dev/null || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -451,7 +454,7 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_server() {
-  { eval "$*" &>/dev/null || __return_error || exit 1; } &
+  { "$@" &>"$RUN_SERVER_LOG_DIR/init.log" || __return_error || exit 1; } &
   export RUN_SERVER_SRV_WAIT_PID="$!"
   export RUN_SERVER_IS_RUNNING="true"
   clear
@@ -529,144 +532,118 @@ __proxy() {
   [ "$RUN_SERVER_IS_RUNNING" = "true" ] && return 0
   __cmd_exists caddy || return 1
   cd "$RUN_SERVER_CWD" || return 1
-  echo "$1" | grep -q ':[0-9]' && host="$1" || host="127.0.0.1:${1:-3000}"
+  echo "$1" | grep -q ':[0-9]' && host="$1" || host="${CURRENT_IP_4:-127.0.0.1}:${1:-3000}"
   caddy reverse-proxy --change-host-header --insecure --to $host --from :${2:-${RUN_SERVER_PORT:-20000}} &>>"$RUN_SERVER_LOG" || return 1 &&
     echo caddy started &>>"$RUN_SERVER_LOG" && other_port="$RUN_SERVER_LOG" || return 1
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__netcat_write() {
+  [ "$RUN_SERVER_IS_RUNNING" = "true" ] && return 0
+  [ -n "$RUN_SERVER_NETCAT_BIN" ] || return 1
+  cd "$RUN_SERVER_CWD" || return 1
+  while :; do
+    mkdir -p "$HOME/Documents/myscripts/$APPNAME/netcat"
+    printf '\n%s------------------\n' >>"$HOME/Documents/myscripts/$APPNAME/netcat/$RUN_SERVER_PORT.txt"
+    $RUN_SERVER_NETCAT_BIN -l -p "$RUN_SERVER_PORT" 2>>"$RUN_SERVER_LOG" >"$RUN_SERVER_SAVED_FILE"
+    cat "$RUN_SERVER_SAVED_FILE" >>"$HOME/Documents/myscripts/$APPNAME/netcat/$RUN_SERVER_PORT.txt"
+  done &>>"$RUN_SERVER_LOG"
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __netcat_serv() {
   [ "$RUN_SERVER_IS_RUNNING" = "true" ] && return 0
-  netcatcmd="$(builtin type -P nc 2>/dev/null || builtin type -P netcat 2>/dev/null || echo '')"
-  [ -n "$netcatcmd" ] || return 1
+  [ -n "$RUN_SERVER_NETCAT_BIN" ] || return 1
+  [ -f "index.html" ] || return 1
   cd "$RUN_SERVER_CWD" || return 1
-  while true; do
-    $netcatcmd -l "$RUN_SERVER_PORT" <.
-  done &>>"$RUN_SERVER_LOG" && echo netcat started &>>"$RUN_SERVER_LOG" || return 1
-  return $?
+  while :; do
+    file="$([ -f "index.html" ] && echo index.html || find "." -mindepth 1 -printf '%P\n' 2>/dev/null | head -n1 || echo 'Running')"
+    cat "$file" | $RUN_SERVER_NETCAT_BIN -l -p "$RUN_SERVER_PORT" &>>"$RUN_SERVER_LOG"
+  done &>>"$RUN_SERVER_LOG" || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __go() {
   [ "$RUN_SERVER_IS_RUNNING" = "true" ] && return 0
   __cmd_exists gohttpserver || return 1
   cd "$RUN_SERVER_CWD" || return 1
-  gohttpserver --theme dark --port $RUN_SERVER_PORT --title="Dev Server" -r "." --xheaders --cors &>>"$RUN_SERVER_LOG" &&
-    echo gohttpserver started &>>"$RUN_SERVER_LOG" || return 1
-  return $?
+  gohttpserver --theme dark --port $RUN_SERVER_PORT --title="Dev Server" -r "." --xheaders --cors &>>"$RUN_SERVER_LOG" || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __caddy() {
   [ "$RUN_SERVER_IS_RUNNING" = "true" ] && return 0
   __cmd_exists caddy || return 1
   cd "$RUN_SERVER_CWD" || return 1
-  caddy file-server -browse -listen :$RUN_SERVER_PORT -root "." -templates &>>"$RUN_SERVER_LOG" &&
-    echo caddy started &>>"$RUN_SERVER_LOG" || return 1
-  return $?
+  caddy file-server -browse -listen :$RUN_SERVER_PORT -root "." -templates &>>"$RUN_SERVER_LOG" || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __nginx() {
   [ "$RUN_SERVER_IS_RUNNING" = "true" ] && return 0
   __cmd_exists nginx || return 1
   cd "$RUN_SERVER_CWD" || return 1
-  nginx -c "$RUN_SERVER_CACHE_DIR/nginx.conf" &>>"$RUN_SERVER_LOG" &&
-    echo nginx started &>>"$RUN_SERVER_LOG" || return 1
-  return $?
+  nginx -c "$RUN_SERVER_CACHE_DIR/nginx.conf" &>>"$RUN_SERVER_LOG" || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __jekyll() {
   [ "$RUN_SERVER_IS_RUNNING" = "true" ] && return 0
   __cmd_exists jekyll || return 1
   cd "$RUN_SERVER_CWD" || return 1
-  jekyll serve -P $RUN_SERVER_PORT -l -H 0.0.0.0 &>>"$RUN_SERVER_LOG" &&
-    echo jekyll started &>>"$RUN_SERVER_LOG" || return 1
-  return $?
+  jekyll serve -P $RUN_SERVER_PORT -l -H 0.0.0.0 &>>"$RUN_SERVER_LOG" || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __js_serv() {
   [ "$RUN_SERVER_IS_RUNNING" = "true" ] && return 0
   __cmd_exists http-server || return 1
   cd "$RUN_SERVER_CWD" || return 1
-  http-server -a 0.0.0.0 -p $RUN_SERVER_PORT &>>"$RUN_SERVER_LOG" &&
-    echo http-server started &>>"$RUN_SERVER_LOG" || return 1
-  return $?
+  http-server -a 0.0.0.0 -p $RUN_SERVER_PORT &>>"$RUN_SERVER_LOG" || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __php_serv() {
   [ "$RUN_SERVER_IS_RUNNING" = "true" ] && return 0
-  phpcmd="$(builtin type -P php8 2>/dev/null || builtin type -P php7 2>/dev/null || builtin type -P php 2>/dev/null || echo '')"
   [ -n "$php" ] || return 1
   cd "$RUN_SERVER_CWD" || return 1
-  $phpcmd -S 0.0.0.0:$RUN_SERVER_PORT -t "$RUN_SERVER_CWD" &>>"$RUN_SERVER_LOG" &&
-    echo php started &>>"$RUN_SERVER_LOG" || return 1
-  return $?
+  $RUN_SERVER_PHP_BIN -S 0.0.0.0:$RUN_SERVER_PORT -t "$RUN_SERVER_CWD" &>>"$RUN_SERVER_LOG" || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __ruby_serv() {
   [ "$RUN_SERVER_IS_RUNNING" = "true" ] && return 0
   __cmd_exists ruby || return 1
   cd "$RUN_SERVER_CWD" || return 1
-  ruby -run -e httpd -p $RUN_SERVER_PORT &>>"$RUN_SERVER_LOG" &&
-    echo ruby started &>>"$RUN_SERVER_LOG" || return 1
-  return $?
+  ruby -run -e httpd -p $RUN_SERVER_PORT &>>"$RUN_SERVER_LOG" || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __rails_serv() {
   [ "$RUN_SERVER_IS_RUNNING" = "true" ] && return 0
   __cmd_exists rails || return 1
   cd "$RUN_SERVER_CWD" || return 1
-  server -p "$RUN_SERVER_PORT" &>>"$RUN_SERVER_LOG" &&
-    echo ruby started &>>"$RUN_SERVER_LOG" || return 1
-  return $?
+  server -p "$RUN_SERVER_PORT" &>>"$RUN_SERVER_LOG" || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __python3_serv() {
   [ "$RUN_SERVER_IS_RUNNING" = "true" ] && return 0
   __cmd_exists python3 || return 1
   cd "$RUN_SERVER_CWD" || return 1
-  python3 -m http.server --cgi --bind "$RUN_SERVER_ADDR" "$RUN_SERVER_PORT" &>>"$RUN_SERVER_LOG" &&
-    echo Py3 started &>>"$RUN_SERVER_LOG" || return 1
-  return $?
+  python3 -m http.server --cgi --bind "$RUN_SERVER_ADDR" "$RUN_SERVER_PORT" &>>"$RUN_SERVER_LOG" || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __python2_serv() {
   [ "$RUN_SERVER_IS_RUNNING" = "true" ] && return 0
   __cmd_exists python2 || return 1
   cd "$RUN_SERVER_CWD" || return 1
-  python2 -m http.server --cgi --bind "$RUN_SERVER_ADDR" "$RUN_SERVER_PORT" &>>"$RUN_SERVER_LOG" &&
-    echo Py2 started &>>"$RUN_SERVER_LOG" || return 1
-  return $?
+  python2 -m http.server --cgi --bind "$RUN_SERVER_ADDR" "$RUN_SERVER_PORT" &>>"$RUN_SERVER_LOG" || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __py_simple() {
   [ "$RUN_SERVER_IS_RUNNING" = "true" ] && return 0
   __cmd_exists python || return 1
   cd "$RUN_SERVER_CWD" || return 1
-  python -m SimpleHTTPServer "$RUN_SERVER_PORT" &>>"$RUN_SERVER_LOG" &&
-    echo "Py simple start" &>>"$RUN_SERVER_LOG" || return 1
-  return $?
+  python -m SimpleHTTPServer "$RUN_SERVER_PORT" &>>"$RUN_SERVER_LOG" || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __default_srv() {
   [ "$RUN_SERVER_IS_RUNNING" = "true" ] && return 0
   cmd_exists python2 || return 1
   cd "$RUN_SERVER_CWD" || return 1
-  python2 -c $'import SimpleHTTPServer;\nmap = SimpleHTTPServer.SimpleHTTPRequestHandler.extensions_map;\nmap[""] = "text/plain";\nfor key, value in map.items():\n\tmap[key] = value + ";charset=UTF-8";\nSimpleHTTPServer.test();' "$RUN_SERVER_PORT" &>>"$RUN_SERVER_LOG" &&
-    echo "Default has started" &>>"$RUN_SERVER_LOG" || return 1
-  return $?
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__netcat_serv() {
-  [ "$RUN_SERVER_IS_RUNNING" = "true" ] && return 0
-  local file
-  netcatcmd="$(builtin type -P nc 2>/dev/null || builtin type -P netcat 2>/dev/null || echo '')"
-  [ -n "$netcatcmd" ] || return 1
-  [ -f "index.html" ] || return 1
-  cd "$RUN_SERVER_CWD" || return 1
-  while :; do
-    file="$([ -f "index.html" ] && echo index.html || find "." -mindepth 1 -printf '%P\n' 2>/dev/null | head -n1 || echo 'Running')"
-    cat "$file" | $netcatcmd -l -p "$RUN_SERVER_PORT" &>>"$RUN_SERVER_LOG"
-  done &>>"$RUN_SERVER_LOG" && echo netcat started &>>"$RUN_SERVER_LOG" || return 1
-  return $?
+  python2 -c $'import SimpleHTTPServer;\nmap = SimpleHTTPServer.SimpleHTTPRequestHandler.extensions_map;\nmap[""] = "text/plain";\nfor key, value in map.items():\n\tmap[key] = value + ";charset=UTF-8";\nSimpleHTTPServer.test();' "$RUN_SERVER_PORT" &>>"$RUN_SERVER_LOG" || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __static() {
@@ -826,17 +803,11 @@ start_run_server() {
   RUN_SERVER_DIR="${RUN_SERVER_DIR:-$RUN_SERVER_CWD}"
   RUN_SERVER_URL="${RUN_SERVER_URL:-http://localhost:$RUN_SERVER_PORT}"
   export RUN_SERVER_OPEN_CMD="${RUN_SERVER_OPEN_CMD:-$RUN_SERVER_CONSOLE_CMD}"
+  RUN_SERVER_LISTEN_MESSAGE="${RUN_SERVER_LISTEN_MESSAGE//IP_ADD/$CURRENT_IP_4}"
+  RUN_SERVER_LISTEN_MESSAGE="${RUN_SERVER_LISTEN_MESSAGE//RPORT/$RUN_SERVER_PORT}"
   export RUN_SERVER_DIR RUN_SERVER_URL RUN_SERVER_PORT RUN_SERVER_OPEN_CMD RUN_SERVER_SCREEN_OPEN_LOG
   export -f start_run_server __lsof __port_used open_browser open_editor open_filemanager
-  printf '%s\n' "Starting the server on port $RUN_SERVER_PORT" &>"$RUN_SERVER_LOG"
-  #i=0
-  #while [ $i -lt $MAX_NUMBER_OF_TRIES ]; do
-  #  sleep 1
-  #  if __port_used "$RUN_SERVER_PORT" || __lsof "$RUN_SERVER_PORT"; then
-  #    break
-  #  fi
-  #  i=$((i + 1))
-  #done
+  printf '%s\n' "Attempting to start $prog on port $RUN_SERVER_PORT" &>"$RUN_SERVER_LOG"
   __run_server "$@"
   sleep 5
   RUN_SERVER_DAEMON="$(__get_daemon_name)"
@@ -848,9 +819,9 @@ start_run_server() {
   printf '\n\n\n'
   printf_yellow "${RUN_SERVER_DAEMON:-The web server} has started on port: $RUN_SERVER_PORT"
   printf_cyan "$APPNAME pid is: $RUN_SERVER_MAIN_PID and the web server pid is: $RUN_SERVER_SRV_PID"
-  printf_purple "serving files from $RUN_SERVER_CWD"
+  printf_purple "${RUN_SERVER_ACTION_MESSAGE:-serving files from $RUN_SERVER_CWD}"
   printf_blue "Log file: $RUN_SERVER_LOG"
-  printf_yellow "Access from the network: $RUN_SERVER_URL"
+  printf_yellow "${RUN_SERVER_LISTEN_MESSAGE:-Access from the network: $RUN_SERVER_URL}"
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   run_editor
   run_filemanager
@@ -863,7 +834,7 @@ start_run_server() {
   #fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__execute_run_server() {
+__initialize_app() {
   clear
   printf_newline '\n\n\n'
   [ -n "${2:-$1}" ] && __number_test "${2:-$1}" && RUN_SERVER_PORT="${2:-$1}" || RUN_SERVER_PORT="$RUN_SERVER_DEFAULT_PORT"
@@ -927,155 +898,6 @@ __execute_run_server() {
   export RUN_SERVER_OPEN_FILE_MANAGER_CMD RUN_SERVER_OPEN_BROWSER_CMD RUN_SERVER_OPEN_EDITOR_CMD
   export SCREEN_SESSION SCREEN_SHELL SCREEN_SESSION_NAME
   export -f start_run_server open_browser open_editor open_filemanager
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  #exec_screen $APPNAME "$@"
-  # # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  # begin main app
-  case "$1" in
-  source)
-    shift 1
-    __set_vars "export_source" "$@"
-    return 0
-    ;;
-
-  proxy)
-    shift 1
-    prog="caddy"
-    export -f __proxy
-    __prog_check "$prog"
-    __set_vars $2
-    __main__ "__proxy $1 ${2:$RUN_SERVER_PORT}"
-    exit $?
-    ;;
-
-  static | nginx)
-    shift 1
-    prog="nginx"
-    export -f __nginx
-    __nginx_config >"$RUN_SERVER_CACHE_DIR/nginx.conf"
-    __prog_check "$prog"
-    __set_vars $1
-    __main__ "__nginx"
-    exit $?
-    ;;
-
-  caddy)
-    shift 1
-    prog="caddy"
-    export -f __caddy
-    __prog_check "$prog"
-    __set_vars $1
-    __main__ "__caddy $RUN_SERVER_PORT"
-    exit $?
-    ;;
-
-  go)
-    shift 1
-    prog="gohttpserver"
-    export -f __go
-    __prog_check "$prog"
-    __set_vars $1
-    __main__ "__go $RUN_SERVER_PORT"
-    exit $?
-    ;;
-
-  jekyll)
-    shift 1
-    prog="jekyll"
-    export -f __jekyll
-    __prog_check "$prog"
-    __set_vars $1
-    __main__ "__jekyll $RUN_SERVER_PORT"
-    exit $?
-    ;;
-
-  js)
-    shift 1
-    prog="http-server"
-    export -f __js_serv
-    __prog_check "$prog"
-    __set_vars $1
-    __main__ "__js_serv $RUN_SERVER_PORT"
-    exit $?
-    ;;
-
-  php)
-    shift 1
-    prog="php"
-    export -f __php_serv
-    __prog_check "$prog"
-    __set_vars $1
-    __main__ "__php_serv $RUN_SERVER_PORT"
-    exit $?
-    ;;
-
-  rails)
-    shift 1
-    prog="ruby"
-    export -f __rails_serv
-    __prog_check "$prog"
-    __set_vars $1
-    __main__ "__rails_serv $RUN_SERVER_PORT"
-    exit $?
-    ;;
-
-  ruby)
-    shift 1
-    prog="ruby"
-    export -f __ruby_serv
-    __prog_check "$prog"
-    __set_vars $1
-    __main__ "__ruby_serv $RUN_SERVER_PORT"
-    exit $?
-    ;;
-
-  python2)
-    shift 1
-    prog="python2"
-    export -f __python2_serv
-    __prog_check "$prog"
-    __set_vars $1
-    __main__ "__python2_serv $RUN_SERVER_PORT"
-    exit $?
-    ;;
-
-  python3)
-    shift 1
-    prog="python3"
-    export -f __python3_serv
-    __prog_check "$prog"
-    __set_vars $1
-    __main__ "__python3_serv $RUN_SERVER_PORT"
-    exit $?
-    ;;
-
-  netcat | nc)
-    shift 1
-    prog="$(basename $(type -P netcat 2>/dev/null || type -P nc 2>/dev/null) 2>/dev/null)"
-    export -f __netcat_serv
-    __prog_check "$prog"
-    __set_vars $1
-    __main__ "__netcat_serv"
-    exit $?
-    ;;
-
-  default)
-    shift 1
-    prog="__try_default"
-    export -f __try_default
-    __prog_check "$prog"
-    __set_vars $1
-    __main__ "__try_default"
-    exit $?
-    ;;
-
-  *)
-    export -f __try_default
-    __prog_check "$prog"
-    __set_vars $1
-    __main__ "__try_default"
-    ;;
-  esac
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __main__() {
@@ -1131,14 +953,16 @@ RUN_SERVER_NOTIFY_CLIENT_ICON="${RUN_SERVER_NOTIFY_CLIENT_ICON:-notification-new
 RUN_SERVER_NOTIFY_CLIENT_URGENCY="${RUN_SERVER_NOTIFY_CLIENT_URGENCY:-normal}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional Variables
+RUN_SERVER_HOST="${RUN_SERVER_HOST:-$(__gethostname)}"
 RUN_SERVER_BROWSER_ARGS="${RUN_SERVER_BROWSER_ARGS:-}"
-RUN_SERVER_DEFAULT_DIR="${RUN_SERVER_DEFAULT_DIR:-$HOME/Public/www}"
 RUN_SERVER_DEFAULT_PORT="${RUN_SERVER_DEFAULT_PORT:-19922}"
 RUN_SERVER_ENABLE_WEB_BROWSER="${RUN_SERVER_ENABLE_WEB_BROWSER:-}"
-RUN_SERVER_ENABLE_FILE_MANAGER="${RUN_SERVER_ENABLE_FILE_MANAGER:-}"
 RUN_SERVER_ENABLE_FILE_EDITOR="${RUN_SERVER_ENABLE_FILE_EDITOR:-}"
-RUN_SERVER_HOST="${RUN_SERVER_HOST:-$(__gethostname)}"
+RUN_SERVER_ENABLE_FILE_MANAGER="${RUN_SERVER_ENABLE_FILE_MANAGER:-}"
+RUN_SERVER_DEFAULT_DIR="${RUN_SERVER_DEFAULT_DIR:-$HOME/Public/www}"
 RUN_SERVER_ADDR="${RUN_SERVER_ADDR:-$(__getlipaddr && echo "$CURRENT_IP_4" || echo '127.0.0.1')}"
+RUN_SERVER_NETCAT_BIN="${RUN_SERVER_NETCAT_BIN:-$(builtin type -P nc 2>/dev/null || builtin type -P netcat 2>/dev/null || echo '')}"
+RUN_SERVER_PHP_BIN="${RUN_SERVER_PHP_BIN:-$(builtin type -P php8 2>/dev/null || builtin type -P php7 2>/dev/null || builtin type -P php 2>/dev/null || echo '')}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$RUN_SERVER_CONFIG_DIR/$RUN_SERVER_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
@@ -1191,7 +1015,7 @@ LONGOPTS+=",bg,screen,editor,filemanager,browser,console"
 LONGOPTS+=",enable-browser,enable-filemanager,enable-editor,enable-all"
 LONGOPTS+=",disable-browser,disable-filemanager,disable-editor,disable-all,allow-root"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-ARRAY="default proxy nginx static caddy go jekyll js php rails ruby python2 python3 netcat"
+ARRAY="write default proxy nginx static caddy go jekyll js php rails ruby python2 python3 netcat"
 ARRAY+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
@@ -1377,6 +1201,7 @@ export RUN_SERVER_CWD
 #am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
+RUN_SERVER_SAVED_FILE="${RUN_SERVER_SAVED_FILE:-$RUN_SERVER_TEMP_DIR/output.txt}"
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
@@ -1384,7 +1209,197 @@ export RUN_SERVER_CWD
 [ -z "$RUN_SERVER_AS_ROOT" ] && { [ "$USER" = "root" ] || [ "$UID" = "0" ]; } && RUN_SERVER_AS_ROOT="true"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
-__execute_run_server "$@"
+case "$1" in
+source)
+  shift 1
+  __set_vars "export_source" "$@"
+  return 0
+  ;;
+
+write)
+  shift 1
+  [ "$1" = "help" ] && printf_exit 1 2 "Usage: $APPNAME write [file] [port]"
+  RUN_SERVER_SAVED_FILE="$(realpath "${1:-$RUN_SERVER_SAVED_FILE}")"
+  RUN_SERVER_ACTION_MESSAGE="Saving output to $RUN_SERVER_SAVED_FILE"
+  RUN_SERVER_LISTEN_MESSAGE="Use: cat file|nc -c IP_ADD RPORT"
+  RUN_SERVER_CWD="$(dirname "$RUN_SERVER_SAVED_FILE")"
+  RUN_SERVER_DEFAULT_PORT="${2:-$(__random_port)}"
+  RUN_SERVER_DEFAULT_DIR="$RUN_SERVER_CWD"
+  prog="$RUN_SERVER_NETCAT_BIN"
+  export -f __netcat_write
+  __initialize_app
+  __prog_check "$prog"
+  __set_vars $RUN_SERVER_PORT
+  __main__ "__netcat_write"
+  exit $?
+  ;;
+
+proxy)
+  shift 1
+  { [ "$1" = "help" ] || [ $# -eq 0 ]; } && printf_exit 1 2 "Usage: $APPNAME proxy [toPort] [fromPort]"
+  prog="caddy"
+  export -f __proxy
+  __initialize_app
+  __prog_check "$prog"
+  __set_vars $2
+  __main__ "__proxy $1 ${2:-$RUN_SERVER_PORT}"
+  exit $?
+  ;;
+
+static | nginx)
+  shift 1
+  [ "$1" = "help" ] && printf_exit 1 2 "Usage: $APPNAME static [port]"
+  prog="nginx"
+  export -f __nginx
+  __initialize_app
+  __nginx_config >"$RUN_SERVER_CACHE_DIR/nginx.conf"
+  __prog_check "$prog"
+  __set_vars $1
+  __main__ "__nginx"
+  exit $?
+  ;;
+
+caddy)
+  shift 1
+  [ "$1" = "help" ] && printf_exit 1 2 "Usage: $APPNAME caddy [port]"
+  prog="caddy"
+  export -f __caddy
+  __initialize_app
+  __prog_check "$prog"
+  __set_vars $1
+  __main__ "__caddy $RUN_SERVER_PORT"
+  exit $?
+  ;;
+
+go)
+  shift 1
+  [ "$1" = "help" ] && printf_exit 1 2 "Usage: $APPNAME go [port]"
+  prog="gohttpserver"
+  export -f __go
+  __initialize_app
+  __prog_check "$prog"
+  __set_vars $1
+  __main__ "__go $RUN_SERVER_PORT"
+  exit $?
+  ;;
+
+jekyll)
+  shift 1
+  [ "$1" = "help" ] && printf_exit 1 2 "Usage: $APPNAME jekyll [port]"
+  prog="jekyll"
+  export -f __jekyll
+  __initialize_app
+  __prog_check "$prog"
+  __set_vars $1
+  __main__ "__jekyll $RUN_SERVER_PORT"
+  exit $?
+  ;;
+
+js)
+  shift 1
+  [ "$1" = "help" ] && printf_exit 1 2 "Usage: $APPNAME js [port]"
+  prog="http-server"
+  export -f __js_serv
+  __initialize_app
+  __prog_check "$prog"
+  __set_vars $1
+  __main__ "__js_serv $RUN_SERVER_PORT"
+  exit $?
+  ;;
+
+php)
+  shift 1
+  [ "$1" = "help" ] && printf_exit 1 2 "Usage: $APPNAME php [port]"
+  prog="$RUN_SERVER_PHP_BIN"
+  export -f __php_serv
+  __initialize_app
+  __prog_check "$prog"
+  __set_vars $1
+  __main__ "__php_serv $RUN_SERVER_PORT"
+  exit $?
+  ;;
+
+rails)
+  shift 1
+  [ "$1" = "help" ] && printf_exit 1 2 "Usage: $APPNAME rails [port]"
+  prog="ruby"
+  export -f __rails_serv
+  __initialize_app
+  __prog_check "$prog"
+  __set_vars $1
+  __main__ "__rails_serv $RUN_SERVER_PORT"
+  exit $?
+  ;;
+
+ruby)
+  shift 1
+  [ "$1" = "help" ] && printf_exit 1 2 "Usage: $APPNAME ruby [port]"
+  prog="ruby"
+  export -f __ruby_serv
+  __initialize_app
+  __prog_check "$prog"
+  __set_vars $1
+  __main__ "__ruby_serv $RUN_SERVER_PORT"
+  exit $?
+  ;;
+
+python2)
+  shift 1
+  [ "$1" = "help" ] && printf_exit 1 2 "Usage: $APPNAME python2 [port]"
+  prog="python2"
+  export -f __python2_serv
+  __initialize_app
+  __prog_check "$prog"
+  __set_vars $1
+  __main__ "__python2_serv $RUN_SERVER_PORT"
+  exit $?
+  ;;
+
+python3)
+  shift 1
+  [ "$1" = "help" ] && printf_exit 1 2 "Usage: $APPNAME python3 [port]"
+  prog="python3"
+  export -f __python3_serv
+  __initialize_app
+  __prog_check "$prog"
+  __set_vars $1
+  __main__ "__python3_serv $RUN_SERVER_PORT"
+  exit $?
+  ;;
+
+netcat | nc)
+  shift 1
+  [ "$1" = "help" ] && printf_exit 1 2 "Usage: $APPNAME netcat [port]"
+  prog="$RUN_SERVER_NETCAT_BIN"
+  export -f __netcat_serv
+  __initialize_app
+  __prog_check "$prog"
+  __set_vars $1
+  __main__ "__netcat_serv"
+  exit $?
+  ;;
+
+default)
+  shift 1
+  [ "$1" = "help" ] && printf_exit 1 2 "Usage: $APPNAME default [port]"
+  prog="__try_default"
+  export -f __try_default
+  __initialize_app
+  __prog_check "$prog"
+  __set_vars $1
+  __main__ "__try_default"
+  exit $?
+  ;;
+
+*)
+  [ "$1" = "help" ] && printf_exit 1 2 "Usage: $APPNAME [port]"
+  export -f __try_default
+  __initialize_app
+  __prog_check "$prog"
+  __set_vars $1
+  __main__ "__try_default"
+  ;;
+esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set exit code
 exitCode="${exitCode:-0}"

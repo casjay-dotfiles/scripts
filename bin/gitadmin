@@ -558,7 +558,7 @@ __github_to_gitea() {
   if curl -q --retry 2 --retry-max-time 3 --retry-delay 3 -LSsf "https://$GITEA_DOMAIN/api/v1/orgs/$GITEA_ORG_NAME" 2>/dev/null | jq -rc '.name' | grep -q "$GITEA_ORG_NAME"; then
     printf_green "🆗🆗 $GITEA_ORG_NAME already exists 🆗🆗"
   else
-    GET_ORG="$(curl -q -LSsf -H "Authorization: token $GITHUB_TOKEN" "https://api.github.com/orgs/$GITHUB_ORG_NAME" 2>/dev/null | jq -r '.' || grep '^' || echo "")"
+    GET_ORG="$(__curl_gh_api -f "https://api.github.com/orgs/$GITHUB_ORG_NAME" | jq -r '.' || grep '^' || echo "")"
     ORG_LOC="$(echo "$GET_ORG" | jq -rc '.location' | grep -v 'null' | grep '^' || echo "USA")"
     ORG_NAME="$(echo "$GET_ORG" | jq -rc '.name' | grep -v 'null' | grep '^' || echo "$GITEA_ORG_NAME")"
     ORG_SITE="$(echo "$GET_ORG" | jq -rc '.blog' | grep -v 'null' | grep '^' || echo "https://$GITEA_DOMAIN/$GITEA_ORG_NAME")"
@@ -567,11 +567,11 @@ __github_to_gitea() {
     curl -q -LSsf -X 'POST' 'https://'$GITEA_DOMAIN'/api/v1/orgs?token='$GITEA_TOKEN'' -H 'accept: application/json' -H 'Content-Type: application/json' --data "{ \"username\": \"$GITEA_ORG_NAME\", \"description\": \"$ORG_DESC\", \"full_name\": \"$ORG_NAME\", \"location\": \"$ORG_LOC\", \"repo_admin_change_team_access\": true, \"visibility\": \"public\", \"website\": \"$ORG_SITE\" }" >"$GITADMIN_TEMP_FILE" 2>&1 || false
     [ $? -eq 0 ] && printf_blue "😹😹 Created the organization: $GITEA_ORG_NAME which is owned by $GITEA_USERNAME 😹😹" || printf_exit 5 1 "😿😿 Failed to create $GITEA_ORG_NAME: $(cat "$GITADMIN_TEMP_FILE" | grep 'curl: ' | sed 's|curl:.*) ||g' | head -n1) 😿😿 \n"
   fi
-  GET_REPOS="$(__curl_gh_api "https://api.github.com/orgs/$GITHUB_ORG_NAME/repos?per_page=2000" 2>/dev/null | jq -r '.[].html_url')"
+  GET_REPOS="$(__curl_gh_api "https://api.github.com/orgs/$GITHUB_ORG_NAME/repos?per_page=2000" | jq -r '.[].html_url')"
   [ -n "$GET_REPOS" ] || printf_exit 1 2 "💔💔 No repos exist for $GITHUB_ORG_NAME 💔💔"
   for URL in $GET_REPOS; do
     REPO_NAME=$(echo "$URL" | sed 's|https://github.com/'$GITHUB_ORG_NAME'/||g' | tr '[:upper:]' '[:lower:]' | grep '^' || return)
-    REPO_INFO="$(curl -q -LSsf -H "Authorization: token $GITHUB_TOKEN" "https://api.github.com/repos/$GITHUB_ORG_NAME/$REPO_NAME")"
+    REPO_INFO="$(__curl_gh_api -f "https://api.github.com/repos/$GITHUB_ORG_NAME/$REPO_NAME")"
     gitea_url="$GITEA_DOMAIN/$GITEA_ORG_NAME/$REPO_NAME"
     private="$(echo "$REPO_INFO" | jq -r '.private' | grep -v 'null' | grep '^' || echo "false")"
     website="$(echo "$REPO_INFO" | jq -r '.homepage' | grep -v 'null' | grep '^' || echo "$gitea_url")"
@@ -741,7 +741,7 @@ __api_org_token() {
   export MESSAGE="Getting the repos for org: $user"
   __curl_gh_api "$GITHUBAPIREPO" | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
   COUNT="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
-  [ "$COUNT" != 0 ] || GITADMIN_GITHUB_OWNER="false" __api_org_token "$user"
+  [ "$COUNT" != 0 ] || __api_user "$user" || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Organization API
@@ -749,7 +749,7 @@ __api_org() {
   local user="${1:-$GITADMIN_DEFAULT_USERNAME}"
   __api_org_token "$user"
   __urlverify "$GITHUBAPIREPO" || return 1
-  __devnull2 __curl_gh_api "$GITHUBAPIREPO"
+  __curl_gh_api "$GITHUBAPIREPO"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Call the API
@@ -1241,7 +1241,7 @@ ghgist_create() {
   printf_green "Creating gist with Description $gist_describe and filename: $gist_filename"
   mkdir -p "$save_dir"
   [ -f "$save_dir/all.txt" ] || printf '%s\n' "# My saved gists" >"$save_dir/all.txt"
-  __curl_gh_api -X POST -if "https://api.github.com/gists" --data @"${GITADMIN_TEMP_FILE}-data.txt" 2>${GITADMIN_TEMP_FILE}.err | grep -w "html_url" | grep "gist" | awk '{print $2}' | __sed 's/\,//;s|"||g' >"${GITADMIN_TEMP_FILE}"
+  __curl_gh_api -X POST -if "https://api.github.com/gists" --data @"${GITADMIN_TEMP_FILE}-data.txt" | grep -w "html_url" | grep "gist" | awk '{print $2}' | __sed 's/\,//;s|"||g' >"${GITADMIN_TEMP_FILE}"
   results="$(grep -qs '^' "${GITADMIN_TEMP_FILE}" && echo Success || echo '')"
   if [ "$results" = "Success" ]; then
     gist_exit=0
@@ -1272,7 +1272,7 @@ ghgist_edit() {
   gist_content="$(printf "%s\r" "{ \"description\": \"$gist_describe\", \"public\": true, \"files\": { \"$gist_filename\": {\"content\": \"$gist_content\" }}}" >$GITADMIN_TEMP_FILE-data.txt)"
   [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
   printf_green "Editing $gist_id with Description $gist_describe and filename: $gist_filename"
-  if __curl_gh_api -X PATCH -i --data @$GITADMIN_TEMP_FILE-data.txt https://api.github.com/gists/$gist_id | grep -w "html_url" | grep "gist" | awk '{print $2}' | __sed 's/\,//;s|"||g' 2>/dev/null >"$GITADMIN_TEMP_FILE"; then
+  if __curl_gh_api -X PATCH -i --data @$GITADMIN_TEMP_FILE-data.txt https://api.github.com/gists/$gist_id | grep -w "html_url" | grep "gist" | awk '{print $2}' | __sed 's/\,//;s|"||g' >"$GITADMIN_TEMP_FILE"; then
     gist_exit=0
     gist_id="Gist ID: $(basename $(head -n1 "$GITADMIN_TEMP_FILE"))"
     gist_succes="🚄 Gist Url: $(cat "$GITADMIN_TEMP_FILE" | grep -v '^$') 🚄"
@@ -1292,7 +1292,7 @@ ghdelete_user() {
   local git_user="${1:-$GITADMIN_DEFAULT_USERNAME}"
   local git_repo="${2:-$REPONAME}"
   [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
-  __curl_gh_api -X "DELETE" "$url/$git_user/$git_repo" >"$GITADMIN_TEMP_FILE" 2>/dev/null
+  __curl_gh_api -X "DELETE" "$url/$git_user/$git_repo" >"$GITADMIN_TEMP_FILE"
   if grep -qs 'Not Found' "$GITADMIN_TEMP_FILE"; then
     return 0
   elif __api_user "$git_user" | grep -qvi "$git_repo"; then
@@ -1365,7 +1365,7 @@ curl_orgs_create() {
   local HOMEPAGE="${SITE:-http://github.com/$user/$repo}"
   local url="https://api.github.com/orgs/$user/repos"
   [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
-  __curl_gh_api "$url" --data "{ \"name\": \"$repo\", \"description\": \"$DESCR\", \"homepage\": \"$SITE\", \"visibility\": \"${VISIBLE:-public}\", \"has_issues\": \"true\" }" &>"$GITADMIN_TEMP_FILE"
+  __curl_gh_api "$url" --data "{ \"name\": \"$repo\", \"description\": \"$DESCR\", \"homepage\": \"$SITE\", \"visibility\": \"${VISIBLE:-public}\", \"has_issues\": \"true\" }" >"$GITADMIN_TEMP_FILE"
   if grep -qis '"full_name".*"'$user'/'$repo'"' "$GITADMIN_TEMP_FILE"; then
     printf_green "https://github.com/$user/$repo has been created"
     return 0
@@ -1391,7 +1391,7 @@ curl_user_create() {
   local url="https://api.github.com/user/repos"
   local HOMEPAGE="${SITE:-http://github.com/$user/$repo}"
   [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
-  __curl_gh_api -f "$url" --data "{ \"name\": \"$repo\", \"description\": \"$DESCR\", \"homepage\": \"$SITE\", \"visibility\": \"${VISIBLE:-public}\", \"has_issues\": \"true\", \"has_projects\": \"false\" }" &>"$GITADMIN_TEMP_FILE"
+  __curl_gh_api -f "$url" --data "{ \"name\": \"$repo\", \"description\": \"$DESCR\", \"homepage\": \"$SITE\", \"visibility\": \"${VISIBLE:-public}\", \"has_issues\": \"true\", \"has_projects\": \"false\" }" >"$GITADMIN_TEMP_FILE"
   if grep -qis '"full_name".*"'$user'/'$repo'"' "$GITADMIN_TEMP_FILE"; then
     return 0
   elif grep -qis 'name already exists on this account' "$GITADMIN_TEMP_FILE"; then
@@ -1563,10 +1563,11 @@ __rename_branch_api() {
   git_user="${2:-$(basename "$(dirname "$GITADMIN_CWD")")}"
   git_repo="${3:-$(basename "$GITADMIN_CWD")}"
   [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
-  __curl_gh_api -X PATCH "https://api.github.com/repos/$git_user/$git_repo" -d '{"default_branch":"'$git_branch'"}' | grep -qs '"default_branch": "'$git_branch'"' &>/dev/null &&
-    git -C "$GITADMIN_CWD" push --delete origin ${git_old_branch:-master} -fq &>/dev/null &&
-    return 0 ||
+  if __curl_gh_api -X PATCH "https://api.github.com/repos/$git_user/$git_repo" -d '{"default_branch":"'$git_branch'"}' | grep -qs '"default_branch": "'$git_branch'"' >/dev/null; then
+    git -C "$GITADMIN_CWD" push --delete origin ${git_old_branch:-master} -fq &>/dev/null || return 1
+  else
     return 1
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_config_branch() {
@@ -1604,7 +1605,6 @@ __rename_branch() {
 __clone_orgs() {
   GITADMIN_DEFAULT_USERNAME="${1:-$GITADMIN_DEFAULT_USERNAME}"
   GITADMIN_DEFAULT_REPO_BASE="${2:-$GITADMIN_DEFAULT_REPO_BASE}/$GITADMIN_DEFAULT_USERNAME"
-  printf_green "Initialing $GITADMIN_DEFAULT_REPO_BASE"
   __api_org_token "$GITADMIN_DEFAULT_USERNAME"
   [ -n "$COUNT" ] && [ "$COUNT" != 0 ] || printf_exit "⛔ No repos found for $GITADMIN_DEFAULT_USERNAME ⛔"
   printf_green "$MESSAGE"
@@ -1688,10 +1688,10 @@ __strip_git_url() { echo "$1" | sed 's|\.git$||g' | sed -e "s/\r//g"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __curl_gh_api() {
   if [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ]; then
-    curl -q -LSs -H "Accept: application/vnd.github.v3+json" -H "X-GitHub-Api-Version: $GITADMIN_GITHUB_API_VERSION" "$@"
+    curl -q -LSs -H "Accept: application/vnd.github.v3+json" -H "X-GitHub-Api-Version: $GITADMIN_GITHUB_API_VERSION" "$@" 2>${GITADMIN_TEMP_FILE}.err
     return $?
   else
-    curl -q -LSs -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" -H "Accept: application/vnd.github.v3+json" -H "X-GitHub-Api-Version: $GITADMIN_GITHUB_API_VERSION" "$@"
+    curl -q -LSs -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" -H "Accept: application/vnd.github.v3+json" -H "X-GitHub-Api-Version: $GITADMIN_GITHUB_API_VERSION" "$@" 2>${GITADMIN_TEMP_FILE}.err
     return $?
   fi
 }
@@ -2178,7 +2178,7 @@ repos) # Show repos owned by user
   __api_user_token "$GITADMIN_DEFAULT_USERNAME"
   __curl_gh_api "$GITHUBAPIREPO" | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
   COUNT="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
-  [ -n "$COUNT" ] || printf_exit "No repos found for $GITADMIN_DEFAULT_USERNAME"
+  [ -n "$COUNT" ] || printf_exit "😿 No repos found for $GITADMIN_DEFAULT_USERNAME 😿"
   printf_green "$MESSAGE"
   printf_blue "There's currently $COUNT repos available"
   printf_green "Initialing $GITADMIN_DEFAULT_REPO_BASE"
@@ -2941,8 +2941,7 @@ issues) # Issue options
     content="$(printf "%s\r" "{ \"title\": \"$issue_title\", \"body\": \"$issue_body\" }" >$GITADMIN_TEMP_FILE)"
     __api_issues_token ${user} ${issue_repo:-}
     printf_green "Attempting to create a new issue "
-    __curl_gh_api -X "POST" "$ISSUE_API" -d @$GITADMIN_TEMP_FILE 2>/dev/null | jq -r ".html_url" 2>/dev/null | grep -v 'null' | printf_readline |
-      grep '^' || printf_exit 1 "Failed to create the issue on\n$ISSUE_API"
+    __curl_gh_api -X "POST" "$ISSUE_API" -d @$GITADMIN_TEMP_FILE 2>/dev/null | jq -r ".html_url" 2>/dev/null | grep -v 'null' | printf_readline | grep '^' || printf_exit 1 "Failed to create the issue on\n$ISSUE_API"
     ;;
 
   edit)
@@ -2957,8 +2956,7 @@ issues) # Issue options
     content="$(printf "%s\r" "{ \"title\": \"$issue_title\", \"body\": \"$issue_body\" }" >$GITADMIN_TEMP_FILE)"
     __api_issues_token "$user" "$issue_repo"
     printf_green "Attempting to edit issue $issue_number"
-    __curl_gh_api -X "PATCH" "$ISSUE_API/$issue_number" -d @$GITADMIN_TEMP_FILE 2>/dev/null | jq -r ".html_url" 2>/dev/null |
-      grep -v 'null' | printf_readline | grep '^' || printf_exit 1 "Failed to edit the issue at\n$ISSUE_API/$issue_number"
+    __curl_gh_api -X "PATCH" "$ISSUE_API/$issue_number" -d @$GITADMIN_TEMP_FILE 2>/dev/null | jq -r ".html_url" 2>/dev/null | grep -v 'null' | printf_readline | grep '^' || printf_exit 1 "Failed to edit the issue at\n$ISSUE_API/$issue_number"
     ;;
 
   delete)

@@ -273,14 +273,19 @@ __trap_exit() {
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gen_config_local() {
+  __copy_templates &>/dev/null
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
+__has_ipv4() { [ -n "$2" ] && printf '%s%s\n' "$1" "$2" || return; }
+__has_ipv6() { [ -n "$2" ] && printf '%s%s\n' "$1" "$2" || return; }
+__grep_prev() { grep -sE "$1" "$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone" | awk -F' ' '{print $4}' | head -n1 | grep '^' || echo ''; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __tsig_key() {
   [ -n "$(type -P tsig-keygen || false)" ] || return 1
   tsig-keygen -a hmac-sha256 | grep 'secret' | sed 's|.*secret ||g;s|"||g;s|;||g' | grep '^' || return 1
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__has_ipv4() { [ -n "$2" ] && printf '%s%s\n' "$1" "$2" || return; }
-__has_ipv6() { [ -n "$2" ] && printf '%s%s\n' "$1" "$2" || return; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __import() {
   local dir="${GEN_DNS_IMPORT_DIR:-/var/named/master}"
@@ -292,6 +297,24 @@ $import
 ;  ********** end imported settings **********
 
 EOF
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__copy_templates() {
+  printf_green "Installing the dns templates"
+  mkdir -p "$GEN_DNS_TEMPLATE_DIR"
+  if [ -d "$GEN_DNS_TEMPLATE_DIR/.git" ]; then
+    git -C "$GEN_DNS_TEMPLATE_DIR" pull -q
+  elif [ -d "$CASJAYSDEVDIR/templates/dns" ]; then
+    printf_green "Copying the template files: $CASJAYSDEVDIR/templates/dns > $GEN_DNS_TEMPLATE_DIR"
+    __cp_rf "$CASJAYSDEVDIR/templates/dns/." "$GEN_DNS_TEMPLATE_DIR/"
+    if [ "$(__count_files $GEN_DNS_TEMPLATE_DIR)" -ne 0 ]; then
+      printf_green "Copying has succeeded"
+    else
+      printf_error "Copying of files has failed"
+    fi
+  else
+    printf_error "Can not get dns files"
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __set_ip_addresses() {
@@ -332,212 +355,16 @@ __edit_conf() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __template() {
-  local serial="" domain="" dns_ipv4="" dns_ipv6="" host_ipv4="" host_ipv6=""
-  [ -n "$GEN_DNS_VERSION_NEW" ] && GEN_DNS_VERSION="${GEN_DNS_VERSION_NEW: -2}"
-  serial="$(date +"$GEN_DNS_SERIAL_FMT")$GEN_DNS_VERSION"
-  domain="$GEN_DNS_DEFAULT_DOMAIN"
-  dns_ipv4="${GEN_DNS_DEFAULT_DNS_IP4:-}"
-  dns_ipv6="${GEN_DNS_DEFAULT_DNS_IP6:-}"
-  host_ipv4="${GEN_DNS_DEFAULT_HOST_IP4:-}"
-  host_ipv6="${GEN_DNS_DEFAULT_HOST_IP6:-}"
-  if [ -f "$GEN_DNS_FILE_ZONE_DIR/template.zone" ]; then
+  local serial="$GEN_DNS_SERIAL-$GEN_DNS_VERSION"
+  local domain="$GEN_DNS_DEFAULT_DOMAIN"
+  local dns_ipv4="${GEN_DNS_DEFAULT_DNS_IP4:-}"
+  local dns_ipv6="${GEN_DNS_DEFAULT_DNS_IP6:-}"
+  local host_ipv4="${GEN_DNS_DEFAULT_HOST_IP4:-}"
+  local host_ipv6="${GEN_DNS_DEFAULT_HOST_IP6:-}"
+  local template="${GEN_DNS_DEFAULT_TEMPLATE:-domain}"
+  if [ -f "$GEN_DNS_FILE_ZONE_DIR/$template.zone" ]; then
     cat <<EOF
-$(. "$GEN_DNS_CONFIG_DIR/template.zone")
-
-EOF
-  else
-    cat <<EOF
-; Bind DNS settings for $domain
-;  ********** begin soa settings                      **********
-\$ORIGIN                                                        $domain.
-\$TTL                                                           38400
-@                                         IN       SOA         dns1 dns-admin ( $serial 10800 3600 1209600 38400 )
-;  ********** end soa settings                        **********
-
-;  ********** begin nameserver settings               **********
-@                                         IN       NS          ${GEN_DNS_DEFAULT_NAMESERVER_1:-dns1}
-@                                         IN       NS          ${GEN_DNS_DEFAULT_NAMESERVER_2:-dns2}
-;@                                        IN       NS          dns1.$domain.
-;@                                        IN       NS          dns2.$domain.
-;  ********** end nameserver settings                 **********
-
-;  ********** begin domain settings                   **********
-dns                                       IN       A           $dns_ipv4
-dns1                                      IN       A           $dns_ipv4
-dns2                                      IN       A           $dns_ipv4
-$(__has_ipv6 "dns                                       IN       AAAA        " "$dns_ipv6")
-$(__has_ipv6 "dns1                                      IN       AAAA        " "$dns_ipv6")
-$(__has_ipv6 "dns2                                      IN       AAAA        " "$dns_ipv6")
-;  ********** end domain settings                     **********
-
-;  ********** begin host settings                     **********
-@                                         IN       A           $host_ipv4
-*                                         IN       A           $host_ipv4
-$(__has_ipv6 "@                                         IN       AAAA        " "$host_ipv6")
-$(__has_ipv6 "*                                         IN       AAAA        " "$host_ipv6")
-;  ********** end host settings                       **********
-
-;  ********** begin dns server info                   **********
-@                                         IN       HINFO       $GEN_DNS_DEFAULT_HWINFO
-*                                         IN       HINFO       $GEN_DNS_DEFAULT_HWINFO
-@                                         IN       TXT         $GEN_DNS_DEFAULT_TXTINFO
-*                                         IN       TXT         $GEN_DNS_DEFAULT_TXTINFO
-;  ********** end dns server info                     **********
-
-;  ********** begin github pages settings *           **********
-;@                                         IN       CNAME        username.github.io.; [preferred] - use github cname
-;*                                         IN       CNAME        username.github.io.; [preferred] - use github cname
-;@                                         IN       A            185.199.108.153 ; github pages
-;@                                         IN       A            185.199.109.153 ; github pages
-;@                                         IN       A            185.199.110.153 ; github pages
-;@                                         IN       A            185.199.111.153 ; github pages
-;*                                         IN       A            185.199.108.153 ; github pages
-;*                                         IN       A            185.199.109.153 ; github pages
-;*                                         IN       A            185.199.110.153 ; github pages
-;*                                         IN       A            185.199.111.153 ; github pages
-;  ********** end github pages settings               **********
-
-;  ********** begin email settings                    **********
-gsuite                                    IN       CNAME        gsuite.mail.casjay.net.redirect.center.
-client                                    IN       CNAME        gsuite.mail.casjay.net.redirect.center.
-mail                                      IN       CNAME        ASPMX.L.GOOGLE.COM.
-smtp                                      IN       CNAME        smtp.gmail.com.
-imap                                      IN       CNAME        imap.gmail.com.
-pop                                       IN       CNAME        pop.gmail.com.
-autoconfig                                IN       CNAME        mail
-autodiscover                              IN       CNAME        mail
-@                                         IN       MX           1 ASPMX.L.GOOGLE.COM.
-*                                         IN       MX           1 ASPMX.L.GOOGLE.COM.
-@                                         IN       MX           5 ALT1.ASPMX.L.GOOGLE.COM.
-*                                         IN       MX           5 ALT1.ASPMX.L.GOOGLE.COM.
-@                                         IN       MX           5 ALT2.ASPMX.L.GOOGLE.COM.
-*                                         IN       MX           5 ALT2.ASPMX.L.GOOGLE.COM.
-;  ********** end email settings                      **********
-
-;  ********** begin gsuite settings                   **********
-office                                    IN       CNAME        gsuite.casjay.net.redirect.center.
-sites                                     IN       CNAME        gsuite.sites.casjay.net.redirect.center.
-drive                                     IN       CNAME        gsuite.drive.casjay.net.redirect.center.
-cloud                                     IN       CNAME        gsuite.drive.casjay.net.redirect.center.
-groups                                    IN       CNAME        gsuite.groups.casjay.net.redirect.center.
-calendar                                  IN       CNAME        gsuite.calendar.casjay.net.redirect.center.
-admin.gsuite                              IN       CNAME        google.com.opts-slash.a.opts-slash.casjay.net.opts-https.redirect.center.
-;  ********** end gsuite settings                     **********
-
-;  ********** begin database settings                 **********
-sql                                       IN       CNAME        sqldb.us.
-*.sql                                     IN       CNAME        sqldb.us.
-pgsql                                     IN       CNAME        sqldb.us.
-mysql                                     IN       CNAME        sqldb.us.
-mongo                                     IN       CNAME        sqldb.us.
-redis                                     IN       CNAME        sqldb.us.
-;  ********** end database settings                   **********
-
-;  ********** begin nntp settings                     **********
-nntp                                      IN       CNAME        $domain.
-news                                      IN       CNAME        nntp
-lists                                     IN       CNAME        nntp
-;  ********** end nntp settings                       **********
-
-;  ********** begin ntp settings                      **********
-ntp                                       IN       CNAME        $domain.
-pool.ntp                                  IN       CNAME        casjay.pool.ntp.org.
-*.pool.ntp                                IN       CNAME        casjay.pool.ntp.org.
-;  ********** end ntp settings                        **********
-
-;  ********** begin xmpp settings                     **********
-xmpp                                      IN       CNAME        xmpp.is.
-talk                                      IN       CNAME        xmpp  ; xmpp.is
-userdata                                  IN       CNAME        xmpp  ; xmpp.is
-pubsub                                    IN       CNAME        xmpp  ; xmpp.is
-conference                                IN       CNAME        xmpp  ; xmpp.is
-_xmpp-server.conference.xmpp              IN       SRV          10  1   5269    xmpp.is.  ; xmpp.is
-_xmpp-server.pubsub._tcp.xmpp             IN       SRV          10  1   5269    xmpp.is.  ; xmpp.is
-_xmpp-client._tcp.xmpp                    IN       SRV          10  1   5222    xmpp.is.  ; xmpp.is
-_xmpp-server._tcp.xmpp                    IN       SRV          10  1   5269    xmpp.is.  ; xmpp.is
-_jabber._tcp.xmpp                         IN       SRV          5   0   5269    xmpp.is.  ; xmpp.is
-;  ********** end xmpp settings                       **********
-
-;  ********** begin google chat settings              **********
-chat                                      IN       CNAME        xmpp-server.l.google.com.
-_xmpp-server._tcp.chat                    IN       SRV          5   0   5269    xmpp-server.l.google.com.   ; google xmpp
-_xmpp-server._tcp.chat                    IN       SRV          20  0   5269    xmpp-server1.l.google.com.  ; google xmpp
-_xmpp-server._tcp.chat                    IN       SRV          20  0   5269    xmpp-server2.l.google.com.  ; google xmpp
-_xmpp-server._tcp.chat                    IN       SRV          20  0   5269    xmpp-server3.l.google.com.  ; google xmpp
-_xmpp-server._tcp.chat                    IN       SRV          20  0   5269    xmpp-server4.l.google.com.  ; google xmpp
-_jabber._tcp.chat                         IN       SRV          5   0   5269    xmpp-server.l.google.com.   ; google xmpp
-_jabber._tcp.chat                         IN       SRV          20  0   5269    xmpp-server1.l.google.com.  ; google xmpp
-_jabber._tcp.chat                         IN       SRV          20  0   5269    xmpp-server2.l.google.com.  ; google xmpp
-_jabber._tcp.chat                         IN       SRV          20  0   5269    xmpp-server3.l.google.com.  ; google xmpp
-_jabber._tcp.chat                         IN       SRV          20  0   5269    xmpp-server4.l.google.com.  ; google xmpp
-;  ********** end google chat settings                **********
-
-;  ********** begin irc settings                      **********
-irc                                       IN       CNAME        chat.freenode.net.
-webchat                                   IN       CNAME        webchat.freenode.net.
-_irc._tcp                                 IN       SRV          10 10   6667    chat.freenode.net.
-_ircs._tcp                                IN       SRV          10 10   6697    chat.freenode.net.
-;  ********** begin irc settings                      **********
-
-;  ********** begin sip settings                      **********
-;pbx                                       IN       CNAME        casjay.tel.
-;sip                                       IN       CNAME        casjay.tel.
-;tel                                       IN       CNAME        casjay.tel.
-;iax                                       IN       CNAME        casjay.tel.
-;  ********** end sip settings                        **********
-
-;  ********** begin support settings                  **********
-;wiki                                      IN       CNAME        help.casjay.net.redirect.center.
-;support                                   IN       CNAME        help.casjay.net.redirect.center.
-;  ********** end support settings                    **********
-
-;  ********** begin vpn settings                      **********
-ftp                                       IN       A            132.226.33.75
-ftp                                       IN       AAAA         2603:c020:4005:4d00:3c49:c239:91c9:74c3
-
-;  ********** begin vpn settings                      **********
-
-;  ********** begin vpn settings                      **********
-;ppp                                       IN       A            185.199.110.153
-;vpn                                       IN       A            185.199.110.153
-;  ********** end vpn settings                        **********
-
-;  ********** begin user defined settings             **********
-$(__import "$domain" "$host_ipv4" "$host_ipv6")
-;  ********** end user defined settings               **********
-
-;  ********** other settings                          **********
-dict                                      IN       A            150.230.183.65
-checkip                                   IN       A            150.230.183.65
-myip                                      IN       CNAME        checkip
-cgi                                       IN       CNAME        cgi-bin.casjay.info.
-slack                                     IN       CNAME        casjay.slack.com.redirect.center.
-;  ********** begin user defined settings             **********
-localhost                                 IN       A            127.0.0.1
-localhost                                 IN       AAAA         ::1
-;  ********** end user defined settings               **********
-
-;  ********** begin dns verification records settings **********
-
-;  ********** end dns verification records settings   **********
-
-;  ********** begin security verification             **********
-@                                          IN      TXT          "v=spf1 a mx ptr all"
-*                                          IN      TXT          "v=spf1 a mx ptr all"
-_dmarc                                     IN      TXT          "v=DMARC1; p=none; rua=mailto:postmaster+dmarc@$domain"
-*._dmarc                                   IN      TXT          "v=DMARC1; p=none; rua=mailto:postmaster+dmarc@$domain"
-;google._domainkey                         IN      TXT          "v=DKIM1; k=rsa;" "p=" ; dkim
-;default._domainkey                        IN      TXT          "v=DKIM1; k=rsa;" "p=" ; dkim
-;*.google._domainkey                       IN      TXT          "v=DKIM1; k=rsa;" "p=" ; dkim
-;*.default._domainkey                      IN      TXT          "v=DKIM1; k=rsa;" "p=" ; dkim
-;  ********** end security records verification       **********
-
-;  ********** begin certificate authority settings    **********
-@                                         IN       CAA          0 issue  "letsencrypt.org"
-@                                         IN       CAA          0 iodef  "mailto:casjay+ssl@gmail.com"
-@                                         IN       TYPE257      \# 22    000569737375656C657473656E63727970742E6F7267
-;  ********** end certificate authority settings      **********
-
+$(. "$GEN_DNS_TEMPLATE_DIR/$template.zone")
 EOF
   fi
 }
@@ -553,75 +380,7 @@ __named_conf() {
 
   if [ ! -f "$NAMED_CONF" ]; then
     cat <<EOF | tee "$NAMED_CONF" &>/dev/null
-# default options - https://bind9.readthedocs.io/en/latest/chapter3.html
-options {
-  version "";
-  listen-on { any; };
-  listen-on-v6 { any; };
-  zone-statistics yes;
-  max-cache-size 60m;
-  interface-interval 60;
-  max-ncache-ttl 10800;
-  max-udp-size 4096;
-  forwarders { 1.1.1.1; 8.8.8.8; 8.8.4.4; };
-  notify yes;
-  allow-transfer { trusted; };
-  transfer-format many-answers;
-  allow-query { any; };
-  allow-recursion { any; };
-  allow-query-cache { any; };
-  auth-nxdomain no;
-  dnssec-validation auto;
-  directory "/var/named";
-  pid-file "/var/run/named/named.pid";
-  dump-file "/var/named/data/dump.db";
-  managed-keys-directory "/etc/named/keys/";
-  memstatistics-file "/var/log/named/mem.stats";
-  statistics-file "/var/log/named/named.stats";
-};
-
-# access settings
-acl "all" { 0.0.0.0/0; ::/0; };
-acl "trusted" { 10.0.0.0/8; 127.0.0.0/8; 172.16.0.0/12; 192.168.0.0/16; };
-
-# rndc keys
-key "certbot." { algorithm hmac-sha256; secret "$(__tsig_key || echo '0dAuoHLjXqyYvbto08if3qUxPesAAr6cjs3Z90OFg90=')"; };
-key "rndc-key" { algorithm hmac-sha256; secret "$(__tsig_key || echo 'FtGLAmmo/SIbLHPNTRKDz4ZVgE06soxscvvBKCAFsFE=')"; };
-key "dhcp-key" { algorithm hmac-sha256; secret "$(__tsig_key || echo 'LDoSj5i9wIENe3gTIG+GXmh10xlXX74FbMHXp9nedIM=')"; };
-key "backup-key" { algorithm hmac-sha256; secret "$(__tsig_key || echo 'OlMsjjmj+BENsaOinEv6bu/T6arUKLITNGvR1tgytUw=')"; };
-
-# rndc settings
-controls { inet 127.0.0.1 allow { trusted; } keys { "rndc-key"; }; };
-
-# named logging options
-logging {
-channel default { file "/var/log/named/default.log"; severity debug; print-category yes; print-severity yes; print-time yes; };
-channel security { file "/var/log/named/security.log"; severity dynamic; print-severity yes; print-time yes; };
-channel xfer-in { file "/var/log/named/xfer-in.log"; severity info; print-category yes; print-severity yes; print-time yes; };
-channel xfer-out { file "/var/log/named/xfer-out.log"; severity info; print-category yes; print-severity yes; print-time yes; };
-channel update { file "/var/log/named/update.log"; severity info; print-category yes; print-severity yes; print-time yes; };
-channel notify { file "/var/log/named/notify.log"; severity info; print-category yes; print-severity yes; print-time yes; };
-channel querylog { file "/var/log/named/query.log"; severity info; print-time yes; };
-channel debug { file "/var/log/named/debug.log"; severity debug; };
-category lame-servers { default; };
-category dispatch { default; };
-category queries { querylog; };
-category update {  update; };
-category network { default; };
-category unmatched { default; };
-category client { default; };
-category notify { notify; };
-category xfer-in { xfer-in; };
-category xfer-out { xfer-out; };
-category resolver { default; };
-category config { default; };
-category security { security; };
-category database { default; };
-category general { default; };
-category default { default; };
-category dnssec { security; };
-};
-
+$(. "$GEN_DNS_TEMPLATE_DIR/named.conf")
 EOF
 
     printf_green "Created $NAMED_CONF"
@@ -714,16 +473,12 @@ __create_version() {
   local prev="" new="" date="" config=""
   config="${1:-$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone}"
   if [ -f "$config" ]; then
-    date="$(date +"$GEN_DNS_SERIAL_FMT")"
+    date="$GEN_DNS_SERIAL"
     prev="$(grep -s 'SOA' "$config" | tr ' ' '\n' | grep -E '[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]' | head -n1 | grep '^')"
     new=$((${prev:-$date} + 1))
   fi
   [ -n "$prev" ] && [ -n "$new" ] && GEN_DNS_VERSION_NEW="$new"
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__grep_prev() {
-  grep -sE "$1" "$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone" |
-    awk -F' ' '{print $4}' | head -n1 | grep '^' || echo ''
+  [ -n "$GEN_DNS_VERSION_NEW" ] && GEN_DNS_VERSION="${GEN_DNS_VERSION_NEW: -2}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __set_provider() {
@@ -800,20 +555,15 @@ __set_provider() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __execute_gen-dns() {
-  domain="${1:-$domain}"
-  hostip4="${2:-$hostip4}"
-  hostip6="${3:-$hostip6}"
-  dnsip4="${4:-$dnsip4}"
-  dnsip6="${5:-$dnsip6}"
-  [ "$dnsip6" = "none" ] && dnsip6=""
-  [ "$hostip6" = "none" ] && hostip6=""
-  GEN_DNS_DEFAULT_DOMAIN="${domain:-$GEN_DNS_DEFAULT_DOMAIN}"
-  GEN_DNS_DEFAULT_DNS_IP4="${dnsip4:-$GEN_DNS_DEFAULT_DNS_IP4}"
-  GEN_DNS_DEFAULT_DNS_IP6="${dnsip6:-$GEN_DNS_DEFAULT_DNS_IP6}"
-  GEN_DNS_DEFAULT_HOST_IP4="${hostip4:-$GEN_DNS_DEFAULT_HOST_IP4}"
-  GEN_DNS_DEFAULT_HOST_IP6="${hostip6:-$GEN_DNS_DEFAULT_HOST_IP6}"
+  GEN_DNS_DEFAULT_DOMAIN="${1:-$GEN_DNS_DEFAULT_DOMAIN}"
+  GEN_DNS_DEFAULT_HOST_IP4="${2:-$GEN_DNS_DEFAULT_HOST_IP4}"
+  GEN_DNS_DEFAULT_HOST_IP6="${3:-$GEN_DNS_DEFAULT_HOST_IP6}"
+  GEN_DNS_DEFAULT_DNS_IP4="${4:-$GEN_DNS_DEFAULT_DNS_IP4}"
+  GEN_DNS_DEFAULT_DNS_IP6="${5:-$GEN_DNS_DEFAULT_DNS_IP6}"
   [ -d "$GEN_DNS_FILE_ZONE_DIR" ] || mkdir -p "$GEN_DNS_FILE_ZONE_DIR"
   [ -d "$GEN_DNS_FILE_CONF_DIR" ] || mkdir -p "$GEN_DNS_FILE_CONF_DIR"
+  [ "$GEN_DNS_DEFAULT_DNS_IP6" = "none" ] && dnsip6=""
+  [ "$GEN_DNS_DEFAULT_HOST_IP6" = "none" ] && hostip6=""
   case "$1" in
   edit)
     shift 1
@@ -874,6 +624,7 @@ GEN_DNS_DEFAULT_NAMESERVER_1="${GEN_DNS_DEFAULT_NAMESERVER_1:-dns1}"
 GEN_DNS_DEFAULT_NAMESERVER_2="${GEN_DNS_DEFAULT_NAMESERVER_2:-dns2}"
 GEN_DNS_DEFAULT_HWINFO='"libvirt" "Virtualized Host"'
 GEN_DNS_DEFAULT_TXTINFO='"Hosted on casjaysdev.com"'
+GEN_DNS_TEMPLATE_DIR="${GEN_DNS_TEMPLATE_DIR:-$CASJAYSDEVDIR/templates/dns}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$GEN_DNS_CONFIG_DIR/$GEN_DNS_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
@@ -920,7 +671,7 @@ SHORTOPTS=""
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
-LONGOPTS+=",domain:,hostip4:,hostip6:,dnsip4:,dnsip6:,force,forwarders:,import:"
+LONGOPTS+=",domain:,hostip4:,hostip6:,dnsip4:,dnsip6:,force,forwarders:,import:,template:"
 LONGOPTS+=",provider:"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="edit "
@@ -1034,6 +785,10 @@ while :; do
     __set_provider "$2"
     shift 2
     ;;
+  --template)
+    GEN_DNS_DEFAULT_TEMPLATE="$2"
+    shift 2
+    ;;
   --)
     shift 1
     break
@@ -1075,10 +830,9 @@ export GEN_DNS_CWD
 #am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
-
+GEN_DNS_SERIAL="$(date +"$GEN_DNS_SERIAL_FMT")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 __execute_gen-dns "$@"

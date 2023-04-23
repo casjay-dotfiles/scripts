@@ -607,7 +607,7 @@ __gitea_migrate_delete() {
   [ -n "$GITEA_DOMAIN" ] || printf_exit "Please provide the gitea url: GITADMIN_PERSONAL_GIT_HOST"
   [ -n "$GITHUB_TOKEN" ] || printf_exit "Please provide the github API Token: GITHUB_ACCESS_TOKEN"
   [ -n "$GITEA_TOKEN" ] || printf_exit "Please provide the github API Token: GITADMIN_PRIVATE_AUTH_TOKEN"
-  GET_REPOS=$(curl -H 'Accept: application/vnd.github.v3+json' -u $GITHUB_USERNAME:$GITHUB_TOKEN -s "https://api.github.com/orgs/$GITHUB_ORG_NAME/repos?per_page=1000&type=all" | jq -r '.[].html_url')
+  GET_REPOS=$(curl -H 'Accept: application/vnd.github.v3+json' -u $GITHUB_USERNAME:$GITHUB_TOKEN -s "https://api.github.com/orgs/$GITHUB_ORG_NAME/repos?per_page=1000&type=$GITADMIN_REPO_TYPE" | jq -r '.[].html_url')
   for URL in $GET_REPOS; do
     REPO_NAME=$(echo $URL | sed 's|https://github.com/'$GITHUB_ORG_NAME'/||g')
     echo "Deleting $REPO_NAME if it exists on Gitea ..."
@@ -727,10 +727,10 @@ __api_user_token() {
   local user="${1:-$GITADMIN_DEFAULT_USERNAME}"
   [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && CURL_HEADER="" || CURL_HEADER='-H "Authorization: token '$GITADMIN_GITHUB_AUTH_TOKEN'"'
   if [ -n "$GITADMIN_GITHUB_AUTH_TOKEN" ]; then
-    export GITHUBAPIREPO="https://api.github.com/users/$user/repos?per_page=1000&type=owner"
+    export GITHUBAPIREPO="https://api.github.com/users/$user/repos?per_page=1000&sort=full_name&visibility=$GITADMIN_REPO_TYPE&type=$GITADMIN_REPO_TYPE"
     export MESSAGE="Getting the repos for $user using github token"
   else
-    export GITHUBAPIREPO="https://api.github.com/users/$user/repos?per_page=1000"
+    export GITHUBAPIREPO="https://api.github.com/users/$user/repos?per_page=1000&sort=full_name"
     export MESSAGE="Getting the repos for $GITADMIN_DEFAULT_USERNAME"
   fi
 }
@@ -741,20 +741,20 @@ __api_user() {
   [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && CURL_HEADER="" || CURL_HEADER='-H "Authorization: token '$GITADMIN_GITHUB_AUTH_TOKEN'"'
   __api_user_token "$user"
   __urlverify "$GITHUBAPIREPO" || return 1
-  __devnull2 curl -q -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" -H "Accept: application/vnd.github.v3+json" -LSs "$GITHUBAPIREPO"
+  __devnull2 curl -q -LSs -u "username:$GITADMIN_GITHUB_AUTH_TOKEN" -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" -H "Accept: application/vnd.github.v3+json" "$GITHUBAPIREPO"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set Message for token - org
 __api_org_token() {
   local user="${1:-$GITADMIN_DEFAULT_USERNAME}"
   if [ -n "$GITADMIN_GITHUB_AUTH_TOKEN" ] && [ -z "$GITADMIN_GITHUB_OWNER" ]; then
-    export GITHUBAPIREPO="https://api.github.com/user/orgs?per_page=100"
+    export GITHUBAPIREPO="https://api.github.com/user/orgs?per_page=1000&sort=full_name&type=$GITADMIN_REPO_TYPE"
     export MESSAGE="Getting the repos for $user using\ngithub token $GITADMIN_GITHUB_AUTH_TOKEN"
   else
-    export GITHUBAPIREPO="https://api.github.com/orgs/$user/repos?per_page=1000"
+    export GITHUBAPIREPO="https://api.github.com/orgs/$user/repos?per_page=1000&type=all&sort=full_name"
     export MESSAGE="Getting the repos for $user"
   fi
-  curl -q -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" -Ls "$GITHUBAPIREPO" | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
+  curl -q -LSs -u "username:$GITADMIN_GITHUB_AUTH_TOKEN" -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" "$GITHUBAPIREPO" | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
   COUNT="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
   [ "$COUNT" != 0 ] || GITADMIN_GITHUB_OWNER="false" __api_org_token
 }
@@ -765,7 +765,7 @@ __api_org() {
   [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && CURL_HEADER="" || CURL_HEADER='-H "Authorization: token '$GITADMIN_GITHUB_AUTH_TOKEN'"'
   __api_user_token "$user"
   __urlverify "$GITHUBAPIREPO" || return 1
-  __devnull2 curl -q -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" -H "Accept: application/vnd.github.v3+json" -LSs "$GITHUBAPIREPO"
+  __devnull2 curl -q -u "username:$GITADMIN_GITHUB_AUTH_TOKEN" -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" -H "Accept: application/vnd.github.v3+json" -LSs "$GITHUBAPIREPO"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Call the API
@@ -1150,7 +1150,7 @@ git_retrieve_orgs() {
   if [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ]; then
     git_user="$(curl -q -H "Accept: application/vnd.github.v3+json" -LSs "$api_url/users/$git_user/orgs?per_page=1000" 2>/dev/null | jq '.[].login' 2>/dev/null | sed 's#"##g')"
   else
-    git_user="$(curl -q -LSsf -H "Accept: application/vnd.github+json" -H "Authorization: Bearer $GITADMIN_GITHUB_AUTH_TOKEN" -H "X-GitHub-Api-Version: 2022-11-28" "$api_url/user/orgs?per_page=1000" | jq -rc '.[].login' | grep '^')"
+    git_user="$(curl -q -LSsf -u "username:$GITADMIN_GITHUB_AUTH_TOKEN" -H "Accept: application/vnd.github+json" -H "Authorization: Bearer $GITADMIN_GITHUB_AUTH_TOKEN" -H "X-GitHub-Api-Version: 2022-11-28" "$api_url/user/orgs?per_page=1000" | jq -rc '.[].login' | grep '^')"
   fi
   export GIT_ALL_REPOS="${git_user}"
 }
@@ -1753,6 +1753,7 @@ GITADMIN_DEFAULT_VERSION_FORMAT="${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}"
 GITADMIN_GITLAB_AUTH_TOKEN="${GITADMIN_GITLAB_AUTH_TOKEN:-$GITLAB_ACCESS_TOKEN}"
 GITADMIN_PRIVATE_AUTH_TOKEN="${GITADMIN_PRIVATE_AUTH_TOKEN:-$GIT_PRIVATE_ACCESS_TOKEN}"
 GITADMIN_DOMAIN_TEMPLATE="${GITADMIN_DOMAIN_TEMPLATE:-https://github.com/casjay-templates/domain-template}"
+GITADMIN_REPO_TYPE="${GITADMIN_REPO_TYPE:-all}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$GITADMIN_CONFIG_DIR/$GITADMIN_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
@@ -1799,7 +1800,7 @@ SHORTOPTS="u:,o:,s:"
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
-LONGOPTS+=",user:,org:,single:,nolicense,noreadme,automated,cd,desc:,site:,delete,nopush,message:"
+LONGOPTS+=",user:,org:,single:,nolicense,noreadme,automated,cd,desc:,site:,delete,nopush,message:,type:"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="repos stow setup newsite private gitlab github single init gist orgs remote list "
 ARRAY+="delete create pull clone push user update commit branch log status cron issues squash migrate "
@@ -1928,6 +1929,10 @@ while :; do
     ;;
   --message)
     GITADMIN_SETUP_MESSAGE="$2"
+    shift 2
+    ;;
+  --type)
+    GITADMIN_REPO_TYPE="$2"
     shift 2
     ;;
   --)

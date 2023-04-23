@@ -567,7 +567,7 @@ __github_to_gitea() {
     curl -q -LSsf -X 'POST' 'https://'$GITEA_DOMAIN'/api/v1/orgs?token='$GITEA_TOKEN'' -H 'accept: application/json' -H 'Content-Type: application/json' --data "{ \"username\": \"$GITEA_ORG_NAME\", \"description\": \"$ORG_DESC\", \"full_name\": \"$ORG_NAME\", \"location\": \"$ORG_LOC\", \"repo_admin_change_team_access\": true, \"visibility\": \"public\", \"website\": \"$ORG_SITE\" }" >"$GITADMIN_TEMP_FILE" 2>&1 || false
     [ $? -eq 0 ] && printf_blue "😹😹 Created the organization: $GITEA_ORG_NAME which is owned by $GITEA_USERNAME 😹😹" || printf_exit 5 1 "😿😿 Failed to create $GITEA_ORG_NAME: $(cat "$GITADMIN_TEMP_FILE" | grep 'curl: ' | sed 's|curl:.*) ||g' | head -n1) 😿😿 \n"
   fi
-  GET_REPOS="$(__curl_gh_api "https://api.github.com/orgs/$GITHUB_ORG_NAME/repos?per_page=2000&type=owner" 2>/dev/null | jq -r '.[].html_url')"
+  GET_REPOS="$(__curl_gh_api "https://api.github.com/orgs/$GITHUB_ORG_NAME/repos?per_page=2000" 2>/dev/null | jq -r '.[].html_url')"
   [ -n "$GET_REPOS" ] || printf_exit 1 2 "💔💔 No repos exist for $GITHUB_ORG_NAME 💔💔"
   for URL in $GET_REPOS; do
     REPO_NAME=$(echo "$URL" | sed 's|https://github.com/'$GITHUB_ORG_NAME'/||g' | tr '[:upper:]' '[:lower:]' | grep '^' || return)
@@ -725,11 +725,11 @@ __api_gist() {
 __api_user_token() {
   local user="${1:-$GITADMIN_DEFAULT_USERNAME}"
   if [ -n "$GITADMIN_GITHUB_AUTH_TOKEN" ]; then
-    export GITHUBAPIREPO="https://api.github.com/user/repos?per_page=1000&sort=full_name&type=owner"
-    export MESSAGE="Getting the repos for $user using github token"
+    export GITHUBAPIREPO="https://api.github.com/user/repos?per_page=1000&sort=full_name"
+    export MESSAGE="Getting the repos for user: $user using token"
   else
-    export GITHUBAPIREPO="https://api.github.com/users/$user/repos?per_page=1000&sort=full_name&type=owner"
-    export MESSAGE="Getting the repos for $GITADMIN_DEFAULT_USERNAME"
+    export GITHUBAPIREPO="https://api.github.com/users/$user/repos?per_page=1000&sort=full_name"
+    export MESSAGE="Getting the repos for user: $GITADMIN_DEFAULT_USERNAME"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -743,23 +743,23 @@ __api_user() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set Message for token - org
 __api_org_token() {
-  local user="${1:-$GITADMIN_DEFAULT_USERNAME}"
-  if [ -n "$GITADMIN_GITHUB_AUTH_TOKEN" ] && [ -z "$GITADMIN_GITHUB_OWNER" ]; then
-    export GITHUBAPIREPO="https://api.github.com/user/orgs?per_page=1000&sort=full_name&type=owner"
-    export MESSAGE="Getting the repos for $user using\ngithub token $GITADMIN_GITHUB_AUTH_TOKEN"
+  local user="${1:-}"
+  if [ -n "$GITADMIN_GITHUB_AUTH_TOKEN" ]; then
+    export GITHUBAPIREPO="https://api.github.com/orgs/$user/repos?per_page=1000&sort=full_name"
+    export MESSAGE="Getting the repos for org: $user using token"
   else
-    export GITHUBAPIREPO="https://api.github.com/orgs/$user/repos?per_page=1000&sort=full_name&type=owner"
-    export MESSAGE="Getting the repos for $user"
+    export GITHUBAPIREPO="https://api.github.com/orgs/$user/repos?per_page=1000&sort=full_name"
+    export MESSAGE="Getting the repos for org: $user"
   fi
   __curl_gh_api "$GITHUBAPIREPO" | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
   COUNT="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
-  [ "$COUNT" != 0 ] || GITADMIN_GITHUB_OWNER="false" __api_org_token
+  [ "$COUNT" != 0 ] || GITADMIN_GITHUB_OWNER="false" __api_org_token "$user"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Organization API
 __api_org() {
   local user="${1:-$GITADMIN_DEFAULT_USERNAME}"
-  __api_user_token "$user"
+  __api_org_token "$user"
   __urlverify "$GITHUBAPIREPO" || return 1
   __devnull2 __curl_gh_api "$GITHUBAPIREPO"
 }
@@ -1155,7 +1155,7 @@ git_all_orgs_clone() {
   git_retrieve_orgs "${1:-$GITADMIN_DEFAULT_USERNAME}"
   total="$(printf '%s\n' "$GIT_ALL_REPOS" | tr ' ' '\n ' | grep -v '^$' | grep '^' | wc -l)"
   [ -n "$total" ] && printf_blue "$GITADMIN_DEFAULT_USERNAME has $total organizations"
-  for org in $GITADMIN_DEFAULT_USERNAME $GIT_ALL_REPOS; do
+  for org in $GIT_ALL_REPOS; do
     $APPNAME orgs clone "$org"
   done
 }
@@ -2542,7 +2542,7 @@ orgs) # organization options
     { [ $# -eq 0 ] || [ "$1" = "help" ]; } && printf_help "Usage: gitadmin org clone [userName]"
     GITADMIN_DEFAULT_USERNAME="${1:-$GITADMIN_DEFAULT_USERNAME}"
     GITADMIN_DEFAULT_REPO_BASE="$GITADMIN_DEFAULT_REPO_BASE/$GITADMIN_DEFAULT_USERNAME"
-    __api_user_token "$GITADMIN_DEFAULT_USERNAME"
+    __api_org_token "$GITADMIN_DEFAULT_USERNAME"
     __curl_gh_api $GITHUBAPIREPO | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
     COUNT="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
     [ -n "$COUNT" ] || printf_exit "No repos found for $GITADMIN_DEFAULT_USERNAME"

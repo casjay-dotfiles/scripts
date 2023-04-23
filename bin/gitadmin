@@ -739,7 +739,7 @@ __api_org_token() {
   local user="${1:-}"
   export GITHUBAPIREPO="https://api.github.com/orgs/$user/repos?per_page=1000&sort=full_name"
   export MESSAGE="Getting the repos for org: $user"
-  __curl_gh_api "$GITHUBAPIREPO" | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
+  __curl_gh_api "$GITHUBAPIREPO" | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' | sort -u >"$GITADMIN_TEMP_FILE"
   COUNT="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
   [ "$COUNT" != 0 ] || __api_user "$user" || return 1
 }
@@ -1132,9 +1132,9 @@ git_retrieve_orgs() {
   git_user="${1:-$GITADMIN_DEFAULT_USERNAME}"
   api_url="https://api.github.com"
   if [ -n "$GITADMIN_GITHUB_AUTH_TOKEN" ]; then
-    git_user="$(__curl_gh_api "$api_url/user/orgs?per_page=1000" | jq -rc '.[].login' | grep '^')"
+    git_user="$(__curl_gh_api "$api_url/user/orgs?per_page=1000" | jq -rc '.[].login' | sort -u | grep '^')"
   else
-    git_user="$(__curl_gh_api "$api_url/users/$git_user/orgs?per_page=1000" | jq '.[].login' 2>/dev/null | sed 's#"##g')"
+    git_user="$(__curl_gh_api "$api_url/users/$git_user/orgs?per_page=1000" | jq -rc '.[].login' 2>/dev/null | sort -u | grep '^')"
   fi
   export GIT_ALL_REPOS="${git_user}"
 }
@@ -1972,7 +1972,7 @@ PREVREPO=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
 [ -n "$GITADMIN_DEFAULT_USERNAME" ] || printf_yellow "Please set GITADMIN_DEFAULT_USERNAME or GITHUB_USERNAME variable in settings"
-[ -n "$GITADMIN_GITHUB_AUTH_TOKEN" ] || printf_yellow "Please set GITADMIN_GITHUB_AUTH_TOKEN or GITHUB_ACCESS_TOKEN variable in settings"
+[ -n "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_green "GITADMIN_GITHUB_AUTH_TOKEN is set" || printf_yellow "Please set GITADMIN_GITHUB_AUTH_TOKEN or GITHUB_ACCESS_TOKEN variable in settings"
 if [ "$(git config --get user.name | wc -m)" -lt 2 ]; then
   printf_read_input "What is you Name" "120" "GIT_NAME"
   git config --global user.name "$GIT_NAME" 2>/dev/null
@@ -2176,7 +2176,7 @@ repos) # Show repos owned by user
   GITADMIN_DEFAULT_USERNAME="${1:-$GITADMIN_DEFAULT_USERNAME}"
   GITADMIN_DEFAULT_REPO_BASE="https://github.com/$GITADMIN_DEFAULT_USERNAME"
   __api_user_token "$GITADMIN_DEFAULT_USERNAME"
-  __curl_gh_api "$GITHUBAPIREPO" | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
+  __curl_gh_api "$GITHUBAPIREPO" | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' | sort -u >"$GITADMIN_TEMP_FILE"
   COUNT="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
   [ -n "$COUNT" ] || printf_exit "😿 No repos found for $GITADMIN_DEFAULT_USERNAME 😿"
   printf_green "$MESSAGE"
@@ -2465,7 +2465,7 @@ user) # User repos
 
 orgs) # organization options
   shift 1
-  { [ $# = 0 ] || [ "$1" = "help" ]; } && printf_help "Usage: gitadmin org [all,push,pull,clone] [userName]"
+  [ "$1" = "help" ] && printf_help "Usage: gitadmin org [all,push,pull,clone] [userName]"
   case "$1" in
   all)
     shift 1
@@ -2558,7 +2558,10 @@ orgs) # organization options
         __clone_orgs "$org" "$repo_base"
       done
     else
-      __clone_orgs "${1:-$GITADMIN_DEFAULT_USERNAME}"
+      git_retrieve_orgs $GITADMIN_DEFAULT_USERNAME
+      for org in $GIT_ALL_REPOS; do
+        __clone_orgs "$org" $repo_base
+      done
     fi
     ;;
   esac
@@ -2650,7 +2653,6 @@ github) # github repo
 
     create) # create a page
       shift 1
-      set -x
       [ $# -ne 0 ] && [ "$1" != "help" ] || printf_exit 1 3 "Usage: create [username/repo [domain] [dir] [type] [branch]"
       status="$(curl -q -LSsf -X "POST" -H 'Accept: application/vnd.github+json' -H 'Authorization: Bearer '$GITADMIN_GITHUB_AUTH_TOKEN'' -H 'X-GitHub-Api-Version: 2022-11-28' "https://api.github.com/repos/$1/pages" --data "{ \"cname\":\"$2\",\"build_type\":\"${4:-legacy}\",\"source\":{\"branch\":\"${5:-main}\",\"path\":\"${3:-/}\" } }" 2>"$GITADMIN_TEMP_FILE" | jq -rc '.cname')"
       [ -n "$status" ] && printf_cyan "Created: $status" || printf_exit 33 1 "The server returned an error: $(cat "$GITADMIN_TEMP_FILE" | grep 'error' | sed 's|.*error: ||g' | head -n1)"

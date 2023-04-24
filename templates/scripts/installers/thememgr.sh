@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
+# shellcheck disable=SC2317
+# shellcheck disable=SC2120
+# shellcheck disable=SC2155
+# shellcheck disable=SC2199
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ##@Version           :  GEN_SCRIPT_REPLACE_VERSION
 # @@Author           :  GEN_SCRIPT_REPLACE_AUTHOR
@@ -53,7 +57,7 @@ else
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define pre-install scripts
-run_pre_install() {
+__run_pre_install() {
 
   return ${?:-0}
 }
@@ -92,7 +96,7 @@ show_optvars "$@"
 thememgr_run_init
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run pre-install commands
-execute "run_pre_install" "Running pre-installation commands"
+execute "__run_pre_install" "Running pre-installation commands"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure directories exist
 ensure_dirs

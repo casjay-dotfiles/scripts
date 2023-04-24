@@ -114,7 +114,7 @@ __local_lan_ip() { __ifconfig $SET_LAN_DEV | grep -w 'inet' | awk -F ' ' '{print
 __docker_check || __docker_init
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define any pre-install scripts
-run_pre_install() {
+__run_pre_install() {
 
   return 0
 }
@@ -649,7 +649,7 @@ __printf_color() { printf_color "$2\n" "$1"; }
 dockermgr_run_init
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run pre-install commands
-execute "run_pre_install" "Running pre-installation commands"
+execute "__run_pre_install" "Running pre-installation commands"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ensure_dirs
 ensure_perms

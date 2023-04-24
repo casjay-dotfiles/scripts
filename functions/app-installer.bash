@@ -1671,7 +1671,7 @@ get_app_version() {
   [ -n "$INSTDIR" ] && printf_info "Downloaded to:             $INSTDIR"
   [ -n "$GITREPO" ] && printf_info "APP repo:                  $REPO"
   [ -n "$PLUGNAMES" ] && printf_info "Plugins:                   $PLUGNAMES"
-  [ -n "$PLUGDIR" ] && printf_info "PluginsDir:                $PLUGDIR"
+  [ -n "$PLUGIN_DIR" ] && printf_info "PluginsDir:                $PLUGIN_DIR"
   [ -n "$version" ] && printf_info "Installed Version:         $version"
   [ -n "$APPVERSION" ] && printf_info "Online Version:            $APPVERSION"
   if [ "$version" = "$APPVERSION" ]; then
@@ -2410,7 +2410,7 @@ __main_installer_info() {
     APPNAME="scripts"
     APPDIR="/usr/local/share/CasjaysDev/scripts"
     INSTDIR="/usr/local/share/CasjaysDev/scripts"
-    PLUGDIR="/usr/local/share/CasjaysDev/apps/$SCRIPTS_PREFIX"
+    PLUGIN_DIR="/usr/local/share/CasjaysDev/apps/$SCRIPTS_PREFIX"
     SYSBIN="/usr/local/bin"
     REPO="$SYSTEMMGRREPO/installer"
     REPORAW="$REPO/raw/$GIT_REPO_BRANCH"
@@ -2429,7 +2429,7 @@ run_install_init() {
   (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null || sudo -n true &>/dev/null || SUDO_PROMPT="$SET_SUDO_PROMPT" sudo true
   __main_installer_info &>/dev/null
   if [ -n "$PLUGNAMES" ]; then
-    [ -z "$PLUGDIR" ] || mkd "$PLUGDIR"
+    [ -z "$PLUGIN_DIR" ] || mkd "$PLUGIN_DIR"
   fi
   if [ ! -f "$TMPFILE" ]; then
     printf ""

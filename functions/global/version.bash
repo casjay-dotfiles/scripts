@@ -72,7 +72,7 @@ get_installer_version() {
   [ -n "$INSTDIR" ] && printf_info "Downloaded to:             $INSTDIR"
   [ -n "$GITREPO" ] && printf_info "APP repo:                  $REPO/$APPNAME"
   [ -n "$PLUGNAMES" ] && printf_info "Plugins:                   $PLUGNAMES"
-  [ -n "$PLUGDIR" ] && printf_info "PluginsDir:                $PLUGDIR"
+  [ -n "$PLUGIN_DIR" ] && printf_info "PluginsDir:                $PLUGIN_DIR"
   [ -n "$version" ] && printf_info "Installed Version:         $version"
   [ -n "$APPVERSION" ] && printf_info "Online Version:            $APPVERSION"
   if [ "$version" = "$APPVERSION" ]; then

@@ -19,7 +19,7 @@ source "$CASJAYSDEVDIR/functions/types/mgr_install.bash"
 __main_installer_info() {
   [ "$_DEBUG" = "on" ] && set -x
   if [ "$APPNAME" = "scripts" ] || [ "$APPNAME" = "installer" ]; then
-    PLUGDIR="/usr/local/share/CasjaysDev/apps/$SCRIPTS_PREFIX"
+    PLUGIN_DIR="/usr/local/share/CasjaysDev/apps/$SCRIPTS_PREFIX"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

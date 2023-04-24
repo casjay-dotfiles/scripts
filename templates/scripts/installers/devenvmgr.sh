@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
+# shellcheck disable=SC2317
+# shellcheck disable=SC2120
+# shellcheck disable=SC2155
+# shellcheck disable=SC2199
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ##@Version           :  GEN_SCRIPT_REPLACE_VERSION
 # @@Author           :  GEN_SCRIPT_REPLACE_AUTHOR
@@ -53,7 +57,7 @@ else
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define pre-install scripts
-run_pre_install() {
+__run_pre_install() {
 
   return ${?:-0}
 }
@@ -102,7 +106,7 @@ show_optvars "$@"
 devenvmgr_run_init
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run pre-install commands
-execute "run_pre_install" "Running pre-installation commands"
+execute "__run_pre_install" "Running pre-installation commands"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # end with a space
 APP="$APPNAME "
@@ -165,9 +169,23 @@ if connect_test; then
   failexitcode $? "Git has failed"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# run before primary post install function
+__run_prepost_install() {
+
+  return ${?:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# run after primary post install function
+__run_post_install() {
+
+  return ${?:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run post install scripts
 run_postinst() {
+  __run_prepost_install
   devenvmgr_run_post
+  __run_post_install
 }
 #
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -185,8 +203,8 @@ run_exit
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run any external scripts
 if ! cmd_exists "$APPNAME" && [ -f "$INSTDIR/build.sh" ]; then
-  if builtin cd "$PLUGDIR/source"; then
-    BUILD_SCRIPT_SRC_DIR="$PLUGDIR/source"
+  if builtin cd "$PLUGIN_DIR/source"; then
+    BUILD_SCRIPT_SRC_DIR="$PLUGIN_DIR/source"
     BUILD_SRC_URL=""
     export BUILD_SCRIPT_SRC_DIR BUILD_SRC_URL
     eval "$INSTDIR/build.sh"

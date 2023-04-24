@@ -1077,7 +1077,7 @@ plugin_setup() {
   local repo=""
   local plugins=""
   local statusCode=0
-  local dir="${PLUGDIR:-$SHARE/$SCRIPTS_PREFIX}"
+  local dir="${PLUGIN_DIR:-$SHARE/$SCRIPTS_PREFIX}"
   for plugin in "$@"; do
     if [ "$plugin" != "" ]; then
       repo="$plugin"
@@ -1687,7 +1687,7 @@ get_app_version() {
   [ -n "$INSTDIR" ] && printf_info "Downloaded to:             $INSTDIR"
   [ -n "$GITREPO" ] && printf_info "APP repo:                  $REPO"
   [ -n "$PLUGNAMES" ] && printf_info "Plugins:                   $PLUGNAMES"
-  [ -n "$PLUGDIR" ] && printf_info "PluginsDir:                $PLUGDIR"
+  [ -n "$PLUGIN_DIR" ] && printf_info "PluginsDir:                $PLUGIN_DIR"
   [ -n "$version" ] && printf_info "Installed Version:         $version"
   [ -n "$APPVERSION" ] && printf_info "Online Version:            $APPVERSION"
   if [ "$version" = "$APPVERSION" ]; then
@@ -2226,7 +2226,7 @@ hakmgr_install() {
   REPORAW="${REPORAW:-$REPO/raw/$GIT_REPO_BRANCH}"
   USRUPDATEDIR="$SHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"
   SYSUPDATEDIR="$SYSSHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"
-  PLUGDIR="${PLUGDIR:-$HOME/.local/share/$SCRIPTS_PREFIX/tools}"
+  PLUGIN_DIR="${PLUGIN_DIR:-$HOME/.local/share/$SCRIPTS_PREFIX/tools}"
   LIST="${LIST:-}"
   ARRAY="${ARRAY:-}"
   [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && APPDIR="${APPDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
@@ -2467,7 +2467,7 @@ __main_installer_info() {
     APPNAME="scripts"
     APPDIR="/usr/local/share/CasjaysDev/scripts"
     INSTDIR="/usr/local/share/CasjaysDev/scripts"
-    PLUGDIR="/usr/local/share/CasjaysDev/apps/$SCRIPTS_PREFIX"
+    PLUGIN_DIR="/usr/local/share/CasjaysDev/apps/$SCRIPTS_PREFIX"
     SYSBIN="/usr/local/bin"
     REPO="$SYSTEMMGRREPO/installer"
     REPORAW="$REPO/raw/$GIT_REPO_BRANCH"
@@ -2486,7 +2486,7 @@ run_install_init() {
   SET_SUDO_PROMPT="$(printf "\n\033[1;31m")[sudo]$(printf "\033[1;36m") password for $(printf "\033[1;32m")%p: $(printf "\033[0m")"
   (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null || sudo -n true &>/dev/null || SUDO_PROMPT="$SET_SUDO_PROMPT" sudo true
   __main_installer_info &>/dev/null
-  [ -n "$PLUGNAMES" ] && [ -n "$PLUGDIR" ] && [ -d "$PLUGDIR" ] || mkd "$PLUGDIR"
+  [ -n "$PLUGNAMES" ] && [ -n "$PLUGIN_DIR" ] && [ -d "$PLUGIN_DIR" ] || mkd "$PLUGIN_DIR"
   if [ ! -f "$TMPFILE" ]; then
     printf ""
     touch "$TMPFILE"

@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
+# shellcheck disable=SC2317
+# shellcheck disable=SC2120
+# shellcheck disable=SC2155
+# shellcheck disable=SC2199
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ##@Version           :  GEN_SCRIPT_REPLACE_VERSION
 # @@Author           :  GEN_SCRIPT_REPLACE_AUTHOR
@@ -53,7 +57,7 @@ else
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define pre-install scripts
-run_pre_install() {
+__run_pre_install() {
 
   return ${?:-0}
 }
@@ -86,7 +90,7 @@ APPVERSION="$(__appversion "$REPORAW/version.txt")"
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # enable plugins - git repos
-PLUGINS=""
+PLUGIN_REPOS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Require a version higher than
 hakmgr_req_version "$APPVERSION"
@@ -105,7 +109,7 @@ show_optvars "$@"
 hakmgr_run_init
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run pre-install commands
-execute "run_pre_install" "Running pre-installation commands"
+execute "__run_pre_install" "Running pre-installation commands"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Global packages
 APP="$APPNAME "
@@ -174,11 +178,46 @@ if __am_i_online; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Plugins
-plugin_setup "$PLUGINS"
+if __am_i_online; then
+  if [ "$PLUGIN_REPOS" != "" ]; then
+    exitCodeP=0
+    [ -d "$PLUGIN_DIR" ] || mkdir -p "$PLUGIN_DIR"
+    for plugin in $PLUGIN_REPOS; do
+      plugin_name="$(basename "$plugin")"
+      plugin_dir="$PLUGIN_DIR/$plugin_name"
+      if [ -d "$plugin_dir/.git" ]; then
+        execute "git_update $plugin_dir" "Updating plugin $plugin_name"
+        [ $? -ne 0 ] && exitCodeP=$(($? + exitCodeP)) && printf_red "Failed to update $plugin_name"
+      else
+        execute "git_clone $plugin $plugin_dir" "Installing plugin $plugin_name"
+        [ $? -ne 0 ] && exitCodeP=$(($? + exitCodeP)) && printf_red "Failed to install $plugin_name"
+      fi
+    done
+  fi
+  __custom_plugin
+  exitCodeP=$(($? + exitCodeP))
+  # exit on fail
+  failexitcode $exitCodeP "Installation of plugin failed"
+fi
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# run before primary post install function
+__run_prepost_install() {
+
+  return ${?:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# run after primary post install function
+__run_post_install() {
+
+  return ${?:-0}
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run post install scripts
 run_postinst() {
+  __run_prepost_install
   hakmgr_run_post
+  __run_post_install
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run post install scripts
@@ -195,8 +234,8 @@ run_exit
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run any external scripts
 if ! cmd_exists "$APPNAME" && [ -f "$INSTDIR/build.sh" ]; then
-  if builtin cd "$PLUGDIR/source"; then
-    BUILD_SCRIPT_SRC_DIR="$PLUGDIR/source"
+  if builtin cd "$PLUGIN_DIR/source"; then
+    BUILD_SCRIPT_SRC_DIR="$PLUGIN_DIR/source"
     BUILD_SRC_URL=""
     export BUILD_SCRIPT_SRC_DIR BUILD_SRC_URL
     eval "$INSTDIR/build.sh"

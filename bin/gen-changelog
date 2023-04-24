@@ -314,6 +314,12 @@ __changed_files() {
   done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__write_change_log() {
+  printf '%b' "$GEN_CHANGELOG_MESSAGE_HEADER"
+  eval "$*"
+  printf '%b' "$GEN_CHANGELOG_MESSAGE_FOOTER"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -554,18 +560,20 @@ if [ -f "$GEN_CHANGELOG_CWD/$GEN_CHANGELOG_VERSION_FILE" ]; then
 else
   GEN_CHANGELOG_VERSION_CURRENT="$(date +'%Y%m%d%H%M-git')"
 fi
+GEN_CHANGELOG_SET_FILES="$(__changed_files all)"
 GEN_CHANGELOG_DATE="$(date +'%Y-%m-%d at %H:%M:%S')"
-GEN_CHANGELOG_WORKFILE_FILE="$GEN_CHANGELOG_TEMP_FILE.tmp"
+GEN_CHANGELOG_WORKFILE_FILE="${GEN_CHANGELOG_TEMP_FILE}.tmp"
 GEN_CHANGELOG_PREV_FILE="$GEN_CHANGELOG_CWD/.git/prev_commit_files.txt"
-GEN_CHANGELOG_FILE_NAME="$GEN_CHANGELOG_FILE_NAME.$GEN_CHANGELOG_FILE_EXT"
-GEN_CHANGELOG_FILES="${GEN_CHANGELOG_FILES:-$(__changed_files)}"
-GEN_CHANGELOG_MESSAGE_HEADER="$(printf '#### Changelog: %s  \n\n' "$GEN_CHANGELOG_DATE")"
-GEN_CHANGELOG_MESSAGE_FOOTER="$(printf '#### End of changes for %s  \n  \n----  \n  \n' "$GEN_CHANGELOG_VERSION_CURRENT")"
+GEN_CHANGELOG_MESSAGE_HEADER="$(printf '#### Changelog: %s  \n\n\n' "$GEN_CHANGELOG_DATE")"
+GEN_CHANGELOG_MESSAGE_FOOTER="$(printf '\n#### End of changes for %s  \n  \n----  \n  \n' "$GEN_CHANGELOG_VERSION_CURRENT")"
+GEN_CHANGELOG_FILE_NAME="$GEN_CHANGELOG_CWD/$GEN_CHANGELOG_FILE_NAME.$GEN_CHANGELOG_FILE_EXT"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
+touch "$GEN_CHANGELOG_WORKFILE_FILE"
+{ [ "$1" = "init" ] && shift 1 || [ -n "$GEN_CHANGELOG_CREATE_INIT" ]; } && touch "$GEN_CHANGELOG_FILE_NAME"
 [ -d "$GEN_CHANGELOG_CWD/.git" ] || printf_exit "$GEN_CHANGELOG_CWD does not seem to be a git repo"
-if [ ! -f "$GEN_CHANGELOG_CWD/$GEN_CHANGELOG_FILE_NAME" ]; then
-  { [ "$1" != "init" ] && shift 1; } || [ "$GEN_CHANGELOG_CREATE_INIT" != "true" ] || printf_exit "Can not find $GEN_CHANGELOG_CWD/$GEN_CHANGELOG_FILE_NAME"
+if [ ! -f "$GEN_CHANGELOG_FILE_NAME" ]; then
+  printf_exit 0 "Can not find $GEN_CHANGELOG_FILE_NAME"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Export variables
@@ -573,24 +581,27 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 if [ "$GEN_CHANGELOG_AMEND_CHANGELOG" = "true" ]; then
-  printf_cyan "$GEN_CHANGELOG_DEFAULT_ICON Amending CHANGELOG $GEN_CHANGELOG_DEFAULT_ICON" && __git_amend
+  printf_cyan "$GEN_CHANGELOG_DEFAULT_ICON Amending CHANGELOG $GEN_CHANGELOG_DEFAULT_ICON"
+  _git_amend
   GEN_CHANGELOG_EXIT_STATUS=$?
   GEN_CHANGELOG_EXIT_RUN="no"
 elif [ -p "/dev/stdin" ]; then
-  cat - >"$GEN_CHANGELOG_WORKFILE_FILE"
+  __write_change_log cat - >"$GEN_CHANGELOG_WORKFILE_FILE"
   GEN_CHANGELOG_EXIT_STATUS=$?
 elif [ -f "$GEN_CHANGELOG_FILE_MESSAGE" ]; then
-  cat "$GEN_CHANGELOG_FILE_MESSAGE" >"$GEN_CHANGELOG_WORKFILE_FILE"
+  __write_change_log cat "$GEN_CHANGELOG_FILE_MESSAGE" >"$GEN_CHANGELOG_WORKFILE_FILE"
+  GEN_CHANGELOG_EXIT_STATUS=$?
   rm -Rf "$GEN_CHANGELOG_FILE_MESSAGE"
 elif [ -n "$GEN_CHANGELOG_FULL_MESSAGE" ]; then
-  printf '%s\n' "$GEN_CHANGELOG_FULL_MESSAGE" >"$GEN_CHANGELOG_WORKFILE_FILE"
+  __write_change_log printf '%s\n' "$GEN_CHANGELOG_FULL_MESSAGE" >"$GEN_CHANGELOG_WORKFILE_FILE"
   GEN_CHANGELOG_EXIT_STATUS=$?
-elif [ -n "$GEN_CHANGELOG_FILES" ] && __is_dirty; then
+elif [ -n "$GEN_CHANGELOG_SET_FILES" ] && __is_dirty; then
   printf '' >"$GEN_CHANGELOG_PREV_FILE"
   printf '%s\n' "$GEN_CHANGELOG_MESSAGE_HEADER" >"$GEN_CHANGELOG_WORKFILE_FILE"
+  GEN_CHANGELOG_EXIT_STATUS=$?
   if [ -f "$GEN_CHANGELOG_WORKFILE_FILE" ]; then
     [ "$GEN_CHANGELOG_SILENT" = "true" ] || printf_blue "$GEN_CHANGELOG_MESSAGE_HEADER"
-    for changed in $GEN_CHANGELOG_FILES; do
+    for changed in $GEN_CHANGELOG_SET_FILES; do
       if [ -n "$changed" ]; then
         commit_id="$(__get_commit_id "$changed")"
         set_message="${GEN_CHANGELOG_DEFAULT_ICON// /} $GEN_CHANGELOG_SET_MESSAGE : $changed $prepend"
@@ -615,8 +626,8 @@ else
 fi
 if [ "$GEN_CHANGELOG_EXIT_RUN" != "no" ]; then
   if [ "$GEN_CHANGELOG_EXIT_STATUS" = 0 ] && [ -s "$GEN_CHANGELOG_WORKFILE_FILE" ]; then
-    [ -f "$GEN_CHANGELOG_CWD/$GEN_CHANGELOG_FILE_NAME" ] && cat "$GEN_CHANGELOG_CWD/$GEN_CHANGELOG_FILE_NAME" >>"$GEN_CHANGELOG_WORKFILE_FILE"
-    if mv -f "$GEN_CHANGELOG_WORKFILE_FILE" "$GEN_CHANGELOG_CWD/$GEN_CHANGELOG_FILE_NAME"; then
+    [ -f "$GEN_CHANGELOG_FILE_NAME" ] && cat "$GEN_CHANGELOG_FILE_NAME" >>"$GEN_CHANGELOG_WORKFILE_FILE"
+    if mv -f "$GEN_CHANGELOG_WORKFILE_FILE" "$GEN_CHANGELOG_FILE_NAME"; then
       git -C "$GEN_CHANGELOG_CWD" add "$GEN_CHANGELOG_FILE_NAME"
       GEN_CHANGELOG_EXIT_STATUS=$?
     else
@@ -624,7 +635,7 @@ if [ "$GEN_CHANGELOG_EXIT_RUN" != "no" ]; then
       GEN_CHANGELOG_EXIT_STATUS=1
     fi
   else
-    [ "$GEN_CHANGELOG_SILENT" = "true" ] || printf_red "Failed to create $GEN_CHANGELOG_WORKFILE_FILE"
+    [ "$GEN_CHANGELOG_SILENT" = "true" ] || printf_red "Failed to create $GEN_CHANGELOG_FILE_NAME"
     GEN_CHANGELOG_EXIT_STATUS=1
   fi
 fi

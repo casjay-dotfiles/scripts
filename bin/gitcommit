@@ -310,6 +310,13 @@ __trap_exit() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
+__trap_exit_local() {
+  local commit_file="$GITCOMMIT_CWD/.git/COMMIT_EDITMSG"
+  local message_file="${GITADMIN_DEFAULT_COMMIT_FILE}"
+  [ -n "$commit_file" ] && [ -f "$commit_file" ] && rm -Rf "$commit_file" || true
+  [ -n "$message_file" ] && [ -f "$message_file" ] && rm -Rf "$message_file" || true
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __sanitize_url() { sed 's|://*.*:|://|g'; }
 __emj_check() { sed 's/\xf0\x9f/\r&/g; s/\s*\r.//g'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -366,9 +373,9 @@ __changelog_create() {
   local changed_files="${changed_files:-$(__changed_files "$get_changed_files")}"
   local changed_icon="${icon:-$GITCOMMIT_CHANGELOG_ICON}"
   [ -f "$changelog_file" ] || return 0
-  if [ -s "${GITADMIN_DEFAULT_COMMIT_FILE:-$GITCOMMIT_CWD/.git/COMMIT_MESS}.log" ]; then
-    git_commit_mess="$(<"${GITADMIN_DEFAULT_COMMIT_FILE:-$GITCOMMIT_CWD/.git/COMMIT_MESS}.log")"
-    rm -Rf "${GITADMIN_DEFAULT_COMMIT_FILE:-$GITCOMMIT_CWD/.git/COMMIT_MESS}.log"
+  if [ -s "${GITADMIN_DEFAULT_COMMIT_FILE}.log" ]; then
+    git_commit_mess="$(<"${GITADMIN_DEFAULT_COMMIT_FILE}.log")"
+    rm -Rf "${GITADMIN_DEFAULT_COMMIT_FILE}.log"
     gen-changelog --silent --changelog "$git_commit_mess" --icon "$changed_icon"
     GITCOMMIT_AMEND=""
   else
@@ -380,10 +387,11 @@ __changelog_create() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gitmessage() {
+  set -x
   [ "$git_message_processed" = "true" ] && return
   local test_long_message="" test_short_message="" test_full_message=""
   local GITCOMMIT_MESSAGE_SHORT="${*:-$GITCOMMIT_MESSAGE_SHORT}"
-  local set_commitfile="${GITADMIN_DEFAULT_COMMIT_FILE:-$GITCOMMIT_CWD/.git/COMMIT_MESS}"
+  local set_commitfile="${GITADMIN_DEFAULT_COMMIT_FILE}"
   test_full_message="$(echo "$GITCOMMIT_MESSAGE_FULL" | grep -v '^$' | head -n1 | grep '^' || false)"
   test_long_message="$(echo "$GITCOMMIT_MESSAGE_LONG" | grep -v '^$' | head -n1 | grep '^' || false)"
   test_short_message="$(echo "$GITCOMMIT_MESSAGE_SHORT" | grep -v '^$' | head -n1 | grep '^' || false)"
@@ -392,7 +400,6 @@ __gitmessage() {
     test_long_message="yes"
     GITCOMMIT_MESSAGE_FULL="$(printf '%s\n' "$GITCOMMIT_MESSAGE_FULL")"
     GITCOMMIT_MESSAGE_SHORT="$(printf '%s\n' "${GITCOMMIT_MESSAGE_FULL:0:69}" | grep -v '^$' | head -n1)"
-    GITCOMMIT_MESSAGE_FULL="$(printf '%s\n' "$GITCOMMIT_MESSAGE_FULL")"
     printf '\n%s\n\n' "$GITCOMMIT_MESSAGE_FULL" | sed 's|^||g' >"$set_commitfile"
   elif [ ${#GITCOMMIT_MESSAGE_SHORT} -ge 75 ]; then
     nomessage="true"
@@ -407,13 +414,14 @@ __gitmessage() {
     GITCOMMIT_MESSAGE_FULL="$(printf '%s \n\n\n%s' "$GITCOMMIT_MESSAGE_SHORT" "$GITCOMMIT_MESSAGE_LONG")"
     printf '%s \n\n\n%s' "$GITCOMMIT_MESSAGE_SHORT" "$GITCOMMIT_MESSAGE_LONG" | sed 's|^||g' >"$set_commitfile"
   fi
-  [ -f "$set_commitfile" ] && GITCOMMIT_MESSAGE_FULL="$(<"$set_commitfile")" && cat "$set_commitfile" >>"${GITADMIN_DEFAULT_COMMIT_FILE:-$GITCOMMIT_CWD/.git/COMMIT_MESS}.log"
+  [ -f "$set_commitfile" ] && GITCOMMIT_MESSAGE_FULL="$(<"$set_commitfile")" && cat "$set_commitfile" >>"${GITADMIN_DEFAULT_COMMIT_FILE}.log"
   [ -n "$GITCOMMIT_MESSAGE_LONG" ] || unset GITCOMMIT_MESSAGE_LONG
   [ -n "$GITCOMMIT_MESSAGE_SHORT" ] || unset GITCOMMIT_MESSAGE_SHORT
   [ "$GITCOMMIT_MESSAGE_LONG" = "$GITCOMMIT_MESSAGE_SHORT" ] && unset GITCOMMIT_MESSAGE_LONG
   unset test_short_message test_long_message test_full_message
   export GITCOMMIT_MESSAGE_FULL GITCOMMIT_MESSAGE_SHORT GITCOMMIT_MESSAGE_LONG
   export nomessage message_set="TRUE" git_message_processed="true" GITADMIN_DEFAULT_COMMIT_FILE="$set_commitfile"
+  set +x
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gitcommit_cmd() {
@@ -454,7 +462,6 @@ __gitcommit() {
   if [ -n "$add_changelog_to_commit" ]; then
     __changelog_create "$add_changelog_to_commit"
   fi
-  [ -f "$GITADMIN_DEFAULT_COMMIT_FILE" ] && rm -Rf "$GITADMIN_DEFAULT_COMMIT_FILE"
   export GITCOMMIT_RAN="true" GITADMIN_NO_ERROR_MESSAGE="true"
   return $?
 }
@@ -1300,7 +1307,10 @@ if [ "$GITCOMMIT_RUN_AMEND" = "true" ]; then
   [ -n "$1" ] && GITCOMMIT_AMEND_MESS="${1:-Amended commit}"
   changelog_message="$GITCOMMIT_AMEND_MESS"
   append_changelog_message="$GITCOMMIT_AMEND_MESS"
-  [ -f "$GITCOMMIT_CWD/.git/prev_commit_files.txt" ] && changed_files="$(<"$GITCOMMIT_CWD/.git/prev_commit_files.txt")"
+  if [ -f "$GITCOMMIT_CWD/.git/prev_commit_files.txt" ]; then
+    changed_files="$(<"$GITCOMMIT_CWD/.git/prev_commit_files.txt")"
+    rm -Rf "$GITCOMMIT_CWD/.git/prev_commit_files.txt"
+  fi
   git commit --amend -m "➕ $GITCOMMIT_AMEND_MESS ➕ "
   git push --force &>/dev/null
   exit $?

@@ -1,4 +1,10 @@
-#### Changelog: 2023-04-24 at 19:34:08  Committingneverythingnthatnchangedn
+#### Changelog: 2023-04-24 at 19:39:19  🗃️nCommittingneverythingnthatnchangedn🗃️n
+[31mFailed to create /home/jason/Projects/github/casjay-dotfiles/scripts/CHANGELOG.md[m
+
+#### End of changes for 202304241934-git  
+  
+----  
+  #### Changelog: 2023-04-24 at 19:34:08  Committingneverythingnthatnchangedn
 #### End of changes for 202304241933-git  
   
 ----  

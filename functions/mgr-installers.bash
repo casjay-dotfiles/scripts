@@ -1117,10 +1117,9 @@ dotfilesreq() {
   for conf in "${LISTARRAY[@]}"; do
     local TMPINST="$TMPDIR/${conf}.inst.tmp"
     if [ -e "$userconfdir/$conf" ] || [ -e "$sysconfdir/$conf" ] || [ -f "$TMPINST" ]; then
-      printf_cyan "💠 Required dotfile $conf is installed 💠"
+      printf_cyan "[ ✅ ] Required dotfile $conf is installed 💠"
     else
-      printf_cyan "💠 Installing required dotfile: 💠"
-      dotfilesreqcmd "$conf"
+      execute "dotfilesreqcmd $conf" "Installing required dotfile: $conf 💠"
     fi
   done
   unset conf
@@ -1136,10 +1135,9 @@ dotfilesreqadmin() {
   for conf in "${LISTARRAY[@]}"; do
     local TMPINST="$TMPDIR/${conf}.inst.tmp"
     if [ -e "$userconfdir/$conf" ] || [ -e "$sysconfdir/$conf" ] || [ -f "$TMPINST" ]; then
-      printf_cyan "💠 Required dotfile $conf is installed 💠"
+      printf_cyan "[ ✅ ] Required dotfile $conf is installed 💠"
     else
-      printf_cyan "💠 Installing required system: $conf 💠"
-      dotfilesreqadmincmd "$conf"
+      execute "dotfilesreqadmincmd $conf" "Installing required system: $conf 💠"
     fi
   done
   unset conf

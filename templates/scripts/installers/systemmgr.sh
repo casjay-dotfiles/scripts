@@ -281,12 +281,10 @@ run_exit
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run any external scripts
 if ! __cmd_exists "$BUILD_APPNAME" && [ -f "$INSTDIR/build.sh" ]; then
-  if builtin cd "$PLUGIN_DIR/source"; then
-    BUILD_SCRIPT_SRC_DIR="$PLUGIN_DIR/source"
-    BUILD_SRC_URL=""
-    export BUILD_SCRIPT_SRC_DIR BUILD_SRC_URL
-    eval "$INSTDIR/build.sh"
-  fi
+  BUILD_SCRIPT_SRC_DIR="$PLUGIN_DIR/source"
+  BUILD_SRC_URL=""
+  export BUILD_SCRIPT_SRC_DIR BUILD_SRC_URL
+  eval "$INSTDIR/build.sh"
   __cmd_exists $BUILD_APPNAME || printf_red "$BUILD_APPNAME is not installed: run $INSTDIR/build.sh"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

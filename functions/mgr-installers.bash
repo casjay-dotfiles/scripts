@@ -1117,7 +1117,7 @@ dotfilesreq() {
   for conf in "${LISTARRAY[@]}"; do
     local TMPINST="$TMPDIR/${conf}.inst.tmp"
     if [ ! -e "$userconfdir/$conf" ] || [ ! -e "$sysconfdir/$conf" ] || [ ! -f "$TMPINST" ]; then
-      printf_cyan "💠 Installing required dotfile: $conf 💠"
+      printf_cyan "💠 Installing required dotfile: $userconfdir/$conf: $conf 💠"
       dotfilesreqcmd "$conf"
     fi
   done

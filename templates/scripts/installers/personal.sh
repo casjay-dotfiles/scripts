@@ -25,7 +25,8 @@
 # shellcheck disable=SC2199
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0" 2>/dev/null)"
-VERSION="202103302120-git"
+VERSION="GEN_SCRIPT_REPLACE_VERSION"
+REPO_BRANCH="${GIT_REPO_BRANCH:-main}"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"

@@ -26,6 +26,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
 VERSION="GEN_SCRIPT_REPLACE_VERSION"
+REPO_BRANCH="${GIT_REPO_BRANCH:-main}"
 HOME="${USER_HOME:-$HOME}"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${SUDO_USER:-$USER}"
@@ -90,13 +91,12 @@ systemmgr_run_init
 #installer_noupdate "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Defaults
-APPNAME="${APPNAME:-GEN_SCRIPT_REPLACE_APPNAME}"
-APPDIR="/usr/local/etc/$APPNAME"
-INSTDIR="$SYSSHARE/CasjaysDev/systemmgr/$APPNAME"
-REPO_BRANCH="${GIT_REPO_BRANCH:-main}"
-REPO="${SYSTEMMGRREPO:-https://github.com/systemmgr}/$APPNAME"
-REPORAW="$REPO/raw/$REPO_BRANCH"
-APPVERSION="$(__appversion "$REPORAW/version.txt")"
+APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
+APPDIR="/usr/local/etc/GEN_SCRIPT_REPLACE_APPNAME"
+INSTDIR="/usr/local/share/systemmgr/GEN_SCRIPT_REPLACE_APPNAME"
+REPO="https://github.com/systemmgr/GEN_SCRIPT_REPLACE_APPNAME"
+REPORAW="https://github.com/systemmgr/GEN_SCRIPT_REPLACE_APPNAME/raw/$REPO_BRANCH"
+APPVERSION="$(__appversion "https://github.com/systemmgr/GEN_SCRIPT_REPLACE_APPNAME/raw/$REPO_BRANCH/version.txt")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup plugins
 PLUGIN_REPOS=""

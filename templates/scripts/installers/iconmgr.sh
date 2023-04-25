@@ -26,6 +26,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
 VERSION="GEN_SCRIPT_REPLACE_VERSION"
+REPO_BRANCH="${GIT_REPO_BRANCH:-main}"
 HOME="${USER_HOME:-$HOME}"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${SUDO_USER:-$USER}"
@@ -77,16 +78,12 @@ trap_exit
 scripts_check
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Defaults
-APPNAME="${APPNAME:-GEN_SCRIPT_REPLACE_APPNAME}"
-APPDIR="$SHARE/CasjaysDev/iconmgr/$APPNAME"
-INSTDIR="$SHARE/CasjaysDev/iconmgr/$APPNAME"
-REPO_BRANCH="${GIT_REPO_BRANCH:-main}"
-REPO="${ICONMGRREPO:-https://github.com/iconmgr}/$APPNAME"
-REPORAW="$REPO/raw/$REPO_BRANCH"
-APPVERSION="$(__appversion "$REPORAW/version.txt")"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Export variables
-
+APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
+APPDIR="$HOME/.local/share/CasjaysDev/iconmgr/GEN_SCRIPT_REPLACE_APPNAME"
+INSTDIR="$HOME/.local/share/CasjaysDev/iconmgr/GEN_SCRIPT_REPLACE_APPNAME"
+REPO="https://github.com/iconmgr/GEN_SCRIPT_REPLACE_APPNAME"
+REPORAW="https://github.com/iconmgr/GEN_SCRIPT_REPLACE_APPNAME/raw/$REPO_BRANCH"
+APPVERSION="$(__appversion "https://github.com/iconmgr/GEN_SCRIPT_REPLACE_APPNAME/raw/$REPO_BRANCH/version.txt")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Require a version higher than
 iconmgr_req_version "$APPVERSION"

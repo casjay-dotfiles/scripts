@@ -26,6 +26,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
 VERSION="GEN_SCRIPT_REPLACE_VERSION"
+REPO_BRANCH="${GIT_REPO_BRANCH:-main}"
 HOME="${USER_HOME:-$HOME}"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${SUDO_USER:-$USER}"
@@ -90,13 +91,12 @@ devenvmgr_run_init
 #installer_noupdate "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Defaults
-APPNAME="${APPNAME:-GEN_SCRIPT_REPLACE_APPNAME}"
-APPDIR="$HOME/.local/share/devenvmgr/$APPNAME"
-INSTDIR="$CASJAYSDEVSHARE/devenvmgr/$APPNAME"
-REPO_BRANCH="${GIT_REPO_BRANCH:-main}"
-REPO="${DEVENVMGRREPO:-https://github.com/devenvmgr}/$APPNAME"
-REPORAW="$REPO/raw/$REPO_BRANCH"
-APPVERSION="$(__appversion "$REPORAW/version.txt")"
+APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
+APPDIR="$HOME/.local/share/devenvmgr/GEN_SCRIPT_REPLACE_APPNAME"
+INSTDIR="$HOME/.local/share/CasjaysDev/devenvmgr/GEN_SCRIPT_REPLACE_APPNAME"
+REPO="https://github.com/devenvmgr/GEN_SCRIPT_REPLACE_APPNAME"
+REPORAW="https://github.com/devenvmgr/GEN_SCRIPT_REPLACE_APPNAME/raw/$REPO_BRANCH"
+APPVERSION="$(__appversion "https://github.com/devenvmgr/GEN_SCRIPT_REPLACE_APPNAME/raw/$REPO_BRANCH/version.txt")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Specify custom package name
 PKG="$APPNAME"

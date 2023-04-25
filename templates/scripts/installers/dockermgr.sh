@@ -26,6 +26,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
 VERSION="GEN_SCRIPT_REPLACE_VERSION"
+REPO_BRANCH="${GIT_REPO_BRANCH:-main}"
 HOME="${USER_HOME:-$HOME}"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${SUDO_USER:-$USER}"
@@ -62,7 +63,7 @@ scripts_check
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Repository variables
 REPO="${DOCKERMGRREPO:-https://github.com/$SCRIPTS_PREFIX}/GEN_SCRIPT_REPLACE_APPNAME"
-APPVERSION="$(__appversion "$REPO/raw/${GIT_REPO_BRANCH:-main}/version.txt")"
+APPVERSION="$(__appversion "$REPO/raw/$REPO_BRANCH/version.txt")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Defaults variables
 APPNAME="GEN_SCRIPT_REPLACE_APPNAME"

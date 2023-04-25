@@ -26,12 +26,18 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
 VERSION="GEN_SCRIPT_REPLACE_VERSION"
-REPO_BRANCH="${GIT_REPO_BRANCH:-main}"
 HOME="${USER_HOME:-$HOME}"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${SUDO_USER:-$USER}"
 SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
 export SCRIPTS_PREFIX="hakmgr"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+REPO_BRANCH="${GIT_REPO_BRANCH:-main}"
+REPO="https://github.com/$SCRIPTS_PREFIX/$APPNAME"
+APPDIR="$HOME/.local/share/$SCRIPTS_PREFIX/$APPNAME"
+INSTDIR="$HOME/.local/share/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME"
+REPORAW="https://github.com/$SCRIPTS_PREFIX/$APPNAME/raw/$REPO_BRANCH"
+APPVERSION="$(__appversion "https://github.com/$SCRIPTS_PREFIX/$APPNAME/raw/$REPO_BRANCH/version.txt")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
 trap 'retVal=$?;trap_exit' ERR EXIT SIGINT
@@ -92,11 +98,6 @@ hakmgr_run_init
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Defaults
 APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
-APPDIR="$HOME/.local/share/hakmgr/GEN_SCRIPT_REPLACE_APPNAME"
-INSTDIR="$HOME/.local/share/CasjaysDev/hakmgr/GEN_SCRIPT_REPLACE_APPNAME"
-REPO="https://github.com/hakmgr/GEN_SCRIPT_REPLACE_APPNAME"
-REPORAW="https://github.com/hakmgr/GEN_SCRIPT_REPLACE_APPNAME/raw/$REPO_BRANCH"
-APPVERSION="$(__appversion "https://github.com/hakmgr/GEN_SCRIPT_REPLACE_APPNAME/raw/$REPO_BRANCH/version.txt")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # enable plugins - git repos
 PLUGIN_REPOS=""

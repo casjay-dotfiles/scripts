@@ -106,6 +106,10 @@ show_optvars "$@"
 #sudoreq "$0 *" # sudo required
 #sudorun "$0 *" # sudo optional
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Other dependencies
+dotfilesreq
+dotfilesreqadmin
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Initialize the installer
 dfmgr_run_init
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

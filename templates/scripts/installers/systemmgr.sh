@@ -104,8 +104,8 @@ sudoreq "$0 $*" # sudo required
 #installer_noupdate "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Other dependencies
-dotfilesreq
-dotfilesreqadmin
+dotfilesreq misc
+dotfilesreqadmin cron
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Initialize the installer
 systemmgr_run_init

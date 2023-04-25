@@ -104,8 +104,8 @@ show_optvars "$@"
 #sudorun "$0 *" # sudo optional
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Other dependencies
-dotfilesreq
-dotfilesreqadmin
+dotfilesreq misc
+dotfilesreqadmin cron
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Initialize the installer
 desktopmgr_run_init

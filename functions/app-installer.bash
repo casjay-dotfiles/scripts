@@ -1391,8 +1391,9 @@ supported_os() {
   [ $# -ne 0 ] || return 0
   for OSes in "$@"; do
     local app=${APPNAME:-$PROG}
-    if_os "$OSes" || printf_exit 1 1 "$app does not support your OS"
+    if_os "$OSes" && OS_IS_SUPPORTED="true"
   done
+  [ "$OS_IS_SUPPORTED" = "true" ] && return || printf_exit 1 1 "$app does not support your OS"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 unsupported_oses() {
@@ -1402,10 +1403,10 @@ unsupported_oses() {
     os_sup="$(os_support | tr '[:upper:]' '[:lower:]')"
     cur_os="$(echo "$OSes" | tr '[:upper:]' '[:lower:]')"
     if [ "$cur_os" = "$os_sup" ]; then
-      printf_red "$os_sup is not supported"
-      exit 1
+      OS_IS_SUPPORTED="false"
     fi
   done
+  [ "$OS_IS_SUPPORTED" != "false" ] && return || printf_exit 1 1 "$app does not support your OS"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if_os() {

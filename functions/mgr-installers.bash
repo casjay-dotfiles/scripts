@@ -1116,8 +1116,10 @@ dotfilesreq() {
   local sysconfdir="$SYSSHARE/CasjaysDev/apps/dfmgr"
   for conf in "${LISTARRAY[@]}"; do
     local TMPINST="$TMPDIR/${conf}.inst.tmp"
-    if [ ! -e "$userconfdir/$conf" ] || [ ! -e "$sysconfdir/$conf" ] || [ ! -f "$TMPINST" ]; then
-      printf_cyan "💠 Installing required dotfile: $userconfdir/$conf: $conf 💠"
+    if [ -e "$userconfdir/$conf" ] || [ -e "$sysconfdir/$conf" ] || [ -f "$TMPINST" ]; then
+      printf_cyan "💠 Required dotfile $conf is installed 💠"
+    else
+      printf_cyan "💠 Installing required dotfile: 💠"
       dotfilesreqcmd "$conf"
     fi
   done
@@ -1133,7 +1135,9 @@ dotfilesreqadmin() {
   local sysconfdir="$SYSSHARE/CasjaysDev/apps/systemmgr"
   for conf in "${LISTARRAY[@]}"; do
     local TMPINST="$TMPDIR/${conf}.inst.tmp"
-    if [ ! -e "$userconfdir/$conf" ] || [ ! -e "$sysconfdir/$conf" ] || [ ! -f "$TMPINST" ]; then
+    if [ -e "$userconfdir/$conf" ] || [ -e "$sysconfdir/$conf" ] || [ -f "$TMPINST" ]; then
+      printf_cyan "💠 Required dotfile $conf is installed 💠"
+    else
       printf_cyan "💠 Installing required system: $conf 💠"
       dotfilesreqadmincmd "$conf"
     fi

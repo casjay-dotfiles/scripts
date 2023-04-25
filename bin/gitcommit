@@ -482,13 +482,13 @@ __changed_files() {
   __git_s_renamed() { git -C "$GEN_CHANGELOG_CWD" status -s 2>/dev/null | grep -Ew ^'R|RM| R' | awk '{print $2}' | sort -u | grep -v '^$' | grep '^' || return 1; }
   __git_s_modified() { git -C "$GEN_CHANGELOG_CWD" status -s 2>/dev/null | grep -Ew ^'M|MM| M' | awk '{print $2}' | sort -u | grep -v '^$' | grep '^' || return 1; }
   __git_s_deleted() { git -C "$GEN_CHANGELOG_CWD" status -s 2>/dev/null | grep -E ^'[M, ]D|DD' | awk '{print $2}' | sort -u | grep -v '^$' | grep '^' || return 1; }
-  __git_s_message() { git -C "$GEN_CHANGELOG_CWD" status -b -s | grep -v '^$' | sed '/^\#/d;s,^ ,,g;s,??,A,g' | tr '\n' ' | ' | sed 's# | $# #g' | sed 's|  | |g' | grep '^' || return 1; }
+  __git_s_message() { __git_s_added || __git_s_renamed || __git_s_modified || __git_s_deleted || return 1; }
   local files=""
   while :; do
     case $1 in
     message)
       shift
-      __git_s_message | grep ${1:--v '^CHANGELOG.md'} || return 1
+      __git_s_message || return 1
       ;;
     added)
       shift
@@ -572,7 +572,7 @@ __git_all() {
   local action="${set_action:-🗃}"
   local prepend="${prepend_name:-}"
   local local_set_mess="$(printf '%b\n' "$message")"
-  changed_files="${changed_files:-$(__changed_files all)}"
+  changed_files="$(__changed_files all)"
   if [ -z "$changed_files" ] || [ "$GITADMIN_NO_ERROR" != "true" ]; then
     [ "$GITADMIN_NO_ERROR_MESSAGE" = "true" ] || printf_return "🙁 No files have changed in $GITCOMMIT_CWD 🙁"
     export GITADMIN_NO_ERROR_MESSAGE="true"
@@ -580,9 +580,8 @@ __git_all() {
   fi
   [ -n "$local_set_mess" ] || local_set_mess="$prepend"
   changelog_message="$prepend"
-  set_changed_files="$changed_files"
   setmess="$(printf '%b\n' "$action $local_set_mess $icon")"
-  GITCOMMIT_MESSAGE_LONG="$set_changed_files"
+  GITCOMMIT_MESSAGE_LONG="$changed_files"
   __gitmessage "$setmess" "$changed_files"
   git -C "$GITCOMMIT_CWD" add . &>/dev/null
   __gitcommit "$setmess" || exitCode+=$((exitCode + 1))
@@ -599,7 +598,7 @@ __git_mod() {
   local icon="${set_icon:-🗃}"
   local action="${set_action:-🗃} "
   local prepend="${prepend_name:-Modified}:"
-  changed_files="${changed_files:-$(__changed_files all)}"
+  changed_files="$(__changed_files all)"
   if [ -z "$changed_files" ] || [ "$GITADMIN_NO_ERROR" != "true" ]; then
     [ "$GITADMIN_NO_ERROR_MESSAGE" = "true" ] || printf_return "🙁 No files have changed in $GITCOMMIT_CWD 🙁"
     export GITADMIN_NO_ERROR_MESSAGE="true"
@@ -607,7 +606,6 @@ __git_mod() {
   fi
   for file in $changed_files; do
     f="$file"
-    set_changed_files="$f"
     changelog_message="$prepend"
     local_set_mess="$prepend $f"
     setmess="$(printf '%b\n' "$action $local_set_mess $icon")"
@@ -628,7 +626,7 @@ __git_add() {
   local icon="${set_icon:-❓}"
   local action="${set_action:-❓} "
   local prepend="${prepend_name:-Added}:"
-  changed_files="${changed_files:-$(__changed_files all)}"
+  changed_files="$(__changed_files all)"
   if [ -z "$changed_files" ] || [ "$GITADMIN_NO_ERROR" != "true" ]; then
     [ "$GITADMIN_NO_ERROR_MESSAGE" = "true" ] || printf_return "🙁 No files have been added in $GITCOMMIT_CWD 🙁"
     export GITADMIN_NO_ERROR_MESSAGE="true"
@@ -636,9 +634,7 @@ __git_add() {
   fi
   for file in $changed_files; do
     f="$file"
-    set_changed_files="$f"
-    local_set_mess="$prepend $f"
-    setmess="$(printf '%b\n' "$action $local_set_mess $icon")"
+    setmess="$(printf '%b\n' "$action $prepend $f $icon")"
     GITCOMMIT_MESSAGE_LONG="$(printf '%b\n' "$prepend $f" | sed "s|$f.*.$f|$f|g")"
     __gitmessage "$setmess"
     git -C "$GITCOMMIT_CWD" add "$f" &>/dev/null
@@ -657,7 +653,7 @@ __git_del() {
   local icon="${set_icon:-➖}"
   local action="${set_action:-➖} "
   local prepend="${prepend_name:-Deleted}:"
-  changed_files="${changed_files:-$(__changed_files all)}"
+  changed_files="$(__changed_files all)"
   if [ -z "$changed_files" ] || [ "$GITADMIN_NO_ERROR" != "true" ]; then
     [ "$GITADMIN_NO_ERROR_MESSAGE" = "true" ] || printf_return "🙁 No files have been deleted in $GITCOMMIT_CWD 🙁"
     export GITADMIN_NO_ERROR_MESSAGE="true"
@@ -665,9 +661,7 @@ __git_del() {
   fi
   for file in $changed_files; do
     f="$file"
-    set_changed_files="$f"
-    local_set_mess="$prepend $f"
-    setmess="$(printf '%b\n' "$action $local_set_mess $icon")"
+    setmess="$(printf '%b\n' "$action $prepend $f $icon")"
     GITCOMMIT_MESSAGE_LONG="$(printf '%b\n' "$prepend $f" | sed "s|$f.*.$f|$f|g")"
     __gitmessage "$setmess"
     git -C "$GITCOMMIT_CWD" add "$f" &>/dev/null &
@@ -692,8 +686,7 @@ __git_renamed() {
   [ -n "$file_from" ] && [ -n "$file_move" ] || return 1
   [ -d "$create_dir" ] || mkdir -p "$(dirname "$create_dir")"
   [ -e "$file_move" ] && mv -f "$file_from" "$file_move" &>/dev/null
-  local_set_mess="$prepend $file_from ➡ $file_move"
-  setmess="$(printf '%b\n' "$action $local_set_mess $icon")"
+  setmess="$(printf '%b\n' "$action $prepend $file_from ➡ $file_move $icon")"
   GITCOMMIT_MESSAGE_LONG="$(printf '%b\n%b\n' "Deleted: $file_from" "Added: $file_move" | sed "s|$f.*.$f|$f|g")"
   __gitmessage "$setmess"
   if git -C "$GITCOMMIT_CWD" rm "$file_from" -rf &>/dev/null; then
@@ -923,7 +916,7 @@ __commit_custom() {
   local prepend="${prepend_name:-All}:"
   local message="${GITCOMMIT_MESSAGE_SHORT:-Committing everything that changed}"
   local local_set_mess="$(printf '%b\n' "$message")"
-  changed_files="${changed_files:-$(__changed_files all)}"
+  changed_files="$(__changed_files all)"
   if [ -z "$changed_files" ] || [ "$GITADMIN_NO_ERROR" != "true" ]; then
     [ "$GITADMIN_NO_ERROR_MESSAGE" = "true" ] || printf_return "🙁 No files have changed in $GITCOMMIT_CWD 🙁"
     export GITADMIN_NO_ERROR_MESSAGE="true"
@@ -932,15 +925,14 @@ __commit_custom() {
   [ "$FORCE_PUSH" ] && ARGS="-f"
   [ -n "$local_set_mess" ] || local_set_mess="$prepend"
   changelog_message="$prepend"
-  set_changed_files="${set_changed_files:-$changed_files}"
   setmess="$(printf '%b\n' "$action $local_set_mess $icon")"
-  __gitmessage "$setmess" "$set_changed_files"
+  __gitmessage "$setmess" "$changed_files"
   printf_cyan "👊 Committing Changes with the following message: 👊"
   printf_yellow "$GITCOMMIT_MESSAGE_SHORT"
   __commit_custom_cmd "$@"
   exitCode=$?
   if [ "$exitCode" = 0 ]; then
-    __changelog_create "$set_changed_files"
+    __changelog_create "$changed_files"
     __update_version
     if [ ! -f "$GITCOMMIT_CWD/.no_push" ] && __git_check_push; then
       git_repo="$(__git_remote_fetch "$GITCOMMIT_CWD")"
@@ -1441,9 +1433,8 @@ all) #
   set_icon="🗃️"
   changelog_message="All"
   GITCOMMIT_MESSAGE_SHORT="${*:-Committing everything that changed}"
-  changed_files="$(__changed_files all)"
-  GITCOMMIT_MESSAGE_LONG="$changed_files"
-  [ -n "$changed_files" ] || printf_exit "😿 No files have been modified 😿"
+  repo_has_changed="$(__changed_files message)"
+  [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been modified 😿"
   __commit_custom "."
   ;;
 
@@ -1454,19 +1445,20 @@ restored) #
   set_icon="🗃️"
   prepend_name="Restored"
   GITCOMMIT_MESSAGE_SHORT="${*:-${GITCOMMIT_MESSAGE_SHORT:-Committing restored files}}"
-  changed_files="$(__changed_files all)"
-  GITCOMMIT_MESSAGE_LONG="$changed_files"
-  [ -n "$changed_files" ] || printf_exit "😿 No files have been modified 😿"
+  repo_has_changed="$(__changed_files all)"
+  [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been modified 😿"
   __commit_custom "."
   ;;
 
 files) #
   shift
   [ "$1" = "help" ] && printf_exit "Usage: $APPNAME files"
+  set_action="🗃️"
+  set_icon="🗃️"
   changelog_message="File"
   GITCOMMIT_MESSAGE_SHORT="${*:-${GITCOMMIT_MESSAGE_SHORT:-Committing all file changes}}"
-  changed_files="$(__changed_files deleted added modified)"
-  [ -n "$changed_files" ] || printf_exit "😿 No files have been modified 😿"
+  repo_has_changed="$(__changed_files deleted added modified)"
+  [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been modified 😿"
   __git_del "$(printf '%b\n' "$GITCOMMIT_MESSAGE_SHORT")" || exitCode=$((${exitCode:-0} + 1))
   __git_add "$(printf '%b\n' "$GITCOMMIT_MESSAGE_SHORT")" || exitCode=$((${exitCode:-0} + 1))
   __git_mod "$(printf '%b\n' "$GITCOMMIT_MESSAGE_SHORT")" || exitCode=$((${exitCode:-0} + 1))
@@ -1480,9 +1472,9 @@ modified) #
   set_action="🗃️"
   set_icon="🗃️"
   prepend_name="Modified"
-  changed_files="$(__changed_files modified)"
+  repo_has_changed="$(__changed_files modified)"
   GITCOMMIT_MESSAGE_SHORT="${*:-$GITCOMMIT_MESSAGE_SHORT}"
-  [ -n "$changed_files" ] || printf_exit "😿 No files have been modified 😿"
+  [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been modified 😿"
   __git_mod "$GITCOMMIT_MESSAGE_SHORT"
   __run_push
   exit $?
@@ -1494,9 +1486,9 @@ updated) #
   set_action="📁"
   set_icon="📁"
   prepend_name="Updated"
-  changed_files="$(__changed_files modified)"
+  repo_has_changed="$(__changed_files modified)"
   GITCOMMIT_MESSAGE_SHORT="${*:-$GITCOMMIT_MESSAGE_SHORT}"
-  [ -n "$changed_files" ] || printf_exit "😿 No files have been modified 😿"
+  [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been modified 😿"
   __git_updated "$GITCOMMIT_MESSAGE_SHORT"
   __run_push
   exit $?
@@ -1508,9 +1500,9 @@ deleted) #
   set_action="➖"
   set_icon="➖"
   prepend_name="Deleted"
-  changed_files="$(__changed_files deleted)"
+  repo_has_changed="$(__changed_files deleted)"
   GITCOMMIT_MESSAGE_SHORT="${*:-$GITCOMMIT_MESSAGE_SHORT}"
-  [ -n "$changed_files" ] || printf_exit "😿 No files have been deleted 😿"
+  [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been deleted 😿"
   __git_del "$GITCOMMIT_MESSAGE_SHORT"
   __run_push
   exit $?
@@ -1522,9 +1514,9 @@ added) #
   set_action="➕"
   set_icon="➕"
   prepend_name="Added"
-  changed_files="$(__changed_files added)"
+  repo_has_changed="$(__changed_files added)"
   GITCOMMIT_MESSAGE_SHORT="${*:-$GITCOMMIT_MESSAGE_SHORT}"
-  [ -n "$changed_files" ] || printf_exit "😿 No files have been added 😿"
+  [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been added 😿"
   __git_add "$GITCOMMIT_MESSAGE_SHORT"
   __run_push
   exit $?
@@ -1536,9 +1528,9 @@ renamed) #
   set_action="✔️"
   set_icon="✔️"
   prepend_name="Renamed"
-  changed_files="$(__changed_files renamed)"
+  repo_has_changed="$(__changed_files renamed)"
   GITCOMMIT_MESSAGE_SHORT="${*:-$GITCOMMIT_MESSAGE_SHORT}"
-  [ -n "$changed_files" ] || [ $# -eq 2 ] || printf_exit "😿 No files have been renamed 😿"
+  [ -n "$repo_has_changed" ] || [ $# -eq 2 ] || printf_exit "😿 No files have been renamed 😿"
   __git_renamed "$1" "$2" "$GITCOMMIT_MESSAGE_SHORT"
   __run_push
   exit $?
@@ -1550,9 +1542,9 @@ changed) #
   set_action="✔️"
   set_icon="✔️"
   prepend_name="Changed"
-  changed_files="$(__changed_files modified)"
+  repo_has_changed="$(__changed_files modified)"
   GITCOMMIT_MESSAGE_SHORT="${*:-$GITCOMMIT_MESSAGE_SHORT}"
-  [ -n "$changed_files" ] || printf_exit "😿 No files have been changed 😿"
+  [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been changed 😿"
   __git_mod "$GITCOMMIT_MESSAGE_SHORT"
   __run_push
   exit $?
@@ -1564,9 +1556,9 @@ spelling) #
   set_action="⚔️"
   set_icon="⚔️"
   prepend_name="Fixed spelling"
-  changed_files="$(__changed_files modified)"
+  repo_has_changed="$(__changed_files modified)"
   GITCOMMIT_MESSAGE_SHORT="${*:-$GITCOMMIT_MESSAGE_SHORT}"
-  [ -n "$changed_files" ] || printf_exit "😿 No files have been modified 😿"
+  [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been modified 😿"
   __git_mod "$GITCOMMIT_MESSAGE_SHORT"
   __run_push
   exit $?
@@ -1578,9 +1570,9 @@ new) #
   set_action="🆕"
   set_icon="🆕"
   prepend_name="New"
-  changed_files="$(__changed_files added)"
+  repo_has_changed="$(__changed_files added)"
   GITCOMMIT_MESSAGE_SHORT="${*:-$GITCOMMIT_MESSAGE_SHORT}"
-  [ -n "$changed_files" ] || printf_exit "😿 No files have been added 😿"
+  [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been added 😿"
   __git_add "$GITCOMMIT_MESSAGE_SHORT"
   __run_push
   exit $?
@@ -1592,9 +1584,9 @@ improved) #
   set_action="👌"
   set_icon="👌"
   prepend_name="IMPROVE"
-  changed_files="$(__changed_files modified)"
+  repo_has_changed="$(__changed_files modified)"
   GITCOMMIT_MESSAGE_SHORT="${*:-$GITCOMMIT_MESSAGE_SHORT}"
-  [ -n "$changed_files" ] || printf_exit "😿 No files have been improved 😿"
+  [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been improved 😿"
   __git_mod "$GITCOMMIT_MESSAGE_SHORT"
   __run_push
   exit $?
@@ -1606,9 +1598,9 @@ fixed | fixes) #
   set_action="✔️"
   set_icon="✔️"
   prepend_name="FIXED"
-  changed_files="$(__changed_files modified)"
+  repo_has_changed="$(__changed_files modified)"
   GITCOMMIT_MESSAGE_SHORT="${*:-$GITCOMMIT_MESSAGE_SHORT}"
-  [ -n "$changed_files" ] || printf_exit "😿 No files have been modified 😿"
+  [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been modified 😿"
   __git_mod "$GITCOMMIT_MESSAGE_SHORT"
   __run_push
   exit $?
@@ -1620,9 +1612,9 @@ release) #
   set_action="🚀"
   set_icon="🚀"
   prepend_name="RELEASE"
-  changed_files="$(__changed_files deleted added modified)"
+  repo_has_changed="$(__changed_files deleted added modified)"
   GITCOMMIT_MESSAGE_SHORT="${*:-$GITCOMMIT_MESSAGE_SHORT}"
-  [ -n "$changed_files" ] || printf_exit "😿 No files have been changed 😿"
+  [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been changed 😿"
   __set_version
   __default_git_action "$GITCOMMIT_MESSAGE_SHORT"
   __run_push
@@ -1635,10 +1627,9 @@ deploy) #
   set_action="📃"
   set_icon="📃"
   prepend_name="Deployed"
-  changed_files="$(__changed_files all)"
+  repo_has_changed="$(__changed_files all)"
   GITCOMMIT_MESSAGE_SHORT="${*:-$GITCOMMIT_MESSAGE_SHORT}"
-  GITCOMMIT_MESSAGE_LONG="$changed_files"
-  [ -n "$changed_files" ] || printf_exit "😿 No files have been modified 😿"
+  [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been modified 😿"
   __write_version
   __default_git_action "$GITCOMMIT_MESSAGE_SHORT"
   __run_push
@@ -1651,10 +1642,9 @@ docs) #
   set_action="📖"
   set_icon="📖"
   prepend_name="Docs"
-  changed_files="$(__changed_files modified)"
+  repo_has_changed="$(__changed_files modified)"
   GITCOMMIT_MESSAGE_SHORT="${*:-$GITCOMMIT_MESSAGE_SHORT}"
-  GITCOMMIT_MESSAGE_LONG="$changed_files"
-  [ -n "$changed_files" ] || printf_exit "😿 No files have been modified 😿"
+  [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been modified 😿"
   __git_updated "$GITCOMMIT_MESSAGE_SHORT"
   __run_push
   exit $?
@@ -1666,9 +1656,9 @@ test) #
   set_action="🤖"
   set_icon="🤖"
   prepend_name="TEST"
-  changed_files="$(__changed_files all)"
+  repo_has_changed="$(__changed_files all)"
   GITCOMMIT_MESSAGE_SHORT="${*:-$GITCOMMIT_MESSAGE_SHORT}"
-  [ -n "$changed_files" ] || printf_exit "😿 No files have been modified 😿"
+  [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been modified 😿"
   __default_git_action "$GITCOMMIT_MESSAGE_SHORT"
   __run_push
   exit $?
@@ -1680,9 +1670,9 @@ breaking) #
   set_action="⚒️"
   set_icon="⚒️"
   prepend_name="BREAKING"
-  changed_files="$(__changed_files all)"
+  repo_has_changed="$(__changed_files all)"
   GITCOMMIT_MESSAGE_SHORT="${*:-$GITCOMMIT_MESSAGE_SHORT}"
-  [ -n "$changed_files" ] || printf_exit "😿 No files have been modified 😿"
+  [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been modified 😿"
   __default_git_action "$GITCOMMIT_MESSAGE_SHORT"
   __run_push
   exit $?
@@ -1694,9 +1684,9 @@ refactor) #
   set_action="〰️"
   set_icon="〰️"
   prepend_name="Refactor Code"
-  changed_files="$(__changed_files modified)"
+  repo_has_changed="$(__changed_files modified)"
   GITCOMMIT_MESSAGE_SHORT="${*:-$GITCOMMIT_MESSAGE_SHORT}"
-  [ -n "$changed_files" ] || printf_exit "😿 No files have been modified 😿"
+  [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been modified 😿"
   __git_updated "$GITCOMMIT_MESSAGE_SHORT"
   __run_push
   exit $?
@@ -1708,9 +1698,9 @@ performance) #
   set_action="🚤"
   set_icon="🚤"
   prepend_name="Performance boost"
-  changed_files="$(__changed_files modified)"
+  repo_has_changed="$(__changed_files modified)"
   GITCOMMIT_MESSAGE_SHORT="${*:-$GITCOMMIT_MESSAGE_SHORT}"
-  [ -n "$changed_files" ] || printf_exit "😿 No files have been modified 😿"
+  [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been modified 😿"
   __git_updated "$GITCOMMIT_MESSAGE_SHORT"
   __run_push
   exit $?
@@ -1721,9 +1711,9 @@ permission | permissions) #
   set_action="❗"
   set_icon="❗"
   prepend_name="Fixed Permissions"
-  changed_files="$(__changed_files modified)"
+  repo_has_changed="$(__changed_files modified)"
   GITCOMMIT_MESSAGE_SHORT="${*:-$GITCOMMIT_MESSAGE_SHORT}"
-  [ -n "$changed_files" ] || printf_exit "😿 No files have been modified 😿"
+  [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been modified 😿"
   __git_updated "$GITCOMMIT_MESSAGE_SHORT"
   __run_push
   exit $?
@@ -1734,9 +1724,9 @@ bug | bugs) #
   set_action="🐛"
   set_icon="🐛"
   prepend_name="Bug Fixes"
-  changed_files="$(__changed_files modified)"
+  repo_has_changed="$(__changed_files modified)"
   GITCOMMIT_MESSAGE_SHORT="${*:-$GITCOMMIT_MESSAGE_SHORT}"
-  [ -n "$changed_files" ] || printf_exit "😿 No files have been modified 😿"
+  [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been modified 😿"
   __git_updated "$GITCOMMIT_MESSAGE_SHORT"
   __run_push
   exit $?
@@ -1747,9 +1737,9 @@ alot) #
   set_action="🏠"
   set_icon="🏠"
   prepend_name="Fixes and Updates"
-  changed_files="$(__changed_files all)"
+  repo_has_changed="$(__changed_files all)"
   GITCOMMIT_MESSAGE_SHORT="${*:-$GITCOMMIT_MESSAGE_SHORT}"
-  [ -n "$changed_files" ] || printf_exit "😿 No files have been modified 😿"
+  [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been modified 😿"
   __default_git_action "$GITCOMMIT_MESSAGE_SHORT"
   __run_push
   exit $?
@@ -1760,9 +1750,9 @@ docker) #
   set_action="❇"
   set_icon="❇"
   prepend_name="Added Docker Workflow"
-  changed_files="$(__changed_files modified)"
+  repo_has_changed="$(__changed_files modified)"
   GITCOMMIT_MESSAGE_SHORT="${*:-$GITCOMMIT_MESSAGE_SHORT}"
-  [ -n "$changed_files" ] || printf_exit "😿 No files have been modified 😿"
+  [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been modified 😿"
   __git_updated "$GITCOMMIT_MESSAGE_SHORT"
   __run_push
   exit $?
@@ -1773,9 +1763,9 @@ node) #
   set_action="🦈"
   set_icon="🦈"
   prepend_name="Added nodejs Workflow"
-  changed_files="$(__changed_files modified)"
+  repo_has_changed="$(__changed_files modified)"
   GITCOMMIT_MESSAGE_SHORT="${*:-$GITCOMMIT_MESSAGE_SHORT}"
-  [ -n "$changed_files" ] || printf_exit "😿 No files have been modified 😿"
+  [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been modified 😿"
   __git_updated "$GITCOMMIT_MESSAGE_SHORT"
   __run_push
   exit $?
@@ -1786,9 +1776,9 @@ ruby) #
   set_action="🐜"
   set_icon="🐜"
   prepend_name="Added ruby Workflow"
-  changed_files="$(__changed_files modified)"
+  repo_has_changed="$(__changed_files modified)"
   GITCOMMIT_MESSAGE_SHORT="${*:-$GITCOMMIT_MESSAGE_SHORT}"
-  [ -n "$changed_files" ] || printf_exit "😿 No files have been modified 😿"
+  [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been modified 😿"
   __git_updated "$GITCOMMIT_MESSAGE_SHORT"
   __run_push
   exit $?
@@ -1799,9 +1789,9 @@ php) #
   set_action="🦈"
   set_icon="🦈"
   prepend_name="Added php Workflow"
-  changed_files="$(__changed_files modified)"
+  repo_has_changed="$(__changed_files modified)"
   GITCOMMIT_MESSAGE_SHORT="${*:-$GITCOMMIT_MESSAGE_SHORT}"
-  [ -n "$changed_files" ] || printf_exit "😿 No files have been modified 😿"
+  [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been modified 😿"
   __git_updated "$GITCOMMIT_MESSAGE_SHORT"
   __run_push
   exit $?
@@ -1812,9 +1802,9 @@ perl) #
   set_action="🦈"
   set_icon="🦈"
   prepend_name="Added perl Workflow"
-  changed_files="$(__changed_files modified)"
+  repo_has_changed="$(__changed_files modified)"
   GITCOMMIT_MESSAGE_SHORT="${*:-$GITCOMMIT_MESSAGE_SHORT}"
-  [ -n "$changed_files" ] || printf_exit "😿 No files have been modified 😿"
+  [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been modified 😿"
   __git_updated "$GITCOMMIT_MESSAGE_SHORT"
   __run_push
   exit $?
@@ -1825,9 +1815,9 @@ python) #
   set_action="🦈"
   set_icon="🦈"
   prepend_name="Added python Workflow"
-  changed_files="$(__changed_files modified)"
+  repo_has_changed="$(__changed_files modified)"
   GITCOMMIT_MESSAGE_SHORT="${*:-$GITCOMMIT_MESSAGE_SHORT}"
-  [ -n "$changed_files" ] || printf_exit "😿 No files have been modified 😿"
+  [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been modified 😿"
   __git_updated "$GITCOMMIT_MESSAGE_SHORT"
   __run_push
   exit $?
@@ -1838,9 +1828,9 @@ scratchpad) #
   set_action="📓"
   set_icon="📓"
   prepend_name="Scratchpad"
-  changed_files="$(__changed_files all)"
+  repo_has_changed="$(__changed_files all)"
   GITCOMMIT_MESSAGE_SHORT="${*:-${GITCOMMIT_MESSAGE_SHORT:-Modified my scratchpad}}"
-  [ -n "$changed_files" ] || printf_exit "😿 No files have been modified 😿"
+  [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been modified 😿"
   __default_git_action --add-all-files "$GITCOMMIT_MESSAGE_SHORT"
   __run_push
   exit $?
@@ -1851,9 +1841,9 @@ todo) #
   set_action="📓"
   set_icon="📓"
   prepend_name="TODO"
-  changed_files="$(__changed_files all)"
+  repo_has_changed="$(__changed_files all)"
   GITCOMMIT_MESSAGE_SHORT="${*:-${GITCOMMIT_MESSAGE_SHORT:-Modified my todo list}}"
-  [ -n "$changed_files" ] || printf_exit "😿 No files have been modified 😿"
+  [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been modified 😿"
   __default_git_action --add-all-files "$GITCOMMIT_MESSAGE_SHORT"
   __run_push
   exit $?
@@ -1864,9 +1854,9 @@ notes) #
   set_action="📓"
   set_icon="📓"
   prepend_name="Notes"
-  changed_files="$(__changed_files all)"
+  repo_has_changed="$(__changed_files all)"
   GITCOMMIT_MESSAGE_SHORT="${*:-${GITCOMMIT_MESSAGE_SHORT:-Modified my notes}}"
-  [ -n "$changed_files" ] || printf_exit "😿 No files have been modified 😿"
+  [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been modified 😿"
   __default_git_action --add-all-files "$GITCOMMIT_MESSAGE_SHORT"
   __run_push
   exit $?
@@ -1877,9 +1867,9 @@ blog) #
   set_action="🐜"
   set_icon="🐜"
   prepend_name="Blog"
-  changed_files="$(__changed_files all)"
+  repo_has_changed="$(__changed_files all)"
   GITCOMMIT_MESSAGE_SHORT="${*:-${GITCOMMIT_MESSAGE_SHORT:-New post}}"
-  [ -n "$changed_files" ] || printf_exit "😿 No files have been modified 😿"
+  [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been modified 😿"
   __default_git_action "$GITCOMMIT_MESSAGE_SHORT"
   __run_push
   exit $?
@@ -1890,9 +1880,9 @@ recipe) #
   set_action="🍕"
   set_icon="🍕"
   prepend_name="Recipes"
-  changed_files="$(__changed_files all)"
+  repo_has_changed="$(__changed_files all)"
   GITCOMMIT_MESSAGE_SHORT="${*:-${GITCOMMIT_MESSAGE_SHORT:-Updated my recipes}}"
-  [ -n "$changed_files" ] || printf_exit "😿 No files have been modified 😿"
+  [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been modified 😿"
   __default_git_action "$GITCOMMIT_MESSAGE_SHORT"
   __run_push
   exit $?
@@ -1904,9 +1894,9 @@ random) #
   set_icon="⬅️"
   prepend_name="Random"
   set_message="$(__get_random_message)"
-  changed_files="$(__changed_files all)"
+  repo_has_changed="$(__changed_files all)"
   GITCOMMIT_MESSAGE_SHORT="${*:-${GITCOMMIT_MESSAGE_SHORT:-$set_message}}"
-  [ -n "$changed_files" ] || printf_exit "😿 No files have been modified 😿"
+  [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been modified 😿"
   __default_git_action "--add-all-files" "$GITCOMMIT_MESSAGE_SHORT"
   __run_push
   exit $?
@@ -1916,10 +1906,9 @@ emj | emojy | emojify) #
   shift 1
   set_action="${setemj:-🐜}"
   set_icon="${setemj:-🐜}"
-  changed_files="$(__changed_files all)"
-  GITCOMMIT_MESSAGE_SHORT="${*:-$GITCOMMIT_MESSAGE_SHORT}"
-  GITCOMMIT_MESSAGE_SHORT="$(printf '%b\n' "$GITCOMMIT_MESSAGE_SHORT" | __emj_check)"
-  [ -n "$changed_files" ] || printf_exit "😿 No files have been modified 😿"
+  repo_has_changed="$(__changed_files all)"
+  GITCOMMIT_MESSAGE_SHORT="$(printf '%b\n' "${*:-$GITCOMMIT_MESSAGE_SHORT}" | __emj_check)"
+  [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been modified 😿"
   __cmd_exists emojify && setemj="$(emojify "$(printf '%b\n' "$GITCOMMIT_MESSAGE_SHORT")")"
   __default_git_action "$GITCOMMIT_MESSAGE_SHORT"
   __run_push
@@ -1931,8 +1920,8 @@ custom) #
   GITCOMMIT_MESSAGE_SHORT="${1:-${GITCOMMIT_MESSAGE_SHORT:-$GITCOMMIT_DEFAULT_MESSAGE}}"
   if [ -n "$GITCOMMIT_MESSAGE_SHORT" ]; then
     prepend_name=""
-    changed_files="$(__changed_files all)"
-    [ -n "$changed_files" ] || printf_exit "😿 No files have been modified 😿"
+    repo_has_changed="$(__changed_files all)"
+    [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been modified 😿"
     __default_git_action "$GITCOMMIT_MESSAGE_SHORT"
     __run_push
   else
@@ -1943,13 +1932,13 @@ custom) #
 
 *) #
   [ $# -ne 0 ] || printf_exit "Usage: $APPNAME [option] [message]"
-  setmessage="${GITCOMMIT_MESSAGE_SHORT:-${*:-$GITCOMMIT_DEFAULT_MESSAGE}}"
-  if [ -n "$setmessage" ]; then
-    [ "${#setmessage}" -gt "4" ] || printf_exit "Message must be longer than 4 characters"
+  GITCOMMIT_MESSAGE_SHORT="${*:-${GITCOMMIT_MESSAGE_SHORT:-$GITCOMMIT_DEFAULT_MESSAGE}}"
+  if [ -n "$GITCOMMIT_MESSAGE_SHORT" ]; then
+    [ "${#GITCOMMIT_MESSAGE_SHORT}" -gt "4" ] || printf_exit "Message must be longer than 4 characters"
   fi
-  changed_files="$(__changed_files all)"
-  [ -n "$changed_files" ] || printf_exit "😿 No files have been modified 😿"
-  __default_git_action "$setmessage"
+  repo_has_changed="$(__changed_files all)"
+  [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been modified 😿"
+  __default_git_action "$GITCOMMIT_MESSAGE_SHORT"
   ;;
 esac
 shift

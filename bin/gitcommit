@@ -504,7 +504,7 @@ __changed_files() {
       ;;
     deleted)
       shift
-      __git_s_deleted | grep -v '^CHANGELOG.md' || return 1
+      __git_s_deleted || return 1
       ;;
     changelog)
       shift
@@ -583,9 +583,11 @@ __git_all() {
   setmess="$(printf '%b\n' "$action $local_set_mess $icon")"
   GITCOMMIT_MESSAGE_LONG="$changed_files"
   __gitmessage "$setmess" "$changed_files"
-  git -C "$GITCOMMIT_CWD" add . &>/dev/null
-  __gitcommit "$setmess" || exitCode+=$((exitCode + 1))
-  __changelog_create "$setmess" "$changed_files"
+  if git -C "$GITCOMMIT_CWD" add . &>/dev/null && __gitcommit "$setmess"; then
+    __changelog_create "$setmess" "$changed_files"
+  else
+    exitCode+=$((exitCode + 1))
+  fi
   unset changed_files prepend
   [ $exitCode -eq 0 ] && export PUSH_ENABLE="${PUSH_ENABLE:-true}" || export PUSH_ENABLE=""
   return ${exitCode:-0}
@@ -611,9 +613,11 @@ __git_mod() {
     setmess="$(printf '%b\n' "$action $local_set_mess $icon")"
     GITCOMMIT_MESSAGE_LONG="$(printf '%b\n' "$prepend $f" | sed "s|$f.*.$f|$f|g")"
     __gitmessage "$setmess"
-    git -C "$GITCOMMIT_CWD" add "$f" &>/dev/null
-    __gitcommit "$setmess" || exitCode+=$((exitCode + 1))
-    __changelog_create "$f"
+    if git -C "$GITCOMMIT_CWD" add "$f" &>/dev/null && __gitcommit "$setmess"; then
+      __changelog_create "$f"
+    else
+      exitCode+=$((exitCode + 1))
+    fi
   done
   [ $exitCode -eq 0 ] && export PUSH_ENABLE="${PUSH_ENABLE:-true}" || export PUSH_ENABLE=""
   unset changed_files prepend
@@ -653,7 +657,7 @@ __git_del() {
   local icon="${set_icon:-➖}"
   local action="${set_action:-➖} "
   local prepend="${prepend_name:-Deleted}:"
-  changed_files="$(__changed_files all)"
+  changed_files="$(__changed_files deleted)"
   if [ -z "$changed_files" ] || [ "$GITADMIN_NO_ERROR" != "true" ]; then
     [ "$GITADMIN_NO_ERROR_MESSAGE" = "true" ] || printf_return "🙁 No files have been deleted in $GITCOMMIT_CWD 🙁"
     export GITADMIN_NO_ERROR_MESSAGE="true"
@@ -664,9 +668,11 @@ __git_del() {
     setmess="$(printf '%b\n' "$action $prepend $f $icon")"
     GITCOMMIT_MESSAGE_LONG="$(printf '%b\n' "$prepend $f" | sed "s|$f.*.$f|$f|g")"
     __gitmessage "$setmess"
-    git -C "$GITCOMMIT_CWD" add "$f" &>/dev/null &
-    __gitcommit "$setmess" || exitCode+=$((exitCode + 1))
-    __changelog_create "$f"
+    if git -C "$GITCOMMIT_CWD" rm "$f" &>/dev/null && __gitcommit "$setmess"; then
+      __changelog_create "$f"
+    else
+      exitCode+=$((exitCode + 1))
+    fi
   done
   unset changed_files prepend
   [ $exitCode -eq 0 ] && export PUSH_ENABLE="${PUSH_ENABLE:-true}" || export PUSH_ENABLE=""
@@ -737,22 +743,21 @@ __files() {
 __gitignore_init() {
   local exitCode=0
   [ -e "${1:-$GITCOMMIT_CWD}/.gitignore" ] && return
-  [ -d "${1:-$GITCOMMIT_CWD}/node_modules" ] &&
-    gitignore "${1:-$GITCOMMIT_CWD}" dirignore default node ||
+  if [ -d "${1:-$GITCOMMIT_CWD}/node_modules" ]; then
+    gitignore "${1:-$GITCOMMIT_CWD}" dirignore default node
+  else
     gitignore "${1:-$GITCOMMIT_CWD}" dirignore default
-  printf '# ignore commit message\n.gitcommit\n' >>"$GITCOMMIT_CWD/.gitignore"
-  if [ -d "${1:-$GITCOMMIT_CWD}/.git" ]; then
-    git -C "${1:-$GITCOMMIT_CWD}" add .gitignore &>/dev/null
-    git -C "${1:-$GITCOMMIT_CWD}" commit -q -S -m "🤖 Added .gitignore 🤖" ".gitignore" || return 1
   fi
+  __test_gitignore
   return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __test_gitignore() {
-  if ! grep -sq '.gitcommit' "${1:-$GITCOMMIT_CWD}/.gitignore"; then
-    printf '# ignore commit message\n.gitcommit\n' >>"$GITCOMMIT_CWD/.gitignore"
-    git -C "${1:-$GITCOMMIT_CWD}" add .gitignore &>/dev/null
-    git -C "${1:-$GITCOMMIT_CWD}" commit -q -S -m "🤖 Added .gitcommit 🤖" ".gitignore" || return 1
+  if ! grep -s -A1 '# ignore commit message' "${1:-$GITCOMMIT_CWD}/.gitignore" | grep -q ^'**/.gitcommit'; then
+    printf '%s\n%s\n' '# ignore commit message' '**/.gitcommit' >>"$GITCOMMIT_CWD/.gitignore"
+  fi
+  if [ -d "${1:-$GITCOMMIT_CWD}/.git" ]; then
+    git -C "${1:-$GITCOMMIT_CWD}" add .gitignore &>/dev/null && git -C "${1:-$GITCOMMIT_CWD}" commit -q -S -m "🤖 Added .gitignore 🤖" ".gitignore" || return 1
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1300,7 +1305,6 @@ GITADMIN_NO_ERROR_MESSAGE=""
 # Actions based on env
 __git_dir "$GITCOMMIT_CWD"
 __gitignore_init "$GITCOMMIT_CWD"
-__test_gitignore "$GITCOMMIT_CWD"
 [ -n "$REMOTE_REPO" ] || REMOTE_REPO="localdir"
 GITCOMMIT_DEFAULT_COMMIT_FILE="$GITCOMMIT_CWD/$GITCOMMIT_DEFAULT_COMMIT_FILE"
 [ -f "$GITCOMMIT_VERSION_FILE" ] && GITCOMMIT_VERSION_CURRENT="$(<"$GITCOMMIT_VERSION_FILE")"

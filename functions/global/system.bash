@@ -78,64 +78,75 @@ __exec() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#os_support oses
 __os_support() {
+  local OSTYPE=
   if [ -n "$1" ]; then
-    OSTYPE="$(echo $1 | tr '[:upper:]' '[:lower:]')"
+    OSTYPE="$(echo "$1" | tr '[:upper:]' '[:lower:]')"
   else
     OSTYPE="$(uname -s | tr '[:upper:]' '[:lower:]')"
   fi
   case "$OSTYPE" in
-  linux*) echo "Linux" ;;
-  mac* | darwin*) echo "MacOS" ;;
-  win* | msys* | mingw* | cygwin*) echo "Windows" ;;
-  bsd*) echo "BSD" ;;
-  solaris*) echo "Solaris" ;;
-  *) echo "Unknown OS" ;;
+  linux*) echo "Linux" || return 1 ;;
+  mac* | darwin*) echo "MacOS" || return 1 ;;
+  win* | msys* | mingw* | cygwin*) echo "Windows" || return 1 ;;
+  bsd*) echo "BSD" || return 1 ;;
+  solaris*) echo "Solaris" || return 1 ;;
+  *) return 0 ;;
   esac
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#supported_oses oses
-__supported_oses() {
-  if [[ $# -eq 0 ]]; then return 1; fi
-  local ARGS="$*"
-  for os in $ARGS; do
-    UNAME="$(uname -s | tr '[:upper:]' '[:lower:]')"
-    case "$os" in
-    linux)
-      if [[ "$UNAME" =~ ^linux ]]; then
-        return 0
-      else
-        return 1
-      fi
-      ;;
-    mac*)
-      if [[ "$UNAME" =~ ^darwin ]]; then
-        return 0
-      else
-        return 1
-      fi
-      ;;
-    win*)
-      if [[ "$UNAME" =~ ^ming ]]; then
-        return 0
-      else
-        return 1
-      fi
-      ;;
-    *) return ;;
-    esac
+__supported_os() {
+  [ $# -ne 0 ] || return 0
+  for OSes in "$@"; do
+    local app=${APPNAME:-$PROG}
+    if_os "$OSes" || printf_exit 1 1 "$app does not support your OS"
   done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#unsupported_oses oses
 __unsupported_oses() {
-  for os in "$@"; do
-    if [[ "$(echo $1 | tr '[:upper:]' '[:lower:]')" =~ $(os_support) ]]; then
-      printf_red "$(os_support $os) is not supported\n"
+  [ $# -ne 0 ] || return 0
+  local cur_os="" os_sup=""
+  for OSes in "$@"; do
+    os_sup="$(os_support | tr '[:upper:]' '[:lower:]')"
+    cur_os="$(echo "$OSes" | tr '[:upper:]' '[:lower:]')"
+    if [ "$cur_os" = "$os_sup" ]; then
+      printf_red "$os_sup is not supported"
       exit 1
     fi
   done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__if_os() {
+  [ $# -ne 0 ] || return 0
+  local OS="$(echo "$1" | tr '[:upper:]' '[:lower:]')"
+  local UNAME="$(uname -s | tr '[:upper:]' '[:lower:]')"
+  case "$OS" in
+  linux*)
+    if [ "$UNAME" = "linux" ]; then
+      return 0
+    else
+      return 1
+    fi
+    ;;
+
+  mac*)
+    if [ "$UNAME" = "darwin" ]; then
+      return 0
+    else
+      return 1
+    fi
+    ;;
+  win*)
+    if [ "$UNAME" = "ming" ] || [ "$UNAME" = "WindowsNT" ]; then
+      return 0
+    else
+      return 1
+    fi
+    ;;
+  *)
+    return 1
+    ;;
+  esac
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __if_os_id() {

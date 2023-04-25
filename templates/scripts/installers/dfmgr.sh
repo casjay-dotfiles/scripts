@@ -61,6 +61,10 @@ fi
 # Define custom functions
 __download_file() { curl -q -LSsf "$1" -o "$2" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# OS Support: supported_os unsupported_oses
+supported_os linux mac windows
+unsupported_oses
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Requires root - no point in continuing
 #sudoreq "$0 *" # sudo required
 #sudorun "$0 *" # sudo optional
@@ -79,10 +83,6 @@ trap_exit
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Initialize the installer
 dfmgr_run_init
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# OS Support: supported_os unsupported_oses
-supported_os linux mac
-unsupported_oses windows
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Do not update
 #installer_noupdate "$@"

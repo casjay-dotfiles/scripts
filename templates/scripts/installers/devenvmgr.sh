@@ -102,6 +102,10 @@ show_optvars "$@"
 #sudoreq "$0 $*" # sudo required
 #sudorun "$0 *" # sudo optional
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Other dependencies
+dotfilesreq
+dotfilesreqadmin
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Initialize the installer
 devenvmgr_run_init
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -144,10 +148,6 @@ install_gem "$GEMS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # check for npm binaries and install using node package manager
 install_npm "$NPM"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Other dependencies
-dotfilesreq
-dotfilesreqadmin
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure directories exist
 ensure_dirs

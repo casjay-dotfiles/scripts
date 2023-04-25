@@ -96,7 +96,7 @@ REPO="${DESKTOPMGR:-https://github.com/desktopmgr}/$APPNAME"
 REPORAW="$REPO/raw/$REPO_BRANCH"
 APPVERSION="$(__appversion "$REPORAW/version.txt")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Specufy custom package name
+# Specify custom package name
 PKG="$APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # define arch user repo packages

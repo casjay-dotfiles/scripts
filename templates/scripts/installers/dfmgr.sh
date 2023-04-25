@@ -39,6 +39,8 @@ trap 'retVal=$?;trap_exit' ERR EXIT SIGINT
 [ "$1" = "--raw" ] && export SHOW_RAW="true"
 set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+for app in curl wget git; do type -P "$app" >/dev/null 2>&1 || missing_app+=("$app"); done && [ -z "${missing_app[*]}" ] || { printf '%s\n' "${missing_app[*]}" && exit 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
 SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
@@ -100,42 +102,25 @@ APPVERSION="$(__appversion "$REPORAW/version.txt")"
 PLUGIN_REPOS=""
 PLUGIN_DIR="${SHARE:-$HOME/.local/share}/$APPNAME/plugins"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Specufy custom package name
-PKG="$APPNAME"
+# Specify required system packages you can prefix os to OS_PACKAGES: MAC_OS_PACKAGES WIN_OS_PACKAGES
+OS_PACKAGES="GEN_SCRIPT_REPLACE_APPNAME "
+OS_PACKAGES+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# define arch user repo packages
-if if_os_id arch; then
-  AUR=""
-fi
+# Define required system python packages
+PYTHON_PACKAGES=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# define linux packages
-if if_os linux; then
-  APP="$PKG "
-  if_os_id arch && APP+=""
-  if_os_id centos && APP+=""
-  if_os_id debian && APP+=""
-fi
+# Define required system perl packages
+PERL_PACKAGES=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Define MacOS packages - homebrew
-if if_os mac; then
-  APP="$PKG "
-  APP+=""
-fi
+# define additional packages - tries to install via tha package managers
+NODEJS=""
+PERL_CPAN=""
+RUBY_GEMS=""
+PYTHON_PIP=""
+PHP_COMPOSER=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Define Windows packages - choco
-if if_os win; then
-  APP="$PKG "
-  APP+=""
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# define packages
-PERL=""
-PYTH=""
-PIPS=""
-CPAN=""
-GEMS=""
-NPM=""
-PHP=""
+# Specify AUR Pacakges
+AUR_PACKAGES=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define pre-install scripts
 __run_pre_install() {
@@ -174,6 +159,36 @@ dfmgr_req_version "$APPVERSION"
 # Run pre-install commands
 execute "__run_pre_install" "Running pre-installation commands"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# define arch user repo packages
+if_os_id arch && AUR="$AUR_PACKAGES"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# define linux packages
+if if_os linux; then
+  if if_os_id arch; then
+    APP="$OS_PACKAGES $ARCH_OS_PACKAGES"
+  elif if_os_id centos; then
+    APP="$OS_PACKAGES $CENTOS_OS_PACKAGES"
+  elif if_os_id debian; then
+    APP="$OS_PACKAGES $DEBIAN_OS_PACKAGES"
+  elif if_os_id ubuntu; then
+    APP="$OS_PACKAGES $UBUNTU_OS_PACKAGES"
+  else
+    APP="$OS_PACKAGES"
+  fi
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Define MacOS packages - homebrew
+if if_os mac; then
+  APP="$OS_PACKAGES $MAC_OS_PACKAGES"
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Define Windows packages - choco
+if if_os win; then
+  APP="$OS_PACKAGES $WIN_OS_PACKAGES"
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+[ "$APP" = " " ] && APP=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # install required packages using the aur - Requires yay to be installed
 install_aur "$AUR"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -184,25 +199,25 @@ install_packages "$APP"
 install_required "$APP"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # check for perl modules and install using system package manager
-install_perl "$PERL"
+install_perl "$PERL_PACKAGES"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # check for python modules and install using system package manager
-install_python "$PYTH"
+install_python "$PYTHON_PACKAGES"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # check for pip binaries and install using python package manager
-install_pip "$PIPS"
+install_pip "$PYTHON_PIP"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # check for cpan binaries and install using perl package manager
-install_cpan "$CPAN"
+install_cpan "$PERL_CPAN"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # check for ruby binaries and install using ruby package manager
-install_gem "$GEMS"
+install_gem "$RUBY_GEMS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # check for npm binaries and install using node package manager
-install_npm "$NPM"
+install_npm "$NODEJS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # check for php binaries and install using php composer
-install_php "$PHP"
+install_php "$PHP_COMPOSER"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure directories exist
 ensure_dirs

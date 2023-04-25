@@ -99,7 +99,7 @@ APPVERSION="$(__appversion "$REPORAW/version.txt")"
 # enable plugins - git repos
 PLUGIN_REPOS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Specufy custom package name
+# Specify custom package name
 PKG="$APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # define arch user repo packages

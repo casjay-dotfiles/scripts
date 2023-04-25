@@ -92,15 +92,15 @@ fontmgr_req_version "$APPVERSION"
 # Script options IE: --help
 show_optvars "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Other dependencies
+dotfilesreq
+dotfilesreqadmin
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Initialize the installer
 fontmgr_run_init
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run pre-install commands
 execute "__run_pre_install" "Running pre-installation commands"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Ensure directories exist
-ensure_dirs
-ensure_perms
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main progam
 if __am_i_online; then

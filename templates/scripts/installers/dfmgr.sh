@@ -24,13 +24,13 @@
 # shellcheck disable=SC2155
 # shellcheck disable=SC2199
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SCRIPTS_PREFIX="dfmgr"
 APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
 VERSION="GEN_SCRIPT_REPLACE_VERSION"
 HOME="${USER_HOME:-$HOME}"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${SUDO_USER:-$USER}"
 SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
-export SCRIPTS_PREFIX="dfmgr"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
 trap 'retVal=$?;trap_exit' ERR EXIT SIGINT
@@ -90,17 +90,17 @@ dfmgr_run_init
 #installer_noupdate "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Defaults
-APPNAME="${APPNAME:-GEN_SCRIPT_REPLACE_FILENAME}"
+APPNAME="${APPNAME:-GEN_SCRIPT_REPLACE_APPNAME}"
 APPDIR="$CONF/$APPNAME"
 INSTDIR="$CASJAYSDEVSHARE/dfmgr/$APPNAME"
 REPO_BRANCH="${GIT_REPO_BRANCH:-main}"
 REPO="${DFMGR:-https://github.com/dfmgr}/$APPNAME"
 REPORAW="$REPO/raw/$REPO_BRANCH"
 APPVERSION="$(__appversion "$REPORAW/version.txt")"
+PLUGIN_DIR="${SHARE:-$HOME/.local/share}/$APPNAME/plugins"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup plugins
 PLUGIN_REPOS=""
-PLUGIN_DIR="${SHARE:-$HOME/.local/share}/$APPNAME/plugins"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Specify required system packages you can prefix os to OS_PACKAGES: MAC_OS_PACKAGES WIN_OS_PACKAGES
 OS_PACKAGES="GEN_SCRIPT_REPLACE_APPNAME "
@@ -119,7 +119,7 @@ RUBY_GEMS=""
 PYTHON_PIP=""
 PHP_COMPOSER=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Specify AUR Pacakges
+# Specify ARCH_USER_REPO Pacakges
 AUR_PACKAGES=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define pre-install scripts
@@ -160,64 +160,62 @@ dfmgr_req_version "$APPVERSION"
 execute "__run_pre_install" "Running pre-installation commands"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # define arch user repo packages
-if_os_id arch && AUR="$AUR_PACKAGES"
+if_os_id arch && ARCH_USER_REPO="$AUR_PACKAGES"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # define linux packages
 if if_os linux; then
   if if_os_id arch; then
-    APP="$OS_PACKAGES $ARCH_OS_PACKAGES"
+    SYSTEM_PACKAGES="$OS_PACKAGES $ARCH_OS_PACKAGES"
   elif if_os_id centos; then
-    APP="$OS_PACKAGES $CENTOS_OS_PACKAGES"
+    SYSTEM_PACKAGES="$OS_PACKAGES $CENTOS_OS_PACKAGES"
   elif if_os_id debian; then
-    APP="$OS_PACKAGES $DEBIAN_OS_PACKAGES"
+    SYSTEM_PACKAGES="$OS_PACKAGES $DEBIAN_OS_PACKAGES"
   elif if_os_id ubuntu; then
-    APP="$OS_PACKAGES $UBUNTU_OS_PACKAGES"
+    SYSTEM_PACKAGES="$OS_PACKAGES $UBUNTU_OS_PACKAGES"
   else
-    APP="$OS_PACKAGES"
+    SYSTEM_PACKAGES="$OS_PACKAGES"
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define MacOS packages - homebrew
 if if_os mac; then
-  APP="$OS_PACKAGES $MAC_OS_PACKAGES"
+  SYSTEM_PACKAGES="$OS_PACKAGES $MAC_OS_PACKAGES"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define Windows packages - choco
 if if_os win; then
-  APP="$OS_PACKAGES $WIN_OS_PACKAGES"
+  SYSTEM_PACKAGES="$OS_PACKAGES $WIN_OS_PACKAGES"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-[ "$APP" = " " ] && APP=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # install required packages using the aur - Requires yay to be installed
-install_aur "$AUR"
+install_aur "${ARCH_USER_REPO//,/ }"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # install packages - useful for package that have the same name on all oses
-install_packages "$APP"
+install_packages "${SYSTEM_PACKAGES//,/ }"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# install required packages using file
-install_required "$APP"
+# install required packages using file from pkmgr repo
+install_required "$APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # check for perl modules and install using system package manager
-install_perl "$PERL_PACKAGES"
+install_perl "${PERL_PACKAGES//,/ }"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # check for python modules and install using system package manager
-install_python "$PYTHON_PACKAGES"
+install_python "${PYTHON_PACKAGES//,/ }"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # check for pip binaries and install using python package manager
-install_pip "$PYTHON_PIP"
+install_pip "${PYTHON_PIP//,/ }"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # check for cpan binaries and install using perl package manager
-install_cpan "$PERL_CPAN"
+install_cpan "${PERL_CPAN//,/ }"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # check for ruby binaries and install using ruby package manager
-install_gem "$RUBY_GEMS"
+install_gem "${RUBY_GEMS//,/ }"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# check for npm binaries and install using node package manager
-install_npm "$NODEJS"
+# check for npm binaries and install using npm/yarn package manager
+install_npm "${NODEJS//,/ }"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # check for php binaries and install using php composer
-install_php "$PHP_COMPOSER"
+install_php "${PHP_COMPOSER//,/ }"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure directories exist
 ensure_dirs

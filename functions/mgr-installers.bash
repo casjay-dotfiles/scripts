@@ -692,7 +692,8 @@ failexitcode() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 setexitstatus() {
-  [ -z "$EXIT" ] && local EXIT="$?" || local EXIT="$EXIT"
+  local EXITSS="$?"
+  [ -z "$EXIT" ] && local EXIT="$EXITSS"
   local EXITSTATUS+="$EXIT"
   if [ -z "$EXITSTATUS" ] || [ "$EXITSTATUS" -ne 0 ]; then
     BG_EXIT="${BG_RED}"
@@ -1096,44 +1097,48 @@ plugin_setup() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 dotfilesreqcmd() {
-  local gitrepo="${DFMGRREPO:-https://github.com/dfmgr}/${1:-$conf}"
-  urlverify "$gitrepo/raw/$GIT_REPO_BRANCH/install.sh" &&
-    bash -c "$(curl -q -LSsf $gitrepo/raw/$GIT_REPO_BRANCH/install.sh)" &>/dev/null ||
-    return 1
+  local gitrepo="${DFMGRREPO:-https://github.com/dfmgr}/${1:-$conf}/raw/${GIT_REPO_BRANCH:-main}"
+  urlverify "$gitrepo/install.sh" && bash -c "$(curl -q -LSsf $gitrepo/install.sh)" &>/dev/null
+  return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 dotfilesreqadmincmd() {
-  local gitrepoadmin="${SYSTEMMGRREPO:-https://github.com/systemmgr}/${1:-$conf}"
-  urlverify "$gitrepoadmin/raw/$GIT_REPO_BRANCH/install.sh" &&
-    sudo -HE bash -c "$(curl -q -LSsf $gitrepoadmin/raw/$GIT_REPO_BRANCH/install.sh)" &>/dev/null ||
-    return 1
+  local gitrepoadmin="${SYSTEMMGRREPO:-https://github.com/systemmgr}/${1:-$conf}/raw/${GIT_REPO_BRANCH:-main}"
+  urlverify "$gitrepoadmin/install.sh" && sudo -HE bash -c "$(curl -q -LSsf $gitrepoadmin//install.sh)" &>/dev/null
+  return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 dotfilesreq() {
-  [ "$SCRIPTS_PREFIX" = "dfmgr" ] || return 0
   local -a LISTARRAY=("$@")
-  local confdir="$USRUPDATEDIR" conf=""
+  local SHARE="$HOME/.local/share"
+  local SYSSHARE="/usr/local/share"
+  local userconfdir="$SHARE/CasjaysDev/apps/dfmgr"
+  local sysconfdir="$SYSSHARE/CasjaysDev/apps/dfmgr"
   for conf in "${LISTARRAY[@]}"; do
     local TMPINST="$TMPDIR/${conf}.inst.tmp"
-    if [ ! -d "$confdir/$conf" ] || [ ! -f "$TMPINST" ]; then
-      printf_cyan "💠 Installing required $conf 💠"
+    if [ ! -d "$userconfdir/$conf" ] || [ ! -d "$sysconfdir/$conf" ] || [ ! -f "$TMPINST" ]; then
+      printf_cyan "💠 Installing required dotfile: $conf 💠"
       dotfilesreqcmd "$conf"
     fi
   done
+  unset conf
   run_cleanup
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 dotfilesreqadmin() {
   local -a LISTARRAY=("$@")
-  local confdir="$SYSUPDATEDIR"
-  local conf=""
+  local SHARE="$HOME/.local/share"
+  local SYSSHARE="/usr/local/share"
+  local userconfdir="$SHARE/CasjaysDev/apps/systemmgr"
+  local sysconfdir="$SYSSHARE/CasjaysDev/apps/systemmgr"
   for conf in "${LISTARRAY[@]}"; do
     local TMPINST="$TMPDIR/${conf}.inst.tmp"
-    if [ ! -d "$confdir/$conf" ] || [ ! -f "$TMPINST" ]; then
-      printf_cyan "💠 Installing required $conf 💠"
+    if [ ! -d "$userconfdir/$conf" ] || [ ! -d "$sysconfdir/$conf" ] || [ ! -f "$TMPINST" ]; then
+      printf_cyan "💠 Installing required system: $conf 💠"
       dotfilesreqadmincmd "$conf"
     fi
   done
+  unset conf
   run_cleanup
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

@@ -574,30 +574,50 @@ git_update() {
   fi
 }
 ##################################################################################################
+dotfilesreqcmd() {
+  local gitrepo="${DFMGRREPO:-https://github.com/dfmgr}/${1:-$conf}/raw/${GIT_REPO_BRANCH:-main}"
+  urlverify "$gitrepo/install.sh" && bash -c "$(curl -q -LSsf $gitrepo/install.sh)" &>/dev/null
+  return $?
+}
+##################################################################################################
+dotfilesreqadmincmd() {
+  local gitrepoadmin="${SYSTEMMGRREPO:-https://github.com/systemmgr}/${1:-$conf}/raw/${GIT_REPO_BRANCH:-main}"
+  urlverify "$gitrepoadmin/install.sh" && sudo -HE bash -c "$(curl -q -LSsf $gitrepoadmin//install.sh)" &>/dev/null
+  return $?
+}
+##################################################################################################
 dotfilesreq() {
-  local REPO="${DOTFILESREPO:-https://github.com/dfmgr}"
-  local conf=""
-  local confdir="$HOME/.local/share/CasjaysDev/apps"
-  for conf in "$@"; do
-    if [ ! -d "$confdir/$conf" ] || [ ! -f "$TMPINST" ]; then
-      printf_cyan "💠 Installing required $conf 💠"
-      urlverify "$REPO/$conf/raw/$GIT_DEFAULT_BRANCH/install.sh"
-      bash -c "$(curl -q -LSsf $REPO/$conf/raw/$GIT_DEFAULT_BRANCH/install.sh)"
+  local -a LISTARRAY=("$@")
+  local SHARE="$HOME/.local/share"
+  local SYSSHARE="/usr/local/share"
+  local userconfdir="$SHARE/CasjaysDev/apps/dfmgr"
+  local sysconfdir="$SYSSHARE/CasjaysDev/apps/dfmgr"
+  for conf in "${LISTARRAY[@]}"; do
+    local TMPINST="$TMPDIR/${conf}.inst.tmp"
+    if [ ! -d "$userconfdir/$conf" ] || [ ! -d "$sysconfdir/$conf" ] || [ ! -f "$TMPINST" ]; then
+      printf_cyan "💠 Installing required dotfile: $conf 💠"
+      dotfilesreqcmd "$conf"
     fi
   done
+  unset conf
+  run_cleanup
 }
 ##################################################################################################
 dotfilesreqadmin() {
-  local REPO="${DOTFILESREPO:-https://github.com/dfmgr}"
-  local conf=""
-  local confdir="$HOME/.local/share/CasjaysDev/apps"
-  for conf in "$@"; do
-    if [ ! -d "$confdir/$conf" ] || [ ! -f "$TMPINST" ]; then
-      printf_cyan "💠 Installing required $conf 💠"
-      urlverify "$REPO/$conf/raw/$GIT_DEFAULT_BRANCH/install.sh"
-      sudo bash -c "$(curl -q -LSsf $REPO/$conf/raw/$GIT_DEFAULT_BRANCH/install.sh)"
+  local -a LISTARRAY=("$@")
+  local SHARE="$HOME/.local/share"
+  local SYSSHARE="/usr/local/share"
+  local userconfdir="$SHARE/CasjaysDev/apps/systemmgr"
+  local sysconfdir="$SYSSHARE/CasjaysDev/apps/systemmgr"
+  for conf in "${LISTARRAY[@]}"; do
+    local TMPINST="$TMPDIR/${conf}.inst.tmp"
+    if [ ! -d "$userconfdir/$conf" ] || [ ! -d "$sysconfdir/$conf" ] || [ ! -f "$TMPINST" ]; then
+      printf_cyan "💠 Installing required system: $conf 💠"
+      dotfilesreqadmincmd "$conf"
     fi
   done
+  unset conf
+  run_cleanup
 }
 ##################################################################################################
 install_packages() {

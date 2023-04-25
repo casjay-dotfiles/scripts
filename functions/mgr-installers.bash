@@ -1332,6 +1332,10 @@ install_npm() {
   unset MISSING
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+install_php() {
+  return
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 trim() {
   local IFS=' '
   local trimmed="${*//[[:space:]]/}"
@@ -1473,6 +1477,15 @@ if_os_id() {
   args="$(echo "${*:-$def}" | tr '[:upper:]' '[:lower:]')"
   for id_like in $args; do
     case "$id_like" in
+    alpine*)
+      if [[ $distroname =~ ^alpine ]] || [[ "$distroname" = "Alpine Linux" ]]; then
+        distro_id="alpine"
+        distro_version="$(cat /etc/os-release | grep '^VERSION_ID=' | sed 's#VERSION_ID=##g')"
+        return 0
+      else
+        return 1
+      fi
+      ;;
     arch* | arco*)
       if [[ $distroname =~ ^arco ]] || [[ "$distroname" =~ ^arch ]]; then
         distro_id="Arch"

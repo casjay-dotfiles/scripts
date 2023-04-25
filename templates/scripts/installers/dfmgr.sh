@@ -56,23 +56,28 @@ else
   exit 90
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Define pre-install scripts
-__run_pre_install() {
-
-  return ${?:-0}
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define custom functions
-
+__download_file() { curl -q -LSsf "$1" -o "$2" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Call the main function
 dfmgr_install
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Script options IE: --help --version
+show_optvars "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # trap the cleanup function
 trap_exit
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Do not update
+#installer_noupdate "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Requires root - no point in continuing
+#sudoreq "$0 *" # sudo required
+#sudorun "$0 *" # sudo optional
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # OS Support: supported_os unsupported_oses
-unsupported_oses
+supported_os linux mac
+unsupported_oses windows
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Make sure the scripts repo is installed
 scripts_check
@@ -90,41 +95,82 @@ APPVERSION="$(__appversion "$REPORAW/version.txt")"
 PLUGIN_REPOS=""
 PLUGIN_DIR="${SHARE:-$HOME/.local/share}/$APPNAME/plugins"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Export variables
-
+# Specufy custom package name
+PKG="$APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Require a version higher than
-dfmgr_req_version "$APPVERSION"
+# define arch user repo packages
+if if_os_id arch; then
+  AUR=""
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Script options IE: --help --version
-show_optvars "$@"
+# define linux packages
+if if_os linux; then
+  APP="$PKG "
+  if_os_id arch && APP+=""
+  if_os_id centos && APP+=""
+  if_os_id debian && APP+=""
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Do not update
-#installer_noupdate "$@"
+# Define MacOS packages - homebrew
+if if_os mac; then
+  APP="$PKG "
+  APP+=""
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Requires root - no point in continuing
-#sudoreq "$0 *" # sudo required
-#sudorun "$0 *" # sudo optional
+# Define Windows packages - choco
+if if_os win; then
+  APP="$PKG "
+  APP+=""
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Other dependencies
-dotfilesreq misc
-dotfilesreqadmin cron
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Initialize the installer
-dfmgr_run_init
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Run pre-install commands
-execute "__run_pre_install" "Running pre-installation commands"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# end with a space
-APP="$APPNAME "
-AUR=""
+# define packages
 PERL=""
 PYTH=""
 PIPS=""
 CPAN=""
 GEMS=""
 NPM=""
+PHP=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Define pre-install scripts
+__run_pre_install() {
+
+  return ${?:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# run before primary post install function
+__run_prepost_install() {
+
+  return ${?:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# run after primary post install function
+__run_post_install() {
+
+  return ${?:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Custom plugin function
+__custom_plugin() {
+  local exitCodeC=0
+  # execute "git_clone $repo $dir" "Installing plugin name"
+  return $exitCodeC
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Other dependencies
+dotfilesreq misc
+dotfilesreqadmin cron
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# END OF CONFIGURATION
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Require a version higher than
+dfmgr_req_version "$APPVERSION"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initialize the installer
+dfmgr_run_init
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run pre-install commands
+execute "__run_pre_install" "Running pre-installation commands"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # install required packages using the aur - Requires yay to be installed
 install_aur "$AUR"
@@ -153,9 +199,8 @@ install_gem "$GEMS"
 # check for npm binaries and install using node package manager
 install_npm "$NPM"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Other dependencies
-dotfilesreq
-dotfilesreqadmin
+# check for php binaries and install using php composer
+install_php "$PHP"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure directories exist
 ensure_dirs
@@ -175,13 +220,6 @@ if __am_i_online; then
   # exit on fail
   failexitcode $? "Git has failed"
 fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Custom plugin function
-__custom_plugin() {
-  local exitCodeC=0
-
-  return $exitCodeC
-}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Install Plugins
 if __am_i_online; then
@@ -205,18 +243,6 @@ if __am_i_online; then
   # exit on fail
   failexitcode $exitCodeP "Installation of plugin failed"
 fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# run before primary post install function
-__run_prepost_install() {
-
-  return ${?:-0}
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# run after primary post install function
-__run_post_install() {
-
-  return ${?:-0}
-}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run post install scripts
 run_postinst() {

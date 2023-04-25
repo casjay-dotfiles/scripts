@@ -39,7 +39,6 @@ PLUGIN_DIR="$HOME/.local/share/$APPNAME/plugins"
 REPO="https://github.com/$SCRIPTS_PREFIX/$APPNAME"
 INSTDIR="$HOME/.local/share/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME"
 REPORAW="https://github.com/$SCRIPTS_PREFIX/$APPNAME/raw/$REPO_BRANCH"
-APPVERSION="$(__appversion "https://github.com/$SCRIPTS_PREFIX/$APPNAME/raw/$REPO_BRANCH/version.txt")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
 trap 'retVal=$?;trap_exit' ERR EXIT SIGINT
@@ -103,6 +102,7 @@ dfmgr_run_init
 # Defaults
 APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
 BUILD_APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
+APPVERSION="$(__appversion "https://github.com/$SCRIPTS_PREFIX/$APPNAME/raw/$REPO_BRANCH/version.txt")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup plugins
 PLUGIN_REPOS=""

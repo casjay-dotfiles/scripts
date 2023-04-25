@@ -33,10 +33,10 @@ SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
 export SCRIPTS_PREFIX="wallpapermgr"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 REPO_BRANCH="${GIT_REPO_BRANCH:-main}"
+APPDIR="$HOME/.local/share/wallpapers/$APPNAME"
 REPO="https://github.com/$SCRIPTS_PREFIX/$APPNAME"
 INSTDIR="$HOME/.local/share/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME"
 REPORAW="https://github.com/$SCRIPTS_PREFIX/$APPNAME/raw/$REPO_BRANCH"
-APPVERSION="$(__appversion "https://github.com/$SCRIPTS_PREFIX/$APPNAME/raw/$REPO_BRANCH/version.txt")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
 trap 'retVal=$?;trap_exit' ERR EXIT SIGINT
@@ -84,7 +84,7 @@ scripts_check
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Defaults
 APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
-APPDIR="$HOME/.local/share/wallpapers/GEN_SCRIPT_REPLACE_APPNAME"
+APPVERSION="$(__appversion "https://github.com/$SCRIPTS_PREFIX/$APPNAME/raw/$REPO_BRANCH/version.txt")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Require a version higher than
 wallpapermgr_req_version "$APPVERSION"

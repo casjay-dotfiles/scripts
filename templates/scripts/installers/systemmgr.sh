@@ -37,7 +37,6 @@ APPDIR="/usr/local/etc/$APPNAME"
 REPO="https://github.com/$SCRIPTS_PREFIX/$APPNAME"
 INSTDIR="/usr/local/share/$SCRIPTS_PREFIX/$APPNAME"
 REPORAW="https://github.com/$SCRIPTS_PREFIX/$APPNAME/raw/$REPO_BRANCH"
-APPVERSION="$(__appversion "https://github.com/$SCRIPTS_PREFIX/$APPNAME/raw/$REPO_BRANCH/version.txt")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
 trap 'retVal=$?;trap_exit' ERR EXIT SIGINT
@@ -102,6 +101,7 @@ APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
 # Setup plugins
 PLUGIN_REPOS=""
 PLUGIN_DIR="${SHARE:-$HOME/.local/share}/$APPNAME"
+APPVERSION="$(__appversion "https://github.com/$SCRIPTS_PREFIX/$APPNAME/raw/$REPO_BRANCH/version.txt")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # define arch user repo packages
 if if_os_id arch; then

@@ -1,9 +1,5 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
-# shellcheck disable=SC2317
-# shellcheck disable=SC2120
-# shellcheck disable=SC2155
-# shellcheck disable=SC2199
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ##@Version           :  GEN_SCRIPT_REPLACE_VERSION
 # @@Author           :  GEN_SCRIPT_REPLACE_AUTHOR
@@ -21,6 +17,12 @@
 # @@Terminal App     :  GEN_SCRIPT_REPLACE_TERMINAL
 # @@sudo/root        :  GEN_SCRIPT_REPLACE_SUDO
 # @@Template         :  installers/dfmgr
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# shell check options
+# shellcheck disable=SC2317
+# shellcheck disable=SC2120
+# shellcheck disable=SC2155
+# shellcheck disable=SC2199
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
 VERSION="GEN_SCRIPT_REPLACE_VERSION"
@@ -59,6 +61,13 @@ fi
 # Define custom functions
 __download_file() { curl -q -LSsf "$1" -o "$2" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Requires root - no point in continuing
+#sudoreq "$0 *" # sudo required
+#sudorun "$0 *" # sudo optional
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Make sure the scripts repo is installed
+scripts_check
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Call the main function
 dfmgr_install
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -68,19 +77,15 @@ show_optvars "$@"
 # trap the cleanup function
 trap_exit
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Do not update
-#installer_noupdate "$@"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Requires root - no point in continuing
-#sudoreq "$0 *" # sudo required
-#sudorun "$0 *" # sudo optional
+# Initialize the installer
+dfmgr_run_init
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # OS Support: supported_os unsupported_oses
 supported_os linux mac
 unsupported_oses windows
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Make sure the scripts repo is installed
-scripts_check
+# Do not update
+#installer_noupdate "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Defaults
 APPNAME="${APPNAME:-GEN_SCRIPT_REPLACE_FILENAME}"
@@ -165,9 +170,6 @@ dotfilesreqadmin cron
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Require a version higher than
 dfmgr_req_version "$APPVERSION"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Initialize the installer
-dfmgr_run_init
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run pre-install commands
 execute "__run_pre_install" "Running pre-installation commands"

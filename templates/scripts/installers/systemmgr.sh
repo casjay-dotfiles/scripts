@@ -65,9 +65,11 @@ __download_file() { curl -q -LSsf "$1" -o "$2" || return 1; }
 supported_os linux mac
 unsupported_oses windows
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Requires root - no point in continuing
-sudoreq "$0 *" # sudo required
-#sudorun "$0 *" # sudo optional
+# get sudo credentials
+sudorun "true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Requires root - restarting with sudo
+sudoreq "$0 *"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Make sure the scripts repo is installed
 scripts_check

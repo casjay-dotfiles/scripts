@@ -45,29 +45,29 @@ sudorerun() {
   local ARGS="${*:-$ARGS}" && shift $#
   if [[ $UID != 0 ]]; then
     if sudoif; then
-      sudo "$CMD" "$ARGS"
-      if [[ $? -ne 0 ]]; then
-        return 1
-      fi
+      sudo -HE "$CMD" "$ARGS"
+      exit $?
     else
-      sudoreq
+      sudoreq "$CMD" "$ARGS"
     fi
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 sudoreq() {
   sudo_check=$(sudo -H -S -- echo SUDO_OK 2>&1 &)
-  [[ $sudo_check == "SUDO_OK" ]] && return
-  if [[ $UID != 0 ]]; then
+  [ $sudo_check == "SUDO_OK" ] && return
+  if [ $UID != 0 ]; then
     if builtin type -P ask_for_password &>/dev/null; then
-      [[ "$SUDO_SUCCESS" = "TRUE" ]] || ask_for_password "${@:-true}"
-      export SUDO_SUCCESS="TRUE"
-      return 0
+      [ "$SUDO_SUCCESS" = "TRUE" ] || ask_for_password "${@:-true}" && export SUDO_SUCCESS="TRUE" || printf_exit "Please run this script with sudo/root\n"
+      sudorun "$@"
+      exit $?
     else
       printf_newline
       printf_error "Please run this script with sudo/root\n"
       exit 1
     fi
+  else
+    return 0
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

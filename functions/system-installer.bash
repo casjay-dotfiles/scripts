@@ -440,22 +440,32 @@ __getphpver() {
 sudoif() { (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null; }
 sudorun() { if sudoif; then sudo -HE "$@"; else "$@"; fi; }
 sudorerun() {
-  local ARGS="$ARGS"
-  if [[ $UID != 0 ]]; then if sudoif; then sudo -HE "$APPNAME" "$ARGS" && exit $?; else sudoreq; fi; fi
+  local CMD="${1:-$APPNAME}" && shift 1
+  local ARGS="${*:-$ARGS}" && shift $#
+  if [[ $UID != 0 ]]; then
+    if sudoif; then
+      sudo -HE "$CMD" "$ARGS"
+      exit $?
+    else
+      sudoreq "$CMD" "$ARGS"
+    fi
+  fi
 }
 sudoreq() {
   sudo_check=$(sudo -H -S -- echo SUDO_OK 2>&1 &)
-  [[ $sudo_check == "SUDO_OK" ]] && return
-  if [[ $UID != 0 ]]; then
+  [ $sudo_check == "SUDO_OK" ] && return
+  if [ $UID != 0 ]; then
     if builtin type -P ask_for_password &>/dev/null; then
-      [[ "$SUDO_SUCCESS" = "TRUE" ]] || ask_for_password "${*:-true}"
-      export SUDO_SUCCESS="TRUE"
-      return 0
+      [ "$SUDO_SUCCESS" = "TRUE" ] || ask_for_password "${@:-true}" && export SUDO_SUCCESS="TRUE" || printf_exit "Please run this script with sudo/root\n"
+      sudorun "$@"
+      exit $?
     else
       printf_newline
       printf_error "Please run this script with sudo/root\n"
       exit 1
     fi
+  else
+    return 0
   fi
 }
 ######################
@@ -581,6 +591,7 @@ dotfilesreqcmd() {
 }
 ##################################################################################################
 dotfilesreqadmincmd() {
+  sudo -n true || printf_exit "Can not get sudo privileges"
   local gitrepoadmin="${SYSTEMMGRREPO:-https://github.com/systemmgr}/${1:-$conf}/raw/${GIT_REPO_BRANCH:-main}"
   urlverify "$gitrepoadmin/install.sh" && sudo -HE bash -c "$(curl -q -LSsf $gitrepoadmin//install.sh)" &>/dev/null
   return $?
@@ -613,7 +624,7 @@ dotfilesreqadmin() {
   for conf in "${LISTARRAY[@]}"; do
     local TMPINST="$TMPDIR/${conf}.inst.tmp"
     if [ -e "$userconfdir/$conf" ] || [ -e "$sysconfdir/$conf" ] || [ -f "$TMPINST" ]; then
-      printf_cyan "[ ✅ ] Required dotfile $conf is installed 💠"
+      printf_cyan "[ ✅ ] Required system configuration $conf is installed 💠"
     else
       execute "dotfilesreqadmincmd $conf" "Installing required system: $conf 💠"
     fi

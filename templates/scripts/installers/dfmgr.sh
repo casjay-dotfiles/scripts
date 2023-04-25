@@ -27,6 +27,7 @@
 SCRIPTS_PREFIX="dfmgr"
 APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
 VERSION="GEN_SCRIPT_REPLACE_VERSION"
+BUILD_APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
 HOME="${USER_HOME:-$HOME}"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${SUDO_USER:-$USER}"
@@ -67,9 +68,11 @@ __download_file() { curl -q -LSsf "$1" -o "$2" || return 1; }
 supported_os linux mac windows
 unsupported_oses
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Requires root - no point in continuing
-#sudoreq "$0 *" # sudo required
-#sudorun "$0 *" # sudo optional
+# get sudo credentials
+sudorun "true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Requires root - restarting with sudo
+#sudoreq "$0 *"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Make sure the scripts repo is installed
 scripts_check
@@ -91,11 +94,12 @@ dfmgr_run_init
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Defaults
 APPNAME="${APPNAME:-GEN_SCRIPT_REPLACE_APPNAME}"
+BUILD_APPNAME="${BUILD_APPNAME:-GEN_SCRIPT_REPLACE_APPNAME}"
 APPDIR="$CONF/$APPNAME"
 INSTDIR="$CASJAYSDEVSHARE/dfmgr/$APPNAME"
 REPO_BRANCH="${GIT_REPO_BRANCH:-main}"
 REPO="${DFMGR:-https://github.com/dfmgr}/$APPNAME"
-REPORAW="$REPO/raw/$REPO_BRANCH"
+REPORAW="${DFMGR:-https://github.com/dfmgr}/$APPNAME/raw/$REPO_BRANCH"
 APPVERSION="$(__appversion "$REPORAW/version.txt")"
 PLUGIN_DIR="${SHARE:-$HOME/.local/share}/$APPNAME/plugins"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -279,14 +283,14 @@ dfmgr_install_version
 run_exit
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run any external scripts
-if ! cmd_exists "$APPNAME" && [ -f "$INSTDIR/build.sh" ]; then
+if ! __cmd_exists "$BUILD_APPNAME" && [ -f "$INSTDIR/build.sh" ]; then
   if builtin cd "$PLUGIN_DIR/source"; then
     BUILD_SCRIPT_SRC_DIR="$PLUGIN_DIR/source"
     BUILD_SRC_URL=""
     export BUILD_SCRIPT_SRC_DIR BUILD_SRC_URL
     eval "$INSTDIR/build.sh"
   fi
-  cmd_exists $APPNAME || printf_red "$APPNAME is not installed: run $INSTDIR/build.sh"
+  __cmd_exists $BUILD_APPNAME || printf_red "$BUILD_APPNAME is not installed: run $INSTDIR/build.sh"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application

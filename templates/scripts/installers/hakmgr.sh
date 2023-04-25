@@ -67,7 +67,9 @@ unsupported_oses
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Requires root - no point in continuing
 #sudoreq "$0 *" # sudo required
-#sudorun "$0 *" # sudo optional
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# get sudo credentials
+sudorun "true"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Make sure the scripts repo is installed
 scripts_check

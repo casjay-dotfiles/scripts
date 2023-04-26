@@ -679,13 +679,9 @@ perl_exists() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 python_exists() {
-  PYTHONVER="$(builtin type -P python3 2>/dev/null || builtin type -P python2 2>/dev/null || builtin type -P python 2>/dev/null)"
-  if [ -n "$PYTHONVER" ]; then
-    local package="$1"
-    if devnull $PYTHONVER -c "import $package"; then return 0; else return 1; fi
-  else
-    return 1
-  fi
+  local package="$1"
+  local py="$(builtin type -P python3 2>/dev/null || builtin type -P python2 2>/dev/null || builtin type -P python 2>/dev/null)"
+  if [ -n "$py" ]; then { eval $py -c "import $package" || return 1; }; else return 0; fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 cmd_missing() {

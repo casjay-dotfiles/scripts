@@ -1080,10 +1080,8 @@ perl_exists() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 python_exists() {
   local package="$1"
-  local py_status=""
   local py="$(builtin type -P python3 2>/dev/null || builtin type -P python2 2>/dev/null || builtin type -P python 2>/dev/null)"
-  [ -n "$py" ] && py_status="$($py -c "import $package" 2>&1 | grep -iq 'ModuleNotFound' && echo 'false' || echo 'true')"
-  [ "$py_status" = "true" ] && return 0 || return 1
+  if [ -n "$py" ]; then { eval $py -c "import $package" || return 1; }; else return 0; fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 cmd_missing() {

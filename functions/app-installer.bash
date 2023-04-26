@@ -1068,7 +1068,7 @@ perl_exists() {
 python_exists() {
   local package="$1"
   local py="$(builtin type -P python3 2>/dev/null || builtin type -P python2 2>/dev/null || builtin type -P python 2>/dev/null)"
-  [ -n "$PYTHONVER" ] && $PYTHONVER -c "import $package" |& __devnull && return 0 || return 1
+  if [ -n "$py" ]; then { eval $py -c "import $package" || return 1; }; else return 0; fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 cmd_missing() {

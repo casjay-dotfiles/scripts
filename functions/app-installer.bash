@@ -1132,6 +1132,8 @@ dotfilesreqadmin() {
   run_cleanup
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__saved_file_create() { sudo touch "${PKMGR_INSTALLED_LIST_DIR:-/usr/local/etc/pkmgr/lists}/$1" || true; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_aur() {
   local REQUIRED="$*"
   local cmd="" MISSING=""
@@ -1148,7 +1150,8 @@ install_aur() {
       printf_warning "Attempting to install missing packages as $RUN_USER"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr --enable-log --enable-aur silent install $miss 2>>$INSTALLER_ERR_FILE" "Installing $miss"
+        execute "pkmgr --enable-log --enable-aur silent install $miss 2>>$INSTALLER_ERR_FILE" "Installing $miss" || false
+        [ $? -eq 0 ] && __saved_file_create "$miss"
       done
     fi
   fi
@@ -1170,7 +1173,8 @@ install_required() {
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
       printf_yellow "Still missing: $MISSING"
       printf_yellow "Installing from package list"
-      pkmgr --enable-log dotfiles "$name" 2>>"$INSTALLER_ERR_FILE"
+      pkmgr --enable-log dotfiles "$name" 2>>"$INSTALLER_ERR_FILE" || false
+      [ $? -eq 0 ] && __saved_file_create "$miss"
     fi
     unset MISSING
     for cmd in $REQUIRED; do
@@ -1201,7 +1205,8 @@ install_packages() {
       printf_warning "Attempting to install missing packages as $RUN_USER"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr --enable-log silent install $miss 2>>$INSTALLER_ERR_FILE" "Installing $miss"
+        execute "pkmgr --enable-log silent install $miss 2>>$INSTALLER_ERR_FILE" "Installing $miss" || false
+        [ $? -eq 0 ] && __saved_file_create "$miss"
       done
     fi
   fi

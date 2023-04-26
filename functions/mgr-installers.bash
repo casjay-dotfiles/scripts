@@ -1198,8 +1198,8 @@ install_required() {
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
       printf_yellow "Still missing: $MISSING"
       printf_yellow "Installing from package list"
-      pkmgr --enable-log dotfiles "$name" 2>/dev/null || { type -p $miss &>/dev/null && echo "$ICON_GOOD $name" || false; } || false
-      [ $? -eq 0 ] && REQUIRED="${REQUIRED//$miss/}" && __saved_file_create "$miss" || { echo "$ICON_ERROR $name" && false; }
+      pkmgr --enable-log dotfiles "$name" 2>/dev/null || { type -p $miss &>/dev/null && printf_green "$ICON_GOOD $name has been installed" || false; } || false
+      [ $? -eq 0 ] && REQUIRED="${REQUIRED//$miss/}" && __saved_file_create "$miss" || { printf_red "$ICON_ERROR $name failed to install" >&2 && false; }
     fi
     unset MISSING
     for cmd in $REQUIRED; do

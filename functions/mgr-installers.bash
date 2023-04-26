@@ -91,7 +91,7 @@ trap_exit() { run_cleanup; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cmd_exists() {
   for f in "$@"; do
-    builtin type -p "$f" &>/dev/null && return 0 || return 1
+    builtin type -P "$f" &>/dev/null && return 0 || return 1
   done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1047,7 +1047,7 @@ __saved_file_create() { sudo touch "${PKMGR_INSTALLED_LIST_DIR:-/usr/local/etc/p
 gem_exists() {
   [ -n "$(builtin type -P gem 2>/dev/null)" ] || return
   local package="$1"
-  gem list | grep -q "$package" && return 0 || builtin type -P "$package" || return 1
+  gem list | grep -q "$package" && return 0 || cmd_missing "$package" &>/dev/null || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 npm_exists() {
@@ -1071,7 +1071,7 @@ perl_exists() {
   local package="${1//perl-/}"
   if devnull perl -M$package -le 'print $INC{"$package/Version.pm"}' ||
     devnull perl -M$package -le 'print $INC{"$package.pm"}' ||
-    devnull perl -M$package -le 'print $INC{"$package"}' || builtin type -P "$package"; then
+    devnull perl -M$package -le 'print $INC{"$package"}' || cmd_missing "$package" &>/dev/null; then
     return 0
   else
     return 1
@@ -1081,7 +1081,7 @@ perl_exists() {
 python_exists() {
   local package="$1"
   local py="$(builtin type -P python3 2>/dev/null || builtin type -P python2 2>/dev/null || builtin type -P python 2>/dev/null)"
-  if [ -n "$py" ]; then { eval $py -c "import $package" &>/dev/null || builtin type -P "$package" || return 1; }; else return 0; fi
+  if [ -n "$py" ]; then { eval $py -c "import $package" &>/dev/null || cmd_missing "$package" &>/dev/null || return 1; }; else return 0; fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 cmd_missing() {

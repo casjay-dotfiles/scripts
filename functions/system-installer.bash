@@ -555,8 +555,7 @@ scripts_check() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 cmdif() {
   local package=$1
-  builtin command -v "$package" &>/dev/null
-  if builtin command -v "$package" &>/dev/null; then return 0; else return 1; fi
+  if builtin type -P "$package" &>/dev/null; then return 0; else return 1; fi
 }
 perlif() {
   local package=$1
@@ -642,24 +641,26 @@ dotfilesreqadmin() {
   run_cleanup
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__devnull() { tee &>/dev/null && return 0 || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __saved_file_create() { sudo touch "${PKMGR_INSTALLED_LIST_DIR:-/usr/local/etc/pkmgr/lists}/$1" || true; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 gem_exists() {
   [ -n "$(builtin type -P gem 2>/dev/null)" ] || return
   local package="$1"
-  gem list | grep -q "$package" && return 0 || return 1
+  gem list | grep -q "$package" && return 0 || cmd_missing "$package" &>/dev/null || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 npm_exists() {
   [ -n "$(builtin type -P npm 2>/dev/null || builtin type -P yarn || builtin type -P pnpm || echo '')" ] || return
   local package="$1"
-  if __cmd_exists "$package"; then
-    return 0
-  elif __cmd_exists npm && npm list -g --depth=0 2>&1 | grep -q "$package@"; then
+  if __cmd_exists npm && npm list -g --depth=0 2>&1 | grep -q "$package@"; then
     return 0
   elif __cmd_exists yarn && yarn list -g --depth=0 2>&1 | grep -q "$package"; then
     return 0
   elif __cmd_exists pnpm && pnpm list -g --depth=0 2>&1 | grep -q "$package"; then
+    return 0
+  elif __cmd_exists "$package"; then
     return 0
   else
     return 1
@@ -671,7 +672,7 @@ perl_exists() {
   local package="${1//perl-/}"
   if devnull perl -M$package -le 'print $INC{"$package/Version.pm"}' ||
     devnull perl -M$package -le 'print $INC{"$package.pm"}' ||
-    devnull perl -M$package -le 'print $INC{"$package"}'; then
+    devnull perl -M$package -le 'print $INC{"$package"}' || cmd_missing "$package" &>/dev/null; then
     return 0
   else
     return 1
@@ -681,7 +682,7 @@ perl_exists() {
 python_exists() {
   local package="$1"
   local py="$(builtin type -P python3 2>/dev/null || builtin type -P python2 2>/dev/null || builtin type -P python 2>/dev/null)"
-  if [ -n "$py" ]; then { eval $py -c "import $package" &>/dev/null || builtin type -P "$package" || return 1; }; else return 0; fi
+  if [ -n "$py" ]; then { eval $py -c "import $package" &>/dev/null || cmd_missing "$package" &>/dev/null || return 1; }; else return 0; fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 cmd_missing() {
@@ -746,17 +747,13 @@ install_aur() {
   [ -f "$(builtin type -P yay 2>/dev/null)" ] || return 0
   if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
     for cmd in $REQUIRED; do
-      if [ ! -f "/usr/local/etc/pkmgr/lists/$cmd" ]; then
-        if ! builtin type -p "$cmd" &>/dev/null; then
-          MISSING+="$cmd "
-        fi
-      fi
+      [ -f "/usr/local/etc/pkmgr/lists/$cmd" ] || builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
     done
     if [ -n "$MISSING" ]; then
       printf_warning "Attempting to install missing packages as $RUN_USER"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr --enable-log --enable-aur silent install $miss 2>>$INSTALLER_ERR_FILE" "Installing $miss" || false
+        execute "pkmgr --enable-log --enable-aur silent install $miss" "Installing $miss" || false
         [ $? -eq 0 ] && __saved_file_create "$miss"
       done
     fi
@@ -771,9 +768,7 @@ install_required() {
   local cmd=""
   [ "$SCRIPTS_PREFIX" = "dfmgr" ] || [ "$SCRIPTS_PREFIX" = "systemmgr" ] || return 0
   for cmd in $REQUIRED; do
-    if [ ! -f "/usr/local/etc/pkmgr/lists/$cmd" ]; then
-      builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
-    fi
+    [ -f "/usr/local/etc/pkmgr/lists/$cmd" ] || builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
@@ -814,15 +809,13 @@ install_packages() {
   local cmd=""
   if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
     for cmd in $REQUIRED; do
-      if [ ! -f "/usr/local/etc/pkmgr/lists/$cmd" ]; then
-        builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
-      fi
+      [ -f "/usr/local/etc/pkmgr/lists/$cmd" ] || builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
     done
     if [ -n "$MISSING" ]; then
       printf_warning "Attempting to install missing packages as $RUN_USER"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr --enable-log silent install $miss 2>>$INSTALLER_ERR_FILE" "Installing $miss" || false
+        execute "pkmgr --enable-log silent install $miss" "Installing $miss" || false
         [ $? -eq 0 ] && __saved_file_create "$miss"
       done
     fi
@@ -834,16 +827,17 @@ install_python() {
   local REQUIRED="$*"
   local MISSING=""
   local cmd=""
+  __getpythonver
   [ -f "$(builtin type -P pacman 2>/dev/null)" ] && prepend="python" || prepend="$PYTHONVER"
   for cmd in $REQUIRED; do
-    builtin type -P "$cmd" &>/dev/null || python_missing "$cmd" || MISSING+="$prepend-$cmd "
+    python_missing "$cmd" || MISSING+="$prepend-$cmd "
   done
   if [ -n "$MISSING" ]; then
     if [ -n "$(builtin type -P pkmgr 2>/dev/null)" ]; then
       printf_warning "Attempting to install missing python packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr --enable-log silent install $miss 2>>$INSTALLER_ERR_FILE" "Installing $miss"
+        execute "pkmgr --enable-log silent install $miss" "Installing $miss"
       done
     fi
   fi
@@ -855,14 +849,14 @@ install_perl() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    builtin type -P "$cmd" &>/dev/null || perl_missing "$cmd" || MISSING="$(echo perl-$1 | sed 's#::#-#g') "
+    perl_missing "$cmd" || MISSING+="$(echo "perl-$1" | sed 's#::#-#g') "
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
       printf_warning "Attempting to install missing perl packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr --enable-log perl install $miss 2>>$INSTALLER_ERR_FILE" "Installing $miss"
+        execute "pkmgr --enable-log perl install $miss" "Installing $miss"
       done
     fi
   fi
@@ -874,14 +868,14 @@ install_pip() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    builtin type -P "$cmd" &>/dev/null || pip_missing "$cmd" || MISSING="$cmd "
+    pip_missing "$cmd" || MISSING+="$cmd "
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
       printf_warning "Attempting to install missing pip packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr --enable-log pip install $miss 2>>$INSTALLER_ERR_FILE" "Installing $miss"
+        execute "pkmgr --enable-log pip install $miss" "Installing $miss"
       done
     fi
   fi
@@ -893,14 +887,14 @@ install_npm() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    builtin type -P "$cmd" &>/dev/null || npm_missing "$cmd" || MISSING="$cmd "
+    npm_missing "$cmd" || MISSING+="$cmd "
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
       printf_warning "Attempting to install missing npm packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr --enable-log npm install $miss 2>>$INSTALLER_ERR_FILE" "Installing $miss"
+        execute "pkmgr --enable-log npm install $miss" "Installing $miss"
       done
     fi
   fi
@@ -912,14 +906,14 @@ install_cpan() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    builtin type -P "$cmd" || cpan_missing "$cmd" || MISSING="$cmd "
+    cpan_missing "$cmd" || MISSING+="$cmd "
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
       printf_warning "Attempting to install missing cpan packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr --enable-log cpan install $miss 2>>$INSTALLER_ERR_FILE" "Installing $miss"
+        execute "pkmgr --enable-log cpan install $miss" "Installing $miss"
       done
     fi
   fi
@@ -931,14 +925,14 @@ install_gem() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    builtin type -P "$cmd" || gem_missing "$cmd" || MISSING="$cmd "
+    gem_missing "$cmd" || MISSING+="$cmd "
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
       printf_warning "Attempting to install missing gem packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr --enable-log gem install $miss 2>>$INSTALLER_ERR_FILE" "Installing $miss"
+        execute "pkmgr --enable-log gem install $miss" "Installing $miss"
       done
     fi
   fi

@@ -979,7 +979,7 @@ is_url() { echo "$1" | grep -qE 'http://|ftp://|git://|https://'; }
 # }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 cmd_missing() {
-  if builtin type -p "$1" &>/dev/null; then
+  if builtin type -P "$1" &>/dev/null; then
     return 0
   else
     MISSING+="$1 "
@@ -1235,9 +1235,6 @@ install_packages() {
     for cmd in $REQUIRED; do
       if [ ! -f "/usr/local/etc/pkmgr/lists/$cmd" ]; then
         builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
-        if ! builtin type -p "$cmd" &>/dev/null; then
-          MISSING+="$cmd "
-        fi
       fi
     done
     if [ -n "$MISSING" ]; then
@@ -1276,7 +1273,7 @@ install_perl() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    builtin type -p "$cmd" &>/dev/null || perl_missing "$cmd"
+    perl_missing "$cmd"
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
@@ -1295,7 +1292,7 @@ install_pip() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    builtin type -p "$cmd" &>/dev/null || pip_missing "$cmd"
+    pip_missing "$cmd"
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
@@ -1314,7 +1311,7 @@ install_npm() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    builtin type -p "$cmd" &>/dev/null || npm_missing "$cmd"
+    npm_missing "$cmd"
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
@@ -1333,7 +1330,7 @@ install_cpan() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    builtin type -p "$cmd" &>/dev/null || cpan_missing "$cmd"
+    cpan_missing "$cmd"
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
@@ -1352,7 +1349,7 @@ install_gem() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    builtin type -p "$cmd" &>/dev/null || gem_missing "$cmd"
+    gem_missing "$cmd"
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then

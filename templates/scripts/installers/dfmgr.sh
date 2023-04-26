@@ -104,12 +104,24 @@ APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
 BUILD_APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
 APPVERSION="$(__appversion "https://github.com/$SCRIPTS_PREFIX/$APPNAME/raw/$REPO_BRANCH/version.txt")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Define this if build script is used
+BUILD_SRC_URL=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup plugins
 PLUGIN_REPOS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Specify required system packages you can prefix os to OS_PACKAGES: MAC_OS_PACKAGES WIN_OS_PACKAGES
+# Specify global packages
 OS_PACKAGES="GEN_SCRIPT_REPLACE_APPNAME "
-OS_PACKAGES+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Define linux only packages
+LINUX_OS_PACKAGES=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Define MacOS only packages
+MAC_OS_PACKAGES=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Define Windows only packages
+WIN_OS_PACKAGES=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define required system python packages
 PYTHON_PACKAGES=""
@@ -126,6 +138,11 @@ PHP_COMPOSER=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Specify ARCH_USER_REPO Pacakges
 AUR_PACKAGES=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show a custom message after install
+__run_post_message() {
+  true
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define pre-install scripts
 __run_pre_install() {
@@ -152,6 +169,17 @@ __custom_plugin() {
   return $exitCodeC
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# execute build script if exists and install failed or set BUILD_SCRIPT_REBUILD to true to always rebuild
+__run_build_script() {
+  if ! __cmd_exists "$BUILD_APPNAME" && [ -f "$INSTDIR/build.sh" ]; then
+    BUILD_SCRIPT_REBUILD="false"
+    BUILD_SCRIPT_SRC_DIR="$PLUGIN_DIR/source"
+    export BUILD_SCRIPT_SRC_DIR BUILD_SRC_URL BUILD_SCRIPT_REBUILD
+    [ -x "$INSTDIR/build.sh" ] || chmod 755 "$INSTDIR/build.sh"
+    eval "$INSTDIR/build.sh"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Other dependencies
 dotfilesreq misc
 dotfilesreqadmin cron
@@ -170,15 +198,15 @@ if_os_id arch && ARCH_USER_REPO="$AUR_PACKAGES"
 # define linux packages
 if if_os linux; then
   if if_os_id arch; then
-    SYSTEM_PACKAGES="$OS_PACKAGES $ARCH_OS_PACKAGES"
+    SYSTEM_PACKAGES="$OS_PACKAGES $LINUX_OS_PACKAGES $ARCH_OS_PACKAGES"
   elif if_os_id centos; then
-    SYSTEM_PACKAGES="$OS_PACKAGES $CENTOS_OS_PACKAGES"
+    SYSTEM_PACKAGES="$OS_PACKAGES $LINUX_OS_PACKAGES $CENTOS_OS_PACKAGES"
   elif if_os_id debian; then
-    SYSTEM_PACKAGES="$OS_PACKAGES $DEBIAN_OS_PACKAGES"
+    SYSTEM_PACKAGES="$OS_PACKAGES $LINUX_OS_PACKAGES $DEBIAN_OS_PACKAGES"
   elif if_os_id ubuntu; then
-    SYSTEM_PACKAGES="$OS_PACKAGES $UBUNTU_OS_PACKAGES"
+    SYSTEM_PACKAGES="$OS_PACKAGES $LINUX_OS_PACKAGES $UBUNTU_OS_PACKAGES"
   else
-    SYSTEM_PACKAGES="$OS_PACKAGES"
+    SYSTEM_PACKAGES="$OS_PACKAGES $LINUX_OS_PACKAGES"
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -284,13 +312,8 @@ dfmgr_install_version
 run_exit
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run any external scripts
-if ! __cmd_exists "$BUILD_APPNAME" && [ -f "$INSTDIR/build.sh" ]; then
-  BUILD_SCRIPT_SRC_DIR="$PLUGIN_DIR/source"
-  BUILD_SRC_URL=""
-  export BUILD_SCRIPT_SRC_DIR BUILD_SRC_URL
-  eval "$INSTDIR/build.sh"
-  __cmd_exists $BUILD_APPNAME || printf_red "$BUILD_APPNAME is not installed: run $INSTDIR/build.sh"
-fi
+__run_build_script
+__run_post_message
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

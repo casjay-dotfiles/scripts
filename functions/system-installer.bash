@@ -720,9 +720,6 @@ install_packages() {
     for cmd in $REQUIRED; do
       if [ ! -f "/usr/local/etc/pkmgr/lists/$cmd" ]; then
         builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
-        if ! builtin type -p "$cmd" &>/dev/null; then
-          MISSING+="$cmd "
-        fi
       fi
     done
     if [ -n "$MISSING" ]; then

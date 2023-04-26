@@ -1934,6 +1934,7 @@ installer_noupdate() {
     [ -d "$INSTDIR/.git" ] || { rm -Rf "$INSTDIR" && git clone -q "$REPO" "$INSTDIR" &>/dev/null; }
     if __git_update "$INSTDIR"; then
       printf_cyan "$APPNAME has been updated"
+      printf_newline ''
       exit 0
     else
       printf_red "Failed to update $INSTDIR"

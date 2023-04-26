@@ -1237,7 +1237,7 @@ install_python() {
   local cmd=""
   [ -f "$(builtin type -P pacman 2>/dev/null)" ] && prepend="python" || prepend="$PYTHONVER"
   for cmd in $REQUIRED; do
-    builtin type -P "$cmd" || python_missing "$cmd" || MISSING+="$prepend-$cmd "
+    builtin type -P "$cmd" &>/dev/null || python_missing "$cmd" || MISSING+="$prepend-$cmd "
   done
   if [ -n "$MISSING" ]; then
     if [ -n "$(builtin type -P pkmgr 2>/dev/null)" ]; then
@@ -1256,7 +1256,7 @@ install_perl() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    type -P "$cmd" || perl_missing "$cmd" || MISSING="$(echo perl-$1 | sed 's#::#-#g') "
+    builtin type -P "$cmd" &>/dev/null || perl_missing "$cmd" || MISSING="$(echo perl-$1 | sed 's#::#-#g') "
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
@@ -1275,7 +1275,7 @@ install_pip() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    type -P "$cmd" || pip_missing "$cmd" || MISING="$cmd "
+    builtin type -P "$cmd" &>/dev/null || pip_missing "$cmd" || MISSING="$cmd "
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
@@ -1294,7 +1294,7 @@ install_npm() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    type -P "$cmd" || npm_missing "$cmd" || MISING="$cmd "
+    builtin type -P "$cmd" &>/dev/null || npm_missing "$cmd" || MISSING="$cmd "
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
@@ -1313,7 +1313,7 @@ install_cpan() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    type -P "$cmd" || cpan_missing "$cmd" || MISING="$cmd "
+    builtin type -P "$cmd" || cpan_missing "$cmd" || MISSING="$cmd "
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
@@ -1332,7 +1332,7 @@ install_gem() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    type -P "$cmd" || gem_missing "$cmd" || MISING="$cmd "
+    builtin type -P "$cmd" || gem_missing "$cmd" || MISSING="$cmd "
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then

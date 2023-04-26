@@ -1173,8 +1173,8 @@ install_required() {
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
       printf_yellow "Still missing: $MISSING"
       printf_yellow "Installing from package list"
-      pkmgr --enable-log dotfiles "$name" 2>>"$INSTALLER_ERR_FILE" || false
-      [ $? -eq 0 ] && __saved_file_create "$miss"
+      pkmgr --enable-log dotfiles "$name" || type -p $miss &>/dev/null || false
+      [ $? -eq 0 ] && REQUIRED="${REQUIRED//$miss/}" && __saved_file_create "$miss"
     fi
     unset MISSING
     for cmd in $REQUIRED; do

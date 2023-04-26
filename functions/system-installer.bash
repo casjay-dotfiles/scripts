@@ -653,18 +653,30 @@ install_packages() {
 }
 ##################################################################################################
 install_required() {
+  local name="$APPNAME"
+  local REQUIRED="$*"
   local MISSING=""
-  for cmd in "$@"; do cmdif $cmd || MISSING+="$cmd "; done
+  local cmd=""
+  [ "$SCRIPTS_PREFIX" = "dfmgr" ] || [ "$SCRIPTS_PREFIX" = "systemmgr" ] || return 0
+  for cmd in $REQUIRED; do
+    builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
+  done
   if [ -n "$MISSING" ]; then
-    if builtin command -v "pkmgr" &>/dev/null; then
-      printf_warning "Installing from package list"
-      if builtin command -v yay &>/dev/null; then
-        pkmgr --enable-aur dotfiles "$APPNAME"
-      else
-        pkmgr dotfiles "$APPNAME"
-      fi
+    if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
+      printf_yellow "Still missing: $MISSING"
+      printf_yellow "Installing from package list"
+      pkmgr --enable-log dotfiles "$name" 2>"$INSTALLER_ERR_FILE"
     fi
+    unset MISSING
+    for cmd in $REQUIRED; do
+      builtin type -p "$cmd" &>/dev/null || MISSING+="$cmd "
+    done
   fi
+  if [ -n "$MISSING" ]; then
+    printf_warning "Can not install all the required packages for $name"
+    return 1
+  fi
+  unset MISSING
 }
 ##################################################################################################
 install_python() {

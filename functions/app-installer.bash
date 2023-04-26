@@ -1160,7 +1160,7 @@ install_required() {
   local cmd=""
   [ "$SCRIPTS_PREFIX" = "dfmgr" ] || [ "$SCRIPTS_PREFIX" = "systemmgr" ] || return 0
   for cmd in $REQUIRED; do
-    builtin type -p "$cmd" &>/dev/null || MISSING+="$cmd "
+    builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then

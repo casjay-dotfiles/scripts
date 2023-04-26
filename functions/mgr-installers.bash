@@ -1163,8 +1163,10 @@ install_aur() {
   [ -f "$(builtin type -P yay 2>/dev/null)" ] || return 0
   if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
     for cmd in $REQUIRED; do
-      if ! builtin type -p "$cmd" &>/dev/null; then
-        MISSING+="$cmd "
+      if [ ! -f "/usr/local/etc/pkmgr/lists/$cmd" ]; then
+        if ! builtin type -p "$cmd" &>/dev/null; then
+          MISSING+="$cmd "
+        fi
       fi
     done
     if [ -n "$MISSING" ]; then
@@ -1185,7 +1187,9 @@ install_required() {
   local cmd=""
   [ "$SCRIPTS_PREFIX" = "dfmgr" ] || [ "$SCRIPTS_PREFIX" = "systemmgr" ] || return 0
   for cmd in $REQUIRED; do
-    builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
+    if [ ! -f "/usr/local/etc/pkmgr/lists/$cmd" ]; then
+      builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
+    fi
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
@@ -1211,8 +1215,11 @@ install_packages() {
   local cmd=""
   if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
     for cmd in $REQUIRED; do
-      if ! builtin type -p "$cmd" &>/dev/null; then
-        MISSING+="$cmd "
+      if [ ! -f "/usr/local/etc/pkmgr/lists/$cmd" ]; then
+        builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
+        if ! builtin type -p "$cmd" &>/dev/null; then
+          MISSING+="$cmd "
+        fi
       fi
     done
     if [ -n "$MISSING" ]; then

@@ -1229,7 +1229,7 @@ install_python() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    python_missing "$cmd"
+    python_missing "$cmd" || builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
   done
   if [ -n "$MISSING" ]; then
     if [ -n "$(builtin type -P pkmgr 2>/dev/null)" ]; then

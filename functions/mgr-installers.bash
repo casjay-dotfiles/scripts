@@ -1080,8 +1080,10 @@ perl_exists() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 python_exists() {
   local package="$1"
+  local py_status=""
   local py="$(builtin type -P python3 2>/dev/null || builtin type -P python2 2>/dev/null || builtin type -P python 2>/dev/null)"
-  [ -n "$PYTHONVER" ] && $PYTHONVER -c "import $package" |& __devnull && return 0 || return 1
+  [ -n "$py" ] && py_status="$($py -c "import $package" 2>&1 | grep -q 'ModuleNotFoundError' && false || echo 'true')"
+  [ "$py_status" = "true" ] && return 0 || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 cmd_missing() {
@@ -1274,9 +1276,8 @@ install_pip() {
   local REQUIRED="$*"
   local MISSING=""
   local cmd=""
-  __getpythonver
   for cmd in $REQUIRED; do
-    builtin type -P "$cmd" &>/dev/null || pip_missing "$cmd" || MISSING="$cmd "
+    pip_missing "$cmd" || MISSING="$cmd "
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then

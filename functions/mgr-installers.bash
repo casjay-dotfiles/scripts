@@ -982,7 +982,6 @@ cmd_missing() {
   if builtin type -P "$1" &>/dev/null; then
     return 0
   else
-    MISSING+="$1 "
     return 1
   fi
 }
@@ -991,7 +990,6 @@ cpan_missing() {
   if perl_exists "$1"; then
     return 0
   else
-    MISSING+="$1"
     return 1
   fi
 }
@@ -1000,7 +998,6 @@ gem_missing() {
   if gem_exists "$1"; then
     return 0
   else
-    MISSING+="$1 "
     return 1
   fi
 }
@@ -1009,7 +1006,6 @@ npm_missing() {
   if npm_exists "$1"; then
     return 0
   else
-    MISSING+="$1 "
     return 1
   fi
 }
@@ -1018,7 +1014,6 @@ perl_missing() {
   if perl_exists "$1"; then
     return 0
   else
-    MISSING+="$(echo perl-$1 | sed 's#::#-#g') "
     return 1
   fi
 }
@@ -1027,30 +1022,17 @@ pip_missing() {
   if python_exists "$1"; then
     return 0
   else
-    MISSING+="$1 "
     return 1
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ -f "$(builtin type -P pacman 2>/dev/null)" ]; then
-  python_missing() {
-    if python_exists "$1"; then
-      return 0
-    else
-      MISSING+="python-$1 "
-      return 1
-    fi
-  }
-else
-  python_missing() {
-    if python_exists "$1"; then
-      return 0
-    else
-      MISSING+="$PYTHONVER-$1 "
-      return 1
-    fi
-  }
-fi
+python_missing() {
+  if python_exists "$1"; then
+    return 0
+  else
+    return 1
+  fi
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 git_repo_urls() {
   REPO="${REPO:-https://github.com/dfmgr}"
@@ -1253,8 +1235,9 @@ install_python() {
   local REQUIRED="$*"
   local MISSING=""
   local cmd=""
+  [ -f "$(builtin type -P pacman 2>/dev/null)" ] && prepend="python" || prepend="$PYTHONVER"
   for cmd in $REQUIRED; do
-    python_missing "$cmd"
+    builtin type -P "$cmd" || python_missing "$cmd" || MISSING+="$prepend-$cmd "
   done
   if [ -n "$MISSING" ]; then
     if [ -n "$(builtin type -P pkmgr 2>/dev/null)" ]; then
@@ -1273,7 +1256,7 @@ install_perl() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    perl_missing "$cmd"
+    type -P "$cmd" || perl_missing "$cmd" || MISSING="$(echo perl-$1 | sed 's#::#-#g') "
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
@@ -1292,7 +1275,7 @@ install_pip() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    pip_missing "$cmd"
+    type -P "$cmd" || pip_missing "$cmd" || MISING="$cmd "
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
@@ -1311,7 +1294,7 @@ install_npm() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    npm_missing "$cmd"
+    type -P "$cmd" || npm_missing "$cmd" || MISING="$cmd "
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
@@ -1330,7 +1313,7 @@ install_cpan() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    cpan_missing "$cmd"
+    type -P "$cmd" || cpan_missing "$cmd" || MISING="$cmd "
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
@@ -1349,7 +1332,7 @@ install_gem() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    gem_missing "$cmd"
+    type -P "$cmd" || gem_missing "$cmd" || MISING="$cmd "
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then

@@ -1201,7 +1201,7 @@ install_required() {
       if pkmgr --enable-log dotfiles "$name" 2>/dev/null; then
         exitCode=0
       elif builtin type -pt $name | grep -q 'function'; then
-        printf_green "$ICON_GOOD $name is installed but is seems to be a function"
+        printf_green "$ICON_GOOD $name is installed but it seems to be a function"
         exitCode=0
       else
         exitCode=1

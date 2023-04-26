@@ -9,7 +9,7 @@
 # @Created           :  Wednesday, Feb 10, 2021 02:00 EST
 # @File              :  install.sh
 # @Description       :  My custom scripts
-# @TODO              :  MacOS fixes
+# @TODO              :  MacOS fixes/Re-write function/*
 # @Other             :
 # @Resource          :
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

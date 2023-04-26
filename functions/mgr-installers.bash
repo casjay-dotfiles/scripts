@@ -1273,6 +1273,7 @@ install_perl() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_pip() {
+  [ -n "$_DEBUG" ] && set -x
   local REQUIRED="$*"
   local MISSING=""
   local cmd=""

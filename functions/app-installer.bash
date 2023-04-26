@@ -1027,6 +1027,8 @@ dotfilesreqadmin() {
   run_cleanup
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__devnull() { tee &>/dev/null && return 0 || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __saved_file_create() { sudo touch "${PKMGR_INSTALLED_LIST_DIR:-/usr/local/etc/pkmgr/lists}/$1" || true; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 gem_exists() {
@@ -1064,13 +1066,9 @@ perl_exists() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 python_exists() {
-  PYTHONVER="$(builtin type -P python3 2>/dev/null || builtin type -P python2 2>/dev/null || builtin type -P python 2>/dev/null)"
-  if [ -n "$PYTHONVER" ]; then
-    local package="$1"
-    if devnull $PYTHONVER -c "import $package"; then return 0; else return 1; fi
-  else
-    return 1
-  fi
+  local package="$1"
+  local py="$(builtin type -P python3 2>/dev/null || builtin type -P python2 2>/dev/null || builtin type -P python 2>/dev/null)"
+  [ -n "$PYTHONVER" ] && $PYTHONVER -c "import $package" |& __devnull && return 0 || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 cmd_missing() {

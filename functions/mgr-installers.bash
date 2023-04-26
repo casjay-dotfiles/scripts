@@ -1040,6 +1040,8 @@ dotfilesreqadmin() {
   run_cleanup
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__devnull() { tee &>/dev/null && return 0 || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __saved_file_create() { sudo touch "${PKMGR_INSTALLED_LIST_DIR:-/usr/local/etc/pkmgr/lists}/$1" || true; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 gem_exists() {
@@ -1077,13 +1079,9 @@ perl_exists() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 python_exists() {
-  PYTHONVER="$(builtin type -P python3 2>/dev/null || builtin type -P python2 2>/dev/null || builtin type -P python 2>/dev/null)"
-  if [ -n "$PYTHONVER" ]; then
-    local package="$1"
-    if devnull $PYTHONVER -c "import $package"; then return 0; else return 1; fi
-  else
-    return 1
-  fi
+  local package="$1"
+  local py="$(builtin type -P python3 2>/dev/null || builtin type -P python2 2>/dev/null || builtin type -P python 2>/dev/null)"
+  [ -n "$PYTHONVER" ] && $PYTHONVER -c "import $package" |& __devnull && return 0 || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 cmd_missing() {
@@ -1158,7 +1156,7 @@ install_aur() {
       printf_warning "Attempting to install missing packages as $RUN_USER"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr --enable-log --enable-aur silent install $miss 2>>$INSTALLER_ERR_FILE" "Installing $miss" || false
+        execute "pkmgr --enable-log --enable-aur silent install $miss" "Installing $miss" || false
         [ $? -eq 0 ] && __saved_file_create "$miss"
       done
     fi
@@ -1224,7 +1222,7 @@ install_packages() {
       printf_warning "Attempting to install missing packages as $RUN_USER"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr --enable-log silent install $miss 2>>$INSTALLER_ERR_FILE" "Installing $miss" || false
+        execute "pkmgr --enable-log silent install $miss" "Installing $miss" || false
         [ $? -eq 0 ] && __saved_file_create "$miss"
       done
     fi
@@ -1246,7 +1244,7 @@ install_python() {
       printf_warning "Attempting to install missing python packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr --enable-log silent install $miss 2>>$INSTALLER_ERR_FILE" "Installing $miss"
+        execute "pkmgr --enable-log silent install $miss" "Installing $miss"
       done
     fi
   fi
@@ -1265,7 +1263,7 @@ install_perl() {
       printf_warning "Attempting to install missing perl packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr --enable-log perl install $miss 2>>$INSTALLER_ERR_FILE" "Installing $miss"
+        execute "pkmgr --enable-log perl install $miss" "Installing $miss"
       done
     fi
   fi
@@ -1285,7 +1283,7 @@ install_pip() {
       printf_warning "Attempting to install missing pip packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr --enable-log pip install $miss 2>>$INSTALLER_ERR_FILE" "Installing $miss"
+        execute "pkmgr --enable-log pip install $miss" "Installing $miss"
       done
     fi
   fi
@@ -1304,7 +1302,7 @@ install_npm() {
       printf_warning "Attempting to install missing npm packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr --enable-log npm install $miss 2>>$INSTALLER_ERR_FILE" "Installing $miss"
+        execute "pkmgr --enable-log npm install $miss" "Installing $miss"
       done
     fi
   fi
@@ -1323,7 +1321,7 @@ install_cpan() {
       printf_warning "Attempting to install missing cpan packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr --enable-log cpan install $miss 2>>$INSTALLER_ERR_FILE" "Installing $miss"
+        execute "pkmgr --enable-log cpan install $miss" "Installing $miss"
       done
     fi
   fi
@@ -1342,7 +1340,7 @@ install_gem() {
       printf_warning "Attempting to install missing gem packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr --enable-log gem install $miss 2>>$INSTALLER_ERR_FILE" "Installing $miss"
+        execute "pkmgr --enable-log gem install $miss" "Installing $miss"
       done
     fi
   fi

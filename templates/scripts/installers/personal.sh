@@ -58,6 +58,12 @@ fi
 user_installdirs
 show_optvars "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup functions
+__download_file() { curl -q -LSsf "$1" -o "$2" || return 1; }
+__service_is_active() { systemctl is-enabled $1 | grep -q 'enabled' || return 1; }
+__service_is_running() { systemctl is-active $1 | grep -q 'active' || return 1; }
+__get_pid() { ps -aux | grep "$1" | awk -F ' ' '{print $2}' | grep ${2:-[0-9]} || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Options
 PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games:/usr/local/sbin:/usr/sbin:/sbin:/usr/bin/core_perl/cpan"
 # Set primary dir

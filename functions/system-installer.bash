@@ -750,6 +750,8 @@ python_missing() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+install_latest_release() { latest-releases "$@" || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_aur() {
   local REQUIRED="$*"
   local cmd="" MISSING=""

@@ -9,7 +9,7 @@
 # @@Copyright        :  GEN_SCRIPT_REPLACE_COPYRIGHT
 # @@Created          :  GEN_SCRIPT_REPLACE_DATE
 # @@File             :  GEN_SCRIPT_REPLACE_FILENAME
-# @@Description      :  Setup GEN_SCRIPT_REPLACE_APPNAME hacking tools
+# @@Description      :  Install configurations for GEN_SCRIPT_REPLACE_APPNAME
 # @@Changelog        :  GEN_SCRIPT_REPLACE_CHANGELOG
 # @@TODO             :  GEN_SCRIPT_REPLACE_TODO
 # @@Other            :  GEN_SCRIPT_REPLACE_OTHER
@@ -32,9 +32,11 @@ RUN_USER="${SUDO_USER:-$USER}"
 SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
 export SCRIPTS_PREFIX="hakmgr"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+BUILD_APPNAME="$APPNAME"
+APPDIR="$HOME/.config/$APPNAME"
 REPO_BRANCH="${GIT_REPO_BRANCH:-main}"
+PLUGIN_DIR="$HOME/.local/share/$APPNAME/plugins"
 REPO="https://github.com/$SCRIPTS_PREFIX/$APPNAME"
-APPDIR="$HOME/.local/share/$SCRIPTS_PREFIX/$APPNAME"
 INSTDIR="$HOME/.local/share/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME"
 REPORAW="https://github.com/$SCRIPTS_PREFIX/$APPNAME/raw/$REPO_BRANCH"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -45,12 +47,15 @@ trap 'retVal=$?;trap_exit' ERR EXIT SIGINT
 [ "$1" = "--raw" ] && export SHOW_RAW="true"
 set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+for app in curl wget git; do type -P "$app" >/dev/null 2>&1 || missing_app+=("$app"); done && [ -z "${missing_app[*]}" ] || { printf '%s\n' "${missing_app[*]}" && exit 1; }
+connect_test() { curl -q -ILSsf --retry 1 -m 1 "https://1.1.1.1" | grep -iq 'server:*.cloudflare' || return 1; }
+verify_url() { urlcheck "$1" &>/dev/null || { printf_red "😿 The URL $1 returned an error. 😿" && exit 1; }; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
 SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
 SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-mgr-installers.bash}"
-SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/casjay-dotfiles/scripts/installer/raw/GEN_SCRIPT_REPLACE_DEFAULT_BRANCH/functions}"
-connect_test() { curl -q -ILSsf --retry 1 -m 1 "https://1.1.1.1" | grep -iq 'server:*.cloudflare' || return 1; }
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/hakmgr/installer/raw/GEN_SCRIPT_REPLACE_DEFAULT_BRANCH/functions}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
   . "$PWD/$SCRIPTSFUNCTFILE"
@@ -65,26 +70,57 @@ else
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define custom functions
-__download_file() { curl -q -LSsf "$1" -o "$2" || return 1; }
+__am_i_online() { connect_test || return 1; }
+__run_git_clone_pull() { git_update "$1" "$2"; }
+__cmd_exists() { builtin type -P $1 &>/dev/null; }
+__mkdir() { mkdir -p "$1" &>/dev/null || return 1; }
+__app_is_running() { pidof "$1" &>/dev/null || return 1; }
+__mv_f() { [ -e "$1" ] && mv -f "$@" &>/dev/null || return 1; }
+__cp_rf() { [ -e "$1" ] && cp -Rfa "$@" &>/dev/null || return 1; }
+__chmod() { [ -e "$2" ] && chmod -Rf "$@" 2>/dev/null || return 1; }
+__replace_one() { $sed -i "s|$1|$2|g" "$3" &>/dev/null || return 1; }
+__rm_rf() { [ -e "$1" ] && { rm -Rf "$@" &>/dev/null || return 1; } || true; }
+__rm_link() { [ -e "$1" ] && { rm -rf "$1" &>/dev/null || return 1; } || true; }
+__download_file() { curl -q -LSsf "$1" -o "$2" 2>/dev/null || return 1; }
+__input_is_number() { test -n "$1" && test -z "${1//[0-9]/}" || return 1; }
+__failexitcode() { [ $1 -ne 0 ] && printf_red "😠 $2 😠" && exit ${1:-4}; }
+__get_exit_status() { s=$? && getRunStatus=$((s + ${getRunStatus:-0})) && return $s; }
+__service_is_running() { systemctl is-active $1 2>&1 | grep -qiw 'active' || return 1; }
+__service_is_active() { systemctl is-enabled $1 2>&1 | grep -qiw 'enabled' || return 1; }
+__get_version() { echo "$@" | awk -F '.' '{ printf("%d%03d%03d%03d\n", $1,$2,$3,$4) }'; }
+__silent_start() { __cmd_exists $1 && (eval "$*" &>/dev/null &) && __app_is_running $1 || return 1; }
+__symlink() { { __rm_rf "$2" || true; } && ln_sf "$1" "$2" &>/dev/null || { [ -L "$2" ] || return 1; }; }
+__get_pid() { ps -aux | grep -v ' grep ' | grep "$1" | awk -F ' ' '{print $2}' | grep ${2:-[0-9]} || return 1; }
+__dir_count() { find -L "${1:-./}" -maxdepth "${2:-1}" -not -path "${1:-./}/.git/*" -type d 2>/dev/null | wc -l; }
+__file_count() { find -L "${1:-./}" -maxdepth "${2:-1}" -not -path "${1:-./}/.git/*" -type f 2>/dev/null | wc -l; }
+__kill_process_id() { __input_is_number $1 && pid=$1 && { [ -z "$pid" ] || kill -15 $pid &>/dev/null; } || return 1; }
+__kill() { __kill_process_id "$1" || __kill_process_name "$1" || { ! __app_is_running "$1" && return 0; } || return 1; }
+__replace_all() { [ -e "$3" ] && find "$3" -not -path "$3/.git/*" -type f -exec $sed -i "s|$1|$2|g" {} \; >/dev/null 2>&1 || return 1; }
+__kill_process_name() { local pid="$(pidof "$1" 2>/dev/null)" && { [ -z "$pid" ] || kill -19 $pid &>/dev/null || kill -9 $pid &>/dev/null; } || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+sed="$(builtin type -P gsed 2>/dev/null || builtin type -P sed 2>/dev/null || return)"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Script options IE: --help --version
+show_optvars "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Verify repository exists
+verify_url "$REPO"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # OS Support: supported_os unsupported_oses
 supported_os linux mac windows
 unsupported_oses
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Requires root - no point in continuing
-#sudoreq "$0 *" # sudo required
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # get sudo credentials
 sudorun "true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Requires root - restarting with sudo
+#sudoreq "$0 *"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Make sure the scripts repo is installed
 scripts_check
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Call the main function
 hakmgr_install
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Script options IE: --help --version
-show_optvars "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # trap the cleanup function
 trap_exit
@@ -99,12 +135,32 @@ hakmgr_run_init
 APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
 APPVERSION="$(__appversion "https://github.com/$SCRIPTS_PREFIX/$APPNAME/raw/$REPO_BRANCH/version.txt")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# enable plugins - git repos
+# Define these if build script is used
+BUILD_APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
+BUILD_SCRIPT_REBUILD="false"
+BUILD_SRC_URL=""
+BUILD_SCRIPT_SRC_DIR="$PLUGIN_DIR/source"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup plugins
 PLUGIN_REPOS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Specify required system packages you can prefix os to OS_PACKAGES: MAC_OS_PACKAGES WIN_OS_PACKAGES
-OS_PACKAGES="GEN_SCRIPT_REPLACE_APPNAME "
-OS_PACKAGES+=""
+# Grab release from github releases
+LATEST_RELEASE=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Specify global packages
+GLOBAL_OS_PACKAGES="GEN_SCRIPT_REPLACE_APPNAME "
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Define linux only packages
+LINUX_OS_PACKAGES=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Define MacOS only packages
+MAC_OS_PACKAGES=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Define Windows only packages
+WIN_OS_PACKAGES=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Specify ARCH_USER_REPO Pacakges
+AUR_PACKAGES=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define required system python packages
 PYTHON_PACKAGES=""
@@ -119,32 +175,48 @@ RUBY_GEMS=""
 PYTHON_PIP=""
 PHP_COMPOSER=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Specify ARCH_USER_REPO Pacakges
-AUR_PACKAGES=""
+# Show a custom message after install
+__run_post_message() {
+  true
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define pre-install scripts
 __run_pre_install() {
+  local getRunStatus=0
 
-  return ${?:-0}
+  return $getRunStatus
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run before primary post install function
 __run_prepost_install() {
+  local getRunStatus=0
 
-  return ${?:-0}
+  return $getRunStatus
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run after primary post install function
 __run_post_install() {
+  local getRunStatus=0
 
-  return ${?:-0}
+  return $getRunStatus
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Custom plugin function
 __custom_plugin() {
-  local exitCodeC=0
-  # execute "git_clone $repo $dir" "Installing plugin name"
-  return $exitCodeC
+  local getRunStatus=0
+  # execute "__run_git_clone_pull repo dir" "Installing plugName"
+  return $getRunStatus
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# execute build script if exists and install failed or set BUILD_SCRIPT_REBUILD to true to always rebuild
+__run_build_script() {
+  local getRunStatus=0
+  if ! __cmd_exists "$BUILD_APPNAME" && [ -f "$INSTDIR/build.sh" ]; then
+    export BUILD_APPNAME BUILD_SCRIPT_SRC_DIR BUILD_SRC_URL BUILD_SCRIPT_REBUILD
+    [ -x "$INSTDIR/build.sh" ] || chmod 755 "$INSTDIR/build.sh"
+    eval "$INSTDIR/build.sh"
+  fi
+  return $getRunStatus
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Other dependencies
@@ -154,7 +226,7 @@ dotfilesreqadmin cron
 # END OF CONFIGURATION
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Require a version higher than
-hackmgr_req_version "$APPVERSION"
+hakmgr_req_version "$APPVERSION"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run pre-install commands
 execute "__run_pre_install" "Running pre-installation commands"
@@ -165,27 +237,30 @@ if_os_id arch && ARCH_USER_REPO="$AUR_PACKAGES"
 # define linux packages
 if if_os linux; then
   if if_os_id arch; then
-    SYSTEM_PACKAGES="$OS_PACKAGES $ARCH_OS_PACKAGES"
+    SYSTEM_PACKAGES="$GLOBAL_OS_PACKAGES $LINUX_OS_PACKAGES $ARCH_OS_PACKAGES"
   elif if_os_id centos; then
-    SYSTEM_PACKAGES="$OS_PACKAGES $CENTOS_OS_PACKAGES"
+    SYSTEM_PACKAGES="$GLOBAL_OS_PACKAGES $LINUX_OS_PACKAGES $CENTOS_OS_PACKAGES"
   elif if_os_id debian; then
-    SYSTEM_PACKAGES="$OS_PACKAGES $DEBIAN_OS_PACKAGES"
+    SYSTEM_PACKAGES="$GLOBAL_OS_PACKAGES $LINUX_OS_PACKAGES $DEBIAN_OS_PACKAGES"
   elif if_os_id ubuntu; then
-    SYSTEM_PACKAGES="$OS_PACKAGES $UBUNTU_OS_PACKAGES"
+    SYSTEM_PACKAGES="$GLOBAL_OS_PACKAGES $LINUX_OS_PACKAGES $UBUNTU_OS_PACKAGES"
   else
-    SYSTEM_PACKAGES="$OS_PACKAGES"
+    SYSTEM_PACKAGES="$GLOBAL_OS_PACKAGES $LINUX_OS_PACKAGES"
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define MacOS packages - homebrew
 if if_os mac; then
-  SYSTEM_PACKAGES="$OS_PACKAGES $MAC_OS_PACKAGES"
+  SYSTEM_PACKAGES="$GLOBAL_OS_PACKAGES $MAC_OS_PACKAGES"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define Windows packages - choco
 if if_os win; then
-  SYSTEM_PACKAGES="$OS_PACKAGES $WIN_OS_PACKAGES"
+  SYSTEM_PACKAGES="$GLOBAL_OS_PACKAGES $WIN_OS_PACKAGES"
 fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Attempt install from github release
+install_latest_release "$LATEST_RELEASE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # install required packages using the aur - Requires yay to be installed
 install_aur "${ARCH_USER_REPO//,/ }"
@@ -222,24 +297,27 @@ ensure_dirs
 ensure_perms
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Backup if needed
-if [ -d "$APPDIR" ]; then
-  execute "backupapp $APPDIR $APPNAME" "Backing up $APPDIR"
-fi
-# Main progam
+[ -d "$APPDIR" ] && execute "backupapp $APPDIR $APPNAME" "Backing up $APPDIR"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get configuration files
+instCode=0
 if __am_i_online; then
   if [ -d "$INSTDIR/.git" ]; then
-    execute "git_update $INSTDIR" "Updating $APPNAME configurations"
+    execute "__run_git_clone_pull $INSTDIR" "Updating $APPNAME configurations"
+    instCode=$?
   else
-    execute "git_clone $REPO $INSTDIR" "Installing $APPNAME configurations"
+    execute "__run_git_clone_pull $REPO $INSTDIR" "Installing $APPNAME configurations"
+    instCode=$?
   fi
   # exit on fail
-  failexitcode $? "Git has failed"
+  __failexitcode $instCode "Failed to setup the git repo from $REPO"
 fi
+unset instCode
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Install Plugins
+exitCodeP=0
 if __am_i_online; then
   if [ "$PLUGIN_REPOS" != "" ]; then
-    exitCodeP=0
     [ -d "$PLUGIN_DIR" ] || mkdir -p "$PLUGIN_DIR"
     for plugin in $PLUGIN_REPOS; do
       plugin_name="$(basename "$plugin")"
@@ -256,36 +334,33 @@ if __am_i_online; then
   __custom_plugin
   exitCodeP=$(($? + exitCodeP))
   # exit on fail
-  failexitcode $exitCodeP "Installation of plugin failed"
+  __failexitcode $exitCodeP "Installation of plugin failed"
 fi
+unset exitCodeP
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run post install scripts
 run_postinst() {
-  __run_prepost_install
-  hackmgr_run_post
-  __run_post_install
+  local exitCodeP=0
+  __run_prepost_install || exitCodeP=$((exitCodeP + 1))
+  hakmgr_run_post || exitCodeP=$((exitCodeP + 1))
+  __run_post_install || exitCodeP=$((exitCodeP + 1))
+  return $exitCodeP
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run post install scripts
 execute "run_postinst" "Running post install scripts"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Output post install message
-
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # create version file
-hackmgr_install_version
+hakmgr_install_version
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run exit function
 run_exit
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run any external scripts
-if ! __cmd_exists "$BUILD_APPNAME" && [ -f "$INSTDIR/build.sh" ]; then
-  BUILD_SCRIPT_SRC_DIR="$PLUGIN_DIR/source"
-  BUILD_SRC_URL=""
-  export BUILD_SCRIPT_SRC_DIR BUILD_SRC_URL
-  eval "$INSTDIR/build.sh"
-  __cmd_exists $BUILD_APPNAME || printf_red "$BUILD_APPNAME is not installed: run $INSTDIR/build.sh"
-fi
+__run_build_script
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Output post install message
+__run_post_message
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

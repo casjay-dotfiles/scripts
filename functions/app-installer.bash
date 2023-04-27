@@ -552,6 +552,11 @@ mkd() {
   return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__download_file() { curl -q -LSsf "$1" -o "$2" || return 1; }
+__service_is_active() { systemctl is-enabled $1 | grep -q 'enabled' || return 1; }
+__service_is_running() { systemctl is-active $1 | grep -q 'active' || return 1; }
+__get_pid() { ps -aux | grep "$1" | awk -F ' ' '{print $2}' | grep ${2:-[0-9]} || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 sed="$(builtin type -P gsed 2>/dev/null || builtin type -P sed 2>/dev/null || return)"
 rm_link() { unlink "$1"; }
 symlink() { ln_sf "$1" "$2"; }
@@ -1135,6 +1140,8 @@ python_missing() {
     return 1
   fi
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+install_latest_release() { latest-releases "$@" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_aur() {
   local REQUIRED="$*"

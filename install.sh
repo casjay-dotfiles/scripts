@@ -92,13 +92,13 @@ if if_os mac; then
   APP="jq sudo curl wget cowsay fortune "
 elif if_os linux; then
   APP="ruby expect byobu killall setcap nethogs iftop iotop iperf rsync locate pass python rsync "
-  APP+="bash ifconfig jq sudo curl wget dialog html2text cowsay fortune hostname"
+  APP+="bash ifconfig jq sudo curl wget dialog html2text cowsay fortune hostname vnstat"
 fi
 PERL="CPAN "
 PYTH="pip "
 PIPS="speedtest-cli "
 CPAN=""
-GEMS="mdless "
+GEMS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # install packages - useful for package that have the same name on all oses
 install_packages "$APP"
@@ -184,6 +184,7 @@ run_postinst() {
   for mgr in devenvmgr dfmgr dockermgr fontmgr iconmgr passmgr pkmgr systemmgr thememgr wallpapermgr; do
     eval "$mgr" --config &>/dev/null
   done
+  systemctl enable --now vnstat &>/dev/null
   [ -n "$(type -P hostname)" ] || ln_sf "/usr/local/bin/hostnamecli" "/usr/local/bin/hostname"
   cmd_exists --config &>/dev/null
   cmd_exists update-ip && update-ip &>/dev/null

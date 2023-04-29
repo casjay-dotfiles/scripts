@@ -1,5 +1,6 @@
 cat <<EOF | tee
 #!/usr/bin/env bash
+# shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ##@Version           :  $GEN_SCRIPT_VERSION
 # @@Author           :  $GEN_SCRIPT_AUTHOR
@@ -17,4 +18,10 @@ cat <<EOF | tee
 # @@Terminal App     :  ${terminal:-$get_terminal}
 # @@sudo/root        :  ${sudo:-$get_sudo}
 # @@Template         :  ${template:-$get_template}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# shell check options
+# shellcheck disable=SC2317
+# shellcheck disable=SC2120
+# shellcheck disable=SC2155
+# shellcheck disable=SC2199
 EOF

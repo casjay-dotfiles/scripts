@@ -1,6 +1,6 @@
 cat <<EOF | tee
-#!/usr/bin/env bash
-# shellcheck shell=bash
+#!/usr/bin/env $shell
+# shellcheck shell=$shell
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ##@Version           :  $GEN_SCRIPT_VERSION
 # @@Author           :  $GEN_SCRIPT_AUTHOR

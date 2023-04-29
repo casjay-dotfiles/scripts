@@ -38,7 +38,7 @@ __show_spinner() {
   local frameText=""
   while kill -0 "$PID" &>/dev/null; do
     frameText="[${FRAMES:i++%NUMBER_OR_FRAMES:1}] $MSG"
-    printf "%s" "$frameText"
+    printf "%b" "$frameText"
     sleep 0.2
     printf "\r"
   done

@@ -1157,7 +1157,7 @@ install_aur() {
   [ -f "$(builtin type -P yay 2>/dev/null)" ] || return 0
   if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
     for cmd in $REQUIRED; do
-      [ -f "/usr/local/etc/pkmgr/lists/$cmd" ] || builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
+      [ -f "/usr/local/etc/pkmgr/lists/$APPNAME" ] || builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
     done
     if [ -n "$MISSING" ]; then
       printf_warning "Attempting to install missing packages as $RUN_USER"
@@ -1178,7 +1178,7 @@ install_required() {
   local cmd=""
   [ "$SCRIPTS_PREFIX" = "dfmgr" ] || [ "$SCRIPTS_PREFIX" = "systemmgr" ] || return 0
   for cmd in $REQUIRED; do
-    [ -f "/usr/local/etc/pkmgr/lists/$cmd" ] || builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
+    [ -f "/usr/local/etc/pkmgr/lists/$APPNAME" ] || builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then

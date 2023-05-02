@@ -24,7 +24,7 @@
 # shellcheck disable=SC2155
 # shellcheck disable=SC2199
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-APPNAME="$(basename "$0" 2>/dev/null)"
+APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
 VERSION="GEN_SCRIPT_REPLACE_VERSION"
 REPO_BRANCH="${GIT_REPO_BRANCH:-main}"
 USER="${SUDO_USER:-${USER}}"
@@ -59,69 +59,115 @@ user_installdirs
 show_optvars "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup functions
+__cmd_exists() { type -p "$1" || return 1; }
 __download_file() { curl -q -LSsf "$1" -o "$2" || return 1; }
 __service_is_active() { systemctl is-enabled $1 | grep -q 'enabled' || return 1; }
 __service_is_running() { systemctl is-active $1 | grep -q 'active' || return 1; }
-__get_pid() { ps -aux | grep "$1" | awk -F ' ' '{print $2}' | grep ${2:-[0-9]} || return 1; }
+__get_pid() { ps -aux | grep -v 'grep' | grep "$1" | awk -F ' ' '{print $2}' | grep ${2:-[0-9]} || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Options
-PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games:/usr/local/sbin:/usr/sbin:/sbin:/usr/bin/core_perl/cpan"
-# Set primary dir
-DOTFILES_HOME="${DOTFILES_PERSONAL:-$HOME/.local/dotfiles/personal}"
-# Set the temp directory
-DOTFILES_TEMP="${DOTFILES_TEMP:-/tmp/dotfiles-personal-$USER}"
-#Modify and set if using the auth token
-DOTFILES_GIT_TOKEN="${GITHUB_ACCESS_TOKEN:-YOUR_AUTH_TOKEN}"
-# either http https or git
-DOTFILES_GIT_PROTO="https://"
-#Your git repo
-DOTFILES_GIT_REPO="${DOTFILES_PERSONAL_REPO:-github.com/your/repo}"
-#scripts repo
-SYSTEM_SCRIPTS_REPO="https://github.com/casjay-dotfiles/scripts"
-# Git Command - Private Repo
-DOTFILES_GIT_URL="$DOTFILES_GIT_PROTO$DOTFILES_GIT_TOKEN:x-oauth-basic@$DOTFILES_GIT_REPO"
-#Public Repo
-#DOTFILES_GIT_URL="$DOTFILES_GIT_PROTO$DOTFILES_GIT_REPO"
-# Default NTP Server
-DOTFILES_NTP_SERVER="ntp.casjay.net"
-# Set tmpfile
-DOTFILES_TEMP_FILE="$(mktemp /tmp/dfmpersonal-XXXXXXXXX)"
-# Set Options
-INSTALL_OPTIONS="$*"
+# Set path
+__set_vars() {
+  PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games:/usr/local/sbin:/usr/sbin:/sbin:/usr/bin/core_perl/cpan"
+  # Set default dotfile
+  DOTFILES_TO_INSTALL_USER="misc bash git tmux nano"
+  # Set default system files
+  DOTFILES_TO_INSTALL_SYSTEM="cron installer ssh ssl"
+  # Set primary dir
+  DOTFILES_HOME="${DOTFILES_PERSONAL:-$HOME/.local/dotfiles/personal}"
+  # Set the temp directory
+  DOTFILES_TEMP="${DOTFILES_TEMP:-/tmp/dotfiles-personal-$USER}"
+  #Modify and set if using the auth token
+  DOTFILES_GIT_TOKEN="${GITHUB_ACCESS_TOKEN:-YOUR_AUTH_TOKEN}"
+  # either http https or git
+  DOTFILES_GIT_PROTO="https://"
+  #Your git repo
+  DOTFILES_GIT_REPO="${DOTFILES_PERSONAL_REPO:-github.com/your/repo}"
+  #scripts repo
+  SYSTEM_SCRIPTS_REPO="https://github.com/casjay-dotfiles/scripts"
+  # Git Command - Private Repo
+  DOTFILES_GIT_URL="$DOTFILES_GIT_PROTO$DOTFILES_GIT_TOKEN:x-oauth-basic@$DOTFILES_GIT_REPO"
+  #Public Repo
+  #DOTFILES_GIT_URL="$DOTFILES_GIT_PROTO$DOTFILES_GIT_REPO"
+  # Default NTP Server
+  DOTFILES_NTP_SERVER="ntp.casjay.net"
+  # Set tmpfile
+  DOTFILES_TEMP_FILE="$(mktemp /tmp/dfmpersonal-XXXXXXXXX)"
+  # Set Options
+  INSTALL_OPTIONS="$*"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__costum_install_function() {
+  local exitCode=0
+
+  exitCode=$(($? + exitCode))
+  return
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Export variables
-
+PARSED_ARGUMENTS=$(getopt -a -n $APPNAME -o "a,d:,s:,r:,h:" --long "api,dfmgr:,systemmgr:,repo:,home:" -- "$@")
+eval set -- "$PARSED_ARGUMENTS"
+while :; do
+  case "$1" in
+  -a | --api)
+    DOTFILES_GIT_TOKEN="$2"
+    shift 2
+    ;;
+  -d | --dfmgr)
+    DOTFILES_TO_INSTALL_USER="$2"
+    shift 2
+    ;;
+  -s | --systemmgr)
+    DOTFILES_TO_INSTALL_SYSTEM="$2"
+    shift 2
+    ;;
+  -r | --repo)
+    DOTFILES_GIT_REPO="$2"
+    shift 2
+    ;;
+  -h | --home)
+    DOTFILES_HOME="$2"
+    shift 2
+    ;;
+  --)
+    shift
+    break
+    ;;
+  esac
+done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__set_vars "#@"
+unalias cp &>/dev/null
+if __cmd_exists sudo; then sudo true; fi
 rm -Rf "$DOTFILES_TEMP_FILE" /tmp/dfmpersonal-* &>/dev/null
-if cmd_exists sudo; then sudo echo; fi
 clear
 printf "\n\n\n\n"
 _pre_inst() {
   if [ "$DOTFILES_PERSONAL_REPO" = "github.com/your/repo" ]; then
-    printf_red "Please set DOTFILES_PERSONAL_REPO to the url to your repo" 1>&2
+    printf_red "Please set DOTFILES_PERSONAL_REPO to the url of your repo" 1>&2
     exit 1
   fi
   if [ -z "$DOTFILES_GIT_TOKEN" ] || [ "$DOTFILES_GIT_TOKEN" == "YOUR_AUTH_TOKEN" ]; then
     printf_red "AUTH Token is not set" 1>&2
     exit 1
   fi
-  if [ ! -f "$(which sudo 2>/dev/null)" ] && [ $EUID -ne 0 ]; then
+  if [ -z "$(which sudo 2>/dev/null)" ] && [ $EUID -ne 0 ]; then
     printf_red "Sudo is needed, however its not installed installed" 1>&2
     exit 1
   fi
-  if [ "$(uname -s)" = "Linux" ]; then
-    if ! cmd_exists systemmgr; then
-      if (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null; then
-        sudo bash -c "$(curl -q -LSsf "$SYSTEM_SCRIPTS_REPO/raw/main/install.sh")"
-        sudo bash -c "$(curl -q -LSsf "$SYSTEM_SCRIPTS_REPO/raw/main/install.sh")"
+  if __cmd_exists sudoers; then sudoers nopass; fi
+  if ! __cmd_exists systemmgr; then
+    if [ "$USER" = "root" ] || [ $EUID -eq 0 ] || (sudo -vn && sudo -ln) 2>&1 | grep -v 'may not' >/dev/null; then
+      if [ -d "/usr/local/share/CasjaysDev/scripts" ]; then
+        sudo git -C "/usr/local/share/CasjaysDev/scripts" pull -q
       else
-        printf_red 'Please run sudo bash -c "$(curl -q -LSsf "$SYSTEM_SCRIPTS_REPO/raw/main/install.sh")"' 1>&2
-        exit 1
+        sudo git clone "$SYSTEM_SCRIPTS_REPO" "/usr/local/share/CasjaysDev/scripts" -q
       fi
+      sudo bash -c "/usr/local/share/CasjaysDev/scripts/install.sh"
+    else
+      # shellcheck disable=SC2016
+      printf_red 'Please run sudo bash -c "$(curl -q -LSsf "$SYSTEM_SCRIPTS_REPO/raw/main/install.sh")"' 1>&2
+      exit 1
     fi
-  fi
-  if cmd_exists sudoers; then
-    sudoers nopass
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -139,13 +185,13 @@ _git_repo_init() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _scripts_init() {
   install_all_dfmgr() { dfmgr install --all || return 1; }
-  install_basic_dfmgr() { dfmgr install misc bash git || return 1; }
+  install_basic_dfmgr() { dfmgr install misc bash git tmux nano || return 1; }
   install_server_dfmgr() { dfmgr install bash git tmux vifm vim || return 1; }
   install_desktopmgr() { desktopmgr install awesome bspwm i3 openbox qtile xfce4 xmonad || return 1; }
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   systemmgr --config &>/dev/null
   dfmgr --config &>/dev/null
-  for sudoconf in cron installer ssh ssl; do
+  for sudoconf in $DOTFILES_TO_INSTALL_SYSTEM; do
     systemmgr install "$sudoconf"
   done
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -157,7 +203,11 @@ _scripts_init() {
     elif [ "$1" = "--desktop" ]; then
       install_basic_dfmgr
       install_desktopmgr
-    elif [ "$1" = "" ]; then
+    elif [ -n "$DOTFILES_TO_INSTALL_USER" ]; then
+      for user_dotfiles in $ $DOTFILES_TO_INSTALL_USER; do
+        dfmgr install $user_dotfiles
+      done
+    else
       install_basic_dfmgr
     fi
   else
@@ -182,7 +232,6 @@ _root_init() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _files_init() {
   GPG_TTY="$(tty)"
-  unalias cp &>/dev/null
   find "$HOME/" -xtype l -delete &>/dev/null
   mkdir -p "$HOME"/.ssh "$HOME"/.gnupg &>/dev/null
   chmod -Rf 755 "$DOTFILES_TEMP"/system/usr/local/bin/* &>/dev/null
@@ -200,7 +249,7 @@ _files_init() {
   rsync -avhP "$DOTFILES_TEMP/home/." "$HOME/"
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # import podcast feeds
-  if cmd_exists castero; then
+  if __cmd_exists castero; then
     if [ -f "$HOME"/.config/castero/podcasts.opml ]; then
       castero --import "$HOME"/.config/castero/podcasts.opml &>/dev/null
     elif [ -f "$DOTFILES_TEMP"/tmp/podcasts.opml ]; then
@@ -209,7 +258,7 @@ _files_init() {
   fi
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # import rss feeds
-  if cmd_exists newsboat; then
+  if __cmd_exists newsboat; then
     if [ -f "$HOME"/.config/newsboat/news.opml ]; then
       newsboat -i "$HOME"/.config/newsboat/news.opml &>/dev/null
     elif [ -f "$DOTFILES_TEMP"/tmp/news.opml ]; then
@@ -227,21 +276,31 @@ _files_init() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _gpg_init() {
   GPG_TTY="$(tty)"
+  local exitCode=0
   killall gpg-agent &>/dev/null
   # Import gpg keys - user
-  gpg --import "$DOTFILES_TEMP"/tmp/*.gpg 2>/dev/null &&
-    gpg --import "$DOTFILES_TEMP"/tmp/*.sec 2>/dev/null &&
-    gpg --import "$DOTFILES_TEMP"/tmp/*.asc 2>/dev/null &&
-    gpg --import-ownertrust "$DOTFILES_TEMP"/tmp/*.trust 2>/dev/null &&
-    exitCode=0 || exitCode=1
+  gpg --import "$DOTFILES_TEMP"/tmp/*.gpg 2>/dev/null || exitCode=$((exitCode + 1))
+  gpg --import "$DOTFILES_TEMP"/tmp/*.sec 2>/dev/null || exitCode=$((exitCode + 1))
+  gpg --import "$DOTFILES_TEMP"/tmp/*.asc 2>/dev/null || exitCode=$((exitCode + 1))
+  gpg --import-ownertrust "$DOTFILES_TEMP"/tmp/*.trust 2>/dev/null || exitCode=$((exitCode + 1))
   # Import gpg keys - root
-  sudo killall gpg-agent &>/dev/null
-  sudo GPG_TTY="$(tty)" gpg --import "$DOTFILES_TEMP"/tmp/*.gpg 2>/dev/null &&
-    sudo GPG_TTY="$(tty)" gpg --import "$DOTFILES_TEMP"/tmp/*.sec 2>/dev/null &&
-    sudo GPG_TTY="$(tty)" gpg --import "$DOTFILES_TEMP"/tmp/*.asc 2>/dev/null &&
-    sudo GPG_TTY="$(tty)" gpg --import-ownertrust "$DOTFILES_TEMP"/tmp/*.trust 2>/dev/null &&
-    exitCode=0 || exitCode=1
+  if sudo -n true; then
+    sudo killall gpg-agent &>/dev/null
+    sudo GPG_TTY="$(tty)" gpg --import "$DOTFILES_TEMP"/tmp/*.gpg 2>/dev/null || exitCode=$((exitCode + 1))
+    sudo GPG_TTY="$(tty)" gpg --import "$DOTFILES_TEMP"/tmp/*.sec 2>/dev/null || exitCode=$((exitCode + 1))
+    sudo GPG_TTY="$(tty)" gpg --import "$DOTFILES_TEMP"/tmp/*.asc 2>/dev/null || exitCode=$((exitCode + 1))
+    sudo GPG_TTY="$(tty)" gpg --import-ownertrust "$DOTFILES_TEMP"/tmp/*.trust 2>/dev/null || exitCode=$((exitCode + 1))
+  fi
   return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+_dconf_import() {
+  local exitCode=0
+  [ -n "$DISPLAY" ] || return 0
+  if [ -f "$SCRIPT_SRC_DIR/dconf/virt-manager.dconf" ] && [ -n "$(command -v dconf 2>/dev/null)" ]; then
+    dconf load /org/virt-manager/virt-manager/ <"$SCRIPT_SRC_DIR/dconf/virt-manager.dconf" 2>/dev/null || exitCode=$(($exitCode + 1))
+  fi
+  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 main() {
@@ -286,6 +345,22 @@ main() {
       printf_cyan "[ ✅ ] Installing your personal gpg keys completed [ 📂 ]" ||
       printf_red "[ 🔴 ] Installing your personal gpg keys has failed [ 🔴 ]"
     ;;
+  dconf)
+    shift 1
+    [ -d "$DOTFILES_HOME/.git" ] && [ -d "$DOTFILES_TEMP" ] || printf_exit "[ 😿 ] Repo has not been setup [ 😿 ]" 1>&2
+    printf_blue "[ 🗄️ ] Importing dconf settings [ 🚀 ]"
+    _dconf_import &&
+      printf_cyan "[ ✅ ] Importing dconf settings completed [ 📂 ]" ||
+      printf_red "[ 🔴 ] Importing dconf settings has failed [ 🔴 ]"
+    ;;
+  custom)
+    shift 1
+    [ -d "$DOTFILES_HOME/.git" ] && [ -d "$DOTFILES_TEMP" ] || printf_exit "[ 😿 ] Repo has not been setup [ 😿 ]" 1>&2
+    printf_blue "[ 🗄️ ] Running Custom installer [ 🚀 ]"
+    __costum_install_function &&
+      printf_cyan "[ ✅ ] Custom installer completed [ 📂 ]" ||
+      printf_red "[ 🔴 ] Custom installer has failed [ 🔴 ]"
+    ;;
   *)
     # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
     printf_blue "[ 🗄️ ] Configuring up your system [ 🚀 ]"
@@ -312,6 +387,16 @@ main() {
     _gpg_init &&
       printf_cyan "[ ✅ ] Installing your personal gpg keys completed" ||
       printf_red "[ 🔴 ] Installing your personal gpg keys has failed [ 🔴 ]"
+    # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    printf_blue "[ 🗄️ ] Importing dconf settings [ 🚀 ]"
+    _dconf_import &&
+      printf_cyan "[ ✅ ] Importing dconf settings completed [ 📂 ]" ||
+      printf_red "[ 🔴 ] Importing dconf settings has failed [ 🔴 ]"
+    # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    printf_blue "[ 🗄️ ] Running Custom installer [ 🚀 ]"
+    __costum_install_function &&
+      printf_cyan "[ ✅ ] Custom installer completed [ 📂 ]" ||
+      printf_red "[ 🔴 ] Custom installer has failed [ 🔴 ]"
     # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
     ;;
   esac

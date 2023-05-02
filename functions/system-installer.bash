@@ -578,9 +578,10 @@ git_clone() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 git_update() {
-  [ $# -eq 2 ] && repo="$1" && myappdir="$2"
+  local setrepo=""
+  [ $# -eq 2 ] && setrepo="$1" && myappdir="$2" && shift 2
   __am_i_online || return 1
-  local myappdir="${1:$myappdir}"
+  local myappdir="${1:-$myappdir}"
   local myappdir="${myappdir:-$INSTDIR}"
   local exitCode="0"
   local repo="$([ -d "$myappdir/.git" ] && git -C "$myappdir" remote -v | grep fetch | head -n 1 | awk '{print $2}' || echo "$myappdir")"
@@ -591,7 +592,7 @@ git_update() {
   devnull git -C "$myappdir" pull --recurse-submodules && exitCode=0 || exitCode=1
   if [ "$exitCode" -ne 0 ] && [ -n "$repo" ] && [ ! -d "$myappdir/.git" ]; then
     rm_rf "$myappdir"
-    git_clone "$repo" "$myappdir"
+    git_clone "${setrepo:-$repo}" "$myappdir"
   fi
   unset myappdir repo
 }

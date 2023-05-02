@@ -963,24 +963,22 @@ git_clone() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 git_update() {
-  local myappdir="${1:-$INSTDIR}"
+  [ $# -eq 2 ] && repo="$1" && myappdir="$2"
+  __am_i_online || return 1
+  local myappdir="${1:$myappdir}"
+  local myappdir="${myappdir:-$INSTDIR}"
   local exitCode="0"
-  if __am_i_online; then
-    if [ -d "$myappdir/.git" ]; then
-      local repo="$(git remote -v | grep fetch | head -n 1 | awk '{print $2}')"
-      devnull git -C "$myappdir" reset --hard
-      devnull git -C "$myappdir" pull --recurse-submodules
-      devnull git -C "$myappdir" submodule update --init --recursive
-      devnull git -C "$myappdir" reset --hard -q
-      devnull git -C "$myappdir" pull --recurse-submodules && exitCode=0 || exitCode=1
-    else
-      rm_rf "$myappdir"
-      exitCode=1
-    fi
-    if [ "$exitCode" -ne 0 ] && [ -n "$repo" ] && [ ! -d "$myappdir/.git" ]; then
-      git_clone "$repo" "$myappdir"
-    fi
+  local repo="$([ -d "$myappdir/.git" ] && git -C "$myappdir" remote -v | grep fetch | head -n 1 | awk '{print $2}' || echo "$myappdir")"
+  devnull git -C "$myappdir" reset --hard
+  devnull git -C "$myappdir" pull --recurse-submodules
+  devnull git -C "$myappdir" submodule update --init --recursive
+  devnull git -C "$myappdir" reset --hard -q
+  devnull git -C "$myappdir" pull --recurse-submodules && exitCode=0 || exitCode=1
+  if [ "$exitCode" -ne 0 ] && [ -n "$repo" ] && [ ! -d "$myappdir/.git" ]; then
+    rm_rf "$myappdir"
+    git_clone "$repo" "$myappdir"
   fi
+  unset myappdir repo
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 dotfilesreqcmd() {

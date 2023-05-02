@@ -951,8 +951,10 @@ git_clone() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 git_update() {
+  [ $# -eq 2 ] && repo="$1" && myappdir="$2"
   __am_i_online || return 1
-  local myappdir="${1:-$INSTDIR}"
+  local myappdir="${1:$myappdir}"
+  local myappdir="${myappdir:-$INSTDIR}"
   local exitCode="0"
   local repo="$([ -d "$myappdir/.git" ] && git -C "$myappdir" remote -v | grep fetch | head -n 1 | awk '{print $2}' || echo "$myappdir")"
   devnull git -C "$myappdir" reset --hard
@@ -964,6 +966,7 @@ git_update() {
     rm_rf "$myappdir"
     git_clone "$repo" "$myappdir"
   fi
+  unset myappdir repo
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 plugin_setup() {

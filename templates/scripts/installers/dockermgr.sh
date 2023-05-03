@@ -649,8 +649,8 @@ __printf_color() { printf_color "$2\n" "$1"; }
 [ -f "$INSTDIR/env.sh" ] && . "$INSTDIR/env.sh"
 [ -f "$APPDIR/env.sh" ] && . "$APPDIR/env.sh"
 [ -f "$DOCKERMGR_CONFIG_DIR/.env.sh" ] && . "$DOCKERMGR_CONFIG_DIR/.env.sh"
-[ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME" ] && . "$DOCKERMGR_CONFIG_DIR/env/$APPNAME"
-[ -f "$DOCKERMGR_CONFIG_DIR/env/custom.$APPNAME" ] && . "$DOCKERMGR_CONFIG_DIR/env/custom.$APPNAME"
+[ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.conf" ] && . "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.conf"
+[ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.custom.conf" ] && . "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.custom.conf"
 [ -r "$DOCKERMGR_CONFIG_DIR/secure/$APPNAME" ] && . "$DOCKERMGR_CONFIG_DIR/secure/$APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Initialize the installer
@@ -1786,11 +1786,11 @@ SET_EXECUTE_DOCKER_CMD="$(echo "docker run -d $DOCKER_GET_OPTIONS $DOCKER_GET_CU
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run functions
 __container_import_variables "$CONTAINER_ENV_FILE_MOUNT"
-__dockermgr_variables >"$DOCKERMGR_CONFIG_DIR/env/$APPNAME"
+__dockermgr_variables >"$DOCKERMGR_CONFIG_DIR/env/$APPNAME.conf"
 __dockermgr_password_variables >"$DOCKERMGR_CONFIG_DIR/secure/$APPNAME"
 chmod -f 600 "$DOCKERMGR_CONFIG_DIR/secure/$APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__custom_docker_env | tr ' ' '\n' | sed 's|^--.*||g' | grep -v '^$' >"$DOCKERMGR_CONFIG_DIR/env/custom.$APPNAME"
+__custom_docker_env | tr ' ' '\n' | sed 's|^--.*||g' | grep -v '^$' >"$DOCKERMGR_CONFIG_DIR/env/$APPNAME.custom.conf"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main progam
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -2162,12 +2162,12 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
     printf_yellow "Script saved to:                        $DOCKERMGR_INSTALL_SCRIPT"
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
-  if [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME" ] || [ -f "$DOCKERMGR_CONFIG_DIR/env/custom.$APPNAME" ]; then
-    if [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME" ]; then
-      printf_green "variables saved to:                     $DOCKERMGR_CONFIG_DIR/env/$APPNAME"
+  if [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.conf" ] || [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.custom.conf" ]; then
+    if [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.conf" ]; then
+      printf_green "variables saved to:                     $DOCKERMGR_CONFIG_DIR/env/$APPNAME.conf"
     fi
-    if [ -f "$DOCKERMGR_CONFIG_DIR/env/custom.$APPNAME" ]; then
-      printf_green "Container variables saved to:           $DOCKERMGR_CONFIG_DIR/env/custom.$APPNAME"
+    if [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.custom.conf" ]; then
+      printf_green "Container variables saved to:           $DOCKERMGR_CONFIG_DIR/env/$APPNAME.custom.conf"
     fi
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi

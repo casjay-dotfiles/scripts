@@ -32,13 +32,16 @@ RUN_USER="${SUDO_USER:-$USER}"
 SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
 export SCRIPTS_PREFIX="hakmgr"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-BUILD_APPNAME="$APPNAME"
-APPDIR="$HOME/.config/$APPNAME"
 REPO_BRANCH="${GIT_REPO_BRANCH:-main}"
 PLUGIN_DIR="$HOME/.local/share/$APPNAME/plugins"
 REPO="https://github.com/$SCRIPTS_PREFIX/$APPNAME"
 INSTDIR="$HOME/.local/share/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME"
 REPORAW="https://github.com/$SCRIPTS_PREFIX/$APPNAME/raw/$REPO_BRANCH"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPDIR="$HOME/.config/$APPNAME"
+PLUGIN_DIR="$HOME/.local/share/$APPNAME/plugins"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+BUILD_NAME="$APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
 trap 'retVal=$?;trap_exit' ERR EXIT SIGINT
@@ -136,7 +139,7 @@ APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
 APPVERSION="$(__appversion "https://github.com/$SCRIPTS_PREFIX/$APPNAME/raw/$REPO_BRANCH/version.txt")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define these if build script is used
-BUILD_APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
+BUILD_NAME="GEN_SCRIPT_REPLACE_APPNAME"
 BUILD_SCRIPT_REBUILD="false"
 BUILD_SRC_URL=""
 BUILD_SCRIPT_SRC_DIR="$PLUGIN_DIR/source"
@@ -214,8 +217,8 @@ __custom_plugin() {
 # execute build script if exists and install failed or set BUILD_SCRIPT_REBUILD to true to always rebuild
 __run_build_script() {
   local getRunStatus=0
-  if ! __cmd_exists "$BUILD_APPNAME" && [ -f "$INSTDIR/build.sh" ]; then
-    export BUILD_APPNAME BUILD_SCRIPT_SRC_DIR BUILD_SRC_URL BUILD_SCRIPT_REBUILD
+  if ! __cmd_exists "$BUILD_NAME" && [ -f "$INSTDIR/build.sh" ]; then
+    export BUILD_NAME BUILD_SCRIPT_SRC_DIR BUILD_SRC_URL BUILD_SCRIPT_REBUILD
     [ -x "$INSTDIR/build.sh" ] || chmod 755 "$INSTDIR/build.sh"
     eval "$INSTDIR/build.sh"
   fi

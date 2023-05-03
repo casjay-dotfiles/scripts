@@ -815,56 +815,56 @@ DOCKERMGR_ENABLE_INSTALL_SCRIPT="${SCRIPT_ENABLED:-$DOCKERMGR_ENABLE_INSTALL_SCR
 [ "$CONTAINER_SERVICE_PUBLIC" ] && CONTAINER_SERVICE_PUBLIC="0.0.0.0" || CONTAINER_SERVICE_PUBLIC="127.0.0.1"
 if [ "$CONTAINER_IS_DNS_SERVER" = "yes" ]; then
   service_port="$(__netstat "53" && __port || echo "53")"
-  CONTAINER_ADD_CUSTOM_PORT+="$CONTAINER_SERVICE_PUBLIC:$service_port:53/udp "
-  CONTAINER_ADD_CUSTOM_PORT+="$CONTAINER_SERVICE_PUBLIC:$service_port:53/tcp "
+  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:53/udp")
+  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:53/tcp")
   unset service_port
 fi
 if [ "$CONTAINER_IS_DHCP_SERVER" = "yes" ]; then
   service_port="$(__netstat "67" && __port || echo "67")"
-  CONTAINER_ADD_CUSTOM_PORT+="$CONTAINER_SERVICE_PUBLIC:$service_port:67/udp "
+  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:67/udp")
   service_port="$(__netstat "68" && __port || echo "68")"
-  CONTAINER_ADD_CUSTOM_PORT+="$CONTAINER_SERVICE_PUBLIC:$service_port:68/udp "
+  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:68/udp")
   unset service_port
 fi
 if [ "$CONTAINER_IS_TFTP_SERVER" = "yes" ]; then
   service_port="$(__netstat "69" && __port || echo "69")"
-  CONTAINER_ADD_CUSTOM_PORT+="$CONTAINER_SERVICE_PUBLIC:$service_port:69/udp "
+  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:69/udp")
   unset service_port
 fi
 if [ "$CONTAINER_IS_SMTP_SERVER" = "yes" ]; then
   service_port="$(__netstat "25" && __port || echo "25")"
-  CONTAINER_ADD_CUSTOM_PORT+="$CONTAINER_SERVICE_PUBLIC:$service_port:25/tcp "
+  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:25/tcp")
   service_port="$(__netstat "465" && __port || echo "465")"
-  CONTAINER_ADD_CUSTOM_PORT+="$CONTAINER_SERVICE_PUBLIC:$service_port:465/tcp "
+  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:465/tcp")
   service_port="$(__netstat "587" && __port || echo "587")"
-  CONTAINER_ADD_CUSTOM_PORT+="$CONTAINER_SERVICE_PUBLIC:$service_port:587/tcp "
+  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:587/tcp")
   unset service_port
 fi
 if [ "$CONTAINER_IS_POP3_SERVER" = "yes" ]; then
   service_port="$(__netstat "110" && __port || echo "110")"
-  CONTAINER_ADD_CUSTOM_PORT+="$CONTAINER_SERVICE_PUBLIC:$service_port:110/tcp "
+  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:110/tcp")
   service_port="$(__netstat "995" && __port || echo "995")"
-  CONTAINER_ADD_CUSTOM_PORT+="$CONTAINER_SERVICE_PUBLIC:$service_port:995/tcp "
+  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:995/tcp")
   unset service_port
 fi
 if [ "$CONTAINER_IS_IMAP_SERVER" = "yes" ]; then
   service_port="$(__netstat "143" && __port || echo "143")"
-  CONTAINER_ADD_CUSTOM_PORT+="$CONTAINER_SERVICE_PUBLIC:$service_port:143/tcp "
+  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:143/tcp")
   service_port="$(__netstat "993" && __port || echo "993")"
-  CONTAINER_ADD_CUSTOM_PORT+="$CONTAINER_SERVICE_PUBLIC:$service_port:993/tcp "
+  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:993/tcp")
   unset service_port
 fi
 if [ "$CONTAINER_IS_TIME_SERVER" = "yes" ]; then
   service_port="$(__netstat "123" && __port || echo "123")"
-  CONTAINER_ADD_CUSTOM_PORT+="$CONTAINER_SERVICE_PUBLIC:$service_port:123/udp "
-  CONTAINER_ADD_CUSTOM_PORT+="$CONTAINER_SERVICE_PUBLIC:$service_port:123/tcp "
+  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:123/udp")
+  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:123/tcp")
   unset service_port
 fi
 if [ "$CONTAINER_IS_TIME_SERVER" = "yes" ]; then
   service_port="$(__netstat "119" && __port || echo "119")"
-  CONTAINER_ADD_CUSTOM_PORT+="$CONTAINER_SERVICE_PUBLIC:$service_port:119/tcp "
+  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:119/tcp")
   service_port="$(__netstat "433" && __port || echo "433")"
-  CONTAINER_ADD_CUSTOM_PORT+="$CONTAINER_SERVICE_PUBLIC:$service_port:433/tcp "
+  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:433/tcp")
   unset service_port
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1190,6 +1190,7 @@ HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR//0.0.0.0/$SET_LAN_IP}"
 HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR//:*/}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # # nginx
+NGINX_DIR="/etc/nginx"
 NGINX_VHOSTS_CONF_FILE_TMP="/tmp/$$.$APPNAME.conf"
 NGINX_VHOSTS_INC_FILE_TMP="/tmp/$$.$APPNAME.inc.conf"
 NGINX_VHOSTS_PROXY_FILE_TMP="/tmp/$$.$APPNAME.custom.conf"
@@ -1588,42 +1589,46 @@ if [ -n "$CONTAINER_LABELS" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup custom port mappings
-SET_LISTEN="${HOST_DEFINE_LISTEN//:*/}"
-SET_ADDR="${HOST_LISTEN_ADDR:-127.0.0.1}"
-CONTAINER_WEB_SERVER_LISTEN_ON="${CONTAINER_WEB_SERVER_LISTEN_ON:-}"
+SET_TEMP_LISTEN="${HOST_DEFINE_LISTEN//:*/}"
+SET_TEMP_ADDR="${HOST_LISTEN_ADDR:-127.0.0.1}"
 if [ -n "$CONTAINER_OPT_PORT_VAR" ] || [ -n "$CONTAINER_ADD_CUSTOM_PORT" ]; then
-  SET_LISTEN="${SET_LISTEN:-$SET_ADDR}"
+  SET_TEMP_PUBLISH=""
+  CONTAINER_LISTEN_ON="${SET_TEMP_LISTEN:-$SET_TEMP_ADDR}"
   CONTAINER_OPT_PORT_VAR="${CONTAINER_OPT_PORT_VAR//,/ }"
   CONTAINER_ADD_CUSTOM_PORT="${CONTAINER_ADD_CUSTOM_PORT//,/ }"
   for set_port in $CONTAINER_ADD_CUSTOM_PORT $CONTAINER_OPT_PORT_VAR; do
     if [ "$set_port" != " " ] && [ -n "$set_port" ]; then
-      random_port="$(__rport)"
       new_port="${set_port//\/*/}"
       TYPE="$(echo "$set_port" | grep '/' | awk -F '/' '{print $NF}' | head -n1 | grep '^' || echo '')"
       if echo "$new_port" | grep -q 'random:'; then
+        random_port="$(__rport)"
+        new_port="${new_port//random:/}"
         port="$random_port:${new_port//*:/}"
-      elif echo "$new_port" | grep -q ':.*.:'; then
+      elif echo "$new_port" | grep -q ':.*[0-9]:[0-9]'; then
         port="$new_port"
         set_listen_addr="false"
       elif echo "$new_port" | grep -q ':'; then
         port="$new_port"
+        set_listen_addr="true"
       else
         port="$new_port:$new_port"
+        set_listen_addr="false"
       fi
       if [ "$CONTAINER_PRIVATE" = "yes" ]; then
         port="$SET_ADDR:$port"
-      elif [ -z "$set_listen_addr" ]; then
-        port="$SET_LISTEN:$port"
+      elif [ "$set_listen_addr" = "true" ]; then
+        port="$CONTAINER_LISTEN_ON:$port"
       fi
-      [ -z "$TYPE" ] || port="$port/$TYPE"
-      DOCKER_SET_TMP_PUBLISH+=("--publish $port")
+      [ -z "$TYPE" ] && SET_TEMP_PUBLISH="$port" || SET_TEMP_PUBLISH="$port/$TYPE"
+      DOCKER_SET_TMP_PUBLISH+=("--publish $SET_TEMP_PUBLISH")
     fi
   done
-  unset set_port
+  unset set_port SET_TEMP_LISTEN SET_TEMP_ADDR SET_TEMP_PUBLISH
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # container web server configuration proxy|/location|port
 if [ -n "$CONTAINER_ADD_RANDOM_PORTS" ] || { [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ] && [ -n "$CONTAINER_WEB_SERVER_INT_PORT" ]; }; then
+  CONTAINER_WEB_SERVER_LISTEN_ON="${CONTAINER_WEB_SERVER_LISTEN_ON:-}"
   CONTAINER_ADD_RANDOM_PORTS="${CONTAINER_ADD_RANDOM_PORTS//,/ }"
   CONTAINER_WEB_SERVER_INT_PORT="${CONTAINER_WEB_SERVER_INT_PORT//,/ }"
   for set_port in $CONTAINER_WEB_SERVER_INT_PORT $CONTAINER_ADD_RANDOM_PORTS; do
@@ -1781,7 +1786,7 @@ CONTAINER_COMMANDS="$(__trim "${CONTAINER_COMMANDS[*]:-}")"                     
 [ -n "$CONTAINER_COMMANDS" ] || CONTAINER_COMMANDS="    "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # set docker commands - script creation - execute command #
-SET_EXECUTE_PRE_INSTALL="$(echo "docker stop $CONTAINER_NAME;docker rm -f $CONTAINER_NAME;docker pull $HUB_IMAGE_URL:$HUB_IMAGE_TAG || { echo \"Failed to pull $HUB_IMAGE_URL with tag $HUB_IMAGE_TAG\" >&2 && exit 1; }")"
+SET_EXECUTE_PRE_INSTALL="$(echo "docker stop $CONTAINER_NAME;docker rm -f $CONTAINER_NAME;docker pull $HUB_IMAGE_URL:$HUB_IMAGE_TAG ")"
 SET_EXECUTE_DOCKER_CMD="$(echo "docker run -d $DOCKER_GET_OPTIONS $DOCKER_GET_CUSTOM $DOCKER_GET_LINK $DOCKER_GET_LABELS $DOCKER_GET_CAP $DOCKER_GET_SYSCTL $DOCKER_GET_DEV $DOCKER_SET_DNS $DOCKER_GET_MNT $DOCKER_GET_ENV $DOCKER_GET_PUBLISH $HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run functions

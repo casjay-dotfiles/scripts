@@ -67,10 +67,12 @@ APPVERSION="$(__appversion "$REPO/raw/$REPO_BRANCH/version.txt")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Defaults variables
 APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
-export APPDIR="$HOME/.local/share/srv/docker/GEN_SCRIPT_REPLACE_APPNAME"
-export DATADIR="$HOME/.local/share/srv/docker/GEN_SCRIPT_REPLACE_APPNAME/rootfs"
 export INSTDIR="$HOME/.local/share/CasjaysDev/$SCRIPTS_PREFIX/GEN_SCRIPT_REPLACE_APPNAME"
 export DOCKERMGR_CONFIG_DIR="${DOCKERMGR_CONFIG_DIR:-$HOME/.config/myscripts/$SCRIPTS_PREFIX}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set the mountpoint directory
+export APPDIR="$HOME/.local/share/srv/docker/GEN_SCRIPT_REPLACE_APPNAME"
+export DATADIR="$APPDIR/rootfs"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Call the main function
 dockermgr_install
@@ -317,10 +319,10 @@ CONTAINER_WEB_SERVER_LISTEN_ON="127.0.0.10"
 # Specify custom nginx vhosts - autoconfigure: [*./name.all/name.mydomain/name.myhostname] - [virtualhost,othervhostdom]
 CONTAINER_WEB_SERVER_VHOSTS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Add webserver ports - random portmapping - [port,otheport] or [proxy|/location|port]
-CONTAINER_ADD_WEB_PORTS=""
+# Add random portmapping - [port,otherport] or [proxy|/location|port]
+CONTAINER_ADD_RANDOM_PORTS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Add custom port - random portmapping -  [exter:inter] or [listen:exter:inter/[tcp,udp]] random:[inter]
+# Add custom port -  [exter:inter] or [listen:exter:inter/[tcp,udp]] random:[inter]
 CONTAINER_ADD_CUSTOM_PORT=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # mail settings - [yes/no] [user] [domainname] [server]
@@ -338,6 +340,7 @@ CONTAINER_IS_IMAP_SERVER="no"
 CONTAINER_IS_DHCP_SERVER="no"
 CONTAINER_IS_TIME_SERVER="no"
 CONTAINER_IS_NEWS_SERVER="no"
+CONTAINER_IS_TFTP_SERVER="no"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Database settings - [listen] [yes/no]
 CONTAINER_DATABASE_LISTEN=""
@@ -812,12 +815,18 @@ DOCKERMGR_ENABLE_INSTALL_SCRIPT="${SCRIPT_ENABLED:-$DOCKERMGR_ENABLE_INSTALL_SCR
 [ "$CONTAINER_SERVICE_PUBLIC" ] && CONTAINER_SERVICE_PUBLIC="0.0.0.0" || CONTAINER_SERVICE_PUBLIC="127.0.0.1"
 if [ "$CONTAINER_IS_DNS_SERVER" = "yes" ]; then
   service_port="$(__netstat "53" && __port || echo "53")"
-  CONTAINER_ADD_CUSTOM_PORT+="$CONTAINER_SERVICE_PUBLIC:$service_port:53/udp $CONTAINER_SERVICE_PUBLIC:$service_port:53/tcp "
+  CONTAINER_ADD_CUSTOM_PORT+="$CONTAINER_SERVICE_PUBLIC:$service_port:53/udp "
+  CONTAINER_ADD_CUSTOM_PORT+="$CONTAINER_SERVICE_PUBLIC:$service_port:53/tcp "
   unset service_port
 fi
 if [ "$CONTAINER_IS_DHCP_SERVER" = "yes" ]; then
   service_port="$(__netstat "67" && __port || echo "67")"
   CONTAINER_ADD_CUSTOM_PORT+="$CONTAINER_SERVICE_PUBLIC:$service_port:67/udp "
+  service_port="$(__netstat "68" && __port || echo "68")"
+  CONTAINER_ADD_CUSTOM_PORT+="$CONTAINER_SERVICE_PUBLIC:$service_port:68/udp "
+  unset service_port
+fi
+if [ "$CONTAINER_IS_TFTP_SERVER" = "yes" ]; then
   service_port="$(__netstat "69" && __port || echo "69")"
   CONTAINER_ADD_CUSTOM_PORT+="$CONTAINER_SERVICE_PUBLIC:$service_port:69/udp "
   unset service_port
@@ -847,7 +856,8 @@ if [ "$CONTAINER_IS_IMAP_SERVER" = "yes" ]; then
 fi
 if [ "$CONTAINER_IS_TIME_SERVER" = "yes" ]; then
   service_port="$(__netstat "123" && __port || echo "123")"
-  CONTAINER_ADD_CUSTOM_PORT+="$CONTAINER_SERVICE_PUBLIC:$service_port:123/udp $CONTAINER_SERVICE_PUBLIC:$service_port:123/tcp "
+  CONTAINER_ADD_CUSTOM_PORT+="$CONTAINER_SERVICE_PUBLIC:$service_port:123/udp "
+  CONTAINER_ADD_CUSTOM_PORT+="$CONTAINER_SERVICE_PUBLIC:$service_port:123/tcp "
   unset service_port
 fi
 if [ "$CONTAINER_IS_TIME_SERVER" = "yes" ]; then
@@ -906,8 +916,8 @@ PRETTY_PORT=""
 SET_WEB_PORT_TMP=()
 SET_CAPABILITIES=()
 DOCKER_SET_OPTIONS=()
+CONTAINER_ENV_PORTS=()
 DOCKER_SET_TMP_PUBLISH=()
-CONTAINER_CONTAINER_ENV_PORTS=()
 NGINX_REPLACE_INCLUDE=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure that the image has a tag
@@ -1152,7 +1162,7 @@ if [ "$HOST_NETWORK_ADDR" = "yes" ] || [ "$HOST_NETWORK_ADDR" = "lan" ]; then
   HOST_LISTEN_ADDR="$SET_LAN_IP"
 elif [ "$HOST_NETWORK_ADDR" = "public" ]; then
   if connect_test && __test_public_reachable; then
-    HOST_DEFINE_LISTEN=0.0.0.0
+    HOST_DEFINE_LISTEN="0.0.0.0"
     HOST_LISTEN_ADDR=$(__public_ip)
   else
     HOST_DEFINE_LISTEN="$SET_LAN_IP"
@@ -1587,8 +1597,8 @@ if [ -n "$CONTAINER_OPT_PORT_VAR" ] || [ -n "$CONTAINER_ADD_CUSTOM_PORT" ]; then
   CONTAINER_ADD_CUSTOM_PORT="${CONTAINER_ADD_CUSTOM_PORT//,/ }"
   for set_port in $CONTAINER_ADD_CUSTOM_PORT $CONTAINER_OPT_PORT_VAR; do
     if [ "$set_port" != " " ] && [ -n "$set_port" ]; then
-      new_port=${set_port//\/*/}
       random_port="$(__rport)"
+      new_port="${set_port//\/*/}"
       TYPE="$(echo "$set_port" | grep '/' | awk -F '/' '{print $NF}' | head -n1 | grep '^' || echo '')"
       if echo "$new_port" | grep -q 'random:'; then
         port="$random_port:${new_port//*:/}"
@@ -1598,7 +1608,7 @@ if [ -n "$CONTAINER_OPT_PORT_VAR" ] || [ -n "$CONTAINER_ADD_CUSTOM_PORT" ]; then
       elif echo "$new_port" | grep -q ':'; then
         port="$new_port"
       else
-        port="${random_port:-$port//\/*/}:$port"
+        port="$new_port:$new_port"
       fi
       if [ "$CONTAINER_PRIVATE" = "yes" ]; then
         port="$SET_ADDR:$port"
@@ -1613,10 +1623,10 @@ if [ -n "$CONTAINER_OPT_PORT_VAR" ] || [ -n "$CONTAINER_ADD_CUSTOM_PORT" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # container web server configuration proxy|/location|port
-if [ -n "$CONTAINER_ADD_WEB_PORTS" ] || { [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ] && [ -n "$CONTAINER_WEB_SERVER_INT_PORT" ]; }; then
-  CONTAINER_ADD_WEB_PORTS="${CONTAINER_ADD_WEB_PORTS//,/ }"
+if [ -n "$CONTAINER_ADD_RANDOM_PORTS" ] || { [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ] && [ -n "$CONTAINER_WEB_SERVER_INT_PORT" ]; }; then
+  CONTAINER_ADD_RANDOM_PORTS="${CONTAINER_ADD_RANDOM_PORTS//,/ }"
   CONTAINER_WEB_SERVER_INT_PORT="${CONTAINER_WEB_SERVER_INT_PORT//,/ }"
-  for set_port in $CONTAINER_WEB_SERVER_INT_PORT $CONTAINER_ADD_WEB_PORTS; do
+  for set_port in $CONTAINER_WEB_SERVER_INT_PORT $CONTAINER_ADD_RANDOM_PORTS; do
     if [ "$set_port" != " " ] && [ -n "$set_port" ]; then
       proxy_url=""
       proxy_location=""
@@ -1709,7 +1719,7 @@ EOF
       fi
     fi
   done
-  unset set_port CONTAINER_ADD_WEB_PORTS
+  unset set_port CONTAINER_ADD_RANDOM_PORTS
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Fix/create port
@@ -1739,10 +1749,12 @@ NGINX_PROXY_URL="${NGINX_PROXY_URL:-$PROXY_HTTP_PROTO://$NGINX_PROXY_ADDRESS:$NG
 NGINX_PROXY_URL="${NGINX_PROXY_URL// /}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set temp env for PORTS ENV variable
-SET_PORTS_ENV_TMP="${DOCKER_SET_TMP_PUBLISH//--publish/}"
+CONTAINER_ENV_PORTS=("${DOCKER_SET_TMP_PUBLISH[@]//--publish/}")
+SET_PORTS_ENV_TMP="$(__trim "${CONTAINER_ENV_PORTS[*]}")"
 DOCKER_SET_PORTS_ENV_TMP="$(echo "${SET_PORTS_ENV_TMP//,/ }" | tr ' ' '\n' | grep ':' | awk -F ':' '{print $NF}' | sort -uV | grep '^')"
 DOCKER_SET_PORTS_ENV_TMP="$(echo "$DOCKER_SET_PORTS_ENV_TMP" | grep '[0-9]' | sed 's|/.*||g' | grep -v '^$' | tr '\n' ' ' | grep '^' || echo '')"
-ENV_PORTS="$(__trim "${DOCKER_SET_PORTS_ENV_TMP[*]}")"
+ENV_PORTS="${DOCKER_SET_PORTS_ENV_TMP[*]}"
+ENV_PORTS="$(__trim "${ENV_PORTS[*]}")"
 if [ -n "$ENV_PORTS" ]; then
   DOCKER_SET_OPTIONS+=("--env ENV_PORTS=\"$ENV_PORTS\"")
 fi

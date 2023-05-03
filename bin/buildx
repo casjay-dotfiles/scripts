@@ -280,10 +280,11 @@ __trap_exit_local() {
 __get_version() { awk -F '=' '{print $2}' | sed 's|"||g;s|,| |g' | tr ' ' '\n' | grep -Ev '\${.*_.*}' | grep -v '^$' | sort -Vu | tr '\n' ' ' | grep '^' || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_log_files() {
-  local directory="" dir_name="" file_name=""
+  local directory="" file=""
+  local dir_name="" file_name=""
   for directory in $BUILDX_PROJECT_DIR; do
     dir_name="$(basename $directory)"
-    file_name="$(basename "${file:-init}").log"
+    file_name="$(basename "$file").log"
     if [ -n "$directory" ] && [ ! -d "$BUILDX_LOG_DIR/$dir_name" ]; then
       mkdir -p "$BUILDX_LOG_DIR/$dir_name"
     fi
@@ -295,7 +296,8 @@ __create_log_files() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_update_docker_daemon_config() {
   if __can_i_sudo; then
-    __sudo true && sudo mkdir -p "/etc/docker"
+    __sudo true
+    sudo mkdir -p "/etc/docker"
     if [ ! -f "/etc/docker/daemon.json" ]; then
       printf '{\n  %s\n}' "\"experimental\": true" | sudo tee -a "/etc/docker/daemon.json" &>/dev/null
     elif grep -sq "experimental" "/etc/docker/daemon.json"; then
@@ -575,6 +577,7 @@ __is_buildx_installed() {
   if [ "$buildx_installed" = "yes" ]; then
     return 0
   else
+    __install_buildx && BUILDX_INSTALLED="yes" && return 0
     export BUILDX_INSTALLED="no"
     return 1
   fi
@@ -589,7 +592,7 @@ __is_docker_installed() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __is_initialized() {
   __buildx_vars ${1:-$BUILDX_BUILDER_NAME}
-  { [ -e "/root/.docker/buildx/instances/$BUILDX_BUILDER_NAME" ] || [ -e "$HOME/.docker/buildx/instances/$BUILDX_BUILDER_NAME" ]; } &&
+  { [ -e "/root/.docker/buildx/instances/$name" ] || [ -e "$HOME/.docker/buildx/instances/$name" ]; } &&
     { [ -n "$builder_id" ] && [ -n "$qemu_id" ] && [ -n "$binfmt_id" ] && BUILDX_INIT_RAN="true"; } &&
     __is_buildx_installed && return 0 || return 1
 }
@@ -651,13 +654,15 @@ __binfmt_version() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __buildx_vars() {
+  [ "$1" = "" ] && shift 1
+  [ "$1" = " " ] && shift 1
   local set_name="${1:-$BUILDX_BUILDER_NAME}"
-  local name="${set_name:-mybuilder}"
+  export name="${set_name:-mybuilder}"
   export qemu_imagename="buildx-qemu"
   export binfmt_imagename="buildx-binfmt"
-  export builder_id="$(__docker_init ps -a | awk '{print $NF}' | grep "$name" || false)"
   export qemu_id="$(__docker_init ps -a | awk '{print $NF}' | grep "$qemu_imagename" || echo '')"
   export binfmt_id="$(__docker_init ps -a | awk '{print $NF}' | grep "$binfmt_imagename" || echo '')"
+  export builder_id="$(__docker_init ps -a | awk '{print $NF}' | grep "$name" | grep "buildkit" || __docker_init buildx ls | grep "$name" | awk -F ' ' '{print $1}' | head -n1 || echo '')"
   export BUILDX_BUILDER_NAME="$name"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -668,37 +673,36 @@ __buildx_version() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __reinit_buildx() {
-  name="${BUILDX_BUILDER_NAME:-init}"
+  name="${name:-init}"
   local force_install="${BUILDX_FORCE:-$BUILDX_FORCE_REINSTALL}"
   __buildx_vars "${BUILDX_BUILDER_NAME:-}"
   [ "$BUILDX_INIT_RAN" != "true" ] || return 0
   [ "$force_install" = "yes" ] || [ -z "$builder_id" ] || [ -z "$binfmt_id" ] || [ -z "$qemu_id" ] || return 0
-  printf_cyan "Reinitializing buildx: $BUILDX_BUILDER_NAME on: $(date)"
-  echo "Reinitializing buildx: $BUILDX_BUILDER_NAME on: $(date)" |& tee -a "$HOME/.local/log/buildx/$BUILDX_BUILDER_NAME.log" &>/dev/null
+  printf_cyan "Reinitializing buildx: $name on: $(date)"
+  echo "Reinitializing buildx: $name on: $(date)" |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
   local force="${force_install:-$BUILDX_CLEAN_FORCE}"
-  [ -z "$builder_id" ] || __docker_init rm -f $builder_id |& tee -a "$HOME/.local/log/buildx/$BUILDX_BUILDER_NAME.log" &>/dev/null
-  [ -z "$binfmt_id" ] || __docker_init rm -f "$qemu_imagename" |& tee -a "$HOME/.local/log/buildx/$BUILDX_BUILDER_NAME.log" &>/dev/null
-  [ -z "$qemu_id" ] || __docker_init rm -f "$binfmt_imagename" |& tee -a "$HOME/.local/log/buildx/$BUILDX_BUILDER_NAME.log" &>/dev/null
-  __docker_init run -d --name "$qemu_imagename" --privileged multiarch/qemu-user-static --reset -p yes --credential yes |& tee -a "$HOME/.local/log/buildx/$BUILDX_BUILDER_NAME.log" &>/dev/null
-  __docker_init run -d --name "$binfmt_imagename" --privileged tonistiigi/binfmt --install all |& tee -a "$HOME/.local/log/buildx/$BUILDX_BUILDER_NAME.log" &>/dev/null
-  __docker_init buildx create --driver docker-container --driver-opt network=host --driver-opt image=moby/buildkit:master --name ${name:-mybuilder} --use |& tee -a "$HOME/.local/log/buildx/$BUILDX_BUILDER_NAME.log" &>/dev/null
-  __docker_init buildx use "$BUILDX_BUILDER_NAME" |& tee -a "$HOME/.local/log/buildx/$BUILDX_BUILDER_NAME.log" &>/dev/null
-  __docker_init buildx inspect --bootstrap |& tee -a "$HOME/.local/log/buildx/$BUILDX_BUILDER_NAME.log" &>/dev/null
-  __buildx_vars "$name"
+  [ -z "$builder_id" ] || __docker_init rm -f $builder_id |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+  [ -z "$binfmt_id" ] || __docker_init rm -f "$qemu_imagename" |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+  [ -z "$qemu_id" ] || __docker_init rm -f "$binfmt_imagename" |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+  __docker_init run -d --name "$qemu_imagename" --privileged multiarch/qemu-user-static --reset -p yes --credential yes |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+  __docker_init run -d --name "$binfmt_imagename" --privileged tonistiigi/binfmt --install all |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+  __docker_init buildx create --driver docker-container --driver-opt network=host --driver-opt image=moby/buildkit:master --name ${name:-mybuilder} --use |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+  __docker_init buildx use "$name" |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+  __docker_init buildx inspect --bootstrap |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+  __buildx_vars "${BUILDX_BUILDER_NAME:-}"
   __create_update_docker_daemon_config
-  if [ -n "$builder_id" ]; then
+  if [ -n "$builder_id" ] && __is_buildx_installed; then
     BUILDX_FORCE=""
     BUILDX_INIT_RAN="true"
     BUILDX_FORCE_REINSTALL=""
     printf_cyan "Building for platforms: $BUILDX_DOCKER_PLATFORMS"
     printf '%s\n' "# Building for platforms: $BUILDX_DOCKER_PLATFORMS" | tee -a "$logfile" &>/dev/null
-    exitCode=0
+    return 0
   else
-    echo "Initializing of buildx failed" |& tee -a "$HOME/.local/log/buildx/$BUILDX_BUILDER_NAME.log" &>/dev/null
+    echo "Initializing of buildx failed" |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
     printf_yellow "Initializing of buildx failed"
-    exitCode=1
+    return 1
   fi
-  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __buildx_cleanup() {
@@ -719,6 +723,7 @@ __install_buildx() {
   local buildx_install_path="$buildx_install_dir/docker-buildx"
   local arch="$(uname -m | tr '[:upper:]' '[:lower:]')"
   local api="https://api.github.com/repos/docker/buildx/releases/latest"
+  [ -x "$buildx_install_path" ] && [ "$BUILDX_FORCE" != "yes" ] && return 0
   case "$arch" in
   x86_64) arch="amd64" ;;
   aarch64) arch="arm64" ;;
@@ -741,7 +746,7 @@ __install_buildx() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __buildx_init() {
   __buildx_vars "$1"
-  local buildx_log_file="$HOME/.local/log/buildx/$BUILDX_BUILDER_NAME.log"
+  local buildx_log_file="$HOME/.local/log/buildx/$name.log"
   __is_buildx_installed && BUILDX_INIT_RAN="true" || BUILDX_FORCE="true"
   if [ "$BUILDX_FORCE" = "true" ]; then
     [ -d "$HOME/.docker/buildx" ] && rm -Rf "$HOME/.docker/buildx"
@@ -757,29 +762,29 @@ __buildx_init() {
     printf_cyan "buildx seems to be already setup"
     return 0
   else
-    echo "Starting buildx init for $BUILDX_BUILDER_NAME on $(date)" |& tee "$HOME/.local/log/buildx/$BUILDX_BUILDER_NAME.log"
+    echo "Starting buildx init for $name on $(date)" |& tee "$HOME/.local/log/buildx/$name.log"
     printf_yellow "Initializing docker build"
     printf_cyan "Setting logfile to: $buildx_log_file"
     if [ "$BUILDX_CLEANUP" = "true" ] || { [ -n "$binfmt" ] && [ -n "$qemu" ]; }; then
       printf_yellow "Removing old containers: $qemu_imagename,$binfmt_imagename"
-      __docker_init rm -f "$qemu_imagename" |& tee -a "$HOME/.local/log/buildx/$BUILDX_BUILDER_NAME.log" &>/dev/null
-      __docker_init rm -f "$binfmt_imagename" |& tee -a "$HOME/.local/log/buildx/$BUILDX_BUILDER_NAME.log" &>/dev/null
+      __docker_init rm -f "$qemu_imagename" |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+      __docker_init rm -f "$binfmt_imagename" |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
     fi
     __install_buildx
     if [ "$(uname -m)" = "x86_64" ]; then
       # Setup qemu
       # sudo docker run --rm --privileged multiarch/qemu-user-static --reset -p yes --credential yes
       printf_yellow "Setting up the qemu image - multiarch/qemu-user-static as $qemu_imagename"
-      __docker_init run -d --name "$qemu_imagename" --privileged multiarch/qemu-user-static --reset -p yes --credential yes |& tee -a "$HOME/.local/log/buildx/$BUILDX_BUILDER_NAME.log" &>/dev/null
+      __docker_init run -d --name "$qemu_imagename" --privileged multiarch/qemu-user-static --reset -p yes --credential yes |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
       # Setup binfmt
       printf_yellow "Setting up the binfmt image - tonistiigi/binfmt as $binfmt_imagename"
-      __docker_init run -d --name "$binfmt_imagename" --privileged tonistiigi/binfmt --install all |& tee -a "$HOME/.local/log/buildx/$BUILDX_BUILDER_NAME.log" &>/dev/null
+      __docker_init run -d --name "$binfmt_imagename" --privileged tonistiigi/binfmt --install all |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
       # setup buildx
       printf_blue "Setting up docker build to use buildx"
-      #__docker_init buildx create --buildkitd-flags '--allow-insecure-entitlement security.insecure' --name "$BUILDX_BUILDER_NAME" --use |& tee -a "$HOME/.local/log/buildx/$BUILDX_BUILDER_NAME.log" &>/dev/null
-      __docker_init buildx create --driver docker-container --driver-opt network=host --driver-opt image=moby/buildkit:master --name ${name:-mybuilder} --use |& tee -a "$HOME/.local/log/buildx/$BUILDX_BUILDER_NAME.log" &>/dev/null
-      __docker_init buildx use "$BUILDX_BUILDER_NAME" |& tee -a "$HOME/.local/log/buildx/$BUILDX_BUILDER_NAME.log" &>/dev/null
-      __docker_init buildx inspect --bootstrap |& tee -a "$HOME/.local/log/buildx/$BUILDX_BUILDER_NAME.log" &>/dev/null
+      #__docker_init buildx create --buildkitd-flags '--allow-insecure-entitlement security.insecure' --name "$name" --use |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+      __docker_init buildx create --driver docker-container --driver-opt network=host --driver-opt image=moby/buildkit:master --name ${name:-mybuilder} --use |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+      __docker_init buildx use "$name" |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+      __docker_init buildx inspect --bootstrap |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
     fi
     # create docker daemon file
     __create_update_docker_daemon_config
@@ -813,7 +818,7 @@ __tag_versions() {
   add_image_name="${image_name//:*/}"
   add_tags="${BUILDX_VERSION_TAG//,/ }"
   namespace="${namespace:-$BUILDX_DEFAULT_REPO}"
-  add_full_host="${1:-$host/$BUILDX_BUILDER_NAMEspace/$add_image_name}"
+  add_full_host="${1:-$host/$namespace/$add_image_name}"
   if [ "$BUILDX_ADD_TAG" = "true" ]; then
     for tag in $add_tags; do
       [ "$tag" = "$BUILDX_DEFAULT_VERSION" ] || SET_ADD_HOST+=("-t $add_full_host:$tag")
@@ -956,13 +961,13 @@ __run_docker_build() {
         [ "$BUILDX_ADD_REPO" = "" ] && namespace="library"
         [ "$BUILDX_ADD_REPO" = "_" ] && namespace="library"
         if echo "$image_name" | grep -q ":"; then
-          full_host="$host/$BUILDX_BUILDER_NAMEspace/$image_name"
+          full_host="$host/$namespace/$image_name"
           SET_ADD_HOST+=("-t $full_host")
         else
-          __tag_versions "$host/$BUILDX_BUILDER_NAMEspace/$image_name"
+          __tag_versions "$host/$namespace/$image_name"
         fi
       else
-        SET_ADD_HOST+=("-t $host/$BUILDX_BUILDER_NAMEspace/$image_name")
+        SET_ADD_HOST+=("-t $host/$namespace/$image_name")
       fi
     done
   else
@@ -1084,7 +1089,7 @@ __execute_buildx() {
   #
   name="${set_name:-$image_name}"
   set_newtag="${set_newtag//*:/}"
-  name="$(echo "$BUILDX_BUILDER_NAME" | tr '[:upper:]' '[:lower:]')"
+  name="$(echo "$name" | tr '[:upper:]' '[:lower:]')"
   SET_DIR_NAME="$(echo "$SET_DIR_NAME" | tr '[:upper:]' '[:lower:]')"
   #
   __get_dockerfile_ver "$Dockerfile"
@@ -1097,9 +1102,9 @@ __execute_buildx() {
     BUILDX_VERSION_TAG="${BUILDX_VERSION_TAG},latest"
   fi
   if [ "$BUILDX_DEFAULT_HUB" = "docker.io" ]; then
-    tagged_name="$BUILDX_DEFAULT_REPO/$BUILDX_BUILDER_NAME"
+    tagged_name="$BUILDX_DEFAULT_REPO/$name"
   else
-    tagged_name="$BUILDX_DEFAULT_HUB/$BUILDX_DEFAULT_REPO/$BUILDX_BUILDER_NAME"
+    tagged_name="$BUILDX_DEFAULT_HUB/$BUILDX_DEFAULT_REPO/$name"
   fi
   tagged_name="${tagged_name//\/dockerfile/}"
   push_tag="$tagged_name:$tag_version"
@@ -1133,8 +1138,8 @@ __execute_buildx() {
       buildxexitCode+=1
     fi
   else
-    notify_message+="Failed to build $BUILDX_BUILDER_NAME|"
-    printf_red "Failed to build $BUILDX_BUILDER_NAME" 1>&2
+    notify_message+="Failed to build $name|"
+    printf_red "Failed to build $name" 1>&2
     buildxexitCode+=1
   fi
   notify_message="$(echo "$notify_message" | tr '|' '\n')"
@@ -1276,7 +1281,7 @@ BUILDX_ADD_REGISTRY=""
 BUILDX_SET_PLATFORM=""
 BUILDX_RUN_SCRIPT="false"
 BUILDX_ENABLE_REGISTRY="false"
-BUILDX_DOCKER_CMD="${BUILDX_DOCKER_CMD:-sudo -HE docker}"
+BUILDX_DOCKER_CMD="${BUILDX_DOCKER_CMD:-docker}"
 BUILDX_DOCKER_PLATFORMS="${BUILDX_DOCKER_PLATFORMS:-linux/amd64,linux/arm64}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
@@ -1560,9 +1565,8 @@ __is_buildx_installed
 [ -d "$HOME/.local/run/$APPNAME" ] || mkdir -p "$HOME/.local/run/$APPNAME"
 [ -d "$BUILDX_CONFIG_DIR/scripts" ] && mkdir -p "$BUILDX_CONFIG_DIR/scripts"
 if [ ! -d "$HOME/.docker/buildx" ]; then
-  mkdir -p "$HOME/.docker/buildx"
   __buildx_init
-  [ $# -ne 0 ] || printf_cyan "Usage: buildx [init, status, version]"
+  [ $# -ne 0 ] || [ -n "$(ls -A "$BUILDX_CWD/Dockerfile"* 2>/dev/null)" ] || printf_cyan "Usage: buildx [init, status, version]"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app

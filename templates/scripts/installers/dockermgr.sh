@@ -105,7 +105,7 @@ __container_name() { echo "$HUB_IMAGE_URL-${HUB_IMAGE_TAG:-latest}" | awk -F '/'
 __docker_init() { [ -n "$(type -p dockermgr 2>/dev/null)" ] && dockermgr init || printf_exit "Failed to Initialize the docker installer"; }
 __domain_name() { hostname -f 2>/dev/null | awk -F '.' '{print $(NF-1)"."$NF}' | grep '\.' | grep '^' || hostname -f 2>/dev/null | grep '^' || return 1; }
 __port_in_use() { { [ -d "/etc/nginx/vhosts.d" ] && grep -wRsq "${1:-443}" "/etc/nginx/vhosts.d" || __netstat | grep -q "${1:-443}"; } && return 1 || return 0; }
-__netstat() { netstat -taupln 2>/dev/null | grep -vE 'WAIT|ESTABLISHED' | awk -F ' ' '{print $4}' | sed 's|.*:||g' | grep -E '[0-9]' | sort -Vu | grep "^${1:-}$" || return 1; }
+__netstat() { netstat -taupln 2>/dev/null || grep -vE 'WAIT|ESTABLISHED|docker-pro' | awk -F ' ' '{print $4}' | sed 's|.*:||g' | grep -E '[0-9]' | sort -Vu | grep "^${1:-}$" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __public_ip() { curl -q -LSsf "http://ifconfig.co" | grep -v '^$' | head -n1 | grep '^'; }
 __ifconfig() { [ -n "$(type -P ifconfig)" ] && eval ifconfig "$*" 2>/dev/null || return 1; }
@@ -255,11 +255,11 @@ CGROUPS_MOUNTS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set location to resolv.conf - [yes/no] [/etc/resolv.conf]
 HOST_RESOLVE_ENABLED="no"
-HOST_RESOLVE_FILE=""
+HOST_ETC_RESOLVE_INIT_FILE=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Enable hosts /etc/hosts file - [yes/no] [/usr/local/etc/hosts]
+# Enable hosts /etc/hosts file - [yes/no] [/etc/hosts]
 HOST_ETC_HOSTS_ENABLED="yes"
-HOST_ETC_HOSTS_MOUNT=""
+HOST_ETC_HOSTS_INIT_FILE=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mount docker socket - [yes/no] [/var/run/docker.sock]
 DOCKER_SOCKET_ENABLED="no"
@@ -334,13 +334,13 @@ CONTAINER_EMAIL_RELAY=""
 # Easy setup for services - [no/yes]
 CONTAINER_SERVICE_PUBLIC="yes"
 CONTAINER_IS_DNS_SERVER="no"
+CONTAINER_IS_DHCP_SERVER="no"
+CONTAINER_IS_TFTP_SERVER="no"
 CONTAINER_IS_SMTP_SERVER="no"
 CONTAINER_IS_POP3_SERVER="no"
 CONTAINER_IS_IMAP_SERVER="no"
-CONTAINER_IS_DHCP_SERVER="no"
 CONTAINER_IS_TIME_SERVER="no"
 CONTAINER_IS_NEWS_SERVER="no"
-CONTAINER_IS_TFTP_SERVER="no"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Database settings - [listen] [yes/no]
 CONTAINER_DATABASE_LISTEN=""
@@ -487,80 +487,97 @@ HOST_NGINX_HTTP_PORT="\${ENV_HOST_NGINX_HTTP_PORT:-$HOST_NGINX_HTTP_PORT}"
 HOST_NGINX_HTTPS_PORT="\${ENV_HOST_NGINX_HTTPS_PORT:-$HOST_NGINX_HTTPS_PORT}"
 HOST_NGINX_UPDATE_CONF="\${ENV_HOST_NGINX_UPDATE_CONF:-$HOST_NGINX_UPDATE_CONF}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-CONTAINER_NAME="\${ENV_CONTAINER_NAME:-${CONTAINER_NAME:-}}"
-CONTAINER_SSL_DIR="\${ENV_CONTAINER_SSL_DIR:-$CONTAINER_SSL_DIR}"
-CONTAINER_SSL_CA="\${ENV_CONTAINER_SSL_CA:-$CONTAINER_SSL_CA}"
-CONTAINER_SSL_CRT="\${ENV_CONTAINER_SSL_CRT:-$CONTAINER_SSL_CRT}"
-CONTAINER_SSL_KEY="\${ENV_CONTAINER_SSL_KEY:-$CONTAINER_SSL_KEY}"
-CONTAINER_REQUIRES="\${ENV_CONTAINER_REQUIRES:-$CONTAINER_REQUIRES}"
-CONTAINER_TIMEZONE="\${ENV_CONTAINER_TIMEZONE:-$CONTAINER_TIMEZONE}"
-CONTAINER_WORK_DIR="\${ENV_CONTAINER_WORK_DIR:-$CONTAINER_WORK_DIR}"
-CONTAINER_HTML_DIR="\${ENV_CONTAINER_HTML_DIR:-$CONTAINER_HTML_DIR}"
-CONTAINER_HTML_ENV="\${ENV_CONTAINER_HTML_ENV:-$CONTAINER_HTML_ENV}"
-CONTAINER_USER_ID="\${ENV_CONTAINER_USER_ID:-$CONTAINER_USER_ID}"
-CONTAINER_GROUP_ID="\${ENV_CONTAINER_GROUP_ID:-$CONTAINER_GROUP_ID}"
-CONTAINER_USER_RUN="\${ENV_CONTAINER_USER_RUN:-$CONTAINER_USER_RUN}"
-CONTAINER_PRIVILEGED_ENABLED="\${ENV_CONTAINER_PRIVILEGED_ENABLED:-$CONTAINER_PRIVILEGED_ENABLED}"
-CONTAINER_SHM_SIZE="\${ENV_CONTAINER_SHM_SIZE:-$CONTAINER_SHM_SIZE}"
-CONTAINER_RAM_SIZE="\${ENV_CONTAINER_RAM_SIZE:-$CONTAINER_RAM_SIZE}"
-CONTAINER_SWAP_SIZE="\${ENV_CONTAINER_SWAP_SIZE:-$CONTAINER_SWAP_SIZE}"
-CONTAINER_CPU_COUNT="\${ENV_CONTAINER_CPU_COUNT:-$CONTAINER_CPU_COUNT}"
-CONTAINER_AUTO_RESTART="\${ENV_CONTAINER_AUTO_RESTART:-$CONTAINER_AUTO_RESTART}"
-CONTAINER_AUTO_DELETE="\${ENV_CONTAINER_AUTO_DELETE:-$CONTAINER_AUTO_DELETE}"
-CONTAINER_TTY_ENABLED="\${ENV_CONTAINER_TTY_ENABLED:-$CONTAINER_TTY_ENABLED}"
-CONTAINER_INTERACTIVE_ENABLED="\${ENV_CONTAINER_INTERACTIVE_ENABLED:-$CONTAINER_INTERACTIVE_ENABLED}"
-CONTAINER_ENV_FILE_ENABLED="\${ENV_CONTAINER_ENV_FILE_ENABLED:-$CONTAINER_ENV_FILE_ENABLED}"
-CONTAINER_ENV_FILE_MOUNT="\${ENV_CONTAINER_ENV_FILE_MOUNT:-$CONTAINER_ENV_FILE_MOUNT}"
-CONTAINER_DOCKER_CONFIG_FILE="\${ENV_CONTAINER_DOCKER_CONFIG_FILE:-$CONTAINER_DOCKER_CONFIG_FILE}"
-CONTAINER_SOUND_DEVICE_FILE="\${ENV_CONTAINER_SOUND_DEVICE_FILE:-$CONTAINER_SOUND_DEVICE_FILE}"
-CONTAINER_X11_ENABLED="\${ENV_CONTAINER_X11_ENABLED:-$CONTAINER_X11_ENABLED}"
-CONTAINER_X11_SOCKET="\${ENV_CONTAINER_X11_SOCKET:-$CONTAINER_X11_SOCKET}"
-CONTAINER_X11_XAUTH="\${ENV_CONTAINER_X11_XAUTH:-$CONTAINER_X11_XAUTH}"
-CONTAINER_HOSTNAME="\${ENV_HOSTNAME:-${ENV_CONTAINER_HOSTNAME:-$CONTAINER_HOSTNAME}}"
-CONTAINER_DOMAINNAME="\${ENV_DOMAINNAME:-${ENV_CONTAINER_DOMAINNAME:-$CONTAINER_DOMAINNAME}}"
-CONTAINER_WEB_SERVER_ENABLED="\${ENV_CONTAINER_WEB_SERVER_ENABLED:-$CONTAINER_WEB_SERVER_ENABLED}"
-CONTAINER_WEB_SERVER_INT_PORT="\${ENV_CONTAINER_WEB_SERVER_INT_PORT:-$CONTAINER_WEB_SERVER_INT_PORT}"
-CONTAINER_WEB_SERVER_SSL_ENABLED="\${ENV_CONTAINER_WEB_SERVER_SSL_ENABLED:-$CONTAINER_WEB_SERVER_SSL_ENABLED}"
-CONTAINER_WEB_SERVER_AUTH_ENABLED="\${ENV_CONTAINER_WEB_SERVER_AUTH_ENABLED:-$CONTAINER_WEB_SERVER_AUTH_ENABLED}"
-CONTAINER_WEB_SERVER_LISTEN_ON="\${ENV_CONTAINER_WEB_SERVER_LISTEN_ON:-$CONTAINER_WEB_SERVER_LISTEN_ON}"
-CONTAINER_WEB_SERVER_VHOSTS="\${ENV_CONTAINER_WEB_SERVER_VHOSTS:-$CONTAINER_WEB_SERVER_VHOSTS}"
-CONTAINER_WEB_SERVER_CONFIG_NAME="\${ENV_CONTAINER_WEB_SERVER_CONFIG_NAME:-$CONTAINER_WEB_SERVER_CONFIG_NAME}"
-CONTAINER_ADD_CUSTOM_PORT="\${ENV_CONTAINER_ADD_CUSTOM_PORT:-$CONTAINER_ADD_CUSTOM_PORT}"
-CONTAINER_PROTOCOL="\${ENV_CONTAINER_PROTOCOL:-$CONTAINER_PROTOCOL}"
-CONTAINER_DNS="\${ENV_CONTAINER_DNS:-$CONTAINER_DNS}"
-CONTAINER_DATABASE_LISTEN="\${ENV_CONTAINER_DATABASE_LISTEN:-$CONTAINER_DATABASE_LISTEN}"
-CONTAINER_REDIS_ENABLED="\${ENV_CONTAINER_REDIS_ENABLED:-$CONTAINER_REDIS_ENABLED}"
-CONTAINER_SQLITE3_ENABLED="\${ENV_CONTAINER_SQLITE3_ENABLED:-$CONTAINER_SQLITE3_ENABLED}"
-CONTAINER_MARIADB_ENABLED="\${ENV_CONTAINER_MARIADB_ENABLED:-$CONTAINER_MARIADB_ENABLED}"
-CONTAINER_MONGODB_ENABLED="\${ENV_CONTAINER_MONGODB_ENABLED:-$CONTAINER_MONGODB_ENABLED}"
-CONTAINER_COUCHDB_ENABLED="\${ENV_CONTAINER_COUCHDB_ENABLED:-$CONTAINER_COUCHDB_ENABLED}"
-CONTAINER_POSTGRES_ENABLED="\${ENV_CONTAINER_POSTGRES_ENABLED:-$CONTAINER_POSTGRES_ENABLED}"
-CONTAINER_SUPABASE_ENABLED="\${ENV_CONTAINER_SUPABASE_ENABLED:-$CONTAINER_SUPABASE_ENABLED}"
-CONTAINER_DATABASE_USER_ROOT="\${ENV_CONTAINER_DATABASE_USER_ROOT:-$CONTAINER_DATABASE_USER_ROOT}"
-CONTAINER_DATABASE_LENGTH_ROOT="\${ENV_CONTAINER_DATABASE_LENGTH_ROOT:-$CONTAINER_DATABASE_LENGTH_ROOT}"
-CONTAINER_DATABASE_USER_NORMAL="\${ENV_CONTAINER_DATABASE_USER_NORMAL:-$CONTAINER_DATABASE_USER_NORMAL}"
-CONTAINER_DATABASE_LENGTH_NORMAL="\${ENV_CONTAINER_DATABASE_LENGTH_NORMAL:-$CONTAINER_DATABASE_LENGTH_NORMAL}"
-CONTAINER_USER_NAME="\${ENV_CONTAINER_USER_NAME:-$CONTAINER_USER_NAME}"
-CONTAINER_USER_PASS="\${ENV_CONTAINER_USER_PASS:-$CONTAINER_USER_PASS}"
-CONTAINER_PASS_LENGTH="\${ENV_CONTAINER_PASS_LENGTH:-$CONTAINER_PASS_LENGTH}"
-CONTAINER_ENV_USER_NAME="\${ENV_CONTAINER_ENV_USER_NAME:-$CONTAINER_ENV_USER_NAME}"
-CONTAINER_EMAIL_ENABLED="\${ENV_CONTAINER_EMAIL_ENABLED:-$CONTAINER_EMAIL_ENABLED}"
-CONTAINER_EMAIL_USER="\${ENV_CONTAINER_EMAIL_USER:-$CONTAINER_EMAIL_USER}"
-CONTAINER_EMAIL_DOMAIN="\${ENV_CONTAINER_EMAIL_DOMAIN:-$CONTAINER_EMAIL_DOMAIN}"
-CONTAINER_EMAIL_RELAY="\${ENV_CONTAINER_EMAIL_RELAY:-$CONTAINER_EMAIL_RELAY}"
-CONTAINER_SERVICES_LIST="\${ENV_CONTAINER_SERVICES_LIST:-$CONTAINER_SERVICES_LIST}"
-CONTAINER_MOUNT_DATA_ENABLED="\${ENV_CONTAINER_MOUNT_DATA_ENABLED:-$CONTAINER_MOUNT_DATA_ENABLED}"
-CONTAINER_MOUNT_DATA_MOUNT_DIR="\${ENV_CONTAINER_MOUNT_DATA_MOUNT_DIR:-$CONTAINER_MOUNT_DATA_MOUNT_DIR}"
-CONTAINER_MOUNT_CONFIG_ENABLED="\${ENV_CONTAINER_MOUNT_CONFIG_ENABLED:-$CONTAINER_MOUNT_CONFIG_ENABLED}"
-CONTAINER_MOUNT_CONFIG_MOUNT_DIR="\${ENV_CONTAINER_MOUNT_CONFIG_MOUNT_DIR:-$CONTAINER_MOUNT_CONFIG_MOUNT_DIR}"
-CONTAINER_MOUNTS="\${ENV_CONTAINER_MOUNTS:-$CONTAINER_MOUNTS}"
-CONTAINER_DEVICES="\${ENV_CONTAINER_DEVICES:-$CONTAINER_DEVICES}"
-CONTAINER_ENV="\${ENV_CONTAINER_ENV:-$CONTAINER_ENV}"
-CONTAINER_SYSCTL="\${ENV_CONTAINER_SYSCTL:-$CONTAINER_SYSCTL}"
-CONTAINER_LABELS="\${ENV_CONTAINER_LABELS:-$CONTAINER_LABELS}"
-CONTAINER_COMMANDS="\${ENV_CONTAINER_COMMANDS:-$CONTAINER_COMMANDS}"
-CONTAINER_DEBUG_ENABLED="\${ENV_CONTAINER_DEBUG_ENABLED:-$CONTAINER_DEBUG_ENABLED}"
-CONTAINER_DEBUG_OPTIONS="\${ENV_CONTAINER_DEBUG_OPTIONS:-$CONTAINER_DEBUG_OPTIONS}"
+CONTAINER_SSL_CA="${CONTAINER_SSL_CA:-}"
+CONTAINER_SSL_CRT="${CONTAINER_SSL_CRT:-}"
+CONTAINER_SSL_KEY="${CONTAINER_SSL_KEY:-}"
+CONTAINER_NAME="${CONTAINER_NAME:-}"
+CONTAINER_REQUIRES="${CONTAINER_REQUIRES:-}"
+CONTAINER_TIMEZONE="${CONTAINER_TIMEZONE:-}"
+CONTAINER_WORK_DIR="${CONTAINER_WORK_DIR:-}"
+CONTAINER_HTML_DIR="${CONTAINER_HTML_DIR:-}"
+CONTAINER_HTML_ENV="${CONTAINER_HTML_ENV:-}"
+CONTAINER_USER_ID="${CONTAINER_USER_ID:-}"
+CONTAINER_GROUP_ID="${CONTAINER_GROUP_ID:-}"
+CONTAINER_USER_RUN="${CONTAINER_USER_RUN:-}"
+CONTAINER_PRIVILEGED_ENABLED="${CONTAINER_PRIVILEGED_ENABLED:-}"
+CONTAINER_SHM_SIZE="${CONTAINER_SHM_SIZE:-}"
+CONTAINER_RAM_SIZE="${CONTAINER_RAM_SIZE:-}"
+CONTAINER_SWAP_SIZE="${CONTAINER_SWAP_SIZE:-}"
+CONTAINER_CPU_COUNT="${CONTAINER_CPU_COUNT:-}"
+CONTAINER_AUTO_RESTART="${CONTAINER_AUTO_RESTART:-}"
+CONTAINER_AUTO_DELETE="${CONTAINER_AUTO_DELETE:-}"
+CONTAINER_TTY_ENABLED="${CONTAINER_TTY_ENABLED:-}"
+CONTAINER_INTERACTIVE_ENABLED="${CONTAINER_INTERACTIVE_ENABLED:-}"
+CONTAINER_ENV_FILE_ENABLED="${CONTAINER_ENV_FILE_ENABLED:-}"
+CONTAINER_ENV_FILE_MOUNT="${CONTAINER_ENV_FILE_MOUNT:-}"
+CONTAINER_DOCKER_CONFIG_FILE="${CONTAINER_DOCKER_CONFIG_FILE:-}"
+CONTAINER_SOUND_DEVICE_FILE="${CONTAINER_SOUND_DEVICE_FILE:-}"
+CONTAINER_X11_ENABLED="${CONTAINER_X11_ENABLED:-}"
+CONTAINER_X11_SOCKET="${CONTAINER_X11_SOCKET:-}"
+CONTAINER_X11_XAUTH="${CONTAINER_X11_XAUTH:-}"
+CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-}"
+CONTAINER_DOMAINNAME="${CONTAINER_DOMAINNAME:-}"
+CONTAINER_PROTOCOL="${CONTAINER_PROTOCOL:-}"
+CONTAINER_DNS="${CONTAINER_DNS:-}"
+CONTAINER_WEB_SERVER_ENABLED="${CONTAINER_WEB_SERVER_ENABLED:-}"
+CONTAINER_WEB_SERVER_INT_PORT="${CONTAINER_WEB_SERVER_INT_PORT:-}"
+CONTAINER_WEB_SERVER_SSL_ENABLED="${CONTAINER_WEB_SERVER_SSL_ENABLED:-}"
+CONTAINER_WEB_SERVER_AUTH_ENABLED="${CONTAINER_WEB_SERVER_AUTH_ENABLED:-}"
+CONTAINER_WEB_SERVER_LISTEN_ON="${CONTAINER_WEB_SERVER_LISTEN_ON:-}"
+CONTAINER_WEB_SERVER_VHOSTS="${CONTAINER_WEB_SERVER_VHOSTS:-}"
+CONTAINER_ADD_RANDOM_PORTS="${CONTAINER_ADD_RANDOM_PORTS:-}"
+CONTAINER_ADD_CUSTOM_PORT="${CONTAINER_ADD_CUSTOM_PORT:-}"
+CONTAINER_EMAIL_ENABLED="${CONTAINER_EMAIL_ENABLED:-}"
+CONTAINER_EMAIL_USER="${CONTAINER_EMAIL_USER:-}"
+CONTAINER_EMAIL_DOMAIN="${CONTAINER_EMAIL_DOMAIN:-}"
+CONTAINER_EMAIL_RELAY="${CONTAINER_EMAIL_RELAY:-}"
+CONTAINER_SERVICE_PUBLIC="${CONTAINER_SERVICE_PUBLIC:-}"
+CONTAINER_IS_DNS_SERVER="${CONTAINER_IS_DNS_SERVER:-}"
+CONTAINER_IS_DHCP_SERVER="${CONTAINER_IS_DHCP_SERVER:-}"
+CONTAINER_IS_TFTP_SERVER="${CONTAINER_IS_TFTP_SERVER:-}"
+CONTAINER_IS_SMTP_SERVER="${CONTAINER_IS_SMTP_SERVER:-}"
+CONTAINER_IS_POP3_SERVER="${CONTAINER_IS_POP3_SERVER:-}"
+CONTAINER_IS_IMAP_SERVER="${CONTAINER_IS_IMAP_SERVER:-}"
+CONTAINER_IS_TIME_SERVER="${CONTAINER_IS_TIME_SERVER:-}"
+CONTAINER_IS_NEWS_SERVER="${CONTAINER_IS_NEWS_SERVER:-}"
+CONTAINER_DATABASE_LISTEN="${CONTAINER_DATABASE_LISTEN:-}"
+CONTAINER_REDIS_ENABLED="${CONTAINER_REDIS_ENABLED:-}"
+CONTAINER_SQLITE3_ENABLED="${CONTAINER_SQLITE3_ENABLED:-}"
+CONTAINER_MARIADB_ENABLED="${CONTAINER_MARIADB_ENABLED:-}"
+CONTAINER_MONGODB_ENABLED="${CONTAINER_MONGODB_ENABLED:-}"
+CONTAINER_COUCHDB_ENABLED="${CONTAINER_COUCHDB_ENABLED:-}"
+CONTAINER_POSTGRES_ENABLED="${CONTAINER_POSTGRES_ENABLED:-}"
+CONTAINER_SUPABASE_ENABLED="${CONTAINER_SUPABASE_ENABLED:-}"
+CONTAINER_CUSTOM_DATABASE_ENABLED="${CONTAINER_CUSTOM_DATABASE_ENABLED:-}"
+CONTAINER_CUSTOM_DATABASE_NAME="${CONTAINER_CUSTOM_DATABASE_NAME:-}"
+CONTAINER_CUSTOM_DATABASE_PORT="${CONTAINER_CUSTOM_DATABASE_PORT:-}"
+CONTAINER_CUSTOM_DATABASE_DIR="${CONTAINER_CUSTOM_DATABASE_DIR:-}"
+CONTAINER_CUSTOM_DATABASE_PROTOCOL="${CONTAINER_CUSTOM_DATABASE_PROTOCOL:-}"
+CONTAINER_DATABASE_USER_ROOT="${CONTAINER_DATABASE_USER_ROOT:-}"
+CONTAINER_DATABASE_PASS_ROOT="${CONTAINER_DATABASE_PASS_ROOT:-}"
+CONTAINER_DATABASE_LENGTH_ROOT="${CONTAINER_DATABASE_LENGTH_ROOT:-}"
+CONTAINER_DATABASE_USER_NORMAL="${CONTAINER_DATABASE_USER_NORMAL:-}"
+CONTAINER_DATABASE_PASS_NORMAL="${CONTAINER_DATABASE_PASS_NORMAL:-}"
+CONTAINER_DATABASE_LENGTH_NORMAL="${CONTAINER_DATABASE_LENGTH_NORMAL:-}"
+CONTAINER_USER_NAME="${CONTAINER_USER_NAME:-}"
+CONTAINER_USER_PASS="${CONTAINER_USER_PASS:-}"
+CONTAINER_PASS_LENGTH="${CONTAINER_PASS_LENGTH:-}"
+CONTAINER_ENV_USER_NAME="${CONTAINER_ENV_USER_NAME:-}"
+CONTAINER_ENV_PASS_NAME="${CONTAINER_ENV_PASS_NAME:-}"
+CONTAINER_SERVICES_LIST="${CONTAINER_SERVICES_LIST:-}"
+CONTAINER_MOUNT_DATA_ENABLED="${CONTAINER_MOUNT_DATA_ENABLED:-}"
+CONTAINER_MOUNT_DATA_MOUNT_DIR="${CONTAINER_MOUNT_DATA_MOUNT_DIR:-}"
+CONTAINER_MOUNT_CONFIG_ENABLED="${CONTAINER_MOUNT_CONFIG_ENABLED:-}"
+CONTAINER_MOUNT_CONFIG_MOUNT_DIR="${CONTAINER_MOUNT_CONFIG_MOUNT_DIR:-}"
+CONTAINER_MOUNTS="${CONTAINER_MOUNTS:-}"
+CONTAINER_DEVICES="${CONTAINER_DEVICES:-}"
+CONTAINER_ENV="${CONTAINER_ENV:-}"
+CONTAINER_SYSCTL="${CONTAINER_SYSCTL:-}"
+CONTAINER_LABELS="${CONTAINER_LABELS:-}"
+CONTAINER_COMMANDS="${CONTAINER_COMMANDS:-}"
+CONTAINER_DEBUG_ENABLED="${CONTAINER_DEBUG_ENABLED:-}"
+CONTAINER_DEBUG_OPTIONS="${CONTAINER_DEBUG_OPTIONS:-}"
+CONTAINER_CREATE_DIRECTORY="${CONTAINER_CREATE_DIRECTORY:-}"
 #
 DOCKER_SYS_ADMIN="\${ENV_DOCKER_SYS_ADMIN:-$DOCKER_SYS_ADMIN}"
 DOCKER_CAP_CHOWN="\${ENV_DOCKER_CAP_CHOWN:-$DOCKER_CAP_CHOWN}"
@@ -616,23 +633,34 @@ __test_public_reachable() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_docker_script() {
   [ -n "$EXECUTE_DOCKER_CMD" ] || return
+  local replace_with="$HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS"
   create_docker_script_message_pre="${create_docker_script_message_pre:-Failed to execute $EXECUTE_PRE_INSTALL}"
   create_docker_script_message_post="${create_docker_script_message_post:-Failed to create $CONTAINER_NAME}"
-  cat <<EOF | sed 's/ --/\n  --/g;s| -d| -d \\|g' | grep -v '^$' | sed '/  --/ s/$/ \\/' | sed "s|$HUB_IMAGE_URL:$HUB_IMAGE_TAG.* |$HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS|g" | grep '^' >"$DOCKERMGR_INSTALL_SCRIPT"
+  cat <<EOF | grep -v '^$' | sed 's/ --/\n  --/g;s| -d| -d \\|g' | grep -v '^$' | sed '/  --/ s/$/ \\/' | grep '^' | tee "$DOCKERMGR_INSTALL_SCRIPT" >/dev/null
 #!/usr/bin/env bash
 # Install script for $CONTAINER_NAME
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 $EXECUTE_PRE_INSTALL
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 statusCode=\$?
-[ \$statusCode -eq 0 ] || { echo "$create_docker_script_message_pre" >&2 && exit 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ \$statusCode -eq 0 ]; then
+  echo "$create_docker_script_message_pre" >&2
+  exit 1
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 $EXECUTE_DOCKER_CMD
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  $HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS
 statusCode=\$?
-[ \$statusCode -eq 0 ] || { echo "$create_docker_script_message_post" >&2 && exit 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-docker ps -a 2>&1 | grep -q "$CONTAINER_NAME" || { echo "$CONTAINER_NAME is not running" >&2 && exit 1; }
+if [ \$statusCode -ne 0 ]; then
+  echo "$create_docker_script_message_post" >&2
+  exit 1
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if ! docker ps -a 2>&1 | grep -q "$CONTAINER_NAME"; then
+echo "$CONTAINER_NAME is not running" >&2
+  exit 1
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 exit 0
 # end script
@@ -640,6 +668,7 @@ exit 0
 EOF
   unset create_docker_script_message_pre create_docker_script_message_post
   [ -f "$DOCKERMGR_INSTALL_SCRIPT" ] || return 1
+  sed -i 's| '$HUB_IMAGE_URL':'$HUB_IMAGE_TAG' .*\\| \\|g' "$DOCKERMGR_INSTALL_SCRIPT"
   chmod -Rf 755 "$DOCKERMGR_INSTALL_SCRIPT"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -810,63 +839,6 @@ DOCKER_CAP_SYS_NICE="${ENV_DOCKER_CAP_SYS_NICE:-$DOCKER_CAP_SYS_NICE}"
 DOCKER_CAP_NET_ADMIN="${ENV_DOCKER_CAP_NET_ADMIN:-$DOCKER_CAP_NET_ADMIN}"
 DOCKER_CAP_NET_BIND_SERVICE="${ENV_DOCKER_CAP_NET_BIND_SERVICE:-$DOCKER_CAP_NET_BIND_SERVICE}"
 DOCKERMGR_ENABLE_INSTALL_SCRIPT="${SCRIPT_ENABLED:-$DOCKERMGR_ENABLE_INSTALL_SCRIPT}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup easy port settings
-[ "$CONTAINER_SERVICE_PUBLIC" ] && CONTAINER_SERVICE_PUBLIC="0.0.0.0" || CONTAINER_SERVICE_PUBLIC="127.0.0.1"
-if [ "$CONTAINER_IS_DNS_SERVER" = "yes" ]; then
-  service_port="$(__netstat "53" && __port || echo "53")"
-  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:53/udp")
-  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:53/tcp")
-  unset service_port
-fi
-if [ "$CONTAINER_IS_DHCP_SERVER" = "yes" ]; then
-  service_port="$(__netstat "67" && __port || echo "67")"
-  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:67/udp")
-  service_port="$(__netstat "68" && __port || echo "68")"
-  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:68/udp")
-  unset service_port
-fi
-if [ "$CONTAINER_IS_TFTP_SERVER" = "yes" ]; then
-  service_port="$(__netstat "69" && __port || echo "69")"
-  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:69/udp")
-  unset service_port
-fi
-if [ "$CONTAINER_IS_SMTP_SERVER" = "yes" ]; then
-  service_port="$(__netstat "25" && __port || echo "25")"
-  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:25/tcp")
-  service_port="$(__netstat "465" && __port || echo "465")"
-  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:465/tcp")
-  service_port="$(__netstat "587" && __port || echo "587")"
-  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:587/tcp")
-  unset service_port
-fi
-if [ "$CONTAINER_IS_POP3_SERVER" = "yes" ]; then
-  service_port="$(__netstat "110" && __port || echo "110")"
-  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:110/tcp")
-  service_port="$(__netstat "995" && __port || echo "995")"
-  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:995/tcp")
-  unset service_port
-fi
-if [ "$CONTAINER_IS_IMAP_SERVER" = "yes" ]; then
-  service_port="$(__netstat "143" && __port || echo "143")"
-  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:143/tcp")
-  service_port="$(__netstat "993" && __port || echo "993")"
-  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:993/tcp")
-  unset service_port
-fi
-if [ "$CONTAINER_IS_TIME_SERVER" = "yes" ]; then
-  service_port="$(__netstat "123" && __port || echo "123")"
-  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:123/udp")
-  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:123/tcp")
-  unset service_port
-fi
-if [ "$CONTAINER_IS_TIME_SERVER" = "yes" ]; then
-  service_port="$(__netstat "119" && __port || echo "119")"
-  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:119/tcp")
-  service_port="$(__netstat "433" && __port || echo "433")"
-  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:433/tcp")
-  unset service_port
-fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # SSL Setup container mounts
 CONTAINER_SSL_DIR="${CONTAINER_SSL_DIR:-/config/ssl}"
@@ -1043,17 +1015,6 @@ if [ -e "$CGROUPS_MOUNTS" ] || [ -e "/sys/fs/cgroup" ]; then
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Mount hosts resolv.conf in the container
-if [ -e "$HOST_RESOLVE_FILE" ] || [ -f "/etc/resolv.conf" ]; then
-  if [ "$HOST_RESOLVE_ENABLED" = "yes" ]; then
-    if [ -z "$HOST_RESOLVE_FILE" ]; then
-      DOCKER_SET_OPTIONS+=("--volume /etc/resolv.conf:/etc/resolv.conf:ro")
-    else
-      DOCKER_SET_OPTIONS+=("--volume $HOST_RESOLVE_FILE:/etc/resolv.conf:ro")
-    fi
-  fi
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mount the docker socket
 if [ -f "$DOCKER_SOCKET_MOUNT" ] || [ -f "/var/run/docker.sock" ]; then
   if [ "$DOCKER_SOCKET_ENABLED" = "yes" ]; then
@@ -1110,14 +1071,6 @@ if [ "$CONTAINER_X11_ENABLED" = "yes" ]; then
     DOCKER_SET_OPTIONS+=("--volume $HOST_X11_SOCKET:${CONTAINER_X11_SOCKET:-/tmp/.X11-unix}")
     DOCKER_SET_OPTIONS+=("--volume $HOST_X11_XAUTH:${CONTAINER_X11_XAUTH:-/home/x11user/.Xauthority}")
   fi
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#
-if [ "$HOST_ETC_HOSTS_ENABLED" = "yes" ]; then
-  if [ -z "$HOST_ETC_HOSTS_MOUNT" ]; then
-    HOST_ETC_HOSTS_MOUNT="/usr/local/etc/host"
-  fi
-  DOCKER_SET_OPTIONS+=("--volume /etc/hosts:$HOST_ETC_HOSTS_MOUNT:ro")
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup containers hostname
@@ -1256,6 +1209,69 @@ fi
 #
 if [ "$CONTAINER_HTTPS_PORT" != "" ]; then
   CONTAINER_PROTOCOL="https"
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup easy port settings
+if [ "$CONTAINER_SERVICE_PUBLIC" = "yes" ] || [ "$CONTAINER_SERVICE_PUBLIC" = "0.0.0.0" ]; then
+  CONTAINER_SERVICE_PUBLIC="0.0.0.0"
+elif echo "$CONTAINER_SERVICE_PUBLIC" | grep -q '[0-9].*\.[0-9].*\.[0-9].*\.[0-9]'; then
+  true
+else
+  CONTAINER_SERVICE_PUBLIC="127.0.0.1"
+fi
+if [ "$CONTAINER_IS_DNS_SERVER" = "yes" ]; then
+  service_port="$(__netstat "53" | grep -v 'docker' && __port || echo "53")"
+  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:53/udp")
+  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:53/tcp")
+  unset service_port
+fi
+if [ "$CONTAINER_IS_DHCP_SERVER" = "yes" ]; then
+  service_port="$(__netstat "67" | grep -v 'docker' && __port || echo "67")"
+  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:67/udp")
+  service_port="$(__netstat "68" | grep -v 'docker' && __port || echo "68")"
+  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:68/udp")
+  unset service_port
+fi
+if [ "$CONTAINER_IS_TFTP_SERVER" = "yes" ]; then
+  service_port="$(__netstat "69" | grep -v 'docker' && __port || echo "69")"
+  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:69/udp")
+  unset service_port
+fi
+if [ "$CONTAINER_IS_SMTP_SERVER" = "yes" ]; then
+  service_port="$(__netstat "25" | grep -v 'docker' && __port || echo "25")"
+  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:25/tcp")
+  service_port="$(__netstat "465" | grep -v 'docker' && __port || echo "465")"
+  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:465/tcp")
+  service_port="$(__netstat "587" | grep -v 'docker' && __port || echo "587")"
+  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:587/tcp")
+  unset service_port
+fi
+if [ "$CONTAINER_IS_POP3_SERVER" = "yes" ]; then
+  service_port="$(__netstat "110" | grep -v 'docker' && __port || echo "110")"
+  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:110/tcp")
+  service_port="$(__netstat "995" | grep -v 'docker' && __port || echo "995")"
+  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:995/tcp")
+  unset service_port
+fi
+if [ "$CONTAINER_IS_IMAP_SERVER" = "yes" ]; then
+  service_port="$(__netstat "143" | grep -v 'docker' && __port || echo "143")"
+  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:143/tcp")
+  service_port="$(__netstat "993" | grep -v 'docker' && __port || echo "993")"
+  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:993/tcp")
+  unset service_port
+fi
+if [ "$CONTAINER_IS_TIME_SERVER" = "yes" ]; then
+  service_port="$(__netstat "123" | grep -v 'docker' && __port || echo "123")"
+  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:123/udp")
+  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:123/tcp")
+  unset service_port
+fi
+if [ "$CONTAINER_IS_TIME_SERVER" = "yes" ]; then
+  service_port="$(__netstat "119" | grep -v 'docker' && __port || echo "119")"
+  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:119/tcp")
+  service_port="$(__netstat "433" | grep -v 'docker' && __port || echo "433")"
+  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_SERVICE_PUBLIC:$service_port:433/tcp")
+  unset service_port
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Database setup
@@ -1756,12 +1772,12 @@ NGINX_PROXY_URL="${NGINX_PROXY_URL// /}"
 # Set temp env for PORTS ENV variable
 CONTAINER_ENV_PORTS=("${DOCKER_SET_TMP_PUBLISH[@]//--publish/}")
 SET_PORTS_ENV_TMP="$(__trim "${CONTAINER_ENV_PORTS[*]}")"
-DOCKER_SET_PORTS_ENV_TMP="$(echo "${SET_PORTS_ENV_TMP//,/ }" | tr ' ' '\n' | grep ':' | awk -F ':' '{print $NF}' | sort -uV | grep '^')"
-DOCKER_SET_PORTS_ENV_TMP="$(echo "$DOCKER_SET_PORTS_ENV_TMP" | grep '[0-9]' | sed 's|/.*||g' | grep -v '^$' | tr '\n' ' ' | grep '^' || echo '')"
+DOCKER_SET_PORTS_ENV_TMP="$(echo "${SET_PORTS_ENV_TMP//,/ }" | tr ' ' '\n' | grep ':' | awk -F ':' '{print $NF}' | grep '^')"
+DOCKER_SET_PORTS_ENV_TMP="$(echo "$DOCKER_SET_PORTS_ENV_TMP" | grep '[0-9]' | sed 's|/.*||g' | sort -uV | grep -v '^$' | tr '\n' ' ' | grep '^' || echo '')"
 ENV_PORTS="${DOCKER_SET_PORTS_ENV_TMP[*]}"
 ENV_PORTS="$(__trim "${ENV_PORTS[*]}")"
 if [ -n "$ENV_PORTS" ]; then
-  DOCKER_SET_OPTIONS+=("--env ENV_PORTS=\"$ENV_PORTS\"")
+  DOCKER_SET_OPTIONS+=("--env ENV_PORTS=\"${ENV_PORTS[*]}\"")
 fi
 unset DOCKER_SET_PORTS_ENV_TMP ENV_PORTS SET_PORTS_ENV_TMP
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1856,6 +1872,37 @@ else
   __sudo_exec chown -f "$USER":"$USER" "$DATADIR" "$INSTDIR" "$INSTDIR" &>/dev/null
   __sudo_exec date +'installed on %Y-%m-%d at %H:%M' | tee "$DATADIR/.installed" &>/dev/null
 fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Mount /etc/resolv.conf file in the container
+if [ "$HOST_RESOLVE_ENABLED" = "yes" ]; then
+  mkdir -p "$INSTDIR/rootfs/etc"
+  [ -n "$HOST_ETC_RESOLVE_INIT_FILE" ] || HOST_ETC_RESOLVE_INIT_FILE="/etc/resolv.conf"
+  if [ ! -f "$INSTDIR/rootfs/etc/resolv.conf" ]; then
+    cp -Rf "$HOST_ETC_RESOLVE_INIT_FILE" "$INSTDIR/rootfs/etc/resolv.conf"
+  fi
+  touch "$INSTDIR/rootfs/etc/resolv.conf"
+  if [ "$HOST_ETC_RESOLVE_INIT_FILE" = "/usr/local/etc/resolv.conf" ]; then
+    DOCKER_SET_OPTIONS+=("--volume $INSTDIR/rootfs/etc/resolv.conf:/usr/local/etc/resolv.conf")
+  else
+    DOCKER_SET_OPTIONS+=("--volume $INSTDIR/rootfs/etc/resolv.conf:/etc/resolv.conf")
+  fi
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Mount /etc/hosts file in the container
+if [ "$HOST_ETC_HOSTS_ENABLED" = "yes" ]; then
+  mkdir -p "$INSTDIR/rootfs/etc"
+  [ -n "$HOST_ETC_HOSTS_INIT_FILE" ] || HOST_ETC_HOSTS_INIT_FILE="/etc/hosts"
+  if [ ! -f "$INSTDIR/rootfs/etc/hosts" ]; then
+    cp -Rf "$HOST_ETC_HOSTS_INIT_FILE" "$INSTDIR/rootfs/etc/hosts"
+  fi
+  touch "$INSTDIR/rootfs/etc/hosts"
+  if [ "$HOST_ETC_HOSTS_INIT_FILE" = "/usr/local/etc/hosts" ]; then
+    DOCKER_SET_OPTIONS+=("--volume $INSTDIR/rootfs/etc/hosts:/usr/local/etc/hosts")
+  else
+    DOCKER_SET_OPTIONS+=("--volume $INSTDIR/rootfs/etc/hosts:/etc/hosts")
+  fi
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 DOCKERMGR_INSTALL_SCRIPT="$DOCKERMGR_CONFIG_DIR/scripts/$CONTAINER_NAME.sh"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # setup the container

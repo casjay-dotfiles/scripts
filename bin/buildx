@@ -284,7 +284,7 @@ __create_log_files() {
   local dir_name="" file_name=""
   for directory in $BUILDX_PROJECT_DIR; do
     dir_name="$(basename $directory)"
-    file_name="$(basename "$file").log"
+    file_name="$(basename "$dir_name").log"
     if [ -n "$directory" ] && [ ! -d "$BUILDX_LOG_DIR/$dir_name" ]; then
       mkdir -p "$BUILDX_LOG_DIR/$dir_name"
     fi
@@ -520,7 +520,7 @@ __get_dockerfile_ver() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __buildx_run() {
-  trap '' SIGINT
+  trap 'exit' SIGINT
   local exitCode=0
   __wait_for_previous_build
   __create_log_files
@@ -558,10 +558,10 @@ __wait_for_previous_build() {
         sleep $sleep
       fi
     done
+    [ -f "$BUILDX_PID_FILE" ] && rm -Rf "$BUILDX_PID_FILE"
+    buildx init &>/dev/null
+    BUILDX_CLEANUP="false"
   fi
-  [ -f "$BUILDX_PID_FILE" ] && rm -Rf "$BUILDX_PID_FILE"
-  buildx init &>/dev/null
-  BUILDX_CLEANUP="false"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __remove_pid() {
@@ -573,14 +573,15 @@ __remove_pid() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __is_buildx_installed() {
   local buildx_installed=""
-  buildx_installed="$(__docker_init buildx version 2>&1 | grep -q 'buildx.*v[0-9].*[0-9]' && __docker_init buildx ls 2>&1 | grep -A3 'NAME/NODE' | grep 'running.*[0-9] ' | grep -q '^' && echo 'yes' || echo 'no')"
-  if [ "$buildx_installed" = "yes" ] && [ -d "$HOME/.docker/buildx" ]; then
-    return 0
+  buildx_installed="$(__docker_init buildx version 2>&1 | grep 'buildx.*v[0-9].*[0-9]' && __docker_init buildx ls 2>&1 | grep -A3 'NAME/NODE' | grep 'running.*[0-9] ' || false)"
+  if [ -n "$buildx_installed" ] && [ -d "$HOME/.docker/buildx" ]; then
+    exitCode=0
   else
     __install_buildx && __buildx_init && BUILDX_INSTALLED="yes" && return 0
     export BUILDX_INSTALLED="no"
-    return 1
+    exitCode=0
   fi
+  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __is_docker_installed() {
@@ -591,10 +592,12 @@ __is_docker_installed() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __is_initialized() {
-  __buildx_vars ${1:-$BUILDX_BUILDER_NAME}
-  { [ -e "/root/.docker/buildx/instances/$name" ] || [ -e "$HOME/.docker/buildx/instances/$name" ]; } &&
-    { [ -n "$builder_id" ] && [ -n "$qemu_id" ] && [ -n "$binfmt_id" ] && BUILDX_INIT_RAN="true"; } &&
-    __is_buildx_installed && return 0 || return 1
+  local init_name="${name:-${1:-$BUILDX_BUILDER_NAME}}"
+  if { [ -e "/root/.docker/buildx/instances/$init_name" ] || [ -e "$HOME/.docker/buildx/instances/$init_name" ]; }; then
+    { [ -n "$builder_id" ] && [ -n "$qemu_id" ] && [ -n "$binfmt_id" ] && BUILDX_INIT_RAN="true"; } && __is_buildx_installed && return 0 || return 1
+  else
+    return 1
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __jq() { jq "${@:--r}" 2>/dev/null; }
@@ -654,8 +657,6 @@ __binfmt_version() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __buildx_vars() {
-  [ "$1" = "" ] && shift 1
-  [ "$1" = " " ] && shift 1
   local set_name="${1:-$BUILDX_BUILDER_NAME}"
   export name="${set_name:-mybuilder}"
   export qemu_imagename="buildx-qemu"
@@ -664,6 +665,7 @@ __buildx_vars() {
   export binfmt_id="$(__docker_init ps -a | awk '{print $NF}' | grep "$binfmt_imagename" || echo '')"
   export builder_id="$(__docker_init ps -a | awk '{print $NF}' | grep "$name" | grep "buildkit" || __docker_init buildx ls | grep "$name" | awk -F ' ' '{print $1}' | head -n1 || echo '')"
   export BUILDX_BUILDER_NAME="$name"
+  [ -n "$qemu_id" ] && [ -n "$binfmt_id" ] && [ -n "$builder_id" ] && return 0 || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __buildx_version() {
@@ -745,7 +747,7 @@ __install_buildx() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __buildx_init() {
-  __buildx_vars "$1"
+  __buildx_vars $1
   local buildx_log_file="$HOME/.local/log/buildx/$name.log"
   __is_buildx_installed && BUILDX_INIT_RAN="true" || BUILDX_FORCE="true"
   if [ "$BUILDX_FORCE" = "true" ]; then
@@ -786,29 +788,30 @@ __buildx_init() {
       __docker_init buildx use "$name" |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
       __docker_init buildx inspect --bootstrap |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
     fi
-    # create docker daemon file
-    __create_update_docker_daemon_config
-    # setup service
-    printf_blue "Making sure docker service is running"
-    sudo systemctl daemon-reload
-    if ! systemctl status systemd-binfmt.service | grep -iq 'running'; then
-      sudo systemctl enable -now systemd-binfmt.service &>/dev/null
-      sudo systemctl restart systemd-binfmt.service &>/dev/null
+    if [ "$BUILDX_INIT_RAN" != "yes" ]; then
+      # create docker daemon file
+      __create_update_docker_daemon_config
+      # setup service
+      printf_blue "Making sure docker service is running"
+      sudo systemctl daemon-reload
+      if ! systemctl status systemd-binfmt.service | grep -iq 'running'; then
+        sudo systemctl enable -now systemd-binfmt.service &>/dev/null
+        sudo systemctl restart systemd-binfmt.service &>/dev/null
+      fi
+      if ! systemctl status docker*.service | grep -iq 'running'; then
+        sudo systemctl enable --now docker &>/dev/null
+        sudo systemctl restart docker &>/dev/null
+      fi
+      # login to docker hub
+      printf_yellow "Making sure user is signed into to docker hub"
+      __is_logged_in || __docker_init login || exit 2
+      # clean up
+      printf_purple "Finishing up"
+      [ -d "$HOME/.docker/buildx" ] || mkdir -p "$HOME/.docker/buildx"
+      sudo bash -c '[ -d "/root/.docker/buildx" ] && [ "/root/.docker/buildx" != "'$HOME/.docker/buildx'" ] && cp -Rf /root/.docker/buildx/. "'$HOME/.docker/buildx/'"'
+      sudo chown -Rf "$SUDO_USER":"$SUDO_USER" "$HOME/.docker"
+      [ -e "$HOME/.docker/buildx/current" ] && printf_green "buildx has been setup"
     fi
-    if ! systemctl status docker*.service | grep -iq 'running'; then
-      sudo systemctl enable --now docker &>/dev/null
-      sudo systemctl restart docker &>/dev/null
-    fi
-    # login to docker hub
-    printf_yellow "Making sure user is signed into to docker hub"
-    __is_logged_in || __docker_init login || exit 2
-    # clean up
-    printf_purple "Finishing up"
-    [ -d "$HOME/.docker/buildx" ] || mkdir -p "$HOME/.docker/buildx"
-    sudo bash -c '[ -d "/root/.docker/buildx" ] && [ "/root/.docker/buildx" != "'$HOME/.docker/buildx'" ] && cp -Rf /root/.docker/buildx/. "'$HOME/.docker/buildx/'"'
-    sudo chown -Rf "$SUDO_USER":"$SUDO_USER" "$HOME/.docker"
-    [ -e "$HOME/.docker/buildx/current" ] && printf_green "buildx has been setup"
-
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1560,8 +1563,7 @@ export DOCKER_CLI_EXPERIMENTAL="$BUILDX_DOCKER_CLI_EXPERIMENTAL"
 [ -n "$BUILDX_SET_GIT_USER" ] && export BUILDX_SET_GIT_USER
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
-__is_docker_installed
-__is_buildx_installed
+__buildx_vars $BUILDX_BUILDER_NAME
 [ -d "$HOME/.local/run/$APPNAME" ] || mkdir -p "$HOME/.local/run/$APPNAME"
 [ -d "$BUILDX_CONFIG_DIR/scripts" ] || mkdir -p "$BUILDX_CONFIG_DIR/scripts"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

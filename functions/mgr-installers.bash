@@ -1046,8 +1046,8 @@ dotfilesreqadmin() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __devnull() { tee &>/dev/null && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__saved_file_create() { sudo touch "${PKMGR_INSTALLED_LIST_DIR:-/usr/local/etc/pkmgr/lists}/$1" || true; }
-__saved_file_check() { [ -f "${PKMGR_INSTALLED_LIST_DIR:-/usr/local/etc/pkmgr/lists}/$1" ] || return 1; }
+__saved_file_create() { echo "$1" | sudo tee "${PKMGR_INSTALLED_LIST_DIR:-/usr/local/etc/pkmgr/lists}/$1" &>/dev/null || true; }
+__saved_file_check() { [ -f "${PKMGR_INSTALLED_LIST_DIR:-/usr/local/etc/pkmgr/lists}/$1" ] && grep -qs "$1" "${PKMGR_INSTALLED_LIST_DIR:-/usr/local/etc/pkmgr/lists}/$1" &>/dev/null || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 gem_exists() {
   [ -n "$(builtin type -P gem 2>/dev/null)" ] || return
@@ -1184,7 +1184,7 @@ install_required() {
   local cmd=""
   [ "$SCRIPTS_PREFIX" = "dfmgr" ] || [ "$SCRIPTS_PREFIX" = "systemmgr" ] || return 0
   for cmd in $REQUIRED; do
-    [ -f "/usr/local/etc/pkmgr/lists/$cmd" ] || builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
+    __saved_file_check "$cmd" || builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then

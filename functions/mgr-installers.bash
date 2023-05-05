@@ -1200,20 +1200,23 @@ install_packages() {
       done
     fi
   fi
-  [ -z "$m" ] || exitCode=1
+  [ -z "$m" ] || install_required "$m" || exitCode=1
   unset MISSING m
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_required() {
-  set -x
   local name="$APPNAME"
   local REQUIRED="$*"
   local MISSING=""
   local cmd=""
   #[ "$SCRIPTS_PREFIX" = "dfmgr" ] || [ "$SCRIPTS_PREFIX" = "systemmgr" ] || return 1
   for cmd in $REQUIRED; do
-    __saved_file_check "$cmd" || builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
+    if __saved_file_check "$cmd" || builtin type -P "$cmd" &>/dev/null; then
+      __saved_file_create "$cmd"
+    else
+      MISSING+="$cmd "
+    fi
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then

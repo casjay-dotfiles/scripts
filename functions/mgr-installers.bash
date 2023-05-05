@@ -1184,7 +1184,7 @@ install_required() {
   local cmd=""
   [ "$SCRIPTS_PREFIX" = "dfmgr" ] || [ "$SCRIPTS_PREFIX" = "systemmgr" ] || return 0
   for cmd in $REQUIRED; do
-    grep -qs "$cmd" "/usr/local/etc/pkmgr/lists/${APPNAME:-$cmd}" &>/dev/null || builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
+    [ -f "/usr/local/etc/pkmgr/lists/$cmd" ] || builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
@@ -1199,10 +1199,7 @@ install_required() {
         exitCode=1
         false
       fi
-      if [ $exitCode -eq 0 ]; then
-        REQUIRED="${REQUIRED//$miss/}"
-        __saved_file_create "$miss"
-      else
+      if [ $exitCode -ne 0 ]; then
         printf_red "$ICON_ERROR $name failed to install" >&2
         false
       fi

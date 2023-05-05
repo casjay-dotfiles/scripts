@@ -1047,6 +1047,7 @@ dotfilesreqadmin() {
 __devnull() { tee &>/dev/null && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __saved_file_create() { sudo touch "${PKMGR_INSTALLED_LIST_DIR:-/usr/local/etc/pkmgr/lists}/$1" || true; }
+__saved_file_check() { [ -f "${PKMGR_INSTALLED_LIST_DIR:-/usr/local/etc/pkmgr/lists}/$1" ] || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 gem_exists() {
   [ -n "$(builtin type -P gem 2>/dev/null)" ] || return
@@ -1157,17 +1158,18 @@ install_latest_release() { latest-releases "$@" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_aur() {
   local REQUIRED="$*"
-  local cmd="" MISSING=""
+  local MISSING=""
+  local cmd=""
   [ -f "$(builtin type -P yay 2>/dev/null)" ] || return 0
   if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
     for cmd in $REQUIRED; do
-      [ -f "/usr/local/etc/pkmgr/lists/$APPNAME" ] || builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
+      [ -f "/usr/local/etc/pkmgr/lists/$APPNAME" ] || [ -f "/usr/local/etc/pkmgr/lists/$cmd" ] || builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
     done
     if [ -n "$MISSING" ]; then
       printf_warning "Attempting to install missing packages as $RUN_USER"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr --enable-log --enable-aur silent install $miss" "Installing $miss" || false
+        __saved_file_check "$miss" || execute "pkmgr --enable-log --enable-aur silent install $miss" "Installing $miss" || false
         [ $? -eq 0 ] && __saved_file_create "$miss"
       done
     fi
@@ -1182,7 +1184,7 @@ install_required() {
   local cmd=""
   [ "$SCRIPTS_PREFIX" = "dfmgr" ] || [ "$SCRIPTS_PREFIX" = "systemmgr" ] || return 0
   for cmd in $REQUIRED; do
-    [ -f "/usr/local/etc/pkmgr/lists/$APPNAME" ] || builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
+    grep -qs "$cmd" "/usr/local/etc/pkmgr/lists/${APPNAME:-$cmd}" &>/dev/null || builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
@@ -1230,7 +1232,7 @@ install_packages() {
       printf_warning "$MISSING"
       for miss in $MISSING; do
         execute "pkmgr --enable-log silent install $miss" "Installing $miss" || false
-        [ $? -eq 0 ] && __saved_file_create "$miss"
+        [ $? -eq 0 ] && __saved_file_create "$miss" || still_missing="$missing"
       done
     fi
   fi

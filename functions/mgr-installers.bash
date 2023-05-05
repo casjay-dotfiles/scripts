@@ -1194,7 +1194,7 @@ install_packages() {
       printf_warning "$MISSING"
       for miss in $MISSING; do
         execute "pkmgr --enable-log silent install $miss" "Installing $miss" || false
-        [ $? -eq 0 ] && __saved_file_create "$miss" || still_missing="$missing"
+        [ $? -eq 0 ] && __saved_file_create "$miss" || still_missing="$miss"
       done
     fi
   fi

@@ -1158,6 +1158,7 @@ install_latest_release() { latest-releases "$@" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_aur() {
   local REQUIRED="$*"
+  local exitCode=0
   local MISSING=""
   local cmd=""
   [ -f "$(builtin type -P yay 2>/dev/null)" ] || return 0
@@ -1170,11 +1171,13 @@ install_aur() {
       printf_warning "$MISSING"
       for miss in $MISSING; do
         __saved_file_check "$miss" || execute "pkmgr --enable-log --enable-aur silent install $miss" "Installing $miss" || false
-        [ $? -eq 0 ] && __saved_file_create "$miss"
+        [ $? -eq 0 ] && __saved_file_create "$miss" || still_missing="$miss"
       done
     fi
   fi
+  [ -n "$still_missing" ] && install_required "$APPNAME" || exitCode=1
   unset MISSING
+  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_required() {
@@ -1182,7 +1185,7 @@ install_required() {
   local REQUIRED="$*"
   local MISSING=""
   local cmd=""
-  [ "$SCRIPTS_PREFIX" = "dfmgr" ] || [ "$SCRIPTS_PREFIX" = "systemmgr" ] || return 1
+  #[ "$SCRIPTS_PREFIX" = "dfmgr" ] || [ "$SCRIPTS_PREFIX" = "systemmgr" ] || return 1
   for cmd in $REQUIRED; do
     __saved_file_check "$cmd" || builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
   done

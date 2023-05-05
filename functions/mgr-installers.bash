@@ -1047,7 +1047,7 @@ dotfilesreqadmin() {
 __devnull() { tee &>/dev/null && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __saved_file_create() { echo "$1" | sudo tee "${PKMGR_INSTALLED_LIST_DIR:-/usr/local/etc/pkmgr/lists}/$1" &>/dev/null || true; }
-__saved_file_check() { [ -f "${PKMGR_INSTALLED_LIST_DIR:-/usr/local/etc/pkmgr/lists}/$1" ] && grep -qsw "$1" "${PKMGR_INSTALLED_LIST_DIR:-/usr/local/etc/pkmgr/lists}" &>/dev/null || return 1; }
+__saved_file_check() { [ -f "${PKMGR_INSTALLED_LIST_DIR:-/usr/local/etc/pkmgr/lists}/${1:-NON_EXISTS}" ] || grep -qsw "$1" "${PKMGR_INSTALLED_LIST_DIR:-/usr/local/etc/pkmgr/lists}" &>/dev/null || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 gem_exists() {
   [ -n "$(builtin type -P gem 2>/dev/null)" ] || return

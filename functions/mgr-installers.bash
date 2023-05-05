@@ -1206,6 +1206,7 @@ install_packages() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_required() {
+  set -x
   local name="$APPNAME"
   local REQUIRED="$*"
   local MISSING=""

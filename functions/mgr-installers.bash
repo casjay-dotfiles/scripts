@@ -1161,6 +1161,7 @@ install_aur() {
   local exitCode=0
   local MISSING=""
   local cmd=""
+  local m=""
   [ -f "$(builtin type -P yay 2>/dev/null)" ] || return 0
   if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
     for cmd in $REQUIRED; do
@@ -1171,12 +1172,12 @@ install_aur() {
       printf_warning "$MISSING"
       for miss in $MISSING; do
         execute "pkmgr --enable-log --enable-aur silent install $miss" "Installing $miss" || false
-        [ $? -eq 0 ] && __saved_file_create "$miss" || still_missing="$miss"
+        [ $? -eq 0 ] && __saved_file_create "$miss" || m="$miss"
       done
     fi
   fi
-  [ -n "$still_missing" ] && install_required "$APPNAME" || exitCode=1
-  unset MISSING
+  [ -z "$m" ] || exitCode=1
+  unset MISSING m
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1185,6 +1186,7 @@ install_packages() {
   local exitCode=0
   local MISSING=""
   local cmd=""
+  local m=""
   if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
     for cmd in $REQUIRED; do
       __saved_file_check "$cmd" || builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
@@ -1194,12 +1196,12 @@ install_packages() {
       printf_warning "$MISSING"
       for miss in $MISSING; do
         execute "pkmgr --enable-log silent install $miss" "Installing $miss" || false
-        [ $? -eq 0 ] && __saved_file_create "$miss" || still_missing="$miss"
+        [ $? -eq 0 ] && __saved_file_create "$miss" || m+="$miss"
       done
     fi
   fi
-  [ -n "$still_missing" ] && install_required "$APPNAME" || exitCode=1
-  unset MISSING
+  [ -z "$m" ] || exitCode=1
+  unset MISSING m
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

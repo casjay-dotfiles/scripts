@@ -1164,13 +1164,13 @@ install_aur() {
   [ -f "$(builtin type -P yay 2>/dev/null)" ] || return 0
   if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
     for cmd in $REQUIRED; do
-      [ -f "/usr/local/etc/pkmgr/lists/$cmd" ] || [ -f "/usr/local/etc/pkmgr/lists/$APPNAME" ] || builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
+      __saved_file_check "$miss" || builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
     done
     if [ -n "$MISSING" ]; then
       printf_warning "Attempting to install missing packages as $RUN_USER"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        __saved_file_check "$miss" || execute "pkmgr --enable-log --enable-aur silent install $miss" "Installing $miss" || false
+        execute "pkmgr --enable-log --enable-aur silent install $miss" "Installing $miss" || false
         [ $? -eq 0 ] && __saved_file_create "$miss" || still_missing="$miss"
       done
     fi
@@ -1187,7 +1187,7 @@ install_packages() {
   local cmd=""
   if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
     for cmd in $REQUIRED; do
-      [ -f "/usr/local/etc/pkmgr/lists/$cmd" ] || builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
+      __saved_file_check "$cmd" || builtin type -P "$cmd" &>/dev/null || MISSING+="$cmd "
     done
     if [ -n "$MISSING" ]; then
       printf_warning "Attempting to install missing packages as $RUN_USER"

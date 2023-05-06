@@ -1052,43 +1052,47 @@ __saved_file_check() { [ -f "${PKMGR_INSTALLED_LIST_DIR:-/usr/local/etc/pkmgr/li
 gem_exists() {
   [ -n "$(builtin type -P gem 2>/dev/null)" ] || return
   local package="$1"
-  gem list | grep -q "$package" && return 0 || cmd_missing "$package" &>/dev/null || return 1
+  __cmd_exists "$package" && return 0
+  gem list | grep -q "$package" && return 0 || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 npm_exists() {
+  local exitCode=1
   [ -n "$(builtin type -P npm 2>/dev/null || builtin type -P yarn || builtin type -P pnpm || echo '')" ] || return
   local package="$1"
+  __cmd_exists "$package" && return 0
   if __cmd_exists npm && npm list -g --depth=0 2>&1 | grep -q "$package@"; then
-    return 0
+    exitCode=0
   elif __cmd_exists yarn && yarn list -g --depth=0 2>&1 | grep -q "$package"; then
-    return 0
+    exitCode=0
   elif __cmd_exists pnpm && pnpm list -g --depth=0 2>&1 | grep -q "$package"; then
-    return 0
-  elif __cmd_exists "$package"; then
-    return 0
-  else
-    return 1
+    exitCode=0
   fi
+  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 perl_exists() {
   [ -n "$(builtin type -P perl 2>/dev/null)" ] || return
   local package="${1//perl-/}"
-  if devnull perl -M$package -le 'print $INC{"$package/Version.pm"}' ||
-    devnull perl -M$package -le 'print $INC{"$package.pm"}' ||
-    devnull perl -M$package -le 'print $INC{"$package"}' || cmd_missing "$package" &>/dev/null; then
-    return 0
-  else
-    return 1
+  local statusCode=1
+  __cmd_exists "$package" && return 0
+  if devnull perl -M$package -le 'print $INC{"$package/Version.pm"}'; then
+    statusCode=0
+  elif devnull perl -M$package -le 'print $INC{"$package.pm"}'; then
+    statusCode=0
+  elif devnull perl -M$package -le 'print $INC{"$package"}'; then
+    statusCode=0
   fi
+  return $statusCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 python_exists() {
   local package="$1"
   local statusCode=1
+  __cmd_exists "$package" && return 0
   local py="$(builtin type -P python3 2>/dev/null || builtin type -P python2 2>/dev/null || builtin type -P python 2>/dev/null)"
   if [ -n "$py" ]; then
-    if [ "$(eval $py -c 'import '$package';print("0")' 2>/dev/null || echo "1")" = 0 ] || [ -n "$(builtin type -P "$package")" ]; then
+    if [ "$(eval $py -c 'import '$package';print("0")' 2>/dev/null || echo "1")" = 0 ]; then
       statusCode=0
     fi
   else

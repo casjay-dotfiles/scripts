@@ -19,10 +19,12 @@
 # @@Template         :  installers/personal
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # shell check options
-# shellcheck disable=SC2317
+# shellcheck disable=SC2016
+# shellcheck disable=SC2031
 # shellcheck disable=SC2120
 # shellcheck disable=SC2155
 # shellcheck disable=SC2199
+# shellcheck disable=SC2317
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
 VERSION="GEN_SCRIPT_REPLACE_VERSION"

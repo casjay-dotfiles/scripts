@@ -1087,7 +1087,7 @@ python_exists() {
   local package="$1"
   local py="$(builtin type -P python3 2>/dev/null || builtin type -P python2 2>/dev/null || builtin type -P python 2>/dev/null)"
   if [ -n "$py" ]; then
-    if [ "$($py -c 'import pkgutil; print(0 if pkgutil.find_loader("$package") else 1)')" = 0 ]; then
+    if [ "$($py -c 'import '$package';print("0")' 2>/dev/null || echo "1")" = 0 ]; then
       return 0
     elif cmd_missing "$package" &>/dev/null; then
       return 0

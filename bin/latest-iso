@@ -398,11 +398,11 @@ __gui() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_all() {
   local statusCode=0
-  isos="$(echo "$ARRAY" | tr ' ' '\n' | sort -u | grep -Ev 'iso' | tr '\n' ' ')"
+  isos="$(echo "$ARRAY" | tr ' ' '\n' | sort -u | grep -Ev 'iso|gui' | tr '\n' ' ')"
   for iso in $isos; do
-    eval $APPNAME "$iso" || statusCode=$((statusCode + 1))
+    LATEST_ISO_SYSTEM_ARCH="$LATEST_ISO_SYSTEM_ARCH" eval "$0 $iso" || statusCode=$((statusCode + 1))
   done
-  exit $statusCode
+  return $statusCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __test_iso() {
@@ -604,13 +604,18 @@ __grab_iso() {
       curl -q -LSsf -o "$download_file" "$latest" 2>/dev/null && success="true" || success=""
     fi
     if echo "$latest" | grep -qE '.gz$|.tar$'; then __ex "$download_file" "$archive_iso_name"; fi
-    [ -f "$download_file" ] && __filesize_local "$download_file"
-    if __verify_filesizes "$local_file_size_raw" "$remote_file_size_raw"; then
-      printf_green "Downloading of the ISO was successful"
-      exitCode=${exitFailed:-0}
-    elif __verify_filesizes "$local_file_size" "$remote_file_size"; then
-      printf_green "Downloading of the ISO was successful"
-      exitCode=${exitFailed:-0}
+    [ -f "$download_file" ] && downloadStatus=0 && __filesize_local "$download_file" || downloadStatus=1
+    if [ "$downloadStatus" -eq 0 ]; then
+      if __verify_filesizes "$local_file_size_raw" "$remote_file_size_raw"; then
+        printf_green "Downloading of the ISO was successful"
+        exitCode=${exitFailed:-0}
+      elif __verify_filesizes "$local_file_size" "$remote_file_size"; then
+        printf_green "Downloading of the ISO was successful"
+        exitCode=${exitFailed:-0}
+      else
+        printf_red "Downloading of the ISO was unsuccessful"
+        exitCode="1"
+      fi
     elif ! __verify_filesizes "$local_file_size_raw" "$remote_file_size_raw"; then
       printf_red "Downloading of the ISO was unsuccessful"
       exitCode="1"
@@ -747,7 +752,6 @@ __latest_list() {
       shift 1
       LATEST_ISO_NAME="${LATEST_ISO_NAME:-slim}"
       isourl="$(curl -q -LSsf "$LATEST_ISO_BLACKARCH_URL" | __strip_tags | grep -i "$LATEST_ISO_NAME" | __strip_iso)"
-      printf_exit $LATEST_ISO_BLACKARCH_URL/$isourl
       __latest_iso "$LATEST_ISO_BLACKARCH_URL/$isourl" "$LATEST_ISO_DOWNLOAD_DIR/blackarch.iso"
       statusCode=$(($? + $statusCode))
       ;;
@@ -1200,7 +1204,6 @@ export LATEST_ISO_CWD
 __user_is_root && [ -d "/var/lib/vz/template/iso" ] && LATEST_ISO_DOWNLOAD_DIR="/var/lib/vz/template/iso"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
-[ "$RUN_ALL" = "true" ] && __run_all
 LATEST_ISO_SYSTEM_ARCH="${LATEST_ISO_SYSTEM_ARCH:-$(__get_arch)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
@@ -1225,7 +1228,10 @@ iso)
   exit ${exitCode:-1}
   ;;
 *)
-  if [ $# -ne 0 ]; then
+  if [ "$RUN_ALL" = "true" ]; then
+    __run_all
+    exit $?
+  elif [ $# -ne 0 ]; then
     __latest_list "$@"
   else
     __help

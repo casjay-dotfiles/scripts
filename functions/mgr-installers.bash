@@ -1085,17 +1085,16 @@ perl_exists() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 python_exists() {
   local package="$1"
+  local statusCode=1
   local py="$(builtin type -P python3 2>/dev/null || builtin type -P python2 2>/dev/null || builtin type -P python 2>/dev/null)"
   if [ -n "$py" ]; then
-    if [ "$($py -c 'import '$package';print("0")' 2>/dev/null || echo "1")" = 0 ]; then
-      return 0
-    elif cmd_missing "$package" &>/dev/null; then
-      return 0
-    else
-      return 0
+    if [ "$(eval $py -c 'import '$package';print("0")' 2>/dev/null || echo "1")" = 0 ] || [ -n "$(builtin type -P "$package")" ]; then
+      statusCode=0
     fi
-    return 0
+  else
+    statusCode=0
   fi
+  return $statusCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 cmd_missing() {

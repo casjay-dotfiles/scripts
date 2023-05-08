@@ -551,7 +551,6 @@ __install_latest() {
   else
     latest_json="$(__curl_json)"
     latest_download="$(__browser_download_url "$latest_json" "$set_arch" || return 1)"
-    [ -n "$latest_download" ] || latest_download="$(__browser_download_url "$latest_json" | __grep_exclude | __grep_include | grep "$LATEST_RELEASE_OS_NAME" || return 1)"
   fi
   if [ -z "$latest_download" ] && [ -n "$retry_arch" ]; then
     latest_download="$(__browser_download_url "$latest_json" "$retry_arch" || return 1)"
@@ -561,6 +560,11 @@ __install_latest() {
     latest_download="$(__browser_download_url "$latest_json" "$retry2_arch" || return 1)"
     get_arch="$retry2_arch"
   fi
+  if [ -z "$latest_download" ]; then
+    latest_download="$(__browser_download_url "$latest_json" "$LATEST_RELEASE_OS_NAME" | __grep_exclude | __grep_include || return 1)"
+  fi
+  latest_version_full="$(basename "$(dirname "$latest_download")")"
+  latest_version="${latest_version_full//[a-zA-Z]/}"
   latest_download_url="https://github.com/$repo/releases/latest"
   basename="$(basename "$latest_download")"
   base_repo="$(basename "$(dirname "$repo")")"
@@ -590,37 +594,37 @@ __install_latest() {
       printf_blue "Extracting to $extract_dir"
       file_is_archive="true"
       mkdir -p "$extract_dir"
-      tar xjf "$filename" -C "$extract_dir" &>/dev/null || extractExitCode=1
+      tar xjfv "$filename" -C "$extract_dir" &>/dev/null || extractExitCode=1
       ;;
     *.bz2)
       printf_blue "Extracting to $extract_dir"
       file_is_archive="true"
       mkdir -p "$extract_dir"
-      tar xjf "$filename" -C "$extract_dir" &>/dev/null || extractExitCode=1
+      tar xjfv "$filename" -C "$extract_dir" &>/dev/null || extractExitCode=1
       ;;
     *.tar.gz)
       printf_blue "Extracting to $extract_dir"
       file_is_archive="true"
       mkdir -p "$extract_dir"
-      tar xf "$filename" -C "$extract_dir" &>/dev/null || extractExitCode=1
+      tar xfv "$filename" -C "$extract_dir" &>/dev/null || extractExitCode=1
       ;;
     *.tgz)
       printf_blue "Extracting to $extract_dir"
       file_is_archive="true"
       mkdir -p "$extract_dir"
-      tar xf "$filename" -C "$extract_dir" &>/dev/null || extractExitCode=1
+      tar xfv "$filename" -C "$extract_dir" &>/dev/null || extractExitCode=1
       ;;
     *.gz)
       printf_blue "Extracting to $extract_dir"
       file_is_archive="true"
       mkdir -p "$extract_dir"
-      tar xf "$filename" -C "$extract_dir" &>/dev/null || extractExitCode=1
+      tar xfv "$filename" -C "$extract_dir" &>/dev/null || extractExitCode=1
       ;;
     *.xz)
       printf_blue "Extracting to $extract_dir"
       file_is_archive="true"
       mkdir -p "$extract_dir"
-      tar xf "$filename" -C "$extract_dir" &>/dev/null || extractExitCode=1
+      tar xfv "$filename" -C "$extract_dir" &>/dev/null || extractExitCode=1
       ;;
     *.zip)
       printf_blue "Extracting to $extract_dir"
@@ -638,6 +642,19 @@ __install_latest() {
     *) ;;
     esac
     [ $extractExitCode -eq 0 ] || printf_exit "Failed to extract $filename"
+    if [ "$file_is_archive" = "true" ] && [ -n "$latest_version" ]; then
+      if [ "$(\find "$extract_dir"/ -maxdepth 1 -type d -iname "$extract_name" 2>/dev/null | wc -l)" = 1 ]; then
+        for versions in $latest_version $latest_version_full; do
+          if [ -d "$extract_dir/$basenamerepo-$versions" ]; then
+            rsync -ah "$extract_dir/$basenamerepo-$versions/." "$extract_dir/" --delete-after
+            rm -Rf "$extract_dir/$basenamerepo-$versions"
+          elif [ -d "$extract_dir/$base_repo-$versions" ]; then
+            rsync -ah "$extract_dir/$base_repo-$versions/." "$extract_dir/" --delete-after
+            rm -Rf "$extract_dir/$base_repo-$versions"
+          fi
+        done
+      fi
+    fi
     find_file="$filename"
     set_filename="$(find "$download_dir" -maxdepth 3 -type f -name $basename 2>/dev/null | __grep -i "^$filename$" | head -n1 | __grep '^')"
     if [ -d "$extract_dir" ]; then
@@ -660,24 +677,38 @@ __install_latest() {
       find_file="$(find "$extract_dir" -maxdepth 3 -type f -executable -iname "$search_name" 2>/dev/null | __grep -iE "^$search_name|$search_name$" | head -n1 | __grep '^')"
       if [ -z "$find_file" ]; then
         search_name="${extract_name//*-/}"
-        find_file="$(find "$extract_dir" "" -maxdepth 3 -type f -executable -iname "$search_name" 2>/dev/null | __grep -iE "^$search_name|$search_name$" | head -n1 | __grep '^')"
+        find_file="$(find "$extract_dir" -maxdepth 3 -type f -executable -iname "$search_name" 2>/dev/null | __grep -iE "^$search_name|$search_name$" | head -n1 | __grep '^')"
+      fi
+      if [ -z "$find_file" ]; then
+        for find_arch in aarch64 arm64 amd64 x86_64; do
+          try_find_file="$(find "$extract_dir" -maxdepth 2 -type f -executable -iname "${extract_name}*${find_arch}" 2>/dev/null | head -n1 | __grep '^')"
+          for try_arch in $set_arch $retry_arch $retry2_arch; do
+            find_file="$(echo "$try_find_file" | grep -i "$try_arch")"
+          done
+          search_name="$find_file"
+          bin_filename="${search_name%.*}"
+          [ -f "$search_name" ] && break
+        done
       fi
       extract_name="${find_file:-$extract_name}"
       bin_filename="$(basename "${bin_filename:-$extract_name}")"
       if [ -n "$find_file" ]; then
         if [ "$local_archive_count" = 1 ]; then
+          clean_extract_dir="true"
           __clean_old_bin "$bin_filename"
-          __cp_rf "$extract_name" "$HOME/.local/bin/$bin_filename" && __rm_rf "$extract_dir"
+          __cp_rf "$extract_name" "$HOME/.local/bin/$bin_filename"
         else
+          [ -L "$HOME/.local/bin/$bin_filename" ] && unlink "$HOME/.local/bin/$bin_filename"
           ln -sf "$extract_name" "$HOME/.local/bin/$bin_filename"
         fi &&
           printf_cyan "Installed $extract_name to $HOME/.local/bin/$bin_filename"
       fi
     elif [ -n "$find_file" ] && [ -x "$find_file" ]; then
+      clean_extract_dir="true"
       extract_name="$find_file"
       bin_filename="$(basename "${bin_filename:-$extract_name}")"
       __clean_old_bin "$bin_filename"
-      __cp_rf "$extract_name" "$HOME/.local/bin/$bin_filename" && printf_cyan "Installed $extract_name to $HOME/.local/bin/$bin_filename" && __rm_rf "$extract_dir"
+      __cp_rf "$extract_name" "$HOME/.local/bin/$bin_filename" && printf_cyan "Installed $extract_name to $HOME/.local/bin/$bin_filename"
     elif [ -f "$set_filename" ]; then
       extract_name="$set_filename"
       bin_filename="$(basename "${bin_filename:-$extract_name}")"
@@ -691,7 +722,11 @@ __install_latest() {
     if [ -f "$HOME/.local/bin/$bin_filename" ]; then
       chmod -Rf 755 "$HOME/.local/bin/$bin_filename"
     else
-      printf_exit "Failed to install $extract_name to $HOME/.local/bin/$bin_filename"
+      if [ "$file_is_archive" = "true" ]; then
+        printf_exit "Can not find $extract_name in $extract_dir"
+      else
+        printf_exit "Failed to install $extract_name to $HOME/.local/bin/$bin_filename"
+      fi
     fi
   else
     manual_dl="$(echo "$latest_json" | jq -r '.html_url')"
@@ -699,7 +734,7 @@ __install_latest() {
     [ -n "$manual_dl" ] && echo "Go to $manual_dl for manual download" | printf_readline $LATEST_RELEASES_OUTPUT_COLOR_1
     exitCode=1
   fi
-  set +x
+  [ "$clean_extract_dir" = "true" ] && __rm_rf "$extract_dir"
   if __can_i_sudo; then
     if [ "$LATEST_RELEASE_INSTALL_TO_SYSTEM_BIN" = "yes" ]; then
       if [ -x "$HOME/.local/bin/$bin_filename" ] && [ ! -L "$HOME/.local/bin/$bin_filename" ]; then

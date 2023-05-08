@@ -322,6 +322,25 @@ __trap_exit() {
 # User defined functions
 __cd() { [ -d "$iso_dir" ] && builtin cd "$1" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__test_arch() {
+  local test_arch="" a=""
+  local arch="$(uname -m | tr '[:upper:]' '[:lower:]')"
+  local -a input=("$@")
+  if [ "$arch" = "x86_64" ]; then
+    test_arch="amd64 x86_64 x64"
+  elif [ "$arch" = "aarch64" ]; then
+    test_arch="aarch64 arm64"
+  elif [ "$arch" = "arm64" ]; then
+    test_arch="arm64 aarch64"
+  else
+    test_arch="$arch"
+  fi
+  for a in $test_arch; do
+    output="$(printf '%s\n' "${input[@]}" | tr ' ' '\n' | grep "$a" | head -n1 | grep '^' || false)"
+    [ -n "$output" ] && echo "$output" && break
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __extractor() {
   if echo "$1" | grep -qE '.tar$|.tar.gz$'; then
     tar xfvz "$1"
@@ -435,6 +454,8 @@ __strip_iso() {
   grep -aE '[_|-|.]*.*[_|-|.]' | grep -Ev 'torrent|target|ti-download' | grep -E '.iso$|.gz$|.tar$' | head -n1 | grep '^' || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_link() { grep 'href=' | sed 's/<\/\?[^>]\+>//g;s|(.*)||g'; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __strip_tags() {
   iso="${iso:-}"
   sed -r 's/.*href="([^"]+).*/\1/g' |
@@ -454,7 +475,6 @@ __strip_tags() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __verify_arch() {
-  local latest="" __verify_arch=""
   latest="${1:-$latest}"
   if echo "$latest" | grep -wq 'x86_64'; then
     verify_arch="x86_64"
@@ -485,6 +505,15 @@ __get_arch() {
   elif [[ "$get_arch" =~ arm* ]]; then
     echo "$get_arch"
   fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__sourceforge() {
+  file_dirs="$1/files/$2"
+  get_dirs="$(curl -q -LSsf https://sourceforge.net/projects/$file_dirs | grep 'net.sf.files' | sed 's|.*= ||g' | jq -rc '.[]|.name' 2>/dev/null | grep -E 'stable|[0-9].[0-9]|[a-z].*[0-9]' | grep -v '^$' | sort -rV | head -n1 | grep '^')"
+  get_isos="$(curl -q -LSsf https://sourceforge.net/projects/$file_dirs/$get_dirs | grep 'net.sf.files' | sed 's|.*= ||g' | jq -rc '.[]|.name' 2>/dev/null | sort -rV | grep 'iso$')"
+  [ -n "$get_isos" ] || get_isos="$(curl -q -LSsf https://sourceforge.net/projects/$file_dirs/$get_dirs/$get_files | grep -i '.iso' | sed 's/<[^>]*>//g' | sed 's|/download$||g' | sort -rV)"
+  get_isos="$(__test_arch "$get_isos")"
+  [ -n "$get_isos" ] && echo "https://sourceforge.net/projects/$file_dirs/$get_dirs/$get_isos"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __find_iso() {
@@ -928,6 +957,26 @@ __latest_list() {
       __latest_iso "$isoname" "$LATEST_ISO_DOWNLOAD_DIR/tiny.iso"
       statusCode=$(($? + $statusCode))
       ;;
+
+    clonezilla)
+      shift 1
+      isourl="$(__sourceforge "clonezilla" "clonezilla_live_stable")"
+      __latest_iso "$isourl" "$LATEST_ISO_DOWNLOAD_DIR/clonezilla.iso"
+      statusCode=$(($? + $statusCode))
+      ;;
+    gparted)
+      shift 1
+      isourl="$(__sourceforge "gparted" "gparted-live-stable")"
+      __latest_iso "$isourl" "$LATEST_ISO_DOWNLOAD_DIR/gparted.iso"
+      statusCode=$(($? + $statusCode))
+      ;;
+    hirens)
+      shift 1
+      set -x
+      isourl="https://www.hirensbootcd.org/files/$(curl -q -LSsf "https://www.hirensbootcd.org/download" | __get_link | grep '.iso')"
+      __latest_iso "$isourl" "$LATEST_ISO_DOWNLOAD_DIR/hirens.iso"
+      statusCode=$(($? + $statusCode))
+      ;;
     *)
       break
       ;;
@@ -1053,6 +1102,7 @@ LONGOPTS+=",force,all,ask,filename:,arch:,release:,name:"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="alma alpine arch archcraft arco blackarch cachy centos clear debian endeavour fedora flatcar freenas garuda heads "
 ARRAY+="kali manjaro nixos opensuse openvz parrot peppermint pfsense photon proxmox redcore rocky ubuntu void tails tiny "
+ARRAY+="clonezilla gparted hirens "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
 LIST+=""

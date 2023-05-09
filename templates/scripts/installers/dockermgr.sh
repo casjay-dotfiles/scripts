@@ -95,8 +95,8 @@ __sudo_exec() { [ "$DOCKERMGR_USER_CAN_SUDO" = "true" ] && sudo -HE "$@" || { [ 
 __remove_extra_spaces() { sed 's/\( \)*/\1/g;s|^ ||g'; }
 __port() { echo "$((50000 + $RANDOM % 1000))" | grep '^' || return 1; }
 __docker_check() { [ -n "$(type -p docker 2>/dev/null)" ] || return 1; }
-__password() { cat "/dev/urandom" | tr -dc '0-9a-zA-Z' | head -c${1:-16} && echo ""; }
 __docker_ps_all() { docker ps -a 2>&1 | grep ${1:-} "$CONTAINER_NAME" && return 0 || return 1; }
+__password() { head -n1000 -c 10000 "/dev/urandom" | tr -dc '0-9a-zA-Z' | head -c${1:-16} && echo ""; }
 __enable_ssl() { { [ "$SSL_ENABLED" = "yes" ] || [ "$SSL_ENABLED" = "true" ]; } && return 0 || return 1; }
 __docker_is_running() { ps aux 2>/dev/null | grep 'dockerd' | grep -v ' grep ' | grep -q '^' || return 1; }
 __ssl_certs() { [ -f "$HOST_SSL_CA" ] && [ -f "$HOST_SSL_CRT" ] && [ -f "$HOST_SSL_KEY" ] && return 0 || return 1; }
@@ -318,7 +318,7 @@ CONTAINER_WEB_SERVER_SSL_ENABLED="no"
 CONTAINER_WEB_SERVER_AUTH_ENABLED="no"
 CONTAINER_WEB_SERVER_LISTEN_ON="127.0.0.10"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Specify custom nginx vhosts - autoconfigure: [*./name.all/name.mydomain/name.myhostname] - [virtualhost,othervhostdom]
+# Specify custom nginx vhosts - autoconfigure: [name.all/name.*/name.mydomain/name.myhostname] - [virtualhost,othervhostdom]
 CONTAINER_WEB_SERVER_VHOSTS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Add random portmapping - [port,otherport] or [proxy|/location|port]
@@ -354,7 +354,7 @@ CONTAINER_COUCHDB_ENABLED=""
 CONTAINER_POSTGRES_ENABLED=""
 CONTAINER_SUPABASE_ENABLED=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Custom database setup - [yes/no] [mysql] [port/directory] [/data/db/$CONTAINER_CUSTOM_DATABASE_NAME] [msql]
+# Custom database setup - [yes/no] [db_name] [port] [/data/db/$CONTAINER_CUSTOM_DATABASE_NAME] [msql]
 CONTAINER_CUSTOM_DATABASE_ENABLED=""
 CONTAINER_CUSTOM_DATABASE_NAME=""
 CONTAINER_CUSTOM_DATABASE_PORT=""
@@ -556,16 +556,12 @@ CONTAINER_CUSTOM_DATABASE_PORT="${CONTAINER_CUSTOM_DATABASE_PORT:-}"
 CONTAINER_CUSTOM_DATABASE_DIR="${CONTAINER_CUSTOM_DATABASE_DIR:-}"
 CONTAINER_CUSTOM_DATABASE_PROTOCOL="${CONTAINER_CUSTOM_DATABASE_PROTOCOL:-}"
 CONTAINER_DATABASE_USER_ROOT="${CONTAINER_DATABASE_USER_ROOT:-}"
-CONTAINER_DATABASE_PASS_ROOT="${CONTAINER_DATABASE_PASS_ROOT:-}"
 CONTAINER_DATABASE_LENGTH_ROOT="${CONTAINER_DATABASE_LENGTH_ROOT:-}"
 CONTAINER_DATABASE_USER_NORMAL="${CONTAINER_DATABASE_USER_NORMAL:-}"
-CONTAINER_DATABASE_PASS_NORMAL="${CONTAINER_DATABASE_PASS_NORMAL:-}"
 CONTAINER_DATABASE_LENGTH_NORMAL="${CONTAINER_DATABASE_LENGTH_NORMAL:-}"
 CONTAINER_USER_NAME="${CONTAINER_USER_NAME:-}"
-CONTAINER_USER_PASS="${CONTAINER_USER_PASS:-}"
 CONTAINER_PASS_LENGTH="${CONTAINER_PASS_LENGTH:-}"
 CONTAINER_ENV_USER_NAME="${CONTAINER_ENV_USER_NAME:-}"
-CONTAINER_ENV_PASS_NAME="${CONTAINER_ENV_PASS_NAME:-}"
 CONTAINER_SERVICES_LIST="${CONTAINER_SERVICES_LIST:-}"
 CONTAINER_MOUNT_DATA_ENABLED="${CONTAINER_MOUNT_DATA_ENABLED:-}"
 CONTAINER_MOUNT_DATA_MOUNT_DIR="${CONTAINER_MOUNT_DATA_MOUNT_DIR:-}"
@@ -595,9 +591,10 @@ __dockermgr_password_variables() {
   [ -d "$DOCKERMGR_CONFIG_DIR/secure" ] || mkdir -p "$DOCKERMGR_CONFIG_DIR/secure"
   cat <<EOF | tee | tr '|' '\n' | __remove_extra_spaces
 # Enviroment variables for $APPNAME
-ENV_CONTAINER_ENV_PASS_NAME="${ENV_CONTAINER_ENV_PASS_NAME:-$CONTAINER_ENV_PASS_NAME}"
-ENV_CONTAINER_DATABASE_PASS_ROOT="${ENV_CONTAINER_DATABASE_PASS_ROOT:-$CONTAINER_DATABASE_PASS_ROOT}"
-ENV_CONTAINER_DATABASE_PASS_NORMAL="${ENV_CONTAINER_DATABASE_PASS_NORMAL:-$CONTAINER_DATABASE_PASS_NORMAL}"
+CONTAINER_USER_PASS="${ENV_CONTAINER_USER_PASS:-$CONTAINER_USER_PASS}"
+CONTAINER_ENV_PASS_NAME="${ENV_CONTAINER_ENV_PASS_NAME:-$CONTAINER_ENV_PASS_NAME}"
+CONTAINER_DATABASE_PASS_ROOT="${ENV_CONTAINER_DATABASE_PASS_ROOT:-$CONTAINER_DATABASE_PASS_ROOT}"
+CONTAINER_DATABASE_PASS_NORMAL="${ENV_CONTAINER_DATABASE_PASS_NORMAL:-$CONTAINER_DATABASE_PASS_NORMAL}"
 
 EOF
 }
@@ -1970,13 +1967,16 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
   if [ "$HOST_NGINX_UPDATE_CONF" = "yes" ] && [ -f "$INSTDIR/nginx/proxy.conf" ]; then
     for vhost in $NGINX_VHOST_SET_NAMES; do
       if [ -n "$vhost" ]; then
-        if echo "$vhost" | grep -q '^[.]*'; then
-          NGINX_VHOST_TMP_NAMES+=("*.$CONTAINER_HOSTNAME")
-        elif echo "$vhost" | grep -q "[.]all$"; then
+        if echo "$vhost" | grep -qE '^.*[a-zA-Z0-9]\.\*$|^\.\*$'; then # map to vhost.*
+          vhost="${vhost//.*/}"
+          NGINX_VHOST_TMP_NAMES+=("${vhost:-$APPNAME}.*")
+        elif echo "$vhost" | grep -q "[.]all$"; then # map to vhost.*
           NGINX_VHOST_TMP_NAMES+=("${vhost//.all/}.*")
-        elif echo "$vhost" | grep -q '[.]myhostname$'; then
-          NGINX_VHOST_TMP_NAMES+=("${vhost//.mydomain/}.$CONTAINER_HOSTNAME")
-        elif echo "$vhost" | grep -q '[.]mydomain$'; then
+        elif echo "$vhost" | grep -q '^[.]host'; then # map to vhost.hostname
+          NGINX_VHOST_TMP_NAMES+=("*.$CONTAINER_HOSTNAME")
+        elif echo "$vhost" | grep -q '[.]myhostname$'; then # map to vhost.hostname
+          NGINX_VHOST_TMP_NAMES+=("${vhost//.myhostname/}.$CONTAINER_HOSTNAME")
+        elif echo "$vhost" | grep -q '[.]mydomain$'; then # map to vhost.domain or map to vhost.hostname
           NGINX_VHOST_TMP_NAMES+=("${vhost//.mydomain/}.${CONTAINER_DOMAINNAME:-$CONTAINER_HOSTNAME}")
         else
           NGINX_VHOST_TMP_NAMES+=("$vhost")

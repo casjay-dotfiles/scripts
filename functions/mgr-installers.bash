@@ -1227,6 +1227,7 @@ install_required() {
       printf_yellow "Still missing: $MISSING"
       printf_yellow "Installing from package list"
       if pkmgr --enable-log dotfiles "$name" 2>/dev/null; then
+        __saved_file_create "$name"
         exitCode=0
       elif builtin type -pt $name | grep -q 'function'; then
         printf_green "$ICON_GOOD $name is installed but it seems to be a function"

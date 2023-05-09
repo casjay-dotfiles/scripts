@@ -1265,7 +1265,8 @@ install_python() {
       printf_warning "Attempting to install missing python packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr --enable-log silent install $miss" "Installing $miss"
+        execute "pkmgr --enable-log silent install $miss" "Installing $miss" || true
+        python_missing "${miss//$prepend-/}" || false
       done
     fi
   fi
@@ -1303,7 +1304,8 @@ install_pip() {
       printf_warning "Attempting to install missing pip packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr --enable-log pip install $miss" "Installing $miss"
+        execute "pkmgr --enable-log pip install $miss" "Installing $miss" || true
+        pip_missing "$miss" || false
       done
     fi
   fi
@@ -1322,7 +1324,8 @@ install_npm() {
       printf_warning "Attempting to install missing npm packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr --enable-log npm install $miss" "Installing $miss"
+        execute "pkmgr --enable-log npm install $miss" "Installing $miss" || true
+        npm_exists "$miss" || false
       done
     fi
   fi

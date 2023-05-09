@@ -1967,12 +1967,16 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
   if [ "$HOST_NGINX_UPDATE_CONF" = "yes" ] && [ -f "$INSTDIR/nginx/proxy.conf" ]; then
     for vhost in $NGINX_VHOST_SET_NAMES; do
       if [ -n "$vhost" ]; then
-        if echo "$vhost" | grep -qE '^.*[a-zA-Z0-9]\.\*$|^\.\*$'; then # map to vhost.*
+        if echo "$vhost" | grep -q '^.*[a-zA-Z0-9]\.\*$'; then # map to vhost.*
           vhost="${vhost//.*/}"
+          NGINX_VHOST_TMP_NAMES+=("$vhost.*")
+        elif echo "$vhost" | grep -q '^\.\*$'; then
           NGINX_VHOST_TMP_NAMES+=("${vhost:-$APPNAME}.*")
         elif echo "$vhost" | grep -q "[.]all$"; then # map to vhost.*
-          NGINX_VHOST_TMP_NAMES+=("${vhost//.all/}.*")
-        elif echo "$vhost" | grep -q '^[.]host'; then # map to vhost.hostname
+          vhost="${vhost//.all/}"
+          NGINX_VHOST_TMP_NAMES+=("${vhost:-$APPNAME}.*")
+        elif echo "$vhost" | grep -q '^[.]host$'; then # map to vhost.hostname
+          vhost="${vhost//.host/}"
           NGINX_VHOST_TMP_NAMES+=("*.$CONTAINER_HOSTNAME")
         elif echo "$vhost" | grep -q '[.]myhostname$'; then # map to vhost.hostname
           NGINX_VHOST_TMP_NAMES+=("${vhost//.myhostname/}.$CONTAINER_HOSTNAME")

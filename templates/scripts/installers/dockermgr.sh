@@ -1967,7 +1967,10 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
   if [ "$HOST_NGINX_UPDATE_CONF" = "yes" ] && [ -f "$INSTDIR/nginx/proxy.conf" ]; then
     for vhost in $NGINX_VHOST_SET_NAMES; do
       if [ -n "$vhost" ]; then
-        if echo "$vhost" | grep -q '^.*[a-zA-Z0-9]\.\*$'; then # map to vhost.*
+        if echo "$vhost" | grep -qv '\.'; then # replace sub with name
+          vhost="${vhost//$CONTAINER_HOSTNAME/$vhost}"
+          NGINX_VHOST_TMP_NAMES+=("$vhost")
+        elif echo "$vhost" | grep -q '^.*[a-zA-Z0-9]\.\*$'; then # map to vhost.*
           vhost="${vhost//.*/}"
           NGINX_VHOST_TMP_NAMES+=("$vhost.*")
         elif echo "$vhost" | grep -q '^\.\*$'; then

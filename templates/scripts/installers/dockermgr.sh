@@ -2070,6 +2070,7 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
   fi
   printf_yellow "The container name is:                  $CONTAINER_NAME"
   printf_yellow "The container is listening on:          $HOST_LISTEN_ADDR"
+  printf_yellow "The domain name is set to:              $CONTAINER_DOMAINNAME"
   printf_yellow "The hostname name is set to:            $CONTAINER_HOSTNAME"
   printf_yellow "Containers data is saved in:            $DATADIR"
   printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'

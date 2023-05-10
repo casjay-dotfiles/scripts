@@ -408,13 +408,17 @@ CONTAINER_ENV+=""
 CONTAINER_SYSCTL=""
 CONTAINER_SYSCTL+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set capabilites - [NAME]
+DOCKER_CUSTOM_CAP=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set capabilites - [yes/no]
-DOCKER_SYS_TIME="yes"
-DOCKER_SYS_ADMIN="yes"
-DOCKER_CAP_CHOWN="no"
+DOCKER_CAP_SYS_TIME="yes"
+DOCKER_CAP_SYS_ADMIN="yes"
+DOCKER_CAP_CHOWN="yes"
 DOCKER_CAP_NET_RAW="no"
 DOCKER_CAP_SYS_NICE="no"
 DOCKER_CAP_NET_ADMIN="no"
+DOCKER_CAP_SYS_MODULE="no"
 DOCKER_CAP_NET_BIND_SERVICE="no"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define labels - [traefik.enable=true,label=label,otherlabel=label2]
@@ -445,9 +449,10 @@ DOCKERMGR_ENABLE_INSTALL_SCRIPT="yes"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set custom container enviroment variables - [--env MYVAR="VAR"]
 __custom_docker_env() {
-  cat <<EOF | tee | sed 's|,| --env |g' | tr '\n' ' ' | __remove_extra_spaces
+  cat <<EOF | tee | grep -v '^$' | sed 's|^|--env |g' | tr '\n' ' ' | __remove_extra_spaces
 
 EOF
+  echo ''
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # this function will create an env file in the containers filesystem - see CONTAINER_ENV_FILE_ENABLED
@@ -1561,17 +1566,18 @@ if [ -n "$CONTAINER_OPT_ENV_VAR" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # setup capabilites
-[ "$DOCKER_SYS_TIME" = "yes" ] && SET_CAPABILITIES+=("SYS_TIME")
-[ "$DOCKER_SYS_ADMIN" = "yes" ] && SET_CAPABILITIES+=("SYS_ADMIN")
 [ "$DOCKER_CAP_CHOWN" = "yes" ] && SET_CAPABILITIES+=("CAP_CHOWN")
+[ "$DOCKER_CAP_SYS_TIME" = "yes" ] && SET_CAPABILITIES+=("SYS_TIME")
+[ "$DOCKER_CAP_SYS_ADMIN" = "yes" ] && SET_CAPABILITIES+=("SYS_ADMIN")
 [ "$DOCKER_CAP_NET_RAW" = "yes" ] && SET_CAPABILITIES+=("CAP_NET_RAW")
 [ "$DOCKER_CAP_SYS_NICE" = "yes" ] && SET_CAPABILITIES+=("CAP_SYS_NICE")
+[ "$DOCKER_CAP_SYS_MODULE" = "yes" ] && SET_CAPABILITIES+=("SYS_MODULE")
 [ "$DOCKER_CAP_NET_ADMIN" = "yes" ] && SET_CAPABILITIES+=("CAP_NET_ADMIN")
 [ "$DOCKER_CAP_NET_BIND_SERVICE" = "yes" ] && SET_CAPABILITIES+=("CAP_NET_BIND_SERVICE")
 [ -n "${SET_CAPABILITIES[*]}" ] && CONTAINER_CAPABILITIES="${SET_CAPABILITIES[*]}"
 if [ -n "$CONTAINER_CAPABILITIES" ]; then
   DOCKER_SET_CAP=""
-  CONTAINER_CAPABILITIES="${CONTAINER_CAPABILITIES//,/ }"
+  CONTAINER_CAPABILITIES="${CONTAINER_CAPABILITIES//,/ } ${DOCKER_CUSTOM_CAP//,/ }"
   for cap in $CONTAINER_CAPABILITIES; do
     if [ "$cap" != "" ] && [ "$cap" != " " ]; then
       DOCKER_SET_CAP+="--cap-add $cap "
@@ -1586,7 +1592,7 @@ if [ -n "$CONTAINER_SYSCTL" ]; then
   CONTAINER_SYSCTL="${CONTAINER_SYSCTL//,/ }"
   for sysctl in $CONTAINER_SYSCTL; do
     if [ "$sysctl" != "" ] && [ "$sysctl" != " " ]; then
-      DOCKER_SET_SYSCTL+="--sysctl $sysctl "
+      DOCKER_SET_SYSCTL+="--sysctl \"$sysctl\" "
     fi
   done
   unset sysctl

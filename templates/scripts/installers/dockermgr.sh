@@ -409,7 +409,7 @@ CONTAINER_ENV+=""
 CONTAINER_SYSCTL=""
 CONTAINER_SYSCTL+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set capabilites - [NAME]
+# Set custom capabilites - [NAME]
 DOCKER_CUSTOM_CAP=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set capabilites - [yes/no]
@@ -448,7 +448,7 @@ POST_SHOW_FINISHED_MESSAGE=""
 # Run the script if it exists [yes/no]
 DOCKERMGR_ENABLE_INSTALL_SCRIPT="yes"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set custom container enviroment variables - [--env MYVAR="VAR"]
+# Set custom container enviroment variables - [MYVAR="VAR"]
 __custom_docker_env() {
   cat <<EOF | tee
 
@@ -1567,14 +1567,14 @@ if [ -n "$CONTAINER_OPT_ENV_VAR" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # setup capabilites
-[ "$DOCKER_CAP_CHOWN" = "yes" ] && SET_CAPABILITIES+=("CAP_CHOWN")
+[ "$DOCKER_CAP_CHOWN" = "yes" ] && SET_CAPABILITIES+=("CHOWN")
+[ "$DOCKER_CAP_NET_RAW" = "yes" ] && SET_CAPABILITIES+=("NET_RAW")
+[ "$DOCKER_CAP_NET_ADMIN" = "yes" ] && SET_CAPABILITIES+=("NET_ADMIN")
+[ "$DOCKER_CAP_SYS_NICE" = "yes" ] && SET_CAPABILITIES+=("SYS_NICE")
 [ "$DOCKER_CAP_SYS_TIME" = "yes" ] && SET_CAPABILITIES+=("SYS_TIME")
 [ "$DOCKER_CAP_SYS_ADMIN" = "yes" ] && SET_CAPABILITIES+=("SYS_ADMIN")
-[ "$DOCKER_CAP_NET_RAW" = "yes" ] && SET_CAPABILITIES+=("CAP_NET_RAW")
-[ "$DOCKER_CAP_SYS_NICE" = "yes" ] && SET_CAPABILITIES+=("CAP_SYS_NICE")
 [ "$DOCKER_CAP_SYS_MODULE" = "yes" ] && SET_CAPABILITIES+=("SYS_MODULE")
-[ "$DOCKER_CAP_NET_ADMIN" = "yes" ] && SET_CAPABILITIES+=("CAP_NET_ADMIN")
-[ "$DOCKER_CAP_NET_BIND_SERVICE" = "yes" ] && SET_CAPABILITIES+=("CAP_NET_BIND_SERVICE")
+[ "$DOCKER_CAP_NET_BIND_SERVICE" = "yes" ] && SET_CAPABILITIES+=("NET_BIND_SERVICE")
 [ -n "${SET_CAPABILITIES[*]}" ] && CONTAINER_CAPABILITIES="${SET_CAPABILITIES[*]}"
 if [ -n "$CONTAINER_CAPABILITIES" ]; then
   DOCKER_SET_CAP=""

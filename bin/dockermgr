@@ -167,37 +167,42 @@ __registry_delete_tag() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_manifest() {
-  local image="$1"
+  if echo "$1" | grep -q ':'; then
+    local image="${1//:*/}"
+    local tag="${1//*:/}"
+  else
+    local image="$1"
+    local tag="latest"
+  fi
   local push="$2"
+  local tag_push=":${DOCKERMGR_SET_TAG:-latest}"
   local code=0
   local AMEND=""
   local platforms="x86_64 arm64"
   local name="$(basename "$image")"
-  [ -z "$push" ] && [ -n "$DOCKERMGR_REGISTRY_USERNAME" ] && push="$DOCKERMGR_REGISTRY_USERNAME/${name//:*/}"
+  [ -n "$tag" ] && tag=":$tag" || tag=":latest"
+  [ -z "$push" ] && [ -n "$DOCKERMGR_REGISTRY_USERNAME" ] && push="$DOCKERMGR_REGISTRY_USERNAME/$name"
   [ -n "$push" ] || printf_exit "Usage: $APPNAME manifest [image] [push]"
   [ -n "$image" ] || printf_exit "Usage: $APPNAME manifest [image] [push]"
-  echo "$image" | grep -q ":" && tag="${image//*:/}" || tag=":latest"
   for platform in $platforms; do
     set_tag="$tag"
-    set_push="${push//:*/}"
-    echo "$set_tag" | grep -q ":" || set_tag=":$set_tag"
     new_tag="$set_tag-$platform"
-    set_push="$push$new_tag"
+    set_push="${push//:*/}:${tag_push//*:/}-$platform"
     printf_cyan "Attempting to build $image$tag for platform: $platform"
-    echo "FROM --platform="linux/$platform" $image$tag" | docker build --pull -t $set_push - 2>"$DOCKERMGR_LOG_DIR/$name.log" >/dev/null && amend+="--amend $set_push " delete_tag+="$new_tag " || code=1
+    echo "FROM --platform="linux/$platform" $image$tag" | docker build --pull -t $set_push - 2>"$DOCKERMGR_LOG_DIR/$name.log" >/dev/null && amend+="--amend $set_push " delete_tag+="$set_push " || code=1
     [ $code -ne 0 ] && printf_red "Failed to build $set_push" && __docker_manifest_log $code "$name"
     printf_yellow "Pushing $set_push"
     docker push -q $set_push >/dev/null 2>"$DOCKERMGR_LOG_DIR/$name.log"
     [ $code -ne 0 ] && printf_red "Failed to build $set_push" && __docker_manifest_log $code "$name"
   done
-  printf_blue "Running: docker manifest create $push$tag ${amend[*]}"
-  docker manifest create $push$tag $amend >/dev/null 2>"$DOCKERMGR_LOG_DIR/$name.log" || code=1
+  printf_blue "Running: docker manifest create $push$tag_push ${amend[*]}"
+  docker manifest create $push$tag_push $amend >/dev/null 2>"$DOCKERMGR_LOG_DIR/$name.log" || code=1
   __docker_manifest_log $code "$name"
-  printf_cyan "Pushing $push$tag"
-  docker manifest push --purge $push$tag >/dev/null 2>>"$DOCKERMGR_LOG_DIR/$name.log" || code=1
+  printf_cyan "Pushing $push$tag_push"
+  docker manifest push --purge $push$tag_push >/dev/null 2>>"$DOCKERMGR_LOG_DIR/$name.log" || code=1
   __docker_manifest_log $code "$name"
   for tag in $delete_tag; do
-    tag="${tag//:/}"
+    tag="${tag//*:/}"
     __registry_delete_tag "$push" "$tag" && printf_green "Success 😺" || printf_red "Failed 😿"
   done
   return $code
@@ -1265,7 +1270,7 @@ fi
 SETARGS="$*"
 SHORTOPTS="p:,P,v:,m:,e:,d,u:,w:"
 LONGOPTS="raw,options,config,version,help,dir:"
-LONGOPTS+=",force,all,describe:,platform:,dockerfile,name:,info,domain:,hostname:,network:,registry:"
+LONGOPTS+=",force,all,describe:,platform:,dockerfile,name:,info,domain:,hostname:,network:,registry:,tag:"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="attach multiarch builder api enter test exec active available connect cron download inactive init install k3b minikube "
 ARRAY+="list log ps rancher remove rm rmi run search status update version ds network helm prune generate manifest rebuild "
@@ -1403,6 +1408,10 @@ while :; do
     ;;
   --registry)
     DOCKERMGR_SET_REGISTRY="$2"
+    shift 2
+    ;;
+  --tag)
+    DOCKERMGR_SET_TAG="$2"
     shift 2
     ;;
   --)

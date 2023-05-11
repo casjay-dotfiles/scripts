@@ -312,6 +312,7 @@ HOST_NGINX_SSL_ENABLED="yes"
 HOST_NGINX_HTTP_PORT="80"
 HOST_NGINX_HTTPS_PORT="443"
 HOST_NGINX_UPDATE_CONF="yes"
+HOST_NGINX_INTERNAL_DOMAIN="home"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Enable this if container is running a webserver - [yes/no] [internalPort] [yes/no] [yes/no] [listen]
 CONTAINER_WEB_SERVER_ENABLED="no"
@@ -2008,6 +2009,7 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
       NGINX_VHOST_NAMES="${NGINX_VHOST_NAMES:-}"
     fi
     cp -f "$INSTDIR/nginx/proxy.conf" "$NGINX_VHOSTS_CONF_FILE_TMP"
+    [ -n "$NGINX_PROXY_URL" ] && [ -n "$NGINX_PORT" ] && NGINX_SET_PROXY_ADDRESS="$NGINX_PROXY_URL:$NGINX_PORT" || unset NGINX_SET_PROXY_ADDRESS
     sed -i "s|REPLACE_APPNAME|$APPNAME|g" "$NGINX_VHOSTS_CONF_FILE_TMP" &>/dev/null
     sed -i "s|REPLACE_NGINX_PORT|$NGINX_PORT|g" "$NGINX_VHOSTS_CONF_FILE_TMP" &>/dev/null
     sed -i "s|REPLACE_HOST_PROXY|$NGINX_PROXY_URL|g" "$NGINX_VHOSTS_CONF_FILE_TMP" &>/dev/null
@@ -2046,6 +2048,51 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
   [ -f "$NGINX_MAIN_CONFIG" ] && NGINX_PROXY_URL="$CONTAINER_PROTOCOL://$CONTAINER_HOSTNAME"
 fi
 { [ "$NGINX_VHOST_NAMES" = "" ] || [ "$NGINX_VHOST_NAMES" = " " ]; } && unset NGINX_VHOST_NAMES
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup an internal host
+if [ -n "$NGINX_SET_PROXY_ADDRESS" ] && [ -n "$HOST_NGINX_INTERNAL_DOMAIN" ]; then
+  HOST_NGINX_INTERNAL_DOMAIN="$APPNAME.$HOST_NGINX_INTERNAL_DOMAIN"
+  cat <<EOF | tee "$NGINX_VHOSTS_PROXY_FILE_TMP" &>/dev/null
+server {
+  listen                                    $HOST_NGINX_HTTP_PORT;
+  listen                                    [::]:$HOST_NGINX_HTTP_PORT;
+  server_name                               $HOST_NGINX_INTERNAL_DOMAIN;
+  access_log                                /var/log/nginx/access.$HOST_NGINX_INTERNAL_DOMAIN.log;
+  error_log                                 /var/log/nginx/error.$HOST_NGINX_INTERNAL_DOMAIN.log info;
+  keepalive_timeout                         75 75;
+  client_max_body_size                      0;
+  chunked_transfer_encoding                 on;
+  add_header Strict-Transport-Security      "max-age=7200";
+
+  include                                   /etc/nginx/global.d/nginx-defaults.conf;
+
+  location / {
+    proxy_pass                              http://$NGINX_SET_PROXY_ADDRESS;
+    proxy_http_version                      1.1;
+    proxy_connect_timeout                   3600;
+    proxy_send_timeout                      3600;
+    proxy_read_timeout                      3600;
+    proxy_buffering                         off;
+    proxy_request_buffering                 off;
+    proxy_set_header                        Host               \$http_host;
+    proxy_set_header                        X-Real-IP          \$remote_addr;
+    proxy_set_header                        X-Forwarded-For    \$proxy_add_x_forwarded_for;
+    proxy_set_header                        X-Forwarded-Proto  \$scheme;
+    send_timeout                            3600;
+  }
+}
+
+EOF
+  if [ -f "$NGINX_VHOSTS_INC_FILE_TMP" ]; then
+    if [ -f "/etc/nginx/nginx.conf" ]; then
+      __sudo_root mv -f "$NGINX_VHOSTS_INC_FILE_TMP" "$NGINX_DIR/vhosts.d/$HOST_NGINX_INTERNAL_DOMAIN.conf"
+      systemctl status nginx 2>/dev/null | grep -q enabled &>/dev/null && __sudo_root systemctl reload nginx &>/dev/null
+    else
+      mv -f "$NGINX_VHOSTS_CONF_FILE_TMP" "$INSTDIR/nginx/$HOST_NGINX_INTERNAL_DOMAIN.conf" &>/dev/null
+    fi
+  fi
+  NGINX_VHOST_NAMES="$NGINX_VHOST_NAMES $HOST_NGINX_INTERNAL_DOMAIN"
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # finalize
 if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then

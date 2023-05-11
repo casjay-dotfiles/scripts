@@ -611,7 +611,7 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_uninstall() {
-  mkdir "$DOCKERMGR_CONFIG_DIR/uninstall/$APPNAME"
+  mkdir -p "$DOCKERMGR_CONFIG_DIR/uninstall"
   cat <<EOF >"$DOCKERMGR_CONFIG_DIR/uninstall/$APPNAME"
 NGINX_FILES="$(__trim "$NGINX_MAIN_CONFIG $NGINX_INTERNAL_IS_SET $NGINX_INC_CONFIG")"
 EOF
@@ -2335,10 +2335,11 @@ if [ "$USER" != "root" ] && [ -n "$USER" ]; then
   __sudo_exec chown -f "$USER":"$USER" "$DATADIR" "$INSTDIR" &>/dev/null
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__create_uninstall
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run post install scripts
 run_postinst() {
   dockermgr_run_post
-  __create_uninstall
 }
 #
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

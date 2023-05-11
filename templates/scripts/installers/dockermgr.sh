@@ -1121,6 +1121,7 @@ fi
 DOCKER_CREATE_NET="$(__docker_net_create)"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Container listen address [address:extPort:intPort]
+HOST_DEFAULT_IP="$(__my_default_lan_address || __local_lan_ip)"
 HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR:-$SET_LAN_IP}"
 if [ "$HOST_NETWORK_ADDR" = "yes" ] || [ "$HOST_NETWORK_ADDR" = "lan" ]; then
   HOST_DEFINE_LISTEN="$SET_LAN_IP"
@@ -1130,8 +1131,8 @@ elif [ "$HOST_NETWORK_ADDR" = "public" ]; then
     HOST_DEFINE_LISTEN="0.0.0.0"
     HOST_LISTEN_ADDR=$(__public_ip)
   else
-    HOST_DEFINE_LISTEN="$SET_LAN_IP"
-    HOST_LISTEN_ADDR="$SET_LAN_IP"
+    HOST_DEFINE_LISTEN="$HOST_DEFAULT_IP"
+    HOST_LISTEN_ADDR="$HOST_DEFAULT_IP"
   fi
 elif [ "$HOST_NETWORK_ADDR" = "docker" ]; then
   HOST_DEFINE_LISTEN="$SET_DOCKER_IP"

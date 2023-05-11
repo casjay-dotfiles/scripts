@@ -613,7 +613,7 @@ EOF
 __create_uninstall() {
   mkdir -p "$DOCKERMGR_CONFIG_DIR/uninstall"
   cat <<EOF >"$DOCKERMGR_CONFIG_DIR/uninstall/$APPNAME"
-NGINX_FILES="$(__trim "$NGINX_MAIN_CONFIG $NGINX_INTERNAL_IS_SET $NGINX_INC_CONFIG")"
+NGINX_FILES="$(__trim "$$NGINX_CONF_FILE $NGINX_INC_CONFIG $NGINX_VHOST_CONFIG $NGINX_INTERNAL_IS_SET")"
 EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -2191,7 +2191,7 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
       printf_cyan "nginx custom vhost file installed to:   $NGINX_VHOST_CONFIG"
     fi
     if [ -n "$NGINX_INTERNAL_IS_SET" ]; then
-      printf_cyan "nginx internal vhost file installed to: $NGINX_VHOST_CONFIG"
+      printf_cyan "nginx internal vhost file installed to: $NGINX_INTERNAL_IS_SET"
     fi
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi

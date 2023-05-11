@@ -312,6 +312,7 @@ HOST_NGINX_SSL_ENABLED="yes"
 HOST_NGINX_HTTP_PORT="80"
 HOST_NGINX_HTTPS_PORT="443"
 HOST_NGINX_UPDATE_CONF="yes"
+HOST_NGINX_INTERNAL_HOST="GEN_SCRIPT_REPLACE_APPNAME"
 HOST_NGINX_INTERNAL_DOMAIN="home"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Enable this if container is running a webserver - [yes/no] [internalPort] [yes/no] [yes/no] [listen]
@@ -496,6 +497,8 @@ HOST_NGINX_SSL_ENABLED="\${ENV_HOST_NGINX_SSL_ENABLED:-$HOST_NGINX_SSL_ENABLED}"
 HOST_NGINX_HTTP_PORT="\${ENV_HOST_NGINX_HTTP_PORT:-$HOST_NGINX_HTTP_PORT}"
 HOST_NGINX_HTTPS_PORT="\${ENV_HOST_NGINX_HTTPS_PORT:-$HOST_NGINX_HTTPS_PORT}"
 HOST_NGINX_UPDATE_CONF="\${ENV_HOST_NGINX_UPDATE_CONF:-$HOST_NGINX_UPDATE_CONF}"
+HOST_NGINX_INTERNAL_HOST="\${ENV_HOST_NGINX_INTERNAL_HOST:-$HOST_NGINX_INTERNAL_HOST}"
+HOST_NGINX_INTERNAL_HOST="\${ENV_HOST_NGINX_INTERNAL_DOMAIN:-$HOST_NGINX_INTERNAL_DOMAIN}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 CONTAINER_SSL_CA="${CONTAINER_SSL_CA:-}"
 CONTAINER_SSL_CRT="${CONTAINER_SSL_CRT:-}"
@@ -760,6 +763,7 @@ HOST_NGINX_SSL_ENABLED="${ENV_HOST_NGINX_SSL_ENABLED:-$HOST_NGINX_SSL_ENABLED}"
 HOST_NGINX_HTTP_PORT="${ENV_HOST_NGINX_HTTP_PORT:-$HOST_NGINX_HTTP_PORT}"
 HOST_NGINX_HTTPS_PORT="${ENV_HOST_NGINX_HTTPS_PORT:-$HOST_NGINX_HTTPS_PORT}"
 HOST_NGINX_UPDATE_CONF="${ENV_HOST_NGINX_UPDATE_CONF:-$HOST_NGINX_UPDATE_CONF}"
+HOST_NGINX_INTERNAL_HOST="${HOST_NGINX_INTERNAL_HOST:-$APPNAME}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 CONTAINER_NAME="${ENV_CONTAINER_NAME:-${CONTAINER_NAME:-}}"
 CONTAINER_SSL_DIR="${ENV_CONTAINER_SSL_DIR:-$CONTAINER_SSL_DIR}"
@@ -2051,7 +2055,7 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup an internal host
 if [ -n "$NGINX_SET_PROXY_ADDRESS" ] && [ -n "$HOST_NGINX_INTERNAL_DOMAIN" ]; then
-  HOST_NGINX_INTERNAL_DOMAIN="$APPNAME.$HOST_NGINX_INTERNAL_DOMAIN"
+  HOST_NGINX_INTERNAL_DOMAIN="$HOST_NGINX_INTERNAL_HOST.$HOST_NGINX_INTERNAL_DOMAIN"
   cat <<EOF | tee "$NGINX_VHOSTS_PROXY_FILE_TMP" &>/dev/null
 server {
   listen                                    $HOST_NGINX_HTTP_PORT;
@@ -2101,22 +2105,17 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
   HOSTS_WRITABLE="$(sudo -n true && sudo bash -c '[ -w "/etc/hosts" ] && echo "true" || false' || echo 'false')"
   printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   if [ "$HOSTS_WRITABLE" = "true" ]; then
-    if [ "$HOST_LISTEN_ADDR" = 'home' ]; then
-      __printf_color "44" "Adding to /etc/hosts:                   $APPNAME.home $HOST_LISTEN_ADDR"
-      if ! grep -sq " $APPNAME.home" "/etc/hosts"; then
-        echo "$HOST_LISTEN_ADDR        $APPNAME.home" | sudo tee -a "/etc/hosts" &>/dev/null
+    if [ -n "$HOST_NGINX_INTERNAL_DOMAIN" ]; then
+      __printf_color "44" "Adding to /etc/hosts:                   $HOST_NGINX_INTERNAL_DOMAIN $HOST_LISTEN_ADDR"
+      if ! grep -sq " $HOST_NGINX_INTERNAL_DOMAIN" "/etc/hosts"; then
+        echo "$HOST_LISTEN_ADDR        $HOST_NGINX_INTERNAL_DOMAIN" | sudo tee -a "/etc/hosts" &>/dev/null
       fi
-    else
-      __printf_color "44" "Adding to /etc/hosts:                   $APPNAME.home $HOST_LISTEN_ADDR"
-      if ! grep -sq " $APPNAME.home" "/etc/hosts"; then
-        echo "$HOST_LISTEN_ADDR        $APPNAME.home" | sudo tee -a "/etc/hosts" &>/dev/null
-      fi
-      __printf_color "44" "Adding to /etc/hosts:                   $CONTAINER_HOSTNAME $HOST_LISTEN_ADDR"
-      if ! grep -sq " $CONTAINER_HOSTNAME" "/etc/hosts"; then
-        echo "$HOST_LISTEN_ADDR        $CONTAINER_HOSTNAME" | sudo tee -a "/etc/hosts" &>/dev/null
-      fi
-      show_hosts_messge_banner="true"
     fi
+    __printf_color "44" "Adding to /etc/hosts:                   $CONTAINER_HOSTNAME $HOST_LISTEN_ADDR"
+    if ! grep -sq " $CONTAINER_HOSTNAME" "/etc/hosts"; then
+      echo "$HOST_LISTEN_ADDR        $CONTAINER_HOSTNAME" | sudo tee -a "/etc/hosts" &>/dev/null
+    fi
+    show_hosts_messge_banner="true"
     if [ -n "$NGINX_VHOST_NAMES" ]; then
       NGINX_VHOST_NAMES="${NGINX_VHOST_NAMES//,/ }"
       for vhost in $NGINX_VHOST_NAMES; do
@@ -2133,10 +2132,13 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
     unset show_hosts_messge_banner
   fi
   printf_yellow "The container name is:                  $CONTAINER_NAME"
+  printf_yellow "Containers data is saved in:            $DATADIR"
   printf_yellow "The container is listening on:          $HOST_LISTEN_ADDR"
   printf_yellow "The domain name is set to:              $CONTAINER_DOMAINNAME"
   printf_yellow "The hostname name is set to:            $CONTAINER_HOSTNAME"
-  printf_yellow "Containers data is saved in:            $DATADIR"
+  if [ -n "$HOST_NGINX_INTERNAL_DOMAIN" ]; then
+    printf_yellow "The internal name is set to:            $HOST_NGINX_INTERNAL_DOMAIN"
+  fi
   printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   if __ssl_certs; then
     mkdir -p "$CONTAINER_SSL_DIR"

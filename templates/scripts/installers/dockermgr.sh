@@ -610,6 +610,13 @@ CONTAINER_DATABASE_PASS_NORMAL="${ENV_CONTAINER_DATABASE_PASS_NORMAL:-$CONTAINER
 EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__create_uninstall() {
+  mkdir "$DOCKERMGR_CONFIG_DIR/uninstall/$APPNAME"
+  cat <<EOF >"$DOCKERMGR_CONFIG_DIR/uninstall/$APPNAME"
+NGINX_FILES="$(__trim "$NGINX_MAIN_CONFIG $NGINX_INTERNAL_IS_SET $NGINX_INC_CONFIG")"
+EOF
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define extra functions
 __custom_docker_clean_env() { grep -Ev '^$|^#' | sed 's|^|--env |g' | grep '\--' | grep -v '\--env \\' | tr '\n' ' ' | __remove_extra_spaces; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -2331,6 +2338,7 @@ fi
 # run post install scripts
 run_postinst() {
   dockermgr_run_post
+  __create_uninstall
 }
 #
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

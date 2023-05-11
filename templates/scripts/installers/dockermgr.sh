@@ -312,8 +312,9 @@ HOST_NGINX_SSL_ENABLED="yes"
 HOST_NGINX_HTTP_PORT="80"
 HOST_NGINX_HTTPS_PORT="443"
 HOST_NGINX_UPDATE_CONF="yes"
-HOST_NGINX_INTERNAL_HOST="GEN_SCRIPT_REPLACE_APPNAME"
+HOST_NGINX_EXTERNAL_DOMAIN=""
 HOST_NGINX_INTERNAL_DOMAIN="home"
+HOST_NGINX_INTERNAL_HOST="GEN_SCRIPT_REPLACE_APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Enable this if container is running a webserver - [yes/no] [internalPort] [yes/no] [yes/no] [listen]
 CONTAINER_WEB_SERVER_ENABLED="no"
@@ -732,7 +733,7 @@ fi
 # rewrite variables from env file
 SET_LAN_DEV="${ENV_SET_LAN_DEV:-$SET_LAN_DEV}"
 SET_LAN_IP="${ENV_SET_LAN_IP:-$SET_LAN_IP}"
-SET_LAN_IP="${ENV_SET_LAN_IP:-$SET_LAN_IP}"
+SET_LOCAL_IP="$(__my_default_lan_address)"
 SET_DOCKER_IP="${ENV_SET_DOCKER_IP:-$SET_DOCKER_IP}"
 SET_LOCAL_HOSTNAME="${ENV_SET_LOCAL_HOSTNAME:-$SET_LOCAL_HOSTNAME}"
 SET_LONG_HOSTNAME="${ENV_SET_LONG_HOSTNAME:-$SET_LONG_HOSTNAME}"
@@ -858,6 +859,7 @@ CONTAINER_SSL_CA="${CONTAINER_SSL_CA:-$CONTAINER_SSL_DIR/ca.crt}"
 CONTAINER_SSL_CRT="${CONTAINER_SSL_CRT:-$CONTAINER_SSL_DIR/localhost.crt}"
 CONTAINER_SSL_KEY="${CONTAINER_SSL_KEY:-$CONTAINER_SSL_DIR/localhost.key}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+CONTAINER_DOMAINNAME="${HOST_NGINX_EXTERNAL_DOMAIN:-$CONTAINER_DOMAINNAME}"
 # Setup ssl certs
 if [ "$CONTAINER_WEB_SERVER_SSL_ENABLED" = "true" ]; then
   if [ -z "$HOST_SSL_CA" ]; then
@@ -1121,12 +1123,12 @@ fi
 DOCKER_CREATE_NET="$(__docker_net_create)"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Container listen address [address:extPort:intPort]
-HOST_DEFAULT_IP="$(__my_default_lan_address || __local_lan_ip)"
+HOST_DEFAULT_IP="${SET_LOCAL_IP:-$SET_LAN_IP}"
 HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR:-$SET_LAN_IP}"
 if [ "$HOST_NETWORK_ADDR" = "yes" ] || [ "$HOST_NETWORK_ADDR" = "lan" ]; then
   HOST_DEFINE_LISTEN="$SET_LAN_IP"
   HOST_LISTEN_ADDR="$SET_LAN_IP"
-elif [ "$HOST_NETWORK_ADDR" = "public" ]; then
+elif [ "$HOST_NETWORK_ADDR" = "public" ] || [ "$HOST_NETWORK_ADDR" = "all" ]; then
   if connect_test && __test_public_reachable; then
     HOST_DEFINE_LISTEN="0.0.0.0"
     HOST_LISTEN_ADDR=$(__public_ip)
@@ -1143,7 +1145,7 @@ elif [ "$HOST_NETWORK_ADDR" = "local" ]; then
   CONTAINER_PRIVATE="yes"
 else
   HOST_DEFINE_LISTEN="0.0.0.0"
-  HOST_LISTEN_ADDR="$SET_LAN_IP"
+  HOST_LISTEN_ADDR="$HOST_DEFAULT_IP"
 fi
 HOST_DEFINE_LISTEN="${HOST_DEFINE_LISTEN:-0.0.0.0}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1972,7 +1974,7 @@ if [ -n "$EXECUTE_DOCKER_SCRIPT" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Install nginx proxy
-NINGX_VHOSTS_WRITABLE="$(sudo -n true && sudo bash -c 'mkdir -p "$NGINX_DIR/vhosts.d";[ -w "$NGINX_DIR/vhosts.d" ] && echo "true" || false' || echo 'false')"
+NINGX_VHOSTS_WRITABLE="$(sudo -n true && NGINX_DIR="$NGINX_DIR" sudo bash -c 'mkdir -p "$NGINX_DIR/vhosts.d";[ -w "$NGINX_DIR/vhosts.d" ] && echo "true" || false' || echo 'false')"
 if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
   NGINX_VHOST_TMP_NAMES=()
   NGINX_VHOST_ENABLED="true"

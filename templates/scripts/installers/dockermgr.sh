@@ -2026,7 +2026,6 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
       NGINX_VHOST_NAMES="${NGINX_VHOST_NAMES:-}"
     fi
     cp -f "$INSTDIR/nginx/proxy.conf" "$NGINX_VHOSTS_CONF_FILE_TMP"
-    [ -n "$NGINX_PROXY_URL" ] && [ -n "$NGINX_PORT" ] && NGINX_SET_PROXY_ADDRESS="$NGINX_PROXY_URL:$NGINX_PORT" || unset NGINX_SET_PROXY_ADDRESS
     sed -i "s|REPLACE_APPNAME|$APPNAME|g" "$NGINX_VHOSTS_CONF_FILE_TMP" &>/dev/null
     sed -i "s|REPLACE_NGINX_PORT|$NGINX_PORT|g" "$NGINX_VHOSTS_CONF_FILE_TMP" &>/dev/null
     sed -i "s|REPLACE_HOST_PROXY|$NGINX_PROXY_URL|g" "$NGINX_VHOSTS_CONF_FILE_TMP" &>/dev/null
@@ -2062,13 +2061,14 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
   else
     NGINX_PROXY_URL=""
   fi
+  [ -n "$NGINX_PROXY_URL" ] && NGNIX_REVERSE_ADDRESS="$NGINX_PROXY_URL"
   [ -f "$NGINX_MAIN_CONFIG" ] && NGINX_PROXY_URL="$CONTAINER_PROTOCOL://$CONTAINER_HOSTNAME"
 fi
 { [ "$NGINX_VHOST_NAMES" = "" ] || [ "$NGINX_VHOST_NAMES" = " " ]; } && unset NGINX_VHOST_NAMES
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup an internal host
 NGINX_VHOSTS_PROXY_INT_TMP="/tmp/$$.$HOST_NGINX_INTERNAL_HOST.$HOST_NGINX_INTERNAL_DOMAIN"
-if [ -n "$NGINX_SET_PROXY_ADDRESS" ] && [ -n "$HOST_NGINX_INTERNAL_DOMAIN" ]; then
+if [ -n "$NGNIX_REVERSE_ADDRESS" ] && [ -n "$HOST_NGINX_INTERNAL_DOMAIN" ]; then
   HOST_NGINX_INTERNAL_DOMAIN="$HOST_NGINX_INTERNAL_HOST.$HOST_NGINX_INTERNAL_DOMAIN"
   cat <<EOF | tee "$NGINX_VHOSTS_PROXY_INT_TMP" &>/dev/null
 server {
@@ -2085,7 +2085,7 @@ server {
   include                                   /etc/nginx/global.d/nginx-defaults.conf;
 
   location / {
-    proxy_pass                              http://$NGINX_SET_PROXY_ADDRESS;
+    proxy_pass                              $NGNIX_REVERSE_ADDRESS;
     proxy_http_version                      1.1;
     proxy_connect_timeout                   3600;
     proxy_send_timeout                      3600;

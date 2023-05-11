@@ -452,10 +452,9 @@ DOCKERMGR_ENABLE_INSTALL_SCRIPT="yes"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set custom container enviroment variables - [MYVAR="VAR"]
 __custom_docker_env() {
-  cat <<EOF | tee
+  cat <<EOF | tee | grep -v '^$'
 
 EOF
-  echo ''
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # this function will create an env file in the containers filesystem - see CONTAINER_ENV_FILE_ENABLED
@@ -611,6 +610,8 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define extra functions
+__custom_docker_clean_env() { grep -Ev '^$|^#' | sed 's|^|--env |g' | grep '\--' | grep -v '\--env \\' | tr '\n' ' ' | __remove_extra_spaces; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __rport() {
   local port=""
   port="$(__port)"
@@ -1793,7 +1794,7 @@ if [ -n "$ENV_PORTS" ]; then
 fi
 unset DOCKER_SET_PORTS_ENV_TMP ENV_PORTS SET_PORTS_ENV_TMP
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-DOCKER_CUSTOM_ARRAY="$(__custom_docker_env | grep -Ev '^$|^#' | sed 's|^|--env |g' | grep '\--' | tr '\n' ' ' | __remove_extra_spaces)"
+DOCKER_CUSTOM_ARRAY="$(__custom_docker_env | __custom_docker_clean_env)"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Clean up variables
 DOCKER_SET_PUBLISH="$(printf '%s\n' "${DOCKER_SET_TMP_PUBLISH[@]}" | sort -Vu | tr '\n' ' ')" # ensure only one
@@ -1824,7 +1825,8 @@ __dockermgr_password_variables >"$DOCKERMGR_CONFIG_DIR/secure/$APPNAME"
 chmod -f 600 "$DOCKERMGR_CONFIG_DIR/secure/$APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ ! -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.custom.conf" ]; then
-  __custom_docker_env | sed 's|^--.*||g' | grep -Ev '^$|^#' >"$DOCKERMGR_CONFIG_DIR/env/$APPNAME.custom.conf"
+  __custom_docker_env | sed 's|^--.* ||g' >"$DOCKERMGR_CONFIG_DIR/env/$APPNAME.custom.conf"
+  echo "" >>"$DOCKERMGR_CONFIG_DIR/env/$APPNAME.custom.conf"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main progam

@@ -32,7 +32,7 @@ docker run -d \
 --restart always \
 --privileged \
 --name REPLACE_REGISTRY_USER-REPLACE_PROJECT_NAME \
---hostname REPLACE_REGISTRY_USER-REPLACE_PROJECT_NAME \
+--hostname REPLACE_PROJECT_NAME \
 -e TZ=${TIMEZONE:-America/New_York} \
 -v $HOME/.local/share/srv/docker/REPLACE_REGISTRY_USER-REPLACE_PROJECT_NAME/rootfs/data:/data:z \
 -v $HOME/.local/share/srv/docker/REPLACE_REGISTRY_USER-REPLACE_PROJECT_NAME/rootfs/config:/config:z \
@@ -47,10 +47,10 @@ version: "2"
 services:
   ProjectName:
     image: REPLACE_REGISTRY_USER/REPLACE_PROJECT_NAME
-    container_name: ProjectName
+    container_name: REPLACE_REGISTRY_USER-REPLACE_PROJECT_NAME
     environment:
       - TZ=America/New_York
-      - HOSTNAME=REPLACE_REGISTRY_USER-REPLACE_PROJECT_NAME
+      - HOSTNAME=REPLACE_PROJECT_NAME
     volumes:
       - $HOME/.local/share/srv/docker/REPLACE_REGISTRY_USER-REPLACE_PROJECT_NAME/rootfs/data:/data:z
       - $HOME/.local/share/srv/docker/REPLACE_REGISTRY_USER-REPLACE_PROJECT_NAME/rootfs/config:/config:z

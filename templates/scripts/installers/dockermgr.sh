@@ -2121,17 +2121,6 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
   HOSTS_WRITABLE="$(sudo -n true && sudo bash -c '[ -w "/etc/hosts" ] && echo "true" || false' || echo 'false')"
   printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   if [ "$HOSTS_WRITABLE" = "true" ]; then
-    if [ -n "$HOST_NGINX_INTERNAL_DOMAIN" ]; then
-      __printf_color "44" "Adding to /etc/hosts:                   $HOST_NGINX_INTERNAL_DOMAIN $HOST_LISTEN_ADDR"
-      if ! grep -sq " $HOST_NGINX_INTERNAL_DOMAIN" "/etc/hosts"; then
-        echo "$HOST_LISTEN_ADDR        $HOST_NGINX_INTERNAL_DOMAIN" | sudo tee -a "/etc/hosts" &>/dev/null
-      fi
-    fi
-    __printf_color "44" "Adding to /etc/hosts:                   $CONTAINER_HOSTNAME $HOST_LISTEN_ADDR"
-    if ! grep -sq " $CONTAINER_HOSTNAME" "/etc/hosts"; then
-      echo "$HOST_LISTEN_ADDR        $CONTAINER_HOSTNAME" | sudo tee -a "/etc/hosts" &>/dev/null
-    fi
-    show_hosts_message_banner="true"
     if [ -n "$NGINX_VHOST_NAMES" ]; then
       NGINX_VHOST_NAMES="${NGINX_VHOST_NAMES//,/ }"
       for vhost in $NGINX_VHOST_NAMES; do
@@ -2144,6 +2133,17 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
       done
       show_hosts_message_banner="true"
     fi
+    if [ -n "$HOST_NGINX_INTERNAL_DOMAIN" ]; then
+      __printf_color "44" "Adding to /etc/hosts:                   $HOST_NGINX_INTERNAL_DOMAIN $HOST_LISTEN_ADDR"
+      if ! grep -sq " $HOST_NGINX_INTERNAL_DOMAIN" "/etc/hosts"; then
+        echo "$HOST_LISTEN_ADDR        $HOST_NGINX_INTERNAL_DOMAIN" | sudo tee -a "/etc/hosts" &>/dev/null
+      fi
+    fi
+    __printf_color "44" "Adding to /etc/hosts:                   $CONTAINER_HOSTNAME $HOST_LISTEN_ADDR"
+    if ! grep -sq " $CONTAINER_HOSTNAME" "/etc/hosts"; then
+      echo "$HOST_LISTEN_ADDR        $CONTAINER_HOSTNAME" | sudo tee -a "/etc/hosts" &>/dev/null
+    fi
+    show_hosts_message_banner="true"
     [ "$show_hosts_message_banner" = "true" ] && printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
     unset show_hosts_message_banner
   fi

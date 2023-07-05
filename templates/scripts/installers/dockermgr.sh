@@ -664,7 +664,7 @@ __create_docker_script() {
 # Install script for $CONTAINER_NAME
 statusCode=0
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-$EXECUTE_PRE_INSTALL || false
+$EXECUTE_PRE_INSTALL
 statusCode=\$?
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ \$statusCode -ne 0 ]; then
@@ -1835,7 +1835,7 @@ CONTAINER_COMMANDS="$(__trim "${CONTAINER_COMMANDS[*]:-}")"                     
 [ -n "$CONTAINER_COMMANDS" ] || CONTAINER_COMMANDS="    "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # set docker commands - script creation - execute command #
-SET_EXECUTE_PRE_INSTALL="$(echo "docker stop $CONTAINER_NAME &>/dev/null||true;docker rm -f $CONTAINER_NAME &>/dev/null||true;docker pull $HUB_IMAGE_URL:$HUB_IMAGE_TAG")"
+SET_EXECUTE_PRE_INSTALL="$(echo "docker stop $CONTAINER_NAME &>/dev/null;docker rm -f $CONTAINER_NAME &>/dev/null;docker pull -q $HUB_IMAGE_URL:$HUB_IMAGE_TAG")"
 SET_EXECUTE_DOCKER_CMD="$(echo "docker run -d $DOCKER_GET_OPTIONS $DOCKER_GET_CUSTOM $DOCKER_GET_LINK $DOCKER_GET_LABELS $DOCKER_GET_CAP $DOCKER_GET_SYSCTL $DOCKER_GET_DEV $DOCKER_SET_DNS $DOCKER_GET_MNT $DOCKER_GET_ENV $DOCKER_GET_PUBLISH $HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run functions
@@ -1946,7 +1946,7 @@ unset EXECUTE_DOCKER_SCRIPT
 EXECUTE_DOCKER_CMD="$(__trim "${SET_EXECUTE_DOCKER_CMD[*]}")"
 EXECUTE_PRE_INSTALL="$(__trim "${SET_EXECUTE_PRE_INSTALL[*]}")"
 DOCKER_COMPOSE_CMD="$(docker compose 2>&1 | grep -q 'is not a docker command.' || echo "true")"
-if [ "$DOCKER_COMPOSE_CMD" = "true" ] && [ -f "$INSTDIR/docker-compose.yml" ]; then
+if [ -f "$INSTDIR/docker-compose.yml" ] && [ "$DOCKER_COMPOSE_CMD" = "true" ]; then
   printf_yellow "Installing containers using docker-compose"
   sed -i 's|REPLACE_DATADIR|'$DATADIR'' "$INSTDIR/docker-compose.yml" &>/dev/null
   if cd "$INSTDIR"; then
@@ -1958,7 +1958,7 @@ if [ "$DOCKER_COMPOSE_CMD" = "true" ] && [ -f "$INSTDIR/docker-compose.yml" ]; t
     EXECUTE_PRE_INSTALL="$(echo 'cd "'$INSTDIR'"')"
     EXECUTE_DOCKER_CMD="$(echo 'docker compose pull && docker compose up -d')"
   fi
-elif [ -n "$(type -P docker-compose)" ] && [ -f "$INSTDIR/docker-compose.yml" ]; then
+elif [ -f "$INSTDIR/docker-compose.yml" ] && [ -n "$(type -P docker-compose)" ]; then
   printf_yellow "Installing containers using docker-compose"
   sed -i 's|REPLACE_DATADIR|'$DATADIR'' "$INSTDIR/docker-compose.yml" &>/dev/null
   if cd "$INSTDIR"; then
@@ -1981,7 +1981,7 @@ if [ -n "$EXECUTE_DOCKER_SCRIPT" ]; then
   printf_cyan "Creating container $CONTAINER_NAME"
   if eval $EXECUTE_DOCKER_SCRIPT 2>"${TMP:-/tmp}/$APPNAME.err.log" >/dev/null; then
     sleep 10
-    if { __container_is_running || __sudo_exec docker start $CONTAINER_NAME &>/dev/null; }; then
+    if { __container_is_running || __docker_ps_all -q || __sudo_exec docker start $CONTAINER_NAME &>/dev/null; }; then
       rm -Rf "${TMP:-/tmp}/$APPNAME.err.log"
       echo "$CONTAINER_NAME" >"$DOCKERMGR_CONFIG_DIR/containers/$APPNAME"
       __docker_ps_all -q && CONTAINER_INSTALLED="true"

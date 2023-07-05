@@ -96,7 +96,7 @@ __remove_extra_spaces() { sed 's/\( \)*/\1/g;s|^ ||g'; }
 __port() { echo "$((50000 + $RANDOM % 1000))" | grep '^' || return 1; }
 __grep_char() { grep '[a-zA-Z0-9].[a-zA-Z0-9]' | grep '^' || return 1; }
 __docker_check() { [ -n "$(type -p docker 2>/dev/null)" ] || return 1; }
-__docker_ps_all() { docker ps -a 2>&1 | grep ${1:-} "$CONTAINER_NAME" && return 0 || return 1; }
+__docker_ps_all() { docker ps -a 2>&1 | grep -i ${1:-} "$CONTAINER_NAME" && return 0 || return 1; }
 __password() { head -n1000 -c 10000 "/dev/urandom" | tr -dc '0-9a-zA-Z' | head -c${1:-16} && echo ""; }
 __total_memory() { mem="$(free | grep -i 'mem: ' | awk -F ' ' '{print $2}')" && echo $((mem / 1000)); }
 __enable_ssl() { { [ "$SSL_ENABLED" = "yes" ] || [ "$SSL_ENABLED" = "true" ]; } && return 0 || return 1; }
@@ -104,7 +104,7 @@ __docker_is_running() { ps aux 2>/dev/null | grep 'dockerd' | grep -v ' grep ' |
 __ssl_certs() { [ -f "$HOST_SSL_CA" ] && [ -f "$HOST_SSL_CRT" ] && [ -f "$HOST_SSL_KEY" ] && return 0 || return 1; }
 __is_server() { echo "${SET_HOST_FULL_NAME:-$HOSTNAME}" | grep -q '^server\..*\..*[a-zA-Z0-9][a-zA-Z0-9]$' || return 1; }
 __host_name() { hostname -f 2>/dev/null | grep -F '.' | grep '^' || hostname -f 2>/dev/null | grep '^' || echo "$HOSTNAME"; }
-__container_is_running() { docker ps 2>&1 | grep "$CONTAINER_NAME" | grep -qi 'ago.* Up.* [0-9].* ' && return 0 || return 1; }
+__container_is_running() { docker ps 2>&1 | grep -i "$CONTAINER_NAME" | grep -qi 'ago.* Up.* [0-9].* ' && return 0 || return 1; }
 __container_name() { echo "$HUB_IMAGE_URL-${HUB_IMAGE_TAG:-latest}" | awk -F '/' '{print $(NF-1)"-"$NF}' | grep '^' || return 1; }
 __docker_init() { [ -n "$(type -p dockermgr 2>/dev/null)" ] && dockermgr init || printf_exit "Failed to Initialize the docker installer"; }
 __domain_name() { hostname -f 2>/dev/null | awk -F '.' '{print $(NF-1)"."$NF}' | __grep_char || hostname -f 2>/dev/null | __grep_char || return 1; }
@@ -680,7 +680,7 @@ if [ \$statusCode -ne 0 ]; then
   exit 1
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if ! docker ps -a 2>&1 | grep -q "$CONTAINER_NAME"; then
+if ! docker ps -a 2>&1 | grep -qi "$CONTAINER_NAME"; then
 echo "$CONTAINER_NAME is not running" >&2
   exit 1
 fi

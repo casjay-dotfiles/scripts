@@ -413,6 +413,9 @@ CONTAINER_ENV+=""
 CONTAINER_SYSCTL=""
 CONTAINER_SYSCTL+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# set the max log file - [0-9][k|m|g]
+DOCKER_MAX_LOG_FILE="10m"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set custom capabilites - [NAME]
 DOCKER_CUSTOM_CAP=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -976,6 +979,10 @@ fi
 # Run the container privileged
 if [ "$CONTAINER_PRIVILEGED_ENABLED" = "yes" ]; then
   DOCKER_SET_OPTIONS+=("--privileged")
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -n "$DOCKER_MAX_LOG_FILE" ]; then
+  DOCKER_SET_OPTIONS+=("--log-opt max-size=$DOCKER_MAX_LOG_FILE")
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set ram size

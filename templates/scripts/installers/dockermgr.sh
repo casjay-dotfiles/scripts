@@ -666,7 +666,7 @@ __create_docker_script() {
 $EXECUTE_PRE_INSTALL
 statusCode=\$?
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ \$statusCode -eq 0 ]; then
+if [ \$statusCode -ne 0 ]; then
   echo "$create_docker_script_message_pre" >&2
   exit 1
 fi

@@ -1980,12 +1980,13 @@ if [ -n "$EXECUTE_DOCKER_SCRIPT" ]; then
   printf_cyan "Creating container $CONTAINER_NAME"
   if eval $EXECUTE_DOCKER_SCRIPT 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log"; then
     sleep 10
-    __container_is_running || __sudo_exec docker start $CONTAINER_NAME &>/dev/null
-    rm -Rf "${TMP:-/tmp}/$APPNAME.err.log"
-    echo "$CONTAINER_NAME" >"$DOCKERMGR_CONFIG_DIR/containers/$APPNAME"
-    __docker_ps_all -q && CONTAINER_INSTALLED="true"
-  else
-    ERROR_LOG="true"
+    if { __container_is_running || __sudo_exec docker start $CONTAINER_NAME &>/dev/null; }; then
+      rm -Rf "${TMP:-/tmp}/$APPNAME.err.log"
+      echo "$CONTAINER_NAME" >"$DOCKERMGR_CONFIG_DIR/containers/$APPNAME"
+      __docker_ps_all -q && CONTAINER_INSTALLED="true"
+    else
+      ERROR_LOG="true"
+    fi
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

@@ -662,8 +662,9 @@ __create_docker_script() {
   cat <<EOF | grep -v '^$' | sed 's/ --/\n  --/g;s| -d| -d \\|g' | grep -v '^$' | sed '/  --/ s/$/ \\/' | grep '^' | tee "$DOCKERMGR_INSTALL_SCRIPT" >/dev/null
 #!/usr/bin/env bash
 # Install script for $CONTAINER_NAME
+statusCode=0
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-$EXECUTE_PRE_INSTALL
+$EXECUTE_PRE_INSTALL || false
 statusCode=\$?
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ \$statusCode -ne 0 ]; then
@@ -1834,7 +1835,7 @@ CONTAINER_COMMANDS="$(__trim "${CONTAINER_COMMANDS[*]:-}")"                     
 [ -n "$CONTAINER_COMMANDS" ] || CONTAINER_COMMANDS="    "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # set docker commands - script creation - execute command #
-SET_EXECUTE_PRE_INSTALL="$(echo "docker stop $CONTAINER_NAME;docker rm -f $CONTAINER_NAME;docker pull $HUB_IMAGE_URL:$HUB_IMAGE_TAG ")"
+SET_EXECUTE_PRE_INSTALL="$(echo "docker stop $CONTAINER_NAME &>/dev/null||true;docker rm -f $CONTAINER_NAME &>/dev/null||true;docker pull $HUB_IMAGE_URL:$HUB_IMAGE_TAG")"
 SET_EXECUTE_DOCKER_CMD="$(echo "docker run -d $DOCKER_GET_OPTIONS $DOCKER_GET_CUSTOM $DOCKER_GET_LINK $DOCKER_GET_LABELS $DOCKER_GET_CAP $DOCKER_GET_SYSCTL $DOCKER_GET_DEV $DOCKER_SET_DNS $DOCKER_GET_MNT $DOCKER_GET_ENV $DOCKER_GET_PUBLISH $HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run functions
@@ -1978,7 +1979,7 @@ if [ -n "$EXECUTE_DOCKER_SCRIPT" ]; then
   printf_cyan "Updating the image from $HUB_IMAGE_URL with tag $HUB_IMAGE_TAG"
   eval "$EXECUTE_PRE_INSTALL" 2>"${TMP:-/tmp}/$APPNAME.err.log" >/dev/null
   printf_cyan "Creating container $CONTAINER_NAME"
-  if eval $EXECUTE_DOCKER_SCRIPT 1>/dev/null 2>"${TMP:-/tmp}/$APPNAME.err.log"; then
+  if eval $EXECUTE_DOCKER_SCRIPT 2>"${TMP:-/tmp}/$APPNAME.err.log" >/dev/null; then
     sleep 10
     if { __container_is_running || __sudo_exec docker start $CONTAINER_NAME &>/dev/null; }; then
       rm -Rf "${TMP:-/tmp}/$APPNAME.err.log"

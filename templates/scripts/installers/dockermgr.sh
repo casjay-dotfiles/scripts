@@ -1992,7 +1992,7 @@ if [ -n "$EXECUTE_DOCKER_SCRIPT" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Install nginx proxy
-NINGX_VHOSTS_WRITABLE="$(sudo -n true && NGINX_DIR="$NGINX_DIR" sudo -E bash -c '[ -w "$NGINX_DIR/vhosts.d" ] && echo "true" || false' || echo 'false')"
+NINGX_VHOSTS_WRITABLE="$(sudo -n true && NGINX_DIR="$NGINX_DIR" sudo -E bash -c '[ -w "$NGINX_DIR" ] && echo "true" || false' || echo 'false')"
 if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
   NGINX_VHOST_TMP_NAMES=()
   NGINX_VHOST_ENABLED="true"
@@ -2001,7 +2001,14 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
   NGINX_MAIN_CONFIG="$NGINX_DIR/vhosts.d/$NGINX_CONFIG_NAME.conf"
   NGINX_VHOST_CONFIG="$NGINX_DIR/vhosts.d/$NGINX_CONFIG_NAME.custom.conf"
   NGINX_INC_CONFIG="$NGINX_DIR/conf.d/vhosts/$NGINX_CONFIG_NAME.conf"
-  [ -d "$NGINX_DIR/conf.d/vhosts" ] || __sudo_root mkdir -p "$NGINX_DIR/conf.d/vhosts"
+  if [ "$NGINX_DIR" = "/etc/nginx/vhosts.d" ]; then
+    [ -d "$NGINX_DIR/vhosts.d" ] || __sudo_root mkdir -p "$NGINX_DIR/vhosts.d"
+    [ -d "$NGINX_DIR/conf.d/vhosts.d" ] || __sudo_root mkdir -p "$NGINX_DIR/conf.d/vhosts.d"
+    chmod 777 "$NGINX_DIR/vhosts.d" "$NGINX_DIR/conf.d/vhosts.d"
+  else
+    [ -d "$NGINX_DIR/vhosts.d" ] || mkdir -p "$NGINX_DIR/vhosts.d"
+    [ -d "$NGINX_DIR/conf.d/vhosts.d" ] || mkdir -p "$NGINX_DIR/conf.d/vhosts.d"
+  fi
   if [ "$HOST_NGINX_UPDATE_CONF" = "yes" ] && [ -f "$INSTDIR/nginx/proxy.conf" ]; then
     for vhost in $NGINX_VHOST_SET_NAMES; do
       if [ -n "$vhost" ]; then

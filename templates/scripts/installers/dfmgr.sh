@@ -210,6 +210,13 @@ __run_post_install() {
   return $getRunStatus
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# run after everything
+__run_finalize() {
+  local getRunStatus=0
+
+  return $getRunStatus
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Custom plugin function
 __custom_plugin() {
   local getRunStatus=0
@@ -359,17 +366,20 @@ run_postinst() {
 # run post install scripts
 execute "run_postinst" "Running post install scripts"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# run any external scripts
+__run_build_script
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# run after everything
+__run_finalize
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Output post install message
+__run_post_message
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # create version file
 dfmgr_install_version
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run exit function
 run_exit
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# run any external scripts
-__run_build_script
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Output post install message
-__run_post_message
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

@@ -1092,7 +1092,8 @@ python_exists() {
   __cmd_exists "$package" && return 0
   local py="$(builtin type -P python3 2>/dev/null || builtin type -P python2 2>/dev/null || builtin type -P python 2>/dev/null)"
   if [ -n "$py" ]; then
-    if [ "$(eval $py -c 'import '$package';print("0")' 2>/dev/null || echo "1")" = 0 ]; then
+    # [ "$(eval $py -c 'import '$package';print("0")' 2>/dev/null | grep '0' || echo "1")" = 0 ]
+    if eval $py -m $package 2>/dev/null | grep -q '^'; then
       statusCode=0
     fi
   else

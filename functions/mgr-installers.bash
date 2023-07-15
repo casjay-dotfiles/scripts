@@ -1307,7 +1307,7 @@ install_pip() {
       printf_warning "Attempting to install missing pip packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr --enable-log pip install $miss" "Installing $miss" || true
+        execute "install_python --enable-log $miss &>/dev/null || pkmgr --enable-log pip install $miss" "Installing $miss" || true
         pip_missing "$miss" && __saved_file_create "$miss" || false
       done
     fi

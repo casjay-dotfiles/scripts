@@ -1257,8 +1257,9 @@ install_python() {
   local REQUIRED="$*"
   local MISSING=""
   local cmd=""
+  local pyver="$(basename "$(type -P python3 || type -P python2 || type -P python || echo "${PYTHONVER:-python3}")")"
   __getpythonver
-  [ -f "$(builtin type -P pacman 2>/dev/null)" ] && prepend="python" || prepend="$PYTHONVER"
+  [ -f "$(builtin type -P pacman 2>/dev/null)" ] && prepend="python" || prepend="$pyver"
   for cmd in $REQUIRED; do
     __saved_file_check "$cmd" || python_missing "$cmd" || MISSING+="$prepend-$cmd "
   done

@@ -359,17 +359,17 @@ run_postinst() {
 # run post install scripts
 execute "run_postinst" "Running post install scripts"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# create version file
-hakmgr_install_version
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# run exit function
-run_exit
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run any external scripts
 __run_build_script
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Output post install message
 __run_post_message
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create version file
+hakmgr_install_version
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# run exit function
+run_exit
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

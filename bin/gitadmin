@@ -370,6 +370,17 @@ __trap_exit() {
 __jq() { jq "$@" 2>/dev/null | grep -v '^$' | grep '^' || return 1; }
 __test_if_number() { test -n "$1" && test -z "${1//[0-9]/}" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create directory structures
+__create_dirs() {
+  local d=""
+  local dirs="${*:-github gitlab private local}"
+  local project_dir="${GITADMIN_DEFAULT_PROJECT_DIR:-$HOME/Projects}"
+  for d in $dirs; do
+    [ -d "$project_dir/$d" ] || mkdir -p "$project_dir/$d" || printf_exit "Failed to create $d in $project_dir: Ensure $project_dir mounted and is writable"
+  done
+  return
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __update_usage() {
   printf_cyan "Usage: var=value var2=myvalue"
   exit
@@ -2006,6 +2017,26 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 case "$1" in
+is) # repo status is? clean,dirty
+  shift 1
+  case "$1" in
+  clean) # returns 1 if repo changed
+    shift 1
+    __is_clean "${1:-$GITADMIN_CWD}"
+    exit $?
+    ;;
+  dirty) # returns 0 if repo changed
+    shift 1
+    __is_dirty "${1:-$GITADMIN_CWD}"
+    exit $?
+    ;;
+  *) # same as clean
+    __is_clean "${1:-$GITADMIN_CWD}"
+    exit $?
+    ;;
+  esac
+  ;;
+
 shorten) # github url shortner
   shift 1
   { [ "$1" = "help" ] || [ -z "$1" ]; } && printf_help "Usage: gitadmin shorten [url] [name]"
@@ -2036,26 +2067,6 @@ stow) # backup dotfiles
   shift 1
   { [ "$1" = "help" ] || [ -z "$1" ]; } && printf_help "Usage: gitadmin stow [files]"
   config "$@"
-  ;;
-
-is) # repo status is? clean,dirty
-  shift 1
-  case "$1" in
-  clean) # returns 1 if repo changed
-    shift 1
-    __is_clean "${1:-$GITADMIN_CWD}"
-    exit $?
-    ;;
-  dirty) # returns 0 if repo changed
-    shift 1
-    __is_dirty "${1:-$GITADMIN_CWD}"
-    exit $?
-    ;;
-  *) # same as clean
-    __is_clean "${1:-$GITADMIN_CWD}"
-    exit $?
-    ;;
-  esac
   ;;
 
 s | status) # repo status
@@ -2194,6 +2205,7 @@ clone) # Clone repo from url
   shift 1
   { [ $# = 0 ] || [ "$1" = "help" ]; } && printf_help "Usage: gitadmin clone MyURL"
   REPO_URL="$(__strip_git_url "$1")"
+  __create_dirs ${2:-}
   git_clone_single "${1:-$REPO_URL}" ${2:-}
   ;;
 
@@ -2557,6 +2569,7 @@ orgs) # organization options
     { [ $# -eq 0 ] || [ "$1" = "help" ]; } && printf_help "Usage: gitadmin org clone [userName]"
     GITADMIN_DEFAULT_USERNAME="${1:-$GITADMIN_DEFAULT_USERNAME}"
     GITADMIN_DEFAULT_REPO_BASE="$GITADMIN_DEFAULT_REPO_BASE/$GITADMIN_DEFAULT_USERNAME"
+    __create_dirs
     __api_org_token "$GITADMIN_DEFAULT_USERNAME" || return 1
     __curl_gh_api $GITHUBAPIREPO | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
     COUNT="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
@@ -2580,6 +2593,7 @@ orgs) # organization options
   *)
     [ "$1" = "help" ] && printf_help "Usage: gitadmin org [userName] [userName]"
     repo_base="$GITADMIN_DEFAULT_REPO_BASE"
+    __create_dirs
     if [ $# -ge 1 ]; then
       for org in "$@"; do
         __clone_orgs "$org" "$repo_base"
@@ -2601,6 +2615,7 @@ github) # github repo
   init) # init a github repo
     shift 1
     { [ $# = 0 ] || [ "$1" = "help" ]; } && printf_help "Usage: gitadmin github init RepoName"
+    __create_dirs
     do_not_add_a_url "$1"
     if echo "$GITADMIN_DEFAULT_GIT_DIR_GITHUB/$1" | grep -q '\.git$'; then
       homerepo="$(echo "$GITADMIN_DEFAULT_GIT_DIR_GITHUB/$1" | grep '\.git$' | __sed 's/\",//;s/\.[^.]*$//;s#"##g')"
@@ -2616,6 +2631,7 @@ github) # github repo
     shift 1
     { [ $# -lt 1 ] || [ "$1" = "help" ]; } && printf_help "Usage: gitadmin github clone username/projectname"
     url="$(echo "$*" | tr ' ' '/')"
+    __create_dirs
     do_not_add_a_url "$url"
     remote_repo="https://github.com/$(__strip_git_url "$url").git"
     if echo "$GITADMIN_DEFAULT_GIT_DIR_GITHUB/$1" | grep -q '\.git$'; then
@@ -2730,6 +2746,7 @@ gitlab) # gitlab repos commands
   init) # init a gitlab repo
     shift 1
     { [ $# = 0 ] || [ "$1" = "help" ]; } && printf_help "Usage: gitadmin gitlab init RepoName"
+    __create_dirs
     do_not_add_a_url "$1"
     if echo "$GITADMIN_DEFAULT_GIT_DIR_GITLAB/$1" | grep -q '\.git$'; then
       homerepo="$(echo "$GITADMIN_DEFAULT_GIT_DIR_GITLAB/$1" | grep '\.git$' | __sed 's/\",//;s/\.[^.]*$//;s#"##g')"
@@ -2744,6 +2761,7 @@ gitlab) # gitlab repos commands
   clone) # Clone repo from gitlab
     shift 1
     { [ $# = 0 ] || [ "$1" = "help" ]; } && printf_help "Usage: gitadmin gitlab clone username/projectname"
+    __create_dirs
     do_not_add_a_url "$1"
     remote_repo="https://gitlab.com/$(__strip_git_url "$1")"
     if echo "$GITADMIN_DEFAULT_GIT_DIR_GITLAB/$1" | grep -q '\.git$'; then
@@ -2814,6 +2832,7 @@ private) # private repos commands
   init) # init a private repo
     shift 1
     { [ $# = 0 ] || [ "$1" = "help" ]; } && printf_help "Usage: gitadmin private init RepoName"
+    __create_dirs
     do_not_add_a_url "$1"
     if echo "$GITADMIN_DEFAULT_GIT_DIR_PRIVATE/$1" | grep -q '\.git$'; then
       homerepo="$(echo "$GITADMIN_DEFAULT_GIT_DIR_PRIVATE/$1" | grep '\.git$' | __sed 's/\",//;s/\.[^.]*$//;s#"##g')"
@@ -2828,6 +2847,7 @@ private) # private repos commands
   clone) # Clone repo from private
     shift 1
     { [ $# = 0 ] || [ "$1" = "help" ]; } && printf_help "Usage: gitadmin private clone username/projectname"
+    __create_dirs
     do_not_add_a_url "$1"
     remote_repo="$GITADMIN_PERSONAL_GIT_HOST/$(__strip_git_url "$1")"
     if echo "$GITADMIN_DEFAULT_GIT_DIR_PRIVATE/$1" | grep -q '\.git$'; then

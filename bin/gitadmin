@@ -190,6 +190,7 @@ __help() {
   __printf_line "stow                            - Keep your dotfiles in a repo"
   __printf_line "status                          - Show repo status"
   __printf_line "log                             - Show the git log"
+  __printf_line "lfs                             - Run lfs commands"
   __printf_line "branch                          - Rename the current branch"
   __printf_line "commit                          - Commit the current changes"
   __printf_line "update                          - Run git pull on all repos"
@@ -1017,6 +1018,7 @@ run_git_setup() {
   GITCOMMIT_MESSAGE="${GITADMIN_SETUP_MESSAGE:- 🦈🏠🐜❗ Initial Commit ❗🐜🦈🏠 }"
   printf_green "Initializing the repo in $git_dir"
   [ -n "$remote_repo" ] || remote_repo_init="github.com/$(basename "$(dirname $GITADMIN_CWD)")/$(basename "$GITADMIN_CWD")"
+  [ -f "$git_dir/.gitattributes" ] || touch "$git_dir/.gitattributes"
   [ -f "$git_dir/.gitignore" ] || gitignore "$git_dir" default --automated
   if [ -d "$git_dir/.git" ]; then
     printf_error "This project already has git setup"
@@ -1822,7 +1824,7 @@ SHORTOPTS+=""
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
 LONGOPTS+=",user:,org:,single:,nolicense,noreadme,automated,cd,desc:,site:,delete,nopush,message:,type:"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-ARRAY="repos stow setup newsite private gitlab github single init gist orgs remote list "
+ARRAY="repos stow setup newsite private gitlab github single init gist orgs remote list lfs "
 ARRAY+="delete create pull clone push user update commit branch log status cron issues squash migrate "
 ARRAY+="is web"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -2104,6 +2106,50 @@ setup | reset) # initialize repo
   else
     run_git_setup "$@"
   fi
+  ;;
+
+lfs)
+  shift 1
+  [ "$1" = "help" ] && printf_help "gitadmin lfs [fetch,checkout,add]"
+  [ -d "$GITADMIN_CWD/.git" ] || printf_exit "$GITADMIN_CWD is not a git repo"
+  git lfs --help 2>&1 | grep -vq 'is not a git command' || printf_exit "git lfs is not installed"
+  [ -f "$GITADMIN_CONFIG_DIR/lfs_init" ] || { git lfs install && touch "$GITADMIN_CONFIG_DIR/lfs_init"; }
+  if [ ! -f "$GITADMIN_CWD/.gitattributes" ]; then
+    printf_cyan "Creating .gitattributes in $GITADMIN_CWD"
+    touch "$GITADMIN_CWD/.gitattributes" && git -C "$GITADMIN_CWD" add .gitattributes &>/dev/null && git -C "$GITADMIN_CWD" commit -m "🔵 Added .gitattributes 🔵" --quiet
+  fi
+  case "$1" in
+  fetch)
+    shift 1
+    git -C "$GITADMIN_CWD" fetch --all && exitCode=0 || exitCode=1
+    printf '\n'
+    exit $exitCode
+    ;;
+  checkout)
+    shift 1
+    git -C "$GITADMIN_CWD" lfs checkout && exitCode=0 || exitCode=1
+    printf '\n'
+    exit $exitCode
+    ;;
+  add)
+    shift 1
+    for file in "$@"; do
+      repo_file="${file//$GITADMIN_CWD\//}"
+      printf_cyan "Adding $repo_file to LFS"
+      git -C "$GITADMIN_CWD" lfs track "$repo_file"
+      git -C "$GITADMIN_CWD" commit -m "🔵 Added LFS object: $repo_file 🔵" --quiet
+    done
+    git -C "$GITADMIN_CWD" push && exitCode=0 || exitCode=1
+    printf '\n'
+    exit $exitCode
+    ;;
+  *)
+    printf_green "Running git lfs fetch in $GITADMIN_CWD"
+    git -C "$GITADMIN_CWD" fetch --all && git -C "$GITADMIN_CWD" lfs checkout && exitCode=0 || exitCode=1
+    exit $exitCode
+    ;;
+  esac
+  exit $?
   ;;
 
 diff)
@@ -3047,7 +3093,10 @@ cron | updater)
   if [ $# -eq 0 ]; then
     __help
   else
-    $(builtin type -P git 2>/dev/null) "$@"
+    set -x
+    git_cmd="$(builtin type -P git 2>/dev/null)"
+    $git_cmd $1 --help 2>&1 | grep -vq 'is not a git command' || printf_exit "git $1 is not valid command"
+    $git_cmd -C "$GITADMIN_CWD" "$@"
   fi
   ;;
 esac

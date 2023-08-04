@@ -2021,7 +2021,12 @@ if [ -n "$EXECUTE_DOCKER_SCRIPT" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Install nginx proxy
-NINGX_VHOSTS_WRITABLE="$(sudo -n true && NGINX_DIR="$NGINX_DIR" sudo -E bash -c '[ -w "$NGINX_DIR" ] && echo "true" || false' || echo 'false')"
+NGINX_DIR="${NGINX_DIR:-/etc/nginx}"
+if [ "$USER" = "root" ]; then
+ [ -d "$NGINX_DIR" ] && NINGX_VHOSTS_WRITABLE="true"
+else
+  NINGX_VHOSTS_WRITABLE="$(sudo -n true && NGINX_DIR="$NGINX_DIR" sudo -E bash -c '[ -w "$NGINX_DIR" ] && echo true')"
+fi
 if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
   NGINX_VHOST_TMP_NAMES=()
   NGINX_VHOST_ENABLED="true"

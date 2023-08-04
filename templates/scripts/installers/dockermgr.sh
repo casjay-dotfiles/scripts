@@ -2238,6 +2238,10 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
     fi
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
+  if [ -n "$CONTAINER_USER_ADMIN_PASS_ENV" ]; then
+    show_user_footer="true"
+    printf_cyan "admin password is:                      $CONTAINER_USER_ADMIN_PASS_ENV"
+  fi
   if [ -n "$CONTAINER_USER_NAME" ]; then
     show_user_footer="true"
     printf_cyan "Username is:                            $CONTAINER_USER_NAME"

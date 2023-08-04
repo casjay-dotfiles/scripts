@@ -108,8 +108,8 @@ __host_name() { hostname -f 2>/dev/null | grep -F '.' | grep '^' || hostname -f 
 __container_is_running() { docker ps 2>&1 | grep -i "$CONTAINER_NAME" | grep -qi 'ago.* Up.* [0-9].* ' && return 0 || return 1; }
 __container_name() { echo "$HUB_IMAGE_URL-${HUB_IMAGE_TAG:-latest}" | awk -F '/' '{print $(NF-1)"-"$NF}' | grep '^' || return 1; }
 __docker_init() { [ -n "$(type -p dockermgr 2>/dev/null)" ] && dockermgr init || printf_exit "Failed to Initialize the docker installer"; }
-__domain_name() { hostname -f 2>/dev/null | awk -F '.' '{print $(NF-1)"."$NF}' | __grep_char || hostname -f 2>/dev/null | __grep_char || return 1; }
 __port_in_use() { { [ -d "/etc/nginx/vhosts.d" ] && grep -wRsq "${1:-443}" "/etc/nginx/vhosts.d" || __netstat | grep -q "${1:-443}"; } && return 1 || return 0; }
+__domain_name() { hostname -d 2>/dev/null | grep -F '.' | grep '^' ||  hostname -f 2>/dev/null | grep -w '.' | awk -F '.' '{print $(NF-1)"."$NF}' | __grep_char || return 1; }
 __netstat() { netstat -taupln 2>/dev/null | grep -vE 'WAIT|ESTABLISHED|docker-pro' | awk -F ' ' '{print $4}' | sed 's|.*:||g' | grep -E '[0-9]' | sort -Vu | grep "^${1:-.*}$" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __public_ip() { curl -q -LSsf "http://ifconfig.co" | grep -v '^$' | head -n1 | grep '^'; }
@@ -174,7 +174,7 @@ ENV_DOMAINNAME="${ENV_DOMAINNAME:-$SET_DOMAIN}"
 SET_LOCAL_HOSTNAME=$(__host_name)
 SET_LONG_HOSTNAME=$(hostname -f 2>/dev/null | grep '^')
 SET_SHORT_HOSTNAME=$(hostname -s 2>/dev/null | grep '^')
-SET_DOMAIN_NAME=$(__domain_name || hostname -d 2>/dev/null | grep -F '.' | grep '^' || echo 'home')
+SET_DOMAIN_NAME=$(__domain_name || echo 'home')
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set hostname and domain
 SET_HOST_FULL_NAME="${FULL_HOST:-$SET_LONG_HOSTNAME}"
@@ -760,8 +760,6 @@ if [ -n "$CONTAINER_REQUIRES" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # rewrite variables from env file
-[ -n "$CONTAINER_OPT_HOSTNAME" ] && CONTAINER_HOSTNAME="$CONTAINER_OPT_HOSTNAME"
-[ -n "$CONTAINER_OPT_DOMAINNAME" ] && CONTAINER_DOMAINNAME="$CONTAINER_OPT_DOMAINNAME"
 SET_LAN_DEV="${ENV_SET_LAN_DEV:-$SET_LAN_DEV}"
 SET_LAN_IP="${ENV_SET_LAN_IP:-$SET_LAN_IP}"
 SET_LOCAL_IP="$(__my_default_lan_address)"
@@ -884,6 +882,9 @@ DOCKER_CAP_NET_ADMIN="${ENV_DOCKER_CAP_NET_ADMIN:-$DOCKER_CAP_NET_ADMIN}"
 DOCKER_CAP_NET_BIND_SERVICE="${ENV_DOCKER_CAP_NET_BIND_SERVICE:-$DOCKER_CAP_NET_BIND_SERVICE}"
 DOCKERMGR_ENABLE_INSTALL_SCRIPT="${SCRIPT_ENABLED:-$DOCKERMGR_ENABLE_INSTALL_SCRIPT}"
 CONTAINER_USER_ADMIN_PASS_LENGTH="${ENV_CONTAINER_USER_ADMIN_PASS_LENGTH:-$CONTAINER_USER_ADMIN_PASS_LENGTH}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+[ -n "$CONTAINER_OPT_HOSTNAME" ] && ENV_HOSTNAME="$CONTAINER_OPT_HOSTNAME"
+[ -n "$CONTAINER_OPT_DOMAINNAME" ] && CONTAINER_DOMAINNAME="$CONTAINER_OPT_DOMAINNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # SSL Setup container mounts
 CONTAINER_SSL_DIR="${CONTAINER_SSL_DIR:-/config/ssl}"

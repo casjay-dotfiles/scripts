@@ -454,6 +454,12 @@ CONTAINER_DEBUG_OPTIONS=""
 CONTAINER_CREATE_DIRECTORY="/data/$APPNAME,/config/$APPNAME"
 CONTAINER_CREATE_DIRECTORY+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# enable cron jobs
+HOST_CRON_ENABLED=""
+HOST_CRON_SCHEDULE=""
+HOST_CRON_COMMAND=""
+HOST_CRON_USER="root"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show post install message
 POST_SHOW_FINISHED_MESSAGE=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -605,6 +611,11 @@ DOCKER_CAP_NET_ADMIN="\${ENV_DOCKER_CAP_NET_ADMIN:-$DOCKER_CAP_NET_ADMIN}"
 DOCKER_CAP_NET_BIND_SERVICE="\${ENV_DOCKER_CAP_NET_BIND_SERVICE:-$DOCKER_CAP_NET_BIND_SERVICE}"
 #
 CONTAINER_USER_ADMIN_PASS_LENGTH="\${ENV_CONTAINER_USER_ADMIN_PASS_LENGTH:-$CONTAINER_USER_ADMIN_PASS_LENGTH}"
+#
+HOST_CRON_ENABLED="${ENV_HOST_CRON_ENABLED:-$HOST_CRON_ENABLED}"
+HOST_CRON_SCHEDULE="${ENV_HOST_CRON_SCHEDULE:-$HOST_CRON_SCHEDULE}"
+HOST_CRON_COMMAND="${ENV_HOST_CRON_COMMAND:-$HOST_CRON_COMMAND}"
+HOST_CRON_USER="${ENV_HOST_CRON_USER:-$HOST_CRON_USER}"
 EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -2188,6 +2199,15 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
     printf_yellow "The internal name is set to:            $HOST_NGINX_INTERNAL_DOMAIN"
   fi
   printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
+  if [ "$HOST_CRON_ENABLED" = "yes" ] && [ -n "$HOST_CRON_COMMAND" ]; then
+    [ -n "$HOST_CRON_USER" ] || HOST_CRON_USER="root"
+    [ -n "$HOST_CRON_SCHEDULE" ] || HOST_CRON_SCHEDULE="30 0 * * *"
+    printf_cyan   "Setting schedule to:                      $HOST_CRON_SCHEDULE"
+    printf_cyan   "Setting command  to:                      $HOST_CRON_COMMAND"
+    printf_yellow "Applying cron job to:                     /etc/cron.d/$CONTAINER_NAME"
+    echo "$HOST_CRON_SCHEDULE $HOST_CRON_USER $HOST_CRON_COMMAND" | sudo tee "/etc/cron.d/$CONTAINER_NAME" &>/dev/null
+    printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
+ fi
   if __ssl_certs; then
     mkdir -p "$CONTAINER_SSL_DIR"
     __sudo_exec chmod -f 777 "$CONTAINER_SSL_DIR"

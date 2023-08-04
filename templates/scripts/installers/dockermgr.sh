@@ -1068,11 +1068,11 @@ if [ -e "$CGROUPS_MOUNTS" ] || [ -e "/sys/fs/cgroup" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mount the docker socket
-if [ -f "$DOCKER_SOCKET_MOUNT" ] || [ -f "/var/run/docker.sock" ]; then
-  if [ "$DOCKER_SOCKET_ENABLED" = "yes" ]; then
-    if [ -z "$DOCKER_SOCKET_MOUNT" ]; then
+if [ "$DOCKER_SOCKET_ENABLED" = "yes" ]; then
+  if [ -z "$DOCKER_SOCKET_MOUNT" ]; then
+    if [ -f "/var/run/docker.sock" ]; then
       DOCKER_SET_OPTIONS+=("--volume /var/run/docker.sock:/var/run/docker.sock")
-    else
+    elif [ -f "$DOCKER_SOCKET_MOUNT" ]; then
       DOCKER_SET_OPTIONS+=("--volume $DOCKER_SOCKET_MOUNT:/var/run/docker.sock")
     fi
   fi

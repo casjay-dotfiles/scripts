@@ -456,9 +456,9 @@ CONTAINER_CREATE_DIRECTORY+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # enable cron jobs
 HOST_CRON_ENABLED=""
+HOST_CRON_USER="root"
 HOST_CRON_SCHEDULE=""
 HOST_CRON_COMMAND=""
-HOST_CRON_USER="root"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show post install message
 POST_SHOW_FINISHED_MESSAGE=""
@@ -1070,9 +1070,9 @@ fi
 # Mount the docker socket
 if [ "$DOCKER_SOCKET_ENABLED" = "yes" ]; then
   if [ -z "$DOCKER_SOCKET_MOUNT" ]; then
-    if [ -f "/var/run/docker.sock" ]; then
+    if [ -e "/var/run/docker.sock" ]; then
       DOCKER_SET_OPTIONS+=("--volume /var/run/docker.sock:/var/run/docker.sock")
-    elif [ -f "$DOCKER_SOCKET_MOUNT" ]; then
+    elif [ -e "$DOCKER_SOCKET_MOUNT" ]; then
       DOCKER_SET_OPTIONS+=("--volume $DOCKER_SOCKET_MOUNT:/var/run/docker.sock")
     fi
   fi
@@ -2208,12 +2208,12 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
     printf_yellow "The internal name is set to:            $HOST_NGINX_INTERNAL_DOMAIN"
   fi
   printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
-  if [ "$HOST_CRON_ENABLED" = "yes" ] && [ -n "$HOST_CRON_COMMAND" ]; then
+  if [ "$HOST_CRON_ENABLED" = "yes" ] && [ -n "$HOST_CRON_COMMAND" ] && [ -n "$NGINX_PROXY_URL" ]; then
     [ -n "$HOST_CRON_USER" ] || HOST_CRON_USER="root"
     [ -n "$HOST_CRON_SCHEDULE" ] || HOST_CRON_SCHEDULE="30 0 * * *"
+    printf_cyan   "Setting cron user to:                     $HOST_CRON_USER"
     printf_cyan   "Setting schedule to:                      $HOST_CRON_SCHEDULE"
-    printf_cyan   "Setting command  to:                      $HOST_CRON_COMMAND"
-    printf_yellow "Applying cron job to:                     /etc/cron.d/$CONTAINER_NAME"
+    printf_yellow "Saving cron job to:                       /etc/cron.d/$CONTAINER_NAME"
     echo "$HOST_CRON_SCHEDULE $HOST_CRON_USER $HOST_CRON_COMMAND" | sudo tee "/etc/cron.d/$CONTAINER_NAME" &>/dev/null
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
  fi

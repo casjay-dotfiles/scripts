@@ -139,6 +139,13 @@ run_post_install() {
 }
 #
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Define any post-install scripts
+run_post_custom() {
+
+  return 0
+}
+#
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __show_post_message() {
 
   return 0
@@ -473,6 +480,13 @@ __custom_docker_env() {
 EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set custom script
+__custom_docker_script() {
+  cat <<EOF | tee | grep -v '^$'
+
+EOF
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # this function will create an env file in the containers filesystem - see CONTAINER_ENV_FILE_ENABLED
 __container_import_variables() {
   [ "$CONTAINER_ENV_FILE_ENABLED" = "yes" ] || return 0
@@ -719,7 +733,8 @@ __printf_color() { printf_color "$2\n" "$1"; }
 [ -f "$INSTDIR/env.sh" ] && . "$INSTDIR/env.sh"
 [ -f "$APPDIR/env.sh" ] && . "$APPDIR/env.sh"
 [ -f "$DOCKERMGR_CONFIG_DIR/.env.sh" ] && . "$DOCKERMGR_CONFIG_DIR/.env.sh"
-[ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.conf" ] && . "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.conf"
+[ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.env.conf" ] && . "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.env.conf"
+[ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.script.sh" ] && . "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.script.sh"
 [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.custom.conf" ] && . "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.custom.conf"
 [ -r "$DOCKERMGR_CONFIG_DIR/secure/$APPNAME" ] && . "$DOCKERMGR_CONFIG_DIR/secure/$APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1869,7 +1884,8 @@ SET_EXECUTE_DOCKER_CMD="$(echo "docker run -d $DOCKER_GET_OPTIONS $DOCKER_GET_CU
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run functions
 __container_import_variables "$CONTAINER_ENV_FILE_MOUNT"
-__dockermgr_variables >"$DOCKERMGR_CONFIG_DIR/env/$APPNAME.conf"
+__dockermgr_variables >"$DOCKERMGR_CONFIG_DIR/env/$APPNAME.env.conf"
+__custom_docker_script >"$DOCKERMGR_CONFIG_DIR/env/$APPNAME.script.sh"
 __dockermgr_password_variables >"$DOCKERMGR_CONFIG_DIR/secure/$APPNAME"
 __init_cron
 chmod -f 600 "$DOCKERMGR_CONFIG_DIR/secure/$APPNAME"
@@ -2367,9 +2383,9 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
     printf_yellow "Script saved to:                        $DOCKERMGR_INSTALL_SCRIPT"
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
-  if [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.conf" ] || [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.custom.conf" ]; then
-    if [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.conf" ]; then
-      printf_green "variables saved to:                     $DOCKERMGR_CONFIG_DIR/env/$APPNAME.conf"
+  if [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.env.conf" ] || [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.custom.conf" ]; then
+    if [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.env.conf" ]; then
+      printf_green "variables saved to:                     $DOCKERMGR_CONFIG_DIR/env/$APPNAME.env.conf"
     fi
     if [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.custom.conf" ]; then
       printf_green "Container variables saved to:           $DOCKERMGR_CONFIG_DIR/env/$APPNAME.custom.conf"
@@ -2407,6 +2423,7 @@ __create_uninstall
 # run post install scripts
 run_postinst() {
   dockermgr_run_post
+  run_post_install &>/dev/null
 }
 #
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -2414,7 +2431,7 @@ run_postinst() {
 execute "run_postinst" "Running post install scripts" 1>/dev/null
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Output post install message
-run_post_install &>/dev/null
+run_post_custom
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # create version file
 dockermgr_install_version &>/dev/null

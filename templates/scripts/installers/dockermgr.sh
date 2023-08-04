@@ -152,7 +152,7 @@ while :; do
   -h | --host) CONTAINER_OPT_HOSTNAME="$2" && shift 2 ;;
   -d | --domain) CONTAINER_OPT_DOMAINNAME="$2" && shift 2 ;;
   -e | --env) CONTAINER_OPT_ENV_VAR="$2 $CONTAINER_OPT_ENV_VAR" && shift 2 ;;
-  -m | --mount) CONTAINER_OPT_MOUNT_VAR="$2 $CONTAINER_OPT_ENV_VAR" && shift 2 ;;
+  -m | --mount) CONTAINER_OPT_MOUNT_VAR="$2 $CONTAINER_OPT_MOUNT_VAR" && shift 2 ;;
   -p | --port) CONTAINER_OPT_PORT_VAR="$2 $CONTAINER_OPT_PORT_VAR" && shift 2 ;;
   --options) shift 1 && echo "Options: -e -p -h -d --options --env --port --host --domain" && exit 1 ;;
   *) break ;;
@@ -760,6 +760,8 @@ if [ -n "$CONTAINER_REQUIRES" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # rewrite variables from env file
+[ -n "$CONTAINER_OPT_HOSTNAME" ] && CONTAINER_HOSTNAME="$CONTAINER_OPT_HOSTNAME"
+[ -n "$CONTAINER_OPT_DOMAINNAME" ] && CONTAINER_DOMAINNAME="$CONTAINER_OPT_DOMAINNAME"
 SET_LAN_DEV="${ENV_SET_LAN_DEV:-$SET_LAN_DEV}"
 SET_LAN_IP="${ENV_SET_LAN_IP:-$SET_LAN_IP}"
 SET_LOCAL_IP="$(__my_default_lan_address)"

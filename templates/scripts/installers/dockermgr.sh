@@ -1871,6 +1871,7 @@ SET_EXECUTE_DOCKER_CMD="$(echo "docker run -d $DOCKER_GET_OPTIONS $DOCKER_GET_CU
 __container_import_variables "$CONTAINER_ENV_FILE_MOUNT"
 __dockermgr_variables >"$DOCKERMGR_CONFIG_DIR/env/$APPNAME.conf"
 __dockermgr_password_variables >"$DOCKERMGR_CONFIG_DIR/secure/$APPNAME"
+__init_cron
 chmod -f 600 "$DOCKERMGR_CONFIG_DIR/secure/$APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ ! -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.custom.conf" ]; then

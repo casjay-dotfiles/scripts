@@ -170,10 +170,10 @@ GEN_DNS_DEFAULT_HOST_WORDPRESS_IP6="${GEN_DNS_DEFAULT_HOST_WORDPRESS_IP6:-}"
 #
 GEN_DNS_DEFAULT_HOST_CLOUDFLARE_IP4="${GEN_DNS_DEFAULT_HOST_CLOUDFLARE_IP4:-}"
 GEN_DNS_DEFAULT_HOST_CLOUDFLARE_IP6="${GEN_DNS_DEFAULT_HOST_CLOUDFLARE_IP6:-}"
-GEN_DNS_DEFAULT_HOST_CLOUDFLARE_NAMESERVER_1="${GEN_DNS_DEFAULT_HOST_CLOUDFLARE_NAMESERVER_1:-}"
-GEN_DNS_DEFAULT_HOST_CLOUDFLARE_NAMESERVER_2="${GEN_DNS_DEFAULT_HOST_CLOUDFLARE_NAMESERVER_2:-}"
 GEN_DNS_DEFAULT_HOST_CLOUDFLARE_HOST_IP4="${GEN_DNS_DEFAULT_HOST_CLOUDFLARE_HOST_IP4:-}"
 GEN_DNS_DEFAULT_HOST_CLOUDFLARE_HOST_IP6="${GEN_DNS_DEFAULT_HOST_CLOUDFLARE_HOST_IP6:-}"
+GEN_DNS_DEFAULT_HOST_CLOUDFLARE_NAMESERVER_1="${GEN_DNS_DEFAULT_HOST_CLOUDFLARE_NAMESERVER_1:-}"
+GEN_DNS_DEFAULT_HOST_CLOUDFLARE_NAMESERVER_2="${GEN_DNS_DEFAULT_HOST_CLOUDFLARE_NAMESERVER_2:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #
 GEN_DNS_DEFAULT_HOST_GOOGLE_IP4="${GEN_DNS_DEFAULT_HOST_GOOGLE_IP4:-}"
@@ -209,7 +209,7 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Help function - Align to 50
-__help() { # bitly vercel casjay casjaysdev github google redirect wordpress
+__help() { #
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "gen-dns:  Generate a dns zone - $VERSION"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -218,11 +218,15 @@ __help() { # bitly vercel casjay casjaysdev github google redirect wordpress
   __printf_line "mydomain ip ip6                 - Create a new zone with domain:mydomain ip:ip ipv6:ip6"
   __printf_line "--force                         - Will run a wizard to setup the domain"
   __printf_line "--domain [domain]               - Set the domain name"
+  __printf_line "--hostip4 [ipv5_address]        - Set the host ip v4 address"
   __printf_line "--hostip6 [ipv6_address]        - Set the host ip v6 address"
   __printf_line "--dnsip4 [ipv4_address]         - Set the dns ip v4 address"
   __printf_line "--dnsip6 [ipv6_address]         - Set the dns ip v6 address"
   __printf_line "--dnsip6 [ipv6_address]         - Set the dns ip v6 address"
-  __printf_line "--forward [ipv4_address]        - Set the allowed forward address"
+  __printf_line "--forwarders [ipv4_address]     - Set the allowed forward address"
+  __printf_line "--transfer                      - Set allowed ip address for transfers"
+  __printf_line "--template                      - Set template file"
+  __printf_line "--import                        - Import from file"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Providers - [bitly/vercel/casjay/casjaysdev/github/google/redirect/wordpress]"
   __printf_line "--provider [option]             - Specify the default hosting provider"
@@ -231,6 +235,7 @@ __help() { # bitly vercel casjay casjaysdev github google redirect wordpress
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "--help                          - Shows this message"
   __printf_line "--config                        - Generate user config file"
+  __printf_line "--copy                          - Copy template files"
   __printf_line "--version                       - Show script version"
   __printf_line "--options                       - Shows all available options"
   __printf_line "--debug                         - Enables script debugging"
@@ -320,9 +325,26 @@ __gen_config_local() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
 __replace() { sed -i "s|$1|$2|g" "$3" 2>/dev/null; }
+__remove_extra_spaces() { sed 's/\( \)*/\1/g;s|^ ||g'; }
 __has_ipv4() { [ -n "$2" ] && printf '%s%s\n' "$1" "$2" || return; }
 __has_ipv6() { [ -n "$2" ] && printf '%s%s\n' "$1" "$2" || return; }
 __grep_prev() { grep -sE "$1" "$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone" 2>/dev/null | awk -F' ' '{print $4}' | head -n1 | grep '^' || echo ''; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trim() {
+  local var="${*//;/ }"
+  var="${var#"${var%%[![:space:]]*}"}" # remove leading whitespace characters
+  var="${var%"${var##*[![:space:]]}"}" # remove trailing whitespace characters
+  var="$(echo "$var" | __remove_extra_spaces | sed "s| |; |g;s|;$| |g" | __remove_extra_spaces)"
+  printf '%s' "$var" | grep -v '^$'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__replace_forwarders() {
+  if [ -f "$1" ] && [ -n "$GEN_DNS_FORWARDERS" ]; then
+    sed -i "s|forwarders .*|forwarders { $GEN_DNS_FORWARDERS; };|g" "$1" 2>/dev/null || return 1
+  else
+    return 1
+  fi
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __tsig_key() {
   [ -n "$(type -P tsig-keygen || false)" ] || return 1
@@ -371,10 +393,10 @@ __set_ip_addresses() {
   local host4="${GEN_DNS_DEFAULT_HOST_IP4:-$CURRENT_IP_4}"
   local host6="${GEN_DNS_DEFAULT_HOST_IP6:-$CURRENT_IP_6}"
   if [ "$GEN_DNS_FORCE" = "true" ] || [ -z "$GEN_DNS_DEFAULT_DNS_IP4" ]; then
-    printf_read_question "3" "What is your DNS Servers IP [$dns4]" 120 "GEN_DNS_DEFAULT_DNS_IP4" 
+    printf_read_question "3" "What is your DNS Servers IP [$dns4]" 120 "GEN_DNS_DEFAULT_DNS_IP4"
   fi
   if [ "$GEN_DNS_FORCE" = "true" ] || [ -z "$GEN_DNS_DEFAULT_HOST_IP4" ]; then
-    printf_read_question "3" "What is your hosts IP address [$host4]" 120 "GEN_DNS_DEFAULT_HOST_IP4" 
+    printf_read_question "3" "What is your hosts IP address [$host4]" 120 "GEN_DNS_DEFAULT_HOST_IP4"
   fi
   if [ -z "$GEN_DNS_PROVIDER" ] || [ "$GEN_DNS_HAS_IPV6" != "y" ]; then
     printf_read_question "3" "Does you dns or host have IP6?" 1 "GEN_DNS_HAS_IPV6"
@@ -397,21 +419,22 @@ __set_ip_addresses() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __edit_conf() {
+  local exitCode=0
   local zoneFile="$GEN_DNS_FILE_ZONE_DIR/${1//*\//}"
   local confFile="$GEN_DNS_FILE_CONF_DIR/${1//*\//}"
   local namedFile="$GEN_DNS_FILE_BIND_DIR/${1//*\//}"
   if [ -f "$zoneFile" ]; then
-    $GEN_DNS_EDITOR "$zoneFile" 2>/dev/null || false
+    $GEN_DNS_EDITOR "$zoneFile" 2>/dev/null || exitCode=1
   elif [ -f "$confFile" ]; then
-    $GEN_DNS_EDITOR "$confFile" 2>/dev/null || false
+    $GEN_DNS_EDITOR "$confFile" 2>/dev/null || exitCode=1
   elif [ -f "$namedFile" ]; then
-    $GEN_DNS_EDITOR "$namedFile" 2>/dev/null || false
+    $GEN_DNS_EDITOR "$namedFile" 2>/dev/null || exitCode=1
   elif [ -f "$GEN_DNS_FILE_BIND_DIR/named.conf" ]; then
-    $GEN_DNS_EDITOR "$GEN_DNS_FILE_BIND_DIR/named.conf" 2>/dev/null || false
+    $GEN_DNS_EDITOR "$GEN_DNS_FILE_BIND_DIR/named.conf" 2>/dev/null || exitCode=1
   else
-    false
+    exitCode=1
   fi
-  [ $? -eq 0 ] && return 0 || return 1
+  [ $exitCode -eq 0 ] && return 0 || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __template() {
@@ -429,18 +452,18 @@ __named_conf() {
   local dhcp_key="$(__tsig_key || echo 'LDoSj5i9wIENe3gTIG+GXmh10xlXX74FbMHXp9nedIM=')"
   local backup_key="$(__tsig_key || echo 'OlMsjjmj+BENsaOinEv6bu/T6arUKLITNGvR1tgytUw=')"
   if [ -w "/etc/named.conf" ] && __user_is_root; then
-    NAMED_COPY="true"
     [ -d "/var/named/master" ] || mkdir -p "/var/named/master"
+    NAMED_COPY="true"
   fi
   [ -d "$GEN_DNS_FILE_CONF_DIR" ] || mkdir -p "$GEN_DNS_FILE_CONF_DIR"
   [ -d "$GEN_DNS_FILE_ZONE_DIR" ] || mkdir -p "$GEN_DNS_FILE_ZONE_DIR"
-
   if [ ! -f "$NAMED_CONF" ]; then
     [ -f "$GEN_DNS_TEMPLATE_DIR/named.conf" ] || printf_exit "can not find $GEN_DNS_TEMPLATE_DIR/named.conf"
     cat "$GEN_DNS_TEMPLATE_DIR/named.conf" | tee "$NAMED_CONF" &>/dev/null
-    __replace "REPLACE_CERTBOT" "$cerbot_key" "$NAMED_CONF"
+    __replace_forwarders "$NAMED_CONF"
     __replace "REPLACE_RNDCKEY" "$rndc_key" "$NAMED_CONF"
     __replace "REPLACE_DHCPKEY" "$dhcp_key" "$NAMED_CONF"
+    __replace "REPLACE_CERTBOT" "$cerbot_key" "$NAMED_CONF"
     __replace "REPLACE_BACKUPKEY" "$backup_key" "$NAMED_CONF"
     [ -s "$NAMED_CONF" ] && printf_green "Created $NAMED_CONF" || printf_exit "Failed to create $NAMED_CONF"
   fi
@@ -456,6 +479,9 @@ __named_conf() {
         printf '#  ********** end %-41s **********\n\n' "$GEN_DNS_DEFAULT_DOMAIN" >>"/etc/named.conf"
         printf_cyan "Copying zone file to /var/named/master/$GEN_DNS_DEFAULT_DOMAIN.zone"
         cp -Rf "$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone" "/var/named/master/$GEN_DNS_DEFAULT_DOMAIN.zone"
+        if grep -q "^named:x" /etc/passwd; then
+          chown -Rf named:named /etc/named* /var/named /var/log/named &>/dev/null
+        fi
       else
         printf '#  ********** begin %-41s **********\n' "$GEN_DNS_DEFAULT_DOMAIN" >>"$NAMED_CONF"
         cat $GEN_DNS_FILE_CONF_DIR/$GEN_DNS_DEFAULT_DOMAIN.conf | sed 's|'$GEN_DNS_FILE_CONF_DIR'||g' | grep -v '^$' >>"$NAMED_CONF"
@@ -475,9 +501,9 @@ __addtonamed() {
         type master;
         file "$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone";
         notify yes;
-        also-notify { ${GEN_DNS_FORWARDERS:-127.0.0.1}; };
+        also-notify { ${GEN_DNS_TRANSFER:-127.0.0.1}; };
         allow-update {key "certbot."; key "dhcp-key"; trusted;};
-        allow-transfer { ${GEN_DNS_FORWARDERS:-none}; key "backup-key"; };
+        allow-transfer { ${GEN_DNS_TRANSFER:-none}; key "backup-key"; };
     };
 
 EOF
@@ -726,6 +752,7 @@ GEN_DNS_DEFAULT_HOST_CLOUDFLARE_HOST_IP4="${GEN_DNS_DEFAULT_HOST_CLOUDFLARE_HOST
 GEN_DNS_DEFAULT_HOST_CLOUDFLARE_HOST_IP6="${GEN_DNS_DEFAULT_HOST_CLOUDFLARE_HOST_IP6:-2603:c020:4005:4d00:3c49:c239:91c9:74c3}"
 GEN_DNS_DEFAULT_HOST_GOOGLE_IP4="${GEN_DNS_DEFAULT_HOST_GOOGLE_IP4:-}"
 GEN_DNS_DEFAULT_HOST_GOOGLE_IP6="${GEN_DNS_DEFAULT_HOST_GOOGLE_IP6:-}"
+GEN_DNS_SET_SERIAL="$(date +"$GEN_DNS_SERIAL_FMT")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$GEN_DNS_CONFIG_DIR/$GEN_DNS_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
@@ -773,7 +800,7 @@ SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent,copy"
 LONGOPTS+=",domain:,hostip4:,hostip6:,dnsip4:,dnsip6:,force,forwarders:,import:,template:"
-LONGOPTS+=",provider:"
+LONGOPTS+=",provider:,transfer:"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="edit "
 ARRAY+=""
@@ -879,7 +906,11 @@ while :; do
     shift 2
     ;;
   --forwarders)
-    GEN_DNS_FORWARDERS="$2"
+    GEN_DNS_FORWARDERS+="$2,"
+    shift 2
+    ;;
+  --transfer)
+    GEN_DNS_TRANSFER+="$2,"
     shift 2
     ;;
   --import)
@@ -887,7 +918,6 @@ while :; do
     shift 2
     ;;
   --provider*)
-    set -x
     GEN_DNS_PROVIDER="${2//*=/}"
     __set_provider "${2//*=/}"
     shift 2
@@ -937,8 +967,11 @@ export GEN_DNS_CWD
 #am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
-GEN_DNS_SET_SERIAL="$(date +"$GEN_DNS_SERIAL_FMT")"
 GEN_DNS_SERIAL_NUMBER="${GEN_DNS_SET_SERIAL}01"
+GEN_DNS_TRANSFER="${GEN_DNS_TRANSFER//,/ }"
+GEN_DNS_FORWARDERS="${GEN_DNS_FORWARDERS//,/ }"
+GEN_DNS_TRANSFER="$(__trim "${GEN_DNS_TRANSFER:-}");"
+GEN_DNS_FORWARDERS="$(__trim "${GEN_DNS_FORWARDERS:-1.1.1.1 8.8.8.8 8.8.4.4}");"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
 [ -f "$GEN_DNS_DEFAULT_TEMPLATE" ] || GEN_DNS_DEFAULT_TEMPLATE="$GEN_DNS_TEMPLATE_DIR/$GEN_DNS_FILE_ZONE_DIR"

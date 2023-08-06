@@ -763,7 +763,9 @@ HUB_IMAGE_URL="${HUB_IMAGE_URL//*:\/\//}"
 if [ -n "$CONTAINER_REQUIRES" ]; then
   CONTAINER_REQUIRES="${CONTAINER_REQUIRES//,/}"
   for required in $CONTAINER_REQUIRES; do
-    if [ ! -e "$required" ] || [ -z "$(type "$required" 2>/dev/null)" ]; then
+    if [ -n "$(type "$required" 2>/dev/null)" ] || [ -n "$(type -P "$required" 2>/dev/null)" ] || [ -e "$required" ]; then
+      required=""
+    else
       printf_cyan "Installing required: $required" && pkmgr silent install $required &>/dev/null && required="" || required_missing="$required $required_missing"
     fi
   done

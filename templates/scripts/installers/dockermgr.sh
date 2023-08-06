@@ -126,6 +126,11 @@ __my_default_lan_address() { __ifconfig $SET_LAN_DEV | grep -w 'inet' | awk -F '
 __docker_check || __docker_init
 __docker_is_running || printf_exit "Docker is not running"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# hash the password
+__hash_password() {
+  echo -n "$1" #| argon2 "$(openssl rand -base64 32)" -e -id -k 65540 -t 3 -p 4
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define any pre-install scripts
 __run_pre_install() {
 
@@ -391,8 +396,7 @@ CONTAINER_USER_PASS=""
 CONTAINER_PASS_LENGTH="24"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # If container has an admin password then set it here - [pass/random]
-CONTAINER_USER_ADMIN_PASS_ENV=""
-CONTAINER_USER_ADMIN_PASS_LENGTH=""
+CONTAINER_USER_ADMIN_PASS_HASH=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set container username and password env name - [CONTAINER_ENV_USER_NAME=$CONTAINER_USER_NAME]
 CONTAINER_ENV_USER_NAME=""
@@ -641,7 +645,8 @@ CONTAINER_USER_PASS="${ENV_CONTAINER_USER_PASS:-$CONTAINER_USER_PASS}"
 CONTAINER_ENV_PASS_NAME="${ENV_CONTAINER_ENV_PASS_NAME:-$CONTAINER_ENV_PASS_NAME}"
 CONTAINER_DATABASE_PASS_ROOT="${ENV_CONTAINER_DATABASE_PASS_ROOT:-$CONTAINER_DATABASE_PASS_ROOT}"
 CONTAINER_DATABASE_PASS_NORMAL="${ENV_CONTAINER_DATABASE_PASS_NORMAL:-$CONTAINER_DATABASE_PASS_NORMAL}"
-CONTAINER_USER_ADMIN_PASS_ENV="${ENV_CONTAINER_USER_ADMIN_PASS_ENV:-$CONTAINER_USER_ADMIN_PASS_ENV}"
+CONTAINER_USER_ADMIN_PASS_RAW="${ENV_CONTAINER_USER_ADMIN_PASS_RAW:-$CONTAINER_USER_ADMIN_PASS_RAW}"
+CONTAINER_USER_ADMIN_PASS_HASH="${ENV_CONTAINER_USER_ADMIN_PASS_HASH:-$CONTAINER_USER_ADMIN_PASS_HASH}"
 EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1125,10 +1130,10 @@ if [ -e "$HOST_SOUND_DEVICE_FILE" ] || [ -e "/dev/snd" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # set password length
-if [ -n "$CONTAINER_USER_ADMIN_PASS_ENV" ]; then
-  CONTAINER_USER_ADMIN_PASS_LENGTH="${CONTAINER_USER_ADMIN_PASS_LENGTH:-32}"
-  if [ "$CONTAINER_USER_ADMIN_PASS_ENV" = "random" ]; then
-    CONTAINER_USER_ADMIN_PASS_ENV="$(__password "$CONTAINER_USER_ADMIN_PASS_LENGTH")"
+if [ -n "$CONTAINER_USER_ADMIN_PASS_HASH" ]; then
+  if [ "$CONTAINER_USER_ADMIN_PASS_HASH" = "random" ]; then
+    CONTAINER_USER_ADMIN_PASS_RAW="${CONTAINER_USER_ADMIN_PASS_RAW:-$CONTAINER_USER_ADMIN_PASS_HASH}"
+    CONTAINER_USER_ADMIN_PASS_HASH="${CONTAINER_USER_ADMIN_PASS_HASH:-$(__hash_password $CONTAINER_USER_ADMIN_PASS_RAW)}"
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -2284,9 +2289,12 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
     fi
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
-  if [ -n "$CONTAINER_USER_ADMIN_PASS_ENV" ]; then
+  if [ -n "$CONTAINER_USER_ADMIN_PASS_HASH" ]; then
     show_user_footer="true"
-    printf_cyan "admin password is:                      $CONTAINER_USER_ADMIN_PASS_ENV"
+    printf_cyan "raw password is:                        $CONTAINER_USER_ADMIN_PASS_RAW"
+    if [ "$CONTAINER_USER_ADMIN_PASS_RAW" != "$CONTAINER_USER_ADMIN_PASS_HASH"]; then
+      printf_cyan "hashed password is:                     $CONTAINER_USER_ADMIN_PASS_HASH"
+    fi
   fi
   if [ -n "$CONTAINER_USER_NAME" ]; then
     show_user_footer="true"

@@ -2293,7 +2293,7 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
   if [ -n "$CONTAINER_USER_ADMIN_PASS_HASH" ]; then
     show_user_footer="true"
     printf_cyan "raw password is:                        $CONTAINER_USER_ADMIN_PASS_RAW"
-    if [ "$CONTAINER_USER_ADMIN_PASS_RAW" != "$CONTAINER_USER_ADMIN_PASS_HASH"]; then
+    if [ "$CONTAINER_USER_ADMIN_PASS_RAW" != "$CONTAINER_USER_ADMIN_PASS_HASH" ]; then
       printf_cyan "hashed password is:                     $CONTAINER_USER_ADMIN_PASS_HASH"
     fi
   fi

@@ -109,7 +109,7 @@ __container_is_running() { docker ps 2>&1 | grep -i "$CONTAINER_NAME" | grep -qi
 __container_name() { echo "$HUB_IMAGE_URL-${HUB_IMAGE_TAG:-latest}" | awk -F '/' '{print $(NF-1)"-"$NF}' | grep '^' || return 1; }
 __docker_init() { [ -n "$(type -p dockermgr 2>/dev/null)" ] && dockermgr init || printf_exit "Failed to Initialize the docker installer"; }
 __port_in_use() { { [ -d "/etc/nginx/vhosts.d" ] && grep -wRsq "${1:-443}" "/etc/nginx/vhosts.d" || __netstat | grep -q "${1:-443}"; } && return 1 || return 0; }
-__domain_name() { hostname -d 2>/dev/null | grep -F '.' | grep '^' ||  hostname -f 2>/dev/null | grep -w '.' | awk -F '.' '{print $(NF-1)"."$NF}' | __grep_char || return 1; }
+__domain_name() { hostname -d 2>/dev/null | grep -F '.' | grep '^' || hostname -f 2>/dev/null | grep -w '.' | awk -F '.' '{print $(NF-1)"."$NF}' | __grep_char || return 1; }
 __netstat() { netstat -taupln 2>/dev/null | grep -vE 'WAIT|ESTABLISHED|docker-pro' | awk -F ' ' '{print $4}' | sed 's|.*:||g' | grep -E '[0-9]' | sort -Vu | grep "^${1:-.*}$" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __public_ip() { curl -q -LSsf "http://ifconfig.co" | grep -v '^$' | head -n1 | grep '^'; }
@@ -764,7 +764,7 @@ if [ -n "$CONTAINER_REQUIRES" ]; then
   CONTAINER_REQUIRES="${CONTAINER_REQUIRES//,/}"
   for required in $CONTAINER_REQUIRES; do
     if [ ! -e "$required" ] || [ -z "$(type "$required" 2>/dev/null)" ]; then
-      required_missing="$required $required_missing"
+      printf_cyan "Installing required: $required" && pkmgr silent install $required &>/dev/null && required="" || required_missing="$required $required_missing"
     fi
   done
   [ "$required_missing" != " " ] || unset required_missing
@@ -1125,9 +1125,9 @@ fi
 # set password length
 if [ -n "$CONTAINER_USER_ADMIN_PASS_ENV" ]; then
   CONTAINER_USER_ADMIN_PASS_LENGTH="${CONTAINER_USER_ADMIN_PASS_LENGTH:-32}"
-  if [ "$CONTAINER_USER_ADMIN_PASS_ENV" = "random" ]; then 
+  if [ "$CONTAINER_USER_ADMIN_PASS_ENV" = "random" ]; then
     CONTAINER_USER_ADMIN_PASS_ENV="$(__password "$CONTAINER_USER_ADMIN_PASS_LENGTH")"
-  fi 
+  fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup display if enabled
@@ -1390,7 +1390,7 @@ if [ "$CONTAINER_SQLITE3_ENABLED" = "yes" ]; then
   DOCKER_SET_OPTIONS+=("--volume $LOCAL_DATA_DIR/db/sqlite3:$DATABASE_DIR_SQLITE3:z")
   DOCKER_SET_OPTIONS+=("--env DATABASE_DIR_SQLITE3=$DATABASE_DIR_SQLITE3")
   CONTAINER_DATABASE_PROTO="sqlite3://$DATABASE_DIR_SQLITE3"
-  [ -d "$DATADIR/$DATABASE_DIR_SQLITE3" ] ||  CONTAINER_CREATE_DIRECTORY+=",$DATABASE_DIR_SQLITE3"
+  [ -d "$DATADIR/$DATABASE_DIR_SQLITE3" ] || CONTAINER_CREATE_DIRECTORY+=",$DATABASE_DIR_SQLITE3"
   MESSAGE_SQLITE3="Database files are saved to:            $DATABASE_DIR_SQLITE3"
 fi
 if [ "$CONTAINER_POSTGRES_ENABLED" = "yes" ]; then
@@ -1887,7 +1887,6 @@ __container_import_variables "$CONTAINER_ENV_FILE_MOUNT"
 __dockermgr_variables >"$DOCKERMGR_CONFIG_DIR/env/$APPNAME.env.conf"
 __custom_docker_script >"$DOCKERMGR_CONFIG_DIR/env/$APPNAME.script.sh"
 __dockermgr_password_variables >"$DOCKERMGR_CONFIG_DIR/secure/$APPNAME"
-__init_cron
 chmod -f 600 "$DOCKERMGR_CONFIG_DIR/secure/$APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ ! -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.custom.conf" ]; then
@@ -2040,7 +2039,7 @@ fi
 # Install nginx proxy
 NGINX_DIR="${NGINX_DIR:-/etc/nginx}"
 if [ "$USER" = "root" ]; then
- [ -d "$NGINX_DIR" ] && NINGX_VHOSTS_WRITABLE="true"
+  [ -d "$NGINX_DIR" ] && NINGX_VHOSTS_WRITABLE="true"
 else
   NINGX_VHOSTS_WRITABLE="$(sudo -n true && NGINX_DIR="$NGINX_DIR" sudo -E bash -c '[ -w "$NGINX_DIR" ] && echo true')"
 fi
@@ -2227,12 +2226,12 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
   if [ "$HOST_CRON_ENABLED" = "yes" ] && [ -n "$HOST_CRON_COMMAND" ] && [ -n "$NGINX_PROXY_URL" ]; then
     [ -n "$HOST_CRON_USER" ] || HOST_CRON_USER="root"
     [ -n "$HOST_CRON_SCHEDULE" ] || HOST_CRON_SCHEDULE="30 0 * * *"
-    printf_cyan   "Setting cron user to:                     $HOST_CRON_USER"
-    printf_cyan   "Setting schedule to:                      $HOST_CRON_SCHEDULE"
+    printf_cyan "Setting cron user to:                     $HOST_CRON_USER"
+    printf_cyan "Setting schedule to:                      $HOST_CRON_SCHEDULE"
     printf_yellow "Saving cron job to:                       /etc/cron.d/$CONTAINER_NAME"
     echo "$HOST_CRON_SCHEDULE $HOST_CRON_USER $HOST_CRON_COMMAND" | sudo tee "/etc/cron.d/$CONTAINER_NAME" &>/dev/null
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
- fi
+  fi
   if __ssl_certs; then
     mkdir -p "$CONTAINER_SSL_DIR"
     __sudo_exec chmod -f 777 "$CONTAINER_SSL_DIR"

@@ -328,7 +328,7 @@ HOST_NGINX_HTTP_PORT="80"
 HOST_NGINX_HTTPS_PORT="443"
 HOST_NGINX_UPDATE_CONF="yes"
 HOST_NGINX_EXTERNAL_DOMAIN=""
-HOST_NGINX_INTERNAL_DOMAIN="home"
+HOST_NGINX_INTERNAL_DOMAIN=""
 HOST_NGINX_INTERNAL_HOST=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Enable this if container is running a webserver - [yes/no] [internalPort] [yes/no] [yes/no] [listen]
@@ -366,13 +366,13 @@ CONTAINER_IS_NEWS_SERVER="no"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Database settings - [listen] [yes/no]
 CONTAINER_DATABASE_LISTEN=""
-CONTAINER_REDIS_ENABLED=""
-CONTAINER_SQLITE3_ENABLED=""
-CONTAINER_MARIADB_ENABLED=""
-CONTAINER_MONGODB_ENABLED=""
-CONTAINER_COUCHDB_ENABLED=""
-CONTAINER_POSTGRES_ENABLED=""
-CONTAINER_SUPABASE_ENABLED=""
+CONTAINER_REDIS_ENABLED="no"
+CONTAINER_SQLITE3_ENABLED="no"
+CONTAINER_MARIADB_ENABLED="no"
+CONTAINER_MONGODB_ENABLED="no"
+CONTAINER_COUCHDB_ENABLED="no"
+CONTAINER_POSTGRES_ENABLED="no"
+CONTAINER_SUPABASE_ENABLED="no"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Custom database setup - [yes/no] [db_name] [port] [/data/db/$CONTAINER_CUSTOM_DATABASE_NAME] [msql]
 CONTAINER_CUSTOM_DATABASE_ENABLED=""

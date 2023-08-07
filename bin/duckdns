@@ -129,6 +129,7 @@ DUCKDNS_DOMAIN="${DUCKDNS_DOMAIN:-}"
 DUCKDNS_CLEAR="${DUCKDNS_CLEAR:-}"
 DUCKDNS_API_URL="${DUCKDNS_API_URL:-}"
 DUCKDNS_EXTERNAL_IP="${DUCKDNS_EXTERNAL_IP:-}"
+DUCKDNS_LETSENCRYPT_EMAIL="${DUCKDNS_LETSENCRYPT_EMAIL:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
 DUCKDNS_OUTPUT_COLOR_1="${DUCKDNS_OUTPUT_COLOR_1:-}"
@@ -356,6 +357,36 @@ __uriencode() {
   printf '%s' "$s"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__letsencrypt_cron() {
+  [ -n "$DUCKDNS_DOMAIN" ] || return 0
+  echo "0 3 */8 * * root $APPNAME letsencrypt renew" | sudo tee "/etc/cron.d/$DUCKDNS_DOMAIN" &>/dev/null
+  [ -f "/etc/cron.d/$DUCKDNS_DOMAIN" ] && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__letsencrypt_create() {
+  [ -n "$DUCKDNS_DOMAIN" ] || printf_exit "Unknown domain"
+  [ -n "$DUCKDNS_API_KEY" ] || printf_exit "The api key is not set"
+  [ -n "$DUCKDNS_LETSENCRYPT_EMAIL" ] || DUCKDNS_LETSENCRYPT_EMAIL="ssl@$DUCKDNS_DOMAIN"
+  echo "$DUCKDNS_DOMAIN" | grep -q '\..*\..*' || DUCKDNS_DOMAIN="$DUCKDNS_DOMAIN.duckdns.org"
+  sudo -n true && sudo mkdir -p /etc/letsencrypt /var/log/letsencrypt && chmod 777 /etc/letsencrypt /var/log/letsencrypt
+  docker run \
+    -v "/etc/letsencrypt:/etc/letsencrypt" \
+    -v "/var/log/letsencrypt:/var/log/letsencrypt" \
+    infinityofspace/certbot_dns_duckdns:latest certonly --non-interactive --agree-tos --email $DUCKDNS_LETSENCRYPT_EMAIL \
+    --preferred-challenges dns --authenticator dns-duckdns --dns-duckdns-propagation-seconds 60 --expand \
+    --dns-duckdns-token "$DUCKDNS_API_KEY" -d "$DUCKDNS_DOMAIN" -d "*.$DUCKDNS_DOMAIN" && __letsencrypt_cron
+  [ -d "/etc/letsencrypt/live/$DUCKDNS_DOMAIN" ] && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__letsencrypt_renew() {
+  docker run \
+    --rm \
+    -v "/etc/letsencrypt:/etc/letsencrypt" \
+    -v "/var/log/letsencrypt:/var/log/letsencrypt" \
+    infinityofspace/certbot_dns_duckdns:latest renew
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -389,6 +420,7 @@ DUCKDNS_DOMAIN="${DUCKDNS_DOMAIN:-}"
 DUCKDNS_CLEAR="${DUCKDNS_CLEAR:-false}"
 DUCKDNS_API_URL="${DUCKDNS_API_URL:-https://www.duckdns.org}"
 DUCKDNS_EXTERNAL_IP="${DUCKDNS_EXTERNAL_IP:-https://ifconfig.co}"
+DUCKDNS_LETSENCRYPT_EMAIL="${DUCKDNS_LETSENCRYPT_EMAIL:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$DUCKDNS_CONFIG_DIR/$DUCKDNS_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
@@ -578,7 +610,18 @@ update)
   __var_check "$1"
   __duckdns_update "$@"
   ;;
-
+ssl)
+  shift 1
+  if [ "$1" = "renew" ]; then
+    __letsencrypt_renew
+  elif [ "$1" = "cron" ]; then
+    __letsencrypt_cron
+  else
+    shift $#
+    __letsencrypt_create
+  fi
+  exit $?
+  ;;
 *)
   __var_check "$1"
   __duckdns_update "$@"

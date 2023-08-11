@@ -1090,9 +1090,10 @@ python_exists() {
   local package="$1"
   local statusCode=1
   __cmd_exists "$package" && return 0
+  local pip="$(builtin type -P pip3 2>/dev/null || builtin type -P pip2 2>/dev/null || builtin type -P pip 2>/dev/null)"
   local py="$(builtin type -P python3 2>/dev/null || builtin type -P python2 2>/dev/null || builtin type -P python 2>/dev/null)"
   if [ -n "$py" ]; then
-    if eval $py -m $package 2>/dev/null | grep -q '^' || pip list | awk '{print $1}' | grep -q "^$package$"; then
+    if eval $py -m $package 2>/dev/null | grep -q '^' || $pip list | awk '{print $1}' | grep -q "^$package$"; then
       statusCode=0
     fi
   else

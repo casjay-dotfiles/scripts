@@ -1209,7 +1209,7 @@ DOCKER_CREATE_NET="$(__docker_net_create)"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set nginx directory
 if [ -z "$NGINX_DIR" ]; then
-  NGINX_DIR="/etc/nginx"
+  NGINX_DIR="$HOME/.config/nginx"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Container listen address [address:extPort:intPort]
@@ -1251,18 +1251,18 @@ HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR//:*/}"
 NGINX_VHOSTS_CONF_FILE_TMP="/tmp/$$.$APPNAME.conf"
 NGINX_VHOSTS_INC_FILE_TMP="/tmp/$$.$APPNAME.inc.conf"
 NGINX_VHOSTS_PROXY_FILE_TMP="/tmp/$$.$APPNAME.custom.conf"
+NINGX_WRITABLE="$(sudo -n true && sudo bash -c '[ -w "/etc/nginx" ] && echo "true" || false' || echo 'false')"
 if [ "$HOST_NGINX_ENABLED" = "yes" ]; then
-  NINGX_WRITABLE="$(sudo -n true && sudo bash -c '[ -w "/etc/nginx" ] && echo "true" || false' || echo 'false')"
+  if [ -f "/etc/nginx/nginx.conf" ] && [ "$NINGX_WRITABLE" = "true" ]; then
+    NGINX_DIR="/etc/nginx"
+  else
+    NGINX_DIR="$HOME/.config/nginx"
+  fi
   if [ -n "$HOST_NGINX_HTTPS_PORT" ]; then
     NGINX_LISTEN_OPTS="ssl http2"
     NGINX_PORT="${HOST_NGINX_HTTPS_PORT:-443}"
   else
     NGINX_PORT="${HOST_NGINX_HTTP_PORT:-80}"
-  fi
-  if [ -f "/etc/nginx/nginx.conf" ] && [ "$NINGX_WRITABLE" = "true" ]; then
-    NGINX_DIR="/etc/nginx"
-  else
-    NGINX_DIR="$HOME/.config/nginx"
   fi
   if [ "$CONTAINER_WEB_SERVER_AUTH_ENABLED" = "yes" ]; then
     NGINX_AUTH_DIR="$NGINX_DIR/auth"

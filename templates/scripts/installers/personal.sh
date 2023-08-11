@@ -91,7 +91,7 @@ __set_vars() {
   #Public Repo
   #DOTFILES_GIT_URL="$DOTFILES_GIT_PROTO$DOTFILES_GIT_REPO"
   # Default NTP Server
-  DOTFILES_NTP_SERVER="ntp.casjay.net"
+  DOTFILES_NTP_SERVER="ntp.casjay.pro"
   # Set tmpfile
   DOTFILES_TEMP_FILE="$(mktemp /tmp/dfmpersonal-XXXXXXXXX)"
   # Set Options

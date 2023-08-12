@@ -127,6 +127,7 @@ __gen_config() {
 ASK_YES_NO_QUESTION_DEFAULT_COMMAND="${ASK_YES_NO_QUESTION_DEFAULT_COMMAND:-}"
 ASK_YES_NO_QUESTION_INPUT_NAME="${ASK_YES_NO_QUESTION_INPUT_NAME:-}"
 ASK_YES_NO_QUESTION_ROFI_THEME="${ASK_YES_NO_QUESTION_ROFI_THEME:-}"
+ASK_YES_NO_QUESTION_NO_ERROR_MESSAGE="${ASK_YES_NO_QUESTION_NO_ERROR_MESSAGE:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
 ASK_YES_NO_QUESTION_OUTPUT_COLOR_1="${ASK_YES_NO_QUESTION_OUTPUT_COLOR_1:-}"
@@ -257,9 +258,9 @@ notify_good() {
   local prog="$name"
   local name="${1:-$prog}"
   local message="${command:-Command} $ASK_YES_NO_QUESTION_GOOD_MESSAGE"
-  [ "$name" = "sudo" ] && message="$ASK_YES_NO_QUESTION_GOOD_MESSAGE"
-  [ "$name" = "true" ] && message="$ASK_YES_NO_QUESTION_GOOD_MESSAGE"
-  export good_message="${NOTIFY_GOOD_MESSAGE:-$message}"
+  [ "$name" = "sudo" ] && prog="sudo" && message="Got root privileges"
+  [ "$name" = "true" ] && prog="true" && message="$name was successful"
+  export good_message="${message:-$NOTIFY_GOOD_MESSAGE}"
   if [ -z "$SEND_NOTIFY" ]; then
     __notifications "${prog:-$name}:" "$good_message" || printf_green "${prog:-$name}: $good_message"
     export ASK_YES_NO_QUESTION_NOTIFY_ENABLED="${ASK_YES_NO_QUESTION_NOTIFY_ENABLED:-yes}"
@@ -271,10 +272,10 @@ notify_error() {
   local prog="$name"
   local name="${1:-$prog}"
   local message="${command:-Command} $ASK_YES_NO_QUESTION_ERROR_MESSAGE"
-  [ "$name" = "sudo" ] && message="$ASK_YES_NO_QUESTION_ERROR_MESSAGE"
-  [ "$name" = "true" ] && message="$ASK_YES_NO_QUESTION_ERROR_MESSAGE"
-  export error_message="${NOTIFY_ERROR_MESSAGE:-$message}"
-  if [ -z "$SEND_NOTIFY" ]; then
+  [ "$name" = "sudo" ] && prog="sudo" && message="Failed to get root privileges"
+  [ "$name" = "true" ] && prog="true" && message="$name has failed"
+  export error_message="${message:-$NOTIFY_ERROR_MESSAGE}"
+  if [ -z "$SEND_NOTIFY" ] && [ "$ASK_YES_NO_QUESTION_NO_ERROR_MESSAGE" != "true" ]; then
     __notifications "${prog:-$name}:" "$error_message" || printf_red "${prog:-$name}: $error_message"
     export ASK_YES_NO_QUESTION_NOTIFY_ENABLED="${ASK_YES_NO_QUESTION_NOTIFY_ENABLED:-yes}"
   fi
@@ -319,6 +320,11 @@ __rofi() {
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__dialog() {
+  dialog --clear --title "${TITLE:-$APPNAME}" --yesno "Would you like to run the command:\n$2" 8 40 && eval "${2:-true}" || return 1
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __resend() {
   ASK_YES_NO_QUESTION_QUESTION="$question"
   ASK_YES_NO_QUESTION_COMMAND="$command"
@@ -355,6 +361,7 @@ ASK_YES_NO_QUESTION_NOTIFY_CLIENT_ICON="${ASK_YES_NO_QUESTION_NOTIFY_CLIENT_ICON
 ASK_YES_NO_QUESTION_NOTIFY_CLIENT_URGENCY="${ASK_YES_NO_QUESTION_NOTIFY_CLIENT_URGENCY:-normal}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional Variables
+ASK_YES_NO_QUESTION_NO_ERROR_MESSAGE="${ASK_YES_NO_QUESTION_NO_ERROR_MESSAGE:-true}"
 ASK_YES_NO_QUESTION_ROFI_THEME="${ASK_YES_NO_QUESTION_ROFI_THEME:-purple}"
 ASK_YES_NO_QUESTION_DEFAULT_COMMAND="${ASK_YES_NO_QUESTION_DEFAULT_COMMAND:-true}"
 ASK_YES_NO_QUESTION_INPUT_NAME="${ASK_YES_NO_QUESTION_INPUT_NAME:-Would you like to continue?}"
@@ -486,7 +493,7 @@ while :; do
     PRESENT_QUESTION="$ASK_YES_NO_QUESTION_QUESTION"
     PRESENT_COMMAND="$ASK_YES_NO_QUESTION_COMMAND"
     ;;
-  --off | --silent)
+  --off)
     shift 1
     ASK_YES_NO_QUESTION_NOTIFY_ENABLED="no"
     ;;
@@ -534,13 +541,21 @@ export ASK_YES_NO_QUESTION_CWD
 INPUT_NAME="${INPUT_NAME:-$TITLE}"
 TITLE="${INPUT_NAME:-$ASK_YES_NO_QUESTION_INPUT_NAME}"
 ASK_YES_NO_QUESTION_DEFAULT_COMMAND="${ASK_YES_NO_QUESTION_DEFAULT_COMMAND:-true}"
+ASK_YES_NO_QUESTION_QUESTION="${ASK_YES_NO_QUESTION_QUESTION:-$TITLE}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
 [ "$1" = "sudo" ] && ask_for_password "sudo true" "sudo" "Get password for sudo"
 appname="${NOTIFY_CLIENT_NAME:-$ASK_YES_NO_QUESTION_NOTIFY_CLIENT_NAME}"
-question="${1:-$ASK_YES_NO_QUESTION_INPUT_NAME}"
-command="${2:-$ASK_YES_NO_QUESTION_DEFAULT_COMMAND}"
-name="${3:-$appname}"
+if [ $# -ge 3 ]; then
+  question="${1:-$ASK_YES_NO_QUESTION_INPUT_NAME}"
+  command="${2:-$ASK_YES_NO_QUESTION_DEFAULT_COMMAND}"
+  name="${3:-$appname}"
+elif [ $# -eq 2 ]; then
+  name="${1:-$appname}" && shift 1
+  command="${@:-$ASK_YES_NO_QUESTION_DEFAULT_COMMAND}"
+else
+  command="${@:-$appname}"
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 if [ "$launch_term" = "true" ]; then
@@ -555,11 +570,11 @@ else
         __yad "$question" "$command" 2>/dev/null && notify_good "${name}" || notify_error "${name}"
       elif __cmd_exists zenity; then
         __zenity "$question" "$command" 2>/dev/null && notify_good "${name}" || notify_error "${name}"
-      elif __cmd_exists rofi; then
+      elif __cmd_exists rofi1; then
         __rofi "$question" "$command" 2>/dev/null && notify_good "${name}" || notify_error "${name}"
-      elif __cmd_exists dmenu; then
+      elif __cmd_exists dmenu1; then
         __dmenu "$question" "$command" 2>/dev/null && notify_good "${name}" || notify_error "${name}"
-      elif __cmd_exists gdialog; then
+      elif __cmd_exists dialog; then
         __dialog "$question" "$command" && notify_good "${name}" || notify_error "${name}"
       elif [ -t 0 ]; then
         __term "$question" "$command" || notify_error

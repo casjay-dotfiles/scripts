@@ -131,6 +131,7 @@ __gen_config() {
     cp -Rf "$GEN_SSL_CONFIG_DIR/$GEN_SSL_CONFIG_FILE" "$GEN_SSL_CONFIG_BACKUP_DIR/$GEN_SSL_CONFIG_FILE.$$"
   cat <<EOF >"$GEN_SSL_CONFIG_DIR/$GEN_SSL_CONFIG_FILE"
 # Settings for gen-ssl
+GEN_SSL_CA_NAME="${GEN_SSL_CA_NAME:-}"
 GEN_SSL_CA_COUNTRY="${GEN_SSL_CA_COUNTRY:-}"
 GEN_SSL_CA_STATE="${GEN_SSL_CA_STATE:-}"
 GEN_SSL_CA_CITY="${GEN_SSL_CA_CITY:-}"
@@ -144,7 +145,8 @@ GEN_SSL_DH_LENGTH="${GEN_SSL_DH_LENGTH:-}"
 GEN_SSL_DEFAULT_DAYS="${GEN_SSL_DEFAULT_DAYS:-}"
 GEN_SSL_DEFAULT_RSA_SIZE="${GEN_SSL_DEFAULT_RSA_SIZE:-}"
 GEN_SSL_SYSTEM_DH_DIR="${GEN_SSL_SYSTEM_DH_DIR:-/etc/ssl/dh}"
-GEN_SSL_SYSTEM_CA_DIR="${GEN_SSL_SYSTEM_CA_DIR:-/etc/ssl/CA/CasjaysDev}"
+GEN_SSL_SYSTEM_CA_DIR="${GEN_SSL_SYSTEM_CA_DIR:-/etc/ssl/CA/$GEN_SSL_CA_NAME}"
+GEN_SSL_PASSWD_FILE="${GEN_SSL_PASSWD_FILE:-$GEN_SSL_CA_DIR/passwd}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
 GEN_SSL_OUTPUT_COLOR_1="${GEN_SSL_OUTPUT_COLOR_1:-}"
@@ -283,9 +285,26 @@ __gen_config_local() {
   __setup_ssl_cnf &>/dev/null
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__set_custom_password() {
+  local exitCode=0
+  local pass_set=""
+  local pass_test=""
+  local custom_pass=""
+  GEN_SSL_PASSWD="${GEN_SSL_PASSWD:-}"
+  printf_read_question "3" "Would you like to set a custom password" "1" "custom_pass"
+  if [ "$custom_pass" = "y" ] || [ "$custom_pass" = "Y" ]; then
+    printf_read_password "6" "Please enter your password:" "256" "pass_set"
+    printf_read_password "6" "Please confirm enter your password:" "256" "pass_test"
+    [ "$pass_set" = "$pass_test" ] && GEN_SSL_PASSWD="$pass_set" || exitCode=1
+    [ $exitCode -eq 0 ] && { [ -n "$GEN_SSL_PASSWD" ] && mkdir -p "$GEN_SSL_CA_DIR" && echo "$GEN_SSL_PASSWD" >"$GEN_SSL_PASSWD_FILE"; }
+  fi
+  unset pass_set pass_test
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __copy_templates() {
   # CASJAYSDEVDIR/templates/ssl
-  local default_template_dir="/home/jason/.local/share/cdd/projects/gen-ssl/templates/ssl"
+  local default_template_dir="$CASJAYSDEVDIR/templates/ssl"
   [ -d "$GEN_SSL_CONFIG_DIR/templates" ] || mkdir -p "$GEN_SSL_CONFIG_DIR/templates"
   mkdir -p "$GEN_SSL_CONFIG_DIR/templates"
   if [ -d "$default_template_dir" ]; then
@@ -330,6 +349,7 @@ EOF
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __generate_domains() {
   local file="" domains="" dns=0
+  [ -f "$1" ] && GEN_SSL_DOMAINS="$(cat "$1" | sort -u | grep -v '^$' | tr '\n' ' ')" && shift 1
   [ $# -eq 0 ] || GEN_SSL_DOMAINS="$* $GEN_SSL_DOMAINS"
   [ -z "$GEN_SSL_DOMAINS" ] || GEN_SSL_DOMAINS="${GEN_SSL_DOMAINS//,/ }"
   printf_cyan "Generating $GEN_SSL_CONFIG_DIR/domains.txt from domain list"
@@ -342,11 +362,16 @@ __generate_domains() {
     printf '%s\n' "$GEN_SSL_DOMAINS" | tr ' ' '\n' >>"$GEN_SSL_TEMP_FILE"
   fi
   if [ -z "$primary_domain" ]; then
-    primary_domain="$(grep -sv '^$|#' "$GEN_SSL_TEMP_FILE" 2>/dev/null | head -n1 | grep '^' || printf '%s\n' "$HOSTNAME")"
+    if [ -n "$GEN_SSL_HOSTNAME"]; then
+      primary_domain="$(grep -sv '^$|#' "$GEN_SSL_TEMP_FILE" 2>/dev/null | head -n1 | grep '^' || printf '%s\n' "$GEN_SSL_HOSTNAME")"
+    else
+      primary_domain="$(echo "$GEN_SSL_DOMAINS" | tr ' ' '\n' | head -n1)"
+    fi
   fi
-  printf '%s\n' "$primary_domain" >"$GEN_SSL_CONFIG_DIR/domains.txt"
-  grep -svE '^$|#' "$GEN_SSL_TEMP_FILE" | tr ',' ' ' | tr ' ' '\n' | grep -xv "${primary_domain:-^$}" | sort -uV >>"$GEN_SSL_CONFIG_DIR/domains.txt"
   if [ -n "$primary_domain" ]; then
+    printf_yellow "Setting primary domain to: $primary_domain"
+    printf '%s\n' "$primary_domain" >"$GEN_SSL_CONFIG_DIR/domains.txt"
+    grep -svE '^$|#' "$GEN_SSL_TEMP_FILE" | tr ',' ' ' | tr ' ' '\n' | grep -xv "${primary_domain:-^$}" | sort -uV >>"$GEN_SSL_CONFIG_DIR/domains.txt"
     domains="$(cat "$GEN_SSL_CONFIG_DIR/domains.txt")"
     for domain in $domains; do
       printf '%-10s = %s\n' "DNS.$dns " "$domain" >>"$GEN_SSL_CA_DIR/domains.cnf"
@@ -372,9 +397,13 @@ __generate_domains() {
   fi
   [ -n "$primary_domain" ] && DOMAIN="$primary_domain" || DOMAIN="localhost"
 }
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_init() {
-  local d f
+  local d="" f=""
+  if [ ! -f "$GEN_SSL_PASSWD_FILE" ]; then
+    while :; do __set_custom_password && break; done
+  fi
   for d in crl private certs p12 requests newcerts; do
     [ -d "$GEN_SSL_CA_DIR/$d" ] || mkdir -p "$GEN_SSL_CA_DIR/$d"
   done
@@ -406,11 +435,11 @@ __install_to_system() {
   $sudo mkdir -p "$GEN_SSL_SYSTEM_DH_DIR"
   $sudo cp -Rf "$GEN_SSL_DH_DIR/." "$GEN_SSL_SYSTEM_DH_DIR"
   if [ -d "/usr/local/share/ca-certificates" ]; then
-    $sudo cp -Rf "$GEN_SSL_CA_DIR/certs/ca.crt" "/usr/local/share/ca-certificates/CasjaysDev.crt"
+    $sudo cp -Rf "$GEN_SSL_CA_DIR/certs/ca.crt" "/usr/local/share/ca-certificates/$GEN_SSL_CA_NAME.crt"
   elif [ -d "/etc/pki/ca-trust/source/anchors" ]; then
-    $sudo cp -Rf "$GEN_SSL_CA_DIR/certs/ca.crt" "/etc/pki/ca-trust/source/anchors/CasjaysDev.crt"
+    $sudo cp -Rf "$GEN_SSL_CA_DIR/certs/ca.crt" "/etc/pki/ca-trust/source/anchors/$GEN_SSL_CA_NAME.crt"
   elif [ -d "/etc/ca-certificates/trust-source/anchors" ]; then
-    $sudo cp -Rf "$GEN_SSL_CA_DIR/certs/ca.crt" "/etc/ca-certificates/trust-source/anchors/CasjaysDev.crt"
+    $sudo cp -Rf "$GEN_SSL_CA_DIR/certs/ca.crt" "/etc/ca-certificates/trust-source/anchors/$GEN_SSL_CA_NAME.crt"
   fi
   if [ -f "$(command -v update-ca-trust 2>/dev/null)" ]; then
     $sudo update-ca-trust extract && $sudo update-ca-trust
@@ -428,7 +457,7 @@ __install_to_system() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __certbot_bin() {
-  certbot_bin="$(type -P "certbot3" ||type -P "certbot" || false)"
+  certbot_bin="$(type -P "certbot3" || type -P "certbot" || false)"
   [ -n "$certbot_bin" ] || printf_exit "Can not find certbot"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -443,7 +472,7 @@ __letsencrypt_renew() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __letsencrypt_create() {
-  local le_domain="" 
+  local le_domain=""
   local domains="${GEN_SSL_DOMAINS:-$*}"
   local set_le_domains="${domains//,/ }"
   __certbot_bin
@@ -496,21 +525,19 @@ GEN_SSL_NOTIFY_CLIENT_ICON="${GEN_SSL_NOTIFY_CLIENT_ICON:-notification-new}"
 GEN_SSL_NOTIFY_CLIENT_URGENCY="${GEN_SSL_NOTIFY_CLIENT_URGENCY:-normal}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional Variables
+GEN_SSL_CA_NAME="${GEN_SSL_CA_NAME:-CasjaysDev}"
 GEN_SSL_SYSTEM_DH_DIR="${GEN_SSL_SYSTEM_DH_DIR:-/etc/ssl/dh}"
-GEN_SSL_SYSTEM_CA_DIR="${GEN_SSL_SYSTEM_CA_DIR:-/etc/ssl/CA/CasjaysDev}"
 GEN_SSL_DH_DIR="${GEN_SSL_DH_DIR:-$GEN_SSL_CONFIG_DIR/ssl/dh}"
-GEN_SSL_CA_DIR="${GEN_SSL_CA_DIR:-$GEN_SSL_CONFIG_DIR/ssl/CA/CasjaysDev}"
 GEN_SSL_REVOKE_FILE="${GEN_SSL_REVOKE_FILE:-revoke.crl}"
 GEN_SSL_DH_LENGTH="${GEN_SSL_DH_LENGTH:-512 1024 2048 4096}"
 GEN_SSL_CA_COUNTRY="${GEN_SSL_CA_COUNTRY:-US}"
 GEN_SSL_CA_STATE="${GEN_SSL_CA_STATE:-New York}"
 GEN_SSL_CA_CITY="${GEN_SSL_CA_CITY:-Albany}"
 GEN_SSL_CA_COMPANY="${GEN_SSL_CA_COMPANY:-Casjays Developments}"
-GEN_SSL_CA_UNIT="${GEN_SSL_CA_UNIT:-CasjaysDev}"
-GEN_SSL_CA_COMMON_NAME="${GEN_SSL_CA_COMMON_NAME:-CasjaysDev}"
 GEN_SSL_CA_DEFAULT_DOMAIN="${GEN_SSL_CA_DEFAULT_DOMAIN:-casjaydns.com}"
 GEN_SSL_DEFAULT_DAYS="${GEN_SSL_DEFAULT_DAYS:-3650}"
 GEN_SSL_DEFAULT_RSA_SIZE="${GEN_SSL_DEFAULT_RSA_SIZE:-2048}"
+GEN_SSL_PASSWD_FILE="${GEN_SSL_PASSWD_FILE:-$GEN_SSL_CONFIG_DIR/ssl/CA/$GEN_SSL_CA_NAME/passwd}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$GEN_SSL_CONFIG_DIR/$GEN_SSL_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
@@ -558,7 +585,7 @@ SHORTOPTS=""
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent,force"
-LONGOPTS+=",copy,wildcards,install,domains:,dns"
+LONGOPTS+=",copy,wildcards,install,domains:,dns,ca,primary:,password:"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="info setup generate domains new revoke dh letsencrypt"
 ARRAY+=""
@@ -655,8 +682,22 @@ while :; do
     shift 1
     GEN_SSL_DNS="true"
     ;;
+  --ca)
+    GEN_SSL_CA_NAME="$2"
+    shift 2
+    ;;
   --domains)
     GEN_SSL_DOMAINS+="$2 "
+    shift 2
+    ;;
+  --primary)
+    GEN_SSL_HOSTNAME="$2"
+    shift 2
+    ;;
+  --password)
+    GEN_SSL_PASSWD="$2"
+    [ -f "$GEN_SSL_PASSWD_FILE" ] && cp -Rf "$GEN_SSL_PASSWD_FILE" "$GEN_SSL_PASSWD_FILE.$$.bak"
+    echo "$GEN_SSL_PASSWD" >"$GEN_SSL_PASSWD_FILE"
     shift 2
     ;;
   --)
@@ -700,21 +741,26 @@ cmd_exists --error --ask bash || exit 3 # exit 3 if not found
 #am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
-
+GEN_SSL_CA_UNIT="${GEN_SSL_CA_UNIT:-$GEN_SSL_CA_NAME}"
+GEN_SSL_CA_COMMON_NAME="${GEN_SSL_CA_COMMON_NAME:-$GEN_SSL_CA_NAME}"
+GEN_SSL_SYSTEM_CA_DIR="${GEN_SSL_SYSTEM_CA_DIR:-/etc/ssl/CA/$GEN_SSL_CA_NAME}"
+GEN_SSL_CA_DIR="${GEN_SSL_CA_DIR:-$GEN_SSL_CONFIG_DIR/ssl/CA/$GEN_SSL_CA_NAME}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
 __run_init
-[ -f "$GEN_SSL_CA_DIR/passwd" ] || { __password "32" >"$GEN_SSL_CA_DIR/passwd" && chmod 600 "$GEN_SSL_CA_DIR/passwd"; }
+[ -f "$GEN_SSL_PASSWD_FILE" ] || { __password "32" >"$GEN_SSL_PASSWD_FILE" && chmod 600 "$GEN_SSL_PASSWD_FILE"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Export variables
-GEN_SSL_PASSWD="$(<"$GEN_SSL_CA_DIR/passwd")"
+[ -n "$GEN_SSL_PASSWD" ] || GEN_SSL_PASSWD="$(<"$GEN_SSL_PASSWD_FILE")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 case "$1" in
 info)
   cat <<EOF | printf_readline "$GEN_SSL_OUTPUT_COLOR_1"
+GEN_SSL_PASSWD: "$GEN_SSL_PASSWD"
 GEN_SSL_DH_DIR: "$GEN_SSL_DH_DIR"
 GEN_SSL_CA_DIR: "$GEN_SSL_CA_DIR"
+GEN_SSL_CA_NAME: "$GEN_SSL_CA_NAME"
 GEN_SSL_REVOKE_FILE: "$GEN_SSL_REVOKE_FILE"
 GEN_SSL_DH_LENGTH: "$GEN_SSL_DH_LENGTH"
 GEN_SSL_CA_COUNTRY: "$GEN_SSL_CA_COUNTRY"
@@ -733,15 +779,15 @@ setup)
   shift 1
   [ -f "$GEN_SSL_CA_DIR/certs/ca.crt" ] && [ -f "$GEN_SSL_CA_DIR/private/ca.key" ] && printf_exit "A CA has already been setup" || __setup_ssl_cnf
   printf_yellow "Password is: $GEN_SSL_PASSWD"
-  openssl req -new -x509 -extensions v3_ca -keyout "$GEN_SSL_CA_DIR/private/ca.key" -out "$GEN_SSL_CA_DIR/certs/ca.crt" -days $GEN_SSL_DEFAULT_DAYS -config "$GEN_SSL_CA_DIR/ca.cnf" -passin file:$GEN_SSL_CA_DIR/passwd
-  openssl pkcs12 -export -out "$GEN_SSL_CA_DIR/p12/ca.p12" -in "$GEN_SSL_CA_DIR/certs/ca.crt" -inkey "$GEN_SSL_CA_DIR/private/ca.key" -passin file:$GEN_SSL_CA_DIR/passwd
+  openssl req -new -x509 -extensions v3_ca -keyout "$GEN_SSL_CA_DIR/private/ca.key" -out "$GEN_SSL_CA_DIR/certs/ca.crt" -days $GEN_SSL_DEFAULT_DAYS -config "$GEN_SSL_CA_DIR/ca.cnf" -passin file:$GEN_SSL_PASSWD_FILE
+  openssl pkcs12 -export -out "$GEN_SSL_CA_DIR/p12/ca.p12" -in "$GEN_SSL_CA_DIR/certs/ca.crt" -inkey "$GEN_SSL_CA_DIR/private/ca.key" -passin file:$GEN_SSL_PASSWD_FILE
   __install_to_system
   exit $?
   ;;
 
 generate)
   shift 1
-  __generate_domains
+  __generate_domains "$@"
   __install_to_system
   exit $?
   ;;
@@ -749,8 +795,8 @@ generate)
 domains)
   shift 1
   __generate_domains "$@"
-  openssl req -new -sha256 -newkey rsa:$GEN_SSL_DEFAULT_RSA_SIZE -config $GEN_SSL_CA_DIR/domains.cnf -passin file:$GEN_SSL_CA_DIR/passwd -nodes -keyout $GEN_SSL_CA_DIR/private/$DOMAIN.key -out $GEN_SSL_CA_DIR/requests/$DOMAIN.csr
-  openssl ca -policy policy_anything -keyfile $GEN_SSL_CA_DIR/private/ca.key -config $GEN_SSL_CA_DIR/domains.cnf -passin file:$GEN_SSL_CA_DIR/passwd -out $GEN_SSL_CA_DIR/certs/$DOMAIN.crt -infiles $GEN_SSL_CA_DIR/requests/$DOMAIN.csr
+  openssl req -new -sha256 -newkey rsa:$GEN_SSL_DEFAULT_RSA_SIZE -config $GEN_SSL_CA_DIR/domains.cnf -passin file:$GEN_SSL_PASSWD_FILE -nodes -keyout $GEN_SSL_CA_DIR/private/$DOMAIN.key -out $GEN_SSL_CA_DIR/requests/$DOMAIN.csr
+  openssl ca -policy policy_anything -keyfile $GEN_SSL_CA_DIR/private/ca.key -config $GEN_SSL_CA_DIR/domains.cnf -passin file:$GEN_SSL_PASSWD_FILE -out $GEN_SSL_CA_DIR/certs/$DOMAIN.crt -infiles $GEN_SSL_CA_DIR/requests/$DOMAIN.csr
   __install_to_system
   exit $?
   ;;
@@ -759,16 +805,16 @@ new)
   shift 1
   DOMAIN="$1"
   [ -n "$DOMAIN" ] || { echo "Usage: $APPNAME new mydomain.com" && exit 1; }
-  openssl req -new -sha256 -newkey rsa:$GEN_SSL_DEFAULT_RSA_SIZE -config $GEN_SSL_CA_DIR/req.cnf -passin file:$GEN_SSL_CA_DIR/passwd -nodes -keyout $GEN_SSL_CA_DIR/private/$DOMAIN.key -out $GEN_SSL_CA_DIR/requests/$DOMAIN.csr
-  openssl ca -policy policy_anything -keyfile $GEN_SSL_CA_DIR/private/ca.key -config $GEN_SSL_CA_DIR/req.cnf -passin file:$GEN_SSL_CA_DIR/passwd -out $GEN_SSL_CA_DIR/certs/$DOMAIN.crt -infiles $GEN_SSL_CA_DIR/requests/$DOMAIN.csr
+  openssl req -new -sha256 -newkey rsa:$GEN_SSL_DEFAULT_RSA_SIZE -config $GEN_SSL_CA_DIR/req.cnf -passin file:$GEN_SSL_PASSWD_FILE -nodes -keyout $GEN_SSL_CA_DIR/private/$DOMAIN.key -out $GEN_SSL_CA_DIR/requests/$DOMAIN.csr
+  openssl ca -policy policy_anything -keyfile $GEN_SSL_CA_DIR/private/ca.key -config $GEN_SSL_CA_DIR/req.cnf -passin file:$GEN_SSL_PASSWD_FILE -out $GEN_SSL_CA_DIR/certs/$DOMAIN.crt -infiles $GEN_SSL_CA_DIR/requests/$DOMAIN.csr
   __install_to_system
   exit $?
   ;;
 
 revoke)
   shift 1
-  [ -n "$1" ] && openssl ca -config "$GEN_SSL_CA_DIR/openssl.cnf" -revoke "$GEN_SSL_CA_DIR/certs/$1" -passin file:$GEN_SSL_CA_DIR/passwd
-  openssl ca -config "$GEN_SSL_CA_DIR/openssl.cnf" -gencrl -keyfile $GEN_SSL_CA_DIR/private/ca.key -cert $GEN_SSL_CA_DIR/certs/ca.crt -out "$GEN_SSL_CA_DIR/crl/$GEN_SSL_REVOKE_FILE" -passin file:$GEN_SSL_CA_DIR/passwd
+  [ -n "$1" ] && openssl ca -config "$GEN_SSL_CA_DIR/openssl.cnf" -revoke "$GEN_SSL_CA_DIR/certs/$1" -passin file:$GEN_SSL_PASSWD_FILE
+  openssl ca -config "$GEN_SSL_CA_DIR/openssl.cnf" -gencrl -keyfile $GEN_SSL_CA_DIR/private/ca.key -cert $GEN_SSL_CA_DIR/certs/ca.crt -out "$GEN_SSL_CA_DIR/crl/$GEN_SSL_REVOKE_FILE" -passin file:$GEN_SSL_PASSWD_FILE
   __install_to_system
   exit $?
   ;;

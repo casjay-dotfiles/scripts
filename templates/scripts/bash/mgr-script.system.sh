@@ -468,6 +468,13 @@ __trap_exit() {
   return $GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Create a --no-* options function
+__no_options_function() {
+  case $1 in
+  *) ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -573,7 +580,7 @@ SETARGS=("$@")
 SHORTOPTS="a,f"
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-LONGOPTS="all,completions:,config,debug,force,help,options,raw,version"
+LONGOPTS="all,completions:,config,debug,force,help,options,raw,version,no-*"
 LONGOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="available,cron,download,install,list,remove,search,update,version"
@@ -650,6 +657,10 @@ while :; do
   -a | --all)
     shift 1
     INSTALL_ALL="true"
+    ;;
+  --no-*)
+    shift 1
+    __no_options_function "$@"
     ;;
   --)
     shift 1

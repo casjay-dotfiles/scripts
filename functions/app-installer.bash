@@ -1221,7 +1221,9 @@ install_packages() {
       done
     fi
   fi
-  unset MISSING
+  [ -z "$m" ] || install_required "$m" || exitCode=1
+  unset MISSING m
+  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 install_python() {

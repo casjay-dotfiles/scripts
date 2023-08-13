@@ -291,13 +291,15 @@ __set_custom_password() {
   local pass_test=""
   local custom_pass=""
   GEN_SSL_PASSWD="${GEN_SSL_PASSWD:-}"
+  mkdir -p "$GEN_SSL_CA_DIR"
   printf_read_question "3" "Would you like to set a custom password" "1" "custom_pass"
   if [ "$custom_pass" = "y" ] || [ "$custom_pass" = "Y" ]; then
     printf_read_password "6" "Please enter your password:" "256" "pass_set"
     printf_read_password "6" "Please confirm enter your password:" "256" "pass_test"
     [ "$pass_set" = "$pass_test" ] && GEN_SSL_PASSWD="$pass_set" || exitCode=1
-    [ $exitCode -eq 0 ] && { [ -n "$GEN_SSL_PASSWD" ] && mkdir -p "$GEN_SSL_CA_DIR" && echo "$GEN_SSL_PASSWD" >"$GEN_SSL_PASSWD_FILE"; }
+    [ $exitCode -eq 0 ] && { [ -n "$GEN_SSL_PASSWD" ] && echo "$GEN_SSL_PASSWD" >"$GEN_SSL_PASSWD_FILE"; }
   fi
+  [ -f "$GEN_SSL_PASSWD_FILE" ] || __password "32" >"$GEN_SSL_PASSWD_FILE"
   unset pass_set pass_test
   return $exitCode
 }
@@ -361,7 +363,7 @@ __generate_domains() {
   if [ -n "$GEN_SSL_DOMAINS" ]; then
     printf '%s\n' "$GEN_SSL_DOMAINS" | tr ' ' '\n' >>"$GEN_SSL_TEMP_FILE"
   fi
-  if [ -n "$GEN_SSL_PRIMARY_DOMAIN"]; then
+  if [ -n "$GEN_SSL_PRIMARY_DOMAIN" ]; then
     primary_domain="$GEN_SSL_PRIMARY_DOMAIN"
   else
     primary_domain="$(echo "$GEN_SSL_DOMAINS" | tr ' ' '\n' | grep -svE '^$|#|^\*\.|localhost' | head -n1 | grep '^' || echo "$HOSTNAME")"
@@ -374,7 +376,7 @@ __generate_domains() {
     for domain in $domains; do
       printf '%-10s = %s\n' "DNS.$dns " "$domain" >>"$GEN_SSL_CA_DIR/domains.cnf"
       dns=$((dns + 1))
-      if [ "$GEN_SSL_CREATE_WILDCARD" = "true" ] && echo "$domain" | grep -v '\*\.'; then
+      if [ "$GEN_SSL_CREATE_WILDCARD" = "true" ] && echo "$domain" | grep -qv '\*\.'; then
         printf '%-10s = %s\n' "DNS.$dns " "*.$domain" >>"$GEN_SSL_CA_DIR/domains.cnf"
         dns=$((dns + 1))
         printf '%-10s = %s\n' "DNS.$dns " "*.*.$domain" >>"$GEN_SSL_CA_DIR/domains.cnf"
@@ -385,7 +387,7 @@ __generate_domains() {
     for domain in $HOSTNAME localhost '*.home'; do
       printf '%-10s = %s\n' "DNS.$dns " "$domain" >>"$GEN_SSL_CA_DIR/domains.cnf"
       dns=$((dns + 1))
-      if [ "$GEN_SSL_CREATE_WILDCARD" = "true" ] && echo "$domain" | grep -v '\*\.'; then
+      if [ "$GEN_SSL_CREATE_WILDCARD" = "true" ] && echo "$domain" | grep -qv '\*\.'; then
         printf '%-10s = %s\n' "DNS.$dns " "*.$domain" >>"$GEN_SSL_CA_DIR/domains.cnf"
         dns=$((dns + 1))
         printf '%-10s = %s\n' "DNS.$dns " "*.*.$domain" >>"$GEN_SSL_CA_DIR/domains.cnf"
@@ -398,8 +400,8 @@ __generate_domains() {
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_init() {
-  local d="" f=""
-  if [ ! -f "$GEN_SSL_PASSWD_FILE" ] || [ -n "$GEN_SSL_PASSWD" ]; then
+  local d="" f="" gen_ssl_init="false"
+  if [ ! -f "$GEN_SSL_PASSWD_FILE" ]; then
     while :; do __set_custom_password && break; done
   fi
   for d in crl private certs p12 requests newcerts; do
@@ -409,7 +411,10 @@ __run_init() {
     [ -f "$GEN_SSL_CA_DIR/$f" ] || touch "$GEN_SSL_CA_DIR/$f"
   done
   [ -d "$GEN_SSL_DH_DIR" ] || mkdir -p "$GEN_SSL_DH_DIR"
+  [ -f "$GEN_SSL_CA_DIR/certs/ca.crt" ] || gen_ssl_init="true"
   [ -f "$GEN_SSL_CA_DIR/serial.txt" ] || echo "1000" >"$GEN_SSL_CA_DIR/serial.txt"
+  chmod 600 "$GEN_SSL_PASSWD_FILE"
+  [ "$gen_ssl_init" = "true" ] && { $APPNAME setup || printf_exit "Failed to initialize $APPNAME"; }
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 create_chain() {
@@ -746,7 +751,6 @@ GEN_SSL_CA_DIR="${GEN_SSL_CA_DIR:-$GEN_SSL_CONFIG_DIR/ssl/CA/$GEN_SSL_CA_NAME}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
 __run_init
-[ -f "$GEN_SSL_PASSWD_FILE" ] || { __password "32" >"$GEN_SSL_PASSWD_FILE" && chmod 600 "$GEN_SSL_PASSWD_FILE"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Export variables
 [ -n "$GEN_SSL_PASSWD" ] || GEN_SSL_PASSWD="$(<"$GEN_SSL_PASSWD_FILE")"
@@ -775,11 +779,11 @@ EOF
   ;;
 setup)
   shift 1
-  [ -f "$GEN_SSL_CA_DIR/certs/ca.crt" ] && [ -f "$GEN_SSL_CA_DIR/private/ca.key" ] && printf_exit "A CA has already been setup" || __setup_ssl_cnf
+  [ -s "$GEN_SSL_CA_DIR/certs/ca.crt" ] && [ -s "$GEN_SSL_CA_DIR/private/ca.key" ] && printf_exit "A CA has already been setup" || __setup_ssl_cnf
   printf_yellow "Password is: $GEN_SSL_PASSWD"
   openssl req -new -x509 -extensions v3_ca -keyout "$GEN_SSL_CA_DIR/private/ca.key" -out "$GEN_SSL_CA_DIR/certs/ca.crt" -days $GEN_SSL_DEFAULT_DAYS -config "$GEN_SSL_CA_DIR/ca.cnf" -passin file:$GEN_SSL_PASSWD_FILE
   openssl pkcs12 -export -out "$GEN_SSL_CA_DIR/p12/ca.p12" -in "$GEN_SSL_CA_DIR/certs/ca.crt" -inkey "$GEN_SSL_CA_DIR/private/ca.key" -passin file:$GEN_SSL_PASSWD_FILE
-  __install_to_system
+  [ -s "$GEN_SSL_CA_DIR/certs/ca.crt" ] && [ -s "$GEN_SSL_CA_DIR/private/ca.key" ] && __install_to_system || false
   exit $?
   ;;
 

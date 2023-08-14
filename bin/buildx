@@ -536,6 +536,33 @@ __get_dockerfile_ver() {
   return $exitC
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__run_all() {
+  trap 'exit' SIGINT
+  local exitCode=0
+  export BUILDX_RUN_COUNT_OF="${BUILDX_RUN_COUNT_OF:-1}"
+  export BUILDX_BUILD_ALL="${BUILDX_BUILD_ALL:-true}"
+  export BUILDX_GIT_COMMIT_ID="${BUILDX_GIT_COMMIT_ID:-}"
+  if [ $BUILDX_RUN_COUNT_OF -eq 1 ]; then
+    __wait_for_previous_build
+    __create_log_files
+    __reinit_buildx
+  else
+    echo "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+    printf_purple "Building Dockerfile $BUILDX_RUN_COUNT_OF of $BUILDX_RUN_COUNT_TOTAL"
+    __wait_for_previous_build &>/dev/null
+    __create_log_files &>/dev/null
+    __reinit_buildx &>/dev/null
+  fi
+  if [ -f "$1" ]; then
+    __execute_buildx "$1"
+    exitCode=$?
+  else
+    printf_red "Can not find a Dockerfile in $BUILDX_CWD"
+    exitCode=10
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __buildx_run() {
   trap 'exit' SIGINT
   local exitCode=0
@@ -725,7 +752,7 @@ __reinit_buildx() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __buildx_cleanup() {
   if [ "$BUILDX_CLEANUP" = "true" ] && [ "$BUILDX_IS_RUNNING" = "true" ]; then
-    if [ "$BUILDX_BUILD_ALL" != "true" ] || [ "$BUILDX_RAN_CLEANUP" != "true" ]; then
+    if [ "$BUILDX_BUILD_ALL" != "true" ] && [ "$BUILDX_RAN_CLEANUP" != "true" ]; then
       printf_yellow "Cleaning up containers"
     fi
     __docker rm -f $builder_id $qemu_imagename $binfmt_imagename &>/dev/null
@@ -1136,7 +1163,9 @@ __execute_buildx() {
   logscript_dir="$BUILDX_CONFIG_DIR/scripts/$(echo "$tagged_name" | awk -F '/' '{print $1}')"
   logscript_file="$logscript_dir/$(echo "$tagged_name" | awk -F '/' '{print $2}')-${tag_version}.sh"
   pretty_name="${set_tag/:*/}"
-  printf_blue "Log is being written to: ${logfile//$HOME/~}"
+  if [ "$BUILDX_BUILD_ALL" != "true" ]; then
+    printf_blue "Log is being written to: ${logfile//$HOME/~}"
+  fi
   [ -n "$Dockerfile" ] && printf_cyan "Setting Dockerfile to: ${Dockerfile//$PWD\//./}"
   if [ -f "$Dockerfile" ]; then
     [ -d "$FULL_DIR_PATH/rootfs" ] || mkdir -p "$FULL_DIR_PATH/rootfs"
@@ -1212,7 +1241,9 @@ __api_clone() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __buildx_all() {
   local statusCode=0
-  export BUILDX_BUILD_ALL="true"
+  BUILDX_RUN_COUNT_OF="0"
+  BUILDX_RUN_COUNT_TOTAL="$(ls -A "$BUILDX_CWD/Dockerfile"* | wc -l)"
+  export BUILDX_GIT_COMMIT_ID="${BUILDX_GIT_COMMIT_ID:-}"
   [ -d "$BUILDX_CWD" ] || printf_exit "Usage: $APPNAME [dir] all"
   printf_cyan "Building all Dockerfiles in $BUILDX_CWD"
   for file in "$BUILDX_CWD/Dockerfile"*; do
@@ -1221,7 +1252,9 @@ __buildx_all() {
     [ -n "$file" ] && [ -f "$file" ] || buildCode=1
     if [ $buildCode -eq 0 ]; then
       __run_git_pull "$BUILDX_CWD"
-      BUILDX_GIT_COMMIT_ID="$BUILDX_GIT_COMMIT_ID" eval $APPNAME --dir "$BUILDX_CWD" run "$file" || statusCode=$((1 + statusCode))
+      export BUILDX_RUN_COUNT_OF=$((BUILDX_RUN_COUNT_OF + 1)) BUILDX_BUILD_ALL="true"
+      export BUILDX_RUN_COUNT_TOTAL="${BUILDX_RUN_COUNT_TOTAL:-1}" BUILDX_GIT_COMMIT_ID="$BUILDX_GIT_COMMIT_ID"
+      $0 --dir "$BUILDX_CWD" run "$file" || statusCode=$((1 + statusCode))
     else
       printf_return "Can not find Dockerfile in $BUILDX_CWD"
     fi
@@ -1700,7 +1733,7 @@ all)
 
 run)
   shift 1
-  __buildx_run "$@"
+  __run_all "$@"
   ;;
 
 *)

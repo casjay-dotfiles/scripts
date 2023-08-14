@@ -1319,10 +1319,12 @@ ghdelete_user() {
     git_repo="${2:-$REPONAME}"
   fi
   [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
-  __curl_gh_api -X "DELETE" "$url/$git_user/$git_repo" >"$GITADMIN_TEMP_FILE"
+  curl -q -LSsf -X DELETE -H "Accept: application/vnd.github.v3+json" -H "Authorization: token ${GITADMIN_GITHUB_AUTH_TOKEN}" "${url}/${git_user}/${git_repo}" >"$GITADMIN_TEMP_FILE"
   if grep -qs 'Not Found' "$GITADMIN_TEMP_FILE"; then
     return 0
-  elif __api_user "$git_user" | grep -qvi "$git_repo"; then
+  elif [ -s "$GITADMIN_TEMP_FILE" ]; then
+    return 0
+  elif __api_user "$git_user" | grep -qvi "$git_repo$"; then
     return 0
   else
     return 1
@@ -1341,15 +1343,19 @@ ghcreate() {
     git_repo="$2"
     git_describe="${3:-repo for $git_repo}"
   fi
-  git_failed="👿 Creation of $git_repo failed 👿"
+  api_url="https://api.github.com/repos"
   git_succes="😻 Success: https://github.com/$git_user/$git_repo 😻"
+  git_failed="👿 Creation of https://github.com/$git_user/$git_repo failed 👿"
   [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
   printf_blue "This may take a few seconds."
   printf_blue "Sending your request to the github API."
   printf_green "Creating $git_repo for user $git_user"
-  if curl_orgs_create "$git_user" "$git_repo" "$git_describe" || curl_user_create "$git_user" "$git_repo" "$git_describe"; then
+  if __api_repo_verify "$api_url" "$git_user" "$git_repo"; then
+    printf_cyan "$git_succes"
+    GITADMIN_EXITCODE=0
+  elif curl_orgs_create "$git_user" "$git_repo" "$git_describe" || curl_user_create "$git_user" "$git_repo" "$git_describe"; then
     sleep 5
-    if __urlverify "http://github.com/$git_user/$git_repo" &>/dev/null; then
+    if __api_repo_verify "$api_url" "$git_user" "$git_repo" &>/dev/null; then
       printf_cyan "$git_succes"
       GITADMIN_EXITCODE=0
     else
@@ -1357,7 +1363,7 @@ ghcreate() {
       GITADMIN_EXITCODE=1
     fi
   else
-    printf_yellow "An error occured while trying to create github.com/$git_user/$git_repo"
+    printf_yellow "😠 An error occured while trying to create github.com/$git_user/$git_repo 😠"
     GITADMIN_EXITCODE=1
   fi
   return "$GITADMIN_EXITCODE"
@@ -1366,6 +1372,7 @@ ghcreate() {
 # Deletes a github repo
 ghdelete() {
   local git_user="" git_repo="" git_failed="" git_succes="" GITADMIN_EXITCODE=""
+  local api_url="https://api.github.com/repos"
   if echo "$1" | grep -q '/'; then
     git_user="$(echo "$@" | awk -F '/' '{print $(NF-1)}')"
     git_repo="$(echo "$@" | awk -F '/' '{print $NF}')"
@@ -1373,16 +1380,17 @@ ghdelete() {
     git_user="$1"
     git_repo="$2"
   fi
-  if __urlverify "http://github.com/$git_user/$git_repo" &>/dev/null; then
+  if __api_repo_verify "$api_url" "$git_user" "$git_repo" &>/dev/null; then
     git_failed="💢 Deletion of http://github.com/$git_user/$git_repo failed 💢"
     git_succes="🌱 Deletion of http://github.com/$git_user/$git_repo successful 🌱"
     GITADMIN_EXITCODE=0
     printf_green "Deleting repo $git_repo for user $git_user"
-    if ! ghdelete_user "$git_user" "$git_repo"; then
+    ghdelete_user "$git_user" "$git_repo"
+    if __api_repo_verify "$api_url" "$git_user" "$git_repo"; then
       GITADMIN_EXITCODE=1
     fi
   else
-    printf_yellow "The repo http://github.com/$git_user/$git_repo does not exist"
+    printf_yellow "❔ The repo http://github.com/$git_user/$git_repo does not exist ❔"
     exit "1"
   fi
   __getexitcode $GITADMIN_EXITCODE "$git_succes" "$git_failed"
@@ -1729,6 +1737,11 @@ __curl_gh_api() {
     curl -q -LSs -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" -H "Accept: application/vnd.github.v3+json" -H "X-GitHub-Api-Version: $GITADMIN_GITHUB_API_VERSION" "$@" 2>${GITADMIN_TEMP_FILE}.err
     return $?
   fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__api_repo_verify() {
+  curl -q -LSsf -X GET -H "Accept: application/vnd.github.v3+json" -H "Authorization: token ${GITADMIN_GITHUB_AUTH_TOKEN}" "${1}/${2}/${3}" | grep 'html_url' &>/dev/null
+  return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables

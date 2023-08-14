@@ -1218,7 +1218,7 @@ install_required() {
   [ -n "$REQUIRED" ] || return 0
   for cmd in $REQUIRED; do
     if __saved_file_check "$cmd" || builtin type -P "$cmd" &>/dev/null; then
-      __saved_file_create "$cmd"
+      true
     else
       MISSING+="$cmd "
     fi

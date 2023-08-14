@@ -544,7 +544,11 @@ __run_all() {
   export BUILDX_BUILD_ALL="${BUILDX_BUILD_ALL:-true}"
   export BUILDX_GIT_COMMIT_ID="${BUILDX_GIT_COMMIT_ID:-}"
   export ENV_BUILDX_PROJECT_DIR="$(dirname "$BUILDX_CWD")"
+  export BUILDX_CUSTOM_LOG_DIR="$BUILDX_LOG_DIR/$(basename "$ENV_BUILDX_PROJECT_DIR")"
+  export BUILDX_CUSTOM_LOG_FILE="$BUILDX_CUSTOM_LOG_DIR/$(basename "$BUILDX_CWD" | sed 's|^docker-||g').log"
   if [ $BUILDX_RUN_COUNT_OF -eq 1 ]; then
+    printf_purple "Log file is being written to $BUILDX_CUSTOM_LOG_FILE"
+    [ -d "$BUILDX_CUSTOM_LOG_DIR" ] || mkdir -p "$BUILDX_CUSTOM_LOG_DIR"
     __wait_for_previous_build
     __create_log_files
     __reinit_buildx
@@ -1083,6 +1087,8 @@ __build_cmd() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __execute_buildx() {
+  local exitCode=0
+  local buildxexitCode=0
   if [ -f "$BUILDX_PID_FILE" ]; then
     printf_exit "$APPNAME is already running"
   else
@@ -1091,7 +1097,6 @@ __execute_buildx() {
   fi
   echo "$*" | grep -q '.*.:.*.' && __usage
   [ $# -ne 0 ] || __usage
-  buildxexitCode=0
   notify_message=""
   set_name="${BUILDX_SET_IMAGE:-$BUILDX_SET_NAME}"
   if [ -f "$1" ]; then
@@ -1160,12 +1165,12 @@ __execute_buildx() {
   tagged_name="${tagged_name//\/dockerfile/}"
   push_tag="$tagged_name:$tag_version"
   set_tag="${push_tag//$BUILDX_DEFAULT_HUB\//}"
-  logfolder="$(dirname "$tagged_name" | sed 's|.*://||g')"
-  logfile="$BUILDX_LOG_DIR/$(echo "$tagged_name" | awk -F':' '{print $1}').log"
+  logfolder="${BUILDX_CUSTOM_LOG_DIR:-$(dirname "$tagged_name" | sed 's|.*://||g')}"
+  logfile="${BUILDX_CUSTOM_LOG_FILE:-$BUILDX_LOG_DIR/$(echo "$tagged_name" | awk -F':' '{print $1}').log}"
   logscript_dir="$BUILDX_CONFIG_DIR/scripts/$(echo "$tagged_name" | awk -F '/' '{print $1}')"
   logscript_file="$logscript_dir/$(echo "$tagged_name" | awk -F '/' '{print $2}')-${tag_version}.sh"
   pretty_name="${set_tag/:*/}"
-  if [ $BUILDX_RUN_COUNT_OF -eq 1 ]; then
+  if [ $BUILDX_BUILD_ALL != "true" ]; then
     printf_blue "Log is being written to: ${logfile//$HOME/~}"
   fi
   [ -n "$Dockerfile" ] && printf_cyan "Setting Dockerfile to: ${Dockerfile//$PWD\//./}"
@@ -1185,15 +1190,15 @@ __execute_buildx() {
       __docker rmi "$pretty_name" &>/dev/null
       buildxexitCode=0
     else
-      printf_red "Failed to pull $push_tag" 1>&2
+      printf_red "Failed to pull $push_tag" >&2
       notify_message+="Failed to pull $push_tag|"
       printf '\n%s\n' "# Failed to pull $push_tag on : $(date +'%Y-%m-%d at %H:%M')" | tee -a "$logfile" &>/dev/null
-      buildxexitCode+=1
+      buildxexitCode=1
     fi
   else
-    printf_red "Failed to build $name" 1>&2
+    printf_red "Failed to build $name" >&2
     notify_message+="Failed to build $name|"
-    buildxexitCode+=1
+    buildxexitCode=1
   fi
   notify_message="$(echo "$notify_message" | tr '|' '\n')"
   __notifications "${notify_message[@]}" &>/dev/null &
@@ -1202,7 +1207,7 @@ __execute_buildx() {
   printf '###############################################################################\n\n' | tee -a "$logfile" &>/dev/null
   [ -f "$BUILDX_PID_FILE" ] && rm -Rf "$BUILDX_PID_FILE"
   [ "$buildxexitCode" = 0 ] && exitCode=0 || exitCode=$buildxexitCode
-  return ${exitCode:-0}
+  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __is_logged_in() {
@@ -1261,7 +1266,7 @@ __buildx_all() {
       __run_git_pull "$BUILDX_CWD"
       export BUILDX_RUN_COUNT_OF=$((BUILDX_RUN_COUNT_OF + 1)) BUILDX_BUILD_ALL="true"
       export BUILDX_RUN_COUNT_TOTAL="${BUILDX_RUN_COUNT_TOTAL:-1}" BUILDX_GIT_COMMIT_ID="$BUILDX_GIT_COMMIT_ID"
-      $0 --dir "$BUILDX_CWD" run "$file" || statusCode=$((1 + statusCode))
+      $0 --dir "$BUILDX_CWD" run "$file" || statusCode=$((statusCode + 1))
     else
       printf_return "Can not find Dockerfile in $BUILDX_CWD"
     fi

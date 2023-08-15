@@ -757,16 +757,21 @@ __reinit_buildx() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __buildx_cleanup() {
+  local prevExit=$?
+  local exitCodeClean=""
   if [ "$BUILDX_CLEANUP" = "true" ] && [ "$BUILDX_IS_RUNNING" = "true" ]; then
     if [ "$BUILDX_BUILD_ALL" != "true" ] && [ "$BUILDX_RAN_CLEANUP" != "true" ]; then
       printf_yellow "Cleaning up containers"
     fi
     __docker rm -f $builder_id $qemu_imagename $binfmt_imagename &>/dev/null
     BUILDX_RAN_CLEANUP="true"
-    __is_initialized && return 1
+    __is_initialized && exitCodeClean=1
   fi
-  [ "$BUILDX_BUILD_ALL" = "true" ] || echo ""
-  return 0
+  if [ "$BUILDX_GEN_SCRIPT" = "true" ]; then
+    return 0
+  fi
+  [ "$BUILDX_BUILD_ALL" = "true" ] && return $prevExit || echo ""
+  return ${exitCodeClean:-$prevExit}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __install_buildx() {
@@ -913,7 +918,6 @@ __run_docker_script() {
   printf '%b%s: %b%s%b\n' "$GREEN" "Saving the build command to" "$CYAN" "$logscript_file" "$NC"
   printf 'Saving the build command to: %s\n' "$logscript_file" | tee -a "$logfile" &>/dev/null
   __save_build_script
-  [ "$BUILDX_GEN_SCRIPT" = "true" ] && { [ -f "$logscript_file" ] && exit 0 || exit 1; }
   printf_blue "Setting default tag to: $set_tag"
   echo "$BUILDX_GET_VERSION_MESSAGE" | tee -a "$logfile" &>/dev/null
   if [ "$BUILDX_ADD_TAG" = "true" ] || [ -n "$REGISTRY_TAG" ] && [ -n "$ADDITIONAL_PRETTY" ]; then
@@ -939,7 +943,6 @@ __run_dockermgr_script() {
   printf '%b%s: %b%s%b\n' "$GREEN" "Saving the build command to" "$CYAN" "$logscript_file" "$NC"
   printf 'Saving the build command to: %s\n' "$logscript_file" | tee -a "$logfile" &>/dev/null
   __save_build_script
-  [ "$BUILDX_GEN_SCRIPT" = "true" ] && { [ -f "$logscript_file" ] && exit 0 || exit 1; }
   printf_blue "Setting default tag to: $set_tag"
   if [ "$BUILDX_ADD_TAG" = "true" ] || [ -n "$REGISTRY_TAG" ] && [ -n "$ADDITIONAL_PRETTY" ]; then
     printf_blue "Adding tags: $ADDITIONAL_PRETTY"
@@ -959,7 +962,6 @@ __run_buildx_script() {
   printf '%b%s: %b%s%b\n' "$GREEN" "Saving the build command to" "$CYAN" "$logscript_file" "$NC"
   printf 'Saving the build command to: %s\n' "$logscript_file" | tee -a "$logfile" &>/dev/null
   __save_build_script
-  [ "$BUILDX_GEN_SCRIPT" = "true" ] && { [ -f "$logscript_file" ] && exit 0 || exit 1; }
   printf_blue "Setting default tag to: $set_tag"
   if [ "$BUILDX_ADD_TAG" = "true" ] || [ -n "$REGISTRY_TAG" ] && [ -n "$ADDITIONAL_PRETTY" ]; then
     printf_blue "Adding tags: $ADDITIONAL_PRETTY"
@@ -979,7 +981,6 @@ __run_build_script() {
   printf '%b%s: %b%s%b\n' "$GREEN" "Saving the build command to" "$CYAN" "$logscript_file" "$NC"
   printf 'Saving the build command to: %s\n' "$logscript_file" | tee -a "$logfile" &>/dev/null
   __save_build_script
-  [ "$BUILDX_GEN_SCRIPT" = "true" ] && { [ -f "$logscript_file" ] && exit 0 || exit 1; }
   printf_blue "Setting default tag to: $set_tag"
   if [ "$BUILDX_ADD_TAG" = "true" ] || [ -n "$REGISTRY_TAG" ] && [ -n "$ADDITIONAL_PRETTY" ]; then
     printf_blue "Adding tags: $ADDITIONAL_PRETTY"
@@ -1003,7 +1004,18 @@ exit \$?
 
 EOF
   chmod -Rf 755 "$logscript_file"
-  [ -x "$logscript_file" ] && return 0 || return 1
+  if [ "$BUILDX_GEN_SCRIPT" = "true" ]; then
+    if [ -x "$logscript_file" ]; then
+      printf_yellow "Your script has been saved: exiting"
+      echo "Your script has been saved: exiting" | tee -a "$logfile" &>/dev/null
+      exit 0
+    else
+      printf_red "Your script failed to save: exiting" | tee -a "$logfile" &>/dev/null
+      exit 1
+    fi
+  else
+    [ -x "$logscript_file" ] && return 0 || return 1
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_docker_build() {
@@ -1260,21 +1272,21 @@ __buildx_all() {
   elif [ "$BUILDX_RUN_COUNT_TOTAL" -eq 0 ]; then
     printf_exit "The doesn't seem to be any Dockerfiles in $BUILDX_CWD"
   fi
+  __run_git_pull "$BUILDX_CWD"
   printf_cyan "Building all Dockerfiles in $BUILDX_CWD"
   for file in $(ls -Avr "$BUILDX_CWD/Dockerfile"* 2>/dev/null); do
     buildCode=0
     file="$(realpath "$file" 2>/dev/null | grep '^' || echo '')"
     [ -n "$file" ] && [ -f "$file" ] || buildCode=1
     if [ $buildCode -eq 0 ]; then
-      __run_git_pull "$BUILDX_CWD"
-      export BUILDX_RUN_COUNT_OF=$((BUILDX_RUN_COUNT_OF + 1)) BUILDX_BUILD_ALL="true"
       export BUILDX_RUN_COUNT_TOTAL="${BUILDX_RUN_COUNT_TOTAL:-1}" BUILDX_GIT_COMMIT_ID="$BUILDX_GIT_COMMIT_ID"
+      export BUILDX_RUN_COUNT_OF=$((BUILDX_RUN_COUNT_OF + 1)) BUILDX_BUILD_ALL="true" BUILDX_GEN_SCRIPT="${BUILDX_GEN_SCRIPT:-}"
       $0 --dir "$BUILDX_CWD" run "$file" || statusCode=$((statusCode + 1))
     else
       printf_return "Can not find Dockerfile in $BUILDX_CWD"
     fi
   done
-  [ $statusCode -eq 0 ] && printf_blue "Finished building all Dockerfile in $BUILDX_CWD" | printf_red "Building has failed with errors"
+  [ $statusCode -eq 0 ] && printf_blue "Finished building all Dockerfile in $BUILDX_CWD" || printf_red "Building has failed with errors"
   printf_yellow "Cleaning up containers"
   echo ""
   return $statusCode

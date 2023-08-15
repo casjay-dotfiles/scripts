@@ -21,14 +21,14 @@ __os_fix_name() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __os_name() {
-  grep -s '^NAME=' /etc/os-release | awk -F '=' '{print $2}' | grep '^' ||
-    grep -s '^ID=' /etc/os-release | awk -F '=' '{print $2}' | grep '^' ||
+  grep -s '^NAME=' /etc/os-release | awk -F '=' '{print $2}' | sed 's|[0-9]||g;s|\.||g' | grep '^' ||
+    grep -s '^ID=' /etc/os-release | awk -F '=' '{print $2}' | sed 's|[0-9]||g;s|\.||g' | grep '^' ||
     echo "OS: Unknown"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __os_version() {
-  grep -s '^VERSION=' /etc/os-release 2>/dev/null | sed 's/[^.0-9]*//g' | grep '^' ||
-    grep -s 'BUILD_ID' /etc/os-release 2>/dev/null | awk -F '=' '{print $2}' | grep '^' ||
+  grep -s '^VERSION=' /etc/os-release 2>/dev/null | sed 's|[a-zA-Z]||g;s/[^.0-9]*//g' | grep '^' ||
+    grep -s 'BUILD_ID' /etc/os-release 2>/dev/null | awk -F '=' '{print $2}' | sed 's|[a-zA-Z]||g;s/[^.0-9]*//g' | grep '^' ||
     echo "Version: Unknown"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

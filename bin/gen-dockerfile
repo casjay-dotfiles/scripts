@@ -407,6 +407,11 @@ __docker_file() {
         if [ -f "$rootfs_dir/usr/local/etc/docker/functions/entrypoint.sh" ]; then
           printf_cyan "Created $rootfs_dir/usr/local/etc/docker/functions/entrypoint.sh"
         fi
+        # Create pkmgr script
+        printf_blue "Creating $rootfs_dir/usr/local/bin/pkmgr"
+        [ -d "$rootfs_dir/usr/local/bin" ] || mkdir -p "$rootfs_dir/usr/local/bin"
+        __create_pkmgr_install_script >"$rootfs_dir/usr/local/bin/pkmgr"
+        chnod 755 "$rootfs_dir/usr/local/bin/pkmgr"
         # Create entrypoint script
         printf_blue "Creating $rootfs_dir/usr/local/bin/entrypoint.sh"
         if [ -f "$rootfs_dir/usr/local/bin/entrypoint.sh" ]; then
@@ -426,7 +431,7 @@ __docker_file() {
         fi
         # create root docker init files
         mkdir -p "$rootfs_dir/root/docker"
-        for docker_init_script in post init; do
+        for docker_init_script in init custom post; do
           print_yellow "Creating $docker_init_script in $rootfs_dir/root/docker/setup"
           printf '%s\n' "#!/usr/bin/env sh" >"$rootfs_dir/root/docker/setup/$docker_init_script"
           printf '%s\n\n' '# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -' >"$rootfs_dir/root/docker/setup/$docker_init_script"
@@ -550,6 +555,95 @@ __create_start_script() {
   [ -d "$init_dir" ] || mkdir -p "$init_dir"
   GEN_SCRIPT_EDITFILE="N" gen-script other start-service --name "$script_filename" --dir "$init_dir" "$script_filename" #&>/dev/null
   [ -f "$script_file" ] && printf_cyan "Created $script_file"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__create_pkmgr_install_script() {
+  cat <<EOF
+#!/usr/bin/env sh
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -x "\$(which apt-get 2>/dev/null)" ]; then
+  export DEBIAN_FRONTEND=noninteractive
+  pkmgr_cmd="apt-get "
+  pkmgr_clean_cmd="\$pkmgr clean"
+  pkmgr_update_cmd="\$pkmgr_cmd update -yy && \$pkmgr_cmd upgrade -yy"
+  pkmgr_install_cmd="\$pkmgr_cmd install -yy \$PKMGR_OPTS"
+elif [ -x "\$(which yum 2>/dev/null)" ]; then
+  pkmgr_cmd="yum"
+  pkmgr_clean_cmd="\$pkmgr clean all"
+  pkmgr_update_cmd="\$pkmgr_cmd makecache && \$pkmgr_cmd update -y --skip-broken \$PKMGR_OPTS"
+  pkmgr_install_cmd="\$pkmgr_cmd install -y --skip-broken \$PKMGR_OPTS"
+elif [ -x "\$(which pacman 2>/dev/null)" ]; then
+  pkmgr_cmd="pacman"
+  pkmgr_clean_cmd="\$pkmgr -Scc --noconfirm"
+  pkmgr_update_cmd="\$pkmgr_cmd -Syyu --noconfirm \$PKMGR_OPTS"
+  pkmgr_install_cmd="\$pkmgr_cmd -S --noconfirm \$PKMGR_OPTS"
+elif [ -x "\$(which apk 2>/dev/null)" ]; then
+  pkmgr_cmd="apk"
+  pkmgr_clean_cmd="\$pkmgr cache clean"
+  pkmgr_update_cmd="\$pkmgr_cmd -U upgrade --no-cache \$PKMGR_OPTS"
+  pkmgr_install_cmd="\$pkmgr_cmd add --no-cache \$PKMGR_OPTS"
+elif [ -x "\$(which zypper 2>/dev/null)" ]; then
+  pkmgr_cmd="zypper"
+  pkmgr_clean_cmd="\$pkmgr clean --all"
+  pkmgr_update_cmd="\$pkmgr_cmd update -y \$PKMGR_OPTS"
+  pkmgr_install_cmd="\$pkmgr_cmd install -y \$PKMGR_OPTS"
+else
+pkmgr_cmd="echo"
+pkmgr_clean_cmd="\$pkmgr_cmd"
+pkmgr_update_cmd="\$pkmgr_cmd"
+pkmgr_install_cmd="\$pkmgr_cmd"
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "/config/pkmgr/settings.conf" ]; then
+  . "/config/pkmgr/settings.conf"
+elif [ -f "/root/.config/pkmgr/settings.conf" ]; then
+  . "/root/.config/pkmgr/settings.conf"
+else
+mkdir -p "/config/pkmgr"
+cat <<EEOF >"/config/pkmgr/settings.conf"
+pkmgr_cmd="\$pkmgr_cmd"
+pkmgr_clean_cmd="\$pkmgr_clean_cmd"
+pkmgr_update_cmd="\$pkmgr_update_cmd"
+pkmgr_install_cmd="\$pkmgr_install_cmd"
+EEOF
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+case "\$1" in
+update)
+  shift 1
+  [ "\$EUID" -eq 0 ] || pkmgr_update_cmd="sudo \$pkmgr_install_cmd"
+  echo installing packages command: \$pkmgr_update_cmd "\$*"
+  \$pkmgr_update_cmd "\$@"
+  exit \$?
+;;
+clean)
+  shift 1
+  [ -n "\$1" ] || exit 0
+  [ "\$EUID" -eq 0 ] || pkmgr_clean_cmd="sudo \$pkmgr_clean_cmd"
+  echo installing packages command: \$pkmgr_clean_cmd
+  \$pkmgr_clean_cmd
+  exit \$?
+;;
+install)
+  shift 1
+  [ -n "\$1" ] || exit 0
+  [ "\$EUID" -eq 0 ] || pkmgr_install_cmd="sudo \$pkmgr_install_cmd"
+  echo installing packages command: \$pkmgr_install_cmd "\$*"
+  \$pkmgr_install_cmd "\$@"
+  exit \$?
+;;
+*)
+  [ -n "\$1" ] || exit 0
+  [ "\$EUID" -eq 0 ] || pkmgr_cmd="sudo \$pkmgr_cmd"
+  echo executing packages command: \$pkmgr_cmd "\$*"
+  \$pkmgr_cmd "\$@"
+  exit \$?
+;;
+esac
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# end
+
+EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_env() {
@@ -743,44 +837,56 @@ ENV container="docker"
 USER \${USER}
 WORKDIR /root
 
+COPY ./rootfs/usr/local/bin/pkmgr /usr/local/bin/pkmgr
+COPY --from=gosu /usr/local/bin/gosu /usr/local/bin/gosu
+
 RUN set -ex ; \\
   mkdir -p "/root/docker" "/etc/profile.d"
-  echo ""
+
+RUN set -ex ; \\
+  if [ -f /root/docker/setup/init ];then sh /root/docker/setup/init;fi; \\
 
 COPY ./rootfs/. /
 COPY ./Dockerfile /root/docker/Dockerfile
 
 RUN set -ex ; \\
-  if [ -f /root/docker/setup/init ];then sh /root/docker/setup/init;fi ; \\
-  echo \${PACK_LIST}
+echo ""
 
 RUN set -ex ; \\
-  if [ -f /root/docker/setup/post ];then sh /root/docker/setup/post;fi ; \\
-  touch "/etc/profile" "/root/.profile" ; \\
-  { [ -f "/etc/bash/bashrc" ] && cp -Rf "/etc/bash/bashrc" "/root/.bashrc" ; } || { [ -f "/etc/bashrc" ] && cp -Rf "/etc/bashrc" "/root/.bashrc" ; } || { [ -f "/etc/bash.bashrc" ] && cp -Rf "/etc/bash.bashrc" "/root/.bashrc" ; }; \\
-  sed -i 's|root:x:.*|root:x:0:0:root:/root:/bin/bash|g' "/etc/passwd" ; \\
-  grep -s -q 'alias quit' "/root/.bashrc" || printf '# Profile\n\n%s\n' "alias quit='exit 0 2>/dev/null'" >>"/root/.bashrc" ; \\
-  [ -f "/usr/local/etc/docker/env/default.sample" ] && [ -d "/etc/profile.d" ] && \\
-  cp -Rf "/usr/local/etc/docker/env/default.sample" "/etc/profile.d/container.env.sh" && chmod 755 "/etc/profile.d/container.env.sh" ; \\
-  BASH_CMD="\$(type -P bash)" ; [ -f "\$BASH_CMD" ] && { [ -f "/bin/sh" ] && rm -rf "/bin/sh" || true; } && ln -sf "\$BASH_CMD" "/bin/sh"
-
-RUN set -ex ; \\
-  echo
-
-RUN set -ex ; \\
-echo 'Running cleanup' ; \\
   echo ""
 
-RUN rm -Rf "/config" "/data" ; \\
-  rm -rf /etc/systemd/system/*.wants/* ; \\
-  rm -rf /lib/systemd/system/systemd-update-utmp* ; \\
+RUN set -ex ; \\
+  pkmgr install \${PACK_LIST}
+  touch "/etc/profile" "/root/.profile"; \\
+  { [ -f "/etc/bash/bashrc" ] && cp -Rf "/etc/bash/bashrc" "/root/.bashrc"; } || { [ -f "/etc/bashrc" ] && cp -Rf "/etc/bashrc" "/root/.bashrc"; } || { [ -f "/etc/bash.bashrc" ] && cp -Rf "/etc/bash.bashrc" "/root/.bashrc"; }; \\
+  sed -i 's|root:x:.*|root:x:0:0:root:/root:/bin/bash|g' "/etc/passwd"; \\
+  grep -s -q 'alias quit' "/root/.bashrc" || printf '# Profile\n\n%s\n' "alias quit='exit 0 2>/dev/null'" >>"/root/.bashrc"; \\
+  [ -f "/usr/local/etc/docker/env/default.sample" ] && [ -d "/etc/profile.d" ] && \\
+  cp -Rf "/usr/local/etc/docker/env/default.sample" "/etc/profile.d/container.env.sh" && chmod 755 "/etc/profile.d/container.env.sh"; \\
+  BASH_CMD="\$(type -P bash)";[ -f "\$BASH_CMD" ] && { [ -f "/bin/sh" ] && rm -rf "/bin/sh" || true; } && ln -sf "\$BASH_CMD" "/bin/sh"
+
+RUN set -ex; \\
+  if [ -f "/root/docker/setup/custom.sh" ];then sh /root/docker/setup/custom.sh;fi; \\
+  echo ""
+
+RUN set -ex; \\
+  echo ""
+
+RUN set -ex; \\
+  if [ -f /root/docker/setup/post ];then sh /root/docker/setup/post;fi; \\
+  echo "Running cleanup"; \\
+  echo ""
+
+RUN rm -Rf "/config" "/data"; \\
+  rm -rf /etc/systemd/system/*.wants/*; \\
+  rm -rf /lib/systemd/system/systemd-update-utmp*; \\
   rm -rf /lib/systemd/system/anaconda.target.wants/*; \\
-  rm -rf /lib/systemd/system/local-fs.target.wants/* ; \\
-  rm -rf /lib/systemd/system/multi-user.target.wants/* ; \\
-  rm -rf /lib/systemd/system/sockets.target.wants/*udev* ; \\
-  rm -rf /lib/systemd/system/sockets.target.wants/*initctl* ; \\
-  rm -Rf /usr/share/doc/* /usr/share/info/* /tmp/* /var/tmp/* /var/cache/*/* ; \\
-  if [ -d "/lib/systemd/system/sysinit.target.wants" ]; then cd "/lib/systemd/system/sysinit.target.wants" && rm -f \$(ls | grep -v systemd-tmpfiles-setup) ; fi
+  rm -rf /lib/systemd/system/local-fs.target.wants/*; \\
+  rm -rf /lib/systemd/system/multi-user.target.wants/*; \\
+  rm -rf /lib/systemd/system/sockets.target.wants/*udev*; \\
+  rm -rf /lib/systemd/system/sockets.target.wants/*initctl*; \\
+  rm -Rf /usr/share/doc/* /usr/share/info/* /tmp/* /var/tmp/* /var/cache/*/*; \\
+  if [ -d "/lib/systemd/system/sysinit.target.wants" ];then cd "/lib/systemd/system/sysinit.target.wants" && rm -f \$(ls | grep -v systemd-tmpfiles-setup);fi
 
 RUN echo "Init done"
 
@@ -907,55 +1013,60 @@ ENV HOSTNAME="casjaysdev-$name"
 USER \${USER}
 WORKDIR /root
 
-RUN set -ex ; \\
+COPY ./rootfs/usr/local/bin/pkmgr /usr/local/bin/pkmgr
+COPY --from=gosu /usr/local/bin/gosu /usr/local/bin/gosu
+
+RUN set -ex; \\
   mkdir -p "\${DEFAULT_DATA_DIR}" "\${DEFAULT_CONF_DIR}" "\${DEFAULT_TEMPLATE_DIR}" "/root/docker/setup" "/etc/profile.d"; \\
-  echo 'export DEBIAN_FRONTEND="'\${DEBIAN_FRONTEND}'"' >"/etc/profile.d/apt.sh" && chmod 755 "/etc/profile.d/apt.sh" ; \\
-  [ -f "/usr/local/bin/pkmgr" ] || printf '%s\n%s' "#!/usr/bin/env sh" "DEBIAN_FRONTEND=noninteractive exec apt-get \"\$@\" -yy" >/usr/local/bin/pkmgr ; \\
-  chmod 755 /usr/local/bin/pkmgr ; \\
-  pkmgr update && pkmgr install -yy locales && echo "\$LANG UTF-8" >"/etc/locale.gen" ; \\
-  dpkg-reconfigure --frontend=noninteractive locales ; update-locale LANG=\$LANG ; \\
+  echo 'export DEBIAN_FRONTEND="'\${DEBIAN_FRONTEND}'"' >"/etc/profile.d/apt.sh" && chmod 755 "/etc/profile.d/apt.sh"; \\
+  pkmgr update && pkmgr install locales && echo "\$LANG UTF-8" >"/etc/locale.gen"; \\
+  dpkg-reconfigure --frontend=noninteractive locales;update-locale LANG=\$LANG;
   echo ""
 
-COPY --from=gosu /usr/local/bin/gosu /usr/local/bin/gosu
+RUN set -ex; \\
+  if [ -f /root/docker/setup/init ];then sh /root/docker/setup/init;fi; \\
+  echo ""
 
 COPY ./rootfs/. /
 COPY ./Dockerfile /root/docker/Dockerfile
 
-RUN set -ex ; \\
-  if [ -f /root/docker/setup/init ];then sh /root/docker/setup/init;fi ; \\
+RUN set -ex; \\
   echo ""
 
-RUN set -ex ; \\
-  pkmgr update -yy && pkmgr upgrade -yy && pkmgr install -yy \${PACK_LIST} ; \\
-  if [ -f /root/docker/setup/post ];then sh /root/docker/setup/post;fi ; \\
+RUN set -ex; \\
+
+RUN set -ex; \\
+  pkmgr update && pkmgr upgrade && pkmgr install \${PACK_LIST}; \\
   set-cont-env APP_NAME "$name"; \\
 
-RUN set -ex ; \\
-  touch "/etc/profile" "/root/.profile" ; \\
-  { [ -f "/etc/bash/bashrc" ] && cp -Rf "/etc/bash/bashrc" "/root/.bashrc" ; } || { [ -f "/etc/bashrc" ] && cp -Rf "/etc/bashrc" "/root/.bashrc" ; } || { [ -f "/etc/bash.bashrc" ] && cp -Rf "/etc/bash.bashrc" "/root/.bashrc" ; }; \\
-  sed -i 's|root:x:.*|root:x:0:0:root:/root:/bin/bash|g' "/etc/passwd" ; \\
-  grep -s -q 'alias quit' "/root/.bashrc" || printf '# Profile\n\n%s\n' "alias quit='exit 0 2>/dev/null'" >>"/root/.bashrc" ; \\
+RUN set -ex; \\
+  touch "/etc/profile" "/root/.profile"; \\
+  { [ -f "/etc/bash/bashrc" ] && cp -Rf "/etc/bash/bashrc" "/root/.bashrc"; } || { [ -f "/etc/bashrc" ] && cp -Rf "/etc/bashrc" "/root/.bashrc"; } || { [ -f "/etc/bash.bashrc" ] && cp -Rf "/etc/bash.bashrc" "/root/.bashrc"; }; \\
+  sed -i 's|root:x:.*|root:x:0:0:root:/root:/bin/bash|g' "/etc/passwd"; \\
+  grep -s -q 'alias quit' "/root/.bashrc" || printf '# Profile\n\n%s\n' "alias quit='exit 0 2>/dev/null'" >>"/root/.bashrc"; \\
   [ -f "/usr/local/etc/docker/env/default.sample" ] && [ -d "/etc/profile.d" ] && \\
-  cp -Rf "/usr/local/etc/docker/env/default.sample" "/etc/profile.d/container.env.sh" && chmod 755 "/etc/profile.d/container.env.sh" ; \\
+  cp -Rf "/usr/local/etc/docker/env/default.sample" "/etc/profile.d/container.env.sh" && chmod 755 "/etc/profile.d/container.env.sh"; \\
   update-alternatives --install /bin/sh sh /bin/bash 1
 
-RUN set -ex ; \\
-  echo
+RUN set -ex; \\
+  if [ -f "/root/docker/setup/custom.sh" ];then sh /root/docker/setup/custom.sh;fi; \\
+  echo ""
 
-RUN set -ex ; \\
-  echo 'Running cleanup' ; \\
+RUN set -ex; \\
+  if [ -f /root/docker/setup/post ];then sh /root/docker/setup/post;fi; \\
+  echo "Running cleanup"; \\
   pkmgr clean
 
-RUN rm -Rf "/config" "/data" ; \\
-  rm -rf /etc/systemd/system/*.wants/* ; \\
-  rm -rf /lib/systemd/system/systemd-update-utmp* ; \\
+RUN rm -Rf "/config" "/data"; \\
+  rm -rf /etc/systemd/system/*.wants/*; \\
+  rm -rf /lib/systemd/system/systemd-update-utmp*; \\
   rm -rf /lib/systemd/system/anaconda.target.wants/*; \\
-  rm -rf /lib/systemd/system/local-fs.target.wants/* ; \\
-  rm -rf /lib/systemd/system/multi-user.target.wants/* ; \\
-  rm -rf /lib/systemd/system/sockets.target.wants/*udev* ; \\
-  rm -rf /lib/systemd/system/sockets.target.wants/*initctl* ; \\
-  rm -Rf /usr/share/doc/* /usr/share/info/* /tmp/* /var/tmp/* /var/cache/*/* ; \\
-  if [ -d "/lib/systemd/system/sysinit.target.wants" ]; then cd "/lib/systemd/system/sysinit.target.wants" && rm -f \$(ls | grep -v systemd-tmpfiles-setup) ; fi
+  rm -rf /lib/systemd/system/local-fs.target.wants/*; \\
+  rm -rf /lib/systemd/system/multi-user.target.wants/*; \\
+  rm -rf /lib/systemd/system/sockets.target.wants/*udev*; \\
+  rm -rf /lib/systemd/system/sockets.target.wants/*initctl*; \\
+  rm -Rf /usr/share/doc/* /usr/share/info/* /tmp/* /var/tmp/* /var/cache/*/*; \\
+  if [ -d "/lib/systemd/system/sysinit.target.wants" ];then cd "/lib/systemd/system/sysinit.target.wants" && rm -f \$(ls | grep -v systemd-tmpfiles-setup);fi
 
 RUN echo "Init done"
 
@@ -1097,63 +1208,63 @@ ENV DEBIAN_FRONTEND="noninteractive"
 USER \${USER}
 WORKDIR /root
 
-RUN set -ex ; \\
+COPY ./rootfs/usr/local/bin/pkmgr /usr/local/bin/pkmgr
+COPY --from=gosu /usr/local/bin/gosu /usr/local/bin/gosu
+
+RUN set -ex; \\
   mkdir -p "\${DEFAULT_DATA_DIR}" "\${DEFAULT_CONF_DIR}" "\${DEFAULT_TEMPLATE_DIR}" "/root/docker/setup" "/etc/profile.d"; \\
-  echo 'export DEBIAN_FRONTEND="'\${DEBIAN_FRONTEND}'"' >"/etc/profile.d/apt.sh" && chmod 755 "/etc/profile.d/apt.sh" ; \\
-  [ -f "/usr/local/bin/pkmgr" ] || printf '%s\n%s' "#!/usr/bin/env sh" "DEBIAN_FRONTEND=noninteractive exec apt-get \"\$@\" -yy" >/usr/local/bin/pkmgr ; \\
-  chmod 755 /usr/local/bin/pkmgr ; \\
-  pkmgr update && pkmgr install locales && echo "\$LANG UTF-8" >"/etc/locale.gen" ; \\
-  dpkg-reconfigure --frontend=noninteractive locales ; update-locale LANG=\$LANG ; \\
+  echo 'export DEBIAN_FRONTEND="'\${DEBIAN_FRONTEND}'"' >"/etc/profile.d/apt.sh" && chmod 755 "/etc/profile.d/apt.sh"; \\
   echo ""
 
-COPY --from=gosu /usr/local/bin/gosu /usr/local/bin/gosu
+RUN set -ex; \\
+  if [ -f /root/docker/setup/init ];then sh /root/docker/setup/init;fi; \\
+  echo ""
 
 COPY ./rootfs/. /
 COPY ./Dockerfile /root/docker/Dockerfile
 
+
 RUN set -ex ; \\
-  if [ -f /root/docker/setup/init ];then sh /root/docker/setup/init;fi ; \\
+  pkmgr upgrade && pkmgr install \${PACK_LIST}; \\
   echo ""
 
-RUN set -ex ; \\
-  pkmgr update && pkmgr upgrade && pkmgr install \${PACK_LIST} ; \\
-  if [ -f /root/docker/setup/post ];then sh /root/docker/setup/post;fi
-
-RUN set -ex ; \\
+RUN set -ex; \\
   useradd --shell /bin/bash --create-home --home-dir /home/x11user x11user && \\
   usermod -a -G audio,video,sudo,tty,dialout,cdrom,floppy,audio,dip,video,plugdev x11user && \\
   echo "x11user ALL=(ALL) NOPASSWD: ALL" >"/etc/sudoers.d/x11user"
 
-RUN set -ex ; \\
+RUN set -ex; \\
   sudo -u x11user setup-$name.sh && \\
   chown -Rf x11user:x11user "/home/x11user"
 
-RUN set -ex ; \\
-  touch "/etc/profile" "/root/.profile" ; \\
-  { [ -f "/etc/bash/bashrc" ] && cp -Rf "/etc/bash/bashrc" "/root/.bashrc" ; } || { [ -f "/etc/bashrc" ] && cp -Rf "/etc/bashrc" "/root/.bashrc" ; } || { [ -f "/etc/bash.bashrc" ] && cp -Rf "/etc/bash.bashrc" "/root/.bashrc" ; }; \\
-  sed -i 's|root:x:.*|root:x:0:0:root:/root:/bin/bash|g' "/etc/passwd" ; \\
-  grep -s -q 'alias quit' "/root/.bashrc" || printf '# Profile\n\n%s\n' "alias quit='exit 0 2>/dev/null'" >>"/root/.bashrc" ; \\
+RUN set -ex; \\
+  touch "/etc/profile" "/root/.profile"; \\
+  { [ -f "/etc/bash/bashrc" ] && cp -Rf "/etc/bash/bashrc" "/root/.bashrc"; } || { [ -f "/etc/bashrc" ] && cp -Rf "/etc/bashrc" "/root/.bashrc"; } || { [ -f "/etc/bash.bashrc" ] && cp -Rf "/etc/bash.bashrc" "/root/.bashrc"; }; \\
+  sed -i 's|root:x:.*|root:x:0:0:root:/root:/bin/bash|g' "/etc/passwd"; \\
+  grep -s -q 'alias quit' "/root/.bashrc" || printf '# Profile\n\n%s\n' "alias quit='exit 0 2>/dev/null'" >>"/root/.bashrc"; \\
   [ -f "/usr/local/etc/docker/env/default.sample" ] && [ -d "/etc/profile.d" ] && \\
-  cp -Rf "/usr/local/etc/docker/env/default.sample" "/etc/profile.d/container.env.sh" && chmod 755 "/etc/profile.d/container.env.sh" ; \\
+  cp -Rf "/usr/local/etc/docker/env/default.sample" "/etc/profile.d/container.env.sh" && chmod 755 "/etc/profile.d/container.env.sh"; \\
   update-alternatives --install /bin/sh sh /bin/bash 1
 
-RUN set -ex ; \\
-  echo
+RUN set -ex; \\
+  if [ -f "/root/docker/setup/custom.sh" ];then sh /root/docker/setup/custom.sh;fi; \\
+  echo ""
 
-RUN set -ex ; \\
-  echo 'Running cleanup' ; \\
+RUN set -ex; \\
+  if [ -f /root/docker/setup/post ];then sh /root/docker/setup/post;fi
+  echo "Running cleanup"; \\
   pkmgr clean
 
-RUN rm -Rf "/config" "/data" ; \\
-  rm -rf /etc/systemd/system/*.wants/* ; \\
-  rm -rf /lib/systemd/system/systemd-update-utmp* ; \\
+RUN rm -Rf "/config" "/data"; \\
+  rm -rf /etc/systemd/system/*.wants/*; \\
+  rm -rf /lib/systemd/system/systemd-update-utmp*; \\
   rm -rf /lib/systemd/system/anaconda.target.wants/*; \\
-  rm -rf /lib/systemd/system/local-fs.target.wants/* ; \\
-  rm -rf /lib/systemd/system/multi-user.target.wants/* ; \\
-  rm -rf /lib/systemd/system/sockets.target.wants/*udev* ; \\
-  rm -rf /lib/systemd/system/sockets.target.wants/*initctl* ; \\
-  rm -Rf /usr/share/doc/* /usr/share/info/* /tmp/* /var/tmp/* /var/cache/*/* ; \\
-  if [ -d "/lib/systemd/system/sysinit.target.wants" ]; then cd "/lib/systemd/system/sysinit.target.wants" && rm -f \$(ls | grep -v systemd-tmpfiles-setup) ; fi
+  rm -rf /lib/systemd/system/local-fs.target.wants/*; \\
+  rm -rf /lib/systemd/system/multi-user.target.wants/*; \\
+  rm -rf /lib/systemd/system/sockets.target.wants/*udev*; \\
+  rm -rf /lib/systemd/system/sockets.target.wants/*initctl*; \\
+  rm -Rf /usr/share/doc/* /usr/share/info/* /tmp/* /var/tmp/* /var/cache/*/*; \\
+  if [ -d "/lib/systemd/system/sysinit.target.wants" ];then cd "/lib/systemd/system/sysinit.target.wants" && rm -f \$(ls | grep -v systemd-tmpfiles-setup);fi
 
 RUN echo "Init done"
 
@@ -1293,54 +1404,58 @@ ENV DEBIAN_FRONTEND="noninteractive"
 USER \${USER}
 WORKDIR /root
 
-RUN set -ex ; \\
+COPY ./rootfs/usr/local/bin/pkmgr /usr/local/bin/pkmgr
+COPY --from=gosu /usr/local/bin/gosu /usr/local/bin/gosu
+
+RUN set -ex; \\
   mkdir -p "\${DEFAULT_DATA_DIR}" "\${DEFAULT_CONF_DIR}" "\${DEFAULT_TEMPLATE_DIR}" "/root/docker/setup" "/etc/profile.d"; \\
-  echo 'export DEBIAN_FRONTEND="'\${DEBIAN_FRONTEND}'"' >"/etc/profile.d/apt.sh" && chmod 755 "/etc/profile.d/apt.sh" ; \\
-  [ -f "/usr/local/bin/pkmgr" ] || printf '%s\n%s' "#!/usr/bin/env sh" "DEBIAN_FRONTEND=noninteractive exec apt-get \"\$@\" -yy" >/usr/local/bin/pkmgr ; \\
-  chmod 755 /usr/local/bin/pkmgr ; \\
-  pkmgr update && pkmgr install locales && echo "\$LANG UTF-8" >"/etc/locale.gen" ; \\
-  dpkg-reconfigure --frontend=noninteractive locales ; update-locale LANG=\$LANG ; \\
+  echo 'export DEBIAN_FRONTEND="'\${DEBIAN_FRONTEND}'"' >"/etc/profile.d/apt.sh" && chmod 755 "/etc/profile.d/apt.sh"; \\
+  pkmgr update && pkmgr install locales && echo "\$LANG UTF-8" >"/etc/locale.gen"; \\
+  dpkg-reconfigure --frontend=noninteractive locales;update-locale LANG=\$LANG;
   echo ""
 
-COPY --from=gosu /usr/local/bin/gosu /usr/local/bin/gosu
+RUN set -ex; \\
+  if [ -f /root/docker/setup/init ];then sh /root/docker/setup/init;fi; \\
+  echo ""
 
 COPY ./rootfs/. /
 COPY ./Dockerfile /root/docker/Dockerfile
 
-RUN set -ex ; \\
-  if [ -f /root/docker/setup/init ];then sh /root/docker/setup/init;fi ; \\
+RUN set -ex; \\
   echo ""
 
-RUN set -ex ; \\
-  pkmgr update && pkmgr upgrade && pkmgr install \${PACK_LIST} ; \\
-  if [ -f /root/docker/setup/post ];then sh /root/docker/setup/post;fi
+RUN set -ex; \\
+  pkmgr update && pkmgr upgrade && pkmgr install \${PACK_LIST}; \\
+  echo ""
 
-RUN set -ex ; \\
+RUN set -ex; \\
   touch "/etc/profile" "/root/.profile" ; \\
-  { [ -f "/etc/bash/bashrc" ] && cp -Rf "/etc/bash/bashrc" "/root/.bashrc" ; } || { [ -f "/etc/bashrc" ] && cp -Rf "/etc/bashrc" "/root/.bashrc" ; } || { [ -f "/etc/bash.bashrc" ] && cp -Rf "/etc/bash.bashrc" "/root/.bashrc" ; }; \\
-  sed -i 's|root:x:.*|root:x:0:0:root:/root:/bin/bash|g' "/etc/passwd" ; \\
-  grep -s -q 'alias quit' "/root/.bashrc" || printf '# Profile\n\n%s\n' "alias quit='exit 0 2>/dev/null'" >>"/root/.bashrc" ; \\
+  { [ -f "/etc/bash/bashrc" ] && cp -Rf "/etc/bash/bashrc" "/root/.bashrc"; } || { [ -f "/etc/bashrc" ] && cp -Rf "/etc/bashrc" "/root/.bashrc"; } || { [ -f "/etc/bash.bashrc" ] && cp -Rf "/etc/bash.bashrc" "/root/.bashrc"; }; \\
+  sed -i 's|root:x:.*|root:x:0:0:root:/root:/bin/bash|g' "/etc/passwd"; \\
+  grep -s -q 'alias quit' "/root/.bashrc" || printf '# Profile\n\n%s\n' "alias quit='exit 0 2>/dev/null'" >>"/root/.bashrc"; \\
   [ -f "/usr/local/etc/docker/env/default.sample" ] && [ -d "/etc/profile.d" ] && \\
-  cp -Rf "/usr/local/etc/docker/env/default.sample" "/etc/profile.d/container.env.sh" && chmod 755 "/etc/profile.d/container.env.sh" ; \\
+  cp -Rf "/usr/local/etc/docker/env/default.sample" "/etc/profile.d/container.env.sh" && chmod 755 "/etc/profile.d/container.env.sh"; \\
   update-alternatives --install /bin/sh sh /bin/bash 1
 
-RUN set -ex ; \\
-  echo
+RUN set -ex; \\
+  if [ -f "/root/docker/setup/custom.sh" ];then sh /root/docker/setup/custom.sh;fi; \\
+  echo ""
 
-RUN set -ex ; \\
-  echo 'Running cleanup' ; \\
+RUN set -ex; \\
+  if [ -f /root/docker/setup/post ];then sh /root/docker/setup/post;fi
+  echo "Running cleanup"; \\
   pkmgr clean
 
-RUN rm -Rf "/config" "/data" ; \\
-  rm -rf /etc/systemd/system/*.wants/* ; \\
-  rm -rf /lib/systemd/system/systemd-update-utmp* ; \\
+RUN rm -Rf "/config" "/data"; \\
+  rm -rf /etc/systemd/system/*.wants/*; \\
+  rm -rf /lib/systemd/system/systemd-update-utmp*; \\
   rm -rf /lib/systemd/system/anaconda.target.wants/*; \\
-  rm -rf /lib/systemd/system/local-fs.target.wants/* ; \\
-  rm -rf /lib/systemd/system/multi-user.target.wants/* ; \\
-  rm -rf /lib/systemd/system/sockets.target.wants/*udev* ; \\
-  rm -rf /lib/systemd/system/sockets.target.wants/*initctl* ; \\
-  rm -Rf /usr/share/doc/* /usr/share/info/* /tmp/* /var/tmp/* /var/cache/*/* ; \\
-  if [ -d "/lib/systemd/system/sysinit.target.wants" ]; then cd "/lib/systemd/system/sysinit.target.wants" && rm -f \$(ls | grep -v systemd-tmpfiles-setup) ; fi
+  rm -rf /lib/systemd/system/local-fs.target.wants/*; \\
+  rm -rf /lib/systemd/system/multi-user.target.wants/*; \\
+  rm -rf /lib/systemd/system/sockets.target.wants/*udev*; \\
+  rm -rf /lib/systemd/system/sockets.target.wants/*initctl*; \\
+  rm -Rf /usr/share/doc/* /usr/share/info/* /tmp/* /var/tmp/* /var/cache/*/*; \\
+  if [ -d "/lib/systemd/system/sysinit.target.wants" ];then cd "/lib/systemd/system/sysinit.target.wants" && rm -f \$(ls | grep -v systemd-tmpfiles-setup);fi
 
 RUN echo "Init done"
 
@@ -1478,59 +1593,56 @@ ENV DEBIAN_FRONTEND="noninteractive"
 USER \${USER}
 WORKDIR /root
 
-RUN set -ex ; \\
-  mkdir -p "\${DEFAULT_DATA_DIR}" "\${DEFAULT_CONF_DIR}" "\${DEFAULT_TEMPLATE_DIR}" "/root/docker/setup" "/etc/profile.d"; \\
-  echo 'export DEBIAN_FRONTEND="'\${DEBIAN_FRONTEND}'"' >"/etc/profile.d/apt.sh" && chmod 755 "/etc/profile.d/apt.sh" ; \\
-  [ -f "/usr/local/bin/pkmgr" ] || printf '%s\n%s' "#!/usr/bin/env sh" "DEBIAN_FRONTEND=noninteractive exec apt-get \"\$@\" -yy" >/usr/local/bin/pkmgr ; \\
-  chmod 755 /usr/local/bin/pkmgr ; \\
-  pkmgr update && pkmgr install locales && echo "\$LANG UTF-8" >"/etc/locale.gen" ; \\
-  dpkg-reconfigure --frontend=noninteractive locales ; update-locale LANG=\$LANG ; \\
-  echo ""
-
-RUN set -ex ; \\
-  echo ""
-
+COPY ./rootfs/usr/local/bin/pkmgr /usr/local/bin/pkmgr
 COPY --from=gosu /usr/local/bin/gosu /usr/local/bin/gosu
+
+RUN set -ex; \\
+  mkdir -p "\${DEFAULT_DATA_DIR}" "\${DEFAULT_CONF_DIR}" "\${DEFAULT_TEMPLATE_DIR}" "/root/docker/setup" "/etc/profile.d"; \\
+  echo 'export DEBIAN_FRONTEND="'\${DEBIAN_FRONTEND}'"' >"/etc/profile.d/apt.sh" && chmod 755 "/etc/profile.d/apt.sh"; \\
+  pkmgr update && pkmgr install locales && echo "\$LANG UTF-8" >"/etc/locale.gen"; \\
+  dpkg-reconfigure --frontend=noninteractive locales;update-locale LANG=\$LANG;
+  echo ""
+
+RUN set -ex; \\
+  if [ -f /root/docker/setup/init ];then sh /root/docker/setup/init;fi; \\
+  echo ""
 
 COPY ./rootfs/. /
 COPY ./Dockerfile /root/docker/Dockerfile
 
-RUN set -ex ; \\
-  if [ -f /root/docker/setup/init ];then sh /root/docker/setup/init;fi ; \\
-  echo ""
+RUN set -ex; \\
+  UBUNTU_CODENAME="\$(grep -s 'VERSION_CODENAME=' /etc/os-release | awk -F'=' '{print \$2}')"; \\
+  [ -z "\$UBUNTU_CODENAME" ] || sed -i "s|\$UBUNTU_CODENAME|\$DISTRO_VERSION|g" "/etc/apt/sources.list"; \\
+  pkmgr update && pkmgr upgrade && pkmgr install \${PACK_LIST}; \\
 
-RUN set -ex ; \\
-  UBUNTU_CODENAME="\$(grep -s 'VERSION_CODENAME=' /etc/os-release | awk -F'=' '{print \$2}')" ; \\
-  [ -z "\$UBUNTU_CODENAME" ] || sed -i "s|\$UBUNTU_CODENAME|\$DISTRO_VERSION|g" "/etc/apt/sources.list" ; \\
-  pkmgr update && pkmgr upgrade && pkmgr install \${PACK_LIST} ; \\
-  if [ -f /root/docker/setup/post ];then sh /root/docker/setup/post;fi
-
-RUN touch "/etc/profile" "/root/.profile" ; \\
-  { [ -f "/etc/bash/bashrc" ] && cp -Rf "/etc/bash/bashrc" "/root/.bashrc" ; } || { [ -f "/etc/bashrc" ] && cp -Rf "/etc/bashrc" "/root/.bashrc" ; } || { [ -f "/etc/bash.bashrc" ] && cp -Rf "/etc/bash.bashrc" "/root/.bashrc" ; }; \\
-  sed -i 's|root:x:.*|root:x:0:0:root:/root:/bin/bash|g' "/etc/passwd" ; \\
-  grep -s -q 'alias quit' "/root/.bashrc" || printf '# Profile\n\n%s\n' "alias quit='exit 0 2>/dev/null'" >>"/root/.bashrc" ; \\
+RUN touch "/etc/profile" "/root/.profile"; \\
+  { [ -f "/etc/bash/bashrc" ] && cp -Rf "/etc/bash/bashrc" "/root/.bashrc"; } || { [ -f "/etc/bashrc" ] && cp -Rf "/etc/bashrc" "/root/.bashrc"; } || { [ -f "/etc/bash.bashrc" ] && cp -Rf "/etc/bash.bashrc" "/root/.bashrc"; }; \\
+  sed -i 's|root:x:.*|root:x:0:0:root:/root:/bin/bash|g' "/etc/passwd"; \\
+  grep -s -q 'alias quit' "/root/.bashrc" || printf '# Profile\n\n%s\n' "alias quit='exit 0 2>/dev/null'" >>"/root/.bashrc"; \\
   [ -f "/usr/local/etc/docker/env/default.sample" ] && [ -d "/etc/profile.d" ] && \\
-  cp -Rf "/usr/local/etc/docker/env/default.sample" "/etc/profile.d/container.env.sh" && chmod 755 "/etc/profile.d/container.env.sh" ; \\
+  cp -Rf "/usr/local/etc/docker/env/default.sample" "/etc/profile.d/container.env.sh" && chmod 755 "/etc/profile.d/container.env.sh"; \\
   update-alternatives --install /bin/sh sh /bin/bash 1
 
-RUN set -ex ; \\
-  echo
+RUN set -ex; \\
+  if [ -f "/root/docker/setup/custom.sh" ];then sh /root/docker/setup/custom.sh;fi; \\
+  echo ""
 
-RUN set -ex ; \\
-  echo 'Running cleanup' ; \\
+RUN set -ex; \\
+  if [ -f /root/docker/setup/post ];then sh /root/docker/setup/post;fi; \\
+  echo "Running cleanup"; \\
   pkmgr clean
 
-RUN set -ex ; \\
-  rm -Rf "/config" "/data" ; \\
-  rm -rf /etc/systemd/system/*.wants/* ; \\
-  rm -rf /lib/systemd/system/systemd-update-utmp* ; \\
+RUN set -ex; \\
+  rm -Rf "/config" "/data"; \\
+  rm -rf /etc/systemd/system/*.wants/*; \\
+  rm -rf /lib/systemd/system/systemd-update-utmp*; \\
   rm -rf /lib/systemd/system/anaconda.target.wants/*; \\
-  rm -rf /lib/systemd/system/local-fs.target.wants/* ; \\
-  rm -rf /lib/systemd/system/multi-user.target.wants/* ; \\
-  rm -rf /lib/systemd/system/sockets.target.wants/*udev* ; \\
-  rm -rf /lib/systemd/system/sockets.target.wants/*initctl* ; \\
-  rm -Rf /usr/share/doc/* /usr/share/info/* /tmp/* /var/tmp/* /var/cache/*/* ; \\
-  if [ -d "/lib/systemd/system/sysinit.target.wants" ]; then cd "/lib/systemd/system/sysinit.target.wants" && rm -f \$(ls | grep -v systemd-tmpfiles-setup) ; fi
+  rm -rf /lib/systemd/system/local-fs.target.wants/*; \\
+  rm -rf /lib/systemd/system/multi-user.target.wants/*; \\
+  rm -rf /lib/systemd/system/sockets.target.wants/*udev*; \\
+  rm -rf /lib/systemd/system/sockets.target.wants/*initctl*; \\
+  rm -Rf /usr/share/doc/* /usr/share/info/* /tmp/* /var/tmp/* /var/cache/*/*; \\
+  if [ -d "/lib/systemd/system/sysinit.target.wants" ];then cd "/lib/systemd/system/sysinit.target.wants" && rm -f \$(ls | grep -v systemd-tmpfiles-setup);fi
 
 RUN echo "Init done"
 
@@ -1673,40 +1785,46 @@ ENV HOSTNAME="casjaysdev-$name"
 USER \${USER}
 WORKDIR /root
 
-RUN set -ex ; \\
+COPY ./rootfs/usr/local/bin/pkmgr /usr/local/bin/pkmgr
+COPY --from=gosu /usr/local/bin/gosu /usr/local/bin/gosu
+
+RUN set -ex; \\
   mkdir -p "\${DEFAULT_DATA_DIR}" "\${DEFAULT_CONF_DIR}" "\${DEFAULT_TEMPLATE_DIR}" "/etc/profile.d" "/root/docker/setup"; \\
-  [ -f "/usr/local/bin/pkmgr" ] || printf '%s\n%s' "#!/usr/bin/env sh" "exec yum \"\$@\" -y --skip-broken" >/usr/local/bin/pkmgr ; \\
-  chmod 755 /usr/local/bin/pkmgr ; \\
+  touch "/etc/profile" "/root/.profile"; \\
   pkmgr update && pkmgr install epel-release; crb enable || true; \\
   echo ""
 
-COPY --from=gosu /usr/local/bin/gosu /usr/local/bin/gosu
+RUN set -ex; \\
+  if [ -f /root/docker/setup/init ];then sh /root/docker/setup/init;fi; \\
+  echo ""
 
 COPY ./rootfs/. /
 COPY ./Dockerfile /root/docker/Dockerfile
 
-RUN set -ex ; \\
-  if [ -f /root/docker/setup/init ];then sh /root/docker/setup/init;fi ; \\
+RUN set -ex; \\
   echo ""
 
-RUN set -ex ; \\
-  pkmgr install \${PACK_LIST} ; \\
-  if [ -f /root/docker/setup/post ];then sh /root/docker/setup/post;fi
+RUN set -ex; \\
+  pkmgr install \${PACK_LIST}
 
-RUN set -ex ; \\
-  touch "/etc/profile" "/root/.profile" ; \\
-  { [ -f "/etc/bash/bashrc" ] && cp -Rf "/etc/bash/bashrc" "/root/.bashrc" ; } || { [ -f "/etc/bashrc" ] && cp -Rf "/etc/bashrc" "/root/.bashrc" ; } || { [ -f "/etc/bash.bashrc" ] && cp -Rf "/etc/bash.bashrc" "/root/.bashrc" ; }; \\
+RUN set -ex; \\
+  { [ -f "/etc/bash/bashrc" ] && cp -Rf "/etc/bash/bashrc" "/root/.bashrc"; } || { [ -f "/etc/bashrc" ] && cp -Rf "/etc/bashrc" "/root/.bashrc"; } || { [ -f "/etc/bash.bashrc" ] && cp -Rf "/etc/bash.bashrc" "/root/.bashrc"; }; \\
   sed -i 's|root:x:.*|root:x:0:0:root:/root:/bin/bash|g' "/etc/passwd" ; \\
-  grep -s -q 'alias quit' "/root/.bashrc" || printf '# Profile\n\n%s\n%s\n%s\n' '. /etc/profile' '. /root/.profile' "alias quit='exit 0 2>/dev/null'" >>"/root/.bashrc" ; \\
+  grep -s -q 'alias quit' "/root/.bashrc" || printf '# Profile\n\n%s\n%s\n%s\n' '. /etc/profile' '. /root/.profile' "alias quit='exit 0 2>/dev/null'" >>"/root/.bashrc"; \\
   [ -f "/usr/local/etc/docker/env/default.sample" ] && [ -d "/etc/profile.d" ] && \\
-  cp -Rf "/usr/local/etc/docker/env/default.sample" "/etc/profile.d/container.env.sh" && chmod 755 "/etc/profile.d/container.env.sh" ; \\
+  cp -Rf "/usr/local/etc/docker/env/default.sample" "/etc/profile.d/container.env.sh" && chmod 755 "/etc/profile.d/container.env.sh"; \\
   BASH_CMD="\$(type -P bash)" ; [ -f "\$BASH_CMD" ] && { [ -f "/bin/sh" ] && rm -rf "/bin/sh" || true; } && ln -sf "\$BASH_CMD" "/bin/sh"
 
-RUN set -ex ; \\
+RUN set -ex; \\
+  if [ -f "/root/docker/setup/custom.sh" ];then sh /root/docker/setup/custom.sh;fi; \\
+  echo ""
+
+RUN set -ex; \\
   echo
 
-RUN set -ex ; \\
-  echo 'Running cleanup' ; \\
+RUN set -ex; \\
+  if [ -f /root/docker/setup/post ];then sh /root/docker/setup/post;fi; \\
+  echo "Running cleanup"; \\
   pkmgr clean all
 
 RUN set -ex ; \\
@@ -1867,66 +1985,72 @@ ENV HOSTNAME="casjaysdev-$name"
 USER \${USER}
 WORKDIR /root
 
-RUN set -ex ; \\
+COPY --from=gosu /usr/local/bin/gosu /usr/local/bin/gosu
+COPY ./rootfs/usr/local/bin/pkmgr /usr/local/bin/pkmgr
+
+RUN set -ex; \\
   mkdir -p "\${DEFAULT_DATA_DIR}" "\${DEFAULT_CONF_DIR}" "\${DEFAULT_TEMPLATE_DIR}" "/root/docker/setup" "/etc/profile.d"; \\
-  [ -f "/usr/local/bin/pkmgr" ] || printf '%s\n%s' "#!/usr/bin/env sh" "exec apk \"\$@\"" >/usr/local/bin/pkmgr ; \\
-  chmod 755 /usr/local/bin/pkmgr ; \\
+  touch "/etc/profile" "/root/.profile"; \\
   rm -Rf "/etc/apk/repositories"; \\
-  [ "\$DISTRO_VERSION" = "latest" ] && DISTRO_VERSION="edge";[ "\$DISTRO_VERSION" = "edge" ] || DISTRO_VERSION="v\${DISTRO_VERSION}" ; \\
+  [ "\$DISTRO_VERSION" = "latest" ] && DISTRO_VERSION="edge";[ "\$DISTRO_VERSION" = "edge" ] || DISTRO_VERSION="v\${DISTRO_VERSION}"; \\
   echo "http://dl-cdn.alpinelinux.org/alpine/\${DISTRO_VERSION}/main" >>"/etc/apk/repositories"; \\
   echo "http://dl-cdn.alpinelinux.org/alpine/\${DISTRO_VERSION}/community" >>"/etc/apk/repositories"; \\
-  if [ "\${DISTRO_VERSION}" = "edge" ]; then echo "http://dl-cdn.alpinelinux.org/alpine/\${DISTRO_VERSION}/testing" >>"/etc/apk/repositories" ; fi ; \\
+  if [ "\${DISTRO_VERSION}" = "edge" ]; then echo "http://dl-cdn.alpinelinux.org/alpine/\${DISTRO_VERSION}/testing" >>"/etc/apk/repositories";fi; \\
   echo ""
 
-COPY --from=gosu /usr/local/bin/gosu /usr/local/bin/gosu
+RUN set -ex; \\
+  if [ -f /root/docker/setup/init ];then sh /root/docker/setup/init;fi; \\
+  echo ""
 
 COPY ./rootfs/. /
 COPY ./Dockerfile /root/docker/Dockerfile
 
-RUN set -ex ; \\
-  if [ -f /root/docker/setup/init ];then sh /root/docker/setup/init;fi ; \\
+RUN set -ex; \\
   echo ""
 
-RUN set -ex ; \\
-  pkmgr -U upgrade --no-cache && pkmgr add --no-cache \${PACK_LIST} ; \\
-  if [ -f /root/docker/setup/post ];then sh /root/docker/setup/post;fi
+RUN set -ex; \\
+  pkmgr upgrade && pkmgr \${PACK_LIST}; \\
 
-RUN set -ex ; \\
-  echo "\$TIMEZONE" >"/etc/timezone" ; \\
-  echo 'hosts: files dns' >"/etc/nsswitch.conf" ; \\
-  [ -f "/usr/share/zoneinfo/\${TZ}" ] && ln -sf "/usr/share/zoneinfo/\${TZ}" "/etc/localtime" ; \\
-  PHP_FPM="\$(ls /usr/*bin/php*fpm* 2>/dev/null || echo '')" ; \\
-  [ -n "\$PHP_FPM" ] && [ -z "\$(type -P php-fpm)" ] && ln -sf "\$PHP_FPM" "/usr/bin/php-fpm" || true ; \\
-  if [ -f "/etc/profile.d/color_prompt.sh.disabled" ]; then mv -f "/etc/profile.d/color_prompt.sh.disabled" "/etc/profile.d/color_prompt.sh"; fi
+RUN set -ex; \\
+  echo "\$TIMEZONE" >"/etc/timezone"; \\
+  echo 'hosts: files dns' >"/etc/nsswitch.conf"; \\
+  [ -f "/usr/share/zoneinfo/\${TZ}" ] && ln -sf "/usr/share/zoneinfo/\${TZ}" "/etc/localtime"; \\
+  PHP_FPM="\$(ls /usr/*bin/php*fpm* 2>/dev/null || echo '')"; \\
+  [ -n "\$PHP_FPM" ] && [ -z "\$(type -P php-fpm)" ] && ln -sf "\$PHP_FPM" "/usr/bin/php-fpm" || true; \\
+  if [ -f "/etc/profile.d/color_prompt.sh.disabled" ]; then mv -f "/etc/profile.d/color_prompt.sh.disabled" "/etc/profile.d/color_prompt.sh";fi
 
-RUN set -ex ; \\
-  touch "/etc/profile" "/root/.profile" ; \\
-  { [ -f "/etc/bash/bashrc" ] && cp -Rf "/etc/bash/bashrc" "/root/.bashrc" ; } || { [ -f "/etc/bashrc" ] && cp -Rf "/etc/bashrc" "/root/.bashrc" ; } || { [ -f "/etc/bash.bashrc" ] && cp -Rf "/etc/bash.bashrc" "/root/.bashrc" ; }; \\
-  sed -i 's|root:x:.*|root:x:0:0:root:/root:/bin/bash|g' "/etc/passwd" ; \\
-  grep -s -q 'alias quit' "/root/.bashrc" || printf '# Profile\n\n%s\n%s\n%s\n' '. /etc/profile' '. /root/.profile' "alias quit='exit 0 2>/dev/null'" >>"/root/.bashrc" ; \\
+RUN set -ex; \\
+  { [ -f "/etc/bash/bashrc" ] && cp -Rf "/etc/bash/bashrc" "/root/.bashrc"; } || { [ -f "/etc/bashrc" ] && cp -Rf "/etc/bashrc" "/root/.bashrc"; } || { [ -f "/etc/bash.bashrc" ] && cp -Rf "/etc/bash.bashrc" "/root/.bashrc"; }; \\
+  sed -i 's|root:x:.*|root:x:0:0:root:/root:/bin/bash|g' "/etc/passwd"; \\
+  grep -s -q 'alias quit' "/root/.bashrc" || printf '# Profile\n\n%s\n%s\n%s\n' '. /etc/profile' '. /root/.profile' "alias quit='exit 0 2>/dev/null'" >>"/root/.bashrc"; \\
   [ -f "/usr/local/etc/docker/env/default.sample" ] && [ -d "/etc/profile.d" ] && \\
-  cp -Rf "/usr/local/etc/docker/env/default.sample" "/etc/profile.d/container.env.sh" && chmod 755 "/etc/profile.d/container.env.sh" ; \\
-  BASH_CMD="\$(type -P bash)" ; [ -f "\$BASH_CMD" ] && rm -rf "/bin/sh" && ln -sf "\$BASH_CMD" "/bin/sh" ; \\
-  pip_bin="\$(type -P python3 || type -P python2 || type -P python || false)";if [ -n "\$pip_bin" ]; then \$pip_bin -m pip install $GEN_DOCKER_SPECIFY_CERT_BOT_PLUGINS --user 2>&1 | grep -v --line-buffer 'error:' && false||\$pip_bin -m pip install $GEN_DOCKER_SPECIFY_CERT_BOT_PLUGINS --user --break-system-packages || true; fi
+  cp -Rf "/usr/local/etc/docker/env/default.sample" "/etc/profile.d/container.env.sh" && chmod 755 "/etc/profile.d/container.env.sh"; \\
+  BASH_CMD="\$(type -P bash)" ; [ -f "\$BASH_CMD" ] && rm -rf "/bin/sh" && ln -sf "\$BASH_CMD" "/bin/sh"; \\
+  pip_bin="\$(type -P python3 || type -P python2 || type -P python || false)";if [ -n "\$pip_bin" ];then \$pip_bin -m pip install $GEN_DOCKER_SPECIFY_CERT_BOT_PLUGINS --user 2>&1 | grep -v --line-buffer 'error:' && false||\$pip_bin -m pip install $GEN_DOCKER_SPECIFY_CERT_BOT_PLUGINS --user --break-system-packages || true;fi
 
-RUN set -ex ; \\
+RUN set -ex; \\
+  if [ -f "/root/docker/setup/custom.sh" ];then sh /root/docker/setup/custom.sh;fi; \\
+  echo ""
+
+RUN set -ex; \\
   echo
 
-RUN set -ex ; \\
+RUN set -ex; \\
+  if [ -f /root/docker/setup/post ];then sh /root/docker/setup/post;fi; \\
   echo 'Running cleanup' ; \\
   echo ""
 
-RUN set -ex ; \\
-  rm -Rf "/config" "/data" ; \\
-  rm -rf /etc/systemd/system/*.wants/* ; \\
-  rm -rf /lib/systemd/system/systemd-update-utmp* ; \\
+RUN set -ex; \\
+  rm -Rf "/config" "/data"; \\
+  rm -rf /etc/systemd/system/*.wants/*; \\
+  rm -rf /lib/systemd/system/systemd-update-utmp*; \\
   rm -rf /lib/systemd/system/anaconda.target.wants/*; \\
-  rm -rf /lib/systemd/system/local-fs.target.wants/* ; \\
-  rm -rf /lib/systemd/system/multi-user.target.wants/* ; \\
-  rm -rf /lib/systemd/system/sockets.target.wants/*udev* ; \\
-  rm -rf /lib/systemd/system/sockets.target.wants/*initctl* ; \\
-  rm -Rf /usr/share/doc/* /usr/share/info/* /tmp/* /var/tmp/* /var/cache/*/* ; \\
-  if [ -d "/lib/systemd/system/sysinit.target.wants" ]; then cd "/lib/systemd/system/sysinit.target.wants" && rm -f \$(ls | grep -v systemd-tmpfiles-setup) ; fi
+  rm -rf /lib/systemd/system/local-fs.target.wants/*; \\
+  rm -rf /lib/systemd/system/multi-user.target.wants/*; \\
+  rm -rf /lib/systemd/system/sockets.target.wants/*udev*; \\
+  rm -rf /lib/systemd/system/sockets.target.wants/*initctl*; \\
+  rm -Rf /usr/share/doc/* /usr/share/info/* /tmp/* /var/tmp/* /var/cache/*/*; \\
+  if [ -d "/lib/systemd/system/sysinit.target.wants" ];then cd "/lib/systemd/system/sysinit.target.wants" && rm -f \$(ls | grep -v systemd-tmpfiles-setup);fi
 
 RUN echo "Init done"
 
@@ -2066,69 +2190,77 @@ ENV AUR_HOME="\${AUR_HOME}"
 USER \${USER}
 WORKDIR /root
 
-RUN set -ex ; \\
+COPY ./rootfs/usr/local/bin/pkmgr /usr/local/bin/pkmgr
+COPY --from=gosu /usr/local/bin/gosu /usr/local/bin/gosu
+
+RUN set -ex; \\
   mkdir -p "\${DEFAULT_DATA_DIR}" "\${DEFAULT_CONF_DIR}" "\${DEFAULT_TEMPLATE_DIR}" "/root/docker/setup" "/etc/profile.d"; \\
-  mkdir -p "\${AUR_HOME}/.gnupg" "\${AUR_HOME}/build" && \\
-  pacman -Sy archlinux-keyring --noconfirm ; \\
-  pacman-key --init ; pacman-key --populate ; \\
+  mkdir -p "\${AUR_HOME}/.gnupg" "\${AUR_HOME}/build"; \\
+  pkmgr install -Sy archlinux-keyring; \\
+  pacman-key --init;pacman-key --populate; \\
+  pkmgr -Syyu ; \\
   echo ""
 
-COPY --from=gosu /usr/local/bin/gosu /usr/local/bin/gosu
+RUN set -ex ; \\
+  if [ -f /root/docker/setup/init ];then sh /root/docker/setup/init;fi; \\
+  echo ""
 
 COPY ./rootfs/. /
 COPY ./Dockerfile /root/docker/Dockerfile
 
-RUN set -ex ; \\
-  if [ -f /root/docker/setup/init ];then sh /root/docker/setup/init;fi ; \\
+RUN set -ex; \\
   echo ""
 
-RUN set -ex ; \\
-  pacman --noconfirm -Syyu --noconfirm \${PACK_LIST} ; \\
-  if [ -f /root/docker/setup/post ];then sh /root/docker/setup/post;fi ; \\
-  [ -f "/usr/sbin/init" ] && rm -Rf "/usr/sbin/init" ; \\
-  if ! grep -s -q "\${AUR_HOME}" /etc/passwd; then useradd -m -r -s /bin/bash -d "\${AUR_HOME}" "\${AUR_USER}"; fi ; \\
-  passwd -d "\${AUR_USER}" ; \\
+RUN set -ex; \\
+  pkmgr install \${PACK_LIST}; \\
+  [ -f "/usr/sbin/init" ] && rm -Rf "/usr/sbin/init"; \\
+  if ! grep -s -q "\${AUR_HOME}" /etc/passwd;then useradd -m -r -s /bin/bash -d "\${AUR_HOME}" "\${AUR_USER}";fi; \\
+  passwd -d "\${AUR_USER}"; \\
   echo ''\${AUR_USER}'     ALL=(ALL) ALL' >"/etc/sudoers.d/\${AUR_USER}" && \\
   echo 'standard-resolver' >"\${AUR_HOME}/.gnupg/dirmngr.conf" && \\
-  chown -Rf "\${AUR_USER}":"\${AUR_USER}" "\${AUR_HOME}" ; \\
-  if [ -z "\$(type -P yay)" ]; then \\
-  cd "\${AUR_HOME}/build" && \\
+  chown -Rf "\${AUR_USER}":"\${AUR_USER}" "\${AUR_HOME}"; \\
+  if [ -z "\$(type -P yay)" ];then cd "\${AUR_HOME}/build" && \\
   sudo -u "\${AUR_USER}" git clone --depth 1 "https://aur.archlinux.org/yay.git" && cd yay && \\
-  sudo -u "\${AUR_USER}" makepkg --noconfirm -si ; \\
-  fi ; \\
+  sudo -u "\${AUR_USER}" makepkg --noconfirm -si; \\
+  fi; \\
   sudo -u "\${AUR_USER}" yay --afterclean --removemake --save && \\
   pacman -Qtdq | xargs -r pacman --noconfirm -Rcns
 
-RUN set -ex ; \\
+RUN set -ex; \\
   sudo -u "\${AUR_USER}" yay -Syyu --noconfirm tini
 
-RUN set -ex ; \\
-  touch "/etc/profile" "/root/.profile" ; \\
-  { [ -f "/etc/bash/bashrc" ] && cp -Rf "/etc/bash/bashrc" "/root/.bashrc" ; } || { [ -f "/etc/bashrc" ] && cp -Rf "/etc/bashrc" "/root/.bashrc" ; } || { [ -f "/etc/bash.bashrc" ] && cp -Rf "/etc/bash.bashrc" "/root/.bashrc" ; }; \\
-  sed -i 's|root:x:.*|root:x:0:0:root:/root:/bin/bash|g' "/etc/passwd" ; \\
-  grep -s -q 'alias quit' "/root/.bashrc" || printf '# Profile\n\n%s\n%s\n%s\n' '. /etc/profile' '. /root/.profile' "alias quit='exit 0 2>/dev/null'" >>"/root/.bashrc" ; \\
+RUN set -ex; \\
+  touch "/etc/profile" "/root/.profile"; \\
+  { [ -f "/etc/bash/bashrc" ] && cp -Rf "/etc/bash/bashrc" "/root/.bashrc"; } || { [ -f "/etc/bashrc" ] && cp -Rf "/etc/bashrc" "/root/.bashrc"; } || { [ -f "/etc/bash.bashrc" ] && cp -Rf "/etc/bash.bashrc" "/root/.bashrc"; }; \\
+  sed -i 's|root:x:.*|root:x:0:0:root:/root:/bin/bash|g' "/etc/passwd"; \\
+  grep -s -q 'alias quit' "/root/.bashrc" || printf '# Profile\n\n%s\n%s\n%s\n' '. /etc/profile' '. /root/.profile' "alias quit='exit 0 2>/dev/null'" >>"/root/.bashrc"; \\
   [ -f "/usr/local/etc/docker/env/default.sample" ] && [ -d "/etc/profile.d" ] && \\
-  cp -Rf "/usr/local/etc/docker/env/default.sample" "/etc/profile.d/container.env.sh" && chmod 755 "/etc/profile.d/container.env.sh" ; \\
-  BASH_CMD="\$(type -P bash)" ; [ -f "\$BASH_CMD" ] && { [ -f "/bin/sh" ] && rm -rf "/bin/sh" || true; } && ln -sf "\$BASH_CMD" "/bin/sh"
+  cp -Rf "/usr/local/etc/docker/env/default.sample" "/etc/profile.d/container.env.sh" && chmod 755 "/etc/profile.d/container.env.sh"; \\
+  BASH_CMD="\$(type -P bash)";[ -f "\$BASH_CMD" ] && { [ -f "/bin/sh" ] && rm -rf "/bin/sh" || true; } && ln -sf "\$BASH_CMD" "/bin/sh"
 
-RUN set -ex ; \\
+RUN set -ex; \\
+  if [ -f "/root/docker/setup/custom.sh" ];then sh /root/docker/setup/custom.sh;fi; \\
+  echo ""
+
+RUN set -ex; \\
   echo
 
-RUN set -ex ; \\
+RUN set -ex; \\
+  if [ -f /root/docker/setup/post ];then sh /root/docker/setup/post;fi; \\
   echo 'Running cleanup' ; \\
   rm -rf "\${AUR_HOME}/.cache" "\${AUR_HOME}/build"
 
-RUN set -ex ; \\
-  rm -Rf "/config" "/data" ; \\
-  rm -rf /etc/systemd/system/*.wants/* ; \\
-  rm -rf /lib/systemd/system/systemd-update-utmp* ; \\
+RUN set -ex; \\
+  rm -Rf "/config" "/data"; \\
+  rm -rf /etc/systemd/system/*.wants/*; \\
+  rm -rf /lib/systemd/system/systemd-update-utmp*; \\
   rm -rf /lib/systemd/system/anaconda.target.wants/*; \\
-  rm -rf /lib/systemd/system/local-fs.target.wants/* ; \\
-  rm -rf /lib/systemd/system/multi-user.target.wants/* ; \\
-  rm -rf /lib/systemd/system/sockets.target.wants/*udev* ; \\
-  rm -rf /lib/systemd/system/sockets.target.wants/*initctl* ; \\
-  rm -Rf /usr/share/doc/* /usr/share/info/* /tmp/* /var/tmp/* /var/cache/*/* ; \\
-  if [ -d "/lib/systemd/system/sysinit.target.wants" ]; then cd "/lib/systemd/system/sysinit.target.wants" && rm -f \$(ls | grep -v systemd-tmpfiles-setup) ; fi
+  rm -rf /lib/systemd/system/local-fs.target.wants/*; \\
+  rm -rf /lib/systemd/system/multi-user.target.wants/*; \\
+  rm -rf /lib/systemd/system/sockets.target.wants/*udev*; \\
+  rm -rf /lib/systemd/system/sockets.target.wants/*initctl*; \\
+  rm -Rf /usr/share/doc/* /usr/share/info/* /tmp/* /var/tmp/* /var/cache/*/*; \\
+  if [ -d "/lib/systemd/system/sysinit.target.wants" ];then cd "/lib/systemd/system/sysinit.target.wants" && rm -f \$(ls | grep -v systemd-tmpfiles-setup);fi
 
 RUN echo "Init done"
 

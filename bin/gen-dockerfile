@@ -835,6 +835,7 @@ __scratch() {
   local packages="${packages//  / }"
   local SET_DISTRO_NAME="${GEN_DOCKERFILE_SET_DISTRO_NAME:-$GEN_DOCKERFILE_DEFAULT_IMAGE}"
   local SET_DISTRO_VERSION="${GEN_DOCKERFILE_SET_DISTRO_VERSION:-}"
+  __configure_dockerfile "$name"
   if [ -f "$GEN_DOCKERFILE_CONFIG_DIR/Dockerfile" ]; then
     cat <<EOF | tee "$Dfile" &>/dev/null
 $(. "$GEN_DOCKERFILE_CONFIG_DIR/Dockerfile")
@@ -878,15 +879,17 @@ ENV container="docker"
 USER \${USER}
 WORKDIR /root
 
-COPY ./rootfs/usr/local/bin/pkmgr /usr/local/bin/pkmgr
 COPY --from=gosu /usr/local/bin/gosu /usr/local/bin/gosu
+COPY ./rootfs/usr/local/bin/pkmgr /usr/local/bin/pkmgr
+
+COPY --from=gosu /usr/local/bin/gosu /usr/local/bin/gosu
+COPY ./rootfs/usr/local/bin/pkmgr /usr/local/bin/pkmgr
 
 RUN set -ex; \\
-  mkdir -p "/root/docker" "/etc/profile.d"
+  $(__init_files)
 
 RUN set -ex; \\
-  if [ -x /root/docker/setup/init ];then echo "Running the init script";sh /root/docker/setup/init;echo "Done running the init script";fi; \\
-  echo ""
+  $(__init_scripts)
 
 RUN set -ex; \\
   echo ""
@@ -898,31 +901,38 @@ RUN set -ex; \\
   echo ""
 
 RUN set -ex; \\
-  pkmgr install \${PACK_LIST}; \\
+  $(__setup_pkgs)
+
+RUN set -ex; \\
+  $(__init_packages)
+
+RUN set -ex; \\
+  $(__os_users)
+
+RUN set -ex; \\
+  $(__users_init)
+
+RUN set -ex; \\
+  $(__os_settings)
+
+RUN set -ex; \\
+  $(__setup_files)
+
+RUN set -ex; \\
   echo ""
 
 RUN set -ex; \\
-  if [ -x /root/docker/setup/init ];then sh /root/docker/setup/packages;echo "Done running the packages script";fi; \\
-  echo ""
+  $(__init_custom)
 
 RUN set -ex; \\
-  if [ -x /root/docker/setup/init ];then sh /root/docker/setup/files;echo "Done running the files script";fi; \\
-  echo ""
+  echo
 
 RUN set -ex; \\
-  if [ -f "/root/docker/setup/custom.sh" ];then echo "Running the custom script";sh /root/docker/setup/custom.sh;echo "Done running the custom script";fi; \\
-  echo ""
+  $(__init_post)
 
 RUN set -ex; \\
-  echo ""
-
-RUN set -ex; \\
-  f [ -x /root/docker/setup/post ];then echo "Running the post script";sh /root/docker/setup/post;echo "Done running the post script";fi; \\
   echo "Running cleanup"; \\
-  echo ""
-
-RUN set -ex; \\
-  echo "Removing system files"; \\
+  pkmg clean; \\
   echo ""
 
 RUN echo "Init done"
@@ -990,6 +1000,7 @@ __web() {
   local packages="${packages//  / }"
   local SET_DISTRO_NAME="$GEN_DOCKER_SPECIFY_IMAGE_REPO_DEBIAN"
   local SET_DISTRO_VERSION="${GEN_DOCKERFILE_SET_DISTRO_VERSION:-$GEN_DOCKER_SPECIFY_IMAGE_VERSION_DEBIAN}"
+  __configure_dockerfile "$name"
   if [ -f "$GEN_DOCKERFILE_CONFIG_DIR/Dockerfile" ]; then
     cat <<EOF | tee "$Dfile" &>/dev/null
 $(. "$GEN_DOCKERFILE_CONFIG_DIR/Dockerfile")
@@ -1050,18 +1061,19 @@ ENV HOSTNAME="casjaysdev-$name"
 USER \${USER}
 WORKDIR /root
 
-COPY ./rootfs/usr/local/bin/pkmgr /usr/local/bin/pkmgr
 COPY --from=gosu /usr/local/bin/gosu /usr/local/bin/gosu
+COPY ./rootfs/usr/local/bin/pkmgr /usr/local/bin/pkmgr
+
+COPY --from=gosu /usr/local/bin/gosu /usr/local/bin/gosu
+COPY ./rootfs/usr/local/bin/pkmgr /usr/local/bin/pkmgr
 
 RUN set -ex; \\
-  mkdir -p "\${DEFAULT_DATA_DIR}" "\${DEFAULT_CONF_DIR}" "\${DEFAULT_TEMPLATE_DIR}" "/root/docker/setup" "/etc/profile.d"; \\
-  echo 'export DEBIAN_FRONTEND="'\${DEBIAN_FRONTEND}'"' >"/etc/profile.d/apt.sh" && chmod 755 "/etc/profile.d/apt.sh"; \\
-  pkmgr update && pkmgr install locales && echo "\$LANG UTF-8" >"/etc/locale.gen"; \\
-  dpkg-reconfigure --frontend=noninteractive locales;update-locale LANG=\$LANG;  \\
-  echo ""
+  $(__init_files)
 
 RUN set -ex; \\
-  if [ -x /root/docker/setup/init ];then echo "Running the init script";sh /root/docker/setup/init;echo "Done running the init script";fi; \\
+  $(__init_scripts)
+
+RUN set -ex; \\
   echo ""
 
 COPY ./rootfs/. /
@@ -1071,31 +1083,39 @@ RUN set -ex; \\
   echo ""
 
 RUN set -ex; \\
-echo ""
+  $(__setup_pkgs)
 
 RUN set -ex; \\
-  pkmgr update && pkmgr install \${PACK_LIST}; \\
-  set-cont-env APP_NAME "$name"
+  $(__init_packages)
 
 RUN set -ex; \\
-  touch "/etc/profile" "/root/.profile"; \\
-  { [ -f "/etc/bash/bashrc" ] && cp -Rf "/etc/bash/bashrc" "/root/.bashrc"; } || { [ -f "/etc/bashrc" ] && cp -Rf "/etc/bashrc" "/root/.bashrc"; } || { [ -f "/etc/bash.bashrc" ] && cp -Rf "/etc/bash.bashrc" "/root/.bashrc"; }; \\
-  sed -i 's|root:x:.*|root:x:0:0:root:/root:/bin/bash|g' "/etc/passwd"; \\
-  grep -s -q 'alias quit' "/root/.bashrc" || printf '# Profile\n\n%s\n' "alias quit='exit 0 2>/dev/null'" >>"/root/.bashrc"; \\
-  [ -f "/usr/local/etc/docker/env/default.sample" ] && [ -d "/etc/profile.d" ] && \\
-  cp -Rf "/usr/local/etc/docker/env/default.sample" "/etc/profile.d/container.env.sh" && chmod 755 "/etc/profile.d/container.env.sh"; \\
-  update-alternatives --install /bin/sh sh /bin/bash 1
+  $(__os_users)
 
 RUN set -ex; \\
-  if [ -f "/root/docker/setup/custom.sh" ];then echo "Running the custom script";sh /root/docker/setup/custom.sh;echo "Done running the custom script";fi; \\
+  $(__users_init)
+
+RUN set -ex; \\
+  $(__os_settings)
+
+RUN set -ex; \\
+  $(__setup_files)
+
+RUN set -ex; \\
   echo ""
 
 RUN set -ex; \\
-  f [ -x /root/docker/setup/post ];then echo "Running the post script";sh /root/docker/setup/post;echo "Done running the post script";fi; \\
-  echo "Running cleanup"; \\
-  pkmgr clean
+  $(__init_custom)
 
-RUN rm -Rf "/config" "/data"; \\
+RUN set -ex; \\
+  echo
+
+RUN set -ex; \\
+  $(__init_post)
+
+RUN set -ex; \\
+  echo "Running cleanup"; \\
+  pkmg clean; \\
+  rm -Rf "/config" "/data"; \\
   rm -rf /etc/systemd/system/*.wants/*; \\
   rm -rf /lib/systemd/system/systemd-update-utmp*; \\
   rm -rf /lib/systemd/system/anaconda.target.wants/*; \\
@@ -1177,6 +1197,7 @@ __xorg() {
   local packages="${packages//  / }"
   local SET_DISTRO_NAME="$GEN_DOCKER_SPECIFY_IMAGE_REPO_DEBIAN"
   local SET_DISTRO_VERSION="${GEN_DOCKERFILE_SET_DISTRO_VERSION:-$GEN_DOCKER_SPECIFY_IMAGE_VERSION_DEBIAN}"
+  __configure_dockerfile "$name"
   if [ -f "$GEN_DOCKERFILE_CONFIG_DIR/Dockerfile" ]; then
     cat <<EOF | tee "$Dfile" &>/dev/null
 $(. "$GEN_DOCKERFILE_CONFIG_DIR/Dockerfile")
@@ -1246,54 +1267,67 @@ ENV DEBIAN_FRONTEND="noninteractive"
 USER \${USER}
 WORKDIR /root
 
-COPY ./rootfs/usr/local/bin/pkmgr /usr/local/bin/pkmgr
 COPY --from=gosu /usr/local/bin/gosu /usr/local/bin/gosu
+COPY ./rootfs/usr/local/bin/pkmgr /usr/local/bin/pkmgr
 
 RUN set -ex; \\
-  mkdir -p "\${DEFAULT_DATA_DIR}" "\${DEFAULT_CONF_DIR}" "\${DEFAULT_TEMPLATE_DIR}" "/root/docker/setup" "/etc/profile.d"; \\
-  echo 'export DEBIAN_FRONTEND="'\${DEBIAN_FRONTEND}'"' >"/etc/profile.d/apt.sh" && chmod 755 "/etc/profile.d/apt.sh"; \\
-  echo ""
+  $(__init_files)
 
 RUN set -ex; \\
-  if [ -x /root/docker/setup/init ];then echo "Running the init script";sh /root/docker/setup/init;echo "Done running the init script";fi; \\
+  $(__init_scripts)
+
+RUN set -ex; \\
   echo ""
 
 COPY ./rootfs/. /
 COPY ./Dockerfile /root/docker/Dockerfile
 
-
-RUN set -ex ; \\
-  pkmgr install \${PACK_LIST}; \\
+RUN set -ex; \\
   echo ""
 
 RUN set -ex; \\
+  $(__setup_pkgs)
+
+RUN set -ex; \\
+  $(__init_packages)
+
+RUN set -ex; \\
+  $(__os_users)
+
+RUN set -ex; \\
+  $(__users_init)
+
+RUN set -ex; \\
+  $(__os_settings)
+
+RUN set -ex; \\
+  $(__setup_files)
+
+RUN set -ex; \\
+  echo "Creating and configuring the X11 user"
   useradd --shell /bin/bash --create-home --home-dir /home/x11user x11user && \\
   usermod -a -G audio,video,sudo,tty,dialout,cdrom,floppy,audio,dip,video,plugdev x11user && \\
-  echo "x11user ALL=(ALL) NOPASSWD: ALL" >"/etc/sudoers.d/x11user"
-
-RUN set -ex; \\
+  echo "x11user ALL=(ALL) NOPASSWD: ALL" >"/etc/sudoers.d/x11user"; \\
   sudo -u x11user setup-$name.sh && \\
   chown -Rf x11user:x11user "/home/x11user"
-
-RUN set -ex; \\
-  touch "/etc/profile" "/root/.profile"; \\
-  { [ -f "/etc/bash/bashrc" ] && cp -Rf "/etc/bash/bashrc" "/root/.bashrc"; } || { [ -f "/etc/bashrc" ] && cp -Rf "/etc/bashrc" "/root/.bashrc"; } || { [ -f "/etc/bash.bashrc" ] && cp -Rf "/etc/bash.bashrc" "/root/.bashrc"; }; \\
-  sed -i 's|root:x:.*|root:x:0:0:root:/root:/bin/bash|g' "/etc/passwd"; \\
-  grep -s -q 'alias quit' "/root/.bashrc" || printf '# Profile\n\n%s\n' "alias quit='exit 0 2>/dev/null'" >>"/root/.bashrc"; \\
-  [ -f "/usr/local/etc/docker/env/default.sample" ] && [ -d "/etc/profile.d" ] && \\
-  cp -Rf "/usr/local/etc/docker/env/default.sample" "/etc/profile.d/container.env.sh" && chmod 755 "/etc/profile.d/container.env.sh"; \\
-  update-alternatives --install /bin/sh sh /bin/bash 1
-
-RUN set -ex; \\
-  if [ -f "/root/docker/setup/custom.sh" ];then echo "Running the custom script";sh /root/docker/setup/custom.sh;echo "Done running the custom script";fi; \\
   echo ""
 
 RUN set -ex; \\
-  f [ -x /root/docker/setup/post ];then echo "Running the post script";sh /root/docker/setup/post;echo "Done running the post script";fi; \\
-  echo "Running cleanup"; \\
-  pkmgr clean
+  $(__init_files)
 
-RUN rm -Rf "/config" "/data"; \\
+RUN set -ex; \\
+  $(__init_custom)
+
+RUN set -ex; \\
+  echo
+
+RUN set -ex; \\
+  $(__init_post)
+
+RUN set -ex; \\
+  echo "Running cleanup"; \\
+  pkmg clean; \\
+  rm -Rf "/config" "/data"; \\
   rm -rf /etc/systemd/system/*.wants/*; \\
   rm -rf /lib/systemd/system/systemd-update-utmp*; \\
   rm -rf /lib/systemd/system/anaconda.target.wants/*; \\
@@ -1375,6 +1409,7 @@ __debian_file() {
   local packages="${packages//  / }"
   local SET_DISTRO_NAME="$GEN_DOCKER_SPECIFY_IMAGE_REPO_DEBIAN"
   local SET_DISTRO_VERSION="${GEN_DOCKERFILE_SET_DISTRO_VERSION:-$GEN_DOCKER_SPECIFY_IMAGE_VERSION_DEBIAN}"
+  __configure_dockerfile "$name"
   if [ -f "$GEN_DOCKERFILE_CONFIG_DIR/Dockerfile" ]; then
     cat <<EOF | tee "$Dfile" &>/dev/null
 $(. "$GEN_DOCKERFILE_CONFIG_DIR/Dockerfile")
@@ -1442,18 +1477,19 @@ ENV DEBIAN_FRONTEND="noninteractive"
 USER \${USER}
 WORKDIR /root
 
-COPY ./rootfs/usr/local/bin/pkmgr /usr/local/bin/pkmgr
 COPY --from=gosu /usr/local/bin/gosu /usr/local/bin/gosu
+COPY ./rootfs/usr/local/bin/pkmgr /usr/local/bin/pkmgr
+
+COPY --from=gosu /usr/local/bin/gosu /usr/local/bin/gosu
+COPY ./rootfs/usr/local/bin/pkmgr /usr/local/bin/pkmgr
 
 RUN set -ex; \\
-  mkdir -p "\${DEFAULT_DATA_DIR}" "\${DEFAULT_CONF_DIR}" "\${DEFAULT_TEMPLATE_DIR}" "/root/docker/setup" "/etc/profile.d"; \\
-  echo 'export DEBIAN_FRONTEND="'\${DEBIAN_FRONTEND}'"' >"/etc/profile.d/apt.sh" && chmod 755 "/etc/profile.d/apt.sh"; \\
-  pkmgr update && pkmgr install locales && echo "\$LANG UTF-8" >"/etc/locale.gen"; \\
-  dpkg-reconfigure --frontend=noninteractive locales;update-locale LANG=\$LANG;  \\
-  echo ""
+  $(__init_files)
 
 RUN set -ex; \\
-  if [ -x /root/docker/setup/init ];then echo "Running the init script";sh /root/docker/setup/init;echo "Done running the init script";fi; \\
+  $(__init_scripts)
+
+RUN set -ex; \\
   echo ""
 
 COPY ./rootfs/. /
@@ -1463,28 +1499,38 @@ RUN set -ex; \\
   echo ""
 
 RUN set -ex; \\
-  pkmgr install \${PACK_LIST}; \\
+  $(__setup_pkgs)
+
+RUN set -ex; \\
+  $(__init_packages)
+
+RUN set -ex; \\
+  $(__os_users)
+
+RUN set -ex; \\
+  $(__users_init)
+
+RUN set -ex; \\
+  $(__os_settings)
+
+RUN set -ex; \\
+  $(__setup_files)
+
+RUN set -ex; \\
   echo ""
 
 RUN set -ex; \\
-  touch "/etc/profile" "/root/.profile" ; \\
-  { [ -f "/etc/bash/bashrc" ] && cp -Rf "/etc/bash/bashrc" "/root/.bashrc"; } || { [ -f "/etc/bashrc" ] && cp -Rf "/etc/bashrc" "/root/.bashrc"; } || { [ -f "/etc/bash.bashrc" ] && cp -Rf "/etc/bash.bashrc" "/root/.bashrc"; }; \\
-  sed -i 's|root:x:.*|root:x:0:0:root:/root:/bin/bash|g' "/etc/passwd"; \\
-  grep -s -q 'alias quit' "/root/.bashrc" || printf '# Profile\n\n%s\n' "alias quit='exit 0 2>/dev/null'" >>"/root/.bashrc"; \\
-  [ -f "/usr/local/etc/docker/env/default.sample" ] && [ -d "/etc/profile.d" ] && \\
-  cp -Rf "/usr/local/etc/docker/env/default.sample" "/etc/profile.d/container.env.sh" && chmod 755 "/etc/profile.d/container.env.sh"; \\
-  update-alternatives --install /bin/sh sh /bin/bash 1
+  $(__init_custom)
 
 RUN set -ex; \\
-  if [ -f "/root/docker/setup/custom.sh" ];then echo "Running the custom script";sh /root/docker/setup/custom.sh;echo "Done running the custom script";fi; \\
-  echo ""
+  echo
 
 RUN set -ex; \\
-  f [ -x /root/docker/setup/post ];then echo "Running the post script";sh /root/docker/setup/post;echo "Done running the post script";fi; \\
+  $(__init_post)
+
+RUN set -ex; \\
   echo "Running cleanup"; \\
-  pkmgr clean
-
-RUN rm -Rf "/config" "/data"; \\
+  pkmg clean; \\
   rm -rf /etc/systemd/system/*.wants/*; \\
   rm -rf /lib/systemd/system/systemd-update-utmp*; \\
   rm -rf /lib/systemd/system/anaconda.target.wants/*; \\
@@ -1570,6 +1616,7 @@ __ubuntu_file() {
   local packages="${packages//  / }"
   local SET_DISTRO_NAME="$GEN_DOCKER_SPECIFY_IMAGE_REPO_UBUNTU"
   local SET_DISTRO_VERSION="${GEN_DOCKERFILE_SET_DISTRO_VERSION:-$GEN_DOCKER_SPECIFY_IMAGE_VERSION_UBUNTU}"
+  __configure_dockerfile "$name"
   if [ -f "$GEN_DOCKERFILE_CONFIG_DIR/Dockerfile" ]; then
     cat <<EOF | tee "$Dfile" &>/dev/null
 $(. "$GEN_DOCKERFILE_CONFIG_DIR/Dockerfile")
@@ -1631,45 +1678,60 @@ ENV DEBIAN_FRONTEND="noninteractive"
 USER \${USER}
 WORKDIR /root
 
-COPY ./rootfs/usr/local/bin/pkmgr /usr/local/bin/pkmgr
 COPY --from=gosu /usr/local/bin/gosu /usr/local/bin/gosu
+COPY ./rootfs/usr/local/bin/pkmgr /usr/local/bin/pkmgr
+
+COPY --from=gosu /usr/local/bin/gosu /usr/local/bin/gosu
+COPY ./rootfs/usr/local/bin/pkmgr /usr/local/bin/pkmgr
 
 RUN set -ex; \\
-  mkdir -p "\${DEFAULT_DATA_DIR}" "\${DEFAULT_CONF_DIR}" "\${DEFAULT_TEMPLATE_DIR}" "/root/docker/setup" "/etc/profile.d"; \\
-  echo 'export DEBIAN_FRONTEND="'\${DEBIAN_FRONTEND}'"' >"/etc/profile.d/apt.sh" && chmod 755 "/etc/profile.d/apt.sh"; \\
-  pkmgr update && pkmgr install locales && echo "\$LANG UTF-8" >"/etc/locale.gen"; \\
-  dpkg-reconfigure --frontend=noninteractive locales;update-locale LANG=\$LANG;  \\
-  echo ""
+  $(__init_files)
 
 RUN set -ex; \\
-  if [ -x /root/docker/setup/init ];then echo "Running the init script";sh /root/docker/setup/init;echo "Done running the init script";fi; \\
+  $(__init_scripts)
+
+RUN set -ex; \\
   echo ""
 
 COPY ./rootfs/. /
 COPY ./Dockerfile /root/docker/Dockerfile
 
 RUN set -ex; \\
-  pkmgr install \${PACK_LIST}; \\
-  echo ""
-
-RUN touch "/etc/profile" "/root/.profile"; \\
-  { [ -f "/etc/bash/bashrc" ] && cp -Rf "/etc/bash/bashrc" "/root/.bashrc"; } || { [ -f "/etc/bashrc" ] && cp -Rf "/etc/bashrc" "/root/.bashrc"; } || { [ -f "/etc/bash.bashrc" ] && cp -Rf "/etc/bash.bashrc" "/root/.bashrc"; }; \\
-  sed -i 's|root:x:.*|root:x:0:0:root:/root:/bin/bash|g' "/etc/passwd"; \\
-  grep -s -q 'alias quit' "/root/.bashrc" || printf '# Profile\n\n%s\n' "alias quit='exit 0 2>/dev/null'" >>"/root/.bashrc"; \\
-  [ -f "/usr/local/etc/docker/env/default.sample" ] && [ -d "/etc/profile.d" ] && \\
-  cp -Rf "/usr/local/etc/docker/env/default.sample" "/etc/profile.d/container.env.sh" && chmod 755 "/etc/profile.d/container.env.sh"; \\
-  update-alternatives --install /bin/sh sh /bin/bash 1
-
-RUN set -ex; \\
-  if [ -f "/root/docker/setup/custom.sh" ];then echo "Running the custom script";sh /root/docker/setup/custom.sh;echo "Done running the custom script";fi; \\
   echo ""
 
 RUN set -ex; \\
-  f [ -x /root/docker/setup/post ];then echo "Running the post script";sh /root/docker/setup/post;echo "Done running the post script";fi; \\
+  $(__setup_pkgs)
+
+RUN set -ex; \\
+  $(__init_packages)
+
+RUN set -ex; \\
+  $(__os_users)
+
+RUN set -ex; \\
+  $(__users_init)
+
+RUN set -ex; \\
+  $(__os_settings)
+
+RUN set -ex; \\
+  $(__setup_files)
+
+RUN set -ex; \\
+  echo ""
+
+RUN set -ex; \\
+  $(__init_custom)
+
+RUN set -ex; \\
+  echo
+
+RUN set -ex; \\
+  $(__init_post)
+
+RUN set -ex; \\
   echo "Running cleanup"; \\
-  pkmgr clean
-
-RUN set -ex; \\
+  pkmg clean; \\
   rm -Rf "/config" "/data"; \\
   rm -rf /etc/systemd/system/*.wants/*; \\
   rm -rf /lib/systemd/system/systemd-update-utmp*; \\
@@ -1753,6 +1815,7 @@ __rhel() {
   local SET_DISTRO_NAME="$GEN_DOCKER_SPECIFY_IMAGE_REPO_RHEL"
   local SET_DISTRO_VERSION="${GEN_DOCKERFILE_SET_DISTRO_VERSION:-$GEN_DOCKER_SPECIFY_IMAGE_VERSION_RHEL}"
   local GEN_DOCKERFILE_SET_TAG="${GEN_DOCKERFILE_SET_TAG:-$SET_DISTRO_VERSION}"
+  __configure_dockerfile "$name"
   if [ -f "$GEN_DOCKERFILE_CONFIG_DIR/Dockerfile" ]; then
     cat <<EOF | tee "$Dfile" &>/dev/null
 $(. "$GEN_DOCKERFILE_CONFIG_DIR/Dockerfile")
@@ -1822,17 +1885,19 @@ ENV HOSTNAME="casjaysdev-$name"
 USER \${USER}
 WORKDIR /root
 
-COPY ./rootfs/usr/local/bin/pkmgr /usr/local/bin/pkmgr
 COPY --from=gosu /usr/local/bin/gosu /usr/local/bin/gosu
+COPY ./rootfs/usr/local/bin/pkmgr /usr/local/bin/pkmgr
+
+COPY --from=gosu /usr/local/bin/gosu /usr/local/bin/gosu
+COPY ./rootfs/usr/local/bin/pkmgr /usr/local/bin/pkmgr
 
 RUN set -ex; \\
-  mkdir -p "\${DEFAULT_DATA_DIR}" "\${DEFAULT_CONF_DIR}" "\${DEFAULT_TEMPLATE_DIR}" "/etc/profile.d" "/root/docker/setup"; \\
-  touch "/etc/profile" "/root/.profile"; \\
-  pkmgr update && pkmgr install epel-release; crb enable || true; \\
-  echo ""
+  $(__init_files)
 
 RUN set -ex; \\
-  if [ -x /root/docker/setup/init ];then echo "Running the init script";sh /root/docker/setup/init;echo "Done running the init script";fi; \\
+  $(__init_scripts)
+
+RUN set -ex; \\
   echo ""
 
 COPY ./rootfs/. /
@@ -1842,39 +1907,48 @@ RUN set -ex; \\
   echo ""
 
 RUN set -ex; \\
-  pkmgr install \${PACK_LIST}
+  $(__setup_pkgs)
 
 RUN set -ex; \\
-  { [ -f "/etc/bash/bashrc" ] && cp -Rf "/etc/bash/bashrc" "/root/.bashrc"; } || { [ -f "/etc/bashrc" ] && cp -Rf "/etc/bashrc" "/root/.bashrc"; } || { [ -f "/etc/bash.bashrc" ] && cp -Rf "/etc/bash.bashrc" "/root/.bashrc"; }; \\
-  sed -i 's|root:x:.*|root:x:0:0:root:/root:/bin/bash|g' "/etc/passwd" ; \\
-  grep -s -q 'alias quit' "/root/.bashrc" || printf '# Profile\n\n%s\n%s\n%s\n' '. /etc/profile' '. /root/.profile' "alias quit='exit 0 2>/dev/null'" >>"/root/.bashrc"; \\
-  [ -f "/usr/local/etc/docker/env/default.sample" ] && [ -d "/etc/profile.d" ] && \\
-  cp -Rf "/usr/local/etc/docker/env/default.sample" "/etc/profile.d/container.env.sh" && chmod 755 "/etc/profile.d/container.env.sh"; \\
-  BASH_CMD="\$(type -P bash)" ; [ -f "\$BASH_CMD" ] && { [ -f "/bin/sh" ] && rm -rf "/bin/sh" || true; } && ln -sf "\$BASH_CMD" "/bin/sh"
+  $(__init_packages)
 
 RUN set -ex; \\
-  if [ -f "/root/docker/setup/custom.sh" ];then echo "Running the custom script";sh /root/docker/setup/custom.sh;echo "Done running the custom script";fi; \\
+  $(__os_users)
+
+RUN set -ex; \\
+  $(__users_init)
+
+RUN set -ex; \\
+  $(__os_settings)
+
+RUN set -ex; \\
+  $(__setup_files)
+
+RUN set -ex; \\
   echo ""
+
+RUN set -ex; \\
+  $(__init_custom)
 
 RUN set -ex; \\
   echo
 
 RUN set -ex; \\
-  f [ -x /root/docker/setup/post ];then echo "Running the post script";sh /root/docker/setup/post;echo "Done running the post script";fi; \\
-  echo "Running cleanup"; \\
-  pkmgr clean all
+  $(__init_post)
 
-RUN set -ex ; \\
-  rm -Rf "/config" "/data" ; \\
-  rm -rf /etc/systemd/system/*.wants/* ; \\
-  rm -rf /lib/systemd/system/systemd-update-utmp* ; \\
+RUN set -ex; \\
+  echo "Running cleanup"; \\
+  pkmg clean; \\
+  rm -Rf "/config" "/data"; \\
+  rm -rf /etc/systemd/system/*.wants/*; \\
+  rm -rf /lib/systemd/system/systemd-update-utmp*; \\
   rm -rf /lib/systemd/system/anaconda.target.wants/*; \\
-  rm -rf /lib/systemd/system/local-fs.target.wants/* ; \\
-  rm -rf /lib/systemd/system/multi-user.target.wants/* ; \\
-  rm -rf /lib/systemd/system/sockets.target.wants/*udev* ; \\
-  rm -rf /lib/systemd/system/sockets.target.wants/*initctl* ; \\
-  rm -Rf /usr/share/doc/* /usr/share/info/* /tmp/* /var/tmp/* /var/cache/*/* ; \\
-  if [ -d "/lib/systemd/system/sysinit.target.wants" ]; then cd "/lib/systemd/system/sysinit.target.wants" && rm -f \$(ls | grep -v systemd-tmpfiles-setup) ; fi
+  rm -rf /lib/systemd/system/local-fs.target.wants/*; \\
+  rm -rf /lib/systemd/system/multi-user.target.wants/*; \\
+  rm -rf /lib/systemd/system/sockets.target.wants/*udev*; \\
+  rm -rf /lib/systemd/system/sockets.target.wants/*initctl*; \\
+  rm -Rf /usr/share/doc/* /usr/share/info/* /tmp/* /var/tmp/* /var/cache/*/*; \\
+  if [ -d "/lib/systemd/system/sysinit.target.wants" ];then cd "/lib/systemd/system/sysinit.target.wants" && rm -f \$(ls | grep -v systemd-tmpfiles-setup);fi
 
 RUN echo "Init done"
 
@@ -1957,6 +2031,7 @@ __alpine_file() {
   local SET_DISTRO_NAME="$GEN_DOCKER_SPECIFY_IMAGE_REPO_ALPINE"
   local SET_DISTRO_VERSION="${GEN_DOCKERFILE_SET_DISTRO_VERSION:-$GEN_DOCKER_SPECIFY_IMAGE_VERSION_ALPINE}"
   local IMAGE_REPO="$GEN_DOCKERFILE_DEFAULT_IMAGE"
+  __configure_dockerfile "$name"
   if [ -f "$GEN_DOCKERFILE_CONFIG_DIR/Dockerfile" ]; then
     cat <<EOF | tee "$Dfile" &>/dev/null
 $(. "$GEN_DOCKERFILE_CONFIG_DIR/Dockerfile")
@@ -2025,12 +2100,16 @@ WORKDIR /root
 COPY --from=gosu /usr/local/bin/gosu /usr/local/bin/gosu
 COPY ./rootfs/usr/local/bin/pkmgr /usr/local/bin/pkmgr
 
+COPY --from=gosu /usr/local/bin/gosu /usr/local/bin/gosu
+COPY ./rootfs/usr/local/bin/pkmgr /usr/local/bin/pkmgr
+
 RUN set -ex; \\
-  echo "Running init files"; \\
   $(__init_files)
 
 RUN set -ex; \\
-  if [ -x /root/docker/setup/init ];then echo "Running the init script";sh /root/docker/setup/init;echo "Done running the init script";fi; \\
+  $(__init_scripts)
+
+RUN set -ex; \\
   echo ""
 
 COPY ./rootfs/. /
@@ -2040,25 +2119,38 @@ RUN set -ex; \\
   echo ""
 
 RUN set -ex; \\
-  pkmgr install \${PACK_LIST}; \\
-  echo ""
+  $(__setup_pkgs)
+
+RUN set -ex; \\
+  $(__init_packages)
+
+RUN set -ex; \\
+  $(__os_users)
+
+RUN set -ex; \\
+  $(__users_init)
+
+RUN set -ex; \\
+  $(__os_settings)
 
 RUN set -ex; \\
   $(__setup_files)
 
 RUN set -ex; \\
-  if [ -f "/root/docker/setup/custom.sh" ];then echo "Running the custom script";sh /root/docker/setup/custom.sh;echo "Done running the custom script";fi; \\
   echo ""
+
+RUN set -ex; \\
+  $(__init_custom)
 
 RUN set -ex; \\
   echo
 
 RUN set -ex; \\
-  f [ -x /root/docker/setup/post ];then echo "Running the post script";sh /root/docker/setup/post;echo "Done running the post script";fi; \\
-  echo ""
+  $(__init_post)
 
 RUN set -ex; \\
-  echo 'Running cleanup' ; \\
+  echo "Running cleanup"; \\
+  pkmg clean; \\
   rm -Rf "/config" "/data"; \\
   rm -rf /etc/systemd/system/*.wants/*; \\
   rm -rf /lib/systemd/system/systemd-update-utmp*; \\
@@ -2146,6 +2238,7 @@ __arch_file() {
   local packages="${packages//  / }"
   local SET_DISTRO_NAME="$GEN_DOCKER_SPECIFY_IMAGE_REPO_ARCHLINUX"
   local SET_DISTRO_VERSION="${GEN_DOCKERFILE_SET_DISTRO_VERSION:-$GEN_DOCKER_SPECIFY_IMAGE_VERSION_ARCHLINUX}"
+  __configure_dockerfile "$name"
   if [ -f "$GEN_DOCKERFILE_CONFIG_DIR/Dockerfile" ]; then
     cat <<EOF | tee "$Dfile" &>/dev/null
 $(. "$GEN_DOCKERFILE_CONFIG_DIR/Dockerfile")
@@ -2209,19 +2302,19 @@ ENV AUR_HOME="\${AUR_HOME}"
 USER \${USER}
 WORKDIR /root
 
-COPY ./rootfs/usr/local/bin/pkmgr /usr/local/bin/pkmgr
 COPY --from=gosu /usr/local/bin/gosu /usr/local/bin/gosu
+COPY ./rootfs/usr/local/bin/pkmgr /usr/local/bin/pkmgr
+
+COPY --from=gosu /usr/local/bin/gosu /usr/local/bin/gosu
+COPY ./rootfs/usr/local/bin/pkmgr /usr/local/bin/pkmgr
 
 RUN set -ex; \\
-  mkdir -p "\${DEFAULT_DATA_DIR}" "\${DEFAULT_CONF_DIR}" "\${DEFAULT_TEMPLATE_DIR}" "/root/docker/setup" "/etc/profile.d"; \\
-  mkdir -p "\${AUR_HOME}/.gnupg" "\${AUR_HOME}/build"; \\
-  pkmgr install archlinux-keyring; \\
-  pacman-key --init;pacman-key --populate; \\
-  pkmgr update; \\
-  echo ""
+  $(__init_files)
 
-RUN set -ex ; \\
-  if [ -x /root/docker/setup/init ];then echo "Running the init script";sh /root/docker/setup/init;echo "Done running the init script";fi; \\
+RUN set -ex; \\
+  $(__init_scripts)
+
+RUN set -ex; \\
   echo ""
 
 COPY ./rootfs/. /
@@ -2231,46 +2324,38 @@ RUN set -ex; \\
   echo ""
 
 RUN set -ex; \\
-  pkmgr install \${PACK_LIST}; \\
-  [ -f "/usr/sbin/init" ] && rm -Rf "/usr/sbin/init"; \\
-  if ! grep -s -q "\${AUR_HOME}" /etc/passwd;then useradd -m -r -s /bin/bash -d "\${AUR_HOME}" "\${AUR_USER}";fi; \\
-  passwd -d "\${AUR_USER}"; \\
-  [ -d "/etc/sudoers.d" ] || mkdir -p "/etc/sudoers.d"; \\
-  echo ''${AUR_USER}'     ALL=(ALL) ALL' >"/etc/sudoers.d/${AUR_USER}" && \\
-  echo 'standard-resolver' >"\${AUR_HOME}/.gnupg/dirmngr.conf" && \\
-  chown -Rf "\${AUR_USER}":"\${AUR_USER}" "\${AUR_HOME}"; \\
-  if [ -z "\$(type -P yay)" ];then cd "\${AUR_HOME}/build" && \\
-  sudo -u "\${AUR_USER}" git clone --depth 1 "https://aur.archlinux.org/yay.git" && cd yay && \\
-  sudo -u "\${AUR_USER}" makepkg --noconfirm -si; \\
-  fi; \\
-  sudo -u "\${AUR_USER}" yay --afterclean --removemake --save && \\
-  pacman -Qtdq | xargs -r pacman --noconfirm -Rcns
+  $(__setup_pkgs)
 
 RUN set -ex; \\
-  sudo -u "\${AUR_USER}" yay -Syyu --noconfirm tini
+  $(__init_packages)
 
 RUN set -ex; \\
-  touch "/etc/profile" "/root/.profile"; \\
-  { [ -f "/etc/bash/bashrc" ] && cp -Rf "/etc/bash/bashrc" "/root/.bashrc"; } || { [ -f "/etc/bashrc" ] && cp -Rf "/etc/bashrc" "/root/.bashrc"; } || { [ -f "/etc/bash.bashrc" ] && cp -Rf "/etc/bash.bashrc" "/root/.bashrc"; }; \\
-  sed -i 's|root:x:.*|root:x:0:0:root:/root:/bin/bash|g' "/etc/passwd"; \\
-  grep -s -q 'alias quit' "/root/.bashrc" || printf '# Profile\n\n%s\n%s\n%s\n' '. /etc/profile' '. /root/.profile' "alias quit='exit 0 2>/dev/null'" >>"/root/.bashrc"; \\
-  [ -f "/usr/local/etc/docker/env/default.sample" ] && [ -d "/etc/profile.d" ] && \\
-  cp -Rf "/usr/local/etc/docker/env/default.sample" "/etc/profile.d/container.env.sh" && chmod 755 "/etc/profile.d/container.env.sh"; \\
-  BASH_CMD="\$(type -P bash)";[ -f "\$BASH_CMD" ] && { [ -f "/bin/sh" ] && rm -rf "/bin/sh" || true; } && ln -sf "\$BASH_CMD" "/bin/sh"
+  $(__os_users)
 
 RUN set -ex; \\
-  if [ -f "/root/docker/setup/custom.sh" ];then echo "Running the custom script";sh /root/docker/setup/custom.sh;echo "Done running the custom script";fi; \\
+  $(__users_init)
+
+RUN set -ex; \\
+  $(__os_settings)
+
+RUN set -ex; \\
+  $(__setup_files)
+
+RUN set -ex; \\
   echo ""
+
+RUN set -ex; \\
+  $(__init_custom)
 
 RUN set -ex; \\
   echo
 
 RUN set -ex; \\
-  f [ -x /root/docker/setup/post ];then echo "Running the post script";sh /root/docker/setup/post;echo "Done running the post script";fi; \\
-  echo 'Running cleanup' ; \\
-  rm -rf "\${AUR_HOME}/.cache" "\${AUR_HOME}/build"
+  $(__init_post)
 
 RUN set -ex; \\
+  echo "Running cleanup"; \\
+  pkmg clean; \\
   rm -Rf "/config" "/data"; \\
   rm -rf /etc/systemd/system/*.wants/*; \\
   rm -rf /lib/systemd/system/systemd-update-utmp*; \\
@@ -2345,6 +2430,344 @@ HEALTHCHECK --start-period=1m --interval=2m --timeout=3s CMD [ "/usr/local/bin/e
 EOF
   fi
   [ -f "$Dfile" ] && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__configure_dockerfile() {
+  local name="$1"
+  printf_yellow "Configuring for: $name"
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  __init_files() {
+    cat <<EOF
+  echo "Creating and editing system files "; \\
+  echo ""
+EOF
+  }
+  __setup_files() {
+    cat <<EOF
+  echo "Updating system files "; \\
+EOF
+  }
+  __os_users() {
+    cat <<EOF
+  echo "Setting up users and scripts "; \\
+  echo ""
+EOF
+  }
+  __users_init() {
+    cat <<EOF
+  echo "Running user configurations "; \\
+  echo ""
+EOF
+  }
+  __os_settings() {
+    cat <<EOF
+  echo "Setting OS Settings "; \\
+  echo ""
+EOF
+  }
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  __setup_pkgs() {
+    cat <<EOF
+  echo "Installing the packages from \$PACK_LIST"; \\
+  pkmgr install \${PACK_LIST}; \\
+  echo ""
+EOF
+  }
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  __init_packages() {
+    cat <<EOF
+  if [ -x /root/docker/setup/packages ];then echo "Running the packages script";sh /root/docker/setup/packages;echo "Done running the packages script";fi; \\
+  echo ""
+EOF
+  }
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  __init_scripts() {
+    cat <<EOF
+  if [ -x /root/docker/setup/init ];then echo "Running the init script";sh /root/docker/setup/init;echo "Done running the init script";fi; \\
+  echo ""
+EOF
+  }
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  __init_files() {
+    cat <<EOF
+  echo ""
+EOF
+  }
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  __init_custom() {
+    cat <<EOF
+  if [ -f "/root/docker/setup/custom.sh" ];then echo "Running the custom script";sh /root/docker/setup/custom.sh;echo "Done running the custom script";fi; \\
+  echo ""
+EOF
+  }
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  __init_post() {
+    cat <<EOF
+  if [ -x /root/docker/setup/post ];then echo "Running the post script";sh /root/docker/setup/post;echo "Done running the post script";fi; \\
+  echo ""
+EOF
+  }
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  if [ "$name" = "alpine" ]; then
+    __init_files() {
+      cat <<EOF
+  echo "Creating and editing system files "; \\
+  mkdir -p "\${DEFAULT_DATA_DIR}" "\${DEFAULT_CONF_DIR}" "\${DEFAULT_TEMPLATE_DIR}" "/root/docker/setup" "/etc/profile.d"; \\
+  touch "/etc/profile" "/root/.profile"; \\
+  rm -Rf "/etc/apk/repositories"; \\
+  [ "\$DISTRO_VERSION" = "latest" ] && DISTRO_VERSION="edge";[ "\$DISTRO_VERSION" = "edge" ] || DISTRO_VERSION="v\${DISTRO_VERSION}"; \\
+  echo "http://dl-cdn.alpinelinux.org/alpine/\${DISTRO_VERSION}/main" >>"/etc/apk/repositories"; \\
+  echo "http://dl-cdn.alpinelinux.org/alpine/\${DISTRO_VERSION}/community" >>"/etc/apk/repositories"; \\
+  if [ "\${DISTRO_VERSION}" = "edge" ]; then echo "http://dl-cdn.alpinelinux.org/alpine/\${DISTRO_VERSION}/testing" >>"/etc/apk/repositories";fi; \\
+  echo ""
+EOF
+    }
+    __setup_files() {
+      cat <<EOF
+  echo "Updating system files "; \\
+  echo "\$TIMEZONE" >"/etc/timezone"; \\
+  echo 'hosts: files dns' >"/etc/nsswitch.conf"; \\
+  [ -f "/usr/share/zoneinfo/\${TZ}" ] && ln -sf "/usr/share/zoneinfo/\${TZ}" "/etc/localtime"; \\
+  PHP_FPM="\$(ls /usr/*bin/php*fpm* 2>/dev/null || echo '')"; \\
+  [ -n "\$PHP_FPM" ] && [ -z "\$(type -P php-fpm)" ] && ln -sf "\$PHP_FPM" "/usr/bin/php-fpm" || true; \\
+  if [ -f "/etc/profile.d/color_prompt.sh.disabled" ]; then mv -f "/etc/profile.d/color_prompt.sh.disabled" "/etc/profile.d/color_prompt.sh";fi ; \\
+  { [ -f "/etc/bash/bashrc" ] && cp -Rf "/etc/bash/bashrc" "/root/.bashrc"; } || { [ -f "/etc/bashrc" ] && cp -Rf "/etc/bashrc" "/root/.bashrc"; } || { [ -f "/etc/bash.bashrc" ] && cp -Rf "/etc/bash.bashrc" "/root/.bashrc"; }; \\
+  sed -i 's|root:x:.*|root:x:0:0:root:/root:/bin/bash|g' "/etc/passwd"; \\
+  grep -s -q 'alias quit' "/root/.bashrc" || printf '# Profile\n\n%s\n%s\n%s\n' '. /etc/profile' '. /root/.profile' "alias quit='exit 0 2>/dev/null'" >>"/root/.bashrc"; \\
+  [ -f "/usr/local/etc/docker/env/default.sample" ] && [ -d "/etc/profile.d" ] && \\
+  cp -Rf "/usr/local/etc/docker/env/default.sample" "/etc/profile.d/container.env.sh" && chmod 755 "/etc/profile.d/container.env.sh"; \\
+  BASH_CMD="\$(type -P bash)" ; [ -f "\$BASH_CMD" ] && rm -rf "/bin/sh" && ln -sf "\$BASH_CMD" "/bin/sh"; \\
+  pip_bin="\$(type -P python3 || type -P python2 || type -P python || false)";if [ -n "\$pip_bin" ];then \$pip_bin -m pip install $GEN_DOCKER_SPECIFY_CERT_BOT_PLUGINS --user 2>&1 | grep -v --line-buffer 'error:' && false||\$pip_bin -m pip install $GEN_DOCKER_SPECIFY_CERT_BOT_PLUGINS --user --break-system-packages || true;fi; \\
+  echo ""
+EOF
+    }
+    __os_users() {
+      cat <<EOF
+  echo "Setting up users and scripts "; \\
+  echo ""
+EOF
+    }
+    __users_init() {
+      cat <<EOF
+  echo "Running user configurations "; \\
+  echo ""
+EOF
+    }
+    __os_settings() {
+      cat <<EOF
+  echo "Setting OS Settings "; \\
+  echo ""
+EOF
+    }
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  elif [ "$name" = "archlinux" ]; then
+    __init_files() {
+      cat <<EOF
+  echo "Creating and editing system files "; \\
+  mkdir -p "\${DEFAULT_DATA_DIR}" "\${DEFAULT_CONF_DIR}" "\${DEFAULT_TEMPLATE_DIR}" "/root/docker/setup" "/etc/profile.d"; \\
+  mkdir -p "\${AUR_HOME}/.gnupg" "\${AUR_HOME}/build"; \\
+  pkmgr install archlinux-keyring; \\
+  pacman-key --init;pacman-key --populate; \\
+  pkmgr update; \\
+  echo ""
+EOF
+    }
+    __setup_files() {
+      cat <<EOF
+  echo "Updating system files "; \\
+  [ -f "/usr/sbin/init" ] && rm -Rf "/usr/sbin/init"; \\
+  touch "/etc/profile" "/root/.profile"; \\
+  { [ -f "/etc/bash/bashrc" ] && cp -Rf "/etc/bash/bashrc" "/root/.bashrc"; } || { [ -f "/etc/bashrc" ] && cp -Rf "/etc/bashrc" "/root/.bashrc"; } || { [ -f "/etc/bash.bashrc" ] && cp -Rf "/etc/bash.bashrc" "/root/.bashrc"; }; \\
+  sed -i 's|root:x:.*|root:x:0:0:root:/root:/bin/bash|g' "/etc/passwd"; \\
+  grep -s -q 'alias quit' "/root/.bashrc" || printf '# Profile\n\n%s\n%s\n%s\n' '. /etc/profile' '. /root/.profile' "alias quit='exit 0 2>/dev/null'" >>"/root/.bashrc"; \\
+  [ -f "/usr/local/etc/docker/env/default.sample" ] && [ -d "/etc/profile.d" ] && \\
+  cp -Rf "/usr/local/etc/docker/env/default.sample" "/etc/profile.d/container.env.sh" && chmod 755 "/etc/profile.d/container.env.sh"; \\
+  BASH_CMD="\$(type -P bash)";[ -f "\$BASH_CMD" ] && { [ -f "/bin/sh" ] && rm -rf "/bin/sh" || true; } && ln -sf "\$BASH_CMD" "/bin/sh"
+EOF
+    }
+    __os_users() {
+      cat <<EOF
+  echo "Setting up users and scripts "; \\
+  if ! grep -s -q "\${AUR_HOME}" /etc/passwd;then useradd -m -r -s /bin/bash -d "\${AUR_HOME}" "\${AUR_USER}";fi; \\
+  passwd -d "\${AUR_USER}"; \\
+  [ -d "/etc/sudoers.d" ] || mkdir -p "/etc/sudoers.d"; \\
+  echo ''${AUR_USER}'     ALL=(ALL) ALL' >"/etc/sudoers.d/${AUR_USER}" && \\
+  echo 'standard-resolver' >"\${AUR_HOME}/.gnupg/dirmngr.conf" && \\
+  chown -Rf "\${AUR_USER}":"\${AUR_USER}" "\${AUR_HOME}"; \\
+  if [ -z "\$(type -P yay)" ];then cd "\${AUR_HOME}/build" && \\
+  sudo -u "\${AUR_USER}" git clone --depth 1 "https://aur.archlinux.org/yay.git" && cd yay && \\
+  sudo -u "\${AUR_USER}" makepkg --noconfirm -si; \\
+  fi; \\
+  sudo -u "\${AUR_USER}" yay --afterclean --removemake --save && \\
+  pacman -Qtdq | xargs -r pacman --noconfirm -Rcns; \\
+  echo ""
+EOF
+    }
+    __users_init() {
+      cat <<EOF
+  echo "Running user configurations "; \\
+  echo ""
+EOF
+    }
+    __os_settings() {
+      cat <<EOF
+  echo "Setting OS Settings "; \\
+  sudo -u "\${AUR_USER}" yay -Syyu --noconfirm tini; \\
+  echo ""
+EOF
+    }
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  elif [ "$name" = "debian" ]; then
+    __init_files() {
+      cat <<EOF
+  echo "Creating and editing system files "; \\
+  mkdir -p "\${DEFAULT_DATA_DIR}" "\${DEFAULT_CONF_DIR}" "\${DEFAULT_TEMPLATE_DIR}" "/root/docker/setup" "/etc/profile.d"; \\
+  echo 'export DEBIAN_FRONTEND="'\${DEBIAN_FRONTEND}'"' >"/etc/profile.d/apt.sh" && chmod 755 "/etc/profile.d/apt.sh"; \\
+  pkmgr update && pkmgr install locales && echo "\$LANG UTF-8" >"/etc/locale.gen"; \\
+  dpkg-reconfigure --frontend=noninteractive locales;update-locale LANG=\$LANG;  \\
+  echo ""
+EOF
+    }
+    __setup_files() {
+      cat <<EOF
+  echo "Updating system files "; \\
+  touch "/etc/profile" "/root/.profile" ; \\
+  { [ -f "/etc/bash/bashrc" ] && cp -Rf "/etc/bash/bashrc" "/root/.bashrc"; } || { [ -f "/etc/bashrc" ] && cp -Rf "/etc/bashrc" "/root/.bashrc"; } || { [ -f "/etc/bash.bashrc" ] && cp -Rf "/etc/bash.bashrc" "/root/.bashrc"; }; \\
+  sed -i 's|root:x:.*|root:x:0:0:root:/root:/bin/bash|g' "/etc/passwd"; \\
+  grep -s -q 'alias quit' "/root/.bashrc" || printf '# Profile\n\n%s\n' "alias quit='exit 0 2>/dev/null'" >>"/root/.bashrc"; \\
+  [ -f "/usr/local/etc/docker/env/default.sample" ] && [ -d "/etc/profile.d" ] && \\
+  cp -Rf "/usr/local/etc/docker/env/default.sample" "/etc/profile.d/container.env.sh" && chmod 755 "/etc/profile.d/container.env.sh"; \\
+  update-alternatives --install /bin/sh sh /bin/bash 1
+EOF
+    }
+    __os_users() {
+      cat <<EOF
+  echo "Setting up users and scripts "; \\
+  echo ""
+EOF
+    }
+    __users_init() {
+      cat <<EOF
+  echo "Running user configurations "; \\
+  echo ""
+EOF
+    }
+    __os_settings() {
+      cat <<EOF
+  echo "Setting OS Settings "; \\
+  echo ""
+EOF
+    }
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  elif [ "$name" = "rhel" ]; then
+    cat <<EOF >"$GEN_DOCKERFILE_CWD/rootfs/root/docker/init"
+#!/usr/bin/env sh
+# shellcheck shell=sh
+# shellcheck disable=SC2016
+set -x
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+YUM_OPTS="--skip-broken -y"
+RELEASE_VER="\${RELEASE_VER:-\$(grep --no-filename -s 'VERSION_ID=' /etc/*-release | awk -F '=' '{print \$2}' | sed 's#"##g' | awk -F '.' '{print \$1}' | grep '^')}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ "\$RELEASE_VER" -ge "9" ]; then
+  REPO_REPLACE="false"
+  YUM_OPTS_VER="--allowerasing --nobest"
+  RELEASE_FILE="https://github.com/rpm-devel/casjay-release/raw/main/casjay.rh9.repo"
+elif [ "\$RELEASE_VER" -ge "8" ]; then
+  REPO_REPLACE="true"
+  YUM_OPTS_VER="--allowerasing --nobest"
+  RELEASE_FILE="https://github.com/rpm-devel/casjay-release/raw/main/casjay.rh8.repo"
+elif [ "\$RELEASE_VER" -lt "8" ]; then
+  REPO_REPLACE="false"
+  YUM_OPTS_VER=""
+  RELEASE_FILE="https://github.com/rpm-devel/casjay-release/raw/main/casjay.rh.repo"
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+yum install \$YUM_OPTS \$YUM_OPTS_VER curl
+yum clean all -q
+rm -Rf /etc/yum.repos.d/*
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+[ -n "\$RELEASE_FILE" ] && curl -q -LSsf "\$RELEASE_FILE" -o "/etc/yum.repos.d/casjay.repo" 2>/dev/null || exit 1
+if [ "\$(uname -m)" != "x86_64" ] && [ "\$REPO_REPLACE" = "true" ]; then
+  sed -i 's|http://mirrors.elrepo.org/mirrors-elrepo.el\$releasever|https://github.com/rpm-devel/casjay-release/raw/main/ZREPO/RHEL/mirrors/remi|g' /etc/yum.repos.d/casjay.repo
+  sed -i 's|http://mirrors.elrepo.org/mirrors-elrepo-kernel.el\$releasever|https://github.com/rpm-devel/casjay-release/raw/main/ZREPO/RHEL/mirrors/remi|g' /etc/yum.repos.d/casjay.repo
+  sed -i 's|http://mirrors.elrepo.org/mirrors-elrepo-extras.el\$releasever|https://github.com/rpm-devel/casjay-release/raw/main/ZREPO/RHEL/mirrors/remi|g' /etc/yum.repos.d/casjay.repo
+  sed -i 's|http://cdn.remirepo.net/enterprise/\$releasever/safe/\$basearch/mirror|https://github.com/rpm-devel/casjay-release/raw/main/ZREPO/RHEL/mirrors/remi|g' /etc/yum.repos.d/casjay.repo
+  sed -i 's|https://rpms.remirepo.net/enterprise/\$releasever/php74/\$basearch/mirror|https://github.com/rpm-devel/casjay-release/raw/main/ZREPO/RHEL/mirrors/remi|g' /etc/yum.repos.d/casjay.repo
+else
+  true
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+mkdir -p "/root/.config/pkmgr"
+echo "PKMGR_OPTS=\"\$YUM_OPTS_VER\"" >"/root/.config/pkmgr/options.conf"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+[ -f "/etc/yum.repos.d/casjay.repo" ] && echo "yum repos has been setup" || exit 1
+pkmgr update
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+EOF
+    __init_files() {
+      cat <<EOF
+  echo "Creating and editing system files "; \\
+  mkdir -p "\${DEFAULT_DATA_DIR}" "\${DEFAULT_CONF_DIR}" "\${DEFAULT_TEMPLATE_DIR}" "/root/docker/setup" "/etc/profile.d"; \\
+  touch "/etc/profile" "/root/.profile"; \\
+  pkmgr update && pkmgr install epel-release; crb enable || true; \\
+  echo ""
+EOF
+    }
+    __setup_files() {
+      cat <<EOF
+  echo "Updating system files "; \\
+  { [ -f "/etc/bash/bashrc" ] && cp -Rf "/etc/bash/bashrc" "/root/.bashrc"; } || { [ -f "/etc/bashrc" ] && cp -Rf "/etc/bashrc" "/root/.bashrc"; } || { [ -f "/etc/bash.bashrc" ] && cp -Rf "/etc/bash.bashrc" "/root/.bashrc"; }; \\
+  sed -i 's|root:x:.*|root:x:0:0:root:/root:/bin/bash|g' "/etc/passwd" ; \\
+  grep -s -q 'alias quit' "/root/.bashrc" || printf '# Profile\n\n%s\n%s\n%s\n' '. /etc/profile' '. /root/.profile' "alias quit='exit 0 2>/dev/null'" >>"/root/.bashrc"; \\
+  [ -f "/usr/local/etc/docker/env/default.sample" ] && [ -d "/etc/profile.d" ] && \\
+  cp -Rf "/usr/local/etc/docker/env/default.sample" "/etc/profile.d/container.env.sh" && chmod 755 "/etc/profile.d/container.env.sh"; \\
+  BASH_CMD="\$(type -P bash)" ; [ -f "\$BASH_CMD" ] && { [ -f "/bin/sh" ] && rm -rf "/bin/sh" || true; } && ln -sf "\$BASH_CMD" "/bin/sh"
+EOF
+    }
+  elif [ "$name" = "ubuntu" ]; then
+    __init_files() {
+      cat <<EOF
+  echo "Creating and editing system files "; \\
+  mkdir -p "\${DEFAULT_DATA_DIR}" "\${DEFAULT_CONF_DIR}" "\${DEFAULT_TEMPLATE_DIR}" "/root/docker/setup" "/etc/profile.d"; \\
+  echo 'export DEBIAN_FRONTEND="'\${DEBIAN_FRONTEND}'"' >"/etc/profile.d/apt.sh" && chmod 755 "/etc/profile.d/apt.sh"; \\
+  pkmgr update && pkmgr install locales && echo "\$LANG UTF-8" >"/etc/locale.gen"; \\
+  dpkg-reconfigure --frontend=noninteractive locales;update-locale LANG=\$LANG;  \\
+  echo ""
+EOF
+    }
+    __setup_files() {
+      cat <<EOF
+  echo "Updating system files "; \\
+  touch "/etc/profile" "/root/.profile"; \\
+  { [ -f "/etc/bash/bashrc" ] && cp -Rf "/etc/bash/bashrc" "/root/.bashrc"; } || { [ -f "/etc/bashrc" ] && cp -Rf "/etc/bashrc" "/root/.bashrc"; } || { [ -f "/etc/bash.bashrc" ] && cp -Rf "/etc/bash.bashrc" "/root/.bashrc"; }; \\
+  sed -i 's|root:x:.*|root:x:0:0:root:/root:/bin/bash|g' "/etc/passwd"; \\
+  grep -s -q 'alias quit' "/root/.bashrc" || printf '# Profile\n\n%s\n' "alias quit='exit 0 2>/dev/null'" >>"/root/.bashrc"; \\
+  [ -f "/usr/local/etc/docker/env/default.sample" ] && [ -d "/etc/profile.d" ] && \\
+  cp -Rf "/usr/local/etc/docker/env/default.sample" "/etc/profile.d/container.env.sh" && chmod 755 "/etc/profile.d/container.env.sh"; \\
+  update-alternatives --install /bin/sh sh /bin/bash 1
+EOF
+    }
+    __os_users() {
+      cat <<EOF
+  echo "Setting up users and scripts "; \\
+  echo ""
+EOF
+    }
+    __users_init() {
+      cat <<EOF
+  echo "Running user configurations "; \\
+  echo ""
+EOF
+    }
+    __os_settings() {
+      cat <<EOF
+  echo "Setting OS Settings "; \\
+  echo ""
+EOF
+    }
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables

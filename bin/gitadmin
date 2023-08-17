@@ -525,7 +525,9 @@ __gitea_create_repo() {
   local resp=""
   local token="$GIT_PRIVATE_ACCESS_TOKEN"
   local url="https://$GITADMIN_PERSONAL_GIT_HOST/api/v1/user/repos"
-  resp="$(curl -q -LSsf -X 'POST' -H "Authorization: token $token" -H "Content-Type: application/json" -H 'accept: application/json' --data "{ \"auto_init\": false,\"default_branch\": \"main\",\"name\": \"$1\",\"description\": \"$2\",\"private\": ${3:-false} }" "$url" 2>/dev/null | ____jq -r '.id' || false)"
+  private="${3:-false}"
+  [ "$GITADMIN_REPO_VISIBLE" = "no" ] && private="true"
+  resp="$(curl -q -LSsf -X 'POST' -H "Authorization: token $token" -H "Content-Type: application/json" -H 'accept: application/json' --data "{ \"auto_init\": false,\"default_branch\": \"main\",\"name\": \"$1\",\"description\": \"$2\",\"private\": $private }" "$url" 2>/dev/null | ____jq -r '.id' || false)"
   if [ -n "$resp" ]; then
     echo "$resp" | ____jq -r
     exitCode=0
@@ -539,7 +541,9 @@ __gitea_create_repo() {
 __gitea_create_org() {
   local token="$GIT_PRIVATE_ACCESS_TOKEN"
   local url="https://$GITADMIN_PERSONAL_GIT_HOST/api/v1/admin/users/$1/orgs"
-  curl -q -LSsf -X 'POST' -H "Authorization: token $token" -H 'Content-Type: application/json' -H 'accept: application/json' --data "{ \"username\": \"$2\", \"description\": \"$3\", \"website\": \"$4\", \"visibility\": \"${5:-public}\" }" "$url" 2>/dev/null | ____jq -r '.'
+  private="${5:-false}"
+  [ "$GITADMIN_REPO_VISIBLE" = "no" ] && private="true"
+  curl -q -LSsf -X 'POST' -H "Authorization: token $token" -H 'Content-Type: application/json' -H 'accept: application/json' --data "{ \"username\": \"$2\", \"description\": \"$3\", \"website\": \"$4\", \"visibility\": \"$private\" }" "$url" 2>/dev/null | ____jq -r '.'
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -590,6 +594,7 @@ __github_to_gitea() {
     website="$(echo "$REPO_INFO" | ____jq -r '.homepage' | grep -v 'null' | grep '^' || echo "$gitea_url")"
     avatar="$(echo "$REPO_INFO" | ____jq -r '.owner.avatar_url' | grep -v 'null' | grep '^' || echo "")"
     description="$(echo "$REPO_INFO" | ____jq -r '.description' | grep -v 'null' | grep '^' || echo "$REPO_NAME")"
+    [ "$GITADMIN_REPO_VISIBLE" = "no" ] && private="true"
     if curl -q -LSsf -X 'GET' "https://$GITEA_DOMAIN/api/v1/repos/$GITEA_ORG_NAME/$REPO_NAME" -H 'accept: application/json' 2>/dev/null | ____jq -r '.full_name' | grep -q "$REPO_NAME"; then
       printf_yellow "🔀🔀 The repo: $GITEA_ORG_NAME/$REPO_NAME already exists 🔀🔀"
       curl -q -LfSs -X PATCH -u "$GITEA_USERNAME:$GITEA_TOKEN" "https://$GITEA_DOMAIN/api/v1/repos/$GITEA_ORG_NAME/$REPO_NAME" -H 'accept: application/json' -H 'Content-Type: application/json' -d "{ \"repo_name\": \"$REPO_NAME\", \"repo_owner\": \"$GITEA_ORG_NAME\", \"auth_username\": \"$GITHUB_USERNAME\", \"auth_token\": \"$GITHUB_TOKEN\", \"clone_addr\": \"$URL\", \"description\": \"$description\", \"website\": \"$website\", \"avatar_url\": \"$avatar\", \"issues\": true, \"labels\": true, \"lfs\": true, \"milestones\": true, \"mirror\": true, \"mirror_interval\": \"3600s\", \"private\": $private, \"pull_requests\": true, \"releases\": true, \"uid\": 0, \"wiki\": true , \"service\": \"git\" }" >"$GITADMIN_TEMP_FILE" 2>&1
@@ -1382,10 +1387,11 @@ curl_orgs_create() {
   local repo="$2"
   local DESCR="${3:-$DESCR}"
   local SITE="${4:-$HOMEPAGE}"
-  local VISIBLE="${5:-$VISIBLE}"
+  local VISIBLE="${5:-$GITADMIN_REPO_VISIBLE}"
   local HOMEPAGE="${SITE:-http://github.com/$user/$repo}"
   local url="https://api.github.com/orgs/$user/repos"
   [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
+  [ "$GITADMIN_REPO_VISIBLE" = "no" ] && VISIBLE="private"
   __curl_gh_api "$url" --data "{ \"name\": \"$repo\", \"description\": \"$DESCR\", \"homepage\": \"$SITE\", \"visibility\": \"${VISIBLE:-public}\", \"has_issues\": \"true\" }" >"$GITADMIN_TEMP_FILE"
   if grep -qis '"full_name".*"'$user'/'$repo'"' "$GITADMIN_TEMP_FILE"; then
     printf_green "https://github.com/$user/$repo has been created"
@@ -1408,10 +1414,11 @@ curl_user_create() {
   local repo="$2"
   local DESCR="${3:-$DESCR}"
   local SITE="${4:-$HOMEPAGE}"
-  local VISIBLE="${5:-$VISIBLE}"
+  local VISIBLE="${5:-$GITADMIN_REPO_VISIBLE}"
   local url="https://api.github.com/user/repos"
   local HOMEPAGE="${SITE:-http://github.com/$user/$repo}"
   [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
+  [ "$GITADMIN_REPO_VISIBLE" = "no" ] && VISIBLE="private"
   __curl_gh_api -f "$url" --data "{ \"name\": \"$repo\", \"description\": \"$DESCR\", \"homepage\": \"$SITE\", \"visibility\": \"${VISIBLE:-public}\", \"has_issues\": \"true\", \"has_projects\": \"false\" }" >"$GITADMIN_TEMP_FILE"
   if grep -qis '"full_name".*"'$user'/'$repo'"' "$GITADMIN_TEMP_FILE"; then
     return 0
@@ -1824,7 +1831,7 @@ SHORTOPTS="u:,o:,s:"
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
-LONGOPTS+=",user:,org:,single:,nolicense,noreadme,automated,cd,desc:,site:,delete,nopush,message:,type:,all"
+LONGOPTS+=",user:,org:,single:,nolicense,noreadme,automated,cd,desc:,site:,delete,nopush,message:,type:,all,private:"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="repos stow setup newsite private gitlab github single init gist orgs remote list lfs "
 ARRAY+="delete create pull clone push user update commit branch log status cron issues squash migrate "
@@ -1938,6 +1945,10 @@ while :; do
   --cd)
     shift 1
     GITADMIN_AUTO_CD="true"
+    ;;
+  --private)
+    GITADMIN_REPO_VISIBLE="$2"
+    shift 2
     ;;
   --desc)
     DESCR="$2"

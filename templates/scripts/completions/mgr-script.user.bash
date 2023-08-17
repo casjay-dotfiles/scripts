@@ -28,7 +28,7 @@
 _GEN_SCRIPT_REPLACE_FILENAME_completion() {
   #####################################################################
   local cur prev words cword opts split CONFDIR="" CONFFILE="" SEARCHDIR=""
-  local SHOW_COMP_OPTS="" SHORTOPTS="" LONGOPTS="" ARRAY="" LIST="" SHOW_COMP_OPTS_SEP=""
+  local SHOW_COMP_OPTS="" NOOPTS="" SHORTOPTS="" LONGOPTS="" ARRAY="" LIST="" SHOW_COMP_OPTS_SEP=""
   #####################################################################
   _init_completion || return
   #####################################################################
@@ -55,8 +55,10 @@ _GEN_SCRIPT_REPLACE_FILENAME_completion() {
   SHORTOPTS="-a -f"
   SHORTOPTS+=""
   #####################################################################
-  LONGOPTS="--all --completions --config --debug --force --help --options --raw --version "
+  LONGOPTS="--all --completions --config --debug --dir --help --options --raw --version --silent --force --no "
   LONGOPTS+=""
+  #####################################################################
+  #NOOPTS="--no-* "
   #####################################################################
   ARRAY="available cron download install list remove search update version "
   ARRAY+=""
@@ -85,6 +87,10 @@ _GEN_SCRIPT_REPLACE_FILENAME_completion() {
       ;;
     --debug | --raw | --help | --version | --config | --options)
       COMPREPLY=($(compgen -W '${ARRAY} ${LONGOPTS} ${SHORTOPTS}' -- ${cur}))
+      return 0
+      ;;
+    --no-*)
+      COMPREPLY=($(compgen -W '${NOOPTS}' -- "$cur"))
       return 0
       ;;
     --all)

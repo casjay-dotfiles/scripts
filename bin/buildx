@@ -280,7 +280,7 @@ __sudo() {
 # End of sudo functions
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __trap_exit() {
-  exitCode=${exitCode:-0}
+  local exitCode=$?
   [ -f "$BUILDX_TEMP_FILE" ] && rm -Rf "$BUILDX_TEMP_FILE" &>/dev/null
   if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
   return $exitCode
@@ -292,6 +292,7 @@ __trap_exit_local() {
   [ "$_DEBUG" != "on" ] || { [ -n "$exitCode" ] && echo $exitCode; }
   __buildx_cleanup && exitCode=0
   __remove_pid
+  [ -f "$BUILD_FAILED_LOG" ] && [ "$exitCode" -ne 0 ] || exitCode=0
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -328,10 +329,12 @@ __create_update_docker_daemon_config() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __last_build_check() {
-  if [ -f "${1:-$BUILDX_CWD}/.build_failed" ]; then
+  local version="$(echo "$Dockerfile" | sed 's|[a-zA-Z]||g;s| ||g')"
+  [ -n "$version" ] && BUILD_FAILED_LOG="build_failed$version" || BUILD_FAILED_LOG="build_failed"
+  if [ -f "${1:-$BUILDX_CWD}/.$BUILD_FAILED_LOG" ]; then
     printf_red "Please note the last build had failed!!"
     printf_red "Please check the error log and fix all problems"
-    printf_yellow "To remove this warning delete ${1:-$BUILDX_CWD}/.build_failed"
+    printf_yellow "To remove this warning delete ${1:-$BUILDX_CWD}/.$BUILD_FAILED_LOG"
     return 20
   fi
 }
@@ -1086,6 +1089,8 @@ __run_docker_build() {
 __build_cmd() {
   local exitCodeS="1"
   local dir="${1:-$FULL_DIR_PATH}"
+  local version="$(echo "$Dockerfile" | sed 's|[a-zA-Z]||g;s| ||g')"
+  [ -n "$version" ] && BUILD_FAILED_LOG="build_failed$version" || BUILD_FAILED_LOG="build_failed"
   __last_build_check "$dir"
   if ! __is_buildx_installed; then
     printf_yellow "💔 buildx is not installed - Using 'docker build' instead. 💔"
@@ -1094,11 +1099,12 @@ __build_cmd() {
   exitCodeS=$?
   if [ "$exitCodeS" -ne 0 ]; then
     printf_yellow "The last 50 lines of the log are in:"
-    printf_cyan "$BUILDX_CWD/.build_failed"
+    printf_cyan "$BUILDX_CWD/.$BUILD_FAILED_LOG"
     printf_blue "Full log is in the logfile"
-    echo "build failed on $(date +'%Y-%m-%d at %H:%M')" >"$BUILDX_CWD/.build_failed"
-    tail -n50 "$logfile" >>"$BUILDX_CWD/.build_failed"
+    echo "build failed on $(date +'%Y-%m-%d at %H:%M')" >"$BUILDX_CWD/.$BUILD_FAILED_LOG"
+    tail -n75 "$logfile" >>"$BUILDX_CWD/.$BUILD_FAILED_LOG"
   fi
+  BUILD_FAILED_LOG="${BUILD_FAILED_LOG:-}"
   return ${exitCodeS:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

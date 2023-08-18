@@ -302,6 +302,11 @@ HOST_X11_XAUTH=""
 CONTAINER_X11_SOCKET="/tmp/.X11-unix"
 CONTAINER_X11_XAUTH="/home/x11user/.Xauthority"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# /proc /sys /dev mounts
+HOST_DEV_MOUNT_ENABLED="no"
+HOST_SYS_MOUNT_ENABLED="no"
+HOST_PROC_MOUNT_ENABLED="no"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set container hostname and domain - Default: [GEN_SCRIPT_REPLACE_APPNAME.$SET_HOST_FULL_NAME] [$SET_HOST_FULL_DOMAIN]
 CONTAINER_HOSTNAME=""
 CONTAINER_DOMAINNAME=""
@@ -559,6 +564,9 @@ CONTAINER_X11_ENABLED="\${ENV_CONTAINER_X11_ENABLED:-$CONTAINER_X11_ENABLED}"
 HOST_X11_DISPLAY="\${ENV_HOST_X11_DISPLAY:-$HOST_X11_DISPLAY}"
 HOST_X11_SOCKET="\${ENV_HOST_X11_SOCKET:-$HOST_X11_SOCKET}"
 HOST_X11_XAUTH="\${ENV_HOST_X11_XAUTH:-$HOST_X11_XAUTH}"
+HOST_DEV_MOUNT_ENABLED="\${ENV_HOST_DEV_MOUNT_ENABLED:-$HOST_DEV_MOUNT_ENABLED}"
+HOST_SYS_MOUNT_ENABLED="\${ENV_HOST_SYS_MOUNT_ENABLED:-$HOST_SYS_MOUNT_ENABLED}"
+HOST_PROC_MOUNT_ENABLED="\${ENV_HOST_PROC_MOUNT_ENABLED:-$HOST_PROC_MOUNT_ENABLED}"
 CONTAINER_X11_SOCKET="\${ENV_CONTAINER_X11_SOCKET:-$CONTAINER_X11_SOCKET}"
 CONTAINER_X11_XAUTH="\${ENV_CONTAINER_X11_XAUTH:-$CONTAINER_X11_XAUTH}"
 CONTAINER_HOSTNAME="\${ENV_CONTAINER_HOSTNAME:-$CONTAINER_HOSTNAME}"
@@ -1144,6 +1152,17 @@ if [ -e "$HOST_SOUND_DEVICE_FILE" ] || [ -e "/dev/snd" ]; then
       DOCKER_SET_OPTIONS+=("--device $HOST_SOUND_DEVICE_FILE:$CONTAINER_SOUND_DEVICE_FILE")
     fi
   fi
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# /proc /sys /dev mounts
+if [ "$HOST_DEV_MOUNT_ENABLED" = "yes" ]; then
+  DOCKER_SET_OPTIONS+=("--volume /dev:dev:z")
+fi
+if [ "$HOST_PROC_MOUNT_ENABLED" = "yes" ]; then
+  DOCKER_SET_OPTIONS+=("--volume /proc:/proc:z")
+fi
+if [ "$HOST_SYS_MOUNT_ENABLED" = "yes" ]; then
+  DOCKER_SET_OPTIONS+=("--volume /sys:/sys:z")
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # set password length

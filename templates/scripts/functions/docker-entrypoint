@@ -58,6 +58,12 @@ __find_mongodb_conf() { return; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __random_password() { cat "/dev/urandom" | tr -dc '0-9a-zA-Z' | head -c${1:-16} && echo ""; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__exec_service() {
+  echo "Starting $1"
+  eval "$@" 2>>/dev/stderr &
+  [ $? -eq 0 ] && touch "/run/init.d/$1.pid" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __update_ssl_certs() {
   [ -f "/config/env/ssl.sh" ] && . "/config/env/ssl.sh"
   if [ -f "$SSL_CERT" ] && [ -f "$SSL_KEY" ]; then
@@ -352,6 +358,10 @@ __start_init_scripts() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_mta() {
+  [ -d "/etc/ssmtp" ] || [ -d "/etc/postfix" ] || return
+  if [ ! -d "/config/ssmtp" ] || [ ! -d "/config/postfix" ]; then
+    echo "Configuring smtp server"
+  fi
   local exitCode=0
   local relay_port="${EMAIL_RELAY//*:/}"
   local relay_server="${EMAIL_RELAY//:*/}"
@@ -359,7 +369,6 @@ __setup_mta() {
   local account_user="${SERVER_ADMIN//@*/}"
   local account_domain="${EMAIL_DOMAIN//*@/}"
   echo "$EMAIL_RELAY" | grep '[0-9][0-9]' || relay_port="465"
-
   ################# sSMTP relay setup
   if [ -n "$(type -P 'ssmtp')" ]; then
     [ -d "/config/ssmtp" ] || mkdir -p "/config/ssmtp"
@@ -383,21 +392,26 @@ EOF
     fi
     if [ -f "/config/ssmtp/ssmtp.conf" ]; then
       cp -Rf "/config/ssmtp/." "/etc/ssmtp/"
+      echo "Done setting up ssmtp"
     fi
 
     ################# postfix relay setup
   elif [ -n "$(type -P 'postfix')" ]; then
-    [ -d "/etc/postfix" ] || mkdir -p "/etc/postfix"
     [ -d "/config" ] || mkdir -p "/config"
+    [ -d "/etc/postfix" ] || mkdir -p "/etc/postfix"
     [ -f "/etc/postfix/main.cf" ] && rm -Rf "/etc/postfix/main.cf"
     if [ ! -f "/config/postfix/main.cf" ]; then
       cat <<EOF | tee "/config/postfix/main.cf" &>/dev/null
 # postfix configuration.
 smtpd_banner = \$myhostname ESMTP email server
 compatibility_level = 2
+inet_protocols = ipv4
+inet_interfaces = all
+mydestination =
+local_transport=error: local delivery disabled
+mynetworks = /etc/postfix/mynetworks
 alias_maps = hash:/etc/postfix/aliases
 alias_database = hash:/etc/postfix/aliases
-mynetworks = /etc/postfix/mynetworks
 transport_maps = hash:/etc/postfix/transport
 virtual_alias_maps = hash:/etc/postfix/virtual
 relay_domains = hash:/etc/postfix/mydomains, regexp:/etc/postfix/mydomains.pcre
@@ -407,28 +421,26 @@ smtpd_use_tls = yes
 smtpd_tls_session_cache_database = btree:/etc/postfix/smtpd_scache
 smtpd_tls_exclude_ciphers = aNULL, eNULL, EXPORT, DES, RC4, MD5, PSK, aECDH, EDH-DSS-DES-CBC3-SHA, EDH-RSA-DES-CBC3-SHA, KRB5-DES, CBC3-SHA
 smtpd_relay_restrictions = permit_mynetworks, permit_sasl_authenticated, defer_unauth_destination
-mydestination =
-inet_interfaces = all
 append_dot_mydomain = yes
 myorigin = $local_hostname
 myhostname = $local_hostname
-local_transport=error: local delivery disabled
 relayhost = [$relay_server]:$relay_port
-inet_protocols = ipv4
 
 EOF
     fi
-    touch "/config/postfix/aliases" "/config/postfix/mynetworks" "/config/postfix/transport"
-    touch "/config/postfix/mydomains.pcre" "/config/postfix/mydomains" "/config/postfix/virtual"
-    if [ -f "/config/postfix/main.cf" ] && [ ! -f "/run/init.d/postfix.pid" ]; then
-      SERVICES_LIST+="postfix "
+    if [ -d "/config/postfix" ]; then
+      touch "/config/postfix/aliases" "/config/postfix/mynetworks" "/config/postfix/transport"
+      touch "/config/postfix/mydomains.pcre" "/config/postfix/mydomains" "/config/postfix/virtual"
+      postmap "/config/aliases" "/config/mynetworks" "/config/transport" &>/dev/null
+      postmap "/config/mydomains.pcre" "/config/mydomains" "/config/virtual" &>/dev/null
       cp -Rf "/config/postfix/." "/etc/postfix/"
-      postmap "/etc/postfix/aliases" "/etc/postfix/mynetworks" "/etc/postfix/transport" &>/dev/null
-      postmap "/etc/postfix/mydomains.pcre" "/etc/postfix/mydomains" "/etc/postfix/virtual" &>/dev/null
+    fi
+    if [ -f "/etc/postfix/main.cf" ] && [ ! -f "/run/init.d/postfix.pid" ]; then
+      SERVICES_LIST+="postfix "
       if [ ! -f "/run/init.d/postfix.pid" ]; then
-        __exec_command postfix start &
-        [ $? -eq 0 ] && touch "/run/init.d/postfix.pid" || exitCode=1
+        __exec_service postfix start
       fi
+      echo "Done setting up postfix"
     fi
   fi
   [ -f "/root/dead.letter" ] && rm -Rf "/root/dead.letter"
@@ -436,7 +448,7 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # set variables from function calls
-SET_RANDOM_PASS="${SET_RANDOM_PASS:-$(__random_password 14)}"
+SET_RANDOM_PASS="${SET_RANDOM_PASS:-$(__random_password 16)}"
 CONTAINER_IP4_ADDRESS="${CONTAINER_IP4_ADDRESS:-$(__get_ip4)}"
 CONTAINER_IP6_ADDRESS="${CONTAINER_IP6_ADDRESS:-$(__get_ip6)}"
 PHP_INI_DIR="${PHP_INI_DIR:-$(__find_php_ini)}"

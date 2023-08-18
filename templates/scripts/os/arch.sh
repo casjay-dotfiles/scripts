@@ -230,7 +230,7 @@ printf_head "Fixing packages"
 run_grub
 
 ##################################################################################################################
-printf_head "Installing the packages from AUR"
+printf_head "Installing packages: AUR"
 ##################################################################################################################
 install_aur ttf-font-awesome
 install_aur brackets-bin

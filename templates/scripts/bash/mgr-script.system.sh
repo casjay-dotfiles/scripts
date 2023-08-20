@@ -391,6 +391,9 @@ __run_search() {
   return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# check if arg is a builtin option
+__is_an_option() { echo "$ARRAY" | grep -q "${1:-^}" && return 1 ; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Is current user root
 __user_is_root() {
   { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1

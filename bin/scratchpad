@@ -270,6 +270,80 @@ __trap_exit() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
 __date() { date +"$1" 2>/dev/null; }
+__git_status() { __git_head || return 1; }
+__urlverify() { curl -q -LSsfIk "$1" -o /dev/null 2>/dev/null || return 10; }
+__git_commit() { if __git_status; then gitcommit "$SCRATCHPAD_HOME" scratchpad; else return 0; fi; }
+__git_head() { [ -d "$SCRATCHPAD_HOME/.git" ] && git -C "$SCRATCHPAD_HOME" status --porcelain 2>&1 | grep -q '^' || return 1; }
+__dir_is_empty() { [ "$([ -d "$SCRATCHPAD_HOME" ] && \find "$SCRATCHPAD_HOME"/* -type f,d -not -path '**/.git*' 2>/dev/null | wc -l || echo '0')" -eq 0 ] || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__update_gitignore() {
+  if ! grep -qsF '**/*.tmp' "$SCRATCHPAD_HOME/.gitignore"; then
+    printf '%s\n%s\n' "# Ignore temp files" "**/*.tmp" >>"$SCRATCHPAD_HOME/.gitignore"
+    git -C "$SCRATCHPAD_HOME" add .gitignore &>/dev/null && git -C "$SCRATCHPAD_HOME" commit -m "🎆🎆 Updated .gitignore 🎆🎆" -q
+    return $?
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__run_git() {
+  if [ -d "$SCRATCHPAD_HOME/.git" ] && [ ! -f "$SCRATCHPAD_HOME/.nogit" ]; then
+    if [ ! -f "$SCRATCHPAD_HOME/README.md" ]; then
+      printf '# 👋 My scratchpad 👋  \nThis repo is a backup of my scratchpads  \n\n' >"$SCRATCHPAD_HOME/README.md"
+    fi
+    if [ ! -f "$SCRATCHPAD_HOME/scratchpad.conf" ]; then
+      cp -Rf "$SCRATCHPAD_CONFIG_DIR/$SCRATCHPAD_CONFIG_FILE" "$SCRATCHPAD_HOME/scratchpad.conf"
+    fi
+    __git_commit
+    return $?
+  else
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__run_git_import() {
+  [ -d "$SCRATCHPAD_HOME/.git" ] && return 0
+  [ -f "$SCRATCHPAD_HOME/.nogit" ] && return 0
+  __dir_is_empty || return 1
+  printf_read_question 6 "Would you like to import from git" "1" "Yy"
+  if printf_answer_yes "$Yy"; then
+    printf_read_question "3" "URL is the url to repo ?" "120" "SCRATCHPAD_GIT_URL"
+    echo "$SCRATCHPAD_GIT_URL" | grep -q '://' || SCRATCHPAD_GIT_URL="https://github.com/$SCRATCHPAD_GIT_URL"
+    __urlverify "$SCRATCHPAD_GIT_URL" &>/dev/null || printf_exit 1 1 "$SCRATCHPAD_GIT_URL is not a valid url"
+    [ -n "$SCRATCHPAD_GIT_URL" ] && __git_import "$SCRATCHPAD_GIT_URL" || printf_exit "no repo specified"
+    __update_gitignore
+  else
+    mkdir -p "$SCRATCHPAD_HOME"
+    touch "$SCRATCHPAD_HOME/.nogit"
+    printf_exit "Import cancelled by user"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__git_import() {
+  [ -n "$1" ] || return 0
+  [ -d "$SCRATCHPAD_HOME/.git" ] && return 0
+  [ -f "$SCRATCHPAD_HOME/.nogit" ] && return 0
+  __dir_is_empty || printf_exit "$SCRATCHPAD_HOME is not empty"
+  echo "$1" | grep -q '://' && SCRATCHPAD_GIT_URL="$1" || SCRATCHPAD_GIT_URL="https://github.com/$1"
+  git clone "$SCRATCHPAD_GIT_URL" "$SCRATCHPAD_HOME" -q &>/dev/null || printf_exit "Failed to clone $SCRATCHPAD_GIT_URL"
+  if [ -f "$SCRATCHPAD_HOME/scratchpad.conf" ]; then
+    cp -Rf "$SCRATCHPAD_HOME/scratchpad.conf" "$SCRATCHPAD_CONFIG_DIR/$SCRATCHPAD_CONFIG_FILE"
+    . "$SCRATCHPAD_CONFIG_DIR/$SCRATCHPAD_CONFIG_FILE" && __gen_config &>/dev/null
+  else
+    __gen_config &>/dev/null
+    cat "$SCRATCHPAD_CONFIG_DIR/$SCRATCHPAD_CONFIG_FILE" | grep -v "GITHUB_ACCESS_TOKEN=" >"$SCRATCHPAD_HOME/scratchpad.conf"
+    sed -i 's|SCRATCHPAD_HOME="/home/jason|SCRATCHPAD_HOME="$HOME|g' "$SCRATCHPAD_HOME/scratchpad.conf"
+    sed -i 's|SCRATCHPAD_GIT_URL=.*$|SCRATCHPAD_GIT_URL="'$SCRATCHPAD_GIT_URL'"|g' "$SCRATCHPAD_HOME/scratchpad.conf"
+    . "$SCRATCHPAD_HOME/scratchpad.conf" && __gen_config &>/dev/null
+  fi
+  { [ -d "$SCRATCHPAD_HOME/.git" ] && [ -f "$SCRATCHPAD_HOME/scratchpad.conf" ]; } && printf_blue "Import was successful" || printf_exit "Import has failed"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__run_git_update() {
+  if [ -d "$SCRATCHPAD_HOME/.git" ]; then
+    __git_head || gitadmin --dir "$SCRATCHPAD_HOME" pull &>/dev/null
+  else
+    return 1
+  fi
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __editor_config() {
   local editor="$(type -P "$SCRATCHPAD_EDITOR" 2>/dev/null || type -P "vim" 2>/dev/null || type -P "nano" 2>/dev/null || type -P "nvim" 2>/dev/null || type -P "vi" 2>/dev/null || type -P "vi" 2>/dev/null || false)"
@@ -548,6 +622,7 @@ export SCRATCHPAD_CWD
 #am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
+[ "$1" = "git" ] || __run_git_update || __run_git_import
 SCRATCHPAD_BASE_DIR="$(__date ${SCRATCHPAD_YEAR_FMT:-%Y})"
 SCRATCHPAD_FILE_BASEDIR="${SCRATCHPAD_BASE_DIR//\//}"
 SCRATCHPAD_TITLE="$(__date "${SCRATCHPAD_TITLE:-%B %d, $SCRATCHPAD_YEAR_FMT created at $SCRATCHPAD_HOUR_FMT}")"

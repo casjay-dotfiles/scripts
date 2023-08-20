@@ -218,6 +218,7 @@ printf_success() { printf_color "$ICON_GOOD $1\n" 2; }
 printf_warning() { printf_color "$ICON_WARN $1\n" 3; }
 printf_execute_success() { printf_color "$ICON_GOOD $1\n" 2; }
 printf_execute_error() { printf_color "$ICON_WARN $1 $2\n" 1; }
+__printf_space() { printf "%b%${1:-30}s" "$(tput setaf "${4:-5}" 2>/dev/null)${2}" "${3}$(tput sgr0 2>/dev/null)"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_error_stream() {
   while read -r line; do
@@ -238,6 +239,16 @@ printf_execute_result() {
     printf_execute_error "${3:-$2}"
   fi
   return "$1"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# __printf_spacing "color" "space" "lightSide" "rightSide"
+printf_spacing() {
+  test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="5"
+  test -n "$1" && test -z "${1//[0-9]/}" && local space="$1" && shift 1 || local space="20"
+  local left="${1}"
+  local right="${2}"
+  __printf_space "$space" "$left" "$right" "${PRINTF_COLOR:-$color}"
+  printf "\n"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_question() {

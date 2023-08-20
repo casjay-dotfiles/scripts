@@ -44,13 +44,13 @@ printf_newline() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ "$SHOW_RAW" = "true" ]; then
   unset -f printf_color
-  printf_color() { printf '%b' "$1" | tr -d '\t'; }
   __printf_color() { printf_color "$1"; }
+  printf_color() { printf '%b' "$1" | tr -d '\t'; }
+  __printf_space() { printf "%b%${1:-30}s" "${2}" "${3}"; }
 else
   __printf_color() { printf_color "$@"; }
-  printf_color() {
-    printf "%b" "$(tput setaf "$2" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"
-  }
+  printf_color() { printf "%b" "$(tput setaf "$2" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+  __printf_space() { printf "%b%${1:-30}s" "$(tput setaf "${4:-5}" 2>/dev/null)${2}" "${3}$(tput sgr0 2>/dev/null)"; }
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_reset() {
@@ -152,6 +152,16 @@ printf_console() {
   shift
   printf_color "\n$msg" "${PRINTF_COLOR:-$color}"
   printf "\n\n"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# __printf_spacing "color" "space" "lightSide" "rightSide"
+printf_spacing() {
+  test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="5"
+  test -n "$1" && test -z "${1//[0-9]/}" && local space="$1" && shift 1 || local space="20"
+  local left="${1}"
+  local right="${2}"
+  __printf_space "$space" "$left" "$right" "${PRINTF_COLOR:-$color}"
+  printf "\n"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_pause() {
@@ -268,7 +278,7 @@ printf_column() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_cat() {
-  file=${1:--}
+  file="${1:--}"
   while IFS= read -r line; do
     printf '%s\n' "$line"
   done < <(cat -- "$file")

@@ -179,7 +179,7 @@ __help() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # check if arg is a builtin option
-__is_an_option() { echo "$ARRAY" | grep -q "${1:-^}" && return 1 ; }
+__is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0;fi; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Is current user root
 __user_is_root() {
@@ -461,7 +461,7 @@ done
 # set -- "${SET_NEW_ARGS[@]}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set directory to first argument
-# [ -d "$1" ] && TERMBIN_COM_CWD="$1" && shift 1 || TERMBIN_COM_CWD="${TERMBIN_COM_CWD:-$PWD}"
+# [ -d "$1" ] && __is_an_option "$1" && TERMBIN_COM_CWD="$1" && shift 1 || TERMBIN_COM_CWD="${TERMBIN_COM_CWD:-$PWD}"
 TERMBIN_COM_CWD="$(realpath "${TERMBIN_COM_CWD:-$PWD}" 2>/dev/null)"
 # if [ -d "$TERMBIN_COM_CWD" ] && cd "$TERMBIN_COM_CWD"; then
 # if [ "$TERMBIN_COM_SILENT" != "true" ] && [ "$CWD_SILENCE" != "true" ]; then

@@ -185,7 +185,7 @@ __help() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # check if arg is a builtin option
-__is_an_option() { echo "$ARRAY" | grep -q "${1:-^}" && return 1 ; }
+__is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0;fi; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Is current user root
 __user_is_root() {
@@ -511,7 +511,7 @@ done
 # set -- "${SET_NEW_ARGS[@]}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set directory to first argument
-# [ -d "$1" ] && TRANSFER_SH_CWD="$1" && shift 1 || TRANSFER_SH_CWD="${TRANSFER_SH_CWD:-$PWD}"
+# [ -d "$1" ] && __is_an_option "$1" && TRANSFER_SH_CWD="$1" && shift 1 || TRANSFER_SH_CWD="${TRANSFER_SH_CWD:-$PWD}"
 TRANSFER_SH_CWD="$(realpath "${TRANSFER_SH_CWD:-$PWD}" 2>/dev/null)"
 # if [ -d "$TRANSFER_SH_CWD" ] && cd "$TRANSFER_SH_CWD"; then
 # if [ "$TRANSFER_SH_SILENT" != "true" ] && [ "$CWD_SILENCE" != "true" ]; then

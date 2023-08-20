@@ -271,6 +271,8 @@ __trap_exit() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
+__retrieve_variable() { awk -F'=' '{print $2}' | sed 's|"||g;s|^ ||g' | grep -v '^$' | grep '^' || echo "0"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_enabled() {
   BLOG_GIT_ENABLED="${1:-$BLOG_GIT_ENABLED}"
   if [ -f "${BLOG_CONFIG_DIR}/$BLOG_NAME.nogit" ] || [ "$BLOG_GIT_ENABLED" = "" ]; then
@@ -292,13 +294,11 @@ __findcmd() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_count() {
-  set -x
   count=0
-  __remove() { awk -F'=' '{print $2}' | sed '#"##;s#^ ##g' | grep -v '^$' | grep '^' || echo '0'; }
   if [ -f "$BLOG_CONFIG_DIR/$BLOG_NAME.cont" ]; then
-    count=$(grep -s "$BLOG_CONFIG_DIR/$BLOG_NAME.cont" | __remove)
+    count=$(grep -s "BLOG_PAGE_COUNT" "$BLOG_CONFIG_DIR/$BLOG_NAME.cont" | __retrieve_variable)
   elif [ -f "$BLOG_CONFIG_DIR/$BLOG_CONFIG_FILE" ]; then
-    count=$(grep -s "$BLOG_PAGE_COUNT" "$BLOG_CONFIG_DIR/$BLOG_CONFIG_FILE" | __remove)
+    count=$(grep -s "BLOG_PAGE_COUNT" "$BLOG_CONFIG_DIR/$BLOG_CONFIG_FILE" | __retrieve_variable)
   else
     count=0
   fi
@@ -319,27 +319,27 @@ __git_message() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup() {
   local ARGS="$*"
+  local exitStatus=0
   BLOG_NAME="$(basename "${BLOG_DIR}")"
   if __blog_init "$BLOG_DIR"; then
     if [ -f "$BLOG_CONFIG_DIR/$BLOG_CONFIG_FILE" ]; then
       ln -sf "$BLOG_CONFIG_DIR/$BLOG_CONFIG_FILE" "$BLOG_CONFIG_DIR/$BLOG_NAME.conf"
-      EXIT=0
     else
       printf_red "The file $BLOG_CONFIG_DIR/$BLOG_CONFIG_FILE doesn't exist"
-      EXIT=1
+      exitStatus=1
     fi
   else
-    EXIT=1
+    exitStatus=1
   fi
-  if [ $EXIT = 0 ]; then
+  if [ $exitStatus = 0 ]; then
     __mkd "$BLOG_DIR/_posts" "$BLOG_DIR/_pages"
     __newpage_template "index" "Welcome to your new site"
     $APPNAME $ARGS
     exit $?
   else
-    EXIT=1
+    exitStatus=1
   fi
-  return ${EXIT:-$?}
+  return ${exitStatus:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __blog_init() {
@@ -372,6 +372,7 @@ __blog_init() {
     else
       printf_red "Not enabling git for $BLOG_DIR"
     fi
+    export BLOG_INIT_SETUP="true"
   fi
   return $?
 }
@@ -431,6 +432,7 @@ __edit() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __make_file() {
   file="$1" && shift 1
+  title="${1:-$BLOG_NEW_FILE_TITLE}"
   dir="$(dirname "${file/$BLOG_DIR/}" | __sed 's|^/||g;s|/$||g;s| |_|g')"
   date="$(date +"$BLOG_DATE_FORMAT")"
   if [ "$MAKE_DATE" = "no" ] || [[ "$dir" = _pages/** ]]; then
@@ -454,6 +456,7 @@ __make_file() {
 __blog_post_header() {
   local url=$(echo "${rawfile//$BLOG_DIR/}" | sed 's|_posts||g;s|_pages||g')
   local index="$(basename $rawfile)"
+  local get_title="${title:-$BLOG_NEW_FILE_TITLE}"
   if [ "$index" = index ]; then
     linkurl="$(dirname $url)/"
   else
@@ -462,12 +465,13 @@ __blog_post_header() {
   cat "$BLOG_TEMPLATE_DIR/blog/post.$BLOG_DEFAULT_EXT" |
     __sed "s|AuthorName|$BLOG_AUTHOR|g" |
     __sed "s|DATE|$(date +"$BLOG_DATE_FORMAT $BLOG_TIME_FORMAT")|g" |
-    __sed "s|TITLE|$title|g" |
+    __sed "s|TITLE|$get_title|g" |
     __sed "s|/myurl|$BLOG_POST_BASE_URL/$url|g" | sed 's|//|/|'
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __blog_page_header() {
   local url=$(echo "${rawfile//$BLOG_DIR/}" | sed 's|_posts||g;s|_pages||g')
+  local get_title="${title:-$BLOG_NEW_FILE_TITLE}"
   local index="$(basename $rawfile)"
   if [ "$index" = index ]; then
     linkurl="$(dirname $url)/"
@@ -477,7 +481,7 @@ __blog_page_header() {
   cat "$BLOG_TEMPLATE_DIR/blog/page.$BLOG_DEFAULT_EXT" |
     __sed "s|AuthorName|$BLOG_AUTHOR|g" |
     __sed "s|DATE|$(date +"$BLOG_DATE_FORMAT $BLOG_TIME_FORMAT")|g" |
-    __sed "s|TITLE|$title|g" |
+    __sed "s|TITLE|$get_title|g" |
     __sed "s|/myurl|$BLOG_PAGE_BASE_URL/$linkurl|g" |
     __sed "s|weight:.*|weight: $count|g" |
     __sed "s|BLOG_PAGE_COUNT=.*|BLOG_PAGE_COUNT=$count|g" |
@@ -498,11 +502,12 @@ __newpost_template() {
 __newpage_template() {
   MAKE_DATE="no"
   __make_file "_pages/$1"
-  title="$2"
+  BLOG_NEW_FILE_TITLE="$2"
   __get_count
   if [ ! -f "$file" ]; then
     __blog_page_header >"$file"
   fi
+  sed -i 's|permalink: //|permalink: /|g' "$file"
   __edit "$file"
   __blog_publish
 }
@@ -796,6 +801,7 @@ post)
 new)
   shift 1
   [ -z "${1}" ] && printf_red "Usage: $APPNAME new filename title" && exit 1
+  BLOG_NEW_FILE_TITLE="${2:-New file}"
   __make_file "$1"
   if [ "$dir" = "$BLOG_DIR" ] || [ "$dir" = "." ]; then
     file="$BLOG_DIR/_posts/$edit"
@@ -811,8 +817,20 @@ new)
   ;;
 
 *)
-  shift 1
-  __help
+  [ -n "${1}" ] || printf_exit "Usage: $APPNAME filename title"
+  BLOG_NEW_FILE_TITLE="${2:-New file}"
+  __make_file "$1"
+  if [ "$dir" = "$BLOG_DIR" ] || [ "$dir" = "." ]; then
+    file="$BLOG_DIR/_posts/$edit"
+    [ -d "$BLOG_DIR/_posts" ] || __mkd "$BLOG_DIR/_posts"
+  else
+    file="${file:?}"
+    [ -d "$dir" ] || __mkd "$dir"
+  fi
+  __blog_post_header >"$file"
+  __edit "$file"
+  __blog_publish "$file"
+  exit $?
   ;;
 esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

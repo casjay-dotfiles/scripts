@@ -1266,6 +1266,22 @@ __generate() {
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__remove_test_container() {
+  if [ -n "$(__container_exists "$1" || false)" ]; then
+    printf_read_question "4" "Should I delete the container?" "1"
+    if printf_answer_yes; then
+      __docker rm -f "$1" &>/dev/null
+      sudo rm -Rf "$2" &>/dev/null
+      [ -d "$2" ] && printf_yellow failed to delete "$2"
+    fi
+    exit 0
+  else
+    printf_red "Failed to create $1"
+    [ -s "$DOCKERMGR_TEMP_FILE" ] && cat "$DOCKERMGR_TEMP_FILE" | printf_readline
+    exit 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __attach() {
   local CONTAINER="${1:-$(__docker ps | grep -Eo "^[0-9a-z]{8,}\b")}"
   [ -n "$CONTAINER" ] || printf_exit "Please provide the container name"
@@ -1720,16 +1736,32 @@ builder)
 test)
   shift 1
   [ $# -ne 0 ] && set_image="$1" && shift 1 || printf_exit "Please provide the imageName [myuser/myimage]"
-  args="${*:-/bin/sh}"
-  fmt_name="${set_image//:*/}"
-  docker_args="${DOCKER_ARG[*]}"
-  base_name="$(basename "$fmt_name")"
-  set_name="$DOCKERMGR_CONTAINER_NAME"
-  name="${set_name:-casjaysdev-$base_name-test}"
-  status="$(__container_exists "$name" || false)"
-  mktemp="$DOCKERMGR_TEMP_DIR/volumes/${name// /_}"
-  echo "$set_image" | grep -q ':.*' || set_image="$set_image:latest"
-  image="$set_image"
+  if [ "$1" = "server" ]; then
+    shift 1
+    name="$1" && shift
+    [ -z "$*" ] || ports+="$*"
+    for p in $ports; do publish+="-p $p "; done
+    docker rm -f casjaysdevdocker-$name
+    rm -Rf "$HOME/.local/share/srv/docker/casjaysdevdocker-$name"
+    docker run -d --pull always --restart always --privileged --name casjaysdevdocker-$name \
+      --hostname $name -e TZ=${TIMEZONE:-America/New_York} \
+      -v $HOME/.local/share/srv/docker/casjaysdevdocker-$name/rootfs/data:/data:z \
+      -v $HOME/.local/share/srv/docker/casjaysdevdocker-$name/rootfs/config:/config:z \
+      $publish casjaysdevdocker/$name:latest
+    docker ps -a | grep -q "casjaysdevdocker-$name" && dockermgr log --follow casjaysdevdocker-$name
+    __remove_test_container "$name" "$HOME/.local/share/srv/docker/casjaysdevdocker-$name"
+  else
+    args="${*:-/bin/sh}"
+    fmt_name="${set_image//:*/}"
+    docker_args="${DOCKER_ARG[*]}"
+    base_name="$(basename "$fmt_name")"
+    set_name="$DOCKERMGR_CONTAINER_NAME"
+    name="${set_name:-casjaysdev-$base_name-test}"
+    status="$(__container_exists "$name" || false)"
+    mktemp="$DOCKERMGR_TEMP_DIR/volumes/${name// /_}"
+    echo "$set_image" | grep -q ':.*' || set_image="$set_image:latest"
+    image="$set_image"
+  fi
   printf_blue "Attempting to pull $image"
   __docker_pull "$image" &>/dev/null
   if __container_is_running; then
@@ -1753,19 +1785,7 @@ test)
     sudo chmod -Rf 755 "$mktemp"
     sudo chown -Rf $USER:$USER "$mktemp"
     __docker_run --name "$name" --hostname "$name" $docker_args -v $mktemp/config:/config -v $mktemp/data:/data "$image" $args 2>"$DOCKERMGR_TEMP_FILE"
-    if [ -n "$(__container_exists "$name" || false)" ]; then
-      printf_read_question "4" "Should I delete the container?" "1"
-      if printf_answer_yes; then
-        __docker rm -f "$name" &>/dev/null
-        sudo rm -Rf "$mktemp" &>/dev/null
-        [ -d "$mktemp" ] && printf_yellow failed to delete "$mktemp"
-      fi
-      exit 0
-    else
-      printf_red "Failed to create $name"
-      [ -s "$DOCKERMGR_TEMP_FILE" ] && cat "$DOCKERMGR_TEMP_FILE" | printf_readline
-      exit 1
-    fi
+    __remove_test_container "$name" "$mktemp"
   fi
   ;;
 

@@ -637,9 +637,9 @@ __os_name() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __os_version() {
   os_v=""
-  [ -n "$DISTRO_VERSION" ] && printf '%s\n' "$DISTRO_VERSION" | grep -q '^[0-9]' && printf '%s\n' "$DISTRO_VERSION" && return
-  if [ -z "$os_v" ]; then
-    os_v="$($LSB_RELEASE -a 2>/dev/null | grep -i '^Release' | grep -v '/' | awk '{print $2}' | grep '^' | grep '[0-9]')"
+  if [ -n "$DISTRO_VERSION" ] && [ "$DISTRO_VERSION" != "N/A" ] && printf '%s\n' "$DISTRO_VERSION" | grep -q '^[0-9]'; then
+    printf '%s\n' "$DISTRO_VERSION"
+    return
   fi
   if [ -z "$os_v" ]; then
     os_v="$([ -f "/etc/debian_version" ] && cat "/etc/debian_version" | awk -F '.' '{print $1}' | grep '[0-9]$')"
@@ -649,6 +649,9 @@ __os_version() {
   fi
   if [ -z "$os_v" ]; then
     os_v="$(grep -s 'BUILD_ID' /etc/os-release 2>/dev/null | awk -F '=' '{print $2}' | sed 's|[a-zA-Z]||g;s/[^.0-9]*//g' | grep '[0-9]$')"
+  fi
+  if [ -z "$os_v" ]; then
+    os_v="$($LSB_RELEASE -a 2>/dev/null | grep -i '^Release' | grep -v '/' | awk '{print $2}' | grep '^' | grep '[0-9]')"
   fi
   [ -n "$os_v" ] && printf '%s\n' "$os_v" | sed 's|"||g' || echo "Version: Unknown"
   unset os_v

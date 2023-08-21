@@ -156,7 +156,7 @@ __os_version() {
     return
   fi
   if [ -z "$os_v" ]; then
-    os_v="$([ -f "/etc/debian_version" ] && cat "/etc/debian_version" | awk -F '.' '{print $1}' | grep '[0-9]$')"
+    os_v="$([ -f "/etc/debian_version" ] && grep '[0-9]' "/etc/debian_version" | head -n1 | awk -F '.' '{print $1}')"
   fi
   if [ -z "$os_v" ]; then
     os_v="$(grep -s '^VERSION=' /etc/os-release 2>/dev/null | sed 's|[a-zA-Z]||g;s/[^.0-9]*//g' | grep -v '/' | grep '[0-9]$')"
@@ -167,8 +167,9 @@ __os_version() {
   if [ -z "$os_v" ]; then
     os_v="$($LSB_RELEASE -a 2>/dev/null | grep -i '^Release' | grep -v '/' | awk '{print $2}' | grep '^' | grep '[0-9]')"
   fi
-  [ -n "$os_v" ] && printf '%s\n' "$os_v" | sed 's|"||g' || echo "Version: Unknown"
-  unset os_v
+  os_v="${os_v:-N/A}"
+  printf '%s\n' "$os_v" | sed 's|"||g'
+  export DISTRO_VERSION="$os_v" && unset os_v
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set Main Repo for dotfiles

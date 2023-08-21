@@ -162,7 +162,7 @@ __os_version() {
     return
   fi
   if [ -z "$os_v" ]; then
-    os_v="$([ -f "/etc/debian_version" ] && cat "/etc/debian_version" | awk -F '.' '{print $1}' | grep '[0-9]$')"
+    os_v="$([ -f "/etc/debian_version" ] && grep '[0-9]' "/etc/debian_version" | head -n1 | awk -F '.' '{print $1}')"
   fi
   if [ -z "$os_v" ]; then
     os_v="$(grep -s '^VERSION=' /etc/os-release 2>/dev/null | sed 's|[a-zA-Z]||g;s/[^.0-9]*//g' | grep -v '/' | grep '[0-9]$')"

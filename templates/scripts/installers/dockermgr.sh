@@ -1014,7 +1014,7 @@ DOCKER_SET_OPTIONS+=("--env TZ=$CONTAINER_TIMEZONE")
 # set working dir
 if [ -n "$CONTAINER_WORK_DIR" ]; then
   DOCKER_SET_OPTIONS+=("--workdir $CONTAINER_WORK_DIR")
-  DOCKER_SET_OPTIONS+=("--env WORKDIR=$CONTAINER_WORK_DIR")
+  DOCKER_SET_OPTIONS+=("--env WORK_DIR=$CONTAINER_WORK_DIR")
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the html directory

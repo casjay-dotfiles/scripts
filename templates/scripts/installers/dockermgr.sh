@@ -97,7 +97,7 @@ __remove_extra_spaces() { sed 's/\( \)*/\1/g;s|^ ||g'; }
 __port() { echo "$((50000 + $RANDOM % 1000))" | grep '^' || return 1; }
 __grep_char() { grep '[a-zA-Z0-9].[a-zA-Z0-9]' | grep '^' || return 1; }
 __docker_check() { [ -n "$(type -p docker 2>/dev/null)" ] || return 1; }
-__set_vhost_alias() { echo "$1" | __remove_extra_spaces | grep -F "$2$" | sed "s|$2$|$3|g"; }
+__set_vhost_alias() { echo "$1" | __remove_extra_spaces | grep "$2$" | sed "s|$2$|$3|g"; }
 __docker_ps_all() { docker ps -a 2>&1 | grep -i ${1:-} "$CONTAINER_NAME" && return 0 || return 1; }
 __password() { head -n1000 -c 10000 "/dev/urandom" | tr -dc '0-9a-zA-Z' | head -c${1:-16} && echo ""; }
 __total_memory() { mem="$(free | grep -i 'mem: ' | awk -F ' ' '{print $2}')" && echo $((mem / 1000)); }
@@ -347,7 +347,7 @@ CONTAINER_WEB_SERVER_INT_PATH="/"
 CONTAINER_WEB_SERVER_EXT_PATH="/"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Specify custom nginx vhosts - autoconfigure: [name.all/name.mydomain/name.myhost] - [virtualhost,othervhostdom]
-CONTAINER_WEB_SERVER_VHOSTS=''
+CONTAINER_WEB_SERVER_VHOSTS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Add random portmapping - [port,otherport] or [proxy|/location|port]
 CONTAINER_ADD_RANDOM_PORTS=""
@@ -2137,7 +2137,7 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
     done
     if [ -n "${NGINX_VHOST_TMP_NAMES[*]}" ]; then
       NGINX_VHOST_NAMES="$(__trim "${NGINX_VHOST_TMP_NAMES[*]}")"
-      CONTAINER_WEB_SERVER_VHOSTS="$NGINX_VHOST_NAMES"
+      CONTAINER_WEB_SERVER_VHOSTS="${NGINX_VHOST_NAMES//\'/}"
       unset NGINX_VHOST_TMP_NAMES
     else
       NGINX_VHOST_NAMES="${NGINX_VHOST_NAMES:-}"

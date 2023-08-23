@@ -342,6 +342,8 @@ CONTAINER_WEB_SERVER_INT_PORT="80"
 CONTAINER_WEB_SERVER_SSL_ENABLED="no"
 CONTAINER_WEB_SERVER_AUTH_ENABLED="no"
 CONTAINER_WEB_SERVER_LISTEN_ON="127.0.0.10"
+CONTAINER_WEB_SERVER_INT_PATH="/"
+CONTAINER_WEB_SERVER_EXT_PATH="/"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Specify custom nginx vhosts - autoconfigure: [name.all/name.*/name.mydomain/name.myhostname] - [virtualhost,othervhostdom]
 CONTAINER_WEB_SERVER_VHOSTS=""
@@ -1768,6 +1770,8 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # container web server configuration proxy|/location|port
 if [ -n "$CONTAINER_ADD_RANDOM_PORTS" ] || { [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ] && [ -n "$CONTAINER_WEB_SERVER_INT_PORT" ]; }; then
+  internal_path="/${CONTAINER_WEB_SERVER_INT_PATH//\/\//\/}"
+  external_path="/${CONTAINER_WEB_SERVER_EXT_PATH//\/\//\/}"
   CONTAINER_WEB_SERVER_LISTEN_ON="${CONTAINER_WEB_SERVER_LISTEN_ON:-}"
   CONTAINER_ADD_RANDOM_PORTS="${CONTAINER_ADD_RANDOM_PORTS//,/ }"
   CONTAINER_WEB_SERVER_INT_PORT="${CONTAINER_WEB_SERVER_INT_PORT//,/ }"
@@ -1788,6 +1792,7 @@ if [ -n "$CONTAINER_ADD_RANDOM_PORTS" ] || { [ "$CONTAINER_WEB_SERVER_ENABLED" =
         set_hostname="$(echo "$set_hostname" | grep -v 'proxy$' | grep '^' || false)"
         proxy_location="$(echo "$proxy_info" | awk -F '|' '{print $2}' | grep '^' || false)"
         proxy_url="$CONTAINER_WEB_SERVER_LISTEN_ON:$random_port"
+        proxy_url="${proxy_url//\/\//\/}"
         echo "$CONTAINER_PROTOCOL" | grep -q "^http" && nginx_proto="${CONTAINER_PROTOCOL:-http}" || nginx_proto="http"
         if [ -n "$proxy_url" ] && [ -n "$proxy_location" ]; then
           if [ -n "$set_hostname" ]; then
@@ -1814,9 +1819,9 @@ server {
 
   include                                   /etc/nginx/global.d/nginx-defaults.conf;
 
-  location $proxy_location {
+  location ${external_path:-$proxy_location/} {
     proxy_redirect                          http:// https://;
-    proxy_pass                              $nginx_proto://$proxy_url;
+    proxy_pass                              $nginx_proto://$proxy_url$internal_path;
     proxy_ssl_verify                        off;
     proxy_http_version                      1.1;
     proxy_connect_timeout                   3600;
@@ -1838,9 +1843,9 @@ server {
 EOF
           else
             cat <<EOF | tee -a "$NGINX_VHOSTS_INC_FILE_TMP" &>/dev/null
-  location $proxy_location {
+  location ${external_path:-$proxy_location} {
     proxy_redirect                          http:// https://;
-    proxy_pass                              $nginx_proto://$proxy_url/;
+    proxy_pass                              $nginx_proto://$proxy_url/$internal_path;
     proxy_ssl_verify                        off;
     proxy_http_version                      1.1;
     proxy_connect_timeout                   3600;
@@ -1891,7 +1896,7 @@ else
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 NGINX_PROXY_URL="${NGINX_PROXY_URL:-$PROXY_HTTP_PROTO://$NGINX_PROXY_ADDRESS:$NGINX_PROXY_PORT}"
-NGINX_PROXY_URL="${NGINX_PROXY_URL// /}"
+NGINX_PROXY_URL="${NGINX_PROXY_URL// /}$CONTAINER_WEB_SERVER_EXT_PATH"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set temp env for PORTS ENV variable
 CONTAINER_ENV_PORTS=("${DOCKER_SET_TMP_PUBLISH[@]//--publish/}")

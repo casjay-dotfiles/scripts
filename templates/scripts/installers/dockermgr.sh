@@ -2114,7 +2114,7 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
   if [ "$HOST_NGINX_UPDATE_CONF" = "yes" ] && [ -f "$INSTDIR/nginx/proxy.conf" ]; then
     for vhost in $NGINX_VHOST_SET_NAMES; do
       if [ -n "$vhost" ]; then
-        set_vhost="$vhost"
+        set_vhost="${vhost// /}"
         if echo "$set_vhost" | grep -q '.*[a-zA-Z0-9]\.\*$'; then # map to vhost.*
           NGINX_VHOST_TMP_NAMES+=("$set_vhost")
           set_vhost=""

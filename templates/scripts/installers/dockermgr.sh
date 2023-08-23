@@ -112,7 +112,7 @@ __docker_init() { [ -n "$(type -p dockermgr 2>/dev/null)" ] && dockermgr init ||
 __port_in_use() { { [ -d "/etc/nginx/vhosts.d" ] && grep -wRsq "${1:-443}" "/etc/nginx/vhosts.d" || __netstat | grep -q "${1:-443}"; } && return 1 || return 0; }
 __domain_name() { hostname -d 2>/dev/null | grep -F '.' | grep '^' || hostname -f 2>/dev/null | grep -w '.' | awk -F '.' '{print $(NF-1)"."$NF}' | __grep_char || return 1; }
 __netstat() { netstat -taupln 2>/dev/null | grep -vE 'WAIT|ESTABLISHED|docker-pro' | awk -F ' ' '{print $4}' | sed 's|.*:||g' | grep -E '[0-9]' | sort -Vu | grep "^${1:-.*}$" || return 1; }
-__retrieve_custom_env() { [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.custom.conf" ] && cat "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.custom.conf" | grep -Ev '^$|^#' | grep '=' | grep '^' || __custom_docker_env | grep -Ev '^$|^#' | grep '=' | grep '^' || return 1; }
+__retrieve_custom_env() { [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.${1:-custom}.conf" ] && cat "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.${1:-custom}.conf" | grep -Ev '^$|^#' | grep '=' | grep '^' || __custom_docker_env | grep -Ev '^$|^#' | grep '=' | grep '^' || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __public_ip() { curl -q -LSsf "http://ifconfig.co" | grep -v '^$' | head -n1 | grep '^'; }
 __ifconfig() { [ -n "$(type -P ifconfig)" ] && eval ifconfig "$*" 2>/dev/null || return 1; }
@@ -372,6 +372,9 @@ CONTAINER_IS_IMAP_SERVER="no"
 CONTAINER_IS_TIME_SERVER="no"
 CONTAINER_IS_NEWS_SERVER="no"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Create a database database - [name]
+CONTAINER_DATABASE_CREATE=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Database settings - [listen] [yes/no]
 CONTAINER_DATABASE_LISTEN=""
 CONTAINER_REDIS_ENABLED="no"
@@ -494,6 +497,12 @@ DOCKERMGR_ENABLE_INSTALL_SCRIPT="yes"
 __custom_docker_env() {
   cat <<EOF | tee | grep -v '^$'
 
+# Database settings
+#DATABASE_CREATE="${CONTAINER_DATABASE_CREATE:-}"
+#DATABASE_USER="${CONTAINER_DATABASE_USER_NORMAL:-}"
+#DATABASE_PASSWORD="${CONTAINER_DATABASE_PASS_NORMAL:-}"
+#DATABASE_ROOT_USER="${CONTAINER_DATABASE_USER_ROOT:-root}"
+#DATABASE_ROOT_PASSWORD="${CONTAINER_DATABASE_PASS_ROOT:-$(__password 32)}"
 EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1941,7 +1950,7 @@ __dockermgr_variables >"$DOCKERMGR_CONFIG_DIR/env/$APPNAME.env.conf"
 __custom_docker_script >"$DOCKERMGR_CONFIG_DIR/env/$APPNAME.script.sh"
 __dockermgr_password_variables >"$DOCKERMGR_CONFIG_DIR/secure/$APPNAME"
 chmod -f 600 "$DOCKERMGR_CONFIG_DIR/secure/$APPNAME"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - #
 if [ ! -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.custom.conf" ]; then
   __custom_docker_env | sed 's|^--.* ||g' >"$DOCKERMGR_CONFIG_DIR/env/$APPNAME.custom.conf"
   echo "" >>"$DOCKERMGR_CONFIG_DIR/env/$APPNAME.custom.conf"

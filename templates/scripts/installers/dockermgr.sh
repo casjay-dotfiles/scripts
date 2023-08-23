@@ -2121,6 +2121,9 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
           NGINX_VHOST_TMP_NAMES+=("$vhost.*")
         elif echo "$vhost" | grep -q '^\.\*$'; then
           NGINX_VHOST_TMP_NAMES+=("${vhost:-$APPNAME}.*")
+        elif echo "$vhost" | grep -q '\.\*$'; then # map to vhost.*
+          vhost="${vhost//.*/}"
+          NGINX_VHOST_TMP_NAMES+=("$vhost.*")
         elif echo "$vhost" | grep -q "[.]all$"; then # map to vhost.*
           vhost="${vhost//.all/}"
           NGINX_VHOST_TMP_NAMES+=("${vhost:-$APPNAME}.*")

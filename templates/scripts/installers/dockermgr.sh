@@ -94,10 +94,10 @@ __sudo_exec() { [ "$DOCKERMGR_USER_CAN_SUDO" = "true" ] && sudo -HE "$@" || { [ 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cmd_exists() { type -P $1 &>/dev/null || return 1; }
 __remove_extra_spaces() { sed 's/\( \)*/\1/g;s|^ ||g'; }
-__set_vhost_alias() { echo "$1" | __trim | sed "s|$2$|$3|g"; }
 __port() { echo "$((50000 + $RANDOM % 1000))" | grep '^' || return 1; }
 __grep_char() { grep '[a-zA-Z0-9].[a-zA-Z0-9]' | grep '^' || return 1; }
 __docker_check() { [ -n "$(type -p docker 2>/dev/null)" ] || return 1; }
+__set_vhost_alias() { echo "$1" | __remove_extra_spaces | grep -F "$2$" | sed "s|$2$|$3|g"; }
 __docker_ps_all() { docker ps -a 2>&1 | grep -i ${1:-} "$CONTAINER_NAME" && return 0 || return 1; }
 __password() { head -n1000 -c 10000 "/dev/urandom" | tr -dc '0-9a-zA-Z' | head -c${1:-16} && echo ""; }
 __total_memory() { mem="$(free | grep -i 'mem: ' | awk -F ' ' '{print $2}')" && echo $((mem / 1000)); }
@@ -2114,24 +2114,24 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
   if [ "$HOST_NGINX_UPDATE_CONF" = "yes" ] && [ -f "$INSTDIR/nginx/proxy.conf" ]; then
     for vhost in $NGINX_VHOST_SET_NAMES; do
       if [ -n "$vhost" ]; then
-        if echo "$vhost" | grep -qv '^\.$'; then # replace sub with name
-          vhost="$(__set_vhost_alias "$vhost" "." "")"
+        set_vhost="$vhost"
+        if echo "$set_vhost" | grep -q '.*[a-zA-Z0-9]\.\*$'; then # map to vhost.*
+          NGINX_VHOST_TMP_NAMES+=("$set_vhost")
+          set_vhost=""
+        elif echo "$set_vhost" | grep -q "[.]all$"; then # map to vhost.*
+          vhost="$(__set_vhost_alias "$set_vhost" ".all" ".*")"
+          NGINX_VHOST_TMP_NAMES+=("$vhost")
+          set_vhost=""
+        elif echo "$set_vhost" | grep -q '^[.]myhost$'; then # map to vhost.hostname
+          vhost="$(__set_vhost_alias "$set_vhost" ".myhost" "")"
           NGINX_VHOST_TMP_NAMES+=("$vhost.$CONTAINER_HOSTNAME")
-        elif echo "$vhost" | grep -q '^\.\*$'; then
-          NGINX_VHOST_TMP_NAMES+=("${vhost:-$APPNAME}")
-        elif echo "$vhost" | grep -q '\.\*$'; then # map to vhost.*
-          NGINX_VHOST_TMP_NAMES+=("$vhost")
-        elif echo "$vhost" | grep -q "[.]all$"; then # map to vhost.*
-          vhost="$(__set_vhost_alias "$vhost" ".all" "")"
-          NGINX_VHOST_TMP_NAMES+=("${vhost:-$APPNAME}.*")
-        elif echo "$vhost" | grep -q '^[.]myhost$'; then # map to vhost.hostname
-          vhost="$(__set_vhost_alias "$vhost" ".myhost" "")"
-          NGINX_VHOST_TMP_NAMES+=("*.$CONTAINER_HOSTNAME")
-        elif echo "$vhost" | grep -q '[.]mydomain$'; then # map to vhost.domain or map to vhost.hostname
-          vhost="$(__set_vhost_alias "$vhost" ".mydomain" "")"
+          set_vhost=""
+        elif echo "$set_vhost" | grep -q '[.]mydomain$'; then # map to vhost.domain or map to vhost.hostname
+          vhost="$(__set_vhost_alias "$set_vhost" ".mydomain" "")"
           NGINX_VHOST_TMP_NAMES+=("$vhost.${CONTAINER_DOMAINNAME:-$CONTAINER_HOSTNAME}")
+          set_vhost=""
         else
-          NGINX_VHOST_TMP_NAMES+=("$vhost")
+          NGINX_VHOST_TMP_NAMES+=("${set_vhost:-$vhost}")
         fi
       fi
     done

@@ -39,7 +39,7 @@ SCRIPTS_PREFIX="dockermgr"
 trap 'retVal=$?;trap_exit' ERR EXIT SIGINT
 [ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
 [ "$1" = "--raw" ] && export SHOW_RAW="true"
-set -o pipefail
+set -o pipefail -o noglob
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
@@ -346,8 +346,8 @@ CONTAINER_WEB_SERVER_LISTEN_ON="127.0.0.10"
 CONTAINER_WEB_SERVER_INT_PATH="/"
 CONTAINER_WEB_SERVER_EXT_PATH="/"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Specify custom nginx vhosts - autoconfigure: [.*/name.all/name.*/name.mydomain/name.myhost] - [virtualhost,othervhostdom]
-CONTAINER_WEB_SERVER_VHOSTS=""
+# Specify custom nginx vhosts - autoconfigure: [name.all/name.mydomain/name.myhost] - [virtualhost,othervhostdom]
+CONTAINER_WEB_SERVER_VHOSTS=''
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Add random portmapping - [port,otherport] or [proxy|/location|port]
 CONTAINER_ADD_RANDOM_PORTS=""
@@ -2122,7 +2122,7 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
           vhost="$(__set_vhost_alias "$set_vhost" ".all" ".*")"
           NGINX_VHOST_TMP_NAMES+=("$vhost")
           set_vhost=""
-        elif echo "$set_vhost" | grep -q '^[.]myhost$'; then # map to vhost.hostname
+        elif echo "$set_vhost" | grep -q '[.]myhost$'; then # map to vhost.hostname
           vhost="$(__set_vhost_alias "$set_vhost" ".myhost" "")"
           NGINX_VHOST_TMP_NAMES+=("$vhost.$CONTAINER_HOSTNAME")
           set_vhost=""

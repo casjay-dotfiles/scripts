@@ -96,11 +96,22 @@ __file_exists_with_content "${ROOT_FILE_PREFIX}/${SERVICE_NAME}_pass" && root_us
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # port which service is listening on
 SERVICE_PORT=""
-
-# How to run application
-SERVICE_UID="0"     # set the user id
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set user and group ID
+SERVICE_UID="0" # set the user id
+SERVICE_GID="0" # set the group id
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User and group in which the service uses
 SERVICE_USER="root" # execute command as another user
-RUNAS_USER="root"   # secondary user to run as
+SERVICE_GROUP=""    # Set the service group
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# How to set permissions
+CHANGE_USER="${SERVICE_USER:-}"   # Set user file ownership
+CHANGE_GROUP="${SERVICE_GROUP:-}" # Set group file ownership
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User to use to launch service
+RUNAS_USER="root" # normally root
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # execute command variables
 EXEC_CMD_BIN="GEN_SCRIPT_REPLACE_APPNAME" # command to execute
@@ -131,10 +142,11 @@ CMD_ENV=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # use this function to update config files - IE: change port
 __update_conf_files() {
-  local exitCode=0                          # default exit code
-  local runas="${RUNAS_USER:-root}"         # run as a different user
-  local user="${SERVICE_USER:-root}"        # specifiy different user
-  local sysname="${SERVER_NAME:-$HOSTNAME}" # set hostname
+  local exitCode=0                                   # default exit code
+  local runas="${RUNAS_USER:-root}"                  # run as a different user
+  local user="${SERVICE_USER:-${CHANGE_USER:-root}}" # specify different user
+  local group="${SERVICE_GROUP:-$CHANGE_GROUP}"      # specify different group
+  local sysname="${SERVER_NAME:-$HOSTNAME}"          # set hostname
 
   # delete files
   #__rm ""
@@ -193,10 +205,11 @@ __update_conf_files() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # function to run before executing
 __pre_execute() {
-  local exitCode=0                          # default exit code
-  local runas="${RUNAS_USER:-root}"         # run as a different user
-  local user="${SERVICE_USER:-root}"        # specifiy different user
-  local sysname="${SERVER_NAME:-$HOSTNAME}" # set hostname
+  local exitCode=0                                   # default exit code
+  local runas="${RUNAS_USER:-root}"                  # run as a different user
+  local user="${SERVICE_USER:-${CHANGE_USER:-root}}" # specify different user
+  local group="${SERVICE_GROUP:-$CHANGE_GROUP}"      # specify different group
+  local sysname="${SERVER_NAME:-$HOSTNAME}"          # set hostname
 
   # define commands
 
@@ -207,10 +220,19 @@ __pre_execute() {
   # __create_service_user "$user" "/home/$user" "${USER_GID:-${USER_UID:-1000}"
   # set user on files/folders
   if [ -n "$user" ] && [ "$user" != "root" ]; then
-    if grep -s -q "$user:" "/etc/passwd"; then
+    if grep -sq "^$user:" "/etc/passwd"; then
       for permissions in $ADD_APPLICATION_DIRS $APPLICATION_DIRS; do
         if [ -n "$permissions" ] && [ -e "$permissions" ]; then
-          (chown -Rf $user:$user "$permissions" && echo "changed ownership on $permissions to $user") |& tee -a "$LOG_DIR/init.txt" &>/dev/null
+          (chown -Rf $user:${group:-$user} "$permissions" && echo "changed ownership on $permissions to user:$user and group:${group:-$user}") |& tee -a "$LOG_DIR/init.txt" &>/dev/null
+        fi
+      done
+    fi
+  fi
+  if [ -n "$group" ] && [ "$group" != "root" ]; then
+    if grep -sq "^$group:" "/etc/group"; then
+      for permissions in $ADD_APPLICATION_DIRS $APPLICATION_DIRS; do
+        if [ -n "$permissions" ] && [ -e "$permissions" ]; then
+          (chgrp -Rf $group "$permissions" && echo "changed group ownership on $permissions to group $group") |& tee -a "$LOG_DIR/init.txt" &>/dev/null
         fi
       done
     fi
@@ -223,14 +245,18 @@ __pre_execute() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # function to run after executing
 __post_execute() {
-  local exitCode=0                          # default exit code
-  local runas="${RUNAS_USER:-root}"         # run as a different user
-  local user="${SERVICE_USER:-root}"        # specifiy different user
-  local sysname="${SERVER_NAME:-$HOSTNAME}" # set hostname
-  sleep 60                                  # how long to wait before executing
-  echo "Running post commands"              # message
+  local exitCode=0                                   # default exit code
+  local runas="${RUNAS_USER:-root}"                  # run as a different user
+  local user="${SERVICE_USER:-${CHANGE_USER:-root}}" # specify different user
+  local group="${SERVICE_GROUP:-$CHANGE_GROUP}"      # specify different group
+  local sysname="${SERVER_NAME:-$HOSTNAME}"          # set hostname
+  sleep 60                                           # how long to wait before executing
+  echo "Running post commands"                       # message
   # execute commands
-
+  (
+    sleep 20
+    true
+  ) |& tee -a "$LOG_DIR/init.txt" &>/dev/null &
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -255,6 +281,9 @@ __update_ssl_conf() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_service_env() {
   cat <<EOF | tee "/config/env/${SERVICE_NAME:-$SCRIPT_NAME}.sh" &>/dev/null
+# set the user id and group id
+# SERVICE_UID="${UID:-0}"
+# SERVICE_GID="${GID:-0}" 
 # ENV_WORKDIR="${ENV_WORKDIR:-$WORK_DIR}"                                            # change to directory
 # ENV_WWW_DIR="${ENV_WWW_DIR:-$WWW_ROOT_DIR}"                                        # set default web dir
 # ENV_ETC_DIR="${ENV_ETC_DIR:-$ETC_DIR}"                                             # set default etc dir

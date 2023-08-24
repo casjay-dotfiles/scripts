@@ -257,7 +257,7 @@ printf_execute_result() {
   return "$1"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# __printf_spacing "color" "space" "lightSide" "rightSide"
+# __printf_spacing "color" "space" "leftSide" "rightSide"
 printf_spacing() {
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="5"
   test -n "$1" && test -z "${1//[0-9]/}" && local space="$1" && shift 1 || local space="20"

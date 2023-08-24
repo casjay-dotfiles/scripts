@@ -28,10 +28,13 @@
 # Set bash options
 [ "$DEBUGGER" = "on" ] && echo "Enabling debugging" && set -o pipefail -x$DEBUGGER_OPTIONS || set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__printf_space() { printf "%b%${1:-30}s" "${2}" "${3}"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cd() { [ -d "$1" ] && builtin cd "$1" || return 1; }
 __rm() { [ -n "$1" ] && [ -e "$1" ] && rm -Rf "${1:?}"; }
 __grep_test() { grep -s "$1" "$2" | grep -qwF "${3:-$1}" || return 1; }
 __netstat() { [ -f "$(type -P netstat)" ] && netstat "$@" || return 10; }
+__is_in_file() { [ -e "$2" ] && grep -Rsq "$1" "$2" && return 0 || return 1; }
 __curl() { curl -q -sfI --max-time 3 -k -o /dev/null "$@" &>/dev/null || return 10; }
 __find() { find "$1" -mindepth 1 -type ${2:-f,d} 2>/dev/null | grep '^' || return 10; }
 __is_dir_empty() { [ "$(ls -A "$1" 2>/dev/null | wc -l)" -eq 0 ] && return 0 || return 1; }
@@ -42,7 +45,11 @@ __ps() { [ -f "$(type -P ps)" ] && ps "$@" 2>/dev/null | grep -Fw " ${1:-$GEN_SC
 __pgrep() { __pcheck "${1:-GEN_SCRIPT_REPLACE_APPNAME}" || __ps "${1:-$GEN_SCRIPT_REPLACE_APPNAME}" | grep -qv ' grep' || return 10; }
 __get_ip6() { ip a 2>/dev/null | grep -w 'inet6' | awk '{print $2}' | grep -vE '^::1|^fe' | sed 's|/.*||g' | head -n1 | grep '^' || echo ''; }
 __get_ip4() { ip a 2>/dev/null | grep -w 'inet' | awk '{print $2}' | grep -vE '^127.0.0' | sed 's|/.*||g' | head -n1 | grep '^' || echo '127.0.0.1'; }
-__no_exit() { exec /bin/sh -c "trap : TERM INT; (while true; do tail -qf /data/logs/entrypoint.log /data/logs/*/*log 2>/dev/null||sleep 20; done) & wait"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__no_exit() {
+  [ -f "/run/no_exit.pid" ] && return
+  exec /bin/sh -c "trap 'sleep 1; rm -Rf /run/no_exit.pid;exit 0' TERM INT; (while true; do echo $!>/run/no_exit.pid;tail -qf /data/logs/entrypoint.log /data/logs/*/*log 2>/dev/null||sleep 20; done) & wait"
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __find_php_bin() { find -L '/usr'/*bin -maxdepth 4 -name 'php-fpm*' 2>/dev/null | head -n1 | grep '^' || echo ''; }
 __find_php_ini() { find -L '/etc' -maxdepth 4 -name 'php.ini' 2>/dev/null | head -n1 | sed 's|/php.ini||g' | grep '^' || echo ''; }
@@ -483,15 +490,15 @@ __initialize_web_health() {
 #  file_dir
 __initialize_replace_variables() {
   [ $# -eq 1 ] || return 1
-  __find_replace "REPLACE_SERVER_NAME" "$HOSTNAME" "$1"
-  __find_replace "REPLACE_DATA_DIR" "${DATA_DIR:-/data}" "$1"
-  __find_replace "REPLACE_CONFIG_DIR" "${CONF_DIR:-/config}" "$1"
-  __find_replace "REPLACE_SERVER_PORT" "${SERVICE_PORT:-80}" "$1"
-  __find_replace "REPLACE_SERVER_SOFTWARE" "${CONTAINER_NAME:-docker}" "$1"
-  __find_replace "REPLACE_SERVER_DIR" "${WWW_DIR:-/usr/share/webapps}" "$1"
-  __find_replace "REPLACE_DATABASE_DIR" "${DATABASE_DIR:-/data/db/$SERVICE_NAME}" "$1"
-  __find_replace "REPLACE_SERVER_WWW_DIR" "${WWW_ROOT_DIR:--/usr/share/webapps}" "$1"
-  __find_replace "REPLACE_SERVER_ADMIN" "${SERVER_ADMIN:-root@${sysname:-$HOSTNAME}}" "$1"
+  [ -n "$HOSTNAME" ] && __find_replace "REPLACE_SERVER_NAME" "$HOSTNAME" "$1"
+  [ -n "$DATA_DIR" ] && __find_replace "REPLACE_DATA_DIR" "${DATA_DIR:-/data}" "$1"
+  [ -n "$CONF_DIR" ] && __find_replace "REPLACE_CONFIG_DIR" "${CONF_DIR:-/config}" "$1"
+  [ -n "$SERVICE_PORT" ] && __find_replace "REPLACE_SERVER_PORT" "${SERVICE_PORT:-80}" "$1"
+  [ -n "$CONTAINER_NAME" ] && __find_replace "REPLACE_SERVER_SOFTWARE" "${CONTAINER_NAME:-docker}" "$1"
+  [ -n "$WWW_DIR" ] && __find_replace "REPLACE_SERVER_DIR" "${WWW_DIR:-/usr/share/webapps}" "$1"
+  [ -n "$WWW_ROOT_DIR" ] && __find_replace "REPLACE_SERVER_WWW_DIR" "${WWW_ROOT_DIR:--/usr/share/webapps}" "$1"
+  [ -n "$SERVER_ADMIN" ] && __find_replace "REPLACE_SERVER_ADMIN" "${SERVER_ADMIN:-root@${sysname:-$HOSTNAME}}" "$1"
+  [ -n "$DATABASE_DIR" ] && __find_replace "REPLACE_DATABASE_DIR" "${DATABASE_DIR:-/data/db/$SERVICE_NAME}" "$1"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __initialize_custom_bin_dir() {

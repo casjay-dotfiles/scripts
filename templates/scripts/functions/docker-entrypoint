@@ -300,38 +300,44 @@ __file_copy() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __set_user_group_id() {
-  local set_user="${SERVICE_USER:-$1}"
-  local set_uid="${SERVICE_UID:-1000}"
-  local set_gid="${SERVICE_GID:-1000}"
+  local set_user="${1:-$SERVICE_USER}"
+  local set_uid="${2:-${SERVICE_UID:-10000}}"
+  local set_gid="${3:-${SERVICE_GID:-10000}}"
   [ -n "$set_user" ] && [ -n "$set_uid" ] && [ -n "$set_gid" ] || return
   [ "$set_user" != "root" ] && [ "$set_gid" != "0" ] && [ "$set_uid" != "0" ] || return
-  if ! grep -s -q "^$set_user" "/etc/passwd"; then
-    if ! grep -sq "x:.*:$set_gid:"; then
-      groupmod -g "${set_gid}" $set_user
+  [ "$set_uid" = "0" ] && set_uid=20000
+  [ "$set_gid" = "0" ] && set_gid=20000
+  if grep -sq "^$set_user" "/etc/passwd"; then
+    if ! grep -sq "x:.*:$set_gid:" "/etc/group"; then
+      groupmod -g "${set_gid}" $set_user | tee -a "${LOG_DIR/tmp/}/init.txt" &>/dev/null
     fi
-    if ! grep -sq "x:$set_uid:.*:"; then
-      usermod -u "${set_uid}" -g "${set_gid}" $set_user
+    if ! grep -sq "x:$set_uid:.*:" "/etc/passwd"; then
+      usermod -u "${set_uid}" -g "${set_gid}" $set_user | tee -a "${LOG_DIR/tmp/}/init.txt" &>/dev/null
     fi
   fi
+  export SERVICE_UID="$set_uid"
+  export SERVICE_GID="$set_gid"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_service_user() {
   local create_user="${1:-$SERVICE_USER}"
-  local create_home_dir="${2:-/home/$create_user}"
-  local create_uid="${SERVICE_UID:-${USER_UID:-${3:-10000}}}"
-  local create_gid="${SERVICE_GID:-${USER_UID:-${4:-10000}}}"
-  local create_home_dir="${create_home_dir:-/home/$create_user}" set_home_dir=""
-  [ "$ENTRYPOINT_FIRST_RUN" = "no" ] || return 0
-  [ -n "$SERVICE_USER" ] || [ "$SERVICE_USER" != "root" ] || return 0
-  if ! grep -s -q "$create_user" "/etc/group"; then
-    echo "creating system group $create_user"
-    addgroup -g $create_gid -S $create_user &>/dev/null
+  local create_group="${2:-$SERVICE_GROUP}"
+  local create_home_dir="${3:-${WORK_DIR:-/home/$create_user}}"
+  local create_uid="${SERVICE_UID:-${USER_UID:-${4:-10000}}}"
+  local create_gid="${SERVICE_GID:-${USER_GID:-${5:-10000}}}"
+  local set_home_dir=""
+  [ -n "$create_user" ] && [ -n "$create_group" ] && [ "$create_user" != "root" ] || return 0
+  if ! grep -sq "$create_group" "/etc/group"; then
+    echo "creating system group $create_group"
+    groupadd -r -g $create_gid $create_group | tee -a "${LOG_DIR/tmp/}/init.txt" &>/dev/null
   fi
-  if ! grep -s -q "$create_user" "/etc/passwd"; then
+  if ! grep -sq "$create_user" "/etc/passwd"; then
     echo "creating system user $create_user"
-    adduser -u $create_gid -D -h "$create_home_dir" -g $create_user $create_user &>/dev/null
-    grep -q "$create_user" "/etc/passwd" "/etc/group" && set_home_dir="$home_dir" && exitStatus=0 || exitStatus=1
+    adduser -u $create_gid -D -h "$create_home_dir" -g $create_group $create_user
+    sudo useradd -r -u $create_uid -g $create_gid -c "Account for $user" -d "$create_home_dir" -s /bin/false $create_user | tee -a "$LOG_DIR/tmp/init.txt" &>/dev/null
   fi
+  grep -qs "$create_group" "/etc/group" || exitStatus=$((exitCode + 1))
+  grep -qs "$create_user" "/etc/passwd" || exitStatus=$((exitCode + 1))
   [ $exitStatus -eq 0 ] && export WORK_DIR="${set_home_dir:-}"
   return $exitStatus
 }

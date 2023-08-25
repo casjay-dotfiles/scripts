@@ -28,8 +28,8 @@ docker run -d \
 --name REPLACE_REGISTRY_USER-REPLACE_PROJECT_NAME \
 --hostname REPLACE_PROJECT_NAME \
 -e TZ=${TIMEZONE:-America/New_York} \
--v $HOME/.local/share/srv/docker/REPLACE_REGISTRY_USER-REPLACE_PROJECT_NAME/rootfs/data:/data:z \
--v $HOME/.local/share/srv/docker/REPLACE_REGISTRY_USER-REPLACE_PROJECT_NAME/rootfs/config:/config:z \
+-v "$HOME/.local/share/srv/docker/REPLACE_REGISTRY_USER-REPLACE_PROJECT_NAME/rootfs/data:/data:z" \
+-v "$HOME/.local/share/srv/docker/REPLACE_REGISTRY_USER-REPLACE_PROJECT_NAME/rootfs/config:/config:z" \
 -p 80:80 \
 REPLACE_REGISTRY_USER/REPLACE_PROJECT_NAME:latest
 ```
@@ -46,8 +46,8 @@ services:
       - TZ=America/New_York
       - HOSTNAME=REPLACE_PROJECT_NAME
     volumes:
-      - $HOME/.local/share/srv/docker/REPLACE_REGISTRY_USER-REPLACE_PROJECT_NAME/rootfs/data:/data:z
-      - $HOME/.local/share/srv/docker/REPLACE_REGISTRY_USER-REPLACE_PROJECT_NAME/rootfs/config:/config:z
+      - "$HOME/.local/share/srv/docker/REPLACE_REGISTRY_USER-REPLACE_PROJECT_NAME/rootfs/data:/data:z"
+      - "$HOME/.local/share/srv/docker/REPLACE_REGISTRY_USER-REPLACE_PROJECT_NAME/rootfs/config:/config:z"
     ports:
       - 80:80
     restart: always

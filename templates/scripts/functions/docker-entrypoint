@@ -299,15 +299,30 @@ __file_copy() {
   }
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__generate_random_uids() {
+  local set_random_uid="$(seq 3000 50000 | sort -R | head -n 1)"
+  while :; do
+    if ! grep -qs "x:.*:$set_random_uid:" "/etc/group" && ! grep -sq "x:$set_random_uid:.*:" "/etc/passwd"; then
+      echo "$set_random_uid"
+      break
+    fi
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __set_user_group_id() {
   local set_user="${1:-$SERVICE_USER}"
   local set_uid="${2:-${SERVICE_UID:-10000}}"
   local set_gid="${3:-${SERVICE_GID:-10000}}"
+  local random_id="$(__generate_random_uids)"
   local exitStatus=0
   [ -n "$set_user" ] && [ -n "$set_uid" ] && [ -n "$set_gid" ] || return
-  [ "$set_user" != "root" ] && [ "$set_gid" != "0" ] && [ "$set_uid" != "0" ] || return
-  [ "$set_uid" = "0" ] && set_uid=20000
-  [ "$set_gid" = "0" ] && set_gid=20000
+  [ -n "$set_user" ] && [ "$set_user" != "root" ] || return
+  if [ -z "$set_uid" ] || [ "$set_uid" = "0" ]; then
+    set_uid="$random_id"
+  fi
+  if [ -z "$set_gid" ] || [ "$set_gid" = "0" ]; then
+    set_gid="$random_id"
+  fi
   if grep -sq "^$set_user:" "/etc/passwd" "/etc/group"; then
     if ! grep -sq "x:.*:$set_gid:" "/etc/group"; then
       groupmod -g "${set_gid}" $set_user | tee -a "${LOG_DIR/tmp/}/init.txt" &>/dev/null
@@ -321,26 +336,36 @@ __set_user_group_id() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_service_user() {
+  set -x
   local create_user="${1:-$SERVICE_USER}"
   local create_group="${2:-$SERVICE_GROUP}"
   local create_home_dir="${3:-${WORK_DIR:-/home/$create_user}}"
   local create_uid="${SERVICE_UID:-${USER_UID:-${4:-10000}}}"
   local create_gid="${SERVICE_GID:-${USER_GID:-${5:-10000}}}"
+  local random_id="$(__generate_random_uids)"
   local set_home_dir=""
   local exitStatus=0
   [ -n "$create_user" ] && [ -n "$create_group" ] && [ "$create_user" != "root" ] || return 0
+  if [ -z "$create_uid" ] || [ "$create_uid" = "0" ]; then
+    create_uid="$random_id"
+  fi
+  if [ -z "$create_gid" ] || [ "$create_gid" = "0" ]; then
+    create_gid="$random_id"
+  fi
   if ! grep -sq "$create_group" "/etc/group"; then
     echo "creating system group $create_group"
     groupadd -g $create_gid $create_group | tee -a "${LOG_DIR/tmp/}/init.txt" &>/dev/null
   fi
   if ! grep -sq "$create_user" "/etc/passwd"; then
     echo "creating system user $create_user"
-    adduser -u $create_gid -D -h "$create_home_dir" -g $create_group $create_user
-    sudo useradd -u $create_uid -g $create_gid -c "Account for $user" -d "$create_home_dir" -s /bin/false $create_user | tee -a "$LOG_DIR/tmp/init.txt" &>/dev/null
+    useradd -u $create_uid -g $create_gid -c "Account for $create_user" -d "$create_home_dir" -s /bin/false $create_user | tee -a "$LOG_DIR/tmp/init.txt" &>/dev/null
   fi
   grep -qs "$create_group" "/etc/group" || exitStatus=$((exitCode + 1))
   grep -qs "$create_user" "/etc/passwd" || exitStatus=$((exitCode + 1))
   [ $exitStatus -eq 0 ] && export WORK_DIR="${set_home_dir:-}"
+  export SERVICE_UID="$create_uid"
+  export SERVICE_GID="$create_gid"
+  set +x
   return $exitStatus
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

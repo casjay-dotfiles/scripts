@@ -12,3 +12,5 @@ SERVICE_GROUP="${SERVICE_GROUP:-}"
 CHANGE_USER="${SERVICE_USER:-}"
 CHANGE_GROUP="${SERVICE_GROUP:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SERVICE_UID="${SERVICE_UID:-}" # set the user id
+SERVICE_GID="${SERVICE_GID:-}" # set the group id

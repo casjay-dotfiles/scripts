@@ -503,7 +503,7 @@ __custom_docker_env() {
 EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set custom script
+# Set custom script - saves to /config/env/GEN_SCRIPT_REPLACE_APPNAME.script.sh
 __custom_docker_script() {
   cat <<EOF | tee | grep -v '^$'
 
@@ -511,8 +511,8 @@ __custom_docker_script() {
 ENV_DATABASE_CREATE="${CONTAINER_DATABASE_CREATE:-}"
 ENV_DATABASE_USER="${CONTAINER_DATABASE_USER_NORMAL:-}"
 ENV_DATABASE_PASSWORD="${CONTAINER_DATABASE_PASS_NORMAL:-}"
-ENV_DATABASE_ROOT_USER="${CONTAINER_DATABASE_USER_ROOT:-root}"
-ENV_DATABASE_ROOT_PASSWORD="${CONTAINER_DATABASE_PASS_ROOT:-$(__password 32)}"
+ENV_DATABASE_ROOT_USER="${CONTAINER_DATABASE_USER_ROOT:-}"
+ENV_DATABASE_ROOT_PASSWORD="${CONTAINER_DATABASE_PASS_ROOT:-}"
 EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

@@ -93,7 +93,7 @@ __sudo_root() { [ "$DOCKERMGR_USER_CAN_SUDO" = "true" ] && sudo "$@" || { [ "$US
 __sudo_exec() { [ "$DOCKERMGR_USER_CAN_SUDO" = "true" ] && sudo -HE "$@" || { [ "$USER" = "root" ] && eval "$*"; } || eval "$*" 2>/dev/null || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __printf_file_space() { printf "%-${1:-30}s%s\n" "${2}" "${3}"; }
-__printf_spacing() { printf '%b'"%-${1:-30}s%s"'%b\n' "$(tput setaf "${2:-5}" 2>/dev/null)" "${3}" "${4}" $(tput sgr0 2>/dev/null); }
+__printf_spacing() { printf "%-${1:-30}b%s\n" "$(tput setaf "${2:-5}" 2>/dev/null)${3}" "${4}$(tput sgr0 2>/dev/null)"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cmd_exists() { type -P $1 &>/dev/null || return 1; }
 __remove_extra_spaces() { sed 's/\( \)*/\1/g;s|^ ||g'; }
@@ -500,12 +500,6 @@ DOCKERMGR_ENABLE_INSTALL_SCRIPT="yes"
 __custom_docker_env() {
   cat <<EOF | tee | grep -v '^$'
 
-# Database settings
-#DATABASE_CREATE="${CONTAINER_DATABASE_CREATE:-}"
-#DATABASE_USER="${CONTAINER_DATABASE_USER_NORMAL:-}"
-#DATABASE_PASSWORD="${CONTAINER_DATABASE_PASS_NORMAL:-}"
-#DATABASE_ROOT_USER="${CONTAINER_DATABASE_USER_ROOT:-root}"
-#DATABASE_ROOT_PASSWORD="${CONTAINER_DATABASE_PASS_ROOT:-$(__password 32)}"
 EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -513,6 +507,12 @@ EOF
 __custom_docker_script() {
   cat <<EOF | tee | grep -v '^$'
 
+# Database settings
+ENV_DATABASE_CREATE="${CONTAINER_DATABASE_CREATE:-}"
+ENV_DATABASE_USER="${CONTAINER_DATABASE_USER_NORMAL:-}"
+ENV_DATABASE_PASSWORD="${CONTAINER_DATABASE_PASS_NORMAL:-}"
+ENV_DATABASE_ROOT_USER="${CONTAINER_DATABASE_USER_ROOT:-root}"
+ENV_DATABASE_ROOT_PASSWORD="${CONTAINER_DATABASE_PASS_ROOT:-$(__password 32)}"
 EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

@@ -45,6 +45,8 @@ __ps() { [ -f "$(type -P ps)" ] && ps "$@" 2>/dev/null | grep -Fw " ${1:-$GEN_SC
 __pgrep() { __pcheck "${1:-GEN_SCRIPT_REPLACE_APPNAME}" || __ps "${1:-$GEN_SCRIPT_REPLACE_APPNAME}" | grep -qv ' grep' || return 10; }
 __get_ip6() { ip a 2>/dev/null | grep -w 'inet6' | awk '{print $2}' | grep -vE '^::1|^fe' | sed 's|/.*||g' | head -n1 | grep '^' || echo ''; }
 __get_ip4() { ip a 2>/dev/null | grep -w 'inet' | awk '{print $2}' | grep -vE '^127.0.0' | sed 's|/.*||g' | head -n1 | grep '^' || echo '127.0.0.1'; }
+__find_file_relative() { find "$1"/* -not -path '*env/*' -not -path '.git*' -type f 2>/dev/null | sed 's|'$1'/||g' | sort -u | grep -v '^$' | grep '^' || false; }
+__find_directory_relative() { find "$1"/* -not -path '*env/*' -not -path '.git*' -type d 2>/dev/null | sed 's|'$1'/||g' | sort -u | grep -v '^$' | grep '^' || false; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __no_exit() {
   [ -f "/run/no_exit.pid" ] && return
@@ -291,10 +293,18 @@ __find_replace() {
   }
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# /config > /etc
+__copy_templates() {
+  if [ -e "$1" ] && __is_dir_empty "$2"; then
+    __file_copy "$1" "$2"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# /config/file > /etc/files
 __symlink() {
-  if [ -e "$1" ]; then
-    [ -e "$2" ] && rm -Rf "$2"
-    ln -sf "$1" "$2" && echo "Created symlink to $1 > $2"
+  if [ -e "$2" ]; then
+    [ -e "$1" ] && rm -Rf "$1"
+    ln -sf "$2" "$1" && echo "Created symlink to $1 > $2"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -478,6 +488,7 @@ __setup_mta() {
   if [ -n "$(type -P 'ssmtp')" ]; then
     [ -d "/config/ssmtp" ] || mkdir -p "/config/ssmtp"
     [ -f "/etc/ssmtp/ssmtp.conf" ] && rm -Rf "/etc/ssmtp/ssmtp.conf"
+    symlink_files="$(__find_file_relative "/config/ssmtp")"
     if [ ! -f "/config/ssmtp/ssmtp.conf" ]; then
       cat <<EOF | tee "/config/ssmtp/ssmtp.conf" &>/dev/null
 # ssmtp configuration.
@@ -496,15 +507,19 @@ FromLineOverride=yes
 EOF
     fi
     if [ -f "/config/ssmtp/ssmtp.conf" ]; then
-      cp -Rf "/config/ssmtp/." "/etc/ssmtp/"
+      for file in $symlink_files; do
+        __symlink "/config/ssmtp/$file" "/etc/ssmtp/$file"
+        __initialize_replace_variables "/etc/ssmtp/$file"
+      done
       echo "Done setting up ssmtp"
     fi
 
     ################# postfix relay setup
   elif [ -n "$(type -P 'postfix')" ]; then
-    [ -d "/config" ] || mkdir -p "/config"
     [ -d "/etc/postfix" ] || mkdir -p "/etc/postfix"
+    [ -d "/config/postfix" ] || mkdir -p "/config/postfix"
     [ -f "/etc/postfix/main.cf" ] && rm -Rf "/etc/postfix/main.cf"
+    symlink_files="$(__find_file_relative "/config/postfix")"
     if [ ! -f "/config/postfix/main.cf" ]; then
       cat <<EOF | tee "/config/postfix/main.cf" &>/dev/null
 # postfix configuration.
@@ -538,7 +553,11 @@ EOF
       touch "/config/postfix/mydomains.pcre" "/config/postfix/mydomains" "/config/postfix/virtual"
       postmap "/config/aliases" "/config/mynetworks" "/config/transport" &>/dev/null
       postmap "/config/mydomains.pcre" "/config/mydomains" "/config/virtual" &>/dev/null
-      cp -Rf "/config/postfix/." "/etc/postfix/"
+      for f in $symlink_files; do
+        __symlink "/config/postfix/$f" "/etc/postfix/$f"
+        __initialize_replace_variables "/etc/postfix/$f"
+
+      done
     fi
     if [ -f "/etc/postfix/main.cf" ] && [ ! -f "/run/init.d/postfix.pid" ]; then
       SERVICES_LIST+="postfix "
@@ -574,6 +593,29 @@ __initialize_replace_variables() {
   [ -n "$WWW_ROOT_DIR" ] && __find_replace "REPLACE_SERVER_WWW_DIR" "${WWW_ROOT_DIR:-/usr/share/httpd/default}" "$1"
   [ -n "$SERVER_ADMIN" ] && __find_replace "REPLACE_SERVER_ADMIN" "${SERVER_ADMIN:-root@${sysname:-$HOSTNAME}}" "$1"
   [ -n "$SERVICE_NAME" ] && [ -n "$DATABASE_DIR" ] && __find_replace "REPLACE_DATABASE_DIR" "${DATABASE_DIR:-/data/db/$SERVICE_NAME}" "$1"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__initialize_system_etc() {
+  local conf_dir="$1"
+  local file="" directories=""
+  if [ -n "$conf_dir" ] && [ -e "$conf_dir" ]; then
+    files="$(find "$conf_dir"/* -not -path '*/env/*' -type f 2>/dev/null | sed 's|'/config/'||g' | sort -u | grep -v '^$' | grep '^' || false)"
+    directories="$(find "$conf_dir"/* -not -path '*/env/*' -type d 2>/dev/null | sed 's|'/config/'||g' | sort -u | grep -v '^$' | grep '^' || false)"
+    echo "Copying config files to system: $conf_dir > /etc/${conf_dir//\/config\//}"
+    if [ -n "$directories" ]; then
+      for d in $directories; do
+        echo "Creating directory: /etc/$d"
+        mkdir -p "/etc/$directories"
+      done
+    fi
+    for f in $files; do
+      etc_file="/etc/$f"
+      conf_file="/config/$f"
+      [ -f "$etc_file" ] && rm -Rf "$etc_file"
+      __symlink "$etc_file" "$conf_file"
+      __initialize_replace_variables "$etc_file"
+    done
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __initialize_custom_bin_dir() {
@@ -654,26 +696,6 @@ __initialize_data_dir() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__initialize_system_etc() {
-  if [ -d "/config" ]; then
-    if [ "$CONFIG_DIR_INITIALIZED" = "false" ]; then
-      echo "Copying config files to system: /config > /etc"
-      for create_config_name in /config/*; do
-        if [ -n "$create_config_name" ]; then
-          create_conf_name="$(basename "$create_config_name")"
-          if [ -d "/etc/$create_conf_name" ] && [ -d "$create_config_name" ]; then
-            mkdir -p "/etc/$create_conf_name/"
-            cp -Rf "$create_config_name/." "/etc/$create_conf_name/" 2>/dev/null
-          elif [ -e "/etc/$create_conf_name" ] && [ -e "$create_config_name" ]; then
-            cp -Rf "$create_config_name" "/etc/$create_conf_name" 2>/dev/null
-          fi
-        fi
-      done
-      unset create_config_name create_conf_name
-    fi
-  fi
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __initialize_www_root() {
   if [ "$DATA_DIR_INITIALIZED" = "false" ] && [ -n "$WWW_ROOT_DIR" ]; then
     if [ -d "$DEFAULT_DATA_DIR/data/htdocs" ]; then
@@ -705,12 +727,6 @@ __initialize_ssl_certs() {
       __create_ssl_cert
     fi
     type update-ca-certificates &>/dev/null && update-ca-certificates
-  fi
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__copy_templates() {
-  if [ -e "$1" ] && __is_dir_empty "$2"; then
-    __file_copy "$1" "$2"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

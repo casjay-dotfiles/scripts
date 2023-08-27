@@ -125,7 +125,7 @@ CHANGE_GROUP="root" # Set group file ownership
 SERVICE_UID="0" # set the user id
 SERVICE_GID="0" # set the group id
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# execute command variables - will be expanded later
+# execute command variables - keep single quotes variables will be expanded later
 EXEC_CMD_BIN='GEN_SCRIPT_REPLACE_APPNAME' # command to execute
 EXEC_CMD_ARGS=''                          # command arguments
 EXEC_PRE_SCRIPT=''                        # execute script before
@@ -152,16 +152,23 @@ ADD_APPLICATION_DIRS=""
 APPLICATION_FILES="$LOG_DIR/GEN_SCRIPT_REPLACE_APPNAME.log"
 APPLICATION_DIRS="$RUN_DIR $ETC_DIR $CONF_DIR $LOG_DIR"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional config dirs - will be Copied to /etc/$name
+ADDITIONAL_CONFIG_DIRS=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # define variables that need to be loaded into the service - escape quotes - var=\"value\",other=\"test\"
 CMD_ENV=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # use this function to update config files - IE: change port
 __update_conf_files() {
-  local exitCode=0                                   # default exit code
-  local runas="${RUNAS_USER:-root}"                  # run as a different user
-  local user="${CHANGE_USER:-${SERVICE_USER:-root}}" # specify different user ownership
-  local group="${CHANGE_GROUP:-$SERVICE_GROUP}"      # specify different group ownership
-  local sysname="${SERVER_NAME:-$HOSTNAME}"          # set hostname
+  local exitCode=0                                          # default exit code
+  local runas="${RUNAS_USER:-root}"                         # run as a different user
+  local proc_user="${SERVICE_USER:-root}"                   # specify different user ownership
+  local proc_group="$SERVICE_GROUP:-$SERVICE_USER}"         # specify different group ownership
+  local change_user="${CHANGE_USER:-${SERVICE_USER:-root}}" # specify different user ownership
+  local change_group="${CHANGE_GROUP:-$SERVICE_GROUP}"      # specify different group ownership
+  local sysname="${SERVER_NAME:-$HOSTNAME}"                 # set hostname
+  local user="$change_user"
+  local group="$change_group"
 
   # CD into temp to bybass any permission errors
   cd /tmp || false # lets keep shellcheck happy by adding false
@@ -220,6 +227,9 @@ __update_conf_files() {
     if __is_dir_empty "$WWW_ROOT_DIR" || [ ! -d "$WWW_ROOT_DIR" ]; then
       (echo "Creating directory $WWW_ROOT_DIR with permissions 777" && mkdir -p "$WWW_ROOT_DIR" && chmod -f 777 "$WWW_ROOT_DIR") |& tee -a "$LOG_DIR/init.txt" &>/dev/null
     fi
+    # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    # Copy html files
+    __initialize_www_root
     __initialize_web_health "$WWW_ROOT_DIR"
   fi
   if [ "$IS_DATABASE_SERVICE" = "yes" ]; then
@@ -228,8 +238,6 @@ __update_conf_files() {
       (echo "Creating directory $DATABASE_DIR with permissions 777" && mkdir -p "$DATABASE_DIR" && chmod -f 777 "$DATABASE_DIR") |& tee -a "$LOG_DIR/init.txt" &>/dev/null
     fi
   fi
-  # copy config files to system
-  __file_copy "$CONF_DIR/." "$ETC_DIR/" |& tee -a "$LOG_DIR/init.txt" &>/dev/null
   # replace variables
   # __replace "" "" "$ETC_DIR/GEN_SCRIPT_REPLACE_APPNAME.conf"
   # replace variables recursively
@@ -246,25 +254,38 @@ __update_conf_files() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # function to run before executing
 __pre_execute() {
-  local exitCode=0                                   # default exit code
-  local runas="${RUNAS_USER:-root}"                  # run as a different user
-  local user="${CHANGE_USER:-${SERVICE_USER:-root}}" # specify different user ownership
-  local group="${CHANGE_GROUP:-$SERVICE_GROUP}"      # specify different group ownership
-  local sysname="${SERVER_NAME:-$HOSTNAME}"          # set hostname
+  local exitCode=0                                          # default exit code
+  local runas="${RUNAS_USER:-root}"                         # run as a different user
+  local proc_user="${SERVICE_USER:-${runas:-root}}"         # specify different user ownership
+  local proc_group="$SERVICE_GROUP:-$SERVICE_USER}"         # specify different group ownership
+  local change_user="${CHANGE_USER:-${SERVICE_USER:-root}}" # specify different user ownership
+  local change_group="${CHANGE_GROUP:-$SERVICE_GROUP}"      # specify different group ownership
+  local sysname="${SERVER_NAME:-$HOSTNAME}"                 # set hostname
+  local user="$change_user"
+  local group="$change_group"
 
   # define commands
 
   # execute if directories is empty
   #__is_dir_empty "" && true || false
 
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  # Copy /config to /etc
+  for config_2_etc in $CONF_DIR $ADDITIONAL_CONFIG_DIRS; do
+    __initialize_system_etc "$config_2_etc"
+  done
+  unset config_2_etc ADDITIONAL_CONFIG_DIRS
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # create user if needed
   __create_service_user "$user" "$group" "${WORK_DIR:-/home/$user}" "$SERVICE_UID" "$SERVICE_GID"
 
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # Modify user if needed
   __set_user_group_id $user $SERVICE_UID $SERVICE_GID
 
   # Run Custom command
 
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # set user on files/folders
   if [ -n "$user" ] && [ "$user" != "root" ]; then
     if grep -sq "^$user:" "/etc/passwd"; then
@@ -285,12 +306,12 @@ __pre_execute() {
     fi
   fi
 
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # Run checks
   __run_pre_execute_checks
 
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # Replace variables
-  __initialize_replace_variables "/config"
   __initialize_replace_variables "$ETC_DIR"
   __initialize_replace_variables "$CONF_DIR"
   __initialize_replace_variables "$WWW_ROOT_DIR"
@@ -301,13 +322,18 @@ __pre_execute() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # function to run after executing
 __post_execute() {
-  local exitCode=0                                   # default exit code
-  local runas="${RUNAS_USER:-root}"                  # run as a different user
-  local user="${CHANGE_USER:-${SERVICE_USER:-root}}" # specify different user ownership
-  local group="${CHANGE_GROUP:-$SERVICE_GROUP}"      # specify different group ownership
-  local sysname="${SERVER_NAME:-$HOSTNAME}"          # set hostname
-  sleep 60                                           # how long to wait before executing
-  echo "Running post commands"                       # message
+  local exitCode=0                                                         # default exit code
+  local runas="${RUNAS_USER:-root}"                                        # run as a different user
+  local proc_user="${SERVICE_USER:-root}"                                  # specify different user ownership
+  local proc_group="$SERVICE_GROUP:-$SERVICE_USER}"                        # specify different group ownership
+  local change_user="${CHANGE_USER:-${SERVICE_USER:-${RUNAS_USER:-root}}}" # specify different user ownership
+  local change_group="${CHANGE_GROUP:-$SERVICE_GROUP}"                     # specify different group ownership
+  local sysname="${SERVER_NAME:-$HOSTNAME}"                                # set hostname
+  local user="$change_user"                                                # Set the user from the change user variable
+  local group="$change_group"                                              # Set the group from the change group variable
+
+  sleep 60                     # how long to wait before executing
+  echo "Running post commands" # message
   # execute commands
   (
     sleep 20
@@ -350,10 +376,10 @@ __create_service_env() {
 #ENV_DATABASE_DIR="${ENV_DATABASE_DIR:-$DATABASE_DIR}"               # set database dir
 #ENV_SERVICE_USER="${ENV_SERVICE_USER:-$SERVICE_USER}"               # execute command as another user
 #ENV_SERVICE_PORT="${ENV_SERVICE_PORT:-$SERVICE_PORT}"               # port which service is listening on
-#EXEC_PRE_SCRIPT="${ENV_EXEC_PRE_SCRIPT:-$EXEC_PRE_SCRIPT}"          # execute before commands
-#EXEC_CMD_BIN="${ENV_EXEC_CMD_BIN:-$EXEC_CMD_BIN}"                   # command to execute
-#EXEC_CMD_ARGS="${ENV_EXEC_CMD_ARGS:-$EXEC_CMD_ARGS}"                # command arguments
-#EXEC_CMD_NAME="$(basename "$EXEC_CMD_BIN")"                         # set the binary name
+#ENV_EXEC_PRE_SCRIPT="${ENV_EXEC_PRE_SCRIPT:-$EXEC_PRE_SCRIPT}"      # execute before commands
+#ENV_EXEC_CMD_BIN="${ENV_EXEC_CMD_BIN:-$EXEC_CMD_BIN}"               # command to execute
+#ENV_EXEC_CMD_ARGS="${ENV_EXEC_CMD_ARGS:-$EXEC_CMD_ARGS}"            # command arguments
+#ENV_EXEC_CMD_NAME="$(basename "$EXEC_CMD_BIN")"                     # set the binary name
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # root/admin user info [password/random]
 #ENV_ROOT_USER_NAME="${ENV_ROOT_USER_NAME:-$GEN_SCRIPT_REPLACE_ENV_ROOT_USER_NAME}"   # root user name
@@ -373,18 +399,24 @@ EOF
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # script to start server
 __run_start_script() {
-  local user="${SERVICE_USER:-root}"
-  local cmd="$(eval echo "${EXEC_CMD_BIN:-}")"
-  local args="$(eval echo "${EXEC_CMD_ARGS:-}")"
-  local name="$(eval echo "${EXEC_CMD_NAME:-}")"
-  local pre="$(eval echo "${EXEC_PRE_SCRIPT:-}")"
-  local workdir="$(eval echo "${WORK_DIR:-}")"
-  local lc_type="$(eval echo "${LC_ALL:-${LC_CTYPE:-$LANG}}")"
-  local home="$(eval echo "${workdir//\/root/\/tmp\/docker}")"
-  local path="$(eval echo "$PATH")"
-  local sysname="$(eval echo "${SERVER_NAME:-$HOSTNAME}")" # set hostname
-  local message="$(eval echo "")"
-  [ -f "$CONF_DIR/exec.$SERVICE_NAME.sh" ] && . "$CONF_DIR/exec.$SERVICE_NAME.sh"
+  local runas="${RUNAS_USER:-root}"                                        # run as a different user
+  local proc_user="${SERVICE_USER:-root}"                                  # specify different user ownership
+  local proc_group="$SERVICE_GROUP:-$SERVICE_USER}"                        # specify different group ownership
+  local change_user="${CHANGE_USER:-${SERVICE_USER:-${RUNAS_USER:-root}}}" # specify different user ownership
+  local change_group="${CHANGE_GROUP:-$SERVICE_GROUP}"                     # specify different group ownership
+  local sysname="${SERVER_NAME:-$HOSTNAME}"                                # set hostname
+  local cmd="$(eval echo "${EXEC_CMD_BIN:-}")"                             # expand variables
+  local args="$(eval echo "${EXEC_CMD_ARGS:-}")"                           # expand variables
+  local name="$(eval echo "${EXEC_CMD_NAME:-}")"                           # expand variables
+  local pre="$(eval echo "${EXEC_PRE_SCRIPT:-}")"                          # expand variables
+  local workdir="$(eval echo "${WORK_DIR:-}")"                             # expand variables
+  local lc_type="$(eval echo "${LC_ALL:-${LC_CTYPE:-$LANG}}")"             # expand variables
+  local home="$(eval echo "${workdir//\/root/\/tmp\/docker}")"             # expand variables
+  local path="$(eval echo "$PATH")"                                        # expand variables
+  local message="$(eval echo "")"                                          # expand variables
+  local user="$change_user"                                                # Set the user from the change user variable
+  local group="$change_group"                                              # Set the group from the change group variable
+  [ -f "$CONF_DIR/$SERVICE_NAME.exec_cmd.sh" ] && . "$CONF_DIR/$SERVICE_NAME.exec_cmd.sh"
   if [ -z "$cmd" ]; then
     __post_execute 2>"/dev/stderr" |& tee -a "$LOG_DIR/init.txt" &>/dev/null
     echo "Initializing $SCRIPT_NAME has completed"
@@ -542,18 +574,23 @@ if [ -n "$EXEC_CMD_BIN" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # set switch user command
-if [ "$SERVICE_USER" = "root" ] || [ -z "$SERVICE_USER" ]; then
+runas="${RUNAS_USER:-root}"                         # run as a different user
+proc_user="${runas:-${SERVICE_USER:-root}}"         # specify different user ownership
+proc_group="$SERVICE_GROUP:-$SERVICE_USER}"         # specify different group ownership
+change_user="${CHANGE_USER:-${SERVICE_USER:-root}}" # specify different user ownership
+change_group="${CHANGE_GROUP:-$SERVICE_GROUP}"      # specify different group ownership
+if [ "$proc_user" = "root" ] || [ -z "$proc_user" ]; then
   su_cmd() { eval "$*" || return 1; }
 elif [ "$(builtin type -P gosu)" ]; then
-  su_cmd() { gosu $SERVICE_USER "$@" || return 1; }
+  su_cmd() { gosu $runas "$@" || return 1; }
 elif [ "$(builtin type -P runuser)" ]; then
-  su_cmd() { runuser -u $SERVICE_USER "$@" || return 1; }
+  su_cmd() { runuser -u $runas "$@" || return 1; }
 elif [ "$(builtin type -P sudo)" ]; then
-  su_cmd() { sudo -u $SERVICE_USER "$@" || return 1; }
+  su_cmd() { sudo -u $runas "$@" || return 1; }
 elif [ "$(builtin type -P su)" ]; then
-  su_cmd() { su -s /bin/sh - $SERVICE_USER -c "$@" || return 1; }
+  su_cmd() { su -s /bin/sh - $runas -c "$@" || return 1; }
 else
-  echo "Can not switch to $SERVICE_USER: attempting to run as root"
+  echo "Can not switch to $runas: attempting to run as root"
   su_cmd() { eval "$*" || return 1; }
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

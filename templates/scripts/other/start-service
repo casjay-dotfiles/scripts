@@ -231,10 +231,13 @@ __update_conf_files() {
     fi
   fi
   # replace variables
-  # __replace "" "" "$ETC_DIR/GEN_SCRIPT_REPLACE_APPNAME.conf"
+  # __replace "" "" "$CONF_DIR/GEN_SCRIPT_REPLACE_APPNAME.conf"
   # replace variables recursively
+  #  __find_replace "" "" "$CONF_DIR"
   __find_replace "REPLACE_WWW_USER" "${SERVICE_USER:-root}" "$CONF_DIR"
-  __find_replace "REPLACE_WWW_GROUP" "${SERVICE_GROUP:-root}" "$CONF_DIR"
+  __find_replace "REPLACE_APP_USER" "${SERVICE_USER:-root}" "$CONF_DIR"
+  __find_replace "REPLACE_WWW_GROUP" "${SERVICE_GROUP:-${SERVICE_USER:-root}}" "$CONF_DIR"
+  __find_replace "REPLACE_APP_GROUP" "${SERVICE_GROUP:-${SERVICE_USER:-root}}" "$CONF_DIR"
 
   # execute if directory is empty
   #__is_dir_empty "" && true || false
@@ -258,12 +261,6 @@ __pre_execute() {
   #__is_dir_empty "" && true || false
 
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  # Copy /config to /etc
-  for config_2_etc in $CONF_DIR $ADDITIONAL_CONFIG_DIRS; do
-    __initialize_system_etc "$config_2_etc" |& tee -a "$LOG_DIR/init.txt" &>/dev/null |& tee -a "$LOG_DIR/init.txt" &>/dev/null
-  done
-  unset config_2_etc ADDITIONAL_CONFIG_DIRS
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # create user if needed
   __create_service_user "$SERVICE_USER" "$SERVICE_GROUP" "${WORK_DIR:-/home/$SERVICE_USER}" "${SERVICE_UID:-3000}" "${SERVICE_GID:-3000}"
 
@@ -273,6 +270,12 @@ __pre_execute() {
 
   # Run Custom command
 
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  # Copy /config to /etc
+  for config_2_etc in $CONF_DIR $ADDITIONAL_CONFIG_DIRS; do
+    __initialize_system_etc "$config_2_etc" |& tee -a "$LOG_DIR/init.txt" &>/dev/null |& tee -a "$LOG_DIR/init.txt" &>/dev/null
+  done
+  unset config_2_etc ADDITIONAL_CONFIG_DIRS
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # set user on files/folders
   if [ -n "$SERVICE_USER" ] && [ "$SERVICE_USER" != "root" ]; then
@@ -295,16 +298,19 @@ __pre_execute() {
   fi
 
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  # Run checks
-  __run_pre_execute_checks
-
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  # Replace the applications user and group
+  __find_replace "REPLACE_WWW_USER" "${SERVICE_USER:-root}" "$ETC_DIR"
+  __find_replace "REPLACE_WWW_GROUP" "${SERVICE_GROUP:-${SERVICE_USER:-root}}" "$ETC_DIR"
+  __find_replace "REPLACE_APP_USER" "${SERVICE_USER:-root}" "$ETC_DIR"
+  __find_replace "REPLACE_APP_GROUP" "${SERVICE_GROUP:-${SERVICE_USER:-root}}" "$ETC_DIR"
   # Replace variables
   __initialize_replace_variables "$ETC_DIR"
   __initialize_replace_variables "$CONF_DIR"
   __initialize_replace_variables "$WWW_ROOT_DIR"
-  __find_replace "REPLACE_WWW_USER" "${SERVICE_USER:-root}" "$ETC_DIR"
-  __find_replace "REPLACE_WWW_GROUP" "${SERVICE_GROUP:-root}" "$ETC_DIR"
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  # Run checks
+  __run_pre_execute_checks
+
   # unset unneeded variables
   unset filesperms filename
   # Lets wait a few seconds before continuing
@@ -383,11 +389,12 @@ EOF
 # script to start server
 __run_start_script() {
   local runExitCode=0
+  local workdir="$(eval echo "${WORK_DIR:-}")"                   # expand variables
   local cmd="$(eval echo "${EXEC_CMD_BIN:-}")"                   # expand variables
   local args="$(eval echo "${EXEC_CMD_ARGS:-}")"                 # expand variables
   local name="$(eval echo "${EXEC_CMD_NAME:-}")"                 # expand variables
   local pre="$(eval echo "${EXEC_PRE_SCRIPT:-}")"                # expand variables
-  local workdir="$(eval echo "${WORK_DIR:-}")"                   # expand variables
+  local extra_env="$(eval echo "${CMD_ENV//,/ }")"               # expand variables
   local lc_type="$(eval echo "${LANG:-${LC_ALL:-$LC_CTYPE}}")"   # expand variables
   local home="$(eval echo "${workdir//\/root/\/tmp\/docker}")"   # expand variables
   local path="$(eval echo "$PATH")"                              # expand variables
@@ -422,9 +429,9 @@ __run_start_script() {
       # show message if env exists
       if [ -n "$cmd_exec" ]; then
         [ -n "$SERVICE_USER" ] && echo "Setting up $cmd_exec to run as $SERVICE_USER" || SERVICE_USER="root"
-        [ -n "$SERVICE_PORT" ] && echo "$name: will be running on $SERVICE_PORT" || SERVICE_PORT=""
+        [ -n "$SERVICE_PORT" ] && echo "$name will be running on $SERVICE_PORT" || SERVICE_PORT=""
       fi
-      if [ -n "$pre" ] && [ -f "$pre" ]; then
+      if [ -n "$pre" ] && [ -n "$(command -v "$pre" 2>/dev/null)" ]; then
         cmd_exec="$pre $cmd $args"
         message="Starting service: $name $args through $pre"
       else
@@ -436,7 +443,7 @@ __run_start_script() {
       su_cmd touch "$SERVICE_PID_FILE"
       __post_execute 2>"/dev/stderr" 2>&1 |& tee -a "$LOG_DIR/init.txt" &>/dev/null &
       if [ "$RESET_ENV" = "yes" ]; then
-        su_cmd env -i HOME="$home" LC_CTYPE="$lc_type" PATH="$path" HOSTNAME="$sysname" USER="${SERVICE_USER:-$RUNAS_USER}" ${CMD_ENV//,/ } sh -c "$cmd_exec" 2>"/dev/stderr" || return 10
+        su_cmd env -i HOME="$home" LC_CTYPE="$lc_type" PATH="$path" HOSTNAME="$sysname" USER="${SERVICE_USER:-$RUNAS_USER}" $extra_env sh -c "$cmd_exec" 2>"/dev/stderr" || return 10
       else
         eval "$cmd_exec" 2>"/dev/stderr" || return 10
       fi

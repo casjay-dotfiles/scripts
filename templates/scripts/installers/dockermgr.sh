@@ -1029,7 +1029,7 @@ DOCKER_SET_OPTIONS+=("--env TZ=$CONTAINER_TIMEZONE")
 # set working dir
 if [ -n "$CONTAINER_WORK_DIR" ]; then
   DOCKER_SET_OPTIONS+=("--workdir $CONTAINER_WORK_DIR")
-  DOCKER_SET_OPTIONS+=("--env WORK_DIR=$CONTAINER_WORK_DIR")
+  DOCKER_SET_OPTIONS+=("--env ENV_WORK_DIR=$CONTAINER_WORK_DIR")
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the html directory
@@ -1348,6 +1348,7 @@ fi
 if [ "$CONTAINER_HTTPS_PORT" != "" ]; then
   CONTAINER_PROTOCOL="https"
 fi
+DOCKER_SET_OPTIONS+=("--env CONTAINER_PROTOCOL=$CONTAINER_PROTOCOL")
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup easy port settings
 if [ "$CONTAINER_SERVICE_PUBLIC" = "yes" ] || [ "$CONTAINER_SERVICE_PUBLIC" = "0.0.0.0" ]; then
@@ -1433,7 +1434,7 @@ if [ "$CONTAINER_CUSTOM_DATABASE_ENABLED" = "yes" ] && [ -n "$CONTAINER_CUSTOM_D
   else
     CONTAINER_DATABASE_PROTO="file:///$DATABASE_DIR_CUSTOM/"
   fi
-  MESSAGE_CONTAINER_DATABASE="Database files are saved to:            $DATABASE_DIR_CUSTOM"
+  MESSAGE_CONTAINER_DATABASE="true"
 fi
 if [ "$CONTAINER_REDIS_ENABLED" = "yes" ]; then
   SHOW_DATABASE_INFO="true"
@@ -1469,8 +1470,8 @@ if [ "$CONTAINER_MARIADB_ENABLED" = "yes" ]; then
   SHOW_DATABASE_INFO="true"
   CONTAINER_DATABASE_ENABLED="yes"
   DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_DATABASE_LISTEN:3306:3306")
-  DATABASE_DIR_MARIADB="${DATABASE_DIR_MARIADB:-$DATABASE_BASE_DIR/mariadb}"
-  DOCKER_SET_OPTIONS+=("--volume $LOCAL_DATA_DIR/db/mariadb:$DATABASE_DIR_MARIADB:z")
+  DATABASE_DIR_MARIADB="${DATABASE_DIR_MARIADB:-$DATABASE_BASE_DIR/mysql}"
+  DOCKER_SET_OPTIONS+=("--volume $LOCAL_DATA_DIR/db/mysql:$DATABASE_DIR_MARIADB:z")
   DOCKER_SET_OPTIONS+=("--env DATABASE_DIR_MARIADB=$DATABASE_DIR_MARIADB")
   CONTAINER_DATABASE_PROTO="mysql://$HOST_LISTEN_ADDR:3306"
   MESSAGE_MARIADB="true"

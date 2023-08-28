@@ -114,8 +114,8 @@ SERVICE_PORT=""
 RUNAS_USER="root" # normally root
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User and group in which the service switches to - IE: nginx,apache,mysql,postgres
-SERVICE_USER="root" # execute command as another user
-SERVICE_GROUP=""    # Set the service group
+SERVICE_USER="GEN_SCRIPT_REPLACE_APPNAME"  # execute command as another user
+SERVICE_GROUP="GEN_SCRIPT_REPLACE_APPNAME" # Set the service group
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set user and group ID
 SERVICE_UID="0" # set the user id
@@ -382,12 +382,13 @@ EOF
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # script to start server
 __run_start_script() {
+  local runExitCode=0
   local cmd="$(eval echo "${EXEC_CMD_BIN:-}")"                   # expand variables
   local args="$(eval echo "${EXEC_CMD_ARGS:-}")"                 # expand variables
   local name="$(eval echo "${EXEC_CMD_NAME:-}")"                 # expand variables
   local pre="$(eval echo "${EXEC_PRE_SCRIPT:-}")"                # expand variables
   local workdir="$(eval echo "${WORK_DIR:-}")"                   # expand variables
-  local lc_type="$(eval echo "${LC_ALL:-${LC_CTYPE:-$LANG}}")"   # expand variables
+  local lc_type="$(eval echo "${LANG:-${LC_ALL:-$LC_CTYPE}}")"   # expand variables
   local home="$(eval echo "${workdir//\/root/\/tmp\/docker}")"   # expand variables
   local path="$(eval echo "$PATH")"                              # expand variables
   local message="$(eval echo "")"                                # expand variables
@@ -407,9 +408,9 @@ __run_start_script() {
     [ "$home" = "/root" ] && home="/tmp/docker"
     [ "$home" = "$workdir" ] && workdir=""
     # create needed directories
-    [ -n "$home" ] && { [ -d "$home" ] || mkdir -p "$home"; }
-    [ -n "$workdir" ] && { [ -d "$workdir" ] || mkdir -p "$workdir" || workdir="/tmp"; }
-    [ -n "$workdir" ] && __cd "$workdir" || { [ -n "$home" ] && __cd "$home"; } || __cd "/tmp"
+    [ -n "$home" ] && { [ -d "$home" ] || { mkdir -p "$home" && chown -Rf $SERVICE_USER:$SERVICE_GROUP "$home"; }; }
+    [ -n "$workdir" ] && { [ -d "$workdir" ] || { mkdir -p "$workdir" && chown -Rf $SERVICE_USER:$SERVICE_GROUP "$workdir"; }; }
+
     [ "$user" != "root " ] && [ -d "$home" ] && chmod -f 777 "$home"
     [ "$user" != "root " ] && [ -d "$workdir" ] && chmod -f 777 "$workdir"
     # check and exit if already running
@@ -417,6 +418,12 @@ __run_start_script() {
       echo "$name is already running" >&2
       exit 0
     else
+      # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      # show message if env exists
+      if [ -n "$cmd_exec" ]; then
+        [ -n "$SERVICE_USER" ] && echo "Setting up $cmd_exec to run as $SERVICE_USER" || SERVICE_USER="root"
+        [ -n "$SERVICE_PORT" ] && echo "$name: will be running on $SERVICE_PORT" || SERVICE_PORT=""
+      fi
       if [ -n "$pre" ] && [ -f "$pre" ]; then
         cmd_exec="$pre $cmd $args"
         message="Starting service: $name $args through $pre"
@@ -424,13 +431,14 @@ __run_start_script() {
         cmd_exec="$cmd $args"
         message="Starting service: $name $args"
       fi
+      __cd "${workdir:-$home}"
       echo "$message"
       su_cmd touch "$SERVICE_PID_FILE"
       __post_execute 2>"/dev/stderr" 2>&1 |& tee -a "$LOG_DIR/init.txt" &>/dev/null &
       if [ "$RESET_ENV" = "yes" ]; then
-        su_cmd env -i HOME="$home" LC_CTYPE="$lc_type" PATH="$path" HOSTNAME="$sysname" USER="${SERVICE_USER:-$RUNAS_USER}" ${CMD_ENV//,/ } sh -c "$cmd_exec" || return 10
+        su_cmd env -i HOME="$home" LC_CTYPE="$lc_type" PATH="$path" HOSTNAME="$sysname" USER="${SERVICE_USER:-$RUNAS_USER}" ${CMD_ENV//,/ } sh -c "$cmd_exec" 2>"/dev/stderr" || return 10
       else
-        eval "$cmd_exec" || return 10
+        eval "$cmd_exec" 2>"/dev/stderr" || return 10
       fi
     fi
   fi
@@ -442,7 +450,7 @@ __run_secure_function() {
     for filesperms in "${USER_FILE_PREFIX}"/*; do
       if [ -e "$filesperms" ]; then
         chmod -Rf 600 "$filesperms"
-        chown -Rf root:root "$filesperms"
+        chown -Rf $SERVICE_USER:$SERVICE_USER "$filesperms"
       fi
     done |& tee -a "$LOG_DIR/init.txt" &>/dev/null
   fi
@@ -450,14 +458,14 @@ __run_secure_function() {
     for filesperms in "${ROOT_FILE_PREFIX}"/*; do
       if [ -e "$filesperms" ]; then
         chmod -Rf 600 "$filesperms"
-        chown -Rf root:root "$filesperms"
+        chown -Rf $SERVICE_USER:$SERVICE_USER "$filesperms"
       fi
     done |& tee -a "$LOG_DIR/init.txt" &>/dev/null
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # simple cd function
-__cd() { mkdir -p "$1" && builtin cd "$1" || exit 1; }
+__cd() { mkdir -p "$1" && builtin cd "$1" && pushd || { builtin cd "/tmp" && pushd; } || exit 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # process check functions
 __pcheck() { [ -n "$(type -P pgrep 2>/dev/null)" ] && pgrep -x "$1" &>/dev/null && return 0 || return 10; }
@@ -510,7 +518,9 @@ EXEC_PRE_SCRIPT="$(type -P "$EXEC_PRE_SCRIPT" || echo "$EXEC_PRE_SCRIPT")" # set
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [ "$IS_WEB_SERVER" = "yes" ] && RESET_ENV="yes"
 [ "$IS_DATABASE_SERVICE" = "yes" ] && RESET_ENV="no"
-[ -z "$RUNAS_USER" ] && RUNAS_USER="${SERVICE_USER:-root}"
+[ -n "$RUNAS_USER" ] || RUNAS_USER="root"
+[ -n "$SERVICE_USER" ] || SERVICE_USER="${RUNAS_USER:-root}"
+[ -n "$SERVICE_GROUP" ] || SERVICE_GROUP="${RUNAS_USER:-root}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Allow per init script usernames and passwords
 __file_exists_with_content "$ETC_DIR/auth/user/name" && user_name="$(<"$ETC_DIR/auth/user/name")"
@@ -523,6 +533,20 @@ user_name="${ENV_USER_NAME:-$user_name}"
 user_pass="${ENV_USER_PASS:-$user_pass}"
 root_user_name="${ENV_ROOT_USER_NAME:-$root_user_name}"
 root_user_pass="${ENV_ROOT_USER_PASS:-$root_user_pass}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Env vars from dockermgr script
+SERVICE_UID="${ENV_PUID:-${PUID:-$SERVICE_UID}}"
+SERVICE_GID="${ENV_PGID:-${PGID:-$SERVICE_GID}}"
+EMAIL_RELAY="${ENV_EMAIL_RELAY:-$EMAIL_RELAY}"
+EMAIL_ADMIN="${ENV_EMAIL_ADMIN:-$EMAIL_ADMIN}"
+EMAIL_DOMAIN="${ENV_EMAIL_DOMAIN:-$EMAIL_DOMAIN}"
+SERVICE_PROTOCOL="${ENV_CONTAINER_PROTOCOL:-$CONTAINER_PROTOCOL}"
+WWW_ROOT_DIR="${CONTAINER_HTML_ENV:-${ENV_WWW_ROOT_DIR:-$WWW_ROOT_DIR}}"
+DATABASE_DIR="${ENV_DATABASE_DIR_CUSTOM:-${DATABASE_DIR_CUSTOM:-${DATABASE_DIR_SQLITE:-$DATABASE_DIR}}}"
+user_name="${ENV_DATABASE_USER_NORMAL:-${DATABASE_USER_NORMAL:-${CONTAINER_ENV_USER_NAME:-$user_name}}}"
+user_pass="${ENV_DATABASE_PASS_NORMAL:-${DATABASE_PASS_NORMAL:-${CONTAINER_ENV_PASS_NAME:-$user_pass}}}"
+root_user_name="${ENV_DATABASE_USER_ROOT:-${DATABASE_USER_ROOT:-$root_user_name}}"
+root_user_pass="${ENV_DATABASE_PASS_ROOT:-${DATABASE_PASS_ROOT:-$root_user_pass}}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # set password to random if variable is random
 if [ "$user_pass" = "random" ]; then
@@ -542,14 +566,8 @@ if [ "$1" = "check" ]; then
   exit $?
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# show message if env exists
-if [ -n "$EXEC_CMD_BIN" ]; then
-  [ -n "$RUNAS_USER" ] && echo "Setting up $EXEC_CMD_BIN to run as $RUNAS_USER" || RUNAS_USER="root"
-  [ -n "$SERVICE_PORT" ] && echo "${EXEC_CMD_NAME:-$EXEC_CMD_BIN} will be running on $SERVICE_PORT" || SERVICE_PORT=""
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # set switch user command
-if [ "$RUNAS_USER" != "root" ]; then
+if [ "$RUNAS_USER" = "root" ]; then
   su_cmd() { eval "$*" || return 1; }
 elif [ "$(builtin type -P gosu)" ]; then
   su_cmd() { gosu $RUNAS_USER "$@" || return 1; }
@@ -585,9 +603,9 @@ __run_secure_function
 __run_start_script "$@" |& tee -a "/data/logs/entrypoint.log" &>/dev/null
 if [ "$?" -ne 0 ] && [ -n "$EXEC_CMD_BIN" ]; then
   eval echo "Failed to execute: $EXEC_CMD_BIN $EXEC_CMD_ARGS" |& tee -a "/data/logs/entrypoint.log" "$LOG_DIR/init.txt"
+  rm -Rf "$SERVICE_PID_FILE"
   SERVICE_EXIT_CODE=10
   SERVICE_IS_RUNNING="false"
-  rm -Rf "$SERVICE_PID_FILE"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 exit $SERVICE_EXIT_CODE

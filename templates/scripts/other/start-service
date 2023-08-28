@@ -432,10 +432,10 @@ __run_start_script() {
         [ -n "$SERVICE_PORT" ] && echo "$name will be running on $SERVICE_PORT" || SERVICE_PORT=""
       fi
       if [ -n "$pre" ] && [ -n "$(command -v "$pre" 2>/dev/null)" ]; then
-        cmd_exec="$pre $cmd $args"
+        export cmd_exec="$pre $cmd $args"
         message="Starting service: $name $args through $pre"
       else
-        cmd_exec="$cmd $args"
+        export cmd_exec="$cmd $args"
         message="Starting service: $name $args"
       fi
       __cd "${workdir:-$home}"
@@ -474,7 +474,7 @@ __run_secure_function() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # simple cd function
-__cd() { mkdir -p "$1" && builtin cd "$1" && pushd || { builtin cd "/tmp" && pushd; } || exit 1; }
+__cd() { mkdir -p "$1" && builtin cd "$1" || exit 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # process check functions
 __pcheck() { [ -n "$(type -P pgrep 2>/dev/null)" ] && pgrep -x "$1" &>/dev/null && return 0 || return 10; }

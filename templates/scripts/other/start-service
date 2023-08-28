@@ -350,8 +350,6 @@ __create_service_env() {
   cat <<EOF | tee "/config/env/${SERVICE_NAME:-$SCRIPT_NAME}.sh" &>/dev/null
 #ENV_SERVICE_UID="${ENV_UID:-${ENV_SERVICE_UID:-$SERVICE_UID}}"      # Set UID
 #ENV_SERVICE_GID="${ENV_GID:-${ENV_SERVICE_GID:-$SERVICE_GID}}"      # Set GID
-#ENV_CHANGE_USER="${ENV_CHANGE_USER:-$SERVICE_USER}"                 # Set user file ownership
-#ENV_CHANGE_GROUP="${ENV_CHANGE_GROUP:-$SERVICE_GROUP}"              # Set group file ownership
 #ENV_RUNAS_USER="${ENV_RUNAS_USER:-$RUNAS_USER}"                     # normally root
 #ENV_WORKDIR="${ENV_WORK_DIR:-$WORK_DIR}"                            # change to directory
 #ENV_WWW_DIR="${ENV_WWW_ROOT_DIR:-$WWW_ROOT_DIR}"                    # set default web dir
@@ -430,7 +428,7 @@ __run_start_script() {
       su_cmd touch "$SERVICE_PID_FILE"
       __post_execute 2>"/dev/stderr" 2>&1 |& tee -a "$LOG_DIR/init.txt" &>/dev/null &
       if [ "$RESET_ENV" = "yes" ]; then
-        su_cmd env -i HOME="$home" LC_CTYPE="$lc_type" PATH="$path" HOSTNAME="$sysname" USER="$user" ${CMD_ENV//,/ } sh -c "$(eval "$cmd_exec" || false)" || return 10
+        su_cmd env -i HOME="$home" LC_CTYPE="$lc_type" PATH="$path" HOSTNAME="$sysname" USER="${SERVICE_USER:-$RUNAS_USER}" ${CMD_ENV//,/ } sh -c "$(eval "$cmd_exec" || false)" || return 10
       else
         eval "$cmd_exec" || return 10
       fi
@@ -512,6 +510,7 @@ EXEC_PRE_SCRIPT="$(type -P "$EXEC_PRE_SCRIPT" || echo "$EXEC_PRE_SCRIPT")" # set
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [ "$IS_WEB_SERVER" = "yes" ] && RESET_ENV="yes"
 [ "$IS_DATABASE_SERVICE" = "yes" ] && RESET_ENV="no"
+[ -z "$RUNAS_USER" ] && RUNAS_USER="${SERVICE_USER:-root}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Allow per init script usernames and passwords
 __file_exists_with_content "$ETC_DIR/auth/user/name" && user_name="$(<"$ETC_DIR/auth/user/name")"
@@ -550,7 +549,7 @@ if [ -n "$EXEC_CMD_BIN" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # set switch user command
-if [ "$RUNAS_USER" != "root" ] || [ -z "$RUNAS_USER" ]; then
+if [ "$RUNAS_USER" != "root" ]; then
   su_cmd() { eval "$*" || return 1; }
 elif [ "$(builtin type -P gosu)" ]; then
   su_cmd() { gosu $RUNAS_USER "$@" || return 1; }
@@ -561,8 +560,7 @@ elif [ "$(builtin type -P sudo)" ]; then
 elif [ "$(builtin type -P su)" ]; then
   su_cmd() { su -s /bin/sh - $RUNAS_USER -c "$@" || return 1; }
 else
-  echo "Can not switch to $RUNAS_USER: attempting to run as root"
-  su_cmd() { eval "$*" || return 1; }
+  su_cmd() { echo "Can not switch to $RUNAS_USER: attempting to run as root" && eval "$*" || return 1; }
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Change to working directory

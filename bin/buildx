@@ -317,6 +317,31 @@ __trap_timer() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_version() { awk -F '=' '{print $2}' | sed 's|"||g;s|,| |g' | tr ' ' '\n' | grep -Ev '\${.*_.*}' | grep -v '^$' | sort -Vu | tr '\n' ' ' | grep '^' || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__set_variables() {
+  export DOCKER_BUILDKIT=1
+  export DOCKER_PLATFORMS="$BUILDX_DOCKER_PLATFORMS"
+  export BUILDX_EXPERIMENTAL="$BUILDX_DOCKER_BUILD_EXPERIMENTAL"
+  export DOCKER_CLI_EXPERIMENTAL="$BUILDX_DOCKER_CLI_EXPERIMENTAL"
+  BUILDX_PID_NUMBER="$$"
+  BUILDX_SET_REPO="${ENV_ORG_NAME:-$BUILDX_SET_REPO}"
+  BUILDX_SET_IMAGE="${ENV_IMAGE_REPO:-$BUILDX_SET_IMAGE}"
+  BUILDX_VERSION_TAG="${ENV_ADD_TAGS:-$BUILDX_VERSION_TAG}"
+  BUILDX_PID_FILE="$HOME/.local/run/$APPNAME/$APPNAME.pid"
+  BUILDX_DOCKER_PLATFORMS="${BUILDX_DOCKER_PLATFORMS// /,}"
+  BUILDX_DEFAULT_REPO="${BUILDX_SET_REPO:-$BUILDX_DEFAULT_REPO}"
+  BUILDX_DEFAULT_HUB="${BUILDX_SET_REGISTRY:-$BUILDX_DEFAULT_HUB}"
+  BUILDX_GIT_REPO_USER="${BUILDX_SET_GIT_USER:-$BUILDX_GIT_REPO_USER}"
+  BUILDX_PROJECT_DIR="${BUILDX_PROJECT_DIR:-$HOME/Projects/github/$BUILDX_DEFAULT_REPO}"
+  BUILDX_DEFAULT_VERSION="$(echo "${BUILDX_SET_VERSION:-$BUILDX_DEFAULT_VERSION}" | awk -F ' ' '{print $1}' | sed 's|"||g')"
+  [ -n "$BUILDX_VERSION_TAG" ] && export BUILDX_ADD_TAG="true"
+  [ -n "$BUILDX_SET_REPO" ] && export BUILDX_SET_REPO
+  [ -n "$BUILDX_SET_IMAGE" ] && export BUILDX_SET_IMAGE
+  [ -n "$BUILDX_SET_VERSION" ] && export BUILDX_SET_VERSION
+  [ -n "$BUILDX_SET_REGISTRY" ] && export BUILDX_SET_REGISTRY
+  [ -n "$BUILDX_SET_GIT_USER" ] && export BUILDX_SET_GIT_USER
+  [ -n "$ENV_IMAGE_TAG" ] && export BUILDX_SET_VERSION="$(basename "${ENV_IMAGE_TAG//:*/}")"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_log_files() {
   local directory="" file=""
   local dir_name="" file_name=""
@@ -503,6 +528,9 @@ __get_dockerfile_ver() {
   iver="$(basename "$fileloc" 2>/dev/null | sed 's/^[^\.]*\./rel:/' | awk -F ':' '{print $2}' | sed 's| ||g' | grep '^' || echo '')"
   cver="$(grep -s 'ARG.*CONTAINER_VERSION=' "$fileloc" | __get_version || grep -s 'ARG.*IMAGE_VERSION=' "$fileloc" | __get_version || echo '')"
   #
+  [ -f "$BUILDX_CWD/.env.scripts.$iver" ] && . "$BUILDX_CWD/.env.scripts.$iver"
+  [ -f "$BUILDX_CWD/.env.scripts.$cver" ] && . "$BUILDX_CWD/.env.scripts.$cver"
+  [ -n "$ENV_IMAGE_TAG" ] && cver="$ENV_ADD_TAGS $ENV_IMAGE_TAG $iver "
   cver="${cver//$iver/}"
   #
   set_default_tag="$(echo "$iver" "$cver" | tr ' ' '\n' | grep -v '^$' | head -n1 | grep '^' || echo "${new_tag:-latest}")"
@@ -554,6 +582,9 @@ __get_dockerfile_ver() {
     BUILDX_VERSION_TAG="$set_ver_tag"
   fi
   #
+  if [ -f "$BUILDX_CWD/.env.scripts.$new_tag" ]; then
+    . "$BUILDX_CWD/.env.scripts.$new_tag"
+  fi
   BUILDX_GET_VERSION_MESSAGE="$(printf '%s\n%s\n%s\n' "Image version is: $new_tag" "setting tag to $new_tag" "Added tags: ${BUILDX_VERSION_TAG:-none}")"
   #
   return $exitC
@@ -622,8 +653,8 @@ __wait_for_previous_build() {
     [ -n "$pid_number" ] && printf_green "Pid exists: $BUILDX_PID_FILE"
     while [ -n "$pid_number" ] && [ -f "$BUILDX_PID_FILE" ]; do
       if [ $count -eq 0 ]; then
-        echo "                                                           "
-        printf_exit "Timeout waiting for previous build to complete              "
+        echo " "
+        printf_exit "Timeout waiting for previous build to complete "
       else
         [ -f "$BUILDX_PID_FILE" ] && pid="$(<"$BUILDX_PID_FILE")" || break
         printf '\r%s' "waiting for previous build to complete: $((count * $sleep / 60)) minutes"
@@ -775,7 +806,7 @@ __reinit_buildx() {
     BUILDX_INIT_RAN="true"
     BUILDX_FORCE_REINSTALL=""
     printf_cyan "Building for platforms: $BUILDX_DOCKER_PLATFORMS"
-    printf '%s\n' "# Building for platforms: $BUILDX_DOCKER_PLATFORMS" | tee -a "$logfile" &>/dev/null
+    printf '%s\n' " # Building for platforms: $BUILDX_DOCKER_PLATFORMS" | tee -a "$logfile" &>/dev/null
     return 0
   else
     echo "Initializing of buildx failed" |& tee -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
@@ -1138,6 +1169,7 @@ __execute_buildx() {
   local exitCode=0
   local buildxexitCode=1
   BUILDX_DATE="$(date +'%Y-%m-%d at %H:%M')"
+  FULL_DIR_PATH="$(realpath "$BUILDX_CWD")"
   if [ -f "$BUILDX_PID_FILE" ]; then
     printf_exit "$APPNAME is already running"
   else
@@ -1198,6 +1230,7 @@ __execute_buildx() {
   SET_DIR_NAME="$(echo "$SET_DIR_NAME" | tr '[:upper:]' '[:lower:]')"
   #
   __get_dockerfile_ver "$Dockerfile"
+  [ -n "$ENV_IMAGE_REPO" ] && name="$(basename "${ENV_IMAGE_REPO//:*/}")"
   tag_version="${new_tag:-$set_newtag}"
   tag_version="${tag_version,,}"
   BUILDX_DEFAULT_VERSION="$tag_version"
@@ -1615,7 +1648,6 @@ while :; do
     shift 2
     ;;
   --add-tag)
-    export BUILDX_ADD_TAG="true"
     export BUILDX_VERSION_TAG="${2//,/ }"
     shift 2
     ;;
@@ -1683,26 +1715,10 @@ export BUILDX_CWD
 [ -f "$BUILDX_CWD/.env.scripts" ] && . "$BUILDX_CWD/.env.scripts"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
-BUILDX_PID_NUMBER="$$"
-BUILDX_SET_REPO="${ENV_ORG_NAME:-$BUILDX_SET_REPO}"
-BUILDX_PID_FILE="$HOME/.local/run/$APPNAME/$APPNAME.pid"
-BUILDX_DOCKER_PLATFORMS="${BUILDX_DOCKER_PLATFORMS// /,}"
-BUILDX_DEFAULT_REPO="${BUILDX_SET_REPO:-$BUILDX_DEFAULT_REPO}"
-BUILDX_DEFAULT_HUB="${BUILDX_SET_REGISTRY:-$BUILDX_DEFAULT_HUB}"
-BUILDX_GIT_REPO_USER="${BUILDX_SET_GIT_USER:-$BUILDX_GIT_REPO_USER}"
-BUILDX_PROJECT_DIR="${BUILDX_PROJECT_DIR:-$HOME/Projects/github/$BUILDX_DEFAULT_REPO}"
-BUILDX_DEFAULT_VERSION="$(echo "${BUILDX_SET_VERSION:-$BUILDX_DEFAULT_VERSION}" | awk -F ' ' '{print $1}' | sed 's|"||g')"
+__set_variables
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Export variables
-export DOCKER_BUILDKIT=1
-export DOCKER_PLATFORMS="$BUILDX_DOCKER_PLATFORMS"
-export BUILDX_EXPERIMENTAL="$BUILDX_DOCKER_BUILD_EXPERIMENTAL"
-export DOCKER_CLI_EXPERIMENTAL="$BUILDX_DOCKER_CLI_EXPERIMENTAL"
-[ -n "$BUILDX_SET_REPO" ] && export BUILDX_SET_REPO
-[ -n "$BUILDX_SET_IMAGE" ] && export BUILDX_SET_IMAGE
-[ -n "$BUILDX_SET_VERSION" ] && export BUILDX_SET_VERSION
-[ -n "$BUILDX_SET_REGISTRY" ] && export BUILDX_SET_REGISTRY
-[ -n "$BUILDX_SET_GIT_USER" ] && export BUILDX_SET_GIT_USER
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
 __buildx_vars $BUILDX_BUILDER_NAME

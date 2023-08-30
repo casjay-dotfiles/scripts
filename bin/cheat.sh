@@ -186,7 +186,7 @@ __help() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # check if arg is a builtin option
-__is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0;fi; }
+__is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0; fi; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Is current user root
 __user_is_root() {
@@ -286,7 +286,7 @@ __update() {
 __create_completion() {
   type _cheat.sh_completion 2>&1 | grep -iq 'is a function' && return
   [ -z "$CHEAT_SH_FORCE" ] && [ -f "$CHEAT_SH_CONFIG_DIR/completion.txt" ] && return
-  cat <<EOF | tee "$CHEAT_SH_CONFIG_DIR/completion.txt" |& __devnull
+  cat <<EOF | tee -p "$CHEAT_SH_CONFIG_DIR/completion.txt" |& __devnull
 _cheat.sh_completion()
 {
     local cur prev opts
@@ -431,7 +431,7 @@ while :; do
     export SCRIPT_OPTS="--debug"
     export _DEBUG="on"
     __devnull() { tee || return 1; }
-    __devnull2() { eval "$@" |& tee || return 1; }
+    __devnull2() { eval "$@" |& tee -p || return 1; }
     ;;
   --completions)
     if [ "$2" = "short" ]; then

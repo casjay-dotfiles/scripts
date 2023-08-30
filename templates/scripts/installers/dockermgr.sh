@@ -498,14 +498,14 @@ DOCKERMGR_ENABLE_INSTALL_SCRIPT="yes"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set custom container enviroment variables - [MYVAR="VAR"]
 __custom_docker_env() {
-  cat <<EOF | tee | grep -v '^$'
+  cat <<EOF | tee -p | grep -v '^$'
 
 EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set custom script - saves to /config/env/GEN_SCRIPT_REPLACE_APPNAME.script.sh
 __custom_docker_script() {
-  cat <<EOF | tee | grep -v '^$'
+  cat <<EOF | tee -p | grep -v '^$'
 
 # Database settings
 ENV_DATABASE_CREATE="${CONTAINER_DATABASE_CREATE:-}"
@@ -522,14 +522,14 @@ __container_import_variables() {
   local base_dir="" base_file="$1"
   base_dir="$(realpath "$DATADIR")/$(dirname "$base_file")"
   [ -d "$base_dir" ] || mkdir -p "$base_dir"
-  cat <<EOF | __remove_extra_spaces | tee "$base_dir/$base_file" &>/dev/null
+  cat <<EOF | __remove_extra_spaces | tee -p "$base_dir/$base_file" &>/dev/null
 
 EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __dockermgr_variables() {
   [ -d "$DOCKERMGR_CONFIG_DIR/env" ] || mkdir -p "$DOCKERMGR_CONFIG_DIR/env"
-  cat <<EOF | tee | tr '|' '\n' | __remove_extra_spaces
+  cat <<EOF | tee -p | tr '|' '\n' | __remove_extra_spaces
 # Enviroment variables for $APPNAME
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 HOST_SSL_CA="\${ENV_HOST_SSL_CA:-$HOST_SSL_CA}"
@@ -678,7 +678,7 @@ EOF
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __dockermgr_password_variables() {
   [ -d "$DOCKERMGR_CONFIG_DIR/secure" ] || mkdir -p "$DOCKERMGR_CONFIG_DIR/secure"
-  cat <<EOF | tee | tr '|' '\n' | __remove_extra_spaces
+  cat <<EOF | tee -p | tr '|' '\n' | __remove_extra_spaces
 # Enviroment variables for $APPNAME
 CONTAINER_USER_PASS="${ENV_CONTAINER_USER_PASS:-$CONTAINER_USER_PASS}"
 CONTAINER_ENV_PASS_NAME="${ENV_CONTAINER_ENV_PASS_NAME:-$CONTAINER_ENV_PASS_NAME}"
@@ -735,7 +735,7 @@ __create_docker_script() {
   local replace_with="$HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS"
   create_docker_script_message_pre="${create_docker_script_message_pre:-Failed to execute $EXECUTE_PRE_INSTALL}"
   create_docker_script_message_post="${create_docker_script_message_post:-Failed to create $CONTAINER_NAME}"
-  cat <<EOF | grep -v '^$' | sed 's/ --/\n  --/g;s| -d| -d \\|g' | grep -v '^$' | sed '/  --/ s/$/ \\/' | grep '^' | tee "$DOCKERMGR_INSTALL_SCRIPT" >/dev/null
+  cat <<EOF | grep -v '^$' | sed 's/ --/\n  --/g;s| -d| -d \\|g' | grep -v '^$' | sed '/  --/ s/$/ \\/' | grep '^' | tee -p "$DOCKERMGR_INSTALL_SCRIPT" >/dev/null
 #!/usr/bin/env bash
 # Install script for $CONTAINER_NAME
 statusCode=0
@@ -1812,7 +1812,7 @@ if [ -n "$CONTAINER_ADD_RANDOM_PORTS" ] || { [ "$CONTAINER_WEB_SERVER_ENABLED" =
           if [ -n "$set_hostname" ]; then
             NGINX_CUSTOM_CONFIG="true"
             echo "$set_hostname" | grep -qF '.' || set_hostname="$set_hostname.$CONTAINER_HOSTNAME"
-            cat <<EOF | tee -a "$NGINX_VHOSTS_PROXY_FILE_TMP" &>/dev/null
+            cat <<EOF | tee -p -a "$NGINX_VHOSTS_PROXY_FILE_TMP" &>/dev/null
 server {
   listen                                    443 ssl http2;
   listen                                    [::]:443 ssl http2;
@@ -1856,7 +1856,7 @@ server {
 
 EOF
           else
-            cat <<EOF | tee -a "$NGINX_VHOSTS_INC_FILE_TMP" &>/dev/null
+            cat <<EOF | tee -p -a "$NGINX_VHOSTS_INC_FILE_TMP" &>/dev/null
   location ${external_path:-$proxy_location} {
     proxy_redirect                          http:// https://;
     proxy_pass                              $nginx_proto://$proxy_url/$internal_path;
@@ -2013,11 +2013,11 @@ if [ -d "$INSTDIR/rootfs" ] && [ ! -f "$DATADIR/.installed" ]; then
   find "$DATADIR" -name ".gitkeep" -type f -exec rm -rf {} \; &>/dev/null
 fi
 if [ -f "$DATADIR/.installed" ]; then
-  __sudo_exec date +'Updated on %Y-%m-%d at %H:%M' | tee "$DATADIR/.installed" &>/dev/null
+  __sudo_exec date +'Updated on %Y-%m-%d at %H:%M' | tee -p "$DATADIR/.installed" &>/dev/null
 else
   __sudo_exec chown -Rf "$USER":"$USER" "$DOCKERMGR_CONFIG_DIR" &>/dev/null
   __sudo_exec chown -f "$USER":"$USER" "$DATADIR" "$INSTDIR" "$INSTDIR" &>/dev/null
-  __sudo_exec date +'installed on %Y-%m-%d at %H:%M' | tee "$DATADIR/.installed" &>/dev/null
+  __sudo_exec date +'installed on %Y-%m-%d at %H:%M' | tee -p "$DATADIR/.installed" &>/dev/null
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mount /etc/resolv.conf file in the container
@@ -2167,7 +2167,7 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
         sed -i "s|REPLACE_NGINX_INCLUDE|$NGINX_INC_CONFIG|g" "$NGINX_VHOSTS_CONF_FILE_TMP"
         __sudo_root mv -f "$NGINX_VHOSTS_INC_FILE_TMP" "$NGINX_INC_CONFIG"
       elif [ -f "$INSTDIR/nginx/conf.d/vhosts/include.conf" ]; then
-        cat "$INSTDIR/nginx/conf.d/vhosts/include.conf" | tee "$NGINX_VHOSTS_INC_FILE_TMP" &>/dev/null
+        cat "$INSTDIR/nginx/conf.d/vhosts/include.conf" | tee -p "$NGINX_VHOSTS_INC_FILE_TMP" &>/dev/null
         sed -i "s|REPLACE_NGINX_INCLUDE|$NGINX_INC_CONFIG|g" "$NGINX_VHOSTS_CONF_FILE_TMP"
         __sudo_root mv -f "$NGINX_VHOSTS_INC_FILE_TMP" "$NGINX_INC_CONFIG"
       fi
@@ -2200,7 +2200,7 @@ fi
 NGINX_VHOSTS_PROXY_INT_TMP="/tmp/$$.$HOST_NGINX_INTERNAL_HOST.$HOST_NGINX_INTERNAL_DOMAIN"
 if [ -n "$NGNIX_REVERSE_ADDRESS" ] && [ -n "$HOST_NGINX_INTERNAL_DOMAIN" ]; then
   HOST_NGINX_INTERNAL_DOMAIN="$HOST_NGINX_INTERNAL_HOST.$HOST_NGINX_INTERNAL_DOMAIN"
-  cat <<EOF | tee "$NGINX_VHOSTS_PROXY_INT_TMP" &>/dev/null
+  cat <<EOF | tee -p "$NGINX_VHOSTS_PROXY_INT_TMP" &>/dev/null
 server {
   listen                                    $HOST_NGINX_HTTP_PORT;
   listen                                    [::]:$HOST_NGINX_HTTP_PORT;
@@ -2257,7 +2257,7 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
         if ! grep -sq " $vhost$" "/etc/hosts"; then
           if echo "$vhost" | grep -qFv '*'; then
             __printf_spacing_color "44" "40" "Adding to /etc/hosts:" "$vhost $CONTAINER_WEB_SERVER_LISTEN_ON"
-            __printf_spacing_file "40" "$CONTAINER_WEB_SERVER_LISTEN_ON" "$vhost" | sudo tee -a "/etc/hosts" &>/dev/null
+            __printf_spacing_file "40" "$CONTAINER_WEB_SERVER_LISTEN_ON" "$vhost" | sudo tee -p -a "/etc/hosts" &>/dev/null
           fi
         fi
       done
@@ -2266,12 +2266,12 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
     if [ -n "$HOST_NGINX_INTERNAL_DOMAIN" ]; then
       if ! grep -sq " $HOST_NGINX_INTERNAL_DOMAIN$" "/etc/hosts"; then
         __printf_spacing_color "44" "40" "Adding to /etc/hosts:" "$HOST_NGINX_INTERNAL_DOMAIN $HOST_LISTEN_ADDR"
-        __printf_spacing_file "40" "$HOST_LISTEN_ADDR" "$HOST_NGINX_INTERNAL_DOMAIN" | sudo tee -a "/etc/hosts" &>/dev/null
+        __printf_spacing_file "40" "$HOST_LISTEN_ADDR" "$HOST_NGINX_INTERNAL_DOMAIN" | sudo tee -p -a "/etc/hosts" &>/dev/null
       fi
     fi
     if ! grep -sq " $CONTAINER_HOSTNAME$" "/etc/hosts"; then
       __printf_spacing_color "44" "40" "Adding to /etc/hosts:" "$CONTAINER_HOSTNAME $HOST_LISTEN_ADDR"
-      __printf_spacing_file "40" "$HOST_LISTEN_ADDR" "$CONTAINER_HOSTNAME" | sudo tee -a "/etc/hosts" &>/dev/null
+      __printf_spacing_file "40" "$HOST_LISTEN_ADDR" "$CONTAINER_HOSTNAME" | sudo tee -p -a "/etc/hosts" &>/dev/null
     fi
     show_hosts_message_banner="true"
     [ "$show_hosts_message_banner" = "true" ] && printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
@@ -2292,7 +2292,7 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
     __printf_spacing_color "6" "40" "Setting cron user to:" "$HOST_CRON_USER"
     __printf_spacing_color "6" "40" "Setting schedule to:" "$HOST_CRON_SCHEDULE"
     __printf_spacing_color "3" "40" "Saving cron job to: /etc/cron.d/$CONTAINER_NAME"
-    echo "$HOST_CRON_SCHEDULE $HOST_CRON_USER $HOST_CRON_COMMAND" | sudo tee "/etc/cron.d/$CONTAINER_NAME" &>/dev/null
+    echo "$HOST_CRON_SCHEDULE $HOST_CRON_USER $HOST_CRON_COMMAND" | sudo tee -p "/etc/cron.d/$CONTAINER_NAME" &>/dev/null
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
   if __ssl_certs; then

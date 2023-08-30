@@ -226,7 +226,7 @@ EOF
   echo "$(ve/bin/"$pip" freeze | wc -l) dependencies were successfully installed"
 
   _say_what_i_do Fetching the upstream cheat sheets repositories
-  ve/bin/python lib/fetch.py fetch-all | tee -a "$LOG"
+  ve/bin/python lib/fetch.py fetch-all | tee -p -a "$LOG"
 
   _say_what_i_do Running self-tests
   (
@@ -235,7 +235,7 @@ EOF
     if CHEATSH_TEST_STANDALONE=YES \
       CHEATSH_TEST_SKIP_ONLINE=NO \
       CHEATSH_TEST_SHOW_DETAILS=NO \
-      PYTHON=../ve/bin/python bash run-tests.sh | tee -a "$LOG"; then
+      PYTHON=../ve/bin/python bash run-tests.sh | tee -p -a "$LOG"; then
       printf "\033[0;32m%s\033[0m\n" "SUCCESS"
     else
       printf "\033[0;31m%s\033[0m\n" "FAILED"
@@ -748,7 +748,7 @@ cmd_stealth() {
 
 cmd_update() {
   [ -w "$0" ] || {
-    echo "The script is readonly; please update manually: curl -s ${CHTSH_URL}/:cht.sh | sudo tee $0"
+    echo "The script is readonly; please update manually: curl -s ${CHTSH_URL}/:cht.sh | sudo tee -p $0"
     return
   }
   TMP2=$(mktemp /tmp/cht.sh.XXXXXXXXXXXXX)

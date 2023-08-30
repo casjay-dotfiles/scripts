@@ -163,15 +163,15 @@ run_postinst() {
   if [ -f "$INSTDIR/templates/casjaysdev-legal.txt" ] && [ ! -f "$motdDir/legal/000.txt" ]; then
     cp_rf "$INSTDIR/templates/casjaysdev-legal.txt" "$motdDir/legal/000.txt"
   fi
-  [ -f "$verDir/configs.txt" ] || date +"${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}" | sudo tee "$verDir/configs.txt" &>/dev/null
-  [ -f "$verDir/date.configs.txt" ] || date +"%b %d, %Y at %H:%M" | sudo tee "$verDir/date.configs.txt" &>/dev/null
+  [ -f "$verDir/configs.txt" ] || date +"${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}" | sudo tee -p "$verDir/configs.txt" &>/dev/null
+  [ -f "$verDir/date.configs.txt" ] || date +"%b %d, %Y at %H:%M" | sudo tee -p "$verDir/date.configs.txt" &>/dev/null
   [ -f "$bannerDir/ssh.txt" ] || touch "$bannerDir/ssh.txt"
   [ -f "$bannerDir/rsync.txt" ] || touch "$bannerDir/rsync.txt"
   cp_rf "$INSTDIR/version.txt" "$verDir/scripts.txt"
   replace "$motdDir/" "MYHOSTIP" "$CURRENT_IP_4"
   replace "$motdDir/" "MYHOSTNAME" "$(hostname -s)"
   replace "$motdDir/" "MYFULLHOSTNAME" "$(hostname -f)"
-  date +"%b %d, %Y at %H:%M" | sudo tee "$verDir/date.scripts.txt" &>/dev/null
+  date +"%b %d, %Y at %H:%M" | sudo tee -p "$verDir/date.scripts.txt" &>/dev/null
   ln_sf "$APPDIR" "$SYSSHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME"
   ln_sf "$APPDIR" "$SYSSHARE/CasjaysDev/$SCRIPTS_PREFIX/installer"
   for f in $(grep -sRl 'dir=/var/spool/mail' /etc/pam.d/); do
@@ -192,9 +192,9 @@ run_postinst() {
   grep 'Defaults.*.env_reset' "/etc/sudoers" | grep -q '!' || sudo sed -i 's|env_reset|!env_reset|g' "/etc/sudoers"
   grep 'Defaults.*.secure_path' "/etc/sudoers" && sudo sed -i 's|secure_path =.*|secure_path = "/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin"|g' "/etc/sudoers"
   echo 'for f in '$CASJAYSDEVDIR/completions/*'; do source "$f" >/dev/null 2>&1; done' >"$COMPDIR/_my_scripts_completions"
-  printf '%s: %s\n' "$(__os_name)" "$(__os_version)" | sed 's| [lL]inux:||g' | sudo tee "$verDir/osversion.txt" &>/dev/null
-  printf '# update scripts \n5 4 * * * root systemmgr update scripts cron ssl >/var/log/systemmgr\n' | sudo tee "/etc/cron.d/systemmgr" &>/dev/null
-  printf '# Fix resolver \n*/5 * * * * root [ -f "/etc/resolv.conf" ] || echo nameserver 1.1.1.1 >/etc/resolv.conf\n' | sudo tee "/etc/cron.d/update-resolver" &>/dev/null
+  printf '%s: %s\n' "$(__os_name)" "$(__os_version)" | sed 's| [lL]inux:||g' | sudo tee -p "$verDir/osversion.txt" &>/dev/null
+  printf '# update scripts \n5 4 * * * root systemmgr update scripts cron ssl >/var/log/systemmgr\n' | sudo tee -p "/etc/cron.d/systemmgr" &>/dev/null
+  printf '# Fix resolver \n*/5 * * * * root [ -f "/etc/resolv.conf" ] || echo nameserver 1.1.1.1 >/etc/resolv.conf\n' | sudo tee -p "/etc/cron.d/update-resolver" &>/dev/null
   __os_fix_name "$verDir/osversion.txt"
 }
 #

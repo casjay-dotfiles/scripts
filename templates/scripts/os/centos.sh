@@ -88,7 +88,7 @@ get_user_ssh_key() {
     if grep -sq "$ssh_key" "/root/.ssh/authorized_keys"; then
       printf_cyan "key for $GITHUB_USER already exists in ~/.ssh/authorized_keys"
     else
-      echo "$ssh_key" | tee -a "/root/.ssh/authorized_keys" &>/dev/null
+      echo "$ssh_key" | tee -p -a "/root/.ssh/authorized_keys" &>/dev/null
       printf_green "Successfully added ssh key to ~/.ssh/authorized_keys"
     fi
     return 0
@@ -102,7 +102,7 @@ printf_head_clear() { clear && printf_head "$*"; }
 grab_remote_file() { urlverify "$1" && curl -q -SLs "$1" || exit 1; }
 rm_repo_files() { [ "${1:-$YUM_DELETE}" = "yes" ] && rm -Rf "/etc/yum.repos" || true; }
 run_external() { printf_green "Executing $*" && eval "$*" >/dev/null 2>&1 || return 1; }
-save_remote_file() { urlverify "$1" && curl -q -SLs "$1" | tee "$2" &>/dev/null || exit 1; }
+save_remote_file() { urlverify "$1" && curl -q -SLs "$1" | tee -p "$2" &>/dev/null || exit 1; }
 domain_name() { hostname -f | awk -F'.' '{$1="";OFS="." ; print $0}' | sed 's/^.//;s| |.|g' | grep '^'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 rm_if_exists() {

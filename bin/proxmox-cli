@@ -200,7 +200,7 @@ __help() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # check if arg is a builtin option
-__is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0;fi; }
+__is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0; fi; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Is current user root
 __user_is_root() {
@@ -332,7 +332,7 @@ __get_status() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__get_spice_file() {
+__init_connection() {
   if [ -z "$vm_exists" ]; then
     printf_exit "$vm_name does not exist"
   elif [ "$vm_status" = "off" ]; then
@@ -340,14 +340,23 @@ __get_spice_file() {
     if printf_answer_yes "$power_on"; then
       if __start_stop_vm "qemu" "start"; then
         vm_status="on"
+        [ -n "$PROXMOX_CLI_SSH_IP" ] && printf_yellow "Waiting 30 seconds for the vm to boot" && sleep 30
       else
-        printf_exit "Failed to start $vm_name on $PROXMOX_CLI_DEFAULT_NODE_ID"
+        if [ -n "$PROXMOX_CLI_SSH_IP" ]; then
+          printf_exit "Failed to get ip addess for $PROXMOX_CLI_DEFAULT_NODE_ID: Ensure you have qemu-guest-agent installed and running"
+        else
+          printf_exit "Failed to start $vm_name on $PROXMOX_CLI_DEFAULT_NODE_ID"
+        fi
       fi
       sleep 2
     else
       printf_exit "User cancelled"
     fi
   fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_spice_file() {
+  __init_connection
   if [ "$vm_status" = "on" ]; then
     __save_spice_file "$url_qemu" || __save_spice_file "$url_lxc"
     return $?
@@ -501,9 +510,11 @@ __run_curl() {
       __pve_agent "$PROXMOX_CLI_DEFAULT_NODE_ID" "qemu" "$PROXMOX_CLI_DEFAULT_MACHINE" "$PROXMOX_CLI_AGENT_OPTION"
       exit $?
     elif [ -n "$PROXMOX_CLI_SSH_IP" ]; then
+      __init_connection
       host="$(__pve_agent "$PROXMOX_CLI_DEFAULT_NODE_ID" "qemu" "$PROXMOX_CLI_DEFAULT_MACHINE" network-get-interfaces | jq -rc '.' | grep 'eth0' | jq -r '."ip-addresses"|.[]|."ip-address"' | grep -v '::' | head -n1 | grep '^' || echo '')"
       host="${host:-$(__pve_agent "$PROXMOX_CLI_DEFAULT_NODE_ID" "qemu" "$PROXMOX_CLI_DEFAULT_MACHINE" network-get-interfaces | grep 'ip-address.*[0-9]\.' | grep -vE '127.0.0.1|172.17.0.[0-9]' | sed 's|[", ]||g;s|ip-address:||g' | head -n1 | grep '^' || echo '')}"
-      [ -n "$host" ] && __open_ssh ${host:-$PROXMOX_CLI_DEFAULT_MACHINE} ${PROXMOX_CLI_SSH_USER:-$USER} || printf_exit "Failed to get ip addess for $PROXMOX_CLI_DEFAULT_NODE_ID"
+      [ -n "$host" ] && __open_ssh ${host:-$PROXMOX_CLI_DEFAULT_MACHINE} ${PROXMOX_CLI_SSH_USER:-$USER}
+      exit $?
     else
       __get_spice_file && printf_purple "Saving to $FILENAME" || printf_exit "Failed to get the spice file"
       if __cmd_exists remote-viewer; then

@@ -110,9 +110,7 @@ __printf_opts() { printf_color "$1\n" "6"; }
 __printf_line() { printf_color "$1\n" "4"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # list all packages
-__list_available() {
-  echo -e "${1:-$LIST}" | tr ',' ' ' | tr ' ' '\n' && exit 0
-}
+__list_available() { echo -e "${1:-$LIST}" | tr ',' ' ' | tr ' ' '\n' && exit 0; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # list options
 __list_options() {
@@ -464,6 +462,21 @@ __requiresudo() {
 }
 # End of sudo functions
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__how_long_did_it_take() {
+  local retval=${1:-$?}
+  __cmd_exists bc || return $retval
+  local stop_time="$(date +%s.%N)"
+  local dt=$(echo "$stop_time - $GEN_SCRIPT_REPLACE_ENV_START_TIMER" | bc)
+  local dd=$(echo "$dt/86400" | bc)
+  local dt2=$(echo "$dt-86400*$dd" | bc)
+  local dh=$(echo "$dt2/3600" | bc)
+  local dt3=$(echo "$dt2-3600*$dh" | bc)
+  local dm=$(echo "$dt3/60" | bc)
+  local ds=$(echo "$dt3-60*$dm" | bc)
+  printf_purple "$(LC_NUMERIC=C printf "Total runtime: %d Days, %02d Hours, %02d Minutes, %02.4f Seconds\n" $dd $dh $dm $ds)"
+  return $retval
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __trap_exit() {
   GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
   [ -f "$GEN_SCRIPT_REPLACE_ENV_TEMP_FILE" ] && rm -Rf "$GEN_SCRIPT_REPLACE_ENV_TEMP_FILE" &>/dev/null
@@ -482,6 +495,7 @@ __no_options_function() {
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
+GEN_SCRIPT_REPLACE_ENV_START_TIMER="${GEN_SCRIPT_REPLACE_ENV_START_TIMER:-$(date +%s.%N)}"
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default exit code

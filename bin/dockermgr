@@ -46,6 +46,17 @@ dockermgr_install && __options "$@"
 # Set functions
 __list_available() { echo -e "$LIST" | tr ' ' '\n' && exit 0; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# See if the executable exists
+__cmd_exists() {
+  exitCode=0
+  [ -n "$1" ] && local exitCode="" || return 0
+  for cmd in "$@"; do
+    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
+  done
+  [ $exitCode -eq 0 ] || exitCode=3
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __api_list() {
   local api_user="$(basename "$DOCKERMGR_GIT_REPO" | sed 's|/||g' | grep '^' || echo 'dockermgr')"
   local api_url="https://api.github.com/orgs/$api_user/repos?per_page=1000"
@@ -1290,6 +1301,21 @@ __attach() {
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__how_long_did_it_take() {
+  local retval=$?
+  [ "$DOCKERMGR_CMD_EXISTS_BC" != "false" ] || return $retval
+  DOCKERMGR_STOP_TIMER="$(date +%s.%N)"
+  local dt=$(echo "$DOCKERMGR_STOP_TIMER - $DOCKERMGR_START_TIMER" | bc)
+  local dd=$(echo "$dt/86400" | bc)
+  local dt2=$(echo "$dt-86400*$dd" | bc)
+  local dh=$(echo "$dt2/3600" | bc)
+  local dt3=$(echo "$dt2-3600*$dh" | bc)
+  local dm=$(echo "$dt3/60" | bc)
+  local ds=$(echo "$dt3-60*$dm" | bc)
+  printf_purple "$(LC_NUMERIC=C printf "Total runtime: %d Days, %02d Hours, %02d Minutes, %02.4f Seconds\n" $dd $dh $dm $ds)"
+  return $retval
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default variables
 exitCode="0"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1531,17 +1557,18 @@ done
 #set -- "$SETARGS"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
-cmd_exists docker || cmd_exists podman || [ "$1" = "init" ] || { __init || exit 1; }
+__cmd_exists docker || __cmd_exists podman || [ "$1" = "init" ] || { __init || exit 1; }
 __docker_service || [ "$1" = "init" ] || { __notifications "$APPNAME" "Docker is not running" && exit 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
+__cmd_exists bc || DOCKERMGR_CMD_EXISTS_BC="false"
 cmd_exists --error --ask bash || exit 1 # exexpectit 1 if not found
 #am_i_online --error || exit 1                  # exit 1 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
-cmd_exists expect_unbuffer && ! cmd_exists && unbuffer() { expect_unbuffer "$@"; }
+__cmd_exists expect_unbuffer && unbuffer() { expect_unbuffer "$@"; }
 [ -n "$(type unbuffer)" ] || unbuffer() { printf_exit "The command unbuffered is required: unbuffered or expect or expect-devel/expect-dev"; }
-cmd_exists podman && alias docker='podman ' && DOCKERMGR_CLI="podman"
+__cmd_exists podman && alias docker='podman ' && DOCKERMGR_CLI="podman"
 [ -d "$DOCKERMGR_HOME" ] || mkdir -p "$DOCKERMGR_HOME"
 [ -f "$DOCKERMGR_HOME/env" ] && rm -Rf "$DOCKERMGR_HOME/env"
 [ -d "$DOCKERMGR_HOME/env" ] && mkdir -p "$DOCKERMGR_HOME/env"
@@ -1550,7 +1577,7 @@ cmd_exists podman && alias docker='podman ' && DOCKERMGR_CLI="podman"
 [ -f "$DOCKERMGR_CONFIG_DIR/.hub_password" ] && DOCKERHUB_PASSWORD="$(<"$DOCKERMGR_CONFIG_DIR/.hub_password")"
 DOCKERMGR_NET_ADDRESS="$(ip a show $DOCKERMGR_NET_DEVICE 2>/dev/null | grep -w 'inet' | awk -F'/' '{print $1}' | awk '{print $2}' | grep '^' || false)"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-export DOCKERMGRREPO="$DOCKERMGR_GIT_REPO" DOCKERMGR_HOME
+export DOCKERMGRREPO="$DOCKERMGR_GIT_REPO" DOCKERMGR_HOME="${DOCKERMGR_HOME:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 case "$1" in
@@ -1661,6 +1688,7 @@ commit)
 
 manifest)
   shift 1
+  DOCKERMGR_START_TIMER="$(date +%s.%N)}"
   DOCKERMGR_BUILD_FILE_LOG="$DOCKERMGR_LOG_DIR/manifest.log"
   DOCKERMGR_BUILD_FILE_TEMP="$DOCKERMGR_TEMP_DIR/manifest.log"
   if [ -f "$1" ]; then
@@ -1670,20 +1698,18 @@ manifest)
   else
     printf '%s\n' "$@" >"$DOCKERMGR_BUILD_FILE_TEMP"
   fi
-  printf_yellow "Saving logs to $DOCKERMGR_BUILD_FILE_LOG"
   cat "$DOCKERMGR_BUILD_FILE_TEMP" | sed 's|#.*||g' | grep -Ev '^$' | grep '^' | while read line; do
     image="$(echo "$line" | awk '{print $1}')"
     name="$(echo "$line" | awk '{print $2}' | grep '^' || echo "$(basename "$image")")"
-    printf '%s\n\n' "Starting build of $image/$name on $(date)" >>"$DOCKERMGR_BUILD_FILE_LOG"
-    (
-      echo "$name" | grep -q '/' || name="$DOCKERMGR_REGISTRY_USERNAME/$name"
-      __create_manifest $image $name
-      echo ""
-    ) | tee -p -a "$DOCKERMGR_BUILD_FILE_LOG"
-    printf '%s\n\n' "Finished building on $(date)" >>"$DOCKERMGR_BUILD_FILE_LOG"
+    printf '%s\n\n' "Starting build of $image/$name on $(date)"
+    echo "$name" | grep -q '/' || name="$DOCKERMGR_REGISTRY_USERNAME/$name"
+    __create_manifest $image $name
+    echo ""
+    printf '%s\n\n' "Finished building on $(date)"
   done
   [ -f "$DOCKERMGR_BUILD_FILE_TEMP" ] && rm -Rf "$DOCKERMGR_BUILD_FILE_TEMP"
   unset DOCKERMGR_BUILD_FILE_LOG DOCKERMGR_BUILD_FILE_TEMP
+  __how_long_did_it_take
   exit $?
   ;;
 

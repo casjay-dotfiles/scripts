@@ -306,10 +306,11 @@ HOST_X11_XAUTH=""
 CONTAINER_X11_SOCKET="/tmp/.X11-unix"
 CONTAINER_X11_XAUTH="/home/x11user/.Xauthority"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# /proc /sys /dev mounts
+# /dev /sys /proc /lib/modules mounts
 HOST_DEV_MOUNT_ENABLED="no"
 HOST_SYS_MOUNT_ENABLED="no"
 HOST_PROC_MOUNT_ENABLED="no"
+HOST_MODULES_MOUNT_ENABLED="no"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set container hostname and domain - Default: [GEN_SCRIPT_REPLACE_APPNAME.$SET_HOST_FULL_NAME] [$SET_HOST_FULL_DOMAIN]
 CONTAINER_HOSTNAME=""
@@ -1169,9 +1170,9 @@ if [ -e "$HOST_SOUND_DEVICE_FILE" ] || [ -e "/dev/snd" ]; then
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# /proc /sys /dev mounts
+# /lib/modules /proc /sys /dev mounts
 if [ "$HOST_DEV_MOUNT_ENABLED" = "yes" ]; then
-  DOCKER_SET_OPTIONS+=("--volume /dev:dev:z")
+  DOCKER_SET_OPTIONS+=("--volume /dev:/dev:z")
 fi
 if [ "$HOST_PROC_MOUNT_ENABLED" = "yes" ]; then
   DOCKER_SET_OPTIONS+=("--volume /proc:/proc:z")
@@ -1179,6 +1180,10 @@ fi
 if [ "$HOST_SYS_MOUNT_ENABLED" = "yes" ]; then
   DOCKER_SET_OPTIONS+=("--volume /sys:/sys:z")
 fi
+if [ "$HOST_MODULES_MOUNT_ENABLED" = "yes" ]; then
+  DOCKER_SET_OPTIONS+=("--volume /lib/modules:/lib/modules:z")
+fi
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # set password length
 if [ -n "$CONTAINER_USER_ADMIN_PASS_HASH" ]; then

@@ -1122,7 +1122,7 @@ fi
 if [ -e "$CGROUPS_MOUNTS" ] || [ -e "/sys/fs/cgroup" ]; then
   if [ "$CGROUPS_ENABLED" = "yes" ]; then
     if [ -z "$CGROUPS_MOUNTS" ]; then
-      DOCKER_SET_OPTIONS+=("--volume /sys/fs/cgroup:/sys/fs/cgroup:ro")
+      DOCKER_SET_OPTIONS+=("--volume /sys/fs/cgroup:/sys/fs/cgroup:rw")
     else
       DOCKER_SET_OPTIONS+=("--volume $CGROUPS_MOUNTS")
     fi

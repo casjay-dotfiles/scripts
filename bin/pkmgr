@@ -415,10 +415,12 @@ cpan_remove() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Python/PIP functions
 pip_run() {
+  local packages="$*"
   py_bin="$(type -P python3 || type -P python2 || type -P python || return)"
   py_version="$($py_bin --version | sed 's|[pP]ython ||g' | awk -F '.' '{print $1$2}' | grep '[0-9]' || echo "0")"
   PKMGR_TEMP_FILE="${PKMGR_TEMP_FILE:-$(mktemp $PKMGR_TEMP_DIR/XXXXXX 2>/dev/null)}"
   [ -n "$py_bin" ] || printf_exit "python is not installed" >&2
+  [ -n "$packages" ] || printf_exit "Usage: $APPNAME pip install [package]" >&2
   cat <<EOF >"$PKMGR_TEMP_FILE"
 pip="$(type -P pip3 || type -P pip || false)"
 [ "$py_version" -gt "310" ] && pip_opts="--break-system-packages " || pip_opts=""
@@ -426,7 +428,7 @@ pip="$(type -P pip3 || type -P pip || false)"
 [ -f "/etc/profile.d/pyenv.sh" ] && . /etc/profile.d/pyenv.sh
 echo "Running as: $SUDO_USER"
 sudo -HE -u $SUDO_USER \$pip install --use-pep517 --upgrade --user \$pip_opts pip
-for pkg_name in "$@"; do
+for pkg_name in $packages; do
   name="\${pkg_name// /}"
   sudo -HE -u $SUDO_USER \$pip install --use-pep517 --upgrade --user \$pip_opts "\$name" || exitStatus=\$((exitStatus + 1))
 done
@@ -441,17 +443,19 @@ EOF
 }
 #
 pip_remove() {
+  local packages="$*"
   py_bin="$(type -P python3 || type -P python2 || type -P python || return)"
   py_version="$($py_bin --version | sed 's|[pP]ython ||g' | awk -F '.' '{print $1$2}' | grep '[0-9]' || echo "0")"
   PKMGR_TEMP_FILE="${PKMGR_TEMP_FILE:-$(mktemp $PKMGR_TEMP_DIR/XXXXXX 2>/dev/null)}"
   [ -n "$py_bin" ] || printf_exit "python is not installed" >&2
+  [ -n "$packages" ] || printf_exit "Usage: $APPNAME pip remove [package]" >&2
   cat <<EOF >"$PKMGR_TEMP_FILE"
 pip="$(type -P pip3 || type -P pip || false)"
 [ -f "/etc/profile.d/pyenv.sh" ] && . /etc/profile.d/pyenv.sh
 [ -n "\$pip" ] && exitStatus=0 || { echo "pip is not installed" >&2 && exit 1; }
 [ "$py_version" -gt "310" ] && pip_opts="--break-system-packages " || pip_opts=""
 echo "Running as: $SUDO_USER"
-for file in "$@"; do
+for file in $packages; do
   name="\${file// /}"
   sudo -HE -u $SUDO_USER \$pip uninstall --yes --user \$py_version "\$name" || exitStatus=\$((exitStatus + 1))
   if [ -f "/usr/local/bin/\$name" ]; then
@@ -470,47 +474,63 @@ EOF
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ruby/GEM functions
 gem_run() {
+  local packages="$*"
   gem="$(type -P gem 2>/dev/null | grep -v "$HOME" | grep '^' || return)"
-  if [[ -n "$gem" ]]; then
-    sudo $gem install --no-user-install "$*" 2>/dev/null || return 1
+  [ -n "$packages" ] || printf_exit "Usage: $APPNAME gem install [package]" >&2
+  if [ -n "$packages" ] && [ -n "$gem" ]; then
+    sudo $gem install --no-user-install $packages 2>/dev/null || return 1
   fi
 }
 gem_remove() {
+  local packages="$*"
   gem="$(type -P gem 2>/dev/null | grep -v "$HOME" | grep '^' || return)"
-  if [[ -n "$gem" ]]; then
-    sudo $gem uninstall --no-user-install --force -aIx "$*" 2>/dev/null || return 1
+  [ -n "$packages" ] || printf_exit "Usage: $APPNAME gem remove [package]" >&2
+  if [ -n "$gem" ]; then
+    sudo $gem uninstall --no-user-install --force -aIx $packages 2>/dev/null || return 1
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # NODE/Yarn/NPM functions
 npm_run() {
+  local packages="$*"
   local NODE_PATH="" PATH="${PATH}"
-  NODE_PATH="$(echo "$PATH" | tr ':' '\n' | grep node || return)"
+  NODE_PATH="$(echo "$PATH" | tr ':' '\n' | grep 'node' | grep '/bin' || return)"
   PATH="$NODE_PATH:$PATH"
+  [ -n "$packages" ] || printf_exit "Usage: $APPNAME node install [package]" >&2
   if __cmd_exists fnm; then
     eval $(fnm env)
     fnm use default &>/dev/null
-    npm i -g "$*" 2>/dev/null | grep -v '^$' || return 1
+    npm i -g $packages 2>/dev/null | grep -v '^$' || return 1
   elif __cmd_exists npm; then
-    npm install -g "$*" 2>/dev/null | grep -v '^$' || return 1
+    npm install -g $packages 2>/dev/null | grep -v '^$' || return 1
   elif __cmd_exists yarn; then
-    yarn global add "$*" --prefix "/usr/local/bin"
+    if [ "$USER" = "root" ]; then
+      yarn global add $packages --prefix "/usr/local/bin"
+    else
+      yarn global add $packages --prefix "$HOME/.local/bin"
+    fi
   else
     printf_exit "Neither npm or yarn seem to be installed"
   fi
 }
 npm_remove() {
+  local packages="$*"
   local NODE_PATH="" PATH="${PATH}"
-  NODE_PATH="$(echo $PATH | tr ':' '\n' | grep node || return)"
+  NODE_PATH="$(echo "$PATH" | tr ':' '\n' | grep 'node' | grep '/bin' || return)"
   PATH="$NODE_PATH:$PATH"
+  [ -n "$packages" ] || printf_exit "Usage: $APPNAME node remove [package]" >&2
   if __cmd_exists fnm; then
     eval $(fnm env)
     fnm use default &>/dev/null
-    npm remove -g "$*" 2>/dev/null | grep -v '^$' || return 1
+    npm remove -g $packages 2>/dev/null | grep -v '^$' || return 1
   elif __cmd_exists npm; then
-    npm remove -g "$*" 2>/dev/null | grep -v '^$' || return 1
+    npm remove -g $packages 2>/dev/null | grep -v '^$' || return 1
   elif __cmd_exists yarn; then
-    yarn global remove "$*" --prefix "/usr/local/bin"
+    if [ "$USER" = "root" ]; then
+      yarn global remove "$*" --prefix "/usr/local/bin"
+    else
+      yarn global remove "$*" --prefix "$HOME/.local/bin"
+    fi
   else
     printf_exit "Neither npm or yarn seem to be installed"
   fi
@@ -518,37 +538,49 @@ npm_remove() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Lua/Rocks functions
 lua_run() {
+  local packages="$*"
   __cmd_exists lua && __cmd_exists luarocks || return 1
-  luarocks install --local "$*"
+  [ -n "$packages" ] || printf_exit "Usage: $APPNAME lua install [package]" >&2
+  luarocks install --local $packages
 }
 lua_remove() {
+  local packages="$*"
   __cmd_exists lua && __cmd_exists luarocks || return 1
-  luarocks remove --local "$*"
+  [ -n "$packages" ] || printf_exit "Usage: $APPNAME lua remove [package]" >&2
+  luarocks remove --local $packages
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Go functions
 go_run() {
+  local packages="$*"
   __cmd_exists go || return 1
-  go install -v "$1@latest"
+  [ -n "$packages" ] || printf_exit "Usage: $APPNAME go install [package]" >&2
+  export GOPATH="${GOPATH:-$HOME/.local/share/go}"
+  for pack in $packages; do
+    go install -v "$pack@latest"
+  done
 }
 go_remove() {
+  local packages="$*"
   __cmd_exists go || return 1
   local pkg="" ost="" cnt="" scr=""
-  pkg="$1"
-  shift || return 1
+  [ -n "$packages" ] || printf_exit "Usage: $APPNAME go remove [package]" >&2
+  export GOPATH="${GOPATH:-$HOME/.local/share/go}"
   # Clean removes object files from package source directories (ignore error)
-  go clean -i $pkg &>/dev/null
-  # Set local variables
-  [[ "$(uname -m)" == "x86_64" ]] && ost="$(uname)"
-  ost="${ost,,}_amd64" && cnt="${pkg//[^\/]/}"
-  # Delete the source directory and compiled package directory(ies)
-  if (("${#cnt}" == "2")); then
-    rm -rf "${GOPATH%%:*}/src/${pkg%/*}"
-    rm -rf "${GOPATH%%:*}/pkg/${ost}/${pkg%/*}"
-  elif (("${#cnt}" > "2")); then
-    rm -rf "${GOPATH%%:*}/src/${pkg%/*/*}"
-    rm -rf "${GOPATH%%:*}/pkg/${ost}/${pkg%/*/*}"
-  fi
+  for pkg in $packages; do
+    go clean -i $pkg &>/dev/null
+    # Set local variables
+    [[ "$(uname -m)" == "x86_64" ]] && ost="$(uname)"
+    ost="${ost,,}_amd64" && cnt="${pkg//[^\/]/}"
+    # Delete the source directory and compiled package directory(ies)
+    if (("${#cnt}" == "2")); then
+      rm -rf "${GOPATH%%:*}/src/${pkg%/*}"
+      rm -rf "${GOPATH%%:*}/pkg/${ost}/${pkg%/*}"
+    elif (("${#cnt}" > "2")); then
+      rm -rf "${GOPATH%%:*}/src/${pkg%/*/*}"
+      rm -rf "${GOPATH%%:*}/pkg/${ost}/${pkg%/*/*}"
+    fi
+  done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Curl functions

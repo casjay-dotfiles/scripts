@@ -1355,7 +1355,7 @@ install_npm() {
       printf_warning "Attempting to install missing npm packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "pkmgr --enable-log npm install $miss" "Installing $miss" || true
+        execute "pkmgr --enable-log node install $miss" "Installing $miss" || true
         npm_exists "$miss" && __saved_file_create "$miss" || false
       done
     fi

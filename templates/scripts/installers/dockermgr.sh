@@ -166,6 +166,7 @@ setopts=$(getopt -o "e:,m:,p:,h:,d:" --long "options,env:,mount:,port:,host:,dom
 set -- "${setopts[@]}" 2>/dev/null
 while :; do
   case "$1" in
+  -i | --init) ENV_INIT_SCRIPT_ONLY="true" && shift 1 ;;
   -s | --server) FULL_HOST="$1" && shift 2 ;;
   -h | --host) CONTAINER_OPT_HOSTNAME="$2" && shift 2 ;;
   -d | --domain) CONTAINER_OPT_DOMAINNAME="$2" && shift 2 ;;
@@ -176,6 +177,9 @@ while :; do
   *) break ;;
   esac
 done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Init only - This should be false
+INIT_SCRIPT_ONLY="false"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [ -n "$(type -P sudo)" ] && sudo -n true && sudo true && DOCKERMGR_USER_CAN_SUDO="true"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -824,6 +828,7 @@ if [ -n "$CONTAINER_REQUIRES" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # rewrite variables from env file
+INIT_SCRIPT_ONLY="${ENV_INIT_SCRIPT_ONLY:-$INIT_SCRIPT_ONLY}"
 SET_LAN_DEV="${ENV_SET_LAN_DEV:-$SET_LAN_DEV}"
 SET_LAN_IP="${ENV_SET_LAN_IP:-$SET_LAN_IP}"
 SET_LOCAL_IP="$(__my_default_lan_address)"
@@ -2090,7 +2095,7 @@ elif [ -f "$INSTDIR/docker-compose.yml" ] && [ -n "$(type -P docker-compose)" ];
 fi
 __create_docker_script
 EXECUTE_DOCKER_SCRIPT="$EXECUTE_DOCKER_CMD"
-if [ -n "$EXECUTE_DOCKER_SCRIPT" ]; then
+if [ "$INIT_SCRIPT_ONLY" = "false" ] && [ -n "$EXECUTE_DOCKER_SCRIPT" ]; then
   EXECUTE_PRE_INSTALL="$(__trim "${EXECUTE_PRE_INSTALL//||*/}")"
   EXECUTE_DOCKER_SCRIPT="$(__trim "${EXECUTE_DOCKER_SCRIPT//||*/}")"
   __printf_color "6" "Updating the image from $HUB_IMAGE_URL with tag $HUB_IMAGE_TAG"

@@ -166,6 +166,7 @@ setopts=$(getopt -o "e:,m:,p:,h:,d:" --long "options,env:,mount:,port:,host:,dom
 set -- "${setopts[@]}" 2>/dev/null
 while :; do
   case "$1" in
+  -s | --server) FULL_HOST="$1" && shift 2 ;;
   -h | --host) CONTAINER_OPT_HOSTNAME="$2" && shift 2 ;;
   -d | --domain) CONTAINER_OPT_DOMAINNAME="$2" && shift 2 ;;
   -e | --env) CONTAINER_OPT_ENV_VAR="$2 $CONTAINER_OPT_ENV_VAR" && shift 2 ;;
@@ -281,7 +282,7 @@ HOST_RESOLVE_ENABLED="no"
 HOST_ETC_RESOLVE_INIT_FILE=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Enable hosts /etc/hosts file - [yes/no] [/etc/hosts]
-HOST_ETC_HOSTS_ENABLED="yes"
+HOST_ETC_HOSTS_ENABLED="no"
 HOST_ETC_HOSTS_INIT_FILE=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mount docker socket - [yes/no] [/var/run/docker.sock]
@@ -350,7 +351,7 @@ CONTAINER_WEB_SERVER_LISTEN_ON="127.0.0.10"
 CONTAINER_WEB_SERVER_INT_PATH="/"
 CONTAINER_WEB_SERVER_EXT_PATH="/"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Specify custom nginx vhosts - autoconfigure: [name.all/name.mydomain/name.myhost] - [virtualhost,othervhostdom]
+# Specify custom nginx vhosts - autoconfigure: [all.name/name.all/name.mydomain/name.myhost] - [virtualhost,othervhostdom]
 CONTAINER_WEB_SERVER_VHOSTS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Add random portmapping - [port,otherport] or [proxy|/location|port]
@@ -2138,6 +2139,10 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
           set_vhost=""
         elif echo "$set_vhost" | grep -q "[.]all$"; then # map to vhost.*
           vhost="$(__set_vhost_alias "$set_vhost" ".all" ".*")"
+          NGINX_VHOST_TMP_NAMES+=("$vhost")
+          set_vhost=""
+        elif echo "$set_vhost" | grep -q "^all[.]"; then # map to *.vhost
+          vhost="$(__set_vhost_alias "$set_vhost" "all." "*.")"
           NGINX_VHOST_TMP_NAMES+=("$vhost")
           set_vhost=""
         elif echo "$set_vhost" | grep -q '[.]myhost$'; then # map to vhost.hostname

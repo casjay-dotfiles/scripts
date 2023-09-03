@@ -2139,10 +2139,7 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
     for vhost in $NGINX_VHOST_SET_NAMES; do
       if [ -n "$vhost" ]; then
         set_vhost="${vhost// /}"
-        if echo "$set_vhost" | grep -q '.*[a-zA-Z0-9]\.\*$'; then # map to vhost.*
-          NGINX_VHOST_TMP_NAMES+=("$set_vhost")
-          set_vhost=""
-        elif echo "$set_vhost" | grep -q "[.]all$"; then # map to vhost.*
+        if echo "$set_vhost" | grep -q "[.]all$"; then # map to vhost.*
           vhost="$(__set_vhost_alias "$set_vhost" ".all" ".*")"
           NGINX_VHOST_TMP_NAMES+=("$vhost")
           set_vhost=""
@@ -2157,6 +2154,9 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
         elif echo "$set_vhost" | grep -q '[.]mydomain$'; then # map to vhost.domain or map to vhost.hostname
           vhost="$(__set_vhost_alias "$set_vhost" ".mydomain" "")"
           NGINX_VHOST_TMP_NAMES+=("$vhost.${CONTAINER_DOMAINNAME:-$CONTAINER_HOSTNAME}")
+          set_vhost=""
+        elif echo "$set_vhost" | grep -q '.*[a-zA-Z0-9]\.\*$'; then # map to vhost.*
+          NGINX_VHOST_TMP_NAMES+=("$set_vhost")
           set_vhost=""
         else
           NGINX_VHOST_TMP_NAMES+=("${set_vhost:-$vhost}")

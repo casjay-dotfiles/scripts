@@ -256,7 +256,7 @@ __sudo() {
 __trap_exit() {
   exitCode=${exitCode:-0}
   [ -f "$TERMBIN_COM_TEMP_FILE" ] && rm -Rf "$TERMBIN_COM_TEMP_FILE" &>/dev/null
-  [ "$CASJAYSDEV_TITLE_SET" = "$APPNAME" ] && unset CASJAYSDEV_TITLE_SET
+  [ "$CASJAYSDEV_TITLE_SET" = "$APPNAME" ] && unset CASJAYSDEV_TITLE_SET && echo -ne '\033]2;'${USER}@${HOSTNAME}:${PWD//$HOME/\~}'\007'
   if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
   return $exitCode
 }

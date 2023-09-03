@@ -483,7 +483,7 @@ __how_long_did_it_take() {
 __trap_exit() {
   GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
   [ -f "$GEN_SCRIPT_REPLACE_ENV_TEMP_FILE" ] && rm -Rf "$GEN_SCRIPT_REPLACE_ENV_TEMP_FILE" &>/dev/null
-  [ "$CASJAYSDEV_TITLE_SET" = "$APPNAME" ] && unset CASJAYSDEV_TITLE_SET
+  [ "$CASJAYSDEV_TITLE_SET" = "$APPNAME" ] && unset CASJAYSDEV_TITLE_SET && echo -ne '\033]2;'${USER}@${HOSTNAME}:${PWD//$HOME/\~}'\007'
   if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
   return $GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS
 }

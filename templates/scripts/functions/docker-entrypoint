@@ -330,6 +330,66 @@ __generate_random_uids() {
   done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_directories() {
+  # Setup WWW_ROOT_DIR
+  if [ "$IS_WEB_SERVER" = "yes" ]; then
+    APPLICATION_DIRS="$APPLICATION_DIRS $WWW_ROOT_DIR"
+    __initialize_www_root
+    (echo "Creating directory $WWW_ROOT_DIR with permissions 755" && mkdir -p "$WWW_ROOT_DIR" && find "$WWW_ROOT_DIR" -type d -exec chmod -f 755 {} \;) |& tee -p -a "$LOG_DIR/init.txt" &>/dev/null
+  fi
+  # Setup DATABASE_DIR
+  if [ "$IS_DATABASE_SERVICE" = "yes" ]; then
+    APPLICATION_DIRS="$APPLICATION_DIRS $DATABASE_DIR"
+    if __is_dir_empty "$DATABASE_DIR" || [ ! -d "$DATABASE_DIR" ]; then
+      (echo "Creating directory $DATABASE_DIR with permissions 777" && mkdir -p "$DATABASE_DIR" && chmod -f 777 "$DATABASE_DIR") |& tee -p -a "$LOG_DIR/init.txt" &>/dev/null
+    fi
+  fi
+  # create default directories
+  for filedirs in $ADD_APPLICATION_DIRS $APPLICATION_DIRS; do
+    if [ -n "$filedirs" ] && [ ! -d "$filedirs" ]; then
+      (
+        echo "Creating directory $filedirs with permissions 777"
+        mkdir -p "$filedirs" && chmod -f 777 "$filedirs"
+      ) |& tee -p -a "$LOG_DIR/init.txt" &>/dev/null
+    fi
+  done
+  # create default files
+  for application_files in $ADD_APPLICATION_FILES $APPLICATION_FILES; do
+    if [ -n "$application_files" ] && [ ! -e "$application_files" ]; then
+      (
+        echo "Creating file $application_files with permissions 777"
+        touch "$application_files" && chmod -Rf 777 "$application_files"
+      ) |& tee -p -a "$LOG_DIR/init.txt" &>/dev/null
+    fi
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__fix_permissions() {
+  # set user on files/folders
+  change_user="${1:-${SERVICE_USER:-root}}"
+  change_group="${1:-${SERVICE_GROUP:-$change_user}}"
+  [ -n "$RUNAS_USER" ] && [ "$RUNAS_USER" != "root" ] && change_user="$RUNAS_USER" && change_group="$change_user"
+  if [ -n "$change_user" ] && [ "$change_user" != "root" ]; then
+    if grep -sq "^$change_user:" "/etc/passwd"; then
+      for permissions in $ADD_APPLICATION_DIRS $APPLICATION_DIRS; do
+        if [ -n "$permissions" ] && [ -e "$permissions" ]; then
+          (chown -Rf $change_user:$change_group "$permissions" && echo "changed ownership on $permissions to user:$change_user and group:$change_group") |& tee -p -a "$LOG_DIR/init.txt" &>/dev/null
+        fi
+      done
+    fi
+  fi
+  if [ -n "$change_group" ] && [ "$change_group" != "root" ]; then
+    if grep -sq "^$change_group:" "/etc/group"; then
+      for permissions in $ADD_APPLICATION_DIRS $APPLICATION_DIRS; do
+        if [ -n "$permissions" ] && [ -e "$permissions" ]; then
+          (chgrp -Rf $change_group "$permissions" && echo "changed group ownership on $permissions to group $change_group") |& tee -p -a "$LOG_DIR/init.txt" &>/dev/null
+        fi
+      done
+    fi
+  fi
+
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __set_user_group_id() {
   local set_user="${1:-$SERVICE_USER}"
   local set_uid="${2:-${SERVICE_UID:-10000}}"
@@ -347,11 +407,13 @@ __set_user_group_id() {
   if grep -sq "^$set_user:" "/etc/passwd" "/etc/group"; then
     if ! grep -sq "x:.*:$set_gid:" "/etc/group"; then
       groupmod -g "${set_gid}" $set_user | tee -p -a "${LOG_DIR/tmp/}/init.txt" &>/dev/null
+      chown -Rf $set_user
     fi
     if ! grep -sq "x:$set_uid:.*:" "/etc/passwd"; then
       usermod -u "${set_uid}" -g "${set_gid}" $set_user | tee -p -a "${LOG_DIR/tmp/}/init.txt" &>/dev/null
     fi
   fi
+  __fix_permissions
   export SERVICE_UID="$set_uid"
   export SERVICE_GID="$set_gid"
 }
@@ -382,7 +444,7 @@ __create_service_user() {
   fi
   grep -qs "$create_group" "/etc/group" || exitStatus=$((exitCode + 1))
   grep -qs "$create_user" "/etc/passwd" || exitStatus=$((exitCode + 1))
-  [ $exitStatus -eq 0 ] && export WORK_DIR="${set_home_dir:-}"
+  [ $exitStatus -eq 0 ] && export WORK_DIR="${set_home_dir:-}" && __fix_permissions
   export SERVICE_UID="$create_uid"
   export SERVICE_GID="$create_gid"
   return $exitStatus

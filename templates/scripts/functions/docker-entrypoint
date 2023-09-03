@@ -367,7 +367,7 @@ __setup_directories() {
 __fix_permissions() {
   # set user on files/folders
   change_user="${1:-${SERVICE_USER:-root}}"
-  change_group="${1:-${SERVICE_GROUP:-$change_user}}"
+  change_group="${2:-${SERVICE_GROUP:-$change_user}}"
   [ -n "$RUNAS_USER" ] && [ "$RUNAS_USER" != "root" ] && change_user="$RUNAS_USER" && change_group="$change_user"
   if [ -n "$change_user" ] && [ "$change_user" != "root" ]; then
     if grep -sq "^$change_user:" "/etc/passwd"; then
@@ -413,7 +413,7 @@ __set_user_group_id() {
       usermod -u "${set_uid}" -g "${set_gid}" $set_user | tee -p -a "${LOG_DIR/tmp/}/init.txt" &>/dev/null
     fi
   fi
-  __fix_permissions
+  __fix_permissions $SERVICE_USER $SERVICE_GROUP
   export SERVICE_UID="$set_uid"
   export SERVICE_GID="$set_gid"
 }
@@ -444,7 +444,7 @@ __create_service_user() {
   fi
   grep -qs "$create_group" "/etc/group" || exitStatus=$((exitCode + 1))
   grep -qs "$create_user" "/etc/passwd" || exitStatus=$((exitCode + 1))
-  [ $exitStatus -eq 0 ] && export WORK_DIR="${set_home_dir:-}" && __fix_permissions
+  [ $exitStatus -eq 0 ] && export WORK_DIR="${set_home_dir:-}" && __fix_permissions $create_user $create_group
   export SERVICE_UID="$create_uid"
   export SERVICE_GID="$create_gid"
   return $exitStatus

@@ -162,18 +162,18 @@ __show_post_message() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup application options
-setopts=$(getopt -o "e:,m:,p:,h:,d:" --long "options,env:,mount:,port:,host:,domain:" -n "$APPNAME" -- "$@" 2>/dev/null)
+setopts=$(getopt -o "i,s:,h:,d:,e:,m:,p:" --long "init,server:,host:,domain:,env:,mount:,port:" -n "$APPNAME" -- "$@" 2>/dev/null)
 set -- "${setopts[@]}" 2>/dev/null
 while :; do
-  case "$1" in
+  case "$1" in #
   -i | --init) ENV_INIT_SCRIPT_ONLY="true" && shift 1 ;;
-  -s | --server) FULL_HOST="$1" && shift 2 ;;
+  -s | --server) FULL_HOST="$2" && shift 2 ;;
   -h | --host) CONTAINER_OPT_HOSTNAME="$2" && shift 2 ;;
   -d | --domain) CONTAINER_OPT_DOMAINNAME="$2" && shift 2 ;;
   -e | --env) CONTAINER_OPT_ENV_VAR="$2 $CONTAINER_OPT_ENV_VAR" && shift 2 ;;
   -m | --mount) CONTAINER_OPT_MOUNT_VAR="$2 $CONTAINER_OPT_MOUNT_VAR" && shift 2 ;;
   -p | --port) CONTAINER_OPT_PORT_VAR="$2 $CONTAINER_OPT_PORT_VAR" && shift 2 ;;
-  --options) shift 1 && echo "Options: -e -p -h -d --options --env --port --host --domain" && exit 1 ;;
+  --) shift 1 && break ;;
   *) break ;;
   esac
 done

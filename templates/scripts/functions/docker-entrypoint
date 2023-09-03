@@ -396,14 +396,10 @@ __set_user_group_id() {
   local set_gid="${3:-${SERVICE_GID:-10000}}"
   local random_id="$(__generate_random_uids)"
   local exitStatus=0
-  [ -n "$set_user" ] && [ -n "$set_uid" ] && [ -n "$set_gid" ] || return
   [ -n "$set_user" ] && [ "$set_user" != "root" ] || return
-  if [ -z "$set_uid" ] || [ "$set_uid" = "0" ]; then
-    set_uid="$random_id"
-  fi
-  if [ -z "$set_gid" ] || [ "$set_gid" = "0" ]; then
-    set_gid="$random_id"
-  fi
+  { [ -n "$set_uid" ] && [ "$set_uid" != "0" ]; } || return
+  { [ -n "$set_gid" ] && [ "$set_gid" != "0" ]; } || return
+  [ -n "$set_user" ] && [ -n "$set_uid" ] && [ -n "$set_gid" ] || return
   if grep -sq "^$set_user:" "/etc/passwd" "/etc/group"; then
     if ! grep -sq "x:.*:$set_gid:" "/etc/group"; then
       groupmod -g "${set_gid}" $set_user | tee -p -a "${LOG_DIR/tmp/}/init.txt" &>/dev/null

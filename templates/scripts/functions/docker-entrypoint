@@ -266,20 +266,13 @@ __cron() {
 __replace() {
   local search="$1" replace="$2" file="${3:-$2}"
   [ -e "$file" ] || return 1
-  grep -s -qR -- "$search" "$file" &>/dev/null && __sed "$search" "$replace" "$file" || return 0
-  grep -s -qR -- "$replace" "$file" && printf '%s\n' "Changed $search to $replace in $file" && return 0 || {
-    printf '%s\n' "Failed to change $search in $file" >&2 && return 2
-  }
+  __sed "$search" "$replace" "$file" || return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __find_replace() {
   local search="$1" replace="$2" file="${3:-$2}"
   [ -e "$file" ] || return 1
-  grep -s -qR -- "$search" "$file" &>/dev/null || return 0
   find "$file" -type f -not -path '.git*' -exec sed -i "s|$search|$replace|g" {} \;
-  grep -s -qR -- "$replace" "$file" && printf '%s\n' "Changed $search to $replace in $file" && return 0 || {
-    printf '%s\n' "Failed to change $search in $file" >&2 && return 2
-  }
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # /config > /etc

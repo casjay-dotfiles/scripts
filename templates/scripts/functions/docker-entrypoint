@@ -264,58 +264,63 @@ __cron() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __replace() {
-  [ $# -eq 3 ] && [ -e "$3" ] || return 1
-  grep -s -qR -- "$1" "$3" &>/dev/null && __sed "$1" "$2" "$3" || return 0
-  grep -s -qR -- "$2" "$3" && printf '%s\n' "Changed $1 to $2 in $3" && return 0 || {
-    printf '%s\n' "Failed to change $1 in $3" >&2 && return 2
+  local search="$1" replace="$2" file="${3:$2}"
+  [ -e "$file" ] || return 1
+  grep -s -qR -- "$search" "$file" &>/dev/null && __sed "$search" "$replace" "$file" || return 0
+  grep -s -qR -- "$replace" "$file" && printf '%s\n' "Changed $search to $replace in $file" && return 0 || {
+    printf '%s\n' "Failed to change $search in $file" >&2 && return 2
   }
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __find_replace() {
-  [ $# -eq 3 ] && [ -e "$3" ] || return 1
-  grep -s -qR -- "$1" "$3" &>/dev/null || return 0
-  find "$3" -type f -not -path '.git*' -exec sed -i "s|$1|$2|g" {} \;
-  grep -s -qR -- "$2" "$3" && printf '%s\n' "Changed $1 to $2 in $3" && return 0 || {
-    printf '%s\n' "Failed to change $1 in $3" >&2 && return 2
+  local search="$1" replace="$2" file="${3:$2}"
+  [ -e "$file" ] || return 1
+  grep -s -qR -- "$search" "$file" &>/dev/null || return 0
+  find "$file" -type f -not -path '.git*' -exec sed -i "s|$search|$replace|g" {} \;
+  grep -s -qR -- "$replace" "$file" && printf '%s\n' "Changed $search to $replace in $file" && return 0 || {
+    printf '%s\n' "Failed to change $search in $file" >&2 && return 2
   }
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # /config > /etc
 __copy_templates() {
-  if [ -e "$1" ] && __is_dir_empty "$2"; then
-    __file_copy "$1" "$2"
+  local from="$1" to="$2"
+  if [ -e "$from" ] && __is_dir_empty "$to"; then
+    __file_copy "$from" "$to"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # /config/file > /etc/file
 __symlink() {
-  if [ -e "$2" ]; then
-    [ -e "$1" ] && rm -rf "$1"
-    ln -sf "$2" "$1" && echo "Created symlink to $1 > $2"
+  local from="$1" to="$2"
+  if [ -e "$to" ]; then
+    [ -e "$from" ] && rm -rf "$from"
+    ln -sf "$to" "$from" && echo "Created symlink to $from > $to"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __file_copy() {
-  if [ -n "$1" ] && [ -e "$1" ] && [ -n "$2" ]; then
-    if [ -d "$1" ]; then
-      if cp -Rf "$1/." "$2/" &>/dev/null; then
-        printf '%s\n' "Copied: $1 > $2"
+  local from="$1" to="$2"
+  if [ -n "$from" ] && [ -e "$from" ] && [ -n "$to" ]; then
+    if [ -d "$from" ]; then
+      if cp -Rf "$from/." "$to/" &>/dev/null; then
+        printf '%s\n' "Copied: $from > $to"
         return 0
       else
-        printf '%s\n' "Copy failed: $1 < $2" >&2
+        printf '%s\n' "Copy failed: $from < $to" >&2
         return 1
       fi
     else
-      if cp -Rf "$1" "$2" &>/dev/null; then
-        printf '%s\n' "Copied: $1 > $2"
+      if cp -Rf "$from" "$to" &>/dev/null; then
+        printf '%s\n' "Copied: $from > $to"
         return 0
       else
-        printf '%s\n' "Copy failed: $1 < $2" >&2
+        printf '%s\n' "Copy failed: $from < $to" >&2
         return 1
       fi
     fi
   else
-    printf '%s\n' "$1 does not exist"
+    printf '%s\n' "$from does not exist"
     return 2
   fi
 }

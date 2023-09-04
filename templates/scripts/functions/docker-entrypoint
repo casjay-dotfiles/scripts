@@ -387,7 +387,6 @@ __fix_permissions() {
       done
     fi
   fi
-
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __set_user_group_id() {

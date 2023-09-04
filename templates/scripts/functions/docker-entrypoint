@@ -409,7 +409,6 @@ __set_user_group_id() {
       usermod -u "${set_uid}" -g "${set_gid}" $set_user | tee -p -a "${LOG_DIR/tmp/}/init.txt" &>/dev/null
     fi
   fi
-  __fix_permissions $SERVICE_USER $SERVICE_GROUP
   export SERVICE_UID="$set_uid"
   export SERVICE_GID="$set_gid"
 }
@@ -418,31 +417,26 @@ __create_service_user() {
   local create_user="${1:-$SERVICE_USER}"
   local create_group="${2:-$SERVICE_GROUP}"
   local create_home_dir="${3:-${WORK_DIR:-/home/$create_user}}"
-  local create_uid="${SERVICE_UID:-${USER_UID:-${4:-10000}}}"
-  local create_gid="${SERVICE_GID:-${USER_GID:-${5:-10000}}}"
+  local create_uid="${4:-${SERVICE_UID:-$USER_UID}}"
+  local create_gid="${5:-${SERVICE_GID:-$USER_GID}}"
   local random_id="$(__generate_random_uids)"
   local set_home_dir=""
   local exitStatus=0
+  { [ -n "$create_uid" ] && [ "$create_uid" != "0" ]; } || return
+  { [ -n "$create_gid" ] && [ "$create_gid" != "0" ]; } || return
   [ -n "$create_user" ] && [ -n "$create_group" ] && [ "$create_user" != "root" ] || return 0
-  if [ -z "$create_uid" ] || [ "$create_uid" = "0" ]; then
-    create_uid="$random_id"
-  fi
-  if [ -z "$create_gid" ] || [ "$create_gid" = "0" ]; then
-    create_gid="$random_id"
-  fi
-  if ! grep -sq "$create_group" "/etc/group"; then
+  if ! grep -sqE "$create_group|$create_user" "/etc/group"; then
     echo "creating system group $create_group"
     groupadd -g $create_gid $create_group | tee -p -a "${LOG_DIR/tmp/}/init.txt" &>/dev/null
   fi
-  if ! grep -sq "$create_user" "/etc/passwd"; then
+  if ! grep -sqE "$create_uid|$create_user" "/etc/passwd"; then
     echo "creating system user $create_user"
     useradd -u $create_uid -g $create_gid -c "Account for $create_user" -d "$create_home_dir" -s /bin/false $create_user | tee -p -a "$LOG_DIR/tmp/init.txt" &>/dev/null
   fi
   grep -qs "$create_group" "/etc/group" || exitStatus=$((exitCode + 1))
   grep -qs "$create_user" "/etc/passwd" || exitStatus=$((exitCode + 1))
-  [ $exitStatus -eq 0 ] && export WORK_DIR="${set_home_dir:-}" && __fix_permissions $create_user $create_group
-  export SERVICE_UID="$create_uid"
-  export SERVICE_GID="$create_gid"
+  [ $exitStatus -eq 0 ] && export WORK_DIR="${set_home_dir:-}"
+  export SERVICE_UID="$create_uid" SERVICE_GID="$create_gid"
   return $exitStatus
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -617,7 +611,7 @@ EOF
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __initialize_web_health() {
   local www_dir="${1:-${WWW_ROOT_DIR:-/usr/share/httpd/default}}"
-  [ $# -eq 1 ] && [ -d "$1" ] || return 1
+  [ $# -eq 1 ] && [ -d "$www_dir" ] || return 1
   if ! echo "$www_dir" | grep -q '/usr/share/httpd'; then
     [ -d "$www_dir/health" ] || mkdir -p "$www_dir/health"
     [ -f "$www_dir/health/index.txt" ] || echo 'OK' >"$www_dir/health/index.txt"
@@ -635,28 +629,31 @@ __initialize_web_health() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #  file_dir
 __initialize_replace_variables() {
+  local set_dir="" get_dir="$*"
   [ $# -ne 0 ] || return 1
-  __find_replace "REPLACE_SSL_DIR" "${SSL_DIR:-/etc/ssl}" "$1"
-  __find_replace "REPLACE_RANDOM_ID" "$(__random_password 8)" "$1"
-  __find_replace "REPLACE_TZ" "${TZ:-${TIMEZONE:-America/New_York}}" "$1"
-  __find_replace "REPLACE_SERVER_PROTO" "${SERVICE_PROTOCOL:-http}" "$1"
-  __find_replace "REPLACE_SERVER_SITE_TITLE" "${SERVER_SITE_TITLE:-CasjaysDev - Docker Container}" "$1"
-  __find_replace "REPLACE_TMP_DIR" "${TMP_DIR:-/tmp/$SERVICE_NAME}" "$1"
-  __find_replace "REPLACE_RUN_DIR" "${RUN_DIR:-/run/$SERVICE_NAME}" "$1"
-  __find_replace "REPLACE_LOG_DIR" "${LOG_DIR:-/data/log/$SERVICE_NAME}" "$1"
-  __find_replace "REPLACE_ETC_DIR" "${ETC_DIR:-/etc/$SERVICE_NAME}" "$1"
-  __find_replace "REPLACE_DATA_DIR" "${DATA_DIR:-/data/$SERVICE_NAME}" "$1"
-  __find_replace "REPLACE_CONFIG_DIR" "${CONF_DIR:-/config/$SERVICE_NAME}" "$1"
-  __find_replace "REPLACE_EMAIL_RELAY" "${EMAIL_RELAY:-172.17.0.1}" "$1"
-  __find_replace "REPLACE_SERVER_ADMIN" "${SERVER_ADMIN:-root@${EMAIL_DOMAIN:-${FULL_DOMAIN_NAME:-$HOSTNAME}}}" "$1"
-  __find_replace "REPLACE_WWW_USER" "${SERVICE_USER:-${RUNAS_USER:-root}}" "$1"
-  __find_replace "REPLACE_APP_USER" "${SERVICE_USER:-${RUNAS_USER:-root}}" "$1"
-  __find_replace "REPLACE_WWW_GROUP" "${SERVICE_GROUP:-${SERVICE_USER:-${RUNAS_USER:-root}}}" "$1"
-  __find_replace "REPLACE_APP_GROUP" "${SERVICE_GROUP:-${SERVICE_USER:-${RUNAS_USER:-root}}}" "$1"
-  [ -n "$SERVICE_PORT" ] && __find_replace "REPLACE_SERVER_PORT" "${SERVICE_PORT:-80}" "$1"             # ||{ [ "$DEBUGGER" = "on" ] && echo "SERVICE_PORT is not set": }
-  [ -n "$HOSTNAME" ] && __find_replace "REPLACE_SERVER_NAME" "${FULL_DOMAIN_NAME:-$HOSTNAME}" "$1"      # ||{ [ "$DEBUGGER" = "on" ] && echo "HOSTNAME is not set": }
-  [ -n "$CONTAINER_NAME" ] && __find_replace "REPLACE_SERVER_SOFTWARE" "${CONTAINER_NAME:-docker}" "$1" # ||{ [ "$DEBUGGER" = "on" ] && echo "CONTAINER_NAME is not set": }
-  [ -n "$WWW_ROOT_DIR" ] && __find_replace "REPLACE_SERVER_WWW_DIR" "${WWW_ROOT_DIR:-/usr/share/httpd/default}" "$1"
+  for set_dir in $get_dir; do
+    __find_replace "REPLACE_SSL_DIR" "${SSL_DIR:-/etc/ssl}" "$set_dir"
+    __find_replace "REPLACE_RANDOM_ID" "$(__random_password 8)" "$set_dir"
+    __find_replace "REPLACE_TZ" "${TZ:-${TIMEZONE:-America/New_York}}" "$set_dir"
+    __find_replace "REPLACE_SERVER_PROTO" "${SERVICE_PROTOCOL:-http}" "$set_dir"
+    __find_replace "REPLACE_SERVER_SITE_TITLE" "${SERVER_SITE_TITLE:-CasjaysDev - Docker Container}" "$set_dir"
+    __find_replace "REPLACE_TMP_DIR" "${TMP_DIR:-/tmp/$SERVICE_NAME}" "$set_dir"
+    __find_replace "REPLACE_RUN_DIR" "${RUN_DIR:-/run/$SERVICE_NAME}" "$set_dir"
+    __find_replace "REPLACE_LOG_DIR" "${LOG_DIR:-/data/log/$SERVICE_NAME}" "$set_dir"
+    __find_replace "REPLACE_ETC_DIR" "${ETC_DIR:-/etc/$SERVICE_NAME}" "$set_dir"
+    __find_replace "REPLACE_DATA_DIR" "${DATA_DIR:-/data/$SERVICE_NAME}" "$set_dir"
+    __find_replace "REPLACE_CONFIG_DIR" "${CONF_DIR:-/config/$SERVICE_NAME}" "$set_dir"
+    __find_replace "REPLACE_EMAIL_RELAY" "${EMAIL_RELAY:-172.17.0.1}" "$set_dir"
+    __find_replace "REPLACE_SERVER_ADMIN" "${SERVER_ADMIN:-root@${EMAIL_DOMAIN:-${FULL_DOMAIN_NAME:-$HOSTNAME}}}" "$set_dir"
+    __find_replace "REPLACE_APP_USER" "${SERVICE_USER:-${RUNAS_USER:-root}}" "$set_dir"
+    __find_replace "REPLACE_WWW_USER" "${SERVICE_USER:-${RUNAS_USER:-root}}" "$set_dir"
+    __find_replace "REPLACE_APP_GROUP" "${SERVICE_GROUP:-${SERVICE_USER:-${RUNAS_USER:-root}}}" "$set_dir"
+    __find_replace "REPLACE_WWW_GROUP" "${SERVICE_GROUP:-${SERVICE_USER:-${RUNAS_USER:-root}}}" "$set_dir"
+    [ -n "$SERVICE_PORT" ] && __find_replace "REPLACE_SERVER_PORT" "${SERVICE_PORT:-80}" "$set_dir"
+    [ -n "$HOSTNAME" ] && __find_replace "REPLACE_SERVER_NAME" "${FULL_DOMAIN_NAME:-$HOSTNAME}" "$set_dir"
+    [ -n "$CONTAINER_NAME" ] && __find_replace "REPLACE_SERVER_SOFTWARE" "${CONTAINER_NAME:-docker}" "$set_dir"
+    [ -n "$WWW_ROOT_DIR" ] && __find_replace "REPLACE_SERVER_WWW_DIR" "${WWW_ROOT_DIR:-/usr/share/httpd/default}" "$set_dir"
+  done
   mkdir -p "${TMP_DIR:-/tmp/$SERVICE_NAME}" "${RUN_DIR:-/run/$SERVICE_NAME}" "${LOG_DIR:-/data/log/$SERVICE_NAME}"
   chmod -f 777 "${TMP_DIR:-/tmp/$SERVICE_NAME}" "${RUN_DIR:-/run/$SERVICE_NAME}" "${LOG_DIR:-/data/log/$SERVICE_NAME}"
 }

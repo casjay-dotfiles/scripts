@@ -65,15 +65,25 @@ __help() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional functions
-__get_distro_name() {
-  $LSB_RELEASE -a 2>/dev/null | grep -i '^Distributor' | grep -v '/' | awk '{print $3}' | grep '^'
-}
+__get_lsb_release_name() { $LSB_RELEASE -a 2>/dev/null | grep -i '^Distributor' | grep -v '/' | awk '{print $3}' | grep '^' || false; }
+__get_distro_id() { grep -s '^ID=' "/etc/os-release" | awk -F'=' '{print $2}' | awk -F' ' '{print $1$2}' | sed 's|"||g' | grep '^' || false; }
+__get_distro_name() { grep -s '^NAME=' "/etc/os-release" | awk -F'=' '{print $2}' | awk -F' ' '{print $1$2}' | sed 's|"||g' | grep '^' || false; }
+__get_distro_pretty() { grep 'PRETTY_NAME=' /etc/os-release | awk -F'=' '{print $2}' | awk -F' ' '{print $1$2}' | sed 's|"||g' | grep '^' || false; }
+__get_codename() { grep -E '^VERSION_CODENAME=|^CODENAME=' /etc/*-release | awk -F'=' '{print $2}' | awk -F' ' '{print $1$2}' | sed 's|"||g' | grep '^' || false; }
+__get_lsb_codename() { $LSB_RELEASE -a 2>/dev/null | grep -i '^Codename' | awk '{print $2}' | grep '^' || $LSB_RELEASE -a 2>/dev/null | grep 'CODE' | sed 's#CODE_NAME:##g' | awk '{print $2}' | grep '^' || false; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_distro_version() {
   os_v=""
   if [ -n "$DISTRO_VERSION" ] && [ "$DISTRO_VERSION" != "N/A" ] && printf '%s\n' "$DISTRO_VERSION" | grep -q '^[0-9]'; then
     printf '%s\n' "$DISTRO_VERSION"
     return
+  fi
+  if [ -n "$(ls -A /etc/*-release 2>/dev/null)" ]; then
+    os_v="$(cat /etc/os-release | grep '^VERSION="' | sed 's#VERSION="##g;s#"##g' | awk '{print $1}' | grep '^')"
+  elif [ -f "/etc/redhat-release" ]; then
+    os_v="$(cat /etc/redhat-release | awk '{print $4}' | tr '[:upper:]' '[:lower:]' | sed 's#"##g' | grep '^')"
+  elif [ -f "/etc/os-release" ]; then
+    os_v="$(grep -s "^VERSION_ID=" /etc/*-release | cut -f1 -d'.' | cut -f2 -d'"' | grep -v '' | grep '^')"
   fi
   if [ -z "$os_v" ]; then
     os_v="$([ -f "/etc/debian_version" ] && grep '[0-9]' "/etc/debian_version" | head -n1 | awk -F '.' '{print $1}')"
@@ -91,18 +101,9 @@ __get_distro_version() {
   unset os_v
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__get_codename() {
-  $LSB_RELEASE -a 2>/dev/null | grep -i '^Codename' | awk '{print $2}' | grep '^' ||
-    $LSB_RELEASE -a 2>/dev/null | grep 'CODE' | sed 's#CODE_NAME:##g' | awk '{print $2}'
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__get_distro_id() {
-  grep -s '^NAME=' "/etc/os-release" | awk -F'=' '{print $2}' | awk -F' ' '{print $1$2}' | sed 's|"||g' | grep '^' || echo "Unknown"
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set variables
-LSB_RELEASE="$(command -v lsb_release 2>/dev/null || command -v lsb-release 2>/dev/null || echo '')"
 KERNEL_VERSION="$(command -v uname 2>/dev/null 1>/dev/null && uname -r || echo 'Unknown')"
+LSB_RELEASE="$(command -v lsb_release 2>/dev/null || command -v lsb-release 2>/dev/null || false)"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # if needed add getopts here
 SHORTOPTS=""
@@ -161,9 +162,9 @@ esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #Set OS Detection
 if [ -n "$LSB_RELEASE" ]; then
-  DISTRO_NAME=$(__get_distro_name)
+  DISTRO_NAME=$(__get_lsb_release_name)
 elif [ -f "/etc/os-release" ]; then
-  DISTRO_NAME=$(grep 'PRETTY_NAME=' /etc/os-release | awk -F'=' '{print $2}' | awk -F' ' '{print $1$2}' | sed 's|"||g' | grep '^' || echo "Unknown")
+  DISTRO_NAME=$(__get_distro_name || __get_distro_pretty || echo "Unknown")
 elif [ -f "/etc/debian_version" ]; then
   DISTRO_NAME="Debian"
 elif [ -f "/etc/redhat-release" ]; then
@@ -172,18 +173,11 @@ else
   DISTRO_NAME="$(uname -s)"
   DISTRO_VERSION="$KERNEL_VERSION"
 fi
-[ "$DISTRO_NAME" = "Unknown" ] && DISTRO_NAME="$(__get_distro_id)"
+[ "$DISTRO_NAME" = "Unknown" ] && DISTRO_NAME="$(__get_distro_name)"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #Version
-if [ -n "$LSB_RELEASE" ]; then
-  DISTRO_VERSION="$(__get_distro_version | grep '^')"
-elif [ -n "$(ls -A /etc/*-release 2>/dev/null)" ]; then
-  DISTRO_VERSION="$(grep -s "^VERSION_ID=" /etc/*-release | cut -f1 -d'.' | cut -f2 -d'"' | grep -v '' | grep '^')"
-elif [ -f "/etc/redhat-release" ]; then
-  DISTRO_VERSION="$(cat /etc/redhat-release | awk '{print $4}' | tr '[:upper:]' '[:lower:]' | sed 's#"##g' | grep '^')"
-elif [ -f "/etc/os-release" ]; then
-  DISTRO_VERSION="$(cat /etc/os-release | grep '^VERSION="' | sed 's#VERSION="##g;s#"##g' | awk '{print $1}' | grep '^')"
-fi
+CODE_NAME="$(__get_codename | grep '^')"
+DISTRO_VERSION="$(__get_distro_version | grep '^')"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set temp variables
 o="$(echo "$OS_NAME" | tr '[:upper:]' '[:lower:]')"
@@ -196,7 +190,7 @@ if [ "$n" = "arcoLinux" ] || [ "$n" = "archlinux" ] || [ "$n" = "manjarolinux" ]
 #Raspberry pi
 elif [ "$n" = "raspbian" ]; then
   DISTRO_ID="Raspbian"
-  CODE_NAME="$(__get_codename)"
+  CODE_NAME="$(__get_codename || __get_lsb_codename)"
 #Various RedHat Distros
 elif [ "$n" = "scientific" ] || [ "$n" = "redhat" ] || [ "$n" = "centos" ] || [ "$n" = "casjay" ] || [ "$n" = "almalinux" ] || [ "$n" = "rockylinux" ] || [ "$n" = "alma" ] || [ "$n" = "rocky" ]; then
   DISTRO_ID="RHEL"
@@ -204,7 +198,7 @@ elif [ "$n" = "scientific" ] || [ "$n" = "redhat" ] || [ "$n" = "centos" ] || [ 
 elif [ "$n" = "kali" ] || [ "$n" = "peppermint" ] || [ "$n" = "parrot" ] || [ "$n" = "debian" ]; then
   DISTRO_ID="Debian"
   if [ "$n" = "debian" ]; then
-    CODE_NAME="$(__get_codename)"
+    CODE_NAME="$(__get_codename || __get_lsb_codename)"
   fi
   if [ "$n" = "kali" ]; then
     CODE_NAME="kali"
@@ -214,7 +208,7 @@ elif [ "$n" = "kali" ] || [ "$n" = "peppermint" ] || [ "$n" = "parrot" ] || [ "$
   fi
 elif [ "$n" = "ubuntu" ] || [ "$n" = "mint" ] || [ "$n" = "elementary" ] || [ "$n" = "kde neon" ]; then
   DISTRO_ID="Ubuntu"
-  CODE_NAME=$(__get_codename)
+  CODE_NAME=$(__get_codename || __get_lsb_codename)
 elif [ "$n" = "fedora" ]; then
   DISTRO_NAME="Fedora"
 fi
@@ -227,8 +221,8 @@ if [ "$o" = "Windows" ] || [ "$o" = "windowsnt" ]; then
   DISTRO_NAME="Windows"
   DISTRO_VERSION="NT"
 fi
-[ -z "$DISTRO_ID" ] && [ -f "/etc/os-release" ] && DISTRO_ID="$(__get_distro_id)" || DISTRO_ID="N/A"
-[ -n "$CODE_NAME" ] || CODE_NAME="$(grep '^VERSION_CODE_NAME=' /etc/os-release | awk -F'=' '{print $2}' | grep '^' || echo 'N/A')"
+[ -n "$DISTRO_ID" ] || DISTRO_ID="N/A"
+[ -n "$CODE_NAME" ] || CODE_NAME="$(__get_codename || __get_lsb_codename || echo 'N/A')"
 [ -n "$DISTRO_VERSION" ] && [ "$DISTRO_VERSION" != "rolling" ] && DISTRO_VERSION="$(echo "$DISTRO_VERSION" | awk '{print $1}' | sed -e 's|[()A-Za-z]||g' | grep '^' || echo "N/A")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Detect architecture. We only support linux.

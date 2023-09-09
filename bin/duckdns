@@ -278,10 +278,19 @@ __get_external_ip4() { __curl -q --max-time 2 -4 "$DUCKDNS_EXTERNAL_IP" && retur
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_external_ip6() { __curl -q --max-time 2 -6 "$DUCKDNS_EXTERNAL_IP" && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__set_full_domain() {
+  local dom="${1:-$DUCKDNS_DOMAIN}"
+  if [ -n "$dom" ]; then
+    echo "$dom" | grep -q '\..*\..*' || DUCKDNS_DOMAIN="$dom.duckdns.org"
+  else
+    printf_exit "Unknown domain"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __var_check() {
   local set_domain="${1:-$DUCKDNS_DOMAIN}" ip4="$2" ip6="$3"
   if [ -n "$set_domain" ]; then
-    echo "$set_domain" | grep -q '\..*\..*' || set_domain="$DUCKDNS_DOMAIN.duckdns.org"
+    __set_full_domain "$set_domain"
     [ "$DUCKDNS_IP4" = "yes" ] && DUCKDNS_NOIP4="true" && DUCKDNS_IP4="$(__get_external_ip4)"
     [ "$DUCKDNS_IP6" = "yes" ] && DUCKDNS_NOIP6="true" && DUCKDNS_IP6="$(__get_external_ip6)"
     export DUCKDNS_DOMAIN="$set_domain" DUCKDNS_IP4="${DUCKDNS_IP4:-$ip4}" DUCKDNS_IP6="${DUCKDNS_IP6:-$ip6}"
@@ -368,10 +377,10 @@ __letsencrypt_cron() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __letsencrypt_create() {
-  [ -n "$DUCKDNS_DOMAIN" ] || printf_exit "Unknown domain"
   [ -n "$DUCKDNS_API_KEY" ] || printf_exit "The api key is not set"
   [ -n "$DUCKDNS_LETSENCRYPT_EMAIL" ] || DUCKDNS_LETSENCRYPT_EMAIL="ssl@$DUCKDNS_DOMAIN"
-  echo "$DUCKDNS_DOMAIN" | grep -q '\..*\..*' || DUCKDNS_DOMAIN="$DUCKDNS_DOMAIN.duckdns.org"
+  printf_cyan "Please wait while I setup the certs for the following domain"
+  printf_yellow "$DUCKDNS_DOMAIN *.$DUCKDNS_DOMAIN"
   sudo -n true && sudo mkdir -p /etc/letsencrypt /var/log/letsencrypt && chmod 777 /etc/letsencrypt /var/log/letsencrypt
   docker pull $DUCKDNS_CERTBOT_CONTAINER &>/dev/null
   docker run \
@@ -382,7 +391,13 @@ __letsencrypt_create() {
     $DUCKDNS_CERTBOT_CONTAINER certonly --non-interactive --agree-tos --email $DUCKDNS_LETSENCRYPT_EMAIL \
     --preferred-challenges dns --authenticator dns-duckdns --dns-duckdns-propagation-seconds 60 --expand \
     --dns-duckdns-token "$DUCKDNS_API_KEY" -d "$DUCKDNS_DOMAIN" -d "*.$DUCKDNS_DOMAIN" && __letsencrypt_cron || false
-  [ -d "/etc/letsencrypt/live/$DUCKDNS_DOMAIN" ] && return 0 || return 1
+  if [ -d "/etc/letsencrypt/live/$DUCKDNS_DOMAIN" ]; then
+    printf_green "Certs saved to: /etc/letsencrypt/live/$DUCKDNS_DOMAIN"
+    return 0
+  else
+    printf_red "Failed to create the certs"
+    return 1
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __letsencrypt_renew() {

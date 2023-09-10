@@ -1195,9 +1195,10 @@ fi
 if [ -n "$CONTAINER_USER_ADMIN_PASS_HASH" ]; then
   if [ "$CONTAINER_USER_ADMIN_PASS_HASH" = "random" ]; then
     CONTAINER_USER_ADMIN_PASS_RAW="$(__password 32)"
+    CONTAINER_USER_ADMIN_PASS_HASH="$(__hash_password $CONTAINER_USER_ADMIN_PASS_RAW)"
+  fi
     CONTAINER_USER_ADMIN_PASS_RAW="${CONTAINER_USER_ADMIN_PASS_RAW:-$CONTAINER_USER_ADMIN_PASS_HASH}"
     CONTAINER_USER_ADMIN_PASS_HASH="${CONTAINER_USER_ADMIN_PASS_HASH:-$(__hash_password $CONTAINER_USER_ADMIN_PASS_RAW)}"
-  fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup display if enabled

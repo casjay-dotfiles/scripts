@@ -1198,8 +1198,8 @@ if [ -n "$CONTAINER_USER_ADMIN_PASS_HASH" ]; then
     CONTAINER_USER_ADMIN_PASS_RAW="$(__password 32)"
     CONTAINER_USER_ADMIN_PASS_HASH="$(__hash_password $CONTAINER_USER_ADMIN_PASS_RAW)"
   fi
-    CONTAINER_USER_ADMIN_PASS_RAW="${CONTAINER_USER_ADMIN_PASS_RAW:-$CONTAINER_USER_ADMIN_PASS_HASH}"
-    CONTAINER_USER_ADMIN_PASS_HASH="${CONTAINER_USER_ADMIN_PASS_HASH:-$(__hash_password $CONTAINER_USER_ADMIN_PASS_RAW)}"
+  CONTAINER_USER_ADMIN_PASS_RAW="${CONTAINER_USER_ADMIN_PASS_RAW:-$CONTAINER_USER_ADMIN_PASS_HASH}"
+  CONTAINER_USER_ADMIN_PASS_HASH="${CONTAINER_USER_ADMIN_PASS_HASH:-$(__hash_password $CONTAINER_USER_ADMIN_PASS_RAW)}"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup display if enabled
@@ -1340,6 +1340,11 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup containers web server
 if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ]; then
+  if [ "$NGINX_PROXY_ADDRESS" = "0.0.0.0" ]; then
+    NGINX_PROXY_ADDRESS="127.0.0.1"
+  else
+    NGINX_PROXY_ADDRESS="${CONTAINER_WEB_SERVER_LISTEN_ON:-$HOST_LISTEN_ADDR}"
+  fi
   if [ "$CONTAINER_WEB_SERVER_SSL_ENABLED" = "yes" ] || [ "$SSL_ENABLED" = "yes" ]; then
     DOCKER_SET_OPTIONS+=("--env SSL_ENABLED=true")
   fi
@@ -1355,7 +1360,6 @@ if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ]; then
   if [ -z "$CONTAINER_WEB_SERVER_LISTEN_ON" ]; then
     CONTAINER_WEB_SERVER_LISTEN_ON="$HOST_LISTEN_ADDR"
   fi
-  NGINX_PROXY_ADDRESS="${CONTAINER_WEB_SERVER_LISTEN_ON:-$HOST_LISTEN_ADDR}"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #

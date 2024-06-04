@@ -184,6 +184,9 @@ INIT_SCRIPT_ONLY="false"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [ -n "$(type -P sudo)" ] && sudo -n true && sudo true && DOCKERMGR_USER_CAN_SUDO="true"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set system options
+SET_HOST_CORES=$(grep -sc ^processor /proc/cpuinfo 2>/dev/null || sysctl -n hw.ncpu || echo "$NUMBER_OF_PROCESSORS")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup networking
 SET_LAN_DEV=$(__route | sed -e "s/^.*dev.//" -e "s/.proto.*//" | awk '{print $1}' | grep '^' || echo 'eth0')
 SET_DOCKER_IP="$(__docker_gateway_ip || echo '172.17.0.1')"
@@ -1091,9 +1094,8 @@ if [ -n "$CONTAINER_SWAP_SIZE" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set CPU count
-GET_CPU_CORES="$(grep -sc ^processor /proc/cpuinfo || echo '1')"
-if [ -n "$CONTAINER_CPU_COUNT" ] && [ "$GET_CPU_CORES" -le "$CONTAINER_CPU_COUNT" ]; then
-  CONTAINER_CPU_COUNT="$GET_CPU_CORES"
+if [ -n "$CONTAINER_CPU_COUNT" ] && [ "$SET_HOST_CORES" -le "$CONTAINER_CPU_COUNT" ]; then
+  CONTAINER_CPU_COUNT="$SET_HOST_CORES"
 fi
 if [ -z "$CONTAINER_CPU_COUNT" ] && [ -f "/proc/cpuinfo" ]; then
   CONTAINER_CPU_COUNT="$(grep -c '^processor' /proc/cpuinfo || echo '1')"

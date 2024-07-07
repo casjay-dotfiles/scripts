@@ -502,7 +502,7 @@ __start_init_scripts() {
           name="$(basename "$init")"
           (eval "$init" &)
           initStatus=$(($? + initStatus))
-          sleep 10
+          sleep 20
           echo ""
         fi
       done

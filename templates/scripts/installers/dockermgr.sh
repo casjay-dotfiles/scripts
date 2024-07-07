@@ -1867,8 +1867,7 @@ server {
   include                                   /etc/nginx/global.d/nginx-defaults.conf;
 
   location ${external_path:-$proxy_location/} {
-    proxy_redirect                          http:// https://;
-    proxy_pass                              $nginx_proto://$proxy_url$internal_path;
+    send_timeout                            3600;
     proxy_ssl_verify                        off;
     proxy_http_version                      1.1;
     proxy_connect_timeout                   3600;
@@ -1878,11 +1877,12 @@ server {
     proxy_buffering                         off;
     proxy_set_header                        Host               \$http_host;
     proxy_set_header                        X-Real-IP          \$remote_addr;
-    proxy_set_header                        X-Forwarded-For    \$proxy_add_x_forwarded_for;
+    proxy_set_header                        X-Forwarded-For    \$remote_addr;
     proxy_set_header                        X-Forwarded-Proto  \$scheme;
     proxy_set_header                        Upgrade            \$http_upgrade;
     proxy_set_header                        Connection         \$connection_upgrade;
-    send_timeout                            3600;
+    proxy_redirect                          http:// https://;
+    proxy_pass                              $nginx_proto://$proxy_url$internal_path;
   }
 
 }
@@ -1891,8 +1891,7 @@ EOF
           else
             cat <<EOF | tee -p -a "$NGINX_VHOSTS_INC_FILE_TMP" &>/dev/null
   location ${external_path:-$proxy_location} {
-    proxy_redirect                          http:// https://;
-    proxy_pass                              $nginx_proto://$proxy_url/$internal_path;
+    send_timeout                            3600;
     proxy_ssl_verify                        off;
     proxy_http_version                      1.1;
     proxy_connect_timeout                   3600;
@@ -1902,11 +1901,12 @@ EOF
     proxy_buffering                         off;
     proxy_set_header                        Host              \$http_host;
     proxy_set_header                        X-Real-IP         \$remote_addr;
-    proxy_set_header                        X-Forwarded-For   \$proxy_add_x_forwarded_for;
+    proxy_set_header                        X-Forwarded-For   \$remote_addr;
     proxy_set_header                        X-Forwarded-Proto \$scheme;
     proxy_set_header                        Upgrade           \$http_upgrade;
     proxy_set_header                        Connection        \$connection_upgrade;
-    send_timeout                            3600;
+    proxy_redirect                          http:// https://;
+    proxy_pass                              $nginx_proto://$proxy_url/$internal_path;
   }
 
 EOF
@@ -2252,7 +2252,7 @@ server {
   include                                   /etc/nginx/global.d/nginx-defaults.conf;
 
   location / {
-    proxy_pass                              $NGNIX_REVERSE_ADDRESS;
+    send_timeout                            3600;
     proxy_http_version                      1.1;
     proxy_connect_timeout                   3600;
     proxy_send_timeout                      3600;
@@ -2261,9 +2261,9 @@ server {
     proxy_request_buffering                 off;
     proxy_set_header                        Host               \$http_host;
     proxy_set_header                        X-Real-IP          \$remote_addr;
-    proxy_set_header                        X-Forwarded-For    \$proxy_add_x_forwarded_for;
+    proxy_set_header                        X-Forwarded-For    \$remote_addr;
     proxy_set_header                        X-Forwarded-Proto  \$scheme;
-    send_timeout                            3600;
+    proxy_pass                              $NGNIX_REVERSE_ADDRESS;
   }
 }
 

@@ -267,6 +267,9 @@ CONTAINER_SWAP_SIZE=""
 # Set the number of cpus - [2]
 CONTAINER_CPU_COUNT="2"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set - default yes - [yes/no]
+CONTAINER_PROXY_SIGNAL="yes"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Restart container - [no/always/on-failure/unless-stopped]
 CONTAINER_AUTO_RESTART="always"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1102,6 +1105,11 @@ if [ -z "$CONTAINER_CPU_COUNT" ] && [ -f "/proc/cpuinfo" ]; then
 fi
 if [ -n "$CONTAINER_CPU_COUNT" ]; then
   DOCKER_SET_OPTIONS+=("--cpus $CONTAINER_CPU_COUNT")
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#
+if [ "$CONTAINER_PROXY_SIGNAL" = "no" ] || [ "$CONTAINER_PROXY_SIGNAL" = "false" ]; then
+  DOCKER_SET_OPTIONS+=("--sig-proxy=false")
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the containers SHM size

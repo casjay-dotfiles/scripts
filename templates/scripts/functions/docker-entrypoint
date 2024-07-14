@@ -501,10 +501,9 @@ __start_init_scripts() {
       for init in "$init_dir"/*.sh; do
         if [ -f "$init" ]; then
           name="$(basename "$init")"
-          sleep 10 && (exec "$init" &) && sleep 10 || false
+          sleep 10 && sh -c "$init" && sleep 20 || false
           initStatus=$(($? + initStatus))
           echo ""
-          sleep 20
         fi
       done
     fi

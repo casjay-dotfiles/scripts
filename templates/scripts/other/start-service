@@ -238,14 +238,9 @@ __pre_execute() {
     __initialize_system_etc "$config_2_etc" |& tee -p -a "$LOG_DIR/init.txt" &>/dev/null
   done
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  # Replace the applications user and group
-
   # Replace variables
   HOSTNAME="$sysname" __initialize_replace_variables "$ETC_DIR" "$CONF_DIR" "$WWW_ROOT_DIR"
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  # Run checks
-  __run_pre_execute_checks
-
   # unset unneeded variables
   unset filesperms filename config_2_etc change_user change_user ADDITIONAL_CONFIG_DIRS application_files filedirs
   # Lets wait a few seconds before continuing
@@ -324,7 +319,7 @@ __run_start_script() {
   local sysname="${SERVER_NAME:-${FULL_DOMAIN_NAME:-$HOSTNAME}}" # set hostname
   [ -f "$CONF_DIR/$SERVICE_NAME.exec_cmd.sh" ] && . "$CONF_DIR/$SERVICE_NAME.exec_cmd.sh"
   if [ -z "$cmd" ]; then
-    __post_execute 2>"/dev/stderr" |& tee -p -a "$LOG_DIR/init.txt" &>/dev/null
+    __post_execute 2>"/dev/stderr" | tee -p -a "$LOG_DIR/init.txt" >/dev/null
     retVal=$?
     echo "Initializing $SCRIPT_NAME has completed"
     exit $retVal
@@ -332,7 +327,7 @@ __run_start_script() {
     # ensure the command exists
     if [ ! -x "$cmd" ]; then
       echo "$name is not a valid executable"
-      exit 2
+      return 2
     fi
     # set working directories
     [ -z "$home" ] && home="${workdir:-/tmp/docker}"
@@ -347,7 +342,7 @@ __run_start_script() {
     # check and exit if already running
     if __proc_check "$name" || __proc_check "$cmd"; then
       echo "$name is already running" >&2
-      exit 0
+      return 0
     else
       # cd to dir
       # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -372,12 +367,15 @@ __run_start_script() {
       su_cmd touch "$SERVICE_PID_FILE"
       __post_execute |& tee -p -a "$LOG_DIR/init.txt" &>/dev/null &
       if [ "$RESET_ENV" = "yes" ]; then
-        su_cmd env -i HOME="$home" LC_CTYPE="$lc_type" PATH="$path" HOSTNAME="$sysname" USER="${SERVICE_USER:-$RUNAS_USER}" $extra_env sh -c "$START_SCRIPT" ||
-          eval env -i HOME="$home" LC_CTYPE="$lc_type" PATH="$path" HOSTNAME="$sysname" USER="${SERVICE_USER:-$RUNAS_USER}" $extra_env sh -c "$START_SCRIPT" ||
-          return 10
+        env_command="$(eval echo "env -i HOME=\"$home\" LC_CTYPE=\"$lc_type\" PATH=\"$path\" HOSTNAME=\"$sysname\" USER=\"${SERVICE_USER:-$RUNAS_USER}\" $extra_env")"
+        echo "$env_command"
+        su_cmd $env_command sh -c "$START_SCRIPT" || eval $env_command sh -c "$START_SCRIPT"
+        runExitCode=$?
       else
-        su_cmd "$START_SCRIPT" || eval "$START_SCRIPT" || return 10
+        su_cmd "$START_SCRIPT" || eval "$START_SCRIPT"
+        runExitCode=$?
       fi
+      return $runExitCode
     fi
   fi
 }
@@ -518,11 +516,12 @@ __create_service_env
 __update_conf_files
 __initialize_database
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# run the pre execute commands
-__pre_execute
 __run_secure_function
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__run_start_script "$@" |& tee -p -a "/data/logs/entrypoint.log" &>/dev/null
+# run the pre execute commands
+__pre_execute
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__run_pre_execute_checks && __run_start_script "$@" |& tee -p -a "/data/logs/entrypoint.log" &>/dev/null
 if [ "$?" -ne 0 ] && [ -n "$EXEC_CMD_BIN" ]; then
   eval echo "Failed to execute: ${cmd_exec:-$EXEC_CMD_BIN $EXEC_CMD_ARGS}" |& tee -p -a "/data/logs/entrypoint.log" "$LOG_DIR/init.txt"
   rm -Rf "$SERVICE_PID_FILE"

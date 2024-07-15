@@ -465,10 +465,15 @@ __exec_command() {
   local exitCode="0"
   local cmdExec="${arg:-}"
   prog_bin="$(echo "${arg[@]}" | tr ' ' '\n' | grep -v '^$' | head -n1 || echo '')"
-  [ -n "$prog_bin" ] && prog="$(type -P "${prog_bin}" 2>/dev/null || echo ':ERROR:')" || prog="bash"
+  [ -n "$prog_bin" ] && prog="$(type -P "$prog_bin" 2>/dev/null || echo "$1")" || prog="bash"
+  cmdExec="$prog $cmdExec"
   if [ -f "$prog" ]; then
     echo "${exec_message:-Executing command: $cmdExec}"
-    eval $cmdExec || exitCode=1
+    if [ -x "/bin/bash" ]; then
+      eval bash -c "$cmdExec" || exitCode=1
+    else
+      eval sh -c "$cmdExec" || exitCode=1
+    fi
     [ "$exitCode" = 0 ] || exitCode=10
   elif [ -f "$prog" ] && [ ! -x "$prog" ]; then
     echo "$prog is not executable"

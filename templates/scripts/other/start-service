@@ -30,6 +30,12 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf '%s\n' "# - - - Initializing GEN_SCRIPT_REPLACE_APPNAME - - - #"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# exit if __start_init_scripts function hasn't been Initialized
+if [ ! -f "/run/__start_init_scripts" ]; then
+  echo "__start_init_scripts function hasn't been Initialized" >&2
+  exit 1
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SERVICE_NAME="GEN_SCRIPT_REPLACE_APPNAME"
 SCRIPT_NAME="$(basename "$0" 2>/dev/null)"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -50,13 +56,17 @@ done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run any pre-execution checks
 __run_pre_execute_checks() {
+  # Set variables
   local exitStatus=0
 
-  true
-  exitStatus=$?
+  # Put command to execute in parentheses
+  (
+    true
+  ) && exitStatus=0 || exitStatus=5
   if [ $exitStatus -ne 0 ]; then
-    echo "The pre-execution check has failed"
-    exit ${exitStatus:-20}
+    echo "The pre-execution check has failed" >&2
+    [ -f "$SERVICE_PID_FILE" ] && rm -Rf "$SERVICE_PID_FILE"
+    return 1
   fi
   return $exitStatus
 }
@@ -360,8 +370,6 @@ __run_start_script() {
         export cmd_exec="$cmd $args"
         message="Starting service: $name $args $message"
       fi
-      [ -f "$START_SCRIPT" ] || printf '#!/usr/bin/env sh\n# %s\n%s\n' "$Setting up $cmd to run as ${SERVICE_USER:-root}" "$cmd_exec 2>/dev/stderr | tee -a -p /dev/stdout &" >"$START_SCRIPT"
-      [ -x "$START_SCRIPT" ] || chmod 755 -Rf "$START_SCRIPT"
       [ -n "$su_exec" ] && echo "using $su_exec" | tee -a -p /"$LOG_DIR/init.txt"
       echo "$message" | tee -a -p /"$LOG_DIR/init.txt"
       su_cmd touch "$SERVICE_PID_FILE"
@@ -369,10 +377,14 @@ __run_start_script() {
       if [ "$RESET_ENV" = "yes" ]; then
         env_command="$(eval echo "env -i HOME=\"$home\" LC_CTYPE=\"$lc_type\" PATH=\"$path\" HOSTNAME=\"$sysname\" USER=\"${SERVICE_USER:-$RUNAS_USER}\" $extra_env")"
         echo "$env_command"
-        su_cmd $env_command sh -c "$START_SCRIPT" || eval $env_command sh -c "$START_SCRIPT"
+        [ -f "$START_SCRIPT" ] || printf '#!/usr/bin/env sh\n# %s\n%s\n' "Setting up $cmd to run as ${SERVICE_USER:-root}" "exec $su_exec $env_command $cmd_exec 2>/dev/stderr | tee -a -p $LOG_DIR/init.txt &" >"$START_SCRIPT"
+        [ -x "$START_SCRIPT" ] || chmod 755 -Rf "$START_SCRIPT"
+        sh -c "$START_SCRIPT"
         runExitCode=$?
       else
-        su_cmd "$START_SCRIPT" || eval "$START_SCRIPT"
+        [ -f "$START_SCRIPT" ] || printf '#!/usr/bin/env sh\n# %s\n%s\n' "Setting up $cmd to run as ${SERVICE_USER:-root}" "exec $su_exec $cmd_exec 2>/dev/stderr | tee -a -p $LOG_DIR/init.txt &" >"$START_SCRIPT"
+        [ -x "$START_SCRIPT" ] || chmod 755 -Rf "$START_SCRIPT"
+        sh -c "$START_SCRIPT"
         runExitCode=$?
       fi
       return $runExitCode
@@ -482,7 +494,10 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # set switch user command
 if [ "$RUNAS_USER" = "root" ]; then
-  su_cmd() { eval "$@" || return 1; }
+  su_cmd() {
+    su_exec=""
+    eval "$@" || return 1
+  }
 elif [ "$(builtin type -P gosu)" ]; then
   su_exec="gosu $RUNAS_USER"
   su_cmd() { gosu $RUNAS_USER "$@" || return 1; }
@@ -496,7 +511,10 @@ elif [ "$(builtin type -P su)" ]; then
   su_exec="su -s /bin/sh - $RUNAS_USER"
   su_cmd() { su -s /bin/sh - $RUNAS_USER -c "$@" || return 1; }
 else
-  su_cmd() { echo "Can not switch to $RUNAS_USER: attempting to run as root" && eval "$@" || return 1; }
+  su_cmd() {
+    su_exec=""
+    echo "Can not switch to $RUNAS_USER: attempting to run as root" && eval "$@" || return 1
+  }
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Change to working directory
@@ -521,8 +539,9 @@ __run_secure_function
 # run the pre execute commands
 __pre_execute
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__run_pre_execute_checks && __run_start_script "$@" |& tee -p -a "/data/logs/entrypoint.log" &>/dev/null
-if [ "$?" -ne 0 ] && [ -n "$EXEC_CMD_BIN" ]; then
+__run_pre_execute_checks "/data/logs/entrypoint.log" "$LOG_DIR/init.txt" || exit 20
+__run_start_script "$@" |& tee -p -a "/data/logs/entrypoint.log" "$LOG_DIR/init.txt" &>/dev/null && errorCode=0 || errorCode=10
+if [ "$errorCode" -ne 0 ] && [ -n "$EXEC_CMD_BIN" ]; then
   eval echo "Failed to execute: ${cmd_exec:-$EXEC_CMD_BIN $EXEC_CMD_ARGS}" |& tee -p -a "/data/logs/entrypoint.log" "$LOG_DIR/init.txt"
   rm -Rf "$SERVICE_PID_FILE"
   SERVICE_EXIT_CODE=10

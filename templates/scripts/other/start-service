@@ -260,15 +260,19 @@ __pre_execute() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # function to run after executing
 __post_execute() {
+  local message="Running post commands"                          # message to show
+  local waitTime=60                                              # how long to wait before executing
   local exitCode=0                                               # default exit code
   local sysname="${SERVER_NAME:-${FULL_DOMAIN_NAME:-$HOSTNAME}}" # set hostname
 
-  sleep 60                     # how long to wait before executing
-  echo "Running post commands" # message
   # execute commands
   (
+    sleep 60
+    echo "$message"
+    # commands to execute
     true
-    return $?
+    # code to return
+    return ${retVal:-0}
   ) 2>"/dev/stderr" | tee -p -a "$LOG_DIR/init.txt" >/dev/null
   exitCode="$?"
   return $exitCode
@@ -383,8 +387,11 @@ __run_start_script() {
         if [ ! -f "$START_SCRIPT" ]; then
           cat <<EOF >"$START_SCRIPT"
 #!/usr/bin/env sh
-# Setting up $cmd to run as ${SERVICE_USER:-root} with env
-exec $su_exec $env_command $cmd_exec 2>"/dev/stderr" | tee -a -p $LOG_DIR/init.txt &
+# Setting up $cmd to run as ${SERVICE_USER:-root} with enveval
+trap '[ -f "$SERVICE_PID_FILE" ] && rm -Rf "$SERVICE_PID_FILE";exit 10' ERR
+SERVICE_PID_FILE="$SERVICE_PID_FILE"
+ $su_exec $env_command $cmd_exec 2>"/dev/stderr" | tee -a -p $LOG_DIR/init.txt &
+echo $! >"$SERVICE_PID_FILE"
 
 EOF
         fi
@@ -396,7 +403,10 @@ EOF
           cat <<EOF >"$START_SCRIPT"
 #!/usr/bin/env sh
 # Setting up $cmd to run as ${SERVICE_USER:-root}
-exec $su_exec $cmd_exec 2>"/dev/stderr" | tee -a -p $LOG_DIR/init.txt &
+SERVICE_PID_FILE="$SERVICE_PID_FILE"
+trap '[ -f "$SERVICE_PID_FILE" ] && rm -Rf "$SERVICE_PID_FILE";exit $retVal' ERR
+eval $su_exec $cmd_exec 2>"/dev/stderr" | tee -a -p $LOG_DIR/init.txt &
+echo $! >"$SERVICE_PID_FILE"
 
 EOF
         fi
@@ -505,6 +515,7 @@ __initialize_db_users
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Only run check
 if [ "$1" = "check" ]; then
+  shift $#
   __proc_check "$EXEC_CMD_NAME" || __proc_check "$EXEC_CMD_BIN"
   exit $?
 fi
@@ -556,7 +567,7 @@ __run_secure_function
 # run the pre execute commands
 __pre_execute
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__run_start_script "$@" |& tee -p -a "/data/logs/entrypoint.log" "$LOG_DIR/init.txt" &>/dev/null && errorCode=0 || errorCode=10
+__run_start_script |& tee -p -a "/data/logs/entrypoint.log" "$LOG_DIR/init.txt" &>/dev/null && errorCode=0 || errorCode=10
 if [ "$errorCode" -ne 0 ] && [ -n "$EXEC_CMD_BIN" ]; then
   eval echo "Failed to execute: ${cmd_exec:-$EXEC_CMD_BIN $EXEC_CMD_ARGS}" |& tee -p -a "/data/logs/entrypoint.log" "$LOG_DIR/init.txt"
   rm -Rf "$SERVICE_PID_FILE"

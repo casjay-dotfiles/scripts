@@ -391,7 +391,7 @@ __run_start_script() {
         if [ ! -f "$START_SCRIPT" ]; then
           cat <<EOF >"$START_SCRIPT"
 #!/usr/bin/env sh
-trap 'retVal=\$?[ -f "\$SERVICE_PID_FILE" ] && rm -Rf "\$SERVICE_PID_FILE";exit $retVal' ERR
+trap 'retVal=\$?;[ -f "\$SERVICE_PID_FILE" ] && rm -Rf "\$SERVICE_PID_FILE";exit $retVal' ERR
 # Setting up $cmd to run as ${SERVICE_USER:-root} with env
 SERVICE_PID_FILE="$SERVICE_PID_FILE"
 $su_exec $env_command $cmd_exec 2>"/dev/stderr" | tee -a -p $LOG_DIR/init.txt &
@@ -403,7 +403,7 @@ EOF
         if [ ! -f "$START_SCRIPT" ]; then
           cat <<EOF >"$START_SCRIPT"
 #!/usr/bin/env sh
-trap 'retVal=\$?[ -f "\$SERVICE_PID_FILE" ] && rm -Rf "\$SERVICE_PID_FILE";exit $retVal' ERR
+trap 'retVal=\$?;[ -f "\$SERVICE_PID_FILE" ] && rm -Rf "\$SERVICE_PID_FILE";exit $retVal' ERR
 # Setting up $cmd to run as ${SERVICE_USER:-root}
 SERVICE_PID_FILE="$SERVICE_PID_FILE"
 eval $su_exec $cmd_exec 2>"/dev/stderr" | tee -a -p $LOG_DIR/init.txt &

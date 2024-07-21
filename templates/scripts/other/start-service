@@ -401,16 +401,17 @@ __run_start_script() {
         if [ ! -f "$START_SCRIPT" ]; then
           cat <<EOF >"$START_SCRIPT"
 #!/usr/bin/env sh
-trap 'retVal=\$?;[ -f "\$SERVICE_PID_FILE" ] && rm -Rf "\$SERVICE_PID_FILE";exit \$retVal' ERR
+trap 'retVal=\$?; [ \$retVal -ne 0 ] && [ -f "\$SERVICE_PID_FILE" ] && rm -Rf "\$SERVICE_PID_FILE";exit \$retVal' ERR
 #
 set -Eeo pipefail
 # Setting up $cmd to run as ${SERVICE_USER:-root} with env
-retVal=0
-execPid=""
+retVal=10
 SERVICE_PID_FILE="$SERVICE_PID_FILE"
-(eval $execute_command 2>"/dev/stderr" >>"$LOG_DIR/$SERVICE_NAME.log" &) && sleep 5 || false
-retVal=\$? execPid=\$!
+$execute_command 2>"/dev/stderr" >>"$LOG_DIR/$SERVICE_NAME.log" &
+execPid=\$!
+sleep 5
 [ -n "\$execPid"  ] && echo \$execPid >"\$SERVICE_PID_FILE"
+ps ax | awk '{print \$1}' | grep -v grep | grep \$execPid$ && retVal=0
 exit \$retVal
 
 EOF
@@ -424,12 +425,13 @@ trap 'retVal=\$?;[ -f "\$SERVICE_PID_FILE" ] && rm -Rf "\$SERVICE_PID_FILE";exit
 #
 set -Eeo pipefail
 # Setting up $cmd to run as ${SERVICE_USER:-root}
-retVal=0
-execPid=""
+retVal=10
 SERVICE_PID_FILE="$SERVICE_PID_FILE"
-(eval $execute_command 2>>"/dev/stderr" >>"$LOG_DIR/$SERVICE_NAME.log" &) && sleep 5 || false
-retVal=\$? execPid=\$!
+$execute_command 2>>"/dev/stderr" >>"$LOG_DIR/$SERVICE_NAME.log" &
+execPid=\$!
+sleep 5
 [ -n "\$execPid"  ] && echo \$execPid >"\$SERVICE_PID_FILE"
+ps ax | awk '{print \$1}' | grep -v grep | grep \$execPid$ && retVal=0
 exit \$retVal
 
 EOF

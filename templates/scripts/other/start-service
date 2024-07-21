@@ -396,7 +396,7 @@ __run_start_script() {
       su_cmd touch "$SERVICE_PID_FILE"
       __post_execute 2>"/dev/stderr" | tee -p -a "$LOG_DIR/init.txt" >/dev/null &
       if [ "$RESET_ENV" = "yes" ]; then
-        env_command="$(eval echo "env -i HOME=\"$home\" LC_CTYPE=\"$lc_type\" PATH=\"$path\" HOSTNAME=\"$sysname\" USER=\"${SERVICE_USER:-$RUNAS_USER}\" $extra_env")"
+        env_command="$(echo "env -i HOME=\"$home\" LC_CTYPE=\"$lc_type\" PATH=\"$path\" HOSTNAME=\"$sysname\" USER=\"${SERVICE_USER:-$RUNAS_USER}\" $extra_env")"
         execute_command="$(__trim "$su_exec $env_command $cmd_exec")"
         if [ ! -f "$START_SCRIPT" ]; then
           cat <<EOF >"$START_SCRIPT"
@@ -408,7 +408,7 @@ set -Eeuo pipefail
 retVal=0
 execPid=""
 SERVICE_PID_FILE="$SERVICE_PID_FILE"
-eval ($execute_command 2>"/dev/stderr" >>"$LOG_DIR/$SERVICE_NAME.log" &) && sleep 5 || false
+(eval $execute_command 2>"/dev/stderr" >>"$LOG_DIR/$SERVICE_NAME.log" &) && sleep 5 || false
 retVal=\$? execPid=\$!
 echo \$! >"\$SERVICE_PID_FILE"
 exit \$retVal

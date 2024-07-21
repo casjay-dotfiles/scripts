@@ -403,7 +403,7 @@ __run_start_script() {
 #!/usr/bin/env sh
 trap 'retVal=\$?;[ -f "\$SERVICE_PID_FILE" ] && rm -Rf "\$SERVICE_PID_FILE";exit \$retVal' ERR
 #
-set -Eeuo pipefail
+set -Eeo pipefail
 # Setting up $cmd to run as ${SERVICE_USER:-root} with env
 retVal=0
 execPid=""
@@ -422,7 +422,7 @@ EOF
 #!/usr/bin/env sh
 trap 'retVal=\$?;[ -f "\$SERVICE_PID_FILE" ] && rm -Rf "\$SERVICE_PID_FILE";exit \$retVal' ERR
 #
-set -Eeuo pipefail
+set -Eeo pipefail
 # Setting up $cmd to run as ${SERVICE_USER:-root}
 retVal=0
 execPid=""

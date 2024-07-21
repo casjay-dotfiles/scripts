@@ -500,6 +500,7 @@ __exec_command() {
 __start_init_scripts() {
   [ "$1" = " " ] && shift 1
   [ "$DEBUGGER" = "on" ] && echo "Enabling debugging" && set -o pipefail -x$DEBUGGER_OPTIONS || set -o pipefail
+  local retVal=0
   local basename=""
   local init_pids=""
   local initStatus=0
@@ -520,8 +521,9 @@ __start_init_scripts() {
           name="$(basename "$init")"
           printf '# - - - executing file: %s\n' "$init"
           eval sh -c "$init &" && sleep 60 || { sleep 20 && false; }
-          initStatus=$(($? + initStatus))
-          printf '# - - - %s has been executed\n' "$name"
+          retVal=$?
+          initStatus=$((retVal + initStatus))
+          printf '# - - - %s has been executed - status: %s\n' "$name" "$retVal"
           echo ""
         fi
       done

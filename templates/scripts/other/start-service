@@ -402,10 +402,16 @@ __run_start_script() {
           cat <<EOF >"$START_SCRIPT"
 #!/usr/bin/env sh
 trap 'retVal=\$?;[ -f "\$SERVICE_PID_FILE" ] && rm -Rf "\$SERVICE_PID_FILE";exit \$retVal' ERR
+#
+set -Eeuo pipefail
 # Setting up $cmd to run as ${SERVICE_USER:-root} with env
+retVal=0
+execPid=""
 SERVICE_PID_FILE="$SERVICE_PID_FILE"
-$execute_command 2>"/dev/stderr" >>"$LOG_DIR/$SERVICE_NAME.log" &
+eval ($execute_command 2>"/dev/stderr" >>"$LOG_DIR/$SERVICE_NAME.log" &) && sleep 5 || false
+retVal=\$? execPid=\$!
 echo \$! >"\$SERVICE_PID_FILE"
+exit \$retVal
 
 EOF
         fi
@@ -415,10 +421,16 @@ EOF
           cat <<EOF >"$START_SCRIPT"
 #!/usr/bin/env sh
 trap 'retVal=\$?;[ -f "\$SERVICE_PID_FILE" ] && rm -Rf "\$SERVICE_PID_FILE";exit \$retVal' ERR
+#
+set -Eeuo pipefail
 # Setting up $cmd to run as ${SERVICE_USER:-root}
+retVal=0
+execPid=""
 SERVICE_PID_FILE="$SERVICE_PID_FILE"
-eval $execute_command 2>>"/dev/stderr" >>"$LOG_DIR/$SERVICE_NAME.log" &
+(eval $execute_command 2>>"/dev/stderr" >>"$LOG_DIR/$SERVICE_NAME.log" &) && sleep 5 || false
+retVal=\$? execPid=\$!
 echo \$! >"\$SERVICE_PID_FILE"
+exit \$retVal
 
 EOF
         fi

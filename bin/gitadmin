@@ -445,35 +445,68 @@ __git_custom() {
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gitea_update_all() {
+  local token="$GIT_PRIVATE_ACCESS_TOKEN"
+  if [ "$1" = "all" ]; then
+    org="$2"
+    repos="$(curl -q -LSsf -X GET -H 'Content-Type: application/json' -H "Authorization: token $token" "$GITADMIN_PERSONAL_GIT_HOST/api/v1/users/$org/repos" 2>/dev/null | __jq -r '.[].full_name' | sort -u | grep '^' || false)"
+    shift 2
+    [ -n "$repos" ] || printf_exit "Failed to get repos for user: $org"
+    [ -n "$1" ] && [ -n "$org" ] || __update_usage
+    printf_yellow "Getting repos for user $org"
+    for repo in $repos; do
+      __gitea_update_repo "$repo" "$@"
+    done
+  else
+    __gitea_update_repo "$@"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gitea_update_repo() {
-  local repo="" data="" json=""
+  local repo=""
+  local data=""
+  local json=""
+  local exitCode=0
+  local json_message=""
+  local token="$GIT_PRIVATE_ACCESS_TOKEN"
+  local host="$GITADMIN_PERSONAL_GIT_HOST"
   { [ $# = 0 ] || [ "$1" = "help" ]; } && __update_usage
   echo "$1" | grep -q '.*./.*.' || echo "$1" | grep -q '.*.=.*.' || __update_usage
   repo="$1" && shift 1
+  name="$(echo "$repo" | sed 's|/|_|g')"
+  printf '%s' "$(printf_yellow "Updating $repo: ")"
   while :; do
     case "$1" in
     *=*)
       data="$(echo "$1" | awk -F '=' '{print $1}')"
       value="$(echo "$1" | awk -F '=' '{print $2}')"
-      json+='"'$data'":"'$value'"'
+      if [ "$value" = "true" ] || [ "$value" = "false" ]; then
+        json='"'$data'":'$value''
+      else
+        json='"'$data'": "'$value'"'
+      fi
       shift 1
+      update="$(printf '%s' "{${json//\"\"/\",\"}}")"
+      curl -q -LSsf -X PATCH -H "Content-Type: application/json" -H "Authorization: token $token" --data "$update" "$host/api/v1/repos/$repo" >"$GITADMIN_LOG_DIR/$name.log" 2>&1
+      if cat "$GITADMIN_LOG_DIR/$name.log" | grep "$data" | grep -q "$value"; then
+        json_message="$json"
+        exitCode=$((exitCode + 0))
+        message="$(printf '%s' "$(printf_green "success:")")"
+      else
+        json_message="$json"
+        exitCode=$((exitCode + 1))
+        message="$(printf '%s' "$(printf_red "failed:")")"
+      fi
+      json_message="$(printf '%s' "$json_message" | sed 's| $||g;s| |, |g')"
+      json_message="$(printf '%s' "{${json_message//\"\"/\",\"}}")"
+      printf '%s %s ' "$message" "$json_message"
       ;;
     *)
       break
       ;;
     esac
   done
-  data="$(printf '%s' "{${json//\"\"/\",\"}}")"
-  curl -q -X PATCH --fail -LSsif -H "Content-Type: application/json" -H "Authorization: token $GIT_PRIVATE_ACCESS_TOKEN" --data "$data" \
-    "$GITADMIN_PERSONAL_GIT_HOST/api/v1/repos/$repo" 2>&1 | grep -q 'HTTP/.*.20.' &&
-    {
-      printf_green "Successfully updated $repo with the following data:"
-      printf '%s\n' "$data" | __jq -c | grep -v '^$' | printf_readline
-      exitCode=0
-    } || {
-    printf_red "Failed to update $repo"
-    exitCode=1
-  }
+  printf '%s\n' "- exitCode: $exitCode"
   return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -665,37 +698,51 @@ __update_repo_usage() {
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__update_repo() {
+__update_github_repo() {
   local repo=""
   local data=""
   local json=""
+  local exitCode=0
+  local json_message=""
   local token="$GITADMIN_GITHUB_AUTH_TOKEN"
+  local host="https://api.github.com"
   { [ $# = 0 ] || [ "$1" = "help" ]; } && __update_usage
   echo "$1" | grep -q '.*./.*.' || echo "$1" | grep -q '.*.=.*.' || __update_usage
   repo="$1" && shift 1
+  name="$(echo "$repo" | sed 's|/|_|g')"
+  printf '%s' "$(printf_yellow "Updating $repo: ")"
   while :; do
     case "$1" in
     *=*)
       data="$(echo "$1" | awk -F '=' '{print $1}')"
       value="$(echo "$1" | awk -F '=' '{print $2}')"
-      json+='"'$data'":"'$value'"'
+      if [ "$value" = "true" ] || [ "$value" = "false" ]; then
+        json='"'$data'":'$value''
+      else
+        json='"'$data'": "'$value'"'
+      fi
       shift 1
+      update="$(printf '%s' "{${json//\"\"/\",\"}}")"
+      curl -q -LSsf -X PATCH -H "Content-Type: application/json" -H "Authorization: token $token" --data "$update" "$host/$repo" >"$GITADMIN_LOG_DIR/$name.log" 2>&1
+      if cat "$GITADMIN_LOG_DIR/$name.log" | grep "$data" | grep -q "$value"; then
+        json_message="$json"
+        exitCode=$((exitCode + 0))
+        message="$(printf '%s' "$(printf_green "success:")")"
+      else
+        json_message="$json"
+        exitCode=$((exitCode + 1))
+        message="$(printf '%s' "$(printf_red "failed:")")"
+      fi
+      json_message="$(printf '%s' "$json_message" | sed 's| $||g;s| |, |g')"
+      json_message="$(printf '%s' "{${json_message//\"\"/\",\"}}")"
+      printf '%s %s ' "$message" "$json_message"
       ;;
     *)
       break
       ;;
     esac
   done
-  data="$(printf '%s' "{${json//\"\"/\",\"}}")"
-  curl -q -LSsif -X PATCH -H "Content-Type: application/json" -H "Authorization: token $token" --data "$data" "https://api.github.com/repos/$repo" 2>&1 | grep -q 'HTTP/.*.20.' &&
-    {
-      printf_green "Successfully updated $repo with the following data:"
-      printf '%s\n' "$data" | __jq -c '.' | grep -v '^$' | printf_readline
-      exitCode=0
-    } || {
-    printf_red "Failed to update $repo"
-    exitCode=1
-  }
+  printf '%s\n' "- exitCode: $exitCode"
   return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -2846,7 +2893,7 @@ github) # github repo
 
   update) # update repo info
     shift 1
-    __update_repo "$@"
+    __update_github_repo "$@"
     exit $?
     ;;
 
@@ -3072,7 +3119,7 @@ private) # private repos commands
 
   update) # update repo
     shift 1
-    __update_repo "$@"
+    __gitea_update_all "$@"
     exit "$?"
     ;;
 

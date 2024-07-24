@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  2024071920241348-git
+##@Version           :  202407241259-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -60,9 +60,9 @@ __get_ip4() { ip a 2>/dev/null | grep -w 'inet' | awk '{print $2}' | grep -vE '^
 __find_file_relative() { find "$1"/* -not -path '*env/*' -not -path '.git*' -type f 2>/dev/null | sed 's|'$1'/||g' | sort -u | grep -v '^$' | grep '^' || false; }
 __find_directory_relative() { find "$1"/* -not -path '*env/*' -not -path '.git*' -type d 2>/dev/null | sed 's|'$1'/||g' | sort -u | grep -v '^$' | grep '^' || false; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__pid_exists() { ps -ax | sed 's/^[[:space:]]*//g' | awk -F' ' '{print $1}' | grep '[0-9]' | sort -uV | grep "^$1$" && return 0 || return 1; }
-__get_pid() { ps -ax | sed 's/^[[:space:]]*//g' | grep "$1" | grep -v 'grep' | awk -F' ' '{print $1}' | grep '[0-9]' | sort -uV | grep '^' && return 0 || return 1; }
-__is_running() { ps -eo args | awk '{print $1,$2,$3}' | sed 's|:||g' | sort -u | grep -vE 'grep|COMMAND|awk|tee|ps|sed|sort|tail' | grep "$1" | grep -q "${2:-^}" && return 0 || return 1; }
+__pid_exists() { ps -ax --no-header | sed 's/^[[:space:]]*//g' | awk -F' ' '{print $1}' | grep '[0-9]' | sort -uV | grep "^$1$" && return 0 || return 1; }
+__is_running() { ps -eo args --no-header | awk '{print $1,$2,$3}' | sed 's|:||g' | sort -u | grep -vE 'grep|COMMAND|awk|tee|ps|sed|sort|tail' | grep "$1" | grep -q "${2:-^}" && return 0 || return 1; }
+__get_pid() { ps -ax --no-header | sed 's/^[[:space:]]*//g;s|;||g;s|:||g' | awk '{print $1,$5}' | grep -v 'grep' | grep "$1$" | awk -F' ' '{print $1}' | grep '[0-9]' | sort -uV | head -n1 | grep '^' && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __format_variables() { printf '%s\n' "${@//,/ }" | tr ' ' '\n' | sort -RVu | grep -v '^$' | tr '\n' ' ' | __clean_variables | grep '^' || return 3; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

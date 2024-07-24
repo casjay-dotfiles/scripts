@@ -543,8 +543,15 @@ __start_init_scripts() {
           printf '# - - - executing file: %s\n' "$init"
           "$init"
           retPID=$(__get_pid "$service")
-          [ -n "$retPID" ] && initStatus="0" || initStatus="1"
-          printf '# - - - %s has been started - pid: %s\n' "$service" "${retPID:-error}"
+          if [ -n "$retPID" ]; then
+            initStatus="0"
+            sleep 20
+            printf '# - - - %s has been started - pid: %s\n' "$service" "${retPID:-error}"
+          else
+            initStatus="1"
+            sleep 5
+            printf '# - - - %s has falied to start - check log %s\n' "$service" "docker log $CONTAINER_NAME"
+          fi
           echo ""
         fi
         retstatus=$(($initStatus + $initStatus))

@@ -1034,6 +1034,7 @@ if [ -z "$CONTAINER_NAME" ]; then
   CONTAINER_NAME="$(__container_name || echo "${HUB_IMAGE_URL//\/-/}-$HUB_IMAGE_TAG")"
 fi
 DOCKER_SET_OPTIONS+=("--name=$CONTAINER_NAME")
+DOCKER_SET_OPTIONS+=("--env ENV_CONTAINER_NAME=$CONTAINER_NAME")
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup time zone
 if [ -z "$CONTAINER_TIMEZONE" ]; then

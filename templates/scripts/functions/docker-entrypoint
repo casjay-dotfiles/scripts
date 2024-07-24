@@ -30,7 +30,17 @@
 { [ "$DEBUGGER" = "on" ] || [ -f "/config/.debug" ]; } && echo "Enabling debugging" && set -xo pipefail -x$DEBUGGER_OPTIONS && export DEBUGGER="on" || set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __remove_extra_spaces() { sed 's/\( \)*/\1/g;s|^ ||g'; }
-__printf_space() { printf "%-${1:-30}s%s\n" "${2}" "${3}"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__printf_space() {
+  pad=$(printf '%0.1s' " "{1..60})
+  padlength=$1
+  string1="$2"
+  string2="$3"
+  printf '%s' "$string1"
+  printf '%*.*s' 0 $((padlength - ${#string1} - ${#string2})) "$pad"
+  printf '%s\n' "$string2"
+  string2=${string2:1}
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cd() { [ -d "$1" ] && builtin cd "$1" || return 1; }
 __rm() { [ -n "$1" ] && [ -e "$1" ] && rm -Rf "${1:?}"; }
@@ -50,6 +60,8 @@ __get_ip4() { ip a 2>/dev/null | grep -w 'inet' | awk '{print $2}' | grep -vE '^
 __find_file_relative() { find "$1"/* -not -path '*env/*' -not -path '.git*' -type f 2>/dev/null | sed 's|'$1'/||g' | sort -u | grep -v '^$' | grep '^' || false; }
 __find_directory_relative() { find "$1"/* -not -path '*env/*' -not -path '.git*' -type d 2>/dev/null | sed 's|'$1'/||g' | sort -u | grep -v '^$' | grep '^' || false; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__pid_exists() { ps -ax | sed 's/^[[:space:]]*//g' | awk -F' ' '{print $1}' | grep '[0-9]' | sort -uV | grep "^$1$" && return 0 || return 1; }
+__get_pid() { ps -ax | sed 's/^[[:space:]]*//g' | grep "$1" | grep -v 'grep' | awk -F' ' '{print $1}' | grep '[0-9]' | sort -uV | grep '^' && return 0 || return 1; }
 __is_running() { ps -eo args | awk '{print $1,$2,$3}' | sed 's|:||g' | sort -u | grep -vE 'grep|COMMAND|awk|tee|ps|sed|sort|tail' | grep "$1" | grep -q "${2:-^}" && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __format_variables() { printf '%s\n' "${@//,/ }" | tr ' ' '\n' | sort -RVu | grep -v '^$' | tr '\n' ' ' | __clean_variables | grep '^' || return 3; }
@@ -63,8 +75,7 @@ __clean_variables() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __no_exit() {
-  [ -f "/run/no_exit.pid" ] && return
-  exec /bin/sh -c "trap 'sleep 1;rm -Rf /run/no_exit.pid;exit 0' TERM INT;(while true; do echo $$>/run/no_exit.pid;tail -qf /data/logs/entrypoint.log /data/logs/*/*log 2>/dev/null||sleep 20; done) & wait"
+  [ -f "/run/no_exit.pid" ] || exec /bin/sh -c "trap 'sleep 1;rm -Rf /run/no_exit.pid;exit 0' TERM INT;(while true; do echo $$ >/run/no_exit.pid;tail -qf /data/logs/entrypoint.log /data/logs/*/*log 2>/dev/null||sleep 20; done) & wait"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __trim() {
@@ -478,14 +489,18 @@ __exec_command() {
   local prog_bin=""
   local exitCode="0"
   local cmdExec="${arg:-}"
+  local pre_exec="--login"
   prog_bin="$(echo "${arg[@]}" | tr ' ' '\n' | grep -v '^$' | head -n1 || echo '')"
   [ -n "$prog_bin" ] && prog="$(type -P "$prog_bin" 2>/dev/null || echo "$1")" || prog="bash"
+  [ -n "$cmdExec" ] || cmdExec=""
   if [ -f "$prog" ]; then
     echo "${exec_message:-Executing command: $cmdExec}"
+    [ "$prog" = "sh" ] || [ "$prog" = "bash" ] || pre_exec="-c"
+
     if [ -x "/bin/bash" ]; then
-      eval bash -c "$cmdExec" || exitCode=1
+      eval bash $pre_exec $cmdExec || exitCode=1
     else
-      eval sh -c "$cmdExec" || exitCode=1
+      eval sh $pre_exec $cmdExec || exitCode=1
     fi
     [ "$exitCode" = 0 ] || exitCode=10
   elif [ -f "$prog" ] && [ ! -x "$prog" ]; then
@@ -502,10 +517,11 @@ __exec_command() {
 __start_init_scripts() {
   [ "$1" = " " ] && shift 1
   [ "$DEBUGGER" = "on" ] && echo "Enabling debugging" && set -o pipefail -x$DEBUGGER_OPTIONS || set -o pipefail
-  local retVal=0
+  local retPID=""
   local basename=""
   local init_pids=""
-  local initStatus=0
+  local retstatus="0"
+  local initStatus="0"
   local init_dir="${1:-/usr/local/etc/docker/init.d}"
   local init_count="$(ls -A "$init_dir"/* 2>/dev/null | grep -v '\.sample' | wc -l)"
   touch /run/__start_init_scripts.pid
@@ -521,17 +537,19 @@ __start_init_scripts() {
       for init in "$init_dir"/*.sh; do
         if [ -f "$init" ]; then
           name="$(basename "$init")"
+          service="$(printf '%s' "$name" | sed 's/^[^-]*-//;s|.sh$||g')"
           printf '# - - - executing file: %s\n' "$init"
-          eval sh -c "$init &" && sleep 60 || { sleep 20 && false; }
-          retVal=$?
-          initStatus=$((retVal + initStatus))
-          printf '# - - - %s has been executed - status: %s\n' "$name" "$retVal"
+          "$init"
+          retPID=$(__get_pid "$service")
+          [ -n "$retPID" ] && initStatus="0" || initStatus="1"
+          printf '# - - - %s has been started - pid: %s\n' "$service" "${retPID:-error}"
           echo ""
         fi
+        retstatus=$(($initStatus + $initStatus))
       done
     fi
   fi
-  return $initStatus
+  return $retstatus
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_mta() {

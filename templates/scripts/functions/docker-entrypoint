@@ -123,14 +123,17 @@ __certbot() {
   local statusCode=0
   CERTBOT_DOMAINS="${CERTBOT_DOMAINS:-$HOSTNAME}"
   [ -n "$(type -P 'certbot')" ] || return 1
-  if [ -f "/config/certbot/env.sh" ]; then
-    . "/config/certbot/env.sh"
-  fi
+  [ -f "/config/certbot/env.sh" ] && . "/config/certbot/env.sh"
   if [ -f "/config/certbot/setup.sh" ]; then
     eval "/config/certbot/setup.sh"
     statusCode=$?
   elif [ -f "/etc/named/certbot.sh" ]; then
     eval "/etc/named/certbot.sh"
+    statusCode=$?
+  elif [ -f "/config/certbot/certbot.conf" ]; then
+    if certbot renew -n --dry-run --agree-tos --expand --dns-rfc2136 --dns-rfc2136-credentials /config/certbot/certbot.conf; then
+      certbot renew -n --agree-tos --expand --dns-rfc2136 --dns-rfc2136-credentials /config/certbot/certbot.conf
+    fi
     statusCode=$?
   elif [ -f "/config/named/certbot-update.conf" ]; then
     if certbot renew -n --dry-run --agree-tos --expand --dns-rfc2136 --dns-rfc2136-credentials /config/named/certbot-update.conf; then
@@ -138,19 +141,26 @@ __certbot() {
     fi
     statusCode=$?
   else
+    [ -n "$SSL_KEY" ] && mkdir -p "$(dirname "$SSL_KEY")" || { echo "The variable $SSL_KEY is not set" >&2 && return 1; }
+    [ -n "$SSL_CERT" ] && mkdir -p "$(dirname "$SSL_CERT")" || { echo "The variable $SSL_CERT is not set" >&2 && return 1; }
     local options="${1:-create}" && shift 1
     domain_list="$DOMAINNAME www.$DOMAINNAME mail.$DOMAINNAME $CERTBOT_DOMAINS"
     [ -f "/config/env/ssl.sh" ] && . "/config/env/ssl.sh"
     [ "$CERT_BOT_ENABLED" = "true" ] || { export CERT_BOT_ENABLED="" && return 10; }
-    [ -n "$CERT_BOT_MAIL" ] || echo "The variable CERT_BOT_MAIL is not set" && return 1
-    [ -n "$DOMAINNAME" ] || echo "The variable DOMAINNAME is not set" && return 1
+    [ -n "$DOMAINNAME" ] || { echo "The variable DOMAINNAME is not set" >&2 && return 1; }
+    [ -n "$CERT_BOT_MAIL" ] || { echo "The variable CERT_BOT_MAIL is not set" >&2 && return 1; }
     for domain in $$CERTBOT_DOMAINS; do
-      [ -n "$domain" ] && ADD_CERTBOT_DOMAINS="-d $domain "
+      [ -n "$domain" ] && ADD_CERTBOT_DOMAINS="-d $domain $ADD_CERTBOT_DOMAINS"
     done
-    certbot $options --agree-tos -m $CERT_BOT_MAIL certonly --webroot \
-      -w "${WWW_ROOT_DIR:-/usr/share/httpd/default}" $ADD_CERTBOT_DOMAINS \
-      --key-path "$SSL_KEY" --fullchain-path "$SSL_CERT"
-    statusCode=$?
+    if [ -n "$ADD_CERTBOT_DOMAINS" ]; then
+      certbot $options --agree-tos -m $CERT_BOT_MAIL certonly \
+        --webroot "${WWW_ROOT_DIR:-/usr/share/httpd/default}" \
+        --key-path "$SSL_KEY" --fullchain-path "$SSL_CERT" \
+        $ADD_CERTBOT_DOMAINS
+      statusCode=$?
+    else
+      statusCode=1
+    fi
   fi
   [ $statusCode -eq 0 ] && __update_ssl_certs
   return $statusCode
@@ -198,12 +208,10 @@ __init_apache() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __init_nginx() {
-  local etc_dir="" conf_dir="" www_dir="" nginx_bin=""
-  etc_dir="/etc/${1:-nginx}"
-  conf_dir="/config/${1:-nginx}"
-  www_dir="${WWW_ROOT_DIR:-/data/htdocs}"
-  nginx_bin="$(type -P 'nginx')"
-  #
+  local etc_dir="/etc/${1:-nginx}"
+  local conf_dir="/config/${1:-nginx}"
+  local www_dir="${WWW_ROOT_DIR:-/data/htdocs}"
+  local nginx_bin="$(type -P 'nginx')"
   return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -211,21 +219,18 @@ __init_php() {
   local etc_dir="/etc/${1:-php}"
   local conf_dir="/config/${1:-php}"
   local php_bin="${PHP_BIN_DIR:-$(__find_php_bin)}"
-  #
   return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __init_mysql() {
-  local db_dir="" etc_dir="" db_user="" conf_dir="" user_pass="" user_db="" root_pass="" mysqld_bin=""
-  db_dir="/data/db/mysql"
-  etc_dir="${home:-/etc/${1:-mysql}}"
-  db_user="${SERVICE_USER:-mysql}"
-  conf_dir="/config/${1:-mysql}"
-  user_pass="${MARIADB_PASSWORD:-$MARIADB_ROOT_PASSWORD}"
-  user_db="${MARIADB_DATABASE}" user_name="${MARIADB_USER:-root}"
-  root_pass="$MARIADB_ROOT_PASSWORD"
-  mysqld_bin="$(type -P 'mysqld')"
-  #
+  local db_dir="/data/db/mysql"
+  local etc_dir="${home:-/etc/${1:-mysql}}"
+  local db_user="${SERVICE_USER:-mysql}"
+  local conf_dir="/config/${1:-mysql}"
+  local user_pass="${MARIADB_PASSWORD:-$MARIADB_ROOT_PASSWORD}"
+  local user_db="${MARIADB_DATABASE}" user_name="${MARIADB_USER:-root}"
+  local root_pass="$MARIADB_ROOT_PASSWORD"
+  local mysqld_bin="$(type -P 'mysqld')"
   return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -233,7 +238,6 @@ __init_mongodb() {
   local home="${MONGODB_CONFIG_FILE:-$(__find_mongodb_conf)}"
   local user_pass="${MONGO_INITDB_ROOT_PASSWORD:-$_ROOT_PASSWORD}"
   local user_name="${INITDB_ROOT_USERNAME:-root}"
-  #
   return
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -241,7 +245,6 @@ __init_postgres() {
   local home="${PGSQL_CONFIG_FILE:-$(__find_pgsql_conf)}"
   local user_pass="${POSTGRES_PASSWORD:-$POSTGRES_ROOT_PASSWORD}"
   local user_name="${POSTGRES_USER:-root}"
-  #
   return
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -249,7 +252,6 @@ __init_couchdb() {
   local home="${COUCHDB_CONFIG_FILE:-$(__find_couchdb_conf)}"
   local user_pass="${COUCHDB_PASSWORD:-$SET_RANDOM_PASS}"
   local user_name="${COUCHDB_USER:-root}"
-  #
   return
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -946,6 +948,6 @@ export ENTRYPOINT_DATA_INIT_FILE DATA_DIR_INITIALIZED ENTRYPOINT_CONFIG_INIT_FIL
 export ENTRYPOINT_PID_FILE ENTRYPOINT_INIT_FILE ENTRYPOINT_FIRST_RUN
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # export the functions
-export -f __start_init_scripts __is_running
+export -f __get_pid __start_init_scripts __is_running __certbot __update_ssl_certs __create_ssl_cert
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # end of functions

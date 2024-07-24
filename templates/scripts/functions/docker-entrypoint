@@ -549,7 +549,7 @@ __start_init_scripts() {
             printf '# - - - %s has been started - pid: %s\n' "$service" "${retPID:-error}"
           else
             initStatus="1"
-            sleep 5
+            sleep 10
             printf '# - - - %s has falied to start - check log %s\n' "$service" "docker log $CONTAINER_NAME"
           fi
           echo ""

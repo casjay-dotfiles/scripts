@@ -103,6 +103,26 @@ __am_i_online() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # colorization
 if [ "$SHOW_RAW" = "true" ]; then
+  NC=""
+  RESET=""
+  BLACK=""
+  RED=""
+  GREEN=""
+  YELLOW=""
+  BLUE=""
+  PURPLE=""
+  CYAN=""
+  WHITE=""
+  ORANGE=""
+  LIGHTRED=""
+  BG_GREEN=""
+  BG_RED=""
+  ICON_INFO="[ info ]"
+  ICON_GOOD="[ ok ]"
+  ICON_WARN="[ warn ]"
+  ICON_ERROR="[ error ]"
+  ICON_QUESTION="[ ? ]"
+  printf_column() { tee | grep '^'; }
   printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
 else
   printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
@@ -194,6 +214,7 @@ __help() {
   __printf_line "--version                       - Show script version"
   __printf_line "--help                          - Shows this message"
   __printf_line "--options                       - Shows all available options"
+  __printf_line "--raw                           - Removes all formatting on output"
   __printf_line ""
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
 }
@@ -619,6 +640,25 @@ while :; do
   --raw)
     shift 1
     export SHOW_RAW="true"
+    NC=""
+    RESET=""
+    BLACK=""
+    RED=""
+    GREEN=""
+    YELLOW=""
+    BLUE=""
+    PURPLE=""
+    CYAN=""
+    WHITE=""
+    ORANGE=""
+    LIGHTRED=""
+    BG_GREEN=""
+    BG_RED=""
+    ICON_INFO="[ info ]"
+    ICON_GOOD="[ ok ]"
+    ICON_WARN="[ warn ]"
+    ICON_ERROR="[ error ]"
+    ICON_QUESTION="[ ? ]"
     printf_column() { tee | grep '^'; }
     printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
     ;;

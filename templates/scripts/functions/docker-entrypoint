@@ -415,8 +415,10 @@ __fix_permissions() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__check_for_uid() { cat "/etc/passwd" | awk -F ':' '{print $3}' | grep -q "$1" || return 2; }
-__check_for_guid() { cat "/etc/group" | awk -F ':' '{print $3}' | grep -q "$1" || return 2; }
+__check_for_uid() { cat "/etc/passwd" | awk -F ':' '{print $3}' | sort -u | grep -q "^$1$" || return 2; }
+__check_for_guid() { cat "/etc/group" | awk -F ':' '{print $3}' | sort -u | grep -q "^$1$" || return 2; }
+__check_for_user() { cat "/etc/passwd" | awk -F ':' '{print $1}' | sort -u | grep -q "^$1$" || return 2; }
+__check_for_group() { cat "/etc/group" | awk -F ':' '{print $1}' | sort -u | grep -q "^$1$" || return 2; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __set_user_group_id() {
   local exitStatus=0
@@ -424,15 +426,15 @@ __set_user_group_id() {
   local set_uid="${2:-${SERVICE_UID:-10000}}"
   local set_gid="${3:-${SERVICE_GID:-10000}}"
   local random_id="$(__generate_random_uids)"
-  grep -sq "^$create_user:" "/etc/passwd" "/etc/group" && return
+  grep -sq "^$create_user:" "/etc/passwd" "/etc/group" || return 0
   [ -n "$set_user" ] && [ "$set_user" != "root" ] || return
   [ -n "$set_user" ] && [ -n "$set_uid" ] && [ -n "$set_gid" ] || return
   if grep -sq "^$set_user:" "/etc/passwd" "/etc/group"; then
-    if ! grep -sq "x:.*:$set_gid:" "/etc/group"; then
+    if __check_for_guid "$set_gid"; then
       groupmod -g "${set_gid}" $set_user | tee -p -a "${LOG_DIR/tmp/}/init.txt" &>/dev/null
       chown -Rf $set_user
     fi
-    if ! grep -sq "x:$set_uid:.*:" "/etc/passwd"; then
+    if __check_for_uid "$set_uid"; then
       usermod -u "${set_uid}" -g "${set_gid}" $set_user | tee -p -a "${LOG_DIR/tmp/}/init.txt" &>/dev/null
     fi
   fi
@@ -451,21 +453,21 @@ __create_service_user() {
   local exitStatus=0
   grep -sq "^$create_user:" "/etc/passwd" "/etc/group" && return
   [ -n "$create_user" ] && [ -n "$create_group" ] && [ "$create_user" != "root" ] || return 0
-  { [ -n "$create_uid" ] && [ "$create_uid" != "0" ]; } || create_uid="$random_id"
-  { [ -n "$create_gid" ] && [ "$create_gid" != "0" ]; } || create_gid="$random_id"
+  { [ -n "$create_uid" ] && { [ "$create_uid" = "0" ] && return; } || create_uid="$random_id"; }
+  { [ -n "$create_gid" ] && { [ "$create_gid" = "0" ] && return; } || create_gid="$random_id"; }
   while :; do
     if __check_for_uid "$create_uid" && __check_for_guid "$create_gid"; then
       break
     else
       create_uid=$(($random_id + 1))
-      create_gid=$(($create_gid + 1))
+      create_gid="$create_uid"
     fi
   done
-  if ! grep -sqE "$create_group|$create_user" "/etc/group"; then
+  if ! __check_for_group "$create_group"; then
     echo "creating system group $create_group"
     groupadd -g $create_gid $create_group | tee -p -a "${LOG_DIR/tmp/}/init.txt" &>/dev/null
   fi
-  if ! grep -sqE "$create_uid|$create_user" "/etc/passwd"; then
+  if ! __check_for_user "$create_user"; then
     echo "creating system user $create_user"
     useradd -u $create_uid -g $create_gid -c "Account for $create_user" -d "$create_home_dir" -s /bin/false $create_user | tee -p -a "$LOG_DIR/tmp/init.txt" &>/dev/null
   fi

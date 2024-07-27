@@ -454,8 +454,8 @@ __create_service_user() {
   local exitStatus=0
   grep -sq "^$create_user:" "/etc/passwd" "/etc/group" && return
   [ -n "$create_user" ] && [ -n "$create_group" ] && [ "$create_user" != "root" ] || return 0
-  { [ -n "$create_uid" ] && { [ "$create_uid" = "0" ] && return; } || create_uid="$random_id"; }
-  { [ -n "$create_gid" ] && { [ "$create_gid" = "0" ] && return; } || create_gid="$random_id"; }
+  { [ -n "$create_uid" ] && { [ "$create_uid" != "0" ] || create_uid="$random_id"; } || return 0; }
+  { [ -n "$create_gid" ] && { [ "$create_gid" != "0" ] || create_gid="$random_id"; } || return 0; }
   while :; do
     if __check_for_uid "$create_uid" && __check_for_guid "$create_gid"; then
       break

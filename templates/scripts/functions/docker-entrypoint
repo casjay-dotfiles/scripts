@@ -464,11 +464,11 @@ __create_service_user() {
       break
     fi
   done
-  if __check_for_group "$create_group"; then
+  if ! __check_for_group "$create_group"; then
     echo "creating system group $create_group"
     groupadd -g $create_gid $create_group | tee -p -a "${LOG_DIR/tmp/}/init.txt" &>/dev/null
   fi
-  if __check_for_user "$create_user"; then
+  if ! __check_for_user "$create_user"; then
     echo "creating system user $create_user"
     useradd -u $create_uid -g $create_gid -c "Account for $create_user" -d "$create_home_dir" -s /bin/false $create_user | tee -p -a "$LOG_DIR/tmp/init.txt" &>/dev/null
   fi

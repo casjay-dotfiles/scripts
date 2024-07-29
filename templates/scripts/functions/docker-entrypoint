@@ -761,19 +761,19 @@ __initialize_system_etc() {
   local conf_dir="$1"
   local dir=""
   local file=()
-  local directories=()
+  local directories=""
   if [ -n "$conf_dir" ] && [ -e "$conf_dir" ]; then
-    files=("$(find "$conf_dir"/* -not -path '*/env/*' -type f 2>/dev/null | sed 's|'/config/'||g' | sort -u | grep -v '^$' | grep '^' || false)")
-    directories=("$(find "$conf_dir"/* -not -path '*/env/*' -type d 2>/dev/null | sed 's|'/config/'||g' | sort -u | grep -v '^$' | grep '^' || false)")
+    files="$(find "$conf_dir"/* -not -path '*/env/*' -type f 2>/dev/null | sed 's|'/config/'||g' | sort -u | grep -v '^$' | grep '^' || false)"
+    directories="$(find "$conf_dir"/* -not -path '*/env/*' -type d 2>/dev/null | sed 's|'/config/'||g' | sort -u | grep -v '^$' | grep '^' || false)"
     echo "Copying config files to system: $conf_dir > /etc/${conf_dir//\/config\//}"
-    if [ -n "${directories[*]}" ]; then
-      for d in "${directories[@]}"; do
+    if [ -n "$directories" ]; then
+      for d in $directories; do
         dir="/etc/$d"
         echo "Creating directory: $dir"
         mkdir -p "$dir"
       done
     fi
-    for f in "${files[@]}"; do
+    for f in $files; do
       etc_file="/etc/$f"
       conf_file="/config/$f"
       [ -f "$etc_file" ] && rm -Rf "$etc_file"

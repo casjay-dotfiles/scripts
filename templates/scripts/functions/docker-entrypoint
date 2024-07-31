@@ -451,7 +451,7 @@ __create_service_user() {
   local exitStatus=0
   local set_home_dir=""
   local create_user="${1:-$SERVICE_USER}"
-  local create_group="${2:-$SERVICE_GROUP}"
+  local create_group="${2:-${SERVICE_GROUP:-$create_user}}"
   local create_home_dir="${3:-${WORK_DIR:-/home/$create_user}}"
   local create_uid="${4:-${SERVICE_UID:-$USER_UID}}"
   local create_gid="${5:-${SERVICE_GID:-$USER_GID}}"
@@ -620,6 +620,15 @@ EOF
         __symlink "/config/ssmtp/$file" "/etc/ssmtp/$file"
         __initialize_replace_variables "/etc/ssmtp/$file"
       done
+      if [ -f "/etc/ssmtp/revaliases" ] && [ ! -f "/config/ssmtp/revaliases" ]; then
+        mv -f "/etc/ssmtp/revaliases" "/config/ssmtp/revaliases"
+        __symlink "/config/ssmtp/revaliases" "/etc/ssmtp/revaliases"
+        __initialize_replace_variables "/etc/ssmtp/revaliases"
+      else
+        touch "/config/ssmtp/revaliases"
+        __symlink "/config/ssmtp/revaliases" "/etc/ssmtp/revaliases"
+        __initialize_replace_variables "/etc/ssmtp/revaliases"
+      fi
       echo "Done setting up ssmtp"
     fi
 
@@ -720,6 +729,11 @@ __initialize_replace_variables() {
     __find_replace "REPLACE_APP_GROUP" "${SERVICE_GROUP:-${SERVICE_USER:-${RUNAS_USER:-root}}}" "$set_dir"
     __find_replace "REPLACE_WWW_GROUP" "${SERVICE_GROUP:-${SERVICE_USER:-${RUNAS_USER:-root}}}" "$set_dir"
     __find_replace "REPLACE_SERVICE_USER" "${SERVICE_USER:-${RUNAS_USER:-root}}" "$set_dir"
+    __find_replace "REPLACE_SERVICE_GROUP" "${SERVICE_GROUP:-${RUNAS_USER:-root}}" "$set_dir"
+    if [ -n "$VAR_DIR" ]; then
+      mkdir -p "$VAR_DIR"
+      __find_replace "REPLACE_VAR_DIR" "$VAR_DIR" "$set_dir"
+    fi
     [ -n "$SERVICE_PORT" ] && __find_replace "REPLACE_SERVER_PORT" "${SERVICE_PORT:-80}" "$set_dir"
     [ -n "$HOSTNAME" ] && __find_replace "REPLACE_SERVER_NAME" "${FULL_DOMAIN_NAME:-$HOSTNAME}" "$set_dir"
     [ -n "$CONTAINER_NAME" ] && __find_replace "REPLACE_SERVER_SOFTWARE" "${CONTAINER_NAME:-docker}" "$set_dir"

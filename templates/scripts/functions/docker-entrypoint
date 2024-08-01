@@ -122,7 +122,7 @@ __init_working_dir() {
   # cd to dir
   __cd "${workdir:-$home}"
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  __printf_space "40" "Setting the working directory to:" "$PWD"
+  echo "Setting the working directory to: $PWD"
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   export WORK_DIR="$workdir" HOME="$home"
 }

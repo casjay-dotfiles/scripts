@@ -114,8 +114,8 @@ __init_working_dir() {
   [ -z "$WORK_DIR" ] && [ "$HOME" = "/root" ] && [ "$RUNAS_USER" != "root" ] && [ "$PWD" != "/tmp" ] && home="${workdir:-$home}"
   [ -z "$WORK_DIR" ] && [ "$HOME" = "/root" ] && [ "$SERVICE_USER" != "root" ] && [ "$PWD" != "/tmp" ] && home="${workdir:-$home}"
   # create needed directories
-  [ -n "$home" ] && { [ -d "$home" ] || { mkdir -p "$home" && chown -Rf $SERVICE_USER:$SERVICE_GROUP "$home"; }; }
-  [ -n "$workdir" ] && { [ -d "$workdir" ] || { mkdir -p "$workdir" && chown -Rf $SERVICE_USER:$SERVICE_GROUP "$workdir"; }; }
+  [ -n "$home" ] && { [ -d "$home" ] || mkdir -p "$home"; }
+  [ -n "$workdir" ] && { [ -d "$workdir" ] || mkdir -p "$workdir"; }
   [ "$SERVICE_USER" = "root " ] || [ -d "$home" ] && chmod -f 777 "$home"
   [ "$SERVICE_USER" = "root " ] || [ -d "$workdir" ] && chmod -f 777 "$workdir"
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

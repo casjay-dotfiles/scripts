@@ -42,10 +42,10 @@ __printf_space() {
   string2=${string2:1}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__cd() { [ -d "$1" ] && builtin cd "$1" || return 1; }
 __rm() { [ -n "$1" ] && [ -e "$1" ] && rm -Rf "${1:?}"; }
 __grep_test() { grep -s "$1" "$2" | grep -qwF "${3:-$1}" || return 1; }
 __netstat() { [ -f "$(type -P netstat)" ] && netstat "$@" || return 10; }
+__cd() { { [ -d "$1" ] || mkdir -p "$1"; } && builtin cd "$1" || return 1; }
 __is_in_file() { [ -e "$2" ] && grep -Rsq "$1" "$2" && return 0 || return 1; }
 __curl() { curl -q -sfI --max-time 3 -k -o /dev/null "$@" &>/dev/null || return 10; }
 __find() { find "$1" -mindepth 1 -type ${2:-f,d} 2>/dev/null | grep '^' || return 10; }
@@ -100,6 +100,32 @@ __find_couchdb_conf() { return; }
 __find_mongodb_conf() { return; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __random_password() { cat "/dev/urandom" | tr -dc '0-9a-zA-Z' | head -c${1:-16} && echo ""; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__init_working_dir() {
+  local service_name="$SCRIPT_NAME"                            # get service name
+  local workdir="$(eval echo "${WORK_DIR:-}")"                 # expand variables
+  local home="$(eval echo "${workdir//\/root/\/tmp\/docker}")" # expand variables
+  # set working directories
+  [ "$home" = "$workdir" ] && workdir=""
+  [ "$home" = "/root" ] && home="/tmp/$service_name"
+  [ -z "$home" ] && home="${workdir:-/tmp/$service_name}"
+  # Change to working directory
+  [ -n "$WORK_DIR" ] && [ -n "$EXEC_CMD_BIN" ] && workdir="$WORK_DIR"
+  [ -z "$WORK_DIR" ] && [ "$HOME" = "/root" ] && [ "$RUNAS_USER" != "root" ] && [ "$PWD" != "/tmp" ] && home="${workdir:-$home}"
+  [ -z "$WORK_DIR" ] && [ "$HOME" = "/root" ] && [ "$SERVICE_USER" != "root" ] && [ "$PWD" != "/tmp" ] && home="${workdir:-$home}"
+  # create needed directories
+  [ -n "$home" ] && { [ -d "$home" ] || { mkdir -p "$home" && chown -Rf $SERVICE_USER:$SERVICE_GROUP "$home"; }; }
+  [ -n "$workdir" ] && { [ -d "$workdir" ] || { mkdir -p "$workdir" && chown -Rf $SERVICE_USER:$SERVICE_GROUP "$workdir"; }; }
+  [ "$SERVICE_USER" = "root " ] || [ -d "$home" ] && chmod -f 777 "$home"
+  [ "$SERVICE_USER" = "root " ] || [ -d "$workdir" ] && chmod -f 777 "$workdir"
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  # cd to dir
+  __cd "${workdir:-$home}"
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  __printf_space "40" "Setting the working directory to:" "$PWD"
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  export WORK_DIR="$workdir" HOME="$home"
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __exec_service() {
   echo "Starting $1"
@@ -164,6 +190,17 @@ __certbot() {
   return $statusCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__init_config_etc() {
+  if [ ! -d "$CONF_DIR" ] || __is_dir_empty "$CONF_DIR"; then
+    if [ -d "$ETC_DIR" ]; then
+      mkdir -p "$CONF_DIR"
+      __copy_templates "$ETC_DIR/." "$CONF_DIR/"
+    else
+      __copy_templates "$ETC_DIR" "$CONF_DIR"
+    fi
+  fi
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+}
 __create_ssl_cert() {
   local SSL_DIR="${SSL_DIR:-/etc/ssl}"
   if ! __certbot create; then
@@ -418,6 +455,21 @@ __check_for_uid() { cat "/etc/passwd" 2>/dev/null | awk -F ':' '{print $3}' | so
 __check_for_guid() { cat "/etc/group" 2>/dev/null | awk -F ':' '{print $3}' | sort -u | grep -q "^$1$" || false; }
 __check_for_user() { cat "/etc/passwd" 2>/dev/null | awk -F ':' '{print $1}' | sort -u | grep -q "^$1$" || false; }
 __check_for_group() { cat "/etc/group" 2>/dev/null | awk -F ':' '{print $1}' | sort -u | grep -q "^$1$" || false; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# check if process is already running
+__proc_check() {
+  cmd_bin="$(type -P "${1:-$EXEC_CMD_BIN}")"
+  cmd_name="$(basename "${cmd_bin:-$EXEC_CMD_NAME}")"
+  if __pgrep "$cmd_bin" || __pgrep "$cmd_name"; then
+    SERVICE_IS_RUNNING="yes"
+    touch "$SERVICE_PID_FILE"
+    echo "$cmd_name is already running"
+    return 0
+  else
+    return 1
+  fi
+}
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __set_user_group_id() {
   local exitStatus=0
@@ -932,6 +984,41 @@ __start_php_dev_server() {
       php -S 0.0.0.0:$PHP_DEV_SERVER_PORT -t "$1"
     fi
   fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__check_service() {
+  if [ "$1" = "check" ]; then
+    shift $#
+    __proc_check "$EXEC_CMD_NAME" || __proc_check "$EXEC_CMD_BIN"
+    exit $?
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__switch_to_user() {
+  if [ "$RUNAS_USER" = "roo t" ]; then
+    su_cmd() {
+      su_exec=""
+      eval "$@" || return 1
+    }
+  elif [ "$(builtin type -P gosu)" ]; then
+    su_exec="gosu $RUNAS_USER"
+    su_cmd() { gosu $RUNAS_USER "$@" || return 1; }
+  elif [ "$(builtin type -P runuser)" ]; then
+    su_exec="runuser -u $RUNAS_USER"
+    su_cmd() { runuser -u $RUNAS_USER "$@" || return 1; }
+  elif [ "$(builtin type -P sudo)" ]; then
+    su_exec="sudo -u $RUNAS_USER"
+    su_cmd() { sudo -u $RUNAS_USER "$@" || return 1; }
+  elif [ "$(builtin type -P su)" ]; then
+    su_exec="su -s /bin/sh - $RUNAS_USER"
+    su_cmd() { su -s /bin/sh - $RUNAS_USER -c "$@" || return 1; }
+  else
+    su_cmd() {
+      su_exec=""
+      echo "Can not switch to $RUNAS_USER: attempting to run as root" && eval "$@" || return 1
+    }
+  fi
+  export su_exec
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # set variables from function calls

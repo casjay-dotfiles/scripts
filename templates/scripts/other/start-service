@@ -425,7 +425,7 @@ $execute_command 2>>"/dev/stderr" >>"$LOG_DIR/$SERVICE_NAME.log" &
 execPid=\$!
 sleep 10
 [ -n "\$execPid"  ] && echo \$execPid >"\$SERVICE_PID_FILE"
-ps ax | awk '{print \$1}' | grep -v grep | grep grep -q \$execPid$ && retVal=0
+ps ax | awk '{print \$1}' | grep -v grep | grep -q \$execPid$ && retVal=0
 [ "\$retVal" = 0 ] && echo "\$cmd has been started" || echo "\$cmd has failed to start - args: \$args" >&2
 exit \$retVal
 

@@ -102,7 +102,7 @@ __find_mongodb_conf() { return; }
 __random_password() { cat "/dev/urandom" | tr -dc '0-9a-zA-Z' | head -c${1:-16} && echo ""; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __init_working_dir() {
-  local service_name="$SCRIPT_NAME"                            # get service name
+  local service_name="$SERVICE_NAME"                           # get service name
   local workdir="$(eval echo "${WORK_DIR:-}")"                 # expand variables
   local home="$(eval echo "${workdir//\/root/\/tmp\/docker}")" # expand variables
   # set working directories

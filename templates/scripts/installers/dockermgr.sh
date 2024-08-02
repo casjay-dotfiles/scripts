@@ -92,8 +92,26 @@ dockermgr_req_version "$APPVERSION"
 __sudo_root() { [ "$DOCKERMGR_USER_CAN_SUDO" = "true" ] && sudo "$@" || { [ "$USER" = "root" ] && eval "$*"; } || eval "$*" 2>/dev/null || return 1; }
 __sudo_exec() { [ "$DOCKERMGR_USER_CAN_SUDO" = "true" ] && sudo -HE "$@" || { [ "$USER" = "root" ] && eval "$*"; } || eval "$*" 2>/dev/null || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__printf_spacing_file() { printf "%-${1:-30}s%s\n" "${2}" "${3}"; }
-__printf_spacing_color() { printf "%b%-${2:?Please set spacing number}s%s%b\n" "$(tput setaf "${1:?Please set color number}" 2>/dev/null)" "${3:?Please set left content}" "${4:- }" "$(tput sgr0 2>/dev/null)"; }
+__printf_spacing_file() {
+  pad=$(printf '%0.1s' " "{1..60})
+  padlength=$1
+  string1="$(__trim "$2")"
+  string2="$(__trim "$3")"
+  printf '%s' "$string1"
+  printf '%*.*s' 0 $((padlength - ${#string1} - ${#string2})) "$pad"
+  printf '%s\n' "$string2"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__printf_spacing_color() {
+  pad=$(printf '%0.1s' " "{1..60})
+  color=$1
+  padlength=$2
+  string1="$(__trim "$3")"
+  string2="$(__trim "$4")"
+  printf '%b%s' "$(tput setaf "${color:?Please set color number}" 2>/dev/null)" "$string1"
+  printf '%*.*s' 0 $((padlength - ${#string1} - ${#string2})) "$pad"
+  printf '%s%b\n' "$string2" "$(tput sgr0 2>/dev/null)"
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cmd_exists() { type -P $1 &>/dev/null || return 1; }
 __remove_extra_spaces() { sed 's/\( \)*/\1/g;s|^ ||g'; }

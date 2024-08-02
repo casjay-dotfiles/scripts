@@ -355,6 +355,7 @@ HOST_NGINX_UPDATE_CONF="yes"
 HOST_NGINX_EXTERNAL_DOMAIN=""
 HOST_NGINX_INTERNAL_DOMAIN=""
 HOST_NGINX_INTERNAL_HOST=""
+HOST_NGINX_VIRTUAL_HOST_NAME=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Enable this if container is running a webserver - [yes/no] [internalPort] [yes/no] [yes/no] [listen]
 CONTAINER_WEB_SERVER_ENABLED="no"
@@ -688,8 +689,11 @@ HOST_CRON_COMMAND="\${ENV_HOST_CRON_COMMAND:-$HOST_CRON_COMMAND}"
 CONTAINER_DEFAULT_USERNAME="\${ENV_CONTAINER_DEFAULT_USERNAME:-$CONTAINER_DEFAULT_USERNAME}"
 POST_SHOW_FINISHED_MESSAGE="\${ENV_POST_SHOW_FINISHED_MESSAGE:-$POST_SHOW_FINISHED_MESSAGE}"
 DOCKERMGR_ENABLE_INSTALL_SCRIPT="\${ENV_DOCKERMGR_ENABLE_INSTALL_SCRIPT:-$DOCKERMGR_ENABLE_INSTALL_SCRIPT}"
+# reuse ports
 CONTAINER_PUBLISHED_PORT="$CONTAINER_PUBLISHED_PORT"
+# nginx specific
 CONTAINER_NGINX_PROXY_URL="$NGINX_PROXY_URL"
+HOST_NGINX_VIRTUAL_HOST_NAME="${HOST_NGINX_VIRTUAL_HOST_NAME:-$CONTAINER_HOSTNAME}"
 EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -974,6 +978,7 @@ CONTAINER_SSL_CRT="${CONTAINER_SSL_CRT:-$CONTAINER_SSL_DIR/localhost.crt}"
 CONTAINER_SSL_KEY="${CONTAINER_SSL_KEY:-$CONTAINER_SSL_DIR/localhost.key}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 CONTAINER_DOMAINNAME="${HOST_NGINX_EXTERNAL_DOMAIN:-$CONTAINER_DOMAINNAME}"
+HOST_NGINX_VIRTUAL_HOST_NAME="${HOST_NGINX_VIRTUAL_HOST_NAME:-$CONTAINER_HOSTNAME}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup ssl certs
 if [ "$CONTAINER_WEB_SERVER_SSL_ENABLED" = "true" ]; then
@@ -1828,6 +1833,7 @@ if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ] && { [ -n "$CONTAINER_ADD_RANDOM_
   CONTAINER_WEB_SERVER_LISTEN_ON="${CONTAINER_WEB_SERVER_LISTEN_ON:-}"
   CONTAINER_ADD_RANDOM_PORTS="${CONTAINER_ADD_RANDOM_PORTS//,/ }"
   CONTAINER_WEB_SERVER_INT_PORT="${CONTAINER_WEB_SERVER_INT_PORT//,/ }"
+  [ "$HOST_NGINX_VIRTUAL_HOST_NAME" = "$CONTAINER_HOSTNAME" ] || HOST_NGINX_VIRTUAL_HOST_NAME="$(__trim "$HOST_NGINX_VIRTUAL_HOST_NAME" "$CONTAINER_HOSTNAME")"
   for set_port in $CONTAINER_WEB_SERVER_INT_PORT $CONTAINER_ADD_RANDOM_PORTS; do
     if [ "$set_port" != " " ] && [ -n "$set_port" ]; then
       proxy_url=""
@@ -1850,7 +1856,7 @@ if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ] && { [ -n "$CONTAINER_ADD_RANDOM_
         if [ -n "$proxy_url" ] && [ -n "$proxy_location" ]; then
           if [ -n "$set_hostname" ]; then
             NGINX_CUSTOM_CONFIG="true"
-            echo "$set_hostname" | grep -qF '.' || set_hostname="$set_hostname.$CONTAINER_HOSTNAME"
+            echo "$set_hostname" | grep -qF '.' || set_hostname="$HOST_NGINX_VIRTUAL_HOST_NAME $set_hostname"
             cat <<EOF | tee -p -a "$NGINX_VHOSTS_PROXY_FILE_TMP" &>/dev/null
 server {
   listen                                    443 ssl http2;

@@ -92,7 +92,6 @@ dockermgr_req_version "$APPVERSION"
 __sudo_root() { [ "$DOCKERMGR_USER_CAN_SUDO" = "true" ] && sudo "$@" || { [ "$USER" = "root" ] && eval "$*"; } || eval "$*" 2>/dev/null || return 1; }
 __sudo_exec() { [ "$DOCKERMGR_USER_CAN_SUDO" = "true" ] && sudo -HE "$@" || { [ "$USER" = "root" ] && eval "$*"; } || eval "$*" 2>/dev/null || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __printf_spacing_file() { printf "%-${1:-30}s%s\n" "${2}" "${3}"; }
 __printf_spacing_color() { printf "%b%-${2:?Please set spacing number}s%s%b\n" "$(tput setaf "${1:?Please set color number}" 2>/dev/null)" "${3:?Please set left content}" "${4:- }" "$(tput sgr0 2>/dev/null)"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -356,7 +355,6 @@ HOST_NGINX_UPDATE_CONF="yes"
 HOST_NGINX_EXTERNAL_DOMAIN=""
 HOST_NGINX_INTERNAL_DOMAIN=""
 HOST_NGINX_INTERNAL_HOST=""
-HOST_NGINX_VIRTUAL_HOST_NAME=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Enable this if container is running a webserver - [yes/no] [internalPort] [yes/no] [yes/no] [listen]
 CONTAINER_WEB_SERVER_ENABLED="no"
@@ -690,11 +688,9 @@ HOST_CRON_COMMAND="\${ENV_HOST_CRON_COMMAND:-$HOST_CRON_COMMAND}"
 CONTAINER_DEFAULT_USERNAME="\${ENV_CONTAINER_DEFAULT_USERNAME:-$CONTAINER_DEFAULT_USERNAME}"
 POST_SHOW_FINISHED_MESSAGE="\${ENV_POST_SHOW_FINISHED_MESSAGE:-$POST_SHOW_FINISHED_MESSAGE}"
 DOCKERMGR_ENABLE_INSTALL_SCRIPT="\${ENV_DOCKERMGR_ENABLE_INSTALL_SCRIPT:-$DOCKERMGR_ENABLE_INSTALL_SCRIPT}"
-# reuse ports
+# lets reuse settings
 CONTAINER_PUBLISHED_PORT="$CONTAINER_PUBLISHED_PORT"
-# nginx specific
-CONTAINER_NGINX_PROXY_URL="$NGINX_PROXY_URL"
-HOST_NGINX_VIRTUAL_HOST_NAME="${HOST_NGINX_VIRTUAL_HOST_NAME:-$CONTAINER_HOSTNAME}"
+CONTAINER_NGINX_PROXY_URL="\${CONTAINER_NGINX_PROXY_URL:-$NGINX_PROXY_URL}"
 EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -979,8 +975,6 @@ CONTAINER_SSL_CRT="${CONTAINER_SSL_CRT:-$CONTAINER_SSL_DIR/localhost.crt}"
 CONTAINER_SSL_KEY="${CONTAINER_SSL_KEY:-$CONTAINER_SSL_DIR/localhost.key}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 CONTAINER_DOMAINNAME="${HOST_NGINX_EXTERNAL_DOMAIN:-$CONTAINER_DOMAINNAME}"
-HOST_NGINX_VIRTUAL_HOST_NAME="${HOST_NGINX_VIRTUAL_HOST_NAME:-$CONTAINER_HOSTNAME}"
-CONTAINER_NGINX_PROXY_URL="${CONTAINER_NGINX_PROXY_URL=$NGINX_PROXY_URL}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup ssl certs
 if [ "$CONTAINER_WEB_SERVER_SSL_ENABLED" = "true" ]; then
@@ -1835,8 +1829,6 @@ if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ] && { [ -n "$CONTAINER_ADD_RANDOM_
   CONTAINER_WEB_SERVER_LISTEN_ON="${CONTAINER_WEB_SERVER_LISTEN_ON:-}"
   CONTAINER_ADD_RANDOM_PORTS="${CONTAINER_ADD_RANDOM_PORTS//,/ }"
   CONTAINER_WEB_SERVER_INT_PORT="${CONTAINER_WEB_SERVER_INT_PORT//,/ }"
-  HOST_NGINX_VIRTUAL_HOST_NAME="$(__trim "$HOST_NGINX_VIRTUAL_HOST_NAME" "$CONTAINER_HOSTNAME" "$CONTAINER_WEB_SERVER_VHOSTS" | sort -u)"
-  HOST_NGINX_VIRTUAL_HOST_NAME="${HOST_NGINX_VIRTUAL_HOST_NAME// /,}"
   for set_port in $CONTAINER_WEB_SERVER_INT_PORT $CONTAINER_ADD_RANDOM_PORTS; do
     if [ "$set_port" != " " ] && [ -n "$set_port" ]; then
       proxy_url=""
@@ -1859,7 +1851,7 @@ if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ] && { [ -n "$CONTAINER_ADD_RANDOM_
         if [ -n "$proxy_url" ] && [ -n "$proxy_location" ]; then
           if [ -n "$set_hostname" ]; then
             NGINX_CUSTOM_CONFIG="true"
-            echo "$set_hostname" | grep -qF '.' || set_hostname="$set_hostname "
+            echo "$set_hostname" | grep -qF '.' || set_hostname="$set_hostname.$CONTAINER_HOSTNAME"
             cat <<EOF | tee -p -a "$NGINX_VHOSTS_PROXY_FILE_TMP" &>/dev/null
 server {
   listen                                    443 ssl http2;
@@ -1931,6 +1923,7 @@ EOF
       fi
     fi
   done
+  [ -n "$CONTAINER_PUBLISHED_PORT" ] && DOCKER_SET_TMP_PUBLISH=("${CONTAINER_PUBLISHED_PORT//--publish,/}")
   CONTAINER_PUBLISHED_PORT="${DOCKER_SET_TMP_PUBLISH[*]}"
   CONTAINER_PUBLISHED_PORT="${CONTAINER_PUBLISHED_PORT// /,}"
   CONTAINER_PUBLISHED_PORT="${CONTAINER_PUBLISHED_PORT//--publish,/}"
@@ -2165,7 +2158,7 @@ if [ "$INIT_SCRIPT_ONLY" = "false" ] && [ -n "$EXECUTE_DOCKER_SCRIPT" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Install nginx proxy
-[ -n "$CONTAINER_NGINX_PROXY_URL" ] && NGINX_PROXY_URL="$CONTAINER_NGINX_PROXY_URL"
+NGINX_PROXY_URL="${CONTAINER_NGINX_PROXY_URL:-$NGINX_PROXY_URL}"
 if [ "$USER" = "root" ]; then
   [ -d "$NGINX_DIR" ] && NINGX_VHOSTS_WRITABLE="true"
 else
@@ -2174,7 +2167,6 @@ fi
 if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
   NGINX_VHOST_TMP_NAMES=()
   NGINX_VHOST_ENABLED="true"
-  CONTAINER_WEB_SERVER_VHOSTS="$HOST_NGINX_VIRTUAL_HOST_NAME"
   NGINX_VHOST_SET_NAMES="${CONTAINER_WEB_SERVER_VHOSTS//,/ }"
   NGINX_CONFIG_NAME="${CONTAINER_WEB_SERVER_CONFIG_NAME:-$CONTAINER_HOSTNAME}"
   NGINX_MAIN_CONFIG="$NGINX_DIR/vhosts.d/$NGINX_CONFIG_NAME.conf"
@@ -2212,7 +2204,7 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
           NGINX_VHOST_TMP_NAMES+=("$set_vhost")
           set_vhost=""
         else
-          NGINX_VHOST_TMP_NAMES+=("$vhost")
+          NGINX_VHOST_TMP_NAMES+=("${set_vhost:-$vhost}")
         fi
       fi
     done
@@ -2262,6 +2254,8 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
   [ -n "$NGINX_PROXY_URL" ] && NGNIX_REVERSE_ADDRESS="$NGINX_PROXY_URL"
   [ -f "$NGINX_MAIN_CONFIG" ] && NGINX_PROXY_URL="$CONTAINER_PROTOCOL://$CONTAINER_HOSTNAME"
 fi
+CONTAINER_NGINX_PROXY_URL="${NGNIX_REVERSE_ADDRESS:-}"
+NGNIX_REVERSE_ADDRESS="${CONTAINER_NGINX_PROXY_URL:-}"
 { [ "$NGINX_VHOST_NAMES" = "" ] || [ "$NGINX_VHOST_NAMES" = " " ]; } && unset NGINX_VHOST_NAMES
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup an internal host
@@ -2305,7 +2299,8 @@ EOF
       __sudo_root mv -f "$NGINX_VHOSTS_PROXY_INT_TMP" "$NGINX_DIR/vhosts.d/$HOST_NGINX_INTERNAL_DOMAIN.conf"
       systemctl status nginx 2>/dev/null | grep -q enabled &>/dev/null && __sudo_root systemctl reload nginx &>/dev/null
     else
-      mv -f "$NGINX_VHOSTS_PROXY_INT_TMP" "$NGINX_DIR/vhosts.d/$HOST_NGINX_INTERNAL_DOMAIN.conf" &>/dev/null
+      [ -d "$NGINX_DIR" ] || mkdir -p "$NGINX_DIR/vhosts.d" 2>/dev/null
+      [ -w "$NGINX_DIR" ] && mv -f "$NGINX_VHOSTS_PROXY_INT_TMP" "$NGINX_DIR/vhosts.d/$HOST_NGINX_INTERNAL_DOMAIN.conf" &>/dev/null
     fi
   fi
   NGINX_VHOST_NAMES="$NGINX_VHOST_NAMES $HOST_NGINX_INTERNAL_DOMAIN"
@@ -2320,7 +2315,6 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
   printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   if [ "$HOSTS_WRITABLE" = "true" ]; then
     if [ -n "$NGINX_VHOST_NAMES" ]; then
-      show_hosts_message_banner="false"
       NGINX_VHOST_NAMES="${NGINX_VHOST_NAMES//,/ }"
       for vhost in $NGINX_VHOST_NAMES; do
         if ! grep -sq " $vhost$" "/etc/hosts"; then
@@ -2329,21 +2323,20 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
             __printf_spacing_file "40" "$CONTAINER_WEB_SERVER_LISTEN_ON" "$vhost" | sudo tee -p -a "/etc/hosts" &>/dev/null
           fi
         fi
-        show_hosts_message_banner="true"
       done
+      show_hosts_message_banner="true"
     fi
     if [ -n "$HOST_NGINX_INTERNAL_DOMAIN" ]; then
       if ! grep -sq " $HOST_NGINX_INTERNAL_DOMAIN$" "/etc/hosts"; then
         __printf_spacing_color "44" "40" "Adding to /etc/hosts:" "$HOST_NGINX_INTERNAL_DOMAIN $HOST_LISTEN_ADDR"
         __printf_spacing_file "40" "$HOST_LISTEN_ADDR" "$HOST_NGINX_INTERNAL_DOMAIN" | sudo tee -p -a "/etc/hosts" &>/dev/null
-        show_hosts_message_banner="true"
       fi
     fi
     if ! grep -sq " $CONTAINER_HOSTNAME$" "/etc/hosts"; then
       __printf_spacing_color "44" "40" "Adding to /etc/hosts:" "$CONTAINER_HOSTNAME $HOST_LISTEN_ADDR"
       __printf_spacing_file "40" "$HOST_LISTEN_ADDR" "$CONTAINER_HOSTNAME" | sudo tee -p -a "/etc/hosts" &>/dev/null
-      show_hosts_message_banner="true"
     fi
+    show_hosts_message_banner="true"
     [ "$show_hosts_message_banner" = "true" ] && printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
     unset show_hosts_message_banner
   fi

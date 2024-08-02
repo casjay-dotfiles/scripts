@@ -185,7 +185,7 @@ INIT_SCRIPT_ONLY="false"
 [ -n "$(type -P sudo)" ] && sudo -n true && sudo true && DOCKERMGR_USER_CAN_SUDO="true"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set system options
-SET_HOST_CORES="$({ [ -n "$(type -P getconf 2>/dev/null)" ] && getconf _NPROCESSORS_ONLN 2>/dev/null || getconf NPROCESSORS_ONLN 2>/dev/null; } || grep -sc ^processor /proc/cpuinfo 2>/dev/null || sysctl -n hw.ncpu || echo "$NUMBER_OF_PROCESSORS")"
+SET_HOST_CORES="$({ [ -n "$(type -P getconf 2>/dev/null)" ] && getconf _NPROCESSORS_ONLN 2>/dev/null || getconf NPROCESSORS_ONLN 2>/dev/null; } || grep -sc ^processor /proc/cpuinfo 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo "${NUMBER_OF_PROCESSORS:-1}")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup networking
 SET_LAN_DEV=$(__route | sed -e "s/^.*dev.//" -e "s/.proto.*//" | awk '{print $1}' | grep '^' || echo 'eth0')
@@ -222,8 +222,11 @@ CONTAINER_SSL_CA=""
 CONTAINER_SSL_CRT=""
 CONTAINER_SSL_KEY=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# registry org
+HUB_ORG="casjaysdevdocker"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # URL to container image - docker pull - [URL]
-HUB_IMAGE_URL="casjaysdevdocker/GEN_SCRIPT_REPLACE_APPNAME"
+HUB_IMAGE_URL="$HUB_ORG/GEN_SCRIPT_REPLACE_APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # image tag - [docker pull HUB_IMAGE_URL:tag]
 HUB_IMAGE_TAG="latest"
@@ -685,7 +688,8 @@ HOST_CRON_COMMAND="\${ENV_HOST_CRON_COMMAND:-$HOST_CRON_COMMAND}"
 CONTAINER_DEFAULT_USERNAME="\${ENV_CONTAINER_DEFAULT_USERNAME:-$CONTAINER_DEFAULT_USERNAME}"
 POST_SHOW_FINISHED_MESSAGE="\${ENV_POST_SHOW_FINISHED_MESSAGE:-$POST_SHOW_FINISHED_MESSAGE}"
 DOCKERMGR_ENABLE_INSTALL_SCRIPT="\${ENV_DOCKERMGR_ENABLE_INSTALL_SCRIPT:-$DOCKERMGR_ENABLE_INSTALL_SCRIPT}"
-
+CONTAINER_PUBLISHED_PORT="$CONTAINER_PUBLISHED_PORT"
+CONTAINER_NGINX_PROXY_URL="$NGINX_PROXY_URL"
 EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1098,11 +1102,11 @@ if [ -n "$CONTAINER_SWAP_SIZE" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set CPU count
+if [ -z "$CONTAINER_CPU_COUNT" ]; then
+  CONTAINER_CPU_COUNT="${SET_HOST_CORES:-$([ -f "/proc/cpuinfo" ] && grep -c '^processor' /proc/cpuinfo || echo '1')}"
+fi
 if [ -n "$CONTAINER_CPU_COUNT" ] && [ "$SET_HOST_CORES" -le "$CONTAINER_CPU_COUNT" ]; then
   CONTAINER_CPU_COUNT="$SET_HOST_CORES"
-fi
-if [ -z "$CONTAINER_CPU_COUNT" ] && [ -f "/proc/cpuinfo" ]; then
-  CONTAINER_CPU_COUNT="$(grep -c '^processor' /proc/cpuinfo || echo '1')"
 fi
 if [ -n "$CONTAINER_CPU_COUNT" ]; then
   DOCKER_SET_OPTIONS+=("--cpus $CONTAINER_CPU_COUNT")
@@ -1165,7 +1169,7 @@ if [ "$DOCKER_SOCKET_ENABLED" = "yes" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mount docker config in the container
-if [ -f "$CONTAINER_DOCKER_CONFIG_FILE" ] || [ -f "/root/.docker/config.json" ] || [ -f "$HOME/.docker/config.json" ]; then
+if [ -r "$CONTAINER_DOCKER_CONFIG_FILE" ] || [ -r "$HOME/.docker/config.json" ]; then
   if [ "$DOCKER_CONFIG_ENABLED" = "yes" ]; then
     if [ -z "$CONTAINER_DOCKER_CONFIG_FILE" ]; then
       CONTAINER_DOCKER_CONFIG_FILE="/root/.docker/config.json"
@@ -1206,7 +1210,6 @@ fi
 if [ "$HOST_MODULES_MOUNT_ENABLED" = "yes" ]; then
   DOCKER_SET_OPTIONS+=("--volume /lib/modules:/lib/modules:z")
 fi
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # set password length
 if [ -n "$CONTAINER_USER_ADMIN_PASS_HASH" ]; then
@@ -1229,6 +1232,8 @@ if [ "$CONTAINER_X11_ENABLED" = "yes" ]; then
   if [ -z "$HOST_X11_XAUTH" ]; then
     HOST_X11_XAUTH="$HOME/.Xauthority"
   fi
+  [ -f "/tmp/.X11-unix" ] || unset HOST_X11_SOCKET
+  [ -f "$HOME/.Xauthority" ] || unset HOST_X11_XAUTH
   if [ -n "$HOST_X11_DISPLAY" ] && [ -n "$HOST_X11_SOCKET" ] && [ -n "$HOST_X11_XAUTH" ]; then
     DOCKER_SET_OPTIONS+=("--env DISPLAY=:$HOST_X11_DISPLAY")
     DOCKER_SET_OPTIONS+=("--volume $HOST_X11_SOCKET:${CONTAINER_X11_SOCKET:-/tmp/.X11-unix}")
@@ -1917,7 +1922,21 @@ EOF
       fi
     fi
   done
+  CONTAINER_PUBLISHED_PORT="${DOCKER_SET_TMP_PUBLISH[*]}"
+  CONTAINER_PUBLISHED_PORT="${CONTAINER_PUBLISHED_PORT// /,}"
+  CONTAINER_PUBLISHED_PORT="${CONTAINER_PUBLISHED_PORT//--publish,/}"
   unset set_port CONTAINER_ADD_RANDOM_PORTS
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# reuse existing ports
+if [ -n "$CONTAINER_PUBLISHED_PORT" ]; then
+  publish_temp=()
+  CONTAINER_PUBLISHED_PORT="${CONTAINER_PUBLISHED_PORT//,/ }"
+  for publish_port in $CONTAINER_PUBLISHED_PORT; do
+    publish_temp+=("--publish $publish_port ")
+  done
+  DOCKER_SET_TMP_PUBLISH=("${publish_temp[*]}")
+  unset CONTAINER_ADD_RANDOM_PORTS CONTAINER_WEB_SERVER_INT_PORT publish_port publish_temp
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Fix/create port
@@ -2137,6 +2156,7 @@ if [ "$INIT_SCRIPT_ONLY" = "false" ] && [ -n "$EXECUTE_DOCKER_SCRIPT" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Install nginx proxy
+NGINX_PROXY_URL="${CONTAINER_NGINX_PROXY_URL:-NGINX_PROXY_URL}"
 if [ "$USER" = "root" ]; then
   [ -d "$NGINX_DIR" ] && NINGX_VHOSTS_WRITABLE="true"
 else

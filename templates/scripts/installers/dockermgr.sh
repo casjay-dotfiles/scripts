@@ -999,6 +999,7 @@ CONTAINER_SSL_KEY="${CONTAINER_SSL_KEY:-$CONTAINER_SSL_DIR/localhost.key}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 CONTAINER_DOMAINNAME="${HOST_NGINX_EXTERNAL_DOMAIN:-$CONTAINER_DOMAINNAME}"
 HOST_NGINX_VIRTUAL_HOST_NAME="${HOST_NGINX_VIRTUAL_HOST_NAME:-$CONTAINER_HOSTNAME}"
+CONTAINER_NGINX_PROXY_URL="${CONTAINER_NGINX_PROXY_URL=$NGINX_PROXY_URL}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup ssl certs
 if [ "$CONTAINER_WEB_SERVER_SSL_ENABLED" = "true" ]; then
@@ -2183,8 +2184,7 @@ if [ "$INIT_SCRIPT_ONLY" = "false" ] && [ -n "$EXECUTE_DOCKER_SCRIPT" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Install nginx proxy
-NGINX_PROXY_URL="${CONTAINER_NGINX_PROXY_URL:-${NGNIX_REVERSE_ADDRESS:-$NGINX_PROXY_URL}}"
-CONTAINER_NGINX_PROXY_URL="$NGINX_PROXY_URL"
+[ -n "$CONTAINER_NGINX_PROXY_URL" ] && NGINX_PROXY_URL="$CONTAINER_NGINX_PROXY_URL"
 if [ "$USER" = "root" ]; then
   [ -d "$NGINX_DIR" ] && NINGX_VHOSTS_WRITABLE="true"
 else

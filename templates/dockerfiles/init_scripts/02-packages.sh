@@ -8,8 +8,8 @@ cat <<EOF
 # @@ReadME           :
 # @@Copyright        :  Copyright 2023 CasjaysDev
 # @@Created          :  Mon Aug 28 06:48:42 PM EDT 2023
-# @@File             :  $custom_init
-# @@Description      :  script to run $custom_init
+# @@File             :  $custom_init_name
+# @@Description      :  script to run $custom_init_command
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck shell=bash
 # shellcheck disable=SC2016

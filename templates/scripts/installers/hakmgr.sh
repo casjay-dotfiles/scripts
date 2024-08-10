@@ -325,6 +325,7 @@ unset instCode
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Install Plugins
 exitCodeP=0
+exitCodeC=0
 if __am_i_online; then
   if [ "$PLUGIN_REPOS" != "" ]; then
     [ -d "$PLUGIN_DIR" ] || mkdir -p "$PLUGIN_DIR"
@@ -333,10 +334,12 @@ if __am_i_online; then
       plugin_dir="$PLUGIN_DIR/$plugin_name"
       if [ -d "$plugin_dir/.git" ]; then
         execute "git_update $plugin_dir" "Updating plugin $plugin_name"
-        [ $? -ne 0 ] && exitCodeP=$(($? + exitCodeP)) && printf_red "Failed to update $plugin_name"
+        exitCodeC=$?
+        [ $exitCodeC -ne 0 ] && exitCodeP=$((exitCodeC + exitCodeP)) && printf_red "Failed to update $plugin_name"
       else
         execute "git_clone $plugin $plugin_dir" "Installing plugin $plugin_name"
-        [ $? -ne 0 ] && exitCodeP=$(($? + exitCodeP)) && printf_red "Failed to install $plugin_name"
+        exitCodeC=$?
+        [ $exitCodeC -ne 0 ] && exitCodeP=$((exitCodeC + exitCodeP)) && printf_red "Failed to install $plugin_name"
       fi
     done
   fi

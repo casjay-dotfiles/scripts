@@ -371,7 +371,7 @@ CONTAINER_WEB_SERVER_VHOSTS=""
 # Add random portmapping - [port,otherport] or [proxy|/location|port]
 CONTAINER_ADD_RANDOM_PORTS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Add custom port -  [exter:inter] or [listen:exter:inter/[tcp,udp]] random:[inter]
+# Add custom port -  [exter:inter] or [.all:exter:inter/[tcp,udp] [listen:exter:inter/[tcp,udp]] random:[inter]
 CONTAINER_ADD_CUSTOM_PORT=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # mail settings - [yes/no] [user] [domainname] [server]
@@ -1800,6 +1800,14 @@ if [ -n "$CONTAINER_OPT_PORT_VAR" ] || [ -n "$CONTAINER_ADD_CUSTOM_PORT" ]; then
         random_port="$(__rport)"
         new_port="${new_port//random:/}"
         port="$random_port:${new_port//*:/}"
+      elif echo "$new_port" | grep -q '\.all:[0-9]'; then
+        port="${new_port//.all/}"
+        if echo "$new_port" | grep -q ':.*[0-9]:[0-9]'; then
+          port="[::]:$port"
+        else
+          port="[::]:$port:$port"
+        fi
+        set_listen_addr="false"
       elif echo "$new_port" | grep -q ':.*[0-9]:[0-9]'; then
         port="$new_port"
         set_listen_addr="false"

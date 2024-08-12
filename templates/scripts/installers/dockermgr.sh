@@ -2496,8 +2496,8 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
           set_host="$(echo "$service" | awk -F ':' '{print $1}')"
           set_port="$(echo "$service" | awk -F ':' '{print $3}')"
           set_service="$(echo "$service" | awk -F ':' '{print $2}')"
-        elif echo "$service" | grep -q "^[0-9].*.:"; then
-          set_host=""
+        elif echo "$service" | grep -vE '[a-zAZ]|.*:.*:' | grep "^[0-9].*:[0-9]"; then
+          set_host="0.0.0.0"
           set_port="$(echo "$service" | awk -F ':' '{print $3}')"
           set_service="$(echo "$service" | awk -F ':' '{print $2}')"
         else

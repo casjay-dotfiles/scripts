@@ -27,6 +27,11 @@ set -o pipefail
 exitCode=0
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Predifined actions
+[ -d "/usr/local/share/template-files/data" ] && rm -Rf "/usr/local/share/template-files/data"/*
+[ -d "/usr/local/share/template-files/config" ] && rm -Rf "/usr/local/share/template-files/config"/*
+[ -d "/usr/local/share/template-files/defaults" ] && rm -Rf "/usr/local/share/template-files/defaults"/*
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main script
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

@@ -27,7 +27,7 @@ set -o pipefail
 exitCode=0
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Main script
+# Predifined actions
 if [ -d "/tmp/bin" ]; then
   echo "Installing /tmp/bin to /usr/local/bin"
   chmod -Rf +x "/tmp/bin"
@@ -42,6 +42,9 @@ if [ -d "/tmp/etc" ]; then
   echo "Installing /tmp/etc to /etc"
   copy "/tmp/data/." "/usr/local/share/template-files/data/"
 fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Main script
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the exit code
 exitCode=\$?

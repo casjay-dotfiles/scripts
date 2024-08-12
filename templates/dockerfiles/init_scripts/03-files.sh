@@ -28,7 +28,20 @@ exitCode=0
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main script
-if [ -d "/tmp/etc" ]; then copy "/tmp/etc/." "/etc/"; fi
+if [ -d "/tmp/bin" ]; then
+  echo "Installing /tmp/bin to /usr/local/bin"
+  chmod -Rf +x "/tmp/bin"
+  copy "/tmp/bin/." "/usr/local/bin/"
+fi
+if [ -d "/tmp/etc" ]; then
+  echo "Installing /tmp/etc to /etc"
+  copy "/tmp/etc/." "/etc/"
+  copy "/tmp/etc/." "/usr/local/share/template-files/config/"
+fi
+if [ -d "/tmp/etc" ]; then
+  echo "Installing /tmp/etc to /etc"
+  copy "/tmp/data/." "/usr/local/share/template-files/data/"
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the exit code
 exitCode=\$?

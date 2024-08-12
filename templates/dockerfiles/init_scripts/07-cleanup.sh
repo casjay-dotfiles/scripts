@@ -28,7 +28,7 @@ exitCode=0
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main script
-
+[ -d "/tmp" ] && rm -Rf "/tmp"/*
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the exit code
 exitCode=\$?

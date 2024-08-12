@@ -28,7 +28,7 @@ exitCode=0
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main script
-
+if [ -d "/tmp/etc" ]; then copy "/tmp/etc/." "/etc/"; fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the exit code
 exitCode=\$?

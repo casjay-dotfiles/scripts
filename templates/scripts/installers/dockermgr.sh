@@ -1801,9 +1801,15 @@ if [ -n "$CONTAINER_OPT_PORT_VAR" ] || [ -n "$CONTAINER_ADD_CUSTOM_PORT" ]; then
         new_port="${new_port//random:/}"
         port="$random_port:${new_port//*:/}"
       elif echo "$new_port" | grep -q '\.all:[0-9]'; then
-        port="${new_port//.all:/}"
-        if ! echo "$new_port" | grep -q '.*[0-9]:[0-9]'; then
-          port="$port:$port"
+        if echo "$new_port" | grep -q ':.*[0-9]:[0-9]'; then
+          new_port="${new_port//.all:/}"
+          port=$new_port
+        elif echo "$new_port" | grep -q '^.*[0-9]:[0-9]'; then
+          new_port="${new_port//.all:/}"
+          port=$new_port
+        else
+          new_port="${new_port//.all:/}"
+          port="$new_port:$new_port"
         fi
         set_listen_addr="false"
       elif echo "$new_port" | grep -q ':.*[0-9]:[0-9]'; then

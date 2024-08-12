@@ -191,7 +191,7 @@ __certbot() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __init_config_etc() {
-  if [ ! -d "$CONF_DIR" ] || __is_dir_empty "$CONF_DIR"; then
+  if __is_dir_empty "$CONF_DIR" || [ ! -d "$CONF_DIR" ]; then
     if [ -d "$ETC_DIR" ]; then
       mkdir -p "$CONF_DIR"
       __copy_templates "$ETC_DIR/." "$CONF_DIR/"

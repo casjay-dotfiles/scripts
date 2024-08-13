@@ -1811,7 +1811,9 @@ if [ -n "$CONTAINER_OPT_PORT_VAR" ] || [ -n "$CONTAINER_ADD_CUSTOM_PORT" ]; then
           new_port="${new_port//.all:/}"
           port="$new_port:$new_port"
         fi
+        set_listen_on_all="yes"
         set_listen_addr="false"
+        set_listen_port="$port $set_listen_port"
       elif echo "$new_port" | grep -q ':.*[0-9]:[0-9]'; then
         port="$new_port"
         set_listen_addr="false"
@@ -2491,13 +2493,15 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
   else
     for service in $SET_PORT; do
       if [ "$service" != "--publish" ] && [ "$service" != " " ] && [ -n "$service" ]; then
-        type=""
-        if echo "$service" | grep -q ":.*.:"; then
+        unset type
+        if [ "$set_listen_on_all" = "yes" ]; then
+          for custom_port in $set_listen_port; do
+            set_host="0.0.0.0"
+            set_port="$(echo "$service" | awk -F ':' '{print $2}')"
+            set_service="$(echo "$service" | awk -F ':' '{print $1}')"
+          done
+        elif echo "$service" | grep -q ":.*.:"; then
           set_host="$(echo "$service" | awk -F ':' '{print $1}')"
-          set_port="$(echo "$service" | awk -F ':' '{print $3}')"
-          set_service="$(echo "$service" | awk -F ':' '{print $2}')"
-        elif echo "$service" | grep -vE '[a-zAZ]|.*:.*:' | grep "^[0-9].*:[0-9]"; then
-          set_host="0.0.0.0"
           set_port="$(echo "$service" | awk -F ':' '{print $3}')"
           set_service="$(echo "$service" | awk -F ':' '{print $2}')"
         else

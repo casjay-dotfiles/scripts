@@ -811,6 +811,18 @@ __initialize_database() {
   __find_replace "REPLACE_DATABASE_ROOT_PASS" "$db_admin_pass" "$dir"
   __find_replace "REPLACE_DATABASE_NAME" "$DATABASE_NAME" "$dir"
   __find_replace "REPLACE_DATABASE_DIR" "$DATABASE_DIR" "$dir"
+  if echo "$dir" | grep -q '^/etc'; then
+    __find_replace "REPLACE_USER_NAME" "$db_normal_user" "/etc"
+    __find_replace "REPLACE_USER_PASS" "$db_normal_pass" "/etc"
+    __find_replace "REPLACE_DATABASE_USER" "$db_normal_user" "/etc"
+    __find_replace "REPLACE_DATABASE_PASS" "$db_normal_pass" "/etc"
+    __find_replace "REPLACE_ROOT_ADMIN" "$db_admin_user" "/etc"
+    __find_replace "REPLACE_ROOT_PASS" "$db_admin_pass" "/etc"
+    __find_replace "REPLACE_DATABASE_ROOT_USER" "$db_admin_user" "/etc"
+    __find_replace "REPLACE_DATABASE_ROOT_PASS" "$db_admin_pass" "/etc"
+    __find_replace "REPLACE_DATABASE_NAME" "$DATABASE_NAME" "/etc"
+    __find_replace "REPLACE_DATABASE_DIR" "$DATABASE_DIR" "/etc"
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __initialize_db_users() {

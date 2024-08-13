@@ -2496,7 +2496,7 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
         unset type
         if [ "$set_listen_on_all" = "yes" ]; then
           for custom_port in $set_listen_port; do
-            set_host=""
+            set_host="[::/0]"
             set_port="$(echo "$custom_port" | awk -F ':' '{print $2}')"
             set_service="$(echo "$custom_port" | awk -F ':' '{print $1}')"
             service="${service//$custom_port/}"
@@ -2513,12 +2513,10 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
         fi
         get_servive="$set_service"
         set_service="${set_service//\/*/}"
-        characters=${#set_service}
-        spacing=$((40 - 19 - characters))
         listen="${set_host//0.0.0.0/$HOST_LISTEN_ADDR}:$set_port"
         echo "$get_servive" | grep -qE '[0-9]/tcp|[0-9]/udp' && type="${get_servive//*\//}" || unset type
         [ -n "$type" ] && get_listen="$listen/$type" || get_listen="$listen"
-        set_listen=$(printf "%-${spacing}s" "" "$get_listen")
+        set_listen=$(printf '%s' "$get_listen")
         if [ -n "$listen" ]; then
           __printf_spacing_color "6" "40" "Port $set_service is mapped to:" "$set_listen"
         fi

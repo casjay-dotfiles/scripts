@@ -2496,9 +2496,9 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
         unset type
         if [ "$set_listen_on_all" = "yes" ]; then
           for custom_port in $set_listen_port; do
-            set_host="0.0.0.0"
-            set_port="$(echo "$service" | awk -F ':' '{print $2}')"
-            set_service="$(echo "$service" | awk -F ':' '{print $1}')"
+            set_host=""
+            set_port="$(echo "$custom_port" | awk -F ':' '{print $2}')"
+            set_service="$(echo "$custom_port" | awk -F ':' '{print $1}')"
           done
         elif echo "$service" | grep -q ":.*.:"; then
           set_host="$(echo "$service" | awk -F ':' '{print $1}')"

@@ -1,7 +1,8 @@
 function loadDomain() {
   let proto = location.protocol;
-  let port = location.port;
+  let port = location.port || 80;
   let url = location.hostname;
-  var display = document.getElementById('display-domain');
-  display.innerHTML = `${req.protocol}://${req.get('host')}/${req.originalUrl}`;
+  if (proto == 'https:') {
+    port = location.port || 443;
+  }
 }

@@ -299,9 +299,10 @@ HOST_ETC_RESOLVE_INIT_FILE=""
 HOST_ETC_HOSTS_ENABLED="no"
 HOST_ETC_HOSTS_INIT_FILE=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Mount docker socket - [yes/no] [/var/run/docker.sock]
+# Mount docker socket - [yes/no] [/var/run/docker.sock] [yes/no]
 DOCKER_SOCKET_ENABLED="no"
 DOCKER_SOCKET_MOUNT=""
+DOCKER_SOCKER_READONLY="yes"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mount docker config - [yes/no] [~/.docker/config.json] [/root/.docker/config.json]
 DOCKER_CONFIG_ENABLED="no"
@@ -1162,11 +1163,16 @@ fi
 if [ "$DOCKER_SOCKET_ENABLED" = "yes" ]; then
   if [ -z "$DOCKER_SOCKET_MOUNT" ]; then
     if [ -e "/var/run/docker.sock" ]; then
-      DOCKER_SET_OPTIONS+=("--volume /var/run/docker.sock:/var/run/docker.sock")
+      DOCKER_SOCKET_TMP_MOUNT="/var/run/docker.sock:/var/run/docker.sock"
     elif [ -e "$DOCKER_SOCKET_MOUNT" ]; then
-      DOCKER_SET_OPTIONS+=("--volume $DOCKER_SOCKET_MOUNT:/var/run/docker.sock")
+      DOCKER_SOCKET_TMP_MOUNT="$DOCKER_SOCKET_MOUNT:/var/run/docker.sock"
     fi
   fi
+  if [ "$DOCKER_SOCKER_READONLY" = "yes" ]; then
+    DOCKER_SOCKET_TMP_MOUNT="$DOCKER_SOCKET_TMP_MOUNT:ro"
+  fi
+  DOCKER_SET_OPTIONS+=("--volume $DOCKER_SOCKET_TMP_MOUNT")
+  unset DOCKER_SOCKET_TMP_MOUNT
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mount docker config in the container

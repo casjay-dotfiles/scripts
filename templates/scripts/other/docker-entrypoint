@@ -53,12 +53,15 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 case "$1" in
 # Help message
---help)
+-h | --help)
   shift 1
   echo 'Docker container for '$CONTAINER_NAME''
   echo "Usage: $CONTAINER_NAME [cron exec start init shell certbot ssl procs ports healthcheck backup command]"
   echo ""
   exit 0
+  ;;
+-*)
+  shift
   ;;
 esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -69,6 +72,7 @@ __create_env_file "/config/env/default.sh" "/root/env.sh" &>/dev/null
 for set_env in "/root/env.sh" "/usr/local/etc/docker/env"/*.sh "/config/env"/*.sh; do
   [ -f "$set_env" ] && . "$set_env"
 done
+unset set_env
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User to use to launch service - IE: postgres
 RUNAS_USER="root" # normally root
@@ -97,7 +101,7 @@ SERVICES_LIST="tini" # comma seperated list of processes for the healthcheck
 HEALTH_ENDPOINTS=""  # url endpoints: [http://localhost/health,http://localhost/test]
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Update path var
-export PATH="${PATH:-}"
+export PATH RUNAS_USER SERVICE_USER SERVICE_GROUP SERVICE_UID SERVICE_GID WWW_ROOT_DIR DATABASE_DIR
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Custom variables
 
@@ -149,10 +153,6 @@ export ENTRYPOINT_PID_FILE="${ENTRYPOINT_PID_FILE:-$ENTRYPOINT_PID_FILE}"
 export ENTRYPOINT_INIT_FILE="${ENTRYPOINT_INIT_FILE:-/config/.entrypoint.done}"
 export ENTRYPOINT_DATA_INIT_FILE="${ENTRYPOINT_DATA_INIT_FILE:-/data/.docker_has_run}"
 export ENTRYPOINT_CONFIG_INIT_FILE="${ENTRYPOINT_CONFIG_INIT_FILE:-/config/.docker_has_run}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ -f "$ENTRYPOINT_PID_FILE" ] || [ -f "$ENTRYPOINT_INIT_FILE" ]; then
-  START_SERVICES="no" ENTRYPOINT_MESSAGE="no" ENTRYPOINT_FIRST_RUN="no"
-fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # variables based on env/files
 [ -f "/config/enable/ssl" ] && SSL_ENABLED="yes"
@@ -233,6 +233,16 @@ EOF
 # Create the backup dir
 [ -n "$BACKUP_DIR" ] && { [ -d "$BACKUP_DIR" ] || mkdir -p "$BACKUP_DIR"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$ENTRYPOINT_PID_FILE" ]; then
+  START_SERVICES="no"
+  touch "$ENTRYPOINT_PID_FILE"
+else
+  echo "$$" >"$ENTRYPOINT_PID_FILE"
+fi
+if [ -f "$ENTRYPOINT_INIT_FILE" ]; then
+  ENTRYPOINT_MESSAGE="no" ENTRYPOINT_FIRST_RUN="no"
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ "$ENTRYPOINT_FIRST_RUN" != "no" ]; then
   # Show start message
   if [ "$CONFIG_DIR_INITIALIZED" = "no" ] || [ "$DATA_DIR_INITIALIZED" = "no" ]; then
@@ -312,13 +322,9 @@ __initialize_data_dir
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __initialize_ssl_certs
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ -f "$ENTRYPOINT_PID_FILE" ] || [ -f "$ENTRYPOINT_INIT_FILE" ]; then
-  START_SERVICES="no"
-  ENTRYPOINT_MESSAGE="no"
+if [ -f "$ENTRYPOINT_INIT_FILE" ]; then
   ENTRYPOINT_FIRST_RUN="no"
-  touch "$ENTRYPOINT_PID_FILE"
 elif [ -d "/config" ]; then
-  echo "$$" >"$ENTRYPOINT_PID_FILE"
   echo "Initialized on: $INIT_DATE" >"$ENTRYPOINT_INIT_FILE"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -386,10 +392,29 @@ init)
   echo "Container has been Initialized"
   exit 0
   ;;
-
+logs)
+  shift 1
+  case "$1" in
+  follow)
+    tail -Fq /data/logs/*/*
+    ;;
+  clean)
+    log_files="$(find "/data/logs" -type f)"
+    for log in "${log_files[@]}"; do
+      echo "clearing $log"
+      printf '' >$log
+    done
+    ;;
+  *)
+    echo "Usage: logs [follow,clean]"
+    exit 0
+    ;;
+  esac
+  ;;
 cron)
   shift 1
   __cron "$@" &
+  echo "cron script is running with pid: $!"
   exit
   ;;
 # backup data and config dirs

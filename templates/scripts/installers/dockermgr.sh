@@ -494,7 +494,7 @@ CONTAINER_DEBUG_ENABLED="no"
 CONTAINER_DEBUG_OPTIONS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # additional directories to create - [/config/dir1,/data/dir2]
-CONTAINER_CREATE_DIRECTORY="/data/$APPNAME,/config/$APPNAME"
+CONTAINER_CREATE_DIRECTORY="/data/$APPNAME,/data/logs/$APPNAME,/config/$APPNAME "
 CONTAINER_CREATE_DIRECTORY+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # enable cron jobs

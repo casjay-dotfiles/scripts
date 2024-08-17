@@ -301,8 +301,8 @@ HOST_ETC_HOSTS_INIT_FILE=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mount docker socket - [yes/no] [/var/run/docker.sock] [yes/no]
 DOCKER_SOCKET_ENABLED="no"
-DOCKER_SOCKET_MOUNT=""
 DOCKER_SOCKER_READONLY="yes"
+DOCKER_SOCKET_MOUNT=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mount docker config - [yes/no] [~/.docker/config.json] [/root/.docker/config.json]
 DOCKER_CONFIG_ENABLED="no"
@@ -2527,7 +2527,7 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
           __printf_spacing_color "6" "40" "Port $set_service is mapped to:" "$set_listen"
         fi
       fi
-      unset characters spacing get_listen type
+      unset get_listen type
     done
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
@@ -2553,10 +2553,7 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
     __printf_color "2" "$POST_SHOW_FINISHED_MESSAGE"
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
-  characters=${#APPNAME}
-  spacing=$((characters))
-  install_dir=$(printf "%-${spacing}s" "" "$APPDIR")
-  __printf_spacing_color "6" "40" "$APPNAME has been installed to:" "$install_dir"
+  __printf_spacing_color "6" "40" "$APPNAME has been installed to:" "$APPDIR"
   printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n\n'
   __show_post_message
 else

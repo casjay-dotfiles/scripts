@@ -29,22 +29,40 @@ exitCode=0
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Predifined actions
 if [ -d "/tmp/bin" ]; then
-  echo "Installing /tmp/bin to /usr/local/bin"
-  chmod -Rf +x "/tmp/bin"/*
-  copy "/tmp/bin/." "/usr/local/bin/"
+  mkdir -p "/usr/local/bin"
+  for bin in "/tmp/bin"/*; do
+    name="\$(basename "\$bin")"
+    echo "Installing \$name to /usr/local/bin/\$name"
+    copy "\$bin* "/usr/local/bin/\$name"
+    chmod -f +x "/usr/local/bin/\$name"
+  done
 fi
-if [ -d "/tmp/etc" ]; then
-  echo "Installing /tmp/etc to /etc"
-  copy "/tmp/etc"/* "/etc/"
-  echo "Installing /tmp/etc to /usr/local/share/template-files/config"
-  mkdir -p "/usr/local/share/template-files/config"
-  copy "/tmp/etc"/* "/usr/local/share/template-files/config/"
-fi
+unset bin
 if [ -d "/tmp/data" ]; then
-  echo "Installing /tmp/data to /usr/local/share/template-files/data"
-  mkdir -p "/usr/local/share/template-files/data"
-  copy "/tmp/data"/* "/usr/local/share/template-files/data/"
+  for data in "/tmp/data"/*; do
+    name="\$(basename "\$data")"
+    echo "Installing \$name to "/usr/local/share/template-files/data/\$name"
+    mkdir -p "/usr/local/share/template-files/data/\$name"
+    copy "\$data"/* "/usr/local/share/template-files/data/\$name"
+  done
 fi
+unset data
+if [ -d "/tmp/etc" ]; then
+  for config in "/tmp/etc"/*
+    name="\${config//\/tmp\/etc/\/}"
+    echo "Installing \$config to /etc/\$name"
+    if [ -d "\$config" ]; then
+      mkdir -p "/etc/\$name"
+      copy "\$config"/* "/etc/\$name/"
+      mkdir -p "/usr/local/share/template-files/config/\$name"
+      copy "\$config"/* "/usr/local/share/template-files/config/\$name/"
+    else
+      copy "\$config" "/etc/\$name"
+      copy "\$config" "/usr/local/share/template-files/config/\$name"
+    fi
+  done
+fi
+unset config
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main script
 

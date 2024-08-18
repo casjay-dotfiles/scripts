@@ -404,6 +404,7 @@ CONTAINER_MONGODB_ENABLED="no"
 CONTAINER_COUCHDB_ENABLED="no"
 CONTAINER_POSTGRES_ENABLED="no"
 CONTAINER_SUPABASE_ENABLED="no"
+CONTAINER_DEFAULT_DATABASE_TYPE="sqlite"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Custom database setup - [yes/no] [db_name] [port] [/data/db/$CONTAINER_CUSTOM_DATABASE_NAME] [msql]
 CONTAINER_CUSTOM_DATABASE_ENABLED=""
@@ -1460,6 +1461,9 @@ if [ "$CONTAINER_IS_TIME_SERVER" = "yes" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Database setup
+if [ -n "$CONTAINER_DEFAULT_DATABASE_TYPE" ]; then
+  DOCKER_SET_OPTIONS+=("--env CONTAINER_DEFAULT_DATABASE_TYPE=$CONTAINER_DEFAULT_DATABASE_TYPE")
+fi
 if [ -z "$CONTAINER_DATABASE_LISTEN" ]; then
   CONTAINER_DATABASE_LISTEN="0.0.0.0"
 fi

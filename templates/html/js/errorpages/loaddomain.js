@@ -7,7 +7,7 @@ function loadDomain(getURI, getID, getMessage) {
   let proto = location.protocol;
   let baseURL = baseURI || location.pathname;
   let base = baseURL.slice(0, baseURL.lastIndexOf('/'));
-  if (!id) id = 'display-location';
+  if (!id) id = 'display-domain';
   if (!base) base = '/';
   if (!port)
     if (proto == 'https:') {

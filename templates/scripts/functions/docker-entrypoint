@@ -190,8 +190,21 @@ __certbot() {
   return $statusCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__display_user_info() {
+  if [ -n "$user_name" ] || [ -n "$user_pass" ] || [ -n "$root_user_name" ] || [ -n "$root_user_pass" ]; then
+    __banner "User info"
+    [ -n "$user_name" ] && __printf_space "40" "username:" "$user_name" && echo "$user_name"
+    [ -n "$user_pass" ] && __printf_space "40" "password:" "saved to ${USER_FILE_PREFIX}/${SERVICE_NAME}_pass" && echo "$user_pass"
+    [ -n "$root_user_name" ] && __printf_space "40" "root username:" "$root_user_name" && echo "$root_user_name"
+    [ -n "$root_user_pass" ] && __printf_space "40" "root password:" "saved to ${ROOT_FILE_PREFIX}/${SERVICE_NAME}_pass" && echo "$root_user_pass"
+    __banner ""
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __init_config_etc() {
-  if __is_dir_empty "$CONF_DIR" || [ ! -d "$CONF_DIR" ]; then
+  local COPY="no"
+  __is_dir_empty "$CONF_DIR" && COPY=yes
+  if [ ! -d "$CONF_DIR" ] || [ "$COPY" = "yes" ]; then
     if [ -d "$ETC_DIR" ]; then
       mkdir -p "$CONF_DIR"
       __copy_templates "$ETC_DIR/." "$CONF_DIR/"
@@ -404,25 +417,25 @@ __setup_directories() {
   if [ "$IS_WEB_SERVER" = "yes" ]; then
     APPLICATION_DIRS="$APPLICATION_DIRS $WWW_ROOT_DIR"
     __initialize_www_root
-    (echo "Creating directory $WWW_ROOT_DIR with permissions 755" && mkdir -p "$WWW_ROOT_DIR" && find "$WWW_ROOT_DIR" -type d -exec chmod -f 755 {} \;) 2>/dev/stderr | tee -p -a "$LOG_DIR/init.txt"
+    (echo "Creating directory $WWW_ROOT_DIR with permissions 777" && mkdir -p "$WWW_ROOT_DIR" && find "$WWW_ROOT_DIR" -type d -exec chmod -f 777 {} \;) 2>/dev/stderr | tee -p -a "/data/logs/init.txt"
   fi
   # Setup DATABASE_DIR
   if [ "$IS_DATABASE_SERVICE" = "yes" ] || [ "$USES_DATABASE_SERVICE" = "yes" ]; then
     APPLICATION_DIRS="$APPLICATION_DIRS $DATABASE_DIR"
     if __is_dir_empty "$DATABASE_DIR" || [ ! -d "$DATABASE_DIR" ]; then
-      (echo "Creating directory $DATABASE_DIR with permissions 777" && mkdir -p "$DATABASE_DIR" && chmod -f 777 "$DATABASE_DIR") 2>/dev/stderr | tee -p -a "$LOG_DIR/init.txt"
+      (echo "Creating directory $DATABASE_DIR with permissions 777" && mkdir -p "$DATABASE_DIR" && chmod -f 777 "$DATABASE_DIR") 2>/dev/stderr | tee -p -a "/data/logs/init.txt"
     fi
   fi
   # create default directories
   for filedirs in $ADD_APPLICATION_DIRS $APPLICATION_DIRS; do
     if [ -n "$filedirs" ] && [ ! -d "$filedirs" ]; then
-      (echo "Creating directory $filedirs with permissions 777" && mkdir -p "$filedirs" && chmod -f 777 "$filedirs") 2>/dev/stderr | tee -p -a "$LOG_DIR/init.txt"
+      (echo "Creating directory $filedirs with permissions 777" && mkdir -p "$filedirs" && chmod -f 777 "$filedirs") 2>/dev/stderr | tee -p -a "/data/logs/init.txt"
     fi
   done
   # create default files
   for application_files in $ADD_APPLICATION_FILES $APPLICATION_FILES; do
     if [ -n "$application_files" ] && [ ! -e "$application_files" ]; then
-      (echo "Creating file $application_files with permissions 777" && touch "$application_files" && chmod -Rf 777 "$application_files") 2>/dev/stderr | tee -p -a "$LOG_DIR/init.txt"
+      (echo "Creating file $application_files with permissions 777" && touch "$application_files" && chmod -Rf 777 "$application_files") 2>/dev/stderr | tee -p -a "/data/logs/init.txt"
     fi
   done
 }
@@ -432,20 +445,20 @@ __fix_permissions() {
   change_user="${1:-${SERVICE_USER:-root}}"
   change_group="${2:-${SERVICE_GROUP:-$change_user}}"
   [ -n "$RUNAS_USER" ] && [ "$RUNAS_USER" != "root" ] && change_user="$RUNAS_USER" && change_group="$change_user"
-  if [ -n "$change_user" ] && [ "$change_user" != "root" ]; then
+  if [ -n "$change_user" ]; then
     if grep -sq "^$change_user:" "/etc/passwd"; then
       for permissions in $ADD_APPLICATION_DIRS $APPLICATION_DIRS; do
         if [ -n "$permissions" ] && [ -e "$permissions" ]; then
-          (chown -Rf $change_user:$change_group "$permissions" && echo "changed ownership on $permissions to user:$change_user and group:$change_group") 2>/dev/stderr | tee -p -a "$LOG_DIR/init.txt"
+          (chown -Rf $change_user "$permissions" && echo "changed ownership on $permissions to user:$change_user") 2>/dev/stderr | tee -p -a "/data/logs/init.txt"
         fi
       done
     fi
   fi
-  if [ -n "$change_group" ] && [ "$change_group" != "root" ]; then
+  if [ -n "$change_group" ]; then
     if grep -sq "^$change_group:" "/etc/group"; then
       for permissions in $ADD_APPLICATION_DIRS $APPLICATION_DIRS; do
         if [ -n "$permissions" ] && [ -e "$permissions" ]; then
-          (chgrp -Rf $change_group "$permissions" && echo "changed group ownership on $permissions to group $change_group") 2>/dev/stderr | tee -p -a "$LOG_DIR/init.txt"
+          (chgrp -Rf $change_group "$permissions" && echo "changed group ownership on $permissions to group $change_group") 2>/dev/stderr | tee -p -a "/data/logs/init.txt"
         fi
       done
     fi
@@ -486,10 +499,10 @@ __set_user_group_id() {
   [ -n "$set_user" ] && [ "$set_user" != "root" ] || return
   if grep -sq "^$set_user:" "/etc/passwd" "/etc/group"; then
     if __check_for_guid "$set_gid"; then
-      groupmod -g "${set_gid}" $set_user 2>/dev/stderr | tee -p -a "$LOG_DIR/init.txt" >/dev/null && chown -Rf ":$set_gid"
+      groupmod -g "${set_gid}" $set_user 2>/dev/stderr | tee -p -a "/data/logs/init.txt" >/dev/null && chown -Rf ":$set_gid"
     fi
     if __check_for_uid "$set_uid"; then
-      usermod -u "${set_uid}" -g "${set_gid}" $set_user 2>/dev/stderr | tee -p -a "$LOG_DIR/init.txt" >/dev/null && chown -Rf $set_uid:$set_gid
+      usermod -u "${set_uid}" -g "${set_gid}" $set_user 2>/dev/stderr | tee -p -a "/data/logs/init.txt" >/dev/null && chown -Rf $set_uid:$set_gid
     fi
   fi
   export SERVICE_UID="$set_uid"
@@ -527,11 +540,11 @@ __create_service_user() {
   done
   if ! __check_for_group "$create_group"; then
     echo "creating system group $create_group"
-    groupadd --force --system -g $create_gid $create_group 2>/dev/stderr | tee -p -a "$LOG_DIR/init.txt" >/dev/null
+    groupadd --force --system -g $create_gid $create_group 2>/dev/stderr | tee -p -a "/data/logs/init.txt" >/dev/null
   fi
   if ! __check_for_user "$create_user"; then
     echo "creating system user $create_user"
-    useradd --system -u $create_uid -g $create_group -c "Account for $create_user" -d "$create_home_dir" -s /bin/false $create_user 2>/dev/stderr | tee -p -a "$LOG_DIR/init.txt" >/dev/null
+    useradd --system -u $create_uid -g $create_group -c "Account for $create_user" -d "$create_home_dir" -s /bin/false $create_user 2>/dev/stderr | tee -p -a "/data/logs/init.txt" >/dev/null
   fi
   grep -qs "$create_group" "/etc/group" || exitStatus=$((exitCode + 1))
   grep -qs "$create_user" "/etc/passwd" || exitStatus=$((exitCode + 1))
@@ -834,7 +847,9 @@ __initialize_db_users() {
   db_normal_pass="${DATABASE_PASS_NORMAL:-$user_pass}"
   db_admin_user="${DATABASE_USER_ROOT:-$root_user_name}"
   db_admin_pass="${DATABASE_PASS_ROOT:-$root_user_pass}"
-  export user_name="$db_normal_user" user_pass="$db_normal_pass" root_user_name="$db_admin_user" root_user_pass="$db_admin_pass"
+  export DATABASE_USER="$db_normal_user" DATABASE_PASSWORD="$db_normal_pass"
+  export DATABASE_ROOT_USER="$db_admin_user" DATABASE_ROOT_PASSWORD="$db_admin_pass"
+  export db_normal_user db_normal_pass db_admin_user db_admin_pass
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __initialize_system_etc() {

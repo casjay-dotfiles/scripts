@@ -105,9 +105,13 @@ RUNAS_USER="root" # normally root
 #SERVICE_USER="GEN_SCRIPT_REPLACE_APPNAME"  # execute command as another user
 #SERVICE_GROUP="GEN_SCRIPT_REPLACE_APPNAME" # Set the service group
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set password length
+RANDOM_PASS_USER=""
+RANDOM_PASS_ROOT=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set user and group ID
-#SERVICE_UID="0" # set the user id
-#SERVICE_GID="0" # set the group id
+SERVICE_UID="0" # set the user id
+SERVICE_GID="0" # set the group id
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # execute command variables - keep single quotes variables will be expanded later
 EXEC_CMD_BIN='GEN_SCRIPT_REPLACE_APPNAME' # command to execute
@@ -125,6 +129,9 @@ USES_DATABASE_SERVICE="no"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Show message before execute
 PRE_EXEC_MESSAGE=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set the wait time to execute __post_execute function - minutes
+POST_EXECUTE_WAIT_TIME="1"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Update path var
 PATH="$PATH:."
@@ -170,12 +177,19 @@ CMD_ENV=""
 # Per Application Variables or imports
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Custom commands to run before copying to /config
+__run_precopy() {
+  # Define environment
+  local hostname=${HOSTNAME}
+  # Define actions/commands
+
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Custom prerun functions - IE setup WWW_ROOT_DIR
 __execute_prerun() {
-  # Setup /config directories
-  __init_config_etc
-
-  # Define other actions/commands
+  # Define environment
+  local hostname=${HOSTNAME}
+  # Define actions/commands
 
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -207,9 +221,6 @@ __update_conf_files() {
   local exitCode=0                                               # default exit code
   local sysname="${SERVER_NAME:-${FULL_DOMAIN_NAME:-$HOSTNAME}}" # set hostname
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  # CD into temp to bybass any permission errors
-  cd /tmp || false # lets keep shellcheck happy by adding false
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # delete files
   #__rm ""
 
@@ -220,7 +231,7 @@ __update_conf_files() {
   # replace variables
   # __replace "" "" "$CONF_DIR/GEN_SCRIPT_REPLACE_APPNAME.conf"
   # replace variables recursively
-  #  __find_replace "" "" "$CONF_DIR"
+  # __find_replace "" "" "$CONF_DIR"
 
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # define actions
@@ -233,30 +244,14 @@ __update_conf_files() {
 __pre_execute() {
   local exitCode=0                                               # default exit code
   local sysname="${SERVER_NAME:-${FULL_DOMAIN_NAME:-$HOSTNAME}}" # set hostname
-
-  # define commands
-
   # execute if directories is empty
-  if __is_dir_empty "$CONF_DIR"; then
-    true
-  else
-    false
-  fi
-  # Custom commands to run before copying to /config
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  # Copy /config to /etc
-  for config_2_etc in $CONF_DIR $ADDITIONAL_CONFIG_DIRS; do
-    __initialize_system_etc "$config_2_etc" 2>/dev/stderr | tee -p -a "$LOG_DIR/init.txt"
-  done
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  # Replace variables
-  HOSTNAME="$sysname" __initialize_replace_variables "$ETC_DIR" "$CONF_DIR" "$WWW_ROOT_DIR"
+  # __is_dir_empty "$CONF_DIR" && true
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # define actions to run after copying to /config
 
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # unset unneeded variables
-  unset filesperms filename config_2_etc change_user change_user ADDITIONAL_CONFIG_DIRS application_files filedirs
+  # unset
   # Lets wait a few seconds before continuing
   sleep 5
   return $exitCode
@@ -266,14 +261,13 @@ __pre_execute() {
 __post_execute() {
   local pid=""                                                    # init pid var
   local retVal=0                                                  # set default exit code
-  local waitTime=60                                               # how long to wait before executing
+  local ctime=${POST_EXECUTE_WAIT_TIME:-1}                        # how long to wait before executing
+  local waitTime=$((ctime * 60))                                  # convert minutes to seconds
   local postMessageST="Running post commands for $SERVICE_NAME"   # message to show at start
   local postMessageEnd="Finished post commands for $SERVICE_NAME" # message to show at completion
-  local sysname="${SERVER_NAME:-${FULL_DOMAIN_NAME:-$HOSTNAME}}"  # set hostname
-
   # wait
   sleep $waitTime
-  # execute commands
+  # execute commands after waiting
   (
     # show message
     __banner "$postMessageST"
@@ -281,7 +275,7 @@ __post_execute() {
     true
     # show exit message
     __banner "$postMessageEnd: Status $retVal"
-  ) 2>"/dev/stderr" | tee -p -a "$LOG_DIR/init.txt" &
+  ) 2>"/dev/stderr" | tee -p -a "/data/logs/init.txt" &
   pid=$!
   # set exitCode
   ps ax | awk '{print $1}' | grep -v grep | grep -q "$execPid$" && retVal=0 || retVal=10
@@ -291,14 +285,6 @@ __post_execute() {
 # use this function to update config files - IE: change port
 __pre_message() {
   local exitCode=0
-  if [ -n "$user_name" ] || [ -n "$user_pass" ] || [ -n "$root_user_name" ] || [ -n "$root_user_pass" ]; then
-    __banner "User info"
-    [ -n "$user_name" ] && __printf_space "40" "username:" "$user_name" && echo "$user_name" >"${USER_FILE_PREFIX}/${SERVICE_NAME}_name"
-    [ -n "$user_pass" ] && __printf_space "40" "password:" "saved to ${USER_FILE_PREFIX}/${SERVICE_NAME}_pass" && echo "$user_pass" >"${USER_FILE_PREFIX}/${SERVICE_NAME}_pass"
-    [ -n "$root_user_name" ] && __printf_space "40" "root username:" "$root_user_name" && echo "$root_user_name" >"${ROOT_FILE_PREFIX}/${SERVICE_NAME}_name"
-    [ -n "$root_user_pass" ] && __printf_space "40" "root password:" "saved to ${ROOT_FILE_PREFIX}/${SERVICE_NAME}_pass" && echo "$root_user_pass" >"${ROOT_FILE_PREFIX}/${SERVICE_NAME}_pass"
-    __banner ""
-  fi
   [ -n "$PRE_EXEC_MESSAGE" ] && eval echo "$PRE_EXEC_MESSAGE"
   # execute commands
 
@@ -351,10 +337,8 @@ __run_start_script() {
   local sysname="${SERVER_NAME:-${FULL_DOMAIN_NAME:-$HOSTNAME}}" # set hostname
   [ -f "$CONF_DIR/$SERVICE_NAME.exec_cmd.sh" ] && . "$CONF_DIR/$SERVICE_NAME.exec_cmd.sh"
   #
-  __run_pre_execute_checks 2>/dev/stderr | tee -a -p "/data/logs/entrypoint.log" "$LOG_DIR/init.txt" || return 20
-  #
   if [ -z "$cmd" ]; then
-    __post_execute 2>"/dev/stderr" | tee -p -a "$LOG_DIR/init.txt"
+    __post_execute 2>"/dev/stderr" | tee -p -a "/data/logs/init.txt"
     retVal=$?
     echo "Initializing $SCRIPT_NAME has completed"
     exit $retVal
@@ -382,10 +366,9 @@ __run_start_script() {
         export cmd_exec="$cmd $args"
         message="Starting service: $name $args"
       fi
-      [ -n "$su_exec" ] && echo "using $su_exec" | tee -a -p "$LOG_DIR/init.txt"
-      echo "$message" | tee -a -p "$LOG_DIR/init.txt"
+      [ -n "$su_exec" ] && echo "using $su_exec" | tee -a -p "/data/logs/init.txt"
+      echo "$message" | tee -a -p "/data/logs/init.txt"
       su_cmd touch "$SERVICE_PID_FILE"
-      __post_execute 2>"/dev/stderr" | tee -p -a "$LOG_DIR/init.txt" &
       if [ "$RESET_ENV" = "yes" ]; then
         env_command="$(echo "env -i HOME=\"$home\" LC_CTYPE=\"$lc_type\" PATH=\"$path\" HOSTNAME=\"$sysname\" USER=\"${SERVICE_USER:-$RUNAS_USER}\" $extra_env")"
         execute_command="$(__trim "$su_exec $env_command $cmd_exec")"
@@ -449,7 +432,7 @@ __run_secure_function() {
         chmod -Rf 600 "$filesperms"
         chown -Rf $SERVICE_USER:$SERVICE_USER "$filesperms" 2>/dev/null
       fi
-    done 2>/dev/null | tee -p -a "$LOG_DIR/init.txt"
+    done 2>/dev/null | tee -p -a "/data/logs/init.txt"
   fi
   if [ -n "$root_user_name" ] || [ -n "$root_user_pass" ]; then
     for filesperms in "${ROOT_FILE_PREFIX}"/*; do
@@ -457,7 +440,7 @@ __run_secure_function() {
         chmod -Rf 600 "$filesperms"
         chown -Rf $SERVICE_USER:$SERVICE_USER "$filesperms" 2>/dev/null
       fi
-    done 2>/dev/null | tee -p -a "$LOG_DIR/init.txt"
+    done 2>/dev/null | tee -p -a "/data/logs/init.txt"
   fi
   unset filesperms
 }
@@ -474,7 +457,11 @@ EXEC_CMD_BIN="$(type -P "$EXEC_CMD_BIN" || echo "$EXEC_CMD_BIN")"          # set
 EXEC_PRE_SCRIPT="$(type -P "$EXEC_PRE_SCRIPT" || echo "$EXEC_PRE_SCRIPT")" # set full path
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Only run check
-__check_service "$1"
+__check_service "$1" && SERVICE_IS_RUNNING=yes
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# ensure needed directories exists
+[ -d "$LOG_DIR" ] || mkdir -p "$LOG_DIR"
+[ -d "$RUN_DIR" ] || mkdir -p "$RUN_DIR"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # create auth directories
 [ -n "$USER_FILE_PREFIX" ] && { [ -d "$USER_FILE_PREFIX" ] || mkdir -p "$USER_FILE_PREFIX"; }
@@ -483,7 +470,7 @@ __check_service "$1"
 [ "$IS_WEB_SERVER" = "yes" ] && RESET_ENV="yes"
 [ -n "$RUNAS_USER" ] || RUNAS_USER="root"
 [ -n "$SERVICE_USER" ] || SERVICE_USER="$RUNAS_USER"
-[ -n "$SERVICE_GROUP" ] || SERVICE_GROUP="$RUNAS_USER"
+[ -n "$SERVICE_GROUP" ] || SERVICE_GROUP="${SERVICE_USER:-$RUNAS_USER}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Database env
 if [ "$IS_DATABASE_SERVICE" = "yes" ] || [ "$USES_DATABASE_SERVICE" = "yes" ]; then
@@ -493,32 +480,43 @@ if [ "$IS_DATABASE_SERVICE" = "yes" ] || [ "$USES_DATABASE_SERVICE" = "yes" ]; t
   DATABASE_PASSWORD="${ENV_DATABASE_PASSWORD:-${DATABASE_PASSWORD:-$user_pass}}"
   DATABASE_ROOT_USER="${ENV_DATABASE_ROOT_USER:-${DATABASE_ROOT_USER:-$root_user_name}}"
   DATABASE_ROOT_PASSWORD="${ENV_DATABASE_ROOT_PASSWORD:-${DATABASE_ROOT_PASSWORD:-$root_user_pass}}"
+  if [ -n "$DATABASE_PASSWORD" ] && [ ! -f "${USER_FILE_PREFIX}/db_pass_user" ]; then
+    echo "$DATABASE_PASSWORD" >"${USER_FILE_PREFIX}/db_pass_user"
+  fi
+  if [ -n "$DATABASE_ROOT_PASSWORD" ] && [ ! -f "${ROOT_FILE_PREFIX}/db_pass_root" ]; then
+    echo "$DATABASE_ROOT_PASSWORD" >"${ROOT_FILE_PREFIX}/db_pass_root"
+  fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Allow per init script usernames and passwords
-__file_exists_with_content "$CONF_DIR/auth/user/name" && user_name="$(<"$CONF_DIR/auth/user/name")"
-__file_exists_with_content "$CONF_DIR/auth/user/pass" && user_pass="$(<"$CONF_DIR/auth/user/pass")"
-__file_exists_with_content "$CONF_DIR/auth/root/name" && root_user_name="$(<"$CONF_DIR/auth/root/name")"
-__file_exists_with_content "$CONF_DIR/auth/root/pass" && root_user_pass="$(<"$CONF_DIR/auth/root/pass")"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# set password to random if variable is random
-[ "$user_pass" = "random" ] && user_pass="$(__random_password)"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-[ "$root_user_pass" = "random" ] && root_user_pass="$(__random_password)"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Allow setting initial users and passwords via environment
-user_name="$(eval echo "${ENV_USER_NAME:-$user_name}")"
-user_pass="$(eval echo "${ENV_USER_PASS:-$user_pass}")"
-root_user_name="$(eval echo "${ENV_ROOT_USER_NAME:-$root_user_name}")"
-root_user_pass="$(eval echo "${ENV_ROOT_USER_PASS:-$root_user_pass}")"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Allow variables via imports - Overwrite existing
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [ -f "/config/env/${SERVICE_NAME:-$SCRIPT_NAME}.sh" ] && . "/config/env/${SERVICE_NAME:-$SCRIPT_NAME}.sh"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# ensure needed directories exists
-[ -d "$LOG_DIR" ] || mkdir -p "$LOG_DIR"
-[ -d "$RUN_DIR" ] || mkdir -p "$RUN_DIR"
+# set password to random if variable is random
+[ "$user_pass" = "random" ] && user_pass="$(__random_password ${RANDOM_PASS_USER:-16})"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+[ "$root_user_pass" = "random" ] && root_user_pass="$(__random_password ${RANDOM_PASS_ROOT:-16})"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Allow setting initial users and passwords via environment and save to file
+[ -n "$user_name" ] && echo "$user_name" >"${USER_FILE_PREFIX}/${SERVICE_NAME}_name"
+[ -n "$user_pass" ] && echo "$user_pass" >"${USER_FILE_PREFIX}/${SERVICE_NAME}_pass"
+[ -n "$root_user_name" ] && echo "$root_user_name" >"${ROOT_FILE_PREFIX}/${SERVICE_NAME}_name"
+[ -n "$root_user_pass" ] && echo "$root_user_pass" >"${ROOT_FILE_PREFIX}/${SERVICE_NAME}_pass"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Allow per init script usernames and passwords
+__file_exists_with_content "${USER_FILE_PREFIX}/${SERVICE_NAME}_name" && user_name="$(<"${USER_FILE_PREFIX}/${SERVICE_NAME}_name")"
+__file_exists_with_content "${USER_FILE_PREFIX}/${SERVICE_NAME}_pass" && user_pass="$(<"${USER_FILE_PREFIX}/${SERVICE_NAME}_pass")"
+__file_exists_with_content "${ROOT_FILE_PREFIX}/${SERVICE_NAME}_name" && root_user_name="$(<"${ROOT_FILE_PREFIX}/${SERVICE_NAME}_name")"
+__file_exists_with_content "${ROOT_FILE_PREFIX}/${SERVICE_NAME}_pass" && root_user_pass="$(<"${ROOT_FILE_PREFIX}/${SERVICE_NAME}_pass")"
+__file_exists_with_content "${USER_FILE_PREFIX}/db_pass_user" && DATABASE_PASSWORD="$(<"${USER_FILE_PREFIX}/db_pass_user")"
+__file_exists_with_content "${ROOT_FILE_PREFIX}/db_pass_root" && DATABASE_ROOT_PASSWORD="$(<"${ROOT_FILE_PREFIX}/db_pass_root")"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# set hostname for script
+sysname="${SERVER_NAME:-${FULL_DOMAIN_NAME:-$HOSTNAME}}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__create_service_env
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup /config directories
+__init_config_etc
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # pre-run function
 __execute_prerun
@@ -548,19 +546,33 @@ __initialize_db_users
 __update_ssl_conf
 __update_ssl_certs
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Updating config files
-__create_service_env
-__update_conf_files
+# Set permissions in ${USER_FILE_PREFIX} and ${ROOT_FILE_PREFIX}
+__run_secure_function
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__run_precopy
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Copy /config to /etc
+for config_2_etc in $CONF_DIR $ADDITIONAL_CONFIG_DIRS; do
+  __initialize_system_etc "$config_2_etc" 2>/dev/stderr | tee -p -a "/data/logs/init.txt"
+done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Replace variables
+__initialize_replace_variables "$ETC_DIR" "$CONF_DIR" "$ADDITIONAL_CONFIG_DIRS" "$WWW_ROOT_DIR"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#
 __initialize_database
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Updating config files
+__update_conf_files
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# run the pre execute commands
+__pre_execute
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set permissions
 __fix_permissions "$SERVICE_USER" "$SERVICE_GROUP"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set permissions in ${USER_FILE_PREFIX} and ${ROOT_FILE_PREFIX}
-__run_secure_function
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# run the pre execute commands
-__pre_execute
+#
+__run_pre_execute_checks 2>/dev/stderr | tee -a -p "/data/logs/entrypoint.log" "/data/logs/init.txt" || return 20
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_start_script 2>>/dev/stderr | tee -p -a "/data/logs/entrypoint.log" && errorCode=0 || errorCode=10
 if [ -n "$EXEC_CMD_BIN" ]; then
@@ -568,7 +580,7 @@ if [ -n "$EXEC_CMD_BIN" ]; then
     SERVICE_EXIT_CODE=0
     SERVICE_IS_RUNNING="yes"
   else
-    echo "Failed to execute: ${cmd_exec:-$(eval echo "$EXEC_CMD_BIN $EXEC_CMD_ARGS")}" | tee -p -a "/data/logs/entrypoint.log" "$LOG_DIR/init.txt"
+    echo "Failed to execute: ${cmd_exec:-$(eval echo "$EXEC_CMD_BIN $EXEC_CMD_ARGS")}" | tee -p -a "/data/logs/entrypoint.log" "/data/logs/init.txt"
     SERVICE_EXIT_CODE=$errorCode
     rm -Rf "$SERVICE_PID_FILE"
     SERVICE_IS_RUNNING="no"
@@ -576,6 +588,9 @@ if [ -n "$EXEC_CMD_BIN" ]; then
   SERVICE_EXIT_CODE=0
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__banner "Initializing of $SERVICE_NAME has completed with statusCode: $SERVICE_EXIT_CODE" | tee -p -a "/data/logs/entrypoint.log" "$LOG_DIR/init.txt"
+# start the post execute function in background
+__post_execute 2>"/dev/stderr" | tee -p -a "/data/logs/init.txt" &
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__banner "Initializing of $SERVICE_NAME has completed with statusCode: $SERVICE_EXIT_CODE" | tee -p -a "/data/logs/entrypoint.log" "/data/logs/init.txt"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 exit $SERVICE_EXIT_CODE

@@ -1,4 +1,4 @@
-function loadDomain(getURI, getID, getMessage) {
+function loadLocation(getURI, getID, getMessage) {
   let id = getID;
   let baseURI = getURI;
   let message = getMessage;
@@ -20,7 +20,7 @@ function loadDomain(getURI, getID, getMessage) {
   display = document.getElementById(id);
   display.href = full_url;
   display.title = full_url;
-  message = message || '<div style="font-size:1.3rem;">' + full_url + '</div>';
+  message = message || '<div style="font-size:1.3rem;">Return to homepage</div>';
   display.innerHTML = message;
   return full_url;
 }

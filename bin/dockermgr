@@ -470,9 +470,16 @@ __sudo_rm() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __docker_proxy_setup() {
   local retVal=1
+  local port=2375
   local name="${1:-dockerproxy}"
   local pullURL="casjaysdevdocker/dockerproxy:latest"
-  __container_exists "$name" && docker rm -f "$name" >/dev/null 2>&1
+  if __container_exists "$name"; then
+    docker rm -f "$name" >/dev/null 2>&1
+    if __port_in_use "$port"; then
+      printf "something is already running on port $port"
+      return
+    fi
+  fi
   printf_green "Creating $name as an API proxy to docker socket"
   __docker run -d \
     --pull always \
@@ -497,7 +504,7 @@ __docker_proxy_setup() {
     --env SERVICES=1 \
     --env TASKS=1 \
     --env POST=0 \
-    --publish 2375:2375 \
+    --publish $port:$port \
     casjaysdevdocker/dockerproxy:latest >/dev/null
   retVal=$?
   [ "$retVal" -eq 0 ] && printf_cyan "Created container $name" || rm -Rf "$HOME/.local/share/srv/docker/$name"
@@ -587,13 +594,7 @@ __init() {
   fi
 
   if [ ! -f "/etc/systemd/system/docker.service.d/docker.conf" ]; then
-    sudo -HE mkdir -p /etc/systemd/system/docker.service.d
-    cat <<EOF 2>/dev/null | sudo -HE tee "/etc/systemd/system/docker.service.d/docker.conf" &>/dev/null
-[Service]
-ExecStart=
-ExecStart=/usr/bin/dockerd -H tcp://127.0.0.1:2375 -H unix://var/run/docker.sock
-
-EOF
+    __update_systemd_docker_service
   fi
   if __docker_service; then
     printf_green "docker installation has completed"
@@ -604,10 +605,18 @@ EOF
     printf_red "docker installation has failed"
     exitCode=1
   fi
-  if ! __docker_ps | grep -q "^$docker_proxy_name$" && __port_in_use "2375"; then
-    __docker_proxy_setup "$docker_proxy_name"
-  fi
+  __docker_proxy_setup "$docker_proxy_name"
   return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__update_systemd_docker_service() {
+  sudo -HE mkdir -p /etc/systemd/system/docker.service.d
+  cat <<EOF 2>/dev/null | sudo -HE tee "/etc/systemd/system/docker.service.d/docker.conf" &>/dev/null
+[Service]
+ExecStart=
+ExecStart=/usr/bin/dockerd -H unix://var/run/docker.sock
+
+EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __port_in_use() {
@@ -1457,7 +1466,7 @@ SHORTOPTS="p:,P,v:,m:,e:,d,u:,w:"
 LONGOPTS="raw,options,config,version,help,dir:"
 LONGOPTS+=",force,all,describe:,platform:,dockerfile,name:,info,domain:,hostname:,network:,registry:,tag:no-delete,interactive"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-ARRAY="proxy health attach multiarch builder api enter test exec active available connect cron download inactive init install k3b minikube "
+ARRAY="service proxy health attach multiarch builder api enter test exec active available connect cron download inactive init install k3b minikube "
 ARRAY+="list log ps rancher remove rm rmi run search status update version ds network helm prune generate manifest rebuild "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST="airsonic ampache apache2 aria2 buildah bun caddy cherokee community coolify couchdb daapd ddns deno dictd docker flaresolverr "
@@ -1750,6 +1759,15 @@ health)
 proxy)
   shift 1
   __docker_proxy_setup
+  exit $?
+  ;;
+
+service)
+  shift 1
+  __update_systemd_docker_service
+  systemctl enable --now docker
+  systemctl restart docker
+  exit
   ;;
 
 commit)

@@ -398,6 +398,10 @@ __docker_untagged_rm() {
   return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__docker_ps() {
+  docker ps -a | awk -F' ' '{print $NF}' | grep -v '^NAMES$'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __prune() {
   local i="" c="" v="" name="" saved="" disk_end="" disk_use=""
   printf_blue "Pruning containers"
@@ -464,6 +468,40 @@ __sudo_rm() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__docker_proxy_setup() {
+  local retVal=1
+  local name="${1:-dockerproxy}"
+  __container_exists "$name" && return
+  printf_green "Creating $name as an API proxy to docker socket"
+  __docker run -d \
+    --name=$name \
+    --env ENV_CONTAINER_NAME=$name \
+    --env TZ=America/New_York \
+    --privileged \
+    --log-opt max-size=10m \
+    --cpus 2 \
+    --shm-size=128M \
+    --restart=always \
+    --tty \
+    --hostname $HOSTNAME \
+    --env HOSTNAME=$HOSTNAME \
+    --network bridge \
+    --volume "$HOME/.local/share/srv/docker/$name/rootfs/data":/data:z \
+    --volume "$HOME.local/share/srv/docker/$name/rootfs/config":/config:z \
+    --cap-add CHOWN \
+    --cap-add SYS_TIME \
+    --cap-add SYS_ADMIN \
+    --env CONTAINERS=1 \
+    --env SERVICES=1 \
+    --env TASKS=1 \
+    --env POST=0 \
+    --publish 2375:2375 \
+    casjaysdevdocker/dockerproxy:latest
+  retVal=$?
+  [ "$retVal" -eq 0 ] && printf_cyan "Created container $name" || rm -Rf "$HOME/.local/share/srv/docker/$name"
+  return $retVal
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __status() {
   local status
   if ps -aux | grep -w [d]ocker &>/dev/null; then
@@ -493,6 +531,7 @@ __docker_service() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __init() {
+  local docker_proxy_name=dockerproxy
   { [ "$DOCKERMGR_FORCE_INSTALL" != "true" ] && cmd_exists docker; } || DOCKERMGR_FORCE_INSTALL="false"
   am_i_online --error -m "Can not setup docker: No internet" || exit 1
   sudo -HE -n true &>/dev/null && sudo -HE true || printf_exit 1 1 "This script requires root privileges"
@@ -563,7 +602,18 @@ EOF
     printf_red "docker installation has failed"
     exitCode=1
   fi
+  if ! __docker_ps | grep -q "^$docker_proxy_name$" && __port_in_use "2375"; then
+    __docker_proxy_setup "$docker_proxy_name"
+  fi
   return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__port_in_use() {
+  local retVal=0
+  if netstat -tauln | grep ' LISTEN' | awk -F' ' '{print $4}' | awk -F':' '{print $NF}' | sort -u | grep -q "^$1$"; then
+    retVal=1
+  fi
+  return $retVal
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __init_help() {

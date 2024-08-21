@@ -515,15 +515,19 @@ __trap_exit() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Create a --no-* options function
 __options_function_no() {
-  case $1 in
-  *) shift ;;
+  local options="${1//=*/}"
+  local argument="${1//*=/}"
+  case "$options" in
+  *) echo "${argument:-No argument provided}" && shift ;;
   esac
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Create a --yes-* options function
 __options_function_yes() {
-  case $1 in
-  *) shift ;;
+  local options="${1//=*/}"
+  local argument="${1//*=/}"
+  case "$options" in
+  *) echo "${argument:-No argument provided}" && shift ;;
   esac
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -724,6 +728,7 @@ while :; do
   -f | --force)
     shift 1
     export FORCE_INSTALL="true"
+    GEN_SCRIPT_REPLACE_ENV_FORCE_INSTALL="true"
     ;;
   -a | --all)
     shift 1

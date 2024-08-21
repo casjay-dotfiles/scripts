@@ -217,6 +217,8 @@ __help() {
   __printf_line "--help                          - Shows this message"
   __printf_line "--options                       - Shows all available options"
   __printf_line "--raw                           - Removes all formatting on output"
+  __printf_line "--no                            - No options"
+  __printf_line "--yes                           - Yes options"
   __printf_line ""
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
 }
@@ -512,9 +514,16 @@ __trap_exit() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Create a --no-* options function
-__no_options_function() {
+__options_function_no() {
   case $1 in
-  *) ;;
+  *) shift ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Create a --yes-* options function
+__options_function_yes() {
+  case $1 in
+  *) shift ;;
   esac
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -623,7 +632,7 @@ SETARGS=("$@")
 SHORTOPTS="a,f"
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-LONGOPTS="all,completions:,config,debug,force,help,options,raw,version,no-*"
+LONGOPTS="all,completions:,config,debug,force,help,options,raw,version,no-*,yes-*"
 LONGOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="available,cron,download,install,list,remove,search,update,version"
@@ -721,8 +730,10 @@ while :; do
     INSTALL_ALL="true"
     ;;
   --no-*)
-    shift 1
-    __no_options_function "$@"
+    __options_function_no "$@"
+    ;;
+  --yes-*)
+    __options_function_yes "$@"
     ;;
   --)
     shift 1

@@ -20,9 +20,9 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0" 2>/dev/null)"
 VERSION="202208111053-git"
-HOME="${USER_HOME:-$HOME}"
 USER="${SUDO_USER:-$USER}"
-RUN_USER="${SUDO_USER:-$USER}"
+RUN_USER="${RUN_USER:-$USER}"
+USER_HOME="${USER_HOME:-$HOME}"
 SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
 IX_IO_REQUIRE_SUDO="${IX_IO_REQUIRE_SUDO:-no}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

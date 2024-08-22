@@ -15,9 +15,9 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0" 2>/dev/null)"
 VERSION="202108281904-git"
-HOME="${USER_HOME:-$HOME}"
 USER="${SUDO_USER:-$USER}"
-RUN_USER="${SUDO_USER:-$USER}"
+RUN_USER="${RUN_USER:-$USER}"
+USER_HOME="${USER_HOME:-$HOME}"
 SRC_DIR="${BASH_SOURCE%/*}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
@@ -199,6 +199,7 @@ __create_manifest() {
   local amend=""
   local tag_push=""
   local delete_tag=""
+  local date_tag="$(date +'%y%m')"
   local do_not_delete="$DOCKERMGER_MANIFEST_DELETE_TMP_TAGS"
   if echo "$1" | grep -q ':'; then
     local image="${1//:*/}"
@@ -230,6 +231,7 @@ __create_manifest() {
   printf_yellow "Setting error log file to: $DOCKERMGR_LOG_DIR/$manifest_log_file.log"
   printf_green "🔽 Running docker pull $pull_image 🔽"
   docker pull $pull_image &>/dev/null || printf_exit "Failed to pull $pull_image"
+  [ "$tag_push" = ":latest" ] && ADDED_TAG="$push:$date_tag"
   for platform in $platforms; do
     local set_tag="$tag"
     local new_tag="$set_tag-$platform"
@@ -242,10 +244,10 @@ __create_manifest() {
     [ $code -ne 0 ] && printf_red "Failed to build $set_push" && __docker_manifest_log $code "$name"
   done
   printf_blue "Running: docker manifest create $push$tag_push ${amend[*]}"
-  docker manifest create $push$tag_push $amend >/dev/null 2>"$DOCKERMGR_LOG_DIR/$manifest_log_file.log" || code=1
+  docker manifest create $push$tag_push $ADDED_TAG $amend >/dev/null 2>"$DOCKERMGR_LOG_DIR/$manifest_log_file.log" || code=1
   __docker_manifest_log $code "$name"
   printf_cyan "Pushing $push$tag_push"
-  docker manifest push --purge $push$tag_push >/dev/null 2>>"$DOCKERMGR_LOG_DIR/$manifest_log_file.log" || code=1
+  docker manifest push --purge $push$tag_push $ADDED_TAG >/dev/null 2>>"$DOCKERMGR_LOG_DIR/$manifest_log_file.log" || code=1
   __docker_manifest_log $code "$name"
   base_id="$(docker images -a | grep "$base_name.*$base_tag" | awk '{print $3}' | grep '^' || false)"
   [ -n "$base_image" ] && docker rmi $base_id >/dev/null 2>>"$DOCKERMGR_LOG_DIR/$manifest_log_file.log" && printf_cyan "🦄 Deleted base image $base_image with id: $base_id 🦄"
@@ -613,6 +615,7 @@ __init() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __update_systemd_docker_service() {
+  printf_green "Updating the docker systemd service"
   sudo -HE mkdir -p /etc/systemd/system/docker.service.d
   cat <<EOF 2>/dev/null | sudo -HE tee "/etc/systemd/system/docker.service.d/docker.conf" &>/dev/null
 [Service]
@@ -620,6 +623,16 @@ ExecStart=
 ExecStart=/usr/bin/dockerd -H unix://var/run/docker.sock
 
 EOF
+  systemctl daemon-reload
+  systemctl enable --now docker
+  systemctl restart docker
+  if systemctl is-active docker grep -q 'running$' 2>&1; then
+    printf_cyan "Docker service has been updated"
+    return 0
+  else
+    printf_red "Docker service has failed to be updated"
+    return 1
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __port_in_use() {
@@ -1767,17 +1780,7 @@ proxy)
 
 service)
   shift 1
-  printf_green "Updating the docker systemd service"
   __update_systemd_docker_service
-  systemctl enable --now docker
-  systemctl restart docker
-  if systemctl is-active docker grep -q 'running$' 2>&1; then
-    printf_cyan "Docker service has been updated"
-    exit
-  else
-    printf_red "Docker service has failed to be updated"
-    exit 1
-  fi
   ;;
 
 commit)

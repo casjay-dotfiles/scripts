@@ -14,9 +14,9 @@
 # @Resource          :
 # @sudo/root         :  no
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-HOME="${USER_HOME:-$HOME}"
 USER="${SUDO_USER:-$USER}"
-RUN_USER="${SUDO_USER:-$USER}"
+RUN_USER="${RUN_USER:-$USER}"
+USER_HOME="${USER_HOME:-$HOME}"
 SRC_DIR="${BASH_SOURCE%/*}"
 CASJAYSDEV_USERDIR="${CASJAYSDEV_USERDIR:-$HOME/.local/share/CasjaysDev}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

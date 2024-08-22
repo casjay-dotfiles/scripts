@@ -2730,7 +2730,7 @@ run_exit() {
   fi
   run_cleanup
   if [ -f "/tmp/$SCRIPTSFUNCTFILE" ]; then rm_rf "/tmp/$SCRIPTSFUNCTFILE"; fi
-  local exitCode+=$?
+  local exitCode=$(($? + exitCode))
   getexitcode "The configurations for $APPNAME have been installed" "$APPNAME installer has encountered an error: Check the URL"
   printf_newline
   export EXIT

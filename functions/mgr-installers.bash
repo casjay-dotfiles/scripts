@@ -416,7 +416,7 @@ system_service_active() {
   local exitCode=0
   for service in "$@"; do
     systemctl show -p ActiveState $service 2>&1 | grep -wq 'ActiveState=active' ||
-      exitCode+=1
+      exitCode=$(exitCode++)
   done
   return ${exitCode:-0}
 }
@@ -426,7 +426,7 @@ system_service_running() {
   local exitCode=0
   for service in "$@"; do
     systemctl status $service 2>&1 | grep -i 'Active: ' | grep -iq 'running' ||
-      exitCode+=1
+      exitCode=$(exitCode++)
   done
   return ${exitCode:-0}
 }
@@ -436,7 +436,7 @@ system_service_exists() {
   local exitCode=0
   for service in "$@"; do
     systemctl list-units --full -all | grep -E "service|socket" | grep -w "$service" ||
-      exitCode+=1
+      exitCode=$(exitCode++)
   done
   return ${exitCode:-0}
 }
@@ -447,7 +447,7 @@ system_service_enable() {
   for service in "$@"; do
     system_service_exists "$service" &&
       devnull "sudo -HE systemctl enable --now -f $service" ||
-      exitCode+=1
+      exitCode=$(exitCode++)
   done
   return ${exitCode:-0}
 }
@@ -458,7 +458,7 @@ system_service_disable() {
   for service in "$@"; do
     system_service_exists "$service" &&
       devnull "sudo -HE systemctl disable --now -f $service" ||
-      exitCode+=1
+      exitCode=$(exitCode++)
   done
   return ${exitCode:-0}
 }
@@ -470,7 +470,7 @@ system_service_start() {
     system_service_exists "$service" &&
       devnull "sudo -HE systemctl start $service" &&
       system_service_running " $service" ||
-      exitCode+=1
+      exitCode=$(exitCode++)
   done
   return ${exitCode:-0}
 }
@@ -481,7 +481,7 @@ system_service_stop() {
   for service in "$@"; do
     system_service_exists "$service" &&
       devnull "sudo -HE systemctl stop $service" &&
-      system_service_running " $service" && exitCode+=1 ||
+      system_service_running " $service" && exitCode=$(exitCode++) ||
       exitCode=0
   done
   return ${exitCode:-0}
@@ -494,7 +494,7 @@ system_service_restart() {
     system_service_exists "$service" &&
       devnull "sudo -HE systemctl restart $service" &&
       system_service_running " $service" ||
-      exitCode+=1
+      exitCode=$(exitCode++)
   done
   return ${exitCode:-0}
 }
@@ -1335,7 +1335,7 @@ install_pip() {
       printf_warning "Attempting to install missing pip packages"
       printf_warning "$MISSING"
       for miss in $MISSING; do
-        execute "install_python --enable-log $miss &>/dev/null || pkmgr --enable-log pip install $miss" "Installing $miss" || true
+        execute "pkmgr --enable-log silent install $miss &>/dev/null || pkmgr --enable-log pip install $miss" "Installing $miss" || true
         pip_missing "$miss" && __saved_file_create "$miss" || false
       done
     fi
@@ -2796,7 +2796,7 @@ run_exit() {
   fi
   run_cleanup
   if [ -f "/tmp/$SCRIPTSFUNCTFILE" ]; then rm_rf "/tmp/$SCRIPTSFUNCTFILE"; fi
-  local exitCode+=$?
+  local exitCode=$(($? + exitCode))
   getexitcode "The configurations for $APPNAME have been installed" "$APPNAME installer has encountered an error: Check the URL"
   printf_newline
   export EXIT

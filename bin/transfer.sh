@@ -416,7 +416,6 @@ __notifications() {
   [ "$TRANSFER_SH_NOTIFY_ENABLED" = "yes" ] || return
   [ "$SEND_NOTIFICATION" = "no" ] && return
   (
-    set +x
     export SCRIPT_OPTS="" _DEBUG=""
     export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$TRANSFER_SH_GOOD_MESSAGE}"
     export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$TRANSFER_SH_ERROR_MESSAGE}"

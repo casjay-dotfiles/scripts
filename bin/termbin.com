@@ -366,7 +366,6 @@ __notifications() {
   [ "$TERMBIN_COM_NOTIFY_ENABLED" = "yes" ] || return
   [ "$SEND_NOTIFICATION" = "no" ] && return
   (
-    set +x
     export SCRIPT_OPTS="" _DEBUG=""
     export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$TERMBIN_COM_GOOD_MESSAGE}"
     export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$TERMBIN_COM_ERROR_MESSAGE}"

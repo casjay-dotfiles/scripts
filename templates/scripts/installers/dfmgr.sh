@@ -105,6 +105,9 @@ __replace_all() { [ -n "$3" ] && [ -e "$3" ] && find "$3" -not -path "$3/.git/*"
 __kill_process_name() { local pid="$(pidof "$1" 2>/dev/null)" && { [ -z "$pid" ] || { kill -19 $pid &>/dev/null && ! __app_is_running "$1" && return 0; } || kill -9 $pid &>/dev/null; } || return 1; }
 __does_container_exist() { [ -n "$(command -v docker 2>/dev/null)" ] && docker ps -a | awk '{print $NF}' | grep -v '^NAMES$' | grep -q "$1" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_user_name() { grep ':' /etc/passwd | awk -F ':' '{print $1}' | sort -u | grep "^${1:-root}$" || return 1; }
+__get_user_group() { grep ':' /etc/group | awk -F ':' '{print $1}' | sort -u | grep "^${1:-root}$" || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 sed="$(builtin type -P gsed 2>/dev/null || builtin type -P sed 2>/dev/null || return)"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Script options IE: --help --version

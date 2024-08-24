@@ -35,13 +35,13 @@ SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
 export SCRIPTS_PREFIX="systemmgr"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 REPO_BRANCH="${GIT_REPO_BRANCH:-main}"
-PLUGIN_DIR="/usr/local/share/$APPNAME/plugins"
 REPO="https://github.com/$SCRIPTS_PREFIX/$APPNAME"
-INSTDIR="/usr/local/share/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME"
 REPORAW="https://github.com/$SCRIPTS_PREFIX/$APPNAME/raw/$REPO_BRANCH"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-APPDIR="/usr/local/etc/$APPNAME"
-PLUGIN_DIR="/usr/local/share/$APPNAME/plugins"
+INSTDIR="/usr/local/share/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME"
+APPDIR="/usr/local/share/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME"
+PLUGIN_DIR="/usr/local/share/$SCRIPTS_PREFIX/$APPNAME/plugins"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
 trap 'retVal=$?;trap_exit' ERR EXIT SIGINT
 #if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi

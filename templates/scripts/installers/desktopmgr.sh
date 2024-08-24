@@ -90,7 +90,8 @@ __rm_link() { [ -e "$1" ] && { rm -rf "$1" &>/dev/null || return 1; } || true; }
 __download_file() { curl -q -LSsf "$1" -o "$2" 2>/dev/null || return 1; }
 __input_is_number() { test -n "$1" && test -z "${1//[0-9]/}" || return 1; }
 __failexitcode() { [ $1 -ne 0 ] && printf_red "😠 $2 😠" && exit ${1:-4}; }
-__get_exit_status() { s=$? && getRunStatus=$((s + ${getRunStatus:-0})) && return $s; }
+__get_exit_status() { local s=$? && getRunStatus=$((s + ${getRunStatus:-0})) && return $s; }
+__service_exists() { systemctl list-unit-files | grep "^$1" || return 1; }
 __service_is_running() { systemctl is-active $1 2>&1 | grep -qiw 'active' || return 1; }
 __service_is_active() { systemctl is-enabled $1 2>&1 | grep -qiw 'enabled' || return 1; }
 __get_version() { echo "$@" | awk -F '.' '{ printf("%d%d%d%d\n", $1,$2,$3,$4) }'; }

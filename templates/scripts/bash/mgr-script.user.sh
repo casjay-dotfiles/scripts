@@ -66,8 +66,7 @@ else
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Options are: *_install
-# desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr
-# pkmgr system systemmgr thememgr user wallpapermgr
+# system user desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
 GEN_SCRIPT_REPLACE_FILENAME_install && __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Send all output to /dev/null

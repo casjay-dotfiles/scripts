@@ -75,7 +75,7 @@ fi
 __am_i_online() { connect_test || return 1; }
 __run_git_clone_pull() { git_update "$1" "$2"; }
 __cmd_exists() { builtin type -P $1 &>/dev/null; }
-__mkdir() { mkdir -p "$1" &>/dev/null || return 1; }
+__mkdir() { mkdir -p "$@" &>/dev/null || return 1; }
 __app_is_running() { pidof "$1" &>/dev/null || return 1; }
 __mv_f() { [ -e "$1" ] && mv -f "$@" &>/dev/null || return 1; }
 __cp_rf() { [ -e "$1" ] && cp -Rfa "$@" &>/dev/null || return 1; }

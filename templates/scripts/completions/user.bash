@@ -58,20 +58,25 @@ _GEN_SCRIPT_REPLACE_FILENAME_completion() {
   LONGOPTS="--completions --config --debug --dir --help --options --raw --version --silent --force "
   LONGOPTS+=""
   #####################################################################
-  #NOOPTS="--no-* "
-  #####################################################################
   ARRAY=""
   ARRAY+=""
   #####################################################################
   LIST=""
   LIST+=""
   #####################################################################
+  OPTS_NO="--no-* "
+  OPTS_YES="--yes-* "
+  #####################################################################
   if [ "$SHOW_COMP_OPTS" != "" ]; then
     SHOW_COMP_OPTS_SEP="${SHOW_COMP_OPTS//,/ }"
     compopt -o $SHOW_COMP_OPTS_SEP
   fi
   #####################################################################
-  if [[ ${cur} == --* ]]; then
+  if [[ ${cur} == --no* ]]; then
+    COMPREPLY=($(compgen -W '${OPTS_NO}' -- ${cur}))
+  elif [[ ${cur} == --yes* ]]; then
+    COMPREPLY=($(compgen -W '${OPTS_YES}' -- ${cur}))
+  elif [[ ${cur} == --* ]]; then
     COMPREPLY=($(compgen -W '${LONGOPTS}' -- ${cur}))
   elif [[ ${cur} == -* ]]; then
     if [ -n "$SHORTOPTS" ]; then

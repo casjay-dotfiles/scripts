@@ -1328,7 +1328,7 @@ install_pip() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    __saved_file_check "$cmd" || pip_missing "$cmd" || MISSING+="$cmd "
+    pip_missing "$cmd" || MISSING+="$cmd "
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
@@ -1348,7 +1348,7 @@ install_npm() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    __saved_file_check "$cmd" || npm_missing "$cmd" || MISSING+="$cmd "
+    npm_missing "$cmd" || MISSING+="$cmd "
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
@@ -1368,7 +1368,7 @@ install_cpan() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    __saved_file_check "$cmd" || cpan_missing "$cmd" || MISSING+="$cmd "
+    cpan_missing "$cmd" || MISSING+="$cmd "
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then
@@ -1387,7 +1387,7 @@ install_gem() {
   local MISSING=""
   local cmd=""
   for cmd in $REQUIRED; do
-    __saved_file_check "$cmd" || gem_missing "$cmd" || MISSING+="$cmd "
+    gem_missing "$cmd" || MISSING+="$cmd "
   done
   if [ -n "$MISSING" ]; then
     if [ -f "$(builtin type -P pkmgr 2>/dev/null)" ]; then

@@ -528,6 +528,9 @@ export TERMBIN_COM_CWD
 # Actions based on env
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 if [ ${#} -eq 0 ]; then
   if [ -p "/dev/stdin" ]; then

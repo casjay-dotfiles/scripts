@@ -580,6 +580,9 @@ TRANSFER_SH_TMP_SDTIN_FILE="$(mktemp -t XXXXXXXXXXXX)"
 # Actions based on env
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 case "$1" in
 list)

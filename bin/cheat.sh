@@ -575,6 +575,9 @@ export CHEATSH_CACHE_TYPE="${CHEATSH_CACHE_TYPE:-none}"
 # Actions based on env
 [ $# -ne 0 ] || [ -n "$CHEAT_SH_VARS" ] || printf_exit "Usage: $APPNAME [options] [query]"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 __create_completion
 __execute_cheatsh "$@"

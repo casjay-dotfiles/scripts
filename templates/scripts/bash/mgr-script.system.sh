@@ -636,7 +636,7 @@ SETARGS=("$@")
 SHORTOPTS="a,f"
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-LONGOPTS="all,completions:,config,debug,force,help,options,raw,version,no-*,yes-*"
+LONGOPTS="all,completions:,config,reset-config,debug,force,help,options,raw,version,no-*,yes-*"
 LONGOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="available,cron,download,install,list,remove,search,update,version"
@@ -722,6 +722,12 @@ while :; do
     ;;
   --config)
     shift 1
+    __gen_config
+    exit $?
+    ;;
+  --reset-config)
+    shift 1
+    [ -f "$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE" ] && rm -Rf "$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE"
     __gen_config
     exit $?
     ;;

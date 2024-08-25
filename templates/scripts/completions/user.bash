@@ -55,7 +55,7 @@ _GEN_SCRIPT_REPLACE_FILENAME_completion() {
   SHORTOPTS=""
   SHORTOPTS+=""
   #####################################################################
-  LONGOPTS="--completions --config --debug --dir --help --options --raw --version --silent --force "
+  LONGOPTS="--completions --config --reset-config --debug --dir --help --options --raw --version --silent --force "
   LONGOPTS+=""
   #####################################################################
   ARRAY=""

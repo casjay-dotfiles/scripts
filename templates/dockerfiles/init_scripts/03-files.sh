@@ -1,15 +1,15 @@
 cat <<EOF
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  $(date +"${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}")
+##@Version           :  202408270903-git
 # @@Author           :  CasjaysDev
 # @@Contact          :  CasjaysDev <docker-admin@casjaysdev.pro>
 # @@License          :  MIT
 # @@ReadME           :
 # @@Copyright        :  Copyright 2023 CasjaysDev
 # @@Created          :  Mon Aug 28 06:48:42 PM EDT 2023
-# @@File             :  $custom_init_name
-# @@Description      :  script to run $custom_init_command
+# @@File             :  03-files.sh
+# @@Description      :  script to run files
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck shell=bash
 # shellcheck disable=SC2016
@@ -33,7 +33,7 @@ if [ -d "/tmp/bin" ]; then
   for bin in "/tmp/bin"/*; do
     name="\$(basename "\$bin")"
     echo "Installing \$name to /usr/local/bin/\$name"
-    copy "\$bin* "/usr/local/bin/\$name"
+    copy "\$bin"* "/usr/local/bin/\$name"
     chmod -f +x "/usr/local/bin/\$name"
   done
 fi
@@ -41,14 +41,14 @@ unset bin
 if [ -d "/tmp/data" ]; then
   for data in "/tmp/data"/*; do
     name="\$(basename "\$data")"
-    echo "Installing \$name to "/usr/local/share/template-files/data/\$name"
+    echo "Installing \$name to /usr/local/share/template-files/data/\$name"
     mkdir -p "/usr/local/share/template-files/data/\$name"
     copy "\$data"/* "/usr/local/share/template-files/data/\$name"
   done
 fi
 unset data
 if [ -d "/tmp/etc" ]; then
-  for config in "/tmp/etc"/*
+  for config in "/tmp/etc"/*; do
     name="\${config//\/tmp\/etc/\/}"
     echo "Installing \$config to /etc/\$name"
     if [ -d "\$config" ]; then

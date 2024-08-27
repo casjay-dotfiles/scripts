@@ -973,20 +973,24 @@ __initialize_www_root() {
 __is_htdocs_mounted() {
   echo "$IMPORT_FROM_GIT" | grep -qE 'https://|http://|git://|ssh://' || unset IMPORT_FROM_GIT
   if [ -n "$IMPORT_FROM_GIT" ] && [ "$(command -v "git")" ]; then
-    export WWW_ROOT_DIR="/data/htdocs"
+    WWW_ROOT_DIR="${WWW_ROOT_DIR:-/data/htdocs}"
     __is_dir_empty "$WWW_ROOT_DIR" || WWW_ROOT_DIR="/data/wwwroot"
     echo "Importing project from $IMPORT_FROM_GIT to $WWW_ROOT_DIR"
     git clone -q "$IMPORT_FROM_GIT" "$WWW_ROOT_DIR"
   elif [ -d "/app" ]; then
-    export WWW_ROOT_DIR="/app"
+    WWW_ROOT_DIR="/app"
+  elif [ -d "/data/htdocs/www" ]; then
+    WWW_ROOT_DIR="/data/htdocs/www"
+  elif [ -d "/data/htdocs/root" ]; then
+    WWW_ROOT_DIR="/data/htdocs/root"
   elif [ -d "/data/htdocs" ]; then
-    export WWW_ROOT_DIR="/data/htdocs"
+    WWW_ROOT_DIR="/data/htdocs"
   elif [ -d "/data/wwwroot" ]; then
-    export WWW_ROOT_DIR="/data/wwwroot"
+    WWW_ROOT_DIR="/data/wwwroot"
   else
     WWW_ROOT_DIR="${ENV_WWW_ROOT_DIR:-$WWW_ROOT_DIR}"
-    export WWW_ROOT_DIR="${WWW_ROOT_DIR:-/usr/share/httpd/default}"
   fi
+  export WWW_ROOT_DIR="${WWW_ROOT_DIR:-/usr/share/httpd/default}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __initialize_ssl_certs() {

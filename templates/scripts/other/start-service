@@ -467,10 +467,10 @@ __check_service "$1" && SERVICE_IS_RUNNING=yes
 [ -n "$USER_FILE_PREFIX" ] && { [ -d "$USER_FILE_PREFIX" ] || mkdir -p "$USER_FILE_PREFIX"; }
 [ -n "$ROOT_FILE_PREFIX" ] && { [ -d "$ROOT_FILE_PREFIX" ] || mkdir -p "$ROOT_FILE_PREFIX"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-[ "$IS_WEB_SERVER" = "yes" ] && RESET_ENV="yes"
 [ -n "$RUNAS_USER" ] || RUNAS_USER="root"
 [ -n "$SERVICE_USER" ] || SERVICE_USER="$RUNAS_USER"
 [ -n "$SERVICE_GROUP" ] || SERVICE_GROUP="${SERVICE_USER:-$RUNAS_USER}"
+[ "$IS_WEB_SERVER" = "yes" ] && RESET_ENV="yes" && __is_htdocs_mounted
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Database env
 if [ "$IS_DATABASE_SERVICE" = "yes" ] || [ "$USES_DATABASE_SERVICE" = "yes" ]; then

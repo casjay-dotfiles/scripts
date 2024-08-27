@@ -33,7 +33,7 @@ if [ -d "/tmp/bin" ]; then
   for bin in "/tmp/bin"/*; do
     name="\$(basename "\$bin")"
     echo "Installing \$name to /usr/local/bin/\$name"
-    copy "\$bin"* "/usr/local/bin/\$name"
+    copy "\$bin" "/usr/local/bin/\$name"
     chmod -f +x "/usr/local/bin/\$name"
   done
 fi
@@ -44,7 +44,7 @@ if [ -d "/tmp/var" ]; then
     echo "Installing \$var to /var/\$name"
     if [ -d "\$var" ]; then
       mkdir -p "/var/\$name"
-      copy "\$var"/* "/var/\$name/"
+      copy "\$var/." "/var/\$name/"
     else
       copy "\$var" "/var/\$name"
     fi
@@ -57,9 +57,9 @@ if [ -d "/tmp/etc" ]; then
     echo "Installing \$config to /etc/\$name"
     if [ -d "\$config" ]; then
       mkdir -p "/etc/\$name"
-      copy "\$config"/* "/etc/\$name/"
+      copy "\$config/." "/etc/\$name/"
       mkdir -p "/usr/local/share/template-files/config/\$name"
-      copy "\$config"/* "/usr/local/share/template-files/config/\$name/"
+      copy "\$config/." "/usr/local/share/template-files/config/\$name/"
     else
       copy "\$config" "/etc/\$name"
       copy "\$config" "/usr/local/share/template-files/config/\$name"
@@ -73,7 +73,7 @@ if [ -d "/tmp/data" ]; then
     echo "Installing \$data to /usr/local/share/template-files/data"
     if [ -d "\$data" ]; then
       mkdir -p "/usr/local/share/template-files/data/\$name"
-      copy "\$data"/* "/usr/local/share/template-files/data/\$name/"
+      copy "\$data/." "/usr/local/share/template-files/data/\$name/"
     else
       copy "\$data" "/usr/local/share/template-files/data/\$name"
     fi

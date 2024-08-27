@@ -38,18 +38,22 @@ if [ -d "/tmp/bin" ]; then
   done
 fi
 unset bin
-if [ -d "/tmp/data" ]; then
-  for data in "/tmp/data"/*; do
-    name="\$(basename "\$data")"
-    echo "Installing \$name to /usr/local/share/template-files/data/\$name"
-    mkdir -p "/usr/local/share/template-files/data/\$name"
-    copy "\$data"/* "/usr/local/share/template-files/data/\$name"
+if [ -d "/tmp/var" ]; then
+  for var in "/tmp/var"/*; do
+    name="\${var//\/tmp\/var\//}"
+    echo "Installing \$var to /var/\$name"
+    if [ -d "\$var" ]; then
+      mkdir -p "/var/\$name"
+      copy "\$var"/* "/var/\$name/"
+    else
+      copy "\$var" "/var/\$name"
+    fi
   done
 fi
-unset data
+unset var
 if [ -d "/tmp/etc" ]; then
   for config in "/tmp/etc"/*; do
-    name="\${config//\/tmp\/etc/\/}"
+    name="\${config//\/tmp\/etc\//}"
     echo "Installing \$config to /etc/\$name"
     if [ -d "\$config" ]; then
       mkdir -p "/etc/\$name"
@@ -63,6 +67,19 @@ if [ -d "/tmp/etc" ]; then
   done
 fi
 unset config
+if [ -d "/tmp/data" ]; then
+  for data in "/tmp/data"/*; do
+    name="\${data//\/tmp\/data\//}"
+    echo "Installing \$data to /usr/local/share/template-files/data"
+    if [ -d "\$data" ]; then
+      mkdir -p "/usr/local/share/template-files/data/\$name"
+      copy "\$data"/* "/usr/local/share/template-files/data/\$name/"
+    else
+      copy "\$data" "/usr/local/share/template-files/data/\$name"
+    fi
+  done
+fi
+unset data
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main script
 

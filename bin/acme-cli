@@ -162,7 +162,7 @@ ACME_CLI_CONF_FILE="${ACME_CLI_CONF_FILE:-/etc/certbot/dns.conf}"
 ACME_CLI_OPTIONS="${ACME_CLI_OPTIONS:---dns-rfc2136-propagation-seconds 90}"
 ACME_CLI_TEST="${ACME_CLI_TEST:-yes}"
 ACME_CLI_UPDATE_CERTS_IPS="${ACME_CLI_UPDATE_CERTS_IPS:-}"
-ACME_CLI_PRIMARY_DOMAIN="${ACME_CLI_PRIMARY_DOMAIN:-}"
+ACME_CLI_DOMAIN_PRIMARY="${ACME_CLI_DOMAIN_PRIMARY:-}"
 ACME_CLI_WILD_LIST="${ACME_CLI_WILD_LIST:-}"
 ACME_CLI_DOMAIN_LIST="${ACME_CLI_DOMAIN_LIST:-}"
 ACME_CLI_SUB_LIST="${ACME_CLI_SUB_LIST:-}"
@@ -205,7 +205,7 @@ __help() {
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "Usage: acme-cli [options] [commands]"
   __printf_line " - "
-  __printf_line " - "
+  __printf_line "--domains                       - Specify domains"
   __printf_line "--dir                           - Sets the working directory"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
@@ -343,48 +343,32 @@ __options_function_yes() {
 __certbot_test() {
   local retVal=0
   [ "$ACME_CLI_TEST" = "yes" ] || return 0
-  certbot $1 -n --dry-run --agree-tos -m "$ACME_CLI_EMAIL" --expand $ACME_CLI_OPTIONS --dns-rfc2136 --dns-rfc2136-credentials $ACME_CLI_CONF_FILE $ACME_CLI_DOMAINS &>/dev/null
+  certbot $1 -n --dry-run --agree-tos -m "$ACME_CLI_EMAIL" --expand $ACME_CLI_OPTIONS --dns-rfc2136 --dns-rfc2136-credentials $ACME_CLI_CONF_FILE $ACME_CLI_DOMAIN_LIST 2>"$ACME_CLI_LOG_DIR/acme-cli.log" >/dev/null
   retVal=$?
-  if [ $retVal -ne 0 ]; then
-    if grep -qs 'Certificate not yet due for renewal' "$ACME_CLI_LE_LOG_FILE"; then
-      printf_green "No certificates are due for renewal"
-      rm -Rf "$ACME_CLI_LE_LOG_FILE"
-      return 0
-    else
-      printf_red "Log saved to $ACME_CLI_LE_LOG_FILE"
-      ACME_CLI_EXIT_STATUS=$((ACME_CLI_EXIT_STATUS + retVal))
-    fi
-  fi
   return $retval
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __certbot_renew() {
-  local retVal=0
   __certbot_test renew || printf_exit "certbot renew has failed"
-  certbot renew -n --agree-tos --expand $ACME_CLI_OPTIONS --dns-rfc2136 --dns-rfc2136-credentials $ACME_CLI_CONF_FILE &>/dev/null
-  retVal=$?
-  if [ $retVal -ne 0 ]; then
-    if grep -qs 'Certificate not yet due for renewal' "$ACME_CLI_LE_LOG_FILE"; then
-      printf_green "No certificates are due for renewal"
-      rm -Rf "$ACME_CLI_LE_LOG_FILE"
-      return 0
-    else
-      printf_red "Log saved to $ACME_CLI_LE_LOG_FILE"
-      exit $retVal
-    fi
-  fi
-  return $retval
+  certbot renew -n --agree-tos --expand $ACME_CLI_OPTIONS --dns-rfc2136 --dns-rfc2136-credentials $ACME_CLI_CONF_FILE 2>"$ACME_CLI_LOG_DIR/acme-cli.log" >/dev/null
+  __certbot_finalize $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __certbot_new() {
-  local retVal=0
+  __generate_domain_list
   __certbot_test certonly || { printf '%s\n' "certbot has failed" && exit 1; }
-  certbot certonly -n --agree-tos -m "$ACME_CLI_EMAIL" --expand $ACME_CLI_OPTIONS --dns-rfc2136 --dns-rfc2136-credentials $ACME_CLI_CONF_FILE $ACME_CLI_DOMAINS &>/dev/null
-  retVal=$?
+  certbot certonly -n --agree-tos -m "$ACME_CLI_EMAIL" --expand $ACME_CLI_OPTIONS --dns-rfc2136 --dns-rfc2136-credentials $ACME_CLI_CONF_FILE $ACME_CLI_DOMAIN_LIST 2>"$ACME_CLI_LOG_DIR/acme-cli.log" >/dev/null
+  __certbot_finalize $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__certbot_finalize() {
+  local retVal="${1:-0}"
   if [ $retVal -eq 0 ]; then
+    __reload_services $retVal
+    __update_certs $retVal
     rm -Rf "$ACME_CLI_LE_LOG_FILE"
   else
-    if grep -qs 'Certificate not yet due for renewal' "$ACME_CLI_LE_LOG_FILE"; then
+    if grep -qs 'Certificate not yet due for renewal' "$ACME_CLI_LE_LOG_FILE" "$ACME_CLI_LOG_DIR/acme-cli.log"; then
       printf_green "No certificates are due for renewal"
       rm -Rf "$ACME_CLI_LE_LOG_FILE"
       return 0
@@ -394,33 +378,35 @@ __certbot_new() {
     fi
   fi
   return $retval
+
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __generate_domain_list() {
-  ACME_CLI_DOMAINS="${ACME_CLI_DOMAINS:-}"
-  ACME_CLI_DOMAINS="${ACME_CLI_DOMAINS//,/ }"
-  if [ -n "$ACME_CLI_PRIMARY_DOMAIN" ] || [ -n "$ACME_CLI_DOMAIN_LIST" ]; then
-    for domain in $ACME_CLI_PRIMARY_DOMAIN $ACME_CLI_DOMAIN_LIST; do
-      ACME_CLI_DOMAINS+="-d $domain -d *.$domain "
+  ACME_CLI_DOMAIN_LIST="${ACME_CLI_DOMAIN_LIST:-}"
+  ACME_CLI_DOMAIN_LIST="${ACME_CLI_DOMAIN_LIST//,/ }"
+  if [ -n "$ACME_CLI_DOMAIN_PRIMARY" ] || [ -n "$ACME_CLI_DOMAIN_LIST" ]; then
+    for domain in $ACME_CLI_DOMAIN_PRIMARY $ACME_CLI_DOMAIN_LIST; do
+      ACME_CLI_DOMAIN_LIST+="-d $domain -d *.$domain "
       if [ -n "$ACME_CLI_SUB_LIST" ]; then
         for sub_domain in $ACME_CLI_SUB_LIST; do
-          ACME_CLI_DOMAINS+="-d *.$sub_domain.$domain "
+          ACME_CLI_DOMAIN_LIST+="-d *.$sub_domain.$domain "
         done
       fi
     done
     if [ -n "$ACME_CLI_WILD_LIST" ]; then
       for wild_domain in $ACME_CLI_WILD_LIST; do
-        ACME_CLI_DOMAINS+="-d $wild_domain "
+        ACME_CLI_DOMAIN_LIST+="-d $wild_domain "
       done
     fi
+    export ACME_CLI_DOMAIN_LIST
   else
-    printf '%s\n' "The variable ACME_CLI_PRIMARY_DOMAIN is not set"
+    printf '%s\n' "The variable ACME_CLI_DOMAIN_PRIMARY is not set"
     return 1
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __symlink() {
-  local LE_DOMAIN="/etc/letsencrypt/live/$ACME_CLI_PRIMARY_DOMAIN"
+  local LE_DOMAIN="/etc/letsencrypt/live/$ACME_CLI_DOMAIN_PRIMARY"
   local LE_FOLDER="$(find /etc/letsencrypt/live/ -mindepth 1 -maxdepth 1 -type d 2>/dev/null)"
   local LE_LINK="$(find /etc/letsencrypt/live/ -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)"
   if [ "$LE_LINK" -eq 1 ] && [ ! -e "/etc/letsencrypt/live/domain" ]; then
@@ -437,7 +423,7 @@ __service_exists() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __reload_services() {
-  local prevExit=$?
+  local prevExit="${1:-0}"
   if [ "$prevExit" -eq 0 ]; then
     __symlink
     for service in $ACME_CLI_SERVICE_RESTART; do
@@ -564,13 +550,13 @@ ACME_CLI_UPDATE_CERTS_IPS="${ACME_CLI_UPDATE_CERTS_IPS:-}"
 ACME_CLI_SERVICE_RESTART="${ACME_CLI_SERVICE_RESTART:-httpd,nginx,postfix,dovecot,proftpd,cockpit }"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ACME_CLI_HOSTNAME="${ACME_CLI_HOSTNAME:-$(hostname -f | grep '^' || echo "$HOSTNAME")}"
-ACME_CLI_PRIMARY_DOMAIN="${ACME_CLI_PRIMARY_DOMAIN:-$(hostname -d | grep '^' || echo "$ACME_CLI_HOSTNAME")}"
+ACME_CLI_DOMAIN_PRIMARY="${ACME_CLI_DOMAIN_PRIMARY:-$(hostname -d | grep '^' || echo "$ACME_CLI_HOSTNAME")}"
 ACME_CLI_WILD_LIST="${ACME_CLI_WILD_LIST:-}"
 ACME_CLI_DOMAIN_LIST="${ACME_CLI_DOMAIN_LIST:-}"
 ACME_CLI_SUB_LIST="${ACME_CLI_SUB_LIST:-}"
 ACME_CLI_DNS_KEY="${ACME_CLI_DNS_KEY:-$(grep -s 'dns_rfc2136_secret.*=' "$ACME_CLI_CONF_FILE" | awk -F '=' '{print $2}' | sed 's|^.* ||g' | grep '^')}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-ACME_CLI_DOMAINS_NEW=""
+ACME_CLI_DOMAINS_NEW=()
 ACME_CLI_SUB_LIST="${ACME_CLI_SUB_LIST//,/ }"
 ACME_CLI_WILD_LIST="${ACME_CLI_WILD_LIST//,/ }"
 ACME_CLI_DOMAIN_LIST="${ACME_CLI_DOMAIN_LIST//,/ }"
@@ -730,7 +716,7 @@ while :; do
     __options_function_yes "$@"
     ;;
   --domains)
-    ACME_CLI_DOMAINS_NEW+="$2"
+    ACME_CLI_DOMAINS_NEW+=("$2")
     shift 2
     ;;
   --)
@@ -774,7 +760,7 @@ cmd_exists --error --ask certbot || exit 3 # exit 3 if not found
 #am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
-[ -n "$ACME_CLI_DOMAINS_NEW" ] && ACME_CLI_DOMAINS="$ACME_CLI_DOMAINS_NEW"
+[ -n "${ACME_CLI_DOMAINS_NEW[*]}" ] && ACME_CLI_DOMAIN_LIST="${ACME_CLI_DOMAINS_NEW[*]}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
 [ -n "$ACME_CLI_DNS_KEY" ] || printf_exit "Please set variable ACME_CLI_DNS_KEY with your DNS auth key"
@@ -796,30 +782,24 @@ init)
 rsync)
   shift 1
   ACME_CLI_RYSNC="true"
-  __update_certs 0
+  __update_certs
   exit $?
   ;;
 renew)
-  [ -f "/etc/letsencrypt/renewal/$ACME_CLI_PRIMARY_DOMAIN" ] || printf_exit "Can not find $ACME_CLI_PRIMARY_DOMAIN config"
-  ACME_CLI_DOMAINS="${*:-$ACME_CLI_DOMAINS}"
+  [ -f "/etc/letsencrypt/renewal/$ACME_CLI_DOMAIN_PRIMARY" ] || printf_exit "Can not find $ACME_CLI_DOMAIN_PRIMARY config"
   printf_cyan "Attempting to renew certificates"
-  __gen_config &>/dev/null
-  __generate_domain_list
+  ACME_CLI_DOMAIN_LIST="${*:-$ACME_CLI_DOMAIN_LIST}"
+  [ -n "$ACME_CLI_DOMAINS_NEW" ] || __gen_config &>/dev/null
   __certbot_renew
-  __reload_services $ACME_CLI_EXIT_STATUS
-  __update_certs $ACME_CLI_EXIT_STATUS
-  exit $ACME_CLI_EXIT_STATUS
+  exit $?
   ;;
 *)
   [ "$1" = "new" ] && shift 1
-  ACME_CLI_DOMAINS="${*:-$ACME_CLI_DOMAINS}"
   printf_cyan "Attempting to create certificates"
-  __gen_config &>/dev/null
-  __generate_domain_list
+  ACME_CLI_DOMAIN_LIST="${*:-$ACME_CLI_DOMAIN_LIST}"
+  [ -n "$ACME_CLI_DOMAINS_NEW" ] || __gen_config &>/dev/null
   __certbot_new
-  __reload_services $ACME_CLI_EXIT_STATUS
-  __update_certs $ACME_CLI_EXIT_STATUS
-  exit $ACME_CLI_EXIT_STATUS
+  exit $?
   ;;
 esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

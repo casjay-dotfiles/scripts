@@ -1231,7 +1231,7 @@ install_packages() {
       done
     fi
   fi
-  [ -z "$m" ] || install_required "$m" || exitCode=1
+  [ -z "$m" ] || exitCode=1
   unset MISSING m
   return $exitCode
 }

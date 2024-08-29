@@ -387,6 +387,18 @@ printf_result() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__printf_space() {
+  local pad=$(printf '%0.1s' " "{1..60})
+  local padlength=$1
+  local string1="$2"
+  local string2="$3"
+  local message
+  message+="$(printf '%s' "$string1") "
+  message+="$(printf '%*.*s' 0 $((padlength - ${#string1} - ${#string2})) "$pad") "
+  message+="$(printf '%s\n' "$string2") "
+  printf '%s\n' "$message"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 get_answer() { printf "%s" "$REPLY"; }
 answer_is_yes() { [[ "$REPLY" =~ ^[Yy]$ ]] && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

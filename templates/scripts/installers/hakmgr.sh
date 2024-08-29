@@ -160,14 +160,22 @@ LATEST_RELEASE=""
 # Specify global packages
 GLOBAL_OS_PACKAGES="GEN_SCRIPT_REPLACE_APPNAME "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Define linux only packages
-LINUX_OS_PACKAGES=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define MacOS only packages
 MAC_OS_PACKAGES=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define Windows only packages
 WIN_OS_PACKAGES=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Define linux only packages
+LINUX_OS_PACKAGES=""
+# Define archLinux specific packages
+ARCH_OS_PACKAGES=""
+# Define redhat specific packages
+CENTOS_OS_PACKAGES=""
+# Define debian specific packages
+DEBIAN_OS_PACKAGES=""
+# Define ubuntu specific packages
+UBUNTU_OS_PACKAGES=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Specify ARCH_USER_REPO Pacakges
 AUR_PACKAGES=""

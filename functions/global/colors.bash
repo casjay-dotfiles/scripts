@@ -494,10 +494,10 @@ __counter() {
   done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# printf_space spacing color message value
+# printf_space space message value
 __printf_space() {
   test -n "$1" && test -z "${1//[0-9]/}" && local padl="$1" && shift 1 || local padl="40"
-  test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="6"
+  test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="7"
   local string1="$1"
   local string2="$2"
   local pad=$(printf '%0.1s' " "{1..60})

@@ -35,6 +35,9 @@ else
   currentVersion="${currentVersion:-$localVersion}"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+CMD="${CMD:-$APPNAME}"
+[ -d "$HOME/.local/log" ] && SYS_LOG_DIR="$HOME/.local/log" || SYS_LOG_DIR="/tmp/log"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ###################### builtins ######################
 [ -d "/usr/local/opt/gnu-getopt/bin" ] && TMPPATH="/usr/local/opt/gnu-getopt/bin:"
 TMPPATH+="$HOME/.local/share/bash/basher/cellar/bin:$HOME/.local/share/bash/basher/bin:"
@@ -45,7 +48,7 @@ PATH="$(echo "$TMPPATH" | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 's
 unset TMPPATH
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ "$UID" = "0" ] || [ "$USER" = "root" ]; then
-  export INSTALLER_LOG_DIR="/tmp/log/${SCRIPTS_PREFIX:-apps}/${APPNAME:-scripts}"
+  export INSTALLER_LOG_DIR="$SYS_LOG_DIR/${SCRIPTS_PREFIX:-apps}/${APPNAME:-scripts}"
 else
   export INSTALLER_LOG_DIR="${LOG_DIR:-$HOME/.local/log}/${SCRIPTS_PREFIX:-apps}/${APPNAME:-scripts}"
 fi

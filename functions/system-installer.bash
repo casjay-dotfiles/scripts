@@ -28,8 +28,11 @@ APPNAME="${APPNAME:-system-installer}"
 PATH="$(echo "$PATH" | tr ':' '\n' | awk '!seen[$0]++' | tr '\n' ':' | sed 's#::#:.#g')"
 export RUN_USER SUDO_USER WHOAMI USER PATH APPNAME TEMP TMP
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+CMD="${CMD:-$APPNAME}"
+[ -d "$HOME/.local/log" ] && SYS_LOG_DIR="$HOME/.local/log" || SYS_LOG_DIR="/tmp/log"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ "$UID" = "0" ] || [ "$USER" = "root" ]; then
-  export INSTALLER_LOG_DIR="/tmp/log/${SCRIPTS_PREFIX:-apps}/${APPNAME:-scripts}"
+  export INSTALLER_LOG_DIR="$SYS_LOG_DIR/${SCRIPTS_PREFIX:-apps}/${APPNAME:-scripts}"
 else
   export INSTALLER_LOG_DIR="${LOG_DIR:-$HOME/.local/log}/${SCRIPTS_PREFIX:-apps}/${APPNAME:-scripts}"
 fi

@@ -92,8 +92,23 @@ dockermgr_req_version "$APPVERSION"
 __sudo_root() { [ "$DOCKERMGR_USER_CAN_SUDO" = "true" ] && sudo "$@" || { [ "$USER" = "root" ] && eval "$*"; } || eval "$*" 2>/dev/null || return 1; }
 __sudo_exec() { [ "$DOCKERMGR_USER_CAN_SUDO" = "true" ] && sudo -HE "$@" || { [ "$USER" = "root" ] && eval "$*"; } || eval "$*" 2>/dev/null || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__printf_spacing_file() { printf "%-${1:-30}s%s\n" "${2}" "${3}"; }
-__printf_spacing_color() { printf "%b%-${2:?Please set spacing number}s%s%b\n" "$(tput setaf "${1:?Please set color number}" 2>/dev/null)" "${3:?Please set left content}" "${4:- }" "$(tput sgr0 2>/dev/null)"; }
+# printf_space spacing color message value
+__printf_space() {
+  test -n "$1" && test -z "${1//[0-9]/}" && local padl="$1" && shift 1 || local padl="40"
+  test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="6"
+  local string1="$1"
+  local string2="$2"
+  local pad=$(printf '%0.1s' " "{1..60})
+  local message="$(printf "%b" "$(tput setaf "$color" 2>/dev/null)")"
+  message+="$(printf '%s' "$string1") "
+  message+="$(printf '%*.*s' 0 $((padl - ${#string1} - ${#string2})) "$pad") "
+  message+="$(printf '%s' "$string2") "
+  message+="$(printf '%b\n' "$(tput sgr0 2>/dev/null)")"
+  printf '%s\n' "$message"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__printf_spacing_file() { __printf_space "$1" "7" "$2" "$3"; }
+__printf_spacing_color() { __printf_space "$1" "$2" "$3" "$4"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cmd_exists() { type -P $1 &>/dev/null || return 1; }
 __remove_extra_spaces() { sed 's/\( \)*/\1/g;s|^ ||g'; }

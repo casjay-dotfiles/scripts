@@ -121,9 +121,9 @@ __service_exists() { __system_service_exists "$1" || return 1; }
 __service_is_active() { systemctl is-enabled $1 2>&1 | grep -qiw 'enabled' || return 1; }
 __service_is_running() { systemctl is-active $1 2>&1 | grep -qiw 'active' || return 1; }
 __system_service_exists() { systemctl status "$1" 2>&1 | grep 'Loaded:' | grep -iq "$1" && return 0 || return 1; }
+__system_service_enable() { systemctl status "$1" 2>&1 | grep -iq 'inactive' && systemctl enable --now "$1" || return 1; }
+__system_service_disable() { systemctl status "$1" 2>&1 | grep -iq 'active' && systemctl disable --now "$1" || return 1; }
 __system_service_active() { (systemctl is-enabled "$1" || systemctl is-active "$1") | grep -qiE 'enabled|active' || return 1; }
-__system_service_enable() { systemctl status "$1" 2>&1 | grep -iq 'inactive' && execute "systemctl enable --now $1" "Enabling service: $1" || return 1; }
-__system_service_disable() { systemctl status "$1" 2>&1 | grep -iq 'active' && execute "systemctl disable --now $1" "Disabling service: $1" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_user_name() { grep ':' /etc/passwd | awk -F ':' '{print $1}' | sort -u | grep "^${1:-root}$" || return 1; }
 __get_user_group() { grep ':' /etc/group | awk -F ':' '{print $1}' | sort -u | grep "^${1:-root}$" || return 1; }

@@ -120,9 +120,9 @@ __does_container_exist() { [ -n "$(command -v docker 2>/dev/null)" ] && docker p
 __service_exists() { __system_service_exists "$1" || return 1; }
 __service_is_active() { systemctl is-enabled $1 2>&1 | grep -qiw 'enabled' || return 1; }
 __service_is_running() { systemctl is-active $1 2>&1 | grep -qiw 'active' || return 1; }
+__system_service_enable() { __system_service_exists "$1" systemctl enable --now "$1" 2>&1 || return 1; }
+__system_service_disable() { __system_service_exists "$1" && systemctl disable --now "$1" || return 1; }
 __system_service_exists() { systemctl status "$1" 2>&1 | grep 'Loaded:' | grep -iq "$1" && return 0 || return 1; }
-__system_service_enable() { systemctl status "$1" 2>&1 | grep -iq 'inactive' && systemctl enable --now "$1" || return 1; }
-__system_service_disable() { systemctl status "$1" 2>&1 | grep -iq 'active' && systemctl disable --now "$1" || return 1; }
 __system_service_active() { (systemctl is-enabled "$1" || systemctl is-active "$1") | grep -qiE 'enabled|active' || return 1; }
 __system_service_start() { __system_service_active "$1" && systemctl restart "$1" || { __system_service_exists && systemctl start "$1"; } || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

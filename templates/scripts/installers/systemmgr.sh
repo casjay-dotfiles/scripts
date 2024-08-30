@@ -122,7 +122,7 @@ __system_service_enable() { __system_service_exists "$1" && \systemctl enable --
 __system_service_disable() { __system_service_exists "$1" && \systemctl disable --now "$1" || return 1; }
 __system_service_exists() { \systemctl list-unit-files 2>&1 | awk '{print $1}' | grep -q "^$1\." && return 0 || return 1; }
 __system_service_active() { (\systemctl is-enabled "$1" || \systemctl is-active "$1") | grep -qiE 'enabled|active' || return 1; }
-__system_service_start() { __system_service_active "$1" && \systemctl restart "$1" || { __system_service_exists && \systemctl start "$1"; } || return 1; }
+__system_service_start() { __system_service_active "$1" && \systemctl restart "$1" || { __system_service_exists "$1" && \systemctl start "$1"; } || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_user_name() { grep ':' /etc/passwd | awk -F ':' '{print $1}' | sort -u | grep "^${1:-root}$" || return 1; }
 __get_user_group() { grep ':' /etc/group | awk -F ':' '{print $1}' | sort -u | grep "^${1:-root}$" || return 1; }

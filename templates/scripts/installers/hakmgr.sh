@@ -117,12 +117,12 @@ __replace_all() { [ -n "$3" ] && [ -e "$3" ] && find "$3" -not -path "$3/.git/*"
 __kill_process_name() { local pid="$(pidof "$1" 2>/dev/null)" && { [ -z "$pid" ] || { kill -19 $pid &>/dev/null && ! __app_is_running "$1" && return 0; } || kill -9 $pid &>/dev/null; } || return 1; }
 __does_container_exist() { [ -n "$(command -v docker 2>/dev/null)" ] && docker ps -a | awk '{print $NF}' | grep -v '^NAMES$' | grep -q "$1" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__system_service_running() { systemctl is-active $1 2>&1 | grep -qiw 'active' || return 1; }
-__system_service_enable() { __system_service_exists "$1" && systemctl enable --now "$1" || return 1; }
-__system_service_disable() { __system_service_exists "$1" && systemctl disable --now "$1" || return 1; }
-__system_service_exists() { systemctl status "$1" 2>&1 | grep 'Loaded:' | grep -iq "$1" && return 0 || return 1; }
-__system_service_active() { (systemctl is-enabled "$1" || systemctl is-active "$1") | grep -qiE 'enabled|active' || return 1; }
-__system_service_start() { __system_service_active "$1" && systemctl restart "$1" || { __system_service_exists && systemctl start "$1"; } || return 1; }
+__system_service_running() { \systemctl is-active $1 2>&1 | grep -qiw 'active' || return 1; }
+__system_service_enable() { __system_service_exists "$1" && \systemctl enable --now "$1" || return 1; }
+__system_service_disable() { __system_service_exists "$1" && \systemctl disable --now "$1" || return 1; }
+__system_service_exists() { \systemctl list-unit-files 2>&1 | awk '{print $1}' | grep -q "^$1\." && return 0 || return 1; }
+__system_service_active() { (\systemctl is-enabled "$1" || \systemctl is-active "$1") | grep -qiE 'enabled|active' || return 1; }
+__system_service_start() { __system_service_active "$1" && \systemctl restart "$1" || { __system_service_exists && \systemctl start "$1"; } || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_user_name() { grep ':' /etc/passwd | awk -F ':' '{print $1}' | sort -u | grep "^${1:-root}$" || return 1; }
 __get_user_group() { grep ':' /etc/group | awk -F ':' '{print $1}' | sort -u | grep "^${1:-root}$" || return 1; }

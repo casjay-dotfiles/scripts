@@ -27,9 +27,7 @@ __system_service_active() {
 __system_service_running() {
   local exitCode=0
   for service in "$@"; do
-    if ! systemctl status $service 2>/dev/null | grep -Fq running; then
-      exitCode=$(exitCode++)
-    fi
+    ! systemctl status $service 2>/dev/null | grep -Fq running || exitCode=$((exitCode++))
   done
   return ${exitCode:-0}
 }
@@ -38,8 +36,7 @@ __system_service_running() {
 __system_service_exists() {
   local exitCode=0
   for service in "$@"; do
-    if sudo systemctl list-unit-files | grep -qwF "$service"; then true; else false; fi
-    exitCode=$(($? + exitCode))
+    sudo systemctl list-unit-files 2>&1 | awk '{print $1}' | grep -q "^$service\." || exitCode=$((exitCode++))
   done
   set --
   return ${exitCode:-0}
@@ -49,8 +46,7 @@ __system_service_exists() {
 __system_service_enable() {
   local exitCode=0
   for service in "$@"; do
-    if __system_service_exists "$service"; then "sudo systemctl enable --now -f $service" &>/dev/null; fi
-    exitCode=$(($? + exitCode))
+    __system_service_exists "$service" && sudo systemctl enable --now -f $service &>/dev/null || exitCode=$((exitCode++))
   done
   set --
   return ${exitCode:-0}
@@ -60,8 +56,7 @@ __system_service_enable() {
 __system_service_disable() {
   local exitCode=0
   for service in "$@"; do
-    if __system_service_exists "$service"; then "sudo systemctl disable --now -f $service" &>/dev/null; fi
-    exitCode=$(($? + exitCode))
+    __system_service_exists "$service" && sudo systemctl disable --now -f $service &>/dev/null || exitCode=$((exitCode++))
   done
   set --
   return ${exitCode:-0}
@@ -71,8 +66,7 @@ __system_service_disable() {
 __system_service_start() {
   local exitCode=0
   for service in "$@"; do
-    if __system_service_exists "$service"; then "sudo systemctl start $service" &>/dev/null; fi
-    exitCode=$(($? + exitCode))
+    __system_service_exists "$service" && sudo systemctl start $service &>/dev/null || exitCode=$((exitCode++))
   done
   set --
   return ${exitCode:-0}
@@ -82,8 +76,7 @@ __system_service_start() {
 __system_service_stop() {
   local exitCode=0
   for service in "$@"; do
-    if __system_service_exists "$service"; then "sudo systemctl stop $service" &>/dev/null; fi
-    exitCode=$(($? + exitCode))
+    __system_service_exists "$service" && sudo systemctl stop $service &>/dev/null || exitCode=$((exitCode++))
   done
   set --
   return ${exitCode:-0}
@@ -93,8 +86,7 @@ __system_service_stop() {
 __system_service_restart() {
   local exitCode=0
   for service in "$@"; do
-    if __system_service_exists "$service"; then "sudo systemctl restart $service" &>/dev/null; fi
-    exitCode=$(($? + exitCode))
+    __system_service_exists "$service" && sudo systemctl restart $service &>/dev/null || exitCode=$((exitCode++))
   done
   set --
   return ${exitCode:-0}

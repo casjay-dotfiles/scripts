@@ -373,27 +373,29 @@ __symlink() {
 __file_copy() {
   local from="$1"
   local dest="$2"
-  if [ -n "$from" ] && [ -e "$from" ] && [ -n "$dest" ]; then
-    if [ -d "$from" ]; then
-      if cp -Rf "$from/." "$dest/" &>/dev/null; then
-        printf '%s\n' "Copied: $from > $dest"
-        return 0
+  if [ "$from" != "$dest" ]; then
+    if [ -n "$from" ] && [ -e "$from" ] && [ -n "$dest" ]; then
+      if [ -d "$from" ]; then
+        if cp -Rf "$from/." "$dest/" &>/dev/null; then
+          printf '%s\n' "Copied: $from > $dest"
+          return 0
+        else
+          printf '%s\n' "Copy failed: $from < $dest" >&2
+          return 1
+        fi
       else
-        printf '%s\n' "Copy failed: $from < $dest" >&2
-        return 1
+        if cp -Rf "$from" "$dest" &>/dev/null; then
+          printf '%s\n' "Copied: $from > $dest"
+          return 0
+        else
+          printf '%s\n' "Copy failed: $from < $dest" >&2
+          return 1
+        fi
       fi
     else
-      if cp -Rf "$from" "$dest" &>/dev/null; then
-        printf '%s\n' "Copied: $from > $dest"
-        return 0
-      else
-        printf '%s\n' "Copy failed: $from < $dest" >&2
-        return 1
-      fi
+      printf '%s\n' "$from does not exist" >&2
+      return 2
     fi
-  else
-    printf '%s\n' "$from does not exist" >&2
-    return 2
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -549,13 +551,28 @@ __create_service_user() {
   fi
   grep -qs "$create_group" "/etc/group" || exitStatus=$((exitCode + 1))
   grep -qs "$create_user" "/etc/passwd" || exitStatus=$((exitCode + 1))
-  [ $exitStatus -eq 0 ] && export WORK_DIR="${create_home_dir:-}"
-  if [ -n "$WORK_DIR" ]; then
-    [ -d "$WORK_DIR" ] || mkdir -p "$WORK_DIR"
-    [ -d "/etc/.skel" ] && cp -Rf /etc/.skel/. "$WORK_DIR/"
+  if [ $exitStatus -eq 0 ]; then
+    export WORK_DIR="${create_home_dir:-}"
+    if [ -n "$WORK_DIR" ]; then
+      [ -d "$WORK_DIR" ] || mkdir -p "$WORK_DIR"
+      [ -d "/etc/.skel" ] && cp -Rf /etc/.skel/. "$WORK_DIR/"
+    fi
+    if [ -d "/etc/sudoers.d" ] && [ ! -f "/etc/sudoers.d/$create_user" ]; then
+      echo "$create_user ALL=(ALL)   NOPASSWD: ALL" >"/etc/sudoers.d/$create_user"
+    elif [ -f "/etc/sudoers" ] && grep -qs "$create_user" "/etc/sudoers"; then
+      echo "$create_user ALL=(ALL)   NOPASSWD: ALL" >"/etc/sudoers"
+    fi
+    export SERVICE_UID="$create_uid"
+    export SERVICE_GID="$create_gid"
+    export SERVICE_USER="$create_user"
+    export SERVICE_GROUP="$create_group"
+  else
+    export USER_UID=0
+    export USER_GID=0
+    export SERVICE_USER=root
+    export SERVICE_GROUP=root
+    exitStatus=2
   fi
-  export SERVICE_UID="$create_uid" SERVICE_GID="$create_gid"
-  export SERVICE_USER="$create_user" SERVICE_GROUP="$create_group"
   return $exitStatus
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -580,19 +597,19 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __exec_command() {
-  local arg=("$@")
   local bin=""
+  local arg=("$@")
   local exitCode="0"
   local cmdExec="${arg:-}"
   local pre_exec="--login -c"
-  local shell="$(type -P bash 2>/dev/null || type -P sh 2>/dev/null)"
-  bin="$(echo "${arg[@]}" | tr ' ' '\n' | grep -v '^$' | head -n1 || echo 'bash')"
+  local shell="$(type -P bash 2>/dev/null || type -P dash 2>/dev/null || type -P ash 2>/dev/null || type -P sh 2>/dev/null)"
+  bin="$(echo "${arg[*]}" | tr ' ' '\n' | grep -v '^$' | head -n1 | sed 's| ||g' || echo 'bash')"
   prog="$(type -P "$bin" 2>/dev/null || echo "$bin")"
-  if [ -f "$prog" ] && [ -x "$prog" ]; then
+  if type -t $bin >/dev/null 2>&1; then
     echo "${exec_message:-Executing command: $cmdExec}"
     eval $shell $pre_exec "$cmdExec" || exitCode=1
     exitCode=$?
-  elif [ -f "$prog" ] && [ ! -x "$prog" ]; then
+  elif [ -f "$prog" ]; then
     echo "$prog is not executable"
     exitCode=98
   else
@@ -621,27 +638,25 @@ __start_init_scripts() {
     while :; do echo "Running: $(date)" >"/data/logs/init/keep_alive" && sleep 3600; done &
   else
     if [ -d "$init_dir" ]; then
-      chmod -Rf 755 "$init_dir/"
       [ -f "$init_dir/service.sample" ] && rm -Rf "$init_dir"/*.sample
+      chmod -Rf 755 "$init_dir"/*.sh
       for init in "$init_dir"/*.sh; do
-        if [ -f "$init" ]; then
+        if [ -x "$init" ]; then
           name="$(basename "$init")"
           service="$(printf '%s' "$name" | sed 's/^[^-]*-//;s|.sh$||g')"
           printf '# - - - executing file: %s\n' "$init"
-          "$init"
+          eval "$init" && sleep 5 || sleep 3
           retPID=$(__get_pid "$service")
           if [ -n "$retPID" ]; then
             initStatus="0"
-            sleep 20
             printf '# - - - %s has been started - pid: %s\n' "$service" "${retPID:-error}"
           else
             initStatus="1"
-            sleep 10
             printf '# - - - %s has falied to start - check log %s\n' "$service" "docker log $CONTAINER_NAME"
           fi
           echo ""
         fi
-        retstatus=$(($initStatus + $initStatus))
+        retstatus=$(($retstatus + $initStatus))
       done
     fi
   fi

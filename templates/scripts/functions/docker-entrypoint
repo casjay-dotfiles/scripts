@@ -203,14 +203,16 @@ __display_user_info() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __init_config_etc() {
-  local COPY="no"
-  __is_dir_empty "$CONF_DIR" && COPY=yes
-  if [ ! -d "$CONF_DIR" ] || [ "$COPY" = "yes" ]; then
-    if [ -d "$ETC_DIR" ]; then
-      mkdir -p "$CONF_DIR"
-      __copy_templates "$ETC_DIR/." "$CONF_DIR/"
+  local copy="no"
+  local etc_dir="${ETC_DIR:-/etc}"
+  local conf_dir="${CONF_DIR:-/config}"
+  __is_dir_empty "$conf_dir" && copy=yes
+  if [ "$copy" = "yes" ]; then
+    if [ -d "$etc_dir" ]; then
+      mkdir -p "$conf_dir"
+      __copy_templates "$etc_dir/." "$conf_dir/"
     else
-      __copy_templates "$ETC_DIR" "$CONF_DIR"
+      __copy_templates "$etc_dir" "$conf_dir"
     fi
   fi
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -773,16 +775,7 @@ EOF
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __initialize_web_health() {
   local www_dir="${1:-${WWW_ROOT_DIR:-/usr/share/httpd/default}}"
-  [ $# -eq 1 ] && [ -d "$www_dir" ] || return 1
-  if ! echo "$www_dir" | grep -q '/usr/share/httpd'; then
-    [ -d "$www_dir/health" ] || mkdir -p "$www_dir/health"
-    [ -f "$www_dir/health/index.txt" ] || echo 'OK' >"$www_dir/health/index.txt"
-    [ -f "$www_dir/health/index.json" ] || echo '{ "status": "OK" }' >"$www_dir/health/index.json"
-    __find_replace "REPLACE_CONTAINER_IP4" "${REPLACE_CONTAINER_IP4:-127.0.0.1}" "$www_dir"
-    __find_replace "REPLACE_COPYRIGHT_FOOTER" "${COPYRIGHT_FOOTER:-Copyright 1999 - $(date +'%Y')}" "$www_dir"
-    __find_replace "REPLACE_LAST_UPDATED_ON_MESSAGE" "${LAST_UPDATED_ON_MESSAGE:-$(date +'Last updated on: %Y-%m-%d at %H:%M:%S')}" "$www_dir"
-  fi
-  if [ -d "/usr/share/httpd" ]; then
+  if [ -d "$www_dir" ]; then
     __find_replace "REPLACE_CONTAINER_IP4" "${REPLACE_CONTAINER_IP4:-127.0.0.1}" "/usr/share/httpd"
     __find_replace "REPLACE_COPYRIGHT_FOOTER" "${COPYRIGHT_FOOTER:-Copyright 1999 - $(date +'%Y')}" "/usr/share/httpd"
     __find_replace "REPLACE_LAST_UPDATED_ON_MESSAGE" "${LAST_UPDATED_ON_MESSAGE:-$(date +'Last updated on: %Y-%m-%d at %H:%M:%S')}" "/usr/share/httpd"
@@ -983,16 +976,20 @@ __initialize_www_root() {
     cp -Rf "$DEFAULT_DATA_DIR/data/htdocs/." "$WWW_ROOT_DIR/" 2>/dev/null
   fi
   __initialize_web_health "$WWW_ROOT_DIR"
-  find "$WWW_ROOT_DIR" -type d -exec chmod -f 777 {} \; 2>/dev/null
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __is_htdocs_mounted() {
-  echo "$IMPORT_FROM_GIT" | grep -qE 'https://|http://|git://|ssh://' || unset IMPORT_FROM_GIT
-  if [ -n "$IMPORT_FROM_GIT" ] && [ "$(command -v "git")" ]; then
-    WWW_ROOT_DIR="${WWW_ROOT_DIR:-/data/htdocs}"
-    __is_dir_empty "$WWW_ROOT_DIR" || WWW_ROOT_DIR="/data/wwwroot"
-    echo "Importing project from $IMPORT_FROM_GIT to $WWW_ROOT_DIR"
-    git clone -q "$IMPORT_FROM_GIT" "$WWW_ROOT_DIR"
+  WWW_ROOT_DIR="${WWW_ROOT_DIR:-/data/htdocs}"
+  [ -n "$ENV_WWW_ROOT_DIR" ] && WWW_ROOT_DIR="$ENV_WWW_ROOT_DIR"
+  [ -n "$IMPORT_FROM_GIT" ] && echo "$IMPORT_FROM_GIT" | grep -qE 'https://|http://|git://|ssh://' || unset IMPORT_FROM_GIT
+  if [ -n "$IMPORT_FROM_GIT" ] && [ "$(command -v "git" 2>/dev/null)" ]; then
+    if __is_dir_empty "$WWW_ROOT_DIR"; then
+      echo "Importing project from $IMPORT_FROM_GIT to $WWW_ROOT_DIR"
+      git clone -q "$IMPORT_FROM_GIT" "$WWW_ROOT_DIR"
+    elif [ -d "$WWW_ROOT_DIR" ]; then
+      echo "Updating the project in $WWW_ROOT_DIR"
+      git -C pull -q "$WWW_ROOT_DIR"
+    fi
   elif [ -d "/app" ]; then
     WWW_ROOT_DIR="/app"
   elif [ -d "/data/htdocs/www" ]; then
@@ -1003,9 +1000,8 @@ __is_htdocs_mounted() {
     WWW_ROOT_DIR="/data/htdocs"
   elif [ -d "/data/wwwroot" ]; then
     WWW_ROOT_DIR="/data/wwwroot"
-  else
-    WWW_ROOT_DIR="${ENV_WWW_ROOT_DIR:-$WWW_ROOT_DIR}"
   fi
+  [ -d "$WWW_ROOT_DIR" ] || mkdir -p "$WWW_ROOT_DIR"
   export WWW_ROOT_DIR="${WWW_ROOT_DIR:-/usr/share/httpd/default}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1049,28 +1045,24 @@ __check_service() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __switch_to_user() {
-  if [ "$RUNAS_USER" = "roo t" ]; then
-    su_cmd() {
-      su_exec=""
-      eval "$@" || return 1
-    }
+  if [ "$RUNAS_USER" = "root" ]; then
+    su_exec=""
+    su_cmd() { eval "$@" || return 1; }
   elif [ "$(builtin type -P gosu)" ]; then
     su_exec="gosu $RUNAS_USER"
-    su_cmd() { gosu $RUNAS_USER "$@" || return 1; }
+    su_cmd() { $su_exec "$@" || return 1; }
   elif [ "$(builtin type -P runuser)" ]; then
     su_exec="runuser -u $RUNAS_USER"
-    su_cmd() { runuser -u $RUNAS_USER "$@" || return 1; }
+    su_cmd() { $su_exec "$@" || return 1; }
   elif [ "$(builtin type -P sudo)" ]; then
     su_exec="sudo -u $RUNAS_USER"
-    su_cmd() { sudo -u $RUNAS_USER "$@" || return 1; }
+    su_cmd() { $su_exec "$@" || return 1; }
   elif [ "$(builtin type -P su)" ]; then
     su_exec="su -s /bin/sh - $RUNAS_USER"
-    su_cmd() { su -s /bin/sh - $RUNAS_USER -c "$@" || return 1; }
+    su_cmd() { $su_exec -c "$@" || return 1; }
   else
-    su_cmd() {
-      su_exec=""
-      echo "Can not switch to $RUNAS_USER: attempting to run as root" && eval "$@" || return 1
-    }
+    su_exec=""
+    su_cmd() { echo "Can not switch to $RUNAS_USER: attempting to run as root" && eval "$@" || return 1; }
   fi
   export su_exec
 }

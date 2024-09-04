@@ -1257,11 +1257,11 @@ install_packages() {
       printf_warning "$MISSING"
       for miss in $MISSING; do
         execute "pkmgr --enable-log silent install $miss" "Installing $miss" || false
-        [ $? -eq 0 ] && __saved_file_create "$miss"
+        [ $? -eq 0 ] && __saved_file_create "$miss" || rm_rf "/usr/local/etc/pkmgr/lists/$cmd"
       done
     fi
   fi
-  [ -z "$m" ] || install_required "$m" || exitCode=1
+  [ -z "$m" ] || exitCode=1
   unset MISSING m
   return $exitCode
 }

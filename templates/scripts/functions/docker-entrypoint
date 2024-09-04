@@ -367,7 +367,7 @@ __copy_templates() {
 __symlink() {
   local from="$1" to="$2"
   if [ -e "$to" ]; then
-    [ -e "$from" ] && rm -rf "$from"
+    [ -e "$from" ] && __rm "$from"
     ln -sf "$to" "$from" && echo "Created symlink to $from > $to"
   fi
 }
@@ -640,7 +640,7 @@ __start_init_scripts() {
     while :; do echo "Running: $(date)" >"/data/logs/init/keep_alive" && sleep 3600; done &
   else
     if [ -d "$init_dir" ]; then
-      [ -f "$init_dir/service.sample" ] && rm -Rf "$init_dir"/*.sample
+      [ -f "$init_dir/service.sample" ] && __rm "$init_dir"/*.sample
       chmod -Rf 755 "$init_dir"/*.sh
       for init in "$init_dir"/*.sh; do
         if [ -x "$init" ]; then
@@ -681,7 +681,7 @@ __setup_mta() {
   ################# sSMTP relay setup
   if [ -n "$(type -P 'ssmtp')" ]; then
     [ -d "/config/ssmtp" ] || mkdir -p "/config/ssmtp"
-    [ -f "/etc/ssmtp/ssmtp.conf" ] && rm -Rf "/etc/ssmtp/ssmtp.conf"
+    [ -f "/etc/ssmtp/ssmtp.conf" ] && __rm "/etc/ssmtp/ssmtp.conf"
     symlink_files="$(__find_file_relative "/config/ssmtp")"
     if [ ! -f "/config/ssmtp/ssmtp.conf" ]; then
       cat <<EOF | tee -p "/config/ssmtp/ssmtp.conf" >/dev/null
@@ -721,7 +721,7 @@ EOF
   elif [ -n "$(type -P 'postfix')" ]; then
     [ -d "/etc/postfix" ] || mkdir -p "/etc/postfix"
     [ -d "/config/postfix" ] || mkdir -p "/config/postfix"
-    [ -f "/etc/postfix/main.cf" ] && rm -Rf "/etc/postfix/main.cf"
+    [ -f "/etc/postfix/main.cf" ] && __rm "/etc/postfix/main.cf"
     symlink_files="$(__find_file_relative "/config/postfix")"
     if [ ! -f "/config/postfix/main.cf" ]; then
       cat <<EOF | tee -p "/config/postfix/main.cf" >/dev/null
@@ -769,7 +769,7 @@ EOF
       echo "Done setting up postfix"
     fi
   fi
-  [ -f "/root/dead.letter" ] && rm -Rf "/root/dead.letter"
+  [ -f "/root/dead.letter" ] && __rm "/root/dead.letter"
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -880,7 +880,7 @@ __initialize_system_etc() {
     for f in $files; do
       etc_file="/etc/$f"
       conf_file="/config/$f"
-      [ -f "$etc_file" ] && rm -Rf "$etc_file"
+      [ -f "$etc_file" ] && __rm "$etc_file"
       __symlink "$etc_file" "$conf_file"
       __initialize_replace_variables "$etc_file"
     done
@@ -1067,6 +1067,44 @@ __switch_to_user() {
   export su_exec
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# usage backup "days" "hours"
+__backup() {
+  local dirs="" backup_dir backup_name backup_exclude runTime cronTime maxDays
+  test -n "$1" && test -z "${1//[0-9]/}" && maxDays="$1" && shift 1 || maxDays="7"
+  test -n "$1" && test -z "${1//[0-9]/}" && cronTime="$1" && shift 1 || cronTime=""
+  local exitCodeP=0
+  local exitStatus=0
+  local pidFile="/run/backup.pid"
+  local logDir="/data/log/backups"
+  maxDays="${BACKUP_MAX_DAYS:-$maxDays}"
+  cronTime="${BACKUP_RUN_CRON:-$cronTime}"
+  backup_dir="$BACKUP_DIR/$(date +'%y/%m')"
+  backup_name="$(date +'%d_%H-%M').tar.gz"
+  backup_exclude="/data/logs $BACKUP_DIR $BACK_EXCLUDE_DIR"
+  [ -d "/data" ] && dirs+="/data "
+  [ -d "/config" ] && dirs+="/config "
+  [ -d "$logDir" ] || mkdir -p "$logDir"
+  [ -d "$backup_dir" ] || mkdir -p "$backup_dir"
+  [ -z "$dirs" ] && echo "BACKUP_DIR is unset" >&2 && return 1
+  [ -f "$pidFile" ] && echo "A backup job is already running" >&2 && return 1
+  echo "$$" >"$pidFile"
+  echo "Starting backup in $(date)" >>"$logDir/$CONTAINER_NAME"
+  tar --exclude $backup_exclude cfvz "$backup_dir/$backup_name" $dirs 2>/dev/stderr >>"$logDir/$CONTAINER_NAME" || exitCodeP=1
+  if [ $exitCodeP -eq 0 ]; then
+    echo "Backup has completed and saved to: $backup_dir/$backup_name"
+    printf '%s\n\n' "Backup has completed on $(date)" >>"$logDir/$CONTAINER_NAME"
+  else
+    __rm "${backup_dir:?}/$backup_name"
+    echo "Backup has failed - log file saved to: $logDir/$CONTAINER_NAME" >&2
+    printf '%s\n\n' "Backup has completed on $(date)" >>"$logDir/$CONTAINER_NAME"
+    exitStatus=1
+  fi
+  [ -f "$pidFile" ] && __rm "$pidFile"
+  [ -n "$maxDays" ] && find "$BACKUP_DIR"* -mtime +$maxDays -exec rm -Rf {} \; >/dev/null 2>&1
+  [ -n "$cronTime" ] && runTime=$((cronTime * 3600)) || return $exitStatus
+  sleep $runTime && __backup "$maxDays" "$cronTime"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # set variables from function calls
 export INIT_DATE="${INIT_DATE:-$(date)}"
 export START_SERVICES="${START_SERVICES:-yes}"
@@ -1086,11 +1124,15 @@ export SSL_DIR="${SSL_DIR:-/config/ssl}"
 export SSL_CA="${SSL_CERT:-/config/ssl/ca.crt}"
 export SSL_KEY="${SSL_KEY:-/config/ssl/localhost.pem}"
 export SSL_CERT="${SSL_CERT:-/config/ssl/localhost.crt}"
-export BACKUP_DIR="${BACKUP_DIR:-/data/backups}"
 export LOCAL_BIN_DIR="${LOCAL_BIN_DIR:-/usr/local/bin}"
 export DEFAULT_DATA_DIR="${DEFAULT_DATA_DIR:-/usr/local/share/template-files/data}"
 export DEFAULT_CONF_DIR="${DEFAULT_CONF_DIR:-/usr/local/share/template-files/config}"
 export DEFAULT_TEMPLATE_DIR="${DEFAULT_TEMPLATE_DIR:-/usr/local/share/template-files/defaults}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Backup settings
+export BACKUP_MAX_DAYS="${BACKUP_MAX_DAYS:-}"
+export BACKUP_RUN_CRON="${BACKUP_RUN_CRON:-}"
+export BACKUP_DIR="${BACKUP_DIR:-/data/backups}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 CONTAINER_IP4_ADDRESS="${CONTAINER_IP4_ADDRESS:-$(__get_ip4)}"
 CONTAINER_IP6_ADDRESS="${CONTAINER_IP6_ADDRESS:-$(__get_ip6)}"

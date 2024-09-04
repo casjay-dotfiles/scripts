@@ -767,8 +767,9 @@ __test_public_reachable() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_docker_script() {
   [ -n "$EXECUTE_DOCKER_CMD" ] || return
-  local replace_with="$HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS"
-  local exec_docker_cmd="$(echo "$EXECUTE_DOCKER_CMD" | grep -v '^$' | sed 's/ --/\n  --/g;s| -d| -d \\|g' | grep -v '^$' | sed '/  --/ s/$/ \\/' | grep '^')"
+  local replace_with exec_docker_cmd create_docker_script_message_pre create_docker_script_message_post
+  replace_with="$HUB_IMAGE_URL:$HUB_IMAGE_TAG $CONTAINER_COMMANDS"
+  exec_docker_cmd="$(echo "$EXECUTE_DOCKER_CMD" | grep -v '^$' | sed 's/ --/\n  --/g;s| -d| -d \\|g' | grep -v '^$' | sed '/  --/ s/$/ \\/' | grep '^')"
   create_docker_script_message_pre="${create_docker_script_message_pre:-Failed to execute $EXECUTE_PRE_INSTALL}"
   create_docker_script_message_post="${create_docker_script_message_post:-Failed to create $CONTAINER_NAME}"
   cat <<EOF | tee -p "$DOCKERMGR_INSTALL_SCRIPT" >/dev/null
@@ -802,7 +803,6 @@ exit 0
 # end script
 
 EOF
-  unset create_docker_script_message_pre create_docker_script_message_post
   [ -f "$DOCKERMGR_INSTALL_SCRIPT" ] || return 1
   sed -i 's| '$HUB_IMAGE_URL':'$HUB_IMAGE_TAG' .*\\| \\|g' "$DOCKERMGR_INSTALL_SCRIPT"
   chmod -Rf 755 "$DOCKERMGR_INSTALL_SCRIPT"
@@ -2182,7 +2182,10 @@ if [ "$INIT_SCRIPT_ONLY" = "false" ] && [ -n "$EXECUTE_DOCKER_SCRIPT" ]; then
   EXECUTE_PRE_INSTALL="$(__trim "${EXECUTE_PRE_INSTALL//||*/}")"
   EXECUTE_DOCKER_SCRIPT="$(__trim "${EXECUTE_DOCKER_SCRIPT//||*/}")"
   __printf_color "6" "Updating the image from $HUB_IMAGE_URL with tag $HUB_IMAGE_TAG"
-  eval "$EXECUTE_PRE_INSTALL" 2>"${TMP:-/tmp}/$APPNAME.err.log" >/dev/null
+  if [ -n "$EXECUTE_PRE_INSTALL" ]; then
+    __printf_color "6" "Executing pre-install command"
+    eval "$EXECUTE_PRE_INSTALL" 2>"${TMP:-/tmp}/$APPNAME.err.log" >/dev/null
+  fi
   __printf_color "6" "Creating container $CONTAINER_NAME"
   if eval $EXECUTE_DOCKER_SCRIPT $CONTAINER_COMMANDS 2>"${TMP:-/tmp}/$APPNAME.err.log" >/dev/null; then
     sleep 10
@@ -2521,8 +2524,8 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
         unset type
         if [ "$set_listen_on_all" = "yes" ]; then
           for custom_port in $set_listen_port; do
-            set_custom_port="$(echo "$custom_port" | awk -F ':' '{print $2}')"
-            set_custom_service="$(echo "$custom_port" | awk -F ':' '{print $1}')"
+            set_custom_port="$(echo "$custom_port" | awk -F ':' '{print $2}' | grep '^' || echo "${custom_port//*:/}")"
+            set_custom_service="$(echo "$custom_port" | awk -F ':' '{print $1}' | grep '^' || echo "$set_custom_port")"
             __printf_spacing_color "6" "40" "Port $set_custom_service is mapped to:" "$set_custom_port"
           done
           create_service="${create_service//$custom_port/} "

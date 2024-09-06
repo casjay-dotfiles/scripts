@@ -200,6 +200,8 @@ __help() { #* list start restore create new delete ip ssh open
   __printf_line "ip [name]                       - IP"
   __printf_line "ssh [name]                      - SSH"
   __printf_line "open [name]                     - Open"
+  __printf_line "init                            - Install and setup virtualization"
+  __printf_line "setup                           - Setup virtualization on the host"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -309,7 +311,7 @@ __get_port() { __sudo netstat -apn 2>/dev/null | grep "$(__get_pid "$1")" | grep
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __viewer() { __local_viewer "$1" || __remote_viewer "$1" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__is_installed() { __cmd_exists qemu-img virt-manager && return 0 || return 1; }
+__is_installed() { __cmd_exists qemu-img virt-manager virt-install && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __64bit_check() { grep -q -o -w 'lm' /proc/cpuinfo &>/dev/null && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -596,28 +598,47 @@ __modprobe_kvm() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __init() {
-  local exitCode=0
+  local exitCode=0 pkgs
   [ -z "$VIRTMGR_FORCE" ] && __is_installed && return $exitCode
   printf_green "Installing virtualization packages"
   if __cmd_exists pacman; then # ARCH
-    local pkgs="qemu libvirt dnsmasq virt-manager "
-    local pkgs+="bridge-utils flex bison edk2-ovmf "
-    #local pkgs+="iptables-nft "
+    pkgs="qemu libvirt dnsmasq virt-manager "
+    pkgs+="bridge-utils flex bison edk2-ovmf "
+    #pkgs+="iptables-nft "
     #sudo pacman -R --noconfirm iptables &>/dev/null||true
     __sudo pacman -Syyu $pkgs --noconfirm --needed &>/dev/null || exitCode=1
   elif __cmd_exists apt; then # UBUNTU DEBIAN
-    local pkgs="qemu qemu-kvm libvirt-clients libvirt-daemon-system "
-    local pkgs+="bridge-utils virt-manager libguestfs-tools "
+    pkgs="qemu qemu-kvm libvirt-clients libvirt-daemon-system "
+    pkgs+="bridge-utils virt-manager libguestfs-tools "
     __sudo apt install $pkgs -yy &>/dev/null || exitCode=1
   elif __cmd_exists dnf; then # FEDORA
-    local pkgs="libvirt qemu-kvm virt-manager bridge-utils "
-    __sudo dnf install -yy $pkgs &>/dev/null || exitCode=1
+    if dnf grouplist 2>&1 | grep -q "Virtualization Host"; then
+      __sudo dnf groupinstall -yy "Virtualization Host" &>/dev/null || exitCode=1
+    else
+      pkgs="libvirt qemu-kvm virt-manager bridge-utils "
+      pkgs+="virt-install bridge-utils libvirt-daemon-kvm "
+      __sudo dnf install -yy $pkgs &>/dev/null || exitCode=1
+    fi
   elif __cmd_exists yum; then # CENTOS RHEL
-    pkgs="libvirt qemu-kvm virt-manager bridge-utils "
-    __sudo yum install -yy $pkgs &>/dev/null || exitCode=1
+    if yum grouplist 2>&1 | grep -q "Virtualization Host"; then
+      __sudo yum groupinstall -yy "Virtualization Host" &>/dev/null || exitCode=1
+    else
+      pkgs="libvirt qemu-kvm virt-manager bridge-utils "
+      pkgs+="virt-install bridge-utils libvirt-daemon-kvm "
+      __sudo yum install -yy $pkgs &>/dev/null || exitCode=1
+    fi
   fi
   if __is_installed; then
     printf_green "Installed the virtualization packages"
+    if [ -n "$(type -P docker)" ]; then
+      printf_yellow "Installing webvirtcloud via docker"
+      __sudo docker run -d -p 8000:8000/tcp -p 6080:6080/tcp -e WS_PUBLIC_PORT=6080 -v /etc/webvirtcloud:/conf.d/webvirtcloud forumi0721/alpine-webvirtcloud:latest
+    fi
+    if [ ! -f "/etc/kvm/.installed" ]; then
+      printf_cyan "Installing configuration files to /etc/kvm"
+      git clone -q "https://github.com/systemmgr/kvm" "$TMP/kvm_setup" && cp -Rf "$TMP/kvm_setup/etc/." "/etc/kvm/"
+      echo "Installed on $(date)" >"/etc/kvm/.installed"
+    fi
     __modprobe_kvm
     __enable_services
     return 0

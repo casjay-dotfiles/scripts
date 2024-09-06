@@ -606,32 +606,28 @@ __modprobe_kvm() {
 __init() {
   local pkgs
   local exitCode=0
+  local pacman_pkgs="qemu libvirt dnsmasq virt-manager bridge-utils flex bison edk2-ovmf"
+  local apt_pkgs="qemu qemu-kvm libvirt-clients libvirt-daemon-system bridge-utils virt-manager libguestfs-tools"
+  local yum_dnf_pkgs="libvirt qemu-kvm virt-manager bridge-utils virt-install bridge-utils libvirt-daemon-kvm cockpit cockpit-machines virt-viewer virt-top  virt-top libguestfs-tools"
+  local netDev="$(ip route 2>/dev/null | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//" | awk '{print $1}' | grep '^' || echo 'eth0')"
+  local bridgeExists="$(nmcli d 2>&1 | grep -q ^br0)"
   [ -z "$VIRTMGR_FORCE" ] && __is_installed && return $exitCode
   printf_green "Installing virtualization packages"
   if __cmd_exists pacman; then # ARCH
-    pkgs="qemu libvirt dnsmasq virt-manager "
-    pkgs+="bridge-utils flex bison edk2-ovmf "
     #pkgs+="iptables-nft "
-    #sudo pacman -R --noconfirm iptables &>/dev/null||true
-    pacman -Syyu $pkgs --noconfirm --needed 2>/dev/stderr >"$VIRTMGR_LOG_DIR/pkgs.log" || exitCode=1
+    pacman -Syyu $pacman_pkgs --noconfirm --needed 2>/dev/stderr >"$VIRTMGR_LOG_DIR/pkgs.log" || exitCode=1
   elif __cmd_exists apt; then # UBUNTU DEBIAN
-    pkgs="qemu qemu-kvm libvirt-clients libvirt-daemon-system "
-    pkgs+="bridge-utils virt-manager libguestfs-tools "
-    apt install $pkgs -yy 2>/dev/stderr >"$VIRTMGR_LOG_DIR/pkgs.log" || exitCode=1
+    apt install $apt_pkgs -yy 2>/dev/stderr >"$VIRTMGR_LOG_DIR/pkgs.log" || exitCode=1
   elif __cmd_exists dnf; then # FEDORA
     if dnf grouplist 2>&1 | grep -q "Virtualization Host"; then
       dnf groupinstall -yy "Virtualization Host" 2>/dev/stderr >/dev/null || exitCode=1
     fi
-    pkgs="libvirt qemu-kvm virt-manager bridge-utils "
-    pkgs+="virt-install bridge-utils libvirt-daemon-kvm "
-    dnf install -yy $pkgs 2>/dev/stderr >"$VIRTMGR_LOG_DIR/pkgs.log" || exitCode=1
+    dnf install -yy $yum_dnf_pkgs 2>/dev/stderr >"$VIRTMGR_LOG_DIR/pkgs.log" || exitCode=1
   elif __cmd_exists yum; then # CENTOS RHEL
     if yum grouplist 2>&1 | grep -q "Virtualization Host"; then
       yum groupinstall -yy "Virtualization Host" 2>/dev/stderr >/dev/null || exitCode=1
     fi
-    pkgs="libvirt qemu-kvm virt-manager bridge-utils "
-    pkgs+="virt-install bridge-utils libvirt-daemon-kvm "
-    yum install -yy $pkgs 2>/dev/stderr >"$VIRTMGR_LOG_DIR/pkgs.log" || exitCode=1
+    yum install -yy $yum_dnf_pkgs 2>/dev/stderr >"$VIRTMGR_LOG_DIR/pkgs.log" || exitCode=1
   fi
   if __is_installed; then
     printf_green "Installed the virtualization packages"
@@ -645,6 +641,10 @@ __init() {
       printf_cyan "Installing configuration files to /etc/kvm"
       git clone -q "https://github.com/systemmgr/kvm" "$TMP/kvm_setup" && cp -Rf "$TMP/kvm_setup/etc/." "/etc/kvm/"
       echo "Installed on $(date)" >"/etc/kvm/.installed"
+    fi
+    if [ -z "$bridgeExists" ]; then
+      nmcli con add type bridge autoconnect yes con-name virbr0 ifname br0 >/dev/null 2>&1
+      nmcli con add type bridge-slave autoconnect yes con-name br0-port1 ifname $netDev master br0 >/dev/null 2>&1
     fi
     __modprobe_kvm
     __enable_services

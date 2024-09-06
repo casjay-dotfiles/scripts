@@ -607,7 +607,6 @@ __init() {
   local pkgs
   local exitCode=0
   local dockerHome="$HOME/.local/srv/docker/webvirtcloud/rootfs"
-  local virshNet="$(virsh net-list --name 2>/dev/null | grep -v '^$' | grep '^')"
   local pacman_pkgs="qemu libvirt dnsmasq virt-manager bridge-utils flex bison edk2-ovmf"
   local apt_pkgs="qemu qemu-kvm libvirt-clients libvirt-daemon-system bridge-utils virt-manager libguestfs-tools"
   local yum_dnf_pkgs="libvirt qemu-kvm virt-manager bridge-utils virt-install bridge-utils libvirt-daemon-kvm cockpit cockpit-machines virt-viewer virt-top  virt-top libguestfs-tools"
@@ -649,15 +648,6 @@ __init() {
     fi
     __modprobe_kvm
     __enable_services
-    if [ "$is_kvm_installed" = "no" ]; then
-      unset is_kvm_installed
-      if [ -n "$virshNet" ]; then
-        for d in $virshNet; do
-          virsh net-destroy --network $d
-          virsh net-undefine --network $d
-        done
-      fi
-    fi
     __vm_bridge
     return 0
   else
@@ -672,7 +662,9 @@ __vm_bridge() {
   __is_installed || return
   local bridgeName="default"
   local bridgeFile="/tmp/$bridgeName.xml"
-  local bridgeExists="$(virsh net-list --name 2>&1 | grep -v '^$' | grep "^$bridgeName" || false)"
+  local is_kvm_installed="${is_kvm_installed:-yes}"
+  local virshNet="$(virsh net-list --all --name 2>/dev/null | grep -v '^$' | grep '^')"
+  local bridgeExists="$(virsh net-list -all --name 2>&1 | grep -v '^$' | grep "^$bridgeName" || false)"
   if [ -z "$bridgeExists" ]; then
     printf_blue "Setting up libvirt bridge: $bridgeName"
     cat <<EOF >"$bridgeFile"
@@ -691,14 +683,19 @@ __vm_bridge() {
   </ip>
 </network>
 EOF
+    if [ "$is_kvm_installed" = "no" ]; then
+      unset is_kvm_installed
+      if [ -n "$virshNet" ]; then
+        for d in $virshNet; do
+          virsh net-destroy --network $d
+          virsh net-undefine --network $d
+        done
+      fi
+    fi
     if [ -f "$bridgeFile" ]; then
-      virsh net-destroy $bridgeName
-      virsh net-undefine $bridgeName
       virsh net-define "$bridgeFile"
       virsh net-start $bridgeName
       virsh net-autostart $bridgeName
-      # >/dev/null 2>&1
-      rm -Rf "$bridgeFile"
     fi
     printf_cyan "Done setting up $bridgeName"
   fi

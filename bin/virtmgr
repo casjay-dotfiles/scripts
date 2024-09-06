@@ -606,12 +606,12 @@ __modprobe_kvm() {
 __init() {
   local pkgs
   local exitCode=0
-  local bridgeName="virbr0"
+  local dockerHome="$HOME/.local/srv/docker/webvirtcloud/rootfs"
+  local virshNet="$(virsh net-list --name 2>/dev/null | grep '^')"
   local pacman_pkgs="qemu libvirt dnsmasq virt-manager bridge-utils flex bison edk2-ovmf"
   local apt_pkgs="qemu qemu-kvm libvirt-clients libvirt-daemon-system bridge-utils virt-manager libguestfs-tools"
   local yum_dnf_pkgs="libvirt qemu-kvm virt-manager bridge-utils virt-install bridge-utils libvirt-daemon-kvm cockpit cockpit-machines virt-viewer virt-top  virt-top libguestfs-tools"
   local netDev="$(ip route 2>/dev/null | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//" | awk '{print $1}' | grep '^' || echo 'eth0')"
-  local bridgeExists="$(nmcli d 2>&1 | grep -q ^$bridgeName || false)"
   [ -z "$VIRTMGR_FORCE" ] && __is_installed && return $exitCode
   printf_green "Installing virtualization packages"
   if __cmd_exists pacman; then # ARCH
@@ -635,16 +635,20 @@ __init() {
     if [ -n "$(type -P docker)" ] && ! docker ps -a 2>&1 | grep -qE "webvirtcloud"; then
       printf_yellow "Installing webvirtcloud via docker"
       mkdir -p "/etc/webvirtcloud" && chmod 777 -f "/etc/webvirtcloud"
-      docker run -d --name "webvirtcloud" -p 65000:80/tcp -p 65001:6080/tcp -v /run/libvirt:/run/libvirt dmglab/webvirtcloud:latest >/dev/null 2>&1
+      docker run -d --pull always --restart always --name "webvirtcloud" -p 65000:80/tcp -p 65001:6080/tcp dmglab/webvirtcloud:latest >/dev/null 2>&1
       printf_purple "webvirtcloud will is listening on http://$CURRENT_IP_4:65000"
       printf_green "Default username is: admin"
       printf_green "Default password is: admin"
     fi
     if [ ! -f "/etc/kvm/.installed" ]; then
       printf_cyan "Installing configuration files to /etc/kvm"
+      for d in $virshNet; do
+        virsh net-destroy --network $d >/dev/null 2>&1
+      done
       git clone -q "https://github.com/systemmgr/kvm" "$TMP/kvm_setup" && cp -Rf "$TMP/kvm_setup/etc/." "/etc/kvm/"
       echo "Installed on $(date)" >"/etc/kvm/.installed"
     fi
+    __vm_bridge
     __modprobe_kvm
     __enable_services
     return 0
@@ -652,6 +656,37 @@ __init() {
     printf_red "Failed to install the virtualization packages"
     printf_blue "$pkgs"
     exit 1
+  fi
+}
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__vm_bridge() {
+  local bridgeName="virbr0"
+  local bridgeFile="/tmp/$bridgeName.xml"
+  local bridgeExists="$(virsh net-list --name 2>&1 | grep -q '^virbr0' || false)"
+  if [ -z "$bridgeExists" ]; then
+    cat <<EOF >"$bridgeFile"
+<network>
+  <name>virbr0</name>
+  <uuid>8bbb0857-d1e1-4fe5-8d55-01f28ee3bdd7</uuid>
+  <forward mode='nat'>
+    <nat>
+      <port start='1024' end='65535'/>
+    </nat>
+  </forward>
+  <bridge name='virbr0' stp='on' delay='0'/>
+  <mac address='52:54:00:e0:b2:67'/>
+  <ip address='192.168.200.1' netmask='255.255.255.0'>
+    <dhcp>
+      <range start='192.168.200.100' end='192.168.200.254'/>
+    </dhcp>
+  </ip>
+</network>
+EOF
+    if [ -f "$bridgeFile" ]; then
+      (virsh net-define "$bridgeFile" && virsh net-start $bridgeName && virsh net-autostart $bridgeName) >/dev/null 2>&1
+      rm -Rf "$bridgeFile"
+    fi
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

@@ -152,10 +152,12 @@ SYSUSAGE_NOTIFY_EMAIL_SEND="${SYSUSAGE_NOTIFY_EMAIL_SEND:-}"
 SYSUSAGE_PRIMARY_HARD_DRIVE="${SYSUSAGE_PRIMARY_HARD_DRIVE:-}"
 SYSUSAGE_PRIMARY_DRIVE_NUMBER="${SYSUSAGE_PRIMARY_DRIVE_NUMBER:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-SYSUSAGE_THRES_GOOD="${SYSUSAGE_THRES_GOOD:-}"     # less than
-SYSUSAGE_THRES_NOTIFY="${SYSUSAGE_THRES_NOTIFY:-}" # greater than but less than warn
-SYSUSAGE_THRES_WARN="${SYSUSAGE_THRES_WARN:-}"     # greater than but less than error
-SYSUSAGE_THRES_ERROR="${SYSUSAGE_THRES_ERROR:-}"   # greater than
+SYSUSAGE_DISK_THRES_GOOD="${SYSUSAGE_DISK_THRES_GOOD:-}"     # less than
+SYSUSAGE_DISK_THRES_NOTIFY="${SYSUSAGE_DISK_THRES_NOTIFY:-}" # greater than but less than warn
+SYSUSAGE_DISK_THRES_WARN="${SYSUSAGE_DISK_THRES_WARN:-}"     # greater than but less than error
+SYSUSAGE_DISK_THRES_ERROR="${SYSUSAGE_DISK_THRES_ERROR:-}"   # greater than
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SYSUSAGE_LOAD_THRES_WARN="${SYSUSAGE_LOAD_THRES_WARN:-}"     # greater than but less than error
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
 SYSUSAGE_OUTPUT_COLOR_1="${SYSUSAGE_OUTPUT_COLOR_1:-}"
@@ -299,10 +301,45 @@ Below is the status of your server
 EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__float_gt() { perl -e "{if($1>$2){print 1} else {print 0}}"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__check_usage() {
+  local set_load_threads set_cpu_core set_load_warn
+  [ "$cpu_cores" -le 1 ] && set_cpu_core=0 || set_cpu_core="$cpu_cores"
+  [ "$cpu_threads" -le 1 ] && set_load_threads=0 || set_load_threads="$cpu_threads"
+  local total_count=$((set_cpu_core + set_load_threads / 2))
+  set_load_warn=$((LOAD_WARN * total_count))
+  set_load_average=$(echo "$load_avg5 * $total_count" | bc)
+  [ $(__float_gt "$set_load_average" "$set_load_warn") = 0 ] || LOAD_STATUS="warn"
+  #
+  if [ "$disk_percent" -le ${DISK_GOOD} ]; then
+    DISK_STATUS="Good"
+  elif [ "$disk_percent" -ge $DISK_NOTIFY ] && [ "$disk_percent" -lt $DISK_WARN ]; then
+    DISK_STATUS="Notify"
+  elif [ "$disk_percent" -ge $DISK_WARN ] && [ "$disk_percent" -le $DISK_ERROR ]; then
+    DISK_STATUS="Warning"
+  elif [ "$disk_percent" -ge $DISK_ERROR ]; then
+    DISK_STATUS="Error"
+  fi
+  DISK_STATUS="${DISK_STATUS:-Good}"
+  #
+  [ "$DISK_STATUS" = "Good" ] && SERVER_STATUS="Good"
+  [ "$DISK_STATUS" = "Notify" ] && SERVER_STATUS="Notify"
+  [ "$DISK_STATUS" = "Warning" ] && SERVER_STATUS="Warning"
+  [ "$DISK_STATUS" = "Error" ] && SERVER_STATUS="Error"
+  [ "$LOAD_STATUS" = "warn" ] && SERVER_STATUS="[X] CPU usage is high"
+  SERVER_STATUS="${SERVER_STATUS:-Unknown}"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__uptime() {
+  [ -n "$(type -p uptime)" ] || { uptime="Unknown" && return; }
+  uptime="$(uptime | awk -F'( |,|:)+' '{d=h=m=0; if ($7=="min") m=$6; else {if ($7~/^day/) {d=$6;h=$8;m=$9} else {h=$6;m=$7}}} {print d+0,"days,",h+0,"hours,",m+0,"minutes."}' | grep '^' || uptime --pretty | sed 's|^up ||g;s|,||g' | grep '^' || uptime)"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cpu_info() {
-  cpu_count="$(grep -sc 'processor' /proc/cpuinfo 2>/dev/null | head -n1 | grep '^' || echo '1')"
-  core_count="$(grep -s ^cpu\\scores /proc/cpuinfo | uniq | awk '{print $4}' | grep '^' || echo '1')"
-  cpu_info="$(grep -s 'model name' /proc/cpuinfo 2>/dev/null | sed 's|..*: ||g' | head -n1 | grep '^' || uname -i | grep '^')"
+  cpu_threads="$(grep -sc '^processor' '/proc/cpuinfo' || echo '1')"
+  cpu_cores="$(awk -F': ' '/cpu cores/{print $2;exit}' '/proc/cpuinfo' | head -n1 | grep '^' || echo '1')"
+  cpu_info="$(grep -s 'model name' '/proc/cpuinfo' 2>/dev/null | sed 's|..*: ||g' | head -n1 | grep '^' || uname -i | grep '^')"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __df_p() { df -h 2>/dev/null || df -Ph 2>/dev/null || return 1; }
@@ -324,10 +361,11 @@ __disk_info() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __load_info() {
-  load_avg1=$(cat /proc/loadavg 2>/dev/null | awk '{print $1}')
-  load_avg5=$(cat /proc/loadavg 2>/dev/null | awk '{print $2}')
-  load_avg15=$(cat /proc/loadavg 2>/dev/null | awk '{print $3}')
+  load_avg1=$(cat '/proc/loadavg' 2>/dev/null | awk '{print $1}')
+  load_avg5=$(cat '/proc/loadavg' 2>/dev/null | awk '{print $2}')
+  load_avg15=$(cat '/proc/loadavg' 2>/dev/null | awk '{print $3}')
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __mem_info() {
   mem_total="$(free -m 2>/dev/null | grep 'Mem' | awk '{print $2}')"
   mem_free=$(free -t -m 2>/dev/null | grep Mem | awk '{print $4" MB";}')
@@ -342,19 +380,11 @@ __swap_info() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __set_threshold() {
-  GOOD="${SYSUSAGE_THRES_GOOD:-60}"     # less than
-  NOTIFY="${SYSUSAGE_THRES_NOTIFY:-60}" # greater than but less than warn
-  WARN="${SYSUSAGE_THRES_WARN:-80}"     # greater than but less than error
-  ERROR="${SYSUSAGE_THRES_ERROR:-95}"   # greater than
-  if [ "$disk_percent" -le ${GOOD} ]; then
-    SERVER_STATUS="Good"
-  elif [ "$disk_percent" -ge $NOTIFY ] && [ "$disk_percent" -lt $WARN ]; then
-    SERVER_STATUS="Notify"
-  elif [ "$disk_percent" -ge $WARN ] && [ "$disk_percent" -le $ERROR ]; then
-    SERVER_STATUS="Warning"
-  elif [ "$disk_percent" -ge $ERROR ]; then
-    SERVER_STATUS="Error"
-  fi
+  DISK_GOOD="${SYSUSAGE_DISK_THRES_GOOD:-60}"     # less than
+  DISK_NOTIFY="${SYSUSAGE_DISK_THRES_NOTIFY:-60}" # greater than but less than warn
+  DISK_WARN="${SYSUSAGE_DISK_THRES_WARN:-80}"     # greater than but less than error
+  DISK_ERROR="${SYSUSAGE_DISK_THRES_ERROR:-95}"   # greater than
+  LOAD_WARN="${SYSUSAGE_LOAD_THRES_WARN:-1}"      # greater than but less than error
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __mail() {
@@ -406,8 +436,8 @@ Current system status is..: $SERVER_STATUS
 - Server Date.............: $(date +"%Y/%m/%d %H:%M:%S")
 - Server Name.............: $host_info
 =========================================================================================
-- CPUS....................: $cpu_count
-- Cores...................: $core_count
+- CPUS....................: $cpu_cores
+- Threads.................: $cpu_threads
 - CPU Info................: $cpu_info
 - CPU usage...............: $load_info
 =========================================================================================
@@ -415,6 +445,8 @@ Current system status is..: $SERVER_STATUS
 - Memory info.............: $mem_info
 =========================================================================================
 $(__print_disk)
+- UPTIME..................: $uptime
+=========================================================================================
 END of system info
 
 EOF
@@ -427,6 +459,8 @@ __execute_sysusage() {
   __swap_info
   __disk_info
   __set_threshold
+  __check_usage
+  __uptime
   case "$1" in
   cron)
     shift 1
@@ -489,10 +523,13 @@ SYSUSAGE_NOTIFY_EMAIL_ADDR="${SYSUSAGE_NOTIFY_EMAIL_ADDR:-$USER@$HOSTNAME}"
 SYSUSAGE_NOTIFY_EMAIL_SEND="${SYSUSAGE_NOTIFY_EMAIL_SEND:-yes}"
 SYSUSAGE_PRIMARY_HARD_DRIVE="${SYSUSAGE_PRIMARY_HARD_DRIVE:-}"
 SYSUSAGE_PRIMARY_DRIVE_NUMBER="${SYSUSAGE_PRIMARY_DRIVE_NUMBER:-}"
-SYSUSAGE_THRES_GOOD="${SYSUSAGE_THRES_GOOD:-60}"     # less than
-SYSUSAGE_THRES_NOTIFY="${SYSUSAGE_THRES_NOTIFY:-60}" # greater than but less than warn
-SYSUSAGE_THRES_WARN="${SYSUSAGE_THRES_WARN:-80}"     # greater than but less than error
-SYSUSAGE_THRES_ERROR="${SYSUSAGE_THRES_ERROR:-95}"   # greater than
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SYSUSAGE_DISK_THRES_GOOD="${SYSUSAGE_DISK_THRES_GOOD:-60}"     # less than
+SYSUSAGE_DISK_THRES_NOTIFY="${SYSUSAGE_DISK_THRES_NOTIFY:-60}" # greater than but less than warn
+SYSUSAGE_DISK_THRES_WARN="${SYSUSAGE_DISK_THRES_WARN:-80}"     # greater than but less than error
+SYSUSAGE_DISK_THRES_ERROR="${SYSUSAGE_DISK_THRES_ERROR:-95}"   # greater than
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SYSUSAGE_LOAD_THRES_ERROR="${SYSUSAGE_LOAD_THRES_ERROR:-1}" # greater than
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$SYSUSAGE_CONFIG_DIR/$SYSUSAGE_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}

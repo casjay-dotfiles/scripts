@@ -726,9 +726,10 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_uninstall() {
+  NGINX_FILES="$(echo "$NGINX_CONF_FILE $NGINX_INC_CONFIG $NGINX_VHOST_CONFIG $NGINX_INTERNAL_IS_SET" | tr ' ' '\n' | grep -v '^$' | sort -u | tr '\n' ' ')"
   mkdir -p "$DOCKERMGR_CONFIG_DIR/uninstall"
   cat <<EOF >"$DOCKERMGR_CONFIG_DIR/uninstall/$APPNAME"
-NGINX_FILES="$(__trim "$NGINX_CONF_FILE $NGINX_INC_CONFIG $NGINX_VHOST_CONFIG $NGINX_INTERNAL_IS_SET")"
+NGINX_FILES="$(__trim "$NGINX_FILES")"
 EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -984,6 +985,9 @@ CONTAINER_USER_ADMIN_PASS_LENGTH="${ENV_CONTAINER_USER_ADMIN_PASS_LENGTH:-$CONTA
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [ -n "$CONTAINER_OPT_HOSTNAME" ] && ENV_HOSTNAME="$CONTAINER_OPT_HOSTNAME"
 [ -n "$CONTAINER_OPT_DOMAINNAME" ] && CONTAINER_DOMAINNAME="$CONTAINER_OPT_DOMAINNAME"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+[ "$(hostname -s)" = "testing" ] && CONTAINER_HOSTNAME="$APPNAME"
+[ "$(hostname -s)" = "testing" ] && CONTAINER_DOMAINNAME="$HOSTNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # SSL Setup container mounts
 CONTAINER_SSL_DIR="${CONTAINER_SSL_DIR:-/config/ssl}"
@@ -2225,11 +2229,15 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
   NGINX_INC_CONFIG="$NGINX_DIR/conf.d/vhosts/$NGINX_CONFIG_NAME.conf"
   if [ "$NGINX_DIR" = "/etc/nginx/vhosts.d" ]; then
     [ -d "$NGINX_DIR/vhosts.d" ] || __sudo_root mkdir -p "$NGINX_DIR/vhosts.d"
+    [ -d "$NGINX_DIR/global.d" ] || __sudo_root mkdir -p "$NGINX_DIR/global.d"
     [ -d "$NGINX_DIR/conf.d/vhosts.d" ] || __sudo_root mkdir -p "$NGINX_DIR/conf.d/vhosts.d"
-    chmod 777 "$NGINX_DIR/vhosts.d" "$NGINX_DIR/conf.d/vhosts.d"
+    [ -f "$NGINX_DIR/global.d/nginx-defaults.conf" ] || __sudo_root touch "$NGINX_DIR/global.d/nginx-defaults.conf"
+    __sudo_root chmod 777 "$NGINX_DIR/vhosts.d" "$NGINX_DIR/conf.d/vhosts.d"
   else
     [ -d "$NGINX_DIR/vhosts.d" ] || mkdir -p "$NGINX_DIR/vhosts.d"
+    [ -d "$NGINX_DIR/global.d" ] || mkdir -p "$NGINX_DIR/global.d"
     [ -d "$NGINX_DIR/conf.d/vhosts.d" ] || mkdir -p "$NGINX_DIR/conf.d/vhosts.d"
+    [ -f "$NGINX_DIR/global.d/nginx-defaults.conf" ] || touch "$NGINX_DIR/global.d/nginx-defaults.conf"
   fi
   if [ "$HOST_NGINX_UPDATE_CONF" = "yes" ] && [ -f "$INSTDIR/nginx/proxy.conf" ]; then
     for vhost in $NGINX_VHOST_SET_NAMES; do

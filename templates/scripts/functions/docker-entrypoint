@@ -214,14 +214,15 @@ __display_user_info() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __init_config_etc() {
   local copy="no"
-  local etc_dir="${ETC_DIR:-/etc}"
-  local conf_dir="${CONF_DIR:-/config}"
+  local name="$(find "/etc/$SERVICE_NAME" -maxdepth 0 | head -n1)"
+  local etc_dir="${ETC_DIR:-/etc/$name}"
+  local conf_dir="${CONF_DIR:-/config/$name}"
   __is_dir_empty "$conf_dir" && copy=yes
   if [ "$copy" = "yes" ]; then
     if [ -d "$etc_dir" ]; then
       mkdir -p "$conf_dir"
       __copy_templates "$etc_dir/." "$conf_dir/"
-    else
+    elif [ -f "$etc_dir" ]; then
       __copy_templates "$etc_dir" "$conf_dir"
     fi
   fi
@@ -765,14 +766,14 @@ relayhost = [$relay_server]:$relay_port
 EOF
     fi
     if [ -d "/config/postfix" ]; then
+      for f in $symlink_files; do
+        __symlink "/config/postfix/$f" "/etc/postfix/$f"
+      done
+      __initialize_replace_variables "/etc/postfix"
       touch "/config/postfix/aliases" "/config/postfix/mynetworks" "/config/postfix/transport"
       touch "/config/postfix/mydomains.pcre" "/config/postfix/mydomains" "/config/postfix/virtual"
       postmap "/config/aliases" "/config/mynetworks" "/config/transport" &>/dev/null
       postmap "/config/mydomains.pcre" "/config/mydomains" "/config/virtual" &>/dev/null
-      for f in $symlink_files; do
-        __symlink "/config/postfix/$f" "/etc/postfix/$f"
-        __initialize_replace_variables "/etc/postfix/$f"
-      done
     fi
     if [ -f "/etc/postfix/main.cf" ] && [ ! -f "/run/init.d/postfix.pid" ]; then
       SERVICES_LIST+="postfix "
@@ -895,10 +896,10 @@ __initialize_system_etc() {
       conf_file="/config/$f"
       [ -f "$etc_file" ] && __rm "$etc_file"
       __symlink "$etc_file" "$conf_file"
+      __initialize_replace_variables "$conf_file" "$etc_file"
+      [ -e "/data/$f" ] && __initialize_replace_variables "/data/$f"
     done
-
   fi
-  __initialize_replace_variables "/etc" "/config" "/data"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __initialize_custom_bin_dir() {

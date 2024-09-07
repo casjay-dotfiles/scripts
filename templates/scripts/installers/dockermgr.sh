@@ -2179,25 +2179,32 @@ elif [ -f "$INSTDIR/docker-compose.yml" ] && [ -n "$(type -P docker-compose)" ];
     EXECUTE_DOCKER_CMD="$(echo 'docker-compose pull && docker-compose up -d')"
   fi
 fi
-__create_docker_script
-EXECUTE_DOCKER_SCRIPT="$EXECUTE_DOCKER_CMD"
-if [ "$INIT_SCRIPT_ONLY" = "false" ] && [ -n "$EXECUTE_DOCKER_SCRIPT" ]; then
-  EXECUTE_PRE_INSTALL="$(__trim "${EXECUTE_PRE_INSTALL//||*/}")"
-  EXECUTE_DOCKER_SCRIPT="$(__trim "${EXECUTE_DOCKER_SCRIPT//||*/}")"
-  __printf_color "6" "Updating the image from $HUB_IMAGE_URL with tag $HUB_IMAGE_TAG"
-  if [ -n "$EXECUTE_PRE_INSTALL" ]; then
-    __printf_color "6" "Executing pre-install command"
-    eval "$EXECUTE_PRE_INSTALL" 2>"${TMP:-/tmp}/$APPNAME.err.log" >/dev/null
-  fi
-  __printf_color "6" "Creating container $CONTAINER_NAME"
-  if eval $EXECUTE_DOCKER_SCRIPT $CONTAINER_COMMANDS 2>"${TMP:-/tmp}/$APPNAME.err.log" >/dev/null; then
-    sleep 10
-    if { __container_is_running || __docker_ps_all -q || __sudo_exec docker start $CONTAINER_NAME &>/dev/null; }; then
-      rm -Rf "${TMP:-/tmp}/$APPNAME.err.log"
-      echo "$CONTAINER_NAME" >"$DOCKERMGR_CONFIG_DIR/containers/$APPNAME"
-      __docker_ps_all -q && CONTAINER_INSTALLED="true"
-    else
-      ERROR_LOG="true"
+if [ -f "$DOCKERMGR_INSTALL_SCRIPT" ]; then
+  printf_cyan "Reinstalling the $CONTAINER_NAME"
+  eval "$DOCKERMGR_INSTALL_SCRIPT" && exitCode=0 || exitCode=1
+  [ $exitCode = 0 ] && printf_green "Your container has been installed" || printf_red "Failed to reinstall the container"
+  exit $exitCode
+else
+  __create_docker_script
+  EXECUTE_DOCKER_SCRIPT="$EXECUTE_DOCKER_CMD"
+  if [ "$INIT_SCRIPT_ONLY" = "false" ] && [ -n "$EXECUTE_DOCKER_SCRIPT" ]; then
+    EXECUTE_PRE_INSTALL="$(__trim "${EXECUTE_PRE_INSTALL//||*/}")"
+    EXECUTE_DOCKER_SCRIPT="$(__trim "${EXECUTE_DOCKER_SCRIPT//||*/}")"
+    __printf_color "6" "Updating the image from $HUB_IMAGE_URL with tag $HUB_IMAGE_TAG"
+    if [ -n "$EXECUTE_PRE_INSTALL" ]; then
+      __printf_color "6" "Executing pre-install command"
+      eval "$EXECUTE_PRE_INSTALL" 2>"${TMP:-/tmp}/$APPNAME.err.log" >/dev/null
+    fi
+    __printf_color "6" "Creating container $CONTAINER_NAME"
+    if eval $EXECUTE_DOCKER_SCRIPT $CONTAINER_COMMANDS 2>"${TMP:-/tmp}/$APPNAME.err.log" >/dev/null; then
+      sleep 10
+      if { __container_is_running || __docker_ps_all -q || __sudo_exec docker start $CONTAINER_NAME &>/dev/null; }; then
+        rm -Rf "${TMP:-/tmp}/$APPNAME.err.log"
+        echo "$CONTAINER_NAME" >"$DOCKERMGR_CONFIG_DIR/containers/$APPNAME"
+        __docker_ps_all -q && CONTAINER_INSTALLED="true"
+      else
+        ERROR_LOG="true"
+      fi
     fi
   fi
 fi

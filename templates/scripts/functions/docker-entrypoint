@@ -145,10 +145,33 @@ __update_ssl_certs() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __certbot() {
-  local statusCode=0
-  CERTBOT_DOMAINS="${CERTBOT_DOMAINS:-$HOSTNAME}"
   [ -n "$(type -P 'certbot')" ] || return 1
+  local statusCode=0
+  local domain_list=""
+  local certbot_key_opts=""
+  local ADD_CERTBOT_DOMAINS=""
+  local options="${1:-create}"
+  local DOMAINNAME="${DOMAINNAME:-$HOSTNAME}"
+  local CERTBOT_DOMAINS="${CERTBOT_DOMAINS:-$HOSTNAME}"
+  local CERT_BOT_MAIL="${CERT_BOT_MAIL:-ssl-admin@$DOMAINNAME}"
+  local certbot_key_opts="--key-path $SSL_KEY --fullchain-path $SSL_CERT"
+  [ -d "/config/ssl/letsencrypt/$HOSTNAME" ] || mkdir -p "/config/ssl/letsencrypt/$HOSTNAME"
+  __symlink "/etc/letsencrypt" "/config/ssl/letsencrypt/$HOSTNAME"
+  is_renewal="$(find /etc/letsencrypt/renewal -type -f 2>/dev/null || false)"
+  [ -f "/config/env/ssl.sh" ] && . "/config/env/ssl.sh"
   [ -f "/config/certbot/env.sh" ] && . "/config/certbot/env.sh"
+  [ -n "$SSL_KEY" ] && mkdir -p "$(dirname "$SSL_KEY")" || { echo "The variable $SSL_KEY is not set" >&2 && return 1; }
+  [ -n "$SSL_CERT" ] && mkdir -p "$(dirname "$SSL_CERT")" || { echo "The variable $SSL_CERT is not set" >&2 && return 1; }
+  domain_list="www.$DOMAINNAME mail.$DOMAINNAME $CERTBOT_DOMAINS"
+  domain_list="$CERTBOT_DOMAINS $(echo "$domain_list" | tr ' ' '\n' | sort -u | tr '\n' ' ')"
+  [ "$CERT_BOT_ENABLED" = "true" ] || { export CERT_BOT_ENABLED="" && return 10; }
+  [ -n "$DOMAINNAME" ] || { echo "The variable DOMAINNAME is not set" >&2 && return 1; }
+  [ -n "$CERT_BOT_MAIL" ] || { echo "The variable CERT_BOT_MAIL is not set" >&2 && return 1; }
+  for domain in $$CERTBOT_DOMAINS; do
+    [ -n "$domain" ] && ADD_CERTBOT_DOMAINS+="-d $domain "
+  done
+  [ -n "$is_renewal" ] && options="renew" ADD_CERTBOT_DOMAINS=""
+  certbot_key_opts="$certbot_key_opts $ADD_CERTBOT_DOMAINS"
   if [ -f "/config/certbot/setup.sh" ]; then
     eval "/config/certbot/setup.sh"
     statusCode=$?
@@ -156,32 +179,19 @@ __certbot() {
     eval "/etc/named/certbot.sh"
     statusCode=$?
   elif [ -f "/config/certbot/certbot.conf" ]; then
-    if certbot renew -n --dry-run --agree-tos --expand --dns-rfc2136 --dns-rfc2136-credentials /config/certbot/certbot.conf; then
-      certbot renew -n --agree-tos --expand --dns-rfc2136 --dns-rfc2136-credentials /config/certbot/certbot.conf
+    if certbot $options -n --dry-run --agree-tos --expand --dns-rfc2136 --dns-rfc2136-credentials /config/certbot/certbot.conf $certbot_key_opts; then
+      certbot $options -n --agree-tos --expand --dns-rfc2136 --dns-rfc2136-credentials /config/certbot/certbot.conf $certbot_key_opts
     fi
     statusCode=$?
   elif [ -f "/config/named/certbot-update.conf" ]; then
-    if certbot renew -n --dry-run --agree-tos --expand --dns-rfc2136 --dns-rfc2136-credentials /config/named/certbot-update.conf; then
-      certbot renew -n --agree-tos --expand --dns-rfc2136 --dns-rfc2136-credentials /config/named/certbot-update.conf
+    if certbot $options -n --dry-run --agree-tos --expand --dns-rfc2136 --dns-rfc2136-credentials /config/named/certbot-update.conf $certbot_key_opts; then
+      certbot $options -n --agree-tos --expand --dns-rfc2136 --dns-rfc2136-credentials /config/named/certbot-update.conf $certbot_key_opts
     fi
     statusCode=$?
   else
-    [ -n "$SSL_KEY" ] && mkdir -p "$(dirname "$SSL_KEY")" || { echo "The variable $SSL_KEY is not set" >&2 && return 1; }
-    [ -n "$SSL_CERT" ] && mkdir -p "$(dirname "$SSL_CERT")" || { echo "The variable $SSL_CERT is not set" >&2 && return 1; }
-    local options="${1:-create}" && shift 1
-    domain_list="$DOMAINNAME www.$DOMAINNAME mail.$DOMAINNAME $CERTBOT_DOMAINS"
-    [ -f "/config/env/ssl.sh" ] && . "/config/env/ssl.sh"
-    [ "$CERT_BOT_ENABLED" = "true" ] || { export CERT_BOT_ENABLED="" && return 10; }
-    [ -n "$DOMAINNAME" ] || { echo "The variable DOMAINNAME is not set" >&2 && return 1; }
-    [ -n "$CERT_BOT_MAIL" ] || { echo "The variable CERT_BOT_MAIL is not set" >&2 && return 1; }
-    for domain in $$CERTBOT_DOMAINS; do
-      [ -n "$domain" ] && ADD_CERTBOT_DOMAINS="-d $domain $ADD_CERTBOT_DOMAINS"
-    done
+    certbot_key_opts="$certbot_key_opts --webroot ${WWW_ROOT_DIR:-/usr/share/httpd/default}"
     if [ -n "$ADD_CERTBOT_DOMAINS" ]; then
-      certbot $options --agree-tos -m $CERT_BOT_MAIL certonly \
-        --webroot "${WWW_ROOT_DIR:-/usr/share/httpd/default}" \
-        --key-path "$SSL_KEY" --fullchain-path "$SSL_CERT" \
-        $ADD_CERTBOT_DOMAINS
+      certbot $options --agree-tos -m $CERT_BOT_MAIL certonly --webroot "${WWW_ROOT_DIR:-/usr/share/httpd/default}" $certbot_key_opts
       statusCode=$?
     else
       statusCode=1
@@ -885,9 +895,9 @@ __initialize_system_etc() {
       conf_file="/config/$f"
       [ -f "$etc_file" ] && __rm "$etc_file"
       __symlink "$etc_file" "$conf_file"
-      __initialize_replace_variables "$etc_file"
     done
   fi
+  __initialize_replace_variables "$etc_file" "$conf_file"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __initialize_custom_bin_dir() {

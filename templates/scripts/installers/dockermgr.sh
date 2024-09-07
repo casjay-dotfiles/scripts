@@ -2179,7 +2179,7 @@ elif [ -f "$INSTDIR/docker-compose.yml" ] && [ -n "$(type -P docker-compose)" ];
     EXECUTE_DOCKER_CMD="$(echo 'docker-compose pull && docker-compose up -d')"
   fi
 fi
-if [ -f "$DOCKERMGR_INSTALL_SCRIPT" ]; then
+if [ -x "$DOCKERMGR_INSTALL_SCRIPT" ]; then
   printf_cyan "Reinstalling the $CONTAINER_NAME"
   eval "$DOCKERMGR_INSTALL_SCRIPT" && exitCode=0 || exitCode=1
   [ $exitCode = 0 ] && printf_green "Your container has been installed" || printf_red "Failed to reinstall the container"
@@ -2535,7 +2535,7 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
         if [ "$set_listen_on_all" = "yes" ]; then
           for custom_port in $set_listen_port; do
             set_custom_port="$(echo "$custom_port" | awk -F ':' '{print $2}' | grep '^' || echo "${custom_port//*:/}")"
-            set_custom_service="$(echo "$custom_port" | awk -F ':' '{print $1}' | grep '^' || echo "$set_custom_port")"
+            set_custom_service="$(echo "$custom_port" | awk -F ':' '{print $1}' | grep '^' || echo "${set_custom_port//:/}")"
             __printf_spacing_color "6" "40" "Port $set_custom_service is mapped to:" "$set_custom_port"
           done
           create_service="${create_service//$custom_port/} "

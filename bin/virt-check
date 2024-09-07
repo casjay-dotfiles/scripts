@@ -284,68 +284,64 @@ __trap_exit() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
-__lscpu() { __cmd_exists lscpu && lscpu || return 1; }
 __uname() { __cmd_exists uname && uname "$*"; }
+__lscpu() { __cmd_exists lscpu && lscpu || return 1; }
+__cpu_count() { grep -sc 'processor' /proc/cpuinfo || echo '1'; }
+__cpu_check() { grep -swo -E 'svm|vmx' /proc/cpuinfo | sort | uniq && return 0 || return 1; }
+__cpu_info() { grep -swo -E 'svm|vmx|lm|aes' /proc/cpuinfo | sort | uniq | grep '^' || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cpu_version_check() {
+  local exitCode=0
+  [ "$(uname -m)" = "x86_64" ] || return 1
   flags=$(cat /proc/cpuinfo | grep flags | head -n 1 | cut -d: -f2)
   supports_v2='awk "/cx16/&&/lahf/&&/popcnt/&&/sse4_1/&&/sse4_2/&&/ssse3/ {found=1} END {exit !found}"'
   supports_v3='awk "/avx/&&/avx2/&&/bmi1/&&/bmi2/&&/f16c/&&/fma/&&/abm/&&/movbe/&&/xsave/ {found=1} END {exit !found}"'
   supports_v4='awk "/avx512f/&&/avx512bw/&&/avx512cd/&&/avx512dq/&&/avx512vl/ {found=1} END {exit !found}"'
-  echo "$flags" | eval $supports_v2 || exit 2 && echo "CPU supports x86-64-v2"
-  echo "$flags" | eval $supports_v3 || exit 3 && echo "CPU supports x86-64-v3"
-  echo "$flags" | eval $supports_v4 || exit 4 && echo "CPU supports x86-64-v4"
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__cpu_info() {
-  grep -swo -E 'svm|vmx|lm|aes' /proc/cpuinfo | sort | uniq
+  echo "$flags" | eval $supports_v2 || exitCode=$((exitCode++)) && printf_blue "x86-64-v2                  : YES"
+  echo "$flags" | eval $supports_v3 || exitCode=$((exitCode++)) && printf_blue "x86-64-v3                  : YES"
+  echo "$flags" | eval $supports_v4 || exitCode=$((exitCode++)) && printf_blue "x86-64-v4                  : YES"
+  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cpu_64bit() {
   if __cpu_info | grep -iq 'lm' || { __uname -a | grep -q 'arch64'; } || { __lscpu | grep 'op-mode' | grep '64-bit'; }; then
-    printf_green "CPU is 64 bit"
+    printf_green "64 bit                     : YES"
   else
-    printf_red "CPU is not 64 bit"
+    printf_red "64 bit                      : NO"
     return 1
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cpu_aes() {
   if __cpu_info | grep -iq 'aes'; then
-    printf_green "CPU does support AES"
+    printf_green "AES                        : YES"
   else
-    printf_red "CPU does not support AES"
+    printf_red "AES                        : NO"
+    return 1
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cpu_virt() {
   local get_arch="$(__uname -m)"
   if __cpu_info | grep -iqE 'svm|vmx'; then
-    printf_green "CPU supports virtualization"
+    printf_green "Virtualization             : YES"
   elif [ "$get_arch" = "aarch64" ]; then
-    printf_green "CPU supports qemu-arm64"
+    printf_green "qemu-arm64                 : YES"
   else
-    printf_red "CPU does not support virtualization"
+    printf_red "Virtualization              : NO"
     return 1
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__cpu_check() {
-  grep -swo -E 'svm|vmx' /proc/cpuinfo | sort | uniq && return 0 || return 1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__cpu_count() {
-  count="$(grep -sc 'processor' /proc/cpuinfo || echo '1')"
-  printf_blue "CORES: $count"
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __virt_features() {
+  cpu_count="$(__cpu_count)"
   lscpu_virt="$(__lscpu | grep -wi 'Virtualization:' | awk '{print $2}' | grep '^' || echo 'N/A')"
   lscpu_hyper="$(__lscpu | grep -wi 'Hypervisor vendor:' | awk '{print $3}' | grep '^' || echo 'N/A')"
   lscpu_type="$(__lscpu | grep -wi 'Virtualization type:' | awk '{print $3}' | grep '^' || echo 'N/A')"
-  printf_cyan "CPU Vendor        : $lscpu_virt"
-  printf_cyan "CPU Type          : $lscpu_hyper"
-  printf_cyan "CPU Capabilites   : $lscpu_type"
+  printf_cyan "CPU Vendor                 : $lscpu_virt"
+  printf_blue "CPU Cores                  : $cpu_count"
+  printf_cyan "CPU Type                   : $lscpu_hyper"
+  printf_cyan "CPU Capabilites            : $lscpu_type"
   [ "$lscpu_virt" != "N/A" ] && [ "$lscpu_virt" != "N/A" ] && [ "$lscpu_virt" != "N/A" ] && return 0 || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -601,11 +597,10 @@ test)
   ;;
 *)
   exitCode=0
-  __cpu_count
+  __virt_features && __cpu_virt || exitCode=$((${exitCode} + 1))
   __cpu_64bit || exitCode=$((${exitCode} + 1))
   __cpu_aes || exitCode=$((${exitCode} + 1))
-  __cpu_virt && __virt_features || exitCode=$((${exitCode} + 1))
-  [ "$(uname -m)" = "x86_64" ] && __cpu_version_check | printf_readline "6"
+  __cpu_version_check
   ;;
 esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

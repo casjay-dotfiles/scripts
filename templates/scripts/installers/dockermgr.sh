@@ -72,9 +72,11 @@ APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
 export INSTDIR="$HOME/.local/share/CasjaysDev/$SCRIPTS_PREFIX/GEN_SCRIPT_REPLACE_APPNAME"
 export DOCKERMGR_CONFIG_DIR="${DOCKERMGR_CONFIG_DIR:-$HOME/.config/myscripts/$SCRIPTS_PREFIX}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set the mountpoint directory
-export APPDIR="$HOME/.local/share/srv/docker/GEN_SCRIPT_REPLACE_APPNAME"
-export DATADIR="$APPDIR/rootfs"
+# Set default docker home for containers
+export APPDIR="$HOME/.local/share/srv/docker"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set the mountpoint directory - Defaults to $APPDIR/$CONTAINER_NAME/rootfs
+DATADIR=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Call the main function
 dockermgr_install
@@ -226,10 +228,10 @@ SET_HOST_FULL_NAME="${FULL_HOST:-$SET_LONG_HOSTNAME}"
 SET_HOST_FULL_DOMAIN="${FULL_DOMAIN:-$SET_DOMAIN_NAME}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define folders
-HOST_DATA_DIR="$DATADIR/data"
-HOST_CONFIG_DIR="$DATADIR/config"
-LOCAL_DATA_DIR="${LOCAL_DATA_DIR:-$HOST_DATA_DIR}"
-LOCAL_CONFIG_DIR="${LOCAL_CONFIG_DIR:-$HOST_CONFIG_DIR}"
+HOST_DATA_DIR='$DATADIR/data'
+HOST_CONFIG_DIR='$DATADIR/config'
+LOCAL_DATA_DIR='${LOCAL_DATA_DIR:-$HOST_DATA_DIR}'
+LOCAL_CONFIG_DIR='${LOCAL_CONFIG_DIR:-$HOST_CONFIG_DIR}'
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # SSL Setup server mounts - [/etc/ssl/CA/certs/ca.crt] [/etc/ssl/CA/certs/host.crt] [/etc/ssl/CA/certs/host.key]
 HOST_SSL_CA=""
@@ -1065,10 +1067,19 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set containers name
 if [ -z "$CONTAINER_NAME" ]; then
-  CONTAINER_NAME="$(__container_name || echo "${HUB_IMAGE_URL//\/-/}-$HUB_IMAGE_TAG")"
+  CONTAINER_NAME="$(__container_name || echo "${HUB_IMAGE_URL//\/-/}-$HUB_IMAGE_TAG-$APPNAME")"
 fi
 DOCKER_SET_OPTIONS+=("--name=$CONTAINER_NAME")
 DOCKER_SET_OPTIONS+=("--env CONTAINER_NAME=$CONTAINER_NAME")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -z "$DATADIR" ]; then
+  DATADIR="$APPDIR/$CONTAINER_NAME/rootfs"
+fi
+HOST_DATA_DIR="$(eval echo "$HOST_DATA_DIR")"
+HOST_CONFIG_DIR="$(eval echo "$HOST_CONFIG_DIR")"
+LOCAL_DATA_DIR="$(eval echo "$LOCAL_DATA_DIR")"
+LOCAL_CONFIG_DIR="$(eval echo "$LOCAL_CONFIG_DIR")"
+export DATADIR APPDIR INSTDIR
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup time zone
 if [ -z "$CONTAINER_TIMEZONE" ]; then

@@ -821,9 +821,15 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set containers name
+REPO_NAME="$(basename "${HUB_IMAGE_URL//:*/}")"
 if [ -z "$CONTAINER_NAME" ]; then
-  CONTAINER_NAME="$(__container_name || echo "${HUB_IMAGE_URL//\/-/}-$HUB_IMAGE_TAG-$APPNAME")"
+  if [ "$REPO_NAME" = "$$APPNAME" ]; then
+    CONTAINER_NAME="$(__container_name || echo "${HUB_IMAGE_URL//\/-/}-$HUB_IMAGE_TAG")"
+  else
+    CONTAINER_NAME="$(__container_name || echo "${HUB_IMAGE_URL//\/-/}-$HUB_IMAGE_TAG-$APPNAME")"
+  fi
 fi
+CONTAINER_NAME="${CONTAINER_NAME:-$(__container_name || echo "${HUB_IMAGE_URL//\/-/}-$HUB_IMAGE_TAG")}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPDIR="$(eval echo "$APPDIR")"
 INSTDIR="$(eval echo "$INSTDIR")"

@@ -1760,15 +1760,19 @@ if [ -n "$CONTAINER_DEVICES" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup enviroment variables
-if [ -n "$CONTAINER_ENV" ]; then
-  DOCKER_SET_ENV=""
-  CONTAINER_ENV="${CONTAINER_ENV//,/ }"
-  for env in $CONTAINER_ENV; do
-    if [ "$env" != "" ] && [ "$env" != " " ]; then
-      DOCKER_SET_ENV+="--env $env "
-    fi
-  done
-  unset env
+if [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.env" ]; then
+  DOCKER_SET_ENV+="--env-files $DOCKERMGR_CONFIG_DIR/env/$APPNAME.env "
+else
+  if [ -n "$CONTAINER_ENV" ]; then
+    DOCKER_SET_ENV=""
+    CONTAINER_ENV="${CONTAINER_ENV//,/ }"
+    for env in $CONTAINER_ENV; do
+      if [ "$env" != "" ] && [ "$env" != " " ]; then
+        DOCKER_SET_ENV+="--env $env "
+      fi
+    done
+    unset env
+  fi
 fi
 if [ -n "$CONTAINER_OPT_ENV_VAR" ]; then
   CONTAINER_OPT_ENV_VAR="${CONTAINER_OPT_ENV_VAR//,/ }"

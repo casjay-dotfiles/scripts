@@ -100,7 +100,7 @@ __printf_space() {
   test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="7"
   local string1="$1"
   local string2="$2"
-  local pads=$(printf '%0.1s' " "{1..80})
+  local pads=$(printf '%0.1s' " "{1..60})
   local message="$(printf "%b" "$(tput setaf "$color" 2>/dev/null)")"
   message+="$(printf '%s' "$string1") "
   message+="$(printf '%*.*s' 0 $((padl - ${#string1} - ${#string2})) "$pads") "
@@ -2420,8 +2420,8 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
       for vhost in $NGINX_VHOST_NAMES; do
         if ! grep -sq " $vhost$" "/etc/hosts"; then
           if echo "$vhost" | grep -qFv '*'; then
-            __printf_spacing_color "60" "44" "Adding to /etc/hosts:" "$vhost $CONTAINER_WEB_SERVER_LISTEN_ON"
-            __printf_spacing_file "60" "$CONTAINER_WEB_SERVER_LISTEN_ON" "$vhost" | sudo tee -p -a "/etc/hosts" &>/dev/null
+            __printf_spacing_color "30" "40" "Adding to /etc/hosts:" "$vhost $CONTAINER_WEB_SERVER_LISTEN_ON"
+            __printf_spacing_file "30" "$CONTAINER_WEB_SERVER_LISTEN_ON" "$vhost" | sudo tee -p -a "/etc/hosts" &>/dev/null
           fi
         fi
       done
@@ -2429,33 +2429,33 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
     fi
     if [ -n "$HOST_NGINX_INTERNAL_DOMAIN" ]; then
       if ! grep -sq " $HOST_NGINX_INTERNAL_DOMAIN$" "/etc/hosts"; then
-        __printf_spacing_color "60" "44" "Adding to /etc/hosts:" "$HOST_NGINX_INTERNAL_DOMAIN $HOST_LISTEN_ADDR"
-        __printf_spacing_file "60" "$HOST_LISTEN_ADDR" "$HOST_NGINX_INTERNAL_DOMAIN" | sudo tee -p -a "/etc/hosts" &>/dev/null
+        __printf_spacing_color "30" "40" "Adding to /etc/hosts:" "$HOST_NGINX_INTERNAL_DOMAIN $HOST_LISTEN_ADDR"
+        __printf_spacing_file "30" "$HOST_LISTEN_ADDR" "$HOST_NGINX_INTERNAL_DOMAIN" | sudo tee -p -a "/etc/hosts" &>/dev/null
       fi
     fi
     if ! grep -sq " $CONTAINER_HOSTNAME$" "/etc/hosts"; then
-      __printf_spacing_color "60" "44" "Adding to /etc/hosts:" "$CONTAINER_HOSTNAME $HOST_LISTEN_ADDR"
-      __printf_spacing_file "60" "$HOST_LISTEN_ADDR" "$CONTAINER_HOSTNAME" | sudo tee -p -a "/etc/hosts" &>/dev/null
+      __printf_spacing_color "30" "40" "Adding to /etc/hosts:" "$CONTAINER_HOSTNAME $HOST_LISTEN_ADDR"
+      __printf_spacing_file "30" "$HOST_LISTEN_ADDR" "$CONTAINER_HOSTNAME" | sudo tee -p -a "/etc/hosts" &>/dev/null
     fi
     show_hosts_message_banner="true"
     [ "$show_hosts_message_banner" = "true" ] && printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
     unset show_hosts_message_banner
   fi
-  __printf_spacing_color "60" "3" "The container name is:" "$CONTAINER_NAME"
-  __printf_spacing_color "60" "3" "Containers data is saved in:" "$DATADIR"
-  __printf_spacing_color "60" "3" "The container is listening on:" "$HOST_LISTEN_ADDR"
-  __printf_spacing_color "60" "3" "The domain name is set to:" "$CONTAINER_DOMAINNAME"
-  __printf_spacing_color "60" "3" "The hostname name is set to:" "$CONTAINER_HOSTNAME"
+  __printf_spacing_color "30" "3" "The container name is:" "$CONTAINER_NAME"
+  __printf_spacing_color "30" "3" "Containers data is saved in:" "$DATADIR"
+  __printf_spacing_color "30" "3" "The container is listening on:" "$HOST_LISTEN_ADDR"
+  __printf_spacing_color "30" "3" "The domain name is set to:" "$CONTAINER_DOMAINNAME"
+  __printf_spacing_color "30" "3" "The hostname name is set to:" "$CONTAINER_HOSTNAME"
   if [ -n "$HOST_NGINX_INTERNAL_DOMAIN" ]; then
-    __printf_spacing_color "60" "3" "The internal name is set to:" "$HOST_NGINX_INTERNAL_DOMAIN"
+    __printf_spacing_color "30" "3" "The internal name is set to:" "$HOST_NGINX_INTERNAL_DOMAIN"
   fi
   printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   if [ "$HOST_CRON_ENABLED" = "yes" ] && [ -n "$HOST_CRON_COMMAND" ]; then
     [ -n "$HOST_CRON_USER" ] || HOST_CRON_USER="root"
     [ -n "$HOST_CRON_SCHEDULE" ] || HOST_CRON_SCHEDULE="30 0 * * *"
-    __printf_spacing_color "60" "6" "Setting cron user to:" "$HOST_CRON_USER"
-    __printf_spacing_color "60" "6" "Setting schedule to:" "$HOST_CRON_SCHEDULE"
-    __printf_spacing_color "60" "3" "Saving cron job to: /etc/cron.d/$CONTAINER_NAME"
+    __printf_spacing_color "30" "6" "Setting cron user to:" "$HOST_CRON_USER"
+    __printf_spacing_color "30" "6" "Setting schedule to:" "$HOST_CRON_SCHEDULE"
+    __printf_spacing_color "30" "3" "Saving cron job to: /etc/cron.d/$CONTAINER_NAME"
     echo "$HOST_CRON_SCHEDULE $HOST_CRON_USER $HOST_CRON_COMMAND" | sudo tee -p "/etc/cron.d/$CONTAINER_NAME" &>/dev/null
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
@@ -2464,120 +2464,120 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
     __sudo_exec chmod -f 777 "$CONTAINER_SSL_DIR"
     if __sudo_exec cp -Rf "$HOST_SSL_CA" "$CONTAINER_SSL_CA"; then
       __sudo_exec chmod -Rf 666 "$CONTAINER_SSL_CA"
-      __printf_spacing_color "60" "3" "Copied CA Cert to:" "$CONTAINER_SSL_CA"
+      __printf_spacing_color "30" "3" "Copied CA Cert to:" "$CONTAINER_SSL_CA"
     fi
     if __sudo_exec cp -Rf "$HOST_SSL_CRT" "$CONTAINER_SSL_CRT"; then
       __sudo_exec chmod -Rf 666 "$CONTAINER_SSL_DIR"
-      __printf_spacing_color "60" "3" "Copied certificate to:" "$CONTAINER_SSL_CRT"
+      __printf_spacing_color "30" "3" "Copied certificate to:" "$CONTAINER_SSL_CRT"
     fi
     if __sudo_exec cp -Rf "$HOST_SSL_KEY" "$CONTAINER_SSL_KEY"; then
       __sudo_exec chmod -Rf 666 "$CONTAINER_SSL_DIR"
-      __printf_spacing_color "60" "3" "Copied private key to:" "$CONTAINER_SSL_KEY"
+      __printf_spacing_color "30" "3" "Copied private key to:" "$CONTAINER_SSL_KEY"
     fi
     __sudo_exec chown -Rf "$USER":"$USER" "$CONTAINER_SSL_DIR" &>/dev/null
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
   if [ "$DOCKER_CREATE_NET" ]; then
-    __printf_spacing_color "60" "5" "Created docker network:" "$HOST_DOCKER_NETWORK"
+    __printf_spacing_color "30" "5" "Created docker network:" "$HOST_DOCKER_NETWORK"
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
   if [ "$NGINX_IS_INSTALLED" = "yes" ]; then
-    __printf_spacing_color "60" "6" "nginx vhost name:" "$CONTAINER_HOSTNAME"
-    __printf_spacing_color "60" "6" "nginx website:" "$NGINX_PROXY_URL"
+    __printf_spacing_color "30" "6" "nginx vhost name:" "$CONTAINER_HOSTNAME"
+    __printf_spacing_color "30" "6" "nginx website:" "$NGINX_PROXY_URL"
     if [ -f "$NGINX_CONF_FILE" ]; then
-      __printf_spacing_color "60" "6" "nginx config file installed to:" "$NGINX_CONF_FILE"
+      __printf_spacing_color "30" "6" "nginx config file installed to:" "$NGINX_CONF_FILE"
     fi
     if [ -f "$NGINX_INC_CONFIG" ]; then
-      __printf_spacing_color "60" "6" "nginx vhost file installed to:" "$NGINX_INC_CONFIG"
+      __printf_spacing_color "30" "6" "nginx vhost file installed to:" "$NGINX_INC_CONFIG"
     fi
     if [ -f "$NGINX_VHOST_CONFIG" ]; then
-      __printf_spacing_color "60" "6" "nginx custom vhost file installed to:" "$NGINX_VHOST_CONFIG"
+      __printf_spacing_color "30" "6" "nginx custom vhost file installed to:" "$NGINX_VHOST_CONFIG"
     fi
     if [ -n "$NGINX_INTERNAL_IS_SET" ]; then
-      __printf_spacing_color "60" "6" "nginx internal vhost file installed to:" "$NGINX_INTERNAL_IS_SET"
+      __printf_spacing_color "30" "6" "nginx internal vhost file installed to:" "$NGINX_INTERNAL_IS_SET"
     fi
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
   if [ -n "$SET_PORT" ] && [ -n "$NGINX_PROXY_URL" ]; then
     MESSAGE="true"
-    __printf_spacing_color "60" "33" "Server address:" "$NGINX_PROXY_URL"
+    __printf_spacing_color "30" "33" "Server address:" "$NGINX_PROXY_URL"
     if [ -n "$NGINX_VHOST_NAMES" ]; then
       NGINX_VHOST_NAMES="${NGINX_VHOST_NAMES//,/ }"
       for vhost in $NGINX_VHOST_NAMES; do
-        __printf_spacing_color "60" "33" "vhost name:" "$vhost"
+        __printf_spacing_color "30" "33" "vhost name:" "$vhost"
       done
     fi
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
   if [ -n "$CONTAINER_USER_ADMIN_PASS_HASH" ]; then
     show_user_footer="true"
-    __printf_spacing_color "60" "6" "raw password is:" "$CONTAINER_USER_ADMIN_PASS_RAW"
+    __printf_spacing_color "30" "6" "raw password is:" "$CONTAINER_USER_ADMIN_PASS_RAW"
     if [ "$CONTAINER_USER_ADMIN_PASS_RAW" != "$CONTAINER_USER_ADMIN_PASS_HASH" ]; then
-      __printf_spacing_color "60" "6" "hashed password is:" "$CONTAINER_USER_ADMIN_PASS_HASH"
+      __printf_spacing_color "30" "6" "hashed password is:" "$CONTAINER_USER_ADMIN_PASS_HASH"
     fi
   fi
   if [ -n "$CONTAINER_USER_NAME" ]; then
     show_user_footer="true"
-    __printf_spacing_color "60" "6" "Username is:" "$CONTAINER_USER_NAME"
+    __printf_spacing_color "30" "6" "Username is:" "$CONTAINER_USER_NAME"
   fi
   if [ -n "$CONTAINER_USER_PASS" ]; then
     show_user_footer="true"
-    __printf_spacing_color "60" "33" "Password is:" "$CONTAINER_USER_PASS"
+    __printf_spacing_color "30" "33" "Password is:" "$CONTAINER_USER_PASS"
   fi
   if [ "$CONTAINER_DATABASE_USER_ROOT" ]; then
     show_user_footer="true"
-    __printf_spacing_color "60" "33" "Database root user:" "$CONTAINER_DATABASE_USER_ROOT"
+    __printf_spacing_color "30" "33" "Database root user:" "$CONTAINER_DATABASE_USER_ROOT"
   fi
   if [ "$CONTAINER_DATABASE_PASS_ROOT" ]; then
     show_user_footer="true"
-    __printf_spacing_color "60" "33" "Database root password:" "$CONTAINER_DATABASE_PASS_ROOT"
+    __printf_spacing_color "30" "33" "Database root password:" "$CONTAINER_DATABASE_PASS_ROOT"
   fi
   if [ "$CONTAINER_DATABASE_USER_NORMAL" ]; then
     show_user_footer="true"
-    __printf_spacing_color "60" "33" "Database user:" "$CONTAINER_DATABASE_USER_NORMAL"
+    __printf_spacing_color "30" "33" "Database user:" "$CONTAINER_DATABASE_USER_NORMAL"
   fi
   if [ "$CONTAINER_DATABASE_PASS_NORMAL" ]; then
     show_user_footer="true"
-    __printf_spacing_color "60" "33" "Database password:" "$CONTAINER_DATABASE_PASS_NORMAL"
+    __printf_spacing_color "30" "33" "Database password:" "$CONTAINER_DATABASE_PASS_NORMAL"
   fi
   [ "$show_user_footer" = "true" ] && printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   if [ "$SHOW_DATABASE_INFO" = "true" ]; then
-    __printf_spacing_color "60" "3" "Database is running on:" "$CONTAINER_DATABASE_PROTO"
+    __printf_spacing_color "30" "3" "Database is running on:" "$CONTAINER_DATABASE_PROTO"
     if [ -n "$MESSAGE_CONTAINER_DATABASE" ]; then
-      __printf_spacing_color "60" "6" "$MESSAGE_CONTAINER_DATABASE"
+      __printf_spacing_color "30" "6" "$MESSAGE_CONTAINER_DATABASE"
     fi
     if [ -n "$MESSAGE_COUCHDB" ]; then
-      __printf_spacing_color "60" "6" "Database files are saved to:" "$DATABASE_DIR_COUCHDB"
+      __printf_spacing_color "30" "6" "Database files are saved to:" "$DATABASE_DIR_COUCHDB"
     fi
     if [ -n "$MESSAGE_SQLITE" ]; then
-      __printf_spacing_color "60" "6" "Database files are saved to:" "$DATABASE_DIR_SQLITE"
+      __printf_spacing_color "30" "6" "Database files are saved to:" "$DATABASE_DIR_SQLITE"
     fi
     if [ -n "$MESSAGE_MARIADB" ]; then
-      __printf_spacing_color "60" "6" "Database files are saved to:" "$DATABASE_DIR_MARIADB"
+      __printf_spacing_color "30" "6" "Database files are saved to:" "$DATABASE_DIR_MARIADB"
     fi
     if [ -n "$MESSAGE_MONGODB" ]; then
-      __printf_spacing_color "60" "6" "Database files are saved to:" "$DATABASE_DIR_MONGODB"
+      __printf_spacing_color "30" "6" "Database files are saved to:" "$DATABASE_DIR_MONGODB"
     fi
     if [ -n "$MESSAGE_PGSQL" ]; then
-      __printf_spacing_color "60" "6" "Database files are saved to:" "$DATABASE_DIR_POSTGRES"
+      __printf_spacing_color "30" "6" "Database files are saved to:" "$DATABASE_DIR_POSTGRES"
     fi
     if [ -n "$MESSAGE_REDIS" ]; then
-      __printf_spacing_color "60" "6" "Database files are saved to:" "$DATABASE_DIR_REDIS"
+      __printf_spacing_color "30" "6" "Database files are saved to:" "$DATABASE_DIR_REDIS"
     fi
     if [ -n "$MESSAGE_SUPABASE" ]; then
-      __printf_spacing_color "60" "6" "Database files are saved to:" "$DATABASE_DIR_SUPABASE"
+      __printf_spacing_color "30" "6" "Database files are saved to:" "$DATABASE_DIR_SUPABASE"
     fi
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
   if [ -f "$DATADIR/config/auth/htpasswd" ]; then
     MESSAGE="true"
-    __printf_spacing_color "60" "5" "Username:" "root"
-    __printf_spacing_color "60" "5" "Password:" "${SET_USER_PASS:-toor}"
-    __printf_spacing_color "60" "5" "htpasswd File:" "/config/auth/htpasswd"
+    __printf_spacing_color "30" "5" "Username:" "root"
+    __printf_spacing_color "30" "5" "Password:" "${SET_USER_PASS:-toor}"
+    __printf_spacing_color "30" "5" "htpasswd File:" "/config/auth/htpasswd"
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
   if [ -z "$SET_PORT" ]; then
-    __printf_spacing_color "60" "3" "This container does not have services configured"
+    __printf_spacing_color "30" "3" "This container does not have services configured"
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   else
     for create_service in $SET_PORT; do
@@ -2586,7 +2586,7 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
           for custom_port in $set_listen_port; do
             set_custom_port="$(echo "$custom_port" | awk -F ':' '{print $2}' | grep '^' || echo "${custom_port//*:/}")"
             set_custom_service="$(echo "$custom_port" | awk -F ':' '{print $1}' | grep '^' || echo "${set_custom_port//:/}")"
-            __printf_spacing_color "60" "6" "Port $set_custom_service is mapped to:" "$set_custom_port"
+            __printf_spacing_color "30" "6" "Port $set_custom_service is mapped to:" "$set_custom_port"
           done
           create_service="${create_service//$custom_port/} "
         fi
@@ -2608,7 +2608,7 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
           [ -n "$type" ] && get_listen="$listen/$type" || get_listen="$listen"
           set_listen=$(printf '%s' "$get_listen")
           if [ -n "$listen" ]; then
-            __printf_spacing_color "60" "6" "Port $set_service is mapped to:" "$set_listen"
+            __printf_spacing_color "30" "6" "Port $set_service is mapped to:" "$set_listen"
           fi
         fi
       fi
@@ -2617,28 +2617,28 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
   if [ -f "$DOCKERMGR_INSTALL_SCRIPT" ]; then
-    __printf_spacing_color "60" "3" "Script saved to:" "$DOCKERMGR_INSTALL_SCRIPT"
+    __printf_spacing_color "30" "3" "Script saved to:" "$DOCKERMGR_INSTALL_SCRIPT"
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
   if [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.env.conf" ] || [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.custom.conf" ]; then
     if [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.env.conf" ]; then
-      __printf_spacing_color "60" "2" "variables saved to:" "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.env.conf"
+      __printf_spacing_color "30" "2" "variables saved to:" "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.env.conf"
     fi
     if [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.custom.conf" ]; then
-      __printf_spacing_color "60" "2" "Container variables saved to:" "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.custom.conf"
+      __printf_spacing_color "30" "2" "Container variables saved to:" "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.custom.conf"
     fi
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
   if [ -n "$CONTAINER_DEFAULT_USERNAME" ] || [ -n "$CONTAINER_DEFAULT_PASSWORD" ]; then
-    [ -n "$CONTAINER_DEFAULT_USERNAME" ] && __printf_spacing_color "60" "6" "Containers default username is:" "$CONTAINER_DEFAULT_USERNAME"
-    [ -n "$CONTAINER_DEFAULT_PASSWORD" ] && __printf_spacing_color "60" "6" "Containers default password is:" "$CONTAINER_DEFAULT_PASSWORD"
+    [ -n "$CONTAINER_DEFAULT_USERNAME" ] && __printf_spacing_color "30" "6" "Containers default username is:" "$CONTAINER_DEFAULT_USERNAME"
+    [ -n "$CONTAINER_DEFAULT_PASSWORD" ] && __printf_spacing_color "30" "6" "Containers default password is:" "$CONTAINER_DEFAULT_PASSWORD"
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
   if [ -n "$POST_SHOW_FINISHED_MESSAGE" ]; then
-    __printf_spacing_color "60" "2" "$POST_SHOW_FINISHED_MESSAGE"
+    __printf_color "2" "$POST_SHOW_FINISHED_MESSAGE"
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
-  __printf_spacing_color "60" "6" "$APPNAME has been installed to:" "$APPDIR"
+  __printf_color "6" "$APPNAME has been installed to:" "$APPDIR"
   printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n\n'
   __show_post_message
 else
@@ -2649,7 +2649,7 @@ else
     printf_red "Something seems to have gone wrong with the install"
   fi
   if [ -f "$DOCKERMGR_INSTALL_SCRIPT" ]; then
-    __printf_spacing_color "60" "3" "Script:" "$DOCKERMGR_INSTALL_SCRIPT"
+    __printf_color "3" "Script:" "$DOCKERMGR_INSTALL_SCRIPT"
   fi
   exit 10
 fi

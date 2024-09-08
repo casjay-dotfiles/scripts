@@ -508,3 +508,14 @@ __printf_space() {
   message+="$(printf '%b\n' "$(tput sgr0 2>/dev/null)")"
   printf '%s\n' "$message"
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__printf_center() {
+  test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="7"
+  local head="$(printf '=%.0s' $(seq 1 $(tput cols)))"
+  local mess="$(echo "$1" | sed -e :a -e "s/^.\{1,$(tput cols)\}$/ & /;ta" | tr -d '\n' | head -c $(tput cols))"
+  local foot="$(printf '=%.0s' $(seq 1 $(tput cols)))"
+  __printf_color "$color" "$head"
+  __printf_color "$color" "$mess"
+  __printf_color "$color" "$foot"
+
+}

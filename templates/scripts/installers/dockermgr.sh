@@ -112,6 +112,7 @@ __printf_spacing_color() { __printf_space "$1" "$2" "$3" "$4"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cmd_exists() { type -P $1 &>/dev/null || return 1; }
 __remove_extra_spaces() { sed 's/\( \)*/\1/g;s|^ ||g'; }
+__ping_text() { ping -c1 -i2 "$1" 2>/dev/null 2>&1 || return 1; }
 __port() { echo "$((50000 + $RANDOM % 1000))" | grep '^' || return 1; }
 __grep_char() { grep '[a-zA-Z0-9].[a-zA-Z0-9]' | grep '^' || return 1; }
 __docker_check() { [ -n "$(type -p docker 2>/dev/null)" ] || return 1; }
@@ -215,7 +216,7 @@ ENV_DOMAINNAME="${ENV_DOMAINNAME:-$SET_DOMAIN}"
 SET_LOCAL_HOSTNAME=$(__host_name)
 SET_LONG_HOSTNAME=$(hostname -f 2>/dev/null | grep '^')
 SET_SHORT_HOSTNAME=$(hostname -s 2>/dev/null | grep '^')
-SET_DOMAIN_NAME=$(__domain_name || echo 'home')
+SET_DOMAIN_NAME=$(__domain_name || hostname -f | grep '^' || echo 'home')
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set hostname and domain
 SET_HOST_FULL_NAME="${FULL_HOST:-$SET_LONG_HOSTNAME}"
@@ -1269,13 +1270,17 @@ if [ "$CONTAINER_X11_ENABLED" = "yes" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup containers hostname
+CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME}"
+echo "$CONTAINER_HOSTNAME" | grep -q "$CONTAINER_DOMAINNAME" || CONTAINER_HOSTNAME="$CONTAINER_HOSTNAME.$CONTAINER_DOMAINNAME"
 if __is_server && [ -z "$CONTAINER_HOSTNAME" ]; then
   CONTAINER_DOMAINNAME="$SET_HOST_FULL_DOMAIN"
-else
+elif __ping_text $CONTAINER_HOSTNAME.$CONTAINER_DOMAINNAME; then
+  CONTAINER_HOSTNAME="$CONTAINER_HOSTNAME.$CONTAINER_DOMAINNAME"
+elif __ping_text ${CONTAINER_DOMAINNAME:-$SET_HOST_FULL_DOMAIN}; then
   CONTAINER_DOMAINNAME="${CONTAINER_DOMAINNAME:-$SET_HOST_FULL_DOMAIN}"
+else
+  CONTAINER_HOSTNAME="$APPNAME.$HOSTNAME"
 fi
-CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-${APPNAME:-GEN_SCRIPT_REPLACE_APPNAME}}"
-echo "$CONTAINER_HOSTNAME" | grep -q "$CONTAINER_DOMAINNAME" || CONTAINER_HOSTNAME="$CONTAINER_HOSTNAME.$CONTAINER_DOMAINNAME"
 if [ -n "$CONTAINER_HOSTNAME" ]; then
   DOCKER_SET_OPTIONS+=("--hostname $CONTAINER_HOSTNAME")
   DOCKER_SET_OPTIONS+=("--env HOSTNAME=$CONTAINER_HOSTNAME")

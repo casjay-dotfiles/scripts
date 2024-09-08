@@ -228,12 +228,6 @@ SET_DOMAIN_NAME=$(__domain_name || hostname -f | grep '^' || echo 'home')
 SET_HOST_FULL_NAME="${FULL_HOST:-$SET_LONG_HOSTNAME}"
 SET_HOST_FULL_DOMAIN="${FULL_DOMAIN:-$SET_DOMAIN_NAME}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Define folders
-HOST_DATA_DIR='$DATADIR/data'
-HOST_CONFIG_DIR='$DATADIR/config'
-LOCAL_DATA_DIR='${LOCAL_DATA_DIR:-$HOST_DATA_DIR}'
-LOCAL_CONFIG_DIR='${LOCAL_CONFIG_DIR:-$HOST_CONFIG_DIR}'
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # SSL Setup server mounts - [/etc/ssl/CA/certs/ca.crt] [/etc/ssl/CA/certs/host.crt] [/etc/ssl/CA/certs/host.key]
 HOST_SSL_CA=""
 HOST_SSL_CRT=""
@@ -831,12 +825,11 @@ if [ -z "$CONTAINER_NAME" ]; then
 fi
 CONTAINER_NAME="${CONTAINER_NAME:-$(__container_name || echo "${HUB_IMAGE_URL//\/-/}-$HUB_IMAGE_TAG")}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-APPDIR="$(eval echo "$APPDIR")"
-INSTDIR="$(eval echo "$INSTDIR")"
-HOST_DATA_DIR="$(eval echo "$HOST_DATA_DIR")"
-HOST_CONFIG_DIR="$(eval echo "$HOST_CONFIG_DIR")"
-LOCAL_DATA_DIR="$(eval echo "$LOCAL_DATA_DIR")"
-LOCAL_CONFIG_DIR="$(eval echo "$LOCAL_CONFIG_DIR")"
+# Define folders
+HOST_DATA_DIR="$DATADIR/data"
+HOST_CONFIG_DIR="$DATADIR/config"
+LOCAL_DATA_DIR="${LOCAL_DATA_DIR:-$HOST_DATA_DIR}"
+LOCAL_CONFIG_DIR="${LOCAL_CONFIG_DIR:-$HOST_CONFIG_DIR}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -z "$DATADIR" ]; then
   DATADIR="$APPDIR/$CONTAINER_NAME/rootfs"

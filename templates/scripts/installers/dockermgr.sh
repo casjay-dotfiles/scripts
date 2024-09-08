@@ -820,10 +820,22 @@ EOF
   chmod -Rf 755 "$DOCKERMGR_INSTALL_SCRIPT"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set containers name
+if [ -z "$CONTAINER_NAME" ]; then
+  CONTAINER_NAME="$(__container_name || echo "${HUB_IMAGE_URL//\/-/}-$HUB_IMAGE_TAG-$APPNAME")"
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPDIR="$(eval echo "$APPDIR")"
+INSTDIR="$(eval echo "$INSTDIR")"
 HOST_DATA_DIR="$(eval echo "$HOST_DATA_DIR")"
 HOST_CONFIG_DIR="$(eval echo "$HOST_CONFIG_DIR")"
 LOCAL_DATA_DIR="$(eval echo "$LOCAL_DATA_DIR")"
 LOCAL_CONFIG_DIR="$(eval echo "$LOCAL_CONFIG_DIR")"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -z "$DATADIR" ]; then
+  DATADIR="$APPDIR/$CONTAINER_NAME/rootfs"
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 export DATADIR APPDIR INSTDIR
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # import variables from a file
@@ -1070,16 +1082,8 @@ elif echo "$HUB_IMAGE_URL" | grep -q ':'; then
   HUB_IMAGE_TAG="${HUB_IMAGE_TAG:-$(echo "$HUB_IMAGE_URL" | awk -F':' '{print $2}')}"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set containers name
-if [ -z "$CONTAINER_NAME" ]; then
-  CONTAINER_NAME="$(__container_name || echo "${HUB_IMAGE_URL//\/-/}-$HUB_IMAGE_TAG-$APPNAME")"
-fi
 DOCKER_SET_OPTIONS+=("--name=$CONTAINER_NAME")
 DOCKER_SET_OPTIONS+=("--env CONTAINER_NAME=$CONTAINER_NAME")
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ -z "$DATADIR" ]; then
-  DATADIR="$APPDIR/$CONTAINER_NAME/rootfs"
-fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup time zone
 if [ -z "$CONTAINER_TIMEZONE" ]; then

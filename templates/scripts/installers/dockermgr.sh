@@ -2549,7 +2549,6 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
   else
     for create_service in $SET_PORT; do
       if [ "$create_service" != "--publish" ] && [ "$create_service" != " " ]; then
-        unset type
         if [ "$set_listen_on_all" = "yes" ]; then
           for custom_port in $set_listen_port; do
             set_custom_port="$(echo "$custom_port" | awk -F ':' '{print $2}' | grep '^' || echo "${custom_port//*:/}")"
@@ -2557,10 +2556,9 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
             __printf_spacing_color "6" "40" "Port $set_custom_service is mapped to:" "$set_custom_port"
           done
           create_service="${create_service//$custom_port/} "
-          unset set_custom_service set_custom_port
         fi
         service="$create_service"
-        if [ -n "$service" ]; then
+        if [ -n "$service" ] && [ "$service" != " " ]; then
           if echo "$service" | grep -q ":.*.:"; then
             set_host="$(echo "$service" | awk -F ':' '{print $1}')"
             set_port="$(echo "$service" | awk -F ':' '{print $3}')"

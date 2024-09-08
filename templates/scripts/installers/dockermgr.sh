@@ -2223,8 +2223,9 @@ elif [ -f "$INSTDIR/docker-compose.yml" ] && [ -n "$(type -P docker-compose)" ];
   fi
 fi
 if [ -x "$DOCKERMGR_INSTALL_SCRIPT" ]; then
-  printf_cyan "Reinstalling the $CONTAINER_NAME"
-  eval "$DOCKERMGR_INSTALL_SCRIPT" && exitCode=0 || exitCode=1
+  printf_cyan "Reinstalling container: $CONTAINER_NAME"
+  eval "$DOCKERMGR_INSTALL_SCRIPT" >/dev/null 2>&1
+  __container_is_running && exitCode=0 || exitCode=1
   [ $exitCode = 0 ] && printf_green "Your container has been installed" || printf_red "Failed to reinstall the container"
   exit $exitCode
 else

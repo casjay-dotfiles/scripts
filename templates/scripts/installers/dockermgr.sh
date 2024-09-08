@@ -826,14 +826,14 @@ fi
 CONTAINER_NAME="${CONTAINER_NAME:-$(__container_name || echo "${HUB_IMAGE_URL//\/-/}-$HUB_IMAGE_TAG")}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define folders
+if [ -z "$DATADIR" ]; then
+  DATADIR="$APPDIR/$CONTAINER_NAME/rootfs"
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 HOST_DATA_DIR="$DATADIR/data"
 HOST_CONFIG_DIR="$DATADIR/config"
 LOCAL_DATA_DIR="${LOCAL_DATA_DIR:-$HOST_DATA_DIR}"
 LOCAL_CONFIG_DIR="${LOCAL_CONFIG_DIR:-$HOST_CONFIG_DIR}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ -z "$DATADIR" ]; then
-  DATADIR="$APPDIR/$CONTAINER_NAME/rootfs"
-fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 export DATADIR APPDIR INSTDIR
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

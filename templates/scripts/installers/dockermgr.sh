@@ -110,9 +110,9 @@ __printf_space() {
 __printf_spacing_file() { __printf_space "$1" "7" "$2" "$3"; }
 __printf_spacing_color() { __printf_space "$1" "$2" "$3" "$4"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__cmd_exists() { type -P $1 &>/dev/null || return 1; }
+__cmd_exists() { type -p $1 &>/dev/null || return 1; }
 __remove_extra_spaces() { sed 's/\( \)*/\1/g;s|^ ||g'; }
-__ping_text() { ping -c1 -i2 "$1" 2>/dev/null 2>&1 || return 1; }
+__ping_host() { ping -c1 -i1 -w1 "$1" 2>/dev/null 2>&1 || return 1; }
 __port() { echo "$((50000 + $RANDOM % 1000))" | grep '^' || return 1; }
 __grep_char() { grep '[a-zA-Z0-9].[a-zA-Z0-9]' | grep '^' || return 1; }
 __docker_check() { [ -n "$(type -p docker 2>/dev/null)" ] || return 1; }
@@ -133,6 +133,7 @@ __domain_name() { hostname -d 2>/dev/null | grep -F '.' | grep '^' || hostname -
 __netstat() { netstat -taupln 2>/dev/null | grep -vE 'WAIT|ESTABLISHED|docker-pro' | awk -F ' ' '{print $4}' | sed 's|.*:||g' | grep -E '[0-9]' | sort -Vu | grep "^${1:-.*}$" || return 1; }
 __retrieve_custom_env() { [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.${1:-custom}.conf" ] && cat "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.${1:-custom}.conf" | grep -Ev '^$|^#' | grep '=' | grep '^' || __custom_docker_env | grep -Ev '^$|^#' | grep '=' | grep '^' || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_records() { __cmd_exists dig && dig casjay.pro 2>&1 | grep -E 'A|AAAA|CNAME' | grep -E '[0-9]\.|[0-9]:' | awk '{print $NF}' | head -n1 | grep '^' || return 1; }
 __docker_gateway_ip() { sudo docker network inspect -f '{{json .IPAM.Config}}' ${HOST_DOCKER_NETWORK:-bridge} 2>/dev/null | jq -r '.[].Gateway' | grep -Ev '^$|null' | head -n1 | grep '^' || return 1; }
 __docker_net_create() { __docker_net_ls | grep -q "$HOST_DOCKER_NETWORK" && return 0 || { docker network create -d bridge --attachable $HOST_DOCKER_NETWORK &>/dev/null && __docker_net_ls | grep -q "$HOST_DOCKER_NETWORK" && echo "$HOST_DOCKER_NETWORK" && return 0 || return 1; }; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1270,17 +1271,21 @@ if [ "$CONTAINER_X11_ENABLED" = "yes" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup containers hostname
-CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME}"
-echo "$CONTAINER_HOSTNAME" | grep -q "$CONTAINER_DOMAINNAME" || CONTAINER_HOSTNAME="$CONTAINER_HOSTNAME.$CONTAINER_DOMAINNAME"
 if __is_server && [ -z "$CONTAINER_HOSTNAME" ]; then
   CONTAINER_DOMAINNAME="$SET_HOST_FULL_DOMAIN"
-elif __ping_text $CONTAINER_HOSTNAME.$CONTAINER_DOMAINNAME; then
+else
+  CONTAINER_DOMAINNAME="$HOSTNAME"
+fi
+CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME}"
+if __ping_host $CONTAINER_HOSTNAME.$CONTAINER_DOMAINNAME; then
   CONTAINER_HOSTNAME="$CONTAINER_HOSTNAME.$CONTAINER_DOMAINNAME"
-elif __ping_text ${CONTAINER_DOMAINNAME:-$SET_HOST_FULL_DOMAIN}; then
-  CONTAINER_DOMAINNAME="${CONTAINER_DOMAINNAME:-$SET_HOST_FULL_DOMAIN}"
+elif __ping_host ${CONTAINER_DOMAINNAME:-$SET_HOST_FULL_DOMAIN}; then
+  CONTAINER_HOSTNAME="${CONTAINER_DOMAINNAME:-$SET_HOST_FULL_DOMAIN}"
 else
   CONTAINER_HOSTNAME="$APPNAME.$HOSTNAME"
 fi
+echo "$CONTAINER_HOSTNAME" | grep -q "$CONTAINER_DOMAINNAME" || CONTAINER_HOSTNAME="$CONTAINER_HOSTNAME.$CONTAINER_DOMAINNAME"
+__ping_host '1.1.1.1' && [ "$(__get_records)" = "$(__public_ip)" ] || CONTAINER_HOSTNAME="$APPNAME.$HOSTNAME"
 if [ -n "$CONTAINER_HOSTNAME" ]; then
   DOCKER_SET_OPTIONS+=("--hostname $CONTAINER_HOSTNAME")
   DOCKER_SET_OPTIONS+=("--env HOSTNAME=$CONTAINER_HOSTNAME")

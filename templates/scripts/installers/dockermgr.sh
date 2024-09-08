@@ -103,8 +103,8 @@ __printf_space() {
   message+="$(printf '%s' "$string1") "
   message+="$(printf '%*.*s' 0 $((padl - ${#string1} - ${#string2})) "$pads") "
   message+="$(printf '%s' "$string2") "
-  message+="$(printf '%b\n' "$(tput sgr0 2>/dev/null)")"
-  printf '%s\n' "$message"
+  message+="$(printf '%b' "$(tput sgr0 2>/dev/null)")"
+  printf '%s' "$message"
   printf '\n'
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -146,14 +146,15 @@ __public_ip() { curl -q -LSsf ${1:--4} "http://ifconfig.co" | grep -v '^$' | hea
 __local_lan_ip() { __ifconfig $SET_LAN_DEV | grep -w 'inet' | awk -F ' ' '{print $2}' | __is_private_ip | head -n1 | grep '^' || ip address show $SET_LAN_DEV 2>&1 | grep 'inet ' | awk -F ' ' '{print $2}' | sed 's|/.*||g' | __is_private_ip | grep -v '^$' | head -n1 | grep '^' || echo "$CURRENT_IP_4" | grep '^' || return 1; }
 __my_default_lan_address() { __ifconfig $SET_LAN_DEV | grep -w 'inet' | awk -F ' ' '{print $2}' | head -n1 | grep '^' || ip address show $SET_LAN_DEV 2>&1 | grep 'inet ' | awk -F ' ' '{print $2}' | sed 's|/.*||g' | grep -v '^$' | head -n1 | grep '^' || echo "$CURRENT_IP_4" | grep '^' || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__check_ssl_cert() { if curl -q -viLSsf "${1:-$CONTAINER_HOSTNAME}" 2>&1 | grep -q 'does not match'; then return 1; else return 0; fi; }
+__create_cert() { if __cmd_exists certbot && [ -f "/etc/certbot/dns.conf" ]; then certbot create -vvvv -n --expand --dns-rfc2136 --dns-rfc2136-credentials "/etc/certbot/dns.conf" $CONTAINER_HOSTNAME >/dev/null 2>&1 || return 2; fi; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure docker is installed and running
 __docker_check || __docker_init
 __docker_is_running || printf_exit "Docker is not running"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # hash the password
-__hash_password() {
-  echo -n "$1" #| argon2 "$(openssl rand -base64 32)" -e -id -k 65540 -t 3 -p 4
-}
+__hash_password() { true; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define any pre-install scripts
 __run_pre_install() {
@@ -2631,6 +2632,7 @@ __create_uninstall
 run_postinst() {
   dockermgr_run_post
   run_post_install &>/dev/null
+  if __check_ssl_cert; then __create_cert; fi
 }
 #
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

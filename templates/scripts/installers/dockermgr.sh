@@ -323,6 +323,9 @@ DOCKER_SOCKET_ENABLED="no"
 DOCKER_SOCKER_READONLY="yes"
 DOCKER_SOCKET_MOUNT=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Will set --env-file "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.env" to docker run [yes/no]
+DOCKER_ENV_FILE_ENABLED=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mount docker config - [yes/no] [~/.docker/config.json] [/root/.docker/config.json]
 DOCKER_CONFIG_ENABLED="no"
 HOST_DOCKER_CONFIG=""
@@ -559,6 +562,7 @@ __container_import_variables() {
   local base_dir="" base_file="$1"
   base_dir="$(realpath "$DATADIR")/$(dirname "$base_file")"
   [ -d "$base_dir" ] || mkdir -p "$base_dir"
+  [ -f "$base_dir/$base_file" ] && return
   cat <<EOF | __remove_extra_spaces | tee -p "$base_dir/$base_file" &>/dev/null
 
 EOF
@@ -1064,7 +1068,7 @@ if [ -z "$CONTAINER_NAME" ]; then
   CONTAINER_NAME="$(__container_name || echo "${HUB_IMAGE_URL//\/-/}-$HUB_IMAGE_TAG")"
 fi
 DOCKER_SET_OPTIONS+=("--name=$CONTAINER_NAME")
-DOCKER_SET_OPTIONS+=("--env ENV_CONTAINER_NAME=$CONTAINER_NAME")
+DOCKER_SET_OPTIONS+=("--env CONTAINER_NAME=$CONTAINER_NAME")
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup time zone
 if [ -z "$CONTAINER_TIMEZONE" ]; then
@@ -1760,25 +1764,21 @@ if [ -n "$CONTAINER_DEVICES" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup enviroment variables
-if [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.env" ]; then
-  DOCKER_SET_ENV+="--env-files $DOCKERMGR_CONFIG_DIR/env/$APPNAME.env "
-else
-  if [ -n "$CONTAINER_ENV" ]; then
-    DOCKER_SET_ENV=""
-    CONTAINER_ENV="${CONTAINER_ENV//,/ }"
-    for env in $CONTAINER_ENV; do
-      if [ "$env" != "" ] && [ "$env" != " " ]; then
-        DOCKER_SET_ENV+="--env $env "
-      fi
-    done
-    unset env
-  fi
+if [ -n "$CONTAINER_ENV" ]; then
+  DOCKER_SET_ENV_VAR=""
+  CONTAINER_ENV="${CONTAINER_ENV//,/ }"
+  for env in $CONTAINER_ENV; do
+    if [ "$env" != "" ] && [ "$env" != " " ]; then
+      DOCKER_SET_ENV_VAR+="--env $env "
+    fi
+  done
+  unset env
 fi
 if [ -n "$CONTAINER_OPT_ENV_VAR" ]; then
   CONTAINER_OPT_ENV_VAR="${CONTAINER_OPT_ENV_VAR//,/ }"
   for env in $CONTAINER_OPT_ENV_VAR; do
     if [ "$env" != "" ] && [ "$env" != " " ]; then
-      DOCKER_SET_ENV+="--env $env "
+      DOCKER_SET_ENV_VAR+="--env $env "
     fi
   done
   unset env
@@ -2041,6 +2041,18 @@ if [ -n "$ENV_PORTS" ]; then
 fi
 unset DOCKER_SET_PORTS_ENV_TMP ENV_PORTS SET_PORTS_ENV_TMP
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Reset variables if the .env file exists
+if [ "$DOCKER_ENV_FILE_ENABLED" = "yes" ]; then
+  for get_env in $DOCKER_SET_ENV_VAR; do
+    set_env="${get-env//--env/}"
+    set_env="$(__trim "$set_env")"
+    echo "$set_env" >>"$DOCKERMGR_CONFIG_DIR/env/$CONTAINER_NAME.env"
+  done
+  DOCKER_SET_ENV_VAR="${DOCKER_SET_ENV_VAR//$get_env/}"
+  DOCKER_SET_ENV_FILE="--env-file $DOCKERMGR_CONFIG_DIR/env/$CONTAINER_NAME.env"
+fi
+DOCKER_SET_ENV_VAR="${DOCKER_SET_ENV_FILE:-$DOCKER_SET_ENV_VAR}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 DOCKER_CUSTOM_ARRAY="$(__retrieve_custom_env | __custom_docker_clean_env)"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Clean up variables
@@ -2048,7 +2060,7 @@ DOCKER_SET_PUBLISH="$(printf '%s\n' "${DOCKER_SET_TMP_PUBLISH[@]}" | sort -Vu | 
 HUB_IMAGE_URL="$(__trim "${HUB_IMAGE_URL[*]:-}")"                                             # image url
 HUB_IMAGE_TAG="$(__trim "${HUB_IMAGE_TAG[*]:-}")"                                             # image tag
 DOCKER_GET_CAP="$(__trim "${DOCKER_SET_CAP[*]:-}")"                                           # --capabilites
-DOCKER_GET_ENV="$(__trim "${DOCKER_SET_ENV[*]:-}")"                                           # --env
+DOCKER_GET_ENV="$(__trim "${DOCKER_SET_ENV_VAR[*]:-}")"                                       # --env
 DOCKER_GET_DEV="$(__trim "${DOCKER_SET_DEV[*]:-}")"                                           # --device
 DOCKER_GET_DNS="$(__trim "${DOCKER_SET_DNS[*]:-}")"                                           # --dns
 DOCKER_GET_MNT="$(__trim "${DOCKER_SET_MNT[*]:-}")"                                           # --volume

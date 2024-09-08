@@ -820,6 +820,7 @@ __initialize_replace_variables() {
     __find_replace "REPLACE_WWW_GROUP" "${SERVICE_GROUP:-${SERVICE_USER:-${RUNAS_USER:-root}}}" "$set_dir"
     __find_replace "REPLACE_SERVICE_USER" "${SERVICE_USER:-${RUNAS_USER:-root}}" "$set_dir"
     __find_replace "REPLACE_SERVICE_GROUP" "${SERVICE_GROUP:-${RUNAS_USER:-root}}" "$set_dir"
+    __find_replace "REPLACE_SERVER_ADMIN_URL" "$SERVER_ADMIN_URL" "$set_dir"
     if [ -n "$VAR_DIR" ]; then
       mkdir -p "$VAR_DIR"
       __find_replace "REPLACE_VAR_DIR" "$VAR_DIR" "$set_dir"
@@ -829,6 +830,11 @@ __initialize_replace_variables() {
     [ -n "$CONTAINER_NAME" ] && __find_replace "REPLACE_SERVER_SOFTWARE" "${CONTAINER_NAME:-docker}" "$set_dir"
     [ -n "$WWW_ROOT_DIR" ] && __find_replace "REPLACE_SERVER_WWW_DIR" "${WWW_ROOT_DIR:-/usr/share/httpd/default}" "$set_dir"
   done
+  if [ -n "$WWW_ROOT_DIR" ] && [ "$set_dir" != "$WWW_ROOT_DIR" ] && [ -d "$WWW_ROOT_DIR" ]; then
+    __find_replace "REPLACE_CONTAINER_IP4" "${REPLACE_CONTAINER_IP4:-127.0.0.1}" "$WWW_ROOT_DIR"
+    __find_replace "REPLACE_COPYRIGHT_FOOTER" "${COPYRIGHT_FOOTER:-Copyright 1999 - $(date +'%Y')}" "$WWW_ROOT_DIR"
+    __find_replace "REPLACE_LAST_UPDATED_ON_MESSAGE" "${LAST_UPDATED_ON_MESSAGE:-$(date +'Last updated on: %Y-%m-%d at %H:%M:%S')}" "$WWW_ROOT_DIR"
+  fi
   mkdir -p "${TMP_DIR:-/tmp/$SERVICE_NAME}" "${RUN_DIR:-/run/$SERVICE_NAME}" "${LOG_DIR:-/data/logs/$SERVICE_NAME}"
   chmod -f 777 "${TMP_DIR:-/tmp/$SERVICE_NAME}" "${RUN_DIR:-/run/$SERVICE_NAME}" "${LOG_DIR:-/data/logs/$SERVICE_NAME}"
 }
@@ -1168,6 +1174,11 @@ export ENTRYPOINT_PID_FILE="${ENTRYPOINT_PID_FILE:-/run/init.d/entrypoint.pid}"
 export ENTRYPOINT_INIT_FILE="${ENTRYPOINT_INIT_FILE:-/config/.entrypoint.done}"
 export ENTRYPOINT_DATA_INIT_FILE="${ENTRYPOINT_DATA_INIT_FILE:-/data/.docker_has_run}"
 export ENTRYPOINT_CONFIG_INIT_FILE="${ENTRYPOINT_CONFIG_INIT_FILE:-/config/.docker_has_run}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SERVER_ADMIN_URL="/admin/$SERVICE_NAME"
+[ -d "/usr/share/mongodb" ] && MONGOADMIN_WWW_ROOT="/usr/share/mongodb"
+[ -d "/usr/share/phpmyadmin" ] && PHPMYADMIN_WWW_ROOT="/usr/share/phpmyadmin"
+[ -d "/usr/share/phppgadmin" ] && PHPPGADMIN_WWW_ROOT="/usr/share/phppgadmin"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # is already Initialized
 [ -z "$DATA_DIR_INITIALIZED" ] && { [ -f "$ENTRYPOINT_DATA_INIT_FILE" ] && DATA_DIR_INITIALIZED="true" || DATA_DIR_INITIALIZED="false"; }

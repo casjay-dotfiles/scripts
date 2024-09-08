@@ -112,7 +112,7 @@ __printf_space() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __printf_spacing_file() { __printf_space "$1" "7" "$2" "$3"; }
 __printf_spacing_color() { __printf_space "$1" "$2" "$3" "$4"; }
-__printf_color() { printf "%b" "$(tput setaf "$2" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)" && printf '\n'; }
+__printf_color() { printf "%b" "$(tput setaf "$1" 2>/dev/null)" "$2" "$(tput sgr0 2>/dev/null)" && printf '\n'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cmd_exists() { type -p $1 &>/dev/null || return 1; }
 __remove_extra_spaces() { sed 's/\( \)*/\1/g;s|^ ||g'; }

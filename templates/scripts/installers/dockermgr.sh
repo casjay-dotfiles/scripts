@@ -2638,7 +2638,7 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
     __printf_color "2" "$POST_SHOW_FINISHED_MESSAGE"
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
-  __printf_color "6" "$APPNAME has been installed to:" "$APPDIR"
+  __printf_color "6" "$APPNAME has been installed to: $APPDIR"
   printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n\n'
   __show_post_message
 else
@@ -2649,7 +2649,7 @@ else
     printf_red "Something seems to have gone wrong with the install"
   fi
   if [ -f "$DOCKERMGR_INSTALL_SCRIPT" ]; then
-    __printf_color "3" "Script:" "$DOCKERMGR_INSTALL_SCRIPT"
+    __printf_color "3" "Script: $DOCKERMGR_INSTALL_SCRIPT"
   fi
   exit 10
 fi

@@ -146,8 +146,8 @@ __public_ip() { curl -q -LSsf ${1:--4} "http://ifconfig.co" | grep -v '^$' | hea
 __local_lan_ip() { __ifconfig $SET_LAN_DEV | grep -w 'inet' | awk -F ' ' '{print $2}' | __is_private_ip | head -n1 | grep '^' || ip address show $SET_LAN_DEV 2>&1 | grep 'inet ' | awk -F ' ' '{print $2}' | sed 's|/.*||g' | __is_private_ip | grep -v '^$' | head -n1 | grep '^' || echo "$CURRENT_IP_4" | grep '^' || return 1; }
 __my_default_lan_address() { __ifconfig $SET_LAN_DEV | grep -w 'inet' | awk -F ' ' '{print $2}' | head -n1 | grep '^' || ip address show $SET_LAN_DEV 2>&1 | grep 'inet ' | awk -F ' ' '{print $2}' | sed 's|/.*||g' | grep -v '^$' | head -n1 | grep '^' || echo "$CURRENT_IP_4" | grep '^' || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__check_ssl_cert() { if curl -q -viLSsf "${1:-$CONTAINER_HOSTNAME}" 2>&1 | grep -q 'does not match'; then return 0; else return 1; fi; }
-__create_cert() { if __cmd_exists certbot && [ -f "/etc/certbot/dns.conf" ]; then certbot create -vvvv -n --expand --dns-rfc2136 --dns-rfc2136-credentials "/etc/certbot/dns.conf" $CONTAINER_HOSTNAME >/dev/null 2>&1 || return 2; fi; }
+__check_ssl_cert() { if curl -q -viLSsf "${1:-$CONTAINER_HOSTNAME}" 2>&1 | grep -qE 'SSL certificate problem|does not match'; then return 0; else return 1; fi; }
+__create_cert() { if __cmd_exists certbot && [ -f "/etc/certbot/dns.conf" ]; then certbot certonly -vvvv --agree-tos --email ssl-admin@$HOSTNAME -n --expand --dns-rfc2136 --dns-rfc2136-credentials "/etc/certbot/dns.conf" -d "$CONTAINER_HOSTNAME" -d "*.$CONTAINER_HOSTNAME" >/dev/null 2>&1 || return 2; fi; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure docker is installed and running
 __docker_check || __docker_init

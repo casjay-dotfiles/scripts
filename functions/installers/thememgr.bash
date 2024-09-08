@@ -11,7 +11,7 @@ thememgr_install() {
   THEMEDIR="${THEMEDIR:-$SHARE/themes}"
   [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && APPDIR="${APPDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
   if [ -f "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME" ]; then
-    APPVERSION="$(grep -sv '#' "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME")"
+    APPVERSION="$(grep -shv '#' "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME")"
   else
     APPVERSION="$currentVersion"
   fi

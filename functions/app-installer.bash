@@ -153,8 +153,8 @@ __os_fix_name() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __os_name() {
   [ -n "$DISTRO_NAME" ] && printf '%s\n' "$DISTRO_NAME" ||
-    grep -s '^NAME=' "/etc/os-release" | awk -F '=' '{print $2}' | grep '^' ||
-    grep -s '^ID=' "/etc/os-release" | awk -F '=' '{print $2}' | grep '^' ||
+    grep -sh '^NAME=' "/etc/os-release" | awk -F '=' '{print $2}' | grep '^' ||
+    grep -sh '^ID=' "/etc/os-release" | awk -F '=' '{print $2}' | grep '^' ||
     echo "OS: Unknown"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -168,10 +168,10 @@ __os_version() {
     os_v="$([ -f "/etc/debian_version" ] && grep '[0-9]' "/etc/debian_version" | head -n1 | awk -F '.' '{print $1}')"
   fi
   if [ -z "$os_v" ]; then
-    os_v="$(grep -s '^VERSION=' /etc/os-release 2>/dev/null | sed 's|[a-zA-Z]||g;s/[^.0-9]*//g' | grep -v '/' | grep '[0-9]$')"
+    os_v="$(grep -sh '^VERSION=' /etc/os-release 2>/dev/null | sed 's|[a-zA-Z]||g;s/[^.0-9]*//g' | grep -v '/' | grep '[0-9]$')"
   fi
   if [ -z "$os_v" ]; then
-    os_v="$(grep -s 'BUILD_ID' /etc/os-release 2>/dev/null | awk -F '=' '{print $2}' | sed 's|[a-zA-Z]||g;s/[^.0-9]*//g' | grep '[0-9]$')"
+    os_v="$(grep -sh 'BUILD_ID' /etc/os-release 2>/dev/null | awk -F '=' '{print $2}' | sed 's|[a-zA-Z]||g;s/[^.0-9]*//g' | grep '[0-9]$')"
   fi
   if [ -z "$os_v" ]; then
     os_v="$($LSB_RELEASE -a 2>/dev/null | grep -i '^Release' | grep -v '/' | awk '{print $2}' | grep '^' | grep '[0-9]')"
@@ -935,8 +935,8 @@ versioncheck() {
   local choice=""
   if [ -f "$INSTDIR/version.txt" ]; then
     printf_green "Checking for updates"
-    local NEWVERSION="$(echo $APPVERSION | grep -sv "#" | tail -n 1)"
-    local OLDVERSION="$(grep -sv "#" $INSTDIR/version.txt | tail -n 1)"
+    local NEWVERSION="$(echo $APPVERSION | grep -shv "#" | tail -n 1)"
+    local OLDVERSION="$(grep -shv "#" $INSTDIR/version.txt | tail -n 1)"
     if [ "$NEWVERSION" == "$OLDVERSION" ]; then
       printf_green "No updates available currentversion is $OLDVERSION"
     else
@@ -1757,7 +1757,7 @@ ensure_perms() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 get_app_version() {
   if [ -f "$INSTDIR/version.txt" ]; then
-    local version="$(grep -sv "#" "$INSTDIR/version.txt" | tail -n 1)"
+    local version="$(grep -shv "#" "$INSTDIR/version.txt" | tail -n 1)"
   else
     local version="0000000"
   fi
@@ -2102,7 +2102,7 @@ devenvmgr_install() {
   [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && APPDIR="${APPDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
   [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && INSTDIR="${INSTDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
   if [ -f "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME" ]; then
-    APPVERSION="$(grep -sv '#' "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME")"
+    APPVERSION="$(grep -shv '#' "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME")"
   else
     APPVERSION="$currentVersion"
   fi
@@ -2141,7 +2141,7 @@ dfmgr_install() {
   [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && APPDIR="${APPDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
   [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && INSTDIR="${INSTDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
   if [ -f "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME" ]; then
-    APPVERSION="$(grep -sv '#' "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME")"
+    APPVERSION="$(grep -shv '#' "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME")"
   else
     APPVERSION="$currentVersion"
   fi
@@ -2179,7 +2179,7 @@ desktopmgr_install() {
   [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && DESKTOPMGR_APPDIR="${APPDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
   [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && DESKTOPMGR_INSTDIR="${INSTDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
   if [ -f "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME" ]; then
-    APPVERSION="$(grep -sv '#' "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME")"
+    APPVERSION="$(grep -shv '#' "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME")"
   else
     APPVERSION="$currentVersion"
   fi
@@ -2221,7 +2221,7 @@ dockermgr_install() {
   [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && APPDIR="${APPDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
   [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && INSTDIR="${INSTDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
   if [ -f "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME" ]; then
-    APPVERSION="$(grep -sv ' #' "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME")"
+    APPVERSION="$(grep -shv ' #' "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME")"
   else
     APPVERSION="$currentVersion"
   fi
@@ -2274,7 +2274,7 @@ fontmgr_install() {
   [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && APPDIR="${APPDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
   [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && INSTDIR="${INSTDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
   if [ -f "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME" ]; then
-    APPVERSION="$(grep -sv '#' "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME")"
+    APPVERSION="$(grep -shv '#' "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME")"
   else
     APPVERSION="$currentVersion"
   fi
@@ -2313,7 +2313,7 @@ iconmgr_install() {
   [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && APPDIR="${APPDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
   [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && INSTDIR="${INSTDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
   if [ -f "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME" ]; then
-    APPVERSION="$(grep -sv '#' "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME")"
+    APPVERSION="$(grep -shv '#' "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME")"
   else
     APPVERSION="$currentVersion"
   fi
@@ -2357,7 +2357,7 @@ pkmgr_install() {
   [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && APPDIR="${APPDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
   [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && INSTDIR="${INSTDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
   if [ -f "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME" ]; then
-    APPVERSION="$(grep -sv '#' "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME")"
+    APPVERSION="$(grep -shv '#' "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME")"
   else
     APPVERSION="$currentVersion"
   fi
@@ -2397,7 +2397,7 @@ systemmgr_install() {
   [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && APPDIR="${APPDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
   [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && INSTDIR="${INSTDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
   if [ -f "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME" ]; then
-    APPVERSION="$(grep -sv '#' "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME")"
+    APPVERSION="$(grep -shv '#' "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME")"
   else
     APPVERSION="$currentVersion"
   fi
@@ -2441,7 +2441,7 @@ thememgr_install() {
   [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && APPDIR="${APPDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
   [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && INSTDIR="${INSTDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
   if [ -f "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME" ]; then
-    APPVERSION="$(grep -sv '#' $CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME)"
+    APPVERSION="$(grep -shv '#' $CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME)"
   else
     APPVERSION="$currentVersion"
   fi
@@ -2483,7 +2483,7 @@ wallpapermgr_install() {
   [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && APPDIR="${APPDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
   [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && INSTDIR="${INSTDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
   if [ -f "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME" ]; then
-    APPVERSION="$(grep -sv '#' "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME")"
+    APPVERSION="$(grep -shv '#' "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME")"
   else
     APPVERSION="$currentVersion"
   fi

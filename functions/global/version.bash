@@ -97,7 +97,7 @@ sed_head() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 grep_head() {
-  grep -sE '[".#]?@[A-Z]' "${2:-$appname}" |
+  grep -shE '[".#]?@[A-Z]' "${2:-$appname}" |
     grep "${1:-}" |
     head -n 12 |
     sed_head |
@@ -107,7 +107,7 @@ grep_head() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 grep_head_remove() {
   local sed="${sed:-sed}"
-  grep -sE '[".#]?@[A-Z]' "${2:-$appname}" |
+  grep -shE '[".#]?@[A-Z]' "${2:-$appname}" |
     grep "${1:-}" | grep -Ev 'GEN_SCRIPT_*|\${|\$\(' |
     sed_head_remove |
     $sed '/^\#/d;/^$/d;s#^ ##g' |

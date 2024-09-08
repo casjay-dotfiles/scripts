@@ -70,7 +70,7 @@ get_user_ssh_key() {
   if [ -n "$ssh_key" ]; then
     [ -d "/root/.ssh" ] || mkdir -p "/root/.ssh"
     [ -f "/root/.ssh/authorized_keys" ] || touch "/root/.ssh/authorized_keys"
-    if grep -sq "$ssh_key" "/root/.ssh/authorized_keys"; then
+    if grep -shq "$ssh_key" "/root/.ssh/authorized_keys"; then
       printf_cyan "key for $GITHUB_USER already exists in ~/.ssh/authorized_keys"
     else
       echo "$ssh_key" | tee -p -a "/root/.ssh/authorized_keys" &>/dev/null

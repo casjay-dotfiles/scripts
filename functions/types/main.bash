@@ -161,7 +161,7 @@ run_install_list() {
       local -a LSINST="$(ls "$USRUPDATEDIR")"
       if [ -n "$LSINST" ]; then
         for app in "${LSINST[@]}"; do
-          installed+="$(echo "$app" | sed 's| ||g' | grep -sv "^$") "
+          installed+="$(echo "$app" | sed 's| ||g' | grep -shv "^$") "
         done
         printf '%s\n' "$installed" | printf_column "4"
       fi
@@ -169,7 +169,7 @@ run_install_list() {
       declare -a LSINST="$(ls "$SYSUPDATEDIR/")"
       if [ -n "${LSINST[0]}" ]; then
         for app in "${LSINST[@]}"; do
-          installed+="$(echo "$app" | sed 's| ||g' | grep -sv "^$") "
+          installed+="$(echo "$app" | sed 's| ||g' | grep -shv "^$") "
         done
         printf '%s\n' "$installed" | printf_column "4"
       fi
@@ -188,7 +188,7 @@ run_install_search() {
   local results=""
   for app in $LSINST; do
     export APPNAME="$app" REPO="$REPO/$APPNAME" REPORAW="$REPO/raw/$GIT_REPO_BRANCH"
-    local -a result+="$(echo -e "$LIST" | tr ' ' '\n' | grep -Fi "$app" | grep -sv '^$') "
+    local -a result+="$(echo -e "$LIST" | tr ' ' '\n' | grep -Fi "$app" | grep -shv '^$') "
   done
   results="$(echo "$result" | sort -u | tr '\n' ' ' | sed 's| | |g' | grep '^')"
   if [ -z "$results" ]; then

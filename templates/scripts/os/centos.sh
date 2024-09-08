@@ -157,7 +157,7 @@ install_pkg() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 detect_selinux() {
   if [ -f "/etc/selinux/config" ]; then
-    grep -s 'SELINUX=' "/etc/selinux/config" | grep -q 'enabled' || return 1
+    grep -sh 'SELINUX=' "/etc/selinux/config" | grep -q 'enabled' || return 1
   elif [ -f "$(type -P selinuxenabled 2>/dev/null)" ]; then
     selinuxenabled && return 1 || return 0
   else
@@ -193,7 +193,7 @@ get_user_ssh_key() {
   if [ -n "$ssh_key" ]; then
     [ -d "/root/.ssh" ] || mkdir -p "/root/.ssh"
     [ -f "/root/.ssh/authorized_keys" ] || touch "/root/.ssh/authorized_keys"
-    if grep -sq "$ssh_key" "/root/.ssh/authorized_keys"; then
+    if grep -shq "$ssh_key" "/root/.ssh/authorized_keys"; then
       printf_cyan "key for $GITHUB_USER already exists in ~/.ssh/authorized_keys"
     else
       echo "$ssh_key" | tee -a "/root/.ssh/authorized_keys" &>/dev/null
@@ -693,7 +693,7 @@ does_user_exist 'apache' && devnull chown -Rf apache:apache "/var/www" "/usr/sha
 does_user_exist 'named' && devnull mkdir -p /etc/named /var/named /var/log/named && devnull chown -Rf named:named /etc/named* /var/named /var/log/named
 devnull postmap /etc/postfix/transport /etc/postfix/canonical /etc/postfix/virtual /etc/postfix/mydomains /etc/postfix/sasl/passwd
 devnull newaliases &>/dev/null || newaliases.postfix -I &>/dev/null
-if ! grep -sq 'kernel.domainname' "/etc/sysctl.conf"; then
+if ! grep -shq 'kernel.domainname' "/etc/sysctl.conf"; then
   echo "kernel.domainname=$set_domainname" >>/etc/sysctl.conf
 fi
 ##################################################################################################################

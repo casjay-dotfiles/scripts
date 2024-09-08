@@ -630,8 +630,8 @@ __os_fix_name() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __os_name() {
   [ -n "$DISTRO_NAME" ] && printf '%s\n' "$DISTRO_NAME" ||
-    grep -s '^NAME=' "/etc/os-release" | awk -F '=' '{print $2}' | grep '^' ||
-    grep -s '^ID=' "/etc/os-release" | awk -F '=' '{print $2}' | grep '^' ||
+    grep -sh '^NAME=' "/etc/os-release" | awk -F '=' '{print $2}' | grep '^' ||
+    grep -sh '^ID=' "/etc/os-release" | awk -F '=' '{print $2}' | grep '^' ||
     echo "OS: Unknown"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -645,10 +645,10 @@ __os_version() {
     os_v="$([ -f "/etc/debian_version" ] && grep '[0-9]' "/etc/debian_version" | head -n1 | awk -F '.' '{print $1}')"
   fi
   if [ -z "$os_v" ]; then
-    os_v="$(grep -s '^VERSION=' /etc/os-release 2>/dev/null | sed 's|[a-zA-Z]||g;s/[^.0-9]*//g' | grep -v '/' | grep '[0-9]$')"
+    os_v="$(grep -sh '^VERSION=' /etc/os-release 2>/dev/null | sed 's|[a-zA-Z]||g;s/[^.0-9]*//g' | grep -v '/' | grep '[0-9]$')"
   fi
   if [ -z "$os_v" ]; then
-    os_v="$(grep -s 'BUILD_ID' /etc/os-release 2>/dev/null | awk -F '=' '{print $2}' | sed 's|[a-zA-Z]||g;s/[^.0-9]*//g' | grep '[0-9]$')"
+    os_v="$(grep -sh 'BUILD_ID' /etc/os-release 2>/dev/null | awk -F '=' '{print $2}' | sed 's|[a-zA-Z]||g;s/[^.0-9]*//g' | grep '[0-9]$')"
   fi
   if [ -z "$os_v" ]; then
     os_v="$($LSB_RELEASE -a 2>/dev/null | grep -i '^Release' | grep -v '/' | awk '{print $2}' | grep '^' | grep '[0-9]')"

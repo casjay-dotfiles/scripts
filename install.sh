@@ -174,7 +174,7 @@ run_postinst() {
   date +"%b %d, %Y at %H:%M" | sudo tee -p "$verDir/date.scripts.txt" &>/dev/null
   ln_sf "$APPDIR" "$SYSSHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME"
   ln_sf "$APPDIR" "$SYSSHARE/CasjaysDev/$SCRIPTS_PREFIX/installer"
-  for f in $(grep -sRl 'dir=/var/spool/mail' /etc/pam.d/); do
+  for f in $(grep -shRl 'dir=/var/spool/mail' /etc/pam.d/); do
     cp -Rf "$f" "/root/.local/backups/systemmgr/ssh/$(basename "$f").bak" &&
       sed --follow-symlinks -i 's|dir=~/Maildir||g' "$f"
   done

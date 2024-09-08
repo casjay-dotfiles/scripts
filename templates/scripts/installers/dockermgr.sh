@@ -2642,9 +2642,9 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
   printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n\n'
   __show_post_message
 else
-  __printf_spacing_color "60" "6" "The container $CONTAINER_NAME seems to have failed"
+  __printf_color "6" "The container $CONTAINER_NAME seems to have failed"
   if [ "$ERROR_LOG" = "true" ]; then
-    __printf_spacing_color "60" "3" "Errors logged to:" "${TMP:-/tmp}/$APPNAME.err.log"
+    __printf_color "3" "Errors logged to:" "${TMP:-/tmp}/$APPNAME.err.log"
   else
     printf_red "Something seems to have gone wrong with the install"
   fi

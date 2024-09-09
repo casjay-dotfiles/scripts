@@ -116,11 +116,11 @@ __printf_color() { printf "%b" "$(tput setaf "$1" 2>/dev/null)" "$2" "$(tput sgr
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cmd_exists() { type -p $1 &>/dev/null || return 1; }
 __remove_extra_spaces() { sed 's/\( \)*/\1/g;s|^ ||g'; }
-__ping_host() { ping -c1 -i1 -w1 "$1" >/dev/null 2>&1 || return 1; }
 __port() { echo "$((50000 + $RANDOM % 1000))" | grep '^' || return 1; }
 __grep_char() { grep '[a-zA-Z0-9].[a-zA-Z0-9]' | grep '^' || return 1; }
 __docker_check() { [ -n "$(type -p docker 2>/dev/null)" ] || return 1; }
 __set_vhost_alias() { echo "$1" | __remove_extra_spaces | grep "$2$" | sed "s|$2$|$3|g"; }
+__ping_host() { ping -c1 -i1 -w1 "${1:-$CONTAINER_HOSTNAME}" >/dev/null 2>&1 || return 1; }
 __docker_ps_all() { docker ps -a 2>&1 | grep -i ${1:-} "$CONTAINER_NAME" && return 0 || return 1; }
 __password() { head -n1000 -c 10000 "/dev/urandom" | tr -dc '0-9a-zA-Z' | head -c${1:-16} && echo ""; }
 __total_memory() { mem="$(free | grep -i 'mem: ' | awk -F ' ' '{print $2}')" && echo $((mem / 1000)); }
@@ -133,11 +133,11 @@ __container_is_running() { docker ps 2>&1 | grep -i "$CONTAINER_NAME" | grep -qi
 __container_name() { echo "$HUB_IMAGE_URL-${HUB_IMAGE_TAG:-latest}" | awk -F '/' '{print $(NF-1)"-"$NF}' | grep '^' || return 1; }
 __docker_init() { [ -n "$(type -p dockermgr 2>/dev/null)" ] && dockermgr init || printf_exit "Failed to Initialize the docker installer"; }
 __port_in_use() { { [ -d "/etc/nginx/vhosts.d" ] && grep -wRsq "${1:-443}" "/etc/nginx/vhosts.d" || __netstat | grep -q "${1:-443}"; } && return 1 || return 0; }
-__domain_name() { hostname -d 2>/dev/null | grep -F '.' | grep '^' || hostname -f 2>/dev/null | grep -w '.' | awk -F '.' '{print $(NF-1)"."$NF}' | __grep_char || return 1; }
 __netstat() { netstat -taupln 2>/dev/null | grep -vE 'WAIT|ESTABLISHED|docker-pro' | awk -F ' ' '{print $4}' | sed 's|.*:||g' | grep -E '[0-9]' | sort -Vu | grep "^${1:-.*}$" || return 1; }
+__domain_name() { hostname -d 2>/dev/null | grep -vF '(none)' | grep -F '.' | grep '^' || hostname -f 2>/dev/null | grep -F '.' | awk -F '.' '{print $(NF-1)"."$NF}' | __grep_char || return 1; }
 __retrieve_custom_env() { [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.${1:-custom}.conf" ] && cat "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.${1:-custom}.conf" | grep -Ev '^$|^#' | grep '=' | grep '^' || __custom_docker_env | grep -Ev '^$|^#' | grep '=' | grep '^' || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__get_records() { __cmd_exists dig && dig $SET_HOST_FULL_DOMAIN 2>&1 | grep -E 'A|AAAA|CNAME' | grep -E '[0-9]\.|[0-9]:' | awk '{print $NF}' | head -n1 | grep '^' || return 1; }
+__get_records() { __cmd_exists dig && dig $SET_LONG_HOSTNAME 2>&1 | grep -E 'A|AAAA|CNAME' | grep -E '[0-9]\.|[0-9]:' | awk '{print $NF}' | head -n1 | grep '^' || return 1; }
 __docker_gateway_ip() { sudo docker network inspect -f '{{json .IPAM.Config}}' ${HOST_DOCKER_NETWORK:-bridge} 2>/dev/null | jq -r '.[].Gateway' | grep -Ev '^$|null' | head -n1 | grep '^' || return 1; }
 __docker_net_create() { __docker_net_ls | grep -q "$HOST_DOCKER_NETWORK" && return 0 || { docker network create -d bridge --attachable $HOST_DOCKER_NETWORK &>/dev/null && __docker_net_ls | grep -q "$HOST_DOCKER_NETWORK" && echo "$HOST_DOCKER_NETWORK" && return 0 || return 1; }; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -219,9 +219,9 @@ ENV_HOSTNAME="${ENV_HOSTNAME:-$SET_HOSTNAME}"
 ENV_DOMAINNAME="${ENV_DOMAINNAME:-$SET_DOMAIN}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # get variables from host
+SET_DOMAIN_NAME=$(__domain_name)
 SET_SHORT_HOSTNAME=$(hostname -s 2>/dev/null | grep '^')
-SET_DOMAIN_NAME=$(hostname -d | grep '^' || __domain_name || echo 'home')
-SET_LONG_HOSTNAME=$(hostname -f 2>/dev/null | grep '^' || echo "$HOSTNAME")
+SET_LONG_HOSTNAME="$(hostname -f 2>/dev/null | grep -F '.' || echo "$HOSTNAME" | grep -F "$SET_SHORT_HOSTNAME." || echo "$SET_SHORT_HOSTNAME.$SET_DOMAIN_NAME")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set hostname and domain
 SET_HOST_FULL_NAME="${ENV_HOSTNAME:-$SET_LONG_HOSTNAME}"
@@ -825,9 +825,7 @@ fi
 CONTAINER_NAME="${CONTAINER_NAME:-$(__container_name || echo "${HUB_IMAGE_URL//\/-/}-$HUB_IMAGE_TAG")}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define folders
-if [ -z "$DATADIR" ]; then
-  DATADIR="$APPDIR/$CONTAINER_NAME/rootfs"
-fi
+DATADIR="$APPDIR/$CONTAINER_NAME/rootfs"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 HOST_DATA_DIR="$DATADIR/data"
 HOST_CONFIG_DIR="$DATADIR/config"
@@ -844,6 +842,9 @@ export DATADIR APPDIR INSTDIR
 [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.script.sh" ] && . "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.script.sh"
 [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.custom.conf" ] && . "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.custom.conf"
 [ -r "$DOCKERMGR_CONFIG_DIR/secure/$APPNAME" ] && . "$DOCKERMGR_CONFIG_DIR/secure/$APPNAME"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Update the variables for the installer
+dockermgr_install
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Initialize the installer
 dockermgr_run_init
@@ -1291,7 +1292,6 @@ fi
 [ -n "$CONTAINER_HOSTNAME" ] || CONTAINER_HOSTNAME="$APPNAME.$CONTAINER_DOMAINNAME"
 IS_SAME_SERVER="$(__ping_host '1.1.1.1' && [ "$(__get_records)" = "$(__public_ip)" ] && echo "yes" || false)"
 [ -n "$IS_SAME_SERVER" ] || CONTAINER_DOMAINNAME="$HOSTNAME"
-__ping_host $CONTAINER_HOSTNAME && CONTAINER_HOSTNAME="$CONTAINER_HOSTNAME.$CONTAINER_DOMAINNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -n "$CONTAINER_HOSTNAME" ]; then
   DOCKER_SET_OPTIONS+=("--hostname $CONTAINER_HOSTNAME")

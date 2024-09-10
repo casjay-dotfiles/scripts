@@ -813,6 +813,10 @@ EOF
   chmod -Rf 755 "$DOCKERMGR_INSTALL_SCRIPT"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# cleanup registry variables
+HUB_IMAGE_TAG="${HUB_IMAGE_TAG//*:/}"
+HUB_IMAGE_URL="${HUB_IMAGE_URL//*:\/\//}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set containers name
 REPO_NAME="$(basename "${HUB_IMAGE_URL//:*/}")"
 if [ -z "$CONTAINER_NAME" ]; then
@@ -862,10 +866,6 @@ mkdir -p "$DOCKERMGR_CONFIG_DIR/containers"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # fix directory permissions
 chmod -f 777 "$APPDIR"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# variable cleanup
-HUB_IMAGE_TAG="${HUB_IMAGE_TAG//*:/}"
-HUB_IMAGE_URL="${HUB_IMAGE_URL//*:\/\//}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # verify required file exists
 if [ -n "$CONTAINER_REQUIRES" ]; then

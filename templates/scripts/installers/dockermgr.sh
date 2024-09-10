@@ -831,7 +831,7 @@ HUB_IMAGE_URL="${HUB_IMAGE_URL//:*/}"
 # Set containers name
 REPO_NAME="$(basename "${HUB_IMAGE_URL//:*/}")"
 if [ -z "$CONTAINER_NAME" ]; then
-  if [ "$REPO_NAME" = "$$APPNAME" ]; then
+  if [ "$REPO_NAME" = "$APPNAME" ]; then
     CONTAINER_NAME="$(echo "${HUB_IMAGE_URL//\/-/}-$HUB_IMAGE_TAG")"
   else
     CONTAINER_NAME="$(echo "${HUB_IMAGE_URL//\/-/}-$HUB_IMAGE_TAG-$APPNAME")"

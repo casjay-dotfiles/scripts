@@ -19,6 +19,8 @@
 # @@Template         :  installers/dockermgr
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # shell check options
+# shellcheck disable=SC1003
+# shellcheck disable=SC2001
 # shellcheck disable=SC2016
 # shellcheck disable=SC2031
 # shellcheck disable=SC2120
@@ -899,11 +901,12 @@ if [ -n "$CONTAINER_REQUIRES" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup containers hostname
+CONTAINER_HOSTNAME="$(echo "$CONTAINER_HOSTNAME" | sed 's/[.].*$//')"
 if [ -z "$CONTAINER_HOSTNAME" ]; then
   [ "$(hostname -s)" = "testing" ] && CONTAINER_HOSTNAME="$APPNAME"
   [ "$(hostname -s)" = "testing" ] && CONTAINER_DOMAINNAME="$HOSTNAME"
 fi
-[ -n "$CONTAINER_HOSTNAME" ] || CONTAINER_HOSTNAME="$APPNAME.$CONTAINER_DOMAINNAME"
+[ -n "$CONTAINER_HOSTNAME" ] || CONTAINER_HOSTNAME="$APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -z "$CONTAINER_DOMAINNAME" ]; then
   IS_SAME_SERVER="$(__ping_host '1.1.1.1' && [ "$(__get_records)" = "$(__public_ip)" ] && echo "yes" || false)"
@@ -913,6 +916,7 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [ -n "$CONTAINER_OPT_HOSTNAME" ] && CONTAINER_HOSTNAME="$CONTAINER_OPT_HOSTNAME"
 [ -n "$CONTAINER_OPT_DOMAINNAME" ] && CONTAINER_DOMAINNAME="$CONTAINER_OPT_DOMAINNAME"
+CONTAINER_HOSTNAME="$CONTAINER_HOSTNAME.$CONTAINER_DOMAINNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # SSL Setup container mounts
 CONTAINER_SSL_DIR="${CONTAINER_SSL_DIR:-/config/ssl}"

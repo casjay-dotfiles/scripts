@@ -2174,8 +2174,14 @@ if [ -x "$DOCKERMGR_INSTALL_SCRIPT" ]; then
   printf_cyan "Reinstalling container: $CONTAINER_NAME"
   eval "$DOCKERMGR_INSTALL_SCRIPT" 2>"${TMP:-/tmp}/$APPNAME.err.log" >/dev/null
   __container_is_running && exitCode=0 || exitCode=1
-  [ $exitCode = 0 ] && printf_green "Your container has been installed" || printf_red "Failed to reinstall the container"
-  __printf_color "3" "Errors logged to:" "${TMP:-/tmp}/$APPNAME.err.log"
+  if [ $exitCode = 0 ]; then
+    printf_green "Your container has been installed"
+  else
+    printf_red "Failed to reinstall the container"
+    __printf_color "3" "Errors logged to: ${TMP:-/tmp}/$APPNAME.err.log"
+    [ -f "$DOCKERMGR_INSTALL_SCRIPT" ] && mv -f "$DOCKERMGR_INSTALL_SCRIPT" "${DOCKERMGR_INSTALL_SCRIPT//.sh/.$$.bak.sh}"
+    [ -f "${DOCKERMGR_INSTALL_SCRIPT//.sh/.$$.bak.sh}" ] && printf_yellow "Script moved to: ${DOCKERMGR_INSTALL_SCRIPT//.sh/.$$.bak.sh}"
+  fi
   exit $exitCode
 else
   __create_docker_script
@@ -2591,6 +2597,8 @@ else
   __printf_color "6" "The container $CONTAINER_NAME seems to have failed"
   if [ "$ERROR_LOG" = "true" ]; then
     __printf_color "3" "Errors logged to:" "${TMP:-/tmp}/$APPNAME.err.log"
+    [ -f "$DOCKERMGR_INSTALL_SCRIPT" ] && mv -f "$DOCKERMGR_INSTALL_SCRIPT" "${DOCKERMGR_INSTALL_SCRIPT//.sh/.$$.bak.sh}"
+    [ -f "${DOCKERMGR_INSTALL_SCRIPT//.sh/.$$.bak.sh}" ] && printf_yellow "Script moved to: ${DOCKERMGR_INSTALL_SCRIPT//.sh/.$$.bak.sh}"
   else
     printf_red "Something seems to have gone wrong with the install"
   fi

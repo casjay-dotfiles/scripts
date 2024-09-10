@@ -821,9 +821,9 @@ HUB_IMAGE_URL="${HUB_IMAGE_URL//*:\/\//}"
 REPO_NAME="$(basename "${HUB_IMAGE_URL//:*/}")"
 if [ -z "$CONTAINER_NAME" ]; then
   if [ "$REPO_NAME" = "$$APPNAME" ]; then
-    CONTAINER_NAME="$(__container_name || echo "${HUB_IMAGE_URL//\/-/}-$HUB_IMAGE_TAG")"
+    CONTAINER_NAME="${HUB_IMAGE_URL//\/-/}-$HUB_IMAGE_TAG"
   else
-    CONTAINER_NAME="$(__container_name || echo "${HUB_IMAGE_URL//\/-/}-$HUB_IMAGE_TAG-$APPNAME")"
+    CONTAINER_NAME="${HUB_IMAGE_URL//\/-/}-$HUB_IMAGE_TAG-$APPNAME"
   fi
 fi
 CONTAINER_NAME="${CONTAINER_NAME:-$(__container_name || echo "${HUB_IMAGE_URL//\/-/}-$HUB_IMAGE_TAG")}"
@@ -884,16 +884,20 @@ if [ -n "$CONTAINER_REQUIRES" ]; then
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-[ "$(hostname -s)" = "testing" ] && CONTAINER_HOSTNAME="$APPNAME"
-[ "$(hostname -s)" = "testing" ] && CONTAINER_DOMAINNAME="$HOSTNAME"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup containers hostname
-[ -n "$CONTAINER_DOMAINNAME" ] || CONTAINER_DOMAINNAME="$SET_HOST_FULL_DOMAIN"
+if [ -z "$CONTAINER_HOSTNAME" ]; then
+  [ "$(hostname -s)" = "testing" ] && CONTAINER_HOSTNAME="$APPNAME"
+  [ "$(hostname -s)" = "testing" ] && CONTAINER_DOMAINNAME="$HOSTNAME"
+fi
 [ -n "$CONTAINER_HOSTNAME" ] || CONTAINER_HOSTNAME="$APPNAME.$CONTAINER_DOMAINNAME"
-IS_SAME_SERVER="$(__ping_host '1.1.1.1' && [ "$(__get_records)" = "$(__public_ip)" ] && echo "yes" || false)"
-[ -n "$IS_SAME_SERVER" ] || CONTAINER_DOMAINNAME="$HOSTNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-[ -n "$CONTAINER_OPT_HOSTNAME" ] && ENV_HOSTNAME="$CONTAINER_OPT_HOSTNAME"
+if [ -z "$CONTAINER_DOMAINNAME" ]; then
+  IS_SAME_SERVER="$(__ping_host '1.1.1.1' && [ "$(__get_records)" = "$(__public_ip)" ] && echo "yes" || false)"
+  [ -n "$IS_SAME_SERVER" ] || CONTAINER_DOMAINNAME="$HOSTNAME"
+fi
+[ -n "$CONTAINER_DOMAINNAME" ] || CONTAINER_DOMAINNAME="$SET_HOST_FULL_DOMAIN"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+[ -n "$CONTAINER_OPT_HOSTNAME" ] && CONTAINER_HOSTNAME="$CONTAINER_OPT_HOSTNAME"
 [ -n "$CONTAINER_OPT_DOMAINNAME" ] && CONTAINER_DOMAINNAME="$CONTAINER_OPT_DOMAINNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # SSL Setup container mounts

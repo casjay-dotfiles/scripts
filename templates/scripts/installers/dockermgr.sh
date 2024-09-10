@@ -903,14 +903,15 @@ fi
 # Setup containers hostname
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [ -n "$ENV_HOSTNAME" ] && CONTAINER_HOSTNAME="$ENV_HOSTNAME"
-[ -n "$ENV_HOSTNAME" ] && CONTAINER_DOMAINNAME="$ENV_DOMAINNAME"
+[ -n "$ENV_DOMAINNAME" ] && CONTAINER_DOMAINNAME="$ENV_DOMAINNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ -z "$CONTAINER_HOSTNAME" ] && [ "$(hostname -s)" = "testing" ]; then
-  CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME}"
-  CONTAINER_DOMAINNAME="${CONTAINER_OPT_DOMAINNAME:-$HOSTNAME}"
-else
-  CONTAINER_HOSTNAME="$APPNAME"
-  CONTAINER_DOMAINNAME="$HOSTNAME"
+if [ -z "$CONTAINER_HOSTNAME" ]; then
+  if [ "$(hostname -s)" = "testing" ]; then
+    CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME}"
+    CONTAINER_DOMAINNAME="${CONTAINER_DOMAINNAME:-$HOSTNAME}"
+  else
+    CONTAINER_HOSTNAME="$APPNAME"
+  fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -z "$CONTAINER_DOMAINNAME" ]; then

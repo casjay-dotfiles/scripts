@@ -193,7 +193,7 @@ set -- "${setopts[@]}" 2>/dev/null
 while :; do
   case "$1" in #
   -i | --init) ENV_INIT_SCRIPT_ONLY="true" && shift 1 ;;
-  -s | --server) FULL_HOST="$2" && shift 2 ;;
+  -s | --server) CONTAINER_FULL_HOST="$2" && shift 2 ;;
   -h | --host) CONTAINER_OPT_HOSTNAME="$2" && shift 2 ;;
   -d | --domain) CONTAINER_OPT_DOMAINNAME="$2" && shift 2 ;;
   -e | --env) CONTAINER_OPT_ENV_VAR="$2 $CONTAINER_OPT_ENV_VAR" && shift 2 ;;
@@ -218,8 +218,8 @@ SET_DOCKER_IP="$(__docker_gateway_ip || echo '172.17.0.1')"
 SET_LAN_IP=$(__local_lan_ip || echo '127.0.0.1')
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # get variables from env
-ENV_HOSTNAME="${ENV_HOSTNAME:-$SET_HOSTNAME}"
-ENV_DOMAINNAME="${ENV_DOMAINNAME:-$SET_DOMAIN}"
+ENV_HOSTNAME="${CONTAINER_OPT_HOSTNAME:-$ENV_HOSTNAME}"
+ENV_DOMAINNAME="${CONTAINER_OPT_DOMAINNAME:-$ENV_DOMAINNAME}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # get variables from host
 SET_DOMAIN_NAME=$(__domain_name)
@@ -901,22 +901,36 @@ if [ -n "$CONTAINER_REQUIRES" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup containers hostname
-CONTAINER_HOSTNAME="$(echo "$CONTAINER_HOSTNAME" | sed 's/[.].*$//')"
-if [ -z "$CONTAINER_HOSTNAME" ]; then
-  [ "$(hostname -s)" = "testing" ] && CONTAINER_HOSTNAME="$APPNAME"
-  [ "$(hostname -s)" = "testing" ] && CONTAINER_DOMAINNAME="$HOSTNAME"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+[ -n "$ENV_HOSTNAME" ] && CONTAINER_HOSTNAME="$ENV_HOSTNAME"
+[ -n "$ENV_HOSTNAME" ] && CONTAINER_DOMAINNAME="$ENV_DOMAINNAME"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -z "$CONTAINER_HOSTNAME" ] && [ "$(hostname -s)" = "testing" ]; then
+  CONTAINER_HOSTNAME="${CONTAINER_HOSTNAME:-$APPNAME}"
+  CONTAINER_DOMAINNAME="${CONTAINER_OPT_DOMAINNAME:-$HOSTNAME}"
+else
+  CONTAINER_HOSTNAME="$APPNAME"
+  CONTAINER_DOMAINNAME="$HOSTNAME"
 fi
-[ -n "$CONTAINER_HOSTNAME" ] || CONTAINER_HOSTNAME="$APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -z "$CONTAINER_DOMAINNAME" ]; then
   IS_SAME_SERVER="$(__ping_host '1.1.1.1' && [ "$(__get_records)" = "$(__public_ip)" ] && echo "yes" || false)"
-  [ -n "$IS_SAME_SERVER" ] || CONTAINER_DOMAINNAME="$HOSTNAME"
+  if [ "$IS_SAME_SERVER" = "yes" ]; then
+    CONTAINER_DOMAINNAME="$SET_HOST_FULL_DOMAIN"
+  else
+    CONTAINER_DOMAINNAME="$HOSTNAME"
+  fi
 fi
-[ -n "$CONTAINER_DOMAINNAME" ] || CONTAINER_DOMAINNAME="$SET_HOST_FULL_DOMAIN"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-[ -n "$CONTAINER_OPT_HOSTNAME" ] && CONTAINER_HOSTNAME="$CONTAINER_OPT_HOSTNAME"
-[ -n "$CONTAINER_OPT_DOMAINNAME" ] && CONTAINER_DOMAINNAME="$CONTAINER_OPT_DOMAINNAME"
-CONTAINER_HOSTNAME="$CONTAINER_HOSTNAME.$CONTAINER_DOMAINNAME"
+# Clean and create full hostname
+if [ -n "$CONTAINER_FULL_HOST" ]; then
+  CONTAINER_HOSTNAME="$CONTAINER_FULL_HOST"
+  CONTAINER_DOMAINNAME=$(echo "$CONTAINER_FULL_HOST" | sed 's/^[^.:]*[.:]//')
+else
+  CONTAINER_HOSTNAME="$(echo "$CONTAINER_HOSTNAME" | sed 's/[.].*$//')"
+  CONTAINER_HOSTNAME="$CONTAINER_HOSTNAME.$CONTAINER_DOMAINNAME"
+fi
+echo "$CONTAINER_HOSTNAME" | grep -qF '.' || CONTAINER_HOSTNAME="$CONTAINER_HOSTNAME.$CONTAINER_DOMAINNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # SSL Setup container mounts
 CONTAINER_SSL_DIR="${CONTAINER_SSL_DIR:-/config/ssl}"

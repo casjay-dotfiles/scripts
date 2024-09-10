@@ -884,6 +884,61 @@ if [ -n "$CONTAINER_REQUIRES" ]; then
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+[ "$(hostname -s)" = "testing" ] && CONTAINER_HOSTNAME="$APPNAME"
+[ "$(hostname -s)" = "testing" ] && CONTAINER_DOMAINNAME="$HOSTNAME"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup containers hostname
+[ -n "$CONTAINER_DOMAINNAME" ] || CONTAINER_DOMAINNAME="$SET_HOST_FULL_DOMAIN"
+[ -n "$CONTAINER_HOSTNAME" ] || CONTAINER_HOSTNAME="$APPNAME.$CONTAINER_DOMAINNAME"
+IS_SAME_SERVER="$(__ping_host '1.1.1.1' && [ "$(__get_records)" = "$(__public_ip)" ] && echo "yes" || false)"
+[ -n "$IS_SAME_SERVER" ] || CONTAINER_DOMAINNAME="$HOSTNAME"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+[ -n "$CONTAINER_OPT_HOSTNAME" ] && ENV_HOSTNAME="$CONTAINER_OPT_HOSTNAME"
+[ -n "$CONTAINER_OPT_DOMAINNAME" ] && CONTAINER_DOMAINNAME="$CONTAINER_OPT_DOMAINNAME"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# SSL Setup container mounts
+CONTAINER_SSL_DIR="${CONTAINER_SSL_DIR:-/config/ssl}"
+CONTAINER_SSL_CA="${CONTAINER_SSL_CA:-$CONTAINER_SSL_DIR/ca.crt}"
+CONTAINER_SSL_CRT="${CONTAINER_SSL_CRT:-$CONTAINER_SSL_DIR/localhost.crt}"
+CONTAINER_SSL_KEY="${CONTAINER_SSL_KEY:-$CONTAINER_SSL_DIR/localhost.key}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup ssl certs
+if [ "$CONTAINER_WEB_SERVER_SSL_ENABLED" = "true" ]; then
+  if [ -z "$HOST_SSL_CA" ]; then
+    if [ -f "/etc/ssl/cert.pem" ]; then
+      HOST_SSL_CA="/etc/ssl/cert.pem"
+    elif [ -f "/etc/ssl/certs/ca-bundle.crt" ]; then
+      HOST_SSL_CA="/etc/ssl/certs/ca-bundle.crt"
+    elif [ -f "/etc/ssl/CA/CasjaysDev/certs/ca.crt" ]; then
+      HOST_SSL_CA="/etc/ssl/CA/CasjaysDev/certs/ca.crt"
+    fi
+  fi
+  if [ -z "$HOST_SSL_CRT" ]; then
+    if [ -f "/etc/letsencrypt/live/domain/fullchain.pem" ]; then
+      HOST_SSL_CRT="/etc/letsencrypt/live/domain/fullchain.pem"
+    elif [ -f "/etc/ssl/CA/CasjaysDev/certs/localhost.crt" ]; then
+      HOST_SSL_CRT="/etc/ssl/CA/CasjaysDev/certs/localhost.crt"
+    fi
+  fi
+  if [ -z "$HOST_SSL_KEY" ]; then
+    if [ -f "/etc/letsencrypt/live/domain/privkey.pem" ]; then
+      HOST_SSL_KEY="/etc/letsencrypt/live/domain/privkey.pem"
+    elif [ -f "/etc/ssl/CA/CasjaysDev/private/localhost.key" ]; then
+      HOST_SSL_KEY="/etc/ssl/CA/CasjaysDev/private/localhost.key"
+    fi
+  fi
+  if [ -n "$HOST_SSL_CA" ]; then
+    HOST_SSL_CA="$(realpath "$HOST_SSL_CA")"
+  fi
+  if [ -n "$HOST_SSL_CRT" ]; then
+    HOST_SSL_CRT="$(realpath "$HOST_SSL_CRT")"
+  fi
+  if [ -n "$HOST_SSL_KEY" ]; then
+    HOST_SSL_KEY="$(realpath "$HOST_SSL_KEY")"
+  fi
+  SSL_ENABLED="yes"
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # rewrite variables from env file
 INIT_SCRIPT_ONLY="${ENV_INIT_SCRIPT_ONLY:-$INIT_SCRIPT_ONLY}"
 SET_LAN_DEV="${ENV_SET_LAN_DEV:-$SET_LAN_DEV}"
@@ -1007,55 +1062,6 @@ DOCKER_CAP_NET_ADMIN="${ENV_DOCKER_CAP_NET_ADMIN:-$DOCKER_CAP_NET_ADMIN}"
 DOCKER_CAP_NET_BIND_SERVICE="${ENV_DOCKER_CAP_NET_BIND_SERVICE:-$DOCKER_CAP_NET_BIND_SERVICE}"
 DOCKERMGR_ENABLE_INSTALL_SCRIPT="${SCRIPT_ENABLED:-$DOCKERMGR_ENABLE_INSTALL_SCRIPT}"
 CONTAINER_USER_ADMIN_PASS_LENGTH="${ENV_CONTAINER_USER_ADMIN_PASS_LENGTH:-$CONTAINER_USER_ADMIN_PASS_LENGTH}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-[ -n "$CONTAINER_OPT_HOSTNAME" ] && ENV_HOSTNAME="$CONTAINER_OPT_HOSTNAME"
-[ -n "$CONTAINER_OPT_DOMAINNAME" ] && CONTAINER_DOMAINNAME="$CONTAINER_OPT_DOMAINNAME"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-[ "$(hostname -s)" = "testing" ] && CONTAINER_HOSTNAME="$APPNAME"
-[ "$(hostname -s)" = "testing" ] && CONTAINER_DOMAINNAME="$HOSTNAME"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# SSL Setup container mounts
-CONTAINER_SSL_DIR="${CONTAINER_SSL_DIR:-/config/ssl}"
-CONTAINER_SSL_CA="${CONTAINER_SSL_CA:-$CONTAINER_SSL_DIR/ca.crt}"
-CONTAINER_SSL_CRT="${CONTAINER_SSL_CRT:-$CONTAINER_SSL_DIR/localhost.crt}"
-CONTAINER_SSL_KEY="${CONTAINER_SSL_KEY:-$CONTAINER_SSL_DIR/localhost.key}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup ssl certs
-if [ "$CONTAINER_WEB_SERVER_SSL_ENABLED" = "true" ]; then
-  if [ -z "$HOST_SSL_CA" ]; then
-    if [ -f "/etc/ssl/cert.pem" ]; then
-      HOST_SSL_CA="/etc/ssl/cert.pem"
-    elif [ -f "/etc/ssl/certs/ca-bundle.crt" ]; then
-      HOST_SSL_CA="/etc/ssl/certs/ca-bundle.crt"
-    elif [ -f "/etc/ssl/CA/CasjaysDev/certs/ca.crt" ]; then
-      HOST_SSL_CA="/etc/ssl/CA/CasjaysDev/certs/ca.crt"
-    fi
-  fi
-  if [ -z "$HOST_SSL_CRT" ]; then
-    if [ -f "/etc/letsencrypt/live/domain/fullchain.pem" ]; then
-      HOST_SSL_CRT="/etc/letsencrypt/live/domain/fullchain.pem"
-    elif [ -f "/etc/ssl/CA/CasjaysDev/certs/localhost.crt" ]; then
-      HOST_SSL_CRT="/etc/ssl/CA/CasjaysDev/certs/localhost.crt"
-    fi
-  fi
-  if [ -z "$HOST_SSL_KEY" ]; then
-    if [ -f "/etc/letsencrypt/live/domain/privkey.pem" ]; then
-      HOST_SSL_KEY="/etc/letsencrypt/live/domain/privkey.pem"
-    elif [ -f "/etc/ssl/CA/CasjaysDev/private/localhost.key" ]; then
-      HOST_SSL_KEY="/etc/ssl/CA/CasjaysDev/private/localhost.key"
-    fi
-  fi
-  if [ -n "$HOST_SSL_CA" ]; then
-    HOST_SSL_CA="$(realpath "$HOST_SSL_CA")"
-  fi
-  if [ -n "$HOST_SSL_CRT" ]; then
-    HOST_SSL_CRT="$(realpath "$HOST_SSL_CRT")"
-  fi
-  if [ -n "$HOST_SSL_KEY" ]; then
-    HOST_SSL_KEY="$(realpath "$HOST_SSL_KEY")"
-  fi
-  SSL_ENABLED="yes"
-fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup arrays/empty variables
 PRETTY_PORT=""
@@ -1286,12 +1292,6 @@ if [ "$CONTAINER_X11_ENABLED" = "yes" ]; then
     DOCKER_SET_OPTIONS+=("--volume $HOST_X11_XAUTH:${CONTAINER_X11_XAUTH:-/home/x11user/.Xauthority}")
   fi
 fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup containers hostname
-[ -n "$CONTAINER_DOMAINNAME" ] || CONTAINER_DOMAINNAME="$SET_HOST_FULL_DOMAIN"
-[ -n "$CONTAINER_HOSTNAME" ] || CONTAINER_HOSTNAME="$APPNAME.$CONTAINER_DOMAINNAME"
-IS_SAME_SERVER="$(__ping_host '1.1.1.1' && [ "$(__get_records)" = "$(__public_ip)" ] && echo "yes" || false)"
-[ -n "$IS_SAME_SERVER" ] || CONTAINER_DOMAINNAME="$HOSTNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -n "$CONTAINER_HOSTNAME" ]; then
   DOCKER_SET_OPTIONS+=("--hostname $CONTAINER_HOSTNAME")

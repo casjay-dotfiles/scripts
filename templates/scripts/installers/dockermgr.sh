@@ -827,14 +827,16 @@ fi
 HUB_IMAGE_TAG="${HUB_IMAGE_TAG//*:/}"
 HUB_IMAGE_URL="${HUB_IMAGE_URL//*:\/\//}"
 HUB_IMAGE_URL="${HUB_IMAGE_URL//:*/}"
+HUB_IMAGE_ORG="$(echo "$HUB_IMAGE_URL" | awk -F '/' '{print $1}')"
+HUB_IMAGE_REPO="$(echo "$HUB_IMAGE_URL" | awk -F '/' '{print $2}')"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set containers name
 REPO_NAME="$(basename "${HUB_IMAGE_URL//:*/}")"
 if [ -z "$CONTAINER_NAME" ]; then
   if [ "$REPO_NAME" = "$APPNAME" ]; then
-    CONTAINER_NAME="$(echo "${HUB_IMAGE_URL//\/-/}-$HUB_IMAGE_TAG")"
+    CONTAINER_NAME="$(echo "$HUB_IMAGE_ORG-$HUB_IMAGE_REPO-$HUB_IMAGE_TAG")"
   else
-    CONTAINER_NAME="$(echo "${HUB_IMAGE_URL//\/-/}-$HUB_IMAGE_TAG-$APPNAME")"
+    CONTAINER_NAME="$(echo "$HUB_IMAGE_ORG-$APPNAME-$HUB_IMAGE_TAG")"
   fi
 fi
 CONTAINER_NAME="${CONTAINER_NAME:-$(__container_name || echo "${HUB_IMAGE_URL//\/-/}-$HUB_IMAGE_TAG")}"

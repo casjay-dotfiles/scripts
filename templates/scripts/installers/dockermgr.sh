@@ -670,9 +670,9 @@ __create_uninstall() {
   NGINX_FILES="$(echo "$NGINX_CONF_FILE $NGINX_INC_CONFIG $NGINX_VHOST_CONFIG $NGINX_INTERNAL_IS_SET" | tr ' ' '\n' | grep -v '^$' | sort -u | tr '\n' ' ')"
   mkdir -p "$DOCKERMGR_CONFIG_DIR/uninstall"
   cat <<EOF >"$DOCKERMGR_CONFIG_DIR/uninstall/$APPNAME"
-APPDIR="$APPDIR"
 DATADIR="$DATADIR"
 INSTDIR="$INSTDIR"
+APPDIR="$APPDIR/$APPNAME"
 DOCKERMGR_CONFIG_DIR="$DOCKERMGR_CONFIG_DIR"
 CONTAINER_NAME="$CONTAINER_NAME"
 DOCKER_NAME="$CONTAINER_NAME"
@@ -703,7 +703,7 @@ __trim() {
   local var="$*"
   var="${var#"${var%%[![:space:]]*}"}" # remove leading whitespace characters
   var="${var%"${var##*[![:space:]]}"}" # remove trailing whitespace characters
-  printf '%s' "$var" | grep -v '^$' | __remove_extra_spaces
+  printf '%s' "$var" | grep -v '^$' | sort -u | __remove_extra_spaces
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __test_public_reachable() {

@@ -141,7 +141,7 @@ __host_name() { hostname -f 2>/dev/null | grep -F '.' | grep '^' || hostname -f 
 __container_is_running() { docker ps 2>&1 | grep -i "$CONTAINER_NAME" | grep -qi 'ago.* Up.* [0-9].* ' && return 0 || return 1; }
 __docker_init() { [ -n "$(type -p dockermgr 2>/dev/null)" ] && dockermgr init || printf_exit "Failed to Initialize the docker installer"; }
 __netstat() { netstat -taupln 2>/dev/null | grep -vE 'WAIT|ESTABLISHED|docker-pro' | awk -F ' ' '{print $4}' | sed 's|.*:||g' | grep -E '[0-9]' | sort -Vu | grep "^${1:-.*}$" || return 1; }
-__retrieve_custom_env() { [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.${1:-custom}.conf" ] && cat "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.${1:-custom}.conf" | grep -Ev '^$|^#' | grep '=' | grep '^' || __custom_docker_env | grep -Ev '^$|^#' | grep '=' | grep '^' || return 1; }
+__retrieve_custom_env() { [ -f "$DOCKERMGR_CONFIG_DIR/env/$CONTAINER_NAME.${1:-custom}.conf" ] && cat "$DOCKERMGR_CONFIG_DIR/env/$CONTAINER_NAME.${1:-custom}.conf" | grep -Ev '^$|^#' | grep '=' | grep '^' || __custom_docker_env | grep -Ev '^$|^#' | grep '=' | grep '^' || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __ping_host() { ping -c1 -i1 -w1 "${1:-$CONTAINER_HOSTNAME}" >/dev/null 2>&1 || return 1; }
 __domain_name() { hostname -d 2>/dev/null | grep -vF '(none)' | grep -F '.' | grep '^' || hostname -f 2>/dev/null | sed 's/^[^.:]*[.:]//' | __grep_char || return 1; }
@@ -320,7 +320,7 @@ DOCKER_SOCKET_ENABLED="no"
 DOCKER_SOCKER_READONLY="yes"
 DOCKER_SOCKET_MOUNT=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Will set --env-file "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.env" to docker run [yes/no]
+# Will set --env-file "$DOCKERMGR_CONFIG_DIR/env/$CONTAINER_NAME.env" to docker run [yes/no]
 DOCKER_ENV_FILE_ENABLED=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mount docker config - [yes/no] [~/.docker/config.json] [/root/.docker/config.json]
@@ -350,7 +350,7 @@ HOST_MODULES_MOUNT_ENABLED="no"
 # Set Container name - Default $DOCKER_REGISTRY_ORG_NAME=$APPNAME-$DOCKER_HUB_IMAGE_TAG
 CONTAINER_NAME=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set container hostname and domain - Default: [GEN_SCRIPT_REPLACE_APPNAME.$SET_HOST_FULL_NAME] [$SET_HOST_FULL_DOMAIN]
+# Set container hostname and domain - Default: [$APPNAME.$SET_HOST_FULL_NAME] [$SET_HOST_FULL_DOMAIN]
 CONTAINER_HOSTNAME=""
 CONTAINER_DOMAINNAME=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -673,12 +673,13 @@ __create_uninstall() {
 APPDIR="$APPDIR"
 DATADIR="$DATADIR"
 INSTDIR="$INSTDIR"
+DOCKERMGR_CONFIG_DIR="$DOCKERMGR_CONFIG_DIR"
 CONTAINER_NAME="$CONTAINER_NAME"
 DOCKER_NAME="$CONTAINER_NAME"
 DOCKER_REGISTRY_ORG_NAME="$DOCKER_REGISTRY_ORG_NAME"
 DOCKER_REGISTRY_ORG_REPO="$DOCKER_REGISTRY_ORG_REPO"
 DOCKER_REGISTRY_URL="$DOCKER_REGISTRY_URL"
-ADD_REMOVE_FILES="$(__trim "$REMOVE_FILES")"
+ADD_REMOVE_FILES="$DOCKERMGR_CONFIG_DIR/*/$CONTAINER_NAME*"
 NGINX_FILES="$(__trim "$NGINX_FILES")"
 DATABASE_BASE_DIR="$LOCAL_DATA_DIR/$DATABASE_BASE_DIR"
 EOF
@@ -797,10 +798,10 @@ export DATADIR APPDIR INSTDIR
 [ -f "$INSTDIR/env.sh" ] && . "$INSTDIR/env.sh"
 [ -f "$APPDIR/env.sh" ] && . "$APPDIR/env.sh"
 [ -f "$DOCKERMGR_CONFIG_DIR/.env.sh" ] && . "$DOCKERMGR_CONFIG_DIR/.env.sh"
-[ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.env.conf" ] && . "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.env.conf"
-[ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.script.sh" ] && . "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.script.sh"
-[ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.custom.conf" ] && . "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.custom.conf"
-[ -r "$DOCKERMGR_CONFIG_DIR/secure/$APPNAME" ] && . "$DOCKERMGR_CONFIG_DIR/secure/$APPNAME"
+[ -f "$DOCKERMGR_CONFIG_DIR/env/$CONTAINER_NAME.env.conf" ] && . "$DOCKERMGR_CONFIG_DIR/env/$CONTAINER_NAME.env.conf"
+[ -f "$DOCKERMGR_CONFIG_DIR/env/$CONTAINER_NAME.script.sh" ] && . "$DOCKERMGR_CONFIG_DIR/env/$CONTAINER_NAME.script.sh"
+[ -f "$DOCKERMGR_CONFIG_DIR/env/$CONTAINER_NAME.custom.conf" ] && . "$DOCKERMGR_CONFIG_DIR/env/$CONTAINER_NAME.custom.conf"
+[ -r "$DOCKERMGR_CONFIG_DIR/secure/$CONTAINER_NAME" ] && . "$DOCKERMGR_CONFIG_DIR/secure/$CONTAINER_NAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Update the variables for the installer
 dockermgr_install
@@ -1350,11 +1351,11 @@ if [ "$HOST_NGINX_ENABLED" = "yes" ]; then
     fi
     if [ -n "$(builtin type -P htpasswd)" ]; then
       if ! grep -q "$CONTAINER_USER_NAME"; then
-        __printf_color "3" "Creating auth $NGINX_AUTH_DIR/$APPNAME"
-        if [ -f "$NGINX_AUTH_DIR/$APPNAME" ]; then
-          htpasswd -b "$NGINX_AUTH_DIR/$APPNAME" "$CONTAINER_USER_NAME" "$CONTAINER_USER_PASS" &>/dev/null
+        __printf_color "3" "Creating auth $NGINX_AUTH_DIR/$CONTAINER_NAME"
+        if [ -f "$NGINX_AUTH_DIR/$CONTAINER_NAME" ]; then
+          htpasswd -b "$NGINX_AUTH_DIR/$CONTAINER_NAME" "$CONTAINER_USER_NAME" "$CONTAINER_USER_PASS" &>/dev/null
         else
-          htpasswd -b -c "$NGINX_AUTH_DIR/$APPNAME" "$CONTAINER_USER_NAME" "$CONTAINER_USER_PASS" &>/dev/null
+          htpasswd -b -c "$NGINX_AUTH_DIR/$CONTAINER_NAME" "$CONTAINER_USER_NAME" "$CONTAINER_USER_PASS" &>/dev/null
         fi
       fi
     fi
@@ -2047,14 +2048,14 @@ SET_EXECUTE_DOCKER_CMD="$(echo "docker run -d $DOCKER_GET_OPTIONS $DOCKER_GET_CU
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run functions
 __container_import_variables "$CONTAINER_ENV_FILE_MOUNT"
-__dockermgr_variables >"$DOCKERMGR_CONFIG_DIR/env/$APPNAME.env.conf"
-__custom_docker_script >"$DOCKERMGR_CONFIG_DIR/env/$APPNAME.script.sh"
-__dockermgr_password_variables >"$DOCKERMGR_CONFIG_DIR/secure/$APPNAME"
-chmod -f 600 "$DOCKERMGR_CONFIG_DIR/secure/$APPNAME"
+__dockermgr_variables >"$DOCKERMGR_CONFIG_DIR/env/$CONTAINER_NAME.env.conf"
+__custom_docker_script >"$DOCKERMGR_CONFIG_DIR/env/$CONTAINER_NAME.script.sh"
+__dockermgr_password_variables >"$DOCKERMGR_CONFIG_DIR/secure/$CONTAINER_NAME"
+chmod -f 600 "$DOCKERMGR_CONFIG_DIR/secure/$CONTAINER_NAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - #
-if [ ! -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.custom.conf" ]; then
-  __custom_docker_env | sed 's|^--.* ||g' >"$DOCKERMGR_CONFIG_DIR/env/$APPNAME.custom.conf"
-  echo "" >>"$DOCKERMGR_CONFIG_DIR/env/$APPNAME.custom.conf"
+if [ ! -f "$DOCKERMGR_CONFIG_DIR/env/$CONTAINER_NAME.custom.conf" ]; then
+  __custom_docker_env | sed 's|^--.* ||g' >"$DOCKERMGR_CONFIG_DIR/env/$CONTAINER_NAME.custom.conf"
+  echo "" >>"$DOCKERMGR_CONFIG_DIR/env/$CONTAINER_NAME.custom.conf"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main progam
@@ -2208,7 +2209,7 @@ else
       sleep 10
       if { __container_is_running || __docker_ps_all -q || __sudo_exec docker start $CONTAINER_NAME &>/dev/null; }; then
         rm -Rf "${TMP:-/tmp}/$APPNAME.err.log"
-        echo "$CONTAINER_NAME" >"$DOCKERMGR_CONFIG_DIR/containers/$APPNAME"
+        echo "$CONTAINER_NAME" >"$DOCKERMGR_CONFIG_DIR/containers/$CONTAINER_NAME"
         __docker_ps_all -q && CONTAINER_INSTALLED="true"
       else
         ERROR_LOG="true"
@@ -2581,12 +2582,12 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
     __printf_spacing_color "3" "Script saved to:" "$DOCKERMGR_INSTALL_SCRIPT"
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
-  if [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.env.conf" ] || [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.custom.conf" ]; then
-    if [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.env.conf" ]; then
-      __printf_spacing_color "2" "variables saved to:" "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.env.conf"
+  if [ -f "$DOCKERMGR_CONFIG_DIR/env/$CONTAINER_NAME.env.conf" ] || [ -f "$DOCKERMGR_CONFIG_DIR/env/$CONTAINER_NAME.custom.conf" ]; then
+    if [ -f "$DOCKERMGR_CONFIG_DIR/env/$CONTAINER_NAME.env.conf" ]; then
+      __printf_spacing_color "2" "variables saved to:" "$DOCKERMGR_CONFIG_DIR/env/$CONTAINER_NAME.env.conf"
     fi
-    if [ -f "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.custom.conf" ]; then
-      __printf_spacing_color "2" "Container variables saved to:" "$DOCKERMGR_CONFIG_DIR/env/$APPNAME.custom.conf"
+    if [ -f "$DOCKERMGR_CONFIG_DIR/env/$CONTAINER_NAME.custom.conf" ]; then
+      __printf_spacing_color "2" "Container variables saved to:" "$DOCKERMGR_CONFIG_DIR/env/$CONTAINER_NAME.custom.conf"
     fi
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi

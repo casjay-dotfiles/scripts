@@ -108,22 +108,22 @@ __sudo_exec() { [ "$DOCKERMGR_USER_CAN_SUDO" = "true" ] && sudo -HE "$@" || { [ 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # printf_space spacing color message value
 __printf_space() {
-  local padl color COLUMNS padlength pad string1 string2
-  test -n "$1" && test -z "${1//[0-9]/}" && padl="$1" && shift 1 || padl="40"
+  local padl color padlength pad string1 string2
+  test -n "$1" && test -z "${1//[0-9]/}" && padl="$1" && shift 1 || padl="20"
   test -n "$1" && test -z "${1//[0-9]/}" && color="$1" && shift 1 || color="7"
   string1="$1"
   string2="$2"
-  COLUMNS="${COLUMNS:=80}"
-  padlength="${padl:-$COLUMNS}"
+  padlength="${padl:-30}"
   pad=$(printf '\x2D%.0s' $(seq "$padlength"))
-  printf '%b%s' "$(tput setaf "$color" 2>/dev/null)" "$string1"
+  printf '%b' "$(tput setaf "$color" 2>/dev/null)"
+  printf '%s' "$string1"
   printf '%*.*s' 0 $(("$padlength" - "${#string1}" - "${#string2}")) "$pad" | sed 's|-| |g'
   printf '%s%b' "$string2" "$(tput sgr0 2>/dev/null)"
   printf '\n'
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__printf_spacing_file() { __printf_space "70" "7" "$1" "$2"; }
-__printf_spacing_color() { __printf_space "70" "$1" "$2" "$3"; }
+__printf_spacing_file() { __printf_space "20" "7" "$1" "$2"; }
+__printf_spacing_color() { __printf_space "20" "$1" "$2" "$3"; }
 __printf_color() { printf "%b" "$(tput setaf "$1" 2>/dev/null)" "$2" "$(tput sgr0 2>/dev/null)" && printf '\n'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cmd_exists() { type -p $1 &>/dev/null || return 1; }
@@ -1493,7 +1493,10 @@ if [ "$CONTAINER_SQLITE_ENABLED" = "yes" ]; then
   DOCKER_SET_OPTIONS+=("--volume $LOCAL_DATA_DIR/db/sqlite:$DATABASE_DIR_SQLITE:z")
   DOCKER_SET_OPTIONS+=("--env DATABASE_DIR_SQLITE=$DATABASE_DIR_SQLITE")
   CONTAINER_DATABASE_PROTO="sqlite://$DATABASE_DIR_SQLITE"
-  [ -d "$DATADIR/$DATABASE_DIR_SQLITE" ] || CONTAINER_CREATE_DIRECTORY+=",$LOCAL_DATA_DIR/db/sqlite"
+  if [ ! -d "$LOCAL_DATA_DIR/db/sqlite" ]; then
+    mkdir -p "$LOCAL_DATA_DIR/db/sqlite"
+    chmod -Rf 777 $LOCAL_DATA_DIR/db
+  fi
   MESSAGE_SQLITE="true"
 fi
 if [ "$CONTAINER_REDIS_ENABLED" = "yes" ]; then

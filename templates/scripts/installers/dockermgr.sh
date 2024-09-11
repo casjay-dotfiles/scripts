@@ -85,10 +85,10 @@ export INSTDIR="$HOME/.local/share/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME"
 export DOCKERMGR_CONFIG_DIR="${DOCKERMGR_CONFIG_DIR:-$HOME/.config/myscripts/$SCRIPTS_PREFIX}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set default docker home for containers
-export APPDIR="$HOME/.local/share/srv/docker/$DOCKER_REGISTRY_ORG_NAME"
+export APPDIR="$HOME/.local/share/srv/docker/$DOCKER_REGISTRY_ORG_NAME/$DOCKER_REGISTRY_ORG_REPO"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the mountpoint directory - Defaults to $APPDIR/$APPNAME/rootfs
-export DATADIR="$APPDIR/$DOCKER_REGISTRY_ORG_REPO/rootfs"
+export DATADIR="$HOME/.local/share/srv/docker/$DOCKER_REGISTRY_ORG_NAME/$DOCKER_REGISTRY_ORG_REPO/rootfs"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Call the main function
 dockermgr_install
@@ -670,8 +670,8 @@ __create_uninstall() {
   NGINX_FILES="$(echo "$NGINX_CONF_FILE $NGINX_INC_CONFIG $NGINX_VHOST_CONFIG $NGINX_INTERNAL_IS_SET" | tr ' ' '\n' | grep -v '^$' | sort -u | tr '\n' ' ')"
   mkdir -p "$DOCKERMGR_CONFIG_DIR/uninstall"
   cat <<EOF >"$DOCKERMGR_CONFIG_DIR/uninstall/$APPNAME"
+APPDIR="$APPDIR"
 INSTDIR="$INSTDIR"
-APPDIR="$APPDIR/$APPNAME"
 DATADIR="${DATADIR//\/rootfs/}"
 DOCKERMGR_CONFIG_DIR="$DOCKERMGR_CONFIG_DIR"
 CONTAINER_NAME="$CONTAINER_NAME"
@@ -2106,17 +2106,18 @@ if [ -n "$CONTAINER_CREATE_DIRECTORY" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Copy over data files - keep the same stucture as -v DATADIR/mnt:/mnt
-if [ -d "$INSTDIR/rootfs" ] && [ ! -f "$DATADIR/.installed" ]; then
+INSTALLED_FILE_NAME="$APPDIR/.installed"
+if [ -d "$INSTDIR/rootfs" ] && [ ! -f "$INSTALLED_FILE_NAME" ]; then
   __printf_color "3" "Copying files to $DATADIR"
   __sudo_exec cp -Rf "$INSTDIR/rootfs/." "$DATADIR/" &>/dev/null
   find "$DATADIR" -name ".gitkeep" -type f -exec rm -rf {} \; &>/dev/null
 fi
-if [ -f "$DATADIR/.installed" ]; then
-  __sudo_exec date +'Updated on %Y-%m-%d at %H:%M' | tee -p "$DATADIR/.installed" &>/dev/null
+if [ -f "$INSTALLED_FILE_NAME" ]; then
+  __sudo_exec date +'Updated on %Y-%m-%d at %H:%M' | tee -p "$INSTALLED_FILE_NAME" &>/dev/null
 else
+  __sudo_exec chown -f "$USER":"$USER" "$INSTDIR" "$INSTDIR" &>/dev/null
   __sudo_exec chown -Rf "$USER":"$USER" "$DOCKERMGR_CONFIG_DIR" &>/dev/null
-  __sudo_exec chown -f "$USER":"$USER" "$DATADIR" "$INSTDIR" "$INSTDIR" &>/dev/null
-  __sudo_exec date +'installed on %Y-%m-%d at %H:%M' | tee -p "$DATADIR/.installed" &>/dev/null
+  __sudo_exec date +'installed on %Y-%m-%d at %H:%M' | tee -p "$INSTALLED_FILE_NAME" &>/dev/null
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mount /etc/resolv.conf file in the container

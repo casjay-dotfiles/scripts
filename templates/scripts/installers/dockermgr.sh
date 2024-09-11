@@ -88,7 +88,7 @@ export DOCKERMGR_CONFIG_DIR="${DOCKERMGR_CONFIG_DIR:-$HOME/.config/myscripts/$SC
 export APPDIR="$HOME/.local/share/srv/docker/$DOCKER_REGISTRY_ORG_NAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the mountpoint directory - Defaults to $APPDIR/$APPNAME/rootfs
-export DATADIR="$APPDIR/$DOCKER_REGISTRY_ORG_NAME/rootfs"
+export DATADIR="$APPDIR/$DOCKER_REGISTRY_ORG_REPO/rootfs"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Call the main function
 dockermgr_install

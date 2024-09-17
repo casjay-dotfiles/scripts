@@ -363,6 +363,9 @@ HOST_DOCKER_LINK=""
 # Set listen type - Default all - [all/local/lan/docker/public]
 HOST_NETWORK_ADDR="all"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set docker Security options [unconfined]
+HOST_DOCKER_SECOPT=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set this to the protocol the the container will use - [http/https/git/ftp/postgres/mysql/mongodb]
 CONTAINER_PROTOCOL="http"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -378,6 +381,9 @@ HOST_NGINX_UPDATE_CONF="yes"
 HOST_NGINX_EXTERNAL_DOMAIN=""
 HOST_NGINX_INTERNAL_DOMAIN=""
 HOST_NGINX_INTERNAL_HOST=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set the nginx virtualhost config name - Default $CONTAINER_HOSTNAME
+HOST_NGINX_VHOST_CONFIG_NAME=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Enable this if container is running a webserver - [yes/no] [internalPort] [yes/no] [yes/no] [listen]
 CONTAINER_WEB_SERVER_ENABLED="no"
@@ -1130,6 +1136,11 @@ fi
 #
 if [ "$CONTAINER_PROXY_SIGNAL" = "no" ] || [ "$CONTAINER_PROXY_SIGNAL" = "false" ]; then
   DOCKER_SET_OPTIONS+=("--sig-proxy=false")
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#
+if [ -n "$HOST_DOCKER_SECOPT" ]; then
+  DOCKER_SET_OPTIONS+=("--security-opt seccomp=$HOST_DOCKER_SECOPT")
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the containers SHM size
@@ -2241,7 +2252,8 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
   NGINX_VHOST_TMP_NAMES=()
   NGINX_VHOST_ENABLED="true"
   NGINX_VHOST_SET_NAMES="${CONTAINER_WEB_SERVER_VHOSTS//,/ }"
-  NGINX_CONFIG_NAME="${CONTAINER_WEB_SERVER_CONFIG_NAME:-$CONTAINER_HOSTNAME}"
+  HOST_NGINX_VHOST_CONFIG_NAME="${HOST_NGINX_VHOST_CONFIG_NAME:-$CONTAINER_HOSTNAME}"
+  NGINX_CONFIG_NAME="${CONTAINER_WEB_SERVER_CONFIG_NAME:-$HOST_NGINX_VHOST_CONFIG_NAME}"
   NGINX_MAIN_CONFIG="$NGINX_DIR/vhosts.d/$NGINX_CONFIG_NAME.conf"
   NGINX_VHOST_CONFIG="$NGINX_DIR/vhosts.d/$NGINX_CONFIG_NAME.custom.conf"
   NGINX_INC_CONFIG="$NGINX_DIR/conf.d/vhosts/$NGINX_CONFIG_NAME.conf"

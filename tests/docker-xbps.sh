@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-APPNAME="$(basename $0)"
+APPNAME="$(basename "$0" 2>/dev/null)"
 
 set +eE
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

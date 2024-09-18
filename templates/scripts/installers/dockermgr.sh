@@ -202,7 +202,7 @@ setopts=$(getopt -o "i,s:,h:,d:,e:,m:,p:" --long "init,server:,host:,domain:,env
 set -- "${setopts[@]}" 2>/dev/null
 while :; do
   case "$1" in #
-  -i | --init) ENV_INIT_SCRIPT_ONLY="true" && shift 1 ;;
+  -i | --init) ENV_INIT_SCRIPT_ONLY="yes" && shift 1 ;;
   -s | --server) CONTAINER_FULL_HOST="$2" && shift 2 ;;
   -h | --host) CONTAINER_OPT_HOSTNAME="$2" && shift 2 ;;
   -d | --domain) CONTAINER_OPT_DOMAINNAME="$2" && shift 2 ;;
@@ -213,9 +213,6 @@ while :; do
   *) break ;;
   esac
 done
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Init only - This should be false
-INIT_SCRIPT_ONLY="false"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [ -n "$(type -P sudo)" ] && sudo -n true && sudo true && DOCKERMGR_USER_CAN_SUDO="true"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -542,6 +539,9 @@ POST_SHOW_FINISHED_MESSAGE=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run the script if it exists [yes/no]
 DOCKERMGR_ENABLE_INSTALL_SCRIPT="yes"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Init only - This should be no [yes/no]
+INIT_SCRIPT_ONLY="no"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set custom container enviroment variables - [MYVAR="VAR"]
 __custom_docker_env() {
@@ -2220,7 +2220,7 @@ if [ -x "$DOCKERMGR_INSTALL_SCRIPT" ]; then
 else
   __create_docker_script
   EXECUTE_DOCKER_SCRIPT="$EXECUTE_DOCKER_CMD"
-  if [ "$INIT_SCRIPT_ONLY" = "false" ] && [ -n "$EXECUTE_DOCKER_SCRIPT" ]; then
+  if [ "$INIT_SCRIPT_ONLY" = "no" ] && [ -n "$EXECUTE_DOCKER_SCRIPT" ]; then
     EXECUTE_PRE_INSTALL="$(__trim "${EXECUTE_PRE_INSTALL//||*/}")"
     EXECUTE_DOCKER_SCRIPT="$(__trim "${EXECUTE_DOCKER_SCRIPT//||*/}")"
     __printf_color "6" "Updating the image from $DOCKER_HUB_IMAGE_URL with tag $DOCKER_HUB_IMAGE_TAG"

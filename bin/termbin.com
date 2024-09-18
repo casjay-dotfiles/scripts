@@ -531,7 +531,7 @@ export TERMBIN_COM_CWD
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 if [ ${#} -eq 0 ]; then
-  if [ -p "/dev/stdin" ]; then
+  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
     message="$(</dev/stdin)"
   else
     printf_cyan "Type or paste in your message, hit control-d when done\n\n"

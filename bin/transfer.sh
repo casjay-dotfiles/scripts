@@ -422,8 +422,6 @@ __notifications() {
     export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$TRANSFER_SH_NOTIFY_CLIENT_NAME}"
     export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$TRANSFER_SH_NOTIFY_CLIENT_URGENCY}"
     notifications "$@"
-    retval=$?
-    return $retval
   ) |& __devnull &
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

@@ -414,8 +414,6 @@ __notifications() {
     export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$CHEAT_SH_NOTIFY_CLIENT_NAME}"
     export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$CHEAT_SH_NOTIFY_CLIENT_URGENCY}"
     notifications "$@"
-    retval=$?
-    return $retval
   ) |& __devnull &
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

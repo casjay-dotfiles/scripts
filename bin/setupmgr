@@ -1066,6 +1066,38 @@ __nix_setup() {
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__helm_setup() {
+  local arch url
+  local arch="$(uname -m)"
+  local binDir="$HELM_BIN_DIR"
+  local latest_release_url="https://get.helm.sh/helm-latest-version"
+  if __cmd_exists helm; then
+    printf_green "helm is already installed"
+  else
+    printf_green "Installing helm"
+    case $arch in
+    x86_64) arch="amd64" ;;
+    aarch64 | arm64) arch="arm64" ;;
+    esac
+    local dist_tag="$(__curl "$latest_release_url" | grep '^v[0-9]')"
+    local download_url="https://get.helm.sh/helm-$dist_tag-linux-$arch.tar.gz"
+    if __curl "$download_url" -o "$SETUPMGR_TEMP_DIR/helm.tar.gz"; then
+      mkdir -p "$SETUPMGR_TEMP_DIR/helm_bin"
+      tar xfz "$SETUPMGR_TEMP_DIR/helm.tar.gz" --strip-components=1 -C "$SETUPMGR_TEMP_DIR/helm_bin"
+      cp -Rf "$SETUPMGR_TEMP_DIR/helm_bin/helm" "$binDir/helm"
+      rm -Rf "$SETUPMGR_TEMP_DIR"/helm*
+      chmod +x "$binDir/helm"
+      printf_green "helm has been installed to $binDir"
+    else
+      exitCode=1
+      printf_red "Failed to download helm"
+    fi
+  fi
+  set +x
+  return $exitCode
+
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __kubectl_setup() {
   local exitCode=0
   local arch="$(uname -m)"
@@ -1089,12 +1121,43 @@ __kubectl_setup() {
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__minikube_setup() {
+__kind_setup() {
   local exitCode=0
   local arch="$(uname -m)"
+  local binDir="$KIND_BIN_DIR"
+  if __cmd_exists kind; then
+    printf_green "kind is already installed"
+  else
+    printf_green "Installing kind"
+    case $arch in
+    x86_64) arch="amd64" ;;
+    aarch64 | arm64) arch="arm64" ;;
+    esac
+    download_url="$(__curl "https://api.github.com/repos/kubernetes-sigs/kind/releases/latest" | grep browser_download_url | cut -d '"' -f 4 | grep "kind.linux.$arch\$")"
+    if __curl "$download_url" -o "$binDir/kind"; then
+      chmod +x "$binDir/kind"
+      printf_green "kind has been installed to $binDir"
+    else
+      exitCode=1
+      printf_red "Failed to download kind"
+    fi
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__minikube_setup() {
+  #set -x
+  local exitCode=0
+  local port="59801"
+  local arch="$(uname -m)"
+  local wait_minikube=300
+  local wait_dashboard=300
   local binDir="$MINIKUBE_BIN_DIR"
   local driver="$MINIKUBE_DRIVER"
   local memory="$MINIKUBE_MEMORY"
+  local dashboard_url="http://127.0.0.1:$port/api/v1/namespaces/kubernetes-dashboard/services/http:kubernetes-dashboard:/proxy/"
+  export MINIKUBE_HOME="${MINIKUBE_HOME:-$HOME/.config/minikube}"
+  __cmd_exists docker || printf_exit "Please install docker"
   if __cmd_exists minikube; then
     printf_green "minikube is already installed"
   else
@@ -1104,11 +1167,46 @@ __minikube_setup() {
     aarch64 | arm64) url="https://storage.googleapis.com/minikube/releases/latest/minikube-linux-arm64" ;;
     esac
     if __curl "$url" -o "$binDir/minikube"; then
-      [ -f "$binDir/minikube" ] && chmod +x "$binDir/minikube"
-      minikube config set driver $driver
-      minikube config set memory $memory
-      if minikube start && sleep 60 && minikube dashboard; then
+      chmod +x "$binDir/minikube"
+      minikube config set driver $driver >/dev/null 2>&1
+      minikube config set memory $memory >/dev/null 2>&1
+      (minikube start >/dev/null 2>&1) &
+      minikube_pid=$!
+      if [ -n "$minikube_pid" ] && ps -p $minikube_pid >/dev/null; then
+        while [ $wait_minikube -ge 0 ]; do
+          sleep 1
+          printf '\r%b ' "$(printf_yellow "Waiting for minikube to start" | tr -d '\n')"
+          docker ps -a | grep 'minikube$' | grep -qi ' UP ' && sleep 10 && break
+          wait_minikube=$((wait_minikube--))
+        done
+        printf '\r                                                                                            \r'
+        [ $wait_minikube = 0 ] && printf_red "minikube seems to have failed" && return 1
         printf_green "minikube has been installed and started"
+        (minikube dashboard --port=$port --url >/dev/null 2>&1) &
+        dashboard_pid=$!
+        if [ -n "$dashboard_pid" ] && ps -p $dashboard_pid >/dev/null; then
+          while [ $wait_dashboard -ge 0 ]; do
+            sleep 1
+            printf '\r%b ' "$(printf_yellow "Waiting for the dashboard to start" | tr -d '\n')"
+            minikube kubectl -- get pods --namespace kube-system 2>&1 | grep 'kube-proxy' | grep -q ' Running ' && sleep 120 && break
+            wait_dashboard=$((wait_dashboard--))
+          done
+          printf '\r                                                                                            \r'
+          if [ $wait_minikube != 0 ]; then
+            printf_cyan "Enabling addons"
+            minikube addons enable yakd &>/dev/null
+            minikube addons enable ingress &>/dev/null
+            minikube addons enable metrics-server &>/dev/null
+            sleep 6
+            yakd_dashboard="$(minikube service --https --url --wait=30 yakd-dashboard -n yakd-dashboard 2>/dev/null)"
+            dashboard_status="$(__curl -I "$dashboard_url" 2>&1 >/dev/null 2>&1 && echo "$dashboard_url" || false)"
+            sleep 30
+            if [ -n "$dashboard_status" ]; then
+              printf_cyan "dashboard: $dashboard_status"
+              [ -n "$yakd_dashboard" ] && printf_blue "yakd_dashboard: $yakd_dashboard"
+            fi
+          fi
+        fi
       else
         exitCode=1
         printf_red "Failed to start minikube"
@@ -1135,11 +1233,47 @@ __direnv_setup() {
     aarch64 | arm64) arch="arm64" ;;
     esac
     download_url="$(__curl "https://api.github.com/repos/direnv/direnv/releases/latest" | grep browser_download_url | cut -d '"' -f 4 | grep "direnv.linux.$arch\$")"
+    if __curl "$download_url" -o "$binDir/direnv"; then
+      chmod +x "$binDir/direnv"
+      printf_green "Direnv has been installed to $binDir"
+    else
+      exitCode=1
+      printf_red "Failed to download direnv"
+    fi
   fi
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__incus_setup() {
+  set -x
+  local arch url
+  local arch="$(uname -m)"
+  local binDir="$INCUS_BIN_DIR"
+  if __cmd_exists incus; then
+    printf_green "incus is already installed"
+  else
+    printf_green "Installing incus"
+    case $arch in
+    x86_64) arch="x86_64" ;;
+    aarch64 | arm64) arch="arm64" ;;
+    esac
+    download_url="$(__curl "https://api.github.com/repos/lxc/incus/releases/latest" | grep browser_download_url | cut -d '"' -f 4 | grep "bin.linux.incus.$arch\$")"
+    if __curl "$download_url" -o "$binDir/incus"; then
+      chmod +x "$binDir/incus"
+      if ! grep -qs 'incus-admin' '/etc/group'; then
+        __sudo true
+        __sudo groupadd --system incus-admin >/dev/null 2>&1
+        __sudo usermod -a -G incus-admin $USER >/dev/null 2>&1
+      fi
+      printf_green "incus has been installed to $binDir"
+    else
+      exitCode=1
+      printf_red "Failed to download incus"
+    fi
+  fi
+  set +x
+  return $exitCode
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1255,14 +1389,18 @@ RBENV__RUBY_VERSION="${RBENV__RUBY_VERSION:-2.7.3}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 KUBECTL_BIN_DIR="${KUBECTL_BIN_DIR:-$SETUPMGER_DEFAULT_BIN_DIR}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-MINIKUBE_DRIVER="${MINIKUBE_DRIVER:-docker}"
 MINIKUBE_MEMORY="${MINIKUBE_MEMORY:-4096}"
+MINIKUBE_DRIVER="${MINIKUBE_DRIVER:-docker}"
 MINIKUBE_BIN_DIR="${MINIKUBE_BIN_DIR:-$SETUPMGER_DEFAULT_BIN_DIR}"
+MINIKUBE_HOME="${MINIKUBE_HOME:-$HOME/.config/minikube}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 DIRENV_BIN_DIR="${DIRENV_BIN_DIR:-$SETUPMGER_DEFAULT_BIN_DIR}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+INCUS_BIN_DIR="${INCUS_BIN_DIR:-$SETUPMGER_DEFAULT_BIN_DIR}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+HELM_BIN_DIR="${HELM_BIN_DIR:-$SETUPMGER_DEFAULT_BIN_DIR}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+KIND_BIN_DIR="${KIND_BIN_DIR:-$SETUPMGER_DEFAULT_BIN_DIR}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1294,8 +1432,8 @@ SHORTOPTS+=""
 LONGOPTS="completions:,config,reset-config,debug,dir:,help,options,raw,version,silent,force,no-*,yes-*"
 LONGOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-ARRAY="lua,asdf,deno,distrobox,dotnet,vfox,gvm,vagrant,fnm,nvm,nodejs,jekyll,rvm,rbenv,devbox,nix,kubectl,minikube,direnv"
-ARRAY+=""
+ARRAY="lua,asdf,deno,distrobox,dotnet,vfox,gvm,vagrant,fnm,nvm,nodejs,jekyll,rvm,rbenv,devbox,nix,kubectl,minikube,direnv "
+ARRAY+="incus,helm"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
 LIST+=""
@@ -1544,6 +1682,16 @@ while [ $# -gt 0 ]; do
     __nix_setup
     SETUPMGR_EXIT_STATUS=$?
     ;;
+  helm)
+    shift 1
+    __helm_setup
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  kind)
+    shift 1
+    __kind_setup
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
   kubectl)
     shift 1
     __kubectl_setup
@@ -1557,6 +1705,11 @@ while [ $# -gt 0 ]; do
   direnv)
     shift 1
     __direnv_setup
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  incus)
+    shift 1
+    __incus_setup
     SETUPMGR_EXIT_STATUS=$?
     ;;
   *)

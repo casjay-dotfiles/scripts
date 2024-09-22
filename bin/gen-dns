@@ -249,6 +249,7 @@ __help() { #
   __printf_line "Usage: gen-dns [options] [domain] [host_ip4] [host_ipv6,none] [dns_ipv4] [dns_ipv6,none]"
   __printf_line "edit [domain]                   - Edit an existing configuration"
   __printf_line "mydomain ip ip6                 - Create a new zone with domain:mydomain ip:ip ipv6:ip6"
+  __printf_line "update                          - update dns server settings"
   __printf_line "--force                         - Will run a wizard to setup the domain"
   __printf_line "--domain [domain]               - Set the domain name"
   __printf_line "--hostip4 [ipv5_address]        - Set the host ip v4 address"
@@ -400,6 +401,44 @@ $import
 ;  ********** end imported settings                   **********
 
 EOF
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__update_ddns() {
+  __cmd_exists nsupdate || return
+  local ddns_zone="${1:-$GEN_DNS_DDNS_ZONE}"
+  if [ -f "/etc/certbot/dynamic_dns.conf" ]; then
+    local ddns_get_server="$(grep -s "dns_rfc2136_server" "/etc/certbot/dynamic_dns.conf" | sed 's|.*= ||g' | sed 's| ||g')"
+    local ddns_get_key_name="$(grep -s "dns_rfc2136_name" "/etc/certbot/dynamic_dns.conf" | sed 's|.*= ||g' | sed 's| ||g')"
+    local ddns_get_key_secret="$(grep -s "dns_rfc2136_secret" "/etc/certbot/dynamic_dns.conf" | sed 's|.*= ||g' | sed 's| ||g')"
+    local ddns_get_algorithm="$(grep -s "dns_rfc2136_algorithm" "/etc/certbot/dynamic_dns.conf" | sed 's|.*= ||g' | sed 's| ||g')"
+  fi
+  local ddns_hostname="$(hostname -f || echo "$HOSTNAME")."
+  local ddns_algorithm="${ddns_get_algorithm:-HMAC-MD5}"
+  local ddns_server="${GEN_DNS_DDNS_SERVER:-$ddns_get_server}"
+  local ddns_key_name="${GEN_DNS_DDNS_KEY_NAME:-$ddns_get_key_name}"
+  local ddns_key_secret="${GEN_DNS_DDNS_KEY_SECRET:-$ddns_get_key_secret}"
+  [ -n "$ddns_zone" ] && [ -n "$ddns_server" ] && [ -n "$ddns_key_secret" ] && [ -n "$ddns_key_name" ] || return
+  local ddns_host_ip4="$(curl -4 -q -LSsf -m 1 --retry 1 "https://ifconfig.co" 2>/dev/null | grep -v '^$')"
+  local ddns_host_ip6="$(curl -6 -q -LSsf -m 1 --retry 1 "https://ifconfig.co" 2>/dev/null | grep -v '^$')"
+  echo 'key "'$ddns_key_name'" { algorithm '$ddns_algorithm'; secret "'$ddns_key_secret'"; };' >"$GEN_DNS_TEMP_DIR/ddns.key"
+  if [ -n "$ddns_host_ip4" ]; then
+    nsupdate -k "$GEN_DNS_TEMP_DIR/ddns.key" -d <<EOF >/dev/null 2>&1
+server $ddns_server
+zone $ddns_zone
+update add $ddns_hostname 60 A $ddns_host_ip4
+send
+EOF
+  fi
+  if [ -n "$ddns_host_ip6" ]; then
+    nsupdate <<EOF
+key $ddns_key_name $ddns_key_secret
+server $ddns_server
+zone $ddns_zone
+update add $ddns_hostname 60 AAAA $ddns_host_ip6
+send
+show
+EOF
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __copy_templates() {
@@ -727,7 +766,7 @@ __execute_gen-dns() {
     GEN_DNS_DEFAULT_HOST_IP4="${2:-$GEN_DNS_DEFAULT_HOST_IP4}"
     shift 1
   fi
-  if echo "$2" | grep -E "(::)?[0-9a-fA-F]{1,4}(::?[0-9a-fA-F]{1,4}){1,7}(::)?"; then
+  if echo "$2" | grep -oE "(::)?[0-9a-fA-F]{1,4}(::?[0-9a-fA-F]{1,4}){1,7}(::)?"; then
     GEN_DNS_DEFAULT_HOST_IP6="${2:-$GEN_DNS_DEFAULT_HOST_IP6}"
     shift 1
   fi
@@ -739,11 +778,11 @@ __execute_gen-dns() {
     GEN_DNS_DEFAULT_2_DNS_IP4="${2:-$GEN_DNS_DEFAULT_DNS_2_IP4}"
     shift 1
   fi
-  if echo "$2" | grep -E "(::)?[0-9a-fA-F]{1,4}(::?[0-9a-fA-F]{1,4}){1,7}(::)?"; then
+  if echo "$2" | grep -oE "(::)?[0-9a-fA-F]{1,4}(::?[0-9a-fA-F]{1,4}){1,7}(::)?"; then
     GEN_DNS_DEFAULT_1_DNS_IP6="${2:-$GEN_DNS_DEFAULT_DNS_1_IP6}"
     shift 1
   fi
-  if echo "$2" | grep -E "(::)?[0-9a-fA-F]{1,4}(::?[0-9a-fA-F]{1,4}){1,7}(::)?"; then
+  if echo "$2" | grep -oE "(::)?[0-9a-fA-F]{1,4}(::?[0-9a-fA-F]{1,4}){1,7}(::)?"; then
     GEN_DNS_DEFAULT_2_DNS_IP6="${2:-$GEN_DNS_DEFAULT_DNS_2_IP6}"
     shift 1
   fi
@@ -1096,12 +1135,20 @@ GEN_DNS_FORWARDERS="$(__trim "${GEN_DNS_FORWARDERS:-1.1.1.1 8.8.8.8 8.8.4.4}");"
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
-if [ "$1" = "help" ]; then
+case "$1" in
+help)
   printf_cyan "Usage: $APPNAME [domain] [host_ip4] [host_ip6] [dns_1_ip4] [dns_2_ip4] [dns_2_ip6] [dns_2_ip6]"
   exit
-else
+  ;;
+update)
+  shift 1
+  __update_ddns "$@"
+  ;;
+*)
   __execute_gen-dns "$@"
-fi
+  exitCode=$?
+  ;;
+esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set exit code
 exitCode="${exitCode:-0}"

@@ -1973,6 +1973,7 @@ EOF
 EOF
           fi
         fi
+        CONTAINER_SERVER_TEST_URL="$nginx_proto://$proxy_url$internal_path"
         unset proxy_info proxy_location proxy_url set_hostname
       fi
     fi
@@ -2350,6 +2351,7 @@ NGNIX_REVERSE_ADDRESS="${CONTAINER_NGINX_PROXY_URL:-$NGINX_PROXY_URL}"
 { [ "$NGINX_VHOST_NAMES" = "" ] || [ "$NGINX_VHOST_NAMES" = " " ]; } && unset NGINX_VHOST_NAMES
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup an internal host
+CONTAINER_SERVER_TEST_URL="${CONTAINER_SERVER_TEST_URL:-$NGNIX_REVERSE_ADDRESS}"
 NGINX_VHOSTS_PROXY_INT_TMP="/tmp/$$.$HOST_NGINX_INTERNAL_HOST.$HOST_NGINX_INTERNAL_DOMAIN"
 if [ -n "$NGNIX_REVERSE_ADDRESS" ] && [ -n "$HOST_NGINX_INTERNAL_DOMAIN" ]; then
   HOST_NGINX_INTERNAL_DOMAIN="$HOST_NGINX_INTERNAL_HOST.$HOST_NGINX_INTERNAL_DOMAIN"
@@ -2604,6 +2606,12 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
       fi
       unset get_listen type
     done
+    printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
+  fi
+  if [ -n "$CONTAINER_SERVER_TEST_URL" ]; then
+    cron_file_name="/etc/cron.d/dockermgr_server_status_${CONTAINER_NAME//-/_}"
+    __printf_spacing_color "3" "server test file saved to" "$cron_file_name"
+    echo '*/90 * * * * root dockermgr server_status "'$CONTAINER_SERVER_TEST_URL'" "'$CONTAINER_NAME'" "'$DOCKERMGR_INSTALL_SCRIPT'"' >"$cron_file_name"
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
   if [ -f "$DOCKERMGR_INSTALL_SCRIPT" ]; then

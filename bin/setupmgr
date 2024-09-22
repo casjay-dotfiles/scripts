@@ -434,35 +434,59 @@ __notify_remote() {
 # Setup trap to remove temp file
 trap '__trap_exit' EXIT
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__curl() { curl -q -LSsf "$@" 2>/dev/null || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# url tmpFile tmpFile moveFrom moveTo
+__download_extract() { __curl "$1" -o "$SETUPMGR_TEMP_DIR/$(basename "$2")" && __extract "$SETUPMGR_TEMP_DIR/$(basename "$2")" "$3" "$4" "$5" || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# url tmpFile tmpFile moveTo
+__download_and_move() { __curl "$1" -o "$SETUPMGR_TEMP_DIR/$(basename "$2")" && mv -f "$SETUPMGR_TEMP_DIR/$(basename "$2")" "$3" && chmod +x "$3" && rm -Rf "$2" || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# file moveFrom moveTo
 # User defined functions
 __extract() {
-  args="$*"
-  builtin cd "$POWERSHELL_TEMP_DIR" || exit 1
-  for arg in $args; do
-    if [ -f "$arg" ]; then
-      case "$arg" in
-      *.tar.bz2) tar xjf "$arg" ;;
-      *.tar.gz) tar xzf "$arg" ;;
-      *.tar.xz) tar xzf "$arg" ;;
-      *.bz2) bunzip2 "$arg" ;;
-      *.gz) gunzip "$arg" ;;
-      *.tar) tar xf "$arg" ;;
-      *.tbz2) tar xjf "$arg" ;;
-      *.tgz) tar xzf "$arg" ;;
-      *.zip) unzip "$arg" ;;
-      *.Z) uncompress "$arg" ;;
-      *.rar) rar x "$arg" ;;    # 'rar' must to be installed
-      *.jar) jar -xvf "$arg" ;; # 'jdk' must to be installed
-      *) shift ;;
-      esac
+  local file="$1"
+  local binFile="$2"
+  local userBin="$3"
+  local installDir="$4"
+  local exitEXCode=0
+  local tmpDir="$SETUPMGR_TEMP_DIR/$$"
+  [ -d "$tmpDir" ] || mkdir -p "$tmpDir"
+  builtin cd "$SETUPMGR_TEMP_DIR" || exit 1
+  if [ -f "$file" ]; then
+    case "$file" in
+    *.tar) tar xf "$file" >/dev/null 2>&1 || return 1 ;;
+    *.tgz) tar xzf "$file" >/dev/null 2>&1 || return 1 ;;
+    *.tbz2) tar xjf "$file" >/dev/null 2>&1 || return 1 ;;
+    *.Z) uncompress "$file" >/dev/null 2>&1 || return 1 ;;
+    *.zip) unzip "$file" -d "$tmpDir" >/dev/null 2>&1 || return 1 ;;
+    *.tar.gz) tar xzf "$file" --strip-components=1 -C "$tmpDir" >/dev/null 2>&1 || return 1 ;;
+    *.tar.xz) tar xzf "$file" --strip-components=1 -C "$tmpDir" >/dev/null 2>&1 || return 1 ;;
+    *.tar.bz2) tar xjf "$file" --strip-components=1 -C "$tmpDir" >/dev/null 2>&1 || return 1 ;;
+    *.gz) gunzip "$file" >/dev/null 2>&1 || return 1 ;;
+    *.bz2) bunzip2 "$file" >/dev/null 2>&1 || return 1 ;;
+    esac
+    exitEXCode=$?
+  else
+    echo "$file is not a valid file"
+  fi
+  [ -f "$file" ] && rm -Rf "$file"
+  if [ -f "$tmpDir/$binFile" ]; then
+    mv -f "$tmpDir/$binFile" "$userBin"
+    chmod +x "$userBin" || exitEXCode=1
+  elif [ -n "$installDir" ]; then
+    mkdir -p "$installDir"
+    rsync -avhP "$tmpDir"/* "$installDir/" --delete >/dev/null 2>&1
+    if "$installDir/$binFile"; then
+      chmod +x "$installDir/$binFile"
+      ln -sf "$installDir/$binFile" "$userBin"
     else
-      echo "'$arg' is not a valid file"
+      exitCode=1
     fi
-  done
-  return $?
+  fi
+  [ -d "$tmpDir" ] && rm -Rf "$tmpDir"
+  return $exitEXCode
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__curl() { curl -q -LSsf "$@" 2>/dev/null || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __lua_setup() {
   local exitCode=0
@@ -543,39 +567,36 @@ __asdf_setup() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __deno_setup() {
   local exitCode=0
-  local tmpDir="$SETUPMGR_TEMP_DIR/$$"
+  local name="deno"
   local arch="$(uname -m)"
-  if __cmd_exists deno; then
-    printf_green "Attempting to update deno"
-  else
-    printf_green "Attempting to install deno"
-  fi
+  local binFile="$DENO_BIN_DIR/deno"
+  local release_url="https://github.com/denoland/deno/releases/latest/download"
+  [ -d "$DENO_BIN_DIR" ] || mkdir -p "$DENO_BIN_DIR"
   if [ "$arch" = "x86_64" ]; then
-    deno_uri="https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip"
+    deno_uri="$release_url/deno-x86_64-unknown-linux-gnu.zip"
   elif [ "$arch" = "aarch64" ]; then
-    deno_uri="https://github.com/denoland/deno/releases/latest/download/deno-aarch64-unknown-linux-gnu.zip"
+    deno_uri="$release_url/deno-aarch64-unknown-linux-gnu.zip"
   else
     printf_exit "Only x86_64 and ARM64 architecture is supported"
   fi
-  mkdir -p "$tmpDir"
-  if __curl "$deno_uri" -o "$tmpDir/deno.zip"; then
-    [ -d "$DENO_BIN_DIR" ] || mkdir -p "$DENO_BIN_DIR"
-    cd "$tmpDir" && unzip -q deno.zip -d "$tmpDir" && mv -f "$tmpDir/deno" "$DENO_BIN_DIR/deno"
-    [ -x "$DENO_BIN_DIR/deno" ] || chmod +x "$DENO_BIN_DIR/deno"
+  if __cmd_exists $name; then
+    printf_green "Attempting to update $name"
+  else
+    printf_green "Attempting to install $name"
+  fi
+  if __download_extract "$deno_uri" "$name.zip" "$name" "$binFile"; then
+    printf_green "$name has been installed"
   else
     printf_exit "Failed to download $deno_uri"
   fi
-  if [ -n "$(type -P deno 2>/dev/null)" ]; then
-    rm -Rf "$tmpDir"
-    if deno --help 2>&1 | grep -q 'execute binary file' &>/dev/null; then
+  if [ -n "$(type -P $name 2>/dev/null)" ]; then
+    if $name --help 2>&1 | grep -q 'execute binary file'; then
       printf_red "Unsupported architecture detected"
-      rm -Rf "$prog"
+      rm -Rf "$binFile"
       exitCode=1
-    elif type -P deno &>/dev/null; then
-      printf_green "deno has been installed"
     fi
   else
-    printf_red "Failed to install deno"
+    printf_red "Failed to install $name"
     exitCode=1
   fi
   return $exitCode
@@ -624,31 +645,22 @@ __dotnet_setup() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __vfox_setup() {
-  local VERSION ARCH_TYPE
   local exitCode=0
-  local tmpDir="$SETUPMGR_TEMP_DIR/$$"
-  local tmpFile="$SETUPMGR_TEMP_DIR/vfox.tar.gz"
-  ARCH_TYPE=$(uname -m)
-  VERSION=$(curl --silent "https://api.github.com/repos/version-fox/vfox/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' | cut -c 2-)
-  if [ "$ARCH_TYPE" = "x86_64" ]; then
-    ARCH_TYPE="x86_64"
-  elif [ "$ARCH_TYPE" = "arm64" ]; then
-    ARCH_TYPE="aarch64"
-  elif [ "$ARCH_TYPE" = "loongarch64" ]; then
-    ARCH_TYPE="loong64"
-  fi
-  printf_cyan "Installing vfox"
-  if __curl "https://github.com/version-fox/vfox/releases/download/v$VERSION/vfox_${VERSION}_linux_${ARCH_TYPE}.tar.gz" -o "$tmpFile"; then
-    mkdir -p "$tmpDir" "$HOME/.local/share/bash-completion/completions"
-    cd "$SETUPMGR_TEMP_DIR" && tar -zxf "$tmpFile" --strip-components=1 -C "$tmpDir"
-    [ -f "$tmpDir/vfox" ] && mv "$tmpDir/vfox" "$VFOX_BIN_DIR"
-    [ -f "$tmpDir/completions/bash_autocomplete" ] && cp -Rf "$tmpDir/completions/bash_autocomplete" "$HOME/.local/share/bash-completion/completions/_vfox_completion"
-    [ -f "$tmpFile" ] && rm -Rf $tmpFile
-    [ -d "$tmpDir" ] && rm -Rf "$tmpDir"
-    printf_green "vfox has been installed to $VFOX_BIN_DIR"
+  local name="vfox"
+  local arch=$(uname -m)
+  local binFile="$VFOX_BIN_DIR/vfox"
+  local release_url="https://github.com/version-fox/vfox/releases/download"
+  local VERSION=$(curl --silent "https://api.github.com/repos/version-fox/vfox/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' | cut -c 2-)
+  case "$arch" in
+  x86_64) url="$release_url/v$VERSION/vfox_${VERSION}_linux_x86_64.tar.gz" ;;
+  aarch64 | arm64) url="$release_url/v$VERSION/vfox_${VERSION}_linux_aarch64tar.gz" ;;
+  esac
+  printf_cyan "Installing $name"
+  if __download_extract "$url" "$name.tar.gz" "$name" "$binFile"; then
+    printf_green "$name has been installed to $binFile"
   else
     exitCode=1
-    printf_red "Failed to download vfox"
+    printf_red "Failed to download $name"
   fi
   return $exitCode
 }
@@ -685,25 +697,33 @@ __gvm_setup() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __vagrant_setup() {
   local exitCode=0
-  local binDir="$VAGRANT_BIN_DIR"
-  local release_url="https://github.com/hashicorp/vagrant/releases/latest/download/vagrant-go_linux_amd64"
-  [ "$(uname -m)" = "x86_64" ] || [ "$(uname -m)" = "amd64" ] || printf_exit "Only x86_64 is supported"
-  if __cmd_exists vagrant; then
-    printf_green "vagrant is already installed"
+  local name="vagrant"
+  local arch="$(uname -m)"
+  local binFile="$VAGRANT_BIN_DIR/$name"
+  local release_url="https://github.com/hashicorp/vagrant/releases/latest/download"
+  case "$arch" in
+  x86_64) url="$release_url/vagrant-go_linux_amd64" ;;
+  *) printf_exit "only x86_64 is supported at this time" ;;
+  esac
+  if __cmd_exists $name; then
+    printf_green "$name is already installed"
   else
-    printf_green "Installing vagrant"
-    pkmgr silent install vagrant || __curl "$release_url" -o "$binDir/vagrant"
-    if [ -n "$(type -P vagrant)" ]; then
-      [ -f "$binDir/vagrant" ] && chmod +x "$binDir/vagrant"
-      vagrant plugin install vagrant-libvirt &>/dev/null
-      vagrant plugin install vagrant-host-shell &>/dev/null
-      vagrant plugin install vagrant-mutate &>/dev/null
-      vagrant plugin install vagrant-vbguest &>/dev/null
-      vagrant plugin install vagrant-vbguest-libvirt &>/dev/null
-      __cmd_exists vagrant && printf_green "vagrant is installed" || printf_red "vagrant is not installed"
+    printf_green "Installing $name"
+    if __download_and_move "$url" "$name" "$binFile"; then
+      if [ -f "$binFile" ]; then
+        vagrant plugin install vagrant-libvirt &>/dev/null
+        vagrant plugin install vagrant-host-shell &>/dev/null
+        vagrant plugin install vagrant-mutate &>/dev/null
+        vagrant plugin install vagrant-vbguest &>/dev/null
+        vagrant plugin install vagrant-vbguest-libvirt &>/dev/null
+        printf_green "vagrant has been installed"
+      else
+        exitCode=1
+        printf_red "$name is not installed"
+      fi
     else
       exitCode=1
-      printf_red "Failed to install vagrant"
+      printf_red "Failed to install $name"
     fi
   fi
   return $exitCode
@@ -805,11 +825,11 @@ __powershell_setup() {
   local tmpDir="$POWERSHELL_TEMP_DIR"
   local installDir="$POWERSHELL_INSTALL_DIR"
   local latest_url="$POWERSHELL_LATEST_URL"
+  local os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+  local arch="$(uname -m | tr '[:upper:]' '[:lower:]')"
   if __cmd_exists pwsh; then
     printf_green "PowerShell is already installed"
   else
-    local os="$(uname -s | tr '[:upper:]' '[:lower:]')"
-    local arch="$(uname -m | tr '[:upper:]' '[:lower:]')"
     if echo "$arch" | grep -q '.*86_64.*' || [ "$arch" = "amd64" ]; then
       arch="x64"
       posh_arch="amd64"
@@ -961,7 +981,7 @@ __rvm_setup() {
   local exitCode=0
   local binDir="$RVM_BIN_DIR"
   local installDir="$rvm_path"
-  export rvm_path RUBY_CONFIGURE_OPTS="--enable-shared=no"
+  export rvm_path="$installDir" RUBY_CONFIGURE_OPTS="--enable-shared=no"
   if [ -d "$installDir/.git" ]; then
     printf_green "Updating rvm"
     git -C "$installDir" pull -q
@@ -1001,7 +1021,7 @@ __rbenv_setup() {
   local exitCode=0
   local binDir="$RBENV_BIN_DIR"
   local installDir="$RBENV_ROOT"
-  export RUBY_CONFIGURE_OPTS="--enable-shared=no" RBENV_ROOT
+  export RUBY_CONFIGURE_OPTS="--enable-shared=no" RBENV_ROOT="$installDir"
   if [ -d "$installDir/.git" ]; then
     printf_green "Updating RBENV"
     git -C "$installDir" pull -q
@@ -1069,109 +1089,103 @@ __nix_setup() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __helm_setup() {
-  local arch url
+  local url
+  local name="helm"
   local arch="$(uname -m)"
-  local binDir="$HELM_BIN_DIR"
-  local latest_release_url="https://get.helm.sh/helm-latest-version"
-  if __cmd_exists helm; then
-    printf_green "helm is already installed"
+  local binFile="$HELM_BIN_DIR/helm"
+  local dist_tag="$(__curl "https://get.helm.sh/helm-latest-version" | grep '^v[0-9]')"
+  if __cmd_exists $name; then
+    printf_green "$name is already installed"
   else
-    printf_green "Installing helm"
-    case $arch in
-    x86_64) arch="amd64" ;;
-    aarch64 | arm64) arch="arm64" ;;
-    esac
-    local dist_tag="$(__curl "$latest_release_url" | grep '^v[0-9]')"
-    local download_url="https://get.helm.sh/helm-$dist_tag-linux-$arch.tar.gz"
-    if __curl "$download_url" -o "$SETUPMGR_TEMP_DIR/helm.tar.gz"; then
-      mkdir -p "$SETUPMGR_TEMP_DIR/helm_bin"
-      tar xfz "$SETUPMGR_TEMP_DIR/helm.tar.gz" --strip-components=1 -C "$SETUPMGR_TEMP_DIR/helm_bin"
-      cp -Rf "$SETUPMGR_TEMP_DIR/helm_bin/helm" "$binDir/helm"
-      rm -Rf "$SETUPMGR_TEMP_DIR"/helm*
-      chmod +x "$binDir/helm"
-      printf_green "helm has been installed to $binDir"
-    else
-      exitCode=1
-      printf_red "Failed to download helm"
-    fi
+    printf_green "Installing $name"
   fi
-  set +x
+  case $arch in
+  x86_64) url="https://get.helm.sh/helm-$dist_tag-linux-amd64.tar.gz" ;;
+  aarch64 | arm64) url="https://get.helm.sh/helm-$dist_tag-linux-arm64.tar.gz" ;;
+  esac
+  if __download_extract "$url" "$name.tar.gz" "$name" "$binFile"; then
+    printf_green "$name has been installed to $binFile"
+  else
+    exitCode=1
+    printf_red "Failed to download $name"
+  fi
   return $exitCode
 
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __packer_setup() {
   local exitCode=0
+  local name="packer"
   local arch="$(uname -m)"
-  local binDir="$PACKER_BIN_DIR"
   local version="$PACKER_VERSION"
-  if __cmd_exists packer; then
-    printf_green "packer is already installed"
+  local binFile="$PACKER_BIN_DIR/$name"
+  if __cmd_exists $name; then
+    printf_green "Updating $name"
   else
-    printf_green "Installing packer"
-    case $arch in
-    x86_64) release_url="https://releases.hashicorp.com/packer/${version}/packer_${version}_linux_amd64.zip" ;;
-    aarch64 | arm64) release_url="https://releases.hashicorp.com/packer/${version}/packer_${version}_linux_arm64.zip" ;;
-    esac
-    if __curl "$release_url" -o "$binDir/packer"; then
-      [ -f "$binDir/packer" ] && chmod +x "$binDir/packer"
-      if [ -n "$PACKER_PLUGINS" ]; then
-        for plug in $PACKER_PLUGINS; do
-          packer plugins install github.com/hashicorp/$plug >/dev/null 2>&1 && printf_cyan "Installed plugin: $plug"
-        done
-      fi
-      printf_green "packer hase been installed"
-    else
-      exitCode=1
-      printf_red "Failed to install packer"
+    printf_green "Installing $name"
+  fi
+  case $arch in
+  x86_64) release_url="https://releases.hashicorp.com/packer/${version}/packer_${version}_linux_amd64.zip" ;;
+  aarch64 | arm64) release_url="https://releases.hashicorp.com/packer/${version}/packer_${version}_linux_arm64.zip" ;;
+  esac
+  if __download_extract "$release_url" "packer.zip" "$name" "$binFile"; then
+    if [ -n "$PACKER_PLUGINS" ]; then
+      for plug in $PACKER_PLUGINS; do
+        packer plugins install github.com/hashicorp/$plug >/dev/null 2>&1 && printf_cyan "Installed plugin: $plug"
+      done
     fi
+    printf_green "$name hase been installed"
+  else
+    exitCode=1
+    printf_red "Failed to install $name"
   fi
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __kubectl_setup() {
   local exitCode=0
+  local name="kubectl"
   local arch="$(uname -m)"
-  local binDir="$KUBECTL_BIN_DIR"
-  if __cmd_exists kubectl; then
-    printf_green "kubectl is already installed"
+  local binFile="$KUBECTL_BIN_DIR/$name"
+  local release_url="https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)"
+  case $arch in
+  x86_64) file="bin/linux/amd64/kubectl" ;;
+  aarch64 | arm64) file="bin/linux/arm64/kubectl" ;;
+  esac
+  if __cmd_exists $name; then
+    printf_green "Updating $name"
   else
-    printf_green "Installing kubectl"
-    case $arch in
-    x86_64) file="bin/linux/amd64/kubectl" ;;
-    aarch64 | arm64) file="bin/linux/arm64/kubectl" ;;
-    esac
-    if __curl "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/$file" -o "$binDir/kubectl"; then
-      [ -f "$binDir/kubectl" ] && chmod +x "$binDir/kubectl"
-      printf_green "kubectl hase been installed"
-    else
-      exitCode=1
-      printf_red "Failed to install kubectl"
-    fi
+    printf_green "Installing $name"
+  fi
+  if __download_and_move "$release_url/$file" "$name" "$binFile"; then
+    printf_green "$name hase been installed"
+  else
+    exitCode=1
+    printf_red "Failed to install $name"
   fi
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __kind_setup() {
   local exitCode=0
+  local name="kind"
   local arch="$(uname -m)"
-  local binDir="$KIND_BIN_DIR"
-  if __cmd_exists kind; then
-    printf_green "kind is already installed"
+  local binFile="$KIND_BIN_DIR/$name"
+  local release_url="https://api.github.com/repos/kubernetes-sigs/kind/releases/latest"
+  case $arch in
+  x86_64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "kind.linux.amd64\$")" ;;
+  aarch64 | arm64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "kind.linux.arm64\$")" ;;
+  esac
+  if __cmd_exists $name; then
+    printf_green "$name is already installed"
   else
-    printf_green "Installing kind"
-    case $arch in
-    x86_64) arch="amd64" ;;
-    aarch64 | arm64) arch="arm64" ;;
-    esac
-    download_url="$(__curl "https://api.github.com/repos/kubernetes-sigs/kind/releases/latest" | grep browser_download_url | cut -d '"' -f 4 | grep "kind.linux.$arch\$")"
-    if __curl "$download_url" -o "$binDir/kind"; then
-      chmod +x "$binDir/kind"
-      printf_green "kind has been installed to $binDir"
-    else
-      exitCode=1
-      printf_red "Failed to download kind"
-    fi
+    printf_green "Installing $name"
+  fi
+  if __download_and_move "$download_url" "$name" "$binFile"; then
+    printf_green "$name has been installed to $binFile"
+  else
+    exitCode=1
+    printf_red "Failed to download $name"
   fi
   return $exitCode
 }
@@ -1183,22 +1197,22 @@ __minikube_setup() {
   local arch="$(uname -m)"
   local wait_minikube=300
   local wait_dashboard=300
-  local binDir="$MINIKUBE_BIN_DIR"
   local driver="$MINIKUBE_DRIVER"
   local memory="$MINIKUBE_MEMORY"
+  local binFile="$MINIKUBE_BIN_DIR/minikube"
   local dashboard_url="http://127.0.0.1:$port/api/v1/namespaces/kubernetes-dashboard/services/http:kubernetes-dashboard:/proxy/"
   export MINIKUBE_HOME="${MINIKUBE_HOME:-$HOME/.config/minikube}"
   __cmd_exists docker || printf_exit "Please install docker"
   if __cmd_exists minikube; then
-    printf_green "minikube is already installed"
+    printf_green "Updating minikube"
+    killall minikube >/dev/null 2>&1
   else
     printf_green "Installing minikube"
     case $arch in
     x86_64) url="https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64" ;;
     aarch64 | arm64) url="https://storage.googleapis.com/minikube/releases/latest/minikube-linux-arm64" ;;
     esac
-    if __curl "$url" -o "$binDir/minikube"; then
-      chmod +x "$binDir/minikube"
+    if __download_and_move "$url" "minikube" "$binFile"; then
       minikube config set driver $driver >/dev/null 2>&1
       minikube config set memory $memory >/dev/null 2>&1
       (minikube start >/dev/null 2>&1) &
@@ -1253,56 +1267,55 @@ __minikube_setup() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __direnv_setup() {
   local exitCode=0
+  local name="direnv"
   local arch="$(uname -m)"
-  local binDir="$DIRENV_BIN_DIR"
-  if __cmd_exists direnv; then
-    printf_green "direnv is already installed"
+  local binFile="$DIRENV_BIN_DIR/$name"
+  local release_url="https://api.github.com/repos/direnv/direnv/releases/latest"
+  case $arch in
+  x86_64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "direnv.linux.amd64\$")" ;;
+  aarch64 | arm64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "direnv.linux.arm64\$")" ;;
+  esac
+  if __cmd_exists $name; then
+    printf_green "Updating $name"
   else
-    printf_green "Installing direnv"
-    case $arch in
-    x86_64) arch="amd64" ;;
-    aarch64 | arm64) arch="arm64" ;;
-    esac
-    download_url="$(__curl "https://api.github.com/repos/direnv/direnv/releases/latest" | grep browser_download_url | cut -d '"' -f 4 | grep "direnv.linux.$arch\$")"
-    if __curl "$download_url" -o "$binDir/direnv"; then
-      chmod +x "$binDir/direnv"
-      printf_green "Direnv has been installed to $binDir"
-    else
-      exitCode=1
-      printf_red "Failed to download direnv"
-    fi
+    printf_green "Installing $name"
+  fi
+  if __download_and_move "$download_url" "$name" "$binFile"; then
+    printf_green "Direnv has been installed to $binFile"
+  else
+    exitCode=1
+    printf_red "Failed to download $name"
   fi
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __incus_setup() {
-  set -x
-  local arch url
+  local exitCode=0
+  local name="incus"
   local arch="$(uname -m)"
-  local binDir="$INCUS_BIN_DIR"
-  if __cmd_exists incus; then
-    printf_green "incus is already installed"
+  local binFile="$INCUS_BIN_DIR/$name"
+  local release_url="https://api.github.com/repos/lxc/incus/releases/latest"
+  case $arch in
+  x86_64) download_url="$(__curl "" | grep browser_download_url | cut -d '"' -f 4 | grep "bin.linux.incus.x86_64\$")" ;;
+  aarch64 | arm64) download_url="$(__curl "" | grep browser_download_url | cut -d '"' -f 4 | grep "bin.linux.incus.arm64\$")" ;;
+  esac
+  if __cmd_exists $name; then
+    printf_green "Updating $name"
   else
-    printf_green "Installing incus"
-    case $arch in
-    x86_64) arch="x86_64" ;;
-    aarch64 | arm64) arch="arm64" ;;
-    esac
-    download_url="$(__curl "https://api.github.com/repos/lxc/incus/releases/latest" | grep browser_download_url | cut -d '"' -f 4 | grep "bin.linux.incus.$arch\$")"
-    if __curl "$download_url" -o "$binDir/incus"; then
-      chmod +x "$binDir/incus"
-      if ! grep -qs 'incus-admin' '/etc/group'; then
-        __sudo true
-        __sudo groupadd --system incus-admin >/dev/null 2>&1
-        __sudo usermod -a -G incus-admin $USER >/dev/null 2>&1
-      fi
-      printf_green "incus has been installed to $binDir"
-    else
-      exitCode=1
-      printf_red "Failed to download incus"
-    fi
+    printf_green "Installing $name"
   fi
-  set +x
+
+  if __curl "$download_url" "$name" "$binFile"; then
+    if ! grep -qs 'incus-admin' '/etc/group'; then
+      __sudo true
+      __sudo groupadd --system incus-admin >/dev/null 2>&1
+      __sudo usermod -a -G incus-admin $USER >/dev/null 2>&1
+    fi
+    printf_green "$name has been installed to $binFile"
+  else
+    exitCode=1
+    printf_red "Failed to download $name"
+  fi
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1312,7 +1325,6 @@ __incus_setup() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
 SETUPMGR_START_TIMER="${SETUPMGR_START_TIMER:-$(date +%s.%N)}"
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default exit code
 SETUPMGR_EXIT_STATUS=0
@@ -1744,6 +1756,11 @@ while [ $# -gt 0 ]; do
   incus)
     shift 1
     __incus_setup
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  packer)
+    shift 1
+    __packer_setup
     SETUPMGR_EXIT_STATUS=$?
     ;;
   *)

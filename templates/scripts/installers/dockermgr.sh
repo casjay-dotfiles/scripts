@@ -374,7 +374,7 @@ CONTAINER_PROTOCOL="http"
 # Set containers dns [127.0.0.1,1.1.1.1,8.8.8.8]
 CONTAINER_DNS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup nginx proxy variables - [yes/no] [yes/no] [http] [https] [yes/no]
+# Setup nginx proxy variables - [yes/no] [yes/no] [http] [https] [yes/no] [ip_address]
 HOST_NGINX_ENABLED="yes"
 HOST_NGINX_SSL_ENABLED="yes"
 HOST_NGINX_HTTP_PORT="80"
@@ -383,6 +383,7 @@ HOST_NGINX_UPDATE_CONF="yes"
 HOST_NGINX_EXTERNAL_DOMAIN=""
 HOST_NGINX_INTERNAL_DOMAIN=""
 HOST_NGINX_INTERNAL_HOST=""
+HOST_NGINX_LISTEN_ON_IP_ADDRESS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the nginx virtualhost config name - Default $CONTAINER_HOSTNAME
 HOST_NGINX_VHOST_CONFIG_NAME=""
@@ -1406,6 +1407,7 @@ if [ "$HOST_NGINX_ENABLED" = "yes" ]; then
   else
     NGINX_PORT="${HOST_NGINX_HTTP_PORT:-80}"
   fi
+  [ -n "$HOST_NGINX_LISTEN_ON_IP_ADDRESS" ] && HOST_NGINX_HTTP_PORT="$HOST_NGINX_LISTEN_ON_IP_ADDRESS:$NGINX_PORT" && NGINX_PORT="$HOST_NGINX_LISTEN_ON_IP_ADDRESS:$NGINX_PORT"
   if [ "$CONTAINER_WEB_SERVER_AUTH_ENABLED" = "yes" ]; then
     NGINX_AUTH_DIR="$NGINX_DIR/auth"
     CONTAINER_USER_NAME="${CONTAINER_USER_NAME:-root}"

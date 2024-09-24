@@ -542,12 +542,6 @@ CONTAINER_DEBUG_OPTIONS=""
 CONTAINER_CREATE_DIRECTORY="/data/$APPNAME,/data/logs/$APPNAME,/config/$APPNAME "
 CONTAINER_CREATE_DIRECTORY+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# enable cron jobs
-HOST_CRON_ENABLED=""
-HOST_CRON_USER="root"
-HOST_CRON_SCHEDULE=''
-HOST_CRON_COMMAND=''
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # enable the health check - creates a cron script - [yes/no] [/health]
 HOST_SERVER_HEALTH_CHECK_ENABLED=""
 HOST_SERVER_HEALTH_CHECK_SERVER_URI=""
@@ -564,6 +558,14 @@ DOCKERMGR_ENABLE_INSTALL_SCRIPT="yes"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Init only - This should be no [yes/no]
 INIT_SCRIPT_ONLY="no"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# enable cron jobs
+__setup_cron() {
+  HOST_CRON_ENABLED=""
+  HOST_CRON_USER="root"
+  HOST_CRON_SCHEDULE=''
+  HOST_CRON_COMMAND=""
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set custom container enviroment variables - [MYVAR="VAR"]
 __custom_docker_env() {
@@ -2124,6 +2126,7 @@ SET_EXECUTE_PRE_INSTALL="$(echo "docker stop $CONTAINER_NAME &>/dev/null;docker 
 SET_EXECUTE_DOCKER_CMD="$(echo "docker run -d $DOCKER_GET_OPTIONS $DOCKER_GET_CUSTOM $DOCKER_GET_LINK $DOCKER_GET_LABELS $DOCKER_GET_CAP $DOCKER_GET_SYSCTL $DOCKER_GET_DEV $DOCKER_SET_DNS $DOCKER_GET_ENV $DOCKER_GET_MNT $DOCKER_GET_PUBLISH $DOCKER_HUB_IMAGE_URL:$DOCKER_HUB_IMAGE_TAG")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run functions
+__setup_cron
 __container_import_variables "$CONTAINER_ENV_FILE_MOUNT"
 __dockermgr_variables >"$DOCKERMGR_CONFIG_DIR/env/$CONTAINER_NAME.env.conf"
 __custom_docker_script >"$DOCKERMGR_CONFIG_DIR/env/$CONTAINER_NAME.script.sh"

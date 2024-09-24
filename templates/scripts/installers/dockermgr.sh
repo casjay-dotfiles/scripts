@@ -256,10 +256,6 @@ CONTAINER_TIMEZONE=""
 # Set the working dir - [/root]
 CONTAINER_WORK_DIR=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set the html dir - [/data/www/html] [WWW_ROOT_DIR]
-CONTAINER_HTML_DIR=""
-CONTAINER_HTML_ENV=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set container user and group ID - [yes/no] [id] [id]
 USER_ID_ENABLED="no"
 CONTAINER_USER_ID=""
@@ -391,6 +387,11 @@ CONTAINER_WEB_SERVER_LISTEN_ON="127.0.0.10"
 CONTAINER_WEB_SERVER_INT_PATH="/"
 CONTAINER_WEB_SERVER_EXT_PATH="/"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set the html dir - [ENV_WWW_ROOT_DIR] [/data/www/html] [url/to/my/repo]
+CONTAINER_WEB_SERVER_WWW_ENV=""
+CONTAINER_WEB_SERVER_WWW_DIR=""
+CONTAINER_WEB_SERVER_WWW_REPO=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Specify custom nginx vhosts - autoconfigure: [all.name/name.all/name.mydomain/name.myhost] - [virtualhost,othervhostdom]
 CONTAINER_WEB_SERVER_VHOSTS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -431,6 +432,9 @@ CONTAINER_COUCHDB_ENABLED="no"
 CONTAINER_POSTGRES_ENABLED="no"
 CONTAINER_SUPABASE_ENABLED="no"
 CONTAINER_DEFAULT_DATABASE_TYPE="sqlite"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Should I set the create database variable? [name]
+CONTAINER_CREATE_DATABASE_NAME=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Custom database setup - [yes/no] [db_name] [port] [/data/db/$CONTAINER_CUSTOM_DATABASE_NAME] [msql]
 CONTAINER_CUSTOM_DATABASE_ENABLED=""
@@ -530,6 +534,10 @@ HOST_CRON_USER="root"
 HOST_CRON_SCHEDULE=""
 HOST_CRON_COMMAND=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# enable the health check - creates a cron script - [yes/no] [/health]
+HOST_SERVER_HEALTH_CHECK_ENABLED=""
+HOST_SERVER_HEALTH_CHECK_SERVER_URI=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Containers default username/password
 CONTAINER_DEFAULT_USERNAME=""
 CONTAINER_DEFAULT_PASSWORD=""
@@ -590,8 +598,8 @@ CONTAINER_NAME="\${ENV_CONTAINER_NAME:-$CONTAINER_NAME}"
 CONTAINER_REQUIRES="\${ENV_CONTAINER_REQUIRES:-$CONTAINER_REQUIRES}"
 CONTAINER_TIMEZONE="\${ENV_CONTAINER_TIMEZONE:-$CONTAINER_TIMEZONE}"
 CONTAINER_WORK_DIR="\${ENV_CONTAINER_WORK_DIR:-$CONTAINER_WORK_DIR}"
-CONTAINER_HTML_DIR="\${ENV_CONTAINER_HTML_DIR:-$CONTAINER_HTML_DIR}"
-CONTAINER_HTML_ENV="\${ENV_CONTAINER_HTML_ENV:-$CONTAINER_HTML_ENV}"
+CONTAINER_WEB_SERVER_WWW_DIR="\${ENV_CONTAINER_HTML_DIR:-$CONTAINER_WEB_SERVER_WWW_DIR}"
+CONTAINER_WEB_SERVER_WWW_ENV="\${ENV_CONTAINER_HTML_ENV:-$CONTAINER_WEB_SERVER_WWW_ENV}"
 CONTAINER_USER_ID="\${ENV_CONTAINER_USER_ID:-$CONTAINER_USER_ID}"
 CONTAINER_GROUP_ID="\${ENV_CONTAINER_GROUP_ID:-$CONTAINER_GROUP_ID}"
 CONTAINER_USER_RUN="\${ENV_CONTAINER_USER_RUN:-$CONTAINER_USER_RUN}"
@@ -847,6 +855,11 @@ if [ -n "$CONTAINER_REQUIRES" ]; then
     exit 1
   fi
 fi
+if [ "$CONTAINER_PROTOCOL" = "http" ]; then
+  CONTAINER_WEB_SERVER_PROTOCOL="http"
+elif [ "$CONTAINER_PROTOCOL" = "https" ]; then
+  CONTAINER_WEB_SERVER_PROTOCOL="https"
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup containers hostname
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -969,8 +982,8 @@ CONTAINER_SSL_KEY="${ENV_CONTAINER_SSL_KEY:-$CONTAINER_SSL_KEY}"
 CONTAINER_REQUIRES="${ENV_CONTAINER_REQUIRES:-$CONTAINER_REQUIRES}"
 CONTAINER_TIMEZONE="${ENV_CONTAINER_TIMEZONE:-$CONTAINER_TIMEZONE}"
 CONTAINER_WORK_DIR="${ENV_CONTAINER_WORK_DIR:-$CONTAINER_WORK_DIR}"
-CONTAINER_HTML_DIR="${ENV_CONTAINER_HTML_DIR:-$CONTAINER_HTML_DIR}"
-CONTAINER_HTML_ENV="${ENV_CONTAINER_HTML_ENV:-$CONTAINER_HTML_ENV}"
+CONTAINER_WEB_SERVER_WWW_DIR="${ENV_CONTAINER_HTML_DIR:-$CONTAINER_WEB_SERVER_WWW_DIR}"
+CONTAINER_WEB_SERVER_WWW_ENV="${ENV_CONTAINER_HTML_ENV:-$CONTAINER_WEB_SERVER_WWW_ENV}"
 CONTAINER_USER_ID="${ENV_CONTAINER_USER_ID:-$CONTAINER_USER_ID}"
 CONTAINER_GROUP_ID="${ENV_CONTAINER_GROUP_ID:-$CONTAINER_GROUP_ID}"
 CONTAINER_USER_RUN="${ENV_CONTAINER_USER_RUN:-$CONTAINER_USER_RUN}"
@@ -1074,11 +1087,11 @@ if [ -n "$CONTAINER_WORK_DIR" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the html directory
-if [ -n "$CONTAINER_HTML_DIR" ]; then
-  if [ -z "$CONTAINER_HTML_ENV" ]; then
-    CONTAINER_HTML_ENV="WWW_ROOT_DIR"
+if [ -n "$CONTAINER_WEB_SERVER_WWW_DIR" ]; then
+  if [ -z "$CONTAINER_WEB_SERVER_WWW_ENV" ]; then
+    CONTAINER_WEB_SERVER_WWW_ENV="ENV_WWW_ROOT_DIR"
   fi
-  DOCKER_SET_OPTIONS+=("--env $CONTAINER_HTML_ENV=$CONTAINER_HTML_DIR")
+  DOCKER_SET_OPTIONS+=("--env $CONTAINER_WEB_SERVER_WWW_ENV=$CONTAINER_WEB_SERVER_WWW_DIR")
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set user ID
@@ -1390,34 +1403,25 @@ if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ]; then
     NGINX_PROXY_ADDRESS="${CONTAINER_WEB_SERVER_LISTEN_ON:-$HOST_LISTEN_ADDR}"
   fi
   if [ "$CONTAINER_WEB_SERVER_SSL_ENABLED" = "yes" ] || [ "$SSL_ENABLED" = "yes" ]; then
+    CONTAINER_WEB_SERVER_PROTOCOL="https"
     DOCKER_SET_OPTIONS+=("--env SSL_ENABLED=true")
   fi
   if [ -n "$CONTAINER_WEB_SERVER_INT_PORT" ]; then
     CONTAINER_WEB_SERVER_INT_PORT="${CONTAINER_WEB_SERVER_INT_PORT//,/ }"
     DOCKER_SET_OPTIONS+=("--env WEB_PORT=\"$CONTAINER_WEB_SERVER_INT_PORT\"")
   fi
-  if [ "$CONTAINER_WEB_SERVER_SSL_ENABLED" = "yes" ]; then
-    CONTAINER_PROTOCOL="https"
-  else
-    CONTAINER_PROTOCOL="http"
-  fi
   if [ -z "$CONTAINER_WEB_SERVER_LISTEN_ON" ]; then
     CONTAINER_WEB_SERVER_LISTEN_ON="$HOST_LISTEN_ADDR"
   fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#
-if [ "$CONTAINER_HTTPS_PORT" != "" ]; then
-  CONTAINER_PROTOCOL="https"
-fi
-DOCKER_SET_OPTIONS+=("--env CONTAINER_PROTOCOL=$CONTAINER_PROTOCOL")
+[ -z "$CONTAINER_PROTOCOL" ] || DOCKER_SET_OPTIONS+=("--env CONTAINER_PROTOCOL=$CONTAINER_PROTOCOL")
+[ -z "$CONTAINER_WEB_SERVER_PROTOCOL" ] || DOCKER_SET_OPTIONS+=("--env CONTAINER_WEB_SERVER_PROTOCOL=$CONTAINER_WEB_SERVER_PROTOCOL")
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup easy port settings
 if [ "$CONTAINER_SERVICE_PUBLIC" = "yes" ] || [ "$CONTAINER_SERVICE_PUBLIC" = "0.0.0.0" ]; then
   CONTAINER_SERVICE_PUBLIC="0.0.0.0"
-elif echo "$CONTAINER_SERVICE_PUBLIC" | grep -q '[0-9].*\.[0-9].*\.[0-9].*\.[0-9]'; then
-  true
-else
+elif ! echo "$CONTAINER_SERVICE_PUBLIC" | grep -q '[0-9].*\.[0-9].*\.[0-9].*\.[0-9]'; then
   CONTAINER_SERVICE_PUBLIC="127.0.0.1"
 fi
 if [ "$CONTAINER_IS_DNS_SERVER" = "yes" ]; then
@@ -1483,6 +1487,9 @@ if [ "$CONTAINER_IS_TIME_SERVER" = "yes" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Database setup
+if [ -n "$CONTAINER_CREATE_DATABASE_NAME" ]; then
+  DOCKER_SET_OPTIONS+=("--env DATABASE_CREATE=$CONTAINER_CREATE_DATABASE_NAME")
+fi
 if [ -n "$CONTAINER_DEFAULT_DATABASE_TYPE" ]; then
   DOCKER_SET_OPTIONS+=("--env CONTAINER_DEFAULT_DATABASE_TYPE=$CONTAINER_DEFAULT_DATABASE_TYPE")
 fi
@@ -1496,7 +1503,7 @@ fi
 if [ "$CONTAINER_CUSTOM_DATABASE_ENABLED" = "yes" ] && [ -n "$CONTAINER_CUSTOM_DATABASE_NAME" ]; then
   SHOW_DATABASE_INFO="true"
   CONTAINER_DATABASE_ENABLED="yes"
-  DATABASE_DIR_CUSTOM="${CONTAINER_CUSTOM_DATABASE_DIR:-$DATABASE_BASE_DIR/$CONTAINER_CUSTOM_DATABASE_NAME}"
+  DATABASE_DIR_CUSTOM="${DATABASE_DIR_CUSTOM:-$DATABASE_BASE_DIR/$CONTAINER_CUSTOM_DATABASE_NAME}"
   DOCKER_SET_OPTIONS+=("--volume $LOCAL_DATA_DIR/$DATABASE_DIR_CUSTOM:$DATABASE_DIR_CUSTOM:z")
   DOCKER_SET_OPTIONS+=("--env DATABASE_DIR_CUSTOM=$DATABASE_DIR_CUSTOM")
   CONTAINER_CUSTOM_DATABASE_PROTOCOL="${CONTAINER_CUSTOM_DATABASE_PROTOCOL:-file}"
@@ -1514,6 +1521,7 @@ if [ "$CONTAINER_SQLITE_ENABLED" = "yes" ]; then
   DATABASE_DIR_SQLITE="${DATABASE_DIR_SQLITE:-$DATABASE_BASE_DIR/sqlite}"
   DOCKER_SET_OPTIONS+=("--volume $LOCAL_DATA_DIR/db/sqlite:$DATABASE_DIR_SQLITE:z")
   DOCKER_SET_OPTIONS+=("--env DATABASE_DIR_SQLITE=$DATABASE_DIR_SQLITE")
+  DOCKER_SET_OPTIONS+=("--env DATABASE_ADMIN_WWW_ROOT=/usr/local/share/httpd/admin/sqlite")
   CONTAINER_DATABASE_PROTO="sqlite://$DATABASE_DIR_SQLITE"
   if [ ! -d "$LOCAL_DATA_DIR/db/sqlite" ]; then
     mkdir -p "$LOCAL_DATA_DIR/db/sqlite"
@@ -1529,6 +1537,7 @@ if [ "$CONTAINER_REDIS_ENABLED" = "yes" ]; then
   DATABASE_DIR_REDIS="${DATABASE_DIR_REDIS:-$DATABASE_BASE_DIR/redis}"
   DOCKER_SET_OPTIONS+=("--volume $LOCAL_DATA_DIR/db/redis:$DATABASE_DIR_REDIS:z")
   DOCKER_SET_OPTIONS+=("--env DATABASE_DIR_REDIS=$DATABASE_DIR_REDIS")
+  DOCKER_SET_OPTIONS+=("--env DATABASE_ADMIN_WWW_ROOT=/usr/local/share/httpd/admin/redis")
   MESSAGE_REDIS="true"
 fi
 if [ "$CONTAINER_POSTGRES_ENABLED" = "yes" ]; then
@@ -1538,6 +1547,7 @@ if [ "$CONTAINER_POSTGRES_ENABLED" = "yes" ]; then
   DATABASE_DIR_POSTGRES="${DATABASE_DIR_POSTGRES:-$DATABASE_BASE_DIR/postgres}"
   DOCKER_SET_OPTIONS+=("--volume $LOCAL_DATA_DIR/db/postgres:$DATABASE_DIR_POSTGRES:z")
   DOCKER_SET_OPTIONS+=("--env DATABASE_DIR_POSTGRES=$DATABASE_DIR_POSTGRES")
+  DOCKER_SET_OPTIONS+=("--env DATABASE_ADMIN_WWW_ROOT=/usr/local/share/httpd/admin/postgres")
   CONTAINER_DATABASE_PROTO="postgresql://$HOST_LISTEN_ADDR:5432"
   MESSAGE_PGSQL="true"
 fi
@@ -1548,6 +1558,7 @@ if [ "$CONTAINER_MARIADB_ENABLED" = "yes" ]; then
   DATABASE_DIR_MARIADB="${DATABASE_DIR_MARIADB:-$DATABASE_BASE_DIR/mysql}"
   DOCKER_SET_OPTIONS+=("--volume $LOCAL_DATA_DIR/db/mysql:$DATABASE_DIR_MARIADB:z")
   DOCKER_SET_OPTIONS+=("--env DATABASE_DIR_MARIADB=$DATABASE_DIR_MARIADB")
+  DOCKER_SET_OPTIONS+=("--env DATABASE_ADMIN_WWW_ROOT=/usr/local/share/httpd/admin/mysql")
   CONTAINER_DATABASE_PROTO="mysql://$HOST_LISTEN_ADDR:3306"
   MESSAGE_MARIADB="true"
 fi
@@ -1557,6 +1568,7 @@ if [ "$CONTAINER_COUCHDB_ENABLED" = "yes" ]; then
   DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_DATABASE_LISTEN:5984:5984")
   DATABASE_DIR_COUCHDB="${DATABASE_DIR_COUCHDB:-$DATABASE_BASE_DIR/couchdb}"
   DOCKER_SET_OPTIONS+=("--volume $LOCAL_DATA_DIR/db/couchdb:$DATABASE_DIR_COUCHDB:z")
+  DOCKER_SET_OPTIONS+=("--env DATABASE_ADMIN_WWW_ROOT=/usr/local/share/httpd/admin/couchdb")
   DOCKER_SET_OPTIONS+=("--env DATABASE_DIR_COUCHDB=$DATABASE_DIR_COUCHDB")
   CONTAINER_DATABASE_PROTO="http://$HOST_LISTEN_ADDR:5984"
   MESSAGE_COUCHDB="true"
@@ -1568,6 +1580,7 @@ if [ "$CONTAINER_MONGODB_ENABLED" = "yes" ]; then
   DATABASE_DIR_MONGODB="${DATABASE_DIR_MONGODB:-$DATABASE_BASE_DIR/mongodb}"
   DOCKER_SET_OPTIONS+=("--volume $LOCAL_DATA_DIR/db/mongodb:$DATABASE_DIR_MONGODB:z")
   DOCKER_SET_OPTIONS+=("--env DATABASE_DIR_MONGODB=$DATABASE_DIR_MONGODB")
+  DOCKER_SET_OPTIONS+=("--env DATABASE_ADMIN_WWW_ROOT=/usr/local/share/httpd/admin/mongodb")
   CONTAINER_DATABASE_PROTO="mongodb://$HOST_LISTEN_ADDR:27017"
   MESSAGE_MONGODB="true"
 fi
@@ -1579,24 +1592,29 @@ if [ "$CONTAINER_SUPABASE_ENABLED" = "yes" ]; then
   DATABASE_DIR_SUPABASE="${DATABASE_DIR_SUPABASE:-$DATABASE_BASE_DIR/supabase}"
   DOCKER_SET_OPTIONS+=("--volume $LOCAL_DATA_DIR/db/supabase:$DATABASE_DIR_SUPABASE:z")
   DOCKER_SET_OPTIONS+=("--env DATABASE_DIR_SUPABASE=$DATABASE_DIR_SUPABASE")
+  DOCKER_SET_OPTIONS+=("--env DATABASE_ADMIN_WWW_ROOT=/usr/local/share/httpd/admin/supabase")
   MESSAGE_SUPABASE="true"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #
 if [ "$CONTAINER_DATABASE_ENABLED" = "yes" ]; then
   if [ -n "$CONTAINER_DATABASE_USER_ROOT" ]; then
+    SET_DB_ROOT_PASS="yes"
+    CONTAINER_DATABASE_PASS_ROOT="${CONTAINER_DATABASE_PASS_ROOT:-random}"
     DOCKER_SET_OPTIONS+=("--env DATABASE_USER_ROOT=${CONTAINER_DATABASE_USER_ROOT:-root}")
   fi
-  if [ -n "$CONTAINER_DATABASE_PASS_ROOT" ]; then
+  if [ "$SET_DB_ROOT_PASS" = "yes" ] || [ -n "$CONTAINER_DATABASE_PASS_ROOT" ]; then
     if [ "$CONTAINER_DATABASE_PASS_ROOT" = "random" ]; then
       CONTAINER_DATABASE_PASS_ROOT="$(__password "${CONTAINER_DATABASE_LENGTH_ROOT:-12}")"
     fi
     DOCKER_SET_OPTIONS+=("--env DATABASE_PASS_ROOT=$CONTAINER_DATABASE_PASS_ROOT")
   fi
   if [ -n "$CONTAINER_DATABASE_USER_NORMAL" ]; then
+    SET_DB_NORMAL_PASS="yes"
+    CONTAINER_DATABASE_PASS_NORMAL="${CONTAINER_DATABASE_PASS_NORMAL:-random}"
     DOCKER_SET_OPTIONS+=("--env DATABASE_USER_NORMAL=${CONTAINER_DATABASE_USER_NORMAL:-$USER}")
   fi
-  if [ -n "$CONTAINER_DATABASE_PASS_NORMAL" ]; then
+  if [ "$SET_DB_NORMAL_PASS" = "yes" ] || [ -n "$CONTAINER_DATABASE_PASS_NORMAL" ]; then
     if [ "$CONTAINER_DATABASE_PASS_NORMAL" = "random" ]; then
       CONTAINER_DATABASE_PASS_NORMAL="$(__password "${CONTAINER_DATABASE_LENGTH_NORMAL:-12}")"
     fi
@@ -1901,7 +1919,7 @@ if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ] && { [ -n "$CONTAINER_ADD_RANDOM_
         proxy_location="$(echo "$proxy_info" | awk -F '|' '{print $2}' | grep '^' || false)"
         proxy_url="$CONTAINER_WEB_SERVER_LISTEN_ON:$random_port"
         proxy_url="${proxy_url//\/\//\/}"
-        echo "$CONTAINER_PROTOCOL" | grep -q "^http" && nginx_proto="${CONTAINER_PROTOCOL:-http}" || nginx_proto="http"
+        echo "$CONTAINER_WEB_SERVER_PROTOCOL" | grep -q "^http" && nginx_proto="${CONTAINER_WEB_SERVER_PROTOCOL:-http}" || nginx_proto="http"
         if [ -n "$proxy_url" ] && [ -n "$proxy_location" ]; then
           if [ -n "$set_hostname" ]; then
             NGINX_CUSTOM_CONFIG="true"
@@ -2007,19 +2025,14 @@ unset SET_PRETTY_PORT SET_NGINX_PROXY_PORT SET_WEB_PORT_TMP CLEANUP_PORT
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # SSL setup
 NGINX_PROXY_URL=""
-PROXY_HTTP_PROTO="$CONTAINER_PROTOCOL"
 if [ "$NGINX_SSL" = "yes" ]; then
   if [ "$SSL_ENABLED" = "yes" ]; then
-    PROXY_HTTP_PROTO="https"
+    CONTAINER_WEB_SERVER_PROTOCOL="https"
   fi
-  if [ "$PROXY_HTTP_PROTO" = "https" ]; then
-    NGINX_PROXY_URL="$PROXY_HTTP_PROTO://$NGINX_PROXY_ADDRESS:$NGINX_PROXY_PORT"
-  fi
-else
-  CONTAINER_PROTOCOL="${CONTAINER_PROTOCOL:-http}"
 fi
+NGINX_PROXY_URL="$CONTAINER_WEB_SERVER_PROTOCOL://$NGINX_PROXY_ADDRESS:$NGINX_PROXY_PORT"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-NGINX_PROXY_URL="${NGINX_PROXY_URL:-$PROXY_HTTP_PROTO://$NGINX_PROXY_ADDRESS:$NGINX_PROXY_PORT}"
+NGINX_PROXY_URL="${NGINX_PROXY_URL:-$CONTAINER_WEB_SERVER_PROTOCOL://$NGINX_PROXY_ADDRESS:$NGINX_PROXY_PORT}"
 NGINX_PROXY_URL="${NGINX_PROXY_URL// /}$CONTAINER_WEB_SERVER_EXT_PATH"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set temp env for PORTS ENV variable
@@ -2345,9 +2358,9 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
     NGINX_PROXY_URL=""
   fi
   [ -n "$NGINX_PROXY_URL" ] && NGNIX_REVERSE_ADDRESS="$NGINX_PROXY_URL"
-  [ -f "$NGINX_MAIN_CONFIG" ] && NGINX_PROXY_URL="$CONTAINER_PROTOCOL://$CONTAINER_HOSTNAME"
+  [ -f "$NGINX_MAIN_CONFIG" ] && NGINX_PROXY_URL="$CONTAINER_WEB_SERVER_PROTOCOL://$CONTAINER_HOSTNAME"
 fi
-NGNIX_REVERSE_ADDRESS="${CONTAINER_NGINX_PROXY_URL:-$NGINX_PROXY_URL}"
+NGNIX_REVERSE_ADDRESS="${CONTAINER_NGINX_PROXY_URL:-$NGNIX_REVERSE_ADDRESS}"
 { [ "$NGINX_VHOST_NAMES" = "" ] || [ "$NGINX_VHOST_NAMES" = " " ]; } && unset NGINX_VHOST_NAMES
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup an internal host
@@ -2442,13 +2455,20 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
     __printf_spacing_color "3" "The internal name is set to:" "$HOST_NGINX_INTERNAL_DOMAIN"
   fi
   printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
+  if [ "$HOST_SERVER_HEALTH_CHECK_ENABLED" = "yes" ] && [ -n "$HOST_SERVER_HEALTH_CHECK_SERVER_URI" ]; then
+    __printf_spacing_color "6" "Setting health check command to:" "dockermgr server_status http://$NGNIX_REVERSE_ADDRESS/$HOST_SERVER_HEALTH_CHECK_SERVER_URI"
+    __printf_spacing_color "3" "Saving cron job to: /etc/cron.d/${CONTAINER_NAME}_health"
+    __printf_spacing_color "3" "server test file saved to" "$cron_file_name"
+    echo '*/90 * * * * root dockermgr server_status "'$CONTAINER_SERVER_TEST_URL/$HOST_SERVER_HEALTH_CHECK_SERVER_URI'" "'$CONTAINER_NAME'" "'$DOCKERMGR_INSTALL_SCRIPT'"' >"/etc/cron.d/${CONTAINER_NAME}_health"
+    printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
+  fi
   if [ "$HOST_CRON_ENABLED" = "yes" ] && [ -n "$HOST_CRON_COMMAND" ]; then
     [ -n "$HOST_CRON_USER" ] || HOST_CRON_USER="root"
     [ -n "$HOST_CRON_SCHEDULE" ] || HOST_CRON_SCHEDULE="30 0 * * *"
     __printf_spacing_color "6" "Setting cron user to:" "$HOST_CRON_USER"
     __printf_spacing_color "6" "Setting schedule to:" "$HOST_CRON_SCHEDULE"
-    __printf_spacing_color "3" "Saving cron job to: /etc/cron.d/$CONTAINER_NAME"
-    echo "$HOST_CRON_SCHEDULE $HOST_CRON_USER $HOST_CRON_COMMAND" | sudo tee -p "/etc/cron.d/$CONTAINER_NAME" &>/dev/null
+    __printf_spacing_color "3" "Saving cron job to: /etc/cron.d/${CONTAINER_NAME}_cron"
+    echo "$HOST_CRON_SCHEDULE $HOST_CRON_USER $HOST_CRON_COMMAND" | sudo tee -p "/etc/cron.d/${CONTAINER_NAME}_cron" &>/dev/null
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
   if __ssl_certs; then
@@ -2606,12 +2626,6 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
       fi
       unset get_listen type
     done
-    printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
-  fi
-  if [ -n "$CONTAINER_SERVER_TEST_URL" ]; then
-    cron_file_name="/etc/cron.d/dockermgr_server_status_${CONTAINER_NAME//-/_}"
-    __printf_spacing_color "3" "server test file saved to" "$cron_file_name"
-    echo '*/90 * * * * root dockermgr server_status "'$CONTAINER_SERVER_TEST_URL'" "'$CONTAINER_NAME'" "'$DOCKERMGR_INSTALL_SCRIPT'"' >"$cron_file_name"
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
   if [ -f "$DOCKERMGR_INSTALL_SCRIPT" ]; then

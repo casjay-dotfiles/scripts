@@ -85,10 +85,10 @@ export INSTDIR="$HOME/.local/share/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME"
 export DOCKERMGR_CONFIG_DIR="${DOCKERMGR_CONFIG_DIR:-$HOME/.config/myscripts/$SCRIPTS_PREFIX}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set default docker home for containers
-export APPDIR="$HOME/.local/share/srv/docker/$DOCKER_REGISTRY_ORG_NAME/$DOCKER_REGISTRY_ORG_REPO"
+export APPDIR="/var/lib/srv/$USER/docker/$DOCKER_REGISTRY_ORG_NAME/$DOCKER_REGISTRY_ORG_REPO"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the mountpoint directory - Defaults to $APPDIR/$APPNAME/rootfs
-export DATADIR="$HOME/.local/share/srv/docker/$DOCKER_REGISTRY_ORG_NAME/$DOCKER_REGISTRY_ORG_REPO/rootfs"
+export DATADIR="/var/lib/srv/$USER/docker/$DOCKER_REGISTRY_ORG_NAME/$DOCKER_REGISTRY_ORG_REPO/rootfs"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Call the main function
 dockermgr_install

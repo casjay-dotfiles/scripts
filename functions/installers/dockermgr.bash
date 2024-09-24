@@ -2,15 +2,15 @@
 dockermgr_install() {
   user_install
   SCRIPTS_PREFIX="dockermgr"
-  APPDIR="${APPDIR:-$HOME/.local/share/srv/docker}"
+  APPDIR="${APPDIR:-/var/lib/srv/$USER/docker}"
   INSTDIR="${INSTDIR:-$HOME/.local/share/CasjaysDev/dockermgr}"
-  DATADIR="${DATADIR:-$HOME/.local/share/srv/docker}"
+  DATADIR="${DATADIR:-/var/lib/srv/$USER/docker}"
   REPO="${REPO:-$DOCKERMGRREPO}"
   REPORAW="${REPORAW:-$REPO/raw/$GIT_REPO_BRANCH}"
   USRUPDATEDIR="$SHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"
   SYSUPDATEDIR="$SYSSHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"
   user_is_root && SYSSHARE="$CASJAYSDEVSAPPDIR/dockermgr/$APPNAME" || SYSSHARE="$HOME/.local/share/CasjaysDev/dockermgr/$APPNAME"
-  user_is_root && SRV_DIR="/srv/docker" || SRV_DIR="$HOME/.local/share/srv/docker"
+  user_is_root && SRV_DIR="/srv/docker" || SRV_DIR="/var/lib/srv/$USER/docker"
   [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && APPDIR="${APPDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
   if [ -f "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME" ]; then
     APPVERSION="$(grep -shv '#' $CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME)"

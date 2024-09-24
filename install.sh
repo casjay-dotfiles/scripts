@@ -167,6 +167,7 @@ run_postinst() {
   [ -f "$verDir/date.configs.txt" ] || date +"%b %d, %Y at %H:%M" | sudo tee -p "$verDir/date.configs.txt" &>/dev/null
   [ -f "$bannerDir/ssh.txt" ] || touch "$bannerDir/ssh.txt"
   [ -f "$bannerDir/rsync.txt" ] || touch "$bannerDir/rsync.txt"
+  systemctl enable --now vnstat &>/dev/null
   cp_rf "$INSTDIR/version.txt" "$verDir/scripts.txt"
   replace "$motdDir/" "MYHOSTIP" "$CURRENT_IP_4"
   replace "$motdDir/" "MYHOSTNAME" "$(hostname -s)"
@@ -178,13 +179,21 @@ run_postinst() {
     cp -Rf "$f" "/root/.local/backups/systemmgr/ssh/$(basename "$f").bak" &&
       sed --follow-symlinks -i 's|dir=~/Maildir||g' "$f"
   done
+  mkdir -p "/var/lib/srv/docker" && chmod 777 "/var/lib/srv/docker"
+  for user in root apache nginx www-user $USER; do
+    if grep -qs "^$user" /etc/passwd; then
+      mkdir -p "/var/lib/srv/docker/$user"
+      chmod 777 "/var/lib/srv/docker/$user"
+      chown -f $user "/var/lib/srv/docker/$user"
+      grep -qs "^$user" /etc/group && chgrp -f "$user" "/var/lib/srv/docker/$user"
+    fi
+  done
   for file in multi_clipboard se sentaku tdrop; do
     [ -f "/usr/local/bin/$file" ] || ln_sf "$APPDIR/sources/$file" "/usr/local/bin/$file"
   done
   for mgr in devenvmgr dfmgr dockermgr fontmgr iconmgr passmgr pkmgr systemmgr thememgr wallpapermgr; do
     eval "$mgr" --config &>/dev/null
   done
-  systemctl enable --now vnstat &>/dev/null
   [ -n "$(type -P hostname)" ] || ln_sf "/usr/local/bin/hostnamecli" "/usr/local/bin/hostname"
   cmd_exists --config &>/dev/null
   cmd_exists update-ip && update-ip &>/dev/null
@@ -193,7 +202,7 @@ run_postinst() {
   grep 'Defaults.*.secure_path' "/etc/sudoers" && sudo sed -i 's|secure_path =.*|secure_path = "/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin"|g' "/etc/sudoers"
   echo 'for f in '$CASJAYSDEVDIR/completions/*'; do source "$f" >/dev/null 2>&1; done' >"$COMPDIR/_my_scripts_completions"
   printf '%s: %s\n' "$(__os_name)" "$(__os_version)" | sed 's| [lL]inux:||g' | sudo tee -p "$verDir/osversion.txt" &>/dev/null
-  printf '# update scripts \n5 4 * * * root '$APPDIR/bin/systemmgr' update scripts cron ssl >/var/log/systemmgr\n' | sudo tee -p "/etc/cron.d/systemmgr" &>/dev/null
+  printf '%s' '# update scripts \n5 4 * * * root '$APPDIR/bin/systemmgr' update scripts cron ssl >/var/log/systemmgr\n' | sudo tee -p "/etc/cron.d/systemmgr" &>/dev/null
   printf '# Fix resolver \n*/5 * * * * root [ -f "/etc/resolv.conf" ] || echo nameserver 1.1.1.1 >/etc/resolv.conf\n' | sudo tee -p "/etc/cron.d/update-resolver" &>/dev/null
   __os_fix_name "$verDir/osversion.txt"
 }

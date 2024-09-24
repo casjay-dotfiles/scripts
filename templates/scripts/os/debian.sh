@@ -137,8 +137,8 @@ install_pkg listofpkgs
 __printf_head "Fixing packages"
 ##################################################################################################################
 run_post "sudo sed -i 's/'#AutoEnable=false'/'AutoEnable=true'/g' /etc/bluetooth/main.conf"
-run_post "sudo sed -i 's/files mymachines myhostname/files mymachines/g' /etc/nsswitch.conf"
-run_post "sudo sed -i 's/\[\!UNAVAIL=return\] dns/\[\!UNAVAIL=return\] mdns dns wins myhostname/g' /etc/nsswitch.conf"
+run_post "sudo sed -i 's/files mymachines MY_SHORT_HOSTNAME/files mymachines/g' /etc/nsswitch.conf"
+run_post "sudo sed -i 's/\[\!UNAVAIL=return\] dns/\[\!UNAVAIL=return\] mdns dns wins MY_SHORT_HOSTNAME/g' /etc/nsswitch.conf"
 run_post "sudo usermod  -a -G rfkill $USER"
 ##################################################################################################################
 __printf_head "setting up config files"

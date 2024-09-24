@@ -242,8 +242,8 @@ install_aur xfce4-panel-profiles
 printf_head "Fixing packages"
 ##################################################################################################################
 run_post "sed -i 's/'#AutoEnable=false'/'AutoEnable=true'/g' /etc/bluetooth/main.conf"
-run_post "sed -i 's/files mymachines myhostname/files mymachines/g' /etc/nsswitch.conf"
-run_post "sed -i 's/\[\!UNAVAIL=return\] dns/\[\!UNAVAIL=return\] mdns dns wins myhostname/g' /etc/nsswitch.conf"
+run_post "sed -i 's/files mymachines MY_SHORT_HOSTNAME/files mymachines/g' /etc/nsswitch.conf"
+run_post "sed -i 's/\[\!UNAVAIL=return\] dns/\[\!UNAVAIL=return\] mdns dns wins MY_SHORT_HOSTNAME/g' /etc/nsswitch.conf"
 run_post "usermod -a -G rfkill $USER"
 
 ##################################################################################################################

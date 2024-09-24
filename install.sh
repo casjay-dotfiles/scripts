@@ -150,42 +150,44 @@ run_postinst() {
   motdDir="/etc/casjaysdev/messages"
   bannerDir="/etc/casjaysdev/banners"
   verDir="/etc/casjaysdev/updates/versions"
-  fontdir="$(ls -A "$CASJAYSDEVSAPPDIR/fontmgr/" | wc -l)"
-  git config --global pull.rebase 'true'
+  bashCompDir="${COMPDIR:-/etc/bash_completion.d}"
+  fontdir="$(ls -A "$CASJAYSDEVSAPPDIR/fontmgr/" 2>/dev/null | wc -l)"
+  get_pam_files_to_edit="$(grep -shRl 'dir=/var/spool/mail' /etc/pam.d/*)"
   ln_rm "$SHARE/applications/"
-  mkdir -p "$motdDir/motd" "$motdDir/issue" "$motdDir/legal"
-  mkdir -p "$verDir" "/usr/local/share/CasjaysDev/apps/fontmgr"
-  mkdir -p "/root/.local/backups/systemmgr/ssh" "$bannerDir"
+  git config --global pull.rebase 'true'
+  systemctl enable --now vnstat &>/dev/null
+  mkdir -p "$HOME/.local/backups/systemmgr/installer/pam"
+  mkdir -p "/usr/local/share/CasjaysDev/apps/fontmgr"
+  mkdir -p "$motdDir/motd" "$motdDir/issue" "$motdDir/legal" "$bannerDir" "$verDir"
   [ "$fontdir" = "0" ] && sudo fontmgr install Hack all-the-icons fontawesome LigatureSymbols
+  [ -d "/var/lib/srv/docker" ] || { mkdir -p "/var/lib/srv/docker" && chmod 777 "/var/lib/srv/docker"; }
   for app in $(ls "$CASJAYSDEVDIR/applications"); do
     ln_sf "$CASJAYSDEVDIR/applications/$app" "$SYSSHARE/applications/$app"
   done
-  if [ -f "$INSTDIR/templates/casjaysdev-legal.txt" ] && [ ! -f "$motdDir/legal/000.txt" ]; then
+  if [ -f "$INSTDIR/templates/casjaysdev-legal.txt" ] && { [ ! -f "$motdDir/legal/000.txt" ] || [ ! -f "/etc/casjaysdev/.legal_updated" ]; }; then
+    echo "$(date)" >"/etc/casjaysdev/.legal_updated"
     cp_rf "$INSTDIR/templates/casjaysdev-legal.txt" "$motdDir/legal/000.txt"
   fi
-  [ -f "$verDir/configs.txt" ] || date +"${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}" | sudo tee -p "$verDir/configs.txt" &>/dev/null
-  [ -f "$verDir/date.configs.txt" ] || date +"%b %d, %Y at %H:%M" | sudo tee -p "$verDir/date.configs.txt" &>/dev/null
   [ -f "$bannerDir/ssh.txt" ] || touch "$bannerDir/ssh.txt"
   [ -f "$bannerDir/rsync.txt" ] || touch "$bannerDir/rsync.txt"
-  systemctl enable --now vnstat &>/dev/null
-  cp_rf "$INSTDIR/version.txt" "$verDir/scripts.txt"
-  replace "$motdDir/" "MYHOSTIP" "$CURRENT_IP_4"
-  replace "$motdDir/" "MYHOSTNAME" "$(hostname -s)"
-  replace "$motdDir/" "MYFULLHOSTNAME" "$(hostname -f)"
   date +"%b %d, %Y at %H:%M" | sudo tee -p "$verDir/date.scripts.txt" &>/dev/null
+  [ -f "$INSTDIR/version.txt" ] && cp_rf "$INSTDIR/version.txt" "$verDir/scripts.txt"
+  [ -f "$verDir/date.configs.txt" ] || date +"%b %d, %Y at %H:%M" | sudo tee -p "$verDir/date.configs.txt" &>/dev/null
+  [ -f "$verDir/configs.txt" ] || date +"${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}" | sudo tee -p "$verDir/configs.txt" &>/dev/null
+  [ -n "$(type -P hostname 2>/dev/null)" ] || { [ -x "/usr/local/bin/hostnamecli" ] && ln_sf "/usr/local/bin/hostnamecli" "/usr/local/bin/hostname"; }
   ln_sf "$APPDIR" "$SYSSHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME"
   ln_sf "$APPDIR" "$SYSSHARE/CasjaysDev/$SCRIPTS_PREFIX/installer"
-  for f in $(grep -shRl 'dir=/var/spool/mail' /etc/pam.d/); do
-    cp -Rf "$f" "/root/.local/backups/systemmgr/ssh/$(basename "$f").bak" &&
-      sed --follow-symlinks -i 's|dir=~/Maildir||g' "$f"
+  for f in $get_pam_files_to_edit; do
+    cp -Rf "$f" "/root/.local/backups/systemmgr/installer/pam/$(basename "$f").bak" && sed --follow-symlinks -i 's|dir=~/Maildir||g' "$f"
   done
-  mkdir -p "/var/lib/srv/docker" && chmod 777 "/var/lib/srv/docker"
-  for user in root apache nginx www-user $USER; do
+  for user in root apache nginx www-user daemon nobody $USER; do
     if grep -qs "^$user" /etc/passwd; then
-      mkdir -p "/var/lib/srv/docker/$user"
-      chmod 777 "/var/lib/srv/docker/$user"
-      chown -f $user "/var/lib/srv/docker/$user"
-      grep -qs "^$user" /etc/group && chgrp -f "$user" "/var/lib/srv/docker/$user"
+      if [ ! -d "/var/lib/srv/docker/$user" ]; then
+        mkdir -p "/var/lib/srv/docker/$user"
+        chmod -f 777 "/var/lib/srv/docker/$user"
+        chown -f $user "/var/lib/srv/docker/$user"
+        grep -qs "^$user" /etc/group && chgrp -f $user "/var/lib/srv/docker/$user"
+      fi
     fi
   done
   for file in multi_clipboard se sentaku tdrop; do
@@ -194,16 +196,18 @@ run_postinst() {
   for mgr in devenvmgr dfmgr dockermgr fontmgr iconmgr passmgr pkmgr systemmgr thememgr wallpapermgr; do
     eval "$mgr" --config &>/dev/null
   done
-  [ -n "$(type -P hostname)" ] || ln_sf "/usr/local/bin/hostnamecli" "/usr/local/bin/hostname"
-  cmd_exists --config &>/dev/null
+  replace "$motdDir/" "MYHOSTIP_4" "$CURRENT_IP_4"
+  replace "$motdDir/" "MYHOSTIP_6" "${CURRENT_IP_6:-::1}"
+  replace "$motdDir/" "MY_FULL_HOSTNAME" "$(hostname -f)"
+  replace "$motdDir/" "MY_SHORT_HOSTNAME" "$(hostname -s)"
   cmd_exists update-ip && update-ip &>/dev/null
   cmd_exists update-motd && update-motd &>/dev/null
   grep 'Defaults.*.env_reset' "/etc/sudoers" | grep -q '!' || sudo sed -i 's|env_reset|!env_reset|g' "/etc/sudoers"
   grep 'Defaults.*.secure_path' "/etc/sudoers" && sudo sed -i 's|secure_path =.*|secure_path = "/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin"|g' "/etc/sudoers"
-  echo 'for f in '$CASJAYSDEVDIR/completions/*'; do source "$f" >/dev/null 2>&1; done' >"$COMPDIR/_my_scripts_completions"
+  echo 'for f in '"$CASJAYSDEVDIR/completions"/*'; do source "$f" >/dev/null 2>&1; done' >"$bashCompDir/_my_scripts_completions"
   printf '%s: %s\n' "$(__os_name)" "$(__os_version)" | sed 's| [lL]inux:||g' | sudo tee -p "$verDir/osversion.txt" &>/dev/null
   printf '%s' '# update scripts \n5 4 * * * root '$APPDIR/bin/systemmgr' update scripts cron ssl >/var/log/systemmgr\n' | sudo tee -p "/etc/cron.d/systemmgr" &>/dev/null
-  printf '# Fix resolver \n*/5 * * * * root [ -f "/etc/resolv.conf" ] || echo nameserver 1.1.1.1 >/etc/resolv.conf\n' | sudo tee -p "/etc/cron.d/update-resolver" &>/dev/null
+  printf '%s' '# Fix resolver \n*/5 * * * * root [ -f "/etc/resolv.conf" ] || echo nameserver 1.1.1.1 >/etc/resolv.conf\n' | sudo tee -p "/etc/cron.d/update-resolver" &>/dev/null
   __os_fix_name "$verDir/osversion.txt"
 }
 #

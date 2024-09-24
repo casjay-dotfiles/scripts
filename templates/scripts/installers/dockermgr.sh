@@ -559,12 +559,24 @@ DOCKERMGR_ENABLE_INSTALL_SCRIPT="yes"
 # Init only - This should be no [yes/no]
 INIT_SCRIPT_ONLY="no"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# enable cron jobs
+# enable cron jobs [yes/no] [user] [0-59] [0-23] [0-6] [1-31] [1-12]
 __setup_cron() {
-  HOST_CRON_ENABLED=""
-  HOST_CRON_USER="root"
-  HOST_CRON_SCHEDULE=''
+  HOST_CRON_ENABLED="no"
   HOST_CRON_COMMAND=""
+  HOST_CRON_USER="root"
+  HOST_CRON_MIN='30'
+  HOST_CRON_HOUR='0'
+  HOST_CRON_WEEK_DAY='*'
+  HOST_CRON_MONTH_DAY='*'
+  HOST_CRON_MONTH_NAME='*'
+  # [@hourly/@daily/@monthly/@yearly]
+  HOST_CRON_AT_SCHEDULE=''
+  # NO NEED TO CHANGE
+  if [ -n "$HOST_CRON_AT_SCHEDULE" ]; then
+    HOST_CRON_SCHEDULE="$HOST_CRON_AT_SCHEDULE"
+  else
+    HOST_CRON_SCHEDULE="$HOST_CRON_MIN $HOST_CRON_HOUR $HOST_CRON_MONTH_DAY $HOST_CRON_MONTH_NAME $HOST_CRON_MONTH_DAY"
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set custom container enviroment variables - [MYVAR="VAR"]
@@ -1442,6 +1454,7 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [ -z "$CONTAINER_PROTOCOL" ] || DOCKER_SET_OPTIONS_ENV+=("--env CONTAINER_PROTOCOL=$CONTAINER_PROTOCOL")
 [ -z "$CONTAINER_WEB_SERVER_PROTOCOL" ] || DOCKER_SET_OPTIONS_ENV+=("--env CONTAINER_WEB_SERVER_PROTOCOL=$CONTAINER_WEB_SERVER_PROTOCOL")
+[ -n "$NGNIX_REVERSE_ADDRESS" ] || { [ -n "$CONTAINER_WEB_SERVER_INT_PORT" ] && NGNIX_REVERSE_ADDRESS="$CONTAINER_WEB_SERVER_PROTOCOL://$CONTAINER_WEB_SERVER_LISTEN_ON:$CONTAINER_WEB_SERVER_INT_PORT"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup easy port settings
 if [ "$CONTAINER_SERVICE_PUBLIC" = "yes" ] || [ "$CONTAINER_SERVICE_PUBLIC" = "0.0.0.0" ]; then
@@ -2399,7 +2412,6 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
   else
     NGINX_PROXY_URL=""
   fi
-  [ -n "$NGINX_PROXY_URL" ] && NGNIX_REVERSE_ADDRESS="$NGINX_PROXY_URL"
   [ -f "$NGINX_MAIN_CONFIG" ] && NGINX_PROXY_URL="$CONTAINER_WEB_SERVER_PROTOCOL://$CONTAINER_HOSTNAME"
 fi
 NGNIX_REVERSE_ADDRESS="${CONTAINER_NGINX_PROXY_URL:-$NGNIX_REVERSE_ADDRESS}"

@@ -170,7 +170,16 @@ __docker_check || __docker_init
 __docker_is_running || printf_exit "Docker is not running"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # hash the password
-__hash_password() { true; }
+__hash_password() { __cmd_exists htpasswd && htpasswd -bnBC 10 "" "$1" | tr -d ':\n' | sed 's/$2y/$2a/' || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__random_api_keys() {
+  local count=${1:-1} length=${2:-48} retrieve=${3:-1} passwords=()
+  while [ $count -gt 0 ]; do
+    passwords+=("$(head -n1000 -c 10000 "/dev/urandom" | tr -dc '0-9a-zA-Z' | head -c${length} && echo "")")
+    count=$((count - 1))
+  done
+  printf '%s\n' "${passwords[@]}" | tr ' ' '\n' | sort -Ru | head -n$retrieve
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define any pre-install scripts
 __run_pre_install() {
@@ -459,6 +468,10 @@ CONTAINER_USER_NAME=""
 CONTAINER_USER_PASS=""
 CONTAINER_PASS_LENGTH="24"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# If container has an api token set it here - [ENV_NAME] [token/random]
+CONTAINER_API_KEY_NAME=""
+CONTAINER_API_KEY_TOKEN="random"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # If container has an admin password then set it here - [pass/random]
 CONTAINER_USER_ADMIN_PASS_HASH=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -619,6 +632,7 @@ CONTAINER_HOSTNAME="\${ENV_CONTAINER_HOSTNAME:-$CONTAINER_HOSTNAME}"
 CONTAINER_DOMAINNAME="\${ENV_CONTAINER_DOMAINNAME:-$CONTAINER_DOMAINNAME}"
 HOST_DOCKER_LINK="\${ENV_HOST_DOCKER_LINK:-$HOST_DOCKER_LINK}"
 CONTAINER_DNS="\${ENV_CONTAINER_DNS:-$CONTAINER_DNS}"
+CONTAINER_API_TOKEN="\${ENV_CONTAINER_API_TOKEN:-$CONTAINER_API_TOKEN}"
 HOST_NGINX_EXTERNAL_DOMAIN="\${ENV_HOST_NGINX_EXTERNAL_DOMAIN:-$HOST_NGINX_EXTERNAL_DOMAIN}"
 HOST_NGINX_INTERNAL_DOMAIN="\${ENV_HOST_NGINX_INTERNAL_DOMAIN:-$HOST_NGINX_INTERNAL_DOMAIN}"
 HOST_NGINX_INTERNAL_HOST="\${ENV_HOST_NGINX_INTERNAL_HOST:-$HOST_NGINX_INTERNAL_HOST}"
@@ -1266,6 +1280,13 @@ if [ -n "$CONTAINER_USER_ADMIN_PASS_HASH" ]; then
   fi
   CONTAINER_USER_ADMIN_PASS_RAW="${CONTAINER_USER_ADMIN_PASS_RAW:-$CONTAINER_USER_ADMIN_PASS_HASH}"
   CONTAINER_USER_ADMIN_PASS_HASH="${CONTAINER_USER_ADMIN_PASS_HASH:-$(__hash_password $CONTAINER_USER_ADMIN_PASS_RAW)}"
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -n "$CONTAINER_API_KEY_NAME" ]; then
+  if [ -z "$ENV_CONTAINER_API_KEY_TOKEN" ] || [ "$ENV_CONTAINER_API_KEY_TOKEN" = "random" ]; then
+    ENV_CONTAINER_API_KEY_TOKEN="$(__random_api_keys 1 48 1)"
+  fi
+  DOCKER_SET_OPTIONS_ENV+=("--env $CONTAINER_API_KEY_NAME=${CONTAINER_API_KEY_TOKEN}")
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup display if enabled
@@ -1977,7 +1998,7 @@ server {
     proxy_set_header                        Upgrade            \$http_upgrade;
     proxy_set_header                        Connection         \$connection_upgrade;
     proxy_redirect                          http:// https://;
-    proxy_pass                              $nginx_proto://$proxy_url$internal_path;
+    proxy_pass                  WATCHTOWER_HTTP_API_TOKEN            $nginx_proto://$proxy_url$internal_path;
   }
 
 }

@@ -122,8 +122,8 @@ __printf_space() {
   printf '\n'
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__printf_spacing_file() { __printf_space "20" "7" "$1" "$2"; }
-__printf_spacing_color() { __printf_space "20" "$1" "$2" "$3"; }
+__printf_spacing_file() { __printf_space "40" "7" "$1" "$2"; }
+__printf_spacing_color() { __printf_space "40" "$1" "$2" "$3"; }
 __printf_color() { printf "%b" "$(tput setaf "$1" 2>/dev/null)" "$2" "$(tput sgr0 2>/dev/null)" && printf '\n'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cmd_exists() { type -p $1 &>/dev/null || return 1; }

@@ -164,6 +164,7 @@ run_postinst() {
   for app in $(ls "$CASJAYSDEVDIR/applications"); do
     ln_sf "$CASJAYSDEVDIR/applications/$app" "$SYSSHARE/applications/$app"
   done
+  [ "$RESET_LEGAL" = "yes" ] && [ -f "$motdDir/legal/000.txt" ] && rm -Rf "$motdDir/legal/000.txt"
   if [ -f "$INSTDIR/templates/casjaysdev-legal.txt" ] && { [ ! -f "$motdDir/legal/000.txt" ] || [ ! -f "/etc/casjaysdev/.legal_updated" ]; }; then
     echo "$(date)" >"/etc/casjaysdev/.legal_updated"
     cp_rf "$INSTDIR/templates/casjaysdev-legal.txt" "$motdDir/legal/000.txt"

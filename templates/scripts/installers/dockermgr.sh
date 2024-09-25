@@ -983,7 +983,7 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ "$CONTAINER_HOSTNAME" = "hostname" ] || [ "$CONTAINER_DOMAINNAME" = "hostname" ]; then
   CONTAINER_HOSTNAME="$(hostname -s)"
-  CONTAINER_DOMAINNAME="${CONTAINER_HOSTNAME//$HOSTNAME./}"
+  CONTAINER_DOMAINNAME="${HOSTNAME//$CONTAINER_HOSTNAME./}"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -z "$CONTAINER_HOSTNAME" ]; then

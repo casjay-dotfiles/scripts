@@ -459,6 +459,10 @@ CONTAINER_DATABASE_USER_NORMAL=""
 CONTAINER_DATABASE_PASS_NORMAL=""
 CONTAINER_DATABASE_LENGTH_NORMAL="20"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set the database mount point [/app/db] [$HOST_DATA_DIR/db/custom/$CONTAINER_NAME]
+CONTAINER_DATABASE_DIR=""
+HOST_MOUNT_DATABASE_DIR=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set a username and password - [user] [pass/random]
 CONTAINER_USER_NAME=""
 CONTAINER_USER_PASS=""
@@ -1226,6 +1230,14 @@ if [ -e "$CGROUPS_MOUNTS" ] || [ -e "/sys/fs/cgroup" ]; then
       DOCKER_SET_OPTIONS_VOLUME+=("--volume $CGROUPS_MOUNTS")
     fi
   fi
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -n "$CONTAINER_DATABASE_DIR" ]; then
+  if [ -z "$HOST_MOUNT_DATABASE_DIR" ]; then
+    HOST_MOUNT_DATABASE_DIR="$HOST_DATA_DIR/db/custom/$CONTAINER_NAME"
+  fi
+  DOCKER_SET_OPTIONS_VOLUME+=("--volume $HOST_MOUNT_DATABASE_DIR:$CONTAINER_DATABASE_DIR")
+  [ -d "$HOST_MOUNT_DATABASE_DIR" ] || { mkdir -p "$HOST_MOUNT_DATABASE_DIR" && chmod 777 "$HOST_MOUNT_DATABASE_DIR"; }
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mount the docker socket

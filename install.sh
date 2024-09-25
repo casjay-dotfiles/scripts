@@ -183,11 +183,11 @@ run_postinst() {
   done
   for user in root apache nginx www-user daemon nobody $USER; do
     if grep -qs "^$user" /etc/passwd; then
-      if [ ! -d "/var/lib/srv/docker/$user" ]; then
-        mkdir -p "/var/lib/srv/docker/$user"
-        chmod -f 777 "/var/lib/srv/docker/$user"
-        chown -f $user "/var/lib/srv/docker/$user"
-        grep -qs "^$user" /etc/group && chgrp -f $user "/var/lib/srv/docker/$user"
+      if [ ! -d "/var/lib/srv/$USER" ]; then
+        mkdir -p "/var/lib/srv/$USER"
+        chmod -f 777 "/var/lib/srv/$USER"
+        chown -f $user "/var/lib/srv/$USER"
+        grep -qs "^$user" /etc/group && chgrp -f $user "/var/lib/srv/$USER"
       fi
     fi
   done

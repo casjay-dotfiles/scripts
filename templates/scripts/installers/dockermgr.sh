@@ -108,19 +108,15 @@ __sudo_exec() { [ "$DOCKERMGR_USER_CAN_SUDO" = "true" ] && sudo -HE "$@" || { [ 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # printf_space spacing color message value
 __printf_space() {
-  local padl color padlength pad string1 string2
-  test -n "$1" && test -z "${1//[0-9]/}" && padlength="$1" && shift 1 || padlength="40"
+  local color padlength
   test -n "$1" && test -z "${1//[0-9]/}" && color="$1" && shift 1 || color="7"
-  string1="$1"
-  string2="$2"
-  pad="$(printf '%*s' "$padlimit" "")"
-  printf '%b' "$(tput setaf "$color" 2>/dev/null)"
-  printf '%s%*.*s%s%b' "$string1" 0 $((padlength - ${#string1})) "$pad" "$string2" "$(tput sgr0 2>/dev/null)"
+  test -n "$1" && test -z "${1//[0-9]/}" && padlength="$1" && shift 1 || padlength="40"
+  printf '%b%s   %s%b' "$(tput setaf "$color" 2>/dev/null)" "$1" "$2" "$(tput sgr0 2>/dev/null)"
   printf '\n'
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__printf_spacing_file() { __printf_space "40" "7" "$1" "$2"; }
-__printf_spacing_color() { __printf_space "40" "$1" "$2" "$3"; }
+__printf_spacing_file() { __printf_space "7" "40" "$1" "$2"; }
+__printf_spacing_color() { __printf_space "$1" "40" "$2" "$3"; }
 __printf_color() { printf "%b" "$(tput setaf "$1" 2>/dev/null)" "$2" "$(tput sgr0 2>/dev/null)" && printf '\n'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cmd_exists() { type -p $1 &>/dev/null || return 1; }

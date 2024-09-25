@@ -157,6 +157,8 @@ __my_default_lan_address() { __ifconfig $SET_LAN_DEV | grep -w 'inet' | awk -F '
 __port() { echo "$((50000 + $RANDOM % 1000))" | grep '^' || return 1; }
 __port_in_use() { { [ -d "/etc/nginx/vhosts.d" ] && grep -wRsq "${1:-443}" "/etc/nginx/vhosts.d" || __netstat | grep -q "${1:-443}"; } && return 1 || return 0; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__if_file_contains() { grep -qsR "$1" "$2" | grep -Ev '#|^$' | grep '^' || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __enable_ssl() { { [ "$SSL_ENABLED" = "yes" ] || [ "$SSL_ENABLED" = "true" ]; } && return 0 || return 1; }
 __ssl_certs() { [ -f "$HOST_SSL_CA" ] && [ -f "$HOST_SSL_CRT" ] && [ -f "$HOST_SSL_KEY" ] && return 0 || return 1; }
 __check_ssl_cert() { if curl -q -viLSsf "${1:-$CONTAINER_HOSTNAME}" 2>&1 | grep -qE 'SSL certificate problem|does not match'; then return 0; else return 1; fi; }
@@ -779,6 +781,7 @@ DOCKERMGR_ENABLE_INSTALL_SCRIPT="\${ENV_DOCKERMGR_ENABLE_INSTALL_SCRIPT:-$DOCKER
 INIT_SCRIPT_ONLY="\${ENV_INIT_SCRIPT_ONLY:-$INIT_SCRIPT_ONLY}"
 # lets reuse settings
 CONTAINER_PUBLISHED_PORT="${CONTAINER_PUBLISHED_PORT:-}"
+HOST_NGINX_PROXY_URL="\${HOST_NGINX_PROXY_URL:-$HOST_NGINX_PROXY_URL}"
 CONTAINER_NGINX_PROXY_URL="\${CONTAINER_NGINX_PROXY_URL:-$NGINX_PROXY_URL}"
 EOF
 }
@@ -2123,7 +2126,7 @@ server {
     proxy_set_header                        Upgrade            \$http_upgrade;
     proxy_set_header                        Connection         \$connection_upgrade;
     proxy_redirect                          http:// https://;
-    proxy_pass                  WATCHTOWER_HTTP_API_TOKEN            $nginx_proto://$proxy_url$internal_path;
+    proxy_pass                              $nginx_proto://$proxy_url$internal_path;
   }
 
 }
@@ -2525,6 +2528,7 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
   fi
   [ -f "$NGINX_MAIN_CONFIG" ] && NGINX_PROXY_URL="$CONTAINER_WEB_SERVER_PROTOCOL://$CONTAINER_HOSTNAME"
 fi
+HOST_NGINX_PROXY_URL="${HOST_NGINX_PROXY_URL:-${NGNIX_REVERSE_ADDRESS:-$NGINX_PROXY_URL}}"
 NGNIX_REVERSE_ADDRESS="${CONTAINER_NGINX_PROXY_URL:-${NGNIX_REVERSE_ADDRESS:-$NGINX_PROXY_URL}}"
 { [ "$NGINX_VHOST_NAMES" = "" ] || [ "$NGINX_VHOST_NAMES" = " " ]; } && unset NGINX_VHOST_NAMES
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -2565,6 +2569,9 @@ server {
 
 EOF
   if [ -f "$NGINX_VHOSTS_PROXY_INT_TMP" ]; then
+    if __if_file_contains "proxy_intercept_errors" "$NGINX_VHOSTS_PROXY_INT_TMP" && __if_file_contains "proxy_intercept_errors" "/etc/nginx/global.d"; then
+      sed -i '/.*proxy_intercept_errors.*/d' "$NGINX_VHOSTS_PROXY_INT_TMP"
+    fi
     if [ -f "/etc/nginx/nginx.conf" ]; then
       [ -d "$NGINX_DIR/vhosts.d" ] || __sudo_root mkdir -p "$NGINX_DIR/vhosts.d"
       __sudo_root mv -f "$NGINX_VHOSTS_PROXY_INT_TMP" "$NGINX_DIR/vhosts.d/$HOST_NGINX_INTERNAL_DOMAIN.conf"

@@ -109,16 +109,13 @@ __sudo_exec() { [ "$DOCKERMGR_USER_CAN_SUDO" = "true" ] && sudo -HE "$@" || { [ 
 # printf_space spacing color message value
 __printf_space() {
   local padl color padlength pad string1 string2
-  test -n "$1" && test -z "${1//[0-9]/}" && padl="$1" && shift 1 || padl="20"
+  test -n "$1" && test -z "${1//[0-9]/}" && padlength="$1" && shift 1 || padlength="40"
   test -n "$1" && test -z "${1//[0-9]/}" && color="$1" && shift 1 || color="7"
   string1="$1"
   string2="$2"
-  padlength="${padl:-30}"
-  pad=$(printf '\x2D%.0s' $(seq "$padlength"))
+  pad="$(printf '%*s' "$padlimit" "")"
   printf '%b' "$(tput setaf "$color" 2>/dev/null)"
-  printf '%s' "$string1"
-  printf '%*.*s' 0 $(("$padlength" - "${#string1}" - "${#string2}")) "$pad" | sed 's|-| |g'
-  printf '%s%b' "$string2" "$(tput sgr0 2>/dev/null)"
+  printf '%s%*.*s%s%b' "$string1" 0 $((padlength - ${#string1})) "$pad" "$string2" "$(tput sgr0 2>/dev/null)"
   printf '\n'
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

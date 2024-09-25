@@ -2488,8 +2488,8 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
       NGINX_VHOST_NAMES="${NGINX_VHOST_NAMES:-}"
     fi
     cp -f "$INSTDIR/nginx/proxy.conf" "$NGINX_VHOSTS_CONF_FILE_TMP"
-    if grep -ERs "^proxy_intercept_errors| proxy_intercept_errors" "$NGINX_DIR/global.d" | grep -vq '#'; then
-      sed -i "s|proxy_intercept_errors|proxy_intercept_errors|g" "$NGINX_VHOSTS_CONF_FILE_TMP" &>/dev/null
+    if __if_file_contains "proxy_intercept_errors" "$NGINX_VHOSTS_CONF_FILE_TMP" && __if_file_contains "proxy_intercept_errors" "/etc/nginx/global.d"; then
+      sed -i '/.*proxy_intercept_errors.*/d' "$NGINX_VHOSTS_CONF_FILE_TMP"
     fi
     sed -i "s|REPLACE_APPNAME|$APPNAME|g" "$NGINX_VHOSTS_CONF_FILE_TMP" &>/dev/null
     sed -i "s|REPLACE_NGINX_PORT|$NGINX_PORT|g" "$NGINX_VHOSTS_CONF_FILE_TMP" &>/dev/null

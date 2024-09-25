@@ -169,17 +169,12 @@ __create_cert() { if __cmd_exists certbot && [ -f "/etc/certbot/dns.conf" ]; the
 __docker_check || __docker_init
 __docker_is_running || printf_exit "Docker is not running"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__create_password() { __password "${1:-16}"; }
+__create_api_key() { __password "${1:-32}"; }
+__create_secret_key() { __cmd_exists openssl && openssl rand -hex ${1:-64} || __create_api_key "${1:-64}"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # hash the password
 __hash_password() { __cmd_exists htpasswd && htpasswd -bnBC 10 "" "$1" | tr -d ':\n' | sed 's/$2y/$2a/' || return 1; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__random_api_keys() {
-  local count=${1:-1} length=${2:-48} retrieve=${3:-1} passwords=()
-  while [ $count -gt 0 ]; do
-    passwords+=("$(head -n1000 -c 10000 "/dev/urandom" | tr -dc '0-9a-zA-Z' | head -c${length} && echo "")")
-    count=$((count - 1))
-  done
-  printf '%s\n' "${passwords[@]}" | tr ' ' '\n' | sort -Ru | head -n$retrieve
-}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define any pre-install scripts
 __run_pre_install() {
@@ -472,6 +467,10 @@ CONTAINER_PASS_LENGTH="24"
 # If container has an api token set it here - [ENV_NAME] [token/random]
 CONTAINER_API_KEY_NAME=""
 CONTAINER_API_KEY_TOKEN="random"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# If container has an secret key set it here - [ENV_NAME] [token/random]
+CONTAINER_SECRET_KEY_NAME=""
+CONTAINER_SECRET_KEY_TOKEN="random"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # If container has an admin password then set it here - [pass/random]
 CONTAINER_USER_ADMIN_PASS_HASH=""
@@ -1290,7 +1289,7 @@ fi
 # set password length
 if [ -n "$CONTAINER_USER_ADMIN_PASS_HASH" ]; then
   if [ "$CONTAINER_USER_ADMIN_PASS_HASH" = "random" ]; then
-    CONTAINER_USER_ADMIN_PASS_RAW="$(__password 32)"
+    CONTAINER_USER_ADMIN_PASS_RAW="$(__create_password 32)"
     CONTAINER_USER_ADMIN_PASS_HASH="$(__hash_password $CONTAINER_USER_ADMIN_PASS_RAW)"
   fi
   CONTAINER_USER_ADMIN_PASS_RAW="${CONTAINER_USER_ADMIN_PASS_RAW:-$CONTAINER_USER_ADMIN_PASS_HASH}"
@@ -1299,9 +1298,16 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -n "$CONTAINER_API_KEY_NAME" ]; then
   if [ -z "$ENV_CONTAINER_API_KEY_TOKEN" ] || [ "$ENV_CONTAINER_API_KEY_TOKEN" = "random" ]; then
-    ENV_CONTAINER_API_KEY_TOKEN="$(__random_api_keys 1 48 1)"
+    ENV_CONTAINER_API_KEY_TOKEN="$(__create_api_key 48)"
   fi
   DOCKER_SET_OPTIONS_ENV+=("--env $CONTAINER_API_KEY_NAME=${CONTAINER_API_KEY_TOKEN}")
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -n "$CONTAINER_SECRET_KEY_NAME" ]; then
+  if [ -z "$CONTAINER_SECRET_KEY_TOKEN" ] || [ "$CONTAINER_SECRET_KEY_TOKEN" = "random" ]; then
+    CONTAINER_SECRET_KEY_TOKEN="$(__create_secret_key 64)"
+  fi
+  DOCKER_SET_OPTIONS_ENV+=("--env $CONTAINER_SECRET_KEY_NAME=${CONTAINER_SECRET_KEY_TOKEN}")
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup display if enabled
@@ -1658,7 +1664,7 @@ if [ "$CONTAINER_DATABASE_ENABLED" = "yes" ]; then
   fi
   if [ "$SET_DB_ROOT_PASS" = "yes" ] || [ -n "$CONTAINER_DATABASE_PASS_ROOT" ]; then
     if [ "$CONTAINER_DATABASE_PASS_ROOT" = "random" ]; then
-      CONTAINER_DATABASE_PASS_ROOT="$(__password "${CONTAINER_DATABASE_LENGTH_ROOT:-12}")"
+      CONTAINER_DATABASE_PASS_ROOT="$(__create_password "${CONTAINER_DATABASE_LENGTH_ROOT:-12}")"
     fi
     DOCKER_SET_OPTIONS_ENV+=("--env DATABASE_PASS_ROOT=$CONTAINER_DATABASE_PASS_ROOT")
   fi
@@ -1669,7 +1675,7 @@ if [ "$CONTAINER_DATABASE_ENABLED" = "yes" ]; then
   fi
   if [ "$SET_DB_NORMAL_PASS" = "yes" ] || [ -n "$CONTAINER_DATABASE_PASS_NORMAL" ]; then
     if [ "$CONTAINER_DATABASE_PASS_NORMAL" = "random" ]; then
-      CONTAINER_DATABASE_PASS_NORMAL="$(__password "${CONTAINER_DATABASE_LENGTH_NORMAL:-12}")"
+      CONTAINER_DATABASE_PASS_NORMAL="$(__create_password "${CONTAINER_DATABASE_LENGTH_NORMAL:-12}")"
     fi
     DOCKER_SET_OPTIONS_ENV+=("--env DATABASE_PASS_NORMAL=$CONTAINER_DATABASE_PASS_NORMAL")
   fi
@@ -1692,7 +1698,7 @@ if [ -n "$GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD" ]; then
 fi
 if [ -n "$CONTAINER_USER_PASS" ]; then
   if [ "$CONTAINER_USER_PASS" = "random" ]; then
-    CONTAINER_USER_PASS="$(__password "${CONTAINER_PASS_LENGTH:-16}")"
+    CONTAINER_USER_PASS="$(__create_password "${CONTAINER_PASS_LENGTH:-16}")"
   fi
   CONTAINER_USER_PASS="${GEN_SCRIPT_REPLACE_APPENV_NAME_PASSWORD:-${CONTAINER_USER_PASS:-$DEFAULT_PASSWORD}}"
 fi

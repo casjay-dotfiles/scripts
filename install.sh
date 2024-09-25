@@ -153,6 +153,7 @@ run_postinst() {
   bashCompDir="${COMPDIR:-/etc/bash_completion.d}"
   fontdir="$(ls -A "$CASJAYSDEVSAPPDIR/fontmgr/" 2>/dev/null | wc -l)"
   get_pam_files_to_edit="$(grep -shRl 'dir=/var/spool/mail' /etc/pam.d/*)"
+  [ -f "/etc/casjaysdev/.legal_updated" ] || [ "$RESET_LEGAL" != "yes" ] || { [ -f "$motdDir/legal/000.txt" ] && rm -Rf "$motdDir/legal/000.txt"; }
   ln_rm "$SHARE/applications/"
   git config --global pull.rebase 'true'
   systemctl enable --now vnstat &>/dev/null
@@ -164,10 +165,9 @@ run_postinst() {
   for app in $(ls "$CASJAYSDEVDIR/applications"); do
     ln_sf "$CASJAYSDEVDIR/applications/$app" "$SYSSHARE/applications/$app"
   done
-  [ "$RESET_LEGAL" = "yes" ] && [ -f "$motdDir/legal/000.txt" ] && rm -Rf "$motdDir/legal/000.txt"
-  if [ -f "$INSTDIR/templates/casjaysdev-legal.txt" ] && { [ ! -f "$motdDir/legal/000.txt" ] || [ ! -f "/etc/casjaysdev/.legal_updated" ]; }; then
+  if { [ ! -f "$motdDir/legal/000.txt" ] || [ ! -f "/etc/casjaysdev/.legal_updated" ]; }; then
     echo "$(date)" >"/etc/casjaysdev/.legal_updated"
-    cp_rf "$INSTDIR/templates/casjaysdev-legal.txt" "$motdDir/legal/000.txt"
+    [ -f "$INSTDIR/templates/casjaysdev-legal.txt" ] && cp_rf "$INSTDIR/templates/casjaysdev-legal.txt" "$motdDir/legal/000.txt"
   fi
   [ -f "$bannerDir/ssh.txt" ] || touch "$bannerDir/ssh.txt"
   [ -f "$bannerDir/rsync.txt" ] || touch "$bannerDir/rsync.txt"

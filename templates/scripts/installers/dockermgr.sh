@@ -344,7 +344,7 @@ HOST_MODULES_MOUNT_ENABLED="no"
 # Set Container name - Default $DOCKER_REGISTRY_ORG_NAME=$APPNAME-$DOCKER_HUB_IMAGE_TAG
 CONTAINER_NAME=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set container hostname and domain - Default: [$APPNAME.$SET_HOST_FULL_NAME] [$SET_HOST_FULL_DOMAIN]
+# Set container hostname and domain - Default: [$APPNAME.$SET_HOST_FULL_NAME] [$SET_HOST_FULL_DOMAIN] or [hostname]
 CONTAINER_HOSTNAME=""
 CONTAINER_DOMAINNAME=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -981,6 +981,11 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [ -n "$ENV_HOSTNAME" ] && CONTAINER_HOSTNAME="$ENV_HOSTNAME"
 [ -n "$ENV_DOMAINNAME" ] && CONTAINER_DOMAINNAME="$ENV_DOMAINNAME"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ "$CONTAINER_HOSTNAME" = "hostname" ] || [ "$CONTAINER_DOMAINNAME" = "hostname" ]; then
+  CONTAINER_HOSTNAME="$(hostname -s)"
+  CONTAINER_DOMAINNAME="${CONTAINER_HOSTNAME//$HOSTNAME./}"
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -z "$CONTAINER_HOSTNAME" ]; then
   if [ "$(hostname -s)" = "testing" ]; then

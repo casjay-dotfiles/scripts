@@ -83,8 +83,8 @@ export REPO="${DOCKERMGRREPO:-https://github.com/$SCRIPTS_PREFIX}/$APPNAME"
 export APPVERSION="$(__appversion "$REPO/raw/$REPO_BRANCH/version.txt")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Defaults variables
+export DOCKERMGR_CONFIG_DIR="$HOME/.config/myscripts/$SCRIPTS_PREFIX"
 export INSTDIR="$HOME/.local/share/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME"
-export DOCKERMGR_CONFIG_DIR="${DOCKERMGR_CONFIG_DIR:-$HOME/.config/myscripts/$SCRIPTS_PREFIX}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set default docker home for containers - $SET_APPDIR/$CONTAINER_NAME [APPDIR]
 SET_APPDIR="/var/lib/srv/$USER/docker/$DOCKER_REGISTRY_ORG_USER/$DOCKER_REGISTRY_ORG_REPO"
@@ -916,7 +916,7 @@ CONTAINER_NAME="${CONTAINER_NAME:-$SET_CONTAINER_NAME}"
 # Define folders
 APPDIR="$SET_APPDIR/$CONTAINER_NAME"
 DATADIR="$SET_DATADIR/$CONTAINER_NAME"
-HOST_ROOTFS_DIR="$DATADIR/rootfs"
+HOST_ROOTFS_DIR="$SET_DATADIR/rootfs"
 HOST_DATA_DIR="$HOST_ROOTFS_DIR/data"
 HOST_CONFIG_DIR="$HOST_ROOTFS_DIR/config"
 LOCAL_DATA_DIR="${LOCAL_DATA_DIR:-$HOST_DATA_DIR}"

@@ -1398,14 +1398,18 @@ if [ -n "$CONTAINER_USER_ADMIN_HASH_PASS" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -n "$CONTAINER_API_KEY_NAME" ]; then
-  if [ -z "$ENV_CONTAINER_API_KEY_TOKEN" ] || [ "$ENV_CONTAINER_API_KEY_TOKEN" = "random" ]; then
+  if [ "$ENV_CONTAINER_API_KEY_TOKEN" = "random" ]; then
+    ENV_CONTAINER_API_KEY_TOKEN="$(__create_api_key 48)"
+  elif [ -z "$ENV_CONTAINER_API_KEY_TOKEN" ]; then
     ENV_CONTAINER_API_KEY_TOKEN="$(__create_api_key 48)"
   fi
   DOCKER_SET_OPTIONS_ENV+=("--env $CONTAINER_API_KEY_NAME=${CONTAINER_API_KEY_TOKEN}")
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -n "$CONTAINER_SECRET_KEY_NAME" ]; then
-  if [ -z "$CONTAINER_SECRET_KEY_TOKEN" ] || [ "$CONTAINER_SECRET_KEY_TOKEN" = "random" ]; then
+  if [ "$CONTAINER_SECRET_KEY_TOKEN" = "random" ]; then
+    CONTAINER_SECRET_KEY_TOKEN="$(__create_secret_key 64)"
+  elif [ -z "$CONTAINER_SECRET_KEY_TOKEN" ]; then
     CONTAINER_SECRET_KEY_TOKEN="$(__create_secret_key 64)"
   fi
   DOCKER_SET_OPTIONS_ENV+=("--env $CONTAINER_SECRET_KEY_NAME=${CONTAINER_SECRET_KEY_TOKEN}")

@@ -2712,6 +2712,14 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
     show_user_footer="true"
     __printf_spacing_color "33" "Password is:" "$CONTAINER_USER_PASS"
   fi
+  if [ -n "$CONTAINER_API_KEY_NAME" ] && [ -n "$CONTAINER_API_KEY_TOKEN" ]; then
+    show_user_footer="true"
+    __printf_spacing_color "33" "$CONTAINER_API_KEY_NAME is:" "$CONTAINER_API_KEY_TOKEN"
+  fi
+  if [ -n "$CONTAINER_SECRET_KEY_NAME" ] && [ -n "$CONTAINER_SECRET_KEY_TOKEN" ]; then
+    show_user_footer="true"
+    __printf_spacing_color "33" "$CONTAINER_SECRET_KEY_NAME is:" "$CONTAINER_SECRET_KEY_NAME"
+  fi
   if [ "$CONTAINER_DATABASE_USER_ROOT" ]; then
     show_user_footer="true"
     __printf_spacing_color "33" "Database root user:" "$CONTAINER_DATABASE_USER_ROOT"

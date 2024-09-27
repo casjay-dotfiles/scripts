@@ -19,17 +19,18 @@ dockermgr update REPLACE_APPNAME
 ## Install and run container
   
 ```shell
-mkdir -p "/var/lib/srv/$USER/docker/REPLACE_APPNAME/rootfs"
+dockerHome="/var/lib/srv/$USER/docker/REPLACE_REGISTRY_USER/REPLACE_PROJECT_NAME/REPLACE_REGISTRY_USER-REPLACE_PROJECT_NAME-latest/rootfs"
+mkdir -p "$dockerHome"
 git clone "https://github.com/dockermgr/REPLACE_APPNAME" "$HOME/.local/share/CasjaysDev/dockermgr/REPLACE_APPNAME"
-cp -Rfva "$HOME/.local/share/CasjaysDev/dockermgr/REPLACE_APPNAME/rootfs/." "/var/lib/srv/$USER/docker/REPLACE_APPNAME/rootfs/"
+cp -Rfva "$HOME/.local/share/CasjaysDev/dockermgr/REPLACE_APPNAME/rootfs/." "$dockerHome"
 docker run -d \
 --restart always \
 --privileged \
---name REPLACE_REGISTRY_USER-REPLACE_PROJECT_NAME \
+--name REPLACE_REGISTRY_USER-REPLACE_PROJECT_NAME-latest \
 --hostname REPLACE_PROJECT_NAME \
 -e TZ=${TIMEZONE:-America/New_York} \
--v "/var/lib/srv/$USER/docker/REPLACE_REGISTRY_USER-REPLACE_PROJECT_NAME/rootfs/data:/data:z" \
--v "/var/lib/srv/$USER/docker/REPLACE_REGISTRY_USER-REPLACE_PROJECT_NAME/rootfs/config:/config:z" \
+-v "$dockerHome/data:/data:z" \
+-v "$dockerHome/config:/config:z" \
 -p 80:80 \
 REPLACE_REGISTRY_USER/REPLACE_PROJECT_NAME:latest
 ```
@@ -46,8 +47,8 @@ services:
       - TZ=America/New_York
       - HOSTNAME=REPLACE_PROJECT_NAME
     volumes:
-      - "/var/lib/srv/$USER/docker/REPLACE_REGISTRY_USER-REPLACE_PROJECT_NAME/rootfs/data:/data:z"
-      - "/var/lib/srv/$USER/docker/REPLACE_REGISTRY_USER-REPLACE_PROJECT_NAME/rootfs/config:/config:z"
+      - "/var/lib/srv/$USER/docker/REPLACE_REGISTRY_USER/REPLACE_PROJECT_NAME/REPLACE_REGISTRY_USER-REPLACE_PROJECT_NAME-latest/rootfs/data:/data:z"
+      - "/var/lib/srv/$USER/docker/REPLACE_REGISTRY_USER/REPLACE_PROJECT_NAME/REPLACE_REGISTRY_USER-REPLACE_PROJECT_NAME-latest/rootfs/config:/config:z"
     ports:
       - 80:80
     restart: always
@@ -69,7 +70,7 @@ git clone "https://github.com/REPLACE_REGISTRY_USER/REPLACE_APPNAME" "$HOME/Proj
   
 ```shell
 cd "$HOME/Projects/github/REPLACE_REGISTRY_USER/REPLACE_APPNAME"
-buildx 
+buildx all
 ```
   
 ## Authors  

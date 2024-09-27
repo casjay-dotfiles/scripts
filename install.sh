@@ -161,7 +161,8 @@ run_postinst() {
   mkdir -p "/usr/local/share/CasjaysDev/apps/fontmgr"
   mkdir -p "$motdDir/motd" "$motdDir/issue" "$motdDir/legal" "$bannerDir" "$verDir"
   [ "$fontdir" = "0" ] && sudo fontmgr install Hack all-the-icons fontawesome LigatureSymbols
-  [ -d "/var/lib/srv/docker" ] || { mkdir -p "/var/lib/srv/docker" && chmod 777 "/var/lib/srv/docker"; }
+  [ -d "/var/lib/srv/$USER/public" ] || { mkdir -p "/var/lib/srv/$USER/public" && chmod 777 "/var/lib/srv/$USER/public"; }
+  [ -d "/var/lib/srv/$USER/docker" ] || { mkdir -p "/var/lib/srv/$USER/docker" && chmod 777 "/var/lib/srv/$USER/docker"; }
   for app in $(ls "$CASJAYSDEVDIR/applications"); do
     ln_sf "$CASJAYSDEVDIR/applications/$app" "$SYSSHARE/applications/$app"
   done

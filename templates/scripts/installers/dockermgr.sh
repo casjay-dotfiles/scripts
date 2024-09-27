@@ -65,6 +65,9 @@ fi
 # Make sure the scripts repo is installed
 scripts_check
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# image tag - [docker pull DOCKER_HUB_IMAGE_URL:tag]
+export DOCKER_HUB_IMAGE_TAG="latest"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # docker registry settings
 export DOCKER_REGISTRY_URL="${DOCKER_REGISTRY_URL:-docker.io}"
 export DOCKER_REGISTRY_ORG_REPO="${DOCKER_REGISTRY_ORG_REPO:-$APPNAME}"
@@ -72,9 +75,6 @@ export DOCKER_REGISTRY_ORG_USER="${DOCKER_REGISTRY_ORG_USER:-casjaysdevdocker}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # URL to container image - docker pull - [URL]
 export DOCKER_HUB_IMAGE_URL="$DOCKER_REGISTRY_URL/$DOCKER_REGISTRY_ORG_USER/$DOCKER_REGISTRY_ORG_REPO"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# image tag - [docker pull DOCKER_HUB_IMAGE_URL:tag]
-export DOCKER_HUB_IMAGE_TAG="latest"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Repository variables
 export REPO="${DOCKERMGRREPO:-https://github.com/$SCRIPTS_PREFIX}/$APPNAME"
@@ -84,11 +84,13 @@ export APPVERSION="$(__appversion "$REPO/raw/$REPO_BRANCH/version.txt")"
 export INSTDIR="$HOME/.local/share/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME"
 export DOCKERMGR_CONFIG_DIR="${DOCKERMGR_CONFIG_DIR:-$HOME/.config/myscripts/$SCRIPTS_PREFIX}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set default docker home for containers
-export APPDIR="/var/lib/srv/$USER/docker/$DOCKER_REGISTRY_ORG_USER/$DOCKER_REGISTRY_ORG_REPO"
+SET_CONTAINER_NAME="${DOCKER_REGISTRY_ORG_USER}=${DOCKER_REGISTRY_ORG_REPO}-${DOCKER_HUB_IMAGE_TAG}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set the mountpoint directory - Defaults to $APPDIR/$APPNAME
-export DATADIR="/var/lib/srv/$USER/docker/$DOCKER_REGISTRY_ORG_USER/$DOCKER_REGISTRY_ORG_REPO"
+# Set default docker home for containers - $SET_APPDIR/$CONTAINER_NAME [APPDIR]
+SET_APPDIR="/var/lib/srv/$USER/docker/$DOCKER_REGISTRY_ORG_USER/$DOCKER_REGISTRY_ORG_REPO"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set the base data directory - mounted files live in $SET_DATADIR/$CONTAINER_NAME/rootfs [DATADIR]
+SET_DATADIR="/var/lib/srv/$USER/docker/$DOCKER_REGISTRY_ORG_USER/$DOCKER_REGISTRY_ORG_REPO/"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Call the main function
 dockermgr_install
@@ -800,9 +802,10 @@ __create_uninstall() {
   NGINX_FILES="$(echo "$NGINX_CONF_FILE $NGINX_INC_CONFIG $NGINX_VHOST_CONFIG $NGINX_INTERNAL_IS_SET" | tr ' ' '\n' | grep -v '^$' | sort -u | tr '\n' ' ')"
   mkdir -p "$DOCKERMGR_CONFIG_DIR/uninstall"
   cat <<EOF >"$DOCKERMGR_CONFIG_DIR/uninstall/$APPNAME"
-APPDIR="$APPDIR"
 INSTDIR="$INSTDIR"
+APPDIR="$APPDIR"
 DATADIR="$DATADIR"
+ROOTFS_DIR="$ROOTFS_DIR"
 DOCKERMGR_CONFIG_DIR="$DOCKERMGR_CONFIG_DIR"
 CONTAINER_NAME="$CONTAINER_NAME"
 DOCKER_NAME="$CONTAINER_NAME"
@@ -908,16 +911,11 @@ DOCKER_HUB_IMAGE_URL="${DOCKER_HUB_IMAGE_URL//*:\/\//}"
 DOCKER_HUB_IMAGE_URL="${DOCKER_HUB_IMAGE_URL//:*/}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set containers name
-if [ -z "$CONTAINER_NAME" ]; then
-  if [ "$DOCKER_REGISTRY_ORG_REPO" = "$APPNAME" ]; then
-    CONTAINER_NAME="$(echo "$DOCKER_REGISTRY_ORG_USER-$DOCKER_REGISTRY_ORG_REPO-$DOCKER_HUB_IMAGE_TAG")"
-  else
-    CONTAINER_NAME="$(echo "$DOCKER_REGISTRY_ORG_USER-$APPNAME-$DOCKER_HUB_IMAGE_TAG")"
-  fi
-fi
-CONTAINER_NAME="${CONTAINER_NAME:-$(__container_name || echo "$DOCKER_REGISTRY_ORG_USER-$DOCKER_REGISTRY_ORG_REPO-$DOCKER_HUB_IMAGE_TAG")}"
+CONTAINER_NAME="${CONTAINER_NAME:-$SET_CONTAINER_NAME}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define folders
+APPDIR="$SET_APPDIR/$CONTAINER_NAME"
+DATADIR="$SET_DATADIR/$CONTAINER_NAME"
 HOST_ROOTFS_DIR="$DATADIR/rootfs"
 HOST_DATA_DIR="$HOST_ROOTFS_DIR/data"
 HOST_CONFIG_DIR="$HOST_ROOTFS_DIR/config"

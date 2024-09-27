@@ -549,34 +549,36 @@ __sudo_rm() {
 __docker_proxy_setup() {
   local retVal=1
   local port="2375"
-  local name="casjaysdevdocker-dockerproxy-latest"
+  local DOCKER_REGISTRY_ORG_REPO="dockerproxy"
+  local DOCKER_REGISTRY_ORG_USER="casjaysdevdocker"
   local pullURL="casjaysdevdocker/dockerproxy:latest"
+  local CONTAINER_NAME="casjaysdevdocker-dockerproxy-latest"
   if __container_exists dockerproxy; then
     docker rm -f dockerproxy >/dev/null 2>&1
   fi
-  if __container_exists "$name" >/dev/null 2>&1; then
-    printf_green "the container $name already exists"
+  if __container_exists "$CONTAINER_NAME" >/dev/null 2>&1; then
+    printf_green "the container $CONTAINER_NAME already exists"
     return
   else
     if __port_is_free "$port"; then
-      printf_green "Creating $name as an API proxy to docker socket"
+      printf_green "Creating $CONTAINER_NAME as an API proxy to docker socket"
       __docker run -d \
         --pull always \
-        --name=$name \
+        --name=$CONTAINER_NAME \
+        --tty \
+        --cpus 2 \
         --privileged \
         --log-opt max-size=10m \
-        --cpus 2 \
         --network bridge \
         --shm-size=128M \
         --restart=always \
-        --hostname $HOSTNAME \
-        --tty \
         --cap-add CHOWN \
         --cap-add SYS_TIME \
         --cap-add SYS_ADMIN \
-        --env ENV_CONTAINER_NAME=$name \
-        --env TZ=America/New_York \
+        --hostname $HOSTNAME \
         --env HOSTNAME=$HOSTNAME \
+        --env TZ=America/New_York \
+        --env ENV_CONTAINER_NAME=$CONTAINER_NAME \
         --env AUTH=0 \
         --env POST=0 \
         --env PING=1 \
@@ -602,11 +604,11 @@ __docker_proxy_setup() {
         --env ALLOW_STOP=0 \
         --env DISTRIBUTION=0 \
         --env ALLOW_RESTARTS=0 \
-        --volume "/var/lib/srv/$USER/docker/$name/rootfs/data":/data:z \
-        --volume "/var/lib/srv/docker/$name/rootfs/config":/config:z \
+        --volume "/var/lib/srv/$USER/docker/$DOCKER_REGISTRY_ORG_USER/$DOCKER_REGISTRY_ORG_REPO/$CONTAINER_NAME/rootfs/data":/data:z \
+        --volume "/var/lib/srv/$USER/docker/$DOCKER_REGISTRY_ORG_USER/$DOCKER_REGISTRY_ORG_REPO/$CONTAINER_NAME/rootfs/config":/config:z \
         --publish $port:$port $pullURL &>/dev/null
       retVal=$?
-      [ "$retVal" -eq 0 ] && printf_cyan "Created container $name" || rm -Rf "/var/lib/srv/$USER/docker/$name"
+      [ "$retVal" -eq 0 ] && printf_cyan "Created container $CONTAINER_NAME" || rm -Rf "var/lib/srv/$USER/docker/$DOCKER_REGISTRY_ORG_USER/$DOCKER_REGISTRY_ORG_REPO/$CONTAINER_NAME"
     else
       printf_red "Something is already running on port $port"
       retVal=1
@@ -925,24 +927,30 @@ __api_source_list() {
   [ -n "$api_source_list" ] && printf '%s\n' "$api_source_list" || { [ "$api_source_name" = "true" ] && printf '%s\n' "$SRCS"; }
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_uninstall_info() {
+  local CONTAINER_INFO="$DOCKERMGR_CONFIG_DIR/installed/$APPNAME"
+  local CONTAINER_NAME="${DOCKERMGR_REGISTRY_USERNAME}-$APPNAME-latest"
+  [ -f "$DOCKERMGR_CONFIG_DIR/uninstall/$APPNAME" ] && . "$DOCKERMGR_CONFIG_DIR/uninstall/$APPNAME"
+  [ -f "$CONTAINER_INFO" ] && container_name="$(<"$CONTAINER_INFO")"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 installer_delete() {
   local LISTARRAY="$*"
   local exitCode="0"
   local APPNAME=""
   for APPNAME in $LISTARRAY; do
     __disk_usage_pre
+    __get_uninstall_info
     local container_name
     local DATE="$(date +'%Y%m%d%H%M')"
     local SCRIPTS_DIR="$DOCKERMGR_CONFIG_DIR/scripts"
-    local DATADIR="/var/lib/srv/$USER/docker/$APPNAME"
     local APPDIR="$HOME/.local/share/CasjaysDev/dockermgr/$APPNAME"
     local INSTDIR="$HOME/.local/share/CasjaysDev/dockermgr/$APPNAME"
     local SHAREDIR="$HOME/.local/share/CasjaysDev/dockermgr/$APPNAME"
-    local CONTAINER_INFO="$DOCKERMGR_CONFIG_DIR/installed/$APPNAME"
-    local CONTAINER_NAME="${DOCKERMGR_REGISTRY_USERNAME}-$APPNAME-latest"
     local MESSAGE="${MESSAGE:-Removing $APPNAME from ${msg:-your system}}"
-    [ -f "$DOCKERMGR_CONFIG_DIR/uninstall/$APPNAME" ] && . "$DOCKERMGR_CONFIG_DIR/uninstall/$APPNAME"
-    [ -f "$CONTAINER_INFO" ] && container_name="$(<"$CONTAINER_INFO")"
+    local DOCKER_REGISTRY_URL="${DOCKER_REGISTRY_URL:-docker.io}"
+    local DOCKER_REGISTRY_ORG_REPO="${DOCKER_REGISTRY_ORG_REPO:-$APPNAME}"
+    local DOCKER_REGISTRY_ORG_USER="${DOCKER_REGISTRY_ORG_USER:-casjaysdevdocker}"
     if [ -d "$APPDIR" ] || [ -d "$INSTDIR" ] || [ -d "$DATADIR" ] || [ -f "$SHAREDIR" ] || [ -f "$CONTAINER_INFO" ]; then
       local name="${CONTAINER_NAME:-$APPNAME}"
       local REMOVE_CRON="$(find /etc/cron.* -type f 2>/dev/null | grep "$name" || false)"
@@ -1032,12 +1040,13 @@ __install_script() {
     __disk_usage_pre
     local APPNAME="$container"
     local CONTAINER_NAME="${CONTAINER_NAME:-$APPNAME}"
-    local APPDIR="/var/lib/srv/$USER/docker/$CONTAINER_NAME"
-    local DATADIR="/var/lib/srv/$USER/docker/$CONTAINER_NAME"
-    local ROOTFS_DIR="/var/lib/srv/$USER/docker/$CONTAINER_NAME/rootfs"
-    local INSTDIR="$HOME/.local/share/CasjaysDev/dockermgr/$CONTAINER_NAME"
+    local INSTDIR="$HOME/.local/share/CasjaysDev/dockermgr/$APPNAME"
+    local SHAREDIR="$HOME/.local/share/CasjaysDev/dockermgr/$APPNAME"
+    local DOCKER_REGISTRY_ORG_REPO="$(echo "$REPO/$APPNAME" | awk -F '/' '{print $NF}'))"
+    local DOCKER_REGISTRY_ORG_USER="$(echo "$REPO/$APPNAME" | awk -F '/' '{print $(NF-1)}')"
+    local APPDIR="/var/lib/srv/$USER/docker/$DOCKER_REGISTRY_ORG_USER/$DOCKER_REGISTRY_ORG_REPO/$CONTAINER_NAME"
+    local DATADIR="/var/lib/srv/$USER/docker/$DOCKER_REGISTRY_ORG_USER/$DOCKER_REGISTRY_ORG_REPO/$CONTAINER_NAME"
     export APPNAME APPDIR INSTDIR DATADIR REPO
-    mkdir -p "$APPDIR" "$INSTDIR" "$DATADIR" &>/dev/null
     if ! curl -q -LSsfI "$REPO/$APPNAME" &>/dev/null; then
       rm -Rf "$APPDIR" "$DATADIR" "$INSTDIR" 2>/dev/null
       printf_exit 3 3 "The URL $REPO/$APPNAME returned an error"
@@ -1058,8 +1067,6 @@ __install_script() {
         return 1
       fi
     fi
-    sudo -HE chown -f "$USER":"$USER" "$DATADIR" 2>/dev/null
-    sudo -HE chown -Rf "$USER":"$USER" "$INSTDIR" 2>/dev/null
     [ "$DOCKERMGR_SHOW_USAGE" = "yes" ] && __disk_usage_post || true
     printf '\n'
   done

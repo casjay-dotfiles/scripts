@@ -315,7 +315,7 @@ __get_port() { __sudo netstat -apn 2>/dev/null | grep "$(__get_pid "$1")" | grep
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __viewer() { __local_viewer "$1" || __remote_viewer "$1" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__is_installed() { __cmd_exists qemu-img virt-manager virt-install && return 0 || return 1; }
+__is_libvirt_installed() { __cmd_exists qemu-img virt-manager virt-install && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __64bit_check() { grep -q -o -w 'lm' /proc/cpuinfo &>/dev/null && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -610,12 +610,16 @@ __modprobe_kvm() {
 __init() {
   local pkgs
   local exitCode=0
-  local dockerHome="$HOME/.local/srv/docker/webvirtcloud/rootfs"
+  local TMP="${TMPDIR:-/tmp}"
+  local ip="${CURRENT_IP_4:-127.0.0.1}"
+  local HUB_URL="mplx/docker-webvirtcloud"
+  local CONTAINER_NAME="mplx-docker-webvirtcloud-latest"
+  local dockerHome="/var/lib/srv/$USER/docker/$HUB_URL/$CONTAINER_NAME/rootfs"
   local pacman_pkgs="qemu libvirt dnsmasq virt-manager bridge-utils flex bison edk2-ovmf"
   local apt_pkgs="qemu qemu-kvm libvirt-clients libvirt-daemon-system bridge-utils virt-manager libguestfs-tools"
   local yum_dnf_pkgs="libvirt qemu-kvm virt-manager bridge-utils virt-install bridge-utils libvirt-daemon-kvm cockpit cockpit-machines virt-viewer virt-top  virt-top libguestfs-tools"
-  local netDev="$(ip route 2>/dev/null | grep 'default' | sed -e "s/^.*dev.//" -e "s/.proto.*//" | awk '{print $1}' | grep '^' || echo 'eth0')"
-  [ -z "$VIRTMGR_FORCE" ] && __is_installed && return $exitCode
+  local dockerMounts="-v /var/run/libvirt:/var/run/libvirt -v $dockerHome/data/webvirt:/srv/webvirtcloud/data -v $dockerHome/config/ssh:/var/www/.ssh"
+  [ -z "$VIRTMGR_FORCE" ] && __is_libvirt_installed && return $exitCode
   __cpu_count
   printf_green "Installing virtualization packages"
   if __cmd_exists pacman; then # ARCH
@@ -634,20 +638,23 @@ __init() {
     fi
     yum install -yy $yum_dnf_pkgs >>"$VIRTMGR_LOG_DIR/pkgs.log" 2>&1 || exitCode=1
   fi
-  if __is_installed; then
+  if __is_libvirt_installed; then
     printf_green "Installed the virtualization packages"
     if [ -n "$(type -P docker)" ] && ! docker ps -a 2>&1 | grep -qE "webvirtcloud"; then
       printf_yellow "Installing webvirtcloud via docker"
+      if ! docker run -d --pull always --restart always --name "$CONTAINER_NAME" -p $ip:65000:80/tcp -p $ip:6080:6080/tcp $dockerMounts $HUB_URL:latest >/dev/null 2>&1; then
+        printf_red "Failed to creaate container $CONTAINER_NAME"
+        return 1
+      fi
       mkdir -p "/etc/webvirtcloud" && chmod 777 -f "/etc/webvirtcloud"
-      docker run -d --pull always --restart always --name "webvirtcloud" -p 65000:80/tcp -p 6080:6080/tcp -v /var/run/libvirt:/var/run/libvirt dmglab/webvirtcloud:latest >/dev/null 2>&1
-      printf_purple "webvirtcloud will is listening on http://$CURRENT_IP_4:65000"
+      printf_purple "webvirtcloud will is listening on http://$ip:65000"
       printf_green "Default username is: admin"
       printf_green "Default password is: admin"
     fi
     if [ ! -f "/etc/kvm/.installed" ]; then
       is_kvm_installed="no"
       printf_cyan "Installing configuration files to /etc/kvm"
-      git clone -q "https://github.com/systemmgr/kvm" "$TMP/kvm_setup" && cp -Rf "$TMP/kvm_setup/etc/." "/etc/kvm/"
+      git clone -q "https://github.com/systemmgr/kvm" "$TMP/kvm_setup" && rsync -aq "$TMP/kvm_setup/etc/." "/etc/kvm/" --delete
       rm -Rf "$TMP/kvm_setup"
       __vm_bridge
       echo "Installed on $(date)" >"/etc/kvm/.installed"
@@ -664,7 +671,7 @@ __init() {
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __vm_bridge() {
-  __is_installed || return
+  __is_libvirt_installed || return
   local bridgeName="default"
   local bridgeFile="/tmp/$bridgeName.xml"
   local is_kvm_installed="${is_kvm_installed:-yes}"

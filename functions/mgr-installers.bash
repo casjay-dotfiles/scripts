@@ -2601,9 +2601,9 @@ run_install_init() {
       exit 5
     }
     if [ -d "$INSTDIR" ]; then
-      printf_green "Updating ${1:-$APPNAME} in ${APPDIR/$HOME/\~}"
+      printf_green "Updating ${1:-$APPNAME} in ${APPDIR//$HOME/\~}"
     else
-      printf_green "Installing ${1:-$APPNAME} to ${APPDIR/$HOME/\~}"
+      printf_green "Installing ${1:-$APPNAME} to ${APPDIR//$HOME/\~}"
     fi
     if [ "$INSTDIR" = "$APPDIR" ]; then
       printf_cyan "$ICON_INFO Note: The INSTDIR and APPDIR are the same"

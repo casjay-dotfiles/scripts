@@ -76,6 +76,8 @@ export DOCKER_REGISTRY_ORG_USER="${DOCKER_REGISTRY_ORG_USER:-casjaysdevdocker}"
 # URL to container image - docker pull - [URL]
 export DOCKER_HUB_IMAGE_URL="$DOCKER_REGISTRY_URL/$DOCKER_REGISTRY_ORG_USER/$DOCKER_REGISTRY_ORG_REPO"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SET_CONTAINER_NAME="${DOCKER_REGISTRY_ORG_USER}-${DOCKER_REGISTRY_ORG_REPO}-${DOCKER_HUB_IMAGE_TAG}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Repository variables
 export REPO="${DOCKERMGRREPO:-https://github.com/$SCRIPTS_PREFIX}/$APPNAME"
 export APPVERSION="$(__appversion "$REPO/raw/$REPO_BRANCH/version.txt")"
@@ -83,8 +85,6 @@ export APPVERSION="$(__appversion "$REPO/raw/$REPO_BRANCH/version.txt")"
 # Defaults variables
 export INSTDIR="$HOME/.local/share/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME"
 export DOCKERMGR_CONFIG_DIR="${DOCKERMGR_CONFIG_DIR:-$HOME/.config/myscripts/$SCRIPTS_PREFIX}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-SET_CONTAINER_NAME="${DOCKER_REGISTRY_ORG_USER}=${DOCKER_REGISTRY_ORG_REPO}-${DOCKER_HUB_IMAGE_TAG}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set default docker home for containers - $SET_APPDIR/$CONTAINER_NAME [APPDIR]
 SET_APPDIR="/var/lib/srv/$USER/docker/$DOCKER_REGISTRY_ORG_USER/$DOCKER_REGISTRY_ORG_REPO"

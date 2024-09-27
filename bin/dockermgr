@@ -170,7 +170,7 @@ __container_exists() { docker ps -a -q -f name=^$1$ | grep '^' || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __container_is_running() { __docker ps -a -q -f status=running -f name=^/$1$ | grep '^' || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__swap_status() { swapon -s 2>&1 | grep -q "$1" && echo 'enabled' || false; }
+__swap_status() { swapon -s 2>&1 | grep -v 'Filename.*   Type' | grep -q "$1" && echo 'enabled' || false; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __grep_is_dotted() { grep -q '[a-zA-Z0-9]\.[a-zA-Z0-9][a-zA-Z0-9]' || return 1; }
 __container_name() { docker ps -a 2>&1 | grep -v '   NAMES$' | grep -Ew ''$1'|'$1'-*' | awk '{print $NF}' | grep '^' || return 1; }
@@ -1184,13 +1184,13 @@ __install_front() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_swap() {
   local swapSize="${1:-2}"
-  local swapName="swapFile.swap"
+  local swapName="dockermgr.swap"
   local swapDir="/var/lib/cache/swap"
   local setSwapSize=$((swapSize * 1024))
   local swapLocation="$swapDir/$swapName"
+  [ -f "$swapLocation" ] && return 0
   printf_blue "Creating swap file and setting size to ${swapSize}G"
   [ -d "$swapDir" ] || sudo mkdir -p "$swapDir"
-  [ -f "$swapLocation" ] && sudo swapoff "$swapLocation" &>/dev/null
   sudo dd if=/dev/zero bs=1M count=$setSwapSize of="$swapLocation" &>/dev/null
   sudo chmod 600 "$swapLocation" &>/dev/null && sudo mkswap "$swapLocation" &>/dev/null && sudo swapon "$swapLocation" &>/dev/null
   grep -qsw "$swapLocation" "/etc/fstab" || echo "$swapLocation    swap    swap    defaults    0    0" | sudo tee -p -a "/etc/fstab" &>/dev/null
@@ -1204,6 +1204,7 @@ __create_swap() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __kasm_bin() {
+  local port=$1
   sudo -HE /tmp/kasm_release/install.sh \
     --accept-eula \
     --no-check-disk \
@@ -1214,13 +1215,14 @@ __kasm_bin() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __install_kasm() {
   local port="" url="" file=""
+  local version="${DOCKERMGR_KASM_VERSION:-1.16.0.f2d6e1}"
   if [ -f "$DOCKERMGR_CONFIG_DIR/kasm_port" ]; then
     port="$(<"$DOCKERMGR_CONFIG_DIR/kasm_port")"
   else
     port="$(__generate_random_port || echo '19042')"
   fi
   url="https://kasm-static-content.s3.amazonaws.com"
-  file="kasm_release_1.12.0.d4fd8a.tar.gz"
+  file="kasm_release_${version}.tar.gz"
   printf_green "Downloading kasm installation file"
   cd "/tmp" || printf_exit "Failed to cd into /tmp"
   [ -d "/tmp/kasm_release" ] && rm -Rf "/tmp/kasm_release"
@@ -1230,7 +1232,7 @@ __install_kasm() {
     cd "/tmp/kasm_release" || printf_exit "Failed to cd into /tmp/kasm_release"
     printf_green "Please wait while I install kasm which may take some time"
     sudo chmod 755 "/tmp/kasm_release/install.sh"
-    if __kasm_bin; then
+    if __kasm_bin $port; then
       printf_green "kasm has been installed and should be running on https://${CURRENT_IP_4:-$HOSTNAME}:${port}"
       echo $port >"$DOCKERMGR_CONFIG_DIR/kasm_port"
     else

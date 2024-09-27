@@ -205,7 +205,7 @@ __generate_random_port() {
   __number() { [[ $number -lt 65000 ]] && echo "$number" || number="$(__run)"; }
   number="$(__run)"
   while :; do
-    if sudo netstat -taupln | grep -q ":$number "; then
+    if sudo netstat -taupln | awk '{print $4}' | grep -q "[0-9]:$number "; then
       number="$(__run)"
       exitCode=1
     else

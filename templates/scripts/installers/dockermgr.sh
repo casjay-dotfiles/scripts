@@ -90,7 +90,7 @@ export DOCKERMGR_CONFIG_DIR="${DOCKERMGR_CONFIG_DIR:-$HOME/.config/myscripts/$SC
 SET_APPDIR="/var/lib/srv/$USER/docker/$DOCKER_REGISTRY_ORG_USER/$DOCKER_REGISTRY_ORG_REPO"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the base data directory - mounted files live in $SET_DATADIR/$CONTAINER_NAME/rootfs [DATADIR]
-SET_DATADIR="/var/lib/srv/$USER/docker/$DOCKER_REGISTRY_ORG_USER/$DOCKER_REGISTRY_ORG_REPO/"
+SET_DATADIR="/var/lib/srv/$USER/docker/$DOCKER_REGISTRY_ORG_USER/$DOCKER_REGISTRY_ORG_REPO"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Call the main function
 dockermgr_install
@@ -2387,7 +2387,7 @@ elif [ -f "$INSTDIR/docker-compose.yml" ] && [ -n "$(type -P docker-compose)" ];
   fi
 fi
 if [ -x "$DOCKERMGR_INSTALL_SCRIPT" ]; then
-  printf_cyan "Reinstalling container: $CONTAINER_NAME"
+  printf_cyan "76: $CONTAINER_NAME"
   eval "$DOCKERMGR_INSTALL_SCRIPT" 2>"${TMP:-/tmp}/$APPNAME.err.log" >/dev/null
   __container_is_running && exitCode=0 || exitCode=1
   if [ $exitCode = 0 ]; then

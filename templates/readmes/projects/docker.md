@@ -19,7 +19,7 @@ dockermgr update REPLACE_APPNAME
 ## Install and run container
   
 ```shell
-dockerHome="/var/lib/srv/$USER/docker/REPLACE_REGISTRY_USER/REPLACE_PROJECT_NAME/REPLACE_REGISTRY_USER-REPLACE_PROJECT_NAME-latest/rootfs"
+dockerHome="/var/lib/srv/$USER/docker/REPLACE_REGISTRY_USER/REPLACE_PROJECT_NAME/REPLACE_PROJECT_NAME/latest/rootfs"
 mkdir -p "/var/lib/srv/$USER/docker/REPLACE_APPNAME/rootfs"
 git clone "https://github.com/dockermgr/REPLACE_APPNAME" "$HOME/.local/share/CasjaysDev/dockermgr/REPLACE_APPNAME"
 cp -Rfva "$HOME/.local/share/CasjaysDev/dockermgr/REPLACE_APPNAME/rootfs/." "$dockerHome/"
@@ -47,8 +47,8 @@ services:
       - TZ=America/New_York
       - HOSTNAME=REPLACE_PROJECT_NAME
     volumes:
-      - "/var/lib/srv/$USER/docker/REPLACE_REGISTRY_USER/REPLACE_PROJECT_NAME/REPLACE_REGISTRY_USER-REPLACE_PROJECT_NAME-latest/rootfs/data:/data:z"
-      - "/var/lib/srv/$USER/docker/REPLACE_REGISTRY_USER/REPLACE_PROJECT_NAME/REPLACE_REGISTRY_USER-REPLACE_PROJECT_NAME-latest/rootfs/config:/config:z"
+      - "/var/lib/srv/$USER/docker/REPLACE_REGISTRY_USER/REPLACE_PROJECT_NAME/REPLACE_PROJECT_NAME/latest/rootfs/data:/data:z"
+      - "/var/lib/srv/$USER/docker/REPLACE_REGISTRY_USER/REPLACE_PROJECT_NAME/REPLACE_PROJECT_NAME/latest/rootfs/config:/config:z"
     ports:
       - 80:80
     restart: always

@@ -2207,7 +2207,7 @@ dockermgr_install() {
   #[ -f "$(builtin type -P docker 2>/dev/null)" ] || printf_exit 1 1 "This requires docker, however, docker wasn't found"
   SCRIPTS_PREFIX="dockermgr"
   [ -n "$_DEBUG" ] && set -x && echo "$SCRIPTS_PREFIX"
-  APPNAME="${APPNAME:-$SCRIPTS_PREFIX}"
+  APPNAME="${APPNAME:-}"
   REPO_BRANCH="${GIT_REPO_BRANCH:-main}"
   REPO="${REPO:-$DOCKERMGRREPO/$APPNAME}"
   REPORAW="${REPORAW:-$REPO/raw/$GIT_REPO_BRANCH}"

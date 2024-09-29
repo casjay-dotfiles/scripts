@@ -70,7 +70,7 @@ export DOCKER_HUB_IMAGE_TAG="latest"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # docker registry settings
 export DOCKER_REGISTRY_URL="docker.io"
-export DOCKER_REGISTRY_REPO_NAME="$APPNAME"
+export DOCKER_REGISTRY_REPO_NAME="GEN_SCRIPT_REPLACE_APPNAME"
 export DOCKER_REGISTRY_USER_NAME="casjaysdevdocker"
 export DOCKER_REGISTRY_IMAGE_TAG="$DOCKER_HUB_IMAGE_TAG"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

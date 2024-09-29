@@ -2227,7 +2227,7 @@ dockermgr_install() {
   fi
   SCRIPTS_PREFIX="dockermgr"
   [ -n "$_DEBUG" ] && set -x && echo "$SCRIPTS_PREFIX"
-  APPNAME="${APPNAME:-$SCRIPTS_PREFIX}"
+  APPNAME="${APPNAME:-}"
   REPO_BRANCH="${GIT_REPO_BRANCH:-main}"
   REPO="${REPO:-$DOCKERMGRREPO/$APPNAME}"
   REPORAW="${REPORAW:-$REPO/raw/$GIT_REPO_BRANCH}"
@@ -2242,7 +2242,6 @@ dockermgr_install() {
   SYSUPDATEDIR="$SYSSHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"
   ARRAY="${ARRAY:-}"
   LIST="${LIST:-}"
-  printf '%s\n' "repo\t\t$REPO"
   [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && APPDIR="${APPDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
   [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && INSTDIR="${INSTDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
   if [ -f "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME" ]; then

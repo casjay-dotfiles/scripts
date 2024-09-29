@@ -2,7 +2,7 @@
 dockermgr_install() {
   user_install
   SCRIPTS_PREFIX="dockermgr"
-  APPNAME="${APPNAME:-$SCRIPTS_PREFIX}"
+  APPNAME="${APPNAME:-}"
   REPO_BRANCH="${GIT_REPO_BRANCH:-main}"
   REPO="${REPO:-$DOCKERMGRREPO/$APPNAME}"
   INSTDIR="${SET_INSTDIR-${INSTDIR:-$HOME/.local/share/CasjaysDev/dockermgr/$APPNAME}}"

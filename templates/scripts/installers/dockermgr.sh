@@ -69,14 +69,15 @@ scripts_check
 export DOCKER_HUB_IMAGE_TAG="latest"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # docker registry settings
-export DOCKER_REGISTRY_URL="${DOCKER_REGISTRY_URL:-docker.io}"
-export DOCKER_REGISTRY_ORG_REPO="${DOCKER_REGISTRY_ORG_REPO:-$APPNAME}"
-export DOCKER_REGISTRY_ORG_USER="${DOCKER_REGISTRY_ORG_USER:-casjaysdevdocker}"
+export DOCKER_REGISTRY_URL="docker.io"
+export DOCKER_REGISTRY_REPO_NAME="$APPNAME"
+export DOCKER_REGISTRY_USER_NAME="casjaysdevdocker"
+export DOCKER_REGISTRY_IMAGE_TAG="$DOCKER_HUB_IMAGE_TAG"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # URL to container image - docker pull - [URL]
-export DOCKER_HUB_IMAGE_URL="$DOCKER_REGISTRY_URL/$DOCKER_REGISTRY_ORG_USER/$DOCKER_REGISTRY_ORG_REPO"
+export DOCKER_HUB_IMAGE_URL="$DOCKER_REGISTRY_URL/$DOCKER_REGISTRY_USER_NAME/$DOCKER_REGISTRY_REPO_NAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-SET_CONTAINER_NAME="${DOCKER_REGISTRY_ORG_USER}-${DOCKER_REGISTRY_ORG_REPO}-${DOCKER_HUB_IMAGE_TAG}"
+SET_CONTAINER_NAME="${DOCKER_REGISTRY_USER_NAME}-${DOCKER_REGISTRY_REPO_NAME}-${DOCKER_HUB_IMAGE_TAG}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Repository variables
 export REPO="${DOCKERMGRREPO:-https://github.com/$SCRIPTS_PREFIX}/$APPNAME"
@@ -88,10 +89,10 @@ export DOCKERMGR_CONFIG_DIR="$HOME/.config/myscripts/$SCRIPTS_PREFIX"
 SET_INSTDIR="$HOME/.local/share/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set default docker home for containers - $SET_APPDIR/$CONTAINER_NAME [APPDIR]
-SET_APPDIR="/var/lib/srv/$USER/docker/$DOCKER_REGISTRY_ORG_USER/$DOCKER_REGISTRY_ORG_REPO/$DOCKER_HUB_IMAGE_TAG"
+SET_APPDIR="/var/lib/srv/$USER/docker/$DOCKER_REGISTRY_USER_NAME/$DOCKER_REGISTRY_REPO_NAME/$DOCKER_HUB_IMAGE_TAG"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the base data directory - mounted files live in $SET_DATADIR/$CONTAINER_NAME/rootfs [DATADIR]
-SET_DATADIR="/var/lib/srv/$USER/docker/$DOCKER_REGISTRY_ORG_USER/$DOCKER_REGISTRY_ORG_REPO/$DOCKER_HUB_IMAGE_TAG"
+SET_DATADIR="/var/lib/srv/$USER/docker/$DOCKER_REGISTRY_USER_NAME/$DOCKER_REGISTRY_REPO_NAME/$DOCKER_HUB_IMAGE_TAG"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Call the main function
 dockermgr_install
@@ -131,7 +132,7 @@ __docker_ps_all() { docker ps -a 2>&1 | grep -i ${1:-} "$CONTAINER_NAME" && retu
 __password() { head -n1000 -c 10000 "/dev/urandom" | tr -dc '0-9a-zA-Z' | head -c${1:-16} && echo ""; }
 __total_memory() { mem="$(free | grep -i 'mem: ' | awk -F ' ' '{print $2}')" && echo $((mem / 1000)); }
 __docker_is_running() { ps aux 2>/dev/null | grep 'dockerd' | grep -v ' grep ' | grep -q '^' || return 1; }
-__container_name() { echo "$DOCKER_REGISTRY_ORG_USER-$DOCKER_REGISTRY_ORG_REPO-$DOCKER_HUB_IMAGE_TAG" | sed 's|/|-|g' | grep '^' || return 1; }
+__container_name() { echo "$DOCKER_REGISTRY_USER_NAME-$DOCKER_REGISTRY_REPO_NAME-$DOCKER_HUB_IMAGE_TAG" | sed 's|/|-|g' | grep '^' || return 1; }
 __is_server() { echo "${SET_HOST_FULL_NAME:-$HOSTNAME}" | grep -q '^server\..*\..*[a-zA-Z0-9][a-zA-Z0-9]$' || return 1; }
 __host_name() { hostname -f 2>/dev/null | grep -F '.' | grep '^' || hostname -f 2>/dev/null | grep '^' || echo "$HOSTNAME"; }
 __container_is_running() { docker ps 2>&1 | grep -i "$CONTAINER_NAME" | grep -qi 'ago.* Up.* [0-9].* ' && return 0 || return 1; }
@@ -342,7 +343,7 @@ HOST_SYS_MOUNT_ENABLED="no"
 HOST_PROC_MOUNT_ENABLED="no"
 HOST_MODULES_MOUNT_ENABLED="no"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Set Container name - Default $DOCKER_REGISTRY_ORG_USER=$APPNAME-$DOCKER_HUB_IMAGE_TAG
+# Set Container name - Default $DOCKER_REGISTRY_USER_NAME=$APPNAME-$DOCKER_HUB_IMAGE_TAG
 CONTAINER_NAME=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set container hostname and domain - Default: [$APPNAME.$SET_HOST_FULL_NAME] [$SET_HOST_FULL_DOMAIN] or [hostname]
@@ -810,8 +811,8 @@ ROOTFS_DIR="$ROOTFS_DIR"
 DOCKERMGR_CONFIG_DIR="$DOCKERMGR_CONFIG_DIR"
 CONTAINER_NAME="$CONTAINER_NAME"
 DOCKER_NAME="$CONTAINER_NAME"
-DOCKER_REGISTRY_ORG_USER="$DOCKER_REGISTRY_ORG_USER"
-DOCKER_REGISTRY_ORG_REPO="$DOCKER_REGISTRY_ORG_REPO"
+DOCKER_REGISTRY_USER_NAME="$DOCKER_REGISTRY_USER_NAME"
+DOCKER_REGISTRY_REPO_NAME="$DOCKER_REGISTRY_REPO_NAME"
 DOCKER_REGISTRY_URL="$DOCKER_REGISTRY_URL"
 ADD_REMOVE_FILES="$DOCKERMGR_CONFIG_DIR/*/$CONTAINER_NAME*"
 NGINX_FILES="$(__trim "$NGINX_FILES")"

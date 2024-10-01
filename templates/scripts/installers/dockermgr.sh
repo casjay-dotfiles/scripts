@@ -28,14 +28,14 @@
 # shellcheck disable=SC2199
 # shellcheck disable=SC2317
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
-VERSION="GEN_SCRIPT_REPLACE_VERSION"
-REPO_BRANCH="${GIT_REPO_BRANCH:-main}"
-USER="${SUDO_USER:-$USER}"
-RUN_USER="${RUN_USER:-$USER}"
-USER_HOME="${USER_HOME:-$HOME}"
-SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
-SCRIPTS_PREFIX="dockermgr"
+export APPNAME="GEN_SCRIPT_REPLACE_APPNAME"
+export VERSION="GEN_SCRIPT_REPLACE_VERSION"
+export REPO_BRANCH="${GIT_REPO_BRANCH:-main}"
+export USER="${SUDO_USER:-$USER}"
+export RUN_USER="${RUN_USER:-$USER}"
+export USER_HOME="${USER_HOME:-$HOME}"
+export SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+export SCRIPTS_PREFIX="dockermgr"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
 trap 'retVal=$?;trap_exit' ERR EXIT SIGINT
@@ -924,8 +924,6 @@ export HOST_DATA_DIR="$HOST_ROOTFS_DIR/data"
 export HOST_CONFIG_DIR="$HOST_ROOTFS_DIR/config"
 export LOCAL_DATA_DIR="${LOCAL_DATA_DIR:-$HOST_DATA_DIR}"
 export LOCAL_CONFIG_DIR="${LOCAL_CONFIG_DIR:-$HOST_CONFIG_DIR}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-export DATADIR APPDIR INSTDIR
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # import variables from a file
 [ -f "$INSTDIR/env.sh" ] && . "$INSTDIR/env.sh"

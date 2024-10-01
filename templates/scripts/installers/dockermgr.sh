@@ -2515,7 +2515,7 @@ elif [ -f "$INSTDIR/docker-compose.yml" ] && [ -n "$(type -P docker-compose)" ];
   fi
 fi
 if [ -x "$DOCKERMGR_INSTALL_SCRIPT" ]; then
-  printf_cyan "76: $CONTAINER_NAME"
+  printf_cyan "Executing: $DOCKERMGR_INSTALL_SCRIPT"
   eval "$DOCKERMGR_INSTALL_SCRIPT" 2>"${TMP:-/tmp}/$APPNAME.err.log" >/dev/null
   __container_is_running && exitCode=0 || exitCode=1
   if [ $exitCode = 0 ]; then

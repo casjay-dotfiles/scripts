@@ -66,25 +66,25 @@ fi
 scripts_check
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # image tag - [docker pull DOCKER_HUB_IMAGE_URL:tag]
-export DOCKER_HUB_IMAGE_TAG="latest"
+DOCKER_HUB_IMAGE_TAG="latest"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # docker registry settings
-export DOCKER_REGISTRY_URL="docker.io"
-export DOCKER_REGISTRY_REPO_NAME="GEN_SCRIPT_REPLACE_APPNAME"
-export DOCKER_REGISTRY_USER_NAME="casjaysdevdocker"
-export DOCKER_REGISTRY_IMAGE_TAG="$DOCKER_HUB_IMAGE_TAG"
+DOCKER_REGISTRY_URL="docker.io"
+DOCKER_REGISTRY_REPO_NAME="GEN_SCRIPT_REPLACE_APPNAME"
+DOCKER_REGISTRY_USER_NAME="casjaysdevdocker"
+DOCKER_REGISTRY_IMAGE_TAG="$DOCKER_HUB_IMAGE_TAG"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # URL to container image - docker pull - [URL]
-export DOCKER_HUB_IMAGE_URL="$DOCKER_REGISTRY_URL/$DOCKER_REGISTRY_USER_NAME/$DOCKER_REGISTRY_REPO_NAME"
+DOCKER_HUB_IMAGE_URL="$DOCKER_REGISTRY_URL/$DOCKER_REGISTRY_USER_NAME/$DOCKER_REGISTRY_REPO_NAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_CONTAINER_NAME="${DOCKER_REGISTRY_USER_NAME}-${DOCKER_REGISTRY_REPO_NAME}-${DOCKER_HUB_IMAGE_TAG}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Repository variables
-export REPO="${DOCKERMGRREPO:-https://github.com/$SCRIPTS_PREFIX}/$APPNAME"
-export APPVERSION="$(__appversion "$REPO/raw/$REPO_BRANCH/version.txt")"
+REPO="${DOCKERMGRREPO:-https://github.com/$SCRIPTS_PREFIX}/$APPNAME"
+APPVERSION="$(__appversion "$REPO/raw/$REPO_BRANCH/version.txt")"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Defaults variables
-export DOCKERMGR_CONFIG_DIR="$HOME/.config/myscripts/$SCRIPTS_PREFIX"
+DOCKERMGR_CONFIG_DIR="$HOME/.config/myscripts/$SCRIPTS_PREFIX"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 SET_INSTDIR="$HOME/.local/share/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

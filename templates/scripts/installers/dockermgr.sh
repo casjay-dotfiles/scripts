@@ -163,6 +163,8 @@ __docker_init() { [ -n "$(type -p dockermgr 2>/dev/null)" ] && dockermgr init ||
 __netstat() { netstat -taupln 2>/dev/null | grep -vE 'WAIT|ESTABLISHED|docker-pro' | awk -F ' ' '{print $4}' | sed 's|.*:||g' | grep -E '[0-9]' | sort -Vu | grep "^${1:-.*}$" || return 1; }
 __retrieve_custom_env() { [ -f "$DOCKERMGR_CONFIG_DIR/env/$CONTAINER_NAME.${1:-custom}.conf" ] && cat "$DOCKERMGR_CONFIG_DIR/env/$CONTAINER_NAME.${1:-custom}.conf" | grep -Ev '^$|^#' | grep '=' | grep '^' || __custom_docker_env | grep -Ev '^$|^#' | grep '=' | grep '^' || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_proxy_url() { echo "${1//\/*{/}" | grep -q '[0-9]:.*:[0-9]' && echo "${1%:*}" || echo "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __ping_host() { ping -c1 -i1 -w1 "${1:-$CONTAINER_HOSTNAME}" >/dev/null 2>&1 || return 1; }
 __domain_name() { hostname -d 2>/dev/null | grep -vF '(none)' | grep -F '.' | grep '^' || hostname -f 2>/dev/null | sed 's/^[^.:]*[.:]//' | __grep_char || return 1; }
 __get_records() { __cmd_exists dig && dig $SET_LONG_HOSTNAME 2>&1 | grep -E 'A|AAAA|CNAME' | grep -E '[0-9]\.|[0-9]:' | awk '{print $NF}' | head -n1 | grep '^' || return 1; }
@@ -1635,7 +1637,7 @@ HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR//:*/}"
 NGINX_VHOSTS_CONF_FILE_TMP="/tmp/$$.$APPNAME.conf"
 NGINX_VHOSTS_INC_FILE_TMP="/tmp/$$.$APPNAME.inc.conf"
 NGINX_VHOSTS_PROXY_FILE_TMP="/tmp/$$.$APPNAME.custom.conf"
-NGINX_TMP_FILES="$(__trim "$NGINX_VHOSTS_CONF_FILE_TMP" "$NGINX_VHOSTS_INC_FILE_TMP" "$NGINX_VHOSTS_PROXY_FILE_TMP" )"
+NGINX_TMP_FILES="$(__trim "$NGINX_VHOSTS_CONF_FILE_TMP" "$NGINX_VHOSTS_INC_FILE_TMP" "$NGINX_VHOSTS_PROXY_FILE_TMP")"
 NINGX_WRITABLE="$(sudo -n true && sudo bash -c '[ -w "/etc/nginx" ] && echo "true" || false' || echo 'false')"
 if [ "$HOST_NGINX_ENABLED" = "yes" ] && [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ]; then
   if [ -f "/etc/nginx/nginx.conf" ] && [ "$NINGX_WRITABLE" = "true" ]; then
@@ -1675,7 +1677,7 @@ if [ "$HOST_NGINX_ENABLED" = "yes" ] && [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes
     HOST_NGINX_UPDATE_CONF="yes"
   fi
 else
-  for nginx_tmp in $NGINX_TMP_FILES;do
+  for nginx_tmp in $NGINX_TMP_FILES; do
     [ -f "$nginx_tmp" ] && rm -Rf "$nginx_tmp"
   done
 fi
@@ -1773,7 +1775,7 @@ if [ "$CONTAINER_IS_TIME_SERVER" = "yes" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -n "$CONTAINER_ADD_CUSTOM_SINGLE" ]; then
-  if echo "$CONTAINER_ADD_CUSTOM_SINGLE" | grep -q ":random:"; then 
+  if echo "$CONTAINER_ADD_CUSTOM_SINGLE" | grep -q ":random:"; then
     CONTAINER_ADD_CUSTOM_SINGLE="${CONTAINER_ADD_CUSTOM_SINGLE//:random:/:$(__rport):}"
   fi
   DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_ADD_CUSTOM_SINGLE")
@@ -2674,8 +2676,8 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
   fi
   [ -f "$NGINX_MAIN_CONFIG" ] && NGINX_PROXY_URL="$CONTAINER_WEB_SERVER_PROTOCOL://$CONTAINER_HOSTNAME"
 fi
-if  [ "$NGINX_VHOST_NAMES" = "" ] || [ "$NGINX_VHOST_NAMES" = " " ]; then  
-  unset NGINX_VHOST_NAMES 
+if [ "$NGINX_VHOST_NAMES" = "" ] || [ "$NGINX_VHOST_NAMES" = " " ]; then
+  unset NGINX_VHOST_NAMES
 else
   NGINX_VHOST_NAMES="${NGINX_VHOST_NAMES//,/ }"
 fi
@@ -2821,8 +2823,8 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
   if [ "$NGINX_IS_INSTALLED" = "yes" ]; then
     __printf_spacing_color "6" "nginx vhost name:" "$CONTAINER_HOSTNAME"
     __printf_spacing_color "6" "nginx website:" "$NGINX_PROXY_URL"
-    if [ -n "$CONTAINER_NGINX_PROXY_URL" ]; then 
-      __printf_spacing_color "6" "nginx reverse proxy" "$CONTAINER_NGINX_PROXY_URL" 
+    if [ -n "$CONTAINER_NGINX_PROXY_URL" ]; then
+      __printf_spacing_color "6" "nginx reverse proxy" "$CONTAINER_NGINX_PROXY_URL"
     fi
     if [ -f "$NGINX_CONF_FILE" ]; then
       __printf_spacing_color "6" "nginx config file installed to:" "$NGINX_CONF_FILE"

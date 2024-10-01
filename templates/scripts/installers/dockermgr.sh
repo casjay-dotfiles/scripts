@@ -2856,10 +2856,6 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
     fi
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
-  if [ -n "$CONTAINER_ADD_CUSTOM_SINGLE" ]; then
-    __printf_spacing_color "6" "Custom port mapping:" "$CONTAINER_ADD_CUSTOM_SINGLE"
-    printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
-  fi
   if [ -n "$CONTAINER_USER_ADMIN_HASH_PASS" ]; then
     show_user_footer="true"
     __printf_spacing_color "6" "raw password is:" "$CONTAINER_USER_ADMIN_PASS_RAW"
@@ -2936,7 +2932,11 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
   if [ -z "$SET_PORT" ]; then
-    __printf_spacing_color "3" "This container does not have services configured"
+    if [ -n "$CONTAINER_ADD_CUSTOM_SINGLE" ]; then
+      __printf_spacing_color "6" "Custom port mapping:" "$CONTAINER_ADD_CUSTOM_SINGLE"
+    else
+      intf_spacing_color "3" "This container does not have services configured"
+    fi
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   else
     for create_service in $SET_PORT; do

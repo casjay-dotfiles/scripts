@@ -2655,10 +2655,14 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
   fi
   [ -f "$NGINX_MAIN_CONFIG" ] && NGINX_PROXY_URL="$CONTAINER_WEB_SERVER_PROTOCOL://$CONTAINER_HOSTNAME"
 fi
+if  [ "$NGINX_VHOST_NAMES" = "" ] || [ "$NGINX_VHOST_NAMES" = " " ]; then  
+  unset NGINX_VHOST_NAMES 
+else
+  NGINX_VHOST_NAMES="${NGINX_VHOST_NAMES//,/ }"
+fi
 HOST_NGINX_PROXY_URL="${HOST_NGINX_PROXY_URL:-${NGNIX_REVERSE_ADDRESS:-$NGINX_PROXY_URL}}"
 NGNIX_REVERSE_ADDRESS="${CONTAINER_NGINX_PROXY_URL:-${NGNIX_REVERSE_ADDRESS:-$NGINX_PROXY_URL}}"
 CONTAINER_NGINX_PROXY_URL="${CONTAINER_NGINX_PROXY_URL:-$NGNIX_REVERSE_ADDRESS}"
-{ [ "$NGINX_VHOST_NAMES" = "" ] || [ "$NGINX_VHOST_NAMES" = " " ]; } && unset NGINX_VHOST_NAMES
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup an internal host
 CONTAINER_SERVER_TEST_URL="${CONTAINER_SERVER_TEST_URL:-$NGNIX_REVERSE_ADDRESS}"
@@ -2712,6 +2716,8 @@ EOF
   NGINX_VHOST_NAMES="$NGINX_VHOST_NAMES $HOST_NGINX_INTERNAL_DOMAIN"
   [ -f "$NGINX_DIR/vhosts.d/$HOST_NGINX_INTERNAL_DOMAIN.conf" ] && NGINX_INTERNAL_IS_SET="$NGINX_DIR/vhosts.d/$HOST_NGINX_INTERNAL_DOMAIN.conf"
 fi
+CONTAINER_WEB_SERVER_VHOSTS="${CONTAINER_WEB_SERVER_VHOSTS:-$NGINX_VHOST_NAMES}"
+CONTAINER_WEB_SERVER_VHOSTS="${CONTAINER_WEB_SERVER_VHOSTS//,/ }"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # finalize
 __setup_cron
@@ -2721,9 +2727,8 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
   HOSTS_WRITABLE="$(sudo -n true && sudo bash -c '[ -w "/etc/hosts" ] && echo "true" || false' || echo 'false')"
   printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   if [ "$HOSTS_WRITABLE" = "true" ]; then
-    if [ -n "$NGINX_VHOST_NAMES" ]; then
-      NGINX_VHOST_NAMES="${NGINX_VHOST_NAMES//,/ }"
-      for vhost in $NGINX_VHOST_NAMES; do
+    if [ -n "$CONTAINER_WEB_SERVER_VHOSTS" ] && [ "$CONTAINER_WEB_SERVER_VHOSTS" != " " ]; then
+      for vhost in $CONTAINER_WEB_SERVER_VHOSTS; do
         if ! grep -shhq " $vhost$" "/etc/hosts"; then
           if echo "$vhost" | grep -qFv '*'; then
             __printf_spacing_color "40" "Adding to /etc/hosts:" "$vhost $CONTAINER_WEB_SERVER_LISTEN_ON"

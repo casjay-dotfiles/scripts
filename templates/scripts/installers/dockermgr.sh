@@ -336,7 +336,7 @@ HOST_ETC_RESOLVE_INIT_FILE=""
 HOST_ETC_HOSTS_ENABLED="no"
 HOST_ETC_HOSTS_INIT_FILE=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Mount docker socket - [yes/no] [/var/run/docker.sock] [yes/no]
+# Mount docker socket - [yes/no] [yes/no] [/var/run/docker.sock] [/var/run/docker.sock]
 DOCKER_SOCKET_ENABLED="no"
 DOCKER_SOCKER_READONLY="yes"
 HOST_DOCKER_SOCKET_MOUNT=""

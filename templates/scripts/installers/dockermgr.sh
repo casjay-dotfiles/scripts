@@ -1771,6 +1771,9 @@ if [ "$CONTAINER_IS_TIME_SERVER" = "yes" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -n "$CONTAINER_ADD_CUSTOM_SINGLE" ]; then
+  if echo "$CONTAINER_ADD_CUSTOM_SINGLE" | grep -q ":random:"; then 
+    CONTAINER_ADD_CUSTOM_SINGLE="${CONTAINER_ADD_CUSTOM_SINGLE//:random:/:$(__rport):}"
+  fi
   DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_ADD_CUSTOM_SINGLE")
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -2138,10 +2141,6 @@ if [ -n "$CONTAINER_LABELS" ]; then
     fi
   done
   unset label
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ -n "$CONTAINER_ADD_CUSTOM_SINGLE" ]; then
-  CONTAINER_ADD_CUSTOM_SINGLE="${CONTAINER_ADD_CUSTOM_SINGLE//:random:/:(__rport):}"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup custom port mappings

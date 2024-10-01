@@ -1630,8 +1630,9 @@ HOST_LISTEN_ADDR="${HOST_LISTEN_ADDR//:*/}"
 NGINX_VHOSTS_CONF_FILE_TMP="/tmp/$$.$APPNAME.conf"
 NGINX_VHOSTS_INC_FILE_TMP="/tmp/$$.$APPNAME.inc.conf"
 NGINX_VHOSTS_PROXY_FILE_TMP="/tmp/$$.$APPNAME.custom.conf"
+NGINX_TMP_FILES="$(__trim "$NGINX_VHOSTS_CONF_FILE_TMP" "$NGINX_VHOSTS_INC_FILE_TMP" "$NGINX_VHOSTS_PROXY_FILE_TMP" )"
 NINGX_WRITABLE="$(sudo -n true && sudo bash -c '[ -w "/etc/nginx" ] && echo "true" || false' || echo 'false')"
-if [ "$HOST_NGINX_ENABLED" = "yes" ]; then
+if [ "$HOST_NGINX_ENABLED" = "yes" ] && [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ]; then
   if [ -f "/etc/nginx/nginx.conf" ] && [ "$NINGX_WRITABLE" = "true" ]; then
     NGINX_DIR="/etc/nginx"
   else
@@ -1668,7 +1669,12 @@ if [ "$HOST_NGINX_ENABLED" = "yes" ]; then
   if [ ! -f "$NGINX_MAIN_CONFIG" ]; then
     HOST_NGINX_UPDATE_CONF="yes"
   fi
+else
+  for nginx_tmp in $NGINX_TMP_FILES;do
+    [ -f "$nginx_tmp" ] && rm -Rf "$nginx_tmp"
+  done
 fi
+unset nginx_tmp
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup containers web server
 if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ]; then
@@ -2284,6 +2290,7 @@ EOF
       fi
     fi
   done
+  [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ] || rm -Rf "$NGINX_VHOSTS_PROXY_FILE_TMP"
   [ -n "$CONTAINER_PUBLISHED_PORT" ] && DOCKER_SET_TMP_PUBLISH=("${CONTAINER_PUBLISHED_PORT//--publish,/}")
   CONTAINER_PUBLISHED_PORT="${DOCKER_SET_TMP_PUBLISH[*]}"
   CONTAINER_PUBLISHED_PORT="${CONTAINER_PUBLISHED_PORT// /,}"

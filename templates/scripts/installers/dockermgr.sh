@@ -2657,6 +2657,7 @@ if [ "$NINGX_VHOSTS_WRITABLE" = "true" ]; then
 fi
 HOST_NGINX_PROXY_URL="${HOST_NGINX_PROXY_URL:-${NGNIX_REVERSE_ADDRESS:-$NGINX_PROXY_URL}}"
 NGNIX_REVERSE_ADDRESS="${CONTAINER_NGINX_PROXY_URL:-${NGNIX_REVERSE_ADDRESS:-$NGINX_PROXY_URL}}"
+CONTAINER_NGINX_PROXY_URL="${CONTAINER_NGINX_PROXY_URL:-$NGNIX_REVERSE_ADDRESS}"
 { [ "$NGINX_VHOST_NAMES" = "" ] || [ "$NGINX_VHOST_NAMES" = " " ]; } && unset NGINX_VHOST_NAMES
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup an internal host
@@ -2796,6 +2797,9 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
   if [ "$NGINX_IS_INSTALLED" = "yes" ]; then
     __printf_spacing_color "6" "nginx vhost name:" "$CONTAINER_HOSTNAME"
     __printf_spacing_color "6" "nginx website:" "$NGINX_PROXY_URL"
+    if [ -n "$CONTAINER_NGINX_PROXY_URL" ]; then 
+      __printf_spacing_color "6" "nginx reverse proxy" "$CONTAINER_NGINX_PROXY_URL" 
+    fi
     if [ -f "$NGINX_CONF_FILE" ]; then
       __printf_spacing_color "6" "nginx config file installed to:" "$NGINX_CONF_FILE"
     fi

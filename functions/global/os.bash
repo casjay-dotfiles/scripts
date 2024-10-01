@@ -90,9 +90,9 @@ __basedir() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#basename "file"
+#basename -- "file"
 __basename() {
-  basename "${1:-.}" 2>/dev/null
+  basename -- "${1:-.}" 2>/dev/null
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #foldername "dir"
@@ -100,11 +100,11 @@ __foldername() {
   local file=""
   [ -n "$1" ] && file="$(readlink -f "$1" 2>/dev/null)" || return
   if [ -d "$file" ]; then
-    local basename="$(basename "$file" 2>/dev/null)"
+    local basename="$(basename -- "$file" 2>/dev/null)"
   elif [ -e "$1" ]; then
     local basename="$(basename $(dirname "$file" 2>/dev/null))"
   fi
-  [ -n "$basename" ] && echo "$basename" || basename "$PWD"
+  [ -n "$basename" ] && echo "$basename" || basename -- "$PWD"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # dirname dir

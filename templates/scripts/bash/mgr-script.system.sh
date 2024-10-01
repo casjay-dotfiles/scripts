@@ -20,7 +20,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-APPNAME="$(basename "$0" 2>/dev/null)"
+APPNAME="$(basename -- "$0" 2>/dev/null)"
 VERSION="GEN_SCRIPT_REPLACE_VERSION"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
@@ -239,7 +239,7 @@ __run_install_version() {
     file="$(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM/$1" 2>/dev/null)"
     export file
     if [ -f "$file" ]; then
-      appname="$(__basename "$file")"
+      appname="$(__basename -- "$file")"
       eval "$file" "--version $appname"
       GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$?
     fi
@@ -255,7 +255,7 @@ __cron_updater() {
       file="$(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM/$upd" 2>/dev/null)"
       export file
       if [ -f "$file" ]; then
-        appname="$(__basename "$file")"
+        appname="$(__basename -- "$file")"
         eval "$file" "--cron $appname"
         GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$(($GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS + $?))
       fi
@@ -265,7 +265,7 @@ __cron_updater() {
       file="$(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM/$1" 2>/dev/null)"
       export file
       if [ -f "$file" ]; then
-        appname="$(__basename "$file")"
+        appname="$(__basename -- "$file")"
         bash -c "$file --cron $appname"
         GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$(($GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS + $?))
       fi
@@ -462,7 +462,7 @@ __sudo() {
   CMD="${1:-echo}" && shift 1
   CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
   SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
-  [ "$(basename "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  [ "$(basename -- "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
   if __sudoif; then
     export PATH="$PATH"
     $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false

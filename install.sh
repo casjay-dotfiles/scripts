@@ -180,7 +180,7 @@ run_postinst() {
   ln_sf "$APPDIR" "$SYSSHARE/CasjaysDev/$SCRIPTS_PREFIX/$APPNAME"
   ln_sf "$APPDIR" "$SYSSHARE/CasjaysDev/$SCRIPTS_PREFIX/installer"
   for f in $get_pam_files_to_edit; do
-    cp -Rf "$f" "/root/.local/backups/systemmgr/installer/pam/$(basename "$f").bak" && sed --follow-symlinks -i 's|dir=~/Maildir||g' "$f"
+    cp -Rf "$f" "/root/.local/backups/systemmgr/installer/pam/$(basename -- "$f").bak" && sed --follow-symlinks -i 's|dir=~/Maildir||g' "$f"
   done
   for user in root apache nginx www-user daemon nobody $USER; do
     if grep -qs "^$user" /etc/passwd; then

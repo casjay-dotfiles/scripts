@@ -20,7 +20,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-APPNAME="$(basename "$0" 2>/dev/null)"
+APPNAME="$(basename -- "$0" 2>/dev/null)"
 VERSION="202208111053-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
@@ -275,7 +275,7 @@ __sudo() {
   CMD="${1:-echo}" && shift 1
   CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
   SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
-  [ "$(basename "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  [ "$(basename -- "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
   if __sudoif; then
     export PATH="$PATH"
     $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
@@ -348,7 +348,7 @@ printf_file_info() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __delete_post() {
-  id="$(basename "$1")"
+  id="$(basename -- "$1")"
   response="$(__curl --max-time 3 -X DELETE "$IX_IO_SERVER_HOST/$id" 2>&1)"
   if [ -n "$response" ]; then
     if echo "$response" | grep -q "couldn't delete"; then
@@ -582,7 +582,7 @@ while :; do
     shift 2
     ;;
   -i)
-    ID="$(basename "$2")"
+    ID="$(basename -- "$2")"
     POST_TYPE="PUT"
     printf_cyan "Updating paste ID: $ID"
     IX_IO_SERVER_HOST="$IX_IO_SERVER_HOST/$ID"

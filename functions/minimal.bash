@@ -699,9 +699,9 @@ __basedir() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#basename "file"
+#basename -- "file"
 __basename() {
-  basename "${1:-.}" 2>/dev/null
+  basename -- "${1:-.}" 2>/dev/null
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # dirname dir

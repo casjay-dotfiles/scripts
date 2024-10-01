@@ -23,7 +23,7 @@ __get_pid_of() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __ps() {
-  local proc="$(__basename "$1")"
+  local proc="$(__basename -- "$1")"
   local prog="${APPNAME:-$PROG}"
   [ -n "$proc" ] || return 1
   ps -aux | grep -v 'grep ' | grep -E '\?' | grep -w "$proc" 2>/dev/null

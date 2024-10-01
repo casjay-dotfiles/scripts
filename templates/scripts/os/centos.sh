@@ -288,7 +288,7 @@ run_grub() {
   grub_cfg="$(find /boot/grub*/* -name 'grub*.cfg' | grep '^' || false)"
   grub_efi="$(find /boot/efi/EFI/* -name 'grub*.cfg' | grep '^' || false)"
   grub_bin="$(builtin type -P grub-mkconfig 2>/dev/null || builtin type -P grub2-mkconfig 2>/dev/null || false)"
-  grub_bin_name="$(basename "$grub_bin" 2>/dev/null)"
+  grub_bin_name="$(basename -- "$grub_bin" 2>/dev/null)"
   if [ -n "$grub_bin" ]; then
     rm_if_exists /boot/*rescue*
     if [ -n "$grub_cfg" ]; then

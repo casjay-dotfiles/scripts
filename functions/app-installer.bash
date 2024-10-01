@@ -2001,7 +2001,7 @@ __install_fonts() {
     [ -d "$fontdir/$APPNAME" ] && rm_rf "$fontdir/$APPNAME"
     find -L "$INSTDIR/fonts/" -mindepth 1 -maxdepth 1 -type f -name '*.*' -print0 |
       while IFS= read -r -d '' file; do
-        filename="$(basename "$file")"
+        filename="$(basename -- "$file")"
         ln_sf "$file" "$fontdir/$filename"
       done
     [ -f "$(builtin type -P fc-cache 2>/dev/null)" ] && fc-cache -f "$FONTDIR"
@@ -2016,7 +2016,7 @@ __install_icons() {
     if [ "$icons" != "0" ]; then
       find -L "$INSTDIR/icons/" -mindepth 1 -maxdepth 1 -type d -name '*.*' -print0 |
         while IFS= read -r -d '' file; do
-          filename="$(basename "$file")"
+          filename="$(basename -- "$file")"
           ln_sf "$file" "$icondir/$filename"
           find -L "$ICONDIR" -mindepth 1 -maxdepth 1 -type d | while read -r ICON; do
             if [ -f "$ICON/index.theme" ]; then
@@ -2078,7 +2078,7 @@ __install_wallpapers() {
   #     mkd "$wallpaperdir"
   #     find -L "$INSTDIR/images/" -mindepth 1 -maxdepth 1 -type d -name '*.*' -print0 |
   #       while IFS= read -r -d '' file; do
-  #         filename="$(basename "$file")"
+  #         filename="$(basename -- "$file")"
   #         cp_rf "$file" "$wallpaperdir/$filename"
   #       done
   #   fi
@@ -2668,42 +2668,42 @@ __install_man_pages() {
     [ -d "$MANDIR" ] || mkdir -p "$MANDIR"
     for man in "$INSTDIR/man"/*.1; do
       [ -n "$man" ] || break
-      name="$(basename "$man" 2>/dev/null)"
+      name="$(basename -- "$man" 2>/dev/null)"
       [ ! -f "$MANDIR/man1/$name" ] && [ -d "$MANDIR/man1" ] && [ -n "$name" ] && ln_sf "$man" "$MANDIR/man1/$name"
     done
     for man in "$INSTDIR/man"/*.2; do
       [ -n "$man" ] || break
-      name="$(basename "$man" 2>/dev/null)"
+      name="$(basename -- "$man" 2>/dev/null)"
       [ ! -f "$MANDIR/man2/$name" ] && [ -d "$MANDIR/man2" ] && [ -n "$name" ] && ln_sf "$man" "$MANDIR/man2/$name"
     done
     for man in "$INSTDIR/man"/*.3; do
       [ -n "$man" ] || break
-      name="$(basename "$man" 2>/dev/null)"
+      name="$(basename -- "$man" 2>/dev/null)"
       [ ! -f "$MANDIR/man3/$name" ] && [ -d "$MANDIR/man3" ] && [ -n "$name" ] && ln_sf "$man" "$MANDIR/man3/$name"
     done
     for man in "$INSTDIR/man"/*.4; do
       [ -n "$man" ] || break
-      name="$(basename "$man" 2>/dev/null)"
+      name="$(basename -- "$man" 2>/dev/null)"
       [ ! -f "$MANDIR/man4/$name" ] && [ -d "$MANDIR/man4" ] && [ -n "$name" ] && ln_sf "$man" "$MANDIR/man4/$name"
     done
     for man in "$INSTDIR/man"/*.5; do
       [ -n "$man" ] || break
-      name="$(basename "$man" 2>/dev/null)"
+      name="$(basename -- "$man" 2>/dev/null)"
       [ ! -f "$MANDIR/man5/$name" ] && [ -d "$MANDIR/man5" ] && [ -n "$name" ] && ln_sf "$man" "$MANDIR/man5/$name"
     done
     for man in "$INSTDIR/man"/*.6; do
       [ -n "$man" ] || break
-      name="$(basename "$man" 2>/dev/null)"
+      name="$(basename -- "$man" 2>/dev/null)"
       [ ! -f "$MANDIR/man6/$name" ] && [ -d "$MANDIR/man6" ] && [ -n "$name" ] && ln_sf "$man" "$MANDIR/man6/$name"
     done
     for man in "$INSTDIR/man"/*.7; do
       [ -n "$man" ] || break
-      name="$(basename "$man" 2>/dev/null)"
+      name="$(basename -- "$man" 2>/dev/null)"
       [ ! -f "$MANDIR/man7/$name" ] && [ -d "$MANDIR/man7" ] && [ -n "$name" ] && ln_sf "$man" "$MANDIR/man7/$name"
     done
     for man in "$INSTDIR/man"/*.8; do
       [ -n "$man" ] || break
-      name="$(basename "$man" 2>/dev/null)"
+      name="$(basename -- "$man" 2>/dev/null)"
       [ ! -f "$MANDIR/man8/$name" ] && [ -d "$MANDIR/man8" ] && [ -n "$name" ] && ln_sf "$man" "$MANDIR/man8/$name"
     done
     unset man

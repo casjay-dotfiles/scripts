@@ -129,8 +129,8 @@ __git_username_repo() {
     protocol=
     separator=
     hostname=localhost
-    userrepo="$(__basename "$url")"
-    username="$(__basename "$(dirname "$url")")"
+    userrepo="$(__basename -- "$url")"
+    username="$(__basename -- "$(dirname "$url")")"
     folder="local"
     projectdir="${PROJECT_DIR:-$HOME/Projects}/$folder/$username-$userrepo"
   elif [[ $url =~ $re ]]; then
@@ -203,8 +203,8 @@ __git_porcelain_count() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_repobase() {
-  __basename "$(__git_top_dir "${1:-$PWD}")" 2>/dev/null ||
-    echo "$(__basename "$PWD")"
+  __basename -- "$(__git_top_dir "${1:-$PWD}")" 2>/dev/null ||
+    echo "$(__basename -- "$PWD")"
 }
 #__reldir="$(__git_top_rel ${1:-$PWD} || echo $PWD)"
 #__topdir="$(__git_top_dir "${1:-$PWD}" || echo $PWD)"

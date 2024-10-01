@@ -20,7 +20,7 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-APPNAME="$(basename "$0" 2>/dev/null)"
+APPNAME="$(basename -- "$0" 2>/dev/null)"
 VERSION="202208171951-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
@@ -270,7 +270,7 @@ __sudo() {
   CMD="${1:-echo}" && shift 1
   CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
   SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
-  [ "$(basename "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  [ "$(basename -- "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
   if __sudoif; then
     export PATH="$PATH"
     $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
@@ -324,7 +324,7 @@ __filename() {
   fi
 
   filename="$file"
-  TRANSFER_SH_UPLOAD_NAME="$TRANSFER_SH_USER-$(basename "${filename}" 2>/dev/null | sed -e 's|[^a-zA-Z0-9._-]|-|g')"
+  TRANSFER_SH_UPLOAD_NAME="$TRANSFER_SH_USER-$(basename -- "${filename}" 2>/dev/null | sed -e 's|[^a-zA-Z0-9._-]|-|g')"
   export filename TRANSFER_SH_UPLOAD_NAME
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -596,7 +596,7 @@ list)
 
 scan)
   shift 1
-  TRANSFER_SH_TMP_UPLOAD_FILE="${TMP:-$HOME/.local/tmp}/$(basename "${1:-stdin}")-$(basename "$(mktemp -t XXXXXXXXX)")"
+  TRANSFER_SH_TMP_UPLOAD_FILE="${TMP:-$HOME/.local/tmp}/$(basename -- "${1:-stdin}")-$(basename -- "$(mktemp -t XXXXXXXXX)")"
   if [ -p "/dev/sdtin" ]; then
     cat - >"$TRANSFER_SH_TMP_SDTIN_FILE"
   fi
@@ -608,7 +608,7 @@ scan)
 virustotal)
   shift 1
   #printf_exit 5 1 "This seems to be broken as of July 15, 2022"
-  TRANSFER_SH_TMP_UPLOAD_FILE="${TMP:-$HOME/.local/tmp}/$(basename "${1:-stdin}")-$(basename "$(mktemp -t XXXXXXXXX)")"
+  TRANSFER_SH_TMP_UPLOAD_FILE="${TMP:-$HOME/.local/tmp}/$(basename -- "${1:-stdin}")-$(basename -- "$(mktemp -t XXXXXXXXX)")"
   if [ -p "/dev/sdtin" ]; then
     cat - | __format_file_as_JSON_string >"$TRANSFER_SH_TMP_SDTIN_FILE"
   fi
@@ -619,7 +619,7 @@ virustotal)
 
 encrypt)
   shift 1
-  TRANSFER_SH_TMP_UPLOAD_FILE="${TMP:-$HOME/.local/tmp}/$(basename "${1:-stdin}")-$(basename "$(mktemp -t XXXXXXXXX)")"
+  TRANSFER_SH_TMP_UPLOAD_FILE="${TMP:-$HOME/.local/tmp}/$(basename -- "${1:-stdin}")-$(basename -- "$(mktemp -t XXXXXXXXX)")"
   if [ -p "/dev/sdtin" ]; then
     cat - >"$TRANSFER_SH_TMP_SDTIN_FILE"
   fi
@@ -632,7 +632,7 @@ encrypt)
 
 backup)
   shift 1
-  TRANSFER_SH_TMP_UPLOAD_FILE="${TMP:-$HOME/.local/tmp}/$(basename "${1:-stdin}")-$(basename "$(mktemp -t XXXXXXXXX)")"
+  TRANSFER_SH_TMP_UPLOAD_FILE="${TMP:-$HOME/.local/tmp}/$(basename -- "${1:-stdin}")-$(basename -- "$(mktemp -t XXXXXXXXX)")"
   if [ ! -t 0 ]; then
     cat - >"$TRANSFER_SH_TMP_SDTIN_FILE" && mv -f "$TRANSFER_SH_TMP_SDTIN_FILE" "$TRANSFER_SH_TMP_UPLOAD_FILE.gz"
     TRANSFER_SH_TMP_UPLOAD_FILE="$TRANSFER_SH_TMP_UPLOAD_FILE.gz"
@@ -646,7 +646,7 @@ backup)
   ;;
 
 *)
-  TRANSFER_SH_TMP_UPLOAD_FILE="${TMP:-$HOME/.local/tmp}/$(basename "${1:-stdin}")-$(basename "$(mktemp -t XXXXXXXXX)")"
+  TRANSFER_SH_TMP_UPLOAD_FILE="${TMP:-$HOME/.local/tmp}/$(basename -- "${1:-stdin}")-$(basename -- "$(mktemp -t XXXXXXXXX)")"
   if [ -p "/dev/sdtin" ]; then
     cat - >"$TRANSFER_SH_TMP_SDTIN_FILE"
   fi

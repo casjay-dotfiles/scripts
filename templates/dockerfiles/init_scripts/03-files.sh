@@ -31,7 +31,7 @@ exitCode=0
 if [ -d "/tmp/bin" ]; then
   mkdir -p "/usr/local/bin"
   for bin in "/tmp/bin"/*; do
-    name="\$(basename "\$bin")"
+    name="\$(basename -- "\$bin")"
     echo "Installing \$name to /usr/local/bin/\$name"
     copy "\$bin" "/usr/local/bin/\$name"
     chmod -f +x "/usr/local/bin/\$name"
@@ -40,7 +40,7 @@ fi
 unset bin
 if [ -d "/tmp/var" ]; then
   for var in "/tmp/var"/*; do
-    name="\$(basename "\$var")"
+    name="\$(basename -- "\$var")"
     echo "Installing \$var to /var/\$name"
     if [ -d "\$var" ]; then
       mkdir -p "/var/\$name"
@@ -53,7 +53,7 @@ fi
 unset var
 if [ -d "/tmp/etc" ]; then
   for config in "/tmp/etc"/*; do
-    name="\$(basename "\$config")"
+    name="\$(basename -- "\$config")"
     echo "Installing \$config to /etc/\$name"
     if [ -d "\$config" ]; then
       mkdir -p "/etc/\$name"
@@ -69,7 +69,7 @@ fi
 unset config
 if [ -d "/tmp/data" ]; then
   for data in "/tmp/data"/*; do
-    name="\$(basename "\$data")"
+    name="\$(basename -- "\$data")"
     echo "Installing \$data to /usr/local/share/template-files/data"
     if [ -d "\$data" ]; then
       mkdir -p "/usr/local/share/template-files/data/\$name"

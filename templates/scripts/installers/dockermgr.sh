@@ -110,6 +110,29 @@ dockermgr_req_version "$APPVERSION"
 __sudo_root() { [ "$DOCKERMGR_USER_CAN_SUDO" = "true" ] && sudo "$@" || { [ "$USER" = "root" ] && eval "$*"; } || eval "$*" 2>/dev/null || return 1; }
 __sudo_exec() { [ "$DOCKERMGR_USER_CAN_SUDO" = "true" ] && sudo -HE "$@" || { [ "$USER" = "root" ] && eval "$*"; } || eval "$*" 2>/dev/null || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__rport() {
+  local port=""
+  port="$(__port)"
+  while :; do
+    { [ $port -lt 50000 ] && [ $port -gt 50999 ]; } && port="$(__port)"
+    __port_in_use "$port" && break
+  done
+  echo "$port" | head -n1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__test_public_reachable() {
+  local exitCode=0
+  local port="${1:-$(__port)}"
+  local nc="$(builtin type -P nc || builtin type -P netcat || false)"
+  if [ -n "$nc" ]; then
+    (timeout 20 $nc -l $port &) &>/dev/null
+    curl -q -LSsf -4 "https://ifconfig.co/port/$port" | jq -rc '.reachable' | grep -q 'true' || exitCode=1
+  else
+    exitCode=1
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # printf_space spacing color message value
 __printf_space() {
   local color padlength
@@ -404,6 +427,9 @@ CONTAINER_ADD_RANDOM_PORTS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Add custom port -  [exter:inter] or [.all:exter:inter/[tcp,udp] [listen:exter:inter/[tcp,udp]] random:[inter]
 CONTAINER_ADD_CUSTOM_PORT=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Create a single port mapping [listen]:[externalPort/random]:[internalPort]
+CONTAINER_ADD_CUSTOM_SINGLE=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # mail settings - [yes/no] [user] [domainname] [server]
 CONTAINER_EMAIL_ENABLED=""
@@ -861,34 +887,11 @@ EOF
 # Define extra functions
 __custom_docker_clean_env() { grep -Ev '^$|^#' | sed 's|^|--env |g' | grep '\--' | grep -v '\--env \\' | tr '\n' ' ' | __remove_extra_spaces; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__rport() {
-  local port=""
-  port="$(__port)"
-  while :; do
-    { [ $port -lt 50000 ] && [ $port -gt 50999 ]; } && port="$(__port)"
-    __port_in_use "$port" && break
-  done
-  echo "$port" | head -n1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __trim() {
   local var="$*"
   var="${var#"${var%%[![:space:]]*}"}" # remove leading whitespace characters
   var="${var%"${var##*[![:space:]]}"}" # remove trailing whitespace characters
   printf '%s' "$var" | grep -v '^$' | sort -u | __remove_extra_spaces
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__test_public_reachable() {
-  local exitCode=0
-  local port="${1:-$(__port)}"
-  local nc="$(builtin type -P nc || builtin type -P netcat || false)"
-  if [ -n "$nc" ]; then
-    (timeout 20 $nc -l $port &) &>/dev/null
-    curl -q -LSsf -4 "https://ifconfig.co/port/$port" | jq -rc '.reachable' | grep -q 'true' || exitCode=1
-  else
-    exitCode=1
-  fi
-  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_docker_script() {
@@ -1767,6 +1770,10 @@ if [ "$CONTAINER_IS_TIME_SERVER" = "yes" ]; then
   unset service_port
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -n "$CONTAINER_ADD_CUSTOM_SINGLE" ]; then
+  DOCKER_SET_TMP_PUBLISH+=("--publish $CONTAINER_ADD_CUSTOM_SINGLE")
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Database setup
 if [ -n "$CONTAINER_CREATE_DATABASE_NAME" ]; then
   DOCKER_SET_OPTIONS_ENV+=("--env DATABASE_CREATE=$CONTAINER_CREATE_DATABASE_NAME")
@@ -2131,6 +2138,10 @@ if [ -n "$CONTAINER_LABELS" ]; then
     fi
   done
   unset label
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -n "$CONTAINER_ADD_CUSTOM_SINGLE" ]; then
+  CONTAINER_ADD_CUSTOM_SINGLE="${CONTAINER_ADD_CUSTOM_SINGLE//:random:/:(__rport):}"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup custom port mappings
@@ -2835,6 +2846,21 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
         __printf_spacing_color "33" "vhost name:" "$vhost"
       done
     fi
+    printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
+  fi
+  if [ -n "$SET_PORT" ] && [ -n "$NGINX_PROXY_URL" ]; then
+    MESSAGE="true"
+    __printf_spacing_color "33" "Server address:" "$NGINX_PROXY_URL"
+    if [ -n "$NGINX_VHOST_NAMES" ]; then
+      NGINX_VHOST_NAMES="${NGINX_VHOST_NAMES//,/ }"
+      for vhost in $NGINX_VHOST_NAMES; do
+        __printf_spacing_color "33" "vhost name:" "$vhost"
+      done
+    fi
+    printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
+  fi
+  if [ -n "$CONTAINER_ADD_CUSTOM_SINGLE" ]; then
+    __printf_spacing_color "6" "Custom port mapping:" "$CONTAINER_ADD_CUSTOM_SINGLE"
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
   if [ -n "$CONTAINER_USER_ADMIN_HASH_PASS" ]; then

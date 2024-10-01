@@ -2337,16 +2337,17 @@ fi
 unset SET_PRETTY_PORT SET_NGINX_PROXY_PORT SET_WEB_PORT_TMP CLEANUP_PORT
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # SSL setup
-NGINX_PROXY_URL=""
 if [ "$NGINX_SSL" = "yes" ]; then
   if [ "$SSL_ENABLED" = "yes" ]; then
     CONTAINER_WEB_SERVER_PROTOCOL="https"
   fi
 fi
-NGINX_PROXY_URL="$CONTAINER_WEB_SERVER_PROTOCOL://$NGINX_PROXY_ADDRESS:$NGINX_PROXY_PORT"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-NGINX_PROXY_URL="${NGINX_PROXY_URL:-$CONTAINER_WEB_SERVER_PROTOCOL://$NGINX_PROXY_ADDRESS:$NGINX_PROXY_PORT}"
-NGINX_PROXY_URL="${NGINX_PROXY_URL// /}$CONTAINER_WEB_SERVER_EXT_PATH"
+if [ -n "$NGINX_PROXY_ADDRESS" ] && [ -n "$NGINX_PROXY_PORT" ]; then
+  NGINX_PROXY_URL="$CONTAINER_WEB_SERVER_PROTOCOL://$NGINX_PROXY_ADDRESS:$NGINX_PROXY_PORT"
+  NGINX_PROXY_URL="${NGINX_PROXY_URL// /}$CONTAINER_WEB_SERVER_EXT_PATH"
+else
+  unset NGINX_PROXY_URL
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set temp env for PORTS ENV variable
 CONTAINER_ENV_PORTS=("${DOCKER_SET_TMP_PUBLISH[@]//--publish/}")
@@ -2686,7 +2687,7 @@ else
   NGINX_VHOST_NAMES="${NGINX_VHOST_NAMES//,/ }"
 fi
 HOST_NGINX_PROXY_URL="${HOST_NGINX_PROXY_URL:-${NGNIX_REVERSE_ADDRESS:-$NGINX_PROXY_URL}}"
-NGNIX_REVERSE_ADDRESS="${CONTAINER_NGINX_PROXY_URL:-${NGNIX_REVERSE_ADDRESS:-$NGINX_PROXY_URL}}"
+NGNIX_REVERSE_ADDRESS="${CONTAINER_NGINX_PROXY_URL:-${NGNIX_REVERSE_ADDRESS:-$HOST_NGINX_PROXY_URL}}"
 CONTAINER_NGINX_PROXY_URL="${CONTAINER_NGINX_PROXY_URL:-$NGNIX_REVERSE_ADDRESS}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup an internal host
@@ -2841,17 +2842,6 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
     fi
     if [ -n "$NGINX_INTERNAL_IS_SET" ]; then
       __printf_spacing_color "6" "nginx internal vhost file installed to:" "$NGINX_INTERNAL_IS_SET"
-    fi
-    printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
-  fi
-  if [ -n "$SET_PORT" ] && [ -n "$NGINX_PROXY_URL" ]; then
-    MESSAGE="true"
-    __printf_spacing_color "33" "Server address:" "$NGINX_PROXY_URL"
-    if [ -n "$NGINX_VHOST_NAMES" ]; then
-      NGINX_VHOST_NAMES="${NGINX_VHOST_NAMES//,/ }"
-      for vhost in $NGINX_VHOST_NAMES; do
-        __printf_spacing_color "33" "vhost name:" "$vhost"
-      done
     fi
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi

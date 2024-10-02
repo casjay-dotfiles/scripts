@@ -2946,15 +2946,25 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
       if [ "$create_service" != "--publish" ] && [ "$create_service" != " " ]; then
         if [ "$set_listen_on_all" = "yes" ]; then
           for custom_port in $set_listen_port; do
-            set_custom_port="$(echo "$custom_port" | awk -F ':' '{print $2}' | grep '^' || echo "${custom_port//*:/}")"
-            set_custom_service="$(echo "$custom_port" | awk -F ':' '{print $1}' | grep '^' || echo "${set_custom_port//:/}")"
-            __printf_spacing_color "6" "Port $set_custom_service is mapped to:" "$set_custom_port"
+            if echo "$custom_port" | grep -q ":.*.:"; then
+              set_custom_port="$(echo "$custom_port" | awk -F ':' '{print $3}' | grep '^')"
+              set_custom_service="$(echo "$custom_port" | awk -F ':' '{print $2}' | grep '^')"
+              __printf_spacing_color "6" "Port $set_custom_service is mapped to:" "$set_custom_port"
+            elif echo "$custom_port" | grep -q "[0-9]:[0-9]"; then
+              set_custom_port="$(echo "$custom_port" | awk -F ':' '{print $2}' | grep '^')"
+              set_custom_service="$(echo "$custom_port" | awk -F ':' '{print $1}' | grep '^')"
+              __printf_spacing_color "6" "Port $set_custom_service is mapped to:" "$set_custom_port"
+            elif echo "$custom_port" | grep -q "0-9]"; then
+              set_custom_port="$(echo "$custom_port" | awk -F ':' '{print $1}' | grep '^')"
+              set_custom_service="$(echo "$custom_port" | awk -F ':' '{print $1}' | grep '^')"
+              __printf_spacing_color "6" "Port $set_custom_service is mapped to:" "$set_custom_port"
+            fi
           done
-          create_service="${create_service//:/}"
+          create_service="${create_service//$set_custom_service/}"
           create_service="${create_service//$set_custom_port/} "
-          create_service="${create_service//set_custom_service/}"
+          create_service="${create_service//:/}"
         fi
-        service="${create_service// /}"
+        service="$create_service"
         if [ -n "$service" ] && [ "$service" != " " ]; then
           if echo "$service" | grep -q ":.*.:"; then
             set_host="$(echo "$service" | awk -F ':' '{print $1}')"

@@ -1388,7 +1388,7 @@ if [ -n "$DOCKER_ADD_USER" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -n "$DOCKER_ADD_GROUP" ]; then
-  DOCKER_ADD_GROUP="$(__get_user_id "$DOCKER_ADD_GROUP")"
+  DOCKER_ADD_GROUP="$(__get_group_id "$DOCKER_ADD_GROUP")"
   DOCKER_SET_OPTIONS_DEFAULT+=("--group-add $DOCKER_ADD_GROUP")
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

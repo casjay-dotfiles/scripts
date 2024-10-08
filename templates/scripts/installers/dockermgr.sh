@@ -2057,7 +2057,7 @@ if [ -n "$CONTAINER_MOUNTS" ]; then
   for mnt in $CONTAINER_MOUNTS; do
     if [ "$mnt" != "" ] && [ "$mnt" != " " ]; then
       if echo "$mnt" | grep -q '^HOST/'; then
-        mnt="$/${mnt//HOST\//}"
+        mnt="${mnt//HOST\//}"
         host_mnt="${mnt//:*/}"
         cont_mnt="${mnt//*:/}"
         [ -n "$cont_mnt" ] && mnt="$HOST_ROOTFS_DIR/$host_mnt:$cont_mnt" || mnt="$HOST_ROOTFS_DIR/$host_mnt:$host_mnt"

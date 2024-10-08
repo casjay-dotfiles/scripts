@@ -209,6 +209,11 @@ __run_pre_install() {
   return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__pre_docker_install_commands() {
+
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define any post-install scripts
 run_post_install() {
 
@@ -2584,6 +2589,7 @@ if [ -x "$DOCKERMGR_INSTALL_SCRIPT" ]; then
   fi
   exit $exitCode
 else
+  __pre_docker_install_commands
   __create_docker_script
   EXECUTE_DOCKER_SCRIPT="$EXECUTE_DOCKER_CMD"
   if [ "$INIT_SCRIPT_ONLY" = "no" ] && [ -n "$EXECUTE_DOCKER_SCRIPT" ]; then

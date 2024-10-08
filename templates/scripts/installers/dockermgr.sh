@@ -163,6 +163,9 @@ __docker_init() { [ -n "$(type -p dockermgr 2>/dev/null)" ] && dockermgr init ||
 __netstat() { netstat -taupln 2>/dev/null | grep -vE 'WAIT|ESTABLISHED|docker-pro' | awk -F ' ' '{print $4}' | sed 's|.*:||g' | grep -E '[0-9]' | sort -Vu | grep "^${1:-.*}$" || return 1; }
 __retrieve_custom_env() { [ -f "$DOCKERMGR_CONFIG_DIR/env/$CONTAINER_NAME.${1:-custom}.conf" ] && cat "$DOCKERMGR_CONFIG_DIR/env/$CONTAINER_NAME.${1:-custom}.conf" | grep -Ev '^$|^#' | grep '=' | grep '^' || __custom_docker_env | grep -Ev '^$|^#' | grep '=' | grep '^' || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_user_id() { grep -s "^$1:" /etc/passwd | awk -F: '{print $3}' | grep '^[0-9]' || echo "$(id -u)"; }
+__get_group_id() { grep -s "^$1:" /etc/group | awk -F: '{print $3}' | grep '^[0-9]' || echo "$(id -g)"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_proxy_url() { echo "${1//\/*{/}" | grep -q '[0-9]:.*:[0-9]' && echo "${1%:*}" || echo "$1"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __ping_host() { ping -c1 -i1 -w1 "${1:-$CONTAINER_HOSTNAME}" >/dev/null 2>&1 || return 1; }
@@ -288,6 +291,12 @@ CONTAINER_WORK_DIR=""
 USER_ID_ENABLED="no"
 CONTAINER_USER_ID=""
 CONTAINER_GROUP_ID=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set user to docker run --user [userName]
+DOCKER_ADD_USER=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set group to docker run --group-add [groupName]
+DOCKER_ADD_GROUP=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set runas user - default root - [mysql]
 CONTAINER_USER_RUN=""
@@ -689,6 +698,8 @@ ENV_CONTAINER_WORK_DIR="\${ENV_CONTAINER_WORK_DIR:-$CONTAINER_WORK_DIR}"
 ENV_USER_ID_ENABLED="\${ENV_USER_ID_ENABLED:-$USER_ID_ENABLED}"
 ENV_CONTAINER_USER_ID="\${ENV_CONTAINER_USER_ID:-$CONTAINER_USER_ID}"
 ENV_CONTAINER_GROUP_ID="\${ENV_CONTAINER_GROUP_ID:-$CONTAINER_GROUP_ID}"
+ENV_DOCKER_ADD_USER="\${ENV_DOCKER_ADD_USER:-$DOCKER_ADD_USER}}"
+ENV_DOCKER_ADD_GROUP="\${ENV_DOCKER_ADD_GROUP:-$DOCKER_ADD_GROUP}}"
 ENV_CONTAINER_USER_RUN="\${ENV_CONTAINER_USER_RUN:-$CONTAINER_USER_RUN}"
 ENV_CONTAINER_PRIVILEGED_ENABLED="\${ENV_CONTAINER_PRIVILEGED_ENABLED:-$CONTAINER_PRIVILEGED_ENABLED}"
 ENV_CONTAINER_SHM_SIZE="\${ENV_CONTAINER_SHM_SIZE:-$CONTAINER_SHM_SIZE}"
@@ -1143,6 +1154,8 @@ CONTAINER_WORK_DIR="${ENV_CONTAINER_WORK_DIR:-$CONTAINER_WORK_DIR}"
 USER_ID_ENABLED="${ENV_USER_ID_ENABLED:-$USER_ID_ENABLED}"
 CONTAINER_USER_ID="${ENV_CONTAINER_USER_ID:-$CONTAINER_USER_ID}"
 CONTAINER_GROUP_ID="${ENV_CONTAINER_GROUP_ID:-$CONTAINER_GROUP_ID}"
+DOCKER_ADD_USER="${ENV_DOCKER_ADD_USER:-$DOCKER_ADD_USER}}"
+DOCKER_ADD_GROUP="${ENV_DOCKER_ADD_GROUP:-$DOCKER_ADD_GROUP}}"
 CONTAINER_USER_RUN="${ENV_CONTAINER_USER_RUN:-$CONTAINER_USER_RUN}"
 CONTAINER_PRIVILEGED_ENABLED="${ENV_CONTAINER_PRIVILEGED_ENABLED:-$CONTAINER_PRIVILEGED_ENABLED}"
 CONTAINER_SHM_SIZE="${ENV_CONTAINER_SHM_SIZE:-$CONTAINER_SHM_SIZE}"
@@ -1355,15 +1368,23 @@ fi
 # Set user ID
 if [ "$USER_ID_ENABLED" = "yes" ]; then
   if [ -z "$CONTAINER_USER_ID" ]; then
-    DOCKER_SET_OPTIONS_ENV+=("--env PUID=$(id -u)")
-  else
-    DOCKER_SET_OPTIONS_ENV+=("--env PUID=$CONTAINER_USER_ID")
+    CONTAINER_USER_ID="$(__get_user_id "$USER")"
   fi
   if [ -z "$CONTAINER_GROUP_ID" ]; then
-    DOCKER_SET_OPTIONS_ENV+=("--env PGID=$(id -g)")
-  else
-    DOCKER_SET_OPTIONS_ENV+=("--env PGID=$CONTAINER_GROUP_ID")
+    CONTAINER_GROUP_ID="$(__get_group_id $USER)"
   fi
+  DOCKER_SET_OPTIONS_ENV+=("--env PUID=$CONTAINER_USER_ID")
+  DOCKER_SET_OPTIONS_ENV+=("--env PGID=$CONTAINER_GROUP_ID")
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -n "$DOCKER_ADD_USER" ]; then
+  DOCKER_ADD_USER="$(__get_user_id "$DOCKER_ADD_USER")"
+  DOCKER_SET_OPTIONS_DEFAULT+=("--user $DOCKER_ADD_USER")
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -n "$DOCKER_ADD_GROUP" ]; then
+  DOCKER_ADD_GROUP="$(__get_user_id "$DOCKER_ADD_GROUP")"
+  DOCKER_SET_OPTIONS_DEFAULT+=("--group-add $DOCKER_ADD_GROUP")
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the process owner

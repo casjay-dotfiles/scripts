@@ -523,7 +523,7 @@ CONTAINER_MOUNT_DATA_MOUNT_DIR=""
 CONTAINER_MOUNT_CONFIG_ENABLED="yes"
 CONTAINER_MOUNT_CONFIG_MOUNT_DIR=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Define additional mounts - [/dir:/dir,/otherdir:/otherdir]
+# Define additional mounts - add HOST/ to use $DATA_DIR/rootfs - [/dir:/dir,/otherdir:/otherdir]
 CONTAINER_MOUNTS=""
 CONTAINER_MOUNTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -2056,11 +2056,17 @@ if [ -n "$CONTAINER_MOUNTS" ]; then
   CONTAINER_MOUNTS="${CONTAINER_MOUNTS//,/ }"
   for mnt in $CONTAINER_MOUNTS; do
     if [ "$mnt" != "" ] && [ "$mnt" != " " ]; then
+      if echo "$mnt" | grep -q '^HOST/'; then
+        mnt="$/${mnt//HOST\//}"
+        host_mnt="${mnt//:*/}"
+        cont_mnt="${mnt//*:/}"
+        [ -n "$cont_mnt" ] && mnt="$HOST_ROOTFS_DIR/$host_mnt:$cont_mnt" || mnt="$HOST_ROOTFS_DIR/$host_mnt:$host_mnt"
+      fi
       echo "$mnt" | grep -q ':' || mnt="$mnt:$mnt"
       DOCKER_SET_MNT+="--volume $mnt "
     fi
   done
-  unset mnt
+  unset mnt host_mnt cont_mnt
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -n "$CONTAINER_OPT_MOUNT_VAR" ]; then

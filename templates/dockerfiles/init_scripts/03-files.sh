@@ -85,7 +85,7 @@ unset data
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the exit code
-exitCode=\$?
+#exitCode=\$?
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 exit \$exitCode
 

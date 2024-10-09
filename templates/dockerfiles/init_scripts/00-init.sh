@@ -28,15 +28,15 @@ exitCode=0
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Predifined actions
-[ -d "/usr/local/share/template-files/data" ] && rm -Rf "/usr/local/share/template-files/data"/*
-[ -d "/usr/local/share/template-files/config" ] && rm -Rf "/usr/local/share/template-files/config"/*
-[ -d "/usr/local/share/template-files/defaults" ] && rm -Rf "/usr/local/share/template-files/defaults"/*
+if [ -d "/usr/local/share/template-files/data" ]; then rm -Rf "/usr/local/share/template-files/data"/*; fi
+if [ -d "/usr/local/share/template-files/config" ]; then rm -Rf "/usr/local/share/template-files/config"/*; fi
+if [ -d "/usr/local/share/template-files/defaults" ]; then rm -Rf "/usr/local/share/template-files/defaults"/*; fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main script
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the exit code
-exitCode=\$?
+#exitCode=\$?
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 exit \$exitCode
 

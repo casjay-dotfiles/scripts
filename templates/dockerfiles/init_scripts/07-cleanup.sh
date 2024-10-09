@@ -28,13 +28,14 @@ exitCode=0
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Predifined actions
-[ -d "/tmp" ] && rm -Rf "/tmp"/*
+if [ -d "/tmp" ]; then rm -Rf "/tmp"/*; fi
+if [ -d "\$HOME/.cache" ]; then rm -Rf "\$HOME/.cache"; fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main script
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the exit code
-exitCode=\$?
+#exitCode=\$?
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 exit \$exitCode
 

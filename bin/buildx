@@ -27,7 +27,7 @@
 # shellcheck disable=SC2317
 # shellcheck disable=SC2001
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-APPNAME="$(basename -- "$0" 2>/dev/null)"
+APPNAME="$(basename "$0" 2>/dev/null)"
 VERSION="202208042122-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
@@ -40,10 +40,8 @@ export BUILDX_START_TIMER="${BUILDX_START_TIMER:-$(date +%s.%N)}"
 #if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set script title
-#CASJAYS_DEV_TILE_FORMAT="${USER}@${HOSTNAME}:${PWD//$HOME/\~} - $APPNAME"
-#CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}"
-#[ -z "$CASJAYSDEV_TITLE_SET" ] && printf '\033]2│;%s\033\\' "$CASJAYS_DEV_TILE_FORMAT" && CASJAYSDEV_TITLE_SET="$APPNAME"
-export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}" CASJAYSDEV_TITLE_SET
+export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}"
+[ -z "$CASJAYSDEV_TITLE_SET" ] && echo -ne '\033]2;'${USER}@${HOSTNAME}:${PWD//$HOME/\~} - $APPNAME'\007' && export CASJAYSDEV_TITLE_SET="$APPNAME"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Initial debugging
 [ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
@@ -159,12 +157,12 @@ __gen_config() {
     cp -Rf "$BUILDX_CONFIG_DIR/$BUILDX_CONFIG_FILE" "$BUILDX_CONFIG_BACKUP_DIR/$BUILDX_CONFIG_FILE.$$"
   cat <<EOF >"$BUILDX_CONFIG_DIR/$BUILDX_CONFIG_FILE"
 # Settings for buildx
-BUILDX_DEFAULT_REGISTRY="${BUILDX_DEFAULT_REGISTRY:-}"
 BUILDX_ADD_REPO="${BUILDX_ADD_REPO:-}"
 BUILDX_ADD_REGISTRY="${BUILDX_ADD_REGISTRY:-}"
 BUILDX_DOCKER_CMD="${BUILDX_DOCKER_CMD:-}"
 BUILDX_BUILDER_NAME="${BUILDX_BUILDER_NAME:-}"
 BUILDX_DEFAULT_REPO="${BUILDX_DEFAULT_REPO:-}"
+BUILDX_DEFAULT_HUB="${BUILDX_DEFAULT_HUB:-}"
 BUILDX_DEFAULT_VERSION="${BUILDX_DEFAULT_VERSION:-}"
 BUILDX_REMOVE_BUILD="${BUILDX_REMOVE_BUILD:-}"
 BUILDX_GIT_REPO_USER="${BUILDX_GIT_REPO_USER:-}"
@@ -307,7 +305,7 @@ __sudo() {
   CMD="${1:-echo}" && shift 1
   CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
   SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
-  [ "$(basename -- "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  [ "$(basename "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
   if __sudoif; then
     export PATH="$PATH"
     $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
@@ -323,7 +321,7 @@ __sudo() {
 __trap_exit() {
   local exitCode=$?
   [ -f "$BUILDX_TEMP_FILE" ] && rm -Rf "$BUILDX_TEMP_FILE" &>/dev/null
-  #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD//$HOME/\~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
+  unset CASJAYSDEV_TITLE_SET && echo -ne '\033]2;'${USER}@${HOSTNAME}:${PWD//$HOME/\~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}'\007'
   if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
   return $exitCode
 }
@@ -337,16 +335,6 @@ __trap_exit_local() {
   [ -f "$BUILDX_FAILED_LOG" ] && [ "$exitCode" -ne 0 ] || exitCode=0
   return $exitCode
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__trim() {
-  local var="${*//;/ }"
-  var="${var#"${var%%[![:space:]]*}"}" # remove leading whitespace characters
-  var="${var%"${var##*[![:space:]]}"}" # remove trailing whitespace characters
-  var="$(echo "$var" | __remove_extra_spaces)"
-  printf '%s' "$var" | grep -v '^$'
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__remove_extra_spaces() { sed 's/\( \)*/\1/g;s|^ ||g'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __trap_timer() {
   local retval=$?
@@ -367,33 +355,32 @@ __grep_exclude_version() { grep -v 'USE_DATE'; }
 __get_version() { awk -F '=' '{print $2}' | sed 's|"||g;s|,| |g' | tr ' ' '\n' | grep -Ev '\${.*_.*}' | grep -v '^$' | sort -Vu | tr '\n' ' ' | grep '^' || false; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __set_variables() {
-  DOCKER_BUILDKIT=1
-  BUILDX_PID_NUMBER="$$"
+  export DOCKER_BUILDKIT=1
+  export BUILDX_PID_NUMBER="$$"
+  export name="$(basename "$BUILDX_CWD")"
+  export org_name="$(basename $(dirname "$BUILDX_CWD"))"
+  export DOCKER_PLATFORMS="$BUILDX_DOCKER_PLATFORMS"
+  export BUILDX_EXPERIMENTAL="$BUILDX_DOCKER_BUILD_EXPERIMENTAL"
+  export DOCKER_CLI_EXPERIMENTAL="$BUILDX_DOCKER_CLI_EXPERIMENTAL"
+  export BUILDX_CUSTOM_LOG_FILE="${BUILDX_CUSTOM_LOG_FILE:-$BUILDX_LOG_DIR/$org_name/$name.log}"
+  export BUILDX_CUSTOM_LOG_DIR="$(dirname "$(realpath "$BUILDX_CUSTOM_LOG_FILE" 2>/dev/null | grep '^' || echo "$BUILDX_CUSTOM_LOG_FILE")")"
   BUILDX_SET_REPO="${ENV_ORG_NAME:-$BUILDX_SET_REPO}"
-  BUILDX_CURRENT_PROJECT_NAME="$(basename -- "$BUILDX_CWD")"
-  BUILDX_CURRENT_PROJECT_ORG="$(basename $(dirname "$BUILDX_CWD"))"
   BUILDX_SET_IMAGE="${ENV_IMAGE_PUSH:-$BUILDX_SET_IMAGE}"
   BUILDX_VERSION_TAG="${ENV_ADD_TAGS:-$BUILDX_VERSION_TAG}"
   BUILDX_PID_FILE="$HOME/.local/run/$APPNAME/$APPNAME.pid"
   BUILDX_DOCKER_PLATFORMS="${BUILDX_DOCKER_PLATFORMS// /,}"
   BUILDX_DEFAULT_REPO="${BUILDX_SET_REPO:-$BUILDX_DEFAULT_REPO}"
+  BUILDX_DEFAULT_HUB="${BUILDX_SET_REGISTRY:-$BUILDX_DEFAULT_HUB}"
   BUILDX_GIT_REPO_USER="${BUILDX_SET_GIT_USER:-$BUILDX_GIT_REPO_USER}"
-  BUILDX_DEFAULT_REGISTRY="${BUILDX_SET_REGISTRY:-$BUILDX_DEFAULT_REGISTRY}"
   BUILDX_PROJECT_DIR="${BUILDX_PROJECT_DIR:-$HOME/Projects/github/$BUILDX_DEFAULT_REPO}"
   BUILDX_DEFAULT_VERSION="$(echo "${BUILDX_SET_VERSION:-$BUILDX_DEFAULT_VERSION}" | awk -F ' ' '{print $1}' | sed 's|"||g')"
-
-  DOCKER_PLATFORMS="$BUILDX_DOCKER_PLATFORMS"
-  BUILDX_EXPERIMENTAL="$BUILDX_DOCKER_BUILD_EXPERIMENTAL"
-  DOCKER_CLI_EXPERIMENTAL="$BUILDX_DOCKER_CLI_EXPERIMENTAL"
-  BUILDX_CUSTOM_LOG_DIR="${BUILDX_CUSTOM_LOG_DIR:-$BUILDX_LOG_DIR/$BUILDX_DEFAULT_REGISTRY/$BUILDX_CURRENT_PROJECT_ORG}"
-  BUILDX_CUSTOM_LOG_FILE="${BUILDX_CUSTOM_LOG_FILE:-$BUILDX_CUSTOM_LOG_DIR/$BUILDX_CURRENT_PROJECT_NAME.log}"
-
-  export DOCKER_PLATFORMS BUILDX_EXPERIMENTAL DOCKER_BUILDKIT DOCKER_CLI_EXPERIMENTAL
-  export BUILDX_ADD_TAG BUILDX_SET_REPO BUILDX_SET_IMAGE BUILDX_SET_VERSION BUILDX_SET_REGISTRY BUILDX_SET_GIT_USER
-  export BUILDX_CURRENT_PROJECT_NAME BUILDX_CURRENT_PROJECT_ORG BUILDX_PID_NUMBER BUILDX_CUSTOM_LOG_DIR BUILDX_CUSTOM_LOG_FILE
-
   [ -n "$BUILDX_VERSION_TAG" ] && export BUILDX_ADD_TAG="true"
-  [ -n "$ENV_IMAGE_TAG" ] && export BUILDX_SET_VERSION="$(basename -- "${ENV_IMAGE_TAG//*:/}")"
+  [ -n "$BUILDX_SET_REPO" ] && export BUILDX_SET_REPO
+  [ -n "$BUILDX_SET_IMAGE" ] && export BUILDX_SET_IMAGE
+  [ -n "$BUILDX_SET_VERSION" ] && export BUILDX_SET_VERSION
+  [ -n "$BUILDX_SET_REGISTRY" ] && export BUILDX_SET_REGISTRY
+  [ -n "$BUILDX_SET_GIT_USER" ] && export BUILDX_SET_GIT_USER
+  [ -n "$ENV_IMAGE_TAG" ] && export BUILDX_SET_VERSION="$(basename "${ENV_IMAGE_TAG//*:/}")"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_log_files() {
@@ -402,7 +389,7 @@ __create_log_files() {
   local project_dir="${ENV_BUILDX_PROJECT_DIR:-$BUILDX_PROJECT_DIR}"
   for directory in $project_dir; do
     dir_name="$(basename $directory)"
-    file_name="$(basename -- "$dir_name").log"
+    file_name="$(basename "$dir_name").log"
     if [ -n "$directory" ] && [ ! -d "$BUILDX_LOG_DIR/$dir_name" ]; then
       mkdir -p "$BUILDX_LOG_DIR/$dir_name"
     fi
@@ -581,7 +568,7 @@ __get_dockerfile_ver() {
   #
   new_tag="${set_newtag:-$new_tag}"
   new_tag="${new_tag:-latest}"
-  iver="$(basename -- "$fileloc" 2>/dev/null | sed 's/^[^\.]*\./rel:/' | awk -F ':' '{print $2}' | sed 's| ||g' | __grep_exclude_version || echo '')"
+  iver="$(basename "$fileloc" 2>/dev/null | sed 's/^[^\.]*\./rel:/' | awk -F ':' '{print $2}' | sed 's| ||g' | __grep_exclude_version || echo '')"
   cver="$(grep -sh 'ARG.*CONTAINER_VERSION=' "$fileloc" | __get_version | __grep_exclude_version || grep -sh 'ARG.*IMAGE_VERSION=' "$fileloc" | __get_version | __grep_exclude_version || echo '')"
   #
   date_tag="$(grep -sh 'ARG.*CONTAINER_VERSION=' "$fileloc" | __get_version | grep 'USE_DATE' || grep -sh '^ARG.*IMAGE_VERSION=' "$fileloc" | __get_version | grep 'USE_DATE' || echo '')"
@@ -657,14 +644,14 @@ __get_dockerfile_ver() {
 __run_all() {
   trap 'exit' SIGINT
   local exitCode=0
-  export ENV_IMAGE_TAG=""
   export BUILDX_ADD_TAG=""
-  export BUILDX_BUILD_ALL="${BUILDX_BUILD_ALL:-true}"
+  export ENV_IMAGE_TAG=""
   export BUILDX_RUN_COUNT_OF="${BUILDX_RUN_COUNT_OF:-1}"
+  export BUILDX_BUILD_ALL="${BUILDX_BUILD_ALL:-true}"
   export BUILDX_GIT_COMMIT_ID="${BUILDX_GIT_COMMIT_ID:-}"
   export ENV_BUILDX_PROJECT_DIR="$(dirname "$BUILDX_CWD")"
-  export BUILDX_CUSTOM_LOG_DIR="$BUILDX_LOG_DIR/$BUILDX_DEFAULT_REGISTRY/$(basename -- "$ENV_BUILDX_PROJECT_DIR")"
-  export BUILDX_CUSTOM_LOG_FILE="$BUILDX_CUSTOM_LOG_DIR/$(basename -- "$BUILDX_CWD" | sed 's|^docker-||g').log"
+  export BUILDX_CUSTOM_LOG_DIR="$BUILDX_LOG_DIR/$(basename "$ENV_BUILDX_PROJECT_DIR")"
+  export BUILDX_CUSTOM_LOG_FILE="$BUILDX_CUSTOM_LOG_DIR/$(basename "$BUILDX_CWD" | sed 's|^docker-||g').log"
   #
   local errormess="Can not find a Dockerfile in $BUILDX_CWD"
   #
@@ -861,7 +848,7 @@ __buildx_version() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __reinit_buildx() {
-  BUILDX_CURRENT_PROJECT_NAME="${name:-init}"
+  name="${name:-init}"
   local force_install="${BUILDX_FORCE:-$BUILDX_FORCE_REINSTALL}"
   __buildx_vars "${BUILDX_BUILDER_NAME:-}"
   [ "$BUILDX_INIT_RAN" != "true" ] || return 0
@@ -961,7 +948,7 @@ __buildx_init() {
     printf_cyan "buildx seems to be already setup"
     return 0
   else
-    echo "Starting buildx init for $BUILDX_CURRENT_PROJECT_NAME on $(date)" |& tee -p "$BUILDX_CUSTOM_LOG_FILE"
+    echo "Starting buildx init for $name on $(date)" |& tee -p "$BUILDX_CUSTOM_LOG_FILE"
     printf_yellow "Initializing docker build"
     printf_cyan "Setting logfile to: $buildx_log_file"
     if [ "$BUILDX_CLEANUP" = "true" ] || { [ -n "$binfmt" ] && [ -n "$qemu" ]; }; then
@@ -980,9 +967,9 @@ __buildx_init() {
       __docker_init run -d --name "$binfmt_imagename" --privileged tonistiigi/binfmt --install all |& tee -p -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null
       # setup buildx
       printf_blue "Setting up docker build to use buildx"
-      #__docker_init buildx create --buildkitd-flags '--allow-insecure-entitlement security.insecure' --name "$BUILDX_CURRENT_PROJECT_NAME" --use |& tee -p -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null
+      #__docker_init buildx create --buildkitd-flags '--allow-insecure-entitlement security.insecure' --name "$name" --use |& tee -p -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null
       __docker_init buildx create --driver docker-container --driver-opt network=host --driver-opt image=moby/buildkit:master --name ${name:-mybuilder} --use |& tee -p -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null
-      __docker_init buildx use "$BUILDX_CURRENT_PROJECT_NAME" |& tee -p -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null
+      __docker_init buildx use "$name" |& tee -p -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null
       __docker_init buildx inspect --bootstrap |& tee -p -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null
     fi
     if [ "$BUILDX_INIT_RAN" != "yes" ]; then
@@ -1012,28 +999,10 @@ __buildx_init() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__check_and_fix_tags() {
-  local tmp_tag="$1"
-  local tmp_host="$2"
-  local tmp_action="${3:-$2}"
-  local tmp_new_tag=""
-  [ -n "$tmp_tag" ] || return 1
-  tmp_new_tag="$tmp_tag"
-  if echo "$tmp_tag" | grep -q '^/'; then
-    tmp_tag="$(echo "$1" | sed 's|^/||g')"
-    [ "$tmp_host" ] && tmp_new_tag="$tmp_host/$tmp_tag" || tmp_new_tag="$tmp_tag"
-  fi
-  tmp_new_tag="${tmp_new_tag//\/\///}"
-  [ "$tmp_action" = "print" ] && echo "$tmp_new_tag" || set_new_tag="$tmp_new_tag"
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __tag_versions() {
-  local set_new_tag=""
-  local add_full_host=""
-  local add_image_name=""
+  local add_new_host="" add_image_name="" add_full_host=""
   local ADD_IMAGE_PUSH="${ENV_ADD_IMAGE_PUSH//,/ }"
-  namespace="$(echo "$image_name" | awk -F '/' '{print $(NF -1)}' | grep '^')"
-  host="$BUILDX_DEFAULT_REGISTRY"
+  host="${host:-$BUILDX_DEFAULT_HUB}"
   add_image_name="${image_name//:*/}"
   add_tags="${BUILDX_VERSION_TAG//,/ }"
   namespace="${namespace:-$BUILDX_DEFAULT_REPO}"
@@ -1041,21 +1010,18 @@ __tag_versions() {
   add_tags="${add_tags//USE_DATE/}"
   if [ "$BUILDX_ADD_TAG" = "true" ]; then
     for tag in $add_tags; do
-      [ "$tag" = "$BUILDX_DEFAULT_VERSION" ] || set_new_tag="$add_full_host:$tag"
+      [ "$tag" = "$BUILDX_DEFAULT_VERSION" ] || SET_ADD_HOST+=("-t $add_full_host:$tag ")
       if [ -n "$ADD_IMAGE_PUSH" ]; then
         for vtag in $ADD_IMAGE_PUSH; do
-          set_new_tag="$vtag:$tag "
+          SET_ADD_HOST+=("-t $vtag:$tag ")
         done
       fi
-      __check_and_fix_tags $set_new_tag "$host"
-      SET_ADD_HOST+=("$set_new_tag")
     done
   else
-    __check_and_fix_tags $add_full_host:$tag_version "$host"
+    add_new_host="$add_full_host:$tag_version"
     [ -n "$ADD_IMAGE_PUSH" ] && SET_ADD_HOST+=("-t $ADD_IMAGE_PUSH:$tag_version ")
   fi
-  image_name="$set_new_tag"
-  ADD_NEW_TAGS+=image_name
+  image_name="$add_new_host"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __buildx_status() {
@@ -1094,7 +1060,7 @@ __run_docker_script() {
     done
   fi
   echo "$BUILDX_GET_VERSION_MESSAGE" | tee -p -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null
-  if [ "$BUILDX_ADD_TAG" = "true" ] || { [ -n "$REGISTRY_TAG" ] && [ -n "$ADDITIONAL_PRETTY" ]; }; then
+  if [ "$BUILDX_ADD_TAG" = "true" ] || [ -n "$REGISTRY_TAG" ] && [ -n "$ADDITIONAL_PRETTY" ]; then
     printf_blue "Adding tags: $ADDITIONAL_PRETTY"
     printf '%s\n' "# Adding tags: $ADDITIONAL_PRETTY" | tee -p -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null
   fi
@@ -1108,8 +1074,8 @@ __run_docker_script() {
 __run_dockermgr_script() {
   local dir="/tmp/builder"
   local build_tags="-t $tagged_name $ADDITIONAL_TAGS"
-  local build_name="$(basename -- "${tagged_name//:*/}")"
-  local buildfile="$(basename -- "${Dockerfile:-Dockerfile}")"
+  local build_name="$(basename "${tagged_name//:*/}")"
+  local buildfile="$(basename "${Dockerfile:-Dockerfile}")"
   set_build_command='dockermgr --name '$build_name',, -- builder buildx_script "'$BUILDX_DOCKER_PLATFORMS'",, "'$build_tags'",, "'$dir'",, "'$dir/$buildfile'"'
   set_build_command="${set_build_command//  / }"
   build_command="$(echo "$set_build_command" | grep '^' | grep -v '^$' | sed 's|,,| \\\n|g')"
@@ -1118,7 +1084,7 @@ __run_dockermgr_script() {
   printf 'Saving the build command to: %s\n' "$logscript_file" | tee -p -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null
   __save_build_script
   printf_blue "Setting default tag to: $set_tag"
-  if [ "$BUILDX_ADD_TAG" = "true" ] || { [ -n "$REGISTRY_TAG" ] && [ -n "$ADDITIONAL_PRETTY" ]; }; then
+  if [ "$BUILDX_ADD_TAG" = "true" ] || [ -n "$REGISTRY_TAG" ] && [ -n "$ADDITIONAL_PRETTY" ]; then
     printf_blue "Adding tags: $ADDITIONAL_PRETTY"
     printf '%s\n' "# Adding tags: $ADDITIONAL_PRETTY" | tee -p -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null
   fi
@@ -1137,7 +1103,7 @@ __run_buildx_script() {
   printf 'Saving the build command to: %s\n' "$logscript_file" | tee -p -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null
   __save_build_script
   printf_blue "Setting default tag to: $set_tag"
-  if [ "$BUILDX_ADD_TAG" = "true" ] || { [ -n "$REGISTRY_TAG" ] && [ -n "$ADDITIONAL_PRETTY" ]; }; then
+  if [ "$BUILDX_ADD_TAG" = "true" ] || [ -n "$REGISTRY_TAG" ] && [ -n "$ADDITIONAL_PRETTY" ]; then
     printf_blue "Adding tags: $ADDITIONAL_PRETTY"
     printf '%s\n' "# Adding tags: $ADDITIONAL_PRETTY" | tee -p -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null
   fi
@@ -1156,7 +1122,7 @@ __run_build_script() {
   printf 'Saving the build command to: %s\n' "$logscript_file" | tee -p -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null
   __save_build_script
   printf_blue "Setting default tag to: $set_tag"
-  if [ "$BUILDX_ADD_TAG" = "true" ] || { [ -n "$REGISTRY_TAG" ] && [ -n "$ADDITIONAL_PRETTY" ]; }; then
+  if [ "$BUILDX_ADD_TAG" = "true" ] || [ -n "$REGISTRY_TAG" ] && [ -n "$ADDITIONAL_PRETTY" ]; then
     printf_blue "Adding tags: $ADDITIONAL_PRETTY"
     printf '%s\n' "# Adding tags: $ADDITIONAL_PRETTY" | tee -p -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null
   fi
@@ -1220,10 +1186,7 @@ __run_docker_build() {
       fi
     done
   fi
-  __tag_versions "$set_tag"
   __tag_versions "$tagged_name"
-  SET_ADD_HOST=("$(__trim "${SET_ADD_HOST[@]}")")
-  SET_ADD_HOST=("$(echo "${SET_ADD_HOST[@]}" | sort -u)")
   ADD_HOST="$(printf '%s\n' "${SET_ADD_HOST[@]}" | sort -u | tr '\n' ' ' | sed 's|  *| |g')"
   ADDITIONAL_TAGS="$REGISTRY_TAG ${ADD_HOST[*]}"
   ADDITIONAL_PRETTY="$(echo "$ADDITIONAL_TAGS" | sed 's|--tag||g;s|-t||g' | tr ' ' '\n' | grep -v '^$' | tr '\n' ' ')"
@@ -1302,30 +1265,30 @@ __execute_buildx() {
   if [ -f "$1" ]; then
     Dockerfile="$(realpath "$1")"
     FULL_DIR_PATH="$(dirname "$Dockerfile")"
-    SET_DIR_NAME="$(basename -- "$FULL_DIR_PATH")"
+    SET_DIR_NAME="$(basename "$FULL_DIR_PATH")"
     shift 1
   elif [ -d "$1" ]; then
     Dockerfile="$(realpath "${1//$PWD\//}/Dockerfile")"
     FULL_DIR_PATH="$(dirname "$Dockerfile")"
-    SET_DIR_NAME="$(basename -- "$FULL_DIR_PATH")"
+    SET_DIR_NAME="$(basename "$FULL_DIR_PATH")"
     shift 1
   elif [ -f "$PWD/$1" ]; then
     Dockerfile="$(realpath "${1//$PWD\//}")"
     FULL_DIR_PATH="$(dirname "$Dockerfile")"
-    SET_DIR_NAME="$(basename -- "$(dirname "$(realpath "$Dockerfile")")")"
+    SET_DIR_NAME="$(basename "$(dirname "$(realpath "$Dockerfile")")")"
     shift 1
   elif [ -f "$BUILDX_CWD/Dockerfile.latest" ]; then
     Dockerfile="$(realpath "$BUILDX_CWD/Dockerfile.latest")"
     FULL_DIR_PATH="$(dirname "$Dockerfile")"
-    SET_DIR_NAME="$(basename -- "$(dirname "$(realpath "$Dockerfile")")")"
+    SET_DIR_NAME="$(basename "$(dirname "$(realpath "$Dockerfile")")")"
   elif [ -f "$BUILDX_CWD/Dockerfile.next" ]; then
     Dockerfile="$(realpath "$BUILDX_CWD/Dockerfile.next")"
     FULL_DIR_PATH="$(dirname "$Dockerfile")"
-    SET_DIR_NAME="$(basename -- "$(dirname "$(realpath "$Dockerfile")")")"
+    SET_DIR_NAME="$(basename "$(dirname "$(realpath "$Dockerfile")")")"
   elif [ -f "$BUILDX_CWD/Dockerfile" ]; then
     Dockerfile="$(realpath "$BUILDX_CWD/Dockerfile")"
     FULL_DIR_PATH="$(dirname "$Dockerfile")"
-    SET_DIR_NAME="$(basename -- "$(dirname "$(realpath "$Dockerfile")")")"
+    SET_DIR_NAME="$(basename "$(dirname "$(realpath "$Dockerfile")")")"
   fi
   if [ -n "$FULL_DIR_PATH" ] && [ -f "$Dockerfile" ]; then
     builtin cd "$FULL_DIR_PATH" || exit 15
@@ -1334,8 +1297,8 @@ __execute_buildx() {
     echo "" && exit 1
   fi
   [ -e "$1" ] && shift
-  default_name="$(basename -- "$FULL_DIR_PATH")"
-  DockerfileName="$(basename -- "$Dockerfile")"
+  default_name="$(basename "$FULL_DIR_PATH")"
+  DockerfileName="$(basename "$Dockerfile")"
   FULL_DIR_PATH="${FULL_DIR_PATH:-$(dirname "$(realpath "$PWD/Dockerfile")")}"
   if [ ! -f "$Dockerfile" ] || [ -z "$(ls -A "$Dockerfile" 2>/dev/null)" ]; then
     printf_red "Can not find a Dockerfile in $FULL_DIR_PATH"
@@ -1344,13 +1307,13 @@ __execute_buildx() {
   #
   image_name="$(grep -sh 'ARG.*IMAGE_NAME=' "$Dockerfile" | awk -F'=' '{print $2}' | sed 's|"||g' | grep '^' || echo "$default_name")"
   #
-  BUILDX_CURRENT_PROJECT_NAME="${set_name:-$image_name}"
+  name="${set_name:-$image_name}"
   set_newtag="${set_newtag//*:/}"
-  BUILDX_CURRENT_PROJECT_NAME="$(echo "$BUILDX_CURRENT_PROJECT_NAME" | tr '[:upper:]' '[:lower:]')"
+  name="$(echo "$name" | tr '[:upper:]' '[:lower:]')"
   SET_DIR_NAME="$(echo "$SET_DIR_NAME" | tr '[:upper:]' '[:lower:]')"
   #
   __get_dockerfile_ver "$Dockerfile"
-  [ -n "$ENV_IMAGE_PUSH" ] && BUILDX_CURRENT_PROJECT_NAME="$(basename -- "${ENV_IMAGE_PUSH//:*/}")"
+  [ -n "$ENV_IMAGE_PUSH" ] && name="$(basename "${ENV_IMAGE_PUSH//:*/}")"
   tag_version="${new_tag:-$set_newtag}"
   tag_version="${tag_version,,}"
   BUILDX_DEFAULT_VERSION="$tag_version"
@@ -1365,18 +1328,22 @@ __execute_buildx() {
   else
     BUILDX_FAILED_LOG="${BUILDX_FAILED_LOG:-$BUILDX_CWD/.build_failed$BUILDX_DOCKERFILE_VERSION}"
   fi
-  if [ "$(basename -- "$Dockerfile" 2>/dev/null)" = "Dockerfile" ] && [ "$tag_version" != "latest" ]; then
+  if [ "$(basename "$Dockerfile" 2>/dev/null)" = "Dockerfile" ] && [ "$tag_version" != "latest" ]; then
     BUILDX_ADD_TAG="true"
     BUILDX_VERSION_TAG="${BUILDX_VERSION_TAG},latest"
   fi
-  tagged_name="$BUILDX_DEFAULT_REGISTRY/$BUILDX_DEFAULT_REPO/$BUILDX_CURRENT_PROJECT_NAME"
+  if [ "$BUILDX_DEFAULT_HUB" = "docker.io" ]; then
+    tagged_name="$BUILDX_DEFAULT_REPO/$name"
+  else
+    tagged_name="$BUILDX_DEFAULT_HUB/$BUILDX_DEFAULT_REPO/$name"
+  fi
   tagged_name="${tagged_name//\/dockerfile/}"
-  push_tag="$(__check_and_fix_tags "$tagged_name:$tag_version" "$BUILDX_DEFAULT_REGISTRY" "print")"
-  set_tag="${push_tag//$BUILDX_DEFAULT_REGISTRY\//}"
-  logfolder="$BUILDX_CUSTOM_LOG_DIR/$BUILDX_DEFAULT_REGISTRY/$BUILDX_DEFAULT_REPO"
-  logscript_dir="$BUILDX_CONFIG_DIR/scripts/$BUILDX_DEFAULT_REGISTRY/$BUILDX_DEFAULT_REPO"
-  logfile="${BUILDX_CUSTOM_LOG_FILE:-$logfolder/$BUILDX_DEFAULT_REPO-$tag_version.log}"
-  logscript_file="$logscript_dir/$BUILDX_CURRENT_PROJECT_NAME-$tag_version.sh"
+  push_tag="$tagged_name:$tag_version"
+  set_tag="${push_tag//$BUILDX_DEFAULT_HUB\//}"
+  logfolder="${BUILDX_CUSTOM_LOG_DIR:-$(dirname "$tagged_name" | sed 's|.*://||g')}"
+  logfile="${BUILDX_CUSTOM_LOG_FILE:-$BUILDX_LOG_DIR/$(echo "$tagged_name" | awk -F':' '{print $1}').log}"
+  logscript_dir="$BUILDX_CONFIG_DIR/scripts/$(echo "$tagged_name" | awk -F '/' '{print $1}')"
+  logscript_file="$logscript_dir/$(echo "$tagged_name" | awk -F '/' '{print $2}')-${tag_version}.sh"
   pretty_name="${set_tag/:*/}"
   BUILDX_CUSTOM_LOG_FILE="${BUILDX_CUSTOM_LOG_FILE:-$logfile}"
   if [ "$BUILDX_BUILD_ALL" != "true" ]; then
@@ -1407,8 +1374,8 @@ __execute_buildx() {
       fi
     fi
   else
-    printf_red "Failed to build $BUILDX_CURRENT_PROJECT_NAME" >&2
-    notify_message+="Failed to build $BUILDX_CURRENT_PROJECT_NAME|"
+    printf_red "Failed to build $name" >&2
+    notify_message+="Failed to build $name|"
     buildxexitCode=10
   fi
   notify_message="$(echo "$notify_message" | tr '|' '\n')"
@@ -1531,6 +1498,7 @@ __run_git_pull() {
 # User defined variables/import external variables
 BUILDX_FORCE="${BUILDX_FORCE:-}"
 BUILDX_DEFAULT_REPO="${BUILDX_DEFAULT_REPO:-casjaysdevdocker}"
+BUILDX_DEFAULT_HUB="${BUILDX_DEFAULT_HUB:-docker.io}"
 BUILDX_DEFAULT_VERSION="${BUILDX_DEFAULT_VERSION:-latest}"
 BUILDX_REMOVE_BUILD="${BUILDX_REMOVE_BUILD:-}"
 BUILDX_BUILDER_NAME="${BUILDX_BUILDER_NAME:-mybuilder}"
@@ -1540,10 +1508,6 @@ BUILDX_DOCKER_CLI_EXPERIMENTAL="${DOCKER_CLI_EXPERIMENTAL:-enabled}"
 BUILDX_DOCKER_BUILD_EXPERIMENTAL="${BUILDX_EXPERIMENTAL:-1}"
 BUILDX_DOCKER_PLATFORMS="${DOCKER_PLATFORMS:-}"
 BUILDX_PROJECT_DIR="${BUILDX_PROJECT_DIR:-$HOME/Projects/github}"
-BUILDX_DOCKER_CMD="${BUILDX_DOCKER_CMD:-docker}"
-BUILDX_DEFAULT_REGISTRY="${BUILDX_DEFAULT_REGISTRY:-docker.io}"
-BUILDX_BUILD_DATE_TAG_FORMAT="${BUILDX_BUILD_DATE_TAG_FORMAT:-%y%m}"
-BUILDX_DOCKER_PLATFORMS="${BUILDX_DOCKER_PLATFORMS:-linux/amd64,linux/arm64}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application Folders
 BUILDX_CONFIG_FILE="${BUILDX_CONFIG_FILE:-settings.conf}"
@@ -1581,6 +1545,9 @@ BUILDX_ADD_REGISTRY=""
 BUILDX_SET_PLATFORM=""
 BUILDX_RUN_SCRIPT="false"
 BUILDX_ENABLE_REGISTRY="false"
+BUILDX_DOCKER_CMD="${BUILDX_DOCKER_CMD:-docker}"
+BUILDX_BUILD_DATE_TAG_FORMAT="${BUILDX_BUILD_DATE_TAG_FORMAT:-%y%m}"
+BUILDX_DOCKER_PLATFORMS="${BUILDX_DOCKER_PLATFORMS:-linux/amd64,linux/arm64}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$BUILDX_CONFIG_DIR/$BUILDX_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
@@ -1611,6 +1578,8 @@ __notifications() {
     export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$BUILDX_NOTIFY_CLIENT_NAME}"
     export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$BUILDX_NOTIFY_CLIENT_URGENCY}"
     notifications "$@"
+    retval=$?
+    return $retval
   ) |& __devnull &
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1879,9 +1848,6 @@ __buildx_vars $BUILDX_BUILDER_NAME
 [ -d "$BUILDX_CONFIG_DIR/scripts" ] || mkdir -p "$BUILDX_CONFIG_DIR/scripts"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Execute functions
-
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Execute commands
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app

@@ -533,6 +533,9 @@ export TERMBIN_COM_CWD
 # Execute functions
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute commands
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 if [ ${#} -eq 0 ]; then
   if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then

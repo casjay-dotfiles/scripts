@@ -580,6 +580,9 @@ export CHEATSH_CACHE_TYPE="${CHEATSH_CACHE_TYPE:-none}"
 # Execute functions
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute commands
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 __create_completion
 __execute_cheatsh "$@"

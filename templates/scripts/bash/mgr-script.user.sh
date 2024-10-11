@@ -809,6 +809,9 @@ declare -a LISTARRAY=()
 # Execute functions
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute commands
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 case "$1" in
 list)

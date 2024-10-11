@@ -585,6 +585,9 @@ TRANSFER_SH_TMP_SDTIN_FILE="$(mktemp -t XXXXXXXXXXXX)"
 # Execute functions
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute commands
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 case "$1" in
 list)

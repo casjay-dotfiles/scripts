@@ -571,7 +571,6 @@ __get_dockerfile_ver() {
   # TODO: rewrite this function
   [ -n "$DEBUGGER" ] && set -x
   local fileloc=""
-  local TMP_SET_PUSH_TAGS_ALL=()
   local buildx_enable_tag="$BUILDX_ADD_TAG"
   fileloc="$(realpath "${1:-$Dockerfile}" 2>/dev/null)"
   [ -f "$fileloc" ] || return 1
@@ -653,14 +652,7 @@ __get_dockerfile_ver() {
     . "$BUILDX_CWD/.env.scripts.$new_tag"
     ENV_ADD_TAGS="${ENV_ADD_TAGS//USE_DATE/}"
   fi
-  for tag in $set_ver_tag; do
-    TMP_SET_PUSH_TAGS_ALL+=("-t $tag")
-  done
-  SET_PUSH_TAGS_LATEST="$(echo "${TMP_SET_PUSH_TAGS_ALL[@]}" | grep 'latest')"
-  SET_PUSH_TAGS_ALL="$(echo "${TMP_SET_PUSH_TAGS_ALL[@]}" | sort -u | grep -v latest)"
-  SET_PUSH_TAGS_ALL="$(__trim "$SET_PUSH_TAGS_LATEST" "$SET_PUSH_TAGS_ALL")"
   BUILDX_GET_VERSION_MESSAGE="$(printf '%s\n%s\n%s\n' "Image version is: $new_tag" "setting tag to $new_tag" "Added tags: ${BUILDX_VERSION_TAG:-none}")"
-
   #
   return $exitC
 }
@@ -1028,6 +1020,7 @@ __check_and_fix_tags() {
   local tmp_host="$2"
   local tmp_action="$3"
   local tmp_new_tag=""
+  local TMP_SET_PUSH_TAGS_ALL=""
   [ -n "$tmp_tag" ] || return 1
   tmp_new_tag="$tmp_tag"
   if echo "$tmp_tag" | grep -q '^/'; then
@@ -1036,6 +1029,10 @@ __check_and_fix_tags() {
   fi
   tmp_new_tag="${tmp_new_tag//\/\///}"
   [ "$tmp_action" = "print" ] && echo "$tmp_new_tag" || set_new_tag="$tmp_new_tag"
+  for tag in $tmp_new_tag; do
+    TMP_SET_PUSH_TAGS_ALL=("-t $tag")
+  done
+  SET_PUSH_TAGS_ALL+=("$(__trim "${TMP_SET_PUSH_TAGS_ALL[@]}")")
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __tag_versions() {
@@ -1120,7 +1117,7 @@ __run_dockermgr_script() {
   local dir="/tmp/builder"
   local build_name="$(basename -- "${tagged_name//:*/}")"
   local buildfile="$(basename -- "${Dockerfile:-Dockerfile}")"
-  set_build_command='dockermgr --name '$build_name',,--builder buildx_script "'$BUILDX_DOCKER_PLATFORMS'",,"'$SET_PUSH_TAGS_ALL'",,"'$dir'",,"'$dir/$buildfile'"'
+  set_build_command='dockermgr --name '$build_name',,--builder buildx_script "'$BUILDX_DOCKER_PLATFORMS'",,"'${SET_PUSH_TAGS_ALL[@]}'",,"'$dir'",,"'$dir/$buildfile'"'
   build_command="$(echo "$set_build_command" | grep '^' | grep -v '^$' | sed 's|,,| \\\n|g')"
   set_build_command="${set_build_command//,,/}"
   printf '%b%s: %b%s%b\n' "$GREEN" "Saving the build command to" "$CYAN" "$logscript_file" "$NC"
@@ -1138,7 +1135,7 @@ __run_dockermgr_script() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_buildx_script() {
-  set_build_command="$BUILDX_DOCKER_CMD buildx build ${BUILDX_REMOVE_BUILD:-},, --platform $BUILDX_DOCKER_PLATFORMS,,--rm --pull --push,, --no-cache --progress auto --output=type=registry,,$SET_PUSH_TAGS_ALL,,${dir:-$PWD},,-f ${Dockerfile:-Dockerfile}"
+  set_build_command="$BUILDX_DOCKER_CMD buildx build ${BUILDX_REMOVE_BUILD:-},, --platform $BUILDX_DOCKER_PLATFORMS,,--rm --pull --push,, --no-cache --progress auto --output=type=registry,,${SET_PUSH_TAGS_ALL[@]},,${dir:-$PWD},,-f ${Dockerfile:-Dockerfile}"
   build_command="$(echo "$set_build_command" | grep '^' | grep -v '^$' | sed 's|,,| \\\n|g')"
   set_build_command="${set_build_command//,,/}"
   printf '%b%s: %b%s%b\n' "$GREEN" "Saving the build command to" "$CYAN" "$logscript_file" "$NC"
@@ -1156,7 +1153,7 @@ __run_buildx_script() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_build_script() {
-  set_build_command="$BUILDX_DOCKER_CMD build,, --pull --force-rm --no-cache,,$SET_PUSH_TAGS_ALL,,${dir:-$PWD},,-f ${Dockerfile:-Dockerfile}"
+  set_build_command="$BUILDX_DOCKER_CMD build,, --pull --force-rm --no-cache,,${SET_PUSH_TAGS_ALL[@]},,${dir:-$PWD},,-f ${Dockerfile:-Dockerfile}"
   build_command="$(echo "$set_build_command" | grep '^' | grep -v '^$' | sed 's|,,| \\\n|g')"
   set_build_command="${set_build_command//,,/}"
   printf '%b%s: %b%s%b\n' "$GREEN" "Saving the build command to" "$CYAN" "$logscript_file" "$NC"
@@ -1232,6 +1229,7 @@ __run_docker_build() {
   ADDITIONAL_TAGS="$REGISTRY_TAG ${ADD_HOST[*]}"
   ADDITIONAL_PRETTY="$(echo "$ADDITIONAL_TAGS" | sed 's|--tag||g;s|-t||g' | tr ' ' '\n' | grep -v '^$' | tr '\n' ' ')"
   [ -n "$image_name" ] && tagged_name="$image_name" || tagged_name="$push_tag"
+  SET_PUSH_TAGS_ALL=("$(echo "${SET_PUSH_TAGS_ALL[@]}" | sort -u | grep -v '^$')")
   if [ "$BUILDX_RUN_SCRIPT" = "true" ] && [ -f "$BUILDX_CWD/build.sh" ]; then
     printf_blue "Using $BUILDX_CWD/build.sh to build $tagged_name"
     printf '%s\n' "# Using Using $BUILDX_CWD/build.sh to build $tagged_name" | tee -p -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null
@@ -1875,7 +1873,7 @@ __set_variables
 __buildx_vars $BUILDX_BUILDER_NAME
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Export variables
-
+SET_PUSH_TAGS_ALL=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
 [ -d "$BUILDX_CUSTOM_LOG_DIR" ] || mkdir -p "$BUILDX_CUSTOM_LOG_DIR"

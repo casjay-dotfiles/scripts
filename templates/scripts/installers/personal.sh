@@ -137,7 +137,7 @@ while :; do
   esac
 done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__set_vars "#@"
+__set_vars "$@"
 unalias cp &>/dev/null
 if __cmd_exists sudo; then sudo true; fi
 rm -Rf "$DOTFILES_TEMP_FILE" /tmp/dfmpersonal-* &>/dev/null

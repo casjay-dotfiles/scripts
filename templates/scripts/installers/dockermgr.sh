@@ -65,6 +65,25 @@ fi
 # Make sure the scripts repo is installed
 scripts_check
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "i,s:,h:,d:,e:,m:,p:" --long "init,server:,host:,domain:,env:,mount:,port:" -n "$APPNAME" -- "$@" 2>/dev/null)
+set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case "$1" in #
+  --debug | --raw) shift 1 ;;
+  -a | --name) APPNAME="$2" && shift 2 ;;
+  -i | --init) ENV_INIT_SCRIPT_ONLY="yes" && shift 1 ;;
+  -s | --server) CONTAINER_FULL_HOST="$2" && shift 2 ;;
+  -h | --host) CONTAINER_OPT_HOSTNAME="$2" && shift 2 ;;
+  -d | --domain) CONTAINER_OPT_DOMAINNAME="$2" && shift 2 ;;
+  -e | --env) CONTAINER_OPT_ENV_VAR="$2 $CONTAINER_OPT_ENV_VAR" && shift 2 ;;
+  -m | --mount) CONTAINER_OPT_MOUNT_VAR="$2 $CONTAINER_OPT_MOUNT_VAR" && shift 2 ;;
+  -p | --port) CONTAINER_OPT_PORT_VAR="$2 $CONTAINER_OPT_PORT_VAR" && shift 2 ;;
+  --) shift 1 && break ;;
+  *) break ;;
+  esac
+done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # image tag - [docker pull DOCKER_HUB_IMAGE_URL:tag]
 DOCKER_HUB_IMAGE_TAG="latest"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -232,23 +251,6 @@ __show_post_message() {
 
   return 0
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Setup application options
-setopts=$(getopt -o "i,s:,h:,d:,e:,m:,p:" --long "init,server:,host:,domain:,env:,mount:,port:" -n "$APPNAME" -- "$@" 2>/dev/null)
-set -- "${setopts[@]}" 2>/dev/null
-while :; do
-  case "$1" in #
-  -i | --init) ENV_INIT_SCRIPT_ONLY="yes" && shift 1 ;;
-  -s | --server) CONTAINER_FULL_HOST="$2" && shift 2 ;;
-  -h | --host) CONTAINER_OPT_HOSTNAME="$2" && shift 2 ;;
-  -d | --domain) CONTAINER_OPT_DOMAINNAME="$2" && shift 2 ;;
-  -e | --env) CONTAINER_OPT_ENV_VAR="$2 $CONTAINER_OPT_ENV_VAR" && shift 2 ;;
-  -m | --mount) CONTAINER_OPT_MOUNT_VAR="$2 $CONTAINER_OPT_MOUNT_VAR" && shift 2 ;;
-  -p | --port) CONTAINER_OPT_PORT_VAR="$2 $CONTAINER_OPT_PORT_VAR" && shift 2 ;;
-  --) shift 1 && break ;;
-  *) break ;;
-  esac
-done
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [ -n "$(type -P sudo)" ] && sudo -n true && sudo true && DOCKERMGR_USER_CAN_SUDO="true"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

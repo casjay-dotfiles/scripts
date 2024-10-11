@@ -27,7 +27,7 @@ set -o pipefail
 exitCode=0
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Predifined actions
+# Predefined actions
 if [ -d "/tmp" ]; then rm -Rf "/tmp"/*; fi
 if [ -d "\$HOME/.cache" ]; then rm -Rf "\$HOME/.cache"; fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

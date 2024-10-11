@@ -27,7 +27,7 @@ set -o pipefail
 exitCode=0
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Predifined actions
+# Predefined actions
 if [ -d "/tmp/bin" ]; then
   mkdir -p "/usr/local/bin"
   for bin in "/tmp/bin"/*; do

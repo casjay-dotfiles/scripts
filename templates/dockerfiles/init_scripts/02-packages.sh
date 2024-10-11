@@ -27,7 +27,7 @@ set -o pipefail
 exitCode=0
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Predifined actions
+# Predefined actions
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main script

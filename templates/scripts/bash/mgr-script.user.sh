@@ -241,7 +241,7 @@ __run_install_version() {
     file="$(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM/$1" 2>/dev/null)"
     export file
     if [ -f "$file" ]; then
-      appname="$(__basename -- "$file")"
+      appname="$(__basename "$file")"
       eval "$file" "--version $appname"
       GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$?
     fi
@@ -257,7 +257,7 @@ __cron_updater() {
       file="$(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM/$upd" 2>/dev/null)"
       export file
       if [ -f "$file" ]; then
-        appname="$(__basename -- "$file")"
+        appname="$(__basename "$file")"
         eval "$file" "--cron $appname"
         GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$(($GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS + $?))
       fi
@@ -267,7 +267,7 @@ __cron_updater() {
       file="$(ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM/$1" 2>/dev/null)"
       export file
       if [ -f "$file" ]; then
-        appname="$(__basename -- "$file")"
+        appname="$(__basename "$file")"
         bash -c "$file --cron $appname"
         GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=$(($GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS + $?))
       fi

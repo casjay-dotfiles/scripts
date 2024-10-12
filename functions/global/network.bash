@@ -69,7 +69,7 @@ netcat="$(builtin type -P nc 2>/dev/null || builtin type -P netcat 2>/dev/null |
 __netcat_test() { builtin type -P netcat &>/dev/null || printf_error "The program netcat is not installed"; }
 __netcat_pids() { netstat -tupln 2>/dev/null | grep ":$1" | grep "$(__basename ${netcat:-nc})" | awk '{print $7}' | sed 's#'/"$(__basename ${netcat:-nc})"'##g' | grep '^'; }
 # kill_netpid "port" "procname"
-__kill_netpid() { netstatg "$1" | grep "$(__basename -- "$2")" | awk '{print $7}' | sed 's#/'$2'##g' && netstat -taupln | grep -qv "$1" || return 1; }
+__kill_netpid() { netstatg "$1" | grep "$(__basename "$2")" | awk '{print $7}' | sed 's#/'$2'##g' && netstat -taupln | grep -qv "$1" || return 1; }
 __netcat_kill() {
   pidof "$netcat" &>/dev/null && kill -s KILL "$(__netcat_pids "$1")" &>/dev/null
   netstat -taupln | grep -Fqv ":$1 " || return 1

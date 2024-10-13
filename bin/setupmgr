@@ -447,7 +447,9 @@ __trap_exit() {
 __options_function_no() {
   local options="${1//=*/}"
   local argument="${1//*=/}"
+  echo "$options"
   case "$options" in
+  *-tee) __output_status() { tee; } && shift ;;
   *) echo "${argument:-No argument provided}" && shift ;;
   esac
 }
@@ -489,98 +491,255 @@ __notify_remote() {
 # Setup trap to remove temp file
 trap '__trap_exit' EXIT
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined functions
+__output_status() { tee /dev/null &>/dev/null; }
 __curl() { curl -q -LSsf "$@" 2>/dev/null || return 1; }
-__is_dir_empty() { [ "$(find "$1" -maxdepth 1 -type f 2>/dev/null | grep -v '^$' | wc -l)" = 0 ] || return 1; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# url tmpFile tmpFile moveFrom moveTo
-__download_extract() { __curl "$1" -o "$SETUPMGR_TEMP_DIR/$(basename -- "$1")" && __extract "$SETUPMGR_TEMP_DIR/$(basename -- "$1")" "$2" "$3" "$4" || return 1; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# url tmpFile tmpFile moveTo
-__download_and_move() { __curl "$1" -o "$SETUPMGR_TEMP_DIR/$(basename -- "$2")" && mv -f "$SETUPMGR_TEMP_DIR/$(basename -- "$2")" "$3" && chmod +x "$3" && rm -Rf "$2" || return 1; }
+__dir_has_one_folder() { if [ "$(find "$1" -maxdepth 1 -type d 2>/dev/null | grep -v '^$' | wc -l)" != 1 ]; then return 1; fi; }
+__is_dir_empty() { if [ "$(find "$1" -maxdepth 1 -type f 2>/dev/null | grep -v '^$' | wc -l)" != 0 ]; then return 1; fi; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __check_for_vulkan_support() { __cmd_exists vulkaninfo && { vulkaninfo 2>&1 | grep '^ERROR ' | grep -v 'ERROR_INCOMPATIBLE_DRIVER' | head -n1 | grep '^' || return 2; } || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# User defined functions
+__git_update_repo() { (git -C "$1" reset --hard git && git -C "$1" fetch origin && git -C "$1" pull && git -C "$1" reset --hard) &>/dev/null || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__git_clone_repo() { git clone "$1" "$2" -q &>/dev/null || return 2; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gen_desktopfile() {
+  local exitCode=0
+  local desktop_file="$HOME/.local/share/applications/$1.desktop"
+  mkdir -p "$HOME/.local/share/applications"
+  [ -f "$desktop_file" ] && return
+  cat <<EOF | tee "$desktop_file" &>/dev/null
+[Desktop Entry]
+Name=$1
+Exec=$2
+Type=Application
+Icon=xfce4
+
+EOF
+  if [ -f "$desktop_file" ]; then
+    chmod 755 "$desktop_file"
+  fi
+  return $exitCode
+}
+# url options
+__download_and_execute() {
+  local url="$1" name="$(__basename "$1")" && shift 1
+  [ "$1" = "sudo" ] && local use_sudo="yes" && shift 1
+  SETUPMGR_TEMP_EXECUTE_FILE=$SETUPMGR_TEMP_DIR/$name
+  [ -n "$PACKAGE_TMP_DIR" ] && rm -Rf "$PACKAGE_TMP_DIR"
+  [ -n "$SETUPMGR_TEMP_EXECUTE_FILE" ] && rm -Rf "$SETUPMGR_TEMP_EXECUTE_FILE" || return
+  if [ "$use_sudo" = "yes" ]; then
+    shift 1
+    __curl "$url" | sudo -- bash -s -- "$@" 2>/dev/null
+  else
+    __curl "$url" | bash -s -- "$@" 2>/dev/null
+  fi
+  if [ $? -ne 0 ]; then
+    printf_red "Failed to download $url" >&2
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# url tmpFile installDir files
+__download_extract_move() {
+  local url="$1" name="$(__basename "$1")" && shift 1
+  SETUPMGR_TEMP_EXTRACT_FILE=$SETUPMGR_TEMP_DIR/$name
+  [ -n "$PACKAGE_TMP_DIR" ] && rm -Rf "$PACKAGE_TMP_DIR"
+  [ -n "$SETUPMGR_TEMP_EXTRACT_FILE" ] && rm -Rf "$SETUPMGR_TEMP_EXTRACT_FILE" || return
+  __curl "$url" -o "$SETUPMGR_TEMP_EXTRACT_FILE" && __extract "$SETUPMGR_TEMP_EXTRACT_FILE" "--files" "$@"
+  if [ $? -ne 0 ]; then
+    printf_red "Failed to download $url" >&2
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# url installDir name binDir/name
+__download_extract_install() {
+  local url="$1" name="$(__basename "$1")" && shift 1
+  SETUPMGR_TEMP_EXTRACT_FILE=$SETUPMGR_TEMP_DIR/$name
+  [ -n "$PACKAGE_TMP_DIR" ] && rm -Rf "$PACKAGE_TMP_DIR"
+  [ -n "$SETUPMGR_TEMP_EXTRACT_FILE" ] && rm -Rf "$SETUPMGR_TEMP_EXTRACT_FILE" || return
+  __curl "$url" -o "$SETUPMGR_TEMP_EXTRACT_FILE" && __extract "$SETUPMGR_TEMP_EXTRACT_FILE" "--install" "$1" "$2" "$3"
+  if [ $? -ne 0 ]; then
+    printf_red "Failed to download $url" >&2
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# url tmpFile tmpFile moveTo
+__download_and_move() {
+  local url="$1" name="$(__basename "$2")" && shift 1
+  SETUPMGR_TEMP_MOVE_FILE="$SETUPMGR_TEMP_DIR/$name"
+  [ -n "$PACKAGE_TMP_DIR" ] && rm -Rf "$PACKAGE_TMP_DIR"
+  [ -n "$SETUPMGR_TEMP_MOVE_FILE" ] && rm -Rf "$SETUPMGR_TEMP_MOVE_FILE" || return
+  __curl "$url" -o "$SETUPMGR_TEMP_MOVE_FILE" && mv -f "$SETUPMGR_TEMP_MOVE_FILE" "$2" && chmod +x "$2" && rm -Rf "$SETUPMGR_TEMP_MOVE_FILE"
+  if [ $? -ne 0 ]; then
+    printf_red "Failed to download $url" >&2
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _tar_extract() {
-  local file="$1"
-  local tmpDir="$2"
+  local tmpFile="$1"
   local exitEXCode=0
-  if [ -f "$file" ]; then
-    case "$file" in
-    *.tar) tar xf "$file" -C "$tmpDir" >/dev/null 2>&1 || exitEXCode=1 ;;
-    *.tgz) tar xzf "$file" -C "$tmpDir" >/dev/null 2>&1 || exitEXCode=1 ;;
-    *.tbz2) tar xjf "$file" -C "$tmpDir" >/dev/null 2>&1 || exitEXCode=1 ;;
-    *.tar.gz) tar xzf "$file" -C "$tmpDir" >/dev/null 2>&1 || exitEXCode=1 ;;
-    *.tar.xz) tar xzf "$file" -C "$tmpDir" >/dev/null 2>&1 || exitEXCode=1 ;;
-    *.tar.bz2) tar xjf "$file" -C "$tmpDir" >/dev/null 2>&1 || exitEXCode=1 ;;
+  if [ -f "$tmpFile" ]; then
+    case "$tmpFile" in
+    *.tar) tar xf "$tmpFile" -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || exitEXCode=1 ;;
+    *.tgz) tar xzf "$tmpFile" -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || exitEXCode=1 ;;
+    *.tbz2) tar xjf "$tmpFile" -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || exitEXCode=1 ;;
+    *.tar.gz) tar xzf "$tmpFile" -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || exitEXCode=1 ;;
+    *.tar.xz) tar xzf "$tmpFile" -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || exitEXCode=1 ;;
+    *.tar.bz2) tar xjf "$tmpFile" -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || exitEXCode=1 ;;
+    *) return ;;
     esac
+  fi
+  __is_dir_empty "$PACKAGE_TMP_DIR" && exitEXCode=1
+  return $exitEXCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# tmpFile moveTo moveFrom
+__extract() {
+  local exitEXCode=0
+  local tmpFile="${1:-$tmpFile}"
+  if mkdir -p "$PACKAGE_TMP_DIR" && builtin cd "$SETUPMGR_TEMP_DIR"; then
+    if [ -f "$tmpFile" ]; then
+      if [ "$extract_cmd" = "do_not_strip_components" ]; then
+        _tar_extract "$tmpFile" || exitEXCode=1
+      else
+        case "$tmpFile" in
+        *.tar) tar xf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" || exitEXCode=1 ;;
+        *.tgz) tar xzf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" || exitEXCode=1 ;;
+        *.tbz2) tar xjf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" || exitEXCode=1 ;;
+        *.tar.gz) tar xzf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" || exitEXCode=1 ;;
+        *.tar.xz) tar xzf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" || exitEXCode=1 ;;
+        *.tar.bz2) tar xjf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" || exitEXCode=1 ;;
+        *.gz) gunzip "$tmpFile" >/dev/null 2>&1 || exitEXCode=1 ;;
+        *.bz2) bunzip2 "$tmpFile" >/dev/null 2>&1 || exitEXCode=1 ;;
+        *.Z) uncompress "$tmpFile" >/dev/null 2>&1 || exitEXCode=1 ;;
+        *.zip) unzip "$tmpFile" -d "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || exitEXCode=1 ;;
+        *) printf_red "$tmpFile is not a valid archive file" && exitEXCode=1 ;;
+        esac
+      fi
+      if [ $exitEXCode = 0 ]; then
+        [ -f "$tmpFile" ] && rm -Rf "$tmpFile"
+        case "$2" in
+        --files)
+          shift 2
+          find_extracted="$(find "$PACKAGE_TMP_DIR" -type f -name "$1" 2>/dev/null | grep -E "^$1$|/$1$" | head -n1)"
+          if [ -x "$find_extracted" ]; then
+            __move_extracted_file "$find_extracted" "$2"
+          elif [ -f "$PACKAGE_TMP_DIR/$1" ]; then
+            __move_extracted_file "$PACKAGE_TMP_DIR/$1" "$2"
+          elif [ -d "$1" ]; then
+            binDir="$1" && shift 1
+            set_files="${*//,/ }"
+            for get_files in $set_files; do
+              for file in $PACKAGE_TMP_DIR/$get_files; do
+                local tmpFilename="$(__basename "$file")"
+                __move_extracted_file "$file" "$binDir/$tmpFilename"
+              done
+            done
+            unset tmpFilename
+          fi
+          ;;
+        --install)
+          shift 2
+          set -x
+          local installDir="$1"
+          local installBinD="$2"
+          local installBinTo="$3"
+          local installBinFrom=""
+          if [ -n "$installDir" ]; then
+            mkdir -p "$installDir" && rsync -aq "$PACKAGE_TMP_DIR/." "$installDir/" --delete-before && exitEXCode=0 || exitEXCode=3
+            if [ $exitEXCode -eq 0 ]; then
+              if [ -f "$installBinD" ]; then
+                installBinFrom="$installBinD"
+              elif [ -f "$installDir/$installBinD" ]; then
+                installBinFrom="$installDir/$installBinD"
+              elif [ -f "$installDir/$installBinD/$installBinD" ]; then
+                installBinFrom="$installDir/$installBinD/$installBinD"
+              fi
+              if [ -n "$installBinFrom" ] && [ -n "$installBinTo" ]; then
+                chmod +x "$installBinFrom"
+                __symlink_installed_files "$installBinFrom" "$installBinTo"
+              fi
+              if [ ! -f "$installBinTo" ]; then
+                exitCode=2
+                printf_red "Can not find file $installBinTo"
+              fi
+            else
+              exitCode=2
+              printf_red "Failed to install to $installdir"
+            fi
+          else
+            exitCode=3
+            printf_red "installDir in not specified"
+          fi
+          ;;
+        esac
+      fi
+      set +x
+    else
+      exitEXCode=5
+      printf_red "$tmpFile is not a valid file"
+    fi
+    if [ $exitEXCode -ne 0 ]; then
+      printf_red "Failed to extract $tmpFile"
+      exitEXCode=1
+    fi
+  else
+    exitEXCode=1
+    printf_red "SETUPMGR_TEMP_DIR"
+  fi
+  if [ $exitEXCode -eq 0 ]; then
+    [ -d "$PACKAGE_TMP_DIR" ] #&& rm -Rf "$PACKAGE_TMP_DIR"
   fi
   return $exitEXCode
 }
-# file moveFrom moveTo
-__extract() {
-  local file="$1"
-  local binFile="$2"
-  local userBin="$3"
-  local installDir="$4"
-  local exitEXCode=0
-  local tmpDir="$SETUPMGR_TEMP_DIR/$$"
-  [ -d "$tmpDir" ] || mkdir -p "$tmpDir"
-  builtin cd "$SETUPMGR_TEMP_DIR" || exit 1
-  if [ -f "$file" ]; then
-    case "$file" in
-    *.tar) tar xf "$file" --strip-components=1 -C "$tmpDir" >/dev/null 2>&1 || _tar_extract "$file" "$tmpDir" || exitEXCode=1 ;;
-    *.tgz) tar xzf "$file" --strip-components=1 -C "$tmpDir" >/dev/null 2>&1 || _tar_extract "$file" "$tmpDir" || exitEXCode=1 ;;
-    *.tbz2) tar xjf "$file" --strip-components=1 -C "$tmpDir" >/dev/null 2>&1 || _tar_extract "$file" "$tmpDir" || exitEXCode=1 ;;
-    *.tar.gz) tar xzf "$file" --strip-components=1 -C "$tmpDir" >/dev/null 2>&1 || _tar_extract "$file" "$tmpDir" || exitEXCode=1 ;;
-    *.tar.xz) tar xzf "$file" --strip-components=1 -C "$tmpDir" >/dev/null 2>&1 || _tar_extract "$file" "$tmpDir" || exitEXCode=1 ;;
-    *.tar.bz2) tar xjf "$file" --strip-components=1 -C "$tmpDir" >/dev/null 2>&1 || _tar_extract "$file" "$tmpDir" || exitEXCode=1 ;;
-    *.gz) gunzip "$file" >/dev/null 2>&1 || exitEXCode=1 ;;
-    *.bz2) bunzip2 "$file" >/dev/null 2>&1 || exitEXCode=1 ;;
-    *.Z) uncompress "$file" >/dev/null 2>&1 || exitEXCode=1 ;;
-    *.zip) unzip "$file" -d "$tmpDir" >/dev/null 2>&1 || exitEXCode=1 ;;
-    esac
-    __is_dir_empty "$tmpDir" && _tar_extract "$file" "$tmpDir"
-  else
-    printf_red "$file is not a valid file"
-    return 1
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# "toFile" "fromFile"
+__move_extracted_file() {
+  local exitCode=0
+  local tempBin="$1"
+  local userBin="$2"
+  local binFile="$(__basename "$userBin")"
+  [ -f "$PACKAGE_TMP_DIR/$binFile" ] && tempBin="$PACKAGE_TMP_DIR/$binFile" || tempBin="$(ls "$PACKAGE_TMP_DIR" | grep "$binFile$" || find "$PACKAGE_TMP_DIR" -type f -iname "$binFile" 2>/dev/null)"
+  if [ -f "$1" ]; then
+    printf_cyan "Installing ${1//$HOME/\~} to $userBin"
+    mv -f "$1" "$userBin" && chmod +x "$userBin" || exitEXCode=1
+  elif [ -f "$PACKAGE_TMP_DIR/$binFile" ]; then
+    printf_cyan "Installing ${PACKAGE_TMP_DIR//$HOME/\~}/$binFile to $userBin"
+    mv -f "$PACKAGE_TMP_DIR/$binFile" "$userBin" && chmod +x "$userBin" || exitEXCode=1
+  elif [ -n "$tempBin" ] && [ -f "$tempBin" ]; then
+    printf_cyan "Installing ${tempBin//$HOME/\~} to $userBin"
+    mv -f "$tempBin" "$userBin" && chmod +x "$userBin" || exitEXCode=1
+
   fi
-  if [ $exitEXCode -ne 0 ]; then
-    printf_red "Failed to extract $file"
-    return 1
-  fi
-  [ -n "$tmp_bin_file" ] && tmp_bin_file="$tmpDir/$tmp_bin_file" || tmp_bin_file="$(ls "$tmpDir" | grep "$binFile$" || find "$tmpDir" -type f -iname "$binFile" 2>/dev/null)"
-  if [ -n "$installDir" ]; then
-    tmp_bin_file="${tmp_bin_file//$tmpDir\//}"
-    mkdir -p "$installDir"
-    rsync -avhP "$tmpDir"/* "$installDir/" --delete >/dev/null 2>&1
-    if [ -n "$tmp_bin_file" ]; then
-      chmod +x "$installDir/$tmp_bin_file"
-      ln -sf "$installDir/$tmp_bin_file" "$userBin"
-    elif "$installDir/bin/$binFile"; then
-      chmod +x "$installDir/bin/$binFile"
-      ln -sf "$installDir/bin/$binFile" "$userBin"
-    elif "$installDir/$binFile"; then
-      chmod +x "$installDir/$binFile"
-      ln -sf "$installDir/$binFile" "$userBin"
+  [ -x "$userBin" ] || exitCode=1
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# "installDir/name" "~/.local/bin/name"
+__symlink_installed_files() {
+  local BinFrmFile="$1"
+  local installBin="$2"
+  if [ -n "$BinFrmFile" ] && [ -n "$installBin" ]; then
+    if [ -f "$BinFrmFile" ]; then
+      chmod +x "$BinFrmFile"
+      ln -sf "$BinFrmFile" "$installBin"
+    elif [ -f "$installDir/bin/$BinFrmFile" ]; then
+      chmod +x "$installDir/bin/$BinFrmFile"
+      ln -sf "$installDir/bin/$BinFrmFile" "$installBin"
+    elif [ -f "$installDir/$BinFrmFile" ]; then
+      chmod +x "$installDir/$BinFrmFile"
+      ln -sf "$installDir/$BinFrmFile" "$installBin"
     else
       exitCode=1
     fi
-  elif [ -n "$tmp_bin_file" ] && [ -f "$tmp_bin_file" ]; then
-    mv -f "$tmp_bin_file" "$userBin"
-    chmod +x "$userBin" || exitEXCode=1
-  elif [ -f "$tmpDir/$binFile" ]; then
-    mv -f "$tmpDir/$binFile" "$userBin"
-    chmod +x "$userBin" || exitEXCode=1
-  fi
-  if [ -x "$userBin" ] || { [ -n "$installDir" ] && [ -d "$installDir" ]; }; then
-    [ -f "$file" ] && rm -Rf "$file"
-    [ -d "$tmpDir" ] && rm -Rf "$tmpDir"
   else
     exitCode=1
   fi
-  unset tmp_bin_file
-  return $exitEXCode
+  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_lua() {
@@ -598,19 +757,19 @@ __setup_lua() {
   [ -d "$LUAVER_HOME/.git" ] || rm -Rf "$LUAVER_HOME" &>/dev/null
   printf_green "Downloading luaver from $GITREPO"
   if [ -d "$LUAVER_HOME/.git" ]; then
-    git -C "$LUAVER_HOME" reset --hard &>/dev/null
-    git -C "$LUAVER_HOME" fetch origin &>/dev/null &&
-      git -C "$LUAVER_HOME" pull &>/dev/null &&
-      git -C "$LUAVER_HOME" reset --hard &>/dev/null &&
-      printf_blue "Downloaded luaver from $GITREPO" || printf_exit "Failed to download the repo" >&2
-  elif git clone "$GITREPO" "$LUAVER_HOME" -q &>/dev/null; then
+    if __git_update_repo "$LUAVER_HOME"; then
+      printf_blue "Downloaded luaver from $GITREPO"
+    else
+      printf_exit "Failed to download the repo" >&2
+    fi
+  elif __git_clone_repo "$GITREPO" "$LUAVER_HOME"; then
     printf_blue "Downloaded luaver from $GITREPO"
     chmod 755 "$LUAVER_HOME/luaver"
   else
     printf_exit "Failed to download the repo" >&2
   fi
   if [ ! -f "$luaver_bin_file" ] && [ -f "$LUAVER_HOME/luaver" ] && [ "$luaver_bin_file" != "$LUAVER_HOME/luaver" ]; then
-    ln -sf "$LUAVER_HOME/luaver" "$luaver_bin_file"
+    __symlink_installed_files "$LUAVER_HOME/luaver" "$luaver_bin_file"
   fi
   if type luaver &>/dev/null; then
     printf_green "Installing lua version: $version"
@@ -644,11 +803,11 @@ __setup_asdf() {
   printf_yellow "Installing asdf dependencies"
   if [ -d "$ASDF_DIR/.git" ]; then
     printf_green "Updating asdf"
-    git -C "$ASDF_DIR" pull -q &>/dev/null && printf_green "Updated $ASDF_DIR" || err_mess="Failed to update $ASDF_DIR"
+    __git_update_repo "$ASDF_DIR" && printf_green "Updated $ASDF_DIR" || err_mess="Failed to update $ASDF_DIR"
   else
     printf_green "Installing ASDF to $ASDF_DIR"
     [ -d "$ASDF_DIR" ] && rm -Rf "$ASDF_DIR"
-    git clone -q "$ASDF_GITREPO" "$ASDF_DIR" &>/dev/null || err_mess="Failed to install ASDF"
+    __git_clone_repo "$ASDF_GITREPO" "$ASDF_DIR" || err_mess="Failed to install ASDF"
   fi
   [ -f "$ASDF_DIR/asdf.sh" ] && . "$ASDF_DIR/asdf.sh"
   if [ -n "$(type -f asdf 2>/dev/null)" ]; then
@@ -665,6 +824,7 @@ __setup_deno() {
   local name="deno"
   local arch="$(uname -m)"
   local binFile="$DENO_BIN_DIR/$name"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
   local release_url="https://github.com/denoland/deno/releases/latest/download"
   [ -d "$DENO_BIN_DIR" ] || mkdir -p "$DENO_BIN_DIR"
   if [ "$arch" = "x86_64" ]; then
@@ -679,10 +839,8 @@ __setup_deno() {
   else
     printf_green "Attempting to install $name"
   fi
-  if __download_extract "$deno_uri" "$name" "$binFile"; then
+  if __download_extract_move "$deno_uri" "$name" "$binFile"; then
     printf_green "$name has been installed"
-  else
-    printf_exit "Failed to download $deno_uri"
   fi
   if [ -n "$(type -P $name 2>/dev/null)" ]; then
     if $name --help 2>&1 | grep -q 'execute binary file'; then
@@ -691,8 +849,8 @@ __setup_deno() {
       exitCode=1
     fi
   else
-    printf_red "Failed to install $name"
     exitCode=1
+    printf_red "Failed to install $name"
   fi
   return $exitCode
 }
@@ -703,13 +861,14 @@ __setup_bun() {
   local arch="$(uname -m)"
   local binDir="$BUN_BIN_DIR"
   local binFile="$binDir/$name"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
   local release_url="https://github.com/oven-sh/bun/releases/latest/download"
   [ -d "$binDir" ] || mkdir -p "$binDir"
   if [ "$arch" = "x86_64" ]; then
-    tmp_bin_file="bun-linux-x64"
+    tempBin="bun-linux-x64"
     bun_url="$release_url/bun-linux-x64.zip"
   elif [ "$arch" = "aarch64" ]; then
-    tmp_bin_file="bun-linux-aarch64"
+    tempBin="bun-linux-aarch64"
     bun_url="$release_url/bun-linux-aarch64.zip"
   else
     printf_exit "Only x86_64 and ARM64 architecture is supported"
@@ -719,7 +878,7 @@ __setup_bun() {
   else
     printf_green "Attempting to install $name"
   fi
-  if __download_extract "$bun_url" "$name" "$binFile"; then
+  if __download_extract_move "$bun_url" "$name" "$binFile"; then
     printf_green "$name has been installed"
   else
     printf_exit "Failed to download $bun_url"
@@ -740,10 +899,10 @@ __setup_bun() {
 __setup_distrobox() {
   local bin name
   local exitCode=0
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
   DBX_HOME="${DBX_HOME:-$HOME/.local/share/distrobox}"
   printf_green "Installing distrobox"
-  if __curl "$DISTROBOX_SCRIPT_URL" -o "$SETUPMGR_TEMP_DIR/distrobox" >/dev/null 2>&1; then
-    sh "$SETUPMGR_TEMP_DIR/distrobox" --next --prefix "$DISTROBOX_HOME" >/dev/null 2>&1
+  if __download_and_execute "$DISTROBOX_SCRIPT_URL" --next --prefix "$DISTROBOX_HOME" |& __output_status; then
     if [ -f "$DISTROBOX_HOME/bin/distrobox-init" ]; then
       for bin in "$DISTROBOX_HOME/bin"/*; do
         name="$(basename -- "$bin")"
@@ -766,14 +925,22 @@ __setup_distrobox() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_dotnet() {
   local exitCode=0
-  printf_cyan "Installing dotnet this may take a few minutes"
-  __curl "$DOTNET_SCRIPT_URL" | bash -s -- --install-dir "$DOTNET_ROOT" &>/dev/null
-  [ -d "$HOME/.dotnet" ] && mv -f "$HOME/.dotnet" "$DOTNET_ROOT"
-  [ -f "$DOTNET_ROOT/dotnet" ] && ln -sf "$DOTNET_ROOT/dotnet" "$DOTNET_BIN_DIR/dotnet"
-  if __cmd_exists dotnet; then
-    printf_green "dotnet has been installed to $DOTNET_ROOT"
+  local name="dotnet"
+  local binDir="$DOTNET_BIN_DIR"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
+  if __cmd_exists $name; then
+    printf_green "Attempting to update $name"
   else
-    printf_red "Failed to install dotnet"
+    printf_green "Attempting to install $name"
+  fi
+  if __curl "$DOTNET_SCRIPT_URL" | bash -s -- --install-dir "$DOTNET_ROOT" |& __output_status; then
+    [ -d "$HOME/.dotnet" ] && mv -f "$HOME/.dotnet" "$DOTNET_ROOT"
+    [ -f "$DOTNET_ROOT/$name" ] && ln -sf "$DOTNET_ROOT/$name" "$DOTNET_BIN_DIR/$name"
+  fi
+  if __cmd_exists $name; then
+    printf_green "$name has been installed to $DOTNET_ROOT"
+  else
+    printf_red "Failed to install $name"
     exitCode=1
   fi
   return $exitCode
@@ -784,48 +951,54 @@ __setup_vfox() {
   local name="vfox"
   local arch=$(uname -m)
   local binFile="$VFOX_BIN_DIR/$name"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
   local release_url="https://github.com/version-fox/vfox/releases/download"
   local VERSION=$(curl --silent "https://api.github.com/repos/version-fox/vfox/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' | cut -c 2-)
   case "$arch" in
   x86_64) url="$release_url/v$VERSION/vfox_${VERSION}_linux_x86_64.tar.gz" ;;
   aarch64 | arm64) url="$release_url/v$VERSION/vfox_${VERSION}_linux_aarch64tar.gz" ;;
   esac
-  printf_cyan "Installing $name"
-  if __download_extract "$url" "$name" "$binFile"; then
+  if __cmd_exists $name; then
+    printf_green "Attempting to update $name"
+  else
+    printf_green "Attempting to install $name"
+  fi
+  if __download_extract_move "$url" "$name" "$binFile"; then
     printf_green "$name has been installed to $binFile"
   else
     exitCode=1
-    printf_red "Failed to download $name"
   fi
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_gvm() {
   local exitCode=0
+  local name="gvm"
   local binDir="$GVM_BIN_DIR"
-  if __cmd_exists gvm; then
-    printf_green "gvm is already installed"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
+  if __cmd_exists $name; then
+    printf_green "Attempting to update $name"
   else
-    printf_yellow "Installing gvm to $GVM_ROOT"
-    [ -d "$HOME/.gvm" ] && rm -Rf "$HOME/.gvm" &>/dev/null
-    [ -d "$GVM_ROOT" ] && rm -Rf "$GVM_ROOT" &>/dev/null
-    if git clone -q "$GVM_GITREPO" "$GVM_ROOT" &>/dev/null; then
-      [ -d "$GVM_ROOT/.git" ] && rm -Rf "$GVM_ROOT/.git"
-      if [ -f "$GVM_ROOT/scripts/gvm-default" ]; then
-        . "$GVM_ROOT/scripts-default" &>/dev/null
-        for f in "$GVM_ROOT/bin"/*; do
-          name="$(basename -- "$f")"
-          ln -sf "$f" "$binDir/$name"
-        done
-        printf_green "gvm has been installed"
-        exitCode=0
-      else
-        exitCode=1
-      fi
+    printf_green "Attempting to install $name"
+  fi
+  [ -d "$HOME/.gvm" ] && rm -Rf "$HOME/.gvm" &>/dev/null
+  [ -d "$GVM_ROOT" ] && rm -Rf "$GVM_ROOT" &>/dev/null
+  if __git_clone_repo "$GVM_GITREPO" "$GVM_ROOT"; then
+    [ -d "$GVM_ROOT/.git" ] && rm -Rf "$GVM_ROOT/.git"
+    if [ -f "$GVM_ROOT/scripts/gvm-default" ]; then
+      . "$GVM_ROOT/scripts-default" &>/dev/null
+      for f in "$GVM_ROOT/bin"/*; do
+        name="$(basename -- "$f")"
+        ln -sf "$f" "$binDir/$name"
+      done
+      printf_green "$name has been installed"
+      exitCode=0
     else
       exitCode=1
-      printf_red "Failed to install gvm"
     fi
+  else
+    exitCode=1
+    printf_red "Failed to install $name"
   fi
   return $exitCode
 }
@@ -835,70 +1008,67 @@ __setup_vagrant() {
   local name="vagrant"
   local arch="$(uname -m)"
   local binFile="$VAGRANT_BIN_DIR/$name"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
   local release_url="https://github.com/hashicorp/vagrant/releases/latest/download"
   case "$arch" in
   x86_64) url="$release_url/vagrant-go_linux_amd64" ;;
   *) printf_exit "only x86_64 is supported at this time" ;;
   esac
   if __cmd_exists $name; then
-    printf_green "$name is already installed"
+    printf_green "Attempting to update $name"
   else
-    printf_green "Installing $name"
-    if __download_and_move "$url" "$name" "$binFile"; then
-      if [ -f "$binFile" ]; then
-        vagrant plugin install vagrant-libvirt &>/dev/null
-        vagrant plugin install vagrant-host-shell &>/dev/null
-        vagrant plugin install vagrant-mutate &>/dev/null
-        vagrant plugin install vagrant-vbguest &>/dev/null
-        vagrant plugin install vagrant-vbguest-libvirt &>/dev/null
-        printf_green "vagrant has been installed"
-      else
-        exitCode=1
-        printf_red "$name is not installed"
-      fi
+    printf_green "Attempting to install $name"
+  fi
+  if __download_and_move "$url" "$name" "$binFile"; then
+    if [ -f "$binFile" ]; then
+      vagrant plugin install vagrant-libvirt &>/dev/null
+      vagrant plugin install vagrant-host-shell &>/dev/null
+      vagrant plugin install vagrant-mutate &>/dev/null
+      vagrant plugin install vagrant-vbguest &>/dev/null
+      vagrant plugin install vagrant-vbguest-libvirt &>/dev/null
+      printf_green "vagrant has been installed"
     else
       exitCode=1
-      printf_red "Failed to install $name"
     fi
+  else
+    exitCode=1
   fi
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_fnm() {
   local exitCode=0
+  local name="fnm"
   local binDir="$HOME/.local/bin"
   local node_version="$FNM_NODE_VERSION"
   local tmpFile="$(mktemp $SETUPMGR_TEMP_DIR/fnm_XXXXXX 2>/dev/null)"
-  if [ -f "$binDir/fnm" ]; then
-    printf_green "FNM is installed in $binDir/fnm"
+  if __cmd_exists $name; then
+    printf_green "Attempting to update $name"
   else
-    printf_cyan "Installing FNM to $binDir/fnm"
-    if __curl "$FNM_INSTALL_SCRIPT" -o "$tmpFile"; then
-      mkdir -p "$FNM_DIR"
-      if bash "$tmpFile" --install-dir "$binDir" --skip-shell >/dev/null 2>&1; then
-        if __cmd_exists fnm; then
-          printf_blue "installing nodejs"
-          eval "$(fnm env)"
-          fnm install "$node_version" >/dev/null 2>&1
-          if fnm ls 2>&1 | grep -q "$node_version"; then
-            installed_version="$(node --version 2>/dev/null)"
-            fnm use "$node_version" >/dev/null 2>&1
-            fnm default "$node_version" >/dev/null 2>&1
-            printf_green "FNM is setup to use node $installed_version by default"
-          else
-            installed_version="$(node --version 2>/dev/null)"
-            printf_green "FNM is setup to use node $installed_version by default"
-          fi
-        else
-          printf_red "FNM Failed to install" >&2
-        fi
+    printf_green "Attempting to install $name"
+  fi
+  [ -d "$FNM_DIR" ] || mkdir -p "$FNM_DIR"
+  if __download_and_execute "$FNM_INSTALL_SCRIPT" --install-dir "$binDir" --skip-shell |& __output_status; then
+    if __cmd_exists fnm; then
+      printf_blue "installing nodejs"
+      eval "$(fnm env)"
+      fnm install "$node_version" >/dev/null 2>&1
+      if fnm ls 2>&1 | grep -q "$node_version"; then
+        installed_version="$(node --version 2>/dev/null)"
+        fnm use "$node_version" >/dev/null 2>&1
+        fnm default "$node_version" >/dev/null 2>&1
+        printf_green "FNM is setup to use node $installed_version by default"
+      else
+        installed_version="$(node --version 2>/dev/null)"
+        printf_green "FNM is setup to use node $installed_version by default"
       fi
     else
-      exitCode=1
-      printf_red "Failed to download FNM installer script" &
+      printf_red "FNM Failed to install" >&2
     fi
+  else
+    exitCode=1
+    printf_red "Failed to download FNM installer script" &
   fi
-  [ -f "$tmpFile" ] && rm -Rf "$tmpFile"
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -907,10 +1077,10 @@ __setup_nvm() {
   local node_version="$NVM_NODE_VERSION"
   if [ -d "$NVM_DIR/.git" ]; then
     printf_green "Updating NVM in $NVM_DIR"
-    git -C "$NVM_DIR" pull -q >/dev/null 2>&1
+    __git_update_repo "$NVM_DIR"
   else
     printf_green "Installing NVM from git to $NVM_DIR"
-    git clone "$NVM_GITREPO" "$NVM_DIR" -q >/dev/null 2>&1
+    __git_clone_repo "$NVM_GITREPO" "$NVM_DIR"
   fi
   if [ -f "$HOME/.npmrc" ]; then
     grep -s 'prefix=' "$HOME/.npmrc" >/tmp/npmrc && sed -i "s|prefix=.*||g" "$HOME/.npmrc"
@@ -954,58 +1124,63 @@ __setup_nodejs() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_powershell() {
   local exitCode=0
+  local tempBin="pwsh"
+  local name="powershell"
   local get_release_file
   local get_release_version
   local binDir="$POWERSHELL_BIN_DIR"
-  local tmpDir="$POWERSHELL_TEMP_DIR"
+  local PACKAGE_TMP_DIR="$POWERSHELL_TEMP_DIR"
   local installDir="$POWERSHELL_INSTALL_DIR"
   local latest_url="$POWERSHELL_LATEST_URL"
   local os="$(uname -s | tr '[:upper:]' '[:lower:]')"
   local arch="$(uname -m | tr '[:upper:]' '[:lower:]')"
-  tmp_bin_file=pwsh
-  if __cmd_exists pwsh; then
-    printf_green "PowerShell is already installed"
+  extract_cmd="do_not_strip_components"
+  if __cmd_exists $name; then
+    printf_green "Attempting to update $name"
   else
-    if echo "$arch" | grep -q '.*86_64.*' || [ "$arch" = "amd64" ]; then
-      arch="x64"
-      posh_arch="amd64"
-    elif echo "$arch" | grep -q '.*aarch64.*' || [ "$arch" = "arm64" ]; then
-      arch="arm64"
-      posh_arch="arm64"
-    else
-      printf_red "Unsupported architecture"
-      return 1
-    fi
-    if [ "$os" = "linux" ]; then
-      os="linux"
-    elif [ "$os" = "darwin" ]; then
-      os="osx"
-    elif [ "$os" = "msys" ] || [ "$os" = "windowsnt" ] || [ "$os" = "cygwin" ]; then
-      os="win"
-    else
-      printf_red "Unsupported Operating System"
-      return 1
-    fi
-    [ -d "$tmpDir" ] || mkdir -p "$tmpDir"
-    local get_release_url="$(__curl -H "Accept: application/vnd.github+json" "$latest_url" 2>/dev/null | jq -r '.assets[].browser_download_url' 2>/dev/null | grep -v 'fxdependent' | grep "$os-$arch" | grep -E '.tar.gz|.zip' | head -n1 | grep '^' || false)"
-    local get_release_name="$(basename -- "$get_release_url")"
-    local get_release_file="$tmpDir/$get_release_name"
-    local get_release_version="$(echo "$get_release_name" | awk -F '.' '{print $1}' | sed 's|.*-||g')"
-    local installDir="$installDir/$get_release_version"
-    [ -e "$installDir/pwsh" ] && rm -Rf "$binDir/pwsh"
-    [ -e "$installDir/powershell" ] && rm -Rf "$binDir/powershell"
-    [ -e "$get_release_file" ] && rm -Rf "$get_release_file"
-    if [ -z "$get_release_url" ] && ! __download_extract "$get_release_url" "$name" "$binFile" "$installDir"; then
+    printf_green "Attempting to install $name"
+  fi
+  if echo "$arch" | grep -q '.*86_64.*' || [ "$arch" = "amd64" ]; then
+    arch="x64"
+    posh_arch="amd64"
+  elif echo "$arch" | grep -q '.*aarch64.*' || [ "$arch" = "arm64" ]; then
+    arch="arm64"
+    posh_arch="arm64"
+  else
+    printf_red "Unsupported architecture"
+    return 1
+  fi
+  if [ "$os" = "linux" ]; then
+    os="linux"
+  elif [ "$os" = "darwin" ]; then
+    os="osx"
+  elif [ "$os" = "msys" ] || [ "$os" = "windowsnt" ] || [ "$os" = "cygwin" ]; then
+    os="win"
+  else
+    printf_red "Unsupported Operating System"
+    return 1
+  fi
+  [ -d "$PACKAGE_TMP_DIR" ] || mkdir -p "$PACKAGE_TMP_DIR"
+  local get_release_url="$(__curl -H "Accept: application/vnd.github+json" "$latest_url" 2>/dev/null | jq -r '.assets[].browser_download_url' 2>/dev/null | grep -v 'fxdependent' | grep "$os-$arch" | grep -E '.tar.gz|.zip' | head -n1 | grep '^' || false)"
+  local get_release_name="$(__basename "$get_release_url")"
+  local get_release_file="$PACKAGE_TMP_DIR/$get_release_name"
+  local get_release_version="$(echo "$get_release_name" | awk -F '.' '{print $1}' | sed 's|.*-||g')"
+  local installDir="$installDir/$get_release_version"
+  [ -e "$get_release_file" ] && rm -Rf "$get_release_file"
+  if [ -z "$get_release_url" ]; then
+    exitCode=1
+    printf_red "Failed to download powershell"
+  else
+    if ! __download_extract_install "$get_release_url" "$installDir" "$tempBin" "$binDir/$tempBin"; then
       exitCode=1
-      printf_red "Failed to download powershell"
     fi
-    if [ -f "$installDir/pwsh" ]; then
-      __printf_color "Successfully saved powershell to: $installDir" 2
-      [ -L "$binDir/pwsh" ] && unlink "$binDir/pwsh"
+    if [ $exitCode -eq 0 ] && [ -f "$installDir/$tempBin" ]; then
+      __printf_color "Successfully installed powershell to: $installDir" 2
+      [ -L "$binDir/$tempBin" ] && unlink "$binDir/$tempBin"
       [ -L "$binDir/powershell" ] && unlink "$binDir/powershell"
-      printf '#!/usr/bin/env sh\n\n%s\n' "exec $installDir/pwsh -ExecutionPolicy Unrestricted \"\$@\"" >"$binDir/pwsh"
-      printf '#!/usr/bin/env sh\n\n%s\n' "exec $installDir/pwsh -ExecutionPolicy Unrestricted \"\$@\"" >"$binDir/powershell"
-      chmod -f 755 "$binDir/pwsh" "$binDir/powershell"
+      [ -f "$binDir/$tempBin" ] || printf '#!/usr/bin/env sh\n\n%s\n' "exec $installDir/$tempBin -ExecutionPolicy Unrestricted \"\$@\"" >"$binDir/$tempBin"
+      [ -f "$binDir/powershell" ] || printf '#!/usr/bin/env sh\n\n%s\n' "exec $installDir/$tempBin -ExecutionPolicy Unrestricted \"\$@\"" >"$binDir/powershell"
+      chmod -f 755 "$binDir/$tempBin" "$binDir/powershell"
       if [ "$os" = "win" ]; then
         command -v winget >/dev/null 2>&1 && winget install JanDeDobbeleer.OhMyPosh -s winget >/dev/null 2>&1
       elif [ "$os" = "mac" ]; then
@@ -1032,7 +1207,7 @@ __setup_powershell() {
         mv -f "$HOME/.config/powershell/Microsoft.POWERSHELL_profile.ps1" "$HOME/.config/powershell/Microsoft.POWERSHELL_profile.bak"
       fi
       if [ -f "$HOME/.config/powershell/init.ps1" ]; then
-        if ! eval "$installDir/pwsh -Command $HOME/.config/powershell/init.ps1" >/dev/null 2>&1; then
+        if ! eval "$installDir/$tempBin -Command $HOME/.config/powershell/init.ps1" >/dev/null 2>&1; then
           if [ -f "$HOME/.config/powershell/Microsoft.POWERSHELL_profile.bak" ]; then
             mv -f "$HOME/.config/powershell/Microsoft.POWERSHELL_profile.bak" "$HOME/.config/powershell/Microsoft.POWERSHELL_profile.ps1"
           fi
@@ -1044,7 +1219,7 @@ __setup_powershell() {
           exitCode=1
           printf_red "Failed to install powershell"
         fi
-        for df in $tmpDir $get_release_file; do
+        for df in $PACKAGE_TMP_DIR $get_release_file; do
           [ -e "$df" ] && printf_yellow "Cleaning up: $df"
         done
       else
@@ -1100,20 +1275,19 @@ __setup_jekyll() {
 __setup_rvm() {
   local exitCode=0
   local binDir="$RVM_BIN_DIR"
-  local installDir="$rvm_path"
-  export rvm_path="$installDir" RUBY_CONFIGURE_OPTS="--enable-shared=no"
-  if [ -d "$installDir/.git" ]; then
+  export rvm_path RUBY_CONFIGURE_OPTS="--enable-shared=no"
+  if [ -d "$rvm_path/.git" ]; then
     printf_green "Updating rvm"
-    git -C "$installDir" pull -q
+    __git_update_repo "$rvm_path"
   else
-    printf_green "Installing rvm to $installDir"
-    [ -d "$installDir" ] && rm -Rf "$installDir"
-    if git clone "$RVM_GITREPO" "$installDir" -q; then
-      if [ -f "$installDir/bin/rvm" ]; then
-        ln -sf "$installDir/bin/rvm" "$binDir/rvm"
+    printf_green "Installing rvm to $rvm_path"
+    [ -d "$rvm_path" ] && rm -Rf "$rvm_path"
+    if __git_clone_repo "$RVM_GITREPO" "$rvm_path"; then
+      if [ -f "$rvm_path/bin/rvm" ]; then
+        ln -sf "$rvm_path/bin/rvm" "$binDir/rvm"
       fi
       if __cmd_exists rvm; then
-        mkdir -p "$installDir/rubies"
+        mkdir -p "$rvm_path/rubies"
         printf_green "RVM has been installed"
         printf_yellow "Installing openssl"
         if rvm pkg install openssl &>/dev/null; then
@@ -1131,7 +1305,7 @@ __setup_rvm() {
   fi
   if [ $exitCode = 0 ]; then
     for d in "rubies" "src" "archives" "log" "user/install"; do
-      [ -d "$installDir/$d" ] || mkdir -p "$installDir/$d"
+      [ -d "$rvm_path/$d" ] || mkdir -p "$rvm_path/$d"
     done
   fi
   return $exitCode
@@ -1140,16 +1314,15 @@ __setup_rvm() {
 __setup_rbenv() {
   local exitCode=0
   local binDir="$RBENV_BIN_DIR"
-  local installDir="$RBENV_ROOT"
-  export RUBY_CONFIGURE_OPTS="--enable-shared=no" RBENV_ROOT="$installDir"
-  if [ -d "$installDir/.git" ]; then
+  export RUBY_CONFIGURE_OPTS="--enable-shared=no" RBENV_ROOT="$RBENV_ROOT"
+  if [ -d "$RBENV_ROOT/.git" ]; then
     printf_green "Updating RBENV"
-    git -C "$installDir" pull -q
+    __git_update_repo "$RBENV_ROOT"
   else
     printf_green "Installing RBENV"
-    [ -d "$installDir" ] && rm -Rf "$rvm_path"
-    if git clone "$RBENV_GITREPO" "$installDir" -q; then
-      for f in "$installDir/libexec"/*; do
+    [ -d "$RBENV_ROOT" ] && rm -Rf "$RBENV_ROOT"
+    if __git_clone_repo "$RBENV_GITREPO" "$RBENV_ROOT"; then
+      for f in "$RBENV_ROOT/libexec"/*; do
         name="$(basename -- "$f")"
         ln -sf "$f" "$RBENV_BIN_DIR/$name"
       done
@@ -1164,38 +1337,46 @@ __setup_rbenv() {
   if [ "$exitCode" -eq 0 ]; then
     printf_blue "Installing plugins"
     eval "$(rbenv init -)"
-    [ -d "$installDir/plugins/rbenv-plug" ] || git clone https://github.com/znz/rbenv-plug "$installDir/plugins/rbenv-plug" -q
-    [ -d "$installDir/plugins/ruby-build/.git" ] || git clone https://github.com/rbenv/ruby-build.git "$installDir/plugins/ruby-build" -q
+    [ -d "$installDir/plugins/rbenv-plug" ] || __git_clone_repo "https://github.com/znz/rbenv-plug" "$installDir/plugins/rbenv-plug"
+    [ -d "$installDir/plugins/ruby-build/.git" ] || __git_clone_repo "https://github.com/rbenv/ruby-build" "$installDir/plugins/ruby-build"
   fi
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_devbox() {
   local exitCode=0
-  if __cmd_exists devbox; then
-    printf_green "devbox is already installed"
+  local name="devbox"
+  if __cmd_exists $name; then
+    printf_green "Attempting to update $name"
   else
-    printf_green "Installing devbox"
-    if __curl "https://get.jetify.com/devbox" | bash -s -- -f; then
-      printf_cyan "devbox has been installed"
-    else
-      exitCode=1
-      printf_red "Failed to install devbox"
-    fi
+    printf_green "Attempting to install $name"
+  fi
+  printf_green "Installing devbox"
+  if __curl "https://get.jetify.com/devbox" | bash -s -- -f |& __output_status; then
+    printf_cyan "devbox has been installed"
+  else
+    exitCode=1
+    printf_red "Failed to install devbox"
   fi
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_nix() {
   local exitCode=0
-  #  if __cmd_exists nix; then
-  #    printf_green "nix is already installed"
-  #  else
+  local name="nix"
+  if __cmd_exists $name; then
+    printf_green "Attempting to update $name"
+  else
+    printf_green "Attempting to install $name"
+  fi
   printf_green "Installing nix-installer"
-  if __curl "https://install.determinate.systems/nix" | sh -s -- install --no-confirm >/dev/null 2>&1; then
+  if __curl "https://install.determinate.systems/nix" | sh -s -- install --no-confirm |& __output_status; then
     if [ -f "/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh" ]; then
       printf_blue "nix-installer has been installed"
       . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
+      for f in /nix/var/nix/profiles/default/bin/*; do
+        ln -sf "$f" "$HOME/.local/bin/$(__basename "$f")"
+      done
     else
       exitCode=1
       printf_red "Failed to install nix-installer"
@@ -1204,7 +1385,6 @@ __setup_nix() {
     exitCode=1
     printf_red "Failed to execute the nix-installer script"
   fi
-  # fi
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1223,7 +1403,7 @@ __setup_helm() {
   x86_64) url="https://get.helm.sh/helm-$dist_tag-linux-amd64.tar.gz" ;;
   aarch64 | arm64) url="https://get.helm.sh/helm-$dist_tag-linux-arm64.tar.gz" ;;
   esac
-  if __download_extract "$url" "$name" "$binFile"; then
+  if __download_extract_move "$url" "$name" "$binFile"; then
     printf_green "$name has been installed to $binFile"
   else
     exitCode=1
@@ -1239,6 +1419,7 @@ __setup_packer() {
   local arch="$(uname -m)"
   local version="$PACKER_VERSION"
   local binFile="$PACKER_BIN_DIR/$name"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
   if __cmd_exists $name; then
     printf_green "Updating $name"
   else
@@ -1248,7 +1429,7 @@ __setup_packer() {
   x86_64) release_url="https://releases.hashicorp.com/packer/${version}/packer_${version}_linux_amd64.zip" ;;
   aarch64 | arm64) release_url="https://releases.hashicorp.com/packer/${version}/packer_${version}_linux_arm64.zip" ;;
   esac
-  if __download_extract "$release_url" "$name" "$binFile"; then
+  if __download_extract_move "$release_url" "$name" "$binFile"; then
     if [ -n "$PACKER_PLUGINS" ]; then
       for plug in $PACKER_PLUGINS; do
         packer plugins install github.com/hashicorp/$plug >/dev/null 2>&1 && printf_cyan "Installed plugin: $plug"
@@ -1444,6 +1625,7 @@ __setup_gohttpserver() {
   local arch="$(uname -m)"
   local binFile="$GOHTTPSERVER_BIN_DIR/$name"
   local release_url="https://api.github.com/repos/codeskyblue/gohttpserver/releases/latest"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
   case $arch in
   x86_64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "linux_amd64.tar.gz\$")" ;;
   aarch64 | arm64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "linux_arm64.tar.gz\$")" ;;
@@ -1454,7 +1636,7 @@ __setup_gohttpserver() {
     printf_green "Installing $name"
   fi
 
-  if __download_extract "$download_url" "$name" "$binFile"; then
+  if __download_extract_move "$download_url" "$name" "$binFile"; then
     printf_green "$name has been installed to $binFile"
   else
     exitCode=1
@@ -1469,6 +1651,7 @@ __setup_opentofu() {
   local arch="$(uname -m)"
   local binFile="$OPENTOFU_BIN_DIR/$name"
   local release_url="https://api.github.com/repos/opentofu/opentofu/releases/latest"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
   case $arch in
   x86_64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "tofu_.*_linux_amd64.zip\$")" ;;
   aarch64 | arm64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "tofu_.*_linux_arm64.tar.gz\$")" ;;
@@ -1479,7 +1662,7 @@ __setup_opentofu() {
     printf_green "Installing $name"
   fi
 
-  if __download_extract "$download_url" "$name" "$binFile"; then
+  if __download_extract_move "$download_url" "$name" "$binFile"; then
     printf_green "$name has been installed to $binFile"
   else
     exitCode=1
@@ -1494,6 +1677,7 @@ __setup_webhookd() {
   local arch="$(uname -m)"
   local binFile="$WEBHOOKD_BIN_DIR/$name"
   local release_url="https://api.github.com/repos/ncarlier/webhookd/releases/latest"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
   case $arch in
   x86_64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "webhookd-linux-amd64.tgz\$")" ;;
   aarch64 | arm64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "webhookd-linux-arm64.tgz\$")" ;;
@@ -1504,7 +1688,7 @@ __setup_webhookd() {
     printf_green "Installing $name"
   fi
 
-  if __download_extract "$download_url" "$name" "$binFile"; then
+  if __download_extract_move "$download_url" "$name" "$binFile"; then
     printf_green "$name has been installed to $binFile"
   else
     exitCode=1
@@ -1520,7 +1704,8 @@ __setup_zed() {
   local binFile="$ZED_BIN_DIR/$name"
   local installDir="$ZED_INSTALL_DIR"
   local release_url="https://zed.dev/api/releases/stable/latest"
-  tmp_bin_file="bin/zed"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
+  tempBin="bin/zed"
   __check_for_vulkan_support
   if [ $? -eq 2 ]; then
     printf_red "This system doesn't seem to have vulkan support"
@@ -1536,7 +1721,7 @@ __setup_zed() {
     printf_green "Installing $name"
   fi
 
-  if __download_extract "$download_url" "$name" "$binFile" "$installDir"; then
+  if __download_extract_install "$download_url" "$installDir" "$name" "$binFile"; then
     cp -Rf "$installDir/share/applications/zed.desktop" "$HOME/.local/share/applications/Zed-Editor.desktop"
     sed -i "s|Icon=zed|Icon=$installDir/share/icons/hicolor/512x512/apps/zed.png|g" "$HOME/.local/share/applications/Zed-Editor.desktop"
     sed -i "s|Exec=zed|Exec=$installDir/libexec/zed-editor|g" "$HOME/.local/share/applications/Zed-Editor.desktop"
@@ -1556,6 +1741,7 @@ __setup_go() {
   local installDir="$HOME/.local/share/go"
   local release_base_url="https://go.dev/VERSION?m=text"
   local latest_version="${GO_VERSION:-$(curl -q "$release_base_url" | grep go[0-9])}"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
   case $arch in
   x86_64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "$latest_version}.linux-amd64.tar.gz\$")" ;;
   aarch64 | arm64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "${latest_version}.linux-arm64.tar.gz\$")" ;;
@@ -1566,7 +1752,7 @@ __setup_go() {
     printf_green "Installing $name"
   fi
 
-  if __download_extract "$download_url" "$name" "$binFile" "$installDir"; then
+  if __download_extract_install "$download_url" "$installDir" "$name" "$binFile"; then
     printf_green "$name has been installed to $binFile"
   else
     exitCode=1
@@ -1580,6 +1766,7 @@ __setup_coder() {
   local arch="$(uname -m)"
   local binFile="$CODER_BIN_DIR/$name"
   local release_url="https://api.github.com/repos/coder/coder/releases/latest"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
   case $arch in
   x86_64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "_linux_amd64.tar.gz\$")" ;;
   aarch64 | arm64) download_url="$(__curl ""$release_url | grep browser_download_url | cut -d '"' -f 4 | grep "_linux_arm64.tar.gz\$")" ;;
@@ -1590,7 +1777,7 @@ __setup_coder() {
     printf_green "Installing $name"
   fi
 
-  if __download_extract "$download_url" "$name" "$binFile"; then
+  if __download_extract_move "$download_url" "$name" "$binFile"; then
     printf_green "$name has been installed to $binFile"
   else
     exitCode=1
@@ -1628,6 +1815,64 @@ __setup_casaos() {
   elif ! __curl "$url" | $shell_command; then
     printf_red "Failed to install $name"
     exitCode=1
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_podman() {
+  local exitCode=0
+  local name="podman-desktop"
+  local arch="$(uname -m)"
+  local binFile="$PODMAN_BIN_DIR/$name"
+  local installDir="$HOME/.local/share/$name"
+  local release_url="https://github.com/containers/podman-desktop/releases/download/v1.13.2/podman-desktop-1.13.2.tar.gz"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
+  if [ "$arch" = "x86_64" ]; then
+    if ! __cmd_exists podman; then
+      printf_yellow "Installing podman"
+      pkmgr install silent podman
+    fi
+    if __cmd_exists $name; then
+      printf_green "Updating $name"
+    else
+      printf_green "Installing $name"
+    fi
+    if __download_extract_install "$release_url" "$installDir" "$name" "$binFile"; then
+      printf_green "$name has been installed to $binFile"
+      __gen_desktopfile "$name" "$binFile"
+    else
+      exitCode=1
+      printf_red "Failed to download $name"
+    fi
+  else
+    exitCode=0
+    printf_red "Unsupported architecture"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_lapce() {
+  local exitCode=0
+  local name="lapce"
+  local arch="$(uname -m)"
+  local binFile="$LAPCE_BIN_DIR/$name"
+  local release_url="https://api.github.com/repos/coder/coder/releases/latest"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
+  case $arch in
+  x86_64) download_url="https://github.com/lapce/lapce/releases/latest/download/lapce-linux-amd64.tar.gz" ;;
+  aarch64 | arm64) download_url="https://github.com/lapce/lapce/releases/latest/download/lapce-linux-arm64.tar.gz" ;;
+  esac
+  if __cmd_exists $name; then
+    printf_green "Updating $name"
+  else
+    printf_green "Installing $name"
+  fi
+  if __download_extract_move "$download_url" "$name" "$binFile"; then
+    printf_green "$name has been installed to $binFile"
+    __gen_desktopfile "$name" "$binFile"
+  else
+    exitCode=1
+    printf_red "Failed to download $name"
   fi
   return $exitCode
 }
@@ -1779,6 +2024,10 @@ ZED_INSTALL_DIR="${ZED_INSTALL_DIR:-$HOME/.local/share/zed_editor}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 CODER_BIN_DIR="${CODER_BIN_DIR:-$SETUPMGER_DEFAULT_BIN_DIR}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+PODMAN_BIN_DIR="${PODMAN_BIN_DIR:-$SETUPMGER_DEFAULT_BIN_DIR}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LAPCE_BIN_DIR="${LAPCE_BIN_DIR:-$SETUPMGER_DEFAULT_BIN_DIR}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$SETUPMGR_CONFIG_DIR/$SETUPMGR_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1802,18 +2051,20 @@ SETARGS=("$@")
 SHORTOPTS=""
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-LONGOPTS="completions:,config,reset-config,debug,dir:,help,options,raw,version,silent,force,no-*,yes-*"
+GET_OPTIONS_NO="no-tee"
+GET_OPTIONS_YES="yes-*"
+LONGOPTS="completions:,config,reset-config,debug,dir:,help,options,raw,version,silent,force,"
 LONGOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="lua,asdf,deno,bun,distrobox,dotnet,vfox,gvm,vagrant,fnm,nvm,nodejs,powershell,jekyll,rvm "
 ARRAY+="rbenv,devbox,nix,helm,kind,kubectl,minikube,direnv,incus,coder,packer,gohttpserver,coolify,casaos "
-ARRAY+="zed "
+ARRAY+="zed,podman,lapce"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
 LIST+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup application options
-setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS,$GET_OPTIONS_YES,$GET_OPTIONS_NO" -n "$APPNAME" -- "$@" 2>/dev/null)
 eval set -- "${setopts[@]}" 2>/dev/null
 while :; do
   case "$1" in
@@ -1912,9 +2163,11 @@ while :; do
     ;;
   --no-*)
     __options_function_no "$@"
+    shift 1
     ;;
   --yes-*)
     __options_function_yes "$@"
+    shift 1
     ;;
   --)
     shift 1
@@ -1957,7 +2210,7 @@ cmd_exists --error --ask bash curl tar unzip || exit 3 # exit 3 if not found
 #am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
-
+PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
 
@@ -2134,6 +2387,16 @@ while [ $# -gt 0 ]; do
   zed)
     shift 1
     __setup_zed
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  podman)
+    shift 1
+    __setup_podman
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  lapce)
+    shift 1
+    __setup_lapce
     SETUPMGR_EXIT_STATUS=$?
     ;;
   *)

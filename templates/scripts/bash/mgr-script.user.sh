@@ -646,7 +646,9 @@ SETARGS=("$@")
 SHORTOPTS="a,f"
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-LONGOPTS="all,completions:,config,reset-config,debug,force,help,options,raw,version,no-*,yes-*"
+GET_OPTIONS_NO="no-*"
+GET_OPTIONS_YES="yes-*"
+LONGOPTS="all,completions:,config,reset-config,debug,force,help,options,raw,version,"
 LONGOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="available,cron,download,install,list,remove,search,update,version"
@@ -656,7 +658,7 @@ LIST=""
 LIST+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup application options
-setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS,$GET_OPTIONS_YES,$GET_OPTIONS_NO" -n "$APPNAME" -- "$@" 2>/dev/null)
 eval set -- "${setopts[@]}" 2>/dev/null
 while :; do
   case "$1" in
@@ -752,9 +754,11 @@ while :; do
     ;;
   --no-*)
     __options_function_no "$@"
+    shift 1
     ;;
   --yes-*)
     __options_function_yes "$@"
+    shift 1
     ;;
   --)
     shift 1

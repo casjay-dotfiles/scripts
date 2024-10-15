@@ -528,6 +528,10 @@ CONTAINER_SECRET_KEY_TOKEN="random"
 CONTAINER_USER_ADMIN_HASH_ENV=""
 CONTAINER_USER_ADMIN_HASH_PASS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# If container requires a db connection string variable set it here
+CONTAINER_DB_ENV_NAME=""
+CONTAINER_DB_ENV_STRING=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Add the names of processes - [apache,mysql]
 CONTAINER_SERVICES_LIST=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1939,6 +1943,11 @@ if [ "$CONTAINER_SUPABASE_ENABLED" = "yes" ]; then
   MESSAGE_SUPABASE="true"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -n "$CONTAINER_DB_ENV_NAME" ] && [ -n "$CONTAINER_DB_ENV_STRING" ]; then
+  DOCKER_SET_OPTIONS_ENV+=("--env $CONTAINER_DB_ENV_NAME=$CONTAINER_DB_ENV_STRING")
+  SHOW_DATABASE_CONNECTION_STRING="yes"
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #
 if [ "$CONTAINER_DATABASE_ENABLED" = "yes" ]; then
   if [ -n "$CONTAINER_DATABASE_USER_ROOT" ]; then
@@ -2962,6 +2971,10 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
     fi
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
   fi
+  if [ -n "$CONTAINER_DB_ENV_NAME" ] && [ -n "$CONTAINER_DB_ENV_STRING" ]; then
+    __printf_spacing_color 130 "$CONTAINER_DB_ENV_NAME:" "$CONTAINER_DB_ENV_STRING"
+    printf '# - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
+  fi
   if [ -f "$HOST_ROOTFS_DIR/config/auth/htpasswd" ]; then
     MESSAGE="true"
     __printf_spacing_color "5" "Username:" "root"
@@ -2981,7 +2994,7 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
       if [ "$create_service" != "--publish" ] && [ "$create_service" != " " ]; then
         if [ "$set_listen_on_all" = "yes" ]; then
           for custom_port in $set_listen_port; do
-            if echo "$custom_port" | grep -q ":.*.:"; then
+            if echo "$custom_port" | grep -q ":[0-9].*:"; then
               set_custom_port="$(echo "$custom_port" | awk -F ':' '{print $3}' | grep '^')"
               set_custom_service="$(echo "$custom_port" | awk -F ':' '{print $2}' | grep '^')"
               __printf_spacing_color "6" "Port $set_custom_service is mapped to:" "$set_custom_port"
@@ -2989,7 +3002,7 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
               set_custom_port="$(echo "$custom_port" | awk -F ':' '{print $2}' | grep '^')"
               set_custom_service="$(echo "$custom_port" | awk -F ':' '{print $1}' | grep '^')"
               __printf_spacing_color "6" "Port $set_custom_service is mapped to:" "$set_custom_port"
-            elif echo "$custom_port" | grep -q "0-9]"; then
+            elif echo "$custom_port" | grep -q "[0-9]"; then
               set_custom_port="$(echo "$custom_port" | awk -F ':' '{print $1}' | grep '^')"
               set_custom_service="$(echo "$custom_port" | awk -F ':' '{print $1}' | grep '^')"
               __printf_spacing_color "6" "Port $set_custom_service is mapped to:" "$set_custom_port"

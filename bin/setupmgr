@@ -494,6 +494,7 @@ trap '__trap_exit' EXIT
 # User defined functions
 __output_status() { tee /dev/null &>/dev/null; }
 __curl() { curl -q -LSsf "$@" 2>/dev/null || return 1; }
+__get_releases() { __curl "$1" | jq -r '.[].name' | grep -vE 'beta|dev' | sort -rV | head -n1 || return 1; }
 __dir_has_one_folder() { if [ "$(find "$1" -maxdepth 1 -type d 2>/dev/null | grep -v '^$' | wc -l)" != 1 ]; then return 1; fi; }
 __is_dir_empty() { if [ "$(find "$1" -maxdepth 1 -type f 2>/dev/null | grep -v '^$' | wc -l)" != 0 ]; then return 1; fi; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -636,9 +637,9 @@ __extract() {
           shift 2
           find_extracted="$(find "$PACKAGE_TMP_DIR" -type f -name "$1" 2>/dev/null | grep -E "^$1$|/$1$" | head -n1)"
           if [ -x "$find_extracted" ]; then
-            __move_extracted_file "$find_extracted" "$2"
+            __move_extracted_file "$find_extracted" "$2" || exitCode=1
           elif [ -f "$PACKAGE_TMP_DIR/$1" ]; then
-            __move_extracted_file "$PACKAGE_TMP_DIR/$1" "$2"
+            __move_extracted_file "$PACKAGE_TMP_DIR/$1" "$2" || exitCode=1
           elif [ -d "$1" ]; then
             binDir="$1" && shift 1
             set_files="${*//,/ }"
@@ -668,8 +669,8 @@ __extract() {
                 installBinFrom="$installDir/$installBinD/$installBinD"
               fi
               if [ -n "$installBinFrom" ] && [ -n "$installBinTo" ]; then
-                chmod +x "$installBinFrom"
-                __symlink_installed_files "$installBinFrom" "$installBinTo"
+                [ -e "$installBinFrom" ] && chmod +x "$installBinFrom" || exitCode=1
+                __symlink_installed_files "$installBinFrom" "$installBinTo" || exitCode=1
               fi
               if [ ! -f "$installBinTo" ]; then
                 exitCode=2
@@ -696,10 +697,10 @@ __extract() {
     fi
   else
     exitEXCode=1
-    printf_red "SETUPMGR_TEMP_DIR"
+    printf_red "$SETUPMGR_TEMP_DIR"
   fi
   if [ $exitEXCode -eq 0 ]; then
-    [ -d "$PACKAGE_TMP_DIR" ] #&& rm -Rf "$PACKAGE_TMP_DIR"
+    [ -d "$PACKAGE_TMP_DIR" ] && rm -Rf "$PACKAGE_TMP_DIR"
   fi
   return $exitEXCode
 }
@@ -1910,7 +1911,7 @@ __setup_lapce() {
   local name="lapce"
   local arch="$(uname -m)"
   local binFile="$LAPCE_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/coder/coder/releases/latest"
+  local release_url="https://api.github.com/repos/lapce/lapce/releases/latest"
   PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
   case $arch in
   x86_64) download_url="https://github.com/lapce/lapce/releases/latest/download/lapce-linux-amd64.tar.gz" ;;
@@ -1931,8 +1932,33 @@ __setup_lapce() {
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_caddy() {
+  local exitCode=0
+  local name="caddy"
+  local arch="$(uname -m)"
+  extract_cmd="do_not_strip_components"
+  local binFile="$CADDY_BIN_DIR/$name"
+  local latest_version="$(__get_releases "https://api.github.com/repos/caddyserver/caddy/releases" | sed 's|^v||g')"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
+  case $arch in
+  x86_64) download_url="https://github.com/caddyserver/caddy/releases/download/v${latest_version}/caddy_${latest_version}_linux_amd64.tar.gz" ;;
+  aarch64 | arm64) download_url="https://github.com/caddyserver/caddy/releases/download/v${latest_version}/caddy_${latest_version}_linux_arm64.tar.gz" ;;
+  esac
+  if __cmd_exists $name; then
+    printf_green "Updating $name"
+  else
+    printf_green "Installing $name"
+  fi
+  if __download_extract_move "$download_url" "$name" "$binFile"; then
+    printf_green "$name has been installed to $binFile"
+  else
+    exitCode=1
+    printf_red "Failed to download $name"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_yq() {
-  set -x
   local exitCode=0
   local name="yq"
   local arch="$(uname -m)"
@@ -1965,7 +1991,6 @@ __setup_yq() {
     exitCode=1
     printf_red "Failed to install $name"
   fi
-  set -x
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -2121,6 +2146,8 @@ PODMAN_BIN_DIR="${PODMAN_BIN_DIR:-$SETUPMGER_DEFAULT_BIN_DIR}"
 LAPCE_BIN_DIR="${LAPCE_BIN_DIR:-$SETUPMGER_DEFAULT_BIN_DIR}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 YQ_BIN_DIR="${YQ_BIN_DIR:-$SETUPMGER_DEFAULT_BIN_DIR}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+CADDY_BIN_DIR="${CADDY_BIN_DIR:-$SETUPMGER_DEFAULT_BIN_DIR}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$SETUPMGR_CONFIG_DIR/$SETUPMGR_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
@@ -2510,6 +2537,11 @@ while [ $# -gt 0 ]; do
   yq)
     shift 1
     __setup_yq
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  caddy)
+    shift 1
+    __setup_caddy
     SETUPMGR_EXIT_STATUS=$?
     ;;
   *)

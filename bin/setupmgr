@@ -495,8 +495,8 @@ trap '__trap_exit' EXIT
 __output_status() { tee /dev/null &>/dev/null; }
 __curl() { curl -q -LSsf "$@" 2>/dev/null || return 1; }
 __get_releases() { __curl "$1" | jq -r '.[].name' | grep -vE 'beta|dev' | sort -rV | head -n1 || return 1; }
-__dir_has_one_folder() { if [ "$(find "$1" -maxdepth 1 -type d 2>/dev/null | grep -v '^$' | wc -l)" != 1 ]; then return 1; fi; }
 __is_dir_empty() { if [ "$(find "$1" -maxdepth 1 -type f 2>/dev/null | grep -v '^$' | wc -l)" != 0 ]; then return 1; fi; }
+__dir_has_one_folder() { if [ "$(find "$1" -maxdepth 1 -type d 2>/dev/null | grep -v '^$' | wc -l)" != 1 ]; then return 1; fi; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __check_for_vulkan_support() { __cmd_exists vulkaninfo && { vulkaninfo 2>&1 | grep '^ERROR ' | grep -v 'ERROR_INCOMPATIBLE_DRIVER' | head -n1 | grep '^' || return 2; } || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -536,6 +536,22 @@ __download_and_execute() {
     __curl "$url" | sudo -- bash -s -- "$@" 2>/dev/null || exitCode=1
   else
     __curl "$url" | bash -s -- "$@" 2>/dev/null || exitCode=1
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# url tmpFile installDir files
+__download_extract_all() {
+  local exitCode=0
+  local url="$1" name="$(__basename "$1")" && shift 1
+  SETUPMGR_TEMP_EXTRACT_FILE=$SETUPMGR_TEMP_DIR/$name
+  [ -n "$PACKAGE_TMP_DIR" ] && rm -Rf "$PACKAGE_TMP_DIR"
+  [ -d "$SETUPMGR_TEMP_DIR" ] || mkdir -p "$SETUPMGR_TEMP_DIR"
+  [ -n "$SETUPMGR_TEMP_EXTRACT_FILE" ] && rm -Rf "$SETUPMGR_TEMP_EXTRACT_FILE" || return
+  if __curl "$url" -o "$SETUPMGR_TEMP_EXTRACT_FILE"; then
+    __extract "$SETUPMGR_TEMP_EXTRACT_FILE" "--all" "$@" || exitCode=1
+  else
+    exitCode=1
   fi
   return $exitCode
 }
@@ -610,7 +626,7 @@ _tar_extract() {
 # tmpFile moveTo moveFrom
 __extract() {
   local exitEXCode=0
-  local tmpFile="${1:-$tmpFile}"
+  local tmpFile="${1:-$tmpFile}" && shift 1
   if mkdir -p "$PACKAGE_TMP_DIR" && builtin cd "$SETUPMGR_TEMP_DIR"; then
     if [ -f "$tmpFile" ]; then
       if [ "$extract_cmd" = "do_not_strip_components" ]; then
@@ -630,11 +646,30 @@ __extract() {
         *) printf_red "$tmpFile is not a valid archive file" && exitEXCode=1 ;;
         esac
       fi
+      #if __is_dir_empty "$PACKAGE_TMP_DIR" || __dir_has_one_folder "$PACKAGE_TMP_DIR"; then
+      #  rm -Rf "$PACKAGE_TMP_DIR"
+      #  _tar_extract "$tmpFile" || exitEXCode=1
+      #fi
       if [ $exitEXCode = 0 ]; then
         [ -f "$tmpFile" ] && rm -Rf "$tmpFile"
-        case "$2" in
+        case "$1" in
+        --all)
+          shift 1
+          for file in "$PACKAGE_TMP_DIR"/*; do
+            if [ -x "$file" ]; then
+              local filename="$(__basename "$file")"
+              printf_purple "Installing $file to $1/$filename"
+              mv -f "$file" "$1/$filename"
+              retVal=$?
+              exitCode=$((retVal + exitCode))
+            else
+              printf_yellow "$file is not an executable"
+              exitCode=$((exitCode++))
+            fi
+          done
+          ;;
         --files)
-          shift 2
+          shift 1
           find_extracted="$(find "$PACKAGE_TMP_DIR" -type f -name "$1" 2>/dev/null | grep -E "^$1$|/$1$" | head -n1)"
           if [ -x "$find_extracted" ]; then
             __move_extracted_file "$find_extracted" "$2" || exitCode=1
@@ -653,7 +688,7 @@ __extract() {
           fi
           ;;
         --install)
-          shift 2
+          shift 1
           local installDir="$1"
           local installBinD="$2"
           local installBinTo="$3"
@@ -1994,6 +2029,33 @@ __setup_yq() {
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_uv() {
+  local exitCode=0
+  local name="uv"
+  local arch="$(uname -m)"
+  local binDir="$UV_BIN_DIR"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
+  local release_url="https://github.com/astral-sh/uv/releases/latest/download"
+  [ -d "$UV_BIN_DIR" ] || mkdir -p "$UV_BIN_DIR"
+  if [ "$arch" = "x86_64" ]; then
+    download_url="$release_url/uv-x86_64-unknown-linux-gnu.tar.gz"
+  elif [ "$arch" = "aarch64" ]; then
+    download_url="$release_url/uv-aarch64-unknown-linux-gnu.tar.gz"
+  else
+    printf_exit "Only x86_64 and ARM64 architecture is supported"
+  fi
+  if __cmd_exists $name; then
+    printf_green "Attempting to update $name"
+  else
+    printf_green "Attempting to install $name"
+  fi
+  if ! __download_extract_all "$download_url" "$binDir"; then
+    exitCode=1
+    printf_red "Failed to install $name"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
 SETUPMGR_START_TIMER="${SETUPMGR_START_TIMER:-$(date +%s.%N)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -2149,6 +2211,8 @@ YQ_BIN_DIR="${YQ_BIN_DIR:-$SETUPMGER_DEFAULT_BIN_DIR}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 CADDY_BIN_DIR="${CADDY_BIN_DIR:-$SETUPMGER_DEFAULT_BIN_DIR}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+UV_BIN_DIR="${UV_BIN_DIR:-$SETUPMGER_DEFAULT_BIN_DIR}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$SETUPMGR_CONFIG_DIR/$SETUPMGR_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -2179,7 +2243,7 @@ LONGOPTS+="all"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="lua,asdf,deno,bun,distrobox,dotnet,vfox,gvm,vagrant,fnm,nvm,nodejs,powershell,jekyll,rvm "
 ARRAY+="rbenv,devbox,nix,helm,kind,kubectl,minikube,direnv,incus,coder,packer,gohttpserver,coolify,casaos "
-ARRAY+="zed,podman,lapce,yq"
+ARRAY+="zed,podman,lapce,yq,uv "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
 LIST+=""
@@ -2542,6 +2606,11 @@ while [ $# -gt 0 ]; do
   caddy)
     shift 1
     __setup_caddy
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  uv)
+    shift 1
+    __setup_uv
     SETUPMGR_EXIT_STATUS=$?
     ;;
   *)

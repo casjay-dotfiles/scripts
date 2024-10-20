@@ -90,8 +90,8 @@ __detect_os() {
 } && __detect_os
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # trap errors
-__trap_exit() { trap_exit; }
 trap_exit() { run_cleanup; }
+__trap_exit() { trap_exit; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cmd_exists() {
   for f in "$@"; do

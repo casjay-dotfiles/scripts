@@ -3017,20 +3017,26 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
             if echo "$custom_port" | grep -q ":[0-9].*:"; then
               set_custom_port="$(echo "$custom_port" | awk -F ':' '{print $3}' | grep '^')"
               set_custom_service="$(echo "$custom_port" | awk -F ':' '{print $2}' | grep '^')"
-              __printf_spacing_color "6" "Port $set_custom_service is mapped to:" "$set_custom_port"
+              if [ -n "$set_custom_port" ] && [ -n "$set_custom_service" ]; then
+                __printf_spacing_color "6" "Port $set_custom_service is mapped to:" "$set_custom_port"
+              fi
             elif echo "$custom_port" | grep -q "[0-9]:[0-9]"; then
               set_custom_port="$(echo "$custom_port" | awk -F ':' '{print $2}' | grep '^')"
               set_custom_service="$(echo "$custom_port" | awk -F ':' '{print $1}' | grep '^')"
-              __printf_spacing_color "6" "Port $set_custom_service is mapped to:" "$set_custom_port"
+              if [ -n "$set_custom_port" ] && [ -n "$set_custom_service" ]; then
+                __printf_spacing_color "6" "Port $set_custom_service is mapped to:" "$set_custom_port"
+              fi
             elif echo "$custom_port" | grep -q "[0-9]"; then
               set_custom_port="$(echo "$custom_port" | awk -F ':' '{print $1}' | grep '^')"
               set_custom_service="$(echo "$custom_port" | awk -F ':' '{print $1}' | grep '^')"
-              __printf_spacing_color "6" "Port $set_custom_service is mapped to:" "$set_custom_port"
+              if [ -n "$set_custom_port" ] && [ -n "$set_custom_service" ]; then
+                __printf_spacing_color "6" "Port $set_custom_service is mapped to:" "$set_custom_port"
+              fi
             fi
+            create_service="${create_service//$set_custom_service/}"
+            create_service="${create_service//$set_custom_port/} "
+            create_service="${create_service//:/}"
           done
-          create_service="${create_service//$set_custom_service/}"
-          create_service="${create_service//$set_custom_port/} "
-          create_service="${create_service//:/}"
         fi
         service="$create_service"
         if [ -n "$service" ] && [ "$service" != " " ]; then
@@ -3043,14 +3049,16 @@ if [ "$CONTAINER_INSTALLED" = "true" ] || __docker_ps_all -q; then
             set_port="$(echo "$service" | awk -F ':' '{print $1}')"
             set_service="$(echo "$service" | awk -F ':' '{print $2}')"
           fi
-          get_servive="$set_service"
-          set_service="${set_service//\/*/}"
-          listen="${set_host//0.0.0.0/$HOST_LISTEN_ADDR}:$set_port"
-          echo "$get_servive" | grep -qE '[0-9]/tcp|[0-9]/udp' && type="${get_servive//*\//}" || unset type
-          [ -n "$type" ] && get_listen="$listen/$type" || get_listen="$listen"
-          set_listen=$(printf '%s' "$get_listen")
-          if [ -n "$listen" ]; then
-            __printf_spacing_color "6" "Port $set_service is mapped to:" "$set_listen"
+          if [ -n "$set_port" ] && [ -n "$set_port" ]; then
+            get_servive="$set_service"
+            set_service="${set_service//\/*/}"
+            listen="${set_host//0.0.0.0/$HOST_LISTEN_ADDR}:$set_port"
+            echo "$get_servive" | grep -qE '[0-9]/tcp|[0-9]/udp' && type="${get_servive//*\//}" || unset type
+            [ -n "$type" ] && get_listen="$listen/$type" || get_listen="$listen"
+            set_listen=$(printf '%s' "$get_listen")
+            if [ -n "$listen" ]; then
+              __printf_spacing_color "6" "Port $set_service is mapped to:" "$set_listen"
+            fi
           fi
         fi
       fi

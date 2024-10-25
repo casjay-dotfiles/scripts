@@ -201,6 +201,9 @@ __public_ip() { curl -q -LSsf ${1:--4} "http://ifconfig.co" | grep -v '^$' | hea
 __local_lan_ip() { __ifconfig $SET_LAN_DEV | grep -w 'inet' | awk -F ' ' '{print $2}' | __is_private_ip | head -n1 | grep '^' || ip address show $SET_LAN_DEV 2>&1 | grep 'inet ' | awk -F ' ' '{print $2}' | sed 's|/.*||g' | __is_private_ip | grep -v '^$' | head -n1 | grep '^' || echo "$CURRENT_IP_4" | grep '^' || return 1; }
 __my_default_lan_address() { __ifconfig $SET_LAN_DEV | grep -w 'inet' | awk -F ' ' '{print $2}' | head -n1 | grep '^' || ip address show $SET_LAN_DEV 2>&1 | grep 'inet ' | awk -F ' ' '{print $2}' | sed 's|/.*||g' | grep -v '^$' | head -n1 | grep '^' || echo "$CURRENT_IP_4" | grep '^' || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_device_ip_6() { ip a show "${1:-docker0}" 2>/dev/null | grep 'inet6' | awk -F ' ' '{print $2}' | sed 's|/[0-9].*||g' | head -n1 | grep '^' || false; }
+__get_device_ip_4() { ip a show "${1:-docker0}" 2>/dev/null | grep -v 'inet6' | grep 'inet' | awk -F ' ' '{print $2}' | sed 's|/[0-9].*||g' | head -n1 | grep '^' || false; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __port() { echo "$((50000 + $RANDOM % 1000))" | grep '^' || return 1; }
 __port_in_use() { if { [ -d "/etc/nginx/vhosts.d" ] && grep -wRsq "${1:-443}" "/etc/nginx/vhosts.d" || __netstat | grep -q "${1:-443}"; }; then return 1; else return 0; fi; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -442,7 +445,7 @@ CONTAINER_WEB_SERVER_ENABLED="no"
 CONTAINER_WEB_SERVER_INT_PORT="80"
 CONTAINER_WEB_SERVER_SSL_ENABLED="no"
 CONTAINER_WEB_SERVER_AUTH_ENABLED="no"
-CONTAINER_WEB_SERVER_LISTEN_ON="127.0.0.10"
+CONTAINER_WEB_SERVER_LISTEN_ON="docker"
 CONTAINER_WEB_SERVER_INT_PATH="/"
 CONTAINER_WEB_SERVER_EXT_PATH="/"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1056,6 +1059,10 @@ if [ "$CONTAINER_PROTOCOL" = "http" ]; then
   CONTAINER_WEB_SERVER_PROTOCOL="http"
 elif [ "$CONTAINER_PROTOCOL" = "https" ]; then
   CONTAINER_WEB_SERVER_PROTOCOL="https"
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ "$CONTAINER_WEB_SERVER_LISTEN_ON" = "docker" ]; then
+  CONTAINER_WEB_SERVER_LISTEN_ON="$(__get_device_ip_4 || echo '172.17.0.1')"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup containers hostname

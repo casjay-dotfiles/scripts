@@ -90,7 +90,7 @@ __detect_os() {
 } && __detect_os
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # trap errors
-trap_exit() { run_cleanup; }
+trap_exit() { run_mgr_installer_cleanup; }
 __trap_exit() { trap_exit; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cmd_exists() {
@@ -1054,7 +1054,7 @@ dotfilesreq() {
     fi
   done
   unset conf
-  run_cleanup
+  run_mgr_installer_cleanup
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 dotfilesreqadmin() {
@@ -1072,7 +1072,7 @@ dotfilesreqadmin() {
     fi
   done
   unset conf
-  run_cleanup
+  run_mgr_installer_cleanup
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __devnull() { tee &>/dev/null && return 0 || return 1; }
@@ -2602,7 +2602,7 @@ run_install_init() {
     urlcheck "$SETREPORAW/install.sh" || {
       printf_red "Failed to initialize the installer from:"
       printf_yellow "$SETREPORAW/install.sh\n"
-      run_cleanup
+      run_mgr_installer_cleanup
       exit 5
     }
     if [ -d "$INSTDIR" ]; then
@@ -2778,7 +2778,7 @@ install_version() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-run_cleanup() {
+run_mgr_installer_cleanup() {
   local TMPFILE="$TMPDIR/$APPNAME.tmp"
   local TMPINST="$TMPDIR/$APPNAME.inst.tmp"
   if [ -f "$TMPFILE" ]; then rm_rf "$TMPFILE"; fi
@@ -2801,7 +2801,7 @@ run_exit() {
   if [ -d "$INSTDIR" ] && [ ! -f "$INSTDIR/.installed" ]; then
     date '+Installed on: %m/%d/%y @ %H:%M:%S' >"$INSTDIR/.installed" 2>/dev/null
   fi
-  run_cleanup
+  run_mgr_installer_cleanup
   if [ -f "/tmp/$SCRIPTSFUNCTFILE" ]; then rm_rf "/tmp/$SCRIPTSFUNCTFILE"; fi
   local exitCode=$(($? + exitCode))
   getexitcode "The configurations for $APPNAME have been installed" "$APPNAME installer has encountered an error: Check the URL"

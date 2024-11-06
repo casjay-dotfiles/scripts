@@ -89,10 +89,6 @@ __detect_os() {
   fi
 } && __detect_os
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# trap errors
-trap_exit() { run_mgr_installer_cleanup; }
-__trap_exit() { trap_exit; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cmd_exists() {
   for f in "$@"; do
     builtin type -P "$f" &>/dev/null && return 0 || return 1
@@ -2809,6 +2805,10 @@ run_exit() {
   export EXIT
   return "${EXIT:-$exitCode}"
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# trap errors
+trap_exit() { run_mgr_installer_cleanup; }
+__trap_exit() { trap_exit; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 run_install_list() {
   local LSINST="" file=""

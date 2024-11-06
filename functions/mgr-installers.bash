@@ -2781,6 +2781,10 @@ run_mgr_installer_cleanup() {
   if [ -f "$TMPINST" ]; then rm_rf "$TMPINST"; fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# trap errors
+trap_exit() { run_mgr_installer_cleanup; }
+__trap_exit() { trap_exit; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 run_exit() {
   $installtype
   local APPNAME="${APPNAME:-$PROG}"
@@ -2805,10 +2809,6 @@ run_exit() {
   export EXIT
   return "${EXIT:-$exitCode}"
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# trap errors
-trap_exit() { run_mgr_installer_cleanup; }
-__trap_exit() { trap_exit; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 run_install_list() {
   local LSINST="" file=""

@@ -82,8 +82,12 @@ for check in git curl wget; do
     exit 1
   fi
 done
-# trap errors
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__which() { which "$1" 2>/dev/null; }
+__type() { type -P "$1" 2>/dev/null; }
+__command() { command -v "$1" 2>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# trap errors
 __trap_exit_app_install() {
   local tmp_file="${TMP:-/tmp}/${APPNAME:-scripts}.tmp"
   local tmp_inst_file="${TMP:-/tmp}/${APPNAME:-scripts}.inst.tmp"

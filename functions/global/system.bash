@@ -14,6 +14,10 @@
 # @Resource          :
 # @sudo/root         :  no
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__which() { which "$1" 2>/dev/null; }
+__type() { type -P "$1" 2>/dev/null; }
+__command() { command -v "$1" 2>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cmd_exists() {
   for cmd in "$@"; do
     builtin type -P "$cmd" &>/dev/null || return 1

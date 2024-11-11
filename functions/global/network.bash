@@ -15,10 +15,7 @@
 # @sudo/root         :  no
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __am_i_online() {
-  curl -q --connect-timeout 1 \
-    --fail --retry 1 -ILSsf 1.1.1.1 2>/dev/null |
-    grep -q 'server:.*cloudflare' &&
-    return 0 || return 1
+  curl -q --connect-timeout 1 --max-time 2 --fail --retry 0 -LSsfI https://1.1.1.1 2>/dev/null | grep -q 'server:.*cloudflare' && return 0 || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __local_network() {

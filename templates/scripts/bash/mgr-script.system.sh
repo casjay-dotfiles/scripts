@@ -93,7 +93,7 @@ __cmd_exists() {
 # Check for a valid internet connection
 __am_i_online() {
   local GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
-  curl -q -LSsfI --max-time 1 --retry 0 "${1:-http://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=4
+  curl -q -LSsfI --max-time 1 --retry 0 "${1:-https://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=4
   return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

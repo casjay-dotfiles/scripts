@@ -195,7 +195,7 @@ __help() {
   __printf_line "list                            - List configured domains"
   __printf_line "redirect                        - Setup a redirect"
   __printf_line "static                          - Setup a static site"
-  __printf_line "php                             - Setup php site"
+  __printf_line "php                             - Setup a php site"
   __printf_line "proxy                           - Setup a reverse proxy"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
@@ -320,19 +320,16 @@ __copy_templates() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __nginx_redirect_dom() {
-  ___redir_to() {
-    [ -n "$GEN_NGINX_REDIR_PROTO" ] || printf_read_input "4" "What protocol does the site use? [http,https]" "120" "GEN_NGINX_REDIR_PROTO" "-i http"
-    [ -n "$GEN_NGINX_REDIR_PROTO" ] || printf_exit "protocol is required"
-    [ -n "$GEN_NGINX_REDIR_DOMAIN" ] || printf_read_input "4" "Where should the domain redirect to? " "120" "GEN_NGINX_REDIR_DOMAIN"
-    [ -n "$GEN_NGINX_REDIR_DOMAIN" ] || printf_exit "domain name is required"
-  }
   GEN_NGINX_DOMAIN="${1:-$GEN_NGINX_DOMAIN}"
   GEN_NGINX_REDIR_DOMAIN="${2:-}"
   GEN_NGINX_WWW_USER_DIR=""
   GEN_NGINX_TEMPLATE_SETTING="redirect"
   [ -n "$GEN_NGINX_DOMAIN" ] || printf_read_input "4" "What is your domain name? [example.com] " "120" "GEN_NGINX_DOMAIN" ""
   [ -n "$GEN_NGINX_DOMAIN" ] || printf_exit "domain name is required"
-  ___redir_to
+  [ -n "$GEN_NGINX_REDIR_PROTO" ] || printf_read_input "4" "What protocol does the site use? [http,https]" "120" "GEN_NGINX_REDIR_PROTO" "-i http"
+  [ -n "$GEN_NGINX_REDIR_PROTO" ] || printf_exit "protocol is required"
+  [ -n "$GEN_NGINX_REDIR_DOMAIN" ] || printf_read_input "4" "Where should the domain redirect to? " "120" "GEN_NGINX_REDIR_DOMAIN"
+  [ -n "$GEN_NGINX_REDIR_DOMAIN" ] || printf_exit "domain name is required"
   domain="$GEN_NGINX_DOMAIN"
   protocol="$GEN_NGINX_REDIR_PROTO"
   redirect="$(echo "$GEN_NGINX_REDIR_DOMAIN" | sed 's/https\?:\/\///;s|://||g')"
@@ -341,12 +338,19 @@ __nginx_redirect_dom() {
 # redirect for $domain
 
 server {
-  listen              80;
-  listen              443;
-  server_name         $domain;
-  access_log          /var/log/nginx/access.$domain.log;
-  error_log           /var/log/nginx/error.$domain.log info;
-  return              301 $protocol://$redirect\$request_uri;
+  listen                                    80;
+  listen                                    443;
+  server_name                               $domain;
+  access_log                                /var/log/nginx/access.$domain.log;
+  error_log                                 /var/log/nginx/error.$domain.log info;
+  ssl_protocols                             TLSv1.1 TLSv1.2;
+  ssl_ciphers                               'EECDH+AESGCM:EDH+AESGCM:AES256+EECDH:AES256+EDH';
+  ssl_prefer_server_ciphers                 on;
+  ssl_session_cache                         shared:SSL:10m;
+  ssl_session_timeout                       1d;
+  ssl_certificate                           /etc/letsencrypt/live/domain/fullchain.pem;
+  ssl_certificate_key                       /etc/letsencrypt/live/domain/privkey.pem;
+  return                                    301 $protocol://$redirect\$request_uri;
 }
 
 EOF
@@ -404,8 +408,7 @@ __nginx_static_dom() {
     exit 1
   fi
 
-  if [ -d "/etc/letsencrypt/live/domain" ] || [ -d "/etc/letsencrypt/live/$(hostname -f)" ]; then
-    cat <<EOF | tee -p "$GEN_NGINX_VHOST_USER_DIR/$domain.conf" &>/dev/null
+  cat <<EOF | tee -p "$GEN_NGINX_VHOST_USER_DIR/$domain.conf" &>/dev/null
 # static site for $domain
 
 server {
@@ -455,53 +458,6 @@ server {
 }
 
 EOF
-  else
-    cat <<EOF | tee -p "$GEN_NGINX_VHOST_USER_DIR/$domain.conf" &>/dev/null
-# static site for $domain
-
-server {
-  listen                                    443 ssl http2;
-  listen                                    [::]:443 ssl http2;
-  server_name                               $domain;
-  access_log                                /var/log/nginx/access.$domain.log;
-  error_log                                 /var/log/nginx/error.$domain.log info;
-  keepalive_timeout                         75 75;
-  client_max_body_size                      0;
-  chunked_transfer_encoding                 on;
-  add_header Strict-Transport-Security      "max-age=7200";
-  ssl_protocols                             TLSv1.1 TLSv1.2;
-  ssl_ciphers                               'EECDH+AESGCM:EDH+AESGCM:AES256+EECDH:AES256+EDH';
-  ssl_prefer_server_ciphers                 on;
-  ssl_session_cache                         shared:SSL:10m;
-  ssl_session_timeout                       1d;
-  ssl_certificate                           /etc/letsencrypt/live/domain/fullchain.pem;
-  ssl_certificate_key                       /etc/letsencrypt/live/domain/privkey.pem;
-
-  include                                   /etc/nginx/global.d/nginx-defaults.conf;
-  include                                   /etc/nginx/global.d/cgi-bin.conf;
-  include                                   /etc/nginx/global.d/munin.conf;
-  include                                   /etc/nginx/global.d/vnstats.conf;
-  include                                   /etc/nginx/global.d/others.conf;
-
-  location / {
-    root                                    $static_files;
-    index                                   index.html;
-    location ~* \.(?:jpg|jpeg|gif|png|ico|cur|gz|svg|mp4|ogg|ogv|webm|htc)$ {
-      add_header                            Cache-Control "max-age=2592000";
-      access_log                            off;
-      }
-
-    # CSS and Javascript
-    location ~* \.(?:css|js)$ {
-      add_header                            Cache-Control "max-age=31536000";
-      access_log                            off;
-      }
-    }
-
-}
-
-EOF
-  fi
   printf_newline
   printf_head 4 "Setting up $domain.conf" "in $GEN_NGINX_VHOST_USER_DIR"
   if [ -f "$GEN_NGINX_VHOST_USER_DIR/$domain.conf" ]; then
@@ -530,7 +486,8 @@ __nginx_php_dom() {
   [ -n "$test_user_www_dir" ] || GEN_NGINX_WWW_USER_DIR=""
   # Set domain and config its set
   [ -n "$GEN_NGINX_DOMAIN" ] || printf_read_input "4" "What is your domain name? " "120" "GEN_NGINX_DOMAIN" "-i $(hostname -f) "
-  [ -n "$GEN_NGINX_DOMAIN" ] && GEN_NGINX_DOMAIN="${GEN_NGINX_DOMAIN// /}" || printf_exit "domain name is required"
+  GEN_NGINX_DOMAIN="${GEN_NGINX_DOMAIN// /}"
+  [ -n "$GEN_NGINX_DOMAIN" ] || printf_exit "domain name is required"
   # Set static files directory
   [ -n "$GEN_NGINX_WWW_USER_DIR" ] || printf_read_input "4" "Where would you like to store the static files? :" "120" "GEN_NGINX_WWW_USER_DIR" "-i $GEN_NGINX_WWW_USER_DIR/$GEN_NGINX_DOMAIN"
   [ -n "$GEN_NGINX_WWW_USER_DIR" ] && GEN_NGINX_WWW_USER_DIR="${GEN_NGINX_WWW_USER_DIR// /}" || printf_exit "the static file folder is required"
@@ -563,8 +520,7 @@ __nginx_php_dom() {
     printf_yellow "in $GEN_NGINX_WWW_USER_DIR"
     exit 1
   fi
-  if [ -d "/etc/letsencrypt/live/$GEN_NGINX_DOMAIN" ] || [ -d "/etc/letsencrypt/live/$le_dom" ] || [ -d "/etc/letsencrypt/live/domain" ]; then
-    cat <<EOF | tee -p "$GEN_NGINX_VHOST_USER_DIR/$domain.conf" &>/dev/null
+  cat <<EOF | tee -p "$GEN_NGINX_VHOST_USER_DIR/$domain.conf" &>/dev/null
 # php-fpm site for $domain
 
 server {
@@ -609,53 +565,6 @@ server {
 }
 
 EOF
-  else
-    cat <<EOF | tee -p "$GEN_NGINX_VHOST_USER_DIR/$domain.conf" &>/dev/null
-# php-fpm site for $domain
-
-server {
-  listen                                    443 ssl http2;
-  listen                                    [::]:443 ssl http2;
-  server_name                               $domain;
-  access_log                                /var/log/nginx/access.$domain.log;
-  error_log                                 /var/log/nginx/error.$domain.log info;
-  keepalive_timeout                         75 75;
-  client_max_body_size                      0;
-  chunked_transfer_encoding                 on;
-  add_header Strict-Transport-Security      "max-age=7200";
-  ssl_protocols                             TLSv1.1 TLSv1.2;
-  ssl_ciphers                               'EECDH+AESGCM:EDH+AESGCM:AES256+EECDH:AES256+EDH';
-  ssl_prefer_server_ciphers                 on;
-  ssl_session_cache                         shared:SSL:10m;
-  ssl_session_timeout                       1d;
-  ssl_certificate                           /etc/ssl/CA/CasjaysDev/certs/localhost.crt;
-  ssl_certificate_key                       /etc/ssl/CA/CasjaysDev/private/localhost.key;
-
-  location / {
-    root                                    $static_files;
-    index                                   index.html index.php index.asp;
-    location ~* \.(?:jpg|jpeg|gif|png|ico|cur|gz|svg|mp4|ogg|ogv|webm|htc)$ {
-      access_log                            off;
-      add_header                            Cache-Control "max-age=2592000";
-      }
-
-    # CSS and Javascript
-    location ~* \.(?:css|js)$ {
-      add_header                            Cache-Control "max-age=31536000";
-      access_log                            off;
-      }
-
-    location ~ \.php$ {
-      fastcgi_split_path_info               ^(.+\.php)(/.+)$;
-      fastcgi_pass                          $php_fpm_address;
-      fastcgi_index                         index.php;
-      include                               fastcgi.conf;
-      }
-    }
-}
-
-EOF
-  fi
   printf_newline
   printf_head 4 "Setting up $domain.conf" "in $GEN_NGINX_VHOST_USER_DIR"
   if [ -f "$GEN_NGINX_VHOST_USER_DIR/$domain.conf" ]; then
@@ -676,16 +585,16 @@ EOF
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __nginx_proxy_dom() {
   GEN_NGINX_WWW_USER_DIR=""
-  [ -n "$GEN_NGINX_DOMAIN" ] || printf_read_input "4" "What is your domain name? " "120" "GEN_NGINX_DOMAIN"
-  [ -n "$GEN_NGINX_DOMAIN" ] || printf_exit "domain name is required"
   [ -n "$GEN_NGINX_REV_PROXY_NAME" ] || printf_read_input "4" "What is the name of the app? " "120" "GEN_NGINX_REV_PROXY_NAME"
   [ -n "$GEN_NGINX_REV_PROXY_NAME" ] || printf_exit "app name is required"
-  [ -n "$GEN_NGINX_REV_PROXY_URL" ] || printf_read_input "4" "What is the url for the app? " "120" "GEN_NGINX_REV_PROXY_URL"
-  [ -n "$GEN_NGINX_REV_PROXY_URL" ] || printf_exit "reverse proxy host is required"
   [ -n "$GEN_NGINX_REV_PROXY_PORT" ] || printf_read_input "4" "What is your port is your app listening on [3000]? " "120" "GEN_NGINX_REV_PROXY_PORT"
   [ -n "$GEN_NGINX_REV_PROXY_PORT" ] || printf_exit "reverse proxy port is required"
   [ -n "$GEN_NGINX_REV_PROXY_PROTO" ] || printf_read_input "4" "What is the protocol http[s]? " "120" "GEN_NGINX_REV_PROXY_PROTO" "-i http"
   [ -n "$GEN_NGINX_REV_PROXY_PROTO" ] || printf_exit "the proxy protocol is required"
+  [ -n "$GEN_NGINX_DOMAIN" ] || printf_read_input "4" "What is your domain name? " "120" "GEN_NGINX_DOMAIN"
+  [ -n "$GEN_NGINX_DOMAIN" ] || printf_exit "domain name is required"
+  [ -n "$GEN_NGINX_REV_PROXY_URL" ] || printf_read_input "4" "What is the address for the app? " "120" "GEN_NGINX_REV_PROXY_URL"
+  [ -n "$GEN_NGINX_REV_PROXY_URL" ] || printf_exit "reverse proxy host is required"
   [ -d "$GEN_NGINX_VHOST_USER_DIR" ] || mkdir -p "$GEN_NGINX_VHOST_USER_DIR"
   export GEN_NGINX_WWW_USER_DIR GEN_NGINX_DOMAIN GEN_NGINX_REV_PROXY_NAME GEN_NGINX_REV_PROXY_URL GEN_NGINX_REV_PROXY_PORT GEN_NGINX_REV_PROXY_PROTO
 }
@@ -702,8 +611,7 @@ __nginx_conf_file() {
 "$GEN_NGINX_CONFIG_DIR/template.conf"
 EOF
   else
-    if [ -d "/etc/letsencrypt/live/domain" ] || [ -d "/etc/letsencrypt/live/$(hostname -f)" ]; then
-      cat <<EOF | tee -p "$GEN_NGINX_VHOST_USER_DIR/$domain.conf" &>/dev/null
+    cat <<EOF | tee -p "$GEN_NGINX_VHOST_USER_DIR/$domain.conf" &>/dev/null
 # reverse proxy for $domain
 # upstream $proxy_name { server $proxy_domain fail_timeout=0; }
 
@@ -748,15 +656,15 @@ server {
     }
 
 #  location ~ ^/uri {
-#    rewrite                                ^/(.*)$ /\$1 break;
-#    proxy_pass                             $proxy_domain/;
 #    proxy_redirect                         off;
 #    proxy_set_header                       Host              \$http_host;
 #    proxy_set_header                       X-Real-IP         \$remote_addr;
-    proxy_set_header                        X-Forwarded-For   \$remote_addr;
+#    proxy_set_header                       X-Forwarded-For   \$remote_addr;
 #    proxy_set_header                       X-Forwarded-Proto \$scheme;
 #    proxy_set_header                       Upgrade           \$http_upgrade;
 #    proxy_set_header                       Connection        \$connection_upgrade;
+#    rewrite                                ^/(.*)$ /\$1 break;
+#    proxy_pass                             $proxy_domain/;
 #    }
 
 #  location ~ ^/uri {
@@ -766,69 +674,6 @@ server {
 }
 
 EOF
-    else
-      cat <<EOF | tee -p "$GEN_NGINX_VHOST_USER_DIR/$domain.conf" &>/dev/null
-# reverse proxy for $domain
-# upstream $proxy_name { server $proxy_domain fail_timeout=0; }
-
-server {
-  listen                                    443 ssl http2;
-  listen                                    [::]:443 ssl http2;
-  server_name                               $domain;
-  access_log                                /var/log/nginx/access.$domain.log;
-  error_log                                 /var/log/nginx/error.$domain.log info;
-  keepalive_timeout                         75 75;
-  client_max_body_size                      0;
-  chunked_transfer_encoding                 on;
-  add_header Strict-Transport-Security      "max-age=7200";
-  ssl_protocols                             TLSv1.1 TLSv1.2;
-  ssl_ciphers                               'EECDH+AESGCM:EDH+AESGCM:AES256+EECDH:AES256+EDH';
-  ssl_prefer_server_ciphers                 on;
-  ssl_session_cache                         shared:SSL:10m;
-  ssl_session_timeout                       1d;
-  ssl_certificate                           /etc/ssl/CA/CasjaysDev/certs/localhost.crt;
-  ssl_certificate_key                       /etc/ssl/CA/CasjaysDev/private/localhost.key;
-
-  location / {
-    send_timeout                            3600;
-    proxy_ssl_verify                        off;
-    proxy_connect_timeout                   3600;
-    proxy_send_timeout                      3600;
-    proxy_read_timeout                      3600;
-    proxy_http_version                      1.1;
-    proxy_request_buffering                 off;
-    proxy_buffering                         off;
-    proxy_set_header                        Host              \$http_host;
-    proxy_set_header                        X-Real-IP         \$remote_addr;
-    proxy_set_header                        X-Forwarded-For   \$remote_addr;
-    proxy_set_header                        X-Forwarded-Proto \$scheme;
-    proxy_set_header                        Upgrade           \$http_upgrade;
-    proxy_set_header                        Connection        \$connection_upgrade;
-    proxy_redirect                          http:// https://;
-    proxy_pass                              $proxy_domain;
-    }
-
-#  location ~ ^/uri {
-#    rewrite                                 ^/(.*)$ /\$1 break;
-#    proxy_redirect                          off;
-#    proxy_set_header                        Host              \$http_host;
-#    proxy_set_header                        X-Real-IP         \$remote_addr;
-#    proxy_set_header                        X-Forwarded-For   \$remote_addr;
-#    proxy_set_header                        X-Forwarded-Proto \$scheme;
-#    proxy_set_header                        Upgrade           \$http_upgrade;
-#    proxy_set_header                        Connection        \$connection_upgrade;
-#    proxy_pass                              $proxy_domain/;
-#    }
-
-#  location ~ ^/uri {
-#    rewrite                                ^/(.*)$ $proxy_domain permanent;
-#    }
-
-}
-
-EOF
-
-    fi
   fi
   printf_newline
   printf_head 4 "Setting up $domain.conf" "in $GEN_NGINX_VHOST_USER_DIR"

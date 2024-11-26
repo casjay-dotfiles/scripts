@@ -368,25 +368,29 @@ __get_project_dir() { grep -R -- '-.*/' *.yml | sed "s|.*- ||g;s|'||g;s|\"||g;s|
 __cd() {
   local dir="$(__basename "$1")"
   [ -d "$COMPOSEMGR_BASE_DIR/$dir" ] || mkdir -p "$COMPOSEMGR_BASE_DIR/$dir"
-  \cd "$COMPOSEMGR_BASE_DIR/$dir" && pushd . >/dev/null || return 1
+  \cd "$COMPOSEMGR_BASE_DIR/$dir" && pushd "$PWD" >/dev/null || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __update_env_file() {
   local file="${1:-$COMPOSEMGR_CONFIG_DIR/compose.env}"
+  local directory="$(dirname "$file")"
+  if [ -d "$directory/.git" ]; then
+    grep -qs '.env$' "$directory/.gitignore" || printf '%s\n%s\n' '# ignore dotenv files' '.env' >>"$directory/.gitignore"
+  fi
   if [ -f "$file" ]; then
     . "$file"
     \rm -Rf "$file"
   fi
 
   cat <<EOF >"$file"
-# create a random string
-# head -n128 '/dev/urandom' | tr -dc 'a-zA-Z0-9' | tr -d '[:space:]\042\047\134' | fold -w "64" | head -n 1
-
-# create a hashed password
-# openssl passwd -1 -salt \$(openssl rand -base64 6) \$(tr -dc 'A-Za-z0-9' <"/dev/urandom" | head -c 20)
-
 # Create a random secret
 # openssl rand -hex 32
+
+# create a random password
+# head -n50 '/dev/random' | tr -dc 'a-zA-Z0-9[!@]' | tr -d '[:space:]\042\047\134' | fold -w 32 | head -n 1
+
+# create a hashed password
+# head -n128 /dev/urandom|tr -dc 'A-Za-z0-9' | head -c 32|openssl passwd -1 -salt $(openssl rand -base64 6) --stdin
 
 # Docker Compose Global env
 BASE_HOST_NAME="${BASE_HOST_NAME:-$HOSTNAME}"
@@ -416,20 +420,22 @@ APP_RUN_AS="${APP_RUN_AS:-}"
 APP_USER_NAME="${APP_USER_NAME:-$USER}"
 APP_USER_PASS="${APP_USER_PASS:-$(head -n128 '/dev/urandom' | tr -dc 'a-zA-Z0-9' | tr -d '[:space:]\042\047\134' | fold -w "16" | head -n 1)}"
 #
-APP_ADMIN_USER="${APP_ADMIN_USER:-administrator}"
+APP_ADMIN_USER="${APP_ADMIN_USER:-admin_${USER}}"
 APP_ROOT_PASS="${APP_ROOT_PASS:-$(head -n128 '/dev/urandom' | tr -dc 'a-zA-Z0-9' | tr -d '[:space:]\042\047\134' | fold -w "24" | head -n 1)}"
 #
-APP_JWT_TOKEN="${APP_JWT_TOKEN:-}"
+APP_JWT_TOKEN="${APP_JWT_TOKEN:-\$(openssl rand -hex 32)}"
 #
 APP_TEMP_PASS="${APP_TEMP_PASS:-\$(head -n128 '/dev/urandom' | tr -dc 'a-zA-Z0-9' | tr -d '[:space:]\042\047\134' | fold -w "32" | head -n 1)}"
 #
-APP_API_TOKEN="${APP_API_TOKEN:-$(head -n128 '/dev/urandom' | tr -dc 'a-zA-Z0-9' | tr -d '[:space:]\042\047\134' | fold -w "64" | head -n 1)}"
+APP_API_TOKEN="${APP_API_TOKEN:-\$(head -n128 '/dev/urandom' | tr -dc 'a-zA-Z0-9' | tr -d '[:space:]\042\047\134' | fold -w "64" | head -n 1)}"
 #
-APP_SECRET_KEY="${APP_SECRET_KEY:-\$(tr -dc 'A-Za-z0-9' <'/dev/urandom' 2>/dev/null | head -c 16)}"
+APP_SECRET_KEY="${APP_SECRET_KEY:-\$(head -n128 '/dev/urandom' | tr -dc 'a-zA-Z0-9' | tr -d '[:space:]\042\047\134' | fold -w "16" | head -n 1)}"
 APP_SECRET_TOKEN_16="${APP_SECRET_TOKEN_16:-\$(head -n128 '/dev/urandom' | tr -dc 'a-zA-Z0-9' | tr -d '[:space:]\042\047\134' | fold -w "16" | head -n 1)}"
 APP_SECRET_TOKEN_32="${APP_SECRET_TOKEN_32:-\$(head -n128 '/dev/urandom' | tr -dc 'a-zA-Z0-9' | tr -d '[:space:]\042\047\134' | fold -w "32" | head -n 1)}"
 APP_SECRET_TOKEN_64="${APP_SECRET_TOKEN_64:-\$(head -n128 '/dev/urandom' | tr -dc 'a-zA-Z0-9' | tr -d '[:space:]\042\047\134' | fold -w "64" | head -n 1)}"
 #
+GENERATE_SECURE_SECRET_CMD="${GENERATE_SECURE_SECRET_CMD:-$(openssl rand --hex 16)}"
+GENERATE_K256_PRIVATE_KEY_CMD="${GENERATE_K256_PRIVATE_KEY_CMD:-$(openssl ecparam --name secp256k1 --genkey --noout --outform DER | tail --bytes=+8 | head --bytes=32 | xxd --plain --cols 32)}"
 #
 EMAIL_SERVER_PORT="${EMAIL_SERVER_PORT:-25}"
 EMAIL_SERVER_TIMEOUT="${EMAIL_SERVER_TIMEOUT:-10}"
@@ -458,6 +464,7 @@ __get_data_dir() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __is_docker_compose() {
   if [ -f "docker-compose.yml" ] || [ -f "docker-compose.yaml" ] || [ -f "compose.yml" ] || [ -f "compose.yaml" ]; then
+    __update_env_file "$PWD/.env"
     return 0
   else
     return 1

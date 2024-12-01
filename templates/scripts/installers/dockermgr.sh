@@ -1705,7 +1705,7 @@ if [ "$HOST_NGINX_ENABLED" = "yes" ] && [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes
     NGINX_DIR="$HOME/.config/nginx"
   fi
   if [ -n "$HOST_NGINX_HTTPS_PORT" ]; then
-    NGINX_LISTEN_OPTS="ssl http2"
+    NGINX_LISTEN_OPTS="ssl"
     NGINX_PORT="${HOST_NGINX_HTTPS_PORT:-443}"
   else
     NGINX_PORT="${HOST_NGINX_HTTP_PORT:-80}"
@@ -2304,8 +2304,8 @@ if [ "$CONTAINER_WEB_SERVER_ENABLED" = "yes" ] && { [ -n "$CONTAINER_ADD_RANDOM_
             echo "$set_hostname" | grep -qF '.' || set_hostname="$set_hostname.$CONTAINER_HOSTNAME"
             cat <<EOF | tee -p -a "$NGINX_VHOSTS_PROXY_FILE_TMP" &>/dev/null
 server {
-  listen                                    443 ssl http2;
-  listen                                    [::]:443 ssl http2;
+  listen                                    443 ssl;
+  listen                                    [::]:443 ssl;
   server_name                               $set_hostname;
   access_log                                /var/log/nginx/access.$set_hostname.log;
   error_log                                 /var/log/nginx/error.$set_hostname.log info;

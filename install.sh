@@ -204,6 +204,7 @@ run_postinst() {
   replace "$motdDir/" "MY_SHORT_HOSTNAME" "$(hostname -s)"
   cmd_exists update-ip && update-ip &>/dev/null
   cmd_exists update-motd && update-motd &>/dev/null
+  cmd_exists dockermgr && dockermgr --cron &>/dev/null
   grep 'Defaults.*.env_reset' "/etc/sudoers" | grep -q '!' || sudo sed -i 's|env_reset|!env_reset|g' "/etc/sudoers"
   grep 'Defaults.*.secure_path' "/etc/sudoers" && sudo sed -i 's|secure_path =.*|secure_path = "/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin"|g' "/etc/sudoers"
   echo 'for f in '"$CASJAYSDEVDIR/completions"/*'; do source "$f" >/dev/null 2>&1; done' >"$bashCompDir/_my_scripts_completions"

@@ -26,11 +26,9 @@ __list_array() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __list_options() {
-  local OPTSDIR="${1:-$HOME/.local/share/myscripts/${APPNAME:-$PROG}/options}"
-  mkdir -p "$OPTSDIR"
-  echo -n "-$SHORTOPTS" | sed 's#:.*,#,#g;s#,# -#g' >"$OPTSDIR/options"
-  echo "--$LONGOPTS" | sed 's#:.*,#,##g;s#,# --#g' >>"$OPTSDIR/options"
-  return
+  printf_color "$1: " "$5"
+  echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g' | tr '\n' ' '
+  printf_newline
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ###################### Set options ######################

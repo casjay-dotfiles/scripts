@@ -17,6 +17,25 @@
 __which() { which "$1" 2>/dev/null; }
 __type() { type -P "$1" 2>/dev/null; }
 __command() { command -v "$1" 2>/dev/null; }
+__is_wayland() { { [ "$XDG_SESSION_TYPE" = "wayland" ] || grep -shqiE 'chromeos|Chromium OS' "/proc/version"; } && return 0 || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__paste_clip() {
+  if [ "$(uname -s)" = 'Linux' ]; then
+    if __cmd_exists wl-paste && __is_wayland; then
+      wl-paste 2>/dev/null
+    elif __cmd_exists xclip; then
+      xclip -r -selection clipboard -o 2>/dev/null
+    elif __cmd_exists xsel; then
+      xsel -p -o 2>/dev/null
+    fi
+  elif [ "$(uname -s)" = 'Darwin' ]; then
+    if __cmd_exists pbpaste; then
+      pbpaste
+    fi
+  elif [[ "$(uname -s)" = 'Win'* ]]; then
+    unclip.exe
+  fi
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cmd_exists() {
   for cmd in "$@"; do

@@ -1,0 +1,636 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version           :  202208102042-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  jason@casjaysdev.pro
+# @@License          :  WTFPL
+# @@ReadME           :  hue --help
+# @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
+# @@Created          :  Wednesday, Aug 10, 2022 20:42 EDT
+# @@File             :  hue
+# @@Description      :  Manage hue lights
+# @@Changelog        :  New script
+# @@TODO             :  Better documentation
+# @@Other            :
+# @@Resource         :  http://hkionline.net/posts/using-phillips-hue-from-the-command-line
+# @@Terminal App     :  no
+# @@sudo/root        :  no
+# @@Template         :  bash/system
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="$(basename -- "$0" 2>/dev/null)"
+VERSION="202208102042-git"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${RUN_USER:-$USER}"
+USER_HOME="${USER_HOME:-$HOME}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+HUE_REQUIRE_SUDO="${HUE_REQUIRE_SUDO:-no}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Reopen in a terminal
+#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set script title
+#CASJAYS_DEV_TILE_FORMAT="${USER}@${HOSTNAME}:${PWD//$HOME/\~} - $APPNAME"
+#CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}"
+#[ -z "$CASJAYSDEV_TITLE_SET" ] && printf '\033]2│;%s\033\\' "$CASJAYS_DEV_TILE_FORMAT" && CASJAYSDEV_TITLE_SET="$APPNAME"
+export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}" CASJAYSDEV_TITLE_SET
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initial debugging
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# pipes fail
+set -o pipefail
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import functions
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+  . "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  exit 1
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Options are: *_install
+# system user desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+user_install && __options "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Send all output to /dev/null
+__devnull() {
+  tee &>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# Send errors to /dev/null
+__devnull2() {
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# See if the executable exists
+__cmd_exists() {
+  exitCode=0
+  [ -n "$1" ] && local exitCode="" || return 0
+  for cmd in "$@"; do
+    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
+  done
+  [ $exitCode -eq 0 ] || exitCode=3
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for a valid internet connection
+__am_i_online() {
+  local exitCode=0
+  curl -q -LSsfI --max-time 2 --retry 1 "${1:-https://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# colorization
+if [ "$SHOW_RAW" = "true" ]; then
+  NC=""
+  RESET=""
+  BLACK=""
+  RED=""
+  GREEN=""
+  YELLOW=""
+  BLUE=""
+  PURPLE=""
+  CYAN=""
+  WHITE=""
+  ORANGE=""
+  LIGHTRED=""
+  BG_GREEN=""
+  BG_RED=""
+  ICON_INFO="[ info ]"
+  ICON_GOOD="[ ok ]"
+  ICON_WARN="[ warn ]"
+  ICON_ERROR="[ error ]"
+  ICON_QUESTION="[ ? ]"
+  printf_column() { tee | grep '^'; }
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional printf_ colors
+__printf_head() { printf_blue "$1"; }
+__printf_opts() { printf_purple "$1"; }
+__printf_line() { printf_cyan "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# output version
+__version() { printf_cyan "$VERSION"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# list options
+__list_options() {
+  printf_color "$1: " "$5"
+  echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g' | tr '\n' ' '
+  printf_newline
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create the config file
+__gen_config() {
+  local NOTIFY_CLIENT_NAME="$APPNAME"
+  if [ "$INIT_CONFIG" != "TRUE" ]; then
+    printf_blue "Generating the config file in"
+    printf_cyan "$HUE_CONFIG_DIR/$HUE_CONFIG_FILE"
+  fi
+  [ -d "$HUE_CONFIG_DIR" ] || mkdir -p "$HUE_CONFIG_DIR"
+  [ -d "$HUE_CONFIG_BACKUP_DIR" ] || mkdir -p "$HUE_CONFIG_BACKUP_DIR"
+  [ -f "$HUE_CONFIG_DIR/$HUE_CONFIG_FILE" ] &&
+    cp -Rf "$HUE_CONFIG_DIR/$HUE_CONFIG_FILE" "$HUE_CONFIG_BACKUP_DIR/$HUE_CONFIG_FILE.$$"
+  cat <<EOF >"$HUE_CONFIG_DIR/$HUE_CONFIG_FILE"
+# Settings for hue
+HUE_DEFAULT_DEVICE_NAME="${HUE_DEFAULT_DEVICE_NAME:-}"
+HUE_DEFAULT_GROUP="${HUE_DEFAULT_GROUP:-}"
+HUE_HUB_API_KEY="${HUE_ACCESS_TOKEN:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+HUE_OUTPUT_COLOR_1="${HUE_OUTPUT_COLOR_1:-}"
+HUE_OUTPUT_COLOR_2="${HUE_OUTPUT_COLOR_2:-}"
+HUE_OUTPUT_COLOR_GOOD="${HUE_OUTPUT_COLOR_GOOD:-}"
+HUE_OUTPUT_COLOR_ERROR="${HUE_OUTPUT_COLOR_ERROR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+HUE_NOTIFY_ENABLED="${HUE_NOTIFY_ENABLED:-}"
+HUE_GOOD_NAME="${HUE_GOOD_NAME:-}"
+HUE_ERROR_NAME="${HUE_ERROR_NAME:-}"
+HUE_GOOD_MESSAGE="${HUE_GOOD_MESSAGE:-}"
+HUE_ERROR_MESSAGE="${HUE_ERROR_MESSAGE:-}"
+HUE_NOTIFY_CLIENT_NAME="${HUE_NOTIFY_CLIENT_NAME:-}"
+HUE_NOTIFY_CLIENT_ICON="${HUE_NOTIFY_CLIENT_ICON:-}"
+HUE_NOTIFY_CLIENT_URGENCY="${HUE_NOTIFY_CLIENT_URGENCY:-}"
+
+EOF
+  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
+  if [ -f "$HUE_CONFIG_DIR/$HUE_CONFIG_FILE" ]; then
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
+    . "$HUE_CONFIG_DIR/$HUE_CONFIG_FILE"
+    exitCode=0
+  else
+    printf_red "Failed to create the config file"
+    exitCode=1
+  fi
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Help function - Align to 50
+__help() {
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "hue:  Manage hue lights - $VERSION"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Usage: hue [options] [commands]"
+  __printf_line " - "
+  __printf_line " - "
+  __printf_line "--dir                           - Sets the working directory"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Other Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--help                          - Shows this message"
+  __printf_line "--config                        - Generate user config file"
+  __printf_line "--version                       - Show script version"
+  __printf_line "--options                       - Shows all available options"
+  __printf_line "--debug                         - Enables script debugging"
+  __printf_line "--raw                           - Removes all formatting on output"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# check if arg is a builtin option
+__is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0; fi; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 1 || return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep -sh "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# # Get sudo password
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run sudo
+__sudorun() {
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo
+__can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User can run sudo
+__sudoif() {
+  __user_is_root && return 0
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run command as root
+requiresudo() {
+  if [ "$HUE_REQUIRE_SUDO" = "yes" ] && [ -z "$HUE_REQUIRE_SUDO_RUN" ]; then
+    export HUE_REQUIRE_SUDO="no"
+    export HUE_REQUIRE_SUDO_RUN="true"
+    __sudo "$@"
+    exit $?
+  else
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  CMD="${1:-echo}" && shift 1
+  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  [ "$(basename -- "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  if __sudoif; then
+    export PATH="$PATH"
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    exitCode=$?
+  else
+    printf '%s\n' "This requires root to run"
+    exitCode=1
+  fi
+  return ${exitCode:-1}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  exitCode=${exitCode:-0}
+  [ -f "$HUE_TEMP_FILE" ] && rm -Rf "$HUE_TEMP_FILE" &>/dev/null
+  #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD//$HOME/\~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined functions
+__curlapi() {
+  __return_ok "$1" "$2" "$3" || __return_error "$4"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__getstate() {
+  [ -f "$HUE_STATE_FILE" ] && cat "$HUE_STATE_FILE" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__curlcmd() {
+  curl --disable -LSsfk --connect-timeout 3 --retry 0 --fail "$@" 2>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__return_ok() {
+  __curlcmd -X PUT "$HUE_HUB_API/action" -d '{"'$1'": '$2'}' | grep -q success && printf_green "Telling $HUE_DEFAULT_DEVICE_NAME to $3" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__return_error() {
+  printf_error "Failed to send the command ${1} to:"
+  printf_error "$HUE_HUB_API"
+  printf_newline "\n"
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+hue_on() {
+  __curlapi "on" "true" "turn on the lights" "on" && echo "on" >"$HUE_STATE_FILE"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+hue_off() {
+  __curlapi "on" "false" "turn off the lights" "off" && echo "off" >"$HUE_STATE_FILE"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+hue_toggle() {
+  if [ "$(cat $HUE_STATE_FILE)" = "on" ]; then
+    hue_off
+  elif [ "$(cat $HUE_STATE_FILE)" = "off" ]; then
+    hue_on
+  else
+    hue on
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__execute_hue() {
+  HUE_DEFAULT_GROUP="${HUE_DEFAULT_GROUP:-$3}"
+  HUE_DEFAULT_DEVICE_NAME="${HUE_HUB_DEVICE:-${2:-$HUE_DEFAULT_DEVICE_NAME}}"
+  HUE_DEFAULT_DEVICE="$(__hostname2ip "$HUE_DEFAULT_DEVICE_NAME")"
+  HUE_HUB_API="${HUE_HUB_API:-http://$HUE_DEFAULT_DEVICE/api/$HUE_HUB_API_KEY/groups/$HUE_DEFAULT_GROUP}"
+  case "$1" in
+  on | true | 0 | stop)
+    hue_on
+    ;;
+
+  off | false | 1 | play)
+    hue_off
+    ;;
+
+  toggle)
+    hue_toggle
+    ;;
+
+  state)
+    case "$2" in
+
+    text) echo -e "$(__getstate)" ;;
+
+    json | *) echo -e '{"status":"'$(__getstate)'"}' ;;
+    esac
+
+    ;;
+
+  brightness | bright | b)
+    shift 1
+    opts="${1:-0}"
+    shift
+    [ "$opts" -gt "255" ] && printf_exit "Enter a number between 0 and 255"
+    hue_on >/dev/null && __curlapi "bri" "$opts" "set the brightness to $opts" '{"bri": '"$opts"'}'
+    ;;
+
+  sat | s)
+    shift 1
+    opts="${1:-0}"
+    shift
+    [ "$opts" -gt "255" ] && printf_exit "Enter a number between 0 and 255"
+    hue_on >/dev/null && __curlapi "sat" "$opts" "set the saturation to $opts" '{"sat": '"$opts"'}'
+    ;;
+
+  hue | h)
+    shift 1
+    opts="${1:-0}"
+    shift
+    hue_on >/dev/null && __curlapi "hue" "$opts" "set the hue to $opts" '{"hue": '"$opts"'}'
+    ;;
+
+  effect | e)
+    shift 1
+    opts="${1:-0}"
+    shift
+    #curl -LSsq -X PUT "$HUE_HUB_API/action" -d '{"effect": "'$1'"}'
+    hue_on >/dev/null && __curlapi "hue" "$opts" "set the effect to $opts" '{"effect": "'$opts'"}'
+    ;;
+
+  info)
+    printf_green "Getting info for group $HUE_DEFAULT_GROUP from $HUE_DEFAULT_DEVICE_NAME"
+    __curlcmd "$HUE_HUB_API" | jq
+    ;;
+
+  *)
+    hue_toggle
+    ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined variables/import external variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application Folders
+HUE_CONFIG_FILE="${HUE_CONFIG_FILE:-settings.conf}"
+HUE_CONFIG_DIR="${HUE_CONFIG_DIR:-$HOME/.config/myscripts/hue}"
+HUE_CONFIG_BACKUP_DIR="${HUE_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/hue/backups}"
+HUE_LOG_DIR="${HUE_LOG_DIR:-$HOME/.local/log/hue}"
+HUE_TEMP_DIR="${HUE_TEMP_DIR:-$HOME/.local/tmp/system_scripts/hue}"
+HUE_CACHE_DIR="${HUE_CACHE_DIR:-$HOME/.cache/hue}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+HUE_OUTPUT_COLOR_1="${HUE_OUTPUT_COLOR_1:-33}"
+HUE_OUTPUT_COLOR_2="${HUE_OUTPUT_COLOR_2:-5}"
+HUE_OUTPUT_COLOR_GOOD="${HUE_OUTPUT_COLOR_GOOD:-2}"
+HUE_OUTPUT_COLOR_ERROR="${HUE_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+HUE_NOTIFY_ENABLED="${HUE_NOTIFY_ENABLED:-yes}"
+HUE_GOOD_NAME="${HUE_GOOD_NAME:-Great:}"
+HUE_ERROR_NAME="${HUE_ERROR_NAME:-Error:}"
+HUE_GOOD_MESSAGE="${HUE_GOOD_MESSAGE:-No errors reported}"
+HUE_ERROR_MESSAGE="${HUE_ERROR_MESSAGE:-Errors were reported}"
+HUE_NOTIFY_CLIENT_NAME="${HUE_NOTIFY_CLIENT_NAME:-$APPNAME}"
+HUE_NOTIFY_CLIENT_ICON="${HUE_NOTIFY_CLIENT_ICON:-notification-new}"
+HUE_NOTIFY_CLIENT_URGENCY="${HUE_NOTIFY_CLIENT_URGENCY:-normal}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional Variables
+HUE_STATE_FILE="$HUE_CACHE_DIR/automate_hue"
+HUE_DEFAULT_DEVICE_NAME="${HUE_DEFAULT_DEVICE_NAME:-$HUE_DEFAULT_DEVICE}"
+HUE_DEFAULT_DEVICE="$(__hostname2ip ${HUE_HUB_DEVICE:-$HUE_DEFAULT_DEVICE_NAME})"
+HUE_DEFAULT_GROUP="${HUE_DEFAULT_GROUP:-0}"
+HUE_HUB_API_KEY="${HUE_ACCESS_TOKEN:-$HUE_HUB_API_KEY}"
+HUE_HUB_API="${HUE_HUB_API:-http://$HUE_DEFAULT_DEVICE/api/$HUE_HUB_API_KEY/groups/$HUE_DEFAULT_GROUP}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$HUE_CONFIG_DIR/$HUE_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$HUE_CONFIG_DIR/$HUE_CONFIG_FILE" ] && . "$HUE_CONFIG_DIR/$HUE_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$HUE_LOG_DIR" ] || mkdir -p "$HUE_LOG_DIR" |& __devnull
+[ -d "$HUE_TEMP_DIR" ] || mkdir -p "$HUE_TEMP_DIR" |& __devnull
+[ -d "$HUE_CACHE_DIR" ] || mkdir -p "$HUE_CACHE_DIR" |& __devnull
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+HUE_TEMP_FILE="${HUE_TEMP_FILE:-$(mktemp $HUE_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap '__trap_exit' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+__notifications() {
+  __cmd_exists notifications || return
+  [ "$HUE_NOTIFY_ENABLED" = "yes" ] || return
+  [ "$SEND_NOTIFICATION" = "no" ] && return
+  (
+    export SCRIPT_OPTS="" _DEBUG=""
+    export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$HUE_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$HUE_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$HUE_NOTIFY_CLIENT_ICON}"
+    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$HUE_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$HUE_NOTIFY_CLIENT_URGENCY}"
+    notifications "$@"
+  ) |& __devnull &
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set custom actions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Argument/Option settings
+SETARGS=("$@")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SHORTOPTS=""
+SHORTOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
+LONGOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ARRAY=""
+ARRAY+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LIST=""
+LIST+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case "$1" in
+  --raw)
+    shift 1
+    export SHOW_RAW="true"
+    NC=""
+    RESET=""
+    BLACK=""
+    RED=""
+    GREEN=""
+    YELLOW=""
+    BLUE=""
+    PURPLE=""
+    CYAN=""
+    WHITE=""
+    ORANGE=""
+    LIGHTRED=""
+    BG_GREEN=""
+    BG_RED=""
+    ICON_INFO="[ info ]"
+    ICON_GOOD="[ ok ]"
+    ICON_WARN="[ warn ]"
+    ICON_ERROR="[ error ]"
+    ICON_QUESTION="[ ? ]"
+    printf_column() { tee | grep '^'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    ;;
+  --debug)
+    shift 1
+    set -xo pipefail
+    export SCRIPT_OPTS="--debug"
+    export _DEBUG="on"
+    __devnull() { tee || return 1; }
+    __devnull2() { eval "$@" |& tee -p || return 1; }
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
+    ;;
+  --options)
+    shift 1
+    printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' 4
+    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' 4
+    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
+    [ -z "$LIST" ] || __list_options "LIST Options" "${LIST}" ',' '' 4
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  --silent)
+    shift 1
+    HUE_SILENT="true"
+    ;;
+  --dir)
+    CWD_IS_SET="TRUE"
+    HUE_CWD="$2"
+    [ -d "$HUE_CWD" ] || mkdir -p "$HUE_CWD" |& __devnull
+    shift 2
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get directory from args
+# set -- "$@"
+# for arg in "$@"; do
+# if [ -d "$arg" ]; then
+# HUE_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
+# elif [ -f "$arg" ]; then
+# HUE_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
+# else
+# SET_NEW_ARGS+=("$arg")
+# fi
+# done
+# set -- "${SET_NEW_ARGS[@]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set directory to first argument
+# [ -d "$1" ] && __is_an_option "$1" && HUE_CWD="$1" && shift 1 || HUE_CWD="${HUE_CWD:-$PWD}"
+HUE_CWD="$(realpath "${HUE_CWD:-$PWD}" 2>/dev/null)"
+# if [ -d "$HUE_CWD" ] && cd "$HUE_CWD"; then
+# if [ "$HUE_SILENT" != "true" ] && [ "$CWD_SILENCE" != "true" ]; then
+# printf_cyan "Setting working dir to $HUE_CWD"
+# fi
+# else
+# printf_exit "💔 $HUE_CWD does not exist 💔"
+# fi
+export HUE_CWD
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set actions based on variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+#cmd_exists --error --ask bash || exit 3 # exit 3 if not found
+#am_i_online --error || exit 4           # exit 4 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+[ -n "${HUE_HUB_API_KEY:-}" ] || printf_exit "Please set your hue api key"
+[ -n "${HUE_DEFAULT_DEVICE:-}" ] || printf_exit "Please enter the hostname or ip address of your hue hub"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute commands
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+__execute_hue "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set exit code
+exitCode="${exitCode:-0}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-0}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# ex: ts=2 sw=2 et filetype=sh

@@ -1,0 +1,677 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version           :  202208170056-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  jason@casjaysdev.pro
+# @@License          :  WTFPL
+# @@ReadME           :  sudoers --help
+# @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
+# @@Created          :  Wednesday, Aug 17, 2022 00:57 EDT
+# @@File             :  sudoers
+# @@Description      :  add and remove users from sudo
+# @@Changelog        :  New script
+# @@TODO             :  Better documentation
+# @@Other            :
+# @@Resource         :
+# @@Terminal App     :  no
+# @@sudo/root        :  no
+# @@Template         :  bash/system
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="$(basename -- "$0" 2>/dev/null)"
+VERSION="202208170056-git"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${RUN_USER:-$USER}"
+USER_HOME="${USER_HOME:-$HOME}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+SUDOERS_REQUIRE_SUDO="${SUDOERS_REQUIRE_SUDO:-no}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Reopen in a terminal
+#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set script title
+#CASJAYS_DEV_TILE_FORMAT="${USER}@${HOSTNAME}:${PWD//$HOME/\~} - $APPNAME"
+#CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}"
+#[ -z "$CASJAYSDEV_TITLE_SET" ] && printf '\033]2│;%s\033\\' "$CASJAYS_DEV_TILE_FORMAT" && CASJAYSDEV_TITLE_SET="$APPNAME"
+export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}" CASJAYSDEV_TITLE_SET
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initial debugging
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# pipes fail
+set -o pipefail
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import functions
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+  . "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  exit 1
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Options are: *_install
+# system user desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+user_install && __options "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Send all output to /dev/null
+__devnull() {
+  tee &>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# Send errors to /dev/null
+__devnull2() {
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# See if the executable exists
+__cmd_exists() {
+  exitCode=0
+  [ -n "$1" ] && local exitCode="" || return 0
+  for cmd in "$@"; do
+    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
+  done
+  [ $exitCode -eq 0 ] || exitCode=3
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for a valid internet connection
+__am_i_online() {
+  local exitCode=0
+  curl -q -LSsfI --max-time 2 --retry 1 "${1:-https://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# colorization
+if [ "$SHOW_RAW" = "true" ]; then
+  NC=""
+  RESET=""
+  BLACK=""
+  RED=""
+  GREEN=""
+  YELLOW=""
+  BLUE=""
+  PURPLE=""
+  CYAN=""
+  WHITE=""
+  ORANGE=""
+  LIGHTRED=""
+  BG_GREEN=""
+  BG_RED=""
+  ICON_INFO="[ info ]"
+  ICON_GOOD="[ ok ]"
+  ICON_WARN="[ warn ]"
+  ICON_ERROR="[ error ]"
+  ICON_QUESTION="[ ? ]"
+  printf_column() { tee | grep '^'; }
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional printf_ colors
+__printf_head() { printf_blue "$1"; }
+__printf_opts() { printf_purple "$1"; }
+__printf_line() { printf_cyan "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# output version
+__version() { printf_cyan "$VERSION"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# list options
+__list_options() {
+  printf_color "$1: " "$5"
+  echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g' | tr '\n' ' '
+  printf_newline
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create the config file
+__gen_config() {
+  local NOTIFY_CLIENT_NAME="$APPNAME"
+  if [ "$INIT_CONFIG" != "TRUE" ]; then
+    printf_blue "Generating the config file in"
+    printf_cyan "$SUDOERS_CONFIG_DIR/$SUDOERS_CONFIG_FILE"
+  fi
+  [ -d "$SUDOERS_CONFIG_DIR" ] || mkdir -p "$SUDOERS_CONFIG_DIR"
+  [ -d "$SUDOERS_CONFIG_BACKUP_DIR" ] || mkdir -p "$SUDOERS_CONFIG_BACKUP_DIR"
+  [ -f "$SUDOERS_CONFIG_DIR/$SUDOERS_CONFIG_FILE" ] &&
+    cp -Rf "$SUDOERS_CONFIG_DIR/$SUDOERS_CONFIG_FILE" "$SUDOERS_CONFIG_BACKUP_DIR/$SUDOERS_CONFIG_FILE.$$"
+  cat <<EOF >"$SUDOERS_CONFIG_DIR/$SUDOERS_CONFIG_FILE"
+# Settings for sudoers
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+SUDOERS_OUTPUT_COLOR_1="${SUDOERS_OUTPUT_COLOR_1:-}"
+SUDOERS_OUTPUT_COLOR_2="${SUDOERS_OUTPUT_COLOR_2:-}"
+SUDOERS_OUTPUT_COLOR_GOOD="${SUDOERS_OUTPUT_COLOR_GOOD:-}"
+SUDOERS_OUTPUT_COLOR_ERROR="${SUDOERS_OUTPUT_COLOR_ERROR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+SUDOERS_NOTIFY_ENABLED="${SUDOERS_NOTIFY_ENABLED:-}"
+SUDOERS_GOOD_NAME="${SUDOERS_GOOD_NAME:-}"
+SUDOERS_ERROR_NAME="${SUDOERS_ERROR_NAME:-}"
+SUDOERS_GOOD_MESSAGE="${SUDOERS_GOOD_MESSAGE:-}"
+SUDOERS_ERROR_MESSAGE="${SUDOERS_ERROR_MESSAGE:-}"
+SUDOERS_NOTIFY_CLIENT_NAME="${SUDOERS_NOTIFY_CLIENT_NAME:-}"
+SUDOERS_NOTIFY_CLIENT_ICON="${SUDOERS_NOTIFY_CLIENT_ICON:-}"
+SUDOERS_NOTIFY_CLIENT_URGENCY="${SUDOERS_NOTIFY_CLIENT_URGENCY:-}"
+
+EOF
+  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
+  if [ -f "$SUDOERS_CONFIG_DIR/$SUDOERS_CONFIG_FILE" ]; then
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
+    . "$SUDOERS_CONFIG_DIR/$SUDOERS_CONFIG_FILE"
+    exitCode=0
+  else
+    printf_red "Failed to create the config file"
+    exitCode=1
+  fi
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Help function - Align to 50
+__help() {
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "sudoers:  add and remove users from sudo - $VERSION"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Usage: sudoers [options] [commands]"
+  __printf_line "pass      - Require password for sudo"
+  __printf_line "nopass    - Don't require a password for sudo"
+  __printf_line "adduser   - Add a user to sudo"
+  __printf_line "nosudo    - Remove a user from sudo"
+  __printf_line "insults   - Enable the insults for when you enter in the wrong password"
+  __printf_line "status    - Get sudo status"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "User Options: users [add,delete] [username]"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "users [add]                     - Create a new user"
+  __printf_line "users [delete]                  - Delete a user"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Other Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--help                          - Shows this message"
+  __printf_line "--config                        - Generate user config file"
+  __printf_line "--version                       - Show script version"
+  __printf_line "--options                       - Shows all available options"
+  __printf_line "--debug                         - Enables script debugging"
+  __printf_line "--raw                           - Removes all formatting on output"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# check if arg is a builtin option
+__is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0; fi; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 1 || return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep -sh "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# # Get sudo password
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run sudo
+__sudorun() {
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo
+__can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User can run sudo
+__sudoif() {
+  __user_is_root && return 0
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run command as root
+requiresudo() {
+  if [ "$SUDOERS_REQUIRE_SUDO" = "yes" ] && [ -z "$SUDOERS_REQUIRE_SUDO_RUN" ]; then
+    export SUDOERS_REQUIRE_SUDO="no"
+    export SUDOERS_REQUIRE_SUDO_RUN="true"
+    __sudo "$@"
+    exit $?
+  else
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  CMD="${1:-echo}" && shift 1
+  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  [ "$(basename -- "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  if __sudoif; then
+    export PATH="$PATH"
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    exitCode=$?
+  else
+    printf '%s\n' "This requires root to run"
+    exitCode=1
+  fi
+  return ${exitCode:-1}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  exitCode=${exitCode:-0}
+  [ -f "$SUDOERS_TEMP_FILE" ] && rm -Rf "$SUDOERS_TEMP_FILE" &>/dev/null
+  #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD//$HOME/\~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined functions
+__sudo_group "$USER" && __passwd() { sudo passwd "$*"; } || __passwd() { passwd "$*"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__set_user() {
+  [ -n "${2:-$1}" ] && MYUSER="${2:-$1}" || MYUSER="${MYUSER:-$USER}"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__newpasswd() {
+  local oldpassword="" newpassword="" newpasswordc=""
+  printf_read_password "3" "Enter old password for $1" "oldpassword"
+  printf_read_password "3" "Enter new password for $1" "newpassword"
+  printf_read_password "3" "Confirm new password for $1" "newpasswordc"
+  [ "$oldpassword" = "$newpassword" ] && printf_exit "Password needs to be different"
+  [ "$newpassword" = "$newpasswordc" ] || printf_exit "Passwords don't match"
+  printf '%s\n%s\n%s' "$oldpassword" "$newpassword" "$newpasswordc" | __passwd "$1" &>/dev/null &&
+    printf_green "Password has been updated" || printf_exit "Password change has failed"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+__initialize_app() {
+  if ! __can_i_sudo; then
+    printf_red "😿 You don't seem have access to sudo 😿"
+    printf_yellow "🏸 Please contact the system administrator for access 🏸"
+    printf_yellow "⚠️ Or add yourself to the sudo/wheel/admin group ⚠️"
+    exit 5
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__execute_sudoers() {
+  MYUSER="$SUDO_USER"
+
+  if [ $# -ne 0 ]; then
+    __sudo chmod 750 /etc/sudoers.d |& __devnull
+    case "$1" in
+    insults)
+      shift 1
+      printf_green "Adding insults"
+      echo "Defaults    insults" | sudo tee -p "/etc/sudoers.d/insults" |& __devnull
+      __sudo chown -f root:root "/etc/sudoers.d/insults" |& __devnull
+      exit $?
+      ;;
+    status)
+      shift 1
+      __set_user "$@"
+      __can_i_sudo && __sudorun bash -c '[ -f "/etc/sudoers.d/'$MYUSER'" ] || false' && SUDO_FILE="true"
+      if [ "$SUDO_FILE" = "true" ] || __sudo_group "$MYUSER"; then
+        printf_green "You appear to have access to sudo"
+      else
+        printf_red "You don't seem to be in the sudo file"
+      fi
+      exit $?
+      ;;
+    nosudo)
+      shift 1
+      __set_user "$@"
+      printf_read_question "1" "This will remove access to sudo: continue?" "1" "YN"
+      if printf_answer_yes "$YN"; then
+        printf_read_question "6" "Should we setup/change root password" "1" "ROOTPW"
+        printf_answer_yes "$ROOTPW" && __newpasswd root
+        __newpasswd "$MYUSER" || printf_exit "Failed to set password"
+        printf_green "Removing $MYUSER sudoers file"
+        if __sudo_group "$MYUSER"; then
+          __sudo deluser "$MYUSER" sudo |& __devnull
+        else
+          __sudo deluser "$MYUSER" wheel |& __devnull
+        fi
+        __sudo rm -Rf "/etc/sudoers.d/$MYUSER" |& __devnull
+        exit $?
+      fi
+      ;;
+    pass)
+      shift 1
+      __set_user "$@"
+      printf_read_question "1" "Would you like to reset your password?" "1" "YN"
+      printf_green "Removing $MYUSER from sudoers"
+      if printf_answer_yes "$YN"; then __newpasswd "$MYUSER" || exit 1; fi
+      __sudo rm -Rf "/etc/sudoers.d/$MYUSER" |& __devnull
+      [ -f "/etc/sudoers.d/$MYUSER" ] || printf_red "Your password will now required"
+      exit $?
+      ;;
+    adduser)
+      shift 1
+      __set_user "$@"
+      printf_green "Adding $MYUSER to sudoers"
+      if __sudo_group "$MYUSER"; then
+        __sudo usermod -aG sudo "$MYUSER" |& __devnull
+      else
+        __sudo usermod -aG wheel "$MYUSER" |& __devnull
+      fi
+      echo "$MYUSER ALL=(ALL)   NOPASSWD: ALL" | sudo tee -p "/etc/sudoers.d/$MYUSER" |& __devnull
+      __sudo chown -f root:root "/etc/sudoers.d/$MYUSER" |& __devnull
+      __sudo chmod -f 440 "/etc/sudoers.d/$MYUSER" |& __devnull
+      exit $?
+      ;;
+    nopass)
+      shift 1
+      __set_user "$@"
+      printf_green "Adding $MYUSER to sudoers"
+      echo "$MYUSER ALL=(ALL)   NOPASSWD: ALL" | sudo tee -p "/etc/sudoers.d/$MYUSER" |& __devnull
+      __sudo chown -f root:root "/etc/sudoers.d/$MYUSER" |& __devnull
+      __sudo chmod -f 440 "/etc/sudoers.d/$MYUSER" |& __devnull
+      exit $?
+      ;;
+    users)
+      shift 1
+      case "$1" in
+      add | new)
+        shift 1
+        __set_user "$@"
+        printf_blue "Creating user $1 "
+        if grep -vsq "$1" /etc/passwd; then
+          #sudo groupadd "$1" &>/dev/null
+          __sudo useradd -m -g "$1" "$1" |& __devnull
+          __sudo useradd -g users -G wheel "$1" |& __devnull
+          if grep -shq "$1" /etc/passwd; then
+            __newpasswd "$1"
+            printf_green "Successfully created user"
+            exitCode=0
+          else
+            printf_red "Failed to create user"
+            exitCode=1
+          fi
+        else
+          printf_red "User $1 already exists"
+        fi
+        exit ${exitCode:-0}
+        ;;
+      delete | remove)
+        shift 1
+        __set_user "$@"
+        printf_blue "Deleting user $1 "
+        if grep -shq "$1" /etc/passwd; then
+          __sudo groupdel "$1" |& __devnull
+          __sudo userdel -f -r "$1" |& __devnull
+          grep -vsq "$1" /etc/group &&
+            printf_exit 2 0 "Successfully delete user" ||
+            printf_exit 1 1 "Failed to delete user"
+        else
+          printf_exit "User $1 does not exist"
+        fi
+        ;;
+      esac
+      ;;
+    *)
+      ARGS="$*"
+      __sudo "$ARGS" && true || false
+      ;;
+    esac
+  else
+    __help
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined variables/import external variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application Folders
+SUDOERS_CONFIG_FILE="${SUDOERS_CONFIG_FILE:-settings.conf}"
+SUDOERS_CONFIG_DIR="${SUDOERS_CONFIG_DIR:-$HOME/.config/myscripts/sudoers}"
+SUDOERS_CONFIG_BACKUP_DIR="${SUDOERS_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/sudoers/backups}"
+SUDOERS_LOG_DIR="${SUDOERS_LOG_DIR:-$HOME/.local/log/sudoers}"
+SUDOERS_TEMP_DIR="${SUDOERS_TEMP_DIR:-$HOME/.local/tmp/system_scripts/sudoers}"
+SUDOERS_CACHE_DIR="${SUDOERS_CACHE_DIR:-$HOME/.cache/sudoers}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+SUDOERS_OUTPUT_COLOR_1="${SUDOERS_OUTPUT_COLOR_1:-33}"
+SUDOERS_OUTPUT_COLOR_2="${SUDOERS_OUTPUT_COLOR_2:-5}"
+SUDOERS_OUTPUT_COLOR_GOOD="${SUDOERS_OUTPUT_COLOR_GOOD:-2}"
+SUDOERS_OUTPUT_COLOR_ERROR="${SUDOERS_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+SUDOERS_NOTIFY_ENABLED="${SUDOERS_NOTIFY_ENABLED:-yes}"
+SUDOERS_GOOD_NAME="${SUDOERS_GOOD_NAME:-Great:}"
+SUDOERS_ERROR_NAME="${SUDOERS_ERROR_NAME:-Error:}"
+SUDOERS_GOOD_MESSAGE="${SUDOERS_GOOD_MESSAGE:-No errors reported}"
+SUDOERS_ERROR_MESSAGE="${SUDOERS_ERROR_MESSAGE:-Errors were reported}"
+SUDOERS_NOTIFY_CLIENT_NAME="${SUDOERS_NOTIFY_CLIENT_NAME:-$APPNAME}"
+SUDOERS_NOTIFY_CLIENT_ICON="${SUDOERS_NOTIFY_CLIENT_ICON:-notification-new}"
+SUDOERS_NOTIFY_CLIENT_URGENCY="${SUDOERS_NOTIFY_CLIENT_URGENCY:-normal}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional Variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$SUDOERS_CONFIG_DIR/$SUDOERS_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$SUDOERS_CONFIG_DIR/$SUDOERS_CONFIG_FILE" ] && . "$SUDOERS_CONFIG_DIR/$SUDOERS_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$SUDOERS_LOG_DIR" ] || mkdir -p "$SUDOERS_LOG_DIR" |& __devnull
+[ -d "$SUDOERS_TEMP_DIR" ] || mkdir -p "$SUDOERS_TEMP_DIR" |& __devnull
+[ -d "$SUDOERS_CACHE_DIR" ] || mkdir -p "$SUDOERS_CACHE_DIR" |& __devnull
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SUDOERS_TEMP_FILE="${SUDOERS_TEMP_FILE:-$(mktemp $SUDOERS_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap '__trap_exit' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+__notifications() {
+  __cmd_exists notifications || return
+  [ "$SUDOERS_NOTIFY_ENABLED" = "yes" ] || return
+  [ "$SEND_NOTIFICATION" = "no" ] && return
+  (
+    export SCRIPT_OPTS="" _DEBUG=""
+    export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$SUDOERS_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$SUDOERS_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$SUDOERS_NOTIFY_CLIENT_ICON}"
+    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$SUDOERS_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$SUDOERS_NOTIFY_CLIENT_URGENCY}"
+    notifications "$@"
+  ) |& __devnull &
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set custom actions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Argument/Option settings
+SETARGS=("$@")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SHORTOPTS=""
+SHORTOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
+LONGOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ARRAY="remove pass nosudo adduser nopass insults status users"
+ARRAY+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LIST=""
+LIST+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case "$1" in
+  --raw)
+    shift 1
+    export SHOW_RAW="true"
+    NC=""
+    RESET=""
+    BLACK=""
+    RED=""
+    GREEN=""
+    YELLOW=""
+    BLUE=""
+    PURPLE=""
+    CYAN=""
+    WHITE=""
+    ORANGE=""
+    LIGHTRED=""
+    BG_GREEN=""
+    BG_RED=""
+    ICON_INFO="[ info ]"
+    ICON_GOOD="[ ok ]"
+    ICON_WARN="[ warn ]"
+    ICON_ERROR="[ error ]"
+    ICON_QUESTION="[ ? ]"
+    printf_column() { tee | grep '^'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    ;;
+  --debug)
+    shift 1
+    set -xo pipefail
+    export SCRIPT_OPTS="--debug"
+    export _DEBUG="on"
+    __devnull() { tee || return 1; }
+    __devnull2() { eval "$@" |& tee -p || return 1; }
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
+    ;;
+  --options)
+    shift 1
+    printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' 4
+    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' 4
+    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
+    [ -z "$LIST" ] || __list_options "LIST Options" "${LIST}" ',' '' 4
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  --silent)
+    shift 1
+    SUDOERS_SILENT="true"
+    ;;
+  --dir)
+    CWD_IS_SET="TRUE"
+    SUDOERS_CWD="$2"
+    [ -d "$SUDOERS_CWD" ] || mkdir -p "$SUDOERS_CWD" |& __devnull
+    shift 2
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get directory from args
+# set -- "$@"
+# for arg in "$@"; do
+# if [ -d "$arg" ]; then
+# SUDOERS_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
+# elif [ -f "$arg" ]; then
+# SUDOERS_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
+# else
+# SET_NEW_ARGS+=("$arg")
+# fi
+# done
+# set -- "${SET_NEW_ARGS[@]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set directory to first argument
+# [ -d "$1" ] && __is_an_option "$1" && SUDOERS_CWD="$1" && shift 1 || SUDOERS_CWD="${SUDOERS_CWD:-$PWD}"
+SUDOERS_CWD="$(realpath "${SUDOERS_CWD:-$PWD}" 2>/dev/null)"
+# if [ -d "$SUDOERS_CWD" ] && cd "$SUDOERS_CWD"; then
+# if [ "$SUDOERS_SILENT" != "true" ] && [ "$CWD_SILENCE" != "true" ]; then
+# printf_cyan "Setting working dir to $SUDOERS_CWD"
+# fi
+# else
+# printf_exit "💔 $SUDOERS_CWD does not exist 💔"
+# fi
+export SUDOERS_CWD
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set actions based on variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+#cmd_exists --error --ask bash || exit 3 # exit 3 if not found
+#am_i_online --error || exit 4           # exit 4 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+__initialize_app
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute commands
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+__execute_sudoers "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set exit code
+exitCode="${exitCode:-0}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-0}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# ex: ts=2 sw=2 et filetype=sh

@@ -1,0 +1,339 @@
+#!/usr/bin/env bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version           :  202207042242-git
+# @Author            :  Jason Hempstead
+# @Contact           :  jason@casjaysdev.pro
+# @License           :  WTFPL
+# @ReadME            :  thememgr --help
+# @Copyright         :  Copyright: (c) 2021 Jason Hempstead, CasjaysDev
+# @Created           :  Wednesday, Mar 31, 2021 07:10 EDT
+# @File              :  thememgr
+# @Description       :  Theme manager for linux
+# @TODO              :
+# @Other             :
+# @Resource          :
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="$(basename -- "$0" 2>/dev/null)"
+VERSION="202103310710-git"
+USER="${SUDO_USER:-${USER}}"
+HOME="${USER_HOME:-${HOME}}"
+SRC_DIR="${BASH_SOURCE%/*}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set bash options
+if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
+trap 'exitCode=${exitCode:-0};[ -n "$THEMEMGR_TEMP_FILE" ] && [ -f "$THEMEMGR_TEMP_FILE" ] && rm -Rf "$THEMEMGR_TEMP_FILE" &>/dev/null' EXIT
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import functions
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+  . "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  exit 90
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# user system devenv dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+thememgr_install && __options "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gen_config() {
+  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Generating the config file in"
+  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "$THEMEMGR_CONFIG_DIR/$THEMEMGR_CONFIG_FILE"
+  [ -d "$THEMEMGR_CONFIG_DIR" ] || mkdir -p "$THEMEMGR_CONFIG_DIR"
+  [ -d "$THEMEMGR_CONFIG_BACKUP_DIR" ] || mkdir -p "$THEMEMGR_CONFIG_BACKUP_DIR"
+  [ -f "$THEMEMGR_CONFIG_DIR/$THEMEMGR_CONFIG_FILE" ] &&
+    cp -Rf "$THEMEMGR_CONFIG_DIR/$THEMEMGR_CONFIG_FILE" "$THEMEMGR_CONFIG_DIR/$THEMEMGR_CONFIG_FILE.$$"
+  cat <<EOF >"$THEMEMGR_CONFIG_DIR/$THEMEMGR_CONFIG_FILE"
+# Settings for thememgr - unused
+THEMEMGR_GIT_REPO="https://github.com/thememgr"
+THEMEMGR_DATA_DIR="${THEMEDIR:-$SHARE/themes}"
+THEMEMGR_FORCE_INSTALL="false"
+THEMEMGR_TEMP_FILE="${TMPDIR:-/tmp}/thememgr"
+THEMEMGR_CLONE_DIR="$HOME/Projects/github/thememgr"
+THEMEMGR_NOTIFY_ENABLED="yes"
+THEMEMGR_NOTIFY_CLIENT_NAME="\${NOTIFY_CLIENT_NAME:-\$APPNAME}"
+THEMEMGR_NOTIFY_CLIENT_ICON="\${NOTIFY_CLIENT_ICON:-\$THEMEMGR_NOTIFY_CLIENT_ICON}"
+
+EOF
+  if [ -f "$THEMEMGR_CONFIG_DIR/$THEMEMGR_CONFIG_FILE" ]; then
+    [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for $APPNAME has been created"
+    exitCode=0
+  else
+    printf_red "Failed to create the config file"
+    exitCode=1
+  fi
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__list_available() { echo -e "$LIST" | tr ' ' '\n'; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__api_list() {
+  local api_url="https://api.github.com/orgs/thememgr/repos?per_page=1000"
+  am_i_online && curl -q -H "Accept: application/vnd.github.v3+json" -LSs "$api_url" 2>/dev/null |
+    jq '.[].name' 2>/dev/null | sed 's#"##g' | grep -v 'template' || __list_available
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__download() {
+  REPO_NAME="$1"
+  REPO_URL="$THEMEMGR_GIT_REPO/$REPO_NAME"
+  DIR_NAME="$THEMEMGR_CLONE_DIR/$REPO_NAME"
+  gitadmin clone "$REPO_URL" "$DIR_NAME"
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Defaults
+exitCode="0"
+THEMEMGR_CONFIG_FILE="settings.conf"
+THEMEMGR_CONFIG_DIR="$HOME/.config/myscripts/thememgr"
+THEMEMGR_CONFIG_BACKUP_DIR="$HOME/.local/share/myscripts/thememgr/backups"
+THEMEMGR_OPTIONS_DIR="$HOME/.local/share/myscripts/thememgr/options"
+THEMEMGR_TEMP_FILE="${TMPDIR:-/tmp}/thememgr"
+THEMEMGR_NOTIFY_ENABLED="yes"
+THEMEMGR_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+THEMEMGR_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$THEMEMGR_NOTIFY_CLIENT_ICON}"
+THEMEMGR_DATA_DIR="${THEMEDIR:-$SHARE/themes}"
+THEMEMGR_FORCE_INSTALL="false"
+THEMEMGR_GIT_REPO="https://github.com/thememgr"
+THEMEMGR_CLONE_DIR="${THEMEMGR_CLONE_DIR:-$HOME/Projects/github/thememgr}"
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LIST="Arc-Pink-Dark"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS="f"
+LONGOPTS="raw,options,config,version,help,force,all"
+ARRAY="makecache list search available remove update install cron version download"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate Files
+[ -f "$THEMEMGR_CONFIG_DIR/$THEMEMGR_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+[ -f "$THEMEMGR_OPTIONS_DIR/options" ] || __list_options "$THEMEMGR_OPTIONS_DIR" &>/dev/null
+[ -f "$THEMEMGR_OPTIONS_DIR/array" ] || __list_array "$THEMEMGR_OPTIONS_DIR" "$ARRAY" &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+if [ -f "$THEMEMGR_CONFIG_DIR/$THEMEMGR_CONFIG_FILE" ]; then
+  . "$THEMEMGR_CONFIG_DIR/$THEMEMGR_CONFIG_FILE"
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --raw)
+    shift 1
+    export SHOW_RAW="true"
+    NC=""
+    RESET=""
+    BLACK=""
+    RED=""
+    GREEN=""
+    YELLOW=""
+    BLUE=""
+    PURPLE=""
+    CYAN=""
+    WHITE=""
+    ORANGE=""
+    LIGHTRED=""
+    BG_GREEN=""
+    BG_RED=""
+    ICON_INFO="[ info ]"
+    ICON_GOOD="[ ok ]"
+    ICON_WARN="[ warn ]"
+    ICON_ERROR="[ error ]"
+    ICON_QUESTION="[ ? ]"
+    printf_column() { tee | grep '^'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    ;;
+  --options)
+    shift 1
+    __list_array "$THEMEMGR_OPTIONS_DIR" "$ARRAY"
+    __list_options "$THEMEMGR_OPTIONS_DIR"
+    __list_available >"$THEMEMGR_OPTIONS_DIR/available"
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  -f | --force)
+    shift 1
+    export FORCE_INSTALL="true"
+    ;;
+  -a | --all)
+    shift 1
+    INSTALL_ALL="true"
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+unset setopts
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+export NOTIFY_CLIENT_NAME="${THEMEMGR_NOTIFY_CLIENT_NAME}"
+export NOTIFY_CLIENT_ICON="${THEMEMGR_NOTIFY_CLIENT_ICON}"
+if [ "$THEMEMGR_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    notifications "$@" || return 1
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+cmd_exists --error --ask bash || exit 1
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables
+export THEMEDIR="${THEMEMGR_DATA_DIR:-$THEMEDIR}"
+export installtype
+__mkd "$THEMEDIR"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute commands
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+case $1 in
+makecache)
+  shift 1
+  generate_theme_index "$*"
+  ;;
+
+list)
+  shift 1
+  printf_green "All available themes"
+  __list_available | printf_column '5'
+  ;;
+
+search)
+  shift 1
+  run_install_search "$@"
+  ;;
+
+available)
+  shift 1
+  printf_cyan "All available fonts"
+  __api_list | printf_column '6'
+  ;;
+
+remove)
+  shift 1
+  unset APPNAME
+  if [ "$INSTALL_ALL" = "true" ]; then
+    LISTARRAY="$(ls -A "$USRUPDATEDIR" 2>/dev/null)"
+  else
+    LISTARRAY="$*"
+  fi
+  [ ${#LISTARRAY} -ne 0 ] || printf_exit "No packages selected for removal"
+  for rmf in $LISTARRAY; do
+    MESSAGE="Removing $rmf from $THEMEDIR"
+    APPNAME="$rmf"
+    installer_delete "$APPNAME"
+    echo ""
+  done
+  ;;
+
+update)
+  shift 1
+  unset APPNAME
+  if [ $# -eq 0 ] || [ "$INSTALL_ALL" = "true" ]; then
+    LISTARRAY="$(ls -A "$USRUPDATEDIR" 2>/dev/null)"
+  else
+    LISTARRAY="$*"
+  fi
+  if [ $# -ne 0 ]; then
+    for ins in $LISTARRAY; do
+      APPNAME="$ins"
+      run_install_update "$APPNAME"
+    done
+  elif [[ -d "$USRUPDATEDIR" ]] && [[ ${#LISTARRAY} -ne 0 ]]; then
+    for upd in $(ls "$USRUPDATEDIR"); do
+      APPNAME="$upd"
+      run_install_update "$APPNAME"
+    done
+  else
+    printf_yellow "There doesn't seem to be any packages installed"
+    __notifications "There doesn't seem to be any packages installed"
+  fi
+  exit $?
+  ;;
+
+install)
+  shift 1
+  if [ "$INSTALL_ALL" = "true" ]; then
+    LISTARRAY="$(__list_available)"
+  elif [ $# -eq 0 ]; then
+    printf_blue "No packages provide running the updater"
+    run_install_update
+    exit $?
+  else
+    LISTARRAY="$*"
+  fi
+  for ins in $LISTARRAY; do
+    APPNAME="$ins"
+    run_install "$APPNAME"
+  done
+  exit $?
+  ;;
+
+clone | download)
+  shift 1
+  if [ "$INSTALL_ALL" = "true" ]; then
+    LISTARRAY="$(__list_available)"
+  elif [ $# -ne 0 ]; then
+    LISTARRAY="$*"
+  fi
+  if [[ -n "$LISTARRAY" ]]; then
+    for pkgs in $LISTARRAY; do
+      __download "$pkgs"
+    done
+  else
+    printf_exit "No packages selected for download"
+  fi
+  ;;
+
+cron)
+  shift 1
+  cron_updater "$*"
+  ;;
+
+version)
+  shift 1
+  run_install_version "$@"
+  ;;
+
+*)
+  __help
+  ;;
+esac
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-0}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# ex: ts=2 sw=2 et filetype=sh

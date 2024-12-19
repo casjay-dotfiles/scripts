@@ -1,0 +1,450 @@
+#!/usr/bin/env bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version           :  202207042242-git
+# @Author            :  Jason Hempstead
+# @Contact           :  jason@casjaysdev.pro
+# @License           :  WTFPL
+# @ReadME            :  dfmgr --help
+# @Copyright         :  Copyright: (c) 2021 Jason Hempstead, CasjaysDev
+# @Created           :  Wednesday, Mar 31, 2021 07:10 EDT
+# @File              :  dfmgr
+# @Description       :  DotFiles ManaGeR
+# @TODO              :
+# @Other             :
+# @Resource          :
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="$(basename -- "$0" 2>/dev/null)"
+VERSION="202103310710-git"
+USER="${SUDO_USER:-${USER}}"
+HOME="${USER_HOME:-${HOME}}"
+SRC_DIR="${BASH_SOURCE%/*}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set script title
+#CASJAYS_DEV_TILE_FORMAT="${USER}@${HOSTNAME}:${PWD//$HOME/\~} - $APPNAME"
+#CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}"
+#[ -z "$CASJAYSDEV_TITLE_SET" ] && printf '\033]2│;%s\033\\' "$CASJAYS_DEV_TILE_FORMAT" && CASJAYSDEV_TITLE_SET="$APPNAME"
+export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}" CASJAYSDEV_TITLE_SET
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set bash options
+if [[ "$1" == "--debug" ]]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import functions
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+  . "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  exit 90
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# user system devenv dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+dfmgr_install && __options "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__list_options() { printf_custom "$1" "$2: $(echo ${3:-$ARRAY} | __sed 's|:||g;s|'$4'| '$5'|g')" 2>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gen_config() {
+  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Generating the config file in"
+  [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "$DFMGR_CONFIG_DIR/$DFMGR_CONFIG_FILE"
+  [ -d "$DFMGR_CONFIG_DIR" ] || mkdir -p "$DFMGR_CONFIG_DIR"
+  [ -d "$DFMGR_CONFIG_BACKUP_DIR" ] || mkdir -p "$DFMGR_CONFIG_BACKUP_DIR"
+  [ -f "$DFMGR_CONFIG_DIR/$DFMGR_CONFIG_FILE" ] &&
+    cp -Rf "$DFMGR_CONFIG_DIR/$DFMGR_CONFIG_FILE" "$DFMGR_CONFIG_DIR/$DFMGR_CONFIG_FILE.$$"
+  cat <<EOF >"$DFMGR_CONFIG_DIR/$DFMGR_CONFIG_FILE"
+# Settings for dfmgr
+DFMGR_GIT_REPO="https://github.com/dfmgr"
+DFMGR_DOTFILES_DIR="${PERSONAL_DOTFILES_DIR:-$HOME/.local/dotfiles/personal}"
+DFMGR_FORCE_INSTALL="false"
+DFMGR_NOTIFY_ENABLED="yes"
+DFMGR_NOTIFY_CLIENT_NAME="\${NOTIFY_CLIENT_NAME:-\$APPNAME}"
+DFMGR_NOTIFY_CLIENT_ICON="\${NOTIFY_CLIENT_ICON:-\$DFMGR_NOTIFY_CLIENT_ICON}"
+DFMGR_TEMP_FILE="${TMPDIR:-/tmp}/dfmgr"
+DFMGR_CLONE_DIR="$HOME/Projects/github/dfmgr"
+EOF
+  if [ -f "$DFMGR_CONFIG_DIR/$DFMGR_CONFIG_FILE" ]; then
+    [[ "$INIT_CONFIG" = "TRUE" ]] || printf_green "Your config file for $APPNAME has been created"
+    exitCode=0
+  else
+    printf_red "Failed to create the config file"
+    exitCode=1
+  fi
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  ACME_CLI_EXIT_STATUS=${ACME_CLI_EXIT_STATUS:-0}
+  [ -f "$ACME_CLI_TEMP_FILE" ] && rm -Rf "$ACME_CLI_TEMP_FILE" &>/dev/null
+  #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD//$HOME/\~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $ACME_CLI_EXIT_STATUS
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gpg_import() {
+  if [ -d "$1" ]; then
+    local dir="$1"
+    local gpg="$(find $dir -type f -iname '*.gpg' 2>/dev/null | grep '^')"
+    local sec="$(find $dir -type f -iname '*.sec' 2>/dev/null | grep '^')"
+    local asc="$(find $dir -type f -iname '*.asc' 2>/dev/null | grep '^')"
+    local trust="$(find $dir -type f -iname '*.trust' 2>/dev/null | grep '^')"
+    [ -n "$gpg" ] && gpg --import "$1"/*.gpg 2>/dev/null
+    [ -n "$sec" ] && gpg --import "$1"/*.sec 2>/dev/null
+    [ -n "$asc" ] && gpg --import "$1"/*.asc 2>/dev/null
+    [ -n "$trust" ] && gpg --import-ownertrust "$1"/*.trust 2>/dev/null
+    return 0
+  else
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__download() {
+  REPO_NAME="$1"
+  REPO_URL="$DFMGR_GIT_REPO/$REPO_NAME"
+  DIR_NAME="$DFMGR_CLONE_DIR/$REPO_NAME"
+  gitadmin clone "$REPO_URL" "$DIR_NAME"
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+dfprivate() {
+  local private_base=""
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+df_personal() {
+  shift 1
+  local personal_dir="${PERSONAL_DOTFILES_DIR:-$DFMGR_DOTFILES_DIR}"
+  local dir="${DOTFILES_PERSONAL:-$personal_dir}"
+  if [ -d "$dir/.git" ]; then
+    git -C "$dir" pull -q
+  fi
+  if [ -f "$dir/install.sh" ]; then
+    bash -c "$dir/install.sh"
+    return $?
+  elif [ -f "$dir/update.sh" ]; then
+    bash -c "$dir/update.sh"
+    return $?
+  else
+    printf_red "Can't install your personal dotfiles"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__list_available() { echo -e "$LIST" | tr ' ' '\n' && exit 0; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__api_list() {
+  local api_url="https://api.github.com/orgs/dfmgr/repos?per_page=1000"
+  am_i_online && curl -q -H "Accept: application/vnd.github.v3+json" -LSs "$api_url" 2>/dev/null |
+    jq '.[].name' 2>/dev/null | sed 's#"##g' | grep -v 'template' || __list_available
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Defaults
+exitCode="0"
+DFMGR_CONFIG_FILE="settings.conf"
+DFMGR_CONFIG_DIR="$HOME/.config/myscripts/dfmgr"
+DFMGR_CONFIG_BACKUP_DIR="$HOME/.local/share/myscripts/dfmgr/backups"
+DFMGR_OPTIONS_DIR="$HOME/.local/share/myscripts/dfmgr/options"
+DFMGR_TEMP_FILE="${TMPDIR:-/tmp}/dfmgr"
+DFMGR_NOTIFY_ENABLED="${DFMGR_NOTIFY_ENABLED:-yes}"
+DFMGR_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+DFMGR_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$DFMGR_NOTIFY_CLIENT_ICON}"
+DFMGR_DOTFILES_DIR="${PERSONAL_DOTFILES_DIR:-$HOME/.local/dotfiles/personal}"
+DFMGR_FORCE_INSTALL="false"
+DFMGR_GIT_REPO="https://github.com/dfmgr"
+DFMGR_CLONE_DIR="$HOME/Projects/github/dfmgr"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate non-existing config files
+[ -f "$DFMGR_CONFIG_DIR/$DFMGR_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$DFMGR_CONFIG_DIR/$DFMGR_CONFIG_FILE" ] && . "$DFMGR_CONFIG_DIR/$DFMGR_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+# [ -d "$DFMGR_LOG_DIR" ] || mkdir -p "$DFMGR_LOG_DIR" &>/dev/null
+# [ -d "$DFMGR_TEMP_DIR" ] || mkdir -p "$DFMGR_TEMP_DIR" &>/dev/null
+# [ -d "$DFMGR_CACHE_DIR" ] || mkdir -p "$DFMGR_CACHE_DIR" &>/dev/null
+# [ -f "$DFMGR_TEMP_FILE" ] || touch "$DFMGR_TEMP_FILE" &>/dev/null
+[ -f "$DFMGR_TEMP_FILE" ] || touch "$DFMGR_TEMP_FILE" &>/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap 'exitCode=${exitCode:-0};[ -n "$DFMGR_TEMP_FILE" ] && [ -f "$DFMGR_TEMP_FILE" ] && rm -Rf "$DFMGR_TEMP_FILE" &>/dev/null;__trap_exit' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+if [ "$DFMGR_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${DFMGR_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${DFMGR_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${DFMGR_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${DFMGR_NOTIFY_CLIENT_ICON}"
+    notifications "$@" || return 1
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS="f,l,a"
+LONGOPTS="options,config,version,help,force,list,all,raw"
+ARRAY="personal,list,search,available,update,install,cron,version,remove,download"
+LIST="Thunar alacritty asciinema bash bashtop byobu caja castero chromium cmus deadbeef deadd "
+LIST+="dircolors dmenu dunst easytag emacs firefox fish geany git gtk-2.0 gtk-3.0 guake "
+LIST+="htop installer jgmenu lemonbar lf lua misc mpd mutt nano neofetch neovim newsboat "
+LIST+="nitrogen nodejs personal pianobar picard polybar powershell pragha qterminal ranger "
+LIST+="remmina rofi ruby sakura screen smplayer smtube st sxhkd terminology termite tig tint2 "
+LIST+="tmux transmission variety vifm vim volumeicon xfce4-terminal youtube-dl youtube-viewer ytmdl zsh "
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --raw)
+    shift 1
+    export SHOW_RAW="true"
+    NC=""
+    RESET=""
+    BLACK=""
+    RED=""
+    GREEN=""
+    YELLOW=""
+    BLUE=""
+    PURPLE=""
+    CYAN=""
+    WHITE=""
+    ORANGE=""
+    LIGHTRED=""
+    BG_GREEN=""
+    BG_RED=""
+    ICON_INFO="[ info ]"
+    ICON_GOOD="[ ok ]"
+    ICON_WARN="[ warn ]"
+    ICON_ERROR="[ error ]"
+    ICON_QUESTION="[ ? ]"
+    printf_column() { tee | grep '^'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    ;;
+  --options)
+    shift 1
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "5" "Short Options" "-$SHORTOPTS" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "5" "Long Options" "--$LONGOPTS" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "5" "Base Options" "$ARRAY" ',' ''
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  -f | --force)
+    shift 1
+    export FORCE_INSTALL="true"
+    ;;
+  -l | --list)
+    shift 1
+    __api_list
+    ;;
+  -a | --all)
+    shift 1
+    INSTALL_ALL="true"
+    ;;
+  --debug)
+    shift 1
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+unset setopts
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+cmd_exists --error --ask bash || exit 1
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables
+export REPO="$DFMGR_GIT_REPO"
+export DFMGRREPO="$DFMGR_GIT_REPO"
+export APPDIR="$CONF"
+export INSTDIR="$SHARE/CasjaysDev/$SCRIPTS_PREFIX"
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute commands
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+case $1 in
+list)
+  shift 1
+  printf_green "All available dotfiles"
+  __list_available | printf_column '5'
+  ;;
+
+search)
+  shift 1
+  run_install_search "$@"
+  ;;
+
+available)
+  shift 1
+  if [[ "$1" = raw ]] || [[ "$SHOW_RAW" = "true" ]]; then
+    __api_list | tr '\t' '\n' | grep -Ev '^$' | sort -u | tr '\n' ' ' && echo
+  else
+    printf_cyan "All available dotfiles"
+    __api_list | sort -u | printf_column '6'
+  fi
+  ;;
+
+personal)
+  shift 1
+  df_personal && __notifications "Install/Update of personal dotfiles completed" || __notifications "Install/Update of personal dotfiles has failed"
+  ;;
+
+reset)
+  shift 1
+  printf_red "Resetting your home [This will delete everything]"
+  printf_yellow "sleeping for 5 seconds [ctrl-c cancel]" && sleep 5
+  if [ -d "$HOME/.local/dotfiles" ]; then
+    mv_f "$HOME/.local/dotfiles" /tmp/tmp-personal
+  fi
+  rm_rf "$HOME"/.*
+  rm_rf "$HOME"/*
+  cp -Rfa /etc/skel/. "$HOME/"
+  if [ -d /tmp/tmp-personal ]; then
+    mkdir -p $HOME/.local
+    mv_f /tmp/tmp-personal "$HOME/.local/dotfiles"
+    if [ -f "$HOME/.local/dotfiles/personal/install.sh" ]; then
+      bash -c "$HOME/.local/dotfiles/personal/install.sh"
+    fi
+  fi
+  getexitcode "Reset Complete"
+  ;;
+
+remove)
+  shift 1
+  if [ "$INSTALL_ALL" = "true" ]; then
+    LISTARRAY="$(ls -A "$USRUPDATEDIR" 2>/dev/null)"
+  else
+    LISTARRAY="$*"
+  fi
+  [ ${#LISTARRAY} -ne 0 ] || printf_exit "No packages selected for removal"
+  for rmf in $LISTARRAY; do
+    MESSAGE="Removing $rmf from $CONF"
+    APPNAME="$rmf"
+    installer_delete "$APPNAME"
+    echo ""
+  done
+  ;;
+
+update)
+  shift 1
+  if [ $# -eq 0 ] || [ "$INSTALL_ALL" = "true" ]; then
+    LISTARRAY="$(ls -A "$USRUPDATEDIR" 2>/dev/null)"
+  else
+    LISTARRAY="$*"
+  fi
+  if [ $# -ne 0 ]; then
+    for ins in $LISTARRAY; do
+      APPNAME="$ins"
+      run_install_update "$APPNAME"
+    done
+  elif [[ -d "$USRUPDATEDIR" ]] && [[ ${#LISTARRAY} -ne 0 ]]; then
+    for upd in $(ls "$USRUPDATEDIR"); do
+      APPNAME="$upd"
+      run_install_update "$APPNAME"
+    done
+  else
+    printf_yellow "There doesn't seem to be any packages installed"
+    __notifications "There doesn't seem to be any packages installed"
+  fi
+  exit $?
+  ;;
+
+install)
+  shift 1
+  if [ "$INSTALL_ALL" = "true" ]; then
+    LISTARRAY="$(__list_available)"
+  elif [ $# -eq 0 ]; then
+    printf_blue "No packages provide running the updater"
+    run_install_update
+  else
+    LISTARRAY="$*"
+  fi
+  for ins in $LISTARRAY; do
+    APPNAME="$ins"
+    run_install "$APPNAME"
+  done
+  exit $?
+  ;;
+
+clone | download)
+  shift 1
+  if [ "$INSTALL_ALL" = "true" ]; then
+    LISTARRAY="$(__list_available)"
+  elif [ $# -ne 0 ]; then
+    LISTARRAY="$*"
+  fi
+  if [[ -n "$LISTARRAY" ]]; then
+    for pkgs in $LISTARRAY; do
+      __download "$pkgs"
+    done
+  else
+    printf_exit "No packages selected for download"
+  fi
+  ;;
+
+cron)
+  shift 1
+  LISTARRAY="$*"
+  for cron in $LISTARRAY; do
+    APPNAME="$cron"
+    cron_updater "$APPNAME"
+  done
+  ;;
+
+version)
+  shift 1
+  LISTARRAY="$*"
+  for ver in $LISTARRAY; do
+    APPNAME="$ver"
+    run_install_version "$APPNAME"
+  done
+  ;;
+
+*)
+  __help
+  ;;
+esac
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-0}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# ex: ts=2 sw=2 et filetype=sh

@@ -1,0 +1,568 @@
+#!/usr/bin/env bash
+
+################################################################################
+# Multi Clipboard for GNU screen!
+# *** Utility to keep multiple clipboards ***
+# *** and manage screen's clipboard.      ***
+#
+# More information: https://github.com/rcmdnk/multi_clipboard
+################################################################################
+
+#The MIT License (MIT) {{{
+#
+#Copyright (c) 2013 rcmdnk
+#
+#Permission is hereby granted, free of charge, to any person obtaining a copy of
+#this software and associated documentation files (the "Software"), to deal in
+#the Software without restriction, including without limitation the rights to
+#use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+#the Software, and to permit persons to whom the Software is furnished to do so,
+#subject to the following conditions:
+#
+#The above copyright notice and this permission notice shall be included in all
+#copies or substantial portions of the Software.
+#
+#THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+#IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+#FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+#COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+#IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+#CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#}}}
+
+# Help {{{
+_s_help="
+Usage:
+
+    $ multi_clipboard -i [args]
+    # Insert [args] to the clipboard list
+
+    $ multi_clipboard -s [args]
+    # Send [args] to the clipboard list and the screen's clipboard
+
+    $ multi_clipboard -I
+    # Insert the screen's clipboard to the clipboard list
+
+    $ multi_clipboard -o
+    # Open clipboard list, then select one, which will be placed
+    # the top of the clipboard list.
+
+    $ multi_clipboard -O
+    # Same as -o, in addition, send it to the screen's clipboard
+
+    $ multi_clipboard -g
+    # Get the first one in the clipboard list
+
+    $ multi_clipboard -w # or w/o any other options
+    # Launch selection window
+    # and return the selected value
+
+    $ multi_clipboard -W
+    # Similar as -w, but value to the screen's clipboard
+
+    $ multi_clipboard -x
+    # Send the last clipboard to the clipboard of OS (X server)
+    # Even if CLX is not set, it uses CLXOS, is available
+
+    $ multi_clipboard -c
+    # Clean up clipboard file
+
+    $ multi_clipboard -S
+    # Use in screen for selection mode (for screen binding, not for command line, see below)
+
+    $ multi_clipboard snippet [option]
+    # Use 'snippet' file instead of saved clipboards.
+
+    $ multi_clipboard -h
+    # Show this usage
+
+To use in screen, put this script where
+PATH is set , and write in .screenrc:
+
+
+----------.screenrc---------
+# Screen exchange file
+bufferfile \"\$SCREENEXCHANGE\" # SCREENEXCHANGE must be set in .bashrc !!!
+
+
+# Overwrite keys in copy mode
+bindkey -m ' ' eval 'stuff \040' 'exec !!! multi_clipboard -I'
+bindkey -m Y eval 'stuff Y' 'exec !!! multi_clipboard -I'
+bindkey -m W eval 'stuff W' 'exec !!! multi_clipboard -I'
+
+
+# Selection mode
+# C-a a : default is meta (Send the command character (C-a) to window.)
+# C-a C-a : default is other (Toggle the window displayed previously.)
+bind a eval 'command -c mc' 'exec multi_clipboard -S'
+bind ^a eval 'command -c mc' 'exec multi_clipboard -S'
+
+# Next
+bind -c mc n eval 'command -c mc' 'exec multi_clipboard -S -n'
+bind -c mc ^n eval 'command -c mc' 'exec multi_clipboard -S -n'
+
+# Previous
+bind -c mc p eval 'command -c mc' 'exec multi_clipboard -S -p'
+bind -c mc ^p eval 'command -c mc' 'exec multi_clipboard -S -p'
+
+# Quit
+bind -c mc q eval 'exec multi_clipboard -S -q'
+bind -c mc ^q eval 'exec multi_clipboard -S -q'
+
+# Choose and Quit
+bind -c mc ' ' eval 'exec multi_clipboard -S -s'
+
+
+# Launch selection window
+# C-a q : default is xon (Send a control-q to the current window.)
+bind q screen -t multi_clipboard -p - multi_clipboard -W
+----------.screenrc---------
+
+These settings enable that a clipboard copied by SPACE, Y and  W
+in the copy mode will be sent to the clipboard list.
+If CLX is set, it is also sent to the OS's (X server's) clipboard.
+
+C-a a (C-a) can be used to select a clipboard from the list,
+instead of using multi_clipboard -O.
+Once you input C-a a, current clipboard is shown in the message line like:
+
+    0: current_clipboard
+
+You can choose next and previous candidate by n and p, respectively.
+Use space to select a shown clipbaord.
+Use q to quit.
+
+C-a q will launch new window for selecting the clipboard.
+
+And set environmental variables in .bashrc
+----------.bashrc---------
+export SCREENEXCHANGE=\$HOME/.screen-exchange
+export SCREEN_MSGMINWAIT=1
+export CLIPBOARD=\$HOME/.clipboard
+export CLMAXHIST=20
+export CLSEP=\$'\x07' # \$'\x07' is BEL
+----------.bashrc---------
+
+
+Note 1): SCREENEXCHANGE must be set in .bashrc
+         or you must remove the bufferfile definition line from .screenrc
+         In the later case, /tmp/screen-exchange will be used.
+
+Note 2): SCREEN_MSGMINWAIT is used to revert msgminwait in screen
+         because multi_clipboard temporally change it to 0.
+         Default value in both screen and multi_clipboard is 1.
+         Therefore, you don't need to set SCREEN_MSGMINWAIT
+         unless you set msgminwait in .screenrc.
+"
+# }}}
+
+# Source sentaku {{{
+if ! type sentaku >& /dev/null ;then
+  echo "multi_clipboard needs sentaku"
+  echo "Please install: https://github.com/rcmdnk/sentaku"
+  exit 1
+fi
+source sentaku -n
+# }}}
+
+# Set variables {{{
+# Following variables can be set in .bashrc or else
+#
+# CLIPBOARD, SCREENEXCHANGE, CLMAXHIST, CLX, CLXOS, CLSEP
+# (Refer default values below)
+
+# File to keep clipboards
+clb=${CLIPBOARD:-$HOME/.clipboard}
+
+# File for snippet
+snp=${MCSNIPPET:-$HOME/.mcsnippet}
+
+# File for screen's clipboard
+scex=${SCREENEXCHANGE:-/tmp/screen-exchange}
+
+# File for use
+_SENTAKU_INPUT_FILE="$clb"
+
+# Max number of clipboards to keep
+_SENTAKU_MAX=${CLMAXHIST:-20}
+
+# Separator of clipboards in the file (default is BEL (, $'\x07')
+_SENTAKU_SEPARATOR="${CLSEP:-$'\x07'}"
+
+# Application to sent the clipboard to the OS's clipboard
+# If blank, don't copy the clipboard to the OS's clipboard
+# other than when "-x" is given
+clx=${CLX:-""}
+
+# Temporary files for mcpop
+tmp_dir=$TMPDIR
+if [ ! "$tmp_DIR" ];then
+  if [ "$TMP" ];then
+    export tmp_dir=$TMP
+  elif [ "$TEMP" ];then
+    export tmp_dir=$TEMP
+  elif [ -w "/tmp/$USER" ];then
+    export tmp_dir=/tmp
+  elif [ -w /tmp ];then
+    mkdir -p "/tmp/$USER"
+    export tmp_dir=/tmp/$USER
+  else
+    mkdir -p ~/tmp
+    export tmp_dir=~/tmp
+  fi
+fi
+f_mcpoponsc_n=$tmp_dir/mcpoponsc_n
+f_nclbs=$tmp_dir/f_nclbs
+f_clbs_prefix=$tmp_dir/f_clbs_
+mcpoponsc_n=0
+nclbs=0
+
+# Application to sent the clipboard to the OS's clipboard
+# to be used for "-x" option
+if [ "$CLXOS" != "" ];then
+  clxos=${CLXOS}
+elif [[ "$OSTYPE" =~ linux ]];then
+  if which xsel >/dev/null 2>&1;then
+    clxos="xsel"
+  elif which xclip >/dev/null 2>&1;then
+    clxos="xclip"
+  elif which clip.exe >/dev/null 2>&1;then
+    clxos="clip.exe"
+  fi
+elif [[ "$OSTYPE" =~ cygwin ]];then
+  if which putclip >/dev/null 2>&1;then
+    clxos="putclip"
+  elif which xsel >/dev/null 2>&1;then
+    clxos="xsel"
+  elif which xclip >/dev/null 2>&1;then
+    clxos="xclip"
+  fi
+elif [[ "$OSTYPE" =~ darwin ]];then
+  if which pbcopy >/dev/null 2>&1;then
+    clxos="pbcopy"
+  fi
+fi
+
+# Default msgminwait
+msgminwait="${SCREEN_MSGMINWAIT:-1}"
+
+# }}}
+
+function mccopy2cl { # {{{
+  # Copy to clipboard of X
+  if [ "$clx" != "" ];then
+    echo -en "$*" | $clx
+  fi
+} # }}}
+
+function mcpop { # {{{
+  ## Show stored words
+
+  # Get values
+  _sf_get_values
+  local ret=$?
+  if [ $ret -ne 0 ];then
+    return $ret
+  fi
+
+  echo >/dev/tty
+  local i
+  for i in $(seq $((_s_n-1)) 0);do
+    local clbshow="${_s_inputs[$i]}"
+    if [ "$(echo "${clbshow}"|grep -c ^)" -ge 3 ];then
+      clbshow="$(echo "${clbshow}"|head -n2)
+..."
+    fi
+    # %%/\\ is reduced to %/\ during the conversions
+    # \e\" makes problem (stop the output), then \ must be conveted to the output
+    # `\\` is converted to one \ for the real clipboard, too, to be fixed.
+    clbshow=$(echo "$clbshow" |perl -pe 's/\n/\n    /g' |perl -pe 's/    $//g' |perl -pe 's/%/%%/g'|perl -pe 's/\\/\\\\/g')
+    printf "%2d: $clbshow\n" $i
+  done
+
+  # Choose buffer
+  printf "\nchoose buffer: "
+  read n
+  if [ "$n" = "q" ];then
+    return 0
+  fi
+  if ! expr "$n" : '[0-9]*' >/dev/null || [ "$n" -ge "$_s_n" ];then
+    echo "$n is not valid"
+    echo "Enter [0-$((_s_n-1))] or q (to quit)"
+    return 1
+  fi
+
+  # Copy to clipboard of X
+  mccopy2cl "${_s_inputs[$n]}"
+
+  # echo
+  echo "${_s_inputs[$n]}"
+
+  # Align clipboards
+  if [ "$_s_file" = "$clb" ];then
+    _sf_align_values "$n" 0
+  fi
+} # }}}
+
+function mcpopsc { # {{{
+  screen -X msgminwait 0
+
+  # Get values
+  _sf_get_values
+  local ret=$?
+  if [ $ret -ne 0 ];then
+    return $ret
+  fi
+
+  echo -en "${_s_inputs[0]}" > "$scex"
+  screen -X readbuf
+  printf "\e^Clipbaord: %s\e\\" "${_s_inputs[0]: 0:480}"
+  screen -X msgminwait "$msgminwait"
+} # }}}
+
+function mcpoponsc_messaage { # {{{
+  # Note: Message line can show only 512 characters.
+  # If more than 512 characters were given to the message line,
+  # the message can't be correctly shown (and overflows will appear in the window)
+  screen -X echo "$((mcpoponsc_n+1))/$nclbs: $(cat ${f_clbs_prefix}${mcpoponsc_n})"
+} # }}}
+
+function mcpoponsc { # {{{
+  screen -X msgminwait 0
+
+  # Get values
+  _sf_get_values
+  local ret=$?
+  if [ $ret -ne 0 ];then
+    _sf_finalize
+    return $ret
+  fi
+
+  nclbs=$_s_n
+  echo "$nclbs" > "$f_nclbs"
+  local i
+  for i in $(seq 0 $((_s_n-1)));do
+    # screen's command must be less than 512 in total, including setenv ....
+    # Therefore stored value should be much shorter 512.
+    local clbshow="${_s_inputs[$i]: 0: 480}"
+    echo "$clbshow" > ${f_clbs_prefix}${i}
+  done
+
+  mcpoponsc_n=0
+  echo $mcpoponsc_n > $f_mcpoponsc_n
+  mcpoponsc_messaage
+  screen -X msgminwait "$msgminwait"
+} # }}}
+
+function mcpoponsc_next { # {{{
+  screen -X msgminwait 0
+  mcpoponsc_n=$(cat $f_mcpoponsc_n)
+  nclbs=$(cat $f_nclbs)
+  if [ "$mcpoponsc_n" -eq $((nclbs-1)) ];then
+    mcpoponsc_n=0
+  else
+    ((mcpoponsc_n++))
+  fi
+  echo $mcpoponsc_n > $f_mcpoponsc_n
+  mcpoponsc_messaage
+  screen -X msgminwait "$msgminwait"
+} # }}}
+
+function mcpoponsc_prev { # {{{
+  screen -X msgminwait 0
+  mcpoponsc_n=$(cat $f_mcpoponsc_n)
+  nclbs=$(cat $f_nclbs)
+  if [ "$mcpoponsc_n" -eq 0 ];then
+    mcpoponsc_n=$((nclbs-1))
+  else
+    ((mcpoponsc_n--))
+  fi
+  echo $mcpoponsc_n > $f_mcpoponsc_n
+  mcpoponsc_messaage
+  screen -X msgminwait "$msgminwait"
+} # }}}
+
+function mcpoponsc_quit { # {{{
+  screen -X msgminwait 0
+  local nclbs=$(cat "$f_clbs")
+  local i
+  for i in $(seq 0 $((nclbs-1)));do
+    rm -f ${f_clbs_prefix}${i}
+  done
+  rm -f "$mcpoponsc_n"
+  rm -f "$nclbs"
+  screen -X msgminwait "$msgminwait"
+} # }}}
+
+function mcpoponsc_select { # {{{
+  screen -X msgminwait 0
+
+  # Get values
+  _sf_get_values
+  local ret=$?
+  if [ $ret -ne 0 ];then
+    _sf_finalize
+    return $ret
+  fi
+
+  mcpoponsc_n=$(cat "$f_mcpoponsc_n")
+
+  # Copy to clipboard of X
+  mccopy2cl "${_s_inputs[$mcpoponsc_n]}"
+  local clb_n="${_s_inputs[$mcpoponsc_n]: 0: 480}"
+
+  # Align clipboards
+  if [ "$_s_file" = "$clb" ];then
+    _sf_align_values "$mcpoponsc_n" 0
+  fi
+
+  # Finalize
+  mcpoponsc_quit
+
+  # Pop Clipboard
+  mcpopsc
+
+  screen -X msgminwait "$msgminwait"
+
+  screen -X echo "Clipboard: ${clb_n}"
+} # }}}
+
+_sf_set_header () { # {{{
+  if [ "$_s_noheader" -eq 1 -o "$_s_lines" -lt 10 -o "$_s_cols" -lt 60 ];then
+    return
+  elif [ "$_s_file" = "$clb" ];then
+    _s_header=" $_s_n clipboards in total
+ vimike updown, e.g)j:down, k:up, gg/G
+ d(delete), s(snippet), /(search), Enter(select), q(quit)"
+  else
+    _s_header=" $_s_n snippets in total
+ vimike updown, e.g)j:down, k:up, gg/G
+ d(delete), /(search), Enter(select), q(quit)"
+  fi
+} # }}}
+
+_sf_s () { ### {{{
+  _s_is_print=0
+  if [ "$_s_file" != "$clb" ];then
+    return
+  fi
+  _s_file="$snp"
+  _sf_push "${_s_inputs[$_s_current_n]}"
+  _s_file="$clb"
+  # Get values
+  _sf_get_values
+  local ret=$?
+  if [ $ret -ne 0 ];then
+    _sf_quit $ret
+  fi
+} # }}}
+
+function mcpushx { # {{{
+  clx=${clx:-${clxos}}
+  if [ ! "$clx" ];then
+    echo "No clip board application is assigned!"
+    return
+  fi
+  _sf_get_values
+  local ret=$?
+  if [ $ret -ne 0 ];then
+    return $ret
+  fi
+  echo -en "${_s_inputs[0]}" | $clx
+} # }}}
+
+_sf_initialize_user () { # {{{
+  _s_delete=1
+  _s_is_sc=0
+} # }}}
+
+_sf_execute () { # {{{
+  _sf_align_values
+
+  if [ $_s_is_sc -eq 1 ];then
+    mcpopsc
+  else
+    printf "${_s_inputs[0]}"
+  fi
+  mccopy2cl "${_s_inputs[0]}"
+  _s_align=0
+} # }}}
+
+_sf_check_args () { # {{{
+
+  _s_continue=0
+  _s_use_file=1
+  if [ "$1" = "snippet" ];then
+    _s_file=$snp
+    shift
+  fi
+  if [ "$1" = "-i" ];then
+    shift
+    _sf_push "$*"
+    mccopy2cl "${_s_inputs[0]}"
+  elif [ "$1" = "-s" ];then
+    shift
+    _sf_push "$*"
+    mccopy2cl "${_s_inputs[0]}"
+    mcpopsc
+  elif [ "$1" = "-I" ];then
+    shift
+    touch "$scex"
+    screen -X writebuf
+    _s_noshow=1
+    _sf_push "$(cat "$scex")"
+    mccopy2cl "$(cat "$scex")"
+  elif [ "$1" = "-o" ];then
+    # pop
+    shift
+    mcpop
+  elif [ "$1" = "-O" ];then
+    # popsc
+    shift
+    mcpop
+    ret=$?
+    if [ $ret -ne 0 ];then
+      exit $ret
+    fi
+    mcpopsc
+  elif [ "$1" = "-x" ];then
+    # pushpopsc
+    shift
+    mcpushx
+  elif [ "$1" = "-c" ];then
+    # cleanup store file
+    echo "echo -n > $_s_file"
+    echo -n > "$_s_file"
+  elif [ "$1" = "-S" ];then
+    # poponsc
+    shift
+    if [ "$1" = "" ];then
+      mcpoponsc
+    elif [ "$1" = "-n" ];then
+      mcpoponsc_next
+    elif [ "$1" = "-p" ];then
+      mcpoponsc_prev
+    elif [ "$1" = "-s" ];then
+      mcpoponsc_select
+    elif [ "$1" = "-q" ];then
+      mcpoponsc_quit
+    fi
+    shift
+  elif [ "$1" = "-h" ];then
+    shift
+    _sf_help
+  elif [ "$1" = "-g" ];then
+    shift
+    _s_noshow=1
+    _s_current_n=0
+    _s_continue=1
+  elif [ "$1" = "-W" ];then
+    shift
+    _s_continue=1
+    _s_is_sc=1
+  else # -w or else
+    _s_continue=1
+  fi
+} # }}}
+
+_sf_main "$@"

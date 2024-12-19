@@ -1,0 +1,898 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version           :  202208281851-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  jason@casjaysdev.pro
+# @@License          :  LICENSE.md
+# @@ReadME           :  tmux-new --help
+# @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
+# @@Created          :  Sunday, Aug 28, 2022 20:25 EDT
+# @@File             :  tmux-new
+# @@Description      :  Launch a new tmux session with config
+# @@Changelog        :  Added database to node
+# @@TODO             :  Better documentation
+# @@Other            :
+# @@Resource         :
+# @@Terminal App     :  no
+# @@sudo/root        :  no
+# @@Template         :  bash/system
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="$(basename -- "$0" 2>/dev/null)"
+VERSION="202208281851-git"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${RUN_USER:-$USER}"
+USER_HOME="${USER_HOME:-$HOME}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+TMUX_NEW_REQUIRE_SUDO="${TMUX_NEW_REQUIRE_SUDO:-no}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Reopen in a terminal
+if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set script title
+#CASJAYS_DEV_TILE_FORMAT="${USER}@${HOSTNAME}:${PWD//$HOME/\~} - $APPNAME"
+#CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}"
+#[ -z "$CASJAYSDEV_TITLE_SET" ] && printf '\033]2│;%s\033\\' "$CASJAYS_DEV_TILE_FORMAT" && CASJAYSDEV_TITLE_SET="$APPNAME"
+export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}" CASJAYSDEV_TITLE_SET
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initial debugging
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# pipes fail
+set -o pipefail
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import functions
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+  . "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  exit 1
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Options are: *_install
+# system user desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+user_install && __options "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Send all output to /dev/null
+__devnull() {
+  tee &>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# Send errors to /dev/null
+__devnull2() {
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# See if the executable exists
+__cmd_exists() {
+  exitCode=0
+  [ -n "$1" ] && local exitCode="" || return 0
+  for cmd in "$@"; do
+    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
+  done
+  [ $exitCode -eq 0 ] || exitCode=3
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for a valid internet connection
+__am_i_online() {
+  local exitCode=0
+  curl -q -LSsfI --max-time 2 --retry 1 "${1:-https://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# colorization
+if [ "$SHOW_RAW" = "true" ]; then
+  NC=""
+  RESET=""
+  BLACK=""
+  RED=""
+  GREEN=""
+  YELLOW=""
+  BLUE=""
+  PURPLE=""
+  CYAN=""
+  WHITE=""
+  ORANGE=""
+  LIGHTRED=""
+  BG_GREEN=""
+  BG_RED=""
+  ICON_INFO="[ info ]"
+  ICON_GOOD="[ ok ]"
+  ICON_WARN="[ warn ]"
+  ICON_ERROR="[ error ]"
+  ICON_QUESTION="[ ? ]"
+  printf_column() { tee | grep '^'; }
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional printf_ colors
+__printf_head() { printf_blue "$1"; }
+__printf_opts() { printf_purple "$1"; }
+__printf_line() { printf_cyan "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# output version
+__version() { printf_cyan "$VERSION"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# list options
+__list_options() {
+  printf_color "$1: " "$5"
+  echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g' | tr '\n' ' '
+  printf_newline
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create the config file
+__gen_config() {
+  local NOTIFY_CLIENT_NAME="$APPNAME"
+  if [ "$INIT_CONFIG" != "TRUE" ]; then
+    printf_blue "Generating the config file in"
+    printf_cyan "$TMUX_NEW_CONFIG_DIR/$TMUX_NEW_CONFIG_FILE"
+  fi
+  [ -d "$TMUX_NEW_CONFIG_DIR" ] || mkdir -p "$TMUX_NEW_CONFIG_DIR"
+  [ -d "$TMUX_NEW_CONFIG_BACKUP_DIR" ] || mkdir -p "$TMUX_NEW_CONFIG_BACKUP_DIR"
+  [ -f "$TMUX_NEW_CONFIG_DIR/$TMUX_NEW_CONFIG_FILE" ] &&
+    cp -Rf "$TMUX_NEW_CONFIG_DIR/$TMUX_NEW_CONFIG_FILE" "$TMUX_NEW_CONFIG_BACKUP_DIR/$TMUX_NEW_CONFIG_FILE.$$"
+  cat <<EOF >"$TMUX_NEW_CONFIG_DIR/$TMUX_NEW_CONFIG_FILE"
+# Settings for tmux-new
+TMUX_NEW_CONFIG_DIR="${TMUX_NEW_CONFIG_DIR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Project directory options
+RUN_OPTIONS_DIRS_PROJECTS="${RUN_OPTIONS_DIRS_PROJECTS:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Docker Project directory options
+RUN_OPTIONS_DIRS_DOCKER_SRC="${RUN_OPTIONS_DIRS_DOCKER_SRC:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Github Project directory options
+RUN_OPTIONS_DIRS_GITHUB_DOCKERMGR="${RUN_OPTIONS_DIRS_GITHUB_DOCKERMGR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Programs logging Directories
+RUN_OPTIONS_LOGS_BUILDX="${RUN_OPTIONS_LOGS_BUILDX:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+TMUX_NEW_OUTPUT_COLOR_1="${TMUX_NEW_OUTPUT_COLOR_1:-}"
+TMUX_NEW_OUTPUT_COLOR_2="${TMUX_NEW_OUTPUT_COLOR_2:-}"
+TMUX_NEW_OUTPUT_COLOR_GOOD="${TMUX_NEW_OUTPUT_COLOR_GOOD:-}"
+TMUX_NEW_OUTPUT_COLOR_ERROR="${TMUX_NEW_OUTPUT_COLOR_ERROR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+TMUX_NEW_NOTIFY_ENABLED="${TMUX_NEW_NOTIFY_ENABLED:-}"
+TMUX_NEW_GOOD_NAME="${TMUX_NEW_GOOD_NAME:-}"
+TMUX_NEW_ERROR_NAME="${TMUX_NEW_ERROR_NAME:-}"
+TMUX_NEW_GOOD_MESSAGE="${TMUX_NEW_GOOD_MESSAGE:-}"
+TMUX_NEW_ERROR_MESSAGE="${TMUX_NEW_ERROR_MESSAGE:-}"
+TMUX_NEW_NOTIFY_CLIENT_NAME="${TMUX_NEW_NOTIFY_CLIENT_NAME:-}"
+TMUX_NEW_NOTIFY_CLIENT_ICON="${TMUX_NEW_NOTIFY_CLIENT_ICON:-}"
+TMUX_NEW_NOTIFY_CLIENT_URGENCY="${TMUX_NEW_NOTIFY_CLIENT_URGENCY:-}"
+
+EOF
+  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
+  if [ -f "$TMUX_NEW_CONFIG_DIR/$TMUX_NEW_CONFIG_FILE" ]; then
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
+    . "$TMUX_NEW_CONFIG_DIR/$TMUX_NEW_CONFIG_FILE"
+    exitCode=0
+  else
+    printf_red "Failed to create the config file"
+    exitCode=1
+  fi
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Help function - Align to 50
+__help() {
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "tmux-new:  Launch a new tmux session with config - $VERSION"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Usage: tmux-new [options] [commands]"
+  __printf_line "tmux-new create                 - create a config file"
+  __printf_line "tmux-new edit                   - edit config file"
+  __printf_line "tmux-new ssh                    - enviroment for ssh"
+  __printf_line "tmux-new build                  - enviroment for building"
+  __printf_line "tmux-new dev                    - enviroment for development"
+  __printf_line "tmux-new rpm                    - enviroment for rpm development"
+  __printf_line "tmux-new node                   - enviroment for node projects"
+  __printf_line "tmux-new server                 - enviroment for servers"
+  __printf_line "tmux-new test                   - enviroment for testing"
+  __printf_line "tmux-new default                - plain enviroment"
+  __printf_line "tmux-new kill [session] [name]  - tmux kill commands"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Other Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--help                          - Shows this message"
+  __printf_line "--config                        - Generate user config file"
+  __printf_line "--version                       - Show script version"
+  __printf_line "--options                       - Shows all available options"
+  __printf_line "--debug                         - Enables script debugging"
+  __printf_line "--raw                           - Removes all formatting on output"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# check if arg is a builtin option
+__is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0; fi; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 1 || return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep -sh "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# # Get sudo password
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run sudo
+__sudorun() {
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo
+__can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User can run sudo
+__sudoif() {
+  __user_is_root && return 0
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run command as root
+requiresudo() {
+  if [ "$TMUX_NEW_REQUIRE_SUDO" = "yes" ] && [ -z "$TMUX_NEW_REQUIRE_SUDO_RUN" ]; then
+    export TMUX_NEW_REQUIRE_SUDO="no"
+    export TMUX_NEW_REQUIRE_SUDO_RUN="true"
+    __sudo "$@"
+    exit $?
+  else
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  CMD="${1:-echo}" && shift 1
+  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  [ "$(basename -- "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  if __sudoif; then
+    export PATH="$PATH"
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    exitCode=$?
+  else
+    printf '%s\n' "This requires root to run"
+    exitCode=1
+  fi
+  return ${exitCode:-1}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  exitCode=${exitCode:-0}
+  [ -f "$TMUX_NEW_TEMP_FILE" ] && rm -Rf "$TMUX_NEW_TEMP_FILE" &>/dev/null
+  #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD//$HOME/\~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined functions
+__init() {
+  local name="$1"
+  if [ -f "$TMUX_NEW_FILE_CONF/$name" ]; then
+    TMUX_NEW_NAME="$(basename -- "$name")"
+  elif [ -f "$TMUX_NEW_FILE_CONF/$name-$name" ]; then
+    TMUX_NEW_NAME="$(basename -- "$name-$name")"
+  elif [ -f "$TMUX_NEW_FILE_CONF/$USER-$name" ]; then
+    TMUX_NEW_NAME="$(basename -- "$USER-$name")"
+  elif [ -f "$TMUX_NEW_FILE_CONF/$name-$USER" ]; then
+    TMUX_NEW_NAME="$(basename -- "$name-$USER")"
+  else
+    TMUX_NEW_NAME="$(basename -- "$name")"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__tmux_kill() {
+  local session="$(tmux ls 2>/dev/null)"
+  case "$1" in
+  pane)
+    printf_cyan "Killing $1 $2"
+    tmux kill-pane "$2" &>/dev/null
+    exitCode=$?
+    shift 2
+    ;;
+  server)
+    printf_cyan "Killing $1 $2"
+    tmux kill-server "$2" &>/dev/null
+    exitCode=$?
+    shift 2
+    ;;
+  session)
+    exists="$(echo "$session" | grep ^"$2:" || echo '')"
+    [ -n "$exists" ] || printf_exit 1 3 "Session $2 does not exist"
+    printf_cyan "Killing $1 $2"
+    tmux kill-session -t "$2" &>/dev/null
+    exitCode=$?
+    shift 2
+    ;;
+  window)
+    printf_cyan "Killing $1 $2"
+    tmux kill-window -t "$2" &>/dev/null
+    exitCode=$?
+    shift 2
+    ;;
+  *)
+    printf_cyan "Usage: [pane/server/session/window] [name]"
+    tmux ls
+    exitCode=$?
+    ;;
+  esac
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__cd() {
+  TMUX_NEW_CWD="${1:-$TMUX_NEW_CWD}"
+  [ -d "$TMUX_NEW_CWD" ] || mkdir -p "$TMUX_NEW_CWD"
+  builtin cd "$TMUX_NEW_CWD" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__create_tmux_conf() {
+  [ -n "$1" ] && [ -n "$TMUX_NEW_NAME" ] || TMUX_NEW_NAME="${1:-${TMUX_NEW_NAME:-default}}"
+  [ -d "$TMUX_NEW_CONFIG_DIR" ] || mkdir -p "$TMUX_NEW_CONFIG_DIR"
+  if [ -f "$CASJAYSDEVDIR/templates/tmux/new.conf" ] && [ ! -f "$TMUX_NEW_CONFIG_DIR/template" ]; then
+    cp -Rf "$CASJAYSDEVDIR/templates/tmux/new.conf" "$TMUX_NEW_CONFIG_DIR/template"
+  else
+    touch "$TMUX_NEW_CONFIG_DIR/template"
+  fi
+  [ -f "$TMUX_NEW_CONFIG_DIR/template" ] && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__launch_tmux() {
+  [ -n "$1" ] && [ -n "$TMUX_NEW_NAME" ] || TMUX_NEW_NAME="${1:-${TMUX_NEW_NAME:-default}}"
+  [ -f "$TMUX_NEW_FILE_CONF/$TMUX_NEW_NAME" ] || printf_exit "No config file found for $TMUX_NEW_NAME"
+  [ -f "$TMUX_NEW_FILE_WINDOWS/$TMUX_NEW_NAME" ] || printf_exit "No windows config file found for $TMUX_NEW_NAME"
+  # Start tmux
+  if [ -z "$TMUX" ]; then
+    __cd
+    printf_cyan "Starting the tmux enviroment for $TMUX_NEW_NAME"
+    sleep 3
+    tmux -f "$TMUX_NEW_FILE_CONF/$TMUX_NEW_NAME" new-session -D -A -s $TMUX_NEW_NAME 'tmux source-file '$TMUX_NEW_FILE_WINDOWS/$TMUX_NEW_NAME'' &>"$TMUX_NEW_LOG_DIR/$APPNAME.log"
+    return $?
+  else
+    printf_exit "You appear to already have tmux running"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__tmux_conf() {
+  [ -n "$1" ] && [ -n "$TMUX_NEW_NAME" ] || TMUX_NEW_NAME="${1:-${TMUX_NEW_NAME:-default}}"
+  if [ -f "$TMUX_NEW_FILE_CONF/$TMUX_NEW_NAME" ] && [ -f "$TMUX_NEW_FILE_WINDOWS/$TMUX_NEW_NAME" ]; then
+    return 0
+  fi
+  # Create main config files
+  if [ ! -f "$TMUX_NEW_FILE_CONF/$TMUX_NEW_NAME" ]; then
+    if [ -f "$TMUX_NEW_CONFIG_DIR/template" ]; then
+      printf_cyan "Creating $TMUX_NEW_FILE_CONF/$TMUX_NEW_NAME"
+      cp -Rf "$TMUX_NEW_CONFIG_DIR/template" "$TMUX_NEW_FILE_CONF/$TMUX_NEW_NAME"
+      { [ -f "$TMUX_NEW_FILE_CONF/$TMUX_NEW_NAME" ] && sed -i 's|TMUX_NEW_CONF_FILE_MAIN|'${TMUX_NEW_FILE_CONF}/${TMUX_NEW_NAME}'|g' "$TMUX_NEW_FILE_CONF/$TMUX_NEW_NAME" || true; }
+      { [ -f "$TMUX_NEW_FILE_CONF/$TMUX_NEW_NAME" ] && sed -i 's|TMUX_NEW_CONF_FILE_LOCAL|'${TMUX_NEW_FILE_CONF_LOCAL}/${TMUX_NEW_NAME}'|g' "$TMUX_NEW_FILE_CONF/$TMUX_NEW_NAME" || true; }
+    else
+      printf_exit "Can not find $TMUX_NEW_CONFIG_DIR/template"
+    fi
+  fi
+  [ -f "$TMUX_NEW_FILE_CONF/$TMUX_NEW_NAME" ] && printf_blue "config file has been created" || printf_exit "Failed to create config file"
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Create tmux windows config files
+__create_windows() {
+  if [ ! -f "$TMUX_NEW_FILE_WINDOWS/$TMUX_NEW_NAME" ]; then
+    local win_1_def="" win_2_def="" wname="" wcmd="" add_windows="" wnum="0" && shift 1
+    # add more windows
+    if [ $# -ne 0 ]; then
+      for window in "$@"; do
+        wnum=$(($wnum + 1))
+        wname="$(echo "$window" | grep ':' | awk -F':' '{print $1}' | grep '^' || printf '%s' "${window:-$wnum}")"
+        wcmd="$(echo "$window" | grep ':' | awk -F':' '{print $2}' | grep '^' || printf '%s' "${SHELL:-bash}")"
+        add_windows="$(printf '%s\nneww -n %s  %s\n' "$add_windows" "$wname" "$wcmd" && echo '')"
+      done
+    fi
+    printf_green "Creating tmux windows file"
+    cat <<EOF >"$TMUX_NEW_FILE_WINDOWS/$TMUX_NEW_NAME"
+# Window config for $TMUX_NEW_NAME
+$(printf '%s\n' "$add_windows" | grep -v '^$')
+
+EOF
+    [ -f "$TMUX_NEW_FILE_WINDOWS/$TMUX_NEW_NAME" ] && printf_blue "tmux windows config file has been created" || printf_exit "Failed to create tmux windows config file"
+  fi
+  return
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__edit() {
+  [ -n "$EDITOR" ] || printf_exit "EDITOR is not set"
+  [ -n "$1" ] && [ -n "$TMUX_NEW_NAME" ] || TMUX_NEW_NAME="${1:-${TMUX_NEW_NAME:-default}}"
+  [ -f "$TMUX_NEW_FILE_CONF/$TMUX_NEW_NAME" ] || printf_exit "Missing: $TMUX_NEW_FILE_CONF/$TMUX_NEW_NAME"
+  eval $EDITOR "$TMUX_NEW_FILE_CONF/$TMUX_NEW_NAME" "$TMUX_NEW_FILE_WINDOWS/$TMUX_NEW_NAME"
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__tmux_list() {
+  local tmux_ls="$(tmux ls 2>/dev/null | awk -F ':' '{print $1}' | grep '^' || false)"
+  if [ -n "$tmux_ls" ]; then
+    printf '%s\n' "$tmux_ls"
+  else
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__tmux_attach() {
+  local name="${1:-$(__tmux_list | tail -n1)}"
+  [ -n "$name" ] || return 1
+  tmux attach -t "$name" 2>/dev/null
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined variables/import external variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application Folders
+TMUX_NEW_CONFIG_FILE="${TMUX_NEW_CONFIG_FILE:-settings.conf}"
+TMUX_NEW_CONFIG_DIR="${TMUX_NEW_CONFIG_DIR:-$HOME/.config/myscripts/tmux-new}"
+TMUX_NEW_CONFIG_BACKUP_DIR="${TMUX_NEW_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/tmux-new/backups}"
+TMUX_NEW_LOG_DIR="${TMUX_NEW_LOG_DIR:-$HOME/.local/log/tmux-new}"
+TMUX_NEW_TEMP_DIR="${TMUX_NEW_TEMP_DIR:-$HOME/.local/tmp/system_scripts/tmux-new}"
+TMUX_NEW_CACHE_DIR="${TMUX_NEW_CACHE_DIR:-$HOME/.cache/tmux-new}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+TMUX_NEW_OUTPUT_COLOR_1="${TMUX_NEW_OUTPUT_COLOR_1:-33}"
+TMUX_NEW_OUTPUT_COLOR_2="${TMUX_NEW_OUTPUT_COLOR_2:-5}"
+TMUX_NEW_OUTPUT_COLOR_GOOD="${TMUX_NEW_OUTPUT_COLOR_GOOD:-2}"
+TMUX_NEW_OUTPUT_COLOR_ERROR="${TMUX_NEW_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+TMUX_NEW_NOTIFY_ENABLED="${TMUX_NEW_NOTIFY_ENABLED:-yes}"
+TMUX_NEW_GOOD_NAME="${TMUX_NEW_GOOD_NAME:-Great:}"
+TMUX_NEW_ERROR_NAME="${TMUX_NEW_ERROR_NAME:-Error:}"
+TMUX_NEW_GOOD_MESSAGE="${TMUX_NEW_GOOD_MESSAGE:-No errors reported}"
+TMUX_NEW_ERROR_MESSAGE="${TMUX_NEW_ERROR_MESSAGE:-Errors were reported}"
+TMUX_NEW_NOTIFY_CLIENT_NAME="${TMUX_NEW_NOTIFY_CLIENT_NAME:-$APPNAME}"
+TMUX_NEW_NOTIFY_CLIENT_ICON="${TMUX_NEW_NOTIFY_CLIENT_ICON:-notification-new}"
+TMUX_NEW_NOTIFY_CLIENT_URGENCY="${TMUX_NEW_NOTIFY_CLIENT_URGENCY:-normal}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional Variables
+TMUX_NEW_FILE_CONF="${TMUX_NEW_FILE_CONF:-$TMUX_NEW_CONFIG_DIR/conf}"
+TMUX_NEW_FILE_WINDOWS="${TMUX_NEW_FILE_WINDOWS:-$TMUX_NEW_CONFIG_DIR/windows}"
+TMUX_NEW_FILE_CONF_LOCAL="${TMUX_NEW_FILE_CONF_LOCAL:-$TMUX_NEW_CONFIG_DIR/local}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Project directory options
+RUN_OPTIONS_DIRS_PROJECTS="${RUN_OPTIONS_DIRS_PROJECTS:-$HOME/Projects}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Docker Project directory options
+RUN_OPTIONS_DIRS_DOCKER_SRC="${RUN_OPTIONS_DIRS_DOCKER_SRC:-$HOME/Projects/github/casjaysdevdocker}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Github Project directory options
+RUN_OPTIONS_DIRS_GITHUB_DOCKERMGR="${RUN_OPTIONS_DIRS_GITHUB_DOCKERMGR:-$HOME/Projects/github/dockermgr}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Programs logging Directories
+RUN_OPTIONS_LOGS_BUILDX="${RUN_OPTIONS_LOGS_BUILDX:-$HOME/.local/log/buildx}"
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$TMUX_NEW_CONFIG_DIR/$TMUX_NEW_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$TMUX_NEW_CONFIG_DIR/$TMUX_NEW_CONFIG_FILE" ] && . "$TMUX_NEW_CONFIG_DIR/$TMUX_NEW_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$TMUX_NEW_LOG_DIR" ] || mkdir -p "$TMUX_NEW_LOG_DIR" |& __devnull
+[ -d "$TMUX_NEW_TEMP_DIR" ] || mkdir -p "$TMUX_NEW_TEMP_DIR" |& __devnull
+[ -d "$TMUX_NEW_CACHE_DIR" ] || mkdir -p "$TMUX_NEW_CACHE_DIR" |& __devnull
+[ -d "$RUN_OPTIONS_LOGS_BUILDX" ] || mkdir -p "$RUN_OPTIONS_LOGS_BUILDX" |& __devnull
+[ -d "$RUN_OPTIONS_DIRS_PROJECTS" ] || mkdir -p "$RUN_OPTIONS_DIRS_PROJECTS" |& __devnull
+[ -d "$RUN_OPTIONS_DIRS_DOCKER_SRC" ] || mkdir -p "$RUN_OPTIONS_DIRS_DOCKER_SRC" |& __devnull
+[ -d "$RUN_OPTIONS_DIRS_GITHUB_DOCKERMGR" ] || mkdir -p "$RUN_OPTIONS_DIRS_GITHUB_DOCKERMGR" |& __devnull
+[ -f "$RUN_OPTIONS_LOGS_BUILDX/init.log" ] || echo "$APPNAME has started: $(date)" >"$RUN_OPTIONS_LOGS_BUILDX/init.log" |& __devnull
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+TMUX_NEW_TEMP_FILE="${TMUX_NEW_TEMP_FILE:-$(mktemp $TMUX_NEW_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap '__trap_exit' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+__notifications() {
+  __cmd_exists notifications || return
+  [ "$TMUX_NEW_NOTIFY_ENABLED" = "yes" ] || return
+  [ "$SEND_NOTIFICATION" = "no" ] && return
+  (
+    export SCRIPT_OPTS="" _DEBUG=""
+    export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$TMUX_NEW_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$TMUX_NEW_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$TMUX_NEW_NOTIFY_CLIENT_ICON}"
+    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$TMUX_NEW_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$TMUX_NEW_NOTIFY_CLIENT_URGENCY}"
+    notifications "$@"
+  ) |& __devnull &
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set custom actions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Argument/Option settings
+SETARGS=("$@")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SHORTOPTS=""
+SHORTOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
+LONGOPTS+=",kill,name:"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ARRAY="dev rpm server web node build ssh test default edit create docker productivity"
+ARRAY+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LIST=""
+LIST+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case "$1" in
+  --raw)
+    shift 1
+    export SHOW_RAW="true"
+    NC=""
+    RESET=""
+    BLACK=""
+    RED=""
+    GREEN=""
+    YELLOW=""
+    BLUE=""
+    PURPLE=""
+    CYAN=""
+    WHITE=""
+    ORANGE=""
+    LIGHTRED=""
+    BG_GREEN=""
+    BG_RED=""
+    ICON_INFO="[ info ]"
+    ICON_GOOD="[ ok ]"
+    ICON_WARN="[ warn ]"
+    ICON_ERROR="[ error ]"
+    ICON_QUESTION="[ ? ]"
+    printf_column() { tee | grep '^'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    ;;
+  --debug)
+    shift 1
+    set -xo pipefail
+    export SCRIPT_OPTS="--debug"
+    export _DEBUG="on"
+    __devnull() { tee || return 1; }
+    __devnull2() { eval "$@" |& tee -p || return 1; }
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
+    ;;
+  --options)
+    shift 1
+    printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' 4
+    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' 4
+    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
+    [ -z "$LIST" ] || __list_options "LIST Options" "${LIST}" ',' '' 4
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  --silent)
+    shift 1
+    TMUX_NEW_SILENT="true"
+    ;;
+  --dir)
+    CWD_IS_SET="TRUE"
+    TMUX_NEW_CWD="$2"
+    [ -d "$TMUX_NEW_CWD" ] || mkdir -p "$TMUX_NEW_CWD" |& __devnull
+    shift 2
+    ;;
+  --kill)
+    shift 1
+    TMUX_KILL_ENABLED="true"
+    ;;
+  --name)
+    TMUX_NEW_SET_NAME="$2"
+    shift 2
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get directory from args
+# set -- "$@"
+# for arg in "$@"; do
+# if [ -d "$arg" ]; then
+# TMUX_NEW_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
+# elif [ -f "$arg" ]; then
+# TMUX_NEW_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
+# else
+# SET_NEW_ARGS+=("$arg")
+# fi
+# done
+# set -- "${SET_NEW_ARGS[@]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set directory to first argument
+# [ -d "$1" ] && __is_an_option "$1" && TMUX_NEW_CWD="$1" && shift 1 || TMUX_NEW_CWD="${TMUX_NEW_CWD:-$PWD}"
+TMUX_NEW_CWD="$(realpath "${TMUX_NEW_CWD:-$PWD}" 2>/dev/null)"
+# if [ -d "$TMUX_NEW_CWD" ] && cd "$TMUX_NEW_CWD"; then
+# true
+# if [ "$TMUX_NEW_SILENT" != "true" ] && [ "$CWD_SILENCE" != "true" ]; then
+# printf_cyan "Setting working dir to $TMUX_NEW_CWD"
+# fi
+# else
+# printf_exit "💔 $TMUX_NEW_CWD does not exist 💔"
+# fi
+export TMUX_NEW_CWD
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set actions based on variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+cmd_exists --error --ask bash || exit 3 # exit 3 if not found
+#am_i_online --error || exit 4           # exit 4 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+unset TMUX_NEW_NAME
+TMUX_NEW_PREFIX="$(dirname "$TMUX_NEW_CWD/dir" | awk -F '/' '{print $(NF-1)"-"$NF}')"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+[ "$1" = "kill" ] && shift 1 && TMUX_KILL_ENABLED="true"
+if [ "$TMUX_KILL_ENABLED" = "true" ]; then
+  __tmux_kill "$@"
+  exit $?
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+[ "$1" = "launch-tmux" ] && shift 1
+[ -n "$TMUX_NEW_CWD" ] && __cd "$TMUX_NEW_CWD"
+[ -f "$TMUX_NEW_CONFIG_DIR/template" ] || __create_tmux_conf
+[ -d "$TMUX_NEW_FILE_CONF" ] || mkdir -p "$TMUX_NEW_FILE_CONF"
+[ -d "$TMUX_NEW_FILE_WINDOWS" ] || mkdir -p "$TMUX_NEW_FILE_WINDOWS"
+[ -d "$TMUX_NEW_FILE_CONF_LOCAL" ] || mkdir -p "$TMUX_NEW_FILE_CONF_LOCAL"
+[ -f "$HOME/.tmux.conf" ] || cp -Rf "$CASJAYSDEVDIR/templates/tmux/default.conf" "$HOME/.tmux.conf"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# export variables
+export RUN_OPTIONS_NO_MESSAGE="${RUN_OPTIONS_NO_MESSAGE:-true}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute commands
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+case "$1" in
+list | ls)
+  shift 1
+  __tmux_list | printf_readline || printf_exit "There are no current tmux seesions"
+  exit $?
+  ;;
+attach | a)
+  shift 1
+  __tmux_attach "$1" || printf_exit "There are no current tmux seesions"
+  exit $?
+  ;;
+server)
+  shift 1
+  run_server --silent source "$TMUX_NEW_TEMP_FILE" |& __devnull
+  if [ -f "$TMUX_NEW_TEMP_FILE" ]; then
+    . "$TMUX_NEW_TEMP_FILE"
+  fi
+  __init "${TMUX_NEW_SET_NAME:-server-$(basename -- "$TMUX_NEW_CWD")}"
+  set_cwd="$TMUX_NEW_CWD"
+  set_port="$RUN_SERVER_PORT"
+  set_logfile="$RUN_SERVER_LOG"
+  set_name="${SERVER_NAME:-server}"
+  set_url="${RUN_SERVER_URL:-http://localhost:19922}"
+  __tmux_conf "$set_name" |& __devnull
+  __create_windows "$set_name" "${1:-shell:$SHELL}" "${2:-editor:"run_options editor $set_cwd"}" "${3:-filemanager:"run_options files $set_cwd"}" "${4:-browser:"run_options browser $set_url"}" "${5:-server:"run_options server $set_cwd $set_port"}" "${6:-logs:"run_options log $set_logfile"}" |& __devnull
+  __launch_tmux "$set_name"
+  exit $?
+  ;;
+web)
+  shift 1
+  run_server --silent source "$TMUX_NEW_TEMP_FILE" |& __devnull
+  run_server --silent source "$TMUX_NEW_TEMP_FILE" |& __devnull
+  if [ -f "$TMUX_NEW_TEMP_FILE" ]; then
+    . "$TMUX_NEW_TEMP_FILE"
+  fi
+  __init "${TMUX_NEW_SET_NAME:-web-$(basename -- "$TMUX_NEW_CWD")}"
+  set_cwd="$RUN_SERVER_CWD"
+  set_port="$RUN_SERVER_PORT"
+  set_logfile="$RUN_SERVER_LOG"
+  set_name="${SERVER_NAME:-web}"
+  set_url="${RUN_SERVER_URL:-http://localhost:19922}"
+  __tmux_conf "$set_name" |& __devnull
+  __create_windows "$set_name" "${1:-shell:$SHELL}" "${2:-editor:"run_options editor $set_cwd"}" "${3:-filemanager:"run_options files $set_cwd"}" "${4:-browser:"run_options browser $set_url"}" "${5:-server:"run_options server $set_cwd $set_port"}" "${6:-logs:"run_options log $set_logfile"}" |& __devnull
+  __launch_tmux "$set_name"
+  exit $?
+  ;;
+docker)
+  shift 1
+  __init "${TMUX_NEW_SET_NAME:-docker-$(basename -- "$TMUX_NEW_CWD")}"
+  __tmux_conf "docker" |& __devnull
+  __create_windows "docker" "${1:-shell:"run_options cd $PWD"}" "${2:-mgr:"run_options cd $RUN_OPTIONS_DIRS_GITHUB_DOCKERMGR"}" "${3:-devel:"run_options exec cdd buildx"}" "${4:-editor:"run_options cd $RUN_OPTIONS_DIRS_DOCKER_SRC"}" "${5:-build:"run_options cd $RUN_OPTIONS_DIRS_DOCKER_SRC"}" "${6:-testing:"run_options cd $RUN_OPTIONS_DIRS_DOCKER_SRC"}" "${7:-docker:"run_options cd $RUN_OPTIONS_DIRS_DOCKER_SRC"}" "${8:-logging:"run_options log $RUN_OPTIONS_LOGS_BUILDX"}" "${9:-remote:"run_options ssh"}" |& __devnull
+  __launch_tmux "docker"
+  exit $?
+  ;;
+dev)
+  shift 1
+  __init "${TMUX_NEW_SET_NAME:-dev-$(basename -- "$TMUX_NEW_CWD")}"
+  __tmux_conf "dev" |& __devnull
+  __create_windows "dev" "${1:-dev:$SHELL}" "${2:-editor:$SHELL}" "${3:-logging:$SHELL}" "${4:-server:$SHELL}" ${5:-} ${6:-} ${7:-} ${8:-} ${9:-} |& __devnull
+  __launch_tmux "dev"
+  exit $?
+  ;;
+rpm)
+  shift 1
+  __init "${TMUX_NEW_SET_NAME:-rpm-$(basename -- "$TMUX_NEW_CWD")}"
+  __tmux_conf "rpm" |& __devnull
+  __create_windows "rpm" "main:$SHELL" "tools:$SHELL" "edit:$SHELL" "8-arm64:$SHELL" "8-amd64:$SHELL" "9-arm64:$SHELL" "9-amd64:$SHELL" "git:$SHELL" "logs:$SHELL" |& __devnull
+  __launch_tmux "rpm"
+  exit $?
+  ;;
+node)
+  shift 1
+  __init "${TMUX_NEW_SET_NAME:-node-$(basename -- "$TMUX_NEW_CWD")}"
+  __tmux_conf "node" |& __devnull
+  __create_windows "node" "${1:-devel:$SHELL}" "${2:-editor:$SHELL}" "${3:-client:$SHELL}" "${4:-server:$SHELL}" "${5:-database:$SHELL}" ${6:-} ${7:-} ${8:-} ${9:-} |& __devnull
+  __launch_tmux "node"
+  exit $?
+  ;;
+deno)
+  shift 1
+  __init "${TMUX_NEW_SET_NAME:-deno-$(basename -- "$TMUX_NEW_CWD")}"
+  __tmux_conf "deno" |& __devnull
+  __create_windows "deno" "${1:-devel:$SHELL}" "${2:-editor:$SHELL}" "${3:-server:$SHELL}" "${4:-database:$SHELL}" ${5:-} ${6:-} ${7:-} ${8:-} ${9:-} |& __devnull
+  __launch_tmux "deno"
+  exit $?
+  ;;
+build)
+  shift 1
+  __init "${TMUX_NEW_SET_NAME:-build-$(basename -- "$TMUX_NEW_CWD")}"
+  __tmux_conf "build" |& __devnull
+  __create_windows "build" "${1:-build:$SHELL}" "${2:-edit:$SHELL}" "${3:-test:$SHELL}" "${4:-log:$SHELL}" ${5:-} ${6:-} ${7:-} ${8:-} ${9:-} |& __devnull
+  __launch_tmux "build"
+  exit $?
+  ;;
+ssh)
+  shift 1
+  __init "${TMUX_NEW_SET_NAME:-ssh-$(basename -- "$TMUX_NEW_CWD")}"
+  __tmux_conf "ssh" |& __devnull
+  __create_windows "ssh" "${1:-1}":"run_options ssh" "${2:-2}":"run_options ssh" "${3:-3}":"run_options ssh" "${4:-4}":"run_options ssh" "${5:-5}":"run_options ssh" "${6:-6}":"run_options ssh" "${7:-7}":"run_options ssh" |& __devnull
+  __launch_tmux "ssh"
+  exit $?
+  ;;
+productivity)
+  shift 1
+  __init "${TMUX_NEW_SET_NAME:-productivity}"
+  __tmux_conf "productivity" |& __devnull
+  __create_windows "productivity" "todo:'run_options loop todo'" "notes:'run_options loop notes'" "scratchpad:'run_options loop scratchpad'" "tasks:'run_options loop tasks'" "blog:'run_options shell'" "tools:'run_options shell'" "weather:'run_options shell weather'" |& __devnull
+  __launch_tmux "productivity"
+  exit $?
+  ;;
+test)
+  shift 1
+  __init "${TMUX_NEW_SET_NAME:-test-$(basename -- "$TMUX_NEW_CWD")}"
+  __tmux_conf "test" |& __devnull
+  __create_windows "test" "${1:-1:$SHELL}" "${2:-2:$SHELL}" ${3:-} ${4:-} ${5:-} ${6:-} ${7:-} ${8:-} ${9:-} |& __devnull
+  __launch_tmux "test"
+  exit $?
+  ;;
+default)
+  shift 1
+  __init "${TMUX_NEW_SET_NAME:-default-$(basename -- "$TMUX_NEW_CWD")}"
+  __tmux_conf "default" |& __devnull
+  __create_windows "default" "${1:-1:$SHELL}" "${2:-2:$SHELL}" "${3:-3:$SHELL}" ${4:-} ${5:-} ${6:-} ${7:-} ${8:-} ${9:-} |& __devnull
+  __launch_tmux "default"
+  exit $?
+  ;;
+edit)
+  shift 1
+  TMUX_NEW_NAME=""
+  __init "$1"
+  __edit "$1"
+  exit $?
+  ;;
+create)
+  shift 1
+  if [ $# -lt 3 ]; then
+    printf_red "Usage: $APPNAME [name] [win1_name:command] [win2_name:command] [add_win:add_command]"
+    exit 1
+  fi
+  TMUX_NEW_NAME=""
+  __init "$1"
+  __tmux_conf "$1"
+  __create_windows "$@"
+  exit $?
+  ;;
+*)
+  TMUX_NEW_NAME=""
+  __init "$1"
+  if [ -f "$TMUX_NEW_FILE_CONF/$1" ]; then
+    __launch_tmux "$1"
+  elif [ -f "$TMUX_NEW_FILE_CONF/$1-$1" ]; then
+    __launch_tmux "$1-$1"
+  elif [ $# -lt 2 ]; then
+    printf_red "Usage: $APPNAME [name] [win1_name:command] [add_win:add_command]"
+    exit 1
+  else
+    __tmux_conf "$1"
+    __create_windows "$@"
+    __launch_tmux "$TMUX_NEW_NAME"
+  fi
+  exitCode=$?
+  ;;
+esac
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set exit code
+exitCode="${exitCode:-0}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-0}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# ex: ts=2 sw=2 et filetype=sh

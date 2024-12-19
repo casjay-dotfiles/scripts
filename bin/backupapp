@@ -1,0 +1,970 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version           :  202208042048-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  jason@casjaysdev.pro
+# @@License          :  WTFPL
+# @@ReadME           :  backupapp --help
+# @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
+# @@Created          :  Thursday, Aug 04, 2022 20:48 EDT
+# @@File             :  backupapp
+# @@Description      :  Backup files and folders
+# @@Changelog        :  New script
+# @@TODO             :  Better documentation
+# @@Other            :
+# @@Resource         :
+# @@Terminal App     :  no
+# @@sudo/root        :  no
+# @@Template         :  bash/system
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="$(basename -- "$0" 2>/dev/null)"
+VERSION="202208042048-git"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${RUN_USER:-$USER}"
+USER_HOME="${USER_HOME:-$HOME}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+BACKUPAPP_REQUIRE_SUDO="${BACKUPAPP_REQUIRE_SUDO:-no}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Reopen in a terminal
+if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set script title
+#CASJAYS_DEV_TILE_FORMAT="${USER}@${HOSTNAME}:${PWD//$HOME/\~} - $APPNAME"
+#CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}"
+#[ -z "$CASJAYSDEV_TITLE_SET" ] && printf '\033]2│;%s\033\\' "$CASJAYS_DEV_TILE_FORMAT" && CASJAYSDEV_TITLE_SET="$APPNAME"
+export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}" CASJAYSDEV_TITLE_SET
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initial debugging
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# pipes fail
+set -o pipefail
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import functions
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+  . "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  exit 1
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Options are: *_install
+# system user desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+user_install && __options "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Send all output to /dev/null
+__devnull() {
+  tee &>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# Send errors to /dev/null
+__devnull2() {
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# See if the executable exists
+__cmd_exists() {
+  exitCode=0
+  [ -n "$1" ] && local exitCode="" || return 0
+  for cmd in "$@"; do
+    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
+  done
+  [ $exitCode -eq 0 ] || exitCode=3
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for a valid internet connection
+__am_i_online() {
+  local exitCode=0
+  curl -q -LSsfI --max-time 2 --retry 1 "${1:-https://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# colorization
+if [ "$SHOW_RAW" = "true" ]; then
+  NC=""
+  RESET=""
+  BLACK=""
+  RED=""
+  GREEN=""
+  YELLOW=""
+  BLUE=""
+  PURPLE=""
+  CYAN=""
+  WHITE=""
+  ORANGE=""
+  LIGHTRED=""
+  BG_GREEN=""
+  BG_RED=""
+  ICON_INFO="[ info ]"
+  ICON_GOOD="[ ok ]"
+  ICON_WARN="[ warn ]"
+  ICON_ERROR="[ error ]"
+  ICON_QUESTION="[ ? ]"
+  printf_column() { tee | grep '^'; }
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional printf_ colors
+__printf_head() { printf_blue "$1"; }
+__printf_opts() { printf_purple "$1"; }
+__printf_line() { printf_cyan "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# output version
+__version() { printf_cyan "$VERSION"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# list options
+__list_options() {
+  printf_color "$1: " "$5"
+  echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g' | tr '\n' ' '
+  printf_newline
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create the config file
+__gen_config() {
+  local NOTIFY_CLIENT_NAME="$APPNAME"
+  if [ "$INIT_CONFIG" != "TRUE" ]; then
+    printf_blue "Generating the config file in"
+    printf_cyan "$BACKUPAPP_CONFIG_DIR/$BACKUPAPP_CONFIG_FILE"
+  fi
+  [ -d "$BACKUPAPP_CONFIG_DIR" ] || mkdir -p "$BACKUPAPP_CONFIG_DIR"
+  [ -d "$BACKUPAPP_CONFIG_BACKUP_DIR" ] || mkdir -p "$BACKUPAPP_CONFIG_BACKUP_DIR"
+  [ -f "$BACKUPAPP_CONFIG_DIR/$BACKUPAPP_CONFIG_FILE" ] &&
+    cp -Rf "$BACKUPAPP_CONFIG_DIR/$BACKUPAPP_CONFIG_FILE" "$BACKUPAPP_CONFIG_BACKUP_DIR/$BACKUPAPP_CONFIG_FILE.$$"
+  cat <<EOF >"$BACKUPAPP_CONFIG_DIR/$BACKUPAPP_CONFIG_FILE"
+# Settings for backupapp
+BACKUPAPP_BACKUP_DIR="${BACKUPAPP_BACKUP_DIR:-}"
+BACKUPAPP_KEEP_AMOUNT="${BACKUPAPP_KEEP_AMOUNT:-}"
+BACKUPAPP_LOGFILE_EXTENSION="${BACKUPAPP_LOGFILE_EXTENSION:-}"
+BACKUPAPP_DATE_FORMAT="${BACKUPAPP_DATE_FORMAT:-}"
+BACKUPAPP_BICON_GOOD="${BACKUPAPP_BICON_GOOD:-}"
+BACKUPAPP_BICON_WARN="${BACKUPAPP_BICON_WARN:-}"
+BACKUPAPP_BICON_ERROR="${BACKUPAPP_BICON_ERROR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+BACKUPAPP_OUTPUT_COLOR_1="${BACKUPAPP_OUTPUT_COLOR_1:-}"
+BACKUPAPP_OUTPUT_COLOR_2="${BACKUPAPP_OUTPUT_COLOR_2:-}"
+BACKUPAPP_OUTPUT_COLOR_GOOD="${BACKUPAPP_OUTPUT_COLOR_GOOD:-}"
+BACKUPAPP_OUTPUT_COLOR_ERROR="${BACKUPAPP_OUTPUT_COLOR_ERROR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+BACKUPAPP_NOTIFY_ENABLED="${BACKUPAPP_NOTIFY_ENABLED:-}"
+BACKUPAPP_GOOD_NAME="${BACKUPAPP_GOOD_NAME:-}"
+BACKUPAPP_ERROR_NAME="${BACKUPAPP_ERROR_NAME:-}"
+BACKUPAPP_GOOD_MESSAGE="${BACKUPAPP_GOOD_MESSAGE:-}"
+BACKUPAPP_ERROR_MESSAGE="${BACKUPAPP_ERROR_MESSAGE:-}"
+BACKUPAPP_NOTIFY_CLIENT_NAME="${BACKUPAPP_NOTIFY_CLIENT_NAME:-}"
+BACKUPAPP_NOTIFY_CLIENT_ICON="${BACKUPAPP_NOTIFY_CLIENT_ICON:-}"
+BACKUPAPP_NOTIFY_CLIENT_URGENCY="${BACKUPAPP_NOTIFY_CLIENT_URGENCY:-}"
+
+EOF
+  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
+  if [ -f "$BACKUPAPP_CONFIG_DIR/$BACKUPAPP_CONFIG_FILE" ]; then
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
+    . "$BACKUPAPP_CONFIG_DIR/$BACKUPAPP_CONFIG_FILE"
+    exitCode=0
+  else
+    printf_red "Failed to create the config file"
+    exitCode=1
+  fi
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Help function - Align to 50
+__help() {
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "backupapp:  Backup files and folders - $VERSION"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Usage: backupapp [options] [name] [directory]"
+  __printf_line "--term                          - Start in a new terminal"
+  __printf_line "[--]cron                        - options to run via cron"
+  __printf_line "[--]cron all                    - Back up all via cron"
+  __printf_line "[--]cron list                   - List current cron jobs"
+  __printf_line "[--]cron add                    - Add a new backup via cron"
+  __printf_line "[--]cron del                    - Delete a cron backup schedule"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Other Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--help                          - Shows this message"
+  __printf_line "--config                        - Generate user config file"
+  __printf_line "--version                       - Show script version"
+  __printf_line "--options                       - Shows all available options"
+  __printf_line "--debug                         - Enables script debugging"
+  __printf_line "--raw                           - Removes all formatting on output"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# check if arg is a builtin option
+__is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0; fi; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 1 || return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep -sh "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# # Get sudo password
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run sudo
+__sudorun() {
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo
+__can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User can run sudo
+__sudoif() {
+  __user_is_root && return 0
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run command as root
+requiresudo() {
+  if [ "$BACKUPAPP_REQUIRE_SUDO" = "yes" ] && [ -z "$BACKUPAPP_REQUIRE_SUDO_RUN" ]; then
+    export BACKUPAPP_REQUIRE_SUDO="no"
+    export BACKUPAPP_REQUIRE_SUDO_RUN="true"
+    __sudo "$@"
+    exit $?
+  else
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  CMD="${1:-echo}" && shift 1
+  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  [ "$(basename -- "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  if __sudoif; then
+    export PATH="$PATH"
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    exitCode=$?
+  else
+    printf '%s\n' "This requires root to run"
+    exitCode=1
+  fi
+  return ${exitCode:-1}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  exitCode=${exitCode:-0}
+  [ -f "$BACKUPAPP_TEMP_FILE" ] && rm -Rf "$BACKUPAPP_TEMP_FILE" &>/dev/null
+  #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD//$HOME/\~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined functions
+__gen_backup_config() {
+  local _APPNAME="${1:-settings}"
+  local _APPDIRS="${_APPDIRS:-$HOME}"
+  local _CONFIG_NAME="${_APPNAME}.conf"
+  if [ "$INIT_CONFIG" = "TRUE" ]; then
+    local BACKUPAPP_CONFIG_FILE="$_CONFIG_NAME"
+    local NAME="${_APPNAME:-$BACKUPAPP_CONFIG_FILE%.*}"
+  else
+    local BACKUPAPP_CONFIG_FILE="${2:-$_CONFIG_NAME}"
+    local NAME="${_APPNAME:-$BACKUPAPP_CONFIG_FILE%.*}"
+  fi
+  [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Generating the config file in"
+  [ "$INIT_CONFIG" = "TRUE" ] || printf_green "$BACKUPAPP_CONFIG_DIR/$BACKUPAPP_CONFIG_FILE"
+  [ -d "$BACKUPAPP_CONFIG_DIR" ] || mkdir -p "$BACKUPAPP_CONFIG_DIR"
+  [ -d "$BACKUPAPP_CONFIG_BACKUP_DIR" ] || mkdir -p "$BACKUPAPP_CONFIG_BACKUP_DIR"
+  if [ -f "$BACKUPAPP_CONFIG_DIR/$BACKUPAPP_CONFIG_FILE" ]; then
+    cp -Rf "$BACKUPAPP_CONFIG_DIR/$BACKUPAPP_CONFIG_FILE" "$BACKUPAPP_CONFIG_BACKUP_DIR/$BACKUPAPP_CONFIG_FILE.$$"
+  fi
+  local _APPDIRS="${_APPDIRS//~/$HOME}"
+  local BACKUPAPP_PROJECTDIRS="${BACKUPAPP_PROJECTDIRS//~/$HOME}"
+  [ "$_APPNAME" = "settings" ] && TITLE="default" || TITLE="$_APPNAME"
+  cat <<EOF | tee -p "$BACKUPAPP_CONFIG_DIR/$BACKUPAPP_CONFIG_FILE" &>/dev/null
+# Settings for backupapp - $TITLE
+BACKUPAPP_CONFIGNAME="$NAME"
+BACKUPAPP_PROJECTNAME="$NAME"
+BACKUPAPP_PROJECTDIRS="${BACKUPAPP_PROJECTDIRS:-$_APPDIRS}"
+BACKUPAPP_CONFIG_FILE="$BACKUPAPP_CONFIG_FILE"
+BACKUPAPP_LOG_DIR="\$HOME/.local/log/backups/apps"
+BACKUPAPP_BACKUP_DIR="\$HOME/.local/backups/apps"
+BACKUPAPP_KEEP_AMOUNT="14"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification settings
+BACKUPAPP_GOOD_MESSAGE="${BACKUPAPP_GOOD_MESSAGE:-}"
+BACKUPAPP_ERROR_MESSAGE="${BACKUPAPP_ERROR_MESSAGE:-}"
+BACKUPAPP_NOTIFY_ENABLED="${BACKUPAPP_NOTIFY_ENABLED:-}"
+BACKUPAPP_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+BACKUPAPP_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$BACKUPAPP_NOTIFY_CLIENT_ICON}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Colorization settings
+BACKUPAPP_OUTPUT_COLOR="${BACKUPAPP_OUTPUT_COLOR:-5}"
+BACKUPAPP_OUTPUT_COLOR_GOOD="${BACKUPAPP_OUTPUT_COLOR_GOOD:-2}"
+BACKUPAPP_OUTPUT_COLOR_ERROR="${BACKUPAPP_OUTPUT_COLOR_ERROR:-1}"
+
+EOF
+
+  if [ -f "$BACKUPAPP_CONFIG_DIR/$BACKUPAPP_CONFIG_FILE" ]; then
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
+    exitCode=0
+  else
+    printf_red "Failed to create the config file"
+    exitCode=1
+  fi
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_name() {
+  _APPNAME="${1:-$_APPNAME}"
+  _APPNAME="${_APPNAME:-$BACKUPAPP_PROJECTNAME}"
+  _APPDIRS="${_APPDIRS:-$BACKUPAPP_PROJECTDIRS}"
+  _BACKUPDIR="${_BACKUPDIR:-$BACKUPAPP_BACKUP_DIR}"
+  _APPDIRS="${_APPDIRS//~/$HOME}"
+  printf_blue "Current saved projects in $BACKUPAPP_CONFIG_DIR"
+  find "$BACKUPAPP_CONFIG_DIR/" -type f,l | sed "s|$BACKUPAPP_CONFIG_DIR/||g" | grep -v 'settings.conf' | sed 's|.conf||g' | printf_column "6"
+  printf_read_input "2" "Enter backupname or existing project name: " "120" "_APPNAME" "-e "
+  if [ -f "$BACKUPAPP_CONFIG_DIR/$_APPNAME.conf" ]; then
+    . "$BACKUPAPP_CONFIG_DIR/$_APPNAME.conf"
+  fi
+  _APPNAME="${_APPNAME:-}"
+  BACKUPAPP_CONFIG_FILE="$_APPNAME.conf"
+  export _APPNAME _APPDIRS _BACKUPDIR BACKUPAPP_PROJECTNAME BACKUPAPP_BACKUP_DIR BACKUPAPP_CONFIG_FILE
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__save_config() {
+  BACKUPAPP_PROJECTNAME="${1:-$_APPNAME}"
+  BACKUPAPP_CONFIGNAME="${1:-$_APPNAME}"
+  BACKUPAPP_PROJECTDIRS="$(realpath "${2:-$_APPDIRS}")"
+  [ "$BACKUPAPP_NO_CONFIG" != "no" ] || return
+  if [ -f "$BACKUPAPP_CONFIG_DIR/${_APPNAME:-$BACKUPAPP_PROJECTNAME}.conf" ]; then
+    . "$BACKUPAPP_CONFIG_DIR/${_APPNAME:-$BACKUPAPP_PROJECTNAME}.conf"
+    printf_red "$BACKUPAPP_CONFIG_DIR/$BACKUPAPP_PROJECTNAME.conf already exists"
+    printf_read_question_nt "57" "Do you want to overwrite existing config" "1" "OVERWRITE"
+    printf_answer_yes "$OVERWRITE" || return
+  fi
+  _APPDIRS="${_APPDIRS//~/$HOME}"
+  BACKUPAPP_PROJECTDIRS="${BACKUPAPP_PROJECTDIRS//~/$HOME}"
+  if [ -z "$BACKUPAPP_AUTOMATE" ]; then
+    printf_read_input "2" "Enter project name: " "120" "_APPNAME" "-e -i ${BACKUPAPP_PROJECTNAME:-$_APPNAME} "
+    printf_read_input "2" "Enter directories:" "140" "_APPDIRS" "-e -i ${BACKUPAPP_PROJECTDIRS:-$HOME} "
+    printf_read_input "2" "Enter config Name: " "120" "_CONFIGNAME" "-e -i ${BACKUPAPP_CONFIGNAME:-$_APPNAME} "
+  fi
+  _APPDIRS="${_APPDIRS//~/$HOME}"
+  BACKUPAPP_PROJECTDIRS="${_APPDIRS//~/$HOME}"
+  BACKUPAPP_CONFIGNAME="$_CONFIGNAME"
+  BACKUPAPP_PROJECTNAME="$_APPNAME"
+  __gen_backup_config "$_APPNAME"
+  if [ -f "$BACKUPAPP_CONFIG_DIR/$_APPNAME.conf" ]; then
+    printf_blue "Your configuration for $_APPNAME has been created in"
+    printf_cyan "$BACKUPAPP_CONFIG_DIR/$_APPNAME.conf"
+    . "$BACKUPAPP_CONFIG_DIR/$_APPNAME.conf"
+  else
+    printf_error "Failed to save $BACKUPAPP_CONFIG_DIR/$_APPNAME.conf" 1>&2
+  fi
+  printf_pause "Press any key to continue"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__term() {
+  trap '$APPNAME --console' SIGINT
+  trap '' SIGQUIT SIGTSTP
+  local cont="" save="" main=""
+  _APPNAME="${_APPNAME:-}"
+  _APPDIRS="${_APPDIRS:-}"
+  clear
+  printf_newline '\n\n\n\n\n'
+  __get_name "$_APPNAME"
+  while :; do
+    clear
+    printf_newline "\n\n\n\n"
+    printf_head "Backup Menu for ${_APPNAME:-default}"
+    printf_custom "6" "Welcome to the backup menu: type quit to exit"
+    printf_green "c. import config"
+    printf_green "s. save config"
+    printf_green "e. Show config"
+    printf_green "b. Backup files"
+    printf_green "r. Restore files"
+    printf_green "z. Exit"
+    printf_read_question_nt "6" "Enter your choice [c,e,r,s,z] : " "1" "main"
+    clear
+    printf_newline "\n\n\n"
+
+    case $main in
+    c) __get_name "$_APPNAME" ;;
+    e)
+      if [ -f "$BACKUPAPP_CONFIG_DIR/$BACKUPAPP_CONFIG_FILE" ]; then
+        printf_yellow "Showing $BACKUPAPP_CONFIG_DIR/$BACKUPAPP_CONFIG_FILE"
+        printf_readline "6" <"$BACKUPAPP_CONFIG_DIR/$BACKUPAPP_CONFIG_FILE"
+      else
+        printf_red "No configuration was found. Try creating one"
+      fi
+      printf_pause
+      ;;
+    r) __restore ;;
+    s) __save_config "$_APPNAME" ;;
+    z)
+      shift 1
+      clear
+      break
+      ;;
+    *)
+      [ -n "$BACKUPAPP_PROJECTNAME" ] || printf_read_input "2" "Enter directories:" "140" "_APPDIRS" "-e -i $HOME/"
+      printf_newline
+      if [ -n "${_APPNAME:-$BACKUPAPP_PROJECTNAME}" ] && [ -n "${_APPDIRS:-$BACKUPAPP_PROJECTDIRS}" ]; then
+        __backup "${_APPNAME:-$BACKUPAPP_PROJECTNAME}" "${_APPDIRS:-$BACKUPAPP_PROJECTDIRS}" || printf_pause
+      else
+        [ -n "${_APPNAME:-$BACKUPAPP_PROJECTNAME}" ] || printf_pause "Needs an name"
+        [ -n "${_APPDIRS:-$BACKUPAPP_PROJECTDIRS}" ] || printf_pause "Needs a directory"
+      fi
+      printf_newline
+      if [ -z "$BACKUPAPP_PROJECTNAME" ]; then
+        printf_read_question_nt "6" "Should I save this for future use? [y/N]" "1" save
+        if printf_answer_yes "$save"; then
+          __save_config "$BACKUPAPP_PROJECTNAME"
+        fi
+      fi
+      printf_newline
+      if [ "$main" != "s" ]; then
+        printf_read_question_nt "6" "Would you like to keep this window open? [y/N]" "1" cont
+        printf_answer_yes "$cont" && continue || break
+        printf_counter "5" "3" "Re-loading menu in"
+      fi
+      ;;
+    esac
+  done
+  clear
+  printf_newline "\n\n"
+  exit $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__restore() {
+  #__get_name
+  local restore=""
+  local _APPNAME="$BACKUPAPP_PROJECTNAME"
+  local _APPDIRS="$(realpath "$BACKUPAPP_PROJECTDIRS")"
+  local _BACKUPDIR="$BACKUPAPP_BACKUP_DIR"
+  local _APPDIRS="${_APPDIRS//~/$HOME}"
+  local logdir="${BACKUPAPP_LOG_DIR:-$HOME/.local/log/backups/apps}"
+  local datefmt="%Y-%m-%d-%H-%M_%S"
+  local curdate="$(date +"${BACKUPAPP_DATE_FORMAT:-$datefmt}")"
+  local logfilenameformat="${BACKUPAPP_LOGNAME_FORMAT:-$curdate}"
+  local logfilenameextension="${BACKUPAPP_LOGFILE_EXTENSION:-log}"
+  local logname="$appname-$logfilenameformat.restore.$logfilenameextension"
+  local latest_backup="$(__find "$_BACKUPDIR" "$_APPNAME*")"
+  local latest_backup_short="${latest_backup/$_BACKUPDIR\//}"
+  if [ -f "$latest_backup" ]; then
+    printf_read_question_nt "6" "Found $latest_backup_short should i restore that [y/N]" "1" "restore"
+    if printf_answer_yes "$restore"; then
+      if __restorecmd; then
+        printf_pause 2 "Restore of $latest_backup_short was successful"
+      else
+        printf_pause 1 "Failed to restore $latest_backup_short"
+        false
+      fi
+    else
+      printf_blue "Found the folowing files:"
+      __find "$_BACKUPDIR" "$_APPNAME*" "head -n100" | printf_readline "2"
+      printf_read_question_nt "6" "Would you like to restore one of those [y/N]" "1" "restore"
+      if printf_answer_yes "$restore"; then
+        printf_read_input "2" "Enter backupname:" "200" "latest_backup" "-e "
+        latest_backup_short="${latest_backup/$_BACKUPDIR\//}"
+        if __restorecmd; then
+          printf_pause 2 "Restore of $latest_backup_short was successful"
+        else
+          printf_pause 1 "Failed to restore $latest_backup_short"
+          false
+        fi
+      fi
+    fi
+  else
+    printf_pause "Couldn't find any backups in $_BACKUPDIR/$_APPNAME"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__backup() {
+  local e err appname appdir
+  local _APPNAME="${_APPNAME:-$BACKUPAPP_PROJECTNAME}"
+  local _APPDIRS="${_APPDIRS:-$BACKUPAPP_PROJECTDIRS}"
+  local appname="${1:-$_APPNAME}"
+  shift 1
+  local appdir="$(realpath "${*:-$_APPDIRS}")"
+  shift $#
+  local _APPDIRS="${_APPDIRS//~/$HOME}"
+  local logdir="${BACKUPAPP_LOG_DIR:-$HOME/.local/log/backups/apps}"
+  local datefmt="%Y-%m-%d-%H-%M_%S"
+  local curdate="$(date +"${BACKUPAPP_DATE_FORMAT:-$datefmt}")"
+  local filenameformate="${BACKUPAPP_FILENAME_FORMAT:-$curdate}"
+  local logfilenameformat="${BACKUPAPP_LOGNAME_FORMAT:-$curdate}"
+  local logfilenameextension="${BACKUPAPP_LOGFILE_EXTENSION:-log}"
+  local backupdir="${BACKUPAPP_BACKUP_DIR:-$HOME/.local/backups/apps}"
+  local notifyEnabled="${BACKUPAPP_NOTIFY_ENABLED:-yes}"
+  local leaveCount="${BACKUPAPP_KEEP_AMOUNT:-14}"
+  local icon_good="${BACKUPAPP_BICON_GOOD:-🆗}"
+  local icon_warn="${BACKUPAPP_BICON_WARN:-⚠️}"
+  local icon_error="${BACKUPAPP_BICON_ERROR:-✖}"
+  local filename="$appname-$filenameformate.tar.gz"
+  local logname="$appname-$logfilenameformat.$logfilenameextension"
+  local logname_err="$appname-$logfilenameformat.err"
+  [ "$notifyEnabled" = "yes" ] && __notifications "$icon_warn" "Initializing the backup of $appname"
+  __execute "sleep 3" "Initializing the backup of $appname"
+  __mkd "$backupdir" "$logdir"
+  for e in $appdir; do [ -e "$e" ] || err="$e"; done
+  if [ -n "$err" ]; then
+    [ "$notifyEnabled" = "yes" ] && __notifications "$icon_error" "Can't back up: $err doesn't exists"
+    printf_error "Can't back up: $err doesn't exists"
+    return 1
+  fi
+  shift
+  printf_header " # Started on $(date +'%A, %B %d, %Y %H:%M:%S')" "# Backing up $appdir" >>"$logdir/$logname"
+  if [ -t 0 ]; then
+    __execute "__backupcmd" "Backing up $appname to $backupdir"
+    exitCode=$?
+  else
+    __backupcmd
+    exitCode=$?
+  fi
+  printf_header " #Ended on $(date +'%A, %B %d, %Y %H:%M:%S')" >>"$logdir/$logname"
+  printf_newline "\n\n" >>"$logdir/$logname"
+  if [ "$exitCode" = 0 ]; then
+    printf_green "$icon_good The backup has completed successfully and Saved to:"
+    printf_green "$icon_good $backupdir/$filename"
+    [ "$notifyEnabled" = "yes" ] && __notifications "$icon_good" "Backup of $appname has completed"
+  else
+    printf_red "$icon_error The backup has failed to complete."
+    printf_red "$icon_error More information can be found in the log file:"
+    printf_exit "$icon_warn $logdir/$logname"
+    [ "$notifyEnabled" = "yes" ] && __notifications "$icon_error" "Backup of $appname has failed"
+  fi
+  logfileCount=$(ls $logdir/$appname*.$logfilenameextension 2>/dev/null | wc -l 2>/dev/null)
+  logremoveoldbackups=$(ls $logdir/$appname*.$logfilenameextension 2>/dev/null)
+  fileCount=$(ls $backupdir/$appname*.tar.gz 2>/dev/null | wc -l 2>/dev/null)
+  removeoldbackups=$(ls $backupdir/$appname*.tar.gz 2>/dev/null)
+  tailCount=$((fileCount - leaveCount))
+  if [ "$fileCount" -gt "$leaveCount" ] && [ $leaveCount -ne 0 ]; then
+    [ -z "$leaveCount" ] || ls -t $removeoldbackups | tail -$tailCount 2>/dev/null | xargs rm -f
+    [ -z "$leaveCount" ] || ls -t $logremoveoldbackups | tail -$tailCount 2>/dev/null | xargs rm -f
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__find() {
+  find "${1:-$_BACKUPDIR}" -iname "${2:-_APPNAME}*" 2>/dev/null | ${3:-tail -n1} | grep '^' || false
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__restorecmd() {
+  tar xfvz $latest_backup -C $_APPDIRS >>"$logdir/$logname" 2>>"$logdir/$logname.err" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__backupcmd() {
+  tar cfzv "$backupdir/$filename" $appdir >>"$logdir/$logname" 2>>"$logdir/$logname_err" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__local_cron_add() {
+  __setupcrontab "${3:-0 0 * * *}" "backupapp --yes $1 $2 >/dev/null 2>&1"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__local_cron_del() {
+  __removecrontab "backupapp --yes $1 "
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined variables/import external variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application Folders
+BACKUPAPP_CONFIG_FILE="${BACKUPAPP_CONFIG_FILE:-settings.conf}"
+BACKUPAPP_CONFIG_DIR="${BACKUPAPP_CONFIG_DIR:-$HOME/.config/myscripts/backupapp}"
+BACKUPAPP_CONFIG_BACKUP_DIR="${BACKUPAPP_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/backupapp/backups}"
+BACKUPAPP_LOG_DIR="${BACKUPAPP_LOG_DIR:-$HOME/.local/log/backupapp}"
+BACKUPAPP_TEMP_DIR="${BACKUPAPP_TEMP_DIR:-$HOME/.local/tmp/system_scripts/backupapp}"
+BACKUPAPP_CACHE_DIR="${BACKUPAPP_CACHE_DIR:-$HOME/.cache/backupapp}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+BACKUPAPP_OUTPUT_COLOR_1="${BACKUPAPP_OUTPUT_COLOR_1:-33}"
+BACKUPAPP_OUTPUT_COLOR_2="${BACKUPAPP_OUTPUT_COLOR_2:-5}"
+BACKUPAPP_OUTPUT_COLOR_GOOD="${BACKUPAPP_OUTPUT_COLOR_GOOD:-2}"
+BACKUPAPP_OUTPUT_COLOR_ERROR="${BACKUPAPP_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+BACKUPAPP_NOTIFY_ENABLED="${BACKUPAPP_NOTIFY_ENABLED:-yes}"
+BACKUPAPP_GOOD_NAME="${BACKUPAPP_GOOD_NAME:-Great:}"
+BACKUPAPP_ERROR_NAME="${BACKUPAPP_ERROR_NAME:-Error:}"
+BACKUPAPP_GOOD_MESSAGE="${BACKUPAPP_GOOD_MESSAGE:-No errors reported}"
+BACKUPAPP_ERROR_MESSAGE="${BACKUPAPP_ERROR_MESSAGE:-Errors were reported}"
+BACKUPAPP_NOTIFY_CLIENT_NAME="${BACKUPAPP_NOTIFY_CLIENT_NAME:-$APPNAME}"
+BACKUPAPP_NOTIFY_CLIENT_ICON="${BACKUPAPP_NOTIFY_CLIENT_ICON:-notification-new}"
+BACKUPAPP_NOTIFY_CLIENT_URGENCY="${BACKUPAPP_NOTIFY_CLIENT_URGENCY:-normal}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional Variables
+BACKUPAPP_BACKUP_DIR="${BACKUPAPP_BACKUP_DIR:-$HOME/.local/backups/apps}"
+BACKUPAPP_KEEP_AMOUNT="${BACKUPAPP_KEEP_AMOUNT:-14}"
+BACKUPAPP_LOGFILE_EXTENSION="${BACKUPAPP_LOGFILE_EXTENSION:-log}"
+BACKUPAPP_DATE_FORMAT="${BACKUPAPP_DATE_FORMAT:-%Y-%m-%d-%H-%M_%S}"
+BACKUPAPP_FILENAME_FORMAT="${BACKUPAPP_FILENAME_FORMAT:-$(date +"$DATEFORMAT")}"
+BACKUPAPP_LOGNAME_FORMAT="${BACKUPAPP_LOGNAME_FORMAT:-$(date +"$DATEFORMAT")}"
+BACKUPAPP_BICON_GOOD="${BACKUPAPP_BICON_GOOD:-🆗}"
+BACKUPAPP_BICON_WARN="${BACKUPAPP_BICON_WARN:-⚠️}"
+BACKUPAPP_BICON_ERROR="${BACKUPAPP_BICON_ERROR:-✖}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$BACKUPAPP_CONFIG_DIR/$BACKUPAPP_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$BACKUPAPP_CONFIG_DIR/$BACKUPAPP_CONFIG_FILE" ] && . "$BACKUPAPP_CONFIG_DIR/$BACKUPAPP_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$BACKUPAPP_LOG_DIR" ] || mkdir -p "$BACKUPAPP_LOG_DIR" |& __devnull
+[ -d "$BACKUPAPP_TEMP_DIR" ] || mkdir -p "$BACKUPAPP_TEMP_DIR" |& __devnull
+[ -d "$BACKUPAPP_CACHE_DIR" ] || mkdir -p "$BACKUPAPP_CACHE_DIR" |& __devnull
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+BACKUPAPP_TEMP_FILE="${BACKUPAPP_TEMP_FILE:-$(mktemp $BACKUPAPP_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap '__trap_exit' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+__notifications() {
+  __cmd_exists notifications || return
+  [ "$BACKUPAPP_NOTIFY_ENABLED" = "yes" ] || return
+  [ "$SEND_NOTIFICATION" = "no" ] && return
+  (
+    export SCRIPT_OPTS="" _DEBUG=""
+    export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$BACKUPAPP_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$BACKUPAPP_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$BACKUPAPP_NOTIFY_CLIENT_ICON}"
+    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$BACKUPAPP_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$BACKUPAPP_NOTIFY_CLIENT_URGENCY}"
+    notifications "$@"
+  ) |& __devnull &
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set custom actions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Argument/Option settings
+SETARGS=("$@")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SHORTOPTS=""
+SHORTOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
+LONGOPTS+=",term,cron:,once,console"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ARRAY="cron run new"
+ARRAY+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LIST=""
+LIST+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case "$1" in
+  --raw)
+    shift 1
+    export SHOW_RAW="true"
+    NC=""
+    RESET=""
+    BLACK=""
+    RED=""
+    GREEN=""
+    YELLOW=""
+    BLUE=""
+    PURPLE=""
+    CYAN=""
+    WHITE=""
+    ORANGE=""
+    LIGHTRED=""
+    BG_GREEN=""
+    BG_RED=""
+    ICON_INFO="[ info ]"
+    ICON_GOOD="[ ok ]"
+    ICON_WARN="[ warn ]"
+    ICON_ERROR="[ error ]"
+    ICON_QUESTION="[ ? ]"
+    printf_column() { tee | grep '^'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    ;;
+  --debug)
+    shift 1
+    set -xo pipefail
+    export SCRIPT_OPTS="--debug"
+    export _DEBUG="on"
+    __devnull() { tee || return 1; }
+    __devnull2() { eval "$@" |& tee -p || return 1; }
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
+    ;;
+  --options)
+    shift 1
+    printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' 4
+    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' 4
+    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
+    [ -z "$LIST" ] || __list_options "LIST Options" "${LIST}" ',' '' 4
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  --silent)
+    shift 1
+    BACKUPAPP_SILENT="true"
+    ;;
+  --dir)
+    CWD_IS_SET="TRUE"
+    BACKUPAPP_CWD="$2"
+    [ -d "$BACKUPAPP_CWD" ] || mkdir -p "$BACKUPAPP_CWD" |& __devnull
+    shift 2
+    ;;
+  --term)
+    shift 1
+    TERMINAL_APP="TRUE"
+    ;;
+  --cron)
+    shift 1
+    CRON_OPTS="$1"
+    shift 1
+    ;;
+  --once)
+    shift 1
+    BACKUPAPP_NO_CONFIG="true"
+    ;;
+  --console)
+    shift 1
+    __term
+    exit $?
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get directory from args
+# set -- "$@"
+# for arg in "$@"; do
+# if [ -d "$arg" ]; then
+# BACKUPAPP_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
+# elif [ -f "$arg" ]; then
+# BACKUPAPP_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
+# else
+# SET_NEW_ARGS+=("$arg")
+# fi
+# done
+# set -- "${SET_NEW_ARGS[@]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set directory to first argument
+# [ -d "$1" ] && __is_an_option "$1" && BACKUPAPP_CWD="$1" && shift 1 || BACKUPAPP_CWD="${BACKUPAPP_CWD:-$PWD}"
+BACKUPAPP_CWD="$(realpath "${BACKUPAPP_CWD:-$PWD}" 2>/dev/null)"
+# if [ -d "$BACKUPAPP_CWD" ] && cd "$BACKUPAPP_CWD"; then
+# if [ "$BACKUPAPP_SILENT" != "true" ] && [ "$CWD_SILENCE" != "true" ]; then
+# printf_cyan "Setting working dir to $BACKUPAPP_CWD"
+# fi
+# else
+# printf_exit "💔 $BACKUPAPP_CWD does not exist 💔"
+# fi
+export BACKUPAPP_CWD
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set actions based on variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+#cmd_exists --error --ask bash || exit 3 # exit 3 if not found
+#am_i_online --error || exit 4           # exit 4 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute commands
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+case "$1" in
+cron)
+  __mkd "$BACKUPAPP_CONFIG_DIR/cron"
+  #cron case 2
+  case "${2:-$CRON_OPTS}" in
+  all)
+    shift 1
+    if [ "$(__count_files "$BACKUPAPP_CONFIG_DIR/cron/")" -ne 0 ]; then
+      for cronjob in $(ls "$BACKUPAPP_CONFIG_DIR/cron/"); do
+        . "$BACKUPAPP_CONFIG_DIR/cron/$cronjob"
+        if [ -n "${_APPNAME:-$BACKUPAPP_PROJECTNAME}" ] && [ -n "${_APPNAME:-$BACKUPAPP_PROJECTNAME}" ]; then
+          echo "Backup up $cronjob"
+          __backup "${_APPNAME:-$BACKUPAPP_PROJECTNAME}" "${_APPDIRS:-$BACKUPAPP_PROJECTDIRS}" >/dev/null 2>&1
+          exitCode=$?
+          sleep 3
+          if [ "$exitCode" = 0 ]; then echo "Backup up of $cronjob has completed"; else echo "Backup up of $cronjob has failed"; fi
+        fi
+        unset _APPNAME _APPDIRS BACKUPAPP_PROJECTNAME BACKUPAPP_PROJECTDIRS
+      done
+    else
+      printf_exit 0 1 "No files were found"
+    fi
+    ;;
+  list)
+    shift 1
+    if crontab -l | grep -qF "backupapp "; then
+      printf_red "You don't have any jobs enabled"
+    else
+      printf_green "current cron jobs for backupapp"
+      crontab -l | grep -F "backupapp " | printf_readline "4"
+    fi
+    exit
+    ;;
+  add)
+    shift 1
+    if [ $# -gt 1 ]; then
+      __local_cron_add "$1" "$2" "$3"
+      #if [ "$(crontab -l | grep -q "$*" 2>/dev/null)" ]; then
+      printf_green "$1 $2 has been added to your cron jobs"
+      #else
+      #  printf_red "failed to add $1 $2"
+      #fi
+    else
+      printf_custom "4" 'Usage: backupapp cron add "Backupname" "BackupDir" "Frequency" | default nightly at midnight'
+      printf_custom "4" 'Example: backupapp cron add "Documents" "$HOME/Documents" "0 0 * * *"'
+    fi
+    exit $?
+    ;;
+  del)
+    shift 1
+    if [ $# -lt 2 ]; then
+      __local_cron_del "$1" "$2"
+      #if [ "$(crontab -l | grep -qv "$*" 2>/dev/null)" ]; then
+      printf_green "$1 $2 has been removed from your cron jobs"
+      #else
+      #  printf_red "failed to delete $1 $2"
+      #fi
+    else
+      printf_help 'Usage: backupapp cron del "Backupname" "BackupDir"'
+    fi
+    exit $?
+    ;;
+  *)
+    printf_custom "4" 'Usage: backupapp cron add "Backupname" "BackupDir"'
+    printf_custom "4" 'Usage: backupapp cron del "Backupname" "BackupDir"'
+    exit
+    ;;
+  esac
+  ;;
+  # end cron
+create)
+  args="$#"
+  [ -n "$1" ] && name="$1" && shift 1
+  [ "$args" -ne 0 ] && dirs="$*" && shift $#
+  [ "$args" -eq 2 ] || print_exit "Usage: $APPNAME create [name] [/path/to/dirs /path/to/files]"
+  [ ! -f "$BACKUPAPP_CONFIG_DIR/$1.conf" ] && [ -d "$2" ] && BACKUPAPP_AUTOMATE="true" __save_config "$name" "$dirs"
+  ;;
+*)
+  [ "$1" = "new" ] && shift 1
+  [ "$1" = "run" ] && shift 1
+  args="$#"
+  [ -n "$1" ] && name="$1" && shift 1
+  [ $# -ne 0 ] && dirs="$*" && shift $#
+  [ -n "$1" ] && BACKUPAPP_CONFIG_FILE="$BACKUPAPP_CONFIG_DIR/$1.conf" || BACKUPAPP_CONFIG_FILE=""
+  [ $# -eq 2 ] && [ ! -f "$BACKUPAPP_CONFIG_DIR/$1.conf" ] && [ -d "$2" ] && BACKUPAPP_AUTOMATE="true" __save_config "$name" "$dirs"
+  if [ -f "$BACKUPAPP_CONFIG_FILE" ] && [ "$#" -lt 2 ] && [ "$BACKUPAPP_CONFIG_FILE" != "$BACKUPAPP_DEFAULT_CONFIG_FILE" ]; then
+    [ "$YN" = "Y" ] || printf_read_question_nt "6" "I found a settings file for $BACKUPAPP_CONFIG_FILE: Should I use that?" "1" YN
+    if printf_answer_yes "$YN"; then
+      . "$BACKUPAPP_CONFIG_FILE"
+      if [ -n "${_APPNAME:-$BACKUPAPP_PROJECTNAME}" ] && [ -n "${_APPDIRS:-$BACKUPAPP_PROJECTDIRS}" ]; then
+        __backup "${_APPNAME:-$BACKUPAPP_PROJECTNAME}" "${_APPDIRS:-$BACKUPAPP_PROJECTDIRS}"
+      else
+        [ -n "${_APPNAME:-$BACKUPAPP_PROJECTNAME}" ] || printf_return 1 1 "Could get the settings for _APPNAME/PROJECTNAME"
+        [ -n "${_APPDIRS:-$BACKUPAPP_PROJECTNAME}" ] || printf_return 1 1 "Could get the settings for _APPDIRS/PROJECTDIRS"
+        exit $?
+      fi
+    elif [ "$args" -gt 1 ]; then
+      _APPNAME="$name"
+      _APPDIRS="$dirs"
+      __backup "${_APPNAME:-$BACKUPAPP_PROJECTNAME}" "${_APPDIRS:-$BACKUPAPP_PROJECTDIRS}"
+    else
+      __term
+    fi
+  elif [ "$args" -gt 1 ]; then
+    _APPNAME="$name"
+    _APPDIRS="$dirs"
+    __backup "${_APPNAME:-$BACKUPAPP_PROJECTNAME}" "${_APPDIRS:-$BACKUPAPP_PROJECTDIRS}"
+  else
+    __term
+  fi
+  ;;
+esac
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set exit code
+exitCode="${exitCode:-0}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-0}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# ex: ts=2 sw=2 et filetype=sh

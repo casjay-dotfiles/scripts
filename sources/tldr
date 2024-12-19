@@ -1,0 +1,521 @@
+#!/usr/bin/env bash
+set +vx -o pipefail
+[[ $- = *i* ]] && echo "Don't source this script!" && return 1
+version='0.48'
+# tldr-bash-client version 0.48
+# Bash client for tldr: community driven man-by-example
+# - forked from Ray Lee, https://github.com/raylee/tldr
+# - modified and expanded by pepa65: https://gitlab.com/pepa65/tldr-bash-client
+# - binary download: https://4e4.win/tldr
+# Requiring: coreutils, grep, unzip, curl/wget, less (optional)
+
+# The 5 elements in TLDR markup that can be styled with these colors and
+# backgrounds (last one specified will be used) and modes (more can apply):
+#  Colors: Black, Red, Green, Yellow, Blue, Magenta, Cyan, White
+#  BG: BlackBG, RedBG, GreenBG, YellowBG, BlueBG, MagentaBG, CyanBG, WhiteBG
+#  Modes: Bold, Underline, Italic, Inverse
+# 'Newline' can be added to the style list to add a newline before the element
+# and 'Space' to add a space at the start of the line
+# (style items are separated by space, lower/uppercase mixed allowed)
+: ${TLDR_TITLE_STYLE="Newline Space Bold Yellow"}
+: ${TLDR_DESCRIPTION_STYLE="Space Yellow"}
+: ${TLDR_EXAMPLE_STYLE="Newline Space Bold Green"}
+: ${TLDR_CODE_STYLE="Space Bold Blue"}
+: ${TLDR_VALUE_ISTYLE="Space Bold Cyan"}
+# The Value style (above) is an Inline style: doesn't take Newline or Space
+# Inline styles for help text: default, URL, option, platform, command, header
+: ${TLDR_DEFAULT_ISTYLE="White"}
+: ${TLDR_URL_ISTYLE="Yellow"}
+: ${TLDR_HEADER_ISTYLE="Bold"}
+: ${TLDR_OPTION_ISTYLE="Bold Yellow"}
+: ${TLDR_PLATFORM_ISTYLE="Bold Blue"}
+: ${TLDR_COMMAND_ISTYLE="Bold Cyan"}
+: ${TLDR_FILE_ISTYLE="Bold Magenta"}
+# Color/BG (Newline and Space also allowed) for error and info messages
+: ${TLDR_ERROR_COLOR="Newline Space Red"}
+: ${TLDR_INFO_COLOR="Newline Space Green"}
+
+# How many days before freshly downloading a potentially stale page
+: ${TLDR_EXPIRY:=7}
+# Alternative location of pages cache
+: ${TLDR_CACHE_LOCATION=""}
+# Usage of 'less' or 'cat' for output (set to '0' for cat)
+: ${TLDR_LESS:=1}
+# Force current OS
+: ${TLDR_OS=""}
+# Force preferred language: ISO639 format (2 lowercase letters)
+: ${TLDR_LANG=""}
+
+## Function definitions
+
+# $1: [optional] exit code; Uses: ver cachedir
+Usage() {
+  Out "$(
+    cat <<-EOF
+		 $E$ver
+
+		 ${HDE}USAGE: $HHE$(basename -- "$0" 2>/dev/null)$XHHE [${HOP}option$XHOP] [[${HPL}platform$XHPL/]${HCO}command$XHCO]
+
+		 $HDE[${HPL}platform$XHPL/]${HCO}command$XHCO:          Show page for ${HCO}command$XHCO (from ${HPL}platform$XHPL)
+		 ${HPL}platform$XHPL (optional) one of:  ${HPL}${platforms//,/$XHPL, $HPL}$XHPL,
+		                              ${HPL}current$XHPL (includes ${HPL}common$XHPL), ${HPL}all$XHPL (default)
+
+		 ${HOP}option$XHOP (optional) one of:
+		  $HOP-s$XHOP, $HOP--search$XHOP ${HFI}regex$XHFI [$HFI..$XHFI]:    Search for (combined) ${HFI}regex(es)$XHFI in all tldr pages
+		  $HOP-l$XHOP, $HOP--list$XHOP [${HPL}platform$XHPL]:      List all pages (from ${HPL}platform$XHPL)
+		  $HOP-a$XHOP, $HOP--list-all$XHOP:             List all pages from ${HPL}current$XHPL platform
+		  $HOP-r$XHOP, $HOP--render$XHOP ${HFI}file$XHFI:          Render ${HFI}file$XHFI as tldr markdown
+		  $HOP-m$XHOP, $HOP--markdown$XHOP ${HCO}command$XHCO:     Show the markdown source for ${HCO}command$XHCO
+		  $HOP-u$XHOP, $HOP--update$XHOP:               Update the pages cache by downloading archive
+		  $HOP-v$XHOP, $HOP--version$XHOP:              Version number and gitlab repo location
+		  $HDE[$HOP-h$XHOP, $HOP-?$XHOP, $HOP--help$XHOP]:           This help overview
+
+		 ${HDE}Element styling:$XHDE ${T}Title$XT ${D}Description$XD ${E}Example$XE ${C}Code$XC ${V}Value$XV
+		 ${HDE}All pages and the index are cached locally under $HUR$cachedir$XHUR.
+		 ${HDE}Cached pages will be freshly downloaded after $HUR$TLDR_EXPIRY$XHUR days. Preferred language: $lang.
+		EOF
+  )"
+  exit "${1:-0}"
+}
+
+# $1: keep output; Uses/Sets: stdout
+Out() { stdout+=$1$N; }
+
+# $1: keep error messages
+Err() { Out "$ERRNL$ERRSP$ERR$B$1$XB$XERR"; }
+
+# $1: keep info messages
+Inf() { Out "$INFNL$INFSP$INF$B$1$XB$XINF"; }
+
+# $1: Style specification; Uses: color xcolor bg xbg mode xmode
+Style() {
+  local -l style
+  STYLES= XSTYLES= COLOR= XCOLOR= NL= SP=
+  for style in $1; do
+    [[ $style = newline ]] && NL=$N
+    [[ $style = space ]] && SP=' '
+    COLOR+=${color[$style]:-}${bg[$style]:-}
+    XCOLOR=${xbg[$style]:-}${xcolor[$style]:-}$XCOLOR
+    STYLES+=${color[$style]:-}${bg[$style]:-}${mode[$style]:-}
+    XSTYLES=${xmode[$style]:-}${xbg[$style]:-}${xcolor[$style]:-}$XSTYLES
+  done
+}
+
+# Sets: color xcolor bg xbg mode xmode
+Init_term() {
+  if [[ -t 2 ]]; then # only if interactive session (stderr open)
+    B=$'\e[1m'        # $(tput bold || tput md)  # Start bold
+    XB=$'\e[0m'       # End bold (no tput code...)
+    U=$'\e[4m'        # $(tput smul || tput us)  # Start underline
+    XU=$'\e[24m'      # $(tput rmul || tput ue)  # End underline
+    I=$'\e[3m'        # $(tput sitm || tput ZH)  # Start italic
+    XI=$'\e[23m'      # $(tput ritm || tput ZR)  # End italic
+    R=$'\e[7m'        # $(tput smso || tput so)  # Start reverse
+    XR=$'\e[27m'      # $(tput rmso || tput se)  # End reverse
+    #X=$'\e[0m' # $(tput sgr0 || tput me)  # End all
+
+    if [[ $TERM != *-m ]]; then
+      BLA=$'\e[30m'  # $(tput setaf 0 || tput AF 0)
+      RED=$'\e[31m'  # $(tput setaf 1 || tput AF 1)
+      GRE=$'\e[32m'  # $(tput setaf 2 || tput AF 2)
+      YEL=$'\e[33m'  # $(tput setaf 3 || tput AF 3)
+      BLU=$'\e[34m'  # $(tput setaf 4 || tput AF 4)
+      MAG=$'\e[35m'  # $(tput setaf 5 || tput AF 5)
+      CYA=$'\e[36m'  # $(tput setaf 6 || tput AF 6)
+      WHI=$'\e[37m'  # $(tput setaf 7 || tput AF 7)
+      DEF=$'\e[39m'  # $(tput op)
+      BLAB=$'\e[40m' # $(tput setab 0 || tput AB 0)
+      REDB=$'\e[41m' # $(tput setab 1 || tput AB 1)
+      GREB=$'\e[42m' # $(tput setab 2 || tput AB 2)
+      YELB=$'\e[43m' # $(tput setab 3 || tput AB 3)
+      BLUB=$'\e[44m' # $(tput setab 4 || tput AB 4)
+      MAGB=$'\e[45m' # $(tput setab 5 || tput AB 5)
+      CYAB=$'\e[46m' # $(tput setab 6 || tput AB 6)
+      WHIB=$'\e[47m' # $(tput setab 7 || tput AB 7)
+      DEFB=$'\e[49m' # $(tput op)
+    fi
+  fi
+
+  declare -A color=(['black']=$BLA ['red']=$RED ['green']=$GRE ['yellow']=$YEL
+    ['blue']=$BLU ['magenta']=$MAG ['cyan']=$CYA ['white']=$WHI)
+  declare -A xcolor=(['black']=$DEF ['red']=$DEF ['green']=$DEF ['yellow']=$DEF
+    ['blue']=$DEF ['magenta']=$DEF ['cyan']=$DEF ['white']=$DEF)
+  declare -A bg=(['blackbg']=$BLAB ['redbg']=$REDB ['greenbg']=$GREB ['yellowbg']=$YELB
+    ['bluebg']=$BLUB ['magentabg']=$MAGB ['cyanbg']=$CYAB ['whitebg']=$WHIB)
+  declare -A xbg=(['blackbg']=$DEFB ['redbg']=$DEFB ['greenbg']=$DEFB ['yellowbg']=$DEFB
+    ['bluebg']=$DEFB ['magentabg']=$DEFB ['cyanbg']=$DEFB ['whitebg']=$DEFB)
+  declare -A mode=(['bold']=$B ['underline']=$U ['italic']=$I ['inverse']=$R)
+  declare -A xmode=(['bold']=$XB ['underline']=$XU ['italic']=$XI ['inverse']=$XR)
+
+  # the 5 main tldr page styles and error message colors
+  Style "$TLDR_TITLE_STYLE"
+  T=$STYLES XT=$XSTYLES TNL=$NL TSP=$SP
+  Style "$TLDR_DESCRIPTION_STYLE"
+  D=$STYLES XD=$XSTYLES DNL=$NL DSP=$SP
+  Style "$TLDR_EXAMPLE_STYLE"
+  E=$STYLES XE=$XSTYLES ENL=$NL ESP=$SP
+  Style "$TLDR_CODE_STYLE"
+  C=$STYLES XC=$XSTYLES CNL=$NL CSP=$SP
+  Style "$TLDR_VALUE_ISTYLE"
+  V=$STYLES XV=$XSTYLES
+  Style "$TLDR_DEFAULT_ISTYLE"
+  HDE=$STYLES XHDE=$XSTYLES
+  Style "$TLDR_URL_ISTYLE"
+  URL=$STYLES XURL=$XSTYLES
+  HUR=$XHDE$STYLES XHUR=$XSTYLES$HDE
+  Style "$TLDR_OPTION_ISTYLE"
+  HOP=$XHDE$STYLES XHOP=$XSTYLES$HDE
+  Style "$TLDR_PLATFORM_ISTYLE"
+  HPL=$XHDE$STYLES XHPL=$XSTYLES$HDE
+  Style "$TLDR_COMMAND_ISTYLE"
+  HCO=$XHDE$STYLES XHCO=$XSTYLES$HDE
+  Style "$TLDR_FILE_ISTYLE"
+  HFI=$XHDE$STYLES XHFI=$XSTYLES$HDE
+  Style "$TLDR_HEADER_ISTYLE"
+  HHE=$XHDE$STYLES XHHE=$XSTYLES$HDE
+  Style "$TLDR_ERROR_COLOR"
+  ERR=$COLOR XERR=$XCOLOR ERRNL=$NL ERRSP=$SP
+  Style "$TLDR_INFO_COLOR"
+  INF=$COLOR XINF=$XCOLOR INFNL=$NL INFSP=$SP
+}
+
+# $1: page
+Recent() { [[ $(find "$1" -mtime -"$TLDR_EXPIRY") ]]; }
+
+# Initialize globals, check the environment; Uses: config cachedir version
+# Sets: stdout os version dl pages
+Config() {
+  # Don't use less if no stdout or less not available
+  [[ ! -t 1 ]] && ! type -P less >/dev/null && TLDR_LESS=0
+
+  stdout= Q='"' N=$'\n'
+  TLDR_OS=${TLDR_OS// /} TLDR_LESS=${TLDR_LESS// /} TLDR_EXPIRY=${TLDR_EXPIRY// /}
+  [[ $TLDR_OS ]] && os=$TLDR_OS ||
+    case "$(uname -s)" in
+    Darwin) os='osx' ;;
+    Linux) os='linux' ;;
+    SunOS) os='sunos' ;;
+    CYGWIN* | MINGW*) os='windows' ;;
+    *) os= ;;
+    esac
+  lang=${TLDR_LANG:-$LANG} lang=${lang:0:2} lang=${lang,,}
+  [[ $lang = en ]] && pages=pages || pages=pages.$lang
+  Init_term
+  [[ $TLDR_LESS = 0 ]] &&
+    trap 'cat <<<"$stdout"' EXIT ||
+    trap 'less -Gg -~RXQFP"Browse up/down, press Q to exit " <<<"$stdout"' EXIT
+
+  ver="tldr-bash-client version $version$XB  ${URL}https://gitlab.com/pepa65/tldr-bash-client$XURL"
+
+  # Select download method
+  ! dl="$(type -P curl) -sLfo" &&
+    ! dl="$(type -P wget) --max-redirect=20 -qNO" &&
+    Err "tldr requires ${I}curl$XI or ${I}wget$XI installed in your path" &&
+    exit 3
+
+  repo_url='https://raw.githubusercontent.com/tldr-pages/tldr/master'
+  zip_url='https://tldr.sh/assets/tldr.zip'
+
+  cachedir=$TLDR_CACHE_LOCATION
+  if [[ -z $cachedir ]]; then
+    [[ $XDG_DATA_HOME ]] && cachedir=$XDG_DATA_HOME/tldr ||
+      cachedir=$HOME/.local/share/tldr
+  fi
+  ! [[ -d "$cachedir" ]] &&
+    ! mkdir -p "$cachedir" &&
+    Err "Can't create the pages cache location $cachedir" &&
+    exit 4
+  # Indexes for every language should be available, $pages instead of pages
+  index=$cachedir/index.json
+  # update if the file doesn't exists, or if it's older than $TLDR_EXPIRY
+  [[ -f $index ]] && Recent "$index" || Cache_fill
+  platforms=$(
+    cd "$cachedir/pages"
+    ls -d -- */ | tr -d /
+  )
+  platforms=${platforms//$'\n'/,}
+}
+
+# $1: error message; Uses: md REPLY ln
+Unlinted() {
+  Err "Page $I$md$XI not properly linted!$N${ERRSP}${ERR}Line $I$ln$XI [$XERR$U$REPLY$XU$ERR]$N$ERRSP$ERR$1"
+  exit 5
+}
+
+# $1: page; Uses: index cachedir repo_url platform os dl cached md
+# Sets: cached md
+Get_tldr() {
+  local desc err=0 notfound
+  # convert the local platform name to tldr's version
+  # extract the platform key from index.json, return preferred subpath to page
+  desc=$(tr '{' '\n' <"$index" | grep "\"name\":\"$1\"")
+  # results in, eg, "name":"netstat","platform":["linux","osx"]},
+
+  [[ $desc ]] || return # nothing found
+
+  if [[ $platform ]]; then # platform given on commandline
+    if [[ $platform = current ]]; then
+      [[ $desc =~ \"common\" ]] && md=common/$1.md
+      [[ $desc =~ \"$os\" ]] && md=$os/$1.md
+    elif [[ $desc =~ \"$platform\" ]]; then
+      md=$platform/$1.md
+    else
+      notfound=$I$platform$XI err=1
+    fi
+  else # no platform specified: check common
+    if [[ $desc =~ \"common\" ]]; then
+      md=common/$1.md
+    else # not in common either
+      [[ $notfound ]] && notfound+=" or "
+      notfound+=${I}common$XI
+    fi
+  fi
+  # if no page found yet, try the system platform
+  [[ $md ]] ||
+    if [[ $desc =~ \"$os\" ]]; then
+      md=$os/$1.md
+    else
+      [[ -z $os || $platform = $os ]] || notfound+=" or $I$os$XI" err=1
+    fi
+
+  # if still no page found, get the first entry in index
+  [[ $md ]] || md=$(cut -d "$Q" -f 8 <<<"$desc")/"$1.md"
+  ((err)) && Err "tldr page $I$1$XI not found in $notfound, from platform $U${md%/*}$XU instead"
+
+  # return local cached copy of tldr-page, or retrieve and cache from github
+  cached=$cachedir/$pages/$md
+  [[ $cached ]] || cached=$cachedir/pages/$md
+  if ! Recent "$cached"; then
+    mkdir -p "${cached%/*}"
+    $dl "$cached" "$repo_url/$pages/$md" &&
+      Inf "Downloaded page '$pages/$md'" ||
+      Err "Could not download $repo_url/$pages/$md"
+  fi
+}
+
+# $1: file (optional); Uses: page stdout; Sets: ln REPLY
+Display_tldr() {
+  local newfmt len val
+  ln=0 REPLY=
+  [[ $md ]] || md=$1
+  # Read full lines, and process even when no newline at the end
+  while read -r || [[ $REPLY ]]; do
+    ((++ln))
+    if ((ln == 1)); then
+      [[ ${REPLY:0:1} = '#' ]] && newfmt=0 || newfmt=1
+      if ((newfmt)); then
+        [[ $REPLY ]] || Unlinted "Empty title"
+        Out "$TNL$TSP$T$REPLY$XT"
+        len=${#REPLY} # title length
+        read -r
+        ((++ln))
+        [[ $REPLY =~ [^=] ]] && Unlinted "Title underline must be equal signs"
+        ((len != ${#REPLY})) && Unlinted "Underline length not equal to title's"
+        read -r
+        ((++ln))
+      fi
+    fi
+    case "${REPLY:0:1}" in # first character
+    '#')
+      ((newfmt)) && Unlinted "Bad first character"
+      ((${#REPLY} <= 2)) && Unlinted "No title"
+      [[ ! ${REPLY:1:1} = ' ' ]] && Unlinted "2nd character no space"
+      Out "$TNL$TSP$T${REPLY:2}$XT"
+      ;;
+    '>')
+      ((${#REPLY} <= 3)) && Unlinted "No valid desciption"
+      [[ ! ${REPLY:1:1} = ' ' ]] && Unlinted "2nd character no space"
+      [[ ! ${REPLY: -1} = '.' ]] && Unlinted "Description doesn't end in full stop"
+      Out "$DNL$DSP$D${REPLY:2}$XD"
+      DNL=
+      ;;
+    '-')
+      ((newfmt)) && Unlinted "Bad first character"
+      ((${#REPLY} <= 2)) && Unlinted "No example content"
+      [[ ! ${REPLY:1:1} = ' ' ]] && Unlinted "2nd character no space"
+      Out "$ENL$ESP$E${REPLY:2}$XE"
+      ;;
+    ' ')
+      ((newfmt)) || Unlinted "Bad first character"
+      ((${#REPLY} <= 4)) && Unlinted "No valid code content"
+      [[ ${REPLY:0:4} = '    ' ]] || Unlinted "No four spaces before code"
+      val=${REPLY:4}
+      # Value: convert {{value}}
+      val=${val//\{\{/$CX$V}
+      val=${val//\}\}/$XV$C}
+      Out "$CNL$CSP$C$val$XC"
+      ;;
+    '`')
+      ((newfmt)) && Unlinted "Bad first character"
+      ((${#REPLY} <= 2)) && Unlinted "No valid code content"
+      [[ ! ${REPLY: -1} = '`' ]] && Unlinted "Code doesn't end in backtick"
+      val=${REPLY:1:${#REPLY}-2}
+      # Value: convert {{value}}
+      val=${val//\{\{/$CX$V}
+      val=${val//\}\}/$XV$C}
+      Out "$CNL$CSP$C$val$XC"
+      ;;
+    '') continue ;;
+    *)
+      ((newfmt)) || Unlinted "Bad first character"
+      [[ -z $REPLY ]] && Unlinted "No example content"
+      Out "$ENL$ESP$E$REPLY$XE"
+      ;;
+    esac
+  done <"$1"
+  [[ $TLDR_LESS = 0 ]] &&
+    trap 'cat <<<"$stdout"' EXIT ||
+    trap 'less -Gg -~RXQFP"%pB\% tldr $I$page$XI - browse up/down, press Q to exit" <<<"$stdout"' EXIT
+}
+
+# $1: exit code; Uses: platform index
+List_pages() {
+  local ptext pregex=$platform
+  [[ $platform ]] && ptext="platform $I$platform$XI" ||
+    pregex=^ ptext="${I}all$XI platforms"
+  if [[ $platform = current ]]; then
+    [[ $os ]] &&
+      pregex="-e $os -e common" ptext="$I$os$XI platform and ${I}common$XI" ||
+      pregex=common ptext="platform not detected, ${I}common$XI"
+  fi
+  Inf "Known tldr pages from $ptext:"
+  Out "$(tr '{' '\n' <"$index" | grep '^"name"' | grep $pregex |
+    cut -d "$Q" -f4 | column)"
+  exit "$1"
+}
+
+# $1: regex(es); Uses: cachedir
+Find_regex() {
+  local regex=$* list=$cachedir/*/*/*.md
+  while (($#)); do
+    list=$(grep "$1" $list | cut -d: -f1)
+    shift
+  done
+  n=$(wc -l <<<"$list")
+  list=$(sort -u <<<"$list")
+  [[ -z $list ]] && Err "Regex $U$regex$XU not found" && exit 6
+  local t=$(wc -l <<<"$list")
+  if ((t == 1)); then
+    Display_tldr "$list"
+  else
+    Inf "Regex $U$regex$XU $I$n$XI times found in these $I$t$XI tldr pages:"
+    Out "$(sed -e 's@.*/@@' -e 's@...$@@' <<<"$list" | column)"
+  fi
+  exit 0
+}
+
+# $1: exit code; Uses: dl cachedir zip_url
+Cache_fill() {
+  updated=0
+  local tmp unzip
+  ! unzip="$(type -P unzip) -q" &&
+    Err "tldr requires ${I}unzip$XI to fill the cache" &&
+    exit 7
+  tmp=$(mktemp -d)
+  if ! $dl "$tmp/pages.zip" "$zip_url"; then
+    rm -- "$tmp" || Err "Error deleting temporary directory $tmp"
+    Err "Could not download pages archive from $U$zip_url$XU with $dl"
+    exit 8
+  fi
+  if ! $unzip "$tmp/pages.zip" -d "$tmp"; then
+    rm -- "$tmp" || Err "Error deleting temporary directory $tmp"
+    Err "Couldn't unzip the cache archive on $tmp/pages.zip"
+    exit 9
+  fi
+  rm -rf -- "${cachedir:?}/"*
+  mv -- "$tmp/index.json" "$tmp"/pages* "${cachedir:?}/"
+  rm -rf -- "$tmp"
+  Inf "Pages cached in $U$cachedir$XU"
+  updated=1
+}
+
+# $@: commandline parameters; Uses: version cached; Sets: platform page
+Main() {
+  local markdown=0 err=0 nomore='Arguments ignored: '
+  Config
+  case "$1" in
+  -s | --search)
+    [[ -z $2 ]] && Err "Search term(s) [regex] needed" && Usage 10
+    shift
+    Find_regex "$@"
+    ;;
+  -l | --list)
+    if [[ $2 ]]; then
+      platform=$2
+      [[ $platform == *,* ]] && Err "No commma allowed, just one platform" &&
+        Usage 11
+      [[ ,$platforms,all,current, != *,$platform,* ]] &&
+        Err "Unknown platform $I$platform$XI" && Usage 12
+      [[ $platform = all ]] && platform=
+      shift 2
+      [[ $1 ]] && Err "$nomore$*" && err=13
+    fi
+    List_pages "$err"
+    ;;
+  -a | --list-all)
+    shift
+    [[ $1 ]] && Err "$nomore$*" && err=14
+    platform=current
+    List_pages $err
+    ;;
+  -u | --update)
+    shift
+    [[ $1 ]] && Err "$nomore$*" && err=15
+    ((updated)) || Cache_fill
+    exit "$err"
+    ;;
+  -v | --version)
+    shift
+    [[ $1 ]] && Err "$nomore$*" && err=16
+    Inf "$ver"
+    exit "$err"
+    ;;
+  -r | --render)
+    [[ -z $2 ]] && Err "Specify a file to render" && Usage 17
+    file=$2
+    shift 2
+    [[ $1 ]] && Err "$nomore$*" && err=18
+    if [[ -f "$file" ]]; then
+      Display_tldr "$file" && exit "$err"
+      Err "A file error occured"
+      exit 19
+    else
+      Err "No file: ${I}$2$XI"
+      exit 20
+    fi
+    ;;
+  -m | --markdown)
+    shift
+    page=$*
+    [[ -z $page ]] && Err "Specify a page to display" && Usage 21
+    [[ -f "$page" && ${page: -3:3} = .md ]] && Out "$(cat "$page")" && exit 0
+    markdown=1
+    ;;
+  '' | -h | -\? | --help)
+    [[ $2 ]] && Err "$nomore" && err=22
+    Usage "$err"
+    ;;
+  -*)
+    Err "Unrecognized option $I$1$XI"
+    Usage 23
+    ;;
+  *) page=$* ;;
+  esac
+
+  [[ -z $page ]] && Err "No command specified" && Usage 24
+  [[ $page = *' '-* ]] && Err "No options after page allowed" && Usage 25
+  [[ $page = */* ]] && platform=${page%/*} && page=${page##*/}
+  [[ $platform == *,* ]] && Err "No comma allowed in platform" && Usage 26
+  [[ $platform && ,$platforms,all,current, != *,$platform,* ]] &&
+    Err "Unknown platform $I$platform$XI" &&
+    Usage 27
+  [[ $platform = all ]] && platform=
+  Get_tldr "${page// /-}"
+  [[ ! -s $cached ]] && Err "tldr page for command $I$page$XI not found" &&
+    Inf "Contribute new pages at:$XB ${URL}https://github.com/tldr-pages/tldr$XURL" && exit 28
+  ((markdown)) && Out "$(cat "$cached")" || Display_tldr "$cached"
+}
+
+Main "$@"
+# The exit trap will output the accumulated stdout
+exit 0

@@ -1,0 +1,937 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version           :  202208231021-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  jason@casjaysdev.pro
+# @@License          :  WTFPL
+# @@ReadME           :  desktopmgr --help
+# @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
+# @@Created          :  Tuesday, Aug 23, 2022 10:21 EDT
+# @@File             :  desktopmgr
+# @@Description      :  Desktop ManaGeR
+# @@Changelog        :  New script
+# @@TODO             :  Better documentation
+# @@Other            :
+# @@Resource         :
+# @@Terminal App     :  no
+# @@sudo/root        :  no
+# @@Template         :  installers/mgr-script.system
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="$(basename -- "$0" 2>/dev/null)"
+VERSION="202208231021-git"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${RUN_USER:-$USER}"
+USER_HOME="${USER_HOME:-$HOME}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+DESKTOPMGR_REQUIRE_SUDO="${DESKTOPMGR_REQUIRE_SUDO:-no}"
+DESKTOPMGR_SCRIPTS_PREFIX="${APPNAME:-desktopmgr}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Reopen in a terminal
+#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set script title
+#CASJAYS_DEV_TILE_FORMAT="${USER}@${HOSTNAME}:${PWD//$HOME/\~} - $APPNAME"
+#CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}"
+#[ -z "$CASJAYSDEV_TITLE_SET" ] && printf '\033]2│;%s\033\\' "$CASJAYS_DEV_TILE_FORMAT" && CASJAYSDEV_TITLE_SET="$APPNAME"
+export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}" CASJAYSDEV_TITLE_SET
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initial debugging
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# pipes fail
+set -o pipefail
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# Import functions
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-managers.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/$DESKTOPMGR_SCRIPTS_PREFIX/installer/raw/main/functions}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+  . "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  exit 90
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Options are: *_install
+# system user desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+desktopmgr_install && __options "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Send all output to /dev/null
+__devnull() {
+  tee &>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# Send errors to /dev/null
+__devnull2() {
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# See if the executable exists
+__cmd_exists() {
+  exitCode=0
+  [ -n "$1" ] && local exitCode="" || return 0
+  for cmd in "$@"; do
+    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
+  done
+  [ $exitCode -eq 0 ] || exitCode=3
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for a valid internet connection
+__am_i_online() {
+  local exitCode=0
+  curl -q -LSsfI --max-time 2 --retry 1 "${1:-https://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# colorization
+if [ "$SHOW_RAW" = "true" ]; then
+  NC=""
+  RESET=""
+  BLACK=""
+  RED=""
+  GREEN=""
+  YELLOW=""
+  BLUE=""
+  PURPLE=""
+  CYAN=""
+  WHITE=""
+  ORANGE=""
+  LIGHTRED=""
+  BG_GREEN=""
+  BG_RED=""
+  ICON_INFO="[ info ]"
+  ICON_GOOD="[ ok ]"
+  ICON_WARN="[ warn ]"
+  ICON_ERROR="[ error ]"
+  ICON_QUESTION="[ ? ]"
+  printf_column() { tee | grep '^'; }
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional printf_ colors
+__printf_head() { printf_color "$1\n" "5"; }
+__printf_opts() { printf_color "$1\n" "6"; }
+__printf_line() { printf_color "$1\n" "4"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# list all packages
+__list_available() {
+  echo -e "${1:-$LIST}" | tr ',' ' ' | tr ' ' '\n' && exit 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# list options
+__list_options() {
+  printf_custom "5" "$1: $(echo ${2:-$ARRAY} | __sed 's|:||g;s|'$3'| '$4'|g' 2>/dev/null | tr '\n' ' ')"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create the config file
+__gen_config() {
+  local NOTIFY_CLIENT_NAME=""
+  [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Generating the config file in"
+  [ "$INIT_CONFIG" = "TRUE" ] || printf_green "$DESKTOPMGR_CONFIG_DIR/$DESKTOPMGR_CONFIG_FILE"
+  [ -d "$DESKTOPMGR_CONFIG_DIR" ] || mkdir -p "$DESKTOPMGR_CONFIG_DIR"
+  [ -d "$DESKTOPMGR_CONFIG_BACKUP_DIR" ] || mkdir -p "$DESKTOPMGR_CONFIG_BACKUP_DIR"
+  [ -f "$DESKTOPMGR_CONFIG_DIR/$DESKTOPMGR_CONFIG_FILE" ] &&
+    cp -Rf "$DESKTOPMGR_CONFIG_DIR/$DESKTOPMGR_CONFIG_FILE" "$DESKTOPMGR_CONFIG_BACKUP_DIR/$DESKTOPMGR_CONFIG_FILE.$$"
+  cat <<EOF >"$DESKTOPMGR_CONFIG_DIR/$DESKTOPMGR_CONFIG_FILE"
+# Settings for desktopmgr
+DESKTOPMGR_GIT_REPO_BRANCH="${DESKTOPMGR_GIT_REPO_BRANCH:-}"
+DESKTOPMGR_APP_DIR="${DESKTOPMGR_APP_DIR:-}"
+DESKTOPMGR_INSTALL_DIR="${DESKTOPMGR_INSTALL_DIR:-}"
+DESKTOPMGR_CLONE_DIR="${DESKTOPMGR_CLONE_DIR:-}"
+DESKTOPMGR_REPO_URL="${DESKTOPMGR_REPO_URL:-}"
+DESKTOPMGR_REPO_RAW="${DESKTOPMGR_REPO_RAW:-}"
+DESKTOPMGR_REPO_API_URL="${DESKTOPMGR_REPO_API_URL:-}"
+DESKTOPMGR_REPO_API_PER_PAGE="${DESKTOPMGR_REPO_API_PER_PAGE:-}"
+DESKTOPMGR_FORCE_INSTALL="${DESKTOPMGR_FORCE_INSTALL:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+DESKTOPMGR_OUTPUT_COLOR_1="${DESKTOPMGR_OUTPUT_COLOR_1:-}"
+DESKTOPMGR_OUTPUT_COLOR_2="${DESKTOPMGR_OUTPUT_COLOR_2:-}"
+DESKTOPMGR_OUTPUT_COLOR_GOOD="${DESKTOPMGR_OUTPUT_COLOR_GOOD:-}"
+DESKTOPMGR_OUTPUT_COLOR_ERROR="${DESKTOPMGR_OUTPUT_COLOR_ERROR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+DESKTOPMGR_NOTIFY_ENABLED="${DESKTOPMGR_NOTIFY_ENABLED:-}"
+DESKTOPMGR_GOOD_NAME="${DESKTOPMGR_GOOD_NAME:-}"
+DESKTOPMGR_ERROR_NAME="${DESKTOPMGR_ERROR_NAME:-}"
+DESKTOPMGR_GOOD_MESSAGE="${DESKTOPMGR_GOOD_MESSAGE:-}"
+DESKTOPMGR_ERROR_MESSAGE="${DESKTOPMGR_ERROR_MESSAGE:-}"
+DESKTOPMGR_NOTIFY_CLIENT_NAME="${DESKTOPMGR_NOTIFY_CLIENT_NAME:-}"
+DESKTOPMGR_NOTIFY_CLIENT_ICON="${DESKTOPMGR_NOTIFY_CLIENT_ICON:-}"
+DESKTOPMGR_NOTIFY_CLIENT_URGENCY="${DESKTOPMGR_NOTIFY_CLIENT_URGENCY:-}"
+
+EOF
+  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
+  if [ -f "$DESKTOPMGR_CONFIG_DIR/$DESKTOPMGR_CONFIG_FILE" ]; then
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
+    exitCode=0
+  else
+    printf_red "Failed to create the config file"
+    exitCode=11
+  fi
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Help function - Align to 50
+__help() {
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "desktopmgr:  Desktop ManaGeR - $VERSION"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Usage: $DESKTOPMGR_SCRIPTS_PREFIX [options] [packageName]"
+  __printf_line "available                       - List all available packages"
+  __printf_line "list                            - List installed packages"
+  __printf_line "search    [package]             - Search for a package"
+  __printf_line "install   [package]             - Install a package"
+  __printf_line "update    [package]             - Update a package"
+  __printf_line "download  [package]             - Downloads the source"
+  __printf_line "remove    [package]             - Remove a package"
+  __printf_line "cron      [package]             - Enables the use of cron to update packages on a schedule"
+  __printf_line "version   [package]             - Shows the version of an installed package"
+  __printf_line "qemu [linux,windows,macos,arm]  - launch a vm"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Other Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--debug                         - enable debugging"
+  __printf_line "--config                        - Generate user config file"
+  __printf_line "--version                       - Show script version"
+  __printf_line "--help                          - Shows this message"
+  __printf_line "--options                       - Shows all available options"
+  __printf_line ""
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__broken_symlinks() { find "$*" -xtype l -exec rm {} \; &>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__rm_rf() { if [ -e "$1" ]; then rm -Rf "$@" &>/dev/null; else return 0; fi; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__run_install_version() {
+  local upd file exitCode=0
+  if [ -d "$DESKTOPMGR_DIR_SYSTEM" ] && ls -A "$DESKTOPMGR_DIR_SYSTEM" 2>&1 | grep -q '^'; then
+    file="$(ls -A "$DESKTOPMGR_DIR_SYSTEM/$1" 2>/dev/null)"
+    export file
+    if [ -f "$file" ]; then
+      appname="$(__basename "$file")"
+      eval "$file" "--version $appname"
+      exitCode=$?
+    fi
+  fi
+  [ "$exitCode" = 0 ] && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__cron_updater() {
+  local upd file exitCode=0
+  if [ -z "$1" ] && [ -d "$DESKTOPMGR_DIR_SYSTEM" ] && ls -A "$DESKTOPMGR_DIR_SYSTEM" 2>&1 | grep -q '^'; then
+    for upd in $(ls -A "$DESKTOPMGR_DIR_SYSTEM"); do
+      file="$(ls -A "$DESKTOPMGR_DIR_SYSTEM/$upd" 2>/dev/null)"
+      export file
+      if [ -f "$file" ]; then
+        appname="$(__basename "$file")"
+        eval "$file" "--cron $appname"
+        exitCode=$(($exitCode + $?))
+      fi
+    done
+  else
+    if [ -d "$DESKTOPMGR_DIR_SYSTEM" ] && ls -A "$DESKTOPMGR_DIR_SYSTEM" 2>&1 | grep -q '^'; then
+      file="$(ls -A "$DESKTOPMGR_DIR_SYSTEM/$1" 2>/dev/null)"
+      export file
+      if [ -f "$file" ]; then
+        appname="$(__basename "$file")"
+        bash -c "$file --cron $appname"
+        exitCode=$(($exitCode + $?))
+      fi
+    fi
+  fi
+  [ "$exitCode" = 0 ] && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__installer_delete() {
+  local app="${1:-}"
+  local exitCode=0
+  local APP_DIR_NAME="$DESKTOPMGR_APP_DIR"
+  local INSTALL_DIR_NAME="$DESKTOPMGR_INSTALL_DIR"
+  local MESSAGE="${MESSAGE:-Removing $app from ${msg:-your system}}"
+  [ -n "$app" ] || printf_exit "Please specify the name to delete"
+  [ "$INSTALL_DIR_NAME/$app" == "$INSTALL_DIR_NAME/" ] && return
+  if [ -d "$APP_DIR_NAME/$app" ] || [ -d "$INSTALL_DIR_NAME/$app" ]; then
+    printf_yellow "$MESSAGE"
+    if [ -e "$APP_DIR_NAME/$app" ]; then
+      printf_blue "Deleting the files from $APP_DIR_NAME/$app"
+      __rm_rf "$APP_DIR_NAME/$app"
+    fi
+    if [ -e "$INSTALL_DIR_NAME/$app" ]; then
+      printf_blue "Deleting the files from $APP_DIR_NAME/$app"
+      __rm_rf "$INSTALL_DIR_NAME/$app"
+    fi
+    if [ -e "$DESKTOPMGR_VERSION_DIR_USER/$app" ]; then
+      printf_blue "Deleting the files from $APP_DIR_NAME/$app"
+      __rm_rf "$DESKTOPMGR_VERSION_DIR_USER/$app"
+    fi
+    printf_yellow "Removing any broken symlinks"
+    __broken_symlinks "$BIN" "$SHARE" "$COMPDIR" "$CONF" "$THEMEDIR" "$FONTDIR" "$ICONDIR"
+    { [ -e "$DESKTOPMGR_VERSION_DIR_USER/$app" ] || [ -d "$INSTALL_DIR_NAME/$app" ] || [ -d "$APP_DIR_NAME/$app" ]; } && exitCode=1 || exitCode=0
+    [ $exitCode = 0 ] && printf_cyan "$app has been removed"
+    return $exitCode
+  else
+    printf_error "$app doesn't seem to be installed"
+  fi
+  return ${exitCode}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__run_install_init() {
+  local app="$1"
+  local exitCode=0
+  local INSTALL_DIR_NAME="$DESKTOPMGR_INSTALL_DIR"
+  export SUDO_USER
+  if __urlcheck "$DESKTOPMGR_REPO_URL/$app/$DESKTOPMGR_REPO_RAW/install.sh"; then
+    export FORCE_INSTALL="$FORCE_INSTALL"
+    bash -c "$(curl -q -LSsf "$DESKTOPMGR_REPO_URL/$app/$DESKTOPMGR_REPO_RAW/install.sh")" 2>/dev/null
+    exitCode=$?
+  else
+    printf_error "Failed to initialize the installer from:"
+    printf_red "$DESKTOPMGR_REPO_URL/$app/$DESKTOPMGR_REPO_RAW/install.sh\n"
+    exitCode=1
+  fi
+  [ "$exitCode" = 0 ] && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__run_install_update() {
+  local app APPNAME exitCode=0
+  local USER_SHARE_DIR="$SYSSHARE/CasjaysDev/$DESKTOPMGR_SCRIPTS_PREFIX"
+  local SYSTEM_SHARE_DIR="$SYSSHARE/CasjaysDev/$DESKTOPMGR_SCRIPTS_PREFIX"
+  local USRUPDATEDIR="$DESKTOPMGR_DIR_SYSTEM"
+  local SYSUPDATEDIR="$DESKTOPMGR_DIR_SYSTEM"
+  local NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME}"
+  local NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON}"
+  export NOTIFY_CLIENT_NAME NOTIFY_CLIENT_ICON
+  __run_install_init "$1" && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__download() {
+  local REPO_NAME="$1"
+  local DIR_NAME="${2:-$DESKTOPMGR_CLONE_DIR/$REPO_NAME}"
+  local REPO_URL="$DESKTOPMGR_REPO_URL"
+  local exitCode=0
+  [ -d "$DESKTOPMGR_CLONE_DIR" ] || mkdir -p "$DESKTOPMGR_CLONE_DIR"
+  if __cmd_exists gitadmin; then
+    if [ -d "$DIR_NAME/.git" ]; then
+      gitadmin pull "$DIR_NAME"
+      exitCode=$?
+    else
+      gitadmin clone "$REPO_URL/$REPO_NAME" "$DIR_NAME"
+      exitCode=$?
+    fi
+  else
+    if [ -d "$DIR_NAME/.git" ]; then
+      git -C "$DIR_NAME" pull
+      exitCode=$?
+    else
+      git clone "$REPO_URL/$REPO_NAME" "$DIR_NAME"
+      exitCode=$?
+    fi
+  fi
+  if [ -d "$DIR_NAME/.git" ]; then
+    exitCode=0
+  fi
+  [ "$exitCode" = 0 ] && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__api_list() {
+  local exitCode=0
+  local api_call=""
+  local prefix="$DESKTOPMGR_SCRIPTS_PREFIX"
+  local per_page="${DESKTOPMGR_REPO_API_PER_PAGE:-1000}"
+  local api_url="${DESKTOPMGR_REPO_API_URL:-https://api.github.com/orgs/$prefix/repos}"
+  if __urlcheck "$api_url"; then
+    api_call="$(curl -q -LSsf -H "Accept: application/vnd.github.v3+json" "$api_url?per_page=$per_page" 2>/dev/null | jq '.[].name' 2>/dev/null | sed 's#"##g' | grep -Ev '.github|template|^null$' | grep '^')"
+    if [ -n "$api_call" ]; then
+      printf '%s\n' "$api_call"
+    else
+      __list_available "$LIST"
+    fi
+    exitCode=$?
+  else
+    __list_available "$LIST"
+    exitCode=$?
+  fi
+  [ "$exitCode" = 0 ] && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__run_search() {
+  local -a results=""
+  local LIST="${LIST:-$(__api_list)}"
+  [ -n "$LIST" ] || printf_exit "The environment variable LIST does not exist"
+  for app in "$@"; do
+    result+="$(echo -e "$LIST" | tr ' ' '\n' | grep -Fi "$app" | grep -shv '^$') "
+  done
+  results="$(echo "$result" | sort -u | tr '\n' ' ' | sed 's| | |g' | grep '^')"
+  if [ -n "$results" ]; then
+    printf '%s\n' "$results" | printf_column "${PRINTF_COLOR:-4}"
+    exitCode=0
+  else
+    printf_exit "Your search produced no results"
+    exitCode=1
+  fi
+  [ "$exitCode" = 0 ] && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# check if arg is a builtin option
+__is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0; fi; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 1 || return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep -sh "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# # Get sudo password
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run sudo
+__sudorun() {
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo
+__can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User can run sudo
+__sudoif() {
+  __user_is_root && return 0
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  CMD="${1:-echo}" && shift 1
+  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  [ "$(basename -- "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  if __sudoif; then
+    export PATH="$PATH"
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    exitCode=$?
+  else
+    printf '%s\n' "This requires root to run"
+    exitCode=1
+  fi
+  return ${exitCode:-1}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run command as root
+__requiresudo() {
+  if [ "$DESKTOPMGR_REQUIRE_SUDO" = "yes" ] && [ -z "$DESKTOPMGR_REQUIRE_SUDO_RUN" ]; then
+    export DESKTOPMGR_REQUIRE_SUDO="no"
+    export DESKTOPMGR_REQUIRE_SUDO_RUN="true"
+    __sudo "$@"
+    exit $?
+  else
+    return 0
+  fi
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  exitCode=${exitCode:-0}
+  [ -f "$DESKTOPMGR_TEMP_FILE" ] && rm -Rf "$DESKTOPMGR_TEMP_FILE" &>/dev/null
+  #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD//$HOME/\~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined variables/import external variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Default variables
+DESKTOPMGR_USER_DIR="${DESKTOPMGR_USER_DIR:-$USRUPDATEDIR}"
+DESKTOPMGR_SYSTEM_DIR="${DESKTOPMGR_SYSTEM_DIR:-$SYSUPDATEDIR}"
+DESKTOPMGR_INSTALL_DIR="${DESKTOPMGR_INSTALL_DIR:-$SHARE/CasjaysDev/$DESKTOPMGR_SCRIPTS_PREFIX}"
+# Application Folders
+DESKTOPMGR_LOG_DIR="${DESKTOPMGR_LOG_DIR:-$HOME/.local/log/$DESKTOPMGR_SCRIPTS_PREFIX}"
+DESKTOPMGR_CACHE_DIR="${DESKTOPMGR_CACHE_DIR:-$HOME/.cache/$DESKTOPMGR_SCRIPTS_PREFIX}"
+DESKTOPMGR_CONFIG_DIR="${DESKTOPMGR_CONFIG_DIR:-$HOME/.config/myscripts/$DESKTOPMGR_SCRIPTS_PREFIX}"
+DESKTOPMGR_CONFIG_BACKUP_DIR="${DESKTOPMGR_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/$DESKTOPMGR_SCRIPTS_PREFIX/backups}"
+DESKTOPMGR_TEMP_DIR="${DESKTOPMGR_TEMP_DIR:-$HOME/.local/tmp/system_scripts/$DESKTOPMGR_SCRIPTS_PREFIX}"
+DESKTOPMGR_CONFIG_FILE="${DESKTOPMGR_CONFIG_FILE:-settings.conf}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+DESKTOPMGR_OUTPUT_COLOR_1="${DESKTOPMGR_OUTPUT_COLOR_1:-33}"
+DESKTOPMGR_OUTPUT_COLOR_2="${DESKTOPMGR_OUTPUT_COLOR:-6}"
+DESKTOPMGR_OUTPUT_COLOR_GOOD="${DESKTOPMGR_OUTPUT_COLOR_GOOD:-2}"
+DESKTOPMGR_OUTPUT_COLOR_ERROR="${DESKTOPMGR_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+DESKTOPMGR_NOTIFY_ENABLED="${DESKTOPMGR_NOTIFY_ENABLED:-yes}"
+DESKTOPMGR_GOOD_NAME="${DESKTOPMGR_GOOD_NAME:-Great:}"
+DESKTOPMGR_ERROR_NAME="${DESKTOPMGR_ERROR_NAME:-Error:}"
+DESKTOPMGR_GOOD_MESSAGE="${DESKTOPMGR_GOOD_MESSAGE:-No errors reported}"
+DESKTOPMGR_ERROR_MESSAGE="${DESKTOPMGR_ERROR_MESSAGE:-Errors were reported}"
+DESKTOPMGR_NOTIFY_CLIENT_NAME="${DESKTOPMGR_NOTIFY_CLIENT_NAME:-$APPNAME}"
+DESKTOPMGR_NOTIFY_CLIENT_ICON="${DESKTOPMGR_NOTIFY_CLIENT_ICON:-notification-new}"
+DESKTOPMGR_NOTIFY_CLIENT_URGENCY="${DESKTOPMGR_NOTIFY_CLIENT_URGENCY:-normal}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional Variables
+DESKTOPMGR_GIT_REPO_BRANCH="${DESKTOPMGR_GIT_REPO_BRANCH:-main}"
+DESKTOPMGR_APP_DIR="${DESKTOPMGR_APP_DIR:-$SHARE/CasjaysDev/$DESKTOPMGR_SCRIPTS_PREFIX}"
+DESKTOPMGR_INSTALL_DIR="${DESKTOPMGR_INSTALL_DIR:-$SHARE/CasjaysDev/$DESKTOPMGR_SCRIPTS_PREFIX}"
+DESKTOPMGR_CLONE_DIR="${DESKTOPMGR_CLONE_DIR:-$HOME/Projects/github/$DESKTOPMGR_SCRIPTS_PREFIX}"
+DESKTOPMGR_REPO_URL="${DESKTOPMGR_REPO_URL:-https://github.com/$DESKTOPMGR_SCRIPTS_PREFIX}"
+DESKTOPMGR_REPO_RAW="${DESKTOPMGR_REPO_RAW:-raw/$DESKTOPMGR_GIT_REPO_BRANCH}"
+DESKTOPMGR_REPO_API_URL="${DESKTOPMGR_REPO_API_URL:-https://api.github.com/orgs/$DESKTOPMGR_SCRIPTS_PREFIX/repos}"
+DESKTOPMGR_REPO_API_PER_PAGE="${DESKTOPMGR_REPO_API_PER_PAGE:-1000}"
+DESKTOPMGR_FORCE_INSTALL="${DESKTOPMGR_FORCE_INSTALL:-false}"
+DESKTOPMGR_DIR_USER="${DESKTOPMGR_DIR_USER:-$USRUPDATEDIR}"
+DESKTOPMGR_DIR_SYSTEM="${DESKTOPMGR_DIR_SYSTEM:-$SYSUPDATEDIR}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate non-existing config files
+[ -f "$DESKTOPMGR_CONFIG_DIR/$DESKTOPMGR_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$DESKTOPMGR_CONFIG_DIR/$DESKTOPMGR_CONFIG_FILE" ] && . "$DESKTOPMGR_CONFIG_DIR/$DESKTOPMGR_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories and files exist
+[ -d "$DESKTOPMGR_LOG_DIR" ] || mkdir -p "$DESKTOPMGR_LOG_DIR" &>/dev/null
+[ -d "$DESKTOPMGR_TEMP_DIR" ] || mkdir -p "$DESKTOPMGR_TEMP_DIR" &>/dev/null
+[ -d "$DESKTOPMGR_CACHE_DIR" ] || mkdir -p "$DESKTOPMGR_CACHE_DIR" &>/dev/null
+DESKTOPMGR_TEMP_FILE="${DESKTOPMGR_TEMP_FILE:-$(mktemp $DESKTOPMGR_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap '__trap_exit' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+__notifications() {
+  __cmd_exists notifications || return
+  [ "$DESKTOPMGR_NOTIFY_ENABLED" = "yes" ] || return
+  [ "$SEND_NOTIFICATION" = "no" ] && return
+  (
+    export SCRIPT_OPTS="" _DEBUG=""
+    export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$DESKTOPMGR_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$DESKTOPMGR_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$DESKTOPMGR_NOTIFY_CLIENT_ICON}"
+    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$DESKTOPMGR_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$DESKTOPMGR_NOTIFY_CLIENT_URGENCY}"
+    notifications "$@"
+  ) |& __devnull &
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set custom actions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS=("$@")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SHORTOPTS="a,f"
+SHORTOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LONGOPTS="completions:,options,config,version,help,force,all,raw"
+LONGOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ARRAY="download,list,search,available,remove,version,update,install,cron"
+ARRAY+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LIST="awesome bspwm dusk dwm herbstluftwm i3 leftwm openbox qtile spectrwm xfce4 xmonad "
+LIST+="cutefish plasma mate sway cwm twm "
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case "$1" in
+  --raw)
+    shift 1
+    export SHOW_RAW="true"
+    NC=""
+    RESET=""
+    BLACK=""
+    RED=""
+    GREEN=""
+    YELLOW=""
+    BLUE=""
+    PURPLE=""
+    CYAN=""
+    WHITE=""
+    ORANGE=""
+    LIGHTRED=""
+    BG_GREEN=""
+    BG_RED=""
+    ICON_INFO="[ info ]"
+    ICON_GOOD="[ ok ]"
+    ICON_WARN="[ warn ]"
+    ICON_ERROR="[ error ]"
+    ICON_QUESTION="[ ? ]"
+    printf_column() { tee | grep '^'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    ;;
+  --debug)
+    shift 1
+    set -xo pipefail
+    export SCRIPT_OPTS="--debug"
+    export _DEBUG="on"
+    __devnull() { tee || return 1; }
+    __devnull2() { eval "$@" |& tee -p || return 1; }
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
+    ;;
+  --options)
+    shift 1
+    SHOW_LIST="$(__api_list || echo '' &)"
+    [ -n "$1" ] || printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-'
+    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--'
+    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' ''
+    [ -n "$SHOW_LIST" ] && printf '\n' && printf_yellow "Below are the available packages:" &&
+      printf '%s\n' "$SHOW_LIST" | printf_column $DESKTOPMGR_OUTPUT_COLOR
+    printf '\n'
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  -f | --force)
+    shift 1
+    export FORCE_INSTALL="true"
+    ;;
+  -a | --all)
+    shift 1
+    INSTALL_ALL="true"
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get directory from args
+# set -- "$@"
+# for arg in "$@"; do
+# if [ -d "$arg" ]; then
+# DESKTOPMGR_CWD="$arg" && shift 1
+# elif [ -f "$arg" ]; then
+# DESKTOPMGR_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1
+# else
+# SET_NEW_ARGS+=("$arg")
+# fi
+# done
+# set -- "${SET_NEW_ARGS[@]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set directory to first argument
+# [ -d "$1" ] && __is_an_option "$1" && DESKTOPMGR_CWD="$1" && shift 1 || DESKTOPMGR_CWD="${DESKTOPMGR_CWD:-$PWD}"
+DESKTOPMGR_CWD="$(realpath "${DESKTOPMGR_CWD:-$PWD}" 2>/dev/null)"
+# if [ -d "$DESKTOPMGR_CWD" ] && cd "$DESKTOPMGR_CWD"; then
+# if [ "$DESKTOPMGR_SILENT" != "true" ] && [ "$CWD_SILENCE" != "true" ]; then
+# printf_cyan "Setting working dir to $DESKTOPMGR_CWD"
+# fi
+# else
+# printf_exit "💔 $DESKTOPMGR_CWD does not exist 💔"
+# fi
+export DESKTOPMGR_CWD
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set actions based on variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+# __sudoif && __requiresudo "$0" "${SETARGS[@]}" || exit 2 # exit 2 if errors
+# __cmd_exists bash || exit 3                              # exit with error code 3 if not found
+# __am_i_online "1.1.1.1" || exit 4                        # exit with error code 4 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+declare -a LISTARRAY=()
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute commands
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+case "$1" in
+list)
+  shift 1
+  printf_green "All installed $DESKTOPMGR_SCRIPTS_PREFIX packages"
+  LISTARRAY=("$(ls -A "$DESKTOPMGR_DIR_SYSTEM" 2>/dev/null)")
+  [ -n "${LISTARRAY[*]}" ] && printf '%s\n' "${LISTARRAY[@]}" | printf_column '5' ||
+    printf_exit "There doesn't seem to be any packages installed"
+  exit ${exitCode:-0}
+  ;;
+
+available)
+  shift 1
+  api_info="$(__api_list)"
+  pkg_count="$(echo "$api_info" | tr ' ' '\n' | wc -l)"
+  if [ -n "$api_info" ]; then
+    printf_purple "$DESKTOPMGR_SCRIPTS_PREFIX currently has $pkg_count packages available"
+    printf '%s\n' "$api_info" | printf_column '6'
+    true
+  else
+    false
+  fi
+  exit ${exitCode:-0}
+  ;;
+
+search)
+  shift 1
+  [ $# = 0 ] && printf_exit "Nothing to search for"
+  __run_search "$@"
+  exit ${exitCode:-0}
+  ;;
+
+remove)
+  shift 1
+  if [ "$INSTALL_ALL" = "true" ]; then
+    LISTARRAY=("$(ls -A "$DESKTOPMGR_DIR_SYSTEM" 2>/dev/null)")
+  else
+    LISTARRAY=("$@")
+  fi
+  [ ${#LISTARRAY} -ne 0 ] || printf_exit "No packages selected for removal"
+  for rmf in "${LISTARRAY[@]}"; do
+    MESSAGE="Removing $rmf from $DESKTOPMGR_INSTALL_DIR/$rmf"
+    __installer_delete "$rmf"
+    retVal=$?
+    [ $retVal = 0 ] && __notifications "Deletion of $APPNAME was successfull" || __notifications "Deletetion of $APPNAME has failed"
+    exitCode=$(($retVal + $exitCode))
+    printf '\n'
+  done
+  exit ${exitCode:-0}
+  ;;
+
+install)
+  shift 1
+  if [ "$INSTALL_ALL" = "true" ] || [ $# -eq 0 ]; then
+    printf_blue "No packages provide running the updater"
+    exit
+  else
+    LISTARRAY=("$@")
+  fi
+  for ins in "${LISTARRAY[@]}"; do
+    if [ -e "$DESKTOPMGR_INSTALL_DIR/$ins" ] || [ -e "$DESKTOPMGR_DIR_SYSTEM/$ins" ] || [ -e "$DESKTOPMGR_DIR_USER/$ins" ] || [ -e "$SHARE/CasjaysDev/$SCRIPTS_PREFIX/$ins" ]; then
+      __notifications "$ins is already installed"
+      continue
+    else
+      APPNAME="$ins"
+      __run_install_update "$APPNAME"
+      retVal=$?
+      [ $retVal = 0 ] && __notifications "Successfully installed $APPNAME" || __notifications "Installation of $APPNAME has failed"
+      exitCode=$(($retVal + $exitCode))
+    fi
+  done
+  exit ${exitCode:-0}
+  ;;
+
+update)
+  shift 1
+  if [ $# -eq 0 ] || [ "$INSTALL_ALL" = "true" ]; then
+    LISTARRAY=("$(ls -A "$DESKTOPMGR_DIR_SYSTEM" 2>/dev/null)")
+  else
+    LISTARRAY=("$@")
+  fi
+  if [ $# -ne 0 ]; then
+    for ins in "${LISTARRAY[@]}"; do
+      APPNAME="$ins"
+      __run_install_update "$APPNAME"
+      retVal=$?
+      [ $retVal = 0 ] && __notifications "Successfully updated $APPNAME" || __notifications "Update of $APPNAME has failed"
+      exitCode=$(($retVal + $exitCode))
+    done
+  elif [ -d "$DESKTOPMGR_DIR_SYSTEM" ] && [ ${#LISTARRAY} -ne 0 ]; then
+    for upd in $(ls -A "$DESKTOPMGR_DIR_SYSTEM" 2>/dev/null); do
+      APPNAME="$upd"
+      __run_install_update "$APPNAME"
+      retVal=$?
+      [ $retVal = 0 ] && __notifications "Successfully updated $APPNAME" || __notifications "Update of $APPNAME has failed"
+      exitCode=$(($retVal + $exitCode))
+    done
+  else
+    printf_yellow "There doesn't seem to be any packages installed"
+    __notifications "There doesn't seem to be any packages installed"
+  fi
+  exit ${exitCode:-0}
+  ;;
+
+download | clone)
+  shift 1
+  if [ $# = 0 ] || [ "$INSTALL_ALL" = "true" ]; then
+    LISTARRAY=("$(__api_list)")
+  else
+    LISTARRAY=("$@")
+  fi
+  if [ -n "${LISTARRAY[*]}" ]; then
+    for pkgs in "${LISTARRAY[@]}"; do
+      __download "$pkgs"
+      retVal=$?
+      [ $retVal = 0 ] && __notifications "Downloaded $APPNAME" || __notifications "Download of $APPNAME has failed"
+      exitCode=$(($retVal + $exitCode))
+    done
+  else
+    printf_exit "No packages selected for download"
+  fi
+  exit ${exitCode:-0}
+  ;;
+
+cron)
+  shift 1
+  [ "$*" = "help" ] && printf_exit 2 0 "Usage: $APPNAME cron $APPNAME"
+  LISTARRAY=("$@")
+  for cron in "${LISTARRAY[@]}"; do
+    APPNAME="$cron"
+    __cron_updater "$APPNAME"
+    exitCode=$(($? + $exitCode))
+  done
+  exit ${exitCode:-0}
+  ;;
+
+version)
+  shift 1
+  LISTARRAY=("$@")
+  for ver in "${LISTARRAY[@]}"; do
+    APPNAME="$ver"
+    __run_install_version "$ver"
+    exitCode=$(($? + $exitCode))
+  done
+  exit ${exitCode:-0}
+  ;;
+
+qemu)
+  shift 1
+  [ -e "/dev/kvm" ] && virt-check test || printf_exit "virtualization doesn't seem to be enabled"
+  retVal=0
+  CURRENT_IP_4="${CURRENT_IP_4:-127.0.0.1}"
+  case "$1" in
+  lin | linux)
+    shift 1
+    VERSION="${1:-https://repo.almalinux.org/almalinux/9/isos/x86_64/AlmaLinux-9-latest-x86_64-boot.iso}"
+    VM_NAME="linux"
+    PORT="65301"
+    echo "initializing qemu-$VM_NAME"
+    if ! docker ps -a 2>%1 | grep -q qemu-$VM_NAME; then
+      docker run --quiet --detach --memory=4G -it --privileged --name qemu-$VM_NAME --publish $PORT:8006 --device=/dev/kvm --volume "$HOME/.local/share/qemu/$VM_NAME":/storage --cap-add NET_ADMIN --stop-timeout 120 --env "VERSION=${VERSION}" --env "DISK_SIZE=100G" --env "RAM_SIZE=4G" --env CPU_CORES="2" qemux/qemu-docker
+      retVal=$?
+    fi
+    [ $retVal -eq 0 ] && echo "Go to http://$CURRENT_IP_4:$PORT and open docker logs --follow qemu-$VM_NAME" || { echo "Failed to create $VM_NAME" && docker rm -f "$VM_NAME" >/dev/null 2>&1; }
+    ;;
+  win | windows)
+    shfit 1
+    VERSION="${1:-ventura}"
+    VM_NAME="windows"
+    PORT="65302"
+    echo "initializing qemu-$VM_NAME"
+    if ! docker ps -a 2>%1 | grep -q qemu-$VM_NAME; then
+      docker run --quiet --detach --memory=4G -it --privileged --name qemu-$VM_NAME --publish $PORT:8006 --device=/dev/kvm --cap-add NET_ADMIN --volume "$HOME/.local/share/qemu/$VM_NAME":/storage --stop-timeout 120 --env "VERSION=${VERSION}" --env "DISK_SIZE=100G" --env "RAM_SIZE=4G" --env CPU_CORES="2" dockurr/windows
+      retVal=$?
+    fi
+    [ $retVal -eq 0 ] && echo "Go to http://$CURRENT_IP_4:$PORT and open docker logs --follow qemu-$VM_NAME" || { echo "Failed to create $VM_NAME" && docker rm -f "$VM_NAME" >/dev/null 2>&1; }
+    ;;
+  mac | macos)
+    shfit 1
+    VERSION="${1:-10}"
+    VM_NAME="macos"
+    PORT="65303"
+    echo "initializing qemu-$VM_NAME"
+    if ! docker ps -a 2>%1 | grep -q qemu-$VM_NAME; then
+      docker run --quiet --detach --memory=4G -it --privileged --name qemu-$VM_NAME --publish $PORT:8006 --device=/dev/kvm --cap-add NET_ADMIN --volume "$HOME/.local/share/qemu/$VM_NAME":/storage --stop-timeout 120 --env "VERSION=${VERSION}" --env "DISK_SIZE=100G" --env "RAM_SIZE=4G" --env CPU_CORES="2" dockurr/macos
+      retVal=$?
+    fi
+    [ $retVal -eq 0 ] && echo "Go to http://$CURRENT_IP_4:$PORT and open docker logs --follow qemu-$VM_NAME" || { echo "Failed to create $VM_NAME" && docker rm -f "$VM_NAME" >/dev/null 2>&1; }
+    ;;
+  arm | arm64)
+    VERSION="${1:-https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/aarch64/alpine-standard-3.20.1-aarch64.iso}"
+    VM_NAME="arm"
+    PORT="65304"
+    echo "initializing qemu-$VM_NAME"
+    if ! docker ps -a 2>%1 | grep -q qemu-$VM_NAME; then
+      docker run --quiet --detach --memory=4G -it --privileged --name qemu-$VM_NAME --publish $PORT:8006 --device=/dev/kvm --volume "$HOME/.local/share/qemu/$VM_NAME":/storage --cap-add NET_ADMIN --stop-timeout 120 --env "BOOT=${VERSION}" --env "DISK_SIZE=100G" --env "RAM_SIZE=4G" --env CPU_CORES="2" qemux/qemu-arm
+      retVal=$?
+    fi
+    [ $retVal -eq 0 ] && echo "Go to http://$CURRENT_IP_4:$PORT and open docker logs --follow qemu-$VM_NAME" || { echo "Failed to create $VM_NAME" && docker rm -f "$VM_NAME" >/dev/null 2>&1; }
+    ;;
+  esac
+  ;;
+
+*)
+  printf_red "User ID: $UID"
+  printf_green "User Name: $RUN_USER"
+  printf_blue "Script Name: $APPNAME"
+  printf_cyan "Version: $VERSION"
+  printf_yellow "Config Dir: $DESKTOPMGR_CONFIG_DIR"
+  printf_purple "Git Source Dir: $DESKTOPMGR_CLONE_DIR"
+  __help
+  ;;
+esac
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set exit code
+exitCode="${exitCode:-0}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-0}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# ex: ts=2 sw=2 et filetype=sh

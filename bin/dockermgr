@@ -1,0 +1,2627 @@
+#!/usr/bin/env bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version           :  202207042242-git
+# @Author            :  Jason Hempstead
+# @Contact           :  jason@casjaysdev.pro
+# @License           :  WTFPL
+# @ReadME            :  dockermgr --help
+# @Copyright         :  Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Created           :  Saturday, Aug 28, 2021 19:04 EDT
+# @File              :  dockermgr
+# @Description       :  docker script to manage containers
+# @TODO              :
+# @Other             :
+# @Resource          :
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# shell check options
+# shellcheck disable=SC1001
+# shellcheck disable=SC2003
+# shellcheck disable=SC2016
+# shellcheck disable=SC2031
+# shellcheck disable=SC2120
+# shellcheck disable=SC2155
+# shellcheck disable=SC2199
+# shellcheck disable=SC2317
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="$(basename -- "$0" 2>/dev/null)"
+VERSION="202108281904-git"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${RUN_USER:-$USER}"
+USER_HOME="${USER_HOME:-$HOME}"
+SRC_DIR="${BASH_SOURCE%/*}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set bash options
+if [ "$1" == "--debug" ]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
+trap '__trap_exit' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set script title
+#CASJAYS_DEV_TILE_FORMAT="${USER}@${HOSTNAME}:${PWD//$HOME/\~} - $APPNAME"
+#CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}"
+#[ -z "$CASJAYSDEV_TITLE_SET" ] && printf '\033]2│;%s\033\\' "$CASJAYS_DEV_TILE_FORMAT" && CASJAYSDEV_TITLE_SET="$APPNAME"
+export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}" CASJAYSDEV_TITLE_SET
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import functions
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+  . "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  exit 90
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# user system devenv dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+dockermgr_install && __options "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set functions
+__list_available() { echo -e "$LIST" | tr ' ' '\n' && exit 0; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# See if the executable exists
+__cmd_exists() {
+  exitCode=0
+  [ -n "$1" ] && local exitCode="" || return 0
+  for cmd in "$@"; do
+    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
+  done
+  [ $exitCode -eq 0 ] || exitCode=3
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__api_list() {
+  local api_user="$(basename -- "$DOCKERMGR_GIT_REPO" | sed 's|/||g' | grep '^' || echo 'dockermgr')"
+  local api_url="https://api.github.com/orgs/$api_user/repos?per_page=1000"
+  am_i_online && curl -q -LSs "$api_url" | jq -r '.[].name' | __jq_exclude | sort -u ||
+    __list_available
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gen_config() {
+  [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Generating the config file in"
+  [ "$INIT_CONFIG" = "TRUE" ] || printf_green "$DOCKERMGR_CONFIG_DIR/$DOCKERMGR_CONFIG_FILE"
+  [ -d "$DOCKERMGR_CONFIG_DIR" ] || mkdir -p "$DOCKERMGR_CONFIG_DIR"
+  [ -d "$DOCKERMGR_CONFIG_BACKUP_DIR" ] || mkdir -p "$DOCKERMGR_CONFIG_BACKUP_DIR"
+  [ -f "$DOCKERMGR_CONFIG_DIR/$DOCKERMGR_CONFIG_FILE" ] &&
+    cp -Rf "$DOCKERMGR_CONFIG_DIR/$DOCKERMGR_CONFIG_FILE" "$DOCKERMGR_CONFIG_BACKUP_DIR/$DOCKERMGR_CONFIG_FILE.$$"
+  cat <<EOF >"$DOCKERMGR_CONFIG_DIR/$DOCKERMGR_CONFIG_FILE"
+# Settings for dockermgr
+DOCKERMGR_GIT_USERNAME="${DOCKERMGR_GIT_USERNAME:-}"
+DOCKERMGR_REGISTRY_USERNAME="${DOCKERMGR_REGISTRY_USERNAME:-casjaysdevdocker}"
+DOCKERMGR_HOME="${DOCKERMGR_HOME:-$HOME/.config/myscripts/dockermgr}"
+DOCKERMGR_GIT_REPO="${DOCKERMGR_GIT_REPO:-https://github.com/dockermgr}"
+DOCKERMGR_GIT_SRC_REPO_NAME="${DOCKERMGR_GIT_SRC_REPO_NAME:-https://github.com/casjaysdevdocker}"
+DOCKERMGR_GIT_SRC_REPO_API="${DOCKERMGR_GIT_SRC_REPO_API:-https://api.github.com/orgs/$(basename $DOCKERMGR_GIT_SRC_REPO_NAME)/repos}"
+DOCKERMGR_CLONE_DIR="${DOCKERMGR_CLONE_DIR:-$HOME/Projects/github/dockermgr}"
+DOCKERMGR_DOCKER_BIN="${DOCKERMGR_DOCKER_BIN:-sudo -HE docker}"
+DOCKERMGR_INSTALL_SCRIPT="${DOCKERMGR_INSTALL_SCRIPT:-https://get.docker.com}"
+DOCKERMGR_K3B_INSTALL_SCRIPT="${DOCKERMGR_K3B_INSTALL_SCRIPT:-https://get.k3s.io}"
+DOCKERMGR_INSTALL_TMP="${DOCKERMGR_INSTALL_TMP:-/tmp/docker_install.sh}"
+DOCKERMGR_HUB_URL="${DOCKERMGR_HUB_URL:-https://hub.docker.com}"
+DOCKERMGR_REGISTRY_URL="${DOCKERMGR_REGISTRY_URL:-https://hub.docker.com}"
+DOCKERMGR_NET_DEVICE="${DOCKERMGR_NET_DEVICE:-}"
+DOCKERMGR_BUILD_IMAGE="${DOCKERMGR_BUILD_IMAGE:-}"
+DOCKERMGR_MANIFEST_TEMPLATE="${DOCKERMGR_MANIFEST_TEMPLATE:-}"
+# Notification settings
+DOCKERMGR_GOOD_MESSAGE="${DOCKERMGR_GOOD_MESSAGE:-Everything Went OK}"
+DOCKERMGR_ERROR_MESSAGE="${DOCKERMGR_ERROR_MESSAGE:-Well something seems to have gone wrong}"
+DOCKERMGR_NOTIFY_ENABLED="${DOCKERMGR_NOTIFY_ENABLED:-yes}"
+DOCKERMGR_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+DOCKERMGR_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$DOCKERMGR_NOTIFY_CLIENT_ICON}"
+
+# Colorization settings
+DOCKERMGR_OUTPUT_COLOR="${DOCKERMGR_OUTPUT_COLOR:-5}"
+DOCKERMGR_OUTPUT_COLOR_GOOD="${DOCKERMGR_OUTPUT_COLOR_GOOD:-2}"
+DOCKERMGR_OUTPUT_COLOR_ERROR="${DOCKERMGR_OUTPUT_COLOR_ERROR:-1}"
+
+EOF
+
+  if [ ! -f "$HOME/.docker/config.json" ]; then
+    mkdir -p "$HOME/.docker" &>/dev/null
+    echo '{ "auths": {} }' >"$HOME/.docker/config.json"
+  fi
+  if [ -f "$DOCKERMGR_CONFIG_DIR/$DOCKERMGR_CONFIG_FILE" ]; then
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
+    exitCode=0
+  else
+    printf_red "Failed to create the config file"
+    exitCode=1
+  fi
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  exitCode=${exitCode:-$?}
+  [ -n "$DOCKERMGR_TEMP_FILE" ] && [ -f "$DOCKERMGR_TEMP_FILE" ] && rm -Rf "$DOCKERMGR_TEMP_FILE" &>/dev/null
+  #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD//$HOME/\~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional functions
+__cd() { \builtin cd "$1" || return 1; }
+__jq_exclude() { grep -vEw 'tools|templates|.github|community|template|docker-compose' | sort -u | grep -v 'null' | grep '^'; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__create_docker_cron() { printf '# Clean old docker images\n%s\n' '5 4 * * * root docker image prune -a --force >/dev/null 2>&1' | sudo tee /etc/cron.d/dockermgr >/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__disk_usage_pre() { export total_disk_usage="$(\df -k | grep '/$' | awk '{print $3}' | sed 's|[a-zA-Z]||g' | grep '^' || return 1)"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__api_test() { curl -q -LSsfI "$DOCKERMGR_HUB_URL/v2/repositories/$1" &>/dev/null || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__col() { awk -v col=$1 '{print $col}' | grep '^' || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__docker() { eval $DOCKERMGR_DOCKER_BIN "$@" 2>"$DOCKERMGR_TEMP_FILE" || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__docker_pull() { __docker pull $DOCKER_PULL_ARG "$@" || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__rancher() { __install_script rancher || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__download_src_api() { curl -q -LSsf "$DOCKERMGR_GIT_SRC_REPO_API?page_size=1000" 2>/dev/null || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__download_src_custom_api() { curl -q -LSsf "https://api.github.com/orgs/$1/repos?page_size=1000" 2>/dev/null || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_releases_github() { curl -q -LSsf "https://api.github.com/repos/$1/releases/latest" 2>/dev/null | jq -r '.assets|.[]|.browser_download_url' 2>/dev/null || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_releases_google() { curl -q -LSsf "https://storage.googleapis.com/$1/releases/latest/$2" || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__minikube_delete() { unbuffer minikube delete -p "${@:-minikube}" | printf_readline || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__container_exists() { docker ps -a -q -f name=^$1$ | grep '^' || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__container_is_running() { __docker ps -a -q -f status=running -f name=^/$1$ | grep '^' || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__swap_status() { swapon -s 2>&1 | grep -v 'Filename.*   Type' | grep -q "$1" && echo 'enabled' || false; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__grep_is_dotted() { grep -q '[a-zA-Z0-9]\.[a-zA-Z0-9][a-zA-Z0-9]' || return 1; }
+__container_name() { docker ps -a 2>&1 | grep -v '   NAMES$' | grep -Ew ''$1'|'$1'-*' | awk '{print $NF}' | grep '^' || return 1; }
+__docker_manifest_log() { [ $1 -eq 0 ] && rm -Rf "$DOCKERMGR_LOG_DIR/$2.log" || { [ -f "$DOCKERMGR_LOG_DIR/$2.log" ] && cat "$DOCKERMGR_LOG_DIR/$2.log" | printf_readline && false; } || exit 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__server_status() {
+  local url="$1"
+  local name="$2"
+  local script="$3"
+  local exitCode="0"
+  local code="$(curl -q -Ssf -kI -m 1 "$url" -o /dev/null -w "%{http_code}" 2>/dev/null | grep -E '^2[0-9][0-9]|^30[012]' || false)"
+  if [ -n "$code" ]; then
+    exitCode=0
+  else
+    if [ -n "$name" ]; then printf_red "$name is not running" >&2; fi
+    if [ -n "$script" ] && [ -x "$script" ]; then
+      eval bash "$script"
+      exitCode=$?
+    fi
+    return $exitCode
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_arch() {
+  local uname="$(uname -s)"
+  local arch="$(uname -m)"
+  { [[ "$arch" = i386* ]] && osarch="i386"; } ||
+    { [[ "$arch" = i686* ]] && osarch="i386"; } ||
+    { [ "$arch" = "x86_64" ] && osarch="amd64"; } ||
+    { [ "$arch" = "aarch64" ] && osarch="arm64"; } ||
+    { [ "$arch" = "armv7l" ] && osarch="arm"; }
+  { [ "$uname" == "Linux" ] && osname="linux"; } ||
+    { [ "$uname" == "Darwin" ] && osname="darwin"; } ||
+    { [[ "$uname" = CYGWIN* || "$uname" = MINGW* || "$uname" = MSYS* ]] && osname="windows"; }
+  [ -n "$arch" ] && [ -n "$osname" ] && export arch osname || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__update_repo_info() {
+  local image="$1" && shift
+  local token="$(<"$DOCKERMGR_CACHE_DIR/token")"
+  local info=("${@:-$description}")
+  local code=$(
+    jq -n --arg msg "${info[@]}" '{"registry":"registry-1.docker.io","full_description": $msg }' |
+      curl -q -LSs -X PATCH -H "Content-Type: application/json" -H "Authorization: Bearer ${token}" -o /dev/null -w "%{http_code}" "$DOCKERMGR_REGISTRY_URL/v2/repositories/${image}"/ -d @-
+  )
+  if [ "$code" = "200" ]; then
+    printf_green "Successfully pushed full description to Docker Hub"
+  else
+    printf_red "Unable to push full description to Docker Hub, response code: ${code}"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__registry_delete_tag() {
+  if [ -f "$DOCKERMGR_CACHE_DIR/token" ]; then
+    local TOKEN="$(<"$DOCKERMGR_CACHE_DIR/token")"
+    local log_file="$DOCKERMGR_CACHE_DIR/delete.log"
+    printf '%s' "$(printf_cyan "Attempting to delete temporary tag: $1:$2"): "
+    curl -q -LSsfi -H "Authorization: Bearer $TOKEN" -X DELETE "$DOCKERMGR_REGISTRY_URL/v2/repositories/$1/tags/$2" &>"$log_file" || return 1
+  elif __api_auth_token; then
+    __registry_delete_tag "$1" "$2"
+  else
+    printf '%b'"Can not delete $1:$2 "
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__create_manifest() {
+  [ -f "$DOCKERMGR_CACHE_DIR/token" ] || printf_exit "Please run $APPNAME api auth"
+  local code=0
+  local tag=""
+  local name=""
+  local amend=""
+  local tag_push=""
+  local delete_tag=""
+  local date_tag="$(date +'%y%m')"
+  local do_not_delete="$DOCKERMGER_MANIFEST_DELETE_TMP_TAGS"
+  if echo "$1" | grep -q ':'; then
+    local image="${1//:*/}"
+    local tag="${1//*:/}"
+  else
+    local image="$1"
+    local tag="latest"
+  fi
+  if echo "$2" | grep -q ':'; then
+    local push="${2//:*/}"
+    local tag_push="${2//*:/}"
+  else
+    local push="$2"
+  fi
+  name="$(basename -- "$image")"
+  description="${3:-$description}"
+  local AMEND=""
+  local ADD_TAGS="no"
+  local platforms="x86_64 arm64"
+  local base_tag="$tag"
+  local base_name="$image"
+  local base_image="$image:${tag:-latest}"
+  local pull_image="$image:${tag:-latest}"
+  local pull_image="${pull_image//::/:}"
+  local pull_from_pretty="${pull_image//:*/}"
+  local manifest_log_file="$(echo "$push" | awk -F '/' '{print $(NF-1)"-"$NF}')"
+  [ -n "$tag" ] && tag=":$tag" || tag=":latest"
+  [ -n "$tag_push" ] && tag_push=":$tag_push" || tag_push=":${DOCKERMGR_SET_TAG:-latest}"
+  [ -z "$push" ] && [ -n "$DOCKERMGR_REGISTRY_USERNAME" ] && push="$DOCKERMGR_REGISTRY_USERNAME/$name"
+  [ -n "$push" ] || printf_exit "Usage: $APPNAME manifest [image] [push]"
+  [ -n "$image" ] || printf_exit "Usage: $APPNAME manifest [image] [push]"
+  MANIFEST_TAG="$push$tag_push"
+  [ -n "$description" ] && printf_blue "$name description: $description"
+  printf_green "🔽 Running docker pull $pull_image 🔽"
+  docker pull $pull_image &>/dev/null || printf_exit "Failed to pull $pull_image"
+  if [ "$tag_push" = ":latest" ] || [ "$tag_push" = ":nightly" ] || [ "$tag_push" = ":edge" ] || [ "$tag_push" = ":devel" ]; then
+    MANIFEST_TAG="$push$tag_push $push:$date_tag"
+  fi
+  for platform in $platforms; do
+    local set_tag="$tag"
+    local new_tag="$set_tag-$platform"
+    set_push="${push//:*/}:${tag_push//*:/}-$platform"
+    printf_cyan "Attempting to build $image$tag for platform: $platform"
+    echo "FROM --platform="linux/$platform" $image$tag" | docker build --pull -t $set_push - 2>"$DOCKERMGR_LOG_DIR/$manifest_log_file.log" >/dev/null && amend+="--amend $set_push " delete_tag+="$set_push " || code=1
+    [ $code -ne 0 ] && printf_red "Failed to build $set_push" && __docker_manifest_log $code "$name"
+    printf_yellow "Pushing $set_push"
+    docker push -q $set_push >/dev/null 2>"$DOCKERMGR_LOG_DIR/$manifest_log_file.log"
+    [ $code -ne 0 ] && printf_red "Failed to build $set_push" && __docker_manifest_log $code "$name"
+  done
+  for tag in $MANIFEST_TAG; do
+    printf_blue "Running: docker manifest create $tag ${amend[*]}"
+    docker manifest create $tag $amend >/dev/null 2>"$DOCKERMGR_LOG_DIR/$manifest_log_file.log" || code=$((code++))
+    __docker_manifest_log $code "$name - $tag"
+    printf_cyan "Pushing $tag"
+    docker manifest push --purge $tag >/dev/null 2>>"$DOCKERMGR_LOG_DIR/$manifest_log_file.log" || code=$((code++))
+    __docker_manifest_log $code "$name - $tag"
+  done
+  base_id="$(docker images -a | grep "$base_name.*$base_tag" | awk '{print $3}' | grep '^' || false)"
+  [ -n "$base_image" ] && docker rmi $base_id >/dev/null 2>>"$DOCKERMGR_LOG_DIR/$manifest_log_file.log" && printf_cyan "🦄 Deleted base image $base_image with id: $base_id 🦄"
+  for del_tag in $delete_tag; do
+    rm_tag="${del_tag//*:/}"
+    rm_name="${push//:*/}"
+    local_name="$(docker images -a | grep "$push.*$tag" | awk '{print $3}' | grep '^' || false)"
+    if [ -z "$do_not_delete" ]; then
+      __registry_delete_tag "$rm_name" "$rm_tag" && printf_green "Success 😺" || { printf_red "Failed 😿" && code=1; }
+    fi
+    [ -n "$local_name" ] && docker rmi $local_name >/dev/null 2>>"$DOCKERMGR_LOG_DIR/$manifest_log_file.log" && printf_cyan "🦄 Deleted local image $push:$tag with id: $local_name 🦄"
+  done
+  #__orgs_api_update "$push" "description" "This image was built from $pull_from_pretty"
+  __update_repo_info "$push" "${description:-See $DOCKERMGR_HUB_URL/r/$pull_from_pretty for info}"
+  if [ $code -eq 0 ]; then
+    printf_green "😸 Successfully created/updated $push 😸"
+  else
+    printf_red "😿 Failed to create/update $push 😿"
+    printf_yellow "error log saved to: $DOCKERMGR_LOG_DIR/$manifest_log_file.log"
+  fi
+  return $code
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__create_readme() {
+
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__upload_readme_to_hub() {
+  [ "${1:-}" = "generate" ] && shift 1 && __create_readme && README_NEW_FILE="" || FILE=""
+  [ -f "$1" ] && DOCKERHUB_README="$(realpath "$1")" && shift 1 || DOCKERHUB_README="${README_NEW_FILE:-$PWD/README.md}"
+  if echo "$1" | grep -q '.*/[A-Za-z0-9]'; then
+    DOCKERHUB_REPO_PREFIX="$(echo "$1" | awk -F'/' '{print $1}')"
+    DOCKERHUB_REPO_NAME="$(echo "$1" | awk -F'/' '{print $2}')"
+    shift 1
+  else
+    DOCKERHUB_REPO_NAME="${2:-}"
+    DOCKERHUB_REPO_PREFIX="${1:-}"
+    shift 2
+  fi
+  if [ -n "$1" ] && echo "$1" | grep -qE ' .*[A-Za-z0-9] .*[A-Za-z0-9]'; then
+    DOCKERHUB_DESCRIPTION="$1"
+    shift 1
+  fi
+  [ -n "$DOCKERHUB_REPO_NAME" ] || printf_exit 1 3 "Usage: $APPNAME readme [file] [org] [repo] [description]"
+  [ -n "$DOCKERHUB_REPO_PREFIX" ] || printf_exit 1 3 "Usage: $APPNAME readme [file] [org] [repo] [description]"
+  DOCKERHUB_USERNAME="${1:-$DOCKERHUB_USERNAME}"
+  DOCKERHUB_PASSWORD="${2:-$DOCKERHUB_PASSWORD}"
+  [ -f "$DOCKERHUB_README" ] || printf_exit "Please provide a valid path to your readme file"
+  [ -n "$DOCKERHUB_DESCRIPTION" ] || DOCKERHUB_DESCRIPTION="Docker build files for $DOCKERHUB_REPO_NAME"
+  [ -z "$DOCKERMGR_SHOW_INFO" ] || printf_exit "Variables: [$DOCKERHUB_README] [$DOCKERHUB_REPO_PREFIX] [$DOCKERHUB_REPO_NAME] [${DOCKERHUB_USERNAME:-username}] [password]"
+  [ -n "$DOCKERHUB_USERNAME" ] || printf_exit "Missing Username - Usage: [$DOCKERHUB_README] [$DOCKERHUB_REPO_PREFIX] [$DOCKERHUB_REPO_NAME] [${DOCKERHUB_USERNAME:-username}] [password]"
+  [ -n "$DOCKERHUB_PASSWORD" ] || printf_exit "Missing password - Usage: [$DOCKERHUB_README] [$DOCKERHUB_REPO_PREFIX] [$DOCKERHUB_REPO_NAME] [${DOCKERHUB_USERNAME:-username}] [password]"
+  [ -f "$DOCKERMGR_CONFIG_DIR/.hub_username" ] || echo "$DOCKERHUB_USERNAME" >"$DOCKERMGR_CONFIG_DIR/.hub_username"
+  [ -f "$DOCKERMGR_CONFIG_DIR/.hub_password" ] || echo "$DOCKERHUB_PASSWORD" >"$DOCKERMGR_CONFIG_DIR/.hub_password"
+  chmod 600 "$DOCKERMGR_CONFIG_DIR/.hub_username" "$DOCKERMGR_CONFIG_DIR/.hub_password"
+  __api_test "$DOCKERHUB_REPO_PREFIX/$DOCKERHUB_REPO_NAME" || printf_exit 2 6 "$DOCKERMGR_HUB_URL/r/$DOCKERHUB_REPO_PREFIX/$DOCKERHUB_REPO_NAME does not seem to exist"
+  printf_cyan "Pulling image from casjaysdevdocker/readme-to-dockerhub"
+  $DOCKERMGR_DOCKER_BIN pull casjaysdevdocker/readme-to-dockerhub &>/dev/null
+  printf_cyan "Uploading $DOCKERHUB_README to $DOCKERHUB_REPO_PREFIX/$DOCKERHUB_REPO_NAME"
+  $DOCKERMGR_DOCKER_BIN run --rm --name dockermgr-readme \
+    -e DOCKERHUB_USERNAME="${DOCKERHUB_USERNAME}" \
+    -e DOCKERHUB_PASSWORD="${DOCKERHUB_PASSWORD}" \
+    -e DOCKERHUB_REPO_NAME="$DOCKERHUB_REPO_NAME" \
+    -e DOCKERHUB_REPO_PREFIX="$DOCKERHUB_REPO_PREFIX" \
+    -e SHORT_DESCRIPTION="${DOCKERHUB_DESCRIPTION:-Container image for $DOCKERHUB_REPO_NAME}" \
+    -v $DOCKERHUB_README:/data/README.md:ro \
+    casjaysdevdocker/readme-to-dockerhub 1>/dev/null || false
+  if [ $? = 0 ]; then
+    printf_green "Updated the readme on https://hub.docker.com/r/$DOCKERHUB_REPO_PREFIX/$DOCKERHUB_REPO_NAME"
+    return 0
+  else
+    printf_red "Failed to updated the readme on https://hub.docker.com/r/$DOCKERHUB_REPO_PREFIX/$DOCKERHUB_REPO_NAME"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__disk_usage_post() {
+  local usage="" total_disk_end="" mess="" total_disk_usage="${total_disk_usage:-}"
+  total_disk_end="$(\df -k | grep '/$' | awk '{print $3}' | sed 's|[a-zA-Z]||g' | grep '^' || return 1)"
+  if [ -n "$total_disk_usage" ] && [ -n "$total_disk_end" ]; then
+    if [ "$total_disk_usage" -eq "$total_disk_end" ]; then
+      mess=""
+    elif [ "$total_disk_end" -gt "$total_disk_usage" ]; then
+      mess="Used"
+      usage=$((total_disk_end - total_disk_usage))
+    else
+      mess="Cleaned up"
+      usage=$((total_disk_usage - total_disk_end))
+    fi
+    if [ -n "$mess" ]; then
+      if [ "$usage" -ge 1048576 ]; then
+        usage=$((usage / 1048576))
+        printf_cyan "$mess ${usage}G"
+      elif [ "$usage" -ge 1024 ]; then
+        usage=$((usage / 1024))
+        printf_cyan "$mess ${usage}M"
+      else
+        printf_cyan "$mess ${usage}K"
+      fi
+    fi
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__docker_run() {
+  [ "$_DEBUG" = "on" ] && set -xe
+  local arguments="$*"
+  __docker run -ti --privileged --cap-add NET_ADMIN --cap-add SYS_ADMIN -e DISPLAY=$DISPLAY \
+    -v /sys/fs/cgroup/:/sys/fs/cgroup:ro -v /tmp/.X11-unix:/tmp/.X11-unix \
+    -v "$HOME/.Xauthority:/home/x11user/.Xauthority" $arguments #2>"$DOCKERMGR_TEMP_FILE" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__docker_stop() {
+  get_running="$(__docker ps -q 2>/dev/null)"
+  __docker stop "$get_running" &>/dev/null &&
+    printf_green "Stopped the following containers: $get_running" ||
+    printf_red "Failed to stop the following containers: $get_running"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__docker_rm() {
+  getcontents=$(__docker ps -a 2>/dev/null | grep -v 'CONTAINER ID.*IMAGE.*COMMAND.*CREATED.*STATUS.*PORTS.*NAMES' | grep "${1:-^}" | __col 1)
+  for content in $getcontents; do
+    __docker rm -f --volumes $content &>/dev/null &&
+      printf_green "Removed container: $content" ||
+      printf_red "Failed to remove container: $content"
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__docker_rmi() {
+  getcontents=$(__docker images 2>/dev/null | grep -v 'REPOSITORY.*TAG.*IMAGE ID.*CREATED.*SIZE' | grep "${1:-^}" | __col 3)
+  for contents in $getcontents; do
+    image_name="$(__docker images 2>/dev/null | grep -v 'REPOSITORY' | grep "$contents" | awk '{print $1}')"
+    running_container="$(__docker container ls 2>/dev/null | grep -v 'CONTAINER ID' | grep "$image_name" | awk '{print $1}')"
+    [ -n "$running_container" ] && __docker rm -f --volumes "$running_container" &>/dev/null && running_container=""
+    __docker rmi -f $contents 2>&1 | grep -q 'running container' &>/dev/null && REMOVED="TRUE" || REMOVED="FALSE"
+    [ "$REMOVED" = "TRUE" ] && printf_green "Removed image: $contents" || printf_red "Failed to remove image: $contents"
+    [ -z "$running_container" ] || printf_blue "Can not delete an image that is currently running"
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__docker_untagged_rm() {
+  local getcontents="" image_name="" image_id=""
+  getcontents="$(__docker images | grep ' <none> ' | awk '{print $3"=="$1}' | grep -v '^IMAGE==REPOSITORY' || false)"
+  get_image_id="$(echo "$getcontents" | awk -F'==' '{print $1}')"
+  if [ -n "$get_image_id" ]; then
+    for contents in $get_image_id; do
+      image_id="$(echo "$contents" | awk -F'==' '{print $1}')"
+      image_name="$(echo "$contents" | awk -F'==' '{print $2}')"
+      printf_cyan "Deleting untagged image $image_name"
+      __docker rmi -f "$image_id " &>/dev/null
+    done
+  else
+    printf_yellow "No untagged images found"
+    return 1
+  fi
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__docker_ps() {
+  docker ps -a | awk -F' ' '{print $NF}' | grep -v '^NAMES$'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__prune() {
+  local i="" c="" v="" name="" saved="" disk_end="" disk_use=""
+  printf_blue "Pruning containers"
+  __disk_usage_pre
+  __docker container prune -f &>/dev/null
+  containers="$(__docker ps -a -q)"
+  [ -n "$containers" ] || printf '\r%b' "${RED}No containers to delete ${NC}"
+  for c in $(__docker ps -a -q); do
+    if [ -n "$c" ]; then
+      printf '\r%b' "${YELLOW}Deleting container:         $c ${NC}"
+      __docker rm -vf "$c" -f &>/dev/null
+    fi
+  done
+  echo ""
+  printf_blue "Pruning images"
+  images="$(__docker images -a -q)"
+  [ -n "$images" ] || printf '\r%b' "${RED}No images to delete ${NC}"
+  for i in $(__docker images -a -q); do
+    if [ -n "$i" ]; then
+      printf '\r%b' "${YELLOW}Deleting image:             $i ${NC}"
+      __docker rmi "$i" -f &>/dev/null
+    fi
+  done
+  echo ""
+  printf_blue "Pruning volumes"
+  volumes="$(__docker volume ls -q --filter dangling=true)"
+  [ -n "$volumes" ] || printf '\r%b' "${RED}No volumes to delete ${NC}"
+  for v in $(__docker volume ls -q --filter dangling=true); do
+    if [ -n "$v" ]; then
+      printf '\r%b' "${YELLOW}Deleting volume:            $v ${NC}"
+      __docker volume rm "$v" -f &>/dev/null
+    fi
+  done
+  echo ""
+  printf_blue "Pruning temporary volumes"
+  temp_volumes="$(ls -A "$DOCKERMGR_TEMP_DIR/volumes" 2>/dev/null)"
+  [ -n "$temp_volumes" ] || printf '\r%b' "${RED}No temporary volumes to delete ${NC}"
+  for v in $(ls -A "$DOCKERMGR_TEMP_DIR/volumes" 2>/dev/null); do
+    if [ -n "$v" ]; then
+      printf '\r%b' "${YELLOW}Deleting temporary volume:  $v ${NC}"
+      rm -Rf "$DOCKERMGR_TEMP_DIR/volumes/$v" &>/dev/null
+    fi
+  done
+  echo ""
+  __disk_usage_post
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__watchtower_setup() {
+  local exitCodep=0
+  local name="watchtower"
+  local container_name="casjaysdevdocker-${name}-latest"
+  if ! __container_exists "$container_name" >/dev/null 2>&1; then
+    printf_yellow "Installing ${name}"
+    dockermgr install ${name} >/dev/null 2>&1 || exitCodep=1
+  fi
+  return $exitCodep
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_bridge() {
+  if grep -qs 'net.bridge.bridge-nf-call-iptables' '/etc/sysctl.conf'; then
+    __sudo $sed -i 's|net.bridge.bridge-nf-call-iptables.*|net.bridge.bridge-nf-call-iptables = 1|g' '/etc/sysctl.conf'
+  elif grep -qsR 'net.bridge.bridge-nf-call-iptables' '/etc/sysctl.d'; then
+    __sudo $sed -i 's|net.bridge.bridge-nf-call-iptables.*|net.bridge.bridge-nf-call-iptables = 1|g' '/etc/sysctl.d/*'
+  else
+    __sudo echo "net.bridge.bridge-nf-call-iptables = 1" | tee -a /etc/sysctl.conf >/dev/null 2>&1
+  fi
+  if grep -qs 'net.bridge.bridge-nf-call-ip6tables' '/etc/sysctl.conf'; then
+    __sudo $sed -i 's|net.bridge.bridge-nf-call-ip6tables.*|net.bridge.bridge-nf-call-ip6tables = 1|g' '/etc/sysctl.conf'
+  elif grep -qsR 'net.bridge.bridge-nf-call-ip6tables' '/etc/sysctl.d'; then
+    __sudo $sed -i 's|net.bridge.bridge-nf-call-ip6tables.*|net.bridge.bridge-nf-call-ip6tables = 1|g' '/etc/sysctl.d/*'
+  else
+    __sudo echo "net.bridge.bridge-nf-call-ip6tables = 1" | tee -a /etc/sysctl.conf >/dev/null 2>&1
+  fi
+  __sudo modprobe br_netfilter >/dev/null 2>&1
+  __sudo sysctl -p /etc/sysctl.conf >/dev/null 2>&1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__multiarch() {
+  local qemu_imagename="buildx-qemu"
+  local binfmt_imagename="buildx-binfmt"
+  # Setup qemu
+  if ! __container_exists "$qemu_imagename" >/dev/null 2>&1; then
+    printf_yellow "Setting up the qemu image - multiarch/qemu-user-static as $qemu_imagename"
+    __docker run -d --name "$qemu_imagename" --privileged multiarch/qemu-user-static --reset -p yes --credential yes &>/dev/null
+  fi
+  # Setup binfmt
+  if ! __container_exists "$binfmt_imagename" >/dev/null 2>&1; then
+    printf_yellow "Setting up the binfmt image - tonistiigi/binfmt as $binfmt_imagename"
+    __docker run -d --name "$binfmt_imagename" --privileged tonistiigi/binfmt --install all &>/dev/null
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__sudo_rm() {
+  if sudo -n true &>/dev/null && sudo true; then
+    sudo rm -Rf "$*" || printf_return "Can not remove $*"
+  else
+    printf_return "Can not remove $* with sudo"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# TODO Make variables user defined
+__docker_proxy_setup() {
+  local exitCodep=0
+  local name="dockerproxy"
+  local container_name="casjaysdevdocker-${name}-latest"
+  if ! __container_exists "$container_name" >/dev/null 2>&1; then
+    printf_yellow "Installing ${name}"
+    dockermgr install ${name} >/dev/null 2>&1 || exitCodep=1
+  fi
+  return $exitCodep
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__status() {
+  local status
+  if ps -aux | grep -w [d]ocker &>/dev/null; then
+    status="$(ps -aux | grep -wv 'docker-proxy' | grep -w [d]ocker | tr ' ' '\n' | grep -v '^$' | grep -E 'unix|tcp' | tr '\n' ',' | sed 's|,$||g' | grep '^')"
+    if [ -n "$status" ]; then
+      printf '%s: %s' "$(printf_green "Docker is listening on the following")" "$(printf '%b' "$status")"
+      printf '\n'
+      exitCode=0
+    else
+      printf_cyan "Docker is running"
+    fi
+  else
+    printf_red "docker does not seem to be running"
+    exitCode=1
+  fi
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__docker_service() {
+  service_active="$(systemctl show -p ActiveState "docker" | cut -d'=' -f2 | grep ^active)"
+  service_running="$(systemctl status docker 2>/dev/null | grep -F running)"
+  if [ -z "$service_active" ] || [ -z "$service_running" ]; then
+    sudo -HE -n true && ask_for_password true &>/dev/null || return 1
+    sudo -HE systemctl start docker &>/dev/null || return 1
+    sudo -HE systemctl enable --now docker &>/dev/null || return 1
+  fi
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__init() {
+  local docker_proxy_name=dockerproxy
+  { [ "$DOCKERMGR_FORCE_INSTALL" != "true" ] && cmd_exists docker; } || DOCKERMGR_FORCE_INSTALL="false"
+  am_i_online --error -m "Can not setup docker: No internet" || exit 1
+  sudo -HE -n true &>/dev/null && sudo -HE true || printf_exit 1 1 "This script requires root privileges"
+  if [ "$DOCKERMGR_FORCE_INSTALL" = "true" ]; then
+    printf_cyan "docker seems to be installed: add --force to reinitialize"
+    return 0
+  elif [ "$DOCKERMGR_FORCE_INSTALL" = "false" ]; then
+    printf_newline
+    cmd_exists docker || ask_yes_no_question --off "Docker is not installed: would you like to install it?" true || return 1
+    printf_green "Installing docker and setting up systemd"
+    printf_green "This will take a few minutes"
+    if cmd_exists pacman; then
+      sudo -HE pacman -Syy --noconfirm docker &>/dev/null
+    elif cmd_exists dnf || cmd_exists yum; then
+      __dnf_yum="$(type -P dnf || type -P yum || false)"
+      if [ ! -f "/etc/yum.repos.d/casjay.repo" ]; then
+        curl -q -LSsf "https://download.docker.com/linux/centos/docker-ce.repo" | sudo tee -p "/etc/yum.repos.d/docker-ce.repo" &>/dev/null
+      fi
+      sudo $__dnf_yum update -y -q &>/dev/null
+      sudo $__dnf_yum remove -y -q podman buildah &>/dev/null
+      sudo $__dnf_yum install -y -q docker-ce docker-ce-cli containerd.io &>/dev/null
+      sudo systemctl enable docker.service --now &>/dev/null
+    elif cmd_exists apk; then
+      apk add docker docker-cli-compose docker-cli-buildx &>/dev/null
+    else
+      if curl -q -LSsfk --connect-timeout 3 --retry 1 "$DOCKERMGR_INSTALL_SCRIPT" >"$DOCKERMGR_INSTALL_TMP"; then
+        chmod 755 "$DOCKERMGR_INSTALL_TMP"
+        sudo -HE bash -c "$DOCKERMGR_INSTALL_TMP" 2>&1 | tee -p "$DOCKERMGR_TEMP_FILE" &>/dev/null
+        if grep -Eqi 'E: The repository|ERROR: Unsupported' "$DOCKERMGR_TEMP_FILE" 2>/dev/null; then
+          printf_red "Distro not supported please do a manual install"
+          printf_red "https://github.com/dockermgr/community/wiki"
+          printf_red "https://docs.docker.com/engine/install/"
+          exit 1
+        fi
+      else
+        printf_exit "Failed to download the script from $DOCKERMGR_INSTALL_SCRIPT"
+      fi
+    fi
+  fi
+  if cmd_exists docker; then
+    printf_green "Docker has been installed."
+    if ! grep -qs '^docker' /etc/group; then
+      sudo groupadd --system --force docker
+    fi
+  else
+    printf_exit "Installation has failed: could not install docker"
+  fi
+  printf_green "Continuing with configuration"
+  mkdir -p "$HOME/.docker"
+  if grep -q docker /etc/group; then
+    printf_cyan "Adding $USER to the docker group"
+    sudo -HE usermod -aG docker "$USER" &>/dev/null
+    sudo -HE chown -R "$USER":"$USER" "$HOME/.docker" &>/dev/null
+    sudo -HE chmod -R g+rwx "$HOME/.docker" &>/dev/null
+    [ -n "$(builtin type -P gpasswd 2>/dev/null)" ] && sudo -HE gpasswd -a "${USER}" docker &>/dev/null
+  fi
+
+  if [ ! -f "/etc/systemd/system/docker.service.d/docker.conf" ]; then
+    __update_systemd_docker_service
+  fi
+  if __docker_service; then
+    printf_green "docker installation has completed"
+    __create_docker_cron
+    __multiarch
+    __watchtower_setup
+    __docker_proxy_setup
+    __setup_bridge
+    printf_cyan "You should logout and log back in for the changes to take effect"
+    exitCode=0
+  else
+    printf_red "docker installation has failed"
+    exitCode=1
+  fi
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__update_systemd_docker_service() {
+  printf_green "Updating the docker systemd service"
+  sudo -HE mkdir -p /etc/systemd/system/docker.service.d
+  cat <<EOF 2>/dev/null | sudo -HE tee "/etc/systemd/system/docker.service.d/docker.conf" &>/dev/null
+[Service]
+ExecStart=
+ExecStart=/usr/bin/dockerd -H unix://var/run/docker.sock
+
+EOF
+  systemctl daemon-reload
+  systemctl enable --now docker
+  systemctl restart docker
+  if systemctl is-active docker grep -q 'running$' 2>&1; then
+    printf_cyan "Docker service has been updated"
+    return 0
+  else
+    printf_red "Docker service has failed to be updated"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__port_is_free() {
+  local retVal=0
+  if netstat -tauln 2>&1 | grep ' LISTEN' | awk -F' ' '{print $4}' | awk -F':' '{print $NF}' | sort -u | grep -q "^$1$"; then
+    retVal=1
+  fi
+  return $retVal
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__init_help() {
+  printf_green "Setup docker"
+  exit 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__k3b() {
+  __execute "curl -q -LSsf $DOCKERMGR_K3B_INSTALL_SCRIPT | sudo -HE bash -" "Installing k3b please wait....."
+  if cmd_exists k3s; then
+    k3s kubectl get node &>/dev/null
+    sudo -HE k3s server &>/dev/null &
+    printf_green "Kubernetes has been installed"
+    exitCode=0
+  else
+    printf_red "Kubernetes install has failed"
+    exitCode=1
+  fi
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__install_helm() {
+  curl -q -LSsf "https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3" | bash &>/dev/null
+  if cmd_exists helm; then
+    printf_green "Helm has been installed"
+    helm completion bash | sudo -HE tee "/etc/bash_completion.d/helm" &>/dev/null
+    exitCode=0
+  else
+    printf_red "Helm install has failed"
+    exitCode=1
+  fi
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__minikube() {
+  cmd_exists minikube || __minikube_init
+  unbuffer minikube "$@" | printf_readline
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__minikube_dashboard() {
+  netstatg 'kubectl' | grep -q '8001' &&
+    printf_green "🎉 http://127.0.0.1:8001" ||
+    {
+      unbuffer minikube kubectl -- proxy | printf_readline 7 &
+      disown
+    }
+  netstatg 'kubectl' | grep -q '18080' &&
+    printf_green "🎉 http://127.0.0.1:18080/api/v1/namespaces/kubernetes-dashboard/services/http:kubernetes-dashboard:/proxy/" ||
+    {
+      unbuffer minikube dashboard --url false --port 18080 2>&1 | printf_readline 7 &
+      disown
+      sleep 30
+    }
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__minikube_services() {
+  cat <<EOF | tee
+$(minikube service list | grep -v 'http')
+
+EOF
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__minikube_init() {
+  cmd_exists docker || printf_exit "Docker is not installed"
+  printf_blue "Setting up minikube please wait....."
+  __get_arch
+  local driver="${1:-}"
+  if [ -z "$driver" ]; then
+    if [ "$(command -v libvirtd 2>/dev/null)" ]; then
+      driver="kvm2"
+    elif [ "$(command -v hyperkit 2>/dev/null)" ]; then
+      driver="hyperkit"
+    elif [ "$(command -v Virtualbox 2>/dev/null)" ]; then
+      driver="virtualbox"
+    elif [ "$(command -v docker 2>/dev/null)" ]; then
+      driver="docker"
+    else
+      printf_red "No driver found. If you know the driver please specify it"
+      printf_yellow "$APPNAME minikube [virtualbox|vmware|kvm2|docker|hyperkit|none]"
+      printf_exit "Docs: https://minikube.sigs.k8s.io/docs/drivers/"
+    fi
+  fi
+  [ -n "$uname" ] || printf_exit "minikube is not supported on $uname"
+  printf_purple "Downloading minikube for $osname [$osarch]"
+  if __minikube_curl $osname-$osarch; then
+    if cmd_exists minikube; then
+      unalias kubectl &>/dev/null
+      printf_green "Minikube has been installed"
+      [ -d "/etc/bash_completion.d" ] || mkdir -p "/etc/bash_completion.d"
+      minikube completion bash | sudo -HE tee /etc/bash_completion.d/minikube &>/dev/null
+      printf_blue "Attempting to start minikube cluster - This may take awhile" &&
+        (unbuffer minikube start --driver=$driver 2>&1 |& grep -v 'Using image' && kubectl config use-context minikube &>/dev/null) | printf_readline 7 | grep -v '^$'
+      echo &&
+        printf_purple "Attempting to configure minikube to use driver: $driver" &&
+        (unbuffer minikube config set driver $driver 2>&1) | printf_readline 7 | grep --line-buffered -v '^$'
+      echo &&
+        printf_purple "configuring minikube addons: $m"
+      for m in ingress portainer registry dashboard; do
+        unbuffer minikube addons enable $m | grep -v '^$' | head -n 1 | printf_readline 7
+      done
+      echo &&
+        printf_purple "Getting minikube pod info" &&
+        (unbuffer minikube kubectl -- get pods -A | grep '^kube' 2>&1) | printf_readline 7 | grep --line-buffered -v '^$'
+      echo &&
+        printf_purple "Setting up minikube dashboard " &&
+        __minikube_dashboard |& grep -v '^$' &
+      disown
+      sleep 30
+      echo &&
+        [ "$driver" != "none" ] || [ "$driver" != "docker" ] &&
+        printf_yellow="default login is, username: docker & password: tcuser."
+      exitCode=$?
+    else
+      printf_red "Minikube install has failed"
+      __minikube_delete
+      return 1
+    fi
+  else
+    printf_red "Minikube install has failed"
+    __minikube_delete
+    return $1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__minikube_curl() {
+  [ -n "$releases" ] && __get_releases_google "minikube" "minikube-$1" -o "/tmp/minikube" &>/dev/null
+  if [ $? -eq 0 ]; then
+    [ -f "/tmp/minikube" ] &&
+      { sudo -HE mv -f "/tmp/minikube" "/usr/local/bin/minikube" &&
+        chmod +x "/usr/local/bin/minikube" || false; } ||
+      { mv -f "/tmp/minikube" "$HOME/.local/bin/minikube" &&
+        chmod +x "/usr/local/bin/minikube" || false; }
+    return $?
+  else
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__download() {
+  if echo "$1" | grep -q "/"; then
+    ORG_NAME="$(echo "$1" | awk -F '/' '{print $1}')"
+    REPO_NAME="$(echo "$1" | awk -F '/' '{print $2}')"
+    REPO_URL="$(dirname "$DOCKERMGR_GIT_REPO")/$ORG_NAME/$REPO_NAME"
+  else
+    REPO_NAME="$1"
+    REPO_URL="$DOCKERMGR_GIT_REPO/$REPO_NAME"
+  fi
+  gitadmin clone "$REPO_URL"
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__download_src() {
+  if echo "$1" | grep -q "/"; then
+    ORG_NAME="$(echo "$1" | awk -F '/' '{print $1}')"
+    REPO_NAME="$(echo "$1" | awk -F '/' '{print $2}')"
+    REPO_URL="$(dirname "$DOCKERMGR_GIT_SRC_REPO_NAME")/$ORG_NAME/$REPO_NAME"
+  else
+    REPO_NAME="$1"
+    REPO_URL="$DOCKERMGR_GIT_SRC_REPO_NAME/$REPO_NAME"
+  fi
+  gitadmin clone "$REPO_URL"
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__api_source_list() {
+  local api_source_list="" api_source_name=""
+  [ "$1" = "help" ] && printf_exit "Usage: $APPNAME api sources [name,url,all]"
+  if [ "$1" = "name" ]; then
+    api_source_name="true"
+    api_source_list="$(__download_src_api | jq -rc '.[] | {name:.name,url:.html_url}' | jq -r '.name' | __jq_exclude | grep '^' || echo '')"
+  elif [ "$1" = "url" ]; then
+    api_source_list="$(__download_src_api | jq -rc '.[] | {name:.name,url:.html_url}' | jq -r '.url' | __jq_exclude | grep '^' || echo '')"
+  else
+    api_source_list="$(__download_src_api | jq -rc '.[] | {name:.name,url:.html_url}' | __jq_exclude | grep '^' || echo '')"
+  fi
+  [ -n "$api_source_list" ] && printf '%s\n' "$api_source_list" || { [ "$api_source_name" = "true" ] && printf '%s\n' "$SRCS"; }
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_uninstall_info() {
+  local CONTAINER_INFO="$DOCKERMGR_CONFIG_DIR/installed/$APPNAME"
+  local CONTAINER_NAME="${DOCKERMGR_REGISTRY_USERNAME}-$APPNAME-latest"
+  [ -f "$DOCKERMGR_CONFIG_DIR/uninstall/$APPNAME" ] && . "$DOCKERMGR_CONFIG_DIR/uninstall/$APPNAME"
+  [ -f "$DOCKERMGR_CONFIG_DIR/uninstall/$CONTAINER_NAME" ] && . "$DOCKERMGR_CONFIG_DIR/uninstall/$CONTAINER_NAME"
+  [ -f "$CONTAINER_INFO" ] && container_name="$(<"$CONTAINER_INFO")"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+installer_delete() {
+  local LISTARRAY="$*"
+  local exitCode="0"
+  local APPNAME=""
+  for APPNAME in $LISTARRAY; do
+    __disk_usage_pre
+    __get_uninstall_info
+    local EPOCH="$(date +'%s')"
+    local DATE="$(date +'%Y%m%d%H%M')"
+    local SCRIPTS_DIR="$DOCKERMGR_CONFIG_DIR/scripts"
+    local DOCKER_REGISTRY_URL="${DOCKER_REGISTRY_URL:-docker.io}"
+    local DOCKER_REGISTRY_IMAGE_TAG="${DOCKER_REGISTRY_IMAGE_TAG:-latest}"
+    local DOCKER_REGISTRY_REPO_NAME="${DOCKER_REGISTRY_REPO_NAME:-$APPNAME}"
+    local DOCKER_REGISTRY_USER_NAME="${DOCKER_REGISTRY_USER_NAME:-casjaysdevdocker}"
+    local APPDIR="$HOME/.local/share/CasjaysDev/dockermgr/$APPNAME"
+    local INSTDIR="$HOME/.local/share/CasjaysDev/dockermgr/$APPNAME"
+    local DATADIR="/var/lib/srv/$USER/docker/$DOCKER_REGISTRY_USER_NAME/$DOCKER_REGISTRY_REPO_NAME/$DOCKER_REGISTRY_IMAGE_TAG"
+    local SHAREDIR="$HOME/.local/share/CasjaysDev/dockermgr/$APPNAME"
+    local MESSAGE="${MESSAGE:-Removing $APPNAME from ${msg:-your system}}"
+    __get_uninstall_info
+    if [ -d "$APPDIR]" ] || [ -d "$INSTDIR" ] || [ -d "$DATADIR" ] || [ -f "$SHAREDIR" ] || [ -f "$CONTAINER_INFO" ]; then
+      local name="${CONTAINER_NAME:-$APPNAME}"
+      local container_name="$(__container_name "$name")"
+      local script_bak_name="$DOCKERMGR_CONFIG_BACKUP_DIR/scripts/$container_name.$DATE.bak"
+      local REMOVE_CRON="$(find /etc/cron.* -type f 2>/dev/null | grep "$name" || false)"
+      local OLD_SCRIPTS="$(find "$DOCKERMGR_CONFIG_BACKUP_DIR/scripts" -name "*${name}*" -type f 2>/dev/null | grep '^' || false)"
+      local SCRIPT_NAME="$(find "$SCRIPTS_DIR" -name "*${name}*" -type f 2>/dev/null | grep -vE "$script_bak_name|\.bak" | grep '^' || false)"
+      local REMOVE_FILES="$(find "$DOCKERMGR_CONFIG_DIR"/*$name* "/etc/nginx"/*${name//-/.}* -type f 2>/dev/null | grep -Ev "$DOCKERMGR_CONFIG_BACKUP_DIR|$SCRIPT_NAME")"
+      local REMOVE_DOCKERMGR_FILE="$REMOVE_FILES $ADD_REMOVE_FILES"
+      local REMOVE_DOCKERMGR_FILE="${REMOVE_DOCKERMGR_FILE//$script_bak_name/}"
+      mkdir -p "$DOCKERMGR_CONFIG_BACKUP_DIR/databases" "$DOCKERMGR_CONFIG_BACKUP_DIR/scripts"
+      printf_yellow "$MESSAGE"
+      if [ -n "$container_name" ]; then
+        printf_blue "Removing docker container: $container_name"
+        __docker rm -f --volumes "${container_name[@]}" ${container_name}-web &>/dev/null || eval $DOCKERMGR_DOCKER_BIN rm -f "${container_name[@]}" ${container_name}-web &>/dev/null
+        __container_name "$container_name" &>/dev/null && printf_yellow "Can not remove container: Please use docker rm -f $container_name"
+      fi
+      if [ -n "$DATABASE_BASE_DIR" ] && [ -d "$DATABASE_BASE_DIR" ]; then
+        printf_cyan "Backing up database dir to: $DOCKERMGR_CONFIG_BACKUP_DIR/databases/$name.$EPOCH.gz"
+        if tar cfvz "$DOCKERMGR_CONFIG_BACKUP_DIR/databases/$name.$EPOCH.gz" "$DATABASE_BASE_DIR" >/dev/null 2>&1; then
+          printf_green "The database directory has been backed up to: $DOCKERMGR_CONFIG_BACKUP_DIR/databases/$name.$EPOCH.gz"
+        else
+          printf_red "Failed to backup the database directory"
+        fi
+      fi
+      if [ -f "$SCRIPT_NAME" ]; then
+        printf_cyan "Backing up the install script: ${script_bak_name//$HOME/~}"
+        mv -f "$SCRIPT_NAME" "$script_bak_name" 2>/dev/null
+      fi
+      if [ -n "$NGINX_FILES" ]; then
+        printf_cyan "Removing nginx config files"
+        for nginx_conf in $NGINX_FILES; do
+          [ -f "$nginx_conf" ] && printf_cyan "Deleting  $nginx_conf" && sudo rm -Rf "$nginx_conf"
+        done
+      fi
+      if [ -n "$HOST_ROOTFS_DIR" ] && [ -d "$HOST_ROOTFS_DIR" ]; then
+        printf_yellow "Deleting $HOST_ROOTFS_DIR"
+        rm -Rf "$HOST_ROOTFS_DIR"
+      fi
+      if [ "$INSTDIR" != "$APPDIR" ]; then
+        printf_blue "Deleting Installer from $INSTDIR"
+        rm -Rf "$INSTDIR" 2>/dev/null || __sudo_rm "$INSTDIR" 2>/dev/null
+      fi
+      if [ -d "$APPDIR" ]; then
+        printf_cyan "Deleting APP files from $APPDIR"
+        rm -Rf "$APPDIR" 2>/dev/null || __sudo_rm "$APPDIR" 2>/dev/null
+      fi
+      if [ -d "$DATADIR" ]; then
+        printf_green "Deleting the Data from $DATADIR"
+        rm -Rf "$DATADIR" 2>/dev/null || __sudo_rm "$DATADIR" 2>/dev/null
+      fi
+      if [ -d "$SHAREDIR" ]; then
+        printf_yellow "Deleting $SHAREDIR"
+        rm -Rf "$SHAREDIR" 2>/dev/null || __sudo_rm "$SHAREDIR" 2>/dev/null
+      fi
+      if [ -n "$REMOVE_DOCKERMGR_FILE" ]; then
+        for file in $REMOVE_DOCKERMGR_FILE; do
+          if [ "$file" != " " ]; then
+            if [ -n "$file" ] && [ -f "$file" ]; then
+              printf_purple "Deleting $file"
+              { rm -Rf "$file" 2>/dev/null || __sudo rm -Rf "$file" 2>/dev/null || printf_red "Failed to delete $file"; }
+            fi
+          fi
+        done
+      fi
+      if [ -n "$REMOVE_CRON" ]; then
+        for cron in $REMOVE_CRON; do
+          printf_cyan "Deleting: $cron"
+          [ -f "$cron" ] && rm -Rf "$cron"
+        done
+      fi
+      if [ -n "$CONTAINER_INFO" ] && [ -f "$CONTAINER_INFO" ]; then
+        rm -Rf "$CONTAINER_INFO"
+      fi
+      if [ -n "$OLD_SCRIPTS" ]; then
+        for old_script in $OLD_SCRIPTS; do
+          [ -f "$old_script" ] && printf_green "Removing old script: $old_script" && rm -Rf "$old_script"
+        done
+      fi
+      if [ -f "$DOCKERMGR_CONFIG_DIR/installed/$APPNAME" ]; then
+        printf_yellow "Deleting "$DOCKERMGR_CONFIG_DIR/installed/$APPNAME" "
+      fi
+      if [ -f "$DOCKERMGR_CONFIG_DIR/uninstall/$APPNAME" ]; then
+        printf_yellow "Deleting "$DOCKERMGR_CONFIG_DIR/uninstall/$APPNAME" "
+      fi
+      if [ -d "$APPDIR" ] || [ -d "$INSTDIR" ] || [ -d "$DATADIR" ] || [ -f "$SHAREDIR" ]; then
+        exitCode=$((exitCode++))
+        printf_red "There was a problem deleting $APPNAME"
+      else
+        printf_green "$APPNAME has been removed"
+        echo ""
+      fi
+      __sudo bash -c 'if [ -w "/etc/nginx" ];then mkdir -p /etc/nginx/global.d;touch /etc/nginx/global.d/nginx-defaults.conf;fi'
+      [ "$DOCKERMGR_SHOW_USAGE" = "yes" ] && __disk_usage_post
+    else
+      printf_error "$APPNAME doesn't seem to be installed"
+    fi
+  done
+  return ${exitCode}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__install_script() {
+  __docker_service
+  sudo -HE -n true || printf_exit "sudo has failed"
+  local LISTARRAY="$*"
+  for container in $LISTARRAY; do
+    __disk_usage_pre
+    local APPNAME="$container"
+    local REPO="https://github.com/$SCRIPTS_PREFIX/$APPNAME"
+    local REPORAW="https://github.com/$SCRIPTS_PREFIX/$APPNAME/raw/$GIT_REPO_BRANCH"
+    local APPVERSION="$(__appversion "$https://github.com/$SCRIPTS_PREFIX/$APPNAME/raw/$GIT_REPO_BRANCH/version.txt")"
+    local CONTAINER_NAME="${CONTAINER_NAME:-$APPNAME}"
+    local INSTDIR="$HOME/.local/share/CasjaysDev/dockermgr/$APPNAME"
+    local SHAREDIR="$HOME/.local/share/CasjaysDev/dockermgr/$APPNAME"
+    local DOCKER_REGISTRY_IMAGE_TAG="${DOCKER_REGISTRY_IMAGE_TAG:-latest}"
+    local DOCKER_REGISTRY_REPO_NAME="$(echo "$REPO" | awk -F '/' '{print $NF}')"
+    local DOCKER_REGISTRY_USER_NAME="$(echo "$REPO" | awk -F '/' '{print $(NF-1)}')"
+    local APPDIR="/var/lib/srv/$USER/docker/$DOCKER_REGISTRY_USER_NAME/$DOCKER_REGISTRY_REPO_NAME/$DOCKER_REGISTRY_IMAGE_TAG"
+    local DATADIR="/var/lib/srv/$USER/docker/$DOCKER_REGISTRY_USER_NAME/$DOCKER_REGISTRY_REPO_NAME/$DOCKER_REGISTRY_IMAGE_TAG"
+    export APPNAME APPDIR INSTDIR DATADIR
+    if ! curl -q -LSsfI "$REPO" &>/dev/null; then
+      rm -Rf "$APPDIR" "$DATADIR" "$INSTDIR" 2>/dev/null
+      printf_exit 3 3 "The URL $REPO returned an error"
+    fi
+    printf_green "Running the installer script for $APPNAME"
+    am_i_online --error -m "Can not setup docker: No internet" || exit 1
+    if [ -f "$INSTDIR/install.sh" ] && [ -d "$INSTDIR/.git" ]; then
+      printf_green "Updating source files in $INSTDIR"
+      if git -C "$INSTDIR" reset --hard -q && git -C "$INSTDIR" pull -q && [ -f "$INSTDIR/install.sh" ]; then
+        chmod -f 755 "$INSTDIR/install.sh"
+        bash -c "$INSTDIR/install.sh"
+      else
+        printf_red "Failed to update Source files in $INSTDIR"
+        return 1
+      fi
+    else
+      printf_green "Installing source files to $INSTDIR"
+      if git clone -q "$REPO" "$INSTDIR" && [ -f "$INSTDIR/install.sh" ]; then
+        chmod -f 755 "$INSTDIR/install.sh"
+        bash -c "$INSTDIR/install.sh"
+      else
+        rm -Rf "$APPDIR" "$DATADIR" "$INSTDIR" 2>/dev/null
+        printf_red "Failed to install Source files to $INSTDIR"
+        return 1
+      fi
+    fi
+    [ "$DOCKERMGR_SHOW_USAGE" = "yes" ] && __disk_usage_post
+    printf '\n'
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__install_help() {
+  printf_green "Usage: $APPNAME install NAME    |    $APPNAME install transmission"
+  exit 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__run_help() {
+  printf_green "Usage: dockermgr run imageName"
+  printf_green "See http://hub.docker.com for images"
+  exit 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__docker_exec() {
+  __docker exec -it "$@" 2>/dev/null
+  exitCode="$?"
+  echo ""
+  printf_read_question "4" "Should I delete the container?" "1"
+  printf_answer_yes && __docker rm -f --volumes "$name" &>/dev/null
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__run_main() {
+  NAME="$(echo "$1" | sed 's/[!@#\$%^&*():]//g' | sed 's|/|-|g' | grep -v '^$' | grep '^')"
+  IMAGE="${2:-$1}"
+  EXISTS="$(__container_is_running "$NAME" || false)"
+  if [ -n "$EXISTS" ]; then
+    __docker container exec -it "$NAME" "/bin/bash"
+  else
+    if [ -n "$1" ]; then
+      __docker run -d $DOCKER_ARG --network host -it --name "$NAME" --restart always "$IMAGE"
+      __docker container exec -it "$NAME" "/bin/bash" || printf_exit "Failed to run $NAME"
+    else
+      printf_exit "Error: No container name was given"
+    fi
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__run_update() {
+  local install_dir="$DOCKERMGR_HOME/installed"
+  if [ "$*" != "" ]; then
+    __install_script "$@"
+  else
+    printf_cyan "Looking in $install_dir for installed containers"
+    if [ -d "$install_dir" ] && [ "$(find "$install_dir" -mindepth 1 -maxdepth 1 -type f | wc -l)" -ne 0 ]; then
+      for d in $(ls -A "$install_dir" | grep -Ewv '.env|env|--'); do
+        __install_script "$d"
+      done
+    else
+      printf_return "There is nothing to update in $install_dir"
+    fi
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__run_cron() {
+  local frequency="0 4 * * 6"
+  local croncmd="$APPNAME cron run"
+  case $1 in
+  run)
+    logr bash -c "am_i_online && $(expr $RANDOM \% 300) && docker images | awk '(NR>1) && ($2!~/none/) {print $1":"$2}' | xargs -L1 docker pull"
+    ;;
+  remove)
+    shift 1
+    removecrontab "$frequency $croncmd"
+    ;;
+  add)
+    addtocrontab "$frequency $croncmd"
+    ;;
+  *)
+    addtocrontab "$frequency $croncmd"
+    ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__ssh_help() {
+  printf_green "Auto connect to first container if none are specified"
+  printf_green "Usage: $APPNAME ssh container_name"
+  exit 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__ssh_error() {
+  printf_red "There are no running containers"
+  exit 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__connect_main() {
+  CONTAINER="$1"
+  if [ "$CONTAINER" == "" ]; then
+    CONTAINER=$(__docker ps | grep -Eo "^[0-9a-z]{8,}\b") || __ssh_error
+  fi
+  __docker exec -i -t "$CONTAINER" bash -l
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__install_front() {
+  cmd_exists docker || __init || exit 1
+  printf_cyan "Installing yacht"
+  $DOCKERMGR_DOCKER_BIN rm yacht -f &>/dev/null
+  if __install_script yacht &>/dev/null; then
+    printf_yellow "Username:  admin@yacht.local"
+    printf_yellow "Password:  pass"
+    printf_yellow "URL:       http://yacht.local:14053"
+    printf_green "Yacht has been installed"
+  else
+    printf_red "Failed to install yacht"
+  fi
+  echo
+  printf_cyan "Installing nginx-proxy-manager"
+  $DOCKERMGR_DOCKER_BIN rm nginx-manager -f &>/dev/null
+  if __install_script nginx-manager &>/dev/null; then
+    printf_yellow "Username:  admin@example.com"
+    printf_yellow "Password:  changeme"
+    printf_yellow "URL:       http://nginx-manager.local:8888"
+    printf_green "nginx-manager has been installed"
+  else
+    printf_red "Failed to install nginx-proxy-manager"
+  fi
+  echo
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__create_swap() {
+  local swapSize="${1:-2}"
+  local swapName="dockermgr.swap"
+  local swapDir="/var/lib/cache/swap"
+  local setSwapSize=$((swapSize * 1024))
+  local swapLocation="$swapDir/$swapName"
+  [ -f "$swapLocation" ] && return 0
+  printf_blue "Creating swap file and setting size to ${swapSize}G"
+  [ -d "$swapDir" ] || sudo mkdir -p "$swapDir"
+  sudo dd if=/dev/zero bs=1M count=$setSwapSize of="$swapLocation" &>/dev/null
+  sudo chmod 600 "$swapLocation" &>/dev/null && sudo mkswap "$swapLocation" &>/dev/null && sudo swapon "$swapLocation" &>/dev/null
+  grep -qsw "$swapLocation" "/etc/fstab" || echo "$swapLocation    swap    swap    defaults    0    0" | sudo tee -p -a "/etc/fstab" &>/dev/null
+  if grep -qsw "$swapLocation" "/etc/fstab" && [ -n "$(__swap_status "$swapLocation")" ]; then
+    printf_green "The swap file has been created"
+    return 0
+  else
+    printf_red "Failed to create the swap file"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__kasm_bin() {
+  local port=$1
+  sudo -HE /tmp/kasm_release/install.sh \
+    --accept-eula \
+    --no-check-disk \
+    --use-rolling-images \
+    -L $port 2>/dev/null
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__install_kasm() {
+  local port="" url="" file=""
+  local version="${DOCKERMGR_KASM_VERSION:-1.16.0.f2d6e1}"
+  if [ -f "$DOCKERMGR_CONFIG_DIR/kasm_port" ]; then
+    port="$(<"$DOCKERMGR_CONFIG_DIR/kasm_port")"
+  else
+    port="$(__generate_random_port || echo '19042')"
+  fi
+  url="https://kasm-static-content.s3.amazonaws.com"
+  file="kasm_release_${version}.tar.gz"
+  printf_green "Downloading kasm installation file"
+  cd "/tmp" || printf_exit "Failed to cd into /tmp"
+  [ -d "/tmp/kasm_release" ] && rm -Rf "/tmp/kasm_release"
+  curl -q -LSsf "$url/$file" -o "/tmp/$file" 2>/dev/null || printf_exit "Failed to download the file"
+  [ -f "/tmp/$file" ] && tar -xf "/tmp/$file" || printf_exit "Failed to extract the file"
+  if [ -f "/tmp/kasm_release/install.sh" ]; then
+    cd "/tmp/kasm_release" || printf_exit "Failed to cd into /tmp/kasm_release"
+    printf_green "Please wait while I install kasm which may take some time"
+    sudo chmod 755 "/tmp/kasm_release/install.sh"
+    if __kasm_bin $port; then
+      printf_green "kasm has been installed and should be running on https://${CURRENT_IP_4:-$HOSTNAME}:${port}"
+      echo $port >"$DOCKERMGR_CONFIG_DIR/kasm_port"
+    else
+      printf_exit "Failed to install kasm"
+    fi
+  else
+    printf_exit "Failed to install kasm"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__docker_compose() {
+  os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+  arch="$(uname -m | tr '[:upper:]' '[:lower:]')"
+  release="$(__get_releases_github "docker/compose" | grep "docker-compose-$os-$arch$")"
+  if [ "$1" != "update" ] && cmd_exists docker-compose; then
+    return 0
+  elif [ -n "$release" ]; then
+    printf_green "Attempting to install docker-compose"
+    sudo curl -q -LSsf "https://github.com/docker/compose/releases/download/latest/docker-compose-$os-$arch" -o "/usr/local/bin/docker-compose" 2>/dev/null
+    [ -x "$(builtin type -P docker-compose 2>/dev/null)" ] || sudo chmod +x "/usr/local/bin/docker-compose"
+    cmd_exists docker-compose && printf_cyan "docker-compose has been installed" || printf_exit "Failed to download docker-compose"
+  else
+    printf_exit "Can not get release from: https://github.com/docker/compose/releases/latest"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__api_auth_token() {
+  local user="${1:-$DOCKERHUB_USERNAME}"
+  local pass="${2:-$DOCKERHUB_PASSWORD}"
+  curl -q -LSsf -H "Content-Type: application/json" -X POST -d "{\"username\": \"$user\", \"password\": \"$pass\"}" "$DOCKERMGR_HUB_URL/v2/users/login/" 2>"$DOCKERMGR_CACHE_DIR/token.err" | jq -r '.token' | grep '^' || { echo '' && return 1; }
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__orgs_api_auth() {
+  if [ -z "${1:-$DOCKERMGR_REGISTRY_USERNAME}" ]; then
+    printf_exit "Please provide a username or organization name"
+  fi
+  local user="${1:-$DOCKERMGR_REGISTRY_USERNAME}" && shift 1
+  if [ -n "$user" ] && [ -n "$1" ]; then
+    local pass="$1" && shift 1
+    if [ ! -f "$DOCKERMGR_CONFIG_DIR/.hub_password" ]; then
+      printf_green "Password saved to $DOCKERMGR_CONFIG_DIR/.hub_password"
+      echo "$pass" >"$DOCKERMGR_CONFIG_DIR/.hub_password"
+    fi
+  elif [ -f "$DOCKERMGR_CONFIG_DIR/.hub_password" ]; then
+    printf_green "Setting password from $DOCKERMGR_CONFIG_DIR/.hub_password"
+    local pass="$(<"$DOCKERMGR_CONFIG_DIR/.hub_password")"
+  else
+    printf_cyan "Please put your hub password/api token in:"
+    printf_cyan "$DOCKERMGR_CONFIG_DIR/.hub_password"
+    printf_yellow "And set the permissions to 600"
+    exit 1
+  fi
+  chmod 600 "$DOCKERMGR_CONFIG_DIR/.hub_password"
+  TOKEN=$(__api_auth_token "$@")
+  if [ -n "$TOKEN" ]; then
+    printf_purple "Successfully retrieved a token"
+    printf_yellow "$DOCKERMGR_CACHE_DIR/token"
+    echo "$TOKEN" >"$DOCKERMGR_CACHE_DIR/token"
+    return 0
+  else
+    printf_red "An error has occured. The message is:"
+    [ -f "$DOCKERMGR_CACHE_DIR/token" ] && rm "$DOCKERMGR_CACHE_DIR/token"
+    [ -f "$DOCKERMGR_CACHE_DIR/token.err" ] && cat "$DOCKERMGR_CACHE_DIR/token.err" | printf_readline 1 &&
+      rm "$DOCKERMGR_CACHE_DIR/token.err"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__orgs_api_list() {
+  [ -n "$1" ] || printf_exit "Please provide a organization name"
+  results="$(curl -q -LSsf "$DOCKERMGR_HUB_URL/v2/repositories/$1?page_size=1000" 2>/dev/null | jq -r '.results|.[]|.name' | grep -v 'null' | grep '^' || return)"
+  if [ -n "$results" ]; then
+    printf '%s\n' "$results" | printf_column 154
+  else
+    printf_red "No repositories found for $1"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__orgs_api_org_info() {
+  if [ -f "$DOCKERMGR_CACHE_DIR/token" ]; then
+    local org="" repo=""
+    local token="$(<"$DOCKERMGR_CACHE_DIR/token")"
+    if echo "$1" | grep -q '/'; then
+      org="$(echo "$1" | awk -F '/' '{print $1}')"
+      repo="$(echo "$1" | awk -F '/' '{print $2}')"
+      shift 1
+    else
+      org="${1:-$DOCKERMGR_REGISTRY_USERNAME}"
+      repo="$2"
+      shift 2
+    fi
+    [ -n "$org" ] || printf_exit "Usage: $APPNAME api info [org] [repo]"
+    curl -q -fsSL -X GET -H "Authorization: Bearer $token" "$DOCKERMGR_REGISTRY_URL/v2/repositories/$org/${repo:-}?page_size=10000" 2>/dev/null | jq
+  else
+    printf_exit 1 1 "token not set: $APPNAME api auth [username] [password]"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__orgs_api_user_info() {
+  if [ -f "$DOCKERMGR_CACHE_DIR/token" ]; then
+    local token="$(<"$DOCKERMGR_CACHE_DIR/token")"
+    curl -q -fsSL -X GET -H "Authorization: Bearer $token" "$DOCKERMGR_REGISTRY_URL/v2/user/" 2>/dev/null | jq
+  else
+    printf_exit 1 1 "token not set: $APPNAME api auth [username] [password]"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__orgs_api_delete() {
+  local org="" repo=""
+  local prettify_registry="${DOCKERMGR_REGISTRY_URL//http*:\/\//}"
+  if echo "$1" | grep -q '/'; then
+    org="$(echo "$1" | awk -F '/' '{print $1}')"
+    repo="$(echo "$1" | awk -F '/' '{print $2}')"
+    shift 1
+  else
+    org="$1"
+    repo="$2"
+    shift 2
+  fi
+  [ -n "$org" ] || printf_exit "Please provide a organization name"
+  [ -n "$repo" ] || printf_exit "Please provide a repository name"
+  if [ -f "$DOCKERMGR_CACHE_DIR/token" ]; then
+    local TOKEN="$(<"$DOCKERMGR_CACHE_DIR/token")"
+    printf_cyan "Attempting to delete $repo from $org on $prettify_registry"
+    curl -q -LSsfi -H "Authorization: Bearer $TOKEN" -X DELETE "$DOCKERMGR_REGISTRY_URL/v2/repositories/$org/$repo" &>"$DOCKERMGR_CACHE_DIR/delete.log"
+    if grep -qis '405 Not Allowed' "$DOCKERMGR_CACHE_DIR/delete.log"; then
+      __api_auth_error
+    elif grep -qis '404.*Not.*Found' "$DOCKERMGR_CACHE_DIR/delete.log"; then
+      message="$repo does not exist on: $DOCKERMGR_REGISTRY_URL/v2/repositories/$org/$repo"
+    elif grep -qis 'HTTP.*404.NO.*Content' "$DOCKERMGR_CACHE_DIR/delete.log"; then
+      message="$repo does not exist on: $DOCKERMGR_REGISTRY_URL/v2/repositories/$org/$repo"
+    elif grep -qis 'HTTP.*204.NO.*Content' "$DOCKERMGR_CACHE_DIR/delete.log"; then
+      message="$repo does not exist on: $DOCKERMGR_REGISTRY_URL/v2/repositories/$org/$repo"
+    elif grep -qis 'HTTP.*202.*Accepted' "$DOCKERMGR_CACHE_DIR/delete.log"; then
+      message="Successfully deleted $repo from: $DOCKERMGR_REGISTRY_URL/v2/repositories/$org/$repo"
+    else
+      printf_exit "Failed to delete $repo from $DOCKERMGR_REGISTRY_URL/v2/repositories/$org/$repo"
+      grep -i 'HTTP/.*' "$DOCKERMGR_CACHE_DIR/delete.log" | printf_readline 1
+      grep -i 'URL returned error' "$DOCKERMGR_CACHE_DIR/delete.log" | sed 's|*.The requested URL returned error: ||g' | printf_readline 1
+    fi
+    rm -Rf "$DOCKERMGR_CACHE_DIR/delete.log"
+  else
+    printf_exit 1 1 "token not set: $APPNAME api auth [username] [password]"
+  fi
+  printf_green "$message"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__orgs_api_update() {
+  local org="" repo=""
+  if echo "$1" | grep -q '/'; then
+    org="$(echo "$1" | awk -F '/' '{print $1}')"
+    repo="$(echo "$1" | awk -F '/' '{print $2}')"
+    shift 1
+  else
+    org="$1"
+    repo="$2"
+    shift 2
+  fi
+  printf_exit "This is not working for me!"
+  [ -n "$org" ] || printf_exit "Please provide a organization name"
+  [ -n "$repo" ] || printf_exit "Please provide a repository name"
+  [ -n "$1" ] && field="$1" || printf_exit "Please provide a field to update [description,full_description,is_private]"
+  [ -n "$2" ] && field_value="$2" || printf_exit "Please provide a value to field"
+  # [ -n "$3" ] && full_description="$3" || printf_exit "Please provide full description"
+  # [ -n "$4" ] && is_private="$4" || printf_exit "private repo true/false"
+  # [ -n "$5" ] && can_edit="$5" || printf_exit "can edit true/false"
+  #-d "{\"description\": \"$description\", \"is_private\": \"$is_private\", \"can_edit\": \"$can_edit\", \"full_description\": \"$full_description\"}" \
+  if [ -f "$DOCKERMGR_CACHE_DIR/token" ]; then
+    local TOKEN="$(<"$DOCKERMGR_CACHE_DIR/token")"
+    printf_cyan "Attempting to update $org from:"
+    printf_cyan "$DOCKERMGR_REGISTRY_URL/v2/repositories/$org/$repo"
+    curl -q -LSsfi -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" -X PATCH -d "{\"$field\":\"$field_value\"}" \
+      "$DOCKERMGR_REGISTRY_URL/v2/repositories/$org/$repo/" &>"$DOCKERMGR_CACHE_DIR/update.log"
+    if grep -qis '405 Not Allowed' "$DOCKERMGR_CACHE_DIR/update.log"; then
+      __api_auth_error
+    elif grep -qis '404.*Not.*Found' "$DOCKERMGR_CACHE_DIR/update.log"; then
+      printf_green "Repository does not exist"
+    elif grep -qis '403.*FORBIDDEN' "$DOCKERMGR_CACHE_DIR/update.log"; then
+      printf_green "You are not authorized to make this request"
+    elif grep -qis 'HTTP.*404.NO.*Content' "$DOCKERMGR_CACHE_DIR/update.log"; then
+      printf_green "Repository does not exist"
+    elif grep -qis 'HTTP.*204.NO.*Content' "$DOCKERMGR_CACHE_DIR/update.log"; then
+      printf_green "Repository does not exist"
+    elif grep -qis 'HTTP.*202.*Accepted' "$DOCKERMGR_CACHE_DIR/update.log"; then
+      printf_green "Successfully updated the repository"
+    else
+      printf_exit "Failed to update the repository"
+      grep -i 'HTTP/.*' "$DOCKERMGR_CACHE_DIR/update.log" | printf_readline 1
+      grep -i 'URL returned error' "$DOCKERMGR_CACHE_DIR/update.log" | sed 's|*.The requested URL returned error: ||g' | printf_readline 1
+    fi
+  else
+    printf_exit 1 1 "Well something went terribly wrong"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__api_auth_error() {
+  printf_exit "Please authenticate with the command:"
+  printf_yellow "dockermgr api auth username password/key"
+  exit 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__datecmd() {
+  local version="$(date +"$1")"
+  printf_yellow "Creating the version file with version $version"
+  [ -n "$2" ] && printf '%s\n' "$version" >"$2" && printf '\n' || printf '%s\n' "$version"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__restart_container() {
+  local containers="$*"
+  local existing="$(docker ps -a | grep ' Up ' | grep -v ' NAMES$' | awk '{print $NF}')"
+  if [ -n "$containers" ]; then
+    restart="$containers"
+  elif [ -n "$existing" ]; then
+    restart="$existing"
+  fi
+  for r in $restart; do
+    printf_cyan "Restarting container $r"
+    docker restart "$r" &>/dev/null
+  done
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__generate() {
+  local exitCode="0"
+  local workDir="$(realpath "${1:-$PWD}")"
+  local dataDir="$workDir/rootfs"
+  local binDir="$workDir/rootfs/usr/local/bin"
+  local version_file="$workDir/version.txt"
+  local readme_template="installers/dockermgr.md"
+  local date_time="${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}"
+  local name="$(basename -- "$(dirname "$workDir/install.sh")")"
+  export GEN_README_GIT_USER="$DOCKERMGR_GIT_USERNAME"
+  [ -d "$workDir" ] || mkdir -p "$workDir"
+  [ -d "$dataDir/data" ] || mkdir -p "$dataDir/data"
+  [ -d "$dataDir/config" ] || mkdir -p "$dataDir/config"
+  cd "$workDir" || printf_exit "Failed to cd to $workDir"
+  if [ -n "$DOCKERMGR_CREATE_BUILD" ]; then
+    readme_template="projects/docker.md"
+    [ -d "$binDir" ] || mkdir -p "$binDir"
+    [ -f "$workDir/Dockerfile" ] || gen-dockerfile --dir "$workDir" --template "alpine" "./Dockerfile" && echo ''
+    [ -f "$binDir/entrypoint-$name" ] || gen-script --dir "$workDir" --name "$name" "other/docker-entrypoint" "$binDir/entrypoint-$name"
+    # Validation check
+    [ -d "$binDir" ] || { printf_red "Failed to create $binDir" && exitCode=$(($exitCode + 1)); }
+    [ -f "$workDir/Dockerfile" ] || { printf_red "Failed to create $workDir/Dockerfile" && exitCode=$(($exitCode + 1)); }
+    [ -f "$binDir/entrypoint-$name" ] || { printf_red "Failed to create $binDir/entrypoint-$name" && exitCode=$(($exitCode + 1)); }
+  else
+    [ -f "$workDir/install.sh" ] || gen-script --dir "$workDir" "installers/dockermgr.sh" "$workDir/install.sh"
+    [ -f "$workDir/install.sh" ] || { printf_red "Failed to create $workDir/install.sh" && exitCode=$(($exitCode + 1)); }
+  fi
+  [ -f "$workDir/.dockerignore" ] || dockerignore --dir "$workDir"
+  [ -f "$workDir/version.txt" ] || __datecmd "$date_time" "$version_file"
+  [ -f "$workDir/.gitignore" ] || gitignore --dir "$workDir" default
+  [ -f "$workDir/LICENSE.md" ] || gen-license --dir "$workDir" "wtfpl" "LICENSE.md"
+  [ -f "$workDir/README.md" ] || gen-readme --dir "$workDir" "$readme_template" "$workDir/README.md"
+  [ -d "$dataDir/data" ] || { printf_red "Failed to create $dataDir/data" && exitCode=$(($exitCode + 1)); }
+  [ -d "$dataDir/config" ] || { printf_red "Failed to create $dataDir/config" && exitCode=$(($exitCode + 1)); }
+  [ -f "$workDir/README.md" ] || { printf_red "Failed to create $workDir/README.md" && exitCode=$(($exitCode + 1)); }
+  [ -f "$workDir/LICENSE.md" ] || { printf_red "Failed to create $workDir/LICENSE.md" && exitCode=$(($exitCode + 1)); }
+  [ -f "$workDir/version.txt" ] || { printf_red "Failed to create $workDir/version.txt" && exitCode=$(($exitCode + 1)); }
+  printf_green "Done setting up new docker directory"
+  if [ "$exitCode" -ne 0 ]; then
+    printf_red "Failed to setup the new docker directory"
+    exitCode=1
+  fi
+  echo ''
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__remove_test_container() {
+  if [ -n "$(__container_exists "$1" || false)" ]; then
+    printf_read_question "4" "Should I delete the container?" "1"
+    if printf_answer_yes; then
+      __docker rm -f --volumes "$1" &>/dev/null
+      sudo rm -Rf "$2" &>/dev/null
+      [ -d "$2" ] && [ -z "$(__container_exists "$1" || false)" ] && printf_yellow failed to delete "$2" && exit 0 || exit 1
+    fi
+    exit 0
+  else
+    printf_red "Failed to create $1"
+    [ -s "$DOCKERMGR_TEMP_FILE" ] && cat "$DOCKERMGR_TEMP_FILE" | printf_readline
+    exit 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__attach() {
+  local CONTAINER="${1:-$(__docker ps | grep -Eo "^[0-9a-z]{8,}\b")}"
+  [ -n "$CONTAINER" ] || printf_exit "Please provide the container name"
+  __docker ps 2>/dev/null | grep -q "$CONTAINER" || { printf_red "There are no running containers" && return 1; }
+  __docker attach "$CONTAINER"
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__how_long_did_it_take() {
+  local retprev=$?
+  local retval=${1:-$retprev}
+  [ -n "$DOCKERMGR_START_TIMER" ] || return 0
+  [ "$DOCKERMGR_CMD_EXISTS_BC" != "false" ] || return $retval
+  local stop_time="$(date +%s.%N)"
+  local dt=$(echo "$stop_time - $DOCKERMGR_START_TIMER" | bc)
+  local dd=$(echo "$dt/86400" | bc)
+  local dt2=$(echo "$dt-86400*$dd" | bc)
+  local dh=$(echo "$dt2/3600" | bc)
+  local dt3=$(echo "$dt2-3600*$dh" | bc)
+  local dm=$(echo "$dt3/60" | bc)
+  local ds=$(echo "$dt3-60*$dm" | bc)
+  printf_purple "$(LC_NUMERIC=C printf "Total runtime: %d Days, %02d Hours, %02d Minutes, %02.4f Seconds\n" $dd $dh $dm $ds)"
+  return $retval
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__curl_save() { { [ -f "$2" ] && rm -Rf "$2" || true; } && curl -q -LSsf -H 'Cache-Control: no-cache, no-store' "$1" -o "$2" || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Default variables
+exitCode="0"
+DOCKERMGR_START_TIMER="$(date +%s.%N)"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application Folders
+DOCKERMGR_LOG_DIR="${DOCKERMGR_LOG_DIR:-$HOME/.local/log/dockermgr}"
+DOCKERMGR_CACHE_DIR="${DOCKERMGR_CACHE_DIR:-$HOME/.cache/dockermgr}"
+DOCKERMGR_CONFIG_DIR="${DOCKERMGR_CONFIG_DIR:-$HOME/.config/myscripts/dockermgr}"
+DOCKERMGR_OPTIONS_DIR="${DOCKERMGR_OPTIONS_DIR:-$HOME/.local/share/myscripts/dockermgr/options}"
+DOCKERMGR_CONFIG_BACKUP_DIR="${DOCKERMGR_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/dockermgr/backups}"
+DOCKERMGR_TEMP_DIR="${DOCKERMGR_TEMP_DIR:-$HOME/.local/tmp/system_scripts/dockermgr}"
+DOCKERMGR_CONFIG_FILE="${DOCKERMGR_CONFIG_FILE:-settings.conf}"
+DOCKERMGR_GOOD_MESSAGE="${DOCKERMGR_GOOD_MESSAGE:-Everything Went OK}"
+DOCKERMGR_ERROR_MESSAGE="${DOCKERMGR_ERROR_MESSAGE:-Well something seems to have gone wrong}"
+DOCKERMGR_NOTIFY_ENABLED="${DOCKERMGR_NOTIFY_ENABLED:-yes}"
+DOCKERMGR_NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+DOCKERMGR_NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$DOCKERMGR_NOTIFY_CLIENT_ICON}"
+DOCKERMGR_OUTPUT_COLOR="${DOCKERMGR_OUTPUT_COLOR:-5}"
+DOCKERMGR_OUTPUT_COLOR_GOOD="${DOCKERMGR_OUTPUT_COLOR_GOOD:-2}"
+DOCKERMGR_OUTPUT_COLOR_ERROR="${DOCKERMGR_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+DOCKERMGR_GIT_USERNAME="${DOCKERMGR_GIT_USERNAME:-}"
+DOCKERMGR_REGISTRY_USERNAME="${DOCKERMGR_REGISTRY_USERNAME:-casjaysdevdocker}"
+DOCKERMGR_HOME="${DOCKERMGR_HOME:-$HOME/.config/myscripts/dockermgr}"
+DOCKERMGR_GIT_REPO="${DOCKERMGR_GIT_REPO:-https://github.com/dockermgr}"
+DOCKERMGR_GIT_SRC_REPO_NAME="${DOCKERMGR_GIT_SRC_REPO_NAME:-https://github.com/casjaysdevdocker}"
+DOCKERMGR_GIT_SRC_REPO_API="${DOCKERMGR_GIT_SRC_REPO_API:-https://api.github.com/orgs/$(basename $DOCKERMGR_GIT_SRC_REPO_NAME)/repos}"
+DOCKERMGR_CLONE_DIR="${DOCKERMGR_CLONE_DIR:-$HOME/Projects/github/dockermgr}"
+DOCKERMGR_DOCKER_BIN="${DOCKERMGR_DOCKER_BIN:-sudo -HE docker}"
+DOCKERMGR_INSTALL_SCRIPT="${DOCKERMGR_INSTALL_SCRIPT:-https://get.docker.com}"
+DOCKERMGR_K3B_INSTALL_SCRIPT="${DOCKERMGR_K3B_INSTALL_SCRIPT:-https://get.k3s.io}"
+DOCKERMGR_HUB_URL="${DOCKERMGR_HUB_URL:-https://hub.docker.com}"
+DOCKERMGR_REGISTRY_URL="${DOCKERMGR_REGISTRY_URL:-https://hub.docker.com}"
+DOCKERMGR_INSTALL_TMP="${DOCKERMGR_INSTALL_TMP:-/tmp/docker_install.sh}"
+DOCKERMGR_NET_DEVICE="${DOCKERMGR_NET_ADDRESS:-docker0}"
+DOCKERMGR_BUILD_IMAGE="${DOCKERMGR_BUILD_IMAGE:-casjaysdevdocker/docker:latest}"
+DOCKERMGR_FORCE_INSTALL="${DOCKERMGR_FORCE_INSTALL:-}"
+DOCKERMGER_MANIFEST_DELETE_TMP_TAGS=""
+DOCKERMGR_MANIFEST_TEMPLATE="${DOCKERMGR_MANIFEST_TEMPLATE:-https://gist.githubusercontent.com/casjay/d7a33dda283183c0187ce67bf8dbd9d3/raw/docker-migrate.txt}"
+DOCKERMGR_SHOW_USAGE="${DOCKERMGR_SHOW_USAGE:-yes}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$DOCKERMGR_CONFIG_DIR/$DOCKERMGR_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$DOCKERMGR_CONFIG_DIR/$DOCKERMGR_CONFIG_FILE" ] && . "$DOCKERMGR_CONFIG_DIR/$DOCKERMGR_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories and files exist
+[ -d "$DOCKERMGR_LOG_DIR" ] || mkdir -p "$DOCKERMGR_LOG_DIR" &>/dev/null
+[ -d "$DOCKERMGR_TEMP_DIR" ] || mkdir -p "$DOCKERMGR_TEMP_DIR" &>/dev/null
+[ -d "$DOCKERMGR_CACHE_DIR" ] || mkdir -p "$DOCKERMGR_CACHE_DIR" &>/dev/null
+[ -d "$DOCKERMGR_CONFIG_DIR/containers" ] || mkdir -p "$DOCKERMGR_CONFIG_DIR/containers" &>/dev/null
+DOCKERMGR_TEMP_FILE="${DOCKERMGR_TEMP_FILE:-$(mktemp $DOCKERMGR_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap 'exitCode=${exitCode:-0};[ -n "$DOCKERMGR_TEMP_FILE" ] && [ -f "$DOCKERMGR_TEMP_FILE" ] && rm -Rf "$DOCKERMGR_TEMP_FILE" &>/dev/null' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+if [ "$DOCKERMGR_NOTIFY_ENABLED" = "yes" ]; then
+  __notifications() {
+    export NOTIFY_GOOD_MESSAGE="${DOCKERMGR_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${DOCKERMGR_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_NAME="${DOCKERMGR_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_ICON="${DOCKERMGR_NOTIFY_CLIENT_ICON}"
+    notifications "$@" || return 1
+  }
+else
+  __notifications() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show warn message if variables are missing
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set additional variables/Argument/Option settings
+SETARGS="$*"
+SHORTOPTS="p:,P,v:,m:,e:,d,u:,w:,"
+LONGOPTS="raw,completions:,options,config,version,help,dir:,"
+LONGOPTS+="force,all,describe:,platform:,dockerfile,name:,info,domain:,hostname:,network:,registry:,tag:no-delete,interactive,cron"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ARRAY="service proxy health attach multiarch builder api enter test exec active available connect cron download inactive init install k3b minikube "
+ARRAY+="list log ps rancher remove rm rmi run search status update version ds network helm prune generate manifest rebuild "
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LIST="airsonic ampache apache2 aria2 buildah bun caddy cherokee community coolify couchdb daapd ddns deno dictd docker dockerproxy flaresolverr "
+LIST+="gitea gohttpserver hub ifconfig it-tools jekyll lenpaste lidarr lighttpd mariadb mongodb navidrome nextcloud nginx nginx-manager "
+LIST+="opengist php pihole podman portainer postgres prowlarr radarr rancher rarbg readarr readmes redis registry search soft-serve sonarr "
+LIST+="stikked supabase template tor tor-browser traefik transmission uptime vault watchtower webvirtmgr wireguard yacht ympd youtubedl-web "
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SRCS="$LIST"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$(basename -- "$0" 2>/dev/null)" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case $1 in
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
+    ;;
+  --options)
+    shift 1
+    printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' 4
+    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' 4
+    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
+    [ -z "$LIST" ] || __list_options "LIST Options" "${LIST}" ',' '' 4
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  --dir)
+    DOCKERMGR_CWD="$2"
+    shift 2
+    ;;
+  --force)
+    shift 1
+    export DOCKERMGR_FORCE_INSTALL="true"
+    ;;
+  --all)
+    shift 1
+    INSTALL_ALL="true"
+    ;;
+  --raw)
+    shift 1
+    export SHOW_RAW="true"
+    NC=""
+    RESET=""
+    BLACK=""
+    RED=""
+    GREEN=""
+    YELLOW=""
+    BLUE=""
+    PURPLE=""
+    CYAN=""
+    WHITE=""
+    ORANGE=""
+    LIGHTRED=""
+    BG_GREEN=""
+    BG_RED=""
+    ICON_INFO="[ info ]"
+    ICON_GOOD="[ ok ]"
+    ICON_WARN="[ warn ]"
+    ICON_ERROR="[ error ]"
+    ICON_QUESTION="[ ? ]"
+    printf_column() { tee | grep '^'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    printf_readline() { cat -; }
+    printf_red() { echo "$1"; }
+    printf_green() { echo "$1"; }
+    printf_cyan() { echo "$1"; }
+    printf_purple() { echo "$1"; }
+    printf_exit() { echo "$2"; }
+    ;;
+  --cron)
+    shift 1
+    __create_docker_cron
+    exit $?
+    ;;
+  --dockerfile)
+    shift 1
+    DOCKERMGR_CREATE_BUILD="true"
+    ;;
+  --info)
+    shift 1
+    DOCKERMGR_SHOW_INFO="true"
+    ;;
+  -d)
+    shift 1
+    DOCKER_ARG+="--detach "
+    ;;
+  -P)
+    shift 1
+    DOCKER_ARG+="--publish-all "
+    ;;
+  -p)
+    if [ -n "$2" ]; then
+      ports="${2//,/ }"
+      for test in $ports; do
+        echo "$test" | grep -q ":" && port="$test" || port="$test:$test"
+        DOCKER_ARG+="--publish $port "
+      done
+      unset test ports port
+    fi
+    shift 2
+    ;;
+  -e)
+    DOCKER_ARG+="--env $2 "
+    shift 2
+    ;;
+  -v)
+    echo "$2" | grep -q ":" || printf_exit "Invalid mount: /path/to/dir:/mnt/dir"
+    DOCKER_ARG+="--volume $2 "
+    shift 2
+    ;;
+  -m)
+    DOCKER_ARG+="--platform $2 "
+    shift 2
+    ;;
+  -u)
+    DOCKER_ARG+="--user $2 "
+    shift 2
+    ;;
+  -w)
+    DOCKER_ARG+="--workdir $2 "
+    shift 2
+    ;;
+  --platform)
+    DOCKER_PULL_ARG+="--platform $2 "
+    DOCKER_ARG+="--platform $2 "
+    shift 2
+    ;;
+  --network)
+    DOCKER_ARG+="--network $2 "
+    shift 2
+    ;;
+  --interactive)
+    DOCKER_ARG+="--interactive --tty "
+    shift 2
+    ;;
+  --describe)
+    DOCKERHUB_DESCRIPTION="$2"
+    shift 2
+    ;;
+  --name)
+    DOCKERMGR_CONTAINER_NAME="$2"
+    shift 2
+    ;;
+  --domain)
+    export CONTAINER_DOMAINNAME="$2"
+    shift 2
+    ;;
+  --hostname)
+    export CONTAINER_HOSTNAME="$2"
+    shift 2
+    ;;
+  --registry)
+    DOCKERMGR_SET_REGISTRY="$2"
+    shift 2
+    ;;
+  --tag)
+    DOCKERMGR_SET_TAG="$2"
+    shift 2
+    ;;
+  --no-delete)
+    shift 1
+    DOCKERMGER_MANIFEST_DELETE_TMP_TAGS="true"
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+#set -- "$SETARGS"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+__cmd_exists docker || __cmd_exists podman || [ "$1" = "init" ] || { __init || exit 1; }
+__docker_service || [ "$1" = "init" ] || { __notifications "$APPNAME" "Docker is not running" && exit 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+__cmd_exists bc || DOCKERMGR_CMD_EXISTS_BC="false"
+cmd_exists --error --ask bash || exit 1 # exexpectit 1 if not found
+#am_i_online --error || exit 1                  # exit 1 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+__cmd_exists expect_unbuffer && unbuffer() { expect_unbuffer "$@"; }
+[ -n "$(type unbuffer)" ] || unbuffer() { printf_exit "The command unbuffered is required: unbuffered or expect or expect-devel/expect-dev"; }
+__cmd_exists podman && alias docker='podman ' && DOCKERMGR_CLI="podman"
+[ -d "$DOCKERMGR_HOME" ] || mkdir -p "$DOCKERMGR_HOME"
+[ -f "$DOCKERMGR_HOME/env" ] && rm -Rf "$DOCKERMGR_HOME/env"
+[ -d "$DOCKERMGR_HOME/env" ] && mkdir -p "$DOCKERMGR_HOME/env"
+[ -f "$DOCKERMGR_HOME/.env.sh" ] || touch "$DOCKERMGR_HOME/.env.sh"
+[ -f "$DOCKERMGR_CONFIG_DIR/.hub_username" ] && DOCKERHUB_USERNAME="$(<"$DOCKERMGR_CONFIG_DIR/.hub_username")"
+[ -f "$DOCKERMGR_CONFIG_DIR/.hub_password" ] && DOCKERHUB_PASSWORD="$(<"$DOCKERMGR_CONFIG_DIR/.hub_password")"
+DOCKERMGR_NET_ADDRESS="$(ip a show $DOCKERMGR_NET_DEVICE 2>/dev/null | grep -w 'inet' | awk -F'/' '{print $1}' | awk '{print $2}' | grep '^' || false)"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+export DOCKERMGRREPO="$DOCKERMGR_GIT_REPO" DOCKERMGR_HOME="${DOCKERMGR_HOME:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute commands
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+case "$1" in
+api)
+  shift 1
+  case $1 in
+  auth)
+    shift 1
+    case "$1" in
+    info)
+      shift 1
+      __orgs_api_user_info "$@"
+      exit
+      ;;
+    *)
+      shift 1
+      DOCKERHUB_USERNAME="${1:-$DOCKERHUB_USERNAME}"
+      DOCKERHUB_PASSWORD="${2:-$DOCKERHUB_PASSWORD}"
+      [ -n "$DOCKERHUB_USERNAME" ] || { printf_read_question 4 "What is your username:" "100" "DOCKERHUB_USERNAME" || return 1; } || printf_exit "usage: $APPNAME auth [username] [password]"
+      [ -n "$DOCKERHUB_PASSWORD" ] || { printf_read_password 4 "What is your password" "DOCKERHUB_PASSWORD" || return 1; } || printf_exit "usage: $APPNAME auth [$DOCKERHUB_USERNAME] [password]"
+      [ -f "$DOCKERMGR_CONFIG_DIR/.hub_username" ] || echo "$DOCKERHUB_USERNAME" >"$DOCKERMGR_CONFIG_DIR/.hub_username"
+      [ -f "$DOCKERMGR_CONFIG_DIR/.hub_password" ] || echo "$DOCKERHUB_PASSWORD" >"$DOCKERMGR_CONFIG_DIR/.hub_password"
+      __orgs_api_auth "$@"
+      exit $?
+      ;;
+    esac
+    ;;
+  list)
+    shift 1
+    __orgs_api_list "${1:-$DOCKERMGR_REGISTRY_USERNAME}"
+    exit $?
+    ;;
+  info)
+    shift 1
+    echo "$@"
+    __orgs_api_org_info "$@"
+    exit
+    ;;
+  update)
+    shift 1
+    __orgs_api_update "$@"
+    ;;
+  readme)
+    shift 1
+    __upload_readme_to_hub "$@"
+    exit $?
+    ;;
+  sources)
+    shift 1
+    __api_source_list "$@"
+    exit $?
+    ;;
+  clone)
+    shift 1
+    $APPNAME clone src "$@"
+    exit $?
+    ;;
+  delete)
+    shift 1
+    case "$1" in
+    tag)
+      shift 1
+      [ $# -eq 2 ] || printf_exit "Usage: $APPNAME api delete tag [org/repo] [tag]"
+      __registry_delete_tag "$1" "$2"
+      exit $?
+      ;;
+    repo)
+      shift 1
+      [ $# -eq 1 ] || [ $# -eq 2 ] || printf_exit "Usage: $APPNAME api delete repo [org/repo]"
+      __orgs_api_delete "$@"
+      exit $?
+      ;;
+    *)
+      [ $# -eq 1 ] || [ $# -eq 2 ] || printf_exit "Usage: $APPNAME api delete [org/repo]"
+      __orgs_api_delete "$@"
+      exit $?
+      ;;
+    esac
+    ;;
+  *)
+    printf_help "Usage: $APPNAME api [auth,list,delete,info,update,readme,sources,clone]"
+    ;;
+  esac
+  ;;
+
+health)
+  shift 1
+  docker inspect --format "{{json .State.Health }}" $1 | jq -r '.'
+  exit $?
+  ;;
+
+proxy)
+  shift 1
+  __docker_proxy_setup
+  exit $?
+  ;;
+
+service)
+  shift 1
+  __update_systemd_docker_service
+  ;;
+
+commit)
+  shift 1
+  name="$1"
+  tag="$2"
+  [ -n "$name" ] || printf_help "Usage: $APPNAME commit name tag"
+  commit_id="$(docker ps -l 2>/dev/null | grep "$name" | awk '{print $1}' | grep '^' || false)"
+  if [ -n "$commit_id" ]; then
+    printf_cyan "$name: $commit_id"
+    commit_container="$(docker commit $commit_id | grep '^' || false)"
+    if [ -n "$commit_container" ]; then
+      printf_green "Successfully committed: $commit_container"
+      if [ -n "$tag" ]; then
+        docker tag $name $tag
+      fi
+    else
+      printf_exit "Failed to commit $commit_id"
+    fi
+  else
+    printf_exit "No containers match $name"
+  fi
+  exit $?
+  ;;
+
+manifest)
+  shift 1
+  DOCKERMGR_EXIT_STATUS=0
+  DOCKERMGR_BUILD_FILE_LOG="$DOCKERMGR_LOG_DIR/manifest.log"
+  DOCKERMGR_BUILD_FILE_TEMP="$DOCKERMGR_TEMP_DIR/manifest.log"
+  if [ -f "$1" ]; then
+    cat "$1" >"$DOCKERMGR_BUILD_FILE_TEMP"
+  elif [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
+    cat - >"$DOCKERMGR_BUILD_FILE_TEMP"
+  elif [ $# -ge 1 ]; then
+    printf '%s\n' "$@" >"$DOCKERMGR_BUILD_FILE_TEMP"
+  elif __curl_save "$DOCKERMGR_MANIFEST_TEMPLATE" "$HOME/Documents/docker-migrate.txt"; then
+    cat "$HOME/Documents/docker-migrate.txt" >"$DOCKERMGR_BUILD_FILE_TEMP"
+  else
+    printf_cyan "Usage: $APPNAME manifest [file,pull push #description]"
+  fi
+  [ -s "$DOCKERMGR_CONFIG_DIR/.hub_username" ] && [ -s "$DOCKERMGR_CONFIG_DIR/.hub_password" ] && __orgs_api_auth "$@" >/dev/null 2>&1 || printf_exit "Failed to authenticate"
+  cat "$DOCKERMGR_BUILD_FILE_TEMP" | sed 's|^#.*||g' | grep -Ev '^$' | grep '^' | while read line; do
+    image="$(echo "$line" | awk '{print $1}')"
+    name="$(echo "$line" | awk '{print $2}' | grep '^' || echo "$(basename -- "$image")")"
+    url="//$(echo "$line" | awk '{print $1}' | grep '/.*/' | awk -F '/' '{print $1}')"
+    description="$(echo "$line" | awk -F '#' '{print $2}' | sed 's/^[ \t]*//' | grep '^')"
+    echo "$name" | grep -q '/' || name="$DOCKERMGR_REGISTRY_USERNAME/$name"
+    __create_manifest "$image" "$name" "$description"
+    retVal=$?
+    DOCKERMGR_EXIT_STATUS=$((retVal + DOCKERMGR_EXIT_STATUS))
+    echo ""
+  done
+  [ -f "$DOCKERMGR_BUILD_FILE_TEMP" ] && rm -Rf "$DOCKERMGR_BUILD_FILE_TEMP"
+  unset DOCKERMGR_BUILD_FILE_LOG DOCKERMGR_BUILD_FILE_TEMP
+  __how_long_did_it_take $DOCKERMGR_EXIT_STATUS
+  exit $?
+  ;;
+
+rebuild)
+  shift 1
+  repo_dir="$(realpath "${1:-$PWD}")"
+  repo_name="$(basename -- "${2:-$repo_dir}")"
+  if [ -d "$1" ]; then
+    [ -n "$(ls -A "$repo_dir"/Dockerfile* 2>/dev/null)" ] || printf_exit "Can not find a Dockerfile in $repo_dir"
+    __cd "$repo_dir" && buildx all --image ${DOCKERMGR_CONTAINER_NAME:-$repo_name}
+    exit $?
+  elif [ -f "$1" ]; then
+    repo_dir="$(realpath "$(dirname "$repo_dir")")"
+    repo_name="$(basename -- "${2:-$repo_dir}")"
+    [ -n "$(ls -A "$repo_dir"/Dockerfile* 2>/dev/null)" ] || printf_exit "Can not find a Dockerfile in $repo_dir"
+    __cd "$repo_dir" && buildx all --image ${DOCKERMGR_CONTAINER_NAME:-$repo_name}
+    exit $?
+  else
+    repo_url="$1"
+    repo_name="${2:-$repo_name}"
+    org_name="$(basename -- "$(dirname "$repo_url")")"
+    build_dir="$DOCKERMGR_TEMP_DIR/${org_name}_${repo_name}"
+    [ -n "$repo_url" ] && [ -n "$repo_name" ] || printf_exit "Usage: $APPNAME build [repo] [name]"
+    if [ ! -d "$build_dir/.git" ]; then
+      printf_cyan "Cloning $repo_url > $build_dir"
+      [ -d "$build_dir" ] && rm -Rf "$build_dir"
+      git clone --depth 1 -q "$repo_url" "$build_dir"
+    fi
+    [ -n "$(ls -A "$build_dir"/Dockerfile* 2>/dev/null)" ] || printf_exit "Can not find a Dockerfile in $build_dir"
+    __cd "$build_dir" && buildx all --image ${DOCKERMGR_CONTAINER_NAME:-$repo_name} && rm -Rf "$build_dir"
+    exit $?
+  fi
+  ;;
+
+multiarch)
+  shift 1
+  printf_yellow "Setting up the qemu image - multiarch/qemu-user-static as qemu-user-static"
+  __docker pull multiarch/qemu-user-static &>/dev/null
+  __docker run -rm -d --name "qemu-user-static-multi" --privileged multiarch/qemu-user-static --reset -p yes --credential yes &>/dev/null
+  printf_yellow "Setting up the binfmt image - tonistiigi/binfmt as binfmt-multi"
+  __docker pull tonistiigi/binfmt &>/dev/null
+  __docker run -d --name "binfmt-multi" --privileged tonistiigi/binfmt --install all &>/dev/null
+  ;;
+
+generate)
+  shift 1
+  __generate "$@"
+  exit $?
+  ;;
+
+readme)
+  shift 1
+  __upload_readme_to_hub "$@"
+  exit $?
+  ;;
+
+swap)
+  shift 1
+  __create_swap "$1"
+  ;;
+
+org)
+  shift 1
+  case "$1" in
+  *)
+    __orgs_api_list "${1:-$DOCKERMGR_REGISTRY_USERNAME}"
+    ;;
+  esac
+  ;;
+
+builder)
+  shift 1
+  printf_exit "This is a work in progress"
+  set -x
+  if [ "$1" = "buildx_script" ]; then
+    shift 1
+    build_cmd="--platform $1 --rm --pull --push --no-cache --progress auto --output=type=registry $2 $3 -f $4"
+  else
+    build_cmd="$*"
+  fi
+  name="$DOCKERMGR_CONTAINER_NAME"
+  mounts="--workdir $3 -v $HOME/.docker/config.json:/config/docker/daemon.json -v $PWD:/$3"
+  printf_cyan "Updating image: $DOCKERMGR_BUILD_IMAGE"
+  __docker pull "$DOCKERMGR_BUILD_IMAGE" &>/dev/null || printf_exit "Failed to pull $DOCKERMGR_BUILD_IMAGE"
+  __docker run -d --hostname $name.build.casjaysdev.pro --name "$name-builder" --privileged $mounts $DOCKERMGR_BUILD_IMAGE
+  __docker exec -it "$name-builder" docker buildx build $build_cmd
+  [ $? -eq 0 ] && exitCode=0 && docker rm -f "$name-builder" || { exitCode=1 && docker logs --follow $name-builder; }
+  exit $exitCode
+  ;;
+
+test)
+  shift 1
+  [ $# -ne 0 ] && set_image="$1" && shift 1 || printf_exit "Please provide the imageName [myuser/myimage]"
+  if [ "$set_image" = "server" ]; then
+    if echo "$1" | grep -q '/'; then
+      registry="$(echo "$1" | sed 's|.*//||g' | awk -F'/' '{print $1}' | grep '[a-zA-Z0-9]\.[a-zA-Z0-9][a-zA-Z0-9]' | grep '^' || false)"
+      organization="$(echo "$1" | awk -F '/' '{print $(NF-1)}' | grep '^' || false)"
+      name="$(echo "$1" | awk -F '/' '{print $NF}' | grep '^' || false)"
+      shift 1
+    else
+      name="$1"
+      registry=""
+      organization="casjaysdevdocker"
+      shift 1
+    fi
+    args="$*"
+    suffix="testing"
+    container_name="$organization-$name-$suffix"
+    [ -n "$registry" ] && registry_url="$registry/$organization/$name" || registry_url="$organization/$name"
+    rootfs_dir="$DOCKERMGR_TEMP_DIR/volumes/${container_name// /_}"
+    if [ "$set_image" = "remove" ]; then
+      __remove_test_container "$container_name" "$rootfs_dir"
+      exit $?
+    fi
+    printf_blue "Creating test container $container_name"
+    docker rm -f $container_name &>/dev/null
+    rm -Rf "$rootfs_dir" &>/dev/null
+    docker run -d --pull always --restart always --privileged --name $container_name \
+      --hostname $name \
+      -e TZ=${TIMEZONE:-America/New_York} $DOCKER_ARG \
+      -v $rootfs_dir/rootfs/data:/data:z \
+      -v $rootfs_dir/rootfs/config:/config:z \
+      $registry_url:latest &>"$DOCKERMGR_TEMP_FILE" && printf_cyan "Created $container_name" && true || false
+    [ $? -eq 0 ] || printf_exit "Failed to create $container_name: $(grep -shi 'error' "$DOCKERMGR_TEMP_FILE" | head -n1)"
+    printf_yellow "run dockermgr log $container_name" && sleep 5
+    __container_exists "$container_name" &>/dev/null || exit 1
+    printf_purple "mounted rootfs to $rootfs_dir/rootfs"
+    exit 0
+  else
+    args="${*:-/bin/sh}"
+    fmt_name="${set_image//:*/}"
+    docker_args="${DOCKER_ARG[*]}"
+    base_name="$(basename -- "$fmt_name")"
+    set_name="$DOCKERMGR_CONTAINER_NAME"
+    name="${set_name:-casjaysdev-$base_name-test}"
+    status="$(__container_exists "$name" || false)"
+    mktemp="$DOCKERMGR_TEMP_DIR/volumes/${name// /_}"
+    echo "$set_image" | grep -q ':.*' || set_image="$set_image:latest"
+    image="$set_image"
+  fi
+  printf_blue "Attempting to pull $image"
+  __docker_pull "$image" &>/dev/null
+  if __container_is_running; then
+    printf_purple "Entering container: $name"
+    __docker_exec "$name" $args 2>/dev/null
+    exit 0
+  elif [ -n "$status" ]; then
+    printf_cyan "Attempting to start $name"
+    if __docker start "$name" &>"$DOCKERMGR_TEMP_FILE" && sleep 3; then
+      printf_purple "Entering container: $name"
+      __docker_exec "$name" $args 2>/dev/null
+      exit 0
+    else
+      printf_return "An error has occured while entering $name"
+      cat "$DOCKERMGR_TEMP_FILE" | printf_readline
+      exit 1
+    fi
+  else
+    printf_purple "Creating container: $name with image: $image"
+    sudo mkdir -p "$mktemp"
+    sudo chmod -Rf 755 "$mktemp"
+    sudo chown -Rf $USER:$USER "$mktemp"
+    __docker_run --name "$name" --hostname "$name" $docker_args -v $mktemp/config:/config -v $mktemp/data:/data "$image" $args 2>"$DOCKERMGR_TEMP_FILE"
+    __remove_test_container "$name" "$mktemp"
+  fi
+  ;;
+
+enter)
+  shift 1
+  DOCKER_OPTS=
+  while :; do
+    case "$@" in
+    -*) DOCKER_OPTS+="${1//=/ } " && shift 1 ;;
+    *) break ;;
+    esac
+  done
+  name="$1"
+  shift 1
+  if __docker ps -a | grep -q "$name" &>/dev/null; then
+    __docker start "$name" &>/dev/null
+    __docker exec -it $DOCKER_OPTS $DOCKER_ARG "$name" "${@:-/bin/sh}"
+  elif __docker_pull "$name" &>/dev/null; then
+    image="$name"
+    printf_cyan "Attempting to grab $image"
+    __docker_pull "$image" &>/dev/null
+    __docker run -ti --name "$name" $DOCKER_OPTS $DOCKER_ARG "$image" "${@:-/bin/sh}"
+  else
+    printf_return "There is no such container"
+  fi
+  exit $?
+  ;;
+
+attach)
+  shift 1
+  __attach "$1"
+  exit $?
+  ;;
+
+exec)
+  name="$2"
+  shift 2
+  if __docker ps | grep "$name" &>/dev/null; then
+    __docker exec -it "$name" "${@:-/bin/sh}"
+  else
+    printf_return "Container either doesn't exist or is not running"
+  fi
+  exit $?
+  ;;
+
+connect)
+  shift 1
+  [ "$1" = "help" ] && __ssh_help
+  __connect_main "$1"
+  exit $?
+  ;;
+
+run)
+  shift 1
+  [ "$1" = "help" ] && __run_help
+  __run_main "$@"
+  exit $?
+  ;;
+
+tag)
+  shift 1
+  [ $# -eq 2 ] || printf_exit "Usage: $APPNAME tag from_tag to_tag [alpine:latest alpine:dev]"
+  __docker image tag "$1" "$2" 2>/dev/null
+  exit $?
+  ;;
+
+active)
+  shift 1
+  [ "$1" = "help" ] && printf_exit "Show active containers"
+  __docker ps | sed "s#$(head -n1)##g" | grep -v "^#" ||
+    printf_exit "There are no active containers"
+  exit $?
+  ;;
+
+inactive)
+  shift 1
+  [ "$1" = "help" ] && printf_exit "Show all containers"
+  __docker ps -a | sed "s#$(head -n1)##g" | grep -v "^#" ||
+    printf_exit "There doesn't seem to be any containers on this system"
+  exit $?
+  ;;
+
+log)
+  shift 1
+  ARGS="$*"
+  [ "${#ARGS}" -ne 0 ] || printf_exit "Usage: $APPNAME log [container]"
+  printf_blue "Following the log for $1"
+  __docker logs --follow "$ARGS"
+  exit $?
+  ;;
+
+ps)
+  shift 1
+  ARGS="$*"
+  if [ "${#ARGS}" -eq 0 ]; then
+    __docker ps -a
+  else
+    __docker ps -a | grep "${ARGS:-^}"
+  fi
+  exit $?
+  ;;
+
+pull)
+  shift 1
+  if [ $# = 0 ] || [ "$INSTALL_ALL" = "true" ]; then
+    D_IMAGES="$(__docker images | grep -v REPOSITORY | awk 'BEGIN{OFS=":"} {print $1,$2}' | grep -Ev '^<none>:|:<none>$' | grep '^')"
+    for image in $D_IMAGES; do
+      printf_purple "Pulling image: $image"
+      __docker_pull "$image" &>/dev/null
+    done
+  else
+    for image in "$@"; do
+      printf_purple "Pulling image: $image"
+      __docker_pull "$image" &>/dev/null
+    done
+  fi
+  exit $?
+  ;;
+
+rm)
+  shift 1
+  ARGS="$*"
+  [ "${#ARGS}" -ne 0 ] || [ "$INSTALL_ALL" = "true" ] || __docker ps -a
+  if [ "$INSTALL_ALL" = "true" ]; then
+    shift 1
+    printf_red "Deleting all docker containers"
+    printf_yellow "However, your data files will remain in"
+    printf_blue "/var/lib/srv/$USER/docker"
+    __docker_rm &>/dev/null
+    exit $?
+  else
+    for container in $ARGS; do
+      if __docker ps -a | grep -q "$container"; then
+        printf_blue "Deleting the container: $container"
+        __docker_rm "$container" &>/dev/null
+        if __docker ps -a | grep -q "$container"; then
+          printf_red "Failed to delete $container"
+        else
+          printf_green "Successfully deleted $container"
+        fi
+      else
+        printf_red "$container is not a valid container"
+      fi
+    done
+  fi
+  exit $?
+  ;;
+
+rmi)
+  shift 1
+  ARGS="$*"
+  [ "${#ARGS}" -ne 0 ] || [ -n "$INSTALL_ALL" ] || __docker images
+  if [ "$1" = "prune" ]; then
+    images="$(docker images | awk '{print $1","$3}' | grep -Ev 'IMAGE ID|REPOSITORY')"
+    for image in $images; do
+      id="${image//*,/}"
+      name="${image//,*/}"
+      printf_cyan "Deleting $name"
+      docker rmi $id &>/dev/null && printf_green "Successfully deleted $id" || printf_red "Failed to delete $id"
+    done
+    exit $?
+  fi
+  if [ "$1" = "force" ]; then
+    printf_red "Deleting all docker images"
+    printf_yellow "However, your data files will remain in"
+    printf_blue "/var/lib/srv/$USER/docker"
+    __docker_rmi
+    exit $?
+  elif [ "$1" = "all" ] || [ "$INSTALL_ALL" = "true" ]; then
+    IMAGES=($(__docker images | grep -v 'IMAGE ID' | awk '{print $3}' | sort -u | grep '^'))
+    for image in "${IMAGES[@]}"; do
+      __docker rmi "$image" 2>&1 | grep -q 'running container' && RUNNING="true" || RUNNING=""
+      [ "$RUNNING" != "" ] || true
+    done
+    exit $?
+  elif [ "$1" = "unnamed" ] || [ "$1" = "untagged" ]; then
+    __docker_untagged_rm
+    exit $?
+  else
+    for image in $ARGS; do
+      if __docker images | grep -q "$image"; then
+        printf_blue "Deleting the image: $image"
+        __docker_rmi "$image" &>/dev/null
+        if __docker images | grep -q "$image"; then
+          printf_red "Failed to delete $image"
+        else
+          printf_green "Successfully deleted $image"
+        fi
+      else
+        printf_red "$image is not a valid image"
+      fi
+    done
+  fi
+  exit $?
+  ;;
+
+restart)
+  shift 1
+  __restart_container "$@"
+  exit $?
+  ;;
+
+status)
+  shift 1
+  __status
+  exit $?
+  ;;
+
+network)
+  shift 1
+  __getlipaddr
+  NETWORK="${1:-bridge}"
+  printf_green "Getting info for $NETWORK"
+  printf_blue "Host IP $CURRENT_IP_4"
+  __docker network inspect $NETWORK |
+    jq -rc '.[] | .Containers | .[] | { Containers: .Name,IP4: .IPv4Address,IP6: .IPv6Address }' |
+    sed 's|""|"None"|g' | printf_readline
+  printf_newline '\n'
+  exit
+  ;;
+
+rancher)
+  shift 1
+  __rancher
+  exit $?
+  ;;
+
+k3b)
+  shift 1
+  __k3b
+  exit $?
+  ;;
+
+minikube)
+  shift 1
+  if [ "$1" = "delete" ]; then
+    shift 1
+    __minikube_delete "$1"
+  elif [ "$1" = "init" ] || [ "$1" = "install" ] || [ "$1" = "setup" ]; then
+    shift 1
+    __minikube_init "$@"
+  elif [ "$1" = "dashboard" ]; then
+    shift 1
+    __minikube_dashboard &
+    sleep 30
+  elif [ "$1" = "services" ]; then
+    shift 1
+    __minikube_services
+  else
+    __minikube "$@"
+  fi
+  exit $?
+  ;;
+
+helm)
+  shift 1
+  __install_helm
+  exit $?
+  ;;
+
+kasm)
+  shift 1
+  cmd_exists docker || __init || printf_exit "kasm requires docker"
+  cmd_exists docker-compose || __docker_compose || printf_exit "kasm requires docker-compose"
+  __install_kasm
+  exit $?
+  ;;
+
+compose)
+  shift 1
+  __docker_compose "$@"
+  exit $?
+  ;;
+
+init)
+  shift 1
+  [ "$1" = "help" ] && __init_help
+  [ "$1" = "force" ] && DOCKERMGR_FORCE_INSTALL="true"
+  __init "$@"
+  exit $?
+  ;;
+
+fe)
+  shift 1
+  __install_front
+  exit $?
+  ;;
+
+ds)
+  shift 1
+  # sudo -HE -n true && ask_for_password true || exit 1
+  # if grep -Rsq 'sudo' /etc/group; then
+  #   adduser -m -U -d /var/lib/dockstarter --uid 901 dockstarter &>/dev/null
+  #   usermod -aG sudo -aG docker -aG wheel dockstarter &>/dev/null
+  # else
+  #   adduser -u 901 -m -U -d /var/lib/dockstarter dockstarter &>/dev/null
+  #   usermod -aG wheel -aG docker dockstarter &>/dev/null
+  # fi
+  # if grep -qs dockstarter /etc/passwd; then
+  #   sudo -HE passwd -u dockstarter -f &>/dev/null
+  #   echo "dockstarter ALL=(ALL) NOPASSWD:ALL" | sudo -HE tee /etc/sudoers.d/dockstarter &>/dev/null
+  #   sudo -HE -HE -u dockstarter bash -c "$(curl -q -fsSL https://get.dockstarter.com)"
+  export DOCKERCONFDIR="${DOCKERCONFDIR:-$HOME/.config/dockstarter}"
+  bash -c "$(curl -q -fsSL https://get.dockstarter.com)"
+  # fi
+  ;;
+
+list)
+  shift 1
+  printf_green "All available system configs"
+  __list_available | printf_column '4'
+  exit $?
+  ;;
+
+search)
+  shift 1
+  run_install_search "$@"
+  exit $?
+  ;;
+
+available)
+  shift 1
+  if [ "$1" = "sources" ]; then
+    printf_cyan "All available sources"
+    __api_source_list "name" | printf_column '6'
+  else
+    printf_cyan "All available system configs"
+    __api_list | printf_column '6'
+  fi
+  exit $?
+  ;;
+
+remove)
+  shift 1
+  unset APPNAME
+  if [ "$INSTALL_ALL" = "true" ]; then
+    LISTARRAY="$(ls -A "/var/lib/srv/$USER/docker" 2>/dev/null)"
+  else
+    LISTARRAY="${*}"
+  fi
+  [ ${#LISTARRAY} -ne 0 ] || printf_exit "No packages selected for removal"
+  for rmf in ${LISTARRAY}; do
+    installer_delete "$rmf"
+  done
+  exit $?
+  ;;
+
+update)
+  shift 1
+  unset APPNAME
+  LISTARRAY="$*"
+  if [ ${#LISTARRAY} -eq 0 ]; then
+    __run_update
+  elif [ ${#LISTARRAY} -ne 0 ]; then
+    for ins in "${LISTARRAY[@]}"; do
+      APPNAME="$ins"
+      __run_update "$APPNAME"
+    done
+  else
+    printf_yellow "There doesn't seem to be any packages installed"
+    __notifications "There doesn't seem to be any packages installed"
+  fi
+  exit $?
+  ;;
+
+install)
+  shift 1
+  if [ "$INSTALL_ALL" = "true" ]; then
+    LISTARRAY="$(__list_available)"
+  elif [ $# -eq 0 ]; then
+    printf_blue "No packages provide running the updater"
+    __install_script
+    exit $?
+  else
+    LISTARRAY="$*"
+  fi
+  for ins in $LISTARRAY; do
+    APPNAME="$ins"
+    __install_script "$APPNAME"
+  done
+  exit $?
+  ;;
+
+clone | download)
+  shift 1
+  if [ "$1" = "src" ] || [ "$1" = "source" ]; then
+    shift 1
+    DL_SRC="true"
+    LISTARRAY="${*:-$(__api_source_list 'name' | grep '^' || false)}"
+  else
+    if [ "$INSTALL_ALL" = "true" ]; then
+      LISTARRAY="$(__api_list)"
+    elif [ $# -ne 0 ]; then
+      LISTARRAY="$*"
+    fi
+  fi
+  if [ -n "$LISTARRAY" ]; then
+    for pkgs in $LISTARRAY; do
+      if [ "$DL_SRC" = "true" ]; then
+        __download_src "$pkgs"
+      else
+        __download "$pkgs"
+      fi
+    done
+  else
+    printf_exit "No packages selected for download"
+  fi
+  ;;
+
+prune)
+  shift 1
+  __prune
+  ;;
+
+cron)
+  shift 1
+  cron_updater "$*"
+  exit $?
+  ;;
+
+version)
+  shift 1
+  run_install_version "$@"
+  exit $?
+  ;;
+
+server_status)
+  shift 1
+  __server_status "$@"
+  exit $?
+  ;;
+
+*)
+  export -f __init
+  if ! cmd_exists docker; then
+    __init
+  elif [ $# -ne 0 ]; then
+    __docker "$SETARGS"
+  else
+    __help
+  fi
+  ;;
+esac
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-0}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# ex: ts=2 sw=2 et filetype=sh

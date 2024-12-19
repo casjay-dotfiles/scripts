@@ -1,0 +1,1109 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version           :  202208181757-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  jason@casjaysdev.pro
+# @@License          :  WTFPL
+# @@ReadME           :  virtmgr --help
+# @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
+# @@Created          :  Thursday, Aug 18, 2022 17:57 EDT
+# @@File             :  virtmgr
+# @@Description      :  Connect to a virtual machine via spice
+# @@Changelog        :  New script
+# @@TODO             :  Better documentation/move to virt-manager
+# @@Other            :
+# @@Resource         :
+# @@Terminal App     :  no
+# @@sudo/root        :  no
+# @@Template         :  bash/system
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="$(basename -- "$0" 2>/dev/null)"
+VERSION="202208181757-git"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${RUN_USER:-$USER}"
+USER_HOME="${USER_HOME:-$HOME}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+VIRTMGR_REQUIRE_SUDO="${VIRTMGR_REQUIRE_SUDO:-no}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Reopen in a terminal
+#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set script title
+#CASJAYS_DEV_TILE_FORMAT="${USER}@${HOSTNAME}:${PWD//$HOME/\~} - $APPNAME"
+#CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}"
+#[ -z "$CASJAYSDEV_TITLE_SET" ] && printf '\033]2│;%s\033\\' "$CASJAYS_DEV_TILE_FORMAT" && CASJAYSDEV_TITLE_SET="$APPNAME"
+export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}" CASJAYSDEV_TITLE_SET
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initial debugging
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# pipes fail
+set -o pipefail
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import functions
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+  . "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  exit 1
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Options are: *_install
+# system user desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+user_install && __options "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Send all output to /dev/null
+__devnull() {
+  tee &>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# Send errors to /dev/null
+__devnull2() {
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# See if the executable exists
+__cmd_exists() {
+  exitCode=0
+  [ $# -gt 0 ] || return 0
+  for cmd in "$@"; do
+    builtin type -p "$cmd" &>/dev/null || exitCode+=$(($exitCode + 1))
+  done
+  [ $exitCode -eq 0 ] || exitCode=3
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for a valid internet connection
+__am_i_online() {
+  local exitCode=0
+  curl -q -LSsfI --max-time 2 --retry 1 "${1:-https://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# colorization
+if [ "$SHOW_RAW" = "true" ]; then
+  NC=""
+  RESET=""
+  BLACK=""
+  RED=""
+  GREEN=""
+  YELLOW=""
+  BLUE=""
+  PURPLE=""
+  CYAN=""
+  WHITE=""
+  ORANGE=""
+  LIGHTRED=""
+  BG_GREEN=""
+  BG_RED=""
+  ICON_INFO="[ info ]"
+  ICON_GOOD="[ ok ]"
+  ICON_WARN="[ warn ]"
+  ICON_ERROR="[ error ]"
+  ICON_QUESTION="[ ? ]"
+  printf_column() { tee | grep '^'; }
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional printf_ colors
+__printf_head() { printf_blue "$1"; }
+__printf_opts() { printf_purple "$1"; }
+__printf_line() { printf_cyan "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# output version
+__version() { printf_cyan "$VERSION"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# list options
+__list_options() {
+  printf_color "$1: " "$5"
+  echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g' | tr '\n' ' '
+  printf_newline
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create the config file
+__gen_config() {
+  local NOTIFY_CLIENT_NAME="$APPNAME"
+  if [ "$INIT_CONFIG" != "TRUE" ]; then
+    printf_blue "Generating the config file in"
+    printf_cyan "$VIRTMGR_CONFIG_DIR/$VIRTMGR_CONFIG_FILE"
+  fi
+  [ -d "$VIRTMGR_CONFIG_DIR" ] || mkdir -p "$VIRTMGR_CONFIG_DIR"
+  [ -d "$VIRTMGR_CONFIG_BACKUP_DIR" ] || mkdir -p "$VIRTMGR_CONFIG_BACKUP_DIR"
+  [ -f "$VIRTMGR_CONFIG_DIR/$VIRTMGR_CONFIG_FILE" ] &&
+    cp -Rf "$VIRTMGR_CONFIG_DIR/$VIRTMGR_CONFIG_FILE" "$VIRTMGR_CONFIG_BACKUP_DIR/$VIRTMGR_CONFIG_FILE.$$"
+  cat <<EOF >"$VIRTMGR_CONFIG_DIR/$VIRTMGR_CONFIG_FILE"
+# Settings for virtmgr
+VIRTMGR_VM_VCPUS="${VIRTMGR_VM_VCPUS:-}"
+VIRTMGR_VM_ARCH="${VIRTMGR_VM_ARCH:-}"
+VIRTMGR_VM_RAM_SIZE="${VIRTMGR_VM_RAM_SIZE:-}"
+VIRTMGR_VM_DISK_SIZE="${VIRTMGR_VM_DISK_SIZE:-}"
+VIRTMGR_VM_DISK_TYPE="${VIRTMGR_VM_DISK_TYPE:-}"
+VIRTMGR_VM_CPU="${VIRTMGR_VM_CPU:-}"
+VIRTMGR_VM_NETWORK="${VIRTMGR_VM_NETWORK:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+VIRTMGR_OUTPUT_COLOR_1="${VIRTMGR_OUTPUT_COLOR_1:-}"
+VIRTMGR_OUTPUT_COLOR_2="${VIRTMGR_OUTPUT_COLOR_2:-}"
+VIRTMGR_OUTPUT_COLOR_GOOD="${VIRTMGR_OUTPUT_COLOR_GOOD:-}"
+VIRTMGR_OUTPUT_COLOR_ERROR="${VIRTMGR_OUTPUT_COLOR_ERROR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+VIRTMGR_NOTIFY_ENABLED="${VIRTMGR_NOTIFY_ENABLED:-}"
+VIRTMGR_GOOD_NAME="${VIRTMGR_GOOD_NAME:-}"
+VIRTMGR_ERROR_NAME="${VIRTMGR_ERROR_NAME:-}"
+VIRTMGR_GOOD_MESSAGE="${VIRTMGR_GOOD_MESSAGE:-}"
+VIRTMGR_ERROR_MESSAGE="${VIRTMGR_ERROR_MESSAGE:-}"
+VIRTMGR_NOTIFY_CLIENT_NAME="${VIRTMGR_NOTIFY_CLIENT_NAME:-}"
+VIRTMGR_NOTIFY_CLIENT_ICON="${VIRTMGR_NOTIFY_CLIENT_ICON:-}"
+VIRTMGR_NOTIFY_CLIENT_URGENCY="${VIRTMGR_NOTIFY_CLIENT_URGENCY:-}"
+
+EOF
+  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
+  if [ -f "$VIRTMGR_CONFIG_DIR/$VIRTMGR_CONFIG_FILE" ]; then
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
+    . "$VIRTMGR_CONFIG_DIR/$VIRTMGR_CONFIG_FILE"
+    exitCode=0
+  else
+    printf_red "Failed to create the config file"
+    exitCode=1
+  fi
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Help function - Align to 50
+__help() { #* list start restore create new delete ip ssh open
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "virtmgr:  Connect to a virtual machine via spice - $VERSION"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Usage: virtmgr [options] [commands] [name]"
+  __printf_line "* [name]                        - Show All running vms or shows status of [name]"
+  __printf_line "list [name]                     - List"
+  __printf_line "start [name]                    - Start"
+  __printf_line "restore [name]                  - Restore"
+  __printf_line "create [name]                   - Create"
+  __printf_line "new [name]                      - New"
+  __printf_line "delete [name]                   - Delete"
+  __printf_line "ip [name]                       - IP"
+  __printf_line "ssh [name]                      - SSH"
+  __printf_line "open [name]                     - Open"
+  __printf_line "init                            - Install and setup virtualization"
+  __printf_line "setup                           - Setup virtualization on the host"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Other Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--help                          - Shows this message"
+  __printf_line "--config                        - Generate user config file"
+  __printf_line "--version                       - Show script version"
+  __printf_line "--options                       - Shows all available options"
+  __printf_line "--debug                         - Enables script debugging"
+  __printf_line "--raw                           - Removes all formatting on output"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# check if arg is a builtin option
+__is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0; fi; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 1 || return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep -sh "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# # Get sudo password
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run sudo
+__sudorun() {
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo
+__can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User can run sudo
+__sudoif() {
+  __user_is_root && return 0
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run command as root
+requiresudo() {
+  if [ "$VIRTMGR_REQUIRE_SUDO" = "yes" ] && [ -z "$VIRTMGR_REQUIRE_SUDO_RUN" ]; then
+    export VIRTMGR_REQUIRE_SUDO="no"
+    export VIRTMGR_REQUIRE_SUDO_RUN="true"
+    __sudo "$@"
+    exit $?
+  else
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  CMD="${1:-echo}" && shift 1
+  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  [ "$(basename -- "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  if __sudoif; then
+    export PATH="$PATH"
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    exitCode=$?
+  else
+    printf '%s\n' "This requires root to run"
+    exitCode=1
+  fi
+  return ${exitCode:-1}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  exitCode=${exitCode:-0}
+  [ -f "$VIRTMGR_TEMP_FILE" ] && rm -Rf "$VIRTMGR_TEMP_FILE" &>/dev/null
+  #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD//$HOME/\~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined functions
+__printf_reset() { printf_color "\r$1 " ${2:-1}; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__virsh() { sudo virsh "$@" 2>/dev/null || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__list_ips() { __virsh net-dhcp-leases default 2>/dev/null | grep -v '^$' || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__list_running() { __sudo virsh list --all 2>/dev/null | grep -E 'running|shut off' | grep -v '^$' | grep '^' || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__list_vms() { __virsh list --all | grep -Ev 'Id.*.Name.*.State|----|^$' 2>/dev/null | grep -v '^$' | awk '{print $2}' | grep '^' || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_pid() { __sudo ps aux 2>/dev/null | grep "qemu" | grep "$1" | grep -v 'grep' | grep -v '^$' | awk '{print $2}' | grep '^' || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_port() { __sudo netstat -apn 2>/dev/null | grep "$(__get_pid "$1")" | grep 'tcp' | awk '{print $4}' | grep -v '^$' | grep '^' || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__viewer() { __local_viewer "$1" || __remote_viewer "$1" || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__is_libvirt_installed() { __cmd_exists qemu-img virt-manager virt-install && return 0 || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__64bit_check() { grep -q -o -w 'lm' /proc/cpuinfo &>/dev/null && return 0 || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__check_vm_args() {
+  local running=""
+  if [ $# = 0 ] || [ "$1" = "" ]; then
+    running="$(__list_running | grep -w 'running' | awk '{print $2}' | tr '\n' ' ' | grep '^')"
+    [ -n "$running" ] && printf_red "Please provide the vm name: ${GREEN}$running${RESET}" || printf_red "Please provide the vm name"
+    exit 1
+  else
+    __list_vms | grep -wq "$1" || printf_exit "Can not find the vm named $1"
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__ssh() {
+  local ip="$1"
+  local user="${2:-root}"
+  local idFile="$3"
+  local sshcmd="-l ${user} ${ip} ${VIRTMGR_SSH_OPTS:-}"
+  [ -n "$idFile" ] && ssh -i "$id_file" $sshcmd 2>/dev/null || ssh $sshcmd 2>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__vm_rm() {
+  if __list_vms | grep -qw "$1"; then
+    printf_blue "Removing virtual machine: $1"
+  fi
+  if __list_running | grep -qi 'running'; then
+    if __virsh destroy "$1" &>/dev/null && __list_vms | grep -qw "$1" && __virsh undefine "$1" &>/dev/null; then
+      printf_green "The vm has been deleted"
+    else
+      printf_exit "The VM $1 does not exist"
+    fi
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_id_file() {
+  local idFile="$1"
+  local ipFile="$2"
+  if [ -n "$idFile" ] && [ -f "$idFile" ]; then
+    echo "$idFile"
+  elif [ -n "$idFile" ] && [ -f "$HOME/.ssh/$idFile" ]; then
+    echo "$HOME/.ssh/$idFile"
+  elif [ -n "$ipFile" ] && [ -f "$HOME/.ssh/$ipFile" ]; then
+    echo "$HOME/.ssh/$ipFile"
+  else
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_ip() {
+  local ip="" mac=""
+  local name="$1"
+  ip="$(__list_ips | grep -w "$name" | awk '{print $5}' | grep '[0-9]' | awk -F '/' '{print $1}')"
+  mac="$(__virsh dumpxml "$name" 2>/dev/null | grep "mac address" | awk -F\' '{ print $2}')"
+  [ -n "$ip" ] && printf '%s\n' "$ip" || arp -an 2>/dev/null | grep "$mac" | grep '^' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__test_connection() {
+  local ip="$1" status=""
+  status=$({ __cmd_exists nmap && nmap "$ip" -Pn -p 22 | grep -qioE 'open' && echo 'true'; } || { ping -w 1 -c1 "$ip" &>/dev/null && echo 'true'; } || return 1)
+  if [ $status == "true" ]; then
+    return 0
+  elif ssh -q -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=1 $ip 'exit 0' &>/dev/null; then
+    return 0
+  else
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__ssh_viewer() {
+  local ip=""
+  local name="$1"
+  local user="$2"
+  local idFile="${3:-$2}"
+  local tries="10"
+  ip="$(__get_ip "${name}" | tail -n1)"
+  idFile="$(__get_id_file "$idFile")"
+  clear
+  while [ $tries -gt 0 ]; do
+    __printf_reset "Attempting to connect to ${ip}..." 3
+    __start "$name" &>/dev/null && sleep 2 || sleep .5
+    [ -n "$ip" ] && break || tries=$((tries - 1))
+    sleep 1 && ip="$(__get_ip "$ip")"
+  done
+  echo ''
+  id_file="$(__get_id_file "$idFile" || __get_id_file "$ip")"
+  if [ -n "$ip" ]; then
+    if __test_connection "$ip"; then
+      clear
+      __ssh "${ip}" "${user}" "${id_file}" && clear
+      exit
+    else
+      printf_red "Failed to ping ${ip} launching local viewer"
+      sleep 3
+      __local_viewer "$name"
+    fi
+  else
+    printf_exit "Can not find the IP address for $name"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__local_viewer() {
+  local running=""
+  running="$(__list_running | grep 'running' | grep "$1" | grep '^' || echo '')"
+  [ -n "$running" ] || printf_exit "$1 is not running"
+  { __cmd_exists virt-viewer && sudo virt-viewer "$1" 2>/dev/null || return 1; } &
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__remote_viewer() {
+  local port=""
+  port="$(__get_port "$1")"
+  [ -n "$port" ] || printf_exit "$1 does not seem to be using a port"
+  { __cmd_exists remote-viewer && remote-viewer spice://$port 2>/dev/null || return 1; } &
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__snapshot() {
+  domain="$1"
+  snapshot="${2:-Default}"
+  destroy="$([ "$3" != "no-stop" ] && __virsh destroy --domain "$domain" &>/dev/null || false)"
+  snapshot="$(__virsh snapshot-create-as "${snapshot:-Default}" --domain "$domain" &>/dev/null)"
+  created="$(snapshot-list --domain $domain 2>&1 | grep -q "$snapshot" || echo 'Failed')"
+  [ -z "$created" ] || printf_return "Failed to create snapshot $snapshot"
+  start="$(__virsh start --domain "$domain" 2>&1 | grep -qiv ' started')"
+  [ -n "$start" ] || printf_return "Failed to start $domain"
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__restore() {
+  domain="$1"
+  snapshot="${2:-Default}"
+  printf_green "Restoring snapshot for $domain using $snapshot"
+  restore="$(__virsh snapshot-revert --domain $domain $snapshot 2>&1 | grep -Eqi 'error:|failed:' && echo 'Failed')"
+  [ -z "$restore" ] && printf_green "Restore was successful" || printf_return "Failed to restore snapshot"
+  start="$(__virsh start --domain $domain 2>&1 | grep -qi ' started' || echo 'Failed')"
+  [ -z "$start" ] && printf_green "Started $domain" || printf_return "Failed to start $domain"
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__start() {
+  domain="$1"
+  start="$(__virsh start --domain $domain 2>&1 | grep -qiE 'error:|failed:' && echo 'Failed')"
+  [ -z "$start" ] && printf_green "$domain has been started" || printf_return "Failed to start $domain"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__vm_new() {
+  local name="$1"
+  local cdimage="$2"
+  local disk_size="${3:-$VIRTMGR_VM_DISK_SIZE}"
+  local ram_size="${4:-$VIRTMGR_VM_RAM_SIZE}"
+  local cpu="${VIRTMGR_VM_CPU:-}"
+  local tpm="${VIRTMGR_VM_TPM:-}"
+  local arch="${VIRTMGR_VM_ARCH:-}"
+  local boot="${VIRTMGR_VM_BOOT:-}"
+  local vcpus="${VIRTMGR_VM_VCPUS:-2}"
+  local type="${VIRTMGR_VM_TYPE:-qemu}"
+  local network="${VIRTMGR_VM_NETWORK:-}"
+  local graphics="${VIRTMGR_VM_GRAPHICS:-spice}"
+  local ovmf="" disk="" snapshot="" pid=""
+  local retries=10
+  __cmd_exists virt-viewer || printf_exit "package virt-viewer is not installed"
+  __cmd_exists virt-install || printf_exit "package virt-install is not installed"
+  [ -n "$name" ] || printf_exit "Usage: $APPNAME new [name] [iso] [diskSize] [RAM]"
+  [ -n "$cdimage" ] || printf_exit "Usage: $APPNAME new $name [iso] [diskSize] [RAM]"
+  [ -n "$disk_size" ] || printf_exit "Usage: $APPNAME new $name $cdimage [diskSize] [RAM]"
+  [ -n "$ram_size" ] || printf_exit "Usage: $APPNAME new $name $cdimage $disk_size [RAM]"
+  [ -n "$cpu" ] && cpu="--cpu $cpu"
+  ovmf="$(dirname $(find /usr/share/edk2* -name 'OVMF_CODE.secboot.fd' | grep -v '32' 2>/dev/null) 2>/dev/null)"
+  if [ "$name" = "tails" ] || [ "$name" = "heads" ]; then
+    __virsh undefine "$name" &>/dev/null || true &>/dev/null
+    disk="--disk none"
+    snapshot="true"
+  else
+    disk="--disk /var/lib/libvirt/images/$name.$VIRTMGR_VM_DISK_TYPE,device=disk,size=$disk_size,bus=virtio,format=$VIRTMGR_VM_DISK_TYPE"
+    snapshot="__snapshot $name default no-stop &>/dev/null"
+  fi
+  if __list_running | grep -w "$name" | grep -qi 'running'; then
+    printf_red "The vm is already running"
+    printf_cyan "launching the vm viewer for $name"
+    __local_viewer "$name" &>/dev/null || __remote_viewer "$name" &>/dev/null
+    return 0
+  elif __list_vms | grep -qw "$name"; then
+    __local_viewer "$name"
+    printf_exit "The VM $name Already Exists"
+  else
+    printf_cyan "Creating $name using ISO: $(basename -- "$cdimage")"
+  fi
+  type -P swtpm &>/dev/null || tpm=""
+  {
+    sudo virt-install \
+      --connect qemu:///system \
+      --os-variant "linux2020" \
+      --autostart --virt-type $type \
+      --name $name ${tpm:-} --ram=$ram_size \
+      --arch $arch $cpu --vcpus=$vcpus ${disk:-} \
+      --graphics ${graphics:-} --cdrom "$cdimage" \
+      --input tablet --network $network,model=virtio \
+      --boot ${boot} | tee -p "$VIRTMGR_LOG_DIR/virt-install.log" &>/dev/null &
+    pid=$!
+    sleep 10
+    if grep -iqs 'virt-install: error:' "$VIRTMGR_LOG_DIR/virt-install.log"; then
+      printf_exit "Failed to create vm"
+    fi
+  } &
+  while :; do
+    if __list_running | grep -w "$name" | grep -qi 'running'; then
+      echo ''
+      printf_blue "$name is now running"
+      break
+    fi
+    printf '\rAttempting to create and start %s  ' "$name"
+    sleep 10
+    ((retries--))
+    [ $retries -eq 0 ] && echo '' && printf_exit "Failed to create and start $name"
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__virt_check() {
+  if grep -shq -o -E '(vmx|svm)' /proc/cpuinfo &>/dev/null; then
+    return 0
+  elif grep -shq hvm "/sys/hypervisor/properties/capabilities" &>/dev/null; then
+    return 0
+  else
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__virt_ok() {
+  if __virt_check; then
+    printf_green "Virtualization is enabled"
+    ask_yes_no_question "Do you want to rerun the install script it?" true && VIRTMGR_FORCE="true" ||
+      printf_exit "User cancelled installation"
+  else
+    printf_exit "This system does not have virtualization support"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__enable_services() {
+  local exitCode=0
+  local services="virtlogd libvirtd-admin.socket virtqemud libvirtd libvirt-guests "
+  for service in $services; do
+    __sudo systemctl enable --now $service &>/dev/null && printf_cyan "Enabled $service" || exitCode=$((exitCode + 1))
+    __sudo systemctl restart $service &>/dev/null || exitCode=$((exitCode + 1))
+  done
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__disable_services() {
+  local exitCode=0
+  local services="virtlogd libvirtd-admin.socket virtqemud libvirtd libvirt-guests "
+  for service in $services; do
+    __sudo systemctl stop $service &>/dev/null || exitCode=$((exitCode + 1))
+    __sudo systemctl disable --now $service &>/dev/null && printf_cyan "Enabled $service" || exitCode=$((exitCode + 1))
+  done
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__nested_enabled() {
+  if [ -f '/etc/modprobe.d/kvm.conf' ]; then
+    grep -sh 'nested=' '/etc/modprobe.d/kvm.conf' | grep -q 'options' && return 0 || return 1
+  else
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__modprobe_kvm() {
+  CPU=$(grep -o -E 'model name.*:.*' /proc/cpuinfo | sed 's/model name.*: //g' | head -n 1 | grep '^')
+  sudo modprobe kvm &>/dev/null
+  echo 1 | sudo tee -p /sys/module/kvm/parameters/ignore_msrs &>/dev/null
+  if [[ "$CPU" =~ [aA]md ]]; then
+    CPU_NAME="AMD"
+    if ! __nested_enabled; then
+      echo 'options kvm_amd nested=1' | sudo tee -p -a /etc/modprobe.d/kvm.conf &>/dev/null
+    fi
+  elif [[ "$CPU" =~ [iI]ntel ]]; then
+    CPU_NAME="Intel"
+    if ! __nested_enabled; then
+      echo 'options kvm_intel nested=1' | sudo tee -p -a /etc/modprobe.d/kvm.conf &>/dev/null
+    fi
+  fi
+  if __nested_enabled; then
+    printf_green "Enabled nested virtualization for $CPU_NAME"
+    return 0
+  else
+    printf_red "nested virtualization is not enabled for $CPU_NAME"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__init() {
+  local pkgs
+  local exitCode=0
+  local TMP="${TMPDIR:-/tmp}"
+  local ip="${CURRENT_IP_4:-127.0.0.1}"
+  local HUB_URL="mplx/docker-webvirtcloud"
+  local CONTAINER_NAME="mplx-docker-webvirtcloud-latest"
+  local dockerHome="/var/lib/srv/$USER/docker/$HUB_URL/latest"
+  local pacman_pkgs="qemu libvirt dnsmasq virt-manager bridge-utils flex bison edk2-ovmf"
+  local apt_pkgs="qemu qemu-kvm libvirt-clients libvirt-daemon-system bridge-utils virt-manager libguestfs-tools"
+  local yum_dnf_pkgs="libvirt qemu-kvm virt-manager bridge-utils virt-install bridge-utils libvirt-daemon-kvm cockpit cockpit-machines virt-viewer virt-top  virt-top libguestfs-tools"
+  local dockerMounts="-v /var/run/libvirt:/var/run/libvirt -v $dockerHome/data/webvirt:/srv/webvirtcloud/data -v $dockerHome/config/ssh:/var/www/.ssh"
+  [ -z "$VIRTMGR_FORCE" ] && __is_libvirt_installed && return $exitCode
+  if [ ! -d "$dockerHome" ]; then
+    mkdir -p "$dockerHome"
+    chmod -f 777 "$dockerHome"
+  fi
+  __cpu_count
+  printf_green "Installing virtualization packages"
+  if __cmd_exists pacman; then # ARCH
+    #pkgs+="iptables-nft "
+    pacman -Syyu $pacman_pkgs --noconfirm --needed >>"$VIRTMGR_LOG_DIR/pkgs.log" 2>&1 || exitCode=1
+  elif __cmd_exists apt; then # UBUNTU DEBIAN
+    apt install $apt_pkgs -yy >>"$VIRTMGR_LOG_DIR/pkgs.log" 2>&1 || exitCode=1
+  elif __cmd_exists dnf; then # FEDORA
+    if dnf grouplist 2>&1 | grep -q "Virtualization Host"; then
+      dnf groupinstall -yy "Virtualization Host" >>"$VIRTMGR_LOG_DIR/pkgs.log" 2>&1 || exitCode=1
+    fi
+    dnf install -yy $yum_dnf_pkgs >>"$VIRTMGR_LOG_DIR/pkgs.log" 2>&1 || exitCode=1
+  elif __cmd_exists yum; then # CENTOS RHEL
+    if yum grouplist 2>&1 | grep -q "Virtualization Host"; then
+      yum groupinstall -yy "Virtualization Host" >>"$VIRTMGR_LOG_DIR/pkgs.log" 2>&1 || exitCode=1
+    fi
+    yum install -yy $yum_dnf_pkgs >>"$VIRTMGR_LOG_DIR/pkgs.log" 2>&1 || exitCode=1
+  fi
+  if __is_libvirt_installed; then
+    printf_green "Installed the virtualization packages"
+    if [ -n "$(type -P docker)" ] && ! docker ps -a 2>&1 | grep -qE "webvirtcloud"; then
+      printf_yellow "Installing webvirtcloud via docker"
+      if ! docker run -d --pull always --restart always --name "$CONTAINER_NAME" -p $ip:65000:80/tcp -p $ip:6080:6080/tcp $dockerMounts $HUB_URL:latest >/dev/null 2>&1; then
+        printf_red "Failed to creaate container $CONTAINER_NAME"
+        return 1
+      fi
+      mkdir -p "/etc/webvirtcloud" && chmod 777 -f "/etc/webvirtcloud"
+      printf_purple "webvirtcloud will is listening on http://$ip:65000"
+      printf_green "Default username is: admin"
+      printf_green "Default password is: admin"
+    fi
+    if [ ! -f "/etc/kvm/.installed" ]; then
+      is_kvm_installed="no"
+      printf_cyan "Installing configuration files to /etc/kvm"
+      git clone -q "https://github.com/systemmgr/kvm" "$TMP/kvm_setup" && rsync -aq "$TMP/kvm_setup/etc/." "/etc/kvm/" --delete
+      rm -Rf "$TMP/kvm_setup"
+      __vm_bridge
+      echo "Installed on $(date)" >"/etc/kvm/.installed"
+    fi
+    __modprobe_kvm
+    __enable_services
+    return 0
+  else
+    printf_red "Failed to install the virtualization packages"
+    printf_blue "$pkgs"
+    exit 1
+  fi
+}
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__vm_bridge() {
+  __is_libvirt_installed || return
+  local bridgeName="default"
+  local bridgeFile="/tmp/$bridgeName.xml"
+  local is_kvm_installed="${is_kvm_installed:-yes}"
+  local virshNet="$(virsh net-list --all --name 2>/dev/null | grep -vE '^$|^virtbr' | grep '^')"
+  local bridgeExists="$(virsh net-list -all --name 2>&1 | grep -v '^$' | grep "^$bridgeName" || false)"
+  if [ "$is_kvm_installed" = "no" ]; then
+    unset is_kvm_installed
+    if [ -n "$virshNet" ]; then
+      for d in $virshNet; do
+        virsh net-destroy --network $d
+        virsh net-undefine --network $d
+      done
+    fi
+    __enable_services &>/dev/null
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__cpu_count() {
+  local count="$(grep -shc 'processor' /proc/cpuinfo || echo '1')"
+  printf_purple "CPUs: $count"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined variables/import external variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application Folders
+VIRTMGR_CONFIG_FILE="${VIRTMGR_CONFIG_FILE:-settings.conf}"
+VIRTMGR_CONFIG_DIR="${VIRTMGR_CONFIG_DIR:-$HOME/.config/myscripts/virtmgr}"
+VIRTMGR_CONFIG_BACKUP_DIR="${VIRTMGR_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/virtmgr/backups}"
+VIRTMGR_LOG_DIR="${VIRTMGR_LOG_DIR:-$HOME/.local/log/virtmgr}"
+VIRTMGR_TEMP_DIR="${VIRTMGR_TEMP_DIR:-$HOME/.local/tmp/system_scripts/virtmgr}"
+VIRTMGR_CACHE_DIR="${VIRTMGR_CACHE_DIR:-$HOME/.cache/virtmgr}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+VIRTMGR_OUTPUT_COLOR_1="${VIRTMGR_OUTPUT_COLOR_1:-33}"
+VIRTMGR_OUTPUT_COLOR_2="${VIRTMGR_OUTPUT_COLOR_2:-5}"
+VIRTMGR_OUTPUT_COLOR_GOOD="${VIRTMGR_OUTPUT_COLOR_GOOD:-2}"
+VIRTMGR_OUTPUT_COLOR_ERROR="${VIRTMGR_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+VIRTMGR_NOTIFY_ENABLED="${VIRTMGR_NOTIFY_ENABLED:-yes}"
+VIRTMGR_GOOD_NAME="${VIRTMGR_GOOD_NAME:-Great:}"
+VIRTMGR_ERROR_NAME="${VIRTMGR_ERROR_NAME:-Error:}"
+VIRTMGR_GOOD_MESSAGE="${VIRTMGR_GOOD_MESSAGE:-No errors reported}"
+VIRTMGR_ERROR_MESSAGE="${VIRTMGR_ERROR_MESSAGE:-Errors were reported}"
+VIRTMGR_NOTIFY_CLIENT_NAME="${VIRTMGR_NOTIFY_CLIENT_NAME:-$APPNAME}"
+VIRTMGR_NOTIFY_CLIENT_ICON="${VIRTMGR_NOTIFY_CLIENT_ICON:-notification-new}"
+VIRTMGR_NOTIFY_CLIENT_URGENCY="${VIRTMGR_NOTIFY_CLIENT_URGENCY:-normal}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional Variables
+VIRTMGR_VM_BOOT="hd,cdrom,menu=on"
+VIRTMGR_VM_VCPUS="${VIRTMGR_VM_VCPUS:-2}"
+VIRTMGR_VM_ARCH="${VIRTMGR_VM_ARCH:-x86_64}"
+VIRTMGR_VM_RAM_SIZE="${VIRTMGR_VM_RAM_SIZE:-2048}"
+VIRTMGR_VM_DISK_SIZE="${VIRTMGR_VM_DISK_SIZE:-100}"
+VIRTMGR_VM_DISK_TYPE="${VIRTMGR_VM_DISK_TYPE:-qcow2}"
+VIRTMGR_VM_CPU="${VIRTMGR_VM_CPU:-host-passthrough}"
+VIRTMGR_VM_NETWORK="${VIRTMGR_VM_NETWORK:-network=default}"
+VIRTMGR_VM_TPM="${VIRTMGR_VM_TPM:---tpm backend.type=emulator,backend.version=2.0,model=tpm-tis}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$VIRTMGR_CONFIG_DIR/$VIRTMGR_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$VIRTMGR_CONFIG_DIR/$VIRTMGR_CONFIG_FILE" ] && . "$VIRTMGR_CONFIG_DIR/$VIRTMGR_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$VIRTMGR_LOG_DIR" ] || mkdir -p "$VIRTMGR_LOG_DIR" |& __devnull
+[ -d "$VIRTMGR_TEMP_DIR" ] || mkdir -p "$VIRTMGR_TEMP_DIR" |& __devnull
+[ -d "$VIRTMGR_CACHE_DIR" ] || mkdir -p "$VIRTMGR_CACHE_DIR" |& __devnull
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+VIRTMGR_TEMP_FILE="${VIRTMGR_TEMP_FILE:-$(mktemp $VIRTMGR_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap '__trap_exit' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+__notifications() {
+  __cmd_exists notifications || return
+  [ "$VIRTMGR_NOTIFY_ENABLED" = "yes" ] || return
+  [ "$SEND_NOTIFICATION" = "no" ] && return
+  (
+    export SCRIPT_OPTS="" _DEBUG=""
+    export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$VIRTMGR_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$VIRTMGR_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$VIRTMGR_NOTIFY_CLIENT_ICON}"
+    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$VIRTMGR_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$VIRTMGR_NOTIFY_CLIENT_URGENCY}"
+    notifications "$@"
+  ) |& __devnull &
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set custom actions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Argument/Option settings
+SETARGS=("$@")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SHORTOPTS=""
+SHORTOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
+LONGOPTS+=",force,uefi,cpu:,memory:,disk:,arch:,boot:,type:"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ARRAY="list start ssh restore create new delete open"
+ARRAY+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LIST=""
+LIST+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case "$1" in
+  --raw)
+    shift 1
+    export SHOW_RAW="true"
+    NC=""
+    RESET=""
+    BLACK=""
+    RED=""
+    GREEN=""
+    YELLOW=""
+    BLUE=""
+    PURPLE=""
+    CYAN=""
+    WHITE=""
+    ORANGE=""
+    LIGHTRED=""
+    BG_GREEN=""
+    BG_RED=""
+    ICON_INFO="[ info ]"
+    ICON_GOOD="[ ok ]"
+    ICON_WARN="[ warn ]"
+    ICON_ERROR="[ error ]"
+    ICON_QUESTION="[ ? ]"
+    printf_column() { tee | grep '^'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    ;;
+  --debug)
+    shift 1
+    set -xo pipefail
+    export SCRIPT_OPTS="--debug"
+    export _DEBUG="on"
+    __devnull() { tee || return 1; }
+    __devnull2() { eval "$@" |& tee -p || return 1; }
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
+    ;;
+  --options)
+    shift 1
+    printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' 4
+    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' 4
+    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
+    [ -z "$LIST" ] || __list_options "LIST Options" "${LIST}" ',' '' 4
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  --silent)
+    shift 1
+    VIRTMGR_SILENT="true"
+    ;;
+  --dir)
+    CWD_IS_SET="TRUE"
+    VIRTMGR_CWD="$2"
+    #[ -d "$VIRTMGR_CWD" ] || mkdir -p "$VIRTMGR_CWD" |& __devnull
+    shift 2
+    ;;
+  --force)
+    shift 1
+    VIRTMGR_FORCE="true"
+    ;;
+  --uefi)
+    VIRTMGR_VM_BOOT+=",uefi"
+    shift 2
+    ;;
+  --boot)
+    VIRTMGR_VM_BOOT+=",$2"
+    shift 2
+    ;;
+  --cpu)
+    VIRTMGR_VM_CPU="$2"
+    shift 2
+    ;;
+  --memory)
+    VIRTMGR_VM_RAM_SIZE="$2"
+    shift 2
+    ;;
+  --disk)
+    VIRTMGR_VM_DISK_SIZE="$2"
+    shift 2
+    ;;
+  --type)
+    VIRTMGR_VM_TYPE="$2"
+    shift 2
+    ;;
+  --arch)
+    case "$2" in
+    arm)
+      VIRTMGR_VM_CPU=""
+      VIRTMGR_VM_BOOT="uefi"
+      VIRTMGR_VM_ARCH="arm"
+      ;;
+    amd64 | x86_64)
+      VIRTMGR_VM_ARCH="x86_64"
+      VIRTMGR_VM_CPU="${VIRTMGR_VM_CPU:-host-passthrough}"
+      ;;
+    arm64 | aarch64)
+      VIRTMGR_VM_CPU=""
+      VIRTMGR_VM_BOOT="uefi"
+      VIRTMGR_VM_ARCH="aarch64"
+      ;;
+    *)
+      VIRTMGR_VM_CPU=""
+      VIRTMGR_VM_ARCH="$2"
+      ;;
+    esac
+    shift 2
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get directory from args
+# set -- "$@"
+# for arg in "$@"; do
+# if [ -d "$arg" ]; then
+# VIRTMGR_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
+# elif [ -f "$arg" ]; then
+# VIRTMGR_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
+# else
+# SET_NEW_ARGS+=("$arg")
+# fi
+# done
+# set -- "${SET_NEW_ARGS[@]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set directory to first argument
+# [ -d "$1" ] && __is_an_option "$1" && VIRTMGR_CWD="$1" && shift 1 || VIRTMGR_CWD="${VIRTMGR_CWD:-$PWD}"
+VIRTMGR_CWD="$(realpath "${VIRTMGR_CWD:-$PWD}" 2>/dev/null)"
+# if [ -d "$VIRTMGR_CWD" ] && cd "$VIRTMGR_CWD"; then
+# if [ "$VIRTMGR_SILENT" != "true" ] && [ "$CWD_SILENCE" != "true" ]; then
+# printf_cyan "Setting working dir to $VIRTMGR_CWD"
+# fi
+# else
+# printf_exit "💔 $VIRTMGR_CWD does not exist 💔"
+# fi
+export VIRTMGR_CWD
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set actions based on variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+#cmd_exists --error --ask bash || exit 3 # exit 3 if not found
+#am_i_online --error || exit 4           # exit 4 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+[ "$VIRTMGR_FORCE" = "true" ] || __virt_check || printf_exit "Virtualization is not supported"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute commands
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+case "$1" in
+status)
+  printf_red "64-bit OS is required and"
+  printf_red "virtualization must be enabled"
+  printf '\n'
+  exit $?
+  ;;
+setup)
+  shift 1
+  __init
+  ;;
+init)
+  shift 1
+  if { __64bit_check && __virt_check; } || [ "$VIRTMGR_FORCE" = "true" ]; then
+    __init
+    exitCode=$?
+  else
+    printf_red "64-bit OS is required and"
+    printf_red "virtualization must be enabled"
+    printf '\n'
+    exitCode=2
+  fi
+  exit $exitCode
+  ;;
+list)
+  shift 1
+  paused="$(__list_running | grep 'paused' | awk '{print $2}' | tr '\n' ' ')"
+  running="$(__list_running | grep 'running' | awk '{print $2}' | tr '\n' ' ')"
+  stopped="$(__list_running | grep 'shut off' | awk '{print $2}' | tr '\n' ' ')"
+  if [ -n "$running" ]; then
+    printf_green "Running: $running"
+  fi
+  if [ -n "$stopped" ]; then
+    printf_red "Stopped: $stopped"
+  fi
+  if [ -n "$paused" ]; then
+    printf_yellow "Paused: $paused"
+  fi
+  exit $?
+  ;;
+
+start)
+  shift 1
+  __check_vm_args $1
+  __start "$@"
+  exit $?
+  ;;
+
+restore)
+  shift 1
+  __check_vm_args $1
+  __restore "$@"
+  exit $?
+  ;;
+
+create)
+  shift 1
+  __check_vm_args "$1"
+  __snapshot "$@"
+  exit $?
+  ;;
+
+new)
+  shift 1
+  [ $# -lt 2 ] && printf_exit "Usage: $APPNAME new <name> <isoFile>"
+  __vm_new "$@"
+  exit $?
+  ;;
+
+delete)
+  shift 1
+  __vm_rm "$1"
+  exit $?
+  ;;
+
+ip)
+  shift 1
+  if [ $# -ne 0 ]; then
+    __check_vm_args $1
+    ip="$(__get_ip "$1")"
+    if [ -n "$ip" ]; then
+      printf_green "IP for $1 is: $ip"
+    else
+      printf_red "No IP found for $1"
+    fi
+  else
+    __list_ips
+  fi
+  exit $?
+  ;;
+
+ssh)
+  shift 1
+  __check_vm_args $1
+  __ssh_viewer "$@"
+  exit $?
+  ;;
+
+open)
+  shift 1
+  __check_vm_args $1
+  __list_running | grep -q "$1" && __viewer "$1"
+  exit $?
+  ;;
+
+manage | manager)
+  shift 1
+  __cmd_exists virt-manager && virt-manager &>/dev/null || printf_exit "virt-manager is not installed"
+  exit
+  ;;
+
+*)
+  if [ $# -ne 0 ]; then
+    __check_vm_args $1
+    __list_running | grep -q "$1" && __viewer "$1"
+  else
+    __list_running | printf_column $VIRTMGR_OUTPUT_COLOR_1 || printf_exit "There are no running vms"
+  fi
+  ;;
+esac
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set exit code
+exitCode="${exitCode:-0}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-0}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# ex: ts=2 sw=2 et filetype=sh

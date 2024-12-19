@@ -1,0 +1,819 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# shellcheck disable=SC2031
+# shellcheck disable=SC2317
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version           :  202304161532-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  jason@casjaysdev.pro
+# @@License          :  WTFPL
+# @@ReadME           :  pastebin --help
+# @@Copyright        :  Copyright: (c) 2023 Jason Hempstead, Casjays Developments
+# @@Created          :  Sunday, Apr 16, 2023 15:32 EDT
+# @@File             :  pastebin
+# @@Description      :  bash pastebin client
+# @@Changelog        :  New script
+# @@TODO             :  Better documentation
+# @@Other            :
+# @@Resource         :
+# @@Terminal App     :  no
+# @@sudo/root        :  no
+# @@Template         :  bash/system
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="$(basename -- "$0" 2>/dev/null)"
+VERSION="202304161532-git"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${RUN_USER:-$USER}"
+USER_HOME="${USER_HOME:-$HOME}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+PASTEBIN_REQUIRE_SUDO="${PASTEBIN_REQUIRE_SUDO:-no}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Reopen in a terminal
+#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set script title
+#CASJAYS_DEV_TILE_FORMAT="${USER}@${HOSTNAME}:${PWD//$HOME/\~} - $APPNAME"
+#CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}"
+#[ -z "$CASJAYSDEV_TITLE_SET" ] && printf '\033]2│;%s\033\\' "$CASJAYS_DEV_TILE_FORMAT" && CASJAYSDEV_TITLE_SET="$APPNAME"
+export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}" CASJAYSDEV_TITLE_SET
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initial debugging
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# pipes fail
+set -o pipefail
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import functions
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+  . "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  exit 1
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Options are: *_install
+# system user desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+user_install && __options "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Send all output to /dev/null
+__devnull() {
+  tee &>/dev/null && PASTEBIN_EXIT_STATUS=0 || PASTEBIN_EXIT_STATUS=1
+  return ${PASTEBIN_EXIT_STATUS:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# Send errors to /dev/null
+__devnull2() {
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && PASTEBIN_EXIT_STATUS=0 || PASTEBIN_EXIT_STATUS=1
+  return ${PASTEBIN_EXIT_STATUS:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# See if the executable exists
+__cmd_exists() {
+  PASTEBIN_EXIT_STATUS=0
+  [ -n "$1" ] && local PASTEBIN_EXIT_STATUS="" || return 0
+  for cmd in "$@"; do
+    builtin command -v "$cmd" &>/dev/null && PASTEBIN_EXIT_STATUS+=$(($PASTEBIN_EXIT_STATUS + 0)) || PASTEBIN_EXIT_STATUS+=$(($PASTEBIN_EXIT_STATUS + 1))
+  done
+  [ $PASTEBIN_EXIT_STATUS -eq 0 ] || PASTEBIN_EXIT_STATUS=3
+  return ${PASTEBIN_EXIT_STATUS:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for a valid internet connection
+__am_i_online() {
+  local PASTEBIN_EXIT_STATUS=0
+  curl -q -LSsfI --max-time 1 --retry 0 "${1:-https://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || PASTEBIN_EXIT_STATUS=4
+  return ${PASTEBIN_EXIT_STATUS:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# colorization
+if [ "$SHOW_RAW" = "true" ]; then
+  NC=""
+  RESET=""
+  BLACK=""
+  RED=""
+  GREEN=""
+  YELLOW=""
+  BLUE=""
+  PURPLE=""
+  CYAN=""
+  WHITE=""
+  ORANGE=""
+  LIGHTRED=""
+  BG_GREEN=""
+  BG_RED=""
+  ICON_INFO="[ info ]"
+  ICON_GOOD="[ ok ]"
+  ICON_WARN="[ warn ]"
+  ICON_ERROR="[ error ]"
+  ICON_QUESTION="[ ? ]"
+  printf_column() { tee | grep '^'; }
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional printf_ colors
+__printf_head() { printf_blue "$1"; }
+__printf_opts() { printf_purple "$1"; }
+__printf_line() { printf_cyan "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# output version
+__version() { printf_cyan "$VERSION"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# list options
+__list_options() {
+  printf_color "$1: " "$5"
+  echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g' | tr '\n' ' '
+  printf_newline
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create the config file
+__gen_config() {
+  local NOTIFY_CLIENT_NAME="$APPNAME"
+  if [ "$INIT_CONFIG" != "TRUE" ]; then
+    printf_blue "Generating the config file in"
+    printf_cyan "$PASTEBIN_CONFIG_DIR/$PASTEBIN_CONFIG_FILE"
+  fi
+  [ -d "$PASTEBIN_CONFIG_DIR" ] || mkdir -p "$PASTEBIN_CONFIG_DIR"
+  [ -d "$PASTEBIN_CONFIG_BACKUP_DIR" ] || mkdir -p "$PASTEBIN_CONFIG_BACKUP_DIR"
+  [ -f "$PASTEBIN_CONFIG_DIR/$PASTEBIN_CONFIG_FILE" ] &&
+    cp -Rf "$PASTEBIN_CONFIG_DIR/$PASTEBIN_CONFIG_FILE" "$PASTEBIN_CONFIG_BACKUP_DIR/$PASTEBIN_CONFIG_FILE.$$"
+  cat <<EOF >"$PASTEBIN_CONFIG_DIR/$PASTEBIN_CONFIG_FILE"
+# Settings for pastebin
+# set the default service to use [nullbyte,iotek,clbin,catbox,pastebin,microbin,lenpaste,stikked,private,default]
+PASTEBIN_DEFAULT_SERVICE="stikked"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# custom url settings
+PASTEBIN_STIKKED_URL="${PASTEBIN_STIKKED_URL:-}"
+PASTEBIN_LENPASTE_URL="${PASTEBIN_LENPASTE_URL:-}"
+PASTEBIN_MICROBIN_URL="${PASTEBIN_MICROBIN_URL:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Private pastebin settings
+PASTEBIN_PRIVATE_URL=${PASTEBIN_PRIVATE_URL:-}
+PASTEBIN_PRIVATE_API_KEY="${PASTEBIN_PRIVATE_API_KEY:-}"
+PASTEBIN_PRIVATE_API_URL="${PASTEBIN_PRIVATE_API_URL:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# pastebin.com api key
+PASTEBIN_SERVICE_PASTEBIN_COM_API="${PASTEBIN_SERVICE_PASTEBIN_COM_API:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+PASTEBIN_SAVED_DIR_BASE="${PASTEBIN_SAVED_DIR_BASE:-}"
+PASTEBIN_USER_AGENT="${PASTEBIN_USER_AGENT:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+PASTEBIN_OUTPUT_COLOR_1="${PASTEBIN_OUTPUT_COLOR_1:-}"
+PASTEBIN_OUTPUT_COLOR_2="${PASTEBIN_OUTPUT_COLOR_2:-}"
+PASTEBIN_OUTPUT_COLOR_GOOD="${PASTEBIN_OUTPUT_COLOR_GOOD:-}"
+PASTEBIN_OUTPUT_COLOR_ERROR="${PASTEBIN_OUTPUT_COLOR_ERROR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+PASTEBIN_NOTIFY_ENABLED="${PASTEBIN_NOTIFY_ENABLED:-}"
+PASTEBIN_GOOD_NAME="${PASTEBIN_GOOD_NAME:-}"
+PASTEBIN_ERROR_NAME="${PASTEBIN_ERROR_NAME:-}"
+PASTEBIN_GOOD_MESSAGE="${PASTEBIN_GOOD_MESSAGE:-}"
+PASTEBIN_ERROR_MESSAGE="${PASTEBIN_ERROR_MESSAGE:-}"
+PASTEBIN_NOTIFY_CLIENT_NAME="${PASTEBIN_NOTIFY_CLIENT_NAME:-}"
+PASTEBIN_NOTIFY_CLIENT_ICON="${PASTEBIN_NOTIFY_CLIENT_ICON:-}"
+PASTEBIN_NOTIFY_CLIENT_URGENCY="${PASTEBIN_NOTIFY_CLIENT_URGENCY:-}"
+
+EOF
+  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
+  if [ -f "$PASTEBIN_CONFIG_DIR/$PASTEBIN_CONFIG_FILE" ]; then
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
+    . "$PASTEBIN_CONFIG_DIR/$PASTEBIN_CONFIG_FILE"
+    PASTEBIN_EXIT_STATUS=0
+  else
+    printf_red "Failed to create the config file"
+    PASTEBIN_EXIT_STATUS=1
+  fi
+  return ${PASTEBIN_EXIT_STATUS:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Help function - Align to 50
+__help() {
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "$APPNAME:  bash pastebin client - $VERSION"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Usage: pastebin [options] [service] [file/text]"
+  __printf_line "nullbyte                        - "
+  __printf_line "iotek                           - "
+  __printf_line "clbin                           - "
+  __printf_line "catbox                          - "
+  __printf_line "pastebin                        - "
+  __printf_line "microbin                        - "
+  __printf_line "lenpaste                        - "
+  __printf_line "stikked                         - "
+  __printf_line "private                         - "
+  __printf_line "default                         - "
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--title                         - "
+  __printf_line "--name                          - "
+  __printf_line "--private                       - "
+  __printf_line "--language                      - "
+  __printf_line "--expire                        - "
+  __printf_line "--reply                         - "
+  __printf_line "--apikey                        - "
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Other Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--help                          - Shows this message"
+  __printf_line "--config                        - Generate user config file"
+  __printf_line "--version                       - Show script version"
+  __printf_line "--options                       - Shows all available options"
+  __printf_line "--debug                         - Enables script debugging"
+  __printf_line "--raw                           - Removes all formatting on output"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__grep() { grep "$@" 2>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# check if arg is a builtin option
+__is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0; fi; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 1 || return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep -sh "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# # Get sudo password
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run sudo
+__sudorun() {
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo
+__can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User can run sudo
+__sudoif() {
+  __user_is_root && return 0
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run command as root
+requiresudo() {
+  if [ "$PASTEBIN_REQUIRE_SUDO" = "yes" ] && [ -z "$PASTEBIN_REQUIRE_SUDO_RUN" ]; then
+    export PASTEBIN_REQUIRE_SUDO="no"
+    export PASTEBIN_REQUIRE_SUDO_RUN="true"
+    __sudo "$@"
+    exit $?
+  else
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  CMD="${1:-echo}" && shift 1
+  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  [ "$(basename -- "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  if __sudoif; then
+    export PATH="$PATH"
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    PASTEBIN_EXIT_STATUS=$?
+  else
+    printf '%s\n' "This requires root to run"
+    PASTEBIN_EXIT_STATUS=1
+  fi
+  return ${PASTEBIN_EXIT_STATUS:-0}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  PASTEBIN_EXIT_STATUS=${PASTEBIN_EXIT_STATUS:-0}
+  [ -f "$PASTEBIN_TEMP_FILE" ] && rm -Rf "$PASTEBIN_TEMP_FILE" &>/dev/null
+  #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD//$HOME/\~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $PASTEBIN_EXIT_STATUS
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined functions
+__output_response() {
+  local service="$1"
+  local response="$2"
+  local date="$PASTEBIN_GET_DATE_TIME"
+  local savedir="${PASTEBIN_SAVED_DIR_BASE:-$HOME/Documents/myscripts/$APPNAME}"
+  if [ -n "$response" ]; then
+    [ -d "$savedir" ] || mkdir -p "$savedir"
+    printf '%s\n' "$response" | printf_readline $PASTEBIN_OUTPUT_COLOR_2
+    printf 'Paste from %s on %s: %b\n' "$service" "$date" "$response" >>"${savedir}/${service}.txt"
+    __cmd_exists clipboard && printf '%s\n%b\n' "Pasted to $service:" "$response" | NOTIFY_CLIENT_NAME="$PASTEBIN_NOTIFY_CLIENT_NAME" clipboard
+    return 0
+  else
+    __notifications "Failed to post to $service"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__set_vars() {
+  name="$PASTEBIN_PASTES_NAME"
+  reply="$PASTEBIN_PASTES_REPLY"
+  title="$PASTEBIN_PASTES_TITLE"
+  expires="$PASTEBIN_PASTES_EXPIRES"
+  private="$PASTEBIN_PASTES_PRIVATE"
+  language="$PASTEBIN_PASTES_LANGUAGE"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__pastebin_com() {
+  __set_vars
+  local get_response=""
+  local useragent="$PASTEBIN_USER_AGENT"
+  local apikey="${PASTEBIN_API_KEY:-$PASTEBIN_SERVICE_PASTEBIN_COM_API}"
+  local set_api_key="&api_dev_key=$apikey"
+  #qs="api_option=paste&api_paste_expire_date=N&api_paste_private=public&api_paste_name=${name:-$(basename -- "${PASTEBIN_CONTENTS}")}"
+  #get_response="$(curl -q -LSsf -A "$useragent" --data-urlencode "api_paste_code=$(<"$PASTEBIN_TEMP_FILE")" "https://pastebin.com/api/api_post.php" 3>/dev/null | grep '^')"
+  get_response="$(cat "$PASTEBIN_TEMP_FILE" | curl -q -LSsf -X POST -d 'api_option=paste' "https://pastebin.com/api/api_post.php" 2>/dev/null | grep '^')"
+  __output_response "pastebin.com" "$get_response" || return 2
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__catbox_moe() {
+  __set_vars
+  local get_response=""
+  local useragent="$PASTEBIN_USER_AGENT"
+  get_response="$(curl -q -LSsf -A "$useragent" -F 'reqtype=fileupload' -F 'fileToUpload=@'$PASTEBIN_TEMP_FILE'' "https://catbox.moe/user/api.php" 2>/dev/null | grep '^')"
+  __output_response "catbox.moe" "$get_response" || return 2
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__clbin_com() {
+  __set_vars
+  local get_response=""
+  local useragent="$PASTEBIN_USER_AGENT"
+  get_response="$(curl -q -LSsf -A "$useragent" -F 'clbin=@'$PASTEBIN_TEMP_FILE'' "https://clbin.com" 2>/dev/null | grep '^')"
+  __output_response "clbin.com" "$get_response" || return 2
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__iotek_org() {
+  __set_vars
+  local get_response=""
+  local useragent="$PASTEBIN_USER_AGENT"
+  get_response="$(cat "$PASTEBIN_TEMP_FILE" | curl -q -LSsf -A "$useragent" -sT- "https://p.iotek.org" 2>/dev/null | grep '^')"
+  __output_response "iotek.org" "$get_response" || return 2
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__0x0_st() {
+  __set_vars
+  local get_response=""
+  local useragent="$PASTEBIN_USER_AGENT"
+  get_response="$(curl -q -LSsf -A "$useragent" -F 'file=@'$PASTEBIN_TEMP_FILE'' "https://0x0.st" 2>/dev/null | grep '^')"
+  __output_response "0x0.st" "$get_response" || return 2
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__lenpaste() {
+  __set_vars
+  local get_response=""
+  local useragent="$PASTEBIN_USER_AGENT"
+  get_response="$(cat "$PASTEBIN_TEMP_FILE" | curl -q -LSsf -k -X 'POST' -A "$useragent" -d 'expiration='$expires'' -d 'author='$name'' -d 'title='$title'' --data-urlencode body@- "$PASTEBIN_LENPASTE_URL/api/v1/new" 2>/dev/null | jq -r '.id' 2>/dev/null | grep '^')"
+  [ -n "$get_response" ] && get_response="$PASTEBIN_LENPASTE_URL/$get_response"
+  __output_response "lenpaste" "$get_response" || return 2
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__stikked() {
+  __set_vars
+  local get_response=""
+  local useragent="$PASTEBIN_USER_AGENT"
+  get_response="$(printf "%s\n" "$PASTEBIN_CONTENTS" | curl -q -LSsf -A "$useragent" -d lang="$language" -d name="$name" --data-urlencode text@- "$PASTEBIN_STIKKED_URL/api/create" 2>/dev/null | grep '^')"
+  __output_response "stikked" "$get_response" || return 2
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__microbin() {
+  __set_vars
+  local get_response=""
+  local useragent="$PASTEBIN_USER_AGENT"
+  get_response="$(curl -q -LSsfi -X POST "$PASTEBIN_MICROBIN_URL/upload" -F "file=@$PASTEBIN_TEMP_FILE" 2>/dev/null | perl -lne 's!/upload/!/p/!; print $1 if /^location: (.*)$/i' | grep '^')"
+  __output_response "microbin" "$get_response" || return 2
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__private() {
+  if [ -n "$PASTEBIN_PRIVATE_URL" ]; then
+    __set_vars
+    local get_response=""
+    if [ -z "$PASTEBIN_PRIVATE_API_KEY" ]; then
+      get_response="$(printf "%s\n" "$PASTEBIN_CONTENTS" | curl -q -LSsf -d lang="$language" -d name="$name" --data-urlencode text@- "$PASTEBIN_PRIVATE_URL/$PASTEBIN_PRIVATE_API_URL" 2>/dev/null | grep '^')"
+    else
+      get_response="$(printf "%s\n" "$PASTEBIN_CONTENTS" | curl -q -LSsf -H "Accept: application/json" -H 'Authorization: Bearer '$PASTEBIN_PRIVATE_API_KEY'' -d lang="$language" -d name="$name" --data-urlencode text@- "$PASTEBIN_PRIVATE_URL/$PASTEBIN_PRIVATE_API_URL" 2>/dev/null | grep '^')"
+    fi
+    __output_response "private" "$get_response" || return 2
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__list() {
+  local service="$1"
+  local search="$2"
+  local savedir="${PASTEBIN_SAVED_DIR_BASE:-$HOME/Documents/myscripts/$APPNAME}"
+  [ -n "$service" ] || service="$(find "$savedir" -type f -iname '*.txt' || false)"
+  if [ -n "$service" ]; then
+    if [ -n "$search" ]; then
+      grep "$search" $service
+    else
+      cat "$service"
+    fi
+  else
+    printf_exit "Can not find any saved pastes in $savedir"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_contents() {
+  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
+    cat - >"$PASTEBIN_TEMP_FILE" 2>/dev/null
+  elif [ -d "$1" ]; then
+    cat "$1"/* >"$PASTEBIN_TEMP_FILE" 2>/dev/null
+  elif [ -f "$1" ]; then
+    cat "$@" >"$PASTEBIN_TEMP_FILE" 2>/dev/null
+  elif [ -n "$1" ]; then
+    printf '%b\n' "${@:-}" >"$PASTEBIN_TEMP_FILE" 2>/dev/null
+  else
+    __help
+    exit 1
+  fi
+  [ -s "$PASTEBIN_TEMP_FILE" ] || printf_exit "Failed to get contents to paste"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined variables/import external variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Default exit code
+PASTEBIN_EXIT_STATUS=0
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application Folders
+PASTEBIN_CONFIG_DIR="${PASTEBIN_CONFIG_DIR:-$HOME/.config/myscripts/pastebin}"
+PASTEBIN_CONFIG_BACKUP_DIR="${PASTEBIN_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/pastebin/backups}"
+PASTEBIN_LOG_DIR="${PASTEBIN_LOG_DIR:-$HOME/.local/log/pastebin}"
+PASTEBIN_RUN_DIR="${PASTEBIN_RUN_DIR:-$HOME/.local/run/system_scripts/$PASTEBIN_SCRIPTS_PREFIX}"
+PASTEBIN_TEMP_DIR="${PASTEBIN_TEMP_DIR:-$HOME/.local/tmp/system_scripts/pastebin}"
+PASTEBIN_CACHE_DIR="${PASTEBIN_CACHE_DIR:-$HOME/.cache/pastebin}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# File settings
+PASTEBIN_CONFIG_FILE="${PASTEBIN_CONFIG_FILE:-settings.conf}"
+PASTEBIN_LOG_ERROR_FILE="${PASTEBIN_LOG_ERROR_FILE:-$PASTEBIN_LOG_DIR/error.log}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+PASTEBIN_OUTPUT_COLOR_1="${PASTEBIN_OUTPUT_COLOR_1:-33}"
+PASTEBIN_OUTPUT_COLOR_2="${PASTEBIN_OUTPUT_COLOR_2:-5}"
+PASTEBIN_OUTPUT_COLOR_GOOD="${PASTEBIN_OUTPUT_COLOR_GOOD:-2}"
+PASTEBIN_OUTPUT_COLOR_ERROR="${PASTEBIN_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+PASTEBIN_NOTIFY_ENABLED="${PASTEBIN_NOTIFY_ENABLED:-yes}"
+PASTEBIN_GOOD_NAME="${PASTEBIN_GOOD_NAME:-Great:}"
+PASTEBIN_ERROR_NAME="${PASTEBIN_ERROR_NAME:-Error:}"
+PASTEBIN_GOOD_MESSAGE="${PASTEBIN_GOOD_MESSAGE:-No errors reported}"
+PASTEBIN_ERROR_MESSAGE="${PASTEBIN_ERROR_MESSAGE:-Errors were reported}"
+PASTEBIN_NOTIFY_CLIENT_NAME="${PASTEBIN_NOTIFY_CLIENT_NAME:-$APPNAME}"
+PASTEBIN_NOTIFY_CLIENT_ICON="${PASTEBIN_NOTIFY_CLIENT_ICON:-notification-new}"
+PASTEBIN_NOTIFY_CLIENT_URGENCY="${PASTEBIN_NOTIFY_CLIENT_URGENCY:-normal}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional Variables
+PASTEBIN_SAVED_DIR_BASE="${PASTEBIN_SAVED_DIR_BASE:-$HOME/Documents/myscripts/$APPNAME}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+PASTEBIN_DEFAULT_SERVICE="${PASTEBIN_DEFAULT_SERVICE:-stikked}"
+PASTEBIN_STIKKED_URL="${PASTEBIN_STIKKED_URL:-https://pste.us}"
+PASTEBIN_MICROBIN_URL="${PASTEBIN_MICROBIN_URL:-https://mb.pste.us}"
+PASTEBIN_LENPASTE_URL="${PASTEBIN_LENPASTE_URL:-https://lp.pste.us}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+PASTEBIN_PRIVATE_URL=${PASTEBIN_PRIVATE_URL:-}
+PASTEBIN_PRIVATE_API_KEY="${PASTEBIN_PRIVATE_API_KEY:-}"
+PASTEBIN_PRIVATE_API_URL="${PASTEBIN_PRIVATE_API_URL:-api/create}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+PASTEBIN_SERVICE_PASTEBIN_COM_API="${PASTEBIN_SERVICE_PASTEBIN_COM_API:-97d4dbcc849cf72fe005154e40904f71}"
+PASTEBIN_USER_AGENT="${PASTEBIN_USER_AGENT:-Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/44.0.2403.157 Safari/537.36}"
+PASTEBIN_GET_DATE_TIME="$(date +'%a %b %d, %Y at %H:%M:%S %Z')"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$PASTEBIN_CONFIG_DIR/$PASTEBIN_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$PASTEBIN_CONFIG_DIR/$PASTEBIN_CONFIG_FILE" ] && . "$PASTEBIN_CONFIG_DIR/$PASTEBIN_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$PASTEBIN_RUN_DIR" ] || mkdir -p "$PASTEBIN_RUN_DIR" |& __devnull
+[ -d "$PASTEBIN_LOG_DIR" ] || mkdir -p "$PASTEBIN_LOG_DIR" |& __devnull
+[ -d "$PASTEBIN_TEMP_DIR" ] || mkdir -p "$PASTEBIN_TEMP_DIR" |& __devnull
+[ -d "$PASTEBIN_CACHE_DIR" ] || mkdir -p "$PASTEBIN_CACHE_DIR" |& __devnull
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+PASTEBIN_TEMP_FILE="${PASTEBIN_TEMP_FILE:-$(mktemp $PASTEBIN_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap '__trap_exit' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+__notifications() {
+  __cmd_exists notifications || return
+  [ "$PASTEBIN_NOTIFY_ENABLED" = "yes" ] || return
+  [ "$SEND_NOTIFICATION" = "no" ] && return
+  (
+    export SCRIPT_OPTS="" _DEBUG=""
+    export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$PASTEBIN_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$PASTEBIN_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$PASTEBIN_NOTIFY_CLIENT_ICON}"
+    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$PASTEBIN_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$PASTEBIN_NOTIFY_CLIENT_URGENCY}"
+    notifications "$@"
+  ) |& __devnull &
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set custom actions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Argument/Option settings
+SETARGS=("$@")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SHORTOPTS="t:,n:,p,l:,e:,r:,b:,a:"
+SHORTOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
+LONGOPTS+=",title:,name:,private,language:,expire:,reply:,apikey:"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ARRAY="nullbyte iotek clbin catbox pastebin microbin lenpaste stikked private default"
+ARRAY+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LIST=""
+LIST+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case "$1" in
+  --raw)
+    shift 1
+    export SHOW_RAW="true"
+    NC=""
+    RESET=""
+    BLACK=""
+    RED=""
+    GREEN=""
+    YELLOW=""
+    BLUE=""
+    PURPLE=""
+    CYAN=""
+    WHITE=""
+    ORANGE=""
+    LIGHTRED=""
+    BG_GREEN=""
+    BG_RED=""
+    ICON_INFO="[ info ]"
+    ICON_GOOD="[ ok ]"
+    ICON_WARN="[ warn ]"
+    ICON_ERROR="[ error ]"
+    ICON_QUESTION="[ ? ]"
+    printf_column() { tee | grep '^'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    ;;
+  --debug)
+    shift 1
+    set -xo pipefail
+    export SCRIPT_OPTS="--debug"
+    export _DEBUG="on"
+    __devnull() { tee || return 1; }
+    __devnull2() { eval "$@" |& tee -p || return 1; }
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
+    ;;
+  --options)
+    shift 1
+    printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' 4
+    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' 4
+    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
+    [ -z "$LIST" ] || __list_options "LIST Options" "${LIST}" ',' '' 4
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  --silent)
+    shift 1
+    PASTEBIN_SILENT="true"
+    ;;
+  --dir)
+    CWD_IS_SET="TRUE"
+    PASTEBIN_CWD="$2"
+    [ -d "$PASTEBIN_CWD" ] || mkdir -p "$PASTEBIN_CWD" |& __devnull
+    shift 2
+    ;;
+  -t | --title)
+    PASTEBIN_PASTES_TITLE="$2"
+    shift 2
+    ;;
+  -n | --name)
+    PASTEBIN_PASTES_NAME="$2"
+    shift 2
+    ;;
+  -p | --private)
+    shift 1
+    PASTEBIN_PASTES_PRIVATE=1
+    ;;
+  -l | --language)
+    PASTEBIN_PASTES_LANGUAGE="$2"
+    shift 2
+    ;;
+  -e | --expire)
+    PASTEBIN_PASTES_EXPIRES="$2"
+    shift 2
+    ;;
+  -r | --reply)
+    PASTEBIN_PASTES_REPLY="$2"
+    shift 2
+    ;;
+  -b)
+    PASTBIN_URL="$2"
+    shift 2
+    ;;
+  -a | --apikey)
+    PASTEBIN_API_KEY="$2"
+    shift 2
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get directory from args
+# set -- "$@"
+# for arg in "$@"; do
+# if [ -d "$arg" ]; then
+# PASTEBIN_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
+# elif [ -f "$arg" ]; then
+# PASTEBIN_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
+# else
+# SET_NEW_ARGS+=("$arg")
+# fi
+# done
+# set -- "${SET_NEW_ARGS[@]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set directory to first argument
+# [ -d "$1" ] && __is_an_option "$1" && PASTEBIN_CWD="$1" && shift 1 || PASTEBIN_CWD="${PASTEBIN_CWD:-$PWD}"
+PASTEBIN_CWD="$(realpath "${PASTEBIN_CWD:-$PWD}" 2>/dev/null)"
+# if [ -d "$PASTEBIN_CWD" ] && cd "$PASTEBIN_CWD"; then
+# if [ "$PASTEBIN_SILENT" != "true" ] && [ "$CWD_SILENCE" != "true" ]; then
+# printf_cyan "Setting working dir to $PASTEBIN_CWD"
+# fi
+# else
+# printf_exit "💔 $PASTEBIN_CWD does not exist 💔"
+# fi
+export PASTEBIN_CWD
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set actions based on variables
+if [ "$PASTEBIN_PRIVATE_TYPE" = "stikked" ]; then
+  __default_service() { __stikked; }
+elif [ "$PASTEBIN_PRIVATE_TYPE" = "lenpaste" ]; then
+  __default_service() { __lenpaste; }
+elif [ "$PASTEBIN_PRIVATE_TYPE" = "microbin" ]; then
+  __default_service() { __microbin; }
+else
+  __default_service() { __pastebin_com; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+cmd_exists --error --ask bash || exit 3 # exit 3 if not found
+#am_i_online --error || exit 4           # exit 4 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+[ $# -eq 0 ] && PASTEBIN_SERVICE="${PASTEBIN_DEFAULT_SERVICE:-default}" || PASTEBIN_SERVICE="${1:-default}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Export variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute commands
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+case "$PASTEBIN_SERVICE" in
+list)
+  shift 1
+  __list "$@"
+  exit $?
+  ;;
+nullbyte | 0x0 | null | 0*)
+  shift 1
+  __get_contents "$@"
+  __0x0_st
+  ;;
+iotek | iopaste | p.iotek.org | iop*)
+  shift 1
+  __get_contents "$@"
+  __iotek_org
+  ;;
+clbin | clbin.com | cl*)
+  shift 1
+  __get_contents "$@"
+  __clbin_com
+  ;;
+catbox | catbox.moe | cat*)
+  shift 1
+  __get_contents "$@"
+  __catbox_moe
+  ;;
+pastebin | pb | pastebin.com)
+  shift 1
+  __get_contents "$@"
+  __pastebin_com
+  ;;
+microbin | mb)
+  shift 1
+  __get_contents "$@"
+  __microbin
+  ;;
+lenpaste | lp)
+  shift 1
+  __get_contents "$@"
+  __lenpaste
+  ;;
+stikked)
+  shift 1
+  __get_contents "$@"
+  __stikked
+  ;;
+private)
+  shift 1
+  __get_contents "$@"
+  __private
+  ;;
+default)
+  shift 1
+  __get_contents "$@"
+  __default_service
+  ;;
+*)
+  __get_contents "$@"
+  __default_service
+  ;;
+esac
+PASTEBIN_EXIT_STATUS=$?
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set exit code
+PASTEBIN_EXIT_STATUS="${PASTEBIN_EXIT_STATUS:-0}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${PASTEBIN_EXIT_STATUS:-0}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# ex: ts=2 sw=2 et filetype=sh

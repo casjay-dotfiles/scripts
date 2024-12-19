@@ -1,0 +1,595 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version           :  202208070743-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  jason@casjaysdev.pro
+# @@License          :  WTFPL
+# @@ReadME           :  findmypi --help
+# @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
+# @@Created          :  Sunday, Aug 07, 2022 07:43 EDT
+# @@File             :  findmypi
+# @@Description      :  Script to find a raspberry pi on your network
+# @@Changelog        :  New script
+# @@TODO             :  Better documentation
+# @@Other            :
+# @@Resource         :
+# @@Terminal App     :  no
+# @@sudo/root        :  no
+# @@Template         :  bash/system
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="$(basename -- "$0" 2>/dev/null)"
+VERSION="202208070743-git"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${RUN_USER:-$USER}"
+USER_HOME="${USER_HOME:-$HOME}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+FINDMYPI_REQUIRE_SUDO="${FINDMYPI_REQUIRE_SUDO:-no}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Reopen in a terminal
+#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set script title
+#CASJAYS_DEV_TILE_FORMAT="${USER}@${HOSTNAME}:${PWD//$HOME/\~} - $APPNAME"
+#CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}"
+#[ -z "$CASJAYSDEV_TITLE_SET" ] && printf '\033]2│;%s\033\\' "$CASJAYS_DEV_TILE_FORMAT" && CASJAYSDEV_TITLE_SET="$APPNAME"
+export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}" CASJAYSDEV_TITLE_SET
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initial debugging
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# pipes fail
+set -o pipefail
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import functions
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+  . "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  exit 1
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Options are: *_install
+# system user desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+user_install && __options "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Send all output to /dev/null
+__devnull() {
+  tee &>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# Send errors to /dev/null
+__devnull2() {
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# See if the executable exists
+__cmd_exists() {
+  exitCode=0
+  [ -n "$1" ] && local exitCode="" || return 0
+  for cmd in "$@"; do
+    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
+  done
+  [ $exitCode -eq 0 ] || exitCode=3
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for a valid internet connection
+__am_i_online() {
+  local exitCode=0
+  curl -q -LSsfI --max-time 2 --retry 1 "${1:-https://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# colorization
+if [ "$SHOW_RAW" = "true" ]; then
+  NC=""
+  RESET=""
+  BLACK=""
+  RED=""
+  GREEN=""
+  YELLOW=""
+  BLUE=""
+  PURPLE=""
+  CYAN=""
+  WHITE=""
+  ORANGE=""
+  LIGHTRED=""
+  BG_GREEN=""
+  BG_RED=""
+  ICON_INFO="[ info ]"
+  ICON_GOOD="[ ok ]"
+  ICON_WARN="[ warn ]"
+  ICON_ERROR="[ error ]"
+  ICON_QUESTION="[ ? ]"
+  printf_column() { tee | grep '^'; }
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional printf_ colors
+__printf_head() { printf_blue "$1"; }
+__printf_opts() { printf_purple "$1"; }
+__printf_line() { printf_cyan "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# output version
+__version() { printf_cyan "$VERSION"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# list options
+__list_options() {
+  printf_color "$1: " "$5"
+  echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g' | tr '\n' ' '
+  printf_newline
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create the config file
+__gen_config() {
+  local NOTIFY_CLIENT_NAME="$APPNAME"
+  if [ "$INIT_CONFIG" != "TRUE" ]; then
+    printf_blue "Generating the config file in"
+    printf_cyan "$FINDMYPI_CONFIG_DIR/$FINDMYPI_CONFIG_FILE"
+  fi
+  [ -d "$FINDMYPI_CONFIG_DIR" ] || mkdir -p "$FINDMYPI_CONFIG_DIR"
+  [ -d "$FINDMYPI_CONFIG_BACKUP_DIR" ] || mkdir -p "$FINDMYPI_CONFIG_BACKUP_DIR"
+  [ -f "$FINDMYPI_CONFIG_DIR/$FINDMYPI_CONFIG_FILE" ] &&
+    cp -Rf "$FINDMYPI_CONFIG_DIR/$FINDMYPI_CONFIG_FILE" "$FINDMYPI_CONFIG_BACKUP_DIR/$FINDMYPI_CONFIG_FILE.$$"
+  cat <<EOF >"$FINDMYPI_CONFIG_DIR/$FINDMYPI_CONFIG_FILE"
+# Settings for findmypi
+FINDMYPI_SAVED_FILE="${FINDMYPI_SAVED_FILE:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+FINDMYPI_OUTPUT_COLOR_1="${FINDMYPI_OUTPUT_COLOR_1:-}"
+FINDMYPI_OUTPUT_COLOR_2="${FINDMYPI_OUTPUT_COLOR_2:-}"
+FINDMYPI_OUTPUT_COLOR_GOOD="${FINDMYPI_OUTPUT_COLOR_GOOD:-}"
+FINDMYPI_OUTPUT_COLOR_ERROR="${FINDMYPI_OUTPUT_COLOR_ERROR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+FINDMYPI_NOTIFY_ENABLED="${FINDMYPI_NOTIFY_ENABLED:-}"
+FINDMYPI_GOOD_NAME="${FINDMYPI_GOOD_NAME:-}"
+FINDMYPI_ERROR_NAME="${FINDMYPI_ERROR_NAME:-}"
+FINDMYPI_GOOD_MESSAGE="${FINDMYPI_GOOD_MESSAGE:-}"
+FINDMYPI_ERROR_MESSAGE="${FINDMYPI_ERROR_MESSAGE:-}"
+FINDMYPI_NOTIFY_CLIENT_NAME="${FINDMYPI_NOTIFY_CLIENT_NAME:-}"
+FINDMYPI_NOTIFY_CLIENT_ICON="${FINDMYPI_NOTIFY_CLIENT_ICON:-}"
+FINDMYPI_NOTIFY_CLIENT_URGENCY="${FINDMYPI_NOTIFY_CLIENT_URGENCY:-}"
+
+EOF
+  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
+  if [ -f "$FINDMYPI_CONFIG_DIR/$FINDMYPI_CONFIG_FILE" ]; then
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
+    . "$FINDMYPI_CONFIG_DIR/$FINDMYPI_CONFIG_FILE"
+    exitCode=0
+  else
+    printf_red "Failed to create the config file"
+    exitCode=1
+  fi
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Help function - Align to 50
+__help() {
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "findmypi:  Script to find a raspberry pi on your network - $VERSION"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Usage: findmypi [options] [ipRange] [netMask]"
+  __printf_line "192.168.1.1 24                  - Search Range 192.168.1.0 with netmask 24"
+  __printf_line "192.168.2.1/24                  - Search Range 192.168.1.0 with netmask 24"
+  __printf_line "10.0.0.1 255.255.0.0            - Search Range 10.0.0.1 with netmask 16"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Other Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--help                          - Shows this message"
+  __printf_line "--config                        - Generate user config file"
+  __printf_line "--version                       - Show script version"
+  __printf_line "--options                       - Shows all available options"
+  __printf_line "--debug                         - Enables script debugging"
+  __printf_line "--raw                           - Removes all formatting on output"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# check if arg is a builtin option
+__is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0; fi; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 1 || return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep -sh "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# # Get sudo password
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run sudo
+__sudorun() {
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo
+__can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User can run sudo
+__sudoif() {
+  __user_is_root && return 0
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run command as root
+requiresudo() {
+  if [ "$FINDMYPI_REQUIRE_SUDO" = "yes" ] && [ -z "$FINDMYPI_REQUIRE_SUDO_RUN" ]; then
+    export FINDMYPI_REQUIRE_SUDO="no"
+    export FINDMYPI_REQUIRE_SUDO_RUN="true"
+    __sudo "$@"
+    exit $?
+  else
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  CMD="${1:-echo}" && shift 1
+  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  [ "$(basename -- "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  if __sudoif; then
+    export PATH="$PATH"
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    exitCode=$?
+  else
+    printf '%s\n' "This requires root to run"
+    exitCode=1
+  fi
+  return ${exitCode:-1}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  exitCode=${exitCode:-0}
+  [ -f "$FINDMYPI_TEMP_FILE" ] && rm -Rf "$FINDMYPI_TEMP_FILE" &>/dev/null
+  #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD//$HOME/\~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined functions
+__grep() { grep "$@" 2>/dev/null || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__save_host() {
+  echo "$1" >>"$FINDMYPI_SAVED_FILE" 2>/dev/null
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__grep_ip() {
+  echo "$1" | __grep -qs './.' && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__filter() {
+  tr ' ' '\n' | __grep -v '^$' | __grep '[0-9].[0-9].[0-9].*/'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gethostname() {
+  local host="$1"
+  local setHost=""
+  local testHost=""
+  setHost="$(__try_get_host "$host" || echo "unknown")"
+  testHost="$(__cmd_exists ping && ping -c1 -4 "$host" &>/dev/null && echo 'yes' || echo '')"
+  if [ -n "$testHost" ]; then
+    __save_host "$host    $setHost"
+    return 0
+  else
+    __save_host "$host    $host - IP unknown"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__display_devices() {
+  while IFS="" read -r device || [ -n "$device" ]; do
+    printf '%s\n' "${RED}I have found the following device[s]: ${GREEN}$device${NC}"
+    __gethostname "$device"
+  done <"$FINDMYPI_TEMP_FILE"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__try_get_host() {
+  local host="$1"
+  __cmd_exists nslookup || return 1
+  getent hosts "$host" 2>/dev/null | head -n 1 | awk '{print $2}' | __grep '^'
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__try_ping() {
+  local host="$1"
+  __cmd_exists ping || return 1
+  ping -4 -c1 "$host" | __grep '(.*.)' | __grep -E '*[0-9]\.*[0-9]\.*[0-9]' |
+    __grep 'PING' | sed 's|PING.* (||g;s|)||g' | awk '{print $1}' | __grep '^'
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__execute_findmypi() {
+  __can_i_sudo && __sudoask && clear || printf_exit "nmap requires sudo access"
+  if __grep_ip "$1"; then
+    ip="$(echo "$1" | awk -F/ '{print $1}')"
+    nm="$(echo "$1" | awk -F/ '{print $2}')"
+    _IP_NETWORK="${ip%.*}.0"
+    _IP_NETMASK="$nm"
+  else
+    default_if=$(ip route list | awk '/^default/ {print $5}')
+    [ -z "$1" ] && ip="$(ip -o -f inet addr show "$default_if" | __filter | awk -F/ '{print $1}')" || ip="${1:-192.168.1.1}"
+    [ -z "$2" ] && nm="$(ip -o -f inet addr show "$default_if" | __filter | awk -F/ '{print $2}')" || nm="${2:-24}"
+    _IP_NETWORK="${ip%.*}.0"
+    _IP_NETMASK="$nm"
+  fi
+  if cmd_exists ipcalc unbuffer; then
+    printf_head "25" "${PURPLE}Depending on your network range this may take some time${NC}\n$(unbuffer ipcalc "$ip/$nm" | __grep -v '^$' | printf_readline)"
+  else
+    printf_green "Searching the $_IP_NETWORK/$_IP_NETMASK network for your Raspberry PI"
+  fi
+  sudo nmap -sP -n "$ip"/"$nm" 2>/dev/null | awk '/^Nmap/{ip=$NF}/Raspberry Pi/{print ip}' | sed 's#(##g' | sed 's#)##g' | tee -p "$FINDMYPI_TEMP_FILE" &>/dev/null
+  if [ -s "$FINDMYPI_TEMP_FILE" ]; then
+    echo ""
+    printf_head "3" "\n$(__display_devices)\n"
+    echo "" && printf_blue "Saved the list to $FINDMYPI_SAVED_FILE"
+    exitCode=0
+  else
+    printf_red "I didn't find a Raspberry PI on your network"
+    exitCode=1
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined variables/import external variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application Folders
+FINDMYPI_CONFIG_FILE="${FINDMYPI_CONFIG_FILE:-settings.conf}"
+FINDMYPI_CONFIG_DIR="${FINDMYPI_CONFIG_DIR:-$HOME/.config/myscripts/findmypi}"
+FINDMYPI_CONFIG_BACKUP_DIR="${FINDMYPI_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/findmypi/backups}"
+FINDMYPI_LOG_DIR="${FINDMYPI_LOG_DIR:-$HOME/.local/log/findmypi}"
+FINDMYPI_TEMP_DIR="${FINDMYPI_TEMP_DIR:-$HOME/.local/tmp/system_scripts/findmypi}"
+FINDMYPI_CACHE_DIR="${FINDMYPI_CACHE_DIR:-$HOME/.cache/findmypi}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+FINDMYPI_OUTPUT_COLOR_1="${FINDMYPI_OUTPUT_COLOR_1:-33}"
+FINDMYPI_OUTPUT_COLOR_2="${FINDMYPI_OUTPUT_COLOR_2:-5}"
+FINDMYPI_OUTPUT_COLOR_GOOD="${FINDMYPI_OUTPUT_COLOR_GOOD:-2}"
+FINDMYPI_OUTPUT_COLOR_ERROR="${FINDMYPI_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+FINDMYPI_NOTIFY_ENABLED="${FINDMYPI_NOTIFY_ENABLED:-yes}"
+FINDMYPI_GOOD_NAME="${FINDMYPI_GOOD_NAME:-Great:}"
+FINDMYPI_ERROR_NAME="${FINDMYPI_ERROR_NAME:-Error:}"
+FINDMYPI_GOOD_MESSAGE="${FINDMYPI_GOOD_MESSAGE:-No errors reported}"
+FINDMYPI_ERROR_MESSAGE="${FINDMYPI_ERROR_MESSAGE:-Errors were reported}"
+FINDMYPI_NOTIFY_CLIENT_NAME="${FINDMYPI_NOTIFY_CLIENT_NAME:-$APPNAME}"
+FINDMYPI_NOTIFY_CLIENT_ICON="${FINDMYPI_NOTIFY_CLIENT_ICON:-notification-new}"
+FINDMYPI_NOTIFY_CLIENT_URGENCY="${FINDMYPI_NOTIFY_CLIENT_URGENCY:-normal}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional Variables
+FINDMYPI_SAVED_FILE="${FINDMYPI_SAVED_FILE:-$HOME/Documents/myscripts/${APPNAME}_devices.txt}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$FINDMYPI_CONFIG_DIR/$FINDMYPI_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$FINDMYPI_CONFIG_DIR/$FINDMYPI_CONFIG_FILE" ] && . "$FINDMYPI_CONFIG_DIR/$FINDMYPI_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$FINDMYPI_LOG_DIR" ] || mkdir -p "$FINDMYPI_LOG_DIR" |& __devnull
+[ -d "$FINDMYPI_TEMP_DIR" ] || mkdir -p "$FINDMYPI_TEMP_DIR" |& __devnull
+[ -d "$FINDMYPI_CACHE_DIR" ] || mkdir -p "$FINDMYPI_CACHE_DIR" |& __devnull
+[ -d "$(dirname "$FINDMYPI_CACHE_DIR")" ] || mkdir -p "$(dirname "$FINDMYPI_CACHE_DIR")" |& __devnull
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+FINDMYPI_TEMP_FILE="${FINDMYPI_TEMP_FILE:-$(mktemp $FINDMYPI_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap '__trap_exit' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+__notifications() {
+  __cmd_exists notifications || return
+  [ "$FINDMYPI_NOTIFY_ENABLED" = "yes" ] || return
+  [ "$SEND_NOTIFICATION" = "no" ] && return
+  (
+    export SCRIPT_OPTS="" _DEBUG=""
+    export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$FINDMYPI_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$FINDMYPI_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$FINDMYPI_NOTIFY_CLIENT_ICON}"
+    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$FINDMYPI_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$FINDMYPI_NOTIFY_CLIENT_URGENCY}"
+    notifications "$@"
+  ) |& __devnull &
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set custom actions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Argument/Option settings
+SETARGS=("$@")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SHORTOPTS=""
+SHORTOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LONGOPTS="completions:,config,debug,help,options,raw,version,silent,"
+LONGOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ARRAY=""
+ARRAY+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LIST=""
+LIST+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case "$1" in
+  --raw)
+    shift 1
+    export SHOW_RAW="true"
+    NC=""
+    RESET=""
+    BLACK=""
+    RED=""
+    GREEN=""
+    YELLOW=""
+    BLUE=""
+    PURPLE=""
+    CYAN=""
+    WHITE=""
+    ORANGE=""
+    LIGHTRED=""
+    BG_GREEN=""
+    BG_RED=""
+    ICON_INFO="[ info ]"
+    ICON_GOOD="[ ok ]"
+    ICON_WARN="[ warn ]"
+    ICON_ERROR="[ error ]"
+    ICON_QUESTION="[ ? ]"
+    printf_column() { tee | grep '^'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    ;;
+  --debug)
+    shift 1
+    set -xo pipefail
+    export SCRIPT_OPTS="--debug"
+    export _DEBUG="on"
+    __devnull() { tee || return 1; }
+    __devnull2() { eval "$@" |& tee -p || return 1; }
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
+    ;;
+  --options)
+    shift 1
+    printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' 4
+    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' 4
+    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
+    [ -z "$LIST" ] || __list_options "LIST Options" "${LIST}" ',' '' 4
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  --silent)
+    shift 1
+    FINDMYPI_SILENT="true"
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get directory from args
+# set -- "$@"
+# for arg in "$@"; do
+# if [ -d "$arg" ]; then
+# FINDMYPI_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
+# elif [ -f "$arg" ]; then
+# FINDMYPI_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
+# else
+# SET_NEW_ARGS+=("$arg")
+# fi
+# done
+# set -- "${SET_NEW_ARGS[@]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set directory to first argument
+# [ -d "$1" ] && __is_an_option "$1" && FINDMYPI_CWD="$1" && shift 1 || FINDMYPI_CWD="${FINDMYPI_CWD:-$PWD}"
+FINDMYPI_CWD="$(realpath "${FINDMYPI_CWD:-$PWD}" 2>/dev/null)"
+# if [ -d "$FINDMYPI_CWD" ] && cd "$FINDMYPI_CWD"; then
+# if [ "$FINDMYPI_SILENT" != "true" ] && [ "$CWD_SILENCE" != "true" ]; then
+# printf_cyan "Setting working dir to $FINDMYPI_CWD"
+# fi
+# else
+# printf_exit "💔 $FINDMYPI_CWD does not exist 💔"
+# fi
+export FINDMYPI_CWD
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set actions based on variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+cmd_exists --error --ask bash nmap || exit 3 # exit 3 if not found
+#am_i_online --error || exit 4           # exit 4 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute commands
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+__execute_findmypi "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set exit code
+exitCode="${exitCode:-0}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-0}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# ex: ts=2 sw=2 et filetype=sh

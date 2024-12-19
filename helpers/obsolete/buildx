@@ -1,0 +1,1922 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version           :  202208042122-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  jason@casjaysdev.pro
+# @@License          :  WTFPL
+# @@ReadME           :  buildx --help
+# @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
+# @@Created          :  Thursday, Aug 04, 2022 21:22 EDT
+# @@File             :  buildx
+# @@Description      :  Docker buildx wrapper
+# @@Changelog        :  Replacing variables with functions
+# @@TODO             :  Refactor code: clean up arguments and variables
+# @@Other            :
+# @@Resource         :
+# @@Terminal App     :  no
+# @@sudo/root        :  no
+# @@Template         :  bash/system
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="$(basename -- "$0" 2>/dev/null)"
+VERSION="202208042122-git"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${RUN_USER:-$USER}"
+USER_HOME="${USER_HOME:-$HOME}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+BUILDX_REQUIRE_SUDO="${BUILDX_REQUIRE_SUDO:-no}"
+export BUILDX_START_TIMER="${BUILDX_START_TIMER:-$(date +%s.%N)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Reopen in a terminal
+#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set script title
+#CASJAYS_DEV_TILE_FORMAT="${USER}@${HOSTNAME}:${PWD//$HOME/\~} - $APPNAME"
+#CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}"
+#[ -z "$CASJAYSDEV_TITLE_SET" ] && printf '\033]2│;%s\033\\' "$CASJAYS_DEV_TILE_FORMAT" && CASJAYSDEV_TITLE_SET="$APPNAME"
+export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}" CASJAYSDEV_TITLE_SET
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initial debugging
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# pipes fail
+set -o pipefail
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import functions
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+  . "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  exit 1
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Options are: *_install
+# system user desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+user_install && __options "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Send all output to /dev/null
+__devnull() {
+  tee &>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# Send errors to /dev/null
+__devnull2() {
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# See if the executable exists
+__cmd_exists() {
+  exitCode=0
+  [ -n "$1" ] && local exitCode="" || return 0
+  for cmd in "$@"; do
+    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
+  done
+  [ $exitCode -eq 0 ] || exitCode=3
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for a valid internet connection
+__am_i_online() {
+  local exitCode=0
+  curl -q -LSsfI --max-time 2 --retry 1 "${1:-https://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# colorization
+if [ "$SHOW_RAW" = "true" ]; then
+  NC=""
+  RESET=""
+  BLACK=""
+  RED=""
+  GREEN=""
+  YELLOW=""
+  BLUE=""
+  PURPLE=""
+  CYAN=""
+  WHITE=""
+  ORANGE=""
+  LIGHTRED=""
+  BG_GREEN=""
+  BG_RED=""
+  ICON_INFO="[ info ]"
+  ICON_GOOD="[ ok ]"
+  ICON_WARN="[ warn ]"
+  ICON_ERROR="[ error ]"
+  ICON_QUESTION="[ ? ]"
+  printf_column() { tee | grep '^'; }
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional printf_ colors
+__printf_head() { printf_blue "$1"; }
+__printf_opts() { printf_purple "$1"; }
+__printf_line() { printf_cyan "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# output version
+__version() { printf_cyan "$VERSION"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# list options
+__list_options() {
+  printf_color "$1: " "$5"
+  echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g' | tr '\n' ' '
+  printf_newline
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create the config file
+__gen_config() {
+  local NOTIFY_CLIENT_NAME="$APPNAME"
+  if [ "$INIT_CONFIG" != "TRUE" ]; then
+    printf_blue "Generating the config file in"
+    printf_cyan "$BUILDX_CONFIG_DIR/$BUILDX_CONFIG_FILE"
+  fi
+  [ -d "$BUILDX_CONFIG_DIR" ] || mkdir -p "$BUILDX_CONFIG_DIR"
+  [ -d "$BUILDX_CONFIG_BACKUP_DIR" ] || mkdir -p "$BUILDX_CONFIG_BACKUP_DIR"
+  [ -f "$BUILDX_CONFIG_DIR/$BUILDX_CONFIG_FILE" ] &&
+    cp -Rf "$BUILDX_CONFIG_DIR/$BUILDX_CONFIG_FILE" "$BUILDX_CONFIG_BACKUP_DIR/$BUILDX_CONFIG_FILE.$$"
+  cat <<EOF >"$BUILDX_CONFIG_DIR/$BUILDX_CONFIG_FILE"
+# Settings for buildx
+BUILDX_ADD_REPO="${BUILDX_ADD_REPO:-}"
+BUILDX_ADD_REGISTRY="${BUILDX_ADD_REGISTRY:-}"
+BUILDX_DOCKER_CMD="${BUILDX_DOCKER_CMD:-}"
+BUILDX_BUILDER_NAME="${BUILDX_BUILDER_NAME:-}"
+BUILDX_DEFAULT_REPO="${BUILDX_DEFAULT_REPO:-}"
+BUILDX_DEFAULT_HUB="${BUILDX_DEFAULT_HUB:-}"
+BUILDX_DEFAULT_VERSION="${BUILDX_DEFAULT_VERSION:-}"
+BUILDX_REMOVE_BUILD="${BUILDX_REMOVE_BUILD:-}"
+BUILDX_GIT_REPO_USER="${BUILDX_GIT_REPO_USER:-}"
+BUILDX_GIT_REPO_PROVIDER="${BUILDX_GIT_REPO_PROVIDER:-}"
+BUILDX_DOCKER_PLATFORMS="${BUILDX_DOCKER_PLATFORMS:-}"
+BUILDX_PROJECT_DIR="${BUILDX_PROJECT_DIR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+BUILDX_OUTPUT_COLOR_1="${BUILDX_OUTPUT_COLOR_1:-}"
+BUILDX_OUTPUT_COLOR_2="${BUILDX_OUTPUT_COLOR_2:-}"
+BUILDX_OUTPUT_COLOR_GOOD="${BUILDX_OUTPUT_COLOR_GOOD:-}"
+BUILDX_OUTPUT_COLOR_ERROR="${BUILDX_OUTPUT_COLOR_ERROR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+BUILDX_NOTIFY_ENABLED="${BUILDX_NOTIFY_ENABLED:-}"
+BUILDX_GOOD_NAME="${BUILDX_GOOD_NAME:-}"
+BUILDX_ERROR_NAME="${BUILDX_ERROR_NAME:-}"
+BUILDX_GOOD_MESSAGE="${BUILDX_GOOD_MESSAGE:-}"
+BUILDX_ERROR_MESSAGE="${BUILDX_ERROR_MESSAGE:-}"
+BUILDX_NOTIFY_CLIENT_NAME="${BUILDX_NOTIFY_CLIENT_NAME:-}"
+BUILDX_NOTIFY_CLIENT_ICON="${BUILDX_NOTIFY_CLIENT_ICON:-}"
+BUILDX_NOTIFY_CLIENT_URGENCY="${BUILDX_NOTIFY_CLIENT_URGENCY:-}"
+
+EOF
+  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
+  if [ -f "$BUILDX_CONFIG_DIR/$BUILDX_CONFIG_FILE" ]; then
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
+    . "$BUILDX_CONFIG_DIR/$BUILDX_CONFIG_FILE"
+    exitCode=0
+  else
+    printf_red "Failed to create the config file"
+    exitCode=1
+  fi
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Help function - Align to 50
+__help() {
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "buildx:  Docker buildx wrapper - $VERSION"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Usage: buildx [options] [commands]"
+  __printf_line "init                            - Setup docker to use buildx"
+  __printf_line "status                          - Get Status info"
+  __printf_line "version                         - Get version info"
+  __printf_line "api                             - API functions"
+  __printf_line "api list                        - List all available images"
+  __printf_line "api search [query]              - Search for an image"
+  __printf_line "api sources [query]             - Lookup sources used to build image"
+  __printf_line "api clone [repo]                - Clone the source repository"
+  #  __printf_line " - "
+  #  __printf_line " - "
+  #  __printf_line " - "
+  #  __printf_line " - "
+  #  __printf_line " - "
+  #  __printf_line " - "
+  #  __printf_line " - "
+  #  __printf_line " - "
+  #  __printf_line " - "
+  #  __printf_line " - "
+  #  __printf_line " - "
+  #  __printf_line " - "
+  #  __printf_line " - "
+  #  __printf_line " - "
+  #  __printf_line " - "
+  #  __printf_line " - "
+  #  __printf_line " - "
+  __printf_line "--dir                           - Sets the working directory"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Other Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--help                          - Shows this message"
+  __printf_line "--config                        - Generate user config file"
+  __printf_line "--version                       - Show script version"
+  __printf_line "--options                       - Shows all available options"
+  __printf_line "--debug                         - Enables script debugging"
+  __printf_line "--raw                           - Removes all formatting on output"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# check if arg is a builtin option
+__is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0; fi; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 1 || return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep -sh "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# # Get sudo password
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run sudo
+__sudorun() {
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo
+__can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User can run sudo
+__sudoif() {
+  __user_is_root && return 0
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run command as root
+requiresudo() {
+  if [ "$BUILDX_REQUIRE_SUDO" = "yes" ] && [ -z "$BUILDX_REQUIRE_SUDO_RUN" ]; then
+    export BUILDX_REQUIRE_SUDO="no"
+    export BUILDX_REQUIRE_SUDO_RUN="true"
+    __sudo "$@"
+    exit $?
+  else
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  CMD="${1:-echo}" && shift 1
+  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  [ "$(basename -- "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  if __sudoif; then
+    export PATH="$PATH"
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    exitCode=$?
+  else
+    printf '%s\n' "This requires root to run"
+    exitCode=1
+  fi
+  return ${exitCode:-1}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  local exitCode=$?
+  [ -f "$BUILDX_TEMP_FILE" ] && rm -Rf "$BUILDX_TEMP_FILE" &>/dev/null
+  #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD//$HOME/\~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined functions
+__trap_exit_local() {
+  exitCode=$?
+  [ "$_DEBUG" != "on" ] || { [ -n "$exitCode" ] && echo $exitCode; }
+  __buildx_cleanup && exitCode=0
+  __remove_pid
+  [ -f "$BUILDX_FAILED_LOG" ] && [ "$exitCode" -ne 0 ] || exitCode=0
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_timer() {
+  local retval=$?
+  __cmd_exists bc || return $retval
+  BUILDX_STOP_TIMER="$(date +%s.%N)"
+  local dt=$(echo "$BUILDX_STOP_TIMER - $BUILDX_START_TIMER" | bc)
+  local dd=$(echo "$dt/86400" | bc)
+  local dt2=$(echo "$dt-86400*$dd" | bc)
+  local dh=$(echo "$dt2/3600" | bc)
+  local dt3=$(echo "$dt2-3600*$dh" | bc)
+  local dm=$(echo "$dt3/60" | bc)
+  local ds=$(echo "$dt3-60*$dm" | bc)
+  printf_purple "$(LC_NUMERIC=C printf "Total runtime: %d Days, %02d Hours, %02d Minutes, %02.4f Seconds\n" $dd $dh $dm $ds)"
+  return $retval
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_version() { awk -F '=' '{print $2}' | sed 's|"||g;s|,| |g' | tr ' ' '\n' | grep -Ev '\${.*_.*}' | grep -v '^$' | sort -Vu | tr '\n' ' ' | grep '^' || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__set_variables() {
+  export DOCKER_BUILDKIT=1
+  export DOCKER_PLATFORMS="$BUILDX_DOCKER_PLATFORMS"
+  export BUILDX_EXPERIMENTAL="$BUILDX_DOCKER_BUILD_EXPERIMENTAL"
+  export DOCKER_CLI_EXPERIMENTAL="$BUILDX_DOCKER_CLI_EXPERIMENTAL"
+  BUILDX_PID_NUMBER="$$"
+  BUILDX_SET_REPO="${ENV_ORG_NAME:-$BUILDX_SET_REPO}"
+  BUILDX_SET_IMAGE="${ENV_IMAGE_PUSH:-$BUILDX_SET_IMAGE}"
+  BUILDX_VERSION_TAG="${ENV_ADD_TAGS:-$BUILDX_VERSION_TAG}"
+  BUILDX_PID_FILE="$HOME/.local/run/$APPNAME/$APPNAME.pid"
+  BUILDX_DOCKER_PLATFORMS="${BUILDX_DOCKER_PLATFORMS// /,}"
+  BUILDX_DEFAULT_REPO="${BUILDX_SET_REPO:-$BUILDX_DEFAULT_REPO}"
+  BUILDX_DEFAULT_HUB="${BUILDX_SET_REGISTRY:-$BUILDX_DEFAULT_HUB}"
+  BUILDX_GIT_REPO_USER="${BUILDX_SET_GIT_USER:-$BUILDX_GIT_REPO_USER}"
+  BUILDX_PROJECT_DIR="${BUILDX_PROJECT_DIR:-$HOME/Projects/github/$BUILDX_DEFAULT_REPO}"
+  BUILDX_DEFAULT_VERSION="$(echo "${BUILDX_SET_VERSION:-$BUILDX_DEFAULT_VERSION}" | awk -F ' ' '{print $1}' | sed 's|"||g')"
+  [ -n "$BUILDX_VERSION_TAG" ] && export BUILDX_ADD_TAG="true"
+  [ -n "$BUILDX_SET_REPO" ] && export BUILDX_SET_REPO
+  [ -n "$BUILDX_SET_IMAGE" ] && export BUILDX_SET_IMAGE
+  [ -n "$BUILDX_SET_VERSION" ] && export BUILDX_SET_VERSION
+  [ -n "$BUILDX_SET_REGISTRY" ] && export BUILDX_SET_REGISTRY
+  [ -n "$BUILDX_SET_GIT_USER" ] && export BUILDX_SET_GIT_USER
+  [ -n "$ENV_IMAGE_TAG" ] && export BUILDX_SET_VERSION="$(basename -- "${ENV_IMAGE_TAG//:*/}")"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__create_log_files() {
+  local directory="" file=""
+  local dir_name="" file_name=""
+  local project_dir="${ENV_BUILDX_PROJECT_DIR:-$BUILDX_PROJECT_DIR}"
+  for directory in $project_dir; do
+    dir_name="$(basename $directory)"
+    file_name="$(basename -- "$dir_name").log"
+    if [ -n "$directory" ] && [ ! -d "$BUILDX_LOG_DIR/$dir_name" ]; then
+      mkdir -p "$BUILDX_LOG_DIR/$dir_name"
+    fi
+    for dir in $directory/*; do
+      [ -n "$dir" ] && [ -d "$dir" ] && touch "$BUILDX_LOG_DIR/$dir_name/$file_name"
+    done
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__create_update_docker_daemon_config() {
+  if __can_i_sudo; then
+    __sudo true
+    sudo mkdir -p "/etc/docker"
+    if [ ! -f "/etc/docker/daemon.json" ]; then
+      printf '{\n  %s\n}' "\"experimental\": true" | sudo tee -p -a "/etc/docker/daemon.json" &>/dev/null
+    elif grep -shq "experimental" "/etc/docker/daemon.json"; then
+      sudo sed -i 's|experimental.*e|experimental": true|g' "/etc/docker/daemon.json"
+    else
+      echo "{\"experimental\": true}," | sudo tee -p -a "/etc/docker/daemon.json" &>/dev/null
+    fi
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__last_build_check() {
+  local errlog="$BUILDX_FAILED_LOG"
+  if [ -f "$errlog" ]; then
+    printf_red "Please note the last build had failed!!"
+    printf_red "Please check the error log and fix all problems"
+    printf_yellow "To remove this warning delete $errlog"
+    return 20
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__orgs_api_delete() {
+  if echo "$1" | grep -q '/'; then
+    user="${1//\/*/}"
+    image="${1//*\//}"
+  elif [ $# -eq 1 ]; then
+    user="$BUILDX_DEFAULT_REPO"
+    image="$1"
+  else
+    user="$1"
+    image="$2"
+  fi
+  [ -n "$user" ] || printf_exit "Please provide a organization name"
+  [ -n "$image" ] || printf_exit "Please provide a repository name"
+  repo="$user/$image"
+  if [ -f "$BUILDX_CACHE_DIR/token" ]; then
+    local TOKEN="$(<"$BUILDX_CACHE_DIR/token")"
+    printf_cyan "Attempting to delete $image from: $BUILDX_REGISTRY_URL/v2/repositories/$repo"
+    curl -q -LSsfi -H "Authorization: Bearer $TOKEN" -X DELETE "$BUILDX_REGISTRY_URL/v2/repositories/$repo" &>"$BUILDX_CACHE_DIR/delete.log"
+    if grep -qis '405 Not Allowed' "$BUILDX_CACHE_DIR/delete.log"; then
+      __api_auth_error
+    elif grep -qis '404.*Not.*Found' "$BUILDX_CACHE_DIR/delete.log"; then
+      printf_green "Repository does not exist"
+    elif grep -qis 'HTTP.*404.NO.*Content' "$BUILDX_CACHE_DIR/delete.log"; then
+      printf_green "Repository does not exist"
+    elif grep -qis 'HTTP.*204.NO.*Content' "$BUILDX_CACHE_DIR/delete.log"; then
+      printf_green "Repository does not exist"
+    elif grep -qis 'HTTP.*202.*Accepted' "$BUILDX_CACHE_DIR/delete.log"; then
+      printf_green "Successfully deleted the repository"
+    else
+      printf_exit "Failed to delete the repository"
+      grep -i 'HTTP/.*' "$BUILDX_CACHE_DIR/delete.log" | printf_readline 1
+      grep -i 'URL returned error' "$BUILDX_CACHE_DIR/delete.log" | sed 's|*.The requested URL returned error: ||g' | printf_readline 1
+    fi
+  else
+    printf_exit 1 1 "token not set: $APPNAME api auth [username] [password]"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__orgs_api_update() {
+  # TODO figure out how to make this work
+  printf_exit "This is not working for me!"
+  if echo "$1" | grep -q '/'; then
+    user="${1//\/*/}"
+    image="${1//*\//}"
+  elif [ $# -eq 1 ]; then
+    user="$BUILDX_DEFAULT_REPO"
+    image="$1"
+  else
+    user="$1"
+    image="$2"
+  fi
+  repo="$user/$image"
+  [ -n "$user" ] || printf_exit "Please provide a organization name"
+  [ -n "$image" ] || printf_exit "Please provide a repository name"
+  [ -n "$3" ] && field="$3" || printf_exit "Please provide a field to update [description,full_description,is_private]"
+  [ -n "$4" ] && field_value="$4" || printf_exit "Please provide a value to field"
+  # [ -n "$4" ] && full_description="$4" || printf_exit "Please provide full description"
+  # [ -n "$5" ] && is_private="$5" || printf_exit "private repo true/false"
+  # [ -n "$6" ] && can_edit="$6" || printf_exit "can edit true/false"
+  #-d "{\"description\": \"$description\", \"is_private\": \"$is_private\", \"can_edit\": \"$can_edit\", \"full_description\": \"$full_description\"}" \
+  if [ -f "$BUILDX_CACHE_DIR/token" ]; then
+    local TOKEN="$(<"$BUILDX_CACHE_DIR/token")"
+    printf_cyan "Attempting to update $image from:"
+    printf_cyan "$BUILDX_REGISTRY_URL/v2/repositories/$repo"
+    curl -q -LSsfi -H "Content-Type: application/json" \
+      -H "Authorization: Bearer $TOKEN" -X PATCH \
+      -d "{\"$field\": \"$field_value\"}" \
+      "$BUILDX_REGISTRY_URL/v2/repositories/$repo/" &>"$BUILDX_CACHE_DIR/update.log"
+    if grep -qis '405 Not Allowed' "$BUILDX_CACHE_DIR/update.log"; then
+      __api_auth_error
+    elif grep -qis '404.*Not.*Found' "$BUILDX_CACHE_DIR/update.log"; then
+      printf_green "Repository does not exist"
+    elif grep -qis '403.*FORBIDDEN' "$BUILDX_CACHE_DIR/update.log"; then
+      printf_green "You are not authorized to make this request"
+    elif grep -qis 'HTTP.*404.NO.*Content' "$BUILDX_CACHE_DIR/update.log"; then
+      printf_green "Repository does not exist"
+    elif grep -qis 'HTTP.*204.NO.*Content' "$BUILDX_CACHE_DIR/update.log"; then
+      printf_green "Repository does not exist"
+    elif grep -qis 'HTTP.*202.*Accepted' "$BUILDX_CACHE_DIR/update.log"; then
+      printf_green "Successfully updated the repository"
+    else
+      printf_exit "Failed to update the repository"
+      grep -i 'HTTP/.*' "$BUILDX_CACHE_DIR/update.log" | printf_readline 1
+      grep -i 'URL returned error' "$BUILDX_CACHE_DIR/update.log" | sed 's|*.The requested URL returned error: ||g' | printf_readline 1
+    fi
+  else
+    printf_exit 1 1 "Well something went terribly wrong"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__api_auth_error() {
+  printf_exit "Please authenticate with the command:"
+  printf_yellow "dockermgr api auth username password/key"
+  exit 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__curl_docker_api_tags() {
+  [ -n "$DEBUGGER" ] && set -x
+  local tags="" latest="" words="" numbers=""
+  [ $# -eq 3 ] || return 1
+  tags="$(curl -q -LSsf "$1/$2/$3/tags?page_size=1000" | jq -r ".results[].name" | grep '^' | grep -v '^$')"
+  latest="$(printf '%s' "$tags" | grep -E 'latest|edge|rolling' | grep '^')"
+  words="$(printf '%s' "$tags" | grep -Ev 'latest|edge|rolling|[0-9]' | grep '^')"
+  numbers="$(printf '%s' "$tags" | grep -E '[0-9]' | grep -Evi '[a-z]' | sort --reverse -u --version-sort | grep '^')"
+  [ -n "$latest" ] && printf '%s\n' "$latest" || latest="na"
+  [ -n "$words" ] && printf '%s\n' "$words" || word="na"
+  [ -n "$numbers" ] && printf '%s\n' "$numbers" || numbers="na"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_tags() {
+  [ -n "$DEBUGGER" ] && set -x
+  local results=""
+  local repo="${1:-}"
+  local image="${2:-}"
+  local registry="${3:-$2}"
+  local api_url="${4:-v2/repositories}"
+  local registry="https://registry.hub.docker.com/$api_url"
+  echo "$image" | grep -q '/' && repo="${repo//\/*/}" && image="${repo//*\//}"
+  [ -n "$image" ] || repo="library" image="$1"
+  [ -n "$image" ] && [ -n "$image" ] || printf_exit "Usage: $APPNAME api tags [repo] [image]"
+  results="$(__curl_docker_api_tags "$registry" "$repo" "$image" | grep '^')"
+  if [ -n "$results" ]; then
+    printf_cyan "found the following tags for $repo/$image"
+    printf '%s\n' "$results" | printf_column "$BUILDX_OUTPUT_COLOR_1" | grep -v '^$'
+    return 0
+  else
+    printf_exit "Failed to get tags from $registry/$repo/$image"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_dockerfile_ver() {
+  # TODO: rewrite this function
+  [ -n "$DEBUGGER" ] && set -x
+  local fileloc=""
+  local buildx_enable_tag="$BUILDX_ADD_TAG"
+  fileloc="$(realpath "${1:-$Dockerfile}" 2>/dev/null)"
+  [ -f "$fileloc" ] || return 1
+  #
+  local run_add_tags="yes"
+  local set_ver_tag="" iver="" cver="" version="" exitC="0"
+  #
+  new_tag="${set_newtag:-$new_tag}"
+  iver="$(basename -- "$fileloc" 2>/dev/null | sed 's/^[^\.]*\./rel:/' | awk -F ':' '{print $2}' | sed 's| ||g' | grep '^' || echo '')"
+  cver="$(grep -sh 'ARG.*CONTAINER_VERSION=' "$fileloc" | __get_version || grep -sh 'ARG.*IMAGE_VERSION=' "$fileloc" | __get_version || echo '')"
+  #
+  [ -f "$BUILDX_CWD/.env.scripts.$iver" ] && . "$BUILDX_CWD/.env.scripts.$iver"
+  [ -f "$BUILDX_CWD/.env.scripts.$cver" ] && . "$BUILDX_CWD/.env.scripts.$cver"
+  [ -n "$ENV_IMAGE_TAG" ] && cver="$ENV_ADD_TAGS $ENV_IMAGE_TAG $iver "
+  cver="${cver//$iver/}"
+  #
+  set_default_tag="$(echo "$iver" "$cver" | tr ' ' '\n' | grep -v '^$' | head -n1 | grep '^' || echo "${new_tag:-latest}")"
+  #
+  { [ -z "$iver" ] || [ "$iver" = " " ]; } && iver=""
+  { [ -z "$cver" ] || [ "$cver" = " " ]; } && cver=""
+  #
+  [ "$cver" = "$iver" ] && run_add_tags="no"
+  [ -z "$iver" ] && [ -z "$cver" ] && run_add_tags="no"
+  #
+  if [ "$run_add_tags" != "no" ]; then
+    for version in $iver $cver; do
+      if [ "$version" != "$set_default_tag" ]; then
+        if [ -n "$version" ] && [ "$version" != " " ]; then
+          if echo "$version" | grep -qw '^[0-9]'; then
+            set_ver_tag+="$version,"
+          elif echo "$version" | grep -Eqw 'edge'; then
+            set_ver_tag+="edge,"
+          elif echo "$version" | grep -Eqw 'rolling'; then
+            set_ver_tag+="rolling,"
+          elif echo "$version" | grep -Eqw 'dev|devel'; then
+            set_ver_tag+="devel,"
+          elif echo "$version" | grep -qw 'latest'; then
+            set_ver_tag+="latest,"
+          elif echo "$version" | grep -Eqw 'next|beta|alpha|test|testing'; then
+            set_ver_tag+="next,"
+          else
+            set_ver_tag+="$version,"
+          fi
+        else
+          exitC=1
+        fi
+      fi
+    done
+  fi
+  #
+  new_tag="$(echo "${set_default_tag}" | grep '^' || echo "latest")"
+  set_ver_tag="$(echo "$set_ver_tag" | sed 's| |,|g' | tr ',' '\n' | sort -u | grep -v "$new_tag" | grep -v '^$' | tr '\n' ' ' | sed 's|,$||g;s|,| |g;s| $||g;s|^ *||g;s|  *| |g' | grep '^' || false)"
+  set_ver_tag="${set_ver_tag//$new_tag/}"
+  [ "$set_ver_tag" = " " ] && set_ver_tag=""
+  tag_count="$(echo "${set_ver_tag[@]}" | grep -v '^$' | wc -l)"
+  #
+  #
+  set_ver_tag="${set_ver_tag// /,}"
+  if [ "$tag_count" -eq 0 ]; then
+    BUILDX_ADD_TAG="${buildx_enable_tag:-}"
+  else
+    BUILDX_ADD_TAG="true"
+    BUILDX_VERSION_TAG="$set_ver_tag"
+  fi
+  #
+  if [ -f "$BUILDX_CWD/.env.scripts.$new_tag" ]; then
+    . "$BUILDX_CWD/.env.scripts.$new_tag"
+  fi
+  BUILDX_GET_VERSION_MESSAGE="$(printf '%s\n%s\n%s\n' "Image version is: $new_tag" "setting tag to $new_tag" "Added tags: ${BUILDX_VERSION_TAG:-none}")"
+  #
+  return $exitC
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__run_all() {
+  trap 'exit' SIGINT
+  local exitCode=0
+  export BUILDX_RUN_COUNT_OF="${BUILDX_RUN_COUNT_OF:-1}"
+  export BUILDX_BUILD_ALL="${BUILDX_BUILD_ALL:-true}"
+  export BUILDX_GIT_COMMIT_ID="${BUILDX_GIT_COMMIT_ID:-}"
+  export ENV_BUILDX_PROJECT_DIR="$(dirname "$BUILDX_CWD")"
+  export BUILDX_CUSTOM_LOG_DIR="$BUILDX_LOG_DIR/$(basename -- "$ENV_BUILDX_PROJECT_DIR")"
+  export BUILDX_CUSTOM_LOG_FILE="$BUILDX_CUSTOM_LOG_DIR/$(basename -- "$BUILDX_CWD" | sed 's|^docker-||g').log"
+  if [ $BUILDX_RUN_COUNT_OF -eq 1 ]; then
+    printf_purple "Log file is being written to $BUILDX_CUSTOM_LOG_FILE"
+    [ -d "$BUILDX_CUSTOM_LOG_DIR" ] || mkdir -p "$BUILDX_CUSTOM_LOG_DIR"
+    __wait_for_previous_build
+    __create_log_files
+    __reinit_buildx
+  else
+    __wait_for_previous_build &>/dev/null
+    __create_log_files &>/dev/null
+    __reinit_buildx &>/dev/null
+  fi
+  if [ -f "$1" ]; then
+    echo "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+    printf_purple "Building Dockerfile $BUILDX_RUN_COUNT_OF of $BUILDX_RUN_COUNT_TOTAL"
+    __execute_buildx "$1"
+    exitCode=$?
+  else
+    printf_red "Can not find a Dockerfile in $BUILDX_CWD"
+    exitCode=10
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__buildx_run() {
+  trap 'exit' SIGINT
+  local exitCode=0
+  __wait_for_previous_build
+  __create_log_files
+  __reinit_buildx
+  __run_git_pull "$BUILDX_CWD"
+  if [ $# -ne 0 ]; then
+    __execute_buildx "$@"
+    exitCode=$?
+  elif [ -f "$BUILDX_CWD/$1" ]; then
+    __execute_buildx "$BUILDX_CWD/$1"
+    exitCode=$?
+  elif [ -f "$BUILDX_CWD/Dockerfile" ]; then
+    __execute_buildx "$BUILDX_CWD/Dockerfile"
+    exitCode=$?
+  else
+    printf_red "Can not find a Dockerfile in $BUILDX_CWD"
+    exitCode=10
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__wait_for_previous_build() {
+  local sleep=60 count=20 pid_number=""
+  if [ -f "$BUILDX_PID_FILE" ]; then
+    pid="$(<"$BUILDX_PID_FILE")"
+    pid_number="$(ps aux | grep "$pid" | grep -v 'grep ')"
+    [ -n "$pid_number" ] && printf_green "Pid exists: $BUILDX_PID_FILE"
+    while [ -n "$pid_number" ] && [ -f "$BUILDX_PID_FILE" ]; do
+      if [ $count -eq 0 ]; then
+        echo " "
+        printf_exit "Timeout waiting for previous build to complete "
+      else
+        [ -f "$BUILDX_PID_FILE" ] && pid="$(<"$BUILDX_PID_FILE")" || break
+        printf '\r%s' "waiting for previous build to complete: $((count * $sleep / 60)) minutes"
+        pid_number="$(ps aux | grep "$pid" | grep -v 'grep ')"
+        count=$((count - 1))
+        sleep $sleep
+      fi
+    done
+    [ -f "$BUILDX_PID_FILE" ] && rm -Rf "$BUILDX_PID_FILE"
+    buildx init &>/dev/null
+    #BUILDX_CLEANUP="false"
+    sleep 60
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__remove_pid() {
+  if [ "$BUILDX_IS_RUNNING" = "true" ] && [ -f "$BUILDX_PID_FILE" ]; then
+    rm -Rf "$BUILDX_PID_FILE"
+  fi
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__is_buildx_installed() {
+  local buildx_installed=""
+  buildx_installed="$(__docker_init buildx version 2>&1 | grep 'buildx.*v[0-9].*[0-9]' && __docker_init buildx ls 2>&1 | grep -A3 'NAME/NODE' | grep 'running.*[0-9] ' || false)"
+  if [ -n "$buildx_installed" ] && [ -d "$HOME/.docker/buildx" ]; then
+    exitCode=0
+  else
+    __install_buildx && __buildx_init && BUILDX_INSTALLED="yes" && return 0
+    export BUILDX_INSTALLED="no"
+    exitCode=0
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__is_docker_installed() {
+  if ! type -p docker &>/dev/null; then
+    printf_red "Docker is not installed either run dockermgr init"
+    printf_exit "or refer to docker documentation for installation"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__is_initialized() {
+  local exitCode=0
+  local init_name="${1:-$BUILDX_BUILDER_NAME}"
+  if { [ -e "/root/.docker/buildx/instances/$init_name" ] || [ -e "$HOME/.docker/buildx/instances/$init_name" ]; }; then
+    { [ -n "$builder_id" ] && [ -n "$qemu_id" ] && [ -n "$binfmt_id" ] && BUILDX_INIT_RAN="true"; } && __is_buildx_installed || exitCode=1
+  else
+    exitCode=1
+  fi
+  [ "$BUILDX_BUILD_ALL" = "true" ] && return 0 || return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__jq() { jq "${@:--r}" 2>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__curl() { curl -q -LSsf --max-time 2 --retry 0 "$*" 2>/dev/null || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__usage() { printf_exit 1 2 "Usage: $APPNAME [Dir] [Dockerfile] [name] [tag]" 1>&2; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__docker() {
+  eval "$BUILDX_DOCKER_CMD" "$@" 2>/dev/null && true
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__docker_init() {
+  eval "$BUILDX_DOCKER_CMD" "$@" 2>&1 && true
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__docker_push() {
+  __docker push "$tagged_name" |& tee -p -a "$logfile" &>/dev/null ||
+    __docker push "$tagged_name" |& tee -p -a "$logfile" &>/dev/null ||
+    __docker push "$tagged_name" |& tee -p -a "$logfile" &>/dev/null && true
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__qemu_version() {
+  if grep -shq 'enabled' "/proc/sys/fs/binfmt_misc/status"; then
+    if __cmd_exists qemu-aarch64-static; then
+      version="$(qemu-aarch64-static --version | head -n1 | cut -d' ' -f3 | tr -cd '0-9.')"
+      printf_blue "QEMU aarch64 version: $version"
+    fi
+    if __cmd_exists qemu-x86_64-static; then
+      version="$(qemu-x86_64-static --version | head -n1 | cut -d' ' -f3 | tr -cd '0-9.')"
+      printf_blue "QEMU x86_64 version: $version"
+    fi
+    if __cmd_exists qemu-arm-static; then
+      version="$(qemu-arm-static --version | head -n1 | cut -d' ' -f3 | tr -cd '0-9.')"
+      printf_blue "QEMU arm version: $version"
+    fi
+  else
+    printf_red "Missing qemu-user-static package."
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__docker_version() {
+  version="$(__docker --version | cut -d' ' -f3 | tr -cd '0-9.' | sed -e 's/ 0*/ /g')"
+  [ -n "$version" ] && printf_blue "Docker version: $version"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__binfmt_version() {
+  if __cmd_exists update-binfmts; then
+    version="$(update-binfmts --version | awk '{print $NF}')"
+    [ -n "$version" ] && printf_blue "update-binfmts version: $version"
+  else
+    printf_return "Please install update-binfmts"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__buildx_vars() {
+  local set_name="${BUILDX_BUILDER_NAME:-mybuilder}"
+  export name="$(basename -- "$BUILDX_CWD")"
+  export qemu_imagename="buildx-qemu"
+  export binfmt_imagename="buildx-binfmt"
+  export qemu_id="$(__docker_init ps -a | awk '{print $NF}' | grep "$qemu_imagename" || echo '')"
+  export binfmt_id="$(__docker_init ps -a | awk '{print $NF}' | grep "$binfmt_imagename" || echo '')"
+  export builder_id="$(__docker_init ps -a | awk '{print $NF}' | grep "$BUILDX_BUILDER_NAME" | grep "buildkit" || __docker_init buildx ls | grep "$BUILDX_BUILDER_NAME" | awk -F ' ' '{print $1}' | head -n1 || echo '')"
+  export BUILDX_BUILDER_NAME="$set_name"
+  [ -n "$qemu_id" ] && [ -n "$binfmt_id" ] && [ -n "$builder_id" ] && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__buildx_version() {
+  features="$(__docker version | awk '/^ *Experimental:/ {print $2 ; exit}')"
+  [ "$features" == "true" ] && printf_blue "Experimental Features: yes" ||
+    printf_red "Experimental Features: no"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__reinit_buildx() {
+  name="${name:-init}"
+  local force_install="${BUILDX_FORCE:-$BUILDX_FORCE_REINSTALL}"
+  __buildx_vars "${BUILDX_BUILDER_NAME:-}"
+  [ "$BUILDX_INIT_RAN" != "true" ] || return 0
+  [ "$force_install" = "yes" ] || [ -z "$builder_id" ] || [ -z "$binfmt_id" ] || [ -z "$qemu_id" ] || return 0
+  printf_cyan "Reinitializing buildx: $BUILDX_BUILDER_NAME on: $(date)"
+  echo "Reinitializing buildx: $BUILDX_BUILDER_NAME on: $(date)" |& tee -p -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+  local force="${force_install:-$BUILDX_CLEAN_FORCE}"
+  [ -z "$builder_id" ] || __docker_init rm -f --volumes $builder_id |& tee -p -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+  [ -z "$binfmt_id" ] || __docker_init rm -f --volumes "$qemu_imagename" |& tee -p -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+  [ -z "$qemu_id" ] || __docker_init rm -f --volumes "$binfmt_imagename" |& tee -p -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+  __docker_init run -d --name "$qemu_imagename" --privileged multiarch/qemu-user-static --reset -p yes --credential yes |& tee -p -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+  __docker_init run -d --name "$binfmt_imagename" --privileged tonistiigi/binfmt --install all |& tee -p -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+  __docker_init buildx create --driver docker-container --driver-opt network=host --driver-opt image=moby/buildkit:master --name ${BUILDX_BUILDER_NAME:-mybuilder} --use |& tee -p -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+  __docker_init buildx use "$BUILDX_BUILDER_NAME" |& tee -p -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+  __docker_init buildx inspect --bootstrap |& tee -p -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+  __buildx_vars "${BUILDX_BUILDER_NAME:-}"
+  __create_update_docker_daemon_config
+  if [ -n "$builder_id" ] && __is_buildx_installed; then
+    BUILDX_FORCE=""
+    BUILDX_INIT_RAN="true"
+    BUILDX_FORCE_REINSTALL=""
+    printf_cyan "Building for platforms: $BUILDX_DOCKER_PLATFORMS"
+    printf '%s\n' " # Building for platforms: $BUILDX_DOCKER_PLATFORMS" | tee -p -a "$logfile" &>/dev/null
+    return 0
+  else
+    echo "Initializing of buildx failed" |& tee -p -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+    printf_yellow "Initializing of buildx failed"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__buildx_cleanup() {
+  local prevExit=$?
+  local exitCodeClean=""
+  if [ "$BUILDX_CLEANUP" = "true" ] && [ "$BUILDX_IS_RUNNING" = "true" ]; then
+    if [ "$BUILDX_BUILD_ALL" != "true" ] && [ "$BUILDX_RAN_CLEANUP" != "true" ]; then
+      printf_yellow "Cleaning up containers"
+    fi
+    __docker rm -f --volumes $builder_id $qemu_imagename $binfmt_imagename &>/dev/null
+    BUILDX_RAN_CLEANUP="true"
+    if __is_initialized; then exitCodeClean=1; else exitCodeClean=0; fi
+  fi
+  if [ "$BUILDX_BUILD_ALL" != "true" ]; then
+    __trap_timer
+    unset BUILDX_START_TIMER BUILDX_STOP_TIMER
+    exitCodeClean=$prevExit
+  else
+    echo ""
+  fi
+  return $exitCodeClean
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__install_buildx() {
+  local arch=""
+  local release=""
+  local exitCode=0
+  local buildx_install_dir="$HOME/.docker/cli-plugins"
+  local buildx_install_path="$buildx_install_dir/docker-buildx"
+  local arch="$(uname -m | tr '[:upper:]' '[:lower:]')"
+  local api="https://api.github.com/repos/docker/buildx/releases/latest"
+  [ -x "$buildx_install_path" ] && [ "$BUILDX_FORCE" != "yes" ] && return 0
+  case "$arch" in
+  x86_64) arch="amd64" ;;
+  aarch64) arch="arm64" ;;
+  esac
+  [ -d "$buildx_install_dir" ] || mkdir -p "$buildx_install_dir"
+  release="$(curl -q -LSsf "$api" 2>/dev/null | jq -r '.' | grep 'browser_download_url' | awk -F '":' '{print $2}' | sed 's|"||g;s| *||g' | grep "linux-$arch$")"
+  if [ -n "$release" ]; then
+    printf_cyan "Installing buildx for $arch "
+    curl -q -LSsf "$release" -o "$buildx_install_path" || exitCode=1
+    if [ $exitCode = 0 ] && [ -f "$buildx_install_path" ]; then
+      chmod -Rf +x "$buildx_install_path"
+      if [ "$USER" != "root" ]; then
+        __can_i_sudo && sudo mkdir -p "/root/.docker/cli-plugins" && sudo cp -Rf "$buildx_install_path" "/root/.docker/cli-plugins"
+      fi
+      printf_green "Installed buildx to $buildx_install_path"
+    fi
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__buildx_init() {
+  __buildx_vars "$BUILDX_BUILDER_NAME"
+  local buildx_log_file="$HOME/.local/log/buildx/$name.log"
+  __is_buildx_installed && BUILDX_INIT_RAN="true" || BUILDX_FORCE="true"
+  if [ "$BUILDX_FORCE" = "true" ]; then
+    [ -d "$HOME/.docker/buildx" ] && rm -Rf "$HOME/.docker/buildx"
+    [ -d "/root/.docker/buildx" ] && __sudo rm -Rf "$HOME/.docker/buildx"
+    BUILDX_FORCE="yes"
+    BUILDX_CLEAN_FORCE="yes"
+    BUILDX_FORCE_REINSTALL="yes"
+    __reinit_buildx
+  fi
+  if [ "$BUILDX_FORCE_REINSTALL" = "yes" ] || [ "$BUILDX_CLEAN_FORCE" = "yes" ]; then
+    __reinit_buildx
+  elif __is_initialized && [ "$BUILDX_FORCE" != "yes" ]; then
+    printf_cyan "buildx seems to be already setup"
+    return 0
+  else
+    echo "Starting buildx init for $name on $(date)" |& tee -p "$HOME/.local/log/buildx/$name.log"
+    printf_yellow "Initializing docker build"
+    printf_cyan "Setting logfile to: $buildx_log_file"
+    if [ "$BUILDX_CLEANUP" = "true" ] || { [ -n "$binfmt" ] && [ -n "$qemu" ]; }; then
+      printf_yellow "Removing old containers: $qemu_imagename,$binfmt_imagename"
+      __docker_init rm -f --volumes "$qemu_imagename" |& tee -p -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+      __docker_init rm -f --volumes "$binfmt_imagename" |& tee -p -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+    fi
+    __install_buildx
+    if [ "$(uname -m)" = "x86_64" ]; then
+      # Setup qemu
+      # sudo docker run --rm --privileged multiarch/qemu-user-static --reset -p yes --credential yes
+      printf_yellow "Setting up the qemu image - multiarch/qemu-user-static as $qemu_imagename"
+      __docker_init run -d --name "$qemu_imagename" --privileged multiarch/qemu-user-static --reset -p yes --credential yes |& tee -p -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+      # Setup binfmt
+      printf_yellow "Setting up the binfmt image - tonistiigi/binfmt as $binfmt_imagename"
+      __docker_init run -d --name "$binfmt_imagename" --privileged tonistiigi/binfmt --install all |& tee -p -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+      # setup buildx
+      printf_blue "Setting up docker build to use buildx"
+      #__docker_init buildx create --buildkitd-flags '--allow-insecure-entitlement security.insecure' --name "$name" --use |& tee -p -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+      __docker_init buildx create --driver docker-container --driver-opt network=host --driver-opt image=moby/buildkit:master --name ${name:-mybuilder} --use |& tee -p -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+      __docker_init buildx use "$name" |& tee -p -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+      __docker_init buildx inspect --bootstrap |& tee -p -a "$HOME/.local/log/buildx/$name.log" &>/dev/null
+    fi
+    if [ "$BUILDX_INIT_RAN" != "yes" ]; then
+      # create docker daemon file
+      __create_update_docker_daemon_config
+      # setup service
+      printf_blue "Making sure docker service is running"
+      sudo systemctl daemon-reload
+      if ! systemctl status systemd-binfmt.service | grep -iq 'running'; then
+        sudo systemctl enable -now systemd-binfmt.service &>/dev/null
+        sudo systemctl restart systemd-binfmt.service &>/dev/null
+      fi
+      if ! systemctl status docker*.service | grep -iq 'running'; then
+        sudo systemctl enable --now docker &>/dev/null
+        sudo systemctl restart docker &>/dev/null
+      fi
+      # login to docker hub
+      printf_yellow "Making sure user is signed into to docker hub"
+      __is_logged_in || __docker_init login || exit 2
+      # clean up
+      printf_purple "Finishing up"
+      [ -d "$HOME/.docker/buildx" ] || mkdir -p "$HOME/.docker/buildx"
+      sudo bash -c '[ -d "/root/.docker/buildx" ] && [ "/root/.docker/buildx" != "'$HOME/.docker/buildx'" ] && cp -Rf /root/.docker/buildx/. "'$HOME/.docker/buildx/'"'
+      sudo chown -Rf "$SUDO_USER":"$SUDO_USER" "$HOME/.docker"
+      [ -e "$HOME/.docker/buildx/current" ] && printf_green "buildx has been setup"
+    fi
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__tag_versions() {
+  local add_new_host="" add_image_name="" add_full_host=""
+  host="${host:-$BUILDX_DEFAULT_HUB}"
+  add_image_name="${image_name//:*/}"
+  add_tags="${BUILDX_VERSION_TAG//,/ }"
+  namespace="${namespace:-$BUILDX_DEFAULT_REPO}"
+  add_full_host="${1:-$host/$namespace/$add_image_name}"
+  if [ "$BUILDX_ADD_TAG" = "true" ]; then
+    for tag in $add_tags; do
+      [ "$tag" = "$BUILDX_DEFAULT_VERSION" ] || SET_ADD_HOST+=("-t $add_full_host:$tag")
+    done
+  else
+    add_new_host="$add_full_host:$tag_version"
+  fi
+  image_name="$add_new_host"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__buildx_status() {
+  local a="" e="" c="" r="" s=""
+  e=0
+  a="$*"
+  c="$(__docker buildx inspect ${1:-$BUILDX_BUILDER_NAME} || false)"
+  r="$(__docker buildx ls | grep ${1:-$BUILDX_BUILDER_NAME} | grep -qi 'running' && echo 'running' || false)"
+  s="$(echo "$c" | grep -i 'Status:' | grep -qi 'running' && echo 'Running' || false)"
+  if [ ${#a} = 0 ]; then
+    [ -n "$s" ] && e=0 || e=1
+  else
+    if [ -n "$s" ]; then
+      printf '%s\n' "$c"
+      e=0
+    else
+      printf '%s\n' "buildx is not running"
+      e=1
+    fi
+  fi
+  return ${e:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__run_docker_script() {
+  set_build_command="$(<"$BUILDX_CWD/build.sh")"
+  set_build_command="${set_build_command//  / }"
+  build_command="$(echo "$set_build_command" | grep '^' | grep -v '^$' | sed 's|,,| \\\n|g')"
+  set_build_command="${set_build_command//,,/}"
+  printf '%b%s: %b%s%b\n' "$GREEN" "Saving the build command to" "$CYAN" "$logscript_file" "$NC"
+  printf 'Saving the build command to: %s\n' "$logscript_file" | tee -p -a "$logfile" &>/dev/null
+  __save_build_script
+  printf_blue "Setting default tag to: $set_tag"
+  echo "$BUILDX_GET_VERSION_MESSAGE" | tee -p -a "$logfile" &>/dev/null
+  if [ "$BUILDX_ADD_TAG" = "true" ] || [ -n "$REGISTRY_TAG" ] && [ -n "$ADDITIONAL_PRETTY" ]; then
+    printf_blue "Adding tags: $ADDITIONAL_PRETTY"
+    printf '%s\n' "# Adding tags: $ADDITIONAL_PRETTY" | tee -p -a "$logfile" &>/dev/null
+  fi
+  sleep 2
+  printf 'Executing: %s\n' "$set_build_command" | tee -p -a "$logfile" &>/dev/null
+  eval "$set_build_command" |& tee -p -a "$logfile" &>/dev/null || false
+  return $?
+
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__run_dockermgr_script() {
+  local dir="/tmp/builder"
+  local build_tags="-t $tagged_name $ADDITIONAL_TAGS"
+  local build_name="$(basename -- "${tagged_name//:*/}")"
+  local buildfile="$(basename -- "${Dockerfile:-Dockerfile}")"
+  set_build_command='dockermgr --name '$build_name',, -- builder buildx_script "'$BUILDX_DOCKER_PLATFORMS'",, "'$build_tags'",, "'$dir'",, "'$dir/$buildfile'"'
+  set_build_command="${set_build_command//  / }"
+  build_command="$(echo "$set_build_command" | grep '^' | grep -v '^$' | sed 's|,,| \\\n|g')"
+  set_build_command="${set_build_command//,,/}"
+  printf '%b%s: %b%s%b\n' "$GREEN" "Saving the build command to" "$CYAN" "$logscript_file" "$NC"
+  printf 'Saving the build command to: %s\n' "$logscript_file" | tee -p -a "$logfile" &>/dev/null
+  __save_build_script
+  printf_blue "Setting default tag to: $set_tag"
+  if [ "$BUILDX_ADD_TAG" = "true" ] || [ -n "$REGISTRY_TAG" ] && [ -n "$ADDITIONAL_PRETTY" ]; then
+    printf_blue "Adding tags: $ADDITIONAL_PRETTY"
+    printf '%s\n' "# Adding tags: $ADDITIONAL_PRETTY" | tee -p -a "$logfile" &>/dev/null
+  fi
+  sleep 2
+  printf 'Executing: %s\n' "$build_command" | tee -p -a "$logfile" &>/dev/null
+  eval "$set_build_command" |& tee -p -a "$logfile" &>/dev/null || false
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__run_buildx_script() {
+  set_build_command="$BUILDX_DOCKER_CMD buildx build ${BUILDX_REMOVE_BUILD:-},, --platform $BUILDX_DOCKER_PLATFORMS,, --rm --pull --push,, --no-cache --progress auto --output=type=registry,, -t $tagged_name $ADDITIONAL_TAGS,, ${dir:-$PWD},, -f ${Dockerfile:-Dockerfile}"
+  set_build_command="${set_build_command//  / }"
+  build_command="$(echo "$set_build_command" | grep '^' | grep -v '^$' | sed 's|,,| \\\n|g')"
+  set_build_command="${set_build_command//,,/}"
+  printf '%b%s: %b%s%b\n' "$GREEN" "Saving the build command to" "$CYAN" "$logscript_file" "$NC"
+  printf 'Saving the build command to: %s\n' "$logscript_file" | tee -p -a "$logfile" &>/dev/null
+  __save_build_script
+  printf_blue "Setting default tag to: $set_tag"
+  if [ "$BUILDX_ADD_TAG" = "true" ] || [ -n "$REGISTRY_TAG" ] && [ -n "$ADDITIONAL_PRETTY" ]; then
+    printf_blue "Adding tags: $ADDITIONAL_PRETTY"
+    printf '%s\n' "# Adding tags: $ADDITIONAL_PRETTY" | tee -p -a "$logfile" &>/dev/null
+  fi
+  sleep 2
+  printf 'Executing: %s\n' "$set_build_command" | tee -p -a "$logfile" &>/dev/null
+  eval "$set_build_command" |& tee -p -a "$logfile" &>/dev/null || false
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__run_build_script() {
+  set_build_command="$BUILDX_DOCKER_CMD build,, --pull --force-rm --no-cache,, -t $tagged_name $ADDITIONAL_TAGS,, ${dir:-$PWD},, -f ${Dockerfile:-Dockerfile}"
+  set_build_command="${set_build_command//  / }"
+  build_command="$(echo "$set_build_command" | grep '^' | grep -v '^$' | sed 's|,,| \\\n|g')"
+  set_build_command="${set_build_command//,,/}"
+  printf '%b%s: %b%s%b\n' "$GREEN" "Saving the build command to" "$CYAN" "$logscript_file" "$NC"
+  printf 'Saving the build command to: %s\n' "$logscript_file" | tee -p -a "$logfile" &>/dev/null
+  __save_build_script
+  printf_blue "Setting default tag to: $set_tag"
+  if [ "$BUILDX_ADD_TAG" = "true" ] || [ -n "$REGISTRY_TAG" ] && [ -n "$ADDITIONAL_PRETTY" ]; then
+    printf_blue "Adding tags: $ADDITIONAL_PRETTY"
+    printf '%s\n' "# Adding tags: $ADDITIONAL_PRETTY" | tee -p -a "$logfile" &>/dev/null
+  fi
+  sleep 2
+  printf 'Executing: %s\n' "$set_build_command" | tee -p -a "$logfile" &>/dev/null
+  eval "$set_build_command" |& tee -p -a "$logfile" &>/dev/null || false
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__save_build_script() {
+  [ -d "$logscript_dir" ] || mkdir -p "$logscript_dir"
+  echo "command: $build_command" |& tee -p "$logscript_file" &>/dev/null
+  cat <<EOF |& tee -p "$logscript_file" &>/dev/null
+#!/usr/bin/env bash
+# Build command for $tagged_name
+
+${build_command}
+exit \$?
+
+EOF
+  chmod -Rf 755 "$logscript_file"
+  if [ "$BUILDX_GEN_SCRIPT" = "true" ]; then
+    if [ -x "$logscript_file" ]; then
+      printf_yellow "Your script has been saved: exiting"
+      echo "Your script has been saved: exiting" | tee -p -a "$logfile" &>/dev/null
+      exit 0
+    else
+      printf_red "Your script failed to save: exiting" | tee -p -a "$logfile" &>/dev/null
+      exit 1
+    fi
+  else
+    [ -x "$logscript_file" ] && return 0 || return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__run_docker_build() {
+  set -e -o pipefail
+  cd "$BUILDX_CWD" || return 1
+  buildx_status="0" SET_ADD_HOST=("")
+  namespace="$BUILDX_ADD_REPO"
+  registry="${BUILDX_ADD_REGISTRY//,/ }"
+  image_name="${tagged_name//$BUILDX_DEFAULT_REPO\//}"
+  if [ -n "$BUILDX_ADD_REGISTRY" ] && [ "$BUILDX_ENABLE_REGISTRY" = "true" ]; then
+    for host in $registry; do
+      namespace="$BUILDX_ADD_REPO"
+      if [ -n "$BUILDX_ADD_REPO" ]; then
+        [ "$BUILDX_ADD_REPO" = "" ] && namespace="library"
+        [ "$BUILDX_ADD_REPO" = "_" ] && namespace="library"
+        if echo "$image_name" | grep -q ":"; then
+          full_host="$host/$namespace/$image_name"
+          SET_ADD_HOST+=("-t $full_host")
+        else
+          __tag_versions "$host/$namespace/$image_name"
+        fi
+      else
+        SET_ADD_HOST+=("-t $host/$namespace/$image_name")
+      fi
+    done
+  else
+    __tag_versions "$tagged_name"
+  fi
+  ADD_HOST="$(printf '%s\n' "${SET_ADD_HOST[@]}" | sort -u | tr '\n' ' ' | sed 's|  *| |g')"
+  ADDITIONAL_TAGS="$REGISTRY_TAG ${ADD_HOST[*]}"
+  ADDITIONAL_PRETTY="$(echo "$ADDITIONAL_TAGS" | sed 's|--tag||g;s|-t||g' | tr ' ' '\n' | grep -v '^$' | tr '\n' ' ')"
+  [ -n "$image_name" ] && tagged_name="$image_name" || tagged_name="$push_tag"
+  if [ "$BUILDX_RUN_SCRIPT" = "true" ] && [ -f "$BUILDX_CWD/build.sh" ]; then
+    printf_blue "Using $BUILDX_CWD/build.sh to build $tagged_name"
+    printf '%s\n' "# Using Using $BUILDX_CWD/build.sh to build $tagged_name" | tee -p -a "$logfile" &>/dev/null
+    __run_docker_script
+    buildx_status=$?
+  elif __is_buildx_installed; then
+    printf_blue "Using docker buildx to build $tagged_name"
+    printf '%s\n' "# Using docker buildx to build $tagged_name" | tee -p -a "$logfile" &>/dev/null
+    __run_buildx_script
+    buildx_status=$?
+  else
+    printf_blue "Using docker build to build $tagged_name"
+    printf '%s\n' "# Using docker build to build $tagged_name" | tee -p -a "$logfile" &>/dev/null
+    __run_build_script
+    buildx_status=$?
+    if [ "$buildx_status" = 0 ]; then
+      if __docker_push; then
+        printf '%s\n' "# Pushing of $tagged_name completed on : $(date +'%Y-%m-%d at %H:%M')" | tee -p -a "$logfile" &>/dev/null
+      else
+        printf '%s\n' "# Pushing of $tagged_name failed on : $(date +'%Y-%m-%d at %H:%M')" | tee -p -a "$logfile" &>/dev/null
+      fi
+    fi
+  fi
+  if [ $buildx_status = 0 ]; then
+    printf '%s\n' "# Finished building $tagged_name $ADDITIONAL_PRETTY" | tee -p -a "$logfile" &>/dev/null
+    buildx_status=0
+  else
+    printf '%s\n' "# Building of $tagged_name has failed" | tee -p -a "$logfile" &>/dev/null
+    buildx_status="${buildx_status:-10}"
+  fi
+  printf '\n%s\n' "buildx has Finished on: $(date +'%Y-%m-%d at %H:%M')" | tee -p -a "$logfile" &>/dev/null
+  __remove_pid
+  return $buildx_status
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__build_cmd() {
+  local exitCodeS="1"
+  local dir="${1:-$FULL_DIR_PATH}"
+  local errlog="$BUILDX_FAILED_LOG"
+  __last_build_check "$dir"
+  if ! __is_buildx_installed; then
+    printf_yellow "💔 buildx is not installed - Using 'docker build' instead. 💔"
+  fi
+  __run_docker_build
+  exitCodeS=$?
+  if [ "$exitCodeS" -ne 0 ]; then
+    echo "build started on $BUILDX_FAILED_LOG" >"$errlog"
+    printf_yellow "The last 75 lines of the log are in:${CYAN} $errlog"
+    printf_blue "Full log is in the logfile"
+    echo "build failed on $(date +'%Y-%m-%d at %H:%M')" >>"$errlog"
+    tail -n75 "$logfile" >>"$errlog"
+  fi
+  return ${exitCodeS:-$?}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__execute_buildx() {
+  local exitCode=0
+  local buildxexitCode=1
+  BUILDX_DATE="$(date +'%Y-%m-%d at %H:%M')"
+  FULL_DIR_PATH="$(realpath "$BUILDX_CWD")"
+  if [ -f "$BUILDX_PID_FILE" ]; then
+    printf_exit "$APPNAME is already running"
+  else
+    BUILDX_IS_RUNNING="true"
+    echo "$BUILDX_PID_NUMBER" >"$BUILDX_PID_FILE"
+  fi
+  echo "$*" | grep -q '.*.:.*.' && __usage
+  [ $# -ne 0 ] || __usage
+  notify_message=""
+  set_name="${BUILDX_SET_IMAGE:-$BUILDX_SET_NAME}"
+  if [ -f "$1" ]; then
+    Dockerfile="$(realpath "$1")"
+    FULL_DIR_PATH="$(dirname "$Dockerfile")"
+    SET_DIR_NAME="$(basename -- "$FULL_DIR_PATH")"
+    shift 1
+  elif [ -d "$1" ]; then
+    Dockerfile="$(realpath "${1//$PWD\//}/Dockerfile")"
+    FULL_DIR_PATH="$(dirname "$Dockerfile")"
+    SET_DIR_NAME="$(basename -- "$FULL_DIR_PATH")"
+    shift 1
+  elif [ -f "$PWD/$1" ]; then
+    Dockerfile="$(realpath "${1//$PWD\//}")"
+    FULL_DIR_PATH="$(dirname "$Dockerfile")"
+    SET_DIR_NAME="$(basename -- "$(dirname "$(realpath "$Dockerfile")")")"
+    shift 1
+  elif [ -f "$BUILDX_CWD/Dockerfile.latest" ]; then
+    Dockerfile="$(realpath "$BUILDX_CWD/Dockerfile.latest")"
+    FULL_DIR_PATH="$(dirname "$Dockerfile")"
+    SET_DIR_NAME="$(basename -- "$(dirname "$(realpath "$Dockerfile")")")"
+  elif [ -f "$BUILDX_CWD/Dockerfile.next" ]; then
+    Dockerfile="$(realpath "$BUILDX_CWD/Dockerfile.next")"
+    FULL_DIR_PATH="$(dirname "$Dockerfile")"
+    SET_DIR_NAME="$(basename -- "$(dirname "$(realpath "$Dockerfile")")")"
+  elif [ -f "$BUILDX_CWD/Dockerfile" ]; then
+    Dockerfile="$(realpath "$BUILDX_CWD/Dockerfile")"
+    FULL_DIR_PATH="$(dirname "$Dockerfile")"
+    SET_DIR_NAME="$(basename -- "$(dirname "$(realpath "$Dockerfile")")")"
+  fi
+  if [ -n "$FULL_DIR_PATH" ] && [ -f "$Dockerfile" ]; then
+    builtin cd "$FULL_DIR_PATH" || exit 15
+  else
+    printf_red "Well something went wrong while looking for a Dockerfile in $FULL_DIR_PATH"
+    echo "" && exit 1
+  fi
+  [ -e "$1" ] && shift
+  default_name="$(basename -- "$FULL_DIR_PATH")"
+  FULL_DIR_PATH="${FULL_DIR_PATH:-$(dirname "$(realpath "$PWD/Dockerfile")")}"
+  if [ ! -f "$Dockerfile" ] || [ -z "$(ls -A "$Dockerfile" 2>/dev/null)" ]; then
+    printf_red "Can not find a Dockerfile in $FULL_DIR_PATH"
+    echo "" && exit 1
+  fi
+  #
+  image_name="$(grep -sh 'ARG.*IMAGE_NAME=' "$Dockerfile" | awk -F'=' '{print $2}' | sed 's|"||g' | grep '^' || echo "$default_name")"
+  #
+  name="${set_name:-$image_name}"
+  set_newtag="${set_newtag//*:/}"
+  name="$(echo "$name" | tr '[:upper:]' '[:lower:]')"
+  SET_DIR_NAME="$(echo "$SET_DIR_NAME" | tr '[:upper:]' '[:lower:]')"
+  #
+  __get_dockerfile_ver "$Dockerfile"
+  [ -n "$ENV_IMAGE_PUSH" ] && name="$(basename -- "${ENV_IMAGE_PUSH//:*/}")"
+  tag_version="${new_tag:-$set_newtag}"
+  tag_version="${tag_version,,}"
+  BUILDX_DEFAULT_VERSION="$tag_version"
+  #
+  BUILDX_DOCKERFILE_VERSION="$(echo "$(basename -- "$Dockerfile")" | sed 's|[a-zA-Z]||g;s| ||g' | grep '[0-9]')"
+  if [ -z "$BUILDX_DOCKERFILE_VERSION" ]; then
+    BUILDX_FAILED_LOG="${BUILDX_FAILED_LOG:-$BUILDX_CWD/.build_failed}"
+  else
+    BUILDX_FAILED_LOG="${BUILDX_FAILED_LOG:-$BUILDX_CWD/.build_failed$BUILDX_DOCKERFILE_VERSION}"
+  fi
+  if [ "$(basename -- "$Dockerfile" 2>/dev/null)" = "Dockerfile" ] && [ "$tag_version" != "latest" ]; then
+    BUILDX_ADD_TAG="true"
+    BUILDX_VERSION_TAG="${BUILDX_VERSION_TAG},latest"
+  fi
+  if [ "$BUILDX_DEFAULT_HUB" = "docker.io" ]; then
+    tagged_name="$BUILDX_DEFAULT_REPO/$name"
+  else
+    tagged_name="$BUILDX_DEFAULT_HUB/$BUILDX_DEFAULT_REPO/$name"
+  fi
+  tagged_name="${tagged_name//\/dockerfile/}"
+  push_tag="$tagged_name:$tag_version"
+  set_tag="${push_tag//$BUILDX_DEFAULT_HUB\//}"
+  logfolder="${BUILDX_CUSTOM_LOG_DIR:-$(dirname "$tagged_name" | sed 's|.*://||g')}"
+  logfile="${BUILDX_CUSTOM_LOG_FILE:-$BUILDX_LOG_DIR/$(echo "$tagged_name" | awk -F':' '{print $1}').log}"
+  logscript_dir="$BUILDX_CONFIG_DIR/scripts/$(echo "$tagged_name" | awk -F '/' '{print $1}')"
+  logscript_file="$logscript_dir/$(echo "$tagged_name" | awk -F '/' '{print $2}')-${tag_version}.sh"
+  pretty_name="${set_tag/:*/}"
+  if [ "$BUILDX_BUILD_ALL" != "true" ]; then
+    printf_blue "Log is being written to: ${logfile//$HOME/~}"
+  fi
+  [ -n "$Dockerfile" ] && printf_cyan "Setting Dockerfile to: ${Dockerfile//$PWD\//./}"
+  if [ -f "$Dockerfile" ]; then
+    [ -d "$FULL_DIR_PATH/rootfs" ] || mkdir -p "$FULL_DIR_PATH/rootfs"
+  fi
+  [ -d "$BUILDX_LOG_DIR/$logfolder" ] || mkdir -p "$BUILDX_LOG_DIR/$logfolder"
+  if __build_cmd "$FULL_DIR_PATH"; then
+    notify_message+="Successfully built $set_tag $ADDITIONAL_PRETTY|"
+    printf_green "Successfully built container: $pretty_name"
+    printf '%b: ' "$(printf_green "Pulling the updated image")"
+    if __docker pull "$push_tag" &>/dev/null; then
+      printf_green "Successfully pulled $push_tag"
+      notify_message+="Successfully pulled $push_tag|"
+      printf '\n%s\n' "# Successfully pulled $push_tag on : $(date +'%Y-%m-%d at %H:%M')" | tee -p -a "$logfile" &>/dev/null
+      __docker rmi "$push_tag" &>/dev/null
+      __docker rmi "$pretty_name" &>/dev/null
+      buildxexitCode=1
+    else
+      printf_red "Failed to pull $push_tag" >&2
+      notify_message+="Failed to pull $push_tag|"
+      printf '\n%s\n' "# Failed to pull $push_tag on : $(date +'%Y-%m-%d at %H:%M')" | tee -p -a "$logfile" &>/dev/null
+      buildxexitCode=2
+    fi
+  else
+    printf_red "Failed to build $name" >&2
+    notify_message+="Failed to build $name|"
+    buildxexitCode=10
+  fi
+  notify_message="$(echo "$notify_message" | tr '|' '\n')"
+  __notifications "${notify_message[@]}" &>/dev/null &
+  printf "# Exit status: %s\n" "$buildxexitCode" | tee -p -a "$logfile" &>/dev/null
+  printf '###############################################################################\n\n' | tee -p -a "$logfile" &>/dev/null
+  [ -f "$BUILDX_PID_FILE" ] && rm -Rf "$BUILDX_PID_FILE"
+  [ "$buildxexitCode" = "1" ] && exitCode=0 || exitCode=$buildxexitCode
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__is_logged_in() {
+  __docker system info 2>&1 | grep -E 'Username|Registry' | grep -i "Username" | awk '{print $2}' | grep -q '^' &&
+    return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__api() {
+  local repo
+  repo="$(__curl "https://hub.docker.com/v2/repositories/$BUILDX_DEFAULT_REPO/?page_size=1000" | __jq -r '.results|.[]|.name' | grep '^')"
+  [ -n "$repo" ] && echo "$repo" | grep -vE 'tools|templates|.docker' | grep '^' || exit 2
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__api_search() {
+  [ $# -eq 1 ] || return 1
+  local repo
+  repo="$(__curl "https://hub.docker.com/v2/repositories/$1/?page_size=1000" | __jq -r '.results|.[]|.name' | grep '^')"
+  [ -n "$repo" ] && echo "$repo" | grep -vE 'tools|templates|.docker' | grep '^' || exit 2
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__api_source() {
+  local list
+  list="$(__curl "https://api.github.com/orgs/${1:-$BUILDX_GIT_REPO_USER}/repos?per_page=1000" | __jq -r '.[].name' | grep '^')"
+  [ -n "$list" ] || list="$(__curl -q -LSsf "https://api.github.com/users/${1:-BUILDX_GIT_REPO_USER}/repos?per_page=1000" | __jq -r '.[].name' | grep '^')"
+  [ -n "$list" ] && echo "$list" | grep -vE 'tools|templates|.github' | grep '^' || exit 2
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__api_clone() {
+  local repos git_url
+  [ "$1" = "all" ] && repos="$(__api_source "$BUILDX_GIT_REPO_USER")" || repos="$(__api_source "$BUILDX_GIT_REPO_USER" | grep "$1" | head -n1)"
+  git_url="${2:-$BUILDX_GIT_REPO_PROVIDER/$BUILDX_GIT_REPO_USER}"
+  [ -n "$repo" ] || exit 2
+  [ -n "$git_url" ] || exit 2
+  for repo in $repos; do
+    gitadmin clone "$git_url/$repo"
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__buildx_all() {
+  local statusCode=0
+  local dockerfiles=""
+  BUILDX_RUN_COUNT_OF="0"
+  BUILDX_RUN_COUNT_TOTAL="$(ls -A "$BUILDX_CWD/Dockerfile"* 2>/dev/null | wc -l)"
+  BUILDX_FAILED_EXISTS="$(ls -A "$BUILDX_CWD/.build_failed"* 2>/dev/null | wc -l)"
+  [ "$BUILDX_FAILED_EXISTS" -eq 0 ] && export BUILDX_FAILED_EXISTS="false" || BUILDX_FAILED_EXISTS="true"
+  export BUILDX_GIT_COMMIT_ID="${BUILDX_GIT_COMMIT_ID:-}"
+  if [ ! -d "$BUILDX_CWD" ]; then
+    printf_exit "Usage: $APPNAME [dir] all"
+  elif [ "$BUILDX_RUN_COUNT_TOTAL" -eq 0 ]; then
+    printf_exit "The doesn't seem to be any Dockerfiles in $BUILDX_CWD"
+  fi
+  __run_git_pull "$BUILDX_CWD"
+  printf_cyan "Building all Dockerfiles in $BUILDX_CWD"
+  for file in $(ls -Avr "$BUILDX_CWD/Dockerfile"* 2>/dev/null); do
+    buildCode=0
+    file="$(realpath "$file" 2>/dev/null | grep '^' || echo '')"
+    [ -n "$file" ] && [ -f "$file" ] || buildCode=1
+    if [ $buildCode -eq 0 ]; then
+      export BUILDX_RUN_COUNT_TOTAL="${BUILDX_RUN_COUNT_TOTAL:-1}" BUILDX_GIT_COMMIT_ID="$BUILDX_GIT_COMMIT_ID"
+      export BUILDX_RUN_COUNT_OF=$((BUILDX_RUN_COUNT_OF + 1)) BUILDX_BUILD_ALL="true" BUILDX_GEN_SCRIPT="${BUILDX_GEN_SCRIPT:-}"
+      $0 --dir "$BUILDX_CWD" run "$file" || statusCode=$((statusCode + 1))
+    else
+      printf_return "Can not find Dockerfile in $BUILDX_CWD"
+    fi
+  done
+  BUILDX_FAILED_EXISTS="$(ls -A "$BUILDX_CWD/.build_failed"* 2>/dev/null | wc -l)"
+  [ "$BUILDX_FAILED_EXISTS" -eq 0 ] && export BUILDX_FAILED_EXISTS="false" || export BUILDX_FAILED_EXISTS="true"
+  [ "$BUILDX_GEN_SCRIPT" = "true" ] && exit_message_good="Finished generating the build scripts" || exit_message_good="Finished building all Dockerfile in"
+  [ "$BUILDX_GEN_SCRIPT" = "true" ] && exit_message_error="Finished generating the build scripts with errors" || exit_message_error="Building has failed with errors"
+  if [ $statusCode -eq 0 ] || [ "$BUILDX_FAILED_EXISTS" = "false" ]; then
+    printf_blue "$exit_message_good $BUILDX_CWD"
+    statusCode=0
+  else
+    printf_red "$exit_message_error"
+  fi
+  __trap_timer
+  printf_yellow "Cleaning up containers"
+  echo ""
+  return $statusCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__automate() {
+  local BUILDX_AUTOMATE_CWD="$(realpath "$1" 2>/dev/null)"
+  BUILDX_CWD="$BUILDX_AUTOMATE_CWD"
+  [ -f "$BUILDX_AUTOMATE_CWD" ] && BUILDX_AUTOMATE_CWD="$(dirname "$BUILDX_AUTOMATE_CWD" 2>/dev/null)"
+  [ -d "$BUILDX_AUTOMATE_CWD" ] && BUILDX_AUTOMATE_CWD="${BUILDX_AUTOMATE_CWD:-$PWD}" || { printf_red "Usage: $APPNAME cron [dir]" && return 1; }
+  __buildx_all "$BUILDX_AUTOMATE_CWD"
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__run_git_pull() {
+  local commit_cur="" commit_new="" dir=""
+  [ -z "$BUILDX_GIT_COMMIT_ID" ] || return 0
+  dir="$(realpath "${1:-$BUILDX_CWD}" 2>/dev/null || echo "${1:-$BUILDX_CWD}")"
+  [ -d "$dir/.git" ] || return 1
+  commit_cur="$(git -C "$dir" log 2>/dev/null | head -n1 | tr ' ' '\n' | grep '[0-9].*[0-9].*[a-z]' || false)"
+  printf_cyan "Attempting to update repo in $dir"
+  git -C "$dir" pull -q &>/dev/null
+  commit_new="$(git -C "$dir" log 2>/dev/null | head -n1 | tr ' ' '\n' | grep '[0-9].*[0-9].*[a-z]' || false)"
+  [ -n "$commit_cur" ] && [ -n "$commit_new" ] || { printf_red "Failed to get the git commit history" && return 1; }
+  if [ "$commit_cur" = "$commit_new" ]; then
+    printf_cyan "No commit changes detected! commit id: $commit_cur"
+  else
+    printf_cyan "Updated to commit: $commit_new"
+  fi
+  export BUILDX_GIT_COMMIT_ID="${commit_new:-$commit_cur}"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined variables/import external variables
+BUILDX_FORCE="${BUILDX_FORCE:-}"
+BUILDX_DEFAULT_REPO="${BUILDX_DEFAULT_REPO:-casjaysdevdocker}"
+BUILDX_DEFAULT_HUB="${BUILDX_DEFAULT_HUB:-docker.io}"
+BUILDX_DEFAULT_VERSION="${BUILDX_DEFAULT_VERSION:-latest}"
+BUILDX_REMOVE_BUILD="${BUILDX_REMOVE_BUILD:-}"
+BUILDX_BUILDER_NAME="${BUILDX_BUILDER_NAME:-mybuilder}"
+BUILDX_GIT_REPO_USER="${BUILDX_GIT_REPO_USER:-casjaysdevdocker}"
+BUILDX_GIT_REPO_PROVIDER="${BUILDX_GIT_REPO_PROVIDER:-http://github.com}"
+BUILDX_DOCKER_CLI_EXPERIMENTAL="${DOCKER_CLI_EXPERIMENTAL:-enabled}"
+BUILDX_DOCKER_BUILD_EXPERIMENTAL="${BUILDX_EXPERIMENTAL:-1}"
+BUILDX_DOCKER_PLATFORMS="${DOCKER_PLATFORMS:-}"
+BUILDX_PROJECT_DIR="${BUILDX_PROJECT_DIR:-$HOME/Projects/github}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application Folders
+BUILDX_CONFIG_FILE="${BUILDX_CONFIG_FILE:-settings.conf}"
+BUILDX_CONFIG_DIR="${BUILDX_CONFIG_DIR:-$HOME/.config/myscripts/buildx}"
+BUILDX_CONFIG_BACKUP_DIR="${BUILDX_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/buildx/backups}"
+BUILDX_LOG_DIR="${BUILDX_LOG_DIR:-$HOME/.local/log/buildx}"
+BUILDX_TEMP_DIR="${BUILDX_TEMP_DIR:-$HOME/.local/tmp/system_scripts/buildx}"
+BUILDX_CACHE_DIR="${BUILDX_CACHE_DIR:-$HOME/.cache/buildx}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+BUILDX_OUTPUT_COLOR_1="${BUILDX_OUTPUT_COLOR_1:-33}"
+BUILDX_OUTPUT_COLOR_2="${BUILDX_OUTPUT_COLOR_2:-5}"
+BUILDX_OUTPUT_COLOR_GOOD="${BUILDX_OUTPUT_COLOR_GOOD:-2}"
+BUILDX_OUTPUT_COLOR_ERROR="${BUILDX_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+BUILDX_NOTIFY_ENABLED="${BUILDX_NOTIFY_ENABLED:-yes}"
+BUILDX_GOOD_NAME="${BUILDX_GOOD_NAME:-Great:}"
+BUILDX_ERROR_NAME="${BUILDX_ERROR_NAME:-Error:}"
+BUILDX_GOOD_MESSAGE="${BUILDX_GOOD_MESSAGE:-No errors reported}"
+BUILDX_ERROR_MESSAGE="${BUILDX_ERROR_MESSAGE:-Errors were reported}"
+BUILDX_NOTIFY_CLIENT_NAME="${BUILDX_NOTIFY_CLIENT_NAME:-$APPNAME}"
+BUILDX_NOTIFY_CLIENT_ICON="${BUILDX_NOTIFY_CLIENT_ICON:-notification-new}"
+BUILDX_NOTIFY_CLIENT_URGENCY="${BUILDX_NOTIFY_CLIENT_URGENCY:-normal}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional Variables
+REGISTRY_TAG=""
+BUILDX_ADD_REPO=""
+BUILDX_IS_RUNNING=""
+BUILDX_CLEANUP="true"
+BUILDX_AUTO_VERSION=""
+BUILDX_ADD_REGISTRY=""
+BUILDX_SET_PLATFORM=""
+BUILDX_RUN_SCRIPT="false"
+BUILDX_ENABLE_REGISTRY="false"
+BUILDX_DOCKER_CMD="${BUILDX_DOCKER_CMD:-docker}"
+BUILDX_DOCKER_PLATFORMS="${BUILDX_DOCKER_PLATFORMS:-linux/amd64,linux/arm64}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$BUILDX_CONFIG_DIR/$BUILDX_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$BUILDX_CONFIG_DIR/$BUILDX_CONFIG_FILE" ] && . "$BUILDX_CONFIG_DIR/$BUILDX_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$BUILDX_LOG_DIR" ] || mkdir -p "$BUILDX_LOG_DIR" |& __devnull
+[ -d "$BUILDX_TEMP_DIR" ] || mkdir -p "$BUILDX_TEMP_DIR" |& __devnull
+[ -d "$BUILDX_CACHE_DIR" ] || mkdir -p "$BUILDX_CACHE_DIR" |& __devnull
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+BUILDX_TEMP_FILE="${BUILDX_TEMP_FILE:-$(mktemp $BUILDX_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap '__trap_exit;exit $?' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+__notifications() {
+  __cmd_exists notifications || return
+  [ "$BUILDX_NOTIFY_ENABLED" = "yes" ] || return
+  [ "$SEND_NOTIFICATION" = "no" ] && return
+  (
+    export SCRIPT_OPTS="" _DEBUG=""
+    export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$BUILDX_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$BUILDX_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$BUILDX_NOTIFY_CLIENT_ICON}"
+    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$BUILDX_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$BUILDX_NOTIFY_CLIENT_URGENCY}"
+    notifications "$@"
+  ) |& __devnull &
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set custom actions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Argument/Option settings
+SETARGS=("$@")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SHORTOPTS=""
+SHORTOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
+LONGOPTS+=",force,cleanup,add-registry:,repo:,no-registry,no-repo,platform:"
+LONGOPTS+=",gen-script,tag:,add-tag:,all,build,url:,script,init,user:,image:,registry:"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ARRAY="all run[Dockerfile] init status version api[tags,list,search,sources,clone,delete,update] "
+ARRAY+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LIST=""
+LIST+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case "$1" in
+  --raw)
+    shift 1
+    export SHOW_RAW="true"
+    NC=""
+    RESET=""
+    BLACK=""
+    RED=""
+    GREEN=""
+    YELLOW=""
+    BLUE=""
+    PURPLE=""
+    CYAN=""
+    WHITE=""
+    ORANGE=""
+    LIGHTRED=""
+    BG_GREEN=""
+    BG_RED=""
+    ICON_INFO="[ info ]"
+    ICON_GOOD="[ ok ]"
+    ICON_WARN="[ warn ]"
+    ICON_ERROR="[ error ]"
+    ICON_QUESTION="[ ? ]"
+    printf_column() { tee | grep '^'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    ;;
+  --debug)
+    shift 1
+    set -xo pipefail
+    export SCRIPT_OPTS="--debug"
+    export _DEBUG="on"
+    __devnull() { tee || return 1; }
+    __devnull2() { eval "$@" |& tee -p || return 1; }
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
+    ;;
+  --options)
+    shift 1
+    printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' 4
+    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' 4
+    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
+    [ -z "$LIST" ] || __list_options "LIST Options" "${LIST}" ',' '' 4
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  --silent)
+    shift 1
+    BUILDX_SILENT="true"
+    ;;
+  --dir)
+    export CWD_IS_SET="TRUE"
+    export BUILDX_CWD="$2"
+    [ -d "$BUILDX_CWD" ] || mkdir -p "$BUILDX_CWD" |& __devnull
+    shift 2
+    ;;
+  --force)
+    shift 1
+    export BUILDX_FORCE="true"
+    ;;
+  --script)
+    shift 1
+    export BUILDX_RUN_SCRIPT="true"
+    ;;
+  --build)
+    shift 1
+    export BUILDX_ENABLED="no"
+    ;;
+  --init)
+    shift 1
+    export BUILDX_FORCE_REINSTALL="yes"
+    ;;
+  --no-registry)
+    shift 1
+    export BUILDX_ENABLE_REGISTRY="false"
+    export BUILDX_ADD_REGISTRY=""
+    ;;
+  --no-repo)
+    shift 1
+    export BUILDX_ADD_REPO=""
+    ;;
+  --all)
+    shift 1
+    export BUILDX_ALL="true"
+    ;;
+  --gen-script)
+    shift 1
+    BUILDX_GEN_SCRIPT="true"
+    ;;
+  --cleanup)
+    shift 1
+    export BUILDX_CLEANUP="true"
+    ;;
+  --add-registry)
+    export BUILDX_ENABLE_REGISTRY="true"
+    export BUILDX_ADD_REGISTRY+="$2"
+    shift 2
+    ;;
+  --repo)
+    export BUILDX_ADD_TAG="true"
+    export BUILDX_ADD_REPO="$2"
+    shift 2
+    ;;
+  --platform)
+    [ "$2" = "x64" ] && BUILDX_SET_PLATFORM="linux/amd64" && shift 2
+    [ "$2" = "arm" ] && BUILDX_SET_PLATFORM="linux/arm/v7" && shift 2
+    [ "$2" = "arm64" ] && BUILDX_SET_PLATFORM="linux/arm64" && shift 2
+    export BUILDX_DOCKER_PLATFORMS="${BUILDX_SET_PLATFORM:-$2}"
+    printf_yellow "Setting platform to $BUILDX_DOCKER_PLATFORMS"
+    BUILDX_SET_PLATFORM=""
+    shift 2
+    ;;
+  --tag)
+    export BUILDX_AUTO_VERSION="false"
+    if echo "$2" | grep -q ':'; then
+      export BUILDX_SET_NAME="${2//:*/}"
+      export BUILDX_SET_VERSION="${2//*:/}"
+    else
+      export BUILDX_SET_VERSION="$2"
+    fi
+    export BUILDX_SET_VERSION="${2//,/ }"
+    shift 2
+    ;;
+  --image)
+    export BUILDX_SET_IMAGE="$2"
+    shift 2
+    ;;
+  --add-tag)
+    export BUILDX_VERSION_TAG="${2//,/ }"
+    shift 2
+    ;;
+  --url)
+    urls="${2//,/ }"
+    for url in $urls; do
+      if [ -n "$url" ]; then
+        export REGISTRY_TAG+="-t $url "
+      fi
+    done
+    unset url urls
+    shift 2
+    ;;
+  --user)
+    export BUILDX_SET_REPO="$2"
+    export BUILDX_SET_GIT_USER="$2"
+    shift 2
+    ;;
+  --registry)
+    BUILDX_SET_REGISTRY="$2"
+    shift 2
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get directory from args
+# set -- "$@"
+# for arg in "$@"; do
+# if [ -d "$arg" ]; then
+# BUILDX_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
+# elif [ -f "$arg" ]; then
+# BUILDX_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
+# else
+# SET_NEW_ARGS+=("$arg")
+# fi
+# done
+# set -- "${SET_NEW_ARGS[@]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set directory to first argument
+[ -d "$1" ] && __is_an_option "$1" && BUILDX_CWD="$1" && shift 1 || BUILDX_CWD="${BUILDX_CWD:-$PWD}"
+BUILDX_CWD="$(realpath "${BUILDX_CWD:-$PWD}" 2>/dev/null)"
+if [ -d "$BUILDX_CWD" ] && cd "$BUILDX_CWD"; then
+  if [ "$BUILDX_SILENT" != "true" ] && [ "$CWD_SILENCE" != "true" ]; then
+    true
+    #printf_cyan "Setting working dir to $BUILDX_CWD"
+  fi
+else
+  printf_exit "💔 $BUILDX_CWD does not exist 💔"
+fi
+export BUILDX_CWD
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set actions based on variables
+[ -f "${2:-$1}" ] && BUILDX_CWD="$(realpath "$(dirname "${2:-$1}")")"
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+#cmd_exists --error --ask bash || exit 3 # exit 3 if not found
+#am_i_online --error || exit 4           # exit 4 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+[ -f "$BUILDX_CWD/.env.scripts" ] && . "$BUILDX_CWD/.env.scripts"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+__set_variables
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Export variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+__buildx_vars $BUILDX_BUILDER_NAME
+[ -d "$HOME/.local/run/$APPNAME" ] || mkdir -p "$HOME/.local/run/$APPNAME"
+[ -d "$BUILDX_CONFIG_DIR/scripts" ] || mkdir -p "$BUILDX_CONFIG_DIR/scripts"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute commands
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+case "$1" in
+init)
+  shift
+  __buildx_init "$@"
+  exit $?
+  ;;
+
+status)
+  shift 1
+  if [ $# -eq 0 ]; then
+    __buildx_status && printf_blue "BuildX is running" || printf_red "buildx is not running"
+  else
+    __buildx_status "$@" | printf_readline "4"
+  fi
+  exit $?
+  ;;
+
+version)
+  __qemu_version
+  __docker_version
+  __binfmt_version
+  __buildx_version
+  exit 0
+  ;;
+
+api)
+  shift 1
+  case "$1" in
+  tags)
+    shift 1
+    [ "$1" = "help" ] && printf_help "usage: $APPNAME api tags [repo/image] [registry]"
+    __get_tags "$@"
+    exit $?
+    ;;
+  list)
+    shift 1
+    [ "$1" = "help" ] && printf_help "usage: $APPNAME api list repo"
+    __api | grep "${1:-^}"
+    exit $?
+    ;;
+  search)
+    shift 1
+    [ "$1" = "help" ] && printf_help "usage: $APPNAME api search repo"
+    __api_search "${1:-docker}"
+    exit $?
+    ;;
+  sources)
+    shift 1
+    [ "$1" = "help" ] && printf_help "usage: $APPNAME api sources repo"
+    __api_source | grep "${1:-^}"
+    exit $?
+    ;;
+  clone)
+    shift 1
+    [ "$1" = "help" ] && printf_help "usage: $APPNAME api clone repo [Base user repo]"
+    __api_clone "${@:-all}"
+    exit $?
+    ;;
+  delete)
+    shift 1
+    __orgs_api_delete "$@"
+    exit $?
+    ;;
+  update)
+    shift 1
+    __orgs_api_update "$@"
+    ;;
+  *)
+    printf_help "usage: $APPNAME api [tags|list|search|sources|clone|delete|update] [help]"
+    exit 1
+    ;;
+  esac
+  ;;
+
+automated | cron)
+  shift 1
+  exitCode=0
+  if [ $# -eq 0 ] && [ -d "$BUILDX_PROJECT_DIR" ]; then
+    for projectDir in $BUILDX_PROJECT_DIR/*; do
+      if [ -d "$projectDir" ]; then
+        __automate "$projectDir"
+        exitCode=$((1 + exitCode))
+      else
+        printf '%s\n' "$projectDir is not a directory"
+        exitCode=$((1 + exitCode))
+      fi
+    done
+  elif [ $# -ne 0 ]; then
+    for projectDir in "$@"; do
+      if [ -d "$projectDir" ]; then
+        __automate "$projectDir"
+        exitCode=$((1 + exitCode))
+      else
+        printf '%s\n' "$projectDir is not a directory"
+        exitCode=$((1 + exitCode))
+      fi
+    done
+  fi
+  exit $exitCode
+  ;;
+
+all)
+  shift 1
+  __buildx_all "$@"
+  exit $?
+  ;;
+
+run)
+  shift 1
+  __run_all "$@"
+  ;;
+
+build)
+  shift 1
+  runAllCode=0
+  BUILDX_BUILD_FILES="$*"
+  for i in ${BUILDX_BUILD_FILES:-BUILDX_CWD}; do
+    __buildx_run "$i"
+    ec=$?
+    runAllCode=$(($ec + $runAllCode))
+  done
+  exitCode="$runAllCode"
+  ;;
+*)
+  runAllCode=0
+  BUILDX_BUILD_FILES="$*"
+  for i in ${BUILDX_BUILD_FILES:-BUILDX_CWD}; do
+    __buildx_run "$i"
+    ec=$?
+    runAllCode=$(($ec + $runAllCode))
+  done
+  exitCode="$runAllCode"
+  ;;
+esac
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set exit code
+exitCode="${exitCode:-0}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-0}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# ex: ts=2 sw=2 et filetype=sh

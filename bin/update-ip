@@ -1,0 +1,618 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version           :  202208180124-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  jason@casjaysdev.pro
+# @@License          :  WTFPL
+# @@ReadME           :  update-ip --help
+# @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
+# @@Created          :  Thursday, Aug 18, 2022 01:24 EDT
+# @@File             :  update-ip
+# @@Description      :  Updates the ip address for motd and issue files
+# @@Changelog        :  New script
+# @@TODO             :  Better documentation
+# @@Other            :
+# @@Resource         :
+# @@Terminal App     :  no
+# @@sudo/root        :  yes
+# @@Template         :  bash/system
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="$(basename -- "$0" 2>/dev/null)"
+VERSION="202208180124-git"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${RUN_USER:-$USER}"
+USER_HOME="${USER_HOME:-$HOME}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+UPDATE_IP_REQUIRE_SUDO="${UPDATE_IP_REQUIRE_SUDO:-yes}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Reopen in a terminal
+#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set script title
+#CASJAYS_DEV_TILE_FORMAT="${USER}@${HOSTNAME}:${PWD//$HOME/\~} - $APPNAME"
+#CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}"
+#[ -z "$CASJAYSDEV_TITLE_SET" ] && printf '\033]2│;%s\033\\' "$CASJAYS_DEV_TILE_FORMAT" && CASJAYSDEV_TITLE_SET="$APPNAME"
+export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}" CASJAYSDEV_TITLE_SET
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initial debugging
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# pipes fail
+set -o pipefail
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import functions
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+  . "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  exit 1
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Options are: *_install
+# system user desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+user_install && __options "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Send all output to /dev/null
+__devnull() {
+  tee &>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# Send errors to /dev/null
+__devnull2() {
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# See if the executable exists
+__cmd_exists() {
+  exitCode=0
+  [ -n "$1" ] && local exitCode="" || return 0
+  for cmd in "$@"; do
+    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
+  done
+  [ $exitCode -eq 0 ] || exitCode=3
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for a valid internet connection
+__am_i_online() {
+  local exitCode=0
+  curl -q -LSsfI --max-time 2 --retry 1 "${1:-https://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# colorization
+if [ "$SHOW_RAW" = "true" ]; then
+  NC=""
+  RESET=""
+  BLACK=""
+  RED=""
+  GREEN=""
+  YELLOW=""
+  BLUE=""
+  PURPLE=""
+  CYAN=""
+  WHITE=""
+  ORANGE=""
+  LIGHTRED=""
+  BG_GREEN=""
+  BG_RED=""
+  ICON_INFO="[ info ]"
+  ICON_GOOD="[ ok ]"
+  ICON_WARN="[ warn ]"
+  ICON_ERROR="[ error ]"
+  ICON_QUESTION="[ ? ]"
+  printf_column() { tee | grep '^'; }
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional printf_ colors
+__printf_head() { printf_blue "$1"; }
+__printf_opts() { printf_purple "$1"; }
+__printf_line() { printf_cyan "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# output version
+__version() { printf_cyan "$VERSION"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# list options
+__list_options() {
+  printf_color "$1: " "$5"
+  echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g' | tr '\n' ' '
+  printf_newline
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create the config file
+__gen_config() {
+  local NOTIFY_CLIENT_NAME="$APPNAME"
+  if [ "$INIT_CONFIG" != "TRUE" ]; then
+    printf_blue "Generating the config file in"
+    printf_cyan "$UPDATE_IP_CONFIG_DIR/$UPDATE_IP_CONFIG_FILE"
+  fi
+  [ -d "$UPDATE_IP_CONFIG_DIR" ] || mkdir -p "$UPDATE_IP_CONFIG_DIR"
+  [ -d "$UPDATE_IP_CONFIG_BACKUP_DIR" ] || mkdir -p "$UPDATE_IP_CONFIG_BACKUP_DIR"
+  [ -f "$UPDATE_IP_CONFIG_DIR/$UPDATE_IP_CONFIG_FILE" ] &&
+    cp -Rf "$UPDATE_IP_CONFIG_DIR/$UPDATE_IP_CONFIG_FILE" "$UPDATE_IP_CONFIG_BACKUP_DIR/$UPDATE_IP_CONFIG_FILE.$$"
+  cat <<EOF >"$UPDATE_IP_CONFIG_DIR/$UPDATE_IP_CONFIG_FILE"
+# Settings for update-ip
+UPDATE_IP_MESSAGE_DIR="${UPDATE_IP_MESSAGE_DIR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+UPDATE_IP_OUTPUT_COLOR_1="${UPDATE_IP_OUTPUT_COLOR_1:-}"
+UPDATE_IP_OUTPUT_COLOR_2="${UPDATE_IP_OUTPUT_COLOR_2:-}"
+UPDATE_IP_OUTPUT_COLOR_GOOD="${UPDATE_IP_OUTPUT_COLOR_GOOD:-}"
+UPDATE_IP_OUTPUT_COLOR_ERROR="${UPDATE_IP_OUTPUT_COLOR_ERROR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+UPDATE_IP_NOTIFY_ENABLED="${UPDATE_IP_NOTIFY_ENABLED:-}"
+UPDATE_IP_GOOD_NAME="${UPDATE_IP_GOOD_NAME:-}"
+UPDATE_IP_ERROR_NAME="${UPDATE_IP_ERROR_NAME:-}"
+UPDATE_IP_GOOD_MESSAGE="${UPDATE_IP_GOOD_MESSAGE:-}"
+UPDATE_IP_ERROR_MESSAGE="${UPDATE_IP_ERROR_MESSAGE:-}"
+UPDATE_IP_NOTIFY_CLIENT_NAME="${UPDATE_IP_NOTIFY_CLIENT_NAME:-}"
+UPDATE_IP_NOTIFY_CLIENT_ICON="${UPDATE_IP_NOTIFY_CLIENT_ICON:-}"
+UPDATE_IP_NOTIFY_CLIENT_URGENCY="${UPDATE_IP_NOTIFY_CLIENT_URGENCY:-}"
+
+EOF
+  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
+  if [ -f "$UPDATE_IP_CONFIG_DIR/$UPDATE_IP_CONFIG_FILE" ]; then
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
+    . "$UPDATE_IP_CONFIG_DIR/$UPDATE_IP_CONFIG_FILE"
+    exitCode=0
+  else
+    printf_red "Failed to create the config file"
+    exitCode=1
+  fi
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Help function - Align to 50
+__help() {
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "update-ip:  Updates the ip address for motd and issue files - $VERSION"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Usage: update-ip [options] [commands]"
+  __printf_line "*                               - Updates the ip if changed"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Other Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--help                          - Shows this message"
+  __printf_line "--config                        - Generate user config file"
+  __printf_line "--version                       - Show script version"
+  __printf_line "--options                       - Shows all available options"
+  __printf_line "--debug                         - Enables script debugging"
+  __printf_line "--raw                           - Removes all formatting on output"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# check if arg is a builtin option
+__is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0; fi; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 1 || return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep -sh "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# # Get sudo password
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run sudo
+__sudorun() {
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo
+__can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User can run sudo
+__sudoif() {
+  __user_is_root && return 0
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run command as root
+requiresudo() {
+  if [ "$UPDATE_IP_REQUIRE_SUDO" = "yes" ] && [ -z "$UPDATE_IP_REQUIRE_SUDO_RUN" ]; then
+    export UPDATE_IP_REQUIRE_SUDO="no"
+    export UPDATE_IP_REQUIRE_SUDO_RUN="true"
+    __sudo "$@"
+    exit $?
+  else
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  CMD="${1:-echo}" && shift 1
+  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  [ "$(basename -- "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  if __sudoif; then
+    export PATH="$PATH"
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    exitCode=$?
+  else
+    printf '%s\n' "This requires root to run"
+    exitCode=1
+  fi
+  return ${exitCode:-1}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  exitCode=${exitCode:-0}
+  [ -f "$UPDATE_IP_TEMP_FILE" ] && rm -Rf "$UPDATE_IP_TEMP_FILE" &>/dev/null
+  #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD//$HOME/\~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined functions
+__getlipaddr() {
+  local CHANGE_IP_VAR_DIR="" IFCONFIG""
+  CHANGE_IP_VAR_DIR="${CHANGE_IP_VAR_DIR:-/var/lib/system-scripts/checkip}"
+  [ -d "$CHANGE_IP_VAR_DIR" ] || __sudo mkdir -p "$CHANGE_IP_VAR_DIR"
+  if [[ "$OSTYPE" =~ ^darwin ]]; then
+    NETDEV="$(route get default 2>/dev/null | grep interface | awk '{print $2}')"
+  else
+    NETDEV="$(ip route 2>/dev/null | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//" | awk '{print $1}' | grep '^' || echo 'eth0')"
+  fi
+  # net-tools package
+  IFCONFIG="$(builtin type -P /sbin/ifconfig || builtin type -P ifconfig)"
+  if [ -x "$IFCONFIG" ]; then
+    CURRENT_IP_4="$(/sbin/ifconfig $NETDEV 2>/dev/null | grep -E "venet|inet" | grep -v "127.0.0." | grep 'inet' | grep -v inet6 | awk '{print $2}' | sed s/addr://g | head -n1 | grep '^')"
+    CURRENT_IP_6="$(/sbin/ifconfig $NETDEV 2>/dev/null | grep -E "venet|inet" | grep 'inet6' | grep -i global | awk '{print $2}' | head -n1 | grep '^')"
+  else
+    CURRENT_IP_4="$(ip -o -f inet address show $NETDEV | awk -F'/' '{print $1}' | awk '{print $NF}' | head -n 1 | grep '^')"
+    CURRENT_IP_6="$(ip -o -f inet6 address show $NETDEV | awk -F'/' '{print $1}' | awk '{print $NF}' | head -n 1 | grep '^')"
+  fi
+  [ -n "$NETDEV" ] || NETDEV="lo"
+  [ -n "$CURRENT_IP_4" ] || CURRENT_IP_4="127.0.0.1"
+  [ -n "$CURRENT_IP_6" ] || CURRENT_IP_6="::1"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__execute_changeip() {
+  __getlipaddr
+  sed="$(builtin type -P gsed 2>/dev/null || builtin type -P sed 2>/dev/null || false)"
+  HOSTNAME="$(hostname -f 2>/dev/null)"
+  HOSTSHORT="$(hostname -s 2>/dev/null)"
+  CURRENT_IP_4=${CURRENT_IP_4:-}
+  CURRENT_IP_6=${CURRENT_IP_6:-}
+  if [ -d "/etc/postfix" ]; then
+    grep -shqR 'MY_SHORT_HOSTNAME' /etc/postfix && __sudo find /etc/postfix -type f -exec "$sed" -i 's|MY_SHORT_HOSTNAME|'$HOSTSHORT'|g' {} \; |& __devnull
+  fi
+  if [ -f "/etc/crontab" ]; then
+    grep -shqR '$(hostname -s)' /etc/crontab && __sudo find /etc/crontab -type f -exec "$sed" -i 's|$(hostname -s)|'$HOSTSHORT'|g' {} \; |& __devnull
+  fi
+  if [ -d "/usr/share/httpd" ]; then
+    files="$(find "/usr/share/httpd" -type f -not -path '*/.git*' -not -path '*/*icons*' -not -path '*/*images*' -print)"
+    if [ -n "$files" ]; then
+      for f in $files; do
+        if [ -f "$f" ]; then
+          grep -shqR ' ::1' "$f" && __sudo "$sed" -i 's|::1|'$CURRENT_IP_6'|g' "$f" |& __devnull
+          grep -shqR ' 127.0.0.1' "$f" && __sudo "$sed" -i 's|127.0.0.1|'$CURRENT_IP_4'|g' "$f" |& __devnull
+        fi
+      done
+    fi
+  fi
+  if [ -d "/var/www" ]; then
+    files="$(find "/var/www" -type f -not -path '*/.git*' -not -path '*/*icons*' -not -path '*/*images*' -print)"
+    if [ -n "$files" ]; then
+      for f in $files; do
+        if [ -f "$f" ]; then
+          grep -shqR ' ::1' "$f" && __sudo "$sed" -i 's|::1|'$CURRENT_IP_6'|g' "$f" |& __devnull
+          grep -shqR ' 127.0.0.1' "$f" && __sudo "$sed" -i 's|127.0.0.1|'$CURRENT_IP_4'|g' "$f" |& __devnull
+        fi
+      done
+    fi
+  fi
+  if [ -d "/etc/casjaysdev/messages/legal" ]; then
+    grep -shqR 'MY_FULL_HOSTNAME' "/etc/casjaysdev/messages/legal/000.txt" && __sudo "$sed" -i 's|MY_FULL_HOSTNAME|'$HOSTNAME'|g' "/etc/casjaysdev/messages/legal/000.txt" |& __devnull
+    grep -shqR 'MY_SHORT_HOSTNAME' "/etc/casjaysdev/messages/legal/000.txt" && __sudo "$sed" -i 's|MY_SHORT_HOSTNAME|'$HOSTSHORT'|g' "/etc/casjaysdev/messages/legal/000.txt" |& __devnull
+    grep -shqR 'MYHOSTIP_4' "/etc/casjaysdev/messages/legal/000.txt" && __sudo "$sed" -i 's|MYHOSTIP_4|'$CURRENT_IP_4'|g' "/etc/casjaysdev/messages/legal/000.txt" |& __devnull
+    grep -shqR 'MYHOSTIP_6' "/etc/casjaysdev/messages/legal/000.txt" && __sudo "$sed" -i 's|MYHOSTIP_6|'$CURRENT_IP_6'|g' "/etc/casjaysdev/messages/legal/000.txt" |& __devnull
+  fi
+  if [ -d "/etc/casjaysdev/messages" ]; then
+    grep -shqR 'Welcome to.*' "/etc/casjaysdev/messages" && __sudo find "/etc/casjaysdev/messages" -type f -exec "$sed" -i 's|.*Welcome to.*!|Welcome to '$HOSTNAME'!|g' {} \; |& __devnull
+    grep -shqR 'MY Hostname is.*' "/etc/casjaysdev/messages" && __sudo find "/etc/casjaysdev/messages" -type f -exec "$sed" -i 's|.*MY Hostname is.*|MY Hostname is     : '$HOSTSHORT'|g' {} \; |& __devnull
+    grep -shqR 'MY IP Address is.*' "/etc/casjaysdev/messages" && __sudo find "/etc/casjaysdev/messages" -type f -exec "$sed" -i 's|.*MY IP Address is.*|MY IP Address is   : '$CURRENT_IP_4'|g' {} \; |& __devnull
+    grep -shqR 'MY IP6 Address is.*' "/etc/casjaysdev/messages" && __sudo find "/etc/casjaysdev/messages" -type f -exec "$sed" -i 's|.*MY IP6 Address is.*|MY IP6 Address is  : '$CURRENT_IP_6'|g' {} \; |& __devnull
+  fi
+  if [ -f "/etc/issue" ]; then
+    grep -shqR 'MY IP Address is.*' "/etc/issue" && __sudo find "/etc/issue" -type f -exec sed -i 's|.*MY IP Address is.*|MY IP Address is   : '$CURRENT_IP_4'|g' {} \; |& __devnull
+    grep -shqR 'MY IP6 Address is.*' "/etc/issue" && __sudo find "/etc/issue" -type f -exec sed -i 's.*|MY IP6 Address is.*|MY IP6 Address is : '$CURRENT_IP_6'|g' {} \; |& __devnull
+  fi
+  if [ -f "/etc/motd" ]; then
+    grep -shqR 'MY IP Address is.*' "/etc/motd" && __sudo find "/etc/motd" -type f -exec sed -i 's|.*MY IP Address is.*|MY IP Address is   : '$CURRENT_IP_4'|g' {} \; |& __devnull
+    grep -shqR 'MY IP6 Address is.*' "/etc/motd" && __sudo find "/etc/motd" -type f -exec sed -i 's|.*MY IP6 Address is.*|MY IP6 Address is : '$CURRENT_IP_6'|g' {} \; |& __devnull
+  fi
+  if [ -f "/etc/issue.net" ]; then
+    grep -shqR 'MY IP Address is.*' "/etc/issue.net" && __sudo find "/etc/issue.net" -type f -exec sed -i 's|.*MY IP Address is.*|MY IP Address is   : '$CURRENT_IP_4'|g' {} \; |& __devnull
+    grep -shqR 'MY IP6 Address is.*' "/etc/issue.net" && __sudo find "/etc/issue.net" -type f -exec sed -i 's|.*MY IP6 Address is.*|MY IP6 Address is : '$CURRENT_IP_6'|g' {} \; |& __devnull
+  fi
+  if [ -f "/etc/motd.net" ]; then
+    grep -shqR 'MY IP Address is.*' "/etc/motd.net" && __sudo find "/etc/motd.net" -type f -exec sed -i 's|.*MY IP Address is.*|MY IP Address is   : '$CURRENT_IP_4'|g' {} \; |& __devnull
+    grep -shqR 'MY IP6 Address is.*' "/etc/motd.net" && __sudo find "/etc/motd.net" -type f -exec sed -i 's|.*MY IP6 Address is.*|MY IP6 Address is : '$CURRENT_IP_6'|g' {} \; |& __devnull
+  fi
+  if [ "$show_console" = "true" ]; then
+    printf_green "Short Hostname     : $HOSTSHORT"
+    printf_green "Full Hostname      : $HOSTNAME"
+    printf_green "Current IP 4       :  $CURRENT_IP_4"
+    printf_green "Current IP 6       :  $CURRENT_IP_6"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined variables/import external variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application Folders
+UPDATE_IP_CONFIG_FILE="${UPDATE_IP_CONFIG_FILE:-settings.conf}"
+UPDATE_IP_CONFIG_DIR="${UPDATE_IP_CONFIG_DIR:-$HOME/.config/myscripts/update-ip}"
+UPDATE_IP_CONFIG_BACKUP_DIR="${UPDATE_IP_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/update-ip/backups}"
+UPDATE_IP_LOG_DIR="${UPDATE_IP_LOG_DIR:-$HOME/.local/log/update-ip}"
+UPDATE_IP_TEMP_DIR="${UPDATE_IP_TEMP_DIR:-$HOME/.local/tmp/system_scripts/update-ip}"
+UPDATE_IP_CACHE_DIR="${UPDATE_IP_CACHE_DIR:-$HOME/.cache/update-ip}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+UPDATE_IP_OUTPUT_COLOR_1="${UPDATE_IP_OUTPUT_COLOR_1:-33}"
+UPDATE_IP_OUTPUT_COLOR_2="${UPDATE_IP_OUTPUT_COLOR_2:-5}"
+UPDATE_IP_OUTPUT_COLOR_GOOD="${UPDATE_IP_OUTPUT_COLOR_GOOD:-2}"
+UPDATE_IP_OUTPUT_COLOR_ERROR="${UPDATE_IP_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+UPDATE_IP_NOTIFY_ENABLED="${UPDATE_IP_NOTIFY_ENABLED:-yes}"
+UPDATE_IP_GOOD_NAME="${UPDATE_IP_GOOD_NAME:-Great:}"
+UPDATE_IP_ERROR_NAME="${UPDATE_IP_ERROR_NAME:-Error:}"
+UPDATE_IP_GOOD_MESSAGE="${UPDATE_IP_GOOD_MESSAGE:-No errors reported}"
+UPDATE_IP_ERROR_MESSAGE="${UPDATE_IP_ERROR_MESSAGE:-Errors were reported}"
+UPDATE_IP_NOTIFY_CLIENT_NAME="${UPDATE_IP_NOTIFY_CLIENT_NAME:-$APPNAME}"
+UPDATE_IP_NOTIFY_CLIENT_ICON="${UPDATE_IP_NOTIFY_CLIENT_ICON:-notification-new}"
+UPDATE_IP_NOTIFY_CLIENT_URGENCY="${UPDATE_IP_NOTIFY_CLIENT_URGENCY:-normal}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional Variables
+UPDATE_IP_MESSAGE_DIR="${UPDATE_IP_MESSAGE_DIR:-/etc/casjaysdev/messages}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$UPDATE_IP_CONFIG_DIR/$UPDATE_IP_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$UPDATE_IP_CONFIG_DIR/$UPDATE_IP_CONFIG_FILE" ] && . "$UPDATE_IP_CONFIG_DIR/$UPDATE_IP_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$UPDATE_IP_LOG_DIR" ] || mkdir -p "$UPDATE_IP_LOG_DIR" |& __devnull
+[ -d "$UPDATE_IP_TEMP_DIR" ] || mkdir -p "$UPDATE_IP_TEMP_DIR" |& __devnull
+[ -d "$UPDATE_IP_CACHE_DIR" ] || mkdir -p "$UPDATE_IP_CACHE_DIR" |& __devnull
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+UPDATE_IP_TEMP_FILE="${UPDATE_IP_TEMP_FILE:-$(mktemp $UPDATE_IP_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap '__trap_exit' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+__notifications() {
+  __cmd_exists notifications || return
+  [ "$UPDATE_IP_NOTIFY_ENABLED" = "yes" ] || return
+  [ "$SEND_NOTIFICATION" = "no" ] && return
+  (
+    export SCRIPT_OPTS="" _DEBUG=""
+    export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$UPDATE_IP_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$UPDATE_IP_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$UPDATE_IP_NOTIFY_CLIENT_ICON}"
+    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$UPDATE_IP_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$UPDATE_IP_NOTIFY_CLIENT_URGENCY}"
+    notifications "$@"
+  ) |& __devnull &
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set custom actions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Argument/Option settings
+SETARGS=("$@")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SHORTOPTS=""
+SHORTOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
+LONGOPTS+=",force,console"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ARRAY=""
+ARRAY+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LIST=""
+LIST+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case "$1" in
+  --raw)
+    shift 1
+    export SHOW_RAW="true"
+    NC=""
+    RESET=""
+    BLACK=""
+    RED=""
+    GREEN=""
+    YELLOW=""
+    BLUE=""
+    PURPLE=""
+    CYAN=""
+    WHITE=""
+    ORANGE=""
+    LIGHTRED=""
+    BG_GREEN=""
+    BG_RED=""
+    ICON_INFO="[ info ]"
+    ICON_GOOD="[ ok ]"
+    ICON_WARN="[ warn ]"
+    ICON_ERROR="[ error ]"
+    ICON_QUESTION="[ ? ]"
+    printf_column() { tee | grep '^'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    ;;
+  --debug)
+    shift 1
+    set -xo pipefail
+    export SCRIPT_OPTS="--debug"
+    export _DEBUG="on"
+    __devnull() { tee || return 1; }
+    __devnull2() { eval "$@" |& tee -p || return 1; }
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
+    ;;
+  --options)
+    shift 1
+    printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' 4
+    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' 4
+    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
+    [ -z "$LIST" ] || __list_options "LIST Options" "${LIST}" ',' '' 4
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  --silent)
+    shift 1
+    UPDATE_IP_SILENT="true"
+    ;;
+  --dir)
+    CWD_IS_SET="TRUE"
+    UPDATE_IP_CWD="$2"
+    [ -d "$UPDATE_IP_CWD" ] || mkdir -p "$UPDATE_IP_CWD" |& __devnull
+    shift 2
+    ;;
+  --force)
+    shift 1
+    force_delete="true"
+    ;;
+  --console)
+    shift 1
+    show_console="true"
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get directory from args
+# set -- "$@"
+# for arg in "$@"; do
+# if [ -d "$arg" ]; then
+# UPDATE_IP_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
+# elif [ -f "$arg" ]; then
+# UPDATE_IP_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
+# else
+# SET_NEW_ARGS+=("$arg")
+# fi
+# done
+# set -- "${SET_NEW_ARGS[@]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set directory to first argument
+# [ -d "$1" ] && __is_an_option "$1" && UPDATE_IP_CWD="$1" && shift 1 || UPDATE_IP_CWD="${UPDATE_IP_CWD:-$PWD}"
+UPDATE_IP_CWD="$(realpath "${UPDATE_IP_CWD:-$PWD}" 2>/dev/null)"
+# if [ -d "$UPDATE_IP_CWD" ] && cd "$UPDATE_IP_CWD"; then
+# if [ "$UPDATE_IP_SILENT" != "true" ] && [ "$CWD_SILENCE" != "true" ]; then
+# printf_cyan "Setting working dir to $UPDATE_IP_CWD"
+# fi
+# else
+# printf_exit "💔 $UPDATE_IP_CWD does not exist 💔"
+# fi
+export UPDATE_IP_CWD
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set actions based on variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+#cmd_exists --error --ask bash || exit 3 # exit 3 if not found
+#am_i_online --error || exit 4           # exit 4 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+[ -s "$UPDATE_IP_MESSAGE_DIR/legal/000.txt" ] ||
+  __sudo cp -Rf "$CASJAYSDEVDIR/templates/casjaysdev-legal.txt" "$UPDATE_IP_MESSAGE_DIR/legal/000.txt"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+__sudoif
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute commands
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+__execute_changeip
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set exit code
+exitCode="${exitCode:-0}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-0}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# ex: ts=2 sw=2 et filetype=sh

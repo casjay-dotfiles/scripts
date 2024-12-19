@@ -1,0 +1,1143 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version           :  202208131023-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  jason@casjaysdev.pro
+# @@License          :  WTFPL
+# @@ReadME           :  mpdclient --help
+# @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
+# @@Created          :  Saturday, Aug 13, 2022 10:23 EDT
+# @@File             :  mpdclient
+# @@Description      :  A script to control a remote or local MPD daemon
+# @@Changelog        :  New script
+# @@TODO             :  Better documentation
+# @@Other            :
+# @@Resource         :
+# @@Terminal App     :  no
+# @@sudo/root        :  no
+# @@Template         :  bash/system
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="$(basename -- "$0" 2>/dev/null)"
+VERSION="202208131023-git"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${RUN_USER:-$USER}"
+USER_HOME="${USER_HOME:-$HOME}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+MPDCLIENT_REQUIRE_SUDO="${MPDCLIENT_REQUIRE_SUDO:-no}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Reopen in a terminal
+if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set script title
+#CASJAYS_DEV_TILE_FORMAT="${USER}@${HOSTNAME}:${PWD//$HOME/\~} - $APPNAME"
+#CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}"
+#[ -z "$CASJAYSDEV_TITLE_SET" ] && printf '\033]2│;%s\033\\' "$CASJAYS_DEV_TILE_FORMAT" && CASJAYSDEV_TITLE_SET="$APPNAME"
+export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}" CASJAYSDEV_TITLE_SET
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initial debugging
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# pipes fail
+set -o pipefail
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import functions
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+  . "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  exit 1
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Options are: *_install
+# system user desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+user_install && __options "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Send all output to /dev/null
+__devnull() {
+  tee &>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# Send errors to /dev/null
+__devnull2() {
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# See if the executable exists
+__cmd_exists() {
+  exitCode=0
+  [ -n "$1" ] && local exitCode="" || return 0
+  for cmd in "$@"; do
+    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
+  done
+  [ $exitCode -eq 0 ] || exitCode=3
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for a valid internet connection
+__am_i_online() {
+  local exitCode=0
+  curl -q -LSsfI --max-time 2 --retry 1 "${1:-https://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# colorization
+if [ "$SHOW_RAW" = "true" ]; then
+  NC=""
+  RESET=""
+  BLACK=""
+  RED=""
+  GREEN=""
+  YELLOW=""
+  BLUE=""
+  PURPLE=""
+  CYAN=""
+  WHITE=""
+  ORANGE=""
+  LIGHTRED=""
+  BG_GREEN=""
+  BG_RED=""
+  ICON_INFO="[ info ]"
+  ICON_GOOD="[ ok ]"
+  ICON_WARN="[ warn ]"
+  ICON_ERROR="[ error ]"
+  ICON_QUESTION="[ ? ]"
+  printf_column() { tee | grep '^'; }
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional printf_ colors
+__printf_head() { printf_blue "$1"; }
+__printf_opts() { printf_purple "$1"; }
+__printf_line() { printf_cyan "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# output version
+__version() { printf_cyan "$VERSION"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# list options
+__list_options() {
+  printf_color "$1: " "$5"
+  echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g' | tr '\n' ' '
+  printf_newline
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create the config file
+__gen_config() {
+  local NOTIFY_CLIENT_NAME="$APPNAME"
+  if [ "$INIT_CONFIG" != "TRUE" ]; then
+    printf_blue "Generating the config file in"
+    printf_cyan "$MPDCLIENT_CONFIG_DIR/$MPDCLIENT_CONFIG_FILE"
+  fi
+  [ -d "$MPDCLIENT_CONFIG_DIR" ] || mkdir -p "$MPDCLIENT_CONFIG_DIR"
+  [ -d "$MPDCLIENT_CONFIG_BACKUP_DIR" ] || mkdir -p "$MPDCLIENT_CONFIG_BACKUP_DIR"
+  [ -f "$MPDCLIENT_CONFIG_DIR/$MPDCLIENT_CONFIG_FILE" ] &&
+    cp -Rf "$MPDCLIENT_CONFIG_DIR/$MPDCLIENT_CONFIG_FILE" "$MPDCLIENT_CONFIG_BACKUP_DIR/$MPDCLIENT_CONFIG_FILE.$$"
+  cat <<EOF >"$MPDCLIENT_CONFIG_DIR/$MPDCLIENT_CONFIG_FILE"
+# Settings for mpdclient
+MPDCLIENT_MPD_SERVER_HOST="${MPDCLIENT_MPD_SERVER_HOST:-}"
+MPDCLIENT_MPD_SERVER_PORT="${MPDCLIENT_MPD_SERVER_PORT:-}"
+MPDCLIENT_MENU_TIMEOUT="${MPDCLIENT_MENU_TIMEOUT:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+MPDCLIENT_OUTPUT_COLOR_1="${MPDCLIENT_OUTPUT_COLOR_1:-}"
+MPDCLIENT_OUTPUT_COLOR_2="${MPDCLIENT_OUTPUT_COLOR_2:-}"
+MPDCLIENT_OUTPUT_COLOR_GOOD="${MPDCLIENT_OUTPUT_COLOR_GOOD:-}"
+MPDCLIENT_OUTPUT_COLOR_ERROR="${MPDCLIENT_OUTPUT_COLOR_ERROR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+MPDCLIENT_NOTIFY_ENABLED="${MPDCLIENT_NOTIFY_ENABLED:-}"
+MPDCLIENT_GOOD_NAME="${MPDCLIENT_GOOD_NAME:-}"
+MPDCLIENT_ERROR_NAME="${MPDCLIENT_ERROR_NAME:-}"
+MPDCLIENT_GOOD_MESSAGE="${MPDCLIENT_GOOD_MESSAGE:-}"
+MPDCLIENT_ERROR_MESSAGE="${MPDCLIENT_ERROR_MESSAGE:-}"
+MPDCLIENT_NOTIFY_CLIENT_NAME="${MPDCLIENT_NOTIFY_CLIENT_NAME:-}"
+MPDCLIENT_NOTIFY_CLIENT_ICON="${MPDCLIENT_NOTIFY_CLIENT_ICON:-}"
+MPDCLIENT_NOTIFY_CLIENT_URGENCY="${MPDCLIENT_NOTIFY_CLIENT_URGENCY:-}"
+
+EOF
+  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
+  if [ -f "$MPDCLIENT_CONFIG_DIR/$MPDCLIENT_CONFIG_FILE" ]; then
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
+    . "$MPDCLIENT_CONFIG_DIR/$MPDCLIENT_CONFIG_FILE"
+    exitCode=0
+  else
+    printf_red "Failed to create the config file"
+    exitCode=1
+  fi
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Help function - Align to 50
+__help() {
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "mpdclient:  A script to control a remote or local MPD daemon - $VERSION"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Usage: mpdclient [options] [commands]"
+  __printf_line "*                               - Starts the mpdclient"
+  __printf_line "-h                              - Sets the MPD host"
+  __printf_line "-p                              - Sets the MPD port"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Other Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--help                          - Shows this message"
+  __printf_line "--config                        - Generate user config file"
+  __printf_line "--version                       - Show script version"
+  __printf_line "--options                       - Shows all available options"
+  __printf_line "--debug                         - Enables script debugging"
+  __printf_line "--raw                           - Removes all formatting on output"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# check if arg is a builtin option
+__is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0; fi; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 1 || return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep -sh "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# # Get sudo password
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run sudo
+__sudorun() {
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo
+__can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User can run sudo
+__sudoif() {
+  __user_is_root && return 0
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run command as root
+requiresudo() {
+  if [ "$MPDCLIENT_REQUIRE_SUDO" = "yes" ] && [ -z "$MPDCLIENT_REQUIRE_SUDO_RUN" ]; then
+    export MPDCLIENT_REQUIRE_SUDO="no"
+    export MPDCLIENT_REQUIRE_SUDO_RUN="true"
+    __sudo "$@"
+    exit $?
+  else
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  CMD="${1:-echo}" && shift 1
+  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  [ "$(basename -- "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  if __sudoif; then
+    export PATH="$PATH"
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    exitCode=$?
+  else
+    printf '%s\n' "This requires root to run"
+    exitCode=1
+  fi
+  return ${exitCode:-1}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  exitCode=${exitCode:-0}
+  [ -f "$MPDCLIENT_TEMP_FILE" ] && rm -Rf "$MPDCLIENT_TEMP_FILE" &>/dev/null
+  #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD//$HOME/\~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined functions
+___get_pid_of() {
+  ps ux | grep [m]pd | awk '{print $2}' | grep '^' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__local_sysname() {
+  [ "$1" = "localhost" ] || [ "$1" = "$HOSTNAME" ] || [ "$1" = "$(hostname)" ] || [ "$1" = "$(hostname -s)" ] || [ "$1" = "$(hostname -f)" ] || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__mpd_server_test() {
+  local MPDSERVER_HOST="${1:-$MPDSERVER_HOST}"
+  local MPDSERVER_PORT=":${2:-$MPDSERVER_PORT}"
+  local server="${MPDSERVER_HOST//:/}"
+  local port="${MPDSERVER_PORT//:/}"
+  curl -q -LSs --max-time 1 --http0.9 --fail "http://${server}:${port}" 2>/dev/null | grep -qE 'OK.*MPD [0-9]' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__server_reconnect() {
+  if __local_sysname "$MPDSERVER_HOST"; then
+    sleep 3
+    return 1
+  else
+    printf_read_question "Would you like to connect to local mpd daemon? " "1" "local"
+    if [ "$local" = y ]; then
+      export MPDSERVER_HOST="$HOSTNAME"
+      __execute_mpdclient || exit 1
+    else
+      clear
+      exit 1
+    fi
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__server_failed() {
+  clear
+  printf '\n\n\n\n'
+  printf_red "$ICON_ERROR Failed to connect to the server @ $MPDSERVER"
+  if __server_reconnect; then
+    sleep 3 && return 0
+  else
+    clear
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__mpd_version() {
+  if [ -z "$1" ] && [ -n "$set_mpd_version" ]; then
+    echo "$set_mpd_version"
+  else
+    set_mpd_version="$(curl -q -LSs --max-time 1 --http0.9 --fail "http://${MPDSERVER_HOST//:/}:${MPDSERVER_PORT//:/}" 2>/dev/null | grep -E 'OK.*MPD [0-9]' | sed -E 's|OK.*MPD ||g' | grep '^' || echo '')"
+    [ -n "$set_mpd_version" ] && echo "V$set_mpd_version" || echo 'Version Unknown'
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__mpc() {
+  mpc -h "$MPDSERVER_HOST" -p "$MPDSERVER_PORT" "$@" 2>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+is_up() {
+  __mpc &>/dev/null && return 0 || __server_failed
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+is_up_mpd() {
+  __get_status_pid "mpd" && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+get_prev() {
+  [ -f "$MPDCLIENT_TEMP_DIR/mpdclient_prev" ] || return
+  cat "$MPDCLIENT_TEMP_DIR/mpdclient_prev" 2>/dev/null
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+get_next() {
+  [ -f "$MPDCLIENT_TEMP_DIR/mpdclient_next" ] || return
+  cat "$MPDCLIENT_TEMP_DIR/mpdclient_next" 2>/dev/null
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+get_curr() {
+  [ -f "$MPDCLIENT_TEMP_DIR/mpdclient_curr" ] || return
+  cat "$MPDCLIENT_TEMP_DIR/mpdclient_curr" 2>/dev/null
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__volume_status() {
+  local get_volume_status=""
+  get_volume_status="$(__mpc volume | grep 'volume:' | awk -F':' '{print $2}' | sed 's| ||g;s|n/a|muted|g' | grep '^')"
+  if [ "$get_volume_status" = "0%" ]; then
+    get_volume_status="muted"
+  elif [ "$get_volume_status" = "muted" ]; then
+    get_volume_status="muted"
+  else
+    get_volume_status="${get_volume_status//%/}%"
+  fi
+  export retrieve_volume="$get_volume_status"
+  [ -n "$retrieve_volume" ] && echo "${retrieve_volume}" || echo 'muted'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+next() {
+  echo -en "Next: $(get_next || printf "Nothing is in the queue")\n"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+playtime() {
+  echo -en "Time: $(__mpc status | grep -Fi '[' | cut -d' ' -f5,6 | grep '^' || printf 'N/A')\n"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+volume() {
+  echo -en "Volume: $(__volume_status)\n"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+stats() {
+  echo -e "$(volume)  |  $(playtime)"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+db_play() {
+  echo -e "Total: $(__mpc stats | tail -n1 | sed 's#DB Play Time: ##g')"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+db_songs() {
+  echo -e "Songs: $(__mpc stats | grep Songs | awk '{print $2}')"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+db_uptime() {
+  echo -e "Uptime: $(__mpc stats | grep Uptime | sed 's#Uptime:       ###g')"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+updating_db() {
+  __mpc status | grep -qi updating && echo -e "Database is being updated"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+display() {
+  __get_mpd_status
+  if __mpc status | head -n 1 | grep -iqv volume; then
+    echo -en "$(__mpc status | head -n 1 | grep -Ev '[*]|volume')\n"
+  else
+    echo -e "MPD is currently not playing"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_mpd_status() {
+  echo "HOSTNAME: $MPDSERVER_HOST  |  $(db_uptime)"
+  echo -e "$(db_songs)  |  $(db_play)"
+  echo -e "$(stats)"
+  if __mpc status | grep -iq playing >/dev/null 2>&1; then
+    echo -n "Playing: "
+  elif __mpc status | grep -iq stopped >/dev/null 2>&1; then
+    echo -n "Stopped: "
+  elif __mpc status | grep -iq paused >/dev/null 2>&1; then
+    echo -n "Paused: "
+  else
+    echo -n ""
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+mpc_status() {
+  notify && display && next && updating_db && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+notify() {
+  # Order here matters
+  currSong="$(get_curr && __mpc current | grep '^' >"$MPDCLIENT_TEMP_DIR/mpdclient_curr")"
+  nextSong="$(get_next && __mpc queued | grep '^' >"$MPDCLIENT_TEMP_DIR/mpdclient_next")"
+  # if [ "$(get_curr)" != "$(get_prev)" ] && [ "$NOTIFY" = "on" ]; then
+  #   __notifications "MPD Client" "Now playing $(get_curr)"
+  # fi
+  prevSong="$(get_curr >"$MPDCLIENT_TEMP_DIR/mpdclient_prev" 2>/dev/null)"
+  export currSong nextSong prevSong
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+notify_toggle() {
+  if [ -n "$NOTIFY_CLI" ]; then
+    $NOTIFY_CLI $NOTIFY_TOGGLE_CMD &>/dev/null
+    NOTIFY="$($NOTIFY_CLI $NOTIFYSCMD 2>/dev/null | grep '^' || echo "$NOTIFY")"
+  fi
+  if [ "$NOTIFY" = "on" ]; then
+    NOTIFY="off"
+    NOTIFYS="on"
+    __notifications "MPD Client" "Notifications have been disabled"
+  elif [ "$NOTIFY" = "off" ]; then
+    NOTIFY="on"
+    NOTIFYS="off"
+    __notifications "MPD Client" "Notifications have been enabled"
+  fi
+  MPDCLIENT_NOTIFY_ENABLED="$NOTIFY"
+  export NOTIFY NOTIFYS MPDCLIENT_NOTIFY_ENABLED="$NOTIFY"
+  #printf_blue "prevSong:$prevSong\ncurrSong:$currSong\nnotification:$NOTIFY"
+  printf_green "Notifications has been set to $NOTIFY"
+  return
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+volume_toggle() {
+  if __mpc volume | grep 'volume:' | grep -Fqw '0%'; then
+    if [ -f "$MPDCLIENT_TEMP_DIR/volume" ] && [ ! -s "$MPDCLIENT_TEMP_DIR/volume" ]; then
+      restore="$(sed 's#%##g' "$MPDCLIENT_TEMP_DIR/volume" | grep '^' || echo '100')"
+      __mpc volume "$restore"
+    else
+      __mpc volume 100
+    fi
+    volume=mute
+  else
+    volume | awk '{print $2}' | sed 's#%##g' >"$MPDCLIENT_TEMP_DIR/volume"
+    __mpc volume 0
+    volume=unmute
+  fi
+  export volume="${volume:-$restore}"
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+client() {
+  clear
+  if [ -n "$MPDSERVER_HOST" ]; then
+    if ping -c 1 "$MPDSERVER_HOST" &>/dev/null; then
+      GETMPDSERVER="$MPDSERVER_HOST"
+    elif __hostname2ip "$MPDSERVER_HOST" &>/dev/null; then
+      GETMPDSERVER="$(__hostname2ip "$MPDSERVER_HOST")"
+    fi
+    CONNECT_TO="$GETMPDSERVER"
+  else
+    CONNECT_TO="localhost"
+  fi
+  if __cmd_exists ncmpcpp; then
+    ncmpcpp -q -h $CONNECT_TO
+  else
+    clear
+    printf_newline "\n\n\n\n"
+    printf_counter "1" "5" "ncmpcpp is not installed"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__repeat_toggle() {
+  if __mpc status | grep -q 'repeat:.on'; then
+    REPEAT=true
+    REPEATS=off
+  else
+    REPEAT=false
+    REPEATS=on
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__mpd_status() {
+  mpd_version="${mpd_version:-$(__mpd_version)}"
+  volume_status="${volume_status:-$(__volume_status)}"
+  NOTIFY="${NOTIFY:-on}"
+  NOTIFYS="${NOTIFYS:-off}"
+  if __local_sysname "$MPDSERVER_HOST"; then
+    if is_up_mpd; then
+      mpd_status=stop
+      printf_blue "Local MPD $mpd_version is running with pid: $(__get_pid_of mpd)"
+    else
+      mpd_status=start
+      #printf_red "local mpd server is stopped"
+    fi
+  else
+    mpd_status=stop
+    printf_cyan "Connected to MPD server: $mpd_version"
+  fi
+  export mpd_status volume_status mpd_version NOTIFY NOTIFYS
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__mpd_toggle() {
+  local pid=""
+  if __cmd_exists mpd; then
+    pid="$(__get_pid_of mpd)"
+    if [ -n "$pid" ]; then
+      kill -n 9 "$pid" &>/dev/null
+      if is_up_mpd; then
+        mpd_status="stop"
+      else
+        mpd_status="start"
+        printf_green "mpd is stopped"
+      fi
+    else
+      if is_up_mpd; then
+        printf_green "mpd is running"
+        mpd_status=stop
+      else
+        mpd &>/dev/null &
+        is_up_mpd && mpd_status=stop || mpd_status=start
+        is_up_mpd && printf_green "mpd is running" || printf_error "Failed to start mpd"
+      fi
+    fi
+    [ -n "$SYSMPDSERVER" ] && MPDSERVER_HOST="$SYSMPDSERVER" || printf_exit 1 1 "Can not connect to $MPDSERVER_HOST"
+  else
+    printf_error "mpd is not installed"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__play_toggle() {
+  if __mpc status | grep -iq playing >/dev/null 2>&1; then
+    PLAYT="pause"
+  else
+    PLAYT="play"
+  fi
+  export PLAYT
+  [ -z "$1" ] || echo "$PLAYT"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__consume_toggle() {
+  if __mpc status | grep -q 'consume:.on'; then
+    TOGGLEC=off
+  else
+    TOGGLEC=on
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__mpd_daemon() {
+  local mpd_start=""
+  __cmd_exists mpd || return 1
+  is_up || printf_read_question "4" "MPD Server is not running. Would you like me to try to start it? " "1" "mpd_start"
+  [ "$mpd_start" = y ] || return 1
+  clear
+  printf '\n\n\n'
+  printf_cyan "Attempting to start MPD server on $HOSTNAME"
+  mpd &>/dev/null &
+  exitCode=$?
+  sleep 5
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__mpd_failed() {
+  clear
+  printf '\n\n\n\n'
+  printf_yellow "Failed to connect to mpd daemon - $MPDCLIENT_MPD_SERVER_HOST"
+  if ! __server_reconnect; then
+    clear
+    exit 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__port_test() {
+  netstat -taupln 2>/dev/null |
+    grep 'LISTEN' | grep -sh "$1" |
+    awk '{print $4}' | awk -F':' '{print $2}' &&
+    return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__pid_test() {
+  TEST_MPD_PID="$(ps -ux 2>/dev/null | grep ' [m]pd' | grep -v 'grep ' | grep mpd | awk '{print $2}' | grep '^' || echo '')"
+  [ -n "$TEST_MPD_PID" ] || return 1
+  for port in $(__port_test "$TEST_MPD_PID"); do
+    if __mpd_server_test "localhost" "$port"; then
+      echo "$port"
+      break
+    else
+      continue
+    fi
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__notification_service() {
+  if __cmd_exists mpd-notify && [ "$(mpd-notify status --ask)" = "running" ]; then
+    NOTIFY_CLI="mpd-notify"
+    NOTIFY_TOGGLE_CMD="toggle"
+    NOTIFYSCMD="toggle --ask"
+    notify_service=$NOTIFY_CLI
+  elif __cmd_exists notify-daemon && [ "$(notify-daemon status --ask)" = "running" ]; then
+    NOTIFY_CLI="notify-daemon"
+    NOTIFY_TOGGLE_CMD="toggle"
+    NOTIFYSCMD="toggle --ask"
+    notify_service=$NOTIFY_CLI
+  else
+    NOTIFY_CLI=""
+    NOTIFY_TOGGLE_CMD=""
+    NOTIFYSCMD=""
+    notify_service="${notify_service:-local}"
+  fi
+  [ -z "$NOTIFY" ] && [ "$MPDCLIENT_NOTIFY_ENABLED" = "yes" ] && NOTIFY="on"
+  export NOTIFY="${NOTIFY:-on}" NOTIFYS="${NOTIFYS:-off}"
+  __notifications "$APPNAME" "Initializing the client: $MPDCLIENT_MPD_SERVER_HOST\nNotification Server: ${NOTIFY_CLI:-local}"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__initialize_app() {
+  clear
+  printf '\n\n\n'
+  printf_cyan "Initializing $APPNAME: $MPDCLIENT_MPD_SERVER_HOST" TEST_MPDSERVER_HOST="$MPDCLIENT_MPD_SERVER_HOST"
+  __cmd_exists mpc || pkmgr silent install mpc || printf_exit "mpc is not installed"
+  TEST_MPDSERVER_PORT="$MPDCLIENT_MPD_SERVER_PORT"
+  TEST_MPDSERVER_LOCAL_PORT="$(__pid_test)"
+  if __mpd_server_test "$TEST_MPDSERVER_HOST" "$TEST_MPDSERVER_PORT"; then
+    MPDSERVER_HOST="$TEST_MPDSERVER_HOST"
+    MPDSERVER_PORT="$TEST_MPDSERVER_PORT"
+  elif __mpd_server_test "$MPDCLIENT_MPD_SERVER_HOST" "$MPDCLIENT_MPD_SERVER_PORT"; then
+    MPDSERVER_HOST="$MPDCLIENT_MPD_SERVER_HOST"
+    MPDSERVER_PORT="$MPDCLIENT_MPD_SERVER_PORT"
+  elif __mpd_daemon; then
+    TEST_MPDSERVER_LOCAL_PORT="$(__pid_test)"
+    __mpd_server_test "localhost" "$TEST_MPDSERVER_LOCAL_PORT" || __mpd_failed
+    MPDSERVER_HOST="localhost"
+    MPDSERVER_PORT="$TEST_MPDSERVER_LOCAL_PORT"
+  else
+    MPDSERVER_HOST="$TEST_MPDSERVER_HOST"
+    MPDSERVER_PORT="$TEST_MPDSERVER_PORT"
+    __mpd_failed
+  fi
+
+  SYSHOSTNAME="$(hostname -s)"
+  SYSMPDSERVER="$MPDSERVER_HOST"
+  mpd_status="start"
+
+  if mpc -h "$SYSHOSTNAME" 2>/dev/null | grep -iq playing; then
+    MPDSERVER_HOST="$SYSHOSTNAME"
+  else
+    MPDSERVER_HOST="${MPDSERVER_HOST:-localhost}"
+  fi
+  export ORIG_MPDSERVER="$MPDSERVER_HOST"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__execute_mpdclient() {
+  __notification_service
+  while :; do
+    clear
+    shift 1
+    printf_newline "\n\n\n"
+    is_up || break
+    __repeat_toggle
+    __play_toggle
+    __consume_toggle
+    __mpd_status
+    mpc_status | printf_readline "6"
+    volume_status="${volume_status:-mute}"
+    printf_newline
+    printf_green "Notication service: ${notify_service:-local} $NOTIFY"
+    printf_green "1. turn notifications ${NOTIFYS:-off}"
+    printf_green "2. change mpd server"
+    printf_green "3. ${mpd_status} mpd server"
+    printf_green "0. get MPD status"
+    printf_green "/. Volume is set to: $volume_status"
+    printf_green "+. volume up +5"
+    printf_green "-. volume down -5"
+    printf_green "]. volume up +1"
+    printf_green "[. volume down -1"
+    printf_green "a. toggle: ${PLAYT:-play}"
+    printf_green "b. turn consume ${TOGGLEC:-on}"
+    printf_green "l. turn repeat ${REPEATS:-off}"
+    printf_green "n. play next song"
+    printf_green "p. play prev song"
+    printf_green "r. play"
+    printf_green "s. stop"
+    printf_green "u. update database"
+    printf_green "x. launch ncmpcpp"
+    printf_green "y. send custom command to mpd"
+    printf_green "z. quit"
+    printf_newline
+    printf_read_question "6" "Enter your choice  : " "1" "main"
+    clear && printf_newline "\n\n\n"
+    case "$main" in
+    1)
+      shift 1
+      notify_toggle
+      ;;
+    2)
+      OLDMPDSERVER="$MPDSERVER_HOST"
+      printf_yellow "reset for $ORIG_MPDSERVER or local for localhost"
+      printf_read_input "6" "Enter new hostname:" "120" "NEWMPDSERVER"
+      [ -n "$NEWMPDSERVER" ] || NEWMPDSERVER="$OLDMPDSERVER"
+      [ "$NEWMPDSERVER" = "local" ] && NEWMPDSERVER="$(hostname -s)"
+      [ "$NEWMPDSERVER" = "reset" ] && NEWMPDSERVER="$ORIG_MPDSERVER"
+      sleep 3
+      if __local_sysname "$NEWMPDSERVER"; then
+        if __cmd_exists mpd; then
+          if is_up_mpd; then
+            mpd_status=stop
+          else
+            printf_green "starting the mpd server"
+            mpd &>/dev/null &
+            sleep 5
+            is_up_mpd && mpd_status=stop || mpd_status=start
+          fi
+        else
+          NEWMPDSERVER="$OLDMPDSERVER"
+          printf_error "mpd is not installed"
+        fi
+      fi
+      __mpc() { mpc -h "$NEWMPDSERVER" "$@" || return 1; }
+      if is_up &>/dev/null; then
+        MPDSERVER_HOST="$NEWMPDSERVER"
+        printf_green "Successfully changed hostname to $MPDSERVER_HOST"
+        mpd_version="$(__mpd_version "update")"
+      else
+        __mpc() { mpc -h "$OLDMPDSERVER" "$@" || return 1; }
+        printf_red "Failed to change hostname to $NEWMPDSERVER"
+        printf_red "Resetting back to $OLDMPDSERVER"
+        MPDSERVER_HOST="$OLDMPDSERVER"
+      fi
+      ;;
+    3)
+      shift 1
+      __mpd_toggle
+      __notifications "$APPNAME" "MPD set to $mpd_status"
+      ;;
+    0)
+      get_status="$(__mpc status)"
+      get_status_formatted="$(echo "${get_status//  /|}" | tr '|' '\n' | sed 's|^ ||g')"
+      echo "$get_status" | printf_readline
+      __notifications "$APPNAME" "MPD Status:\n$get_status_formatted"
+      ;;
+    /)
+      shift 1
+      cmd="toggle volume"
+      volume_toggle |& __devnull
+      volume_status="$(__volume_status)"
+      __notifications "$APPNAME" "Setting the volume to $volume_status"
+      ;;
+    +)
+      shift 1
+      cmd="volume +5"
+      __mpc volume +5 |& __devnull
+      __notifications "$APPNAME" "Volume set to +5"
+      ;;
+    -)
+      shift 1
+      cmd="volume -5"
+      __mpc volume -5 |& __devnull
+      __notifications "$APPNAME" "Volume set to -5"
+      ;;
+    ])
+      shift 1
+      cmd="volume +1"
+      __mpc volume +1 |& __devnull
+      __notifications "$APPNAME" "Volume set to +1"
+      ;;
+
+    [)
+      shift 1
+      cmd="volume -1"
+      __mpc volume -1 |& __devnull
+      __notifications "$APPNAME" "Volume set to -1"
+      ;;
+    a)
+      shift 1
+      cmd="$PLAYT"
+      toggle_status="$(__play_toggle "show")"
+      song_curr="$(get_curr | grep '^' || __mpc current || echo 'Unknown')"
+      __mpc toggle |& __devnull
+      __notifications "$APPNAME" "${toggle_status}: $song_curr"
+      ;;
+    b)
+      shift 1
+      cmd="consume to $TOGGLEC"
+      __mpc consume |& __devnull
+      __notifications "$APPNAME" "Consume set to $TOGGLEC"
+      ;;
+    l)
+      shift 1
+      cmd="repeat to $REPEATS"
+      __mpc repeat |& __devnull
+      __notifications "$APPNAME" "Repeat set to $REPEATS"
+      ;;
+    n)
+      shift 1
+      cmd="play next"
+      song_next="$(get_next | grep '^' || __mpc queued || echo 'Unknown')"
+      __mpc next |& __devnull
+      __notifications "$APPNAME" "Going to next song: $song_next"
+      ;;
+    p)
+      shift 1
+      cmd="play previous"
+      song_prev="$(get_prev | grep '^' || echo 'Unknown')"
+      __mpc prev |& __devnull
+      __notifications "$APPNAME" "Going to previous song: $song_prev"
+      ;;
+    r)
+      shift 1
+      cmd="play"
+      song_curr="$(get_curr | grep '^' || __mpc current || echo 'Unknown')"
+      __mpc play |& __devnull
+      __notifications "$APPNAME" "currently playing: $song_curr"
+      ;;
+    s)
+      shift 1
+      cmd="stop"
+      song_curr="$(get_curr | grep '^' || __mpc current || echo 'Unknown')"
+      __mpc stop |& __devnull
+      __notifications "$APPNAME" "Telling mpd to stop: $song_curr"
+      ;;
+    u)
+      shift 1
+      cmd="update"
+      __mpc update |& __devnull &
+      __notifications "$APPNAME" "Updating MPD library"
+      ;;
+    x)
+      shift 1
+      cmd="ncmpcpp"
+      __devnull2 client
+      __notifications "$APPNAME" "Launching $cmd"
+      ;;
+    y)
+      shift 1
+      printf_read_input "6" "Enter command to send : " "120" "opts"
+      if [ -n "$opts" ]; then
+        printf_custom "26" "Results for $opts"
+        __mpc "$opts" 2>/dev/null | printf_readline "3"
+        __notifications "$APPNAME" "Sending $opts to $MPDSERVER_HOST"
+        printf_read_question "6" "Press enter to continue " "120"
+      else
+        clear
+      fi
+      ;;
+    z)
+      shift 1
+      clear
+      break
+      ;;
+    *) shift ;;
+    esac
+    printf_counter "5" "$MPDCLIENT_MENU_TIMEOUT" "Re-loading menu in"
+  done
+  exit $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined variables/import external variables
+MPDSERVER_HOST="${MPD_HOST:-localhost}"
+MPDSERVER_PORT="${MPD_PORT:-6600}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application Folders
+MPDCLIENT_CONFIG_FILE="${MPDCLIENT_CONFIG_FILE:-settings.conf}"
+MPDCLIENT_CONFIG_DIR="${MPDCLIENT_CONFIG_DIR:-$HOME/.config/myscripts/mpdclient}"
+MPDCLIENT_CONFIG_BACKUP_DIR="${MPDCLIENT_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/mpdclient/backups}"
+MPDCLIENT_LOG_DIR="${MPDCLIENT_LOG_DIR:-$HOME/.local/log/mpdclient}"
+MPDCLIENT_TEMP_DIR="${MPDCLIENT_TEMP_DIR:-$HOME/.local/tmp/system_scripts/mpdclient}"
+MPDCLIENT_CACHE_DIR="${MPDCLIENT_CACHE_DIR:-$HOME/.cache/mpdclient}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+MPDCLIENT_OUTPUT_COLOR_1="${MPDCLIENT_OUTPUT_COLOR_1:-33}"
+MPDCLIENT_OUTPUT_COLOR_2="${MPDCLIENT_OUTPUT_COLOR_2:-5}"
+MPDCLIENT_OUTPUT_COLOR_GOOD="${MPDCLIENT_OUTPUT_COLOR_GOOD:-2}"
+MPDCLIENT_OUTPUT_COLOR_ERROR="${MPDCLIENT_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+MPDCLIENT_NOTIFY_ENABLED="${MPDCLIENT_NOTIFY_ENABLED:-yes}"
+MPDCLIENT_GOOD_NAME="${MPDCLIENT_GOOD_NAME:-Great:}"
+MPDCLIENT_ERROR_NAME="${MPDCLIENT_ERROR_NAME:-Error:}"
+MPDCLIENT_GOOD_MESSAGE="${MPDCLIENT_GOOD_MESSAGE:-No errors reported}"
+MPDCLIENT_ERROR_MESSAGE="${MPDCLIENT_ERROR_MESSAGE:-Errors were reported}"
+MPDCLIENT_NOTIFY_CLIENT_NAME="${MPDCLIENT_NOTIFY_CLIENT_NAME:-$APPNAME}"
+MPDCLIENT_NOTIFY_CLIENT_ICON="${MPDCLIENT_NOTIFY_CLIENT_ICON:-notification-new}"
+MPDCLIENT_NOTIFY_CLIENT_URGENCY="${MPDCLIENT_NOTIFY_CLIENT_URGENCY:-normal}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional Variables
+MPDCLIENT_MPD_SERVER_HOST="${MPDCLIENT_MPD_SERVER_HOST:-$MPDSERVER_HOST}"
+MPDCLIENT_MPD_SERVER_PORT="${MPDCLIENT_MPD_SERVER_PORT:-$MPDSERVER_PORT}"
+MPDCLIENT_MENU_TIMEOUT="${MPDCLIENT_MENU_TIMEOUT:-0}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$MPDCLIENT_CONFIG_DIR/$MPDCLIENT_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$MPDCLIENT_CONFIG_DIR/$MPDCLIENT_CONFIG_FILE" ] && . "$MPDCLIENT_CONFIG_DIR/$MPDCLIENT_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$MPDCLIENT_LOG_DIR" ] || mkdir -p "$MPDCLIENT_LOG_DIR" |& __devnull
+[ -d "$MPDCLIENT_TEMP_DIR" ] || mkdir -p "$MPDCLIENT_TEMP_DIR" |& __devnull
+[ -d "$MPDCLIENT_CACHE_DIR" ] || mkdir -p "$MPDCLIENT_CACHE_DIR" |& __devnull
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+MPDCLIENT_TEMP_FILE="${MPDCLIENT_TEMP_FILE:-$(mktemp $MPDCLIENT_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap '__trap_exit' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+__notifications() {
+  __cmd_exists notifications || return
+  [ "$MPDCLIENT_NOTIFY_ENABLED" = "yes" ] || return
+  [ "$SEND_NOTIFICATION" = "no" ] && return
+  (
+    export SCRIPT_OPTS="" _DEBUG=""
+    export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$MPDCLIENT_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$MPDCLIENT_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$MPDCLIENT_NOTIFY_CLIENT_ICON}"
+    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$MPDCLIENT_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$MPDCLIENT_NOTIFY_CLIENT_URGENCY}"
+    notifications "$@"
+  ) |& __devnull &
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set custom actions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Argument/Option settings
+SETARGS=("$@")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SHORTOPTS="h:,p:"
+SHORTOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
+LONGOPTS+=",term"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ARRAY=""
+ARRAY+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LIST=""
+LIST+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case "$1" in
+  --raw)
+    shift 1
+    export SHOW_RAW="true"
+    NC=""
+    RESET=""
+    BLACK=""
+    RED=""
+    GREEN=""
+    YELLOW=""
+    BLUE=""
+    PURPLE=""
+    CYAN=""
+    WHITE=""
+    ORANGE=""
+    LIGHTRED=""
+    BG_GREEN=""
+    BG_RED=""
+    ICON_INFO="[ info ]"
+    ICON_GOOD="[ ok ]"
+    ICON_WARN="[ warn ]"
+    ICON_ERROR="[ error ]"
+    ICON_QUESTION="[ ? ]"
+    printf_column() { tee | grep '^'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    ;;
+  --debug)
+    shift 1
+    set -xo pipefail
+    export SCRIPT_OPTS="--debug"
+    export _DEBUG="on"
+    __devnull() { tee || return 1; }
+    __devnull2() { eval "$@" |& tee -p || return 1; }
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
+    ;;
+  --options)
+    shift 1
+    printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' 4
+    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' 4
+    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
+    [ -z "$LIST" ] || __list_options "LIST Options" "${LIST}" ',' '' 4
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  --silent)
+    shift 1
+    MPDCLIENT_SILENT="true"
+    ;;
+  --dir)
+    CWD_IS_SET="TRUE"
+    MPDCLIENT_CWD="$2"
+    [ -d "$MPDCLIENT_CWD" ] || mkdir -p "$MPDCLIENT_CWD" |& __devnull
+    shift 2
+    ;;
+  --term)
+    shift 1
+    ;;
+  -h)
+    MPDCLIENT_MPD_SERVER_HOST="$2"
+    shift 2
+    ;;
+  -p)
+    MPDCLIENT_MPD_SERVER_PORT="$2"
+    shift 2
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get directory from args
+# set -- "$@"
+# for arg in "$@"; do
+# if [ -d "$arg" ]; then
+# MPDCLIENT_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
+# elif [ -f "$arg" ]; then
+# MPDCLIENT_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
+# else
+# SET_NEW_ARGS+=("$arg")
+# fi
+# done
+# set -- "${SET_NEW_ARGS[@]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set directory to first argument
+# [ -d "$1" ] && __is_an_option "$1" && MPDCLIENT_CWD="$1" && shift 1 || MPDCLIENT_CWD="${MPDCLIENT_CWD:-$PWD}"
+MPDCLIENT_CWD="$(realpath "${MPDCLIENT_CWD:-$PWD}" 2>/dev/null)"
+# if [ -d "$MPDCLIENT_CWD" ] && cd "$MPDCLIENT_CWD"; then
+# if [ "$MPDCLIENT_SILENT" != "true" ] && [ "$CWD_SILENCE" != "true" ]; then
+# printf_cyan "Setting working dir to $MPDCLIENT_CWD"
+# fi
+# else
+# printf_exit "💔 $MPDCLIENT_CWD does not exist 💔"
+# fi
+export MPDCLIENT_CWD
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set actions based on variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+#cmd_exists --error --ask bash || exit 3 # exit 3 if not found
+#am_i_online --error || exit 4           # exit 4 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+__initialize_app
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute commands
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+__execute_mpdclient "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set exit code
+exitCode="${exitCode:-0}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-0}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# ex: ts=2 sw=2 et filetype=sh

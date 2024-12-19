@@ -1,0 +1,1476 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version           :  202208151903-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  jason@casjaysdev.pro
+# @@License          :  WTFPL
+# @@ReadME           :  run_server --help
+# @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
+# @@Created          :  Monday, Aug 15, 2022 19:03 EDT
+# @@File             :  run_server
+# @@Description      :  Start an HTTP server from a directory
+# @@Changelog        :  New script
+# @@TODO             :  Better documentation
+# @@Other            :
+# @@Resource         :
+# @@Terminal App     :  no
+# @@sudo/root        :  no
+# @@Template         :  bash/system
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="$(basename -- "$0" 2>/dev/null)"
+VERSION="202208151903-git"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${RUN_USER:-$USER}"
+USER_HOME="${USER_HOME:-$HOME}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+RUN_SERVER_REQUIRE_SUDO="${RUN_SERVER_REQUIRE_SUDO:-no}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Reopen in a terminal
+if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set script title
+#CASJAYS_DEV_TILE_FORMAT="${USER}@${HOSTNAME}:${PWD//$HOME/\~} - $APPNAME"
+#CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}"
+#[ -z "$CASJAYSDEV_TITLE_SET" ] && printf '\033]2│;%s\033\\' "$CASJAYS_DEV_TILE_FORMAT" && CASJAYSDEV_TITLE_SET="$APPNAME"
+export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}" CASJAYSDEV_TITLE_SET
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initial debugging
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# pipes fail
+set -o pipefail
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import functions
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+  . "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  exit 1
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Options are: *_install
+# system user desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+user_install && __options "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Send all output to /dev/null
+__devnull() {
+  tee &>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# Send errors to /dev/null
+__devnull2() {
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# See if the executable exists
+__cmd_exists() {
+  exitCode=0
+  [ -n "$1" ] && local exitCode="" || return 0
+  for cmd in "$@"; do
+    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
+  done
+  [ $exitCode -eq 0 ] || exitCode=3
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for a valid internet connection
+__am_i_online() {
+  local exitCode=0
+  curl -q -LSsfI --max-time 2 --retry 1 "${1:-https://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# colorization
+if [ "$SHOW_RAW" = "true" ]; then
+  NC=""
+  RESET=""
+  BLACK=""
+  RED=""
+  GREEN=""
+  YELLOW=""
+  BLUE=""
+  PURPLE=""
+  CYAN=""
+  WHITE=""
+  ORANGE=""
+  LIGHTRED=""
+  BG_GREEN=""
+  BG_RED=""
+  ICON_INFO="[ info ]"
+  ICON_GOOD="[ ok ]"
+  ICON_WARN="[ warn ]"
+  ICON_ERROR="[ error ]"
+  ICON_QUESTION="[ ? ]"
+  printf_column() { tee | grep '^'; }
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional printf_ colors
+__printf_head() { printf_blue "$1"; }
+__printf_opts() { printf_purple "$1"; }
+__printf_line() { printf_cyan "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# output version
+__version() { printf_cyan "$VERSION"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# list options
+__list_options() {
+  printf_color "$1: " "$5"
+  echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g' | tr '\n' ' '
+  printf_newline
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create the config file
+__gen_config() {
+  local NOTIFY_CLIENT_NAME="$APPNAME"
+  if [ "$INIT_CONFIG" != "TRUE" ]; then
+    printf_blue "Generating the config file in"
+    printf_cyan "$RUN_SERVER_CONFIG_DIR/$RUN_SERVER_CONFIG_FILE"
+  fi
+  [ -d "$RUN_SERVER_CONFIG_DIR" ] || mkdir -p "$RUN_SERVER_CONFIG_DIR"
+  [ -d "$RUN_SERVER_CONFIG_BACKUP_DIR" ] || mkdir -p "$RUN_SERVER_CONFIG_BACKUP_DIR"
+  [ -f "$RUN_SERVER_CONFIG_DIR/$RUN_SERVER_CONFIG_FILE" ] &&
+    cp -Rf "$RUN_SERVER_CONFIG_DIR/$RUN_SERVER_CONFIG_FILE" "$RUN_SERVER_CONFIG_BACKUP_DIR/$RUN_SERVER_CONFIG_FILE.$$"
+  cat <<EOF >"$RUN_SERVER_CONFIG_DIR/$RUN_SERVER_CONFIG_FILE"
+# Settings for run_server
+RUN_SERVER_DEFAULT_DIR="${RUN_SERVER_DEFAULT_DIR:-}"
+RUN_SERVER_DEFAULT_PORT="${RUN_SERVER_DEFAULT_PORT:-}"
+RUN_SERVER_BROWSER="${RUN_SERVER_BROWSER:-}"
+RUN_SERVER_BROWSER_ARGS="${RUN_SERVER_BROWSER_ARGS:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Uncomment the following to disable [browser,filemanager,editor]
+# Change to yes to enable
+#RUN_SERVER_ENABLE_WEB_BROWSER="no"
+#RUN_SERVER_ENABLE_FILE_MANAGER="no"
+#RUN_SERVER_ENABLE_FILE_EDITOR="no"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+RUN_SERVER_OUTPUT_COLOR_1="${RUN_SERVER_OUTPUT_COLOR_1:-}"
+RUN_SERVER_OUTPUT_COLOR_2="${RUN_SERVER_OUTPUT_COLOR_2:-}"
+RUN_SERVER_OUTPUT_COLOR_GOOD="${RUN_SERVER_OUTPUT_COLOR_GOOD:-}"
+RUN_SERVER_OUTPUT_COLOR_ERROR="${RUN_SERVER_OUTPUT_COLOR_ERROR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+RUN_SERVER_NOTIFY_ENABLED="${RUN_SERVER_NOTIFY_ENABLED:-}"
+RUN_SERVER_GOOD_NAME="${RUN_SERVER_GOOD_NAME:-}"
+RUN_SERVER_ERROR_NAME="${RUN_SERVER_ERROR_NAME:-}"
+RUN_SERVER_GOOD_MESSAGE="${RUN_SERVER_GOOD_MESSAGE:-}"
+RUN_SERVER_ERROR_MESSAGE="${RUN_SERVER_ERROR_MESSAGE:-}"
+RUN_SERVER_NOTIFY_CLIENT_NAME="${RUN_SERVER_NOTIFY_CLIENT_NAME:-}"
+RUN_SERVER_NOTIFY_CLIENT_ICON="${RUN_SERVER_NOTIFY_CLIENT_ICON:-}"
+RUN_SERVER_NOTIFY_CLIENT_URGENCY="${RUN_SERVER_NOTIFY_CLIENT_URGENCY:-}"
+
+EOF
+  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
+  if [ -f "$RUN_SERVER_CONFIG_DIR/$RUN_SERVER_CONFIG_FILE" ]; then
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
+    . "$RUN_SERVER_CONFIG_DIR/$RUN_SERVER_CONFIG_FILE"
+    exitCode=0
+  else
+    printf_red "Failed to create the config file"
+    exitCode=1
+  fi
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Help function - Align to 50
+__help() {
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "run_server:  Start an HTTP server from a directory - $VERSION"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Usage: run_server [options] [commands]"
+  __printf_line "write          - "
+  __printf_line "static         - "
+  __printf_line "proxy          - "
+  __printf_line "caddy          - "
+  __printf_line "go             - "
+  __printf_line "jekyll         - "
+  __printf_line "js             - "
+  __printf_line "php            - "
+  __printf_line "rails          - "
+  __printf_line "ruby           - "
+  __printf_line "python2        - "
+  __printf_line "python3        - "
+  __printf_line "netcat         - "
+  __printf_line "default        - "
+  __printf_line "*              - "
+  __printf_line "--dir                           - Sets the working directory"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Other Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--help                          - Shows this message"
+  __printf_line "--config                        - Generate user config file"
+  __printf_line "--version                       - Show script version"
+  __printf_line "--options                       - Shows all available options"
+  __printf_line "--debug                         - Enables script debugging"
+  __printf_line "--raw                           - Removes all formatting on output"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# check if arg is a builtin option
+__is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0; fi; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 1 || return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep -sh "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# # Get sudo password
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run sudo
+__sudorun() {
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo
+__can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User can run sudo
+__sudoif() {
+  __user_is_root && return 0
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run command as root
+requiresudo() {
+  if [ "$RUN_SERVER_REQUIRE_SUDO" = "yes" ] && [ -z "$RUN_SERVER_REQUIRE_SUDO_RUN" ]; then
+    export RUN_SERVER_REQUIRE_SUDO="no"
+    export RUN_SERVER_REQUIRE_SUDO_RUN="true"
+    __sudo "$@"
+    exit $?
+  else
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  CMD="${1:-echo}" && shift 1
+  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  [ "$(basename -- "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  if __sudoif; then
+    export PATH="$PATH"
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    exitCode=$?
+  else
+    printf '%s\n' "This requires root to run"
+    exitCode=1
+  fi
+  return ${exitCode:-1}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  exitCode=${exitCode:-0}
+  [ -f "$RUN_SERVER_TEMP_FILE" ] && rm -Rf "$RUN_SERVER_TEMP_FILE" &>/dev/null
+  #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD//$HOME/\~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined functions
+__trap_exit_local() {
+  local retval=${exitCode:-0}
+  [ -f "$RUN_SERVER_TEMP_FILE" ] && rm -Rf "$RUN_SERVER_TEMP_FILE" &>/dev/null || true
+  [ -f "$RUN_SERVER_RUN_DIR/$RUN_SERVER_MAIN_PID" ] && rm -Rf "${RUN_SERVER_RUN_DIR:?}/${RUN_SERVER_MAIN_PID:?}" || true
+  [ -n "$RUN_SERVER_SRV_PID" ] && kill -15 $RUN_SERVER_SRV_PID &>/dev/null || true
+  [ -n "$RUN_SERVER_SRV_WAIT_PID" ] && kill -15 $RUN_SERVER_SRV_WAIT_PID &>/dev/null || true
+  [ -n "$SCREEN_SHELL" ] && [ -n "$RUN_SERVER_EDITOR_PID" ] && kill -15 $RUN_SERVER_EDITOR_PID &>/dev/null || true
+  [ -n "$SCREEN_SHELL" ] && [ -n "$RUN_SERVER_BROWSER_PID" ] && kill -15 $RUN_SERVER_BROWSER_PID &>/dev/null || true
+  [ -n "$SCREEN_SHELL" ] && [ -n "$RUN_SERVER_FILE_MANAGER_PID" ] && kill -15 $RUN_SERVER_FILE_MANAGER_PID &>/dev/null || true
+  get_pid=$(__get_server_pid || echo '') && [ -n "$get_pid" ] && kill -9 $get_pid
+  [ -n "$RUN_SERVER_MAIN_PID" ] && kill -15 "$RUN_SERVER_MAIN_PID" &>/dev/null || true
+  return ${retval:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__random_port() { echo "$((51000 + $RANDOM % 100))" | grep '^' || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__netstat() { netstat -taupln 2>/dev/null || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__number_test() { test -n "$1" && test -z "${1//[0-9]/}" && return 0 || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_daemon_name() {
+  __netstat | grep -F ":$RUN_SERVER_PORT" |
+    grep -v 'TIME_WAIT' | awk -F'/' '{print $NF}' | sed 's| ||g;s|:.*||g'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_server_pid() {
+  local prog="${RUN_SERVER_DAEMON:-$RUN_SERVER_PROGRAM}"
+  __netstat | grep -F ":$RUN_SERVER_PORT" | grep "${prog:-^}" | sed 's|.*LISTEN||g;s| *||g' | awk -F'/' '{print $1}' | awk -F ':' '{print $1}' | grep '^' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_server_prog() {
+  local basename=""
+  basename="$(__netstat | grep LISTEN | grep -F "${1:-$RUN_SERVER_PORT}" | sed 's|.*LISTEN||g;s| *||g' | awk -F'/' '{print $2}' | awk -F ':' '{print $1}' | sed 's|:$||g' | head -n1 | grep '^' || echo '')"
+  [ -n "$basename" ] && echo "$basename" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__nginx_config() {
+  cat <<EOF || tee
+worker_processes                  1;
+daemon                            off;
+error_log                         /dev/stdout info;
+pid                               /tmp/nginx.pid;
+worker_rlimit_nofile              8192;
+
+events {
+    worker_connections            1024;
+}
+
+http {
+    server_names_hash_bucket_size 128;
+    access_log                    /dev/stdout;
+    include                       /etc/nginx/mime.types;
+    default_type                  text/html;
+    sendfile                      on;
+
+  server {
+    listen                        $RUN_SERVER_PORT;
+    root                          $RUN_SERVER_CWD;
+    index                         index.html index.htm;
+    server_name                   $HOSTNAME;
+
+  location / {
+    default_type                  "text/html";
+    autoindex                     on;
+    #try_files                     $uri.html $uri $uri/ /index.html;
+  }
+}
+}
+
+EOF
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__screen_config() {
+  printf_blue "Creating screenrc file in $RUN_SERVER_CONFIG_DIR"
+  rm -Rf "$RUN_SERVER_CONFIG_DIR/runserverc"
+  cat <<EOF | tee -p "$RUN_SERVER_CONFIG_DIR/runserverc" &>/dev/null
+#Sources
+# - https://bbs.archlinux.org/viewtopic.php?id=55618&p=3
+# - https://bbs.archlinux.org/viewtopic.php?pid=930174#p930174
+# Set name
+sessionname $APPNAME
+# search | name for dynamic window titles
+shelltitle '\$|bash'
+# Detect activity in new windows
+defmonitor on
+# Turn your hardstatus line into a dynamic urxvt|xterm|aterm window title
+backtick 1 5 5 true
+termcapinfo rxvt* 'hs:ts=\E]2;:fs=\007:ds=\E]2;\007'
+termcapinfo xterm 'Co#256:AB=\E[48;5;%dm:AF=\E[38;5;%dm;ti@:te@:ta@:fs=\E[%sm:'
+termcap  vt100* ms:AL=\E[%dL:DL=\E[%dM:UP=\E[%dA:DO=\E[%dB:LE=\E[%dD:RI=\E[%dC
+terminfo vt100* ms:AL=\E[%p1%dL:DL=\E[%p1%dM:UP=\E[%p1%dA:DO=\E[%p1%dB:LE=\E[%
+attrcolor b ".I"
+#term "screen-256color"
+defbce on
+# Always start screen with UTF-8 enabled (screen -U)
+defutf8 on
+# Set the window titles
+caption always
+caption string "%n %t"
+# Set the status bar
+hardstatus alwayslastline " %{kb}\$LOGNAME %{bk} %H %?%{kb}%{kY} %-Lw%{Yk}%:%{Yb}%{Yk}%?%{Yk} %n%f* %t %{kY}%+Lw %-="
+# huge scrollback buffer
+defscrollback 5000
+# no welcome message
+startup_message off
+# Display notification when bell is detected for a window
+bell_msg "Bell detected in %t (%n)!"
+activity "Activity detected in %t (%n)!"
+# Fix for residual editor text
+altscreen on
+# print wackier status messages
+nethack on
+# mouse tracking allows to switch region focus by clicking
+mousetrack off
+# default windows
+screen -t main     1 sh -c "sleep 2;$SHELL;$SHELL"
+screen -t editor   2 sh -c "sleep 4;while :; do ${RUN_SERVER_SCREEN_OPEN_EDITOR:-bash}      ;sleep 2 || break; done"
+screen -t fm       3 sh -c "sleep 6;while :; do ${RUN_SERVER_SCREEN_OPEN_FM:-bash}          ;sleep 2 || break; done"
+screen -t web      4 sh -c "sleep 30;while :; do ${RUN_SERVER_SCREEN_OPEN_WEB:-bash}        ;sleep 2 || break; done"
+screen -t log      8 sh -c "sleep 8;while :; do ${RUN_SERVER_SCREEN_OPEN_LOG:-bash}         ;sleep 2 || break; done"
+screen -t serv     9 sh -c "while :; do ${RUN_SERVER_SCREEN_OPEN_CMD}                       ;sleep 1 || break; done"
+
+# window numbering starts at 1 not 0
+select 9
+bind c screen 1
+# get rid of silly xoff stuff
+bind s split
+# layouts
+layout autosave on
+layout new one
+select 1
+layout attach one
+layout select one
+# use hjkl keys to resize regions
+bind -c rsz h eval "resize -h -5" "command -c rsz"
+bind -c rsz j eval "resize -v -5" "command -c rsz"
+bind -c rsz k eval "resize -v +5" "command -c rsz"
+bind -c rsz l eval "resize -h +5" "command -c rsz"
+# quickly switch between regions using tab and arrows
+bind -c rsz \t    eval "focus"       "command -c rsz" # Tab
+bind -c rsz -k kl eval "focus left"  "command -c rsz" # Left
+bind -c rsz -k kr eval "focus right" "command -c rsz" # Right
+bind -c rsz -k ku eval "focus up"    "command -c rsz" # Up
+bind -c rsz -k kd eval "focus down"  "command -c rsz" # Down
+
+# You can use "showkey -a" to capture the key definitions for your terminal.
+bindkey "^[OR" prev         # F3 = previous window
+bindkey "^[OS" next         # F4 = next window
+bindkey "^[1;2C" next      # shift+right_arrow
+bindkey "^[1;2D" prev      # shift+left_arrow
+bindkey "^[A" focus top    # ctrl+up_arrow = large top area
+bindkey "^[B" focus down   # ctrl+down_arrow = bottom-left area
+bindkey "^[C" focus bottom # ctrl+right_arrow = bottom-right area
+bindkey "^[D" focus left   # ctrl+left_arrow = back to bottom-left area from bottom-right area
+# Finally! Shift-pg up or down to view scrollback buffer
+bindkey "^[5;2~" eval "copy" "stuff ^u"
+bindkey -m "^[5;2~" stuff ^u
+bindkey -m "^[6;2~" stuff ^d
+# Mouse scrolling
+# Scroll up
+bindkey -d "^[5S" eval copy "stuff 5\025"
+bindkey -m "^[5S" stuff 5\025
+# Scroll down
+bindkey -d "^[5T" eval copy "stuff 5\004"
+bindkey -m "^[5T" stuff 5\004
+# Scroll up more
+bindkey -d "^[25S" eval copy "stuff \025"
+bindkey -m "^[25S" stuff \025
+# Scroll down more
+bindkey -d "^[25T" eval copy "stuff \004"
+bindkey -m "^[25T" stuff \004
+
+EOF
+  [ -f "$RUN_SERVER_CONFIG_DIR/runserverc" ] &&
+    printf_blue "Created: $RUN_SERVER_CONFIG_DIR/runserverc"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__run_server() {
+  { "$@" &>"$RUN_SERVER_LOG_DIR/init.log" || __return_error || exit 1; } &
+  export RUN_SERVER_SRV_WAIT_PID="$!"
+  export RUN_SERVER_IS_RUNNING="true"
+  clear
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+run_editor() {
+  [ "$RUN_SERVER_ENABLE_FILE_EDITOR" = "yes" ] || [ "$RUN_SERVER_ENABLE_FILE_EDITOR" = "true" ] || return 1
+  open_editor "$RUN_SERVER_CWD" &&
+    export RUN_SERVER_EDITOR_PID="$!"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+open_editor() {
+  local PATH="$SRC_DIR:$PATH"
+  cd "$1" || return 1
+  RUN_SERVER_OPEN_EDITOR_CMD="$RUN_SERVER_OPEN_EDITOR_CMD $1"
+  [ -n "$RUN_SERVER_NO_MESSAGE" ] || printf_purple "Launching: $RUN_SERVER_OPEN_EDITOR_CMD"
+  [ -n "$SCREEN_SESSION" ] || $RUN_SERVER_OPEN_EDITOR_CMD 2>/dev/null
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+run_filemanager() {
+  [ "$RUN_SERVER_ENABLE_FILE_MANAGER" = "yes" ] || [ "$RUN_SERVER_ENABLE_FILE_MANAGER" = "true" ] || return 1
+  open_filemanager "$RUN_SERVER_CWD" &&
+    export RUN_SERVER_FILE_MANAGER_PID="$!"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+open_filemanager() {
+  local PATH="$SRC_DIR:$PATH"
+  cd "$1" || return 1
+  RUN_SERVER_OPEN_FILE_MANAGER_CMD="$RUN_SERVER_OPEN_FILE_MANAGER_CMD $1"
+  [ -n "$RUN_SERVER_NO_MESSAGE" ] || printf_purple "Launching: $RUN_SERVER_OPEN_FILE_MANAGER_CMD"
+  [ -n "$SCREEN_SESSION" ] || $RUN_SERVER_OPEN_FILE_MANAGER_CMD 2>/dev/null
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+run_web_browser() {
+  [ "$RUN_SERVER_ENABLE_WEB_BROWSER" = "yes" ] || [ "$RUN_SERVER_ENABLE_WEB_BROWSER" = "true" ] || return
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+  open_browser "$RUN_SERVER_URL" &&
+    export RUN_SERVER_BROWSER_PID="$!"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+open_browser() {
+  local PATH="$SRC_DIR:$PATH"
+  [ -n "$RUN_SERVER_OPEN_BROWSER_CMD" ] || RUN_SERVER_OPEN_BROWSER_CMD="mybrowser"
+  [ -n "$SCREEN_SESSION" ] || [ -n "$RUN_SERVER_BROWSER_ARGS" ] || RUN_SERVER_BROWSER_ARGS="--private"
+  RUN_SERVER_OPEN_BROWSER_CMD="$RUN_SERVER_OPEN_BROWSER_CMD $1 $RUN_SERVER_BROWSER_ARGS"
+  [ -n "$RUN_SERVER_NO_MESSAGE" ] || printf_purple "Launching: $RUN_SERVER_OPEN_BROWSER_CMD"
+  [ -n "$SCREEN_SESSION" ] || $RUN_SERVER_OPEN_BROWSER_CMD 2>/dev/null
+  #printf_red "control-c to exit"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__return_error() {
+  printf_newline '\n\n'
+  printf '%s\n' "Failed to start server" &>>"$RUN_SERVER_LOG"
+  printf_red "Failed to start the server"
+  printf_cyan "Details can be found in: $RUN_SERVER_LOG"
+  sleep 2 && printf_pause "$APPNAME will now be killed"
+  kill -9 "$RUN_SERVER_MAIN_PID" &>/dev/null
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__fmt_date() { date +"$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__lsof() {
+  lsof -i -nP | grep "${1:-$RUN_SERVER_PORT}" | grep -v 'grep' | grep -i "${prog:-python2}" | grep -q '^' && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__port_used() {
+  sleep .1 && netstat -tauln 2>/dev/null | grep 'LISTEN' | grep ":${1:-$RUN_SERVER_PORT}" | grep -q '^' && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__port_free() {
+  sleep .1 && netstat -tauln 2>/dev/null | grep 'LISTEN' | grep ":${1:-$RUN_SERVER_PORT}" | grep -q '^' && return 1 || return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__proxy() {
+  [ "$RUN_SERVER_IS_RUNNING" = "true" ] && return 0
+  __cmd_exists caddy || return 1
+  cd "$RUN_SERVER_CWD" || return 1
+  echo "$1" | grep -q ':[0-9]' && host="$1" || host="${CURRENT_IP_4:-127.0.0.1}:${1:-3000}"
+  caddy reverse-proxy --change-host-header --insecure --to $host --from :${2:-${RUN_SERVER_PORT:-20000}} &>>"$RUN_SERVER_LOG" || return 1 &&
+    echo caddy started &>>"$RUN_SERVER_LOG" && other_port="$RUN_SERVER_LOG" || return 1
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__netcat_write() {
+  local base_directory="$HOME/Documents/myscripts/$APPNAME/netcat"
+  [ "$RUN_SERVER_IS_RUNNING" = "true" ] && return 0
+  [ -n "$RUN_SERVER_NETCAT_BIN" ] || return 1
+  cd "$RUN_SERVER_CWD" || return 1
+  while :; do
+    echo "" >"$RUN_SERVER_SAVED_FILE"
+    file_structure="${output_file:-$(__fmt_date '%H-%M-%S')}.txt"
+    folder_structure="$(__fmt_date '%y')/$(__fmt_date '%m')/$(__fmt_date '%d')"
+    save_file_to="$base_directory/$folder_structure/$file_structure"
+    mkdir -p "$base_directory/$folder_structure"
+    timeout 600 $RUN_SERVER_NETCAT_BIN -n -l -p $RUN_SERVER_PORT 2>>"$RUN_SERVER_LOG" >>"$RUN_SERVER_SAVED_FILE"
+    if [ -s "$RUN_SERVER_SAVED_FILE" ]; then
+      printf '%s\n' "Added text to $save_file_to from $RUN_SERVER_SAVED_FILE" 2>>"$RUN_SERVER_LOG"
+      cat "$RUN_SERVER_SAVED_FILE" >>"$save_file_to"
+      printf '\n------------------\n' >>"$save_file_to"
+    fi
+  done &>>"$RUN_SERVER_LOG"
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__netcat_serv() {
+  [ "$RUN_SERVER_IS_RUNNING" = "true" ] && return 0
+  [ -n "$RUN_SERVER_NETCAT_BIN" ] || return 1
+  [ -f "index.html" ] || return 1
+  cd "$RUN_SERVER_CWD" || return 1
+  while :; do
+    file="$([ -f "index.html" ] && echo index.html || find "." -mindepth 1 -printf '%P\n' 2>/dev/null | head -n1 || echo 'Running')"
+    cat "$file" | $RUN_SERVER_NETCAT_BIN -l -p "$RUN_SERVER_PORT" &>>"$RUN_SERVER_LOG"
+  done &>>"$RUN_SERVER_LOG" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__go() {
+  [ "$RUN_SERVER_IS_RUNNING" = "true" ] && return 0
+  __cmd_exists gohttpserver || return 1
+  cd "$RUN_SERVER_CWD" || return 1
+  gohttpserver --theme dark --port $RUN_SERVER_PORT --title="Dev Server" -r "." --xheaders --cors &>>"$RUN_SERVER_LOG" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__caddy() {
+  [ "$RUN_SERVER_IS_RUNNING" = "true" ] && return 0
+  __cmd_exists caddy || return 1
+  cd "$RUN_SERVER_CWD" || return 1
+  caddy file-server -browse -listen :$RUN_SERVER_PORT -root "." -templates &>>"$RUN_SERVER_LOG" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__nginx() {
+  [ "$RUN_SERVER_IS_RUNNING" = "true" ] && return 0
+  __cmd_exists nginx || return 1
+  cd "$RUN_SERVER_CWD" || return 1
+  nginx -c "$RUN_SERVER_CACHE_DIR/nginx.conf" &>>"$RUN_SERVER_LOG" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__jekyll() {
+  [ "$RUN_SERVER_IS_RUNNING" = "true" ] && return 0
+  __cmd_exists jekyll || return 1
+  cd "$RUN_SERVER_CWD" || return 1
+  jekyll serve -P $RUN_SERVER_PORT -l -H 0.0.0.0 &>>"$RUN_SERVER_LOG" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__js_serv() {
+  [ "$RUN_SERVER_IS_RUNNING" = "true" ] && return 0
+  __cmd_exists http-server || return 1
+  cd "$RUN_SERVER_CWD" || return 1
+  http-server -a 0.0.0.0 -p $RUN_SERVER_PORT &>>"$RUN_SERVER_LOG" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__php_serv() {
+  [ "$RUN_SERVER_IS_RUNNING" = "true" ] && return 0
+  [ -n "$php" ] || return 1
+  cd "$RUN_SERVER_CWD" || return 1
+  $RUN_SERVER_PHP_BIN -S 0.0.0.0:$RUN_SERVER_PORT -t "$RUN_SERVER_CWD" &>>"$RUN_SERVER_LOG" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__ruby_serv() {
+  [ "$RUN_SERVER_IS_RUNNING" = "true" ] && return 0
+  __cmd_exists ruby || return 1
+  cd "$RUN_SERVER_CWD" || return 1
+  ruby -run -e httpd -p $RUN_SERVER_PORT &>>"$RUN_SERVER_LOG" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__rails_serv() {
+  [ "$RUN_SERVER_IS_RUNNING" = "true" ] && return 0
+  __cmd_exists rails || return 1
+  cd "$RUN_SERVER_CWD" || return 1
+  server -p "$RUN_SERVER_PORT" &>>"$RUN_SERVER_LOG" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__python3_serv() {
+  [ "$RUN_SERVER_IS_RUNNING" = "true" ] && return 0
+  __cmd_exists python3 || return 1
+  cd "$RUN_SERVER_CWD" || return 1
+  python3 -m http.server --cgi --bind "$RUN_SERVER_ADDR" "$RUN_SERVER_PORT" &>>"$RUN_SERVER_LOG" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__python2_serv() {
+  [ "$RUN_SERVER_IS_RUNNING" = "true" ] && return 0
+  __cmd_exists python2 || return 1
+  cd "$RUN_SERVER_CWD" || return 1
+  python2 -m http.server --cgi --bind "$RUN_SERVER_ADDR" "$RUN_SERVER_PORT" &>>"$RUN_SERVER_LOG" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__py_simple() {
+  [ "$RUN_SERVER_IS_RUNNING" = "true" ] && return 0
+  __cmd_exists python || return 1
+  cd "$RUN_SERVER_CWD" || return 1
+  python -m SimpleHTTPServer "$RUN_SERVER_PORT" &>>"$RUN_SERVER_LOG" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__default_srv() {
+  [ "$RUN_SERVER_IS_RUNNING" = "true" ] && return 0
+  cmd_exists python2 || return 1
+  cd "$RUN_SERVER_CWD" || return 1
+  python2 -c $'import SimpleHTTPServer;\nmap = SimpleHTTPServer.SimpleHTTPRequestHandler.extensions_map;\nmap[""] = "text/plain";\nfor key, value in map.items():\n\tmap[key] = value + ";charset=UTF-8";\nSimpleHTTPServer.test();' "$RUN_SERVER_PORT" &>>"$RUN_SERVER_LOG" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__static() {
+  [ "$RUN_SERVER_IS_RUNNING" = "true" ] && return 0
+  { __go || __caddy || __php_serv || __python3_serv || __default_srv; } && exitCode=0 || exitCode=1
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__prog_check() {
+  RUN_SERVER_PROGRAM="${1:-$prog}"
+  ERROR_MESSAGE="Error: $RUN_SERVER_PROGRAM is not installed"
+  if __cmd_exists "$RUN_SERVER_PROGRAM"; then
+    export RUN_SERVER_DAEMON="$RUN_SERVER_PROGRAM"
+    unset ERROR_MESSAGE
+  else
+    clear
+    echo "$ERROR_MESSAGE" >>"$RUN_SERVER_LOG"
+    print_exit "$ERROR_MESSAGE"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__set_vars() {
+  [ "$1" = "export_source" ] && RUN_SERVER_EXPORT="true" && shift 1
+  [ -n "$RUN_SERVER_EXPORT" ] && [ -f "$1" ] && RUN_SERVER_ENV_FILE="$1" && shift 1
+  if __number_test "${1:-$RUN_SERVER_DEFAULT_PORT}"; then
+    set_port="${1:-$RUN_SERVER_DEFAULT_PORT}"
+  else
+    set_port="$RUN_SERVER_DEFAULT_PORT"
+  fi
+  local ORIG_PORT="$set_port"
+  local port="$set_port"
+  local i=0
+  [ "$RUN_SERVER_AS_ROOT" = "true" ] || [ $port -ge 10000 ] || printf_exit "Ports below 10000 is not supported"
+  if __port_used $port; then
+    printf_red "Something appears to be running on port ${port}"
+    while :; do
+      if __port_free $port; then
+        break
+      else
+        printf_yellow "Attempting the next port: $((port + 1))"
+        port=$((port + 1))
+        sleep .5
+      fi
+    done
+  fi
+  RUN_SERVER_PORT="${port}"
+  if [ "$RUN_SERVER_CWD" = "$RUN_SERVER_DEFAULT_DIR" ]; then
+    RUN_SERVER_CWD="$RUN_SERVER_DEFAULT_DIR/$port"
+    cd "$RUN_SERVER_DEFAULT_DIR" || exit 100
+  fi
+  RUN_SERVER_CWD="$(realpath "${RUN_SERVER_CWD:-$PWD}" || dirname "${RUN_SERVER_CWD:-$PWD}/.")"
+  RUN_SERVER_LOG="${RUN_SERVER_LOG:-$RUN_SERVER_LOG_DIR/run_server_$RUN_SERVER_PORT.log}"
+  RUN_SERVER_URL="${RUN_SERVER_URL:-http://$RUN_SERVER_ADDR:$RUN_SERVER_PORT}"
+  SERVER_NAME="$(basename -- "$RUN_SERVER_CWD" 2>/dev/null)"
+  [ -d "$RUN_SERVER_CWD" ] || mkdir -p "$RUN_SERVER_CWD" || exit 101
+  if [ -n "$RUN_SERVER_EXPORT" ]; then
+    cat <<EOF | tee -p "${RUN_SERVER_ENV_FILE:-/dev/null}" &>/dev/null
+export RUN_SERVER_LOG="$RUN_SERVER_LOG"
+export RUN_SERVER_HOST="$RUN_SERVER_HOST"
+export RUN_SERVER_PORT="$RUN_SERVER_PORT"
+export RUN_SERVER_ADDR="$RUN_SERVER_ADDR"
+export RUN_SERVER_CWD="$RUN_SERVER_CWD"
+export RUN_SERVER_URL="$RUN_SERVER_URL"
+EOF
+  else
+    export RUN_SERVER_LOG RUN_SERVER_HOST RUN_SERVER_PORT RUN_SERVER_ADDR RUN_SERVER_CWD RUN_SERVER_URL
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__try_default() {
+  [ "$RUN_SERVER_IS_RUNNING" = "true" ] && return 0
+  __caddy || __php_serv || __ruby_serv || __python3_serv || __python2_serv || __py_simple || __default_srv || __go || return 1
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__enable_function() {
+  local set_enable
+  set_enable="$(echo "$1" | sed 's|^--||g' | awk -F '-' '{print $2}' | grep '^' | tr '[:upper:]' '[:lower:]')"
+  case "$set_enable" in
+  browser)
+    export RUN_SERVER_ENABLE_WEB_BROWSER="yes"
+    ;;
+  filemanager)
+    export RUN_SERVER_ENABLE_FILE_MANAGER="yes"
+    ;;
+  editor)
+    export RUN_SERVER_ENABLE_FILE_EDITOR="yes"
+    ;;
+  all)
+    export RUN_SERVER_ENABLE_WEB_BROWSER="yes"
+    export RUN_SERVER_ENABLE_FILE_MANAGER="yes"
+    export RUN_SERVER_ENABLE_FILE_EDITOR="yes"
+    ;;
+  esac
+  unset set_enable
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__disable_function() {
+  local set_disable
+  set_disable="$(echo "$1" | sed 's|^--||g' | awk -F '-' '{print $2}' | grep '^' | tr '[:upper:]' '[:lower:]')"
+  case "$set_disable" in
+  browser)
+    export RUN_SERVER_ENABLE_WEB_BROWSER="no"
+    ;;
+  filemanager)
+    export RUN_SERVER_ENABLE_FILE_MANAGER="no"
+    ;;
+  editor)
+    export RUN_SERVER_ENABLE_FILE_EDITOR="no"
+    ;;
+  all)
+    export RUN_SERVER_ENABLE_WEB_BROWSER="no"
+    export RUN_SERVER_ENABLE_FILE_MANAGER="no"
+    export RUN_SERVER_ENABLE_FILE_EDITOR="no"
+    ;;
+  esac
+  unset set_disable
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_directory() {
+  local dir="${RUN_SERVER_CWD:-$RUN_SERVER_DEFAULT_DIR}"
+  if [ -f "$dir" ]; then
+    RUN_SERVER_CWD="$(dirname "$dir")"
+    shift 1
+  elif [ -d "$dir" ]; then
+    RUN_SERVER_CWD="$dir"
+    shift 1
+  else
+    RUN_SERVER_CWD="${dir:-$RUN_SERVER_DEFAULT_DIR}"
+  fi
+  if [ "$RUN_SERVER_CWD" = "$PWD" ] && [ "$PWD" != "$HOME/Public/www" ]; then
+    RUN_SERVER_CWD="${RUN_SERVER_CWD:-$PWD}"
+  else
+    RUN_SERVER_CWD="$RUN_SERVER_DEFAULT_DIR"
+  fi
+  RUN_SERVER_CWD="$(realpath "$RUN_SERVER_CWD" 2>/dev/null || echo "$RUN_SERVER_DEFAULT_DIR")"
+  if [ "$RUN_SERVER_CWD" == "$HOME" ]; then
+    trap 'clear;__trap_exit_local;exit 1' SIGINT EXIT
+    clear
+    printf_newline '\n\n\n'
+    printf_red "Running this in your HOME directory is not supported"
+    printf_yellow "Changing RUN_SERVER_CWD to $RUN_SERVER_DEFAULT_DIR"
+    printf_pause "Press any key to continue or control-c to cancel"
+    RUN_SERVER_CWD="$RUN_SERVER_DEFAULT_DIR"
+    clear
+  fi
+  printf_newline '\n\n\n'
+  [ -d "$RUN_SERVER_CWD" ] || mkdir -p "$RUN_SERVER_CWD"
+  if [ -z "$RUN_SERVER_SILENT" ]; then
+    printf_cyan "Initializing.... This may take a few seconds"
+    cd "$RUN_SERVER_CWD" || printf_exit "Failed to cd into $RUN_SERVER_CWD"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+start_run_server() {
+  RUN_SERVER_PORT="${RUN_SERVER_PORT:-$RUN_SERVER_DEFAULT_PORT}"
+  MAX_NUMBER_OF_TRIES=${MAX_NUMBER_OF_TRIES:-20}
+  RUN_SERVER_TEMP_DIR="${RUN_SERVER_TEMP_DIR:-/tmp}"
+  RUN_SERVER_DIR="${RUN_SERVER_DIR:-$RUN_SERVER_CWD}"
+  RUN_SERVER_URL="${RUN_SERVER_URL:-http://localhost:$RUN_SERVER_PORT}"
+  export RUN_SERVER_OPEN_CMD="${RUN_SERVER_OPEN_CMD:-$RUN_SERVER_CONSOLE_CMD}"
+  RUN_SERVER_LISTEN_MESSAGE="${RUN_SERVER_LISTEN_MESSAGE//IP_ADD/$CURRENT_IP_4}"
+  RUN_SERVER_LISTEN_MESSAGE="${RUN_SERVER_LISTEN_MESSAGE//RPORT/$RUN_SERVER_PORT}"
+  export RUN_SERVER_DIR RUN_SERVER_URL RUN_SERVER_PORT RUN_SERVER_OPEN_CMD RUN_SERVER_SCREEN_OPEN_LOG
+  export -f start_run_server __lsof __port_used open_browser open_editor open_filemanager
+  printf '%s\n' "Attempting to start $prog on port $RUN_SERVER_PORT" &>"$RUN_SERVER_LOG"
+  __run_server "$@"
+  sleep 5
+  RUN_SERVER_DAEMON="$(__get_daemon_name)"
+  RUN_SERVER_SRV_PID="$(__get_server_pid || __get_server_prog "$RUN_SERVER_DAEMON" || echo '')"
+  export RUN_SERVER_DAEMON="${RUN_SERVER_DAEMON:-$(__get_server_prog "$RUN_SERVER_SRV_PID" || echo '')}"
+  export RUN_SERVER_SRV_PID RUN_SERVER_DAEMON
+  echo "$RUN_SERVER_PORT" >"$RUN_SERVER_RUN_DIR/$RUN_SERVER_MAIN_PID"
+  echo "$RUN_SERVER_SRV_PID" >>"$RUN_SERVER_RUN_DIR/$RUN_SERVER_MAIN_PID"
+  printf '\n\n\n'
+  printf_yellow "${RUN_SERVER_DAEMON:-The web server} has started on port: $RUN_SERVER_PORT"
+  printf_cyan "$APPNAME pid is: $RUN_SERVER_MAIN_PID and the web server pid is: $RUN_SERVER_SRV_PID"
+  printf_purple "${RUN_SERVER_ACTION_MESSAGE:-serving files from $RUN_SERVER_CWD}"
+  printf_blue "Log file: $RUN_SERVER_LOG"
+  printf_yellow "${RUN_SERVER_LISTEN_MESSAGE:-Access from the network: $RUN_SERVER_URL}"
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  run_editor
+  run_filemanager
+  run_web_browser
+  sleep 2
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  #if [ "$RUN_SERVER_ENABLE_WEB_BROWSER" != "yes" ]; then
+  sleep 5
+  printf '\r%bServer appears to have started successfully:%b control-c to exit %b ' "${CYAN}" "${GREEN}" "${NC}"
+  #fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__initialize_app() {
+  clear
+  printf_newline '\n\n\n'
+  [ -n "${2:-$1}" ] && __number_test "${2:-$1}" && RUN_SERVER_PORT="${2:-$1}" || RUN_SERVER_PORT="$RUN_SERVER_DEFAULT_PORT"
+  __setup_directory "$RUN_SERVER_CWD"
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  if [ -n "$SSH_CONNECTION" ] || [ -n "$SCREEN_SESSION" ]; then
+    { [ -n "$RUN_SERVER_OPEN_FILE_MANAGER_CMD" ]; } ||
+      { cmd_exists lf && RUN_SERVER_OPEN_FILE_MANAGER_CMD="lf"; } ||
+      { cmd_exists vifm && RUN_SERVER_OPEN_FILE_MANAGER_CMD="vifm"; } ||
+      { cmd_exists ranger && RUN_SERVER_OPEN_FILE_MANAGER_CMD="ranger"; } ||
+      { cmd_exists se && RUN_SERVER_OPEN_FILE_MANAGER_CMD="se"; } ||
+      { cmd_exists vim && RUN_SERVER_OPEN_FILE_MANAGER_CMD="vim"; }
+  elif cmd_exists myfilemanager; then
+    RUN_SERVER_OPEN_FILE_MANAGER_CMD="myfilemanager"
+  elif [ -n "$FILEMANAGER" ]; then
+    RUN_SERVER_OPEN_FILE_MANAGER_CMD="$FILEMANAGER"
+  elif cmd_exists "xdg-open"; then
+    RUN_SERVER_OPEN_FILE_MANAGER_CMD="xdg-open"
+  elif cmd_exists "open"; then
+    RUN_SERVER_OPEN_FILE_MANAGER_CMD="open"
+  fi
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  if [ -n "$SSH_CONNECTION" ] || [ -n "$SCREEN_SESSION" ]; then
+    RUN_SERVER_BROWSER_ARGS=""
+    { [ -n "$RUN_SERVER_OPEN_BROWSER_CMD" ]; } ||
+      { cmd_exists browsh && RUN_SERVER_OPEN_BROWSER_CMD="browsh"; } ||
+      { cmd_exists netrik && RUN_SERVER_OPEN_BROWSER_CMD="netrik"; } ||
+      { cmd_exists links2 && RUN_SERVER_OPEN_BROWSER_CMD="links2"; } ||
+      { cmd_exists links && RUN_SERVER_OPEN_BROWSER_CMD="links"; } ||
+      { cmd_exists lynx && RUN_SERVER_OPEN_BROWSER_CMD="lynx -accept_all_cookies"; } ||
+      { cmd_exists elinks && RUN_SERVER_OPEN_BROWSER_CMD="elinks"; } ||
+      { cmd_exists w3m && RUN_SERVER_OPEN_BROWSER_CMD="w3m"; } || return 1
+  elif cmd_exists mybrowser; then
+    RUN_SERVER_OPEN_BROWSER_CMD="mybrowser"
+  elif [ -n "$BROWSER" ]; then
+    RUN_SERVER_OPEN_BROWSER_CMD="$BROWSER"
+  elif cmd_exists "xdg-open"; then
+    RUN_SERVER_OPEN_BROWSER_CMD="xdg-open"
+  elif cmd_exists "open"; then
+    RUN_SERVER_OPEN_BROWSER_CMD="open"
+  fi
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  if [ -n "$SSH_CONNECTION" ] || [ -n "$SCREEN_SESSION" ]; then
+    { [ -n "$RUN_SERVER_OPEN_EDITOR_CMD" ]; } ||
+      { cmd_exists vim && RUN_SERVER_OPEN_EDITOR_CMD="vim"; } ||
+      { cmd_exists nvim && RUN_SERVER_OPEN_EDITOR_CMD="nvim"; } ||
+      { cmd_exists neovim && RUN_SERVER_OPEN_EDITOR_CMD="neovim"; } ||
+      { cmd_exists nano && RUN_SERVER_OPEN_EDITOR_CMD="nano"; } ||
+      { cmd_exists emacs && RUN_SERVER_OPEN_EDITOR_CMD="emacs"; }
+  elif cmd_exists myeditor; then
+    RUN_SERVER_OPEN_EDITOR_CMD="myeditor"
+  elif [ -n "$EDITOR" ]; then
+    RUN_SERVER_OPEN_EDITOR_CMD="$EDITOR"
+  elif cmd_exists "xdg-open"; then
+    RUN_SERVER_OPEN_EDITOR_CMD="xdg-open"
+  elif cmd_exists "open"; then
+    RUN_SERVER_OPEN_EDITOR_CMD="open"
+  fi
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  export RUN_SERVER_OPEN_CMD="$APPNAME $*"
+  export RUN_SERVER_OPEN_FILE_MANAGER_CMD RUN_SERVER_OPEN_BROWSER_CMD RUN_SERVER_OPEN_EDITOR_CMD
+  export SCREEN_SESSION SCREEN_SHELL SCREEN_SESSION_NAME
+  export -f start_run_server open_browser open_editor open_filemanager
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__main__() {
+  trap 'clear;__trap_exit_local;exit 0' SIGINT
+  export RUN_SERVER_MAIN_PID="$$"
+  RUN_SERVER_CONSOLE_CMD="start_run_server $*"
+  RUN_SERVER_PORT="${RUN_SERVER_PORT:-$RUN_SERVER_DEFAULT_PORT}"
+  MAX_NUMBER_OF_TRIES=${MAX_NUMBER_OF_TRIES:-20}
+  RUN_SERVER_TEMP_DIR="${RUN_SERVER_TEMP_DIR:-/tmp}"
+  RUN_SERVER_DIR="${RUN_SERVER_DIR:-$RUN_SERVER_CWD}"
+  RUN_SERVER_URL="${RUN_SERVER_URL:-http://localhost:$RUN_SERVER_PORT}"
+  RUN_SERVER_SCREEN_OPEN_WEB="${RUN_SERVER_OPEN_BROWSER_CMD} $RUN_SERVER_URL"
+  RUN_SERVER_SCREEN_OPEN_CMD="${RUN_SERVER_OPEN_CMD} $RUN_SERVER_DIR"
+  RUN_SERVER_SCREEN_OPEN_FM="${RUN_SERVER_OPEN_FILE_MANAGER_CMD} $RUN_SERVER_DIR"
+  RUN_SERVER_SCREEN_OPEN_EDITOR="${RUN_SERVER_OPEN_EDITOR_CMD} $RUN_SERVER_DIR"
+  RUN_SERVER_SCREEN_OPEN_LOG="tail -f ${RUN_SERVER_SCREEN_OPEN_LOG:-$RUN_SERVER_LOG}"
+  export RUN_SERVER_OPEN_FILE_MANAGER_CMD RUN_SERVER_OPEN_BROWSER_CMD RUN_SERVER_OPEN_EDITOR_CMD
+  export RUN_SERVER_SCREEN_OPEN_WEB RUN_SERVER_SCREEN_OPEN_CMD RUN_SERVER_SCREEN_OPEN_FM RUN_SERVER_SCREEN_OPEN_EDITOR
+  export RUN_SERVER_DIR RUN_SERVER_URL RUN_SERVER_PORT
+  [ -n "$SCREEN_SESSION" ] && exec_screen
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  $RUN_SERVER_CONSOLE_CMD || printf_exit "Failed to launch $RUN_SERVER_CONSOLE_CMD"
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  [ "$RUN_SERVER_BG" = "true" ] || wait -f $RUN_SERVER_SRV_WAIT_PID
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined variables/import external variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application Folders
+RUN_SERVER_CONFIG_FILE="${RUN_SERVER_CONFIG_FILE:-settings.conf}"
+RUN_SERVER_CONFIG_DIR="${RUN_SERVER_CONFIG_DIR:-$HOME/.config/myscripts/run_server}"
+RUN_SERVER_CONFIG_BACKUP_DIR="${RUN_SERVER_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/run_server/backups}"
+RUN_SERVER_LOG_DIR="${RUN_SERVER_LOG_DIR:-$HOME/.local/log/run_server}"
+RUN_SERVER_TEMP_DIR="${RUN_SERVER_TEMP_DIR:-$HOME/.local/tmp/system_scripts/run_server}"
+RUN_SERVER_CACHE_DIR="${RUN_SERVER_CACHE_DIR:-$HOME/.cache/run_server}"
+RUN_SERVER_RUN_DIR="${RUN_SERVER_RUN_DIR:-$HOME/.local/run/run_server}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+RUN_SERVER_OUTPUT_COLOR_1="${RUN_SERVER_OUTPUT_COLOR_1:-33}"
+RUN_SERVER_OUTPUT_COLOR_2="${RUN_SERVER_OUTPUT_COLOR_2:-5}"
+RUN_SERVER_OUTPUT_COLOR_GOOD="${RUN_SERVER_OUTPUT_COLOR_GOOD:-2}"
+RUN_SERVER_OUTPUT_COLOR_ERROR="${RUN_SERVER_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+RUN_SERVER_NOTIFY_ENABLED="${RUN_SERVER_NOTIFY_ENABLED:-yes}"
+RUN_SERVER_GOOD_NAME="${RUN_SERVER_GOOD_NAME:-Great:}"
+RUN_SERVER_ERROR_NAME="${RUN_SERVER_ERROR_NAME:-Error:}"
+RUN_SERVER_GOOD_MESSAGE="${RUN_SERVER_GOOD_MESSAGE:-No errors reported}"
+RUN_SERVER_ERROR_MESSAGE="${RUN_SERVER_ERROR_MESSAGE:-Errors were reported}"
+RUN_SERVER_NOTIFY_CLIENT_NAME="${RUN_SERVER_NOTIFY_CLIENT_NAME:-$APPNAME}"
+RUN_SERVER_NOTIFY_CLIENT_ICON="${RUN_SERVER_NOTIFY_CLIENT_ICON:-notification-new}"
+RUN_SERVER_NOTIFY_CLIENT_URGENCY="${RUN_SERVER_NOTIFY_CLIENT_URGENCY:-normal}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional Variables
+RUN_SERVER_HOST="${RUN_SERVER_HOST:-$(__gethostname)}"
+RUN_SERVER_BROWSER_ARGS="${RUN_SERVER_BROWSER_ARGS:-}"
+RUN_SERVER_DEFAULT_PORT="${RUN_SERVER_DEFAULT_PORT:-19922}"
+RUN_SERVER_ENABLE_WEB_BROWSER="${RUN_SERVER_ENABLE_WEB_BROWSER:-}"
+RUN_SERVER_ENABLE_FILE_EDITOR="${RUN_SERVER_ENABLE_FILE_EDITOR:-}"
+RUN_SERVER_ENABLE_FILE_MANAGER="${RUN_SERVER_ENABLE_FILE_MANAGER:-}"
+RUN_SERVER_DEFAULT_DIR="${RUN_SERVER_DEFAULT_DIR:-$HOME/Public/www}"
+RUN_SERVER_ADDR="${RUN_SERVER_ADDR:-$(__getlipaddr && echo "$CURRENT_IP_4" || echo '127.0.0.1')}"
+RUN_SERVER_NETCAT_BIN="${RUN_SERVER_NETCAT_BIN:-$(builtin type -P nc 2>/dev/null || builtin type -P netcat 2>/dev/null || echo '')}"
+RUN_SERVER_PHP_BIN="${RUN_SERVER_PHP_BIN:-$(builtin type -P php8 2>/dev/null || builtin type -P php7 2>/dev/null || builtin type -P php 2>/dev/null || echo '')}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$RUN_SERVER_CONFIG_DIR/$RUN_SERVER_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$RUN_SERVER_CONFIG_DIR/$RUN_SERVER_CONFIG_FILE" ] && . "$RUN_SERVER_CONFIG_DIR/$RUN_SERVER_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$RUN_SERVER_LOG_DIR" ] || mkdir -p "$RUN_SERVER_LOG_DIR" |& __devnull
+[ -d "$RUN_SERVER_TEMP_DIR" ] || mkdir -p "$RUN_SERVER_TEMP_DIR" |& __devnull
+[ -d "$RUN_SERVER_CACHE_DIR" ] || mkdir -p "$RUN_SERVER_CACHE_DIR" |& __devnull
+[ -d "$RUN_SERVER_RUN_DIR" ] || mkdir -p "$RUN_SERVER_RUN_DIR" |& __devnull
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+RUN_SERVER_TEMP_FILE="${RUN_SERVER_TEMP_FILE:-$(mktemp $RUN_SERVER_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap '__trap_exit' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+__notifications() {
+  __cmd_exists notifications || return
+  [ "$RUN_SERVER_NOTIFY_ENABLED" = "yes" ] || return
+  [ "$SEND_NOTIFICATION" = "no" ] && return
+  (
+    export SCRIPT_OPTS="" _DEBUG=""
+    export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$RUN_SERVER_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$RUN_SERVER_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$RUN_SERVER_NOTIFY_CLIENT_ICON}"
+    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$RUN_SERVER_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$RUN_SERVER_NOTIFY_CLIENT_URGENCY}"
+    notifications "$@"
+  ) |& __devnull &
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set custom actions
+[ -n "${2:-$1}" ] && __number_test "${2:-$1}" && RUN_SERVER_PORT="${2:-$1}" || RUN_SERVER_PORT="$RUN_SERVER_DEFAULT_PORT"
+RUN_SERVER_IS_RUNNING=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Argument/Option settings
+SETARGS=("$@")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SHORTOPTS=""
+SHORTOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
+LONGOPTS+=",bg,screen,editor,filemanager,browser,console"
+LONGOPTS+=",enable-browser,enable-filemanager,enable-editor,enable-all"
+LONGOPTS+=",disable-browser,disable-filemanager,disable-editor,disable-all,allow-root"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ARRAY="write default proxy nginx static caddy go jekyll js php rails ruby python2 python3 netcat"
+ARRAY+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LIST=""
+LIST+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case "$1" in
+  --raw)
+    shift 1
+    export SHOW_RAW="true"
+    NC=""
+    RESET=""
+    BLACK=""
+    RED=""
+    GREEN=""
+    YELLOW=""
+    BLUE=""
+    PURPLE=""
+    CYAN=""
+    WHITE=""
+    ORANGE=""
+    LIGHTRED=""
+    BG_GREEN=""
+    BG_RED=""
+    ICON_INFO="[ info ]"
+    ICON_GOOD="[ ok ]"
+    ICON_WARN="[ warn ]"
+    ICON_ERROR="[ error ]"
+    ICON_QUESTION="[ ? ]"
+    printf_column() { tee | grep '^'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    ;;
+  --debug)
+    shift 1
+    set -xo pipefail
+    export SCRIPT_OPTS="--debug"
+    export _DEBUG="on"
+    __devnull() { tee || return 1; }
+    __devnull2() { eval "$@" |& tee -p || return 1; }
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
+    ;;
+  --options)
+    shift 1
+    printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' 4
+    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' 4
+    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
+    [ -z "$LIST" ] || __list_options "LIST Options" "${LIST}" ',' '' 4
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit 1
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  --silent)
+    shift 1
+    RUN_SERVER_SILENT="true"
+    ;;
+  --dir)
+    CWD_IS_SET="TRUE"
+    RUN_SERVER_CWD="$2"
+    [ -d "$RUN_SERVER_CWD" ] || mkdir -p "$RUN_SERVER_CWD" |& __devnull
+    shift 2
+    ;;
+  --bg)
+    shift 1
+    echo "launching background process..."
+    export RUN_SERVER_LOG="$RUN_SERVER_LOG_DIR/run_server_bg.log"
+    export RUN_SERVER_BG="TRUE"
+    ;;
+  --screen)
+    shift 1
+    if [ -z "$SCREEN_SESSION" ]; then
+      unset SCREENEXCHANGE SCREEN_MSGMINWAIT
+      SCREEN_SESSION="$APPNAME"
+      SCREEN_SHELL="$SHELL"
+    fi
+    ;;
+  --editor)
+    shift 1
+    RUN_SERVER_ENABLE_FILE_EDITOR="yes"
+    if [ -n "$RUN_SERVER_OPEN_EDITOR_CMD" ]; then
+      $RUN_SERVER_OPEN_EDITOR_CMD
+      wait -f "$!"
+    else
+      open_editor "$RUN_SERVER_CWD"
+    fi
+    exit
+    ;;
+  --filemanager)
+    shift 1
+    RUN_SERVER_ENABLE_FILE_MANAGER="yes"
+    if [ -n "$RUN_SERVER_OPEN_FILE_MANAGER_CMD" ]; then
+      $RUN_SERVER_OPEN_FILE_MANAGER_CMD
+      wait -f "$!"
+    else
+      open_filemanager "$RUN_SERVER_CWD"
+    fi
+    exit
+    ;;
+  --browser)
+    shift 1
+    RUN_SERVER_ENABLE_WEB_BROWSER="yes"
+    [ -n "$RUN_SERVER_URL" ] || RUN_SERVER_URL="http://$RUN_SERVER_ADDR:${SERVER_PORT:-$RUN_SERVER_DEFAULT_PORT}"
+    if [ -n "$RUN_SERVER_OPEN_BROWSER_CMD" ]; then
+      $RUN_SERVER_OPEN_BROWSER_CMD
+      wait -f "$!"
+    else
+      open_browser "$RUN_SERVER_URL"
+    fi
+    exit
+    ;;
+  --console)
+    shift 2
+    if [ -n "$RUN_SERVER_CONSOLE_CMD" ]; then
+      $RUN_SERVER_CONSOLE_CMD
+      wait -f "$!"
+    else
+      __run_server "$@"
+    fi
+    exit
+    ;;
+  --enable-*)
+    __enable_function "$1"
+    shift 1
+    ;;
+  --disable-*)
+    __disable_function "$1"
+    shift 1
+    ;;
+  --allow-root)
+    shift 1
+    RUN_SERVER_AS_ROOT="true"
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get directory from args
+# set -- "$@"
+# for arg in "$@"; do
+# if [ -d "$arg" ]; then
+# RUN_SERVER_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
+# elif [ -f "$arg" ]; then
+# RUN_SERVER_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
+# else
+# SET_NEW_ARGS+=("$arg")
+# fi
+# done
+# set -- "${SET_NEW_ARGS[@]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set directory to first argument
+[ -d "$1" ] && __is_an_option "$1" && RUN_SERVER_CWD="$1" && shift 1 || RUN_SERVER_CWD="${RUN_SERVER_CWD:-$PWD}"
+RUN_SERVER_CWD="$(realpath "${RUN_SERVER_CWD:-$PWD}" 2>/dev/null)"
+if [ -d "$RUN_SERVER_CWD" ] && cd "$RUN_SERVER_CWD"; then
+  true
+#if [ "$RUN_SERVER_SILENT" != "true" ] && [ "$CWD_SILENCE" != "true" ]; then
+# printf_cyan "Setting working dir to $RUN_SERVER_CWD"
+#fi
+else
+  printf_exit "💔 $RUN_SERVER_CWD does not exist 💔"
+fi
+export RUN_SERVER_CWD
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set actions based on variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+#cmd_exists --error --ask bash || exit 3 # exit 3 if not found
+#am_i_online --error || exit 4           # exit 4 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+RUN_SERVER_SAVED_FILE="${RUN_SERVER_SAVED_FILE:-$RUN_SERVER_TEMP_DIR/output.txt}"
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+[ "$1" = "default" ] && RUN_SERVER_CWD="$RUN_SERVER_DEFAULT_DIR"
+[ -z "$RUN_SERVER_AS_ROOT" ] && { [ "$USER" = "root" ] || [ "$UID" = "0" ]; } && RUN_SERVER_AS_ROOT="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute commands
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+case "$1" in
+source)
+  shift 1
+  __set_vars "export_source" "$@"
+  return 0
+  ;;
+
+write)
+  shift 1
+  [ "$1" = "help" ] && printf_exit 1 2 "Usage: $APPNAME write [file] [port]"
+  RUN_SERVER_SAVED_FILE="$(realpath "$RUN_SERVER_SAVED_FILE")"
+  RUN_SERVER_ACTION_MESSAGE="Saving output to $RUN_SERVER_SAVED_FILE"
+  RUN_SERVER_LISTEN_MESSAGE="Use: cat file|nc -c IP_ADD RPORT"
+  RUN_SERVER_CWD="$(dirname "$RUN_SERVER_SAVED_FILE")"
+  RUN_SERVER_DEFAULT_PORT="${2:-$(__random_port)}"
+  RUN_SERVER_DEFAULT_DIR="$RUN_SERVER_CWD"
+  prog="$RUN_SERVER_NETCAT_BIN"
+  output_file="$1"
+  export -f __netcat_write
+  __initialize_app
+  __prog_check "$prog"
+  __set_vars $RUN_SERVER_PORT
+  __main__ "__netcat_write $output_file"
+  exit $?
+  ;;
+
+proxy)
+  shift 1
+  { [ "$1" = "help" ] || [ $# -eq 0 ]; } && printf_exit 1 2 "Usage: $APPNAME proxy [toPort] [fromPort]"
+  prog="caddy"
+  export -f __proxy
+  __initialize_app
+  __prog_check "$prog"
+  __set_vars $2
+  __main__ "__proxy $1 ${2:-$RUN_SERVER_PORT}"
+  exit $?
+  ;;
+
+static | nginx)
+  shift 1
+  [ "$1" = "help" ] && printf_exit 1 2 "Usage: $APPNAME static [port]"
+  prog="nginx"
+  export -f __nginx
+  __initialize_app
+  __nginx_config >"$RUN_SERVER_CACHE_DIR/nginx.conf"
+  __prog_check "$prog"
+  __set_vars $1
+  __main__ "__nginx"
+  exit $?
+  ;;
+
+caddy)
+  shift 1
+  [ "$1" = "help" ] && printf_exit 1 2 "Usage: $APPNAME caddy [port]"
+  prog="caddy"
+  export -f __caddy
+  __initialize_app
+  __prog_check "$prog"
+  __set_vars $1
+  __main__ "__caddy $RUN_SERVER_PORT"
+  exit $?
+  ;;
+
+go)
+  shift 1
+  [ "$1" = "help" ] && printf_exit 1 2 "Usage: $APPNAME go [port]"
+  prog="gohttpserver"
+  export -f __go
+  __initialize_app
+  __prog_check "$prog"
+  __set_vars $1
+  __main__ "__go $RUN_SERVER_PORT"
+  exit $?
+  ;;
+
+jekyll)
+  shift 1
+  [ "$1" = "help" ] && printf_exit 1 2 "Usage: $APPNAME jekyll [port]"
+  prog="jekyll"
+  export -f __jekyll
+  __initialize_app
+  __prog_check "$prog"
+  __set_vars $1
+  __main__ "__jekyll $RUN_SERVER_PORT"
+  exit $?
+  ;;
+
+js)
+  shift 1
+  [ "$1" = "help" ] && printf_exit 1 2 "Usage: $APPNAME js [port]"
+  prog="http-server"
+  export -f __js_serv
+  __initialize_app
+  __prog_check "$prog"
+  __set_vars $1
+  __main__ "__js_serv $RUN_SERVER_PORT"
+  exit $?
+  ;;
+
+php)
+  shift 1
+  [ "$1" = "help" ] && printf_exit 1 2 "Usage: $APPNAME php [port]"
+  prog="$RUN_SERVER_PHP_BIN"
+  export -f __php_serv
+  __initialize_app
+  __prog_check "$prog"
+  __set_vars $1
+  __main__ "__php_serv $RUN_SERVER_PORT"
+  exit $?
+  ;;
+
+rails)
+  shift 1
+  [ "$1" = "help" ] && printf_exit 1 2 "Usage: $APPNAME rails [port]"
+  prog="ruby"
+  export -f __rails_serv
+  __initialize_app
+  __prog_check "$prog"
+  __set_vars $1
+  __main__ "__rails_serv $RUN_SERVER_PORT"
+  exit $?
+  ;;
+
+ruby)
+  shift 1
+  [ "$1" = "help" ] && printf_exit 1 2 "Usage: $APPNAME ruby [port]"
+  prog="ruby"
+  export -f __ruby_serv
+  __initialize_app
+  __prog_check "$prog"
+  __set_vars $1
+  __main__ "__ruby_serv $RUN_SERVER_PORT"
+  exit $?
+  ;;
+
+python2)
+  shift 1
+  [ "$1" = "help" ] && printf_exit 1 2 "Usage: $APPNAME python2 [port]"
+  prog="python2"
+  export -f __python2_serv
+  __initialize_app
+  __prog_check "$prog"
+  __set_vars $1
+  __main__ "__python2_serv $RUN_SERVER_PORT"
+  exit $?
+  ;;
+
+python3)
+  shift 1
+  [ "$1" = "help" ] && printf_exit 1 2 "Usage: $APPNAME python3 [port]"
+  prog="python3"
+  export -f __python3_serv
+  __initialize_app
+  __prog_check "$prog"
+  __set_vars $1
+  __main__ "__python3_serv $RUN_SERVER_PORT"
+  exit $?
+  ;;
+
+netcat | nc)
+  shift 1
+  [ "$1" = "help" ] && printf_exit 1 2 "Usage: $APPNAME netcat [port]"
+  prog="$RUN_SERVER_NETCAT_BIN"
+  export -f __netcat_serv
+  __initialize_app
+  __prog_check "$prog"
+  __set_vars $1
+  __main__ "__netcat_serv"
+  exit $?
+  ;;
+
+default)
+  shift 1
+  [ "$1" = "help" ] && printf_exit 1 2 "Usage: $APPNAME default [port]"
+  prog="__try_default"
+  export -f __try_default
+  __initialize_app
+  __prog_check "$prog"
+  __set_vars $1
+  __main__ "__try_default"
+  exit $?
+  ;;
+
+*)
+  [ "$1" = "help" ] && printf_exit 1 2 "Usage: $APPNAME [port]"
+  export -f __try_default
+  __initialize_app
+  __prog_check "$prog"
+  __set_vars $1
+  __main__ "__try_default"
+  ;;
+esac
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set exit code
+exitCode="${exitCode:-0}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-0}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# ex: ts=2 sw=2 et filetype=sh

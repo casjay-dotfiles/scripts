@@ -1,0 +1,687 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version           :  202208052152-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  jason@casjaysdev.pro
+# @@License          :  WTFPL
+# @@ReadME           :  dmenu-usb --help
+# @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
+# @@Created          :  Friday, Aug 05, 2022 21:52 EDT
+# @@File             :  dmenu-usb
+# @@Description      :  dmenu prompt to unmount drives
+# @@Changelog        :  New script
+# @@TODO             :  Better documentation
+# @@Other            :
+# @@Resource         :
+# @@Terminal App     :  no
+# @@sudo/root        :  no
+# @@Template         :  bash/system
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="$(basename -- "$0" 2>/dev/null)"
+VERSION="202208052152-git"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${RUN_USER:-$USER}"
+USER_HOME="${USER_HOME:-$HOME}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+DMENU_USB_REQUIRE_SUDO="${DMENU_USB_REQUIRE_SUDO:-no}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Reopen in a terminal
+#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set script title
+#CASJAYS_DEV_TILE_FORMAT="${USER}@${HOSTNAME}:${PWD//$HOME/\~} - $APPNAME"
+#CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}"
+#[ -z "$CASJAYSDEV_TITLE_SET" ] && printf '\033]2│;%s\033\\' "$CASJAYS_DEV_TILE_FORMAT" && CASJAYSDEV_TITLE_SET="$APPNAME"
+export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}" CASJAYSDEV_TITLE_SET
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initial debugging
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# pipes fail
+set -o pipefail
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import functions
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+  . "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  exit 1
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Options are: *_install
+# system user desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+user_install && __options "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Send all output to /dev/null
+__devnull() {
+  tee &>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# Send errors to /dev/null
+__devnull2() {
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# See if the executable exists
+__cmd_exists() {
+  exitCode=0
+  [ -n "$1" ] && local exitCode="" || return 0
+  for cmd in "$@"; do
+    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
+  done
+  [ $exitCode -eq 0 ] || exitCode=3
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for a valid internet connection
+__am_i_online() {
+  local exitCode=0
+  curl -q -LSsfI --max-time 2 --retry 1 "${1:-https://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# colorization
+if [ "$SHOW_RAW" = "true" ]; then
+  NC=""
+  RESET=""
+  BLACK=""
+  RED=""
+  GREEN=""
+  YELLOW=""
+  BLUE=""
+  PURPLE=""
+  CYAN=""
+  WHITE=""
+  ORANGE=""
+  LIGHTRED=""
+  BG_GREEN=""
+  BG_RED=""
+  ICON_INFO="[ info ]"
+  ICON_GOOD="[ ok ]"
+  ICON_WARN="[ warn ]"
+  ICON_ERROR="[ error ]"
+  ICON_QUESTION="[ ? ]"
+  printf_column() { tee | grep '^'; }
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional printf_ colors
+__printf_head() { printf_blue "$1"; }
+__printf_opts() { printf_purple "$1"; }
+__printf_line() { printf_cyan "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# output version
+__version() { printf_cyan "$VERSION"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# list options
+__list_options() {
+  printf_color "$1: " "$5"
+  echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g' | tr '\n' ' '
+  printf_newline
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create the config file
+__gen_config() {
+  local NOTIFY_CLIENT_NAME="$APPNAME"
+  if [ "$INIT_CONFIG" != "TRUE" ]; then
+    printf_blue "Generating the config file in"
+    printf_cyan "$DMENU_USB_CONFIG_DIR/$DMENU_USB_CONFIG_FILE"
+  fi
+  [ -d "$DMENU_USB_CONFIG_DIR" ] || mkdir -p "$DMENU_USB_CONFIG_DIR"
+  [ -d "$DMENU_USB_CONFIG_BACKUP_DIR" ] || mkdir -p "$DMENU_USB_CONFIG_BACKUP_DIR"
+  [ -f "$DMENU_USB_CONFIG_DIR/$DMENU_USB_CONFIG_FILE" ] &&
+    cp -Rf "$DMENU_USB_CONFIG_DIR/$DMENU_USB_CONFIG_FILE" "$DMENU_USB_CONFIG_BACKUP_DIR/$DMENU_USB_CONFIG_FILE.$$"
+  cat <<EOF >"$DMENU_USB_CONFIG_DIR/$DMENU_USB_CONFIG_FILE"
+# Settings for dmenu-usb
+DMENU_USB_EXCLUDE_DRIVE="${DMENU_USB_EXCLUDE_DRIVE:-}"
+DMENU_USB_EXCLUDE_FSTYPE="${DMENU_USB_EXCLUDE_DRIVE:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+DMENU_USB_OUTPUT_COLOR_1="${DMENU_USB_OUTPUT_COLOR_1:-}"
+DMENU_USB_OUTPUT_COLOR_2="${DMENU_USB_OUTPUT_COLOR_2:-}"
+DMENU_USB_OUTPUT_COLOR_GOOD="${DMENU_USB_OUTPUT_COLOR_GOOD:-}"
+DMENU_USB_OUTPUT_COLOR_ERROR="${DMENU_USB_OUTPUT_COLOR_ERROR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+DMENU_USB_NOTIFY_ENABLED="${DMENU_USB_NOTIFY_ENABLED:-}"
+DMENU_USB_GOOD_NAME="${DMENU_USB_GOOD_NAME:-}"
+DMENU_USB_ERROR_NAME="${DMENU_USB_ERROR_NAME:-}"
+DMENU_USB_GOOD_MESSAGE="${DMENU_USB_GOOD_MESSAGE:-}"
+DMENU_USB_ERROR_MESSAGE="${DMENU_USB_ERROR_MESSAGE:-}"
+DMENU_USB_NOTIFY_CLIENT_NAME="${DMENU_USB_NOTIFY_CLIENT_NAME:-}"
+DMENU_USB_NOTIFY_CLIENT_ICON="${DMENU_USB_NOTIFY_CLIENT_ICON:-}"
+DMENU_USB_NOTIFY_CLIENT_URGENCY="${DMENU_USB_NOTIFY_CLIENT_URGENCY:-}"
+
+EOF
+  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
+  if [ -f "$DMENU_USB_CONFIG_DIR/$DMENU_USB_CONFIG_FILE" ]; then
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
+    . "$DMENU_USB_CONFIG_DIR/$DMENU_USB_CONFIG_FILE"
+    exitCode=0
+  else
+    printf_red "Failed to create the config file"
+    exitCode=1
+  fi
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Help function - Align to 50
+__help() {
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "dmenu-usb:  dmenu prompt to unmount drives - $VERSION"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Usage: dmenu-usb [options] [commands]"
+  __printf_line "                                - Prompt user for action"
+  __printf_line "mount                           - Mount device menu"
+  __printf_line "unmount                         - Unmount device menu"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Other Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--help                          - Shows this message"
+  __printf_line "--config                        - Generate user config file"
+  __printf_line "--version                       - Show script version"
+  __printf_line "--options                       - Shows all available options"
+  __printf_line "--debug                         - Enables script debugging"
+  __printf_line "--raw                           - Removes all formatting on output"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# check if arg is a builtin option
+__is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0; fi; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 1 || return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep -sh "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# # Get sudo password
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run sudo
+__sudorun() {
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo
+__can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User can run sudo
+__sudoif() {
+  __user_is_root && return 0
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run command as root
+requiresudo() {
+  if [ "$DMENU_USB_REQUIRE_SUDO" = "yes" ] && [ -z "$DMENU_USB_REQUIRE_SUDO_RUN" ]; then
+    export DMENU_USB_REQUIRE_SUDO="no"
+    export DMENU_USB_REQUIRE_SUDO_RUN="true"
+    __sudo "$@"
+    exit $?
+  else
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  CMD="${1:-echo}" && shift 1
+  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  [ "$(basename -- "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  if __sudoif; then
+    export PATH="$PATH"
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    exitCode=$?
+  else
+    printf '%s\n' "This requires root to run"
+    exitCode=1
+  fi
+  return ${exitCode:-1}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  exitCode=${exitCode:-0}
+  [ -f "$DMENU_USB_TEMP_FILE" ] && rm -Rf "$DMENU_USB_TEMP_FILE" &>/dev/null
+  #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD//$HOME/\~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined functions
+if __cmd_exists rofi; then
+  __dmenu() { rofi -theme ${ROFI_THEME:-purple} -dmenu -i -p "$1" 2>/dev/null; }
+elif __cmd_exists dmenu; then
+  __dmenu() { dmenu -i -p "$1" 2>/dev/null; }
+else
+  __dmenu() { false; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__ask_option() {
+  case $(printf "Mount\\nUnmount" | __dmenu "Would you like to mount or unmount a device?") in
+  Mount) "$APPNAME" mount ;;
+  Unmount) "$APPNAME" umount ;;
+  *) exit 1 ;;
+  esac
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+unmountusb() {
+  [ -n "$drives" ] || exit 1
+  chosen="$(echo "$drives" | __dmenu "Unmount which drive?")"
+  chosen="$(echo "$chosen" | awk '{print $1}')"
+  [ -n "$chosen" ] || exit 1
+  sudo -A umount "$chosen" &>/dev/null && __notifications "💻 USB unmounting" "$chosen unmounted."
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+unmountandroid() {
+  chosen="$(awk '/simple-mtpfs/ {print $2}' /etc/mtab | __dmenu "Unmount which device?")"
+  [ -n "$chosen" ] || exit 1
+  sudo -A umount -l "$chosen" && __notifications "🤖 Android unmounting" "$chosen unmounted."
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+asktype_unmount() {
+  choice="$(printf "USB\\nAndroid" | __dmenu "Unmount a USB drive or Android device?")"
+  [ -n "$choice" ] || exit 1
+  case "$choice" in
+  USB) unmountusb ;;
+  Android) unmountandroid ;;
+  esac
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+getmount() {
+  [ -z "$chosen" ] && exit 1
+  mp="$(find "$1" 2>/dev/null | __dmenu "Type in mount point.")"
+  [ "$mp" = "" ] && exit 1
+  if [ ! -d "$mp" ]; then
+    mkdiryn=$(printf "No\\nYes" | __dmenu "$mp does not exist. Create it?")
+    if [ "$mkdiryn" = "Yes" ]; then
+      if ! mkdir -p "$mp" &>/dev/null; then
+        ask_for_password sudo true && sudo -A mkdir -p "$mp" &>/dev/null
+      fi
+    fi
+  fi
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+mountusb() {
+  chosen="$(echo "$usbdrives" | __dmenu "Mount which drive?" | awk '{print $1}')"
+  alreadymounted=$(lsblk -nrpo "name,type,mountpoint" 2>/dev/null | awk '$2=="part"&&$3!~/\/boot|\/home$|SWAP/&&length($3)>1{printf "-not \\( -path *%s -prune \\) \\ \n",$3}')
+  getmount "/mnt /media /mount /home -maxdepth 5 -type d $alreadymounted"
+  partitiontype="$(lsblk -no "fstype" "$chosen" 2>/dev/null | grep -v '^$')"
+  case "$partitiontype" in
+  "vfat")
+    ask_for_password sudo true && sudo -A mount -t vfat "$chosen" "$mp" -o rw,umask=0000 && __notifications "💻 USB mounting" "$chosen mounted to $mp." && exit 0
+    ;;
+  "ntfs")
+    ask_for_password sudo true && sudo -A mount -t ntfs "$chosen" "$mp" && __notifications "💻 USB mounting" "$chosen mounted to $mp." && exit 0
+    ;;
+  *)
+    user="$(whoami)"
+    ug="$(groups | awk '{print $1}')"
+    ask_for_password sudo true && sudo -A mount "$chosen" 2>/dev/null && __notifications "💻 USB mounting" "$chosen mounted to $mp."
+    #ask_for_password sudo true && sudo -A chown "$user":"$ug" "$mp"
+    exit $?
+    ;;
+  esac
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+mountandroid() {
+  __cmd_exists simple-mtpfs || return 1
+  chosen=$(echo "$anddrives" | __dmenu "Which Android device?" | cut -d : -f 1)
+  getmount "$HOME -maxdepth 3 -type d"
+  simple-mtpfs --device "$chosen" "$mp"
+  echo "OK" | __dmenu "Tap Allow on your phone if it asks for permission and then press enter"
+  simple-mtpfs --device "$chosen" "$mp"
+  __notifications "🤖 Android Mounting" "Android device mounted to $mp."
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+asktype_mount() {
+  case $(printf "USB\\nAndroid" | __dmenu "Mount a USB drive or Android device?") in
+  USB) mountusb ;;
+  Android) mountandroid ;;
+  esac
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__is_system_disk() {
+  local disk="${1:-$disk}"
+  local -a exclude=("${DMENU_USB_EXCLUDE_DRIVE//,/ }")
+  for disk in /mnt/shared /mnt/system /mnt/backup "${exclude[@]}"; do
+    [ "$drive" = "$disk" ] && return 0 || return 1
+  done
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__is_system_type() {
+  local disk="${1:-$disk}"
+  local -a exclude=("${DMENU_USB_EXCLUDE_FSTYPE//,/ }")
+  [ -n "$disk" ] || [ -n "${exclude[*]}" ] || return 1
+  for type in "${exclude[@]}"; do
+    grep -sh "$disk" "/etc/mtab" | grep -q "$type" && return 0 || return 1
+  done
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__no_device() {
+  __notifications "No USB drive or Android device detected"
+  exit 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__execute_dmenu() {
+  anddrives=$(__cmd_exists simple-mtpfs && simple-mtpfs -l 2>/dev/null || false)
+  usbdrives="$(lsblk -rpo "name,type,size,mountpoint" 2>/dev/null | awk '$2=="part"&&$4==""{printf "%s (%s)\n",$1,$3}')"
+  drives=$(lsblk -nrpo "name,type,size,mountpoint" 2>/dev/null | awk '$4!~/\/boot|\/efi|\/home$|SWAP/&&length($4)>1{printf "%s (%s)\n",$4,$3}')
+  case "$1" in
+  mount)
+    shift 1
+    if [ -z "$usbdrives" ]; then
+      if [ -z "$anddrives" ]; then
+        __no_device
+      else
+        __notifications "Android device(s) detected."
+        mountandroid
+      fi
+    else
+      if [ -z "$anddrives" ]; then
+        __notifications "USB drive(s) detected."
+        mountusb
+      else
+        __notifications "Mountable USB drive(s) and Android device(s) detected."
+        asktype_mount
+      fi
+    fi
+    ;;
+  umount | unmount)
+    shift 1
+    if ! grep simple-mtpfs "/etc/mtab"; then
+      if [ -z "$drives" ] || __is_system_disk "$drive" || __is_system_type "$drive"; then
+        __notifications "No drives to unmount."
+        exit 1
+      else
+        __notifications "Unmountable USB drive detected."
+        unmountusb
+      fi
+    else
+      if [ -z "$drives" ]; then
+        __notifications "Unmountable Android device detected."
+        unmountandroid
+      else
+        __notifications "Unmountable USB drive(s) and Android device(s) detected."
+        asktype_unmount
+      fi
+    fi
+    ;;
+  *)
+    __ask_option
+    ;;
+  esac
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined variables/import external variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application Folders
+DMENU_USB_CONFIG_FILE="${DMENU_USB_CONFIG_FILE:-settings.conf}"
+DMENU_USB_CONFIG_DIR="${DMENU_USB_CONFIG_DIR:-$HOME/.config/myscripts/dmenu-usb}"
+DMENU_USB_CONFIG_BACKUP_DIR="${DMENU_USB_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/dmenu-usb/backups}"
+DMENU_USB_LOG_DIR="${DMENU_USB_LOG_DIR:-$HOME/.local/log/dmenu-usb}"
+DMENU_USB_TEMP_DIR="${DMENU_USB_TEMP_DIR:-$HOME/.local/tmp/system_scripts/dmenu-usb}"
+DMENU_USB_CACHE_DIR="${DMENU_USB_CACHE_DIR:-$HOME/.cache/dmenu-usb}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+DMENU_USB_OUTPUT_COLOR_1="${DMENU_USB_OUTPUT_COLOR_1:-33}"
+DMENU_USB_OUTPUT_COLOR_2="${DMENU_USB_OUTPUT_COLOR_2:-5}"
+DMENU_USB_OUTPUT_COLOR_GOOD="${DMENU_USB_OUTPUT_COLOR_GOOD:-2}"
+DMENU_USB_OUTPUT_COLOR_ERROR="${DMENU_USB_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+DMENU_USB_NOTIFY_ENABLED="${DMENU_USB_NOTIFY_ENABLED:-yes}"
+DMENU_USB_GOOD_NAME="${DMENU_USB_GOOD_NAME:-Great:}"
+DMENU_USB_ERROR_NAME="${DMENU_USB_ERROR_NAME:-Error:}"
+DMENU_USB_GOOD_MESSAGE="${DMENU_USB_GOOD_MESSAGE:-No errors reported}"
+DMENU_USB_ERROR_MESSAGE="${DMENU_USB_ERROR_MESSAGE:-Errors were reported}"
+DMENU_USB_NOTIFY_CLIENT_NAME="${DMENU_USB_NOTIFY_CLIENT_NAME:-$APPNAME}"
+DMENU_USB_NOTIFY_CLIENT_ICON="${DMENU_USB_NOTIFY_CLIENT_ICON:-notification-new}"
+DMENU_USB_NOTIFY_CLIENT_URGENCY="${DMENU_USB_NOTIFY_CLIENT_URGENCY:-normal}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional Variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$DMENU_USB_CONFIG_DIR/$DMENU_USB_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$DMENU_USB_CONFIG_DIR/$DMENU_USB_CONFIG_FILE" ] && . "$DMENU_USB_CONFIG_DIR/$DMENU_USB_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$DMENU_USB_LOG_DIR" ] || mkdir -p "$DMENU_USB_LOG_DIR" |& __devnull
+[ -d "$DMENU_USB_TEMP_DIR" ] || mkdir -p "$DMENU_USB_TEMP_DIR" |& __devnull
+[ -d "$DMENU_USB_CACHE_DIR" ] || mkdir -p "$DMENU_USB_CACHE_DIR" |& __devnull
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+DMENU_USB_TEMP_FILE="${DMENU_USB_TEMP_FILE:-$(mktemp $DMENU_USB_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap '__trap_exit' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+__notifications() {
+  __cmd_exists notifications || return
+  [ "$DMENU_USB_NOTIFY_ENABLED" = "yes" ] || return
+  [ "$SEND_NOTIFICATION" = "no" ] && return
+  (
+    export SCRIPT_OPTS="" _DEBUG=""
+    export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$DMENU_USB_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$DMENU_USB_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$DMENU_USB_NOTIFY_CLIENT_ICON}"
+    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$DMENU_USB_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$DMENU_USB_NOTIFY_CLIENT_URGENCY}"
+    notifications "$@"
+  ) |& __devnull &
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set custom actions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Argument/Option settings
+SETARGS=("$@")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SHORTOPTS=""
+SHORTOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LONGOPTS="completions:,config,debug,help,options,raw,version,silent,"
+LONGOPTS+=",mount,unmount"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ARRAY=""
+ARRAY+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LIST=""
+LIST+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case "$1" in
+  --raw)
+    shift 1
+    export SHOW_RAW="true"
+    NC=""
+    RESET=""
+    BLACK=""
+    RED=""
+    GREEN=""
+    YELLOW=""
+    BLUE=""
+    PURPLE=""
+    CYAN=""
+    WHITE=""
+    ORANGE=""
+    LIGHTRED=""
+    BG_GREEN=""
+    BG_RED=""
+    ICON_INFO="[ info ]"
+    ICON_GOOD="[ ok ]"
+    ICON_WARN="[ warn ]"
+    ICON_ERROR="[ error ]"
+    ICON_QUESTION="[ ? ]"
+    printf_column() { tee | grep '^'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    ;;
+  --debug)
+    shift 1
+    set -xo pipefail
+    export SCRIPT_OPTS="--debug"
+    export _DEBUG="on"
+    __devnull() { tee || return 1; }
+    __devnull2() { eval "$@" |& tee -p || return 1; }
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
+    ;;
+  --options)
+    shift 1
+    printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' 4
+    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' 4
+    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
+    [ -z "$LIST" ] || __list_options "LIST Options" "${LIST}" ',' '' 4
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  --silent)
+    shift 1
+    DMENU_USB_SILENT="true"
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get directory from args
+# set -- "$@"
+# for arg in "$@"; do
+# if [ -d "$arg" ]; then
+# DMENU_USB_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
+# elif [ -f "$arg" ]; then
+# DMENU_USB_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
+# else
+# SET_NEW_ARGS+=("$arg")
+# fi
+# done
+# set -- "${SET_NEW_ARGS[@]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set directory to first argument
+# [ -d "$1" ] && __is_an_option "$1" && DMENU_USB_CWD="$1" && shift 1 || DMENU_USB_CWD="${DMENU_USB_CWD:-$PWD}"
+DMENU_USB_CWD="$(realpath "${DMENU_USB_CWD:-$PWD}" 2>/dev/null)"
+# if [ -d "$DMENU_USB_CWD" ] && cd "$DMENU_USB_CWD"; then
+# if [ "$DMENU_USB_SILENT" != "true" ] && [ "$CWD_SILENCE" != "true" ]; then
+# printf_cyan "Setting working dir to $DMENU_USB_CWD"
+# fi
+# else
+# printf_exit "💔 $DMENU_USB_CWD does not exist 💔"
+# fi
+export DMENU_USB_CWD
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set actions based on variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+#cmd_exists --error --ask bash || exit 3 # exit 3 if not found
+#am_i_online --error || exit 4           # exit 4 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute commands
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+__execute_dmenu-usb "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set exit code
+exitCode="${exitCode:-0}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-0}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# ex: ts=2 sw=2 et filetype=sh

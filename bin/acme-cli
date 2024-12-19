@@ -1,0 +1,1051 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version           :  202408240859-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  jason@casjaysdev.pro
+# @@License          :  WTFPL
+# @@ReadME           :  acme-cli --help
+# @@Copyright        :  Copyright: (c) 2024 Jason Hempstead, Casjays Developments
+# @@Created          :  Saturday, Aug 24, 2024 08:59 EDT
+# @@File             :  acme-cli
+# @@Description      :
+# @@Changelog        :  New script
+# @@TODO             :  Better documentation
+# @@Other            :
+# @@Resource         :
+# @@Terminal App     :  no
+# @@sudo/root        :  no
+# @@Template         :  bash/system
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="$(basename -- "$0" 2>/dev/null)"
+VERSION="202408240859-git"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${RUN_USER:-$USER}"
+USER_HOME="${USER_HOME:-$HOME}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+ACME_CLI_REQUIRE_SUDO="${ACME_CLI_REQUIRE_SUDO:-no}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Reopen in a terminal
+#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set script title
+#CASJAYS_DEV_TILE_FORMAT="${USER}@${HOSTNAME}:${PWD//$HOME/\~} - $APPNAME"
+#CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}"
+#[ -z "$CASJAYSDEV_TITLE_SET" ] && printf '\033]2│;%s\033\\' "$CASJAYS_DEV_TILE_FORMAT" && CASJAYSDEV_TITLE_SET="$APPNAME"
+export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}" CASJAYSDEV_TITLE_SET
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initial debugging
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# pipes fail
+set -o pipefail
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import functions
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+  . "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  exit 1
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Options are: *_install
+# system user desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+user_install && __options "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Send all output to /dev/null
+__devnull() {
+  tee &>/dev/null && ACME_CLI_EXIT_STATUS=0 || ACME_CLI_EXIT_STATUS=1
+  return ${ACME_CLI_EXIT_STATUS:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# Send errors to /dev/null
+__devnull2() {
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && ACME_CLI_EXIT_STATUS=0 || ACME_CLI_EXIT_STATUS=1
+  return ${ACME_CLI_EXIT_STATUS:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# See if the executable exists
+__cmd_exists() {
+  ACME_CLI_EXIT_STATUS=0
+  [ -n "$1" ] && local ACME_CLI_EXIT_STATUS="" || return 0
+  for cmd in "$@"; do
+    builtin command -v "$cmd" &>/dev/null && ACME_CLI_EXIT_STATUS+=$(($ACME_CLI_EXIT_STATUS + 0)) || ACME_CLI_EXIT_STATUS+=$(($ACME_CLI_EXIT_STATUS + 1))
+  done
+  [ $ACME_CLI_EXIT_STATUS -eq 0 ] || ACME_CLI_EXIT_STATUS=3
+  return ${ACME_CLI_EXIT_STATUS:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for a valid internet connection
+__am_i_online() {
+  local ACME_CLI_EXIT_STATUS=0
+  curl -q -LSsfI --max-time 1 --retry 0 "${1:-https://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || ACME_CLI_EXIT_STATUS=4
+  return ${ACME_CLI_EXIT_STATUS:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# colorization
+if [ "$SHOW_RAW" = "true" ]; then
+  NC=""
+  RESET=""
+  BLACK=""
+  RED=""
+  GREEN=""
+  YELLOW=""
+  BLUE=""
+  PURPLE=""
+  CYAN=""
+  WHITE=""
+  ORANGE=""
+  LIGHTRED=""
+  BG_GREEN=""
+  BG_RED=""
+  ICON_INFO="[ info ]"
+  ICON_GOOD="[ ok ]"
+  ICON_WARN="[ warn ]"
+  ICON_ERROR="[ error ]"
+  ICON_QUESTION="[ ? ]"
+  printf_column() { tee | grep '^'; }
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional printf_ colors
+__printf_head() { printf_blue "$1"; }
+__printf_opts() { printf_purple "$1"; }
+__printf_line() { printf_cyan "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# output version
+__version() { printf_cyan "$VERSION"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# list options
+__list_options() {
+  printf_color "$1: " "$5"
+  echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g' | tr '\n' ' '
+  printf_newline
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create the config file
+__gen_config() {
+  local NOTIFY_CLIENT_NAME="$APPNAME"
+  if [ "$INIT_CONFIG" != "TRUE" ]; then
+    printf_blue "Generating the config file in"
+    printf_cyan "$ACME_CLI_CONFIG_DIR/$ACME_CLI_CONFIG_FILE"
+  fi
+  [ -d "$ACME_CLI_CONFIG_DIR" ] || mkdir -p "$ACME_CLI_CONFIG_DIR"
+  [ -d "$ACME_CLI_CONFIG_BACKUP_DIR" ] || mkdir -p "$ACME_CLI_CONFIG_BACKUP_DIR"
+  [ -f "$ACME_CLI_CONFIG_DIR/$ACME_CLI_CONFIG_FILE" ] &&
+    cp -Rf "$ACME_CLI_CONFIG_DIR/$ACME_CLI_CONFIG_FILE" "$ACME_CLI_CONFIG_BACKUP_DIR/$ACME_CLI_CONFIG_FILE.$$"
+  cat <<EOF >"$ACME_CLI_CONFIG_DIR/$ACME_CLI_CONFIG_FILE"
+# Settings for acme-cli
+ACME_CLI_CERT_DIR="${ACME_CLI_CERT_DIR:-domain}"
+ACME_CLI_RYSNC="${ACME_CLI_RYSNC:-}"
+ACME_CLI_EMAIL="${ACME_CLI_EMAIL:-}"
+ACME_CLI_TEST="${ACME_CLI_TEST:-yes}"
+ACME_CLI_HOSTNAME="${ACME_CLI_HOSTNAME:-}"
+ACME_CLI_DNS_KEY="${ACME_CLI_DNS_KEY:-}"
+ACME_CLI_SHORT_HOST="${ACME_CLI_SHORT_HOST:-}"
+ACME_CLI_PRIMARY_DNS_IP="${ACME_CLI_PRIMARY_DNS_IP:-}"
+ACME_CLI_UPDATE_CERTS_IPS="${ACME_CLI_UPDATE_CERTS_IPS:-}"
+ACME_CLI_SERVICE_RESTART="${ACME_CLI_SERVICE_RESTART:-}"
+ACME_CLI_OPTIONS="${ACME_CLI_OPTIONS:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ACME_CLI_DOMAIN_PRIMARY="${ACME_CLI_DOMAIN_PRIMARY:-}"
+ACME_CLI_DOMAIN_LIST="${ACME_CLI_DOMAIN_LIST:-}"
+ACME_CLI_SUB_LIST="${ACME_CLI_SUB_LIST:-}"
+ACME_CLI_WILD_LIST="${ACME_CLI_WILD_LIST:-}"
+ACME_CLI_ADD_DOMAINS="${ACME_CLI_ADD_DOMAINS:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ACME_CLI_CONF_FILE="${ACME_CLI_CONF_FILE:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+ACME_CLI_OUTPUT_COLOR_1="${ACME_CLI_OUTPUT_COLOR_1:-}"
+ACME_CLI_OUTPUT_COLOR_2="${ACME_CLI_OUTPUT_COLOR_2:-}"
+ACME_CLI_OUTPUT_COLOR_GOOD="${ACME_CLI_OUTPUT_COLOR_GOOD:-}"
+ACME_CLI_OUTPUT_COLOR_ERROR="${ACME_CLI_OUTPUT_COLOR_ERROR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+ACME_CLI_NOTIFY_ENABLED="${ACME_CLI_NOTIFY_ENABLED:-}"
+ACME_CLI_GOOD_NAME="${ACME_CLI_GOOD_NAME:-}"
+ACME_CLI_ERROR_NAME="${ACME_CLI_ERROR_NAME:-}"
+ACME_CLI_GOOD_MESSAGE="${ACME_CLI_GOOD_MESSAGE:-}"
+ACME_CLI_ERROR_MESSAGE="${ACME_CLI_ERROR_MESSAGE:-}"
+ACME_CLI_NOTIFY_CLIENT_NAME="${ACME_CLI_NOTIFY_CLIENT_NAME:-}"
+ACME_CLI_NOTIFY_CLIENT_ICON="${ACME_CLI_NOTIFY_CLIENT_ICON:-}"
+ACME_CLI_NOTIFY_CLIENT_URGENCY="${ACME_CLI_NOTIFY_CLIENT_URGENCY:-}"
+
+EOF
+  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
+  if [ -f "$ACME_CLI_CONFIG_DIR/$ACME_CLI_CONFIG_FILE" ]; then
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
+    . "$ACME_CLI_CONFIG_DIR/$ACME_CLI_CONFIG_FILE"
+    ACME_CLI_EXIT_STATUS=0
+  else
+    printf_red "Failed to create the config file"
+    ACME_CLI_EXIT_STATUS=1
+  fi
+  return ${ACME_CLI_EXIT_STATUS:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Help function - Align to 50
+__help() {
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "acme-cli:  - $VERSION"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Usage: acme-cli [options] [commands]"
+  __printf_line "--key                           - Specify dns server key"
+  __printf_line "--server                        - Specify dns server ip"
+  __printf_line "--domains                       - Specify domains"
+  __printf_line "--add                           - Specify domains to add [hostname.domain]"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Other Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--help                          - Shows this message"
+  __printf_line "--config                        - Generate user config file"
+  __printf_line "--version                       - Show script version"
+  __printf_line "--options                       - Shows all available options"
+  __printf_line "--debug                         - Enables script debugging"
+  __printf_line "--raw                           - Removes all formatting on output"
+  __printf_line "--no                            - No options"
+  __printf_line "--yes                           - Yes options"
+  __printf_line ""
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__grep() { grep "$@" 2>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# check if arg is a builtin option
+__is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0; fi; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 1 || return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep -sh "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# # Get sudo password
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run sudo
+__sudorun() {
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo
+__can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User can run sudo
+__sudoif() {
+  __user_is_root && return 0
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run command as root
+requiresudo() {
+  if [ "$ACME_CLI_REQUIRE_SUDO" = "yes" ] && [ -z "$ACME_CLI_REQUIRE_SUDO_RUN" ]; then
+    export ACME_CLI_REQUIRE_SUDO="no"
+    export ACME_CLI_REQUIRE_SUDO_RUN="true"
+    __sudo "$@"
+    exit $?
+  else
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  CMD="${1:-echo}" && shift 1
+  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  [ "$(basename -- "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  if __sudoif; then
+    export PATH="$PATH"
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    ACME_CLI_EXIT_STATUS=$?
+  else
+    printf '%s\n' "This requires root to run"
+    ACME_CLI_EXIT_STATUS=1
+  fi
+  return ${ACME_CLI_EXIT_STATUS:-0}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__how_long_did_it_take() {
+  local retprev=$?
+  local retval=${1:-$retprev}
+  __cmd_exists bc || return $retval
+  [ -n "$ACME_CLI_START_TIMER" ] || return 0
+  local stop_time="$(date +%s.%N)"
+  local dt=$(echo "$stop_time - $ACME_CLI_START_TIMER" | bc)
+  local dd=$(echo "$dt/86400" | bc)
+  local dt2=$(echo "$dt-86400*$dd" | bc)
+  local dh=$(echo "$dt2/3600" | bc)
+  local dt3=$(echo "$dt2-3600*$dh" | bc)
+  local dm=$(echo "$dt3/60" | bc)
+  local ds=$(echo "$dt3-60*$dm" | bc)
+  printf_purple "$(LC_NUMERIC=C printf "Total runtime: %d Days, %02d Hours, %02d Minutes, %02.4f Seconds\n" $dd $dh $dm $ds)"
+  return $retval
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  ACME_CLI_EXIT_STATUS=${ACME_CLI_EXIT_STATUS:-0}
+  [ -f "$ACME_CLI_TEMP_FILE" ] && rm -Rf "$ACME_CLI_TEMP_FILE" &>/dev/null
+  #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD//$HOME/\~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $ACME_CLI_EXIT_STATUS
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Create a --no-* options function
+__options_function_no() {
+  local options="${1//=*/}" options="${1//-*/}"
+  local argument="${1//*=/}" argument="${1//*-/}"
+  case "$options" in
+  *test) printf_yellow "Disabling test" && ACME_CLI_TEST=no && shift ;;
+  *) echo "${argument:-No argument provided}" && shift ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Create a --yes-* options function
+__options_function_yes() {
+  local options="${1//=*/}"
+  local argument="${1//*=/}"
+  case "$options" in
+  *) echo "${argument:-No argument provided}" && shift ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined functions
+__if_hostname_is_not() { if [ "$1" = "$2" ]; then return 1; else return 0; fi; }
+__printf_added() { [ "$ACME_CLI_SILENT" = "true" ] || { printf_color "Adding $1" "$2" && printf '\n'; }; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__cert_dir_exists() {
+  le_cert_dir="${1:-/etc/letsencrypt/live/$ACME_CLI_CERT_DIR}"
+  if [ -d "$le_cert_dir" ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__certbot_test() {
+  local exitCode=1
+  local type="${1:-certonly}"
+  __cert_dir_exists && return 0
+  [ "$ACME_CLI_TEST" = "yes" ] || return 0
+  printf_yellow "Testing if we can get certificates"
+  if [ "$type" = "renew" ]; then
+    certbot $type $ACME_CLI_SERVER_OPTIONS -vv -n --dry-run --agree-tos $ACME_CLI_SET_EMAIL_OPTIONS --expand $ACME_CLI_OPTIONS --dns-rfc2136 --dns-rfc2136-credentials $ACME_CLI_CONF_FILE 2>"$ACME_CLI_LOG_ERROR_FILE" >/dev/null
+    exitCode=$?
+  else
+    certbot $type $ACME_CLI_SERVER_OPTIONS -vv -n --dry-run --agree-tos $ACME_CLI_SET_EMAIL_OPTIONS --expand $ACME_CLI_OPTIONS --dns-rfc2136 --dns-rfc2136-credentials $ACME_CLI_CONF_FILE $ACME_CLI_DOMAIN_LIST 2>"$ACME_CLI_LOG_ERROR_FILE" >/dev/null
+    exitCode=$?
+  fi
+  [ "$ACME_CLI_FIRST_RUN" != "yes" ] || \rm -Rf "/etc/letsencrypt"
+  [ "$ACME_CLI_INIT" != "yes" ] || \rm -Rf "/etc/letsencrypt/live"/*
+  [ $exitCode = 0 ] && printf_cyan "Testing has passed"
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__certbot_renew() {
+  __cert_dir_exists || [ -f "/etc/letsencrypt/renewal/$ACME_CLI_CERT_DIR.conf" ] || [ -f "/etc/letsencrypt/renewal/domain.conf" ] || return 1
+  __certbot_test renew || printf_exit "certbot test has failed"
+  printf_purple "Attempting to renew certificates"
+  certbot renew $ACME_CLI_SERVER_OPTIONS -n --agree-tos --expand $ACME_CLI_OPTIONS --dns-rfc2136 --dns-rfc2136-credentials $ACME_CLI_CONF_FILE 2>"$ACME_CLI_LOG_ERROR_FILE" >/dev/null
+  __certbot_finalize $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__certbot_create() {
+  __cert_dir_exists && return 0
+  [ "$ACME_CLI_INIT" = "yes" ] && rm -Rf "/etc/letsencrypt/live"/*
+  __certbot_test certonly || printf_exit "certbot test has failed"
+  printf_purple "Attempting to create certificates"
+  certbot certonly $ACME_CLI_SERVER_OPTIONS -n --agree-tos $ACME_CLI_SET_EMAIL_OPTIONS --expand $ACME_CLI_OPTIONS --dns-rfc2136 --dns-rfc2136-credentials $ACME_CLI_CONF_FILE $ACME_CLI_DOMAIN_LIST 2>"$ACME_CLI_LOG_ERROR_FILE" >/dev/null
+  __certbot_finalize $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__certbot_finalize() {
+  local retVal="${1:-$?}"
+  if [ $retVal -eq 0 ]; then
+    __symlink $retVal
+    __update_configs $retVal
+    __reload_services $retVal
+    __update_certs $retVal
+    rm -Rf "$ACME_CLI_LE_LOG_FILE" "$ACME_CLI_LOG_ERROR_FILE"
+  else
+    if grep -qs 'Certificate not yet due for renewal' "$ACME_CLI_LE_LOG_FILE" "$ACME_CLI_LOG_ERROR_FILE"; then
+      printf_green "No certificates are due for renewal"
+      rm -Rf "$ACME_CLI_LE_LOG_FILE" "$ACME_CLI_LOG_ERROR_FILE"
+      return 0
+    else
+      printf_red "Error log saved to $ACME_CLI_LOG_ERROR_FILE"
+      exit $retVal
+    fi
+  fi
+  return $retVal
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__generate_domain_list() {
+  printf_cyan "Generating the domain list"
+  local gen_domains
+  local colorize=122
+  local all_acme_domains=()
+  local name_full="$(hostname -f | grep '^' || true)"
+  local name_short="$(hostname -s | grep '^' || true)"
+  local name_domain="$(hostname -d | grep '^' || true)"
+  local hostname="$ACME_CLI_SHORT_HOST"
+  local add_host_domain="$(echo "${ACME_CLI_ADD_DOMAINS//,/ }" | tr ' ' '\n' | sort -u | grep -v '^$' | tr '\n' ' ' | grep '^' || false)"
+  local set_domains="$(echo "${ACME_CLI_DOMAIN_LIST//,/ }" | tr ' ' '\n' | sort -u | grep -Ev "^$|^$ACME_CLI_DOMAIN_PRIMARY$" 2>/dev/null | grep -Fv '*.' | tr '\n' ' ')"
+  [ "$ACME_CLI_FIRST_RUN" != "yes" ] || \rm -Rf '/etc/letsencrypt'
+  [ "$ACME_CLI_INIT" != "yes" ] || \rm -Rf "/etc/letsencrypt/live"/*
+  if __cert_dir_exists; then
+    printf_yellow "The Certificate folder already exists: /etc/letsencrypt/live/$ACME_CLI_CERT_DIR"
+    return 0
+  fi
+  [ -n "$ACME_CLI_DOMAIN_PRIMARY" ] && set_domains="$ACME_CLI_DOMAIN_PRIMARY *.$ACME_CLI_DOMAIN_PRIMARY $set_domains"
+  if [ -n "$set_domains" ] && [ "$set_domains" != " " ]; then
+    for domain in $set_domains; do
+      if ! echo "$domain" | grep -qF '*.'; then
+        if __if_hostname_is_not "$name_short.$name_domain" "$name_short.$domain"; then
+          gen_domains+="$domain,*.$domain,*.$name_short.$domain,"
+          __printf_added "domain: $domain,*.$domain,*.$name_short.$domain" "120"
+        else
+          gen_domains+="$domain,*.$domain,"
+          __printf_added "domain: $domain,*.$domain" "120"
+        fi
+        if [ -n "$ACME_CLI_SUB_LIST" ]; then
+          for sub_domain in $ACME_CLI_SUB_LIST; do
+            if __if_hostname_is_not "$name_short.$domain" "$sub_domain.$domain"; then
+              gen_domains+="*.$sub_domain.$domain,"
+              __printf_added "subdomain: *.$sub_domain.$domain" "121"
+            fi
+          done
+        fi
+      fi
+    done
+    if [ -n "$ACME_CLI_WILD_LIST" ]; then
+      for wild_domain in $ACME_CLI_WILD_LIST; do
+        if echo "$wild_domain" | grep -qF '*.'; then
+          gen_domains+="$wild_domain,"
+          __printf_added "wildcard: $wild_domain" "122"
+        elif __if_hostname_is_not "$name_short.$name_domain" "$wild_domain" || __if_hostname_is_not "$wild_domain" "$HOSTNAME"; then
+          gen_domains+="*.$wild_domain,$wild_domain,"
+          __printf_added "wildcard: *.$wild_domain,$wild_domain" "122"
+        else
+          gen_domains+="*.$wild_domain,"
+          __printf_added "wildcard: *.$wild_domain" "122"
+        fi
+        if [ -n "$ACME_CLI_SUB_LIST" ]; then
+          for sub_domain in $ACME_CLI_SUB_LIST; do
+            if __if_hostname_is_not "$name_short.$wild_domain" "$sub_domain.$wild_domain"; then
+              gen_domains+="*.$sub_domain.$wild_domain,"
+              __printf_added "subdomain: *.$sub_domain.$wild_domain" "121"
+            fi
+          done
+        fi
+      done
+    fi
+    if [ -n "$add_host_domain" ]; then
+      for host_domain in $add_host_domain; do
+        colorize=$((colorize + 1))
+        if [ "$host_domain" != "$ACME_CLI_DOMAIN_PRIMARY" ] || [ "$name_full" != "$ACME_CLI_DOMAIN_PRIMARY" ]; then
+          if __if_hostname_is_not "$HOSTNAME" "$name_short.$host_domain"; then
+            gen_domains+="*.$host_domain,*.$name_short.$host_domain,"
+            __printf_added "domains: $name_short.$host_domain,*.$name_short.$host_domain" "$colorize"
+          else
+            gen_domains+="*.$name_short.$host_domain,"
+            __printf_added "domains: *.$name_short.$host_domain" "$colorize"
+          fi
+        fi
+        if [ -n "$ACME_CLI_SUB_LIST" ]; then
+          for sub_domain in $ACME_CLI_SUB_LIST; do
+            if __if_hostname_is_not "$name_short.$host_domain" "$sub_domain.$host_domain"; then
+              gen_domains+="*.$sub_domain.$host_domain,"
+              __printf_added "subdomain: *.$sub_domain.$host_domain" "121"
+            fi
+          done
+        fi
+      done
+    fi
+    set_acme_domains="$(echo "$gen_domains" | tr ',' '\n' | sort -u | grep -Ev "^$|^$ACME_CLI_DOMAIN_PRIMARY$" 2>/dev/null | tr '\n' ' ' | grep '^')"
+    for domains in $ACME_CLI_DOMAIN_PRIMARY $set_acme_domains; do
+      all_acme_domains+=("-d $domains")
+    done
+  else
+    unset ACME_CLI_DOMAIN_LIST
+    printf '%s\n' "The variable ACME_CLI_DOMAIN_PRIMARY is not set"
+    return 1
+  fi
+  export ACME_CLI_DOMAIN_LIST="${all_acme_domains[*]}"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__symlink() {
+  local statusCode=${1:-$?}
+  local LE_DOMAIN="/etc/letsencrypt/live/$ACME_CLI_CERT_DIR"
+  local LE_LINK="$(\find /etc/letsencrypt/live/ -mindepth 1 -maxdepth 1 -type d 2>/dev/null | \grep -V '/domain$' | \wc -l)"
+  local LE_FOLDER="$(\find /etc/letsencrypt/live/ -mindepth 1 -maxdepth 1 -type d 2>/dev/null | \grep -V '/domain$' | \head -n1 | \grep '^')"
+  if [ -d "/etc/letsencrypt/live/domain" ] || [ -L "/etc/letsencrypt/live/domain" ]; then
+    return 0
+  elif [ -d "/etc/letsencrypt/live/domain" ] && [ -d "/etc/letsencrypt/live/$ACME_CLI_CERT_DIR" ]; then
+    return 0
+  else
+    if [ $statusCode -eq 0 ] && [ ! -L "/etc/letsencrypt/live/domain" ]; then
+      if [ -d "/etc/letsencrypt/live/domain" ]; then
+        \rm -Rf "/etc/letsencrypt/live/domain"
+      fi
+      if [ -d "$LE_DOMAIN" ]; then
+        \ln -sf "$LE_DOMAIN" "/etc/letsencrypt/live/domain"
+      elif [ "$LE_LINK" -eq 1 ]; then
+        \ln -sf "$LE_FOLDER" "/etc/letsencrypt/live/domain"
+      fi
+    else
+      \unlink "/etc/letsencrypt/live/domain"
+    fi
+    [ -e "/etc/letsencrypt/live/domain" ] && return 0 || return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__update_configs() {
+  local retVal=${1:-$?}
+  local files_with_ca files_with_cert files_with_key
+  files_with_ca="$(grep -Rs '/etc/ssl/CA/CasjaysDev/certs/ca.crt' /etc 2>/dev/null | awk -F ':' '{print $1}' | sort -u | grep '^' || false)"
+  files_with_cert="$(grep -Rs '/etc/ssl/CA/CasjaysDev/certs/localhost.crt' /etc 2>/dev/null | awk -F ':' '{print $1}' | sort -u | grep '^' || false)"
+  files_with_key="$(grep -Rs '/etc/ssl/CA/CasjaysDev/private/localhost.key' /etc 2>/dev/null | awk -F ':' '{print $1}' | sort -u | grep '^' || false)"
+  if [ $retVal = 0 ]; then
+    if [ -n "$files_with_ca" ]; then
+      for file_ca in $files_with_ca; do
+        \sed -i '\/etc\/ssl\/CA\/CasjaysDev\/certs\/ca.crt/d' "$file_ca" 2>/dev/null
+      done
+    fi
+    if [ -n "$files_with_key" ]; then
+      for file_key in $files_with_key; do
+        \sed -i 's|/etc/ssl/CA/CasjaysDev/private/localhost.key|/etc/letsencrypt/live/domain/privkey.pem|g' "$file_key" 2>/dev/null
+      done
+    fi
+    if [ -n "$files_with_cert" ]; then
+      for file_cert in $files_with_cert; do
+        \sed -i 's|/etc/ssl/CA/CasjaysDev/certs/localhost.crt|/etc/letsencrypt/live/domain/fullchain.pem|g' "$file_cert" 2>/dev/null
+      done
+    fi
+  fi
+  return $retVal
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__service_exists() {
+  service_status="$(\systemctl is-enabled "$1" 2>/dev/null || false)"
+  [ -n "$service_status" ] && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__reload_services() {
+  local prevExit="${1:-$?}"
+  if [ "$prevExit" -eq 0 ]; then
+    for service in $ACME_CLI_SERVICE_RESTART; do
+      __service_exists "$service" && \systemctl reload "$service" >/dev/null 2>&1
+    done
+    return 0
+  else
+    return $prevExit
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__update_certs() {
+  local prevExit=${1:-$?}
+  local retVal=0
+  local preVal=0
+  local ip
+  if [ $prevExit -ne 0 ]; then
+    ACME_CLI_EXIT_STATUS=$prevExit
+    return $ACME_CLI_EXIT_STATUS
+  fi
+  [ "$ACME_CLI_RYSNC" = "false" ] && printf_red "rsync is disabled" >&2 && return ${prevExit:-2}
+  [ -z "$ACME_CLI_UPDATE_CERTS_IPS" ] && printf_red "ACME_CLI_UPDATE_CERTS_IPS var is unset\n" >&2 && return 1
+  printf_blue "Attempting to copy the certs to your other servers via rsync"
+  for ip in $ACME_CLI_UPDATE_CERTS_IPS; do
+    ip="${ip/:*/}"
+    echo "$ip" | grep -q '[0-9]:[0-9]' && port="${ip/*:/}" || port=22
+    if [ -n "$ip" ]; then
+      if [ "$ip" != "$ACME_CLI_PRIMARY_DNS_IP" ]; then
+        ssh -q -l root -p $port $ip 'exit' && echo "connection to $ip successfully made..."
+        printf '%s%s' "Sending files to $ip:$port" " "
+        timeout 30 ssh -t root@$ip -p $port "mkdir -p /etc/letsencrypt" && timeout 30 rsync -qavhP -e "ssh -p $port" /etc/letsencrypt/* root@$ip:/etc/letsencrypt/ --delete &>/dev/null
+        preVal=$?
+        if [ $preVal -eq 0 ]; then
+          printf '%s\n' "has completed" || printf '%s\n' "has failed" >&2
+          for service in $ACME_CLI_SERVICE_RESTART; do
+            printf '%s' "Restarting $service on $ip"
+            \ssh -t -q root@$ip -p $port "systemctl restart $service" >/dev/null
+            retVal=$?
+            prevExit=$((prevExit + retVal))
+            [ $retVal = 0 ] && printf ': %s\n' 'OK' || printf ': %s\n' "Failed"
+          done
+        fi
+      else
+        printf '%s\n' "The IP matches dns server"
+      fi
+    fi
+  done
+  return $prevExit
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gen_dns_conf() {
+  [ -n "$ACME_CLI_DNS_KEY" ] || return 0
+  [ -n "$ACME_CLI_PRIMARY_DNS_IP" ] || return 0
+  cat <<EOF >"/etc/certbot/dns.conf"
+#Certbot DNS
+# Target DNS server
+dns_rfc2136_server = $ACME_CLI_PRIMARY_DNS_IP
+# TSIG key name
+dns_rfc2136_name = certbot.
+# TSIG key secret
+dns_rfc2136_secret = $ACME_CLI_DNS_KEY
+# TSIG key algorithm
+dns_rfc2136_algorithm = HMAC-SHA512
+
+EOF
+  if [ -f "$ACME_CLI_CONF_FILE" ]; then
+    chmod -f 600 "$ACME_CLI_CONF_FILE" 2>/dev/null
+  else
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gen_config_local() {
+  __gen_dns_conf
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined variables/import external variables
+ACME_CLI_START_TIMER="${ACME_CLI_START_TIMER:-$(date +%s.%N)}"
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Default exit code
+ACME_CLI_EXIT_STATUS=0
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application Folders
+ACME_CLI_CONFIG_DIR="${ACME_CLI_CONFIG_DIR:-$HOME/.config/myscripts/acme-cli}"
+ACME_CLI_CONFIG_BACKUP_DIR="${ACME_CLI_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/acme-cli/backups}"
+ACME_CLI_LOG_DIR="${ACME_CLI_LOG_DIR:-$HOME/.local/log/acme-cli}"
+ACME_CLI_RUN_DIR="${ACME_CLI_RUN_DIR:-$HOME/.local/run/system_scripts/$ACME_CLI_SCRIPTS_PREFIX}"
+ACME_CLI_TEMP_DIR="${ACME_CLI_TEMP_DIR:-$HOME/.local/tmp/system_scripts/acme-cli}"
+ACME_CLI_CACHE_DIR="${ACME_CLI_CACHE_DIR:-$HOME/.cache/acme-cli}"
+ACME_CLI_LE_LOG_FILE="${ACME_CLI_LE_LOG_FILE:-$ACME_CLI_LOG_DIR/acme-cli.log}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# File settings
+ACME_CLI_CONFIG_FILE="${ACME_CLI_CONFIG_FILE:-settings.conf}"
+ACME_CLI_LOG_ERROR_FILE="${ACME_CLI_LOG_ERROR_FILE:-$ACME_CLI_LOG_DIR/acme-cli.err}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+ACME_CLI_OUTPUT_COLOR_1="${ACME_CLI_OUTPUT_COLOR_1:-33}"
+ACME_CLI_OUTPUT_COLOR_2="${ACME_CLI_OUTPUT_COLOR_2:-5}"
+ACME_CLI_OUTPUT_COLOR_GOOD="${ACME_CLI_OUTPUT_COLOR_GOOD:-2}"
+ACME_CLI_OUTPUT_COLOR_ERROR="${ACME_CLI_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+ACME_CLI_NOTIFY_ENABLED="${ACME_CLI_NOTIFY_ENABLED:-yes}"
+ACME_CLI_GOOD_NAME="${ACME_CLI_GOOD_NAME:-Great:}"
+ACME_CLI_ERROR_NAME="${ACME_CLI_ERROR_NAME:-Error:}"
+ACME_CLI_GOOD_MESSAGE="${ACME_CLI_GOOD_MESSAGE:-No errors reported}"
+ACME_CLI_ERROR_MESSAGE="${ACME_CLI_ERROR_MESSAGE:-Errors were reported}"
+ACME_CLI_NOTIFY_CLIENT_NAME="${ACME_CLI_NOTIFY_CLIENT_NAME:-$APPNAME}"
+ACME_CLI_NOTIFY_CLIENT_ICON="${ACME_CLI_NOTIFY_CLIENT_ICON:-notification-new}"
+ACME_CLI_NOTIFY_CLIENT_URGENCY="${ACME_CLI_NOTIFY_CLIENT_URGENCY:-normal}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional Variables
+ACME_CLI_SHORT_HOST="${ACME_CLI_SHORT_HOST:-$(hostname -s)}"
+ACME_CLI_HOSTNAME="${ACME_CLI_HOSTNAME:-$(hostname -f | grep '^' || echo "$HOSTNAME")}"
+ACME_CLI_DOMAIN_PRIMARY="${ACME_CLI_DOMAIN_PRIMARY:-$(hostname -d | grep '^' || echo "$ACME_CLI_HOSTNAME")}"
+ACME_CLI_DOMAIN_LIST="${ACME_CLI_DOMAIN_LIST:-}"
+ACME_CLI_SUB_LIST="${ACME_CLI_SUB_LIST:-}"
+ACME_CLI_WILD_LIST="${ACME_CLI_WILD_LIST:-$ACME_CLI_HOSTNAME} *.$ACME_CLI_DOMAIN_PRIMARY"
+ACME_CLI_ADD_DOMAINS="${ACME_CLI_ADD_DOMAINS:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ACME_CLI_TEST="${ACME_CLI_TEST:-yes}"
+ACME_CLI_RYSNC="${ACME_CLI_RYSNC:-false}"
+ACME_CLI_CERT_DIR="${ACME_CLI_CERT_DIR:-domain}"
+ACME_CLI_CONF_FILE="${ACME_CLI_CONF_FILE:-/etc/certbot/dns.conf}"
+ACME_CLI_EMAIL="${ACME_CLI_EMAIL:-$CERTBOT_REGISTERED_EMAIL}"
+ACME_CLI_PRIMARY_DNS_IP="${ACME_CLI_PRIMARY_DNS_IP:-$(grep -sh 'dns_rfc2136_server.*=' "$ACME_CLI_CONF_FILE" | sed 's|^dns_rfc2136_server =.* ||g' | grep '^')}"
+ACME_CLI_DNS_KEY="${ACME_CLI_DNS_KEY:-$(grep -sh 'dns_rfc2136_secret.*=' "$ACME_CLI_CONF_FILE" | sed 's|^dns_rfc2136_secret =.* ||g' | grep '^')}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ACME_CLI_UPDATE_CERTS_IPS="${ACME_CLI_UPDATE_CERTS_IPS:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ACME_CLI_SERVICE_RESTART="${ACME_CLI_SERVICE_RESTART:-httpd,nginx,postfix,dovecot,proftpd,cockpit }"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ACME_CLI_OPTION_ADD=""
+ACME_CLI_DOMAINS_NEW=()
+ACME_CLI_SUB_LIST="${ACME_CLI_SUB_LIST//,/ }"
+ACME_CLI_WILD_LIST="${ACME_CLI_WILD_LIST//,/ }"
+ACME_CLI_DOMAIN_LIST="${ACME_CLI_DOMAIN_LIST//,/ }"
+ACME_CLI_SERVICE_RESTART="${ACME_CLI_SERVICE_RESTART//,/ }"
+ACME_CLI_UPDATE_CERTS_IPS="${ACME_CLI_UPDATE_CERTS_IPS//,/ }"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ACME_CLI_OPTION_ADD+="--reinstall,--staple-ocsp,--cert-name \$ACME_CLI_CERT_DIR "
+ACME_CLI_OPTION_ADD+="--key-path /etc/letsencrypt/live/\$ACME_CLI_CERT_DIR/privkey.pem "
+ACME_CLI_OPTION_ADD+="--chain-path /etc/letsencrypt/live/\$ACME_CLI_CERT_DIR/cert.pem "
+ACME_CLI_OPTION_ADD+="--fullchain-path /etc/letsencrypt/live/\$ACME_CLI_CERT_DIR/fullchain.pem "
+ACME_CLI_OPTIONS="${ACME_CLI_OPTIONS:-$ACME_CLI_OPTION_ADD,--dns-rfc2136-propagation-seconds 90,}"
+ACME_CLI_DEFAULT_DOMAINS="amd64.us,apmpproject.org,arm64.us,casjay.app,casjay.casa,casjay.cc,casjay.coffee,casjay.dev,casjay.email,casjay.gdn,"
+ACME_CLI_DEFAULT_DOMAINS+="casjay.info,casjay.link,casjay.nl,casjay.org,casjay.pro,casjay.social,casjay.us,casjay.work,casjay.xyz,casjaydns.com,"
+ACME_CLI_DEFAULT_DOMAINS+="casjaydns.fyi,casjaysdev.pro,csj.lol,dockersrc.us,malaks.us,onhealth.xyz,pste.us,redxt.us,sqldb.us"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$ACME_CLI_CONFIG_DIR/$ACME_CLI_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$ACME_CLI_CONFIG_DIR/$ACME_CLI_CONFIG_FILE" ] && . "$ACME_CLI_CONFIG_DIR/$ACME_CLI_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$ACME_CLI_RUN_DIR" ] || mkdir -p "$ACME_CLI_RUN_DIR" |& __devnull
+[ -d "$ACME_CLI_LOG_DIR" ] || mkdir -p "$ACME_CLI_LOG_DIR" |& __devnull
+[ -d "$ACME_CLI_TEMP_DIR" ] || mkdir -p "$ACME_CLI_TEMP_DIR" |& __devnull
+[ -d "$ACME_CLI_CACHE_DIR" ] || mkdir -p "$ACME_CLI_CACHE_DIR" |& __devnull
+[ -f "$ACME_CLI_LE_LOG_FILE" ] && rm -Rf "$ACME_CLI_LE_LOG_FILE" |& __devnull
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ACME_CLI_TEMP_FILE="${ACME_CLI_TEMP_FILE:-$(mktemp $ACME_CLI_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap '__trap_exit' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+__notifications() {
+  __cmd_exists notifications || return
+  [ "$ACME_CLI_NOTIFY_ENABLED" = "yes" ] || return
+  [ "$SEND_NOTIFICATION" = "no" ] && return
+  (
+    export SCRIPT_OPTS="" _DEBUG=""
+    export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$ACME_CLI_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$ACME_CLI_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$ACME_CLI_NOTIFY_CLIENT_ICON}"
+    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$ACME_CLI_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$ACME_CLI_NOTIFY_CLIENT_URGENCY}"
+    notifications "$@"
+  ) |& __devnull &
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set custom actions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Argument/Option settings
+SETARGS=("$@")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SHORTOPTS=""
+SHORTOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent,force,no-*,yes-*,"
+LONGOPTS+="default,init,domains:,primary:,add:,folder:,dev,prod,acme:,create:"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ARRAY="remove init rsync renew modify fix"
+ARRAY+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LIST=""
+LIST+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case "$1" in
+  --raw)
+    shift 1
+    export SHOW_RAW="true"
+    NC=""
+    RESET=""
+    BLACK=""
+    RED=""
+    GREEN=""
+    YELLOW=""
+    BLUE=""
+    PURPLE=""
+    CYAN=""
+    WHITE=""
+    ORANGE=""
+    LIGHTRED=""
+    BG_GREEN=""
+    BG_RED=""
+    ICON_INFO="[ info ]"
+    ICON_GOOD="[ ok ]"
+    ICON_WARN="[ warn ]"
+    ICON_ERROR="[ error ]"
+    ICON_QUESTION="[ ? ]"
+    printf_column() { tee | grep '^'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    ;;
+  --debug)
+    shift 1
+    set -xo pipefail
+    export SCRIPT_OPTS="--debug"
+    export _DEBUG="on"
+    __devnull() { tee || return 1; }
+    __devnull2() { eval "$@" |& tee -p || return 1; }
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
+    ;;
+  --options)
+    shift 1
+    printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' 4
+    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' 4
+    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
+    [ -z "$LIST" ] || __list_options "LIST Options" "${LIST}" ',' '' 4
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  --silent)
+    shift 1
+    ACME_CLI_SILENT="true"
+    ;;
+  --force)
+    shift 1
+    export FORCE_INSTALL="true"
+    ACME_CLI_FORCE_INSTALL="true"
+    ;;
+  --dir)
+    CWD_IS_SET="TRUE"
+    ACME_CLI_CWD="$2"
+    [ -d "$ACME_CLI_CWD" ] || mkdir -p "$ACME_CLI_CWD" |& __devnull
+    shift 2
+    ;;
+  --no-*)
+    __options_function_no "$@"
+    ;;
+  --yes-*)
+    __options_function_yes "$@"
+    ;;
+  --default)
+    shift 1
+    ACME_CLI_DOMAIN_LIST="$ACME_CLI_DEFAULT_DOMAINS"
+    ;;
+  --key)
+    ACME_CLI_DNS_KEY="$2"
+    shift 2
+    ;;
+  --server)
+    ACME_CLI_PRIMARY_DNS_IP="$2"
+    shift 2
+    ;;
+  --domains)
+    ACME_CLI_DOMAINS_NEW+=("$2")
+    ACME_CLI_DOMAIN_LIST="${ACME_CLI_DOMAIN_LIST//$2/}"
+    shift 2
+    ;;
+  --primary)
+    ACME_CLI_DOMAIN_PRIMARY="$2"
+    shift 2
+    ;;
+  --add)
+    ACME_CLI_ADD_DOMAINS="$ACME_CLI_ADD_DOMAINS,$2"
+    ACME_CLI_ADD_DOMAINS="$(echo "$ACME_CLI_ADD_DOMAINS" | sort -u | grep -V '^$')"
+    unset ACME_CLI_DOMAIN_LIST ACME_CLI_WILD_LIST
+    shift 2
+    ;;
+  --folder)
+    ACME_CLI_CERT_DIR="$2"
+    shift 2
+    ;;
+  --acme)
+    ACME_CLI_SERVER_OPTIONS="--server $2"
+    shift 2
+    ;;
+  --dev)
+    shift 1
+    ACME_CLI_SERVER_OPTIONS="--server https://acme-staging-v02.api.letsencrypt.org/directory"
+    ;;
+  --prod)
+    shift 1
+    ACME_CLI_SERVER_OPTIONS="--server https://acme-v02.api.letsencrypt.org/directory"
+    ;;
+  --create)
+    ACME_CLI_CERT_DIR="$2" ACME_CLI_DOMAIN_PRIMARY="$2" ACME_CLI_CONFIG_FILE="$2.conf"
+    unset ACME_CLI_DOMAIN_LIST ACME_CLI_SUB_LIST ACME_CLI_WILD_LIST ACME_CLI_ADD_DOMAINS
+    shift 2
+    ;;
+  --init)
+    shift 1
+    ACME_CLI_FIRST_RUN="yes"
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get directory from args
+# set -- "$@"
+# for arg in "$@"; do
+# if [ -d "$arg" ]; then
+# ACME_CLI_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
+# elif [ -f "$arg" ]; then
+# ACME_CLI_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
+# else
+# SET_NEW_ARGS+=("$arg")
+# fi
+# done
+# set -- "${SET_NEW_ARGS[@]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set directory to first argument
+# [ -d "$1" ] && __is_an_option "$1" && ACME_CLI_CWD="$1" && shift 1 || ACME_CLI_CWD="${ACME_CLI_CWD:-$PWD}"
+ACME_CLI_CWD="$(realpath "${ACME_CLI_CWD:-$PWD}" 2>/dev/null)"
+# if [ -d "$ACME_CLI_CWD" ] && cd "$ACME_CLI_CWD"; then
+# if [ "$ACME_CLI_SILENT" != "true" ] && [ "$CWD_SILENCE" != "true" ]; then
+# printf_cyan "Setting working dir to $ACME_CLI_CWD"
+# fi
+# else
+# printf_exit "💔 $ACME_CLI_CWD does not exist 💔"
+# fi
+export ACME_CLI_CWD
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+cmd_exists --error --ask certbot || exit 3 # exit 3 if not found
+#am_i_online --error || exit 4           # exit 4 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set actions based on variables
+[ -d "/etc/letsencrypt/live" ] || ACME_CLI_INIT="yes"
+[ -n "$ACME_CLI_DNS_KEY" ] || ACME_CLI_DNS_KEY="$(grep -sh 'dns_rfc2136_secret.*=' "$ACME_CLI_CONF_FILE" | sed 's|^dns_rfc2136_secret.* ||g' | grep '^')"
+[ -n "$ACME_CLI_PRIMARY_DNS_IP" ] || ACME_CLI_PRIMARY_DNS_IP="$(grep -sh 'dns_rfc2136_server.*=' "$ACME_CLI_CONF_FILE" | sed 's|^dns_rfc2136_server =.* ||g' | grep '^')"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+if [ "$ACME_CLI_CONFIG_FILE" != "settings.conf" ]; then
+  __gen_config >/dev/null && [ -f "$ACME_CLI_CONFIG_DIR/$ACME_CLI_CONFIG_FILE" ] && . "$ACME_CLI_CONFIG_DIR/$ACME_CLI_CONFIG_FILE"
+fi
+[ -n "${ACME_CLI_DOMAINS_NEW[*]}" ] && ACME_CLI_DOMAIN_LIST="${ACME_CLI_DOMAINS_NEW[*]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+[ -n "$ACME_CLI_DNS_KEY" ] || printf_exit "Please set variable ACME_CLI_DNS_KEY with your DNS auth key"
+[ -n "$ACME_CLI_PRIMARY_DNS_IP" ] || printf_exit "Please set variable ACME_CLI_PRIMARY_DNS_IP with your primary dns server IP address"
+[ -n "$ACME_CLI_EMAIL" ] && ACME_CLI_SET_EMAIL_OPTIONS="-m \"$ACME_CLI_EMAIL\"" || ACME_CLI_SET_EMAIL_OPTIONS="--register-unsafely-without-email"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Export variables
+ACME_CLI_OPTIONS="${ACME_CLI_OPTIONS//,/ }"
+ACME_CLI_OPTIONS="${ACME_CLI_OPTIONS//  / }"
+ACME_CLI_CERT_DIR="${ACME_CLI_CERT_DIR:-$ACME_CLI_DOMAIN_PRIMARY}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute commands
+if grep -Rqs ' http://ca.casjay.pro' '/etc/letsencrypt/live/domain'; then
+  \rm -Rf '/etc/letsencrypt/live/domain'
+fi
+[ "$ACME_CLI_FIRST_RUN" != "yes" ] || \rm -Rf '/etc/letsencrypt'
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+case $1 in
+remove)
+  shift 1
+  for d in rmd --yes "/etc/letsencrypt" "/var/letsencrypt" "/var/log/letsencrypt" "$ACME_CLI_CONFIG_DIR"; do
+    if [ -e "$d" ]; then
+      printf_yellow "Removing all files in $d"
+      \rm -Rf "${d:?Failed to determine $d}"/*
+    fi
+  done
+  exit
+  ;;
+init)
+  shift 1
+  __symlink
+  exit $?
+  ;;
+rsync)
+  shift 1
+  ACME_CLI_RYSNC="true"
+  __update_certs
+  exit $?
+  ;;
+renew)
+  shift 1
+  __certbot_renew
+  exit $?
+  ;;
+fix)
+  shift 1
+  __update_configs
+  __reload_services
+  exit $?
+  ;;
+modify)
+  shift 1
+  __symlink
+  __update_configs
+  __reload_services
+  exit $?
+  ;;
+*)
+  [ "$1" = "new" ] && shift 1
+  [ "$1" = "create" ] && shift 1
+  ACME_CLI_DOMAIN_LIST="${*:-$ACME_CLI_DOMAIN_LIST}"
+  [ -n "$ACME_CLI_DOMAINS_NEW" ] || __gen_config &>/dev/null
+  if [ -d "/etc/letsencrypt/live/$ACME_CLI_CERT_DIR" ] && [ -f "/etc/letsencrypt/renewal/$ACME_CLI_CERT_DIR" ]; then
+    __certbot_renew
+  else
+    __certbot_create
+  fi
+  exit $?
+  ;;
+esac
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set exit code
+ACME_CLI_EXIT_STATUS="${ACME_CLI_EXIT_STATUS:-0}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${ACME_CLI_EXIT_STATUS:-0}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# ex: ts=2 sw=2 et filetype=sh

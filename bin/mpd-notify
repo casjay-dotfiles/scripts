@@ -1,0 +1,972 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version           :  202208131219-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  jason@casjaysdev.pro
+# @@License          :  WTFPL
+# @@ReadME           :  mpd-notify --help
+# @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
+# @@Created          :  Saturday, Aug 13, 2022 12:19 EDT
+# @@File             :  mpd-notify
+# @@Description      :  mpd notfication script
+# @@Changelog        :  New script
+# @@TODO             :  Better documentation
+# @@Other            :
+# @@Resource         :
+# @@Terminal App     :  no
+# @@sudo/root        :  no
+# @@Template         :  bash/system
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="$(basename -- "$0" 2>/dev/null)"
+VERSION="202208131219-git"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${RUN_USER:-$USER}"
+USER_HOME="${USER_HOME:-$HOME}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+MPD_NOTIFY_REQUIRE_SUDO="${MPD_NOTIFY_REQUIRE_SUDO:-no}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Reopen in a terminal
+#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set script title
+#CASJAYS_DEV_TILE_FORMAT="${USER}@${HOSTNAME}:${PWD//$HOME/\~} - $APPNAME"
+#CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}"
+#[ -z "$CASJAYSDEV_TITLE_SET" ] && printf '\033]2│;%s\033\\' "$CASJAYS_DEV_TILE_FORMAT" && CASJAYSDEV_TITLE_SET="$APPNAME"
+export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}" CASJAYSDEV_TITLE_SET
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initial debugging
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# pipes fail
+set -o pipefail
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import functions
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+  . "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  exit 1
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Options are: *_install
+# system user desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+user_install && __options "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Send all output to /dev/null
+__devnull() {
+  tee &>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# Send errors to /dev/null
+__devnull2() {
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# See if the executable exists
+__cmd_exists() {
+  exitCode=0
+  [ -n "$1" ] && local exitCode="" || return 0
+  for cmd in "$@"; do
+    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
+  done
+  [ $exitCode -eq 0 ] || exitCode=3
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for a valid internet connection
+__am_i_online() {
+  local exitCode=0
+  curl -q -LSsfI --max-time 2 --retry 1 "${1:-https://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# colorization
+if [ "$SHOW_RAW" = "true" ]; then
+  NC=""
+  RESET=""
+  BLACK=""
+  RED=""
+  GREEN=""
+  YELLOW=""
+  BLUE=""
+  PURPLE=""
+  CYAN=""
+  WHITE=""
+  ORANGE=""
+  LIGHTRED=""
+  BG_GREEN=""
+  BG_RED=""
+  ICON_INFO="[ info ]"
+  ICON_GOOD="[ ok ]"
+  ICON_WARN="[ warn ]"
+  ICON_ERROR="[ error ]"
+  ICON_QUESTION="[ ? ]"
+  printf_column() { tee | grep '^'; }
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional printf_ colors
+__printf_head() { printf_blue "$1"; }
+__printf_opts() { printf_purple "$1"; }
+__printf_line() { printf_cyan "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# output version
+__version() { printf_cyan "$VERSION"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# list options
+__list_options() {
+  printf_color "$1: " "$5"
+  echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g' | tr '\n' ' '
+  printf_newline
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create the config file
+__gen_config() {
+  local NOTIFY_CLIENT_NAME="$APPNAME"
+  if [ "$INIT_CONFIG" != "TRUE" ]; then
+    printf_blue "Generating the config file in"
+    printf_cyan "$MPD_NOTIFY_CONFIG_DIR/$MPD_NOTIFY_CONFIG_FILE"
+  fi
+  [ -d "$MPD_NOTIFY_CONFIG_DIR" ] || mkdir -p "$MPD_NOTIFY_CONFIG_DIR"
+  [ -d "$MPD_NOTIFY_CONFIG_BACKUP_DIR" ] || mkdir -p "$MPD_NOTIFY_CONFIG_BACKUP_DIR"
+  [ -f "$MPD_NOTIFY_CONFIG_DIR/$MPD_NOTIFY_CONFIG_FILE" ] &&
+    cp -Rf "$MPD_NOTIFY_CONFIG_DIR/$MPD_NOTIFY_CONFIG_FILE" "$MPD_NOTIFY_CONFIG_BACKUP_DIR/$MPD_NOTIFY_CONFIG_FILE.$$"
+  cat <<EOF >"$MPD_NOTIFY_CONFIG_DIR/$MPD_NOTIFY_CONFIG_FILE"
+# Settings for mpd-notify
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+MPD_NOTIFY_OUTPUT_COLOR_1="${MPD_NOTIFY_OUTPUT_COLOR_1:-}"
+MPD_NOTIFY_OUTPUT_COLOR_2="${MPD_NOTIFY_OUTPUT_COLOR_2:-}"
+MPD_NOTIFY_OUTPUT_COLOR_GOOD="${MPD_NOTIFY_OUTPUT_COLOR_GOOD:-}"
+MPD_NOTIFY_OUTPUT_COLOR_ERROR="${MPD_NOTIFY_OUTPUT_COLOR_ERROR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+MPD_NOTIFY_NOTIFY_ENABLED="${MPD_NOTIFY_NOTIFY_ENABLED:-}"
+MPD_NOTIFY_GOOD_NAME="${MPD_NOTIFY_GOOD_NAME:-}"
+MPD_NOTIFY_ERROR_NAME="${MPD_NOTIFY_ERROR_NAME:-}"
+MPD_NOTIFY_GOOD_MESSAGE="${MPD_NOTIFY_GOOD_MESSAGE:-}"
+MPD_NOTIFY_ERROR_MESSAGE="${MPD_NOTIFY_ERROR_MESSAGE:-}"
+MPD_NOTIFY_NOTIFY_CLIENT_NAME="${MPD_NOTIFY_NOTIFY_CLIENT_NAME:-}"
+MPD_NOTIFY_NOTIFY_CLIENT_ICON="${MPD_NOTIFY_NOTIFY_CLIENT_ICON:-}"
+MPD_NOTIFY_NOTIFY_CLIENT_URGENCY="${MPD_NOTIFY_NOTIFY_CLIENT_URGENCY:-}"
+
+EOF
+  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
+  if [ -f "$MPD_NOTIFY_CONFIG_DIR/$MPD_NOTIFY_CONFIG_FILE" ]; then
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
+    . "$MPD_NOTIFY_CONFIG_DIR/$MPD_NOTIFY_CONFIG_FILE"
+    exitCode=0
+  else
+    printf_red "Failed to create the config file"
+    exitCode=1
+  fi
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Help function - Align to 50
+__help() {
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "mpd-notify:  mpd notfication script - $VERSION"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Usage: mpd-notify [options] [commands]"
+  __printf_line "term                            - Runs in a terminal window"
+  __printf_line "toggle                          - Toggle start/stop"
+  __printf_line "restart                         - Restart the service"
+  __printf_line "start                           - Start the service"
+  __printf_line "stop                            - Stop the service"
+  __printf_line "status                          - Get service status"
+  __printf_line "run                             - Run the service"
+  __printf_line "enable                          - Enable the service "
+  __printf_line "disable                         - Disable the service"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Other Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--help                          - Shows this message"
+  __printf_line "--config                        - Generate user config file"
+  __printf_line "--version                       - Show script version"
+  __printf_line "--options                       - Shows all available options"
+  __printf_line "--debug                         - Enables script debugging"
+  __printf_line "--raw                           - Removes all formatting on output"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# check if arg is a builtin option
+__is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0; fi; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 1 || return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep -sh "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# # Get sudo password
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run sudo
+__sudorun() {
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo
+__can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User can run sudo
+__sudoif() {
+  __user_is_root && return 0
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run command as root
+requiresudo() {
+  if [ "$MPD_NOTIFY_REQUIRE_SUDO" = "yes" ] && [ -z "$MPD_NOTIFY_REQUIRE_SUDO_RUN" ]; then
+    export MPD_NOTIFY_REQUIRE_SUDO="no"
+    export MPD_NOTIFY_REQUIRE_SUDO_RUN="true"
+    __sudo "$@"
+    exit $?
+  else
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  CMD="${1:-echo}" && shift 1
+  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  [ "$(basename -- "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  if __sudoif; then
+    export PATH="$PATH"
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    exitCode=$?
+  else
+    printf '%s\n' "This requires root to run"
+    exitCode=1
+  fi
+  return ${exitCode:-1}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  exitCode=${exitCode:-0}
+  [ -f "$MPD_NOTIFY_TEMP_FILE" ] && rm -Rf "$MPD_NOTIFY_TEMP_FILE" &>/dev/null
+  #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD//$HOME/\~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined functions
+__autostart_disable() {
+  printf_green "Disabling MPD Notify service"
+  __rm_rf "$HOME/.config/autostart/mpd-notify.desktop"
+  [[ $(mpd-notify status --ask) = "running" ]] && mpd-notify stop &>/dev/null
+  if [[ -f "$HOME/.config/autostart/mpd-notify.desktop" ]]; then
+    printf_return 1 1 "Failed to delete $HOME/.config/autostart/mpd-notify.desktop"
+  else
+    printf_return 2 0 "Successfully deleted mpd-notify from startup"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__autostart() {
+  printf_green "Enabling MPD Notify"
+  cat <<EOF >"$HOME/.config/autostart/mpd-notify.desktop"
+#!/usr/bin/env xdg-open
+
+[Desktop Entry]
+Version=1.1
+Type=Application
+Name=mpd-notify
+GenericName=MPD-Notify
+Comment=MPD Notify.
+Icon=geany
+Exec=mpd-notify start
+Path=~
+Terminal=false
+Actions=
+Categories=Multimedia;GTK;X-XFCE;GNOME;
+Keywords=media;
+StartupNotify=true
+
+EOF
+  [[ $(mpd-notify status --ask) = "running" ]] || mpd-notify start &>/dev/null
+  if [ $? = 0 ]; then
+    printf_green "MPD Notify has been installed for $USER"
+  else
+    printf_error 1 1 "$ICON_WARN Failed to install MPD Notify for $USER"
+    __notifications "$ICON_WARN Failed to install MPD Notify for $USER"
+  fi
+  return $?
+
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__initialize_app() {
+  if ! __mpd_server_test; then
+    MPDSERVER="$(hostname -s)"
+    MPDSERVER_PORT="6600"
+    __mpd_server_test "$MPDSERVER" || mpd &>/dev/null
+  fi
+  daemonName="mpd-notify"
+  daemonDir="$HOME/.config/mpd/mpd-notify"
+  CONFIG="$daemonDir/mpd-notify.cfg"
+  MPDSERVER="${MPDSERVER:-localhost}"
+  MPDSERVER_PORT=${MPDSERVER_PORT:-6600}
+  NOTIFYSONG=true
+  STATUSNOTIF=true
+  pidFile="$daemonDir/$daemonName.pid"
+  logFile="$daemonDir/$daemonName.log"
+  runInterval=1
+  logMaxSize="100"
+  myPid="$(echo $$)"
+  curPid="$(ps -ux | grep -v "$myPid" | grep 'mpd-notify run' | grep -v ' grep ' | awk '{print $2}' | head -n 1)"
+  if [ -f "$pidFile" ] && [ -z "$curPid" ]; then
+    oldPid="$(<"$pidFile")"
+  elif [ -n "$curPid" ]; then
+    oldPid="$curPid"
+  else
+    oldPid=""
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+log() {
+  echo "$*" >>"$logFile"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__mpc() {
+  mpc -h "$MPDSERVER" -p "$MPDSERVER_PORT" "$@"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__mpd_server_test() {
+  local MPDSERVER="${MPDSERVER:-}"
+  local MPDSERVER_PORT="${MPDSERVER_PORT:-6600}"
+  curl -q -LSsif ${1:-$MPDSERVER}:${2:-$MPDSERVER_PORT} 2>&1 | grep 'Received HTTP' &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__mpc_status() {
+  __mpc status && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__getpid() {
+  curPid="$(ps -ux | grep -v "$myPid" | grep 'mpd-notify run' | grep -v ' grep ' | awk '{print $2}' | head -n 1)"
+  if [ -n "$curPid" ]; then
+    echo 0
+    return 0
+  else
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+getFile() {
+  file="$(__mpc -f %file% | head -n 1)"
+  albumPath="$(echo "$file" | sed 's/$(basename -- "$file")//')"
+  __mpc -f %file% | head -n 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+getArtAlb() {
+  __mpc -f "%artist% - %album%" | head -n 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+scrapeDiscogs() {
+  artAlb=$(getArtAlb 2>/dev/null)
+  getArt="$(python3 "$daemonDir""/cogsCover.py" "$artAlb" "$DISCOGSKEY" "$DISCOGSSECRET" 2>/dev/null)"
+  if [ -n "$getArt" ]; then
+    log "$getArt"
+    __cp_rf ${TMP:-/tmp}/image.jpg "$coverPath" >/dev/null 2>&1
+    __rm_rf ${TMP:-/tmp}/image.jpg >/dev/null 2>&1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+notifyStatus() {
+  if $STATUSNOTIF; then
+    if [[ $curStatus != "$newStatus" ]]; then
+      if [[ $newStatus -eq 0 ]]; then
+        notifications "MPD" "Paused"
+      else
+        notifications "MPD" "Playing: $newTitleArtist"
+      fi
+    fi
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+findCover() {
+  coverPath=
+  maxFile=
+  maxRes=
+  for file in "$MUSFOLDER$albumPath"*; do
+    if [[ "$file" == *".jpg" ]] || [[ "$file" == *".jpeg" ]] || [[ "$file" == *".png" ]]; then
+      curRes=$(identify -format "%W" "$file")
+      if [[ -z $maxFile ]]; then
+        maxFile="$file"
+        maxRes="$curRes"
+      elif [[ $curRes -gt $maxRes ]]; then
+        maxFile="$file"
+        maxRes="$curRes"
+      fi
+    fi
+  done
+  coverPath="$maxFile"
+  if [[ "$coverPath" == *".png" ]]; then
+    newPath="$(echo $coverPath | sed 's/png/jpg/g')"
+    convert "$coverPath" "$newPath"
+    coverPath=$newPath
+  fi
+  if [[ -z "$coverPath" ]]; then
+    coverPath=$MUSFOLDER$albumPath"cover.jpg"
+    if $AUTOSCRAPE; then
+      scrapeDiscogs
+    fi
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+setWallpaper() {
+  curRes=$(xdpyinfo | grep dimensions | grep -E -o "   .+x" | sed -r 's/x.+?$//' | sed -r 's/^.+[^0-9]//g')
+  dimensions=$(xdpyinfo | grep dimensions | awk '{print $2}')
+  if $WALLPAPER; then
+    if [[ $maxRes -ge $curRes ]]; then
+      feh --bg-scale "$coverPath" >/dev/null 2>&1
+    else
+      if $CENTERED; then
+        if $COMMON; then
+          commonColor="$(convert "$coverPath" -colors 2 -depth 8 -unique-colors -format "%c" histogram:info: | grep -Eo "#.{6}" | tail -n 1)"
+          convert "$coverPath" -gravity center -background "$commonColor" -extent $dimensions "${TMP:-/tmp}/cover.jpg"
+          feh --bg-center "${TMP:-/tmp}/cover.jpg" >/dev/null 2>&1
+        else
+          convert "$coverPath" -gravity center -background "#$MATCOLOR" -extent $dimensions "${TMP:-/tmp}/cover.jpg"
+          feh --bg-center "${TMP:-/tmp}/cover.jpg" >/dev/null 2>&1
+        fi
+      else
+        feh --bg-tile "$coverPath" >/dev/null 2>&1
+      fi
+    fi
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+notifySong() {
+  # Compare old and new songs.
+  if [[ $currTitleArtist != "$newTitleArtist" ]]; then
+    findCover
+    if [[ -e $coverPath ]]; then # If there's a cover...
+      setWallpaper
+    fi
+    if $NOTIFYSONG; then
+      notifications "MPD" "$newTitleArtist"
+    fi
+    log "*** $(date +"%Y-%m-%d %H:%M") - Now playing: $newTitleArtist from $MPDSERVER:$MPDSERVER_PORT"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+notifyVolume() {
+  if [[ $curVol != "$newVol" ]]; then
+    notifications "MPD" "$newVol"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+setupDaemon() {
+  if [ ! -f "$logFile" ]; then
+    touch "$logFile"
+  else
+    # Check to see if we need to rotate the logs.
+    size=$(($(ls -l "$logFile" | cut -d " " -f 5) / 1024))
+    if [[ "$size" -gt "$logMaxSize" ]]; then
+      __rm_rf "$logFile"
+      touch "$logFile"
+    fi
+  fi
+  __devnull __mpc_status
+  if [[ $? -ne 0 ]]; then
+    printf_info "MPD not running. Attempting to start..."
+    [ -n "$MPDSERVER" ] && true || __start mpd
+    if [[ $? -ne 0 ]]; then
+      printf_exit "Unable to start MPD. Please do it yourself then start mpd-notify."
+    else
+      printf_green "Everything is good!"
+    fi
+  fi
+  if [ -z "$MPDSERVER" ]; then __running mpd || printf_exit "1" "1" "Failed to start mpd"; fi
+  sleep 3
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+startDaemon() {
+  if [ "$(ps -ux | grep 'mpd-notify run' | grep -v ' grep ' | wc -l)" -gt 2 ]; then
+    printf_exit "2" "1" "ERROR: $daemonName is already running."
+  else
+    printf_green " *Starting $daemonName."
+    setupDaemon
+    echo "$myPid" >"$pidFile"
+    log '*** '"$(date +"%Y-%m-%d %H:%M")"": Starting up $daemonName."
+    log '*** '"connected to $MPDSERVER"
+    notifications "MPD" "Connected to $MPDSERVER\n$(__mpc status)"
+    loop
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+stopDaemon() {
+  local success_msg="Stopping notifications"
+  local error_msg="ERROR: $daemonName is not running."
+  if checkDaemon; then
+    echo "Stopping $daemonName"
+    log '*** '"$(date +"%Y-%m-%d %H:%M")"": $daemonName stopped."
+    for pid in $oldPid $(ps -ux | grep 'mpd-notify run' | grep -v ' grep ' | awk '{print $2}'); do
+      kill -s 15 "$pid" &>/dev/null
+    done
+    __rm_rf "$pidFile"
+    notifications "MPD" "$success_msg"
+  else
+    printf_exit "1" "1" "$error_msg"
+    notifications "MPD" "$error_msg"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+statusDaemon() {
+  local curPid
+  curPid="$(ps -ux | grep -v "$myPid" | grep 'mpd-notify run' | grep -v ' grep ' | awk '{print $2}' | head -n 1)"
+  if checkDaemon; then
+    notifications "MPD" "Connected to $MPDSERVER\n$(__mpc status)"
+    export MPD_NOTIFY_STATUS="running"
+    printf_return "2" "0" "$daemonName is running: $curPid."
+  else
+    export MPD_NOTIFY_STATUS="stopped"
+    printf_return "1" "1" "$daemonName is not running."
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+restartDaemon() {
+  if checkDaemon; then
+    stopDaemon
+    $APPNAME run
+  else
+    $APPNAME run
+  fi
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+checkDaemon() {
+  local exitCode
+  if [[ "$(__getpid)" = 0 ]]; then
+    exitCode=0
+  else
+    exitCode=1
+  fi
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+loop() {
+  # Just get the song title and artist.
+  currentSong=$(__devnull2 __mpc)
+  currTitleArtist="$(__devnull2 __mpc | head -n 1)"
+  # Via mpc call and awk, get the status of mpd. For some reason, comparing the two as strings would not work. Converting their status to integers and comparing those, does.
+  if [[ $(echo "$currentSong" | awk '/\[(paused|playing)\]/ {print $1}') == "[playing]" ]]; then
+    curStatus=1
+  elif [[ $(echo "$currentSong" | awk '/\[(paused|playing)\]/ {print $1}') == "[paused]" ]]; then
+    curStatus=0
+  fi
+  curVol=$(echo "$currentSong" | grep -o -E "volume.+?%")
+  # zzz
+  sleep 1
+  newSong=$(__devnull2 __mpc)
+  newTitleArtist="$(__devnull2 __mpc | head -n 1)"
+  if [[ $(echo "$newSong" | awk '/\[(paused|playing)\]/ {print $1}') == "[playing]" ]]; then
+    newStatus=1
+  elif [[ $(echo "$newSong" | awk '/\[(paused|playing)\]/ {print $1}') == "[paused]" ]]; then
+    newStatus=0
+  fi
+  newVol=$(echo "$newSong" | grep -o -E "volume.+?%")
+  # Get the path of the currently playing song as well as the cover.
+  albumPath=$(getFile | sed -r 's/\/[^/]*$//')"/"
+  albumPath="$(__devnull2 __mpc -f %file% | head -n 1)"
+  notifyStatus
+  notifySong
+  notifyVolume
+  loop
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__toggle() {
+  checkDaemon && status="running" || status="stopped"
+  [[ "$status" = "stopped" ]] && action=start || action=stop
+  if [ "$1" = "--ask" ]; then
+    [ "$status" = "stopped" ] && echo "off" && true || { echo "on" && false; }
+    return $?
+  fi
+  if [ -n "${1}" ]; then
+    if [ "$status" = "stopped" ]; then
+      $APPNAME run
+    else
+      stopDaemon
+    fi
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__term() {
+  trap '$APPNAME term' SIGINT
+  while :; do
+    # show menu
+    checkDaemon
+    __toggle --ask
+    clear
+    shift 1
+    printf_newline "\n\n\n\n"
+    printf_head "mpd-notify Menu"
+    printf_yellow "Current status: $status"
+    printf_green "a. Start"
+    printf_green "b. Stop"
+    printf_green "c. Restart"
+    printf_green "d. Status"
+    printf_green "e. Toggle $action"
+    printf_green "z. to quit"
+    printf_green "---------------------------------"
+    printf_read_question_nt "6" "Enter your choice [a-z] : " "1" "main"
+    printf_newline
+
+    # take action
+    case "$main" in
+    a) $APPNAME run &>/dev/null ;;
+    b) stopDaemon &>/dev/null ;;
+    c) restartDaemon &>/dev/null ;;
+    d)
+      clear
+      printf_newline '\n\n'
+      statusDaemon
+      printf_pause
+      ;;
+    e)
+      $APPNAME toggle run &>/dev/null
+      ;;
+    '\E' | $'\e' | z) clear && break ;;
+    *) shift ;;
+    esac
+    clear
+    printf_newline "\n\n"
+    printf_counter "2" "3" "Re-loading menu in"
+  done
+  clear
+  exit $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined variables/import external variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application Folders
+MPD_NOTIFY_CONFIG_FILE="${MPD_NOTIFY_CONFIG_FILE:-settings.conf}"
+MPD_NOTIFY_CONFIG_DIR="${MPD_NOTIFY_CONFIG_DIR:-$HOME/.config/myscripts/mpd-notify}"
+MPD_NOTIFY_CONFIG_BACKUP_DIR="${MPD_NOTIFY_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/mpd-notify/backups}"
+MPD_NOTIFY_LOG_DIR="${MPD_NOTIFY_LOG_DIR:-$HOME/.local/log/mpd-notify}"
+MPD_NOTIFY_TEMP_DIR="${MPD_NOTIFY_TEMP_DIR:-$HOME/.local/tmp/system_scripts/mpd-notify}"
+MPD_NOTIFY_CACHE_DIR="${MPD_NOTIFY_CACHE_DIR:-$HOME/.cache/mpd-notify}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+MPD_NOTIFY_OUTPUT_COLOR_1="${MPD_NOTIFY_OUTPUT_COLOR_1:-33}"
+MPD_NOTIFY_OUTPUT_COLOR_2="${MPD_NOTIFY_OUTPUT_COLOR_2:-5}"
+MPD_NOTIFY_OUTPUT_COLOR_GOOD="${MPD_NOTIFY_OUTPUT_COLOR_GOOD:-2}"
+MPD_NOTIFY_OUTPUT_COLOR_ERROR="${MPD_NOTIFY_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+MPD_NOTIFY_NOTIFY_ENABLED="${MPD_NOTIFY_NOTIFY_ENABLED:-yes}"
+MPD_NOTIFY_GOOD_NAME="${MPD_NOTIFY_GOOD_NAME:-Great:}"
+MPD_NOTIFY_ERROR_NAME="${MPD_NOTIFY_ERROR_NAME:-Error:}"
+MPD_NOTIFY_GOOD_MESSAGE="${MPD_NOTIFY_GOOD_MESSAGE:-No errors reported}"
+MPD_NOTIFY_ERROR_MESSAGE="${MPD_NOTIFY_ERROR_MESSAGE:-Errors were reported}"
+MPD_NOTIFY_NOTIFY_CLIENT_NAME="${MPD_NOTIFY_NOTIFY_CLIENT_NAME:-$APPNAME}"
+MPD_NOTIFY_NOTIFY_CLIENT_ICON="${MPD_NOTIFY_NOTIFY_CLIENT_ICON:-notification-new}"
+MPD_NOTIFY_NOTIFY_CLIENT_URGENCY="${MPD_NOTIFY_NOTIFY_CLIENT_URGENCY:-normal}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional Variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$MPD_NOTIFY_CONFIG_DIR/$MPD_NOTIFY_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$MPD_NOTIFY_CONFIG_DIR/$MPD_NOTIFY_CONFIG_FILE" ] && . "$MPD_NOTIFY_CONFIG_DIR/$MPD_NOTIFY_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$MPD_NOTIFY_LOG_DIR" ] || mkdir -p "$MPD_NOTIFY_LOG_DIR" |& __devnull
+[ -d "$MPD_NOTIFY_TEMP_DIR" ] || mkdir -p "$MPD_NOTIFY_TEMP_DIR" |& __devnull
+[ -d "$MPD_NOTIFY_CACHE_DIR" ] || mkdir -p "$MPD_NOTIFY_CACHE_DIR" |& __devnull
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+MPD_NOTIFY_TEMP_FILE="${MPD_NOTIFY_TEMP_FILE:-$(mktemp $MPD_NOTIFY_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap '__trap_exit' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+__notifications() {
+  __cmd_exists notifications || return
+  [ "$MPD_NOTIFY_NOTIFY_ENABLED" = "yes" ] || return
+  [ "$SEND_NOTIFICATION" = "no" ] && return
+  (
+    export SCRIPT_OPTS="" _DEBUG=""
+    export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$MPD_NOTIFY_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$MPD_NOTIFY_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$MPD_NOTIFY_NOTIFY_CLIENT_ICON}"
+    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$MPD_NOTIFY_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$MPD_NOTIFY_NOTIFY_CLIENT_URGENCY}"
+    notifications "$@"
+  ) |& __devnull &
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set custom actions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Argument/Option settings
+SETARGS=("$@")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SHORTOPTS=""
+SHORTOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
+LONGOPTS+=",term,ask"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ARRAY="term toggle restart status stop stop run enable disable"
+ARRAY+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LIST=""
+LIST+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case "$1" in
+  --raw)
+    shift 1
+    export SHOW_RAW="true"
+    NC=""
+    RESET=""
+    BLACK=""
+    RED=""
+    GREEN=""
+    YELLOW=""
+    BLUE=""
+    PURPLE=""
+    CYAN=""
+    WHITE=""
+    ORANGE=""
+    LIGHTRED=""
+    BG_GREEN=""
+    BG_RED=""
+    ICON_INFO="[ info ]"
+    ICON_GOOD="[ ok ]"
+    ICON_WARN="[ warn ]"
+    ICON_ERROR="[ error ]"
+    ICON_QUESTION="[ ? ]"
+    printf_column() { tee | grep '^'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    ;;
+  --debug)
+    shift 1
+    set -xo pipefail
+    export SCRIPT_OPTS="--debug"
+    export _DEBUG="on"
+    __devnull() { tee || return 1; }
+    __devnull2() { eval "$@" |& tee -p || return 1; }
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
+    ;;
+  --options)
+    shift 1
+    printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' 4
+    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' 4
+    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
+    [ -z "$LIST" ] || __list_options "LIST Options" "${LIST}" ',' '' 4
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  --silent)
+    shift 1
+    MPD_NOTIFY_SILENT="true"
+    ;;
+  --dir)
+    CWD_IS_SET="TRUE"
+    MPD_NOTIFY_CWD="$2"
+    [ -d "$MPD_NOTIFY_CWD" ] || mkdir -p "$MPD_NOTIFY_CWD" |& __devnull
+    shift 2
+    ;;
+  --term)
+    shift 1
+    TERMINAL_APP="TRUE"
+    ;;
+  --ask)
+    shift 1
+    MPD_NOTIFY_STATUS="ask"
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get directory from args
+# set -- "$@"
+# for arg in "$@"; do
+# if [ -d "$arg" ]; then
+# MPD_NOTIFY_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
+# elif [ -f "$arg" ]; then
+# MPD_NOTIFY_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
+# else
+# SET_NEW_ARGS+=("$arg")
+# fi
+# done
+# set -- "${SET_NEW_ARGS[@]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set directory to first argument
+# [ -d "$1" ] && __is_an_option "$1" && MPD_NOTIFY_CWD="$1" && shift 1 || MPD_NOTIFY_CWD="${MPD_NOTIFY_CWD:-$PWD}"
+MPD_NOTIFY_CWD="$(realpath "${MPD_NOTIFY_CWD:-$PWD}" 2>/dev/null)"
+# if [ -d "$MPD_NOTIFY_CWD" ] && cd "$MPD_NOTIFY_CWD"; then
+# if [ "$MPD_NOTIFY_SILENT" != "true" ] && [ "$CWD_SILENCE" != "true" ]; then
+# printf_cyan "Setting working dir to $MPD_NOTIFY_CWD"
+# fi
+# else
+# printf_exit "💔 $MPD_NOTIFY_CWD does not exist 💔"
+# fi
+export MPD_NOTIFY_CWD
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set actions based on variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+#cmd_exists --error --ask bash || exit 3 # exit 3 if not found
+#am_i_online --error || exit 4           # exit 4 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+__initialize_app
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute commands
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+case "$1" in
+enable)
+  shift 1
+  __autostart
+  exit $?
+  ;;
+disable)
+  shift 1
+  __autostart_disable
+  exit $?
+  ;;
+start)
+  shift 1
+  $APPNAME run
+  ;;
+run)
+  shift 1
+  startDaemon &
+  ;;
+stop)
+  shift 1
+  stopDaemon
+  ;;
+status)
+  shift 1
+  if [[ "$MPD_NOTIFY_STATUS" = "ask" ]] || [ "$1" = "ask" ]; then
+    shift $#
+    if checkDaemon; then
+      echo "running"
+    else
+      echo "stopped"
+    fi
+  else
+    statusDaemon
+  fi
+  exit $?
+  ;;
+restart)
+  shift 1
+  restartDaemon
+  ;;
+toggle)
+  shift 1
+  __toggle "${1:-run}"
+  ;;
+term)
+  shift 1
+  __term
+  ;;
+*)
+  if [ -n "$TERMINAL_APP" ] && [[ -z "$status" ]]; then __term; fi
+  checkDaemon && status="running" || status="stopped"
+  printf_yellow "Current status: $status"
+  printf_cyan "Error: usage $APPNAME { start | stop | restart | status }"
+  printf_pause
+  ;;
+esac
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set exit code
+exitCode="${exitCode:-0}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-0}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# ex: ts=2 sw=2 et filetype=sh

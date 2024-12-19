@@ -1,0 +1,2952 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version           :  202409141403-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  jason@casjaysdev.pro
+# @@License          :  WTFPL
+# @@ReadME           :  setupmgr --help
+# @@Copyright        :  Copyright: (c) 2024 Jason Hempstead, Casjays Developments
+# @@Created          :  Saturday, Sep 14, 2024 14:03 EDT
+# @@File             :  setupmgr
+# @@Description      :
+# @@Changelog        :  New script
+# @@TODO             :  Better documentation
+# @@Other            :
+# @@Resource         :
+# @@Terminal App     :  no
+# @@sudo/root        :  no
+# @@Template         :  bash/system
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="$(basename -- "$0" 2>/dev/null)"
+VERSION="202409141403-git"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${RUN_USER:-$USER}"
+USER_HOME="${USER_HOME:-$HOME}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+SETUPMGR_REQUIRE_SUDO="${SETUPMGR_REQUIRE_SUDO:-no}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Reopen in a terminal
+#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set script title
+#CASJAYS_DEV_TILE_FORMAT="${USER}@${HOSTNAME}:${PWD//$HOME/\~} - $APPNAME"
+#CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}"
+#[ -z "$CASJAYSDEV_TITLE_SET" ] && printf '\033]2│;%s\033\\' "$CASJAYS_DEV_TILE_FORMAT" && CASJAYSDEV_TITLE_SET="$APPNAME"
+export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}" CASJAYSDEV_TITLE_SET
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initial debugging
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# pipes fail
+set -o pipefail
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import functions
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+  . "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  exit 1
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Options are: *_install
+# system user desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+user_install && __options "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Send all output to /dev/null
+__devnull() {
+  tee &>/dev/null && SETUPMGR_EXIT_STATUS=0 || SETUPMGR_EXIT_STATUS=1
+  return ${SETUPMGR_EXIT_STATUS:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# Send errors to /dev/null
+__devnull2() {
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && SETUPMGR_EXIT_STATUS=0 || SETUPMGR_EXIT_STATUS=1
+  return ${SETUPMGR_EXIT_STATUS:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# See if the executable exists
+__cmd_exists() {
+  SETUPMGR_EXIT_STATUS=0
+  [ -n "$1" ] && local SETUPMGR_EXIT_STATUS="" || return 0
+  for cmd in "$@"; do
+    builtin command -v "$cmd" &>/dev/null && SETUPMGR_EXIT_STATUS+=$(($SETUPMGR_EXIT_STATUS + 0)) || SETUPMGR_EXIT_STATUS+=$(($SETUPMGR_EXIT_STATUS + 1))
+  done
+  [ $SETUPMGR_EXIT_STATUS -eq 0 ] || SETUPMGR_EXIT_STATUS=3
+  return ${SETUPMGR_EXIT_STATUS:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for a valid internet connection
+__am_i_online() {
+  local SETUPMGR_EXIT_STATUS=0
+  curl -q -LSsfI --max-time 1 --retry 0 "${1:-https://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || SETUPMGR_EXIT_STATUS=4
+  return ${SETUPMGR_EXIT_STATUS:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# colorization
+if [ "$SHOW_RAW" = "true" ]; then
+  NC=""
+  RESET=""
+  BLACK=""
+  RED=""
+  GREEN=""
+  YELLOW=""
+  BLUE=""
+  PURPLE=""
+  CYAN=""
+  WHITE=""
+  ORANGE=""
+  LIGHTRED=""
+  BG_GREEN=""
+  BG_RED=""
+  ICON_INFO="[ info ]"
+  ICON_GOOD="[ ok ]"
+  ICON_WARN="[ warn ]"
+  ICON_ERROR="[ error ]"
+  ICON_QUESTION="[ ? ]"
+  printf_column() { tee | grep '^'; }
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional printf_ colors
+__printf_head() { printf_blue "$1"; }
+__printf_opts() { printf_purple "$1"; }
+__printf_line() { printf_cyan "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# output version
+__version() { printf_cyan "$VERSION"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# list options
+__list_options() {
+  printf_color "$1: " "$5"
+  echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g' | tr '\n' ' '
+  printf_newline
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create the config file
+__gen_config() {
+  local NOTIFY_CLIENT_NAME="$APPNAME"
+  if [ "$INIT_CONFIG" != "TRUE" ]; then
+    printf_blue "Generating the config file in"
+    printf_cyan "$SETUPMGR_CONFIG_DIR/$SETUPMGR_CONFIG_FILE"
+  fi
+  [ -d "$SETUPMGR_CONFIG_DIR" ] || mkdir -p "$SETUPMGR_CONFIG_DIR"
+  [ -d "$SETUPMGR_CONFIG_BACKUP_DIR" ] || mkdir -p "$SETUPMGR_CONFIG_BACKUP_DIR"
+  [ -f "$SETUPMGR_CONFIG_DIR/$SETUPMGR_CONFIG_FILE" ] &&
+    cp -Rf "$SETUPMGR_CONFIG_DIR/$SETUPMGR_CONFIG_FILE" "$SETUPMGR_CONFIG_BACKUP_DIR/$SETUPMGR_CONFIG_FILE.$$"
+  cat <<EOF >"$SETUPMGR_CONFIG_DIR/$SETUPMGR_CONFIG_FILE"
+# Settings for setupmgr
+SETUPMGER_DEFAULT_USER_BIN_DIR="${SETUPMGER_DEFAULT_USER_BIN_DIR:-}"
+SETUPMGER_DEFAULT_SYSTEM_BIN_DIR="${SETUPMGER_DEFAULT_SYSTEM_BIN_DIR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# default npm packages
+NODE_NPM_PACKAGES="${NODE_NPM_PACKAGES:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# LUA settings
+LUA_JIT_VERSION="${LUA_JIT_VERSION:-}"
+LUA_DEFAULT_VERSION="${LUA_DEFAULT_VERSION:-}"
+LUA_ROCKS_DEFAULT_VERSION="${LUA_ROCKS_DEFAULT_VERSION:-}"
+LUAROCKS_BIN="${LUAROCKS_BIN:-}"
+LUAVER_HOME="${LUAVER_HOME:-}"
+LUAVER_GIT_REPO="${LUAVER_GIT_REPO:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# ASDF Settings
+ASDF_DIR="${ASDF_DIR:-}"
+ASDF_DATA_DIR="${ASDF_DATA_DIR:-}"
+ASDF_GITREPO="${ASDF_GITREPO:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# deno settings
+DENO_BIN_DIR="${DENO_BIN_DIR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# bun settings
+BUN_BIN_DIR="${BUN_BIN_DIR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Distrobox settings
+DISTBOX_BIN_DIR="${DISTBOX_BIN_DIR:-}"
+DBX_HOME="${DBX_HOME:-}"
+DISTROBOX_HOME="${DISTROBOX_HOME:-}"
+DISTROBOX_SCRIPT_URL="${DISTROBOX_SCRIPT_URL:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# dotnet settings
+DOTNET_BIN_DIR="${DOTNET_BIN_DIR:-}"
+DOTNET_ROOT="${DOTNET_ROOT:-}"
+DOTNET_SCRIPT_URL="${DOTNET_SCRIPT_URL:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# vfox settings
+VFOX_BIN_DIR="${VFOX_BIN_DIR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# gvm settings
+GVM_BIN_DIR="${GVM_BIN_DIR:-}"
+GVM_ROOT="${GVM_ROOT:-}"
+GVM_GITREPO="${GVM_GITREPO:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# vagrant settings
+VAGRANT_BIN_DIR="${VAGRANT_BIN_DIR:-}"
+VAGRANT_HOME="${VAGRANT_HOME:-}"
+VAGRANT_DEFAULT_PROVIDER="${VAGRANT_DEFAULT_PROVIDER:-}"
+VAGRANT_DEFAULT_BOX="${VAGRANT_DEFAULT_BOX:-}"
+VAGRANT_CLOUD_TOKEN="${VAGRANT_CLOUD_TOKEN:-}"
+VAGRANT_CLOUD_USERNAME="${VAGRANT_CLOUD_USERNAME:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# fnm settings
+FNM_BIN="${FNM_BIN:-}"
+FNM_DIR="${FNM_DIR:-}"
+FNM_NODE_VERSION="${FNM_NODE_VERSION:-}"
+FNM_INSTALL_SCRIPT="${FNM_INSTALL_SCRIPT:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# nvm settings
+NVM_NODE_VERSION="${NVM_NODE_VERSION:-}"
+NVM_BIN="${NVM_BIN:-}"
+NVM_DIR="${NVM_DIR:-}"
+NVM_GITREPO="${NVM_GITREPO:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# powershell settings
+POWERSHELL_BIN_DIR="${POWERSHELL_BIN_DIR:-}"
+POWERSHELL_INSTALL_DIR="${POWERSHELL_INSTALL_DIR:-}"
+POWERSHELL_TEMP_DIR="${POWERSHELL_TEMP_DIR:-}"
+POWERSHELL_LATEST_URL="${POWERSHELL_LATEST_URL:-}"
+POWERSHELL_OMP_GITREPO="${POWERSHELL_OMP_GITREPO:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# jekyll settings
+JEKYLL_VERSION="${JEKYLL_VERSION:-}"
+JEKYLL_RUBY_VERSION="${JEKYLL_RUBY_VERSION:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# rvm settings
+RVM_BIN_DIR="${RVM_BIN_DIR:-}"
+rvm_path="${rvm_path:-}"
+RVM_GITREPO="${RVM_GITREPO:-}"
+RVM_RUBY_VERSION="${RVM_RUBY_VERSION:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# rbenv settings
+RBENV_BIN_DIR="${RBENV_BIN_DIR:-}"
+RBENV_ROOT="${RBENV_ROOT:-}"
+RBENV_GITREPO="${RBENV_GITREPO:-}"
+RBENV__RUBY_VERSION="${RBENV__RUBY_VERSION:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# kubectl settings
+KUBECTL_BIN_DIR="${KUBECTL_BIN_DIR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# minikube settings
+MINIKUBE_BIN_DIR="${MINIKUBE_BIN_DIR:-}"
+MINIKUBE_MEMORY="${MINIKUBE_MEMORY:-}"
+MINIKUBE_DRIVER="${MINIKUBE_DRIVER:-}"
+MINIKUBE_HOME="${MINIKUBE_HOME:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# direnv settings
+DIRENV_BIN_DIR="${DIRENV_BIN_DIR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# incus settings
+INCUS_BIN_DIR="${INCUS_BIN_DIR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# helm settings
+HELM_BIN_DIR="${HELM_BIN_DIR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# kind settings
+KIND_BIN_DIR="${KIND_BIN_DIR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# packer settings
+PACKER_VERSION="${PACKER_VERSION:-}"
+PACKER_BIN_DIR="${PACKER_BIN_DIR:-}"
+PACKER_PLUGINS="${PACKER_PLUGINS:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# gohttpserver settings
+GOHTTPSERVER_BIN_DIR="${GOHTTPSERVER_BIN_DIR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# casaOS settings
+CASAOS_SCRIPT_URL="${CASAOS_SCRIPT_URL:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# coolify settings
+COOLIFY_SCRIPT_URL="${COOLIFY_SCRIPT_URL:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+GO_VERSION="${GO_VERSION:-}"
+GO_BIN_DIR="${GO_BIN_DIR:-}"
+GO_INSTALL_DIR="${GO_INSTALL_DIR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+OPENTOFU_BIN_DIR="${OPENTOFU_BIN_DIR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+WEBHOOKD_BIN_DIR="${WEBHOOKD_BIN_DIR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ZED_BIN_DIR="${ZED_BIN_DIR:-}"
+ZED_INSTALL_DIR="${ZED_INSTALL_DIR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+CODER_BIN_DIR="${CODER_BIN_DIR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+SETUPMGR_OUTPUT_COLOR_1="${SETUPMGR_OUTPUT_COLOR_1:-}"
+SETUPMGR_OUTPUT_COLOR_2="${SETUPMGR_OUTPUT_COLOR_2:-}"
+SETUPMGR_OUTPUT_COLOR_GOOD="${SETUPMGR_OUTPUT_COLOR_GOOD:-}"
+SETUPMGR_OUTPUT_COLOR_ERROR="${SETUPMGR_OUTPUT_COLOR_ERROR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+SETUPMGR_SYSTEM_NOTIFY_ENABLED="${SETUPMGR_SYSTEM_NOTIFY_ENABLED:-}"
+SETUPMGR_GOOD_NAME="${SETUPMGR_GOOD_NAME:-}"
+SETUPMGR_ERROR_NAME="${SETUPMGR_ERROR_NAME:-}"
+SETUPMGR_GOOD_MESSAGE="${SETUPMGR_GOOD_MESSAGE:-}"
+SETUPMGR_ERROR_MESSAGE="${SETUPMGR_ERROR_MESSAGE:-}"
+SETUPMGR_NOTIFY_CLIENT_NAME="${SETUPMGR_NOTIFY_CLIENT_NAME:-}"
+SETUPMGR_NOTIFY_CLIENT_ICON="${SETUPMGR_NOTIFY_CLIENT_ICON:-}"
+SETUPMGR_NOTIFY_CLIENT_URGENCY="${SETUPMGR_NOTIFY_CLIENT_URGENCY:-}"
+
+EOF
+  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
+  if [ -f "$SETUPMGR_CONFIG_DIR/$SETUPMGR_CONFIG_FILE" ]; then
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
+    . "$SETUPMGR_CONFIG_DIR/$SETUPMGR_CONFIG_FILE"
+    SETUPMGR_EXIT_STATUS=0
+  else
+    printf_red "Failed to create the config file"
+    SETUPMGR_EXIT_STATUS=1
+  fi
+  return ${SETUPMGR_EXIT_STATUS:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Help function - Align to 50
+__help() {
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "setupmgr:  - $VERSION"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Usage: setupmgr [options] [commands]"
+  __printf_line "lua         - "
+  __printf_line "asdf        - "
+  __printf_line "deno        - "
+  __printf_line "distrobox   - "
+  __printf_line "gvm         - "
+  __printf_line "vagrant     - "
+  __printf_line "fnm         - "
+  __printf_line "nvm         - "
+  __printf_line "asdf   - "
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Other Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--help                          - Shows this message"
+  __printf_line "--config                        - Generate user config file"
+  __printf_line "--version                       - Show script version"
+  __printf_line "--options                       - Shows all available options"
+  __printf_line "--debug                         - Enables script debugging"
+  __printf_line "--raw                           - Removes all formatting on output"
+  __printf_line "--no                            - No options"
+  __printf_line "--yes                           - Yes options"
+  __printf_line ""
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__grep() { grep "$@" 2>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# check if arg is a builtin option
+__is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0; fi; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 1 || return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep -sh "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# # Get sudo password
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run sudo
+__sudorun() {
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo
+__can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User can run sudo
+__sudoif() {
+  __user_is_root && return 0
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run command as root
+requiresudo() {
+  if [ "$SETUPMGR_REQUIRE_SUDO" = "yes" ] && [ -z "$SETUPMGR_REQUIRE_SUDO_RUN" ]; then
+    export SETUPMGR_REQUIRE_SUDO="no"
+    export SETUPMGR_REQUIRE_SUDO_RUN="true"
+    __sudo "$@"
+    exit $?
+  else
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  CMD="${1:-echo}" && shift 1
+  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  [ "$(basename -- "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  if __sudoif; then
+    export PATH="$PATH"
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    SETUPMGR_EXIT_STATUS=$?
+  else
+    printf '%s\n' "This requires root to run"
+    SETUPMGR_EXIT_STATUS=1
+  fi
+  return ${SETUPMGR_EXIT_STATUS:-0}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__how_long_did_it_take() {
+  local retprev=$?
+  local retval=${1:-$retprev}
+  __cmd_exists bc || return $retval
+  [ -n "$SETUPMGR_START_TIMER" ] || return 0
+  local stop_time="$(date +%s.%N)"
+  local dt=$(echo "$stop_time - $SETUPMGR_START_TIMER" | bc)
+  local dd=$(echo "$dt/86400" | bc)
+  local dt2=$(echo "$dt-86400*$dd" | bc)
+  local dh=$(echo "$dt2/3600" | bc)
+  local dt3=$(echo "$dt2-3600*$dh" | bc)
+  local dm=$(echo "$dt3/60" | bc)
+  local ds=$(echo "$dt3-60*$dm" | bc)
+  printf_purple "$(LC_NUMERIC=C printf "Total runtime: %d Days, %02d Hours, %02d Minutes, %02.4f Seconds\n" $dd $dh $dm $ds)"
+  return $retval
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  SETUPMGR_EXIT_STATUS=${SETUPMGR_EXIT_STATUS:-0}
+  [ -n "$SETUPMGR_TEMP_FILE" ] && [ -f "$SETUPMGR_TEMP_FILE" ] && rm -Rf "$SETUPMGR_TEMP_FILE" &>/dev/null
+  #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD//$HOME/\~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $SETUPMGR_EXIT_STATUS
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Create a --no-* options function
+__options_function_no() {
+  local options="${1//=*/}"
+  local argument="${1//*=/}"
+  echo "$options"
+  case "$options" in
+  *-tee) __output_status() { tee; } && shift ;;
+  *) echo "${argument:-No argument provided}" && shift ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Create a --yes-* options function
+__options_function_yes() {
+  local options="${1//=*/}"
+  local argument="${1//*=/}"
+  case "$options" in
+  *) echo "${argument:-No argument provided}" && shift ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+__notifications() {
+  __cmd_exists notifications || return
+  [ "$SETUPMGR_SYSTEM_NOTIFY_ENABLED" = "yes" ] || return
+  [ "$SEND_NOTIFICATION" = "no" ] && return
+  (
+    export SCRIPT_OPTS="" _DEBUG=""
+    export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$SETUPMGR_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$SETUPMGR_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$SETUPMGR_NOTIFY_CLIENT_ICON}"
+    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$SETUPMGR_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$SETUPMGR_NOTIFY_CLIENT_URGENCY}"
+    notifications "$@"
+  ) |& __devnull &
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__notify_remote() {
+  local cmd="$(echo "$SETUPMGR_REMOTE_NOTIFY_COMMAND" | awk -F ' ' '{print $1}')"
+  if [ "$SETUPMGR_REMOTE_NOTIFY_ENABLED" = "yes" ]; then
+    if [ -n "$(command -v "$cmd")" ]; then
+      eval $SETUPMGR_REMOTE_NOTIFY_COMMAND "$@"
+    fi
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap '__trap_exit' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined functions
+__output_status() { tee /dev/null &>/dev/null; }
+__curl() { curl -q -LSsf "$@" 2>/dev/null || return 1; }
+__get_releases() { __curl "$1" | jq -r '.[].name' | grep -vE 'beta|dev' | sort -rV | head -n1 || return 1; }
+__is_dir_empty() { if [ "$(find "$1" -maxdepth 1 -type f 2>/dev/null | grep -v '^$' | wc -l)" != 0 ]; then return 1; fi; }
+__dir_has_one_folder() { if [ "$(find "$1" -maxdepth 1 -type d 2>/dev/null | grep -v '^$' | wc -l)" != 1 ]; then return 1; fi; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__rm() { [ -n "$1" ] && [ -e "$1" ] && \rm -Rf "$@"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__check_for_vulkan_support() { __cmd_exists vulkaninfo && { vulkaninfo 2>/dev/null | grep 'physicalDevices: count = ' | awk -F '=' '{print $2}' | sed 's| ||g' | grep -qv '0' || return 2; } || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__git_update_repo() { (git -C "$1" reset --hard && git -C "$1" fetch origin && git -C "$1" pull && git -C "$1" reset --hard) &>/dev/null || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__git_clone_repo() { git clone "$1" "$2" -q &>/dev/null || return 2; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__install_to_system_bin() {
+  local basename="$(__basename "$1")"
+  local sysBinDir="${SETUPMGER_DEFAULT_SYSTEM_BIN_DIR:-/usr/local/bin}"
+  if [ -f "$1" ] && __can_i_sudo; then __sudo cp -Rf "$1" "$sysBinDir/$basename" && __sudo chmod -Rf 777 "$sysBinDir/$basename"; fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gen_desktopfile() {
+  local exitCode=0
+  local desktop_file="$HOME/.local/share/applications/$1.desktop"
+  mkdir -p "$HOME/.local/share/applications"
+  [ -f "$desktop_file" ] && return
+  cat <<EOF | tee "$desktop_file" &>/dev/null
+[Desktop Entry]
+Name=$1
+Exec=$2
+Type=Application
+Icon=xfce4
+
+EOF
+  if [ -f "$desktop_file" ]; then
+    chmod 755 "$desktop_file"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# url options
+__download_and_execute() {
+  local exitCode=0
+  local url="$1" name="$(__basename "$1")" && shift 1
+  [ "$1" = "sudo" ] && local use_sudo="yes" && shift 1
+  SETUPMGR_TEMP_EXECUTE_FILE=$SETUPMGR_TEMP_DIR/$name
+  if [ -n "$PACKAGE_TMP_DIR" ] && [ -d "$PACKAGE_TMP_DIR" ]; then
+    __rm "$PACKAGE_TMP_DIR"/*
+  fi
+  [ -n "$SETUPMGR_TEMP_EXECUTE_FILE" ] && { __rm "$SETUPMGR_TEMP_EXECUTE_FILE" || true; } || return
+  if [ "$use_sudo" = "yes" ]; then
+    shift 1
+    __curl "$url" | sudo -- bash -s -- "$@" 2>/dev/null || exitCode=1
+  else
+    __curl "$url" | bash -s -- "$@" 2>/dev/null || exitCode=1
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# url tmpFile installDir files
+__download_extract_all() {
+  local exitCode=0
+  local url="$1" name="$(__basename "$1")" && shift 1
+  SETUPMGR_TEMP_EXTRACT_FILE=$SETUPMGR_TEMP_DIR/$name
+  if [ -n "$PACKAGE_TMP_DIR" ] && [ -d "$PACKAGE_TMP_DIR" ]; then
+    __rm "$PACKAGE_TMP_DIR"/*
+  fi
+  [ -d "$SETUPMGR_TEMP_DIR" ] || mkdir -p "$SETUPMGR_TEMP_DIR"
+  [ -n "$SETUPMGR_TEMP_EXTRACT_FILE" ] && { __rm "$SETUPMGR_TEMP_EXTRACT_FILE" || true; } || return
+  if __curl "$url" -o "$SETUPMGR_TEMP_EXTRACT_FILE"; then
+    __extract "$SETUPMGR_TEMP_EXTRACT_FILE" "--all" "$@" || exitCode=1
+  else
+    exitCode=1
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# url tmpFile installDir files
+__download_extract_move() {
+  local exitCode=0
+  local url="$1" name="$(__basename "$1")" && shift 1
+  SETUPMGR_TEMP_EXTRACT_FILE=$SETUPMGR_TEMP_DIR/$name
+  if [ -n "$PACKAGE_TMP_DIR" ] && [ -d "$PACKAGE_TMP_DIR" ]; then
+    __rm "$PACKAGE_TMP_DIR"/*
+  fi
+  [ -d "$SETUPMGR_TEMP_DIR" ] || mkdir -p "$SETUPMGR_TEMP_DIR"
+  [ -n "$SETUPMGR_TEMP_EXTRACT_FILE" ] && { __rm "$SETUPMGR_TEMP_EXTRACT_FILE" || true; } || return
+  if __curl "$url" -o "$SETUPMGR_TEMP_EXTRACT_FILE"; then
+    __extract "$SETUPMGR_TEMP_EXTRACT_FILE" "--files" "$@" || exitCode=1
+  else
+    exitCode=1
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# url installDir name binDir/name
+__download_extract_install() {
+  local exitCode=0
+  local url="$1" name="$(__basename "$1")" && shift 1
+  SETUPMGR_TEMP_EXTRACT_FILE=$SETUPMGR_TEMP_DIR/$name
+  if [ -n "$PACKAGE_TMP_DIR" ] && [ -d "$PACKAGE_TMP_DIR" ]; then
+    __rm "$PACKAGE_TMP_DIR"/*
+  fi
+  [ -d "$SETUPMGR_TEMP_DIR" ] || mkdir -p "$SETUPMGR_TEMP_DIR"
+  [ -n "$SETUPMGR_TEMP_EXTRACT_FILE" ] && { __rm "$SETUPMGR_TEMP_EXTRACT_FILE" || true; } || return
+  [ -n "$url" ] || { printf_return "Can not get download link" && return 1; }
+  if __curl "$url" -o "$SETUPMGR_TEMP_EXTRACT_FILE"; then
+    __extract "$SETUPMGR_TEMP_EXTRACT_FILE" "--install" "$1" "$2" "$3" || exitCode=1
+  else
+    exitCode=1
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# url tmpFile tmpFile moveTo
+__download_and_move() {
+  local exitCode=0
+  local url="$1" name="$(__basename "$1")" && shift 1
+  [ -n "$url" ] && [ $# -gt 1 ] || return 1
+  SETUPMGR_TEMP_MOVE_FILE="$SETUPMGR_TEMP_DIR/$name"
+  [ -n "$SETUPMGR_TEMP_MOVE_FILE" ] || return
+  if [ -n "$PACKAGE_TMP_DIR" ] && [ -e "$PACKAGE_TMP_DIR" ]; then
+    __rm "$PACKAGE_TMP_DIR"
+  fi
+  [ -d "$SETUPMGR_TEMP_DIR" ] || mkdir -p "$SETUPMGR_TEMP_DIR"
+  [ -f "$SETUPMGR_TEMP_MOVE_FILE" ] && __rm "$SETUPMGR_TEMP_MOVE_FILE"
+  if __curl "$url" -o "$SETUPMGR_TEMP_MOVE_FILE"; then
+    mv -f "$SETUPMGR_TEMP_MOVE_FILE" "$2" && chmod +x "$2" && __rm "$SETUPMGR_TEMP_MOVE_FILE"
+    [ -x "$2" ] || exitCode=1
+  else
+    exitCode=1
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+_tar_extract() {
+  local tmpFile="$1"
+  local exitEXCode=0
+  if [ -f "$tmpFile" ]; then
+    case "$tmpFile" in
+    *.tar) tar xf "$tmpFile" -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || exitEXCode=1 ;;
+    *.tgz) tar xzf "$tmpFile" -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || exitEXCode=1 ;;
+    *.tbz2) tar xjf "$tmpFile" -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || exitEXCode=1 ;;
+    *.tar.gz) tar xzf "$tmpFile" -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || exitEXCode=1 ;;
+    *.tar.xz) tar xzf "$tmpFile" -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || exitEXCode=1 ;;
+    *.tar.bz2) tar xjf "$tmpFile" -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || exitEXCode=1 ;;
+    *) return ;;
+    esac
+  fi
+  __is_dir_empty "$PACKAGE_TMP_DIR" && exitEXCode=1
+  return $exitEXCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# tmpFile moveTo moveFrom
+__extract() {
+  local exitEXCode=0
+  local tmpFile="${1:-$tmpFile}" && shift 1
+  if mkdir -p "$PACKAGE_TMP_DIR" && builtin cd "$SETUPMGR_TEMP_DIR"; then
+    if [ -f "$tmpFile" ]; then
+      if [ "$extract_cmd" = "do_not_strip_components" ]; then
+        _tar_extract "$tmpFile" || exitEXCode=1
+      else
+        case "$tmpFile" in
+        *.tar) tar xf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" || exitEXCode=1 ;;
+        *.tgz) tar xzf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" || exitEXCode=1 ;;
+        *.tbz2) tar xjf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" || exitEXCode=1 ;;
+        *.tar.gz) tar xzf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" || exitEXCode=1 ;;
+        *.tar.xz) tar xzf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" || exitEXCode=1 ;;
+        *.tar.bz2) tar xjf "$tmpFile" --strip-components=1 -C "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || _tar_extract "$tmpFile" "$PACKAGE_TMP_DIR" || exitEXCode=1 ;;
+        *.gz) gunzip "$tmpFile" >/dev/null 2>&1 || exitEXCode=1 ;;
+        *.bz2) bunzip2 "$tmpFile" >/dev/null 2>&1 || exitEXCode=1 ;;
+        *.Z) uncompress "$tmpFile" >/dev/null 2>&1 || exitEXCode=1 ;;
+        *.zip) unzip "$tmpFile" -d "$PACKAGE_TMP_DIR" >/dev/null 2>&1 || exitEXCode=1 ;;
+        *) printf_red "$tmpFile is not a valid archive file" && exitEXCode=1 ;;
+        esac
+      fi
+      #if __is_dir_empty "$PACKAGE_TMP_DIR" || __dir_has_one_folder "$PACKAGE_TMP_DIR"; then
+      #  __rm "$PACKAGE_TMP_DIR"
+      #  _tar_extract "$tmpFile" || exitEXCode=1
+      #fi
+      if [ $exitEXCode = 0 ]; then
+        #[ -f "$tmpFile" ] && __rm "$tmpFile"
+        case "$1" in
+        --all)
+          shift 1
+          for file in "$PACKAGE_TMP_DIR"/*; do
+            if [ -x "$file" ]; then
+              local filename="$(__basename "$file")"
+              printf_purple "Installing $file to $1/$filename"
+              mv -f "$file" "$1/$filename"
+              retVal=$?
+              exitCode=$((retVal + exitCode))
+            else
+              printf_yellow "$file is not an executable"
+              exitCode=$((exitCode++))
+            fi
+          done
+          ;;
+        --files)
+          shift 1
+          find_extracted="$(find "$PACKAGE_TMP_DIR" -type f -name "$1" 2>/dev/null | grep -E "^$1$|/$1$" | head -n1)"
+          if [ -x "$find_extracted" ]; then
+            __move_extracted_file "$find_extracted" "$2" || exitCode=1
+          elif [ -f "$PACKAGE_TMP_DIR/$1" ]; then
+            __move_extracted_file "$PACKAGE_TMP_DIR/$1" "$2" || exitCode=1
+          elif [ -d "$1" ]; then
+            binDir="$1" && shift 1
+            set_files="${*//,/ }"
+            for get_files in $set_files; do
+              for file in $PACKAGE_TMP_DIR/$get_files; do
+                local tmpFilename="$(__basename "$file")"
+                __move_extracted_file "$file" "$binDir/$tmpFilename"
+              done
+            done
+            unset tmpFilename
+          fi
+          ;;
+        --install)
+          shift 1
+          local installDir="$1"
+          local installBinD="$2"
+          local installBinTo="$3"
+          local installBinFrom=""
+          if [ -n "$installDir" ]; then
+            mkdir -p "$installDir" && rsync -aq "$PACKAGE_TMP_DIR/." "$installDir/" --delete-before && exitEXCode=0 || exitEXCode=3
+            if [ $exitEXCode -eq 0 ]; then
+              if [ -f "$installBinD" ]; then
+                installBinFrom="$installBinD"
+              elif [ -f "$installDir/$installBinD" ]; then
+                installBinFrom="$installDir/$installBinD"
+              elif [ -f "$installDir/$installBinD/$installBinD" ]; then
+                installBinFrom="$installDir/$installBinD/$installBinD"
+              fi
+              if [ -n "$installBinFrom" ] && [ -n "$installBinTo" ]; then
+                [ -e "$installBinFrom" ] && chmod +x "$installBinFrom" || exitCode=1
+                __symlink_installed_files "$installBinFrom" "$installBinTo" || exitCode=1
+              fi
+              if [ ! -f "$installBinTo" ]; then
+                exitCode=2
+                printf_red "Can not find file $installBinTo"
+              fi
+            else
+              exitCode=2
+              printf_red "Failed to install to $installdir"
+            fi
+          else
+            exitCode=3
+            printf_red "installDir in not specified"
+          fi
+          ;;
+        esac
+      fi
+    else
+      exitEXCode=5
+      printf_red "$tmpFile is not a valid file"
+    fi
+    if [ $exitEXCode -ne 0 ]; then
+      printf_red "Failed to extract $tmpFile"
+      exitEXCode=1
+    fi
+  else
+    exitEXCode=1
+    printf_red "$SETUPMGR_TEMP_DIR"
+  fi
+  if [ $exitEXCode -eq 0 ]; then
+    if [ -n "$PACKAGE_TMP_DIR" ] && [ -d "$PACKAGE_TMP_DIR" ]; then
+      __rm "$PACKAGE_TMP_DIR"/*
+    fi
+  fi
+  return $exitEXCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# "toFile" "fromFile"
+__move_extracted_file() {
+  local exitCode=0
+  local tempBin="$1"
+  local userBin="$2"
+  local binFile="$(__basename "$userBin")"
+  [ -f "$PACKAGE_TMP_DIR/$binFile" ] && tempBin="$PACKAGE_TMP_DIR/$binFile" || tempBin="$(ls "$PACKAGE_TMP_DIR" | grep "$binFile$" || find "$PACKAGE_TMP_DIR" -type f -iname "$binFile" 2>/dev/null)"
+  if [ -f "$1" ]; then
+    printf_cyan "Installing ${1//$HOME/\~} to $userBin"
+    mv -f "$1" "$userBin" && chmod +x "$userBin" || exitEXCode=1
+  elif [ -f "$PACKAGE_TMP_DIR/$binFile" ]; then
+    printf_cyan "Installing ${PACKAGE_TMP_DIR//$HOME/\~}/$binFile to $userBin"
+    mv -f "$PACKAGE_TMP_DIR/$binFile" "$userBin" && chmod +x "$userBin" || exitEXCode=1
+  elif [ -n "$tempBin" ] && [ -f "$tempBin" ]; then
+    printf_cyan "Installing ${tempBin//$HOME/\~} to $userBin"
+    mv -f "$tempBin" "$userBin" && chmod +x "$userBin" || exitEXCode=1
+  fi
+  [ -x "$userBin" ] || exitCode=1
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# "installDir/name" "~/.local/bin/name"
+__symlink_installed_files() {
+  local BinFrmFile="$1"
+  local installBin="$2"
+  if [ -n "$BinFrmFile" ] && [ -n "$installBin" ]; then
+    if [ -f "$BinFrmFile" ]; then
+      chmod +x "$BinFrmFile"
+      ln -sf "$BinFrmFile" "$installBin"
+    elif [ -f "$installDir/bin/$BinFrmFile" ]; then
+      chmod +x "$installDir/bin/$BinFrmFile"
+      ln -sf "$installDir/bin/$BinFrmFile" "$installBin"
+    elif [ -f "$installDir/$BinFrmFile" ]; then
+      chmod +x "$installDir/$BinFrmFile"
+      ln -sf "$installDir/$BinFrmFile" "$installBin"
+    else
+      exitCode=1
+    fi
+  else
+    exitCode=1
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_lua() {
+  return 0
+  local exitCode=0
+  local GITREPO="${LUAVER_GIT_REPO:-https://github.com/DhavalKapil/luaver}"
+  local LUAVER_HOME="${LUAVER_HOME:-$HOME/.local/share/lua/plugins/luaver}"
+  local LUAROCKS_BIN="${LUAROCKS_BIN:-$HOME/.local/share/lua/luarocks/bin}"
+  local jversion="${LUA_JIT_VERSION:-2.0.5}"
+  local version="${LUA_DEFAULT_VERSION:-5.4.3}"
+  local rversion="${LUA_ROCKS_DEFAULT_VERSION:-3.8.0}"
+  local logFile="$SETUPMGR_LOG_DIR/lua.log"
+  local luaver_bin_file="$SETUPMGER_DEFAULT_USER_BIN_DIR/luaver"
+  export LUAVER_HOME LUAROCKS_BIN PATH="$LUAROCKS_BIN:$PATH"
+  [ -d "$LUAVER_HOME/.git" ] || __rm "$LUAVER_HOME" &>/dev/null
+  if [ -d "$LUAVER_HOME/.git" ]; then
+    printf_cyan "Updating luaver from $GITREPO"
+    if __git_update_repo "$LUAVER_HOME"; then
+      printf_blue "Updated luaver in $LUAVER_HOME"
+    else
+      exitCode=1
+      printf_red "Failed to update $LUAVER_HOME" >&2
+    fi
+  else
+    printf_green "Downloading luaver from $GITREPO"
+    if __git_clone_repo "$GITREPO" "$LUAVER_HOME"; then
+      printf_blue "Downloaded luaver to $LUAVER_HOME"
+      chmod 755 "$LUAVER_HOME/luaver"
+    else
+      exitCode=1
+      printf_red "Failed to download the repo" >&2
+    fi
+  fi
+  if [ ! -f "$luaver_bin_file" ] && [ -f "$LUAVER_HOME/luaver" ] && [ "$luaver_bin_file" != "$LUAVER_HOME/luaver" ]; then
+    __symlink_installed_files "$LUAVER_HOME/luaver" "$luaver_bin_file"
+  fi
+  if type luaver &>/dev/null; then
+    printf_green "Installing lua version: $version"
+    if yes | luaver install "$version" >>"$logFile" 2>>"$logFile.err"; then
+      luaver use "$version" >>"$logFile" 2>>"$logFile.err" &&
+        yes | luaver install-luarocks "$rversion" >>"$logFile" 2>>"$logFile.err" &&
+        luaver install-luajit "$jversion" >>"$logFile" 2>>"$logFile.err" &&
+        luaver set-default "$version" >>"$logFile" 2>>"$logFile.err" &&
+        luaver set-default-luajit "$jversion" 2>>"$logFile.err" &&
+        luaver set-default-luarocks "$rversion" 2>>"$logFile.err"
+    else
+      error="true"
+    fi
+    get_ver="$(luaver current | grep 'lua' | grep '^')"
+    get_rver="$(luaver set-default-luarocks 3.8.0 2>&1 | tr ' ' '\n' | grep '[0-9].[0-9]' | grep '^')"
+    if [ -n "$get_ver" ] && [ -n "$get_rver" ] && [ -z "$error" ]; then
+      printf_green "Finished installing lua! $get_ver"
+      [ -f "$logFile" ] && __rm "$logFile"
+      [ -f "$logFile.err" ] && __rm "$logFile.err"
+    else
+      printf_exit "Installation of lua has failed: log saved to $logFile.err" >&2
+      exitCode=1
+    fi
+  else
+    printf_red "Failed to setup luaver"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_asdf() {
+  local exitCode=0
+  local err_mess=""
+  export ASDF_DIR="${ASDF_DIR:-}"
+  export ASDF_DATA_DIR="$ASDF_DIR"
+  local GITREPO="${ASDF_GITREPO:-}"
+  if [ -d "$ASDF_DIR/.git" ]; then
+    printf_cyan "Updating asdf from $GITREPO"
+    if __git_update_repo "$ASDF_DIR"; then
+      printf_blue "Updated asdf in $ASDF_DIR"
+    else
+      printf_exit "Failed to update $ASDF_DIR" >&2
+    fi
+  else
+    printf_green "Downloading asdf from $GITREPO"
+    if __git_clone_repo "$GITREPO" "$ASDF_DIR"; then
+      printf_blue "Downloaded asdf to $ASDF_DIR"
+      chmod 755 "$ASDF_DIR/asdf.sh"
+    else
+      printf_exit "Failed to download the repo" >&2
+    fi
+  fi
+  [ -f "$ASDF_DIR/asdf.sh" ] && . "$ASDF_DIR/asdf.sh"
+  if [ -n "$(type asdf 2>/dev/null)" ]; then
+    printf_green "asdf has been installed"
+  else
+    exitCode=1
+    printf_red "$err_mess"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_deno() {
+  local exitCode=0
+  local version=""
+  local name="deno"
+  local arch="$(uname -m)"
+  local binFile="$DENO_BIN_DIR/$name"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
+  local release_url="https://github.com/denoland/deno/releases/latest/download"
+  [ -d "$DENO_BIN_DIR" ] || mkdir -p "$DENO_BIN_DIR"
+  if [ "$arch" = "x86_64" ]; then
+    deno_uri="$release_url/deno-x86_64-unknown-linux-gnu.zip"
+  elif [ "$arch" = "aarch64" ]; then
+    deno_uri="$release_url/deno-aarch64-unknown-linux-gnu.zip"
+  else
+    printf_exit "Only x86_64 and ARM64 architecture is supported"
+  fi
+  if __cmd_exists $name; then
+    printf_green "Attempting to update $name"
+  else
+    printf_green "Attempting to install $name"
+  fi
+  if __download_extract_move "$deno_uri" "$name" "$binFile"; then
+    __install_to_system_bin "$binFile"
+    version=$(eval $name --version 2>/dev/null | head -n1 | sed 's|deno ||g;s| .*||g' | grep '[0-9]')
+  fi
+  if [ -n "$version" ] && [ -n "$(type -P $name 2>/dev/null)" ]; then
+    if $name --help 2>&1 | grep -q 'execute binary file'; then
+      printf_red "Unsupported architecture detected"
+      __rm "$binFile"
+      exitCode=1
+    else
+      printf_green "$name $version has been installed"
+    fi
+  else
+    exitCode=1
+    printf_red "Failed to install $name"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_bun() {
+  local exitCode=0
+  local name="bun"
+  local version=""
+  local arch="$(uname -m)"
+  local binDir="$BUN_BIN_DIR"
+  local binFile="$binDir/$name"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
+  local release_url="https://github.com/oven-sh/bun/releases/latest/download"
+  [ -d "$binDir" ] || mkdir -p "$binDir"
+  if [ "$arch" = "x86_64" ]; then
+    tempBin="bun-linux-x64"
+    bun_url="$release_url/bun-linux-x64.zip"
+  elif [ "$arch" = "aarch64" ]; then
+    tempBin="bun-linux-aarch64"
+    bun_url="$release_url/bun-linux-aarch64.zip"
+  else
+    printf_exit "Only x86_64 and ARM64 architecture is supported"
+  fi
+  if __cmd_exists $name; then
+    printf_green "Attempting to update $name"
+  else
+    printf_green "Attempting to install $name"
+  fi
+  if __download_extract_move "$bun_url" "$name" "$binFile"; then
+    __install_to_system_bin "$binFile"
+    version=$(eval $name --version 2>/dev/null | head -n1 | sed 's|bun ||g;s| .*||g' | grep '[0-9]')
+  else
+    printf_exit "Failed to download $bun_url"
+  fi
+  if [ -n "$version" ] && [ -n "$(type -P $name 2>/dev/null)" ]; then
+    if $name --help 2>&1 | grep -q 'execute binary file'; then
+      printf_red "Unsupported architecture detected"
+      __rm "$binFile"
+      exitCode=1
+    else
+      printf_green "$name $version has been installed"
+    fi
+  else
+    printf_red "Failed to install $name"
+    exitCode=1
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_distrobox() {
+  local bin name
+  local exitCode=0
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
+  DBX_HOME="${DBX_HOME:-$HOME/.local/share/distrobox}"
+  printf_green "Installing distrobox"
+  if __download_and_execute "$DISTROBOX_SCRIPT_URL" --next --prefix "$DISTROBOX_HOME" |& __output_status; then
+    if [ -f "$DISTROBOX_HOME/bin/distrobox-init" ]; then
+      for bin in "$DISTROBOX_HOME/bin"/*; do
+        name="$(basename -- "$bin")"
+        if [ ! -f "$SETUPMGER_DEFAULT_USER_BIN_DIR/$name" ]; then
+          ln -sf "$bin" "$SETUPMGER_DEFAULT_USER_BIN_DIR/$name"
+        fi
+      done
+      printf_green "Distrobox has been installed"
+    else
+      exitCode=1
+      printf_red "Failed to install distrobox"
+    fi
+    __rm "$SETUPMGR_TEMP_DIR/distrobox" "$DISTROBOX_LOG_DIR/error.log"
+  else
+    exitCode=1
+    printf_red "Failed to download distrobox"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_dotnet() {
+  local exitCode=0
+  local name="dotnet"
+  local binDir="$DOTNET_BIN_DIR"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
+  if __cmd_exists $name; then
+    printf_green "Attempting to update $name"
+  else
+    printf_green "Attempting to install $name"
+  fi
+  if __curl "$DOTNET_SCRIPT_URL" | bash -s -- --install-dir "$DOTNET_ROOT" |& __output_status; then
+    [ -d "$HOME/.dotnet" ] && mv -f "$HOME/.dotnet" "$DOTNET_ROOT"
+    [ -f "$DOTNET_ROOT/$name" ] && ln -sf "$DOTNET_ROOT/$name" "$DOTNET_BIN_DIR/$name"
+  fi
+  if __cmd_exists $name; then
+    printf_green "$name has been installed to $DOTNET_ROOT"
+  else
+    printf_red "Failed to install $name"
+    exitCode=1
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_vfox() {
+  local exitCode=0
+  local name="vfox"
+  local arch=$(uname -m)
+  local binFile="$VFOX_BIN_DIR/$name"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
+  local release_url="https://github.com/version-fox/vfox/releases/download"
+  local VERSION=$(curl --silent "https://api.github.com/repos/version-fox/vfox/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' | cut -c 2-)
+  case "$arch" in
+  x86_64) url="$release_url/v$VERSION/vfox_${VERSION}_linux_x86_64.tar.gz" ;;
+  aarch64 | arm64) url="$release_url/v$VERSION/vfox_${VERSION}_linux_aarch64.tar.gz" ;;
+  esac
+  if __cmd_exists $name; then
+    printf_green "Attempting to update $name"
+  else
+    printf_green "Attempting to install $name"
+  fi
+  if __download_extract_move "$url" "$name" "$binFile"; then
+    printf_green "$name has been installed to $binFile"
+  else
+    exitCode=1
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_fastfetch() {
+  local exitCode=0
+  local name="fastfetch"
+  local arch=$(uname -m)
+  local binFile="$FASTFETCH_BIN_DIR/$name"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
+  local release_url="https://github.com/fastfetch-cli/fastfetch/releases/download"
+  local VERSION=$(curl --silent "https://api.github.com/repos/fastfetch-cli/fastfetch/releases/latest" | grep '"tag_name":' | sed 's|.*tag.*:||g;s|"||g;s|,||g' | cut -c 2-)
+  case "$arch" in
+  x86_64) url="$release_url/$VERSION/fastfetch-linux-amd64.tar.gz" ;;
+  aarch64 | arm64) url="$release_url/$VERSION/fastfetch-linux-aarch64.tar.gz" ;;
+  esac
+  if __cmd_exists $name; then
+    printf_green "Attempting to update $name"
+  else
+    printf_green "Attempting to install $name"
+  fi
+  if __download_extract_move "$url" "$name" "$binFile"; then
+    printf_green "$name has been installed to $binFile"
+  else
+    exitCode=1
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_gvm() {
+  local exitCode=0
+  local name="gvm"
+  local binDir="$GVM_BIN_DIR"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
+  if __cmd_exists $name; then
+    printf_green "Attempting to update $name"
+  else
+    printf_green "Attempting to install $name"
+  fi
+  [ -d "$HOME/.gvm" ] && __rm "$HOME/.gvm" &>/dev/null
+  [ -d "$GVM_ROOT" ] && __rm "$GVM_ROOT" &>/dev/null
+  if __git_clone_repo "$GVM_GITREPO" "$GVM_ROOT"; then
+    [ -d "$GVM_ROOT/.git" ] && __rm "$GVM_ROOT/.git"
+    if [ -f "$GVM_ROOT/scripts/gvm-default" ]; then
+      . "$GVM_ROOT/scripts-default" &>/dev/null
+      for f in "$GVM_ROOT/bin"/*; do
+        name="$(basename -- "$f")"
+        ln -sf "$f" "$binDir/$name"
+      done
+      printf_green "$name has been installed"
+      exitCode=0
+    else
+      exitCode=1
+    fi
+  else
+    exitCode=1
+    printf_red "Failed to install $name"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_vagrant() {
+  local exitCode=0
+  local name="vagrant"
+  local arch="$(uname -m)"
+  local binFile="$VAGRANT_BIN_DIR/$name"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
+  local release_url="https://github.com/hashicorp/vagrant/releases/latest/download"
+  case "$arch" in
+  x86_64) url="$release_url/vagrant-go_linux_amd64" ;;
+  *) printf_exit "only x86_64 is supported at this time" ;;
+  esac
+  if __cmd_exists $name; then
+    printf_green "Attempting to update $name"
+  else
+    printf_green "Attempting to install $name"
+  fi
+  if __download_and_move "$url" "$name" "$binFile"; then
+    if [ -f "$binFile" ]; then
+      vagrant plugin install vagrant-libvirt &>/dev/null
+      vagrant plugin install vagrant-host-shell &>/dev/null
+      vagrant plugin install vagrant-mutate &>/dev/null
+      vagrant plugin install vagrant-vbguest &>/dev/null
+      vagrant plugin install vagrant-vbguest-libvirt &>/dev/null
+      printf_green "vagrant has been installed"
+    else
+      exitCode=1
+    fi
+  else
+    exitCode=1
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_fnm() {
+  local exitCode=0
+  local name="fnm"
+  local binDir="$HOME/.local/bin"
+  local node_version="$FNM_NODE_VERSION"
+  local tmpFile="$(mktemp $SETUPMGR_TEMP_DIR/fnm_XXXXXX 2>/dev/null)"
+  if __cmd_exists $name; then
+    printf_green "Attempting to update $name"
+  else
+    printf_green "Attempting to install $name"
+  fi
+  [ -d "$FNM_DIR" ] || mkdir -p "$FNM_DIR"
+  if __download_and_execute "$FNM_INSTALL_SCRIPT" --install-dir "$binDir" --skip-shell |& __output_status; then
+    if __cmd_exists fnm; then
+      printf_blue "installing nodejs"
+      eval "$(fnm env)"
+      fnm install "$node_version" >/dev/null 2>&1
+      if fnm ls 2>&1 | grep -q "$node_version"; then
+        installed_version="$(node --version 2>/dev/null)"
+        fnm use "$node_version" >/dev/null 2>&1
+        fnm default "$node_version" >/dev/null 2>&1
+        printf_green "FNM is setup to use node $installed_version by default"
+      else
+        installed_version="$(node --version 2>/dev/null)"
+        printf_green "FNM is setup to use node $installed_version by default"
+      fi
+    else
+      printf_red "FNM Failed to install" >&2
+    fi
+  else
+    exitCode=1
+    printf_red "Failed to download FNM installer script" &
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_nvm() {
+  local exitCode=0
+  local GITREPO="$NVM_GITREPO"
+  local node_version="$NVM_NODE_VERSION"
+  if [ -d "$NVM_DIR/.git" ]; then
+    printf_cyan "Updating nvm from $GITREPO"
+    if __git_update_repo "$NVM_DIR"; then
+      printf_blue "Updated nvm in $NVM_DIR"
+    else
+      printf_exit "Failed to update $NVM_DIR" >&2
+    fi
+  else
+    printf_green "Downloading nvm from $GITREPO"
+    if __git_clone_repo "$GITREPO" "$NVM_DIR"; then
+      printf_blue "Downloaded nvm to $NVM_DIR"
+      chmod 755 "$NVM_DIR/nvm.sh"
+    else
+      printf_exit "Failed to download the repo" >&2
+    fi
+  fi
+  [ -f "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+  if [ -f "$HOME/.npmrc" ]; then
+    nvm use --delete-prefix v20.18.0 --silent
+    grep -sq 'prefix=' "$HOME/.npmrc" && sed -i "s|prefix=.*||g" "$HOME/.npmrc"
+  fi
+  if builtin type nvm >/dev/null 2>&1; then
+    printf_cyan "Configuring NVM to use $node_version"
+    nvm install $node_version >/dev/null 2>&1 && nvm use $node_version >/dev/null 2>&1
+    nvm alias default $node_version >/dev/null 2>&1
+    version="$(node --version 2>/dev/null || echo 'node')"
+    printf_blue "nvm is set to use: $(nvm current 2>/dev/null)"
+    if builtin type nvm >/dev/null 2>&1; then
+      printf_green "NVM has been configured"
+    else
+      exitCode=1
+      printf_red "NVM Failed to configure" >&2
+    fi
+  else
+    exitCode=1
+    printf_red "NVM Failed to install" >&2
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_nodejs() {
+  local exitCode=0
+  if ! __cmd_exists node && ! __cmd_exists nodejs; then
+    printf_green "Attempting to install nodejs"
+    pkmgr silent install nodejs || pkmgr silent install node
+  fi
+  if __cmd_exists nodejs || __cmd_exists node; then
+    __install_to_system_bin "$binFile"
+    version="$(node --version 2>/dev/null)"
+    printf_green "nodejs $version is installed"
+  else
+    exitCode=1
+    printf_red "Failed to install nodejs"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_powershell() {
+  local exitCode=0
+  local tempBin="pwsh"
+  local name="powershell"
+  local get_release_file
+  local get_release_version
+  local binDir="$POWERSHELL_BIN_DIR"
+  PACKAGE_TMP_DIR="$POWERSHELL_TEMP_DIR"
+  local installDir="$POWERSHELL_INSTALL_DIR"
+  local latest_url="$POWERSHELL_LATEST_URL"
+  local os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+  local arch="$(uname -m | tr '[:upper:]' '[:lower:]')"
+  extract_cmd="do_not_strip_components"
+  if __cmd_exists $name; then
+    printf_green "Attempting to update $name"
+  else
+    printf_green "Attempting to install $name"
+  fi
+  if echo "$arch" | grep -q '.*86_64.*' || [ "$arch" = "amd64" ]; then
+    arch="x64"
+    posh_arch="amd64"
+  elif echo "$arch" | grep -q '.*aarch64.*' || [ "$arch" = "arm64" ]; then
+    arch="arm64"
+    posh_arch="arm64"
+  else
+    printf_red "Unsupported architecture"
+    return 1
+  fi
+  if [ "$os" = "linux" ]; then
+    os="linux"
+  elif [ "$os" = "darwin" ]; then
+    os="osx"
+  elif [ "$os" = "msys" ] || [ "$os" = "windowsnt" ] || [ "$os" = "cygwin" ]; then
+    os="win"
+  else
+    printf_red "Unsupported Operating System"
+    return 1
+  fi
+  [ -d "$PACKAGE_TMP_DIR" ] || mkdir -p "$PACKAGE_TMP_DIR"
+  local get_release_url="$(__curl -H "Accept: application/vnd.github+json" "$latest_url" 2>/dev/null | jq -r '.assets[].browser_download_url' 2>/dev/null | grep -v 'fxdependent' | grep "$os-$arch" | grep -E '.tar.gz|.zip' | head -n1 | grep '^' || false)"
+  local get_release_name="$(__basename "$get_release_url")"
+  local get_release_file="$PACKAGE_TMP_DIR/$get_release_name"
+  local get_release_version="$(echo "$get_release_name" | awk -F '.' '{print $1}' | sed 's|.*-||g')"
+  local installDir="$installDir/$get_release_version"
+  [ -e "$get_release_file" ] && __rm "$get_release_file"
+  if [ -z "$get_release_url" ]; then
+    exitCode=1
+    printf_red "Failed to download powershell"
+  else
+    if ! __download_extract_install "$get_release_url" "$installDir" "$tempBin" "$binDir/$tempBin"; then
+      exitCode=1
+    fi
+    if [ $exitCode -eq 0 ] && [ -f "$installDir/$tempBin" ]; then
+      printf_green "Successfully installed powershell to: $installDir"
+      [ -L "$binDir/$tempBin" ] && unlink "$binDir/$tempBin"
+      [ -L "$binDir/powershell" ] && unlink "$binDir/powershell"
+      [ -f "$binDir/$tempBin" ] || printf '#!/usr/bin/env sh\n\n%s\n' "exec $installDir/$tempBin -ExecutionPolicy Unrestricted \"\$@\"" >"$binDir/$tempBin"
+      [ -f "$binDir/powershell" ] || printf '#!/usr/bin/env sh\n\n%s\n' "exec $installDir/$tempBin -ExecutionPolicy Unrestricted \"\$@\"" >"$binDir/powershell"
+      chmod -f 755 "$binDir/$tempBin" "$binDir/powershell"
+      if [ "$os" = "win" ]; then
+        command -v winget >/dev/null 2>&1 && winget install JanDeDobbeleer.OhMyPosh -s winget >/dev/null 2>&1
+      elif [ "$os" = "mac" ]; then
+        command -v brew >/dev/null 2>&1 && brew install jandedobbeleer/oh-my-posh/oh-my-posh >/dev/null 2>&1
+      elif [ "$os" = "linux" ]; then
+        if [ -n "$posh_arch" ]; then
+          install_posh="$(curl -q -LSsf -H "Accept: application/vnd.github+json" "$POWERSHELL_OMP_GITREPO" | jq -r '.assets[].browser_download_url' | grep "$os" | grep "$posh_arch$" || false)"
+          if [ -n "$install_posh" ]; then
+            printf_purple "Installing oh-my-posh"
+            curl -q -LSsf "$install_posh" -o "$HOME/.local/bin/oh-my-posh"
+            if [ -f "$HOME/.local/bin/oh-my-posh" ]; then
+              chmod +x "$HOME/.local/bin/oh-my-posh"
+              printf_green "Successfully saved oh-my-posh to: ~/.local/bin/oh-my-posh"
+            fi
+          else
+            printf_red "Can not find oh-my-posh $install_posh" >&2
+          fi
+        else
+          printf_red "oh-my-posh is not support on $arch" >&2
+        fi
+      fi
+      printf_cyan "Initializing powershell modules"
+      if [ -f "$HOME/.config/powershell/Microsoft.POWERSHELL_profile.ps1" ]; then
+        mv -f "$HOME/.config/powershell/Microsoft.POWERSHELL_profile.ps1" "$HOME/.config/powershell/Microsoft.POWERSHELL_profile.bak"
+      fi
+      if [ -f "$HOME/.config/powershell/init.ps1" ]; then
+        if ! eval "$installDir/$tempBin -Command $HOME/.config/powershell/init.ps1" >/dev/null 2>&1; then
+          if [ -f "$HOME/.config/powershell/Microsoft.POWERSHELL_profile.bak" ]; then
+            mv -f "$HOME/.config/powershell/Microsoft.POWERSHELL_profile.bak" "$HOME/.config/powershell/Microsoft.POWERSHELL_profile.ps1"
+          fi
+        fi
+        if __cmd_exists pwsh; then
+          version="$(powershell --version | sed 's|.* ||g')"
+          printf_blue "Powershell $version has been installed"
+        else
+          exitCode=1
+          printf_red "Failed to install powershell"
+        fi
+        for df in $PACKAGE_TMP_DIR $get_release_file; do
+          [ -e "$df" ] && printf_yellow "Cleaning up: $df"
+        done
+      else
+        printf_red "Well something went wrong" >&2
+        exitCode=1
+      fi
+    fi
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_jekyll() {
+  local exitCode=0
+  local jekyllV="${JEKYLL_VERSION:-3.10.0}"
+  local rubyV="${JEKYLL_RUBY_VERSION:-3.3.4}"
+  if __cmd_exists rbenv; then
+    eval "$(rbenv init -)"
+    if ! __cmd_exists "ruby"; then
+      if ! ruby --version | grep -q "$rubyV"; then
+        rbenv install $rubyV >"/dev/null" 2>&1
+      fi
+    fi
+    rbenv use $rubyV >"/dev/null" 2>&1 && printf_cyan "Using rbenv to install jekyll"
+  elif __cmd_exists rvm; then
+    rvm reload >"/dev/null" >"/dev/null" 2>&1
+    if ! __cmd_exists "ruby"; then
+      if ! ruby --version | grep -q "$rubyV"; then
+        rvm install $rubyV >"/dev/null" 2>&1
+      fi
+    fi
+    rvm use $rubyV >"/dev/null" 2>&1
+    type rvm >"/dev/null" 2>&1 && printf_cyan "Using rvm to install jekyll"
+  fi
+  if ! __cmd_exists bundle; then
+    printf_blue "Installing bundler"
+    gem install bundler >"/dev/null" 2>&1
+  fi
+  printf_yellow "Installing jekyll $jekyllV"
+  gem install ffi -v 1.17.0 -f >"/dev/null" 2>&1
+  gem install public_suffix -v 5.1.1 -f >"/dev/null" 2>&1
+  gem install jekyll -v $jekyllV >"/dev/null" 2>&1
+  gem install webrick >"/dev/null" 2>&1
+  gem install casjaysdev-jekyll-theme >"/dev/null" 2>&1
+  gem install github-pages >"/dev/null" 2>&1
+  jekyll_bin="$(type -P jekyll)"
+  if [ -n "$jekyll_bin" ]; then
+    version="$(jekyll -v 2>/dev/null | grep '[0-9]' | sed 's|[jJ]ekyll ||g')"
+    ln -sf "$jekyll_bin" "$HOME/.local/bin/jekyll"
+    printf_green "Finished installing jekyll $version"
+  else
+    printf_red "Installation of jekyll has failed" >&2
+    exitCode=1
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_rvm() {
+  local exitCode=0
+  local binDir="$RVM_BIN_DIR"
+  local GITREPO="$RVM_GITREPO"
+  export rvm_path RUBY_CONFIGURE_OPTS="--enable-shared=no"
+  if [ -d "$rvm_path/.git" ]; then
+    printf_cyan "Updating rvm from $GITREPO"
+    if __git_update_repo "$rvm_path"; then
+      printf_blue "Updated rvm in $rvm_path"
+    else
+      printf_exit "Failed to update $rvm_path" >&2
+    fi
+  else
+    printf_green "Downloading rvm from $GITREPO"
+    if __git_clone_repo "$GITREPO" "$rvm_path"; then
+      printf_blue "Downloaded rvm to $rvm_path"
+    else
+      printf_exit "Failed to download the repo" >&2
+    fi
+  fi
+  if [ -f "$rvm_path/bin/rvm" ]; then
+    ln -sf "$rvm_path/bin/rvm" "$binDir/rvm"
+    chmod 755 "$binDir/rvm"
+    if __cmd_exists rvm; then
+      mkdir -p "$rvm_path/rubies"
+      printf_green "RVM has been installed"
+      printf_yellow "Installing openssl"
+      if rvm pkg install openssl &>/dev/null; then
+        printf_green "Openssl has been installed"
+      else
+        exitCode=1
+        printf_red failed to install OpenSSL
+      fi
+    else
+      printf_green "Failed to install RVM"
+    fi
+  fi
+  if [ $exitCode = 0 ]; then
+    for d in "rubies" "src" "archives" "log" "user/install"; do
+      [ -d "$rvm_path/$d" ] || mkdir -p "$rvm_path/$d"
+    done
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_rbenv() {
+  local exitCode=0
+  local GITREPO="$RBENV_GITREPO"
+  local binDir="$RBENV_BIN_DIR"
+  export RUBY_CONFIGURE_OPTS="--enable-shared=no" RBENV_ROOT="$RBENV_ROOT"
+  if [ -d "$RBENV_ROOT/.git" ]; then
+    printf_cyan "Updating rbenv from $GITREPO"
+    if __git_update_repo "$RBENV_ROOT"; then
+      printf_blue "Updated rbenv in $RBENV_ROOT"
+    else
+      printf_exit "Failed to update $RBENV_ROOT" >&2
+    fi
+  else
+    printf_green "Downloading rbenv from $GITREPO"
+    if __git_clone_repo "$GITREPO" "$RBENV_ROOT"; then
+      printf_blue "Downloaded rbenv to $RBENV_ROOT"
+    else
+      printf_exit "Failed to download the repo" >&2
+    fi
+  fi
+  for f in "$RBENV_ROOT/libexec"/*; do
+    name="$(basename -- "$f")"
+    ln -sf "$f" "$RBENV_BIN_DIR/$name"
+  done
+  if __cmd_exists "rbenv"; then
+    printf_cyan "RBENV has been installed"
+  else
+    exitCode=1
+    printf_red "Failed to install RBENV"
+  fi
+  if [ "$exitCode" -eq 0 ]; then
+    printf_blue "Installing plugins"
+    eval "$(rbenv init -)"
+    [ -d "$installDir/plugins/rbenv-plug" ] || __git_clone_repo "https://github.com/znz/rbenv-plug" "$installDir/plugins/rbenv-plug"
+    [ -d "$installDir/plugins/ruby-build/.git" ] || __git_clone_repo "https://github.com/rbenv/ruby-build" "$installDir/plugins/ruby-build"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_devbox() {
+  local exitCode=0
+  local name="devbox"
+  if __cmd_exists $name; then
+    printf_green "Attempting to update $name"
+  else
+    printf_green "Attempting to install $name"
+  fi
+  printf_green "Installing devbox"
+  if __curl "https://get.jetify.com/devbox" | bash -s -- -f |& __output_status; then
+    printf_cyan "devbox has been installed"
+  else
+    exitCode=1
+    printf_red "Failed to install devbox"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_nix() {
+  local exitCode=0
+  local name="nix"
+  if __cmd_exists $name; then
+    printf_green "Attempting to update $name"
+  else
+    printf_green "Attempting to install $name"
+  fi
+  printf_green "Installing nix-installer"
+  if __curl "https://install.determinate.systems/nix" | sh -s -- install --no-confirm |& __output_status; then
+    if [ -f "/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh" ]; then
+      printf_blue "nix-installer has been installed"
+      . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
+      for f in /nix/var/nix/profiles/default/bin/*; do
+        ln -sf "$f" "$HOME/.local/bin/$(__basename "$f")"
+      done
+    else
+      exitCode=1
+      printf_red "Failed to install nix-installer"
+    fi
+  else
+    exitCode=1
+    printf_red "Failed to execute the nix-installer script"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_helm() {
+  local url
+  local name="helm"
+  local arch="$(uname -m)"
+  local binFile="$HELM_BIN_DIR/$name"
+  local dist_tag="$(__curl "https://get.helm.sh/helm-latest-version" | grep '^v[0-9]')"
+  if __cmd_exists $name; then
+    printf_green "$name is already installed"
+  else
+    printf_green "Installing $name"
+  fi
+  case $arch in
+  x86_64) url="https://get.helm.sh/helm-$dist_tag-linux-amd64.tar.gz" ;;
+  aarch64 | arm64) url="https://get.helm.sh/helm-$dist_tag-linux-arm64.tar.gz" ;;
+  esac
+  if __download_extract_move "$url" "$name" "$binFile"; then
+    __install_to_system_bin "$binFile"
+    printf_green "$name has been installed to $binFile"
+  else
+    exitCode=1
+    printf_red "Failed to download $name"
+  fi
+  return $exitCode
+
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_packer() {
+  local exitCode=0
+  local name="packer"
+  local arch="$(uname -m)"
+  local version="$PACKER_VERSION"
+  local binFile="$PACKER_BIN_DIR/$name"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
+  if __cmd_exists $name; then
+    printf_green "Updating $name"
+  else
+    printf_green "Installing $name"
+  fi
+  case $arch in
+  x86_64) release_url="https://releases.hashicorp.com/packer/${version}/packer_${version}_linux_amd64.zip" ;;
+  aarch64 | arm64) release_url="https://releases.hashicorp.com/packer/${version}/packer_${version}_linux_arm64.zip" ;;
+  esac
+  if __download_extract_move "$release_url" "$name" "$binFile"; then
+    if [ -n "$PACKER_PLUGINS" ]; then
+      for plug in $PACKER_PLUGINS; do
+        packer plugins install github.com/hashicorp/$plug >/dev/null 2>&1 && printf_cyan "Installed plugin: $plug"
+      done
+    fi
+    printf_green "$name hase been installed"
+  else
+    exitCode=1
+    printf_red "Failed to install $name"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_kubectl() {
+  local exitCode=0
+  local name="kubectl"
+  local arch="$(uname -m)"
+  local binFile="$KUBECTL_BIN_DIR/$name"
+  local release_url="https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)"
+  case $arch in
+  x86_64) file="bin/linux/amd64/kubectl" ;;
+  aarch64 | arm64) file="bin/linux/arm64/kubectl" ;;
+  esac
+  if __cmd_exists $name; then
+    printf_green "Updating $name"
+  else
+    printf_green "Installing $name"
+  fi
+  if __download_and_move "$release_url/$file" "$name" "$binFile"; then
+    __install_to_system_bin "$binFile"
+    printf_green "$name hase been installed"
+  else
+    exitCode=1
+    printf_red "Failed to install $name"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_kind() {
+  local exitCode=0
+  local name="kind"
+  local arch="$(uname -m)"
+  local binFile="$KIND_BIN_DIR/$name"
+  local release_url="https://api.github.com/repos/kubernetes-sigs/kind/releases/latest"
+  case $arch in
+  x86_64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "kind.linux.amd64\$")" ;;
+  aarch64 | arm64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "kind.linux.arm64\$")" ;;
+  esac
+  if __cmd_exists $name; then
+    printf_green "$name is already installed"
+  else
+    printf_green "Installing $name"
+  fi
+  if __download_and_move "$download_url" "$name" "$binFile"; then
+    __install_to_system_bin "$binFile"
+    printf_green "$name has been installed to $binFile"
+  else
+    exitCode=1
+    printf_red "Failed to download $name"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_minikube() {
+  local exitCode=0
+  local port="59801"
+  local arch="$(uname -m)"
+  local wait_minikube=300
+  local wait_dashboard=300
+  local driver="$MINIKUBE_DRIVER"
+  local memory="$MINIKUBE_MEMORY"
+  local binFile="$MINIKUBE_BIN_DIR/minikube"
+  local dashboard_url="http://127.0.0.1:$port/api/v1/namespaces/kubernetes-dashboard/services/http:kubernetes-dashboard:/proxy/"
+  export MINIKUBE_HOME="${MINIKUBE_HOME:-$HOME/.config/minikube}"
+  __cmd_exists docker || printf_exit "Please install docker"
+  if __cmd_exists minikube; then
+    printf_green "Updating minikube"
+    killall minikube >/dev/null 2>&1
+  else
+    printf_green "Installing minikube"
+    case $arch in
+    x86_64) url="https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64" ;;
+    aarch64 | arm64) url="https://storage.googleapis.com/minikube/releases/latest/minikube-linux-arm64" ;;
+    esac
+    if __download_and_move "$url" "minikube" "$binFile"; then
+      __install_to_system_bin "$binFile"
+      minikube config set driver $driver >/dev/null 2>&1
+      minikube config set memory $memory >/dev/null 2>&1
+      if [ "$SETUPMGR_INSTALL_ALL" != "yes" ]; then
+        (minikube start >/dev/null 2>&1) &
+        minikube_pid=$!
+        if [ -n "$minikube_pid" ] && ps -p $minikube_pid >/dev/null; then
+          while [ $wait_minikube -ge 0 ]; do
+            sleep 1
+            printf '\r%b ' "$(printf_yellow "Waiting for minikube to start" | tr -d '\n')"
+            docker ps -a | grep 'minikube$' | grep -qi ' UP ' && sleep 10 && break
+            wait_minikube=$((wait_minikube--))
+          done
+          printf '\r                                                                                            \r'
+          [ $wait_minikube = 0 ] && printf_red "minikube seems to have failed" && return 1
+          printf_green "minikube has been installed and started"
+          (minikube dashboard --port=$port --url >/dev/null 2>&1) &
+          dashboard_pid=$!
+          if [ -n "$dashboard_pid" ] && ps -p $dashboard_pid >/dev/null; then
+            while [ $wait_dashboard -ge 0 ]; do
+              sleep 1
+              printf '\r%b ' "$(printf_yellow "Waiting for the dashboard to start" | tr -d '\n')"
+              minikube kubectl -- get pods --namespace kube-system 2>&1 | grep 'kube-proxy' | grep -q ' Running ' && sleep 120 && break
+              wait_dashboard=$((wait_dashboard--))
+            done
+            printf '\r                                                                                            \r'
+            if [ $wait_minikube != 0 ]; then
+              printf_cyan "Enabling addons"
+              minikube addons enable yakd &>/dev/null
+              minikube addons enable ingress &>/dev/null
+              minikube addons enable metrics-server &>/dev/null
+              sleep 30
+              dashboard_status="$(__curl -I "$dashboard_url" 2>&1 >/dev/null 2>&1 && echo "$dashboard_url" || false)"
+              if [ -n "$dashboard_status" ]; then
+                printf_cyan "dashboard: $dashboard_status"
+              fi
+              yakd_dashboard="$(minikube service --https=false --url --wait=30 yakd-dashboard -n yakd-dashboard 2>/dev/null)"
+              [ -n "$yakd_dashboard" ] && sleep 60 && printf_blue "yakd_dashboard: $yakd_dashboard"
+            fi
+          fi
+          printf_green "minikube has been setup"
+        fi
+      else
+        exitCode=1
+        printf_red "Failed to start minikube"
+      fi
+    else
+      exitCode=1
+      printf_red "Failed to download minikube"
+    fi
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_direnv() {
+  local exitCode=0
+  local name="direnv"
+  local arch="$(uname -m)"
+  local binFile="$DIRENV_BIN_DIR/$name"
+  local release_url="https://api.github.com/repos/direnv/direnv/releases/latest"
+  case $arch in
+  x86_64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "direnv.linux.amd64\$")" ;;
+  aarch64 | arm64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "direnv.linux.arm64\$")" ;;
+  esac
+  if __cmd_exists $name; then
+    printf_green "Updating $name"
+  else
+    printf_green "Installing $name"
+  fi
+  if __download_and_move "$download_url" "$name" "$binFile"; then
+    __install_to_system_bin "$binFile"
+    printf_green "Direnv has been installed to $binFile"
+  else
+    exitCode=1
+    printf_red "Failed to download $name"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_incus() {
+  local exitCode=0
+  local name="incus"
+  local arch="$(uname -m)"
+  local binFile="$INCUS_BIN_DIR/$name"
+  local release_url="https://api.github.com/repos/lxc/incus/releases/latest"
+  case $arch in
+  x86_64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "bin.linux.incus.x86_64\$")" ;;
+  aarch64 | arm64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "bin.linux.incus.aarch64\$")" ;;
+  esac
+  if __cmd_exists $name; then
+    printf_green "Updating $name"
+  else
+    printf_green "Installing $name"
+  fi
+  if __download_and_move "$download_url" "$name" "$binFile"; then
+    __install_to_system_bin "$binFile"
+    if ! grep -qs 'incus-admin' '/etc/group'; then
+      __sudo true
+      __sudo groupadd --system incus-admin >/dev/null 2>&1
+      __sudo usermod -a -G incus-admin $USER >/dev/null 2>&1
+    fi
+    printf_green "$name has been installed to $binFile"
+  else
+    exitCode=1
+    printf_red "Failed to download $name"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_gohttpserver() {
+  local exitCode=0
+  local name="gohttpserver"
+  local arch="$(uname -m)"
+  local binFile="$GOHTTPSERVER_BIN_DIR/$name"
+  local release_url="https://api.github.com/repos/codeskyblue/gohttpserver/releases/latest"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
+  case $arch in
+  x86_64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "linux_amd64.tar.gz\$")" ;;
+  aarch64 | arm64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "linux_arm64.tar.gz\$")" ;;
+  esac
+  if __cmd_exists $name; then
+    printf_green "Updating $name"
+  else
+    printf_green "Installing $name"
+  fi
+
+  if __download_extract_move "$download_url" "$name" "$binFile"; then
+    __install_to_system_bin "$binFile"
+    printf_green "$name has been installed to $binFile"
+  else
+    exitCode=1
+    printf_red "Failed to download $name"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_opentofu() {
+  local exitCode=0
+  local name="opentofu"
+  local arch="$(uname -m)"
+  local binFile="$OPENTOFU_BIN_DIR/$name"
+  local release_url="https://api.github.com/repos/opentofu/opentofu/releases/latest"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
+  case $arch in
+  x86_64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "tofu_.*_linux_amd64.zip\$")" ;;
+  aarch64 | arm64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "tofu_.*_linux_arm64.tar.gz\$")" ;;
+  esac
+  if __cmd_exists $name; then
+    printf_green "Updating $name"
+  else
+    printf_green "Installing $name"
+  fi
+
+  if __download_extract_move "$download_url" "$name" "$binFile"; then
+    __install_to_system_bin "$binFile"
+    printf_green "$name has been installed to $binFile"
+  else
+    exitCode=1
+    printf_red "Failed to download $name"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_webhookd() {
+  local exitCode=0
+  local name="webhookd"
+  local arch="$(uname -m)"
+  local binFile="$WEBHOOKD_BIN_DIR/$name"
+  local release_url="https://api.github.com/repos/ncarlier/webhookd/releases/latest"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
+  case $arch in
+  x86_64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "webhookd-linux-amd64.tgz\$")" ;;
+  aarch64 | arm64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "webhookd-linux-arm64.tgz\$")" ;;
+  esac
+  if __cmd_exists $name; then
+    printf_green "Updating $name"
+  else
+    printf_green "Installing $name"
+  fi
+
+  if __download_extract_move "$download_url" "$name" "$binFile"; then
+    __install_to_system_bin "$binFile"
+    printf_green "$name has been installed to $binFile"
+  else
+    exitCode=1
+    printf_red "Failed to download $name"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_zed() {
+  local exitCode=0
+  local name="zed"
+  local arch="$(uname -m)"
+  local binFile="$ZED_BIN_DIR/$name"
+  local installDir="$ZED_INSTALL_DIR"
+  local release_url="https://zed.dev/api/releases/stable/latest"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
+  tempBin="bin/zed"
+  __check_for_vulkan_support
+  if [ $? -eq 2 ]; then
+    printf_red "This system doesn't seem to have vulkan support"
+    return 1
+  fi
+  case $arch in
+  x86_64) download_url="$release_url/zed-linux-x86_64.tar.gz" ;;
+  aarch64 | arm64) download_url="$release_url/zed-linux-aarch64.tar.gz" ;;
+  esac
+  if __cmd_exists $name; then
+    printf_green "Updating $name"
+  else
+    printf_green "Installing $name"
+  fi
+
+  if __download_extract_install "$download_url" "$installDir" "$tempBin" "$binFile"; then
+    cp -Rf "$installDir/share/applications/zed.desktop" "$HOME/.local/share/applications/Zed-Editor.desktop"
+    sed -i "s|Icon=zed|Icon=$installDir/share/icons/hicolor/512x512/apps/zed.png|g" "$HOME/.local/share/applications/Zed-Editor.desktop"
+    sed -i "s|Exec=zed|Exec=$installDir/libexec/zed-editor|g" "$HOME/.local/share/applications/Zed-Editor.desktop"
+    printf_green "$name has been installed to $binFile"
+  else
+    exitCode=1
+    printf_red "Failed to download $name"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_go() {
+  local exitCode=0
+  local name="go"
+  local arch="$(uname -m)"
+  local binDir="$GO_BIN_DIR"
+  local installDir="$HOME/.local/share/go"
+  local release_base_url="https://go.dev/VERSION?m=text"
+  local latest_version="${GO_VERSION:-$(curl -q "$release_base_url" | grep go[0-9])}"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
+  case $arch in
+  x86_64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "$latest_version}.linux-amd64.tar.gz\$")" ;;
+  aarch64 | arm64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "${latest_version}.linux-arm64.tar.gz\$")" ;;
+  esac
+  if __cmd_exists $name; then
+    printf_green "Updating $name"
+  else
+    printf_green "Installing $name"
+  fi
+
+  if __download_extract_install "$download_url" "$installDir" "$name" "$binFile"; then
+    printf_green "$name has been installed to $binFile"
+  else
+    exitCode=1
+    printf_red "Failed to download $name"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_coder() {
+  local exitCode=0
+  local name="coder"
+  local arch="$(uname -m)"
+  local binFile="$CODER_BIN_DIR/$name"
+  local release_url="https://api.github.com/repos/coder/coder/releases/latest"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
+  case $arch in
+  x86_64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "_linux_amd64.tar.gz\$")" ;;
+  aarch64 | arm64) download_url="$(__curl ""$release_url | grep browser_download_url | cut -d '"' -f 4 | grep "_linux_arm64.tar.gz\$")" ;;
+  esac
+  if __cmd_exists $name; then
+    printf_green "Updating $name"
+  else
+    printf_green "Installing $name"
+  fi
+
+  if __download_extract_move "$download_url" "$name" "$binFile"; then
+    printf_green "$name has been installed to $binFile"
+  else
+    exitCode=1
+    printf_red "Failed to download $name"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_coolify() {
+  if [ "$SETUPMGR_INSTALL_ALL" = "yes" ]; then return; fi
+  local exitCode=0
+  local name="coolify"
+  local shell_command="bash"
+  local url="$COOLIFY_SCRIPT_URL"
+  local coolify_is_installed="$(docker ps -a | grep -q '.*'$name'.*' && echo 'yes' || false)"
+  __user_is_root || __can_i_sudo && shell_command="sudo bash"
+  if [ -n "$coolify_is_installed" ]; then
+    printf_green "$name already seems to be installed"
+    exitCode=1
+  elif ! __curl "$url" | $shell_command; then
+    printf_red "Failed to install $name"
+    exitCode=1
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_casaos() {
+  if [ "$SETUPMGR_INSTALL_ALL" = "yes" ]; then return; fi
+  local exitCode=0
+  local name="casaos"
+  local shell_command="bash"
+  local url="$CASAOS_SCRIPT_URL"
+  local casaos_is_installed="$(systemctl --quiet is-active casaos.service && echo 'yes' || false)"
+  __user_is_root || __can_i_sudo && shell_command="sudo bash"
+  if [ -n "$casaos_is_installed" ]; then
+    printf_green "$name already seems to be installed"
+    exitCode=1
+  elif ! __curl "$url" | $shell_command; then
+    printf_red "Failed to install $name"
+    exitCode=1
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_podman() {
+  local exitCode=0
+  local name="podman-desktop"
+  local arch="$(uname -m)"
+  local binFile="$PODMAN_BIN_DIR/$name"
+  local installDir="$HOME/.local/share/$name"
+  local release_url="https://github.com/containers/podman-desktop/releases/download/v1.13.2/podman-desktop-1.13.2.tar.gz"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
+  if [ "$arch" = "x86_64" ]; then
+    if ! __cmd_exists podman; then
+      printf_yellow "Installing podman"
+      pkmgr install silent podman
+    fi
+    if __cmd_exists $name; then
+      printf_green "Updating $name"
+    else
+      printf_green "Installing $name"
+    fi
+    if __download_extract_install "$release_url" "$installDir" "$name" "$binFile"; then
+      printf_green "$name has been installed to $binFile"
+      __gen_desktopfile "$name" "$binFile"
+    else
+      exitCode=1
+      printf_red "Failed to download $name"
+    fi
+  else
+    exitCode=0
+    printf_red "Unsupported architecture"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_lapce() {
+  local exitCode=0
+  local name="lapce"
+  local arch="$(uname -m)"
+  local binFile="$LAPCE_BIN_DIR/$name"
+  local release_url="https://api.github.com/repos/lapce/lapce/releases/latest"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
+  case $arch in
+  x86_64) download_url="https://github.com/lapce/lapce/releases/latest/download/lapce-linux-amd64.tar.gz" ;;
+  aarch64 | arm64) download_url="https://github.com/lapce/lapce/releases/latest/download/lapce-linux-arm64.tar.gz" ;;
+  esac
+  if __cmd_exists $name; then
+    printf_green "Updating $name"
+  else
+    printf_green "Installing $name"
+  fi
+  if __download_extract_move "$download_url" "$name" "$binFile"; then
+    __install_to_system_bin "$binFile"
+    printf_green "$name has been installed to $binFile"
+    __gen_desktopfile "$name" "$binFile"
+  else
+    exitCode=1
+    printf_red "Failed to download $name"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_minio() {
+  local exitCode=0
+  local name="minio"
+  local arch="$(uname -m)"
+  local binFile="$MINIO_BIN_DIR/$name"
+  local username="administrator"
+  local admin_pass="$(openssl rand -base64 32)"
+  local storage_dir="$MINIO_STORAGE_DIR"
+  local release_url="https://dl.min.io/server/$name/release"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
+  case $arch in
+  x86_64) download_url="$release_url/linux-amd64/$name" ;;
+  aarch64 | arm64) download_url="$release_url/linux-arm64/$name" ;;
+  esac
+  if __cmd_exists $name; then
+    printf_green "Updating $name"
+  else
+    printf_green "Installing $name"
+  fi
+  if __download_and_move "$download_url" "$name" "$binFile"; then
+    if __install_to_system_bin "$binFile"; then
+      [ -d "$storage_dir" ] || sudo mkdir -p "$storage_dir"
+      __sudo chmod 755 "$storage_dir"
+      __sudo useradd -s /sbin/nologin -d /var/lib/$name $name >/dev/null 2>&1
+      if [ -f "/etc/default/$name" ]; then
+        unset admin_pass username
+      else
+        cat <<EOF | tee "/etc/default/$name" &>/dev/null
+# Volume to be used for Minio server.
+MINIO_VOLUMES="$storage_dir"
+
+# Use if you want to run Minio on a custom port.
+MINIO_OPTS="--address 0.0.0.0:49000 --console-address 0.0.0.0:49001"
+
+# set console web address
+MINIO_BROWSER_REDIRECT_URL="https://$MINIO_BROWSER_REDIRECT_URL"
+
+# Root user for the server.
+MINIO_ROOT_USER=$username
+# Root secret for the server.
+MINIO_ROOT_PASSWORD=$admin_pass
+
+EOF
+      fi
+      sudo chown $name:$name /etc/default/$name
+
+      if [ ! -f "/etc/systemd/system/$name.service" ]; then
+        cat <<EOF | sudo tee "/etc/systemd/system/$name.service" &>/dev/null
+[Unit]
+Description=Minio
+Documentation=https://docs.$name.io
+Wants=network-online.target
+After=network-online.target
+AssertFileIsExecutable=/usr/local/bin/$name
+
+[Service]
+WorkingDirectory=/usr/local/
+
+User=$name
+Group=$name
+
+Environment=MINIO_VOLUMES="$storage_dir"
+EnvironmentFile=/etc/default/$name
+
+ExecStart=/usr/local/bin/$name server \$MINIO_OPTS \$MINIO_VOLUMES
+
+# Let systemd restart this service always
+Restart=always
+
+# Specifies the maximum file descriptor number that can be opened by this process
+LimitNOFILE=65536
+
+# Disable timeout logic and wait until process is stopped
+TimeoutStopSec=infinity
+SendSIGKILL=no
+
+[Install]
+WantedBy=multi-user.target
+# Built for \${project.name}-\${project.version} (\${project.name})
+
+EOF
+      fi
+      __sudo systemctl daemon-reload >/dev/null
+      __sudo systemctl enable --now $name.service >/dev/null
+    fi
+    printf_green "$name has been installed to $binFile"
+    [ -z "$username" ] || printf_cyan "Username: $username"
+    [ -z "$admin_pass" ] || printf_cyan "Password: $admin_pass"
+  else
+    exitCode=1
+    printf_red "Failed to download $name"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_garage() {
+  local exitCode=0
+  local name="garage"
+  local arch="$(uname -m)"
+  local binFile="$GARAGE_BIN_DIR/$name"
+  local rpc_secret="$(openssl rand -hex 32)"
+  local metrics_token="$(openssl rand -base64 32)"
+  local admin_password="$(openssl rand -base64 32)"
+  local storage_dir="$GARAGE_STORAGE_DIR"
+  local release_url="https://garagehq.deuxfleurs.fr/_releases/v${GARAGE_VERSION:-1.0.1}"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
+  case $arch in
+  x86_64) download_url="$release_url/x86_64-unknown-linux-musl/garage" ;;
+  aarch64 | arm64) download_url="$release_url/aarch64-unknown-linux-musl/garage" ;;
+  esac
+  if __cmd_exists $name; then
+    printf_green "Updating $name"
+  else
+    printf_green "Installing $name"
+  fi
+  if __download_and_move "$download_url" "$name" "$binFile"; then
+    if __install_to_system_bin "$binFile"; then
+      [ -d "/var/lib/$name/data" ] || __sudo mkdir -p "/var/lib/$name/data"
+      [ -d "/var/lib/$name/meta" ] || __sudo mkdir -p "/var/lib/$name/meta"
+      __sudo chmod 755 "/var/lib/$name"
+      if [ -f "/etc/garage.toml" ]; then
+        unset admin_password username
+      else
+        cat <<EOF | tee "/etc/garage.toml" >/dev/null
+metadata_dir = "/var/lib/garage/meta"
+data_dir = "/var/lib/garage/data"
+db_engine = "sqlite"
+
+replication_factor = 1
+
+rpc_bind_addr = "[::]:49002"
+rpc_public_addr = "[::]:49002"
+rpc_secret = "$rpc_secret"
+
+[s3_api]
+s3_region = "garage"
+api_bind_addr = "[::]:49003"
+root_domain = ".garage.$HOSTNAME"
+
+[s3_web]
+bind_addr = "[::]:49004"
+root_domain = ".garage-console.$HOSTNAME"
+index = "index.html"
+
+[k2v_api]
+api_bind_addr = "[::]:49005"
+
+[admin]
+api_bind_addr = "[::]:49006"
+admin_token = "$admin_password"
+metrics_token = "$metrics_token"
+EOF
+      fi
+      if [ ! -f "/etc/systemd/system/$name.service" ]; then
+        cat <<EOF | sudo tee "/etc/systemd/system/$name.service" &>/dev/null
+[Unit]
+Description=Garage Data Store
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Environment='RUST_LOG=garage=info' 'RUST_BACKTRACE=1'
+ExecStart=/usr/local/bin/garage server
+StateDirectory=garage
+DynamicUser=true
+ProtectHome=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
+
+EOF
+      fi
+      __sudo systemctl daemon-reload >/dev/null
+      __sudo systemctl enable --now $name.service >/dev/null
+    fi
+    printf_green "$name has been installed to $binFile"
+    [ -z "$admin_password" ] || printf_cyan "admin password: $admin_password"
+  else
+    exitCode=1
+    printf_red "Failed to download $name"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_caddy() {
+  local exitCode=0
+  local name="caddy"
+  local arch="$(uname -m)"
+  extract_cmd="do_not_strip_components"
+  local binFile="$CADDY_BIN_DIR/$name"
+  local latest_version="$(__get_releases "https://api.github.com/repos/caddyserver/caddy/releases" | sed 's|^v||g')"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
+  case $arch in
+  x86_64) download_url="https://github.com/caddyserver/caddy/releases/download/v${latest_version}/caddy_${latest_version}_linux_amd64.tar.gz" ;;
+  aarch64 | arm64) download_url="https://github.com/caddyserver/caddy/releases/download/v${latest_version}/caddy_${latest_version}_linux_arm64.tar.gz" ;;
+  esac
+  if __cmd_exists $name; then
+    printf_green "Updating $name"
+  else
+    printf_green "Installing $name"
+  fi
+  if __download_extract_move "$download_url" "$name" "$binFile"; then
+    __install_to_system_bin "$binFile"
+    printf_green "$name has been installed to $binFile"
+  else
+    exitCode=1
+    printf_red "Failed to download $name"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_yq() {
+  local exitCode=0
+  local name="yq"
+  local arch="$(uname -m)"
+  local binFile="$YQ_BIN_DIR/$name"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
+  local release_url="https://github.com/mikefarah/yq/releases/latest/download"
+  [ -d "$YQ_BIN_DIR" ] || mkdir -p "$YQ_BIN_DIR"
+  if [ "$arch" = "x86_64" ]; then
+    download_url="$release_url/yq_linux_amd64"
+  elif [ "$arch" = "aarch64" ]; then
+    download_url="$release_url/yq_linux_arm64"
+  else
+    printf_exit "Only x86_64 and ARM64 architecture is supported"
+  fi
+  if __cmd_exists $name; then
+    printf_green "Attempting to update $name"
+  else
+    printf_green "Attempting to install $name"
+  fi
+  if __download_and_move "$download_url" "$name" "$binFile"; then
+    __install_to_system_bin "$binFile"
+    printf_green "$name has been installed"
+  fi
+  if [ -n "$(type -P $name 2>/dev/null)" ]; then
+    if $name --help 2>&1 | grep -q 'execute binary file'; then
+      printf_red "Unsupported architecture detected"
+      __rm "$binFile"
+      exitCode=1
+    fi
+  else
+    exitCode=1
+    printf_red "Failed to install $name"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_gpt() {
+  local exitCode=0
+  local name="tgpt"
+  local arch="$(uname -m)"
+  local binFile="$GPT_BIN_DIR/$name"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
+  local release_url="https://github.com/aandrew-me/tgpt/releases/latest/download"
+  [ -d "$GPT_BIN_DIR" ] || mkdir -p "$GPT_BIN_DIR"
+  if [ "$arch" = "x86_64" ]; then
+    download_url="$release_url/tgpt-linux-amd64"
+  elif [ "$arch" = "aarch64" ]; then
+    download_url="$release_url/tgpt-linux-arm64"
+  else
+    printf_exit "Only x86_64 and ARM64 architecture is supported"
+  fi
+  if __cmd_exists $name; then
+    printf_green "Attempting to update $name"
+  else
+    printf_green "Attempting to install $name"
+  fi
+  if __download_and_move "$download_url" "$name" "$binFile"; then
+    __install_to_system_bin "$binFile"
+    printf_green "$name has been installed"
+  fi
+  if [ -n "$(type -P $name 2>/dev/null)" ]; then
+    if $name --help 2>&1 | grep -q 'execute binary file'; then
+      printf_red "Unsupported architecture detected"
+      __rm "$binFile"
+      exitCode=1
+    fi
+  else
+    exitCode=1
+    printf_red "Failed to install $name"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_uv() {
+  local exitCode=0
+  local name="uv"
+  local arch="$(uname -m)"
+  local binDir="$UV_BIN_DIR"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
+  local release_url="https://github.com/astral-sh/uv/releases/latest/download"
+  [ -d "$UV_BIN_DIR" ] || mkdir -p "$UV_BIN_DIR"
+  if [ "$arch" = "x86_64" ]; then
+    download_url="$release_url/uv-x86_64-unknown-linux-gnu.tar.gz"
+  elif [ "$arch" = "aarch64" ]; then
+    download_url="$release_url/uv-aarch64-unknown-linux-gnu.tar.gz"
+  else
+    printf_exit "Only x86_64 and ARM64 architecture is supported"
+  fi
+  if __cmd_exists $name; then
+    printf_green "Attempting to update $name"
+  else
+    printf_green "Attempting to install $name"
+  fi
+  if ! __download_extract_all "$download_url" "$binDir"; then
+    exitCode=1
+    printf_red "Failed to install $name"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined variables/import external variables
+SETUPMGR_START_TIMER="${SETUPMGR_START_TIMER:-$(date +%s.%N)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Default exit code
+SETUPMGR_EXIT_STATUS=0
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application Folders
+SETUPMGR_CONFIG_DIR="${SETUPMGR_CONFIG_DIR:-$HOME/.config/myscripts/setupmgr}"
+SETUPMGR_CONFIG_BACKUP_DIR="${SETUPMGR_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/setupmgr/backups}"
+SETUPMGR_LOG_DIR="${SETUPMGR_LOG_DIR:-$HOME/.local/log/setupmgr}"
+SETUPMGR_RUN_DIR="${SETUPMGR_RUN_DIR:-$HOME/.local/run/system_scripts/$SETUPMGR_SCRIPTS_PREFIX}"
+SETUPMGR_TEMP_DIR="${SETUPMGR_TEMP_DIR:-$HOME/.local/tmp/system_scripts/setupmgr}"
+SETUPMGR_CACHE_DIR="${SETUPMGR_CACHE_DIR:-$HOME/.cache/setupmgr}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# File settings
+SETUPMGR_CONFIG_FILE="${SETUPMGR_CONFIG_FILE:-settings.conf}"
+SETUPMGR_LOG_ERROR_FILE="${SETUPMGR_LOG_ERROR_FILE:-$SETUPMGR_LOG_DIR/error.log}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+SETUPMGR_OUTPUT_COLOR_1="${SETUPMGR_OUTPUT_COLOR_1:-33}"
+SETUPMGR_OUTPUT_COLOR_2="${SETUPMGR_OUTPUT_COLOR_2:-5}"
+SETUPMGR_OUTPUT_COLOR_GOOD="${SETUPMGR_OUTPUT_COLOR_GOOD:-2}"
+SETUPMGR_OUTPUT_COLOR_ERROR="${SETUPMGR_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+SETUPMGR_REMOTE_NOTIFY_ENABLED="${SETUPMGR_REMOTE_NOTIFY_ENABLED:-yes}"
+SETUPMGR_REMOTE_NOTIFY_COMMAND="${SETUPMGR_REMOTE_NOTIFY_COMMAND:-web-notify telegram}"
+# System
+SETUPMGR_SYSTEM_NOTIFY_ENABLED="${SETUPMGR_SYSTEM_NOTIFY_ENABLED:-yes}"
+SETUPMGR_GOOD_NAME="${SETUPMGR_GOOD_NAME:-Great:}"
+SETUPMGR_ERROR_NAME="${SETUPMGR_ERROR_NAME:-Error:}"
+SETUPMGR_GOOD_MESSAGE="${SETUPMGR_GOOD_MESSAGE:-No errors reported}"
+SETUPMGR_ERROR_MESSAGE="${SETUPMGR_ERROR_MESSAGE:-Errors were reported}"
+SETUPMGR_NOTIFY_CLIENT_NAME="${SETUPMGR_NOTIFY_CLIENT_NAME:-$APPNAME}"
+SETUPMGR_NOTIFY_CLIENT_ICON="${SETUPMGR_NOTIFY_CLIENT_ICON:-notification-new}"
+SETUPMGR_NOTIFY_CLIENT_URGENCY="${SETUPMGR_NOTIFY_CLIENT_URGENCY:-normal}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional Variables
+USRBINDIR="${USRBINDIR:-$HOME/.local/bin}"
+SETUPMGER_DEFAULT_USER_BIN_DIR="${SETUPMGER_DEFAULT_USER_BIN_DIR:-$USRBINDIR}"
+SETUPMGER_DEFAULT_SYSTEM_BIN_DIR="${SETUPMGER_DEFAULT_SYSTEM_BIN_DIR:-/usr/local/bin}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LUA_JIT_VERSION="${LUA_JIT_VERSION:-2.0.5}"
+LUA_DEFAULT_VERSION="${LUA_DEFAULT_VERSION:-5.4.3}"
+LUA_ROCKS_DEFAULT_VERSION="${LUA_ROCKS_DEFAULT_VERSION:-3.8.0}"
+LUAROCKS_BIN="${LUAROCKS_BIN:-$HOME/.local/share/lua/luarocks/bin}"
+LUAVER_HOME="${LUAVER_HOME:-$HOME/.local/share/lua/plugins/luaver}"
+LUAVER_GIT_REPO="${LUAVER_GIT_REPO:-https://github.com/DhavalKapil/luaver}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ASDF_DIR="${ASDF_DIR:-$HOME/.config/asdf}"
+ASDF_DATA_DIR="${ASDF_DATA_DIR:-$HOME/.local/share/bash/plugins/asdf}"
+ASDF_GITREPO="${ASDF_GITREPO:-https://github.com/asdf-vm/asdf}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+DENO_BIN_DIR="${DENO_BIN_DIR:-$SETUPMGER_DEFAULT_USER_BIN_DIR}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+BUN_BIN_DIR="${BUN_BIN_DIR:-$SETUPMGER_DEFAULT_USER_BIN_DIR}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+DISTBOX_BIN_DIR="${DISTBOX_BIN_DIR:-$SETUPMGER_DEFAULT_USER_BIN_DIR}"
+DBX_HOME="${DBX_HOME:-$HOME/.local/share/distrobox}"
+DISTROBOX_HOME="${DISTROBOX_HOME:-$DBX_HOME}"
+DISTROBOX_SCRIPT_URL="${DISTROBOX_SCRIPT_URL:-https://raw.githubusercontent.com/89luca89/distrobox/main/install}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+DOTNET_BIN_DIR="${DOTNET_BIN_DIR:-$SETUPMGER_DEFAULT_USER_BIN_DIR}"
+DOTNET_ROOT="${DOTNET_ROOT:-$HOME/.local/share/dotnet}"
+DOTNET_SCRIPT_URL="${DOTNET_SCRIPT_URL:-https://dot.net/v1/dotnet-install.sh}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+VFOX_BIN_DIR="${VFOX_BIN_DIR:-$SETUPMGER_DEFAULT_USER_BIN_DIR}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+FASTFETCH_BIN_DIR="${FASTFETCH_BIN_DIR:-$SETUPMGER_DEFAULT_USER_BIN_DIR}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+GVM_ROOT="${GVM_ROOT:-$HOME/.local/share/gvm}"
+GVM_BIN_DIR="${GVM_BIN_DIR:-$SETUPMGER_DEFAULT_USER_BIN_DIR}"
+GVM_GITREPO="${GVM_GITREPO:-https://github.com/moovweb/gvm}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+VAGRANT_BIN_DIR="${VAGRANT_BIN_DIR:-$SETUPMGER_DEFAULT_USER_BIN_DIR}"
+VAGRANT_HOME="${VAGRANT_HOME:-$HOME/.local/share/vagrant}"
+VAGRANT_DEFAULT_PROVIDER="${VAGRANT_DEFAULT_PROVIDER:-libvirt}"
+VAGRANT_DEFAULT_BOX="${VAGRANT_DEFAULT_BOX:-archlinux/archlinux}"
+VAGRANT_CLOUD_TOKEN="${VAGRANT_CLOUD_TOKEN:-}"
+VAGRANT_CLOUD_USERNAME="${VAGRANT_CLOUD_USERNAME:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+FNM_BIN="${FNM_BIN:-$SETUPMGER_DEFAULT_USER_BIN_DIR}"
+FNM_DIR="${FNM_DIR:-$HOME/.local/share/nodejs/fnm}"
+FNM_NODE_VERSION="${FNM_NODE_VERSION:-latest}"
+FNM_INSTALL_SCRIPT="${FNM_INSTALL_SCRIPT:-https://raw.githubusercontent.com/Schniz/fnm/master/.ci/install.sh}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+NVM_NODE_VERSION="${NVM_NODE_VERSION:-20}"
+NVM_BIN="${NVM_BIN:-$SETUPMGER_DEFAULT_USER_BIN_DIR}"
+NVM_DIR="${NVM_DIR:-$HOME/.local/share/nodejs/nvm}"
+NVM_GITREPO="${NVM_GITREPO:-https://github.com/nvm-sh/nvm}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+NODE_NPM_PACKAGES="${NODE_NPM_PACKAGES:-vercel prettier eslint npm-check-updates}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+POWERSHELL_BIN_DIR="${POWERSHELL_BIN_DIR:-$SETUPMGER_DEFAULT_USER_BIN_DIR}"
+POWERSHELL_INSTALL_DIR="${POWERSHELL_INSTALL_DIR:-$HOME/.local/share/powershell}"
+POWERSHELL_TEMP_DIR="${POWERSHELL_TEMP_DIR:-$SETUPMGR_TEMP_DIR/powershell}"
+POWERSHELL_LATEST_URL="${POWERSHELL_LATEST_URL:-https://api.github.com/repos/PowerShell/PowerShell/releases/latest}"
+POWERSHELL_OMP_GITREPO="${POWERSHELL_OMP_GITREPO:-https://api.github.com/repos/JanDeDobbeleer/oh-my-posh/releases/latest}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+JEKYLL_VERSION="${JEKYLL_VERSION:-3.10.0}"
+JEKYLL_RUBY_VERSION="${JEKYLL_RUBY_VERSION:-3.3.4}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+rvm_path="${rvm_path:-$HOME/.local/share/ruby/rvm}"
+RVM_BIN_DIR="${RVM_BIN_DIR:-$SETUPMGER_DEFAULT_USER_BIN_DIR}"
+RVM_GITREPO="${RVM_GITREPO:-https://github.com/rvm/rvm}"
+RVM_RUBY_VERSION="${RVM_RUBY_VERSION:-3.3.4}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+RBENV_BIN_DIR="${RBENV_BIN_DIR:-$SETUPMGER_DEFAULT_USER_BIN_DIR}"
+RBENV_ROOT="${RBENV_ROOT:-$HOME/.local/share/ruby/rbenv}"
+RBENV_GITREPO="${RBENV_GITREPO:-https://github.com/rbenv/rbenv.git}"
+RBENV__RUBY_VERSION="${RBENV__RUBY_VERSION:-3.3.4}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+KUBECTL_BIN_DIR="${KUBECTL_BIN_DIR:-$SETUPMGER_DEFAULT_USER_BIN_DIR}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+MINIKUBE_MEMORY="${MINIKUBE_MEMORY:-4096}"
+MINIKUBE_DRIVER="${MINIKUBE_DRIVER:-docker}"
+MINIKUBE_BIN_DIR="${MINIKUBE_BIN_DIR:-$SETUPMGER_DEFAULT_USER_BIN_DIR}"
+MINIKUBE_HOME="${MINIKUBE_HOME:-$HOME/.config/minikube}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+DIRENV_BIN_DIR="${DIRENV_BIN_DIR:-$SETUPMGER_DEFAULT_USER_BIN_DIR}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+INCUS_BIN_DIR="${INCUS_BIN_DIR:-$SETUPMGER_DEFAULT_USER_BIN_DIR}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+HELM_BIN_DIR="${HELM_BIN_DIR:-$SETUPMGER_DEFAULT_USER_BIN_DIR}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+KIND_BIN_DIR="${KIND_BIN_DIR:-$SETUPMGER_DEFAULT_USER_BIN_DIR}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+PACKER_VERSION="${PACKER_VERSION:-1.11.2}"
+PACKER_BIN_DIR="${PACKER_BIN_DIR:-$SETUPMGER_DEFAULT_USER_BIN_DIR}"
+PACKER_PLUGINS="${PACKER_PLUGINS:-docker proxmox qemu vmware vagrant incus}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+OPENTOFU_BIN_DIR="${OPENTOFU_BIN_DIR:-$SETUPMGER_DEFAULT_USER_BIN_DIR}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+WEBHOOKD_BIN_DIR="${WEBHOOKD_BIN_DIR:-$SETUPMGER_DEFAULT_USER_BIN_DIR}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+GOHTTPSERVER_BIN_DIR="${GOHTTPSERVER_BIN_DIR:-$SETUPMGER_DEFAULT_USER_BIN_DIR}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+CASAOS_SCRIPT_URL="${CASAOS_SCRIPT_URL:-https://get.casaos.io}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+COOLIFY_SCRIPT_URL="${COOLIFY_SCRIPT_URL:-https://cdn.coollabs.io/coolify/install.sh}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+GO_VERSION="${GO_VERSION:-}"
+GO_BIN_DIR="${GO_BIN_DIR:-$SETUPMGER_DEFAULT_USER_BIN_DIR}"
+GO_INSTALL_DIR="${GO_INSTALL_DIR:-$HOME/.local/share/go}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ZED_BIN_DIR="${ZED_BIN_DIR:-$SETUPMGER_DEFAULT_USER_BIN_DIR}"
+ZED_INSTALL_DIR="${ZED_INSTALL_DIR:-$HOME/.local/share/zed_editor}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+CODER_BIN_DIR="${CODER_BIN_DIR:-$SETUPMGER_DEFAULT_USER_BIN_DIR}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+PODMAN_BIN_DIR="${PODMAN_BIN_DIR:-$SETUPMGER_DEFAULT_USER_BIN_DIR}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LAPCE_BIN_DIR="${LAPCE_BIN_DIR:-$SETUPMGER_DEFAULT_USER_BIN_DIR}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+YQ_BIN_DIR="${YQ_BIN_DIR:-$SETUPMGER_DEFAULT_USER_BIN_DIR}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+CADDY_BIN_DIR="${CADDY_BIN_DIR:-$SETUPMGER_DEFAULT_USER_BIN_DIR}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+UV_BIN_DIR="${UV_BIN_DIR:-$SETUPMGER_DEFAULT_USER_BIN_DIR}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+MINIO_STORAGE_DIR="${MINIO_STORAGE_DIR:-/var/lib/minio/data}"
+MINIO_BIN_DIR="${MINIO_BIN_DIR:-$SETUPMGER_DEFAULT_USER_BIN_DIR}"
+MINIO_BROWSER_REDIRECT_URL="${MINIO_BROWSER_REDIRECT_URL:-minio-console.$HOSTNAME}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+GARAGE_STORAGE_DIR="${GARAGE_STORAGE_DIR:-/var/lib/garage/data}"
+GARAGE_BIN_DIR="${GARAGE_BIN_DIR:-$SETUPMGER_DEFAULT_USER_BIN_DIR}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+GPT_BIN_DIR="${GPT_BIN_DIR:-$SETUPMGER_DEFAULT_USER_BIN_DIR}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$SETUPMGR_CONFIG_DIR/$SETUPMGR_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$SETUPMGR_CONFIG_DIR/$SETUPMGR_CONFIG_FILE" ] && . "$SETUPMGR_CONFIG_DIR/$SETUPMGR_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$SETUPMGR_RUN_DIR" ] || mkdir -p "$SETUPMGR_RUN_DIR" |& __devnull
+[ -d "$SETUPMGR_LOG_DIR" ] || mkdir -p "$SETUPMGR_LOG_DIR" |& __devnull
+[ -d "$SETUPMGR_TEMP_DIR" ] || mkdir -p "$SETUPMGR_TEMP_DIR" |& __devnull
+[ -d "$SETUPMGR_CACHE_DIR" ] || mkdir -p "$SETUPMGR_CACHE_DIR" |& __devnull
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SETUPMGR_TEMP_FILE="${SETUPMGR_TEMP_FILE:-$(mktemp $SETUPMGR_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set custom actions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Argument/Option settings
+SETARGS=("$@")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SHORTOPTS=""
+SHORTOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+GET_OPTIONS_NO="no-tee"
+GET_OPTIONS_YES="yes-*"
+LONGOPTS="completions:,config,reset-config,debug,dir:,help,options,raw,version,silent,force,"
+LONGOPTS+="all"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ARRAY="asdf,bun,caddy,casaos,coder,coolify,deno,devbox,direnv,distrobox,dotnet,fastfetch,fnm,garage,go,gohttpserver,gpt,gvm,helm,incus,jekyll,"
+ARRAY+="kind,kubectl,lapce,lua,minikube,minio,nix,nodejs,nvm,opentofu,packer,podman,powershell,rbenv,rvm,uv,vagrant,vfox,webhookd,yq,zed"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LIST=""
+LIST+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS,$GET_OPTIONS_YES,$GET_OPTIONS_NO" -n "$APPNAME" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case "$1" in
+  --raw)
+    shift 1
+    export SHOW_RAW="true"
+    NC=""
+    RESET=""
+    BLACK=""
+    RED=""
+    GREEN=""
+    YELLOW=""
+    BLUE=""
+    PURPLE=""
+    CYAN=""
+    WHITE=""
+    ORANGE=""
+    LIGHTRED=""
+    BG_GREEN=""
+    BG_RED=""
+    ICON_INFO="[ info ]"
+    ICON_GOOD="[ ok ]"
+    ICON_WARN="[ warn ]"
+    ICON_ERROR="[ error ]"
+    ICON_QUESTION="[ ? ]"
+    printf_column() { tee | grep '^'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    ;;
+  --debug)
+    shift 1
+    set -xo pipefail
+    export SCRIPT_OPTS="--debug"
+    export _DEBUG="on"
+    __devnull() { tee || return 1; }
+    __devnull2() { eval "$@" |& tee -p || return 1; }
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
+    ;;
+  --options)
+    shift 1
+    printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' 4
+    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' 4
+    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
+    [ -z "$LIST" ] || __list_options "LIST Options" "${LIST}" ',' '' 4
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  --reset-config)
+    shift 1
+    [ -f "$SETUPMGR_CONFIG_DIR/$SETUPMGR_CONFIG_FILE" ] && __rm "$SETUPMGR_CONFIG_DIR/$SETUPMGR_CONFIG_FILE"
+    __gen_config
+    exit $?
+    ;;
+  --silent)
+    shift 1
+    SETUPMGR_SILENT="true"
+    ;;
+  --force)
+    shift 1
+    export FORCE_INSTALL="true"
+    SETUPMGR_FORCE_INSTALL="true"
+    ;;
+  --dir)
+    CWD_IS_SET="TRUE"
+    SETUPMGR_CWD="$2"
+    [ -d "$SETUPMGR_CWD" ] || mkdir -p "$SETUPMGR_CWD" |& __devnull
+    shift 2
+    ;;
+  --no-*)
+    __options_function_no "$@"
+    shift 1
+    ;;
+  --yes-*)
+    __options_function_yes "$@"
+    shift 1
+    ;;
+  --all)
+    shift 1
+    SETUPMGR_INSTALL_ALL="yes"
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get directory from args
+# set -- "$@"
+# for arg in "$@"; do
+# if [ -d "$arg" ]; then
+# SETUPMGR_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
+# elif [ -f "$arg" ]; then
+# SETUPMGR_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
+# else
+# SET_NEW_ARGS+=("$arg")
+# fi
+# done
+# set -- "${SET_NEW_ARGS[@]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set directory to first argument
+# [ -d "$1" ] && __is_an_option "$1" && SETUPMGR_CWD="$1" && shift 1 || SETUPMGR_CWD="${SETUPMGR_CWD:-$PWD}"
+SETUPMGR_CWD="$(realpath "${SETUPMGR_CWD:-$PWD}" 2>/dev/null)"
+# if [ -d "$SETUPMGR_CWD" ] && cd "$SETUPMGR_CWD"; then
+# if [ "$SETUPMGR_SILENT" != "true" ] && [ "$CWD_SILENCE" != "true" ]; then
+# printf_cyan "Setting working dir to $SETUPMGR_CWD"
+# fi
+# else
+# printf_exit "💔 $SETUPMGR_CWD does not exist 💔"
+# fi
+export SETUPMGR_CWD
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set actions based on variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+cmd_exists --error --ask bash curl tar unzip || exit 3 # exit 3 if not found
+#am_i_online --error || exit 4           # exit 4 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Export variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute functions
+pushd "/tmp" >/dev/null || true
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+if [ "$SETUPMGR_INSTALL_ALL" = "yes" ]; then
+  setVal=0
+  for app in ${ARRAY//,/ }; do
+    eval $0 $app
+    retVal=$?
+    setVal=$((setVal + retVal))
+    printf_newline
+  done
+  exit $setVal
+fi
+[ "$1" = "install" ] && shift
+while [ $# -gt 0 ]; do
+  case "$1" in
+  lua)
+    shift 1
+    __setup_lua
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  asdf)
+    shift 1
+    __setup_asdf
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  deno)
+    shift 1
+    __setup_deno
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  bun)
+    shift 1
+    __setup_bun
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  distrobox)
+    shift 1
+    __setup_distrobox
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  dotnet)
+    shift 1
+    __setup_dotnet
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  vfox)
+    shift 1
+    __setup_vfox
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  fastfetch)
+    shift 1
+    __setup_fastfetch
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  gvm)
+    shift 1
+    __setup_gvm
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  vagrant)
+    shift 1
+    __setup_vagrant
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  fnm)
+    shift 1
+    __setup_fnm
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  nvm)
+    shift 1
+    __setup_nvm
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  nodejs)
+    shift 1
+    __setup_nodejs
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  powershell)
+    shift 1
+    __setup_powershell
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  jekyll)
+    shift 1
+    __setup_jekyll
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  rvm)
+    shift 1
+    __setup_rvm
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  rbenv)
+    shift 1
+    __setup_rbenv
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  devbox)
+    shift 1
+    __setup_devbox
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  nix)
+    shift 1
+    __setup_nix
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  helm)
+    shift 1
+    __setup_helm
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  kind)
+    shift 1
+    __setup_kind
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  kubectl)
+    shift 1
+    __setup_kubectl
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  minikube)
+    shift 1
+    __setup_minikube
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  direnv)
+    shift 1
+    __setup_direnv
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  incus)
+    shift 1
+    __setup_incus
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  coder)
+    shift 1
+    __setup_coder
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  packer)
+    shift 1
+    __setup_packer
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  gohttpserver)
+    shift 1
+    __setup_gohttpserver
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  go)
+    shift 1
+    __setup_go
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  gpt)
+    shift 1
+    __setup_gpt
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  opentofu)
+    shift 1
+    __setup_opentofu
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  webhookd)
+    shift 1
+    __setup_webhookd
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  coolify)
+    shift 1
+    __setup_coolify
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  casaos)
+    shift 1
+    __setup_casaos
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  zed)
+    shift 1
+    __setup_zed
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  podman)
+    shift 1
+    __setup_podman
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  lapce)
+    shift 1
+    __setup_lapce
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  yq)
+    shift 1
+    __setup_yq
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  caddy)
+    shift 1
+    __setup_caddy
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  uv)
+    shift 1
+    __setup_uv
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  minio)
+    shift 1
+    __setup_minio
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  garage)
+    shift 1
+    __setup_garage
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  *)
+    break
+    ;;
+  esac
+done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set exit code
+SETUPMGR_EXIT_STATUS="${SETUPMGR_EXIT_STATUS:-0}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${SETUPMGR_EXIT_STATUS:-0}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# ex: ts=2 sw=2 et filetype=sh

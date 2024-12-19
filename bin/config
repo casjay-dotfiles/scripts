@@ -1,0 +1,1052 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version           :  202208042312-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  jason@casjaysdev.pro
+# @@License          :  WTFPL
+# @@ReadME           :  config --help
+# @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
+# @@Created          :  Thursday, Aug 04, 2022 23:12 EDT
+# @@File             :  config
+# @@Description      :  Add dotfiles/config files to a git repo
+# @@Changelog        :  New script
+# @@TODO             :  Better documentation
+# @@Other            :
+# @@Resource         :  https://www.atlassian.com/git/tutorials/dotfiles
+# @@Terminal App     :  no
+# @@sudo/root        :  no
+# @@Template         :  bash/system
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="$(basename -- "$0" 2>/dev/null)"
+VERSION="202208042312-git"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${RUN_USER:-$USER}"
+USER_HOME="${USER_HOME:-$HOME}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+CONFIG_REQUIRE_SUDO="${CONFIG_REQUIRE_SUDO:-no}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Reopen in a terminal
+#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set script title
+#CASJAYS_DEV_TILE_FORMAT="${USER}@${HOSTNAME}:${PWD//$HOME/\~} - $APPNAME"
+#CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}"
+#[ -z "$CASJAYSDEV_TITLE_SET" ] && printf '\033]2│;%s\033\\' "$CASJAYS_DEV_TILE_FORMAT" && CASJAYSDEV_TITLE_SET="$APPNAME"
+export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}" CASJAYSDEV_TITLE_SET
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initial debugging
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# pipes fail
+set -o pipefail
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import functions
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+  . "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  exit 1
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Options are: *_install
+# system user desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+user_install && __options "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Send all output to /dev/null
+__devnull() {
+  tee &>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# Send errors to /dev/null
+__devnull2() {
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# See if the executable exists
+__cmd_exists() {
+  exitCode=0
+  [ -n "$1" ] && local exitCode="" || return 0
+  for cmd in "$@"; do
+    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
+  done
+  [ $exitCode -eq 0 ] || exitCode=3
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for a valid internet connection
+__am_i_online() {
+  local exitCode=0
+  curl -q -LSsfI --max-time 2 --retry 1 "${1:-https://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# colorization
+if [ "$SHOW_RAW" = "true" ]; then
+  NC=""
+  RESET=""
+  BLACK=""
+  RED=""
+  GREEN=""
+  YELLOW=""
+  BLUE=""
+  PURPLE=""
+  CYAN=""
+  WHITE=""
+  ORANGE=""
+  LIGHTRED=""
+  BG_GREEN=""
+  BG_RED=""
+  ICON_INFO="[ info ]"
+  ICON_GOOD="[ ok ]"
+  ICON_WARN="[ warn ]"
+  ICON_ERROR="[ error ]"
+  ICON_QUESTION="[ ? ]"
+  printf_column() { tee | grep '^'; }
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional printf_ colors
+__printf_head() { printf_blue "$1"; }
+__printf_opts() { printf_purple "$1"; }
+__printf_line() { printf_cyan "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# output version
+__version() { printf_cyan "$VERSION"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# list options
+__list_options() {
+  printf_color "$1: " "$5"
+  echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g' | tr '\n' ' '
+  printf_newline
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create the config file
+__gen_config() {
+  local NOTIFY_CLIENT_NAME="$APPNAME"
+  if [ "$INIT_CONFIG" != "TRUE" ]; then
+    printf_blue "Generating the config file in"
+    printf_cyan "$CONFIG_CONFIG_DIR/$CONFIG_CONFIG_FILE"
+  fi
+  [ -d "$CONFIG_CONFIG_DIR" ] || mkdir -p "$CONFIG_CONFIG_DIR"
+  [ -d "$CONFIG_CONFIG_BACKUP_DIR" ] || mkdir -p "$CONFIG_CONFIG_BACKUP_DIR"
+  [ -f "$CONFIG_CONFIG_DIR/$CONFIG_CONFIG_FILE" ] &&
+    cp -Rf "$CONFIG_CONFIG_DIR/$CONFIG_CONFIG_FILE" "$CONFIG_CONFIG_BACKUP_DIR/$CONFIG_CONFIG_FILE.$$"
+  cat <<EOF >"$CONFIG_CONFIG_DIR/$CONFIG_CONFIG_FILE"
+# Settings for config
+CONFIG_SYSTEM_HOME="${CONFIG_SYSTEM_HOME:-}"
+CONFIG_GIT_BARE_DIR="${CONFIG_GIT_BARE_DIR:-}"
+CONFIG_SYSTEM_BACKUP_DIR="${CONFIG_SYSTEM_BACKUP_DIR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+CONFIG_OUTPUT_COLOR_1="${CONFIG_OUTPUT_COLOR_1:-}"
+CONFIG_OUTPUT_COLOR_2="${CONFIG_OUTPUT_COLOR_2:-}"
+CONFIG_OUTPUT_COLOR_GOOD="${CONFIG_OUTPUT_COLOR_GOOD:-}"
+CONFIG_OUTPUT_COLOR_ERROR="${CONFIG_OUTPUT_COLOR_ERROR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+CONFIG_NOTIFY_ENABLED="${CONFIG_NOTIFY_ENABLED:-}"
+CONFIG_GOOD_NAME="${CONFIG_GOOD_NAME:-}"
+CONFIG_ERROR_NAME="${CONFIG_ERROR_NAME:-}"
+CONFIG_GOOD_MESSAGE="${CONFIG_GOOD_MESSAGE:-}"
+CONFIG_ERROR_MESSAGE="${CONFIG_ERROR_MESSAGE:-}"
+CONFIG_NOTIFY_CLIENT_NAME="${CONFIG_NOTIFY_CLIENT_NAME:-}"
+CONFIG_NOTIFY_CLIENT_ICON="${CONFIG_NOTIFY_CLIENT_ICON:-}"
+CONFIG_NOTIFY_CLIENT_URGENCY="${CONFIG_NOTIFY_CLIENT_URGENCY:-}"
+
+EOF
+  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
+  if [ -f "$CONFIG_CONFIG_DIR/$CONFIG_CONFIG_FILE" ]; then
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
+    . "$CONFIG_CONFIG_DIR/$CONFIG_CONFIG_FILE"
+    exitCode=0
+  else
+    printf_red "Failed to create the config file"
+    exitCode=1
+  fi
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Help function - Align to 50
+__help() {
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "config:  Add dotfiles/config files to a git repo - $VERSION"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Usage: config [options] [commands]"
+  __printf_line "init                            - Initialize a config repo"
+  __printf_line "info                            - Show current config info"
+  __printf_line "local                           - Change the local git config file"
+  __printf_line "log                             - Show the git log"
+  __printf_line "status                          - Show git status"
+  __printf_line "ignore                          - Update the gitignore file"
+  __printf_line "delete                          - Delete the config repo"
+  __printf_line "reset                           - Resets the git repo"
+  __printf_line "rm                              - Remove a file from the repo"
+  __printf_line "add                             - Adds files to repo"
+  __printf_line "commit                          - Commits the changes"
+  __printf_line "checkout                        - Checkout files from the repo"
+  __printf_line "remote                          - Add a remote repo"
+  __printf_line "pull                            - Update the repo from remote"
+  __printf_line "push                            - Push changes to remote repo"
+  __printf_line "set                             - Set config options"
+  __printf_line "rename                          - Rename a branch"
+  __printf_line "clone                           - Clone a config repo"
+  __printf_line "bare                            - Checkout bare repo"
+  __printf_line "backup                          - Backup the files in your repo"
+  __printf_line "system                          - Add system files to a repo (root) "
+  __printf_line "name                            - This allows the use of a custom git dir"
+  __printf_line "custom                          - This allows the use of a custom git dir and home dir"
+  __printf_line "root                            - Sets HOME to /"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Other Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--help                          - Shows this message"
+  __printf_line "--config                        - Generate user config file"
+  __printf_line "--version                       - Show script version"
+  __printf_line "--options                       - Shows all available options"
+  __printf_line "--debug                         - Enables script debugging"
+  __printf_line "--raw                           - Removes all formatting on output"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# check if arg is a builtin option
+__is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0; fi; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 1 || return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep -sh "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# # Get sudo password
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run sudo
+__sudorun() {
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo
+__can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User can run sudo
+__sudoif() {
+  __user_is_root && return 0
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run command as root
+requiresudo() {
+  if [ "$CONFIG_REQUIRE_SUDO" = "yes" ] && [ -z "$CONFIG_REQUIRE_SUDO_RUN" ]; then
+    export CONFIG_REQUIRE_SUDO="no"
+    export CONFIG_REQUIRE_SUDO_RUN="true"
+    __sudo "$@"
+    exit $?
+  else
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  CMD="${1:-echo}" && shift 1
+  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  [ "$(basename -- "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  if __sudoif; then
+    export PATH="$PATH"
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    exitCode=$?
+  else
+    printf '%s\n' "This requires root to run"
+    exitCode=1
+  fi
+  return ${exitCode:-1}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  exitCode=${exitCode:-0}
+  [ -f "$CONFIG_TEMP_FILE" ] && rm -Rf "$CONFIG_TEMP_FILE" &>/dev/null
+  #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD//$HOME/\~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined functions
+__symlink() { ls -l "$1" | awk '{print $NF}' | grep '^'; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__online_check() { am_i_online --error && return 0 || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__cp() {
+  realpath="$(realpath "$1")"
+  from="${realpath//$HOME\//}"
+  todir="${2//$HOME\//}"
+  { [[ "$todir" =~ /.git ]] || [[ "$todir" =~ /node_modules ]] || [[ "$from" =~ "$CONFIG_CWD_HOME_DIR"/** ]]; } && return 0
+  [ -d "${todir}" ] || mkdir -p "${todir}"
+  cp -Rdfva --parents --preserve=mode,ownership,timestamps "${from}" "${todir}" &>/dev/null
+  rm -Rf "$todir/.git" "$todir/node_modules" &>/dev/null
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gitcmd() {
+  local cmd="$*"
+  git --git-dir="$CONFIG_CWD_BARE_DIR" --work-tree="$CONFIG_CWD_HOME_DIR" ${cmd:-} $GIT_OPTS 2>&1
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__stow() {
+  local cmd="$*"
+  git --git-dir="$CONFIG_CWD_BARE_DIR" --work-tree="$CONFIG_CWD_HOME_DIR" ${cmd:-} $GIT_OPTS 2>&1 | printf_readline "$CONFIG_OUTPUT_COLOR"
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__stow__add() {
+  [ -n "$1" ] && FILES="$1" || FILES="."
+  git --git-dir="$CONFIG_CWD_BARE_DIR" --work-tree="$CONFIG_CWD_HOME_DIR" add "$FILES" $GIT_OPTS 2>&1
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__stow_commit() {
+  [ -n "$1" ] && MESSAGE="$1" || MESSAGE='🏠🐜❗ Added files 🏠🐜❗'
+  git --git-dir="$CONFIG_CWD_BARE_DIR" --work-tree="$CONFIG_CWD_HOME_DIR" commit $GIT_OPTS -q -m "$MESSAGE" 2>&1
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__show_info() {
+  printf_blue "Git bare dir is $CONFIG_CWD_BARE_DIR"
+  printf_blue "Git Working dir is $CONFIG_CWD_HOME_DIR"
+  printf_blue "Git backup dir is $CONFIG_CWD_BACKUP_DIR"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__copy() {
+  [ $# -ne 0 ] || return
+  local -a args=("$@")
+  local exitCode=0
+  local gitDir="$CONFIG_CWD_BARE_DIR"
+  local workingTree="$CONFIG_CWD_HOME_DIR"
+  local backupDir="$CONFIG_CWD_BACKUP_DIR"
+  local file=""
+  local symlink=""
+  for f in "${args[@]}"; do
+    file="${f//$HOME\//}"
+    symlink="$(__symlink "${f//$HOME\//}")"
+    if [ "$file" = "$symlink" ]; then
+      __cp "$symlink" "$workingTree" &>/dev/null
+      __cp "$file" "$workingTree" &>/dev/null
+    else
+      __cp "$file" "$workingTree" &>/dev/null
+    fi
+  done
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__add() {
+  cd "$HOME" || return 1
+  [ $# -ne 0 ] || return
+  local -a args=("$@")
+  local gitDir="$CONFIG_CWD_BARE_DIR"
+  local workingTree="$CONFIG_CWD_HOME_DIR"
+  local backupDir="$CONFIG_CWD_BACKUP_DIR"
+  mkdir -p "$workingTree"
+  for f in "${args[@]}"; do
+    file="${f//$HOME\//}"
+    todir="$file"
+    stow_file="${todir//$workingTree\//}"
+    if [ "$file" = "$workingTree/$todir" ]; then
+      __stow add -f "$stow_file"
+    else
+      __copy "$file" && __stow add -f "$stow_file"
+    fi
+  done
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__restore() {
+  [ $# -ne 0 ] || return
+  local backupName
+  local -a args=("$@")
+  local gitDir="$CONFIG_CWD_BARE_DIR"
+  local workingTree="$CONFIG_CWD_HOME_DIR"
+  backupName="$CONFIG_BACKUP_DIR/$(date +'%Y%m%d_%H%M').tar.gz"
+  mkdir -p "$CONFIG_BACKUP_DIR"
+  for f in "${args[@]}"; do
+    file="${f//workingTree\//}"
+    if [ -f "$file" ] && [ "$f" = "$file" ]; then
+      tar cfvzu "$backupDir" "$backupName" --exclude="*/.git" --exclude="*/node_modules"
+      __cp "$f" "$file" && true || false
+      exitCode=$(($? + exitCode))
+    fi
+  done
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__checkout() {
+  local gitDir="$CONFIG_CWD_BARE_DIR"
+  local workingTree="$CONFIG_CWD_HOME_DIR"
+  local backupDir="$CONFIG_CWD_BACKUP_DIR"
+  eval __gitcmd checkout --force | printf_readline 4
+  __restore "$workingTree"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__bare() {
+  [ $# -ne 0 ] || return
+  local gitDir="$CONFIG_CWD_BARE_DIR"
+  local workingTree="$CONFIG_CWD_HOME_DIR"
+  local backupDir="$CONFIG_CWD_BACKUP_DIR"
+  __gitcmd ${1} 2>&1 | printf_readline 4
+  cd "$workingTree" && git checkout --git-dir="$gitDir/" --work-tree="$workingTree" | printf_readline 4 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__backup() {
+  [ $# -ne 0 ] || return
+  local gitDir="$CONFIG_CWD_BARE_DIR"
+  local workingTree="$CONFIG_CWD_HOME_DIR/os"
+  local backupDir="$CONFIG_CWD_BACKUP_DIR"
+  rsync -a --remove-source-files "$1" "$backupDir/"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__git_remote() {
+  if [ -z "$1" ]; then
+    printf_read_input "3" "Enter the url to your git repo:" "120" "url"
+    __stow remote add origin "$url"
+    __gitcmd push --set-upstream origin main | printf_readline
+  else
+    __stow remote "$*"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gitconfig_local() {
+  local gitDir="$CONFIG_CWD_BARE_DIR"
+  local workingTree="$CONFIG_CWD_HOME_DIR"
+  printf_green "Setting up the local gitconfig file"
+  if grep -sh "$gitDir/config.local" "$gitDir/config" | grep -v '=' | sed 's| *||g' | grep -q '^'; then
+    cat <<EOF | tee -p -a "$gitDir/config" &>/dev/null
+
+[include]
+path = $gitDir/config.local
+
+EOF
+  fi
+
+  cat <<EOF | tee -p "$gitDir/config.local" &>/dev/null
+[color "branch"]
+  current = green bold
+  local = green
+  remote = yellow
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+[status]
+  submoduleSummary = 1
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+[color "diff"]
+  frag = magenta
+  meta = yellow
+  new = green
+  old = red
+  newMoved = cyan
+  oldMoved = blue
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+[color "status"]
+  added = green reverse
+  changed = yellow reverse
+  untracked = red reverse
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+[diff]
+  colorMoved = zebra
+  submodule = log
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+[diff "bin"]
+  textconv = hexdump -v -C
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#pretty log
+[pretty]
+  custom = "%C(magenta)%h%C(red)%d %C(yellow)%ar %C(green)%s %C(yellow)(%an)"
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Aliases
+g   = "!(){ git --git-dir="$gitDir/" --work-tree="$workingTree" log --graph --pretty=custom; };f"
+l   = "!f(){ git --git-dir="$gitDir/" --work-tree="$workingTree" log --pretty=custom; };f"
+s   = "!f(){ git --git-dir="$gitDir/" --work-tree="$workingTree" status -s -b; };f"
+p   = "!f(){ git --git-dir="$gitDir/" --work-tree="$workingTree" push; };f"
+
+EOF
+
+  __gitcmd config --local commit.gpgSign false &>/dev/null
+  __gitcmd config --local status.showUntrackedFiles no &>/dev/null
+  __gitcmd config --local core.excludesfile "$workingTree/.gitignore" &>/dev/null
+
+  if [ -f "$gitDir/config.local" ]; then
+    printf_blue "The local git config file has been created in"
+    exitCode=0
+  else
+    printf_red "Failed to create the config file in"
+    exitCode=1
+  fi
+  printf_blue "$gitDir/config.local"
+  return ${exitCode:-0}
+}
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__git_init() {
+  if [ $# -gt 1 ] && [[ "$*" = *config ]] || [[ "$*" = *bare ]] || [[ "$*" = *clone ]] || [[ "$*" = *bare ]] || [[ "$*" = *info ]]; then
+    return 0
+  fi
+  local choice="" email="" name="" gitDir="" workingTree=""
+  local gitDir="$CONFIG_CWD_BARE_DIR"
+  local workingTree="$CONFIG_CWD_HOME_DIR"
+  if [ ! -d "$gitDir/.git" ] || [ ! -f "$gitDir/config" ] || [ ! -f "$workingTree/.gitignore" ]; then
+    printf_read_question "4" "Should I initialize $gitDir [y/n]" "1" "continue"
+    if printf_answer_yes "$continue"; then
+      if [ ! -f "$workingTree/.gitignore" ]; then
+        printf '%s' '# Disable reminder in prompt\nignoredirmessage\n\n' >>"$workingTree/.gitignore"
+        printf '%s' "# Ignore the bare repo\n$gitDir\n*/.git/*\n" >>"$workingTree/.gitignore"
+      else
+        grep -shq "$gitDir" "$workingTree/.gitignore" &>/dev/null || printf '%s' '# Disable reminder in prompt\nignoredirmessage\n\n' >>"$workingTree/.gitignore"
+        grep -shq '/.git/' "$workingTree/.gitignore" &>/dev/null || printf '%s' "# Ignore the bare repo\n$gitDir\n*/.git/*\n" >>"$workingTree/.gitignore"
+      fi
+      printf_read_question "4" "Do you already have a dotfiles repo: [y/n]" "1" "repo_init"
+      if printf_answer_yes "$repo_init"; then
+        printf_read_input "4" "What is the repo url:" "120" "repo_init_url"
+        git clone --bare "$repo_init_url" "$gitDir" -q &>/dev/null
+        __checkout
+      else
+        printf_cyan "Initializing $gitDir"
+        git init --bare "$gitDir" -q
+        git branch -m main &>/dev/null
+        [ -f "$gitDir/config" ] || printf_exit "Failed to initialize the repo"
+        printf_read_question "4" "Would you like to add a remote git repo: [y/n]" "1" "remote_repo_init"
+        if printf_answer_yes "$remote_repo_init"; then
+          printf_read_input "4" "Enter the url to your git repo:" "120" "remote_repo_init_url"
+          __stow remote add origin "$remote_repo_init_url" && remote_enabled=true
+        else
+          printf_green "You did not add a remote git repo"
+        fi
+      fi
+      __gitconfig_local "$gitDir"
+      name="$(__gitcmd config --local --get user.name 2>/dev/null | grep '^' || git config --get user.name 2>/dev/null | grep '^')"
+      email="$(__gitcmd config --local --get user.email 2>/dev/null | grep '^' || git config --get user.email 2>/dev/null | grep '^')"
+      if [ -z "$name" ]; then
+        printf_read_input "4" "Enter your name:" "120" "name"
+      fi
+      if [ -z "$email" ]; then
+        printf_read_input "4" "Enter email address:" "120" "email"
+      fi
+      printf_cyan "Adding include.path config.local to $gitDir/config"
+      __gitcmd config --local include.path "$gitDir/config.local"
+      printf_blue "Adding status.showUntrackedFiles no to $gitDir/config"
+      __gitcmd config --local status.showUntrackedFiles "no"
+      printf_green "Adding commit.gpgSign false to $gitDir/config"
+      __gitcmd config --local commit.gpgSign false
+      printf_cyan "Adding user.name $name to $gitDir/config"
+      __gitcmd config --local user.name "$name"
+      printf_blue "Adding user.email $email to $gitDir/config"
+      __gitcmd config --local user.email "$email"
+      printf_green "Adding core.excludesfile to $workingTree/config"
+      __gitcmd config --local core.excludesfile "$workingTree/.gitignore"
+      if [ -f "$workingTree/.gitignore" ]; then
+        printf_cyan 'Adding .gitignore'
+        __stow__add ".gitignore"
+      fi
+      if [ -z "$repo_init_url" ]; then
+        printf_purple 'Committing .gitignore'
+        __stow_commit '🏠🐜❗ Added .gitignore 🏠🐜❗'
+        sleep 1
+      fi
+      if [ -n "$remote_repo_init_url" ] && [ -z "$repo_init_url" ]; then
+        printf_read_question "4" "Would you like to push your changes: [y/n]" "1" "push"
+        printf_read_question "5" "This will overwrite anything in the remote repo, Continue: [y/n]" "1" "confirm"
+        if printf_answer_yes "$push" && printf_answer_yes "$confirm"; then
+          __gitcmd push --set-upstream origin main -f -q
+        fi
+      fi
+      __stow l | head -n 5
+      __show_info
+      [ -f "$CONFIG_CWD_BARE_DIR/config" ] && __stow status | grep -v 'On branch '
+      exit "$?"
+    fi
+  else
+    return
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined variables/import external variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application Folders
+CONFIG_CONFIG_FILE="${CONFIG_CONFIG_FILE:-settings.conf}"
+CONFIG_CONFIG_DIR="${CONFIG_CONFIG_DIR:-$HOME/.config/myscripts/config}"
+CONFIG_CONFIG_BACKUP_DIR="${CONFIG_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/config/backups}"
+CONFIG_LOG_DIR="${CONFIG_LOG_DIR:-$HOME/.local/log/config}"
+CONFIG_TEMP_DIR="${CONFIG_TEMP_DIR:-$HOME/.local/tmp/system_scripts/config}"
+CONFIG_CACHE_DIR="${CONFIG_CACHE_DIR:-$HOME/.cache/config}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+CONFIG_OUTPUT_COLOR_1="${CONFIG_OUTPUT_COLOR_1:-33}"
+CONFIG_OUTPUT_COLOR_2="${CONFIG_OUTPUT_COLOR_2:-5}"
+CONFIG_OUTPUT_COLOR_GOOD="${CONFIG_OUTPUT_COLOR_GOOD:-2}"
+CONFIG_OUTPUT_COLOR_ERROR="${CONFIG_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+CONFIG_NOTIFY_ENABLED="${CONFIG_NOTIFY_ENABLED:-yes}"
+CONFIG_GOOD_NAME="${CONFIG_GOOD_NAME:-Great:}"
+CONFIG_ERROR_NAME="${CONFIG_ERROR_NAME:-Error:}"
+CONFIG_GOOD_MESSAGE="${CONFIG_GOOD_MESSAGE:-No errors reported}"
+CONFIG_ERROR_MESSAGE="${CONFIG_ERROR_MESSAGE:-Errors were reported}"
+CONFIG_NOTIFY_CLIENT_NAME="${CONFIG_NOTIFY_CLIENT_NAME:-$APPNAME}"
+CONFIG_NOTIFY_CLIENT_ICON="${CONFIG_NOTIFY_CLIENT_ICON:-notification-new}"
+CONFIG_NOTIFY_CLIENT_URGENCY="${CONFIG_NOTIFY_CLIENT_URGENCY:-normal}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional Variables
+CONFIG_SYSTEM_HOME="${CONFIG_SYSTEM_HOME:-$HOME/.config/myscripts/config/home}"
+CONFIG_GIT_BARE_DIR="${CONFIG_GIT_BARE_DIR:-$HOME/.local/dotfiles/config/bare}"
+CONFIG_SYSTEM_BACKUP_DIR="${CONFIG_SYSTEM_BACKUP_DIR:-$HOME/.local/share/myscripts/config/backups}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$CONFIG_CONFIG_DIR/$CONFIG_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$CONFIG_CONFIG_DIR/$CONFIG_CONFIG_FILE" ] && . "$CONFIG_CONFIG_DIR/$CONFIG_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$CONFIG_LOG_DIR" ] || mkdir -p "$CONFIG_LOG_DIR" |& __devnull
+[ -d "$CONFIG_TEMP_DIR" ] || mkdir -p "$CONFIG_TEMP_DIR" |& __devnull
+[ -d "$CONFIG_CACHE_DIR" ] || mkdir -p "$CONFIG_CACHE_DIR" |& __devnull
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+CONFIG_TEMP_FILE="${CONFIG_TEMP_FILE:-$(mktemp $CONFIG_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap '__trap_exit' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+__notifications() {
+  __cmd_exists notifications || return
+  [ "$CONFIG_NOTIFY_ENABLED" = "yes" ] || return
+  [ "$SEND_NOTIFICATION" = "no" ] && return
+  (
+    export SCRIPT_OPTS="" _DEBUG=""
+    export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$CONFIG_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$CONFIG_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$CONFIG_NOTIFY_CLIENT_ICON}"
+    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$CONFIG_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$CONFIG_NOTIFY_CLIENT_URGENCY}"
+    notifications "$@"
+  ) |& __devnull &
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set custom actions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Argument/Option settings
+SETARGS=("$@")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SHORTOPTS="a,b,c,d,e,f,g,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z"
+SHORTOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
+LONGOPTS+=",system:,name::,custom:::,root"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ARRAY="init,info,ignore,local,log,status,delete,restore,remove,add,commit,"
+ARRAY+="checkout,remote,pull,push,set,rename,clone,bare,backup"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LIST=""
+LIST+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case "$1" in
+  --raw)
+    shift 1
+    export SHOW_RAW="true"
+    NC=""
+    RESET=""
+    BLACK=""
+    RED=""
+    GREEN=""
+    YELLOW=""
+    BLUE=""
+    PURPLE=""
+    CYAN=""
+    WHITE=""
+    ORANGE=""
+    LIGHTRED=""
+    BG_GREEN=""
+    BG_RED=""
+    ICON_INFO="[ info ]"
+    ICON_GOOD="[ ok ]"
+    ICON_WARN="[ warn ]"
+    ICON_ERROR="[ error ]"
+    ICON_QUESTION="[ ? ]"
+    printf_column() { tee | grep '^'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    ;;
+  --debug)
+    shift 1
+    set -xo pipefail
+    export SCRIPT_OPTS="--debug"
+    export _DEBUG="on"
+    __devnull() { tee || return 1; }
+    __devnull2() { eval "$@" |& tee -p || return 1; }
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
+    ;;
+  --options)
+    shift 1
+    printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' 4
+    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' 4
+    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
+    [ -z "$LIST" ] || __list_options "LIST Options" "${LIST}" ',' '' 4
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  --silent)
+    shift 1
+    CONFIG_SILENT="true"
+    ;;
+  --dir)
+    CWD_IS_SET="TRUE"
+    CONFIG_CWD="$2"
+    CONFIG_CWD_HOME_DIR="$2"
+    CONFIG_SYSTEM_NAME="$(basename -- "$2" 2>/dev/null)" shift 2
+    [ -d "$CONFIG_CWD" ] || mkdir -p "$CONFIG_CWD" |& __devnull
+    shift 2
+    ;;
+  --root)
+    shift 1
+    CONFIG_CWD_HOME_DIR="/"
+    ;;
+  --system)
+    shift 1
+    if [ "$1" = "help" ]; then
+      printf_custom "41" "Allows you to keep your system settings in a git repo"
+      printf_green "Usage: config --system commands"
+      printf_exit "See config help for commands"
+      __help
+    fi
+    __requiresudo true
+    CONFIG_SYSTEM_NAME="$(hostname -s)"
+    ;;
+  --name)
+    if [ -z "$1" ] || [ -z "$2" ]; then
+      printf_custom "41" "This allows the use of a custom git dir"
+      printf_green "Usage: config --custom $CONFIG_GIT_BARE_DIR commands"
+      printf_exit "See config help for commands"
+      exit 1
+    fi
+    CONFIG_SYSTEM_NAME="$2"
+    if [ -d "$CONFIG_GIT_BARE_DIR" ]; then
+      printf_yellow "Warning: $CONFIG_GIT_BARE_DIR already in use"
+      printf_read_question "Are you sure you want to continue using this repo? " "1" || exit 1
+    fi
+    shift 2
+    ;;
+  --custom)
+    if [ -z "$2" ] || [ -z "$3" ] || [ -z "$4" ]; then
+      printf_custom "41" "This allows the use of a custom git dir and home dir"
+      printf_green "Usage: $APPNAME --custom $CONFIG_GIT_BARE_DIR $CONFIG_SYSTEM_HOME commands"
+      printf_green 'IE: $APPNAME --custom "'$HOME/.local/dotfiles/custom/bare'" "'$HOME/.local/dotfiles/custom/bare/home'" commands'
+      printf_exit "See config help for commands"
+    fi
+    CONFIG_CWD_BARE_DIR="$2"
+    CONFIG_CWD_HOME_DIR="$3"
+    shift 3
+    ;;
+  -a | -b | -c | -d | -e | -f | -g | -h | -i | -j | -k | -l | -m | -n | -o | -p | -q | -r | -s | -t | -u | -v | -w | -x | -y | -z)
+    GIT_OPTS+="$1 "
+    shift 1
+    ;;
+  -A | -B | -C | -D | -E | -F | -G | -H | -I | -J | -K | -L | -M | -N | -O | -P | -Q | -R | -S | -T | -U | -V | -W | -X | -Y | -Z)
+    #GIT_OPTS+="$1 "
+    shift 1
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get directory from args
+# set -- "$@"
+# for arg in "$@"; do
+# if [ -d "$arg" ]; then
+# CONFIG_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
+# elif [ -f "$arg" ]; then
+# CONFIG_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
+# else
+# SET_NEW_ARGS+=("$arg")
+# fi
+# done
+# set -- "${SET_NEW_ARGS[@]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set directory to first argument
+# [ -d "$1" ] && __is_an_option "$1" && CONFIG_CWD="$1" && shift 1 || CONFIG_CWD="${CONFIG_CWD:-$PWD}"
+CONFIG_CWD="$(realpath "${CONFIG_CWD:-$PWD}" 2>/dev/null)"
+# if [ -d "$CONFIG_CWD" ] && cd "$CONFIG_CWD"; then
+# if [ "$CONFIG_SILENT" != "true" ] && [ "$CWD_SILENCE" != "true" ]; then
+# printf_cyan "Setting working dir to $CONFIG_CWD"
+# fi
+# else
+# printf_exit "💔 $CONFIG_CWD does not exist 💔"
+# fi
+export CONFIG_CWD
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set actions based on variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+#cmd_exists --error --ask bash || exit 3 # exit 3 if not found
+#am_i_online --error || exit 4           # exit 4 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+CONFIG_SYSTEM_NAME="${CONFIG_SYSTEM_NAME:-$USER}"
+CONFIG_CWD_HOME_DIR="${CONFIG_CWD_HOME_DIR:-$CONFIG_SYSTEM_HOME}/$CONFIG_SYSTEM_NAME"                            # Git working dir
+CONFIG_CWD_BARE_DIR="${CONFIG_CWD_BARE_DIR:-$CONFIG_GIT_BARE_DIR}/$CONFIG_SYSTEM_NAME"                           # Git bare dir
+CONFIG_CWD_BACKUP_DIR="${CONFIG_CWD_BACKUP_DIR:-$CONFIG_SYSTEM_BACKUP_DIR}/$CONFIG_SYSTEM_NAME/$(date +'%Y/%m')" # Git backup dir
+SETARGS=("$@")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+mkdir -p "$CONFIG_CWD_HOME_DIR" "$CONFIG_CWD_BACKUP_DIR" &>/dev/null
+{ [ -d "$CONFIG_CWD_HOME_DIR" ] && [ -f "$CONFIG_CWD_BARE_DIR/config" ]; } || __git_init "$*"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute commands
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+case "$1" in
+init)
+  shift 1
+  __git_init "$*"
+  ;;
+
+info)
+  shift 1
+  __show_info
+  exit
+  ;;
+
+local)
+  shift 1
+  for opt in "$@"; do
+    printf_cyan "Adding $opt into $CONFIG_CWD_BARE_DIR/config"
+    __gitcmd config --local "$opt" &>/dev/null || exitCode=$(exitCode++)
+  done
+  exit ${exitCode:-0}
+  ;;
+
+log | l)
+  shift 1
+  __stow log --graph --pretty=custom "$*"
+  exit
+  ;;
+
+status | s)
+  shift 1
+  __stow status -s -b "$*"
+  exit
+  ;;
+
+ignore)
+  shift 1
+  gitignore "$CONFIG_CWD_HOME_DIR" add "$*"
+  exit
+  ;;
+
+delete)
+  shift 1
+  printf_read_question 1 "This will delete the git repo are you sure?" "1" "delete"
+  if printf_answer_yes "$delete"; then
+    printf_green "Backing up to $CONFIG_CWD_BACKUP_DIR/deleted"
+    mkdir -p "$CONFIG_CWD_BACKUP_DIR/deleted" &>/dev/null
+    cp -Rfa "$CONFIG_CWD_HOME_DIR/." "$CONFIG_CWD_BACKUP_DIR/deleted/" &>/dev/null
+    printf_blue "Deleting the files in $CONFIG_CWD_BARE_DIR"
+    rm -Rf "$CONFIG_CWD_BARE_DIR"
+    printf_cyan "Deleting the files in $CONFIG_CWD_HOME_DIR"
+    rm -Rf "$CONFIG_CWD_HOME_DIR"
+  fi
+  exit $?
+  ;;
+
+restore | reset)
+  shift 1
+  __stow reset -- "$*"
+  ;;
+
+rm | remove)
+  shift 1
+  __stow rm -q -r --cached -f "$*"
+  ;;
+
+add | stow)
+  shift 1
+  printf_green "'🏠🐜❗ Adding files to repo - this may take a moment 🏠🐜❗'"
+  for file in "$@"; do
+    f="$(realpath "$file")"
+    printf_blue "Adding $f to repo"
+    __add "$f"
+  done
+  [ $? = 0 ] && printf_green "Don't forget to run config commit"
+  #__stow commit -q -m "'🏠🐜❗ Added Files 🏠🐜❗'"
+  ;;
+
+commit)
+  shift 1
+  if [ -z "$1" ]; then
+    printf_green "'🏠🐜❗ Committing files to repo 🏠🐜❗'"
+    __stow_commit "'🏠🐜❗ Added files to repo 🏠🐜❗'"
+  else
+    __gitcmd commit "$*"
+  fi
+  ;;
+
+checkout)
+  shift 1
+  __checkout "$*"
+  ;;
+
+remote)
+  shift 1
+  if __online_check; then
+    __git_remote "$*"
+  fi
+  ;;
+
+pull)
+  shift 1
+  if __online_check; then
+    __stow pull "$*"
+  fi
+  ;;
+
+push)
+  shift 1
+  if __online_check; then
+    __stow push "$*" || __stow push --set-upstream origin main "$@"
+  fi
+  ;;
+
+set)
+  shift 1
+  __stow config "$*"
+  exit $?
+  ;;
+
+rename)
+  shift 1
+  [ "$1" = "help" ] && printf_exit 1 2 "Usage: $APPNAME rename fromBranch toBranch - $APPNAME rename master main"
+  fromBranch="${1:-master}"
+  toBranch="${2:-main}"
+  __stow branch -m $fromBranch $toBranch
+  __stow fetch origin
+  __stow branch -u origin/$fromBranch $toBranch
+  __stow remote set-head origin -a
+  __stow push --set-upstream origin $toBranch
+  __stow branch -d "$fromBranch"
+  exit $?
+  ;;
+
+clone)
+  shift 1
+  git clone "$1" "${2:-$CONFIG_CWD_HOME_DIR}" -q
+  exit $?
+  ;;
+
+bare)
+  shift 1
+  ARGS="$*"
+  __bare $ARGS
+  exit $?
+  ;;
+
+backup)
+  shift 1
+  __backup "$*"
+  exit $?
+  ;;
+
+*)
+  [ "$#" = 0 ] && __help || __stow "$*"
+  exit $?
+  ;;
+esac
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set exit code
+exitCode="${exitCode:-0}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-0}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# ex: ts=2 sw=2 et filetype=sh

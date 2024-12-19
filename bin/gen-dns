@@ -1,0 +1,1165 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version           :  202208071752-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  jason@casjaysdev.pro
+# @@License          :  WTFPL
+# @@ReadME           :  gen-dns --help
+# @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
+# @@Created          :  Sunday, Aug 07, 2022 17:52 EDT
+# @@File             :  gen-dns
+# @@Description      :  Generate a dns zone
+# @@Changelog        :  New script
+# @@TODO             :  Better documentation
+# @@Other            :
+# @@Resource         :  https://bash.cyberciti.biz/domain/create-bind9-domain-zone-configuration-file/
+# @@Terminal App     :  no
+# @@sudo/root        :  no
+# @@Template         :  bash/system
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="$(basename -- "$0" 2>/dev/null)"
+VERSION="202208071752-git"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${RUN_USER:-$USER}"
+USER_HOME="${USER_HOME:-$HOME}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+GEN_DNS_REQUIRE_SUDO="${GEN_DNS_REQUIRE_SUDO:-no}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Reopen in a terminal
+#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set script title
+#CASJAYS_DEV_TILE_FORMAT="${USER}@${HOSTNAME}:${PWD//$HOME/\~} - $APPNAME"
+#CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}"
+#[ -z "$CASJAYSDEV_TITLE_SET" ] && printf '\033]2│;%s\033\\' "$CASJAYS_DEV_TILE_FORMAT" && CASJAYSDEV_TITLE_SET="$APPNAME"
+export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}" CASJAYSDEV_TITLE_SET
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initial debugging
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# pipes fail
+set -o pipefail
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import functions
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+  . "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  exit 1
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Options are: *_install
+# system user desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+user_install && __options "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Send all output to /dev/null
+__devnull() {
+  tee &>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# Send errors to /dev/null
+__devnull2() {
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# See if the executable exists
+__cmd_exists() {
+  exitCode=0
+  [ -n "$1" ] && local exitCode="" || return 0
+  for cmd in "$@"; do
+    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
+  done
+  [ $exitCode -eq 0 ] || exitCode=3
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for a valid internet connection
+__am_i_online() {
+  local exitCode=0
+  curl -q -LSsfI --max-time 2 --retry 1 "${1:-https://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# colorization
+if [ "$SHOW_RAW" = "true" ]; then
+  NC=""
+  RESET=""
+  BLACK=""
+  RED=""
+  GREEN=""
+  YELLOW=""
+  BLUE=""
+  PURPLE=""
+  CYAN=""
+  WHITE=""
+  ORANGE=""
+  LIGHTRED=""
+  BG_GREEN=""
+  BG_RED=""
+  ICON_INFO="[ info ]"
+  ICON_GOOD="[ ok ]"
+  ICON_WARN="[ warn ]"
+  ICON_ERROR="[ error ]"
+  ICON_QUESTION="[ ? ]"
+  printf_column() { tee | grep '^'; }
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional printf_ colors
+__printf_head() { printf_blue "$1"; }
+__printf_opts() { printf_purple "$1"; }
+__printf_line() { printf_cyan "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# output version
+__version() { printf_cyan "$VERSION"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# list options
+__list_options() {
+  printf_color "$1: " "$5"
+  echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g' | tr '\n' ' '
+  printf_newline
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create the config file
+__gen_config() {
+  local NOTIFY_CLIENT_NAME="$APPNAME"
+  if [ "$INIT_CONFIG" != "TRUE" ]; then
+    printf_blue "Generating the config file in"
+    printf_cyan "$GEN_DNS_CONFIG_DIR/$GEN_DNS_CONFIG_FILE"
+  fi
+  [ -d "$GEN_DNS_CONFIG_DIR" ] || mkdir -p "$GEN_DNS_CONFIG_DIR"
+  [ -d "$GEN_DNS_CONFIG_BACKUP_DIR" ] || mkdir -p "$GEN_DNS_CONFIG_BACKUP_DIR"
+  [ -f "$GEN_DNS_CONFIG_DIR/$GEN_DNS_CONFIG_FILE" ] &&
+    cp -Rf "$GEN_DNS_CONFIG_DIR/$GEN_DNS_CONFIG_FILE" "$GEN_DNS_CONFIG_BACKUP_DIR/$GEN_DNS_CONFIG_FILE.$$"
+  cat <<EOF >"$GEN_DNS_CONFIG_DIR/$GEN_DNS_CONFIG_FILE"
+# Settings for gen-dns
+GEN_DNS_DEFAULT_TEMPLATE="${GEN_DNS_DEFAULT_TEMPLATE:-}"
+GEN_DNS_SERIAL_FMT="${GEN_DNS_SERIAL_FMT:-}"
+GEN_DNS_EDITOR="${GEN_DNS_EDITOR:-}"
+GEN_DNS_FILE_ZONE_DIR="${GEN_DNS_FILE_ZONE_DIR:-}"
+GEN_DNS_DEFAULT_HOST_IP4="${GEN_DNS_DEFAULT_HOST_IP4:-}"
+GEN_DNS_DEFAULT_HOST_IP6="${GEN_DNS_DEFAULT_HOST_IP6:-}"
+GEN_DNS_DEFAULT_DNS_1_IP4="${GEN_DNS_DEFAULT_DNS_1_IP4:-}"
+GEN_DNS_DEFAULT_DNS_1_IP6="${GEN_DNS_DEFAULT_DNS_1_IP6:-}"
+GEN_DNS_DEFAULT_DNS_2_IP4="${GEN_DNS_DEFAULT_DNS_2_IP4:-}"
+GEN_DNS_DEFAULT_DNS_2_IP6="${GEN_DNS_DEFAULT_DNS_2_IP6:-}"
+GEN_DNS_DEFAULT_NAMESERVER_1="${GEN_DNS_DEFAULT_NAMESERVER_1:-}"
+GEN_DNS_DEFAULT_NAMESERVER_2="${GEN_DNS_DEFAULT_NAMESERVER_2:-}"
+GEN_DNS_HAS_IPV6="${GEN_DNS_HAS_IPV6:-}"
+GEN_DNS_VERSION="${GEN_DNS_VERSION:-}"
+GEN_DNS_DEFAULT_HWINFO='"libvirt" "Virtualized Host"'
+GEN_DNS_DEFAULT_TXTINFO='"Hosted on hosting.casjaysdev.pro"'
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#
+GEN_DNS_DEFAULT_HOST_BITLY_IP4="${GEN_DNS_DEFAULT_HOST_BITLY_IP4:-}"
+GEN_DNS_DEFAULT_HOST_BITLY_IP6="${GEN_DNS_DEFAULT_HOST_BITLY_IP6:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#
+GEN_DNS_DEFAULT_HOST_VERCEL_IP4="${GEN_DNS_DEFAULT_HOST_VERCEL_IP4:-}"
+GEN_DNS_DEFAULT_HOST_VERCEL_IP6="${GEN_DNS_DEFAULT_HOST_VERCEL_IP6:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#
+GEN_DNS_DEFAULT_HOST_PIHOLE_IP4="${GEN_DNS_DEFAULT_HOST_PIHOLE_IP4:-}"
+GEN_DNS_DEFAULT_HOST_PIHOLE_IP6="${GEN_DNS_DEFAULT_HOST_PIHOLE_IP6:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#
+GEN_DNS_DEFAULT_HOST_CASJAY_IP4="${GEN_DNS_DEFAULT_HOST_CASJAY_IP4:-}"
+GEN_DNS_DEFAULT_HOST_CASJAY_IP6="${GEN_DNS_DEFAULT_HOST_CASJAY_IP6:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#
+GEN_DNS_DEFAULT_HOST_CASJAYSDEV_IP4="${GEN_DNS_DEFAULT_HOST_CASJAYSDEV_IP4:-}"
+GEN_DNS_DEFAULT_HOST_CASJAYSDEV_IP6="${GEN_DNS_DEFAULT_HOST_CASJAYSDEV_IP6:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#
+GEN_DNS_DEFAULT_HOST_GITHUB_IP4="${GEN_DNS_DEFAULT_HOST_GITHUB_IP4:-}"
+GEN_DNS_DEFAULT_HOST_GITHUB_IP6="${GEN_DNS_DEFAULT_HOST_GITHUB_IP6:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#
+GEN_DNS_DEFAULT_HOST_REDIRECT_IP4="${GEN_DNS_DEFAULT_HOST_REDIRECT_IP4:-}"
+GEN_DNS_DEFAULT_HOST_REDIRECT_IP6="${GEN_DNS_DEFAULT_HOST_REDIRECT_IP6:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#
+GEN_DNS_DEFAULT_HOST_WORDPRESS_IP4="${GEN_DNS_DEFAULT_HOST_WORDPRESS_IP4:-}"
+GEN_DNS_DEFAULT_HOST_WORDPRESS_IP6="${GEN_DNS_DEFAULT_HOST_WORDPRESS_IP6:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#
+GEN_DNS_DEFAULT_HOST_CLOUDFLARE_IP4="${GEN_DNS_DEFAULT_HOST_CLOUDFLARE_IP4:-}"
+GEN_DNS_DEFAULT_HOST_CLOUDFLARE_IP6="${GEN_DNS_DEFAULT_HOST_CLOUDFLARE_IP6:-}"
+GEN_DNS_DEFAULT_HOST_CLOUDFLARE_HOST_IP4="${GEN_DNS_DEFAULT_HOST_CLOUDFLARE_HOST_IP4:-}"
+GEN_DNS_DEFAULT_HOST_CLOUDFLARE_HOST_IP6="${GEN_DNS_DEFAULT_HOST_CLOUDFLARE_HOST_IP6:-}"
+GEN_DNS_DEFAULT_HOST_CLOUDFLARE_NAMESERVER_1="${GEN_DNS_DEFAULT_HOST_CLOUDFLARE_NAMESERVER_1:-}"
+GEN_DNS_DEFAULT_HOST_CLOUDFLARE_NAMESERVER_2="${GEN_DNS_DEFAULT_HOST_CLOUDFLARE_NAMESERVER_2:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#
+GEN_DNS_DEFAULT_HOST_GOOGLE_IP4="${GEN_DNS_DEFAULT_HOST_GOOGLE_IP4:-}"
+GEN_DNS_DEFAULT_HOST_GOOGLE_IP6="${GEN_DNS_DEFAULT_HOST_GOOGLE_IP6:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+GEN_DNS_OUTPUT_COLOR_1="${GEN_DNS_OUTPUT_COLOR_1:-}"
+GEN_DNS_OUTPUT_COLOR_2="${GEN_DNS_OUTPUT_COLOR_2:-}"
+GEN_DNS_OUTPUT_COLOR_GOOD="${GEN_DNS_OUTPUT_COLOR_GOOD:-}"
+GEN_DNS_OUTPUT_COLOR_ERROR="${GEN_DNS_OUTPUT_COLOR_ERROR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+GEN_DNS_NOTIFY_ENABLED="${GEN_DNS_NOTIFY_ENABLED:-}"
+GEN_DNS_GOOD_NAME="${GEN_DNS_GOOD_NAME:-}"
+GEN_DNS_ERROR_NAME="${GEN_DNS_ERROR_NAME:-}"
+GEN_DNS_GOOD_MESSAGE="${GEN_DNS_GOOD_MESSAGE:-}"
+GEN_DNS_ERROR_MESSAGE="${GEN_DNS_ERROR_MESSAGE:-}"
+GEN_DNS_NOTIFY_CLIENT_NAME="${GEN_DNS_NOTIFY_CLIENT_NAME:-}"
+GEN_DNS_NOTIFY_CLIENT_ICON="${GEN_DNS_NOTIFY_CLIENT_ICON:-}"
+GEN_DNS_NOTIFY_CLIENT_URGENCY="${GEN_DNS_NOTIFY_CLIENT_URGENCY:-}"
+
+EOF
+  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
+  if [ -f "$GEN_DNS_CONFIG_DIR/$GEN_DNS_CONFIG_FILE" ]; then
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
+    . "$GEN_DNS_CONFIG_DIR/$GEN_DNS_CONFIG_FILE"
+    exitCode=0
+  else
+    printf_red "Failed to create the config file"
+    exitCode=1
+  fi
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Help function - Align to 50
+__help() { #
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "gen-dns:  Generate a dns zone - $VERSION"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Usage: gen-dns [options] [domain] [host_ip4] [host_ipv6,none] [dns_ipv4] [dns_ipv6,none]"
+  __printf_line "edit [domain]                   - Edit an existing configuration"
+  __printf_line "mydomain ip ip6                 - Create a new zone with domain:mydomain ip:ip ipv6:ip6"
+  __printf_line "update                          - update dns server settings"
+  __printf_line "--force                         - Will run a wizard to setup the domain"
+  __printf_line "--domain [domain]               - Set the domain name"
+  __printf_line "--hostip4 [ipv5_address]        - Set the host ip v4 address"
+  __printf_line "--hostip6 [ipv6_address]        - Set the host ip v6 address"
+  __printf_line "--dns_1_ip4 [ipv4_address]      - Set the dns 1 ip v4 address"
+  __printf_line "--dns_2_ip4 [ipv4_address]      - Set the dns 2 ip v4 address"
+  __printf_line "--dns_1_ip6 [ipv6_address]      - Set the dns 1 ip v6 address"
+  __printf_line "--dns_2_ip6 [ipv6_address]      - Set the dns 2 ip v6 address"
+  __printf_line "--forwarders [ipv4_address]     - Set the allowed forward address"
+  __printf_line "--transfer                      - Set allowed ip address for transfers"
+  __printf_line "--template                      - Set template file"
+  __printf_line "--import                        - Import from file"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Providers - [bitly/vercel/casjay/casjaysdev/github/google/redirect/wordpress]"
+  __printf_line "--provider [option]             - Specify the default hosting provider"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Other Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--help                          - Shows this message"
+  __printf_line "--config                        - Generate user config file"
+  __printf_line "--copy                          - Copy template files"
+  __printf_line "--version                       - Show script version"
+  __printf_line "--options                       - Shows all available options"
+  __printf_line "--debug                         - Enables script debugging"
+  __printf_line "--raw                           - Removes all formatting on output"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# check if arg is a builtin option
+__is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0; fi; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 1 || return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep -sh "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# # Get sudo password
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run sudo
+__sudorun() {
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo
+__can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User can run sudo
+__sudoif() {
+  __user_is_root && return 0
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run command as root
+requiresudo() {
+  if [ "$GEN_DNS_REQUIRE_SUDO" = "yes" ] && [ -z "$GEN_DNS_REQUIRE_SUDO_RUN" ]; then
+    export GEN_DNS_REQUIRE_SUDO="no"
+    export GEN_DNS_REQUIRE_SUDO_RUN="true"
+    __sudo "$@"
+    exit $?
+  else
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  CMD="${1:-echo}" && shift 1
+  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  [ "$(basename -- "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  if __sudoif; then
+    export PATH="$PATH"
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    exitCode=$?
+  else
+    printf '%s\n' "This requires root to run"
+    exitCode=1
+  fi
+  return ${exitCode:-1}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  exitCode=${exitCode:-0}
+  [ -f "$GEN_DNS_TEMP_FILE" ] && rm -Rf "$GEN_DNS_TEMP_FILE" &>/dev/null
+  #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD//$HOME/\~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gen_config_local() {
+  __copy_templates &>/dev/null
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined functions
+__replace() { sed -i "s|$1|$2|g" "$3" 2>/dev/null; }
+__remove_extra_spaces() { sed 's/\( \)*/\1/g;s|^ ||g'; }
+__has_ipv4() { [ -n "$2" ] && printf '%s%s\n' "$1" "$2" || return; }
+__has_ipv6() { [ -n "$2" ] && printf '%s%s\n' "$1" "$2" || return; }
+__grep_prev() { grep -shE "$1" "$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone" 2>/dev/null | awk -F' ' '{print $4}' | head -n1 | grep '^' || echo ''; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trim() {
+  local var="${*//;/ }"
+  var="${var#"${var%%[![:space:]]*}"}" # remove leading whitespace characters
+  var="${var%"${var##*[![:space:]]}"}" # remove trailing whitespace characters
+  var="$(echo "$var" | __remove_extra_spaces | sed "s| |; |g;s|;$| |g" | __remove_extra_spaces)"
+  printf '%s' "$var" | grep -v '^$'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__replace_forwarders() {
+  if [ -f "$1" ] && [ -n "$GEN_DNS_FORWARDERS" ]; then
+    sed -i "s|forwarders .*|forwarders { $GEN_DNS_FORWARDERS; };|g" "$1" 2>/dev/null || return 1
+  else
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__tsig_key() {
+  [ -n "$(type -P tsig-keygen || false)" ] || return 1
+  tsig-keygen -a hmac-sha256 | grep 'secret' | sed 's|.*secret ||g;s|"||g;s|;||g' | grep '^' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__import() {
+  local dir="${GEN_DNS_IMPORT_DIR:-/var/named/master}"
+  [ -z "$3" ] && ___grep_rm() { grep -v ''.*:.*:.*''; } || ___grep_rm() { grep '^'; }
+  [ -f "$dir/$1.zone" ] && import="$(cat "$dir/$1.zone" | grep -Ev ';|^\$|TXT' | ___grep_rm | sed 's|   [1-9].*\..*|   '$2'|g;s|   [1-9].*:.*|   '$3'|g')" || return
+  cat <<EOF | tee
+
+;  ********** begin imported settings                 **********
+$import
+;  ********** end imported settings                   **********
+
+EOF
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__update_ddns() {
+  __cmd_exists nsupdate || return
+  local ddns_zone="${1:-$GEN_DNS_DDNS_ZONE}"
+  if [ -f "/etc/certbot/dynamic_dns.conf" ]; then
+    local ddns_get_server="$(grep -s "dns_rfc2136_server" "/etc/certbot/dynamic_dns.conf" | sed 's|.*= ||g' | sed 's| ||g')"
+    local ddns_get_key_name="$(grep -s "dns_rfc2136_name" "/etc/certbot/dynamic_dns.conf" | sed 's|.*= ||g' | sed 's| ||g')"
+    local ddns_get_key_secret="$(grep -s "dns_rfc2136_secret" "/etc/certbot/dynamic_dns.conf" | sed 's|.*= ||g' | sed 's| ||g')"
+    local ddns_get_algorithm="$(grep -s "dns_rfc2136_algorithm" "/etc/certbot/dynamic_dns.conf" | sed 's|.*= ||g' | sed 's| ||g')"
+  fi
+  local ddns_hostname="$(hostname -f || echo "$HOSTNAME")."
+  local ddns_server="${GEN_DNS_DDNS_SERVER:-$ddns_get_server}"
+  local ddns_key_name="${GEN_DNS_DDNS_KEY_NAME:-$ddns_get_key_name}"
+  local ddns_key_secret="${GEN_DNS_DDNS_KEY_SECRET:-$ddns_get_key_secret}"
+  local ddns_algorithm="$(echo ${ddns_get_algorithm:-HMAC-MD5} | tr '[:upper:]' '[:lower:]')"
+  [ -n "$ddns_zone" ] && [ -n "$ddns_server" ] && [ -n "$ddns_key_secret" ] && [ -n "$ddns_key_name" ] || return
+  local ddns_host_ip4="$(curl -4 -q -LSsf -m 1 --retry 0 "https://ifconfig.co" 2>/dev/null | grep -v '^$')"
+  local ddns_host_ip6="$(curl -6 -q -LSsf -m 1 --retry 0 "https://ifconfig.co" 2>/dev/null | grep -v '^$')"
+  #echo 'key "'$ddns_key_name'" { algorithm '$ddns_algorithm'; secret "'$ddns_key_secret'"; };' >"$GEN_DNS_TEMP_DIR/ddns.key"
+  if [ -n "$ddns_host_ip4" ]; then
+    nsupdate -y "$ddns_algorithm:$ddns_key_name:$ddns_key_secret" <<EOF
+key $ddns_algorithm:$ddns_key_name $ddns_key_secret
+server $ddns_server
+zone $ddns_zone
+update add $ddns_hostname 60 A $ddns_host_ip4
+send
+EOF
+  fi
+  if [ -n "$ddns_host_ip6" ]; then
+    nsupdate <<EOF
+key $ddns_key_name $ddns_key_secret
+server $ddns_server
+zone $ddns_zone
+update add $ddns_hostname 60 AAAA $ddns_host_ip6
+send
+show
+EOF
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__copy_templates() {
+  mkdir -p "$GEN_DNS_TEMPLATE_DIR"
+  if [ -d "$GEN_DNS_TEMPLATE_DIR/.git" ]; then
+    git -C "$GEN_DNS_TEMPLATE_DIR" pull -q
+  elif [ -d "$CASJAYSDEVDIR/templates/dns" ]; then
+    printf_green "Copying $APPNAME templates $CASJAYSDEVDIR/templates/dns"
+    __cp_rf "$CASJAYSDEVDIR/templates/dns/." "$GEN_DNS_TEMPLATE_DIR/"
+  else
+    printf_error "Can not get dns files"
+    echo ""
+    exit 1
+  fi
+  if [ "$(__count_files $GEN_DNS_TEMPLATE_DIR)" -ne 0 ]; then
+    printf_green "Copying has succeeded > $GEN_DNS_TEMPLATE_DIR"
+    exitCodeT=0
+  else
+    printf_error "Copying of files has failed < $GEN_DNS_TEMPLATE_DIR"
+    exitCodeT=1
+  fi
+  echo ""
+  return $exitCodeT
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__set_ip_addresses() {
+  local dns_1_4="${GEN_DNS_DEFAULT_DNS_1_IP4:-$CURRENT_IP_1_4}"
+  local dns_1_6="${GEN_DNS_DEFAULT_DNS_1_IP6:-$CURRENT_IP_1_6}"
+  local dns_2_4="${GEN_DNS_DEFAULT_DNS_2_IP4:-$CURRENT_IP_2_4}"
+  local dns_2_6="${GEN_DNS_DEFAULT_DNS_2_IP6:-$CURRENT_IP_2_6}"
+  local host4="${GEN_DNS_DEFAULT_HOST_IP4:-$CURRENT_IP_4}"
+  local host6="${GEN_DNS_DEFAULT_HOST_IP6:-$CURRENT_IP_6}"
+  if [ "$GEN_DNS_FORCE" = "true" ] || [ -z "$dns_1_4" ]; then
+    printf_read_question "3" "What is your DNS Servers IP [$dns_1_4]" 120 "CURRENT_IP_1_4"
+  fi
+  if [ "$GEN_DNS_FORCE" = "true" ] || [ -z "$dns_2_4" ]; then
+    printf_read_question "3" "What is your DNS Servers IP [$dns_2_4]" 120 "CURRENT_IP_2_4"
+  fi
+  if [ "$GEN_DNS_FORCE" = "true" ] || [ -z "$GEN_DNS_DEFAULT_HOST_IP4" ]; then
+    printf_read_question "3" "What is your hosts IP address [$host4]" 120 "GEN_DNS_DEFAULT_HOST_IP4"
+  fi
+  if [ -z "$GEN_DNS_PROVIDER" ] || [ "$GEN_DNS_HAS_IPV6" != "y" ]; then
+    printf_read_question "3" "Does you dns or host have IP6?" 1 "GEN_DNS_HAS_IPV6"
+  fi
+  if printf_answer_yes "$GEN_DNS_HAS_IPV6"; then
+    if [ "$GEN_DNS_FORCE" = "true" ] || [ -z "$dns_1_6" ]; then
+      printf_read_question "3" "What is your DNS Servers IP6 [$dns_1_6]" 120 "GEN_DNS_DEFAULT_DNS_1_IP6" ""
+    fi
+    if [ "$GEN_DNS_FORCE" = "true" ] || [ -z "$dns_2_6" ]; then
+      printf_read_question "3" "What is your DNS Servers IP6 [$dns_2_6]" 120 "GEN_DNS_DEFAULT_DNS_2_IP6" ""
+    fi
+    if [ "$GEN_DNS_FORCE" = "true" ] || [ -z "$GEN_DNS_DEFAULT_HOST_IP6" ]; then
+      printf_read_question "3" "What is your hosts IP6 address [$host6]" 120 "GEN_DNS_DEFAULT_HOST_IP6" ""
+    fi
+  else
+    true
+  fi
+  [ -z "$GEN_DNS_HAS_IPV6" ] || GEN_DNS_HAS_IPV6="no"
+  [ -z "$GEN_DNS_DEFAULT_DNS_1_IP4" ] || GEN_DNS_DEFAULT_DNS_1_IP4="$dns_1_4"
+  [ -z "$GEN_DNS_DEFAULT_DNS_2_IP4" ] || GEN_DNS_DEFAULT_DNS_1_IP4="$dns_2_4"
+  [ -z "$GEN_DNS_DEFAULT_DNS_1_IP6" ] || GEN_DNS_DEFAULT_DNS_1_IP4="$dns_1_6"
+  [ -z "$GEN_DNS_DEFAULT_DNS_2_IP6" ] || GEN_DNS_DEFAULT_DNS_1_IP4="$dns_2_6"
+  [ -z "$GEN_DNS_DEFAULT_HOST_IP4" ] || GEN_DNS_DEFAULT_HOST_IP4="$host4"
+  [ -z "$GEN_DNS_DEFAULT_HOST_IP6" ] || GEN_DNS_DEFAULT_HOST_IP6="$host6"
+  [ -n "$GEN_DNS_DEFAULT_DNS_1_IP4" ] || [ -n "$GEN_DNS_DEFAULT_HOST_IP4" ] || printf_error "Continuing but with unset variables"
+  [ "$GEN_DNS_HAS_IPV6" = "y" ] && [ -z "$GEN_DNS_DEFAULT_DNS_IP6" ] && printf_exit "You have IPV6 enabled but did not provide an IPV6 address"
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__edit_conf() {
+  local exitCode=0
+  local zoneFile="$GEN_DNS_FILE_ZONE_DIR/${1//*\//}"
+  local confFile="$GEN_DNS_FILE_CONF_DIR/${1//*\//}"
+  local namedFile="$GEN_DNS_FILE_BIND_DIR/${1//*\//}"
+  if [ -f "$zoneFile" ]; then
+    $GEN_DNS_EDITOR "$zoneFile" 2>/dev/null || exitCode=1
+  elif [ -f "$confFile" ]; then
+    $GEN_DNS_EDITOR "$confFile" 2>/dev/null || exitCode=1
+  elif [ -f "$namedFile" ]; then
+    $GEN_DNS_EDITOR "$namedFile" 2>/dev/null || exitCode=1
+  elif [ -f "$GEN_DNS_FILE_BIND_DIR/named.conf" ]; then
+    $GEN_DNS_EDITOR "$GEN_DNS_FILE_BIND_DIR/named.conf" 2>/dev/null || exitCode=1
+  else
+    exitCode=1
+  fi
+  [ $exitCode -eq 0 ] && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__template() {
+  local template="${GEN_DNS_DEFAULT_TEMPLATE:-$GEN_DNS_TEMPLATE_DIR/domain.zone}"
+  [ -f "$template" ] || printf_exit "can not find $template"
+  cat <<EOF 2>/dev/null
+$(<"$template")
+EOF
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__named_conf() {
+  NAMED_CONF="$GEN_DNS_FILE_BIND_DIR/named.conf"
+  local cerbot_key="$(__tsig_key || echo '0dAuoHLjXqyYvbto08if3qUxPesAAr6cjs3Z90OFg90=')"
+  local rndc_key="$(__tsig_key || echo 'FtGLAmmo/SIbLHPNTRKDz4ZVgE06soxscvvBKCAFsFE=')"
+  local dhcp_key="$(__tsig_key || echo 'LDoSj5i9wIENe3gTIG+GXmh10xlXX74FbMHXp9nedIM=')"
+  local backup_key="$(__tsig_key || echo 'OlMsjjmj+BENsaOinEv6bu/T6arUKLITNGvR1tgytUw=')"
+  if [ -w "/etc/named.conf" ] && __user_is_root; then
+    [ -d "/var/named/master" ] || mkdir -p "/var/named/master"
+    NAMED_COPY="true"
+  fi
+  [ -d "$GEN_DNS_FILE_CONF_DIR" ] || mkdir -p "$GEN_DNS_FILE_CONF_DIR"
+  [ -d "$GEN_DNS_FILE_ZONE_DIR" ] || mkdir -p "$GEN_DNS_FILE_ZONE_DIR"
+  if [ ! -f "$NAMED_CONF" ]; then
+    [ -f "$GEN_DNS_TEMPLATE_DIR/named.conf" ] || printf_exit "can not find $GEN_DNS_TEMPLATE_DIR/named.conf"
+    cat "$GEN_DNS_TEMPLATE_DIR/named.conf" | tee -p "$NAMED_CONF" &>/dev/null
+    __replace_forwarders "$NAMED_CONF"
+    __replace "REPLACE_RNDCKEY" "$rndc_key" "$NAMED_CONF"
+    __replace "REPLACE_DHCPKEY" "$dhcp_key" "$NAMED_CONF"
+    __replace "REPLACE_CERTBOT" "$cerbot_key" "$NAMED_CONF"
+    __replace "REPLACE_BACKUPKEY" "$backup_key" "$NAMED_CONF"
+    [ -s "$NAMED_CONF" ] && printf_green "Created $NAMED_CONF" || printf_exit "Failed to create $NAMED_CONF"
+  fi
+  grep -sh -q "$GEN_DNS_DEFAULT_DOMAIN" "$NAMED_CONF" && GEN_DNS_ZONE_EXISTS="true" || GEN_DNS_ZONE_EXISTS="false"
+  if [ -f "$GEN_DNS_FILE_CONF_DIR/$GEN_DNS_DEFAULT_DOMAIN.conf" ]; then
+    if [ "$GEN_DNS_ZONE_EXISTS" = "true" ]; then
+      printf_yellow "$GEN_DNS_DEFAULT_DOMAIN already exists in $NAMED_CONF"
+    else
+      if [ "$NAMED_COPY" = "true" ]; then
+        printf_cyan "Adding domain to $NAMED_CONF"
+        printf '#  ********** begin %-41s **********\n' "$GEN_DNS_DEFAULT_DOMAIN" >>"/etc/named.conf"
+        cat $GEN_DNS_FILE_CONF_DIR/$GEN_DNS_DEFAULT_DOMAIN.conf | sed 's|'$GEN_DNS_FILE_CONF_DIR'||g' | grep -v '^$' >>"/etc/named.conf"
+        printf '#  ********** end %-41s **********\n\n' "$GEN_DNS_DEFAULT_DOMAIN" >>"/etc/named.conf"
+        printf_cyan "Copying zone file to /var/named/master/$GEN_DNS_DEFAULT_DOMAIN.zone"
+        cp -Rf "$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone" "/var/named/master/$GEN_DNS_DEFAULT_DOMAIN.zone"
+        if grep -q "^named:x" /etc/passwd; then
+          chown -Rf named:named /etc/named* /var/named /var/log/named &>/dev/null
+        fi
+      else
+        printf '#  ********** begin %-41s **********\n' "$GEN_DNS_DEFAULT_DOMAIN" >>"$NAMED_CONF"
+        cat $GEN_DNS_FILE_CONF_DIR/$GEN_DNS_DEFAULT_DOMAIN.conf | sed 's|'$GEN_DNS_FILE_CONF_DIR'||g' | grep -v '^$' >>"$NAMED_CONF"
+        printf '#  ********** end %-41s **********\n\n' "$GEN_DNS_DEFAULT_DOMAIN" >>"$NAMED_CONF"
+        printf_cyan "Add the contents of $GEN_DNS_FILE_CONF_DIR/$GEN_DNS_DEFAULT_DOMAIN.conf to /etc/named.conf file"
+      fi
+    fi
+  else
+    printf_exit "Failed to create $GEN_DNS_FILE_CONF_DIR/$GEN_DNS_DEFAULT_DOMAIN.conf"
+  fi
+
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__addtonamed() {
+  cat <<EOF | tee -p "$GEN_DNS_FILE_CONF_DIR/$GEN_DNS_DEFAULT_DOMAIN.conf" &>/dev/null
+  zone "$GEN_DNS_DEFAULT_DOMAIN" {
+        type master;
+        file "$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone";
+        notify yes;
+        also-notify { ${GEN_DNS_TRANSFER:-127.0.0.1}; };
+        allow-update {key "certbot."; key "dhcp-key"; trusted;};
+        allow-transfer { ${GEN_DNS_TRANSFER:-none}; key "backup-key"; };
+    };
+
+EOF
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gen_dns_conf() { # actions to preform on an existing config
+  local domain dns_1_ip4 dns_1_ip6 dns_2_ip4 dns_2_ip6 hostip4 hostip6
+  domain="$(__grep_prev "ORIGIN " | awk -F'.' '{print $1}')"                                                              #
+  dns_1_ip4="$(__grep_prev "dns1.* A " | grep '[0-9][.:][0-9]')"                                                          #
+  dns_1_ip6="$(__grep_prev "dns1.* AAAA " | grep '[0-9][.:][0-9]')"                                                       #
+  dns_2_ip4="$(__grep_prev "dns2.* A " | grep '[0-9][.:][0-9]')"                                                          #
+  dns_2_ip6="$(__grep_prev "dns2.* AAAA " | grep '[0-9][.:][0-9]')"                                                       #
+  hostip4="$(__grep_prev "@.* A " | grep '[0-9][.:][0-9]')"                                                               #
+  hostip6="$(__grep_prev "@.* AAAA " | grep '[0-9][.:][0-9]')"                                                            #
+  __create_version "$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone"                                                  #
+  printf_read_question "3" "Would you like to replace the zone?" "1" REPLACE                                              #
+  printf_answer_yes $REPLACE || printf_exit "1" "2" "$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone already exist\n" #
+  GEN_DNS_DEFAULT_DOMAIN="${domain:-$GEN_DNS_DEFAULT_DOMAIN}"                                                             #
+  GEN_DNS_DEFAULT_DNS_1_IP4="${dns_1_ip4:-$GEN_DNS_DEFAULT_DNS_1_IP4}"                                                    #
+  GEN_DNS_DEFAULT_DNS_1_IP6="${dns_1_ip6:-$GEN_DNS_DEFAULT_DNS_1_IP6}"                                                    #
+  GEN_DNS_DEFAULT_DNS_2_IP4="${dns_2_ip4:-$GEN_DNS_DEFAULT_DNS_2_IP4}"                                                    #
+  GEN_DNS_DEFAULT_DNS_2_IP6="${dns_2_ip6:-$GEN_DNS_DEFAULT_DNS_2_IP6}"                                                    #
+  GEN_DNS_DEFAULT_HOST_IP4="${hostip4:-$GEN_DNS_DEFAULT_HOST_IP4}"                                                        #
+  GEN_DNS_DEFAULT_HOST_IP6="${hostip6:-$GEN_DNS_DEFAULT_HOST_IP6}"                                                        #
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gen_dns() {
+  printf_green "Configuring the DNS zone"
+  local template="${GEN_DNS_DEFAULT_TEMPLATE:-$GEN_DNS_TEMPLATE_DIR/domain.zone}"
+  [ -n "$GEN_DNS_DEFAULT_DOMAIN" ] || printf_read_question "3" "What is your Domain name" 120 GEN_DNS_DEFAULT_DOMAIN
+  [ -n "$GEN_DNS_DEFAULT_DOMAIN" ] || printf_exit "Please provide a doman name"
+  [ -f "$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone" ] && __gen_dns_conf
+  __set_ip_addresses
+  if [ -z "$GEN_DNS_DEFAULT_DNS_IP6" ] || [ -z "$GEN_DNS_DEFAULT_HOST_IP6" ]; then
+    __template | grep -Ev 'REPLACE_HOST_6|REPLACE_DNS_6|  AAAA  ' >"$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone"
+  else
+    __template >"$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone"
+  fi
+  if [ -f "$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone" ]; then
+    import="$(__import "$GEN_DNS_DEFAULT_DOMAIN" "$GEN_DNS_DEFAULT_HOST_IP4" "$GEN_DNS_DEFAULT_HOST_IP6")"
+    __replace "REPLACE_SERIAL" "$GEN_DNS_SERIAL_NUMBER" "$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone"
+    __replace "REPLACE_DOMAIN" "$GEN_DNS_DEFAULT_DOMAIN" "$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone"
+    __replace "REPLACE_DNS_1_4" "$GEN_DNS_DEFAULT_DNS_1_IP4" "$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone"
+    __replace "REPLACE_DNS_2_4" "$GEN_DNS_DEFAULT_DNS_2_IP4" "$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone"
+    __replace "REPLACE_DNS_1_6" "$GEN_DNS_DEFAULT_DNS_1_IP6" "$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone"
+    __replace "REPLACE_DNS_2_6" "$GEN_DNS_DEFAULT_DNS_2_IP6" "$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone"
+    __replace "REPLACE_HOST_4" "$GEN_DNS_DEFAULT_HOST_IP4" "$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone"
+    __replace "REPLACE_HOST_6" "$GEN_DNS_DEFAULT_HOST_IP6" "$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone"
+    __replace "REPLACE_NAME_SERVER_1" "$GEN_DNS_DEFAULT_NAMESERVER_1" "$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone"
+    __replace "REPLACE_NAME_SERVER_2" "$GEN_DNS_DEFAULT_NAMESERVER_2" "$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone"
+    __replace "REPLACE_HWINFO" "$GEN_DNS_DEFAULT_HWINFO" "$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone"
+    __replace "REPLACE_TXTINFO" "$GEN_DNS_DEFAULT_TXTINFO" "$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone"
+    __replace "REPLACE_IMPORTED" "$import" "$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone"
+  fi
+  if [ -f "/etc/named/other/google-verifications.conf" ]; then
+    cat "/etc/named/other/google-verifications.conf" >>"$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone"
+    echo "" >>"$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone"
+  fi
+  if [ -f "/etc/named/other/misc.conf" ]; then
+    cat "/etc/named/other/misc.conf" >>"$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone"
+    echo "" >>"$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone"
+  fi
+  if [ $? = 0 ] && [ -f "$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone" ]; then
+    printf_green "zone for $GEN_DNS_DEFAULT_DOMAIN has been setup and saved to $GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone"
+    __addtonamed && __named_conf
+    exitCode=0
+  else
+    exitCode=1
+    printf_exit 1 1 "Failed to configure $GEN_DNS_DEFAULT_DOMAIN"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__create_version() {
+  local prev="" new="" date="" config=""
+  local ver="01"
+  config="${1:-$GEN_DNS_FILE_ZONE_DIR/$GEN_DNS_DEFAULT_DOMAIN.zone}"
+  if [ -f "$config" ]; then
+    date="$GEN_DNS_SET_SERIAL"
+    prev="$(grep -sh 'SOA' "$config" | tr ' ' '\n' | grep -E '[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]' | head -n1 | grep '^')"
+    new=$((${prev:-$date} + 1))
+  fi
+  [ -n "$prev" ] && [ -n "$new" ] && GEN_DNS_SERIAL_NUMBER="$new"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__set_provider() {
+  local host_ip4="${GEN_DNS_DEFAULT_HOST_IP4:-$GEN_DNS_DEFAULT_DNS_IP4}"
+  local host_ip6="${GEN_DNS_DEFAULT_HOST_IP6:-$GEN_DNS_DEFAULT_DNS_IP6}"
+  case "$1" in
+  pihole)
+    shift 1
+    GEN_DNS_DEFAULT_HWINFO='"libvirt" "Virtualized Host"'
+    GEN_DNS_DEFAULT_TXTINFO='"Hosted on casjay.pro"'
+    GEN_DNS_DEFAULT_HOST_IP4="${GEN_DNS_DEFAULT_HOST_PIHOLE_IP4:-$host_ip4}"
+    GEN_DNS_DEFAULT_HOST_IP6="${GEN_DNS_DEFAULT_HOST_PIHOLE_IP6:-$host_ip6}"
+    ;;
+  casjay)
+    shift 1
+    GEN_DNS_DEFAULT_HWINFO='"libvirt" "Virtualized Host"'
+    GEN_DNS_DEFAULT_TXTINFO='"Hosted on casjaydns.com"'
+    GEN_DNS_DEFAULT_HOST_IP4="${GEN_DNS_DEFAULT_HOST_CASJAY_IP4:-$host_ip4}"
+    GEN_DNS_DEFAULT_HOST_IP6="${GEN_DNS_DEFAULT_HOST_CASJAY_IP6:-$host_ip6}"
+    ;;
+  casjaysdev)
+    shift 1
+    GEN_DNS_DEFAULT_HWINFO='"libvirt" "Virtualized Host"'
+    GEN_DNS_DEFAULT_TXTINFO='"Hosted on casjaysdev.pro"'
+    GEN_DNS_DEFAULT_HOST_IP4="${GEN_DNS_DEFAULT_HOST_CASJAYSDEV_IP4:-$host_ip4}"
+    GEN_DNS_DEFAULT_HOST_IP6="${GEN_DNS_DEFAULT_HOST_CASJAYSDEV_IP6:-$host_ip6}"
+    ;;
+  bitly)
+    shift 1
+    GEN_DNS_DEFAULT_HWINFO='"Web" "url shortner"'
+    GEN_DNS_DEFAULT_TXTINFO='"Hosted on bit.ly"'
+    GEN_DNS_DEFAULT_HOST_IP4="${GEN_DNS_DEFAULT_HOST_BITLY_IP4:-$host_ip4}"
+    GEN_DNS_DEFAULT_HOST_IP6="${GEN_DNS_DEFAULT_HOST_BITLY_IP6:-}"
+    ;;
+  vercel)
+    shift 1
+    GEN_DNS_DEFAULT_HWINFO='"Web" "Serverless"'
+    GEN_DNS_DEFAULT_TXTINFO='"Hosted on now.sh"'
+    GEN_DNS_DEFAULT_HOST_IP4="${GEN_DNS_DEFAULT_HOST_VERCEL_IP4:-$host_ip4}"
+    GEN_DNS_DEFAULT_HOST_IP6="${GEN_DNS_DEFAULT_HOST_VERCEL_IP6:-}"
+    ;;
+  github)
+    shift 1
+    GEN_DNS_DEFAULT_HWINFO='"Web" "Shared hosting"'
+    GEN_DNS_DEFAULT_TXTINFO='"Hosted on github.io"'
+    GEN_DNS_DEFAULT_HOST_IP4="${GEN_DNS_DEFAULT_HOST_GITHUB_IP4:-$host_ip4}"
+    GEN_DNS_DEFAULT_HOST_IP6="${GEN_DNS_DEFAULT_HOST_GITHUB_IP6:-}"
+    ;;
+  google)
+    shift 1
+    GEN_DNS_DEFAULT_HWINFO='"hosted" "Virtualized Host"'
+    GEN_DNS_DEFAULT_TXTINFO='"Hosted on google cloud"'
+    GEN_DNS_DEFAULT_HOST_IP4="${GEN_DNS_DEFAULT_HOST_GOOGLE_IP4:-$host_ip4}"
+    GEN_DNS_DEFAULT_HOST_IP6="${GEN_DNS_DEFAULT_HOST_GOOGLE_IP6:-}"
+    ;;
+  redirect)
+    shift 1
+    GEN_DNS_DEFAULT_HWINFO='"Web" "Redirection service"'
+    GEN_DNS_DEFAULT_TXTINFO='"Hosted on redirect.center"'
+    GEN_DNS_DEFAULT_HOST_IP4="${GEN_DNS_DEFAULT_HOST_REDIRECT_IP4:-$host_ip4}"
+    GEN_DNS_DEFAULT_HOST_IP6="${GEN_DNS_DEFAULT_HOST_REDIRECT_IP6:-}"
+    ;;
+  wordpress)
+    shift 1
+    GEN_DNS_DEFAULT_HWINFO='"Web" "Shared Hosting"'
+    GEN_DNS_DEFAULT_TXTINFO='"Hosted on wordpress.com"'
+    GEN_DNS_DEFAULT_HOST_IP4="${GEN_DNS_DEFAULT_HOST_WORDPRESS_IP4:-$host_ip4}"
+    GEN_DNS_DEFAULT_HOST_IP6="${GEN_DNS_DEFAULT_HOST_WORDPRESS_IP6:-}"
+    ;;
+  cloudflare)
+    shift 1
+    GEN_DNS_DEFAULT_HWINFO='"Proxy" "Shared Hosting"'
+    GEN_DNS_DEFAULT_TXTINFO='"Hosted on cloudflare.com"'
+    GEN_DNS_DEFAULT_HOST_IP4="${GEN_DNS_DEFAULT_HOST_CLOUDFLARE_HOST_IP4:-$host_ip4}"
+    GEN_DNS_DEFAULT_HOST_IP6="${GEN_DNS_DEFAULT_HOST_CLOUDFLARE_HOST_IP6:-$host_ip6}"
+    GEN_DNS_DEFAULT_DNS_IP4="${GEN_DNS_DEFAULT_HOST_CLOUDFLARE_IP4:-$GEN_DNS_DEFAULT_DNS_IP4}"
+    GEN_DNS_DEFAULT_DNS_IP6="${GEN_DNS_DEFAULT_HOST_CLOUDFLARE_IP6:-$GEN_DNS_DEFAULT_DNS_IP6}"
+    GEN_DNS_DEFAULT_NAMESERVER_1="${GEN_DNS_DEFAULT_HOST_CLOUDFLARE_NAMESERVER_1:-$GEN_DNS_DEFAULT_NAMESERVER_1}"
+    GEN_DNS_DEFAULT_NAMESERVER_2="${GEN_DNS_DEFAULT_HOST_CLOUDFLARE_NAMESERVER_2:-$GEN_DNS_DEFAULT_NAMESERVER_2}"
+    ;;
+  *) ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__execute_gen-dns() {
+  GEN_DNS_DEFAULT_DOMAIN="${1:-$GEN_DNS_DEFAULT_DOMAIN}"
+  if echo "$2" | grep -oE "\b(\d{1,3}\.){3}\d{1,3}\b"; then
+    GEN_DNS_DEFAULT_HOST_IP4="${2:-$GEN_DNS_DEFAULT_HOST_IP4}"
+    shift 1
+  fi
+  if echo "$2" | grep -oE "(::)?[0-9a-fA-F]{1,4}(::?[0-9a-fA-F]{1,4}){1,7}(::)?"; then
+    GEN_DNS_DEFAULT_HOST_IP6="${2:-$GEN_DNS_DEFAULT_HOST_IP6}"
+    shift 1
+  fi
+  if echo "$2" | grep -oE "\b(\d{1,3}\.){3}\d{1,3}\b"; then
+    GEN_DNS_DEFAULT_1_DNS_IP4="${2:-$GEN_DNS_DEFAULT_DNS_1_IP4}"
+    shift 1
+  fi
+  if echo "$2" | grep -oE "\b(\d{1,3}\.){3}\d{1,3}\b"; then
+    GEN_DNS_DEFAULT_2_DNS_IP4="${2:-$GEN_DNS_DEFAULT_DNS_2_IP4}"
+    shift 1
+  fi
+  if echo "$2" | grep -oE "(::)?[0-9a-fA-F]{1,4}(::?[0-9a-fA-F]{1,4}){1,7}(::)?"; then
+    GEN_DNS_DEFAULT_1_DNS_IP6="${2:-$GEN_DNS_DEFAULT_DNS_1_IP6}"
+    shift 1
+  fi
+  if echo "$2" | grep -oE "(::)?[0-9a-fA-F]{1,4}(::?[0-9a-fA-F]{1,4}){1,7}(::)?"; then
+    GEN_DNS_DEFAULT_2_DNS_IP6="${2:-$GEN_DNS_DEFAULT_DNS_2_IP6}"
+    shift 1
+  fi
+  [ "$GEN_DNS_DEFAULT_DNS_IP6" = "none" ] && dnsip6=""
+  [ "$GEN_DNS_DEFAULT_HOST_IP6" = "none" ] && hostip6=""
+  [ -d "$GEN_DNS_FILE_ZONE_DIR" ] || mkdir -p "$GEN_DNS_FILE_ZONE_DIR"
+  [ -d "$GEN_DNS_FILE_CONF_DIR" ] || mkdir -p "$GEN_DNS_FILE_CONF_DIR"
+  case "$1" in
+  edit)
+    shift 1
+    __edit_conf "$@"
+    exitCode=$?
+    return $exitCode
+    ;;
+
+  *)
+    __gen_dns "$@"
+    exitCode=$?
+    return $exitCode
+    ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined variables/import external variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application Folders
+GEN_DNS_CONFIG_FILE="${GEN_DNS_CONFIG_FILE:-settings.conf}"
+GEN_DNS_CONFIG_DIR="${GEN_DNS_CONFIG_DIR:-$HOME/.config/myscripts/gen-dns}"
+GEN_DNS_CONFIG_BACKUP_DIR="${GEN_DNS_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/gen-dns/backups}"
+GEN_DNS_LOG_DIR="${GEN_DNS_LOG_DIR:-$HOME/.local/log/gen-dns}"
+GEN_DNS_TEMP_DIR="${GEN_DNS_TEMP_DIR:-$HOME/.local/tmp/system_scripts/gen-dns}"
+GEN_DNS_CACHE_DIR="${GEN_DNS_CACHE_DIR:-$HOME/.cache/gen-dns}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+GEN_DNS_OUTPUT_COLOR_1="${GEN_DNS_OUTPUT_COLOR_1:-33}"
+GEN_DNS_OUTPUT_COLOR_2="${GEN_DNS_OUTPUT_COLOR_2:-5}"
+GEN_DNS_OUTPUT_COLOR_GOOD="${GEN_DNS_OUTPUT_COLOR_GOOD:-2}"
+GEN_DNS_OUTPUT_COLOR_ERROR="${GEN_DNS_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+GEN_DNS_NOTIFY_ENABLED="${GEN_DNS_NOTIFY_ENABLED:-yes}"
+GEN_DNS_GOOD_NAME="${GEN_DNS_GOOD_NAME:-Great:}"
+GEN_DNS_ERROR_NAME="${GEN_DNS_ERROR_NAME:-Error:}"
+GEN_DNS_GOOD_MESSAGE="${GEN_DNS_GOOD_MESSAGE:-No errors reported}"
+GEN_DNS_ERROR_MESSAGE="${GEN_DNS_ERROR_MESSAGE:-Errors were reported}"
+GEN_DNS_NOTIFY_CLIENT_NAME="${GEN_DNS_NOTIFY_CLIENT_NAME:-$APPNAME}"
+GEN_DNS_NOTIFY_CLIENT_ICON="${GEN_DNS_NOTIFY_CLIENT_ICON:-notification-new}"
+GEN_DNS_NOTIFY_CLIENT_URGENCY="${GEN_DNS_NOTIFY_CLIENT_URGENCY:-normal}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional Variables
+GEN_DNS_EDITOR="${GEN_DNS_EDITOR:-vim}"
+GEN_DNS_FILE_BIND_DIR="${GEN_DNS_FILE_BIND_DIR:-$GEN_DNS_CONFIG_DIR/named}"
+GEN_DNS_FILE_ZONE_DIR="${GEN_DNS_FILE_ZONE_DIR:-$GEN_DNS_FILE_BIND_DIR/zones}"
+GEN_DNS_FILE_CONF_DIR="${GEN_DNS_FILE_CONF_DIR:-$GEN_DNS_FILE_BIND_DIR/config}"
+GEN_DNS_SERIAL_FMT="${GEN_DNS_SERIAL_FMT:-%Y%m%d}"
+GEN_DNS_DEFAULT_DOMAIN="${GEN_DNS_DEFAULT_DOMAIN:-}"
+GEN_DNS_DEFAULT_HOST_IP4="${GEN_DNS_DEFAULT_HOST_IP4:-172.245.70.133}"
+GEN_DNS_DEFAULT_HOST_IP6="${GEN_DNS_DEFAULT_HOST_IP6:-}"
+GEN_DNS_DEFAULT_DNS_1_IP4="${GEN_DNS_DEFAULT_DNS_1_IP4:-103.124.104.174}"
+GEN_DNS_DEFAULT_DNS_1_IP6="${GEN_DNS_DEFAULT_DNS_1_IP6:-2402:d0c0:0015:0087:0000:0000:63d9:19c9}"
+GEN_DNS_DEFAULT_DNS_2_IP4="${GEN_DNS_DEFAULT_DNS_2_IP4:-204.93.201.47}"
+GEN_DNS_DEFAULT_DNS_2_IP6="${GEN_DNS_DEFAULT_DNS_2_IP6:-2402:d0c0:0012:07ab:0000:0000:72cb:cd67}"
+GEN_DNS_HAS_IPV6="${GEN_DNS_HAS_IPV6:-}"
+GEN_DNS_VERSION="${GEN_DNS_VERSION:-01}"
+GEN_DNS_DEFAULT_NAMESERVER_1="${GEN_DNS_DEFAULT_NAMESERVER_1:-dns1}"
+GEN_DNS_DEFAULT_NAMESERVER_2="${GEN_DNS_DEFAULT_NAMESERVER_2:-dns2}"
+GEN_DNS_DEFAULT_HWINFO='"libvirt" "Virtualized Host"'
+GEN_DNS_DEFAULT_TXTINFO='"Hosted on casjaysdev.pro"'
+GEN_DNS_TEMPLATE_DIR="${GEN_DNS_TEMPLATE_DIR:-$GEN_DNS_CONFIG_DIR/templates}"
+GEN_DNS_DEFAULT_TEMPLATE="${GEN_DNS_DEFAULT_TEMPLATE:-$GEN_DNS_TEMPLATE_DIR/simple.zone}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+GEN_DNS_DEFAULT_HOST_BITLY_IP4="${GEN_DNS_DEFAULT_HOST_BITLY_IP4:-67.199.248.12 ; 67.199.248.13}"
+GEN_DNS_DEFAULT_HOST_BITLY_IP6="${GEN_DNS_DEFAULT_HOST_BITLY_IP6:-}"
+GEN_DNS_DEFAULT_HOST_VERCEL_IP4="${GEN_DNS_DEFAULT_HOST_VERCEL_IP4:-76.76.21.21}"
+GEN_DNS_DEFAULT_HOST_VERCEL_IP6="${GEN_DNS_DEFAULT_HOST_VERCEL_IP6:-}"
+GEN_DNS_DEFAULT_HOST_PIHOLE_IP4="${GEN_DNS_DEFAULT_HOST_PIHOLE_IP4:-132.226.33.75}"
+GEN_DNS_DEFAULT_HOST_PIHOLE_IP6="${GEN_DNS_DEFAULT_HOST_PIHOLE_IP6:-2603:c020:4005:4d00:3c49:c239:91c9:74c3}"
+GEN_DNS_DEFAULT_HOST_CASJAY_IP4="${GEN_DNS_DEFAULT_HOST_CASJAY_IP4:-150.230.183.65}"
+GEN_DNS_DEFAULT_HOST_CASJAY_IP6="${GEN_DNS_DEFAULT_HOST_CASJAY_IP6:-2603:c020:4005:4d00:1f79:387:4f01:4b5}"
+GEN_DNS_DEFAULT_HOST_GITHUB_IP4="${GEN_DNS_DEFAULT_HOST_GITHUB_IP4:-185.199.108.153}"
+GEN_DNS_DEFAULT_HOST_GITHUB_IP6="${GEN_DNS_DEFAULT_HOST_GITHUB_IP6:-}"
+GEN_DNS_DEFAULT_HOST_REDIRECT_IP4="${GEN_DNS_DEFAULT_HOST_REDIRECT_IP4:-54.84.55.102}"
+GEN_DNS_DEFAULT_HOST_REDIRECT_IP6="${GEN_DNS_DEFAULT_HOST_REDIRECT_IP6:-}"
+GEN_DNS_DEFAULT_HOST_WORDPRESS_IP4="${GEN_DNS_DEFAULT_HOST_WORDPRESS_IP4:-64.98.145.30}"
+GEN_DNS_DEFAULT_HOST_WORDPRESS_IP6="${GEN_DNS_DEFAULT_HOST_WORDPRESS_IP6:-}"
+GEN_DNS_DEFAULT_HOST_CLOUDFLARE_IP4="${GEN_DNS_DEFAULT_HOST_CLOUDFLARE_IP4:-108.162.193.65}"
+GEN_DNS_DEFAULT_HOST_CLOUDFLARE_IP6="${GEN_DNS_DEFAULT_HOST_CLOUDFLARE_IP6:-2a06:98c1:50::ac40:2141}"
+GEN_DNS_DEFAULT_HOST_CLOUDFLARE_NAMESERVER_1="${GEN_DNS_DEFAULT_HOST_CLOUDFLARE_NAMESERVER_1:-anuj.ns.cloudflare.com.}"
+GEN_DNS_DEFAULT_HOST_CLOUDFLARE_NAMESERVER_2="${GEN_DNS_DEFAULT_HOST_CLOUDFLARE_NAMESERVER_2:-nola.ns.cloudflare.com.}"
+GEN_DNS_DEFAULT_HOST_CLOUDFLARE_HOST_IP4="${GEN_DNS_DEFAULT_HOST_CLOUDFLARE_HOST_IP4:-132.226.33.75}"
+GEN_DNS_DEFAULT_HOST_CLOUDFLARE_HOST_IP6="${GEN_DNS_DEFAULT_HOST_CLOUDFLARE_HOST_IP6:-2603:c020:4005:4d00:3c49:c239:91c9:74c3}"
+GEN_DNS_DEFAULT_HOST_GOOGLE_IP4="${GEN_DNS_DEFAULT_HOST_GOOGLE_IP4:-}"
+GEN_DNS_DEFAULT_HOST_GOOGLE_IP6="${GEN_DNS_DEFAULT_HOST_GOOGLE_IP6:-}"
+GEN_DNS_SET_SERIAL="$(date +"$GEN_DNS_SERIAL_FMT")"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$GEN_DNS_CONFIG_DIR/$GEN_DNS_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$GEN_DNS_CONFIG_DIR/$GEN_DNS_CONFIG_FILE" ] && . "$GEN_DNS_CONFIG_DIR/$GEN_DNS_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$GEN_DNS_LOG_DIR" ] || mkdir -p "$GEN_DNS_LOG_DIR" |& __devnull
+[ -d "$GEN_DNS_TEMP_DIR" ] || mkdir -p "$GEN_DNS_TEMP_DIR" |& __devnull
+[ -d "$GEN_DNS_CACHE_DIR" ] || mkdir -p "$GEN_DNS_CACHE_DIR" |& __devnull
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+GEN_DNS_TEMP_FILE="${GEN_DNS_TEMP_FILE:-$(mktemp $GEN_DNS_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap '__trap_exit' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+__notifications() {
+  __cmd_exists notifications || return
+  [ "$GEN_DNS_NOTIFY_ENABLED" = "yes" ] || return
+  [ "$SEND_NOTIFICATION" = "no" ] && return
+  (
+    export SCRIPT_OPTS="" _DEBUG=""
+    export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$GEN_DNS_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$GEN_DNS_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$GEN_DNS_NOTIFY_CLIENT_ICON}"
+    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$GEN_DNS_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$GEN_DNS_NOTIFY_CLIENT_URGENCY}"
+    notifications "$@"
+  ) |& __devnull &
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set custom actions
+{ [ -n "$GEN_DNS_DEFAULT_DNS_IP6" ] || [ -n "$GEN_DNS_DEFAULT_HOST_IP6" ]; } && GEN_DNS_HAS_IPV6="y"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Argument/Option settings
+SETARGS=("$@")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SHORTOPTS=""
+SHORTOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent,copy"
+LONGOPTS+=",domain:,hostip4:,hostip6:,dnsip4:,dnsip6:,force,forwarders:,import:,template:"
+LONGOPTS+=",provider:,transfer:"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ARRAY="edit "
+ARRAY+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LIST=""
+LIST+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case "$1" in
+  --raw)
+    shift 1
+    export SHOW_RAW="true"
+    NC=""
+    RESET=""
+    BLACK=""
+    RED=""
+    GREEN=""
+    YELLOW=""
+    BLUE=""
+    PURPLE=""
+    CYAN=""
+    WHITE=""
+    ORANGE=""
+    LIGHTRED=""
+    BG_GREEN=""
+    BG_RED=""
+    ICON_INFO="[ info ]"
+    ICON_GOOD="[ ok ]"
+    ICON_WARN="[ warn ]"
+    ICON_ERROR="[ error ]"
+    ICON_QUESTION="[ ? ]"
+    printf_column() { tee | grep '^'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    ;;
+  --debug)
+    shift 1
+    set -xo pipefail
+    export SCRIPT_OPTS="--debug"
+    export _DEBUG="on"
+    __devnull() { tee || return 1; }
+    __devnull2() { eval "$@" |& tee -p || return 1; }
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
+    ;;
+  --options)
+    shift 1
+    printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' 4
+    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' 4
+    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
+    [ -z "$LIST" ] || __list_options "LIST Options" "${LIST}" ',' '' 4
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  --copy)
+    shift 1
+    __copy_templates
+    exit $?
+    ;;
+  --silent)
+    shift 1
+    GEN_DNS_SILENT="true"
+    ;;
+  --dir)
+    CWD_IS_SET="TRUE"
+    GEN_DNS_CWD="$2"
+    [ -d "$GEN_DNS_CWD" ] || mkdir -p "$GEN_DNS_CWD" |& __devnull
+    shift 2
+    ;;
+  --force)
+    shift 1
+    GEN_DNS_FORCE="true"
+    ;;
+  --domain)
+    GEN_DNS_DEFAULT_DOMAIN="$2"
+    shift 2
+    ;;
+  --dns_1_ip4)
+    GEN_DNS_DEFAULT_DNS_1_IP4="$2"
+    shift 2
+    ;;
+  --dns_2_ip4)
+    GEN_DNS_DEFAULT_DNS_2_IP4="$2"
+    shift 2
+    ;;
+  --dns_1_ip6)
+    GEN_DNS_DEFAULT_DNS_1_IP6="$2"
+    shift 2
+    ;;
+  --dns_2_ip6)
+    GEN_DNS_DEFAULT_DNS_2_IP6="$2"
+    shift 2
+    ;;
+  --hostip4)
+    GEN_DNS_DEFAULT_HOST_IP4="$2"
+    shift 2
+    ;;
+  --hostip6)
+    GEN_DNS_DEFAULT_HOST_IP6="$2"
+    shift 2
+    ;;
+  --forwarders)
+    GEN_DNS_FORWARDERS+="$2,"
+    shift 2
+    ;;
+  --transfer)
+    GEN_DNS_TRANSFER+="$2,"
+    shift 2
+    ;;
+  --import)
+    GEN_DNS_IMPORT_DIR="$2"
+    shift 2
+    ;;
+  --provider*)
+    GEN_DNS_PROVIDER="${2//*=/}"
+    __set_provider "${2//*=/}"
+    shift 2
+    ;;
+  --template)
+    if [ -f "$GEN_DNS_TEMPLATE_DIR/$2" ]; then
+      GEN_DNS_DEFAULT_TEMPLATE="$GEN_DNS_TEMPLATE_DIR/$2"
+    elif [ -f "$2" ]; then
+      GEN_DNS_DEFAULT_TEMPLATE="$2"
+    else
+      GEN_DNS_DEFAULT_TEMPLATE="$GEN_DNS_TEMPLATE_DIR/simple.zone"
+    fi
+    shift 2
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get directory from args
+# set -- "$@"
+# for arg in "$@"; do
+# if [ -d "$arg" ]; then
+# GEN_DNS_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
+# elif [ -f "$arg" ]; then
+# GEN_DNS_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
+# else
+# SET_NEW_ARGS+=("$arg")
+# fi
+# done
+# set -- "${SET_NEW_ARGS[@]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set directory to first argument
+# [ -d "$1" ] && __is_an_option "$1" && GEN_DNS_CWD="$1" && shift 1 || GEN_DNS_CWD="${GEN_DNS_CWD:-$PWD}"
+GEN_DNS_CWD="$(realpath "${GEN_DNS_CWD:-$PWD}" 2>/dev/null)"
+# if [ -d "$GEN_DNS_CWD" ] && cd "$GEN_DNS_CWD"; then
+# if [ "$GEN_DNS_SILENT" != "true" ] && [ "$CWD_SILENCE" != "true" ]; then
+# printf_cyan "Setting working dir to $GEN_DNS_CWD"
+# fi
+# else
+# printf_exit "💔 $GEN_DNS_CWD does not exist 💔"
+# fi
+export GEN_DNS_CWD
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set actions based on variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+#cmd_exists --error --ask bash || exit 3 # exit 3 if not found
+#am_i_online --error || exit 4           # exit 4 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+GEN_DNS_SERIAL_NUMBER="${GEN_DNS_SET_SERIAL}01"
+GEN_DNS_TRANSFER="${GEN_DNS_TRANSFER//,/ }"
+GEN_DNS_FORWARDERS="${GEN_DNS_FORWARDERS//,/ }"
+GEN_DNS_TRANSFER="$(__trim "${GEN_DNS_TRANSFER:-}");"
+GEN_DNS_FORWARDERS="$(__trim "${GEN_DNS_FORWARDERS:-1.1.1.1 8.8.8.8 8.8.4.4}");"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+[ -f "$GEN_DNS_DEFAULT_TEMPLATE" ] || GEN_DNS_DEFAULT_TEMPLATE="$GEN_DNS_TEMPLATE_DIR/$GEN_DNS_FILE_ZONE_DIR"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute commands
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+case "$1" in
+help)
+  printf_cyan "Usage: $APPNAME [domain] [host_ip4] [host_ip6] [dns_1_ip4] [dns_2_ip4] [dns_2_ip6] [dns_2_ip6]"
+  exit
+  ;;
+update)
+  shift 1
+  __update_ddns "$@"
+  ;;
+*)
+  __execute_gen-dns "$@"
+  exitCode=$?
+  ;;
+esac
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set exit code
+exitCode="${exitCode:-0}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-0}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# ex: ts=2 sw=2 et filetype=sh

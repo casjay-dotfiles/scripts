@@ -1,0 +1,27 @@
+ensure_dirs() {
+  if [[ $EUID -ne 0 ]] || [[ "$WHOAMI" != "root" ]]; then
+    __mkd "$BIN"
+    __mkd "$SHARE"
+    __mkd "$LOGDIR"
+    __mkd "$LOGDIR/dfmgr"
+    __mkd "$LOGDIR/fontmg"
+    __mkd "$LOGDIR/iconmgr"
+    __mkd "$LOGDIR/systemmgr"
+    __mkd "$LOGDIR/thememgr"
+    __mkd "$LOGDIR/wallpapermgr"
+    __mkd "$COMPDIR"
+    __mkd "$STARTUP"
+    __mkd "$BACKUPDIR"
+    __mkd "$FONTDIR"
+    __mkd "$ICONDIR"
+    __mkd "$THEMEDIR"
+    __mkd "$FONTCONF"
+    __mkd "$CASJAYSDEVSHARE"
+    __mkd "$CASJAYSDEVSAPPDIR"
+    __mkd "$USRUPDATEDIR"
+    __mkd "$SHARE/applications"
+    __mkd "$SHARE/CasjaysDev/functions"
+    __mkd "$SHARE/wallpapers/system"
+    user_is_root && __mkd "$SYSUPDATEDIR"
+  fi
+}

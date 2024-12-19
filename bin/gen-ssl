@@ -1,0 +1,933 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version           :  202305061924-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  jason@casjaysdev.pro
+# @@License          :  WTFPL
+# @@ReadME           :  gen-ssl --help
+# @@Copyright        :  Copyright: (c) 2023 Jason Hempstead, Casjays Developments
+# @@Created          :  Saturday, May 06, 2023 19:24 EDT
+# @@File             :  gen-ssl
+# @@Description      :  Create and manage OpenSSL certs
+# @@Changelog        :  New script
+# @@TODO             :  Add letsencrypt support
+# @@Other            :
+# @@Resource         :
+# @@Terminal App     :  no
+# @@sudo/root        :  no
+# @@Template         :  bash/system
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="$(basename -- "$0" 2>/dev/null)"
+VERSION="202305061924-git"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${RUN_USER:-$USER}"
+USER_HOME="${USER_HOME:-$HOME}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+GEN_SSL_REQUIRE_SUDO="${GEN_SSL_REQUIRE_SUDO:-no}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Reopen in a terminal
+#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set script title
+#CASJAYS_DEV_TILE_FORMAT="${USER}@${HOSTNAME}:${PWD//$HOME/\~} - $APPNAME"
+#CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}"
+#[ -z "$CASJAYSDEV_TITLE_SET" ] && printf '\033]2│;%s\033\\' "$CASJAYS_DEV_TILE_FORMAT" && CASJAYSDEV_TITLE_SET="$APPNAME"
+export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}" CASJAYSDEV_TITLE_SET
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initial debugging
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# pipes fail
+set -o pipefail
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import functions
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+  . "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  exit 1
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Options are: *_install
+# system user desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+user_install && __options "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Send all output to /dev/null
+__devnull() {
+  tee &>/dev/null && GEN_SSL_EXIT_STATUS=0 || GEN_SSL_EXIT_STATUS=1
+  return ${GEN_SSL_EXIT_STATUS:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# Send errors to /dev/null
+__devnull2() {
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && GEN_SSL_EXIT_STATUS=0 || GEN_SSL_EXIT_STATUS=1
+  return ${GEN_SSL_EXIT_STATUS:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# See if the executable exists
+__cmd_exists() {
+  GEN_SSL_EXIT_STATUS=0
+  [ -n "$1" ] && local GEN_SSL_EXIT_STATUS="" || return 0
+  for cmd in "$@"; do
+    builtin command -v "$cmd" &>/dev/null && GEN_SSL_EXIT_STATUS+=$(($GEN_SSL_EXIT_STATUS + 0)) || GEN_SSL_EXIT_STATUS+=$(($GEN_SSL_EXIT_STATUS + 1))
+  done
+  [ $GEN_SSL_EXIT_STATUS -eq 0 ] || GEN_SSL_EXIT_STATUS=3
+  return ${GEN_SSL_EXIT_STATUS:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for a valid internet connection
+__am_i_online() {
+  local GEN_SSL_EXIT_STATUS=0
+  curl -q -LSsfI --max-time 1 --retry 0 "${1:-https://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || GEN_SSL_EXIT_STATUS=4
+  return ${GEN_SSL_EXIT_STATUS:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# colorization
+if [ "$SHOW_RAW" = "true" ]; then
+  NC=""
+  RESET=""
+  BLACK=""
+  RED=""
+  GREEN=""
+  YELLOW=""
+  BLUE=""
+  PURPLE=""
+  CYAN=""
+  WHITE=""
+  ORANGE=""
+  LIGHTRED=""
+  BG_GREEN=""
+  BG_RED=""
+  ICON_INFO="[ info ]"
+  ICON_GOOD="[ ok ]"
+  ICON_WARN="[ warn ]"
+  ICON_ERROR="[ error ]"
+  ICON_QUESTION="[ ? ]"
+  printf_column() { tee | grep '^'; }
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional printf_ colors
+__printf_head() { printf_blue "$1"; }
+__printf_opts() { printf_purple "$1"; }
+__printf_line() { printf_cyan "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# output version
+__version() { printf_cyan "$VERSION"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# list options
+__list_options() {
+  printf_color "$1: " "$5"
+  echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g' | tr '\n' ' '
+  printf_newline
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create the config file
+__gen_config() {
+  local NOTIFY_CLIENT_NAME="$APPNAME"
+  if [ "$INIT_CONFIG" != "TRUE" ]; then
+    printf_blue "Generating the config file in"
+    printf_cyan "$GEN_SSL_CONFIG_DIR/$GEN_SSL_CONFIG_FILE"
+  fi
+  [ -d "$GEN_SSL_CONFIG_DIR" ] || mkdir -p "$GEN_SSL_CONFIG_DIR"
+  [ -d "$GEN_SSL_CONFIG_BACKUP_DIR" ] || mkdir -p "$GEN_SSL_CONFIG_BACKUP_DIR"
+  [ -f "$GEN_SSL_CONFIG_DIR/$GEN_SSL_CONFIG_FILE" ] &&
+    cp -Rf "$GEN_SSL_CONFIG_DIR/$GEN_SSL_CONFIG_FILE" "$GEN_SSL_CONFIG_BACKUP_DIR/$GEN_SSL_CONFIG_FILE.$$"
+  cat <<EOF >"$GEN_SSL_CONFIG_DIR/$GEN_SSL_CONFIG_FILE"
+# Settings for gen-ssl
+GEN_SSL_CA_NAME="${GEN_SSL_CA_NAME:-}"
+GEN_SSL_CA_COUNTRY="${GEN_SSL_CA_COUNTRY:-}"
+GEN_SSL_CA_STATE="${GEN_SSL_CA_STATE:-}"
+GEN_SSL_CA_CITY="${GEN_SSL_CA_CITY:-}"
+GEN_SSL_CA_COMPANY="${GEN_SSL_CA_COMPANY:-}"
+GEN_SSL_CA_UNIT="${GEN_SSL_CA_UNIT:-}"
+GEN_SSL_CA_COMMON_NAME="${GEN_SSL_CA_COMMON_NAME:-}"
+GEN_SSL_CA_DEFAULT_DOMAIN="${GEN_SSL_CA_DEFAULT_DOMAIN:-}"
+GEN_SSL_CA_DIR="${GEN_SSL_CA_DIR:-}"
+GEN_SSL_DH_DIR="${GEN_SSL_DH_DIR:-}"
+GEN_SSL_DH_LENGTH="${GEN_SSL_DH_LENGTH:-}"
+GEN_SSL_DEFAULT_DAYS="${GEN_SSL_DEFAULT_DAYS:-}"
+GEN_SSL_DEFAULT_RSA_SIZE="${GEN_SSL_DEFAULT_RSA_SIZE:-}"
+GEN_SSL_SYSTEM_DH_DIR="${GEN_SSL_SYSTEM_DH_DIR:-/etc/ssl/dh}"
+GEN_SSL_SYSTEM_CA_DIR="${GEN_SSL_SYSTEM_CA_DIR:-/etc/ssl/CA/$GEN_SSL_CA_NAME}"
+GEN_SSL_PASSWD_FILE="${GEN_SSL_PASSWD_FILE:-$GEN_SSL_CA_DIR/passwd}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+GEN_SSL_OUTPUT_COLOR_1="${GEN_SSL_OUTPUT_COLOR_1:-}"
+GEN_SSL_OUTPUT_COLOR_2="${GEN_SSL_OUTPUT_COLOR_2:-}"
+GEN_SSL_OUTPUT_COLOR_GOOD="${GEN_SSL_OUTPUT_COLOR_GOOD:-}"
+GEN_SSL_OUTPUT_COLOR_ERROR="${GEN_SSL_OUTPUT_COLOR_ERROR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+GEN_SSL_NOTIFY_ENABLED="${GEN_SSL_NOTIFY_ENABLED:-}"
+GEN_SSL_GOOD_NAME="${GEN_SSL_GOOD_NAME:-}"
+GEN_SSL_ERROR_NAME="${GEN_SSL_ERROR_NAME:-}"
+GEN_SSL_GOOD_MESSAGE="${GEN_SSL_GOOD_MESSAGE:-}"
+GEN_SSL_ERROR_MESSAGE="${GEN_SSL_ERROR_MESSAGE:-}"
+GEN_SSL_NOTIFY_CLIENT_NAME="${GEN_SSL_NOTIFY_CLIENT_NAME:-}"
+GEN_SSL_NOTIFY_CLIENT_ICON="${GEN_SSL_NOTIFY_CLIENT_ICON:-}"
+GEN_SSL_NOTIFY_CLIENT_URGENCY="${GEN_SSL_NOTIFY_CLIENT_URGENCY:-}"
+
+EOF
+  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
+  if [ -f "$GEN_SSL_CONFIG_DIR/$GEN_SSL_CONFIG_FILE" ]; then
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
+    . "$GEN_SSL_CONFIG_DIR/$GEN_SSL_CONFIG_FILE"
+    GEN_SSL_EXIT_STATUS=0
+  else
+    printf_red "Failed to create the config file"
+    GEN_SSL_EXIT_STATUS=1
+  fi
+  return ${GEN_SSL_EXIT_STATUS:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Help function - Align to 50
+__help() { #setup generate domains new revoke dh
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "gen-ssl:  - $VERSION"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Usage: gen-ssl [options] [commands]"
+  __printf_line "setup                           - Create a new CA"
+  __printf_line "generate                        - Update domains in domains.cnf"
+  __printf_line "domains                         - Generate a cert using domains.cnf"
+  __printf_line "new                             - Create a new cert for [domain]"
+  __printf_line "revoke                          - revoke a cert [cert]"
+  __printf_line "dh                              - Create DH files"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Other Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--help                          - Shows this message"
+  __printf_line "--config                        - Generate user config file"
+  __printf_line "--version                       - Show script version"
+  __printf_line "--options                       - Shows all available options"
+  __printf_line "--debug                         - Enables script debugging"
+  __printf_line "--raw                           - Removes all formatting on output"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__grep() { grep "$@" 2>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# check if arg is a builtin option
+__is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0; fi; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 1 || return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep -sh "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# # Get sudo password
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run sudo
+__sudorun() {
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo
+__can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User can run sudo
+__sudoif() {
+  __user_is_root && return 0
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run command as root
+requiresudo() {
+  if [ "$GEN_SSL_REQUIRE_SUDO" = "yes" ] && [ -z "$GEN_SSL_REQUIRE_SUDO_RUN" ]; then
+    export GEN_SSL_REQUIRE_SUDO="no"
+    export GEN_SSL_REQUIRE_SUDO_RUN="true"
+    __sudo "$@"
+    exit $?
+  else
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  CMD="${1:-echo}" && shift 1
+  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  [ "$(basename -- "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  if __sudoif; then
+    export PATH="$PATH"
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    GEN_SSL_EXIT_STATUS=$?
+  else
+    printf '%s\n' "This requires root to run"
+    GEN_SSL_EXIT_STATUS=1
+  fi
+  return ${GEN_SSL_EXIT_STATUS:-0}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  GEN_SSL_EXIT_STATUS=${GEN_SSL_EXIT_STATUS:-0}
+  [ -f "$GEN_SSL_TEMP_FILE" ] && rm -Rf "$GEN_SSL_TEMP_FILE" &>/dev/null
+  #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD//$HOME/\~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $GEN_SSL_EXIT_STATUS
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined functions
+__gen_config_local() {
+  [ -d "$GEN_SSL_CONFIG_DIR/templates" ] || __copy_templates &>/dev/null
+  __setup_ssl_cnf &>/dev/null
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__set_custom_password() {
+  local exitCode=0
+  local pass_set=""
+  local pass_test=""
+  local custom_pass=""
+  GEN_SSL_PASSWD="${GEN_SSL_PASSWD:-}"
+  mkdir -p "$GEN_SSL_CA_DIR"
+  printf_read_question "3" "Would you like to set a custom password" "1" "custom_pass"
+  if [ "$custom_pass" = "y" ] || [ "$custom_pass" = "Y" ]; then
+    printf_read_password "6" "Please enter your password:" "256" "pass_set"
+    printf_read_password "6" "Please confirm enter your password:" "256" "pass_test"
+    [ "$pass_set" = "$pass_test" ] && GEN_SSL_PASSWD="$pass_set" || exitCode=1
+    [ $exitCode -eq 0 ] && { [ -n "$GEN_SSL_PASSWD" ] && echo "$GEN_SSL_PASSWD" >"$GEN_SSL_PASSWD_FILE"; }
+  fi
+  [ -f "$GEN_SSL_PASSWD_FILE" ] || __password "32" >"$GEN_SSL_PASSWD_FILE"
+  unset pass_set pass_test
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__copy_templates() {
+  # CASJAYSDEVDIR/templates/ssl
+  local default_template_dir="$CASJAYSDEVDIR/templates/ssl"
+  [ -d "$GEN_SSL_CONFIG_DIR/templates" ] || mkdir -p "$GEN_SSL_CONFIG_DIR/templates"
+  mkdir -p "$GEN_SSL_CONFIG_DIR/templates"
+  if [ -d "$default_template_dir" ]; then
+    printf_green "Copying $APPNAME templates $default_template_dir"
+    __cp_rf "$default_template_dir/." "$GEN_SSL_CONFIG_DIR/templates/"
+    if [ "$(__count_dir $GEN_SSL_CONFIG_DIR/templates)" -ne 0 ]; then
+      printf_green "Copying has succeeded > $GEN_SSL_CONFIG_DIR/templates"
+      exitCodeT=0
+    else
+      printf_error "Copying of files has failed < $GEN_SSL_CONFIG_DIR/templates"
+      exitCodeT=1
+    fi
+  else
+    printf_error "Can not find SSL template files"
+    exitCodeT=1
+  fi
+  echo ""
+  return $exitCodeT
+
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_ssl_cnf() {
+  for file in ca domains openssl req; do
+    #if [ "$GEN_SSL_FORCE" = "true" ] || [ ! -f "$GEN_SSL_CA_DIR/$file.cnf" ]; then
+    cat <<EOF | tee -p "$GEN_SSL_CA_DIR/$file.cnf" &>/dev/null
+$(<"$GEN_SSL_CONFIG_DIR/templates/$file.cnf")
+EOF
+    #fi
+    if [ -f "$GEN_SSL_CA_DIR/$file.cnf" ]; then
+      sed -i "s|REPLACE_COUNTRY|$GEN_SSL_CA_COUNTRY|g" "$GEN_SSL_CA_DIR/$file.cnf"
+      sed -i "s|REPLACE_STATE|$GEN_SSL_CA_STATE|g" "$GEN_SSL_CA_DIR/$file.cnf"
+      sed -i "s|REPLACE_CITY|$GEN_SSL_CA_CITY|g" "$GEN_SSL_CA_DIR/$file.cnf"
+      sed -i "s|REPLACE_COMPANY|$GEN_SSL_CA_COMPANY|g" "$GEN_SSL_CA_DIR/$file.cnf"
+      sed -i "s|REPLACE_UNIT|$GEN_SSL_CA_UNIT|g" "$GEN_SSL_CA_DIR/$file.cnf"
+      sed -i "s|REPLACE_COMMON_NAME|$GEN_SSL_CA_COMMON_NAME|g" "$GEN_SSL_CA_DIR/$file.cnf"
+      sed -i "s|REPLACE_DOMAIN|$GEN_SSL_CA_DEFAULT_DOMAIN|g" "$GEN_SSL_CA_DIR/$file.cnf"
+      sed -i "s|REPLACE_SSL_DIR|$GEN_SSL_CA_DIR|g" "$GEN_SSL_CA_DIR/$file.cnf"
+    fi
+  done
+  [ -f "$GEN_SSL_CA_DIR/domains.cnf" ] && __generate_domains
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__generate_domains() {
+  local file="" domains="" dns=0
+  [ -f "$1" ] && GEN_SSL_DOMAINS="$(cat "$1" | sort -u | grep -v '^$' | tr '\n' ' ')" && shift 1
+  [ $# -eq 0 ] || GEN_SSL_DOMAINS="$* $GEN_SSL_DOMAINS"
+  [ -z "$GEN_SSL_DOMAINS" ] || GEN_SSL_DOMAINS="${GEN_SSL_DOMAINS//,/ }"
+  printf_cyan "Generating $GEN_SSL_CONFIG_DIR/domains.txt from domain list"
+  sed -i '/# Domain Names/,$d' "$GEN_SSL_CA_DIR/domains.cnf"
+  printf '%s\n' "# Domain Names" >>"$GEN_SSL_CA_DIR/domains.cnf"
+  if [ -f "$GEN_SSL_CONFIG_DIR/domains.txt" ]; then
+    cat "$GEN_SSL_CONFIG_DIR/domains.txt" | tr ' ' '\n' >"$GEN_SSL_TEMP_FILE"
+  fi
+  if [ -n "$GEN_SSL_DOMAINS" ]; then
+    printf '%s\n' "$GEN_SSL_DOMAINS" | tr ' ' '\n' >>"$GEN_SSL_TEMP_FILE"
+  fi
+  if [ -n "$GEN_SSL_PRIMARY_DOMAIN" ]; then
+    primary_domain="$GEN_SSL_PRIMARY_DOMAIN"
+  else
+    primary_domain="$(echo "$GEN_SSL_DOMAINS" | tr ' ' '\n' | grep -shvE '^$|#|^\*\.|localhost' | head -n1 | grep '^' || echo "$HOSTNAME")"
+  fi
+  if [ -n "$primary_domain" ]; then
+    printf_yellow "Setting primary domain to: $primary_domain"
+    printf '%s\n' "$primary_domain" >"$GEN_SSL_CONFIG_DIR/domains.txt"
+    grep -shvE '^$|#' "$GEN_SSL_TEMP_FILE" | tr ',' ' ' | tr ' ' '\n' | grep -xv "${primary_domain:-^$}" | sort -uV >>"$GEN_SSL_CONFIG_DIR/domains.txt"
+    domains="$(cat "$GEN_SSL_CONFIG_DIR/domains.txt")"
+    for domain in $domains; do
+      printf '%-10s = %s\n' "DNS.$dns " "$domain" >>"$GEN_SSL_CA_DIR/domains.cnf"
+      dns=$((dns + 1))
+      if [ "$GEN_SSL_CREATE_WILDCARD" = "true" ] && echo "$domain" | grep -qv '\*\.'; then
+        printf '%-10s = %s\n' "DNS.$dns " "*.$domain" >>"$GEN_SSL_CA_DIR/domains.cnf"
+        dns=$((dns + 1))
+        printf '%-10s = %s\n' "DNS.$dns " "*.*.$domain" >>"$GEN_SSL_CA_DIR/domains.cnf"
+        dns=$((dns + 1))
+      fi
+    done
+  else
+    for domain in $HOSTNAME localhost '*.home'; do
+      printf '%-10s = %s\n' "DNS.$dns " "$domain" >>"$GEN_SSL_CA_DIR/domains.cnf"
+      dns=$((dns + 1))
+      if [ "$GEN_SSL_CREATE_WILDCARD" = "true" ] && echo "$domain" | grep -qv '\*\.'; then
+        printf '%-10s = %s\n' "DNS.$dns " "*.$domain" >>"$GEN_SSL_CA_DIR/domains.cnf"
+        dns=$((dns + 1))
+        printf '%-10s = %s\n' "DNS.$dns " "*.*.$domain" >>"$GEN_SSL_CA_DIR/domains.cnf"
+        dns=$((dns + 1))
+      fi
+    done
+  fi
+  [ -n "$primary_domain" ] && DOMAIN="$primary_domain" || DOMAIN="localhost"
+}
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__run_init() {
+  local d="" f="" gen_ssl_init="false"
+  if [ ! -f "$GEN_SSL_PASSWD_FILE" ]; then
+    while :; do __set_custom_password && break; done
+  fi
+  for d in crl private certs p12 requests newcerts; do
+    [ -d "$GEN_SSL_CA_DIR/$d" ] || mkdir -p "$GEN_SSL_CA_DIR/$d"
+  done
+  for f in index.txt crl/revoke.crl crl/rootca.crl; do
+    [ -f "$GEN_SSL_CA_DIR/$f" ] || touch "$GEN_SSL_CA_DIR/$f"
+  done
+  [ -d "$GEN_SSL_DH_DIR" ] || mkdir -p "$GEN_SSL_DH_DIR"
+  [ -f "$GEN_SSL_CA_DIR/certs/ca.crt" ] || gen_ssl_init="true"
+  [ -f "$GEN_SSL_CA_DIR/serial.txt" ] || echo "1000" >"$GEN_SSL_CA_DIR/serial.txt"
+  chmod 600 "$GEN_SSL_PASSWD_FILE"
+  [ "$gen_ssl_init" = "true" ] && { $APPNAME setup || printf_exit "Failed to initialize $APPNAME"; }
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+create_chain() {
+  [ -f "$GEN_SSL_CA_DIR/certs/ca.crt" ] && cat "$GEN_SSL_CA_DIR/certs/ca.crt" >"$GEN_SSL_CA_DIR/certs/chain.crt" || return 1
+  for crt in "$GEN_SSL_CA_DIR/certs"/*; do
+    if [ "$crt" != "$GEN_SSL_CA_DIR/certs/ca.crt" ] || [ "$crt" != "$GEN_SSL_CA_DIR/certs/chain.crt" ]; then
+      cat "$crt" >>"$GEN_SSL_CA_DIR/certs/chain.crt"
+    fi
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__install_to_system() {
+  local lecert_dir
+  [ "$GEN_SSL_SYSTEM_INSTALL" = "true" ] || return 0
+  __user_is_root && unset sudo || { sudo -n true && sudu true; } || return 1
+  sudo="$(type -P sudo)"
+  $sudo mkdir -p "$GEN_SSL_SYSTEM_CA_DIR"
+  lecert_dir="$(find /etc/letsencrypt/live/* -maxdepth 1 -type d | grep -shwv 'domain' | head -n1 | grep '^')"
+  [ -d "$GEN_SSL_SYSTEM_DH_DIR" ] || $sudo mkdir -p "$GEN_SSL_SYSTEM_DH_DIR"
+  $sudo cp -Rf "$GEN_SSL_CA_DIR/." "$GEN_SSL_SYSTEM_CA_DIR"
+  $sudo mkdir -p "$GEN_SSL_SYSTEM_DH_DIR"
+  $sudo cp -Rf "$GEN_SSL_DH_DIR/." "$GEN_SSL_SYSTEM_DH_DIR"
+  if [ -d "/usr/local/share/ca-certificates" ]; then
+    $sudo cp -Rf "$GEN_SSL_CA_DIR/certs/ca.crt" "/usr/local/share/ca-certificates/$GEN_SSL_CA_NAME.crt"
+  elif [ -d "/etc/pki/ca-trust/source/anchors" ]; then
+    $sudo cp -Rf "$GEN_SSL_CA_DIR/certs/ca.crt" "/etc/pki/ca-trust/source/anchors/$GEN_SSL_CA_NAME.crt"
+  elif [ -d "/etc/ca-certificates/trust-source/anchors" ]; then
+    $sudo cp -Rf "$GEN_SSL_CA_DIR/certs/ca.crt" "/etc/ca-certificates/trust-source/anchors/$GEN_SSL_CA_NAME.crt"
+  fi
+  if [ -f "$(command -v update-ca-trust 2>/dev/null)" ]; then
+    $sudo update-ca-trust extract && $sudo update-ca-trust
+  elif [ -f "$(command -v update-ca-certificates 2>/dev/null)" ]; then
+    $sudo update-ca-certificates --fresh && $sudo update-ca-certificates
+  fi
+  if [ $(find -L "/etc/letsencrypt/live/domain" -type f 2>/dev/null | wc -l) -eq 0 ]; then
+    $sudo mkdir -p /etc/letsencrypt/live/domain
+    $sudo ln -sf $GEN_SSL_SYSTEM_CA_DIR/certs/localhost.crt /etc/letsencrypt/live/domain/cert.pem
+    $sudo ln -sf $GEN_SSL_SYSTEM_CA_DIR/certs/localhost.crt /etc/letsencrypt/live/domain/fullchain.pem
+    $sudo ln -sf $GEN_SSL_SYSTEM_CA_DIR/private/localhost.key /etc/letsencrypt/live/domain/privkey.pem
+  elif [[ -d "$lecert_dir" ]] && [[ $(find -L "/etc/letsencrypt/live" -name 'fullchain.pem' -type f 2>/dev/null | grep -vc 'domain') -ne 0 ]]; then
+    $sudo ln -sf "$lecert_dir" "/etc/letsencrypt/live/domain" &>/dev/null
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__certbot_bin() {
+  certbot_bin="$(type -P "certbot3" || type -P "certbot" || false)"
+  [ -n "$certbot_bin" ] || printf_exit "Can not find certbot"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__letsencrypt_add() {
+  __certbot_bin
+  printf_exit "Coming Soon!"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__letsencrypt_renew() {
+  __certbot_bin
+  printf_exit "Coming Soon!"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__letsencrypt_create() {
+  local le_domain=""
+  local domains="${GEN_SSL_DOMAINS:-$*}"
+  local set_le_domains="${domains//,/ }"
+  __certbot_bin
+  for domain in $set_le_domains; do
+    le_domain+="-d $domain "
+    [ -z "$GEN_SSL_DNS" ] || le_domain+="-d *.$domain "
+  done
+  printf_exit "Coming Soon!"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__letsencrypt_test() {
+  __certbot_bin
+  printf_exit "Coming Soon!"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__password() { head -n100 "/dev/urandom" 2>/dev/null | tr -dc '0-9a-zA-Z' 2>/dev/null | head -c${1:-16} && echo ""; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined variables/import external variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Default exit code
+GEN_SSL_EXIT_STATUS=0
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application Folders
+GEN_SSL_CONFIG_DIR="${GEN_SSL_CONFIG_DIR:-$HOME/.config/myscripts/gen-ssl}"
+GEN_SSL_CONFIG_BACKUP_DIR="${GEN_SSL_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/gen-ssl/backups}"
+GEN_SSL_LOG_DIR="${GEN_SSL_LOG_DIR:-$HOME/.local/log/gen-ssl}"
+GEN_SSL_RUN_DIR="${GEN_SSL_RUN_DIR:-$HOME/.local/run/system_scripts/$GEN_SSL_SCRIPTS_PREFIX}"
+GEN_SSL_TEMP_DIR="${GEN_SSL_TEMP_DIR:-$HOME/.local/tmp/system_scripts/gen-ssl}"
+GEN_SSL_CACHE_DIR="${GEN_SSL_CACHE_DIR:-$HOME/.cache/gen-ssl}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# File settings
+GEN_SSL_CONFIG_FILE="${GEN_SSL_CONFIG_FILE:-settings.conf}"
+GEN_SSL_LOG_ERROR_FILE="${GEN_SSL_LOG_ERROR_FILE:-$GEN_SSL_LOG_DIR/error.log}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+GEN_SSL_OUTPUT_COLOR_1="${GEN_SSL_OUTPUT_COLOR_1:-33}"
+GEN_SSL_OUTPUT_COLOR_2="${GEN_SSL_OUTPUT_COLOR_2:-5}"
+GEN_SSL_OUTPUT_COLOR_GOOD="${GEN_SSL_OUTPUT_COLOR_GOOD:-2}"
+GEN_SSL_OUTPUT_COLOR_ERROR="${GEN_SSL_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+GEN_SSL_NOTIFY_ENABLED="${GEN_SSL_NOTIFY_ENABLED:-yes}"
+GEN_SSL_GOOD_NAME="${GEN_SSL_GOOD_NAME:-Great:}"
+GEN_SSL_ERROR_NAME="${GEN_SSL_ERROR_NAME:-Error:}"
+GEN_SSL_GOOD_MESSAGE="${GEN_SSL_GOOD_MESSAGE:-No errors reported}"
+GEN_SSL_ERROR_MESSAGE="${GEN_SSL_ERROR_MESSAGE:-Errors were reported}"
+GEN_SSL_NOTIFY_CLIENT_NAME="${GEN_SSL_NOTIFY_CLIENT_NAME:-$APPNAME}"
+GEN_SSL_NOTIFY_CLIENT_ICON="${GEN_SSL_NOTIFY_CLIENT_ICON:-notification-new}"
+GEN_SSL_NOTIFY_CLIENT_URGENCY="${GEN_SSL_NOTIFY_CLIENT_URGENCY:-normal}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional Variables
+GEN_SSL_CA_NAME="${GEN_SSL_CA_NAME:-CasjaysDev}"
+GEN_SSL_SYSTEM_DH_DIR="${GEN_SSL_SYSTEM_DH_DIR:-/etc/ssl/dh}"
+GEN_SSL_DH_DIR="${GEN_SSL_DH_DIR:-$GEN_SSL_CONFIG_DIR/ssl/dh}"
+GEN_SSL_REVOKE_FILE="${GEN_SSL_REVOKE_FILE:-revoke.crl}"
+GEN_SSL_DH_LENGTH="${GEN_SSL_DH_LENGTH:-512 1024 2048 4096}"
+GEN_SSL_CA_COUNTRY="${GEN_SSL_CA_COUNTRY:-US}"
+GEN_SSL_CA_STATE="${GEN_SSL_CA_STATE:-New York}"
+GEN_SSL_CA_CITY="${GEN_SSL_CA_CITY:-Albany}"
+GEN_SSL_CA_COMPANY="${GEN_SSL_CA_COMPANY:-Casjays Developments}"
+GEN_SSL_CA_DEFAULT_DOMAIN="${GEN_SSL_CA_DEFAULT_DOMAIN:-casjaydns.com}"
+GEN_SSL_DEFAULT_DAYS="${GEN_SSL_DEFAULT_DAYS:-3650}"
+GEN_SSL_DEFAULT_RSA_SIZE="${GEN_SSL_DEFAULT_RSA_SIZE:-2048}"
+GEN_SSL_PASSWD_FILE="${GEN_SSL_PASSWD_FILE:-$GEN_SSL_CONFIG_DIR/ssl/CA/$GEN_SSL_CA_NAME/passwd}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$GEN_SSL_CONFIG_DIR/$GEN_SSL_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$GEN_SSL_CONFIG_DIR/$GEN_SSL_CONFIG_FILE" ] && . "$GEN_SSL_CONFIG_DIR/$GEN_SSL_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$GEN_SSL_RUN_DIR" ] || mkdir -p "$GEN_SSL_RUN_DIR" |& __devnull
+[ -d "$GEN_SSL_LOG_DIR" ] || mkdir -p "$GEN_SSL_LOG_DIR" |& __devnull
+[ -d "$GEN_SSL_TEMP_DIR" ] || mkdir -p "$GEN_SSL_TEMP_DIR" |& __devnull
+[ -d "$GEN_SSL_CACHE_DIR" ] || mkdir -p "$GEN_SSL_CACHE_DIR" |& __devnull
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+GEN_SSL_TEMP_FILE="${GEN_SSL_TEMP_FILE:-$(mktemp $GEN_SSL_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap '__trap_exit' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+__notifications() {
+  __cmd_exists notifications || return
+  [ "$GEN_SSL_NOTIFY_ENABLED" = "yes" ] || return
+  [ "$SEND_NOTIFICATION" = "no" ] && return
+  (
+    export SCRIPT_OPTS="" _DEBUG=""
+    export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$GEN_SSL_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$GEN_SSL_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$GEN_SSL_NOTIFY_CLIENT_ICON}"
+    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$GEN_SSL_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$GEN_SSL_NOTIFY_CLIENT_URGENCY}"
+    notifications "$@"
+  ) |& __devnull &
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set custom actions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Argument/Option settings
+SETARGS=("$@")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SHORTOPTS=""
+SHORTOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent,force"
+LONGOPTS+=",copy,wildcards,install,domains:,dns,ca,primary:,password:"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ARRAY="info install setup generate domains new revoke dh letsencrypt"
+ARRAY+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LIST=""
+LIST+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case "$1" in
+  --raw)
+    shift 1
+    export SHOW_RAW="true"
+    NC=""
+    RESET=""
+    BLACK=""
+    RED=""
+    GREEN=""
+    YELLOW=""
+    BLUE=""
+    PURPLE=""
+    CYAN=""
+    WHITE=""
+    ORANGE=""
+    LIGHTRED=""
+    BG_GREEN=""
+    BG_RED=""
+    ICON_INFO="[ info ]"
+    ICON_GOOD="[ ok ]"
+    ICON_WARN="[ warn ]"
+    ICON_ERROR="[ error ]"
+    ICON_QUESTION="[ ? ]"
+    printf_column() { tee | grep '^'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    ;;
+  --debug)
+    shift 1
+    set -xo pipefail
+    export SCRIPT_OPTS="--debug"
+    export _DEBUG="on"
+    __devnull() { tee || return 1; }
+    __devnull2() { eval "$@" |& tee -p || return 1; }
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
+    ;;
+  --options)
+    shift 1
+    printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' 4
+    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' 4
+    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
+    [ -z "$LIST" ] || __list_options "LIST Options" "${LIST}" ',' '' 4
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  --silent)
+    shift 1
+    GEN_SSL_SILENT="true"
+    ;;
+  --force)
+    shift 1
+    GEN_SSL_FORCE="true"
+    ;;
+  --dir)
+    CWD_IS_SET="TRUE"
+    GEN_SSL_CWD="$2"
+    [ -d "$GEN_SSL_CWD" ] || mkdir -p "$GEN_SSL_CWD" |& __devnull
+    shift 2
+    ;;
+  --copy)
+    __copy_templates
+    shift 1
+    exit
+    ;;
+  --wildcards)
+    shift 1
+    GEN_SSL_CREATE_WILDCARD="true"
+    ;;
+  --install)
+    shift 1
+    GEN_SSL_SYSTEM_INSTALL="true"
+    ;;
+  --dns)
+    shift 1
+    GEN_SSL_DNS="true"
+    ;;
+  --ca)
+    GEN_SSL_CA_NAME="$2"
+    shift 2
+    ;;
+  --domains)
+    GEN_SSL_DOMAINS+="$2 "
+    shift 2
+    ;;
+  --primary)
+    GEN_SSL_PRIMARY_DOMAIN="$2"
+    shift 2
+    ;;
+  --password)
+    GEN_SSL_PASSWD="$2"
+    [ -f "$GEN_SSL_PASSWD_FILE" ] && cp -Rf "$GEN_SSL_PASSWD_FILE" "$GEN_SSL_PASSWD_FILE.$$.bak"
+    echo "$GEN_SSL_PASSWD" >"$GEN_SSL_PASSWD_FILE"
+    shift 2
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get directory from args
+# set -- "$@"
+# for arg in "$@"; do
+# if [ -d "$arg" ]; then
+# GEN_SSL_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
+# elif [ -f "$arg" ]; then
+# GEN_SSL_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
+# else
+# SET_NEW_ARGS+=("$arg")
+# fi
+# done
+# set -- "${SET_NEW_ARGS[@]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set directory to first argument
+# [ -d "$1" ] && __is_an_option "$1" && GEN_SSL_CWD="$1" && shift 1 || GEN_SSL_CWD="${GEN_SSL_CWD:-$PWD}"
+GEN_SSL_CWD="$(realpath "${GEN_SSL_CWD:-$PWD}" 2>/dev/null)"
+# if [ -d "$GEN_SSL_CWD" ] && cd "$GEN_SSL_CWD"; then
+# if [ "$GEN_SSL_SILENT" != "true" ] && [ "$CWD_SILENCE" != "true" ]; then
+# printf_cyan "Setting working dir to $GEN_SSL_CWD"
+# fi
+# else
+# printf_exit "💔 $GEN_SSL_CWD does not exist 💔"
+# fi
+export GEN_SSL_CWD
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set actions based on variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+cmd_exists --error --ask bash || exit 3 # exit 3 if not found
+#am_i_online --error || exit 4           # exit 4 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+GEN_SSL_CA_UNIT="${GEN_SSL_CA_UNIT:-$GEN_SSL_CA_NAME}"
+GEN_SSL_CA_COMMON_NAME="${GEN_SSL_CA_COMMON_NAME:-$GEN_SSL_CA_NAME}"
+GEN_SSL_SYSTEM_CA_DIR="${GEN_SSL_SYSTEM_CA_DIR:-/etc/ssl/CA/$GEN_SSL_CA_NAME}"
+GEN_SSL_CA_DIR="${GEN_SSL_CA_DIR:-$GEN_SSL_CONFIG_DIR/ssl/CA/$GEN_SSL_CA_NAME}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+__run_init
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Export variables
+[ -n "$GEN_SSL_PASSWD" ] || GEN_SSL_PASSWD="$(<"$GEN_SSL_PASSWD_FILE")"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute commands
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+case "$1" in
+info)
+  cat <<EOF | printf_readline "$GEN_SSL_OUTPUT_COLOR_1"
+GEN_SSL_PASSWD: "$GEN_SSL_PASSWD"
+GEN_SSL_DH_DIR: "$GEN_SSL_DH_DIR"
+GEN_SSL_CA_DIR: "$GEN_SSL_CA_DIR"
+GEN_SSL_CA_NAME: "$GEN_SSL_CA_NAME"
+GEN_SSL_REVOKE_FILE: "$GEN_SSL_REVOKE_FILE"
+GEN_SSL_DH_LENGTH: "$GEN_SSL_DH_LENGTH"
+GEN_SSL_CA_COUNTRY: "$GEN_SSL_CA_COUNTRY"
+GEN_SSL_CA_STATE: "$GEN_SSL_CA_STATE"
+GEN_SSL_CA_CITY: "$GEN_SSL_CA_CITY"
+GEN_SSL_CA_COMPANY: "$GEN_SSL_CA_COMPANY"
+GEN_SSL_CA_UNIT: "$GEN_SSL_CA_UNIT"
+GEN_SSL_CA_COMMON_NAME: "$GEN_SSL_CA_COMMON_NAME"
+GEN_SSL_CA_DEFAULT_DOMAIN: "$GEN_SSL_CA_DEFAULT_DOMAIN"
+GEN_SSL_DEFAULT_DAYS: "$GEN_SSL_DEFAULT_DAYS"
+GEN_SSL_DEFAULT_RSA_SIZE: "$GEN_SSL_DEFAULT_RSA_SIZE"
+EOF
+  exit
+  ;;
+setup)
+  shift 1
+  [ -s "$GEN_SSL_CA_DIR/certs/ca.crt" ] && [ -s "$GEN_SSL_CA_DIR/private/ca.key" ] && printf_exit "A CA has already been setup" || __setup_ssl_cnf
+  printf_yellow "Password is: $GEN_SSL_PASSWD"
+  openssl req -new -x509 -extensions v3_ca -keyout "$GEN_SSL_CA_DIR/private/ca.key" -out "$GEN_SSL_CA_DIR/certs/ca.crt" -days $GEN_SSL_DEFAULT_DAYS -config "$GEN_SSL_CA_DIR/ca.cnf" -passin file:$GEN_SSL_PASSWD_FILE
+  openssl pkcs12 -export -out "$GEN_SSL_CA_DIR/p12/ca.p12" -in "$GEN_SSL_CA_DIR/certs/ca.crt" -inkey "$GEN_SSL_CA_DIR/private/ca.key" -passin file:$GEN_SSL_PASSWD_FILE
+  [ -s "$GEN_SSL_CA_DIR/certs/ca.crt" ] && [ -s "$GEN_SSL_CA_DIR/private/ca.key" ] && __install_to_system || false
+  exit $?
+  ;;
+
+generate)
+  shift 1
+  __generate_domains "$@"
+  __install_to_system
+  exit $?
+  ;;
+
+domains)
+  shift 1
+  __generate_domains "$@"
+  openssl req -new -sha256 -newkey rsa:$GEN_SSL_DEFAULT_RSA_SIZE -config $GEN_SSL_CA_DIR/domains.cnf -passin file:$GEN_SSL_PASSWD_FILE -nodes -keyout $GEN_SSL_CA_DIR/private/$DOMAIN.key -out $GEN_SSL_CA_DIR/requests/$DOMAIN.csr
+  openssl ca -policy policy_anything -keyfile $GEN_SSL_CA_DIR/private/ca.key -config $GEN_SSL_CA_DIR/domains.cnf -passin file:$GEN_SSL_PASSWD_FILE -out $GEN_SSL_CA_DIR/certs/$DOMAIN.crt -infiles $GEN_SSL_CA_DIR/requests/$DOMAIN.csr
+  __install_to_system
+  exit $?
+  ;;
+
+new)
+  shift 1
+  DOMAIN="$1"
+  [ -n "$DOMAIN" ] || { echo "Usage: $APPNAME new mydomain.com" && exit 1; }
+  openssl req -new -sha256 -newkey rsa:$GEN_SSL_DEFAULT_RSA_SIZE -config $GEN_SSL_CA_DIR/req.cnf -passin file:$GEN_SSL_PASSWD_FILE -nodes -keyout $GEN_SSL_CA_DIR/private/$DOMAIN.key -out $GEN_SSL_CA_DIR/requests/$DOMAIN.csr
+  openssl ca -policy policy_anything -keyfile $GEN_SSL_CA_DIR/private/ca.key -config $GEN_SSL_CA_DIR/req.cnf -passin file:$GEN_SSL_PASSWD_FILE -out $GEN_SSL_CA_DIR/certs/$DOMAIN.crt -infiles $GEN_SSL_CA_DIR/requests/$DOMAIN.csr
+  __install_to_system
+  exit $?
+  ;;
+
+revoke)
+  shift 1
+  [ -n "$1" ] && openssl ca -config "$GEN_SSL_CA_DIR/openssl.cnf" -revoke "$GEN_SSL_CA_DIR/certs/$1" -passin file:$GEN_SSL_PASSWD_FILE
+  openssl ca -config "$GEN_SSL_CA_DIR/openssl.cnf" -gencrl -keyfile $GEN_SSL_CA_DIR/private/ca.key -cert $GEN_SSL_CA_DIR/certs/ca.crt -out "$GEN_SSL_CA_DIR/crl/$GEN_SSL_REVOKE_FILE" -passin file:$GEN_SSL_PASSWD_FILE
+  __install_to_system
+  exit $?
+  ;;
+
+dh)
+  shift 1
+  [ "$GEN_SSL_SYSTEM_INSTALL" = "true" ] && GEN_SSL_DH_DIR="/etc/ssl/dhparam" && { __user_is_root || sudo="sudo"; }
+  $sudo mkdir -p "$GEN_SSL_DH_DIR"
+  for length in $GEN_SSL_DH_LENGTH; do
+    if openssl dhparam -out "$GEN_SSL_DH_DIR/dh_$length.tmp" "$length"; then
+      $sudo mv -f "$GEN_SSL_DH_DIR/dh_$length.tmp" "$GEN_SSL_DH_DIR/dh_$length.pem"
+      $sudo chmod 644 "$GEN_SSL_DH_DIR/dh_$length.pem"
+    fi
+  done
+  exit $?
+  ;;
+
+install)
+  shift 1
+  GEN_SSL_SYSTEM_INSTALL="true"
+  __install_to_system
+  exit $?
+  ;;
+
+letsencrypt)
+  shift 1
+  case "$1" in
+  add)
+    shift 1
+
+    exit $?
+    ;;
+  renew)
+    shift 1
+
+    exit $?
+    ;;
+  create)
+    shift 1
+
+    exit $?
+    ;;
+  test)
+    shift 1
+
+    exit $?
+    ;;
+  *)
+    printf_exit "Coming Soon!"
+    exit $?
+    ;;
+  esac
+  ;;
+*)
+  __help
+  ;;
+esac
+GEN_SSL_EXIT_STATUS=$?
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set exit code
+GEN_SSL_EXIT_STATUS="${GEN_SSL_EXIT_STATUS:-0}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${GEN_SSL_EXIT_STATUS:-0}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# ex: ts=2 sw=2 et filetype=sh

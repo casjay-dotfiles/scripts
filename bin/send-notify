@@ -1,0 +1,645 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version           :  202208141524-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  jason@casjaysdev.pro
+# @@License          :  WTFPL
+# @@ReadME           :  notify-send.sh --help
+# @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
+# @@Created          :  Sunday, Aug 14, 2022 15:24 EDT
+# @@File             :  notify-send.sh
+# @@Description      :  wrapper for notify-send
+# @@Changelog        :  New script
+# @@TODO             :  Better documentation
+# @@Other            :
+# @@Resource         :
+# @@Terminal App     :  no
+# @@sudo/root        :  no
+# @@Template         :  bash/system
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="$(basename -- "$0" 2>/dev/null)"
+VERSION="202208141524-git"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${RUN_USER:-$USER}"
+USER_HOME="${USER_HOME:-$HOME}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+SEND_NOTIFY_REQUIRE_SUDO="${SEND_NOTIFY_REQUIRE_SUDO:-no}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Reopen in a terminal
+#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set script title
+#CASJAYS_DEV_TILE_FORMAT="${USER}@${HOSTNAME}:${PWD//$HOME/\~} - $APPNAME"
+#CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}"
+#[ -z "$CASJAYSDEV_TITLE_SET" ] && printf '\033]2│;%s\033\\' "$CASJAYS_DEV_TILE_FORMAT" && CASJAYSDEV_TITLE_SET="$APPNAME"
+export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}" CASJAYSDEV_TITLE_SET
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initial debugging
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# pipes fail
+set -o pipefail
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import functions
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+  . "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  exit 1
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Options are: *_install
+# system user desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+user_install && __options "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Send all output to /dev/null
+__devnull() {
+  tee &>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# Send errors to /dev/null
+__devnull2() {
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# See if the executable exists
+__cmd_exists() {
+  exitCode=0
+  [ -n "$1" ] && local exitCode="" || return 0
+  for cmd in "$@"; do
+    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
+  done
+  [ $exitCode -eq 0 ] || exitCode=3
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for a valid internet connection
+__am_i_online() {
+  local exitCode=0
+  curl -q -LSsfI --max-time 2 --retry 1 "${1:-https://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# colorization
+if [ "$SHOW_RAW" = "true" ]; then
+  NC=""
+  RESET=""
+  BLACK=""
+  RED=""
+  GREEN=""
+  YELLOW=""
+  BLUE=""
+  PURPLE=""
+  CYAN=""
+  WHITE=""
+  ORANGE=""
+  LIGHTRED=""
+  BG_GREEN=""
+  BG_RED=""
+  ICON_INFO="[ info ]"
+  ICON_GOOD="[ ok ]"
+  ICON_WARN="[ warn ]"
+  ICON_ERROR="[ error ]"
+  ICON_QUESTION="[ ? ]"
+  printf_column() { tee | grep '^'; }
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional printf_ colors
+__printf_head() { printf_blue "$1"; }
+__printf_opts() { printf_purple "$1"; }
+__printf_line() { printf_cyan "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# output version
+__version() { printf_cyan "$VERSION"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# list options
+__list_options() {
+  printf_color "$1: " "$5"
+  echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g' | tr '\n' ' '
+  printf_newline
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create the config file
+__gen_config() {
+  local NOTIFY_CLIENT_NAME="$APPNAME"
+  if [ "$INIT_CONFIG" != "TRUE" ]; then
+    printf_blue "Generating the config file in"
+    printf_cyan "$SEND_NOTIFY_CONFIG_DIR/$SEND_NOTIFY_CONFIG_FILE"
+  fi
+  [ -d "$SEND_NOTIFY_CONFIG_DIR" ] || mkdir -p "$SEND_NOTIFY_CONFIG_DIR"
+  [ -d "$SEND_NOTIFY_CONFIG_BACKUP_DIR" ] || mkdir -p "$SEND_NOTIFY_CONFIG_BACKUP_DIR"
+  [ -f "$SEND_NOTIFY_CONFIG_DIR/$SEND_NOTIFY_CONFIG_FILE" ] &&
+    cp -Rf "$SEND_NOTIFY_CONFIG_DIR/$SEND_NOTIFY_CONFIG_FILE" "$SEND_NOTIFY_CONFIG_BACKUP_DIR/$SEND_NOTIFY_CONFIG_FILE.$$"
+  cat <<EOF >"$SEND_NOTIFY_CONFIG_DIR/$SEND_NOTIFY_CONFIG_FILE"
+# Settings for notify-send.sh
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+SEND_NOTIFY_OUTPUT_COLOR_1="${SEND_NOTIFY_OUTPUT_COLOR_1:-}"
+SEND_NOTIFY_OUTPUT_COLOR_2="${SEND_NOTIFY_OUTPUT_COLOR_2:-}"
+SEND_NOTIFY_OUTPUT_COLOR_GOOD="${SEND_NOTIFY_OUTPUT_COLOR_GOOD:-}"
+SEND_NOTIFY_OUTPUT_COLOR_ERROR="${SEND_NOTIFY_OUTPUT_COLOR_ERROR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+SEND_NOTIFY__ENABLED="${SEND_NOTIFY__ENABLED:-}"
+SEND_NOTIFY_GOOD_NAME="${SEND_NOTIFY_GOOD_NAME:-}"
+SEND_NOTIFY_ERROR_NAME="${SEND_NOTIFY_ERROR_NAME:-}"
+SEND_NOTIFY_GOOD_MESSAGE="${SEND_NOTIFY_GOOD_MESSAGE:-}"
+SEND_NOTIFY_ERROR_MESSAGE="${SEND_NOTIFY_ERROR_MESSAGE:-}"
+SEND_NOTIFY__CLIENT_NAME="${SEND_NOTIFY__CLIENT_NAME:-}"
+SEND_NOTIFY__CLIENT_ICON="${SEND_NOTIFY__CLIENT_ICON:-}"
+SEND_NOTIFY__CLIENT_URGENCY="${SEND_NOTIFY__CLIENT_URGENCY:-}"
+
+EOF
+  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
+  if [ -f "$SEND_NOTIFY_CONFIG_DIR/$SEND_NOTIFY_CONFIG_FILE" ]; then
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
+    . "$SEND_NOTIFY_CONFIG_DIR/$SEND_NOTIFY_CONFIG_FILE"
+    exitCode=0
+  else
+    printf_red "Failed to create the config file"
+    exitCode=1
+  fi
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Help function - Align to 50
+__help() {
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "notify-send.sh:  wrapper for notify-send - $VERSION"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Usage: notify-send.sh [options] [title] [message]"
+  __printf_line "* [title] [message]             - Send a notification"
+  __printf_line "--all [title] [message]         - Send a notification to all users"
+  __printf_line "--ask [title] [message]         - Ask if a notification client is installed"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Other Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--help                          - Shows this message"
+  __printf_line "--config                        - Generate user config file"
+  __printf_line "--version                       - Show script version"
+  __printf_line "--options                       - Shows all available options"
+  __printf_line "--debug                         - Enables script debugging"
+  __printf_line "--raw                           - Removes all formatting on output"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# check if arg is a builtin option
+__is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0; fi; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 1 || return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep -sh "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# # Get sudo password
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run sudo
+__sudorun() {
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo
+__can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User can run sudo
+__sudoif() {
+  __user_is_root && return 0
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run command as root
+requiresudo() {
+  if [ "$SEND_NOTIFY_REQUIRE_SUDO" = "yes" ] && [ -z "$SEND_NOTIFY_REQUIRE_SUDO_RUN" ]; then
+    export SEND_NOTIFY_REQUIRE_SUDO="no"
+    export SEND_NOTIFY_REQUIRE_SUDO_RUN="true"
+    __sudo "$@"
+    exit $?
+  else
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  CMD="${1:-echo}" && shift 1
+  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  [ "$(basename -- "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  if __sudoif; then
+    export PATH="$PATH"
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    exitCode=$?
+  else
+    printf '%s\n' "This requires root to run"
+    exitCode=1
+  fi
+  return ${exitCode:-1}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  exitCode=${exitCode:-0}
+  [ -f "$SEND_NOTIFY_TEMP_FILE" ] && rm -Rf "$SEND_NOTIFY_TEMP_FILE" &>/dev/null
+  #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD//$HOME/\~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined functions
+__notify_cmd() {
+  CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$SEND_NOTIFY__CLIENT_ICON}"
+  CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$SEND_NOTIFY__CLIENT_NAME}"
+  CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$SEND_NOTIFY__CLIENT_URGENCY}"
+  if [ "$CLIENT_NAME" = "$2" ]; then
+    CLIENT_NAME="notifications"
+  fi
+  notify-send --app-name="${CLIENT_NAME:-$2}" -u "$CLIENT_URGENCY" -i "$CLIENT_ICON" "${NOTIFY_CLIENT_NAME:-$2}" "$3"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__notify_send_user() {
+  [ -n "$NOTIFY_ASK" ] && exit 0
+  NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$CLIENT_ICON}"
+  NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$CLIENT_NAME}"
+  NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$CLIENT_URGENCY}"
+  CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$SEND_NOTIFY_CLIENT_ICON}"
+  CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$SEND_NOTIFY_CLIENT_NAME}"
+  CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$SEND_NOTIFY_CLIENT_URGENCY}"
+  [ -n "$CLIENT_URGENCY" ] || CLIENT_URGENCY="normal"
+  [ -n "$CLIENT_ICON" ] || CLIENT_ICON="com.github.timecraft.notifier"
+  if [ "$(uname -s)" = "Darwin" ]; then
+    osascript -e "display notification \"$2\" with title \"$1\"" || return
+  elif [ "$(uname -s)" = "Linux" ]; then
+    if cmd_exists notify-send.py; then
+      __notify_cmd "notify-send.py" "$1" "$2" 2>/dev/null
+    elif cmd_exists notify-send; then
+      __notify_cmd "notify-send" "$1" "$2" 2>/dev/null
+    else
+      if [ -n "$1" ]; then
+        echo "$*" >/dev/null
+      else
+        printf_exit 1 1 "There is no notification app installed: Install xfce4-notifyd notify-send, dunst, deadd" 1>&2
+      fi
+    fi
+  else
+    exit 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__notify_send_all() {
+  local title="$1"
+  local message="$2"
+  NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$CLIENT_ICON}"
+  NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$CLIENT_NAME}"
+  NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$CLIENT_URGENCY}"
+  export CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$SEND_NOTIFY_CLIENT_ICON}"
+  export CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$SEND_NOTIFY_CLIENT_NAME}"
+  export CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$SEND_NOTIFY_CLIENT_URGENCY}"
+  local cli_name="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+  XUSERS=($(who | grep -E "\(:[0-9](\.[0-9])*\)" | awk '{print $1$5}' | sort -u | grep '^' || echo ''))
+  if [ "$(uname -s)" = "Linux" ]; then
+    if [ -n "${XUSERS[*]}" ]; then
+      for XUSER in "${XUSERS[@]}"; do
+        NAME=("${XUSER//(:[0-9])/}")
+        DISPLAY="${NAME[1]/)/}"
+        DBUS_ADDRESS=unix:path="/run/user/$(id -u ${NAME[0]})/bus"
+        if [ -n "${NAME[*]}" ] && [ -n "$DISPLAY" ] && [ -n "$DBUS_ADDRESS" ]; then
+          export DISPLAY="${DISPLAY}" DBUS_SESSION_BUS_ADDRESS="${DBUS_ADDRESS}" PATH="${PATH}"
+          sudo -u "${NAME[0]}" $0 "$title" "$message"
+        fi
+        __send_wall "$title: $message"
+      done
+    else
+      sudo -u "$SUDO_USER" "$0" "$title" "$message"
+      __send_wall "$title: $message"
+    fi
+    NOTIFY_WALL=""
+  else
+    __notify_send_user "$title" "$message"
+    __send_wall "$title: $message"
+  fi
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__send_wall() {
+  [ "$NOTIFY_WALL" = "true" ] || return 1
+  __user_is_root || return 1
+  if __cmd_exists wall; then
+    echo "${1:-$title}: ${2:-$message}" | wall -n
+  else
+    printf_console "3" "${1:-$title}: ${2:-$message}" >/dev/fd/0
+  fi
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__ask() {
+  if __cmd_exists notify-send.py; then
+    return 0
+  elif __cmd_exists notify-send; then
+    return 0
+  elif __cmd_exists osascript; then
+    return 0
+  else
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined variables/import external variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application Folders
+SEND_NOTIFY_CONFIG_FILE="${SEND_NOTIFY_CONFIG_FILE:-settings.conf}"
+SEND_NOTIFY_CONFIG_DIR="${SEND_NOTIFY_CONFIG_DIR:-$HOME/.config/myscripts/notify-send.sh}"
+SEND_NOTIFY_CONFIG_BACKUP_DIR="${SEND_NOTIFY_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/notify-send.sh/backups}"
+SEND_NOTIFY_LOG_DIR="${SEND_NOTIFY_LOG_DIR:-$HOME/.local/log/notify-send.sh}"
+SEND_NOTIFY_TEMP_DIR="${SEND_NOTIFY_TEMP_DIR:-$HOME/.local/tmp/system_scripts/notify-send.sh}"
+SEND_NOTIFY_CACHE_DIR="${SEND_NOTIFY_CACHE_DIR:-$HOME/.cache/notify-send.sh}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+SEND_NOTIFY_OUTPUT_COLOR_1="${SEND_NOTIFY_OUTPUT_COLOR_1:-33}"
+SEND_NOTIFY_OUTPUT_COLOR_2="${SEND_NOTIFY_OUTPUT_COLOR_2:-5}"
+SEND_NOTIFY_OUTPUT_COLOR_GOOD="${SEND_NOTIFY_OUTPUT_COLOR_GOOD:-2}"
+SEND_NOTIFY_OUTPUT_COLOR_ERROR="${SEND_NOTIFY_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+SEND_NOTIFY__ENABLED="${SEND_NOTIFY__ENABLED:-yes}"
+SEND_NOTIFY_GOOD_NAME="${SEND_NOTIFY_GOOD_NAME:-}"
+SEND_NOTIFY_ERROR_NAME="${SEND_NOTIFY_ERROR_NAME:-}"
+SEND_NOTIFY_GOOD_MESSAGE="${SEND_NOTIFY_GOOD_MESSAGE:-}"
+SEND_NOTIFY_ERROR_MESSAGE="${SEND_NOTIFY_ERROR_MESSAGE:-}"
+SEND_NOTIFY__CLIENT_NAME="${SEND_NOTIFY__CLIENT_NAME:-$APPNAME}"
+SEND_NOTIFY__CLIENT_ICON="${SEND_NOTIFY__CLIENT_ICON:-notification-new}"
+SEND_NOTIFY__CLIENT_URGENCY="${SEND_NOTIFY__CLIENT_URGENCY:-normal}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional Variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$SEND_NOTIFY_CONFIG_DIR/$SEND_NOTIFY_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$SEND_NOTIFY_CONFIG_DIR/$SEND_NOTIFY_CONFIG_FILE" ] && . "$SEND_NOTIFY_CONFIG_DIR/$SEND_NOTIFY_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$SEND_NOTIFY_LOG_DIR" ] || mkdir -p "$SEND_NOTIFY_LOG_DIR" |& __devnull
+[ -d "$SEND_NOTIFY_TEMP_DIR" ] || mkdir -p "$SEND_NOTIFY_TEMP_DIR" |& __devnull
+[ -d "$SEND_NOTIFY_CACHE_DIR" ] || mkdir -p "$SEND_NOTIFY_CACHE_DIR" |& __devnull
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SEND_NOTIFY_TEMP_FILE="${SEND_NOTIFY_TEMP_FILE:-$(mktemp $SEND_NOTIFY_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap '__trap_exit' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+__notifications() {
+  __cmd_exists notifications || return
+  [ "$SEND_NOTIFY__ENABLED" = "yes" ] || return
+  [ "$SEND_NOTIFICATION" = "no" ] && return
+  (
+    export SCRIPT_OPTS="" _DEBUG=""
+    export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$SEND_NOTIFY_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$SEND_NOTIFY_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$SEND_NOTIFY__CLIENT_ICON}"
+    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$SEND_NOTIFY__CLIENT_NAME}"
+    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$SEND_NOTIFY__CLIENT_URGENCY}"
+    notifications "$@"
+  ) |& __devnull &
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set custom actions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Argument/Option settings
+SETARGS=("$@")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SHORTOPTS=""
+SHORTOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
+LONGOPTS+=",ask,all,wall"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ARRAY=""
+ARRAY+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LIST=""
+LIST+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case "$1" in
+  --raw)
+    shift 1
+    export SHOW_RAW="true"
+    NC=""
+    RESET=""
+    BLACK=""
+    RED=""
+    GREEN=""
+    YELLOW=""
+    BLUE=""
+    PURPLE=""
+    CYAN=""
+    WHITE=""
+    ORANGE=""
+    LIGHTRED=""
+    BG_GREEN=""
+    BG_RED=""
+    ICON_INFO="[ info ]"
+    ICON_GOOD="[ ok ]"
+    ICON_WARN="[ warn ]"
+    ICON_ERROR="[ error ]"
+    ICON_QUESTION="[ ? ]"
+    printf_column() { tee | grep '^'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    ;;
+  --debug)
+    shift 1
+    set -xo pipefail
+    export SCRIPT_OPTS="--debug"
+    export _DEBUG="on"
+    __devnull() { tee || return 1; }
+    __devnull2() { eval "$@" |& tee -p || return 1; }
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
+    ;;
+  --options)
+    shift 1
+    printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' 4
+    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' 4
+    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
+    [ -z "$LIST" ] || __list_options "LIST Options" "${LIST}" ',' '' 4
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  --silent)
+    shift 1
+    SEND_NOTIFY_SILENT="true"
+    ;;
+  --dir)
+    CWD_IS_SET="TRUE"
+    SEND_NOTIFY_CWD="$2"
+    [ -d "$SEND_NOTIFY_CWD" ] || mkdir -p "$SEND_NOTIFY_CWD" |& __devnull
+    shift 2
+    ;;
+  --ask)
+    shift 1
+    NOTIFY_ASK="true"
+    ;;
+  --all)
+    shift 1
+    NOTIFY_ALL="true"
+    ;;
+  --wall)
+    shift 1
+    NOTIFY_WALL="true"
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get directory from args
+# set -- "$@"
+# for arg in "$@"; do
+# if [ -d "$arg" ]; then
+# SEND_NOTIFY_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
+# elif [ -f "$arg" ]; then
+# SEND_NOTIFY_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
+# else
+# SET_NEW_ARGS+=("$arg")
+# fi
+# done
+# set -- "${SET_NEW_ARGS[@]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set directory to first argument
+# [ -d "$1" ] && __is_an_option "$1" && SEND_NOTIFY_CWD="$1" && shift 1 || SEND_NOTIFY_CWD="${SEND_NOTIFY_CWD:-$PWD}"
+SEND_NOTIFY_CWD="$(realpath "${SEND_NOTIFY_CWD:-$PWD}" 2>/dev/null)"
+# if [ -d "$SEND_NOTIFY_CWD" ] && cd "$SEND_NOTIFY_CWD"; then
+# if [ "$SEND_NOTIFY_SILENT" != "true" ] && [ "$CWD_SILENCE" != "true" ]; then
+# printf_cyan "Setting working dir to $SEND_NOTIFY_CWD"
+# fi
+# else
+# printf_exit "💔 $SEND_NOTIFY_CWD does not exist 💔"
+# fi
+export SEND_NOTIFY_CWD
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set actions based on variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+#cmd_exists --error --ask bash || exit 3 # exit 3 if not found
+#am_i_online --error || exit 4           # exit 4 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+{ [ -n "$DESKTOP_SESSION" ] || [ -n "$DISPLAY" ]; } && [ -z "$SSH_CONNECTION" ] || exit 0
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+if [ -p "/dev/sdtin" ]; then
+  name="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+  message="$(cat -)"
+elif [ $# -gt 2 ]; then
+  name="${NOTIFY_CLIENT_NAME:-$1}" && shift 1
+  message=("$@")
+elif [ $# -eq 2 ]; then
+  name="${NOTIFY_CLIENT_NAME:-$1}" && shift 1
+  message=("$@")
+elif [ $# -eq 1 ]; then
+  name="${NOTIFY_CLIENT_NAME:-$APPNAME}"
+  message=("$1")
+else
+  exit 1
+fi
+contents="$(printf '%b\n' "${message[@]}" | head -n200)"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute commands
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+if [ "$NOTIFY_ALL" = "true" ] || [ "$USER" = "root" ] || [ "$UID" = "0" ]; then
+  __notify_send_all "$name" "$contents"
+else
+  __notify_send_user "$name" "$contents"
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set exit code
+exitCode="${exitCode:-0}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-0}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# ex: ts=2 sw=2 et filetype=sh

@@ -1,0 +1,30 @@
+###################### dockermgr settings ######################
+dockermgr_install() {
+  user_install
+  SCRIPTS_PREFIX="dockermgr"
+  APPNAME="${APPNAME:-}"
+  REPO_BRANCH="${GIT_REPO_BRANCH:-main}"
+  REPO="${REPO:-$DOCKERMGRREPO/$APPNAME}"
+  INSTDIR="${SET_INSTDIR-${INSTDIR:-$HOME/.local/share/CasjaysDev/dockermgr/$APPNAME}}"
+  APPDIR="${SET_APPDIR:-${APPDIR:-/var/lib/srv/$USER/docker/$DOCKER_REGISTRY_USER_NAME/$DOCKER_REGISTRY_REPO_NAME/$DOCKER_HUB_IMAGE_TAG}}"
+  DATADIR="${SET_DATADIR:-${DATADIR:-/var/lib/srv/$USER/docker/$DOCKER_REGISTRY_USER_NAME/$DOCKER_REGISTRY_REPO_NAME/$DOCKER_HUB_IMAGE_TAG}}"
+  DOCKER_HUB_IMAGE_TAG="${DOCKER_HUB_IMAGE_TAG:-latest}"
+  DOCKER_REGISTRY_URL="${DOCKER_REGISTRY_URL:-docker.io}"
+  DOCKER_REGISTRY_REPO_NAME="${DOCKER_REGISTRY_REPO_NAME:-$APPNAME}"
+  DOCKER_REGISTRY_USER_NAME="${DOCKER_REGISTRY_USER_NAME:-casjaysdevdocker}"
+  REPORAW="${REPORAW:-$REPO/raw/$GIT_REPO_BRANCH}"
+  USRUPDATEDIR="$SHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"
+  SYSUPDATEDIR="$SYSSHARE/CasjaysDev/apps/$SCRIPTS_PREFIX"
+  user_is_root && SYSSHARE="$SYSUPDATEDIR/$APPNAME" || SYSSHARE="$USRUPDATEDIR/$APPNAME"
+  [ "$APPNAME" = "$SCRIPTS_PREFIX" ] && APPDIR="${APPDIR//$APPNAME\/$SCRIPTS_PREFIX/$APPNAME}"
+  if [ -f "$CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME" ]; then
+    APPVERSION="$(grep -shv '#' $CASJAYSDEVSAPPDIR/dotfiles/$SCRIPTS_PREFIX-$APPNAME)"
+  else
+    APPVERSION="$currentVersion"
+  fi
+  __mkd "$SRV_DIR"
+  __mkd "$USRUPDATEDIR"
+  user_is_root && __mkd "$SYSUPDATEDIR"
+  installtype="dockermgr_install"
+  #__main_installer_info
+}

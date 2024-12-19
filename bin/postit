@@ -1,0 +1,777 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version           :  202208142203-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  jason@casjaysdev.pro
+# @@License          :  WTFPL
+# @@ReadME           :  postit --help
+# @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
+# @@Created          :  Sunday, Aug 14, 2022 22:03 EDT
+# @@File             :  postit
+# @@Description      :  create/update blog post from terminal using github
+# @@Changelog        :  New script
+# @@TODO             :  Add ability to delete posts
+# @@Other            :
+# @@Resource         :
+# @@Terminal App     :  no
+# @@sudo/root        :  no
+# @@Template         :  bash/system
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="$(basename -- "$0" 2>/dev/null)"
+VERSION="202208142203-git"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${RUN_USER:-$USER}"
+USER_HOME="${USER_HOME:-$HOME}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+POSTIT_REQUIRE_SUDO="${POSTIT_REQUIRE_SUDO:-no}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Reopen in a terminal
+#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set script title
+#CASJAYS_DEV_TILE_FORMAT="${USER}@${HOSTNAME}:${PWD//$HOME/\~} - $APPNAME"
+#CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}"
+#[ -z "$CASJAYSDEV_TITLE_SET" ] && printf '\033]2│;%s\033\\' "$CASJAYS_DEV_TILE_FORMAT" && CASJAYSDEV_TITLE_SET="$APPNAME"
+export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}" CASJAYSDEV_TITLE_SET
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initial debugging
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# pipes fail
+set -o pipefail
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import functions
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+  . "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  exit 1
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Options are: *_install
+# system user desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+user_install && __options "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Send all output to /dev/null
+__devnull() {
+  tee &>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# Send errors to /dev/null
+__devnull2() {
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# See if the executable exists
+__cmd_exists() {
+  exitCode=0
+  [ -n "$1" ] && local exitCode="" || return 0
+  for cmd in "$@"; do
+    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
+  done
+  [ $exitCode -eq 0 ] || exitCode=3
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for a valid internet connection
+__am_i_online() {
+  local exitCode=0
+  curl -q -LSsfI --max-time 2 --retry 1 "${1:-https://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# colorization
+if [ "$SHOW_RAW" = "true" ]; then
+  NC=""
+  RESET=""
+  BLACK=""
+  RED=""
+  GREEN=""
+  YELLOW=""
+  BLUE=""
+  PURPLE=""
+  CYAN=""
+  WHITE=""
+  ORANGE=""
+  LIGHTRED=""
+  BG_GREEN=""
+  BG_RED=""
+  ICON_INFO="[ info ]"
+  ICON_GOOD="[ ok ]"
+  ICON_WARN="[ warn ]"
+  ICON_ERROR="[ error ]"
+  ICON_QUESTION="[ ? ]"
+  printf_column() { tee | grep '^'; }
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional printf_ colors
+__printf_head() { printf_blue "$1"; }
+__printf_opts() { printf_purple "$1"; }
+__printf_line() { printf_cyan "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# output version
+__version() { printf_cyan "$VERSION"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# list options
+__list_options() {
+  printf_color "$1: " "$5"
+  echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g' | tr '\n' ' '
+  printf_newline
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create the config file
+__gen_config() {
+  local NOTIFY_CLIENT_NAME="$APPNAME"
+  if [ "$INIT_CONFIG" != "TRUE" ]; then
+    printf_blue "Generating the config file in"
+    printf_cyan "$POSTIT_CONFIG_DIR/$POSTIT_CONFIG_FILE"
+  fi
+  [ -d "$POSTIT_CONFIG_DIR" ] || mkdir -p "$POSTIT_CONFIG_DIR"
+  [ -d "$POSTIT_CONFIG_BACKUP_DIR" ] || mkdir -p "$POSTIT_CONFIG_BACKUP_DIR"
+  [ -f "$POSTIT_CONFIG_DIR/$POSTIT_CONFIG_FILE" ] &&
+    cp -Rf "$POSTIT_CONFIG_DIR/$POSTIT_CONFIG_FILE" "$POSTIT_CONFIG_BACKUP_DIR/$POSTIT_CONFIG_FILE.$$"
+  cat <<EOF >"$POSTIT_CONFIG_DIR/$POSTIT_CONFIG_FILE"
+# Settings for postit
+POSTIT_AUTHOR_NAME="${POSTIT_AUTHOR_NAME:-}"
+POSTIT_AUTHOR_SITE="${POSTIT_AUTHOR_SITE:-}"
+POSTIT_TEMPLATE_FILE="${POSTIT_TEMPLATE_FILE:-}"
+POSTIT_GITHUB_AUTH_TOKEN="${POSTIT_GITHUB_AUTH_TOKEN:-}"
+POSTIT_DEFAULT_EDITOR="${POSTIT_DEFAULT_EDITOR:-}"
+POSTIT_BLOG_USER_NAME="$POSTIT_BLOG_USER_NAME"
+POSTIT_BLOG_REPO_NAME="$POSTIT_BLOG_REPO_NAME"
+POSTIT_BLOG_REPO_FULL="\$POSTIT_BLOG_USER_NAME/\$POSTIT_BLOG_REPO_NAME"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+POSTIT_OUTPUT_COLOR_1="${POSTIT_OUTPUT_COLOR_1:-}"
+POSTIT_OUTPUT_COLOR_2="${POSTIT_OUTPUT_COLOR_2:-}"
+POSTIT_OUTPUT_COLOR_GOOD="${POSTIT_OUTPUT_COLOR_GOOD:-}"
+POSTIT_OUTPUT_COLOR_ERROR="${POSTIT_OUTPUT_COLOR_ERROR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+POSTIT_NOTIFY_ENABLED="${POSTIT_NOTIFY_ENABLED:-}"
+POSTIT_GOOD_NAME="${POSTIT_GOOD_NAME:-}"
+POSTIT_ERROR_NAME="${POSTIT_ERROR_NAME:-}"
+POSTIT_GOOD_MESSAGE="${POSTIT_GOOD_MESSAGE:-}"
+POSTIT_ERROR_MESSAGE="${POSTIT_ERROR_MESSAGE:-}"
+POSTIT_NOTIFY_CLIENT_NAME="${POSTIT_NOTIFY_CLIENT_NAME:-}"
+POSTIT_NOTIFY_CLIENT_ICON="${POSTIT_NOTIFY_CLIENT_ICON:-}"
+POSTIT_NOTIFY_CLIENT_URGENCY="${POSTIT_NOTIFY_CLIENT_URGENCY:-}"
+
+EOF
+  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
+  if [ -f "$POSTIT_CONFIG_DIR/$POSTIT_CONFIG_FILE" ]; then
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
+    . "$POSTIT_CONFIG_DIR/$POSTIT_CONFIG_FILE"
+    exitCode=0
+  else
+    printf_red "Failed to create the config file"
+    exitCode=1
+  fi
+  return ${exitCode:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Help function - Align to 50
+__help() {
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "postit:  create/update blog post from terminal using github - $VERSION"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Usage: postit [options] [title] [repo] [dir]"
+  __printf_line "create [title] [repo] [dir]     - Crate a new post"
+  __printf_line "edit [title] [repo] [dir]       - Edit an existing post"
+  __printf_line "delete [title] [repo] [dir]     - Delete a post"
+  __printf_line "--save [name]                   - Load a config file"
+  __printf_line "--load [name]                   - Load a config file"
+  __printf_line "--dir                           - Sets the working directory"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Other Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--help                          - Shows this message"
+  __printf_line "--config                        - Generate user config file"
+  __printf_line "--version                       - Show script version"
+  __printf_line "--options                       - Shows all available options"
+  __printf_line "--debug                         - Enables script debugging"
+  __printf_line "--raw                           - Removes all formatting on output"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# check if arg is a builtin option
+__is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0; fi; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 1 || return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep -sh "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# # Get sudo password
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run sudo
+__sudorun() {
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo
+__can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User can run sudo
+__sudoif() {
+  __user_is_root && return 0
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run command as root
+requiresudo() {
+  if [ "$POSTIT_REQUIRE_SUDO" = "yes" ] && [ -z "$POSTIT_REQUIRE_SUDO_RUN" ]; then
+    export POSTIT_REQUIRE_SUDO="no"
+    export POSTIT_REQUIRE_SUDO_RUN="true"
+    __sudo "$@"
+    exit $?
+  else
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  CMD="${1:-echo}" && shift 1
+  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  [ "$(basename -- "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  if __sudoif; then
+    export PATH="$PATH"
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    exitCode=$?
+  else
+    printf '%s\n' "This requires root to run"
+    exitCode=1
+  fi
+  return ${exitCode:-1}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  exitCode=${exitCode:-0}
+  [ -f "$POSTIT_TEMP_FILE" ] && rm -Rf "$POSTIT_TEMP_FILE" &>/dev/null
+  #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD//$HOME/\~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined functions
+__template() {
+  title="${1:-$POSTIT_BLOG_TITLE}"
+  author="${POSTIT_AUTHOR_NAME:-$USER}"
+  site="$POSTIT_AUTHOR_SITE"
+  date="$(date +'%Y-%m-%d %H:%M')"
+  if [ -f "$POSTIT_CONFIG_DIR/$POSTIT_TEMPLATE_FILE" ]; then
+    cat <<EOF | tee -p "$2" &>/dev/null
+. $POSTIT_CONFIG_DIR/$POSTIT_TEMPLATE_FILE"
+EOF
+  else
+    cat <<EOF | tee -p "$2" &>/dev/null
+---
+layout: post
+title: ${POSTIT_BLOG_TITLE_TMPL:-$title}
+categories: blog
+tags: dev
+date: ${POSTIT_BLOG_DATE_TMPL:-$date}
+author: ${POSTIT_AUTHOR_NAME_TMPL:-$author}
+site: ${POSTIT_AUTHOR_SITE_TMPL:-$site}
+comments: true
+---
+
+# Head
+
+EOF
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__set_vars() {
+  POSTIT_BLOG_TITLE="${1:-$POSTIT_BLOG_TITLE}"
+  POSTIT_BLOG_REPO_FULL="${2:-$POSTIT_BLOG_REPO_FULL}"
+  POSTIT_BLOG_DIR_NAME="${3:-$POSTIT_BLOG_DIR_NAME}"
+  POSTIT_BLOG_FILE="$(date +'%Y-%m-%d')-${POSTIT_BLOG_TITLE}.md"
+  POSTIT_BLOG_FILENAME="${POSTIT_BLOG_FILE// /-}"
+  POSTIT_BLOG_API_URL="https://api.github.com/repos/$POSTIT_BLOG_REPO_FULL/contents/${POSTIT_BLOG_DIR_NAME:-_posts}/$POSTIT_BLOG_FILENAME"
+  POSTIT_BLOG_API_INFO="$(curl -q -LSs -H "Authorization: token $POSTIT_GITHUB_AUTH_TOKEN" "$POSTIT_BLOG_API_URL" 2>/dev/null | jq -r '{ name:.name,path:.path,sha:.sha,download_url:.download_url,content:.content,type:.type,encoding:.encoding,url:.url }' 2>/dev/null || echo "")"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__var_check() {
+  [ -n "${1:-$POSTIT_BLOG_TITLE}" ] || printf_exit "Please provide a title [usage: $APPNAME <title>]"
+  [ -n "${2:-$POSTIT_BLOG_REPO_FULL}" ] || printf_exit "Please provide a repo [usage: $APPNAME <title> <repo>]"
+  [ -n "${3:-$POSTIT_BLOG_DIR_NAME}" ] || printf_exit "Please provide a directory [usage: $APPNAME <title> <repo> <dir>]"
+  [ -n "$POSTIT_GITHUB_AUTH_TOKEN" ] || printf_exit "Please provide a github auth token POSTIT_GITHUB_AUTH_TOKEN"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__delete_post() {
+  printf_exit "Not yet implemented"
+  api_file="$(echo "$api_url" | jq -r '.download_url' 2>/dev/null)"
+  sha="$(echo "$api_url" | jq -r '.sha' 2>/dev/null | grep -v 'null')"
+  curl -q -LSsf -X DELETE \
+    -H "Accept: application/vnd.github.v3+json" \
+    -H "Authorization: token $POSTIT_GITHUB_AUTH_TOKEN" \
+    -H "Content-Type: application/octet-stream" \
+    "$POSTIT_BLOG_API_URL" -d '{"message":"🐜📓❇📓 Deleted blog post: '${POSTIT_BLOG_DIR_NAME:-_posts}/$POSTIT_BLOG_FILENAME' 📓❇📓🐜","sha":"'$sha'"}' &>"$POSTIT_LOG_DIR/$APPNAME.log"
+  cat "$POSTIT_LOG_DIR/$APPNAME.log"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__edit_post() {
+  local api_url="${1:-$POSTIT_BLOG_API_INFO}"
+  api_file="$(echo "$api_url" | jq -r '.download_url' 2>/dev/null)"
+  sha="$(echo "$api_url" | jq -r '.sha' 2>/dev/null | grep -v 'null')"
+  if [ -n "$sha" ]; then
+    curl -q -LSs "$api_file" -o "$POSTIT_TEMP_FILE" 2>/dev/null
+    __post_file "$sha"
+  else
+    __template "$POSTIT_BLOG_TITLE" "$POSTIT_TEMP_FILE" || printf_exit "Failed to create template"
+    __post_file
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__create_post() {
+  local POSTIT_BLOG_TITLE="${1:-$POSTIT_BLOG_TITLE}"
+  if [ ! -f "$POSTIT_TEMP_FILE.err" ]; then
+    if [ -z "$POSTIT_BLOG_API_INFO" ]; then
+      __template "$POSTIT_BLOG_TITLE" "$POSTIT_TEMP_FILE" || printf_exit "Failed to create template"
+      __post_file
+    else
+      __edit_post "$POSTIT_BLOG_API_INFO"
+    fi
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__post_file() {
+  local sha="${1:-$sha}"
+  if [ -f "$POSTIT_TEMP_FILE.err" ]; then
+    __mv_f "$POSTIT_TEMP_FILE.err" "$POSTIT_TEMP_FILE"
+  fi
+  $POSTIT_DEFAULT_EDITOR "$POSTIT_TEMP_FILE"
+  contents="$(base64 "$POSTIT_TEMP_FILE" | tr -d '\n\r')"
+  if [ -n "$contents" ]; then
+    curl -q -LSsf -X PUT \
+      -H "Accept: application/vnd.github.v3+json" \
+      -H "Authorization: token $POSTIT_GITHUB_AUTH_TOKEN" \
+      -H "Content-Type: application/octet-stream" \
+      "$POSTIT_BLOG_API_URL" -d '{"message":"🐜📓❇📓 blog post: '${POSTIT_BLOG_DIR_NAME:-_posts}/$POSTIT_BLOG_FILENAME' 📓❇📓🐜","content":"'$contents'","sha":"'$sha'"}' &>"$POSTIT_LOG_DIR/$APPNAME.log"
+    url="$(cat "$POSTIT_LOG_DIR/$APPNAME.log" | jq -r '.content.html_url' 2>/dev/null)"
+    if [ -n "$url" ] && [ "$url" != "null" ] && [ "$url" != "failed:" ]; then
+      if grep -shqiv "documentation_url" "$POSTIT_LOG_DIR/$APPNAME.log"; then
+        printf_blue "Success: $url"
+        exitCode=0
+        __rm_rf "${POSTIT_TEMP_FILE}.base64"
+      else
+        error_log="$(cat "$POSTIT_LOG_DIR/$APPNAME.log" | jq -r '.message' 2>/dev/null)"
+        printf_red "Something went wrong: $error_log"
+        __mv_f "$POSTIT_TEMP_FILE" "${POSTIT_TEMP_FILE}.err"
+        exitCode=1
+      fi
+    else
+      error_log="$(cat "$POSTIT_LOG_DIR/$APPNAME.log" | jq -r '.message' 2>/dev/null)"
+      printf_red "failed: ${error_log:-Unknown error has occurred}"
+      __mv_f "$POSTIT_TEMP_FILE" "${POSTIT_TEMP_FILE}.err"
+      exitCode=1
+    fi
+  else
+    error_log="$(cat "$POSTIT_LOG_DIR/$APPNAME.log" | jq -r '.message' 2>/dev/null)"
+    printf_red "Error: $error_log"
+    __mv_f "$POSTIT_TEMP_FILE" "${POSTIT_TEMP_FILE}.err"
+    exitCode=1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__initialize_postit_config() {
+  printf_blue "Initializing a new post config - ${1:-default}"
+  local filename="${1:-default}"
+  [ -f "$POSTIT_CONFIG_DIR/$filename.conf" ] && return
+  POSTIT_BLOG_REPO_FULL="${2:-$POSTIT_BLOG_REPO_FULL}"
+  POSTIT_BLOG_DIR_NAME="${3:-$POSTIT_BLOG_DIR_NAME}"
+  [ -n "$POSTIT_BLOG_DIR_NAME" ] || printf_read_input "4" "What is the path to the blog folder? [_posts]" "120" "POSTIT_BLOG_DIR_NAME"
+  [ -n "$POSTIT_BLOG_REPO_FULL" ] || printf_read_input "4" "What is the repository address? [username/repo]" "120" "POSTIT_BLOG_REPO_FULL"
+
+  if echo "$POSTIT_BLOG_REPO_FULL" | grep -q '/'; then
+    POSTIT_BLOG_USER_NAME="$(echo "$POSTIT_BLOG_REPO_FULL" | awk -F'/' '{print $1}' | grep '^' || echo '')"
+    POSTIT_BLOG_REPO_NAME="$(echo "$POSTIT_BLOG_REPO_FULL" | awk -F'/' '{print $2}' | grep '^' || echo '')"
+  else
+    printf_exit "Validation has failed: invalid repo, format is username/repo"
+  fi
+  [ -n "$POSTIT_BLOG_DIR_NAME" ] || printf_exit "Validation has failed: directory can not be empty"
+  [ -n "$POSTIT_BLOG_USER_NAME" ] && [ -n "$POSTIT_BLOG_REPO_NAME" ] || printf_exit "Validation has failed: repo can not be empty"
+  POSTIT_BLOG_REPO_FULL="$POSTIT_BLOG_USER_NAME/$POSTIT_BLOG_REPO_NAME"
+  POSTIT_CONF_NAME="${POSTIT_BLOG_REPO_FULL//\//_}"
+
+  cat <<EOF | tee -p "$POSTIT_CONFIG_DIR/$filename.conf" &>/dev/null
+# Post setting for $filename
+POSTIT_BLOG_USER_NAME="${POSTIT_BLOG_USER_NAME}"
+POSTIT_BLOG_REPO_NAME="${POSTIT_BLOG_REPO_NAME}"
+POSTIT_BLOG_DIR_NAME="${POSTIT_BLOG_DIR_NAME}"
+POSTIT_BLOG_REPO_FULL="${POSTIT_BLOG_REPO_FULL}"
+EOF
+  if [ -f "$POSTIT_CONFIG_DIR/$filename.conf" ]; then
+    printf_yellow "your config can be used by running $APPNAME --load $POSTIT_CONF_NAME"
+    if [ ! -f "$POSTIT_CONFIG_DIR/$POSTIT_CONF_NAME.conf" ]; then
+      ln -sf "$POSTIT_CONFIG_DIR/$filename.conf" "$POSTIT_CONFIG_DIR/$POSTIT_CONF_NAME.conf"
+    fi
+    . "$POSTIT_CONFIG_DIR/$filename.conf"
+    printf '\n\n\n'
+    __help
+    exit 0
+  else
+    exit 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined variables/import external variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application Folders
+POSTIT_CONFIG_FILE="${POSTIT_CONFIG_FILE:-settings.conf}"
+POSTIT_CONFIG_DIR="${POSTIT_CONFIG_DIR:-$HOME/.config/myscripts/postit}"
+POSTIT_CONFIG_BACKUP_DIR="${POSTIT_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/postit/backups}"
+POSTIT_LOG_DIR="${POSTIT_LOG_DIR:-$HOME/.local/log/postit}"
+POSTIT_TEMP_DIR="${POSTIT_TEMP_DIR:-$HOME/.local/tmp/system_scripts/postit}"
+POSTIT_CACHE_DIR="${POSTIT_CACHE_DIR:-$HOME/.cache/postit}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+POSTIT_OUTPUT_COLOR_1="${POSTIT_OUTPUT_COLOR_1:-33}"
+POSTIT_OUTPUT_COLOR_2="${POSTIT_OUTPUT_COLOR_2:-5}"
+POSTIT_OUTPUT_COLOR_GOOD="${POSTIT_OUTPUT_COLOR_GOOD:-2}"
+POSTIT_OUTPUT_COLOR_ERROR="${POSTIT_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+POSTIT_NOTIFY_ENABLED="${POSTIT_NOTIFY_ENABLED:-yes}"
+POSTIT_GOOD_NAME="${POSTIT_GOOD_NAME:-Great:}"
+POSTIT_ERROR_NAME="${POSTIT_ERROR_NAME:-Error:}"
+POSTIT_GOOD_MESSAGE="${POSTIT_GOOD_MESSAGE:-No errors reported}"
+POSTIT_ERROR_MESSAGE="${POSTIT_ERROR_MESSAGE:-Errors were reported}"
+POSTIT_NOTIFY_CLIENT_NAME="${POSTIT_NOTIFY_CLIENT_NAME:-$APPNAME}"
+POSTIT_NOTIFY_CLIENT_ICON="${POSTIT_NOTIFY_CLIENT_ICON:-notification-new}"
+POSTIT_NOTIFY_CLIENT_URGENCY="${POSTIT_NOTIFY_CLIENT_URGENCY:-normal}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional Variables
+POSTIT_AUTHOR_NAME="${POSTIT_AUTHOR_NAME:-$USER}"
+POSTIT_AUTHOR_SITE="${POSTIT_AUTHOR_SITE:-}"
+POSTIT_TEMPLATE_FILE="${POSTIT_TEMPLATE_FILE:-template.md}"
+POSTIT_GITHUB_AUTH_TOKEN="${POSTIT_GITHUB_AUTH_TOKEN:-$GITHUB_ACCESS_TOKEN}"
+POSTIT_DEFAULT_EDITOR="${POSTIT_DEFAULT_EDITOR:-$(builtin type -P nvim || builtin type -P nano || builtin type -P vim || builtin type -P geany)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$POSTIT_CONFIG_DIR/$POSTIT_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$POSTIT_CONFIG_DIR/$POSTIT_CONFIG_FILE" ] && . "$POSTIT_CONFIG_DIR/$POSTIT_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$POSTIT_LOG_DIR" ] || mkdir -p "$POSTIT_LOG_DIR" |& __devnull
+[ -d "$POSTIT_TEMP_DIR" ] || mkdir -p "$POSTIT_TEMP_DIR" |& __devnull
+[ -d "$POSTIT_CACHE_DIR" ] || mkdir -p "$POSTIT_CACHE_DIR" |& __devnull
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+POSTIT_TEMP_FILE="${POSTIT_TEMP_FILE:-$(mktemp $POSTIT_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap '__trap_exit' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+__notifications() {
+  __cmd_exists notifications || return
+  [ "$POSTIT_NOTIFY_ENABLED" = "yes" ] || return
+  [ "$SEND_NOTIFICATION" = "no" ] && return
+  (
+    export SCRIPT_OPTS="" _DEBUG=""
+    export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$POSTIT_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$POSTIT_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$POSTIT_NOTIFY_CLIENT_ICON}"
+    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$POSTIT_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$POSTIT_NOTIFY_CLIENT_URGENCY}"
+    notifications "$@"
+  ) |& __devnull &
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set custom actions
+[ -f "$POSTIT_CONFIG_DIR/default.conf" ] && . "$POSTIT_CONFIG_DIR/default.conf"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Argument/Option settings
+SETARGS=("$@")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SHORTOPTS=""
+SHORTOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
+LONGOPTS+=",load:,repo,user,save:,,template:"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ARRAY="create edit delete"
+ARRAY+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LIST=""
+LIST+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case "$1" in
+  --raw)
+    shift 1
+    export SHOW_RAW="true"
+    NC=""
+    RESET=""
+    BLACK=""
+    RED=""
+    GREEN=""
+    YELLOW=""
+    BLUE=""
+    PURPLE=""
+    CYAN=""
+    WHITE=""
+    ORANGE=""
+    LIGHTRED=""
+    BG_GREEN=""
+    BG_RED=""
+    ICON_INFO="[ info ]"
+    ICON_GOOD="[ ok ]"
+    ICON_WARN="[ warn ]"
+    ICON_ERROR="[ error ]"
+    ICON_QUESTION="[ ? ]"
+    printf_column() { tee | grep '^'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    ;;
+  --debug)
+    shift 1
+    set -xo pipefail
+    export SCRIPT_OPTS="--debug"
+    export _DEBUG="on"
+    __devnull() { tee || return 1; }
+    __devnull2() { eval "$@" |& tee -p || return 1; }
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
+    ;;
+  --options)
+    shift 1
+    printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' 4
+    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' 4
+    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
+    [ -z "$LIST" ] || __list_options "LIST Options" "${LIST}" ',' '' 4
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  --silent)
+    shift 1
+    POSTIT_SILENT="true"
+    ;;
+  --dir)
+    CWD_IS_SET="TRUE"
+    POSTIT_CWD="$2"
+    [ -d "$POSTIT_CWD" ] || mkdir -p "$POSTIT_CWD" |& __devnull
+    shift 2
+    ;;
+  --template)
+    POSTIT_BLOG_DATE_TMPL="\$date"
+    POSTIT_AUTHOR_SITE_TMPL="\$site"
+    POSTIT_BLOG_TITLE_TMPL="\$title"
+    POSTIT_AUTHOR_NAME_TMPL="\$author"
+    POSTIT_TEMPLATE_DIR="${POSTIT_TEMPLATE_DIR:-$POSTIT_CONFIG_DIR/templates}"
+    [ -d "$POSTIT_TEMPLATE_DIR" ] || mkdir -p "$POSTIT_TEMPLATE_DIR"
+    __template "$POSTIT_BLOG_TITLE_TMPL" "$POSTIT_TEMPLATE_DIR/$2" &>/dev/null
+    if [ -f "$POSTIT_TEMPLATE_DIR/$2" ]; then
+      printf_cyan "Setting template to $2"
+      POSTIT_TEMPLATE_FILE="${2:-$POSTIT_TEMPLATE_FILE}"
+    elif [ -f "$POSTIT_TEMPLATE_DIR/$POSTIT_TEMPLATE_FILE" ]; then
+      printf_cyan "Can not find $2: Setting template to default"
+      POSTIT_TEMPLATE_FILE="${POSTIT_TEMPLATE_FILE:-}"
+    else
+      printf_cyan "Can not find $2: Setting template to default"
+      POSTIT_TEMPLATE_FILE=""
+    fi
+    shift 2
+    ;;
+  --save)
+    __initialize_postit_config "$2"
+    shift 2
+    ;;
+  --load)
+    [ -f "$POSTIT_CONFIG_DIR/$2" ] && . "$POSTIT_CONFIG_DIR/$2"
+    shift 2
+    ;;
+  --repo)
+    if echo "$2" | grep -q '/'; then
+      POSTIT_BLOG_USER_NAME="$(echo "$2" | awk -F'/' '{print $1}' | grep '^' || echo '')"
+      POSTIT_BLOG_REPO_NAME="$(echo "$2" | awk -F'/' '{print $2}' | grep '^' || echo '')"
+      POSTIT_BLOG_REPO_FULL="$POSTIT_BLOG_USER_NAME/$POSTIT_BLOG_REPO_NAME"
+    else
+      POSTIT_BLOG_REPO_NAME="$2"
+    fi
+    shift 2
+    ;;
+  --user)
+    if echo "$2" | grep -q '/'; then
+      POSTIT_BLOG_USER_NAME="$(echo "$2" | awk -F'/' '{print $1}' | grep '^' || echo '')"
+      POSTIT_BLOG_REPO_NAME="$(echo "$2" | awk -F'/' '{print $2}' | grep '^' || echo '')"
+      POSTIT_BLOG_REPO_FULL="$POSTIT_BLOG_USER_NAME/$POSTIT_BLOG_REPO_NAME"
+    else
+      POSTIT_BLOG_USER_NAME="$2"
+    fi
+    shift 2
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get directory from args
+# set -- "$@"
+# for arg in "$@"; do
+# if [ -d "$arg" ]; then
+# POSTIT_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
+# elif [ -f "$arg" ]; then
+# POSTIT_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
+# else
+# SET_NEW_ARGS+=("$arg")
+# fi
+# done
+# set -- "${SET_NEW_ARGS[@]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set directory to first argument
+# [ -d "$1" ] && __is_an_option "$1" && POSTIT_CWD="$1" && shift 1 || POSTIT_CWD="${POSTIT_CWD:-$PWD}"
+POSTIT_CWD="$(realpath "${POSTIT_CWD:-$PWD}" 2>/dev/null)"
+# if [ -d "$POSTIT_CWD" ] && cd "$POSTIT_CWD"; then
+# if [ "$POSTIT_SILENT" != "true" ] && [ "$CWD_SILENCE" != "true" ]; then
+# printf_cyan "Setting working dir to $POSTIT_CWD"
+# fi
+# else
+# printf_exit "💔 $POSTIT_CWD does not exist 💔"
+# fi
+export POSTIT_CWD
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set actions based on variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+#cmd_exists --error --ask bash || exit 3 # exit 3 if not found
+#am_i_online --error || exit 4           # exit 4 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+if [ -n "$POSTIT_BLOG_USER_NAME" ] && [ -n "$POSTIT_BLOG_REPO_NAME" ]; then
+  POSTIT_BLOG_REPO_FULL="$POSTIT_BLOG_USER_NAME/$POSTIT_BLOG_REPO_NAME"
+elif [ -n "$POSTIT_BLOG_USER_NAME" ] && echo "$POSTIT_BLOG_USER_NAME" | grep -q '/'; then
+  POSTIT_BLOG_REPO_FULL="$POSTIT_BLOG_USER_NAME"
+elif [ -n "$POSTIT_BLOG_REPO_FULL" ]; then
+  POSTIT_BLOG_REPO_FULL="${POSTIT_BLOG_REPO_FULL:-}"
+fi
+POSTIT_CONF_NAME="${POSTIT_CONF_NAME:-$POSTIT_BLOG_REPO_FULL}"
+POSTIT_CONF_NAME="${POSTIT_BLOG_REPO_FULL//\//_}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+[ -f "$POSTIT_CONFIG_DIR/$POSTIT_CONF_NAME.conf" ] && . "$POSTIT_CONFIG_DIR/$POSTIT_CONF_NAME.conf"
+[ -n "$POSTIT_BLOG_REPO_FULL" ] || __initialize_postit_config || exit 1
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute commands
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+case "$1" in
+new | create)
+  shift 1
+  __set_vars "$@"
+  __var_check "$1" "$2" "$3"
+  __create_post "$1"
+  ;;
+
+edit)
+  shift 1
+  __set_vars "$@"
+  __var_check "$1" "$2" "$3"
+  __edit_post "$POSTIT_BLOG_API_INFO"
+  ;;
+
+delete)
+  shift 1
+  __set_vars "$@"
+  __var_check "$1" "$2" "$3"
+  __delete_post "$1"
+  ;;
+
+*)
+  __set_vars "$@"
+  __var_check "$1" "$2" "$3"
+  __create_post "$1"
+  ;;
+esac
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set exit code
+exitCode="${exitCode:-0}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${exitCode:-0}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# ex: ts=2 sw=2 et filetype=sh

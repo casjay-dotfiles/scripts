@@ -1,0 +1,1002 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version           :  202411011656-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  jason@casjaysdev.pro
+# @@License          :  WTFPL
+# @@ReadME           :  composemgr --help
+# @@Copyright        :  Copyright: (c) 2024 Jason Hempstead, Casjays Developments
+# @@Created          :  Friday, Nov 01, 2024 16:56 EDT
+# @@File             :  composemgr
+# @@Description      :
+# @@Changelog        :  New script
+# @@TODO             :  Better documentation
+# @@Other            :
+# @@Resource         :
+# @@Terminal App     :  no
+# @@sudo/root        :  no
+# @@Template         :  bash/system
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="$(basename -- "$0" 2>/dev/null)"
+VERSION="202411011656-git"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${RUN_USER:-$USER}"
+USER_HOME="${USER_HOME:-$HOME}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+COMPOSEMGR_REQUIRE_SUDO="${COMPOSEMGR_REQUIRE_SUDO:-no}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Reopen in a terminal
+#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set script title
+#CASJAYS_DEV_TILE_FORMAT="${USER}@${HOSTNAME}:${PWD//$HOME/\~} - $APPNAME"
+#CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}"
+#[ -z "$CASJAYSDEV_TITLE_SET" ] && printf '\033]2│;%s\033\\' "$CASJAYS_DEV_TILE_FORMAT" && CASJAYSDEV_TITLE_SET="$APPNAME"
+export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}" CASJAYSDEV_TITLE_SET
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initial debugging
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# pipes fail
+set -o pipefail
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import functions
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+  . "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  exit 1
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Options are: *_install
+# system user desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+user_install && __options "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Send all output to /dev/null
+__devnull() {
+  tee &>/dev/null && COMPOSEMGR_EXIT_STATUS=0 || COMPOSEMGR_EXIT_STATUS=1
+  return ${COMPOSEMGR_EXIT_STATUS:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# Send errors to /dev/null
+__devnull2() {
+  [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+  eval $cmd "$*" 2>/dev/null && COMPOSEMGR_EXIT_STATUS=0 || COMPOSEMGR_EXIT_STATUS=1
+  return ${COMPOSEMGR_EXIT_STATUS:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# See if the executable exists
+__cmd_exists() {
+  COMPOSEMGR_EXIT_STATUS=0
+  [ -n "$1" ] && local COMPOSEMGR_EXIT_STATUS="" || return 0
+  for cmd in "$@"; do
+    builtin command -v "$cmd" &>/dev/null && COMPOSEMGR_EXIT_STATUS+=$(($COMPOSEMGR_EXIT_STATUS + 0)) || COMPOSEMGR_EXIT_STATUS+=$(($COMPOSEMGR_EXIT_STATUS + 1))
+  done
+  [ $COMPOSEMGR_EXIT_STATUS -eq 0 ] || COMPOSEMGR_EXIT_STATUS=3
+  return ${COMPOSEMGR_EXIT_STATUS:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for a valid internet connection
+__am_i_online() {
+  local COMPOSEMGR_EXIT_STATUS=0
+  curl -q -LSsfI --max-time 1 --retry 0 "${1:-https://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || COMPOSEMGR_EXIT_STATUS=4
+  return ${COMPOSEMGR_EXIT_STATUS:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# colorization
+if [ "$SHOW_RAW" = "true" ]; then
+  NC=""
+  RESET=""
+  BLACK=""
+  RED=""
+  GREEN=""
+  YELLOW=""
+  BLUE=""
+  PURPLE=""
+  CYAN=""
+  WHITE=""
+  ORANGE=""
+  LIGHTRED=""
+  BG_GREEN=""
+  BG_RED=""
+  ICON_INFO="[ info ]"
+  ICON_GOOD="[ ok ]"
+  ICON_WARN="[ warn ]"
+  ICON_ERROR="[ error ]"
+  ICON_QUESTION="[ ? ]"
+  printf_column() { tee | grep '^'; }
+  printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+  printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional printf_ colors
+__printf_head() { printf_blue "$1"; }
+__printf_opts() { printf_purple "$1"; }
+__printf_line() { printf_cyan "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# output version
+__version() { printf_cyan "$VERSION"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# list options
+__list_options() {
+  printf_color "$1: " "$5"
+  echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g' | tr '\n' ' '
+  printf_newline
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create the config file
+__gen_config() {
+  local NOTIFY_CLIENT_NAME="$APPNAME"
+  if [ "$INIT_CONFIG" != "TRUE" ]; then
+    printf_blue "Generating the config file in"
+    printf_cyan "$COMPOSEMGR_CONFIG_DIR/$COMPOSEMGR_CONFIG_FILE"
+  fi
+  [ -d "$COMPOSEMGR_CONFIG_DIR" ] || mkdir -p "$COMPOSEMGR_CONFIG_DIR"
+  [ -d "$COMPOSEMGR_CONFIG_BACKUP_DIR" ] || mkdir -p "$COMPOSEMGR_CONFIG_BACKUP_DIR"
+  [ -f "$COMPOSEMGR_CONFIG_DIR/$COMPOSEMGR_CONFIG_FILE" ] &&
+    cp -Rf "$COMPOSEMGR_CONFIG_DIR/$COMPOSEMGR_CONFIG_FILE" "$COMPOSEMGR_CONFIG_BACKUP_DIR/$COMPOSEMGR_CONFIG_FILE.$$"
+  cat <<EOF >"$COMPOSEMGR_CONFIG_DIR/$COMPOSEMGR_CONFIG_FILE"
+# Settings for composemgr
+COMPOSE_ENV_FILES="${COMPOSE_ENV_FILES:-}"
+COMPOSEMGR_BASE_DIR="${COMPOSEMGR_BASE_DIR:-}"
+COMPOSEMGR_GIT_ORG_URL="${COMPOSEMGR_GIT_ORG_URL:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+COMPOSEMGR_OUTPUT_COLOR_1="${COMPOSEMGR_OUTPUT_COLOR_1:-}"
+COMPOSEMGR_OUTPUT_COLOR_2="${COMPOSEMGR_OUTPUT_COLOR_2:-}"
+COMPOSEMGR_OUTPUT_COLOR_GOOD="${COMPOSEMGR_OUTPUT_COLOR_GOOD:-}"
+COMPOSEMGR_OUTPUT_COLOR_ERROR="${COMPOSEMGR_OUTPUT_COLOR_ERROR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+COMPOSEMGR_SYSTEM_NOTIFY_ENABLED="${COMPOSEMGR_SYSTEM_NOTIFY_ENABLED:-}"
+COMPOSEMGR_GOOD_NAME="${COMPOSEMGR_GOOD_NAME:-}"
+COMPOSEMGR_ERROR_NAME="${COMPOSEMGR_ERROR_NAME:-}"
+COMPOSEMGR_GOOD_MESSAGE="${COMPOSEMGR_GOOD_MESSAGE:-}"
+COMPOSEMGR_ERROR_MESSAGE="${COMPOSEMGR_ERROR_MESSAGE:-}"
+COMPOSEMGR_NOTIFY_CLIENT_NAME="${COMPOSEMGR_NOTIFY_CLIENT_NAME:-}"
+COMPOSEMGR_NOTIFY_CLIENT_ICON="${COMPOSEMGR_NOTIFY_CLIENT_ICON:-}"
+COMPOSEMGR_NOTIFY_CLIENT_URGENCY="${COMPOSEMGR_NOTIFY_CLIENT_URGENCY:-}"
+
+EOF
+  if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
+  if [ -f "$COMPOSEMGR_CONFIG_DIR/$COMPOSEMGR_CONFIG_FILE" ]; then
+    [ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
+    . "$COMPOSEMGR_CONFIG_DIR/$COMPOSEMGR_CONFIG_FILE"
+    COMPOSEMGR_EXIT_STATUS=0
+  else
+    printf_red "Failed to create the config file"
+    COMPOSEMGR_EXIT_STATUS=1
+  fi
+  __update_env_file &>/dev/null
+  return ${COMPOSEMGR_EXIT_STATUS:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Help function - Align to 50
+__help() {
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "composemgr:  - $VERSION"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Usage: composemgr [options] [commands]"
+  __printf_line "install   - "
+  __printf_line "remove    - "
+  __printf_line "restart   - "
+  __printf_line "up        - "
+  __printf_line "down      - "
+  __printf_line "ps        - "
+  __printf_line "logs      - "
+  __printf_line ""
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Other Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--help                          - Shows this message"
+  __printf_line "--config                        - Generate user config file"
+  __printf_line "--version                       - Show script version"
+  __printf_line "--options                       - Shows all available options"
+  __printf_line "--debug                         - Enables script debugging"
+  __printf_line "--raw                           - Removes all formatting on output"
+  __printf_line "--no                            - No options"
+  __printf_line "--yes                           - Yes options"
+  __printf_line ""
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__grep() { grep "$@" 2>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# check if arg is a builtin option
+__is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0; fi; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 1 || return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep -sh "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# # Get sudo password
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run sudo
+__sudorun() {
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo
+__can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User can run sudo
+__sudoif() {
+  __user_is_root && return 0
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run command as root
+requiresudo() {
+  if [ "$COMPOSEMGR_REQUIRE_SUDO" = "yes" ] && [ -z "$COMPOSEMGR_REQUIRE_SUDO_RUN" ]; then
+    export COMPOSEMGR_REQUIRE_SUDO="no"
+    export COMPOSEMGR_REQUIRE_SUDO_RUN="true"
+    __sudo "$@"
+    exit $?
+  else
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  CMD="${1:-echo}" && shift 1
+  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  [ "$(basename -- "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  if __sudoif; then
+    export PATH="$PATH"
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    COMPOSEMGR_EXIT_STATUS=$?
+  else
+    printf '%s\n' "This requires root to run"
+    COMPOSEMGR_EXIT_STATUS=1
+  fi
+  return ${COMPOSEMGR_EXIT_STATUS:-0}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__how_long_did_it_take() {
+  local retprev=$?
+  local retval=${1:-$retprev}
+  __cmd_exists bc || return $retval
+  [ -n "$COMPOSEMGR_START_TIMER" ] || return 0
+  local stop_time="$(date +%s.%N)"
+  local dt=$(echo "$stop_time - $COMPOSEMGR_START_TIMER" | bc)
+  local dd=$(echo "$dt/86400" | bc)
+  local dt2=$(echo "$dt-86400*$dd" | bc)
+  local dh=$(echo "$dt2/3600" | bc)
+  local dt3=$(echo "$dt2-3600*$dh" | bc)
+  local dm=$(echo "$dt3/60" | bc)
+  local ds=$(echo "$dt3-60*$dm" | bc)
+  printf_purple "$(LC_NUMERIC=C printf "Total runtime: %d Days, %02d Hours, %02d Minutes, %02.4f Seconds\n" $dd $dh $dm $ds)"
+  return $retval
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit() {
+  COMPOSEMGR_EXIT_STATUS=${COMPOSEMGR_EXIT_STATUS:-0}
+  [ -f "$COMPOSEMGR_TEMP_FILE" ] && rm -Rf "$COMPOSEMGR_TEMP_FILE" &>/dev/null
+  #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD//$HOME/\~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $COMPOSEMGR_EXIT_STATUS
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Create a --no-* options function
+__options_function_no() {
+  local options="${1//=*/}"
+  local argument="${1//*=/}"
+  case "$options" in
+  *) echo "${argument:-No argument provided}" && shift ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Create a --yes-* options function
+__options_function_yes() {
+  local options="${1//=*/}"
+  local argument="${1//*=/}"
+  case "$options" in
+  *) echo "${argument:-No argument provided}" && shift ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup notification function
+__notifications() {
+  __cmd_exists notifications || return
+  [ "$COMPOSEMGR_SYSTEM_NOTIFY_ENABLED" = "yes" ] || return
+  [ "$SEND_NOTIFICATION" = "no" ] && return
+  (
+    export SCRIPT_OPTS="" _DEBUG=""
+    export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$COMPOSEMGR_GOOD_MESSAGE}"
+    export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$COMPOSEMGR_ERROR_MESSAGE}"
+    export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$COMPOSEMGR_NOTIFY_CLIENT_ICON}"
+    export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$COMPOSEMGR_NOTIFY_CLIENT_NAME}"
+    export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$COMPOSEMGR_NOTIFY_CLIENT_URGENCY}"
+    notifications "$@"
+  ) |& __devnull &
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__notify_remote() {
+  local cmd="$(echo "$COMPOSEMGR_REMOTE_NOTIFY_COMMAND" | awk -F ' ' '{print $1}')"
+  if [ "$COMPOSEMGR_REMOTE_NOTIFY_ENABLED" = "yes" ]; then
+    if [ -n "$(command -v "$cmd")" ]; then
+      eval $COMPOSEMGR_REMOTE_NOTIFY_COMMAND "$@"
+    fi
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup trap to remove temp file
+trap '__trap_exit' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined functions
+__curl() { \curl "$@" 2>/dev/null || return 1; }
+__retrieve_compose() { __curl -q -LSsf "$1" -o 'compose.yml' 2>/dev/null || return 1; }
+__get_image_name() { grep -sR 'image: ' "$COMPOSEMGR_CWD" | sed "s|.*image: ||g;s|\"||g;s|'||g;s|:.*||g"; }
+__project_name() { grep -svE '^$|#' "$COMPOSEMGR_CWD"/*compose.yml | head -n1 | grep 'name:' | sed 's|name: ||g' || __basename "${1:-$COMPOSEMGR_CWD}"; }
+__get_project_dir() { grep -R -- '-.*/' *.yml | sed "s|.*- ||g;s|'||g;s|\"||g;s|:.*||g" | grep -v '=' | grep '^/var/lib/srv' | grep -v '^$' | tr '\n' ','; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__cd() {
+  local dir="$(__basename "$1")"
+  [ -d "$COMPOSEMGR_BASE_DIR/$dir" ] || mkdir -p "$COMPOSEMGR_BASE_DIR/$dir"
+  \cd "$COMPOSEMGR_BASE_DIR/$dir" && pushd "$PWD" >/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__update_env_file() {
+  local file="${1:-$COMPOSEMGR_CONFIG_DIR/compose.env}"
+  local directory="$(dirname "$file")"
+  if [ -d "$directory/.git" ]; then
+    grep -qs '.env$' "$directory/.gitignore" || printf '%s\n%s\n' '# ignore dotenv files' '.env' >>"$directory/.gitignore"
+  fi
+  if [ -f "$file" ]; then
+    . "$file"
+    \rm -Rf "$file"
+  fi
+
+  cat <<EOF >"$file"
+# Create a random secret
+# openssl rand -hex 32
+
+# create a random password
+# head -n50 '/dev/random' | tr -dc 'a-zA-Z0-9[!@]' | tr -d '[:space:]\042\047\134' | fold -w 32 | head -n 1
+
+# create a hashed password
+# head -n128 /dev/urandom|tr -dc 'A-Za-z0-9' | head -c 32|openssl passwd -1 -salt $(openssl rand -base64 6) --stdin
+
+# Docker Compose Global env
+export TZ="${TZ:-}"
+export BASE_DOMAIN_NAME="${BASE_DOMAIN_NAME:-}"
+export BASE_HOST_NAME="${BASE_HOST_NAME:-}"
+#
+export REDIS_URL="${REDIS_URL:-}"
+export VALKEY_URL="${VALKEY_URL:-}"
+export COUCHDB_URL="${COUCHDB_URL:-}"
+export MARIADB_URL="${MARIADB_URL:-}"
+export MONGODB_URL="${MONGODB_URL:-}"
+export MSSQLDB_URL="${MSSQLDB_URL:-}"
+export SUPABASE_URL="${SUPABASE_URL:-}"
+export COUCHBASE_URL="${COUCHBASE_URL:-}"
+export POSTGRESQL_URL="${POSTGRESQL_URL:-}"
+export POCKETBASE_URL="${POCKETBASE_URL:-}"
+#
+export DB_CREATE_DATABASE_NAME="${DB_CREATE_DATABASE_NAME:-}"
+#
+export DB_ADMIN_NAME="${DB_ADMIN_NAME:-}"
+export DB_ADMIN_PASS="${DB_ADMIN_PASS:-}"
+#
+export DB_USER_NAME="${DB_USER_NAME:-}"
+export DB_USER_PASS="${DB_USER_PASS:-}"
+#
+export APP_ORG_NAME="${APP_ORG_NAME:-}"
+#
+export APP_RUN_AS="${APP_RUN_AS:-}"
+#
+export APP_ADMIN_USER="${APP_ADMIN_USER:-}"
+export APP_ADMIN_PASS="${APP_ADMIN_PASS:-}"
+#
+export APP_USER_NAME="${APP_USER_NAME:-}"
+export APP_USER_PASS="${APP_USER_PASS:-}"
+#
+export APP_JWT_TOKEN="${APP_JWT_TOKEN:-}"
+#
+export APP_TEMP_PASS="${APP_TEMP_PASS:-}"
+#
+export APP_API_TOKEN="${APP_API_TOKEN:-}"
+#
+export APP_SECRET_KEY="${APP_SECRET_KEY:-}"
+export APP_SECRET_TOKEN_16="${APP_SECRET_TOKEN_16:-}"
+export APP_SECRET_TOKEN_32="${APP_SECRET_TOKEN_32:-}"
+export APP_SECRET_TOKEN_64="${APP_SECRET_TOKEN_64:-}"
+#
+export BACKUPS_PW=${BACKUPS_PW:-}
+#
+export RPC_SECRET="${RPC_SECRET:-}"
+export ENCRYPTION_KEY="${ENCRYPTION_KEY:-}"
+#
+export SECURE_SECRET="${SECURE_SECRET:-}"
+export K256_PRIVATE_KEY="${K256_PRIVATE_KEY:-}"
+#
+export EMAIL_SERVER_PORT="${EMAIL_SERVER_PORT:-}"
+export EMAIL_SERVER_TIMEOUT="${EMAIL_SERVER_TIMEOUT:-}"
+export EMAIL_SERVER_HOST="${EMAIL_SERVER_HOST:-}"
+export EMAIL_SERVER_FROM_ORG="${EMAIL_SERVER_FROM_ORG:-$APP_ORG_NAME}"
+export EMAIL_SERVER_MAIL_FROM="${EMAIL_SERVER_MAIL_FROM:-}"
+export EMAIL_SERVER_LOGIN_NAME="${EMAIL_SERVER_LOGIN_NAME:-}"
+export EMAIL_SERVER_LOGIN_PASS="${EMAIL_SERVER_LOGIN_PASS:-}"
+#
+export RFC2136_NAMESERVER="${RFC2136_NAMESERVER:-}"
+export RFC2136_TSIG_ALGORITHM="${RFC2136_TSIG_ALGORITHM:-}"
+export RFC2136_TSIG_KEY="${RFC2136_TSIG_KEY:-certbot.}"
+export RFC2136_PROPAGATION_TIMEOUT="${RFC2136_PROPAGATION_TIMEOUT:-90}"
+export RFC2136_TSIG_SECRET="${RFC2136_TSIG_SECRET:-}"
+
+EOF
+  if [ -f "$file" ]; then
+    printf_green "$file has been updated/created"
+    if [ -f ".env" ]; then . ".env"; fi
+  else
+    printf_yellow "Failed to create $file"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_data_dir() {
+  images=$(__get_image_name)
+  for image in $images; do
+    repo="$(echo "$image" | awk -F'/' '{print $NF}')"
+    org="$(echo "$image" | awk -F'/' '{print $(NF-1)}')"
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__is_docker_compose() {
+  if [ -f "docker-compose.yml" ] || [ -f "docker-compose.yaml" ] || [ -f "compose.yml" ] || [ -f "compose.yaml" ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_docker_compose() {
+  local dir="$1"
+  [ -n "$dir" ] && __cd "$dir" || printf_exit "Please provide a project name"
+  if [ -f "docker-compose.yml" ]; then
+    COMPOSEMGR_FILE="docker-compose.yml"
+  elif [ -f "docker-compose.yaml" ]; then
+    COMPOSEMGR_FILE="docker-compose.yaml"
+  elif [ -f "compose.yml" ]; then
+    COMPOSEMGR_FILE="compose.yml"
+  elif [ -f "compose.yaml" ]; then
+    COMPOSEMGR_FILE="compose.yaml"
+  fi
+  [ -n "$COMPOSEMGR_FILE" ] || return 3
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__init_dir() {
+  local exitCode=0
+  local repo_name="$1"
+  local workDir="$COMPOSEMGR_BASE_DIR/$repo_name"
+  printf_green "Testing repo: $COMPOSEMGR_GIT_ORG_URL/$repo_name"
+  __curl -q -LSsfI "$COMPOSEMGR_GIT_ORG_RAW/$repo_name/refs/heads/main/docker-compose.yml" -o /dev/null >/dev/null 2>&1 || exitCode=1
+  if [ $exitCode -eq 0 ]; then
+    [ -d "$workDir" ] || mkdir -p "$workDir"
+    if \cd "$workDir"; then
+      return 0
+    else
+      return 1
+    fi
+  else
+    printf_red "Testing of the repo has failed: Make sure it exists and is public"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__install_files() {
+  local exitCode=0
+  local repo_name="$1"
+  __is_docker_compose || edit_compose_file="yes"
+  if __init_dir "$repo_name"; then
+    __cd "$repo_name" && __curl -q -LSsf "$COMPOSEMGR_GIT_ORG_RAW/$repo_name/refs/heads/main/docker-compose.yml" -o "compose.yml" && __compose_up "$1"
+    exitCode=$?
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__remove_files() {
+  local exitCode=0
+  pname="$(__project_name "$1")"
+  directories="$(eval echo $(__get_project_dir))"
+  files="$(ls -A "$COMPOSEMGR_CWD" | grep -v 'compose.yml')"
+  printf_cyan "Running docker compose down for $pname"
+  if __compose_down; then
+    docker image prune -f >/dev/null 2>&1
+    if [ -n "$files" ]; then for file in $files; do [ -e "$file" ] && \rm -Rf "$file"; done; fi
+    if [ -n "$directories" ]; then for dir in ${directories//,/ }; do [ -e "$dir" ] && \rm -Rf "${dir:?}"/*; done; fi
+  fi
+  exitCode=$?
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__compose_up() {
+  local exitCode=0
+  pname="$(__project_name "$1")"
+  [ -f "$PWD/.env" ] || dotenvFile="no"
+  if __is_docker_compose; then
+    printf_cyan "Running docker compose up for $pname"
+    [ -f ".env" ] && . ".env" && . ".env"
+    __update_env_file "$PWD/.env" >/dev/null
+    if [ "$dotenvFile" = "no" ]; then
+      printf_read_question "2" "Would you like to customize the .env file? [y/N]" "1" "choice" "-s"
+      if printf_answer_yes "$choice"; then
+        "$EDITOR" "$PWD/.env"
+        wait $!
+      fi
+    fi
+    if [ "$edit_compose_file" = "yes" ]; then
+      printf_read_question "2" "Would you like to edit the the compose.yml file? [y/N]" "1" "compose" "-s"
+      if printf_answer_yes "$compose"; then
+        "$EDITOR" "$PWD/compose.yml"
+        wait $!
+      fi
+    fi
+    docker compose up -d --remove-orphans --force-recreate
+    exitCode=$?
+  else
+    printf_red "Can not file a valid compose file in $COMPOSEMGR_CWD" >&2
+    exitCode=1
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__compose_down() {
+  local exitCode=0
+  if __is_docker_compose; then
+    docker compose down --remove-orphans
+    exitCode=$?
+  else
+    printf_red "Can not file a valid compose file in $COMPOSEMGR_CWD" >&2
+    exitCode=1
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__compose_logs() {
+  local exitCode=0
+  if __is_docker_compose; then
+    docker compose logs -f
+    exitCode=$?
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__compose_edit() {
+  if __get_docker_compose "$1"; then
+    eval $EDITOR "$COMPOSEMGR_FILE"
+  else
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User defined variables/import external variables
+COMPOSEMGR_START_TIMER="${COMPOSEMGR_START_TIMER:-$(date +%s.%N)}"
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Default exit code
+COMPOSEMGR_EXIT_STATUS=0
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Application Folders
+COMPOSEMGR_CONFIG_DIR="${COMPOSEMGR_CONFIG_DIR:-$HOME/.config/myscripts/composemgr}"
+COMPOSEMGR_CONFIG_BACKUP_DIR="${COMPOSEMGR_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/composemgr/backups}"
+COMPOSEMGR_LOG_DIR="${COMPOSEMGR_LOG_DIR:-$HOME/.local/log/composemgr}"
+COMPOSEMGR_RUN_DIR="${COMPOSEMGR_RUN_DIR:-$HOME/.local/run/system_scripts/$COMPOSEMGR_SCRIPTS_PREFIX}"
+COMPOSEMGR_TEMP_DIR="${COMPOSEMGR_TEMP_DIR:-$HOME/.local/tmp/system_scripts/composemgr}"
+COMPOSEMGR_CACHE_DIR="${COMPOSEMGR_CACHE_DIR:-$HOME/.cache/composemgr}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# File settings
+COMPOSEMGR_CONFIG_FILE="${COMPOSEMGR_CONFIG_FILE:-settings.conf}"
+COMPOSEMGR_LOG_ERROR_FILE="${COMPOSEMGR_LOG_ERROR_FILE:-$COMPOSEMGR_LOG_DIR/error.log}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color Settings
+COMPOSEMGR_OUTPUT_COLOR_1="${COMPOSEMGR_OUTPUT_COLOR_1:-33}"
+COMPOSEMGR_OUTPUT_COLOR_2="${COMPOSEMGR_OUTPUT_COLOR_2:-5}"
+COMPOSEMGR_OUTPUT_COLOR_GOOD="${COMPOSEMGR_OUTPUT_COLOR_GOOD:-2}"
+COMPOSEMGR_OUTPUT_COLOR_ERROR="${COMPOSEMGR_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Notification Settings
+COMPOSEMGR_REMOTE_NOTIFY_ENABLED="${COMPOSEMGR_REMOTE_NOTIFY_ENABLED:-yes}"
+COMPOSEMGR_REMOTE_NOTIFY_COMMAND="${COMPOSEMGR_REMOTE_NOTIFY_COMMAND:-web-notify telegram}"
+# System
+COMPOSEMGR_SYSTEM_NOTIFY_ENABLED="${COMPOSEMGR_SYSTEM_NOTIFY_ENABLED:-yes}"
+COMPOSEMGR_GOOD_NAME="${COMPOSEMGR_GOOD_NAME:-Great:}"
+COMPOSEMGR_ERROR_NAME="${COMPOSEMGR_ERROR_NAME:-Error:}"
+COMPOSEMGR_GOOD_MESSAGE="${COMPOSEMGR_GOOD_MESSAGE:-No errors reported}"
+COMPOSEMGR_ERROR_MESSAGE="${COMPOSEMGR_ERROR_MESSAGE:-Errors were reported}"
+COMPOSEMGR_NOTIFY_CLIENT_NAME="${COMPOSEMGR_NOTIFY_CLIENT_NAME:-$APPNAME}"
+COMPOSEMGR_NOTIFY_CLIENT_ICON="${COMPOSEMGR_NOTIFY_CLIENT_ICON:-notification-new}"
+COMPOSEMGR_NOTIFY_CLIENT_URGENCY="${COMPOSEMGR_NOTIFY_CLIENT_URGENCY:-normal}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Additional Variables
+COMPOSEMGR_BASE_DIR="${COMPOSEMGR_BASE_DIR:-$COMPOSEMGR_CONFIG_DIR/docker}"
+COMPOSEMGR_GIT_ORG_URL="${COMPOSEMGR_GIT_ORG_URL:-https://github.com/composemgr}"
+COMPOSEMGR_GIT_ORG_RAW="${COMPOSEMGR_GIT_ORG_RAW:-https://raw.githubusercontent.com/composemgr}"
+COMPOSE_ENV_FILES="${COMPOSE_ENV_FILES:-$COMPOSEMGR_CONFIG_DIR/compose.env}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+TZ="${TZ:-America/New_York}"
+BASE_DOMAIN_NAME="${BASE_DOMAIN_NAME:-$(hostname -d 2>/dev/null | grep '^' || echo "$BASE_HOST_NAME")}"
+BASE_HOST_NAME="${BASE_HOST_NAME:-$HOSTNAME}"
+REDIS_URL="${REDIS_URL:-redis}"
+VALKEY_URL="${VALKEY_URL:-valkey}"
+COUCHDB_URL="${COUCHDB_URL:-couchdb}"
+MARIADB_URL="${MARIADB_URL:-mariadb}"
+MONGODB_URL="${MONGODB_URL:-mongodb}"
+MSSQLDB_URL="${MSSQLDB_URL:-mssqldb}"
+SUPABASE_URL="${SUPABASE_URL:-supabasedb}"
+COUCHBASE_URL="${COUCHBASE_URL:-couchbasedb}"
+POSTGRESQL_URL="${POSTGRESQL_URL:-postgresqldb}"
+POCKETBASE_URL="${POCKETBASE_URL:-pocketbasedb}"
+DB_ADMIN_NAME="${DB_ADMIN_NAME:-db_admin}"
+DB_ADMIN_PASS="${DB_ADMIN_PASS:-$(head -n128 '/dev/urandom' | tr -dc 'a-zA-Z0-9' | tr -d '[:space:]\042\047\134' | fold -w "32" | head -n 1)}"
+DB_USER_NAME="${DB_USER_NAME:-$USER}"
+DB_USER_PASS="${DB_USER_PASS:-$(head -n128 '/dev/urandom' | tr -dc 'a-zA-Z0-9' | tr -d '[:space:]\042\047\134' | fold -w "24" | head -n 1)}"
+APP_ORG_NAME="${APP_ORG_NAME:-CasjaysDev}"
+APP_USER_NAME="${APP_USER_NAME:-$USER}"
+APP_USER_PASS="${APP_USER_PASS:-$(head -n128 '/dev/urandom' | tr -dc 'a-zA-Z0-9' | tr -d '[:space:]\042\047\134' | fold -w "16" | head -n 1)}"
+APP_ADMIN_USER="${APP_ADMIN_USER:-admin_${USER}}"
+APP_ADMIN_PASS="${APP_ADMIN_PASS:-$(head -n128 '/dev/urandom' | tr -dc 'a-zA-Z0-9' | tr -d '[:space:]\042\047\134' | fold -w "24" | head -n 1)}"
+APP_JWT_TOKEN="${APP_JWT_TOKEN:-$(openssl rand -base64 32)}"
+APP_TEMP_PASS="${APP_TEMP_PASS:-$(head -n128 '/dev/urandom' | tr -dc 'a-zA-Z0-9' | tr -d '[:space:]\042\047\134' | fold -w "32" | head -n 1)}"
+APP_API_TOKEN="${APP_API_TOKEN:-$(head -n128 '/dev/urandom' | tr -dc 'a-zA-Z0-9' | tr -d '[:space:]\042\047\134' | fold -w "64" | head -n 1)}"
+APP_SECRET_KEY="${APP_SECRET_KEY:-$(head -n128 '/dev/urandom' | tr -dc 'a-zA-Z0-9' | tr -d '[:space:]\042\047\134' | fold -w "16" | head -n 1)}"
+APP_SECRET_TOKEN_16="${APP_SECRET_TOKEN_16:-$(openssl rand -hex 16)}"
+APP_SECRET_TOKEN_32="${APP_SECRET_TOKEN_32:-$(openssl rand -hex 32)}"
+APP_SECRET_TOKEN_64="${APP_SECRET_TOKEN_64:-$(openssl rand -hex 64)}"
+RPC_SECRET="${RPC_SECRET:-$(openssl rand -hex 32)}"
+BACKUPS_PW="${BACKUPS_PW:-$(openssl rand -hex 32)}"
+ENCRYPTION_KEY="${ENCRYPTION_KEY:-$(openssl rand -hex 32)}"
+SECURE_SECRET="${SECURE_SECRET:-$(openssl rand --hex 16)}"
+K256_PRIVATE_KEY="${K256_PRIVATE_KEY:-$(openssl ecparam --name secp256k1 --genkey --noout --outform DER | tail --bytes=+8 | head --bytes=32 | xxd --plain --cols 32)}"
+EMAIL_SERVER_PORT="${EMAIL_SERVER_PORT:-25}"
+EMAIL_SERVER_TIMEOUT="${EMAIL_SERVER_TIMEOUT:-10}"
+EMAIL_SERVER_HOST="${EMAIL_SERVER_HOST:-172.17.0.1}"
+EMAIL_SERVER_FROM_ORG="${EMAIL_SERVER_FROM_ORG:-}"
+EMAIL_SERVER_MAIL_FROM="${EMAIL_SERVER_MAIL_FROM:-no-reply@\$BASE_HOST_NAME}"
+EMAIL_SERVER_LOGIN_NAME="${EMAIL_SERVER_LOGIN_NAME:-}"
+EMAIL_SERVER_LOGIN_PASS="${EMAIL_SERVER_LOGIN_PASS:-}"
+RFC2136_NAMESERVER="${RFC2136_NAMESERVER:-}"
+RFC2136_TSIG_ALGORITHM="${RFC2136_TSIG_ALGORITHM:-}"
+RFC2136_TSIG_KEY="${RFC2136_TSIG_KEY:-certbot.}"
+RFC2136_PROPAGATION_TIMEOUT="${RFC2136_PROPAGATION_TIMEOUT:-90}"
+RFC2136_TSIG_SECRET="${RFC2136_TSIG_SECRET:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generate config files
+[ -f "$COMPOSEMGR_CONFIG_DIR/$COMPOSEMGR_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$COMPOSEMGR_CONFIG_DIR/$COMPOSEMGR_CONFIG_FILE" ] && . "$COMPOSEMGR_CONFIG_DIR/$COMPOSEMGR_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Ensure Directories exist
+[ -d "$COMPOSEMGR_RUN_DIR" ] || mkdir -p "$COMPOSEMGR_RUN_DIR" |& __devnull
+[ -d "$COMPOSEMGR_LOG_DIR" ] || mkdir -p "$COMPOSEMGR_LOG_DIR" |& __devnull
+[ -d "$COMPOSEMGR_TEMP_DIR" ] || mkdir -p "$COMPOSEMGR_TEMP_DIR" |& __devnull
+[ -d "$COMPOSEMGR_CACHE_DIR" ] || mkdir -p "$COMPOSEMGR_CACHE_DIR" |& __devnull
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+COMPOSEMGR_TEMP_FILE="${COMPOSEMGR_TEMP_FILE:-$(mktemp $COMPOSEMGR_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set custom actions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Argument/Option settings
+SETARGS=("$@")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+SHORTOPTS=""
+SHORTOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+GET_OPTIONS_NO="no-*"
+GET_OPTIONS_YES="yes-*"
+LONGOPTS="completions:,config,reset-config,debug,dir:,help,options,raw,version,silent,force"
+LONGOPTS+=",project:,env"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ARRAY="install,remove,up,down,restart,ps,logs,network,cat,init,new,edit,show,get,env"
+ARRAY+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LIST="acme,affine,aria2,authentik,blinko,bluesky,borg,budibase,bytestash,caprover,clipcascade,code-server,coder,couchbase,couchdb,"
+LIST+="dockge,freeipa,garage,gitlab,guacamole,i2p,irc,it-tools,jenkins,jitsi,kestra,keycloak,kooboo,lenpaste,linkwarden,mariadb,mastadon,"
+LIST+="matrix,mattermost,memcached,meshcentral,microbin,minio,mongodb,mqtt,mssql,nextcloud,nexterm,nginx,nginx-proxy-manager,ntfy,ollama,"
+LIST+="onedev,openfire,passed,pihole,pingvin,pocketbase,portainer,postgres,postiz,rabbitmq,redis,registry,rocketchat,rustdesk,searxng,stikked,"
+LIST+="supabase,technitium,,tor,traefix,trilium,tududi,umbrel,uptimekuma,valkey,vaultwarden,wireguard,yacht,zammad,zitadel"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS,$GET_OPTIONS_YES,$GET_OPTIONS_NO" -n "$APPNAME" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case "$1" in
+  --raw)
+    shift 1
+    export SHOW_RAW="true"
+    NC=""
+    RESET=""
+    BLACK=""
+    RED=""
+    GREEN=""
+    YELLOW=""
+    BLUE=""
+    PURPLE=""
+    CYAN=""
+    WHITE=""
+    ORANGE=""
+    LIGHTRED=""
+    BG_GREEN=""
+    BG_RED=""
+    ICON_INFO="[ info ]"
+    ICON_GOOD="[ ok ]"
+    ICON_WARN="[ warn ]"
+    ICON_ERROR="[ error ]"
+    ICON_QUESTION="[ ? ]"
+    printf_column() { tee | grep '^'; }
+    printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+    ;;
+  --debug)
+    shift 1
+    set -xo pipefail
+    export SCRIPT_OPTS="--debug"
+    export _DEBUG="on"
+    __devnull() { tee || return 1; }
+    __devnull2() { eval "$@" |& tee -p || return 1; }
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    elif [ "$2" = "list" ]; then
+      printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
+    ;;
+  --options)
+    shift 1
+    printf_blue "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' 4
+    [ -z "$LONGOPTS" ] || __list_options "Long Options" "--${LONGOPTS}" ',' '--' 4
+    [ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
+    [ -z "$LIST" ] || __list_options "LIST Options" "${LIST}" ',' '' 4
+    exit $?
+    ;;
+  --version)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --help)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  --reset-config)
+    shift 1
+    [ -f "$COMPOSEMGR_CONFIG_DIR/$COMPOSEMGR_CONFIG_FILE" ] && rm -Rf "${COMPOSEMGR_CONFIG_DIR:?}/$COMPOSEMGR_CONFIG_FILE"
+    __gen_config
+    exit $?
+    ;;
+  --silent)
+    shift 1
+    COMPOSEMGR_SILENT="true"
+    ;;
+  --force)
+    shift 1
+    export FORCE_INSTALL="true"
+    COMPOSEMGR_FORCE_INSTALL="true"
+    ;;
+  --dir)
+    CWD_IS_SET="true"
+    COMPOSEMGR_CWD="$2"
+    [ -d "$COMPOSEMGR_CWD" ] || mkdir -p "$COMPOSEMGR_CWD" |& __devnull
+    shift 2
+    ;;
+  --no-*)
+    __options_function_no "$@"
+    shift 1
+    ;;
+  --yes-*)
+    __options_function_yes "$@"
+    shift 1
+    ;;
+  --project)
+    CWD_IS_SET="true"
+    COMPOSEMGR_CWD="$COMPOSEMGR_BASE_DIR/$2"
+    [ -d "$COMPOSEMGR_CWD" ] || mkdir -p "$COMPOSEMGR_CWD" |& __devnull
+    shift 2
+    ;;
+  --env)
+    shift 1
+    __update_env_file
+    exit $?
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get directory from args
+# set -- "$@"
+# for arg in "$@"; do
+# if [ -d "$arg" ]; then
+# COMPOSEMGR_CWD="$arg" && shift 1 && SET_NEW_ARGS=("$@") && break
+# elif [ -f "$arg" ]; then
+# COMPOSEMGR_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=("$@") && break
+# else
+# SET_NEW_ARGS+=("$arg")
+# fi
+# done
+# set -- "${SET_NEW_ARGS[@]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set directory to first argument
+[ -d "$1" ] && __is_an_option "$1" && COMPOSEMGR_CWD="$1" && shift 1 || COMPOSEMGR_CWD="${COMPOSEMGR_CWD:-$PWD}"
+COMPOSEMGR_CWD="$(realpath "${COMPOSEMGR_CWD:-$PWD}" 2>/dev/null)"
+# if [ -d "$COMPOSEMGR_CWD" ] && cd "$COMPOSEMGR_CWD"; then
+# if [ "$COMPOSEMGR_SILENT" != "true" ] && [ "$CWD_SILENCE" != "true" ]; then
+# printf_cyan "Setting working dir to $COMPOSEMGR_CWD"
+# fi
+# else
+# printf_exit "💔 $COMPOSEMGR_CWD does not exist 💔"
+# fi
+export COMPOSEMGR_CWD
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set actions based on variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required applications/Network check
+#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+cmd_exists --error --ask bash || exit 3 # exit 3 if not found
+#am_i_online --error || exit 4           # exit 4 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# APP Variables overrides
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Actions based on env
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Export variables
+export COMPOSE_ENV_FILES="${COMPOSE_ENV_FILES:-$COMPOSEMGR_CONFIG_DIR/compose.env}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute functions
+[ "$CWD_IS_SET" = "true" ] && __cd "$COMPOSEMGR_CWD"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute commands
+__update_env_file >/dev/null
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# begin main app
+case "$1" in
+init)
+  shift 1
+  __gen_config
+  __update_env_file
+  exit
+  ;;
+env)
+  shift 1
+  [ -f "$COMPOSEMGR_CWD/.env" ] && . "$COMPOSEMGR_CWD/.env" 2>/dev/null
+  __update_env_file "$COMPOSEMGR_CWD/.env"
+  exit $?
+  ;;
+get)
+  shift 1
+  __retrieve_compose "$1"
+  exit $?
+  ;;
+install)
+  shift 1
+  for install in "$@"; do
+    __install_files "$install"
+    COMPOSEMGR_EXIT_STATUS=$?
+  done
+  exit $COMPOSEMGR_EXIT_STATUS
+  ;;
+remove)
+  shift 1
+  __remove_files
+  COMPOSEMGR_EXIT_STATUS=$?
+  ;;
+up)
+  shift 1
+  __compose_up
+  COMPOSEMGR_EXIT_STATUS=$?
+  ;;
+down)
+  shift 1
+  __compose_down
+  COMPOSEMGR_EXIT_STATUS=$?
+  ;;
+logs)
+  shift 1
+  __compose_logs "$1"
+  ;;
+ps)
+  shift 1
+  docker compose ps -a
+  ;;
+network)
+  shift 1
+  docker network "${@:-ls}"
+  ;;
+cat)
+  shift 1
+  for yml in "$COMPOSEMGR_CWD"/*.yml; do
+    cat "$yml"
+  done
+  ;;
+new)
+  shift 1
+  __cd "$1" && touch 'compose.yml' && __compose_edit "$1"
+  exit $?
+  ;;
+
+edit)
+  shift 1
+  __compose_edit "$1"
+  exit $?
+  ;;
+show)
+  shift 1
+  if __get_docker_compose "$1"; then
+    cat "$COMPOSEMGR_FILE"
+    exit $?
+  else
+    exit 1
+  fi
+  ;;
+*)
+  docker compose "${@:-ps}"
+  ;;
+esac
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set exit code
+COMPOSEMGR_EXIT_STATUS="${COMPOSEMGR_EXIT_STATUS:-0}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# lets exit with code
+exit ${COMPOSEMGR_EXIT_STATUS:-0}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# ex: ts=2 sw=2 et filetype=sh

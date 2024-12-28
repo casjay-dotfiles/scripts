@@ -144,59 +144,50 @@ __certbot() {
   local options="$1"
   local statusCode=0
   local domain_list=""
-  local certbot_key_opts=""
-  local ADD_CERTBOT_DOMAINS=""
-  local CERTBOT_DOMAINS="${CERTBOT_DOMAINS:-$HOSTNAME}"
-  local CERT_BOT_MAIL="${CERT_BOT_MAIL:-ssl-admin@$CERTBOT_DOMAINS}"
-  local certbot_key_opts="--key-path $SSL_KEY --fullchain-path $SSL_CERT"
+  local CERT_BOT_MAIL="${CERT_BOT_MAIL:-ssl-admin@$HOSTNAME}"
   mkdir -p "/config/letsencrypt"
   __symlink "/etc/letsencrypt" "/config/letsencrypt"
-  is_renewal="$(find /etc/letsencrypt/renewal -type -f 2>/dev/null || false)"
-  [ -f "/config/env/ssl.sh" ] && . "/config/env/ssl.sh"
-  [ -f "/config/certbot/env.sh" ] && . "/config/certbot/env.sh"
-  [ -n "$SSL_KEY" ] && { mkdir -p "$(dirname "$SSL_KEY")" || true; } || { echo "The variable $SSL_KEY is not set" >&2 && return 1; }
-  [ -n "$SSL_CERT" ] && { mkdir -p "$(dirname "$SSL_CERT")" || true; } || { echo "The variable $SSL_CERT is not set" >&2 && return 1; }
-  domain_list="$CERTBOT_DOMAINS www.$CERTBOT_DOMAINS mail.$CERTBOT_DOMAINS"
-  domain_list="$(echo "$domain_list" | tr ' ' '\n' | sort -u | tr '\n' ' ')"
-  [ "$CERT_BOT_ENABLED" = "true" ] || { export CERT_BOT_ENABLED="" && return 10; }
-  [ -n "$CERT_BOT_MAIL" ] || { echo "The variable CERT_BOT_MAIL is not set" >&2 && return 1; }
-  [ -n "$CERTBOT_DOMAINS" ] || { echo "The variable CERTBOT_DOMAINS is not set" >&2 && return 1; }
-  for domain in $$CERTBOT_DOMAINS; do
-    [ -n "$domain" ] && ADD_CERTBOT_DOMAINS+="-d $domain "
-  done
-  [ -n "$is_renewal" ] && options="renew" ADD_CERTBOT_DOMAINS="" || options="certonly"
-  certbot_key_opts="$certbot_key_opts $ADD_CERTBOT_DOMAINS"
   if [ -f "/config/certbot/setup.sh" ]; then
     eval "/config/certbot/setup.sh"
     statusCode=$?
   elif [ -f "/etc/named/certbot.sh" ]; then
     eval "/etc/named/certbot.sh"
     statusCode=$?
-  elif [ -f "/config/certbot/dns.conf" ]; then
-    if certbot $options -n --dry-run --agree-tos --expand --dns-rfc2136 --dns-rfc2136-credentials /config/certbot/dns.conf $certbot_key_opts; then
-      certbot $options -n --agree-tos --expand --dns-rfc2136 --dns-rfc2136-credentials /config/certbot/dns.conf $certbot_key_opts
-    fi
-    statusCode=$?
-  elif [ -f "/config/certbot/certbot.conf" ]; then
-    if certbot $options -n --dry-run --agree-tos --expand --dns-rfc2136 --dns-rfc2136-credentials /config/certbot/certbot.conf $certbot_key_opts; then
-      certbot $options -n --agree-tos --expand --dns-rfc2136 --dns-rfc2136-credentials /config/certbot/certbot.conf $certbot_key_opts
-    fi
-    statusCode=$?
-  elif [ -f "/config/named/certbot-update.conf" ]; then
-    if certbot $options -n --dry-run --agree-tos --expand --dns-rfc2136 --dns-rfc2136-credentials /config/named/certbot-update.conf $certbot_key_opts; then
-      certbot $options -n --agree-tos --expand --dns-rfc2136 --dns-rfc2136-credentials /config/named/certbot-update.conf $certbot_key_opts
-    fi
-    statusCode=$?
   else
-    certbot_key_opts="$certbot_key_opts --webroot ${WWW_ROOT_DIR:-/usr/share/httpd/default}"
-    if [ -n "$ADD_CERTBOT_DOMAINS" ]; then
-      certbot $options --agree-tos -m $CERT_BOT_MAIL certonly --webroot "${WWW_ROOT_DIR:-/usr/share/httpd/default}" $certbot_key_opts
-      statusCode=$?
+    domain_list="$CERTBOT_DOMAINS $HOSTNAME $DOMAINNAME"
+    domain_list="$(echo "$domain_list" | tr ' ' '\n' | sort -u | tr '\n' ' ')"
+    is_renewal="$(find /etc/letsencrypt/renewal -type -f 2>/dev/null || false)"
+    [ "$CERT_BOT_ENABLED" = "true" ] || { export CERT_BOT_ENABLED="" && return 10; }
+    [ -n "$CERTBOT_DOMAINS" ] || { echo "The variable CERTBOT_DOMAINS is not set" >&2 && return 1; }
+    if [ -n "$is_renewal" ]; then
+      options="renew"
     else
-      statusCode=1
+      options="certonly"
+      certbot_domains=""
+      for domain in $$domain_list; do
+        if [ -n "$domain" ] && echo "$domain" | grep -Fq '.'; then
+          certbot_domains="$domain,"
+        fi
+      done
+    fi
+    if [ "$options" = "renew" ]; then
+      if certbot $options -n --dry-run --register-unsafely-without-email --agree-tos --expand; then
+        certbot $options -n --register-unsafely-without-email --agree-tos --expand
+        statusCode=$?
+      else
+        echo "Failed to renew letsencrypt certificates"
+        statusCode=10
+      fi
+    else
+      if certbot $options -n --dry-run --register-unsafely-without-email --agree-tos --expand --cert-name domain -d $certbot_domains; then
+        certbot $options -n --register-unsafely-without-email --agree-tos --expand --cert-name domain -d $certbot_domains
+        statusCode=$?
+      else
+        echo "Failed to create letsencrypt certificates"
+        statusCode=10
+      fi
     fi
   fi
-  [ $statusCode -eq 0 ] && __update_ssl_certs
   return $statusCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

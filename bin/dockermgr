@@ -212,7 +212,7 @@ __get_arch() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __update_repo_info() {
   local image="$1" && shift
-  local token="$(<"$DOCKERMGR_CACHE_DIR/token")"
+  local token="$(<"$AUTH_TOKEN_NAME")"
   local info=("${@:-$description}")
   local code=$(
     jq -n --arg msg "${info[@]}" '{"registry":"registry-1.docker.io","full_description": $msg }' |
@@ -227,8 +227,8 @@ __update_repo_info() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __registry_delete_tag() {
-  if [ -f "$DOCKERMGR_CACHE_DIR/token" ]; then
-    local TOKEN="$(<"$DOCKERMGR_CACHE_DIR/token")"
+  if [ -f "$AUTH_TOKEN_NAME" ]; then
+    local TOKEN="$(<"$AUTH_TOKEN_NAME")"
     local log_file="$DOCKERMGR_CACHE_DIR/delete.log"
     printf '%s' "$(printf_cyan "Attempting to delete temporary tag: $1:$2"): "
     curl -q -LSsfi -H "Authorization: Bearer $TOKEN" -X DELETE "$DOCKERMGR_REGISTRY_URL/v2/repositories/$1/tags/$2" &>"$log_file" || return 1
@@ -241,7 +241,7 @@ __registry_delete_tag() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_manifest() {
-  [ -f "$DOCKERMGR_CACHE_DIR/token" ] || printf_exit "Please run $APPNAME api auth"
+  [ -f "$AUTH_TOKEN_NAME" ] || printf_exit "Please run $APPNAME api auth"
   local code=0
   local tag=""
   local name=""
@@ -934,6 +934,7 @@ installer_delete() {
       mkdir -p "$DOCKERMGR_CONFIG_BACKUP_DIR/databases" "$DOCKERMGR_CONFIG_BACKUP_DIR/scripts"
       printf_yellow "$MESSAGE"
       if [ -n "$container_name" ]; then
+        docker_image_name="$(__docker ps -a | grep "$container_name" | awk '{print $2}')"
         printf_blue "Removing docker container: $container_name"
         __docker rm -f --volumes "${container_name[@]}" ${container_name}-web &>/dev/null || eval $DOCKERMGR_DOCKER_BIN rm -f "${container_name[@]}" ${container_name}-web &>/dev/null
         __container_name "$container_name" &>/dev/null && printf_yellow "Can not remove container: Please use docker rm -f $container_name"
@@ -1005,6 +1006,12 @@ installer_delete() {
       fi
       if [ -f "$DOCKERMGR_CONFIG_DIR/uninstall/$APPNAME" ]; then
         printf_yellow "Deleting "$DOCKERMGR_CONFIG_DIR/uninstall/$APPNAME" "
+      fi
+      if [ -n "$docker_image_name" ]; then
+        for image in $docker_image_name; do
+          printf_cyan "Deleting image: $image"
+          __docker rmi -f $image
+        done
       fi
       if [ -d "$APPDIR" ] || [ -d "$INSTDIR" ] || [ -d "$DATADIR" ] || [ -f "$SHAREDIR" ]; then
         exitCode=$((exitCode++))
@@ -1269,7 +1276,7 @@ __docker_compose() {
 __api_auth_token() {
   local user="${1:-$DOCKERHUB_USERNAME}"
   local pass="${2:-$DOCKERHUB_PASSWORD}"
-  curl -q -LSsf -H "Content-Type: application/json" -X POST -d "{\"username\": \"$user\", \"password\": \"$pass\"}" "$DOCKERMGR_HUB_URL/v2/users/login/" 2>"$DOCKERMGR_CACHE_DIR/token.err" | jq -r '.token' | grep '^' || { echo '' && return 1; }
+  curl -q -LSsf -H "Content-Type: application/json" -X POST -d "{\"username\": \"$user\", \"password\": \"$pass\"}" "$DOCKERMGR_HUB_URL/v2/users/login/" 2>"$AUTH_TOKEN_NAME.err" | jq -r '.token' | grep '^' || { echo '' && return 1; }
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __orgs_api_auth() {
@@ -1296,14 +1303,14 @@ __orgs_api_auth() {
   TOKEN=$(__api_auth_token "$@")
   if [ -n "$TOKEN" ]; then
     printf_purple "Successfully retrieved a token"
-    printf_yellow "$DOCKERMGR_CACHE_DIR/token"
-    echo "$TOKEN" >"$DOCKERMGR_CACHE_DIR/token"
+    printf_yellow "$AUTH_TOKEN_NAME"
+    echo "$TOKEN" >"$AUTH_TOKEN_NAME"
     return 0
   else
     printf_red "An error has occured. The message is:"
-    [ -f "$DOCKERMGR_CACHE_DIR/token" ] && rm "$DOCKERMGR_CACHE_DIR/token"
-    [ -f "$DOCKERMGR_CACHE_DIR/token.err" ] && cat "$DOCKERMGR_CACHE_DIR/token.err" | printf_readline 1 &&
-      rm "$DOCKERMGR_CACHE_DIR/token.err"
+    [ -f "$AUTH_TOKEN_NAME" ] && rm "$AUTH_TOKEN_NAME"
+    [ -f "$AUTH_TOKEN_NAME.err" ] && cat "$AUTH_TOKEN_NAME.err" | printf_readline 1 &&
+      rm "$AUTH_TOKEN_NAME.err"
     return 1
   fi
 }
@@ -1320,9 +1327,9 @@ __orgs_api_list() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __orgs_api_org_info() {
-  if [ -f "$DOCKERMGR_CACHE_DIR/token" ]; then
+  if [ -f "$AUTH_TOKEN_NAME" ]; then
     local org="" repo=""
-    local token="$(<"$DOCKERMGR_CACHE_DIR/token")"
+    local token="$(<"$AUTH_TOKEN_NAME")"
     if echo "$1" | grep -q '/'; then
       org="$(echo "$1" | awk -F '/' '{print $1}')"
       repo="$(echo "$1" | awk -F '/' '{print $2}')"
@@ -1340,8 +1347,8 @@ __orgs_api_org_info() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __orgs_api_user_info() {
-  if [ -f "$DOCKERMGR_CACHE_DIR/token" ]; then
-    local token="$(<"$DOCKERMGR_CACHE_DIR/token")"
+  if [ -f "$AUTH_TOKEN_NAME" ]; then
+    local token="$(<"$AUTH_TOKEN_NAME")"
     curl -q -fsSL -X GET -H "Authorization: Bearer $token" "$DOCKERMGR_REGISTRY_URL/v2/user/" 2>/dev/null | jq
   else
     printf_exit 1 1 "token not set: $APPNAME api auth [username] [password]"
@@ -1362,8 +1369,8 @@ __orgs_api_delete() {
   fi
   [ -n "$org" ] || printf_exit "Please provide a organization name"
   [ -n "$repo" ] || printf_exit "Please provide a repository name"
-  if [ -f "$DOCKERMGR_CACHE_DIR/token" ]; then
-    local TOKEN="$(<"$DOCKERMGR_CACHE_DIR/token")"
+  if [ -f "$AUTH_TOKEN_NAME" ]; then
+    local TOKEN="$(<"$AUTH_TOKEN_NAME")"
     printf_cyan "Attempting to delete $repo from $org on $prettify_registry"
     curl -q -LSsfi -H "Authorization: Bearer $TOKEN" -X DELETE "$DOCKERMGR_REGISTRY_URL/v2/repositories/$org/$repo" &>"$DOCKERMGR_CACHE_DIR/delete.log"
     if grep -qis '405 Not Allowed' "$DOCKERMGR_CACHE_DIR/delete.log"; then
@@ -1408,8 +1415,8 @@ __orgs_api_update() {
   # [ -n "$4" ] && is_private="$4" || printf_exit "private repo true/false"
   # [ -n "$5" ] && can_edit="$5" || printf_exit "can edit true/false"
   #-d "{\"description\": \"$description\", \"is_private\": \"$is_private\", \"can_edit\": \"$can_edit\", \"full_description\": \"$full_description\"}" \
-  if [ -f "$DOCKERMGR_CACHE_DIR/token" ]; then
-    local TOKEN="$(<"$DOCKERMGR_CACHE_DIR/token")"
+  if [ -f "$AUTH_TOKEN_NAME" ]; then
+    local TOKEN="$(<"$AUTH_TOKEN_NAME")"
     printf_cyan "Attempting to update $org from:"
     printf_cyan "$DOCKERMGR_REGISTRY_URL/v2/repositories/$org/$repo"
     curl -q -LSsfi -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" -X PATCH -d "{\"$field\":\"$field_value\"}" \
@@ -1856,7 +1863,8 @@ export DOCKERMGRREPO="$DOCKERMGR_GIT_REPO" DOCKERMGR_HOME="${DOCKERMGR_HOME:-}"
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Execute commands
-
+AUTH_TOKEN_NAME="${DOCKERMGR_SET_REGISTRY:-docker.io}"
+AUTH_TOKEN_NAME="$DOCKERMGR_CACHE_DIR/${AUTH_TOKEN_NAME//*:\/\//}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 case "$1" in
@@ -1987,6 +1995,10 @@ manifest)
   DOCKERMGR_EXIT_STATUS=0
   DOCKERMGR_BUILD_FILE_LOG="$DOCKERMGR_LOG_DIR/manifest.log"
   DOCKERMGR_BUILD_FILE_TEMP="$DOCKERMGR_TEMP_DIR/manifest.log"
+  if [ "$1" = "create" ] || [ "$1" = "download" ]; then
+    shift 1
+    [ -f "$HOME/Documents/docker-migrate.txt" ] && rm -Rf "$HOME/Documents/docker-migrate.txt"
+  fi
   if [ -f "$1" ]; then
     cat "$1" >"$DOCKERMGR_BUILD_FILE_TEMP"
   elif [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then

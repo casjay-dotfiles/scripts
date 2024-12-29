@@ -42,7 +42,7 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define pre-install scripts
 run_pre_install() {
-
+  if [ -f "/usr/local/bin/pkmgr" ]; then rm -Rf "/usr/local/bin/pkmgr"; fi
   return ${?:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

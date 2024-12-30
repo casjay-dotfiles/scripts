@@ -493,29 +493,8 @@ __backup_repos() {
   done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__git_mirror() {
-  local exitCode=0
-  local workingDir="$1"
-  [ -n "$workingDir" ] && [ -d "$1" ] && shift 1
-  if [ -f "${workingDir:-$GITADMIN_CWD}/.gitmirror" ]; then
-    while read -r url; do
-      printf '%b' "$(printf_blue "👾 Pushing to $url: ")" && git -C "${workingDir:-$GITADMIN_CWD}" push $url "$@" -q 2>/dev/null
-      retVal=$?
-      if [ $retVal -eq 0 ]; then
-        retVal=0
-        printf_green "success 👾"
-      else
-        printf_red "Failed ⚠️"
-        exitCode=$((exitCode + retVal))
-      fi
-    done <"${workingDir:-$GITADMIN_CWD}/.gitmirror"
-  fi
-  return $exitCode
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_custom() {
   local set_git_dir="$1" && shift 1 || set_git_dir="${GITADMIN_CWD:-$PWD}"
-  [ -d "$set_git_dir/.git" ] || return 1
   git -C "$set_git_dir" "$@" -q 2>/dev/null
   return $?
 }
@@ -940,14 +919,12 @@ __git_push() {
   [ -f "$git_dir/.no_push" ] || return 0
   if [[ "$(__git_remote_origin "$git_dir")" =~ $regex ]]; then
     if __am_i_online; then
-      __git_mirror $git_dir $args
-      git -C "$git_dir" push -q 2>/dev/null && return 0 || return 1
+      git -C "$git_dir" push $args -q &>/dev/null && return 0 || return 1
     else
       return 1
     fi
   else
-    __git_mirror $git_dir $args
-    git -C "$git_dir" push -q 2>/dev/null && return 0 || return 1
+    git -C "$git_dir" push $args -q &>/dev/null && return 0 || return 1
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1590,16 +1567,35 @@ ghsinglerepo() {
   __git_clone "https://github.com/$1/$2" "${3:-}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__git_push_mirror() {
+  local workingDir="${1:-$workingDir:-GITADMIN_CWD}"
+  if [ -f "$workingDir/.gitmirror" ]; then
+    while read -r url; do
+      printf '%b' "$(printf_blue "👾 Pushing to $url: ")" && git -C "$workingDir" push $url -q 2>/dev/null
+      retVal=$?
+      if [ $retVal -eq 0 ]; then
+        retVal=0
+        printf_green "success 👾"
+      else
+        printf_red "Failed ⚠️"
+        exitCode=$((exitCode + retVal))
+      fi
+    done <"$workingDir/.gitmirror"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # push local repo
 git_push_single() {
-  local SET_BASE_REPO="$1" GITADMIN_EXITCODE="0" username="" user_repo=""
+  local SET_BASE_REPO="" GITADMIN_EXITCODE="0" username="" user_repo=""
   SUCCESS_MSG() { echo "👾 Push to $(__git_remote_origin "${GITADMIN_NEW_PROJECT_DIR:-$GITADMIN_CWD}") has completed 👾"; }
   FAILED_MSG() { echo "😿 Push to $(__git_remote_origin "${GITADMIN_NEW_PROJECT_DIR:-$GITADMIN_CWD}") has failed 😿"; }
+  SET_BASE_REPO="$1"
   GITADMIN_CWD_NAME="$(basename -- "${SET_BASE_REPO:-$GITADMIN_CWD}")"
   [ -d "$SET_BASE_REPO" ] && shift 1
   if [ -d "$SET_BASE_REPO/.git" ]; then
     printf_custom "4" "🐛 Pushing the repo in $SET_BASE_REPO 🐛"
-    __git_push "$SET_BASE_REPO" && GITADMIN_EXITCODE=0 || GITADMIN_EXITCODE=1
+    __git_push_mirror "$SET_BASE_REPO"
+    __git_custom "$SET_BASE_REPO" push && GITADMIN_EXITCODE=0 || GITADMIN_EXITCODE=1
     __getexitcode $GITADMIN_EXITCODE "$(SUCCESS_MSG)" "$(FAILED_MSG)"
   else
     if [ -n "$1" ]; then
@@ -1613,6 +1609,7 @@ git_push_single() {
     fi
     if [ -d "$GITADMIN_NEW_PROJECT_DIR/.git" ]; then
       printf_custom "4" "🐛 Pushing the repo in $GITADMIN_NEW_PROJECT_DIR 🐛"
+      __git_push_mirror "$GITADMIN_NEW_PROJECT_DIR"
       __git_push "$GITADMIN_NEW_PROJECT_DIR" && GITADMIN_EXITCODE=0 || GITADMIN_EXITCODE=1
       __getexitcode $GITADMIN_EXITCODE "$(SUCCESS_MSG)" "$(FAILED_MSG)"
     else
@@ -2805,7 +2802,7 @@ user) # User repos
     printf_green "$MESSAGE"
     printf_blue "There's currently $COUNT repos available"
     printf_green "Initializing $GITADMIN_DEFAULT_REPO_BASE"
-    main "$GITADMIN_DEFAULT_REPO_BASE"
+    main "$GITADMIN_DEFAULT_USERNAME"
     ;;
   esac
   ;;

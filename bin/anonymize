@@ -152,7 +152,7 @@ __gen_config() {
   cat <<EOF >"$ANONYMIZE_CONFIG_DIR/$ANONYMIZE_CONFIG_FILE"
 # Settings for anonymize
 ANONYMIZE_HOME="${ANONYMIZE_HOME:-}"
-ANONYMIZE_TOR_VERSION="${ANONYMIZE_TOR_VERSION:-}"
+ANONYMIZE_TOR_VERSION_ARM64="${ANONYMIZE_TOR_VERSION_ARM64:-}"
 ANONYMIZE_I2P_VERSION="${ANONYMIZE_I2P_JAR_VERSION:-}"
 ANONYMIZE_FREENET_VERSION="${ANONYMIZE_FREENET_VERSION:-}"
 ANONYMIZE_I2P_JAR="${ANONYMIZE_I2P_JAR:-}"
@@ -299,6 +299,8 @@ __trap_exit() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cd() { mkdir -p "$1" && builtin cd "$1" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_current_version() { sed -e 's/<[^>]*>//g' -e 's|/>||g' | grep '/' | grep '[0-9]' | awk -F '/' '{print $1}' | sed 's| ||g' | sort -ur | head -n1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
 __proxy_setup() {
   local progname proxy port browser
@@ -340,7 +342,6 @@ __create_versions() { return; }
 __install_tor() {
   local tor_bin=""
   if [ "$(uname -m)" = "aarch64" ]; then
-    #printf_exit "Unsupported architecture "
     local tor_home="$HOME/.local/share/tor/browser"
     printf_cyan "Grabbing tor-browser from $ANONYMIZE_TOR_ARM64"
     rm -Rf "$tor_home"
@@ -356,6 +357,26 @@ __install_tor() {
     else
       exitCode=1
     fi
+  elif [ "$(uname -m)" = "x86_64" ]; then
+    local tor_home="$HOME/.local/share/tor/browser"
+    local version="$(curl -q -LSsf "https://dist.torproject.org/torbrowser" | __get_current_version)"
+    ANONYMIZE_TOR_AMD64="https://dist.torproject.org/torbrowser/$version/tor-browser-linux-x86_64-$version.tar.xz"
+    printf_cyan "Grabbing tor-browser from $ANONYMIZE_TOR_AMD64"
+    rm -Rf "$tor_home"
+    mkdir -p "$tor_home"
+    if __curl_dl "$ANONYMIZE_TOR_AMD64" "$ANONYMIZE_TEMP_FILE"; then
+      tar xf "$ANONYMIZE_TEMP_FILE" -C "$tor_home" --strip-components=1 && rm -Rf "$ANONYMIZE_TEMP_FILE" || exitCode=1
+    else
+      printf_exit "Failed to download torbrowser from $ANONYMIZE_TOR_AMD64"
+    fi
+    if [ -f "$tor_home/start-tor-browser.desktop" ]; then
+      cd "$tor_home" && eval "$tor_home/start-tor-browser.desktop" --register-app | printf_readline
+      exitCode=0
+    else
+      exitCode=1
+    fi
+  else
+    printf_exit "Unsupported architecture "
   fi
   if __cmd_exists torbrowser; then
     exitCode=0
@@ -398,13 +419,54 @@ __install_tor() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __zerotier() {
   if __cmd_exists yum || __cmd_exists dnf || __cmd_exists apt; then
-    __cmd_exists zerotier-cli || curl -s https://install.zerotier.com | sudo bash &>/dev/null
+    __cmd_exists zerotier-cli || curl -q -LSsf "https://install.zerotier.com" | sudo bash &>/dev/null
   fi
   if [ ! -f "$ANONYMIZE_CONFIG_DIR/zerotier.conf" ] && [ -n "$ZEROTIER_NETWORK_KEY" ]; then
     zerotier-cli join $ZEROTIER_NETWORK_KEY &>/dev/null
     echo $ZEROTIER_NETWORK_KEY >"$ANONYMIZE_CONFIG_DIR/zerotier.conf"
   fi
   __cmd_exists zerotier-cli || __cmd_exists zerotier-one || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__init_i2p() {
+  __cmd_exists java || printf_exit "Please install the openjdk runtime"
+  if [ "$ANONYMIZE_DOWNLOAD" = "true" ] || [ ! -f "$ANONYMIZE_HOME/i2p/i2p-install.jar" ]; then
+    __cd "$ANONYMIZE_HOME/i2p"
+    __curl_dl "$ANONYMIZE_I2P_JAR" "$ANONYMIZE_HOME/i2p/i2p-install.jar"
+    [ -f "$ANONYMIZE_HOME/i2p/i2p-install.jar" ] || printf_exit "failed to download $ANONYMIZE_I2P_JAR"
+    printf_yellow "Install to $ANONYMIZE_HOME/i2p"
+    if [ "$CONSOLE" = "true" ]; then
+      java -jar "$ANONYMIZE_HOME/i2p/i2p-install.jar" -console
+    else
+      java -jar "$ANONYMIZE_HOME/i2p/i2p-install.jar"
+    fi
+  fi
+  if [ -f "$ANONYMIZE_HOME/i2p/i2prouter" ]; then
+    eval "$ANONYMIZE_HOME/i2p/i2prouter" start &
+    sleep 10
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__init_freenet() {
+  __cmd_exists java || printf_exit "Please install the openjdk runtime"
+  if [ -f "$ANONYMIZE_HOME/Freenet/run.sh" ]; then
+    eval "$ANONYMIZE_HOME/Freenet/run.sh" start &
+    sleep 10
+  else
+    if [ "$ANONYMIZE_DOWNLOAD" = "true" ]; then
+      __cd "$ANONYMIZE_HOME/freenet"
+      if [ -f "$ANONYMIZE_HOME/freenet/freenet-install.jar" ]; then
+        __curl_dl "$ANONYMIZE_FREENET_JAR" "$ANONYMIZE_HOME/freenet/freenet-install.jar"
+        [ -f "$ANONYMIZE_HOME/freenet/freenet-install.jar" ] || printf_exit "failed to download $ANONYMIZE_FREENET_JAR"
+      fi
+      printf_yellow "Install to $ANONYMIZE_HOME/Freenet"
+      if [ "$CONSOLE" = "true" ]; then
+        java -jar "$ANONYMIZE_HOME/freenet/freenet-install.jar" -console
+      else
+        java -jar "$ANONYMIZE_HOME/freenet/freenet-install.jar"
+      fi
+    fi
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
@@ -435,13 +497,13 @@ ANONYMIZE_NOTIFY_CLIENT_ICON="${ANONYMIZE_NOTIFY_CLIENT_ICON:-notification-new}"
 ANONYMIZE_NOTIFY_CLIENT_URGENCY="${ANONYMIZE_NOTIFY_CLIENT_URGENCY:-normal}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional Variables
-ANONYMIZE_TOR_VERSION="${ANONYMIZE_TOR_VERSION:-12.5.1}"
-ANONYMIZE_I2P_VERSION="${ANONYMIZE_I2P_JAR_VERSION:-2.2.1}"
-ANONYMIZE_FREENET_VERSION="${ANONYMIZE_FREENET_VERSION:-1497}"
 ANONYMIZE_HOME="${ANONYMIZE_HOME:-$HOME/.local/share/anonymize}"
-ANONYMIZE_I2P_JAR="${ANONYMIZE_I2P_JAR:-https://download.i2p2.no/releases/${ANONYMIZE_I2P_VERSION}/i2pinstall_${ANONYMIZE_I2P_VERSION}.jar}"
+ANONYMIZE_I2P_VERSION="${ANONYMIZE_I2P_JAR_VERSION:-2.7.0}"
+ANONYMIZE_FREENET_VERSION="${ANONYMIZE_FREENET_VERSION:-1499}"
+ANONYMIZE_TOR_VERSION_ARM64="${ANONYMIZE_TOR_VERSION_ARM64:- 13.0.9}"
+ANONYMIZE_I2P_JAR="${ANONYMIZE_I2P_JAR:-https://geti2p.net/en/download/${ANONYMIZE_I2P_JAR_VERSION}/clearnet/http/any/i2pinstall_${ANONYMIZE_I2P_JAR_VERSION}.jar}"
 ANONYMIZE_FREENET_JAR="${ANONYMIZE_FREENET_JAR:-https://github.com/freenet/fred/releases/download/build0${ANONYMIZE_FREENET_VERSION}/new_installer_offline_${ANONYMIZE_FREENET_VERSION}.jar}"
-ANONYMIZE_TOR_ARM64="${ANONYMIZE_TOR_ARM64:-https://sourceforge.net/projects/tor-browser-ports/files/${ANONYMIZE_TOR_VERSION}-alsa/tor-browser-linux-arm64-${ANONYMIZE_TOR_VERSION}_ALL.tar.xz}"
+ANONYMIZE_TOR_ARM64="${ANONYMIZE_TOR_ARM64:-https://sourceforge.net/projects/tor-browser-ports/files/${ANONYMIZE_TOR_VERSION_ARM64}-alsa/tor-browser-linux-arm64-${ANONYMIZE_TOR_VERSION_ARM64}_ALL.tar.xz}"
 ANONYMIZE_TOR_HOME="${ANONYMIZE_TOR_HOME:-http://imtulbcjer7mohs62lpycyod2c3pnil2x6xjirrojedbluh4d7z2g6ad.onion}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
@@ -650,6 +712,12 @@ init)
   exit $?
   ;;
 
+proxy)
+  shift 1
+  __proxy_setup "$@"
+  exit $?
+  ;;
+
 zerotier)
   shift 1
   __zerotier
@@ -664,15 +732,8 @@ wireguard)
   exit $?
   ;;
 
-proxy)
-  shift 1
-  __proxy_setup "$@"
-  exit $?
-  ;;
-
 tor)
   shift 1
-  __install_tor
   if [ $? -ne 0 ]; then printf_red "Tor browser does not seem to be installed" && __notifications "Please install Tor Browser"; fi
   if __cmd_exists tor-browser; then
     __notifications "Launching tor-browser -new-tab --allow-remote"
@@ -691,49 +752,16 @@ tor)
 
 i2p)
   shift 1
-  __cmd_exists java || printf_exit "Please install the openjdk runtime"
-  if [ "$ANONYMIZE_DOWNLOAD" = "true" ] || [ ! -f "$ANONYMIZE_HOME/i2p/i2p-install.jar" ]; then
-    __cd "$ANONYMIZE_HOME/i2p"
-    __curl_dl "$ANONYMIZE_I2P_JAR" "$ANONYMIZE_HOME/i2p/i2p-install.jar"
-    [ -f "$ANONYMIZE_HOME/i2p/i2p-install.jar" ] || printf_exit "failed to download $ANONYMIZE_I2P_JAR"
-    printf_yellow "Install to $ANONYMIZE_HOME/i2p"
-    if [ "$CONSOLE" = "true" ]; then
-      java -jar "$ANONYMIZE_HOME/i2p/i2p-install.jar" -console
-    else
-      java -jar "$ANONYMIZE_HOME/i2p/i2p-install.jar"
-    fi
-  fi
-  if [ -f "$ANONYMIZE_HOME/i2p/i2prouter" ]; then
-    eval "$ANONYMIZE_HOME/i2p/i2prouter" start &
-    sleep 10
-  fi
-  netstatg 7657 2>&1 | grep -q java || printf_exit "i2p does not seem to be running"
-  [ -z "$BROWSER" ] || eval $BROWSER "http://localhost:7657"
+  __init_i2p
+  netstatg 7657 2>&1 | grep -q 'java' || printf_exit "i2p does not seem to be running"
+  [ -z "$BROWSER" ] || eval "$BROWSER" "http://localhost:7657"
   exit $?
   ;;
 
 freenet)
   shift 1
-  __cmd_exists java || printf_exit "Please install the openjdk runtime"
-  if [ -f "$ANONYMIZE_HOME/Freenet/run.sh" ]; then
-    eval "$ANONYMIZE_HOME/Freenet/run.sh" start &
-    sleep 10
-  else
-    if [ "$ANONYMIZE_DOWNLOAD" = "true" ]; then
-      __cd "$ANONYMIZE_HOME/freenet"
-      if [ -f "$ANONYMIZE_HOME/freenet/freenet-install.jar" ]; then
-        __curl_dl "$ANONYMIZE_FREENET_JAR" "$ANONYMIZE_HOME/freenet/freenet-install.jar"
-        [ -f "$ANONYMIZE_HOME/freenet/freenet-install.jar" ] || printf_exit "failed to download $ANONYMIZE_FREENET_JAR"
-      fi
-      printf_yellow "Install to $ANONYMIZE_HOME/Freenet"
-      if [ "$CONSOLE" = "true" ]; then
-        java -jar "$ANONYMIZE_HOME/freenet/freenet-install.jar" -console
-      else
-        java -jar "$ANONYMIZE_HOME/freenet/freenet-install.jar"
-      fi
-    fi
-  fi
-  netstatg 8888 2>&1 | grep -q java || printf_exit "Freenet does not seem to be running"
+  __init_freenet
+  netstatg 8888 2>&1 | grep -q 'java' || printf_exit "Freenet does not seem to be running"
   [ -z "$BROWSER" ] || eval $BROWSER "http://localhost:8888"
   exit $?
   ;;

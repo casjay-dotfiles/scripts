@@ -124,9 +124,13 @@ __init_working_dir() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __exec_service() {
+  local count=6
   echo "Starting $1"
-  eval "$@" 2>>/dev/stderr &
-  [ $? -eq 0 ] && touch "/run/init.d/$1.pid" || return 1
+  eval "$@" 2>>/dev/stderr >>/data/logs/start.log &
+  while [ $count -ne 0 ]; do
+    sleep 10
+    __pgrep $1 && touch "/run/init.d/$1.pid" && break || count=$((count - 1))
+  done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __update_ssl_certs() {
@@ -144,50 +148,59 @@ __certbot() {
   local options="$1"
   local statusCode=0
   local domain_list=""
-  local CERT_BOT_MAIL="${CERT_BOT_MAIL:-ssl-admin@$HOSTNAME}"
+  local certbot_key_opts=""
+  local ADD_CERTBOT_DOMAINS=""
+  local CERTBOT_DOMAINS="${CERTBOT_DOMAINS:-$HOSTNAME}"
+  local CERT_BOT_MAIL="${CERT_BOT_MAIL:-ssl-admin@$CERTBOT_DOMAINS}"
+  local certbot_key_opts="--key-path $SSL_KEY --fullchain-path $SSL_CERT"
   mkdir -p "/config/letsencrypt"
   __symlink "/etc/letsencrypt" "/config/letsencrypt"
+  is_renewal="$(find /etc/letsencrypt/renewal -type -f 2>/dev/null || false)"
+  [ -f "/config/env/ssl.sh" ] && . "/config/env/ssl.sh"
+  [ -f "/config/certbot/env.sh" ] && . "/config/certbot/env.sh"
+  [ -n "$SSL_KEY" ] && { mkdir -p "$(dirname "$SSL_KEY")" || true; } || { echo "The variable $SSL_KEY is not set" >&2 && return 1; }
+  [ -n "$SSL_CERT" ] && { mkdir -p "$(dirname "$SSL_CERT")" || true; } || { echo "The variable $SSL_CERT is not set" >&2 && return 1; }
+  domain_list="$CERTBOT_DOMAINS www.$CERTBOT_DOMAINS mail.$CERTBOT_DOMAINS"
+  domain_list="$(echo "$domain_list" | tr ' ' '\n' | sort -u | tr '\n' ' ')"
+  [ "$CERT_BOT_ENABLED" = "true" ] || { export CERT_BOT_ENABLED="" && return 10; }
+  [ -n "$CERT_BOT_MAIL" ] || { echo "The variable CERT_BOT_MAIL is not set" >&2 && return 1; }
+  [ -n "$CERTBOT_DOMAINS" ] || { echo "The variable CERTBOT_DOMAINS is not set" >&2 && return 1; }
+  for domain in $$CERTBOT_DOMAINS; do
+    [ -n "$domain" ] && ADD_CERTBOT_DOMAINS+="-d $domain "
+  done
+  [ -n "$is_renewal" ] && options="renew" ADD_CERTBOT_DOMAINS="" || options="certonly"
+  certbot_key_opts="$certbot_key_opts $ADD_CERTBOT_DOMAINS"
   if [ -f "/config/certbot/setup.sh" ]; then
     eval "/config/certbot/setup.sh"
     statusCode=$?
   elif [ -f "/etc/named/certbot.sh" ]; then
     eval "/etc/named/certbot.sh"
     statusCode=$?
-  else
-    domain_list="$CERTBOT_DOMAINS $HOSTNAME $DOMAINNAME"
-    domain_list="$(echo "$domain_list" | tr ' ' '\n' | sort -u | tr '\n' ' ')"
-    is_renewal="$(find /etc/letsencrypt/renewal -type -f 2>/dev/null || false)"
-    [ "$CERT_BOT_ENABLED" = "true" ] || { export CERT_BOT_ENABLED="" && return 10; }
-    [ -n "$CERTBOT_DOMAINS" ] || { echo "The variable CERTBOT_DOMAINS is not set" >&2 && return 1; }
-    if [ -n "$is_renewal" ]; then
-      options="renew"
-    else
-      options="certonly"
-      certbot_domains=""
-      for domain in $$domain_list; do
-        if [ -n "$domain" ] && echo "$domain" | grep -Fq '.'; then
-          certbot_domains="$domain,"
-        fi
-      done
+  elif [ -f "/config/certbot/dns.conf" ]; then
+    if certbot $options -n --dry-run --agree-tos --expand --dns-rfc2136 --dns-rfc2136-credentials /config/certbot/dns.conf $certbot_key_opts; then
+      certbot $options -n --agree-tos --expand --dns-rfc2136 --dns-rfc2136-credentials /config/certbot/dns.conf $certbot_key_opts
     fi
-    if [ "$options" = "renew" ]; then
-      if certbot $options -n --dry-run --register-unsafely-without-email --agree-tos --expand; then
-        certbot $options -n --register-unsafely-without-email --agree-tos --expand
-        statusCode=$?
-      else
-        echo "Failed to renew letsencrypt certificates"
-        statusCode=10
-      fi
+    statusCode=$?
+  elif [ -f "/config/certbot/certbot.conf" ]; then
+    if certbot $options -n --dry-run --agree-tos --expand --dns-rfc2136 --dns-rfc2136-credentials /config/certbot/certbot.conf $certbot_key_opts; then
+      certbot $options -n --agree-tos --expand --dns-rfc2136 --dns-rfc2136-credentials /config/certbot/certbot.conf $certbot_key_opts
+    fi
+    statusCode=$?
+  elif [ -f "/config/named/certbot-update.conf" ]; then
+    if certbot $options -n --dry-run --agree-tos --expand --dns-rfc2136 --dns-rfc2136-credentials /config/named/certbot-update.conf $certbot_key_opts; then
+      certbot $options -n --agree-tos --expand --dns-rfc2136 --dns-rfc2136-credentials /config/named/certbot-update.conf $certbot_key_opts
+    fi
+    statusCode=$?
+  else
+    certbot_key_opts="$certbot_key_opts --webroot ${WWW_ROOT_DIR:-/usr/share/httpd/default}"
+    if [ -n "$ADD_CERTBOT_DOMAINS" ]; then
+      certbot $options --agree-tos -m $CERT_BOT_MAIL certonly --webroot "${WWW_ROOT_DIR:-/usr/share/httpd/default}" $certbot_key_opts
+      statusCode=$?
     else
-      if certbot $options -n --dry-run --register-unsafely-without-email --agree-tos --expand --cert-name domain -d $certbot_domains; then
-        certbot $options -n --register-unsafely-without-email --agree-tos --expand --cert-name domain -d $certbot_domains
-        statusCode=$?
-      else
-        echo "Failed to create letsencrypt certificates"
-        statusCode=10
-      fi
+      statusCode=1
     fi
   fi
+  [ $statusCode -eq 0 ] && __update_ssl_certs
   return $statusCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -333,7 +346,7 @@ __cron() {
   test -n "$1" && test -z "${1//[0-9]/}" && interval=$(($1 * 60)) && shift 1 || interval="300"
   [ $# -eq 0 ] && echo "Usage: cron [interval] [command]" && exit 1
   local command="$*"
-  local bin="$(basename -- "${CRON_NAME:-$1}")"
+  local bin="$(basename "${CRON_NAME:-$1}")"
   [ -d "/run/cron" ] || mkdir -p "/run/cron"
   echo "$pid" >"/run/cron/$bin.pid"
   echo "$command" >"/run/cron/$bin.run"
@@ -409,7 +422,7 @@ __file_copy() {
 __generate_random_uids() {
   local set_random_uid="$(seq 3000 5000 | sort -R | head -n 1)"
   while :; do
-    if grep -qs "x:.*:$set_random_uid:" "/etc/group" && ! grep -shq "x:$set_random_uid:.*:" "/etc/passwd"; then
+    if grep -shq "x:.*:$set_random_uid:" "/etc/group" && ! grep -shq "x:$set_random_uid:.*:" "/etc/passwd"; then
       set_random_uid=$((set_random_uid + 1))
     else
       echo "$set_random_uid"
@@ -476,8 +489,8 @@ __fix_permissions() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__get_gid() { grep -sh "^$1:" /etc/group | awk -F ':' '{print $3}' || false; }
-__get_uid() { grep -sh "^$1:" /etc/passwd | awk -F ':' '{print $3}' || false; }
+__get_gid() { grep "^$1:" /etc/group | awk -F ':' '{print $3}' || false; }
+__get_uid() { grep "^$1:" /etc/passwd | awk -F ':' '{print $3}' || false; }
 __check_for_uid() { cat "/etc/passwd" 2>/dev/null | awk -F ':' '{print $3}' | sort -u | grep -q "^$1$" || false; }
 __check_for_guid() { cat "/etc/group" 2>/dev/null | awk -F ':' '{print $3}' | sort -u | grep -q "^$1$" || false; }
 __check_for_user() { cat "/etc/passwd" 2>/dev/null | awk -F ':' '{print $1}' | sort -u | grep -q "^$1$" || false; }
@@ -486,7 +499,7 @@ __check_for_group() { cat "/etc/group" 2>/dev/null | awk -F ':' '{print $1}' | s
 # check if process is already running
 __proc_check() {
   cmd_bin="$(type -P "${1:-$EXEC_CMD_BIN}")"
-  cmd_name="$(basename -- "${cmd_bin:-$EXEC_CMD_NAME}")"
+  cmd_name="$(basename "${cmd_bin:-$EXEC_CMD_NAME}")"
   if __pgrep "$cmd_bin" || __pgrep "$cmd_name"; then
     SERVICE_IS_RUNNING="yes"
     touch "$SERVICE_PID_FILE"
@@ -557,8 +570,8 @@ __create_service_user() {
     echo "creating system user $create_user"
     useradd --system -u $create_uid -g $create_group -c "Account for $create_user" -d "$create_home_dir" -s /bin/false $create_user 2>/dev/stderr | tee -p -a "/data/logs/init.txt" >/dev/null
   fi
-  grep -qs "$create_group" "/etc/group" || exitStatus=$((exitCode + 1))
-  grep -qs "$create_user" "/etc/passwd" || exitStatus=$((exitCode + 1))
+  grep -shq "$create_group" "/etc/group" || exitStatus=$((exitCode + 1))
+  grep -shq "$create_user" "/etc/passwd" || exitStatus=$((exitCode + 1))
   if [ $exitStatus -eq 0 ]; then
     export WORK_DIR="${create_home_dir:-}"
     if [ -n "$WORK_DIR" ]; then
@@ -650,7 +663,7 @@ __start_init_scripts() {
       chmod -Rf 755 "$init_dir"/*.sh
       for init in "$init_dir"/*.sh; do
         if [ -x "$init" ]; then
-          name="$(basename -- "$init")"
+          name="$(basename "$init")"
           service="$(printf '%s' "$name" | sed 's/^[^-]*-//;s|.sh$||g')"
           printf '# - - - executing file: %s\n' "$init"
           eval "$init" && sleep 5 || sleep 3
@@ -660,7 +673,7 @@ __start_init_scripts() {
             printf '# - - - %s has been started - pid: %s\n' "$service" "${retPID:-error}"
           else
             initStatus="1"
-            printf '# - - - %s has failed to start - check log %s\n' "$service" "docker log $CONTAINER_NAME"
+            printf '# - - - %s has falied to start - check log %s\n' "$service" "docker log $CONTAINER_NAME"
           fi
           echo ""
         fi
@@ -732,7 +745,7 @@ EOF
     if [ ! -f "/config/postfix/main.cf" ]; then
       cat <<EOF | tee -p "/config/postfix/main.cf" >/dev/null
 # postfix configuration.
-smtpd_banner = \$MY_SHORT_HOSTNAME ESMTP email server
+smtpd_banner = \$myhostname ESMTP email server
 compatibility_level = 2
 inet_protocols = ipv4
 inet_interfaces = all
@@ -752,7 +765,7 @@ smtpd_tls_exclude_ciphers = aNULL, eNULL, EXPORT, DES, RC4, MD5, PSK, aECDH, EDH
 smtpd_relay_restrictions = permit_mynetworks, permit_sasl_authenticated, defer_unauth_destination
 append_dot_mydomain = yes
 myorigin = $local_hostname
-MY_SHORT_HOSTNAME = $local_hostname
+myhostname = $local_hostname
 relayhost = [$relay_server]:$relay_port
 
 EOF
@@ -910,7 +923,7 @@ __initialize_custom_bin_dir() {
     echo "Setting up bin $SET_USR_BIN > $LOCAL_BIN_DIR"
     for create_bin_template in $SET_USR_BIN; do
       if [ -n "$create_bin_template" ]; then
-        create_bin_name="$(basename -- "$create_bin_template")"
+        create_bin_name="$(basename "$create_bin_template")"
         if [ -e "$create_bin_template" ]; then
           ln -sf "$create_bin_template" "$LOCAL_BIN_DIR/$create_bin_name"
         fi
@@ -926,7 +939,7 @@ __initialize_default_templates() {
       echo "Copying default config files $DEFAULT_TEMPLATE_DIR > /config"
       for create_config_template in "$DEFAULT_TEMPLATE_DIR"/*; do
         if [ -n "$create_config_template" ]; then
-          create_template_name="$(basename -- "$create_config_template")"
+          create_template_name="$(basename "$create_config_template")"
           if [ -d "$create_config_template" ]; then
             mkdir -p "/config/$create_template_name/"
             __is_dir_empty "/config/$create_template_name" && cp -Rf "$create_config_template/." "/config/$create_template_name/" 2>/dev/null
@@ -945,7 +958,7 @@ __initialize_config_dir() {
     if [ "$CONFIG_DIR_INITIALIZED" = "false" ] && [ -d "/config" ]; then
       echo "Copying custom config files: $DEFAULT_CONF_DIR > /config"
       for create_config_template in "$DEFAULT_CONF_DIR"/*; do
-        create_config_name="$(basename -- "$create_config_template")"
+        create_config_name="$(basename "$create_config_template")"
         if [ -n "$create_config_template" ]; then
           if [ -d "$create_config_template" ]; then
             mkdir -p "/config/$create_config_name"
@@ -965,7 +978,7 @@ __initialize_data_dir() {
     if [ "$DATA_DIR_INITIALIZED" = "false" ] && [ -n "$DEFAULT_DATA_DIR" ]; then
       echo "Copying data files $DEFAULT_DATA_DIR > /data"
       for create_data_template in "$DEFAULT_DATA_DIR"/*; do
-        create_data_name="$(basename -- "$create_data_template")"
+        create_data_name="$(basename "$create_data_template")"
         if [ -n "$create_data_template" ]; then
           if [ -d "$create_data_template" ]; then
             mkdir -p "/data/$create_data_name"
@@ -1048,18 +1061,14 @@ __initialize_ssl_certs() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __start_php_dev_server() {
-  local web_root="${1:-$WWW_ROOT_DIR}"
-  local start_server="${2:-$PHP_DEV_SERVER_START}"
-  [ "$CONTAINER_NAME" = "php" ] && start_server="yes"
-  if [ -n "$PHP_DEV_SERVER_PORT" ] && [ "$start_server" = "yes" ]; then
-    if ! echo "$web_root" | grep -q "^/usr/share/httpd"; then
-      find "$web_root" -type f -not -path '.git*' -iname '*.php' -exec sed -i 's|[<].*SERVER_ADDR.*[>]|'${CONTAINER_IP4_ADDRESS:-127.0.0.1}'|g' {} \; 2>/dev/null
-      php -S 0.0.0.0:$PHP_DEV_SERVER_PORT -t "$web_root"
-    elif [ -d "/usr/share/httpd" ]; then
+  if [ "$2" = "yes" ]; then
+    if [ -d "/usr/share/httpd" ]; then
       find "/usr/share/httpd" -type f -not -path '.git*' -iname '*.php' -exec sed -i 's|[<].*SERVER_ADDR.*[>]|'${CONTAINER_IP4_ADDRESS:-127.0.0.1}'|g' {} \; 2>/dev/null
       php -S 0.0.0.0:$PHP_DEV_SERVER_PORT -t "/usr/share/httpd"
-    else
-      php -S 0.0.0.0:$PHP_DEV_SERVER_PORT -t "."
+    fi
+    if ! echo "$1" | grep -q "^/usr/share/httpd"; then
+      find "$1" -type f -not -path '.git*' -iname '*.php' -exec sed -i 's|[<].*SERVER_ADDR.*[>]|'${CONTAINER_IP4_ADDRESS:-127.0.0.1}'|g' {} \; 2>/dev/null
+      php -S 0.0.0.0:$PHP_DEV_SERVER_PORT -t "$1"
     fi
   fi
 }

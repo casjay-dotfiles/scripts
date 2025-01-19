@@ -102,7 +102,7 @@ __cmd_exists() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __am_i_online() {
-  if curl -q -LSsfI 1.1.1.1 2>/dev/null | grep -q ':.cloudflare'; then
+  if curl -q -LSsfI "https://1.1.1.1" 2>/dev/null | grep -q ':.cloudflare'; then
     return 0
   else
     return 1

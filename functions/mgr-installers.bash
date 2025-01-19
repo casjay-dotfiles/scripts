@@ -2597,8 +2597,7 @@ run_install_init() {
   if [ ! -f "$TMPFILE" ]; then
     printf ""
     touch "$TMPFILE"
-    printf_yellow "Grabbing install file from:"
-    printf_purple "$SETREPORAW/install.sh"
+    printf '%b: %b\n' "$(printf_yellow "Grabbing install file from")" "$(printf_purple "$SETREPORAW/install.sh")"
     urlcheck "$SETREPORAW/install.sh" || {
       printf_red "Failed to initialize the installer from:"
       printf_yellow "$SETREPORAW/install.sh\n"

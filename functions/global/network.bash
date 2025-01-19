@@ -84,56 +84,37 @@ __netcat_kill_server() {
   sleep 2
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__curl() {
-  __am_i_online &&
-    curl --disable -LSsfk --connect-timeout 3 \
-      --retry 0 --fail "$@" 2>/dev/null || return 1
-}
+__curl() { __am_i_online && curl --disable -LSsfk --connect-timeout 3 --retry 0 --fail "$@" 2>/dev/null || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__curl_exit() {
-  EXIT=0 && return 0 || EXIT=1 && return 1
-}
+__curl_exit() { EXIT=0 && return 0 || { EXIT=1 && return 1; }; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #curl_header "site" "code"
 __curl_header() {
-  curl --disable -LSIsk --connect-timeout 3 \
-    --retry 0 --max-time 2 "$1" 2>/dev/null |
-    grep -E "HTTP/[0123456789]" |
-    grep "${2:-200}" -n1 -q
+  curl --disable -LSIsk --connect-timeout 3 --retry 0 --max-time 2 "$1" 2>/dev/null | grep -E "HTTP/[0123456789]" | grep "${2:-200}" -n1 -q
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #curl_download "url" "file"
 __curl_download() {
-  curl --disable --create-dirs -LSsfk \
-    --connect-timeout 3 --retry 0 "$1" -o "$2" 2>/dev/null
+  curl --disable --create-dirs -LSsfk --connect-timeout 3 --retry 0 "$1" -o "$2" 2>/dev/null
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #curl_version "url"
 __curl_version() {
-  curl --disable -LSsk --connect-timeout 3 \
-    --retry 1 "${1:-$REPORAW/version.txt}" 2>/dev/null
+  curl --disable -LSsk --connect-timeout 3 --retry 1 "${1:-$REPORAW/version.txt}" 2>/dev/null
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #curl_upload "file" "url"
 __curl_upload() {
-  curl -disable -LSsk --connect-timeout 3 \
-    --retry 1 --upload-file "$1" "$2" 2>/dev/null
+  curl -disable -LSsk --connect-timeout 3 --retry 1 --upload-file "$1" "$2" 2>/dev/null
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #curl_api "API URL"
 __curl_api() {
-  curl --disable -LSsk --connect-timeout 3 \
-    --retry 1 \
-    "https://api.github.com/orgs/${1:-SCRIPTS_PREFIX}/repos?per_page=1000" 2>/dev/null
+  curl --disable -LSsk --connect-timeout 3 --retry 1 "https://api.github.com/orgs/${1:-SCRIPTS_PREFIX}/repos?per_page=1000" 2>/dev/null
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #urlcheck "url"
-__urlcheck() {
-  curl --disable -LSsk --connect-timeout 1 \
-    --retry 1 --retry-delay 0 --output /dev/null \
-    --silent --head --fail "$1" 2>/dev/null &&
-    __curl_exit
-}
+__urlcheck() { curl --disable -LSsk --connect-timeout 2 --retry 1 --retry-delay 0 --output /dev/null --silent --head --fail "$1" 2>/dev/null && __curl_exit; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #urlverify "url"
 __urlverify() { __urlcheck "$1" || __urlinvalid "$1"; }

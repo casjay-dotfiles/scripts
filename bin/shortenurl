@@ -153,8 +153,8 @@ __gen_config() {
 # Settings for shortenurl: private, csjy, is_gd, tny_im, yourls, github - defaults to csjy
 SHORTENURL_DEFAULT="${SHORTENURL_DEFAULT:-yourls}"
 
-# csjy: See https://github.com/casjay-coffee/casjay.link for self hosted option
-SHORTENURL_URL_PRIVATE_HOME="${SHORTENURL_URL_PRIVATE_HOME:-https://casjay.link}"
+# csjy: See https://github.com/casjaydns/csj.lol for self hosted option
+SHORTENURL_URL_PRIVATE_HOME="${SHORTENURL_URL_PRIVATE_HOME:-https://csj.lol}"
 SHORTENURL_URL_PRIVATE_API_END="${SHORTENURL_URL_PRIVATE_API_END:-$SHORTENURL_URL_PRIVATE_HOME/url}"
 
 # yourls: See http://yourls.org for self hosted option
@@ -316,7 +316,10 @@ __error_message() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__jq() { jq "$@" 2>/dev/null || return 1; }
+__url_valid() { echo "$1" | grep -Eq 'http|https' || return 1; }
 __curl() { curl --connect-timeout 3 --retry 0 "$@" 2>/dev/null || return 1; }
+__gen_slug() { tr -dc 'a-zA-Z' <"/dev/urandom" | head -c 8 | tr '[:upper:]' '[:lower:]'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __urlencode() { perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' "${1:-$URL}"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -332,21 +335,25 @@ __output_results() {
 __github_url() {
   local host="" slug="" endpoint=""
   host="$1"
-  slug="${2:-$(tr -dc 'a-zA-Z' <"/dev/urandom" | head -c 6 | tr '[:upper:]' '[:lower:]')}"
+  slug="${2:-$(__gen_slug)}"
   endpoint="$SHORTENURL_URL_GITHUB_HOME"
-  echo "$host" | grep -Eq 'github' || { echo "Please enter a valid github URL" && return 1; }
-  results="$(__curl -q -LSsi "$endpoint" -F "url=$host" -F "code=$slug" 2>/dev/null | grep -E 'Location: |Unable to' | grep '^' || echo '')"
-  if [ -n "$results" ]; then
-    if echo "$results" | grep -q 'Location: '; then
-      result="$(echo "$results")"
-      exitCodeTmp=0
-    elif echo "$results" | grep -q 'Unable to shorten '; then
-      result="$(echo "$results")"
+  if echo "$host" | grep -Eq 'github'; then
+    results="$(__curl -q -LSsi "$endpoint" -F "url=$host" -F "code=$slug" 2>/dev/null | grep -E 'Location: |Unable to' | grep '^' || echo '')"
+    if [ -n "$results" ]; then
+      if echo "$results" | grep -q 'Location: '; then
+        result="$(echo "$results")"
+        exitCodeTmp=0
+      elif echo "$results" | grep -q 'Unable to shorten '; then
+        result="$(echo "$results")"
+        exitCodeTmp=1
+      fi
+    else
+      result="$(__error_message "Something seems to have gone creating the github url")"
       exitCodeTmp=1
     fi
   else
-    result="$(__error_message "Something seems to have gone creating the github url")"
-    exitCodeTmp=1
+    exitCodeTmp=3
+    printf_red "Please enter a valid github URL"
   fi
   exitCode=${exitCodeTmp:-$?}
   return ${exitCode:-0}
@@ -355,24 +362,29 @@ __github_url() {
 __private_url() {
   local host="" slug=""
   host="$1"
-  slug="${2:-$(tr -dc 'a-zA-Z' <"/dev/urandom" | head -c 6 | tr '[:upper:]' '[:lower:]')}"
-  echo "$host" | grep -Eq 'http|https' || { echo "Please enter a valid URL" && return 1; }
-  results="$(__curl -q -LSs -X POST -H 'Content-Type: application/json' --data '{"url":"'$host'","slug":"'$slug'"}' "$SHORTENURL_URL_PRIVATE_API_END" 2>/dev/null | grep '^' || echo '')"
-  if echo "$results" | grep -q 'Too many requests'; then
-    result="$(__error_message "You have been rate limited. Please try again later. 🍔")"
-    exitCodeTmp=1
-  elif echo "$results" | grep -q 'Slug in use.'; then
-    result="$(__error_message "The slug $2 is in use. 🍔")"
-    exitCodeTmp=1
-  elif echo "$results" | grep -q 'Error:'; then
-    result="$(__error_message "$results")"
-    exitCodeTmp=1
-  elif echo "$results" | jq -r '.url' | sed 's|"||g' | grep "$host" | grep -q '^'; then
-    result="$(echo "$SHORTENURL_URL_PRIVATE_HOME/$slug")"
-    exitCodeTmp=0
+  slug="${2:-$(__gen_slug)}"
+  [ "$host" != "$SHORTENURL_URL_PRIVATE_HOME" ] || printf_exit "Host can not match $SHORTENURL_URL_PRIVATE_HOME"
+  if __url_valid "$host"; then
+    results="$(__curl -q -LSs -X POST -H 'Content-Type: application/json' --data '{"url":"'$host'","slug":"'$slug'"}' "$SHORTENURL_URL_PRIVATE_API_END" 2>/dev/null | grep '^' || echo '')"
+    if echo "$results" | grep -q 'Too many requests'; then
+      result="$(__error_message "You have been rate limited. Please try again later. 🍔")"
+      exitCodeTmp=1
+    elif echo "$results" | grep -q 'Slug in use.'; then
+      result="$(__error_message "The slug $2 is in use. 🍔")"
+      exitCodeTmp=1
+    elif echo "$results" | grep -q 'Error:'; then
+      result="$(__error_message "$results")"
+      exitCodeTmp=1
+    elif echo "$results" | __jq -r '.url' | sed 's|"||g' | grep "$host" | grep -q '^'; then
+      result="$(echo "$SHORTENURL_URL_PRIVATE_HOME/$slug")"
+      exitCodeTmp=0
+    else
+      result="$(__error_message "$results")"
+      exitCodeTmp=1
+    fi
   else
-    result="$(__error_message "$results")"
-    exitCodeTmp=1
+    exitCodeTmp=3
+    printf_red "Please enter a valid URL"
   fi
   exitCode=${exitCodeTmp:-$?}
   return ${exitCode:-0}
@@ -398,7 +410,7 @@ __is_gd_url() {
 __tny_url() {
   local host="" slug="" endpoint=""
   host="$1"
-  slug="${2:-$(tr -dc 'a-zA-Z' <"/dev/urandom" | head -c 6 | tr '[:upper:]' '[:lower:]')}"
+  slug="${2:-$(__gen_slug)}"
   if [ -n "$SHORTENURL_URL_TNY_API_KEY" ]; then
     endpoint="$SHORTENURL_URL_TNY_API_END?signature=$SHORTENURL_URL_TNY_API_KEY&action=shorturl&format=$SHORTENURL_URL_TNY_API_FORMAT&url=$host&keyword=$slug"
   else
@@ -419,7 +431,7 @@ __tny_url() {
 __yourls_url() {
   local host="" slug="" endpoint=""
   host="$1"
-  slug="${2:-$(tr -dc 'a-zA-Z' <"/dev/urandom" | head -c 6 | tr '[:upper:]' '[:lower:]')}"
+  slug="${2:-$(__gen_slug)}"
   if [ -n "$SHORTENURL_URL_YOURLS_API_KEY" ]; then
     endpoint="$SHORTENURL_URL_YOURLS_API_END?signature=$SHORTENURL_URL_YOURLS_API_KEY&action=shorturl&format=$SHORTENURL_URL_YOURLS_API_FORMAT&url=$host&keyword=$slug"
   else
@@ -447,9 +459,9 @@ __gen_config_local() {
   NAME_UPPER="$(echo "$url_name" | tr '[:lower:]' '[:upper:]')"
   NAME_LOWER="$(echo "$url_name" | tr '[:upper:]' '[:lower:]')"
   cat <<EOF | sed 's|{NAME_UPPER}|'$NAME_UPPER'|g;s|{NAME_LOWER}|'$NAME_LOWER'|g' | tee -p "$SHORTENURL_CONFIG_DIR/urls/${url_name}.sh" &>/dev/null
-# {NAME_LOWER}: See https://github.com/casjay-coffee/casjay.link for self hosted option
+# {NAME_LOWER}: See https://github.com/casjaydns/csj.lol for self hosted option
 export ARRAY+="$NAME_LOWER "
-SHORTENURL_URL_{NAME_UPPER}_HOME="https://casjay.link"
+SHORTENURL_URL_{NAME_UPPER}_HOME="https://csj.lol"
 SHORTENURL_URL_{NAME_UPPER}_API_END="\$SHORTENURL_URL_{NAME_UPPER}_HOME/url"
 
 # Set function - format is: __NAME_url
@@ -457,7 +469,7 @@ __{NAME_LOWER}_url() {
 local host="" slug=""
 host="\$1"
 slug="\${2:-\$(tr -dc 'a-zA-Z' <"/dev/urandom" | head -c 6 | tr '[:upper:]' '[:lower:]')}"
-echo "\$host" | grep -Eq 'http|https' || { echo "Please enter a valid URL" && return 1; }
+echo "\$host" | grep -Eq 'http|https' || { printf_red "Please enter a valid URL" && return 1; }
 results="\$(__curl -q -LSs -H "Content-Type: application/json" --request POST --data '{\"url\":\"'\$host'\",\"slug\":\"'\$slug'\"}' "\$SHORTENURL_URL_{NAME_UPPER}_API_END")"
 if echo "\$results" | grep -q 'Too many requests'; then
   result="\$(echo "You have been rate limited. Please try again later. 🍔")"
@@ -468,7 +480,7 @@ elif echo "\$results" | grep -q 'Slug in use.'; then
 elif echo "\$results" | grep -q 'Error:'; then
   result="\$(echo "An error has occured. 🍔")"
   exitCodeTmp=1
-elif echo "\$results" | jq -r '.url' | sed 's|"||g' | grep "\$host" | grep -q '^'; then
+elif echo "\$results" | __jq -r '.url' | sed 's|"||g' | grep "\$host" | grep -q '^'; then
   result="\$(echo "\$SHORTENURL_URL_{NAME_UPPER}_HOME/\$slug points to \$host" && exitCodeTmp=0)"
   exitCodeTmp=0
 else
@@ -552,8 +564,8 @@ SHORTENURL_NOTIFY_CLIENT_URGENCY="${SHORTENURL_NOTIFY_CLIENT_URGENCY:-normal}"
 SHORTENURL_SAVED_FILE="${SHORTENURL_SAVED_FILE:-$HOME/Documents/myscripts/${APPNAME}_urls.txt}"
 SHORTENURL_DEFAULT="${SHORTENURL_DEFAULT:-yourls}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# csjy: See https://github.com/casjay-coffee/casjay.link for self hosted option
-SHORTENURL_URL_PRIVATE_HOME="${SHORTENURL_URL_PRIVATE_HOME:-https://casjay.link}"
+# csjy: See https://github.com/casjaydns/csj.lol for self hosted option
+SHORTENURL_URL_PRIVATE_HOME="${SHORTENURL_URL_PRIVATE_HOME:-https://csj.lol}"
 SHORTENURL_URL_PRIVATE_API_END="${SHORTENURL_URL_PRIVATE_API_END:-$SHORTENURL_URL_PRIVATE_HOME/url}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # yourls: See http://yourls.org for self hosted option

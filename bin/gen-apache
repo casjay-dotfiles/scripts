@@ -308,7 +308,13 @@ __find_replace() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_apache_conf() {
+  local DomainName="${GEN_APACHE_DOMAIN//,*/}"
+  local ServerNames="${GEN_APACHE_DOMAIN//,/ }"
+  local ServerAdmin="webmaster@${DomainName:-$HOSTNAME}"
   local template_file="${GEN_APACHE_TEMPLATE_NAME:-ssl}"
+  local DomainName="${DomainName:-$HOSTNAME}"
+  local ServerNames="${ServerNames:-$HOSTNAME}"
+  [ -n "$DomainName" ] && [ -n "$ServerNames" ] || printf_exit "Can not determine env: GEN_APACHE_DOMAIN"
   [ -d "$GEN_APACHE_CONFIG_DIR" ] || mkdir -p "$GEN_APACHE_CONFIG_DIR"
   if [ -d "/etc/letsencrypt/live" ]; then
     SSL_LE=true
@@ -320,30 +326,35 @@ __create_apache_conf() {
   fi
   if [ "$template_file" = "ssl" ] && [ "$SSL_LE" = "true" ]; then
     cat <<EOF | tee
-# VirtualHost for $GEN_APACHE_DOMAIN
+## VirtualHost for $GEN_APACHE_DOMAIN
 
 <IfModule mod_ssl.c>
 <VirtualHost ${GEN_APACHE_LOCAL_IP:-_default_}:$GEN_APACHE_PORT_SSL>
-ServerName $GEN_APACHE_DOMAIN
-ServerAdmin webmaster@$GEN_APACHE_DOMAIN
+ServerName $ServerNames
+ServerAdmin $ServerAdmin
 DocumentRoot "$GEN_APACHE_WWW_USER_DIR"
 
-#Rewrites
-RewriteEngine On
-RewriteCond %{HTTPS} !=on
-RewriteRule ^/?(.*) https://%{SERVER_NAME}/\$1 [R,L]
-
-##LE Certs
+## LE Certs
 SSLEngine on
 SSLCertificateFile /etc/letsencrypt/live/domain/cert.pem
 SSLCertificateKeyFile /etc/letsencrypt/live/domain/privkey.pem
 SSLCertificateChainFile /etc/letsencrypt/live/domain/fullchain.pem
 
-#Headers
+## Rewrites
+RewriteEngine On
+RewriteCond %{HTTPS} !=on
+RewriteRule ^/?(.*) https://%{SERVER_NAME}/\$1 [R,L]
+
+## Headers
 #Header always set Strict-Transport-Security "max-age=31536000; preload"
 #RequestHeader set Upgrade \$http_upgrade;
 #RequestHeader set Connection "upgrade"
 #RequestHeader set X-Forwarded-Proto "https"
+
+## Set Proxy headers
+<IfModule mod_proxy.c>
+ProxyAddHeaders On
+</IfModule>
 </VirtualHost>
 </IfModule>
 
@@ -351,40 +362,46 @@ EOF
 
   elif [ "$template_file" = "ssl" ] && [ "$SSL_LE" = "false" ]; then
     cat <<EOF | tee
-# VirtualHost for $GEN_APACHE_DOMAIN
+## VirtualHost for $GEN_APACHE_DOMAIN
 
 <IfModule mod_ssl.c>
 <VirtualHost _default_:$GEN_APACHE_PORT_SSL>
-ServerName $GEN_APACHE_DOMAIN
-ServerAdmin webmaster@$GEN_APACHE_DOMAIN
+ServerName $ServerNames
+ServerAdmin $ServerAdmin
 DocumentRoot "$GEN_APACHE_WWW_USER_DIR"
 
-#Rewrites
-RewriteEngine On
-RewriteCond %{HTTPS} !=on
-RewriteRule ^/?(.*) https://%{SERVER_NAME}/\$1 [R,L]
-
+## letsencrypt cert
 SSLEngine on
 SSLCertificateFile /etc/ssl/CA/CasjaysDev/certs/localhost.crt
 SSLCertificateKeyFile /etc/ssl/CA/CasjaysDev/private/localhost.key
 #SSLCertificateChainFile /etc/ssl/CA/CasjaysDev/certs/localhost.crt
 
-#Headers
+## Rewrites
+RewriteEngine On
+RewriteCond %{HTTPS} !=on
+RewriteRule ^/?(.*) https://%{SERVER_NAME}/\$1 [R,L]
+
+## Headers
 #Header always set Strict-Transport-Security "max-age=31536000; preload"
 #RequestHeader set Upgrade \$http_upgrade;
 #RequestHeader set Connection "upgrade"
 #RequestHeader set X-Forwarded-Proto "https"
+
+## Set Proxy headers
+<IfModule mod_proxy.c>
+ProxyAddHeaders On
+</IfModule>
 </VirtualHost>
 </IfModule>
 
 EOF
   elif [ "$template_file" = "no_ssl" ]; then
     cat <<EOF | tee
-# VirtualHost for $GEN_APACHE_DOMAIN
+## VirtualHost for $GEN_APACHE_DOMAIN
 
 <VirtualHost _default_:$GEN_APACHE_PORT_NONSSL>
-ServerName $GEN_APACHE_DOMAIN
-ServerAdmin webmaster@$GEN_APACHE_DOMAIN
+ServerName $ServerNames
+ServerAdmin $ServerAdmin
 DocumentRoot "$GEN_APACHE_WWW_USER_DIR"
 
 </VirtualHost>
@@ -394,8 +411,8 @@ EOF
   return
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# configuration wizard
 __configure_apache_vhosts() {
-  # configuration wizard
   __printf_header "Configuring the apache vhost"
   __apache_dom || __return__error
   __calculate_local_ip || __return__error
@@ -412,8 +429,8 @@ __configure_apache_vhosts() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# configure domain
 __apache_dom() {
-  # configure domain
   if [ -n "$GEN_APACHE_DOMAIN" ]; then
     GEN_APACHE_DOMAIN="${GEN_APACHE_DOMAIN:-}"
   else
@@ -431,8 +448,8 @@ __apache_dom() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# ensure every config gets a different ip
 __calculate_local_ip() {
-  # ensure every config gets a different ip
   local ips="" search=""
   search="$GEN_APACHE_LOCAL_IP"
   ips="$(grep -qs "$search" "/etc/hosts" && echo 'yes' || false)"
@@ -453,8 +470,8 @@ __calculate_local_ip() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# configure document root
 __apache_www() {
-  # configure document root
   printf_read_input "4" "What is your DocumentRoot? " "120" "GEN_APACHE_WWW_USER_DIR" "-i $GEN_APACHE_WWW_USER_DIR"
   if [ -n "$GEN_APACHE_WWW_USER_DIR" ]; then
     GEN_APACHE_WWW_USER_DIR="${GEN_APACHE_WWW_USER_DIR:-}"
@@ -465,15 +482,11 @@ __apache_www() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# determine apache configuration directory
 __apache_confdir() {
-  # determine apache configuration directory
-  if [ -d "/etc/apache2/sites-enabled" ]; then
-    GEN_APACHE_VHOST_SYSTEM_DIR="/etc/apache2/sites-enabled"
-  elif [ -d "/etc/httpd/conf/vhosts.d" ]; then
-    GEN_APACHE_VHOST_SYSTEM_DIR="/etc/httpd/conf/vhosts.d"
-  else
+  if [ -z "$GEN_APACHE_VHOST_SYSTEM_DIR" ]; then
     printf_read_input "4" "Where are your apache server files located? " "120" "GEN_APACHE_VHOST_SYSTEM_DIR" "-i $GEN_APACHE_VHOST_SYSTEM_DIR"
-    if [[ ! -d "$GEN_APACHE_VHOST_SYSTEM_DIR" ]]; then
+    if [ ! -d "$GEN_APACHE_VHOST_SYSTEM_DIR" ]; then
       if __user_is_root; then
         printf_read_question_nt "4" "The directory doesn't exist should I try to create it?"
         if printf_answer_yes; then sudo mkdir -p "$GEN_APACHE_VHOST_SYSTEM_DIR"; fi
@@ -516,8 +529,8 @@ __apache_html() {
   return $exitCodeT
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# create the configuration file
 __apache_conf() {
-  # create the configuration file
   printf_newline
   __printf_header "Generating apache conf using the template $GEN_APACHE_TEMPLATE_NAME in:" "$GEN_APACHE_VHOST_USER_DIR" "using the ip: $GEN_APACHE_LOCAL_IP"
   cat <<EOF >"$GEN_APACHE_DEFAULT_VHOST_FILE"
@@ -526,8 +539,8 @@ EOF
 
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# error function
 __return__error() {
-  # error function
   printf_error "Something seems to have gone very wrong" 1>&2
   printf_yellow "File has been saved to $GEN_APACHE_DEFAULT_VHOST_FILE" 1>&2
   exit 1
@@ -804,7 +817,11 @@ export GEN_APACHE_CWD
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
-
+if [ -d "/etc/apache2/sites-enabled" ]; then
+  GEN_APACHE_VHOST_SYSTEM_DIR="/etc/apache2/sites-enabled"
+elif [ -d "/etc/httpd/conf/vhosts.d" ]; then
+  GEN_APACHE_VHOST_SYSTEM_DIR="/etc/httpd/conf/vhosts.d"
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Execute functions
 

@@ -318,6 +318,7 @@ __viewer() { __local_viewer "$1" || __remote_viewer "$1" || return 1; }
 __is_libvirt_installed() { __cmd_exists qemu-img virt-manager virt-install && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __64bit_check() { grep -q -o -w 'lm' /proc/cpuinfo &>/dev/null && return 0 || return 1; }
+__get_cpu_info() { grep -o -sE 'model name.*:.*' '/proc/cpuinfo' | sed 's/model name.*: //g' | head -n 1 | tr '[:upper:]' '[:lower:]' | awk '{print $1}' | grep '^' || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __check_vm_args() {
   local running=""
@@ -584,15 +585,15 @@ __nested_enabled() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __modprobe_kvm() {
-  CPU=$(grep -o -E 'model name.*:.*' /proc/cpuinfo | sed 's/model name.*: //g' | head -n 1 | grep '^')
+  local CPU=$(__get_cpu_info)
   sudo modprobe kvm &>/dev/null
   echo 1 | sudo tee -p /sys/module/kvm/parameters/ignore_msrs &>/dev/null
-  if [[ "$CPU" =~ [aA]md ]]; then
+  if [ "$CPU" = "amd" ]; then
     CPU_NAME="AMD"
     if ! __nested_enabled; then
       echo 'options kvm_amd nested=1' | sudo tee -p -a /etc/modprobe.d/kvm.conf &>/dev/null
     fi
-  elif [[ "$CPU" =~ [iI]ntel ]]; then
+  elif [ "$CPU" = "intel" ]; then
     CPU_NAME="Intel"
     if ! __nested_enabled; then
       echo 'options kvm_intel nested=1' | sudo tee -p -a /etc/modprobe.d/kvm.conf &>/dev/null
@@ -608,7 +609,7 @@ __modprobe_kvm() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __init() {
-  local pkgs
+  local pkgs=""
   local exitCode=0
   local TMP="${TMPDIR:-/tmp}"
   local ip="${CURRENT_IP_4:-127.0.0.1}"
@@ -620,37 +621,39 @@ __init() {
   local yum_dnf_pkgs="libvirt qemu-kvm virt-manager bridge-utils virt-install bridge-utils libvirt-daemon-kvm cockpit cockpit-machines virt-viewer virt-top  virt-top libguestfs-tools"
   local dockerMounts="-v /var/run/libvirt:/var/run/libvirt -v $dockerHome/data/webvirt:/srv/webvirtcloud/data -v $dockerHome/config/ssh:/var/www/.ssh"
   [ -z "$VIRTMGR_FORCE" ] && __is_libvirt_installed && return $exitCode
+  __can_i_sudo && __sudoask && printf_green "Installing virtualization packages" || printf_exit "sudo is required"
   if [ ! -d "$dockerHome" ]; then
-    mkdir -p "$dockerHome"
-    chmod -f 777 "$dockerHome"
+    sudo mkdir -p "$dockerHome"
   fi
-  __cpu_count
-  printf_green "Installing virtualization packages"
+  sudo chmod -f 777 "$dockerHome"
   if __cmd_exists pacman; then # ARCH
-    #pkgs+="iptables-nft "
-    pacman -Syyu $pacman_pkgs --noconfirm --needed >>"$VIRTMGR_LOG_DIR/pkgs.log" 2>&1 || exitCode=1
-  elif __cmd_exists apt; then # UBUNTU DEBIAN
-    apt install $apt_pkgs -yy >>"$VIRTMGR_LOG_DIR/pkgs.log" 2>&1 || exitCode=1
+    pkgs="$pacman_pkgs iptables-nft "
+    __sudo pacman -Syyu $pacman_pkgs --noconfirm --needed >>"$VIRTMGR_LOG_DIR/pkgs.log" 2>&1 || exitCode=1
+  elif __cmd_exists apt-get; then # UBUNTU DEBIAN
+    pkgs="$apt_pkgs"
+    __sudo apt-get install $apt_pkgs -yy >>"$VIRTMGR_LOG_DIR/pkgs.log" 2>&1 || exitCode=1
   elif __cmd_exists dnf; then # FEDORA
+    pkgs="$yum_dnf_pkgs"
     if dnf grouplist 2>&1 | grep -q "Virtualization Host"; then
-      dnf groupinstall -yy "Virtualization Host" >>"$VIRTMGR_LOG_DIR/pkgs.log" 2>&1 || exitCode=1
+      __sudo dnf groupinstall -yy "Virtualization Host" >>"$VIRTMGR_LOG_DIR/pkgs.log" 2>&1 || exitCode=1
     fi
-    dnf install -yy $yum_dnf_pkgs >>"$VIRTMGR_LOG_DIR/pkgs.log" 2>&1 || exitCode=1
+    __sudo dnf install -yy $yum_dnf_pkgs >>"$VIRTMGR_LOG_DIR/pkgs.log" 2>&1 || exitCode=1
   elif __cmd_exists yum; then # CENTOS RHEL
+    pkgs="$yum_dnf_pkgs"
     if yum grouplist 2>&1 | grep -q "Virtualization Host"; then
-      yum groupinstall -yy "Virtualization Host" >>"$VIRTMGR_LOG_DIR/pkgs.log" 2>&1 || exitCode=1
+      __sudo yum groupinstall -yy "Virtualization Host" >>"$VIRTMGR_LOG_DIR/pkgs.log" 2>&1 || exitCode=1
     fi
-    yum install -yy $yum_dnf_pkgs >>"$VIRTMGR_LOG_DIR/pkgs.log" 2>&1 || exitCode=1
+    __sudo yum install -yy $yum_dnf_pkgs >>"$VIRTMGR_LOG_DIR/pkgs.log" 2>&1 || exitCode=1
   fi
   if __is_libvirt_installed; then
     printf_green "Installed the virtualization packages"
     if [ -n "$(type -P docker)" ] && ! docker ps -a 2>&1 | grep -qE "webvirtcloud"; then
       printf_yellow "Installing webvirtcloud via docker"
-      if ! docker run -d --pull always --restart always --name "$CONTAINER_NAME" -p $ip:65000:80/tcp -p $ip:6080:6080/tcp $dockerMounts $HUB_URL:latest >/dev/null 2>&1; then
+      if ! __sudo docker run -d --pull always --restart always --name "$CONTAINER_NAME" -p $ip:65000:80/tcp -p $ip:6080:6080/tcp $dockerMounts $HUB_URL:latest >/dev/null 2>&1; then
         printf_red "Failed to creaate container $CONTAINER_NAME"
         return 1
       fi
-      mkdir -p "/etc/webvirtcloud" && chmod 777 -f "/etc/webvirtcloud"
+      __sudo mkdir -p "/etc/webvirtcloud" && chmod 777 -f "/etc/webvirtcloud"
       printf_purple "webvirtcloud will is listening on http://$ip:65000"
       printf_green "Default username is: admin"
       printf_green "Default password is: admin"
@@ -658,16 +661,17 @@ __init() {
     if [ ! -f "/etc/kvm/.installed" ]; then
       is_kvm_installed="no"
       printf_cyan "Installing configuration files to /etc/kvm"
-      git clone -q "https://github.com/systemmgr/kvm" "$TMP/kvm_setup" && rsync -aq "$TMP/kvm_setup/etc/." "/etc/kvm/" --delete
+      git clone -q "https://github.com/systemmgr/kvm" "$TMP/kvm_setup" && __sudo rsync -aq "$TMP/kvm_setup/etc/." "/etc/kvm/" --delete >/dev/null 2>&1
       rm -Rf "$TMP/kvm_setup"
       __vm_bridge
-      echo "Installed on $(date)" >"/etc/kvm/.installed"
+      echo "Installed on $(date)" | sudo tee "/etc/kvm/.installed" &>/dev/null
     fi
     __modprobe_kvm
     __enable_services
     return 0
   else
     printf_red "Failed to install the virtualization packages"
+    printf_yellow "Errors can be found in: $VIRTMGR_LOG_DIR/pkgs.log"
     printf_blue "$pkgs"
     exit 1
   fi
@@ -987,6 +991,8 @@ status)
 setup)
   shift 1
   __init
+  exitCode=$?
+  exit $exitCode
   ;;
 init)
   shift 1

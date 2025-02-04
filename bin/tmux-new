@@ -349,8 +349,10 @@ __tmux_kill() {
     shift 2
     ;;
   *)
-    printf_cyan "Usage: [pane/server/session/window] [name]"
-    tmux ls
+    printf_cyan "Usage: $APPNAME [pane/server/session/window] [name]"
+    if [ -n "$session" ]; then
+      printf '%s\n' "$session"
+    fi
     exitCode=$?
     ;;
   esac
@@ -361,6 +363,28 @@ __cd() {
   TMUX_NEW_CWD="${1:-$TMUX_NEW_CWD}"
   [ -d "$TMUX_NEW_CWD" ] || mkdir -p "$TMUX_NEW_CWD"
   builtin cd "$TMUX_NEW_CWD" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__tmux_get_session_sockets() {
+  local sockets="$([ -n "$TMUX_NEW_SOCKET_DIR" ] && ls "$TMUX_NEW_SOCKET_DIR" | grep -v "default" || false)"
+  [ -n "$sockets" ] || return 1
+  for socket in $sockets; do tmux -S $TMUX_NEW_SOCKET_DIR/$socket ls 2>/dev/null | awk -F ':' '{print $1}'; done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__tmux_get_all_sessions() {
+  local default="$(tmux ls 2>/dev/null || false)"
+  local sockets="$(__tmux_get_session_sockets || false)"
+  [ -n "$default" ] || return 1
+  printf '%s\n%s\n' "$default" "$sockets" | awk -F ':' '{print $1}'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__tmux_list() {
+  local tmux_ls="$(__tmux_get_all_sessions | grep '^' || false)"
+  if [ -n "$tmux_ls" ]; then
+    printf '%s\n' "$tmux_ls"
+  else
+    return 1
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_tmux_conf() {
@@ -442,20 +466,16 @@ __edit() {
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__tmux_list() {
-  local tmux_ls="$(tmux ls 2>/dev/null | awk -F ':' '{print $1}' | grep '^' || false)"
-  if [ -n "$tmux_ls" ]; then
-    printf '%s\n' "$tmux_ls"
-  else
-    return 1
-  fi
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __tmux_attach() {
   local name="${1:-$(__tmux_list | tail -n1)}"
   [ -n "$name" ] || return 1
   tmux attach -t "$name" 2>/dev/null
   return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__tmux_ssh() {
+  local ssh_session="$(__tmux_get_all_sessions | grep '^ssh$')"
+  [ -n "$ssh_session" ] && tmux -L ssh a -t ssh || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
@@ -714,6 +734,7 @@ fi
 [ -f "$HOME/.tmux.conf" ] || cp -Rf "$CASJAYSDEVDIR/templates/tmux/default.conf" "$HOME/.tmux.conf"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # export variables
+TMUX_NEW_SOCKET_DIR="/tmp/tmux-$(id -u)"
 export RUN_OPTIONS_NO_MESSAGE="${RUN_OPTIONS_NO_MESSAGE:-true}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Execute functions
@@ -731,8 +752,13 @@ list | ls)
   ;;
 attach | a)
   shift 1
-  __tmux_attach "$1" || printf_exit "There are no current tmux seesions"
-  exit $?
+  if [ "$1" = "ssh" ]; then
+    __tmux_ssh || tmux -L ssh -f $HOME/.config/tmux/tmux.ssh.conf new-session -D -A -s ssh 2>/dev/null
+    exit $?
+  else
+    __tmux_attach "$1" || printf_exit "There are no current tmux seesions"
+    exit $?
+  fi
   ;;
 server)
   shift 1

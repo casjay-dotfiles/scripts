@@ -756,18 +756,25 @@ __update_repo_usage() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __update_github_repo() {
+  local org=""
   local repo=""
   local data=""
   local json=""
   local exitCode=0
+  local exitStatus=0
+  local message_bad=""
+  local message_good=""
   local json_message=""
+  local show_message=""
   local token="$GITADMIN_GITHUB_AUTH_TOKEN"
   local host="https://api.github.com"
   { [ $# = 0 ] || [ "$1" = "help" ]; } && __update_usage
   echo "$1" | grep -q '.*./.*.' || echo "$1" | grep -q '.*.=.*.' || __update_usage
-  repo="$1" && shift 1
+  [ -d "$GITADMIN_CWD/.git" ] || printf_exit "$GITADMIN_CWD is not a valid repo"
+  org="$(echo "$GITADMIN_CWD" | awk -F'/' '{print $(NF-1)}')"
+  repo="$(echo "$GITADMIN_CWD" | awk -F'/' '{print $NF}')"
   name="$(echo "$repo" | sed 's|/|_|g')"
-  printf '%s' "$(printf_yellow "Updating $repo: ")"
+  printf '%s' "$(printf_yellow "Updating $org/$repo: ")"
   while :; do
     case "$1" in
     *=*)
@@ -776,30 +783,37 @@ __update_github_repo() {
       if [ "$value" = "true" ] || [ "$value" = "false" ]; then
         json='"'$data'":'$value''
       else
-        json='"'$data'": "'$value'"'
+        json='"'$data'":"'$value'"'
       fi
       shift 1
-      update="$(printf '%s' "{${json//\"\"/\",\"}}")"
-      curl -q -LSsf -X PATCH -H "Content-Type: application/json" -H "Authorization: token $token" --data "$update" "$host/$repo" >"$GITADMIN_LOG_DIR/$name.log" 2>&1
+      update="$(printf '%s' "$json")"
+      curl -q -LSsf -X PATCH -H "Content-Type: application/json" -H "Authorization: token $token" --data "{$update}" "$host/repos/$org/$repo" >"$GITADMIN_LOG_DIR/$name.log" 2>&1
       if cat "$GITADMIN_LOG_DIR/$name.log" | grep "$data" | grep -q "$value"; then
-        json_message="$json"
+        exitStatus=0
+        json_message="$update"
+        message_good="$(printf '%s' "$(printf_red "failed: $json_message")")"
         exitCode=$((exitCode + 0))
-        message="$(printf '%s' "$(printf_green "success:")")"
       else
-        json_message="$json"
+        exitStatus=1
+        json_message="$update"
+        message_bad="$(printf '%s' "$(printf_red "failed: $json_message")")"
         exitCode=$((exitCode + 1))
-        message="$(printf '%s' "$(printf_red "failed:")")"
       fi
-      json_message="$(printf '%s' "$json_message" | sed 's| $||g;s| |, |g')"
-      json_message="$(printf '%s' "{${json_message//\"\"/\",\"}}")"
-      printf '%s %s ' "$message" "$json_message"
+      if [ "$exitStatus" -ne 0 ]; then
+        printf '%s\n' "$message_bad"
+      else
+        message="$(printf '%s' "$(printf_green "Success:")")"
+        show_message+="$(printf '%s' "$json_message," | sed 's| $||g;s| ,$| |g')"
+      fi
       ;;
     *)
       break
       ;;
     esac
   done
-  printf '%s\n' "- exitCode: $exitCode"
+  printf '%s %s' "$message" "{$show_message}" | sed 's|,}$|}|g'
+  [ $exitCode -eq 0 ] || printf '\n%s' "Errors Observed - exitCode: $exitCode"
+  printf '\n'
   return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

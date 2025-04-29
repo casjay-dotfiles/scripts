@@ -388,10 +388,11 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __nginx_static_dom() {
-  local test_user_www_dir="$GEN_NGINX_WWW_USER_DIR"
+  local test_user_www_dir=""
+  GEN_NGINX_TEMPLATE_SETTING="create"
   GEN_NGINX_DOMAIN="${1:-$GEN_NGINX_DOMAIN}"
   GEN_NGINX_WWW_USER_DIR="${2:-$GEN_NGINX_WWW_USER_DIR/$GEN_NGINX_DOMAIN}"
-  GEN_NGINX_TEMPLATE_SETTING="create"
+  test_user_www_dir="$GEN_NGINX_WWW_USER_DIR"
   [ -n "$test_user_www_dir" ] || GEN_NGINX_WWW_USER_DIR=""
   # Set domain and config its set
   [ -n "$GEN_NGINX_DOMAIN" ] || printf_read_input "4" "What is your domain name? [example.com] " "120" "GEN_NGINX_DOMAIN" ""
@@ -404,13 +405,13 @@ __nginx_static_dom() {
   [ -d "$GEN_NGINX_WWW_USER_DIR" ] || mkdir -p "$GEN_NGINX_WWW_USER_DIR"
   [ -d "$GEN_NGINX_VHOST_USER_DIR" ] || mkdir -p "$GEN_NGINX_VHOST_USER_DIR"
   domain="$GEN_NGINX_DOMAIN"
-  static_files="$GEN_NGINX_WWW_USER_DIR"
   copyright_year="$(date +'%Y')"
   author="${GEN_NGINX_AUTHOR:-$USER}"
   le_cert="${GEN_NGINX_ACME_CERT_DIR:-domain}"
   modified_on="$(date +'%a %b %d, %Y at %H:%M:%S %Z')"
-  [ -f "$GEN_NGINX_WWW_USER_DIR/index.html" ] || cp -Rf "$GEN_NGINX_CONFIG_DIR/templates/." "$GEN_NGINX_WWW_USER_DIR/"
-  if [ -f "$GEN_NGINX_WWW_USER_DIR/index.html" ]; then
+  static_files="${GEN_NGINX_HTMLROOT:-$GEN_NGINX_WWW_USER_DIR}"
+  [ -f "$static_files/index.html" ] || cp -Rf "$GEN_NGINX_CONFIG_DIR/templates/." "$static_files/"
+  if [ -f "$static_files/index.html" ]; then
     printf_newline
     printf_head 4 "HTML files copied to" "$static_files"
     __find_replace "GEN_SCRIPT_REPLACE_DOMAIN" "$domain" "$static_files"
@@ -423,7 +424,7 @@ __nginx_static_dom() {
     __modify_html_file "$static_files"
   else
     printf_red "The file index.html file does not exist"
-    printf_yellow "in $GEN_NGINX_WWW_USER_DIR"
+    printf_yellow "in $static_files"
     exit 1
   fi
 
@@ -516,24 +517,15 @@ __nginx_php_dom() {
   domain="$GEN_NGINX_DOMAIN"
   copyright_year="$(date +'%Y')"
   author="${GEN_NGINX_AUTHOR:-$USER}"
-  static_files="$GEN_NGINX_WWW_USER_DIR"
   php_fpm_address="$GEN_NGINX_PHP_FPM_LISTEN"
   le_cert="${GEN_NGINX_ACME_CERT_DIR:-domain}"
+  static_files="${GEN_NGINX_HTMLROOT:-$GEN_NGINX_WWW_USER_DIR}"
   modified_on="$(date +'%a %b %d, %Y at %H:%M:%S %Z')"
-  [ -f "$GEN_NGINX_WWW_USER_DIR/index.html" ] || cp -Rf "$GEN_NGINX_CONFIG_DIR/templates/." "$GEN_NGINX_WWW_USER_DIR/"
+  [ -f "$static_files/index.html" ] || cp -Rf "$GEN_NGINX_CONFIG_DIR/templates/." "$static_files/"
 
-  if [ -f "$GEN_NGINX_WWW_USER_DIR/index.html" ]; then
-    __find_replace "GEN_SCRIPT_REPLACE_DOMAIN" "$domain" "$static_files"
-    __find_replace "GEN_SCRIPT_REPLACE_YEAR" "$copyright_year" "$static_files"
-    __find_replace "GEN_SCRIPT_REPLACE_HTMLROOT" "$static_files" "$static_files"
-    __find_replace "GEN_SCRIPT_REPLACE_MODIFIED" "$modified_on" "$static_files"
-    __find_replace "GEN_SCRIPT_REPLACE_AUTHOR" "$author" "$static_files"
-    __find_replace "GEN_SCRIPT_REPLACE_TITLE" "$domain" "$static_files"
-    __find_replace "GEN_SCRIPT_REPLACE_BODY" "<h3>Welcome to your new site</h3>" "$static_files"
-    __modify_html_file "$static_files"
-  else
+  if ! [ -f "$static_files/index.html" ]; then
     printf_red "The file index.html file does not exist"
-    printf_yellow "in $GEN_NGINX_WWW_USER_DIR"
+    printf_yellow "in $static_files"
     exit 1
   fi
   cat <<EOF | tee -p "$GEN_NGINX_VHOST_USER_DIR/$domain.conf" &>/dev/null
@@ -586,8 +578,10 @@ EOF
   if [ -f "$GEN_NGINX_VHOST_USER_DIR/$domain.conf" ]; then
     printf_green "Successfully created the php server for $domain"
     printf_yellow "in $GEN_NGINX_VHOST_USER_DIR/$domain.conf"
-    [ -f "$GEN_NGINX_WWW_USER_DIR/info.php" ] || echo '<?php echo phpinfo(); ?>' >"$GEN_NGINX_WWW_USER_DIR/info.php"
-    __copy_nginx_config_to_system
+    if [ -w "$static_files" ]; then
+      [ -f "$static_files/info.php" ] || echo '<?php echo phpinfo(); ?>' >"$static_files/info.php"
+    fi
+    __copy_nginx_config_to_system "$static_files"
     exitCode=$?
     printf '\n'
     return $exitCode
@@ -734,9 +728,19 @@ __copy_nginx_config_to_system() {
   __can_i_sudo || return 0
   if [ -d "/etc/nginx" ] && [ -f "/etc/nginx/nginx.conf" ]; then
     GEN_NGINX_VHOST_SYSTEM_DIR="/etc/nginx/vhosts.d"
-    GEN_NGINX_WWW_DIR_SYSTEM="/var/www/nginx/domains/$GEN_NGINX_DOMAIN"
+    GEN_NGINX_HTMLROOT="/var/www/nginx/domains/$GEN_NGINX_DOMAIN"
   fi
-  [ -d "$GEN_NGINX_WWW_DIR_SYSTEM" ] || __sudo mkdir -p "$GEN_NGINX_WWW_DIR_SYSTEM"
+  www_html_root="${2:-$GEN_NGINX_HTMLROOT}"
+  __find_replace "GEN_SCRIPT_REPLACE_DOMAIN" "$domain" "$www_html_root"
+  __find_replace "GEN_SCRIPT_REPLACE_YEAR" "$copyright_year" "$www_html_root"
+  __find_replace "GEN_SCRIPT_REPLACE_HTMLROOT" "$www_html_root" "$www_html_root"
+  __find_replace "GEN_SCRIPT_REPLACE_MODIFIED" "$modified_on" "$www_html_root"
+  __find_replace "GEN_SCRIPT_REPLACE_AUTHOR" "$author" "$www_html_root"
+  __find_replace "GEN_SCRIPT_REPLACE_TITLE" "$domain" "$www_html_root"
+  __find_replace "GEN_SCRIPT_REPLACE_BODY" "<h3>Welcome to your new site</h3>" "$www_html_root"
+  __modify_html_file "$www_html_root"
+
+  [ -d "$GEN_NGINX_HTMLROOT" ] || __sudo mkdir -p "$GEN_NGINX_HTMLROOT"
   [ -d "$GEN_NGINX_VHOST_SYSTEM_DIR" ] || __sudo mkdir -p "$GEN_NGINX_VHOST_SYSTEM_DIR"
   if [ -n "$GEN_NGINX_VHOST_SYSTEM_DIR" ]; then
     nginx_user="$(grep -sh 'user .*;' /etc/nginx/nginx.conf | awk '{print $2}' | sed 's|;||g')"
@@ -748,21 +752,21 @@ __copy_nginx_config_to_system() {
           __sudo cp -Rf "$GEN_NGINX_VHOST_USER_DIR/$GEN_NGINX_DOMAIN.conf" "$GEN_NGINX_VHOST_SYSTEM_DIR/$GEN_NGINX_DOMAIN.conf"
         fi
         if [ "$GEN_NGINX_TEMPLATE_SETTING" = "create" ] && [ -n "$GEN_NGINX_WWW_USER_DIR" ]; then
-          if [ ! -f "$GEN_NGINX_WWW_DIR_SYSTEM/index.html" ]; then
-            printf_green "Installing static files $GEN_NGINX_WWW_DIR_SYSTEM"
-            __sudo cp -Rf "$GEN_NGINX_WWW_USER_DIR/." "$GEN_NGINX_WWW_DIR_SYSTEM/"
-            if [ "$(__count_files $GEN_NGINX_WWW_DIR_SYSTEM)" -ne 0 ]; then
-              printf_green "Copying has succeeded > $GEN_NGINX_WWW_DIR_SYSTEM"
+          if [ ! -f "$GEN_NGINX_HTMLROOT/index.html" ]; then
+            printf_green "Installing static files $GEN_NGINX_HTMLROOT"
+            __sudo cp -Rf "$GEN_NGINX_WWW_USER_DIR/." "$GEN_NGINX_HTMLROOT/"
+            if [ "$(__count_files $GEN_NGINX_HTMLROOT)" -ne 0 ]; then
+              printf_green "Copying has succeeded > $GEN_NGINX_HTMLROOT"
             else
-              printf_error "Copying of files has failed < $GEN_NGINX_WWW_DIR_SYSTEM"
+              printf_error "Copying of files has failed < $GEN_NGINX_HTMLROOT"
             fi
           fi
           [ -f "$GEN_NGINX_VHOST_SYSTEM_DIR/$GEN_NGINX_DOMAIN.conf" ] && exitCode=0 || exitCode=1
-          __sudo sed -i "s|$GEN_NGINX_WWW_USER_DIR|$GEN_NGINX_WWW_DIR_SYSTEM|g" "$GEN_NGINX_WWW_DIR_SYSTEM/index.html"
-          __sudo sed -i "s|$GEN_NGINX_WWW_USER_DIR|$GEN_NGINX_WWW_DIR_SYSTEM|g" "$GEN_NGINX_VHOST_SYSTEM_DIR/$GEN_NGINX_DOMAIN.conf"
+          __sudo sed -i "s|$GEN_NGINX_WWW_USER_DIR|$GEN_NGINX_HTMLROOT|g" "$GEN_NGINX_HTMLROOT/index.html"
+          __sudo sed -i "s|$GEN_NGINX_WWW_USER_DIR|$GEN_NGINX_HTMLROOT|g" "$GEN_NGINX_VHOST_SYSTEM_DIR/$GEN_NGINX_DOMAIN.conf"
         fi
         if [ -n "$nginx_user" ] && grep -qs "$nginx_user" "/etc/passwd"; then
-          __sudo chown -Rf "$nginx_user":"$nginx_user" "$GEN_NGINX_WWW_DIR_SYSTEM"
+          __sudo chown -Rf "$nginx_user":"$nginx_user" "$GEN_NGINX_HTMLROOT"
         fi
       fi
       __hosts
@@ -810,8 +814,9 @@ GEN_NGINX_NOTIFY_CLIENT_URGENCY="${GEN_NGINX_NOTIFY_CLIENT_URGENCY:-normal}"
 GEN_NGINX_AUTHOR="${GEN_NGINX_AUTHOR:-$USER}"
 GEN_NGINX_WWW_USER_DIR="${GEN_NGINX_WWW_USER_DIR:-$GEN_NGINX_CONFIG_DIR/files/www}"
 GEN_NGINX_VHOST_USER_DIR="${GEN_NGINX_VHOST_USER_DIR:-$GEN_NGINX_CONFIG_DIR/files/vhosts}"
-GEN_NGINX_WWW_DIR_SYSTEM="${GEN_NGINX_WWW_DIR_ROOT:-/var/www/nginx}"
+GEN_NGINX_HTMLROOT="${GEN_NGINX_WWW_DIR_ROOT:-/var/www/nginx}"
 GEN_NGINX_VHOST_SYSTEM_DIR="${GEN_NGINX_VHOST_DIR_ROOT:-/etc/nginx/vhosts.d}"
+GEN_NGINX_HTMLROOT="${GEN_NGINX_HTMLROOT:-$GEN_NGINX_HTMLROOT}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$GEN_NGINX_CONFIG_DIR/$GEN_NGINX_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
@@ -855,7 +860,7 @@ SHORTOPTS=""
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
-LONGOPTS+="certs:"
+LONGOPTS+="htmlroot:,certs:"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="list redirect static php proxy"
 ARRAY+=""
@@ -948,6 +953,10 @@ while :; do
     CWD_IS_SET="TRUE"
     GEN_NGINX_CWD="$2"
     [ -d "$GEN_NGINX_CWD" ] || mkdir -p "$GEN_NGINX_CWD" |& __devnull
+    shift 2
+    ;;
+  --htmlroot)
+    GEN_NGINX_HTMLROOT="$2"
     shift 2
     ;;
   --certs)

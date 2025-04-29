@@ -153,6 +153,8 @@ run_postinst() {
   bashCompDir="${COMPDIR:-/etc/bash_completion.d}"
   fontdir="$(ls -A "$CASJAYSDEVSAPPDIR/fontmgr/" 2>/dev/null | wc -l)"
   get_pam_files_to_edit="$(grep -shRl 'dir=/var/spool/mail' /etc/pam.d/*)"
+  [ -f "/etc/hostname" ] && export HOSTNAME="$(<"/etc/hostname")"
+  [ -d "/etc/profile.d" ] && printf '%s\n' '[ -f "/etc/hostname" ] && export HOSTNAME="'$HOSTNAME'"' >"/etc/profile.d/00-hostname"
   [ -f "/etc/casjaysdev/.legal_updated" ] || [ "$RESET_LEGAL" != "yes" ] || { [ -f "$motdDir/legal/000.txt" ] && rm -Rf "$motdDir/legal/000.txt"; }
   ln_rm "$SHARE/applications/"
   git config --global pull.rebase 'true'

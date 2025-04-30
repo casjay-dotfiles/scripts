@@ -350,7 +350,10 @@ __printf_added() { [ "$ACME_CLI_SILENT" = "true" ] || { printf_color "Adding $1"
 __service_exists() { systemctl is-enabled "$1" 2>/dev/null | grep -q '^enabled' && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cert_dir_exists() {
+  local scripts_dir="$ACME_CLI_CONFIG_DIR/scripts"
   le_cert_dir="${1:-/etc/letsencrypt/live/$ACME_CLI_CERT_DIR}"
+  [ -f "$scripts_dir/create.sh" ] && \rm -Rf "$scripts_dir/create.sh"
+  [ -f "$scripts_dir/renewal.sh" ] && \rm -Rf "$scripts_dir/renewal.sh"
   if [ -d "$le_cert_dir" ]; then
     return 0
   else
@@ -361,6 +364,7 @@ __cert_dir_exists() {
 __certbot_test() {
   local exitCode=1
   local type="${1:-certonly}"
+  local scripts_dir="$ACME_CLI_CONFIG_DIR/scripts"
   __cert_dir_exists && return 0
   [ "$ACME_CLI_TEST" = "yes" ] || return 0
   printf_yellow "Testing if we can get certificates"
@@ -376,49 +380,50 @@ __certbot_test() {
   [ "$ACME_CLI_FIRST_RUN" != "yes" ] || \rm -Rf "/etc/letsencrypt"
   [ "$ACME_CLI_INIT" != "yes" ] || \rm -Rf "/etc/letsencrypt/live"/*
   [ $exitCode = 0 ] && printf_cyan "Testing has passed"
+  if [ -n "$CERTBOT_COMMAND_TEST" ]; then
+    printf '%s\n' '# This is the command used to test certificate issuance' >>"$scripts_dir/create.sh"
+    printf '%s\n' "certbot $CERTBOT_COMMAND_TEST" >>"$scripts_dir/create.sh"
+    printf '%s\n' '# This is the command used to test certificate issuance' >>"$scripts_dir/renewal.sh"
+    printf '%s\n' "certbot $CERTBOT_COMMAND_TEST" >>"$scripts_dir/renewal.sh"
+  fi
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __certbot_renew() {
+  local exitStatus=1
+  local scripts_dir="$ACME_CLI_CONFIG_DIR/scripts"
   __cert_dir_exists || [ -f "/etc/letsencrypt/renewal/$ACME_CLI_CERT_DIR.conf" ] || [ -f "/etc/letsencrypt/renewal/domain.conf" ] || return 1
   __certbot_test renew || printf_exit "certbot test has failed"
   printf_purple "Attempting to renew certificates"
   CERTBOT_COMMAND_RENEW="renew $ACME_CLI_SERVER_OPTIONS -n --agree-tos --expand $ACME_CLI_OPTIONS --dns-rfc2136 --dns-rfc2136-credentials $ACME_CLI_CONF_FILE"
   certbot $CERTBOT_COMMAND_RENEW 2>"$ACME_CLI_LOG_ERROR_FILE" >/dev/null
-  __certbot_finalize $?
+  exitStatus=$?
+  if [ -n "$CERTBOT_COMMAND_RENEW" ]; then
+    printf '%s\n' '# This is the command used to renew the certificate' >>"$scripts_dir/renewal.sh"
+    printf '%s\n' "certbot $CERTBOT_COMMAND_RENEW" >>"$scripts_dir/renewal.sh"
+  fi
+  __certbot_finalize $exitStatus
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __certbot_create() {
+  local exitStatus=1
+  local scripts_dir="$ACME_CLI_CONFIG_DIR/scripts"
   __cert_dir_exists && return 0
   [ "$ACME_CLI_INIT" = "yes" ] && rm -Rf "/etc/letsencrypt/live"/*
   __certbot_test certonly || printf_exit "certbot test has failed"
   printf_purple "Attempting to create certificates"
   CERTBOT_COMMAND_CREATE="certonly $ACME_CLI_SERVER_OPTIONS -n --agree-tos $ACME_CLI_SET_EMAIL_OPTIONS --expand $ACME_CLI_OPTIONS --dns-rfc2136 --dns-rfc2136-credentials $ACME_CLI_CONF_FILE $ACME_CLI_DOMAIN_LIST"
   certbot $CERTBOT_COMMAND_CREATE 2>"$ACME_CLI_LOG_ERROR_FILE" >/dev/null
+  exitStatus=$?
+  if [ -n "$CERTBOT_COMMAND_CREATE" ]; then
+    printf '%s\n' '# This is the command used to issue the certificate' >>"$scripts_dir/create.sh"
+    printf '%s\n' "certbot $CERTBOT_COMMAND_CREATE" >>"$scripts_dir/create.sh"
+  fi
   __certbot_finalize $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __certbot_finalize() {
   local retVal="${1:-$?}"
-  local scripts_dir="$ACME_CLI_CONFIG_DIR/scripts"
-  [ -d "$scripts_dir" ] || mkdir -p "$scripts_dir"
-  [ -f "$scripts_dir/create.sh" ] && rm -Rf "$scripts_dir/create.sh"
-  [ -f "$scripts_dir/renewal.sh" ] && rm -Rf "$scripts_dir/renewal.sh"
-  if [ -n "$CERTBOT_COMMAND_TEST" ]; then
-    printf '%s\n' '# This is the command used to test certificate issuance' >>"$scripts_dir/create.sh"
-    printf '%s\n' "certbot $CERTBOT_COMMAND_TEST" >>"$scripts_dir/create.sh"
-    printf '%s\n' '# This is the command used to test certificate issuance' >>"$scripts_dir/renewal.sh"
-    printf '%s\n' "certbot $CERTBOT_COMMAND_TEST" >>"$scripts_dir/renewal.sh"
-    chmod 777 -f "$scripts_dir/renewal.sh" "$scripts_dir/create.sh"
-  fi
-  if [ -n "$CERTBOT_COMMAND_CREATE" ]; then
-    printf '%s\n' '# This is the command used to issue the certificate' >>"$scripts_dir/create.sh"
-    printf '%s\n' "certbot $CERTBOT_COMMAND_CREATE" >>"$scripts_dir/create.sh"
-  fi
-  if [ -n "$CERTBOT_COMMAND_RENEW" ]; then
-    printf '%s\n' '# This is the command used to renew the certificate' >>"$scripts_dir/renewal.sh"
-    printf '%s\n' "certbot $CERTBOT_COMMAND_RENEW" >>"$scripts_dir/renewal.sh"
-  fi
   if [ $retVal -eq 0 ]; then
     __symlink $retVal
     __update_configs $retVal
@@ -779,7 +784,7 @@ SETARGS=("$@")
 SHORTOPTS=""
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent,force,no-*,yes-*,"
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent,force,no-test,yes-*,"
 LONGOPTS+="default,init,domains:,primary:,add:,folder:,dev,prod,acme:,create:"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="remove init rsync renew modify fix"

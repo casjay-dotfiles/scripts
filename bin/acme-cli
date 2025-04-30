@@ -350,6 +350,21 @@ __if_hostname_is_not() { if [ "$1" = "$2" ]; then return 1; else return 0; fi; }
 __printf_added() { [ "$ACME_CLI_SILENT" = "true" ] || { printf_color "Adding $1" "$2" && printf '\n'; }; }
 __service_exists() { systemctl is-enabled "$1" 2>/dev/null | grep -q '^enabled' && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_error_info() {
+  if grep -qsi 'Certificate not yet due for renewal' "$ACME_CLI_LE_LOG_FILE" "$ACME_CLI_LOG_ERROR_FILE"; then
+    printf_green "No certificates are due for renewal"
+    rm -Rf "$ACME_CLI_LE_LOG_FILE" "$ACME_CLI_LOG_ERROR_FILE"
+    return 0
+  elif grep -qsi 'Service busy; retry later' "$ACME_CLI_LE_LOG_FILE" "$ACME_CLI_LOG_ERROR_FILE"; then
+    printf_yellow "Server has reported that its busy: try again later"
+    rm -Rf "$ACME_CLI_LE_LOG_FILE" "$ACME_CLI_LOG_ERROR_FILE"
+    return 1
+  else
+    printf_red "Error log saved to $ACME_CLI_LOG_ERROR_FILE"
+    return ${1:-3}
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cert_dir_exists() {
   le_cert_dir="${1:-/etc/letsencrypt/live/$ACME_CLI_CERT_DIR}"
   if [ -d "$le_cert_dir" ]; then
@@ -387,7 +402,13 @@ __certbot_test() {
     printf '%s\n' "certbot $CERTBOT_COMMAND_TEST" >>"$scripts_dir/test.sh"
     chmod 777 "$scripts_dir/test.sh"
   fi
-  [ $exitCode = 0 ] && printf_cyan "Testing has passed" || printf_yellow "Try setting ACME_CLI_DEBUG_LEVEL to a value than 1"
+  if [ $exitCode = 0 ]; then
+    printf_cyan "Testing has passed"
+  else
+    if [ "$ACME_CLI_TEST_ONLY" = "yes" ]; then
+      __get_error_info "$exitCode"
+    fi
+  fi
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -438,18 +459,7 @@ __certbot_finalize() {
     rm -Rf "$ACME_CLI_LE_LOG_FILE" "$ACME_CLI_LOG_ERROR_FILE"
     return 0
   else
-    if grep -qsi 'Certificate not yet due for renewal' "$ACME_CLI_LE_LOG_FILE" "$ACME_CLI_LOG_ERROR_FILE"; then
-      printf_green "No certificates are due for renewal"
-      rm -Rf "$ACME_CLI_LE_LOG_FILE" "$ACME_CLI_LOG_ERROR_FILE"
-      return 0
-    elif grep -qsi 'Service busy; retry later' "$ACME_CLI_LE_LOG_FILE" "$ACME_CLI_LOG_ERROR_FILE"; then
-      printf_yellow "Server has reported that its busy: try again later"
-      rm -Rf "$ACME_CLI_LE_LOG_FILE" "$ACME_CLI_LOG_ERROR_FILE"
-      return 1
-    else
-      printf_red "Error log saved to $ACME_CLI_LOG_ERROR_FILE"
-      return $retVal
-    fi
+    __get_error_info $retVal
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

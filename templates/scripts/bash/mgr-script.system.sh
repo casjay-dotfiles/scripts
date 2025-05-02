@@ -564,6 +564,7 @@ trap '__trap_exit' EXIT
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
 GEN_SCRIPT_REPLACE_ENV_START_TIMER="${GEN_SCRIPT_REPLACE_ENV_START_TIMER:-$(date +%s.%N)}"
+[ -f "$HOME/.local/dotfiles/personal/home/.config/myscripts/GEN_SCRIPT_REPLACE_FILENAME/settings.conf" ] && . "$HOME/.local/dotfiles/personal/home/.config/myscripts/GEN_SCRIPT_REPLACE_FILENAME/settings.conf"
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default exit code

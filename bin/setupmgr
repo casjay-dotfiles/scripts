@@ -11,7 +11,7 @@
 # @@File             :  setupmgr
 # @@Description      :
 # @@Changelog        :  New script
-# @@TODO             :  Better documentation
+# @@TODO             :  Refactor the code
 # @@Other            :
 # @@Resource         :
 # @@Terminal App     :  no
@@ -532,6 +532,16 @@ EOF
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__is_installed() {
+  local name="$1"
+  local path="$2"
+  if [ -x "$path" ] || [ -d "$2" ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # url options
 __download_and_execute() {
   local exitCode=0
@@ -592,6 +602,7 @@ __download_extract_install() {
   local exitCode=0
   local url="$1" name="$(__basename "$1")" && shift 1
   SETUPMGR_TEMP_EXTRACT_FILE=$SETUPMGR_TEMP_DIR/$name
+  [ -n "$url" ] || return 1
   if [ -n "$PACKAGE_TMP_DIR" ] && [ -d "$PACKAGE_TMP_DIR" ]; then
     __rm "$PACKAGE_TMP_DIR"/*
   fi
@@ -758,6 +769,7 @@ __extract() {
     exitEXCode=1
     printf_red "$SETUPMGR_TEMP_DIR"
   fi
+  [ $exitCode -eq 0 ] || exitEXCode="$exitCode"
   if [ $exitEXCode -eq 0 ]; then
     if [ -n "$PACKAGE_TMP_DIR" ] && [ -d "$PACKAGE_TMP_DIR" ]; then
       __rm "$PACKAGE_TMP_DIR"/*
@@ -771,21 +783,22 @@ __move_extracted_file() {
   local exitCode=0
   local tempBin="$1"
   local userBin="$2"
+  local installFrom=""
   local binFile="$(__basename "$userBin")"
   [ "$SETUPMGR_SYSTEM_INSTALL" = "yes" ] && prefix="sudo" && directory="$SETUPMGER_DEFAULT_SYSTEM_BIN_DIR" || directory="$(dirname "$userBin")"
   [ -f "$PACKAGE_TMP_DIR/$binFile" ] && tempBin="$PACKAGE_TMP_DIR/$binFile" || tempBin="$(ls "$PACKAGE_TMP_DIR" | grep "$binFile$" || find "$PACKAGE_TMP_DIR" -type f -iname "$binFile" 2>/dev/null)"
   if [ -f "$1" ]; then
-    printf_cyan "Installing ${1//$HOME/\~} to $directory"
-    $prefix mv -f "$1" "$directory/$binFile" && chmod +x "$directory/$binFile" || exitEXCode=1
+    installFrom="$1"
   elif [ -f "$PACKAGE_TMP_DIR/$binFile" ]; then
-    printf_cyan "Installing ${PACKAGE_TMP_DIR//$HOME/\~}/$binFile to $directory"
-    $prefix mv -f "$PACKAGE_TMP_DIR/$binFile" "$directory/$binFile" && chmod +x "$directory/$binFile" || exitEXCode=1
+    installFrom="$PACKAGE_TMP_DIR/$binFile"
   elif [ -n "$tempBin" ] && [ -f "$tempBin" ]; then
-    printf_cyan "Installing ${tempBin//$HOME/\~} to $directory"
-    $prefix mv -f "$tempBin" "$directory/$binFile" && chmod +x "$directory/$binFile" || exitEXCode=1
+    installFrom="$tempBin"
+  else
+    return 1
   fi
-  [ -x "$directory/$binFile" ] || exitCode=1
-  return $exitCode
+  printf_cyan "Installing ${installFrom//$HOME/\~} to $directory"
+  $prefix mv -f "$installFrom" "$directory/$binFile" && chmod +x "$directory/$binFile" || exitEXCode=2
+  [ -x "$directory/$binFile" ] || return $exitEXCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # "installDir/name" "~/.local/bin/name"
@@ -1031,7 +1044,7 @@ __setup_dotnet() {
     [ -d "$HOME/.dotnet" ] && mv -f "$HOME/.dotnet" "$DOTNET_ROOT"
     [ -f "$DOTNET_ROOT/$name" ] && ln -sf "$DOTNET_ROOT/$name" "$DOTNET_BIN_DIR/$name"
   fi
-  if __cmd_exists $name; then
+  if __cmd_exists $name && __is_installed "$name" "$DOTNET_ROOT"; then
     printf_green "$name has been installed to $DOTNET_ROOT"
   else
     printf_red "Failed to install $name"
@@ -1057,7 +1070,7 @@ __setup_vfox() {
   else
     printf_green "Attempting to install $name"
   fi
-  if __download_extract_move "$url" "$name" "$binFile"; then
+  if __download_extract_move "$url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
     printf_green "$name has been installed to $binFile"
   else
     exitCode=1
@@ -1082,7 +1095,7 @@ __setup_fastfetch() {
   else
     printf_green "Attempting to install $name"
   fi
-  if __download_extract_move "$url" "$name" "$binFile"; then
+  if __download_extract_move "$url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
     printf_green "$name has been installed to $binFile"
   else
     exitCode=1
@@ -1498,12 +1511,12 @@ __setup_devbox() {
   else
     printf_green "Attempting to install $name"
   fi
-  printf_green "Installing devbox"
+  printf_green "Installing $name"
   if __curl "https://get.jetify.com/devbox" | bash -s -- -f |& __output_status; then
-    printf_cyan "devbox has been installed"
+    printf_cyan "$name has been installed"
   else
     exitCode=1
-    printf_red "Failed to install devbox"
+    printf_red "Failed to install $name"
   fi
   return $exitCode
 }
@@ -1550,7 +1563,7 @@ __setup_helm() {
   x86_64) url="https://get.helm.sh/helm-$dist_tag-linux-amd64.tar.gz" ;;
   aarch64 | arm64) url="https://get.helm.sh/helm-$dist_tag-linux-arm64.tar.gz" ;;
   esac
-  if __download_extract_move "$url" "$name" "$binFile"; then
+  if __download_extract_move "$url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
     __install_to_system_bin "$binFile"
     printf_green "$name has been installed to $binFile"
   else
@@ -1631,7 +1644,7 @@ __setup_kind() {
   else
     printf_green "Installing $name"
   fi
-  if __download_and_move "$download_url" "$name" "$binFile"; then
+  if __download_and_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
     __install_to_system_bin "$binFile"
     printf_green "$name has been installed to $binFile"
   else
@@ -1724,15 +1737,15 @@ __setup_direnv() {
   local binFile="$DIRENV_BIN_DIR/$name"
   local release_url="https://api.github.com/repos/direnv/direnv/releases/latest"
   case $arch in
-  x86_64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "direnv.linux.amd64\$")" ;;
-  aarch64 | arm64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "direnv.linux.arm64\$")" ;;
+  x86_64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "$name.linux.amd64\$")" ;;
+  aarch64 | arm64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "$name.linux.arm64\$")" ;;
   esac
   if __cmd_exists $name; then
     printf_green "Updating $name"
   else
     printf_green "Installing $name"
   fi
-  if __download_and_move "$download_url" "$name" "$binFile"; then
+  if __download_and_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
     __install_to_system_bin "$binFile"
     printf_green "Direnv has been installed to $binFile"
   else
@@ -1757,7 +1770,7 @@ __setup_incus() {
   else
     printf_green "Installing $name"
   fi
-  if __download_and_move "$download_url" "$name" "$binFile"; then
+  if __download_and_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
     __install_to_system_bin "$binFile"
     if ! grep -qs 'incus-admin' '/etc/group'; then
       __sudo true
@@ -1789,7 +1802,34 @@ __setup_gohttpserver() {
     printf_green "Installing $name"
   fi
 
-  if __download_extract_move "$download_url" "$name" "$binFile"; then
+  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
+    __install_to_system_bin "$binFile"
+    printf_green "$name has been installed to $binFile"
+  else
+    exitCode=1
+    printf_red "Failed to download $name"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_lazygit() {
+  local exitCode=0
+  local name="lazygit"
+  local arch="$(uname -m)"
+  local binFile="$LAZYGIT_BIN_DIR/$name"
+  local release_url="https://api.github.com/repos/jesseduffield/lazygit/releases/latest"
+  extract_cmd="do_not_strip_components"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
+  case $arch in
+  x86_64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "Linux_x86_64.tar.gz\$")" ;;
+  aarch64 | arm64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "Linux_arm64.tar.gz\$")" ;;
+  esac
+  if __cmd_exists $name; then
+    printf_green "Updating $name"
+  else
+    printf_green "Installing $name"
+  fi
+  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
     __install_to_system_bin "$binFile"
     printf_green "$name has been installed to $binFile"
   else
@@ -1816,7 +1856,7 @@ __setup_opentofu() {
     printf_green "Installing $name"
   fi
 
-  if __download_extract_move "$download_url" "$name" "$binFile"; then
+  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
     __install_to_system_bin "$binFile"
     printf_green "$name has been installed to $binFile"
   else
@@ -1843,7 +1883,7 @@ __setup_webhookd() {
     printf_green "Installing $name"
   fi
 
-  if __download_extract_move "$download_url" "$name" "$binFile"; then
+  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
     __install_to_system_bin "$binFile"
     printf_green "$name has been installed to $binFile"
   else
@@ -1851,6 +1891,35 @@ __setup_webhookd() {
     printf_red "Failed to download $name"
   fi
   return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_lima() {
+  local exitCode=0
+  local name="lima"
+  local arch="$(uname -m)"
+  local tempBin="bin/lima"
+  local binFile="$HOME/.local/bin/$name"
+  local installDir="$HOME/.local/share/lima"
+  local release_url="https://api.github.com/repos/lima-vm/lima/releases/latest"
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
+  case $arch in
+  x86_64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "Linux-x86_64.tar.gz\$")" ;;
+  aarch64 | arm64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "Linux-aarch64.tar.gz\$")" ;;
+  esac
+  if __cmd_exists $name; then
+    printf_green "Updating $name"
+  else
+    printf_green "Installing $name"
+  fi
+
+  if __download_extract_install "$download_url" "$installDir" "$tempBin" "$binFile" && __is_installed "$name" "$installDir"; then
+    printf_green "$name has been installed to $binFile"
+  else
+    exitCode=1
+    printf_red "Failed to download $name"
+  fi
+  return $exitCode
+
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_zed() {
@@ -1877,7 +1946,7 @@ __setup_zed() {
     printf_green "Installing $name"
   fi
 
-  if __download_extract_install "$download_url" "$installDir" "$tempBin" "$binFile"; then
+  if __download_extract_install "$download_url" "$installDir" "$tempBin" "$binFile" && __is_installed "$name" "$binFile"; then
     cp -Rf "$installDir/share/applications/zed.desktop" "$HOME/.local/share/applications/Zed-Editor.desktop"
     sed -i "s|Icon=zed|Icon=$installDir/share/icons/hicolor/512x512/apps/zed.png|g" "$HOME/.local/share/applications/Zed-Editor.desktop"
     sed -i "s|Exec=zed|Exec=$installDir/libexec/zed-editor|g" "$HOME/.local/share/applications/Zed-Editor.desktop"
@@ -1908,7 +1977,7 @@ __setup_go() {
     printf_green "Installing $name"
   fi
 
-  if __download_extract_install "$download_url" "$installDir" "$name" "$binFile"; then
+  if __download_extract_install "$download_url" "$installDir" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
     printf_green "$name has been installed to $binFile"
   else
     exitCode=1
@@ -1933,7 +2002,7 @@ __setup_coder() {
     printf_green "Installing $name"
   fi
 
-  if __download_extract_move "$download_url" "$name" "$binFile"; then
+  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
     printf_green "$name has been installed to $binFile"
   else
     exitCode=1
@@ -1995,7 +2064,7 @@ __setup_podman() {
     else
       printf_green "Installing $name"
     fi
-    if __download_extract_install "$release_url" "$installDir" "$name" "$binFile"; then
+    if __download_extract_install "$release_url" "$installDir" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
       printf_green "$name has been installed to $binFile"
       __gen_desktopfile "$name" "$binFile"
     else
@@ -2025,7 +2094,7 @@ __setup_lapce() {
   else
     printf_green "Installing $name"
   fi
-  if __download_extract_move "$download_url" "$name" "$binFile"; then
+  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
     __install_to_system_bin "$binFile"
     printf_green "$name has been installed to $binFile"
     __gen_desktopfile "$name" "$binFile"
@@ -2238,7 +2307,7 @@ __setup_caddy() {
   else
     printf_green "Installing $name"
   fi
-  if __download_extract_move "$download_url" "$name" "$binFile"; then
+  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
     __install_to_system_bin "$binFile"
     printf_green "$name has been installed to $binFile"
   else
@@ -2268,7 +2337,7 @@ __setup_yq() {
   else
     printf_green "Attempting to install $name"
   fi
-  if __download_and_move "$download_url" "$name" "$binFile"; then
+  if __download_and_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
     __install_to_system_bin "$binFile"
     printf_green "$name has been installed"
   fi
@@ -2305,7 +2374,7 @@ __setup_gpt() {
   else
     printf_green "Attempting to install $name"
   fi
-  if __download_and_move "$download_url" "$name" "$binFile"; then
+  if __download_and_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
     __install_to_system_bin "$binFile"
     printf_green "$name has been installed"
   fi
@@ -2390,7 +2459,7 @@ __setup_speedtest() {
   else
     printf_green "Attempting to install $name"
   fi
-  if ! __download_extract_move "$download_url" "$name" "$binFile"; then
+  if ! __download_extract_move "$download_url" "$name" "$binFile" && ! __is_installed "$name" "$binFile"; then
     exitCode=1
     printf_red "Failed to install $name"
   fi
@@ -2545,6 +2614,8 @@ GO_INSTALL_DIR="${GO_INSTALL_DIR:-$HOME/.local/share/go}"
 ZED_BIN_DIR="${ZED_BIN_DIR:-$SETUPMGER_DEFAULT_USER_BIN_DIR}"
 ZED_INSTALL_DIR="${ZED_INSTALL_DIR:-$HOME/.local/share/zed_editor}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+LAZYGIT_BIN_DIR="${LAZYGIT_BIN_DIR:-$SETUPMGER_DEFAULT_USER_BIN_DIR}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 CODER_BIN_DIR="${CODER_BIN_DIR:-$SETUPMGER_DEFAULT_USER_BIN_DIR}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 PODMAN_BIN_DIR="${PODMAN_BIN_DIR:-$SETUPMGER_DEFAULT_USER_BIN_DIR}"
@@ -2599,6 +2670,7 @@ LONGOPTS+="system,all"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="asdf,bun,caddy,casaos,coder,coolify,deno,devbox,direnv,distrobox,dotnet,fastfetch,fnm,garage,go,gohttpserver,gpt,gvm,helm,incus,jekyll,"
 ARRAY+="kind,kubectl,lapce,lua,minikube,minio,nix,nodejs,nvm,opentofu,packer,podman,powershell,rbenv,rvm,speedtest,uv,vagrant,vfox,webhookd,yq,zed"
+ARRAY+="lazygit"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
 LIST+=""
@@ -2933,6 +3005,11 @@ while [ $# -gt 0 ]; do
     __setup_gpt
     SETUPMGR_EXIT_STATUS=$?
     ;;
+  lazygit)
+    shift 1
+    __setup_lazygit
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
   opentofu)
     shift 1
     __setup_opentofu
@@ -2941,6 +3018,11 @@ while [ $# -gt 0 ]; do
   webhookd)
     shift 1
     __setup_webhookd
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  lima)
+    shift 1
+    __setup_lima
     SETUPMGR_EXIT_STATUS=$?
     ;;
   coolify)

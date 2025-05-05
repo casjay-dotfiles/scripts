@@ -658,9 +658,10 @@ _tar_extract() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # tmpFile moveTo moveFrom
 __extract() {
-  local exitEXCode=0
   local tmpFile="${1:-$tmpFile}" && shift 1
   local directory="$1"
+  local exitCode=0
+  local exitEXCode=0
   if mkdir -p "$PACKAGE_TMP_DIR" && builtin cd "$SETUPMGR_TEMP_DIR"; then
     if [ -f "$tmpFile" ]; then
       if [ "$extract_cmd" = "do_not_strip_components" ]; then
@@ -685,7 +686,6 @@ __extract() {
       #  _tar_extract "$tmpFile" || exitEXCode=1
       #fi
       if [ $exitEXCode = 0 ]; then
-        #[ -f "$tmpFile" ] && __rm "$tmpFile"
         case "$1" in
         --all)
           shift 1
@@ -728,6 +728,7 @@ __extract() {
           local installBinD="$2"
           local installBinTo="$3"
           local installBinFrom=""
+          local usr_bin_dir="$SYMLINK_FILES_TO"
           if [ -n "$installDir" ]; then
             mkdir -p "$installDir" && rsync -aq "$PACKAGE_TMP_DIR/." "$installDir/" --delete-before && exitEXCode=0 || exitEXCode=3
             if [ $exitEXCode -eq 0 ]; then
@@ -741,10 +742,20 @@ __extract() {
               if [ -n "$installBinFrom" ] && [ -n "$installBinTo" ]; then
                 [ -e "$installBinFrom" ] && chmod +x "$installBinFrom" || exitCode=1
                 __symlink_installed_files "$installBinFrom" "$installBinTo" || exitCode=1
+                if [ ! -f "$installBinTo" ]; then
+                  exitCode=2
+                  printf_red "Can not find file $installBinTo"
+                fi
               fi
-              if [ ! -f "$installBinTo" ]; then
-                exitCode=2
-                printf_red "Can not find file $installBinTo"
+              if [ -d "$installDir/bin" ] && [ -n "$usr_bin_dir" ]; then
+                for get_files in $installDir/bin/*; do
+                  for file in $get_files; do
+                    local tmpFilename="$(__basename "$file")"
+                    if [ ! -f "$usr_bin_dir/$tmpFilename" ] || [ -L "$usr_bin_dir/$tmpFilename" ]; then
+                      __symlink_installed_files "$file" "$usr_bin_dir/$tmpFilename"
+                    fi
+                  done
+                done
               fi
             else
               exitCode=2
@@ -758,7 +769,7 @@ __extract() {
         esac
       fi
     else
-      exitEXCode=5
+      exitCode=5
       printf_red "$tmpFile is not a valid file"
     fi
     if [ $exitEXCode -ne 0 ]; then
@@ -769,11 +780,11 @@ __extract() {
     exitEXCode=1
     printf_red "$SETUPMGR_TEMP_DIR"
   fi
-  [ $exitCode -eq 0 ] || exitEXCode="$exitCode"
+  exitEXCode="${exitCode:-$exitEXCode}"
   if [ $exitEXCode -eq 0 ]; then
-    if [ -n "$PACKAGE_TMP_DIR" ] && [ -d "$PACKAGE_TMP_DIR" ]; then
-      __rm "$PACKAGE_TMP_DIR"/*
-    fi
+    if [ -n "$PACKAGE_TMP_DIR" ] && [ -d "$PACKAGE_TMP_DIR" ]; then __rm "$PACKAGE_TMP_DIR"/; fi
+    if [ -n "$tmpFile" ] && [ -f "$tmpFile" ]; then __rm "$tmpFile"; fi
+    if [ -n "$SETUPMGR_TEMP_MOVE_FILE" ] && [ -f "$SETUPMGR_TEMP_MOVE_FILE" ]; then __rm "$SETUPMGR_TEMP_MOVE_FILE"; fi
   fi
   return $exitEXCode
 }
@@ -1897,10 +1908,11 @@ __setup_lima() {
   local exitCode=0
   local name="lima"
   local arch="$(uname -m)"
-  local tempBin="bin/lima"
   local binFile="$HOME/.local/bin/$name"
   local installDir="$HOME/.local/share/lima"
   local release_url="https://api.github.com/repos/lima-vm/lima/releases/latest"
+  tempBin="bin/lima"
+  SYMLINK_FILES_TO="$HOME/.local/bin"
   PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
   case $arch in
   x86_64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "Linux-x86_64.tar.gz\$")" ;;

@@ -161,7 +161,14 @@ __printf_space() {
   printf '\n'
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__printf_spacing_file() { __printf_space "7" "40" "$1" "$2"; }
+__printf_spacing_file() {
+  local pad="20"
+  local ip_address="$1"
+  local vhost_address="$2"
+  local width=$((${#ip_address} - $pad))
+  printf "%s%-${width}s%s\n" "$ip_address" " " "$vhost_address"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __printf_spacing_color() { __printf_space "$1" "40" "$2" "$3"; }
 __printf_color() { printf "%b" "$(tput setaf "$1" 2>/dev/null)" "$2" "$(tput sgr0 2>/dev/null)" && printf '\n'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

@@ -363,8 +363,11 @@ trap '__trap_exit' EXIT
 __curl() { \curl "$@" 2>/dev/null || return 1; }
 __retrieve_compose() { __curl -q -LSsf "$1" -o './compose.yml' 2>/dev/null || return 1; }
 __get_image_name() { grep -sR 'image: ' "$COMPOSEMGR_CWD" | sed "s|.*image: ||g;s|\"||g;s|'||g;s|:.*||g"; }
+__private_key() { openssl ecparam --name secp256k1 --genkey --noout --outform DER | tail --bytes=+8 | head --bytes=32 | xxd --plain --cols 32; }
 __project_name() { grep -svE '^$|#' "$COMPOSEMGR_CWD"/*compose.yml | head -n1 | grep 'name:' | sed 's|name: ||g' || __basename "${1:-$COMPOSEMGR_CWD}"; }
 __get_project_dir() { grep -R -- '-.*/' *.yml | sed "s|.*- ||g;s|'||g;s|\"||g;s|:.*||g" | grep -v '=' | grep '^/var/lib/srv' | grep -v '^$' | tr '\n' ','; }
+__generate_password() { head -n128 '/dev/urandom' | tr -dc "${2:-_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789}" | tr -d '[:space:]\042\047\134' | fold -w "${1:-32}" | head -n 1; }
+__generate_hash_pass() { head -n128 /dev/urandom | tr -dc ${2:-_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789} | head -c "${1:-32}" | openssl passwd -1 -salt $(openssl rand -base64 6) --stdin; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cd() {
   local dir="$(__basename "$1")"
@@ -385,10 +388,10 @@ __update_env_file() {
 
   cat <<EOF >"$file"
 # Create a random secret
-# openssl rand -hex 32
+# openssl rand -hex 8
 
 # create a random password
-# head -n50 '/dev/random' | tr -dc 'a-zA-Z0-9[!@]' | tr -d '[:space:]\042\047\134' | fold -w 32 | head -n 1
+# head -n50 '/dev/random' | tr -dc 'a-zA-Z0-9[!@-]' | tr -d '[:space:]\042\047\134' | fold -w 32 | head -n 1
 
 # create a hashed password
 # head -n128 /dev/urandom|tr -dc 'A-Za-z0-9' | head -c 32|openssl passwd -1 -salt $(openssl rand -base64 6) --stdin
@@ -397,6 +400,12 @@ __update_env_file() {
 export TZ="${TZ:-}"
 export BASE_DOMAIN_NAME="${BASE_DOMAIN_NAME:-}"
 export BASE_HOST_NAME="${COMPOSEMGR_HOSTNAME:-$BASE_HOST_NAME}"
+export BASE_STORAGE_DIR="${BASE_STORAGE_DIR:-/var/lib/srv/$USER/docker}"
+#
+export NGINX_PROXY_URL="${NGINX_PROXY_URL:-}"
+#
+export SERVICE_USER="${SERVICE_USER:-}"
+export SERVICE_GROUP="${SERVICE_GROUP:-}"
 #
 export REDIS_URL="${REDIS_URL:-}"
 export VALKEY_URL="${VALKEY_URL:-}"
@@ -409,13 +418,13 @@ export COUCHBASE_URL="${COUCHBASE_URL:-}"
 export POSTGRESQL_URL="${POSTGRESQL_URL:-}"
 export POCKETBASE_URL="${POCKETBASE_URL:-}"
 #
-export DB_CREATE_DATABASE_NAME="${DB_CREATE_DATABASE_NAME:-}"
-#
 export DB_ADMIN_NAME="${DB_ADMIN_NAME:-}"
 export DB_ADMIN_PASS="${DB_ADMIN_PASS:-}"
 #
 export DB_USER_NAME="${DB_USER_NAME:-}"
 export DB_USER_PASS="${DB_USER_PASS:-}"
+#
+export DB_CREATE_DATABASE_NAME="${DB_CREATE_DATABASE_NAME:-}"
 #
 export APP_ORG_NAME="${APP_ORG_NAME:-}"
 #
@@ -615,6 +624,68 @@ __compose_edit() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__is_number_even() {
+  local num="${1:-16}"
+  [ $num != 0 ] || [ -n "$num" ] || num=32
+  if ((num % 2 == 0)); then
+    true
+  else
+    num=$((num + 1))
+  fi
+  printf '%s\n' "$num"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__random_pass() {
+  local var="" generate="" characters="" pass=""
+  characters="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
+  if [ "$1" = "key" ]; then
+    shift 1
+    pass="$(__private_key)"
+  elif [ "$1" = "hex" ]; then
+    shift 1
+    var="$(__is_number_even ${1:-32})"
+    pass="$(openssl rand -hex $var | head -n 1)"
+    generate="${pass:0:$var}"
+  elif [ "$1" = "token" ]; then
+    shift 1
+    var="$(__is_number_even ${1:-32})"
+    pass="$(openssl rand -hex $var | head -n 1)"
+    generate="${pass:0:$var}"
+  elif [ "$1" = "base64" ]; then
+    shift 1
+    var="$(__is_number_even ${1:-32})"
+    pass="$(openssl rand -base64 $var | head -n 1)"
+  elif [ "$1" = "pass" ]; then
+    shift 1
+    var="$(__is_number_even ${1:-32})"
+    pass="$(__generate_password "$var" "$characters")"
+  elif [ "$1" = "hash" ]; then
+    shift 1
+    var="$(__is_number_even ${1:-32})"
+    pass="$(__generate_hash_pass "$var" "$characters")"
+  else
+    var="$(__is_number_even ${1:-32})"
+    pass="$(__generate_password "$var" "$characters")"
+  fi
+  printf '%s\n' "${generate:-$pass}"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__generate_nginx_proxy() {
+  local exitCode=0
+  __cmd_exists nginx || printf_exit "the command nginx was not found"
+  __cmd_exists gen-nginx || printf_exit "the command gen-nginx was not found"
+  BASE_HOST_NAME="${1:-$BASE_HOST_NAME}"
+  NGINX_PROXY_URL="${2:-$NGINX_PROXY_URL}"
+  if [ -z "$NGINX_PROXY_URL" ] && [ -f "$COMPOSEMGR_CWD/compose.yml" ]; then
+    NGINX_PROXY_URL="$(grep -sh 'nginx proxy address' "$COMPOSEMGR_CWD/compose.yml" | awk -F ':' '{print $2}' | sed 's| ||g')"
+  fi
+  [ -n "$BASE_HOST_NAME" ] || printf_exit "Can not determine the server address"
+  [ -n "$NGINX_PROXY_URL" ] || printf_exit "Can not determine the address to proxy to"
+  gen-nginx "$BASE_HOST_NAME" "$NGINX_PROXY_URL" || exitCode=2
+  __update_env_file "$COMPOSEMGR_CWD/.env"
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
 COMPOSEMGR_START_TIMER="${COMPOSEMGR_START_TIMER:-$(date +%s.%N)}"
 
@@ -662,6 +733,10 @@ COMPOSE_ENV_FILES="${COMPOSE_ENV_FILES:-$COMPOSEMGR_CONFIG_DIR/compose.env}"
 TZ="${TZ:-America/New_York}"
 BASE_DOMAIN_NAME="${BASE_DOMAIN_NAME:-$(hostname -d 2>/dev/null | grep '*.\.' | grep '^' || echo "$BASE_HOST_NAME")}"
 BASE_HOST_NAME="${BASE_HOST_NAME:-$HOSTNAME}"
+BASE_STORAGE_DIR="${BASE_STORAGE_DIR:-/var/lib/srv/$USER/docker}"
+NGINX_PROXY_URL="${NGINX_PROXY_URL:-}"
+SERVICE_USER="${SERVICE_USER:-$(id -u)}"
+SERVICE_GROUP="${SERVICE_GROUP:-$(id -g)}"
 REDIS_URL="${REDIS_URL:-redis}"
 VALKEY_URL="${VALKEY_URL:-valkey}"
 COUCHDB_URL="${COUCHDB_URL:-couchdb}"
@@ -673,26 +748,26 @@ COUCHBASE_URL="${COUCHBASE_URL:-couchbasedb}"
 POSTGRESQL_URL="${POSTGRESQL_URL:-postgresqldb}"
 POCKETBASE_URL="${POCKETBASE_URL:-pocketbasedb}"
 DB_ADMIN_NAME="${DB_ADMIN_NAME:-db_admin}"
-DB_ADMIN_PASS="${DB_ADMIN_PASS:-$(head -n128 '/dev/urandom' | tr -dc 'a-zA-Z0-9' | tr -d '[:space:]\042\047\134' | fold -w "32" | head -n 1)}"
+DB_ADMIN_PASS="${DB_ADMIN_PASS:-$(__random_pass "pass" "16")}"
 DB_USER_NAME="${DB_USER_NAME:-$USER}"
-DB_USER_PASS="${DB_USER_PASS:-$(head -n128 '/dev/urandom' | tr -dc 'a-zA-Z0-9' | tr -d '[:space:]\042\047\134' | fold -w "24" | head -n 1)}"
+DB_USER_PASS="${DB_USER_PASS:-$(__random_pass "pass" "24")}"
 APP_ORG_NAME="${APP_ORG_NAME:-CasjaysDev}"
 APP_USER_NAME="${APP_USER_NAME:-$USER}"
-APP_USER_PASS="${APP_USER_PASS:-$(head -n128 '/dev/urandom' | tr -dc 'a-zA-Z0-9' | tr -d '[:space:]\042\047\134' | fold -w "16" | head -n 1)}"
+APP_USER_PASS="${APP_USER_PASS:-$(__random_pass "pass" "16")}"
 APP_ADMIN_USER="${APP_ADMIN_USER:-admin_${USER}}"
-APP_ADMIN_PASS="${APP_ADMIN_PASS:-$(head -n128 '/dev/urandom' | tr -dc 'a-zA-Z0-9' | tr -d '[:space:]\042\047\134' | fold -w "24" | head -n 1)}"
-APP_JWT_TOKEN="${APP_JWT_TOKEN:-$(openssl rand -base64 32)}"
-APP_TEMP_PASS="${APP_TEMP_PASS:-$(head -n128 '/dev/urandom' | tr -dc 'a-zA-Z0-9' | tr -d '[:space:]\042\047\134' | fold -w "32" | head -n 1)}"
-APP_API_TOKEN="${APP_API_TOKEN:-$(head -n128 '/dev/urandom' | tr -dc 'a-zA-Z0-9' | tr -d '[:space:]\042\047\134' | fold -w "64" | head -n 1)}"
-APP_SECRET_KEY="${APP_SECRET_KEY:-$(head -n128 '/dev/urandom' | tr -dc 'a-zA-Z0-9' | tr -d '[:space:]\042\047\134' | fold -w "16" | head -n 1)}"
-APP_SECRET_TOKEN_16="${APP_SECRET_TOKEN_16:-$(openssl rand -hex 16)}"
-APP_SECRET_TOKEN_32="${APP_SECRET_TOKEN_32:-$(openssl rand -hex 32)}"
-APP_SECRET_TOKEN_64="${APP_SECRET_TOKEN_64:-$(openssl rand -hex 64)}"
-RPC_SECRET="${RPC_SECRET:-$(openssl rand -hex 32)}"
-BACKUPS_PW="${BACKUPS_PW:-$(openssl rand -hex 32)}"
-ENCRYPTION_KEY="${ENCRYPTION_KEY:-$(openssl rand -hex 32)}"
-SECURE_SECRET="${SECURE_SECRET:-$(openssl rand --hex 16)}"
-K256_PRIVATE_KEY="${K256_PRIVATE_KEY:-$(openssl ecparam --name secp256k1 --genkey --noout --outform DER | tail --bytes=+8 | head --bytes=32 | xxd --plain --cols 32)}"
+APP_ADMIN_PASS="${APP_ADMIN_PASS:-$(__random_pass "pass" "24")}"
+APP_JWT_TOKEN="${APP_JWT_TOKEN:-$(__random_pass "token" "32")}"
+APP_TEMP_PASS="${APP_TEMP_PASS:-$(__random_pass "pass" "32")}"
+APP_API_TOKEN="${APP_API_TOKEN:-$(__random_pass "pass" "64")}"
+APP_SECRET_KEY="${APP_SECRET_KEY:-$(__random_pass "16")}"
+APP_SECRET_TOKEN_16="${APP_SECRET_TOKEN_16:-$(__random_pass hex "16")}"
+APP_SECRET_TOKEN_32="${APP_SECRET_TOKEN_32:-$(__random_pass hex "32")}"
+APP_SECRET_TOKEN_64="${APP_SECRET_TOKEN_64:-$(__random_pass hex "64")}"
+RPC_SECRET="${RPC_SECRET:-$(__random_pass hex "32")}"
+BACKUPS_PW="${BACKUPS_PW:-$(__random_pass hex "32")}"
+ENCRYPTION_KEY="${ENCRYPTION_KEY:-$(__random_pass hex "32")}"
+SECURE_SECRET="${SECURE_SECRET:-$(__random_pass "hex" "16")}"
+K256_PRIVATE_KEY="${K256_PRIVATE_KEY:-$(__random_pass "key")}"
 EMAIL_SERVER_PORT="${EMAIL_SERVER_PORT:-25}"
 EMAIL_SERVER_TIMEOUT="${EMAIL_SERVER_TIMEOUT:-10}"
 EMAIL_SERVER_HOST="${EMAIL_SERVER_HOST:-172.17.0.1}"
@@ -735,7 +810,7 @@ LONGOPTS="completions:,config,reset-config,debug,dir:,help,options,raw,version,s
 LONGOPTS+=",project:,env"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="install,remove,up,down,restart,ps,logs,network,cat,init,new,edit,show,get,env"
-ARRAY+=""
+ARRAY+="password"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST="acme,affine,aria2,authentik,blinko,bluesky,borg,budibase,bytestash,caprover,clipcascade,code-server,coder,couchbase,couchdb,"
 LIST+="dockge,freeipa,garage,gitlab,guacamole,i2p,irc,it-tools,jenkins,jitsi,kestra,keycloak,kooboo,lenpaste,linkwarden,mariadb,mastadon,"
@@ -980,7 +1055,15 @@ new)
   __cd "$1" && touch 'compose.yml' && __compose_edit "$1"
   exit $?
   ;;
-
+nginx)
+  shift 1
+  __generate_nginx_proxy "$@"
+  ;;
+password)
+  shift 1
+  [ -n "$1" ] || printf_exit "Usage: $APPNAME password [key,hex,base64,token,pass,hash] [length]"
+  __random_pass "$1" "${2:-16}"
+  ;;
 edit)
   shift 1
   __compose_edit "$1"

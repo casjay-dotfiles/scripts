@@ -509,14 +509,14 @@ __is_docker_compose() {
 __get_docker_compose() {
   local dir="$1"
   [ -n "$dir" ] && __cd "$dir" || printf_exit "Please provide a project name"
-  if [ -f "docker-compose.yaml" ]; then
-    COMPOSEMGR_FILE="docker-compose.yaml"
-  elif [ -f "docker-compose.yml" ]; then
-    COMPOSEMGR_FILE="docker-compose.yml"
-  elif [ -f "compose.yml" ]; then
+  if [ -f "compose.yml" ]; then
     COMPOSEMGR_FILE="compose.yml"
   elif [ -f "compose.yaml" ]; then
     COMPOSEMGR_FILE="compose.yaml"
+  elif [ -f "docker-compose.yaml" ]; then
+    COMPOSEMGR_FILE="docker-compose.yaml"
+  elif [ -f "docker-compose.yml" ]; then
+    COMPOSEMGR_FILE="docker-compose.yml"
   fi
   [ -n "$COMPOSEMGR_FILE" ] || return 3
 }
@@ -525,24 +525,34 @@ __init_dir() {
   local exitCode=0
   local repo_name="$1"
   local workDir="${working_dir:-$COMPOSEMGR_BASE_DIR/$repo_name}"
-  printf_green "Testing repo: $COMPOSEMGR_GIT_ORG_URL/$repo_name"
-  if __curl -q -LSsfI "$COMPOSEMGR_GIT_ORG_RAW/$repo_name/refs/heads/main/docker-compose.yaml" -o /dev/null >/dev/null 2>&1; then
-    [ -d "$workDir" ] || mkdir -p "$workDir"
+  edit_compose_file=no
+  if [ -d "$workDir/.git" ]; then
+    printf_yellow "Updating the repo in $workDir"
+    git -C "$workDir" pull -q >/dev/null 2>&1
+    exitCode=$?
   else
-    exitCode=1
-  fi
-  if ! __curl -q -LSsf "$COMPOSEMGR_GIT_ORG_RAW/$repo_name/refs/heads/main/docker-compose.yaml" -o "$working_dir/compose.yml"; then
-    exitCode=1
+    printf_green "Testing repo: $COMPOSEMGR_GIT_ORG_URL/$repo_name"
+    if __curl -q -LSsfI "$COMPOSEMGR_GIT_ORG_URL/$repo_name" -o /dev/null >/dev/null 2>&1; then
+      printf_cyan "Cloning to $COMPOSEMGR_GIT_ORG_URL/$repo_name $workDir"
+      git clone "$COMPOSEMGR_GIT_ORG_URL/$repo_name" "$workDir" -q >/dev/null 2>&1
+      exitCode=$?
+    else
+      exitCode=1
+    fi
   fi
   if [ $exitCode -eq 0 ]; then
-    printf_green "docker-compose.yml saved to $working_dir/compose.yml"
     if \cd "$workDir"; then
       COMPOSEMGR_HOSTNAME="$(basename -- "$repo_name").$BASE_DOMAIN_NAME"
-      [ -f "$COMPOSEMGR_BASE_DIR/$repo_name/.env" ] || __update_env_file "$COMPOSEMGR_BASE_DIR/$repo_name/.env" >/dev/null
+      if [ ! -f "$COMPOSEMGR_BASE_DIR/$repo_name/.env" ]; then
+        edit_compose_file=yes
+        __update_env_file "$COMPOSEMGR_BASE_DIR/$repo_name/.env" >/dev/null
+      fi
+      [ -f "$COMPOSEMGR_BASE_DIR/$repo_name/app.env" ] || touch "$COMPOSEMGR_BASE_DIR/$repo_name/app.env"
       exitCode=0
     else
       exitCode=1
     fi
+    [ -f "$workDir/compose.yaml" ] || [ -f "$workDir/docker-compose.yaml" ] && \cp -Rf "$workDir/docker-compose.yaml" "$workDir/compose.yaml" || exitCode=2
   else
     printf_red "Testing of the repo has failed: Make sure it exists and is public"
     exitCode=1
@@ -554,7 +564,7 @@ __install_files() {
   local exitCode=0
   local repo_name="$1"
   working_dir="$COMPOSEMGR_BASE_DIR/$repo_name"
-  __is_docker_compose || edit_compose_file="yes"
+  __is_docker_compose || edit_compose_file="${edit_compose_file:-yes}"
   if __init_dir "$repo_name"; then
     __cd "$working_dir" || return 1
     if __get_docker_compose "$working_dir"; then

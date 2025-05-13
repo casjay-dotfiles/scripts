@@ -415,6 +415,17 @@ __test_if_url() { grep -E $1 'http://|https://|git://|ssh://' || return 1; }
 __if_is_url() { echo "$1" | grep -Eq 'http://|https://|git://|ssh://' || return 1; }
 __file_exists_and_not_empty() { [ -f "$1" ] && [ -s "$1" ] && return 0 || return 2; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__printf_space() {
+  local color padlength width
+  test -n "$1" && test -z "${1//[0-9]/}" && color="$1" && shift 1 || color="7"
+  test -n "$1" && test -z "${1//[0-9]/}" && padlength="$1" && shift 1 || padlength="50"
+  width=$((${#1} - $padlength))
+  printf '%b' "$(tput setaf "$color" 2>/dev/null)"
+  printf "%s%-${width}s%s" "$1" " " "$2"
+  printf '%b' "$(tput sgr0 2>/dev/null)"
+  printf '\n'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # create directory structures
 __create_dirs() {
   local d=""
@@ -1961,6 +1972,72 @@ __github_org_push_repos() {
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__github_org_options_set() {
+  while :; do
+    case "$@" in
+    description=*)
+      ORG_REPO_DESCR="${1//*=/}"
+      shift 1
+      ;;
+    private=*)
+      ORG_REPO_PRIVATE="${1//*=/}"
+      shift 1
+      ;;
+    homepage=*)
+      ORG_REPO_PRIVATE="${1//*=/}"
+      shift 1
+      ;;
+    projects=*)
+      ORG_REPO_PROJECTS="${1//*=/}"
+      shift 1
+      ;;
+    issues=*)
+      ORG_REPO_ISSUES="${1//*=/}"
+      shift 1
+      ;;
+    wiki=*)
+      ORG_REPO_WIKI="${1//*=/}"
+      shift 1
+      ;;
+    *)
+      echo "$1" | grep -q '=' || break
+      ;;
+    esac
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__github_org_options_repos() {
+  local statusCode=0
+  local repo="${1:-$ORG_REPO_NAME}"
+  local private="${2:-$ORG_REPO_PRIVATE}"
+  local description="${3:-$ORG_REPO_DESCR}"
+  local homepage="${4:-$ORG_REPO_HOMEPAGE}"
+  local issues="${5:-$ORG_REPO_HOMEPAGE}"
+  local projects="${6:-$ORG_REPO_PROJECTS}"
+  local wiki="${7:-$ORG_REPO_WIKI}"
+  if ! echo "$repo" | grep -q '/'; then printf_red "Please format repo as username/reponame" && return 1; fi
+  [ -n "$private" ] && is_private="\"private\":$private,"
+  [ -n "$description" ] && is_description="\"description\":\"$description\"."
+  [ -n "$homepage" ] && is_homepage="\"homepage\":\"$homepage\","
+  [ -n "$issues" ] && has_issues="\"has_issues\":$issues,"
+  [ -n "$projects" ] && has_projects="\"has_projects\":$projects,"
+  [ -n "$wiki" ] && has_wiki="\"has_wiki\":$wiki,"
+  json_data="$(echo "${is_homepage}${is_private}${has_issues}${has_projects}${has_wiki}" | sed 's|,$||g')"
+  __github_api_update_repo "$1" -d '{'${json_data}'}'
+  statusCode=$?
+  if [ "$statusCode" = 0 ]; then
+    __printf_space 2 50 "$repo has been updated:" "${json_data//\"/}"
+  else
+    printf_red "Failed to update the repo"
+  fi
+  return $statusCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__github_api_update_repo() {
+  local repo="$1" && shift 1
+  curl -q -LSsf -X 'PATCH' -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" -H "Accept: application/vnd.github.v3+json" -H "X-GitHub-Api-Version: $GITADMIN_GITHUB_API_VERSION" "https://api.github.com/repos/$repo" "$@" >/dev/null 2>&1 || return 2
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __is_clean() { __git_status "$1" | grep -v '##' | grep -q '^' && return 1 || return 0; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __is_dirty() { __git_status "$1" | grep -v '##' | grep -q '^' && return 0 || return 1; }
@@ -3147,6 +3224,34 @@ github)
         exitStatus=$((exitStatus + $?))
       done
       exit $exitStatus
+      ;;
+
+    update)
+      shift 1
+      if [ "$1" = "all" ]; then
+        shift 1
+        ORG_REPO_NAME="${1//\/*/}" && shift 1
+        __api_org_token "$ORG_REPO_NAME" | sort -u >"$GITADMIN_TEMP_FILE" || echo >"$GITADMIN_TEMP_FILE"
+        COUNT="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
+        if [ -n "$COUNT" ]; then
+          printf_green "$MESSAGE"
+          printf_blue "There's currently $COUNT repos available"
+          printf_green "Initializing $GITADMIN_DEFAULT_REPO_BASE"
+          repo_list="$(<"$GITADMIN_TEMP_FILE")"
+          __github_org_options_set "$@"
+          for i in $repo_list; do
+            __github_org_options_repos "$ORG_REPO_NAME/$i"
+          done
+        else
+          exitCode=1
+          printf_red "😿 No repos found for $ORG_REPO_NAME/$i 😿"
+        fi
+      else
+        ORG_REPO_NAME="$1" && shift 1
+        __github_org_options_set "$@"
+        __github_org_options_repos "$ORG_REPO_NAME"
+      fi
+      exit $?
       ;;
     *) ;;
     esac

@@ -523,15 +523,14 @@ __get_docker_compose() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __init_dir() {
   local exitCode=0
-  local is_running=""
   local repo_name="$1"
   local tmpdir="${TMPDIR:-/tmp}/$APPNAME/$$"
   local workDir="${working_dir:-$COMPOSEMGR_BASE_DIR/$repo_name}"
   edit_compose_file=no
-  is_running="$([ -d "$workDir" ] && composemgr --dir "$workDir" ps 2>/dev/null | grep -v '^NAME  ' | grep '^' || false)"
-  [ -n "$is_running" ] && composemgr --dir "$workDir" stop >/dev/null 2>&1
+  is_docker_app_running="${is_docker_app_running:-$([ -d "$workDir" ] && composemgr --dir "$workDir" ps 2>/dev/null | grep -v '^NAME  ' | grep '^' || false)}"
+  [ -n "$is_docker_app_running" ] && printf_yellow "Stopping the containers for app: $repo_name" && composemgr --dir "$workDir" down >/dev/null 2>&1
   if [ -d "$workDir/.git" ]; then
-    printf_yellow "Updating the repo in $workDir"
+    printf_cyan "Updating the repo in $workDir"
     git -C "$workDir" pull -q >/dev/null 2>&1
     exitCode=$?
   else
@@ -563,14 +562,14 @@ __init_dir() {
     else
       exitCode=1
     fi
-    [ -f "$workDir/compose.default.yml" ] || [ -f "$workDir/docker-compose.yaml" ] && \cp -Rf "$workDir/docker-compose.yaml" "$workDir/compose.default.yml" || exitCode=2
-    [ -f "$workDir/compose.yml" ] && mv -f "$workDir/compose.yml" "$workDir/docker-compose.yml"
-    [ -n "$is_running" ] && composemgr --dir "$workDir" start >/dev/null 2>&1
+    [ -f "$workDir/compose.default.yaml" ] || [ -f "$workDir/docker-compose.yaml" ] && \cp -Rf "$workDir/docker-compose.yaml" "$workDir/compose.default.yaml" || exitCode=2
+    [ -f "$workDir/compose.yml" ] && mv -f "$workDir/compose.yml" "$workDir/docker-compose.yaml"
+    [ -f "$workDir/docker-compose.yml" ] && rm -Rf "$workDir/docker-compose.yml"
   else
     printf_red "Testing of the repo has failed: Make sure it exists and is public"
     exitCode=1
   fi
-  for env in app.env .env compose.default.yml; do
+  for env in app.env .env compose.default.yaml; do
     if ! grep -qs "$env" "$workDir/.gitignore"; then
       printf '%s\n%s\n\n' "# Ignore the file: $env" "$env" >>"$workDir/.gitignore"
     fi
@@ -583,12 +582,19 @@ __install_files() {
   local exitCode=0
   local repo_name="$1"
   working_dir="$COMPOSEMGR_BASE_DIR/$repo_name"
+  is_docker_app_running="${is_docker_app_running:-$([ -d "$workDir" ] && composemgr --dir "$workDir" ps 2>/dev/null | grep -v '^NAME  ' | grep '^' || false)}"
   __is_docker_compose || edit_compose_file="${edit_compose_file:-yes}"
   if __init_dir "$repo_name"; then
     __cd "$working_dir" || return 1
     if __get_docker_compose "$working_dir"; then
-      printf_green "$repo_name has been installed: run \"$APPNAME --dir $working_dir up\" to run"
-      exitCode=0
+      if [ -n "$is_docker_app_running" ]; then
+        printf_green "Bringing up the containers for: $repo_name"
+        composemgr --dir "$workDir" up >/dev/null 2>&1
+        exitCode=$?
+      else
+        printf_green "$repo_name has been installed: run \"$APPNAME --dir $working_dir up\" to run"
+        exitCode=0
+      fi
     else
       exitCode=1
     fi

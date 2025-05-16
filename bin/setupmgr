@@ -372,7 +372,7 @@ __sudorun() {
 # Test if user has access to sudo
 __can_i_sudo() {
   (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
-  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+  __sudo_group "${1:-$USER}" || __sudoif || sudo true &>/dev/null || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User can run sudo
@@ -387,7 +387,7 @@ requiresudo() {
   if [ "$SETUPMGR_REQUIRE_SUDO" = "yes" ] && [ -z "$SETUPMGR_REQUIRE_SUDO_RUN" ]; then
     export SETUPMGR_REQUIRE_SUDO="no"
     export SETUPMGR_REQUIRE_SUDO_RUN="true"
-    __sudo "$@"
+    sudo "$@"
     exit $?
   else
     return 0
@@ -503,7 +503,7 @@ __git_clone_repo() { git clone "$1" "$2" -q &>/dev/null || return 2; }
 __install_to_system_bin() {
   local basename="$(__basename "$1")"
   local sysBinDir="${SETUPMGER_DEFAULT_SYSTEM_BIN_DIR:-/usr/local/bin}"
-  if [ -f "$1" ] && __can_i_sudo; then __sudo cp -Rf "$1" "$sysBinDir/$basename" && __sudo chmod -Rf 777 "$sysBinDir/$basename"; fi
+  if [ -f "$1" ] && __can_i_sudo; then sudo cp -Rf "$1" "$sysBinDir/$basename" && sudo chmod -Rf 777 "$sysBinDir/$basename" && printf_blue "Installed to $sysBinDir/$basename"; fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gen_desktopfile() {
@@ -700,11 +700,19 @@ __extract() {
           ;;
         --files)
           shift 1
-          find_extracted="$(find "$PACKAGE_TMP_DIR" -type f -name "$1" 2>/dev/null | grep -E "^$1$|/$1$" | head -n1)"
+          if [ -f "$PACKAGE_TMP_DIR/usr/bin/$1" ]; then
+            find_extracted="$PACKAGE_TMP_DIR/usr/bin/$1"
+          elif [ -f "$PACKAGE_TMP_DIR/bin/$1" ]; then
+            find_extracted="$PACKAGE_TMP_DIR/bin/$1"
+          elif [ -f "$PACKAGE_TMP_DIR/$1/$1" ]; then
+            find_extracted="$PACKAGE_TMP_DIR/$1/$1"
+          elif [ -f "$PACKAGE_TMP_DIR/$1" ]; then
+            find_extracted="$PACKAGE_TMP_DIR/$1"
+          else
+            find_extracted="$(find "$PACKAGE_TMP_DIR" -name "$1" -type f 2>/dev/null | grep -E "^$1$|/$1$" | head -n1)"
+          fi
           if [ -x "$find_extracted" ]; then
             __move_extracted_file "$find_extracted" "$2" || exitCode=1
-          elif [ -f "$PACKAGE_TMP_DIR/$1" ]; then
-            __move_extracted_file "$PACKAGE_TMP_DIR/$1" "$2" || exitCode=1
           elif [ -d "$1" ]; then
             binDir="$1" && shift 1
             set_files="${*//,/ }"
@@ -775,10 +783,10 @@ __extract() {
     exitEXCode=1
     printf_red "$SETUPMGR_TEMP_DIR"
   fi
-  exitEXCode="${exitCode:-$exitEXCode}"
+  exitEXCode="${exitEXCode:-$exitCode}"
   if [ $exitEXCode -eq 0 ]; then
-    if [ -n "$PACKAGE_TMP_DIR" ] && [ -d "$PACKAGE_TMP_DIR" ]; then __rm "$PACKAGE_TMP_DIR"/; fi
     if [ -n "$tmpFile" ] && [ -f "$tmpFile" ]; then __rm "$tmpFile"; fi
+    if [ -n "$PACKAGE_TMP_DIR" ] && [ -d "$PACKAGE_TMP_DIR" ]; then __rm "$PACKAGE_TMP_DIR"; fi
     if [ -n "$SETUPMGR_TEMP_MOVE_FILE" ] && [ -f "$SETUPMGR_TEMP_MOVE_FILE" ]; then __rm "$SETUPMGR_TEMP_MOVE_FILE"; fi
   fi
   return $exitEXCode
@@ -790,7 +798,7 @@ __move_extracted_file() {
   local tempBin="$1"
   local userBin="$2"
   local installFrom=""
-  local binFile="$(__basename "$userBin")"
+  local binFile="$(__basename "${userBin:-$tempBin}")"
   [ "$SETUPMGR_SYSTEM_INSTALL" = "yes" ] && prefix="sudo" && directory="$SETUPMGER_DEFAULT_SYSTEM_BIN_DIR" || directory="$(dirname "$userBin")"
   [ -f "$PACKAGE_TMP_DIR/$binFile" ] && tempBin="$PACKAGE_TMP_DIR/$binFile" || tempBin="$(ls "$PACKAGE_TMP_DIR" | grep "$binFile$" || find "$PACKAGE_TMP_DIR" -type f -iname "$binFile" 2>/dev/null)"
   if [ -f "$1" ]; then
@@ -831,7 +839,7 @@ __symlink_installed_files() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_lua() {
-  return 0
+  printf_red "This doesn't seem to be working" && return
   local exitCode=0
   local GITREPO="${LUAVER_GIT_REPO:-https://github.com/DhavalKapil/luaver}"
   local LUAVER_HOME="${LUAVER_HOME:-$HOME/.local/share/lua/plugins/luaver}"
@@ -909,13 +917,16 @@ __setup_asdf() {
     printf_green "Downloading asdf from $GITREPO"
     if __git_clone_repo "$GITREPO" "$ASDF_DIR"; then
       printf_blue "Downloaded asdf to $ASDF_DIR"
-      chmod 755 "$ASDF_DIR/asdf.sh"
     else
       printf_exit "Failed to download the repo" >&2
     fi
   fi
   [ -f "$ASDF_DIR/asdf.sh" ] && . "$ASDF_DIR/asdf.sh"
-  if [ -n "$(type asdf 2>/dev/null)" ]; then
+  if type asdf &>/dev/null; then
+    chmod 755 "$ASDF_DIR/asdf.sh"
+    if [ -f "$ASDF_DIR/bin/asdf" ]; then
+      chmod 755 "$ASDF_DIR/bin/asdf"
+    fi
     printf_green "asdf has been installed"
   else
     exitCode=1
@@ -1089,9 +1100,9 @@ __setup_fastfetch() {
   local name="fastfetch"
   local arch=$(uname -m)
   local binFile="$FASTFETCH_BIN_DIR/$name"
-  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
   local release_url="https://github.com/fastfetch-cli/fastfetch/releases/download"
   local VERSION=$(curl --silent "https://api.github.com/repos/fastfetch-cli/fastfetch/releases/latest" | grep '"tag_name":' | sed 's|.*tag.*:||g;s|"||g;s|,||g' | cut -c 2-)
+  PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
   case "$arch" in
   x86_64) url="$release_url/$VERSION/fastfetch-linux-amd64.tar.gz" ;;
   aarch64 | arm64) url="$release_url/$VERSION/fastfetch-linux-aarch64.tar.gz" ;;
@@ -1256,14 +1267,30 @@ __setup_nvm() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_nodejs() {
   local exitCode=0
-  if ! __cmd_exists node && ! __cmd_exists nodejs; then
-    printf_green "Attempting to install nodejs"
+  local version="${NODE_VERSION:-24}"
+  if __cmd_exists node || __cmd_exists nodejs; then
+    printf_green "Attempting to update nodejs"
+  else
+    printf_green "Installing nodejs"
+  fi
+  if __cmd_exists volta || curl -q -LSsf "https://get.volta.sh" | bash -s -- --skip-setup >/dev/null 2>&1; then
+    if [ -d "$HOME/.volta/bin" ]; then
+      for f in "$HOME/.volta/bin"/*; do
+        ln -sf "$f" "$HOME/.local/bin/$(basename -- "$f")"
+      done
+    else
+      exitCode=1
+      printf_red "Failed to install volta"
+    fi
+    volta install node@$version >/dev/null 2>&1
+  else
+    printf_red "Failed to install volta"
     pkmgr silent install nodejs || pkmgr silent install node
   fi
   if __cmd_exists nodejs || __cmd_exists node; then
-    __install_to_system_bin "$binFile"
+    npm_ver="$(npm -v 2>/dev/null)"
     version="$(node --version 2>/dev/null)"
-    printf_green "nodejs $version is installed"
+    printf_green "nodejs $version and npm $npm_ver have been installed"
   else
     exitCode=1
     printf_red "Failed to install nodejs"
@@ -1404,23 +1431,28 @@ __setup_jekyll() {
   fi
   if ! __cmd_exists bundle; then
     printf_blue "Installing bundler"
-    gem install bundler >"/dev/null" 2>&1
+    gem install --force bundler >"/dev/null" 2>&1 || sudo gem install --force bundler >"/dev/null" 2>&1
   fi
-  printf_yellow "Installing jekyll $jekyllV"
-  gem install ffi -v 1.17.0 -f >"/dev/null" 2>&1
-  gem install public_suffix -v 5.1.1 -f >"/dev/null" 2>&1
-  gem install jekyll -v $jekyllV >"/dev/null" 2>&1
-  gem install webrick >"/dev/null" 2>&1
-  gem install casjaysdev-jekyll-theme >"/dev/null" 2>&1
-  gem install github-pages >"/dev/null" 2>&1
-  jekyll_bin="$(type -P jekyll)"
-  if [ -n "$jekyll_bin" ]; then
-    version="$(jekyll -v 2>/dev/null | grep '[0-9]' | sed 's|[jJ]ekyll ||g')"
-    ln -sf "$jekyll_bin" "$HOME/.local/bin/jekyll"
-    printf_green "Finished installing jekyll $version"
+  if [ "$(type -P bundler)" ]; then
+    printf_yellow "Installing jekyll $jekyllV"
+    gem install --force webrick >"/dev/null" 2>&1 || sudo gem install --force webrick >"/dev/null" 2>&1
+    gem install --force ffi -v 1.17.0 -f >"/dev/null" 2>&1 || sudo gem install --force ffi -v 1.17.0 -f >"/dev/null" 2>&1
+    gem install --force jekyll -v $jekyllV >"/dev/null" 2>&1 || sudo gem install --force jekyll -v $jekyllV >"/dev/null" 2>&1
+    gem install --force public_suffix -v 5.1.1 -f >"/dev/null" 2>&1 || sudo gem install --force public_suffix -v 5.1.1 -f >"/dev/null" 2>&1
+    gem install --force casjaysdev-jekyll-theme >"/dev/null" 2>&1 || sudo gem install --force casjaysdev-jekyll-theme >"/dev/null" 2>&1
+    gem install --force github-pages >"/dev/null" 2>&1 || sudo gem install --force github-pages >"/dev/null" 2>&1
+    jekyll_bin="$(type -P jekyll)"
+    if [ -n "$jekyll_bin" ]; then
+      version="$(jekyll -v 2>/dev/null | grep '[0-9]' | sed 's|[jJ]ekyll ||g')"
+      ln -sf "$jekyll_bin" "$HOME/.local/bin/jekyll"
+      printf_green "Finished installing jekyll $version"
+    else
+      printf_red "Installation of jekyll has failed" >&2
+      exitCode=1
+    fi
   else
-    printf_red "Installation of jekyll has failed" >&2
     exitCode=1
+    printf_red "Can not find the command bundler"
   fi
   return $exitCode
 }
@@ -1535,7 +1567,6 @@ __setup_nix() {
   else
     printf_green "Attempting to install $name"
   fi
-  printf_green "Installing nix-installer"
   if __curl "https://install.determinate.systems/nix" | sh -s -- install --no-confirm |& __output_status; then
     if [ -f "/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh" ]; then
       printf_blue "nix-installer has been installed"
@@ -1663,9 +1694,11 @@ __setup_kind() {
 __setup_minikube() {
   local exitCode=0
   local port="59801"
+  local name=minikube
   local arch="$(uname -m)"
   local wait_minikube=300
   local wait_dashboard=300
+  local minikube_init=false
   local driver="$MINIKUBE_DRIVER"
   local memory="$MINIKUBE_MEMORY"
   local binFile="$MINIKUBE_BIN_DIR/minikube"
@@ -1674,18 +1707,28 @@ __setup_minikube() {
   __cmd_exists docker || printf_exit "Please install docker"
   if __cmd_exists minikube; then
     printf_green "Updating minikube"
+    curl -q -LSsfI "$dashboard_url" >/dev/null 2>&1 && minikube_init=true
+    minikube stop >/dev/null 2>&1
     killall minikube >/dev/null 2>&1
   else
     printf_green "Installing minikube"
-    case $arch in
-    x86_64) url="https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64" ;;
-    aarch64 | arm64) url="https://storage.googleapis.com/minikube/releases/latest/minikube-linux-arm64" ;;
-    esac
-    if __download_and_move "$url" "minikube" "$binFile"; then
-      __install_to_system_bin "$binFile"
-      minikube config set driver $driver >/dev/null 2>&1
-      minikube config set memory $memory >/dev/null 2>&1
-      if [ "$SETUPMGR_INSTALL_ALL" != "yes" ]; then
+  fi
+  case $arch in
+  x86_64) url="https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64" ;;
+  aarch64 | arm64) url="https://storage.googleapis.com/minikube/releases/latest/minikube-linux-arm64" ;;
+  esac
+  if __download_and_move "$url" "minikube" "$binFile"; then
+    __install_to_system_bin "$binFile"
+    printf_green "minikube has been installed: $binFile"
+  else
+    exitCode=1
+    printf_red "Failed to download minikube"
+  fi
+  if [ "$SETUPMGR_INSTALL_ALL" != "yes" ]; then
+    if docker ps -a >/dev/null 2>&1; then
+      if [ "$minikube_init" = "false" ]; then
+        minikube config set driver $driver >/dev/null 2>&1
+        minikube config set memory $memory >/dev/null 2>&1
         (minikube start >/dev/null 2>&1) &
         minikube_pid=$!
         if [ -n "$minikube_pid" ] && ps -p $minikube_pid >/dev/null; then
@@ -1696,30 +1739,34 @@ __setup_minikube() {
             wait_minikube=$((wait_minikube--))
           done
           printf '\r                                                                                            \r'
-          [ $wait_minikube = 0 ] && printf_red "minikube seems to have failed" && return 1
-          printf_green "minikube has been installed and started"
-          (minikube dashboard --port=$port --url >/dev/null 2>&1) &
-          dashboard_pid=$!
-          if [ -n "$dashboard_pid" ] && ps -p $dashboard_pid >/dev/null; then
-            while [ $wait_dashboard -ge 0 ]; do
-              sleep 1
-              printf '\r%b ' "$(printf_yellow "Waiting for the dashboard to start" | tr -d '\n')"
-              minikube kubectl -- get pods --namespace kube-system 2>&1 | grep 'kube-proxy' | grep -q ' Running ' && sleep 120 && break
-              wait_dashboard=$((wait_dashboard--))
-            done
-            printf '\r                                                                                            \r'
-            if [ $wait_minikube != 0 ]; then
-              printf_cyan "Enabling addons"
-              minikube addons enable yakd &>/dev/null
-              minikube addons enable ingress &>/dev/null
-              minikube addons enable metrics-server &>/dev/null
-              sleep 30
-              dashboard_status="$(__curl -I "$dashboard_url" 2>&1 >/dev/null 2>&1 && echo "$dashboard_url" || false)"
-              if [ -n "$dashboard_status" ]; then
-                printf_cyan "dashboard: $dashboard_status"
+          if [ $wait_minikube = 0 ]; then
+            printf_red "minikube seems to have failed"
+            return 1
+          else
+            printf_green "minikube started $minikube_pid"
+            (minikube dashboard --port=$port --url >/dev/null 2>&1) &
+            dashboard_pid=$!
+            if [ -n "$dashboard_pid" ] && ps -p $dashboard_pid >/dev/null; then
+              while [ $wait_dashboard -ge 0 ]; do
+                sleep 1
+                printf '\r%b ' "$(printf_yellow "Waiting for the dashboard to start" | tr -d '\n')"
+                minikube kubectl -- get pods --namespace kube-system 2>&1 | grep 'kube-proxy' | grep -q ' Running ' && sleep 120 && break
+                wait_dashboard=$((wait_dashboard--))
+              done
+              printf '\r                                                                                            \r'
+              if [ $wait_minikube != 0 ]; then
+                printf_cyan "Enabling addons"
+                minikube addons enable yakd &>/dev/null
+                minikube addons enable ingress &>/dev/null
+                minikube addons enable metrics-server &>/dev/null
+                sleep 30
+                dashboard_status="$(__curl -I "$dashboard_url" 2>&1 >/dev/null 2>&1 && echo "$dashboard_url" || false)"
+                if [ -n "$dashboard_status" ]; then
+                  printf_cyan "dashboard: $dashboard_status"
+                fi
+                yakd_dashboard="$(minikube service --https=false --url --wait=30 yakd-dashboard -n yakd-dashboard 2>/dev/null)"
+                [ -n "$yakd_dashboard" ] && sleep 60 && printf_blue "yakd_dashboard: $yakd_dashboard"
               fi
-              yakd_dashboard="$(minikube service --https=false --url --wait=30 yakd-dashboard -n yakd-dashboard 2>/dev/null)"
-              [ -n "$yakd_dashboard" ] && sleep 60 && printf_blue "yakd_dashboard: $yakd_dashboard"
             fi
           fi
           printf_green "minikube has been setup"
@@ -1729,8 +1776,7 @@ __setup_minikube() {
         printf_red "Failed to start minikube"
       fi
     else
-      exitCode=1
-      printf_red "Failed to download minikube"
+      printf_red "Can not to docker"
     fi
   fi
   return $exitCode
@@ -1779,9 +1825,9 @@ __setup_incus() {
   if __download_and_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
     __install_to_system_bin "$binFile"
     if ! grep -qs 'incus-admin' '/etc/group'; then
-      __sudo true
-      __sudo groupadd --system incus-admin >/dev/null 2>&1
-      __sudo usermod -a -G incus-admin $USER >/dev/null 2>&1
+      sudo true
+      sudo groupadd --system incus-admin >/dev/null 2>&1
+      sudo usermod -a -G incus-admin $USER >/dev/null 2>&1
     fi
     printf_green "$name has been installed to $binFile"
   else
@@ -1792,11 +1838,13 @@ __setup_incus() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_gohttpserver() {
+  set -x
   local exitCode=0
   local name="gohttpserver"
   local arch="$(uname -m)"
   local binFile="$GOHTTPSERVER_BIN_DIR/$name"
   local release_url="https://api.github.com/repos/codeskyblue/gohttpserver/releases/latest"
+  extract_cmd="do_not_strip_components"
   PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
   case $arch in
   x86_64) download_url="$(__curl "$release_url" | grep browser_download_url | cut -d '"' -f 4 | grep "linux_amd64.tar.gz\$")" ;;
@@ -1903,7 +1951,7 @@ __setup_mc() {
   local exitCode=0
   local name="mc"
   local arch="$(uname -m)"
-  local binFile="$MC_BIN_DIR/$name"
+  local binFile="$MC_BIN_DIR/minio-cli"
   extract_cmd="do_not_strip_components"
   PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
   case $arch in
@@ -1930,7 +1978,7 @@ __setup_act() {
   local name="act"
   local arch="$(uname -m)"
   local binFile="$ACT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/jessnektos/$name/releases/latest"
+  local release_url="https://api.github.com/repos/nektos/act/releases/latest"
   extract_cmd="do_not_strip_components"
   PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
   case $arch in
@@ -1980,7 +2028,6 @@ __setup_traefik() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_bob() {
-  set -x
   local exitCode=0
   local name="bob"
   local arch="$(uname -m)"
@@ -2168,7 +2215,6 @@ __setup_golang() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_ollama() {
-  set -x
   local exitCode=0
   local name="ollama"
   local arch="$(uname -m)"
@@ -2281,13 +2327,18 @@ __setup_lapce() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_minio() {
   local exitCode=0
+  local restart=""
   local name="minio"
+  local console_port=""
   local arch="$(uname -m)"
   local binFile="$MINIO_BIN_DIR/$name"
   local username="administrator"
-  local admin_pass="$(openssl rand -base64 32)"
-  local storage_dir="$MINIO_STORAGE_DIR"
+  local userpass="$(openssl rand -base64 32)"
   local release_url="https://dl.min.io/server/$name/release"
+  local MINIO_ROOT_USER="${MINIO_ROOT_USER:-$username}"
+  local MINIO_ROOT_PASSWORD="${MINIO_ROOT_PASSWORD:-$userpass}"
+  local MINIO_STORAGE_DIR="${MINIO_STORAGE_DIR:-/var/lib/minio/data}"
+  local MINIO_BROWSER_REDIRECT_URL="${MINIO_BROWSER_REDIRECT_URL:-http://$HOSTNAME:49001}"
   PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
   case $arch in
   x86_64) download_url="$release_url/linux-amd64/$name" ;;
@@ -2295,55 +2346,56 @@ __setup_minio() {
   esac
   if __cmd_exists $name; then
     printf_green "Updating $name"
+    sudo systemctl stop $name.service >/dev/null 2>&1
   else
     printf_green "Installing $name"
   fi
   if __download_and_move "$download_url" "$name" "$binFile"; then
-    if __install_to_system_bin "$binFile"; then
-      [ -d "$storage_dir" ] || sudo mkdir -p "$storage_dir"
-      __sudo chmod 755 "$storage_dir"
-      __sudo useradd -s /sbin/nologin -d /var/lib/$name $name >/dev/null 2>&1
-      if [ -f "/etc/default/$name" ]; then
-        unset admin_pass username
-      else
-        cat <<EOF | tee "/etc/default/$name" &>/dev/null
+    if [ -f "/etc/default/$name" ]; then
+      . "/etc/default/$name"
+    fi
+    if __sudoif && __install_to_system_bin "$binFile"; then
+      if ! grep -sq "/var/lib/$name" /etc/passwd; then
+        sudo useradd -s /sbin/nologin -d "/var/lib/$name" $name >/dev/null 2>&1
+      fi
+      console_port="$(echo "$MINIO_BROWSER_REDIRECT_URL" | awk -F ':' '{print $NF}' | grep '^')"
+      [ -d "/etc/minio" ] || sudo mkdir -p "/etc/minio"
+      [ -d "$MINIO_STORAGE_DIR" ] || sudo mkdir -p "$MINIO_STORAGE_DIR"
+      cat <<EOF | sudo tee "/etc/default/$name" &>/dev/null
 # Volume to be used for Minio server.
-MINIO_VOLUMES="$storage_dir"
+MINIO_VOLUMES="$MINIO_STORAGE_DIR"
 
 # Use if you want to run Minio on a custom port.
-MINIO_OPTS="--address 0.0.0.0:49000 --console-address 0.0.0.0:49001"
+MINIO_OPTS="--address 0.0.0.0:49000 --console-address 0.0.0.0:$console_port"
 
 # set console web address
-MINIO_BROWSER_REDIRECT_URL="https://$MINIO_BROWSER_REDIRECT_URL"
+MINIO_BROWSER_REDIRECT_URL="$MINIO_BROWSER_REDIRECT_URL"
 
 # Root user for the server.
-MINIO_ROOT_USER=$username
+MINIO_ROOT_USER=$MINIO_ROOT_USER
 # Root secret for the server.
-MINIO_ROOT_PASSWORD=$admin_pass
+MINIO_ROOT_PASSWORD=$MINIO_ROOT_PASSWORD
 
 EOF
-      fi
-      sudo chown $name:$name /etc/default/$name
-
-      if [ ! -f "/etc/systemd/system/$name.service" ]; then
-        cat <<EOF | sudo tee "/etc/systemd/system/$name.service" &>/dev/null
+      cat <<EOF | sudo tee "/etc/systemd/system/$name.service" &>/dev/null
 [Unit]
-Description=Minio
-Documentation=https://docs.$name.io
-Wants=network-online.target
-After=network-online.target
+Description=S3 compatible server
+Documentation=https://docs.min.io
 AssertFileIsExecutable=/usr/local/bin/$name
 
 [Service]
-WorkingDirectory=/usr/local/
+User=root
+Group=root
 
-User=$name
-Group=$name
-
-Environment=MINIO_VOLUMES="$storage_dir"
+WorkingDirectory=/var/lib/$name
 EnvironmentFile=/etc/default/$name
+Environment=MINIO_VOLUMES=$MINIO_STORAGE_DIR
+Environment=MINIO_ROOT_USER=$MINIO_ROOT_USER
+Environment=MINIO_ROOT_PASSWORD=$MINIO_ROOT_PASSWORD
+Environment=MINIO_BROWSER_REDIRECT_URL=$MINIO_BROWSER_REDIRECT_URL
+Environment=MINIO_OPTS=--address 0.0.0.0:49000 --console-address 0.0.0.0:$console_port
 
-ExecStart=/usr/local/bin/$name server\$MINIO_OPTS\$MINIO_VOLUMES
+ExecStart=/usr/local/bin/$name server \$MINIO_OPTS $MINIO_STORAGE_DIR
 
 # Let systemd restart this service always
 Restart=always
@@ -2352,21 +2404,27 @@ Restart=always
 LimitNOFILE=65536
 
 # Disable timeout logic and wait until process is stopped
-TimeoutStopSec=infinity
 SendSIGKILL=no
+TimeoutStopSec=infinity
 
 [Install]
 WantedBy=multi-user.target
-# Built for\${project.name}-\${project.version} (\${project.name})
 
 EOF
-      fi
-      __sudo systemctl daemon-reload >/dev/null
-      __sudo systemctl enable --now $name.service >/dev/null
+      sudo systemctl daemon-reload >/dev/null 2>&1
+      sudo systemctl enable $name.service >/dev/null 2>&1
+      sudo chmod 777 "$MINIO_STORAGE_DIR" >/dev/null 2>&1
+      sudo chown -f $name:$name /etc/default/$name >/dev/null 2>&1
+      sudo chown -Rf $name:$name "/var/lib/$name" >/dev/null 2>&1
+      sudo chown -Rf $name:$name "/etc/minio/minio.conf" >/dev/null 2>&1
+      [ -z "$MINIO_ROOT_USER" ] || printf_cyan "Username: $MINIO_ROOT_USER"
+      [ -z "$MINIO_ROOT_PASSWORD" ] || printf_cyan "Password: $MINIO_ROOT_PASSWORD"
+      sudo systemctl start $name.service >/dev/null 2>&1 && printf_yellow "Console is $MINIO_BROWSER_REDIRECT_URL" || printf_red "Failed to start $name"
+      printf_green "$name has been installed to $binFile"
+    else
+      printf_green "$name has been installed to $binFile"
+      printf_yellow "MINIO_ROOT_USER=$MINIO_ROOT_USER MINIO_ROOT_PASSWORD=$MINIO_ROOT_PASSWORD $binFile --address 0.0.0.0:49000 --console-address 0.0.0.0:$console_port \"$HOME/.local/share/minio/data\""
     fi
-    printf_green "$name has been installed to $binFile"
-    [ -z "$username" ] || printf_cyan "Username: $username"
-    [ -z "$admin_pass" ] || printf_cyan "Password: $admin_pass"
   else
     exitCode=1
     printf_red "Failed to download $name"
@@ -2396,13 +2454,13 @@ __setup_garage() {
   fi
   if __download_and_move "$download_url" "$name" "$binFile"; then
     if __install_to_system_bin "$binFile"; then
-      [ -d "/var/lib/$name/data" ] || __sudo mkdir -p "/var/lib/$name/data"
-      [ -d "/var/lib/$name/meta" ] || __sudo mkdir -p "/var/lib/$name/meta"
-      __sudo chmod 755 "/var/lib/$name"
+      [ -d "/var/lib/$name/data" ] || sudo mkdir -p "/var/lib/$name/data"
+      [ -d "/var/lib/$name/meta" ] || sudo mkdir -p "/var/lib/$name/meta"
+      sudo chmod 755 "/var/lib/$name"
       if [ -f "/etc/garage.toml" ]; then
         unset admin_password username
       else
-        cat <<EOF | tee "/etc/garage.toml" >/dev/null
+        cat <<EOF | sudo tee "/etc/garage.toml" >/dev/null
 metadata_dir = "/var/lib/garage/meta"
 data_dir = "/var/lib/garage/data"
 db_engine = "sqlite"
@@ -2452,8 +2510,8 @@ WantedBy=multi-user.target
 
 EOF
       fi
-      __sudo systemctl daemon-reload >/dev/null
-      __sudo systemctl enable --now $name.service >/dev/null
+      sudo systemctl daemon-reload >/dev/null 2>&1
+      sudo systemctl enable --now $name.service >/dev/null 2>&1
     fi
     printf_green "$name has been installed to $binFile"
     [ -z "$admin_password" ] || printf_cyan "admin password: $admin_password"
@@ -2780,7 +2838,7 @@ GO_INSTALL_DIR="${GO_INSTALL_DIR:-$HOME/.local/share/go}"
 ZED_INSTALL_DIR="${ZED_INSTALL_DIR:-$HOME/.local/share/zed_editor}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 MINIO_STORAGE_DIR="${MINIO_STORAGE_DIR:-/var/lib/minio/data}"
-MINIO_BROWSER_REDIRECT_URL="${MINIO_BROWSER_REDIRECT_URL:-minio-console.$HOSTNAME}"
+MINIO_BROWSER_REDIRECT_URL="${MINIO_BROWSER_REDIRECT_URL:-http://$HOSTNAME:49001}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 GARAGE_STORAGE_DIR="${GARAGE_STORAGE_DIR:-/var/lib/garage/data}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -3030,7 +3088,6 @@ PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR"
 pushd "/tmp" >/dev/null || true
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
-set -x
 if [ "$1" = "all" ] || [ "$SETUPMGR_INSTALL_ALL" = "yes" ]; then
   setVal=0
   for app in ${ARRAY//,/ }; do

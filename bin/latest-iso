@@ -172,7 +172,7 @@ LATEST_ISO_FREENAS_URL="${LATEST_ISO_FREENAS_URL:-}"
 LATEST_ISO_GARUDA_URL="${LATEST_ISO_GARUDA_URL:-}"
 LATEST_ISO_HEADS_URL="${LATEST_ISO_HEADS_URL:-}"
 LATEST_ISO_KALI_URL="${LATEST_ISO_KALI_URL:-}"
-LATEST_ISO_MANJARO_URL="${LATEST_ISO_MANJARO_URL:-}"
+LATEST_ISO_MANJARO_FLAVOR="${LATEST_ISO_MANJARO_FLAVOR:-}"
 LATEST_ISO_NIXOS_URL="${LATEST_ISO_NIXOS_URL:-}"
 LATEST_ISO_OPENSUSE_URL="${LATEST_ISO_OPENSUSE_URL:-}"
 LATEST_ISO_OPENVZ_URL="${LATEST_ISO_OPENVZ_URL:-}"
@@ -385,11 +385,16 @@ __extractor() {
   elif echo "$1" | grep -q '.gz$'; then
     gzip -fd "$1"
     return $?
+  elif echo "$1" | grep -q '.zip$'; then
+    unzip "$1"
+    return $?
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __strip_url() { grep -v '^$' | head -n1 | grep '^'; }
 __grep_version() { grep "${LATEST_ISO_RELEASE:-^}" | grep "${RELEASE:-^}"; }
+__set_filename() { echo "$1" | sed "s|.iso$|.$2.iso|g" | grep '^' || echo "$1"; }
+__get_filename() { grep -E '\.iso$|\.tar$|\.gz$|\.zip$' | grep $1 '^' || return 2; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __ex() {
   local name=""
@@ -467,7 +472,7 @@ __test_iso() {
   local test=""
   local verify=""
   local get_status=""
-  [ -n "$1" ] && test="$(echo "$1" | grep -E 'https://|http://|ftp://' | grep -E '.iso$|.tar$|.gz$' | grep '^' || echo '')"
+  [ -n "$1" ] && test="$(echo "$1" | grep -E 'https://|http://|ftp://' | __get_filename | grep '^' || echo '')"
   [ -n "$test" ] && get_status="$(curl -q -LSsfI --max-time 5 --retry 2 "$test" 2>/dev/null || return 1)"
   verify="$(echo "$get_status" | grep -q 'HTTP/.* 200' && echo 'valid' || echo '')"
   if [ "$verify" = "valid" ]; then
@@ -491,7 +496,7 @@ __sort_v() {
   __strip_tags | grep '^[0-9]' | sort -rV | sed 's|/$||g' | sed 's|//|/|g' | grep '^' || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__strip_iso() { grep -aE '[_|-|.]*.*[_|-|.]' | grep -Ev 'torrent|target|ti-download|^$' | grep -E '.iso$|.gz$|.tar$' | head -n1 | grep '^' || return 1; }
+__strip_iso() { grep -aE '[_|-|.]*.*[_|-|.]' | grep -Ev 'torrent|target|ti-download|^$' | __get_filename | head -n1 | grep '^' || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_iso() {
   local get_iso="" set_get_iso=""
@@ -615,30 +620,30 @@ __find_iso() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __latest_iso() {
   local exitCode="0"
-  __get_torrent "$1"
-  url="${1:-$url}"
-  file="${2:-$file}"
-  archive_iso_name="${3:-}"
-  latest=$(__find_iso "$url")
-  localname=$(basename -- "$latest" 2>/dev/null)
-  download_dir=$(dirname "${2:-$LATEST_ISO_DOWNLOAD_DIR/$localname}" 2>/dev/null)
-  download_file="$download_dir/${file//$download_dir\//}"
-  [ -d "$download_file" ] && rm -Rf "$download_file"
-  [ -d "$download_dir" ] || mkdir -p "$download_dir"
-  [ -d "$LATEST_ISO_DOWNLOAD_DIR" ] || mkdir -p "$LATEST_ISO_DOWNLOAD_DIR"
-  [ -d "$LATEST_ISO_DOWNLOAD_DIR" ] || { printf_red "The download file should not be a directory: $LATEST_ISO_DOWNLOAD_DIR\n" && return 1; }
-  [ -n "$latest" ] || { printf_red "No iso found on $url\n" && return 1; }
-  echo "$latest" | grep -qE '.iso$|.gz$|.tar$' || { printf_red "$latest seems to be invalid\n" && return 1; }
-  __grab_iso "$latest" "$download_file" "$archive_iso_name" && exitCode="0" || exitCode="1"
-  if [ "$exitCode" = 0 ]; then
-    return 0
-  else
-    return 2
+  __get_torrent || exitCode=3
+  if LATEST_ISO_IS_TORRENT="no"; then
+    url="${1:-$url}"
+    file="${2:-$file}"
+    archive_iso_name="${3:-}"
+    latest=$(__find_iso "$url")
+    localname=$(basename -- "$latest" 2>/dev/null)
+    download_dir=$(dirname "${2:-$LATEST_ISO_DOWNLOAD_DIR/$localname}" 2>/dev/null)
+    download_file="$download_dir/${file//$download_dir\//}"
+    [ -d "$download_file" ] && rm -Rf "$download_file"
+    [ -d "$download_dir" ] || mkdir -p "$download_dir"
+    [ -d "$LATEST_ISO_DOWNLOAD_DIR" ] || mkdir -p "$LATEST_ISO_DOWNLOAD_DIR"
+    [ -d "$LATEST_ISO_DOWNLOAD_DIR" ] || { printf_red "The download file should not be a directory: $LATEST_ISO_DOWNLOAD_DIR\n" && return 1; }
+    [ -n "$latest" ] || { printf_red "No iso found on $url\n" && return 1; }
+    echo "$latest" | __get_filename -q || { printf_red "$latest seems to be invalid\n" && return 1; }
+    __grab_iso "$latest" "$download_file" "$archive_iso_name" && exitCode="0" || exitCode="2"
   fi
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__set_filename() {
-  echo "$1" | sed "s|.iso$|.$2.iso|g" | grep '^' || echo "$1"
+  if [ "$exitCode" = 0 ]; then
+    exitCode=0
+  else
+    exitCode=2
+  fi
+  unset url latest latest_file remote_filesize system_arch iso_arch download_file save_message iso_name save_message ISOFILE LATEST_ISO_NAME LATEST_RELEASE_VERSION isoname
+  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __grab_iso() {
@@ -672,14 +677,14 @@ __grab_iso() {
     exitCode="0"
   elif [ -n "$latest" ]; then
     if { [ "$LATEST_ISO_OVERWRITE" = "yes" ] || [ ! -f "$file" ] || [ "$LATEST_ISO_FORCE_INST" = "yes" ]; }; then
-      if echo "$url" | grep -qE '.tar$|.gz$' &>/dev/null; then
-        save_message="Attempting to download the compressed ISO from: $(dirname "$url")/"
+      if echo "$url" | grep -qE '.tar$|.gz$|.zip$' &>/dev/null; then
+        save_message="Attempting to download the compressed ISO from: $url"
         download_message="Size of $iso_name is $remote_filesize and saving it to: $download_file"
       elif echo "$url" | grep -qE '.iso$' &>/dev/null; then
-        save_message="Attempting to download the ISO from: $(dirname "$url")/"
+        save_message="Attempting to download the ISO from: $(dirname "$url")"
         download_message="Size of $iso_name is $remote_filesize and saving it to: $download_file"
       else
-        save_message="Attempting to download the file from: $(dirname "$url")/"
+        save_message="Attempting to download the file from: $(dirname "$url")"
         download_message="Size of $iso_name is $remote_filesize and saving it to: $download_file"
       fi
     fi
@@ -772,27 +777,38 @@ __remote_filesize() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_torrent() {
-  __cmd_exists transadd || { printf_red "The program transadd is not installed" && return 1; }
+  local exitTCode=0
+  LATEST_ISO_IS_TORRENT="no"
   if echo "$1" | grep -qE 'magnet:|.torrent$'; then
-    printf_yellow "This appears to be a torrent"
-    printf_blue "Downloading torrent via transmission"
-    transadd "$1"
-    return $?
+    LATEST_ISO_IS_TORRENT="yes"
+    if __cmd_exists transadd; then
+      printf_yellow "This appears to be a torrent"
+      printf_blue "Downloading torrent via transmission"
+      transadd "$1"
+      exitTCode=$?
+    elif __cmd_exists aria2c; then
+      aria2c --enable-dht=true "$1"
+      exitTCode=$?
+    else
+      printf_red "The program transadd is not installed"
+      exitTCode=1
+    fi
   else
-    return 1
+    exitTCode=0
   fi
+  return $exitTCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __github_api() {
   local repo=""
-  repo="$(echo "$1" | sed 's|.*://||g;s|.*.github.com/||g' || echo "$1")"
+  repo="$(echo "$1" | sed 's|.*://||g;s|.*.github.com/||g' | grep '^' || echo "$1")"
   if echo "$repo" | grep -q 'api.github.com'; then
     api="$1"
   else
     api="https://api.github.com/repos/${repo:-$1}/releases/latest"
   fi
-  results="$(curl -q -LSsf -H "Accept: application/vnd.github+json" "$api" | jq -r '.[]' | grep 'browser_download_url' | sed 's|"||g;s|browser_download_url.* ||g;s|^  *||g;s|  *| |g' | grep '.iso$' | __grep_version | __strip_iso)"
-  [ -n "$results" ] && echo "$results" || return 1
+  results="$(curl -q -LSsf -H "Accept: application/vnd.github+json" "$api" | jq -r '.[]' | grep 'browser_download_url' | sed 's|"||g;s|browser_download_url.* ||g;s|^  *||g;s|  *| |g' | __get_filename | grep "${2:-^}" | grep -v "${3:-^$}")"
+  [ -n "$results" ] && echo "$results" | head -n1 | grep '^' || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __latest_list() {
@@ -930,8 +946,8 @@ __latest_list() {
   manjaro)
     shift 1
     ISOFILE="$LATEST_ISO_DOWNLOAD_DIR/manjaro.iso"
-    isoname="$(curl -q -LSsf "$LATEST_ISO_MANJARO_URL" | __strip_href | grep 'xfce' | grep -v 'minimal' | sort -V | __strip_iso)"
-    __latest_iso "$isoname" "$ISOFILE"
+    isourl="$(__github_api "manjaro/release-review" "$LATEST_ISO_MANJARO_FLAVOR" 'minimal')"
+    __latest_iso "$isourl" "$ISOFILE" ""
     statusCode=$(($? + $statusCode))
     ;;
   nixos)
@@ -1143,7 +1159,7 @@ LATEST_ISO_FREENAS_URL="${LATEST_ISO_FREENAS_URL:-https://download.freenas.org}"
 LATEST_ISO_GARUDA_URL="${LATEST_ISO_GARUDA_URL:-https://iso.builds.garudalinux.org/iso/latest/garuda/xfce/latest.iso}"
 LATEST_ISO_HEADS_URL="${LATEST_ISO_HEADS_URL:-https://files.dyne.org/heads}"
 LATEST_ISO_KALI_URL="${LATEST_ISO_KALI_URL:-https://www.kali.org/get-kali}"
-LATEST_ISO_MANJARO_URL="${LATEST_ISO_MANJARO_URL:-https://manjaro.org/download/}"
+LATEST_ISO_MANJARO_FLAVOR="${LATEST_ISO_MANJARO_FLAVOR:-xfce}"
 LATEST_ISO_NIXOS_URL="${LATEST_ISO_NIXOS_URL:-https://nixos.org/download.html}"
 LATEST_ISO_OPENSUSE_URL="${LATEST_ISO_OPENSUSE_URL:-https://download.opensuse.org/tumbleweed/iso/openSUSE-Tumbleweed-DVD-x86_64-Current.iso}"
 LATEST_ISO_OPENVZ_URL="${LATEST_ISO_OPENVZ_URL:-https://download.openvz.org/virtuozzo/releases}"
@@ -1406,17 +1422,27 @@ iso)
   ;;
 all)
   shift 1
-  __run_all
-  exit $?
+  exitStatus=0
+  for iso in $ARRAY; do
+    eval $0 $iso
+    exitStatus=$((exitStatus + 1))
+  done
+  exit $exitStatus
   ;;
 *)
   if [ "$RUN_ALL" = "true" ]; then
-    __run_all
+    eval $0 all
     exit $?
-  elif [ $# -ne 0 ]; then
+  elif [ $# -eq 1 ]; then
+    __latest_list "$1"
+    exit $?
+  elif [ $# -gt 1 ]; then
+    exitStatus=0
     for iso in "$@"; do
-      __latest_list "$iso"
+      eval $0 $iso
+      exitStatus=$((exitStatus + 1))
     done
+    exit $exitStatus
   else
     __help
   fi

@@ -361,10 +361,10 @@ trap '__trap_exit' EXIT
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
 __curl() { \curl "$@" 2>/dev/null || return 1; }
-__retrieve_compose() { __curl -q -LSsf "$1" -o './compose.yml' 2>/dev/null || return 1; }
+__retrieve_compose() { __curl -q -LSsf "$1" -o './docker-compose.yaml' 2>/dev/null || return 1; }
 __get_image_name() { grep -sR 'image: ' "$COMPOSEMGR_CWD" | sed "s|.*image: ||g;s|\"||g;s|'||g;s|:.*||g"; }
 __private_key() { openssl ecparam --name secp256k1 --genkey --noout --outform DER | tail --bytes=+8 | head --bytes=32 | xxd --plain --cols 32; }
-__project_name() { grep -svE '^$|#' "$COMPOSEMGR_CWD"/*compose.yml | head -n1 | grep 'name:' | sed 's|name: ||g' || __basename "${1:-$COMPOSEMGR_CWD}"; }
+__project_name() { grep -svE '^$|#' "$COMPOSEMGR_CWD"/*compose.yaml | head -n1 | grep 'name:' | sed 's|name: ||g' || __basename "${1:-$COMPOSEMGR_CWD}"; }
 __get_project_dir() { grep -R -- '-.*/' *.yml | sed "s|.*- ||g;s|'||g;s|\"||g;s|:.*||g" | grep -v '=' | grep '^/var/lib/srv' | grep -v '^$' | tr '\n' ','; }
 __generate_password() { head -n128 '/dev/urandom' | tr -dc "${2:-_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789}" | tr -d '[:space:]\042\047\134' | fold -w "${1:-32}" | head -n 1; }
 __generate_hash_pass() { head -n128 /dev/urandom | tr -dc ${2:-_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789} | head -c "${1:-32}" | openssl passwd -1 -salt $(openssl rand -base64 6) --stdin; }
@@ -378,6 +378,7 @@ __cd() {
 __update_env_file() {
   local file="${1:-$COMPOSEMGR_CONFIG_DIR/compose.env}"
   local directory="$(dirname "$file")"
+  [ -f "$HOME/.config/secure/cloudflare.txt" ] && . "$HOME/.config/secure/cloudflare.txt"
   if [ -d "$directory/.git" ]; then
     grep -qs '.env$' "$directory/.gitignore" || printf '%s\n%s\n' '# ignore dotenv files' '.env' >>"$directory/.gitignore"
   fi
@@ -389,11 +390,11 @@ __update_env_file() {
     unset NGINX_PROXY_URL
     BASE_HOST_NAME=$HOSTNAME
   fi
-  if [ -f "$COMPOSEMGR_CWD/compose.yml" ]; then
+  if [ -f "$COMPOSEMGR_CWD/docker-compose.yaml" ]; then
     if [ "$BASE_HOST_NAME" = "$HOSTNAME" ]; then
       BASE_HOST_NAME="$(basename -- "$COMPOSEMGR_CWD").$BASE_DOMAIN_NAME"
     fi
-    NGINX_PROXY_URL="${NGINX_PROXY_URL:-$(grep -sh 'nginx proxy address' "$COMPOSEMGR_CWD/compose.yml" | awk -F '-' '{print $2}' | sed 's| ||g')}"
+    NGINX_PROXY_URL="${NGINX_PROXY_URL:-$(grep -sh 'nginx proxy address' "$COMPOSEMGR_CWD/docker-compose.yaml" | awk -F '-' '{print $2}' | sed 's| ||g')}"
   fi
 
   cat <<EOF >"$file"
@@ -410,7 +411,9 @@ __update_env_file() {
 export TZ="${TZ:-}"
 export BASE_DOMAIN_NAME="${BASE_DOMAIN_NAME:-}"
 export BASE_HOST_NAME="${BASE_HOST_NAME:-}"
-export BASE_STORAGE_DIR="${BASE_STORAGE_DIR:-}"
+#
+export BASE_DIR_STORAGE="${BASE_DIR_STORAGE:-}"
+export BASE_DIR_DATABASES="${BASE_DIR_DATABASES:-}"
 #
 export NGINX_PROXY_URL="${NGINX_PROXY_URL:-}"
 #
@@ -479,6 +482,15 @@ export RFC2136_TSIG_ALGORITHM="${RFC2136_TSIG_ALGORITHM:-}"
 export RFC2136_TSIG_KEY="${RFC2136_TSIG_KEY:-certbot.}"
 export RFC2136_PROPAGATION_TIMEOUT="${RFC2136_PROPAGATION_TIMEOUT:-90}"
 export RFC2136_TSIG_SECRET="${RFC2136_TSIG_SECRET:-}"
+#
+export CLOUDFLARE_EMAIL="${CLOUDFLARE_EMAIL:-}"
+export CLOUDFLARE_ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID:-}"
+export CLOUDFLARE_TUNNEL_NAME="${CLOUDFLARE_TUNNEL_NAME:-cloudflared}"
+export CLOUDFLARE_ZONE_ID="${CLOUDFLARE_ZONE_ID:-$CLOUDFLARE_DEFAULT_ZONE}"
+export CLOUDFLARE_API_TOKEN="${CLOUDFLARE_API_TOKEN:-eea2ca638026627204ad8d87fb96dea382a66}"
+export CLOUDFLARE_LABEL_PREFIX="${CLOUDFLARE_LABEL_PREFIX:-cloudflared}"
+#
+export TRUSTED_PROXIES=127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
 
 EOF
   if [ -f "$file" ]; then
@@ -555,25 +567,44 @@ __init_dir() {
       COMPOSEMGR_HOSTNAME="$(basename -- "$repo_name").$BASE_DOMAIN_NAME"
       if [ ! -f "$COMPOSEMGR_BASE_DIR/$repo_name/.env" ]; then
         edit_compose_file=yes
+        if [ -f "$COMPOSEMGR_BASE_DIR/$repo_name/app.env.default" ]; then
+          if [ ! -f "$COMPOSEMGR_BASE_DIR/$repo_name/app.env" ]; then
+            cp -Rf "$COMPOSEMGR_BASE_DIR/$repo_name/env.default" "$COMPOSEMGR_BASE_DIR/$repo_name/app.env"
+          fi
+        fi
         __update_env_file "$COMPOSEMGR_BASE_DIR/$repo_name/.env" >/dev/null
       fi
-      [ -f "$COMPOSEMGR_BASE_DIR/$repo_name/app.env" ] || touch "$COMPOSEMGR_BASE_DIR/$repo_name/app.env"
+      touch "$COMPOSEMGR_BASE_DIR/$repo_name/app.env"
       exitCode=0
     else
       exitCode=1
     fi
-    [ -f "$workDir/compose.default.yaml" ] || [ -f "$workDir/docker-compose.yaml" ] && \cp -Rf "$workDir/docker-compose.yaml" "$workDir/compose.default.yaml" || exitCode=2
-    [ -f "$workDir/compose.yml" ] && mv -f "$workDir/compose.yml" "$workDir/docker-compose.yaml"
-    [ -f "$workDir/docker-compose.yml" ] && rm -Rf "$workDir/docker-compose.yml"
+    if [ -f "$workDir/docker-compose.yml" ]; then
+      [ -f "$workDir/docker-compose.yaml" ] && rm -Rf "$workDir/docker-compose.yml" || mv -f "$workDir/docker-compose.yml" "$workDir/docker-compose.yaml"
+    fi
+    if [ -f "$workDir/docker-compose.default.yaml" ]; then
+      if [ ! -f "$workDir/docker-compose.yaml" ]; then
+        cp -Rf "$workDir/docker-compose.default.yaml" "$workDir/docker-compose.yaml"
+      fi
+    fi
+    if [ -f "$workDir/compose.yml" ]; then
+      [ -f "$workDir/docker-compose.yaml" ] && rm -Rf "$workDir/compose.yml" || mv -f "$workDir/compose.yml" "$workDir/docker-compose.yaml"
+    fi
+    if [ -f "$workDir/docker-compose.yaml" ] && [ ! -f "$workDir/docker-compose.default.yaml" ]; then
+      cp -Rf "$workDir/docker-compose.yaml" "$workDir/docker-compose.default.yaml"
+    fi
   else
     printf_red "Testing of the repo has failed: Make sure it exists and is public"
     exitCode=1
   fi
-  for env in app.env .env compose.default.yaml; do
+  for env in app.env .env; do
     if ! grep -qs "$env" "$workDir/.gitignore"; then
       printf '%s\n%s\n\n' "# Ignore the file: $env" "$env" >>"$workDir/.gitignore"
     fi
   done
+  if grep -qsh 'docker-compose.yaml$' "workDir/.gitignore"; then
+    printf '%s\n%s\n\n' "# Exclude docker-compose.yaml just in case it has sensitive data" "docker-compose.yaml"
+  fi
   [ -d "$tmpdir" ] && rm -Rf "$tmpdir"
   return $exitCode
 }
@@ -606,7 +637,7 @@ __remove_files() {
   local exitCode=0
   pname="$(__project_name "$1")"
   directories="$(eval echo $(__get_project_dir))"
-  files="$(ls -A "$COMPOSEMGR_CWD" | grep -v 'compose.yml')"
+  files="$(ls -A "$COMPOSEMGR_CWD" | grep -v 'compose.yaml')"
   printf_cyan "Running docker compose down for $pname"
   if __compose_down; then
     docker image prune -f >/dev/null 2>&1
@@ -620,22 +651,22 @@ __remove_files() {
 __compose_up() {
   local exitCode=0
   pname="$(__project_name "$1")"
-  [ -f "$PWD/.env" ] || dotenvFile="no"
+  [ -f "$COMPOSEMGR_CWD/.env" ] || dotenvFile="no"
   if __is_docker_compose; then
     printf_cyan "Running docker compose up for $pname"
     [ -f ".env" ] && . ".env" && . ".env"
-    __update_env_file "$PWD/.env" >/dev/null
+    __update_env_file "$COMPOSEMGR_CWD/.env" >/dev/null
     if [ "$dotenvFile" = "no" ]; then
       printf_read_question "2" "Would you like to customize the .env file? [y/N]" "1" "choice" "-s"
       if printf_answer_yes "$choice"; then
-        "$EDITOR" "$PWD/.env"
+        "$EDITOR" "$COMPOSEMGR_CWD/.env"
         wait $!
       fi
     fi
     if [ "$edit_compose_file" = "yes" ]; then
-      printf_read_question "2" "Would you like to edit the the compose.yml file? [y/N]" "1" "compose" "-s"
+      printf_read_question "2" "Would you like to edit the the docker-compose.yaml file? [y/N]" "1" "compose" "-s"
       if printf_answer_yes "$compose"; then
-        "$EDITOR" "$PWD/compose.yml"
+        "$EDITOR" "$COMPOSEMGR_CWD/docker-compose.yaml"
         wait $!
       fi
     fi
@@ -725,16 +756,16 @@ __random_pass() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __generate_nginx_proxy() {
   local exitCode=0
-  __cmd_exists nginx || printf_exit "the command nginx was not found"
-  __cmd_exists gen-nginx || printf_exit "the command gen-nginx was not found"
-  BASE_HOST_NAME="${1:-$BASE_HOST_NAME}"
-  NGINX_PROXY_URL="${2:-$NGINX_PROXY_URL}"
-  if [ -z "$NGINX_PROXY_URL" ] && [ -f "$COMPOSEMGR_CWD/compose.yml" ]; then
-    NGINX_PROXY_URL="$(grep -sh 'nginx proxy address' "$COMPOSEMGR_CWD/compose.yml" | awk -F '-' '{print $2}' | sed 's| ||g')"
+  local nginx_vhost_name="${1:-$BASE_HOST_NAME}"
+  local nginx_proxy_url="${2:-$NGINX_PROXY_URL}"
+  __cmd_exists nginx || printf_exit "The command nginx was not found"
+  __cmd_exists gen-nginx || printf_exit "The command gen-nginx was not found"
+  if [ -z "$nginx_proxy_url" ] && [ -f "$COMPOSEMGR_CWD/docker-compose.yaml" ]; then
+    nginx_proxy_url="$(grep -sh 'nginx proxy address' "$COMPOSEMGR_CWD/docker-compose.yaml" | awk -F '-' '{print $2}' | sed 's| ||g')"
   fi
-  [ -n "$BASE_HOST_NAME" ] || printf_exit "Can not determine the server address"
-  [ -n "$NGINX_PROXY_URL" ] || printf_exit "Can not determine the address to proxy to"
-  gen-nginx "$BASE_HOST_NAME" "$NGINX_PROXY_URL" || exitCode=2
+  [ -n "$nginx_vhost_name" ] || printf_exit "Can not determine the server address"
+  [ -n "$nginx_proxy_url" ] || printf_exit "Can not determine the address to proxy to"
+  gen-nginx "$nginx_vhost_name" "$nginx_proxy_url" || exitCode=2
   __update_env_file "$COMPOSEMGR_CWD/.env"
   return $exitCode
 }
@@ -864,7 +895,7 @@ LONGOPTS="completions:,config,reset-config,debug,dir:,help,options,raw,version,s
 LONGOPTS+=",project:,env"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="install,remove,up,down,restart,ps,logs,network,cat,init,new,edit,show,get,env"
-ARRAY+="password,nginx"
+ARRAY+="password,nginx,commit,pull,push"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST="acme,affine,aria2,authentik,blinko,bluesky,borg,budibase,bytestash,caprover,clipcascade,code-server,coder,couchbase,couchdb,"
 LIST+="dockge,freeipa,garage,gitlab,guacamole,i2p,irc,it-tools,jenkins,jitsi,kestra,keycloak,kooboo,lenpaste,linkwarden,mariadb,mastadon,"
@@ -1106,7 +1137,7 @@ cat)
   ;;
 new)
   shift 1
-  __cd "$1" && touch 'compose.yml' && __compose_edit "$1"
+  __cd "$1" && touch 'docker-compose.yaml' && __compose_edit "$1"
   exit $?
   ;;
 nginx)
@@ -1118,6 +1149,30 @@ edit)
   shift 1
   __compose_edit "$1"
   exit $?
+  ;;
+commit)
+  shift 1
+  if [ -d "$COMPOSEMGR_CWD/.git" ]; then
+    gitcommit --dir "$COMPOSEMGR_CWD" "docker" "$@"
+  else
+    gitadmin --dir "$COMPOSEMGR_CWD" setup
+  fi
+  ;;
+pull)
+  shift 1
+  if [ -d "$COMPOSEMGR_CWD/.git" ]; then
+    gitadmin --dir "$COMPOSEMGR_CWD" "push"
+  else
+    gitadmin --dir "$COMPOSEMGR_CWD" setup
+  fi
+  ;;
+push)
+  shift 1
+  if [ -d "$COMPOSEMGR_CWD/.git" ]; then
+    gitadmin --dir "$COMPOSEMGR_CWD" "pull"
+  else
+    gitadmin --dir "$COMPOSEMGR_CWD" setup
+  fi
   ;;
 show)
   shift 1

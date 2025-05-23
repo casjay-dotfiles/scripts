@@ -505,7 +505,7 @@ __how_long_did_it_take() {
   return $retval
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__trap_exit() {
+__trap_exit_GEN_SCRIPT_REPLACE_FILENAME() {
   GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
   [ -f "$GEN_SCRIPT_REPLACE_ENV_TEMP_FILE" ] && rm -Rf "$GEN_SCRIPT_REPLACE_ENV_TEMP_FILE" &>/dev/null
   #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD//$HOME/\~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
@@ -557,7 +557,7 @@ __notify_remote() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup trap to remove temp file
-trap '__trap_exit' EXIT
+trap '__trap_exit_GEN_SCRIPT_REPLACE_FILENAME' EXIT
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
 

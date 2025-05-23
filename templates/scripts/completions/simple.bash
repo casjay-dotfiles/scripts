@@ -82,21 +82,33 @@ _GEN_SCRIPT_REPLACE_FILENAME_completion() {
       prev=""
       COMPREPLY=($(compgen -W 'long short list array' -- "$cur"))
       ;;
-    --debug | --raw | --help | --version | --config | --options)
-      prev=""
-      COMPREPLY=($(compgen -W '${SHORTOPTS:-$LONGOPTS}' -- "$cur"))
-      ;;
-    --no-*)
-      COMPREPLY=($(compgen -W '${NOOPTS}' -- "$cur"))
+    --options)
+      COMPREPLY=($(compgen -W '' -- ${cur}))
       return 0
       ;;
+    --help | --version | --config)
+      COMPREPLY=($(compgen -W '' -- ${cur}))
+      return 0
+      ;;
+    --debug | --raw)
+      COMPREPLY=($(compgen -W '${ARRAY} ${LONGOPTS} ${SHORTOPTS}' -- ${cur}))
+      return 0
+      ;;
+    --no-*)
+      COMPREPLY=($(compgen -W '${OPTS_NO}' -- "$cur"))
+      return 0
+      ;;
+    --yes-*)
+      COMPREPLY=($(compgen -W '${OPTS_YES}' -- "$cur"))
+      return 0
+      ;;
+    --all)
+      COMPREPLY=($(compgen -W '' -- "$cur"))
+      ;;
     *)
-      if [ $cword -gt 2 ]; then
-        return
-      else
+      [ $cword -gt 2 ] && COMPREPLY=($(compgen -W '${LIST}' -- "$cur")) ||
         COMPREPLY=($(compgen -W '${ARRAY}' -- "$cur"))
-        return 0
-      fi
+      return 0
       ;;
     esac
   fi

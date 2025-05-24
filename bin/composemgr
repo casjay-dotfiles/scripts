@@ -519,18 +519,20 @@ __is_docker_compose() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_docker_compose() {
-  local dir="$1"
+  local dir="${1:-$COMPOSEMGR_CWD}"
   [ -n "$dir" ] && __cd "$dir" || printf_exit "Please provide a project name"
-  if [ -f "compose.yml" ]; then
-    COMPOSEMGR_FILE="compose.yml"
+  if [ -f "$COMPOSEMGR_DOCKER_COMPOSE_FILE_NAME" ]; then
+    return
+  elif [ -f "compose.yml" ]; then
+    COMPOSEMGR_DOCKER_COMPOSE_FILE_NAME="compose.yml"
   elif [ -f "compose.yaml" ]; then
-    COMPOSEMGR_FILE="compose.yaml"
+    COMPOSEMGR_DOCKER_COMPOSE_FILE_NAME="compose.yaml"
   elif [ -f "docker-compose.yml" ]; then
-    COMPOSEMGR_FILE="docker-compose.yml"
+    COMPOSEMGR_DOCKER_COMPOSE_FILE_NAME="docker-compose.yml"
   elif [ -f "docker-compose.yaml" ]; then
-    COMPOSEMGR_FILE="docker-compose.yaml"
+    COMPOSEMGR_DOCKER_COMPOSE_FILE_NAME="docker-compose.yaml"
   fi
-  [ -n "$COMPOSEMGR_FILE" ] || return 3
+  [ -n "$COMPOSEMGR_DOCKER_COMPOSE_FILE_NAME" ] || return 3
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __init_dir() {
@@ -557,6 +559,7 @@ __init_dir() {
       exitCode=$?
       if [ -d "$tmpdir" ]; then
         cp -Rfa "$tmpdir/." "$workDir/"
+        edit_compose_file="yes"
       fi
     else
       exitCode=1
@@ -564,9 +567,10 @@ __init_dir() {
   fi
   if [ $exitCode -eq 0 ]; then
     if \cd "$workDir"; then
+      __get_docker_compose "$workDir"
       COMPOSEMGR_HOSTNAME="$(basename -- "$repo_name").$BASE_DOMAIN_NAME"
       if [ ! -f "$COMPOSEMGR_BASE_DIR/$repo_name/.env" ]; then
-        edit_compose_file=yes
+        edit_compose_file="yes"
         if [ -f "$COMPOSEMGR_BASE_DIR/$repo_name/app.env.default" ]; then
           if [ ! -f "$COMPOSEMGR_BASE_DIR/$repo_name/app.env" ]; then
             cp -Rf "$COMPOSEMGR_BASE_DIR/$repo_name/env.default" "$COMPOSEMGR_BASE_DIR/$repo_name/app.env"
@@ -580,18 +584,15 @@ __init_dir() {
       exitCode=1
     fi
     if [ -f "$workDir/docker-compose.yml" ]; then
-      [ -f "$workDir/docker-compose.yaml" ] && rm -Rf "$workDir/docker-compose.yml" || mv -f "$workDir/docker-compose.yml" "$workDir/docker-compose.yaml"
+      [ -f "$workDir/$COMPOSEMGR_DOCKER_COMPOSE_FILE_NAME" ] && rm -Rf "$workDir/docker-compose.yml" || mv -f "$workDir/docker-compose.yml" "$workDir/$COMPOSEMGR_DOCKER_COMPOSE_FILE_NAME"
     fi
     if [ -f "$workDir/docker-compose.default.yaml" ]; then
-      if [ ! -f "$workDir/docker-compose.yaml" ]; then
-        cp -Rf "$workDir/docker-compose.default.yaml" "$workDir/docker-compose.yaml"
+      if [ ! -f "$workDir/$COMPOSEMGR_DOCKER_COMPOSE_FILE_NAME" ]; then
+        cp -Rf "$workDir/docker-compose.default.yaml" "$workDir/$COMPOSEMGR_DOCKER_COMPOSE_FILE_NAME"
       fi
     fi
     if [ -f "$workDir/compose.yml" ]; then
-      [ -f "$workDir/docker-compose.yaml" ] && rm -Rf "$workDir/compose.yml" || mv -f "$workDir/compose.yml" "$workDir/docker-compose.yaml"
-    fi
-    if [ -f "$workDir/docker-compose.yaml" ] && [ ! -f "$workDir/docker-compose.default.yaml" ]; then
-      cp -Rf "$workDir/docker-compose.yaml" "$workDir/docker-compose.default.yaml"
+      [ -f "$workDir/$COMPOSEMGR_DOCKER_COMPOSE_FILE_NAME" ] && rm -Rf "$workDir/compose.yml" || mv -f "$workDir/compose.yml" "$workDir/$COMPOSEMGR_DOCKER_COMPOSE_FILE_NAME"
     fi
   else
     printf_red "Testing of the repo has failed: Make sure it exists and is public"
@@ -602,8 +603,8 @@ __init_dir() {
       printf '%s\n%s\n\n' "# Ignore the file: $env" "$env" >>"$workDir/.gitignore"
     fi
   done
-  if grep -qsh 'docker-compose.yaml$' "workDir/.gitignore"; then
-    printf '%s\n%s\n\n' "# Exclude docker-compose.yaml just in case it has sensitive data" "docker-compose.yaml"
+  if grep -qsh "^$COMPOSEMGR_DOCKER_COMPOSE_FILE_NAME$" "workDir/.gitignore"; then
+    printf '%s\n%s\n\n' "# Exclude $COMPOSEMGR_DOCKER_COMPOSE_FILE_NAME just in case it has sensitive data" "$COMPOSEMGR_DOCKER_COMPOSE_FILE_NAME"
   fi
   [ -d "$tmpdir" ] && rm -Rf "$tmpdir"
   return $exitCode
@@ -637,7 +638,7 @@ __remove_files() {
   local exitCode=0
   pname="$(__project_name "$1")"
   directories="$(eval echo $(__get_project_dir))"
-  files="$(ls -A "$COMPOSEMGR_CWD" | grep -v 'compose.yaml')"
+  files="$(ls -A "$COMPOSEMGR_CWD" | grep -v "$COMPOSEMGR_DOCKER_COMPOSE_FILE_NAME")"
   printf_cyan "Running docker compose down for $pname"
   if __compose_down; then
     docker image prune -f >/dev/null 2>&1
@@ -664,13 +665,13 @@ __compose_up() {
       fi
     fi
     if [ "$edit_compose_file" = "yes" ]; then
-      printf_read_question "2" "Would you like to edit the the docker-compose.yaml file? [y/N]" "1" "compose" "-s"
+      printf_read_question "2" "Would you like to edit the the $COMPOSEMGR_DOCKER_COMPOSE_FILE_NAME file? [y/N]" "1" "compose" "-s"
       if printf_answer_yes "$compose"; then
-        "$EDITOR" "$COMPOSEMGR_CWD/docker-compose.yaml"
+        "$EDITOR" "$COMPOSEMGR_CWD/$COMPOSEMGR_DOCKER_COMPOSE_FILE_NAME"
         wait $!
       fi
     fi
-    docker compose up -d --remove-orphans --force-recreate
+    docker compose -f "$COMPOSEMGR_CWD/$COMPOSEMGR_DOCKER_COMPOSE_FILE_NAME" up -d --remove-orphans --force-recreate
     exitCode=$?
   else
     printf_red "Can not file a valid compose file in $COMPOSEMGR_CWD" >&2
@@ -682,7 +683,7 @@ __compose_up() {
 __compose_down() {
   local exitCode=0
   if __is_docker_compose; then
-    docker compose down --remove-orphans
+    docker compose -f "$COMPOSEMGR_CWD/$COMPOSEMGR_DOCKER_COMPOSE_FILE_NAME" down --remove-orphans
     exitCode=$?
   else
     printf_red "Can not file a valid compose file in $COMPOSEMGR_CWD" >&2
@@ -694,7 +695,7 @@ __compose_down() {
 __compose_logs() {
   local exitCode=0
   if __is_docker_compose; then
-    docker compose logs -f
+    docker compose -f "$COMPOSEMGR_CWD/$COMPOSEMGR_DOCKER_COMPOSE_FILE_NAME" logs -f
     exitCode=$?
   fi
   return $exitCode
@@ -702,7 +703,7 @@ __compose_logs() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __compose_edit() {
   if __get_docker_compose "$1"; then
-    eval $EDITOR "$COMPOSEMGR_FILE"
+    eval $EDITOR "$COMPOSEMGR_CWD/$COMPOSEMGR_DOCKER_COMPOSE_FILE_NAME"
   else
     return 1
   fi
@@ -813,6 +814,7 @@ COMPOSEMGR_BASE_DIR="${COMPOSEMGR_BASE_DIR:-$COMPOSEMGR_CONFIG_DIR/docker}"
 COMPOSEMGR_GIT_ORG_URL="${COMPOSEMGR_GIT_ORG_URL:-https://github.com/composemgr}"
 COMPOSEMGR_GIT_ORG_RAW="${COMPOSEMGR_GIT_ORG_RAW:-https://raw.githubusercontent.com/composemgr}"
 COMPOSE_ENV_FILES="${COMPOSE_ENV_FILES:-$COMPOSEMGR_CONFIG_DIR/compose.env}"
+COMPOSEMGR_DOCKER_COMPOSE_FILE_NAME="${COMPOSEMGR_DOCKER_COMPOSE_FILE_NAME:-compose.yaml}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 TZ="${TZ:-America/New_York}"
 BASE_DOMAIN_NAME="${BASE_DOMAIN_NAME:-$(hostname -d 2>/dev/null | grep '*.\.' | grep '^' || echo "$BASE_HOST_NAME")}"
@@ -1177,7 +1179,7 @@ push)
 show)
   shift 1
   if __get_docker_compose "$1"; then
-    cat "$COMPOSEMGR_FILE"
+    cat "$COMPOSEMGR_DOCKER_COMPOSE_FILE_NAME"
     exit $?
   else
     exit 1

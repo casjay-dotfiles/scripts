@@ -185,6 +185,93 @@ EOF
   return ${COMPOSEMGR_EXIT_STATUS:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gen_docker_compose_yaml() {
+  local name="$1"
+  if [ ! -f "$COMPOSEMGR_CWD/docker-Compose.yaml" ]; then
+    cat <<EOF >"$COMPOSEMGR_CWD/docker-Compose.yaml" 2>/dev/null
+# nginx proxy address - http://172.17.0.1:3000
+
+name: $name
+x-logging: &default-logging
+  options:
+    max-size: '5m'
+    max-file: '1'
+  driver: json-file
+
+services:
+  app:
+    image: $name:latest
+    container_name: $name-app
+    hostname: \${BASE_HOST_NAME:-\$HOSTNAME}
+    restart: always
+    pull_policy: always
+    logging: *default-logging
+    environment:
+      TZ: $\{TZ:-America/New_York}
+      HOSTNAME: \${BASE_HOST_NAME:-\$HOSTNAME}}
+    ports:
+      - 172.17.0.1:62000:3000'
+    volumes:
+      - '/var/lib/srv/\${USER}/docker/$name/rootfs/data:/data:z'
+      - '/var/lib/srv/\${USER}/docker/$name/rootfs/config:/config:z'
+    labels:
+      - "traefik.enable=true"
+      - "cloudflared.enable=true"
+      - "cloudflared.hostname=$name.\${CLOUDFLARE_DOMAIN}"
+      - "cloudflared.service=http://$name:3000"
+      - "traefik.docker.network=proxy"
+      - "traefik.http.routers.$name.tls=true"
+      - "traefik.http.routers.$name.entrypoints=web"
+      - "traefik.http.routers.$name.service=$name"
+      - "traefik.http.services.$name.loadbalancer.server.port=3000"
+      - "traefik.http.routers.$name.rule=Host(\$(\${BASE_HOST_NAME:-\$HOSTNAME}))"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+    networks:
+      - $name
+      - cloudflared
+
+networks:
+  $name:
+    name: $name
+    external: false
+  traefix:
+    external: true
+  cloudflared:
+    external: true
+
+EOF
+  fi
+  if [ ! -f "$COMPOSEMGR_CWD/.env.sample" ]; then
+    printf_cyan "Creating .env.sample"
+    curl -q -LSsf "https://github.com/composemgr/.github/raw/refs/heads/main/example/.env.sample" -O "$COMPOSEMGR_CWD/.env.sample" 2>/dev/null
+  fi
+  if [ ! -f "$COMPOSEMGR_CWD/app.env.sample" ]; then
+    printf_cyan "Creating app.env.sample"
+    curl -q -LSsf "https://github.com/composemgr/.github/raw/refs/heads/main/example/app.env.sample" -O "$COMPOSEMGR_CWD/app.env.sample" 2>/dev/null
+  fi
+  if [ ! -f "$COMPOSEMGR_CWD/LICENSE.md" ]; then
+    gen-license --dir "$COMPOSEMGR_CWD" wtfpl
+  fi
+  if [ ! -f "$COMPOSEMGR_CWD/README.md" ]; then
+    gen-readme --dir "$COMPOSEMGR_CWD" installers/composemgr
+  fi
+  if [ ! -f "$COMPOSEMGR_CWD/.gitignore" ]; then
+    gitignore --dir "$COMPOSEMGR_CWD" default
+    printf '%s\n%s\n\n' "# Ignore app.env" "app.env" >>"$COMPOSEMGR_CWD/.gitignore"
+    printf '%s\n%s\n\n' "# Ignore compose.yaml" "compose.yaml" >>"$COMPOSEMGR_CWD/.gitignore"
+  fi
+  if [ -f "$COMPOSEMGR_CWD/docker-compose.yaml" ] && [ -f "$COMPOSEMGR_CWD/.env.sample" ] && [ -f "$COMPOSEMGR_CWD/app.env.sample" ] && [ -f "$COMPOSEMGR_CWD/LICENSE.md" ] && [ -f "$COMPOSEMGR_CWD/README.md" ] && [ -f "$COMPOSEMGR_CWD/.gitignore" ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_docker_networks() {
+  local networks="$(docker network ls | grep -v 'NETWORK ID.*NAME' | awk '{print $2}' | sort -u | grep -v '^$' | grep '^' || false)"
+  [ -n "$networks" ] && printf '%s\n' "${networks[@]}" || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Help function - Align to 50
 __help() {
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -932,7 +1019,7 @@ LONGOPTS="completions:,config,reset-config,debug,dir:,help,options,raw,version,s
 LONGOPTS+=",project:,env"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="install,remove,up,down,restart,ps,logs,network,cat,init,new,edit,show,get,env"
-ARRAY+="password,nginx,repo,backup"
+ARRAY+="password,nginx,repo,backup,generate"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST="acme,affine,aria2,authentik,blinko,bluesky,borg,budibase,bytestash,caprover,clipcascade,code-server,coder,couchbase,couchdb,"
 LIST+="dockge,freeipa,garage,gitlab,guacamole,i2p,irc,it-tools,jenkins,jitsi,kestra,keycloak,kooboo,lenpaste,linkwarden,mariadb,mastadon,"
@@ -1129,6 +1216,10 @@ env)
 get)
   shift 1
   __retrieve_compose "$1"
+  exit $?
+  ;;
+generate)
+  __gen_docker_compose_yaml
   exit $?
   ;;
 backup)

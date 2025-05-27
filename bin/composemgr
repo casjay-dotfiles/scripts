@@ -268,7 +268,7 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_docker_networks() {
-  local networks="$(docker network ls | grep -v 'NETWORK ID.*NAME' | awk '{print $2}' | sort -u | grep -v '^$' | grep '^' || false)"
+  local networks="$(docker network ls | grep -Ev 'NETWORK ID.*NAME|bridge.*bridge.*local|host.*host.*local|none.*null.*local' | awk '{print $2}' | sort -u | grep -v '^$' | grep '^' || false)"
   [ -n "$networks" ] && printf '%s\n' "${networks[@]}" || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -452,7 +452,7 @@ __retrieve_compose() { __curl -q -LSsf "$1" -o './docker-compose.yaml' 2>/dev/nu
 __get_image_name() { grep -sR 'image: ' "$COMPOSEMGR_CWD" | sed "s|.*image: ||g;s|\"||g;s|'||g;s|:.*||g"; }
 __private_key() { openssl ecparam --name secp256k1 --genkey --noout --outform DER | tail --bytes=+8 | head --bytes=32 | xxd --plain --cols 32; }
 __get_project_dir() { grep -R -- '-.*/' *.yml | sed "s|.*- ||g;s|'||g;s|\"||g;s|:.*||g" | grep -v '=' | grep '^/var/lib/srv' | grep -v '^$' | tr '\n' ','; }
-__generate_password() { head -n128 '/dev/urandom' | tr -dc "${2:-_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789}" | tr -d '[:space:]\042\047\134' | fold -w "${1:-32}" | head -n 1; }
+__generate_password() { head -n128 '/dev/urandom' | tr -dc "${2:-_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789}" | tr -d '[:space:]\042\047\134' | fold -w "${1:-32}" 2>/dev/null | head -n 1; }
 __generate_hash_pass() { head -n128 /dev/urandom | tr -dc ${2:-_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789} | head -c "${1:-32}" | openssl passwd -1 -salt $(openssl rand -base64 6) --stdin; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __project_name() {
@@ -718,12 +718,18 @@ __init_dir() {
 __install_files() {
   local exitCode=0
   local repo_name="$1"
+  local docker_network=""
   working_dir="$COMPOSEMGR_BASE_DIR/$repo_name"
   is_docker_app_running="${is_docker_app_running:-$([ -d "$workDir" ] && composemgr --dir "$workDir" ps 2>/dev/null | grep -v '^NAME  ' | grep '^' || false)}"
   __is_docker_compose || edit_compose_file="${edit_compose_file:-yes}"
   if __init_dir "$repo_name"; then
     __cd "$working_dir" || return 1
     if __get_docker_compose "$working_dir"; then
+      for docker_network in proxy cloudflare databases; do
+        if ! __get_docker_networks | grep -q "$docker_network"; then
+          printf_green "Creating docker network: $docker_network" && docker network create $docker_network >/dev/null
+        fi
+      done
       if [ -n "$is_docker_app_running" ]; then
         printf_green "Bringing up the containers for: $repo_name"
         composemgr --dir "$workDir" up >/dev/null 2>&1 && composemgr --dir "$workDir" ps

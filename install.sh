@@ -162,7 +162,9 @@ run_postinst() {
   mkdir -p "$HOME/.local/backups/systemmgr/installer/pam"
   mkdir -p "/usr/local/share/CasjaysDev/apps/fontmgr"
   mkdir -p "$motdDir/motd" "$motdDir/issue" "$motdDir/legal" "$bannerDir" "$verDir"
-  [ "$fontdir" = "0" ] && sudo fontmgr install Hack all-the-icons fontawesome LigatureSymbols
+  if [ -x "$CASJAYSDEVDIR/bin/fontmgr" ]; then
+    [ "$fontdir" = "0" ] && sudo "$CASJAYSDEVDIR/bin/fontmgr" install Hack all-the-icons fontawesome LigatureSymbols
+  fi
   [ -d "/var/lib/srv/$USER/public" ] || { mkdir -p "/var/lib/srv/$USER/public" && chmod 777 "/var/lib/srv/$USER/public"; }
   [ -d "/var/lib/srv/$USER/docker" ] || { mkdir -p "/var/lib/srv/$USER/docker" && chmod 777 "/var/lib/srv/$USER/docker"; }
   for app in $(ls "$CASJAYSDEVDIR/applications"); do

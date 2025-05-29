@@ -293,13 +293,10 @@ __trap_exit() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
-__curl() { curl -q -LSsf "$@" 2>/dev/null || return 1; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __duckdns_api() { __curl "$DUCKDNS_API_URL/${*}" && return 0 || return 1; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__get_external_ip4() { __curl -q --max-time 2 -4 "$DUCKDNS_EXTERNAL_IP" && return 0 || return 1; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__get_external_ip6() { __curl -q --max-time 2 -6 "$DUCKDNS_EXTERNAL_IP" && return 0 || return 1; }
+__curl() { curl -q -LSsf --max-time 2 --retry 0 "$@" 2>/dev/null || return 1; }
+__get_external_ip4() { __curl -4 "$DUCKDNS_EXTERNAL_IP" && return 0 || return 1; }
+__get_external_ip6() { __curl -6 "$DUCKDNS_EXTERNAL_IP" && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __set_full_domain() {
   local dom="${1:-$DUCKDNS_DOMAIN}" set_domain=""
@@ -401,31 +398,38 @@ __letsencrypt_cron() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __letsencrypt_create() {
   [ -n "$DUCKDNS_API_KEY" ] || printf_exit "The api key is not set"
+  local exitCode=0
+  local container_name=duckdns-letsencrypt-bot
   printf_cyan "Please wait while I setup the certs for the following domain: ${YELLOW}$DUCKDNS_DOMAIN *.$DUCKDNS_DOMAIN${NC}"
   sudo -n true && sudo mkdir -p /etc/letsencrypt /var/log/letsencrypt && sudo chmod 777 /etc/letsencrypt /etc/letsencrypt/live /var/log/letsencrypt
   docker pull $DUCKDNS_CERTBOT_CONTAINER &>/dev/null
-  docker run \
-    --rm \
-    --name duckdns-letsencrypt-bot \
-    -v "/etc/letsencrypt:/etc/letsencrypt" \
-    -v "/var/log/letsencrypt:/var/log/letsencrypt" \
-    $DUCKDNS_CERTBOT_CONTAINER certonly --non-interactive --agree-tos --email $DUCKDNS_LETSENCRYPT_EMAIL \
-    --preferred-challenges dns --authenticator dns-duckdns --dns-duckdns-propagation-seconds $DUCKDNS_LETSENCRYPT_PROPAGATION --expand \
-    --dns-duckdns-token "$DUCKDNS_API_KEY" -d "$DUCKDNS_DOMAIN" -d "*.$DUCKDNS_DOMAIN" >"$DUCKDNS_LOG_DIR/lecert.log" 2>&1 && __letsencrypt_cron || false
-  if [ -d "/etc/letsencrypt/live/$DUCKDNS_DOMAIN" ]; then
+  docker run --rm \
+    --name $container_name \
+    $DUCKDNS_CERTBOT_CONTAINER certonly \
+    --non-interactive \
+    --agree-tos \
+    --email $DUCKDNS_LETSENCRYPT_EMAIL \
+    --preferred-challenges dns \
+    --authenticator dns-duckdns \
+    --dns-duckdns-token $DUCKDNS_API_KEY \
+    --dns-duckdns-propagation-seconds 60 \
+    -d "$DUCKDNS_DOMAIN" -d "*.$DUCKDNS_DOMAIN" >"$DUCKDNS_LOG_DIR/lecert.log" #2>&1 && __letsencrypt_cron || exitCode=1
+  if [ $exitCode -eq 0 ] && [ -d "/etc/letsencrypt/live/$DUCKDNS_DOMAIN" ]; then
     printf_green "Certs saved to: /etc/letsencrypt/live/$DUCKDNS_DOMAIN"
-    return 0
   else
     printf_red "Failed to create the certs: $DUCKDNS_LOG_DIR/lecert.log"
-    return 1
   fi
+  docker rm -f $container_name &>/dev/null
+  docker rmi $DUCKDNS_CERTBOT_CONTAINER &>/dev/null
+  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __letsencrypt_renew() {
+  local container_name=duckdns-letsencrypt-bot
   docker pull $DUCKDNS_CERTBOT_CONTAINER &>/dev/null
   docker run \
     --rm \
-    --name duckdns-letsencrypt-bot \
+    --name $container_name \
     -v "/etc/letsencrypt:/etc/letsencrypt" \
     -v "/var/log/letsencrypt:/var/log/letsencrypt" \
     $DUCKDNS_CERTBOT_CONTAINER renew && __letsencrypt_cron || false
@@ -476,7 +480,7 @@ DUCKDNS_API_URL="${DUCKDNS_API_URL:-https://www.duckdns.org}"
 DUCKDNS_EXTERNAL_IP="${DUCKDNS_EXTERNAL_IP:-https://ifcfg.us}"
 DUCKDNS_LETSENCRYPT_EMAIL="${DUCKDNS_LETSENCRYPT_EMAIL:-}"
 DUCKDNS_LETSENCRYPT_PROPAGATION="${DUCKDNS_LETSENCRYPT_PROPAGATION:-90}"
-DUCKDNS_CERTBOT_CONTAINER="${DUCKDNS_CERTBOT_CONTAINER:-infinityofspace/certbot_dns_duckdns}"
+DUCKDNS_CERTBOT_CONTAINER="${DUCKDNS_CERTBOT_CONTAINER:-infinityofspace/certbot_dns_duckdns:latest}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$DUCKDNS_CONFIG_DIR/$DUCKDNS_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}

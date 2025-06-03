@@ -152,8 +152,8 @@ __gen_config() {
   cat <<EOF >"$COMPOSEMGR_CONFIG_DIR/$COMPOSEMGR_CONFIG_FILE"
 # Settings for composemgr
 COMPOSE_ENV_FILES="${COMPOSE_ENV_FILES:-}"
-COMPOSEMGR_BASE_DIR="${COMPOSEMGR_BASE_DIR:-}"
 COMPOSEMGR_GIT_ORG_URL="${COMPOSEMGR_GIT_ORG_URL:-}"
+COMPOSEMGR_DEFAULT_PROJECT_DIR="${COMPOSEMGR_DEFAULT_PROJECT_DIR:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
 COMPOSEMGR_OUTPUT_COLOR_1="${COMPOSEMGR_OUTPUT_COLOR_1:-}"
@@ -457,20 +457,22 @@ __generate_hash_pass() { head -n128 /dev/urandom | tr -dc ${2:-_abcdefghijklmnop
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __project_name() {
   local dir=""
-  [ -d "$1" ] && dir="$1"
-  [ -f "$1" ] && dir="$(dirname "$1")"
+  local name="${COMPOSEMGR_PROJECT_NAME:-$1}"
+  [ -d "$name" ] && dir="$name"
+  [ -f "$name" ] && dir="$(dirname -- "$name")"
   grep -hsvE '^$|#' "$COMPOSEMGR_CWD"/$COMPOSEMGR_DOCKER_COMPOSE_FILE_NAME | head -n1 | grep 'name:' | sed 's|name: ||g' || __basename "$dir"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __cd() {
-  local dir="$(__basename "$1")"
-  [ -d "$COMPOSEMGR_BASE_DIR/$dir" ] || mkdir -p "$COMPOSEMGR_BASE_DIR/$dir"
-  \cd "$COMPOSEMGR_BASE_DIR/$dir" && pushd "$PWD" >/dev/null || return 1
+  local workDir="${1:-$COMPOSEMGR_DEFAULT_PROJECT_DIR}"
+  [ -d "$workDir" ] || mkdir -p "$workDir"
+  \cd "$workDir" && pushd "$PWD" >/dev/null || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __update_env_file() {
   local file="${1:-$COMPOSEMGR_CONFIG_DIR/compose.env}"
   local directory="$(dirname "$file")"
+  [ -f "$file" ] && . "$file"
   [ -f "$HOME/.config/secure/cloudflare.txt" ] && . "$HOME/.config/secure/cloudflare.txt"
   if [ -d "$directory/.git" ]; then
     grep -qs '.env$' "$directory/.gitignore" || printf '%s\n%s\n' '# ignore dotenv files' '.env' >>"$directory/.gitignore"
@@ -639,9 +641,9 @@ __get_docker_compose() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __init_dir() {
   local exitCode=0
-  local repo_name="$1"
+  local repo_name="${COMPOSEMGR_PROJECT_NAME:-$1}"
   local tmpdir="${TMPDIR:-/tmp}/$APPNAME/$$"
-  local workDir="${working_dir:-$COMPOSEMGR_BASE_DIR/$repo_name}"
+  local workDir="${working_dir:-$COMPOSEMGR_DEFAULT_PROJECT_DIR/$repo_name}"
   edit_compose_file=no
   is_docker_app_running="${is_docker_app_running:-$([ -d "$workDir" ] && composemgr --dir "$workDir" ps 2>/dev/null | grep -v '^NAME  ' | grep '^' || false)}"
   [ -n "$is_docker_app_running" ] && printf_yellow "Stopping the containers for app: $repo_name" && composemgr --dir "$workDir" down >/dev/null 2>&1
@@ -674,16 +676,16 @@ __init_dir() {
     if \cd "$workDir"; then
       __get_docker_compose "$workDir"
       COMPOSEMGR_HOSTNAME="$(basename -- "$repo_name").$BASE_DOMAIN_NAME"
-      if [ ! -f "$COMPOSEMGR_BASE_DIR/$repo_name/.env" ]; then
+      if [ ! -f "$workDir/.env" ]; then
         edit_compose_file="yes"
-        if [ -f "$COMPOSEMGR_BASE_DIR/$repo_name/app.env.default" ]; then
-          if [ ! -f "$COMPOSEMGR_BASE_DIR/$repo_name/app.env" ]; then
-            cp -Rf "$COMPOSEMGR_BASE_DIR/$repo_name/env.default" "$COMPOSEMGR_BASE_DIR/$repo_name/app.env"
+        if [ -f "$workDir/app.env.default" ]; then
+          if [ ! -f "$workDir/app.env" ]; then
+            cp -Rf "$workDir/env.default" "$workDir/app.env"
           fi
         fi
-        __update_env_file "$COMPOSEMGR_BASE_DIR/$repo_name/.env" >/dev/null
+        __update_env_file "$workDir/.env" >/dev/null
       fi
-      touch "$COMPOSEMGR_BASE_DIR/$repo_name/app.env"
+      touch "$workDir/app.env"
       exitCode=0
     else
       exitCode=1
@@ -717,9 +719,9 @@ __init_dir() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __install_files() {
   local exitCode=0
-  local repo_name="$1"
   local docker_network=""
-  working_dir="$COMPOSEMGR_BASE_DIR/$repo_name"
+  local repo_name="${COMPOSEMGR_PROJECT_NAME:-$1}"
+  working_dir="$COMPOSEMGR_DEFAULT_PROJECT_DIR/$repo_name"
   is_docker_app_running="${is_docker_app_running:-$([ -d "$workDir" ] && composemgr --dir "$workDir" ps 2>/dev/null | grep -v '^NAME  ' | grep '^' || false)}"
   __is_docker_compose || edit_compose_file="${edit_compose_file:-yes}"
   if __init_dir "$repo_name"; then
@@ -890,12 +892,13 @@ __backup() {
   local year="$(date +'%Y')"
   local date="$(date +'%m-%d')"
   local backup_ext="$(date +'%%H-%M').tar.gz"
-  local name="${1:-$(basename -- "$COMPOSEMGR_CWD")}"
+  local name="${COMPOSEMGR_PROJECT_NAME:-$1}"
+  local name="${name:-$(basename -- "$COMPOSEMGR_CWD")}"
   local backup_dir="$COMPOSEMGR_CONFIG_DIR/backups/$year/$date"
   local backup_file="${name:-$(basename -- "$COMPOSEMGR_CWD")}.$backup_ext"
   [ -d "$backup_dir" ] || mkdir -p "$backup_dir"
-  [ -d "/var/lib/srv/$USER/docker/$name" ] && folders+=("/var/lib/srv/$USER/docker/$name")
   [ -d "$COMPOSEMGR_CONFIG_DIR/docker/$name" ] && folders+=("$COMPOSEMGR_CONFIG_DIR/docker/$name")
+  [ -d "$COMPOSEMGR_DEFAULT_PROJECT_DIR/$name" ] && folders+=("$COMPOSEMGR_DEFAULT_PROJECT_DIR/$name")
   for databases in /var/lib/srv/$USER/databases/*/$name; do
     [ -d "$databases" ] && folders+=("$databases")
   done
@@ -933,6 +936,9 @@ __rmf() {
   done
   return $eCode
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$COMPOSEMGR_CONFIG_DIR/$COMPOSEMGR_CONFIG_FILE" ] && . "$COMPOSEMGR_CONFIG_DIR/$COMPOSEMGR_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
 COMPOSEMGR_START_TIMER="${COMPOSEMGR_START_TIMER:-$(date +%s.%N)}"
@@ -973,7 +979,7 @@ COMPOSEMGR_NOTIFY_CLIENT_ICON="${COMPOSEMGR_NOTIFY_CLIENT_ICON:-notification-new
 COMPOSEMGR_NOTIFY_CLIENT_URGENCY="${COMPOSEMGR_NOTIFY_CLIENT_URGENCY:-normal}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional Variables
-COMPOSEMGR_BASE_DIR="${COMPOSEMGR_BASE_DIR:-$COMPOSEMGR_CONFIG_DIR/docker}"
+COMPOSEMGR_DEFAULT_PROJECT_DIR="${COMPOSEMGR_DEFAULT_PROJECT_DIR:-/var/lib/srv/$USER/composemgr}"
 COMPOSEMGR_GIT_ORG_URL="${COMPOSEMGR_GIT_ORG_URL:-https://github.com/composemgr}"
 COMPOSEMGR_GIT_ORG_RAW="${COMPOSEMGR_GIT_ORG_RAW:-https://raw.githubusercontent.com/composemgr}"
 COMPOSE_ENV_FILES="${COMPOSE_ENV_FILES:-$COMPOSEMGR_CONFIG_DIR/compose.env}"
@@ -982,7 +988,8 @@ COMPOSEMGR_DOCKER_COMPOSE_FILE_NAME="${COMPOSEMGR_DOCKER_COMPOSE_FILE_NAME:-comp
 TZ="${TZ:-America/New_York}"
 BASE_DOMAIN_NAME="${BASE_DOMAIN_NAME:-$(hostname -d 2>/dev/null | grep '*.\.' | grep '^' || echo "$BASE_HOST_NAME")}"
 BASE_HOST_NAME="${BASE_HOST_NAME:-$HOSTNAME}"
-BASE_STORAGE_DIR="${BASE_STORAGE_DIR:-/var/lib/srv/$USER/docker}"
+BASE_DIR_STORAGE="${BASE_DIR_STORAGE:-/var/lib/srv/$USER/composemgr}"
+BASE_DIR_DATABASES="${BASE_DIR_DATABASES:-/var/lib/srv/$USER/composemgr}"
 NGINX_PROXY_URL="${NGINX_PROXY_URL:-}"
 SERVICE_USER="${SERVICE_USER:-$(id -u)}"
 SERVICE_GROUP="${SERVICE_GROUP:-$(id -g)}"
@@ -1033,9 +1040,6 @@ RFC2136_TSIG_SECRET="${RFC2136_TSIG_SECRET:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$COMPOSEMGR_CONFIG_DIR/$COMPOSEMGR_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Import config
-[ -f "$COMPOSEMGR_CONFIG_DIR/$COMPOSEMGR_CONFIG_FILE" ] && . "$COMPOSEMGR_CONFIG_DIR/$COMPOSEMGR_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure Directories exist
 [ -d "$COMPOSEMGR_RUN_DIR" ] || mkdir -p "$COMPOSEMGR_RUN_DIR" |& __devnull
@@ -1176,8 +1180,12 @@ while :; do
     ;;
   --project)
     CWD_IS_SET="true"
-    COMPOSEMGR_CWD="$COMPOSEMGR_BASE_DIR/$2"
+    COMPOSEMGR_CWD="$COMPOSEMGR_DEFAULT_PROJECT_DIR/$2"
     [ -d "$COMPOSEMGR_CWD" ] || mkdir -p "$COMPOSEMGR_CWD" |& __devnull
+    shift 2
+    ;;
+  --name)
+    COMPOSEMGR_PROJECT_NAME="$2"
     shift 2
     ;;
   --env)

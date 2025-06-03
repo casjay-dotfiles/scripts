@@ -187,7 +187,7 @@ run_postinst() {
     cp -Rf "$f" "/root/.local/backups/systemmgr/installer/pam/$(basename -- "$f").bak" && sed --follow-symlinks -i 's|dir=~/Maildir||g' "$f"
   done
   for user in root apache nginx www-user daemon nobody $USER; do
-    if grep -qs "^$user" /etc/passwd; then
+    if grep -qs "^$user:" /etc/passwd; then
       if [ ! -d "/var/lib/srv/$USER" ]; then
         mkdir -p "/var/lib/srv/$USER"
         chmod -f 777 "/var/lib/srv/$USER"

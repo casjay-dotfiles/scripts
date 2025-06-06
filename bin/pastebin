@@ -153,7 +153,7 @@ __gen_config() {
     cp -Rf "$PASTEBIN_CONFIG_DIR/$PASTEBIN_CONFIG_FILE" "$PASTEBIN_CONFIG_BACKUP_DIR/$PASTEBIN_CONFIG_FILE.$$"
   cat <<EOF >"$PASTEBIN_CONFIG_DIR/$PASTEBIN_CONFIG_FILE"
 # Settings for pastebin
-# set the default service to use [nullbyte,iotek,clbin,catbox,pastebin,microbin,lenpaste,stikked,private,default]
+# set the default service to use [nullbyte,iotek,catbox,pastebin,microbin,lenpaste,stikked,private,default]
 PASTEBIN_DEFAULT_SERVICE="stikked"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # custom url settings
@@ -187,6 +187,8 @@ PASTEBIN_ERROR_MESSAGE="${PASTEBIN_ERROR_MESSAGE:-}"
 PASTEBIN_NOTIFY_CLIENT_NAME="${PASTEBIN_NOTIFY_CLIENT_NAME:-}"
 PASTEBIN_NOTIFY_CLIENT_ICON="${PASTEBIN_NOTIFY_CLIENT_ICON:-}"
 PASTEBIN_NOTIFY_CLIENT_URGENCY="${PASTEBIN_NOTIFY_CLIENT_URGENCY:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+[ -f "$PASTEBIN_CONFIG_DIR/private_pastebin.sh" ] && . "$PASTEBIN_CONFIG_DIR/private_pastebin.sh"
 
 EOF
   if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
@@ -209,7 +211,6 @@ __help() {
   __printf_line "Usage: pastebin [options] [service] [file/text]"
   __printf_line "nullbyte                        - "
   __printf_line "iotek                           - "
-  __printf_line "clbin                           - "
   __printf_line "catbox                          - "
   __printf_line "pastebin                        - "
   __printf_line "microbin                        - "
@@ -314,25 +315,59 @@ __sudo() {
 __trap_exit() {
   PASTEBIN_EXIT_STATUS=${PASTEBIN_EXIT_STATUS:-0}
   [ -f "$PASTEBIN_TEMP_FILE" ] && rm -Rf "$PASTEBIN_TEMP_FILE" &>/dev/null
+  [ -f "${PASTEBIN_TEMP_FILE}.err" ] && rm -Rf "${PASTEBIN_TEMP_FILE}.err" &>/dev/null
   #unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD//$HOME/\~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
   if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
   return $PASTEBIN_EXIT_STATUS
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
+__remove_null_byte() { tr '\0' '\n'; }
+__grep_output() { __grep -Ev "DOCTYPE|<html>|text/javascript" | __grep -v '^$' | __grep '^'; }
+__curl_api() { curl -q -LSsfk --max-time 3 --retry 0 "$@" 2>"${PASTEBIN_TEMP_FILE}.err" || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__create_private_pastebin() {
+  if [ ! -f "$PASTEBIN_CONFIG_DIR/private_pastebin.sh" ]; then
+    cat <<EOF >"$PASTEBIN_CONFIG_DIR/private_pastebin.sh"
+#!/usr/bin/env bash
+# See the documentation for your pastebin for the api settings
+
+__curl_private_pastebin() {
+[ -f "\$PASTEBIN_TEMP_FILE" ] || return 10
+if [ -z "\$PASTEBIN_PRIVATE_API_KEY" ]; then
+  get_response="\$(cat "\$PASTEBIN_TEMP_FILE" | __curl_api -d lang="\$language" -d name="\$name" --data-urlencode text@- "\$PASTEBIN_PRIVATE_URL/\$PASTEBIN_PRIVATE_API_URL" | __grep_output || return 10)"
+else
+  get_response="\$(cat "\$PASTEBIN_TEMP_FILE" | __curl_api -H "Accept: application/json" -H 'Authorization: Bearer '\$PASTEBIN_PRIVATE_API_KEY'' -d lang="\$language" -d name="\$name" --data-urlencode text@- "\$PASTEBIN_PRIVATE_URL/\$PASTEBIN_PRIVATE_API_URL" 2>/dev/null | __grep_output || return 10)"
+fi
+[ -n "\$get_response" ] || return 2
+}
+EOF
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __output_response() {
   local service="$1"
   local response="$2"
-  local date="$PASTEBIN_GET_DATE_TIME"
+  local set_failed_message="Failed to post to $service"
+  local date="$PASTEBIN_SET_DATE_TIME_FMT"
   local savedir="${PASTEBIN_SAVED_DIR_BASE:-$HOME/Documents/myscripts/$APPNAME}"
+  [ -s "${PASTEBIN_TEMP_FILE}.err" ] 2>&1 && set_failed_message="Failed to post to $service: $(cat "${PASTEBIN_TEMP_FILE}.err" | sed 's|curl: (.*) ||g')" 2>&1
   if [ -n "$response" ]; then
     [ -d "$savedir" ] || mkdir -p "$savedir"
-    printf '%s\n' "$response" | printf_readline $PASTEBIN_OUTPUT_COLOR_2
     printf 'Paste from %s on %s: %b\n' "$service" "$date" "$response" >>"${savedir}/${service}.txt"
-    __cmd_exists clipboard && printf '%s\n%b\n' "Pasted to $service:" "$response" | NOTIFY_CLIENT_NAME="$PASTEBIN_NOTIFY_CLIENT_NAME" clipboard
+    if [ -n "$XDG_SESSION_TYPE" ] || [ -n "$SSH_CONNECTION" ]; then
+      printf '%s %b\n' "Pasted to $service:" "$response" | printf_readline $PASTEBIN_OUTPUT_COLOR_2
+    else
+      __cmd_exists clipboard && printf '%s\n%b\n' "Pasted to $service:" "$response" | NOTIFY_CLIENT_NAME="$PASTEBIN_NOTIFY_CLIENT_NAME" clipboard
+    fi
     return 0
   else
-    __notifications "Failed to post to $service"
+    if [ -n "$XDG_SESSION_TYPE" ] || [ -n "$SSH_CONNECTION" ]; then
+      printf '%s %b\n' "$set_failed_message" "" | printf_readline $PASTEBIN_OUTPUT_COLOR_ERROR
+      return 2
+    else
+      __notifications "$set_failed_message"
+    fi
     return 1
   fi
 }
@@ -346,15 +381,22 @@ __set_vars() {
   language="$PASTEBIN_PASTES_LANGUAGE"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__termbin_com() {
+  __set_vars
+  local get_response=""
+  get_response="$(cat "$PASTEBIN_TEMP_FILE" 2>/dev/null | nc --wait=10 termbin.com 9999 2>"/dev/null" | __remove_null_byte)"
+  __output_response "termbin" "$get_response" || return 2
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __pastebin_com() {
   __set_vars
   local get_response=""
+  local private="${private:-0}"
+  local expires="${expires:-N}"
   local useragent="$PASTEBIN_USER_AGENT"
+  local contents="$(<"$PASTEBIN_TEMP_FILE")"
   local apikey="${PASTEBIN_API_KEY:-$PASTEBIN_SERVICE_PASTEBIN_COM_API}"
-  local set_api_key="&api_dev_key=$apikey"
-  #qs="api_option=paste&api_paste_expire_date=N&api_paste_private=public&api_paste_name=${name:-$(basename -- "${PASTEBIN_CONTENTS}")}"
-  #get_response="$(curl -q -LSsf -A "$useragent" --data-urlencode "api_paste_code=$(<"$PASTEBIN_TEMP_FILE")" "https://pastebin.com/api/api_post.php" 3>/dev/null | grep '^')"
-  get_response="$(cat "$PASTEBIN_TEMP_FILE" | curl -q -LSsf -X POST -d 'api_option=paste' "https://pastebin.com/api/api_post.php" 2>/dev/null | grep '^')"
+  get_response="$(__curl_api -X POST -H "Content-Type: application/x-www-form-urlencoded" -d "api_option=paste&api_dev_key=$apikey&api_paste_private=$private&api_paste_expire_date=$expires" --data-urlencode "api_paste_code=$contents" https://pastebin.com/api/api_post.php)"
   __output_response "pastebin.com" "$get_response" || return 2
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -362,31 +404,23 @@ __catbox_moe() {
   __set_vars
   local get_response=""
   local useragent="$PASTEBIN_USER_AGENT"
-  get_response="$(curl -q -LSsf -A "$useragent" -F 'reqtype=fileupload' -F 'fileToUpload=@'$PASTEBIN_TEMP_FILE'' "https://catbox.moe/user/api.php" 2>/dev/null | grep '^')"
+  get_response="$(__curl_api -A "$useragent" -F 'reqtype=fileupload' -F "fileToUpload=@$PASTEBIN_TEMP_FILE" "https://catbox.moe/user/api.php" | __grep_output || return 10)"
   __output_response "catbox.moe" "$get_response" || return 2
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__clbin_com() {
-  __set_vars
-  local get_response=""
-  local useragent="$PASTEBIN_USER_AGENT"
-  get_response="$(curl -q -LSsf -A "$useragent" -F 'clbin=@'$PASTEBIN_TEMP_FILE'' "https://clbin.com" 2>/dev/null | grep '^')"
-  __output_response "clbin.com" "$get_response" || return 2
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __iotek_org() {
   __set_vars
   local get_response=""
-  local useragent="$PASTEBIN_USER_AGENT"
-  get_response="$(cat "$PASTEBIN_TEMP_FILE" | curl -q -LSsf -A "$useragent" -sT- "https://p.iotek.org" 2>/dev/null | grep '^')"
+  local useragent="curl 7"
+  get_response="$(cat "$PASTEBIN_TEMP_FILE" | __curl_api --upload-file - "https://p.iotek.org" | __grep_output || return 10)"
   __output_response "iotek.org" "$get_response" || return 2
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __0x0_st() {
   __set_vars
   local get_response=""
-  local useragent="$PASTEBIN_USER_AGENT"
-  get_response="$(curl -q -LSsf -A "$useragent" -F 'file=@'$PASTEBIN_TEMP_FILE'' "https://0x0.st" 2>/dev/null | grep '^')"
+  local useragent="curl"
+  get_response="$(__curl_api -A "$useragent 7" -Fexpires=8760 --form file=@$PASTEBIN_TEMP_FILE "https://0x0.st" | __grep_output || return 10)"
   __output_response "0x0.st" "$get_response" || return 2
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -394,7 +428,7 @@ __lenpaste() {
   __set_vars
   local get_response=""
   local useragent="$PASTEBIN_USER_AGENT"
-  get_response="$(cat "$PASTEBIN_TEMP_FILE" | curl -q -LSsf -k -X 'POST' -A "$useragent" -d 'expiration='$expires'' -d 'author='$name'' -d 'title='$title'' --data-urlencode body@- "$PASTEBIN_LENPASTE_URL/api/v1/new" 2>/dev/null | jq -r '.id' 2>/dev/null | grep '^')"
+  get_response="$(cat "$PASTEBIN_TEMP_FILE" | __curl_api -X 'POST' -A "$useragent" -d 'expiration='$expires'' -d 'author='$name'' -d "title=$title" --data-urlencode body@- "$PASTEBIN_LENPASTE_URL/api/v1/new" | jq -r '.id' 2>/dev/null | __grep_output || return 10)"
   [ -n "$get_response" ] && get_response="$PASTEBIN_LENPASTE_URL/$get_response"
   __output_response "lenpaste" "$get_response" || return 2
 }
@@ -403,7 +437,7 @@ __stikked() {
   __set_vars
   local get_response=""
   local useragent="$PASTEBIN_USER_AGENT"
-  get_response="$(printf "%s\n" "$PASTEBIN_CONTENTS" | curl -q -LSsf -A "$useragent" -d lang="$language" -d name="$name" --data-urlencode text@- "$PASTEBIN_STIKKED_URL/api/create" 2>/dev/null | grep '^')"
+  get_response="$(cat "$PASTEBIN_TEMP_FILE" | __curl_api -X 'POST' -A "$useragent" -d "lang=$language" -d "name=$name" -d "title=$title" --data-urlencode text@- "$PASTEBIN_STIKKED_URL/api/create" | __grep_output || return 10)"
   __output_response "stikked" "$get_response" || return 2
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -411,20 +445,21 @@ __microbin() {
   __set_vars
   local get_response=""
   local useragent="$PASTEBIN_USER_AGENT"
-  get_response="$(curl -q -LSsfi -X POST "$PASTEBIN_MICROBIN_URL/upload" -F "file=@$PASTEBIN_TEMP_FILE" 2>/dev/null | perl -lne 's!/upload/!/p/!; print $1 if /^location: (.*)$/i' | grep '^')"
+  get_response="$(__curl_api -i -X POST "$PASTEBIN_MICROBIN_URL/upload" -F 'content='$(<"$PASTEBIN_TEMP_FILE")'' 2>/dev/null | perl -lne 's!/upload/!/p/!; print $1 if /^location: (.*)$/i' | __grep_output || return 10)"
   __output_response "microbin" "$get_response" || return 2
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __private() {
+  __set_vars
+  local get_response=""
+  local error_message=("")
   if [ -n "$PASTEBIN_PRIVATE_URL" ]; then
-    __set_vars
-    local get_response=""
-    if [ -z "$PASTEBIN_PRIVATE_API_KEY" ]; then
-      get_response="$(printf "%s\n" "$PASTEBIN_CONTENTS" | curl -q -LSsf -d lang="$language" -d name="$name" --data-urlencode text@- "$PASTEBIN_PRIVATE_URL/$PASTEBIN_PRIVATE_API_URL" 2>/dev/null | grep '^')"
-    else
-      get_response="$(printf "%s\n" "$PASTEBIN_CONTENTS" | curl -q -LSsf -H "Accept: application/json" -H 'Authorization: Bearer '$PASTEBIN_PRIVATE_API_KEY'' -d lang="$language" -d name="$name" --data-urlencode text@- "$PASTEBIN_PRIVATE_URL/$PASTEBIN_PRIVATE_API_URL" 2>/dev/null | grep '^')"
-    fi
+    __curl_private_pastebin
     __output_response "private" "$get_response" || return 2
+  else
+    [ -n "$PASTEBIN_PRIVATE_URL" ] || error_message+=("Please set the url to your private pastebin: PASTEBIN_PRIVATE_URL")
+    [ -n "$PASTEBIN_PRIVATE_API_URL" ] || error_message+=("Please set the API location for your pastebin: PASTEBIN_PRIVATE_API_URL")
+    [ -n "${error_message[*]}" ] && printf '%b%s%b\n' "$YELLOW" "${error_message[@]}" "$NC"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -445,23 +480,35 @@ __list() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_contents() {
+  local e=""
+  [ -f "$PASTEBIN_TEMP_FILE" ] && rm -f "$PASTEBIN_TEMP_FILE"
   if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
+    PASTEBIN_PASTES_TITLE="${PASTEBIN_PASTES_TITLE:-$(date)}"
     cat - >"$PASTEBIN_TEMP_FILE" 2>/dev/null
-  elif [ -d "$1" ]; then
-    cat "$1"/* >"$PASTEBIN_TEMP_FILE" 2>/dev/null
-  elif [ -f "$1" ]; then
-    cat "$@" >"$PASTEBIN_TEMP_FILE" 2>/dev/null
-  elif [ -n "$1" ]; then
-    printf '%b\n' "${@:-}" >"$PASTEBIN_TEMP_FILE" 2>/dev/null
   else
-    __help
-    exit 1
+    for e in "$@"; do
+      PASTEBIN_PASTES_TITLE="${PASTEBIN_PASTES_TITLE:-$(basename -- "$1")}"
+      if [ -d "$e" ]; then
+        for file in "$e"/*; do
+          [ -f "$file" ] && cat "$file" >>"$PASTEBIN_TEMP_FILE" 2>/dev/null
+        done
+      elif [ -f "$e" ]; then
+        cat "$e" >>"$PASTEBIN_TEMP_FILE" 2>/dev/null
+      elif [ -e "$e" ]; then
+        cat "$e" >>"$PASTEBIN_TEMP_FILE" 2>/dev/null
+      elif [ -n "$e" ]; then
+        printf '%b\n' "${@:-}" >>"$PASTEBIN_TEMP_FILE" 2>/dev/null
+      fi
+    done
   fi
   [ -s "$PASTEBIN_TEMP_FILE" ] || printf_exit "Failed to get contents to paste"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
 
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Import config
+[ -f "$PASTEBIN_CONFIG_DIR/$PASTEBIN_CONFIG_FILE" ] && . "$PASTEBIN_CONFIG_DIR/$PASTEBIN_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default exit code
 PASTEBIN_EXIT_STATUS=0
@@ -501,21 +548,18 @@ PASTEBIN_DEFAULT_SERVICE="${PASTEBIN_DEFAULT_SERVICE:-stikked}"
 PASTEBIN_STIKKED_URL="${PASTEBIN_STIKKED_URL:-https://pste.us}"
 PASTEBIN_MICROBIN_URL="${PASTEBIN_MICROBIN_URL:-https://mb.pste.us}"
 PASTEBIN_LENPASTE_URL="${PASTEBIN_LENPASTE_URL:-https://lp.pste.us}"
+PASTEBIN_PRIVATE_TYPE="${PASTEBIN_PRIVATE_TYPE:-$PASTEBIN_DEFAULT_SERVICE}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 PASTEBIN_PRIVATE_URL=${PASTEBIN_PRIVATE_URL:-}
 PASTEBIN_PRIVATE_API_KEY="${PASTEBIN_PRIVATE_API_KEY:-}"
-PASTEBIN_PRIVATE_API_URL="${PASTEBIN_PRIVATE_API_URL:-api/create}"
+PASTEBIN_PRIVATE_API_URL="${PASTEBIN_PRIVATE_API_URL:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+PASTEBIN_SET_DATE_TIME_FMT="${PASTEBIN_SET_DATE_TIME_FMT:-$(date +'%a %b %d, %Y at %H:%M:%S %Z')}"
 PASTEBIN_SERVICE_PASTEBIN_COM_API="${PASTEBIN_SERVICE_PASTEBIN_COM_API:-97d4dbcc849cf72fe005154e40904f71}"
 PASTEBIN_USER_AGENT="${PASTEBIN_USER_AGENT:-Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/44.0.2403.157 Safari/537.36}"
-PASTEBIN_GET_DATE_TIME="$(date +'%a %b %d, %Y at %H:%M:%S %Z')"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$PASTEBIN_CONFIG_DIR/$PASTEBIN_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Import config
-[ -f "$PASTEBIN_CONFIG_DIR/$PASTEBIN_CONFIG_FILE" ] && . "$PASTEBIN_CONFIG_DIR/$PASTEBIN_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure Directories exist
 [ -d "$PASTEBIN_RUN_DIR" ] || mkdir -p "$PASTEBIN_RUN_DIR" |& __devnull
@@ -556,7 +600,7 @@ SHORTOPTS+=""
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
 LONGOPTS+=",title:,name:,private,language:,expire:,reply:,apikey:"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-ARRAY="nullbyte iotek clbin catbox pastebin microbin lenpaste stikked private default"
+ARRAY="nullbyte iotek clbin catbox pastebin microbin lenpaste stikked private default termbin"
 ARRAY+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
@@ -733,7 +777,7 @@ cmd_exists --error --ask bash || exit 3 # exit 3 if not found
 [ $# -eq 0 ] && PASTEBIN_SERVICE="${PASTEBIN_DEFAULT_SERVICE:-default}" || PASTEBIN_SERVICE="${1:-default}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
-
+[ -n "$PASTEBIN_PASTES_LANGUAGE" ] || PASTEBIN_PASTES_LANGUAGE="text"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Export variables
 
@@ -761,11 +805,6 @@ iotek | iopaste | p.iotek.org | iop*)
   __get_contents "$@"
   __iotek_org
   ;;
-clbin | clbin.com | cl*)
-  shift 1
-  __get_contents "$@"
-  __clbin_com
-  ;;
 catbox | catbox.moe | cat*)
   shift 1
   __get_contents "$@"
@@ -775,6 +814,11 @@ pastebin | pb | pastebin.com)
   shift 1
   __get_contents "$@"
   __pastebin_com
+  ;;
+termbin)
+  shift 1
+  __get_contents "$@"
+  __termbin_com
   ;;
 microbin | mb)
   shift 1
@@ -794,6 +838,7 @@ stikked)
 private)
   shift 1
   __get_contents "$@"
+  __create_private_pastebin
   __private
   ;;
 default)

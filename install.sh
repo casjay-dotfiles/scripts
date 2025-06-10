@@ -188,6 +188,11 @@ run_postinst() {
   done
   for user in root apache nginx www-user daemon nobody $USER; do
     if grep -qs "^$user:" /etc/passwd; then
+      for d in composemgr docker public; do
+        mkdir -p "/var/lib/srv/$USER/$d"
+        chown -f $user "/var/lib/srv/$USER/$d"
+        grep -qs "^$user" /etc/group && chgrp -f $user "/var/lib/srv/$USER/$d"
+      done
       if [ ! -d "/var/lib/srv/$USER" ]; then
         mkdir -p "/var/lib/srv/$USER"
         chmod -f 777 "/var/lib/srv/$USER"

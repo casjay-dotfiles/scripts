@@ -190,6 +190,7 @@ run_postinst() {
     if grep -qs "^$user:" /etc/passwd; then
       for d in composemgr docker public; do
         mkdir -p "/var/lib/srv/$USER/$d"
+        chmod -f 777 "/var/lib/srv/$USER/$d"
         chown -f $user "/var/lib/srv/$USER/$d"
         grep -qs "^$user" /etc/group && chgrp -f $user "/var/lib/srv/$USER/$d"
       done

@@ -162,6 +162,9 @@ run_postinst() {
   mkdir -p "$HOME/.local/backups/systemmgr/installer/pam"
   mkdir -p "/usr/local/share/CasjaysDev/apps/fontmgr"
   mkdir -p "$motdDir/motd" "$motdDir/issue" "$motdDir/legal" "$bannerDir" "$verDir"
+  if [ -f "/usr/bin/mailx.s-nail" ] && [ ! -f "/usr/bin/mailx" ]; then
+    ln -sf "/usr/bin/mailx.s-nail" "/usr/bin/mailx"
+  fi
   if [ -x "$CASJAYSDEVDIR/bin/fontmgr" ]; then
     [ "$fontdir" = "0" ] && sudo "$CASJAYSDEVDIR/bin/fontmgr" install Hack all-the-icons fontawesome LigatureSymbols
   fi

@@ -79,56 +79,15 @@ __full_app_info() {
 __options() {
   $installtype
   local SHORTOPTS=""
-  local LONGOPTS="test,debug,vdebug,full-info,remove:,uninstall:,raw"
+  local LONGOPTS="full-info,raw"
   setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "options.sh" -- "$@" 2>/dev/null)
   eval set -- "${setopts[@]}" 2>/dev/null
   while :; do
     case "$1" in
-    --test)
-      shift 1
-      [ -n "$_DEBUG" ] && set -x && shift 1
-      export LOG_FILE_DEBUG="${TMP:-$HOME/.local/tmp}/${APPNAME}_debug/$(date +'%Y-%m-%d').log"
-      export LOG_FILE_ERROR="${TMP:-$HOME/.local/tmp}/${APPNAME}_debug/$(date +'%Y-%m-%d').err"
-      mkdir -p "${TMP:-$HOME/.local/tmp}/${APPNAME}_debug"
-      printf_cyan "Saving all output to $LOG_FILE_DEBUG"
-      printf_log() { "$1" 2>>"${2:-$LOG_FILE_ERROR}" >>"${3:-$LOG_FILE_DEBUG}"; }
-      __devnull() {
-        local CMD="$1" && shift 1
-        local ARGS="$*" && shift
-        printf_log "Running $CMD"
-        eval $CMD $ARGS 2>>"$LOG_FILE_ERROR" >>"$LOG_FILE_DEBUG"
-      }
-      # only send stdout to display
-      __devnull1() {
-        local CMD="$1" && shift 1
-        local ARGS="$*" && shift
-        printf_log "Running $CMD"
-        eval $CMD $ARGS 2>>"$LOG_FILE_ERROR" >>"$LOG_FILE_DEBUG"
-      }
-      # send stderr to /dev/null
-      __devnull2() {
-        local CMD="$1" && shift 1
-        local ARGS="$*" && shift
-        printf_log "Running $CMD"
-        eval $CMD $ARGS 2>>"$LOG_FILE_ERROR" >>"$LOG_FILE_DEBUG"
-      }
-      ;;
-
-    --debug)
-      shift 1
-      set -xo pipefail
-      export SCRIPT_OPTS="--debug"
-      export _DEBUG="on"
-      ;;
-
-    --full-info) ###################### debug settings ######################
+    ###################### debug settings ######################
+    --full-info)
       shift 1
       __full_app_info
-      ;;
-
-    --remove | --uninstall)
-      shift 1
-      __remove_app "$*"
       ;;
 
     --raw)
@@ -137,6 +96,7 @@ __options() {
       unset -f printf_color
       printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[[0-9;]*[a-zA-Z],,g'; }
       ;;
+
     --)
       shift 1
       break

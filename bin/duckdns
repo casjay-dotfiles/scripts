@@ -318,13 +318,11 @@ __var_check() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __duckdns_update() {
+  [ "$DUCKDNS_SILENT" = "true" ] || printf_cyan "Attempting to update ${1:-$DUCKDNS_DOMAIN}"
   local domain="${1:-$DUCKDNS_DOMAIN}" verbose="" clear="" token=""
   [ -n "$domain" ] && domains="domains=$domain"
-  [ -z "$DUCKDNS_IP4" ] && [ "$DUCKDNS_NOIP4" != "true" ] && DUCKDNS_IP4="$DUCKDNS_SET_IP4"
-  [ -z "$DUCKDNS_IP6" ] && [ "$DUCKDNS_NOIP6" != "true" ] && DUCKDNS_IP6="$DUCKDNS_SET_IP6"
   [ -n "$DUCKDNS_IP4" ] && ip4='&ip='${DUCKDNS_IP4}''
   [ -n "$DUCKDNS_IP6" ] && ip6='&ipv6='${DUCKDNS_IP6}''
-  [ "$DUCKDNS_SILENT" = "true" ] || printf_cyan "Attempting to update $domain"
   clear="&clear=${DUCKDNS_CLEAR:-false}"
   token="&token=${DUCKDNS_API_KEY:-}"
   if [ -n "$DUCKDNS_TEXT" ]; then
@@ -390,8 +388,11 @@ __uriencode() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __letsencrypt_cron() {
   [ -n "$DUCKDNS_DOMAIN" ] || return 0
-  echo "*/5 * * * * root $0 "
-  echo "0 3 */8 * * root $0 letsencrypt renew $DUCKDNS_DOMAIN >/dev/null 2>&1" | sudo tee -p "/etc/cron.d/$DUCKDNS_DOMAIN" &>/dev/null
+  cat <<EOF >"/etc/cron.d/$DUCKDNS_DOMAIN"
+# DuckDNS for $DUCKDNS_DOMAIN
+*/5 * * * * root $0 update $DUCKDNS_DOMAIN
+0 3 */8 * * root $0 letsencrypt renew $DUCKDNS_DOMAIN
+EOF
   [ -f "/etc/cron.d/$DUCKDNS_DOMAIN" ] && return 0 || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -731,27 +732,41 @@ cron)
   case "$1" in
   install)
     shift 1
-    __var_check "$1" "$2" "$3"
-    printf_exit "Not enabled yet"
+    DUCKDNS_DOMAIN="${1:-$DUCKDNS_DOMAIN}"
+    __set_full_domain "$DUCKDNS_DOMAIN" && __letsencrypt_cron
     ;;
   remove)
     shift 1
-    __var_check "$1" "$2" "$3"
-    printf_exit "Not enabled yet"
+    DUCKDNS_DOMAIN="${1:-$DUCKDNS_DOMAIN}"
+    __set_full_domain "$DUCKDNS_DOMAIN"
+    if [ -f "/etc/cron.d/$DUCKDNS_DOMAIN" ]; then
+      printf_cyan "Removing /etc/cron.d/$DUCKDNS_DOMAIN"
+      rm -Rf "/etc/cron.d/$DUCKDNS_DOMAIN"
+      exit $?
+    else
+      printf_red "The file /etc/cron.d/$DUCKDNS_DOMAIN does not exist"
+      exit 1
+    fi
     ;;
   run)
     shift 1
-    __var_check "$1" "$2" "$3"
-    __run_cron "$1"
+    DUCKDNS_DOMAIN="${1:-$DUCKDNS_DOMAIN}"
+    __set_full_domain "$DUCKDNS_DOMAIN"
+    __run_cron "$DUCKDNS_DOMAIN"
+    exit $?
     ;;
   *)
-    __run_cron "$1"
+    DUCKDNS_DOMAIN="${1:-$DUCKDNS_DOMAIN}"
+    __set_full_domain "$DUCKDNS_DOMAIN"
+    __run_cron "$DUCKDNS_DOMAIN"
+    exit $?
     ;;
   esac
   ;;
 *)
   __var_check "$1" "$2" "$3"
   __duckdns_update "$@"
+  exitCode=$?
   ;;
 esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

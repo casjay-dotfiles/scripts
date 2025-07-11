@@ -292,11 +292,8 @@ __trap_exit() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
-__sudo_group "$USER" && __passwd() { sudo passwd "$*"; } || __passwd() { passwd "$*"; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__set_user() {
-  [ -n "${2:-$1}" ] && MYUSER="${2:-$1}" || MYUSER="${MYUSER:-$USER}"
-}
+__set_user() { [ -n "${2:-$1}" ] && MYUSER="${2:-$1}" || MYUSER="${MYUSER:-$USER}"; }
+{ __sudo_group "$USER" || __sudo -n true; } && __passwd() { sudo passwd "$*"; } || __passwd() { passwd "$*"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __newpasswd() {
   local oldpassword="" newpassword="" newpasswordc=""
@@ -311,7 +308,9 @@ __newpasswd() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 __initialize_app() {
-  if ! __can_i_sudo; then
+  if __can_i_sudo; then
+    ask_for_password
+  else
     printf_red "😿 You don't seem have access to sudo 😿"
     printf_yellow "🏸 Please contact the system administrator for access 🏸"
     printf_yellow "⚠️ Or add yourself to the sudo/wheel/admin group ⚠️"
@@ -321,7 +320,6 @@ __initialize_app() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __execute_sudoers() {
   MYUSER="$SUDO_USER"
-
   if [ $# -ne 0 ]; then
     __sudo chmod 750 /etc/sudoers.d |& __devnull
     case "$1" in
@@ -336,7 +334,7 @@ __execute_sudoers() {
       shift 1
       __set_user "$@"
       __can_i_sudo && __sudorun bash -c '[ -f "/etc/sudoers.d/'$MYUSER'" ] || false' && SUDO_FILE="true"
-      if [ "$SUDO_FILE" = "true" ] || __sudo_group "$MYUSER"; then
+      if [ "$SUDO_FILE" = "true" ]; then
         printf_green "You appear to have access to sudo"
       else
         printf_red "You don't seem to be in the sudo file"
@@ -365,11 +363,17 @@ __execute_sudoers() {
       shift 1
       __set_user "$@"
       printf_read_question "1" "Would you like to reset your password?" "1" "YN"
-      printf_green "Removing $MYUSER from sudoers"
+      printf_green "Requiring password for $MYUSER to use sudo"
       if printf_answer_yes "$YN"; then __newpasswd "$MYUSER" || exit 1; fi
-      __sudo rm -Rf "/etc/sudoers.d/$MYUSER" |& __devnull
-      [ -f "/etc/sudoers.d/$MYUSER" ] || printf_red "Your password will now required"
-      exit $?
+      echo "$MYUSER ALL=(ALL)   PASSWD: ALL" | sudo tee -p "/etc/sudoers.d/$MYUSER" |& __devnull
+      if sudo grep -q ''$MYUSER'.*PASSWD: ALL' "/etc/sudoers.d/$MYUSER"; then
+        printf_yellow "OK: Your password will now required"
+        sudo -k -n true >/dev/null 2>&1
+        exit 0
+      else
+        printf_red "Failed to update /etc/sudoers.d/$MYUSER"
+        exit 5
+      fi
       ;;
     adduser)
       shift 1
@@ -436,12 +440,13 @@ __execute_sudoers() {
       ;;
     *)
       ARGS="$*"
-      __sudo "$ARGS" && true || false
+      eval sudo "$ARGS" && true || false
       ;;
     esac
   else
     __help
   fi
+  return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
@@ -652,7 +657,7 @@ export SUDOERS_CWD
 #am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
-__initialize_app
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
 

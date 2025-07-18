@@ -170,6 +170,11 @@ WEB_NOTIFY_PUSHOVER_API_ID="${WEB_NOTIFY_PUSHOVER_API_ID:-a8xbbw7e7jrnqpg7ngdrtw
 WEB_NOTIFY_PUSHBULLET_ACCESS_TOKEN="${WEB_NOTIFY_PUSHBULLET_ACCESS_TOKEN:-$PUSHBULLET_ACCESS_TOKEN}"
 WEB_NOTIFY_PUSHBULLET_API_HOST="${WEB_NOTIFY_PUSHBULLET_API_HOST:-https://api.pushbullet.com/v2/pushes}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+WEB_NOTIFY_NTFY_URL="${WEB_NOTIFY_NTFY_URL:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+WEB_NOTIFY_GOTIFY_URL="${WEB_NOTIFY_GOTIFY_URL:-}"
+WEB_NOTIFY_GOTIFY_TOKEN="${WEB_NOTIFY_GOTIFY_TOKEN:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
 WEB_NOTIFY_OUTPUT_COLOR_1="${WEB_NOTIFY_OUTPUT_COLOR_1:-}"
 WEB_NOTIFY_OUTPUT_COLOR_2="${WEB_NOTIFY_OUTPUT_COLOR_2:-}"
@@ -313,98 +318,652 @@ __no_options_function() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
-format_file_as_JSON_string() {
-  sed -e 's/\\/\\\\/g' \
-    -e 's/$/\\n/g' \
-    -e 's/"/\\"/g' \
-    -e 's/\t/\\t/g' |
-    tr -d "\n"
+format_file_as_JSON_string() { sed -e 's/\\\\/\\\\\\\\/g' -e 's/$/\\\\n/g' -e 's/"/\\\\"/g' -e 's/\\t/\\\\t/g' | tr -d "\n"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__set_auth_header() {
+  local service="$1"
+  local header=""
+  case "$service" in
+  ntfy) [ -n "$WEB_NOTIFY_NTFY_API_KEY" ] && header="Authorization: Bearer $WEB_NOTIFY_NTFY_API_KEY" ;;
+  gotify) [ -n "$WEB_NOTIFY_GOTIFY_API_KEY" ] && header="X-Gotify-Key: $WEB_NOTIFY_GOTIFY_API_KEY" ;;
+  matrix) [ -n "$WEB_NOTIFY_MATRIX_TOKEN" ] && header="Authorization: Bearer $WEB_NOTIFY_MATRIX_TOKEN" ;;
+  esac
+  [ -n "$header" ] && printf '%s' "$header" || true
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__mailx() {
-  title="Notification from $HOSTNAME"
-  echo "$1" | mailx -s "$title" -r "$APPNAME <no-reply@$HOSTNAME>" root@$HOSTNAME >>"$WEB_NOTIFY_LOG_ERROR_FILE" 2>&1 || exitCode=1
-  [ "$exitCode" = 0 ] && __append_log "Message was sent via email" || __append_log "Failed to send message via email"
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__pushbullet() {
+__ntfy() {
+  local service="ntfy"
   local message="$*"
   local exitCode=0
-  local msg_content="$message"
-  local token="${WEB_NOTIFY_PUSHBULLET_ACCESS_TOKEN:-}"
-  local api_url="$WEB_NOTIFY_PUSHBULLET_API_HOST"
-  [ "$1" = "help" ] && printf_help "Usage: $APPNAME pushbullet [file/text]"
-  [ -n "$token" ] || { printf_red "token is not set PUSHBULLET_ACCESS_TOKEN" && return 1; }
-  title="notify"
-  body="$(echo "$message" | __format_file_as_JSON_string)"
-  printf_cyan "Attempting to send to pushbullet"
-  curl -q -LSsf -u ${token}: --header 'Content-Type: application/json' -X POST "$api_url" -d "{\"type\": \"note\", \"title\": \"$title\", \"body\": \"$body\"}" >>"$WEB_NOTIFY_LOG_ERROR_FILE" 2>&1 || exitCode=1
-  [ "$exitCode" = 0 ] && __append_log "Message was sent to pushbullet" || __append_log "Failed to send message to pushbullet"
+  local title="${SEND_TITLE:-$WEB_NOTIFY_TITLE}"
+  local url="${WEB_NOTIFY_NTFY_HOST}/${WEB_NOTIFY_NTFY_TOPIC}"
+
+  if [ -z "$WEB_NOTIFY_NTFY_HOST" ]; then
+    printf_red "WEB_NOTIFY_NTFY_HOST is not set"
+    return 1
+  elif [ -z "$WEB_NOTIFY_NTFY_TOPIC" ]; then
+    printf_red "WEB_NOTIFY_NTFY_TOPIC is not set"
+    return 1
+  fi
+  printf '%s\n' "Attempting to send to $service" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  printf '%s\n' "$message" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  local auth_header="$(__set_auth_header ntfy)"
+  if [ -z "$auth_header" ]; then
+    curl -q -LSsf -H "Title: $title" -d "$message" "$url" >>"$WEB_NOTIFY_LOG_STATUS_FILE" 2>>"$WEB_NOTIFY_LOG_ERROR_FILE" || exitCode=1
+  else
+    curl -q -LSsf -H "Title: $title" -H "$auth_header" -d "$message" "$url" >>"$WEB_NOTIFY_LOG_STATUS_FILE" 2>>"$WEB_NOTIFY_LOG_ERROR_FILE" || exitCode=1
+  fi
+  if [ "$exitCode" = 0 ]; then
+    __append_log "Message was sent to $service"
+  else
+    __append_log "Failed to send message to $service"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__gotify() {
+  local service="gotify"
+  local message="$*"
+  local exitCode=0
+  local title="${SEND_TITLE:-$WEB_NOTIFY_TITLE}"
+  local url="${WEB_NOTIFY_GOTIFY_HOST}/message"
+
+  if [ -z "$WEB_NOTIFY_GOTIFY_HOST" ]; then
+    printf_red "WEB_NOTIFY_GOTIFY_HOST is not set"
+    return 1
+  elif [ -z "$WEB_NOTIFY_GOTIFY_API_KEY" ]; then
+    printf_red "WEB_NOTIFY_GOTIFY_API_KEY is not set"
+    return 1
+  fi
+  printf '%s\n' "Attempting to send to $service" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  printf '%s\n' "$message" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  local auth_header="$(__set_auth_header gotify)"
+  if [ -z "$auth_header" ]; then
+    curl -q -LSsf -X POST "$url" \
+      -F "title=$title" \
+      -F "message=$message" \
+      -F "priority=5" \
+      >>"$WEB_NOTIFY_LOG_STATUS_FILE" 2>>"$WEB_NOTIFY_LOG_ERROR_FILE" || exitCode=1
+  else
+    curl -q -LSsf -X POST "$url" \
+      -H "$auth_header" \
+      -F "title=$title" \
+      -F "message=$message" \
+      -F "priority=5" \
+      >>"$WEB_NOTIFY_LOG_STATUS_FILE" 2>>"$WEB_NOTIFY_LOG_ERROR_FILE" || exitCode=1
+  fi
+  if [ "$exitCode" = 0 ]; then
+    __append_log "Message was sent to $service"
+  else
+    __append_log "Failed to send message to $service"
+  fi
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __pushover() {
+  local service="pushover"
   local message="$*"
   local exitCode=0
-  local msg_content=\"$message\"
-  local token="${WEB_NOTIFY_PUSHOVER_API_ID:-}"
-  local key="${WEB_NOTIFY_PUSHOVER_API_KEY:-}"
-  [ "$1" = "help" ] && printf_help "Usage: $APPNAME pushover [file/text]"
-  [ -n "$key" ] || { printf_red "token is not set WEB_NOTIFY_PUSHOVER_API_ID" && return 1; }
-  [ -n "$token" ] || { printf_red "token is not set WEB_NOTIFY_PUSHOVER_API_KEY" && return 1; }
-  printf_cyan "Attempting to send to pushover"
-  printf '%b\n' "$msg_content" | curl -q -LSsf -s -X POST -d "token=$token" -d "user=$key" --data-urlencode message@- https://api.pushover.net/1/messages.json >>"$WEB_NOTIFY_LOG_ERROR_FILE" 2>&1 || exitCode=1
-  [ "$exitCode" = 0 ] && __append_log "Message was sent to pushover" || __append_log "Failed to send message to pushover"
+  local title="${SEND_TITLE:-$WEB_NOTIFY_TITLE}"
+  local url="https://api.pushover.net/1/messages.json"
+
+  if [ -z "$WEB_NOTIFY_PUSHOVER_API_KEY" ]; then
+    printf_red "WEB_NOTIFY_PUSHOVER_API_KEY is not set"
+    return 1
+  elif [ -z "$WEB_NOTIFY_PUSHOVER_API_ID" ]; then
+    printf_red "WEB_NOTIFY_PUSHOVER_API_ID is not set"
+    return 1
+  fi
+
+  printf '%s\n' "Attempting to send to $service" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  printf '%s\n' "$message" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  curl -q -LSsf -X POST "$url" \
+    -d "token=$WEB_NOTIFY_PUSHOVER_API_KEY" \
+    -d "user=$WEB_NOTIFY_PUSHOVER_API_ID" \
+    -d "title=$title" \
+    -d "message=$message" \
+    >>"$WEB_NOTIFY_LOG_STATUS_FILE" 2>>"$WEB_NOTIFY_LOG_ERROR_FILE" || exitCode=1
+
+  [ "$exitCode" = 0 ] && __append_log "Message was sent to $service" || __append_log "Failed to send message to $service"
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__pushbullet() {
+  local service="pushbullet"
+  local message="$*"
+  local exitCode=0
+  local title="${SEND_TITLE:-$WEB_NOTIFY_TITLE}"
+  local url="${WEB_NOTIFY_PUSHBULLET_API_HOST}"
+
+  if [ -z "$WEB_NOTIFY_PUSHBULLET_ACCESS_TOKEN" ]; then
+    printf_red "WEB_NOTIFY_PUSHBULLET_ACCESS_TOKEN is not set"
+    return 1
+  fi
+
+  printf '%s\n' "Attempting to send to $service" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  printf '%s\n' "$message" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  curl -q -LSsf -u "$WEB_NOTIFY_PUSHBULLET_ACCESS_TOKEN:" -X POST "$url" \
+    -d type="note" \
+    -d title="$title" \
+    -d body="$message" \
+    >>"$WEB_NOTIFY_LOG_STATUS_FILE" 2>>"$WEB_NOTIFY_LOG_ERROR_FILE" || exitCode=1
+
+  [ "$exitCode" = 0 ] && __append_log "Message was sent to $service" || __append_log "Failed to send message to $service"
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __telegram() {
+  local service="telegram"
   local message="$*"
   local exitCode=0
-  local msg_content="$message"
-  local token="${WEB_NOTIFY_TELEGRAM_API:-}"
-  local channel="-${WEB_NOTIFY_TELEGRAM_CHANNEL:-}"
-  [ "$1" = "help" ] && printf_help "Usage: $APPNAME telegram [file/text]"
-  [ -n "$token" ] || { printf_red "token is not set WEB_NOTIFY_TELEGRAM_API" && return 1; }
-  [ -n "$channel" ] || { printf_red "channel is not set WEB_NOTIFY_TELEGRAM_CHANNEL: see https://api.telegram.org/bot${token}/getUpdates" && return 1; }
-  printf_cyan "Attempting to send to telegram"
-  printf '%b\n' "$msg_content" | curl -q -LSsf -s -X POST "https://api.telegram.org/bot${token}/sendMessage" -d chat_id="$channel" --data-urlencode text@- 2>>"$WEB_NOTIFY_LOG_ERROR_FILE" | jq -rc '.ok' 2>/dev/null | grep -q 'true' || exitCode=1
-  [ "$exitCode" = 0 ] && __append_log "Message was sent to telegram" || __append_log "Failed to send message to telegram"
+  local response
+  local chat_id="${WEB_NOTIFY_TELEGRAM_CHAT_ID:-$WEB_NOTIFY_TELEGRAM_CHANNEL}"
+  local url="https://api.telegram.org/bot${WEB_NOTIFY_TELEGRAM_API}/sendMessage"
+
+  if [ -z "$WEB_NOTIFY_TELEGRAM_API" ]; then
+    printf_red "WEB_NOTIFY_TELEGRAM_API is not set"
+    return 1
+  elif [ -z "$chat_id" ]; then
+    printf_red "WEB_NOTIFY_TELEGRAM_CHANNEL is not set"
+    return 1
+  fi
+  printf '%s\n' "Attempting to send to $service" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  printf '%s\n' "$message" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  response=$(curl -q -LSs -X POST "$url" \
+    -H "Content-Type: application/json" \
+    -d "{\"chat_id\":\"-$chat_id\",\"text\":\"$message\"}")
+
+  if [ "$exitCode" -eq 0 ] && echo "$response" | grep -q '"ok":true'; then
+    __append_log "Message was sent to $service"
+  else
+    printf '%s\n' "$response" >"$WEB_NOTIFY_LOG_ERROR_FILE"
+    __append_log "Failed to send message to $service: $response"
+    exitCode=1
+  fi
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __discord() {
+  local service="discord"
   local message="$*"
   local exitCode=0
-  local msg_content="$(printf '%b\n' "$message" | format_file_as_JSON_string)"
+  local message="$(printf '%b\n' "$message" | format_file_as_JSON_string)"
   local url="https://discord.com/api/webhooks/$WEB_NOTIFY_DISCORD_WEBHOOK"
-  [ "$1" = "help" ] && printf_help "Usage: $APPNAME discord [file/text]"
-  [ -n "$url" ] || { printf_red "url is not set WEB_NOTIFY_DISCORD_WEBHOOK: see https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks" && return 1; }
-  printf_cyan "Attempting to send to discord"
-  curl -q -LSsf -X POST -H "Content-Type: application/json" -d "{\"content\": \"$msg_content\"}" $url >>"$WEB_NOTIFY_LOG_ERROR_FILE" 2>&1 || exitCode=1
-  [ "$exitCode" = 0 ] && __append_log "Message was sent to discord" || __append_log "Failed to send message to discord"
+
+  if [ -z "$WEB_NOTIFY_DISCORD_WEBHOOK" ]; then
+    printf_red "WEB_NOTIFY_DISCORD_WEBHOOK is not set"
+    return 1
+  fi
+
+  printf '%s\n' "Attempting to send to $service" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  printf '%s\n' "$message" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  curl -q -LSsf -X POST -H "Content-Type: application/json" \
+    -d "{\"content\": \"$message\"}" "$url" \
+    >>"$WEB_NOTIFY_LOG_STATUS_FILE" 2>>"$WEB_NOTIFY_LOG_ERROR_FILE" || exitCode=1
+
+  [ "$exitCode" = 0 ] && __append_log "Message was sent to $service" || __append_log "Failed to send message to $service"
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __slack() {
+  local service="slack"
   local message="$*"
   local exitCode=0
-  local msg_content="$(printf '%b\n' "$message" | format_file_as_JSON_string)"
   local url="$WEB_NOTIFY_SLACK_WEBHOOK"
-  [ "$1" = "help" ] && printf_help "Usage: $APPNAME slack [file/text]"
-  [ -n "$url" ] || { printf_red "channel is not set WEB_NOTIFY_SLACK_WEBHOOK" && return 1; }
-  printf_cyan "Attempting to send to slack"
-  curl -q -LSsf -X POST -H 'Content-type: application/json' --data '{"text":'"$msg_content"'}' "$url" >>"$WEB_NOTIFY_LOG_ERROR_FILE" 2>&1 || exitCode=1
-  [ "$exitCode" = 0 ] && __append_log "Message was sent to slack" || __append_log "Failed to send message to slack"
+
+  if [ -z "$WEB_NOTIFY_SLACK_WEBHOOK" ]; then
+    printf_red "WEB_NOTIFY_SLACK_WEBHOOK is not set"
+    return 1
+  fi
+  printf '%s\n' "Attempting to send to $service" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  printf '%s\n' "$message" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  curl -q -LSsf -X POST "$url" \
+    -H "Content-Type: application/json" \
+    -d "{\"text\": \"$message\"}" \
+    >>"$WEB_NOTIFY_LOG_STATUS_FILE" 2>>"$WEB_NOTIFY_LOG_ERROR_FILE" || exitCode=1
+  if [ "$exitCode" = 0 ]; then
+    __append_log "Message was sent to $service"
+  else
+    __append_log "Failed to send message to $service"
+  fi
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__append_log() { printf '%s\n' "$*" >>"$WEB_NOTIFY_LOG_ERROR_FILE"; }
+__teams() {
+  local service="teams"
+  local message="$*"
+  local exitCode=0
+  local message="$(printf '%b\n' "$message" | format_file_as_JSON_string)"
+  local url="$WEB_NOTIFY_TEAMS_WEBHOOK"
+
+  if [ -z "$WEB_NOTIFY_TEAMS_WEBHOOK" ]; then
+    printf_red "WEB_NOTIFY_TEAMS_WEBHOOK is not set"
+    return 1
+  fi
+
+  printf '%s\n' "Attempting to send to $service" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  printf '%s\n' "$message" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  curl -q -LSsf -X POST -H "Content-Type: application/json" \
+    -d "{\"text\": \"$message\"}" "$url" \
+    >>"$WEB_NOTIFY_LOG_STATUS_FILE" 2>>"$WEB_NOTIFY_LOG_ERROR_FILE" || exitCode=1
+
+  [ "$exitCode" = 0 ] && __append_log "Message was sent to $service" || __append_log "Failed to send message to $service"
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__mattermost() {
+  local service="mattermost"
+  local message="$*"
+  local exitCode=0
+  local message="$(printf '%b\n' "$message" | format_file_as_JSON_string)"
+  local url="$WEB_NOTIFY_MATTERMOST_WEBHOOK"
+
+  if [ -z "$WEB_NOTIFY_MATTERMOST_WEBHOOK" ]; then
+    printf_red "WEB_NOTIFY_MATTERMOST_WEBHOOK is not set"
+    return 1
+  fi
+
+  printf '%s\n' "Attempting to send to $service" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  printf '%s\n' "$message" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  curl -q -LSsf -X POST -H "Content-Type: application/json" \
+    -d "{\"text\": \"$message\"}" "$url" \
+    >>"$WEB_NOTIFY_LOG_STATUS_FILE" 2>>"$WEB_NOTIFY_LOG_ERROR_FILE" || exitCode=1
+
+  [ "$exitCode" = 0 ] && __append_log "Message was sent to $service" || __append_log "Failed to send message to $service"
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__rocketchat() {
+  local service="rocketchat"
+  local message="$*"
+  local exitCode=0
+  local message="$(printf '%b\n' "$message" | format_file_as_JSON_string)"
+  local url="$WEB_NOTIFY_ROCKETCHAT_WEBHOOK"
+
+  if [ -z "$WEB_NOTIFY_ROCKETCHAT_WEBHOOK" ]; then
+    printf_red "WEB_NOTIFY_ROCKETCHAT_WEBHOOK is not set"
+    return 1
+  fi
+
+  printf '%s\n' "Attempting to send to $service" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  printf '%s\n' "$message" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  curl -q -LSsf -X POST -H "Content-Type: application/json" \
+    -d "{\"text\": \"$message\"}" "$url" \
+    >>"$WEB_NOTIFY_LOG_STATUS_FILE" 2>>"$WEB_NOTIFY_LOG_ERROR_FILE" || exitCode=1
+
+  [ "$exitCode" = 0 ] && __append_log "Message was sent to $service" || __append_log "Failed to send message to $service"
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__zulip() {
+  local service="zulip"
+  local message="$*"
+  local exitCode=0
+  local stream="${WEB_NOTIFY_ZULIP_STREAM:-general}"
+  local topic="${WEB_NOTIFY_ZULIP_TOPIC:-notifications}"
+  local url="${WEB_NOTIFY_ZULIP_API_HOST}/api/v1/messages"
+
+  if [ -z "$WEB_NOTIFY_ZULIP_API_KEY" ]; then
+    printf_red "WEB_NOTIFY_ZULIP_API_KEY is not set"
+    return 1
+  elif [ -z "$WEB_NOTIFY_ZULIP_EMAIL" ]; then
+    printf_red "WEB_NOTIFY_ZULIP_EMAIL is not set"
+    return 1
+  fi
+
+  printf '%s\n' "Attempting to send to $service" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  printf '%s\n' "$message" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  curl -q -LSsf -X POST "$url" \
+    -u "$WEB_NOTIFY_ZULIP_EMAIL:$WEB_NOTIFY_ZULIP_API_KEY" \
+    -d "type=stream" \
+    -d "to=$stream" \
+    -d "topic=$topic" \
+    -d "content=$message" \
+    >>"$WEB_NOTIFY_LOG_STATUS_FILE" 2>>"$WEB_NOTIFY_LOG_ERROR_FILE" || exitCode=1
+
+  [ "$exitCode" = 0 ] && __append_log "Message was sent to $service" || __append_log "Failed to send message to $service"
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__matrix() {
+  local service="matrix"
+  local message="$*"
+  local exitCode=0
+  local msg_payload="{\"msgtype\":\"m.text\",\"body\":\"$message\"}"
+  local url="${WEB_NOTIFY_MATRIX_HOMESERVER}/_matrix/client/v3/rooms/${WEB_NOTIFY_MATRIX_ROOM_ID}/send/m.room.message?access_token=${WEB_NOTIFY_MATRIX_TOKEN}"
+
+  if [ -z "$WEB_NOTIFY_MATRIX_HOMESERVER" ]; then
+    printf_red "WEB_NOTIFY_MATRIX_HOMESERVER is not set"
+    return 1
+  elif [ -z "$WEB_NOTIFY_MATRIX_ROOM_ID" ]; then
+    printf_red "WEB_NOTIFY_MATRIX_ROOM_ID is not set"
+    return 1
+  elif [ -z "$WEB_NOTIFY_MATRIX_TOKEN" ]; then
+    printf_red "WEB_NOTIFY_MATRIX_TOKEN is not set"
+    return 1
+  fi
+  printf '%s\n' "Attempting to send to $service" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  printf '%s\n' "$message" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  local auth_header="$(__set_auth_header matrix)"
+  if [ -z "$auth_header" ]; then
+    curl -q -LSsf -X PUT "$url" \
+      -H "Content-Type: application/json" \
+      -d "$msg_payload" \
+      >>"$WEB_NOTIFY_LOG_STATUS_FILE" 2>>"$WEB_NOTIFY_LOG_ERROR_FILE" || exitCode=1
+  else
+    curl -q -LSsf -X PUT "$url" \
+      -H "Content-Type: application/json" \
+      -H "$auth_header" \
+      -d "$msg_payload" \
+      >>"$WEB_NOTIFY_LOG_STATUS_FILE" 2>>"$WEB_NOTIFY_LOG_ERROR_FILE" || exitCode=1
+  fi
+  if [ "$exitCode" = 0 ]; then
+    __append_log "Message was sent to $service"
+  else
+    __append_log "Failed to send message to $service"
+  fi
+  return $exitCode
+}
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__twilio() {
+  local service="twilio"
+  local message="$*"
+  local exitCode=0
+  local url="https://api.twilio.com/2010-04-01/Accounts/$WEB_NOTIFY_TWILIO_SID/Messages.json"
+
+  if [ -z "$WEB_NOTIFY_TWILIO_SID" ]; then
+    printf_red "WEB_NOTIFY_TWILIO_SID is not set"
+    return 1
+  elif [ -z "$WEB_NOTIFY_TWILIO_AUTH_TOKEN" ]; then
+    printf_red "WEB_NOTIFY_TWILIO_AUTH_TOKEN is not set"
+    return 1
+  elif [ -z "$WEB_NOTIFY_TWILIO_FROM" ]; then
+    printf_red "WEB_NOTIFY_TWILIO_FROM is not set"
+    return 1
+  elif [ -z "$WEB_NOTIFY_TWILIO_TO" ]; then
+    printf_red "WEB_NOTIFY_TWILIO_TO is not set"
+    return 1
+  fi
+
+  printf '%s\n' "Attempting to send to $service" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  printf '%s\n' "$message" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  curl -q -LSsf -u "$WEB_NOTIFY_TWILIO_SID:$WEB_NOTIFY_TWILIO_AUTH_TOKEN" \
+    -X POST "$url" \
+    --data-urlencode "From=$WEB_NOTIFY_TWILIO_FROM" \
+    --data-urlencode "To=$WEB_NOTIFY_TWILIO_TO" \
+    --data-urlencode "Body=$message" \
+    >>"$WEB_NOTIFY_LOG_STATUS_FILE" 2>>"$WEB_NOTIFY_LOG_ERROR_FILE" || exitCode=1
+
+  [ "$exitCode" = 0 ] && __append_log "Message was sent to $service" || __append_log "Failed to send message to $service"
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__mailx() {
+  local service="email"
+  local message="$*"
+  local exitCode=0
+  local title="${SEND_TITLE:-$WEB_NOTIFY_TITLE}"
+  echo "$message" | mailx -s "$title" -r "$WEB_NOTIFY_EMAIL_FROM" "$WEB_NOTIFY_EMAIL_TO" \
+    >>"$WEB_NOTIFY_LOG_STATUS_FILE" 2>>"$WEB_NOTIFY_LOG_ERROR_FILE" || exitCode=1
+  [ "$exitCode" = 0 ] && __append_log "Message was sent via $service" || __append_log "Failed to send message via $service"
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__sendgrid() {
+  local service="sendgrid"
+  local message="$*"
+  local exitCode=0
+  local subject="${SEND_SUBJECT:-$WEB_NOTIFY_SUBJECT}"
+  local from="$WEB_NOTIFY_EMAIL_FROM"
+  local to="$WEB_NOTIFY_EMAIL_TO"
+  local content="$(printf '%b\n' "$message")"
+  local url="https://api.sendgrid.com/v3/mail/send"
+
+  if [ -z "$WEB_NOTIFY_SENDGRID_API_KEY" ]; then
+    printf_red "WEB_NOTIFY_SENDGRID_API_KEY is not set"
+    return 1
+  fi
+  printf '%s\n' "Attempting to send to $service" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  printf '%s\n' "$message" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  local auth_header="Authorization: Bearer $WEB_NOTIFY_SENDGRID_API_KEY"
+  if [ -z "$auth_header" ]; then
+    curl -q -LSsf -X POST "$url" \
+      -H "Content-Type: application/json" \
+      -d "{\"personalizations\":[{\"to\":[{\"email\":\"$to\"}]}],\"from\":{\"email\":\"$from\"},\"subject\":\"$subject\",\"content\":[{\"type\":\"text/plain\",\"value\":\"$content\"}]}" \
+      >>"$WEB_NOTIFY_LOG_STATUS_FILE" 2>>"$WEB_NOTIFY_LOG_ERROR_FILE" || exitCode=1
+  else
+    curl -q -LSsf -X POST "$url" \
+      -H "Content-Type: application/json" \
+      -H "$auth_header" \
+      -d "{\"personalizations\":[{\"to\":[{\"email\":\"$to\"}]}],\"from\":{\"email\":\"$from\"},\"subject\":\"$subject\",\"content\":[{\"type\":\"text/plain\",\"value\":\"$content\"}]}" \
+      >>"$WEB_NOTIFY_LOG_STATUS_FILE" 2>>"$WEB_NOTIFY_LOG_ERROR_FILE" || exitCode=1
+  fi
+  if [ "$exitCode" = 0 ]; then
+    __append_log "Message was sent to $service"
+  else
+    __append_log "Failed to send message to $service"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__mailgun() {
+  local service="mailgun"
+  local message="$*"
+  local exitCode=0
+  local subject="${SEND_SUBJECT:-$WEB_NOTIFY_SUBJECT}"
+  local from="$WEB_NOTIFY_EMAIL_FROM"
+  local to="$WEB_NOTIFY_EMAIL_TO"
+  local url="https://api.mailgun.net/v3/$WEB_NOTIFY_MAILGUN_DOMAIN/messages"
+
+  if [ -z "$WEB_NOTIFY_MAILGUN_API_KEY" ]; then
+    printf_red "WEB_NOTIFY_MAILGUN_API_KEY is not set"
+    return 1
+  elif [ -z "$WEB_NOTIFY_MAILGUN_DOMAIN" ]; then
+    printf_red "WEB_NOTIFY_MAILGUN_DOMAIN is not set"
+    return 1
+  fi
+  printf '%s\n' "Attempting to send to $service" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  printf '%s\n' "$message" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  local auth_header="Authorization: Basic $(printf "api:$WEB_NOTIFY_MAILGUN_API_KEY" | base64)"
+  if [ -z "$auth_header" ]; then
+    curl -q -LSsf -X POST "$url" \
+      -F from="$from" \
+      -F to="$to" \
+      -F subject="$subject" \
+      -F text="$message" \
+      >>"$WEB_NOTIFY_LOG_STATUS_FILE" 2>>"$WEB_NOTIFY_LOG_ERROR_FILE" || exitCode=1
+  else
+    curl -q -LSsf -X POST "$url" \
+      -H "$auth_header" \
+      -F from="$from" \
+      -F to="$to" \
+      -F subject="$subject" \
+      -F text="$message" \
+      >>"$WEB_NOTIFY_LOG_STATUS_FILE" 2>>"$WEB_NOTIFY_LOG_ERROR_FILE" || exitCode=1
+  fi
+  if [ "$exitCode" = 0 ]; then
+    __append_log "Message was sent to $service"
+  else
+    __append_log "Failed to send message to $service"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__postmark() {
+  local service="postmark"
+  local message="$*"
+  local exitCode=0
+  local subject="${SEND_SUBJECT:-$WEB_NOTIFY_SUBJECT}"
+  local from="$WEB_NOTIFY_EMAIL_FROM"
+  local to="$WEB_NOTIFY_EMAIL_TO"
+  local url="https://api.postmarkapp.com/email"
+
+  if [ -z "$WEB_NOTIFY_POSTMARK_API_KEY" ]; then
+    printf_red "WEB_NOTIFY_POSTMARK_API_KEY is not set"
+    return 1
+  fi
+  printf '%s\n' "Attempting to send to $service" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  printf '%s\n' "$message" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  local auth_header="X-Postmark-Server-Token: $WEB_NOTIFY_POSTMARK_API_KEY"
+  if [ -z "$auth_header" ]; then
+    curl -q -LSsf -X POST "$url" \
+      -H "Accept: application/json" \
+      -H "Content-Type: application/json" \
+      -d "{\"From\": \"$from\", \"To\": \"$to\", \"Subject\": \"$subject\", \"TextBody\": \"$message\"}" \
+      >>"$WEB_NOTIFY_LOG_STATUS_FILE" 2>>"$WEB_NOTIFY_LOG_ERROR_FILE" || exitCode=1
+  else
+    curl -q -LSsf -X POST "$url" \
+      -H "Accept: application/json" \
+      -H "Content-Type: application/json" \
+      -H "$auth_header" \
+      -d "{\"From\": \"$from\", \"To\": \"$to\", \"Subject\": \"$subject\", \"TextBody\": \"$message\"}" \
+      >>"$WEB_NOTIFY_LOG_STATUS_FILE" 2>>"$WEB_NOTIFY_LOG_ERROR_FILE" || exitCode=1
+  fi
+  if [ "$exitCode" = 0 ]; then
+    __append_log "Message was sent to $service"
+  else
+    __append_log "Failed to send message to $service"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__mailjet() {
+  local service="mailjet"
+  local message="$*"
+  local exitCode=0
+  local subject="${SEND_SUBJECT:-$WEB_NOTIFY_SUBJECT}"
+  local from_email="${WEB_NOTIFY_EMAIL_FROM}"
+  local to_email="${WEB_NOTIFY_EMAIL_TO}"
+  local url="https://api.mailjet.com/v3.1/send"
+
+  if [ -z "$WEB_NOTIFY_MAILJET_API_KEY" ]; then
+    printf_red "WEB_NOTIFY_MAILJET_API_KEY is not set"
+    return 1
+  elif [ -z "$WEB_NOTIFY_MAILJET_SECRET_KEY" ]; then
+    printf_red "WEB_NOTIFY_MAILJET_SECRET_KEY is not set"
+    return 1
+  fi
+  printf '%s\n' "Attempting to send to $service" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  printf '%s\n' "$message" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  local auth_header="Authorization: Basic $(printf "%s:%s" "$WEB_NOTIFY_MAILJET_API_KEY" "$WEB_NOTIFY_MAILJET_SECRET_KEY" | base64)"
+  if [ -z "$auth_header" ]; then
+    curl -q -LSsf -X POST "$url" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "Messages": [{
+          "From": {"Email": "'"$from_email"'", "Name": "'"$APPNAME"'"},
+          "To": [{"Email": "'"$to_email"'", "Name": "Recipient"}],
+          "Subject": "'"$subject"'",
+          "TextPart": "'"$message"'"
+        }]
+      }' \
+      >>"$WEB_NOTIFY_LOG_STATUS_FILE" 2>>"$WEB_NOTIFY_LOG_ERROR_FILE" || exitCode=1
+  else
+    curl -q -LSsf -X POST "$url" \
+      -H "Content-Type: application/json" \
+      -H "$auth_header" \
+      -d '{
+        "Messages": [{
+          "From": {"Email": "'"$from_email"'", "Name": "'"$APPNAME"'"},
+          "To": [{"Email": "'"$to_email"'", "Name": "Recipient"}],
+          "Subject": "'"$subject"'",
+          "TextPart": "'"$message"'"
+        }]
+      }' \
+      >>"$WEB_NOTIFY_LOG_STATUS_FILE" 2>>"$WEB_NOTIFY_LOG_ERROR_FILE" || exitCode=1
+  fi
+  if [ "$exitCode" = 0 ]; then
+    __append_log "Message was sent to $service"
+  else
+    __append_log "Failed to send message to $service"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__ses() {
+  local service="ses"
+  local message="$*"
+  local exitCode=0
+  local region="$WEB_NOTIFY_SES_REGION"
+  local from="$WEB_NOTIFY_SES_FROM"
+  local to="$WEB_NOTIFY_SES_TO"
+  local subject="${SEND_SUBJECT:-$WEB_NOTIFY_SUBJECT}"
+
+  if [ -z "$WEB_NOTIFY_SES_ACCESS_KEY" ]; then
+    printf_red "WEB_NOTIFY_SES_ACCESS_KEY is not set"
+    return 1
+  elif [ -z "$WEB_NOTIFY_SES_SECRET_KEY" ]; then
+    printf_red "WEB_NOTIFY_SES_SECRET_KEY is not set"
+    return 1
+  elif [ -z "$from" ] || [ -z "$to" ]; then
+    printf_red "WEB_NOTIFY_SES_FROM or TO is not set"
+    return 1
+  fi
+
+  local url="https://email.$region.amazonaws.com"
+  printf '%s\n' "Attempting to send to $service" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  printf '%s\n' "$message" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+
+  curl -q -LSsf -X POST "$url" \
+    -d "Action=SendEmail" \
+    -d "Source=$from" \
+    -d "Destination.ToAddresses.member.1=$to" \
+    -d "Message.Subject.Data=$subject" \
+    -d "Message.Body.Text.Data=$message" \
+    -u "$WEB_NOTIFY_SES_ACCESS_KEY:$WEB_NOTIFY_SES_SECRET_KEY" \
+    >>"$WEB_NOTIFY_LOG_STATUS_FILE" 2>>"$WEB_NOTIFY_LOG_ERROR_FILE" || exitCode=1
+
+  [ "$exitCode" = 0 ] && __append_log "Message was sent to $service" || __append_log "Failed to send message to $service"
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__example() {
+  local service="<service>"
+  local message="$*"
+  local exitCode=0
+  local message="..." # format appropriately
+  local url="..."     # from WEB_NOTIFY_*
+
+  if [ -z "$ENV1" ]; then
+    printf_red "..."
+    return 1
+  elif [ -z "$ENV2" ]; then
+    printf_red "..."
+    return 1
+  fi
+  printf '%s\n' "Attempting to send to $service" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  printf '%s\n' "$message" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  curl -q -LSsf ... >>"$WEB_NOTIFY_LOG_STATUS_FILE" 2>>"$WEB_NOTIFY_LOG_ERROR_FILE" || exitCode=1
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__append_log() { printf '%s\n' "$*" >>"$WEB_NOTIFY_LOG_STATUS_FILE"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __end_log() {
-  WEB_NOTIFY_EXIT_STATUS=${1:-$?}
-  __append_log "# End Log $(date) #" >>"$WEB_NOTIFY_LOG_ERROR_FILE"
-  [ "$WEB_NOTIFY_EXIT_STATUS" -eq 0 ] && printf_blue "Your message/file has been sent" || printf_yellow "Errors logged to: $WEB_NOTIFY_LOG_ERROR_FILE"
+  local code="$1"
+  local service="$2"
+  local last_line=""
+  if [ "$code" -eq 0 ]; then
+    rm -f "$WEB_NOTIFY_LOG_ERROR_FILE" 2>/dev/null
+    printf '%s\n' "Notification sent via $service" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+    printf_green "✔ Notification sent via $service"
+  else
+    if [ -f "$WEB_NOTIFY_LOG_ERROR_FILE" ]; then
+      last_line="$(grep -v '^[[:space:]]*$' "$WEB_NOTIFY_LOG_ERROR_FILE" | head -n 1 | tr -d '\r\n')"
+    fi
+    if [ -n "$last_line" ]; then
+      printf_red "✘ $service failed: $last_line"
+    else
+      printf_red "✘ $service failed: Unknown error - check $WEB_NOTIFY_LOG_ERROR_FILE"
+    fi
+  fi
+
+  if [ -s "$WEB_NOTIFY_LOG_ERROR_FILE" ]; then
+    cat "$WEB_NOTIFY_LOG_ERROR_FILE" >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  fi
+  printf '%s\n\n' '# - - - - - - - - - - - - - - - - END - - - - - - - - - - - - - - - - -' >>"$WEB_NOTIFY_LOG_STATUS_FILE"
+  WEB_NOTIFY_EXIT_STATUS="$code"
   return $WEB_NOTIFY_EXIT_STATUS
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -443,8 +1002,13 @@ WEB_NOTIFY_NOTIFY_CLIENT_ICON="${WEB_NOTIFY_NOTIFY_CLIENT_ICON:-notification-new
 WEB_NOTIFY_NOTIFY_CLIENT_URGENCY="${WEB_NOTIFY_NOTIFY_CLIENT_URGENCY:-normal}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional Variables
-WEB_NOTIFY_NETFY_HOST="${WEB_NOTIFY_NETFY_HOST:-}"
-WEB_NOTIFY_NETFY_API_KEY="${WEB_NOTIFY_NETFY_API:-}"
+WEB_NOTIFY_TITLE="${WEB_NOTIFY_TITLE:-$APPNAME}"
+WEB_NOTIFY_SUBJECT="${WEB_NOTIFY_SUBJECT:-$APPNAME on $HOSTNAME}"
+WEB_NOTIFY_LOG_STATUS_FILE="${WEB_NOTIFY_LOG_STATUS_FILE:-$WEB_NOTIFY_LOG_DIR/status.log}"
+# services
+WEB_NOTIFY_NTFY_HOST="${WEB_NOTIFY_NTFY_HOST:-https://ntfy.sh}"
+WEB_NOTIFY_NTFY_TOPIC="${WEB_NOTIFY_NTFY_TOPIC:-}"
+WEB_NOTIFY_NTFY_API_KEY="${WEB_NOTIFY_NTFY_API_KEY:-$NTFY_API_KEY}"
 WEB_NOTIFY_GOTIFY_HOST="${WEB_NOTIFY_GOTIFY_HOST:-}"
 WEB_NOTIFY_GOTIFY_API_KEY="${WEB_NOTIFY_GOTIFY_API_KEY:-}"
 WEB_NOTIFY_TELEGRAM_API="${WEB_NOTIFY_TELEGRAM_API:-$TELEGRAM_API_TOKEN}"
@@ -455,6 +1019,47 @@ WEB_NOTIFY_PUSHOVER_API_KEY="${WEB_NOTIFY_PUSHOVER_API_KEY:-$PUSHOVER_API_KEY}"
 WEB_NOTIFY_PUSHOVER_API_ID="${WEB_NOTIFY_PUSHOVER_API_ID:-a8xbbw7e7jrnqpg7ngdrtwd6vxfyv5}"
 WEB_NOTIFY_PUSHBULLET_ACCESS_TOKEN="${WEB_NOTIFY_PUSHBULLET_ACCESS_TOKEN:-$PUSHBULLET_ACCESS_TOKEN}"
 WEB_NOTIFY_PUSHBULLET_API_HOST="${WEB_NOTIFY_PUSHBULLET_API_HOST:-https://api.pushbullet.com/v2/pushes}"
+# Webhook + Chat Services
+WEB_NOTIFY_TEAMS_WEBHOOK="${WEB_NOTIFY_TEAMS_WEBHOOK:-$TEAMS_WEBHOOK_URL}"
+WEB_NOTIFY_MATTERMOST_WEBHOOK="${WEB_NOTIFY_MATTERMOST_WEBHOOK:-$MATTERMOST_WEBHOOK_URL}"
+WEB_NOTIFY_ROCKETCHAT_WEBHOOK="${WEB_NOTIFY_ROCKETCHAT_WEBHOOK:-$ROCKETCHAT_WEBHOOK_URL}"
+# Zulip
+WEB_NOTIFY_ZULIP_API_KEY="${WEB_NOTIFY_ZULIP_API_KEY:-}"
+WEB_NOTIFY_ZULIP_EMAIL="${WEB_NOTIFY_ZULIP_EMAIL:-}"
+WEB_NOTIFY_ZULIP_STREAM="${WEB_NOTIFY_ZULIP_STREAM:-general}"
+WEB_NOTIFY_ZULIP_TOPIC="${WEB_NOTIFY_ZULIP_TOPIC:-notifications}"
+WEB_NOTIFY_ZULIP_API_HOST="${WEB_NOTIFY_ZULIP_API_HOST:-https://zulip.com}"
+# Matrix
+WEB_NOTIFY_MATRIX_HOMESERVER="${WEB_NOTIFY_MATRIX_HOMESERVER:-}"
+WEB_NOTIFY_MATRIX_TOKEN="${WEB_NOTIFY_MATRIX_TOKEN:-}"
+WEB_NOTIFY_MATRIX_ROOM_ID="${WEB_NOTIFY_MATRIX_ROOM_ID:-}"
+# Email (mailx or generic SMTP shell tools)
+WEB_NOTIFY_EMAIL_FROM="${WEB_NOTIFY_EMAIL_FROM:-$APPNAME <no-reply@$HOSTNAME>}"
+WEB_NOTIFY_EMAIL_TO="${WEB_NOTIFY_EMAIL_TO:-root@$HOSTNAME}"
+# SendGrid
+WEB_NOTIFY_SENDGRID_API_KEY="${WEB_NOTIFY_SENDGRID_API_KEY:-}"
+# Mailgun
+WEB_NOTIFY_MAILGUN_API_KEY="${WEB_NOTIFY_MAILGUN_API_KEY:-}"
+WEB_NOTIFY_MAILGUN_DOMAIN="${WEB_NOTIFY_MAILGUN_DOMAIN:-}"
+# Postmark
+WEB_NOTIFY_POSTMARK_API_KEY="${WEB_NOTIFY_POSTMARK_API_KEY:-}"
+# Mailjet
+WEB_NOTIFY_MAILJET_API_KEY="${WEB_NOTIFY_MAILJET_API_KEY:-}"
+WEB_NOTIFY_MAILJET_SECRET_KEY="${WEB_NOTIFY_MAILJET_SECRET_KEY:-}"
+# Amazon SES
+WEB_NOTIFY_SES_REGION="${WEB_NOTIFY_SES_REGION:-us-east-1}"
+WEB_NOTIFY_SES_ACCESS_KEY="${WEB_NOTIFY_SES_ACCESS_KEY:-}"
+WEB_NOTIFY_SES_SECRET_KEY="${WEB_NOTIFY_SES_SECRET_KEY:-}"
+WEB_NOTIFY_SES_FROM="${WEB_NOTIFY_SES_FROM:-}"
+WEB_NOTIFY_SES_TO="${WEB_NOTIFY_SES_TO:-}"
+# Twilio
+WEB_NOTIFY_TWILIO_SID="${WEB_NOTIFY_TWILIO_SID:-}"
+WEB_NOTIFY_TWILIO_AUTH_TOKEN="${WEB_NOTIFY_TWILIO_AUTH_TOKEN:-}"
+WEB_NOTIFY_TWILIO_FROM="${WEB_NOTIFY_TWILIO_FROM:-}"
+WEB_NOTIFY_TWILIO_TO="${WEB_NOTIFY_TWILIO_TO:-}"
+# Fallback to use these services if none is specified
+WEB_NOTIFY_FALLBACK_SERVICES="${WEB_NOTIFY_FALLBACK_SERVICES:-discord telegram}"
+# Default message to use if no message is specified
 WEB_NOTIFY_DEFAULT_MESSAGE="${WEB_NOTIFY_DEFAULT_MESSAGE:-Test message sent from $HOSTNAME}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
@@ -502,7 +1107,7 @@ SHORTOPTS+=""
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent,force,no-*,"
 LONGOPTS+="discord-token:,slack-token:,telegram-token:,telegram-channel:,pushover-token:,pushbullet-token:"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-ARRAY="email discord slack telegram pushover pushbullet"
+ARRAY="discord gotify mailgun mailjet mailx matrix mattermost postmark pushbullet pushover rocketchat sendgrid ses slack teams twilio zulip"
 ARRAY+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
@@ -696,132 +1301,366 @@ printf '%s\n' "# Start Log $(date)" >>"$WEB_NOTIFY_LOG_ERROR_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 case "$1" in
-email)
-  shift 1
-  message="$*"
-  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
-    SEND="$(cat -)"
-  elif [ -f "$1" ]; then
-    SEND="$(<"$1")"
-  else
-    SEND="${message:-$WEB_NOTIFY_DEFAULT_MESSAGE}"
-  fi
-  __mailx "$SEND"
-  __end_log $?
-  exit
-  ;;
 ntfy)
   shift 1
-  printf_exit "Coming Soon!"
+  [ "$1" = "help" ] && printf_help "Usage:
+  printf 'your message' | $APPNAME ntfy
+  $APPNAME ntfy [file | message]
+  Env Vars: WEB_NOTIFY_NTFY_HOST, WEB_NOTIFY_NTFY_TOPIC
+  Docs: https://docs.ntfy.sh/publish/
+  URL: http://<WEB_NOTIFY_NTFY_HOST>" && exit 0
   message="$*"
   if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
     SEND="$(cat -)"
   elif [ -f "$1" ]; then
     SEND="$(<"$1")"
-  else
-    SEND="${message:-$WEB_NOTIFY_DEFAULT_MESSAGE}"
-  fi
-  __end_log $?
-  exit
+  else SEND="${message:-$WEB_NOTIFY_DEFAULT_MESSAGE}"; fi
+  __ntfy "$SEND"
+  __end_log $? ntfy
   ;;
 gotify)
   shift 1
-  printf_exit "Coming Soon!"
+  [ "$1" = "help" ] && printf_help "Usage:
+  printf 'your message' | $APPNAME gotify
+  $APPNAME gotify [file | message]
+  Env Vars: WEB_NOTIFY_GOTIFY_HOST, WEB_NOTIFY_GOTIFY_API_KEY
+  Docs: https://gotify.net/docs/
+  Create Token: http://<WEB_NOTIFY_GOTIFY_HOST>/#settings" && exit 0
   message="$*"
   if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
     SEND="$(cat -)"
   elif [ -f "$1" ]; then
     SEND="$(<"$1")"
-  else
-    SEND="${message:-$WEB_NOTIFY_DEFAULT_MESSAGE}"
-  fi
-  __end_log $?
-  exit
-  ;;
-discord)
-  shift 1
-  message="$*"
-  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
-    SEND="$(cat -)"
-  elif [ -f "$1" ]; then
-    SEND="$(<"$1")"
-  else
-    SEND="${message:-$WEB_NOTIFY_DEFAULT_MESSAGE}"
-  fi
-  __discord "$SEND"
-  __end_log $?
-  exit
-  ;;
-slack)
-  shift 1
-  message="$*"
-  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
-    SEND="$(cat -)"
-  elif [ -f "$1" ]; then
-    SEND="$(<"$1")"
-  else
-    SEND="${message:-$WEB_NOTIFY_DEFAULT_MESSAGE}"
-  fi
-  __slack "$SEND"
-  __end_log $?
-  exit
-  ;;
-telegram)
-  shift 1
-  message="$*"
-  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
-    SEND="$(cat -)"
-  elif [ -f "$1" ]; then
-    SEND="$(<"$1")"
-  else
-    SEND="${message:-$WEB_NOTIFY_DEFAULT_MESSAGE}"
-  fi
-  __telegram "$SEND"
-  __end_log $?
-  exit
-  ;;
-pushbullet)
-  shift 1
-  message="$*"
-  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
-    SEND="$(cat -)"
-  elif [ -f "$1" ]; then
-    SEND="$(<"$1")"
-  else
-    SEND="${message:-$WEB_NOTIFY_DEFAULT_MESSAGE}"
-  fi
-  __pushbullet "$SEND"
-  __end_log $?
-  exit
+  else SEND="${message:-$WEB_NOTIFY_DEFAULT_MESSAGE}"; fi
+  __gotify "$SEND"
+  __end_log $? gotify
   ;;
 pushover)
   shift 1
+  [ "$1" = "help" ] && printf_help "Usage:
+  printf 'your message' | $APPNAME pushover
+  $APPNAME pushover [file | message]
+  Env Vars: WEB_NOTIFY_PUSHOVER_API_KEY, WEB_NOTIFY_PUSHOVER_API_ID
+  Docs: https://pushover.net/api
+  Create App: https://pushover.net/apps/build" && exit 0
   message="$*"
   if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
     SEND="$(cat -)"
   elif [ -f "$1" ]; then
     SEND="$(<"$1")"
-  else
-    SEND="${message:-$WEB_NOTIFY_DEFAULT_MESSAGE}"
-  fi
+  else SEND="${message:-$WEB_NOTIFY_DEFAULT_MESSAGE}"; fi
   __pushover "$SEND"
-  __end_log $?
-  exit
+  __end_log $? pushover
   ;;
+pushbullet)
+  shift 1
+  [ "$1" = "help" ] && printf_help "Usage:
+  printf 'your message' | $APPNAME pushbullet
+  $APPNAME pushbullet [file | message]
+  Env Vars: WEB_NOTIFY_PUSHBULLET_ACCESS_TOKEN
+  Docs: https://docs.pushbullet.com/#create-access-token
+  Access Token: https://www.pushbullet.com/#settings" && exit 0
+  message="$*"
+  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
+    SEND="$(cat -)"
+  elif [ -f "$1" ]; then
+    SEND="$(<"$1")"
+  else SEND="${message:-$WEB_NOTIFY_DEFAULT_MESSAGE}"; fi
+  __pushbullet "$SEND"
+  __end_log $? pushbullet
+  ;;
+telegram)
+  shift 1
+  exitCode=0
+  [ "$1" = "telegram" ] && [ "$2" = "help" ] && printf_help "Usage:
+  printf 'your message' | $APPNAME telegram
+  $APPNAME telegram [file | message]
+  Env Vars:
+    WEB_NOTIFY_TELEGRAM_API      # Bot token, e.g. 123456789:ABC...
+    WEB_NOTIFY_TELEGRAM_CHAT_ID  # Chat or group ID to send the message to
+  Docs:
+    https://core.telegram.org/bots/api#sendmessage
+    https://t.me/BotFather (create bot)" && exit 0
+  message="$*"
+  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
+    SEND="$(cat -)"
+  elif [ -f "$1" ]; then
+    SEND="$(<"$1")"
+  else SEND="${message:-$WEB_NOTIFY_DEFAULT_MESSAGE}"; fi
+  __telegram "$SEND"
+  __end_log $? telegram
+  ;;
+discord)
+  shift 1
+  [ "$1" = "help" ] && printf_help "Usage:
+  printf 'your message' | $APPNAME discord
+  $APPNAME discord [file | message]
+  Env Vars: WEB_NOTIFY_DISCORD_WEBHOOK
+  Docs: https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks
+  Create Webhook: https://discord.com/developers/docs/resources/webhook" && exit 0
+  message="$*"
+  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
+    SEND="$(cat -)"
+  elif [ -f "$1" ]; then
+    SEND="$(<"$1")"
+  else SEND="${message:-$WEB_NOTIFY_DEFAULT_MESSAGE}"; fi
+  __discord "$SEND"
+  __end_log $? discord
+  ;;
+slack)
+  shift 1
+  [ "$1" = "help" ] && printf_help "Usage:
+  printf 'your message' | $APPNAME slack
+  $APPNAME slack [file | message]
+  Env Vars: WEB_NOTIFY_SLACK_WEBHOOK
+  Docs: https://api.slack.com/messaging/webhooks
+  Create Webhook: https://api.slack.com/apps -> Incoming Webhooks" && exit 0
+  message="$*"
+  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
+    SEND="$(cat -)"
+  elif [ -f "$1" ]; then
+    SEND="$(<"$1")"
+  else SEND="${message:-$WEB_NOTIFY_DEFAULT_MESSAGE}"; fi
+  __slack "$SEND"
+  __end_log $? slack
+  ;;
+teams)
+  shift 1
+  [ "$1" = "help" ] && printf_help "Usage:
+  printf 'your message' | $APPNAME teams
+  $APPNAME teams [file | message]
+  Env Vars: WEB_NOTIFY_TEAMS_WEBHOOK
+  Docs: https://learn.microsoft.com/en-us/microsoftteams/platform/webhooks-and-connectors/how-to/add-incoming-webhook
+  Create Webhook: from Teams → Connectors → Incoming Webhook" && exit 0
+  message="$*"
+  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
+    SEND="$(cat -)"
+  elif [ -f "$1" ]; then
+    SEND="$(<"$1")"
+  else SEND="${message:-$WEB_NOTIFY_DEFAULT_MESSAGE}"; fi
+  __teams "$SEND"
+  __end_log $? teams
+  ;;
+mattermost)
+  shift 1
+  [ "$1" = "help" ] && printf_help "Usage:
+  printf 'your message' | $APPNAME mattermost
+  $APPNAME mattermost [file | message]
+  Env Vars: WEB_NOTIFY_MATTERMOST_WEBHOOK
+  Docs: https://docs.mattermost.com/developer/webhooks-incoming.html
+  Create Webhook: https://<your-mattermost-url>/hooks" && exit 0
+  message="$*"
+  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
+    SEND="$(cat -)"
+  elif [ -f "$1" ]; then
+    SEND="$(<"$1")"
+  else SEND="${message:-$WEB_NOTIFY_DEFAULT_MESSAGE}"; fi
+  __mattermost "$SEND"
+  __end_log $? mattermost
+  ;;
+rocketchat)
+  shift 1
+  [ "$1" = "help" ] && printf_help "Usage:
+  printf 'your message' | $APPNAME rocketchat
+  $APPNAME rocketchat [file | message]
+  Env Vars: WEB_NOTIFY_ROCKETCHAT_WEBHOOK
+  Docs: https://developer.rocket.chat/guides/rest-api/webhooks
+  Create Webhook: Admin Panel → Integrations → Incoming Webhook" && exit 0
+  message="$*"
+  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
+    SEND="$(cat -)"
+  elif [ -f "$1" ]; then
+    SEND="$(<"$1")"
+  else SEND="${message:-$WEB_NOTIFY_DEFAULT_MESSAGE}"; fi
+  __rocketchat "$SEND"
+  __end_log $? rocketchat
+  ;;
+zulip)
+  shift 1
+  [ "$1" = "help" ] && printf_help "Usage:
+  printf 'your message' | $APPNAME zulip
+  $APPNAME zulip [file | message]
+  Env Vars: WEB_NOTIFY_ZULIP_API_KEY, WEB_NOTIFY_ZULIP_EMAIL, WEB_NOTIFY_ZULIP_STREAM
+  Docs: https://zulip.com/api/send-message
+  Create Key: https://zulip.com/api/api-keys" && exit 0
+  message="$*"
+  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
+    SEND="$(cat -)"
+  elif [ -f "$1" ]; then
+    SEND="$(<"$1")"
+  else SEND="${message:-$WEB_NOTIFY_DEFAULT_MESSAGE}"; fi
+  __zulip "$SEND"
+  __end_log $? zulip
+  ;;
+matrix)
+  shift 1
+  [ "$1" = "help" ] && printf_help "Usage:
+  printf 'your message' | $APPNAME matrix
+  $APPNAME matrix [file | message]
+  Env Vars: WEB_NOTIFY_MATRIX_HOMESERVER, WEB_NOTIFY_MATRIX_TOKEN, WEB_NOTIFY_MATRIX_ROOM_ID
+  Docs: https://matrix.org/docs/spec/client_server/latest#post-matrix-client-r0-rooms-roomid-send-eventtype-txnid
+  Access Token: http://<WEB_NOTIFY_MATRIX_HOMESERVER>/_matrix/client" && exit 0
+  message="$*"
+  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
+    SEND="$(cat -)"
+  elif [ -f "$1" ]; then
+    SEND="$(<"$1")"
+  else SEND="${message:-$WEB_NOTIFY_DEFAULT_MESSAGE}"; fi
+  __matrix "$SEND"
+  __end_log $? matrix
+  ;;
+mailx)
+  shift 1
+  [ "$1" = "help" ] && printf_help "Usage:
+  printf 'your message' | $APPNAME mailx
+  $APPNAME mailx [file | message]
+  Env Vars: WEB_NOTIFY_EMAIL_FROM, WEB_NOTIFY_EMAIL_TO
+  Docs: https://man7.org/linux/man-pages/man1/mailx.1.html
+  Config: install mailx and configure /etc/mail.rc or postfix/sendmail" && exit 0
+  message="$*"
+  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
+    SEND="$(cat -)"
+  elif [ -f "$1" ]; then
+    SEND="$(<"$1")"
+  else SEND="${message:-$WEB_NOTIFY_DEFAULT_MESSAGE}"; fi
+  __mailx "$SEND"
+  __end_log $? mailx
+  ;;
+sendgrid)
+  shift 1
+  [ "$1" = "help" ] && printf_help "Usage:
+  printf 'your message' | $APPNAME sendgrid
+  $APPNAME sendgrid [file | message]
+  Env Vars: WEB_NOTIFY_SENDGRID_API_KEY, WEB_NOTIFY_EMAIL_FROM, WEB_NOTIFY_EMAIL_TO
+  Docs: https://docs.sendgrid.com/for-developers/sending-email/api-getting-started
+  Create Key: https://app.sendgrid.com/settings/api_keys" && exit 0
+  message="$*"
+  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
+    SEND="$(cat -)"
+  elif [ -f "$1" ]; then
+    SEND="$(<"$1")"
+  else SEND="${message:-$WEB_NOTIFY_DEFAULT_MESSAGE}"; fi
+  __sendgrid "$SEND"
+  __end_log $? sendgrid
+  ;;
+mailgun)
+  shift 1
+  [ "$1" = "help" ] && printf_help "Usage:
+  printf 'your message' | $APPNAME mailgun
+  $APPNAME mailgun [file | message]
+  Env Vars: WEB_NOTIFY_MAILGUN_API_KEY, WEB_NOTIFY_MAILGUN_DOMAIN, WEB_NOTIFY_EMAIL_FROM, WEB_NOTIFY_EMAIL_TO
+  Docs: https://documentation.mailgun.com/en/latest/quickstart-sending.html
+  API Key: https://app.mailgun.com/app/account/security/api_keys" && exit 0
+  message="$*"
+  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
+    SEND="$(cat -)"
+  elif [ -f "$1" ]; then
+    SEND="$(<"$1")"
+  else SEND="${message:-$WEB_NOTIFY_DEFAULT_MESSAGE}"; fi
+  __mailgun "$SEND"
+  __end_log $? mailgun
+  ;;
+postmark)
+  shift 1
+  [ "$1" = "help" ] && printf_help "Usage:
+  printf 'your message' | $APPNAME postmark
+  $APPNAME postmark [file | message]
+  Env Vars: WEB_NOTIFY_POSTMARK_API_KEY, WEB_NOTIFY_EMAIL_FROM, WEB_NOTIFY_EMAIL_TO
+  Docs: https://postmarkapp.com/developer/user-guide/send-email-with-api
+  Create Key: https://account.postmarkapp.com/servers" && exit 0
+  message="$*"
+  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
+    SEND="$(cat -)"
+  elif [ -f "$1" ]; then
+    SEND="$(<"$1")"
+  else SEND="${message:-$WEB_NOTIFY_DEFAULT_MESSAGE}"; fi
+  __postmark "$SEND"
+  __end_log $? postmark
+  ;;
+mailjet)
+  shift 1
+  [ "$1" = "help" ] && printf_help "Usage:
+  printf 'your message' | $APPNAME mailjet
+  $APPNAME mailjet [file | message]
+  Env Vars: WEB_NOTIFY_MAILJET_API_KEY, WEB_NOTIFY_MAILJET_SECRET_KEY, WEB_NOTIFY_EMAIL_FROM, WEB_NOTIFY_EMAIL_TO
+  Docs: https://dev.mailjet.com/email/guides/send-api-v31/
+  Get Credentials: https://app.mailjet.com/account/api_keys" && exit 0
+  message="$*"
+  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
+    SEND="$(cat -)"
+  elif [ -f "$1" ]; then
+    SEND="$(<"$1")"
+  else SEND="${message:-$WEB_NOTIFY_DEFAULT_MESSAGE}"; fi
+  __mailjet "$SEND"
+  __end_log $? mailjet
+  ;;
+ses)
+  shift 1
+  [ "$1" = "help" ] && printf_help "Usage:
+  printf 'your message' | $APPNAME ses
+  $APPNAME ses [file | message]
+  Env Vars: WEB_NOTIFY_SES_ACCESS_KEY, WEB_NOTIFY_SES_SECRET_KEY, WEB_NOTIFY_SES_FROM, WEB_NOTIFY_SES_TO, WEB_NOTIFY_SES_REGION
+  Docs: https://docs.aws.amazon.com/ses/latest/APIReference/API_SendEmail.html
+  Get Keys: https://console.aws.amazon.com/iam/home#/security_credentials" && exit 0
+  message="$*"
+  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
+    SEND="$(cat -)"
+  elif [ -f "$1" ]; then
+    SEND="$(<"$1")"
+  else SEND="${message:-$WEB_NOTIFY_DEFAULT_MESSAGE}"; fi
+  __ses "$SEND"
+  __end_log $? ses
+  ;;
+twilio)
+  shift 1
+  [ "$1" = "help" ] && printf_help "Usage:
+  printf 'your message' | $APPNAME twilio
+  $APPNAME twilio [file | message]
+  Env Vars: WEB_NOTIFY_TWILIO_SID, WEB_NOTIFY_TWILIO_AUTH_TOKEN, WEB_NOTIFY_TWILIO_FROM, WEB_NOTIFY_TWILIO_TO
+  Docs: https://www.twilio.com/docs/sms/send-messages
+  Create Token: https://console.twilio.com/" && exit 0
+  message="$*"
+  if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
+    SEND="$(cat -)"
+  elif [ -f "$1" ]; then
+    SEND="$(<"$1")"
+  else SEND="${message:-$WEB_NOTIFY_DEFAULT_MESSAGE}"; fi
+  __twilio "$SEND"
+  __end_log $? twilio
+  ;;
+
 *)
   exitCode=0
-  message="$*"
+
   if [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
     SEND="$(cat -)"
   elif [ -f "$1" ]; then
     SEND="$(<"$1")"
   else
-    SEND="${message:-$WEB_NOTIFY_DEFAULT_MESSAGE}"
+    SEND="$(printf '%b\n' "$*")"
   fi
-  __slack "$SEND" || { printf_red "Failed to post to slack" && exitCode=$((exitCode + 1)); }
-  __discord "$SEND" || { printf_red "Failed to post to discord" && exitCode=$((exitCode + 1)); }
-  __telegram "$SEND" || { printf_red "Failed to post to telegram" && exitCode=$((exitCode + 1)); }
-  __end_log $exitCode
+  if [ -z "$SEND" ]; then
+    SEND="$WEB_NOTIFY_DEFAULT_MESSAGE"
+  fi
+  # Check for unsafe shell constructs before eval
+  if printf '%s' "$SEND" | grep -Eq '\$\(|`|;|&&|\|\||>|<'; then
+    printf_yellow "Warning: unsafe content detected — skipping variable expansion."
+  else
+    SEND="$(eval "printf '%b\n' \"$SEND\"")"
+  fi
+  for toUse in $WEB_NOTIFY_FALLBACK_SERVICES; do
+    if declare -f "__${toUse}" >/dev/null 2>&1; then
+      __${toUse} "$SEND" >/dev/null
+      result=$?
+      __end_log "$result" "$toUse"
+      if [ "$result" -ne 0 ]; then
+        exitCode=$((exitCode + 1))
+      fi
+    else
+      printf_yellow "Warning: service '$toUse' not available"
+    fi
+  done
+  WEB_NOTIFY_EXIT_STATUS=$exitCode
   ;;
 esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

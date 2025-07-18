@@ -14,8 +14,8 @@
 # @@TODO             :  Add more config options
 # @@Other            :
 # @@Resource         :
-# @@Terminal App     :  no
-# @@sudo/root        :  no
+# @@Terminal App     :  yes
+# @@sudo/root        :  yes
 # @@Template         :  bash/system
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317
@@ -292,28 +292,260 @@ __trap_exit() {
 # User defined functions
 __sed() { eval "$(builtin type -P gsed || builtin type -P sed)" "$@"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+############################################################
+# 🧠 __detect_nginx_user: Determine nginx system user safely
+############################################################
+__detect_nginx_user() {
+  getent passwd nginx >/dev/null 2>&1 && printf "nginx" && return
+  getent passwd www-data >/dev/null 2>&1 && printf "www-data" && return
+  getent passwd http >/dev/null 2>&1 && printf "http" && return
+  printf "nobody"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __detect_distro_family() {
   local id name os
   if [ -f "/etc/os-release" ]; then
     . /etc/os-release
-    id="${ID:-}"; name="${NAME:-}"; os="${ID_LIKE:-}";
+    id="${ID:-}"
+    name="${NAME:-}"
+    os="${ID_LIKE:-}"
   elif [ "$(uname)" = "Darwin" ]; then
-    id="darwin"; name="macOS"; os="macos";
+    id="darwin"
+    name="macOS"
+    os="macos"
   elif [ -f /etc/arch-release ]; then
-    id="arch"; name="Arch Linux"; os="arch";
+    id="arch"
+    name="Arch Linux"
+    os="arch"
   else
-    id="unknown"; name="Unknown"; os="generic";
+    id="unknown"
+    name="Unknown"
+    os="generic"
   fi
   case "$id" in
-    debian|ubuntu|linuxmint|elementary) echo debian;;
-    rhel|centos|fedora|rocky|almalinux|oracle) echo rhel;;
-    arch|manjaro|endeavouros) echo arch;;
-    alpine) echo alpine;;
-    opensuse|sles) echo suse;;
-    darwin) echo macos;;
-    freebsd|openbsd|netbsd) echo bsd;;
-    *) echo unknown;;
+  debian | ubuntu | linuxmint | elementary) echo debian ;;
+  rhel | centos | fedora | rocky | almalinux | oracle) echo rhel ;;
+  arch | manjaro | endeavouros) echo arch ;;
+  alpine) echo alpine ;;
+  opensuse | sles) echo suse ;;
+  darwin) echo macos ;;
+  freebsd | openbsd | netbsd) echo bsd ;;
+  *) echo unknown ;;
   esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__detect_pkg_mgr() {
+  case "$(__detect_distro_family)" in
+  debian) echo "apt-get" ;;
+  redhat) echo "dnf" ;;
+  arch) echo "pacman" ;;
+  suse) echo "zypper" ;;
+  macos) echo "brew" ;;
+  *) echo "unknown" ;;
+  esac
+}
+############################################################
+# 🧰 __install_packages: Install core NGINX + PHP stack
+############################################################
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__install_packages() {
+  local pkgs=()
+  case "$GEN_NGINX_DISTRO_FAMILY" in
+  debian)
+    nginx_pkgs=(nginx nginx-full)
+    php_pkgs=(php php-cli php-fpm php-common)
+    extra_pkgs=(fcgiwrap uwsgi)
+    ;;
+  rhel)
+    nginx_pkgs=(nginx)
+    php_pkgs=(php php-cli php-fpm php-common)
+    extra_pkgs=(fcgi uwsgi)
+    ;;
+  arch)
+    nginx_pkgs=(nginx)
+    php_pkgs=(php php-fpm)
+    extra_pkgs=(fcgiwrap uwsgi)
+    ;;
+  alpine)
+    nginx_pkgs=(nginx)
+    php_pkgs=(php php-fpm php-common)
+    extra_pkgs=(fcgiwrap uwsgi)
+    ;;
+  *)
+    printf "Unsupported distro family: %s\n" "$GEN_NGINX_DISTRO_FAMILY" >&2
+    return 1
+    ;;
+  esac
+  pkgs=("${nginx_pkgs[@]}" "${php_pkgs[@]}" "${extra_pkgs[@]}")
+  for pkg in "${pkgs[@]}"; do
+    __pkg_install "$pkg"
+  done
+}
+############################################################
+# 🧰 __php_socket_path: Detect PHP-FPM socket path
+############################################################
+__php_socket_path() {
+  local socket
+  socket="$(find /run /var/run /tmp -type s -name "php*-fpm.sock" 2>/dev/null | head -n1)"
+  [ -n "$socket" ] && printf "%s" "$socket"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+############################################################
+# 🐘 __configure_php_fpm_tcp: Configure PHP-FPM to listen on 127.0.0.1:9000
+############################################################
+__configure_php_fpm_tcp() {
+  local fpm_conf
+  fpm_conf="$(find /etc -type f -name 'www.conf' 2>/dev/null | grep php | head -n1 || true)"
+  if [[ -z "$fpm_conf" ]]; then
+    __log warn "Could not locate php-fpm pool config (www.conf)"
+    return 1
+  fi
+  __log info "Configuring PHP-FPM to use TCP in $fpm_conf"
+  sed -i 's|^listen = .*|; &|' "$fpm_conf"
+  echo "listen = 127.0.0.1:9000" >>"$fpm_conf"
+  __manage_service php-fpm restart
+  __log success "PHP-FPM configured to use TCP on 127.0.0.1:9000"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__nginx_already_initialized() {
+  [ "$GEN_NGINX_RESET_REQUESTED" = true ] && return 1
+  [ -f "$GEN_NGINX_TIMESTAMP_FILE" ] && return 0
+  [ -f "$GEN_NGINX_DEFAULT_CONF" ] && grep -q "created by gen-nginx" "$GEN_NGINX_DEFAULT_CONF" && return 0
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+############################################################
+# 🔁 __reset_nginx: Wipe nginx dir and reinitialize
+############################################################
+__reset_nginx() {
+  printf "Resetting nginx to clean state...\n"
+  rm -rf "$GEN_NGINX_CONF_DIR"
+  mkdir -p "$GEN_NGINX_CONF_DIR"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+############################################################
+# 🧠 __should_initialize: Detect if we need to initialize
+############################################################
+__should_initialize() {
+  if [ "$RESET" = "1" ]; then return 0; fi
+  [ ! -f "$GEN_NGINX_TIMESTAMP_FILE" ] && return 0
+  grep -q "Created by gen-nginx" "$GEN_NGINX_DEFAULT_CONF" || return 0
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+############################################################
+# 🧰 __generate_nginx_conf: Build nginx.conf with full defaults
+############################################################
+__generate_nginx_conf() {
+  local nginx_user
+  nginx_user="$(__detect_nginx_user)"
+  printf '%s\n' "Generating nginx.conf for user: $nginx_user"
+  mkdir -p "$(dirname "$GEN_NGINX_DEFAULT_CONF")"
+  cat >"$GEN_NGINX_DEFAULT_CONF" <<EOF
+############################################################
+# ⚙️ NGINX Configuration generated by gen-nginx
+# Created by gen-nginx on $GEN_NGINX_DATE_CREATED
+############################################################
+
+user $nginx_user;
+worker_processes auto;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include $GEN_NGINX_MIME_FILE;
+    default_type application/octet-stream;
+
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+
+    keepalive_timeout 65;
+    types_hash_max_size 2048;
+    server_tokens off;
+
+    gzip on;
+    gzip_disable "msie6";
+
+    access_log /var/log/nginx/access.log;
+    error_log /var/log/nginx/error.log;
+
+    ############################################################
+    # 🌐 Server: HTTP to HTTPS Redirect
+    ############################################################
+    server {
+        listen 80 default_server;
+        listen [::]:80 default_server;
+        server_name _;
+        return 301 https://\$host\$request_uri;
+    }
+
+    ############################################################
+    # 🔐 Server: HTTPS Default Block
+    ############################################################
+    server {
+        listen 443 ssl http2 default_server;
+        listen [::]:443 ssl http2 default_server;
+
+        server_name $GEN_NGINX_SERVERNAME;
+
+        ssl_certificate /etc/letsencrypt/live/domain/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/domain/privkey.pem;
+
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers HIGH:!aNULL:!MD5;
+        ssl_prefer_server_ciphers on;
+
+        root $GEN_NGINX_DOCROOT;
+        index index.php index.html info.php;
+
+        ############################################################
+        # 💡 PHP-FPM via TCP
+        ############################################################
+        location ~ \.php\$ {
+            fastcgi_pass 127.0.0.1:9000;
+            fastcgi_index index.php;
+            fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+            include mime.types;
+        }
+
+        ############################################################
+        # 🔄 CGI Scripts (pl/py/rb/cgi)
+        ############################################################
+        location ~ \.(pl|py|rb|cgi)\$ {
+            root $GEN_NGINX_DOCROOT;
+            fastcgi_pass unix:/var/run/fcgiwrap.socket;
+            include mime.types;
+            fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+            fastcgi_param QUERY_STRING    \$query_string;
+            fastcgi_param REQUEST_METHOD \$request_method;
+            fastcgi_param CONTENT_TYPE   \$content_type;
+            fastcgi_param CONTENT_LENGTH \$content_length;
+            fastcgi_param GATEWAY_INTERFACE CGI/1.1;
+            fastcgi_param SERVER_SOFTWARE nginx;
+            fastcgi_param REMOTE_ADDR     \$remote_addr;
+            fastcgi_param SERVER_NAME     \$server_name;
+            fastcgi_param SERVER_PORT     \$server_port;
+            fastcgi_param SERVER_PROTOCOL \$server_protocol;
+            fastcgi_param SCRIPT_NAME     \$fastcgi_script_name;
+            fastcgi_param REQUEST_URI     \$request_uri;
+            fastcgi_param DOCUMENT_URI    \$document_uri;
+            fastcgi_param DOCUMENT_ROOT   \$document_root;
+        }
+
+        ############################################################
+        # 🚫 Deny access to hidden files
+        ############################################################
+        location ~ /\. {
+            deny all;
+        }
+    }
+}
+EOF
+
+  printf '%s\n' "✔️ nginx.conf created at $GEN_NGINX_DEFAULT_CONF"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_nginx_domains() {
@@ -1039,12 +1271,22 @@ GEN_NGINX_NOTIFY_CLIENT_ICON="${GEN_NGINX_NOTIFY_CLIENT_ICON:-notification-new}"
 GEN_NGINX_NOTIFY_CLIENT_URGENCY="${GEN_NGINX_NOTIFY_CLIENT_URGENCY:-normal}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional Variables
+GEN_NGINX_CONF_DIR="${GEN_NGINX_CONF_DIR:-/etc/nginx}"
 GEN_NGINX_AUTHOR="${GEN_NGINX_AUTHOR:-$USER}"
 GEN_NGINX_WWW_DIR_SYSTEM="${GEN_NGINX_WWW_DIR_ROOT:-/var/www/nginx}"
 GEN_NGINX_VHOST_SYSTEM_DIR="${GEN_NGINX_VHOST_DIR_ROOT:-/etc/nginx/vhosts.d}"
 GEN_NGINX_WWW_USER_DIR="${GEN_NGINX_WWW_USER_DIR:-$GEN_NGINX_CONFIG_DIR/files/www}"
 GEN_NGINX_VHOST_USER_DIR="${GEN_NGINX_VHOST_USER_DIR:-$GEN_NGINX_CONFIG_DIR/files/vhosts}"
-GEN_NGINX_DISTRO_FAMILY="$(__detect_distro_family)"
+GEN_NGINX_TIMESTAMP_FILE="${GEN_NGINX_TIMESTAMP_FILEP-$GEN_NGINX_CONF_DIR/.installed}"
+GEN_NGINX_MIME_FILE="${GEN_NGINX_MIME_FILE:-$GEN_NGINX_CONF_DIR/mime.types}"
+GEN_NGINX_DEFAULT_CONF="${GEN_NGINX_DEFAULT_CONF:-$GEN_NGINX_CONF_DIR/nginx.conf}"
+GEN_NGINX_GLOBAL_DEFAULTS="${GEN_NGINX_GLOBAL_DEFAULTS:-$GEN_NGINX_CONF_DIR/global.d/nginx-defaults.conf}"
+GEN_NGINX_DATE_CREATED="${GEN_NGINX_DATE_CREATED:-$(date '+%Y-%m-%d %H:%M:%S')}"
+GEN_NGINX_SERVERNAME="${GEN_NGINX_SERVERNAME:-unknown.$HOSTNAME}"
+GEN_NGINX_INDEX_FILE="${GEN_NGINX_INDEX_FILE:-index.unknown.php}"
+GEN_NGINX_DARK_THEME="dracula"
+GEN_NGINX_INIT_REQUIRED=false
+GEN_NGINX_RESET_REQUESTED=false
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$GEN_NGINX_CONFIG_DIR/$GEN_NGINX_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
@@ -1088,7 +1330,7 @@ SHORTOPTS=""
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
-LONGOPTS+="certs:name:"
+LONGOPTS+="reset,certs:name:"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="list redirect static php proxy"
 ARRAY+="enable disable remove"
@@ -1191,6 +1433,10 @@ while :; do
     GEN_NGINX_REV_PROXY_NAME="$2"
     shift 2
     ;;
+  --reset)
+    shift 1
+    GEN_NGINX_RESET_REQUESTED="true"
+    ;;
   --)
     shift 1
     break
@@ -1237,7 +1483,9 @@ GEN_NGINX_SERVER_IP_V4="$CURRENT_IP_4"
 GEN_NGINX_SERVER_IP_V6="$CURRENT_IP_6"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
-
+if ! __nginx_already_initialized; then
+  GEN_NGINX_INIT_REQUIRED=true
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Execute functions
 

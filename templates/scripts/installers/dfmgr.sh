@@ -221,6 +221,13 @@ __run_post_message() {
   true
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Install via a custom command
+__run_custom_install() {
+  local getInstallStatus=0
+
+  return $getInstallStatus
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define pre-install scripts
 __run_pre_install() {
   local getRunStatus=0
@@ -306,6 +313,9 @@ fi
 if if_os win; then
   SYSTEM_PACKAGES="$GLOBAL_OS_PACKAGES $WIN_OS_PACKAGES"
 fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Install via a custom command
+__run_custom_install
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Attempt install from github release
 install_latest_release "$LATEST_RELEASE"

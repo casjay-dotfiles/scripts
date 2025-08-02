@@ -9,8 +9,8 @@
 # @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
 # @@Created          :  Sunday, Aug 14, 2022 12:59 EDT
 # @@File             :  myterminal
-# @@Description      :  Open up terminal emulator
-# @@Changelog        :  New script
+# @@Description      :  Open up terminal emulator with expanded support and install functionality
+# @@Changelog        :  Expanded terminal detection, added GPU check and install function
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -67,7 +67,7 @@ __devnull() {
   tee &>/dev/null && exitCode=0 || exitCode=1
   return ${exitCode:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Send errors to /dev/null
 __devnull2() {
   [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
@@ -77,13 +77,15 @@ __devnull2() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
 # See if the executable exists
 __cmd_exists() {
-  exitCode=0
-  [ -n "$1" ] && local exitCode="" || return 0
+  [ -z "$1" ] && return 2
+
   for cmd in "$@"; do
-    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
+    if ! builtin command -v "$cmd" &>/dev/null; then
+      return 127
+    fi
   done
-  [ $exitCode -eq 0 ] || exitCode=3
-  return ${exitCode:-0}
+
+  return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for a valid internet connection
@@ -187,12 +189,29 @@ EOF
 # Help function - Align to 50
 __help() {
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_opts "myterminal:  Open up terminal emulator - $VERSION"
+  __printf_opts "myterminal:  Open up terminal emulator with expanded support - $VERSION"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "Usage: myterminal [options] [commands]"
-  __printf_line " - "
-  __printf_line " - "
-  __printf_line "--dir                           - Sets the working directory"
+  __printf_line "Detects and launches the best available terminal emulator"
+  __printf_line "Supports 60+ terminals with developer-focused prioritization"
+  __printf_line ""
+  __printf_line "Main Options:"
+  __printf_line "--dir [path]                    - Sets the working directory"
+  __printf_line "--install [terminal]            - Install a supported terminal"
+  __printf_line "--tmux                          - Launch with tmux session"
+  __printf_line "--screen                        - Launch with screen session"
+  __printf_line "--silent                        - Suppress output messages"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Install Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "Supported terminals for --install:"
+  __printf_line "ghostty                         - Modern terminal by Mitchell Hashimoto"
+  __printf_line "alacritty                       - GPU-accelerated cross-platform"
+  __printf_line "rio                             - Hardware-accelerated Rust terminal"
+  __printf_line "wezterm                         - Feature-rich Rust-based terminal"
+  __printf_line "foot                            - Lightweight Wayland terminal"
+  __printf_line ""
+  __printf_line "Note: GPU terminals require OpenGL/Vulkan support"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -203,6 +222,14 @@ __help() {
   __printf_line "--debug                         - Enables script debugging"
   __printf_line "--raw                           - Removes all formatting on output"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Examples"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "myterminal                      - Launch best available terminal"
+  __printf_line "myterminal --install ghostty    - Install ghostty terminal"
+  __printf_line "myterminal --dir /tmp           - Launch in /tmp directory"
+  __printf_line "myterminal --tmux               - Launch with tmux session"
+  __printf_line "myterminal vim file.txt         - Launch terminal running vim"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # check if arg is a builtin option
@@ -210,17 +237,35 @@ __is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else ret
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Is current user root
 __user_is_root() {
-  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+  [ "$(id -u)" -eq 0 ]
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Is current user not root
 __user_is_not_root() {
-  if { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; }; then return 1; else return 0; fi
+  [ "$(id -u)" -ne 0 ]
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Validate user exists
+__validate_user() {
+  local user="${1:-$USER}"
+  if ! id "$user" >/dev/null 2>&1; then
+    echo "Error: User '$user' does not exist" >&2
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check if user is a member of sudo
 __sudo_group() {
-  grep -sh "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+  local user="${1:-$USER}"
+
+  __validate_user "$user" || return 1
+
+  if __cmd_exists id; then
+    id -Gn "$user" 2>/dev/null | grep -Eq '\b(wheel|adm|sudo|admin|staff|root)\b'
+  else
+    grep -sh "$user" "/etc/group" | grep -Eq 'wheel|adm|sudo|admin|staff|root'
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # # Get sudo password
@@ -230,25 +275,52 @@ __sudoask() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run sudo
 __sudorun() {
-  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  if __sudoif && __cmd_exists sudo; then
+    sudo -HE "$@"
+  elif __sudoif; then
+    eval "$@"
+  else
+    return 1
+  fi
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Test if user has access to sudo
 __can_i_sudo() {
-  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
-  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+  local user="${1:-$USER}"
+
+  __validate_user "$user" || return 1
+
+  if timeout 5 sudo -vn 2>/dev/null && timeout 5 sudo -ln 2>&1 | grep -vq 'may not' >/dev/null; then
+    return 0
+  fi
+
+  if __sudo_group "$user"; then
+    return 0
+  fi
+
+  if timeout 5 sudo true &>/dev/null; then
+    return 0
+  else
+    return 1
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User can run sudo
 __sudoif() {
-  __user_is_root && return 0
-  __can_i_sudo "${RUN_USER:-$USER}" && return 0
-  __user_is_not_root && __sudoask && return 0 || return 1
+  if __user_is_root; then
+    return 0
+  elif __can_i_sudo "${RUN_USER:-$USER}"; then
+    return 0
+  elif __user_is_not_root && __sudoask; then
+    return 0
+  else
+    return 1
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run command as root
-requiresudo() {
+__requiresudo() {
   if [ "$MYTERMINAL_REQUIRE_SUDO" = "yes" ] && [ -z "$MYTERMINAL_REQUIRE_SUDO_RUN" ]; then
     export MYTERMINAL_REQUIRE_SUDO="no"
     export MYTERMINAL_REQUIRE_SUDO_RUN="true"
@@ -262,13 +334,17 @@ requiresudo() {
 # Execute sudo
 __sudo() {
   CMD="${1:-echo}" && shift 1
-  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  CMD_ARGS="$*"
   SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
   [ "$(basename -- "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+
   if __sudoif; then
     export PATH="$PATH"
-    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
-    exitCode=$?
+    if $SUDO ${OPTS:-} $CMD $CMD_ARGS; then
+      exitCode=0
+    else
+      exitCode=$?
+    fi
   else
     printf '%s\n' "This requires root to run"
     exitCode=1
@@ -286,37 +362,313 @@ __trap_exit() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
+__detect_gpu_acceleration() {
+  local has_gpu=false
+
+  # Check for GPU acceleration support
+  if [ -n "$DISPLAY" ]; then
+    # Check for OpenGL support
+    if __cmd_exists glxinfo; then
+      if glxinfo 2>/dev/null | grep -qi "direct rendering: yes"; then
+        has_gpu=true
+      fi
+    fi
+
+    # Check for Vulkan support
+    if __cmd_exists vulkaninfo; then
+      if vulkaninfo 2>/dev/null | grep -qi "deviceName"; then
+        has_gpu=true
+      fi
+    fi
+
+    # Check for dedicated GPU (NVIDIA/AMD)
+    if __cmd_exists lspci; then
+      if lspci 2>/dev/null | grep -iE "(vga|3d|display)" | grep -iE "(nvidia|amd|radeon)"; then
+        has_gpu=true
+      # Check for modern Intel with GPU acceleration
+      elif lspci 2>/dev/null | grep -iE "(vga|3d|display)" | grep -iE "intel.*iris|intel.*xe|intel.*arc"; then
+        has_gpu=true
+      fi
+    fi
+
+    # Check for GPU device files
+    if [ -d "/dev/dri" ] && [ -n "$(ls /dev/dri/ 2>/dev/null)" ]; then
+      has_gpu=true
+    fi
+
+    # macOS GPU check
+    if [ "$(uname -s)" = "Darwin" ]; then
+      if __cmd_exists system_profiler && system_profiler SPDisplaysDataType 2>/dev/null | grep -qi "Metal"; then
+        has_gpu=true
+      fi
+    fi
+  fi
+
+  # SSH/headless environments typically don't have GPU acceleration
+  if [ -n "$SSH_CONNECTION" ] || [ -z "$DISPLAY" ]; then
+    has_gpu=false
+  fi
+
+  echo "$has_gpu"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_github_release_url() {
+  local repo="$1"
+  local pattern="$2"
+  local api_url="https://api.github.com/repos/${repo}/releases/latest"
+
+  if __am_i_online && __cmd_exists curl; then
+    local api_response=$(curl -s "$api_url" 2>/dev/null)
+    if echo "$api_response" | grep -q '"browser_download_url"'; then
+      echo "$api_response" | grep -o "\"browser_download_url\": *\"[^\"]*${pattern}[^\"]*\"" | cut -d'"' -f4 | head -1
+    fi
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__download_and_extract() {
+  local download_url="$1"
+  local archive_name="$2"
+  local temp_dir="$3"
+
+  if [ -z "$download_url" ]; then
+    return 1
+  fi
+
+  printf_green "Found release: $download_url"
+  cd "$temp_dir" && curl -L "$download_url" -o "$archive_name" 2>/dev/null || return 1
+
+  # Extract based on file extension
+  local extracted=false
+  if echo "$download_url" | grep -q "\.tar\.gz\|\.tgz"; then
+    tar -xzf "$archive_name" 2>/dev/null && extracted=true
+  elif echo "$download_url" | grep -q "\.tar\.xz"; then
+    tar -xf "$archive_name" 2>/dev/null && extracted=true
+  elif echo "$download_url" | grep -q "\.zip" && __cmd_exists unzip; then
+    unzip "$archive_name" 2>/dev/null && extracted=true
+  fi
+
+  [ "$extracted" = "true" ] && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__install_binary() {
+  local binary_name="$1"
+  local temp_dir="$2"
+  local bin_dir="$3"
+  local install_location="$4"
+
+  local binary_path=$(find "$temp_dir" -name "$binary_name" -type f -executable 2>/dev/null | head -1)
+  if [ -n "$binary_path" ]; then
+    if [ "$install_location" = "system" ]; then
+      __sudorun cp "$binary_path" "$bin_dir/"
+      __sudorun chmod +x "$bin_dir/$binary_name"
+    else
+      cp "$binary_path" "$bin_dir/"
+      chmod +x "$bin_dir/$binary_name"
+    fi
+    printf_green "Successfully installed $binary_name"
+    return 0
+  fi
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__install_terminal() {
+  local terminal_name="$1"
+  local install_location=""
+  local bin_dir=""
+  local share_dir=""
+  local temp_dir="$(mktemp -d)"
+  local requires_gpu=false
+
+  # Check if terminal requires GPU acceleration
+  case "$terminal_name" in
+  "ghostty" | "alacritty" | "rio" | "wezterm")
+    requires_gpu=true
+    ;;
+  "foot" | "kitty")
+    requires_gpu=false # These can fallback to software rendering
+    ;;
+  esac
+
+  # Check GPU support if required
+  if [ "$requires_gpu" = "true" ]; then
+    local has_gpu="$(__detect_gpu_acceleration)"
+    if [ "$has_gpu" = "false" ]; then
+      printf_red "❌ Cannot install $terminal_name: GPU acceleration required but not available"
+      printf_yellow "📋 This terminal needs:"
+      printf_yellow "   • OpenGL or Vulkan support"
+      printf_yellow "   • Graphics drivers installed"
+      printf_yellow "   • Display server running (not SSH/headless)"
+      printf_yellow ""
+      printf_yellow "💡 Try installing instead:"
+      printf_yellow "   • foot (lightweight, software rendering)"
+      printf_yellow "   • xterm (basic, always works)"
+      printf_yellow "   • gnome-terminal (widely supported)"
+      printf_yellow ""
+      printf_yellow "🔧 To enable GPU acceleration:"
+      printf_yellow "   • Install graphics drivers: apt install mesa-utils"
+      printf_yellow "   • Test with: glxinfo | grep 'direct rendering'"
+      rm -rf "$temp_dir"
+      return 1
+    else
+      printf_green "✅ GPU acceleration detected - proceeding with $terminal_name installation"
+    fi
+  fi
+
+  # Determine install location based on permissions
+  if __user_is_root || __can_i_sudo; then
+    install_location="system"
+    bin_dir="/usr/local/bin"
+    share_dir="/usr/local/share"
+  else
+    install_location="user"
+    bin_dir="$HOME/.local/bin"
+    share_dir="$HOME/.local/share"
+    mkdir -p "$bin_dir" "$share_dir"
+  fi
+
+  printf_blue "Installing $terminal_name to $install_location location ($bin_dir)"
+
+  local arch="$(uname -m)"
+  local os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+  local download_url=""
+  local success=false
+
+  case "$terminal_name" in
+  "ghostty")
+    case "$os-$arch" in
+    "linux-x86_64")
+      download_url=$(__get_github_release_url "ghostty-org/ghostty" "linux.*x86_64")
+      ;;
+    "linux-aarch64" | "linux-arm64")
+      download_url=$(__get_github_release_url "ghostty-org/ghostty" "linux.*aarch64\\|arm64")
+      ;;
+    "darwin-x86_64")
+      download_url=$(__get_github_release_url "ghostty-org/ghostty" "macos.*x86_64")
+      ;;
+    "darwin-arm64")
+      download_url=$(__get_github_release_url "ghostty-org/ghostty" "macos.*arm64")
+      ;;
+    esac
+
+    if __download_and_extract "$download_url" "ghostty.tar.gz" "$temp_dir"; then
+      __install_binary "ghostty" "$temp_dir" "$bin_dir" "$install_location" && success=true
+    fi
+    ;;
+
+  "rio")
+    case "$os-$arch" in
+    "linux-x86_64")
+      download_url=$(__get_github_release_url "raphamorim/rio" "linux")
+      ;;
+    "darwin-x86_64" | "darwin-arm64")
+      download_url=$(__get_github_release_url "raphamorim/rio" "macos")
+      ;;
+    esac
+
+    if __download_and_extract "$download_url" "rio-archive" "$temp_dir"; then
+      __install_binary "rio" "$temp_dir" "$bin_dir" "$install_location" && success=true
+    fi
+    ;;
+
+  "alacritty")
+    case "$os-$arch" in
+    "linux-x86_64")
+      download_url=$(__get_github_release_url "alacritty/alacritty" "linux.*gnu")
+      ;;
+    "darwin-x86_64" | "darwin-arm64")
+      download_url=$(__get_github_release_url "alacritty/alacritty" "macos")
+      ;;
+    esac
+
+    if __download_and_extract "$download_url" "alacritty-archive" "$temp_dir"; then
+      __install_binary "alacritty" "$temp_dir" "$bin_dir" "$install_location" && success=true
+    fi
+    ;;
+
+  "wezterm")
+    case "$os-$arch" in
+    "linux-x86_64")
+      download_url="https://github.com/wez/wezterm/releases/latest/download/wezterm-nightly.Ubuntu20.04.tar.xz"
+      ;;
+    "darwin-x86_64" | "darwin-arm64")
+      download_url="https://github.com/wez/wezterm/releases/latest/download/WezTerm-macos-latest.zip"
+      ;;
+    esac
+
+    if __download_and_extract "$download_url" "wezterm-archive" "$temp_dir"; then
+      __install_binary "wezterm" "$temp_dir" "$bin_dir" "$install_location" && success=true
+    fi
+    ;;
+
+  "foot")
+    # Foot is typically available in package managers
+    printf_yellow "Foot is best installed via package manager (apt install foot, pacman -S foot, etc.)"
+    printf_yellow "Attempting to install via package manager..."
+
+    if __cmd_exists apt && [ "$install_location" = "system" ]; then
+      __sudorun apt update && __sudorun apt install -y foot && success=true
+    elif __cmd_exists pacman && [ "$install_location" = "system" ]; then
+      __sudorun pacman -S --noconfirm foot && success=true
+    elif __cmd_exists dnf && [ "$install_location" = "system" ]; then
+      __sudorun dnf install -y foot && success=true
+    else
+      printf_red "Package manager not found or not supported"
+      rm -rf "$temp_dir"
+      return 1
+    fi
+    ;;
+
+  *)
+    printf_red "Installation not supported for $terminal_name"
+    printf_yellow "Please install manually or via your package manager"
+    rm -rf "$temp_dir"
+    return 1
+    ;;
+  esac
+
+  # Cleanup
+  rm -rf "$temp_dir"
+
+  if [ "$success" = "true" ]; then
+    printf_green "Installation completed successfully"
+    # Update PATH if installing to user location
+    if [ "$install_location" = "user" ]; then
+      if ! echo "$PATH" | grep -q "$bin_dir"; then
+        printf_yellow "Add $bin_dir to your PATH in ~/.bashrc or ~/.zshrc:"
+        printf_cyan "export PATH=\"$bin_dir:\$PATH\""
+      fi
+    fi
+    return 0
+  else
+    printf_red "Installation failed for $terminal_name"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __execute_myterminal() {
+  local CMD ARGS COMMAND opt="-e"
+
   if [ $# -eq 0 ]; then
     CMD="$(builtin type -P "${SHELL:-bash}")"
     ARGS=""
   else
-    if echo "$*" | grep -qs ";"; then
-      CMD="$(echo "$*" | awk -F';' '{print $1}')"
-      CMD="$(echo "$CMD" | awk -F' ' '{print $1}')"
-      ARGS="$(echo "${@//$CMD /}")"
-      shift $#
-    elif echo "$*" | grep -qs ' '; then
-      CMD="$(echo "$1" | awk -F' ' '{print $1}')"
-      shift 1
-      ARGS="${*:-}"
-      shift $#
-    else
-      CMD="$1"
-      shift 1
-      ARGS="${*:-}"
-      shift $#
-    fi
+    CMD="$1"
+    shift
+    ARGS="$*"
   fi
-  opt="-e"
+
   [ -n "$ARGS" ] && COMMAND="$CMD $ARGS" || COMMAND="$CMD"
-  if [ -z "$(builtin type "$CMD" 2>/dev/null)" ]; then
+
+  # Validate command exists using existing function
+  if ! __cmd_exists "$CMD"; then
     printf_red "$CMD does not seem to exist"
-    notifications "MyTerminal" "$CMD does not seem to exist\nAttempting to launch $COMMAND anyways"
+    __notifications "MyTerminal" "$CMD does not seem to exist\nAttempting to launch $COMMAND anyways"
   fi
+
   if [ "$MYTERMINAL_NOTIFY_ENABLED" = "yes" ]; then
-    notifications "MyTerminal" "Attempting to launch $MYTERMINAL_NAME"
+    __notifications "MyTerminal" "Attempting to launch $MYTERMINAL_NAME"
   fi
+
   if [ -n "$SSH_CONNECTION" ] || [ -n "$SSH_TTY" ] || [ -z "$DISPLAY" ]; then
     printf_blue "Executing $COMMAND in shell due to no display"
     if [ "$MYTERMINAL_BIN" = "$MYTERMINAL_MULTIPLEX" ]; then
@@ -418,52 +770,150 @@ __notifications() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ "$MYTERMINAL_BIN" = "" ] || [ "$MYTERMINAL_NAME" = "" ]; then
   if [ -z "$DISPLAY" ] || [ -n "$SSH_CONNECTION" ]; then
+    # Terminal multiplexers and CLI tools (for headless/SSH environments)
     if [ "$(builtin type -P "$MYTERMINAL_MULTIPLEX")" ]; then
       MYTERMINAL_BIN="$MYTERMINAL_MULTIPLEX $MYTERMINAL_MULTIPLEX_OPTS"
-    elif __cmd_exists screen; then
-      MYTERMINAL_BIN="screen"
     elif __cmd_exists tmux; then
-      MYTERMINAL_BIN="tmux new"
+      MYTERMINAL_BIN="tmux new" # Modern multiplexer, preferred
+    elif __cmd_exists screen; then
+      MYTERMINAL_BIN="screen" # Classic multiplexer
+    elif __cmd_exists zellij; then
+      MYTERMINAL_BIN="zellij" # Modern Rust-based multiplexer
+    elif __cmd_exists byobu; then
+      MYTERMINAL_BIN="byobu" # Enhanced tmux/screen wrapper
+    elif __cmd_exists dvtm; then
+      MYTERMINAL_BIN="dvtm" # Dynamic virtual terminal manager
+    elif __cmd_exists abduco; then
+      MYTERMINAL_BIN="abduco" # Session management tool
+    elif __cmd_exists dtach; then
+      MYTERMINAL_BIN="dtach" # Simple program detacher
+    elif __cmd_exists nohup; then
+      MYTERMINAL_BIN="nohup" # Run commands immune to hangups
+    # Advanced shells for better CLI experience
+    elif __cmd_exists fish; then
+      MYTERMINAL_BIN="fish" # User-friendly shell
+    elif __cmd_exists zsh; then
+      MYTERMINAL_BIN="zsh" # Extended Bourne shell
+    elif __cmd_exists bash; then
+      MYTERMINAL_BIN="bash" # GNU Bourne Again shell
+    elif __cmd_exists dash; then
+      MYTERMINAL_BIN="dash" # Debian Almquist shell (fast)
+    elif __cmd_exists ash; then
+      MYTERMINAL_BIN="ash" # Almquist shell
+    elif __cmd_exists ksh; then
+      MYTERMINAL_BIN="ksh" # Korn shell
+    elif __cmd_exists csh; then
+      MYTERMINAL_BIN="csh" # C shell
+    elif __cmd_exists tcsh; then
+      MYTERMINAL_BIN="tcsh" # Enhanced C shell
+    elif __cmd_exists sh; then
+      MYTERMINAL_BIN="sh" # POSIX shell
     else
-      MYTERMINAL_BIN="$(builtin type -P "${SHELL:-bash}")"
+      MYTERMINAL_BIN="$(builtin type -P "${SHELL:-bash}")" # Fallback to user's shell
     fi
   else
-    if [ -n "$(builtin type -P termite 2>/dev/null)" ]; then
-      MYTERMINAL_BIN="termite"
+    # Developer-focused terminals (most useful first)
+    if [ -f "/Applications/iTerm.app/Contents/MacOS/iTerm2" ]; then
+      MYTERMINAL_BIN="/Applications/iTerm.app/Contents/MacOS/iTerm2" # MacOS - best for developers
+    elif [ -n "$(builtin type -P ghostty 2>/dev/null)" ]; then
+      MYTERMINAL_BIN="ghostty" # Fast, modern terminal by Mitchell Hashimoto
     elif [ -n "$(builtin type -P alacritty 2>/dev/null)" ]; then
-      MYTERMINAL_BIN="alacritty"
+      MYTERMINAL_BIN="alacritty" # Cross-platform, GPU-accelerated, highly configurable
     elif [ -n "$(builtin type -P kitty 2>/dev/null)" ]; then
-      MYTERMINAL_BIN="kitty"
+      MYTERMINAL_BIN="kitty" # Fast, feature-rich, supports graphics
+    elif [ -n "$(builtin type -P wezterm 2>/dev/null)" ]; then
+      MYTERMINAL_BIN="wezterm" # Rust-based, powerful features
+    elif [ -n "$(builtin type -P rio 2>/dev/null)" ]; then
+      MYTERMINAL_BIN="rio" # Hardware-accelerated terminal built in Rust
+    elif [ -n "$(builtin type -P foot 2>/dev/null)" ]; then
+      MYTERMINAL_BIN="foot" # Fast, lightweight Wayland terminal
+    elif [ -n "$(builtin type -P contour 2>/dev/null)" ]; then
+      MYTERMINAL_BIN="contour" # Modern C++ terminal emulator
+    elif [ -n "$(builtin type -P tabby 2>/dev/null)" ]; then
+      MYTERMINAL_BIN="tabby" # Modern terminal with tabs and themes
+    elif [ -n "$(builtin type -P hyper 2>/dev/null)" ]; then
+      MYTERMINAL_BIN="hyper" # Electron-based, highly extensible
+    elif [ -n "$(builtin type -P wave 2>/dev/null)" ]; then
+      MYTERMINAL_BIN="wave" # Modern terminal with AI features
+    elif [ -n "$(builtin type -P fig 2>/dev/null)" ]; then
+      MYTERMINAL_BIN="fig" # Terminal with autocomplete and AI features
+    elif [ -n "$(builtin type -P termite 2>/dev/null)" ]; then
+      MYTERMINAL_BIN="termite" # Lightweight, keyboard-centric
+    elif [ -n "$(builtin type -P terminator 2>/dev/null)" ]; then
+      MYTERMINAL_BIN="terminator" # Multiple terminals in one window
     elif [ -n "$(builtin type -P tilix 2>/dev/null)" ]; then
-      MYTERMINAL_BIN="tilix"
+      MYTERMINAL_BIN="tilix" # Tiling terminal emulator
     elif [ -n "$(builtin type -P terminology 2>/dev/null)" ]; then
-      MYTERMINAL_BIN="terminology"
+      MYTERMINAL_BIN="terminology" # Enlightenment terminal
+    elif [ -n "$(builtin type -P guake 2>/dev/null)" ]; then
+      MYTERMINAL_BIN="guake" # Drop-down terminal
+    elif [ -n "$(builtin type -P tilda 2>/dev/null)" ]; then
+      MYTERMINAL_BIN="tilda" # Drop-down terminal
+    elif [ -n "$(builtin type -P yakuake 2>/dev/null)" ]; then
+      MYTERMINAL_BIN="yakuake" # KDE drop-down terminal
+    elif [ -n "$(builtin type -P cool-retro-term 2>/dev/null)" ]; then
+      MYTERMINAL_BIN="cool-retro-term" # Retro-styled terminal
+    elif [ -n "$(builtin type -P deepin-terminal 2>/dev/null)" ]; then
+      MYTERMINAL_BIN="deepin-terminal" # Deepin desktop terminal
+    elif [ -n "$(builtin type -P elementary-terminal 2>/dev/null)" ]; then
+      MYTERMINAL_BIN="elementary-terminal" # Elementary OS terminal
+    elif [ -n "$(builtin type -P sakura 2>/dev/null)" ]; then
+      MYTERMINAL_BIN="sakura" # Lightweight terminal
+    elif [ -n "$(builtin type -P roxterm 2>/dev/null)" ]; then
+      MYTERMINAL_BIN="roxterm" # Tabbed terminal emulator
+    elif [ -n "$(builtin type -P st 2>/dev/null)" ]; then
+      MYTERMINAL_BIN="st" # Simple terminal (suckless)
+    elif [ -n "$(builtin type -P urxvt 2>/dev/null)" ]; then
+      MYTERMINAL_BIN="urxvt" # rxvt-unicode
+    elif [ -n "$(builtin type -P rxvt 2>/dev/null)" ]; then
+      MYTERMINAL_BIN="rxvt" # Classic rxvt
+    elif [ -n "$(builtin type -P mlterm 2>/dev/null)" ]; then
+      MYTERMINAL_BIN="mlterm" # Multi-lingual terminal
+    elif [ -n "$(builtin type -P eterm 2>/dev/null)" ]; then
+      MYTERMINAL_BIN="eterm" # Enlightenment terminal
+    # Desktop environment specific terminals
     elif [ -n "$(builtin type -P konsole 2>/dev/null)" ]; then
-      MYTERMINAL_BIN="konsole"
-    elif [ -n "$(builtin type -P lxterminal 2>/dev/null)" ]; then
-      MYTERMINAL_BIN="lxterminal"
+      MYTERMINAL_BIN="konsole" # KDE terminal
     elif [ -n "$(builtin type -P qterminal 2>/dev/null)" ]; then
-      MYTERMINAL_BIN="qterminal"
+      MYTERMINAL_BIN="qterminal" # Qt-based terminal
+    elif [ -n "$(builtin type -P lxterminal 2>/dev/null)" ]; then
+      MYTERMINAL_BIN="lxterminal" # LXDE terminal
     elif [ -n "$(builtin type -P xfce4-terminal 2>/dev/null)" ]; then
-      MYTERMINAL_BIN="xfce4-terminal"
+      MYTERMINAL_BIN="xfce4-terminal" # XFCE terminal
     elif [ -n "$(builtin type -P mate-terminal 2>/dev/null)" ]; then
-      MYTERMINAL_BIN="mate-terminal"
+      MYTERMINAL_BIN="mate-terminal" # MATE terminal
     elif [ -n "$(builtin type -P gnome-terminal 2>/dev/null)" ]; then
-      MYTERMINAL_BIN="gnome-terminal"
+      MYTERMINAL_BIN="gnome-terminal" # GNOME terminal
+    elif [ -n "$(builtin type -P kgx 2>/dev/null)" ]; then
+      MYTERMINAL_BIN="kgx" # GNOME Console (new GNOME terminal)
+    elif [ -n "$(builtin type -P cinnamon-terminal 2>/dev/null)" ]; then
+      MYTERMINAL_BIN="cinnamon-terminal" # Cinnamon terminal
+    elif [ -n "$(builtin type -P pantheon-terminal 2>/dev/null)" ]; then
+      MYTERMINAL_BIN="pantheon-terminal" # Elementary OS terminal
+    # Window manager specific
     elif [ -n "$(builtin type -P i3-sensible-terminal 2>/dev/null)" ]; then
-      MYTERMINAL_BIN="i3-sensible-terminal"
+      MYTERMINAL_BIN="i3-sensible-terminal" # i3 window manager
     elif [ -n "$(builtin type -P rofi-sensible-terminal 2>/dev/null)" ]; then
-      MYTERMINAL_BIN="rofi-sensible-terminal"
+      MYTERMINAL_BIN="rofi-sensible-terminal" # rofi launcher
+    elif [ -n "$(builtin type -P x-terminal-emulator 2>/dev/null)" ]; then
+      MYTERMINAL_BIN="x-terminal-emulator" # Debian alternatives system
+    # Chrome OS
     elif [ -n "$(builtin type -P garcon-terminal-handler 2>/dev/null)" ]; then
-      MYTERMINAL_BIN="garcon-terminal-handler" # chomeos
-    elif [ -f "/Applications/iTerm.app/Contents/MacOS/iTerm2" ]; then
-      MYTERMINAL_BIN="/Applications/iTerm.app/Contents/MacOS/iTerm2" # MacOS
-    elif [ -f "/System/Applications/Utilities/terminal.app/Contents/MacOS/terminal" ]; then
-      MYTERMINAL_BIN="/System/Applications/Utilities/terminal.app/Contents/MacOS/terminal" # MacOS
+      MYTERMINAL_BIN="garcon-terminal-handler" # Chrome OS
+    elif [ -n "$(builtin type -P crosh 2>/dev/null)" ]; then
+      MYTERMINAL_BIN="crosh" # Chrome OS shell
+    # macOS fallback
+    elif [ -f "/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal" ]; then
+      MYTERMINAL_BIN="/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal" # macOS default
+    # Generic/fallback terminals
     elif [ -n "$(builtin type -P xterm 2>/dev/null)" ]; then
-      MYTERMINAL_BIN="xterm"
+      MYTERMINAL_BIN="xterm" # Classic X terminal
     elif [ -n "$(builtin type -P uxterm 2>/dev/null)" ]; then
-      MYTERMINAL_BIN="uxterm"
+      MYTERMINAL_BIN="uxterm" # Unicode xterm
+    elif [ -n "$(builtin type -P aterm 2>/dev/null)" ]; then
+      MYTERMINAL_BIN="aterm" # Afterstep terminal
+    elif [ -n "$(builtin type -P Eterm 2>/dev/null)" ]; then
+      MYTERMINAL_BIN="Eterm" # Enlightenment terminal (old)
     fi
   fi
 fi
@@ -485,7 +935,7 @@ SETARGS=("$@")
 SHORTOPTS=""
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent,install:"
 LONGOPTS+=",tmux,screen"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY=""
@@ -581,6 +1031,19 @@ while :; do
     [ -d "$MYTERMINAL_CWD" ] || mkdir -p "$MYTERMINAL_CWD" |& __devnull
     shift 2
     ;;
+  --install)
+    TERMINAL_TO_INSTALL="$2"
+    shift 2
+    if [ -n "$TERMINAL_TO_INSTALL" ]; then
+      __install_terminal "$TERMINAL_TO_INSTALL"
+      exit $?
+    else
+      printf_red "Please specify a terminal to install"
+      printf_yellow "Supported terminals: ghostty, rio, alacritty, wezterm, foot"
+      printf_yellow "Example: $APPNAME --install ghostty"
+      exit 1
+    fi
+    ;;
   --screen)
     shift 1
     if [ -f "$HOME/.config/screen/defaultrc" ]; then
@@ -639,7 +1102,7 @@ export MYTERMINAL_CWD
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
-#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+#__requiresudo "$0" "$@" || exit 2     # exit 2 if errors
 #cmd_exists --error --ask bash || exit 3 # exit 3 if not found
 #am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

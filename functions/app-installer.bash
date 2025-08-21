@@ -725,7 +725,7 @@ __getip() {
   if [[ "$OSTYPE" =~ ^darwin ]]; then
     NETDEV="$(route get default 2>/dev/null | grep interface | awk '{print $2}')"
   else
-    NETDEV="$(ip route 2>/dev/null | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//" | awk '{print $1}' | grep '^' || echo 'eth0')"
+    NETDEV="$(ip route 2>/dev/null | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//" | awk '{print $1}' | head -n1 | grep '^' || echo 'eth0')"
   fi
   IFCONFIG="$(builtin type -P /sbin/ifconfig || builtin type -P ifconfig)"
   if [ -f "$IFCONFIG" ]; then
@@ -823,7 +823,7 @@ sudoreq() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 can_i_sudo() {
   (
-    ISINDSUDO=$(sudo grep -Re "$MYUSER" /etc/sudoers* | grep "ALL" >/dev/null)
+    ISINDSUDO=$(sudo grep -Re "$MYUSER" /etc/sudoers* | grep "ALL" 2>/dev/null)
     sudo -vn && sudo -ln
   ) 2>&1 | grep -v 'may not' >/dev/null
 }

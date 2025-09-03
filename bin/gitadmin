@@ -275,11 +275,12 @@ __help() {
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Github Repo Actions: [init,clone,push,pull,remote] [userName/repo]"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_line "github init [directory]         - single init"
-  __printf_line "github clone [directory]        - Clone a repo [RemoteURL]"
-  __printf_line "github push [directory]         - Push your local repo to remote"
-  __printf_line "github pull [directory]         - Run git pull on repo"
-  __printf_line "github remote [directory]       - Add new remote url [userName/repoName]"
+  __printf_line "github init [directory]                     - single init"
+  __printf_line "github clone [directory]                    - Clone a repo [RemoteURL]"
+  __printf_line "github push [directory]                     - Push your local repo to remote"
+  __printf_line "github pull [directory]                     - Run git pull on repo"
+  __printf_line "github org visibility [show|public|private] - Change membership visibility"
+  __printf_line "github remote [directory]                   - Add new remote url [userName/repoName]"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Gitlab Repo Actions: [init,clone,push,pull,remote] [userName/repo]"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -1391,7 +1392,7 @@ ghgist_create() {
   gist_get_content="${3:-}"
   format_gist="$(echo "$gist_get_content" | format_file_as_JSON_string)"
   save_dir="${GISTADMIN_GIST_SAVE_DIR:-$HOME/Documents/myscripts/gists}"
-  gist_content="$(printf "%s\r" "{ \"description\": \"$gist_describe\", \"public\": true, \"files\": {\"$gist_filename\": { \"content\": \"$format_gist\" }}}" >${GITADMIN_TEMP_FILE}-data.txt)"
+  gist_content="$(printf "%s\r" "{ \"description\": \"$gist_describe\", \"public\": true, \"files\": {\"$gist_filename\": { \"content\": \"$format_gist\" }}}" | tee ${GITADMIN_TEMP_FILE}-data.txt)"
   [ $# -eq 3 ] || printf_help "Usage: $APPNAME gist create description filename contents"
   [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
   printf_green "Creating gist with Description $gist_describe and filename: $gist_filename"
@@ -1425,7 +1426,7 @@ ghgist_edit() {
   gist_filename="$3"
   gist_content="$4"
   gist_describe="${gist_describe:-$(basename -- "$gist_filename")}"
-  gist_content="$(printf "%s\r" "{ \"description\": \"$gist_describe\", \"public\": true, \"files\": { \"$gist_filename\": {\"content\": \"$gist_content\" }}}" >$GITADMIN_TEMP_FILE-data.txt)"
+  gist_content="$(printf "%s\r" "{ \"description\": \"$gist_describe\", \"public\": true, \"files\": { \"$gist_filename\": {\"content\": \"$gist_content\" }}}" | tee $GITADMIN_TEMP_FILE-data.txt)"
   [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
   printf_green "Editing $gist_id with Description $gist_describe and filename: $gist_filename"
   if __curl_gh_api -X PATCH -i --data @$GITADMIN_TEMP_FILE-data.txt https://api.github.com/gists/$gist_id | grep -w "html_url" | grep "gist" | awk '{print $2}' | __sed 's/\,//;s|"||g' >"$GITADMIN_TEMP_FILE"; then
@@ -1990,6 +1991,118 @@ __github_org_push_repos() {
     exitCode=1
     printf_red "😿 No repos found for $GITADMIN_DEFAULT_USERNAME 😿"
   fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Change organization membership visibility
+__github_org_visibility() {
+  local visibility="${1:-show}"
+  local org_name="${2:-}"
+  local username="${3:-$GITADMIN_DEFAULT_USERNAME}"
+  local exitCode=0
+  local status_code=""
+
+  [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
+
+  case "$visibility" in
+  show | status)
+    if [ -n "$org_name" ]; then
+      # Check single org
+      status_code=$(curl -s -o /dev/null -w "%{http_code}" \
+        -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" \
+        -H "Accept: application/vnd.github.v3+json" \
+        "https://api.github.com/orgs/$org_name/public_members/$username")
+
+      if [ "$status_code" = "204" ]; then
+        printf_green "$org_name: public membership"
+      else
+        printf_yellow "$org_name: private membership"
+      fi
+    else
+      # Check all orgs
+      printf_cyan "Checking membership visibility for all organizations..."
+      for org in $(__curl_gh_api "https://api.github.com/user/orgs" | __jq -r '.[].login'); do
+        status_code=$(curl -s -o /dev/null -w "%{http_code}" \
+          -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" \
+          -H "Accept: application/vnd.github.v3+json" \
+          "https://api.github.com/orgs/$org/public_members/$username")
+
+        if [ "$status_code" = "204" ]; then
+          printf_green "  $org: public"
+        else
+          printf_yellow "  $org: private"
+        fi
+      done
+    fi
+    ;;
+
+  public)
+    if [ -n "$org_name" ]; then
+      # Make single org public
+      printf_cyan "Making membership public in $org_name..."
+      curl -X PUT \
+        -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" \
+        -H "Accept: application/vnd.github.v3+json" \
+        "https://api.github.com/orgs/$org_name/public_members/$username" &>/dev/null
+
+      [ $? -eq 0 ] && printf_green "✓ $org_name membership is now public" || {
+        printf_red "✗ Failed to update $org_name"
+        exitCode=1
+      }
+    else
+      # Make all orgs public
+      printf_cyan "Making membership public in all organizations..."
+      for org in $(__curl_gh_api "https://api.github.com/user/orgs" | __jq -r '.[].login'); do
+        curl -X PUT \
+          -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" \
+          -H "Accept: application/vnd.github.v3+json" \
+          "https://api.github.com/orgs/$org/public_members/$username" &>/dev/null
+
+        [ $? -eq 0 ] && printf_green "  ✓ $org" || {
+          printf_red "  ✗ $org"
+          exitCode=$((exitCode + 1))
+        }
+      done
+    fi
+    ;;
+
+  private)
+    if [ -n "$org_name" ]; then
+      # Make single org private
+      printf_cyan "Making membership private in $org_name..."
+      curl -X DELETE \
+        -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" \
+        -H "Accept: application/vnd.github.v3+json" \
+        "https://api.github.com/orgs/$org_name/public_members/$username" &>/dev/null
+
+      [ $? -eq 0 ] && printf_green "✓ $org_name membership is now private" || {
+        printf_red "✗ Failed to update $org_name"
+        exitCode=1
+      }
+    else
+      # Make all orgs private
+      printf_cyan "Making membership private in all organizations..."
+      for org in $(__curl_gh_api "https://api.github.com/user/orgs" | __jq -r '.[].login'); do
+        curl -X DELETE \
+          -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" \
+          -H "Accept: application/vnd.github.v3+json" \
+          "https://api.github.com/orgs/$org/public_members/$username" &>/dev/null
+
+        [ $? -eq 0 ] && printf_green "  ✓ $org" || {
+          printf_red "  ✗ $org"
+          exitCode=$((exitCode + 1))
+        }
+      done
+    fi
+    ;;
+
+  *)
+    printf_red "Invalid option: $visibility"
+    printf_yellow "Usage: gitadmin org visibility [show|public|private] [orgName]"
+    return 1
+    ;;
+  esac
+
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -3341,7 +3454,12 @@ github)
       done
       exit $exitStatus
       ;;
-
+    visibility)
+      shift 1
+      [ "$1" = "help" ] && printf_help "Usage: gitadmin org visibility [show|public|private] [orgName]"
+      __github_org_visibility "$@"
+      exit $?
+      ;;
     list)
       shift 1
       exitStatus=0
@@ -3788,7 +3906,7 @@ issues)
     issue_title="$1" && shift 1
     [ -f "$1" ] && issue_body="$(cat "$1" | sed 's|^| |g')" || issue_body="$1"
     shift
-    content="$(printf "%s\r" "{ \"title\": \"$issue_title\", \"body\": \"$issue_body\" }" >$GITADMIN_TEMP_FILE)"
+    content="$(printf "%s\r" "{ \"title\": \"$issue_title\", \"body\": \"$issue_body\" }" | tee "$GITADMIN_TEMP_FILE")"
     __api_issues_token ${user} ${issue_repo:-}
     printf_green "Attempting to create a new issue "
     __curl_gh_api -X "POST" "$ISSUE_API" -d @$GITADMIN_TEMP_FILE 2>/dev/null | __jq -r ".html_url" 2>/dev/null | grep -v 'null' | printf_readline | grep '^' || printf_exit 1 "Failed to create the issue on\n$ISSUE_API"
@@ -3803,7 +3921,7 @@ issues)
     issue_title="$1" && shift 1
     [ -f "$1" ] && issue_body="$(cat "$1" | sed 's|^| |g')" || issue_body="$1"
     shift
-    content="$(printf "%s\r" "{ \"title\": \"$issue_title\", \"body\": \"$issue_body\" }" >$GITADMIN_TEMP_FILE)"
+    content="$(printf "%s\r" "{ \"title\": \"$issue_title\", \"body\": \"$issue_body\" }" | tee "$GITADMIN_TEMP_FILE")"
     __api_issues_token "$user" "$issue_repo"
     printf_green "Attempting to edit issue $issue_number"
     __curl_gh_api -X "PATCH" "$ISSUE_API/$issue_number" -d @$GITADMIN_TEMP_FILE 2>/dev/null | __jq -r ".html_url" 2>/dev/null | grep -v 'null' | printf_readline | grep '^' || printf_exit 1 "Failed to edit the issue at\n$ISSUE_API/$issue_number"

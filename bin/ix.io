@@ -18,7 +18,7 @@
 # @@sudo/root        :  no
 # @@Template         :  bash/system
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317
+# shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
 VERSION="202208111053-git"
@@ -643,7 +643,7 @@ export IX_IO_CWD
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Execute commands
-
+printf_exit "It appears ix.io has shutdown"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 case "$1" in

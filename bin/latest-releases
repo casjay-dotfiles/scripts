@@ -18,7 +18,7 @@
 # @@sudo/root        :  no
 # @@Template         :  bash/system
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317
+# shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
 VERSION="202208121532-git"
@@ -80,10 +80,14 @@ __devnull2() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
 # See if the executable exists
 __cmd_exists() {
-  exitCode=0
-  [ -n "$1" ] && local exitCode="" || return 0
+  local exitCode=0
+  [ -n "$1" ] || return 0
   for cmd in "$@"; do
-    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
+    if builtin command -v "$cmd" &>/dev/null; then
+      exitCode=$((exitCode + 0))
+    else
+      exitCode=$((exitCode + 1))
+    fi
   done
   [ $exitCode -eq 0 ] || exitCode=3
   return ${exitCode:-0}
@@ -198,18 +202,21 @@ __help() { # add remove install gitea info update list search | filename:,type:,
   __printf_opts "latest-releases:  Download the latest release of a package - $VERSION"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "Usage: latest-releases [options] [commands]"
-  __printf_line "add                             - "
-  __printf_line "remove                          - "
-  __printf_line "install                         - "
-  __printf_line "gitea                           - "
-  __printf_line "info                            - "
-  __printf_line "update                          - "
-  __printf_line "list                            - "
-  __printf_line "search [api,release]            - "
-  __printf_line "--bin                           - "
-  __printf_line "--type                          - "
-  __printf_line "--filename                      - "
-  __printf_line "--dir                           - Sets the working directory"
+  __printf_line "add [repo:bin:desc]             - Add repository to tracking list"
+  __printf_line "remove [repo]                   - Remove repository from tracking"
+  __printf_line "install [user/repo]             - Download and install latest release"
+  __printf_line "update [user/repo]              - Update installed package"
+  __printf_line "uninstall [name]                - Uninstall package and remove tracking"
+  __printf_line "gitea [user/repo]               - Download from Gitea instance"
+  __printf_line "gitlab [user/repo]              - Download from GitLab instance"
+  __printf_line "info                            - Show latest version info for tracked repos"
+  __printf_line "list                            - List all tracked repositories"
+  __printf_line "search api [query]              - Search GitHub repositories"
+  __printf_line "search repo [user]              - List user's repositories"
+  __printf_line "--bin [name]                    - Override binary name"
+  __printf_line "--type [type]                   - Filter by file type"
+  __printf_line "--filename [name]               - Filter by filename pattern"
+  __printf_line "--dir [path]                    - Set working directory"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -307,6 +314,12 @@ __gen_config_local() { [ -f "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LI
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __grep() { grep "$@" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Missing utility functions
+__mv_f() { mv "$@" 2>/dev/null || return 1; }
+__cp_rf() { cp -Rf "$@" 2>/dev/null || return 1; }
+__rm_rf() { [ -n "$1" ] && [ -e "$1" ] && rm -Rf "$@" 2>/dev/null || return 0; }
+__mkd() { mkdir -p "$@" 2>/dev/null || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __clean_old_bin() { { [ -n "$1" ] && [ -e "$LATEST_RELEASES_BIN_DIR_USER/$1" ]; } && rm -Rf "${LATEST_RELEASES_BIN_DIR_USER:?}/$1"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __grep_include() { sed 's|"||g' | __grep -Ei 'linux|mac|win|i386|arm|amd|x86|aarch|tar|gz|xz|zip|bz2|exe'; }
@@ -364,7 +377,6 @@ search_gh_api() {
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__github() { __install_latest "$@"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gitea() {
   local url="" dom="" repo="" download_dir="" tempfile="" api_url="" filename=""
@@ -451,16 +463,22 @@ __gitlab() {
   tempfile="$LATEST_RELEASES_TEMP_FILE"
   download_dir="$LATEST_RELEASE_DOWNLOADS"
   gitlab_domain="${gitlab_domain:-$LATEST_RELEASE_GITLAB_DOMAIN}"
-  repo_description
+  repo_description=""
   __check_if_repo "$repo" || return
   __get_arch &>/dev/null
   [ -n "$gitlab_domain" ] || printf_exit "ERROR: The variable LATEST_RELEASE_GITLAB_DOMAIN is not set"
+  # Get GitLab project ID from repo path
+  project_id="$(echo "$repo" | sed 's|/|%2F|g')"
   for arch in $set_arches; do
-    url="$(curl -q -LSs -X 'GET' "$gitlab_domain/api/v1/repos/$repo/releases" -H 'accept: application/json' 2>/dev/null | jq -rc '.[].assets | .[] | {name: .name, link: .browser_download_url}' | __grep ''$arch'"' | __grep -i "$set_os" | jq -c | head -n1 | jq -r | __grep link | awk -F '":' '{print $2}' | sed 's|"||g;s| ||g' | grep '^')"
+    # GitLab API v4 uses different structure than GitHub
+    releases_json="$(curl -q -LSs "$gitlab_domain/api/v4/projects/$project_id/releases" 2>/dev/null)"
+    if [ -n "$releases_json" ] && echo "$releases_json" | jq -e '.[0]' &>/dev/null; then
+      url="$(echo "$releases_json" | jq -r '.[0].assets.links[] | select(.name | test("'"$arch"'"; "i")) | select(.name | test("'"$set_os"'"; "i")) | .direct_asset_url' | head -n1)"
+    fi
     [ -n "$url" ] && break
   done
   if [ -z "$url" ]; then
-    printf_yellow "Can not find any releases from $gitlab_domain/api/v1/repos/$repo/releases"
+    printf_yellow "Can not find any releases from $gitlab_domain/api/v4/projects/$project_id/releases"
     exit 1
   fi
   printf_green "Attempting to download $filename from $url"
@@ -532,7 +550,7 @@ __uninstall() {
     bin_name="$(grep " $name " "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST" | awk '{print $2}')"
     [ -n "$bin_name" ] || bin_name="$(grep " $name " "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST" | awk -F'/' '{print $2}')"
     printf_cyan "Removing $name from $APPNAME"
-    [ -f "/usr/local/$bin_name" ] && rm -Rf "/usr/local/${bin_name:?}" && printf_green "Removed /usr/local/$bin_name"
+    [ -f "/usr/local/$bin_name" ] && __sudo rm -Rf "/usr/local/${bin_name:?}" && printf_green "Removed /usr/local/$bin_name"
     [ -f "$HOME/.local/$bin_name" ] && rm -Rf "$HOME/.local/${bin_name:?}" && printf_green "Removed $HOME/.local/$bin_name"
     __remove_from_latest "$name"
   done
@@ -544,16 +562,11 @@ __gen_repolist() {
   else
     cat <<EOF | tee -p "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST" &>/dev/null
 # Format: service;org/repo                       symlinkName                     # description
-github;mvdan/sh                                  shfmt                           # shfmt
 github;gokcehan/lf                               lf                              # filemanager
-github;koalaman/shellcheck                       shellcheck                      # shellcheck
 github;JanDeDobbeleer/oh-my-posh                 oh-my-posh                      # highly customizable prompt theme engine
-github;caddyserver/caddy                         caddy                           # caady webserver
-github;codeskyblue/gohttpserver                  gohttpserver                    # http server written in go
-github;jesseduffield/lazydocker                  lazydocker                      # docker script
 github;tobychui/zoraxy                           zoraxy                          # general purpose request (reverse) proxy
 github;fastfetch-cli/fastfetch                   fastfetch                       # neofetch replacement
-mrjackwills/oxker                                oxker                           # simple tui to view & control docker containers
+github;mrjackwills/oxker                         oxker                           # simple tui to view & control docker containers
 EOF
   fi
   if [ -f "$LATEST_RELEASES_CONFIG_BACKUP_DIR/$LATEST_RELEASE_REPO_LIST.$$" ]; then
@@ -583,7 +596,7 @@ EOF
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__install_latest() {
+__github() {
   [ -n "$1" ] || return
   echo "$1" | __grep -qv '^#' || return
   echo "$1" | __grep -qv '^$' || [ -n "$LATEST_RELEASE_FULL_URL" ] || return
@@ -707,7 +720,7 @@ __install_latest() {
     esac
     [ $extractExitCode -eq 0 ] || printf_exit "Failed to extract $filename"
     if [ "$file_is_archive" = "true" ] && [ -n "$latest_version" ]; then
-      if [ "$(\find "$extract_dir"/ -maxdepth 1 -type d -iname "$extract_name" 2>/dev/null | wc -l)" = 1 ]; then
+      if [ "$(find "$extract_dir"/ -maxdepth 1 -type d -iname "$extract_name" 2>/dev/null | wc -l)" = 1 ]; then
         for versions in $latest_version $latest_version_full; do
           if [ -d "$extract_dir/$basenamerepo-$versions" ]; then
             rsync -ah "$extract_dir/$basenamerepo-$versions/." "$extract_dir/" --delete-after
@@ -813,8 +826,8 @@ __install_latest() {
       if [ -x "$LATEST_RELEASES_BIN_DIR_USER/$bin_filename" ] && [ ! -L "$LATEST_RELEASES_BIN_DIR_USER/$bin_filename" ]; then
         __sudoask true
         printf_green "Copying $bin_filename to $LATEST_RELEASES_BIN_DIR_SYSTEM/$bin_filename"
-        sudo cp -Rf "$LATEST_RELEASES_BIN_DIR_USER/$bin_filename" "$LATEST_RELEASES_BIN_DIR_SYSTEM/$bin_filename"
-        sudo chmod -Rf 755 "$LATEST_RELEASES_BIN_DIR_SYSTEM/$bin_filename"
+        __sudo cp -Rf "$LATEST_RELEASES_BIN_DIR_USER/$bin_filename" "$LATEST_RELEASES_BIN_DIR_SYSTEM/$bin_filename"
+        __sudo chmod -Rf 755 "$LATEST_RELEASES_BIN_DIR_SYSTEM/$bin_filename"
       fi
     fi
   fi
@@ -882,7 +895,7 @@ __curl_json_all() {
     if [ -n "$links" ]; then
       printf '%s\n' "$links"
     else
-      printf '%s\n' "Error: $(<"$$LATEST_RELEASES_LOG_DIR/error.log")"
+      printf '%s\n' "Error: $(<"$LATEST_RELEASES_LOG_DIR/error.log")"
       exitCode=1
     fi
   fi
@@ -932,7 +945,7 @@ __update_install() {
             repo_list="${repo_list//*;/}"
             __${service} "$repo_list"
           else
-            __install_latest "$repo_list"
+            __github "$repo_list"
           fi
         fi
       fi
@@ -947,7 +960,7 @@ __update_install() {
           repo_list="${repo_list//*;/}"
           __${service} "$repo_list"
         else
-          __install_latest "$repo_list"
+          __github "$repo_list"
         fi
       fi
     done
@@ -1068,10 +1081,10 @@ SETARGS=("$@")
 SHORTOPTS="f:,t:,b:"
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silentforce"
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent,force"
 LONGOPTS+=",filename:,binname:,type:,gitlab:,gitea:"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-ARRAY="add remove install update gitea gitlab info list search"
+ARRAY="add remove install update uninstall gitea gitlab info list search token"
 ARRAY+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
@@ -1357,7 +1370,7 @@ search)
 *)
   if [ $# -ne 0 ]; then
     for app in "$@"; do
-      __install_latest "$app" && true || false
+      __github "$app" && true || false
     done
   else
     __show_latest

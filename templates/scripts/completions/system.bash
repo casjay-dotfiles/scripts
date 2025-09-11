@@ -18,7 +18,7 @@
 # @@sudo/root        :  GEN_SCRIPT_REPLACE_SUDO
 # @@Template         :  completions/system
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317
+# shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 _GEN_SCRIPT_REPLACE_FILENAME_completion() {
   #####################################################################

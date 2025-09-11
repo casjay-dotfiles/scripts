@@ -206,6 +206,8 @@ __help() {
   __printf_opts "proxmox-cli: proxmox api script - $VERSION"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "Usage: proxmox-cli [options] [id] [node] [hostname] [port]"
+  __printf_line "check                           - Check server connectivity and API status"
+  __printf_line "server                          - Same as check - server health check"
   __printf_line "config [id]                     - Get config info for vm"
   __printf_line "status [id]                     - Get the status about vm"
   __printf_line "power [on/off] [id]             - Power on or off a vm"
@@ -321,34 +323,186 @@ printf_answer_no() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __curl_auth() {
-  curl -q -f -s -S -k -b "PVEAuthCookie=$TICKET" -H "CSRFPreventionToken: $CSRF" "$@" 2>/dev/null
-  return $?
+  local curl_exit
+  local response
+  response=$(curl -q -f -s -S -k --max-time 30 --retry 2 -b "PVEAuthCookie=$TICKET" -H "CSRFPreventionToken: $CSRF" "$@" 2>/dev/null)
+  curl_exit=$?
+  
+  if [ $curl_exit -eq 0 ] && [ -n "$response" ]; then
+    echo "$response"
+    return 0
+  else
+    case $curl_exit in
+      6) printf_red "✗ Cannot resolve Proxmox server hostname" >&2 ;;
+      7) printf_red "✗ Cannot connect to Proxmox server" >&2 ;;
+      28) printf_red "✗ Connection timeout to Proxmox server" >&2 ;;
+      35) printf_red "✗ SSL certificate error" >&2 ;;
+      22) printf_red "✗ HTTP error - check API endpoint or permissions" >&2 ;;
+      *) printf_red "✗ API request failed (curl exit code: $curl_exit)" >&2 ;;
+    esac
+    return $curl_exit
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __curl_get() {
-  curl -q -s -S -k --fail -b "PVEAuthCookie=$TICKET" -H "CSRFPreventionToken: $CSRF" -X GET "$@" 2>/dev/null
+  curl -q -s -S -k --fail --max-time 30 --retry 2 -b "PVEAuthCookie=$TICKET" -H "CSRFPreventionToken: $CSRF" -X GET "$@" 2>/dev/null
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __curl_post() {
-  curl -q -s -S -k --fail -b "PVEAuthCookie=$TICKET" -H "CSRFPreventionToken: $CSRF" -X POST "$@" 2>/dev/null
+  curl -q -s -S -k --fail --max-time 30 --retry 2 -b "PVEAuthCookie=$TICKET" -H "CSRFPreventionToken: $CSRF" -X POST "$@" 2>/dev/null
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __decode_password() {
   # Decode base64 encoded password if needed
-  if echo "$PROXMOX_CLI_DEFAULT_PASSWORD" | base64 -d &>/dev/null; then
-    PROXMOX_CLI_DEFAULT_PASSWORD="$(echo "$PROXMOX_CLI_DEFAULT_PASSWORD" | base64 -d)"
+  if [ -n "$PROXMOX_CLI_DEFAULT_PASSWORD" ]; then
+    # Check if password looks like base64 (only contains base64 chars and is reasonable length)
+    if [[ "$PROXMOX_CLI_DEFAULT_PASSWORD" =~ ^[A-Za-z0-9+/]+=*$ ]] && [ ${#PROXMOX_CLI_DEFAULT_PASSWORD} -gt 10 ]; then
+      # Try to decode - if it succeeds and produces readable text, use it
+      local decoded_pass
+      if decoded_pass="$(echo "$PROXMOX_CLI_DEFAULT_PASSWORD" | base64 -d 2>/dev/null)" && [ -n "$decoded_pass" ]; then
+        PROXMOX_CLI_DEFAULT_PASSWORD="$decoded_pass"
+        printf_cyan "🔓 Password decoded from base64"
+      fi
+    fi
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__check_server_connectivity() {
+  local server="$PROXMOX_CLI_DEFAULT_SERVER_HOST"
+  local port="$PROXMOX_CLI_DEFAULT_SERVER_PORT"
+  local timeout="${1:-5}"
+  
+  if [ -z "$server" ]; then
+    printf_red "ERROR: No Proxmox server configured"
+    return 1
+  fi
+  
+  printf_blue "🔌 Checking connectivity to $server:$port..."
+  
+  # Check if server is reachable
+  if ! __cmd_exists nc && ! __cmd_exists telnet && ! __cmd_exists timeout; then
+    printf_yellow "⚠️ Warning: No network tools available for connectivity check"
+    return 0
+  fi
+  
+  # Try netcat first (most reliable)
+  if __cmd_exists nc; then
+    if nc -z -w "$timeout" "$server" "$port" 2>/dev/null; then
+      printf_green "✅ Server $server:$port is reachable"
+      return 0
+    fi
+  # Try telnet as fallback
+  elif __cmd_exists telnet && __cmd_exists timeout; then
+    if timeout "$timeout" telnet "$server" "$port" </dev/null 2>/dev/null | grep -q "Connected\|Escape"; then
+      printf_green "✅ Server $server:$port is reachable"
+      return 0
+    fi
+  fi
+  
+  printf_red "❌ Cannot connect to $server:$port"
+  printf_yellow "🔧 Please check:"
+  printf_yellow "  - Server is running and accessible"
+  printf_yellow "  - Port $port is open"
+  printf_yellow "  - Network connectivity"
+  printf_yellow "  - Firewall settings"
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__check_proxmox_api() {
+  local server="$PROXMOX_CLI_DEFAULT_SERVER_HOST"
+  local port="$PROXMOX_CLI_DEFAULT_SERVER_PORT"
+  local api_url="https://$server:$port/api2/json/version"
+  
+  printf_blue "🌐 Checking Proxmox API availability..."
+  
+  # Check API endpoint with timeout
+  local response=$(curl -q -LSs --max-time 10 --retry 1 -k "$api_url" 2>/dev/null)
+  local curl_exit=$?
+  
+  if [ $curl_exit -eq 0 ] && [ -n "$response" ]; then
+    # Parse version info if available
+    local version=$(echo "$response" | jq -r '.data.version // .version // "unknown"' 2>/dev/null)
+    local release=$(echo "$response" | jq -r '.data.release // .release // "unknown"' 2>/dev/null)
+    
+    if [ "$version" != "unknown" ] && [ "$version" != "null" ]; then
+      printf_green "✅ Proxmox API available - Version: $version Release: $release"
+      return 0
+    else
+      printf_yellow "⚠️ API responded but version info unavailable"
+      return 0
+    fi
+  else
+    case $curl_exit in
+      6) printf_red "❌ Cannot resolve hostname $server" ;;
+      7) printf_red "❌ Cannot connect to $server:$port" ;;
+      28) printf_red "⏰ Connection timeout to $server:$port" ;;
+      35) printf_red "🔒 SSL handshake failed with $server:$port" ;;
+      *) printf_red "❌ API check failed (curl exit code: $curl_exit)" ;;
+    esac
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__check_authentication() {
+  printf_blue "🔐 Testing authentication credentials..."
+  
+  local auth_response
+  auth_response="$(__query_server)"
+  local auth_exit=$?
+  
+  if [ $auth_exit -eq 0 ] && [ -n "$auth_response" ]; then
+    # Check if response contains valid ticket
+    if echo "$auth_response" | jq -e '.data.ticket' &>/dev/null; then
+      local username=$(echo "$auth_response" | jq -r '.data.username // "unknown"' 2>/dev/null)
+      printf_green "✅ Authentication successful for user: $username"
+      return 0
+    else
+      printf_red "❌ Invalid authentication response"
+      return 1
+    fi
+  else
+    printf_red "❌ Authentication failed"
+    printf_yellow "🔧 Please check:"
+    printf_yellow "  - Username: $PROXMOX_CLI_DEFAULT_USERNAME"
+    printf_yellow "  - Password is correct"
+    printf_yellow "  - User has appropriate permissions"
+    return 1
   fi
 }
 
 __query_server() {
   __decode_password
-  curl -q -LfsSk \
+  local response
+  local curl_exit
+  
+  response=$(curl -q -LfsSk --max-time 15 --retry 2 \
     --data-urlencode "username=$USERNAME" \
     --data-urlencode "password=$PASSWORD" \
-    "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/access/ticket" 2>/dev/null
-  return $?
+    "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/access/ticket" 2>/dev/null)
+  curl_exit=$?
+  
+  if [ $curl_exit -eq 0 ] && [ -n "$response" ]; then
+    # Validate that we got a proper JSON response with ticket
+    if echo "$response" | jq -e '.data.ticket' &>/dev/null; then
+      echo "$response"
+      return 0
+    else
+      printf_red "✗ Invalid authentication response from server" >&2
+      return 1
+    fi
+  else
+    case $curl_exit in
+      6) printf_red "✗ Cannot resolve Proxmox server hostname" >&2 ;;
+      7) printf_red "✗ Cannot connect to Proxmox server" >&2 ;;
+      22) printf_red "✗ Authentication failed - check username/password" >&2 ;;
+      28) printf_red "✗ Connection timeout to Proxmox server" >&2 ;;
+      35) printf_red "✗ SSL certificate error" >&2 ;;
+      *) printf_red "✗ Authentication request failed (curl exit code: $curl_exit)" >&2 ;;
+    esac
+    return $curl_exit
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_config() {
@@ -613,11 +767,21 @@ __get_password() {
     PROXMOX_CLI_DEFAULT_PASSWORD="${option_pass_new:-}"
   fi
   [ -n "$PROXMOX_CLI_DEFAULT_PASSWORD" ] || printf_exit "Password is required"
-  # Simple base64 encoding (not secure, but better than plaintext)
+  # Handle password storage - encode if not already encoded
   if ! grep -shq "PROXMOX_CLI_DEFAULT_PASSWORD=" "$PROXMOX_CLI_NODE_CONFIG_FILE"; then
+    # New password - encode it
     encoded_password="$(echo "$PROXMOX_CLI_DEFAULT_PASSWORD" | base64 -w 0)"
     printf '%s\n' 'PROXMOX_CLI_DEFAULT_PASSWORD="'$encoded_password'"' >>"$PROXMOX_CLI_NODE_CONFIG_FILE"
-    printf_yellow "Password encoded and saved to config file"
+    printf_yellow "🔐 Password encoded and saved to config file"
+  else
+    # Check if existing password needs encoding
+    existing_password="$(grep "PROXMOX_CLI_DEFAULT_PASSWORD=" "$PROXMOX_CLI_NODE_CONFIG_FILE" | cut -d'"' -f2)"
+    if ! [[ "$existing_password" =~ ^[A-Za-z0-9+/]+=*$ ]] || [ ${#existing_password} -lt 10 ]; then
+      # Existing password appears to be plaintext - encode it
+      encoded_password="$(echo "$existing_password" | base64 -w 0)"
+      sed -i "s|PROXMOX_CLI_DEFAULT_PASSWORD=\".*\"|PROXMOX_CLI_DEFAULT_PASSWORD=\"$encoded_password\"|g" "$PROXMOX_CLI_NODE_CONFIG_FILE"
+      printf_yellow "🔐 Existing plaintext password has been encoded"
+    fi
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -663,6 +827,13 @@ __initialize_app() {
     nodes) __get_nodes && shift 1 ;;
     reset) PROXMOX_CLI_FORCE="true" && shift 1 ;;
     web) shift 1 && __open_web && exit 0 || exit 1 ;;
+    check | server) 
+      shift 1
+      printf_purple "🏥 Proxmox Server Health Check"
+      __check_server_connectivity && __check_proxmox_api && __check_authentication
+      [ $? -eq 0 ] && printf_green "🎯 All server checks passed!" || printf_red "💔 Server check failed!"
+      exit $?
+      ;;
     config) PROXMOX_CLI_GET_CONFIG="true" && shift 1 ;;
     status) PROXMOX_CLI_GET_STATUS="true" && shift 1 ;;
     power | turn) PROXMOX_CLI_POWER_CYCLE="true" && PROXMOX_CLI_POWER_OPTION="$2" && shift 2 ;;
@@ -696,6 +867,14 @@ __initialize_app() {
     __get_servername
     __get_serverport
   fi
+  # Quick server check before asking for VM details (if we have server config)
+  if [ -n "$PROXMOX_CLI_DEFAULT_SERVER_HOST" ] && [ -n "$PROXMOX_CLI_DEFAULT_USERNAME" ] && [ -n "$PROXMOX_CLI_DEFAULT_PASSWORD" ]; then
+    printf_cyan "🔍 Quick server check before proceeding..."
+    if ! __check_server_connectivity 3; then  # Quick 3-second check
+      printf_red "⚠️ Server appears unreachable - continuing anyway (you can run 'proxmox-cli check' for full diagnostics)"
+    fi
+  fi
+  
   # Set vm id
   [ -n "$PROXMOX_CLI_DEFAULT_MACHINE" ] || __get_vm_id
   # Get/confirm username
@@ -719,6 +898,22 @@ __initialize_app() {
     chmod 600 "$PROXMOX_CLI_NODE_CONFIG_FILE" "$PROXMOX_CLI_CONFIG_DIR/$PROXMOX_CLI_CONFIG_FILE"
     . "$PROXMOX_CLI_CONFIG_DIR/$PROXMOX_CLI_CONFIG_FILE"
     . "$PROXMOX_CLI_NODE_CONFIG_FILE"
+    
+    # Run pre-flight checks after configuration is complete
+    printf_cyan "🚀 Running initial server validation..."
+    if ! __check_server_connectivity; then
+      printf_exit "💥 Server connectivity check failed"
+    fi
+    
+    if ! __check_proxmox_api; then
+      printf_exit "💥 Proxmox API check failed"
+    fi
+    
+    if ! __check_authentication; then
+      printf_exit "💥 Authentication check failed"
+    fi
+    
+    printf_green "🎉 Server validation successful!"
     return 0
   elif [ ! -f "$PROXMOX_CLI_NODE_CONFIG_FILE" ]; then
     printf_exit "Something went wrong"
@@ -727,11 +922,14 @@ __initialize_app() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __execute_proxmox_cli() {
   local statusCode=0
+  
   SPICEDIR="$PROXMOX_CLI_SAVE_DIR"
   USERNAME="$PROXMOX_CLI_DEFAULT_USERNAME"
   PASSWORD="$PROXMOX_CLI_DEFAULT_PASSWORD"
   FILENAME="$PROXMOX_CLI_SAVE_DIR/${PROXMOX_CLI_DEFAULT_NODE_ID}_${PROXMOX_CLI_DEFAULT_MACHINE}"
   [ -d "$SPICEDIR" ] || mkdir -p "$SPICEDIR"
+  
+  printf_cyan "🔐 Authenticating with Proxmox server..."
   DATA="$(__query_server || echo '')"
   if [ -n "$DATA" ]; then
     # printf_blue "Authentication with server was a success"
@@ -848,7 +1046,7 @@ SHORTOPTS+=""
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
 LONGOPTS+=",force,machine:,node:,ssh,password:,user:"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-ARRAY="nodes ssh reset web config status power agent"
+ARRAY="nodes ssh reset web config status power agent check server"
 ARRAY+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""

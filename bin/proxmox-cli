@@ -208,6 +208,25 @@ __help() {
   __printf_line "Usage: proxmox-cli [options] [id] [node] [hostname] [port]"
   __printf_line "check                           - Check server connectivity and API status"
   __printf_line "server                          - Same as check - server health check"
+  __printf_line "iso list                        - List available ISO files"
+  __printf_line "iso download <url> [storage]    - Download ISO from URL"
+  __printf_line "iso delete <volid>              - Delete ISO file"
+  __printf_line "iso info <volid>                - Show ISO information"
+  __printf_line "lxc list [node]                 - List LXC containers"
+  __printf_line "lxc templates                   - List available LXC templates"
+  __printf_line "lxc create <id> <template>      - Create LXC container"
+  __printf_line "lxc delete <id>                 - Delete LXC container"
+  __printf_line "lxc start/stop <id>             - Start/stop LXC container"
+  __printf_line "lxc status <id>                 - Show LXC status"
+  __printf_line "lxc console <id>                - Access LXC console"
+  __printf_line "vm list [node]                  - List VMs"
+  __printf_line "vm create <id> <iso>            - Create VM with ISO"
+  __printf_line "vm delete <id>                  - Delete VM"
+  __printf_line "vm start/stop <id>              - Start/stop VM"
+  __printf_line "vm status <id>                  - Show VM status"
+  __printf_line "vm console <id>                 - Access VM console"
+  __printf_line "vm clone <id> <newid> [name]    - Clone VM"
+  __printf_line "vm snapshot <id> [name]         - Create VM snapshot"
   __printf_line "config [id]                     - Get config info for vm"
   __printf_line "status [id]                     - Get the status about vm"
   __printf_line "power [on/off] [id]             - Power on or off a vm"
@@ -432,24 +451,63 @@ __check_proxmox_api() {
   local server="$PROXMOX_CLI_DEFAULT_SERVER_HOST"
   local port="$PROXMOX_CLI_DEFAULT_SERVER_PORT"
   local api_url="https://$server:$port/api2/json/version"
+  local debug_file="$PROXMOX_CLI_TEMP_DIR/debug_api.log"
   
   printf_blue "🌐 Checking Proxmox API availability..."
   
+  echo "=== API Debug - $(date) ===" > "$debug_file"
+  echo "URL: $api_url" >> "$debug_file"
+  
   # Check API endpoint with timeout
-  local response=$(curl -q -LSs --max-time 10 --retry 1 -k "$api_url" 2>/dev/null)
+  local response=$(curl -q -LSs --max-time 10 --retry 1 -k "$api_url" 2>>"$debug_file")
   local curl_exit=$?
   
+  echo "Curl exit: $curl_exit" >> "$debug_file"
+  echo "Response: '$response'" >> "$debug_file"
+  echo "Response length: ${#response}" >> "$debug_file"
+  
+  # Handle different response scenarios
   if [ $curl_exit -eq 0 ] && [ -n "$response" ]; then
     # Parse version info if available
     local version=$(echo "$response" | jq -r '.data.version // .version // "unknown"' 2>/dev/null)
     local release=$(echo "$response" | jq -r '.data.release // .release // "unknown"' 2>/dev/null)
     
-    if [ "$version" != "unknown" ] && [ "$version" != "null" ]; then
+    echo "Parsed version: $version" >> "$debug_file"
+    echo "Parsed release: $release" >> "$debug_file"
+    
+    if [ "$version" != "unknown" ] && [ "$version" != "null" ] && [ -n "$version" ]; then
       printf_green "✅ Proxmox API available - Version: $version Release: $release"
       return 0
     else
-      printf_yellow "⚠️ API responded but version info unavailable"
+      printf_yellow "⚠️ API responded but version parsing failed"
+      printf_yellow "🐛 Raw response: ${response:0:100}..."
+      return 0  # Still consider it working for older versions
+    fi
+  elif [ $curl_exit -eq 22 ]; then
+    # HTTP 401/403 - API requires authentication (common in older Proxmox)
+    printf_yellow "⚠️ API requires authentication (likely Proxmox 5.x/6.x)"
+    printf_green "✅ Proxmox API accessible (auth required)"
+    return 0
+  elif [ $curl_exit -eq 0 ] && [ -z "$response" ]; then
+    # Empty response with success - reverse proxy or auth required
+    printf_yellow "⚠️ Empty response - checking with authentication..."
+    
+    # Try with authentication
+    USERNAME="$PROXMOX_CLI_DEFAULT_USERNAME"
+    PASSWORD="$PROXMOX_CLI_DEFAULT_PASSWORD"
+    local auth_response
+    auth_response="$(__query_server 2>/dev/null)"
+    
+    if [ -n "$auth_response" ] && (echo "$auth_response" | jq -e '.data.ticket' &>/dev/null || echo "$auth_response" | grep -q '"ticket"'); then
+      printf_green "✅ Proxmox API accessible (requires authentication)"
+      # Get version from authentication response if available
+      local version=$(echo "$auth_response" | jq -r '.data.version // "unknown"' 2>/dev/null)
+      [ "$version" != "unknown" ] && [ "$version" != "null" ] && printf_cyan "📋 Version: $version"
       return 0
+    else
+      printf_red "❌ API not responding properly"
+      printf_yellow "Auth response: ${auth_response:0:100}..."
+      return 1
     fi
   else
     case $curl_exit in
@@ -459,6 +517,7 @@ __check_proxmox_api() {
       35) printf_red "🔒 SSL handshake failed with $server:$port" ;;
       *) printf_red "❌ API check failed (curl exit code: $curl_exit)" ;;
     esac
+    printf_yellow "🐛 Debug saved to: $debug_file"
     return 1
   fi
 }
@@ -558,6 +617,794 @@ __query_server() {
     esac
     printf_yellow "🐛 Debug saved to: $debug_file" >&2
     return $curl_exit
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__detect_proxmox_version() {
+  local version_url="https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/version"
+  local response
+  
+  printf_blue "🔍 Detecting Proxmox version..."
+  
+  response=$(curl -q -LSs --max-time 10 -k "$version_url" 2>/dev/null)
+  if [ -n "$response" ]; then
+    PROXMOX_VERSION=$(echo "$response" | jq -r '.data.version // .version // "unknown"' 2>/dev/null)
+    PROXMOX_RELEASE=$(echo "$response" | jq -r '.data.release // .release // "unknown"' 2>/dev/null)
+    PROXMOX_MAJOR_VERSION=$(echo "$PROXMOX_VERSION" | cut -d'.' -f1)
+    
+    printf_green "📋 Detected: Proxmox VE $PROXMOX_VERSION (Release: $PROXMOX_RELEASE)"
+    export PROXMOX_VERSION PROXMOX_RELEASE PROXMOX_MAJOR_VERSION
+  else
+    printf_yellow "⚠️ Could not detect version - assuming modern Proxmox"
+    PROXMOX_MAJOR_VERSION="9"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__save_spice_file_v5() {
+  local base_url="$1"
+  printf_cyan "🖥️ Proxmox 5.x: Using legacy SPICE endpoint..."
+  
+  # Proxmox 5.x uses simpler spiceproxy
+  __curl_auth "$base_url/$PROXMOX_CLI_DEFAULT_MACHINE/spiceproxy" \
+    -d "proxy=$PROXMOX_CLI_DEFAULT_SERVER_HOST" >"$FILENAME" 2>/dev/null
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__save_spice_file_v6() {
+  local base_url="$1"
+  printf_cyan "🖥️ Proxmox 6.x: Enhanced SPICE with API tokens..."
+  
+  # Proxmox 6.x enhanced spiceproxy
+  __curl_auth "$base_url/$PROXMOX_CLI_DEFAULT_MACHINE/spiceproxy" \
+    -d "proxy=$PROXMOX_CLI_DEFAULT_SERVER_HOST" >"$FILENAME" 2>/dev/null && return 0
+    
+  # Fallback to VNC if SPICE fails
+  __curl_auth "$base_url/$PROXMOX_CLI_DEFAULT_MACHINE/vncproxy" \
+    -d "websocket=1" >"$FILENAME" 2>/dev/null
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__save_spice_file_v7() {
+  local base_url="$1"
+  printf_cyan "🖥️ Proxmox 7.x: noVNC default with WebSocket..."
+  
+  # Proxmox 7.x prefers noVNC with websocket
+  __curl_auth "$base_url/$PROXMOX_CLI_DEFAULT_MACHINE/vncproxy" \
+    -d "websocket=1" >"$FILENAME" 2>/dev/null && return 0
+    
+  # Fallback to SPICE
+  __curl_auth "$base_url/$PROXMOX_CLI_DEFAULT_MACHINE/spiceproxy" \
+    -d "proxy=$PROXMOX_CLI_DEFAULT_SERVER_HOST" >"$FILENAME" 2>/dev/null
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__save_spice_file_v8() {
+  local base_url="$1"
+  printf_cyan "🖥️ Proxmox 8.x: Modern console access..."
+  
+  # Try multiple methods for Proxmox 8.x
+  __curl_auth "$base_url/$PROXMOX_CLI_DEFAULT_MACHINE/vncproxy" \
+    -d "websocket=1" >"$FILENAME" 2>/dev/null && return 0
+    
+  __curl_auth "$base_url/$PROXMOX_CLI_DEFAULT_MACHINE/spiceproxy" \
+    -d "proxy=$PROXMOX_CLI_DEFAULT_SERVER_HOST" >"$FILENAME" 2>/dev/null && return 0
+    
+  # Try terminal proxy
+  __curl_auth "$base_url/$PROXMOX_CLI_DEFAULT_MACHINE/termproxy" >"$FILENAME" 2>/dev/null
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__save_spice_file_v9() {
+  local base_url="$1"
+  printf_cyan "🖥️ Proxmox 9.x: Latest console protocols..."
+  
+  # Proxmox 9.x - try all available methods
+  __curl_auth "$base_url/$PROXMOX_CLI_DEFAULT_MACHINE/vncproxy" \
+    -d "websocket=1&generate-password=1" >"$FILENAME" 2>/dev/null && return 0
+    
+  __curl_auth "$base_url/$PROXMOX_CLI_DEFAULT_MACHINE/spiceproxy" \
+    -d "proxy=$PROXMOX_CLI_DEFAULT_SERVER_HOST" >"$FILENAME" 2>/dev/null && return 0
+    
+  __curl_auth "$base_url/$PROXMOX_CLI_DEFAULT_MACHINE/termproxy" \
+    -d "cmd=login" >"$FILENAME" 2>/dev/null
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__save_spice_file() {
+  local base_url="$1"
+  
+  # Detect version if not already done
+  if [ -z "$PROXMOX_MAJOR_VERSION" ]; then
+    __detect_proxmox_version
+  fi
+  
+  # Use version-specific console access
+  case "$PROXMOX_MAJOR_VERSION" in
+    5) __save_spice_file_v5 "$base_url" ;;
+    6) __save_spice_file_v6 "$base_url" ;;
+    7) __save_spice_file_v7 "$base_url" ;;
+    8) __save_spice_file_v8 "$base_url" ;;
+    9|*) __save_spice_file_v9 "$base_url" ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__ensure_authenticated() {
+  # Make sure we have authentication tokens for API calls
+  if [ -z "$TICKET" ] || [ -z "$CSRF" ]; then
+    printf_blue "🔐 Setting up authentication..."
+    
+    USERNAME="$PROXMOX_CLI_DEFAULT_USERNAME"
+    PASSWORD="$PROXMOX_CLI_DEFAULT_PASSWORD"
+    
+    local auth_data
+    auth_data="$(__query_server)"
+    
+    if [ -n "$auth_data" ]; then
+      TICKET="${auth_data//\"/}"
+      TICKET="${TICKET##*ticket:}"
+      TICKET="${TICKET%%,*}"
+      TICKET="${TICKET%%\}*}"
+      
+      CSRF="${auth_data//\"/}"
+      CSRF="${CSRF##*CSRFPreventionToken:}"
+      CSRF="${CSRF%%,*}"
+      CSRF="${CSRF%%\}*}"
+      
+      printf_green "✅ Authentication tokens ready"
+      export TICKET CSRF
+    else
+      printf_red "❌ Failed to get authentication tokens"
+      return 1
+    fi
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__list_all_nodes() {
+  printf_blue "🌐 Listing all cluster nodes..."
+  
+  __ensure_authenticated || return 1
+  
+  local nodes_response
+  nodes_response="$(__curl_auth "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes" 2>/dev/null)"
+  
+  if [ -n "$nodes_response" ]; then
+    printf_green "📋 Available nodes:"
+    echo "$nodes_response" | jq -r '.data[] | "🖥️ \(.node): \(.status) - \(.type // "unknown") - CPU: \(.cpu*100|floor)% - Memory: \(.mem/1024/1024/1024|floor)GB/\(.maxmem/1024/1024/1024|floor)GB"' 2>/dev/null || echo "No nodes found"
+  else
+    printf_red "❌ Failed to get nodes list"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__list_storage_isos() {
+  printf_blue "📀 Listing available ISO files..."
+  
+  # Ensure we have authentication
+  __ensure_authenticated || return 1
+  
+  # Get storage list first
+  local storage_response
+  storage_response="$(__curl_auth "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/storage" 2>/dev/null)"
+  
+  if [ -n "$storage_response" ]; then
+    # Find ISO storage
+    local iso_storages
+    iso_storages=$(echo "$storage_response" | jq -r '.data[] | select(.content | contains("iso")) | .storage' 2>/dev/null)
+    
+    for storage in $iso_storages; do
+      printf_cyan "Storage: $storage"
+      local iso_response
+      iso_response="$(__curl_auth "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/storage/$storage/content?content=iso" 2>/dev/null)"
+      
+      if [ -n "$iso_response" ]; then
+        echo "$iso_response" | jq -r '.data[] | "  💿 \(.volid) (\(.size/1024/1024|floor)MB)"' 2>/dev/null || echo "  No ISOs found"
+      fi
+    done
+  else
+    printf_red "❌ Failed to get storage information"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__list_lxc_templates() {
+  printf_blue "📦 Listing available LXC templates..."
+  
+  # Ensure we have authentication
+  __ensure_authenticated || return 1
+  
+  # Get storage list first
+  local storage_response
+  storage_response="$(__curl_auth "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/storage" 2>/dev/null)"
+  
+  if [ -n "$storage_response" ]; then
+    # Find template storage
+    local template_storages
+    template_storages=$(echo "$storage_response" | jq -r '.data[] | select(.content | contains("vztmpl")) | .storage' 2>/dev/null)
+    
+    for storage in $template_storages; do
+      printf_cyan "Template storage: $storage"
+      local template_response
+      template_response="$(__curl_auth "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/storage/$storage/content?content=vztmpl" 2>/dev/null)"
+      
+      if [ -n "$template_response" ]; then
+        echo "$template_response" | jq -r '.data[] | "  📦 \(.volid) (\(.size/1024/1024|floor)MB)"' 2>/dev/null || echo "  No templates found"
+      fi
+    done
+  else
+    printf_red "❌ Failed to get storage information"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__download_iso() {
+  local iso_url="$1"
+  local storage="${2:-local}"
+  local filename="$3"
+  
+  if [ -z "$iso_url" ]; then
+    printf_red "❌ Usage: proxmox-cli download-iso <url> [storage] [filename]"
+    return 1
+  fi
+  
+  [ -n "$filename" ] || filename="$(basename "$iso_url")"
+  
+  printf_blue "📥 Downloading ISO: $filename"
+  printf_cyan "Source: $iso_url"
+  printf_cyan "Storage: $storage"
+  
+  # Ensure we have authentication
+  __ensure_authenticated || return 1
+  
+  # Download ISO via Proxmox API
+  local download_response
+  download_response="$(__curl_auth "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/storage/$storage/download-url" \
+    -d "content=iso" \
+    -d "filename=$filename" \
+    -d "url=$iso_url" 2>/dev/null)"
+  
+  if [ -n "$download_response" ] && echo "$download_response" | jq -e '.data' &>/dev/null; then
+    printf_green "✅ ISO download initiated: $filename"
+    echo "$download_response" | jq -r '.data'
+  else
+    printf_red "❌ Failed to initiate ISO download"
+    printf_yellow "Response: $download_response"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__create_lxc_container() {
+  local vmid="$1"
+  local template="$2"
+  local hostname="${3:-lxc$vmid}"
+  local storage="${4:-local-lvm}"
+  
+  if [ -z "$vmid" ] || [ -z "$template" ]; then
+    printf_red "❌ Usage: proxmox-cli create-lxc <vmid> <template> [hostname] [storage]"
+    printf_cyan "Example: proxmox-cli create-lxc 200 local:vztmpl/ubuntu-22.04-standard_22.04-1_amd64.tar.zst"
+    return 1
+  fi
+  
+  printf_blue "📦 Creating LXC container $vmid..."
+  printf_cyan "Template: $template"
+  printf_cyan "Hostname: $hostname"
+  printf_cyan "Storage: $storage"
+  
+  # Create LXC container
+  local create_response
+  create_response="$(__curl_post "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/lxc" \
+    -d "vmid=$vmid" \
+    -d "ostemplate=$template" \
+    -d "hostname=$hostname" \
+    -d "storage=$storage" \
+    -d "memory=512" \
+    -d "swap=512" \
+    -d "cores=1" \
+    -d "rootfs=4" \
+    -d "net0=name=eth0,bridge=vmbr0,ip=dhcp" \
+    -d "unprivileged=1" \
+    -d "start=1" 2>/dev/null)"
+  
+  if [ -n "$create_response" ] && echo "$create_response" | jq -e '.data' &>/dev/null; then
+    local task_id=$(echo "$create_response" | jq -r '.data')
+    printf_green "✅ LXC container creation started"
+    printf_cyan "Task ID: $task_id"
+    
+    # Monitor task status
+    __monitor_task "$task_id"
+  else
+    printf_red "❌ Failed to create LXC container"
+    printf_yellow "Response: $create_response"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__create_vm() {
+  local vmid="$1"
+  local iso="$2"
+  local name="${3:-vm$vmid}"
+  local storage="${4:-local-lvm}"
+  
+  if [ -z "$vmid" ] || [ -z "$iso" ]; then
+    printf_red "❌ Usage: proxmox-cli create-vm <vmid> <iso> [name] [storage]"
+    printf_cyan "Example: proxmox-cli create-vm 300 local:iso/ubuntu-22.04.iso"
+    return 1
+  fi
+  
+  printf_blue "🖥️ Creating VM $vmid..."
+  printf_cyan "ISO: $iso"
+  printf_cyan "Name: $name"
+  printf_cyan "Storage: $storage"
+  
+  # Create VM
+  local create_response
+  create_response="$(__curl_post "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/qemu" \
+    -d "vmid=$vmid" \
+    -d "name=$name" \
+    -d "memory=2048" \
+    -d "cores=2" \
+    -d "sockets=1" \
+    -d "cpu=host" \
+    -d "ostype=l26" \
+    -d "scsi0=$storage:32" \
+    -d "scsihw=virtio-scsi-pci" \
+    -d "ide2=$iso,media=cdrom" \
+    -d "net0=virtio,bridge=vmbr0" \
+    -d "bootdisk=scsi0" \
+    -d "boot=order=ide2;scsi0" 2>/dev/null)"
+  
+  if [ -n "$create_response" ] && echo "$create_response" | jq -e '.data' &>/dev/null; then
+    local task_id=$(echo "$create_response" | jq -r '.data')
+    printf_green "✅ VM creation started"
+    printf_cyan "Task ID: $task_id"
+    
+    # Monitor task status
+    __monitor_task "$task_id"
+  else
+    printf_red "❌ Failed to create VM"
+    printf_yellow "Response: $create_response"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__monitor_task() {
+  local task_id="$1"
+  local max_wait=300  # 5 minutes
+  local wait_time=0
+  
+  printf_blue "⏳ Monitoring task: $task_id"
+  
+  while [ $wait_time -lt $max_wait ]; do
+    local task_status
+    task_status="$(__curl_auth "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/tasks/$task_id/status" 2>/dev/null)"
+    
+    if [ -n "$task_status" ]; then
+      local status=$(echo "$task_status" | jq -r '.data.status // "unknown"' 2>/dev/null)
+      local exitstatus=$(echo "$task_status" | jq -r '.data.exitstatus // "running"' 2>/dev/null)
+      
+      case "$status" in
+        "stopped")
+          if [ "$exitstatus" = "OK" ]; then
+            printf_green "🎉 Task completed successfully!"
+            return 0
+          else
+            printf_red "❌ Task failed with status: $exitstatus"
+            return 1
+          fi
+          ;;
+        "running")
+          printf_cyan "⏳ Task still running... ($wait_time/${max_wait}s)"
+          ;;
+        *)
+          printf_yellow "⏳ Task status: $status"
+          ;;
+      esac
+    fi
+    
+    sleep 5
+    wait_time=$((wait_time + 5))
+  done
+  
+  printf_yellow "⏰ Task monitoring timeout after ${max_wait}s"
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__delete_iso() {
+  local iso_volid="$1"
+  
+  if [ -z "$iso_volid" ]; then
+    printf_red "❌ Usage: proxmox-cli iso delete <volid>"
+    printf_cyan "Example: proxmox-cli iso delete local:iso/debian-13.1.0-amd64-netinst.iso"
+    return 1
+  fi
+  
+  __ensure_authenticated || return 1
+  
+  printf_blue "🗑️ Deleting ISO: $iso_volid"
+  
+  local storage=$(echo "$iso_volid" | cut -d: -f1)
+  local delete_response
+  delete_response="$(__curl_auth "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/storage/$storage/content/$iso_volid" -X DELETE 2>/dev/null)"
+  
+  if [ -n "$delete_response" ]; then
+    printf_green "✅ ISO deleted successfully"
+  else
+    printf_red "❌ Failed to delete ISO"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__iso_info() {
+  local iso_volid="$1"
+  
+  if [ -z "$iso_volid" ]; then
+    printf_red "❌ Usage: proxmox-cli iso info <volid>"
+    return 1
+  fi
+  
+  __ensure_authenticated || return 1
+  
+  printf_blue "📋 ISO Information: $iso_volid"
+  
+  local storage=$(echo "$iso_volid" | cut -d: -f1)
+  local info_response
+  info_response="$(__curl_auth "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/storage/$storage/content/$iso_volid" 2>/dev/null)"
+  
+  if [ -n "$info_response" ]; then
+    echo "$info_response" | jq -r '.data | "Size: \(.size/1024/1024|floor)MB\nFormat: \(.format // "unknown")\nPath: \(.path // "unknown")"' 2>/dev/null || echo "Info parsing failed"
+  else
+    printf_red "❌ Failed to get ISO information"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__list_lxc() {
+  local node="${1:-$PROXMOX_CLI_DEFAULT_NODE_ID}"
+  
+  __ensure_authenticated || return 1
+  
+  printf_blue "📦 Listing LXC containers on node: $node"
+  
+  local lxc_response
+  lxc_response="$(__curl_auth "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$node/lxc" 2>/dev/null)"
+  
+  if [ -n "$lxc_response" ]; then
+    echo "$lxc_response" | jq -r '.data[] | "📦 \(.vmid): \(.name // "unnamed") - \(.status) - \(.mem/1024/1024|floor)MB RAM"' 2>/dev/null || echo "No LXC containers found"
+  else
+    printf_red "❌ Failed to get LXC container list"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__delete_lxc() {
+  local vmid="$1"
+  
+  if [ -z "$vmid" ]; then
+    printf_red "❌ Usage: proxmox-cli lxc delete <vmid>"
+    return 1
+  fi
+  
+  __ensure_authenticated || return 1
+  
+  printf_blue "🗑️ Deleting LXC container: $vmid"
+  
+  local delete_response
+  delete_response="$(__curl_auth "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/lxc/$vmid" -X DELETE 2>/dev/null)"
+  
+  if [ -n "$delete_response" ] && echo "$delete_response" | jq -e '.data' &>/dev/null; then
+    local task_id=$(echo "$delete_response" | jq -r '.data')
+    printf_green "✅ LXC deletion started"
+    __monitor_task "$task_id"
+  else
+    printf_red "❌ Failed to delete LXC container"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__start_lxc() {
+  local vmid="$1"
+  
+  if [ -z "$vmid" ]; then
+    printf_red "❌ Usage: proxmox-cli lxc start <vmid>"
+    return 1
+  fi
+  
+  __ensure_authenticated || return 1
+  
+  printf_blue "▶️ Starting LXC container: $vmid"
+  
+  local start_response
+  start_response="$(__curl_post "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/lxc/$vmid/status/start" 2>/dev/null)"
+  
+  if [ -n "$start_response" ] && echo "$start_response" | jq -e '.data' &>/dev/null; then
+    local task_id=$(echo "$start_response" | jq -r '.data')
+    printf_green "✅ LXC start initiated"
+    __monitor_task "$task_id"
+  else
+    printf_red "❌ Failed to start LXC container"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__stop_lxc() {
+  local vmid="$1"
+  
+  if [ -z "$vmid" ]; then
+    printf_red "❌ Usage: proxmox-cli lxc stop <vmid>"
+    return 1
+  fi
+  
+  __ensure_authenticated || return 1
+  
+  printf_blue "⏹️ Stopping LXC container: $vmid"
+  
+  local stop_response
+  stop_response="$(__curl_post "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/lxc/$vmid/status/stop" 2>/dev/null)"
+  
+  if [ -n "$stop_response" ] && echo "$stop_response" | jq -e '.data' &>/dev/null; then
+    local task_id=$(echo "$stop_response" | jq -r '.data')
+    printf_green "✅ LXC stop initiated"
+    __monitor_task "$task_id"
+  else
+    printf_red "❌ Failed to stop LXC container"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__lxc_status() {
+  local vmid="$1"
+  
+  if [ -z "$vmid" ]; then
+    printf_red "❌ Usage: proxmox-cli lxc status <vmid>"
+    return 1
+  fi
+  
+  __ensure_authenticated || return 1
+  
+  printf_blue "📊 LXC Status: $vmid"
+  
+  local status_response
+  status_response="$(__curl_auth "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/lxc/$vmid/status/current" 2>/dev/null)"
+  
+  if [ -n "$status_response" ]; then
+    echo "$status_response" | jq -r '.data | "Status: \(.status)\nCPU: \(.cpu*100|floor)%\nMemory: \(.mem/1024/1024|floor)MB / \(.maxmem/1024/1024|floor)MB\nUptime: \(.uptime//0)s"' 2>/dev/null || echo "Status parsing failed"
+  else
+    printf_red "❌ Failed to get LXC status"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__lxc_console() {
+  local vmid="$1"
+  
+  if [ -z "$vmid" ]; then
+    printf_red "❌ Usage: proxmox-cli lxc console <vmid>"
+    return 1
+  fi
+  
+  __ensure_authenticated || return 1
+  
+  printf_blue "🖥️ Opening LXC console: $vmid"
+  
+  local console_response
+  console_response="$(__curl_post "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/lxc/$vmid/termproxy" 2>/dev/null)"
+  
+  if [ -n "$console_response" ]; then
+    local port=$(echo "$console_response" | jq -r '.data.port // "unknown"' 2>/dev/null)
+    local ticket=$(echo "$console_response" | jq -r '.data.ticket // "unknown"' 2>/dev/null)
+    printf_green "✅ Console available on port: $port"
+    printf_cyan "Connect with: ssh -t root@$PROXMOX_CLI_DEFAULT_SERVER_HOST -p $port"
+  else
+    printf_red "❌ Failed to get LXC console access"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__list_vms() {
+  local node="${1:-$PROXMOX_CLI_DEFAULT_NODE_ID}"
+  
+  __ensure_authenticated || return 1
+  
+  printf_blue "🖥️ Listing VMs on node: $node"
+  
+  local vm_response
+  vm_response="$(__curl_auth "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$node/qemu" 2>/dev/null)"
+  
+  if [ -n "$vm_response" ]; then
+    echo "$vm_response" | jq -r '.data[] | "🖥️ \(.vmid): \(.name // "unnamed") - \(.status) - \(.mem/1024/1024|floor)MB RAM"' 2>/dev/null || echo "No VMs found"
+  else
+    printf_red "❌ Failed to get VM list"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__delete_vm() {
+  local vmid="$1"
+  
+  if [ -z "$vmid" ]; then
+    printf_red "❌ Usage: proxmox-cli vm delete <vmid>"
+    return 1
+  fi
+  
+  __ensure_authenticated || return 1
+  
+  printf_blue "🗑️ Deleting VM: $vmid"
+  
+  local delete_response
+  delete_response="$(__curl_auth "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/qemu/$vmid" -X DELETE 2>/dev/null)"
+  
+  if [ -n "$delete_response" ] && echo "$delete_response" | jq -e '.data' &>/dev/null; then
+    local task_id=$(echo "$delete_response" | jq -r '.data')
+    printf_green "✅ VM deletion started"
+    __monitor_task "$task_id"
+  else
+    printf_red "❌ Failed to delete VM"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__start_vm() {
+  local vmid="$1"
+  
+  if [ -z "$vmid" ]; then
+    printf_red "❌ Usage: proxmox-cli vm start <vmid>"
+    return 1
+  fi
+  
+  __ensure_authenticated || return 1
+  
+  printf_blue "▶️ Starting VM: $vmid"
+  
+  local start_response
+  start_response="$(__curl_post "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/qemu/$vmid/status/start" 2>/dev/null)"
+  
+  if [ -n "$start_response" ] && echo "$start_response" | jq -e '.data' &>/dev/null; then
+    local task_id=$(echo "$start_response" | jq -r '.data')
+    printf_green "✅ VM start initiated"
+    __monitor_task "$task_id"
+  else
+    printf_red "❌ Failed to start VM"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__stop_vm() {
+  local vmid="$1"
+  
+  if [ -z "$vmid" ]; then
+    printf_red "❌ Usage: proxmox-cli vm stop <vmid>"
+    return 1
+  fi
+  
+  __ensure_authenticated || return 1
+  
+  printf_blue "⏹️ Stopping VM: $vmid"
+  
+  local stop_response
+  stop_response="$(__curl_post "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/qemu/$vmid/status/stop" 2>/dev/null)"
+  
+  if [ -n "$stop_response" ] && echo "$stop_response" | jq -e '.data' &>/dev/null; then
+    local task_id=$(echo "$stop_response" | jq -r '.data')
+    printf_green "✅ VM stop initiated"
+    __monitor_task "$task_id"
+  else
+    printf_red "❌ Failed to stop VM"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__vm_status() {
+  local vmid="$1"
+  
+  if [ -z "$vmid" ]; then
+    printf_red "❌ Usage: proxmox-cli vm status <vmid>"
+    return 1
+  fi
+  
+  __ensure_authenticated || return 1
+  
+  printf_blue "📊 VM Status: $vmid"
+  
+  local status_response
+  status_response="$(__curl_auth "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/qemu/$vmid/status/current" 2>/dev/null)"
+  
+  if [ -n "$status_response" ]; then
+    echo "$status_response" | jq -r '.data | "Status: \(.status)\nCPU: \(.cpu*100|floor)%\nMemory: \(.mem/1024/1024|floor)MB / \(.maxmem/1024/1024|floor)MB\nUptime: \(.uptime//0)s\nAgent: \(.agent//0)"' 2>/dev/null || echo "Status parsing failed"
+  else
+    printf_red "❌ Failed to get VM status"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__vm_console() {
+  local vmid="$1"
+  
+  if [ -z "$vmid" ]; then
+    printf_red "❌ Usage: proxmox-cli vm console <vmid>"
+    return 1
+  fi
+  
+  __ensure_authenticated || return 1
+  
+  printf_blue "🖥️ Getting VM console access: $vmid"
+  
+  # Try SPICE first, then VNC
+  local console_response
+  console_response="$(__curl_post "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/qemu/$vmid/spiceproxy" -d "proxy=$PROXMOX_CLI_DEFAULT_SERVER_HOST" 2>/dev/null)"
+  
+  if [ -n "$console_response" ]; then
+    printf_green "✅ SPICE console file generated"
+    echo "$console_response"
+  else
+    # Try VNC as fallback
+    console_response="$(__curl_post "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/qemu/$vmid/vncproxy" 2>/dev/null)"
+    
+    if [ -n "$console_response" ]; then
+      local port=$(echo "$console_response" | jq -r '.data.port // "unknown"' 2>/dev/null)
+      printf_green "✅ VNC console available on port: $port"
+    else
+      printf_red "❌ Failed to get console access"
+      return 1
+    fi
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__clone_vm() {
+  local vmid="$1"
+  local newid="$2"
+  local name="${3:-clone-of-$vmid}"
+  
+  if [ -z "$vmid" ] || [ -z "$newid" ]; then
+    printf_red "❌ Usage: proxmox-cli vm clone <source_vmid> <new_vmid> [name]"
+    return 1
+  fi
+  
+  __ensure_authenticated || return 1
+  
+  printf_blue "📋 Cloning VM $vmid to $newid..."
+  
+  local clone_response
+  clone_response="$(__curl_post "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/qemu/$vmid/clone" \
+    -d "newid=$newid" \
+    -d "name=$name" \
+    -d "full=1" 2>/dev/null)"
+  
+  if [ -n "$clone_response" ] && echo "$clone_response" | jq -e '.data' &>/dev/null; then
+    local task_id=$(echo "$clone_response" | jq -r '.data')
+    printf_green "✅ VM clone started"
+    __monitor_task "$task_id"
+  else
+    printf_red "❌ Failed to clone VM"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__vm_snapshot() {
+  local vmid="$1"
+  local snap_name="${2:-snapshot-$(date +%Y%m%d-%H%M%S)}"
+  local description="${3:-Manual snapshot via proxmox-cli}"
+  
+  if [ -z "$vmid" ]; then
+    printf_red "❌ Usage: proxmox-cli vm snapshot <vmid> [name] [description]"
+    return 1
+  fi
+  
+  __ensure_authenticated || return 1
+  
+  printf_blue "📸 Creating VM snapshot: $vmid"
+  printf_cyan "Snapshot name: $snap_name"
+  
+  local snapshot_response
+  snapshot_response="$(__curl_post "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/qemu/$vmid/snapshot" \
+    -d "snapname=$snap_name" \
+    -d "description=$description" 2>/dev/null)"
+  
+  if [ -n "$snapshot_response" ] && echo "$snapshot_response" | jq -e '.data' &>/dev/null; then
+    local task_id=$(echo "$snapshot_response" | jq -r '.data')
+    printf_green "✅ VM snapshot started"
+    __monitor_task "$task_id"
+  else
+    printf_red "❌ Failed to create snapshot"
+    return 1
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -855,7 +1702,7 @@ __get_node_name() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_servername() {
   local change_server=""
-  PROXMOX_CLI_DEFAULT_SERVER_HOST="${PROXMOX_CLI_DEFAULT_SERVER_HOST:-proxmox.local}"
+  PROXMOX_CLI_DEFAULT_SERVER_HOST="${PROXMOX_CLI_DEFAULT_SERVER_HOST:-}"
   printf_read_question "5" "is the server address correct? [y/N]: [$PROXMOX_CLI_DEFAULT_SERVER_HOST]" "1" "change_server"
   if printf_answer_no "$change_server"; then
     printf_read_input "What is the server address? " "120" "PROXMOX_CLI_DEFAULT_SERVER_HOST"
@@ -880,7 +1727,14 @@ __get_serverport() {
 __initialize_app() {
   while :; do
     case "$1" in
-    nodes) __get_nodes && shift 1 ;;
+    nodes) 
+      shift 1
+      case "${1:-list}" in
+        list) __list_all_nodes ;;
+        *) __get_nodes ;;
+      esac
+      exit $?
+      ;;
     reset) PROXMOX_CLI_FORCE="true" && shift 1 ;;
     web) shift 1 && __open_web && exit 0 || exit 1 ;;
     check | server) 
@@ -888,6 +1742,48 @@ __initialize_app() {
       printf_purple "🏥 Proxmox Server Health Check"
       __check_server_connectivity && __check_proxmox_api && __check_authentication
       [ $? -eq 0 ] && printf_green "🎯 All server checks passed!" || printf_red "💔 Server check failed!"
+      exit $?
+      ;;
+    iso)
+      shift 1
+      case "$1" in
+        list) __list_storage_isos ;;
+        download) shift 1 && __download_iso "$@" ;;
+        delete) shift 1 && __delete_iso "$@" ;;
+        info) shift 1 && __iso_info "$@" ;;
+        *) printf_red "Usage: proxmox-cli iso [list|download|delete|info]" && exit 1 ;;
+      esac
+      exit $?
+      ;;
+    lxc)
+      shift 1
+      case "$1" in
+        list) shift 1 && __list_lxc "$@" ;;
+        templates) __list_lxc_templates ;;
+        create) shift 1 && __create_lxc_container "$@" ;;
+        delete) shift 1 && __delete_lxc "$@" ;;
+        start) shift 1 && __start_lxc "$@" ;;
+        stop) shift 1 && __stop_lxc "$@" ;;
+        status) shift 1 && __lxc_status "$@" ;;
+        console) shift 1 && __lxc_console "$@" ;;
+        *) printf_red "Usage: proxmox-cli lxc [list|templates|create|delete|start|stop|status|console]" && exit 1 ;;
+      esac
+      exit $?
+      ;;
+    vm)
+      shift 1
+      case "$1" in
+        list) shift 1 && __list_vms "$@" ;;
+        create) shift 1 && __create_vm "$@" ;;
+        delete) shift 1 && __delete_vm "$@" ;;
+        start) shift 1 && __start_vm "$@" ;;
+        stop) shift 1 && __stop_vm "$@" ;;
+        status) shift 1 && __vm_status "$@" ;;
+        console) shift 1 && __vm_console "$@" ;;
+        clone) shift 1 && __clone_vm "$@" ;;
+        snapshot) shift 1 && __vm_snapshot "$@" ;;
+        *) printf_red "Usage: proxmox-cli vm [list|create|delete|start|stop|status|console|clone|snapshot]" && exit 1 ;;
+      esac
       exit $?
       ;;
     config) PROXMOX_CLI_GET_CONFIG="true" && shift 1 ;;
@@ -1102,7 +1998,7 @@ SHORTOPTS+=""
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
 LONGOPTS+=",force,machine:,node:,ssh,password:,user:"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-ARRAY="nodes ssh reset web config status power agent check server"
+ARRAY="nodes ssh reset web config status power agent check server iso lxc vm"
 ARRAY+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
@@ -1205,7 +2101,33 @@ while :; do
     ;;
   --node)
     PROXMOX_CLI_DEFAULT_NODE_ID="$2"
-    PROXMOX_CLI_NODE_CONFIG_FILE="$PROXMOX_CLI_CONFIG_DIR/$PROXMOX_CLI_DEFAULT_NODE_ID"
+    PROXMOX_CLI_NODE_CONFIG_FILE="$PROXMOX_CLI_CONFIG_DIR/$2"
+    
+    # Load or create config for this node
+    if [ -f "$PROXMOX_CLI_NODE_CONFIG_FILE" ]; then
+      printf_cyan "📋 Loading config for node: $2"
+      . "$PROXMOX_CLI_NODE_CONFIG_FILE"
+    else
+      printf_yellow "📋 No config found for node: $2"
+      printf_cyan "Creating config file: $PROXMOX_CLI_NODE_CONFIG_FILE"
+      
+      # Create directory if needed
+      [ -d "$PROXMOX_CLI_CONFIG_DIR" ] || mkdir -p "$PROXMOX_CLI_CONFIG_DIR"
+      
+      # Create default config based on node name
+      cat <<EOF > "$PROXMOX_CLI_NODE_CONFIG_FILE"
+PROXMOX_CLI_DEFAULT_NODE_ID="$2"
+PROXMOX_CLI_DEFAULT_USERNAME="${PROXMOX_CLI_DEFAULT_USERNAME:-}"
+PROXMOX_CLI_DEFAULT_PASSWORD="${PROXMOX_CLI_DEFAULT_PASSWORD:-}"
+PROXMOX_CLI_DEFAULT_SERVER_HOST="${PROXMOX_CLI_DEFAULT_SERVER_HOST:-}"
+PROXMOX_CLI_DEFAULT_SERVER_PORT="${PROXMOX_CLI_DEFAULT_SERVER_PORT:-}"
+
+EOF
+      
+      printf_green "✅ Created config for node: $2"
+      printf_cyan "Config file: $PROXMOX_CLI_NODE_CONFIG_FILE"
+      . "$PROXMOX_CLI_NODE_CONFIG_FILE"
+    fi
     shift 2
     ;;
   -u | --user)

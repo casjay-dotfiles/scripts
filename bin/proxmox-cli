@@ -356,17 +356,35 @@ __curl_post() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __decode_password() {
   # Decode base64 encoded password if needed
+  local debug_file="$PROXMOX_CLI_TEMP_DIR/debug_password_decode.log"
+  echo "=== Password Decode Debug - $(date) ===" > "$debug_file"
+  echo "Before decode - Password: '${PROXMOX_CLI_DEFAULT_PASSWORD:0:20}...'" >> "$debug_file"
+  echo "Before decode - Length: ${#PROXMOX_CLI_DEFAULT_PASSWORD}" >> "$debug_file"
+  
   if [ -n "$PROXMOX_CLI_DEFAULT_PASSWORD" ]; then
-    # Check if password looks like base64 (only contains base64 chars and is reasonable length)
-    if [[ "$PROXMOX_CLI_DEFAULT_PASSWORD" =~ ^[A-Za-z0-9+/]+=*$ ]] && [ ${#PROXMOX_CLI_DEFAULT_PASSWORD} -gt 10 ]; then
+    # Check if password looks like base64 (only contains base64 chars and ends with = padding)
+    if [[ "$PROXMOX_CLI_DEFAULT_PASSWORD" =~ ^[A-Za-z0-9+/]+=*$ ]] && [[ "$PROXMOX_CLI_DEFAULT_PASSWORD" =~ =$ ]] && [ ${#PROXMOX_CLI_DEFAULT_PASSWORD} -gt 10 ]; then
+      echo "Password appears to be base64 encoded (has = padding)" >> "$debug_file"
       # Try to decode - if it succeeds and produces readable text, use it
       local decoded_pass
       if decoded_pass="$(echo "$PROXMOX_CLI_DEFAULT_PASSWORD" | base64 -d 2>/dev/null)" && [ -n "$decoded_pass" ]; then
+        echo "Decode successful - new password: '${decoded_pass:0:10}...'" >> "$debug_file" 
+        echo "Decode successful - new length: ${#decoded_pass}" >> "$debug_file"
         PROXMOX_CLI_DEFAULT_PASSWORD="$decoded_pass"
         printf_cyan "🔓 Password decoded from base64"
+      else
+        echo "Decode failed - using original password" >> "$debug_file"
+        printf_yellow "⚠️ Base64 decode failed - using password as-is"
       fi
+    else
+      echo "Password appears to be plaintext (no = padding or wrong format)" >> "$debug_file"
+      printf_cyan "🔓 Using password as plaintext"
     fi
+  else
+    echo "No password found" >> "$debug_file"
   fi
+  
+  echo "Final password length: ${#PROXMOX_CLI_DEFAULT_PASSWORD}" >> "$debug_file"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __check_server_connectivity() {
@@ -448,6 +466,14 @@ __check_proxmox_api() {
 __check_authentication() {
   printf_blue "🔐 Testing authentication credentials..."
   
+  # Make sure USERNAME and PASSWORD are set for authentication test
+  USERNAME="$PROXMOX_CLI_DEFAULT_USERNAME"
+  PASSWORD="$PROXMOX_CLI_DEFAULT_PASSWORD"
+  __decode_password  # Decode password first
+  PASSWORD="$PROXMOX_CLI_DEFAULT_PASSWORD"  # Use decoded password
+  
+  printf_cyan "🔍 Debug: Username='$USERNAME', Password length=${#PASSWORD}"
+  
   local auth_response
   auth_response="$(__query_server)"
   local auth_exit=$?
@@ -460,36 +486,65 @@ __check_authentication() {
       return 0
     else
       printf_red "❌ Invalid authentication response"
+      printf_yellow "Response: $auth_response"
       return 1
     fi
   else
     printf_red "❌ Authentication failed"
-    printf_yellow "🔧 Please check:"
-    printf_yellow "  - Username: $PROXMOX_CLI_DEFAULT_USERNAME"
-    printf_yellow "  - Password is correct"
-    printf_yellow "  - User has appropriate permissions"
-    return 1
+    printf_yellow "🔧 Debug Info:"
+    printf_yellow "  - Username: '$PROXMOX_CLI_DEFAULT_USERNAME'"
+    printf_yellow "  - Password length: ${#PROXMOX_CLI_DEFAULT_PASSWORD}"
+    printf_yellow "  - Server: $PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT"
+    printf_yellow "  - Exit code: $auth_exit"
+    printf_red "🛑 STOPPING HERE FOR DEBUGGING"
+    exit 1
   fi
 }
 
 __query_server() {
-  __decode_password
   local response
   local curl_exit
+  local debug_file="$PROXMOX_CLI_TEMP_DIR/debug_auth.log"
+  
+  # Make sure we have current decoded password
+  __decode_password
+  local actual_username="$PROXMOX_CLI_DEFAULT_USERNAME"
+  local actual_password="$PROXMOX_CLI_DEFAULT_PASSWORD"
+  
+  echo "=== Authentication Debug - $(date) ===" > "$debug_file"
+  echo "USERNAME from var: '$USERNAME'" >> "$debug_file"
+  echo "PASSWORD from var length: ${#PASSWORD}" >> "$debug_file"
+  echo "ACTUAL USERNAME: '$actual_username'" >> "$debug_file"
+  echo "ACTUAL PASSWORD length: ${#actual_password}" >> "$debug_file"
+  echo "ACTUAL PASSWORD first 5 chars: ${actual_password:0:5}..." >> "$debug_file"
+  echo "Server: $PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT" >> "$debug_file"
+  echo "" >> "$debug_file"
+  
+  # Test the actual curl command with verbose output
+  local curl_cmd="curl -q -LfsSk --max-time 15 --retry 2 --data-urlencode \"username=$actual_username\" --data-urlencode \"password=$actual_password\" \"https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/access/ticket\""
+  echo "Curl command: $curl_cmd" >> "$debug_file"
+  echo "" >> "$debug_file"
   
   response=$(curl -q -LfsSk --max-time 15 --retry 2 \
-    --data-urlencode "username=$USERNAME" \
-    --data-urlencode "password=$PASSWORD" \
-    "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/access/ticket" 2>/dev/null)
+    --data-urlencode "username=$actual_username" \
+    --data-urlencode "password=$actual_password" \
+    "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/access/ticket" 2>>"$debug_file")
   curl_exit=$?
+  
+  echo "Curl exit code: $curl_exit" >> "$debug_file"
+  echo "Response: '$response'" >> "$debug_file"
+  echo "" >> "$debug_file"
   
   if [ $curl_exit -eq 0 ] && [ -n "$response" ]; then
     # Validate that we got a proper JSON response with ticket
     if echo "$response" | jq -e '.data.ticket' &>/dev/null; then
+      echo "Authentication successful" >> "$debug_file"
       echo "$response"
       return 0
     else
+      echo "Invalid JSON response" >> "$debug_file"
       printf_red "✗ Invalid authentication response from server" >&2
+      printf_yellow "🐛 Debug saved to: $debug_file" >&2
       return 1
     fi
   else
@@ -501,6 +556,7 @@ __query_server() {
       35) printf_red "✗ SSL certificate error" >&2 ;;
       *) printf_red "✗ Authentication request failed (curl exit code: $curl_exit)" >&2 ;;
     esac
+    printf_yellow "🐛 Debug saved to: $debug_file" >&2
     return $curl_exit
   fi
 }
@@ -1149,7 +1205,7 @@ while :; do
     ;;
   --node)
     PROXMOX_CLI_DEFAULT_NODE_ID="$2"
-    PROXMOX_CLI_NODE_CONFIG_FILE="$PROXMOX_CLI_CONFIG_DIR/$2"
+    PROXMOX_CLI_NODE_CONFIG_FILE="$PROXMOX_CLI_CONFIG_DIR/$PROXMOX_CLI_DEFAULT_NODE_ID"
     shift 2
     ;;
   -u | --user)

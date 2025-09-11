@@ -80,10 +80,14 @@ __devnull2() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
 # See if the executable exists
 __cmd_exists() {
-  exitCode=0
-  [ -n "$1" ] && local exitCode="" || return 0
+  local exitCode=0
+  [ -n "$1" ] || return 0
   for cmd in "$@"; do
-    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
+    if builtin command -v "$cmd" &>/dev/null; then
+      exitCode=$((exitCode + 0))
+    else
+      exitCode=$((exitCode + 1))
+    fi
   done
   [ $exitCode -eq 0 ] || exitCode=3
   return ${exitCode:-0}
@@ -331,7 +335,15 @@ __curl_post() {
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__decode_password() {
+  # Decode base64 encoded password if needed
+  if echo "$PROXMOX_CLI_DEFAULT_PASSWORD" | base64 -d &>/dev/null | grep -q '^'; then
+    PROXMOX_CLI_DEFAULT_PASSWORD="$(echo "$PROXMOX_CLI_DEFAULT_PASSWORD" | base64 -d)"
+  fi
+}
+
 __query_server() {
+  __decode_password
   curl -q -LfsSk \
     --data-urlencode "username=$USERNAME" \
     --data-urlencode "password=$PASSWORD" \
@@ -340,16 +352,16 @@ __query_server() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_config() {
-  local url_lxc="https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/spiceconfig/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/lxc"
-  local url_qemu="https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/spiceconfig/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/qemu"
+  local url_lxc="https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/lxc"
+  local url_qemu="https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/qemu"
   __curl_auth "$url_qemu/$PROXMOX_CLI_DEFAULT_MACHINE/config" 2>/dev/null && return 0 ||
     __curl_auth "$url_lxc/$PROXMOX_CLI_DEFAULT_MACHINE/config" && return 0
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_status() {
-  local url_lxc="https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/spiceconfig/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/lxc"
-  local url_qemu="https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/spiceconfig/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/qemu"
+  local url_lxc="https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/lxc"
+  local url_qemu="https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/qemu"
   local url_status="$PROXMOX_CLI_DEFAULT_MACHINE/status/current"
   if __curl_auth "$url_qemu/$url_status" 2>/dev/null | grep '^'; then
     return 0
@@ -371,7 +383,7 @@ __init_connection() {
         [ -n "$PROXMOX_CLI_SSH_IP" ] && printf_yellow "Waiting 30 seconds for the vm to boot" && sleep 30
       else
         if [ -n "$PROXMOX_CLI_SSH_IP" ]; then
-          printf_exit "Failed to get ip addess for $PROXMOX_CLI_DEFAULT_NODE_ID: Ensure you have qemu-guest-agent installed and running"
+          printf_exit "Failed to get ip address for $PROXMOX_CLI_DEFAULT_NODE_ID: Ensure you have qemu-guest-agent installed and running"
         else
           printf_exit "Failed to start $vm_name on $PROXMOX_CLI_DEFAULT_NODE_ID"
         fi
@@ -395,6 +407,7 @@ __get_spice_file() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __save_spice_file() {
+  # Use modern Proxmox API endpoint for SPICE connections
   __curl_auth "$1/$PROXMOX_CLI_DEFAULT_MACHINE/spiceproxy" -d "proxy=$PROXMOX_CLI_DEFAULT_SERVER_HOST" >"$FILENAME" 2>/dev/null && return 0
   return $?
 }
@@ -417,7 +430,7 @@ __pve_agent() {
 __run_spice_viewer() {
   local FILE="${1:-$FILENAME}"
   local RUN="${2:-$FILENAME}.spice"
-  sed 's|delete-this-file=1|delete-this-file=0|g' "$FILE"
+  sed -i 's|delete-this-file=1|delete-this-file=0|g' "$FILE"
   cp -Rf "$FILE" "$RUN"
   remote-viewer "$RUN" &>/dev/null &
   return $?
@@ -506,8 +519,8 @@ __run_curl() {
   CSRF="${CSRF##*CSRFPreventionToken:}"
   CSRF="${CSRF%%,*}"
   CSRF="${CSRF%%\}*}"
-  url_lxc="https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/spiceconfig/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/lxc"
-  url_qemu="https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/spiceconfig/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/qemu"
+  url_lxc="https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/lxc"
+  url_qemu="https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/qemu"
   if [ -n "$CSRF" ]; then
     vm_exists="$(__get_status | grep '^' || false)"
     vm_status="$(echo "$vm_exists" | grep -q '^status=running' && echo 'on' || echo "off")"
@@ -597,8 +610,12 @@ __get_password() {
     PROXMOX_CLI_DEFAULT_PASSWORD="${option_pass_new:-}"
   fi
   [ -n "$PROXMOX_CLI_DEFAULT_PASSWORD" ] || printf_exit "Password is required"
-  grep -shq "PROXMOX_CLI_DEFAULT_PASSWORD=" "$PROXMOX_CLI_NODE_CONFIG_FILE" ||
-    printf '%s\n' 'PROXMOX_CLI_DEFAULT_PASSWORD="'$PROXMOX_CLI_DEFAULT_PASSWORD'"' >>"$PROXMOX_CLI_NODE_CONFIG_FILE"
+  # Simple base64 encoding (not secure, but better than plaintext)
+  if ! grep -shq "PROXMOX_CLI_DEFAULT_PASSWORD=" "$PROXMOX_CLI_NODE_CONFIG_FILE"; then
+    encoded_password="$(echo "$PROXMOX_CLI_DEFAULT_PASSWORD" | base64 -w 0)"
+    printf '%s\n' 'PROXMOX_CLI_DEFAULT_PASSWORD="'$encoded_password'"' >>"$PROXMOX_CLI_NODE_CONFIG_FILE"
+    printf_yellow "Password encoded and saved to config file"
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_node_name() {

@@ -321,7 +321,6 @@ __filename() {
       file="$TRANSFER_SH_TMP_UPLOAD_FILE"
     else
       cp -Rf "$file" "$TRANSFER_SH_TMP_UPLOAD_FILE" 2>/dev/null
-      file="$file"
     fi
   else
     printf_exit 1 1 "No file was found at $file"

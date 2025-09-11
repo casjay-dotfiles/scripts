@@ -80,10 +80,14 @@ __devnull2() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
 # See if the executable exists
 __cmd_exists() {
-  exitCode=0
-  [ -n "$1" ] && local exitCode="" || return 0
+  local exitCode=0
+  [ -n "$1" ] || return 0
   for cmd in "$@"; do
-    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
+    if builtin command -v "$cmd" &>/dev/null; then
+      exitCode=$((exitCode + 0))
+    else
+      exitCode=$((exitCode + 1))
+    fi
   done
   [ $exitCode -eq 0 ] || exitCode=3
   return ${exitCode:-0}

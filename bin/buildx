@@ -26,6 +26,7 @@
 # shellcheck disable=SC2199
 # shellcheck disable=SC2317
 # shellcheck disable=SC2001
+# shellcheck disable=SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0" 2>/dev/null)"
 VERSION="202208042122-git"
@@ -86,10 +87,14 @@ __devnull2() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
 # See if the executable exists
 __cmd_exists() {
-  exitCode=0
-  [ -n "$1" ] && local exitCode="" || return 0
+  local exitCode=0
+  [ -n "$1" ] || return 0
   for cmd in "$@"; do
-    builtin command -v "$cmd" &>/dev/null && exitCode+=$(($exitCode + 0)) || exitCode+=$(($exitCode + 1))
+    if builtin command -v "$cmd" &>/dev/null; then
+      exitCode=$((exitCode + 0))
+    else
+      exitCode=$((exitCode + 1))
+    fi
   done
   [ $exitCode -eq 0 ] || exitCode=3
   return ${exitCode:-0}
@@ -288,7 +293,7 @@ __sudoif() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run command as root
-requiresudo() {
+__requiresudo() {
   if [ "$BUILDX_REQUIRE_SUDO" = "yes" ] && [ -z "$BUILDX_REQUIRE_SUDO_RUN" ]; then
     export BUILDX_REQUIRE_SUDO="no"
     export BUILDX_REQUIRE_SUDO_RUN="true"
@@ -359,7 +364,7 @@ __complete_url() {
   local default_namespace="${BUILDX_DEFAULT_ORG:-$BUILDX_DEFAULT_REPO}"
   local default_image="${name:-$(basename "$BUILDX_CWD")}"
   local default_tag="${BUILDX_DEFAULT_VERSION:-latest}"
-  
+
   # Parse the input URL into components
   if echo "$input_url" | grep -q ':'; then
     # Has tag portion
@@ -370,10 +375,10 @@ __complete_url() {
     # No tag, will add default
     registry="$(echo "$input_url" | cut -d'/' -f1)"
   fi
-  
+
   # Count path components after registry
   path_components="$(echo "${input_url#*/}" | tr '/' '\n' | wc -l)"
-  
+
   case "$path_components" in
     1)
       # registry.com/namespace -> add image and tag
@@ -396,7 +401,7 @@ __complete_url() {
       return
       ;;
   esac
-  
+
   # Handle special tag expansion
   if [ -n "$tag" ]; then
     case "$tag" in
@@ -428,7 +433,7 @@ __complete_url() {
   else
     tag="$default_tag"
   fi
-  
+
   echo "$registry/$namespace/$image:$tag"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -440,10 +445,13 @@ __set_variables() {
   export DOCKER_PLATFORMS="$BUILDX_DOCKER_PLATFORMS"
   export BUILDX_EXPERIMENTAL="$BUILDX_DOCKER_BUILD_EXPERIMENTAL"
   export DOCKER_CLI_EXPERIMENTAL="$BUILDX_DOCKER_CLI_EXPERIMENTAL"
+  # Handle ENV_ variables from .env.scripts (created by gen-dockerfile)
   BUILDX_SET_ORG="${ENV_ORG_NAME:-$BUILDX_SET_ORG}"
   [ -n "$ENV_IMAGE_NAME" ] && BUILDX_SET_IMAGE="$ENV_IMAGE_NAME"
   [ -n "$ENV_IMAGE_PUSH" ] && BUILDX_SET_IMAGE="$(basename "${ENV_IMAGE_PUSH//:*/}")"
+  [ -n "$ENV_REGISTRY_URL" ] && BUILDX_SET_REGISTRY="$ENV_REGISTRY_URL"
   BUILDX_VERSION_TAG="${ENV_ADD_TAGS:-$BUILDX_VERSION_TAG}"
+  [ -n "$ENV_IMAGE_TAG" ] && BUILDX_SET_VERSION="$ENV_IMAGE_TAG"
   BUILDX_DOCKER_PLATFORMS="${BUILDX_DOCKER_PLATFORMS// /,}"
   BUILDX_DEFAULT_REPO="${BUILDX_SET_REPO:-$(basename "$BUILDX_CWD")}"
   BUILDX_DEFAULT_ORG="${BUILDX_SET_ORG:-$(echo "$(realpath "$BUILDX_CWD")" | awk -F '/' '{print $(NF-1)}')}"
@@ -475,7 +483,6 @@ __set_variables() {
   [ -n "$BUILDX_SET_REGISTRY" ] && export BUILDX_SET_REGISTRY
   [ -n "$BUILDX_SET_ORG" ] && export BUILDX_SET_ORG
   [ -n "$BUILDX_SET_GIT_USER" ] && export BUILDX_SET_GIT_USER
-  [ -n "$ENV_IMAGE_TAG" ] && export BUILDX_SET_VERSION="$(basename "${ENV_IMAGE_TAG//*:/}")"
   BUILDX_SET_DEFAULT_VER="${BUILDX_SET_DEFAULT_VER:-$BUILDX_SET_VERSION}"
   export BUILDX_CUSTOM_LOG_DIR="$BUILDX_LOG_DIR/$BUILDX_DEFAULT_REGISTRY/$BUILDX_DEFAULT_ORG/$BUILDX_DEFAULT_REPO"
   export BUILDX_CUSTOM_LOG_FILE="$BUILDX_CUSTOM_LOG_DIR/${BUILDX_SET_DEFAULT_VER:-$name}.log"
@@ -1839,6 +1846,7 @@ while :; do
   --no-repo)
     shift 1
     export BUILDX_ADD_REPO=""
+    export BUILDX_SET_REPO=""
     ;;
   --cron)
     shift 1
@@ -1861,12 +1869,14 @@ while :; do
     shift 2
     ;;
   --platform)
-    [ "$2" = "x64" ] && BUILDX_SET_PLATFORM="linux/amd64" && shift 2
-    [ "$2" = "arm" ] && BUILDX_SET_PLATFORM="linux/arm/v7" && shift 2
-    [ "$2" = "arm64" ] && BUILDX_SET_PLATFORM="linux/arm64" && shift 2
-    export BUILDX_DOCKER_PLATFORMS="${BUILDX_SET_PLATFORM:-$2}"
+    case "$2" in
+      x64) BUILDX_SET_PLATFORM="linux/amd64" ;;
+      arm) BUILDX_SET_PLATFORM="linux/arm/v7" ;;
+      arm64) BUILDX_SET_PLATFORM="linux/arm64" ;;
+      *) BUILDX_SET_PLATFORM="$2" ;;
+    esac
+    export BUILDX_DOCKER_PLATFORMS="$BUILDX_SET_PLATFORM"
     printf_yellow "Setting platform to $BUILDX_DOCKER_PLATFORMS"
-    BUILDX_SET_PLATFORM=""
     shift 2
     ;;
   --tag)
@@ -1974,7 +1984,7 @@ BUILDX_DEFAULT_LOG_ORG="$(basename "$(dirname "$(realpath "$BUILDX_CWD")")")"
 BUILDX_DEFAULT_LOG_REPO="$(basename "$(realpath "$BUILDX_CWD")" | sed 's|^docker-||g')"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
-#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+#__requiresudo "$0" "$@" || exit 2     # exit 2 if errors
 #cmd_exists --error --ask bash || exit 3 # exit 3 if not found
 #am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

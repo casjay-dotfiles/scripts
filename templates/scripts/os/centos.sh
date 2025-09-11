@@ -754,7 +754,7 @@ mkdir -p "/var/log/munin"
 chmod -f 777 "/var/log/munin"
 does_user_exist 'munin' && chown -Rf "munin" "/var/log/munin"
 does_group_exist "munin" && chgrp -Rf "munin" "/var/log/munin"
-bash -c "$(munin-node-configure --remove-also --shell >/dev/null 2>&1)"
+bash -c "$(munin-node-configure --remove-also --shell)" >/dev/null 2>&1
 ##################################################################################################################
 printf_head "Setting up tor"
 ##################################################################################################################

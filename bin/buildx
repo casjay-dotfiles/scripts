@@ -216,23 +216,22 @@ __help() {
   __printf_line "api search [query]              - Search for an image"
   __printf_line "api sources [query]             - Lookup sources used to build image"
   __printf_line "api clone [repo]                - Clone the source repository"
-  #  __printf_line " - "
-  #  __printf_line " - "
-  #  __printf_line " - "
-  #  __printf_line " - "
-  #  __printf_line " - "
-  #  __printf_line " - "
-  #  __printf_line " - "
-  #  __printf_line " - "
-  #  __printf_line " - "
-  #  __printf_line " - "
-  #  __printf_line " - "
-  #  __printf_line " - "
-  #  __printf_line " - "
-  #  __printf_line " - "
-  #  __printf_line " - "
-  #  __printf_line " - "
-  #  __printf_line " - "
+  __printf_line "all                             - Build all Dockerfiles in directory"
+  __printf_line "run [dockerfile]                - Build specific dockerfile"
+  __printf_line "build [files...]                - Build specified dockerfile(s)"
+  __printf_line "cron [dirs...]                  - Automated build for directories"
+  __printf_line " - "
+  __printf_line "--registry [url]                - Set registry (supports multiple)"
+  __printf_line "--tag [tag]                     - Set image tag (supports multiple)"
+  __printf_line "--url [full-url]                - Custom complete image URL"
+  __printf_line "--repo [name]                   - Set repository name"
+  __printf_line "--user [name]                   - Set user/organization"
+  __printf_line "--image [name]                  - Set image name"
+  __printf_line "--platform [arch]               - Set target platform"
+  __printf_line "--no-registry                   - Disable additional registries"
+  __printf_line "--no-repo                       - Clear repository setting"
+  __printf_line "--force                         - Force rebuild/reinstall"
+  __printf_line "--cleanup                       - Enable container cleanup"
   __printf_line "--dir                           - Sets the working directory"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
@@ -354,6 +353,85 @@ __trap_timer() {
 __grep_exclude_version() { grep -v 'USE_DATE'; }
 __get_version() { awk -F '=' '{print $2}' | sed 's|"||g;s|,| |g' | tr ' ' '\n' | grep -Ev '\${.*_.*}' | grep -v '^$' | sort -Vu | tr '\n' ' ' | grep '^' || false; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__complete_url() {
+  local input_url="$1"
+  local registry="" namespace="" image="" tag=""
+  local default_namespace="${BUILDX_DEFAULT_ORG:-$BUILDX_DEFAULT_REPO}"
+  local default_image="${name:-$(basename "$BUILDX_CWD")}"
+  local default_tag="${BUILDX_DEFAULT_VERSION:-latest}"
+  
+  # Parse the input URL into components
+  if echo "$input_url" | grep -q ':'; then
+    # Has tag portion
+    registry="$(echo "$input_url" | cut -d'/' -f1)"
+    tag="${input_url##*:}"
+    input_url="${input_url%:*}"
+  else
+    # No tag, will add default
+    registry="$(echo "$input_url" | cut -d'/' -f1)"
+  fi
+  
+  # Count path components after registry
+  path_components="$(echo "${input_url#*/}" | tr '/' '\n' | wc -l)"
+  
+  case "$path_components" in
+    1)
+      # registry.com/namespace -> add image and tag
+      namespace="$(echo "$input_url" | cut -d'/' -f2)"
+      image="$default_image"
+      ;;
+    2)
+      # registry.com/namespace/image -> add tag only
+      namespace="$(echo "$input_url" | cut -d'/' -f2)"
+      image="$(echo "$input_url" | cut -d'/' -f3)"
+      ;;
+    0)
+      # registry.com -> add namespace, image, and tag
+      namespace="$default_namespace"
+      image="$default_image"
+      ;;
+    *)
+      # Complete URL, return as-is (with tag if missing)
+      echo "${input_url}${tag:+:$tag}"
+      return
+      ;;
+  esac
+  
+  # Handle special tag expansion
+  if [ -n "$tag" ]; then
+    case "$tag" in
+      \{tag,ADDITIONAL_TAGS\}|\{ADDITIONAL_TAGS,tag\})
+        # Expand to default tag + all additional tags
+        local all_tags="$default_tag"
+        [ -n "$BUILDX_VERSION_TAG" ] && all_tags="$all_tags ${BUILDX_VERSION_TAG//,/ }"
+        # Return multiple URLs for each tag
+        for t in $all_tags; do
+          echo "$registry/$namespace/$image:$t"
+        done
+        return
+        ;;
+      \{tag\})
+        tag="$default_tag"
+        ;;
+      \{ADDITIONAL_TAGS\})
+        if [ -n "$BUILDX_VERSION_TAG" ]; then
+          # Return multiple URLs for additional tags
+          for t in ${BUILDX_VERSION_TAG//,/ }; do
+            echo "$registry/$namespace/$image:$t"
+          done
+          return
+        else
+          tag="$default_tag"
+        fi
+        ;;
+    esac
+  else
+    tag="$default_tag"
+  fi
+  
+  echo "$registry/$namespace/$image:$tag"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __set_variables() {
   export DOCKER_BUILDKIT=1
   export BUILDX_PID_NUMBER="$$"
@@ -362,25 +440,44 @@ __set_variables() {
   export DOCKER_PLATFORMS="$BUILDX_DOCKER_PLATFORMS"
   export BUILDX_EXPERIMENTAL="$BUILDX_DOCKER_BUILD_EXPERIMENTAL"
   export DOCKER_CLI_EXPERIMENTAL="$BUILDX_DOCKER_CLI_EXPERIMENTAL"
-  BUILDX_SET_REPO="${ENV_ORG_NAME:-$BUILDX_SET_REPO}"
-  BUILDX_SET_IMAGE="${ENV_IMAGE_PUSH:-$BUILDX_SET_IMAGE}"
+  BUILDX_SET_ORG="${ENV_ORG_NAME:-$BUILDX_SET_ORG}"
+  [ -n "$ENV_IMAGE_NAME" ] && BUILDX_SET_IMAGE="$ENV_IMAGE_NAME"
+  [ -n "$ENV_IMAGE_PUSH" ] && BUILDX_SET_IMAGE="$(basename "${ENV_IMAGE_PUSH//:*/}")"
   BUILDX_VERSION_TAG="${ENV_ADD_TAGS:-$BUILDX_VERSION_TAG}"
   BUILDX_DOCKER_PLATFORMS="${BUILDX_DOCKER_PLATFORMS// /,}"
   BUILDX_DEFAULT_REPO="${BUILDX_SET_REPO:-$(basename "$BUILDX_CWD")}"
-  BUILDX_DEFAULT_ORG="${BUILDX_DEFAULT_ORG:-$(echo "$(realpath "$BUILDX_CWD")" | awk -F '/' '{print $(NF-1)}')}"
-  BUILDX_DEFAULT_REGISTRY="${BUILDX_SET_REGISTRY:-$BUILDX_DEFAULT_REGISTRY}"
+  BUILDX_DEFAULT_ORG="${BUILDX_SET_ORG:-$(echo "$(realpath "$BUILDX_CWD")" | awk -F '/' '{print $(NF-1)}')}"
+  # Handle multiple registries: first becomes primary, all stored for processing
+  if [ -n "$BUILDX_SET_REGISTRY" ]; then
+    # Split registries and set primary to the first one
+    BUILDX_DEFAULT_REGISTRY="$(echo "$BUILDX_SET_REGISTRY" | cut -d',' -f1)"
+    # Store all registries for additional processing
+    BUILDX_ADD_REGISTRY="$BUILDX_SET_REGISTRY"
+    # Enable registry processing if multiple registries specified
+    if echo "$BUILDX_SET_REGISTRY" | grep -q ','; then
+      BUILDX_ENABLE_REGISTRY="true"
+    fi
+  else
+    BUILDX_DEFAULT_REGISTRY="$BUILDX_DEFAULT_REGISTRY"
+  fi
   BUILDX_GIT_REPO_USER="${BUILDX_SET_GIT_USER:-$BUILDX_GIT_REPO_USER}"
   BUILDX_PROJECT_DIR="${BUILDX_PROJECT_DIR:-$HOME/Projects/github/$BUILDX_DEFAULT_REPO}"
   BUILDX_DEFAULT_VERSION="$(echo "${BUILDX_SET_VERSION:-$BUILDX_DEFAULT_VERSION}" | awk -F ' ' '{print $1}' | sed 's|"||g')"
-  [ -n "$BUILDX_VERSION_TAG" ] && export BUILDX_ADD_TAG="true"
+  # Enable additional tag processing if tags are specified
+  if [ -n "$BUILDX_VERSION_TAG" ]; then
+    export BUILDX_ADD_TAG="true"
+    # Convert comma-separated to space-separated for processing
+    BUILDX_VERSION_TAG="${BUILDX_VERSION_TAG//,/ }"
+  fi
   [ -n "$BUILDX_SET_REPO" ] && export BUILDX_SET_REPO
   [ -n "$BUILDX_SET_IMAGE" ] && export BUILDX_SET_IMAGE
   [ -n "$BUILDX_SET_VERSION" ] && export BUILDX_SET_VERSION
   [ -n "$BUILDX_SET_REGISTRY" ] && export BUILDX_SET_REGISTRY
+  [ -n "$BUILDX_SET_ORG" ] && export BUILDX_SET_ORG
   [ -n "$BUILDX_SET_GIT_USER" ] && export BUILDX_SET_GIT_USER
   [ -n "$ENV_IMAGE_TAG" ] && export BUILDX_SET_VERSION="$(basename "${ENV_IMAGE_TAG//*:/}")"
   BUILDX_SET_DEFAULT_VER="${BUILDX_SET_DEFAULT_VER:-$BUILDX_SET_VERSION}"
-  export BUILDX_CUSTOM_LOG_DIR="$BUILDX_LOG_DIR/$BUILDX_DEFAULT_REGISTRY/$BUILDX_DEFAULT_LOG_ORG/$BUILDX_DEFAULT_LOG_REPO"
+  export BUILDX_CUSTOM_LOG_DIR="$BUILDX_LOG_DIR/$BUILDX_DEFAULT_REGISTRY/$BUILDX_DEFAULT_ORG/$BUILDX_DEFAULT_REPO"
   export BUILDX_CUSTOM_LOG_FILE="$BUILDX_CUSTOM_LOG_DIR/${BUILDX_SET_DEFAULT_VER:-$name}.log"
   export BUILDX_PID_FILE="$HOME/.local/run/$APPNAME/${BUILDX_BUILDER_NAME_CUSTOM:-$BUILDX_BUILDER_NAME}.pid"
 }
@@ -939,6 +1036,7 @@ __install_buildx() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __buildx_init() {
+  name="${name:-init}"
   __buildx_vars "$BUILDX_BUILDER_NAME"
   local buildx_log_file="$BUILDX_CUSTOM_LOG_FILE"
   __is_buildx_installed && BUILDX_INIT_RAN="true" || BUILDX_FORCE="true"
@@ -959,7 +1057,7 @@ __buildx_init() {
     echo "Starting buildx init for $name on $(date)" |& tee -p "$BUILDX_CUSTOM_LOG_FILE"
     printf_yellow "Initializing docker build"
     printf_cyan "Setting logfile to: $buildx_log_file"
-    if [ "$BUILDX_CLEANUP" = "true" ] || { [ -n "$binfmt" ] && [ -n "$qemu" ]; }; then
+    if [ "$BUILDX_CLEANUP" = "true" ] || { [ -n "$binfmt_id" ] && [ -n "$qemu_id" ]; }; then
       printf_yellow "Removing old containers: $qemu_imagename,$binfmt_imagename"
       __docker_init rm -f --volumes "$qemu_imagename" |& tee -p -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null
       __docker_init rm -f --volumes "$binfmt_imagename" |& tee -p -a "$BUILDX_CUSTOM_LOG_FILE" &>/dev/null
@@ -1173,8 +1271,11 @@ __run_docker_build() {
   SET_ADD_HOST=("")
   registry="${BUILDX_ADD_REGISTRY//,/ }"
   image_name="${tagged_name//$BUILDX_DEFAULT_REPO\//}"
-  if [ -n "$BUILDX_ADD_REGISTRY" ] && [ "$BUILDX_ENABLE_REGISTRY" = "true" ]; then
+  # Process multiple registries - skip duplicates with primary registry
+  if [ -n "$BUILDX_ADD_REGISTRY" ]; then
     for host in $registry; do
+      # Skip if this registry is the same as the primary registry
+      [ "$host" = "$BUILDX_DEFAULT_REGISTRY" ] && continue
       if [ -n "$BUILDX_ADD_REPO" ]; then
         namespace="$BUILDX_ADD_REPO"
         [ "$namespace" = "" ] && namespace="library"
@@ -1351,7 +1452,7 @@ __execute_buildx() {
   tagged_name="${tagged_name//\/dockerfile/}"
   push_tag="$tagged_name:$tag_version"
   set_tag="${push_tag//$BUILDX_DEFAULT_REGISTRY\//}"
-  logfolder="${BUILDX_CUSTOM_LOG_DIR:-/$BUILDX_DEFAULT_REGISTRY/$BUILDX_DEFAULT_LOG_ORG/$BUILDX_DEFAULT_LOG_REPO}"
+  logfolder="${BUILDX_CUSTOM_LOG_DIR:-/$BUILDX_DEFAULT_REGISTRY/$BUILDX_DEFAULT_ORG/$BUILDX_DEFAULT_REPO}"
   logfile="${BUILDX_CUSTOM_LOG_FILE:-$BUILDX_CUSTOM_LOG_DIR/$(echo "$tagged_name" | awk -F':' '{print $1}').log}"
   logscript_dir="$BUILDX_CONFIG_DIR/scripts/$(echo "$tagged_name" | awk -F '/' '{print $(NF-1)}')"
   logscript_file="$logscript_dir/$(echo "$tagged_name" | awk -F '/' '{print $NF}')-${tag_version}.sh"
@@ -1617,8 +1718,8 @@ SHORTOPTS=""
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent,no-pull"
-LONGOPTS+=",force,cleanup,add-registry:,repo:,no-registry,no-repo,cron,platform:"
-LONGOPTS+=",gen-script,tag:,add-tag:,all,build,url:,script,init,user:,image:,registry:"
+LONGOPTS+=",force,cleanup,repo:,no-registry,no-repo,cron,platform:"
+LONGOPTS+=",gen-script,tag:,all,build,url:,script,init,user:,image:,registry:"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="all run[Dockerfile] init status version api[tags,list,search,sources,clone,delete,update] "
 ARRAY+=""
@@ -1733,6 +1834,7 @@ while :; do
     shift 1
     export BUILDX_ENABLE_REGISTRY="false"
     export BUILDX_ADD_REGISTRY=""
+    export BUILDX_SET_REGISTRY=""
     ;;
   --no-repo)
     shift 1
@@ -1754,14 +1856,8 @@ while :; do
     shift 1
     export BUILDX_CLEANUP="true"
     ;;
-  --add-registry)
-    export BUILDX_ENABLE_REGISTRY="true"
-    export BUILDX_ADD_REGISTRY+="$2"
-    shift 2
-    ;;
   --repo)
-    export BUILDX_ADD_TAG="true"
-    export BUILDX_ADD_REPO="$2"
+    export BUILDX_SET_REPO="$2"
     shift 2
     ;;
   --platform)
@@ -1775,40 +1871,60 @@ while :; do
     ;;
   --tag)
     export BUILDX_AUTO_VERSION="false"
+    # Handle multiple --tag calls or comma-separated values
     if echo "$2" | grep -q ':'; then
-      export BUILDX_SET_NAME="${2//:*/}"
-      export BUILDX_SET_VERSION="${2//*:/}"
+      # If it contains a colon, it's in format name:tag
+      tag_name="${2//:*/}"
+      tag_version="${2//*:/}"
+      export BUILDX_SET_NAME="$tag_name"
+      # Add to version tags
+      if [ -n "$BUILDX_VERSION_TAG" ]; then
+        export BUILDX_VERSION_TAG+=,"$tag_version"
+      else
+        export BUILDX_VERSION_TAG="$tag_version"
+        export BUILDX_SET_VERSION="$tag_version"
+      fi
     else
-      export BUILDX_SET_VERSION="$2"
+      # Just a tag version
+      if [ -n "$BUILDX_VERSION_TAG" ]; then
+        export BUILDX_VERSION_TAG+=,"$2"
+      else
+        export BUILDX_VERSION_TAG="$2"
+        export BUILDX_SET_VERSION="$2"
+      fi
     fi
-    export BUILDX_SET_VERSION="${2//,/ }"
     shift 2
     ;;
   --image)
     export BUILDX_SET_IMAGE="$2"
     shift 2
     ;;
-  --add-tag)
-    export BUILDX_VERSION_TAG="${2//,/ }"
-    shift 2
-    ;;
   --url)
     urls="${2//,/ }"
     for url in $urls; do
       if [ -n "$url" ]; then
-        export REGISTRY_TAG+="-t $url "
+        completed_urls="$(__complete_url "$url")"
+        # Handle multiple URLs returned (for tag expansion)
+        for completed_url in $completed_urls; do
+          export REGISTRY_TAG+="-t $completed_url "
+        done
       fi
     done
-    unset url urls
+    unset url urls completed_url completed_urls
     shift 2
     ;;
   --user)
-    export BUILDX_SET_REPO="$2"
+    export BUILDX_SET_ORG="$2"
     export BUILDX_SET_GIT_USER="$2"
     shift 2
     ;;
   --registry)
-    BUILDX_SET_REGISTRY="$2"
+    # Support multiple --registry calls or comma-separated values
+    if [ -n "$BUILDX_SET_REGISTRY" ]; then
+      export BUILDX_SET_REGISTRY+=,"$2"
+    else
+      export BUILDX_SET_REGISTRY="$2"
+    fi
     shift 2
     ;;
   --no-pull)
@@ -1836,7 +1952,7 @@ done
 # set -- "${SET_NEW_ARGS[@]}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set directory to first argument
-[ -d "$1" ] && __is_an_option "$1" && BUILDX_CWD="$1" && shift 1 || BUILDX_CWD="${BUILDX_CWD:-$PWD}"
+[ -d "$1" ] && ! __is_an_option "$1" && BUILDX_CWD="$1" && shift 1 || BUILDX_CWD="${BUILDX_CWD:-$PWD}"
 BUILDX_CWD="$(realpath "${BUILDX_CWD:-$PWD}" 2>/dev/null)"
 if [ -d "$BUILDX_CWD" ] && cd "$BUILDX_CWD"; then
   if [ "$BUILDX_SILENT" != "true" ] && [ "$CWD_SILENCE" != "true" ]; then

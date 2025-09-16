@@ -76,6 +76,11 @@ docker run --rm -it local-scripts-test /usr/local/share/CasjaysDev/scripts/bin/s
 - **Always add newline at end of files** (except where not supported)
 - Proper error handling and user feedback
 - Multi-architecture support where applicable
+- **Update script headers** (@@Version, @@Description, @@Changelog, etc.) when making changes
+  - Keep same format and layout
+  - Update version to current date-time format (YYYYMMDDHHMM-git)
+  - Update changelog with brief description of changes
+  - Update other fields as appropriate to reflect script functionality
 
 ### Architecture Support
 - **amd64** (x86_64)

@@ -315,12 +315,12 @@ __gen_config_local() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __open_browser() {
   local url="$1"
-  
+
   if [ -z "$SEARCH_MENU_BROWSER" ]; then
     printf_red "❌ No browser configured. Please set SEARCH_MENU_BROWSER in config."
     return 1
   fi
-  
+
   if [ -n "$DISPLAY" ] && [ -z "$SSH_CONNECTION" ]; then
     "$SEARCH_MENU_BROWSER" "$url" &>/dev/null &
   else
@@ -353,7 +353,7 @@ __providers_engines() {
     cat <<EOF | tee -p "$SEARCH_MENU_PROVIDERS_GLOBAL_DIR/$confName.conf" &>/dev/null
 # Search Providers - $confName
 websearch[default-$confName]="https://scour.li/search?q="
-websearch[scour]="https://scour.li/search?q="
+websearch[CasjaysDev]="https://scour.li/search?q="
 websearch[duckduckgo]="https://duckduckgo.com/?q="
 websearch[google]="https://www.google.com/search?q="
 websearch[brave]="https://search.brave.com/search?q="
@@ -440,7 +440,7 @@ __config_message() {
   local url="$3"
   local exitCode=0
   [ -n "$3" ] && add_provider="$(printf '%s\n' 'websearch['$provider']="'$url'"')"
-  
+
   if [ -f "$SEARCH_MENU_PROVIDERS_GLOBAL_DIR/$confName.conf" ]; then
     printf_blue "Created provider: providers/global/$confName.conf"
     exitCode=0
@@ -449,11 +449,11 @@ __config_message() {
     exitCode=1
     return $exitCode
   fi
-  
+
   if [ ! -f "$SEARCH_MENU_PROVIDERS_LOCAL_DIR/$confName.conf" ]; then
     cat <<EOF >"$SEARCH_MENU_PROVIDERS_LOCAL_DIR/$confName.conf"
 # Search Providers local - $confName
-# websearch[scour]="https://scour.li/search?q="
+# websearch[CasjaysDev]="https://scour.li/search?q="
 $add_provider
 EOF
     if [ -f "$SEARCH_MENU_PROVIDERS_LOCAL_DIR/$confName.conf" ]; then
@@ -464,7 +464,7 @@ EOF
       exitCode=1
     fi
   fi
-  
+
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -507,32 +507,181 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __dmenu_run() {
+  # Suppress fontconfig warnings by initializing if needed
+  export FONTCONFIG_FILE="${FONTCONFIG_FILE:-/etc/fonts/fonts.conf}"
+
   if __cmd_exists rofi; then
-    rofi -theme purple -dmenu "$@"
+    rofi -theme purple -dmenu "$@" 2>/dev/null
   elif __cmd_exists dmenu; then
-    dmenu "$@"
+    dmenu "$@" 2>/dev/null
+  elif __cmd_exists whiptail; then
+    __whiptail_fallback "$@"
   else
-    printf_exit "This requires either dmenu or rofi"
+    __cli_fallback "$@"
   fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__whiptail_fallback() {
+  local options_file=$(mktemp)
+  local prompt="Search Menu"
+  local -a menu_items=()
+  local count=1
+
+  # Extract prompt from arguments
+  while [ $# -gt 0 ]; do
+    case "$1" in
+    -p)
+      prompt="$2"
+      shift 2
+      ;;
+    *) shift ;;
+    esac
+  done
+
+  # Read options from stdin
+  cat >"$options_file"
+
+  # Build whiptail menu array
+  while IFS= read -r line; do
+    [ -n "$line" ] && menu_items+=("$count" "$line")
+    ((count++))
+  done <"$options_file"
+
+  if [ ${#menu_items[@]} -eq 0 ]; then
+    rm -f "$options_file"
+    return 1
+  fi
+
+  local choice
+  choice=$(whiptail --title "Search Menu" --menu "$prompt" 20 70 10 "${menu_items[@]}" 3>&1 1>&2 2>&3 2>/dev/null)
+
+  if [ -n "$choice" ]; then
+    sed -n "${choice}p" "$options_file"
+    rm -f "$options_file"
+    return 0
+  else
+    rm -f "$options_file"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__cli_fallback() {
+  local prompt="Search Menu"
+  local -a options=()
+
+  # Extract prompt from arguments
+  while [ $# -gt 0 ]; do
+    case "$1" in
+    -p)
+      prompt="$2"
+      shift 2
+      ;;
+    *) shift ;;
+    esac
+  done
+
+  # Load options from stdin
+  while IFS= read -r line; do
+    [ -n "$line" ] && options+=("$line")
+  done
+
+  if [ ${#options[@]} -eq 0 ]; then
+    printf_red "❌ No options available"
+    return 1
+  fi
+
+  # Display menu
+  printf_blue "$prompt"
+  local i=1
+  for option in "${options[@]}"; do
+    printf_cyan "$i) $option"
+    ((i++))
+  done
+
+  # Get user choice
+  local choice
+  printf_read_input "Enter choice (1-${#options[@]}) or 'q' to quit: " "10" "choice"
+
+  case "$choice" in
+  q | quit | exit) return 1 ;;
+  '' | *[!0-9]*)
+    printf_red "❌ Invalid choice"
+    return 1
+    ;;
+  *)
+    if [ "$choice" -ge 1 ] && [ "$choice" -le "${#options[@]}" ]; then
+      echo "${options[$((choice - 1))]}"
+      return 0
+    else
+      printf_red "❌ Choice out of range"
+      return 1
+    fi
+    ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__cli_menu() {
+  local options_file="$1"
+  local prompt="$2"
+  local -a options=()
+  local count=1
+
+  # Load options into array
+  while IFS= read -r line; do
+    options+=("$line")
+  done <"$options_file"
+
+  if [ ${#options[@]} -eq 0 ]; then
+    printf_red "❌ No options available"
+    return 1
+  fi
+
+  # Display menu
+  printf_blue "$prompt"
+  local i=1
+  for option in "${options[@]}"; do
+    printf_cyan "$i) $option"
+    ((i++))
+  done
+
+  # Get user choice
+  local choice
+  printf_read_input "Enter choice (1-${#options[@]}) or 'q' to quit: " "10" "choice"
+
+  case "$choice" in
+  q | quit | exit) return 1 ;;
+  '' | *[!0-9]*)
+    printf_red "❌ Invalid choice"
+    return 1
+    ;;
+  *)
+    if [ "$choice" -ge 1 ] && [ "$choice" -le "${#options[@]}" ]; then
+      echo "${options[$((choice - 1))]}"
+    else
+      printf_red "❌ Choice out of range"
+      return 1
+    fi
+    ;;
+  esac
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __execute_search_menu() {
   local history_file="$SEARCH_MENU_HISTORY_FILE"
   local history_dir="$(dirname "$SEARCH_MENU_HISTORY_FILE")"
   local engine="" query="" term="" old_search=()
-  
+
   # Ensure history directory exists
   [ -d "$history_dir" ] || mkdir -p "$history_dir"
-  
+
   # Load all provider configs
   for globalConfigfile in "${SEARCH_MENU_PROVIDERS_GLOBAL_DIR}"/*.conf "${SEARCH_MENU_PROVIDERS_LOCAL_DIR}"/*.conf; do
     [ -f "$globalConfigfile" ] && . "$globalConfigfile" || true
   done
-  
+
   # Get available engines as proper arrays
   local -a defaults_array=()
   local -a search_array=()
-  
+
   for key in "${!websearch[@]}"; do
     if [[ "$key" =~ ^default- ]]; then
       defaults_array+=("$key")
@@ -540,31 +689,31 @@ __execute_search_menu() {
       search_array+=("$key")
     fi
   done
-  
+
   # Engine selection
   while [ -z "$engine" ]; do
     engine=$(printf '%s\n' "cancel" "${defaults_array[@]}" "${search_array[@]}" | __dmenu_run -i -l 20 -p 'Choose search engine:' "$@" || false)
     url="${websearch["${engine:-default}"]}"
     [ "$engine" = "cancel" ] && exit 1
   done
-  
+
   # Load search history
   [ -f "$history_file" ] && mapfile -t old_search < <(head -n15 "$history_file")
-  
+
   # Query input
   while [ -z "$query" ]; do
     query="$(printf '%s\n' "cancel" "${old_search[@]}" | __dmenu_run -i -l 20 -p 'Enter search query:' "$@" || false)"
     [ "$query" = "cancel" ] && exit 1
   done
-  
+
   # Update history (only if query is not empty)
   if [ -n "$query" ] && [ "$query" != "cancel" ]; then
     {
       echo "$query"
       [ -f "$history_file" ] && head -n14 "$history_file"
-    } | awk '!seen[$0]++' > "$history_file.tmp" && mv "$history_file.tmp" "$history_file"
+    } | awk '!seen[$0]++' >"$history_file.tmp" && mv "$history_file.tmp" "$history_file"
   fi
-  
+
   # Execute search
   term="$url${query// /%20}"
   __open_browser "$term" 2>/dev/null
@@ -573,14 +722,14 @@ __execute_search_menu() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __list_engines() {
   local category="${1:-all}"
-  
+
   # Load all provider configs
   for globalConfigfile in "${SEARCH_MENU_PROVIDERS_GLOBAL_DIR}"/*.conf "${SEARCH_MENU_PROVIDERS_LOCAL_DIR}"/*.conf; do
     [ -f "$globalConfigfile" ] && . "$globalConfigfile" || true
   done
-  
+
   printf_blue "🔍 Available search engines:"
-  
+
   if [ "$category" = "all" ]; then
     for key in "${!websearch[@]}"; do
       if [[ "$key" =~ ^default- ]]; then
@@ -602,27 +751,27 @@ __list_engines() {
 __direct_search() {
   local engine="$1"
   local query="$2"
-  
+
   if [ -z "$engine" ] || [ -z "$query" ]; then
     printf_red "❌ Usage: search-menu search <engine> <query>"
     printf_cyan "Example: search-menu search google 'bash scripting'"
     return 1
   fi
-  
+
   # Load all provider configs
   for globalConfigfile in "${SEARCH_MENU_PROVIDERS_GLOBAL_DIR}"/*.conf "${SEARCH_MENU_PROVIDERS_LOCAL_DIR}"/*.conf; do
     [ -f "$globalConfigfile" ] && . "$globalConfigfile" || true
   done
-  
+
   local url="${websearch["$engine"]}"
-  
+
   if [ -z "$url" ]; then
     printf_red "❌ Search engine '$engine' not found"
     printf_cyan "Available engines:"
     __list_engines
     return 1
   fi
-  
+
   printf_blue "🔍 Searching $engine for: $query"
   local term="$url${query// /%20}"
   __open_browser "$term" 2>/dev/null

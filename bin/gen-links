@@ -299,7 +299,14 @@ __grep_text() { grep -shv '^ *#'; }
 __finalize_html() { grep -E 'ftp://|http://|https://'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __sed_separator() { sed 's|^$|<br />'$GEN_LINKS_SEPARATOR'<br />|g'; }
-__is_video_valid() { [ -n "$1" ] && if echo "$1" | grep -Eqi '^Video Disabled|^Video Deleted|^Video Inactive|^Inactive |^Deleted |^Disabled '; then return 1; else return 0; fi || return 1; }
+__is_video_valid() {
+  [ -n "$1" ] || return 1
+  if echo "$1" | grep -Eqi '^Video Disabled|^Video Deleted|^Video Inactive|^Inactive |^Deleted |^Disabled |^404|^Not Found|^Error'; then
+    return 1
+  else
+    return 0
+  fi
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __grep() { grep "$@" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -314,18 +321,90 @@ __set_page_title() {
   local exitCode=0
   local link="$(basename -- "$1" | grep -v '?.*=' | sed 's|-| |g;s|_| |g')"
   local title="$(echo "$2" | grep -v '://' | sed -e 's|^HD*. *||g;s|[vV]ideo||g;s|^ ||g;s|^\t||g' | grep '^')"
+
   if __is_video_valid "$title"; then
     echo "$title"
   else
-    [ -n "$link" ] && echo "$link" || exitCode=1
+    # Video is invalid/deleted - provide fallback title
+    if echo "$title" | grep -Eqi 'disabled|deleted|inactive|404|not found|error'; then
+      echo "[UNAVAILABLE] $link"
+      exitCode=2 # Special code for unavailable content
+    else
+      [ -n "$link" ] && echo "$link" || {
+        echo "[NO TITLE] $1"
+        exitCode=1
+      }
+    fi
   fi
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __grep_markdown() {
+  # Extract markdown links in [text](url) format
   __grep -E ']\(' | __grep -v '#' | __sed 's|.*\[||g;s|\]| :: |g;s|)||g' |
     __sed 's|`.*||g;s| - | :: |g;s|\. | ::|g;s|   | |g' | __grep -v '^$' |
     __awk -F '\(' '{print $1,":: "$3," :: "$2}' | __sed 's| ::  ::   :: | :: |g' | __grep '^'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__extract_markdown_links() {
+  # Enhanced markdown link extraction for future use
+  local input_file="$1"
+
+  # Extract different types of markdown links
+  {
+    # Standard links: [text](url)
+    grep -oE '\[([^\]]+)\]\(([^)]+)\)' "$input_file" | sed 's|\[\([^]]*\)\](\([^)]*\))|\2 :: \1|g'
+
+    # Reference links: [text][ref] with [ref]: url
+    grep -E '^\[.*\]:' "$input_file" | sed 's|^\[\([^]]*\)\]:[[:space:]]*\(.*\)|\2 :: \1|g'
+
+    # Auto links: <url>
+    grep -oE '<https?://[^>]+>' "$input_file" | sed 's|<\(.*\)>|\1 :: \1|g'
+
+    # Plain URLs (fallback)
+    grep -oE 'https?://[^[:space:]]+' "$input_file" | sed 's|\(.*\)|\1 :: \1|g'
+  } | sort -u
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__process_markdown_content() {
+  # Future: Process markdown content with proper link extraction
+  local input_file="$1"
+  local temp_output="$2"
+
+  # This would replace the current line-by-line processing for markdown files
+  # when implemented
+
+  echo "<!-- Markdown processing not yet implemented -->" >"$temp_output"
+  echo "<!-- Use __extract_markdown_links for proper markdown link handling -->" >>"$temp_output"
+  echo "<!-- Current fallback: treating as plain text -->" >>"$temp_output"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__validate_markdown_syntax() {
+  # Future: Validate markdown syntax and report issues
+  local input_file="$1"
+
+  # Check for common markdown issues
+  local issues=0
+
+  # Unclosed brackets
+  if grep -q '\[.*[^]]$' "$input_file"; then
+    printf_yellow "⚠️ Found unclosed brackets in markdown"
+    ((issues++))
+  fi
+
+  # Malformed links
+  if grep -q '\]([^)]*)$' "$input_file"; then
+    printf_yellow "⚠️ Found malformed links in markdown"
+    ((issues++))
+  fi
+
+  # Empty link text
+  if grep -q '\[\](' "$input_file"; then
+    printf_yellow "⚠️ Found links with empty text"
+    ((issues++))
+  fi
+
+  return $issues
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __make_html() {
@@ -517,11 +596,20 @@ __make_links() {
       number=$(($number + 1))
       total_lines=$(($total_lines + 1))
       __get_page_title "$line"
-      if [ $? -eq 0 ] && [ -n "$link_title" ]; then
+      local title_exit=$?
+
+      # Only create links for valid content
+      if [ $title_exit -eq 0 ] && [ -n "$link_title" ]; then
         border="$(__border_color "$color_number")"
         [ "$color_number" -ge "6" ] && color_number="1" || color_number=$(($color_number + 1))
         echo '<div class="col-10 text-center align-center border border-'${border:-primary}' align-items-center pt-5" style="font-size: 1.3rem;">'$number': <a href="'$line'" class="pl-5" target="_blank">'$link_title'</a></div><br />' >>"$GEN_LINKS_TEMP_FILE" 2>/dev/null
+      elif [ $title_exit -eq 1 ] && [ -n "$link_title" ]; then
+        # No title but valid link - still create link
+        border="$(__border_color "$color_number")"
+        [ "$color_number" -ge "6" ] && color_number="1" || color_number=$(($color_number + 1))
+        echo '<div class="col-10 text-center align-center border border-secondary align-items-center pt-5" style="font-size: 1.3rem;">'$number': <a href="'$line'" class="pl-5 text-muted" target="_blank">'$link_title'</a></div><br />' >>"$GEN_LINKS_TEMP_FILE" 2>/dev/null
       fi
+      # If title_exit -eq 2 (unavailable), skip entirely - no link created
     fi
     number_init="$number"
     builtin printf '\r                                                                                                                        '
@@ -583,17 +671,75 @@ __get_page_title() {
       if [ -n "$set_title" ]; then
         link_title="$set_title"
       else
-        exitCode=1
+        link_title="$(__extract_smart_title "$link_url")"
+        exitCode=$?
       fi
     else
       exitCode=2
     fi
   else
-    link_title="$(basename -- "$link_url" | grep -v '?.*=' | sed 's|-| |g;s|_| |g' | grep '^' || echo "$link_url")"
+    link_title="$(__extract_smart_title "$link_url")"
   fi
-  sleep .5
+  sleep .2
   builtin printf '\r                                                                                                                                           '
   return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__extract_smart_title() {
+  local url="$1"
+  local title=""
+
+  # Remove protocol and common parameters
+  local clean_url="$(echo "$url" | sed 's|^https*://||g;s|^ftp://||g;s|?.*||g;s|#.*||g')"
+
+  # Site-specific title extraction
+  if echo "$url" | grep -q 'youtube.com/watch'; then
+    # YouTube - try to extract from URL path or use description
+    local video_id="$(echo "$url" | sed 's|.*[?&]v=||g;s|&.*||g')"
+    title="YouTube: $video_id"
+  elif echo "$url" | grep -q 'github.com'; then
+    # GitHub - extract repo name and owner
+    title="$(echo "$clean_url" | cut -d'/' -f2-3 | sed 's|/| - |g')"
+  elif echo "$url" | grep -q 'stackoverflow.com/questions'; then
+    # StackOverflow - extract question title from URL
+    title="$(echo "$clean_url" | cut -d'/' -f4- | sed 's|/| |g' | head -c60)"
+  elif echo "$url" | grep -q 'reddit.com/r/'; then
+    # Reddit - extract subreddit and post title
+    local subreddit="$(echo "$clean_url" | cut -d'/' -f3)"
+    local post_title="$(echo "$clean_url" | cut -d'/' -f6- | head -c40)"
+    title="$subreddit: $post_title"
+  elif echo "$url" | grep -q '/videos\?/'; then
+    # Video sites - extract from video path
+    title="$(echo "$clean_url" | sed 's|.*/videos\?/[^/]*/||g;s|.*/videos\?/||g' | cut -d'/' -f1)"
+  elif echo "$url" | grep -q 'docs\|documentation'; then
+    # Documentation sites
+    local doc_section="$(echo "$clean_url" | sed 's|.*/docs/||g;s|.*/documentation/||g' | cut -d'/' -f1-2 | sed 's|/| - |g')"
+    local site_name="$(echo "$clean_url" | cut -d'/' -f1 | sed 's|^www\.||g;s|\..*||g')"
+    title="$site_name: $doc_section"
+  elif echo "$url" | grep -q '/wiki/'; then
+    # Wikipedia and wiki sites
+    title="$(echo "$clean_url" | sed 's|.*/wiki/||g' | cut -d'/' -f1 | sed 's|_| |g')"
+  elif echo "$url" | grep -q '/package\|/packages'; then
+    # Package repositories
+    local package_name="$(echo "$clean_url" | sed 's|.*/package/||g;s|.*/packages/||g' | cut -d'/' -f1)"
+    local site_name="$(echo "$clean_url" | cut -d'/' -f1 | sed 's|^www\.||g;s|\..*||g')"
+    title="$site_name: $package_name"
+  else
+    # Generic - use last meaningful path segment
+    title="$(echo "$clean_url" | sed 's|/$||g' | awk -F'/' '{print $NF}' | head -c60)"
+  fi
+  # Clean up the extracted title
+  title="$(echo "$title" | sed 's|[-_+]| |g;s|%20| |g;s|%2[Dd]|-|g;s|%28|(|g;s|%29|)|g' |
+    sed 's|  *| |g;s|^ *||g;s| *$||g' | head -c80)"
+  # Fallback to domain name if title is still too short
+  if [ ${#title} -lt 3 ] || [[ "$title" =~ ^[0-9]+$ ]]; then
+    title="$(echo "$clean_url" | cut -d'/' -f1 | sed 's|^www\.||g;s|\..*||g' | sed 's|\b\(.\)|\U\1|g')"
+  fi
+
+  # Final cleanup and capitalization
+  title="$(echo "$title" | sed 's|\b\(.\)|\U\1|g')"
+
+  echo "${title:-$url}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __check_status() {
@@ -632,17 +778,20 @@ __add_bookmark() {
   local url="$1"
   local file_name="${2:-bookmarks}"
   local html_file="${3:-${2:-$GEN_LINKS_BOOKMARK_FILE}}"
-  GEN_LINKS_BOOKMARK_FILE="$html_file"
+  local url_dir dir_name temp_file final_file_name final_html_file
+
   url_dir="$(__get_bookmarks_file "$file_name")"
   dir_name="$(__get_bookmarks_dir "$html_file")"
   temp_file="$GEN_LINKS_TEMP_DIR/$(basename -- "$file_name")"
-  file_name="$dir_name/$(basename -- "${file_name%.*}.txt")"
-  html_file="$dir_name/$(basename -- "${html_file%.*}.html")"
+  final_file_name="$dir_name/$(basename -- "${file_name%.*}.txt")"
+  final_html_file="$dir_name/$(basename -- "${html_file%.*}.html")"
+
   printf '%s\n' "$url" >"$temp_file"
-  [ -f "$GEN_LINKS_BOOKMARK_FILE" ] && cat "$GEN_LINKS_BOOKMARK_FILE" | grep -vw "$url" >>"$temp_file"
-  cat "$temp_file" >"$file_name"
-  rm -Rf "$temp_file" "$GEN_LINKS_BOOKMARK_FILE"
-  __make_html "$file_name" "$GEN_LINKS_BOOKMARK_FILE"
+  [ -f "$final_file_name" ] && cat "$final_file_name" | grep -vw "$url" >>"$temp_file"
+  cat "$temp_file" >"$final_file_name"
+  rm -Rf "$temp_file"
+
+  __make_html "$final_file_name" "$final_html_file"
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

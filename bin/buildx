@@ -1198,7 +1198,12 @@ __run_dockermgr_script() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_buildx_script() {
-  set_build_command="$BUILDX_DOCKER_CMD buildx build ${BUILDX_REMOVE_BUILD:-},, --platform $BUILDX_DOCKER_PLATFORMS,, --rm --pull --push,, --no-cache --progress auto --output=type=registry,, -t $tagged_name $ADDITIONAL_TAGS,, ${dir:-$PWD},, -f ${Dockerfile:-Dockerfile}"
+  if [ "$BUILDX_USE_LEGACY_BUILD" = "true" ]; then
+    printf_yellow "Using legacy docker build (buildx not available)"
+    set_build_command="$BUILDX_DOCKER_CMD build,, --rm --pull,, --no-cache,, -t $tagged_name $ADDITIONAL_TAGS,, ${dir:-$PWD},, -f ${Dockerfile:-Dockerfile} && $BUILDX_DOCKER_CMD push $tagged_name"
+  else
+    set_build_command="$BUILDX_DOCKER_CMD buildx build ${BUILDX_REMOVE_BUILD:-},, --platform $BUILDX_DOCKER_PLATFORMS,, --rm --pull --push,, --no-cache --progress auto --output=type=registry,, -t $tagged_name $ADDITIONAL_TAGS,, ${dir:-$PWD},, -f ${Dockerfile:-Dockerfile}"
+  fi
   set_build_command="${set_build_command//  / }"
   build_command="$(echo "$set_build_command" | grep '^' | grep -v '^$' | sed 's|,,| \\\n|g')"
   set_build_command="${set_build_command//,,/}"
@@ -1670,6 +1675,26 @@ BUILDX_ENABLE_REGISTRY="false"
 BUILDX_DOCKER_CMD="${BUILDX_DOCKER_CMD:-docker}"
 BUILDX_BUILD_DATE_TAG_FORMAT="${BUILDX_BUILD_DATE_TAG_FORMAT:-%y%m}"
 BUILDX_DOCKER_PLATFORMS="${BUILDX_DOCKER_PLATFORMS:-linux/amd64,linux/arm64}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Detect buildx availability and set appropriate platforms
+__detect_buildx_and_platforms() {
+  # Check if docker buildx is available
+  if ! docker buildx version &>/dev/null; then
+    printf_yellow "Docker buildx plugin not available, building for current platform only"
+    local current_arch
+    case "$(uname -m)" in
+      x86_64) current_arch="linux/amd64" ;;
+      aarch64) current_arch="linux/arm64" ;;
+      armv7l) current_arch="linux/arm/v7" ;;
+      *) current_arch="linux/amd64" ;;
+    esac
+    BUILDX_DOCKER_PLATFORMS="$current_arch"
+    BUILDX_USE_LEGACY_BUILD="true"
+  else
+    BUILDX_USE_LEGACY_BUILD="false"
+  fi
+}
+__detect_buildx_and_platforms
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$BUILDX_CONFIG_DIR/$BUILDX_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202207042242-git
+##@Version           :  202509160035-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
 # @ReadME            :  dockermgr --help
-# @Copyright         :  Copyright: (c) 2021 Jason Hempstead, Casjays Developments
+# @Copyright         :  Copyright: (c) 2025 Jason Hempstead, Casjays Developments
 # @Created           :  Saturday, Aug 28, 2021 19:04 EDT
 # @File              :  dockermgr
 # @Description       :  docker script to manage containers
@@ -17,7 +17,7 @@
 # shellcheck disable=SC1001,SC2003,SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202108281904-git"
+VERSION="202509160035-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -69,11 +69,90 @@ __cmd_exists() {
   return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for a valid internet connection
+__am_i_online() {
+  local DOCKERMGR_EXIT_STATUS=0
+  curl -q -LSsfI --max-time 1 --retry 0 "${1:-https://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || DOCKERMGR_EXIT_STATUS=4
+  return ${DOCKERMGR_EXIT_STATUS:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Is current user not root
+__user_is_not_root() {
+  if { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; }; then return 1; else return 0; fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if user is a member of sudo
+__sudo_group() {
+  grep -sh "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# # Get sudo password
+__sudoask() {
+  ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run sudo
+__sudorun() {
+  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Test if user has access to sudo
+__can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# User can run sudo
+__sudoif() {
+  __user_is_root && return 0
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Run command as root
+requiresudo() {
+  if [ "$CMD_EXISTS_REQUIRE_SUDO" = "yes" ] && [ -z "$CMD_EXISTS_REQUIRE_SUDO_RUN" ]; then
+    export CMD_EXISTS_REQUIRE_SUDO="no"
+    export CMD_EXISTS_REQUIRE_SUDO_RUN="true"
+    __sudo "$@"
+    exit $?
+  else
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute sudo
+__sudo() {
+  CMD="${1:-echo}" && shift 1
+  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+  [ "$(basename -- "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+  if __sudoif; then
+    export PATH="$PATH"
+    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+    exitCode=$?
+  else
+    printf '%s\n' "This requires root to run"
+    exitCode=1
+  fi
+  return ${exitCode:-1}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __api_list() {
   local api_user="$(basename -- "$DOCKERMGR_GIT_REPO" | sed 's|/||g' | grep '^' || echo 'dockermgr')"
   local api_url="https://api.github.com/orgs/$api_user/repos?per_page=1000"
-  am_i_online && curl -q -LSs "$api_url" | jq -r '.[].name' | __jq_exclude | sort -u ||
+  if __am_i_online; then
+    curl -q -LSs "$api_url" | jq -r '.[].name' | __jq_exclude | sort -u
+  else
     __list_available
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gen_config() {
@@ -162,9 +241,86 @@ __download_src_custom_api() { curl -q -LSsf "https://api.github.com/orgs/$1/repo
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_releases_github() { curl -q -LSsf "https://api.github.com/repos/$1/releases/latest" 2>/dev/null | jq -r '.assets|.[]|.browser_download_url' 2>/dev/null || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_version_github() { curl -q -LSsf "https://api.github.com/repos/$1/releases/latest" 2>/dev/null | jq -r '.tag_name' 2>/dev/null || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_releases_google() { curl -q -LSsf "https://storage.googleapis.com/$1/releases/latest/$2" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__minikube_delete() { unbuffer minikube delete -p "${@:-minikube}" | printf_readline || return 1; }
+__minikube_cmd() {
+  cmd_exists minikube || printf_exit "minikube is not installed"
+  local cmd="$1"
+  shift 1
+
+  case "$cmd" in
+  delete)
+    unbuffer minikube delete -p "${1:-minikube}" | printf_readline
+    ;;
+  start)
+    if minikube status &>/dev/null; then
+      printf_green "Minikube is already running"
+    else
+      printf_cyan "Starting minikube cluster..."
+      unbuffer minikube start "$@" | printf_readline
+    fi
+    ;;
+  stop)
+    if minikube status &>/dev/null; then
+      printf_cyan "Stopping minikube cluster..."
+      unbuffer minikube stop | printf_readline
+    else
+      printf_yellow "Minikube is not running"
+    fi
+    ;;
+  status)
+    unbuffer minikube status | printf_readline
+    ;;
+  ip)
+    local ip="$(minikube ip 2>/dev/null)"
+    if [ -n "$ip" ]; then
+      printf_green "Minikube IP: $ip"
+    else
+      printf_red "Minikube is not running or IP not available"
+      return 1
+    fi
+    ;;
+  ssh)
+    if minikube status &>/dev/null; then
+      printf_cyan "Connecting to minikube via SSH..."
+      minikube ssh "$@"
+    else
+      printf_red "Minikube is not running"
+      return 1
+    fi
+    ;;
+  addons)
+    if [ "$1" = "enable" ]; then
+      shift 1
+      printf_cyan "Enabling addon: $1"
+      unbuffer minikube addons enable "$1" | printf_readline
+    elif [ "$1" = "disable" ]; then
+      shift 1
+      printf_cyan "Disabling addon: $1"
+      unbuffer minikube addons disable "$1" | printf_readline
+    else
+      printf_cyan "Available addons:"
+      unbuffer minikube addons list | printf_readline
+    fi
+    ;;
+  kubectl)
+    if minikube status &>/dev/null; then
+      unbuffer minikube kubectl -- "$@" | printf_readline
+    else
+      printf_red "Minikube is not running"
+      return 1
+    fi
+    ;;
+  logs)
+    unbuffer minikube logs "$@" | printf_readline
+    ;;
+  *)
+    unbuffer minikube "$cmd" "$@" | printf_readline
+    ;;
+  esac
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __container_exists() { docker ps -a -q -f name=^$1$ | grep '^' || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -173,8 +329,27 @@ __container_is_running() { __docker ps -a -q -f status=running -f name=^/$1$ | g
 __swap_status() { swapon -s 2>&1 | grep -v 'Filename.*   Type' | grep -q "$1" && echo 'enabled' || false; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __grep_is_dotted() { grep -q '[a-zA-Z0-9]\.[a-zA-Z0-9][a-zA-Z0-9]' || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __container_name() { docker ps -a 2>&1 | grep -v '   NAMES$' | grep -Ew ''$1'|'$1'-*' | awk '{print $NF}' | grep '^' || return 1; }
-__docker_manifest_log() { [ $1 -eq 0 ] && rm -Rf "$DOCKERMGR_LOG_DIR/$2.log" || { [ -f "$DOCKERMGR_LOG_DIR/$2.log" ] && cat "$DOCKERMGR_LOG_DIR/$2.log" | printf_readline && false; } || exit 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__docker_manifest_log() {
+  if [ $1 -eq 0 ]; then
+    rm -Rf "$DOCKERMGR_LOG_DIR/$2.log"
+  else
+    if [ -f "$DOCKERMGR_LOG_DIR/$2.log" ]; then
+      cat "$DOCKERMGR_LOG_DIR/$2.log" | printf_readline
+      return 1
+    else
+      exit 1
+    fi
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__upload_to_docker_hub() {
+  local update_response
+  update_response="$(curl -s -H "Authorization: JWT $token" -H "Content-Type: application/json" -X PATCH -d "{\"description\": \"${DOCKERHUB_DESCRIPTION:-Container image for $DOCKERHUB_REPO_NAME}\", \"full_description\": $1}" "https://hub.docker.com/v2/repositories/$DOCKERHUB_REPO_PREFIX/$DOCKERHUB_REPO_NAME/")"
+  echo "$update_response" | jq -e '.name' >/dev/null 2>&1 || return 1
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __server_status() {
   local url="$1"
@@ -194,18 +369,108 @@ __server_status() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Repository management functions
+__check_repo_exists() {
+  local repo_name="$1"
+  local repo_files="/etc/yum.repos.d/*.repo /etc/apt/sources.list /etc/apt/sources.list.d/*.list"
+
+  # Check if repo already exists in any repo file
+  for repo_file in $repo_files; do
+    [ -f "$repo_file" ] || continue
+    if grep -q "$repo_name" "$repo_file" 2>/dev/null; then
+      return 0
+    fi
+  done
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__add_docker_repo() {
+  local distro="$1"
+  local repo_exists=false
+
+  # Check if Docker repo already exists
+  if __check_repo_exists "docker.com"; then
+    printf_yellow "Docker repository already configured"
+    return 0
+  fi
+
+  case "$distro" in
+  ubuntu | debian)
+    # Add Docker's official GPG key
+    sudo mkdir -p /etc/apt/keyrings
+    if ! [ -f /etc/apt/keyrings/docker.gpg ]; then
+      curl -fsSL https://download.docker.com/linux/$distro/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+      sudo chmod a+r /etc/apt/keyrings/docker.gpg
+    fi
+
+    # Add repository
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/$distro $(lsb_release -cs) stable" |
+      sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
+    sudo apt-get update -qq
+    ;;
+  centos | rhel | fedora | rocky | almalinux)
+    # Add Docker CE repository
+    if [ ! -f "/etc/yum.repos.d/docker-ce.repo" ]; then
+      local repo_url=""
+      case "$distro" in
+      fedora) repo_url="https://download.docker.com/linux/fedora/docker-ce.repo" ;;
+      *) repo_url="https://download.docker.com/linux/centos/docker-ce.repo" ;;
+      esac
+      sudo curl -fsSL "$repo_url" -o /etc/yum.repos.d/docker-ce.repo
+    fi
+    ;;
+  arch)
+    # Arch uses official repos, no additional repo needed
+    return 0
+    ;;
+  *)
+    printf_red "Unsupported distribution: $distro"
+    return 1
+    ;;
+  esac
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__detect_distro() {
+  if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    echo "${ID:-unknown}"
+  elif [ -f /etc/redhat-release ]; then
+    echo "centos"
+  elif [ -f /etc/debian_version ]; then
+    echo "debian"
+  else
+    echo "unknown"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_arch() {
   local uname="$(uname -s)"
   local arch="$(uname -m)"
-  { [[ "$arch" = i386* ]] && osarch="i386"; } ||
-    { [[ "$arch" = i686* ]] && osarch="i386"; } ||
-    { [ "$arch" = "x86_64" ] && osarch="amd64"; } ||
-    { [ "$arch" = "aarch64" ] && osarch="arm64"; } ||
-    { [ "$arch" = "armv7l" ] && osarch="arm"; }
-  { [ "$uname" == "Linux" ] && osname="linux"; } ||
-    { [ "$uname" == "Darwin" ] && osname="darwin"; } ||
-    { [[ "$uname" = CYGWIN* || "$uname" = MINGW* || "$uname" = MSYS* ]] && osname="windows"; }
-  [ -n "$arch" ] && [ -n "$osname" ] && export arch osname || return 1
+  if [[ "$arch" = i386* ]]; then
+    osarch="i386"
+  elif [[ "$arch" = i686* ]]; then
+    osarch="i386"
+  elif [ "$arch" = "x86_64" ]; then
+    osarch="amd64"
+  elif [ "$arch" = "aarch64" ]; then
+    osarch="arm64"
+  elif [ "$arch" = "armv7l" ]; then
+    osarch="arm"
+  fi
+
+  if [ "$uname" = "Linux" ]; then
+    osname="linux"
+  elif [ "$uname" = "Darwin" ]; then
+    osname="darwin"
+  elif [[ "$uname" = CYGWIN* || "$uname" = MINGW* || "$uname" = MSYS* ]]; then
+    osname="windows"
+  fi
+  if [ -n "$arch" ] && [ -n "$osname" ]; then
+    export arch osname
+  else
+    return 1
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __update_repo_info() {
@@ -337,12 +602,54 @@ __create_manifest() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_readme() {
+  local readme_file="${PWD}/README.md"
+  local project_name="$(basename "$PWD")"
+  local docker_image="${DOCKERMGR_REPO_NAME:-$project_name}"
+  [ -f "$readme_file" ] && return
+  # Try to use gen-readme if available
+  if __cmd_exists gen-readme; then
+    printf_cyan "Generating README using gen-readme"
+    gen-readme default 2>/dev/null && README_NEW_FILE="$PWD/README.md" && return 0
+  fi
 
-  return 1
+  # Fallback to creating a basic Docker README
+  printf_cyan "Creating basic Docker README for $project_name"
+  cat >"$readme_file" <<EOF
+# $project_name
+
+Docker container for $project_name
+
+## Usage
+
+\`\`\`bash
+docker pull $docker_image
+docker run -d --name $project_name $docker_image
+\`\`\`
+
+## Building
+
+\`\`\`bash
+docker build -t $docker_image .
+\`\`\`
+
+## License
+
+This project is licensed under the WTFPL License - see the LICENSE file for details.
+EOF
+
+  if [ -f "$readme_file" ]; then
+    README_NEW_FILE="$readme_file"
+    printf_green "Created README at $readme_file"
+    return 0
+  else
+    printf_red "Failed to create README file"
+    return 1
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __upload_readme_to_hub() {
-  [ "${1:-}" = "generate" ] && shift 1 && __create_readme && README_NEW_FILE="" || FILE=""
+  __cmd_exists jq || printf_exit "jq is required for Docker Hub API operations"
+  [ "${1:-}" = "generate" ] && shift 1 && __create_readme || FILE=""
   [ -f "$1" ] && DOCKERHUB_README="$(realpath "$1")" && shift 1 || DOCKERHUB_README="${README_NEW_FILE:-$PWD/README.md}"
   if echo "$1" | grep -q '.*/[A-Za-z0-9]'; then
     DOCKERHUB_REPO_PREFIX="$(echo "$1" | awk -F'/' '{print $1}')"
@@ -370,22 +677,32 @@ __upload_readme_to_hub() {
   [ -f "$DOCKERMGR_CONFIG_DIR/.${AUTH_NAME}_hub_password" ] || echo "$DOCKERHUB_PASSWORD" >"$DOCKERMGR_CONFIG_DIR/.${AUTH_NAME}_hub_password"
   chmod 600 "$DOCKERMGR_CONFIG_DIR/.${AUTH_NAME}_hub_username" "$DOCKERMGR_CONFIG_DIR/.${AUTH_NAME}_hub_password"
   __api_test "$DOCKERHUB_REPO_PREFIX/$DOCKERHUB_REPO_NAME" || printf_exit 2 6 "$DOCKERMGR_HUB_URL/r/$DOCKERHUB_REPO_PREFIX/$DOCKERHUB_REPO_NAME does not seem to exist"
-  printf_cyan "Pulling image from casjaysdevdocker/readme-to-dockerhub"
-  $DOCKERMGR_DOCKER_BIN pull casjaysdevdocker/readme-to-dockerhub &>/dev/null
+
+  # Get Docker Hub authentication token
+  printf_cyan "Authenticating with Docker Hub"
+  local token
+  token="$(__api_auth_token "$DOCKERHUB_USERNAME" "$DOCKERHUB_PASSWORD")"
+  if [ -z "$token" ]; then
+    printf_red "Failed to authenticate with Docker Hub"
+    return 1
+  fi
+
+  # Read README content and escape for JSON
+  readme_content="$(cat "$DOCKERHUB_README" | jq -R -s -c '.')"
+  if [ -z "$readme_content" ] || [ "$readme_content" = "null" ]; then
+    printf_red "Failed to read README content from $DOCKERHUB_README"
+    return 1
+  fi
+
+  # Update repository description and README
   printf_cyan "Uploading $DOCKERHUB_README to $DOCKERHUB_REPO_PREFIX/$DOCKERHUB_REPO_NAME"
-  $DOCKERMGR_DOCKER_BIN run --rm --name dockermgr-readme \
-    -e DOCKERHUB_USERNAME="${DOCKERHUB_USERNAME}" \
-    -e DOCKERHUB_PASSWORD="${DOCKERHUB_PASSWORD}" \
-    -e DOCKERHUB_REPO_NAME="$DOCKERHUB_REPO_NAME" \
-    -e DOCKERHUB_REPO_PREFIX="$DOCKERHUB_REPO_PREFIX" \
-    -e SHORT_DESCRIPTION="${DOCKERHUB_DESCRIPTION:-Container image for $DOCKERHUB_REPO_NAME}" \
-    -v $DOCKERHUB_README:/data/README.md:ro \
-    casjaysdevdocker/readme-to-dockerhub 1>/dev/null || false
-  if [ $? = 0 ]; then
+  # Check if update was successful
+  if __upload_to_docker_hub "$readme_content"; then
     printf_green "Updated the readme on https://hub.docker.com/r/$DOCKERHUB_REPO_PREFIX/$DOCKERHUB_REPO_NAME"
     return 0
   else
-    printf_red "Failed to updated the readme on https://hub.docker.com/r/$DOCKERHUB_REPO_PREFIX/$DOCKERHUB_REPO_NAME"
+    printf_red "Failed to update the readme on https://hub.docker.com/r/$DOCKERHUB_REPO_PREFIX/$DOCKERHUB_REPO_NAME"
+    printf_red "API Response: $update_response"
     return 1
   fi
 }
@@ -626,46 +943,51 @@ __docker_service() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __init() {
   local docker_proxy_name=dockerproxy
-  { [ "$DOCKERMGR_FORCE_INSTALL" != "true" ] && cmd_exists docker; } || DOCKERMGR_FORCE_INSTALL="false"
   am_i_online --error -m "Can not setup docker: No internet" || exit 1
-  sudo -HE -n true &>/dev/null && sudo -HE true || printf_exit 1 1 "This script requires root privileges"
-  if [ "$DOCKERMGR_FORCE_INSTALL" = "true" ]; then
-    printf_cyan "docker seems to be installed: add --force to reinitialize"
-    return 0
-  elif [ "$DOCKERMGR_FORCE_INSTALL" = "false" ]; then
-    printf_newline
-    cmd_exists docker || ask_yes_no_question --off "Docker is not installed: would you like to install it?" true || return 1
-    printf_green "Installing docker and setting up systemd"
-    printf_green "This will take a few minutes"
-    if cmd_exists pacman; then
-      sudo -HE pacman -Syy --noconfirm docker &>/dev/null
-    elif cmd_exists dnf || cmd_exists yum; then
-      __dnf_yum="$(type -P dnf || type -P yum || false)"
-      if [ ! -f "/etc/yum.repos.d/casjay.repo" ]; then
-        curl -q -LSsf "https://download.docker.com/linux/centos/docker-ce.repo" | sudo tee -p "/etc/yum.repos.d/docker-ce.repo" &>/dev/null
-      fi
-      sudo $__dnf_yum update -y -q &>/dev/null
-      sudo $__dnf_yum remove -y -q podman buildah &>/dev/null
-      sudo $__dnf_yum install -y -q docker-ce docker-ce-cli containerd.io &>/dev/null
-      sudo systemctl enable docker.service --now &>/dev/null
-    elif cmd_exists apk; then
-      apk add docker docker-cli-compose docker-cli-buildx &>/dev/null
-    else
-      if curl -q -LSsfk --connect-timeout 3 --retry 1 "$DOCKERMGR_INSTALL_SCRIPT" >"$DOCKERMGR_INSTALL_TMP"; then
-        chmod 755 "$DOCKERMGR_INSTALL_TMP"
-        sudo -HE bash -c "$DOCKERMGR_INSTALL_TMP" 2>&1 | tee -p "$DOCKERMGR_TEMP_FILE" &>/dev/null
-        if grep -Eqi 'E: The repository|ERROR: Unsupported' "$DOCKERMGR_TEMP_FILE" 2>/dev/null; then
-          printf_red "Distro not supported please do a manual install"
-          printf_red "https://github.com/dockermgr/community/wiki"
-          printf_red "https://docs.docker.com/engine/install/"
-          exit 1
-        fi
-      else
-        printf_exit "Failed to download the script from $DOCKERMGR_INSTALL_SCRIPT"
-      fi
-    fi
+  if ! { sudo -HE -n true &>/dev/null && sudo -HE true; }; then
+    printf_exit 1 1 "This script requires root privileges"
   fi
-  if cmd_exists docker; then
+
+  # Check if Docker is already installed and we're not forcing reinstall
+  if [ "$DOCKERMGR_FORCE_INSTALL" != "true" ] && __cmd_exists docker; then
+    printf_cyan "Docker is already installed. Use --force to reinstall"
+    return 0
+  fi
+
+  # Ask user if they want to install Docker
+  printf_newline
+  __cmd_exists docker || ask_yes_no_question --off "Docker is not installed: would you like to install it?" "echo 'Installing Docker...'" || return 1
+  printf_green "Installing docker and setting up systemd"
+  printf_green "This will take a few minutes"
+  if __cmd_exists pacman; then
+    sudo -HE pacman -Syy --noconfirm docker docker-buildx docker-compose &>/dev/null
+  elif __cmd_exists apt-get; then
+    local distro="$(__detect_distro)"
+    printf_cyan "Installing Docker for $distro using package manager"
+    __add_docker_repo "$distro" || return 1
+    sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin 2>&1 | sudo tee "$DOCKERMGR_LOG_DIR/docker-install.log" >/dev/null
+    sudo systemctl enable docker.service --now &>/dev/null
+  elif __cmd_exists dnf || __cmd_exists yum; then
+    local distro="$(__detect_distro)"
+    local __dnf_yum="$(type -P dnf || type -P yum || false)"
+    printf_cyan "Installing Docker for $distro using package manager"
+    __add_docker_repo "$distro" || return 1
+    sudo $__dnf_yum remove -y -q podman buildah &>/dev/null || true
+    sudo $__dnf_yum install -y -q docker-ce docker-ce-cli containerd.io docker-compose-plugin 2>&1 | sudo tee "$DOCKERMGR_LOG_DIR/docker-install.log" >/dev/null
+    sudo systemctl enable docker.service --now &>/dev/null
+  elif __cmd_exists apk; then
+    printf_cyan "Installing Docker for Alpine using package manager"
+    sudo apk update &>/dev/null
+    sudo apk add docker docker-cli-compose docker-cli-buildx 2>&1 | sudo tee "$DOCKERMGR_LOG_DIR/docker-install.log" >/dev/null
+    sudo rc-update add docker default &>/dev/null
+    sudo service docker start &>/dev/null
+  else
+    printf_red "Unsupported distribution for automatic Docker installation"
+    printf_yellow "Please install Docker manually:"
+    printf_cyan "https://docs.docker.com/engine/install/"
+    return 1
+  fi
+  if __cmd_exists docker; then
     printf_green "Docker has been installed."
     if ! grep -qs '^docker' /etc/group; then
       sudo groupadd --system --force docker
@@ -736,7 +1058,7 @@ EOF
   systemctl daemon-reload
   systemctl enable --now docker
   systemctl restart docker
-  if systemctl is-active docker grep -q 'running$' 2>&1; then
+  if systemctl is-active docker | grep -q 'active' 2>&1; then
     printf_cyan "Docker service has been updated"
     return 0
   else
@@ -759,34 +1081,414 @@ __init_help() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __k3b() {
-  __execute "curl -q -LSsf $DOCKERMGR_K3B_INSTALL_SCRIPT | sudo -HE bash -" "Installing k3b please wait....."
-  if cmd_exists k3s; then
-    k3s kubectl get node &>/dev/null
-    sudo -HE k3s server &>/dev/null &
-    printf_green "Kubernetes has been installed"
-    exitCode=0
+  local exitCode=0
+  local k3s_version="${1:-latest}"
+
+  if __cmd_exists k3s; then
+    printf_green "k3s is already installed"
+    return 0
+  fi
+
+  printf_cyan "Installing k3s (k3b) binary for $(uname -m) architecture"
+  __get_arch
+
+  # Get download URL based on architecture
+  case "$osarch" in
+  amd64)
+    local download_url="$(__get_releases_github "k3s-io/k3s" | grep "/k3s$")"
+    ;;
+  arm64)
+    local download_url="$(__get_releases_github "k3s-io/k3s" | grep "/k3s-arm64$")"
+    ;;
+  arm)
+    local download_url="$(__get_releases_github "k3s-io/k3s" | grep "/k3s-armhf$")"
+    ;;
+  *)
+    printf_red "Unsupported architecture: $osarch"
+    return 1
+    ;;
+  esac
+
+  if [ -z "$download_url" ]; then
+    printf_red "Failed to get k3s download URL for $osarch architecture"
+    return 1
+  fi
+
+  # Download and install k3s binary
+  local temp_file="/tmp/k3s-binary"
+
+  if curl -q -LSsf "$download_url" -o "$temp_file"; then
+    if sudo mv "$temp_file" "/usr/local/bin/k3s"; then
+      sudo chmod +x "/usr/local/bin/k3s"
+
+      if __cmd_exists k3s; then
+        printf_green "k3s binary has been installed successfully"
+
+        # Create systemd service file
+        sudo mkdir -p /etc/systemd/system
+        cat <<'EOF' | sudo tee /etc/systemd/system/k3s.service >/dev/null
+[Unit]
+Description=Lightweight Kubernetes
+Documentation=https://k3s.io
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=exec
+EnvironmentFile=-/etc/default/%N
+EnvironmentFile=-/etc/sysconfig/%N
+EnvironmentFile=-/usr/local/lib/systemd/system/%N.env
+KillMode=process
+Delegate=yes
+LimitNOFILE=1048576
+LimitNPROC=infinity
+LimitCORE=infinity
+TasksMax=infinity
+TimeoutStartSec=0
+Restart=always
+RestartSec=5s
+ExecStartPre=/bin/sh -xc '! /usr/bin/systemctl is-enabled --quiet nm-cloud-setup.service'
+ExecStartPre=-/sbin/modprobe br_netfilter
+ExecStartPre=-/sbin/modprobe overlay
+ExecStart=/usr/local/bin/k3s server --write-kubeconfig-mode 644
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+        sudo systemctl daemon-reload
+        printf_cyan "k3s service created. Use 'sudo systemctl start k3s' to start the service"
+        exitCode=0
+      else
+        printf_red "k3s installation completed but binary not found"
+        exitCode=1
+      fi
+    else
+      printf_red "Failed to move k3s binary to /usr/local/bin"
+      rm -f "$temp_file"
+      exitCode=1
+    fi
   else
-    printf_red "Kubernetes install has failed"
+    printf_red "Failed to download k3s from: $download_url"
     exitCode=1
   fi
-  return ${exitCode:-0}
+
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__k3b_cmd() {
+  local cmd="$1"
+  shift 1
+
+  case "$cmd" in
+  install | setup)
+    __k3b "$@"
+    ;;
+  start)
+    if __k3b_status >/dev/null 2>&1; then
+      printf_green "k3s is already running"
+    else
+      printf_cyan "Starting k3s service..."
+      if sudo systemctl start k3s; then
+        printf_green "k3s started successfully"
+        sleep 5
+        __k3b_status
+      else
+        printf_red "Failed to start k3s"
+        return 1
+      fi
+    fi
+    ;;
+  stop)
+    if __k3b_status >/dev/null 2>&1; then
+      printf_cyan "Stopping k3s service..."
+      if sudo systemctl stop k3s; then
+        printf_green "k3s stopped successfully"
+      else
+        printf_red "Failed to stop k3s"
+        return 1
+      fi
+    else
+      printf_yellow "k3s is not running"
+    fi
+    ;;
+  restart)
+    printf_cyan "Restarting k3s service..."
+    if sudo systemctl restart k3s; then
+      printf_green "k3s restarted successfully"
+      sleep 5
+      __k3b_status
+    else
+      printf_red "Failed to restart k3s"
+      return 1
+    fi
+    ;;
+  status)
+    __k3b_status
+    ;;
+  enable)
+    printf_cyan "Enabling k3s service..."
+    if sudo systemctl enable k3s; then
+      printf_green "k3s service enabled"
+    else
+      printf_red "Failed to enable k3s service"
+      return 1
+    fi
+    ;;
+  disable)
+    printf_cyan "Disabling k3s service..."
+    if sudo systemctl disable k3s; then
+      printf_green "k3s service disabled"
+    else
+      printf_red "Failed to disable k3s service"
+      return 1
+    fi
+    ;;
+  logs)
+    printf_cyan "k3s service logs:"
+    sudo journalctl -u k3s -f "$@"
+    ;;
+  kubectl)
+    if __k3b_status >/dev/null 2>&1; then
+      k3s kubectl "$@"
+    else
+      printf_red "k3s is not running"
+      return 1
+    fi
+    ;;
+  node | nodes)
+    if __k3b_status >/dev/null 2>&1; then
+      printf_cyan "k3s nodes:"
+      k3s kubectl get nodes -o wide
+    else
+      printf_red "k3s is not running"
+      return 1
+    fi
+    ;;
+  pods)
+    if __k3b_status >/dev/null 2>&1; then
+      printf_cyan "k3s pods:"
+      k3s kubectl get pods -A
+    else
+      printf_red "k3s is not running"
+      return 1
+    fi
+    ;;
+  services)
+    if __k3b_status >/dev/null 2>&1; then
+      printf_cyan "k3s services:"
+      k3s kubectl get services -A
+    else
+      printf_red "k3s is not running"
+      return 1
+    fi
+    ;;
+  config)
+    if __k3b_status >/dev/null 2>&1; then
+      printf_cyan "k3s kubeconfig location: /etc/rancher/k3s/k3s.yaml"
+      printf_cyan "To use kubectl directly:"
+      printf_yellow "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml"
+    else
+      printf_red "k3s is not running"
+      return 1
+    fi
+    ;;
+  uninstall | remove)
+    printf_cyan "Uninstalling k3s..."
+    if [ -f "/usr/local/bin/k3s-uninstall.sh" ]; then
+      sudo /usr/local/bin/k3s-uninstall.sh
+    else
+      sudo systemctl stop k3s 2>/dev/null
+      sudo systemctl disable k3s 2>/dev/null
+      sudo rm -f /etc/systemd/system/k3s.service
+      sudo rm -f /usr/local/bin/k3s
+      sudo rm -rf /etc/rancher/k3s
+      sudo rm -rf /var/lib/rancher/k3s
+      sudo systemctl daemon-reload
+      printf_green "k3s uninstalled"
+    fi
+    ;;
+  *)
+    if __cmd_exists k3s; then
+      k3s "$cmd" "$@"
+    else
+      printf_red "Unknown k3s command: $cmd"
+      printf_cyan "Available commands: install, start, stop, restart, status, enable, disable, logs, kubectl, nodes, pods, services, config, uninstall"
+      return 1
+    fi
+    ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__k3b_status() {
+  if ! __cmd_exists k3s; then
+    printf_red "k3s is not installed"
+    return 1
+  fi
+
+  local status
+  status="$(sudo systemctl is-active k3s 2>/dev/null)"
+
+  case "$status" in
+  active)
+    printf_green "k3s is running"
+    if k3s kubectl get nodes &>/dev/null; then
+      printf_green "k3s cluster is ready"
+      printf_cyan "Nodes:"
+      k3s kubectl get nodes 2>/dev/null | head -10
+    else
+      printf_yellow "k3s is starting up..."
+    fi
+    return 0
+    ;;
+  inactive)
+    printf_yellow "k3s is stopped"
+    return 1
+    ;;
+  failed)
+    printf_red "k3s service failed"
+    printf_cyan "Check logs with: dockermgr k3b logs"
+    return 1
+    ;;
+  *)
+    printf_red "k3s status unknown: $status"
+    return 1
+    ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__k3b_init() {
+  local exitCode=0
+
+  # First install k3s if not present
+  if ! __cmd_exists k3s; then
+    printf_cyan "Installing k3s..."
+    __k3b "$@" || return 1
+  fi
+
+  # Enable and start the service
+  printf_cyan "Initializing k3s cluster..."
+  if sudo systemctl enable k3s; then
+    printf_green "k3s service enabled"
+  else
+    printf_red "Failed to enable k3s service"
+    return 1
+  fi
+
+  if sudo systemctl start k3s; then
+    printf_green "k3s service started"
+  else
+    printf_red "Failed to start k3s service"
+    return 1
+  fi
+
+  # Wait for k3s to be ready
+  printf_cyan "Waiting for k3s to be ready..."
+  local attempts=0
+  local max_attempts=30
+
+  while [ $attempts -lt $max_attempts ]; do
+    if k3s kubectl get nodes &>/dev/null; then
+      printf_green "k3s cluster is ready!"
+      break
+    fi
+    printf "."
+    sleep 2
+    attempts=$((attempts + 1))
+  done
+
+  if [ $attempts -eq $max_attempts ]; then
+    printf_red "\nTimeout waiting for k3s to be ready"
+    return 1
+  fi
+
+  printf "\n"
+  printf_green "k3s initialization complete!"
+  printf_cyan "Cluster information:"
+  __k3b_status
+
+  printf_cyan "\nTo use kubectl directly:"
+  printf_yellow "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml"
+
+  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __install_helm() {
-  curl -q -LSsf "https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3" | bash &>/dev/null
-  if cmd_exists helm; then
-    printf_green "Helm has been installed"
-    helm completion bash | sudo -HE tee "/etc/bash_completion.d/helm" &>/dev/null
-    exitCode=0
+  local exitCode=0
+  local helm_version="${1:-latest}"
+
+  if __cmd_exists helm; then
+    printf_green "Helm is already installed"
+    return 0
+  fi
+
+  printf_cyan "Installing Helm for $(uname -m) architecture"
+  __get_arch
+
+  # Get latest version from GitHub API
+  local helm_version
+  helm_version="$(__get_version_github "helm/helm")"
+  if [ -z "$helm_version" ]; then
+    printf_red "Failed to get latest Helm version"
+    return 1
+  fi
+
+  # Set architecture-specific download URL (Helm binaries are hosted on get.helm.sh)
+  case "$osarch" in
+  amd64)
+    local download_url="https://get.helm.sh/helm-${helm_version}-${osname}-amd64.tar.gz"
+    ;;
+  arm64)
+    local download_url="https://get.helm.sh/helm-${helm_version}-${osname}-arm64.tar.gz"
+    ;;
+  arm)
+    local download_url="https://get.helm.sh/helm-${helm_version}-${osname}-arm.tar.gz"
+    ;;
+  *)
+    printf_red "Unsupported architecture: $osarch"
+    return 1
+    ;;
+  esac
+
+  # Download and install Helm
+  local temp_dir="/tmp/helm-install"
+  local temp_file="/tmp/helm.tar.gz"
+
+  if curl -q -LSsf "$download_url" -o "$temp_file"; then
+    mkdir -p "$temp_dir"
+    if tar -xzf "$temp_file" -C "$temp_dir" --strip-components=1; then
+      if sudo mv "$temp_dir/helm" "/usr/local/bin/helm"; then
+        sudo chmod +x "/usr/local/bin/helm"
+        rm -rf "$temp_dir" "$temp_file"
+
+        if __cmd_exists helm; then
+          printf_green "Helm has been installed successfully"
+          helm completion bash | sudo -HE tee "/etc/bash_completion.d/helm" &>/dev/null
+          exitCode=0
+        else
+          printf_red "Helm installation completed but binary not found"
+          exitCode=1
+        fi
+      else
+        printf_red "Failed to move helm binary to /usr/local/bin"
+        rm -rf "$temp_dir" "$temp_file"
+        exitCode=1
+      fi
+    else
+      printf_red "Failed to extract Helm archive"
+      rm -rf "$temp_dir" "$temp_file"
+      exitCode=1
+    fi
   else
-    printf_red "Helm install has failed"
+    printf_red "Failed to download Helm from: $download_url"
     exitCode=1
   fi
-  return ${exitCode:-0}
+
+  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __minikube() {
-  cmd_exists minikube || __minikube_init
+  __cmd_exists minikube || __minikube_init
   unbuffer minikube "$@" | printf_readline
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -814,7 +1516,7 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __minikube_init() {
-  cmd_exists docker || printf_exit "Docker is not installed"
+  __cmd_exists docker || printf_exit "Docker is not installed"
   printf_blue "Setting up minikube please wait....."
   __get_arch
   local driver="${1:-}"
@@ -836,7 +1538,7 @@ __minikube_init() {
   [ -n "$uname" ] || printf_exit "minikube is not supported on $uname"
   printf_purple "Downloading minikube for $osname [$osarch]"
   if __minikube_curl $osname-$osarch; then
-    if cmd_exists minikube; then
+    if __cmd_exists minikube; then
       unalias kubectl &>/dev/null
       printf_green "Minikube has been installed"
       [ -d "/etc/bash_completion.d" ] || mkdir -p "/etc/bash_completion.d"
@@ -865,7 +1567,7 @@ __minikube_init() {
       exitCode=$?
     else
       printf_red "Minikube install has failed"
-      __minikube_delete
+      __minikube_cmd delete
       return 1
     fi
   else
@@ -879,10 +1581,7 @@ __minikube_curl() {
   [ -n "$releases" ] && __get_releases_google "minikube" "minikube-$1" -o "/tmp/minikube" &>/dev/null
   if [ $? -eq 0 ]; then
     [ -f "/tmp/minikube" ] &&
-      { sudo -HE mv -f "/tmp/minikube" "/usr/local/bin/minikube" &&
-        chmod +x "/usr/local/bin/minikube" || false; } ||
-      { mv -f "/tmp/minikube" "$HOME/.local/bin/minikube" &&
-        chmod +x "/usr/local/bin/minikube" || false; }
+      { sudo -HE mv -f "/tmp/minikube" "/usr/local/bin/minikube" && chmod +x "/usr/local/bin/minikube" || false; } || { mv -f "/tmp/minikube" "$HOME/.local/bin/minikube" && chmod +x "/usr/local/bin/minikube" || false; }
     return $?
   else
     return 1
@@ -1051,7 +1750,7 @@ installer_delete() {
         done
       fi
       if [ -d "$APPDIR" ] || [ -d "$INSTDIR" ] || [ -d "$DATADIR" ] || [ -f "$SHAREDIR" ]; then
-        exitCode=$((exitCode++))
+        exitCode=$((exitCode + 1))
         printf_red "There was a problem deleting $APPNAME"
       else
         printf_green "$APPNAME has been removed"
@@ -1208,7 +1907,7 @@ __connect_main() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __install_front() {
-  cmd_exists docker || __init || exit 1
+  __cmd_exists docker || __init || exit 1
   printf_cyan "Installing yacht"
   $DOCKERMGR_DOCKER_BIN rm yacht -f &>/dev/null
   if __install_script yacht &>/dev/null; then
@@ -1298,13 +1997,13 @@ __docker_compose() {
   os="$(uname -s | tr '[:upper:]' '[:lower:]')"
   arch="$(uname -m | tr '[:upper:]' '[:lower:]')"
   release="$(__get_releases_github "docker/compose" | grep "docker-compose-$os-$arch$")"
-  if [ "$1" != "update" ] && cmd_exists docker-compose; then
+  if [ "$1" != "update" ] && __cmd_exists docker-compose; then
     return 0
   elif [ -n "$release" ]; then
     printf_green "Attempting to install docker-compose"
     sudo curl -q -LSsf "https://github.com/docker/compose/releases/download/latest/docker-compose-$os-$arch" -o "/usr/local/bin/docker-compose" 2>/dev/null
     [ -x "$(builtin type -P docker-compose 2>/dev/null)" ] || sudo chmod +x "/usr/local/bin/docker-compose"
-    cmd_exists docker-compose && printf_cyan "docker-compose has been installed" || printf_exit "Failed to download docker-compose"
+    __cmd_exists docker-compose && printf_cyan "docker-compose has been installed" || printf_exit "Failed to download docker-compose"
   else
     printf_exit "Can not get release from: https://github.com/docker/compose/releases/latest"
   fi
@@ -1885,12 +2584,12 @@ __docker_service || [ "$1" = "init" ] || { __notifications "$APPNAME" "Docker is
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
 __cmd_exists bc || DOCKERMGR_CMD_EXISTS_BC="false"
-cmd_exists --error --ask bash || exit 1 # exexpectit 1 if not found
-#am_i_online --error || exit 1                  # exit 1 if no internet
+__cmd_exists bash || exit 1   # exexpectit 1 if not found
+am_i_online --error || exit 1 # exit 1 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
 __cmd_exists expect_unbuffer && unbuffer() { expect_unbuffer "$@"; }
-[ -n "$(type unbuffer)" ] || unbuffer() { printf_exit "The command unbuffered is required: unbuffered or expect or expect-devel/expect-dev"; }
+type unbuffer &>/dev/null || unbuffer() { printf_exit "The command unbuffer is required: install unbuffer or expect package"; }
 __cmd_exists podman && alias docker='podman ' && DOCKERMGR_CLI="podman"
 [ -d "$DOCKERMGR_HOME" ] || mkdir -p "$DOCKERMGR_HOME"
 [ -f "$DOCKERMGR_HOME/env" ] && rm -Rf "$DOCKERMGR_HOME/env"
@@ -2123,7 +2822,7 @@ multiarch)
   shift 1
   printf_yellow "Setting up the qemu image - multiarch/qemu-user-static as qemu-user-static"
   __docker pull multiarch/qemu-user-static &>/dev/null
-  __docker run -rm -d --name "qemu-user-static-multi" --privileged multiarch/qemu-user-static --reset -p yes --credential yes &>/dev/null
+  __docker run --rm -d --name "qemu-user-static-multi" --privileged multiarch/qemu-user-static --reset -p yes --credential yes &>/dev/null
   printf_yellow "Setting up the binfmt image - tonistiigi/binfmt as binfmt-multi"
   __docker pull tonistiigi/binfmt &>/dev/null
   __docker run -d --name "binfmt-multi" --privileged tonistiigi/binfmt --install all &>/dev/null
@@ -2478,16 +3177,18 @@ rancher)
 
 k3b)
   shift 1
-  __k3b
+  if [ "$1" = "init" ] || [ "$1" = "initialize" ]; then
+    shift 1
+    __k3b_init "$@"
+  else
+    __k3b_cmd "$@"
+  fi
   exit $?
   ;;
 
 minikube)
   shift 1
-  if [ "$1" = "delete" ]; then
-    shift 1
-    __minikube_delete "$1"
-  elif [ "$1" = "init" ] || [ "$1" = "install" ] || [ "$1" = "setup" ]; then
+  if [ "$1" = "init" ] || [ "$1" = "install" ] || [ "$1" = "setup" ]; then
     shift 1
     __minikube_init "$@"
   elif [ "$1" = "dashboard" ]; then
@@ -2498,7 +3199,7 @@ minikube)
     shift 1
     __minikube_services
   else
-    __minikube "$@"
+    __minikube_cmd "$@"
   fi
   exit $?
   ;;
@@ -2511,8 +3212,8 @@ helm)
 
 kasm)
   shift 1
-  cmd_exists docker || __init || printf_exit "kasm requires docker"
-  cmd_exists docker-compose || __docker_compose || printf_exit "kasm requires docker-compose"
+  __cmd_exists docker || __init || printf_exit "kasm requires docker"
+  __cmd_exists docker-compose || __docker_compose || printf_exit "kasm requires docker-compose"
   __install_kasm
   exit $?
   ;;
@@ -2689,7 +3390,7 @@ server_status)
 
 *)
   export -f __init
-  if ! cmd_exists docker; then
+  if ! __cmd_exists docker; then
     __init
   elif [ $# -ne 0 ]; then
     __docker "$SETARGS"

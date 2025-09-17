@@ -174,6 +174,28 @@ SCRIPTNAME_CACHE_DIR    # Cache directory
 - Container-based testing environments
 - Registry authentication and management
 
+## Environment Variable Specification
+
+### Repository URLs (Full URLs)
+- **`ENV_GIT_REPO_URL`** - Complete Git repository URL (e.g., `https://github.com/user/repo`)
+- **`ENV_REGISTRY_URL`** - Complete registry URL for reference (NOT used for pushing)
+
+### Push Configuration
+- **`ENV_IMAGE_PUSH`** - Complete push destination (this IS used for pushing)
+  - Format: `{user}/{repo}` (Docker Hub) or `{registry}/{user}/{repo}` (Custom)
+  - Examples: `casjaysdev/myapp` or `ghcr.io/casjaysdev/myapp`
+
+### Tag Management
+- **`ENV_IMAGE_TAG`** - Default tag (e.g., `latest`, `v1.0`)
+- **`ENV_ADD_TAGS`** - Additional tags, comma-separated
+  - Special: `USE_DATE` → automatically adds date as tag
+  - Example: `v1.0,stable,USE_DATE`
+
+### Pull Configuration
+- **`ENV_PULL_URL`** - Source image (same format as ENV_IMAGE_PUSH)
+- **`ENV_DISTRO_TAG`** - Tag for source image
+- **Combined**: `$ENV_PULL_URL:$ENV_DISTRO_TAG` (e.g., `ubuntu:22.04`)
+
 ## File Management Standards
 
 ### Reading Large Files

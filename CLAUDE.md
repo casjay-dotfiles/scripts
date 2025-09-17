@@ -179,6 +179,8 @@ SCRIPTNAME_CACHE_DIR    # Cache directory
 ### Repository URLs (Full URLs)
 - **`ENV_GIT_REPO_URL`** - Complete Git repository URL (e.g., `https://github.com/user/repo`)
 - **`ENV_REGISTRY_URL`** - Complete registry URL for reference (NOT used for pushing)
+  - Default: `https://hub.docker.com` for Docker Hub
+  - Custom: `https://registry.company.com` for private registries
 
 ### Push Configuration
 - **`ENV_IMAGE_PUSH`** - Complete push destination (this IS used for pushing)

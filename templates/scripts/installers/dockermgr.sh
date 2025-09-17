@@ -207,7 +207,7 @@ __ifconfig() { [ -n "$(type -P ifconfig)" ] && eval ifconfig "$*" 2>/dev/null ||
 __docker_net_ls() { docker network ls 2>&1 | grep -v 'NETWORK ID' | awk -F ' ' '{print $2}'; }
 __route() { [ -n "$(type -P ip)" ] && eval ip route 2>/dev/null | grep "${1:-default}" | grep -v '^$' | head -n1 || return 1; }
 __is_private_ip() { grep -E '192\.168\.[0-255]\.[0-255]|10\.[0-255]\.[0-255]\.[0-255]|172\.[10-32]|172\.[10-15]' 2>/dev/null | grep -vE '127\.[0-255]\.[0-255]\.[0-255]|172\.17'; }
-__public_ip() { curl -q -LSsf ${1:--4} "http://ifconfig.co" | grep -v '^$' | head -n1 | grep '^'; }
+__public_ip() { curl -q -LSsf ${1:--4} "http://ifconfig.co" 2>/dev/null | grep -v '^$' | head -n1 | grep '^'; }
 __local_lan_ip() { __ifconfig $SET_LAN_DEV | grep -w 'inet' | awk -F ' ' '{print $2}' | __is_private_ip | head -n1 | grep '^' || ip address show $SET_LAN_DEV 2>&1 | grep 'inet ' | awk -F ' ' '{print $2}' | sed 's|/.*||g' | __is_private_ip | grep -v '^$' | head -n1 | grep '^' || echo "$CURRENT_IP_4" | grep '^' || return 1; }
 __my_default_lan_address() { __ifconfig $SET_LAN_DEV | grep -w 'inet' | awk -F ' ' '{print $2}' | head -n1 | grep '^' || ip address show $SET_LAN_DEV 2>&1 | grep 'inet ' | awk -F ' ' '{print $2}' | sed 's|/.*||g' | grep -v '^$' | head -n1 | grep '^' || echo "$CURRENT_IP_4" | grep '^' || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1389,6 +1389,8 @@ CONTAINER_EMAIL_PORTS=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 DOCKER_SET_OPTIONS_DEFAULT+=("--name=$CONTAINER_NAME")
 DOCKER_SET_OPTIONS_ENV+=("--env CONTAINER_NAME=$CONTAINER_NAME")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+FQDN_VALIDATE="(?=^.{5,254}$)(^(?:(?!\d+\.)[a-zA-Z0-9_\-]{1,63}\.?)+(?:[a-zA-Z]{2,})$)"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup time zone
 if [ -z "$CONTAINER_TIMEZONE" ]; then
@@ -3180,7 +3182,9 @@ if [ "$USER" != "root" ] && [ -n "$USER" ]; then
   __sudo_exec chown -f "$USER":"$USER" "$DATADIR" "$INSTDIR" &>/dev/null
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-if __check_ssl_cert; then __printf_color "5" "Creating certificate for $CONTAINER_HOSTNAME" && __create_cert; fi
+if [[ $CONTAINER_HOSTNAME =~ $FQDN_VALIDATE ]]; then
+  if __check_ssl_cert; then __printf_color "5" "Creating certificate for $CONTAINER_HOSTNAME" && __create_cert; fi
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_uninstall
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

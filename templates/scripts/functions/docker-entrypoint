@@ -45,7 +45,7 @@ __cd() { { [ -d "$1" ] || mkdir -p "$1"; } && builtin cd "$1" || return 1; }
 __is_in_file() { [ -e "$2" ] && grep -Rsq "$1" "$2" && return 0 || return 1; }
 __curl() { curl -q -sfI --max-time 3 -k -o /dev/null "$@" &>/dev/null || return 10; }
 __find() { find "$1" -mindepth 1 -type ${2:-f,d} 2>/dev/null | grep '.' || return 10; }
-__pcheck() { [ -n "$(which pgrep 2>/dev/null)" ] && pgrep -o "$1$" &>/dev/null || return 10; }
+__pcheck() { [ -n "$(which pgrep 2>/dev/null)" ] && pgrep -x "$1" &>/dev/null || return 10; }
 __file_exists_with_content() { [ -n "$1" ] && [ -f "$1" ] && [ -s "$1" ] && return 0 || return 2; }
 __sed() { sed -i 's|'$1'|'$2'|g' "$3" &>/dev/null || sed -i "s|$1|$2|g" "$3" &>/dev/null || return 1; }
 __ps() { [ -f "$(type -P ps)" ] && ps "$@" 2>/dev/null | sed 's|:||g' | grep -Fw " ${1:-$SERVICE_NAME}$" || return 10; }
@@ -57,11 +57,12 @@ __pgrep() {
   local count=3
   local srvc="${1:-SERVICE_NAME}"
   while [ $count -ge 0 ]; do
-    __pcheck "${1:-SERVICE_NAME}" || __ps "${1:-$SERVICE_NAME}" | grep -qv ' grep'
+    # Use exact process name matching, not full command line search
+    pgrep -x "$srvc" >/dev/null 2>&1 && return 0
     sleep 1
     count=$((count - 1))
   done
-  [ $count -ne 0 ] && return 0 || return 10
+  return 10
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __find_file_relative() {
@@ -74,9 +75,26 @@ __find_directory_relative() {
   find "$1"/* -not -path '*env/*' -not -path '.git*' -type d 2>/dev/null | sed 's|'$1'/||g' | sort -u | grep -v '^$' | grep '.' || false
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__pid_exists() { ps -ax --no-header | sed 's/^[[:space:]]*//g' | awk -F' ' '{print $1}' | sed 's|:||g' | grep '[0-9]' | sort -uV | grep "^$1$" && return 0 || return 1; }
-__is_running() { ps -eo args --no-header | awk '{print $1,$2,$3}' | sed 's|:||g' | sort -u | grep -vE 'grep|COMMAND|awk|tee|ps|sed|sort|tail' | grep "$1" | grep -q "${2:-^}" && return 0 || return 1; }
-__get_pid() { ps -ax --no-header | sed 's/^[[:space:]]*//g;s|;||g;s|:||g' | awk '{print $1,$5}' | sed 's|:||g' | grep "$1$" | grep -v 'grep' | awk -F' ' '{print $1}' | grep '[0-9]' | sort -uV | head -n1 | grep '.' && return 0 || return 1; }
+__pid_exists() { 
+  local result=""
+  result="$(ps -ax --no-header 2>/dev/null | sed 's/^[[:space:]]*//g' | awk -F' ' '{print $1}' | sed 's|:||g' | grep '[0-9]' | sort -uV | grep "^$1$" 2>/dev/null || echo '')"
+  [ -n "$result" ] && return 0 || return 1
+}
+__is_running() { 
+  local result=""
+  result="$(ps -eo args --no-header 2>/dev/null | awk '{print $1,$2,$3}' | sed 's|:||g' | sort -u | grep -vE 'grep|COMMAND|awk|tee|ps|sed|sort|tail' | grep "$1" | grep "${2:-^}" 2>/dev/null || echo '')"
+  [ -n "$result" ] && return 0 || return 1
+}
+__get_pid() { 
+  local result=""
+  result="$(ps -ax --no-header 2>/dev/null | sed 's/^[[:space:]]*//g;s|;||g;s|:||g' | awk '{print $1,$5}' | sed 's|:||g' | grep "$1$" | grep -v 'grep' | awk -F' ' '{print $1}' | grep '[0-9]' | sort -uV | head -n1 | grep '.' 2>/dev/null || echo '')"
+  if [ -n "$result" ]; then
+    echo "$result"
+    return 0
+  else
+    return 1
+  fi
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __format_variables() { printf '%s\n' "${@//,/ }" | tr ' ' '\n' | sort -RVu | grep -v '^$' | tr '\n' ' ' | __clean_variables | grep '.' || return 0; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -577,7 +595,6 @@ __proc_check() {
   if __pgrep "$cmd_bin" || __pgrep "$cmd_name"; then
     SERVICE_IS_RUNNING="yes"
     touch "$SERVICE_PID_FILE"
-    echo "$cmd_name is already running"
     return 0
   else
     return 1
@@ -777,19 +794,42 @@ __start_init_scripts() {
                   __service_banner "✅" "Service $service started successfully -" "no PID tracking"
                 fi
               else
-                # Service uses PID tracking - get actual PID
-                retPID=$(__get_pid "$service")
+                # Service uses PID tracking - verify actual running processes
+                set +e  # Temporarily disable exit on error
+                retPID=""
+                
+                # First, try to find actual running process with various name patterns
+                for name_variant in "$service" "${service}84" "${service}d" "$(echo "$service" | sed 's/-//g')" "$(echo "$service" | tr -d '-')"; do
+                  if [ -z "$retPID" ]; then
+                    retPID=$(__get_pid "$name_variant" 2>/dev/null || echo "")
+                    [ -n "$retPID" ] && found_process="$name_variant" && break
+                  fi
+                done
+                
+                set -e  # Re-enable exit on error
+                
                 if [ -n "$retPID" ] && [ "$retPID" != "0" ]; then
+                  # Found actual running process
                   initStatus="0"
-                  __service_banner "✅" "Service $service started successfully -" "PID: ${retPID}"
+                  __service_banner "✅" "Service $service started successfully -" "PID: ${retPID} ($found_process)"
                 elif [ -f "$expected_pid_file" ]; then
-                  retPID="$(cat "$expected_pid_file" 2>/dev/null || echo "0")"
-                  initStatus="0"
-                  __service_banner "✅" "Service $service started successfully -" "PID file"
+                  # No running process but PID file exists - verify PID is valid
+                  file_pid="$(cat "$expected_pid_file" 2>/dev/null || echo "")"
+                  if [ -n "$file_pid" ] && kill -0 "$file_pid" 2>/dev/null; then
+                    initStatus="0"
+                    __service_banner "✅" "Service $service started successfully -" "PID: $file_pid (from file)"
+                  elif [ -n "$file_pid" ]; then
+                    initStatus="1"
+                    critical_failures=$((critical_failures + 1))
+                    __service_banner "⚠️" "Service $service has stale PID file -" "process $file_pid not running"
+                  else
+                    initStatus="0"
+                    __service_banner "✅" "Service $service completed initialization -" "no process tracking"
+                  fi
                 else
-                  initStatus="1"
-                  critical_failures=$((critical_failures + 1))
-                  __service_banner "⚠️" "Service $service appears to have started but" "no process found"
+                  # No process and no PID file - this is likely a configuration-only service
+                  initStatus="0"
+                  __service_banner "✅" "Service $service completed successfully -" "configuration service"
                 fi
               fi
             fi

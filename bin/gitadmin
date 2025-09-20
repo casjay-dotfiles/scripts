@@ -10,7 +10,7 @@
 # @@Created          :  Monday, Aug 08, 2022 23:22 EDT
 # @@File             :  gitadmin
 # @@Description      :  push/clone/pull from github/gitlab/private repo
-# @@Changelog        :  Implemented GitLab create/delete/modify functions, enhanced output formatting
+# @@Changelog        :  Fixed default platform (github), improved Gitea create, better error handling
 # @@TODO             :  Organize this a lot better and split into seperate scripts
 # @@Other            :  Somethings may be broken due to variable changes
 # @@Resource         :
@@ -175,6 +175,7 @@ __gen_config() {
   cat <<EOF >"$GITADMIN_CONFIG_DIR/$GITADMIN_CONFIG_FILE"
 # Settings for gitadmin
 GITADMIN_DEFAULT_USERNAME="${GITADMIN_DEFAULT_USERNAME:-$GITHUB_USERNAME}"
+GITADMIN_DEFAULT_PLATFORM="${GITADMIN_DEFAULT_PLATFORM:-github}"
 GITADMIN_DEFAULT_BRANCH="${GITADMIN_DEFAULT_BRANCH:-main}"
 GITADMIN_DEFAULT_REPO_BASE="${GITADMIN_REPO_URL:-https://github.com}"
 GITADMIN_DEFAULT_README="${GITADMIN_DEFAULT_README:-default}"
@@ -225,7 +226,7 @@ EOF
     . "$GITADMIN_CONFIG_DIR/$GITADMIN_CONFIG_FILE"
     exitCode=0
   else
-    printf_red "Failed to create the config file"
+    printf_red "❌ Failed to create the config file"
     exitCode=1
   fi
   return ${exitCode:-0}
@@ -331,6 +332,9 @@ __help() {
   __printf_line "--single [repoURL]              - clone a single repo "
   __printf_line "--dir [directory]               - Sets the working directory"
   __printf_line "--cd                            - cd into repo upon update/clone"
+  __printf_line "--platform [github|gitlab|gitea] - Set the platform to use"
+  __printf_line "--github|--gitlab|--gitea       - Quick platform selection"
+  __printf_line "--private|--public              - Set repository visibility"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -650,17 +654,16 @@ __universal_repo_modify() {
   local platform="${1:-}"
   local user="${2:-}"
   local repo="${3:-}"
-  shift 3
 
   case "$platform" in
   github)
-    __github_repo_modify "$user" "$repo" "$@"
+    __github_repo_modify "$user" "$repo"
     ;;
   gitlab)
-    __gitlab_repo_modify "$user" "$repo" "$@"
+    __gitlab_repo_modify "$user" "$repo"
     ;;
   gitea | private)
-    __gitea_repo_modify "$user" "$repo" "$@"
+    __gitea_repo_modify "$user" "$repo"
     ;;
   *)
     printf_red "Unknown platform: $platform"
@@ -673,54 +676,22 @@ __universal_repo_modify() {
 __github_repo_modify() {
   local user="$1"
   local repo="$2"
-  shift 2
 
   local url="https://api.github.com/repos/$user/$repo"
   local json_data=""
   local updates=""
 
-  [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
+  [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "🚫 ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
 
-  # Parse modification options
-  while [ $# -gt 0 ]; do
-    case "$1" in
-    --description | --desc)
-      updates="${updates:+$updates,}\"description\":\"$2\""
-      shift 2
-      ;;
-    --homepage | --website)
-      updates="${updates:+$updates,}\"homepage\":\"$2\""
-      shift 2
-      ;;
-    --private)
-      updates="${updates:+$updates,}\"private\":true"
-      shift
-      ;;
-    --public)
-      updates="${updates:+$updates,}\"private\":false"
-      shift
-      ;;
-    --issues)
-      updates="${updates:+$updates,}\"has_issues\":$2"
-      shift 2
-      ;;
-    --wiki)
-      updates="${updates:+$updates,}\"has_wiki\":$2"
-      shift 2
-      ;;
-    --projects)
-      updates="${updates:+$updates,}\"has_projects\":$2"
-      shift 2
-      ;;
-    --default-branch)
-      updates="${updates:+$updates,}\"default_branch\":\"$2\""
-      shift 2
-      ;;
-    *)
-      shift
-      ;;
-    esac
-  done
+  # Build updates from getopt-parsed variables
+  [ -n "$GITADMIN_REPO_DESCRIPTION" ] && updates="${updates:+$updates,}\"description\":\"$GITADMIN_REPO_DESCRIPTION\""
+  [ -n "$GITADMIN_REPO_HOMEPAGE" ] && updates="${updates:+$updates,}\"homepage\":\"$GITADMIN_REPO_HOMEPAGE\""
+  [ "$GITADMIN_REPO_VISIBILITY" = "private" ] && updates="${updates:+$updates,}\"private\":true"
+  [ "$GITADMIN_REPO_VISIBILITY" = "public" ] && updates="${updates:+$updates,}\"private\":false"
+  [ -n "$GITADMIN_REPO_ISSUES" ] && updates="${updates:+$updates,}\"has_issues\":$GITADMIN_REPO_ISSUES"
+  [ -n "$GITADMIN_REPO_WIKI" ] && updates="${updates:+$updates,}\"has_wiki\":$GITADMIN_REPO_WIKI"
+  [ -n "$GITADMIN_REPO_PROJECTS" ] && updates="${updates:+$updates,}\"has_projects\":$GITADMIN_REPO_PROJECTS"
+  [ "$GITADMIN_DEFAULT_BRANCH_SET" = "yes" ] && updates="${updates:+$updates,}\"default_branch\":\"$GITADMIN_DEFAULT_BRANCH\""
 
   if [ -z "$updates" ]; then
     printf_red "No modifications specified"
@@ -728,13 +699,29 @@ __github_repo_modify() {
   fi
 
   json_data="{$updates}"
-  printf_cyan "Updating $user/$repo on GitHub..."
+  [ -n "$_DEBUG" ] && printf_yellow "DEBUG: Sending JSON: $json_data"
 
-  if __curl_gh_api -X PATCH "$url" --data "$json_data" | grep -q "\"full_name\""; then
-    printf_green "Successfully updated $user/$repo"
+  local response
+  # Use curl directly for PATCH requests since __curl_gh_api isn't handling them properly
+  response="$(curl -q -LSs -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" -H "Accept: application/vnd.github.v3+json" -H "X-GitHub-Api-Version: $GITADMIN_GITHUB_API_VERSION" -X PATCH "$url" --data "$json_data" 2>/dev/null)"
+
+  # Check if we got a valid response with the expected field
+  if echo "$response" | grep -q "\"full_name\""; then
+    printf_green "😺 Successfully updated https://github.com/$user/$repo 😺"
+    return 0
+  elif echo "$response" | grep -q "\"id\""; then
+    # Also check for id field as alternate success indicator
+    printf_green "😺 Successfully updated https://github.com/$user/$repo 😺"
     return 0
   else
-    printf_red "Failed to update $user/$repo"
+    # Always show response for debugging
+    printf_yellow "DEBUG: Response length: ${#response} chars"
+    if [ -n "$response" ]; then
+      printf_yellow "DEBUG: First 100 chars: ${response:0:100}"
+    else
+      printf_yellow "DEBUG: Empty response!"
+    fi
+    printf_red "👿 Failed to update $user/$repo 👿"
     return 1
   fi
 }
@@ -743,51 +730,23 @@ __github_repo_modify() {
 __gitlab_repo_modify() {
   local user="$1"
   local repo="$2"
-  shift 2
 
   # GitLab uses project IDs, need to get it first
   local project_id="$(echo "$user/$repo" | sed 's/\//%2F/g')"
   local url="https://gitlab.com/api/v4/projects/$project_id"
   local updates=""
 
-  [ -z "$GITADMIN_GITLAB_AUTH_TOKEN" ] && printf_red "ERROR: GITADMIN_GITLAB_AUTH_TOKEN is not set" && return 1
+  [ -z "$GITADMIN_GITLAB_AUTH_TOKEN" ] && printf_red "🚫 ERROR: GITADMIN_GITLAB_AUTH_TOKEN is not set" && return 1
 
-  # Parse modification options
-  while [ $# -gt 0 ]; do
-    case "$1" in
-    --description | --desc)
-      updates="${updates:+$updates,}\"description\":\"$2\""
-      shift 2
-      ;;
-    --homepage | --website)
-      updates="${updates:+$updates,}\"homepage\":\"$2\""
-      shift 2
-      ;;
-    --private)
-      updates="${updates:+$updates,}\"visibility\":\"private\""
-      shift
-      ;;
-    --public)
-      updates="${updates:+$updates,}\"visibility\":\"public\""
-      shift
-      ;;
-    --issues)
-      updates="${updates:+$updates,}\"issues_enabled\":$2"
-      shift 2
-      ;;
-    --wiki)
-      updates="${updates:+$updates,}\"wiki_enabled\":$2"
-      shift 2
-      ;;
-    --default-branch)
-      updates="${updates:+$updates,}\"default_branch\":\"$2\""
-      shift 2
-      ;;
-    *)
-      shift
-      ;;
-    esac
-  done
+  # Build updates from getopt-parsed variables
+  [ -n "$GITADMIN_REPO_DESCRIPTION" ] && updates="${updates:+$updates,}\"description\":\"$GITADMIN_REPO_DESCRIPTION\""
+  [ -n "$GITADMIN_REPO_HOMEPAGE" ] && updates="${updates:+$updates,}\"homepage\":\"$GITADMIN_REPO_HOMEPAGE\""
+  [ "$GITADMIN_REPO_VISIBILITY" = "private" ] && updates="${updates:+$updates,}\"visibility\":\"private\""
+  [ "$GITADMIN_REPO_VISIBILITY" = "public" ] && updates="${updates:+$updates,}\"visibility\":\"public\""
+  [ -n "$GITADMIN_REPO_ISSUES" ] && updates="${updates:+$updates,}\"issues_enabled\":$GITADMIN_REPO_ISSUES"
+  [ -n "$GITADMIN_REPO_WIKI" ] && updates="${updates:+$updates,}\"wiki_enabled\":$GITADMIN_REPO_WIKI"
+  [ -n "$GITADMIN_REPO_PROJECTS" ] && updates="${updates:+$updates,}\"jobs_enabled\":$GITADMIN_REPO_PROJECTS"
+  [ "$GITADMIN_DEFAULT_BRANCH_SET" = "yes" ] && updates="${updates:+$updates,}\"default_branch\":\"$GITADMIN_DEFAULT_BRANCH\""
 
   if [ -z "$updates" ]; then
     printf_red "No modifications specified"
@@ -795,15 +754,14 @@ __gitlab_repo_modify() {
   fi
 
   local json_data="{$updates}"
-  printf_cyan "Updating $user/$repo on GitLab..."
 
   if curl -q -LSsf -X PUT -H "PRIVATE-TOKEN: $GITADMIN_GITLAB_AUTH_TOKEN" \
     -H "Content-Type: application/json" \
     --data "$json_data" "$url" 2>/dev/null | grep -q "\"name\""; then
-    printf_green "Successfully updated $user/$repo"
+    printf_green "😺 Successfully updated https://gitlab.com/$user/$repo 😺"
     return 0
   else
-    printf_red "Failed to update $user/$repo"
+    printf_red "👿 Failed to update https://gitlab.com/$user/$repo 👿"
     return 1
   fi
 }
@@ -812,42 +770,22 @@ __gitlab_repo_modify() {
 __gitea_repo_modify() {
   local user="$1"
   local repo="$2"
-  shift 2
 
   local url="$GITADMIN_PERSONAL_GIT_HOST/api/v1/repos/$user/$repo"
-  local token="$GIT_PRIVATE_ACCESS_TOKEN"
+  local token="$GITADMIN_PRIVATE_AUTH_TOKEN"
   local updates=""
 
-  [ -z "$token" ] && printf_red "ERROR: GIT_PRIVATE_ACCESS_TOKEN is not set" && return 1
+  [ -z "$token" ] && printf_red "🚫 ERROR: GITADMIN_PRIVATE_AUTH_TOKEN is not set" && return 1
 
-  # Parse modification options
-  while [ $# -gt 0 ]; do
-    case "$1" in
-    --description | --desc)
-      updates="${updates:+$updates,}\"description\":\"$2\""
-      shift 2
-      ;;
-    --homepage | --website)
-      updates="${updates:+$updates,}\"website\":\"$2\""
-      shift 2
-      ;;
-    --private)
-      updates="${updates:+$updates,}\"private\":true"
-      shift
-      ;;
-    --public)
-      updates="${updates:+$updates,}\"private\":false"
-      shift
-      ;;
-    --default-branch)
-      updates="${updates:+$updates,}\"default_branch\":\"$2\""
-      shift 2
-      ;;
-    *)
-      shift
-      ;;
-    esac
-  done
+  # Build updates from getopt-parsed variables
+  [ -n "$GITADMIN_REPO_DESCRIPTION" ] && updates="${updates:+$updates,}\"description\":\"$GITADMIN_REPO_DESCRIPTION\""
+  [ -n "$GITADMIN_REPO_HOMEPAGE" ] && updates="${updates:+$updates,}\"website\":\"$GITADMIN_REPO_HOMEPAGE\""
+  [ "$GITADMIN_REPO_VISIBILITY" = "private" ] && updates="${updates:+$updates,}\"private\":true"
+  [ "$GITADMIN_REPO_VISIBILITY" = "public" ] && updates="${updates:+$updates,}\"private\":false"
+  [ -n "$GITADMIN_REPO_ISSUES" ] && updates="${updates:+$updates,}\"has_issues\":$GITADMIN_REPO_ISSUES"
+  [ -n "$GITADMIN_REPO_WIKI" ] && updates="${updates:+$updates,}\"has_wiki\":$GITADMIN_REPO_WIKI"
+  [ -n "$GITADMIN_REPO_PROJECTS" ] && updates="${updates:+$updates,}\"has_projects\":$GITADMIN_REPO_PROJECTS"
+  [ "$GITADMIN_DEFAULT_BRANCH_SET" = "yes" ] && updates="${updates:+$updates,}\"default_branch\":\"$GITADMIN_DEFAULT_BRANCH\""
 
   if [ -z "$updates" ]; then
     printf_red "No modifications specified"
@@ -855,15 +793,14 @@ __gitea_repo_modify() {
   fi
 
   local json_data="{$updates}"
-  printf_cyan "Updating $user/$repo on Gitea..."
 
   if curl -q -LSsf -X PATCH -H "Authorization: token $token" \
     -H "Content-Type: application/json" \
     --data "$json_data" "$url" 2>/dev/null | grep -q "\"name\""; then
-    printf_green "Successfully updated $user/$repo"
+    printf_green "😺 Successfully updated $GITADMIN_PERSONAL_GIT_HOST/$user/$repo 😺"
     return 0
   else
-    printf_red "Failed to update $user/$repo"
+    printf_red "👿 Failed to update $GITADMIN_PERSONAL_GIT_HOST/$user/$repo 👿"
     return 1
   fi
 }
@@ -877,43 +814,30 @@ __universal_repo_create() {
   local visibility="${5:-public}"
   local homepage="${6:-}"
 
-  # Pretty output with icons and formatting
-  local platform_icon=""
+  # Build full URL for display
+  local display_url=""
   case "$platform" in
-  github) platform_icon="🐙" ;;
-  gitlab) platform_icon="🦊" ;;
-  gitea | private) platform_icon="🍵" ;;
-  *) platform_icon="📦" ;;
+  github)
+    display_url="https://github.com"
+    ;;
+  gitlab)
+    display_url="https://gitlab.com"
+    ;;
+  gitea | private)
+    display_url="$GITADMIN_PERSONAL_GIT_HOST"
+    ;;
+  *)
+    display_url="$platform"
+    ;;
   esac
 
-  # Format visibility label
-  local vis_label=""
-  if [ "$visibility" = "private" ]; then
-    vis_label="PRIVATE"
-  else
-    vis_label="PUBLIC"
-  fi
-
-  printf_cyan "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  printf_blue "$platform_icon  Creating Repository"
-  printf_yellow "   Name: " && printf "%s\n" "$repo"
-  printf_yellow "   Platform: " && printf "%s\n" "$platform"
-  printf_yellow "   Visibility: " && if [ "$visibility" = "private" ]; then printf_red "[PRIVATE]"; else printf_green "[PUBLIC]"; fi
-  [ -n "$description" ] && printf_yellow "\n   Description: " && printf "%s\n" "$description"
-  printf_cyan "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  printf_blue "⏳ Processing... "
+  printf_purple "🔨 Creating $visibility repo: $repo for $user on $display_url"
 
   local result=0
   case "$platform" in
   github)
-    # Try org first, then user
-    if __curl_orgs_create "$user" "$repo" "$description" "$homepage" "$visibility"; then
-      result=0
-    elif __curl_user_create "$user" "$repo" "$description" "$homepage" "$visibility"; then
-      result=0
-    else
-      result=1
-    fi
+    __github_create_repo "$user/$repo" "$description" "$visibility" "$homepage"
+    result=$?
     ;;
   gitlab)
     __gitlab_create_repo "$user" "$repo" "$description" "$homepage" "$visibility"
@@ -924,24 +848,10 @@ __universal_repo_create() {
     result=$?
     ;;
   *)
-    printf "\n"
     printf_red "❌ Unknown platform: $platform"
     result=1
     ;;
   esac
-
-  # Show result with pretty formatting
-  if [ $result -eq 0 ]; then
-    printf "\r"
-    printf_green "✅ Successfully created $repo on $platform!"
-    printf_cyan "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    printf "\n"
-  else
-    printf "\r"
-    printf_red "❌ Failed to create $repo on $platform"
-    printf_cyan "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    printf "\n"
-  fi
 
   return $result
 }
@@ -952,27 +862,29 @@ __universal_repo_delete() {
   local user="${2:-}"
   local repo="${3:-}"
 
-  # Pretty output with icons and formatting
-  local platform_icon=""
+  # Build full URL for display
+  local display_url=""
   case "$platform" in
-  github) platform_icon="🐙" ;;
-  gitlab) platform_icon="🦊" ;;
-  gitea | private) platform_icon="🍵" ;;
-  *) platform_icon="📦" ;;
+  github)
+    display_url="https://github.com"
+    ;;
+  gitlab)
+    display_url="https://gitlab.com"
+    ;;
+  gitea | private)
+    display_url="$GITADMIN_PERSONAL_GIT_HOST"
+    ;;
+  *)
+    display_url="$platform"
+    ;;
   esac
 
-  printf_cyan "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  printf_red "$platform_icon  Deleting Repository"
-  printf_yellow "   Name: " && printf "%s\n" "$repo"
-  printf_yellow "   Platform: " && printf "%s\n" "$platform"
-  printf_yellow "   User/Org: " && printf "%s\n" "$user"
-  printf_cyan "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  printf_blue "⏳ Processing... "
+  printf_cyan "🗑️  Deleting repo $repo for $user on $display_url"
 
   local result=0
   case "$platform" in
   github)
-    __ghdelete_user "$user" "$repo"
+    __github_delete_repo_user "$user" "$repo"
     result=$?
     ;;
   gitlab)
@@ -984,24 +896,10 @@ __universal_repo_delete() {
     result=$?
     ;;
   *)
-    printf "\n"
     printf_red "❌ Unknown platform: $platform"
     result=1
     ;;
   esac
-
-  # Show result with pretty formatting
-  if [ $result -eq 0 ]; then
-    printf "\r"
-    printf_green "✅ Successfully deleted $repo from $platform!"
-    printf_cyan "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    printf "\n"
-  else
-    printf "\r"
-    printf_red "❌ Failed to delete $repo from $platform"
-    printf_cyan "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    printf "\n"
-  fi
 
   return $result
 }
@@ -1014,18 +912,18 @@ __backup_repos() {
       local mktemp="$(mktemp 'XXXXXXXXXXXXXXXX')"
       local org_name="$(echo "$d" | awk -F '/' '{print $(NF-1)}')"
       local repo_name="$(echo "$d" | awk -F '/' '{print $NF}')"
-      printf_cyan "Backing up ${d//$HOME/~} to $GITADMIN_BACKUP_URL/$GITADMIN_BACKUP_ORG/$org_name-$repo_name"
+      printf_cyan "💾 Backing up ${d//$HOME/~} to $GITADMIN_BACKUP_URL/$GITADMIN_BACKUP_ORG/$org_name-$repo_name"
       mkdir -p ""$GITADMIN_TEMP_DIR/$mktemp""
       git clone -q "$d" "$GITADMIN_TEMP_DIR/$mktemp"
       $0 setup --automated --dir "$GITADMIN_TEMP_DIR/$mktemp" "$GITADMIN_BACKUP_URL/$GITADMIN_BACKUP_ORG/$org_name-$repo_name" 2>/dev/null >/dev/null
       rm -Rf "${GITADMIN_TEMP_DIR:?}/$mktemp"
-      printf_green "Backup completed"
+      printf_green "✅ Backup completed"
     else
-      printf_cyan "Backing up ${d//$HOME/~} to $GITADMIN_BACKUP_URL/$GITADMIN_BACKUP_ORG/$org_name/$repo_name"
+      printf_cyan "💾 Backing up ${d//$HOME/~} to $GITADMIN_BACKUP_URL/$GITADMIN_BACKUP_ORG/$org_name/$repo_name"
       rm -Rf "${GITADMIN_BACKUP_DIR:?}/$org_name/$repo_name"
       mkdir -p "$GITADMIN_BACKUP_DIR/$org_name/$repo_name"
       [ -d "$d/.git" ] && git clone -q "$d" "$GITADMIN_BACKUP_DIR/$org_name/$repo_name"
-      printf_green "Backup completed"
+      printf_green "✅ Backup completed"
     fi
   done
 }
@@ -1037,14 +935,14 @@ __git_custom() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gitea_update_all() {
-  local token="$GIT_PRIVATE_ACCESS_TOKEN"
+  local token="$GITADMIN_PRIVATE_AUTH_TOKEN"
   if [ "$1" = "all" ]; then
     org="$2"
     repos="$(curl -q -LSsf -X GET -H 'Content-Type: application/json' -H "Authorization: token $token" "$GITADMIN_PERSONAL_GIT_HOST/api/v1/users/$org/repos" 2>/dev/null | __jq -r '.[].full_name' | sort -u | grep '^' || false)"
     shift 2
     [ -n "$repos" ] || printf_exit "Failed to get repos for user: $org"
     [ -n "$1" ] && [ -n "$org" ] || __update_usage
-    printf_yellow "Getting repos for user $org"
+    printf_yellow "🔍 Getting repos for user $org"
     for repo in $repos; do
       __gitea_update_repo "$repo" "$@"
     done
@@ -1059,13 +957,12 @@ __gitea_update_repo() {
   local json=""
   local exitCode=0
   local json_message=""
-  local token="$GIT_PRIVATE_ACCESS_TOKEN"
+  local token="$GITADMIN_PRIVATE_AUTH_TOKEN"
   local host="$GITADMIN_PERSONAL_GIT_HOST"
   { [ $# = 0 ] || [ "$1" = "help" ]; } && __update_usage
   echo "$1" | grep -q '.*./.*.' || echo "$1" | grep -q '.*.=.*.' || __update_usage
   repo="$1" && shift 1
   name="$(echo "$repo" | sed 's|/|_|g')"
-  printf '%s' "$(printf_yellow "Updating $repo: ")"
   while :; do
     case "$1" in
     *=*)
@@ -1103,14 +1000,14 @@ __gitea_update_repo() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gitea_orgs() {
   local resp=""
-  local token="$GIT_PRIVATE_ACCESS_TOKEN"
+  local token="$GITADMIN_PRIVATE_AUTH_TOKEN"
   local url="$GITADMIN_PERSONAL_GIT_HOST/api/v1/orgs/$1/repos"
   resp="$(curl -q -LSsf -X 'GET' -H "Authorization: token $token" -H 'accept: application/json' "$url" 2>/dev/null | __jq -r '.[]' || false)"
   if [ -n "$resp" ]; then
     echo "$resp" | __jq
     exitCode=0
   else
-    printf_red "Failed to retrieve the list of repos for $1"
+    printf_red "❌ Failed to retrieve the list of repos for $1"
     exitCode=1
   fi
   return ${exitCode:-0}
@@ -1118,14 +1015,14 @@ __gitea_orgs() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gitea_users() {
   local resp=""
-  local token="$GIT_PRIVATE_ACCESS_TOKEN"
+  local token="$GITADMIN_PRIVATE_AUTH_TOKEN"
   local url="$GITADMIN_PERSONAL_GIT_HOST/api/v1/users/$1/repos"
   resp="$(curl -q -LSsf -X 'GET' -H "Content-Type: application/json" -H "Authorization: token $token" -H 'accept: application/json' "$url" 2>/dev/null | __jq -r '.[]' || __gitea_orgs "$1" "silent" || false)"
   if [ -n "$resp" ]; then
     [ -n "$2" ] || echo "$resp" | __jq
     exitCode=0
   else
-    [ -n "$2" ] || printf_red "Failed to retrieve the list of repos for $1"
+    [ -n "$2" ] || printf_red "❌ Failed to retrieve the list of repos for $1"
     exitCode=1
   fi
   return ${exitCode:-0}
@@ -1133,32 +1030,38 @@ __gitea_users() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gitea_users_orgs() {
   local resp=""
-  local token="$GIT_PRIVATE_ACCESS_TOKEN"
+  local token="$GITADMIN_PRIVATE_AUTH_TOKEN"
   local url="$GITADMIN_PERSONAL_GIT_HOST/api/v1/users/$1/orgs"
   resp="$(curl -q -LSsf -X 'GET' -H "Authorization: token $token" -H "Content-Type: application/json" -H 'accept: application/json' "$url" 2>/dev/null | __jq -r '.' || false)"
   if [ -n "$resp" ]; then
     [ -n "$2" ] || echo "$resp" | __jq
     exitCode=0
   else
-    [ -n "$2" ] || printf_red "Failed to retrieve the list of orgs for $1"
+    [ -n "$2" ] || printf_red "❌ Failed to retrieve the list of orgs for $1"
     exitCode=1
   fi
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gitea_delete_repo() {
-  local resp=""
-  local token="$GIT_PRIVATE_ACCESS_TOKEN"
-  local url="$GITADMIN_PERSONAL_GIT_HOST/api/v1/$1/repos/delete"
-  resp="$(curl -q -LSsf -X 'POST' -H "Authorization: token $token" -H "Content-Type: application/json" -H 'accept: application/json' "$url" 2>/dev/null | grep -v '.html_url' && echo 'deleted' || false)"
-  if [ -n "$resp" ]; then
-    echo "$resp" | __jq -r
-    exitCode=0
+  local repo_path="$1"
+  local token="$GITADMIN_PRIVATE_AUTH_TOKEN"
+  local url="$GITADMIN_PERSONAL_GIT_HOST/api/v1/repos/$repo_path"
+
+  # Use proper DELETE method for Gitea API
+  resp="$(curl -q -LSsf -X DELETE -H "Authorization: token $token" "$url" 2>&1)"
+
+  if [ $? -eq 0 ]; then
+    printf_green "🌱 Deletion of $GITADMIN_PERSONAL_GIT_HOST/$repo_path successful 🌱"
+    return 0
+  elif echo "$resp" | grep -q '404'; then
+    # 404 means repo doesn't exist - treat as success
+    printf_green "🌱 Repository $repo_path already removed 🌱"
+    return 0
   else
-    printf_red "Failed to create the repo $1"
-    exitCode=1
+    printf_red "💢 Deletion of $GITADMIN_PERSONAL_GIT_HOST/$repo_path failed 💢"
+    return 1
   fi
-  return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gitea_create_repo() {
@@ -1166,7 +1069,7 @@ __gitea_create_repo() {
   local description="${2:-}"
   local visibility="${3:-public}"
   local resp=""
-  local token="$GIT_PRIVATE_ACCESS_TOKEN"
+  local token="$GITADMIN_PRIVATE_AUTH_TOKEN"
   local url="$GITADMIN_PERSONAL_GIT_HOST/api/v1/user/repos"
   local json_data=""
 
@@ -1182,18 +1085,24 @@ __gitea_create_repo() {
   # Generate JSON using the template function
   json_data="$(__generate_repo_json "$repo_name" "$description" "" "$visibility" "gitea")"
 
-  resp="$(curl -q -LSsf -X 'POST' -H "Authorization: token $token" -H "Content-Type: application/json" -H 'accept: application/json' --data "$json_data" "$url" 2>/dev/null | __jq -r '.id' || false)"
-  if [ -n "$resp" ]; then
-    exitCode=0
+  # Make the API call and capture the full response
+  resp="$(curl -q -LSs -X 'POST' -H "Authorization: token $token" -H "Content-Type: application/json" -H 'accept: application/json' --data "$json_data" "$url" 2>/dev/null)"
+
+  # Check if response contains an ID (successful creation) or if repo already exists
+  if echo "$resp" | __jq -r '.id' 2>/dev/null | grep -q '^[0-9]'; then
+    printf_cyan "😻 Success: $GITADMIN_PERSONAL_GIT_HOST/$GITADMIN_DEFAULT_USERNAME/$repo_name 😻"
+    return 0
+  elif echo "$resp" | grep -qi 'already exist\|name is reserved'; then
+    printf_yellow "⚠️ Repository $repo_name already exists ⚠️"
+    return 0
   else
-    printf_red "Failed to create the repo $1"
-    exitCode=1
+    printf_yellow "👿 Creation of $GITADMIN_PERSONAL_GIT_HOST/$GITADMIN_DEFAULT_USERNAME/$repo_name failed 👿"
+    return 1
   fi
-  return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gitea_create_org() {
-  local token="$GIT_PRIVATE_ACCESS_TOKEN"
+  local token="$GITADMIN_PRIVATE_AUTH_TOKEN"
   local url="$GITADMIN_PERSONAL_GIT_HOST/api/v1/admin/users/$1/orgs" \
     [ -f "$GITADMIN_CWD/DESCRIPTION" ] && description="$(<"$GITADMIN_CWD/DESCRIPTION")" || description="${2:-}"
   private="${5:-false}"
@@ -1203,7 +1112,7 @@ __gitea_create_org() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gitea_branch() {
-  local token="$GIT_PRIVATE_ACCESS_TOKEN"
+  local token="$GITADMIN_PRIVATE_AUTH_TOKEN"
   local url="$GITADMIN_PERSONAL_GIT_HOST/api/v1/repos/$1/branches"
   curl -q -LSsf -X 'POST' -H "Authorization: token $token" -H 'accept: application/json' -H 'Content-Type: application/json' --data "{ \"new_branch_name\":\"$3\",\"old_branch_name\":\"$2\" }" "$url" 2>/dev/null | __jq -r '.'
   return $?
@@ -1216,7 +1125,7 @@ __github_to_gitea() {
   local GITEA_USERNAME="$3"
   local GITEA_ORG_NAME="$(echo "${4:-$2}" | tr '[:upper:]' '[:lower:]')"
   local GITEA_DOMAIN="$GITADMIN_PERSONAL_GIT_HOST"
-  local GITHUB_TOKEN="$GITHUB_ACCESS_TOKEN"
+  local GITHUB_TOKEN="$GITADMIN_GITHUB_AUTH_TOKEN"
   local GITEA_TOKEN="$GITADMIN_PRIVATE_AUTH_TOKEN"
   local eCode=0 REPO_NAME="" GET_REPOS=""
   [ $# -ge 3 ] || __printf_help "Usage: [github_user] [github_org] [gitea_user] [gitea_org]"
@@ -1225,8 +1134,8 @@ __github_to_gitea() {
   [ -n "$GITEA_USERNAME" ] || printf_exit "Please provide the the username of the org owner on gitea"
   [ -n "$GITEA_ORG_NAME" ] || printf_exit "Please provide the gitea org/username"
   [ -n "$GITEA_DOMAIN" ] || printf_exit "Please provide the gitea url: GITADMIN_PERSONAL_GIT_HOST"
-  [ -n "$GITHUB_TOKEN" ] || printf_exit "Please provide the github API Token: GITHUB_ACCESS_TOKEN"
-  [ -n "$GITEA_TOKEN" ] || printf_exit "Please provide the github API Token: GITADMIN_PRIVATE_AUTH_TOKEN"
+  [ -n "$GITHUB_TOKEN" ] || printf_exit "Please provide the github API Token: GITADMIN_GITHUB_AUTH_TOKEN"
+  [ -n "$GITEA_TOKEN" ] || printf_exit "Please provide the gitea API Token: GITADMIN_PRIVATE_AUTH_TOKEN"
   if curl -q --retry 2 --retry-max-time 3 --retry-delay 3 -LSsf "$GITEA_DOMAIN/api/v1/orgs/$GITEA_ORG_NAME" 2>/dev/null | __jq -rc '.name' | grep -q "$GITEA_ORG_NAME"; then
     printf_green "🆗🆗 $GITEA_ORG_NAME already exists 🆗🆗"
   else
@@ -1272,7 +1181,7 @@ __gitea_migrate_delete() {
   GITEA_USERNAME="$3"
   GITEA_ORG_NAME="${4:-$2}"
   GITEA_DOMAIN="$GITADMIN_PERSONAL_GIT_HOST"
-  GITHUB_TOKEN="$GITHUB_ACCESS_TOKEN"
+  GITHUB_TOKEN="$GITADMIN_GITHUB_AUTH_TOKEN"
   GITEA_TOKEN="$GITADMIN_PRIVATE_AUTH_TOKEN"
   [ $# -le 3 ] || __printf_help "Usage: [github_user] [github_org] [gitea_user] [gitea_org]"
   [ -n "$GITHUB_USERNAME" ] || printf_exit "Please provide the the username of the org owner on github"
@@ -1280,8 +1189,8 @@ __gitea_migrate_delete() {
   [ -n "$GITEA_USERNAME" ] || printf_exit "Please provide the the username of the org owner on gitea"
   [ -n "$GITEA_ORG_NAME" ] || printf_exit "Please provide the gitea org/username"
   [ -n "$GITEA_DOMAIN" ] || printf_exit "Please provide the gitea url: GITADMIN_PERSONAL_GIT_HOST"
-  [ -n "$GITHUB_TOKEN" ] || printf_exit "Please provide the github API Token: GITHUB_ACCESS_TOKEN"
-  [ -n "$GITEA_TOKEN" ] || printf_exit "Please provide the github API Token: GITADMIN_PRIVATE_AUTH_TOKEN"
+  [ -n "$GITHUB_TOKEN" ] || printf_exit "Please provide the github API Token: GITADMIN_GITHUB_AUTH_TOKEN"
+  [ -n "$GITEA_TOKEN" ] || printf_exit "Please provide the gitea API Token: GITADMIN_PRIVATE_AUTH_TOKEN"
   GET_REPOS=$(curl -H 'Accept: application/vnd.github.v3+json' -u $GITHUB_USERNAME:$GITHUB_TOKEN -s "https://api.github.com/orgs/$GITHUB_ORG_NAME/repos?per_page=1000" | __jq -r '.[].html_url')
   for URL in $GET_REPOS; do
     REPO_NAME="${URL//*\/$GITHUB_ORG_NAME/}"
@@ -1312,7 +1221,7 @@ __gitlab_create_repo() {
   local json_data=""
   local resp=""
 
-  [ -z "$GITADMIN_GITLAB_AUTH_TOKEN" ] && printf_red "ERROR: GITADMIN_GITLAB_AUTH_TOKEN is not set" && return 1
+  [ -z "$GITADMIN_GITLAB_AUTH_TOKEN" ] && printf_red "🚫 ERROR: GITADMIN_GITLAB_AUTH_TOKEN is not set" && return 1
 
   # Get namespace ID for the user/organization
   namespace_id="$(curl -q -LSsf -H "PRIVATE-TOKEN: $GITADMIN_GITLAB_AUTH_TOKEN" \
@@ -1326,7 +1235,7 @@ __gitlab_create_repo() {
       __jq -r '.namespace_id' 2>/dev/null)"
   fi
 
-  [ -z "$namespace_id" ] && printf_red "Could not find namespace for $user" && return 1
+  [ -z "$namespace_id" ] && printf_red "❌ Could not find namespace for $user" && return 1
 
   # Generate JSON for GitLab
   json_data="$(__generate_repo_json "$repo" "$description" "$homepage" "$visibility" "gitlab")"
@@ -1342,11 +1251,13 @@ __gitlab_create_repo() {
     "$url" 2>/dev/null)"
 
   if echo "$resp" | __jq -r '.id' &>/dev/null; then
+    printf_cyan "😻 Success: https://gitlab.com/$user/$repo 😻"
     return 0
   elif echo "$resp" | grep -q 'has already been taken'; then
-    printf_yellow "Repository $user/$repo already exists"
+    printf_yellow "⚠️ Repository $user/$repo already exists ⚠️"
     return 0
   else
+    printf_yellow "👿 Creation of https://gitlab.com/$user/$repo failed 👿"
     if [ -n "$resp" ]; then
       echo "$resp" | __jq -r '.message // .error' 2>/dev/null | printf_readline
     fi
@@ -1361,7 +1272,7 @@ __gitlab_delete_repo() {
   local project_id=""
   local resp=""
 
-  [ -z "$GITADMIN_GITLAB_AUTH_TOKEN" ] && printf_red "ERROR: GITADMIN_GITLAB_AUTH_TOKEN is not set" && return 1
+  [ -z "$GITADMIN_GITLAB_AUTH_TOKEN" ] && printf_red "🚫 ERROR: GITADMIN_GITLAB_AUTH_TOKEN is not set" && return 1
 
   # URL encode the project path
   project_id="$(echo "$user/$repo" | sed 's/\//%2F/g')"
@@ -1372,11 +1283,14 @@ __gitlab_delete_repo() {
     "https://gitlab.com/api/v4/projects/$project_id" 2>&1)"
 
   if [ $? -eq 0 ]; then
+    printf_green "🌱 Deletion of https://gitlab.com/$user/$repo successful 🌱"
     return 0
   elif echo "$resp" | grep -q '404'; then
-    printf_yellow "Repository $user/$repo not found"
-    return 1
+    # 404 means repo doesn't exist - treat as success
+    printf_green "🌱 Repository $user/$repo already removed 🌱"
+    return 0
   else
+    printf_red "💢 Deletion of https://gitlab.com/$user/$repo failed 💢"
     if [ -n "$resp" ]; then
       echo "$resp" | __jq -r '.message // .error' 2>/dev/null | printf_readline
     fi
@@ -1408,7 +1322,6 @@ __update_github_repo() {
   org="$(echo "$GITADMIN_CWD" | awk -F'/' '{print $(NF-1)}')"
   repo="$(echo "$GITADMIN_CWD" | awk -F'/' '{print $NF}')"
   name="$(echo "$repo" | sed 's|/|_|g')"
-  printf '%s' "$(printf_yellow "Updating $org/$repo: ")"
   while :; do
     case "$1" in
     *=*)
@@ -1727,7 +1640,7 @@ __split_create_repo() {
     reponame="$2"
   fi
   if [ -n "$username" ] && [ -n "$reponame" ]; then
-    __ghcreate "$username" "$reponame" "Repo for $reponame" &>/dev/null
+    __github_create_repo "$username" "$reponame" "Repo for $reponame" &>/dev/null
     return $?
   else
     return 1
@@ -1748,14 +1661,14 @@ __run_git_setup() {
   GITADMIN_SETUP_MESSAGE="${GITADMIN_SETUP_MESSAGE:-$GITCOMMIT_MESSAGE}"
   GITCOMMIT_MESSAGE="${GITADMIN_SETUP_MESSAGE:- 🦈🏠🐜❗ Initial Commit ❗🐜🦈🏠 }"
   show_git_repo="$(__git_repobase "$git_dir")"
-  printf_green "Initializing the repo in $git_dir"
+  printf_green "🌱 Initializing the repo in $git_dir"
   [ -n "$git_prev" ] || git_prev="github.com/$(basename -- "$(dirname $GITADMIN_CWD)")/$(basename -- "$GITADMIN_CWD")"
   [ -f "$git_dir/.gitattributes" ] || gen-gitattr $git_dir save default lfs &>/dev/null
   [ -f "$git_dir/.gitignore" ] || gitignore "$git_dir" default --automated &>/dev/null
   if [ -d "$git_dir/.git" ]; then
     printf_error "This project already has git setup"
     if [ -n "$git_prev" ]; then
-      printf_green "Remote repo is: $git_prev"
+      printf_green "🔗 Remote repo is: $git_prev"
     fi
     printf_read_question "3" "Should I continue to reset this repo? [y/n]" "1" "git_continue"
     if printf_answer_yes "$git_continue"; then
@@ -1769,7 +1682,7 @@ __run_git_setup() {
   ls "$git_dir/README"* >/dev/null 2>&1 || create_new_readme_template "$git_dir"
   ls "$git_dir/LICENSE"* >/dev/null 2>&1 || create_new_license "$git_dir"
   if git -C "$git_dir" init . |& __devnull && git -C "$git_dir" add . |& __devnull && git -C "$git_dir" commit -q -m "$GITCOMMIT_MESSAGE"; then
-    printf_green "Success: $show_git_repo has been initialized"
+    printf_green "✅ Success: $show_git_repo has been initialized"
   else
     printf_exit "Failed to initialize $show_git_repo"
   fi
@@ -1822,14 +1735,14 @@ __run_git_setup_automated() {
   GITADMIN_SETUP_MESSAGE="${GITADMIN_SETUP_MESSAGE:-$GITCOMMIT_MESSAGE}"
   GITCOMMIT_MESSAGE="${GITADMIN_SETUP_MESSAGE:- 🦈🏠🐜❗ Initial Commit ❗🐜🦈🏠 }"
   GITADMIN_EXITCODE=0
-  printf_green "Initializing the repo in $git_dir"
+  printf_green "🌱 Initializing the repo in $git_dir"
   [ -n "$git_prev" ] || git_prev="github.com/$(basename -- "$(dirname $GITADMIN_CWD)")/$(basename -- "$GITADMIN_CWD")"
   [ -f "$git_dir/.gitattributes" ] || gen-gitattr $git_dir save default lfs &>/dev/null
   [ -f "$git_dir/.gitignore" ] || gitignore "$git_dir" default --automated &>/dev/null
   if [ -d "$git_dir/.git" ]; then
     printf_yellow "This project already has git setup"
     if [ -n "$git_prev" ]; then
-      printf_green "Remote repo is: $git_prev"
+      printf_green "🔗 Remote repo is: $git_prev"
     fi
     __rm_rf "$git_dir/.git"
   fi
@@ -1837,7 +1750,7 @@ __run_git_setup_automated() {
   ls "$git_dir/README"* >/dev/null 2>&1 || create_new_readme_template "$git_dir"
   ls "$git_dir/LICENSE"* >/dev/null 2>&1 || create_new_license "$git_dir"
   if git -C "$git_dir" init . |& __devnull && git -C "$git_dir" add . |& __devnull && git -C "$git_dir" commit -q -m "$GITCOMMIT_MESSAGE"; then
-    printf_green "Success: $(__git_repobase "$git_dir") has been initialized"
+    printf_green "✅ Success: $(__git_repobase "$git_dir") has been initialized"
   else
     printf_exit "Failed to initialize $(__git_repobase "$git_dir")"
   fi
@@ -1870,7 +1783,7 @@ __run_git_init_automated() {
     [ "$git_push" = "n" ] && printf_yellow "The remote repository wasn't found: not pushing" || __git_push "$git_dir"
     GITADMIN_EXITCODE=$?
     if [ -d "$git_dir/.git" ] && [ "$GITADMIN_EXITCODE" = 0 ]; then
-      [ "$git_push" = "n" ] || printf_green "Successfully pushed to $git_repo"
+      [ "$git_push" = "n" ] || printf_green "✅ Successfully pushed to $git_repo"
       GITADMIN_EXITCODE=0
     else
       printf_red "Push to $git_repo has failed"
@@ -1986,7 +1899,7 @@ __ghgist_delete() {
   gist_succes="Deleted gist: $gist_id"
   gist_failed="failed to delete gist: $gist_id"
   [ -n "$gist_id" ] || printf_exit "Please provide the gist ID"
-  [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
+  [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "🚫 ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
   __curl_gh_api -X DELETE "https://api.github.com/gists/$gist_id" >"$GITADMIN_TEMP_FILE" && gist_exit=0 || gist_exit=1
   if grep -viqs "Not Found" "$GITADMIN_TEMP_FILE"; then
     gist_succes="[ ✖ ] gist: $gist_id was not found"
@@ -2014,7 +1927,7 @@ __ghgist_create() {
   save_dir="${GISTADMIN_GIST_SAVE_DIR:-$HOME/Documents/myscripts/gists}"
   gist_content="$(printf "%s\r" "{ \"description\": \"$gist_describe\", \"public\": true, \"files\": {\"$gist_filename\": { \"content\": \"$format_gist\" }}}" | tee ${GITADMIN_TEMP_FILE}-data.txt)"
   [ $# -eq 3 ] || __printf_help "Usage: $APPNAME gist create description filename contents"
-  [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
+  [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "🚫 ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
   printf_green "Creating gist with Description $gist_describe and filename: $gist_filename"
   mkdir -p "$save_dir"
   [ -f "$save_dir/all.txt" ] || printf '%s\n' "# My saved gists" >"$save_dir/all.txt"
@@ -2047,7 +1960,7 @@ __ghgist_edit() {
   gist_content="$4"
   gist_describe="${gist_describe:-$(basename -- "$gist_filename")}"
   gist_content="$(printf "%s\r" "{ \"description\": \"$gist_describe\", \"public\": true, \"files\": { \"$gist_filename\": {\"content\": \"$gist_content\" }}}" | tee $GITADMIN_TEMP_FILE-data.txt)"
-  [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
+  [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "🚫 ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
   printf_green "Editing $gist_id with Description $gist_describe and filename: $gist_filename"
   if __curl_gh_api -X PATCH -i --data @$GITADMIN_TEMP_FILE-data.txt https://api.github.com/gists/$gist_id | grep -w "html_url" | grep "gist" | awk '{print $2}' | __sed 's/\,//;s|"||g' >"$GITADMIN_TEMP_FILE"; then
     gist_exit=0
@@ -2064,10 +1977,13 @@ __ghgist_edit() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Reusable function for delete
-__ghdelete_user() {
+__github_delete_repo_user() {
   local git_user=""
   local git_repo=""
   local url="https://api.github.com/repos"
+  local response=""
+  local http_code=""
+
   if echo "$1" | grep -q '/'; then
     git_user="${1//\/*/}"
     git_repo="${1//*\//}"
@@ -2075,84 +1991,94 @@ __ghdelete_user() {
     git_user="${1:-$GITADMIN_DEFAULT_USERNAME}"
     git_repo="${2:-$REPONAME}"
   fi
-  [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
-  curl -q -LSsf -X DELETE -H "Accept: application/vnd.github.v3+json" -H "Authorization: token ${GITADMIN_GITHUB_AUTH_TOKEN}" "${url}/${git_user}/${git_repo}" >"$GITADMIN_TEMP_FILE"
-  if grep -qs 'Not Found' "$GITADMIN_TEMP_FILE"; then
+
+  [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "🚫 ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
+
+  # Use curl without -f flag to capture all responses, suppress all errors
+  response="$(curl -q -LSs -w '\n%{http_code}' -X DELETE \
+    -H "Accept: application/vnd.github.v3+json" \
+    -H "Authorization: token ${GITADMIN_GITHUB_AUTH_TOKEN}" \
+    "${url}/${git_user}/${git_repo}" 2>/dev/null)"
+
+  # Extract HTTP status code (last line)
+  http_code="$(echo "$response" | tail -1)"
+
+  # Check status codes
+  case "$http_code" in
+  204)
+    # 204 No Content - successful deletion
+    printf_green "🌱 Deletion of https://github.com/$git_user/$git_repo successful 🌱"
     return 0
-  elif [ -s "$GITADMIN_TEMP_FILE" ]; then
+    ;;
+  404)
+    # 404 Not Found - repo doesn't exist, treat as success
+    printf_green "🌱 Repository $git_user/$git_repo already removed 🌱"
     return 0
-  elif __api_user "$git_user" | grep -qvi "$git_repo$"; then
-    return 0
-  else
+    ;;
+  403)
+    # 403 Forbidden - permissions issue but if repo doesn't exist after, treat as success
+    # Try to verify if repo still exists
+    if ! curl -q -LSs -H "Authorization: token ${GITADMIN_GITHUB_AUTH_TOKEN}" \
+      "${url}/${git_user}/${git_repo}" 2>/dev/null | grep -q '"id"'; then
+      # Repo doesn't exist, consider it deleted
+      printf_green "🌱 Repository $git_user/$git_repo removed 🌱"
+      return 0
+    else
+      # Repo still exists, permission denied
+      printf_red "💢 Deletion of https://github.com/$git_user/$git_repo failed - permission denied 💢"
+      return 1
+    fi
+    ;;
+  401)
+    # 401 Unauthorized - auth token issue
+    printf_red "🚫 Authentication failed - check your token 🚫"
     return 1
-  fi
+    ;;
+  *)
+    # Any other error
+    printf_red "💢 Deletion of https://github.com/$git_user/$git_repo failed 💢"
+    return 1
+    ;;
+  esac
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Creates a new repo on github
-__ghcreate() {
+__github_create_repo() {
   local git_user="" git_repo="" git_describe="" git_visibility="" git_homepage=""
   local git_failed="" git_succes="" GITADMIN_EXITCODE=0
 
-  # Parse arguments - support: user/repo desc [--private|--public] [--homepage URL]
+  # Parse arguments - support: user/repo desc visibility homepage
   if echo "$1" | grep -q '/'; then
     git_user="${1//\/*/}"
     git_repo="${1//*\//}"
     git_describe="${2:-repo for $git_repo}"
-    shift 2
+    git_visibility="${3:-public}"
+    git_homepage="${4:-}"
   else
     git_user="$1"
     git_repo="$2"
     git_describe="${3:-repo for $git_repo}"
-    shift 3
+    git_visibility="${4:-public}"
+    git_homepage="${5:-}"
   fi
 
-  # Parse additional options
-  while [ $# -gt 0 ]; do
-    case "$1" in
-    --private)
-      git_visibility="private"
-      shift
-      ;;
-    --public)
-      git_visibility="public"
-      shift
-      ;;
-    --homepage)
-      git_homepage="$2"
-      shift 2
-      ;;
-    *)
-      # Legacy support for positional arguments
-      if [ -z "$git_homepage" ]; then
-        git_homepage="$1"
-      fi
-      shift
-      ;;
-    esac
-  done
-
-  # Set defaults
-  [ -z "$git_visibility" ] && git_visibility="${GITADMIN_REPO_VISIBLE:-public}"
-  [ "$git_visibility" = "no" ] && git_visibility="private"
+  # Use description from file if exists
   [ -f "$GITADMIN_CWD/DESCRIPTION" ] && git_describe="$(<"$GITADMIN_CWD/DESCRIPTION")" || git_describe="${git_describe:-}"
 
   api_url="https://api.github.com/repos"
   git_succes="😻 Success: https://github.com/$git_user/$git_repo 😻"
   git_failed="👿 Creation of https://github.com/$git_user/$git_repo failed 👿"
 
-  [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
-
-  printf_blue "This may take a few seconds."
-  printf_blue "Sending your request to the github API."
-  printf_green "Creating $git_visibility $git_repo for user $git_user"
+  [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "🚫 ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
 
   if __api_repo_verify "$api_url" "$git_user" "$git_repo"; then
+    # Repo already exists
     printf_cyan "$git_succes"
     GITADMIN_EXITCODE=0
-  elif __curl_orgs_create "$git_user" "$git_repo" "$git_describe" "$git_homepage" "$git_visibility" || __curl_user_create "$git_user" "$git_repo" "$git_describe" "$git_homepage" "$git_visibility"; then
+  elif __curl_github_orgs_create "$git_user" "$git_repo" "$git_describe" "$git_homepage" "$git_visibility" || __curl_github_user_create "$git_user" "$git_repo" "$git_describe" "$git_homepage" "$git_visibility"; then
     sleep 5
     if __api_repo_verify "$api_url" "$git_user" "$git_repo" &>/dev/null; then
-      printf_cyan "$git_succes"
+      printf_green "$git_succes"
       GITADMIN_EXITCODE=0
     else
       printf_yellow "$git_failed"
@@ -2166,7 +2092,7 @@ __ghcreate() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Deletes a github repo
-__ghdelete() {
+__github_delete_repo() {
   local git_user="" git_repo="" git_failed="" git_succes="" GITADMIN_EXITCODE=""
   local api_url="https://api.github.com/repos"
   if echo "$1" | grep -q '/'; then
@@ -2180,8 +2106,8 @@ __ghdelete() {
     git_failed="💢 Deletion of http://github.com/$git_user/$git_repo failed 💢"
     git_succes="🌱 Deletion of http://github.com/$git_user/$git_repo successful 🌱"
     GITADMIN_EXITCODE=0
-    printf_green "Deleting repo $git_repo for user $git_user"
-    __ghdelete_user "$git_user" "$git_repo"
+    printf_green "🗑️ Deleting repo $git_repo for user $git_user"
+    __github_delete_repo_user "$git_user" "$git_repo"
     if __api_repo_verify "$api_url" "$git_user" "$git_repo"; then
       GITADMIN_EXITCODE=1
     fi
@@ -2194,7 +2120,7 @@ __ghdelete() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Reusable function for create repo
-__curl_orgs_create() {
+__curl_github_orgs_create() {
   local user="$1"
   local repo="$2"
   local DESCR="${3:-$DESCR}"
@@ -2206,10 +2132,10 @@ __curl_orgs_create() {
   local json_data=""
 
   echo "$SITE" | grep -q '://.*\.[a-zA-Z0-9].*/.*' || SITE="https://github.com/$SITE"
-  [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
+  [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "🚫 ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
 
   # Determine visibility
-  if [ "$GITADMIN_REPO_VISIBLE" = "no" ] || [ "$VISIBLE" = "true" ]; then
+  if [ "$GITADMIN_REPO_VISIBLE" = "no" ] || [ "$VISIBLE" = "private" ]; then
     visibility="private"
   fi
 
@@ -2218,10 +2144,9 @@ __curl_orgs_create() {
 
   __curl_gh_api "$url" --data "$json_data" >"$GITADMIN_TEMP_FILE"
   if grep -qis '"full_name".*"'$user'/'$repo'"' "$GITADMIN_TEMP_FILE"; then
-    printf_green "https://github.com/$user/$repo has been created"
     return 0
   elif grep -qis 'name already exists on this account' "$GITADMIN_TEMP_FILE"; then
-    printf_green "https://github.com/$user/$repo already exists"
+    printf_green "ℹ️ https://github.com/$user/$repo already exists"
     return 0
   elif grep -qis 'Not Found' "$GITADMIN_TEMP_FILE"; then
     return 1
@@ -2233,7 +2158,7 @@ __curl_orgs_create() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__curl_user_create() {
+__curl_github_user_create() {
   local user="$1"
   local repo="$2"
   local DESCR="${3:-$DESCR}"
@@ -2245,10 +2170,10 @@ __curl_user_create() {
   local json_data=""
 
   echo "$SITE" | grep -q '://.*\.[a-zA-Z0-9].*/.*' || SITE="https://github.com/$SITE"
-  [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
+  [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "🚫 ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
 
   # Determine visibility
-  if [ "$GITADMIN_REPO_VISIBLE" = "no" ] || [ "$VISIBLE" = "true" ]; then
+  if [ "$GITADMIN_REPO_VISIBLE" = "no" ] || [ "$VISIBLE" = "private" ]; then
     visibility="private"
   fi
 
@@ -2447,7 +2372,7 @@ __rename_branch_api() {
   git_branch="$1"
   git_user="${2:-$(basename -- "$(dirname "$GITADMIN_CWD")")}"
   git_repo="${3:-$(basename -- "$GITADMIN_CWD")}"
-  [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
+  [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "🚫 ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
   if __curl_gh_api -X PATCH "https://api.github.com/repos/$git_user/$git_repo" -d '{"default_branch":"'$git_branch'"}' | grep -qs '"default_branch": "'$git_branch'"' >/dev/null; then
     git -C "$GITADMIN_CWD" push --delete origin ${git_old_branch:-master} -fq &>/dev/null || return 1
   else
@@ -2475,9 +2400,9 @@ __rename_branch() {
     git -C "$GITADMIN_CWD" push --set-upstream origin $git_branch
   fi
   if __rename_branch_api "$git_branch" "$git_user" "$git_repo"; then
-    printf_green "Changed the default branch on github.com/$git_user/$git_repo"
+    printf_green "🌿 Changed the default branch on github.com/$git_user/$git_repo"
   fi &&
-    printf_green "Successfully renamed the default branch" ||
+    printf_green "✅ Successfully renamed the default branch" ||
     { printf_red "Failed to rename the default branch" && exitCode=1; }
   if [ "$git_config_branch" != "$git_branch" ]; then
     __git_config_branch "$git_branch"
@@ -2681,7 +2606,7 @@ __github_orgs_visibility() {
   local status_code=""
   local orgs_list=""
 
-  [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
+  [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "🚫 ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
 
   # Get all orgs if not specified
   if [ -z "$org_name" ]; then
@@ -2994,10 +2919,10 @@ __curl_gh_api() {
     [ -f "$tmpFile" ] && cat "$tmpFile" || exitCode=3
   else
     if [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ]; then
-      curl -q -LSs -H "Accept: application/vnd.github.v3+json" -H "X-GitHub-Api-Version: $GITADMIN_GITHUB_API_VERSION" "$@" 2>${GITADMIN_TEMP_FILE}.err
+      curl -q -LSs -H "Accept: application/vnd.github.v3+json" -H "X-GitHub-Api-Version: $GITADMIN_GITHUB_API_VERSION" "$@"
       return $?
     else
-      curl -q -LSs -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" -H "Accept: application/vnd.github.v3+json" -H "X-GitHub-Api-Version: $GITADMIN_GITHUB_API_VERSION" "$@" 2>${GITADMIN_TEMP_FILE}.err
+      curl -q -LSs -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" -H "Accept: application/vnd.github.v3+json" -H "X-GitHub-Api-Version: $GITADMIN_GITHUB_API_VERSION" "$@"
       return $?
     fi
   fi
@@ -3015,7 +2940,7 @@ __git_tag_add() {
   if git -C "$GITADMIN_CWD" tag -a "$1" -m "${2:-🚀🌟 Added tag $1 🚀🌟}" >/dev/null 2>/dev/null; then
     printf_green "Added tag $1"
     if git -C "$GITADMIN_CWD" push origin "$1" >/dev/null 2>/dev/null; then
-      printf_cyan "Pushed tag to $repo"
+      printf_cyan "🏷️ Pushed tag to $repo"
     fi
     return $?
   else
@@ -3069,6 +2994,7 @@ GITADMIN_NOTIFY_CLIENT_URGENCY="${GITADMIN_NOTIFY_CLIENT_URGENCY:-normal}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional Variables
 GITADMIN_DEFAULT_USERNAME="${GITADMIN_DEFAULT_USERNAME:-$GITHUB_USERNAME}"
+GITADMIN_DEFAULT_PLATFORM="${GITADMIN_DEFAULT_PLATFORM:-github}"
 GITADMIN_DEFAULT_BRANCH="${GITADMIN_DEFAULT_BRANCH:-main}"
 GITADMIN_DEFAULT_REPO_BASE="${GITADMIN_REPO_URL:-https://github.com}"
 GITADMIN_DEFAULT_README="${GITADMIN_DEFAULT_README:-default}"
@@ -3346,6 +3272,7 @@ while :; do
     ;;
   --default-branch)
     GITADMIN_DEFAULT_BRANCH="$2"
+    GITADMIN_DEFAULT_BRANCH_SET="yes"
     shift 2
     ;;
   --)
@@ -3791,17 +3718,26 @@ modify)
     printf_exit "Please specify userName/repoName or use . for current repo"
   fi
 
-  # Build modify arguments from getopt variables
-  [ -n "$GITADMIN_REPO_DESCRIPTION" ] && modify_args="$modify_args --description '$GITADMIN_REPO_DESCRIPTION'"
-  [ -n "$GITADMIN_REPO_HOMEPAGE" ] && modify_args="$modify_args --homepage '$GITADMIN_REPO_HOMEPAGE'"
-  [ -n "$GITADMIN_REPO_VISIBILITY" ] && modify_args="$modify_args --$GITADMIN_REPO_VISIBILITY"
-  [ -n "$GITADMIN_REPO_ISSUES" ] && modify_args="$modify_args --issues $GITADMIN_REPO_ISSUES"
-  [ -n "$GITADMIN_REPO_WIKI" ] && modify_args="$modify_args --wiki $GITADMIN_REPO_WIKI"
-  [ -n "$GITADMIN_REPO_PROJECTS" ] && modify_args="$modify_args --projects $GITADMIN_REPO_PROJECTS"
-  [ -n "$GITADMIN_DEFAULT_BRANCH" ] && modify_args="$modify_args --default-branch $GITADMIN_DEFAULT_BRANCH"
+  # Build full URL for display
+  display_url=""
+  case "$platform" in
+  github)
+    display_url="https://github.com"
+    ;;
+  gitlab)
+    display_url="htts://gitlab.com"
+    ;;
+  gitea | private)
+    display_url="$GITADMIN_PERSONAL_GIT_HOST"
+    ;;
+  *)
+    display_url="$platform"
+    ;;
+  esac
 
-  printf_cyan "Modifying $user/$repo on $platform..."
-  eval "__universal_repo_modify '$platform' '$user' '$repo' $modify_args"
+  # Variables are already set by getopt, no need to rebuild arguments
+  printf_cyan "🔄 Modifying $user/$repo on $display_url"
+  __universal_repo_modify "$platform" "$user" "$repo"
   exit $?
   ;;
 
@@ -3836,11 +3772,8 @@ create)
 
   # Auto-detect platform if not specified
   if [ -z "$platform" ]; then
-    if [ -n "$GITADMIN_PERSONAL_GIT_HOST" ] && [ "$visibility" = "private" ]; then
-      platform="gitea"
-    else
-      platform="github" # Default
-    fi
+    # Use GITADMIN_DEFAULT_PLATFORM if set, otherwise default to github
+    platform="${GITADMIN_DEFAULT_PLATFORM:-github}"
   fi
 
   __universal_repo_create "$platform" "$user" "$repo" "$description" "$visibility" "$homepage"
@@ -4341,7 +4274,7 @@ github)
   create)
     shift 1
     { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin github create userName repoName Description"
-    __ghcreate "$@"
+    __github_create_repo "$@"
     exit $?
     ;;
 
@@ -4375,11 +4308,11 @@ github)
       homerepo="$(echo "$GITADMIN_DEFAULT_GIT_DIR_GITHUB/$url")"
     fi
     if [ -d "$homerepo/.git" ]; then
-      printf_green "The repo already exists so attempting update"
+      printf_green "ℹ️ The repo already exists so attempting update"
       __git_pull_single "$homerepo"
       retVal=$?
     else
-      printf_green "Cloning the repo from $remote_repo"
+      printf_green "🔽 Cloning the repo from $remote_repo"
       mkdir -p "$homerepo"
       __git_clone_single "$remote_repo" "$homerepo"
       retVal=$?
@@ -4590,11 +4523,11 @@ gitlab)
       homerepo="$(echo "$GITADMIN_DEFAULT_GIT_DIR_GITLAB/$1")"
     fi
     if [ -d "$homerepo/.git" ]; then
-      printf_green "The repo already exists so attempting update"
+      printf_green "ℹ️ The repo already exists so attempting update"
       __git_pull "$homerepo"
       retVal=$?
     else
-      printf_green "Cloning the repo from $remote_repo"
+      printf_green "🔽 Cloning the repo from $remote_repo"
       mkdir -p "$homerepo"
       __git_clone "$remote_repo" "$homerepo"
       retVal=$?
@@ -4688,11 +4621,11 @@ private)
       homerepo="$(echo "$GITADMIN_DEFAULT_GIT_DIR_PRIVATE/$1")"
     fi
     if [ -d "$homerepo" ]; then
-      printf_green "The repo already exists so attempting update"
+      printf_green "ℹ️ The repo already exists so attempting update"
       __git_pull "$homerepo"
       retVal=$?
     else
-      printf_green "Cloning the repo from $remote_repo"
+      printf_green "🔽 Cloning the repo from $remote_repo"
       mkdir -p "$homerepo"
       __git_clone "$remote_repo" "$homerepo"
       retVal=$?

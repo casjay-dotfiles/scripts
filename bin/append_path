@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202208041957-git
+##@Version           :  202501191000-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Thursday, Aug 04, 2022 19:57 EDT
 # @@File             :  append_path
 # @@Description      :  Append a folder to the system/user PATH
-# @@Changelog        :  New script
+# @@Changelog        :  Fixed syntax errors, improved path handling with better feedback
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202208041957-git"
+VERSION="202501191000-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -70,14 +70,14 @@ __devnull() {
   tee &>/dev/null && exitCode=0 || exitCode=1
   return ${exitCode:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Send errors to /dev/null
 __devnull2() {
   [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
   eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
   return ${exitCode:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # See if the executable exists
 __cmd_exists() {
   local exitCode=0
@@ -248,7 +248,7 @@ __sudoif() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run command as root
-requiresudo() {
+__requiresudo() {
   if [ "$APPEND_PATH_REQUIRE_SUDO" = "yes" ] && [ -z "$APPEND_PATH_REQUIRE_SUDO_RUN" ]; then
     export APPEND_PATH_REQUIRE_SUDO="no"
     export APPEND_PATH_REQUIRE_SUDO_RUN="true"
@@ -298,29 +298,70 @@ __execute_append() {
   if __add2path_function; then
     add2path "$@"
   elif [ $# -ne 0 ]; then
-    local PATH_NEW PATH_ADD PATH_CREATE PATH_ORIG
+    local PATH_NEW PATH_ADD PATH_CREATE PATH_ORIG PATH_ADDED=""
     PATH_ADD="$*"
     PATH_NEW=""
     PATH_CREATE=""
-    PATH_ORIG_RUN="$(echo "$PATH" | __clean_path "run/user/$UID")"
-    PATH_ORIG_USER="$(echo "$PATH" | __clean_path "$HOME")"
-    PATH_ORIG_SYTEM="$(echo "$PATH" | __clean_path -vE "$HOME|run/user/$UID")"
-    PATH_ORIG="$HOME/.local/bin:$PATH_ORIG_RUN:$PATH_ORIG_USER:$CASJAYSDEVDIR:$PATH_ORIG_SYTEM"
+    
+    # Clean and organize current PATH
+    PATH_ORIG_RUN="$(echo "$PATH" | tr ':' '\n' | grep "run/user/$UID" | tr '\n' ':' | sed 's|:$||')"
+    PATH_ORIG_USER="$(echo "$PATH" | tr ':' '\n' | grep "$HOME" | grep -v "$HOME/.local/bin" | tr '\n' ':' | sed 's|:$||')"
+    PATH_ORIG_SYSTEM="$(echo "$PATH" | tr ':' '\n' | grep -vE "$HOME|run/user/$UID" | tr '\n' ':' | sed 's|:$||')"
+    PATH_ORIG="$HOME/.local/bin:$PATH_ORIG_RUN:$PATH_ORIG_USER:$CASJAYSDEVDIR:$PATH_ORIG_SYSTEM"
+    
+    # Process each path argument
     for paths in $PATH_ADD; do
-      { [ -d "$paths" ] && PATH_NEW="$(realpath "$paths" 2>/dev/null)"; } ||
-        { [ -f "$paths" ] && PATH_NEW="$(dirname "$(realpath "$paths" 2>/dev/null)" 2>/dev/null)"; }
-      if echo "$PATH_NEW:$PATH:$PATH_ORIG" | tr ':' '\n' | grep -qv "$PATH_NEW"; then
-        [[ -e "$PATH_NEW" ]] && PATH_CREATE+="$PATH_NEW:"
+      if [ -d "$paths" ]; then
+        PATH_NEW="$(realpath "$paths" 2>/dev/null)"
+      elif [ -f "$paths" ]; then
+        PATH_NEW="$(dirname "$(realpath "$paths" 2>/dev/null)" 2>/dev/null)"
+      else
+        printf_yellow "⚠️ Path does not exist: $paths"
+        continue
+      fi
+      
+      # Check if path is already in PATH
+      if ! echo ":$PATH:$PATH_CREATE" | grep -q ":$PATH_NEW:"; then
+        if [ -n "$PATH_NEW" ] && [ -e "$PATH_NEW" ]; then
+          PATH_CREATE="${PATH_CREATE}${PATH_NEW}:"
+          PATH_ADDED="${PATH_ADDED}${PATH_NEW}\n"
+          printf_green "✅ Adding to PATH: $PATH_NEW"
+        fi
+      else
+        printf_yellow "ℹ️ Already in PATH: $PATH_NEW"
       fi
     done
-    printf_yellow "Current Paths in path order:"
-    echo "${PATH_ORIG}" | tr ':' '\n' | uniq | grep -v '^$' | printf_column "5"
-    printf_blue 'New path parameters: '
-    printf_cyan 'export PATH='$PATH_CREATE'$PATH:.'
-    printf_green "source $APPEND_PATH_TEMP_DIR/append_path.path"
-    echo 'PATH="'$PATH_CREATE$PATH_ORIG:.'"' >"$APPEND_PATH_TEMP_DIR/append_path.path"
+    
+    if [ -n "$PATH_CREATE" ]; then
+      # Create the new PATH
+      NEW_FULL_PATH="${PATH_CREATE}${PATH_ORIG}"
+      
+      # Show summary
+      printf_cyan "\n📁 Current PATH directories:"
+      echo "${PATH}" | tr ':' '\n' | uniq | grep -v '^$' | head -10
+      
+      if [ -n "$PATH_ADDED" ]; then
+        printf_green "\n➕ Newly added directories:"
+        echo -e "$PATH_ADDED" | grep -v '^$'
+      fi
+      
+      # Save to file and show instructions
+      printf_blue "\n💾 Saving new PATH configuration..."
+      echo "export PATH=\"${NEW_FULL_PATH}\"" >"$APPEND_PATH_TEMP_DIR/append_path.sh"
+      
+      printf_green "\n✅ Path configuration saved!"
+      printf_yellow "\n📝 To apply the changes, run:"
+      printf_cyan "    source $APPEND_PATH_TEMP_DIR/append_path.sh"
+      printf_yellow "\n📝 Or add to your shell config:"
+      printf_cyan "    export PATH=\"${PATH_CREATE}\$PATH\""
+      
+      exitCode=0
+    else
+      printf_yellow "⚠️ No new paths were added"
+      exitCode=0
+    fi
   else
-    printf_red "Usage: $APPNAME /path/to/dir /path/to/dir2 /path/to/file"
+    printf_red "❌ Usage: $APPNAME /path/to/dir /path/to/dir2 /path/to/file"
     exitCode=1
   fi
 }
@@ -528,7 +569,7 @@ export APPEND_PATH_CWD
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
-#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+#__requiresudo "$0" "$@" || exit 2     # exit 2 if errors
 #cmd_exists --error --ask bash || exit 3 # exit 3 if not found
 #am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

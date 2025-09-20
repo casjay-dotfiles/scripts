@@ -157,6 +157,7 @@ __gen_config() {
 # Settings for tell-joke
 TELL_JOKE_API_URL="${TELL_JOKE_API_URL:-}"
 TELL_JOKE_API_ARGS="${TELL_JOKE_API_ARGS:-}"
+TELL_JOKE_API_CATEGORY="${TELL_JOKE_API_CATEGORY:-}"
 TELL_JOKE_YAD_WIDTH="${TELL_JOKE_YAD_WIDTH:-}"
 TELL_JOKE_YAD_HEIGHT="${TELL_JOKE_YAD_HEIGHT:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -310,9 +311,9 @@ __yad__text() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__curl() { curl -q -LSsfk "$@" 2>/dev/null || return 1; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __jq() { jq -r "$@" 2>/dev/null || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__curl() { curl -q -LSsfk "$@" 2>/dev/null || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __sed_clean() {
   sed \
@@ -322,23 +323,13 @@ __sed_clean() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_joke() {
-  local value="" api_endpoint=""
-  value="${1:-.value.joke}"
-  string="${2:-random}"
-  if [ -n "$TELL_JOKE_API_ARGS" ] || [ "$TELL_JOKE_API_ARGS" != "" ]; then
-    api_endpoint="$TELL_JOKE_API_URL/${string}?limitTo=\[nerdy,explicit\]"
-  else
-    api_endpoint="$TELL_JOKE_API_URL/${string}?limitTo=\[nerdy,explicit\]&$TELL_JOKE_API_ARGS"
-  fi
-  __curl "$api_endpoint" | __jq "$value"
-  return $?
+  [ -n "$TELL_JOKE_API_CATEGORY" ] && cat="$TELL_JOKE_API_CATEGORY" || true
+  [ -n "$TELL_JOKE_API_ARGS" ] && api_args="&$TELL_JOKE_API_ARGS" || true
+  [ -n "$TELL_JOKE_API_EXCLUDE" ] && api_args+="&exclude=$TELL_JOKE_API_EXCLUDE" || true
+  __curl "$TELL_JOKE_API_URL/${1:-random}?limitTo=\[$cat\]$api_args" | grep '^'
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__execute_tell-joke() {
-  TELL_JOKE_API_RES="$(__get_joke "${1:-.value.joke}" "${2:-random}" | __sed_clean | grep '^')"
-  [ -n "$TELL_JOKE_API_RES" ] || printf_exit "Something went wrong while fetching the api"
-  printf "\n"
-}
+__error_message() { printf_red "Something went wrong while fetching a joke from ${TELL_JOKE_API_URL}" && return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
 
@@ -368,10 +359,11 @@ TELL_JOKE_NOTIFY_CLIENT_ICON="${TELL_JOKE_NOTIFY_CLIENT_ICON:-notification-new}"
 TELL_JOKE_NOTIFY_CLIENT_URGENCY="${TELL_JOKE_NOTIFY_CLIENT_URGENCY:-normal}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional Variables
-TELL_JOKE_API_URL="${TELL_JOKE_API_URL:-http://api.icndb.com/jokes}"
 TELL_JOKE_API_ARGS="${TELL_JOKE_API_ARGS:-}"
 TELL_JOKE_YAD_WIDTH="${TELL_JOKE_YAD_WIDTH:-700}"
 TELL_JOKE_YAD_HEIGHT="${TELL_JOKE_YAD_HEIGHT:-300}"
+TELL_JOKE_API_CATEGORY="${TELL_JOKE_API_CATEGORY:-nerdy,explicit}"
+TELL_JOKE_API_URL="${TELL_JOKE_API_URL:-http://localhost:3000/api/v1/jokes}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$TELL_JOKE_CONFIG_DIR/$TELL_JOKE_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
@@ -415,7 +407,7 @@ SHORTOPTS=""
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
-LONGOPTS+=""
+LONGOPTS+=",category:,exclude:"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="count many random"
 ARRAY+=""
@@ -510,6 +502,14 @@ while :; do
     #[ -d "$TELL_JOKE_CWD" ] || mkdir -p "$TELL_JOKE_CWD" |& __devnull
     shift 2
     ;;
+  --category)
+    TELL_JOKE_API_CATEGORY="$2"
+    shift 2
+    ;;
+  --exclude)
+    TELL_JOKE_API_EXCLUDE="$2"
+    shift 2
+    ;;
   --)
     shift 1
     break
@@ -554,7 +554,7 @@ export TELL_JOKE_CWD
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
-set -x
+[ -n "$TELL_JOKE_API_URL" ] || printf_exit "The variable TELL_JOKE_API_URL is not set"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Execute functions
 
@@ -568,23 +568,38 @@ count)
   shift 1
   TELL_JOKE_YAD_WIDTH="400"
   TELL_JOKE_YAD_HEIGHT="200"
-  __execute_tell-joke ".value" "count"
-  printf 'I seem to have %s jokes available\n' "$TELL_JOKE_API_RES" | __yad__text "$TELL_JOKE_OUTPUT_COLOR_2"
+  TELL_JOKE_API_RES="$(__get_joke "count" ".value" || false)"
+  if [ -n "$TELL_JOKE_API_RES" ]; then
+    total="$(printf '%s\n' "$TELL_JOKE_API_RES" | __jq '.value|.total')"
+    categories="$(printf '%s\n' "$TELL_JOKE_API_RES" | __jq -c '.value|.categories|.[]')"
+    printf 'I have %s jokes available:\n%s\n' "$total" "$categories" | __yad__text "$TELL_JOKE_OUTPUT_COLOR_2"
+  else
+    __error_message
+  fi
+  exit
   ;;
 
 many)
   shift 1
   TELL_JOKE_YAD_WIDTH="900"
   TELL_JOKE_YAD_HEIGHT="500"
-  TELL_JOKE_API_RES="$(__get_joke ".value" "random/${1:-5}" | __jq '.[] | .joke' | __sed_clean)"
-  [ -n "$TELL_JOKE_API_RES" ] || printf_exit "Something went very wrong"
-  printf '%s\n\n%s\n' "Have a laugh:" "$TELL_JOKE_API_RES" | __yad__text "$TELL_JOKE_OUTPUT_COLOR_2"
+  TELL_JOKE_API_RES="$(__get_joke "random/${1:-5}" ".value" | __jq '.value|.[].joke')"
+  if [ -n "$TELL_JOKE_API_RES" ]; then
+    printf '%s\n\n%s\n\n' "Have a laugh:" "$TELL_JOKE_API_RES" | __yad__text "$TELL_JOKE_OUTPUT_COLOR_2"
+  else
+    __error_message
+  fi
+  exit
   ;;
 
 *)
-  [ "$1" = "random" ] && shift
-  __execute_tell-joke ".value.joke"
-  printf '%s\n\n%s\n' "Have a laugh:" "$TELL_JOKE_API_RES" | __yad__text "$TELL_JOKE_OUTPUT_COLOR_2"
+  TELL_JOKE_API_RES="$(__get_joke "${1:-random}" ".value" | __jq ".value|.joke")"
+  if [ -n "$TELL_JOKE_API_RES" ]; then
+    printf '%s\n\n%s\n\n' "Have a laugh:" "$TELL_JOKE_API_RES" | __yad__text "$TELL_JOKE_OUTPUT_COLOR_2"
+  else
+    __error_message
+  fi
+  exit
   ;;
 esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

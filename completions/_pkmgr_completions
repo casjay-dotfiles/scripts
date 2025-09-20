@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202108121903-git
+##@Version           :  202509191710-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -9,12 +9,94 @@
 # @Created           :  Thursday, Aug 12, 2021 19:03 EDT
 # @File              :  pkmgr
 # @Description       :  Manage system packages
-# @TODO              :  Refactor code/Add zenity support/Add user conf file
-# @Other             :  Add BSD support
+# @TODO              :  Add more intelligent package name caching
+# @Other             :  Enhanced with package name completions and BSD support
 # @Resource          :
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
 _pkmgr() {
   ___findcmd() { find -L "${1:-$CONFDIR/}" -maxdepth ${3:-3} -type ${2:-f} 2>/dev/null | sed 's#'${1:-$CONFDIR}'##g' | grep '^' || return 1; }
+  # Get available packages (cached for performance)
+  __get_available_packages() {
+    local cache_file="/tmp/.pkmgr_pkg_cache"
+    local cache_age=3600 # 1 hour cache
+    if [[ -f "$cache_file" ]] && [[ $(($(date +%s) - $(stat -c %Y "$cache_file" 2>/dev/null || stat -f %m "$cache_file" 2>/dev/null || echo 0))) -lt $cache_age ]]; then
+      cat "$cache_file"
+    else
+      case "$(uname -s)" in
+      Linux)
+        if command -v apt-cache &>/dev/null; then
+          apt-cache pkgnames 2>/dev/null | head -1000 | tee "$cache_file"
+        elif command -v pacman &>/dev/null; then
+          pacman -Slq 2>/dev/null | head -1000 | tee "$cache_file"
+        elif command -v dnf &>/dev/null; then
+          dnf list available 2>/dev/null | awk '{print $1}' | sed 's/\..*$//' | head -1000 | tee "$cache_file"
+        elif command -v yum &>/dev/null; then
+          yum list available 2>/dev/null | awk '{print $1}' | sed 's/\..*$//' | head -1000 | tee "$cache_file"
+        elif command -v apk &>/dev/null; then
+          apk search 2>/dev/null | sed 's/-[0-9].*$//' | head -1000 | tee "$cache_file"
+        elif command -v xbps-query &>/dev/null; then
+          xbps-query -Rs '' 2>/dev/null | awk '{print $2}' | head -1000 | tee "$cache_file"
+        elif command -v zypper &>/dev/null; then
+          zypper search -t package 2>/dev/null | tail -n +6 | awk -F'|' '{print $2}' | tr -d ' ' | head -1000 | tee "$cache_file"
+        elif command -v emerge &>/dev/null; then
+          emerge --search '' 2>/dev/null | grep -E '^\*' | sed 's/^\* *//' | head -1000 | tee "$cache_file"
+        fi
+        ;;
+      FreeBSD | DragonFly)
+        pkg search -q '.*' 2>/dev/null | head -1000 | tee "$cache_file"
+        ;;
+      OpenBSD)
+        pkg_info -q 2>/dev/null | head -1000 | tee "$cache_file"
+        ;;
+      NetBSD)
+        if command -v pkgin &>/dev/null; then
+          pkgin avail 2>/dev/null | awk '{print $1}' | head -1000 | tee "$cache_file"
+        else
+          pkg_info -E '*' 2>/dev/null | head -1000 | tee "$cache_file"
+        fi
+        ;;
+      Darwin)
+        brew search 2>/dev/null | head -1000 | tee "$cache_file"
+        ;;
+      esac
+    fi
+  }
+  # Get installed packages  
+  __get_installed_packages() {
+    case "$(uname -s)" in
+    Linux)
+      if command -v dpkg &>/dev/null; then
+        dpkg -l | grep '^ii' | awk '{print $2}' | sed 's/:.*$//'
+      elif command -v pacman &>/dev/null; then
+        pacman -Q | awk '{print $1}'
+      elif command -v rpm &>/dev/null; then
+        rpm -qa --qf '%{name}\n'
+      elif command -v apk &>/dev/null; then
+        apk info -q
+      elif command -v xbps-query &>/dev/null; then
+        xbps-query -l | awk '{print $2}' | sed 's/-[0-9].*//'
+      elif command -v emerge &>/dev/null; then
+        qlist -IC
+      fi
+      ;;
+    FreeBSD | DragonFly)
+      pkg query '%n'
+      ;;
+    OpenBSD)
+      pkg_info -q
+      ;;
+    NetBSD)
+      if command -v pkgin &>/dev/null; then
+        pkgin list | awk '{print $1}'
+      else
+        pkg_info -e '*'
+      fi
+      ;;
+    Darwin)
+      brew list --formula
+      ;;
+    esac 2>/dev/null
+  }
   local CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
   local cur prev words cword opts split
   local cur="${COMP_WORDS[$COMP_CWORD]}"
@@ -30,7 +112,7 @@ _pkmgr() {
   local LONGOPTS="--completions --config --debug --dir --help --options --raw --version --silent "
   local LONGOPTS+="--force --enable-aur --raw --enable-log"
   local ARRAY="keys check alias available install remove list curl script dotfiles upgrade export import clean "
-  local ARRAY+="init makecache search required silent cpan pip gem npm info version bin lua go"
+  local ARRAY+="init makecache search required silent cpan perl pip python gem ruby npm yarn lua go reinstall makepkg"
   local LIST=""
 
   _init_completion || return
@@ -96,17 +178,27 @@ _pkmgr() {
 
     search)
       local prev="search"
-      COMPREPLY=($(compgen -W '$(echo {0..9} {a..z})' -- "${cur}")) && compopt -o nospace
+      if [[ ${COMP_CWORD} -ge 2 ]]; then
+        # Offer package name suggestions based on what's typed
+        local packages=$(__get_available_packages)
+        COMPREPLY=($(compgen -W "${packages}" -- "${cur}"))
+      fi
       ;;
 
     install)
       local prev="install"
-      COMPREPLY=($(compgen -W '' -- "${cur}"))
+      if [[ ${COMP_CWORD} -ge 2 ]]; then
+        local packages=$(__get_available_packages)
+        COMPREPLY=($(compgen -W "${packages}" -- "${cur}"))
+      fi
       ;;
 
     remove)
       local prev="remove"
-      COMPREPLY=($(compgen -W '' -- "${cur}"))
+      if [[ ${COMP_CWORD} -ge 2 ]]; then
+        local packages=$(__get_installed_packages)
+        COMPREPLY=($(compgen -W "${packages}" -- "${cur}"))
+      fi
       ;;
 
     curl)
@@ -149,39 +241,89 @@ _pkmgr() {
       COMPREPLY=($(compgen -W '' -- "${cur}"))
       ;;
 
-    cpan)
+    cpan | perl)
       local prev="cpan"
-      COMPREPLY=($(compgen -W 'install remove check' -- "${cur}"))
+      if [[ ${COMP_CWORD} -eq 2 ]]; then
+        COMPREPLY=($(compgen -W 'install remove check' -- "${cur}"))
+      elif [[ ${COMP_CWORD} -ge 3 ]]; then
+        # For CPAN modules, we could list popular ones or leave empty for user input
+        COMPREPLY=($(compgen -W '' -- "${cur}"))
+      fi
       ;;
 
-    pip)
-      local prev="cpan"
-      COMPREPLY=($(compgen -W 'install remove check' -- "${cur}"))
+    pip | python)
+      local prev="pip"
+      if [[ ${COMP_CWORD} -eq 2 ]]; then
+        COMPREPLY=($(compgen -W 'install remove check' -- "${cur}"))
+      elif [[ ${COMP_CWORD} -ge 3 ]]; then
+        # For Python packages, offer common ones or use pip list for installed
+        if [[ "${COMP_WORDS[2]}" == "remove" ]] && command -v pip &>/dev/null; then
+          local packages=$(pip list 2>/dev/null | tail -n +3 | awk '{print $1}')
+          COMPREPLY=($(compgen -W "${packages}" -- "${cur}"))
+        fi
+      fi
       ;;
 
-    gem)
-      local prev="cpan"
-      COMPREPLY=($(compgen -W 'install remove check' -- "${cur}"))
+    gem | ruby)
+      local prev="gem"
+      if [[ ${COMP_CWORD} -eq 2 ]]; then
+        COMPREPLY=($(compgen -W 'install remove check' -- "${cur}"))
+      elif [[ ${COMP_CWORD} -ge 3 ]]; then
+        # For Ruby gems
+        if [[ "${COMP_WORDS[2]}" == "remove" ]] && command -v gem &>/dev/null; then
+          local packages=$(gem list --local --no-versions 2>/dev/null)
+          COMPREPLY=($(compgen -W "${packages}" -- "${cur}"))
+        fi
+      fi
       ;;
 
-    npm)
-      local prev="cpan"
-      COMPREPLY=($(compgen -W 'install remove check' -- "${cur}"))
+    npm | yarn)
+      local prev="npm"
+      if [[ ${COMP_CWORD} -eq 2 ]]; then
+        COMPREPLY=($(compgen -W 'install remove check' -- "${cur}"))
+      elif [[ ${COMP_CWORD} -ge 3 ]]; then
+        # For npm packages
+        if [[ "${COMP_WORDS[2]}" == "remove" ]] && command -v npm &>/dev/null; then
+          local packages=$(npm list -g --depth=0 2>/dev/null | grep -E '├──|└──' | sed 's/.*── //' | sed 's/@.*//')
+          COMPREPLY=($(compgen -W "${packages}" -- "${cur}"))
+        fi
+      fi
       ;;
 
     lua)
-      local prev="cpan"
-      COMPREPLY=($(compgen -W 'install remove check' -- "${cur}"))
+      local prev="lua"
+      if [[ ${COMP_CWORD} -eq 2 ]]; then
+        COMPREPLY=($(compgen -W 'install remove check' -- "${cur}"))
+      elif [[ ${COMP_CWORD} -ge 3 ]]; then
+        # For Lua rocks
+        if [[ "${COMP_WORDS[2]}" == "remove" ]] && command -v luarocks &>/dev/null; then
+          local packages=$(luarocks list --porcelain 2>/dev/null | awk '{print $1}' | sort -u)
+          COMPREPLY=($(compgen -W "${packages}" -- "${cur}"))
+        fi
+      fi
       ;;
 
     go)
-      local prev="cpan"
-      COMPREPLY=($(compgen -W 'install remove check' -- "${cur}"))
+      local prev="go"
+      if [[ ${COMP_CWORD} -eq 2 ]]; then
+        COMPREPLY=($(compgen -W 'install remove check' -- "${cur}"))
+      elif [[ ${COMP_CWORD} -ge 3 ]]; then
+        # Go modules are typically URLs, so no completion
+        COMPREPLY=($(compgen -W '' -- "${cur}"))
+      fi
       ;;
 
     silent)
-      local prev="cpan"
-      COMPREPLY=($(compgen -W 'install remove upgrade' -- "${cur}"))
+      local prev="silent"
+      if [[ ${COMP_CWORD} -eq 2 ]]; then
+        COMPREPLY=($(compgen -W 'install remove upgrade' -- "${cur}"))
+      elif [[ ${COMP_CWORD} -ge 3 ]] && [[ "${COMP_WORDS[2]}" == "install" ]]; then
+        local packages=$(__get_available_packages)
+        COMPREPLY=($(compgen -W "${packages}" -- "${cur}"))
+      elif [[ ${COMP_CWORD} -ge 3 ]] && [[ "${COMP_WORDS[2]}" == "remove" ]]; then
+        local packages=$(__get_installed_packages)
+        COMPREPLY=($(compgen -W "${packages}" -- "${cur}"))
+      fi
       ;;
 
     info)
@@ -192,6 +334,39 @@ _pkmgr() {
     version)
       local prev="version"
       COMPREPLY=($(compgen -W '' -- "${cur}"))
+      ;;
+
+    makepkg)
+      local prev="makepkg"
+      COMPREPLY=($(compgen -W 'install remove search' -- "${cur}"))
+      ;;
+
+    reinstall)
+      local prev="reinstall"
+      if [[ ${COMP_CWORD} -ge 2 ]]; then
+        local packages=$(__get_installed_packages)
+        COMPREPLY=($(compgen -W "${packages}" -- "${cur}"))
+      fi
+      ;;
+
+    required)
+      local prev="required"
+      COMPREPLY=($(compgen -W '' -- "${cur}"))
+      ;;
+
+    alias)
+      local prev="alias"
+      COMPREPLY=($(compgen -W 'install remove' -- "${cur}"))
+      ;;
+
+    bin)
+      local prev="bin"
+      COMPREPLY=($(compgen -W '' -- "${cur}"))
+      ;;
+
+    import)
+      local prev="import"
+      _filedir
       ;;
 
     *)

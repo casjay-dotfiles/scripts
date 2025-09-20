@@ -41,9 +41,6 @@ COPY --from=base / /
 # Set working directory
 WORKDIR /usr/local/share/CasjaysDev/scripts
 
-# Expose common ports that scripts might use
-EXPOSE 8080 8443
-
 # Add health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD bash -c 'echo "Container is healthy"' || exit 1

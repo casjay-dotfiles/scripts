@@ -26,7 +26,7 @@ USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
 SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
-GITADMIN_REQUIRE_SUDO="${GITADMIN_REQUIRE_SUDO:-no}"
+REQUIRE_SUDO="${REQUIRE_SUDO:-no}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Reopen in a terminal
 #if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
@@ -176,7 +176,7 @@ __gen_config() {
 # Settings for gitadmin
 GITADMIN_DEFAULT_USERNAME="${GITADMIN_DEFAULT_USERNAME:-$GITHUB_USERNAME}"
 GITADMIN_DEFAULT_BRANCH="${GITADMIN_DEFAULT_BRANCH:-main}"
-GITADMIN_DEFAULT_REPO_BASE="${REPO_URL:-https://github.com}"
+GITADMIN_DEFAULT_REPO_BASE="${GITADMIN_REPO_URL:-https://github.com}"
 GITADMIN_DEFAULT_README="${GITADMIN_DEFAULT_README:-default}"
 GITADMIN_DEFAULT_LICENSE="${MY_LICENSE_FILE:-$CASJAYSDEVDIR/templates/wtfpl.md}"
 GITADMIN_DEFAULT_PROJECT_DIR="${GITADMIN_DEFAULT_PROJECT_DIR:-$HOME/Projects}"
@@ -251,8 +251,9 @@ __help() {
   __printf_line "push [directory]                - Push a project to a remote repo"
   __printf_line "pull [directory]                - Update a local git repo"
   __printf_line "clone [repo] [directory]        - Clone a git repo"
-  __printf_line "create [userName] [repoName]    - Create a new github repo"
-  __printf_line "delete [userName] [repoName]    - Deletes a github repo"
+  __printf_line "modify [user/repo|.]            - Modify repo settings (auto-detects platform)"
+  __printf_line "create [user/repo]              - Create a new repo [--github|--gitlab|--gitea] [--private|--public]"
+  __printf_line "delete [user/repo|.]            - Delete a repo (auto-detects platform)"
   __printf_line "shorten  [URL] [name]           - Shorten any github url"
   __printf_line "newsite [sitename] [repo]       - Create a site using template [$GITADMIN_DOMAIN_TEMPLATE]"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -416,9 +417,9 @@ __sudoif() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run command as root
 __requiresudo() {
-  if [ "$GITADMIN_REQUIRE_SUDO" = "yes" ] && [ -z "$GITADMIN_REQUIRE_SUDO_RUN" ]; then
-    export GITADMIN_REQUIRE_SUDO="no"
-    export GITADMIN_REQUIRE_SUDO_RUN="true"
+  if [ "$REQUIRE_SUDO" = "yes" ] && [ -z "$REQUIRE_SUDO_RUN" ]; then
+    export REQUIRE_SUDO="no"
+    export REQUIRE_SUDO_RUN="true"
     __sudo "$@"
     exit $?
   else
@@ -493,40 +494,445 @@ __update_usage() {
   exit
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# The template to create a new private github repo
-__create_new_private_repo_template() {
-  read -r -d '' JSON_TEMPLATE <<EOF
+# Generate JSON template for repo creation based on visibility
+__generate_repo_json() {
+  local repo_name="$1"
+  local description="${2:-Repository for $1}"
+  local homepage="${3:-}"
+  local visibility="${4:-public}" # public or private
+  local platform="${5:-github}"   # github, gitlab, gitea
+
+  # Set homepage if not provided
+  if [ -z "$homepage" ]; then
+    case "$platform" in
+    github) homepage="https://github.com/${GITADMIN_DEFAULT_USERNAME}/$repo_name" ;;
+    gitlab) homepage="https://gitlab.com/${GITADMIN_DEFAULT_USERNAME}/$repo_name" ;;
+    gitea) homepage="${GITADMIN_PERSONAL_GIT_HOST}/${GITADMIN_DEFAULT_USERNAME}/$repo_name" ;;
+    *) homepage="${GITADMIN_DEFAULT_USER_DOMAIN:-}" ;;
+    esac
+  fi
+
+  # Generate JSON based on platform and visibility
+  case "$platform" in
+  github | gitlab)
+    if [ "$visibility" = "private" ]; then
+      cat <<EOF
 {
-  "name" : "%s",
-  "description" : "%s",
-  "homepage" : "%s",
-  "visibility" : "private",
-  "private" : true,
-  "has_issues" : false,
-  "has_downloads" : false,
-  "has_wiki" : false,
-  "has_projects" : false
+  "name": "$repo_name",
+  "description": "$description",
+  "homepage": "$homepage",
+  "visibility": "private",
+  "private": true,
+  "has_issues": false,
+  "has_downloads": false,
+  "has_wiki": false,
+  "has_projects": false
 }
 EOF
-  JSON_OUTPUT=$(printf '%s' '%s' '%s' '%s' "$JSON_TEMPLATE" "$REPO_NAME" "$DESCRIPTION" "$GITADMIN_DEFAULT_USER_DOMAIN")
+    else
+      cat <<EOF
+{
+  "name": "$repo_name",
+  "description": "$description",
+  "homepage": "$homepage",
+  "visibility": "public",
+  "private": false,
+  "has_issues": true,
+  "has_downloads": true,
+  "has_wiki": true,
+  "has_projects": true
+}
+EOF
+    fi
+    ;;
+  gitea)
+    local is_private="false"
+    [ "$visibility" = "private" ] && is_private="true"
+    cat <<EOF
+{
+  "auto_init": false,
+  "default_branch": "main",
+  "name": "$repo_name",
+  "description": "$description",
+  "private": $is_private
+}
+EOF
+    ;;
+  *)
+    printf_red "Unknown platform: $platform"
+    return 1
+    ;;
+  esac
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# The template to create a new public github repo
-__create_new_repo_template() {
-  read -r -d '' JSON_TEMPLATE <<EOF
-{
-  "name" : "%s",
-  "description" : "%s",
-  "homepage" : "%s",
-  "visibility" : "public",
-  "private" : false,
-  "has_issues" : true,
-  "has_downloads" : true,
-  "has_wiki" : true,
-  "has_projects" : true
+# Legacy function for backward compatibility - creates private repo JSON
+__create_new_private_repo_template() {
+  REPO_NAME="${1:-$REPO_NAME}"
+  DESCRIPTION="${2:-$DESCRIPTION}"
+  HOMEPAGE="${3:-$GITADMIN_DEFAULT_USER_DOMAIN}"
+  JSON_OUTPUT="$(__generate_repo_json "$REPO_NAME" "$DESCRIPTION" "$HOMEPAGE" "private" "github")"
 }
-EOF
-  JSON_OUTPUT=$(printf '%s' '%s' '%s' '%s' "$JSON_TEMPLATE" "$REPO_NAME" "$DESCRIPTION" "$GITADMIN_DEFAULT_USER_DOMAIN")
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Legacy function for backward compatibility - creates public repo JSON
+__create_new_repo_template() {
+  REPO_NAME="${1:-$REPO_NAME}"
+  DESCRIPTION="${2:-$DESCRIPTION}"
+  HOMEPAGE="${3:-$GITADMIN_DEFAULT_USER_DOMAIN}"
+  JSON_OUTPUT="$(__generate_repo_json "$REPO_NAME" "$DESCRIPTION" "$HOMEPAGE" "public" "github")"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Detect which git platform a repo belongs to
+__detect_git_platform() {
+  local check_url="${1:-}"
+  local check_dir="${2:-$GITADMIN_CWD}"
+
+  # Check from URL first
+  if [ -n "$check_url" ]; then
+    case "$check_url" in
+    *github.com*)
+      echo "github"
+      return 0
+      ;;
+    *gitlab.com*)
+      echo "gitlab"
+      return 0
+      ;;
+    *"$GITADMIN_PERSONAL_GIT_HOST"*)
+      echo "gitea"
+      return 0
+      ;;
+    *)
+      # Try to determine from URL pattern
+      if echo "$check_url" | grep -q "gitlab"; then
+        echo "gitlab"
+      elif echo "$check_url" | grep -q "gitea\|gogs"; then
+        echo "gitea"
+      else
+        echo "github" # Default
+      fi
+      return 0
+      ;;
+    esac
+  fi
+
+  # Check from git remote if in a repo
+  if [ -d "$check_dir/.git" ]; then
+    local remote_url="$(git -C "$check_dir" remote get-url origin 2>/dev/null)"
+    if [ -n "$remote_url" ]; then
+      __detect_git_platform "$remote_url"
+      return 0
+    fi
+  fi
+
+  # Check from directory structure
+  case "$check_dir" in
+  *gitlab*)
+    echo "gitlab"
+    return 0
+    ;;
+  *github*)
+    echo "github"
+    return 0
+    ;;
+  *private* | *gitea*)
+    echo "gitea"
+    return 0
+    ;;
+  *)
+    echo "github"
+    return 0
+    ;; # Default to github
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Universal repo modify function
+__universal_repo_modify() {
+  local platform="${1:-}"
+  local user="${2:-}"
+  local repo="${3:-}"
+  shift 3
+
+  case "$platform" in
+  github)
+    __github_repo_modify "$user" "$repo" "$@"
+    ;;
+  gitlab)
+    __gitlab_repo_modify "$user" "$repo" "$@"
+    ;;
+  gitea | private)
+    __gitea_repo_modify "$user" "$repo" "$@"
+    ;;
+  *)
+    printf_red "Unknown platform: $platform"
+    return 1
+    ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Modify GitHub repo
+__github_repo_modify() {
+  local user="$1"
+  local repo="$2"
+  shift 2
+
+  local url="https://api.github.com/repos/$user/$repo"
+  local json_data=""
+  local updates=""
+
+  [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
+
+  # Parse modification options
+  while [ $# -gt 0 ]; do
+    case "$1" in
+    --description | --desc)
+      updates="${updates:+$updates,}\"description\":\"$2\""
+      shift 2
+      ;;
+    --homepage | --website)
+      updates="${updates:+$updates,}\"homepage\":\"$2\""
+      shift 2
+      ;;
+    --private)
+      updates="${updates:+$updates,}\"private\":true"
+      shift
+      ;;
+    --public)
+      updates="${updates:+$updates,}\"private\":false"
+      shift
+      ;;
+    --issues)
+      updates="${updates:+$updates,}\"has_issues\":$2"
+      shift 2
+      ;;
+    --wiki)
+      updates="${updates:+$updates,}\"has_wiki\":$2"
+      shift 2
+      ;;
+    --projects)
+      updates="${updates:+$updates,}\"has_projects\":$2"
+      shift 2
+      ;;
+    --default-branch)
+      updates="${updates:+$updates,}\"default_branch\":\"$2\""
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+    esac
+  done
+
+  if [ -z "$updates" ]; then
+    printf_red "No modifications specified"
+    return 1
+  fi
+
+  json_data="{$updates}"
+  printf_cyan "Updating $user/$repo on GitHub..."
+
+  if __curl_gh_api -X PATCH "$url" --data "$json_data" | grep -q "\"full_name\""; then
+    printf_green "Successfully updated $user/$repo"
+    return 0
+  else
+    printf_red "Failed to update $user/$repo"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Modify GitLab repo
+__gitlab_repo_modify() {
+  local user="$1"
+  local repo="$2"
+  shift 2
+
+  # GitLab uses project IDs, need to get it first
+  local project_id="$(echo "$user/$repo" | sed 's/\//%2F/g')"
+  local url="https://gitlab.com/api/v4/projects/$project_id"
+  local updates=""
+
+  [ -z "$GITADMIN_GITLAB_AUTH_TOKEN" ] && printf_red "ERROR: GITADMIN_GITLAB_AUTH_TOKEN is not set" && return 1
+
+  # Parse modification options
+  while [ $# -gt 0 ]; do
+    case "$1" in
+    --description | --desc)
+      updates="${updates:+$updates,}\"description\":\"$2\""
+      shift 2
+      ;;
+    --homepage | --website)
+      updates="${updates:+$updates,}\"homepage\":\"$2\""
+      shift 2
+      ;;
+    --private)
+      updates="${updates:+$updates,}\"visibility\":\"private\""
+      shift
+      ;;
+    --public)
+      updates="${updates:+$updates,}\"visibility\":\"public\""
+      shift
+      ;;
+    --issues)
+      updates="${updates:+$updates,}\"issues_enabled\":$2"
+      shift 2
+      ;;
+    --wiki)
+      updates="${updates:+$updates,}\"wiki_enabled\":$2"
+      shift 2
+      ;;
+    --default-branch)
+      updates="${updates:+$updates,}\"default_branch\":\"$2\""
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+    esac
+  done
+
+  if [ -z "$updates" ]; then
+    printf_red "No modifications specified"
+    return 1
+  fi
+
+  local json_data="{$updates}"
+  printf_cyan "Updating $user/$repo on GitLab..."
+
+  if curl -q -LSsf -X PUT -H "PRIVATE-TOKEN: $GITADMIN_GITLAB_AUTH_TOKEN" \
+    -H "Content-Type: application/json" \
+    --data "$json_data" "$url" 2>/dev/null | grep -q "\"name\""; then
+    printf_green "Successfully updated $user/$repo"
+    return 0
+  else
+    printf_red "Failed to update $user/$repo"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Modify Gitea repo
+__gitea_repo_modify() {
+  local user="$1"
+  local repo="$2"
+  shift 2
+
+  local url="$GITADMIN_PERSONAL_GIT_HOST/api/v1/repos/$user/$repo"
+  local token="$GIT_PRIVATE_ACCESS_TOKEN"
+  local updates=""
+
+  [ -z "$token" ] && printf_red "ERROR: GIT_PRIVATE_ACCESS_TOKEN is not set" && return 1
+
+  # Parse modification options
+  while [ $# -gt 0 ]; do
+    case "$1" in
+    --description | --desc)
+      updates="${updates:+$updates,}\"description\":\"$2\""
+      shift 2
+      ;;
+    --homepage | --website)
+      updates="${updates:+$updates,}\"website\":\"$2\""
+      shift 2
+      ;;
+    --private)
+      updates="${updates:+$updates,}\"private\":true"
+      shift
+      ;;
+    --public)
+      updates="${updates:+$updates,}\"private\":false"
+      shift
+      ;;
+    --default-branch)
+      updates="${updates:+$updates,}\"default_branch\":\"$2\""
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+    esac
+  done
+
+  if [ -z "$updates" ]; then
+    printf_red "No modifications specified"
+    return 1
+  fi
+
+  local json_data="{$updates}"
+  printf_cyan "Updating $user/$repo on Gitea..."
+
+  if curl -q -LSsf -X PATCH -H "Authorization: token $token" \
+    -H "Content-Type: application/json" \
+    --data "$json_data" "$url" 2>/dev/null | grep -q "\"name\""; then
+    printf_green "Successfully updated $user/$repo"
+    return 0
+  else
+    printf_red "Failed to update $user/$repo"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Universal create function
+__universal_repo_create() {
+  local platform="${1:-}"
+  local user="${2:-}"
+  local repo="${3:-}"
+  local description="${4:-}"
+  local visibility="${5:-public}"
+  local homepage="${6:-}"
+
+  printf_cyan "Creating $repo on $platform..."
+
+  case "$platform" in
+  github)
+    # Try org first, then user
+    if __curl_orgs_create "$user" "$repo" "$description" "$homepage" "$visibility"; then
+      return 0
+    elif __curl_user_create "$user" "$repo" "$description" "$homepage" "$visibility"; then
+      return 0
+    else
+      return 1
+    fi
+    ;;
+  gitlab)
+    # TODO: Implement GitLab create
+    printf_yellow "GitLab create not yet implemented"
+    return 1
+    ;;
+  gitea | private)
+    __gitea_create_repo "$repo" "$description" "$visibility"
+    return $?
+    ;;
+  *)
+    printf_red "Unknown platform: $platform"
+    return 1
+    ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Universal delete function
+__universal_repo_delete() {
+  local platform="${1:-}"
+  local user="${2:-}"
+  local repo="${3:-}"
+
+  printf_cyan "Deleting $repo from $platform..."
+
+  case "$platform" in
+  github)
+    __ghdelete_user "$user" "$repo"
+    return $?
+    ;;
+  gitlab)
+    # TODO: Implement GitLab delete
+    printf_yellow "GitLab delete not yet implemented"
+    return 1
+    ;;
+  gitea | private)
+    __gitea_delete_repo "$user/$repo"
+    return $?
+    ;;
+  *)
+    printf_red "Unknown platform: $platform"
+    return 1
+    ;;
+  esac
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __backup_repos() {
@@ -685,13 +1091,27 @@ __gitea_delete_repo() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __gitea_create_repo() {
-  local resp="" description=""
+  local repo_name="$1"
+  local description="${2:-}"
+  local visibility="${3:-public}"
+  local resp=""
   local token="$GIT_PRIVATE_ACCESS_TOKEN"
   local url="$GITADMIN_PERSONAL_GIT_HOST/api/v1/user/repos"
-  [ -f "$GITADMIN_CWD/DESCRIPTION" ] && description="$(<"$GITADMIN_CWD/DESCRIPTION")" || description="${2:-}"
-  private="${3:-false}"
-  [ "$GITADMIN_REPO_VISIBLE" = "no" ] && private="true" || private="${private:-false}"
-  resp="$(curl -q -LSsf -X 'POST' -H "Authorization: token $token" -H "Content-Type: application/json" -H 'accept: application/json' --data "{ \"auto_init\":false,\"default_branch\":\"main\",\"name\":\"$1\",\"description\":\"$description\",\"private\":$private }" "$url" 2>/dev/null | __jq -r '.id' || false)"
+  local json_data=""
+
+  [ -f "$GITADMIN_CWD/DESCRIPTION" ] && description="$(<"$GITADMIN_CWD/DESCRIPTION")" || description="${description:-Repository for $repo_name}"
+
+  # Determine visibility
+  if [ "$GITADMIN_REPO_VISIBLE" = "no" ] || [ "$visibility" = "private" ]; then
+    visibility="private"
+  else
+    visibility="public"
+  fi
+
+  # Generate JSON using the template function
+  json_data="$(__generate_repo_json "$repo_name" "$description" "" "$visibility" "gitea")"
+
+  resp="$(curl -q -LSsf -X 'POST' -H "Authorization: token $token" -H "Content-Type: application/json" -H 'accept: application/json' --data "$json_data" "$url" 2>/dev/null | __jq -r '.id' || false)"
   if [ -n "$resp" ]; then
     echo "$resp" | __jq -r
     exitCode=0
@@ -1516,7 +1936,10 @@ __ghdelete_user() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Creates a new repo on github
 __ghcreate() {
-  local git_user="" git_repo="" git_describe="" git_failed="" git_succes GITADMIN_EXITCODE=0 git_describe=""
+  local git_user="" git_repo="" git_describe="" git_visibility="" git_homepage=""
+  local git_failed="" git_succes="" GITADMIN_EXITCODE=0
+
+  # Parse arguments - support: user/repo desc [--private|--public] [--homepage URL]
   if echo "$1" | grep -q '/'; then
     git_user="${1//\/*/}"
     git_repo="${1//*\//}"
@@ -1528,18 +1951,51 @@ __ghcreate() {
     git_describe="${3:-repo for $git_repo}"
     shift 3
   fi
-  [ -f "$GITADMIN_CWD/DESCRIPTION" ] && description="$(<"$GITADMIN_CWD/DESCRIPTION")" || git_describe="${git_describe:-}"
+
+  # Parse additional options
+  while [ $# -gt 0 ]; do
+    case "$1" in
+    --private)
+      git_visibility="private"
+      shift
+      ;;
+    --public)
+      git_visibility="public"
+      shift
+      ;;
+    --homepage)
+      git_homepage="$2"
+      shift 2
+      ;;
+    *)
+      # Legacy support for positional arguments
+      if [ -z "$git_homepage" ]; then
+        git_homepage="$1"
+      fi
+      shift
+      ;;
+    esac
+  done
+
+  # Set defaults
+  [ -z "$git_visibility" ] && git_visibility="${GITADMIN_REPO_VISIBLE:-public}"
+  [ "$git_visibility" = "no" ] && git_visibility="private"
+  [ -f "$GITADMIN_CWD/DESCRIPTION" ] && git_describe="$(<"$GITADMIN_CWD/DESCRIPTION")" || git_describe="${git_describe:-}"
+
   api_url="https://api.github.com/repos"
   git_succes="😻 Success: https://github.com/$git_user/$git_repo 😻"
   git_failed="👿 Creation of https://github.com/$git_user/$git_repo failed 👿"
+
   [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
+
   printf_blue "This may take a few seconds."
   printf_blue "Sending your request to the github API."
-  printf_green "Creating $git_repo for user $git_user"
+  printf_green "Creating $git_visibility $git_repo for user $git_user"
+
   if __api_repo_verify "$api_url" "$git_user" "$git_repo"; then
     printf_cyan "$git_succes"
     GITADMIN_EXITCODE=0
-  elif __curl_orgs_create "$git_user" "$git_repo" "$git_describe" "$1" "$2" "$3" "$4" || __curl_user_create "$git_user" "$git_repo" "$git_describe" "$1" "$2" "$3" "$4"; then
+  elif __curl_orgs_create "$git_user" "$git_repo" "$git_describe" "$git_homepage" "$git_visibility" || __curl_user_create "$git_user" "$git_repo" "$git_describe" "$git_homepage" "$git_visibility"; then
     sleep 5
     if __api_repo_verify "$api_url" "$git_user" "$git_repo" &>/dev/null; then
       printf_cyan "$git_succes"
@@ -1592,10 +2048,21 @@ __curl_orgs_create() {
   local VISIBLE="${5:-$GITADMIN_REPO_VISIBLE}"
   local SITE="${SITE:-http://github.com/$user/$repo}"
   local url="https://api.github.com/orgs/$user/repos"
+  local visibility="public"
+  local json_data=""
+
   echo "$SITE" | grep -q '://.*\.[a-zA-Z0-9].*/.*' || SITE="https://github.com/$SITE"
   [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
-  [ "$GITADMIN_REPO_VISIBLE" = "no" ] && VISIBLE="true" || VISIBLE="${VISIBLE:-false}"
-  __curl_gh_api "$url" --data "{ \"name\":\"$repo\",\"description\":\"$DESCR\",\"homepage\":\"$SITE\",\"private\":$VISIBLE,\"has_issues\":\"true\" }" >"$GITADMIN_TEMP_FILE"
+
+  # Determine visibility
+  if [ "$GITADMIN_REPO_VISIBLE" = "no" ] || [ "$VISIBLE" = "true" ]; then
+    visibility="private"
+  fi
+
+  # Generate JSON using the template function
+  json_data="$(__generate_repo_json "$repo" "$DESCR" "$SITE" "$visibility" "github")"
+
+  __curl_gh_api "$url" --data "$json_data" >"$GITADMIN_TEMP_FILE"
   if grep -qis '"full_name".*"'$user'/'$repo'"' "$GITADMIN_TEMP_FILE"; then
     printf_green "https://github.com/$user/$repo has been created"
     return 0
@@ -1620,10 +2087,21 @@ __curl_user_create() {
   local VISIBLE="${5:-$GITADMIN_REPO_VISIBLE}"
   local url="https://api.github.com/user/repos"
   local SITE="${SITE:-http://github.com/$user/$repo}"
+  local visibility="public"
+  local json_data=""
+
   echo "$SITE" | grep -q '://.*\.[a-zA-Z0-9].*/.*' || SITE="https://github.com/$SITE"
   [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
-  [ "$GITADMIN_REPO_VISIBLE" = "no" ] && VISIBLE="true" || VISIBLE="${VISIBLE:-false}"
-  __curl_gh_api -f "$url" --data "{ \"name\":\"$repo\",\"description\":\"$DESCR\",\"homepage\":\"$SITE\",\"private\":$VISIBLE,\"has_issues\":\"true\",\"has_projects\":\"false\" }" >"$GITADMIN_TEMP_FILE"
+
+  # Determine visibility
+  if [ "$GITADMIN_REPO_VISIBLE" = "no" ] || [ "$VISIBLE" = "true" ]; then
+    visibility="private"
+  fi
+
+  # Generate JSON using the template function
+  json_data="$(__generate_repo_json "$repo" "$DESCR" "$SITE" "$visibility" "github")"
+
+  __curl_gh_api -f "$url" --data "$json_data" >"$GITADMIN_TEMP_FILE"
   if grep -qis '"full_name".*"'$user'/'$repo'"' "$GITADMIN_TEMP_FILE"; then
     return 0
   elif grep -qis 'name already exists on this account' "$GITADMIN_TEMP_FILE"; then
@@ -2408,8 +2886,8 @@ __github_api_org_page_count() { curl -q -LSsfI "https://api.github.com/orgs/$1/r
 __github_api_user_page_count() { curl -q -LSsfI "https://api.github.com/users/$1/repos" | grep 'link:' | sed 's|.*, ||g;s|>;.*||g' | awk -F'=' '{print $2}'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
-REPO_URL="${REPO_URL:-}"
-PROJECT_DIR="${PROJECT_DIR:-}"
+GITADMIN_REPO_URL="${GITADMIN_REPO_URL:-}"
+GITADMIN_PROJECT_DIR="${GITADMIN_PROJECT_DIR:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application Folders
 GITADMIN_CONFIG_FILE="${GITADMIN_CONFIG_FILE:-settings.conf}"
@@ -2438,7 +2916,7 @@ GITADMIN_NOTIFY_CLIENT_URGENCY="${GITADMIN_NOTIFY_CLIENT_URGENCY:-normal}"
 # Additional Variables
 GITADMIN_DEFAULT_USERNAME="${GITADMIN_DEFAULT_USERNAME:-$GITHUB_USERNAME}"
 GITADMIN_DEFAULT_BRANCH="${GITADMIN_DEFAULT_BRANCH:-main}"
-GITADMIN_DEFAULT_REPO_BASE="${REPO_URL:-https://github.com}"
+GITADMIN_DEFAULT_REPO_BASE="${GITADMIN_REPO_URL:-https://github.com}"
 GITADMIN_DEFAULT_README="${GITADMIN_DEFAULT_README:-default}"
 GITADMIN_DEFAULT_LICENSE="${MY_LICENSE_FILE:-$CASJAYSDEVDIR/templates/wtfpl.md}"
 GITADMIN_DEFAULT_PROJECT_DIR="${GITADMIN_DEFAULT_PROJECT_DIR:-$HOME/Projects}"
@@ -2507,8 +2985,9 @@ SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
 LONGOPTS+=",user:,org:,single:,nolicense,noreadme,automated,cd,desc:,site:,delete,nopush,message:,type:,all,visible:"
+LONGOPTS+=",github,gitlab,gitea,platform:,private,public,homepage:,description:,issues:,wiki:,projects:,default-branch:"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-ARRAY="project is shorten web latest newsite stow s status l log init setup reset lfs diff branch commit update create "
+ARRAY="project is shorten web latest newsite stow s status l log init setup reset lfs diff branch commit update modify create "
 ARRAY+="delete push pull clone merge rebase switch squash remote list gist single user org github gitlab private issues cron "
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
@@ -2665,6 +3144,54 @@ while :; do
     ;;
   --type)
     GITADMIN_REPO_TYPE="$2"
+    shift 2
+    ;;
+  --github)
+    GITADMIN_PLATFORM="github"
+    shift 1
+    ;;
+  --gitlab)
+    GITADMIN_PLATFORM="gitlab"
+    shift 1
+    ;;
+  --gitea)
+    GITADMIN_PLATFORM="gitea"
+    shift 1
+    ;;
+  --platform)
+    GITADMIN_PLATFORM="$2"
+    shift 2
+    ;;
+  --private)
+    GITADMIN_REPO_VISIBILITY="private"
+    shift 1
+    ;;
+  --public)
+    GITADMIN_REPO_VISIBILITY="public"
+    shift 1
+    ;;
+  --homepage)
+    GITADMIN_REPO_HOMEPAGE="$2"
+    shift 2
+    ;;
+  --description)
+    GITADMIN_REPO_DESCRIPTION="$2"
+    shift 2
+    ;;
+  --issues)
+    GITADMIN_REPO_ISSUES="$2"
+    shift 2
+    ;;
+  --wiki)
+    GITADMIN_REPO_WIKI="$2"
+    shift 2
+    ;;
+  --projects)
+    GITADMIN_REPO_PROJECTS="$2"
+    shift 2
+    ;;
+  --default-branch)
+    GITADMIN_DEFAULT_BRANCH="$2"
     shift 2
     ;;
   --)
@@ -3062,20 +3589,170 @@ update)
   __git_update_loop "$@"
   ;;
 
-# create github repo
-create)
+# modify repo settings
+modify)
   shift 1
-  { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin create userName repoName Description"
-  __ghcreate "$@"
+  { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin --platform github modify userName/repoName --description 'desc' --private"
+
+  user="" repo="" platform="${GITADMIN_PLATFORM:-}"
+  modify_args=""
+
+  # Check if we're in a git directory and use current repo
+  if [ "$1" = "." ] || { [ $# -eq 0 ] && [ -d "$GITADMIN_CWD/.git" ]; }; then
+    shift
+    # Get repo info from current directory
+    remote_url="$(git -C "$GITADMIN_CWD" remote get-url origin 2>/dev/null)"
+    [ -z "$remote_url" ] && printf_exit "Not in a git repository or no remote origin set"
+
+    # Detect platform if not set via flag
+    [ -z "$platform" ] && platform="$(__detect_git_platform "$remote_url")"
+
+    # Extract user and repo from URL
+    case "$remote_url" in
+    *github.com* | *gitlab.com* | *gitea* | *git.*)
+      user="$(echo "$remote_url" | sed -E 's|.*[:/]([^/]+)/[^/]+(\.git)?$|\1|')"
+      repo="$(echo "$remote_url" | sed -E 's|.*[:/][^/]+/([^/]+)(\.git)?$|\1|' | sed 's|\.git$||')"
+      ;;
+    *)
+      printf_exit "Could not parse repository URL: $remote_url"
+      ;;
+    esac
+  elif echo "$1" | grep -q '/'; then
+    # Parse user/repo format
+    user="${1%%/*}"
+    repo="${1##*/}"
+    shift
+
+    # Use platform from flag or detect
+    if [ -z "$platform" ]; then
+      if [ -d "$GITADMIN_DEFAULT_GIT_DIR_GITLAB/$user/$repo/.git" ]; then
+        platform="gitlab"
+      elif [ -d "$GITADMIN_DEFAULT_GIT_DIR_PRIVATE/$user/$repo/.git" ]; then
+        platform="gitea"
+      else
+        platform="github" # Default
+      fi
+    fi
+  else
+    printf_exit "Please specify userName/repoName or use . for current repo"
+  fi
+
+  # Build modify arguments from getopt variables
+  [ -n "$GITADMIN_REPO_DESCRIPTION" ] && modify_args="$modify_args --description '$GITADMIN_REPO_DESCRIPTION'"
+  [ -n "$GITADMIN_REPO_HOMEPAGE" ] && modify_args="$modify_args --homepage '$GITADMIN_REPO_HOMEPAGE'"
+  [ -n "$GITADMIN_REPO_VISIBILITY" ] && modify_args="$modify_args --$GITADMIN_REPO_VISIBILITY"
+  [ -n "$GITADMIN_REPO_ISSUES" ] && modify_args="$modify_args --issues $GITADMIN_REPO_ISSUES"
+  [ -n "$GITADMIN_REPO_WIKI" ] && modify_args="$modify_args --wiki $GITADMIN_REPO_WIKI"
+  [ -n "$GITADMIN_REPO_PROJECTS" ] && modify_args="$modify_args --projects $GITADMIN_REPO_PROJECTS"
+  [ -n "$GITADMIN_DEFAULT_BRANCH" ] && modify_args="$modify_args --default-branch $GITADMIN_DEFAULT_BRANCH"
+
+  printf_cyan "Modifying $user/$repo on $platform..."
+  eval "__universal_repo_modify '$platform' '$user' '$repo' $modify_args"
   exit $?
   ;;
 
-# delete github repo
+# create repo (intelligent platform detection)
+create)
+  shift 1
+  { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin --platform github create userName/repoName 'Description' --private"
+
+  platform="${GITADMIN_PLATFORM:-}"
+  user="" repo="" description=""
+  visibility="${GITADMIN_REPO_VISIBILITY:-public}"
+  homepage="${GITADMIN_REPO_HOMEPAGE:-}"
+
+  # Parse user/repo
+  if echo "$1" | grep -q '/'; then
+    user="${1%%/*}"
+    repo="${1##*/}"
+  else
+    user="$1"
+    repo="$2"
+    shift
+  fi
+  shift
+
+  # Get description from argument or getopt variable
+  if [ -n "$1" ] && [ "${1:0:1}" != "-" ]; then
+    description="$1"
+    shift
+  else
+    description="${GITADMIN_REPO_DESCRIPTION:-Repository for $repo}"
+  fi
+
+  # Auto-detect platform if not specified
+  if [ -z "$platform" ]; then
+    if [ -n "$GITADMIN_PERSONAL_GIT_HOST" ] && [ "$visibility" = "private" ]; then
+      platform="gitea"
+    else
+      platform="github" # Default
+    fi
+  fi
+
+  printf_cyan "Creating $repo on $platform as $visibility..."
+  __universal_repo_create "$platform" "$user" "$repo" "$description" "$visibility" "$homepage"
+  exit $?
+  ;;
+
+# delete repo (intelligent platform detection)
 delete)
   shift 1
-  [ $# -lt 1 ] && echo $#
-  { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin delete userName repoName"
-  ghdelete "$@"
+  { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin --platform github delete userName/repoName"
+
+  platform="${GITADMIN_PLATFORM:-}" user="" repo=""
+
+  # Check if we're in a git directory and use current repo
+  if [ "$1" = "." ] || { [ $# -eq 0 ] && [ -d "$GITADMIN_CWD/.git" ]; }; then
+    # Get repo info from current directory
+    remote_url="$(git -C "$GITADMIN_CWD" remote get-url origin 2>/dev/null)"
+    [ -z "$remote_url" ] && printf_exit "Not in a git repository or no remote origin set"
+
+    # Detect platform if not specified
+    [ -z "$platform" ] && platform="$(__detect_git_platform "$remote_url")"
+
+    # Extract user and repo from URL
+    case "$remote_url" in
+    *github.com* | *gitlab.com* | *gitea* | *git.*)
+      user="$(echo "$remote_url" | sed -E 's|.*[:/]([^/]+)/[^/]+(\.git)?$|\1|')"
+      repo="$(echo "$remote_url" | sed -E 's|.*[:/][^/]+/([^/]+)(\.git)?$|\1|' | sed 's|\.git$||')"
+      ;;
+    *)
+      printf_exit "Could not parse repository URL: $remote_url"
+      ;;
+    esac
+  elif echo "$1" | grep -q '/'; then
+    # Parse user/repo format
+    user="${1%%/*}"
+    repo="${1##*/}"
+  else
+    user="$1"
+    repo="$2"
+  fi
+
+  # Auto-detect platform if not specified
+  if [ -z "$platform" ]; then
+    if [ -n "$GITADMIN_PLATFORM" ]; then
+      platform="$GITADMIN_PLATFORM"
+    elif [ -d "$GITADMIN_DEFAULT_GIT_DIR_GITLAB/$user/$repo/.git" ]; then
+      platform="gitlab"
+    elif [ -d "$GITADMIN_DEFAULT_GIT_DIR_PRIVATE/$user/$repo/.git" ]; then
+      platform="gitea"
+    else
+      # Try to detect from any existing remote
+      test_dir="$GITADMIN_DEFAULT_PROJECT_DIR/*/$user/$repo"
+      if [ -d $test_dir/.git ]; then
+        test_url="$(git -C $test_dir remote get-url origin 2>/dev/null)"
+        [ -n "$test_url" ] && platform="$(__detect_git_platform "$test_url")"
+      fi
+      [ -z "$platform" ] && platform="github" # Default
+    fi
+  fi
+
+  # Confirm before deletion
+  printf_yellow "About to delete $user/$repo from $platform"
+  ask_yes_no "Are you sure you want to delete this repository?" || exit 0
+
+  __universal_repo_delete "$platform" "$user" "$repo"
   exit $?
   ;;
 
@@ -3121,10 +3798,10 @@ pull)
 clone)
   shift 1
   { [ $# = 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin clone MyURL"
-  REPO_URL="$(__strip_git_url "$1")" && shift 1
-  __if_is_url "$REPO_URL" || REPO_URL="https://github.com/$REPO_URL"
+  GITADMIN_REPO_URL="$(__strip_git_url "$1")" && shift 1
+  __if_is_url "$GITADMIN_REPO_URL" || GITADMIN_REPO_URL="https://github.com/$GITADMIN_REPO_URL"
   __create_dirs "${1:-}"
-  __git_clone_single "$REPO_URL" "${1:-}"
+  __git_clone_single "$GITADMIN_REPO_URL" "${1:-}"
   ;;
 
   # merge options
@@ -3216,9 +3893,9 @@ remote)
     shift 1
     [ "$1" = "help" ] && __printf_help "Usage: gitadmin remote add [remoteURL] [name]"
     [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
-    REPO_URL="$(__strip_git_url "$1")"
-    printf_cyan "Adding remote: $REPO_URL"
-    git -C "$GITADMIN_CWD" remote add ${2:-origin} "$REPO_URL" &>/dev/null &&
+    GITADMIN_REPO_URL="$(__strip_git_url "$1")"
+    printf_cyan "Adding remote: $GITADMIN_REPO_URL"
+    git -C "$GITADMIN_CWD" remote add ${2:-origin} "$GITADMIN_REPO_URL" &>/dev/null &&
       git push --set-upstream origin __main -q
     exit $?
     ;;
@@ -3260,12 +3937,12 @@ gist)
     shift 1
     [ $# -lt 1 ] && __printf_help "Usage: gitadmin gist clone id [directory]"
     SET_REPO="$(curl -q -LSsfI "https://gist.github.com/$1" | grep 'location: https://' | head -n1 | awk -F': ' '{print $2}' | grep "$1" || echo '')"
-    REPO_URL="$(__strip_git_url "$SET_REPO")"
+    GITADMIN_REPO_URL="$(__strip_git_url "$SET_REPO")"
     GIST_USER="$(basename -- "$(dirname "$SET_REPO")" | grep '^')"
-    GISTNAME="$(basename -- "$REPO_URL")"
+    GISTNAME="$(basename -- "$GITADMIN_REPO_URL")"
     GISTDIR="${2:-$GITADMIN_DEFAULT_PROJECT_DIR/gists/$GIST_USER/$GISTNAME}"
-    printf_cyan "Cloning $REPO_URL > $GISTDIR"
-    __git_clone "$REPO_URL" "$GISTDIR"
+    printf_cyan "Cloning $GITADMIN_REPO_URL > $GISTDIR"
+    __git_clone "$GITADMIN_REPO_URL" "$GISTDIR"
     exit $?
     ;;
 
@@ -3376,8 +4053,8 @@ single)
     { [ $# = 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME clone [URL] [directory] | clone the repos"
     [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
     [ $# -eq 0 ] && __printf_help "Usage: $APPNAME clone [URL] [directory] | clone the repos"
-    REPO_URL="$(__strip_git_url "$1")"
-    __git_clone_single "$REPO_URL" "${2:-$GITADMIN_CWD}"
+    GITADMIN_REPO_URL="$(__strip_git_url "$1")"
+    __git_clone_single "$GITADMIN_REPO_URL" "${2:-$GITADMIN_CWD}"
     ;;
   esac
   ;;

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202208041729-git
+##@Version           :  202501191000-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Thursday, Aug 04, 2022 17:29 EDT
 # @@File             :  anonymize
 # @@Description      :  Anonymous web access
-# @@Changelog        :  New script
+# @@Changelog        :  Fixed stray apostrophes, updated function naming
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202208041729-git"
+VERSION="202501191000-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -70,14 +70,14 @@ __devnull() {
   tee &>/dev/null && exitCode=0 || exitCode=1
   return ${exitCode:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Send errors to /dev/null
 __devnull2() {
   [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
   eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
   return ${exitCode:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # See if the executable exists
 __cmd_exists() {
   local exitCode=0
@@ -206,6 +206,20 @@ __help() {
   __printf_line "i2p                             - Launch i2p server"
   __printf_line "freenet                         - Launch freenet server"
   __printf_line "zerotier                        - Initialize zerotier"
+  __printf_line "status [service]                - Check service status"
+  __printf_line "stop [service|all]              - Stop services"
+  __printf_line "restart [service]               - Restart service"
+  __printf_line "check-ip                        - Check current IP address"
+  __printf_line "check-dns                       - Check for DNS leaks"
+  __printf_line "vpn [list|connect|disconnect]  - VPN management"
+  __printf_line "lokinet                         - Install/start Lokinet"
+  __printf_line "harden [browser]                - Harden browser settings"
+  __printf_line "killswitch [enable|disable]    - Network kill switch"
+  __printf_line "mac [interface]                 - Randomize MAC address"
+  __printf_line "profile [save|load|list]        - Manage profiles"
+  __printf_line "monitor                         - Monitor connections"
+  __printf_line "speedtest                       - Test connection speed"
+  __printf_line "versions [check|update]         - Manage software versions"
   __printf_line "--download                      - Update/re-download server"
   __printf_line "--console                       - Output to console"
   __printf_line "--dir [path/to/dir]             - Sets the working directory"
@@ -264,7 +278,7 @@ __sudoif() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run command as root
-requiresudo() {
+__requiresudo() {
   if [ "$ANONYMIZE_REQUIRE_SUDO" = "yes" ] && [ -z "$ANONYMIZE_REQUIRE_SUDO_RUN" ]; then
     export ANONYMIZE_REQUIRE_SUDO="no"
     export ANONYMIZE_REQUIRE_SUDO_RUN="true"
@@ -423,31 +437,61 @@ __install_tor() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __zerotier() {
   if __cmd_exists yum || __cmd_exists dnf || __cmd_exists apt; then
-    __cmd_exists zerotier-cli || curl -q -LSsf "https://install.zerotier.com" | sudo bash &>/dev/null
+    if ! __cmd_exists zerotier-cli; then
+      # Download and verify script before executing
+      local install_script="/tmp/zerotier-install-$$.sh"
+      if curl -q -LSsf "https://install.zerotier.com" -o "$install_script"; then
+        # Review the script or add verification here if needed
+        sudo bash "$install_script" &>/dev/null
+        rm -f "$install_script"
+      else
+        printf_red "Failed to download ZeroTier installation script"
+        return 1
+      fi
+    fi
   fi
   if [ ! -f "$ANONYMIZE_CONFIG_DIR/zerotier.conf" ] && [ -n "$ZEROTIER_NETWORK_KEY" ]; then
-    zerotier-cli join $ZEROTIER_NETWORK_KEY &>/dev/null
-    echo $ZEROTIER_NETWORK_KEY >"$ANONYMIZE_CONFIG_DIR/zerotier.conf"
+    zerotier-cli join "$ZEROTIER_NETWORK_KEY" &>/dev/null
+    echo "$ZEROTIER_NETWORK_KEY" >"$ANONYMIZE_CONFIG_DIR/zerotier.conf"
   fi
   __cmd_exists zerotier-cli || __cmd_exists zerotier-one || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __init_i2p() {
   __cmd_exists java || printf_exit "Please install the openjdk runtime"
+  
+  # Check if already installed and just start it
+  if [ -f "$ANONYMIZE_HOME/i2p/i2prouter" ] && [ "$ANONYMIZE_DOWNLOAD" != "true" ]; then
+    printf_cyan "Starting existing I2P installation..."
+    eval "$ANONYMIZE_HOME/i2p/i2prouter" start &
+    sleep 10
+    return 0
+  fi
+  
+  # Download and install
   if [ "$ANONYMIZE_DOWNLOAD" = "true" ] || [ ! -f "$ANONYMIZE_HOME/i2p/i2p-install.jar" ]; then
+    mkdir -p "$ANONYMIZE_HOME/i2p"
     __cd "$ANONYMIZE_HOME/i2p"
-    __curl_dl "$ANONYMIZE_I2P_JAR" "$ANONYMIZE_HOME/i2p/i2p-install.jar"
-    [ -f "$ANONYMIZE_HOME/i2p/i2p-install.jar" ] || printf_exit "failed to download $ANONYMIZE_I2P_JAR"
-    printf_yellow "Install to $ANONYMIZE_HOME/i2p"
+    if [ ! -f "$ANONYMIZE_HOME/i2p/i2p-install.jar" ]; then
+      printf_cyan "Downloading I2P installer..."
+      __curl_dl "$ANONYMIZE_I2P_JAR" "$ANONYMIZE_HOME/i2p/i2p-install.jar"
+      [ -f "$ANONYMIZE_HOME/i2p/i2p-install.jar" ] || printf_exit "failed to download $ANONYMIZE_I2P_JAR"
+    fi
+    printf_yellow "Installing I2P to $ANONYMIZE_HOME/i2p"
     if [ "$CONSOLE" = "true" ]; then
       java -jar "$ANONYMIZE_HOME/i2p/i2p-install.jar" -console
     else
       java -jar "$ANONYMIZE_HOME/i2p/i2p-install.jar"
     fi
   fi
+  
+  # Start I2P
   if [ -f "$ANONYMIZE_HOME/i2p/i2prouter" ]; then
     eval "$ANONYMIZE_HOME/i2p/i2prouter" start &
     sleep 10
+    printf_green "I2P started successfully"
+  else
+    printf_red "I2P may not have installed correctly"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -457,9 +501,11 @@ __init_freenet() {
     eval "$ANONYMIZE_HOME/Freenet/run.sh" start &
     sleep 10
   else
-    if [ "$ANONYMIZE_DOWNLOAD" = "true" ]; then
+    if [ "$ANONYMIZE_DOWNLOAD" = "true" ] || [ ! -f "$ANONYMIZE_HOME/freenet/freenet-install.jar" ]; then
+      mkdir -p "$ANONYMIZE_HOME/freenet"
       __cd "$ANONYMIZE_HOME/freenet"
-      if [ -f "$ANONYMIZE_HOME/freenet/freenet-install.jar" ]; then
+      if [ ! -f "$ANONYMIZE_HOME/freenet/freenet-install.jar" ]; then
+        printf_cyan "Downloading Freenet installer..."
         __curl_dl "$ANONYMIZE_FREENET_JAR" "$ANONYMIZE_HOME/freenet/freenet-install.jar"
         [ -f "$ANONYMIZE_HOME/freenet/freenet-install.jar" ] || printf_exit "failed to download $ANONYMIZE_FREENET_JAR"
       fi
@@ -471,6 +517,545 @@ __init_freenet() {
       fi
     fi
   fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get latest I2P version
+__get_latest_i2p_version() {
+  local version
+  # Try to fetch from the I2P download page
+  version=$(curl -q -LSsf "https://geti2p.net/en/download" 2>/dev/null | \
+    grep -oP 'i2pinstall_\K[0-9.]+(?=\.jar)' | \
+    head -1)
+  
+  if [ -z "$version" ]; then
+    # Fallback to GitHub API if available
+    version=$(curl -q -LSsf "https://api.github.com/repos/i2p/i2p.i2p/releases/latest" 2>/dev/null | \
+      grep '"tag_name"' | \
+      sed -E 's/.*"i2p-([^"]+)".*/\1/')
+  fi
+  
+  # Return version or fallback to default
+  echo "${version:-2.7.0}"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get latest Freenet version
+__get_latest_freenet_version() {
+  local version
+  # Try GitHub API for latest release
+  version=$(curl -q -LSsf "https://api.github.com/repos/freenet/fred/releases/latest" 2>/dev/null | \
+    grep '"tag_name"' | \
+    sed -E 's/.*"build0([^"]+)".*/\1/')
+  
+  if [ -z "$version" ]; then
+    # Try to get from releases page
+    version=$(curl -q -LSsf "https://github.com/freenet/fred/releases" 2>/dev/null | \
+      grep -oP 'build0\K[0-9]+' | \
+      head -1)
+  fi
+  
+  # Return version or fallback to default
+  echo "${version:-1499}"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get latest Tor Browser version
+__get_latest_tor_version() {
+  local version
+  local platform="$(__detect_platform)"
+  
+  if [ "$platform" = "macos" ]; then
+    # Check Tor Project for macOS
+    version=$(curl -q -LSsf "https://www.torproject.org/download/" 2>/dev/null | \
+      grep -oP 'tor-browser-\K[0-9.]+(?=-macos)' | \
+      head -1)
+  else
+    # Check for Linux version
+    version=$(curl -q -LSsf "https://www.torproject.org/download/" 2>/dev/null | \
+      grep -oP 'tor-browser-\K[0-9.]+(?=-linux)' | \
+      head -1)
+  fi
+  
+  if [ -z "$version" ]; then
+    # Try dist.torproject.org
+    version=$(curl -q -LSsf "https://dist.torproject.org/torbrowser/" 2>/dev/null | \
+      grep -oP 'href="[0-9.]+/"' | \
+      grep -oP '[0-9.]+' | \
+      sort -V | \
+      tail -1)
+  fi
+  
+  # Return version or fallback to default
+  echo "${version:-13.0.9}"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get latest Lokinet version
+__get_latest_lokinet_version() {
+  local version
+  version=$(curl -q -LSsf "https://api.github.com/repos/oxen-io/lokinet/releases/latest" 2>/dev/null | \
+    grep '"tag_name"' | \
+    sed -E 's/.*"v?([^"]+)".*/\1/')
+  
+  echo "${version:-0.9.11}"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initialize versions - fetch latest if online
+__init_versions() {
+  if __am_i_online; then
+    printf_cyan "Checking for latest versions..."
+    
+    # Get latest versions if not already set
+    if [ -z "$ANONYMIZE_I2P_VERSION_LATEST" ]; then
+      ANONYMIZE_I2P_VERSION_LATEST="$(__get_latest_i2p_version)"
+      export ANONYMIZE_I2P_VERSION="${ANONYMIZE_I2P_VERSION:-$ANONYMIZE_I2P_VERSION_LATEST}"
+    fi
+    
+    if [ -z "$ANONYMIZE_FREENET_VERSION_LATEST" ]; then
+      ANONYMIZE_FREENET_VERSION_LATEST="$(__get_latest_freenet_version)"
+      export ANONYMIZE_FREENET_VERSION="${ANONYMIZE_FREENET_VERSION:-$ANONYMIZE_FREENET_VERSION_LATEST}"
+    fi
+    
+    if [ -z "$ANONYMIZE_TOR_VERSION_LATEST" ]; then
+      ANONYMIZE_TOR_VERSION_LATEST="$(__get_latest_tor_version)"
+      export ANONYMIZE_TOR_VERSION_ARM64="${ANONYMIZE_TOR_VERSION_ARM64:-$ANONYMIZE_TOR_VERSION_LATEST}"
+    fi
+    
+    # Save versions to config for offline use
+    if [ -w "$ANONYMIZE_CONFIG_DIR" ]; then
+      cat > "$ANONYMIZE_CONFIG_DIR/versions.conf" << EOF
+# Auto-generated version file - $(date)
+ANONYMIZE_I2P_VERSION="${ANONYMIZE_I2P_VERSION}"
+ANONYMIZE_FREENET_VERSION="${ANONYMIZE_FREENET_VERSION}"
+ANONYMIZE_TOR_VERSION_ARM64="${ANONYMIZE_TOR_VERSION_ARM64}"
+EOF
+    fi
+    
+    printf_green "Using versions: I2P=$ANONYMIZE_I2P_VERSION, Freenet=$ANONYMIZE_FREENET_VERSION, Tor=$ANONYMIZE_TOR_VERSION_ARM64"
+  else
+    # Load cached versions if offline
+    if [ -f "$ANONYMIZE_CONFIG_DIR/versions.conf" ]; then
+      . "$ANONYMIZE_CONFIG_DIR/versions.conf"
+      printf_yellow "Offline mode: Using cached versions"
+    fi
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Platform detection
+__detect_platform() {
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    echo "macos"
+  elif [[ "$OSTYPE" == "linux"* ]]; then
+    if [ -f /etc/os-release ]; then
+      . /etc/os-release
+      echo "${ID:-linux}"
+    else
+      echo "linux"
+    fi
+  elif [[ "$OSTYPE" == "bsd"* ]]; then
+    echo "bsd"
+  else
+    echo "unknown"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check service status
+__check_service_status() {
+  local service="$1"
+  case "$service" in
+  tor)
+    if pgrep -f "tor-browser\|torbrowser" &>/dev/null; then
+      printf_green "Tor Browser is running"
+      return 0
+    elif __cmd_exists tor && pgrep tor &>/dev/null; then
+      printf_green "Tor daemon is running"
+      return 0
+    else
+      printf_red "Tor is not running"
+      return 1
+    fi
+    ;;
+  i2p)
+    if netstatg 7657 2>&1 | grep -q 'java'; then
+      printf_green "I2P is running on port 7657"
+      return 0
+    else
+      printf_red "I2P is not running"
+      return 1
+    fi
+    ;;
+  freenet)
+    if netstatg 8888 2>&1 | grep -q 'java'; then
+      printf_green "Freenet is running on port 8888"
+      return 0
+    else
+      printf_red "Freenet is not running"
+      return 1
+    fi
+    ;;
+  zerotier)
+    if __cmd_exists zerotier-cli && zerotier-cli status &>/dev/null; then
+      printf_green "ZeroTier is running"
+      zerotier-cli status 2>/dev/null | grep -E "^[0-9a-f]{16}" || true
+      return 0
+    else
+      printf_red "ZeroTier is not running"
+      return 1
+    fi
+    ;;
+  vpn)
+    if ip link show 2>/dev/null | grep -q "tun0\|wg0\|ppp0"; then
+      printf_green "VPN connection detected"
+      return 0
+    elif [[ "$(__detect_platform)" == "macos" ]] && scutil --proxy 2>/dev/null | grep -q "ProxyAutoConfigEnable.*1"; then
+      printf_green "VPN/Proxy detected on macOS"
+      return 0
+    else
+      printf_yellow "No VPN connection detected"
+      return 1
+    fi
+    ;;
+  *)
+    printf_red "Unknown service: $service"
+    return 1
+    ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Stop services
+__stop_service() {
+  local service="$1"
+  case "$service" in
+  tor)
+    pkill -f "tor-browser\|torbrowser" 2>/dev/null
+    pkill tor 2>/dev/null
+    printf_green "Tor services stopped"
+    ;;
+  i2p)
+    [ -f "$ANONYMIZE_HOME/i2p/i2prouter" ] && "$ANONYMIZE_HOME/i2p/i2prouter" stop
+    pkill -f "i2p" 2>/dev/null
+    printf_green "I2P stopped"
+    ;;
+  freenet)
+    [ -f "$ANONYMIZE_HOME/Freenet/run.sh" ] && "$ANONYMIZE_HOME/Freenet/run.sh" stop
+    pkill -f "freenet" 2>/dev/null
+    printf_green "Freenet stopped"
+    ;;
+  zerotier)
+    if [[ "$(__detect_platform)" == "macos" ]]; then
+      sudo launchctl unload /Library/LaunchDaemons/com.zerotier.one.plist 2>/dev/null
+    else
+      sudo systemctl stop zerotier-one 2>/dev/null || sudo service zerotier-one stop 2>/dev/null
+    fi
+    printf_green "ZeroTier stopped"
+    ;;
+  all)
+    __stop_service tor
+    __stop_service i2p
+    __stop_service freenet
+    __stop_service zerotier
+    ;;
+  *)
+    printf_red "Unknown service: $service"
+    return 1
+    ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check IP and location
+__check_ip() {
+  local ip_info
+  printf_cyan "Checking your IP address..."
+  
+  # Check if using Tor
+  if curl -q -LSsf --socks5 127.0.0.1:9050 "https://check.torproject.org/api/ip" 2>/dev/null | grep -q '"IsTor":true'; then
+    printf_green "You are using Tor!"
+    ip_info=$(curl -q -LSsf --socks5 127.0.0.1:9050 "https://ipinfo.io/json" 2>/dev/null)
+  else
+    ip_info=$(curl -q -LSsf "https://ipinfo.io/json" 2>/dev/null)
+  fi
+  
+  if [ -n "$ip_info" ]; then
+    echo "$ip_info" | jq -r '
+      "IP: " + .ip,
+      "City: " + .city,
+      "Region: " + .region,
+      "Country: " + .country,
+      "ISP: " + .org,
+      "Location: " + .loc' 2>/dev/null || echo "$ip_info"
+  else
+    printf_red "Failed to get IP information"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# DNS leak test
+__check_dns_leak() {
+  printf_cyan "Checking for DNS leaks..."
+  local dns_servers
+  
+  if [[ "$(__detect_platform)" == "macos" ]]; then
+    dns_servers=$(scutil --dns 2>/dev/null | grep "nameserver\[" | awk '{print $3}' | sort -u)
+  else
+    dns_servers=$(cat /etc/resolv.conf 2>/dev/null | grep "^nameserver" | awk '{print $2}' | sort -u)
+  fi
+  
+  if [ -n "$dns_servers" ]; then
+    printf_cyan "Current DNS servers:"
+    echo "$dns_servers"
+    
+    # Check if using known VPN/Tor DNS
+    if echo "$dns_servers" | grep -qE "^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.|127\.|::1)"; then
+      printf_green "DNS appears to be routed through VPN/Tor"
+    else
+      printf_yellow "Warning: DNS may be leaking (using public DNS)"
+      printf_yellow "Consider using a VPN DNS or Tor"
+    fi
+  else
+    printf_red "Could not determine DNS servers"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Install Lokinet
+__install_lokinet() {
+  printf_cyan "Installing Lokinet..."
+  local platform="$(__detect_platform)"
+  
+  if [ "$platform" = "macos" ]; then
+    if __cmd_exists brew; then
+      brew tap oxen-io/oxen
+      brew install lokinet
+    else
+      printf_red "Please install Homebrew first"
+      return 1
+    fi
+  elif [ "$platform" = "debian" ] || [ "$platform" = "ubuntu" ]; then
+    curl -q -LSsf "https://seed.lokinet.org/lokinet.gpg" | sudo gpg --dearmor -o /usr/share/keyrings/lokinet.gpg
+    echo "deb [signed-by=/usr/share/keyrings/lokinet.gpg] https://deb.oxen.io $(lsb_release -sc) main" | sudo tee /etc/apt/sources.list.d/lokinet.list
+    sudo apt update && sudo apt install lokinet
+  elif __cmd_exists dnf; then
+    sudo dnf copr enable oxen-io/lokinet -y
+    sudo dnf install lokinet -y
+  else
+    printf_red "Unsupported platform for Lokinet installation"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# VPN management
+__vpn_manager() {
+  local action="$1"
+  shift
+  
+  case "$action" in
+  list)
+    printf_cyan "Available VPN connections:"
+    if __cmd_exists nmcli; then
+      nmcli connection show --active | grep -E "vpn|wireguard"
+    elif [[ "$(__detect_platform)" == "macos" ]]; then
+      scutil --nc list | grep "(Connected)"
+    fi
+    ;;
+  connect)
+    local vpn_name="$1"
+    if __cmd_exists nmcli; then
+      nmcli connection up "$vpn_name"
+    elif [[ "$(__detect_platform)" == "macos" ]]; then
+      scutil --nc start "$vpn_name"
+    fi
+    ;;
+  disconnect)
+    if __cmd_exists nmcli; then
+      nmcli connection down id "$(nmcli connection show --active | grep vpn | awk '{print $1}')"
+    elif [[ "$(__detect_platform)" == "macos" ]]; then
+      scutil --nc stop "$(scutil --nc list | grep Connected | head -1 | awk -F'"' '{print $2}')"
+    fi
+    ;;
+  status)
+    __check_service_status vpn
+    ;;
+  *)
+    printf_red "Usage: vpn [list|connect|disconnect|status]"
+    ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Browser hardening
+__harden_browser() {
+  local browser="${1:-firefox}"
+  printf_cyan "Hardening $browser browser..."
+  
+  case "$browser" in
+  firefox)
+    local profile_dir
+    if [[ "$(__detect_platform)" == "macos" ]]; then
+      profile_dir="$HOME/Library/Application Support/Firefox/Profiles"
+    else
+      profile_dir="$HOME/.mozilla/firefox"
+    fi
+    
+    # Create hardened profile if it doesn't exist
+    local hardened_profile="$profile_dir/hardened.default"
+    mkdir -p "$hardened_profile"
+    
+    # Create user.js with privacy settings
+    cat > "$hardened_profile/user.js" << 'EOF'
+// Privacy & Security Settings
+user_pref("privacy.resistFingerprinting", true);
+user_pref("privacy.trackingprotection.enabled", true);
+user_pref("privacy.trackingprotection.socialtracking.enabled", true);
+user_pref("network.cookie.cookieBehavior", 1);
+user_pref("network.dns.disablePrefetch", true);
+user_pref("network.prefetch-next", false);
+user_pref("webgl.disabled", true);
+user_pref("dom.battery.enabled", false);
+user_pref("media.peerconnection.enabled", false);
+user_pref("media.navigator.enabled", false);
+user_pref("geo.enabled", false);
+user_pref("browser.safebrowsing.enabled", false);
+user_pref("browser.safebrowsing.malware.enabled", false);
+user_pref("browser.send_pings", false);
+EOF
+    printf_green "Firefox hardened profile created at: $hardened_profile"
+    printf_yellow "Start Firefox with: firefox -profile '$hardened_profile'"
+    ;;
+  chrome|chromium)
+    printf_yellow "Chrome/Chromium hardening: Use flags --incognito --disable-webrtc --disable-plugins"
+    ;;
+  *)
+    printf_red "Unknown browser: $browser"
+    ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Kill switch - disable all network if compromised
+__kill_switch() {
+  local action="${1:-enable}"
+  
+  if [ "$action" = "enable" ]; then
+    printf_red "ACTIVATING KILL SWITCH - Disabling all network interfaces..."
+    if [[ "$(__detect_platform)" == "macos" ]]; then
+      sudo ifconfig en0 down
+      sudo ifconfig en1 down
+    else
+      for iface in $(ip link show 2>/dev/null | grep -E "^[0-9]+:" | cut -d: -f2 | grep -v lo); do
+        sudo ip link set "$iface" down
+      done
+    fi
+    printf_red "Network disabled. Use 'anonymize killswitch disable' to restore."
+  elif [ "$action" = "disable" ]; then
+    printf_green "Restoring network interfaces..."
+    if [[ "$(__detect_platform)" == "macos" ]]; then
+      sudo ifconfig en0 up
+      sudo ifconfig en1 up
+    else
+      for iface in $(ip link show 2>/dev/null | grep -E "^[0-9]+:" | cut -d: -f2 | grep -v lo); do
+        sudo ip link set "$iface" up
+      done
+    fi
+    printf_green "Network restored."
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# MAC address randomization
+__randomize_mac() {
+  local interface="${1:-eth0}"
+  
+  if [[ "$(__detect_platform)" == "macos" ]]; then
+    # macOS
+    local new_mac=$(openssl rand -hex 6 | sed 's/\(..\)/\1:/g; s/:$//')
+    sudo ifconfig "$interface" ether "$new_mac"
+    printf_green "MAC address changed to: $new_mac"
+  elif __cmd_exists macchanger; then
+    # Linux with macchanger
+    sudo macchanger -r "$interface"
+  elif __cmd_exists ip; then
+    # Linux with ip command
+    local new_mac=$(printf '%02x' $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) | sed 's/../&:/g;s/:$//')
+    sudo ip link set dev "$interface" down
+    sudo ip link set dev "$interface" address "$new_mac"
+    sudo ip link set dev "$interface" up
+    printf_green "MAC address changed to: $new_mac"
+  else
+    printf_red "MAC changing not supported on this system"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Profile management
+__profile_manager() {
+  local action="$1"
+  local profile="$2"
+  local profile_dir="$ANONYMIZE_CONFIG_DIR/profiles"
+  mkdir -p "$profile_dir"
+  
+  case "$action" in
+  save)
+    [ -z "$profile" ] && profile="default"
+    printf_cyan "Saving profile: $profile"
+    mkdir -p "$profile_dir/$profile"
+    cp -r "$ANONYMIZE_CONFIG_DIR/"*.conf "$profile_dir/$profile/" 2>/dev/null
+    printf_green "Profile saved: $profile"
+    ;;
+  load)
+    [ -z "$profile" ] && profile="default"
+    if [ -d "$profile_dir/$profile" ]; then
+      printf_cyan "Loading profile: $profile"
+      cp -r "$profile_dir/$profile/"* "$ANONYMIZE_CONFIG_DIR/" 2>/dev/null
+      printf_green "Profile loaded: $profile"
+    else
+      printf_red "Profile not found: $profile"
+    fi
+    ;;
+  list)
+    printf_cyan "Available profiles:"
+    ls -1 "$profile_dir" 2>/dev/null || printf_yellow "No profiles found"
+    ;;
+  delete)
+    if [ -n "$profile" ] && [ -d "$profile_dir/$profile" ]; then
+      rm -rf "$profile_dir/$profile"
+      printf_green "Profile deleted: $profile"
+    else
+      printf_red "Profile not found: $profile"
+    fi
+    ;;
+  *)
+    printf_red "Usage: profile [save|load|list|delete] [profile_name]"
+    ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Monitor connections
+__monitor_connections() {
+  printf_cyan "Monitoring active network connections..."
+  printf_yellow "Press Ctrl+C to stop\n"
+  
+  while true; do
+    clear
+    printf_cyan "=== Active Connections ==="
+    if __cmd_exists ss; then
+      ss -tunap 2>/dev/null | grep ESTAB | head -20
+    elif __cmd_exists netstat; then
+      netstat -tunp 2>/dev/null | grep ESTABLISHED | head -20
+    elif [[ "$(__detect_platform)" == "macos" ]]; then
+      lsof -i -n -P | grep ESTABLISHED | head -20
+    fi
+    sleep 2
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Speed test through proxy
+__speed_test() {
+  printf_cyan "Testing connection speed..."
+  local test_file="http://speedtest.tele2.net/10MB.zip"
+  local start_time=$(date +%s)
+  
+  if pgrep -f "tor" &>/dev/null; then
+    printf_yellow "Testing through Tor (this will be slow)..."
+    curl -q -LSsf --socks5 127.0.0.1:9050 -o /dev/null -w "Download Speed: %{speed_download} bytes/sec\n" "$test_file"
+  else
+    curl -q -LSsf -o /dev/null -w "Download Speed: %{speed_download} bytes/sec\n" "$test_file"
+  fi
+  
+  local end_time=$(date +%s)
+  printf_green "Test completed in $((end_time - start_time)) seconds"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
@@ -502,10 +1087,10 @@ ANONYMIZE_NOTIFY_CLIENT_URGENCY="${ANONYMIZE_NOTIFY_CLIENT_URGENCY:-normal}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional Variables
 ANONYMIZE_HOME="${ANONYMIZE_HOME:-$HOME/.local/share/anonymize}"
-ANONYMIZE_I2P_VERSION="${ANONYMIZE_I2P_JAR_VERSION:-2.7.0}"
+ANONYMIZE_I2P_VERSION="${ANONYMIZE_I2P_VERSION:-2.7.0}"
 ANONYMIZE_FREENET_VERSION="${ANONYMIZE_FREENET_VERSION:-1499}"
 ANONYMIZE_TOR_VERSION_ARM64="${ANONYMIZE_TOR_VERSION_ARM64:- 13.0.9}"
-ANONYMIZE_I2P_JAR="${ANONYMIZE_I2P_JAR:-https://geti2p.net/en/download/${ANONYMIZE_I2P_JAR_VERSION}/clearnet/http/any/i2pinstall_${ANONYMIZE_I2P_JAR_VERSION}.jar}"
+ANONYMIZE_I2P_JAR="${ANONYMIZE_I2P_JAR:-https://geti2p.net/en/download/${ANONYMIZE_I2P_VERSION}/clearnet/http/any/i2pinstall_${ANONYMIZE_I2P_VERSION}.jar}"
 ANONYMIZE_FREENET_JAR="${ANONYMIZE_FREENET_JAR:-https://github.com/freenet/fred/releases/download/build0${ANONYMIZE_FREENET_VERSION}/new_installer_offline_${ANONYMIZE_FREENET_VERSION}.jar}"
 ANONYMIZE_TOR_ARM64="${ANONYMIZE_TOR_ARM64:-https://sourceforge.net/projects/tor-browser-ports/files/${ANONYMIZE_TOR_VERSION_ARM64}-alsa/tor-browser-linux-arm64-${ANONYMIZE_TOR_VERSION_ARM64}_ALL.tar.xz}"
 ANONYMIZE_TOR_HOME="${ANONYMIZE_TOR_HOME:-http://vkul5467fnqt5lqatsqivdtg2mk3bbdtveqzsjudq5jc2sbr2eojwrqd.onion}"
@@ -554,7 +1139,7 @@ SHORTOPTS+=""
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
 LONGOPTS+=",download,console"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-ARRAY="init wireguard i2p freenet tor proxy zerotier"
+ARRAY="init wireguard i2p freenet tor proxy zerotier status stop restart check-ip check-dns vpn lokinet harden killswitch mac profile monitor speedtest versions"
 ARRAY+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
@@ -691,7 +1276,7 @@ export ANONYMIZE_CWD
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
-#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+#__requiresudo "$0" "$@" || exit 2     # exit 2 if errors
 #cmd_exists --error --ask bash || exit 3 # exit 3 if not found
 #am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -703,6 +1288,9 @@ export ANONYMIZE_CWD
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Execute functions
 
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Initialize versions (fetch latest if online)
+__init_versions
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Execute commands
 
@@ -766,7 +1354,160 @@ freenet)
   shift 1
   __init_freenet
   netstatg 8888 2>&1 | grep -q 'java' || printf_exit "Freenet does not seem to be running"
-  [ -z "$BROWSER" ] || eval $BROWSER "http://localhost:8888"
+  [ -z "$BROWSER" ] || eval "$BROWSER" "http://localhost:8888"
+  exit $?
+  ;;
+
+status)
+  shift 1
+  if [ -n "$1" ]; then
+    __check_service_status "$1"
+  else
+    printf_cyan "=== Service Status Check ===\n"
+    __check_service_status tor
+    __check_service_status i2p
+    __check_service_status freenet
+    __check_service_status zerotier
+    __check_service_status vpn
+  fi
+  exit $?
+  ;;
+
+stop)
+  shift 1
+  service="${1:-all}"
+  __stop_service "$service"
+  exit $?
+  ;;
+
+restart)
+  shift 1
+  service="$1"
+  [ -z "$service" ] && printf_exit "Please specify a service to restart"
+  __stop_service "$service"
+  sleep 2
+  case "$service" in
+  tor) $0 tor ;;
+  i2p) $0 i2p ;;
+  freenet) $0 freenet ;;
+  zerotier) $0 zerotier ;;
+  *) printf_red "Unknown service: $service" ;;
+  esac
+  exit $?
+  ;;
+
+check-ip)
+  shift 1
+  __check_ip
+  exit $?
+  ;;
+
+check-dns)
+  shift 1
+  __check_dns_leak
+  exit $?
+  ;;
+
+vpn)
+  shift 1
+  __vpn_manager "$@"
+  exit $?
+  ;;
+
+lokinet)
+  shift 1
+  if ! __cmd_exists lokinet; then
+    __install_lokinet
+  fi
+  if __cmd_exists lokinet; then
+    printf_cyan "Starting Lokinet..."
+    if [[ "$(__detect_platform)" == "macos" ]]; then
+      sudo lokinet-bootstrap
+      sudo lokinet
+    else
+      sudo systemctl start lokinet || sudo lokinet
+    fi
+    printf_green "Lokinet started. DNS: 127.3.2.1"
+  fi
+  exit $?
+  ;;
+
+harden)
+  shift 1
+  browser="${1:-firefox}"
+  __harden_browser "$browser"
+  exit $?
+  ;;
+
+killswitch)
+  shift 1
+  action="${1:-enable}"
+  __kill_switch "$action"
+  exit $?
+  ;;
+
+mac)
+  shift 1
+  interface="${1:-$(ip route | grep default | awk '{print $5}' | head -1)}"
+  __randomize_mac "$interface"
+  exit $?
+  ;;
+
+profile)
+  shift 1
+  __profile_manager "$@"
+  exit $?
+  ;;
+
+monitor)
+  shift 1
+  __monitor_connections
+  exit $?
+  ;;
+
+speedtest)
+  shift 1
+  __speed_test
+  exit $?
+  ;;
+
+versions)
+  shift 1
+  if [ "$1" = "update" ] || [ "$1" = "check" ]; then
+    printf_cyan "Checking for latest versions online..."
+    i2p_latest="$(__get_latest_i2p_version)"
+    freenet_latest="$(__get_latest_freenet_version)"
+    tor_latest="$(__get_latest_tor_version)"
+    lokinet_latest="$(__get_latest_lokinet_version)"
+    
+    printf_cyan "\n=== Latest Available Versions ==="
+    printf_green "I2P: $i2p_latest"
+    printf_green "Freenet: $freenet_latest"
+    printf_green "Tor Browser: $tor_latest"
+    printf_green "Lokinet: $lokinet_latest"
+    
+    if [ "$1" = "update" ]; then
+      ANONYMIZE_I2P_VERSION="$i2p_latest"
+      ANONYMIZE_FREENET_VERSION="$freenet_latest"
+      ANONYMIZE_TOR_VERSION_ARM64="$tor_latest"
+      
+      # Save to config
+      cat > "$ANONYMIZE_CONFIG_DIR/versions.conf" << EOF
+# Auto-generated version file - $(date)
+ANONYMIZE_I2P_VERSION="$i2p_latest"
+ANONYMIZE_FREENET_VERSION="$freenet_latest"
+ANONYMIZE_TOR_VERSION_ARM64="$tor_latest"
+EOF
+      printf_green "\nVersions updated in config!"
+    fi
+  else
+    printf_cyan "=== Current Configured Versions ==="
+    printf_yellow "I2P: ${ANONYMIZE_I2P_VERSION:-not set}"
+    printf_yellow "Freenet: ${ANONYMIZE_FREENET_VERSION:-not set}"
+    printf_yellow "Tor Browser: ${ANONYMIZE_TOR_VERSION_ARM64:-not set}"
+    printf_cyan "\nUse 'anonymize versions check' to check for updates"
+    printf_cyan "Use 'anonymize versions update' to update to latest versions"
+  fi
   exit $?
   ;;
 

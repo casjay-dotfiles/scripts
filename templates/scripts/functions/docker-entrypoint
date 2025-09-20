@@ -58,7 +58,7 @@ __pgrep() {
   local srvc="${1:-SERVICE_NAME}"
   while [ $count -ge 0 ]; do
     __pcheck "${1:-SERVICE_NAME}" || __ps "${1:-$SERVICE_NAME}" | grep -qv ' grep'
-    sleep 3
+    sleep 1
     count=$((count - 1))
   done
   [ $count -ne 0 ] && return 0 || return 10
@@ -136,7 +136,24 @@ __trim() {
   printf '%s' "$var" | sed 's|;||g' | grep -v '^$'
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__banner() { printf '# - - - %-60s  - - - #\n' "$*"; }
+__banner() { 
+  local message="$*"
+  local total_width=80
+  local content_width=$((total_width - 14))  # Account for "# - - - " and " - - - #"
+  printf '# - - - %-*s - - - #\n' "$content_width" "$message"
+}
+__service_banner() { 
+  local icon="${1:-🔧}"
+  local message="${2:-Processing}"
+  local service="${3:-service}"
+  local full_message="$message $service"
+  local total_width=80
+  local content_width=$((total_width - 14))  # Account for "# - - - " and " - - - #"
+  local icon_width=2  # Most emojis are 2 chars wide
+  local text_width=$((content_width - icon_width * 2 - 2))  # Account for both icons and spaces
+  
+  printf '# - - - %s %-*s %s - - - #\n' "$icon" "$text_width" "$full_message" "$icon"
+}
 __find_php_bin() { find -L '/usr'/*bin -maxdepth 4 -name 'php-fpm*' 2>/dev/null | head -n1 | grep '.' || echo ''; }
 __find_php_ini() { find -L '/etc' -maxdepth 4 -name 'php.ini' 2>/dev/null | head -n1 | sed 's|/php.ini||g' | grep '.' || echo ''; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -168,8 +185,8 @@ __init_working_dir() {
   # create needed directories
   [ -n "$home" ] && { [ -d "$home" ] || mkdir -p "$home"; }
   [ -n "$workdir" ] && { [ -d "$workdir" ] || mkdir -p "$workdir"; }
-  [ "$SERVICE_USER" = "root " ] || [ -d "$home" ] && chmod -f 777 "$home"
-  [ "$SERVICE_USER" = "root " ] || [ -d "$workdir" ] && chmod -f 777 "$workdir"
+  [ "$SERVICE_USER" = "root" ] || [ -d "$home" ] && chmod -f 777 "$home"
+  [ "$SERVICE_USER" = "root" ] || [ -d "$workdir" ] && chmod -f 777 "$workdir"
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # cd to dir
   __cd "${workdir:-$home}"
@@ -184,7 +201,7 @@ __exec_service() {
   echo "Starting $1"
   eval "$@" 2>>/dev/stderr >>/data/logs/start.log &
   while [ $count -ne 0 ]; do
-    sleep 10
+    sleep 3
     __pgrep $1 && touch "/run/init.d/$1.pid" && break || count=$((count - 1))
   done
 }
@@ -211,7 +228,7 @@ __certbot() {
   local certbot_key_opts="--key-path $SSL_KEY --fullchain-path $SSL_CERT"
   mkdir -p "/config/letsencrypt"
   __symlink "/etc/letsencrypt" "/config/letsencrypt"
-  is_renewal="$(find /etc/letsencrypt/renewal -type -f 2>/dev/null || false)"
+  is_renewal="$(find /etc/letsencrypt/renewal -type f 2>/dev/null || false)"
   [ -f "/config/env/ssl.sh" ] && . "/config/env/ssl.sh"
   [ -f "/config/certbot/env.sh" ] && . "/config/certbot/env.sh"
   [ -n "$SSL_KEY" ] && { mkdir -p "$(dirname "$SSL_KEY")" || true; } || { echo "The variable $SSL_KEY is not set" >&2 && return 1; }
@@ -221,7 +238,7 @@ __certbot() {
   [ "$CERT_BOT_ENABLED" = "true" ] || { export CERT_BOT_ENABLED="" && return 10; }
   [ -n "$CERT_BOT_MAIL" ] || { echo "The variable CERT_BOT_MAIL is not set" >&2 && return 1; }
   [ -n "$CERTBOT_DOMAINS" ] || { echo "The variable CERTBOT_DOMAINS is not set" >&2 && return 1; }
-  for domain in $$CERTBOT_DOMAINS; do
+  for domain in $CERTBOT_DOMAINS; do
     [ -n "$domain" ] && ADD_CERTBOT_DOMAINS+="-d $domain "
   done
   [ -n "$is_renewal" ] && options="renew" ADD_CERTBOT_DOMAINS="" || options="certonly"
@@ -575,7 +592,7 @@ __set_user_group_id() {
   local random_id="$(__generate_random_uids)"
   set_uid="$(__get_uid "$set_user" || echo "$set_uid")"
   set_gid="$(__get_gid "$set_user" || echo "$set_gid")"
-  grep -shq "^$create_user:" "/etc/passwd" "/etc/group" || return 0
+  grep -shq "^$set_user:" "/etc/passwd" "/etc/group" || return 0
   [ -n "$set_user" ] && [ "$set_user" != "root" ] || return
   if grep -shq "^$set_user:" "/etc/passwd" "/etc/group"; then
     if __check_for_guid "$set_gid"; then
@@ -606,8 +623,8 @@ __create_service_user() {
     create_uid="${create_uid:-1000}"
     create_gid="${create_gid:-1000}"
   fi
-  create_uid="$(__get_uid "$set_user" || echo "$create_uid")"
-  create_gid="$(__get_gid "$set_user" || echo "$create_gid")"
+  create_uid="$(__get_uid "$create_user" || echo "$create_uid")"
+  create_gid="$(__get_gid "$create_user" || echo "$create_gid")"
   [ -n "$create_uid" ] && [ "$create_uid" != "0" ] || create_uid="$random_id"
   [ -n "$create_gid" ] && [ "$create_gid" != "0" ] || create_gid="$random_id"
   while :; do
@@ -626,7 +643,7 @@ __create_service_user() {
     echo "creating system user $create_user"
     useradd --system -u $create_uid -g $create_group -c "Account for $create_user" -d "$create_home_dir" -s /bin/false $create_user 2>/dev/stderr | tee -p -a "/data/logs/init.txt" >/dev/null
   fi
-  grep -shq "$create_group" "/etc/group" || exitStatus=$((exitCode + 1))
+  grep -shq "$create_group" "/etc/group" || exitStatus=$((exitStatus + 1))
   grep -shq "$create_user" "/etc/passwd" || exitStatus=$((exitCode + 1))
   if [ $exitStatus -eq 0 ]; then
     export WORK_DIR="${create_home_dir:-}"
@@ -636,7 +653,7 @@ __create_service_user() {
     fi
     if [ -d "/etc/sudoers.d" ] && [ ! -f "/etc/sudoers.d/$create_user" ]; then
       echo "$create_user ALL=(ALL)   NOPASSWD: ALL" >"/etc/sudoers.d/$create_user"
-    elif [ -f "/etc/sudoers" ] && grep -qs "$create_user" "/etc/sudoers"; then
+    elif [ -f "/etc/sudoers" ] && ! grep -qs "$create_user" "/etc/sudoers"; then
       echo "$create_user ALL=(ALL)   NOPASSWD: ALL" >"/etc/sudoers"
     fi
     export SERVICE_UID="$create_uid"
@@ -710,12 +727,6 @@ __start_init_scripts() {
   local init_count="$(ls -A "$init_dir"/* 2>/dev/null | grep -v '\.sample' | wc -l)"
   local exit_on_failure="${EXIT_ON_SERVICE_FAILURE:-true}"
 
-  if [ -n "$SERVICE_DISABLED" ]; then
-    unset SERVICE_DISABLED
-    echo "$SERVICE_DISABLED is disabled"
-    return 0
-  fi
-
   # Clean stale PID files from previous runs
   if [ ! -f "/run/__start_init_scripts.pid" ]; then
     echo "🧹 Cleaning stale PID files from previous container run"
@@ -742,23 +753,49 @@ __start_init_scripts() {
         if [ -x "$init" ]; then
           name="$(basename "$init")"
           service="$(printf '%s' "$name" | sed 's/^[^-]*-//;s|.sh$||g')"
-          echo "# - - - 🔧 Executing service script: $init - - - #"
+          __service_banner "🔧" "Executing service script:" "$(basename "$init")"
           # Execute the init script and capture the exit code
-          if eval "$init"; then
-            sleep 5
-            [ -z "$SERVICE_USES_PID" ] && retPID=$(__get_pid "$service") || retPID=0
-            if [ -n "$retPID" ]; then
+          if source "$init"; then
+            # Check if service was disabled first
+            if [ -n "$SERVICE_DISABLED" ]; then
               initStatus="0"
-              echo "# - - - ✅ Service $service started successfully - PID: ${retPID} - - - #"
+              __service_banner "🚫" "Service $service is disabled -" "skipping"
+              unset SERVICE_DISABLED
             else
-              initStatus="1"
-              critical_failures=$((critical_failures + 1))
-              echo "# - - - ⚠️ Service $service appears to have started but no process found - - - #"
+              sleep 2
+              # Check for service success indicators
+              local expected_pid_file="/run/init.d/$service.pid"
+              if [ "$SERVICE_USES_PID" = "no" ]; then
+                # Service doesn't use PID files - check if expected PID file exists or assume success
+                if [ -f "$expected_pid_file" ]; then
+                  retPID="$(cat "$expected_pid_file" 2>/dev/null || echo "0")"
+                  initStatus="0"
+                  __service_banner "✅" "Service $service started successfully -" "PID file"
+                else
+                  initStatus="0"
+                  __service_banner "✅" "Service $service started successfully -" "no PID tracking"
+                fi
+              else
+                # Service uses PID tracking - get actual PID
+                retPID=$(__get_pid "$service")
+                if [ -n "$retPID" ] && [ "$retPID" != "0" ]; then
+                  initStatus="0"
+                  __service_banner "✅" "Service $service started successfully -" "PID: ${retPID}"
+                elif [ -f "$expected_pid_file" ]; then
+                  retPID="$(cat "$expected_pid_file" 2>/dev/null || echo "0")"
+                  initStatus="0"
+                  __service_banner "✅" "Service $service started successfully -" "PID file"
+                else
+                  initStatus="1"
+                  critical_failures=$((critical_failures + 1))
+                  __service_banner "⚠️" "Service $service appears to have started but" "no process found"
+                fi
+              fi
             fi
           else
             initStatus="1"
             critical_failures=$((critical_failures + 1))
-            echo "# - - - ❌ Service $service failed to start - check logs: docker logs $CONTAINER_NAME - - - #"
+            __service_banner "❌" "Service $service failed to start -" "check logs"
           fi
           echo ""
         fi

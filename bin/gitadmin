@@ -252,9 +252,9 @@ __help() {
   __printf_line "push [directory]                - Push a project to a remote repo"
   __printf_line "pull [directory]                - Update a local git repo"
   __printf_line "clone [repo] [directory]        - Clone a git repo"
-  __printf_line "modify [user/repo|.]            - Modify repo settings (auto-detects platform)"
-  __printf_line "create [user/repo]              - Create a new repo [--github|--gitlab|--gitea] [--private|--public]"
-  __printf_line "delete [user/repo|.]            - Delete a repo (auto-detects platform)"
+  __printf_line "modify [user/repo|.]            - Modify repo settings [--platform] [--description] [--homepage]"
+  __printf_line "create [user/repo] [desc]       - Create a new repo [--platform] [--private|--public]"
+  __printf_line "delete [user/repo|.]            - Delete a repo [--platform github|gitlab|gitea]"
   __printf_line "shorten  [URL] [name]           - Shorten any github url"
   __printf_line "newsite [sitename] [repo]       - Create a site using template [$GITADMIN_DOMAIN_TEMPLATE]"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -1588,10 +1588,10 @@ __run_git_init() {
   git_confirm_repo=""
   [ "$GITADMIN_SETUP_PUSH" = "no" ] && git_push="no"
   if [ -n "$git_repo" ]; then
-    if git -C "$git_dir" remote add origin "$git_repo" >/dev/null || return 1; then
+    if git -C "$git_dir" remote add origin "$git_repo" &>/dev/null; then
       printf_cyan "$git_repo has been added"
     else
-      printf_exit 'Failed to add $git_repo'
+      printf_exit "Failed to add $git_repo"
     fi
     [ "$git_push" = "no" ] && return 0
     printf_read_question "3" "Should I push to the remote repo? [y/n]" "1" "git_push"
@@ -1629,6 +1629,23 @@ __run_git_init() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __split_create_repo() {
   local repo="$1"
+  local platform=""
+  local username=""
+  local reponame=""
+  local visibility="${GITADMIN_REPO_VISIBILITY:-private}"
+
+  # Detect platform from URL
+  if echo "$repo" | grep -q 'github.com'; then
+    platform="github"
+  elif echo "$repo" | grep -q 'gitlab.com'; then
+    platform="gitlab"
+  elif echo "$repo" | grep -q "$GITADMIN_PERSONAL_GIT_HOST"; then
+    platform="gitea"
+  else
+    platform="${GITADMIN_DEFAULT_PLATFORM:-github}"
+  fi
+
+  # Parse username and repo name
   if check_uri "$repo" || echo "$repo" | grep -q '\..*/.*/.*/*' || echo "$repo" | __test_if_url -q; then
     username="$(echo "$repo" | sed 's|.*//||g' | awk -F'/' '{print $(NF-1)}' | grep '^')"
     reponame="$(echo "$repo" | sed 's|.*//||g' | awk -F'/' '{print $NF}' | grep '^')"
@@ -1639,13 +1656,13 @@ __split_create_repo() {
     username="$1"
     reponame="$2"
   fi
+
   if [ -n "$username" ] && [ -n "$reponame" ]; then
-    __github_create_repo "$username" "$reponame" "Repo for $reponame" &>/dev/null
+    __universal_repo_create "$platform" "$username" "$reponame" "Repo for $reponame" "$visibility" "" &>/dev/null
     return $?
   else
     return 1
   fi
-  #curl -q -LSsf -X GET -H "Accept: application/vnd.github.v3+json" -H "Authorization: token ${GITADMIN_GITHUB_AUTH_TOKEN}" "${url}/${username}/${reponame}" >"$GITADMIN_TEMP_FILE"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup a new git repo
@@ -1662,7 +1679,27 @@ __run_git_setup() {
   GITCOMMIT_MESSAGE="${GITADMIN_SETUP_MESSAGE:- 🦈🏠🐜❗ Initial Commit ❗🐜🦈🏠 }"
   show_git_repo="$(__git_repobase "$git_dir")"
   printf_green "🌱 Initializing the repo in $git_dir"
-  [ -n "$git_prev" ] || git_prev="github.com/$(basename -- "$(dirname $GITADMIN_CWD)")/$(basename -- "$GITADMIN_CWD")"
+  # Determine default repo based on platform preference
+  if [ -z "$git_prev" ]; then
+    local default_user="$(basename -- "$(dirname $GITADMIN_CWD)")"
+    local default_repo="$(basename -- "$GITADMIN_CWD")"
+    local default_platform="${GITADMIN_DEFAULT_PLATFORM:-github}"
+
+    case "$default_platform" in
+    github)
+      git_prev="github.com/$default_user/$default_repo"
+      ;;
+    gitlab)
+      git_prev="gitlab.com/$default_user/$default_repo"
+      ;;
+    gitea | private)
+      git_prev="${GITADMIN_PERSONAL_GIT_HOST#*://}/$default_user/$default_repo"
+      ;;
+    *)
+      git_prev="github.com/$default_user/$default_repo"
+      ;;
+    esac
+  fi
   [ -f "$git_dir/.gitattributes" ] || gen-gitattr $git_dir save default lfs &>/dev/null
   [ -f "$git_dir/.gitignore" ] || gitignore "$git_dir" default --automated &>/dev/null
   if [ -d "$git_dir/.git" ]; then
@@ -1679,8 +1716,8 @@ __run_git_setup() {
     fi
   fi
   [ -f "$git_version_file" ] && date +"$git_version_fmt" >"$git_version_file"
-  ls "$git_dir/README"* >/dev/null 2>&1 || create_new_readme_template "$git_dir"
-  ls "$git_dir/LICENSE"* >/dev/null 2>&1 || create_new_license "$git_dir"
+  ls "$git_dir/README"* >/dev/null 2>&1 || __create_new_readme_template "$git_dir"
+  ls "$git_dir/LICENSE"* >/dev/null 2>&1 || __create_new_license "$git_dir"
   if git -C "$git_dir" init . |& __devnull && git -C "$git_dir" add . |& __devnull && git -C "$git_dir" commit -q -m "$GITCOMMIT_MESSAGE"; then
     printf_green "✅ Success: $show_git_repo has been initialized"
   else
@@ -1736,7 +1773,27 @@ __run_git_setup_automated() {
   GITCOMMIT_MESSAGE="${GITADMIN_SETUP_MESSAGE:- 🦈🏠🐜❗ Initial Commit ❗🐜🦈🏠 }"
   GITADMIN_EXITCODE=0
   printf_green "🌱 Initializing the repo in $git_dir"
-  [ -n "$git_prev" ] || git_prev="github.com/$(basename -- "$(dirname $GITADMIN_CWD)")/$(basename -- "$GITADMIN_CWD")"
+  # Determine default repo based on platform preference
+  if [ -z "$git_prev" ]; then
+    local default_user="$(basename -- "$(dirname $GITADMIN_CWD)")"
+    local default_repo="$(basename -- "$GITADMIN_CWD")"
+    local default_platform="${GITADMIN_DEFAULT_PLATFORM:-github}"
+
+    case "$default_platform" in
+    github)
+      git_prev="github.com/$default_user/$default_repo"
+      ;;
+    gitlab)
+      git_prev="gitlab.com/$default_user/$default_repo"
+      ;;
+    gitea | private)
+      git_prev="${GITADMIN_PERSONAL_GIT_HOST#*://}/$default_user/$default_repo"
+      ;;
+    *)
+      git_prev="github.com/$default_user/$default_repo"
+      ;;
+    esac
+  fi
   [ -f "$git_dir/.gitattributes" ] || gen-gitattr $git_dir save default lfs &>/dev/null
   [ -f "$git_dir/.gitignore" ] || gitignore "$git_dir" default --automated &>/dev/null
   if [ -d "$git_dir/.git" ]; then
@@ -1747,16 +1804,41 @@ __run_git_setup_automated() {
     __rm_rf "$git_dir/.git"
   fi
   [ -f "$git_version_file" ] && date +"$git_version_fmt" >"$git_version_file"
-  ls "$git_dir/README"* >/dev/null 2>&1 || create_new_readme_template "$git_dir"
-  ls "$git_dir/LICENSE"* >/dev/null 2>&1 || create_new_license "$git_dir"
+  ls "$git_dir/README"* >/dev/null 2>&1 || __create_new_readme_template "$git_dir"
+  ls "$git_dir/LICENSE"* >/dev/null 2>&1 || __create_new_license "$git_dir"
   if git -C "$git_dir" init . |& __devnull && git -C "$git_dir" add . |& __devnull && git -C "$git_dir" commit -q -m "$GITCOMMIT_MESSAGE"; then
     printf_green "✅ Success: $(__git_repobase "$git_dir") has been initialized"
   else
     printf_exit "Failed to initialize $(__git_repobase "$git_dir")"
   fi
-  echo "$git_prev" | __test_if_url -q || git_prev="https://$git_prev"
-  __split_create_repo "$git_prev" || printf_exit "$git_prev repo does not exist"
-  __run_git_init_automated "$git_dir" "$git_prev"
+  # Build proper URLs for repo creation and git operations
+  if echo "$git_prev" | __test_if_url -q; then
+    repo_url="$git_prev"
+    git_url="$git_prev"
+  else
+    # Build platform-specific URLs
+    local default_platform="${GITADMIN_DEFAULT_PLATFORM:-github}"
+    case "$default_platform" in
+    github)
+      repo_url="https://github.com/$git_prev"
+      git_url="https://github.com/$git_prev.git"
+      ;;
+    gitlab)
+      repo_url="https://gitlab.com/$git_prev"
+      git_url="https://gitlab.com/$git_prev.git"
+      ;;
+    gitea | private)
+      repo_url="https://${GITADMIN_PERSONAL_GIT_HOST#*://}/$git_prev"
+      git_url="https://${GITADMIN_PERSONAL_GIT_HOST#*://}/$git_prev.git"
+      ;;
+    *)
+      repo_url="https://github.com/$git_prev"
+      git_url="https://github.com/$git_prev.git"
+      ;;
+    esac
+  fi
+  __split_create_repo "$repo_url" || printf_exit "$git_prev repo does not exist"
+  __run_git_init_automated "$git_dir" "$git_url"
   GITADMIN_EXITCODE=$?
   if [ $GITADMIN_EXITCODE -ne 0 ]; then
     printf_red "Initialization has failed"
@@ -1769,11 +1851,10 @@ __run_git_init_automated() {
   git_dir="${1:-$GITADMIN_CWD}"
   git_repo="${2:-$git_prev}"
   if [ -n "$git_repo" ]; then
-    git -C "$git_dir" remote add origin "$git_repo" &>/dev/null
-    if __git_remote_push | grep -q "$git_repo"; then
-      printf_cyan "$git_repo has been added"
+    if git -C "$git_dir" remote add origin "$git_repo" &>/dev/null; then
+      printf_cyan "🌱 $git_repo has been added"
     else
-      printf_exit "Failed to add $git_repo"
+      printf_exit "🔴 Failed to add $git_repo"
     fi
     if [ -f "$git_dir/$GITADMIN_DEFAULT_MAINCONFIG" ] && [ ! -L "$git_dir/.git/config" ]; then
       cp -Rf "$git_dir/$GITADMIN_DEFAULT_MAINCONFIG" "$git_dir/.git/config"
@@ -1923,7 +2004,7 @@ __ghgist_create() {
   gist_describe="$(echo "$1" | awk '{gsub(/"/, "\\\"")} 1' | grep '' || echo '')"
   gist_filename="$2"
   gist_get_content="${3:-}"
-  format_gist="$(echo "$gist_get_content" | format_file_as_JSON_string)"
+  format_gist="$(echo "$gist_get_content" | __format_file_as_JSON_string)"
   save_dir="${GISTADMIN_GIST_SAVE_DIR:-$HOME/Documents/myscripts/gists}"
   gist_content="$(printf "%s\r" "{ \"description\": \"$gist_describe\", \"public\": true, \"files\": {\"$gist_filename\": { \"content\": \"$format_gist\" }}}" | tee ${GITADMIN_TEMP_FILE}-data.txt)"
   [ $# -eq 3 ] || __printf_help "Usage: $APPNAME gist create description filename contents"

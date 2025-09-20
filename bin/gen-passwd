@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202208082232-git
+##@Version           :  202509201000-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Monday, Aug 08, 2022 22:32 EDT
 # @@File             :  gen-passwd
 # @@Description      :  generate random password
-# @@Changelog        :  New script
+# @@Changelog        :  Added comprehensive password hashing support (bcrypt, argon2, pbkdf2, scrypt, sha, md5)
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202208082232-git"
+VERSION="202509201000-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -70,14 +70,14 @@ __devnull() {
   tee &>/dev/null && exitCode=0 || exitCode=1
   return ${exitCode:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Send errors to /dev/null
 __devnull2() {
   [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
   eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
   return ${exitCode:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # See if the executable exists
 __cmd_exists() {
   local exitCode=0
@@ -193,12 +193,41 @@ __help() {
   __printf_opts "gen-passwd:  generate random password - $VERSION"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "Usage: gen-passwd [options] [length]"
+  __printf_line "       gen-passwd hash [type] [password]"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Password Generation"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "20                              - Set the password length"
   __printf_line "--length [20]                   - Set the password length"
   __printf_line "--no-numbers                    - No numbers"
   __printf_line "--no-chars                      - No special characters"
   __printf_line "--no-upper                      - No uppercase letters"
   __printf_line "--no-lower                      - No lowercase letters"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Hash Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "--docker                        - Format output for Docker compose"
+  __printf_line "--prefix                        - Include algorithm prefix in hash"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Password Hashing"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "hash bcrypt [password]          - Generate bcrypt hash"
+  __printf_line "hash argon2 [password]          - Generate argon2id hash"
+  __printf_line "hash argon2i [password]         - Generate argon2i hash"
+  __printf_line "hash argon2d [password]         - Generate argon2d hash"
+  __printf_line "hash pbkdf2 [password]          - Generate PBKDF2 hash"
+  __printf_line "hash scrypt [password]          - Generate scrypt hash"
+  __printf_line "hash sha256 [password]          - Generate SHA256 hash"
+  __printf_line "hash sha512 [password]          - Generate SHA512 hash"
+  __printf_line "hash sha3-256 [password]        - Generate SHA3-256 hash"
+  __printf_line "hash sha3-512 [password]        - Generate SHA3-512 hash"
+  __printf_line "hash blake2b [password]         - Generate Blake2b hash"
+  __printf_line "hash blake2s [password]         - Generate Blake2s hash"
+  __printf_line "hash crypt-sha512 [password]    - Generate SHA512 crypt hash"
+  __printf_line "hash crypt-sha256 [password]    - Generate SHA256 crypt hash"
+  __printf_line "hash whirlpool [password]       - Generate Whirlpool hash"
+  __printf_line "hash md5 [password]             - Generate MD5 hash"
+  printf_cyan "• If no password provided, generates random password and hashes it"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -254,7 +283,7 @@ __sudoif() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run command as root
-requiresudo() {
+__requiresudo() {
   if [ "$GEN_PASSWD_REQUIRE_SUDO" = "yes" ] && [ -z "$GEN_PASSWD_REQUIRE_SUDO_RUN" ]; then
     export GEN_PASSWD_REQUIRE_SUDO="no"
     export GEN_PASSWD_REQUIRE_SUDO_RUN="true"
@@ -309,9 +338,20 @@ __tr() { tr "$@" 2>/dev/null; }
 __generator() {
   local pass="" characters="" length=""
   length="$GEN_PASSWD_DEFAULT_LENGTH"
-  characters="$GEN_PASSWD_CHARACTERS"
-  pass="$(cat /dev/urandom 2>/dev/null | __tr -cd "${characters}" | __tr -d '[:space:]\042\047\134' | head -c${length} | grep '^' || echo '')"
-  [ -n "$pass" ] && printf '%s\n' "$pass" | head -c$length || printf '%s\n' "${characters// /}" | head -c$length | fold -w $length | head -n1 | grep '^'
+  characters="$(echo "$GEN_PASSWD_CHARACTERS" | tr -d ' ')"
+
+  # Generate password using /dev/urandom
+  if [ -n "$characters" ]; then
+    pass="$(cat /dev/urandom 2>/dev/null | __tr -cd "${characters}" | __tr -d '[:space:]\042\047\134' | head -c${length} 2>/dev/null || echo '')"
+  fi
+
+  # Fallback method if urandom fails
+  if [ -z "$pass" ] || [ ${#pass} -lt "$length" ]; then
+    local fallback_chars="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_@-"
+    pass="$(printf '%s' "$fallback_chars" | fold -w1 | shuf | head -n"$length" | tr -d '\n' 2>/dev/null || echo 'fallback_password_12345')"
+  fi
+
+  printf '%s\n' "$pass"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __execute_gen-passwd() {
@@ -323,6 +363,336 @@ __execute_gen-passwd() {
     [ -n "$GEN_PASSWD_SILENT" ] || echo "$GEN_PASSWD_SET_PASS" | __clipboard
     return $?
   else
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# OpenSSL capability detection
+__openssl_supports() {
+  local algorithm="$1"
+  local type="${2:-dgst}"
+
+  if ! __cmd_exists openssl; then
+    return 1
+  fi
+
+  case "$type" in
+  dgst)
+    openssl dgst -list 2>/dev/null | grep -qw -- "-$algorithm"
+    ;;
+  passwd)
+    openssl passwd -help 2>&1 | grep -q -- "-$algorithm"
+    ;;
+  *)
+    return 1
+    ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Hash Functions
+__hash_bcrypt() {
+  local password="$1"
+  local rounds="${2:-12}"
+
+  if __cmd_exists htpasswd; then
+    htpasswd -nbB "" "$password" 2>/dev/null | cut -d: -f2
+  elif __cmd_exists python3; then
+    python3 -c "import bcrypt; print(bcrypt.hashpw('$password'.encode('utf-8'), bcrypt.gensalt(rounds=$rounds)).decode('utf-8'))" 2>/dev/null
+  else
+    printf_red "❌ bcrypt requires htpasswd or python3 with bcrypt module"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__hash_argon2() {
+  local password="$1"
+  local type="${2:-argon2id}"
+  local salt="$(openssl rand -hex 16 2>/dev/null)"
+
+  if __cmd_exists openssl && openssl list -kdf-algorithms 2>/dev/null | grep -q "ARGON2"; then
+    # Use OpenSSL 3.x native Argon2 support
+    local kdf_type=""
+    case "$type" in
+    argon2i) kdf_type="ARGON2I" ;;
+    argon2d) kdf_type="ARGON2D" ;;
+    *) kdf_type="ARGON2ID" ;;
+    esac
+
+    printf '%s' "$password" | openssl kdf -keylen 32 -kdfopt pass:stdin -kdfopt salt:"$salt" -kdfopt iter:3 -kdfopt lanes:1 -kdfopt memcost:4096 "$kdf_type" 2>/dev/null | xxd -p -c 64 | awk -v salt="$salt" -v type="$type" '{print type"$"salt"$"$1}'
+  elif __cmd_exists argon2; then
+    echo -n "$password" | argon2 "$(openssl rand -base64 16)" -e -t 3 -m 12 -p 1 -"$type" 2>/dev/null
+  elif __cmd_exists python3; then
+    python3 -c "import argon2; ph = argon2.PasswordHasher(); print(ph.hash('$password'))" 2>/dev/null
+  else
+    printf_red "❌ argon2 requires OpenSSL 3.x with KDF, argon2 command, or python3 with argon2-cffi module"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__hash_pbkdf2() {
+  local password="$1"
+  local iterations="${2:-10000}"
+  local salt="$(openssl rand -hex 16 2>/dev/null)"
+
+  if __cmd_exists openssl && openssl list -kdf-algorithms 2>/dev/null | grep -q "PBKDF2"; then
+    # Use OpenSSL native PBKDF2 support
+    printf '%s' "$password" | openssl kdf -keylen 32 -kdfopt digest:SHA256 -kdfopt pass:stdin -kdfopt salt:"$salt" -kdfopt iter:"$iterations" PBKDF2 2>/dev/null | xxd -p -c 64 | awk -v salt="$salt" -v iter="$iterations" '{print "pbkdf2_sha256$"iter"$"salt"$"$1}'
+  elif __cmd_exists python3; then
+    python3 -c "import hashlib; import base64; import binascii; salt=binascii.unhexlify('$salt'); result=hashlib.pbkdf2_hmac('sha256', '$password'.encode(), salt, $iterations); print('pbkdf2_sha256\$${iterations}\$' + '$salt' + '\$' + binascii.hexlify(result).decode())" 2>/dev/null
+  else
+    printf_red "❌ pbkdf2 requires OpenSSL with KDF support or python3"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__hash_scrypt() {
+  local password="$1"
+  local salt="$(openssl rand -hex 16 2>/dev/null)"
+
+  if __cmd_exists openssl && openssl list -kdf-algorithms 2>/dev/null | grep -q "SCRYPT"; then
+    # Use OpenSSL native scrypt support
+    printf '%s' "$password" | openssl kdf -keylen 32 -kdfopt pass:stdin -kdfopt salt:"$salt" -kdfopt n:16384 -kdfopt r:8 -kdfopt p:1 SCRYPT 2>/dev/null | xxd -p -c 64 | awk -v salt="$salt" '{print "scrypt$"salt"$"$1}'
+  elif __cmd_exists python3; then
+    python3 -c "import hashlib; import base64; import binascii; salt=binascii.unhexlify('$salt'); result=hashlib.scrypt('$password'.encode(), salt=salt, n=16384, r=8, p=1); print('scrypt\$' + '$salt' + '\$' + binascii.hexlify(result).decode())" 2>/dev/null
+  else
+    printf_red "❌ scrypt requires OpenSSL with KDF support or python3"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__hash_sha() {
+  local password="$1"
+  local algorithm="${2:-sha256}"
+  local salt="$(openssl rand -base64 16 2>/dev/null)"
+
+  if __cmd_exists openssl; then
+    echo -n "${password}${salt}" | openssl dgst -"$algorithm" 2>/dev/null | awk -v salt="$salt" '{print algorithm"$"salt"$"$2}' algorithm="$algorithm"
+  else
+    printf_red "❌ SHA hashing requires openssl"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__hash_md5() {
+  local password="$1"
+  local salt="$(openssl rand -base64 8 2>/dev/null)"
+
+  if __cmd_exists openssl; then
+    echo -n "${password}${salt}" | openssl dgst -md5 2>/dev/null | awk -v salt="$salt" '{print "md5$"salt"$"$2}'
+  else
+    printf_red "❌ MD5 hashing requires openssl"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__hash_sha3() {
+  local password="$1"
+  local variant="${2:-sha3-256}"
+  local salt="$(openssl rand -base64 16 2>/dev/null)"
+
+  if __openssl_supports "$variant" "dgst"; then
+    echo -n "${password}${salt}" | openssl dgst -"$variant" 2>/dev/null | awk -v salt="$salt" -v var="$variant" '{print var"$"salt"$"$2}'
+  else
+    printf_red "❌ SHA-3 ($variant) not supported by this OpenSSL version"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__hash_blake2() {
+  local password="$1"
+  local variant="${2:-blake2b512}"
+  local salt="$(openssl rand -base64 16 2>/dev/null)"
+
+  if __openssl_supports "$variant" "dgst"; then
+    echo -n "${password}${salt}" | openssl dgst -"$variant" 2>/dev/null | awk -v salt="$salt" -v var="$variant" '{print var"$"salt"$"$2}'
+  else
+    printf_red "❌ Blake2 ($variant) not supported by this OpenSSL version"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__hash_crypt() {
+  local password="$1"
+  local algorithm="${2:-6}"
+
+  case "$algorithm" in
+  6 | sha512)
+    if __openssl_supports "6" "passwd"; then
+      openssl passwd -6 "$password" 2>/dev/null
+    else
+      printf_red "❌ SHA512 crypt not supported by this OpenSSL version"
+      return 1
+    fi
+    ;;
+  5 | sha256)
+    if __openssl_supports "5" "passwd"; then
+      openssl passwd -5 "$password" 2>/dev/null
+    else
+      printf_red "❌ SHA256 crypt not supported by this OpenSSL version"
+      return 1
+    fi
+    ;;
+  1 | md5)
+    if __openssl_supports "1" "passwd"; then
+      openssl passwd -1 "$password" 2>/dev/null
+    else
+      printf_red "❌ MD5 crypt not supported by this OpenSSL version"
+      return 1
+    fi
+    ;;
+  apr1)
+    if __openssl_supports "apr1" "passwd"; then
+      openssl passwd -apr1 "$password" 2>/dev/null
+    else
+      printf_red "❌ Apache MD5 crypt not supported by this OpenSSL version"
+      return 1
+    fi
+    ;;
+  *)
+    if __openssl_supports "6" "passwd"; then
+      openssl passwd -6 "$password" 2>/dev/null
+    else
+      printf_red "❌ Default SHA512 crypt not supported by this OpenSSL version"
+      return 1
+    fi
+    ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__hash_whirlpool() {
+  local password="$1"
+  local salt="$(openssl rand -base64 16 2>/dev/null)"
+
+  if __openssl_supports "whirlpool" "dgst"; then
+    echo -n "${password}${salt}" | openssl dgst -whirlpool 2>/dev/null | awk -v salt="$salt" '{print "whirlpool$"salt"$"$2}'
+  else
+    printf_red "❌ Whirlpool not supported by this OpenSSL version"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__execute_hash() {
+  local hash_type="$1"
+  local password="$2"
+  local raw_password=""
+  local hashed_password=""
+
+  # If no password provided, generate one
+  if [ -z "$password" ]; then
+    raw_password="$(__generator)"
+    password="$raw_password"
+  else
+    raw_password="$password"
+  fi
+
+  # Generate hash based on type
+  case "$hash_type" in
+  bcrypt)
+    hashed_password="$(__hash_bcrypt "$password")"
+    ;;
+  argon2 | argon2id)
+    hashed_password="$(__hash_argon2 "$password" "argon2id")"
+    ;;
+  argon2i)
+    hashed_password="$(__hash_argon2 "$password" "argon2i")"
+    ;;
+  argon2d)
+    hashed_password="$(__hash_argon2 "$password" "argon2d")"
+    ;;
+  pbkdf2)
+    hashed_password="$(__hash_pbkdf2 "$password")"
+    ;;
+  scrypt)
+    hashed_password="$(__hash_scrypt "$password")"
+    ;;
+  sha256)
+    hashed_password="$(__hash_sha "$password" "sha256")"
+    ;;
+  sha512)
+    hashed_password="$(__hash_sha "$password" "sha512")"
+    ;;
+  sha1)
+    hashed_password="$(__hash_sha "$password" "sha1")"
+    ;;
+  md5)
+    hashed_password="$(__hash_md5 "$password")"
+    ;;
+  sha3-256 | sha3)
+    hashed_password="$(__hash_sha3 "$password" "sha3-256")"
+    ;;
+  sha3-224)
+    hashed_password="$(__hash_sha3 "$password" "sha3-224")"
+    ;;
+  sha3-384)
+    hashed_password="$(__hash_sha3 "$password" "sha3-384")"
+    ;;
+  sha3-512)
+    hashed_password="$(__hash_sha3 "$password" "sha3-512")"
+    ;;
+  blake2b | blake2)
+    hashed_password="$(__hash_blake2 "$password" "blake2b512")"
+    ;;
+  blake2s)
+    hashed_password="$(__hash_blake2 "$password" "blake2s256")"
+    ;;
+  whirlpool)
+    hashed_password="$(__hash_whirlpool "$password")"
+    ;;
+  crypt | crypt-sha512)
+    hashed_password="$(__hash_crypt "$password" "6")"
+    ;;
+  crypt-sha256)
+    hashed_password="$(__hash_crypt "$password" "5")"
+    ;;
+  crypt-md5)
+    hashed_password="$(__hash_crypt "$password" "1")"
+    ;;
+  crypt-apr1)
+    hashed_password="$(__hash_crypt "$password" "apr1")"
+    ;;
+  *)
+    printf_red "❌ Unsupported hash type: $hash_type"
+    printf_cyan "Modern secure: bcrypt, argon2, argon2i, argon2d, pbkdf2, scrypt"
+    printf_cyan "SHA family: sha256, sha512, sha1, sha3-256, sha3-384, sha3-512"
+    printf_cyan "Blake2: blake2b, blake2s"
+    printf_cyan "Crypt: crypt-sha512, crypt-sha256, crypt-md5, crypt-apr1"
+    printf_cyan "Legacy: md5, whirlpool"
+    return 1
+    ;;
+  esac
+
+  printf_blue "🔐 Generated password: $raw_password"
+  # Output results
+  if [ -n "$hashed_password" ]; then
+    # Remove prefix by default, add only if --prefix is used
+    if [ "$GEN_PASSWD_WITH_PREFIX" != "true" ]; then
+      hashed_password="$(echo "$hashed_password" | cut -d'$' -f2- 2>/dev/null || echo "$hashed_password")"
+    fi
+
+    # Format for Docker if requested
+    if [ "$GEN_PASSWD_DOCKER_FORMAT" = "true" ]; then
+      printf_green "# Add to docker-compose.yml environment section:"
+      printf_cyan "PASSWORD_HASH=$hashed_password"
+      printf_green "# Or add to .env file:"
+      printf_cyan "PASSWORD_HASH=\"$hashed_password\""
+    else
+      printf_green "🔒 Hash ($hash_type): $hashed_password"
+    fi
+
+    # Copy to clipboard if not silent
+    if [ -z "$GEN_PASSWD_SILENT" ] && builtin type -P clipboard | grep -q 'clipboard'; then
+      if [ "$GEN_PASSWD_DOCKER_FORMAT" = "true" ]; then
+        printf_blue "📋 Docker environment format copied to clipboard"
+        echo "PASSWORD_HASH=\"$hashed_password\"" | clipboard
+      else
+        #printf_blue "📋 Hash copied to clipboard"
+        echo "$hashed_password" | clipboard
+      fi
+    fi
+
+    return 0
+  else
+    printf_red "❌ Failed to generate $hash_type hash"
     return 1
   fi
 }
@@ -403,9 +773,9 @@ SHORTOPTS=""
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
-LONGOPTS+=",no-numbers,no-chars,no-upper,no-lower,length:"
+LONGOPTS+=",no-numbers,no-chars,no-upper,no-lower,length:,docker,prefix"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-ARRAY=""
+ARRAY="hash"
 ARRAY+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
@@ -522,6 +892,14 @@ while :; do
     GEN_PASSWD_DEFAULT_LENGTH="$2"
     shift 2
     ;;
+  --docker)
+    shift 1
+    GEN_PASSWD_DOCKER_FORMAT="true"
+    ;;
+  --prefix)
+    shift 1
+    GEN_PASSWD_WITH_PREFIX="true"
+    ;;
   --)
     shift 1
     break
@@ -562,12 +940,14 @@ export GEN_PASSWD_CWD
 #cmd_exists --error --ask bash || exit 3 # exit 3 if not found
 #am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# APP Variables overrides
-[ -n "$GEN_PASSWD_DEFAULT_OPTIONS_UPPER" ] && GEN_PASSWD_CHARACTERS+="$GEN_PASSWD_DEFAULT_OPTIONS_UPPER "
-[ -n "$GEN_PASSWD_DEFAULT_OPTIONS_LOWER" ] && GEN_PASSWD_CHARACTERS+="$GEN_PASSWD_DEFAULT_OPTIONS_LOWER "
-[ -n "$GEN_PASSWD_DEFAULT_OPTIONS_SPECIAL" ] && GEN_PASSWD_CHARACTERS+="$GEN_PASSWD_DEFAULT_OPTIONS_SPECIAL "
-[ -n "$GEN_PASSWD_DEFAULT_OPTIONS_NUMBERS" ] && GEN_PASSWD_CHARACTERS+="$GEN_PASSWD_DEFAULT_OPTIONS_NUMBERS "
-GEN_PASSWD_CHARACTERS="$(echo "$GEN_PASSWD_CHARACTERS" | tr ' ' '\n' | sort -Ru | tr '\n' ' ' | grep '^')"
+# APP Variables overrides - Build character set
+GEN_PASSWD_CHARACTERS=""
+[ -n "$GEN_PASSWD_DEFAULT_OPTIONS_UPPER" ] && GEN_PASSWD_CHARACTERS+="$GEN_PASSWD_DEFAULT_OPTIONS_UPPER"
+[ -n "$GEN_PASSWD_DEFAULT_OPTIONS_LOWER" ] && GEN_PASSWD_CHARACTERS+="$GEN_PASSWD_DEFAULT_OPTIONS_LOWER"
+[ -n "$GEN_PASSWD_DEFAULT_OPTIONS_SPECIAL" ] && GEN_PASSWD_CHARACTERS+="$GEN_PASSWD_DEFAULT_OPTIONS_SPECIAL"
+[ -n "$GEN_PASSWD_DEFAULT_OPTIONS_NUMBERS" ] && GEN_PASSWD_CHARACTERS+="$GEN_PASSWD_DEFAULT_OPTIONS_NUMBERS"
+# Remove duplicates and ensure we have characters
+GEN_PASSWD_CHARACTERS="$(printf '%s' "$GEN_PASSWD_CHARACTERS" | fold -w1 | sort -u | tr -d '\n' | grep '^' || echo 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_@-')"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
 
@@ -579,7 +959,24 @@ GEN_PASSWD_CHARACTERS="$(echo "$GEN_PASSWD_CHARACTERS" | tr ' ' '\n' | sort -Ru 
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
-__execute_gen-passwd "$@"
+case "$1" in
+hash)
+  shift 1
+  if echo "$1" | grep -qE '^(bcrypt|argon2|argon2i|argon2d|pbkdf2|scrypt|sha256|sha512|sha1|md5|sha3-256|sha3-224|sha3-384|sha3-512|sha3|blake2b|blake2s|blake2|whirlpool|crypt|crypt-sha512|crypt-sha256|crypt-md5|crypt-apr1)$'; then
+    hash_type="$1"
+    shift 1
+  else
+    hash_type="bcrypt"
+  fi
+  password="$*"
+  __execute_hash "$hash_type" "$password"
+  exitCode=$?
+  ;;
+*)
+  __execute_gen-passwd "$@"
+  exitCode=$?
+  ;;
+esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set exit code
 exitCode="${exitCode:-0}"

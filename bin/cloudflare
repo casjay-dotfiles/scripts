@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202208042258-git
+##@Version           :  202509200900-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Thursday, Aug 04, 2022 22:58 EDT
 # @@File             :  cloudflare
 # @@Description      :  cloudflare api script
-# @@Changelog        :  New script
+# @@Changelog        :  Added auto-tunnel creation, token persistence, enhanced IP detection
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :  https://gist.github.com/benkulbertis/fff10759c2391b6618dd
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202208042258-git"
+VERSION="202509200900-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -70,14 +70,14 @@ __devnull() {
   tee &>/dev/null && exitCode=0 || exitCode=1
   return ${exitCode:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Send errors to /dev/null
 __devnull2() {
   [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
   eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
   return ${exitCode:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # See if the executable exists
 __cmd_exists() {
   local exitCode=0
@@ -198,20 +198,31 @@ __help() { #     --id[zone/record]
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "cloudflare:  cloudflare api script - $VERSION"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_line "Usage: cloudflare [options] [ZONE RECORD DNS_TYPE PROXY]"
-  __printf_line "list                            - List configured records"
-  __printf_line "update hostname                 - Update an existing record"
-  __printf_line "create hostname                 - Create a new record"
-  __printf_line "delete hostname                 - Delete a record"
-  __printf_line "verify [record]                 - Verify access/record"
-  __printf_line "--api                           - API Access"
+  __printf_line "Usage: cloudflare [command] [options] [hostname]"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Commands"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "create hostname                 - Create a new DNS record"
+  __printf_line "update hostname                 - Update an existing DNS record"
+  __printf_line "delete hostname                 - Delete a DNS record"
+  __printf_line "list                            - List configured DNS records"
+  __printf_line "verify [record]                 - Verify API access/record ID"
+  __printf_line "tunnel                          - Start Cloudflare tunnel (auto-creates if needed)"
+  __printf_line "zones                           - List available zones"
+  __printf_line "cron hostname                   - Setup cron job for updates"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Options"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "--key [key]                     - Set API key"
-  __printf_line "--ip 1.1.1.1                    - Set the ip"
-  __printf_line "--zone mydomain.com             - Set the zone"
-  __printf_line "--proxy [true,false]            - Set Proxy"
-  __printf_line "--record [CNAME,A,AAAA]         - Set the DNS record"
-  __printf_line "--delete-all                    - Delete all records"
-  __printf_line "--id [zone/record]=id           - Manually set the ID"
+  __printf_line "--zone mydomain.com             - Set the zone name"
+  __printf_line "--ip 1.1.1.1                   - Set the IP address"
+  __printf_line "--proxy [true,false]            - Enable/disable proxy"
+  __printf_line "--record [A,AAAA,CNAME]         - Set the DNS record type"
+  __printf_line "--api                           - Show full API response"
+  __printf_line "--delete-all                    - Delete all records in zone"
+  __printf_line "--bulk                          - Enable bulk operations"
+  __printf_line "--id [zone/record]=id           - Manually set zone/record ID"
+  __printf_line "--silent                        - Suppress output messages"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -221,6 +232,12 @@ __help() { #     --id[zone/record]
   __printf_line "--options                       - Shows all available options"
   __printf_line "--debug                         - Enables script debugging"
   __printf_line "--raw                           - Removes all formatting on output"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Notes"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "• Tunnel command automatically creates and saves tunnel tokens"
+  __printf_line "• Tokens saved to: ~/.config/myscripts/cloudflare/tunnel-hostname"
+  __printf_line "• Requires: CLOUDFLARE_API_KEY and CLOUDFLARE_EMAIL for tunnel creation"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -267,7 +284,7 @@ __sudoif() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run command as root
-requiresudo() {
+__requiresudo() {
   if [ "$CLOUDFLARE_REQUIRE_SUDO" = "yes" ] && [ -z "$CLOUDFLARE_REQUIRE_SUDO_RUN" ]; then
     export CLOUDFLARE_REQUIRE_SUDO="no"
     export CLOUDFLARE_REQUIRE_SUDO_RUN="true"
@@ -307,14 +324,11 @@ __trap_exit() {
 # User defined functions
 __jq() { \jq "$@" 2>/dev/null; }
 __rm_rf() { rm -Rf "$@" 2>/dev/null; }
+__curl_ip4() { curl -q -LSsf -4 "$1" 2>/dev/null || return 1; }
+__curl_ip6() { curl -q -LSsf -6 "$1" 2>/dev/null || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__get_ip4() {
-  curl -q -LSs -4 "https://ifconfig.co" || curl -q -s -4 "https://api.ipify.org" || curl -q -s -4 "https://ipv4.icanhazip.com/" || return 1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__get_ip6() {
-  curl -q -LSs -6 "https://ifconfig.co" || curl -q -s -6 "https://api.ipify.org" || curl -q -s -6 "https://ipv4.icanhazip.com/" || return 1
-}
+__get_ip4() { __curl_ip4 "https://ifcfg.us" || __curl_ip4 "https://ifconfig.co" || __curl_ip4 "https://api.ipify.org" || __curl_ip4 "https://ipv4.icanhazip.com" || return 1; }
+__get_ip6() { __curl_ip6 "https://ifcfg.us" || __curl_ip6 "https://ifconfig.co" || __curl_ip6 "https://api.ipify.org" || __curl_ip6 "https://ipv6.icanhazip.com" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __message() {
   local exitStatus=0
@@ -336,15 +350,176 @@ __tunnel() {
   local host="$(hostname -s)"
   local key="$CLOUDFLARE_TUNNEL_KEY"
   local image="cloudflare/cloudflared:latest"
-  local execute="tunnel --no-autoupdate run --token $key"
+  local tunnel_name="tunnel-$host"
+  local tunnel_id=""
+  local execute=""
+
   __cmd_exists docker || printf_exit "This requires docker"
-  [ -n "$key" ] || printf_exit "Please set CLOUDFLARE_TUNNEL_KEY variable"
-  docker run -d --name tunnel-$host --hostname $host $image $execute
-  return $?
+  __cmd_exists openssl || printf_exit "This requires openssl for tunnel creation"
+
+  # Check if we have a tunnel key (env var first, then saved file)
+  if [ -z "$key" ]; then
+    printf_blue "🔍 Checking for saved tunnel token..."
+    key="$(__load_tunnel_token "$host")"
+
+    if [ -n "$key" ]; then
+      printf_green "✅ Found saved tunnel token for: $tunnel_name"
+    else
+      printf_yellow "No tunnel key found. Creating new tunnel..."
+
+      # Verify API access first
+      printf_blue "Verifying API access..."
+      if ! __api_verify >/dev/null; then
+        printf_exit "API verification failed. Please check CLOUDFLARE_API_KEY and CLOUDFLARE_EMAIL"
+      fi
+
+      # Create tunnel
+      tunnel_id="$(__create_tunnel "$tunnel_name")"
+      if [ -z "$tunnel_id" ]; then
+        printf_exit "Failed to create tunnel"
+      fi
+
+      printf_green "✅ Tunnel created with ID: $tunnel_id"
+
+      # Get tunnel token
+      key="$(__get_tunnel_token "$tunnel_id")"
+      if [ -z "$key" ]; then
+        printf_exit "Failed to get tunnel token"
+      fi
+
+      printf_green "✅ Tunnel token retrieved"
+
+      # Save token automatically
+      __save_tunnel_token "$host" "$key"
+      printf_cyan "💡 Token automatically saved and will be reused for future runs"
+      printf_cyan "🗑️  Remove saved token: rm ~/.config/myscripts/cloudflare/tunnel-$host"
+    fi
+  else
+    printf_green "✅ Using tunnel token from environment variable"
+  fi
+
+  execute="tunnel --no-autoupdate run --token $key"
+  printf_blue "🚀 Starting tunnel: $tunnel_name"
+  docker run -d --name "$tunnel_name" --hostname "$host" --restart unless-stopped "$image" $execute
+
+  if [ $? -eq 0 ]; then
+    printf_green "✅ Tunnel started successfully!"
+    printf_cyan "📋 View logs: docker logs $tunnel_name"
+    printf_cyan "🛑 Stop tunnel: docker stop $tunnel_name"
+  else
+    printf_red "❌ Failed to start tunnel"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__save_tunnel_token() {
+  local tunnel_name="$1"
+  local token="$2"
+  local token_file="$CLOUDFLARE_CONFIG_DIR/tunnel-$tunnel_name"
+
+  [ -n "$tunnel_name" ] || {
+    printf_red "Tunnel name required"
+    return 1
+  }
+  [ -n "$token" ] || {
+    printf_red "Token required"
+    return 1
+  }
+
+  # Ensure config directory exists
+  [ -d "$CLOUDFLARE_CONFIG_DIR" ] || mkdir -p "$CLOUDFLARE_CONFIG_DIR"
+
+  # Save token to file with restricted permissions
+  echo "$token" >"$token_file" && chmod 600 "$token_file"
+
+  if [ $? -eq 0 ]; then
+    printf_green "💾 Token saved to: $token_file"
+    return 0
+  else
+    printf_red "Failed to save token"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__load_tunnel_token() {
+  local tunnel_name="$1"
+  local token_file="$CLOUDFLARE_CONFIG_DIR/tunnel-$tunnel_name"
+
+  [ -n "$tunnel_name" ] || {
+    printf_red "Tunnel name required"
+    return 1
+  }
+
+  if [ -f "$token_file" ] && [ -r "$token_file" ]; then
+    cat "$token_file" 2>/dev/null | grep '^' || return 1
+  else
+    return 1
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __api_verify() {
   curl -q -LSs -X GET -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" "$CLOUDFLARE_API_URL/user/tokens/verify" 2>/dev/null | __jq -r '.messages | .[] | .message' | grep 'valid and active' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_account_id() {
+  local results=""
+  results="$(curl -q -LSs -X GET -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" "$CLOUDFLARE_API_URL/accounts" 2>/dev/null || echo '')"
+  if echo "$results" | __jq '.success' 2>/dev/null | grep -q 'false'; then
+    return 1
+  else
+    echo "$results" | __jq -r '.result[0].id' 2>/dev/null | grep '^'
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__create_tunnel() {
+  local tunnel_name="${1:-tunnel-$(hostname -s)}"
+  local account_id="$(__get_account_id)"
+  local results=""
+
+  [ -n "$account_id" ] || {
+    printf_red "Failed to get account ID"
+    return 1
+  }
+
+  printf_blue "Creating tunnel: $tunnel_name"
+  results="$(curl -q -LSs -X POST -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" \
+    --data "{\"name\":\"$tunnel_name\",\"tunnel_secret\":\"$(openssl rand -base64 32)\"}" \
+    "$CLOUDFLARE_API_URL/accounts/$account_id/cfd_tunnel" 2>/dev/null || echo '')"
+
+  if echo "$results" | __jq '.success' 2>/dev/null | grep -q 'false'; then
+    printf_red "Failed to create tunnel"
+    echo "$results" | __jq -r '.errors[].message' 2>/dev/null
+    return 1
+  else
+    echo "$results" | __jq -r '.result.id' 2>/dev/null | grep '^'
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_tunnel_token() {
+  local tunnel_id="$1"
+  local account_id="$(__get_account_id)"
+  local results=""
+
+  [ -n "$account_id" ] || {
+    printf_red "Failed to get account ID"
+    return 1
+  }
+  [ -n "$tunnel_id" ] || {
+    printf_red "Tunnel ID required"
+    return 1
+  }
+
+  printf_blue "Getting tunnel token for ID: $tunnel_id"
+  results="$(curl -q -LSs -X GET -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" \
+    "$CLOUDFLARE_API_URL/accounts/$account_id/cfd_tunnel/$tunnel_id/token" 2>/dev/null || echo '')"
+
+  if echo "$results" | __jq '.success' 2>/dev/null | grep -q 'false'; then
+    printf_red "Failed to get tunnel token"
+    echo "$results" | __jq -r '.errors[].message' 2>/dev/null
+    return 1
+  else
+    echo "$results" | __jq -r '.result' 2>/dev/null | grep '^'
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __zone_identifier() {
@@ -352,7 +527,7 @@ __zone_identifier() {
   CLOUDFLARE_ZONE_NAME="${1:-$CLOUDFLARE_ZONE_NAME}"
   [ -z "$CLOUDFLARE_ZONE_ID" ] || return 0
   results="$(curl -q -LSs -X GET -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" "$CLOUDFLARE_API_URL/zones?per_page=1000&name=$CLOUDFLARE_ZONE_NAME" 2>/dev/null || echo '')"
-  if [ -z "$results" ] && echo "$results" | __jq '.success' 2>/dev/null | grep -q 'false'; then
+  if [ -z "$results" ] || echo "$results" | __jq '.success' 2>/dev/null | grep -q 'false'; then
     exitCode="1"
   else
     echo "$results" | grep -Po '(?<="id":")[^"]*' | head -n1
@@ -427,7 +602,7 @@ __create_record() {
   [ "$CLOUDFLARE_PROXY_ENABLED" = "no" ] && CLOUDFLARE_PROXY_ENABLED=false
   printf_blue "Attempting to create $CLOUDFLARE_HOSTNAME for zone: ${CLOUDFLARE_ZONE_NAME:-$CLOUDFLARE_ZONE_ID}"
   if [ "$CLOUDFLARE_HOSTNAME" = '@' ]; then
-    __curl_record_create "www" "CNAME" || __curl_record_update "www" "CNAME"
+    __curl_record_create "www" "CNAME" "$CLOUDFLARE_ZONE_NAME" || __curl_record_update "www" "CNAME" "$CLOUDFLARE_ZONE_NAME"
     __curl_record_create "@" "A" "$CLOUDFLARE_ADDR_IPv4" || __curl_record_update "@" "A" "$CLOUDFLARE_ADDR_IPv4"
     if [ -n "$CLOUDFLARE_ADDR_IPv6" ]; then
       __curl_record_create "@" "AAAA" "$CLOUDFLARE_ADDR_IPv6" || __curl_record_update "@" "AAAA" "$CLOUDFLARE_ADDR_IPv6"
@@ -525,7 +700,7 @@ __list_zones() {
     printf_cyan "You have the following zones"
     printf_green "$resp"
   else
-    printf_red "Now zones found"
+    printf_red "No zones found"
     return 1
   fi
 }
@@ -547,6 +722,7 @@ __curl_record_update() {
 __get_cert() {
   docker ps -a 2>&1 | grep -q '^' || return 1
   docker run --rm --name certbot-dns-cloudflare \
+    -e CERTBOT_KEY_TYPE="ecdsa" \
     -e CERTBOT_DOMAINS="$CLOUDFLARE_ZONE_NAME" \
     -e CLOUDFLARE_API_TOKEN="$CLOUDFLARE_API_KEY" \
     -e CERTBOT_EMAIL="${CLOUDFLARE_EMAIL:-ssl+admin@$CLOUDFLARE_ZONE_NAME}" \
@@ -586,10 +762,10 @@ CLOUDFLARE_NOTIFY_CLIENT_URGENCY="${CLOUDFLARE_NOTIFY_CLIENT_URGENCY:-normal}"
 CLOUDFLARE_PROXY_ENABLED="${CLOUDFLARE_PROXY_ENABLED:-}"
 CLOUDFLARE_ADDR_IPv4="${CLOUDFLARE_ADDR_IPv4:-}"
 CLOUDFLARE_DNS_TYPE="${CLOUDFLARE_DNS_TYPE:-A}"
-CLOUDFLARE_TUNNEL_KEY="${CLOUDFLARE_TUNNEL_ID:-}"
+CLOUDFLARE_TUNNEL_KEY="${CLOUDFLARE_TUNNEL_KEY:-}"
 CLOUDFLARE_HOSTNAME="${CLOUDFLARE_HOSTNAME:-$(hostname -s)}"
-CLOUDFLARE_ZONE_ID="${CLOUDFLARE_ZONE_ID:-$CLOUDFLARE_ZONE_ID}"
-CLOUDFLARE_ZONE_NAME="${CLOUDFLARE_ZONE_NAME:-$CLOUDFLARE_ZONE_NAME}"
+CLOUDFLARE_ZONE_ID="${CLOUDFLARE_ZONE_ID:-}"
+CLOUDFLARE_ZONE_NAME="${CLOUDFLARE_ZONE_NAME:-}"
 CLOUDFLARE_API_KEY="${CLOUDFLARE_ZONE_KEY:-$CLOUDFLARE_API_KEY}"
 CLOUDFLARE_API_URL="${CLOUDFLARE_API_URL:-https://api.cloudflare.com/client/v4}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -638,7 +814,7 @@ SHORTOPTS+=""
 LONGOPTS="completions:,config,debug,help,options,raw,version,silent,"
 LONGOPTS+=",ip:,zone:,proxy:,record:,api,key:,delete-all,id:,bulk"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-ARRAY="create update delete list verify tunnel zones"
+ARRAY="create update delete list verify tunnel zones cron"
 ARRAY+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""

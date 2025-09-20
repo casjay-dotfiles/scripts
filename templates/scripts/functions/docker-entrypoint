@@ -136,24 +136,25 @@ __trim() {
   printf '%s' "$var" | sed 's|;||g' | grep -v '^$'
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__banner() { 
+__banner() {
   local message="$*"
   local total_width=80
-  local content_width=$((total_width - 14))  # Account for "# - - - " and " - - - #"
+  local content_width=$((total_width - 14)) # Account for "# - - - " and " - - - #"
   printf '# - - - %-*s - - - #\n' "$content_width" "$message"
 }
-__service_banner() { 
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__service_banner() {
   local icon="${1:-🔧}"
   local message="${2:-Processing}"
   local service="${3:-service}"
   local full_message="$message $service"
   local total_width=80
-  local content_width=$((total_width - 14))  # Account for "# - - - " and " - - - #"
-  local icon_width=2  # Most emojis are 2 chars wide
-  local text_width=$((content_width - icon_width * 2 - 2))  # Account for both icons and spaces
-  
+  local content_width=$((total_width - 14))                # Account for "# - - - " and " - - - #"
+  local icon_width=2                                       # Most emojis are 2 chars wide
+  local text_width=$((content_width - icon_width * 2 - 2)) # Account for both icons and spaces
   printf '# - - - %s %-*s %s - - - #\n' "$icon" "$text_width" "$full_message" "$icon"
 }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __find_php_bin() { find -L '/usr'/*bin -maxdepth 4 -name 'php-fpm*' 2>/dev/null | head -n1 | grep '.' || echo ''; }
 __find_php_ini() { find -L '/etc' -maxdepth 4 -name 'php.ini' 2>/dev/null | head -n1 | sed 's|/php.ini||g' | grep '.' || echo ''; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

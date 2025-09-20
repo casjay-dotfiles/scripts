@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202509191730-git
+##@Version           :  202509191800-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Friday, Aug 19, 2022 16:56 EDT
 # @@File             :  pkmgr
 # @@Description      :  Manage system packages
-# @@Changelog        :  Added interactive selection with fzf/dialog, progress indicators, BSD support
+# @@Changelog        :  Enhanced AUR support with multiple helpers, interactive mode, progress indicators, BSD support
 # @@TODO             :  Better progress indicators and status displays
 # @@Other            :
 # @@Resource         :
@@ -124,7 +124,7 @@ if [ "$SHOW_RAW" = "true" ]; then
   ICON_WARN="[ warn ]"
   ICON_ERROR="[ error ]"
   ICON_QUESTION="[ ? ]"
-  printf_column() { tee | grep '^'; }
+  printf_column() { tee | grep --line-buffered '^'; }
   printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
 else
   printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
@@ -437,7 +437,7 @@ __searchcmd() {
     package_name+=("${search_name}")
   done
   if [ -n "${package_name[*]}" ]; then
-    printf '%s\n' "${package_name[@]}" |& grep -v '^$' | cut -c 1-$PKMGR_OUTPUT_TRUNCATE | grep '^'
+    printf '%s\n' "${package_name[@]}" |& grep --line-buffered -v '^$' | cut -c 1-$PKMGR_OUTPUT_TRUNCATE | grep --line-buffered '^'
     exitCode=0
   else
     printf_red "$pkg was not found" 1>&2
@@ -1634,33 +1634,100 @@ __initialize_variables() {
     ;;                                                                                       #
   esac                                                                                       #
   #
-  if [ -f "$(builtin type -P yay 2>/dev/null)" ] && [ "$ENABLE_AUR" = "true" ]; then   #
-    dotfilesrepo_url="$PKMGR_GIT_REPO/$PKMGR_GIT_DOTFILES"                             #
-    dotfilesrepo_raw="$dotfilesrepo_url/raw/$PKMGR_GIT_BRANCH/pacman"                  #
-    pkgmgrbin="sudo --preserve-env=PATH -u $RUN_USER /usr/bin/yay"                     #
-    pkgmgrbinins="$pkgmgrbin -S --cleanafter --overwrite='*'"                          #
-    pkgmgrbininssil="$pkgmgrbin -Sy --needed --noconfirm --cleanafter --overwrite='*'" #
-    pkgmgrbinremsil="$pkgmgrbin -Ry --noconfirm --needed --noconfirm"                  #
-    pkgmgrbinupdsil="$pkgmgrbin -Syyu --noconfirm"                                     #
-    pkgmgrbinupdcron="$pkgmgrbin -Syyu --noconfirm"                                    #
-    pkgmgrbindel="$pkgmgrbin -R"                                                       #
-    pkgmgrbinsea="$pkgmgrbin -Ss"                                                      #
-    pkgmgrbinupd="$pkgmgrbin -Syyu --needed --overwrite='*'"                           #
-    pkgmgrbincle="yes | $pkgmgrbin -Scc --noconfirm"                                   #
-    pkgmgrbincac="$pkgmgrbin -Syy"                                                     #
-    pkmgrcheckbin="$(builtin type -P yay 2>/dev/null)"                                 #
-    __pkmgrcheckupdates() { [ -n "$pkmgrcheckbin" ] && yay -Qum 2>/dev/null | wc -l; } #
-    pkgmgrexport() { pacman -Qqet | grep -v "$(pacman -Qqm)" | sort -u; }              #
-    __pkgmr_reinstall() { echo "Not yet implemented" && return 1; }                      #
-  fi                                                                                   #
-  if __cmd_exists yay pacman; then                                                     #
-    __pkmgrcheckupdates() {                                                            #
-      pacman_count="$(pacman -Qu 2>/dev/null | wc -l | grep '^')"                      #
-      yay_count="$(yay -Qum 2>/dev/null | wc -l)"                                      #
-      updates=$((pacman_count + yay_count)) || updates="0"                             #
-      printf '%s\n' "$updates"                                                         #
-    }
-  fi
+  # AUR Helper Support for Arch-based systems
+  if [ "$ENABLE_AUR" = "true" ] && __cmd_exists pacman; then                                             #
+    # Detect available AUR helper (prefer paru > yay > pikaur > trizen)
+    local aur_helper=""
+    local aur_helper_path=""
+    
+    if [ -f "$(builtin type -P paru 2>/dev/null)" ]; then
+      aur_helper="paru"
+      aur_helper_path="$(builtin type -P paru)"
+    elif [ -f "$(builtin type -P yay 2>/dev/null)" ]; then
+      aur_helper="yay"
+      aur_helper_path="$(builtin type -P yay)"
+    elif [ -f "$(builtin type -P pikaur 2>/dev/null)" ]; then
+      aur_helper="pikaur"
+      aur_helper_path="$(builtin type -P pikaur)"
+    elif [ -f "$(builtin type -P trizen 2>/dev/null)" ]; then
+      aur_helper="trizen"
+      aur_helper_path="$(builtin type -P trizen)"
+    elif [ -f "$(builtin type -P aurman 2>/dev/null)" ]; then
+      aur_helper="aurman"
+      aur_helper_path="$(builtin type -P aurman)"
+    fi
+    
+    if [ -n "$aur_helper" ]; then                                                                        #
+      printf_cyan "AUR enabled with $aur_helper"                                                         #
+      dotfilesrepo_url="$PKMGR_GIT_REPO/$PKMGR_GIT_DOTFILES"                                            #
+      dotfilesrepo_raw="$dotfilesrepo_url/raw/$PKMGR_GIT_BRANCH/pacman"                                 #
+      
+      # Configure commands based on AUR helper
+      case "$aur_helper" in
+        paru)
+          pkgmgrbin="sudo --preserve-env=PATH -u $RUN_USER $aur_helper_path"                             #
+          pkgmgrbinins="$pkgmgrbin -S --cleanafter --overwrite='*'"                                      #
+          pkgmgrbininssil="$pkgmgrbin -S --needed --noconfirm --cleanafter --overwrite='*'"              #
+          pkgmgrbinremsil="$pkgmgrbin -R --noconfirm"                                                    #
+          pkgmgrbinupdsil="$pkgmgrbin -Syyu --noconfirm"                                                 #
+          pkgmgrbinupdcron="$pkgmgrbin -Syyu --noconfirm"                                                #
+          pkgmgrbindel="$pkgmgrbin -R"                                                                   #
+          pkgmgrbinsea="$pkgmgrbin -Ss"                                                                  #
+          pkgmgrbinupd="$pkgmgrbin -Syyu --needed --overwrite='*'"                                       #
+          pkgmgrbincle="$pkgmgrbin -Scc --noconfirm"                                                     #
+          pkgmgrbincac="$pkgmgrbin -Syy"                                                                 #
+          __pkmgrcheckupdates() { [ -n "$pkmgrcheckbin" ] && $aur_helper -Qum 2>/dev/null | wc -l; }    #
+          ;;
+        yay)
+          pkgmgrbin="sudo --preserve-env=PATH -u $RUN_USER $aur_helper_path"                             #
+          pkgmgrbinins="$pkgmgrbin -S --cleanafter --overwrite='*'"                                      #
+          pkgmgrbininssil="$pkgmgrbin -Sy --needed --noconfirm --cleanafter --overwrite='*'"             #
+          pkgmgrbinremsil="$pkgmgrbin -Ry --noconfirm"                                                   #
+          pkgmgrbinupdsil="$pkgmgrbin -Syyu --noconfirm"                                                 #
+          pkgmgrbinupdcron="$pkgmgrbin -Syyu --noconfirm"                                                #
+          pkgmgrbindel="$pkgmgrbin -R"                                                                   #
+          pkgmgrbinsea="$pkgmgrbin -Ss"                                                                  #
+          pkgmgrbinupd="$pkgmgrbin -Syyu --needed --overwrite='*'"                                       #
+          pkgmgrbincle="yes | $pkgmgrbin -Scc --noconfirm"                                               #
+          pkgmgrbincac="$pkgmgrbin -Syy"                                                                 #
+          __pkmgrcheckupdates() { [ -n "$pkmgrcheckbin" ] && $aur_helper -Qum 2>/dev/null | wc -l; }    #
+          ;;
+        pikaur|trizen|aurman)
+          pkgmgrbin="sudo --preserve-env=PATH -u $RUN_USER $aur_helper_path"                             #
+          pkgmgrbinins="$pkgmgrbin -S"                                                                   #
+          pkgmgrbininssil="$pkgmgrbin -S --needed --noconfirm"                                           #
+          pkgmgrbinremsil="$pkgmgrbin -R --noconfirm"                                                    #
+          pkgmgrbinupdsil="$pkgmgrbin -Syyu --noconfirm"                                                 #
+          pkgmgrbinupdcron="$pkgmgrbin -Syyu --noconfirm"                                                #
+          pkgmgrbindel="$pkgmgrbin -R"                                                                   #
+          pkgmgrbinsea="$pkgmgrbin -Ss"                                                                  #
+          pkgmgrbinupd="$pkgmgrbin -Syyu --needed"                                                       #
+          pkgmgrbincle="$pkgmgrbin -Scc --noconfirm"                                                     #
+          pkgmgrbincac="$pkgmgrbin -Syy"                                                                 #
+          __pkmgrcheckupdates() { [ -n "$pkmgrcheckbin" ] && $aur_helper -Qua 2>/dev/null | wc -l; }    #
+          ;;
+      esac
+      
+      pkmgrcheckbin="$aur_helper_path"                                                                   #
+      pkgmgrexport() { pacman -Qqet | grep --line-buffered -v "$(pacman -Qqm)" | sort -u; }             #
+      __pkgmr_reinstall() { for pkg in $(pacman -Q | cut -d' ' -f1); do __execute "$aur_helper -S --noconfirm $pkg" "Reinstalling: $pkg"; done && return 0 || return $?; } #
+      
+      # Combined update check for pacman + AUR
+      __pkmgrcheckupdates() {                                                                            #
+        local pacman_count="$(pacman -Qu 2>/dev/null | wc -l | grep '^')"                                #
+        local aur_count="0"                                                                              #
+        case "$aur_helper" in                                                                            #
+          paru|yay) aur_count="$($aur_helper -Qum 2>/dev/null | wc -l)" ;;                               #
+          *) aur_count="$($aur_helper -Qua 2>/dev/null | wc -l)" ;;                                      #
+        esac                                                                                              #
+        local updates=$((pacman_count + aur_count)) || updates="0"                                       #
+        printf '%s\n' "$updates"                                                                         #
+      }                                                                                                   #
+    else                                                                                                  #
+      printf_yellow "Warning: --enable-aur was set but no AUR helper found"                              #
+      printf_yellow "Install one of: paru, yay, pikaur, trizen, or aurman"                               #
+    fi                                                                                                    #
+  fi                                                                                                      #
   pkginit="$pkgmgrbincle ; $pkgmgrbincac ; $pkgmgrbinupdsil"
   [ -d "$PKMGR_INSTALLED_LIST_DIR" ] || { sudo mkdir -p "$PKMGR_INSTALLED_LIST_DIR" && sudo chmod 777 "$PKMGR_INSTALLED_LIST_DIR"; }
 
@@ -2652,7 +2719,7 @@ while :; do
     ICON_WARN="[ warn ]"
     ICON_ERROR="[ error ]"
     ICON_QUESTION="[ ? ]"
-    printf_column() { tee | grep '^'; }
+    printf_column() { tee | grep --line-buffered '^'; }
     printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
     ;;
   --debug)

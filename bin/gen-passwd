@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202509201000-git
+##@Version           :  202509201030-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Monday, Aug 08, 2022 22:32 EDT
 # @@File             :  gen-passwd
 # @@Description      :  generate random password
-# @@Changelog        :  Added comprehensive password hashing support (bcrypt, argon2, pbkdf2, scrypt, sha, md5)
+# @@Changelog        :  Enhanced OpenSSL support, mkpasswd integration, Docker format, distro-agnostic compatibility
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202509201000-git"
+VERSION="202509201030-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -208,6 +208,7 @@ __help() {
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "--docker                        - Format output for Docker compose"
   __printf_line "--prefix                        - Include algorithm prefix in hash"
+  __printf_line "--silent                        - Suppress messages and clipboard"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Password Hashing"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -228,6 +229,14 @@ __help() {
   __printf_line "hash whirlpool [password]       - Generate Whirlpool hash"
   __printf_line "hash md5 [password]             - Generate MD5 hash"
   printf_cyan "• If no password provided, generates random password and hashes it"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Examples"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  printf_cyan "gen-passwd 16                   # Generate 16-char password"
+  printf_cyan "gen-passwd hash bcrypt          # Generate password + bcrypt hash"
+  printf_cyan "gen-passwd hash sha256 mypass   # Hash specific password"
+  printf_cyan "gen-passwd --docker hash crypt-sha512  # Docker format"
+  printf_cyan "gen-passwd --prefix hash argon2 # Include algorithm prefix"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -383,6 +392,27 @@ __openssl_supports() {
   passwd)
     openssl passwd -help 2>&1 | grep -q -- "-$algorithm"
     ;;
+  kdf)
+    openssl list -kdf-algorithms 2>/dev/null | grep -qi "$algorithm"
+    ;;
+  cipher)
+    openssl list -cipher-algorithms 2>/dev/null | grep -qi "$algorithm"
+    ;;
+  mac)
+    openssl list -mac-algorithms 2>/dev/null | grep -qi "$algorithm"
+    ;;
+  provider)
+    openssl list -providers 2>/dev/null | grep -qi "$algorithm"
+    ;;
+  version)
+    local min_version="$algorithm"
+    local current_version="$(openssl version | awk '{print $2}' | cut -d. -f1-2)"
+    if [ "$(printf '%s\n%s' "$min_version" "$current_version" | sort -V | head -n1)" = "$min_version" ]; then
+      return 0
+    else
+      return 1
+    fi
+    ;;
   *)
     return 1
     ;;
@@ -394,12 +424,17 @@ __hash_bcrypt() {
   local password="$1"
   local rounds="${2:-12}"
 
-  if __cmd_exists htpasswd; then
+  if __cmd_exists mkpasswd; then
+    # mkpasswd from whois package (most common)
+    mkpasswd -m bcrypt -R "$rounds" "$password" 2>/dev/null
+  elif __cmd_exists htpasswd; then
+    # Apache htpasswd utility
     htpasswd -nbB "" "$password" 2>/dev/null | cut -d: -f2
   elif __cmd_exists python3; then
+    # Python bcrypt module
     python3 -c "import bcrypt; print(bcrypt.hashpw('$password'.encode('utf-8'), bcrypt.gensalt(rounds=$rounds)).decode('utf-8'))" 2>/dev/null
   else
-    printf_red "❌ bcrypt requires htpasswd or python3 with bcrypt module"
+    printf_red "❌ bcrypt requires mkpasswd (whois package), htpasswd, or python3 with bcrypt module"
     return 1
   fi
 }
@@ -409,7 +444,7 @@ __hash_argon2() {
   local type="${2:-argon2id}"
   local salt="$(openssl rand -hex 16 2>/dev/null)"
 
-  if __cmd_exists openssl && openssl list -kdf-algorithms 2>/dev/null | grep -q "ARGON2"; then
+  if __openssl_supports "ARGON2" "kdf"; then
     # Use OpenSSL 3.x native Argon2 support
     local kdf_type=""
     case "$type" in
@@ -418,7 +453,8 @@ __hash_argon2() {
     *) kdf_type="ARGON2ID" ;;
     esac
 
-    printf '%s' "$password" | openssl kdf -keylen 32 -kdfopt pass:stdin -kdfopt salt:"$salt" -kdfopt iter:3 -kdfopt lanes:1 -kdfopt memcost:4096 "$kdf_type" 2>/dev/null | xxd -p -c 64 | awk -v salt="$salt" -v type="$type" '{print type"$"salt"$"$1}'
+    local hash_result="$(printf '%s' "$password" | openssl kdf -keylen 32 -kdfopt pass:stdin -kdfopt salt:"$salt" -kdfopt iter:3 -kdfopt lanes:1 -kdfopt memcost:4096 "$kdf_type" 2>/dev/null | head -c 32 | od -t x1 -An | tr -d ' \n\t')"
+    printf '%s\n' "$type\$$salt\$$hash_result"
   elif __cmd_exists argon2; then
     echo -n "$password" | argon2 "$(openssl rand -base64 16)" -e -t 3 -m 12 -p 1 -"$type" 2>/dev/null
   elif __cmd_exists python3; then
@@ -434,9 +470,10 @@ __hash_pbkdf2() {
   local iterations="${2:-10000}"
   local salt="$(openssl rand -hex 16 2>/dev/null)"
 
-  if __cmd_exists openssl && openssl list -kdf-algorithms 2>/dev/null | grep -q "PBKDF2"; then
+  if __openssl_supports "PBKDF2" "kdf"; then
     # Use OpenSSL native PBKDF2 support
-    printf '%s' "$password" | openssl kdf -keylen 32 -kdfopt digest:SHA256 -kdfopt pass:stdin -kdfopt salt:"$salt" -kdfopt iter:"$iterations" PBKDF2 2>/dev/null | xxd -p -c 64 | awk -v salt="$salt" -v iter="$iterations" '{print "pbkdf2_sha256$"iter"$"salt"$"$1}'
+    local hash_result="$(printf '%s' "$password" | openssl kdf -keylen 32 -kdfopt digest:SHA256 -kdfopt pass:stdin -kdfopt salt:"$salt" -kdfopt iter:"$iterations" PBKDF2 2>/dev/null | head -c 32 | od -t x1 -An | tr -d ' \n\t')"
+    printf '%s\n' "pbkdf2_sha256\$$iterations\$$salt\$$hash_result"
   elif __cmd_exists python3; then
     python3 -c "import hashlib; import base64; import binascii; salt=binascii.unhexlify('$salt'); result=hashlib.pbkdf2_hmac('sha256', '$password'.encode(), salt, $iterations); print('pbkdf2_sha256\$${iterations}\$' + '$salt' + '\$' + binascii.hexlify(result).decode())" 2>/dev/null
   else
@@ -449,9 +486,10 @@ __hash_scrypt() {
   local password="$1"
   local salt="$(openssl rand -hex 16 2>/dev/null)"
 
-  if __cmd_exists openssl && openssl list -kdf-algorithms 2>/dev/null | grep -q "SCRYPT"; then
+  if __openssl_supports "SCRYPT" "kdf"; then
     # Use OpenSSL native scrypt support
-    printf '%s' "$password" | openssl kdf -keylen 32 -kdfopt pass:stdin -kdfopt salt:"$salt" -kdfopt n:16384 -kdfopt r:8 -kdfopt p:1 SCRYPT 2>/dev/null | xxd -p -c 64 | awk -v salt="$salt" '{print "scrypt$"salt"$"$1}'
+    local hash_result="$(printf '%s' "$password" | openssl kdf -keylen 32 -kdfopt pass:stdin -kdfopt salt:"$salt" -kdfopt n:16384 -kdfopt r:8 -kdfopt p:1 SCRYPT 2>/dev/null | head -c 32 | od -t x1 -An | tr -d ' \n\t')"
+    printf '%s\n' "scrypt\$$salt\$$hash_result"
   elif __cmd_exists python3; then
     python3 -c "import hashlib; import base64; import binascii; salt=binascii.unhexlify('$salt'); result=hashlib.scrypt('$password'.encode(), salt=salt, n=16384, r=8, p=1); print('scrypt\$' + '$salt' + '\$' + binascii.hexlify(result).decode())" 2>/dev/null
   else
@@ -517,42 +555,53 @@ __hash_crypt() {
 
   case "$algorithm" in
   6 | sha512)
-    if __openssl_supports "6" "passwd"; then
+    if __cmd_exists mkpasswd; then
+      mkpasswd -m sha-512 "$password" 2>/dev/null
+    elif __openssl_supports "6" "passwd"; then
       openssl passwd -6 "$password" 2>/dev/null
     else
-      printf_red "❌ SHA512 crypt not supported by this OpenSSL version"
+      printf_red "❌ SHA512 crypt requires mkpasswd (whois package) or OpenSSL"
       return 1
     fi
     ;;
   5 | sha256)
-    if __openssl_supports "5" "passwd"; then
+    if __cmd_exists mkpasswd; then
+      mkpasswd -m sha-256 "$password" 2>/dev/null
+    elif __openssl_supports "5" "passwd"; then
       openssl passwd -5 "$password" 2>/dev/null
     else
-      printf_red "❌ SHA256 crypt not supported by this OpenSSL version"
+      printf_red "❌ SHA256 crypt requires mkpasswd (whois package) or OpenSSL"
       return 1
     fi
     ;;
   1 | md5)
-    if __openssl_supports "1" "passwd"; then
+    if __cmd_exists mkpasswd; then
+      mkpasswd -m md5 "$password" 2>/dev/null
+    elif __openssl_supports "1" "passwd"; then
       openssl passwd -1 "$password" 2>/dev/null
     else
-      printf_red "❌ MD5 crypt not supported by this OpenSSL version"
+      printf_red "❌ MD5 crypt requires mkpasswd (whois package) or OpenSSL"
       return 1
     fi
     ;;
   apr1)
     if __openssl_supports "apr1" "passwd"; then
       openssl passwd -apr1 "$password" 2>/dev/null
+    elif __cmd_exists mkpasswd; then
+      # mkpasswd doesn't support apr1, fallback to md5
+      mkpasswd -m md5 "$password" 2>/dev/null
     else
-      printf_red "❌ Apache MD5 crypt not supported by this OpenSSL version"
+      printf_red "❌ Apache MD5 crypt requires OpenSSL or mkpasswd (whois package)"
       return 1
     fi
     ;;
   *)
-    if __openssl_supports "6" "passwd"; then
+    if __cmd_exists mkpasswd; then
+      mkpasswd -m sha-512 "$password" 2>/dev/null
+    elif __openssl_supports "6" "passwd"; then
       openssl passwd -6 "$password" 2>/dev/null
     else
-      printf_red "❌ Default SHA512 crypt not supported by this OpenSSL version"
+      printf_red "❌ Default SHA512 crypt requires mkpasswd (whois package) or OpenSSL"
       return 1
     fi
     ;;
@@ -661,9 +710,9 @@ __execute_hash() {
     ;;
   esac
 
-  printf_blue "🔐 Generated password: $raw_password"
   # Output results
   if [ -n "$hashed_password" ]; then
+    printf_blue "🔐 Generated password: $raw_password"
     # Remove prefix by default, add only if --prefix is used
     if [ "$GEN_PASSWD_WITH_PREFIX" != "true" ]; then
       hashed_password="$(echo "$hashed_password" | cut -d'$' -f2- 2>/dev/null || echo "$hashed_password")"
@@ -671,8 +720,9 @@ __execute_hash() {
 
     # Format for Docker if requested
     if [ "$GEN_PASSWD_DOCKER_FORMAT" = "true" ]; then
+      local docker_hash="$(echo "$hashed_password" | sed 's/\$/\$\$/g')"
       printf_green "# Add to docker-compose.yml environment section:"
-      printf_cyan "PASSWORD_HASH=$hashed_password"
+      printf_cyan "PASSWORD_HASH=$docker_hash"
       printf_green "# Or add to .env file:"
       printf_cyan "PASSWORD_HASH=\"$hashed_password\""
     else

@@ -334,6 +334,8 @@ __message() {
   local exitStatus=0
   if grep 'success' "$CLOUDFLARE_TEMP_FILE" | grep -q 'true'; then
     printf_green "${1:-Successfully created $CLOUDFLARE_HOSTNAME}"
+  elif grep -qsh 'An identical record already exists' "$CLOUDFLARE_TEMP_FILE"; then
+    return 1
   else
     printf '# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -\n# %s\n' "$(date)" >>"$CLOUDFLARE_LOG_DIR/errors.log"
     cat "$CLOUDFLARE_TEMP_FILE" >>"$CLOUDFLARE_LOG_DIR/errors.log"
@@ -598,6 +600,7 @@ __create_record() {
   CLOUDFLARE_HOSTNAME="${1:-$CLOUDFLARE_HOSTNAME}"
   CLOUDFLARE_DNS_TYPE="${2:-$CLOUDFLARE_DNS_TYPE}"
   CLOUDFLARE_PROXY_ENABLED="${3:-$CLOUDFLARE_PROXY_ENABLED}"
+  [ -n "$CLOUDFLARE_HOSTNAME" ] || CLOUDFLARE_HOSTNAME="$(hostname -s)"
   [ "$CLOUDFLARE_PROXY_ENABLED" = "yes" ] && CLOUDFLARE_PROXY_ENABLED=true
   [ "$CLOUDFLARE_PROXY_ENABLED" = "no" ] && CLOUDFLARE_PROXY_ENABLED=false
   printf_blue "Attempting to create $CLOUDFLARE_HOSTNAME for zone: ${CLOUDFLARE_ZONE_NAME:-$CLOUDFLARE_ZONE_ID}"
@@ -613,13 +616,13 @@ __create_record() {
     if [ -n "$CLOUDFLARE_ADDR_IPv6" ]; then
       __curl_record_create "*" "AAAA" "$CLOUDFLARE_ADDR_IPv6" || __curl_record_update "*" "AAAA" "$CLOUDFLARE_ADDR_IPv6"
     fi
-    __message "Successfully created the record *" || exitStatus=1
+    __message "Successfully created the record *" || exitStatus=2
   elif [ -n "$CLOUDFLARE_HOSTNAME" ]; then
     __curl_record_create "$CLOUDFLARE_HOSTNAME" "A" "$CLOUDFLARE_ADDR_IPv4" || __curl_record_update "$CLOUDFLARE_HOSTNAME" "A" "$CLOUDFLARE_ADDR_IPv4"
     if [ -n "$CLOUDFLARE_ADDR_IPv6" ]; then
       __curl_record_create "$CLOUDFLARE_HOSTNAME" "AAAA" "$CLOUDFLARE_ADDR_IPv6" || __curl_record_update "$CLOUDFLARE_HOSTNAME" "AAAA" "$CLOUDFLARE_ADDR_IPv6"
     fi
-    __message "Successfully created ${CLOUDFLARE_HOSTNAME}" || exitStatus=1
+    __message "Successfully created ${CLOUDFLARE_HOSTNAME}" || exitStatus=3
   else
     __usage
     exitStatus=9
@@ -708,14 +711,15 @@ __list_zones() {
 __curl_record_create() {
   local exitCode=0
   curl -q -LSs -X POST -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" --data "{\"name\":\"$1\",\"type\":\"$2\",\"content\":\"$3\",\"ttl\":3600,\"priority\":0,\"proxied\":${CLOUDFLARE_PROXY_ENABLED}}" "$CLOUDFLARE_API_URL/zones/$CLOUDFLARE_ZONE_ID/dns_records" 2>/dev/null >"$CLOUDFLARE_TEMP_FILE" || exitCode=1
-  grep -qs "ERROR" "$CLOUDFLARE_TEMP_FILE" && exitCode=1
+  grep -qshE "ERROR|An identical record" "$CLOUDFLARE_TEMP_FILE" && exitCode=1
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __curl_record_update() {
   local exitCode=0
   curl -q -LSs -X PATCH -H "X-Auth-Email: $CLOUDFLARE_EMAIL" -H "X-Auth-Key: $CLOUDFLARE_API_KEY" -H "Content-Type: application/json" --data "{\"name\":\"$1\",\"ttl\":3600,\"type\":\"$2\",\"proxied\":${CLOUDFLARE_PROXY_ENABLED},\"content\":\"$3\"}" "$CLOUDFLARE_API_URL/zones/$CLOUDFLARE_ZONE_ID/dns_records/$CLOUDFLARE_RECORD_ID" 2>/dev/null >"$CLOUDFLARE_TEMP_FILE" || exitCode=1
-  grep -qs "ERROR" "$CLOUDFLARE_TEMP_FILE" && exitCode=1
+  grep -qshE "ERROR|An identical record" "$CLOUDFLARE_TEMP_FILE" && exitCode=1
+  #[ $exitCode -eq 0 ] && echo '{"success":true}' >"$CLOUDFLARE_TEMP_FILE"
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

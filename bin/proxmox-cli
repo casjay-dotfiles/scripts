@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202208150046-git
+##@Version           :  202409241300-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Monday, Aug 15, 2022 00:46 EDT
 # @@File             :  proxmox-cli
 # @@Description      :
-# @@Changelog        :  New script
+# @@Changelog        :  Fixed status detection logic to properly parse JSON response and differentiate between VM off vs IP not available
 # @@TODO             :  Turn this into a full proxmox client
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202208150046-git"
+VERSION="202409241300-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -1420,13 +1420,42 @@ __get_status() {
   local url_lxc="https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/lxc"
   local url_qemu="https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/qemu"
   local url_status="$PROXMOX_CLI_DEFAULT_MACHINE/status/current"
-  if __curl_auth "$url_qemu/$url_status" 2>/dev/null | grep '^'; then
+  local response
+  
+  # Try QEMU (VM) first
+  response="$(__curl_auth "$url_qemu/$url_status" 2>/dev/null)"
+  if [ -n "$response" ]; then
+    # Parse JSON response and format as key=value
+    local status=$(echo "$response" | jq -r '.data.status // "unknown"' 2>/dev/null)
+    local name=$(echo "$response" | jq -r '.data.name // "unnamed"' 2>/dev/null)
+    local vmid=$(echo "$response" | jq -r '.data.vmid // ""' 2>/dev/null)
+    local qmpstatus=$(echo "$response" | jq -r '.data.qmpstatus // ""' 2>/dev/null)
+    
+    # Output in key=value format for compatibility
+    echo "status=$status"
+    echo "name=$name"
+    echo "vmid=$vmid"
+    echo "qmpstatus=$qmpstatus"
     return 0
-  elif __curl_auth "$url_lxc/$url_status" 2>/dev/null | grep '^'; then
-    return 0
-  else
-    return 1
   fi
+  
+  # Try LXC (Container) as fallback
+  response="$(__curl_auth "$url_lxc/$url_status" 2>/dev/null)"
+  if [ -n "$response" ]; then
+    # Parse JSON response and format as key=value
+    local status=$(echo "$response" | jq -r '.data.status // "unknown"' 2>/dev/null)
+    local name=$(echo "$response" | jq -r '.data.name // "unnamed"' 2>/dev/null)
+    local vmid=$(echo "$response" | jq -r '.data.vmid // ""' 2>/dev/null)
+    
+    # Output in key=value format for compatibility
+    echo "status=$status"
+    echo "name=$name"
+    echo "vmid=$vmid"
+    echo "type=lxc"
+    return 0
+  fi
+  
+  return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __init_connection() {
@@ -1583,9 +1612,33 @@ __run_curl() {
   url_qemu="https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/qemu"
   if [ -n "$CSRF" ]; then
     vm_exists="$(__get_status | grep '^' || false)"
-    vm_status="$(echo "$vm_exists" | grep -q '^status=running' && echo 'on' || echo "off")"
+    # Improved status detection logic
+    if [ -n "$vm_exists" ]; then
+      vm_raw_status="$(echo "$vm_exists" | grep '^status=' | awk -F '=' '{print $2}')"
+      case "$vm_raw_status" in
+        "running")
+          vm_status="on"
+          vm_status_detail="running"
+          ;;
+        "stopped"|"shutdown")
+          vm_status="off"
+          vm_status_detail="stopped"
+          ;;
+        "paused")
+          vm_status="on"
+          vm_status_detail="paused"
+          ;;
+        *)
+          vm_status="unknown"
+          vm_status_detail="$vm_raw_status"
+          ;;
+      esac
+    else
+      vm_status="off"
+      vm_status_detail="not found"
+    fi
     vm_name="$(echo "$vm_exists" | grep '^name=' | awk -F '=' '{print $2}' | grep '^' || echo "$PROXMOX_CLI_DEFAULT_MACHINE")"
-    printf_cyan "Initializing the connection to $vm_name ($PROXMOX_CLI_DEFAULT_MACHINE)"
+    printf_cyan "Initializing the connection to $vm_name ($PROXMOX_CLI_DEFAULT_MACHINE) - Status: $vm_status_detail"
     if [ -n "$PROXMOX_CLI_GET_CONFIG" ]; then
       __get_config || printf_exit "Failed to get the configuration for $PROXMOX_CLI_DEFAULT_MACHINE"
       exit $?
@@ -1612,9 +1665,23 @@ __run_curl() {
       exit $?
     elif [ -n "$PROXMOX_CLI_SSH_IP" ]; then
       __init_connection
-      host="$(__pve_agent "$PROXMOX_CLI_DEFAULT_NODE_ID" "qemu" "$PROXMOX_CLI_DEFAULT_MACHINE" network-get-interfaces | jq -rc '.' | grep 'eth0' | jq -r '."ip-addresses"|.[]|."ip-address"' | grep -v '::' | head -n1 | grep '^' || echo '')"
-      host="${host:-$(__pve_agent "$PROXMOX_CLI_DEFAULT_NODE_ID" "qemu" "$PROXMOX_CLI_DEFAULT_MACHINE" network-get-interfaces | grep 'ip-address.*[0-9]\.' | grep -vE '127.0.0.1|172.17.0.[0-9]' | sed 's|[", ]||g;s|ip-address:||g' | head -n1 | grep '^' || echo '')}"
-      [ -n "$host" ] && __open_ssh "${host:-$PROXMOX_CLI_DEFAULT_MACHINE}" "${PROXMOX_CLI_SSH_USER:-$USER}"
+      # Check VM status before trying to get IP
+      if [ "$vm_status" = "off" ]; then
+        printf_exit "Cannot get IP address: VM $vm_name is $vm_status_detail"
+      elif [ "$vm_status" = "on" ]; then
+        printf_cyan "VM $vm_name is running ($vm_status_detail), retrieving IP address..."
+        host="$(__pve_agent "$PROXMOX_CLI_DEFAULT_NODE_ID" "qemu" "$PROXMOX_CLI_DEFAULT_MACHINE" network-get-interfaces | jq -rc '.' | grep 'eth0' | jq -r '."ip-addresses"|.[]|."ip-address"' | grep -v '::' | head -n1 | grep '^' || echo '')"
+        host="${host:-$(__pve_agent "$PROXMOX_CLI_DEFAULT_NODE_ID" "qemu" "$PROXMOX_CLI_DEFAULT_MACHINE" network-get-interfaces | grep 'ip-address.*[0-9]\.' | grep -vE '127.0.0.1|172.17.0.[0-9]' | sed 's|[", ]||g;s|ip-address:||g' | head -n1 | grep '^' || echo '')}"
+        
+        if [ -n "$host" ]; then
+          printf_green "Found IP address: $host"
+          __open_ssh "$host" "${PROXMOX_CLI_SSH_USER:-$USER}"
+        else
+          printf_exit "Failed to get IP address for running VM $vm_name ($PROXMOX_CLI_DEFAULT_MACHINE): Ensure qemu-guest-agent is installed and running in the guest"
+        fi
+      else
+        printf_exit "VM $vm_name status is $vm_status_detail - cannot retrieve IP address"
+      fi
       exit $?
     else
       __get_spice_file && printf_purple "Saving to $FILENAME" || printf_exit "Failed to get the spice file"

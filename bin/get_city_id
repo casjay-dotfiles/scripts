@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202304081323-git
+##@Version           :  202409241720-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Saturday, Apr 08, 2023 13:23 EDT
 # @@File             :  get_city_id
 # @@Description      :  find id of city
-# @@Changelog        :  New script
+# @@Changelog        :  Enhanced cache validation with empty file detection and automatic redownload
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202304081323-git"
+VERSION="202409241720-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -286,14 +286,27 @@ __trap_exit() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
 __gen_config_local() {
-  __update_id_cache
-  cat "$HOME/.cache/get_city_id/city_ids.json" 2>/dev/null | __jq '.[].name' | sort -u >"$GET_CITY_ID_CONFIG_DIR/cities.txt"
-  cat "$HOME/.cache/get_city_id/city_ids.json" 2>/dev/null | __jq '.[].country' | sort -u >"$GET_CITY_ID_CONFIG_DIR/countries.txt"
+  true
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __jq() { jq -cr "$@" 2>/dev/null; }
+__grab_database() { curl -q -LSsf "$GET_CITY_ID_JSON" -o "$GET_CITY_ID_CACHE_FILE" >/dev/null 2>/dev/null || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__update_id_cache() { curl -q -LSsf "$GET_CITY_ID_JSON" -o "$GET_CITY_ID_CACHE_FILE" 2>/dev/null || return 1; }
+__generate_id_cache() {
+  cat "$GET_CITY_ID_CACHE_FILE" 2>/dev/null | __jq '.[].name' | sort -u >"$GET_CITY_ID_CONFIG_DIR/cities.txt"
+  cat "$GET_CITY_ID_CACHE_FILE" 2>/dev/null | __jq '.[].country' | sort -u >"$GET_CITY_ID_CONFIG_DIR/countries.txt"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__update_id_cache() {
+  printf_blue "📥 Downloading city database..."
+  if __grab_database; then
+    printf_green "✅ City database updated successfully"
+    return 0
+  else
+    printf_red "❌ Failed to download city database"
+    return 1
+  fi
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
 
@@ -545,7 +558,18 @@ elif [ $# -gt 2 ]; then
   shift $#
 fi
 if [ -f "$GET_CITY_ID_CACHE_FILE" ]; then
-  if [ -n "$(find "$GET_CITY_ID_CACHE_FILE" -mtime +13 -print | grep '^' || echo '')" ]; then
+  # Check if file is older than 13 days
+  if [ -n "$(find "$GET_CITY_ID_CACHE_FILE" -mtime +14 -print | grep '^' || echo '')" ]; then
+    printf_yellow "🔄 Cache expired (>13 days), refreshing..."
+    rm -Rf "$GET_CITY_ID_CACHE_FILE"
+    __update_id_cache
+  # Check if file is empty or invalid JSON
+  elif [ ! -s "$GET_CITY_ID_CACHE_FILE" ]; then
+    printf_yellow "🔄 Cache file is empty, redownloading..."
+    rm -Rf "$GET_CITY_ID_CACHE_FILE"
+    __update_id_cache
+  elif ! jq -e '.[0]' "$GET_CITY_ID_CACHE_FILE" >/dev/null 2>&1; then
+    printf_yellow "🔄 Cache file is corrupted, redownloading..."
     rm -Rf "$GET_CITY_ID_CACHE_FILE"
     __update_id_cache
   fi
@@ -556,7 +580,7 @@ if [ -f "$GET_CITY_ID_CACHE_FILE" ]; then
   results="$(cat "$GET_CITY_ID_CACHE_FILE" | jq -rc '.[] | {name: .name,country: .country, latitude: .coord.lat,longitude: .coord.lon,id: .id}' | grep -i "${SEARCH_TERM}" | sort -u | grep -i "${FILTER:-^}" || echo '')"
   if [ -n "$results" ]; then
     [ -n "$FILTER" ] && SEARCH_TERM="$SEARCH_TERM $FILTER"
-    [ "$SHOW_RAW" = "true" ] || printf_cyan "Found the following results for $SEARCH_TERM"
+    [ "$SHOW_RAW" = "true" ] || printf_purple "Found the following results for $SEARCH_TERM"
     printf '%s\n' "$results" | printf_readline $OUTPUT_COLOR_2
     exitCode=0
   else

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202409241630-git
+##@Version           :  202409241700-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Monday, Aug 15, 2022 00:46 EDT
 # @@File             :  proxmox-cli
 # @@Description      :
-# @@Changelog        :  Implemented organized file structure with node subdirectories and type-prefixed filenames
+# @@Changelog        :  Enhanced status command with formatted output and cleaned authentication flow
 # @@TODO             :  Turn this into a full proxmox client
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202409241630-git"
+VERSION="202409241700-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -391,14 +391,12 @@ __decode_password() {
         echo "Decode successful - new password: '${decoded_pass:0:10}...'" >>"$debug_file"
         echo "Decode successful - new length: ${#decoded_pass}" >>"$debug_file"
         PROXMOX_CLI_DEFAULT_PASSWORD="$decoded_pass"
-        printf_cyan "🔓 Password decoded from base64"
       else
         echo "Decode failed - using original password" >>"$debug_file"
         printf_yellow "⚠️ Base64 decode failed - using password as-is"
       fi
     else
       echo "Password appears to be plaintext (no = padding or wrong format)" >>"$debug_file"
-      printf_cyan "🔓 Using password as plaintext"
     fi
   else
     echo "No password found" >>"$debug_file"
@@ -477,7 +475,8 @@ __check_proxmox_api() {
     echo "Parsed release: $release" >>"$debug_file"
 
     if [ "$version" != "unknown" ] && [ "$version" != "null" ] && [ -n "$version" ]; then
-      printf_green "✅ Proxmox API available - Version: $version Release: $release"
+      printf_green "✅ Proxmox API available"
+      printf_cyan "📋 Version: $version"
       return 0
     else
       printf_yellow "⚠️ API responded but version parsing failed"
@@ -532,7 +531,6 @@ __check_authentication() {
   __decode_password                        # Decode password first
   PASSWORD="$PROXMOX_CLI_DEFAULT_PASSWORD" # Use decoded password
 
-  printf_cyan "🔍 Debug: Username='$USERNAME', Password length=${#PASSWORD}"
 
   local auth_response
   auth_response="$(__query_server)"
@@ -542,7 +540,9 @@ __check_authentication() {
     # Check if response contains valid ticket
     if echo "$auth_response" | jq -e '.data.ticket' &>/dev/null; then
       local username=$(echo "$auth_response" | jq -r '.data.username // "unknown"' 2>/dev/null)
+      local version=$(echo "$auth_response" | jq -r '.data.version // "unknown"' 2>/dev/null)
       printf_green "✅ Authentication successful for user: $username"
+      [ "$version" != "unknown" ] && [ "$version" != "null" ] && [ -n "$version" ] && printf_cyan "📋 Version: $version"
       return 0
     else
       printf_red "❌ Invalid authentication response"
@@ -1161,13 +1161,11 @@ __lxc_status() {
 
   __ensure_authenticated || return 1
 
-  printf_blue "📊 LXC Status: $vmid"
-
   local status_response
   status_response="$(__curl_auth "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/lxc/$vmid/status/current" 2>/dev/null)"
 
   if [ -n "$status_response" ]; then
-    echo "$status_response" | jq -r '.data | "Status: \(.status)\nCPU: \(.cpu*100|floor)%\nMemory: \(.mem/1024/1024|floor)MB / \(.maxmem/1024/1024|floor)MB\nUptime: \(.uptime//0)s"' 2>/dev/null || echo "Status parsing failed"
+    echo "$status_response" | jq -r '.data | "CPU: \(.cpu*100|floor)%\nMemory: \(.mem/1024/1024|floor)MB / \(.maxmem/1024/1024|floor)MB\nUptime: \(.uptime//0)s"' 2>/dev/null || echo "Status parsing failed"
   else
     printf_red "❌ Failed to get LXC status"
     return 1
@@ -1303,13 +1301,11 @@ __vm_status() {
 
   __ensure_authenticated || return 1
 
-  printf_blue "📊 VM Status: $vmid"
-
   local status_response
   status_response="$(__curl_auth "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/nodes/$PROXMOX_CLI_DEFAULT_NODE_ID/qemu/$vmid/status/current" 2>/dev/null)"
 
   if [ -n "$status_response" ]; then
-    echo "$status_response" | jq -r '.data | "Status: \(.status)\nCPU: \(.cpu*100|floor)%\nMemory: \(.mem/1024/1024|floor)MB / \(.maxmem/1024/1024|floor)MB\nUptime: \(.uptime//0)s\nAgent: \(.agent//0)"' 2>/dev/null || echo "Status parsing failed"
+    echo "$status_response" | jq -r '.data | "CPU: \(.cpu*100|floor)%\nMemory: \(.mem/1024/1024|floor)MB / \(.maxmem/1024/1024|floor)MB\nUptime: \(.uptime//0)s\nAgent: \(.agent//0)"' 2>/dev/null || echo "Status parsing failed"
   else
     printf_red "❌ Failed to get VM status"
     return 1
@@ -1802,7 +1798,13 @@ __run_curl() {
       __get_config || printf_exit "Failed to get the configuration for $PROXMOX_CLI_DEFAULT_MACHINE"
       exit $?
     elif [ -n "$PROXMOX_CLI_GET_STATUS" ]; then
-      __get_status || printf_exit "Failed to get the status for $PROXMOX_CLI_DEFAULT_MACHINE"
+      # Use formatted status display instead of raw output
+      # Try VM status first, then LXC status
+      if ! __vm_status "$PROXMOX_CLI_DEFAULT_MACHINE" 2>/dev/null; then
+        if ! __lxc_status "$PROXMOX_CLI_DEFAULT_MACHINE" 2>/dev/null; then
+          printf_exit "Failed to get the status for $PROXMOX_CLI_DEFAULT_MACHINE"
+        fi
+      fi
     elif [ -n "$PROXMOX_CLI_POWER_CYCLE" ]; then
       if [ "$PROXMOX_CLI_POWER_OPTION" = "on" ]; then
         PROXMOX_CLI_POWER_OPTION="start"
@@ -2006,8 +2008,38 @@ __initialize_app() {
       shift 1
       printf_purple "🏥 Proxmox Server Health Check"
       __check_server_connectivity && __check_proxmox_api && __check_authentication
-      [ $? -eq 0 ] && printf_green "🎯 All server checks passed!" || printf_red "💔 Server check failed!"
-      exit $?
+      local check_result=$?
+      
+      # Try to get version after authentication if API version check failed
+      if [ $check_result -eq 0 ]; then
+        local auth_data="$(__query_server 2>/dev/null)"
+        if [ -n "$auth_data" ]; then
+          # Extract ticket for authenticated API call
+          local ticket="$(echo "$auth_data" | jq -r '.data.ticket // empty' 2>/dev/null)"
+          local csrf="$(echo "$auth_data" | jq -r '.data.CSRFPreventionToken // empty' 2>/dev/null)"
+          
+          if [ -n "$ticket" ] && [ -n "$csrf" ]; then
+            # Try authenticated version call
+            local version_response
+            version_response="$(curl -q -LSs --max-time 10 --retry 1 -k \
+              -b "PVEAuthCookie=$ticket" \
+              -H "CSRFPreventionToken: $csrf" \
+              "https://$PROXMOX_CLI_DEFAULT_SERVER_HOST:$PROXMOX_CLI_DEFAULT_SERVER_PORT/api2/json/version" 2>/dev/null)"
+            
+            if [ -n "$version_response" ]; then
+              local version="$(echo "$version_response" | jq -r '.data.version // empty' 2>/dev/null)"
+              local release="$(echo "$version_response" | jq -r '.data.release // empty' 2>/dev/null)"
+              if [ -n "$version" ] && [ "$version" != "empty" ]; then
+                printf_cyan "📋 Version: $version"
+              fi
+            fi
+          fi
+        fi
+        printf_green "🎯 All server checks passed!"
+      else
+        printf_red "💔 Server check failed!"
+      fi
+      exit $check_result
       ;;
     iso)
       shift 1

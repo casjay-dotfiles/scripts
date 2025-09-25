@@ -18,7 +18,7 @@
 NC="$(tput sgr0 2>/dev/null)"
 RESET="$(tput sgr0 2>/dev/null)"
 BLACK="\033[0;30m"
-RED="\033[1;31m"
+RED="\033[0;91m"
 GREEN="\033[0;32m"
 YELLOW="\033[0;33m"
 BLUE="\033[0;34m"
@@ -26,7 +26,7 @@ PURPLE="\033[0;35m"
 CYAN="\033[0;36m"
 WHITE="\033[0;37m"
 ORANGE="\033[0;33m"
-LIGHTRED='\033[1;31m'
+LIGHTRED='\033[0;91m'
 BG_GREEN="\[$(tput setab 2 2>/dev/null)\]"
 BG_RED="\[$(tput setab 9 2>/dev/null)\]"
 ICON_INFO="[ ℹ️ ]"
@@ -68,7 +68,7 @@ printf_green() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_red() {
-  printf_color "$1" 1
+  printf_color "$1" 9
   printf "\n"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -119,7 +119,7 @@ printf_execute_success() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_execute_error() {
-  printf_color "$ICON_WARN $1 $2" 1
+  printf_color "$ICON_WARN $1 $2" 9
   printf "\n"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

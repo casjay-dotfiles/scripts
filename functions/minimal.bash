@@ -188,7 +188,7 @@ printf_green() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_red() {
-  printf_color "$1" 1
+  printf_color "$1" 9
   printf "\n"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -239,7 +239,7 @@ printf_execute_success() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_execute_error() {
-  printf_color "$ICON_WARN $1 $2" 1
+  printf_color "$ICON_WARN $1 $2" 9
   printf "\n"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

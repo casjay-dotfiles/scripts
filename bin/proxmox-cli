@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202409241520-git
+##@Version           :  202409241630-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Monday, Aug 15, 2022 00:46 EDT
 # @@File             :  proxmox-cli
 # @@Description      :
-# @@Changelog        :  Fixed script execution flow and removed duplicate success messages
+# @@Changelog        :  Implemented organized file structure with node subdirectories and type-prefixed filenames
 # @@TODO             :  Turn this into a full proxmox client
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202409241520-git"
+VERSION="202409241630-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -1511,14 +1511,22 @@ __save_spice_file() {
   local spice_endpoint="$api_url/$PROXMOX_CLI_DEFAULT_MACHINE/spiceproxy"
   local error_log="$PROXMOX_CLI_TEMP_DIR/spice_error.log"
 
-  # Ensure directory exists for output file
-  if [ -n "$FILENAME" ]; then
-    local dirname="$(dirname "$FILENAME")"
-    [ ! -d "$dirname" ] && mkdir -p "$dirname"
+  # Determine VM type from API URL and create appropriate filenames
+  local vm_type=""
+  if echo "$api_url" | grep -q "/qemu"; then
+    vm_type="qemu"
+  elif echo "$api_url" | grep -q "/lxc"; then
+    vm_type="lxc"
   else
-    printf_red "❌ Error: FILENAME not set for SPICE file"
-    return 1
+    vm_type="unknown"
   fi
+  
+  # Create node-specific directory and set filenames
+  local node_dir="$PROXMOX_CLI_SAVE_DIR/$PROXMOX_CLI_DEFAULT_NODE_ID"
+  local spice_file="$node_dir/${vm_type}_${PROXMOX_CLI_DEFAULT_MACHINE}.spice"
+  local vv_file="$node_dir/${vm_type}_${PROXMOX_CLI_DEFAULT_MACHINE}.vv"
+  
+  [ ! -d "$node_dir" ] && mkdir -p "$node_dir"
 
   # Check VM display configuration quietly
   local vm_config
@@ -1546,6 +1554,7 @@ __save_spice_file() {
   if [ $curl_exit -eq 0 ] && [ -n "$spice_response" ]; then
     # Check if response contains SPICE data
     if echo "$spice_response" | grep -q '\[virt-viewer\]'; then
+      # Already in correct virt-viewer format
       echo "$spice_response" >"$FILENAME"
       return 0
     elif echo "$spice_response" | jq -e '.errors' &>/dev/null; then
@@ -1553,12 +1562,52 @@ __save_spice_file() {
       local error_msg="$(echo "$spice_response" | jq -r '.errors[0] // "Unknown API error"' 2>/dev/null)"
       printf_red "❌ API Error: $error_msg"
       return 1
-    elif echo "$spice_response" | jq -e '.data' &>/dev/null; then
-      # API returned data but not SPICE format - extract and format
-      local spice_data="$(echo "$spice_response" | jq -r '.data // empty' 2>/dev/null)"
-      if [ -n "$spice_data" ]; then
-        echo "$spice_data" >"$FILENAME"
+    elif echo "$spice_response" | jq -e '.' &>/dev/null; then
+      # JSON response - convert to virt-viewer format (extract from .data field)
+      local host="$(echo "$spice_response" | jq -r '.data.host // "empty"' 2>/dev/null)"
+      local port="$(echo "$spice_response" | jq -r '.data["tls-port"] // .data.port // "empty"' 2>/dev/null)"
+      local password="$(echo "$spice_response" | jq -r '.data.password // "empty"' 2>/dev/null)"
+      local title="$(echo "$spice_response" | jq -r '.data.title // "empty"' 2>/dev/null)"
+      local ca="$(echo "$spice_response" | jq -r '.data.ca // "empty"' 2>/dev/null)"
+      local proxy="$(echo "$spice_response" | jq -r '.data.proxy // "empty"' 2>/dev/null)"
+      local host_subject="$(echo "$spice_response" | jq -r '.data["host-subject"] // "empty"' 2>/dev/null)"
+      local delete_file="$(echo "$spice_response" | jq -r '.data["delete-this-file"] // "empty"' 2>/dev/null)"
+      local release_cursor="$(echo "$spice_response" | jq -r '.data["release-cursor"] // "empty"' 2>/dev/null)"
+      local secure_attention="$(echo "$spice_response" | jq -r '.data["secure-attention"] // "empty"' 2>/dev/null)"
+      local toggle_fullscreen="$(echo "$spice_response" | jq -r '.data["toggle-fullscreen"] // "empty"' 2>/dev/null)"
+      
+      if [ -n "$host" ] && [ "$host" != "empty" ] && [ -n "$port" ] && [ "$port" != "empty" ] && [ -n "$password" ] && [ "$password" != "empty" ]; then
+        # Create proper virt-viewer format matching Proxmox format
+        {
+          echo "[virt-viewer]"
+          echo "type=spice"
+          echo "host=$host"
+          [ -n "$port" ] && [ "$port" != "empty" ] && echo "tls-port=$port"
+          echo "password=$password"
+          [ -n "$title" ] && [ "$title" != "empty" ] && echo "title=$title"
+          [ -n "$proxy" ] && [ "$proxy" != "empty" ] && echo "proxy=$proxy"
+          [ -n "$host_subject" ] && [ "$host_subject" != "empty" ] && echo "host-subject=$host_subject"
+          [ -n "$delete_file" ] && [ "$delete_file" != "empty" ] && echo "delete-this-file=$delete_file"
+          # Use original Proxmox key bindings if available, otherwise defaults
+          [ -n "$toggle_fullscreen" ] && [ "$toggle_fullscreen" != "empty" ] && echo "toggle-fullscreen=$toggle_fullscreen" || echo "toggle-fullscreen=shift+f11"
+          [ -n "$release_cursor" ] && [ "$release_cursor" != "empty" ] && echo "release-cursor=$release_cursor" || echo "release-cursor=ctrl+alt+r"
+          [ -n "$secure_attention" ] && [ "$secure_attention" != "empty" ] && echo "secure-attention=$secure_attention" || echo "secure-attention=ctrl+alt+ins"
+          # Handle CA certificate (convert \\n to actual newlines)
+          if [ -n "$ca" ] && [ "$ca" != "null" ] && [ "$ca" != "empty" ]; then
+            echo "ca=$(echo "$ca" | sed 's/\\\\n/\n/g')"
+          fi
+        } >"$vv_file"
+        
+        # Also save raw SPICE response for debugging
+        echo "$spice_response" > "$spice_file"
+        
+        # Update FILENAME to point to the vv file for compatibility
+        FILENAME="$vv_file"
+        
         return 0
+      else
+        printf_red "❌ Missing required SPICE connection parameters"
+        return 1
       fi
     fi
 
@@ -1796,7 +1845,6 @@ __run_curl() {
     else
       # First, try to get the SPICE file
       if __get_spice_file; then
-        printf_green "✅ SPICE file saved: $FILENAME"
         local spice_success=true
       else
         printf_exit "Failed to get the spice file"
@@ -1804,11 +1852,11 @@ __run_curl() {
 
       # Now try to launch viewers if SPICE file was created successfully
       if __cmd_exists remote-viewer; then
-        printf_yellow "Attempting to launch the client " && sleep 2
+        printf_yellow "🚀 Attempting to launch the client: $FILENAME" && sleep 2
         __run_spice_viewer "$FILENAME" &>/dev/null
         return $?
       elif __cmd_exists virt-viewer; then
-        printf_yellow "Attempting to launch virt-viewer " && sleep 2
+        printf_yellow "🚀 Attempting to launch virt-viewer: $FILENAME" && sleep 2
         __run_spice_viewer "$FILENAME" &>/dev/null
         return $?
       else
@@ -2092,10 +2140,13 @@ __initialize_app() {
 __execute_proxmox_cli() {
   local statusCode=0
 
-  SPICEDIR="$PROXMOX_CLI_SAVE_DIR"
+  # Create node-specific subdirectory structure
+  SPICEDIR="$PROXMOX_CLI_SAVE_DIR/$PROXMOX_CLI_DEFAULT_NODE_ID"
   USERNAME="$PROXMOX_CLI_DEFAULT_USERNAME"
   PASSWORD="$PROXMOX_CLI_DEFAULT_PASSWORD"
-  FILENAME="$PROXMOX_CLI_SAVE_DIR/${PROXMOX_CLI_DEFAULT_NODE_ID}_${PROXMOX_CLI_DEFAULT_MACHINE}"
+  
+  # We'll determine the type (qemu/lxc) during connection process
+  # For now, create the directory structure
   [ -d "$SPICEDIR" ] || mkdir -p "$SPICEDIR"
 
   printf_cyan "🔐 Authenticating with Proxmox server..."

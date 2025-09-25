@@ -685,12 +685,33 @@ __pipecmd() {
 __cpan_run() {
   local cpandir="" cpanconf="" cpanfile="" local_config=""
   local packages="$*"
-  
-  # Check if cpan is installed
+
+  # Check if cpan is installed, if not try to install it
   cpan="$(type -P cpan 2>/dev/null | grep -v "$HOME" | grep '^')"
   if [[ -z "$cpan" ]]; then
-    printf_red "CPAN is not installed"
-    return 1
+    printf_yellow "CPAN not found, attempting to install..."
+
+    # Map and install the appropriate CPAN package
+    local cpan_pkg="$(__map_package_name "cpan")"
+    if ! __exec_unbuffered "$pkgmgrbininssil $cpan_pkg" >/dev/null 2>&1; then
+      # Try cpanminus as alternative
+      cpan_pkg="$(__map_package_name "cpanminus")"
+      if ! __exec_unbuffered "$pkgmgrbininssil $cpan_pkg" >/dev/null 2>&1; then
+        printf_red "ERROR: Failed to install CPAN"
+        return 1
+      fi
+    fi
+
+    # Re-check for cpan
+    cpan="$(type -P cpan 2>/dev/null | grep -v "$HOME" | grep '^')"
+    if [[ -z "$cpan" ]]; then
+      # Try cpanm as fallback
+      cpan="$(type -P cpanm 2>/dev/null | grep -v "$HOME" | grep '^')"
+      if [[ -z "$cpan" ]]; then
+        printf_red "ERROR: CPAN installation failed"
+        return 1
+      fi
+    fi
   fi
   
   # Find CPAN directory
@@ -1339,6 +1360,133 @@ __update_mirrors() {
     sudo mv -f "$PKMGR_TEMP_DIR/mirrorlist" "/etc/pacman.d/mirrorlist" &>/dev/null
     sudo rm -Rf "$PKMGR_TEMP_DIR/mirrorlist" "$PKMGR_TEMP_DIR/mirrorlist.new" &>/dev/null
   fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Map package names across distributions
+__map_package_name() {
+  local pkg="$1"
+  local mapped_pkg=""
+
+  # Detect the distribution type
+  local distro_type=""
+  if __cmd_exists apt-get || __cmd_exists apt; then
+    distro_type="debian"
+  elif __cmd_exists yum || __cmd_exists dnf; then
+    distro_type="redhat"
+  elif __cmd_exists pacman || __cmd_exists pamac; then
+    distro_type="arch"
+  elif __cmd_exists apk; then
+    distro_type="alpine"
+  elif __cmd_exists xbps-install; then
+    distro_type="void"
+  else
+    echo "$pkg"
+    return
+  fi
+
+  # Package mappings - format: "input_package:debian:redhat:arch:alpine:void"
+  local -a mappings=(
+    # Web servers
+    "nginx-full:nginx-full:nginx:nginx:nginx:nginx"
+    "nginx:nginx:nginx:nginx:nginx:nginx"
+    "apache:apache2:httpd:apache:apache2:apache"
+    "apache2:apache2:httpd:apache:apache2:apache"
+    "httpd:apache2:httpd:apache:apache2:apache"
+
+    # Databases
+    "mysql:mysql-server:mysql-server:mariadb:mariadb:mariadb"
+    "mysql-server:mysql-server:mysql-server:mariadb:mariadb:mariadb"
+    "mariadb:mariadb-server:mariadb-server:mariadb:mariadb:mariadb"
+    "postgresql:postgresql:postgresql-server:postgresql:postgresql:postgresql"
+    "postgres:postgresql:postgresql-server:postgresql:postgresql:postgresql"
+    "redis:redis-server:redis:redis:redis:redis"
+    "mongodb:mongodb:mongodb-org:mongodb:mongodb:mongodb"
+
+    # Development tools
+    "gcc:build-essential:gcc:base-devel:gcc:gcc"
+    "g++:g++:gcc-c++:base-devel:g++:gcc"
+    "make:make:make:make:make:make"
+    "cmake:cmake:cmake:cmake:cmake:cmake"
+    "git:git:git:git:git:git"
+    "svn:subversion:subversion:subversion:subversion:subversion"
+    "hg:mercurial:mercurial:mercurial:mercurial:mercurial"
+
+    # Languages and runtimes
+    "python:python3:python3:python:python3:python3"
+    "python3:python3:python3:python:python3:python3"
+    "python2:python2:python2:python2:python2:python"
+    "node:nodejs:nodejs:nodejs:nodejs:nodejs"
+    "nodejs:nodejs:nodejs:nodejs:nodejs:nodejs"
+    "npm:npm:npm:npm:npm:nodejs"
+    "ruby:ruby:ruby:ruby:ruby:ruby"
+    "perl:perl:perl:perl:perl:perl"
+    "php:php:php:php:php:php"
+    "java:default-jdk:java-11-openjdk:jdk-openjdk:openjdk11:openjdk"
+    "openjdk:default-jdk:java-11-openjdk:jdk-openjdk:openjdk11:openjdk"
+
+    # System utilities
+    "vim:vim:vim:vim:vim:vim"
+    "emacs:emacs:emacs:emacs:emacs:emacs"
+    "nano:nano:nano:nano:nano:nano"
+    "htop:htop:htop:htop:htop:htop"
+    "curl:curl:curl:curl:curl:curl"
+    "wget:wget:wget:wget:wget:wget"
+    "netcat:netcat:nc:gnu-netcat:netcat-openbsd:nc"
+    "nc:netcat:nc:gnu-netcat:netcat-openbsd:nc"
+    "tmux:tmux:tmux:tmux:tmux:tmux"
+    "screen:screen:screen:screen:screen:screen"
+    "zsh:zsh:zsh:zsh:zsh:zsh"
+    "fish:fish:fish:fish:fish:fish"
+    "bash:bash:bash:bash:bash:bash"
+
+    # Libraries
+    "openssl:libssl-dev:openssl-devel:openssl:openssl-dev:libressl-devel"
+    "libssl:libssl-dev:openssl-devel:openssl:openssl-dev:libressl-devel"
+    "zlib:zlib1g-dev:zlib-devel:zlib:zlib-dev:zlib-devel"
+    "libxml2:libxml2-dev:libxml2-devel:libxml2:libxml2-dev:libxml2-devel"
+    "libxslt:libxslt1-dev:libxslt-devel:libxslt:libxslt-dev:libxslt-devel"
+    "readline:libreadline-dev:readline-devel:readline:readline-dev:readline-devel"
+    "ncurses:libncurses5-dev:ncurses-devel:ncurses:ncurses-dev:ncurses-devel"
+
+    # Container tools
+    "docker:docker.io:docker:docker:docker:docker"
+    "podman:podman:podman:podman:podman:podman"
+    "containerd:containerd:containerd:containerd:containerd:containerd"
+
+    # Network tools
+    "iptables:iptables:iptables:iptables:iptables:iptables"
+    "nftables:nftables:nftables:nftables:nftables:nftables"
+    "firewalld:firewalld:firewalld:firewalld:firewalld:void-firewall"
+    "ufw:ufw:firewalld:ufw:ufw:void-firewall"
+    "tcpdump:tcpdump:tcpdump:tcpdump:tcpdump:tcpdump"
+    "wireshark:wireshark:wireshark:wireshark:wireshark:wireshark"
+    "nmap:nmap:nmap:nmap:nmap:nmap"
+
+    # Package managers and build tools
+    "rpm:rpm:rpm:rpmextract:rpm:rpmextract"
+    "dpkg:dpkg:dpkg:dpkg:dpkg:xbps-compat"
+    "alien:alien:alien:debtap:alien:void-packages"
+    "cpan:perl-cpan:perl-CPAN:cpanminus:perl-app-cpanminus:perl-CPAN"
+    "cpanminus:cpanminus:perl-App-cpanminus:cpanminus:perl-app-cpanminus:cpanminus"
+  )
+
+  # Find the package mapping
+  for mapping in "${mappings[@]}"; do
+    local map_parts=(${mapping//:/ })
+    if [ "${map_parts[0]}" = "$pkg" ]; then
+      case "$distro_type" in
+        debian) mapped_pkg="${map_parts[1]}" ;;
+        redhat) mapped_pkg="${map_parts[2]}" ;;
+        arch) mapped_pkg="${map_parts[3]}" ;;
+        alpine) mapped_pkg="${map_parts[4]}" ;;
+        void) mapped_pkg="${map_parts[5]}" ;;
+      esac
+      break
+    fi
+  done
+
+  # Return the mapped package or original if no mapping found
+  echo "${mapped_pkg:-$pkg}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __initialize_variables() {
@@ -2133,13 +2281,21 @@ __execute_pkmgr() {
     else
       # Normal mode
       declare -a LISTARRAY=("$@")
-      __init_log_status "install" "$pkgmgrbinins ${LISTARRAY[*]}"
-      
+
+      # Map package names for the current distribution
+      declare -a MAPPED_PACKAGES=()
+      for pkg in "${LISTARRAY[@]}"; do
+        mapped_pkg="$(__map_package_name "$pkg")"
+        MAPPED_PACKAGES+=("$mapped_pkg")
+      done
+
+      __init_log_status "install" "$pkgmgrbinins ${MAPPED_PACKAGES[*]}"
+
       # Show progress if enabled
       if [ "$PKMGR_SHOW_PROGRESS" = "true" ]; then
-        __execute_with_progress "__exec_unbuffered '$pkgmgrbinins $*'" "Installing packages"
+        __execute_with_progress "__exec_unbuffered '$pkgmgrbinins ${MAPPED_PACKAGES[*]}'" "Installing packages"
       else
-        __exec_unbuffered "$pkgmgrbinins $*" |& __logging || exitCode=$((exitCode + 1))
+        __exec_unbuffered "$pkgmgrbinins ${MAPPED_PACKAGES[*]}" |& __logging || exitCode=$((exitCode + 1))
       fi
     fi
     
@@ -2229,20 +2385,30 @@ __execute_pkmgr() {
     else
       # Normal mode
       declare -a LISTARRAY=("$@")
-      __init_log_status "remove" "$pkgmgrbindel ${LISTARRAY[*]}"
-      
+
+      # Map package names for the current distribution
+      declare -a MAPPED_PACKAGES=()
+      for pkg in "${LISTARRAY[@]}"; do
+        mapped_pkg="$(__map_package_name "$pkg")"
+        MAPPED_PACKAGES+=("$mapped_pkg")
+      done
+
+      __init_log_status "remove" "$pkgmgrbindel ${MAPPED_PACKAGES[*]}"
+
       if [ "$PKMGR_SHOW_PROGRESS" = "true" ]; then
         local start_time=$(date +%s)
-        __status_display "Package Removal" "running" "Removing ${#LISTARRAY[@]} packages" "$start_time"
+        __status_display "Package Removal" "running" "Removing ${#MAPPED_PACKAGES[@]} packages" "$start_time"
       fi
-      
-      for pkg in "${LISTARRAY[@]}"; do
+
+      for i in "${!MAPPED_PACKAGES[@]}"; do
+        pkg="${MAPPED_PACKAGES[$i]}"
+        orig_pkg="${LISTARRAY[$i]}"
         if [ "$PKMGR_SHOW_PROGRESS" = "true" ]; then
           __execute_with_progress "eval $pkgmgrbindel '$pkg'" "Removing $pkg"
         else
           eval $pkgmgrbindel "$pkg" |& __logging || exitCode=$((exitCode + 1))
         fi
-        __saved_file_delete "$pkg"
+        __saved_file_delete "$orig_pkg"
       done
       
       if [ "$PKMGR_SHOW_PROGRESS" = "true" ]; then

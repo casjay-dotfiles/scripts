@@ -760,115 +760,152 @@ __pip_run() {
   local packages="$*"
   local pip_opts=""
   local exitCode=0
-  
+  local failed_packages=""
+
   # Find python and pip
   py_bin="$(type -P python3 || type -P python2 || type -P python)"
   if [[ -z "$py_bin" ]]; then
-    printf_red "Python is not installed"
+    printf_red "ERROR: Python not found"
     return 1
   fi
-  
+
   # Get python version
   py_version="$($py_bin --version 2>&1 | sed 's|[pP]ython ||g' | awk -F '.' '{print $1$2}' | grep '[0-9]' || echo "0")"
-  
+
   # Find pip
   pip3="$(ls /usr/bin/pip*3* 2>/dev/null | head -n 1)"
   pip="$(type -P $pip3 || type -P pip3 || type -P pip || echo "$py_bin -m pip")"
-  
+
   # Check if pip is actually available
   if ! $py_bin -m pip --version &>/dev/null; then
-    printf_red "pip is not installed. Install it with: $py_bin -m ensurepip"
+    printf_red "ERROR: pip not installed"
     return 1
   fi
-  
+
   # Set pip options based on Python version
+  pip_opts="--quiet --no-input --disable-pip-version-check"
   if [ "$py_version" -le "310" ]; then
-    pip_opts="--use-pep517"
+    pip_opts="$pip_opts --use-pep517"
   elif [ "$py_version" -gt "310" ]; then
-    pip_opts="--break-system-packages"
+    pip_opts="$pip_opts --break-system-packages"
   fi
-  
-  # Install packages
-  printf_cyan "Installing Python packages: $packages"
+
+  # Determine installation location
+  # Prefer user installation to avoid system directory conflicts
+  local install_location=""
+  if [ "$USER" = "root" ] && [ -z "$SUDO_USER" ]; then
+    # Running as root without sudo - install to /usr/local
+    install_location="/usr/local"
+    pip_opts="$pip_opts --prefix=$install_location"
+  else
+    # User installation (preferred)
+    pip_opts="$pip_opts --user"
+  fi
+
+  # Install packages silently
   for pkg in $packages; do
-    printf_green "Installing: $pkg"
+    local output_file="/tmp/pip_install_$$.log"
+
     if [ -n "$SUDO_USER" ] && [ "$USER" = "root" ]; then
       # Run as sudo user with their home directory
-      if command -v stdbuf >/dev/null 2>&1; then
-        stdbuf -oL -eL sudo -HE -u $SUDO_USER $pip install --upgrade --user $pip_opts "$pkg" || exitCode=$((exitCode + 1))
+      if sudo -HE -u $SUDO_USER $pip install --upgrade $pip_opts "$pkg" >"$output_file" 2>&1; then
+        # Success - no output
+        :
       else
-        sudo -HE -u $SUDO_USER $pip install --upgrade --user $pip_opts "$pkg" || exitCode=$((exitCode + 1))
+        exitCode=$((exitCode + 1))
+        failed_packages="${failed_packages} $pkg"
       fi
     else
       # Run directly
-      if command -v stdbuf >/dev/null 2>&1; then
-        stdbuf -oL -eL $pip install --upgrade --user $pip_opts "$pkg" || exitCode=$((exitCode + 1))
+      if $pip install --upgrade $pip_opts "$pkg" >"$output_file" 2>&1; then
+        # Success - no output
+        :
       else
-        $pip install --upgrade --user $pip_opts "$pkg" || exitCode=$((exitCode + 1))
+        exitCode=$((exitCode + 1))
+        failed_packages="${failed_packages} $pkg"
       fi
     fi
+
+    # Clean up log file
+    rm -f "$output_file"
   done
-  
-  return $exitCode
+
+  # Report failures if any
+  if [ $exitCode -ne 0 ]; then
+    printf_red "ERROR: Failed to install:${failed_packages}"
+    return 1
+  fi
+
+  return 0
 }
 #
 __pip_remove() {
   local packages="$*"
   local pip_opts=""
   local exitCode=0
-  
+  local failed_packages=""
+
   # Find python and pip
   py_bin="$(type -P python3 || type -P python2 || type -P python)"
   if [[ -z "$py_bin" ]]; then
-    printf_red "Python is not installed"
+    printf_red "ERROR: Python not found"
     return 1
   fi
-  
+
   # Get python version
   py_version="$($py_bin --version 2>&1 | sed 's|[pP]ython ||g' | awk -F '.' '{print $1$2}' | grep '[0-9]' || echo "0")"
-  
+
   # Find pip
   pip3="$(ls /usr/bin/pip*3* 2>/dev/null | head -n 1)"
   pip="$(type -P $pip3 || type -P pip3 || type -P pip || echo "$py_bin -m pip")"
-  
+
   # Check if pip is actually available
   if ! $py_bin -m pip --version &>/dev/null; then
-    printf_red "pip is not installed"
+    printf_red "ERROR: pip not installed"
     return 1
   fi
-  
-  # Set pip options based on Python version
+
+  # Set pip options for quiet operation
+  pip_opts="--yes --quiet --disable-pip-version-check"
   if [ "$py_version" -gt "310" ]; then
-    pip_opts="--break-system-packages"
+    pip_opts="$pip_opts --break-system-packages"
   fi
-  
-  # Remove packages
-  printf_cyan "Removing Python packages: $packages"
+
+  # Remove packages silently
   for pkg in $packages; do
-    printf_yellow "Removing: $pkg"
+    local output_file="/tmp/pip_remove_$$.log"
+
     if [ -n "$SUDO_USER" ] && [ "$USER" = "root" ]; then
       # Run as sudo user
-      if command -v stdbuf >/dev/null 2>&1; then
-        stdbuf -oL -eL sudo -HE -u $SUDO_USER $pip uninstall --yes $pip_opts "$pkg" || exitCode=$((exitCode + 1))
+      if sudo -HE -u $SUDO_USER $pip uninstall $pip_opts "$pkg" >"$output_file" 2>&1; then
+        # Success - no output
+        :
       else
-        sudo -HE -u $SUDO_USER $pip uninstall --yes $pip_opts "$pkg" || exitCode=$((exitCode + 1))
+        exitCode=$((exitCode + 1))
+        failed_packages="${failed_packages} $pkg"
       fi
     else
       # Run directly
-      if command -v stdbuf >/dev/null 2>&1; then
-        stdbuf -oL -eL $pip uninstall --yes $pip_opts "$pkg" || exitCode=$((exitCode + 1))
+      if $pip uninstall $pip_opts "$pkg" >"$output_file" 2>&1; then
+        # Success - no output
+        :
       else
-        $pip uninstall --yes $pip_opts "$pkg" || exitCode=$((exitCode + 1))
+        exitCode=$((exitCode + 1))
+        failed_packages="${failed_packages} $pkg"
       fi
     fi
-    
-    # Also check for scripts in /usr/local/bin
-    if [ -f "/usr/local/bin/$pkg" ]; then
-      sudo rm -f "/usr/local/bin/$pkg"
-    fi
+
+    # Clean up log file
+    rm -f "$output_file"
   done
-  
-  return $exitCode
+
+  # Report failures if any
+  if [ $exitCode -ne 0 ]; then
+    printf_red "ERROR: Failed to remove:${failed_packages}"
+    return 1
+  fi
+
+  return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ruby/GEM functions

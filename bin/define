@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202208051042-git
+##@Version           :  202409241930-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Friday, Aug 05, 2022 10:42 EDT
 # @@File             :  define
 # @@Description      :  Script to lookup definition of words using dict
-# @@Changelog        :  New script
+# @@Changelog        :  Enhanced with multiple dictionaries, etymology, caching, and similar word lookup
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202208051042-git"
+VERSION="202409241930-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -195,8 +195,16 @@ __help() {
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "define:  Script to lookup definition of words using dict - $VERSION"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_line "Usage: define [options] [word]"
-  __printf_line "google                          - Get definition of the word google"
+  __printf_line "Usage: define [options] [command] [word]"
+  __printf_line ""
+  __printf_head "Commands:"
+  __printf_line "define [word]                   - Get definition from main dictionary"
+  __printf_line "define multiple [word]          - Search multiple dictionaries"
+  __printf_line "define etymology [word]         - Get word etymology/origin"
+  __printf_line "define cached [word]            - Use cached definitions (faster)"
+  __printf_line "define similar [word]           - Find similar words"
+  __printf_line "define clear-cache              - Clear definition cache"
+  __printf_line ""
   __printf_line "--gtk                           - Opens a prompt"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
@@ -294,6 +302,103 @@ __trap_exit() {
 __lookup() {
   dict -h ${DEFINE_SERVER_HOST} -p ${DEFINE_SERVER_PORT} -d gcide "$1" 2>/dev/null |
     grep -v 'No definitions found' | sed '/^$/d' | sed 's#From The Collaborative International.*##g'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Enhanced lookup functions
+__lookup_multiple() {
+  local word="$1"
+  local databases="${2:-gcide,wn,devil,vera,jargon}"
+  
+  printf_blue "📖 Looking up '$word' in multiple dictionaries..."
+  
+  for db in $(echo "$databases" | tr ',' ' '); do
+    printf_cyan "🔍 Checking $db dictionary..."
+    local result="$(dict -h ${DEFINE_SERVER_HOST} -p ${DEFINE_SERVER_PORT} -d "$db" "$word" 2>/dev/null | grep -v 'No definitions found' | sed '/^$/d')"
+    
+    if [ -n "$result" ]; then
+      printf_green "📚 From $db:"
+      echo "$result" | sed 's#From.*##g' | sed '/^$/d'
+      echo ""
+    fi
+  done
+}
+
+__lookup_etymology() {
+  local word="$1"
+  
+  printf_blue "🏛️ Looking up etymology for '$word'..."
+  
+  # Try etymology dictionary first
+  local etym_result="$(dict -h ${DEFINE_SERVER_HOST} -p ${DEFINE_SERVER_PORT} -d etymon "$word" 2>/dev/null | grep -v 'No definitions found')"
+  
+  if [ -n "$etym_result" ]; then
+    echo "$etym_result" | sed 's#From.*##g' | sed '/^$/d'
+  else
+    # Fallback to online etymology if dict fails
+    if __cmd_exists curl; then
+      printf_yellow "💡 Checking online etymology..."
+      local online_etym="$(curl -s "https://www.etymonline.com/word/$word" | grep -oE '<p[^>]*>[^<]*</p>' | head -3 | sed 's/<[^>]*>//g' | sed '/^$/d')"
+      
+      if [ -n "$online_etym" ]; then
+        echo "$online_etym"
+      else
+        printf_red "❌ No etymology found for '$word'"
+      fi
+    fi
+  fi
+}
+
+__lookup_cached() {
+  local word="$1"
+  local cache_file="$DEFINE_CACHE_DIR/${word}.cache"
+  local cache_time="${2:-86400}"  # 24 hours default
+  
+  # Check if cached and still fresh
+  if [ -f "$cache_file" ]; then
+    local age=$(($(date +%s) - $(stat -c %Y "$cache_file" 2>/dev/null || echo 0)))
+    if [ $age -lt $cache_time ]; then
+      printf_cyan "📋 Using cached definition for '$word'"
+      cat "$cache_file"
+      return 0
+    fi
+  fi
+  
+  # Not cached or expired, do fresh lookup
+  printf_blue "🌐 Looking up fresh definition for '$word'..."
+  local result="$(__lookup "$word")"
+  
+  if [ -n "$result" ]; then
+    # Cache the result
+    [ -d "$DEFINE_CACHE_DIR" ] || mkdir -p "$DEFINE_CACHE_DIR"
+    echo "$result" > "$cache_file"
+    echo "$result"
+    return 0
+  else
+    return 1
+  fi
+}
+
+__lookup_similar() {
+  local word="$1"
+  
+  printf_blue "🔍 Finding words similar to '$word'..."
+  
+  # Use dict to find similar words
+  dict -h ${DEFINE_SERVER_HOST} -p ${DEFINE_SERVER_PORT} -m "$word" 2>/dev/null | \
+    grep -v 'invalid strategy' | \
+    sed '/^$/d' | \
+    head -20
+}
+
+__clear_cache() {
+  if [ -d "$DEFINE_CACHE_DIR" ]; then
+    local cache_size="$(du -sh "$DEFINE_CACHE_DIR" 2>/dev/null | cut -f1)"
+    printf_yellow "🗑️ Clearing definition cache ($cache_size)..."
+    rm -rf "$DEFINE_CACHE_DIR"/*
+    printf_green "✅ Cache cleared"
+  else
+    printf_yellow "💡 No cache to clear"
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __yad__text() {
@@ -537,18 +642,47 @@ export DEFINE_CWD
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
-[ $# -eq 0 ] && search="${search:-$(INPUT_NAME="$APPNAME" ask_for_input "Define:")}" || search="$*"
-if [ -z "$search" ]; then
-  __notifications "Usage: $APPNAME [query]"
-  exit 1
-fi
-results="$(__lookup "${search:-$*}")"
-if [ -n "$results" ]; then
-  echo "$results" | __yad__text "$1" || echo "$results" | printf_readline "$DEFINE_OUTPUT_COLOR_2"
-else
-  printf_red "Nothing was found for $1"
-  __notifications "Nothing was found for $1"
-fi
+case "$1" in
+multiple|multi)
+  shift 1
+  [ -z "$1" ] && { printf_red "Usage: define multiple [word] [databases]"; exit 1; }
+  __lookup_multiple "$1" "$2"
+  ;;
+etymology|etym)
+  shift 1
+  [ -z "$1" ] && { printf_red "Usage: define etymology [word]"; exit 1; }
+  __lookup_etymology "$1"
+  ;;
+cached|cache)
+  shift 1
+  [ -z "$1" ] && { printf_red "Usage: define cached [word]"; exit 1; }
+  results="$(__lookup_cached "$1")"
+  [ -n "$results" ] && echo "$results" | __yad__text "$1" || printf_red "Nothing was found for $1"
+  ;;
+similar)
+  shift 1
+  [ -z "$1" ] && { printf_red "Usage: define similar [word]"; exit 1; }
+  __lookup_similar "$1"
+  ;;
+clear-cache)
+  __clear_cache
+  ;;
+*)
+  # Original functionality preserved
+  [ $# -eq 0 ] && search="${search:-$(INPUT_NAME="$APPNAME" ask_for_input "Define:")}" || search="$*"
+  if [ -z "$search" ]; then
+    __notifications "Usage: $APPNAME [query]"
+    exit 1
+  fi
+  results="$(__lookup "${search:-$*}")"
+  if [ -n "$results" ]; then
+    echo "$results" | __yad__text "$1" || echo "$results" | printf_readline "$DEFINE_OUTPUT_COLOR_2"
+  else
+    printf_red "Nothing was found for $1"
+    __notifications "Nothing was found for $1"
+  fi
+  ;;
+esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set exit code
 exitCode="${exitCode:-0}"

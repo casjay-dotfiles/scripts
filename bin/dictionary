@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202208051209-git
+##@Version           :  202409241945-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Friday, Aug 05, 2022 12:09 EDT
 # @@File             :  dictionary
 # @@Description      :  Thesaurus
-# @@Changelog        :  New script
+# @@Changelog        :  Enhanced with search history, word lists, random word feature, and personal vocabulary management
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202208051209-git"
+VERSION="202409241945-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -298,6 +298,80 @@ __trap_exit() {
 # User defined functions
 __trap_exit_local() {
   [ -f "${DICTIONARY_TEMP_FILE}.out" ] && rm -Rf "${DICTIONARY_TEMP_FILE}.out" &>/dev/null
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Enhanced dictionary functions
+__dictionary_history() {
+  local history_file="$DICTIONARY_CACHE_DIR/search_history.txt"
+  
+  if [ "$1" = "clear" ]; then
+    [ -f "$history_file" ] && rm -f "$history_file"
+    printf_green "✅ Search history cleared"
+    return 0
+  fi
+  
+  if [ -f "$history_file" ]; then
+    printf_blue "📖 Recent word lookups:"
+    local count=1
+    tail -20 "$history_file" | while read -r word; do
+      [ -n "$word" ] && printf_cyan "  $count. $word"
+      count=$((count + 1))
+    done
+  else
+    printf_yellow "💡 No search history found"
+  fi
+}
+
+__dictionary_save_word() {
+  local word="$1"
+  local list_name="${2:-favorites}"
+  local list_file="$DICTIONARY_CACHE_DIR/wordlist_${list_name}.txt"
+  
+  [ -d "$DICTIONARY_CACHE_DIR" ] || mkdir -p "$DICTIONARY_CACHE_DIR"
+  
+  if ! grep -q "^$word$" "$list_file" 2>/dev/null; then
+    echo "$word" >> "$list_file"
+    printf_green "✅ Added '$word' to '$list_name' word list"
+  else
+    printf_yellow "💡 '$word' already in '$list_name' list"
+  fi
+}
+
+__dictionary_list_words() {
+  local list_name="${1:-favorites}"
+  local list_file="$DICTIONARY_CACHE_DIR/wordlist_${list_name}.txt"
+  
+  if [ -f "$list_file" ]; then
+    printf_blue "📚 Words in '$list_name' list:"
+    local count=1
+    cat "$list_file" | while read -r word; do
+      [ -n "$word" ] && printf_cyan "  $count. $word"
+      count=$((count + 1))
+    done
+  else
+    printf_yellow "💡 No '$list_name' word list found"
+  fi
+}
+
+__dictionary_random() {
+  printf_blue "🎲 Finding a random word..."
+  
+  if __cmd_exists curl; then
+    local random_word="$(curl -s "https://api.datamuse.com/words?sp=??????&max=1" | jq -r '.[0].word' 2>/dev/null)"
+    
+    if [ -n "$random_word" ] && [ "$random_word" != "null" ]; then
+      printf_green "🎯 Random word: $random_word"
+      echo ""
+      # Look up the random word
+      __curl_dl "$random_word"
+      __search_results "$random_word"
+    else
+      printf_red "❌ Failed to get random word"
+    fi
+  else
+    printf_red "❌ curl required for random word lookup"
+    return 1
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __sort_u() {
@@ -693,9 +767,32 @@ origin)
   __curl_dl "$search"
   __search_results "$search"
   ;;
+history)
+  shift 1
+  __dictionary_history "$1"
+  ;;
+save-word|save)
+  shift 1
+  [ -z "$1" ] && { printf_red "Usage: dictionary save-word [word] [list_name]"; exit 1; }
+  __dictionary_save_word "$1" "$2"
+  ;;
+list-words|words)
+  shift 1
+  __dictionary_list_words "$1"
+  ;;
+random)
+  shift 1
+  __dictionary_random
+  ;;
 *)
   search="$1"
   [ $# -ne 0 ] || printf_exit 5 1 "Usage: $APPNAME [searchTerm]"
+  
+  # Add to search history
+  local history_file="$DICTIONARY_CACHE_DIR/search_history.txt"
+  [ -d "$DICTIONARY_CACHE_DIR" ] || mkdir -p "$DICTIONARY_CACHE_DIR"
+  echo "$search" >> "$history_file"
+  
   __curl_dl "$search"
   phonetic="$(__phonetic "$search")"
   definition="$(__definition "$search")"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202509261700-git
+##@Version           :  202409241830-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -9,7 +9,7 @@
 # @@Created          :  Thursday, Sep 26, 2025 17:00 EST
 # @@File             :  pkmgr
 # @@Description      :  Universal package manager wrapper
-# @@Changelog        :  Complete refactor with modular design
+# @@Changelog        :  Fixed search argument parsing to properly handle show-raw option
 # @@TODO             :  Continuous improvements
 # @@Other            :
 # @@Resource         :
@@ -18,7 +18,7 @@
 # @@Template         :  bash/system
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename "$0" 2>/dev/null)"
-VERSION="202509261700-git"
+VERSION="202409241830-git"
 HOME="${USER_HOME:-$HOME}"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${SUDO_USER:-$USER}"
@@ -107,8 +107,11 @@ else
   ICON_CROSS="[✗]"
   ICON_ARROW="->"
   ICON_LOADING="..."
+  
+  # Disable all colors in raw mode
   RESET=""
   BOLD=""
+  BLACK=""
   RED=""
   GREEN=""
   YELLOW=""
@@ -116,15 +119,103 @@ else
   CYAN=""
   WHITE=""
   MAGENTA=""
+  BG_RED=""
+  BG_GREEN=""
+  BG_YELLOW=""
+  BG_BLUE=""
 fi
 
 # Unbuffered output functions
 __print() {
-  printf "%b\n" "$@"
+  if [ "$SHOW_RAW" = "true" ]; then
+    printf "%b\n" "$@" | sed 's/\x1b\[[0-9;]*[a-zA-Z]//g'
+  else
+    printf "%b\n" "$@"
+  fi
 }
 
 __print_no_newline() {
-  printf "%b" "$@"
+  if [ "$SHOW_RAW" = "true" ]; then
+    printf "%b" "$@" | sed 's/\x1b\[[0-9;]*[a-zA-Z]//g'
+  else
+    printf "%b" "$@"
+  fi
+}
+
+# Standard script functions for getopt compatibility
+__help() {
+  __print_header "pkmgr - Universal Package Manager Wrapper"
+  
+  __print "USAGE:"
+  __print "  pkmgr [OPTIONS] COMMAND [PACKAGES...]"
+  __print ""
+  
+  __print "COMMANDS:"
+  __print "  install         Install packages"
+  __print "  remove          Remove packages"
+  __print "  search          Search for packages"
+  __print "  update          Update package databases"
+  __print "  upgrade         Upgrade all packages"
+  __print "  list            List installed packages"
+  __print "  clean           Clean package cache"
+  __print "  info            Show system information"
+  __print ""
+  
+  __print "LANGUAGE PACKAGE MANAGERS:"
+  __print "  pip             Python packages"
+  __print "  npm             Node.js packages"
+  __print "  gem             Ruby packages"
+  __print "  go              Go modules"
+  __print ""
+  
+  __print "OPTIONS:"
+  __print "  -h, --help      Show this help message"
+  __print "  -V, --version   Show version information"
+  __print "  --config        Generate user config file"
+  __print "  --debug         Enable debug mode"
+  __print "  --raw           Raw output (no colors/formatting)"
+  __print "  --silent        Silent mode"
+  __print "  -i, --interactive Interactive mode"
+  __print "  --show-progress Show progress indicators"
+  __print "  --options       Show all available options"
+  __print ""
+  
+  __print "EXAMPLES:"
+  __print "  pkmgr install vim git"
+  __print "  pkmgr search editor"
+  __print "  pkmgr --raw search vim"
+  __print "  pkmgr -i search editor"
+  __print "  pkmgr pip install requests"
+  __print "  pkmgr npm install express"
+}
+
+__version() {
+  __print_info "$VERSION"
+}
+
+__gen_config() {
+  local config_dir="$HOME/.config/myscripts/pkmgr"
+  local config_file="$config_dir/settings.conf"
+  
+  [ -d "$config_dir" ] || mkdir -p "$config_dir"
+  
+  cat > "$config_file" <<EOF
+# pkmgr configuration file
+
+# Default settings
+PKMGR_SILENT="${PKMGR_SILENT:-false}"
+PKMGR_INTERACTIVE="${PKMGR_INTERACTIVE:-false}"
+PKMGR_SHOW_PROGRESS="${PKMGR_SHOW_PROGRESS:-true}"
+
+# Color settings
+PKMGR_OUTPUT_COLOR_1="${PKMGR_OUTPUT_COLOR_1:-33}"
+PKMGR_OUTPUT_COLOR_2="${PKMGR_OUTPUT_COLOR_2:-5}"
+PKMGR_OUTPUT_COLOR_GOOD="${PKMGR_OUTPUT_COLOR_GOOD:-2}"
+PKMGR_OUTPUT_COLOR_ERROR="${PKMGR_OUTPUT_COLOR_ERROR:-9}"
+
+EOF
+
+  printf_green "Configuration file created: $config_file"
 }
 
 __print_info() {
@@ -1250,12 +1341,141 @@ __search_packages() {
     return 1
   fi
 
+  # Check for very short search terms that might cause too many results
+  if [ ${#query} -lt 3 ]; then
+    __print_warning "Search term '$query' is too short - try a more specific term (3+ characters)"
+    __print_info "Examples: '$query-dev', '$query-git', '$query-tool', 'git$query', '${query}ui'"
+    return 1
+  fi
+
+  # Execute search with error handling for AUR helpers
+  # Use prefix matching pattern (^query) for better relevance
+  local search_pattern="$query"
+  local search_output
+  local search_exit
+  
+  search_output=$(eval "$cmd $search_pattern" 2>&1)
+  search_exit=$?
+  
+  if [ $search_exit -ne 0 ]; then
+    if echo "$search_output" | grep -qi "too many.*results"; then
+      # For "too many results", try with different approach
+      __print_header "Search Results (Limited)"
+      __print_warning "Too many results found - showing first 30 matches for: $query"
+      
+      # Try alternative search approach with prefix matching
+      local fallback_output
+      if echo "$cmd" | grep -q "yay\|paru"; then
+        # Use direct pacman search as fallback for official repos
+        fallback_output="$(pacman -Ss "$query" 2>/dev/null)"
+      else
+        # For other package managers, try the original command
+        fallback_output="$(eval "$cmd $query" 2>/dev/null)"
+      fi
+      
+      # Apply same formatting to fallback results
+      echo "$fallback_output" | sed -E 's|^[^/]+/||' | \
+        awk -v query="$query" -v show_raw="$SHOW_RAW" '
+        BEGIN {
+          if (show_raw != "true") {
+            green = "\033[32m"; cyan = "\033[36m"; reset = "\033[0m"
+          } else {
+            green = ""; cyan = ""; reset = ""
+          }
+        }
+        {
+          if (NF > 0 && substr($0, 1, 1) != " ") {
+            print green $0 reset
+            getline desc
+            if (desc != "" && substr(desc, 1, 1) == " ") {
+              print cyan desc reset
+            }
+          }
+        }' | head -30
+      
+      __print_info "💡 Use a more specific search term for better results"
+      return 0
+    elif echo "$search_output" | grep -qi "no.*found\|not.*found"; then
+      __print_warning "No packages found matching: $query"
+      return 1
+    else
+      __print_error "Search failed: $search_output"
+      return $search_exit
+    fi
+  fi
+  
+  # Show results with header for successful output
   __print_header "Search Results"
   __print_info "Searching for: $query"
+  
+  # Show results with clean repo names, proper coloring, and preserved format
+  # Remove repo prefix and prioritize by package name relevance
+  echo "$search_output" | sed -E 's|^[^/]+/||' | \
+    awk -v query="$query" -v show_raw="$SHOW_RAW" '
+    BEGIN {
+      # Color codes (only if not raw mode)
+      if (show_raw != "true") {
+        green = "\033[32m"
+        cyan = "\033[36m" 
+        reset = "\033[0m"
+      } else {
+        green = ""
+        cyan = ""
+        reset = ""
+      }
+    }
+    {
+      if (NF > 0 && substr($0, 1, 1) != " ") {
+        # This is a package line (not an indented description)
+        package_line = $0
+        package_name = $1
+        
+        # Determine priority based on package name
+        if (package_name == query) {
+          priority = 1  # Exact match
+        } else if (index(package_name, query) == 1) {
+          priority = 2  # Starts with query
+        } else if (index(package_name, query "-") == 1 || index(package_name, query "_") == 1) {
+          priority = 3  # Starts with query- or query_
+        } else {
+          priority = 4  # Contains query somewhere
+        }
+        
+        # Store with priority and add green color to package line
+        packages[priority][package_name] = green package_line reset
+        next_desc[package_name] = ""
+      } else {
+        # This is a description line, store with cyan color
+        if (package_name != "") {
+          next_desc[package_name] = cyan $0 reset
+        }
+      }
+    }
+    END {
+      # Output in priority order with descriptions
+      for (p = 1; p <= 4; p++) {
+        count = 0
+        for (pkg in packages[p]) {
+          if (count < (p == 1 ? 5 : p == 2 ? 15 : p == 3 ? 15 : 15)) {
+            print packages[p][pkg]
+            if (next_desc[pkg] != "") print next_desc[pkg]
+            count++
+          }
+        }
+      }
+    }'
+  
+  # Count results and provide feedback
+  local result_count=$(echo "$search_output" | wc -l)
+  if [ "$result_count" -ge 50 ]; then
+    __print_warning "Showing first 50 results (total may be higher)"
+    __print_info "Use a more specific search term to narrow results"
+  elif [ "$result_count" -eq 0 ]; then
+    __print_warning "No packages found matching: $query"
+    return 1
+  fi
 
-  eval "$cmd $query" | head -50
-
-  return $?
+  return 0
 }
 
 # Clean package cache
@@ -1548,5 +1768,94 @@ main() {
   esac
 }
 
-# Execute main function
-main "$@"
+# ============================================================================
+# Argument/Option Processing with getopt
+# ============================================================================
+
+# Option definitions
+SHORTOPTS="hyvV"
+LONGOPTS="help,config,debug,version,raw,silent,options,completions:,interactive,show-progress"
+
+# Array for available commands
+ARRAY="info,version,check,available,init,makecache,aliases,cron,ask,export,clean,search,keys,list,curl,dotfiles,script,required,reinstall,install,upgrade,remove"
+ARRAY+=",silent,bin,perl,pip,gem,npm,go,lua"
+
+# Parse arguments with getopt
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+
+# Process options
+while :; do
+  case "$1" in
+  --raw)
+    shift 1
+    export SHOW_RAW="true"
+    ;;
+  --debug)
+    shift 1
+    set -xo pipefail
+    export SCRIPT_OPTS="--debug"
+    export _DEBUG="on"
+    ;;
+  --help | -h)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --version | -V)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  --interactive | -i)
+    shift 1
+    PKMGR_INTERACTIVE="true"
+    ;;
+  --show-progress)
+    shift 1
+    PKMGR_SHOW_PROGRESS="true"
+    ;;
+  --silent)
+    shift 1
+    PKMGR_SILENT="true"
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
+    ;;
+  --options)
+    shift 1
+    __print_header "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __print_info "Short Options: -${SHORTOPTS}"
+    [ -z "$LONGOPTS" ] || __print_info "Long Options: --${LONGOPTS}"
+    [ -z "$ARRAY" ] || __print_info "Available Commands: ${ARRAY}"
+    exit $?
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+
+# Execute main function with processed arguments
+if [ "$SHOW_RAW" = "true" ]; then
+  # Filter all output through sed to remove any escape sequences
+  main "$@" 2>&1 | sed 's/\x1b\[[0-9;]*[a-zA-Z]//g; s/\x1b\][0-9]*;[^\x07]*\x07//g; s/\x1b\[[0-9]*[ q]//g'
+else
+  main "$@"
+fi

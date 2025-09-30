@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202208162215-git
+##@Version           :  202409241915-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Tuesday, Aug 16, 2022 22:15 EDT
 # @@File             :  spellcheck
 # @@Description      :  Script to check spelling
-# @@Changelog        :  New script
+# @@Changelog        :  Enhanced with batch processing, interactive mode, dictionary management, and multi-language support
 # @@TODO             :  Add function to keep open/Add notification support
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202208162215-git"
+VERSION="202409241915-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -193,8 +193,16 @@ __help() {
   __printf_opts "spellcheck:  Script to check spelling - $VERSION"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "Usage: spellcheck [options] [commands]"
-  __printf_line " - "
-  __printf_line " - "
+  __printf_line ""
+  __printf_head "Commands:"
+  __printf_line "spellcheck [word]               - Check spelling of a word"
+  __printf_line "spellcheck [file]               - Check spelling of a file"
+  __printf_line "spellcheck batch [files...]     - Batch check multiple files"
+  __printf_line "spellcheck interactive [word]   - Interactive word checking"
+  __printf_line "spellcheck add-word [word]      - Add word to personal dictionary"
+  __printf_line "spellcheck list-dicts           - List available dictionaries"
+  __printf_line "spellcheck set-lang [language]  - Set spell check language"
+  __printf_line ""
   __printf_line "--dir                           - Sets the working directory"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
@@ -347,6 +355,139 @@ __execute_spellcheck() {
     fi
   fi
   return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Enhanced spellcheck functions
+__spellcheck_batch() {
+  local files=("$@")
+  local total_errors=0
+  
+  if [ ${#files[@]} -eq 0 ]; then
+    printf_red "Usage: spellcheck batch [files...]"
+    return 1
+  fi
+  
+  printf_blue "📚 Batch spellcheck of ${#files[@]} files"
+  
+  for file in "${files[@]}"; do
+    if [ -f "$file" ]; then
+      printf_cyan "🔍 Checking: $(basename "$file")"
+      
+      # Count misspelled words
+      local errors=$(aspell -c "$file" --list < "$file" 2>/dev/null | wc -l)
+      total_errors=$((total_errors + errors))
+      
+      if [ "$errors" -eq 0 ]; then
+        printf_green "  ✅ No spelling errors found"
+      else
+        printf_yellow "  ⚠️ Found $errors potential spelling errors"
+      fi
+    else
+      printf_red "  ❌ File not found: $file"
+    fi
+  done
+  
+  printf_blue "📊 Total potential errors across all files: $total_errors"
+  return 0
+}
+
+__spellcheck_interactive() {
+  local word="$1"
+  
+  if [ -z "$word" ]; then
+    printf_read_input "Enter word to check: " "" "word"
+  fi
+  
+  if [ -z "$word" ]; then
+    printf_red "No word provided"
+    return 1
+  fi
+  
+  printf_blue "🔍 Checking spelling of: '$word'"
+  
+  echo "$word" | aspell -a list | grep -v "@(#) " >"$SPELLCHECK_TEMP_FILE" 2>/dev/null
+  
+  if grep -shq '^\*$' "$SPELLCHECK_TEMP_FILE"; then
+    printf_green "✅ '$word' is spelled correctly"
+    __notifications "SpellCheck: '$word' is correct"
+    return 0
+  else
+    printf_red "❌ '$word' appears to be misspelled"
+    
+    # Extract suggestions
+    local suggestions="$(sed 's|^& [^:]*: ||g' <"$SPELLCHECK_TEMP_FILE" | tr ',' '\n' | head -10)"
+    
+    if [ -n "$suggestions" ]; then
+      printf_yellow "💡 Suggestions:"
+      echo "$suggestions" | while read -r suggestion; do
+        [ -n "$suggestion" ] && printf_cyan "  • $suggestion"
+      done
+      
+      printf_read_question "3" "Select a suggestion or press Enter to skip" "1" "selected"
+      if [ -n "$selected" ]; then
+        printf_green "✅ Selected: $selected"
+        # Copy to clipboard if available
+        if __cmd_exists xclip; then
+          echo -n "$selected" | xclip -selection clipboard
+          printf_cyan "📋 Copied to clipboard"
+        fi
+      fi
+    else
+      printf_yellow "💡 No suggestions available"
+    fi
+    
+    __notifications "SpellCheck: '$word' needs correction"
+    return 1
+  fi
+}
+
+__spellcheck_add_word() {
+  local word="$1"
+  
+  if [ -z "$word" ]; then
+    printf_red "Usage: spellcheck add-word [word]"
+    return 1
+  fi
+  
+  if echo "$word" | aspell -a >/dev/null 2>&1; then
+    # Add to personal dictionary
+    echo "*$word" | aspell -a >/dev/null 2>&1
+    printf_green "✅ Added '$word' to personal dictionary"
+    __notifications "Word '$word' added to dictionary"
+    return 0
+  else
+    printf_red "❌ Failed to add word to dictionary"
+    return 1
+  fi
+}
+
+__spellcheck_list_dicts() {
+  printf_blue "📖 Available dictionaries:"
+  
+  if __cmd_exists aspell; then
+    aspell dump dicts | while read -r dict; do
+      printf_cyan "  • $dict"
+    done
+  else
+    printf_red "❌ aspell not available"
+    return 1
+  fi
+}
+
+__spellcheck_set_lang() {
+  local lang="$1"
+  
+  if [ -z "$lang" ]; then
+    printf_blue "📖 Available languages:"
+    aspell dump dicts
+    printf_read_input "Enter language code: " "en_US" "lang"
+  fi
+  
+  if [ -n "$lang" ]; then
+    export LANG="$lang"
+    printf_green "✅ Language set to: $lang"
+    __notifications "Language changed to $lang"
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
@@ -579,7 +720,37 @@ export SPELLCHECK_CWD
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
-__execute_spellcheck "${@:-$search}"
+case "$1" in
+batch)
+  shift 1
+  __spellcheck_batch "$@"
+  exitCode=$?
+  ;;
+interactive|check)
+  shift 1
+  __spellcheck_interactive "$@"
+  exitCode=$?
+  ;;
+add-word|add)
+  shift 1
+  __spellcheck_add_word "$@"
+  exitCode=$?
+  ;;
+list-dicts|dicts)
+  shift 1
+  __spellcheck_list_dicts
+  exitCode=$?
+  ;;
+set-lang|lang)
+  shift 1
+  __spellcheck_set_lang "$@"
+  exitCode=$?
+  ;;
+*)
+  __execute_spellcheck "${@:-$search}"
+  exitCode=$?
+  ;;
+esac
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set exit code
 exitCode="${exitCode:-0}"

@@ -1,0 +1,1861 @@
+#!/usr/bin/env bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version           :  202409241830-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  git-admin@casjaysdev.pro
+# @@License          :  LICENSE.md
+# @@ReadME           :  pkmgr --help
+# @@Copyright        :  Copyright: (c) 2025 Jason Hempstead, Casjays Developments
+# @@Created          :  Thursday, Sep 26, 2025 17:00 EST
+# @@File             :  pkmgr
+# @@Description      :  Universal package manager wrapper
+# @@Changelog        :  Fixed search argument parsing to properly handle show-raw option
+# @@TODO             :  Continuous improvements
+# @@Other            :
+# @@Resource         :
+# @@Terminal App     :  no
+# @@sudo/root        :  yes
+# @@Template         :  bash/system
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+APPNAME="$(basename "$0" 2>/dev/null)"
+VERSION="202409241830-git"
+HOME="${USER_HOME:-$HOME}"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${SUDO_USER:-$USER}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+PKMGR_REQUIRE_SUDO="${PKMGR_REQUIRE_SUDO:-no}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Reopen in terminal
+[ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; } && { [ "$(uname -s)" = "Darwin" ] && TERMINAL_APP="Terminal" || TERMINAL_APP="tilix"; } && { [ "$(builtin type -P $TERMINAL_APP 2>/dev/null)" ] && TERMINAL_APP="$TERMINAL_APP" || TERMINAL_APP="$TERMINAL"; } && { [ "$(builtin type -P $TERMINAL_APP 2>/dev/null)" ] && exec $TERMINAL_APP -e "$APPNAME $*" || exit 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set bash options
+[[ "$1" == "--debug" ]] && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+[[ "$1" == "--raw" ]] && export SHOW_RAW="true"
+set -o pipefail
+
+# ============================================================================
+# Core Configuration
+# ============================================================================
+
+# Import functions library
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-mgr-installers.bash}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+  . "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  exit 1
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for required functions (only load if needed and running as root)
+# [ -f "$SCRIPTSFUNCTDIR/system-installer.bash" ] && . "$SCRIPTSFUNCTDIR/system-installer.bash"
+
+# ============================================================================
+# Pretty Output Functions - No Buffering
+# ============================================================================
+
+# Force immediate output
+exec 2>&1
+
+# Icons for pretty output
+if [[ "$SHOW_RAW" != "true" ]] && [[ -t 1 ]]; then
+  ICON_INFO="ℹ️"
+  ICON_SUCCESS="✅"
+  ICON_ERROR="❌"
+  ICON_WARNING="⚠️"
+  ICON_PACKAGE="📦"
+  ICON_SEARCH="🔍"
+  ICON_UPDATE="🔄"
+  ICON_INSTALL="⬇️"
+  ICON_REMOVE="🗑️"
+  ICON_CHECK="✓"
+  ICON_CROSS="✗"
+  ICON_ARROW="➜"
+  ICON_LOADING="⏳"
+
+  # Colors
+  RESET="\033[0m"
+  BOLD="\033[1m"
+  BLACK="\033[30m"
+  RED="\033[31m"
+  GREEN="\033[32m"
+  YELLOW="\033[33m"
+  BLUE="\033[34m"
+  MAGENTA="\033[35m"
+  CYAN="\033[36m"
+  WHITE="\033[37m"
+  BG_RED="\033[41m"
+  BG_GREEN="\033[42m"
+  BG_YELLOW="\033[43m"
+  BG_BLUE="\033[44m"
+else
+  # No colors/icons in raw mode
+  ICON_INFO="[INFO]"
+  ICON_SUCCESS="[OK]"
+  ICON_ERROR="[ERROR]"
+  ICON_WARNING="[WARN]"
+  ICON_PACKAGE="[PKG]"
+  ICON_SEARCH="[SEARCH]"
+  ICON_UPDATE="[UPDATE]"
+  ICON_INSTALL="[INSTALL]"
+  ICON_REMOVE="[REMOVE]"
+  ICON_CHECK="[✓]"
+  ICON_CROSS="[✗]"
+  ICON_ARROW="->"
+  ICON_LOADING="..."
+  
+  # Disable all colors in raw mode
+  RESET=""
+  BOLD=""
+  BLACK=""
+  RED=""
+  GREEN=""
+  YELLOW=""
+  BLUE=""
+  CYAN=""
+  WHITE=""
+  MAGENTA=""
+  BG_RED=""
+  BG_GREEN=""
+  BG_YELLOW=""
+  BG_BLUE=""
+fi
+
+# Unbuffered output functions
+__print() {
+  if [ "$SHOW_RAW" = "true" ]; then
+    printf "%b\n" "$@" | sed 's/\x1b\[[0-9;]*[a-zA-Z]//g'
+  else
+    printf "%b\n" "$@"
+  fi
+}
+
+__print_no_newline() {
+  if [ "$SHOW_RAW" = "true" ]; then
+    printf "%b" "$@" | sed 's/\x1b\[[0-9;]*[a-zA-Z]//g'
+  else
+    printf "%b" "$@"
+  fi
+}
+
+# Standard script functions for getopt compatibility
+__help() {
+  __print_header "pkmgr - Universal Package Manager Wrapper"
+  
+  __print "USAGE:"
+  __print "  pkmgr [OPTIONS] COMMAND [PACKAGES...]"
+  __print ""
+  
+  __print "COMMANDS:"
+  __print "  install         Install packages"
+  __print "  remove          Remove packages"
+  __print "  search          Search for packages"
+  __print "  update          Update package databases"
+  __print "  upgrade         Upgrade all packages"
+  __print "  list            List installed packages"
+  __print "  clean           Clean package cache"
+  __print "  info            Show system information"
+  __print ""
+  
+  __print "LANGUAGE PACKAGE MANAGERS:"
+  __print "  pip             Python packages"
+  __print "  npm             Node.js packages"
+  __print "  gem             Ruby packages"
+  __print "  go              Go modules"
+  __print ""
+  
+  __print "OPTIONS:"
+  __print "  -h, --help      Show this help message"
+  __print "  -V, --version   Show version information"
+  __print "  --config        Generate user config file"
+  __print "  --debug         Enable debug mode"
+  __print "  --raw           Raw output (no colors/formatting)"
+  __print "  --silent        Silent mode"
+  __print "  -i, --interactive Interactive mode"
+  __print "  --show-progress Show progress indicators"
+  __print "  --options       Show all available options"
+  __print ""
+  
+  __print "EXAMPLES:"
+  __print "  pkmgr install vim git"
+  __print "  pkmgr search editor"
+  __print "  pkmgr --raw search vim"
+  __print "  pkmgr -i search editor"
+  __print "  pkmgr pip install requests"
+  __print "  pkmgr npm install express"
+}
+
+__version() {
+  __print_info "$VERSION"
+}
+
+__gen_config() {
+  local config_dir="$HOME/.config/myscripts/pkmgr"
+  local config_file="$config_dir/settings.conf"
+  
+  [ -d "$config_dir" ] || mkdir -p "$config_dir"
+  
+  cat > "$config_file" <<EOF
+# pkmgr configuration file
+
+# Default settings
+PKMGR_SILENT="${PKMGR_SILENT:-false}"
+PKMGR_INTERACTIVE="${PKMGR_INTERACTIVE:-false}"
+PKMGR_SHOW_PROGRESS="${PKMGR_SHOW_PROGRESS:-true}"
+
+# Color settings
+PKMGR_OUTPUT_COLOR_1="${PKMGR_OUTPUT_COLOR_1:-33}"
+PKMGR_OUTPUT_COLOR_2="${PKMGR_OUTPUT_COLOR_2:-5}"
+PKMGR_OUTPUT_COLOR_GOOD="${PKMGR_OUTPUT_COLOR_GOOD:-2}"
+PKMGR_OUTPUT_COLOR_ERROR="${PKMGR_OUTPUT_COLOR_ERROR:-9}"
+
+EOF
+
+  printf_green "Configuration file created: $config_file"
+}
+
+__print_info() {
+  __print "${CYAN}${ICON_INFO} $*${RESET}"
+}
+
+__print_success() {
+  __print "${GREEN}${ICON_SUCCESS} $*${RESET}"
+}
+
+__print_error() {
+  __print "${RED}${ICON_ERROR} $*${RESET}" >&2
+}
+
+__print_warning() {
+  __print "${YELLOW}${ICON_WARNING} $*${RESET}"
+}
+
+__print_package() {
+  __print "${BLUE}${ICON_PACKAGE} $*${RESET}"
+}
+
+__print_header() {
+  local msg="$1"
+  local width=60
+  local padding=$(( (width - ${#msg} - 2) / 2 ))
+  __print "\n${BOLD}${BLUE}$(printf '=%.0s' {1..60})${RESET}"
+  __print "${BOLD}${CYAN}$(printf ' %.0s' $(seq 1 $padding))$msg${RESET}"
+  __print "${BOLD}${BLUE}$(printf '=%.0s' {1..60})${RESET}\n"
+}
+
+# Progress spinner - no buffering
+__spinner() {
+  local pid=$1
+  local delay=0.1
+  local spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+
+  while kill -0 $pid 2>/dev/null; do
+    local temp=${spinstr#?}
+    __print_no_newline " [${spinstr:0:1}]"
+    spinstr=$temp${spinstr%"$temp"}
+    sleep $delay
+    __print_no_newline "\b\b\b\b"
+  done
+  __print_no_newline "    \b\b\b\b"
+}
+
+# Execute with real-time output
+__exec_realtime() {
+  local cmd="$1"
+  local desc="${2:-Executing}"
+
+  __print_no_newline "${CYAN}${ICON_LOADING} $desc...${RESET}"
+
+  # Execute command with unbuffered output
+  if eval "$cmd"; then
+    __print " ${GREEN}${ICON_CHECK}${RESET}"
+    return 0
+  else
+    __print " ${RED}${ICON_CROSS}${RESET}"
+    return 1
+  fi
+}
+
+# ============================================================================
+# Package Manager Detection and Abstraction
+# ============================================================================
+
+# OS and distribution detection
+__detect_os() {
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    echo "macos"
+  elif [ -f /etc/os-release ]; then
+    . /etc/os-release
+    echo "${ID:-linux}"
+  else
+    echo "unknown"
+  fi
+}
+
+__detect_distro() {
+  local os="$(__detect_os)"
+
+  case "$os" in
+    ubuntu|debian|linuxmint|pop|elementary|kali|parrot)
+      echo "debian"
+      ;;
+    fedora|rhel|centos|rocky|almalinux|alma|oracle|ol)
+      echo "rhel"
+      ;;
+    arch|manjaro|endeavouros|garuda|cachyos)
+      echo "arch"
+      ;;
+    opensuse*|suse)
+      echo "suse"
+      ;;
+    alpine)
+      echo "alpine"
+      ;;
+    void)
+      echo "void"
+      ;;
+    gentoo)
+      echo "gentoo"
+      ;;
+    freebsd)
+      echo "freebsd"
+      ;;
+    openbsd)
+      echo "openbsd"
+      ;;
+    macos)
+      echo "macos"
+      ;;
+    *)
+      echo "unknown"
+      ;;
+  esac
+}
+
+# Detect package manager
+__detect_package_manager() {
+  local distro="$(__detect_distro)"
+
+  case "$distro" in
+    debian)
+      if command -v apt-get >/dev/null 2>&1; then
+        echo "apt"
+      elif command -v apt >/dev/null 2>&1; then
+        echo "apt"
+      fi
+      ;;
+    rhel)
+      if command -v dnf >/dev/null 2>&1; then
+        echo "dnf"
+      elif command -v yum >/dev/null 2>&1; then
+        echo "yum"
+      fi
+      ;;
+    arch)
+      if command -v paru >/dev/null 2>&1; then
+        echo "paru"
+      elif command -v yay >/dev/null 2>&1; then
+        echo "yay"
+      elif command -v pacman >/dev/null 2>&1; then
+        echo "pacman"
+      fi
+      ;;
+    suse)
+      if command -v zypper >/dev/null 2>&1; then
+        echo "zypper"
+      fi
+      ;;
+    alpine)
+      if command -v apk >/dev/null 2>&1; then
+        echo "apk"
+      fi
+      ;;
+    void)
+      if command -v xbps-install >/dev/null 2>&1; then
+        echo "xbps"
+      fi
+      ;;
+    gentoo)
+      if command -v emerge >/dev/null 2>&1; then
+        echo "emerge"
+      fi
+      ;;
+    freebsd)
+      if command -v pkg >/dev/null 2>&1; then
+        echo "pkg"
+      fi
+      ;;
+    openbsd)
+      if command -v pkg_add >/dev/null 2>&1; then
+        echo "pkg_add"
+      fi
+      ;;
+    macos)
+      if command -v brew >/dev/null 2>&1; then
+        echo "brew"
+      fi
+      ;;
+    *)
+      echo "unknown"
+      ;;
+  esac
+}
+
+# Package manager command abstraction
+__get_package_command() {
+  local action="$1"
+  local pkgmgr="${2:-$(__detect_package_manager)}"
+  local pkg="${3:-}"
+
+  case "$pkgmgr" in
+    apt)
+      case "$action" in
+        install) echo "apt-get install -y" ;;
+        remove) echo "apt-get remove -y" ;;
+        update) echo "apt-get update" ;;
+        upgrade) echo "apt-get upgrade -y" ;;
+        search) echo "apt-cache search" ;;
+        list) echo "dpkg -l" ;;
+        clean) echo "apt-get clean && apt-get autoclean" ;;
+      esac
+      ;;
+    dnf|yum)
+      case "$action" in
+        install) echo "$pkgmgr install -y" ;;
+        remove) echo "$pkgmgr remove -y" ;;
+        update) echo "$pkgmgr check-update" ;;
+        upgrade) echo "$pkgmgr upgrade -y" ;;
+        search) echo "$pkgmgr search" ;;
+        list) echo "$pkgmgr list installed" ;;
+        clean) echo "$pkgmgr clean all" ;;
+      esac
+      ;;
+    pacman)
+      case "$action" in
+        install) echo "pacman -S --noconfirm" ;;
+        remove) echo "pacman -R --noconfirm" ;;
+        update) echo "pacman -Sy" ;;
+        upgrade) echo "pacman -Syu --noconfirm" ;;
+        search) echo "pacman -Ss" ;;
+        list) echo "pacman -Q" ;;
+        clean) echo "pacman -Sc --noconfirm" ;;
+      esac
+      ;;
+    yay|paru)
+      case "$action" in
+        install) echo "$pkgmgr -S --noconfirm" ;;
+        remove) echo "$pkgmgr -R --noconfirm" ;;
+        update) echo "$pkgmgr -Sy" ;;
+        upgrade) echo "$pkgmgr -Syu --noconfirm" ;;
+        search) echo "$pkgmgr -Ss" ;;
+        list) echo "$pkgmgr -Q" ;;
+        clean) echo "$pkgmgr -Sc --noconfirm" ;;
+      esac
+      ;;
+    zypper)
+      case "$action" in
+        install) echo "zypper install -y" ;;
+        remove) echo "zypper remove -y" ;;
+        update) echo "zypper refresh" ;;
+        upgrade) echo "zypper update -y" ;;
+        search) echo "zypper search" ;;
+        list) echo "zypper se --installed-only" ;;
+        clean) echo "zypper clean" ;;
+      esac
+      ;;
+    apk)
+      case "$action" in
+        install) echo "apk add" ;;
+        remove) echo "apk del" ;;
+        update) echo "apk update" ;;
+        upgrade) echo "apk upgrade" ;;
+        search) echo "apk search" ;;
+        list) echo "apk info" ;;
+        clean) echo "apk cache clean" ;;
+      esac
+      ;;
+    xbps)
+      case "$action" in
+        install) echo "xbps-install -y" ;;
+        remove) echo "xbps-remove -y" ;;
+        update) echo "xbps-install -S" ;;
+        upgrade) echo "xbps-install -Syu" ;;
+        search) echo "xbps-query -Rs" ;;
+        list) echo "xbps-query -l" ;;
+        clean) echo "xbps-remove -O" ;;
+      esac
+      ;;
+    emerge)
+      case "$action" in
+        install) echo "emerge" ;;
+        remove) echo "emerge --unmerge" ;;
+        update) echo "emerge --sync" ;;
+        upgrade) echo "emerge --update --deep @world" ;;
+        search) echo "emerge --search" ;;
+        list) echo "qlist -I" ;;
+        clean) echo "emerge --depclean" ;;
+      esac
+      ;;
+    pkg)
+      case "$action" in
+        install) echo "pkg install -y" ;;
+        remove) echo "pkg delete -y" ;;
+        update) echo "pkg update" ;;
+        upgrade) echo "pkg upgrade -y" ;;
+        search) echo "pkg search" ;;
+        list) echo "pkg info" ;;
+        clean) echo "pkg clean -y" ;;
+      esac
+      ;;
+    pkg_add)
+      case "$action" in
+        install) echo "pkg_add" ;;
+        remove) echo "pkg_delete" ;;
+        update) echo "pkg_add -u" ;;
+        upgrade) echo "pkg_add -u" ;;
+        search) echo "pkg_info -Q" ;;
+        list) echo "pkg_info" ;;
+        clean) echo "pkg_delete -a" ;;
+      esac
+      ;;
+    brew)
+      case "$action" in
+        install) echo "brew install" ;;
+        remove) echo "brew uninstall" ;;
+        update) echo "brew update" ;;
+        upgrade) echo "brew upgrade" ;;
+        search) echo "brew search" ;;
+        list) echo "brew list" ;;
+        clean) echo "brew cleanup" ;;
+      esac
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+# ============================================================================
+# Package Name Mapping
+# ============================================================================
+
+__map_package_name() {
+  local package="$1"
+  local distro="$(__detect_distro)"
+
+  case "$package" in
+    # Web servers
+    nginx-full|nginx)
+      case "$distro" in
+        debian) echo "nginx" ;;
+        rhel) echo "nginx" ;;
+        arch) echo "nginx" ;;
+        *) echo "$package" ;;
+      esac
+      ;;
+    apache|apache2|httpd)
+      case "$distro" in
+        debian) echo "apache2" ;;
+        rhel) echo "httpd" ;;
+        arch) echo "apache" ;;
+        alpine) echo "apache2" ;;
+        *) echo "$package" ;;
+      esac
+      ;;
+    # Build tools
+    build-essential|base-devel|development-tools)
+      case "$distro" in
+        debian) echo "build-essential" ;;
+        rhel) echo "@'Development Tools'" ;;
+        arch) echo "base-devel" ;;
+        alpine) echo "build-base" ;;
+        *) echo "$package" ;;
+      esac
+      ;;
+    # Python
+    python3-pip|python-pip|pip3|pip)
+      case "$distro" in
+        debian) echo "python3-pip" ;;
+        rhel) echo "python3-pip" ;;
+        arch) echo "python-pip" ;;
+        alpine) echo "py3-pip" ;;
+        *) echo "$package" ;;
+      esac
+      ;;
+    # Docker
+    docker|docker.io|docker-ce)
+      case "$distro" in
+        debian) echo "docker.io" ;;
+        rhel) echo "docker-ce" ;;
+        arch) echo "docker" ;;
+        alpine) echo "docker" ;;
+        *) echo "$package" ;;
+      esac
+      ;;
+    # VIM
+    vim|vim-enhanced|vim-full)
+      case "$distro" in
+        debian) echo "vim" ;;
+        rhel) echo "vim-enhanced" ;;
+        arch) echo "vim" ;;
+        alpine) echo "vim" ;;
+        *) echo "$package" ;;
+      esac
+      ;;
+    *)
+      echo "$package"
+      ;;
+  esac
+}
+
+# ============================================================================
+# Language Package Managers
+# ============================================================================
+
+# Python/pip functions
+__pip_install() {
+  local packages="$*"
+  local pip_cmd=""
+
+  # Find available pip command
+  for cmd in pip3 pip python3 python; do
+    if command -v "$cmd" >/dev/null 2>&1; then
+      case "$cmd" in
+        pip3|pip)
+          pip_cmd="$cmd"
+          break
+          ;;
+        python3|python)
+          if $cmd -m pip --version >/dev/null 2>&1; then
+            pip_cmd="$cmd -m pip"
+            break
+          fi
+          ;;
+      esac
+    fi
+  done
+
+  if [ -z "$pip_cmd" ]; then
+    __print_error "pip is not installed"
+    return 1
+  fi
+
+  # Install packages without buffering
+  for pkg in $packages; do
+    __print_package "Installing Python package: $pkg"
+    if $pip_cmd install --user "$pkg" 2>&1; then
+      __print_success "Installed: $pkg"
+    else
+      __print_error "Failed to install: $pkg"
+      return 1
+    fi
+  done
+
+  return 0
+}
+
+__pip_remove() {
+  local packages="$*"
+  local pip_cmd=""
+
+  # Find available pip command
+  for cmd in pip3 pip python3 python; do
+    if command -v "$cmd" >/dev/null 2>&1; then
+      case "$cmd" in
+        pip3|pip)
+          pip_cmd="$cmd"
+          break
+          ;;
+        python3|python)
+          if $cmd -m pip --version >/dev/null 2>&1; then
+            pip_cmd="$cmd -m pip"
+            break
+          fi
+          ;;
+      esac
+    fi
+  done
+
+  if [ -z "$pip_cmd" ]; then
+    __print_error "pip is not installed"
+    return 1
+  fi
+
+  for pkg in $packages; do
+    __print_package "Removing Python package: $pkg"
+    if $pip_cmd uninstall -y "$pkg" 2>&1; then
+      __print_success "Removed: $pkg"
+    else
+      __print_error "Failed to remove: $pkg"
+      return 1
+    fi
+  done
+
+  return 0
+}
+
+# NPM functions
+__npm_install() {
+  local packages="$*"
+  local npm_cmd=""
+
+  # Find available package manager
+  for cmd in npm yarn pnpm; do
+    if command -v "$cmd" >/dev/null 2>&1; then
+      npm_cmd="$cmd"
+      break
+    fi
+  done
+
+  if [ -z "$npm_cmd" ]; then
+    __print_error "No Node.js package manager found (npm/yarn/pnpm)"
+    return 1
+  fi
+
+  for pkg in $packages; do
+    __print_package "Installing Node package: $pkg"
+    case "$npm_cmd" in
+      npm) npm install -g "$pkg" 2>&1 ;;
+      yarn) yarn global add "$pkg" 2>&1 ;;
+      pnpm) pnpm add -g "$pkg" 2>&1 ;;
+    esac
+
+    if [ $? -eq 0 ]; then
+      __print_success "Installed: $pkg"
+    else
+      __print_error "Failed to install: $pkg"
+      return 1
+    fi
+  done
+
+  return 0
+}
+
+__npm_remove() {
+  local packages="$*"
+  local npm_cmd=""
+
+  # Find available package manager
+  for cmd in npm yarn pnpm; do
+    if command -v "$cmd" >/dev/null 2>&1; then
+      npm_cmd="$cmd"
+      break
+    fi
+  done
+
+  if [ -z "$npm_cmd" ]; then
+    __print_error "No Node.js package manager found"
+    return 1
+  fi
+
+  for pkg in $packages; do
+    __print_package "Removing Node package: $pkg"
+    case "$npm_cmd" in
+      npm) npm uninstall -g "$pkg" 2>&1 ;;
+      yarn) yarn global remove "$pkg" 2>&1 ;;
+      pnpm) pnpm remove -g "$pkg" 2>&1 ;;
+    esac
+
+    if [ $? -eq 0 ]; then
+      __print_success "Removed: $pkg"
+    else
+      __print_error "Failed to remove: $pkg"
+      return 1
+    fi
+  done
+
+  return 0
+}
+
+# Gem functions
+__gem_install() {
+  local packages="$*"
+
+  if ! command -v gem >/dev/null 2>&1; then
+    __print_error "Ruby gem is not installed"
+    return 1
+  fi
+
+  for pkg in $packages; do
+    __print_package "Installing Ruby gem: $pkg"
+    if gem install --user-install "$pkg" 2>&1; then
+      __print_success "Installed: $pkg"
+    else
+      __print_error "Failed to install: $pkg"
+      return 1
+    fi
+  done
+
+  return 0
+}
+
+__gem_remove() {
+  local packages="$*"
+
+  if ! command -v gem >/dev/null 2>&1; then
+    __print_error "Ruby gem is not installed"
+    return 1
+  fi
+
+  for pkg in $packages; do
+    __print_package "Removing Ruby gem: $pkg"
+    if gem uninstall "$pkg" 2>&1; then
+      __print_success "Removed: $pkg"
+    else
+      __print_error "Failed to remove: $pkg"
+      return 1
+    fi
+  done
+
+  return 0
+}
+
+# CPAN functions
+__cpan_install() {
+  local packages="$*"
+  local cpan_cmd=""
+
+  # Find available CPAN command
+  if command -v cpanm >/dev/null 2>&1; then
+    cpan_cmd="cpanm"
+  elif command -v cpan >/dev/null 2>&1; then
+    cpan_cmd="cpan"
+  else
+    __print_error "CPAN is not installed"
+    return 1
+  fi
+
+  for pkg in $packages; do
+    __print_package "Installing Perl module: $pkg"
+    case "$cpan_cmd" in
+      cpanm)
+        if cpanm "$pkg" 2>&1; then
+          __print_success "Installed: $pkg"
+        else
+          __print_error "Failed to install: $pkg"
+          return 1
+        fi
+        ;;
+      cpan)
+        if yes | cpan -i "$pkg" 2>&1; then
+          __print_success "Installed: $pkg"
+        else
+          __print_error "Failed to install: $pkg"
+          return 1
+        fi
+        ;;
+    esac
+  done
+
+  return 0
+}
+
+__cpan_remove() {
+  local packages="$*"
+
+  __print_warning "CPAN does not have a standard uninstall mechanism"
+  __print_info "You may need to manually remove the module files"
+
+  return 1
+}
+
+# Go functions
+__go_install() {
+  local packages="$*"
+
+  if ! command -v go >/dev/null 2>&1; then
+    __print_error "Go is not installed"
+    return 1
+  fi
+
+  for pkg in $packages; do
+    __print_package "Installing Go package: $pkg"
+    if go install "$pkg@latest" 2>&1; then
+      __print_success "Installed: $pkg"
+    else
+      __print_error "Failed to install: $pkg"
+      return 1
+    fi
+  done
+
+  return 0
+}
+
+__go_remove() {
+  local packages="$*"
+
+  __print_warning "Go modules don't have a standard uninstall command"
+  __print_info "You can remove the binary from \$GOPATH/bin/"
+
+  return 1
+}
+
+# Lua functions
+__lua_install() {
+  local packages="$*"
+
+  if ! command -v luarocks >/dev/null 2>&1; then
+    __print_error "luarocks is not installed"
+    return 1
+  fi
+
+  for pkg in $packages; do
+    __print_package "Installing Lua rock: $pkg"
+    if luarocks install --local "$pkg" 2>&1; then
+      __print_success "Installed: $pkg"
+    else
+      __print_error "Failed to install: $pkg"
+      return 1
+    fi
+  done
+
+  return 0
+}
+
+__lua_remove() {
+  local packages="$*"
+
+  if ! command -v luarocks >/dev/null 2>&1; then
+    __print_error "luarocks is not installed"
+    return 1
+  fi
+
+  for pkg in $packages; do
+    __print_package "Removing Lua rock: $pkg"
+    if luarocks remove "$pkg" 2>&1; then
+      __print_success "Removed: $pkg"
+    else
+      __print_error "Failed to remove: $pkg"
+      return 1
+    fi
+  done
+
+  return 0
+}
+
+# ============================================================================
+# Package Detection Functions
+# ============================================================================
+
+# Check if Python package exists
+__python_exists() {
+  local package="$1"
+
+  # Quick check if it's a command
+  if which "$package" >/dev/null 2>&1; then
+    local cmd_path="$(which "$package" 2>/dev/null)"
+    if [[ "$cmd_path" == *"python"* ]] || [[ "$cmd_path" == *"/.local/bin"* ]]; then
+      return 0
+    fi
+  fi
+
+  # Find available Python interpreters using direct paths
+  local python_bins=""
+  for py_path in /usr/bin/python3 /usr/bin/python /usr/bin/python2 \
+                 /usr/bin/python3.12 /usr/bin/python3.11 /usr/bin/python3.10 \
+                 /usr/bin/python3.9 /usr/bin/python3.8 /usr/bin/python3.7 \
+                 /usr/bin/python3.6 /usr/bin/python2.7 \
+                 /usr/local/bin/python3 /usr/local/bin/python; do
+    if [ -x "$py_path" ]; then
+      python_bins="$python_bins $py_path"
+    fi
+  done
+
+  # If no Python found, return failure
+  if [ -z "$python_bins" ]; then
+    return 1
+  fi
+
+  # Try each Python version
+  for py in $python_bins; do
+    # Method 1: Try importing as a module
+    if $py -c "import $package" 2>/dev/null; then
+      return 0
+    fi
+
+    # Method 2: Try running as a module
+    if $py -m "$package" --version 2>/dev/null | grep -q '^'; then
+      return 0
+    fi
+  done
+
+  # Method 3: Check pip list for any available pip
+  local pip_paths="/usr/bin/pip3 /usr/bin/pip /usr/bin/pip2 /usr/local/bin/pip3 /usr/local/bin/pip"
+
+  for pip_cmd in $pip_paths; do
+    if [ -x "$pip_cmd" ]; then
+      # Check pip list
+      if $pip_cmd list 2>/dev/null | awk '{print $1}' | grep -qi "^${package}$"; then
+        return 0
+      fi
+
+      # Check pip show
+      if $pip_cmd show "$package" >/dev/null 2>&1; then
+        return 0
+      fi
+    fi
+  done
+
+  # Also check python -m pip for each Python
+  for py in $python_bins; do
+    if $py -m pip --version >/dev/null 2>&1; then
+      if $py -m pip show "$package" >/dev/null 2>&1; then
+        return 0
+      fi
+    fi
+  done
+
+  return 1
+}
+
+# Check if NPM package exists
+__npm_exists() {
+  local package="$1"
+
+  # Check if it's a command
+  if which "$package" >/dev/null 2>&1; then
+    local cmd_path="$(which "$package" 2>/dev/null)"
+    if [[ "$cmd_path" == *"node"* ]] || [[ "$cmd_path" == *"npm"* ]] || [[ "$cmd_path" == *"/.local/bin"* ]]; then
+      return 0
+    fi
+  fi
+
+  # Check with direct paths to package managers
+  local npm_paths="/usr/bin/npm /usr/local/bin/npm /opt/homebrew/bin/npm"
+  local yarn_paths="/usr/bin/yarn /usr/local/bin/yarn /opt/homebrew/bin/yarn"
+  local pnpm_paths="/usr/bin/pnpm /usr/local/bin/pnpm /opt/homebrew/bin/pnpm"
+
+  # Check npm
+  for npm_cmd in $npm_paths; do
+    if [ -x "$npm_cmd" ]; then
+      if $npm_cmd list -g --depth=0 2>/dev/null | grep -qE "($package@|└──.*$package@|├──.*$package@)"; then
+        return 0
+      fi
+      # Also check locally in case we're in a project
+      if [ -f "package.json" ] && $npm_cmd list --depth=0 2>/dev/null | grep -qE "($package@|└──.*$package@|├──.*$package@)"; then
+        return 0
+      fi
+    fi
+  done
+
+  # Check yarn
+  for yarn_cmd in $yarn_paths; do
+    if [ -x "$yarn_cmd" ]; then
+      if $yarn_cmd global list 2>/dev/null | grep -qE "\"$package@"; then
+        return 0
+      fi
+    fi
+  done
+
+  # Check pnpm
+  for pnpm_cmd in $pnpm_paths; do
+    if [ -x "$pnpm_cmd" ]; then
+      if $pnpm_cmd list -g --depth=0 2>/dev/null | grep -qE "($package |$package@)"; then
+        return 0
+      fi
+    fi
+  done
+
+  return 1
+}
+
+# Check if Ruby gem exists
+__gem_exists() {
+  local package="$1"
+
+  # Check if it's a command
+  if which "$package" >/dev/null 2>&1; then
+    local cmd_path="$(which "$package" 2>/dev/null)"
+    if [[ "$cmd_path" == *"ruby"* ]] || [[ "$cmd_path" == *"gem"* ]] || [[ "$cmd_path" == *"/.local/bin"* ]]; then
+      return 0
+    fi
+  fi
+
+  # Check with direct paths to gem
+  local gem_paths="/usr/bin/gem /usr/local/bin/gem /opt/homebrew/bin/gem"
+
+  for gem_cmd in $gem_paths; do
+    if [ -x "$gem_cmd" ]; then
+      # Check gem list
+      if $gem_cmd list --local 2>/dev/null | grep -qE "^$package "; then
+        return 0
+      fi
+
+      # Check with different name formats
+      local alt_package1="${package//_/-}"
+      local alt_package2="${package//-/_}"
+
+      if [ "$alt_package1" != "$package" ]; then
+        if $gem_cmd list --local 2>/dev/null | grep -qE "^$alt_package1 "; then
+          return 0
+        fi
+      fi
+
+      if [ "$alt_package2" != "$package" ]; then
+        if $gem_cmd list --local 2>/dev/null | grep -qE "^$alt_package2 "; then
+          return 0
+        fi
+      fi
+    fi
+  done
+
+  return 1
+}
+
+# Check if Perl module exists
+__perl_exists() {
+  local package="${1//perl-/}"  # Remove perl- prefix if present
+
+  # Check if it's a command
+  if which "$package" >/dev/null 2>&1; then
+    local cmd_path="$(which "$package" 2>/dev/null)"
+    if [[ "$cmd_path" == *"perl"* ]] || [[ "$cmd_path" == *"/.local/bin"* ]]; then
+      return 0
+    fi
+  fi
+
+  # Check with direct paths to perl
+  local perl_paths="/usr/bin/perl /usr/local/bin/perl /opt/homebrew/bin/perl"
+
+  for perl_cmd in $perl_paths; do
+    if [ -x "$perl_cmd" ]; then
+      # Try to load the module
+      if $perl_cmd -M${package} -e 'exit 0' 2>/dev/null; then
+        return 0
+      fi
+
+      # Try with :: notation (e.g., File::Spec)
+      local module_name="${package//::/-}"
+      if $perl_cmd -M${module_name} -e 'exit 0' 2>/dev/null; then
+        return 0
+      fi
+    fi
+  done
+
+  # Check with cpan if available
+  if which cpan >/dev/null 2>&1; then
+    if cpan -l 2>/dev/null | grep -qi "^${package}"; then
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
+# Check if Go package exists
+__go_exists() {
+  local package="$1"
+
+  # Check if it's a command
+  if which "$package" >/dev/null 2>&1; then
+    local cmd_path="$(which "$package" 2>/dev/null)"
+    if [[ "$cmd_path" == *"go/bin"* ]] || [[ "$cmd_path" == *"/.local/bin"* ]]; then
+      return 0
+    fi
+  fi
+
+  # Check GOPATH/bin
+  if [ -n "$GOPATH" ] && [ -x "$GOPATH/bin/$package" ]; then
+    return 0
+  fi
+
+  # Check default go bin
+  if [ -x "$HOME/go/bin/$package" ]; then
+    return 0
+  fi
+
+  return 1
+}
+
+# Check if Lua rock exists
+__lua_exists() {
+  local package="$1"
+
+  if ! command -v luarocks >/dev/null 2>&1; then
+    return 1
+  fi
+
+  if luarocks show "$package" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  return 1
+}
+
+# ============================================================================
+# Core Operations
+# ============================================================================
+
+# Ensure sudo if needed
+__require_sudo() {
+  if [ "$PKMGR_REQUIRE_SUDO" = "yes" ] || [ "$(id -u)" != "0" ]; then
+    if ! command -v sudo >/dev/null 2>&1; then
+      __print_error "This operation requires sudo privileges"
+      exit 1
+    fi
+    # Test sudo access
+    if ! sudo -n true 2>/dev/null; then
+      __print_info "This operation requires sudo privileges"
+      sudo -v
+    fi
+  fi
+}
+
+# Install packages
+__install_packages() {
+  local packages="$*"
+  local pkgmgr="$(__detect_package_manager)"
+  local cmd="$(__get_package_command install "$pkgmgr")"
+
+  if [ -z "$cmd" ]; then
+    __print_error "Could not determine package manager"
+    return 1
+  fi
+
+  __require_sudo
+
+  # Map package names
+  local mapped_packages=""
+  for pkg in $packages; do
+    mapped_packages="$mapped_packages $(__map_package_name "$pkg")"
+  done
+
+  __print_header "Installing Packages"
+  __print_info "Package manager: $pkgmgr"
+  __print_info "Packages: $mapped_packages"
+
+  # Execute installation
+  if [ "$(id -u)" = "0" ]; then
+    eval "$cmd $mapped_packages"
+  else
+    sudo sh -c "$cmd $mapped_packages"
+  fi
+
+  if [ $? -eq 0 ]; then
+    __print_success "Installation completed successfully"
+    return 0
+  else
+    __print_error "Installation failed"
+    return 1
+  fi
+}
+
+# Remove packages
+__remove_packages() {
+  local packages="$*"
+  local pkgmgr="$(__detect_package_manager)"
+  local cmd="$(__get_package_command remove "$pkgmgr")"
+
+  if [ -z "$cmd" ]; then
+    __print_error "Could not determine package manager"
+    return 1
+  fi
+
+  __require_sudo
+
+  # Map package names
+  local mapped_packages=""
+  for pkg in $packages; do
+    mapped_packages="$mapped_packages $(__map_package_name "$pkg")"
+  done
+
+  __print_header "Removing Packages"
+  __print_warning "Removing: $mapped_packages"
+  __print_no_newline "Continue? (y/N): "
+  read -r confirm
+
+  if [[ ! "$confirm" =~ ^[Yy] ]]; then
+    __print_info "Operation cancelled"
+    return 0
+  fi
+
+  # Execute removal
+  if [ "$(id -u)" = "0" ]; then
+    eval "$cmd $mapped_packages"
+  else
+    sudo sh -c "$cmd $mapped_packages"
+  fi
+
+  if [ $? -eq 0 ]; then
+    __print_success "Removal completed successfully"
+    return 0
+  else
+    __print_error "Removal failed"
+    return 1
+  fi
+}
+
+# Update system
+__update_system() {
+  local pkgmgr="$(__detect_package_manager)"
+  local update_cmd="$(__get_package_command update "$pkgmgr")"
+  local upgrade_cmd="$(__get_package_command upgrade "$pkgmgr")"
+
+  if [ -z "$update_cmd" ] || [ -z "$upgrade_cmd" ]; then
+    __print_error "Could not determine package manager"
+    return 1
+  fi
+
+  __require_sudo
+
+  __print_header "System Update"
+  __print_info "Package manager: $pkgmgr"
+
+  # Update package lists
+  __print_info "Updating package lists..."
+  if [ "$(id -u)" = "0" ]; then
+    eval "$update_cmd"
+  else
+    sudo sh -c "$update_cmd"
+  fi
+
+  # Upgrade packages
+  __print_info "Upgrading packages..."
+  if [ "$(id -u)" = "0" ]; then
+    eval "$upgrade_cmd"
+  else
+    sudo sh -c "$upgrade_cmd"
+  fi
+
+  if [ $? -eq 0 ]; then
+    __print_success "System update completed"
+    return 0
+  else
+    __print_error "System update failed"
+    return 1
+  fi
+}
+
+# Search for packages
+__search_packages() {
+  local query="$*"
+  local pkgmgr="$(__detect_package_manager)"
+  local cmd="$(__get_package_command search "$pkgmgr")"
+
+  if [ -z "$cmd" ]; then
+    __print_error "Could not determine package manager"
+    return 1
+  fi
+
+  # Check for very short search terms that might cause too many results
+  if [ ${#query} -lt 3 ]; then
+    __print_warning "Search term '$query' is too short - try a more specific term (3+ characters)"
+    __print_info "Examples: '$query-dev', '$query-git', '$query-tool', 'git$query', '${query}ui'"
+    return 1
+  fi
+
+  # Execute search with error handling for AUR helpers
+  # Use prefix matching pattern (^query) for better relevance
+  local search_pattern="$query"
+  local search_output
+  local search_exit
+  
+  search_output=$(eval "$cmd $search_pattern" 2>&1)
+  search_exit=$?
+  
+  if [ $search_exit -ne 0 ]; then
+    if echo "$search_output" | grep -qi "too many.*results"; then
+      # For "too many results", try with different approach
+      __print_header "Search Results (Limited)"
+      __print_warning "Too many results found - showing first 30 matches for: $query"
+      
+      # Try alternative search approach with prefix matching
+      local fallback_output
+      if echo "$cmd" | grep -q "yay\|paru"; then
+        # Use direct pacman search as fallback for official repos
+        fallback_output="$(pacman -Ss "$query" 2>/dev/null)"
+      else
+        # For other package managers, try the original command
+        fallback_output="$(eval "$cmd $query" 2>/dev/null)"
+      fi
+      
+      # Apply same formatting to fallback results
+      echo "$fallback_output" | sed -E 's|^[^/]+/||' | \
+        awk -v query="$query" -v show_raw="$SHOW_RAW" '
+        BEGIN {
+          if (show_raw != "true") {
+            green = "\033[32m"; cyan = "\033[36m"; reset = "\033[0m"
+          } else {
+            green = ""; cyan = ""; reset = ""
+          }
+        }
+        {
+          if (NF > 0 && substr($0, 1, 1) != " ") {
+            print green $0 reset
+            getline desc
+            if (desc != "" && substr(desc, 1, 1) == " ") {
+              print cyan desc reset
+            }
+          }
+        }' | head -30
+      
+      __print_info "💡 Use a more specific search term for better results"
+      return 0
+    elif echo "$search_output" | grep -qi "no.*found\|not.*found"; then
+      __print_warning "No packages found matching: $query"
+      return 1
+    else
+      __print_error "Search failed: $search_output"
+      return $search_exit
+    fi
+  fi
+  
+  # Show results with header for successful output
+  __print_header "Search Results"
+  __print_info "Searching for: $query"
+  
+  # Show results with clean repo names, proper coloring, and preserved format
+  # Remove repo prefix and prioritize by package name relevance
+  echo "$search_output" | sed -E 's|^[^/]+/||' | \
+    awk -v query="$query" -v show_raw="$SHOW_RAW" '
+    BEGIN {
+      # Color codes (only if not raw mode)
+      if (show_raw != "true") {
+        green = "\033[32m"
+        cyan = "\033[36m" 
+        reset = "\033[0m"
+      } else {
+        green = ""
+        cyan = ""
+        reset = ""
+      }
+    }
+    {
+      if (NF > 0 && substr($0, 1, 1) != " ") {
+        # This is a package line (not an indented description)
+        package_line = $0
+        package_name = $1
+        
+        # Determine priority based on package name
+        if (package_name == query) {
+          priority = 1  # Exact match
+        } else if (index(package_name, query) == 1) {
+          priority = 2  # Starts with query
+        } else if (index(package_name, query "-") == 1 || index(package_name, query "_") == 1) {
+          priority = 3  # Starts with query- or query_
+        } else {
+          priority = 4  # Contains query somewhere
+        }
+        
+        # Store with priority and add green color to package line
+        packages[priority][package_name] = green package_line reset
+        next_desc[package_name] = ""
+      } else {
+        # This is a description line, store with cyan color
+        if (package_name != "") {
+          next_desc[package_name] = cyan $0 reset
+        }
+      }
+    }
+    END {
+      # Output in priority order with descriptions
+      for (p = 1; p <= 4; p++) {
+        count = 0
+        for (pkg in packages[p]) {
+          if (count < (p == 1 ? 5 : p == 2 ? 15 : p == 3 ? 15 : 15)) {
+            print packages[p][pkg]
+            if (next_desc[pkg] != "") print next_desc[pkg]
+            count++
+          }
+        }
+      }
+    }'
+  
+  # Count results and provide feedback
+  local result_count=$(echo "$search_output" | wc -l)
+  if [ "$result_count" -ge 50 ]; then
+    __print_warning "Showing first 50 results (total may be higher)"
+    __print_info "Use a more specific search term to narrow results"
+  elif [ "$result_count" -eq 0 ]; then
+    __print_warning "No packages found matching: $query"
+    return 1
+  fi
+
+  return 0
+}
+
+# Clean package cache
+__clean_cache() {
+  local pkgmgr="$(__detect_package_manager)"
+  local cmd="$(__get_package_command clean "$pkgmgr")"
+
+  if [ -z "$cmd" ]; then
+    __print_error "Could not determine package manager"
+    return 1
+  fi
+
+  __require_sudo
+
+  __print_header "Cleaning Package Cache"
+
+  if [ "$(id -u)" = "0" ]; then
+    eval "$cmd"
+  else
+    sudo sh -c "$cmd"
+  fi
+
+  if [ $? -eq 0 ]; then
+    __print_success "Cache cleaned successfully"
+    return 0
+  else
+    __print_error "Cache cleaning failed"
+    return 1
+  fi
+}
+
+# ============================================================================
+# Help and Version
+# ============================================================================
+
+__show_help() {
+  cat <<EOF
+${BOLD}${CYAN}Universal Package Manager Wrapper v${VERSION}${RESET}
+${CYAN}===============================================${RESET}
+
+${BOLD}USAGE:${RESET}
+  $APPNAME [options] <command> [packages...]
+
+${BOLD}SYSTEM PACKAGE COMMANDS:${RESET}
+  ${GREEN}install${RESET} <packages>     Install system packages
+  ${GREEN}remove${RESET} <packages>      Remove system packages
+  ${GREEN}update${RESET}                 Update system packages
+  ${GREEN}search${RESET} <query>         Search for packages
+  ${GREEN}clean${RESET}                  Clean package cache
+  ${GREEN}list${RESET}                   List installed packages
+
+${BOLD}LANGUAGE PACKAGE MANAGERS:${RESET}
+  ${YELLOW}pip${RESET} <install|remove|check> <packages>    Python packages
+  ${YELLOW}npm${RESET} <install|remove|check> <packages>    Node.js packages
+  ${YELLOW}gem${RESET} <install|remove|check> <packages>    Ruby gems
+  ${YELLOW}cpan${RESET} <install|remove> <packages>         Perl modules
+  ${YELLOW}go${RESET} <install> <packages>                  Go packages
+  ${YELLOW}lua${RESET} <install|remove> <packages>          Lua rocks
+
+${BOLD}OPTIONS:${RESET}
+  ${BLUE}--help${RESET}                 Show this help message
+  ${BLUE}--version${RESET}              Show version information
+  ${BLUE}--debug${RESET}                Enable debug mode
+  ${BLUE}--raw${RESET}                  Raw output (no colors/icons)
+
+${BOLD}EXAMPLES:${RESET}
+  $APPNAME install nginx git vim
+  $APPNAME remove apache2
+  $APPNAME update
+  $APPNAME search docker
+  $APPNAME pip install requests numpy
+  $APPNAME npm install -g typescript
+
+${BOLD}SUPPORTED SYSTEMS:${RESET}
+  • Debian/Ubuntu (apt)
+  • RHEL/Fedora (dnf/yum)
+  • Arch Linux (pacman/yay/paru)
+  • openSUSE (zypper)
+  • Alpine (apk)
+  • Void Linux (xbps)
+  • Gentoo (emerge)
+  • macOS (brew)
+  • FreeBSD (pkg)
+  • OpenBSD (pkg_add)
+
+EOF
+}
+
+__show_version() {
+  __print_header "PKMGR Version Information"
+  __print_info "Version: $VERSION"
+  __print_info "OS: $(__detect_os)"
+  __print_info "Distribution: $(__detect_distro)"
+  __print_info "Package Manager: $(__detect_package_manager)"
+}
+
+# ============================================================================
+# Main Execution
+# ============================================================================
+
+main() {
+  local cmd="${1:-}"
+  shift || true
+
+  case "$cmd" in
+    # System package commands
+    install)
+      __install_packages "$@"
+      ;;
+    remove)
+      __remove_packages "$@"
+      ;;
+    update|upgrade)
+      __update_system "$@"
+      ;;
+    search)
+      __search_packages "$@"
+      ;;
+    clean)
+      __clean_cache
+      ;;
+    list)
+      local pkgmgr="$(__detect_package_manager)"
+      local list_cmd="$(__get_package_command list "$pkgmgr")"
+      eval "$list_cmd" | less
+      ;;
+
+    # Language package managers
+    pip|python)
+      case "$1" in
+        install)
+          shift
+          __pip_install "$@"
+          ;;
+        remove)
+          shift
+          __pip_remove "$@"
+          ;;
+        check)
+          shift
+          for pkg in "$@"; do
+            if __python_exists "$pkg"; then
+              __print_success "$pkg is installed"
+            else
+              __print_error "$pkg is not installed"
+            fi
+          done
+          ;;
+        *)
+          __pip_install "$@"
+          ;;
+      esac
+      ;;
+
+    npm|node)
+      case "$1" in
+        install)
+          shift
+          __npm_install "$@"
+          ;;
+        remove)
+          shift
+          __npm_remove "$@"
+          ;;
+        check)
+          shift
+          for pkg in "$@"; do
+            if __npm_exists "$pkg"; then
+              __print_success "$pkg is installed"
+            else
+              __print_error "$pkg is not installed"
+            fi
+          done
+          ;;
+        *)
+          __npm_install "$@"
+          ;;
+      esac
+      ;;
+
+    gem|ruby)
+      case "$1" in
+        install)
+          shift
+          __gem_install "$@"
+          ;;
+        remove)
+          shift
+          __gem_remove "$@"
+          ;;
+        check)
+          shift
+          for pkg in "$@"; do
+            if __gem_exists "$pkg"; then
+              __print_success "$pkg is installed"
+            else
+              __print_error "$pkg is not installed"
+            fi
+          done
+          ;;
+        *)
+          __gem_install "$@"
+          ;;
+      esac
+      ;;
+
+    cpan|perl)
+      case "$1" in
+        install)
+          shift
+          __cpan_install "$@"
+          ;;
+        remove)
+          shift
+          __cpan_remove "$@"
+          ;;
+        check)
+          shift
+          for pkg in "$@"; do
+            if __perl_exists "$pkg"; then
+              __print_success "$pkg is installed"
+            else
+              __print_error "$pkg is not installed"
+            fi
+          done
+          ;;
+        *)
+          __cpan_install "$@"
+          ;;
+      esac
+      ;;
+
+    go)
+      case "$1" in
+        install)
+          shift
+          __go_install "$@"
+          ;;
+        remove)
+          shift
+          __go_remove "$@"
+          ;;
+        *)
+          __go_install "$@"
+          ;;
+      esac
+      ;;
+
+    lua)
+      case "$1" in
+        install)
+          shift
+          __lua_install "$@"
+          ;;
+        remove)
+          shift
+          __lua_remove "$@"
+          ;;
+        *)
+          __lua_install "$@"
+          ;;
+      esac
+      ;;
+
+    # Information commands
+    info)
+      __show_version
+      ;;
+    version|--version)
+      __show_version
+      ;;
+
+    # Help
+    help|--help|"")
+      __show_help
+      ;;
+
+    # Debug
+    --debug)
+      set -x
+      main "$@"
+      ;;
+
+    # Unknown command
+    *)
+      __print_error "Unknown command: $cmd"
+      __print_info "Run '$APPNAME --help' for usage information"
+      exit 1
+      ;;
+  esac
+}
+
+# ============================================================================
+# Argument/Option Processing with getopt
+# ============================================================================
+
+# Option definitions
+SHORTOPTS="hyvV"
+LONGOPTS="help,config,debug,version,raw,silent,options,completions:,interactive,show-progress"
+
+# Array for available commands
+ARRAY="info,version,check,available,init,makecache,aliases,cron,ask,export,clean,search,keys,list,curl,dotfiles,script,required,reinstall,install,upgrade,remove"
+ARRAY+=",silent,bin,perl,pip,gem,npm,go,lua"
+
+# Parse arguments with getopt
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+
+# Process options
+while :; do
+  case "$1" in
+  --raw)
+    shift 1
+    export SHOW_RAW="true"
+    ;;
+  --debug)
+    shift 1
+    set -xo pipefail
+    export SCRIPT_OPTS="--debug"
+    export _DEBUG="on"
+    ;;
+  --help | -h)
+    shift 1
+    __help
+    exit $?
+    ;;
+  --version | -V)
+    shift 1
+    __version
+    exit $?
+    ;;
+  --config)
+    shift 1
+    __gen_config
+    exit $?
+    ;;
+  --interactive | -i)
+    shift 1
+    PKMGR_INTERACTIVE="true"
+    ;;
+  --show-progress)
+    shift 1
+    PKMGR_SHOW_PROGRESS="true"
+    ;;
+  --silent)
+    shift 1
+    PKMGR_SILENT="true"
+    ;;
+  --completions)
+    if [ "$2" = "short" ]; then
+      printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+    elif [ "$2" = "long" ]; then
+      printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+    elif [ "$2" = "array" ]; then
+      printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+    else
+      exit 1
+    fi
+    shift 2
+    exit $?
+    ;;
+  --options)
+    shift 1
+    __print_header "Current options for ${PROG:-$APPNAME}"
+    [ -z "$SHORTOPTS" ] || __print_info "Short Options: -${SHORTOPTS}"
+    [ -z "$LONGOPTS" ] || __print_info "Long Options: --${LONGOPTS}"
+    [ -z "$ARRAY" ] || __print_info "Available Commands: ${ARRAY}"
+    exit $?
+    ;;
+  --)
+    shift 1
+    break
+    ;;
+  esac
+done
+
+# Execute main function with processed arguments
+if [ "$SHOW_RAW" = "true" ]; then
+  # Filter all output through sed to remove any escape sequences
+  main "$@" 2>&1 | sed 's/\x1b\[[0-9;]*[a-zA-Z]//g; s/\x1b\][0-9]*;[^\x07]*\x07//g; s/\x1b\[[0-9]*[ q]//g'
+else
+  main "$@"
+fi

@@ -324,54 +324,53 @@ __not_installed() { echo -ne "${RED}Not Installed${NC}"; }
 __is_url() { echo "${1:-$url}" | grep -qE '^http://|^https://|^ftp://' || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __logging() {
-  # Deprecated - kept for compatibility but does nothing
-  # Logging is now handled directly in __exec_unbuffered
+  # Deprecated - kept for compatibility
   cat
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Execute command with unbuffered output and optional logging
+# Execute package manager commands with real-time output
 __exec_unbuffered() {
   local cmd="$*"
   local log_file="${PKMGR_LOG_INFO:-}"
+  local exit_code=0
 
-  # Set environment variables to force unbuffered output
+  # Set environment variables for unbuffered output
   export PYTHONUNBUFFERED=1
   export PAGER=""
   export SYSTEMD_PAGER=""
   export APT_LISTCHANGES_FRONTEND=none
 
-  # Choose execution method and logging strategy
-  if command -v unbuffer >/dev/null 2>&1; then
-    # Use unbuffer with tee for logging if log file exists
-    if [ -n "$log_file" ] && [ -d "$(dirname "$log_file")" ]; then
-      unbuffer bash -c "$cmd" 2>&1 | tee -a "$log_file"
-    else
-      unbuffer bash -c "$cmd" 2>&1
-    fi
-  elif command -v stdbuf >/dev/null 2>&1; then
-    # Use stdbuf with tee for logging if log file exists
-    if [ -n "$log_file" ] && [ -d "$(dirname "$log_file")" ]; then
-      stdbuf -o0 -e0 bash -c "$cmd" 2>&1 | tee -a "$log_file"
-    else
-      stdbuf -o0 -e0 bash -c "$cmd" 2>&1
-    fi
-  elif command -v script >/dev/null 2>&1; then
-    # Use script command - it already outputs to terminal
-    if [ -n "$log_file" ] && [ -d "$(dirname "$log_file")" ]; then
+  # Execute command based on available tools
+  # Priority: script > stdbuf > direct execution
+  # script provides best TTY emulation for package managers
+
+  if [ -n "$log_file" ] && [ -d "$(dirname "$log_file")" ]; then
+    # With logging
+    if command -v script >/dev/null 2>&1; then
       script -qefc "$cmd" /dev/null 2>&1 | tee -a "$log_file"
+      exit_code=${PIPESTATUS[0]}
+    elif command -v stdbuf >/dev/null 2>&1; then
+      stdbuf -o0 -e0 bash -c "$cmd" 2>&1 | tee -a "$log_file"
+      exit_code=${PIPESTATUS[0]}
     else
-      script -qefc "$cmd" /dev/null 2>&1
+      bash -c "$cmd" 2>&1 | tee -a "$log_file"
+      exit_code=${PIPESTATUS[0]}
     fi
   else
-    # Direct execution with logging if available
-    if [ -n "$log_file" ] && [ -d "$(dirname "$log_file")" ]; then
-      bash -c "$cmd" 2>&1 | tee -a "$log_file"
+    # Without logging - direct execution
+    if command -v script >/dev/null 2>&1; then
+      script -qefc "$cmd" /dev/null 2>&1
+      exit_code=$?
+    elif command -v stdbuf >/dev/null 2>&1; then
+      stdbuf -o0 -e0 bash -c "$cmd" 2>&1
+      exit_code=$?
     else
       bash -c "$cmd" 2>&1
+      exit_code=$?
     fi
   fi
 
-  return ${PIPESTATUS[0]:-$?}
+  return $exit_code
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __log_info() { tee -p -a "$PKMGR_LOG_INFO" || return 1; }
@@ -439,23 +438,39 @@ __searchcmd() {
   local pkgs="$*"
   local exitCode=0
   local search_name=""
-  local -a package_name=""
-  for pkg in "${pkgs[@]}"; do
+  local -a package_name=()
+
+  # Process each package search
+  for pkg in $pkgs; do
     if __cmd_exists pacman; then
-      search_name="$($pkgmgrbinsea "$pkg" 2>&1 | grep -v 'Warning: No matches' | awk '{printf (NR%2==0) ? $0 "\n" : $0}' 2>/dev/null |& grep -i $pkg 2>/dev/null | sed 's|^.*/||g' | sed 's#    #: #g' | grep ':' | grep '^')"
+      # Pacman format: extract package names and descriptions
+      search_name="$($pkgmgrbinsea "$pkg" 2>/dev/null | \
+        grep -v 'Warning: No matches' | \
+        awk '{printf (NR%2==0) ? $0 "\n" : $0}' | \
+        grep -i "$pkg" | \
+        sed 's|^.*/||g;s#    #: #g' | \
+        grep ':' || true)"
     else
-      search_name="$($pkgmgrbinsea "$pkg" 2>&1 | grep -v 'Warning: No matches' |& grep -i $pkg 2>/dev/null | grep '^' 2>/dev/null || echo '')"
+      # DNF/YUM/APT format: direct search results
+      search_name="$($pkgmgrbinsea "$pkg" 2>/dev/null | \
+        grep -v 'Warning: No matches' | \
+        grep -i "$pkg" || true)"
     fi
-    package_name+=("${search_name}")
+    [ -n "$search_name" ] && package_name+=("$search_name")
   done
-  if [ -n "${package_name[*]}" ]; then
-    printf '%s\n' "${package_name[@]}" |& grep -v '^$' | cut -c 1-$PKMGR_OUTPUT_TRUNCATE | grep '^'
+
+  # Output results
+  if [ ${#package_name[@]} -gt 0 ]; then
+    printf '%s\n' "${package_name[@]}" | \
+      grep -v '^$' | \
+      cut -c 1-"${PKMGR_OUTPUT_TRUNCATE:-200}" || true
     exitCode=0
   else
-    printf_red "$pkg was not found" 1>&2
+    printf_red "$pkgs was not found" 1>&2
     exitCode=1
   fi
-  return ${exitCode:-0}
+
+  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Define output
@@ -986,12 +1001,12 @@ __initialize_variables() {
       dotfilesrepo_url="$PKMGR_GIT_REPO/$PKMGR_GIT_DOTFILES"                                                                      #
       dotfilesrepo_raw="$dotfilesrepo_url/raw/$PKMGR_GIT_BRANCH/yum"                                                              #
       pkgmgrbin="sudo --preserve-env=PATH /usr/bin/dnf"                                                                           #
-      pkgmgrbinins="$pkgmgrbin install"                                                                                           #
+      pkgmgrbinins="$pkgmgrbin install -y"                                                                                        #
       pkgmgrbininssil="$pkgmgrbin install --skip-broken -y"                                                                       #
       pkgmgrbinremsil="$pkgmgrbin remove -y"                                                                                      #
       pkgmgrbinupdsil="$pkgmgrbin update -y"                                                                                      #
       pkgmgrbinupdcron="$pkgmgrbin update -y"                                                                                     #
-      pkgmgrbindel="$pkgmgrbin remove"                                                                                            #
+      pkgmgrbindel="$pkgmgrbin remove -y"                                                                                         #
       pkgmgrbinsea="$pkgmgrbin search"                                                                                            #
       pkgmgrbinupd="$pkgmgrbin update"                                                                                            #
       pkgmgrbincle="$pkgmgrbin clean"                                                                                             #
@@ -1007,12 +1022,12 @@ __initialize_variables() {
       dotfilesrepo_url="$PKMGR_GIT_REPO/$PKMGR_GIT_DOTFILES"                                                                      #
       dotfilesrepo_raw="$dotfilesrepo_url/raw/$PKMGR_GIT_BRANCH/yum"                                                              #
       pkgmgrbin="sudo --preserve-env=PATH /usr/bin/yum"                                                                           #
-      pkgmgrbinins="$pkgmgrbin install"                                                                                           #
+      pkgmgrbinins="$pkgmgrbin install -y"                                                                                        #
       pkgmgrbininssil="$pkgmgrbin install --skip-broken -y"                                                                       #
       pkgmgrbinremsil="$pkgmgrbin remove -y"                                                                                      #
       pkgmgrbinupdsil="$pkgmgrbin update -y"                                                                                      #
       pkgmgrbinupdcron="$pkgmgrbin update -y"                                                                                     #
-      pkgmgrbindel="$pkgmgrbin remove"                                                                                            #
+      pkgmgrbindel="$pkgmgrbin remove -y"                                                                                         #
       pkgmgrbinsea="$pkgmgrbin search"                                                                                            #
       pkgmgrbinupd="$pkgmgrbin update"                                                                                            #
       pkgmgrbincle="$pkgmgrbin clean"                                                                                             #

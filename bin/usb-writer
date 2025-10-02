@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202208180301-git
+##@Version           :  202510020319-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -9,9 +9,9 @@
 # @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
 # @@Created          :  Thursday, Aug 18, 2022 03:01 EDT
 # @@File             :  usb-writer
-# @@Description      :  Write ISO to USB using dd and bash
-# @@Changelog        :  New script
-# @@TODO             :  Better documentation
+# @@Description      :  Create bootable USB with multi-boot support and GRUB menu
+# @@Changelog        :  Added multi-boot support, GRUB auto-menu generation, ISO management
+# @@TODO             :  Add persistent storage support
 # @@Other            :
 # @@Resource         :
 # @@Terminal App     :  no
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202208180301-git"
+VERSION="202510020319-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -189,10 +189,31 @@ EOF
 # Help function - Align to 50
 __help() {
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_opts "usb-writer:  Write ISO to USB using dd and bash - $VERSION"
+  __printf_opts "usb-writer:  Multi-boot USB creator with GRUB - $VERSION"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_line "Usage: usb-writer [options] [commands]"
-  __printf_line "[iso] [device]                  - Write iso to device"
+  __printf_line "Usage: usb-writer [options] [command] [arguments]"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Commands"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "create [device]                 - Initialize multi-boot USB with GRUB"
+  __printf_line "mount [device]                  - Mount multi-boot USB"
+  __printf_line "unmount [device]                - Unmount multi-boot USB"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "ISO Management Commands"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "iso add [iso] [category]        - Add ISO to multi-boot USB"
+  __printf_line "iso remove [iso]                - Remove ISO from multi-boot USB"
+  __printf_line "iso list [device]               - List all ISOs on multi-boot USB"
+  __printf_line "iso menu [device]               - Regenerate GRUB menu from ISOs"
+  __printf_line "iso write [iso] [device]        - Write single ISO to device (dd mode)"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Categories (for iso add command)"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "linux                           - Linux distributions"
+  __printf_line "windows                         - Windows installers"
+  __printf_line "bsd                             - BSD distributions"
+  __printf_line "utilities                       - System utilities and recovery tools"
+  __printf_line "tools                           - Tools (memdisk support)"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -202,6 +223,17 @@ __help() {
   __printf_line "--options                       - Shows all available options"
   __printf_line "--debug                         - Enables script debugging"
   __printf_line "--raw                           - Removes all formatting on output"
+  __printf_line "--label [name]                  - Set USB volume label (default: MULTIBOOT)"
+  __printf_line "--no-verify                     - Skip ISO verification"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Examples"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "usb-writer create /dev/sdb"
+  __printf_line "usb-writer iso add ubuntu-22.04.iso linux"
+  __printf_line "usb-writer iso add gparted.iso utilities"
+  __printf_line "usb-writer iso menu /dev/sdb"
+  __printf_line "usb-writer iso list /dev/sdb"
+  __printf_line "usb-writer iso write ubuntu.iso /dev/sdb"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -290,7 +322,7 @@ __test_device() {
   local device="${1:-$device}"
   [ -b "$device" ] || [ "$device" = "/dev/null" ] && return 0
   printf_exit "Sorry but $device does not exist"
-  showd="$(find /dev | grep '[h,s,v,x]d[a-z]')"
+  showd="$(find /dev 2>/dev/null | grep -E '/dev/[shvx]d[a-z]$')"
   if [ -n "$showd" ]; then
     printf_green "Available devices:"
     for dev in $showd; do
@@ -298,19 +330,38 @@ __test_device() {
     done
   fi
   return 1
-
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __test_iso() {
   local iso="${1:-$iso}"
-  [ -f "$iso" ] && return 0 || printf_exit "Sorry but $iso does not exist"
+  if [ -f "$iso" ]; then
+    return 0
+  else
+    printf_exit "Sorry but $iso does not exist"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__normalize_device() {
+  local device="$1"
+  device="$(echo "$device" | sed -e 's|/dev/||g;s|^|/dev/|g')"
+  echo "$device"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_partition() {
+  local device="$1"
+  local partition_num="$2"
+  if echo "$device" | grep -q 'nvme\|mmcblk'; then
+    echo "${device}p${partition_num}"
+  else
+    echo "${device}${partition_num}"
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __dd() {
   set -eo pipefail
   local iso="" device=""
   iso="$1"
-  device="/dev/$(echo "$2" | sed -e 's|dev||g;s|//||g')"
+  device="$(__normalize_device "$2")"
   __test_device "$device" && __test_iso "$iso" || exit 1
   printf_cyan "🖥 Writing $iso to $device 🖥"
   if __sudoif; then
@@ -328,11 +379,621 @@ __dd() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__create_partitions() {
+  local device="$1"
+  local USB_WRITER_LABEL="${USB_WRITER_LABEL:-MULTIBOOT}"
+
+  printf_cyan "Creating partition table on $device"
+
+  if __sudoif; then
+    # Unmount any mounted partitions
+    __sudo umount "${device}"* 2>/dev/null || true
+
+    # Create GPT partition table with ESP and data partition
+    __sudo parted -s "$device" mklabel gpt || return 1
+    __sudo parted -s "$device" mkpart primary fat32 1MiB 551MiB || return 1
+    __sudo parted -s "$device" set 1 esp on || return 1
+    __sudo parted -s "$device" mkpart primary ext4 551MiB 100% || return 1
+
+    # Wait for kernel to recognize partitions
+    sleep 2
+    __sudo partprobe "$device" 2>/dev/null || true
+    sleep 2
+
+    local esp_part="$(__get_partition "$device" 1)"
+    local data_part="$(__get_partition "$device" 2)"
+
+    # Format partitions
+    printf_cyan "Formatting ESP partition as FAT32"
+    __sudo mkfs.vfat -F 32 -n "ESP" "$esp_part" || return 1
+
+    printf_cyan "Formatting data partition as ext4"
+    __sudo mkfs.ext4 -F -L "$USB_WRITER_LABEL" "$data_part" || return 1
+
+    printf_green "Partitions created successfully"
+    return 0
+  else
+    printf_exit "⚠️ Root privileges required ⚠️"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__mount_usb() {
+  local device="$1"
+  local USB_WRITER_MOUNT="${USB_WRITER_MOUNT:-/mnt/usb-multiboot}"
+  local esp_part="$(__get_partition "$device" 1)"
+  local data_part="$(__get_partition "$device" 2)"
+
+  if __sudoif; then
+    __sudo mkdir -p "$USB_WRITER_MOUNT" "$USB_WRITER_MOUNT/esp" || return 1
+    __sudo mount "$data_part" "$USB_WRITER_MOUNT" 2>/dev/null || {
+      printf_red "Failed to mount data partition"
+      return 1
+    }
+    __sudo mkdir -p "$USB_WRITER_MOUNT/esp" || true
+    __sudo mount "$esp_part" "$USB_WRITER_MOUNT/esp" 2>/dev/null || {
+      printf_red "Failed to mount ESP partition"
+      __sudo umount "$USB_WRITER_MOUNT" 2>/dev/null
+      return 1
+    }
+    printf_green "USB mounted at $USB_WRITER_MOUNT"
+    echo "$USB_WRITER_MOUNT"
+    return 0
+  else
+    printf_exit "⚠️ Root privileges required ⚠️"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__unmount_usb() {
+  local device="$1"
+  local USB_WRITER_MOUNT="${USB_WRITER_MOUNT:-/mnt/usb-multiboot}"
+
+  if __sudoif; then
+    __sudo umount "$USB_WRITER_MOUNT/esp" 2>/dev/null || true
+    __sudo umount "$USB_WRITER_MOUNT" 2>/dev/null || true
+    printf_green "USB unmounted"
+    return 0
+  else
+    printf_red "Failed to unmount USB"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__create_directory_structure() {
+  local mount_point="$1"
+
+  if __sudoif; then
+    printf_cyan "Creating directory structure"
+    __sudo mkdir -p "$mount_point/ISOs/Linux" || return 1
+    __sudo mkdir -p "$mount_point/ISOs/Windows" || return 1
+    __sudo mkdir -p "$mount_point/ISOs/BSD" || return 1
+    __sudo mkdir -p "$mount_point/ISOs/Utilities" || return 1
+    __sudo mkdir -p "$mount_point/ISOs/Tools" || return 1
+    __sudo mkdir -p "$mount_point/esp/EFI/BOOT" || return 1
+    __sudo mkdir -p "$mount_point/esp/boot/grub" || return 1
+    printf_green "Directory structure created"
+    return 0
+  else
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__install_grub() {
+  local device="$1"
+  local mount_point="$2"
+
+  if ! __cmd_exists grub-install; then
+    printf_red "GRUB not found. Please install grub2/grub-efi"
+    return 1
+  fi
+
+  printf_cyan "Installing GRUB bootloader"
+
+  if __sudoif; then
+    # Install GRUB for UEFI
+    __sudo grub-install --target=x86_64-efi --efi-directory="$mount_point/esp" \
+      --boot-directory="$mount_point/esp/boot" --removable --recheck 2>&1 || {
+      printf_red "UEFI GRUB installation failed"
+    }
+
+    # Install GRUB for BIOS
+    __sudo grub-install --target=i386-pc --boot-directory="$mount_point/esp/boot" \
+      --recheck "$device" 2>&1 || {
+      printf_red "BIOS GRUB installation failed (non-fatal)"
+    }
+
+    printf_green "GRUB installed successfully"
+    return 0
+  else
+    printf_exit "⚠️ Root privileges required ⚠️"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__generate_grub_menu() {
+  local mount_point="$1"
+  local grub_cfg="$mount_point/esp/boot/grub/grub.cfg"
+
+  printf_cyan "Generating GRUB menu"
+
+  if __sudoif; then
+    # Create main GRUB config
+    __sudo tee "$grub_cfg" > /dev/null << 'GRUBEOF'
+# GRUB Configuration for Multi-Boot USB
+# Generated by usb-writer
+
+set timeout=30
+set default=0
+
+# Set theme
+set menu_color_normal=white/black
+set menu_color_highlight=black/light-gray
+
+# Main Menu
+menuentry 'Boot from First Hard Disk' {
+    insmod part_gpt
+    insmod part_msdos
+    insmod chain
+    set root=(hd1)
+    chainloader +1
+    boot
+}
+
+menuentry 'Reboot' {
+    reboot
+}
+
+menuentry 'Power Off' {
+    halt
+}
+
+submenu '>>> Linux Distributions <<<' {
+GRUBEOF
+
+    # Add Linux ISOs
+    if [ -d "$mount_point/ISOs/Linux" ]; then
+      for iso in "$mount_point/ISOs/Linux"/*.iso; do
+        [ -f "$iso" ] || continue
+        local iso_name="$(basename "$iso" .iso)"
+        __sudo tee -a "$grub_cfg" > /dev/null << ISOEOF
+    menuentry '$iso_name' {
+        set isofile="/ISOs/Linux/$(basename "$iso")"
+        loopback loop \$isofile
+        linux (loop)/casper/vmlinuz boot=casper iso-scan/filename=\$isofile noprompt noeject quiet splash ---
+        initrd (loop)/casper/initrd
+    }
+ISOEOF
+      done
+    fi
+
+    __sudo tee -a "$grub_cfg" > /dev/null << 'GRUBEOF'
+}
+
+submenu '>>> Windows Installers <<<' {
+GRUBEOF
+
+    # Add Windows ISOs
+    if [ -d "$mount_point/ISOs/Windows" ]; then
+      for iso in "$mount_point/ISOs/Windows"/*.iso; do
+        [ -f "$iso" ] || continue
+        local iso_name="$(basename "$iso" .iso)"
+        __sudo tee -a "$grub_cfg" > /dev/null << ISOEOF
+    menuentry '$iso_name' {
+        set isofile="/ISOs/Windows/$(basename "$iso")"
+        loopback loop \$isofile
+        chainloader (loop)/bootmgr
+    }
+ISOEOF
+      done
+    fi
+
+    __sudo tee -a "$grub_cfg" > /dev/null << 'GRUBEOF'
+}
+
+submenu '>>> BSD Distributions <<<' {
+GRUBEOF
+
+    # Add BSD ISOs
+    if [ -d "$mount_point/ISOs/BSD" ]; then
+      for iso in "$mount_point/ISOs/BSD"/*.iso; do
+        [ -f "$iso" ] || continue
+        local iso_name="$(basename "$iso" .iso)"
+        __sudo tee -a "$grub_cfg" > /dev/null << ISOEOF
+    menuentry '$iso_name' {
+        set isofile="/ISOs/BSD/$(basename "$iso")"
+        loopback loop \$isofile
+        kfreebsd (loop)/boot/kernel/kernel
+    }
+ISOEOF
+      done
+    fi
+
+    __sudo tee -a "$grub_cfg" > /dev/null << 'GRUBEOF'
+}
+
+submenu '>>> System Utilities <<<' {
+GRUBEOF
+
+    # Add Utilities ISOs
+    if [ -d "$mount_point/ISOs/Utilities" ]; then
+      for iso in "$mount_point/ISOs/Utilities"/*.iso; do
+        [ -f "$iso" ] || continue
+        local iso_name="$(basename "$iso" .iso)"
+        __sudo tee -a "$grub_cfg" > /dev/null << ISOEOF
+    menuentry '$iso_name' {
+        set isofile="/ISOs/Utilities/$(basename "$iso")"
+        loopback loop \$isofile
+        linux (loop)/vmlinuz iso-scan/filename=\$isofile boot=live
+        initrd (loop)/initrd.img
+    }
+ISOEOF
+      done
+    fi
+
+    __sudo tee -a "$grub_cfg" > /dev/null << 'GRUBEOF'
+}
+
+submenu '>>> Tools (Memdisk) <<<' {
+GRUBEOF
+
+    # Add Tools with memdisk
+    if [ -d "$mount_point/ISOs/Tools" ]; then
+      for iso in "$mount_point/ISOs/Tools"/*.iso; do
+        [ -f "$iso" ] || continue
+        local iso_name="$(basename "$iso" .iso)"
+        __sudo tee -a "$grub_cfg" > /dev/null << ISOEOF
+    menuentry '$iso_name' {
+        set isofile="/ISOs/Tools/$(basename "$iso")"
+        linux16 /boot/memdisk iso
+        initrd16 \$isofile
+    }
+ISOEOF
+      done
+    fi
+
+    __sudo tee -a "$grub_cfg" > /dev/null << 'GRUBEOF'
+}
+GRUBEOF
+
+    printf_green "GRUB menu generated successfully"
+    return 0
+  else
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__cmd_create_multiboot() {
+  local device="$(__normalize_device "$1")"
+
+  if [ -z "$device" ]; then
+    printf_red "Device required"
+    __help
+    return 1
+  fi
+
+  __test_device "$device" || return 1
+
+  # Confirm destructive operation
+  printf_yellow "⚠️  WARNING: This will erase ALL data on $device ⚠️"
+  printf_cyan "Available devices:"
+  lsblk -o NAME,SIZE,TYPE,MOUNTPOINT "$device" 2>/dev/null || true
+  printf_yellow "Continue? (yes/no): "
+  read -r confirm
+  if [ "$confirm" != "yes" ]; then
+    printf_cyan "Cancelled"
+    return 0
+  fi
+
+  # Create partitions
+  __create_partitions "$device" || return 1
+
+  # Mount USB
+  local mount_point="$(__mount_usb "$device")"
+  if [ -z "$mount_point" ]; then
+    return 1
+  fi
+
+  # Create directory structure
+  __create_directory_structure "$mount_point" || {
+    __unmount_usb "$device"
+    return 1
+  }
+
+  # Install GRUB
+  __install_grub "$device" "$mount_point" || {
+    __unmount_usb "$device"
+    return 1
+  }
+
+  # Generate initial menu
+  __generate_grub_menu "$mount_point" || {
+    __unmount_usb "$device"
+    return 1
+  }
+
+  # Unmount
+  __unmount_usb "$device"
+
+  printf_green "✓ Multi-boot USB created successfully!"
+  printf_cyan "You can now add ISOs with: usb-writer add-iso <file> <category>"
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__cmd_add_iso() {
+  local iso_file="$1"
+  local category="${2:-linux}"
+  local device="$3"
+
+  if [ -z "$iso_file" ]; then
+    printf_red "ISO file required"
+    return 1
+  fi
+
+  __test_iso "$iso_file" || return 1
+
+  # Normalize category
+  category="$(echo "$category" | tr '[:upper:]' '[:lower:]')"
+  local category_dir=""
+  case "$category" in
+    linux) category_dir="Linux" ;;
+    windows) category_dir="Windows" ;;
+    bsd) category_dir="BSD" ;;
+    utilities|utility) category_dir="Utilities" ;;
+    tools|tool) category_dir="Tools" ;;
+    *)
+      printf_red "Invalid category. Use: linux, windows, bsd, utilities, tools"
+      return 1
+      ;;
+  esac
+
+  # Find and mount multiboot USB if device provided
+  if [ -n "$device" ]; then
+    device="$(__normalize_device "$device")"
+    local mount_point="$(__mount_usb "$device")"
+  else
+    # Look for mounted multiboot USB
+    local USB_WRITER_MOUNT="${USB_WRITER_MOUNT:-/mnt/usb-multiboot}"
+    if [ -d "$USB_WRITER_MOUNT/ISOs" ]; then
+      mount_point="$USB_WRITER_MOUNT"
+    else
+      printf_red "Multi-boot USB not found. Please specify device or mount it first"
+      return 1
+    fi
+  fi
+
+  local dest_dir="$mount_point/ISOs/$category_dir"
+  local iso_name="$(basename "$iso_file")"
+
+  printf_cyan "Copying $iso_name to $category_dir category..."
+
+  if __sudoif; then
+    __sudo cp "$iso_file" "$dest_dir/" || {
+      printf_red "Failed to copy ISO"
+      [ -n "$device" ] && __unmount_usb "$device"
+      return 1
+    }
+
+    # Update menu
+    __generate_grub_menu "$mount_point"
+
+    if [ -n "$device" ]; then
+      __unmount_usb "$device"
+    fi
+
+    printf_green "✓ ISO added successfully"
+    return 0
+  else
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__cmd_remove_iso() {
+  local iso_name="$1"
+  local device="$2"
+
+  if [ -z "$iso_name" ]; then
+    printf_red "ISO name required"
+    return 1
+  fi
+
+  # Find and mount multiboot USB if device provided
+  if [ -n "$device" ]; then
+    device="$(__normalize_device "$device")"
+    local mount_point="$(__mount_usb "$device")"
+  else
+    local USB_WRITER_MOUNT="${USB_WRITER_MOUNT:-/mnt/usb-multiboot}"
+    if [ -d "$USB_WRITER_MOUNT/ISOs" ]; then
+      mount_point="$USB_WRITER_MOUNT"
+    else
+      printf_red "Multi-boot USB not found"
+      return 1
+    fi
+  fi
+
+  # Find the ISO
+  local found_iso=""
+  for iso in "$mount_point/ISOs"/*/"$iso_name"* "$mount_point/ISOs"/*/*/"$iso_name"*; do
+    if [ -f "$iso" ]; then
+      found_iso="$iso"
+      break
+    fi
+  done
+
+  if [ -z "$found_iso" ]; then
+    printf_red "ISO not found: $iso_name"
+    [ -n "$device" ] && __unmount_usb "$device"
+    return 1
+  fi
+
+  printf_cyan "Removing $(basename "$found_iso")..."
+
+  if __sudoif; then
+    __sudo rm -f "$found_iso" || {
+      printf_red "Failed to remove ISO"
+      [ -n "$device" ] && __unmount_usb "$device"
+      return 1
+    }
+
+    # Update menu
+    __generate_grub_menu "$mount_point"
+
+    if [ -n "$device" ]; then
+      __unmount_usb "$device"
+    fi
+
+    printf_green "✓ ISO removed successfully"
+    return 0
+  else
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__cmd_update_menu() {
+  local device="$1"
+
+  if [ -z "$device" ]; then
+    printf_red "Device required"
+    return 1
+  fi
+
+  device="$(__normalize_device "$device")"
+  local mount_point="$(__mount_usb "$device")"
+
+  if [ -z "$mount_point" ]; then
+    return 1
+  fi
+
+  __generate_grub_menu "$mount_point"
+  __unmount_usb "$device"
+
+  printf_green "✓ GRUB menu updated successfully"
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__cmd_list_isos() {
+  local device="$1"
+
+  # Find and mount multiboot USB if device provided
+  if [ -n "$device" ]; then
+    device="$(__normalize_device "$device")"
+    local mount_point="$(__mount_usb "$device")"
+  else
+    local USB_WRITER_MOUNT="${USB_WRITER_MOUNT:-/mnt/usb-multiboot}"
+    if [ -d "$USB_WRITER_MOUNT/ISOs" ]; then
+      mount_point="$USB_WRITER_MOUNT"
+    else
+      printf_red "Multi-boot USB not found"
+      return 1
+    fi
+  fi
+
+  printf_cyan "ISOs on multi-boot USB:"
+  printf_cyan "======================="
+
+  for category in Linux Windows BSD Utilities Tools; do
+    local category_dir="$mount_point/ISOs/$category"
+    if [ -d "$category_dir" ]; then
+      local count=0
+      for iso in "$category_dir"/*.iso; do
+        [ -f "$iso" ] || continue
+        count=$((count + 1))
+      done
+
+      if [ $count -gt 0 ]; then
+        printf_green "\n$category ($count):"
+        for iso in "$category_dir"/*.iso; do
+          [ -f "$iso" ] || continue
+          local size="$(du -h "$iso" | cut -f1)"
+          printf_cyan "  - $(basename "$iso") [$size]"
+        done
+      fi
+    fi
+  done
+
+  if [ -n "$device" ]; then
+    __unmount_usb "$device"
+  fi
+
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __execute_usb-writer() {
-  local ISO="$1"
-  local DEV="/dev/$2"
-  [ $# -ne 2 ] && __help && exit 1
-  __dd "$ISO" "$DEV"
+  local command="$1"
+  shift
+
+  case "$command" in
+    create | create-multiboot)
+      __cmd_create_multiboot "$@"
+      ;;
+    mount)
+      __mount_usb "$1"
+      ;;
+    unmount)
+      __unmount_usb "$1"
+      ;;
+    iso)
+      # ISO management subcommands
+      local subcommand="$1"
+      shift
+      case "$subcommand" in
+        add | add-iso)
+          __cmd_add_iso "$@"
+          ;;
+        remove | remove-iso)
+          __cmd_remove_iso "$@"
+          ;;
+        list | list-isos)
+          __cmd_list_isos "$@"
+          ;;
+        menu | update-menu)
+          __cmd_update_menu "$@"
+          ;;
+        write | write-iso)
+          local ISO="$1"
+          local DEV="$2"
+          if [ $# -ne 2 ]; then
+            __help
+            exit 1
+          fi
+          __dd "$ISO" "$DEV"
+          ;;
+        *)
+          printf_red "Unknown iso subcommand: $subcommand"
+          printf_cyan "Available: add, remove, list, menu, write"
+          exit 1
+          ;;
+      esac
+      ;;
+    # Legacy compatibility
+    write-iso)
+      local ISO="$1"
+      local DEV="$2"
+      if [ $# -ne 2 ]; then
+        __help
+        exit 1
+      fi
+      __dd "$ISO" "$DEV"
+      ;;
+    add-iso)
+      __cmd_add_iso "$@"
+      ;;
+    remove-iso)
+      __cmd_remove_iso "$@"
+      ;;
+    update-menu)
+      __cmd_update_menu "$@"
+      ;;
+    list-isos)
+      __cmd_list_isos "$@"
+      ;;
+    *)
+      # Legacy mode for backward compatibility: usb-writer iso.iso /dev/sdX
+      if [ -n "$command" ] && [ -n "$1" ]; then
+        __dd "$command" "$1"
+      else
+        __help
+        exit 1
+      fi
+      ;;
+  esac
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
@@ -406,7 +1067,7 @@ SETARGS=("$@")
 SHORTOPTS=""
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent,label:,no-verify"
 LONGOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY=""
@@ -501,6 +1162,14 @@ while :; do
     USB_WRITER_CWD="$2"
     [ -d "$USB_WRITER_CWD" ] || mkdir -p "$USB_WRITER_CWD" |& __devnull
     shift 2
+    ;;
+  --label)
+    USB_WRITER_LABEL="$2"
+    shift 2
+    ;;
+  --no-verify)
+    USB_WRITER_NO_VERIFY="true"
+    shift 1
     ;;
   --)
     shift 1

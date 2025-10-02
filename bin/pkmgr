@@ -324,45 +324,54 @@ __not_installed() { echo -ne "${RED}Not Installed${NC}"; }
 __is_url() { echo "${1:-$url}" | grep -qE '^http://|^https://|^ftp://' || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __logging() {
-  # Log to file if PKMGR_LOG_INFO is set, otherwise just cat
-  if [ -n "${PKMGR_LOG_INFO:-}" ] && [ -d "$(dirname "$PKMGR_LOG_INFO")" ]; then
-    if command -v unbuffer >/dev/null 2>&1; then
-      unbuffer tee -a "$PKMGR_LOG_INFO"
-    elif command -v stdbuf >/dev/null 2>&1; then
-      stdbuf -o0 -e0 tee -a "$PKMGR_LOG_INFO"
-    else
-      tee -a "$PKMGR_LOG_INFO"
-    fi
-  else
-    # No logging, just pass through
-    cat
-  fi
+  # Deprecated - kept for compatibility but does nothing
+  # Logging is now handled directly in __exec_unbuffered
+  cat
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Execute command with unbuffered output  
+# Execute command with unbuffered output and optional logging
 __exec_unbuffered() {
-  # Force unbuffered output for package managers with environment variables
   local cmd="$*"
-  
+  local log_file="${PKMGR_LOG_INFO:-}"
+
   # Set environment variables to force unbuffered output
   export PYTHONUNBUFFERED=1
   export PAGER=""
   export SYSTEMD_PAGER=""
   export APT_LISTCHANGES_FRONTEND=none
-  
+
+  # Choose execution method and logging strategy
   if command -v unbuffer >/dev/null 2>&1; then
-    # Use unbuffer (from expect) for full unbuffering - best option
-    unbuffer bash -c "$cmd"
+    # Use unbuffer with tee for logging if log file exists
+    if [ -n "$log_file" ] && [ -d "$(dirname "$log_file")" ]; then
+      unbuffer bash -c "$cmd" 2>&1 | tee -a "$log_file"
+    else
+      unbuffer bash -c "$cmd" 2>&1
+    fi
   elif command -v stdbuf >/dev/null 2>&1; then
-    # Use stdbuf with immediate flush and TTY simulation
-    stdbuf -o0 -e0 bash -c "exec 2>&1; $cmd"
+    # Use stdbuf with tee for logging if log file exists
+    if [ -n "$log_file" ] && [ -d "$(dirname "$log_file")" ]; then
+      stdbuf -o0 -e0 bash -c "$cmd" 2>&1 | tee -a "$log_file"
+    else
+      stdbuf -o0 -e0 bash -c "$cmd" 2>&1
+    fi
   elif command -v script >/dev/null 2>&1; then
-    # Use script command to force TTY mode for pacman
-    script -qefc "$cmd" /dev/null
+    # Use script command - it already outputs to terminal
+    if [ -n "$log_file" ] && [ -d "$(dirname "$log_file")" ]; then
+      script -qefc "$cmd" /dev/null 2>&1 | tee -a "$log_file"
+    else
+      script -qefc "$cmd" /dev/null 2>&1
+    fi
   else
-    # Last resort - direct execution with forced output
-    bash -c "exec 2>&1; $cmd"
+    # Direct execution with logging if available
+    if [ -n "$log_file" ] && [ -d "$(dirname "$log_file")" ]; then
+      bash -c "$cmd" 2>&1 | tee -a "$log_file"
+    else
+      bash -c "$cmd" 2>&1
+    fi
   fi
+
+  return ${PIPESTATUS[0]:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __log_info() { tee -p -a "$PKMGR_LOG_INFO" || return 1; }
@@ -1228,7 +1237,7 @@ __execute_pkmgr() {
     exitCode=0
     [ "$1" = "help" ] && printf_exit 2 0 "Options are add, remove, or run"
     [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "cron" "__schedule $*"
-    __schedule "$@" |& __logging || exitCode=$((exitCode + 1))
+    __schedule "$@"  || exitCode=$((exitCode + 1))
     [ $exitCode -eq 0 ] && __write_log_status "cron ran successfully" || __write_log_status "Failed with status: $exitCode"
     exit ${exitCode:-0}
     ;;
@@ -1254,7 +1263,7 @@ __execute_pkmgr() {
     exitCode=0
     [ "$1" = "help" ] && printf_exit 2 0 "Clean up package manager files"
     [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "clean" "$pkgmgrbincle $*"
-    eval $pkgmgrbincle |& __logging || exitCode=1
+    eval $pkgmgrbincle  || exitCode=1
     [ $exitCode -eq 0 ] && __write_log_status "clean ran successfully" || __write_log_status "Failed with status: $exitCode"
     exit ${exitCode:-0}
     ;;
@@ -1308,7 +1317,7 @@ __execute_pkmgr() {
         if [ -f "$PKMGR_TEMP_DIR/pacman.conf" ]; then
           [ "$PKMGR_FIX_BROKEN" = "true" ] && sudo cp -Rf "$PKMGR_TEMP_DIR/pacman.conf" "/etc/pacman.broken.conf" || cp -Rf "$PKMGR_TEMP_DIR/pacman.conf" "/etc/pacman.conf"
         fi
-      ) |& __logging || exitCode=$((exitCode + 1))
+      )  || exitCode=$((exitCode + 1))
     else
       printf_error "This is only supported on Arch based distros"
       exitCode=1
@@ -1402,7 +1411,7 @@ __execute_pkmgr() {
   reinstall) # reinstall all packages
     shift 1
     [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "reinstall" "pkgmr_reinstall $*"
-    pkgmr_reinstall |& __logging || exitCode=1
+    pkgmr_reinstall  || exitCode=1
     [ $exitCode -eq 0 ] && __write_log_status "reinstall ran successfully" || __write_log_status "Failed with status: $exitCode"
     exit ${exitCode:-0}
     ;;
@@ -1415,7 +1424,7 @@ __execute_pkmgr() {
     declare -a LISTARRAY=("$@")
     __init_log_status "install" "$pkgmgrbinins ${LISTARRAY[*]}"
     #for pkg in "${LISTARRAY[@]}"; do
-    __exec_unbuffered "$pkgmgrbinins $*" |& __logging || exitCode=$((exitCode + 1))
+    __exec_unbuffered "$pkgmgrbinins $*" || exitCode=$((exitCode + 1))
     [ $exitCode -eq 0 ] && __write_log_status "upgrade was successful" || __write_log_status "Failed with status: $exitCode"
     exit ${exitCode:-0}
     ;;
@@ -1430,7 +1439,7 @@ __execute_pkmgr() {
       systemmgr update installer || exitCode=$((exitCode + 1))
     fi
     printf_cyan "Updating system packages"
-    eval $pkgmgrbinupd "$@" |& __logging || exitCode=$((exitCode + 1))
+    eval $pkgmgrbinupd "$@"  || exitCode=$((exitCode + 1))
     [ $exitCode -eq 0 ] && __write_log_status "upgrade was successful" || __write_log_status "Failed with status: $exitCode"
     exit ${exitCode:-0}
     ;;
@@ -1442,7 +1451,7 @@ __execute_pkmgr() {
     declare -a LISTARRAY=("$@")
     __init_log_status "remove" "$pkgmgrbindel ${LISTARRAY[*]}"
     for pkg in "${LISTARRAY[@]}"; do
-      eval $pkgmgrbindel "$pkg" |& __logging && __saved_file_delete "$pkg" || exitCode=$((exitCode + 1))
+      eval $pkgmgrbindel "$pkg"  && __saved_file_delete "$pkg" || exitCode=$((exitCode + 1))
     done
     [ $exitCode -eq 0 ] && __write_log_status "upgrade was successful" || __write_log_status "Failed with status: $exitCode"
     exit ${exitCode:-0}
@@ -1524,7 +1533,7 @@ __execute_pkmgr() {
       declare -a LISTARRAY=("$@")
       [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "cpan" "cpan_run ${LISTARRAY[*]}"
       for pkg in "${LISTARRAY[@]}"; do
-        cpan_run "$pkg" |& __logging || exitCode=$((exitCode + 1))
+        cpan_run "$pkg"  || exitCode=$((exitCode + 1))
       done
       [ $exitCode -eq 0 ] && __write_log_status "cpan install ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
@@ -1537,7 +1546,7 @@ __execute_pkmgr() {
       declare -a LISTARRAY=("$@")
       [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "cpan" "cpan_remove ${LISTARRAY[*]}"
       for pkg in "${LISTARRAY[@]}"; do
-        cpan_remove "$pkg" |& __logging || exitCode=$((exitCode + 1))
+        cpan_remove "$pkg"  || exitCode=$((exitCode + 1))
       done
       [ $exitCode -eq 0 ] && __write_log_status "cpan remove ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
@@ -1550,7 +1559,7 @@ __execute_pkmgr() {
       declare -a LISTARRAY=("$@")
       [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "cpan" "__perl_exists ${LISTARRAY[*]}"
       for pkg in "${LISTARRAY[@]}"; do
-        __perl_exists --sudo "$pkg" |& __logging || { printf_red "CPAN module $pkg is missing" && exitCode=$((exitCode + 1)); }
+        __perl_exists --sudo "$pkg"  || { printf_red "CPAN module $pkg is missing" && exitCode=$((exitCode + 1)); }
       done
       [ $exitCode -eq 0 ] && __write_log_status "cpan check" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
@@ -1563,7 +1572,7 @@ __execute_pkmgr() {
       declare -a LISTARRAY=("$@")
       [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "cpan" "cpan_run ${LISTARRAY[*]}"
       for pkg in "${LISTARRAY[@]}"; do
-        cpan_run "$pkg" |& __logging || exitCode=$((exitCode + 1))
+        cpan_run "$pkg"  || exitCode=$((exitCode + 1))
       done
       [ $exitCode -eq 0 ] && __write_log_status "cpan ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
@@ -1581,7 +1590,7 @@ __execute_pkmgr() {
       am_i_online --error || exit 1
       declare -a LISTARRAY=("$@")
       [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "pip" "pip_run ${LISTARRAY[*]}"
-      pip_run "${LISTARRAY[*]}" |& __logging || exitCode=$((exitCode + 1))
+      pip_run "${LISTARRAY[*]}"  || exitCode=$((exitCode + 1))
       [ $exitCode -eq 0 ] && __write_log_status "pip install ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
       ;;
@@ -1592,7 +1601,7 @@ __execute_pkmgr() {
       [ "$1" = "help" ] && printf_exit 2 0 "Remove python modules via pip"
       declare -a LISTARRAY=("$@")
       [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "pip" "pip_remove ${LISTARRAY[*]}"
-      pip_remove "${LISTARRAY[*]}" |& __logging || exitCode=$((exitCode + 1))
+      pip_remove "${LISTARRAY[*]}"  || exitCode=$((exitCode + 1))
       [ $exitCode -eq 0 ] && __write_log_status "pip remove ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
       ;;
@@ -1604,7 +1613,7 @@ __execute_pkmgr() {
       declare -a LISTARRAY=("$@")
       [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "pip" "__python_exists ${LISTARRAY[*]}"
       for pkg in "${LISTARRAY[@]}"; do
-        __python_exists --sudo "$pkg" |& __logging || { printf_red "PIP module $pkg is missing" && exitCode=$((exitCode + 1)); }
+        __python_exists --sudo "$pkg"  || { printf_red "PIP module $pkg is missing" && exitCode=$((exitCode + 1)); }
       done
       [ $exitCode -eq 0 ] && __write_log_status "pip chack ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
@@ -1623,7 +1632,7 @@ __execute_pkmgr() {
       declare -a LISTARRAY=("$@")
       [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "gem" "gem_run ${LISTARRAY[*]}"
       for pkg in "${LISTARRAY[@]}"; do
-        gem_run "$pkg" |& __logging || exitCode=$((exitCode + 1))
+        gem_run "$pkg"  || exitCode=$((exitCode + 1))
       done
       [ $exitCode -eq 0 ] && __write_log_status "gem install ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
@@ -1636,7 +1645,7 @@ __execute_pkmgr() {
       declare -a LISTARRAY=("$@")
       [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "gem" "gem_remove ${LISTARRAY[*]}"
       for pkg in "${LISTARRAY[@]}"; do
-        gem_remove "$pkg" |& __logging || exitCode=$((exitCode + 1))
+        gem_remove "$pkg"  || exitCode=$((exitCode + 1))
       done
       [ $exitCode -eq 0 ] && __write_log_status "gem remove ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
@@ -1649,7 +1658,7 @@ __execute_pkmgr() {
       declare -a LISTARRAY=("$@")
       [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "gem" "__gem_exists ${LISTARRAY[*]}"
       for pkg in "${LISTARRAY[@]}"; do
-        __gem_exists --sudo "$pkg" |& __logging || { printf_red "GEM module $pkg is missing" && exitCode=$((exitCode + 1)); }
+        __gem_exists --sudo "$pkg"  || { printf_red "GEM module $pkg is missing" && exitCode=$((exitCode + 1)); }
       done
       [ $exitCode -eq 0 ] && __write_log_status "gem check ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
@@ -1662,7 +1671,7 @@ __execute_pkmgr() {
       declare -a LISTARRAY=("$@")
       [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "gem" "gem_run ${LISTARRAY[*]}"
       for pkg in "${LISTARRAY[@]}"; do
-        gem_run "$pkg" |& __logging || exitCode=$((exitCode + 1))
+        gem_run "$pkg"  || exitCode=$((exitCode + 1))
       done
       [ $exitCode -eq 0 ] && __write_log_status "gem ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
@@ -1681,7 +1690,7 @@ __execute_pkmgr() {
       declare -a LISTARRAY=("$@")
       [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "npm" "npm_run ${LISTARRAY[*]}"
       for pkg in "${LISTARRAY[@]}"; do
-        npm_run "$pkg" |& __logging || exitCode=$((exitCode + 1))
+        npm_run "$pkg"  || exitCode=$((exitCode + 1))
       done
       [ $exitCode -eq 0 ] && __write_log_status "npm install ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
@@ -1694,7 +1703,7 @@ __execute_pkmgr() {
       declare -a LISTARRAY=("$@")
       [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "npm" "npm_remove ${LISTARRAY[*]}"
       for pkg in "${LISTARRAY[@]}"; do
-        npm_remove "$pkg" |& __logging || exitCode=$((exitCode + 1))
+        npm_remove "$pkg"  || exitCode=$((exitCode + 1))
       done
       [ $exitCode -eq 0 ] && __write_log_status "npm remove ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
@@ -1707,7 +1716,7 @@ __execute_pkmgr() {
       declare -a LISTARRAY=("$@")
       [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "npm" "__npm_exists ${LISTARRAY[*]}"
       for pkg in "${LISTARRAY[@]}"; do
-        __npm_exists --sudo "$pkg" |& __logging || { printf_red "NPM module $pkg is missing" && exitCode=$((exitCode + 1)); }
+        __npm_exists --sudo "$pkg"  || { printf_red "NPM module $pkg is missing" && exitCode=$((exitCode + 1)); }
       done
       [ $exitCode -eq 0 ] && __write_log_status "npm check ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
@@ -1720,7 +1729,7 @@ __execute_pkmgr() {
       declare -a LISTARRAY=("$@")
       [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "npm" "npm_run ${LISTARRAY[*]}"
       for pkg in "${LISTARRAY[@]}"; do
-        npm_run "$pkg" |& __logging || exitCode=$((exitCode + 1))
+        npm_run "$pkg"  || exitCode=$((exitCode + 1))
       done
       [ $exitCode -eq 0 ] && __write_log_status "npm ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
@@ -1739,7 +1748,7 @@ __execute_pkmgr() {
       declare -a LISTARRAY=("$@")
       [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "go" "go_run ${LISTARRAY[*]}"
       for pkg in "${LISTARRAY[@]}"; do
-        go_run "$pkg" |& __logging || exitCode=$((exitCode + 1))
+        go_run "$pkg"  || exitCode=$((exitCode + 1))
       done
       [ $exitCode -eq 0 ] && __write_log_status "go install ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
@@ -1752,7 +1761,7 @@ __execute_pkmgr() {
       declare -a LISTARRAY=("$@")
       [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "go" "go_remove ${LISTARRAY[*]}"
       for pkg in "${LISTARRAY[@]}"; do
-        go_remove "$pkg" |& __logging || exitCode=$((exitCode + 1))
+        go_remove "$pkg"  || exitCode=$((exitCode + 1))
       done
       [ $exitCode -eq 0 ] && __write_log_status "go remove ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
@@ -1765,7 +1774,7 @@ __execute_pkmgr() {
       declare -a LISTARRAY=("$@")
       [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "go" "__go_exists ${LISTARRAY[*]}"
       for pkg in "${LISTARRAY[@]}"; do
-        __go_exists "$pkg" |& __logging || { printf_red "go module $pkg is missing" && exitCode=$((exitCode + 1)); }
+        __go_exists "$pkg"  || { printf_red "go module $pkg is missing" && exitCode=$((exitCode + 1)); }
       done
       [ $exitCode -eq 0 ] && __write_log_status "go check ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
@@ -1777,7 +1786,7 @@ __execute_pkmgr() {
       declare -a LISTARRAY=("$@")
       [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "go" "go_run ${LISTARRAY[*]}"
       for pkg in "${LISTARRAY[@]}"; do
-        go_run "$pkg" |& __logging || exitCode=$((exitCode + 1))
+        go_run "$pkg"  || exitCode=$((exitCode + 1))
       done
       [ $exitCode -eq 0 ] && __write_log_status "go ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
@@ -1796,7 +1805,7 @@ __execute_pkmgr() {
       declare -a LISTARRAY=("$@")
       [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "lua" "lua_run ${LISTARRAY[*]}"
       for pkg in "${LISTARRAY[@]}"; do
-        lua_run "$pkg" |& __logging || exitCode=$((exitCode + 1))
+        lua_run "$pkg"  || exitCode=$((exitCode + 1))
       done
       [ $exitCode -eq 0 ] && __write_log_status "lua install ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
@@ -1809,7 +1818,7 @@ __execute_pkmgr() {
       declare -a LISTARRAY=("$@")
       [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "lua" "lua_remove ${LISTARRAY[*]}"
       for pkg in "${LISTARRAY[@]}"; do
-        lua_remove "$pkg" |& __logging || exitCode=$((exitCode + 1))
+        lua_remove "$pkg"  || exitCode=$((exitCode + 1))
       done
       [ $exitCode -eq 0 ] && __write_log_status "lua remove ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
@@ -1822,7 +1831,7 @@ __execute_pkmgr() {
       declare -a LISTARRAY=("$@")
       [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "lua" "__lua_exists ${LISTARRAY[*]}"
       for pkg in "${LISTARRAY[@]}"; do
-        __lua_exists "$pkg" |& __logging || { printf_red "lua module $pkg is missing" && exitCode=$((exitCode + 1)); }
+        __lua_exists "$pkg"  || { printf_red "lua module $pkg is missing" && exitCode=$((exitCode + 1)); }
       done
       [ $exitCode -eq 0 ] && __write_log_status "lua check ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
@@ -1834,7 +1843,7 @@ __execute_pkmgr() {
       declare -a LISTARRAY=("$@")
       [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "lua" "lua_run ${LISTARRAY[*]}"
       for pkg in "${LISTARRAY[@]}"; do
-        lua_run "$pkg" |& __logging || exitCode=$((exitCode + 1))
+        lua_run "$pkg"  || exitCode=$((exitCode + 1))
       done
       [ $exitCode -eq 0 ] && __write_log_status "lua ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}

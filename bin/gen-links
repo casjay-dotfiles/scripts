@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202208080932-git
+##@Version           :  202510010420-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
 # @@ReadME           :  gen-links --help
-# @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
+# @@Copyright        :  Copyright: (c) 2025 Jason Hempstead, Casjays Developments
 # @@Created          :  Monday, Aug 08, 2022 09:32 EDT
 # @@File             :  gen-links
 # @@Description      :  Create a links from a text document
-# @@Changelog        :  New script
+# @@Changelog        :  Enhanced lookup with multi-source HTML parsing and improved URL extraction
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202208080932-git"
+VERSION="202510010420-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -198,7 +198,13 @@ __help() {
   __printf_line "Usage: gen-links [options] [commands]"
   __printf_line "* [textFile] [htmlFile]         - Creates html from text file"
   __printf_line "watch [inFile] [outFile] [time] - Updates html file"
+  __printf_line "bookmark <url> [name]           - Add URL to bookmark collection"
+  __printf_line " "
+  __printf_head "Options:"
   __printf_line "--force                         - Allow overwriting of file"
+  __printf_line "--lookup                        - Fetch actual page titles from URLs (slower)"
+  __printf_line "                                  Without: strips protocol (fast)"
+  __printf_line "                                  With: fetches HTML titles (accurate)"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -314,8 +320,12 @@ __awk() { awk "$@" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __sed() { sed "$@" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__retrieve_page_title() { echo "$@" | grep '<title>.*</title>|' | sed 's|.*<title>||g;s|</title.*||g' | grep '^' || return 1; }
+__retrieve_page_title() { echo "$@" | grep '<title>.*</title>' | sed 's|.*<title>||g;s|</title.*||g' | grep '^' || return 1; }
 __retrieve_page_meta() { echo "$@" | grep -E 'og:description|meta property="og:title" content' | sed 's|.*="||g;s|".*||g;s,|.*,,g' | grep -Ev '[|]|-' | head -n1 | grep '^' || return 1; }
+__retrieve_og_title() { echo "$@" | grep -oE 'property="og:title" content="[^"]*"' | sed 's|.*content="||g;s|".*||g' | head -n1 | grep '^' || return 1; }
+__retrieve_twitter_title() { echo "$@" | grep -oE 'name="twitter:title" content="[^"]*"' | sed 's|.*content="||g;s|".*||g' | head -n1 | grep '^' || return 1; }
+__retrieve_h1_title() { echo "$@" | grep -oE '<h1[^>]*>.*</h1>' | sed 's|<[^>]*>||g' | head -n1 | grep '^' || return 1; }
+__retrieve_json_ld_title() { echo "$@" | grep -oE '"name"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's|.*"name"[[:space:]]*:[[:space:]]*"||g;s|".*||g' | head -n1 | grep '^' || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __set_page_title() {
   local exitCode=0
@@ -665,8 +675,13 @@ __get_page_title() {
   builtin printf '\r%b%s%b ' "${YELLOW}" "Setting up ${link_url:0:120}" "${NC}"
   if [ -n "$GEN_LINKS_LOOKUP" ]; then
     if __check_status "$link_url" &>/dev/null; then
-      url_contents="$(curl -q -LSsf "$link_url" 2>/dev/null)"
-      retrieve_title="$(__retrieve_page_meta "$url_contents" || __retrieve_page_title "$url_contents" || false)"
+      url_contents="$(curl -q -LSsf -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" "$link_url" 2>/dev/null)"
+      # Try multiple extraction methods in order of preference
+      retrieve_title="$(__retrieve_og_title "$url_contents" || __retrieve_twitter_title "$url_contents" || __retrieve_page_title "$url_contents" || __retrieve_h1_title "$url_contents" || __retrieve_json_ld_title "$url_contents" || false)"
+      # Clean up the retrieved title
+      if [ -n "$retrieve_title" ]; then
+        retrieve_title="$(echo "$retrieve_title" | sed 's|&[a-z]*;||g;s|&#[0-9]*;||g;s|<[^>]*>||g;s|^[[:space:]]*||g;s|[[:space:]]*$||g' | head -c120)"
+      fi
       set_title="$(__set_page_title "$link_url" "$retrieve_title" | grep '^' || false)"
       if [ -n "$set_title" ]; then
         link_title="$set_title"
@@ -678,7 +693,19 @@ __get_page_title() {
       exitCode=2
     fi
   else
-    link_title="$(__extract_smart_title "$link_url")"
+    # Without lookup, strip protocol for display
+    # Keep essential query params (like YouTube v=) but strip tracking params
+    link_title="$(echo "$link_url" | sed 's|^https*://||g;s|^ftp://||g')"
+
+    # For YouTube, keep only the v= parameter
+    if echo "$link_url" | grep -q 'youtube.com/watch'; then
+      local video_id="$(echo "$link_url" | sed 's|.*[?&]v=||g;s|&.*||g')"
+      link_title="$(echo "$link_title" | sed 's|?.*||g')?v=$video_id"
+    # For other common sites with tracking params, strip everything after ? except essential params
+    elif echo "$link_url" | grep -qE 'utm_|ad_sub|fbclid|gclid'; then
+      # Remove common tracking parameters
+      link_title="$(echo "$link_title" | sed 's|[?&]utm_[^&]*||g;s|[?&]ad_sub=[^&]*||g;s|[?&]fbclid=[^&]*||g;s|[?&]gclid=[^&]*||g;s|[?&]*$||g;s|?&|?|g')"
+    fi
   fi
   sleep .2
   builtin printf '\r                                                                                                                                           '
@@ -688,56 +715,75 @@ __get_page_title() {
 __extract_smart_title() {
   local url="$1"
   local title=""
+  local path_part=""
 
-  # Remove protocol and common parameters
-  local clean_url="$(echo "$url" | sed 's|^https*://||g;s|^ftp://||g;s|?.*||g;s|#.*||g')"
+  # Remove protocol and extract path before query parameters
+  local clean_url="$(echo "$url" | sed 's|^https*://||g;s|^ftp://||g')"
+  local url_path="$(echo "$url" | sed 's|^https*://[^/]*||g;s|?.*||g;s|#.*||g')"
 
   # Site-specific title extraction
   if echo "$url" | grep -q 'youtube.com/watch'; then
-    # YouTube - try to extract from URL path or use description
     local video_id="$(echo "$url" | sed 's|.*[?&]v=||g;s|&.*||g')"
     title="YouTube: $video_id"
+  elif echo "$url" | grep -q 'youtu.be/'; then
+    local video_id="$(echo "$url" | sed 's|.*/||g;s|?.*||g')"
+    title="YouTube: $video_id"
   elif echo "$url" | grep -q 'github.com'; then
-    # GitHub - extract repo name and owner
     title="$(echo "$clean_url" | cut -d'/' -f2-3 | sed 's|/| - |g')"
   elif echo "$url" | grep -q 'stackoverflow.com/questions'; then
-    # StackOverflow - extract question title from URL
     title="$(echo "$clean_url" | cut -d'/' -f4- | sed 's|/| |g' | head -c60)"
   elif echo "$url" | grep -q 'reddit.com/r/'; then
-    # Reddit - extract subreddit and post title
     local subreddit="$(echo "$clean_url" | cut -d'/' -f3)"
     local post_title="$(echo "$clean_url" | cut -d'/' -f6- | head -c40)"
     title="$subreddit: $post_title"
-  elif echo "$url" | grep -q '/videos\?/'; then
-    # Video sites - extract from video path
-    title="$(echo "$clean_url" | sed 's|.*/videos\?/[^/]*/||g;s|.*/videos\?/||g' | cut -d'/' -f1)"
+  elif echo "$url" | grep -qE '/video/|/videos/|/watch/|/v/'; then
+    # Generic video sites - extract video slug (everything after /video/, /videos/, etc.)
+    if echo "$url_path" | grep -q '/video/'; then
+      title="$(echo "$url_path" | sed 's|.*/video/||g' | cut -d'/' -f1)"
+    elif echo "$url_path" | grep -q '/videos/'; then
+      title="$(echo "$url_path" | sed 's|.*/videos/||g' | cut -d'/' -f1)"
+    elif echo "$url_path" | grep -q '/watch/'; then
+      title="$(echo "$url_path" | sed 's|.*/watch/||g' | cut -d'/' -f1)"
+    elif echo "$url_path" | grep -q '/v/'; then
+      title="$(echo "$url_path" | sed 's|.*/v/||g' | cut -d'/' -f1)"
+    fi
   elif echo "$url" | grep -q 'docs\|documentation'; then
-    # Documentation sites
     local doc_section="$(echo "$clean_url" | sed 's|.*/docs/||g;s|.*/documentation/||g' | cut -d'/' -f1-2 | sed 's|/| - |g')"
     local site_name="$(echo "$clean_url" | cut -d'/' -f1 | sed 's|^www\.||g;s|\..*||g')"
     title="$site_name: $doc_section"
   elif echo "$url" | grep -q '/wiki/'; then
-    # Wikipedia and wiki sites
     title="$(echo "$clean_url" | sed 's|.*/wiki/||g' | cut -d'/' -f1 | sed 's|_| |g')"
   elif echo "$url" | grep -q '/package\|/packages'; then
-    # Package repositories
     local package_name="$(echo "$clean_url" | sed 's|.*/package/||g;s|.*/packages/||g' | cut -d'/' -f1)"
     local site_name="$(echo "$clean_url" | cut -d'/' -f1 | sed 's|^www\.||g;s|\..*||g')"
     title="$site_name: $package_name"
+  elif echo "$url" | grep -qE '/article/|/post/|/blog/'; then
+    # Blog/article sites - extract article slug
+    path_part="$(echo "$url_path" | sed 's|.*/article/||g;s|.*/post/||g;s|.*/blog/||g' | cut -d'/' -f1)"
+    title="$path_part"
   else
     # Generic - use last meaningful path segment
-    title="$(echo "$clean_url" | sed 's|/$||g' | awk -F'/' '{print $NF}' | head -c60)"
+    title="$(echo "$url_path" | sed 's|/$||g' | awk -F'/' '{print $NF}' | head -c60)"
   fi
+
   # Clean up the extracted title
-  title="$(echo "$title" | sed 's|[-_+]| |g;s|%20| |g;s|%2[Dd]|-|g;s|%28|(|g;s|%29|)|g' |
-    sed 's|  *| |g;s|^ *||g;s| *$||g' | head -c80)"
-  # Fallback to domain name if title is still too short
+  # Remove common URL-encoded characters and clean formatting
+  title="$(echo "$title" | sed 's|[-_+]| |g;s|%20| |g;s|%2[Dd]|-|g;s|%28|(|g;s|%29|)|g;s|%2[Cc]|,|g;s|%3[Aa]|:|g' |
+    sed 's|  *| |g;s|^ *||g;s| *$||g' | head -c100)"
+
+  # Remove common video site suffixes
+  title="$(echo "$title" | sed 's| [Vv]ideo$||g;s| [Ww]atch$||g;s| [Pp]ornhub$||g;s| [Xx]videos$||g')"
+
+  # Fallback to domain name if title is still too short or just numbers
   if [ ${#title} -lt 3 ] || [[ "$title" =~ ^[0-9]+$ ]]; then
     title="$(echo "$clean_url" | cut -d'/' -f1 | sed 's|^www\.||g;s|\..*||g' | sed 's|\b\(.\)|\U\1|g')"
   fi
 
-  # Final cleanup and capitalization
+  # Final cleanup: capitalize first letter of each word
   title="$(echo "$title" | sed 's|\b\(.\)|\U\1|g')"
+
+  # Trim to reasonable length
+  title="$(echo "$title" | head -c100)"
 
   echo "${title:-$url}"
 }

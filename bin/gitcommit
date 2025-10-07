@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202510070726-git
+##@Version           :  202510070743-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Monday, Aug 08, 2022 23:40 EDT
 # @@File             :  gitcommit
 # @@Description      :  Commit changes to a git repo - self-contained, no external dependencies
-# @@Changelog        :  Fixed .git/COMMIT_MESS handling: only delete after successful commit, preserve message from file
+# @@Changelog        :  Added auto-intelligence: emoji detection, smart message generation, history learning
 # @@TODO             :  Fix/re-write variables
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202510070726-git"
+VERSION="202510070743-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -1143,6 +1143,89 @@ __commit_custom_cmd() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__auto_detect_emoji() {
+  local changed_files="$1"
+  local emoji="🗃️"
+  local total_files=$(echo "$changed_files" | grep -v '^$' | wc -l)
+
+  # Count file types
+  local docker_files=$(echo "$changed_files" | grep -cE "Dockerfile|docker-compose|\.dockerignore" || true)
+  local md_files=$(echo "$changed_files" | grep -cE "\.md$" || true)
+  local bin_files=$(echo "$changed_files" | grep -cE "^bin/" || true)
+  local test_files=$(echo "$changed_files" | grep -cE "test|spec|\.t$" || true)
+  local config_files=$(echo "$changed_files" | grep -cE "\.conf$|\.config|\.yml$|\.yaml$|\.json$" || true)
+  local function_files=$(echo "$changed_files" | grep -cE "^functions/" || true)
+
+  # Auto-select emoji based on dominant file type (80% threshold)
+  if [ "$docker_files" -gt 0 ] && [ $((docker_files * 100 / total_files)) -ge 80 ]; then
+    emoji="🐳"
+  elif [ "$md_files" -gt 0 ] && [ $((md_files * 100 / total_files)) -ge 80 ]; then
+    emoji="📝"
+  elif [ "$test_files" -gt 0 ] && [ $((test_files * 100 / total_files)) -ge 50 ]; then
+    emoji="✅"
+  elif [ "$bin_files" -gt 0 ] && [ $((bin_files * 100 / total_files)) -ge 50 ]; then
+    emoji="🛠️"
+  elif [ "$config_files" -gt 0 ] && [ $((config_files * 100 / total_files)) -ge 80 ]; then
+    emoji="🔧"
+  elif [ "$function_files" -gt 0 ] && [ $((function_files * 100 / total_files)) -ge 50 ]; then
+    emoji="⚙️"
+  fi
+
+  echo "$emoji"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__auto_generate_message() {
+  local changed_files="$1"
+  local emoji="$2"
+  local message=""
+
+  # Get diff statistics
+  local diff_stats=$(git -C "$GITCOMMIT_ROOT_DIR" diff --cached --shortstat 2>/dev/null || git -C "$GITCOMMIT_ROOT_DIR" diff --shortstat 2>/dev/null)
+  local insertions=$(echo "$diff_stats" | grep -oE "[0-9]+ insertion" | grep -oE "[0-9]+" || echo "0")
+  local deletions=$(echo "$diff_stats" | grep -oE "[0-9]+ deletion" | grep -oE "[0-9]+" || echo "0")
+
+  # Analyze diff content for keywords
+  local diff_content=$(git -C "$GITCOMMIT_ROOT_DIR" diff --cached 2>/dev/null || git -C "$GITCOMMIT_ROOT_DIR" diff 2>/dev/null)
+
+  # Smart message generation based on content and stats
+  if echo "$diff_content" | grep -qE "^\+.*(fix|bug|error|Fixed|Bug|Error)"; then
+    message="Fix issues in codebase"
+    emoji="🐛"
+  elif echo "$diff_content" | grep -qE "^\+.*(TODO|FIXME|XXX)"; then
+    message="Update task list and TODOs"
+  elif echo "$changed_files" | grep -qE "VERSION|version\.txt"; then
+    message="Version bump"
+    emoji="🚀"
+  elif [ "$deletions" -gt "$insertions" ] && [ "$deletions" -gt 50 ]; then
+    message="Cleanup and refactor code"
+    emoji="♻️"
+  elif [ "$insertions" -gt "$((deletions * 3))" ]; then
+    message="Add new features and functionality"
+    emoji="✨"
+  elif echo "$changed_files" | grep -qE "^\."; then
+    message="Update configuration files"
+    emoji="🔧"
+  else
+    message="Update codebase"
+  fi
+
+  echo "$emoji $message $emoji"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__learn_from_history() {
+  local file="$1"
+  local learned_emoji=""
+
+  if [ -n "$file" ] && [ -f "$file" ]; then
+    learned_emoji=$(git -C "$GITCOMMIT_ROOT_DIR" log --oneline --follow "$file" -10 2>/dev/null | \
+      grep -oE "(🐛|✨|📝|🚀|♻️|🗃️|🐳|🛠️|⚙️|🔧|✅)" | \
+      sort | uniq -c | sort -rn | head -1 | \
+      awk '{print $2}' || echo "")
+  fi
+
+  echo "$learned_emoji"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __commit_custom() {
   local git_repo=""
   local git_failed=""
@@ -1161,6 +1244,30 @@ __commit_custom() {
     export GITADMIN_NO_ERROR_MESSAGE="true"
     return 1
   fi
+
+  # Auto-detect emoji and generate intelligent message when not using COMMIT_MESS file
+  if [ -z "$GITCOMMIT_MESSAGE_FROM_FILE" ]; then
+    local auto_emoji="$(__auto_detect_emoji "$changed_files")"
+
+    # Override icon/action if auto-detected and different from default
+    if [ "$auto_emoji" != "🗃️" ] && [ "${icon}" = "🗃️" ]; then
+      icon="$auto_emoji"
+      action="$auto_emoji "
+      set_icon="$auto_emoji"
+      set_action="$auto_emoji "
+    fi
+
+    # Generate intelligent message if using default
+    if [ "$message" = "Committing everything that changed" ]; then
+      local auto_message="$(__auto_generate_message "$changed_files" "$auto_emoji")"
+      if [ -n "$auto_message" ]; then
+        message="$auto_message"
+        local_set_mess="$(printf '%b\n' "$message")"
+        GITCOMMIT_MESSAGE_SHORT="$message"
+      fi
+    fi
+  fi
+
   [ "$FORCE_PUSH" ] && ARGS="-f"
   [ -n "$local_set_mess" ] || local_set_mess="$prepend"
   changelog_message="$prepend"

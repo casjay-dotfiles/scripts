@@ -8,14 +8,20 @@
 ## Development Workflow
 
 ### Session Overview
-This session focused on enhancing Docker management scripts with:
+Current session: Docker container builds and gitcommit COMMIT_MESS workflow
+- Fixed Docker build failures (AlmaLinux and Alpine)
+- Emptied .dockerignore to include .git directory for install.sh
+- Added git package to Alpine Dockerfile
+- Fixed gitcommit COMMIT_MESS file handling and cleanup timing
+- Updated CLAUDE.md with emoji requirements for user-facing content
+
+Previous sessions included:
 - Security improvements (fixed shellcheck errors, eliminated curl | sh)
 - Function consolidation (minikube functions: 8 → 1)
 - Multi-architecture support (amd64, arm64, arm)
 - API integration (direct Docker Hub API calls)
 - Comprehensive k3s management
 - Enhanced buildx with platform detection
-- Docker containerization improvements
 
 ### Getting Started
 ```bash
@@ -232,35 +238,55 @@ SCRIPTNAME_CACHE_DIR    # Cache directory
 - **gitcommit script** - Parses `.git/COMMIT_MESS` file if it exists at startup
 - **Claude workflow**:
   1. Create/update `.git/COMMIT_MESS` with commit message
-     - First line: Short commit message (summary)
+     - First line: Short commit message (summary) with emojis
      - Remaining lines: Long commit message (detailed description)
   2. User runs `gitcommit` or `./bin/gitcommit`
   3. Script automatically parses file, extracts messages, commits with signing
   4. Script cleans up `.git/COMMIT_MESS` file after successful commit
 - **File format**: Plain text, first line = short message, rest = long message
-- **Automatic cleanup** - gitcommit's __trap_exit_local() removes message file
+- **Automatic cleanup** - gitcommit's __gitcommit_cmd() removes message file after successful commit
+- **Emoji requirement** - Always add appropriate emojis to user-facing content
+  - **Commit messages**: `🐛 Commit message 🐛` (emoji at start and end)
+  - **All user-facing content**: Documentation, messages, appropriate file content
+  - File messages bypass auto-emoji wrapping, so emojis must be added manually
+  - Common emojis: 🐛 (fix), ✨ (feature), 📝 (docs), 🚀 (release), ♻️ (refactor), 🗃️ (general), 🔧 (config)
+  - Use contextually appropriate emojis for the content type
 
 ## Key Session Accomplishments
 
-### Security & Code Quality
+### Current Session: Docker Builds & gitcommit Fixes
+- **Docker Container Builds**: Fixed AlmaLinux and Alpine container build failures
+  - Emptied `.dockerignore` to include `.git` directory (required by install.sh)
+  - Added git package to Alpine Dockerfile
+  - Both containers now build and run successfully
+- **gitcommit COMMIT_MESS Handling**: Fixed file management workflow
+  - Removed premature deletion from `__trap_exit_local()` function
+  - Added post-commit cleanup in `__gitcommit_cmd()` after successful commits
+  - Fixed 'all' case to preserve message from `.git/COMMIT_MESS` file
+  - Updated script version to 202510070726-git
+- **Documentation**: Updated CLAUDE.md with emoji requirements and workflow details
+
+### Previous Sessions
+
+#### Security & Code Quality
 - Fixed shellcheck SC2024 errors (sudo redirect patterns)
 - Eliminated insecure `curl | sh` patterns throughout codebase
 - Implemented proper multi-architecture binary downloads
 - Converted complex `&&`/`||` chains to readable if/else statements
 
-### Docker Management Enhancements
+#### Docker Management Enhancements
 - Enhanced dockermgr with comprehensive k3s (k3b) management
 - Consolidated 8 minikube functions into single `__minikube_cmd()`
 - Implemented direct Docker Hub API integration (no external containers)
 - Added `__create_readme()` function for automated documentation
 
-### Build & Container Improvements
+#### Build & Container Improvements
 - Enhanced buildx script with platform detection and graceful fallback
 - Fixed Dockerfile systemd issues for proper container operation
 - Added comprehensive OCI labels and metadata
 - Separated setupmgr (binary installation) from dockermgr (configuration)
 
-### Infrastructure & Templates
+#### Infrastructure & Templates
 - Created generic CLAUDE.md and TODO.md templates for reuse
 - Documented comprehensive development standards and workflows
 - Added support for extensive package manager ecosystem

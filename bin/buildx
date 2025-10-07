@@ -167,6 +167,7 @@ BUILDX_GIT_REPO_PROVIDER="${BUILDX_GIT_REPO_PROVIDER:-}"
 BUILDX_DOCKER_PLATFORMS="${BUILDX_DOCKER_PLATFORMS:-}"
 BUILDX_PROJECT_DIR="${BUILDX_PROJECT_DIR:-}"
 BUILDX_BUILD_DATE_TAG_FORMAT="${BUILDX_BUILD_DATE_TAG_FORMAT:-}"
+BUILDX_DOCKERFILE_DIR="${BUILDX_DOCKERFILE_DIR:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
 BUILDX_OUTPUT_COLOR_1="${BUILDX_OUTPUT_COLOR_1:-}"
@@ -230,6 +231,7 @@ __help() {
   __printf_line "--force                         - Force rebuild/reinstall"
   __printf_line "--cleanup                       - Enable container cleanup"
   __printf_line "--dir                           - Sets the working directory"
+  __printf_line "--files [subdir]                - Dockerfile directory (e.g., containers, docker)"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -822,11 +824,21 @@ __buildx_run() {
   elif [ -f "$BUILDX_CWD/$1" ]; then
     __execute_buildx "$BUILDX_CWD/$1"
     exitCode=$?
+  elif [ -n "$BUILDX_DOCKERFILE_DIR" ] && [ -f "$BUILDX_CWD/$BUILDX_DOCKERFILE_DIR/Dockerfile" ]; then
+    __execute_buildx "$BUILDX_CWD/$BUILDX_DOCKERFILE_DIR/Dockerfile"
+    exitCode=$?
+  elif [ -f "$BUILDX_CWD/containers/Dockerfile" ]; then
+    __execute_buildx "$BUILDX_CWD/containers/Dockerfile"
+    exitCode=$?
   elif [ -f "$BUILDX_CWD/Dockerfile" ]; then
     __execute_buildx "$BUILDX_CWD/Dockerfile"
     exitCode=$?
   else
-    printf_red "Can not find a Dockerfile in $BUILDX_CWD"
+    if [ -n "$BUILDX_DOCKERFILE_DIR" ]; then
+      printf_red "Can not find a Dockerfile in $BUILDX_CWD/$BUILDX_DOCKERFILE_DIR/, $BUILDX_CWD/containers/, or $BUILDX_CWD/"
+    else
+      printf_red "Can not find a Dockerfile in $BUILDX_CWD/containers/ or $BUILDX_CWD/"
+    fi
     exitCode=10
   fi
   return $exitCode
@@ -1392,6 +1404,8 @@ __execute_buildx() {
   [ $# -ne 0 ] || __usage
   notify_message=""
   set_name="${BUILDX_SET_IMAGE:-$BUILDX_SET_NAME}"
+  local dockerfile_subdir="${BUILDX_DOCKERFILE_DIR:-containers}"
+  local BUILDX_PROJECT_ROOT="$BUILDX_CWD"
   if [ -f "$1" ]; then
     Dockerfile="$(realpath "$1")"
     FULL_DIR_PATH="$(dirname "$Dockerfile")"
@@ -1407,14 +1421,38 @@ __execute_buildx() {
     FULL_DIR_PATH="$(dirname "$Dockerfile")"
     SET_DIR_NAME="$(basename "$(dirname "$(realpath "$Dockerfile")")")"
     shift 1
+  elif [ -n "$BUILDX_DOCKERFILE_DIR" ] && [ -f "$BUILDX_CWD/$dockerfile_subdir/Dockerfile.latest" ]; then
+    Dockerfile="$(realpath "$BUILDX_CWD/$dockerfile_subdir/Dockerfile.latest")"
+    FULL_DIR_PATH="$(dirname "$(dirname "$Dockerfile")")"
+    SET_DIR_NAME="$(basename "$FULL_DIR_PATH")"
+  elif [ -f "$BUILDX_CWD/containers/Dockerfile.latest" ]; then
+    Dockerfile="$(realpath "$BUILDX_CWD/containers/Dockerfile.latest")"
+    FULL_DIR_PATH="$(dirname "$(dirname "$Dockerfile")")"
+    SET_DIR_NAME="$(basename "$FULL_DIR_PATH")"
   elif [ -f "$BUILDX_CWD/Dockerfile.latest" ]; then
     Dockerfile="$(realpath "$BUILDX_CWD/Dockerfile.latest")"
     FULL_DIR_PATH="$(dirname "$Dockerfile")"
     SET_DIR_NAME="$(basename "$(dirname "$(realpath "$Dockerfile")")")"
+  elif [ -n "$BUILDX_DOCKERFILE_DIR" ] && [ -f "$BUILDX_CWD/$dockerfile_subdir/Dockerfile.next" ]; then
+    Dockerfile="$(realpath "$BUILDX_CWD/$dockerfile_subdir/Dockerfile.next")"
+    FULL_DIR_PATH="$(dirname "$(dirname "$Dockerfile")")"
+    SET_DIR_NAME="$(basename "$FULL_DIR_PATH")"
+  elif [ -f "$BUILDX_CWD/containers/Dockerfile.next" ]; then
+    Dockerfile="$(realpath "$BUILDX_CWD/containers/Dockerfile.next")"
+    FULL_DIR_PATH="$(dirname "$(dirname "$Dockerfile")")"
+    SET_DIR_NAME="$(basename "$FULL_DIR_PATH")"
   elif [ -f "$BUILDX_CWD/Dockerfile.next" ]; then
     Dockerfile="$(realpath "$BUILDX_CWD/Dockerfile.next")"
     FULL_DIR_PATH="$(dirname "$Dockerfile")"
     SET_DIR_NAME="$(basename "$(dirname "$(realpath "$Dockerfile")")")"
+  elif [ -n "$BUILDX_DOCKERFILE_DIR" ] && [ -f "$BUILDX_CWD/$dockerfile_subdir/Dockerfile" ]; then
+    Dockerfile="$(realpath "$BUILDX_CWD/$dockerfile_subdir/Dockerfile")"
+    FULL_DIR_PATH="$(dirname "$(dirname "$Dockerfile")")"
+    SET_DIR_NAME="$(basename "$FULL_DIR_PATH")"
+  elif [ -f "$BUILDX_CWD/containers/Dockerfile" ]; then
+    Dockerfile="$(realpath "$BUILDX_CWD/containers/Dockerfile")"
+    FULL_DIR_PATH="$(dirname "$(dirname "$Dockerfile")")"
+    SET_DIR_NAME="$(basename "$FULL_DIR_PATH")"
   elif [ -f "$BUILDX_CWD/Dockerfile" ]; then
     Dockerfile="$(realpath "$BUILDX_CWD/Dockerfile")"
     FULL_DIR_PATH="$(dirname "$Dockerfile")"
@@ -1427,10 +1465,10 @@ __execute_buildx() {
     echo "" && exit 1
   fi
   [ -e "$1" ] && shift
-  default_name="$(basename "$FULL_DIR_PATH")"
+  default_name="${BUILDX_DEFAULT_REPO:-$(basename "$FULL_DIR_PATH")}"
   DockerfileName="$(basename "$Dockerfile")"
-  BUILDX_CWD="$(dirname "$(realpath "$Dockerfile")")"
-  FULL_DIR_PATH="${FULL_DIR_PATH:-$(dirname "$(realpath "$BUILDX_CWD/Dockerfile")")}"
+  # Keep BUILDX_CWD as project root - don't change it to Dockerfile directory
+  FULL_DIR_PATH="${FULL_DIR_PATH:-$(dirname "$(realpath "$Dockerfile")")}"
   if [ ! -f "$Dockerfile" ] || [ -z "$(ls -A "$Dockerfile" 2>/dev/null)" ]; then
     printf_red "Can not find a Dockerfile in $FULL_DIR_PATH"
     echo "" && exit 1
@@ -1457,9 +1495,9 @@ __execute_buildx() {
     BUILDX_DOCKERFILE_VERSION="$(echo "$DockerfileName" | sed 's|[a-zA-Z]||g;s| ||g' | grep -- '[0-9]')"
   fi
   if [ -z "$BUILDX_DOCKERFILE_VERSION" ]; then
-    BUILDX_FAILED_LOG="$BUILDX_CWD/.build_failed"
+    BUILDX_FAILED_LOG="$BUILDX_PROJECT_ROOT/.build_failed"
   else
-    BUILDX_FAILED_LOG="$BUILDX_CWD/.build_failed$BUILDX_DOCKERFILE_VERSION"
+    BUILDX_FAILED_LOG="$BUILDX_PROJECT_ROOT/.build_failed$BUILDX_DOCKERFILE_VERSION"
   fi
   if [ "$(basename "$Dockerfile" 2>/dev/null)" = "Dockerfile" ] && [ "$tag_version" != "latest" ]; then
     BUILDX_ADD_TAG="true"
@@ -1574,19 +1612,21 @@ __api_clone() {
 __buildx_all() {
   local statusCode=0
   local dockerfiles=""
+  local search_dir="$BUILDX_CWD"
+  [ -n "$BUILDX_DOCKERFILE_DIR" ] && search_dir="$BUILDX_CWD/$BUILDX_DOCKERFILE_DIR"
   BUILDX_RUN_COUNT_OF="0"
-  BUILDX_RUN_COUNT_TOTAL="$(ls -A "$BUILDX_CWD/Dockerfile"* 2>/dev/null | wc -l)"
+  BUILDX_RUN_COUNT_TOTAL="$(ls -A "$search_dir/Dockerfile"* 2>/dev/null | wc -l)"
   BUILDX_FAILED_EXISTS="$(ls -A "$BUILDX_CWD/.build_failed"* 2>/dev/null | wc -l)"
   [ "$BUILDX_FAILED_EXISTS" -eq 0 ] && export BUILDX_FAILED_EXISTS="false" || BUILDX_FAILED_EXISTS="true"
   export BUILDX_GIT_COMMIT_ID="${BUILDX_GIT_COMMIT_ID:-}"
   if [ ! -d "$BUILDX_CWD" ]; then
     printf_exit "Usage: $APPNAME [dir] all"
   elif [ "$BUILDX_RUN_COUNT_TOTAL" -eq 0 ]; then
-    printf_exit "The doesn't seem to be any Dockerfiles in $BUILDX_CWD"
+    printf_exit "There doesn't seem to be any Dockerfiles in $search_dir"
   fi
   __run_git_pull "$BUILDX_CWD"
-  printf_cyan "Building all Dockerfiles in $BUILDX_CWD"
-  for file in $(ls -Avr "$BUILDX_CWD/Dockerfile"* 2>/dev/null); do
+  printf_cyan "Building all Dockerfiles in $search_dir"
+  for file in $(ls -Avr "$search_dir/Dockerfile"* 2>/dev/null); do
     buildCode=0
     file="$(realpath "$file" 2>/dev/null | grep '^' || echo '')"
     [ -n "$file" ] && [ -f "$file" ] || buildCode=1
@@ -1595,7 +1635,7 @@ __buildx_all() {
       export BUILDX_RUN_COUNT_OF=$((BUILDX_RUN_COUNT_OF + 1)) BUILDX_BUILD_ALL="true" BUILDX_GEN_SCRIPT="${BUILDX_GEN_SCRIPT:-}"
       $0 --dir "$BUILDX_CWD" run "$file" || statusCode=$((statusCode + 1))
     else
-      printf_return "Can not find Dockerfile in $BUILDX_CWD"
+      printf_return "Can not find Dockerfile in $search_dir"
     fi
   done
   BUILDX_FAILED_EXISTS="$(ls -A "$BUILDX_CWD/.build_failed"* 2>/dev/null | wc -l)"
@@ -1603,7 +1643,7 @@ __buildx_all() {
   [ "$BUILDX_GEN_SCRIPT" = "true" ] && exit_message_good="Finished generating the build scripts" || exit_message_good="Finished building all Dockerfile in"
   [ "$BUILDX_GEN_SCRIPT" = "true" ] && exit_message_error="Finished generating the build scripts with errors" || exit_message_error="Building has failed with errors"
   if [ $statusCode -eq 0 ] || [ "$BUILDX_FAILED_EXISTS" = "false" ]; then
-    printf_blue "$exit_message_good $BUILDX_CWD"
+    printf_blue "$exit_message_good $search_dir"
     statusCode=0
   else
     printf_red "$exit_message_error"
@@ -1760,7 +1800,7 @@ SHORTOPTS=""
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent,no-pull"
-LONGOPTS+=",force,cleanup,repo:,no-registry,no-repo,cron,platform:"
+LONGOPTS+=",force,cleanup,repo:,no-registry,no-repo,cron,platform:,files:"
 LONGOPTS+=",gen-script,tag:,all,build,url:,script,init,user:,image:,registry:"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="all run[Dockerfile] init status version api[tags,list,search,sources,clone,delete,update] "
@@ -1854,6 +1894,10 @@ while :; do
     export CWD_IS_SET="TRUE"
     export BUILDX_CWD="$2"
     [ -d "$BUILDX_CWD" ] || mkdir -p "$BUILDX_CWD" |& __devnull
+    shift 2
+    ;;
+  --files)
+    export BUILDX_DOCKERFILE_DIR="$2"
     shift 2
     ;;
   --force)

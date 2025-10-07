@@ -14,8 +14,8 @@ This directory contains Dockerfiles for building container images with CasjaysDe
 # Build
 docker build -t casjaysdev/scripts:almalinux -f containers/Dockerfile .
 
-# Run
-docker run -d --privileged casjaysdev/scripts:almalinux
+# Run (systemd requires privileged mode and cgroup access)
+docker run -d --privileged -v /sys/fs/cgroup:/sys/fs/cgroup:rw --cgroupns=host casjaysdev/scripts:almalinux
 
 # Quick test
 docker run --rm --entrypoint bash casjaysdev/scripts:almalinux -c 'setupmgr --version'
@@ -31,8 +31,8 @@ docker run --rm --entrypoint bash casjaysdev/scripts:almalinux -c 'setupmgr --ve
 # Build
 docker build -t casjaysdev/scripts:alpine -f containers/Dockerfile.alpine .
 
-# Run
-docker run -d --privileged casjaysdev/scripts:alpine
+# Run (OpenRC compatible - simpler than systemd)
+docker run -d casjaysdev/scripts:alpine
 
 # Quick test
 docker run --rm --entrypoint bash casjaysdev/scripts:alpine -c 'setupmgr --version'
@@ -123,7 +123,7 @@ docker run --rm -it casjaysdev/scripts:alpine bash
 
 ## Version
 
-Current Version: **202510070543-git**
+Current Version: **202510070821-git**
 
 All container images are versioned to match the scripts version for consistency.
 

@@ -21,7 +21,7 @@ FROM casjaysdev/almalinux:latest
 LABEL maintainer="Jason Hempstead <jason@casjaysdev.pro>"
 LABEL org.opencontainers.image.title="CasjaysDev Scripts"
 LABEL org.opencontainers.image.description="Collection of useful scripts and tools for system administration and development"
-LABEL org.opencontainers.image.version="202510070543-git"
+LABEL org.opencontainers.image.version="202510070821-git"
 LABEL org.opencontainers.image.base.name="casjaysdev/almalinux:latest"
 LABEL org.opencontainers.image.authors="Jason Hempstead <jason@casjaysdev.pro>"
 LABEL org.opencontainers.image.vendor="CasjaysDev"

@@ -229,12 +229,16 @@ SCRIPTNAME_CACHE_DIR    # Cache directory
 - **User commits when ready** - Respects signed commit workflow
 
 ### Commit Message Integration
-- **gitcommit script** - Uses `.git/COMMIT_MESS` file if it exists
-- **Claude workflow**: 
+- **gitcommit script** - Parses `.git/COMMIT_MESS` file if it exists at startup
+- **Claude workflow**:
   1. Create/update `.git/COMMIT_MESS` with commit message
+     - First line: Short commit message (summary)
+     - Remaining lines: Long commit message (detailed description)
   2. User runs `gitcommit` or `./bin/gitcommit`
-  3. Script reads message, commits with signing, deletes file
-- **Automatic cleanup** - gitcommit handles message file management
+  3. Script automatically parses file, extracts messages, commits with signing
+  4. Script cleans up `.git/COMMIT_MESS` file after successful commit
+- **File format**: Plain text, first line = short message, rest = long message
+- **Automatic cleanup** - gitcommit's __trap_exit_local() removes message file
 
 ## Key Session Accomplishments
 

@@ -1,12 +1,16 @@
 FROM casjaysdev/almalinux:latest AS base
 
-RUN yum install -yy systemd
+# Install bash and systemd
+RUN yum install -yy bash systemd
 
-# Copy scripts to the container
+# Copy all files to the container
 COPY . /usr/local/share/CasjaysDev/scripts
 
-# Install scripts and dependencies
-RUN /usr/local/share/CasjaysDev/scripts/install.sh
+# Make scripts executable and run install
+RUN chmod +x /usr/local/share/CasjaysDev/scripts/bin/* && \
+    chmod +x /usr/local/share/CasjaysDev/scripts/install.sh && \
+    cd /usr/local/share/CasjaysDev/scripts && \
+    bash ./install.sh
 
 # Enable systemd
 RUN systemctl set-default multi-user.target && systemctl mask systemd-udev-trigger.service systemd-udevd.service

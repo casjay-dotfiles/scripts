@@ -4,13 +4,11 @@ This directory contains Dockerfiles for building container images with CasjaysDe
 
 ## Available Images
 
-### Production Images (from repository)
-
 #### AlmaLinux (Default)
 **File:** `Dockerfile`
 **Base Image:** `casjaysdev/almalinux:latest`
 **Init System:** systemd
-**Source:** Installs from GitHub repository (published version)
+**Source:** Uses local files and runs install.sh
 
 ```bash
 # Build
@@ -18,13 +16,16 @@ docker build -t casjaysdev/scripts:almalinux -f containers/Dockerfile .
 
 # Run
 docker run -d --privileged casjaysdev/scripts:almalinux
+
+# Quick test
+docker run --rm --entrypoint bash casjaysdev/scripts:almalinux -c 'setupmgr --version'
 ```
 
 #### Alpine Linux
 **File:** `Dockerfile.alpine`
 **Base Image:** `casjaysdev/alpine:latest`
 **Init System:** OpenRC
-**Source:** Installs from GitHub repository (published version)
+**Source:** Uses local files and runs install.sh
 
 ```bash
 # Build
@@ -32,39 +33,9 @@ docker build -t casjaysdev/scripts:alpine -f containers/Dockerfile.alpine .
 
 # Run
 docker run -d --privileged casjaysdev/scripts:alpine
-```
-
-### Development Images (local files)
-
-#### AlmaLinux Development
-**File:** `Dockerfile.dev`
-**Base Image:** `casjaysdev/almalinux:latest`
-**Init System:** systemd
-**Source:** Uses local files (current working directory)
-
-```bash
-# Build
-docker build -t casjaysdev/scripts:dev -f containers/Dockerfile.dev .
-
-# Run
-docker run -d --privileged casjaysdev/scripts:dev
 
 # Quick test
-docker run --rm --entrypoint bash casjaysdev/scripts:dev -c 'setupmgr --version'
-```
-
-#### Alpine Development
-**File:** `Dockerfile.alpine.dev`
-**Base Image:** `casjaysdev/alpine:latest`
-**Init System:** OpenRC
-**Source:** Uses local files (current working directory)
-
-```bash
-# Build
-docker build -t casjaysdev/scripts:alpine-dev -f containers/Dockerfile.alpine.dev .
-
-# Run
-docker run -d --privileged casjaysdev/scripts:alpine-dev
+docker run --rm --entrypoint bash casjaysdev/scripts:alpine -c 'setupmgr --version'
 ```
 
 ## Features

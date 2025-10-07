@@ -213,6 +213,7 @@ __help() {
   __printf_line "tmux-new status                 - show session status"
   __printf_line "tmux-new nested [name]          - nested tmux with single status bar"
   __printf_line "tmux-new kill [type] [name]     - kill sessions/windows/panes"
+  __printf_line "tmux-new kill all               - kill all sessions and recreate"
   __printf_line ""
   __printf_line "Development Environments:"
   __printf_line "tmux-new dev                    - general development"
@@ -348,10 +349,75 @@ __init() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__tmux_kill_all() {
+  local exitCode=0
+  local session_info=""
+  local session_name=""
+  local session_path=""
+  local session_type=""
+
+  printf_cyan "Capturing session information..."
+
+  # Get all sessions with their paths
+  local sessions="$(tmux list-sessions -F '#{session_name}:#{session_path}' 2>/dev/null)"
+
+  if [ -z "$sessions" ]; then
+    printf_yellow "No active sessions to kill"
+    return 0
+  fi
+
+  # Kill all sessions and capture their info
+  while IFS=: read -r session_name session_path; do
+    if [ -n "$session_name" ]; then
+      printf_cyan "Killing session: $session_name (path: $session_path)"
+      tmux kill-session -t "$session_name" &>/dev/null
+
+      # Clean up resurrect data
+      local resurrect_dir="${HOME}/.local/share/tmux/resurrect/${session_name}"
+      if [ -d "$resurrect_dir" ]; then
+        rm -rf "$resurrect_dir"
+      fi
+
+      # Extract session type from name (e.g., "single-scripts" -> "single")
+      if [[ "$session_name" =~ ^([a-z]+)- ]]; then
+        session_type="${BASH_REMATCH[1]}"
+      else
+        session_type="single"
+      fi
+
+      # Store session info for recreation
+      session_info+="${session_type}:${session_path}\n"
+    fi
+  done <<< "$sessions"
+
+  printf_green "All sessions killed and cleaned"
+
+  # Recreate sessions
+  if [ -n "$session_info" ]; then
+    printf_cyan "Recreating sessions..."
+    echo -e "$session_info" | while IFS=: read -r session_type session_path; do
+      if [ -n "$session_path" ] && [ -d "$session_path" ]; then
+        printf_blue "Recreating $session_type session in: $session_path"
+        cd "$session_path" || continue
+        tmux-new --dir "$session_path" "$session_type" &
+      fi
+    done
+    wait
+    printf_green "Sessions recreated"
+  fi
+
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __tmux_kill() {
   local exitCode=0
   local session="$(tmux ls 2>/dev/null)"
   case "$1" in
+  all)
+    shift 1
+    __tmux_kill_all
+    return $?
+    ;;
   pane)
     shift 1
     [ $# -ne 0 ] || printf_cyan "Usage: $APPNAME kill pane [name]"

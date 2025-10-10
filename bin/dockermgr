@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202509160035-git
+##@Version           :  202510092330-git
 # @Author            :  Jason Hempstead
 # @Contact           :  jason@casjaysdev.pro
 # @License           :  WTFPL
@@ -10,6 +10,10 @@
 # @Created           :  Saturday, Aug 28, 2021 19:04 EDT
 # @File              :  dockermgr
 # @Description       :  docker script to manage containers
+# @Changelog         :  Added copy command for multi-registry image distribution
+#                    :  Added OCI labels to manifest creation
+#                    :  Added --visibility flag for Docker Hub repositories
+#                    :  Enhanced manifest log paths with registry hierarchy
 # @TODO              :
 # @Other             :
 # @Resource          :
@@ -17,7 +21,7 @@
 # shellcheck disable=SC1001,SC2003,SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202509160035-git"
+VERSION="202510092330-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -509,6 +513,311 @@ __registry_delete_tag() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__fetch_tags_dockerhub() {
+  local image="$1"
+  local org repo
+  if echo "$image" | grep -q '/'; then
+    org="$(echo "$image" | awk -F '/' '{print $1}')"
+    repo="$(echo "$image" | awk -F '/' '{print $2}')"
+  else
+    org="library"
+    repo="$image"
+  fi
+  curl -q -LSsf "https://hub.docker.com/v2/repositories/$org/$repo/tags?page_size=1000" 2>/dev/null | \
+    jq -r '.results[].name' 2>/dev/null | grep -v '^null$' | grep '^' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__fetch_tags_ghcr() {
+  local image="$1"
+  local org repo token
+  # Remove ghcr.io/ prefix if present
+  image="${image#ghcr.io/}"
+  if echo "$image" | grep -q '/'; then
+    org="$(echo "$image" | awk -F '/' '{print $1}')"
+    repo="$(echo "$image" | awk -F '/' '{print $2}')"
+  else
+    return 1
+  fi
+  # GHCR uses OCI distribution API
+  if [ -f "$AUTH_TOKEN_NAME" ]; then
+    token="$(<"$AUTH_TOKEN_NAME")"
+    curl -q -LSsf -H "Authorization: Bearer $token" "https://ghcr.io/v2/$org/$repo/tags/list" 2>/dev/null | \
+      jq -r '.tags[]' 2>/dev/null | grep '^' || return 1
+  else
+    curl -q -LSsf "https://ghcr.io/v2/$org/$repo/tags/list" 2>/dev/null | \
+      jq -r '.tags[]' 2>/dev/null | grep '^' || return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__fetch_tags_harbor() {
+  local registry="$1"
+  local image="$2"
+  local project repo
+  # Harbor format: registry/project/repo
+  if echo "$image" | grep -q '/'; then
+    project="$(echo "$image" | awk -F '/' '{print $1}')"
+    repo="$(echo "$image" | awk -F '/' '{print $2}')"
+  else
+    return 1
+  fi
+  # Try Harbor API v2.0 first
+  curl -q -LSsf "https://$registry/api/v2.0/projects/$project/repositories/$repo/artifacts?page_size=1000" 2>/dev/null | \
+    jq -r '.[].tags[].name' 2>/dev/null | grep -v '^null$' | grep '^' || \
+  # Fallback to OCI API
+  curl -q -LSsf "https://$registry/v2/$project/$repo/tags/list" 2>/dev/null | \
+    jq -r '.tags[]' 2>/dev/null | grep '^' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__fetch_tags_oci() {
+  local registry="$1"
+  local image="$2"
+  # Generic OCI Distribution Spec v2 API
+  curl -q -LSsf "https://$registry/v2/$image/tags/list" 2>/dev/null | \
+    jq -r '.tags[]' 2>/dev/null | grep '^' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__fetch_all_tags() {
+  local source="$1"
+  local registry="" image="" tags=""
+
+  # Parse registry and image
+  if echo "$source" | grep -q '/'; then
+    local parts="$(echo "$source" | awk -F '/' '{print NF}')"
+    if [ "$parts" -ge 3 ]; then
+      registry="$(echo "$source" | awk -F '/' '{print $1}')"
+      image="$(echo "$source" | cut -d'/' -f2-)"
+    else
+      # Docker Hub format
+      registry="docker.io"
+      image="$source"
+    fi
+  else
+    registry="docker.io"
+    image="library/$source"
+  fi
+
+  # Remove any protocol prefix
+  registry="${registry#http://}"
+  registry="${registry#https://}"
+
+  # Try registry-specific APIs
+  case "$registry" in
+    docker.io|hub.docker.com)
+      tags="$(__fetch_tags_dockerhub "$image")"
+      ;;
+    ghcr.io)
+      tags="$(__fetch_tags_ghcr "$image")"
+      ;;
+    *.harbor.*|dockersrc.us)
+      tags="$(__fetch_tags_harbor "$registry" "$image")"
+      ;;
+    *)
+      # Try OCI API for unknown registries
+      tags="$(__fetch_tags_oci "$registry" "$image")"
+      # If OCI fails, try Harbor API
+      if [ -z "$tags" ]; then
+        tags="$(__fetch_tags_harbor "$registry" "$image")"
+      fi
+      ;;
+  esac
+
+  if [ -n "$tags" ]; then
+    echo "$tags"
+    return 0
+  else
+    printf_red "Failed to fetch tags for $source"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__copy_image() {
+  [ -n "$1" ] || return
+  [ -f "$AUTH_TOKEN_NAME" ] || printf_exit "Please run $APPNAME api auth"
+
+  local source="$1"
+  local destinations="$2"
+  local source_registry source_image
+  local copy_log_dir copy_log_file
+
+  # Parse source
+  if echo "$source" | grep -q '/'; then
+    local parts="$(echo "$source" | awk -F '/' '{print NF}')"
+    if [ "$parts" -ge 3 ]; then
+      source_registry="$(echo "$source" | awk -F '/' '{print $1}')"
+      source_image="$(echo "$source" | cut -d'/' -f2-)"
+    else
+      source_registry="docker.io"
+      source_image="$source"
+    fi
+  else
+    source_registry="docker.io"
+    source_image="library/$source"
+  fi
+
+  # Format registry for log path
+  local log_registry="${source_registry#http://}"
+  log_registry="${log_registry#https://}"
+  log_registry="${log_registry//./_}"
+
+  # Create log path: registry/org/repo-copy.log
+  local source_org="$(echo "$source_image" | awk -F '/' '{print $(NF-1)}')"
+  local source_repo="$(echo "$source_image" | awk -F '/' '{print $NF}')"
+  copy_log_dir="$DOCKERMGR_LOG_DIR/$log_registry/$source_org"
+  copy_log_file="$log_registry/$source_org/$source_repo-copy"
+
+  # Ensure log directory exists
+  [ -d "$copy_log_dir" ] || mkdir -p "$copy_log_dir"
+
+  # Fetch all tags
+  printf_blue "📋 Fetching tags for $source..."
+  local tags="$(__fetch_all_tags "$source")"
+  if [ -z "$tags" ]; then
+    printf_red "Failed to fetch tags for $source"
+    return 1
+  fi
+
+  local tag_count="$(echo "$tags" | wc -l)"
+  printf_green "Found $tag_count tags for $source"
+
+  # Process each tag
+  local success_count=0
+  local fail_count=0
+  echo "$tags" | while read -r tag; do
+    [ -z "$tag" ] && continue
+    printf_cyan "Processing tag: $tag"
+
+    # Pull source image with tag
+    local full_source="$source:$tag"
+    printf_blue "  🔽 Pulling $full_source..."
+    if ! docker pull "$full_source" &>/dev/null; then
+      printf_red "  ✗ Failed to pull $full_source"
+      fail_count=$((fail_count + 1))
+      continue
+    fi
+
+    # Copy to each destination
+    IFS=',' read -ra DESTS <<< "$destinations"
+    for dest in "${DESTS[@]}"; do
+      dest="$(echo "$dest" | xargs)"  # Trim whitespace
+      [ -z "$dest" ] && continue
+
+      local full_dest="$dest:$tag"
+      printf_blue "  🔼 Copying to $full_dest..."
+
+      # Use __create_manifest for multi-arch copy
+      if __create_manifest "$full_source" "$full_dest" "Copied from $source" &>>"$DOCKERMGR_LOG_DIR/$copy_log_file.log"; then
+        printf_green "  ✓ Successfully copied to $full_dest"
+        success_count=$((success_count + 1))
+      else
+        printf_red "  ✗ Failed to copy to $full_dest"
+        fail_count=$((fail_count + 1))
+      fi
+    done
+    echo ""
+  done
+
+  printf_blue "Copy operation complete for $source"
+  printf_green "✓ Successful: $success_count | ✗ Failed: $fail_count"
+  printf_cyan "Log file: $DOCKERMGR_LOG_DIR/$copy_log_file.log"
+
+  if [ "$fail_count" -gt 0 ]; then
+    return 1
+  fi
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__api_set_visibility() {
+  local visibility="${1:-public}"
+  local target="$2"
+  local token repo_list org repo success=0 failed=0
+
+  [ -f "$AUTH_TOKEN_NAME" ] || printf_exit "Please run $APPNAME api auth"
+  token="$(<"$AUTH_TOKEN_NAME")"
+
+  # Validate visibility
+  if [ "$visibility" != "public" ] && [ "$visibility" != "private" ]; then
+    printf_red "Invalid visibility: $visibility (must be 'public' or 'private')"
+    return 1
+  fi
+
+  local is_private="false"
+  [ "$visibility" = "private" ] && is_private="true"
+
+  # Check if target is a repo (contains /)
+  if echo "$target" | grep -q '/'; then
+    # Single repo: org/repo format
+    printf_cyan "Setting $target to $visibility..."
+    if curl -q -LSsf -X PATCH \
+      -H "Authorization: Bearer $token" \
+      -H "Content-Type: application/json" \
+      -d "{\"is_private\": $is_private}" \
+      "$DOCKERMGR_REGISTRY_URL/v2/repositories/$target/" >/dev/null 2>&1; then
+      printf_green "✓ Successfully set $target to $visibility"
+      return 0
+    else
+      printf_red "✗ Failed to set $target to $visibility"
+      return 1
+    fi
+  else
+    # User/org: loop through all repos
+    org="$target"
+    printf_blue "Fetching repositories for $org..."
+
+    # Get all repos for the org/user with pagination
+    local page=1
+    local page_size=100
+    local has_more=true
+
+    while [ "$has_more" = "true" ]; do
+      printf_cyan "Fetching page $page..."
+      local response="$(curl -q -LSsf "$DOCKERMGR_REGISTRY_URL/v2/repositories/$org/?page=$page&page_size=$page_size" 2>/dev/null)"
+
+      if [ -z "$response" ]; then
+        printf_red "Failed to fetch repositories for $org"
+        return 1
+      fi
+
+      local repos="$(echo "$response" | jq -r '.results[].name' 2>/dev/null | grep '^')"
+      local next_page="$(echo "$response" | jq -r '.next' 2>/dev/null)"
+
+      if [ -n "$repos" ]; then
+        echo "$repos" | while read -r repo; do
+          [ -z "$repo" ] && continue
+          printf_cyan "  Setting $org/$repo to $visibility..."
+
+          if curl -q -LSsf -X PATCH \
+            -H "Authorization: Bearer $token" \
+            -H "Content-Type: application/json" \
+            -d "{\"is_private\": $is_private}" \
+            "$DOCKERMGR_REGISTRY_URL/v2/repositories/$org/$repo/" >/dev/null 2>&1; then
+            printf_green "  ✓ $org/$repo"
+            success=$((success + 1))
+          else
+            printf_red "  ✗ $org/$repo"
+            failed=$((failed + 1))
+          fi
+        done
+      fi
+
+      # Check if there's a next page
+      if [ "$next_page" = "null" ] || [ -z "$next_page" ]; then
+        has_more=false
+      else
+        page=$((page + 1))
+      fi
+    done
+
+    printf_blue "Visibility update complete for $org"
+    printf_green "✓ Successful: $success"
+    [ $failed -gt 0 ] && printf_red "✗ Failed: $failed"
+
+    if [ $failed -gt 0 ]; then
+      return 1
+    fi
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_manifest() {
   [ -n "$1" ] || return
   [ -f "$AUTH_TOKEN_NAME" ] || printf_exit "Please run $APPNAME api auth"
@@ -541,16 +850,42 @@ __create_manifest() {
   local platforms="x86_64 arm64"
   local base_tag="$tag"
   local base_name="$image"
-  local is_docker_hub="no"
   local base_image="$image:${tag:-latest}"
   local pull_image="$image:${tag:-latest}"
   local pull_image="${pull_image//::/:}"
   local pull_from_pretty="${pull_image//:*/}"
-  local org_repo="$(echo "$push" | awk -F '/' '{print $(NF-1)"-"$NF}')"
-  local docker_hub="$(echo "$push" | awk -F '/' '{print $(NF-2)}' | grep -v '/')"
-  local manifest_log_file="$org_repo"
   [ -n "$tag" ] && tag=":$tag" || tag=":latest"
   [ -n "$tag_push" ] && tag_push=":$tag_push" || tag_push=":${DOCKERMGR_SET_TAG:-latest}"
+  # Extract registry, org/user and repo from push destination
+  local push_parts="$(echo "$push" | awk -F '/' '{print NF}')"
+  local manifest_registry manifest_org manifest_repo manifest_tag manifest_log_dir manifest_log_file
+  if [ "$push_parts" -ge 3 ]; then
+    # Format: registry/org/repo
+    manifest_registry="$(echo "$push" | awk -F '/' '{print $1}')"
+    manifest_org="$(echo "$push" | awk -F '/' '{print $(NF-1)}')"
+    manifest_repo="$(echo "$push" | awk -F '/' '{print $NF}')"
+  else
+    # Format: org/repo (Docker Hub)
+    manifest_registry="docker.io"
+    manifest_org="$(echo "$push" | awk -F '/' '{print $(NF-1)}')"
+    manifest_repo="$(echo "$push" | awk -F '/' '{print $NF}')"
+  fi
+  # Format registry: remove protocol and replace . with _
+  manifest_registry="${manifest_registry#http://}"
+  manifest_registry="${manifest_registry#https://}"
+  manifest_registry="${manifest_registry//./_}"
+  manifest_tag="${tag_push#:}"
+  # Check if this is docker hub for legacy compatibility
+  local docker_hub="$(echo "$push" | awk -F '/' '{print $(NF-2)}' | grep -v '/')"
+  local is_docker_hub="no"
+  if [ -z "$docker_hub" ] || [ "$docker_hub" = "docker.io" ] || [ "$manifest_registry" = "docker_io" ]; then
+    is_docker_hub="yes"
+  fi
+  # Create log path structure: registry/org/repo-tag.log
+  manifest_log_dir="$DOCKERMGR_LOG_DIR/$manifest_registry/$manifest_org"
+  manifest_log_file="$manifest_registry/$manifest_org/$manifest_repo-$manifest_tag"
+  # Ensure log directory exists
+  [ -d "$manifest_log_dir" ] || mkdir -p "$manifest_log_dir"
   [ -z "$push" ] && [ -n "$DOCKERMGR_REGISTRY_USERNAME" ] && push="$DOCKERMGR_REGISTRY_USERNAME/$name"
   [ -n "$push" ] || printf_exit "Usage: $APPNAME manifest [image] [push]"
   [ -n "$image" ] || printf_exit "Usage: $APPNAME manifest [image] [push]"
@@ -564,24 +899,47 @@ __create_manifest() {
     if [ -z "$docker_hub" ] || [ "$docker_hub" = "docker.io" ]; then
       is_docker_hub="yes"
     fi
+    # Prepare ALL OCI labels (complete spec)
+    local build_date="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+    local git_commit="$(git -C "$PWD" rev-parse HEAD 2>/dev/null || echo 'unknown')"
+    local oci_labels=""
+
+    # Required/Common labels
+    oci_labels+="--label org.opencontainers.image.created=$build_date "
+    oci_labels+="--label org.opencontainers.image.title=$name "
+    oci_labels+="--label org.opencontainers.image.description=\"${description:-Docker image for $name}\" "
+    oci_labels+="--label org.opencontainers.image.version=${tag_push#:} "
+    oci_labels+="--label org.opencontainers.image.source=$pull_from_pretty "
+    oci_labels+="--label org.opencontainers.image.revision=$git_commit "
+    oci_labels+="--label org.opencontainers.image.ref.name=${tag_push#:} "
+
+    # Optional labels (use env vars or defaults)
+    [ -n "$DOCKERMGR_IMAGE_URL" ] && oci_labels+="--label org.opencontainers.image.url=$DOCKERMGR_IMAGE_URL "
+    [ -n "$DOCKERMGR_IMAGE_DOCUMENTATION" ] && oci_labels+="--label org.opencontainers.image.documentation=$DOCKERMGR_IMAGE_DOCUMENTATION "
+    [ -n "$DOCKERMGR_IMAGE_AUTHORS" ] && oci_labels+="--label org.opencontainers.image.authors=\"$DOCKERMGR_IMAGE_AUTHORS\" "
+    [ -n "$DOCKERMGR_IMAGE_VENDOR" ] && oci_labels+="--label org.opencontainers.image.vendor=\"$DOCKERMGR_IMAGE_VENDOR\" "
+    [ -n "$DOCKERMGR_IMAGE_LICENSES" ] && oci_labels+="--label org.opencontainers.image.licenses=$DOCKERMGR_IMAGE_LICENSES "
+    [ -n "$DOCKERMGR_IMAGE_BASE_NAME" ] && oci_labels+="--label org.opencontainers.image.base.name=$DOCKERMGR_IMAGE_BASE_NAME "
+    [ -n "$DOCKERMGR_IMAGE_BASE_DIGEST" ] && oci_labels+="--label org.opencontainers.image.base.digest=$DOCKERMGR_IMAGE_BASE_DIGEST "
+
     for platform in $platforms; do
       local set_tag="$tag"
       local new_tag="$set_tag-$platform"
       set_push="${push//:*/}:${tag_push//*:/}-$platform"
       printf_cyan "Attempting to build $image$tag for platform: $platform"
-      echo "FROM --platform="linux/$platform" $image$tag" | docker build --pull -t $set_push - 2>"$DOCKERMGR_LOG_DIR/$manifest_log_file.log" >/dev/null && amend+="--amend $set_push " delete_tag+="$set_push " || code=1
-      [ $code -ne 0 ] && printf_red "Failed to build $set_push" && __docker_manifest_log $code "$name"
+      echo "FROM --platform="linux/$platform" $image$tag" | docker build --pull -t $set_push $oci_labels - 2>"$DOCKERMGR_LOG_DIR/$manifest_log_file.log" >/dev/null && amend+="--amend $set_push " delete_tag+="$set_push " || code=1
+      [ $code -ne 0 ] && printf_red "Failed to build $set_push" && __docker_manifest_log $code "$manifest_log_file"
       printf_yellow "Pushing $set_push"
       docker push -q $set_push >/dev/null 2>"$DOCKERMGR_LOG_DIR/$manifest_log_file.log"
-      [ $code -ne 0 ] && printf_red "Failed to build $set_push" && __docker_manifest_log $code "$name"
+      [ $code -ne 0 ] && printf_red "Failed to build $set_push" && __docker_manifest_log $code "$manifest_log_file"
     done
     for tag in $MANIFEST_TAG; do
       printf_blue "Running: docker manifest create $tag ${amend[*]}"
       docker manifest create $tag $amend >/dev/null 2>"$DOCKERMGR_LOG_DIR/$manifest_log_file.log" || code=$((code++))
-      __docker_manifest_log $code "$name - $tag"
+      __docker_manifest_log $code "$manifest_log_file"
       printf_cyan "Pushing $tag"
       docker manifest push --purge $tag >/dev/null 2>>"$DOCKERMGR_LOG_DIR/$manifest_log_file.log" || code=$((code++))
-      __docker_manifest_log $code "$name - $tag"
+      __docker_manifest_log $code "$manifest_log_file"
     done
     base_id="$(docker images -a | grep "$base_name.*$base_tag" | awk '{print $3}' | grep '^' || false)"
     [ -n "$base_image" ] && docker rmi $base_id >/dev/null 2>>"$DOCKERMGR_LOG_DIR/$manifest_log_file.log" && printf_cyan "🦄 Deleted base image $base_image with id: $base_id 🦄"
@@ -2668,6 +3026,27 @@ api)
     __upload_readme_to_hub "$@"
     exit $?
     ;;
+  visibility)
+    shift 1
+    visibility="${1:-public}"
+    shift 1
+    target="${1:-$DOCKERMGR_REGISTRY_USERNAME}"
+
+    if [ -z "$target" ]; then
+      printf_cyan "Usage: $APPNAME api visibility [public|private] [repo|org]"
+      printf_cyan ""
+      printf_cyan "Examples:"
+      printf_cyan "  $APPNAME api visibility public casjaysdev/archlinux    # Single repo"
+      printf_cyan "  $APPNAME api visibility private casjaysdev             # All repos in org"
+      printf_cyan "  $APPNAME api visibility public                         # All repos for authenticated user (default: public)"
+      printf_cyan ""
+      printf_cyan "Note: Only works with Docker Hub. Defaults to 'public' visibility."
+      exit 1
+    fi
+
+    __api_set_visibility "$visibility" "$target"
+    exit $?
+    ;;
   sources)
     shift 1
     __api_source_list "$@"
@@ -2793,6 +3172,62 @@ manifest)
     DOCKERMGR_EXIT_STATUS=$((retVal + DOCKERMGR_EXIT_STATUS))
     echo ""
   done
+  [ -f "$DOCKERMGR_BUILD_FILE_TEMP" ] && rm -Rf "$DOCKERMGR_BUILD_FILE_TEMP"
+  unset DOCKERMGR_BUILD_FILE_LOG DOCKERMGR_BUILD_FILE_TEMP
+  __how_long_did_it_take $DOCKERMGR_EXIT_STATUS
+  exit $?
+  ;;
+
+copy)
+  shift 1
+  DOCKERMGR_EXIT_STATUS=0
+  DOCKERMGR_BUILD_FILE_LOG="$DOCKERMGR_LOG_DIR/copy.log"
+  DOCKERMGR_BUILD_FILE_TEMP="$DOCKERMGR_TEMP_DIR/copy.log"
+
+  # Parse input: file, stdin, or command line arguments
+  if [ -f "$1" ]; then
+    cat "$1" >"$DOCKERMGR_BUILD_FILE_TEMP"
+  elif [ $# -eq 0 ] && [ -p "/dev/stdin" ]; then
+    cat - >"$DOCKERMGR_BUILD_FILE_TEMP"
+  elif [ $# -ge 2 ]; then
+    # Command line: source "dest1,dest2,dest3"
+    printf '%s %s\n' "$1" "$2" >"$DOCKERMGR_BUILD_FILE_TEMP"
+  else
+    printf_cyan "Usage: $APPNAME copy [source] [dest1,dest2,...]"
+    printf_cyan "       $APPNAME copy [file]"
+    printf_cyan ""
+    printf_cyan "Examples:"
+    printf_cyan "  $APPNAME copy casjaysdev/archlinux ghcr.io/casjaysdev/archlinux,dockersrc.us/library/archlinux"
+    printf_cyan "  $APPNAME copy ghcr.io/casjaysdev/alpine dockersrc.us/library/alpine"
+    printf_cyan "  $APPNAME copy manifest.txt"
+    printf_cyan ""
+    printf_cyan "File format (one per line):"
+    printf_cyan "  source destination1,destination2,destination3"
+    exit 1
+  fi
+
+  [ -s "$DOCKERMGR_CONFIG_DIR/.${AUTH_NAME}_hub_username" ] && [ -s "$DOCKERMGR_CONFIG_DIR/.${AUTH_NAME}_hub_password" ] && __orgs_api_auth "$@" >/dev/null 2>&1 || printf_exit "Failed to authenticate"
+
+  # Process each line
+  cat "$DOCKERMGR_BUILD_FILE_TEMP" | sed 's|^#.*||g' | grep -Ev '^$' | grep '^' | while read -r line; do
+    source_image="$(echo "$line" | awk '{print $1}')"
+    destinations="$(echo "$line" | awk '{$1=""; print $0}' | xargs)"
+
+    if [ -z "$source_image" ] || [ -z "$destinations" ]; then
+      continue
+    fi
+
+    printf_purple "========================================="
+    printf_cyan "Source: $source_image"
+    printf_cyan "Destinations: $destinations"
+    printf_purple "========================================="
+
+    __copy_image "$source_image" "$destinations"
+    retVal=$?
+    DOCKERMGR_EXIT_STATUS=$((retVal + DOCKERMGR_EXIT_STATUS))
+    echo ""
+  done
+
   [ -f "$DOCKERMGR_BUILD_FILE_TEMP" ] && rm -Rf "$DOCKERMGR_BUILD_FILE_TEMP"
   unset DOCKERMGR_BUILD_FILE_LOG DOCKERMGR_BUILD_FILE_TEMP
   __how_long_did_it_take $DOCKERMGR_EXIT_STATUS

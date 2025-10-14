@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202510100059-git
+##@Version           :  202510141537-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,11 +10,10 @@
 # @@Created          :  Monday, Aug 08, 2022 23:22 EDT
 # @@File             :  gitadmin
 # @@Description      :  push/clone/pull from github/gitlab/private/bitbucket/codeberg/forgejo/gitea/gogs/azure/aws repos
-# @@Changelog        :  Added full org/user clone/push/pull functionality for all 7 new providers
-#                    :  Implemented 38 new functions for Bitbucket, Codeberg, Forgejo, Gitea, Gogs, Azure, AWS
-#                    :  Each provider now supports: create, delete, modify, repos, clone, push, pull operations
-#                    :  Usage: gitadmin [provider] [clone|push|pull] [workspace|owner|project]
-#                    :  User operations: gitadmin [provider] user clone [username]
+# @@Changelog        :  Fixed setup command to default to public repos while preserving existing repo visibility
+#                    :  Added intelligent visibility detection - checks if repo exists and uses current setting
+#                    :  New repos default to public instead of private
+#                    :  Existing repos maintain their current visibility (public or private)
 # @@TODO             :  Organize this a lot better and split into seperate scripts
 #                    :  Add GitLab and Gitea package visibility API implementation
 # @@Other            :  Somethings may be broken due to variable changes
@@ -26,7 +25,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202510100059-git"
+VERSION="202510141537-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -3638,7 +3637,8 @@ __split_create_repo() {
   local platform=""
   local username=""
   local reponame=""
-  local visibility="${GITADMIN_REPO_VISIBILITY:-private}"
+  local visibility="${GITADMIN_REPO_VISIBILITY:-}"
+  local existing_visibility=""
 
   # Detect platform from URL
   if echo "$repo" | grep -q 'github.com'; then
@@ -3663,7 +3663,31 @@ __split_create_repo() {
     reponame="$2"
   fi
 
+  # Check if repo exists and get its visibility
   if [ -n "$username" ] && [ -n "$reponame" ]; then
+    # Check if repo already exists
+    if [ "$platform" = "github" ] && [ -n "$GITADMIN_GITHUB_AUTH_TOKEN" ]; then
+      # Try to get existing repo info
+      local repo_info="$(curl -q -LSsf -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" \
+        -H "Accept: application/vnd.github.v3+json" \
+        "https://api.github.com/repos/$username/$reponame" 2>/dev/null)"
+
+      if [ -n "$repo_info" ]; then
+        # Repo exists, get its current visibility
+        existing_visibility="$(echo "$repo_info" | jq -r '.private' 2>/dev/null)"
+        if [ "$existing_visibility" = "true" ]; then
+          visibility="private"
+        elif [ "$existing_visibility" = "false" ]; then
+          visibility="public"
+        fi
+      fi
+    fi
+
+    # If visibility still not set, use public as default for new repos
+    if [ -z "$visibility" ]; then
+      visibility="public"
+    fi
+
     __universal_repo_create "$platform" "$username" "$reponame" "Repo for $reponame" "$visibility" "" &>/dev/null
     return $?
   else

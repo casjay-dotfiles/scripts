@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202208090123-git
+##@Version           :  202510141055-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -9,8 +9,8 @@
 # @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
 # @@Created          :  Tuesday, Aug 09, 2022 01:23 EDT
 # @@File             :  gitignore
-# @@Description      :  Generate a .gitignore file
-# @@Changelog        :  New script
+# @@Description      :  Generate a .gitignore file with intelligent duplicate filtering
+# @@Changelog        :  Enhanced duplicate filtering with comment deduplication and section awareness
 # @@TODO             :  Make this work locally
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202510141900-git"
+VERSION="202510141055-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -293,29 +293,133 @@ __filter_duplicates() {
   local gitignore_file="${1:-$GITIGNORE_CWD/.gitignore}"
   local temp_input="$GITIGNORE_TEMP_DIR/filter_input.$$"
   local temp_output="$GITIGNORE_TEMP_DIR/filter_output.$$"
+  local temp_sections="$GITIGNORE_TEMP_DIR/filter_sections.$$"
+
+  # Save input to temporary file
   cat >"$temp_input"
+
+  # If gitignore doesn't exist, just output everything
   if [ ! -f "$gitignore_file" ]; then
     cat "$temp_input"
     rm -f "$temp_input" 2>/dev/null
     return 0
   fi
+
+  # Create temporary files
   touch "$temp_output"
+  touch "$temp_sections"
+
+  # Read existing file and extract section headers
+  grep '^###.*###$' "$gitignore_file" 2>/dev/null | sort -u >"$temp_sections"
+
+  local current_section=""
+  local in_new_section=false
+  local section_content=""
+
+  # Process input line by line
   while IFS= read -r line || [ -n "$line" ]; do
+    # Check if this is a section header (### Section ###)
+    if echo "$line" | grep -q '^###.*###$'; then
+      # If we have accumulated section content, process it
+      if [ -n "$section_content" ]; then
+        __process_section_content "$current_section" "$section_content" "$gitignore_file" >>"$temp_output"
+        section_content=""
+      fi
+
+      # Check if this section already exists
+      if grep -Fxq "$line" "$temp_sections" 2>/dev/null; then
+        # Section exists, we'll add to it
+        current_section="$line"
+        in_new_section=false
+      else
+        # New section, add it
+        echo "$line" >>"$temp_output"
+        current_section="$line"
+        in_new_section=true
+      fi
+      continue
+    fi
+
+    # Blank lines
     if [ -z "$line" ]; then
-      echo "$line" >>"$temp_output"
+      if [ -n "$current_section" ]; then
+        section_content="${section_content}${section_content:+$'\n'}$line"
+      else
+        # Only add blank lines if not duplicate consecutive blanks
+        if ! tail -1 "$temp_output" 2>/dev/null | grep -q '^$'; then
+          echo "$line" >>"$temp_output"
+        fi
+      fi
       continue
     fi
-    if echo "$line" | grep -q '^#'; then
-      echo "$line" >>"$temp_output"
+
+    # Comments
+    if echo "$line" | grep -q '^#' && ! echo "$line" | grep -q '^###'; then
+      # Check if this exact comment already exists in the file
+      if ! grep -Fxq "$line" "$gitignore_file" 2>/dev/null; then
+        if [ -n "$current_section" ]; then
+          section_content="${section_content}${section_content:+$'\n'}$line"
+        else
+          echo "$line" >>"$temp_output"
+        fi
+      fi
       continue
     fi
-    if ! grep -Fxq "$line" "$gitignore_file" 2>/dev/null; then
-      echo "$line" >>"$temp_output"
+
+    # Regular pattern lines
+    if [ -n "$current_section" ]; then
+      section_content="${section_content}${section_content:+$'\n'}$line"
+    else
+      # Check if pattern already exists
+      if ! grep -Fxq "$line" "$gitignore_file" 2>/dev/null; then
+        echo "$line" >>"$temp_output"
+      fi
     fi
   done <"$temp_input"
+
+  # Process any remaining section content
+  if [ -n "$section_content" ]; then
+    __process_section_content "$current_section" "$section_content" "$gitignore_file" >>"$temp_output"
+  fi
+
+  # Output the result
   cat "$temp_output"
-  rm -f "$temp_input" "$temp_output" 2>/dev/null
+
+  # Clean up temporary files
+  rm -f "$temp_input" "$temp_output" "$temp_sections" 2>/dev/null
   return 0
+}
+
+# Helper function to process section content
+__process_section_content() {
+  local section_header="$1"
+  local content="$2"
+  local gitignore_file="$3"
+
+  # Don't output anything if there's no new content
+  [ -z "$content" ] && return 0
+
+  # For each line in the content, check if it already exists
+  echo "$content" | while IFS= read -r line || [ -n "$line" ]; do
+    if [ -z "$line" ]; then
+      # Allow blank lines within sections
+      echo "$line"
+    elif ! grep -Fxq "$line" "$gitignore_file" 2>/dev/null; then
+      echo "$line"
+    fi
+  done
+}
+
+# Intelligent merge function that simply filters duplicates
+__merge_gitignore_sections() {
+  local existing_file="$1"
+  local new_content_file="$2"
+
+  # Output the existing file
+  cat "$existing_file"
+
+  # Filter and append new content
+  cat "$new_content_file" | __filter_duplicates "$existing_file"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __no_push() {
@@ -820,7 +924,29 @@ add)
   shift 1
   ignore_list "$@"
   printf_green "Adding $IGNORELIST to: ${GITIGNORE_CWD//$PWD/.}/.gitignore"
-  fetch_ignore | __filter_duplicates "$GITIGNORE_CWD/.gitignore" >>"$GITIGNORE_CWD/.gitignore" && true || false
+
+  # If gitignore exists and has sections, try to organize intelligently
+  if [ -f "$GITIGNORE_CWD/.gitignore" ] && grep -q '^###.*###$' "$GITIGNORE_CWD/.gitignore" 2>/dev/null; then
+    # Create a temporary file with the new content to add
+    temp_new="$GITIGNORE_TEMP_DIR/new_content.$$"
+    temp_merged="$GITIGNORE_TEMP_DIR/merged.$$"
+
+    # Get new content
+    fetch_ignore >"$temp_new"
+
+    # Merge intelligently
+    __merge_gitignore_sections "$GITIGNORE_CWD/.gitignore" "$temp_new" >"$temp_merged"
+
+    # Replace the original file
+    cp "$temp_merged" "$GITIGNORE_CWD/.gitignore"
+
+    # Clean up
+    rm -f "$temp_new" "$temp_merged" 2>/dev/null
+  else
+    # Simple append with duplicate filtering
+    fetch_ignore | __filter_duplicates "$GITIGNORE_CWD/.gitignore" >>"$GITIGNORE_CWD/.gitignore"
+  fi
+
   exit $?
   ;;
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 ##@Version           :  202208171951-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
@@ -17,9 +17,9 @@
 # @@Terminal App     :  no
 # @@sudo/root        :  no
 # @@Template         :  bash/system
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
 VERSION="202208171951-git"
 USER="${SUDO_USER:-$USER}"
@@ -27,31 +27,31 @@ RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
 SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
 TRANSFER_SH_REQUIRE_SUDO="${TRANSFER_SH_REQUIRE_SUDO:-no}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Reopen in a terminal
 #if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set script title
 #CASJAYS_DEV_TILE_FORMAT="${USER}@${HOSTNAME}:${PWD/#$HOME/~} - $APPNAME"
 #CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}"
 #[ -z "$CASJAYSDEV_TITLE_SET" ] && printf '\033]2│;%s\033\\' "$CASJAYS_DEV_TILE_FORMAT" && CASJAYSDEV_TITLE_SET="$APPNAME"
 export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}" CASJAYSDEV_TITLE_SET
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Initial debugging
 [ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Disables colorization
 [ "$1" = "--raw" ] && export SHOW_RAW="true"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # pipes fail
 set -o pipefail
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
 SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
 SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
 SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
   . "$PWD/$SCRIPTSFUNCTFILE"
 elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
@@ -60,24 +60,24 @@ else
   echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
   exit 1
 fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Options are: *_install
 # system user desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
 user_install && __options "$@"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Send all output to /dev/null
 __devnull() {
   tee &>/dev/null && exitCode=0 || exitCode=1
   return ${exitCode:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# - - - - - - - - - - - - - - - - - - - - - - - - -'
 # Send errors to /dev/null
 __devnull2() {
   [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
   eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
   return ${exitCode:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# - - - - - - - - - - - - - - - - - - - - - - - - -'
 # See if the executable exists
 __cmd_exists() {
   local exitCode=0
@@ -92,14 +92,14 @@ __cmd_exists() {
   [ $exitCode -eq 0 ] || exitCode=3
   return ${exitCode:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for a valid internet connection
 __am_i_online() {
   local exitCode=0
   curl -q -LSsfI --max-time 2 --retry 1 "${1:-https://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
   return ${exitCode:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # colorization
 if [ "$SHOW_RAW" = "true" ]; then
   NC=""
@@ -126,22 +126,22 @@ if [ "$SHOW_RAW" = "true" ]; then
 else
   printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
 fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional printf_ colors
 __printf_head() { printf_blue "$1"; }
 __printf_opts() { printf_purple "$1"; }
 __printf_line() { printf_cyan "$1"; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # output version
 __version() { printf_cyan "$VERSION"; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # list options
 __list_options() {
   printf_color "$1: " "$5"
   echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g' | tr '\n' ' '
   printf_newline
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # create the config file
 __gen_config() {
   local NOTIFY_CLIENT_NAME="$APPNAME"
@@ -160,13 +160,13 @@ TRANSFER_SH_GPG_PASS="${TRANSFER_SH_GPG_PASS:-}"
 TRANSFER_SH_DAYS_MAX="${TRANSFER_SH_DAYS_MAX:-}"
 TRANSFER_SH_SAVED_LINKS="${TRANSFER_SH_SAVED_LINKS:-}"
 TRANSFER_SH_URL="${TRANSFER_SH_URL:-}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
 TRANSFER_SH_OUTPUT_COLOR_1="${TRANSFER_SH_OUTPUT_COLOR_1:-}"
 TRANSFER_SH_OUTPUT_COLOR_2="${TRANSFER_SH_OUTPUT_COLOR_2:-}"
 TRANSFER_SH_OUTPUT_COLOR_GOOD="${TRANSFER_SH_OUTPUT_COLOR_GOOD:-}"
 TRANSFER_SH_OUTPUT_COLOR_ERROR="${TRANSFER_SH_OUTPUT_COLOR_ERROR:-}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Notification Settings
 TRANSFER_SH_NOTIFY_ENABLED="${TRANSFER_SH_NOTIFY_ENABLED:-}"
 TRANSFER_SH_GOOD_NAME="${TRANSFER_SH_GOOD_NAME:-}"
@@ -189,12 +189,12 @@ EOF
   fi
   return ${exitCode:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Help function - Align to 50
 __help() {
-  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "transfer.sh:  Upload file to https://transfer.sh - $VERSION"
-  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "Usage: transfer.sh [options] [commands]"
   __printf_line "[file]                          - Upload file"
   __printf_line "cat [file] |transfer.sh]        - Upload from stdin"
@@ -203,60 +203,60 @@ __help() {
   __printf_line "encrypt  [file/dir]             - encrypt and upload file"
   __printf_line "backup [file/dir]               - archive/encrypt and upload "
   __printf_line "list                            - List the link to uploaded files"
-  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
-  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "--help                          - Shows this message"
   __printf_line "--config                        - Generate user config file"
   __printf_line "--version                       - Show script version"
   __printf_line "--options                       - Shows all available options"
   __printf_line "--debug                         - Enables script debugging"
   __printf_line "--raw                           - Removes all formatting on output"
-  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # check if arg is a builtin option
 __is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0; fi; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Is current user root
 __user_is_root() {
   { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Is current user not root
 __user_is_not_root() {
   if { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; }; then return 1; else return 0; fi
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check if user is a member of sudo
 __sudo_group() {
   grep -sh "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # # Get sudo password
 __sudoask() {
   ask_for_password sudo true && return 0 || return 1
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run sudo
 __sudorun() {
   __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
   return $?
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Test if user has access to sudo
 __can_i_sudo() {
   (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
   __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # User can run sudo
 __sudoif() {
   __user_is_root && return 0
   __can_i_sudo "${RUN_USER:-$USER}" && return 0
   __user_is_not_root && __sudoask && return 0 || return 1
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run command as root
 requiresudo() {
   if [ "$TRANSFER_SH_REQUIRE_SUDO" = "yes" ] && [ -z "$TRANSFER_SH_REQUIRE_SUDO_RUN" ]; then
@@ -268,7 +268,7 @@ requiresudo() {
     return 0
   fi
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Execute sudo
 __sudo() {
   CMD="${1:-echo}" && shift 1
@@ -286,7 +286,7 @@ __sudo() {
   return ${exitCode:-1}
 }
 # End of sudo functions
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __trap_exit() {
   exitCode=${exitCode:-0}
   [ -f "$TRANSFER_SH_TEMP_FILE" ] && rm -Rf "$TRANSFER_SH_TEMP_FILE" &>/dev/null
@@ -294,7 +294,7 @@ __trap_exit() {
   if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
   return $exitCode
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
 __trap_exit_local() {
   [ -f "$TRANSFER_SH_STATUS_FILE" ] && __rm_rf "$TRANSFER_SH_STATUS_FILE"
@@ -302,7 +302,7 @@ __trap_exit_local() {
   [ -f "$TRANSFER_SH_TMP_SDTIN_FILE" ] && __rm_rf "$TRANSFER_SH_TMP_SDTIN_FILE"
 
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __format_file_as_JSON_string() {
   sed -e 's/\\/\\\\/g' \
     -e 's/$/\\n/g' \
@@ -310,7 +310,7 @@ __format_file_as_JSON_string() {
     -e 's/\t/\\t/g' |
     tr -d "\n"
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __filename() {
   local file="$1"
   if [ -d "$file" ]; then
@@ -330,21 +330,21 @@ __filename() {
   TRANSFER_SH_UPLOAD_NAME="$TRANSFER_SH_USER-$(basename -- "${filename}" 2>/dev/null | sed -e 's|[^a-zA-Z0-9._-]|-|g')"
   export filename TRANSFER_SH_UPLOAD_NAME
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __curl_upload() {
   curl -q -LSsf -H "Max-Days: $TRANSFER_SH_DAYS_MAX" --connect-timeout 2 --retry 0 --upload-file "$1" "$2" 2>"$TRANSFER_SH_LOG_DIR/$TRANSFER_SH_UPLOAD_NAME"
   exitCode=$?
   sleep 1 # lets a a delay
   return "${exitCode:-0}"
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __curl_put() {
   curl -q -LSsf -H "Max-Days: $TRANSFER_SH_DAYS_MAX" -X PUT --connect-timeout 2 --retry 0 --upload-file "$1" "$2" 2>"$TRANSFER_SH_LOG_DIR/$TRANSFER_SH_UPLOAD_NAME"
   exitCode=$?
   sleep 1 # lets a a delay
   return "${exitCode:-0}"
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __upload_status() {
   if [[ "${exitCode:-0}" = 0 ]] && [[ -f "$TRANSFER_SH_STATUS_FILE" ]] && [[ -s "$TRANSFER_SH_STATUS_FILE" ]]; then
     MESSAGE="$(cat "$TRANSFER_SH_STATUS_FILE" | grep -v '^$')"
@@ -364,10 +364,10 @@ __upload_status() {
   fi
   return "${exitCode:-0}"
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
 
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application Folders
 TRANSFER_SH_CONFIG_FILE="${TRANSFER_SH_CONFIG_FILE:-settings.conf}"
 TRANSFER_SH_CONFIG_DIR="${TRANSFER_SH_CONFIG_DIR:-$HOME/.config/myscripts/transfer.sh}"
@@ -375,13 +375,13 @@ TRANSFER_SH_CONFIG_BACKUP_DIR="${TRANSFER_SH_CONFIG_BACKUP_DIR:-$HOME/.local/sha
 TRANSFER_SH_LOG_DIR="${TRANSFER_SH_LOG_DIR:-$HOME/.local/log/transfer.sh}"
 TRANSFER_SH_TEMP_DIR="${TRANSFER_SH_TEMP_DIR:-$HOME/.local/tmp/system_scripts/transfer.sh}"
 TRANSFER_SH_CACHE_DIR="${TRANSFER_SH_CACHE_DIR:-$HOME/.cache/transfer.sh}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
 TRANSFER_SH_OUTPUT_COLOR_1="${TRANSFER_SH_OUTPUT_COLOR_1:-33}"
 TRANSFER_SH_OUTPUT_COLOR_2="${TRANSFER_SH_OUTPUT_COLOR_2:-5}"
 TRANSFER_SH_OUTPUT_COLOR_GOOD="${TRANSFER_SH_OUTPUT_COLOR_GOOD:-2}"
 TRANSFER_SH_OUTPUT_COLOR_ERROR="${TRANSFER_SH_OUTPUT_COLOR_ERROR:-1}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Notification Settings
 TRANSFER_SH_NOTIFY_ENABLED="${TRANSFER_SH_NOTIFY_ENABLED:-yes}"
 TRANSFER_SH_GOOD_NAME="${TRANSFER_SH_GOOD_NAME:-Great:}"
@@ -391,31 +391,31 @@ TRANSFER_SH_ERROR_MESSAGE="${TRANSFER_SH_ERROR_MESSAGE:-Errors were reported}"
 TRANSFER_SH_NOTIFY_CLIENT_NAME="${TRANSFER_SH_NOTIFY_CLIENT_NAME:-$APPNAME}"
 TRANSFER_SH_NOTIFY_CLIENT_ICON="${TRANSFER_SH_NOTIFY_CLIENT_ICON:-notification-new}"
 TRANSFER_SH_NOTIFY_CLIENT_URGENCY="${TRANSFER_SH_NOTIFY_CLIENT_URGENCY:-normal}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional Variables
 TRANSFER_SH_USER="${TRANSFER_SH_USER:-$USER}"
 TRANSFER_SH_GPG_PASS="${TRANSFER_SH_GPG_PASS:-your_very_strong_password}"
 TRANSFER_SH_DAYS_MAX="${TRANSFER_SH_DAYS_MAX:-30}"
 TRANSFER_SH_URL="${TRANSFER_SH_URL:-https://transfer.sh}"
 TRANSFER_SH_SAVED_LINKS="${TRANSFER_SH_SAVED_LINKS:-$HOME/Documents/myscripts/${APPNAME}_pastes.txt}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$TRANSFER_SH_CONFIG_DIR/$TRANSFER_SH_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import config
 [ -f "$TRANSFER_SH_CONFIG_DIR/$TRANSFER_SH_CONFIG_FILE" ] && . "$TRANSFER_SH_CONFIG_DIR/$TRANSFER_SH_CONFIG_FILE"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure Directories exist
 [ -d "$TRANSFER_SH_LOG_DIR" ] || mkdir -p "$TRANSFER_SH_LOG_DIR" |& __devnull
 [ -d "$TRANSFER_SH_TEMP_DIR" ] || mkdir -p "$TRANSFER_SH_TEMP_DIR" |& __devnull
 [ -d "$TRANSFER_SH_CACHE_DIR" ] || mkdir -p "$TRANSFER_SH_CACHE_DIR" |& __devnull
 [ -d "$(dirname "$TRANSFER_SH_SAVED_LINKS")" ] || mkdir -p "$(dirname "$TRANSFER_SH_SAVED_LINKS")" |& __devnull
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 TRANSFER_SH_TEMP_FILE="${TRANSFER_SH_TEMP_FILE:-$(mktemp $TRANSFER_SH_TEMP_DIR/XXXXXX 2>/dev/null)}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup trap to remove temp file
 trap '__trap_exit' EXIT
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup notification function
 __notifications() {
   __cmd_exists notifications || return
@@ -431,25 +431,25 @@ __notifications() {
     notifications "$@"
   ) |& __devnull &
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set custom actions
 
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Argument/Option settings
 SETARGS=("$@")
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 SHORTOPTS=""
 SHORTOPTS+=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
 LONGOPTS+=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="list scan virustotal backup encrypt"
 ARRAY+=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
 LIST+=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup application options
 setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
 eval set -- "${setopts[@]}" 2>/dev/null
@@ -543,7 +543,7 @@ while :; do
     ;;
   esac
 done
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Get directory from args
 # set -- "$@"
 # for arg in "$@"; do
@@ -556,7 +556,7 @@ done
 # fi
 # done
 # set -- "${SET_NEW_ARGS[@]}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set directory to first argument
 # [ -d "$1" ] && __is_an_option "$1" && TRANSFER_SH_CWD="$1" && shift 1 || TRANSFER_SH_CWD="${TRANSFER_SH_CWD:-$PWD}"
 TRANSFER_SH_CWD="$(realpath "${TRANSFER_SH_CWD:-$PWD}" 2>/dev/null)"
@@ -568,29 +568,29 @@ TRANSFER_SH_CWD="$(realpath "${TRANSFER_SH_CWD:-$PWD}" 2>/dev/null)"
 # printf_exit "💔 $TRANSFER_SH_CWD does not exist 💔"
 # fi
 export TRANSFER_SH_CWD
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set actions based on variables
 
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
 #requiresudo "$0" "$@" || exit 2     # exit 2 if errors
 #cmd_exists --error --ask bash || exit 3 # exit 3 if not found
 #am_i_online --error || exit 4           # exit 4 if no internet
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
 [ -n "$1" ] || [ -p "/dev/stdin" ] || { __help && exit; }
 TRANSFER_SH_STATUS_FILE="$(mktemp -t XXXXXXXXXXXX)"
 TRANSFER_SH_TMP_SDTIN_FILE="$(mktemp -t XXXXXXXXXXXX)"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
 
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Execute functions
 
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Execute commands
 
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 case "$1" in
 list)
@@ -662,13 +662,13 @@ backup)
   __upload_status "Link is"
   ;;
 esac
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set exit code
 exitCode="${exitCode:-0}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # lets exit with code
 exit ${exitCode:-0}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # ex: ts=2 sw=2 et filetype=sh

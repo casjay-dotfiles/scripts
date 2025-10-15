@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 ##@Version           :  202208111053-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
@@ -17,9 +17,9 @@
 # @@Terminal App     :  no
 # @@sudo/root        :  no
 # @@Template         :  bash/system
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
 VERSION="202208111053-git"
 USER="${SUDO_USER:-$USER}"
@@ -27,31 +27,31 @@ RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
 SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
 IX_IO_REQUIRE_SUDO="${IX_IO_REQUIRE_SUDO:-no}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Reopen in a terminal
 #if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set script title
 #CASJAYS_DEV_TILE_FORMAT="${USER}@${HOSTNAME}:${PWD/#$HOME/~} - $APPNAME"
 #CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}"
 #[ -z "$CASJAYSDEV_TITLE_SET" ] && printf '\033]2│;%s\033\\' "$CASJAYS_DEV_TILE_FORMAT" && CASJAYSDEV_TITLE_SET="$APPNAME"
 export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}" CASJAYSDEV_TITLE_SET
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Initial debugging
 [ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Disables colorization
 [ "$1" = "--raw" ] && export SHOW_RAW="true"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # pipes fail
 set -o pipefail
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import functions
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
 SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
 SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
 SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
   . "$PWD/$SCRIPTSFUNCTFILE"
 elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
@@ -60,24 +60,24 @@ else
   echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
   exit 1
 fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Options are: *_install
 # system user desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
 user_install && __options "$@"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Send all output to /dev/null
 __devnull() {
   tee &>/dev/null && exitCode=0 || exitCode=1
   return ${exitCode:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# - - - - - - - - - - - - - - - - - - - - - - - - -'
 # Send errors to /dev/null
 __devnull2() {
   [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
   eval $cmd "$*" 2>/dev/null && exitCode=0 || exitCode=1
   return ${exitCode:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# - - - - - - - - - - - - - - - - - - - - - - - - -'
 # See if the executable exists
 __cmd_exists() {
   local exitCode=0
@@ -92,14 +92,14 @@ __cmd_exists() {
   [ $exitCode -eq 0 ] || exitCode=3
   return ${exitCode:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for a valid internet connection
 __am_i_online() {
   local exitCode=0
   curl -q -LSsfI --max-time 2 --retry 1 "${1:-https://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
   return ${exitCode:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # colorization
 if [ "$SHOW_RAW" = "true" ]; then
   NC=""
@@ -126,22 +126,22 @@ if [ "$SHOW_RAW" = "true" ]; then
 else
   printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
 fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional printf_ colors
 __printf_head() { printf_blue "$1"; }
 __printf_opts() { printf_purple "$1"; }
 __printf_line() { printf_cyan "$1"; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # output version
 __version() { printf_cyan "$VERSION"; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # list options
 __list_options() {
   printf_color "$1: " "$5"
   echo -ne "$2" | sed 's|:||g;s/'$3'/ '$4'/g' | tr '\n' ' '
   printf_newline
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # create the config file
 __gen_config() {
   local NOTIFY_CLIENT_NAME="$APPNAME"
@@ -160,13 +160,13 @@ IX_IO_USER_PASS="${IX_IO_USER_PASS:-}"
 IX_IO_BROWSER="${IX_IO_BROWSER:-}"
 IX_IO_SERVER_HOST="${IX_IO_SERVER_HOST:-}"
 IX_IO_SAVED_URL_FILE="${IX_IO_SAVED_URL_FILE:-}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
 IX_IO_OUTPUT_COLOR_1="${IX_IO_OUTPUT_COLOR_1:-}"
 IX_IO_OUTPUT_COLOR_2="${IX_IO_OUTPUT_COLOR_2:-}"
 IX_IO_OUTPUT_COLOR_GOOD="${IX_IO_OUTPUT_COLOR_GOOD:-}"
 IX_IO_OUTPUT_COLOR_ERROR="${IX_IO_OUTPUT_COLOR_ERROR:-}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Notification Settings
 IX_IO_NOTIFY_ENABLED="${IX_IO_NOTIFY_ENABLED:-}"
 IX_IO_GOOD_NAME="${IX_IO_GOOD_NAME:-}"
@@ -189,12 +189,12 @@ EOF
   fi
   return ${exitCode:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Help function - Align to 50
 __help() {
-  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "ix.io:  command line pastebin tool to post to ix.io - $VERSION"
-  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "Usage: ix.io [options] [commands] [File,Text]"
   __printf_line "*                               - Paste file or text"
   __printf_line "post                            - Paste file or text"
@@ -208,60 +208,60 @@ __help() {
   __printf_line "-n [number]                     - Self destruct after x reads"
   __printf_line "--anonymous                     - Post anonymously if you have username set"
   __printf_line "--user                          - Creates a new user"
-  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
-  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "--help                          - Shows this message"
   __printf_line "--config                        - Generate user config file"
   __printf_line "--version                       - Show script version"
   __printf_line "--options                       - Shows all available options"
   __printf_line "--debug                         - Enables script debugging"
   __printf_line "--raw                           - Removes all formatting on output"
-  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # check if arg is a builtin option
 __is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0; fi; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Is current user root
 __user_is_root() {
   { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Is current user not root
 __user_is_not_root() {
   if { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; }; then return 1; else return 0; fi
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check if user is a member of sudo
 __sudo_group() {
   grep -sh "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # # Get sudo password
 __sudoask() {
   ask_for_password sudo true && return 0 || return 1
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run sudo
 __sudorun() {
   __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
   return $?
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Test if user has access to sudo
 __can_i_sudo() {
   (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
   __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # User can run sudo
 __sudoif() {
   __user_is_root && return 0
   __can_i_sudo "${RUN_USER:-$USER}" && return 0
   __user_is_not_root && __sudoask && return 0 || return 1
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run command as root
 requiresudo() {
   if [ "$IX_IO_REQUIRE_SUDO" = "yes" ] && [ -z "$IX_IO_REQUIRE_SUDO_RUN" ]; then
@@ -273,7 +273,7 @@ requiresudo() {
     return 0
   fi
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Execute sudo
 __sudo() {
   CMD="${1:-echo}" && shift 1
@@ -291,7 +291,7 @@ __sudo() {
   return ${exitCode:-1}
 }
 # End of sudo functions
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __trap_exit() {
   exitCode=${exitCode:-0}
   [ -f "$IX_IO_TEMP_FILE" ] && rm -Rf "$IX_IO_TEMP_FILE" &>/dev/null
@@ -299,7 +299,7 @@ __trap_exit() {
   if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
   return $exitCode
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
 __browser() {
   if [ -n "$DISPLAY" ] && [ -z "$SSH_CONECTION" ]; then
@@ -322,7 +322,7 @@ __browser() {
     fi
   fi
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __write_to_temp() {
   local filepath"" filename="" fileheader="" filefooter=""
   filepath="$(realpath "$1")"
@@ -333,7 +333,7 @@ __write_to_temp() {
   cat "$filepath" | __tee "${IX_IO_TEMP_FILE}"
   printf_file_info "$filefooter" "$filename"
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __curl() {
   if [ -n "$IX_IO_USER_NAME" ] && [ -n "$IX_IO_USER_PASS" ]; then
     curl -q -LSsf -4 --user "$IX_IO_USER_NAME:$IX_IO_USER_PASS" --basic "$@" 2>/dev/null
@@ -343,14 +343,14 @@ __curl() {
     return $?
   fi
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __tee() { tee -a "${1:-$IX_IO_TEMP_FILE}" &>/dev/null; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_file_info() {
   [ -z "$fileinfo" ] || return 0
   printf '%s %s\n\n' "$1" "$2" | __tee "${3:-$IX_IO_TEMP_FILE}"
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __delete_post() {
   id="$(basename -- "$1")"
   response="$(__curl --max-time 3 -X DELETE "$IX_IO_SERVER_HOST/$id" 2>&1)"
@@ -370,7 +370,7 @@ __delete_post() {
   fi
   exit $exitCode
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_user() {
   if [ -z "$IX_IO_USER_NAME" ]; then
     USER="$USER-$(gen-passwd --silent --raw --no-upper --no-chars --length 4)"
@@ -397,10 +397,10 @@ __create_user() {
   fi
   return $exitCode
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
 
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application Folders
 IX_IO_CONFIG_FILE="${IX_IO_CONFIG_FILE:-settings.conf}"
 IX_IO_CONFIG_DIR="${IX_IO_CONFIG_DIR:-$HOME/.config/myscripts/ix.io}"
@@ -408,13 +408,13 @@ IX_IO_CONFIG_BACKUP_DIR="${IX_IO_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts
 IX_IO_LOG_DIR="${IX_IO_LOG_DIR:-$HOME/.local/log/ix.io}"
 IX_IO_TEMP_DIR="${IX_IO_TEMP_DIR:-$HOME/.local/tmp/system_scripts/ix.io}"
 IX_IO_CACHE_DIR="${IX_IO_CACHE_DIR:-$HOME/.cache/ix.io}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
 IX_IO_OUTPUT_COLOR_1="${IX_IO_OUTPUT_COLOR_1:-33}"
 IX_IO_OUTPUT_COLOR_2="${IX_IO_OUTPUT_COLOR_2:-5}"
 IX_IO_OUTPUT_COLOR_GOOD="${IX_IO_OUTPUT_COLOR_GOOD:-2}"
 IX_IO_OUTPUT_COLOR_ERROR="${IX_IO_OUTPUT_COLOR_ERROR:-1}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Notification Settings
 IX_IO_NOTIFY_ENABLED="${IX_IO_NOTIFY_ENABLED:-yes}"
 IX_IO_GOOD_NAME="${IX_IO_GOOD_NAME:-Great:}"
@@ -424,31 +424,31 @@ IX_IO_ERROR_MESSAGE="${IX_IO_ERROR_MESSAGE:-Errors were reported}"
 IX_IO_NOTIFY_CLIENT_NAME="${IX_IO_NOTIFY_CLIENT_NAME:-$APPNAME}"
 IX_IO_NOTIFY_CLIENT_ICON="${IX_IO_NOTIFY_CLIENT_ICON:-notification-new}"
 IX_IO_NOTIFY_CLIENT_URGENCY="${IX_IO_NOTIFY_CLIENT_URGENCY:-normal}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional Variables
 IX_IO_USER_NAME="${IX_IO_USER_NAME:-}"
 IX_IO_USER_PASS="${IX_IO_USER_PASS:-}"
 IX_IO_BROWSER="${IX_IO_BROWSER:-$BROWSER}"
 IX_IO_SERVER_HOST="${IX_IO_SERVER_HOST:-http://ix.io}"
 IX_IO_SAVED_URL_FILE="${IX_IO_SAVED_URL_FILE:-$HOME/Documents/myscripts/${APPNAME}_pastes.txt}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$IX_IO_CONFIG_DIR/$IX_IO_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import config
 [ -f "$IX_IO_CONFIG_DIR/$IX_IO_CONFIG_FILE" ] && . "$IX_IO_CONFIG_DIR/$IX_IO_CONFIG_FILE"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure Directories exist
 [ -d "$IX_IO_LOG_DIR" ] || mkdir -p "$IX_IO_LOG_DIR" |& __devnull
 [ -d "$IX_IO_TEMP_DIR" ] || mkdir -p "$IX_IO_TEMP_DIR" |& __devnull
 [ -d "$IX_IO_CACHE_DIR" ] || mkdir -p "$IX_IO_CACHE_DIR" |& __devnull
 [ -d "$(dirname "$IX_IO_SAVED_URL_FILE")" ] || mkdir -p "$(dirname "$IX_IO_SAVED_URL_FILE")" |& __devnull
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 IX_IO_TEMP_FILE="${IX_IO_TEMP_FILE:-$(mktemp $IX_IO_TEMP_DIR/XXXXXX 2>/dev/null)}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup trap to remove temp file
 trap '__trap_exit' EXIT
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup notification function
 __notifications() {
   __cmd_exists notifications || return
@@ -464,25 +464,25 @@ __notifications() {
     notifications "$@"
   ) |& __devnull &
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set custom actions
 
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Argument/Option settings
 SETARGS=("$@")
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 SHORTOPTS="d:,i:,n:"
 SHORTOPTS+=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
 LONGOPTS+=",anon,anonymous,user"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="latest user id raw post"
 ARRAY+=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
 LIST+=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup application options
 setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
 eval set -- "${setopts[@]}" 2>/dev/null
@@ -603,7 +603,7 @@ while :; do
     ;;
   esac
 done
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Get directory from args
 # set -- "$@"
 # for arg in "$@"; do
@@ -616,7 +616,7 @@ done
 # fi
 # done
 # set -- "${SET_NEW_ARGS[@]}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set directory to first argument
 # [ -d "$1" ] && __is_an_option "$1" && IX_IO_CWD="$1" && shift 1 || IX_IO_CWD="${IX_IO_CWD:-$PWD}"
 IX_IO_CWD="$(realpath "${IX_IO_CWD:-$PWD}" 2>/dev/null)"
@@ -628,27 +628,27 @@ IX_IO_CWD="$(realpath "${IX_IO_CWD:-$PWD}" 2>/dev/null)"
 # printf_exit "💔 $IX_IO_CWD does not exist 💔"
 # fi
 export IX_IO_CWD
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set actions based on variables
 
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
 #requiresudo "$0" "$@" || exit 2     # exit 2 if errors
 #cmd_exists --error --ask bash || exit 3 # exit 3 if not found
 #am_i_online --error || exit 4           # exit 4 if no internet
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
 
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
 
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Execute functions
 
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Execute commands
 printf_exit "It appears ix.io has shutdown"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 case "$1" in
 latest)
@@ -758,13 +758,13 @@ create)
   fi
   ;;
 esac
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set exit code
 exitCode="${exitCode:-0}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # lets exit with code
 exit ${exitCode:-0}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # ex: ts=2 sw=2 et filetype=sh

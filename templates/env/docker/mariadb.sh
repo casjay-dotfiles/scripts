@@ -1,4 +1,4 @@
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # mariadb env
 MARIADB_ROOT_HOST="${MARIADB_ROOT_HOST:-%}"
 MARIADB_AUTO_UPGRADE="${MARIADB_AUTO_UPGRADE:-yes}"
@@ -11,4 +11,4 @@ MARIADB_ALLOW_EMPTY_ROOT_PASSWORD="${MARIADB_ALLOW_EMPTY_ROOT_PASSWORD:-}"
 MARIADB_INITDB_SKIP_TZINFO="${MARIADB_INITDB_SKIP_TZINFO}:-"
 MARIADB_RANDOM_ROOT_PASSWORD="${MARIADB_RANDOM_ROOT_PASSWORD:-}"
 MARIADB_CONFIG_FILE="${MARIADB_CONFIG_FILE:-$(__find_mysql_conf)}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -

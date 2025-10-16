@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 ##@Version           :  GEN_SCRIPT_REPLACE_VERSION
 # @@Author           :  GEN_SCRIPT_REPLACE_AUTHOR
 # @@Contact          :  GEN_SCRIPT_REPLACE_EMAIL
@@ -17,9 +17,9 @@
 # @@Terminal App     :  GEN_SCRIPT_REPLACE_TERMINAL
 # @@sudo/root        :  GEN_SCRIPT_REPLACE_SUDO
 # @@Template         :  completions/user
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 _GEN_SCRIPT_REPLACE_FILENAME_completion() {
   #####################################################################
   local cur prev words cword opts split CONFDIR="" CONFFILE="" SEARCHDIR=""
@@ -125,7 +125,7 @@ _GEN_SCRIPT_REPLACE_FILENAME_completion() {
   # [ $COMP_CWORD -gt 3 ] && COMPREPLY=($(compgen -W '' -- "${cur}"))
   # compopt -o nospace
 } &&
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  # - - - - - - - - - - - - - - - - - - - - - - - - -
   # enable completions
   complete -F _GEN_SCRIPT_REPLACE_FILENAME_completion -o default GEN_SCRIPT_REPLACE_FILENAME
 

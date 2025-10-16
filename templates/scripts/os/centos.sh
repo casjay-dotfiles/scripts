@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 ##@Version           :  GEN_SCRIPT_REPLACE_VERSION
 # @@Author           :  GEN_SCRIPT_REPLACE_AUTHOR
 # @@Contact          :  GEN_SCRIPT_REPLACE_EMAIL
@@ -17,18 +17,18 @@
 # @@Terminal App     :  GEN_SCRIPT_REPLACE_TERMINAL
 # @@sudo/root        :  GEN_SCRIPT_REPLACE_SUDO
 # @@Template         :  os/debian
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="GEN_SCRIPT_REPLACE_FILENAME"
 VERSION="GEN_SCRIPT_REPLACE_VERSION"
 USER="${SUDO_USER:-${USER}}"
 HOME="${USER_HOME:-${HOME}}"
 SRC_DIR="${BASH_SOURCE%/*}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
 if [ "$1" = "--debug" ]; then shift 1 && set -xo pipefail && export SCRIPT_OPTS="--debug" && export _DEBUG="on"; fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 if ! swapon --show 2>/dev/null | grep -v '^NAME ' | grep -q '^'; then
   echo "Creating and enabling swapfile"
   mkdir -p "/var/cache/swaps"
@@ -41,22 +41,22 @@ if ! swapon --show 2>/dev/null | grep -v '^NAME ' | grep -q '^'; then
   fi
   swapon --show 2>/dev/null | grep -v '^NAME ' | grep -q '^' && echo "Swap has been enabled"
 fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 for pkg in sudo git curl wget; do
   command -v $pkg &>/dev/null || { printf '%b\n' "${CYAN}Installing $pkg${NC}" && yum install -yy -q $pkg &>/dev/null || exit 1; } || { echo "Failed to install $pkg" && exit 1; }
 done
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ ! -d "/usr/local/share/CasjaysDev/scripts" ]; then
   git clone https://github.com/casjay-dotfiles/scripts /usr/local/share/CasjaysDev/scripts -q
   eval /usr/local/share/CasjaysDev/scripts/install.sh || { echo "Failed to initialize" && exit 1; }
   export PATH="/usr/local/share/CasjaysDev/scripts/bin:$PATH"
 fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set functions
 SCRIPTSFUNCTURL="${SCRIPTSFUNCTURL:-https://github.com/casjay-dotfiles/scripts/raw/main/functions}"
 SCRIPTSFUNCTDIR="${SCRIPTSFUNCTDIR:-/usr/local/share/CasjaysDev/scripts}"
 SCRIPTSFUNCTFILE="${SCRIPTSFUNCTFILE:-system-installer.bash}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -f "../functions/$SCRIPTSFUNCTFILE" ]; then
   . "../functions/$SCRIPTSFUNCTFILE"
 elif [ -f "$SCRIPTSFUNCTDIR/functions/$SCRIPTSFUNCTFILE" ]; then
@@ -65,24 +65,24 @@ else
   curl -LSs "$SCRIPTSFUNCTURL/$SCRIPTSFUNCTFILE" -o "/tmp/$SCRIPTSFUNCTFILE" || exit 1
   . "/tmp/$SCRIPTSFUNCTFILE"
 fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 SCRIPT_OS="AlmaLinux"
 SCRIPT_DESCRIBE="Minimal"
 GITHUB_USER="${GITHUB_USER:-casjay}"
 DFMGR_CONFIGS="misc git tmux"
 SYSTEMMGR_CONFIGS="cron ssh ssl"
 SET_HOSTNAME="$([ -n "$(command -v hostname)" ] && hostname -s 2>/dev/null | grep '^' || echo "${HOSTNAME//.*/}")"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 SCRIPT_NAME="$APPNAME"
 SCRIPT_NAME="${SCRIPT_NAME%.*}"
 RELEASE_VER="$(grep --no-filename -s 'VERSION_ID=' /etc/*-release | awk -F '=' '{print $2}' | sed 's#"##g' | awk -F '.' '{print $1}' | grep '^')"
 RELEASE_NAME="$(grep --no-filename -s '^NAME=' /etc/*-release | awk -F'=' '{print $2}' | sed 's|"||g;s| .*||g' | tr '[:upper:]' '[:lower:]' | grep '^')"
 RELEASE_TYPE="$(grep --no-filename -s '^ID_LIKE=' /etc/*-release | awk -F'=' '{print $2}' | sed 's|"||g' | tr '[:upper:]' '[:lower:]' | tr ' ' '\n' | grep 'centos' | grep '^')"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 KERNEL="${KERNEL:-kernel-ml}"
 ARCH="$(uname -m | tr '[:upper:]' '[:lower:]')"
 BACKUP_DIR="$HOME/Documents/backups/$(date +'%Y/%m/%d')"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 if echo "$SET_HOSTNAME" | grep -qE '^dns'; then
   SYSTEM_TYPE="dns"
 elif echo "$SET_HOSTNAME" | grep -qE '^pbx'; then
@@ -96,24 +96,24 @@ elif echo "$SET_HOSTNAME" | grep -qE '^sql|^db'; then
 elif echo "$SET_HOSTNAME" | grep -qE '^devel|^build'; then
   SYSTEM_TYPE="devel"
 fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 SERVICES_ENABLE="chrony cockpit cockpit.socket docker httpd munin-node nginx ntpd php-fpm postfix proftpd rsyslog snmpd sshd uptimed downtimed"
 SERVICES_DISABLE="avahi-daemon.service avahi-daemon.socket cups.path cups.service cups.socket dhcpd dhcpd6 dm-event.socket fail2ban firewalld import-state.service irqbalance.service iscsi iscsid.socket iscsiuio.socket kdump loadmodules.service lvm2-lvmetad.socket lvm2-lvmpolld.socket lvm2-monitor mdmonitor multipathd.service multipathd.socket named nfs-client.target nis-domainname.service nmb radvd rpcbind.service rpcbind.socket shorewall shorewall6 smb sssd-kcm.socket timedatex.service tuned.service udisks2.service"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 grep --no-filename -sE '^ID=|^ID_LIKE=|^NAME=' /etc/*-release | grep -qiwE "$SCRIPT_OS" && true || printf_exit "This installer is meant to be run on a $SCRIPT_OS based system"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 [ "$1" == "--help" ] && printf_exit "${GREEN}${SCRIPT_DESCRIBE} installer for $SCRIPT_OS${NC}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 port_in_use() { netstatg 2>&1 | awk '{print $4}' | grep ':[0-9]' | awk -F':' '{print $2}' | grep '[0-9]' | grep -q "^$1$" || return 2; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 system_service_exists() { systemctl status "$1" 2>&1 | grep 'Loaded:' | grep -iq "$1" && return 0 || return 1; }
 system_service_active() { (systemctl is-enabled "$1" || systemctl is-active "$1") | grep -qiE 'enabled|active' || return 1; }
 system_service_enable() { systemctl status "$1" 2>&1 | grep -iq 'inactive' && execute "systemctl enable --now $1" "Enabling service: $1" || return 1; }
 system_service_disable() { systemctl status "$1" 2>&1 | grep -iq 'active' && execute "systemctl disable --now $1" "Disabling service: $1" || return 1; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 does_user_exist() { grep -qs "^$1:" "/etc/passwd" || return 1; }
 does_group_exist() { grep -qs "^$1:" "/etc/group" || return 1; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __dnf_yum() {
   local rhel_pkgmgr="" opts="--skip-broken"
   rhel_pkgmgr="$(builtin type -P dnf || builtin type -P yum || false)"
@@ -122,7 +122,7 @@ __dnf_yum() {
   if rpm -q "$pkg" | grep -v 'is not installed' | grep -q '^'; then exitCode=0; else exitCode=1; fi
   return $?
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 test_pkg() {
   for pkg in "$@"; do
     if rpm -q "$pkg" | grep -v 'is not installed' | grep -q '^'; then
@@ -133,12 +133,12 @@ test_pkg() {
     fi
   done
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 remove_pkg() {
   test_pkg "$*" &>/dev/null || execute "__dnf_yum remove -q -y $*" "Removing: $*"
   test_pkg "$*" &>/dev/null || return 0
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 install_pkg() {
   local statusCode=0
   if test_pkg "$*"; then
@@ -149,7 +149,7 @@ install_pkg() {
   fi
   return $statusCode
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 detect_selinux() {
   if [ -f "/etc/selinux/config" ]; then
     grep -sh 'SELINUX=' "/etc/selinux/config" | grep -q 'enabled' || return 1
@@ -159,7 +159,7 @@ detect_selinux() {
     return 0
   fi
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 disable_selinux() {
   if detect_selinux; then
     printf_blue "selinux is now disabled"
@@ -179,7 +179,7 @@ EOF
     printf_green "selinux is already disabled"
   fi
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 get_user_ssh_key() {
   [ -n "$GITHUB_USER" ] || return 0
   printf_green "Grabbing ssh key: $GITHUB_USER for $USER"
@@ -200,7 +200,7 @@ get_user_ssh_key() {
     return 1
   fi
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 run_init_check() {
   { printf '%b\n' "${YELLOW}Updating cache and installing epel-release${NC}" && yum makecache &>/dev/null && __dnf_yum install epel-release -yy -q &>/dev/null; } || true
   if [ -d "/usr/local/share/CasjaysDev/scripts/.git" ]; then
@@ -211,7 +211,7 @@ run_init_check() {
   fi
   yum clean all &>/dev/null || true
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __yum() { yum "$@" $yum_opts &>/dev/null || return 1; }
 grab_remote_file() { urlverify "$1" && curl -q -SLs "$1" || exit 1; }
 backup_repo_files() { cp -Rf "/etc/yum.repos.d/." "$BACKUP_DIR" 2>/dev/null || return 0; }
@@ -220,18 +220,18 @@ run_external() { printf_green "Executing $*" && eval "$*" >/dev/null 2>&1 || ret
 save_remote_file() { urlverify "$1" && curl -q -SLs "$1" | tee "$2" &>/dev/null || exit 1; }
 domain_name() { hostname -d | grep '^' || hostname -f | awk -F'.' '{$1="";OFS="." ; print $0}' | sed 's/^.//;s| |.|g' | grep '^'; }
 retrieve_version_file() { grab_remote_file "https://github.com/casjay-base/centos/raw/main/version.txt" | head -n1 || echo "Unknown version"; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_head() {
   printf '%b##################################################\n' "$CYAN"
   printf '%b%s%b\n' $GREEN "$*" $CYAN
   printf '##################################################%b\n' $NC
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_clear() {
   clear
   printf_head "$*"
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 rm_if_exists() {
   local file_loc=("$@") && shift $#
   for file in "${file_loc[@]}"; do
@@ -240,7 +240,7 @@ rm_if_exists() {
     fi
   done
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 retrieve_repo_file() {
   local statusCode="0"
   local YUM_DELETE="true"
@@ -281,7 +281,7 @@ retrieve_repo_file() {
   [ "$statusCode" -ne 0 ] || printf '%b\n' "${YELLOW}Done updating repos${NC}"
   return $statusCode
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 run_grub() {
   printf_green "Initializing grub configuration"
   local cfg="" efi="" grub_cfg="" grub_efi="" grub_bin="" grub_bin_name=""
@@ -307,7 +307,7 @@ run_grub() {
     fi
   fi
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 run_post() {
   local e="$*"
   local m="${e//devnull /}"
@@ -315,7 +315,7 @@ run_post() {
   setexitstatus
   set --
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __kernel_ml() {
   local kernel
   kernel="$(uname -r 2>/dev/null | grep -F 'elrepo')"
@@ -329,7 +329,7 @@ __kernel_ml() {
     run_grub && printf_green "Rebooting the system - Please rerun this script after reboot" && reboot || exit 1
   fi
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __kernel_lt() {
   local kernel
   kernel="$(uname -r 2>/dev/null | grep -F 'elrepo')"
@@ -343,7 +343,7 @@ __kernel_lt() {
     run_grub && printf_green "Rebooting the system - Please rerun this script after reboot" && reboot || exit 1
   fi
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 fix_network_device_name() {
   local device=""
   device="$(ip -4 route ls 2>/dev/null | grep default | grep -Po '(?<=dev )(\S+)' | head -n1 | grep '^' || echo 'eth0')"
@@ -829,6 +829,6 @@ chmod -Rf 664 "/etc/casjaysdev/updates/versions/installed.txt"
 printf_head "Finished "
 echo ""
 ##################################################################################################################
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 exit
 # end

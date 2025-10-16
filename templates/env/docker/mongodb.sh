@@ -1,4 +1,4 @@
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # mongodb env
 DATABASE_DIR_MONGODB="${DATABASE_DIR_MONGODB:-/data/db/mongodb}"
 INITDB_ROOT_USERNAME="${DATABASE_USER_ROOT:-$INITDB_ROOT_USERNAME}"
@@ -17,4 +17,4 @@ ME_CONFIG_MONGODB_AUTH_PASSWORD_FILE="${ME_CONFIG_MONGODB_AUTH_PASSWORD_FILE:-}"
 ME_CONFIG_MONGODB_CA_FILE="${ME_CONFIG_MONGODB_CA_FILE:-}"
 VCAP_APP_HOST="${VCAP_APP_HOST:-0.0.0.0}"
 VCAP_APP_PORT="${VCAP_APP_PORT:-19054}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -

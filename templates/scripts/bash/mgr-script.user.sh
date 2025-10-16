@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 ##@Version           :  GEN_SCRIPT_REPLACE_VERSION
 # @@Author           :  GEN_SCRIPT_REPLACE_AUTHOR
 # @@Contact          :  GEN_SCRIPT_REPLACE_EMAIL
@@ -17,9 +17,9 @@
 # @@Terminal App     :  GEN_SCRIPT_REPLACE_TERMINAL
 # @@sudo/root        :  no
 # @@Template         :  installers/mgr-script.system
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
 VERSION="GEN_SCRIPT_REPLACE_VERSION"
 USER="${SUDO_USER:-$USER}"
@@ -28,31 +28,31 @@ USER_HOME="${USER_HOME:-$HOME}"
 SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
 GEN_SCRIPT_REPLACE_ENV_REQUIRE_SUDO="${GEN_SCRIPT_REPLACE_ENV_REQUIRE_SUDO:-no}"
 GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX="${APPNAME:-GEN_SCRIPT_REPLACE_FILENAME}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Reopen in a terminal
 #if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set script title
 #CASJAYS_DEV_TILE_FORMAT="${USER}@${HOSTNAME}:${PWD/#$HOME/~} - $APPNAME"
 #CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}"
 #[ -z "$CASJAYSDEV_TITLE_SET" ] && printf '\033]2│;%s\033\\' "$CASJAYS_DEV_TILE_FORMAT" && CASJAYSDEV_TITLE_SET="$APPNAME"
 export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}" CASJAYSDEV_TITLE_SET
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Initial debugging
 [ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Disables colorization
 [ "$1" = "--raw" ] && export SHOW_RAW="true"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # pipes fail
 set -o pipefail
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# - - - - - - - - - - - - - - - - - - - - - - - - -'
 # Import functions
 CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
 SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
 SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-managers.bash}"
 SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX/installer/raw/main/functions}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
   . "$PWD/$SCRIPTSFUNCTFILE"
 elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
@@ -61,24 +61,24 @@ else
   echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
   exit 90
 fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Options are: *_install
 # system user desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
 GEN_SCRIPT_REPLACE_FILENAME_install && __options "$@"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Send all output to /dev/null
 __devnull() {
   tee &>/dev/null && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0 || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
   return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# - - - - - - - - - - - - - - - - - - - - - - - - -'
 # Send errors to /dev/null
 __devnull2() {
   [ -n "$1" ] && local cmd="$1" && shift 1 || return 1
   eval $cmd "$*" 2>/dev/null && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0 || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
   return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -'
+# - - - - - - - - - - - - - - - - - - - - - - - - -'
 # See if the executable exists
 __cmd_exists() {
   GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
@@ -89,14 +89,14 @@ __cmd_exists() {
   [ $GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS -eq 0 ] || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=3
   return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for a valid internet connection
 __am_i_online() {
   local GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
   curl -q -LSsfI --max-time 1 --retry 0 "${1:-https://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=4
   return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # colorization
 if [ "$SHOW_RAW" = "true" ]; then
   NC=""
@@ -123,22 +123,22 @@ if [ "$SHOW_RAW" = "true" ]; then
 else
   printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
 fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional printf_ colors
 __printf_head() { printf_color "$1\n" "5"; }
 __printf_opts() { printf_color "$1\n" "6"; }
 __printf_line() { printf_color "$1\n" "4"; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # list all packages
 __list_available() {
   echo -e "${1:-$LIST}" | tr ',' ' ' | tr ' ' '\n' && exit 0
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # list options
 __list_options() {
   printf_custom "5" "$1: $(echo ${2:-$ARRAY} | __sed 's|:||g;s|'$3'| '$4'|g' 2>/dev/null | tr '\n' ' ')"
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # create the config file
 __gen_config() {
   local NOTIFY_CLIENT_NAME=""
@@ -160,13 +160,13 @@ GEN_SCRIPT_REPLACE_ENV_REPO_API_URL="${GEN_SCRIPT_REPLACE_ENV_REPO_API_URL:-}"
 GEN_SCRIPT_REPLACE_ENV_REPO_API_PER_PAGE="${GEN_SCRIPT_REPLACE_ENV_REPO_API_PER_PAGE:-}"
 GEN_SCRIPT_REPLACE_ENV_FORCE_INSTALL="${GEN_SCRIPT_REPLACE_ENV_FORCE_INSTALL:-}"
 GEN_SCRIPT_REPLACE_ENV_TEMPLATE_NAME="${GEN_SCRIPT_REPLACE_ENV_TEMPLATE_NAME:-installers/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX.sh}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
 GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_1="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_1:-}"
 GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_2="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_2:-}"
 GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_GOOD="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_GOOD:-}"
 GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_ERROR="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_ERROR:-}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Notification Settings
 GEN_SCRIPT_REPLACE_ENV_REMOTE_NOTIFY_ENABLED="${GEN_SCRIPT_REPLACE_ENV_REMOTE_NOTIFY_ENABLED:-}"
 GEN_SCRIPT_REPLACE_ENV_REMOTE_NOTIFY_COMMAND="${GEN_SCRIPT_REPLACE_ENV_REMOTE_NOTIFY_COMMAND:-}"
@@ -191,12 +191,12 @@ EOF
   fi
   return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Help function - Align to 50
 __help() {
-  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "GEN_SCRIPT_REPLACE_FILENAME: GEN_SCRIPT_REPLACE_DESC - $VERSION"
-  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "Usage: $GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX [options] [packageName]"
   __printf_line "available                       - List all available packages"
   __printf_line "list                            - List installed packages"
@@ -207,9 +207,9 @@ __help() {
   __printf_line "remove    [package]             - Remove a package"
   __printf_line "cron      [package]             - Enables the use of cron to update packages on a schedule"
   __printf_line "version   [package]             - Shows the version of an installed package"
-  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
-  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "--debug                         - enable debugging"
   __printf_line "--config                        - Generate user config file"
   __printf_line "--version                       - Show script version"
@@ -219,22 +219,22 @@ __help() {
   __printf_line "--no                            - No options"
   __printf_line "--yes                           - Yes options"
   __printf_line ""
-  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __grep() { grep "$@" 2>/dev/null; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __broken_symlinks() { find "$*" -xtype l -exec rm {} \; &>/dev/null; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __rm_rf() { if [ -e "$1" ]; then rm -Rf "$@" &>/dev/null; else return 0; fi; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_container() {
   local docker_bin="$(type -P docker || type -P podman)"
   [ -n "$docker_bin" ] || printf_exit "This feature requires docker/podman"
   eval $docker_bin "$*"
   return $?
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_install_version() {
   local upd file GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
   if [ -d "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" ] && ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" 2>&1 | grep -q '^'; then
@@ -249,7 +249,7 @@ __run_install_version() {
   [ "$GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS" = 0 ] && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0 || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
   return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __cron_updater() {
   local upd file GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
   if [ -z "$1" ] && [ -d "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" ] && ls -A "$GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM" 2>&1 | grep -q '^'; then
@@ -276,7 +276,7 @@ __cron_updater() {
   [ "$GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS" = 0 ] && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0 || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
   return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __installer_delete() {
   local app="${1:-}"
   local GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
@@ -309,7 +309,7 @@ __installer_delete() {
   fi
   return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_install_init() {
   local app="$1"
   local GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
@@ -327,7 +327,7 @@ __run_install_init() {
   [ "$GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS" = 0 ] && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0 || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
   return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_install_update() {
   local app APPNAME GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
   local USER_SHARE_DIR="$SYSSHARE/CasjaysDev/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX"
@@ -340,7 +340,7 @@ __run_install_update() {
   __run_install_init "$1" && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0 || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
   return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_download() {
   local REPO_NAME="$1"
   local DIR_NAME="${2:-$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR/$REPO_NAME}"
@@ -375,7 +375,7 @@ __run_download() {
   [ "$GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS" = 0 ] && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0 || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
   return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __api_list() {
   local GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
   local api_call=""
@@ -397,7 +397,7 @@ __api_list() {
   [ "$GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS" = 0 ] && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0 || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
   return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_search() {
   local -a results=""
   local LIST="${LIST:-$(__api_list)}"
@@ -416,49 +416,49 @@ __run_search() {
   [ "$GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS" = 0 ] && GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0 || GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=1
   return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # check if arg is a builtin option
 __is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0; fi; }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Is current user root
 __user_is_root() {
   { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Is current user not root
 __user_is_not_root() {
   if { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; }; then return 1; else return 0; fi
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check if user is a member of sudo
 __sudo_group() {
   grep -sh "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # # Get sudo password
 __sudoask() {
   ask_for_password sudo true && return 0 || return 1
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run sudo
 __sudorun() {
   __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
   return $?
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Test if user has access to sudo
 __can_i_sudo() {
   (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
   __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # User can run sudo
 __sudoif() {
   __user_is_root && return 0
   __can_i_sudo "${RUN_USER:-$USER}" && return 0
   __user_is_not_root && __sudoask && return 0 || return 1
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Execute sudo
 __sudo() {
   CMD="${1:-echo}" && shift 1
@@ -475,7 +475,7 @@ __sudo() {
   fi
   return ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run command as root
 __requiresudo() {
   if [ "$GEN_SCRIPT_REPLACE_ENV_REQUIRE_SUDO" = "yes" ] && [ -z "$GEN_SCRIPT_REPLACE_ENV_REQUIRE_SUDO_RUN" ]; then
@@ -488,7 +488,7 @@ __requiresudo() {
   fi
 }
 # End of sudo functions
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __how_long_did_it_take() {
   local retprev=$?
   local retval=${1:-$retprev}
@@ -505,7 +505,7 @@ __how_long_did_it_take() {
   printf_purple "$(LC_NUMERIC=C printf "Total runtime: %d Days, %02d Hours, %02d Minutes, %02.4f Seconds\n" $dd $dh $dm $ds)"
   return $retval
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __trap_exit_GEN_SCRIPT_REPLACE_FILENAME() {
   GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
   [ -f "$GEN_SCRIPT_REPLACE_ENV_TEMP_FILE" ] && rm -Rf "$GEN_SCRIPT_REPLACE_ENV_TEMP_FILE" &>/dev/null
@@ -513,7 +513,7 @@ __trap_exit_GEN_SCRIPT_REPLACE_FILENAME() {
   if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
   return $GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Create a --no-* options function
 __options_function_no() {
   local options="${1//=*/}"
@@ -522,7 +522,7 @@ __options_function_no() {
   *) echo "${argument:-No argument provided}" && shift ;;
   esac
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Create a --yes-* options function
 __options_function_yes() {
   local options="${1//=*/}"
@@ -531,7 +531,7 @@ __options_function_yes() {
   *) echo "${argument:-No argument provided}" && shift ;;
   esac
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup notification function
 __notifications() {
   __cmd_exists notifications || return
@@ -547,7 +547,7 @@ __notifications() {
     notifications "$@"
   ) |& __devnull &
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __notify_remote() {
   local cmd="$(echo "$GEN_SCRIPT_REPLACE_ENV_REMOTE_NOTIFY_COMMAND" | awk -F ' ' '{print $1}')"
   if [ "$GEN_SCRIPT_REPLACE_ENV_REMOTE_NOTIFY_ENABLED" = "yes" ]; then
@@ -556,24 +556,24 @@ __notify_remote() {
     fi
   fi
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup trap to remove temp file
 trap '__trap_exit_GEN_SCRIPT_REPLACE_FILENAME' EXIT
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # start timer
 GEN_SCRIPT_REPLACE_ENV_START_TIMER="${GEN_SCRIPT_REPLACE_ENV_START_TIMER:-$(date +%s.%N)}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
 
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default exit code
 GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS=0
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default variables
 GEN_SCRIPT_REPLACE_ENV_USER_DIR="${GEN_SCRIPT_REPLACE_ENV_USER_DIR:-$USRUPDATEDIR}"
 GEN_SCRIPT_REPLACE_ENV_SYSTEM_DIR="${GEN_SCRIPT_REPLACE_ENV_SYSTEM_DIR:-$SYSUPDATEDIR}"
 GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR="${GEN_SCRIPT_REPLACE_ENV_INSTALL_DIR:-$SHARE/CasjaysDev/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application Folders
 GEN_SCRIPT_REPLACE_ENV_LOG_DIR="${GEN_SCRIPT_REPLACE_ENV_LOG_DIR:-$HOME/.local/log/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX}"
 GEN_SCRIPT_REPLACE_ENV_CACHE_DIR="${GEN_SCRIPT_REPLACE_ENV_CACHE_DIR:-$HOME/.cache/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX}"
@@ -581,17 +581,17 @@ GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR="${GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR:-$HOME/.c
 GEN_SCRIPT_REPLACE_ENV_CONFIG_BACKUP_DIR="${GEN_SCRIPT_REPLACE_ENV_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX/backups}"
 GEN_SCRIPT_REPLACE_ENV_RUN_DIR="${GEN_SCRIPT_REPLACE_ENV_RUN_DIR:-$HOME/.local/run/system_scripts/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX}"
 GEN_SCRIPT_REPLACE_ENV_TEMP_DIR="${GEN_SCRIPT_REPLACE_ENV_TEMP_DIR:-$HOME/.local/tmp/system_scripts/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # File settings
 GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE="${GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE:-settings.conf}"
 GEN_SCRIPT_REPLACE_ENV_LOG_ERROR_FILE="${GEN_SCRIPT_REPLACE_ENV_LOG_ERROR_FILE:-$GEN_SCRIPT_REPLACE_ENV_LOG_DIR/error.log}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
 GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_1="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_1:-33}"
 GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_2="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR:-6}"
 GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_GOOD="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_GOOD:-2}"
 GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_ERROR="${GEN_SCRIPT_REPLACE_ENV_OUTPUT_COLOR_ERROR:-1}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Notification Settings
 GEN_SCRIPT_REPLACE_ENV_REMOTE_NOTIFY_ENABLED="${GEN_SCRIPT_REPLACE_ENV_REMOTE_NOTIFY_ENABLED:-yes}"
 GEN_SCRIPT_REPLACE_ENV_REMOTE_NOTIFY_COMMAND="${GEN_SCRIPT_REPLACE_ENV_REMOTE_NOTIFY_COMMAND:-web-notify telegram}"
@@ -604,7 +604,7 @@ GEN_SCRIPT_REPLACE_ENV_ERROR_MESSAGE="${GEN_SCRIPT_REPLACE_ENV_ERROR_MESSAGE:-Er
 GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_NAME="${GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_NAME:-$APPNAME}"
 GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_ICON="${GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_ICON:-notification-new}"
 GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_URGENCY="${GEN_SCRIPT_REPLACE_ENV_NOTIFY_CLIENT_URGENCY:-normal}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional Variables
 GEN_SCRIPT_REPLACE_ENV_DIR_USER="${GEN_SCRIPT_REPLACE_ENV_DIR_USER:-$USRUPDATEDIR}"
 GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM="${GEN_SCRIPT_REPLACE_ENV_DIR_SYSTEM:-$SYSUPDATEDIR}"
@@ -618,16 +618,16 @@ GEN_SCRIPT_REPLACE_ENV_CLONE_DIR="${GEN_SCRIPT_REPLACE_ENV_CLONE_DIR:-$HOME/Proj
 GEN_SCRIPT_REPLACE_ENV_TEMPLATE_NAME="${GEN_SCRIPT_REPLACE_ENV_TEMPLATE_NAME:-installers/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX.sh}"
 GEN_SCRIPT_REPLACE_ENV_REPO_URL="${GEN_SCRIPT_REPLACE_ENV_REPO_URL:-https://github.com/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX}"
 GEN_SCRIPT_REPLACE_ENV_REPO_API_URL="${GEN_SCRIPT_REPLACE_ENV_REPO_API_URL:-https://api.github.com/orgs/$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX/repos}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Export variables
 export SCRIPTS_PREFIX="$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate non-existing config files
 [ -f "$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Import config
 [ -f "$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE" ] && . "$GEN_SCRIPT_REPLACE_ENV_CONFIG_DIR/$GEN_SCRIPT_REPLACE_ENV_CONFIG_FILE"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure Directories and files exist
 [ -d "$GEN_SCRIPT_REPLACE_ENV_RUN_DIR" ] || mkdir -p "$GEN_SCRIPT_REPLACE_ENV_RUN_DIR" &>/dev/null
 [ -d "$GEN_SCRIPT_REPLACE_ENV_LOG_DIR" ] || mkdir -p "$GEN_SCRIPT_REPLACE_ENV_LOG_DIR" &>/dev/null
@@ -635,27 +635,27 @@ export SCRIPTS_PREFIX="$GEN_SCRIPT_REPLACE_ENV_SCRIPTS_PREFIX"
 [ -d "$GEN_SCRIPT_REPLACE_ENV_CACHE_DIR" ] || mkdir -p "$GEN_SCRIPT_REPLACE_ENV_CACHE_DIR" &>/dev/null
 [ -d "$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR" ] || mkdir -p "$GEN_SCRIPT_REPLACE_ENV_CLONE_DIR"
 GEN_SCRIPT_REPLACE_ENV_TEMP_FILE="${GEN_SCRIPT_REPLACE_ENV_TEMP_FILE:-$(mktemp $GEN_SCRIPT_REPLACE_ENV_TEMP_DIR/XXXXXX 2>/dev/null)}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set custom actions
 
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set additional variables/Argument/Option settings
 SETARGS=("$@")
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 SHORTOPTS="a,f"
 SHORTOPTS+=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 GET_OPTIONS_NO="no-*"
 GET_OPTIONS_YES="yes-*"
 LONGOPTS="all,completions:,config,reset-config,debug,force,help,options,raw,version,"
 LONGOPTS+=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="available,cron,download,install,list,remove,search,update,version"
 ARRAY+=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
 LIST+=""
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup application options
 setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
 eval set -- "${setopts[@]}" 2>/dev/null
@@ -765,7 +765,7 @@ while :; do
     ;;
   esac
 done
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Get directory from args
 # set -- "$@"
 # for arg in "$@"; do
@@ -778,7 +778,7 @@ done
 # fi
 # done
 # set -- "${SET_NEW_ARGS[@]}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set directory to first argument
 # [ -d "$1" ] && __is_an_option "$1" && GEN_SCRIPT_REPLACE_ENV_CWD="$1" && shift 1 || GEN_SCRIPT_REPLACE_ENV_CWD="${GEN_SCRIPT_REPLACE_ENV_CWD:-$PWD}"
 GEN_SCRIPT_REPLACE_ENV_CWD="$(realpath "${GEN_SCRIPT_REPLACE_ENV_CWD:-$PWD}" 2>/dev/null)"
@@ -790,31 +790,31 @@ GEN_SCRIPT_REPLACE_ENV_CWD="$(realpath "${GEN_SCRIPT_REPLACE_ENV_CWD:-$PWD}" 2>/
 # printf_exit "💔 $GEN_SCRIPT_REPLACE_ENV_CWD does not exist 💔"
 # fi
 export GEN_SCRIPT_REPLACE_ENV_CWD
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set actions based on variables
 
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for required applications/Network check
 # __sudoif && __requiresudo "$0" "${SETARGS[@]}" || exit 2 # exit 2 if errors
 # __cmd_exists bash || exit 3                              # exit with error code 3 if not found
 # __am_i_online "1.1.1.1" || exit 4                        # exit with error code 4 if no internet
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
 declare -a LISTARRAY=()
 
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
 
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Export variables
 
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Execute functions
 
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Execute commands
 
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
 case "$1" in
 list)
@@ -979,13 +979,13 @@ version)
   __help
   ;;
 esac
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set exit code
 GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS="${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # lets exit with code
 exit ${GEN_SCRIPT_REPLACE_ENV_EXIT_STATUS:-0}
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # ex: ts=2 sw=2 et filetype=sh

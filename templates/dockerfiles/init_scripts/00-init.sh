@@ -1,7 +1,7 @@
 cat <<EOF
 #!/usr/bin/env bash
 # shellcheck shell=bash
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 ##@Version           :  $(date +"${VERSION_DATE_FORMAT:-%Y%m%d%H%M-git}")
 # @@Author           :  CasjaysDev
 # @@Contact          :  CasjaysDev <docker-admin@casjaysdev.pro>
@@ -17,31 +17,31 @@ cat <<EOF
 # @@Terminal App     :  yes
 # @@sudo/root        :  yes
 # @@Template         :  templates/dockerfiles/init_scripts/00-init.sh
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
 set -o pipefail
 [ "\$DEBUGGER" = "on" ] && echo "Enabling debugging" && set -x\$DEBUGGER_OPTIONS
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set env variables
 exitCode=0
 
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Predefined actions
 if [ -d "/usr/local/share/template-files/data" ]; then rm -Rf "/usr/local/share/template-files/data"/*; fi
 if [ -d "/usr/local/share/template-files/config" ]; then rm -Rf "/usr/local/share/template-files/config"/*; fi
 if [ -d "/usr/local/share/template-files/defaults" ]; then rm -Rf "/usr/local/share/template-files/defaults"/*; fi
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Main script
 
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set the exit code
 #exitCode=\$?
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 exit \$exitCode
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # ex: ts=2 sw=2 et filetype=sh
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 
 EOF

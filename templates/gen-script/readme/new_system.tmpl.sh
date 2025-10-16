@@ -1,12 +1,12 @@
 cat <<EOF | tee
 $(. "$CASJAYSDEVDIR/templates/gen-script/header/default.tmpl.sh")
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set variables
-__heading="- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__heading="- - - - - - - - - - - - - - - - - - - - - - - - -"
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME_README="\$GEN_SCRIPT_REPLACE_APPNAME"
 
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set functions
 __sed_head() { sed 's#..* :##g;s#^ ##g'; }
 __grep_head() { grep -shE '[".#]?@[A-Z]' "$(type -P "\${2:-\$GEN_SCRIPT_REPLACE_FILENAME}")" | grep "\${1:-}"; }
@@ -19,7 +19,7 @@ __printf_help() {
   shift
   __printf_color "\\t\\t\$msgn" "\$color"
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 printf '\\n'
 __printf_head "5" "GEN_SCRIPT_REPLACE_FILENAME: GEN_SCRIPT_REPLACE_DESC"
 __printf_help " " "                                                  "
@@ -35,12 +35,12 @@ __printf_help "4" "GEN_SCRIPT_REPLACE_FILENAME --options             - Shows all
 __printf_help " " "                                                  "
 #__printf_head "5" "This is a work in progress"
 #__printf_help "4" "GEN_SCRIPT_REPLACE_FILENAME "
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # end help
 printf '\\n'
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # lets exit with code
 exit "\${exitCode:-\$?}"
 EOF

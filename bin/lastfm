@@ -282,44 +282,9 @@ __notify_remote() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__jq() { jq "$@" 2>/dev/null; }
+__sed() { sed "$@" 2>/dev/null; }
 __curl() { curl -q -LSsf "$@" 2>/dev/null; }
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-__main() {
-  # The name of the output CSV file.
-  OUTPUT_FILE="$LASTFM_SAVE_FILE"
-  # The Last.fm API endpoint for recent tracks.
-  API_URL="http://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=${LASTFM_USER}&api_key=${LASTFM_API_KEY}&format=json&page="
-  # Function to display an error message and exit.
-  if [ -z "$LASTFM_USER" ] || [ -z "$LASTFM_API_KEY" ]; then
-    printf_red "Usage: $APPNAME lastfm_username lastfm_api_key"
-    return 1
-  fi
-  [ -d "$LASTFM_SAVE_DIR" ] || mkdir -p "$LASTFM_SAVE_DIR"
-  # Write the CSV header.
-  printf '%s\n' "artist,album,track,date" >"$OUTPUT_FILE"
-  # Get the total number of pages.
-  total_pages=$(__curl "${API_URL}1" | __jq -r '.recenttracks["@attr"].totalPages')
-  # Check if the API call was successful.
-  if [ -z "$total_pages" ] || [ "$total_pages" = "null" ]; then
-    printf_red "Could not retrieve data from Last.fm. Check your username and API key."
-    return 1
-  fi
-  printf_cyan "Found $total_pages pages of listening history. This may take a while..."
-  # Loop through each page of results.
-  current_page=1
-  while [ "$current_page" -le "$total_pages" ]; do
-    printf '\r%b%s%b' "$BLUE" "Fetching page $current_page of $total_pages... " "$RESET"
-    # Make the API call and extract the track data.
-    # The jq filter selects tracks that have a date (i.e., are not "now playing")
-    # and formats the artist, album, name, and UTS date into a CSV row.
-    __curl "${API_URL}${current_page}" | __jq -r '.recenttracks.track[] | select(.date) | [.artist."#text", .album."#text", .name, .date.uts] | @csv' >>"$OUTPUT_FILE"
-    # Increment the page number.
-    current_page=$((current_page + 1))
-  done
-  printf '\r                                                                                                               \n'
-  printf_green "Done! Your Last.fm listening history has been saved to $OUTPUT_FILE."
-}
+__jq() { jq --raw-output --unbuffered "$@" 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup trap to remove temp file
 trap '__trap_exit_lastfm' EXIT
@@ -368,7 +333,8 @@ LASTFM_NOTIFY_CLIENT_URGENCY="${LASTFM_NOTIFY_CLIENT_URGENCY:-normal}"
 LASTFM_USER="${LASTFM_USER:-}"
 LASTFM_API_KEY="${LASTFM_API_KEY:-}"
 LASTFM_SAVE_DIR="${LASTFM_SAVE_DIR:-$HOME/Documents/lastfm}"
-LASTFM_SAVE_FILE="${LASTFM_SAVE_FILE:-$LASTFM_SAVE_DIR/history.csv}"
+LASTFM_SAVE_FILE="${LASTFM_SAVE_FILE:-$LASTFM_SAVE_DIR/history.txt}"
+LASTFM_BASE_URL="${LASTFM_BASE_URL:-http://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&format=json&limit=100}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$LASTFM_CONFIG_DIR/$LASTFM_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
@@ -559,9 +525,12 @@ cmd_exists --error --ask bash || exit 3 # exit 3 if not found
 #am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
-
+LASTFM_CURRENT_PAGE=1
+LASTFM_API_URL="${LASTFM_BASE_URL}&user=${LASTFM_USER}&api_key=${LASTFM_API_KEY}"
+LASTFM_TOTAL_PAGES=$(__curl "${LASTFM_API_URL}&page=$LASTFM_CURRENT_PAGE" | __jq -r '.recenttracks["@attr"].totalPages')
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
+if [ -f "$LASTFM_TEMP_FILE" ]; then rm -Rf "$LASTFM_TEMP_FILE"; fi
 if [ -z "$LASTFM_USER" ]; then printf_red "LASTFM_USER is not set" && exit 1; fi
 if [ -z "$LASTFM_API_KEY" ]; then printf_red "LASTFM_API_KEY is not set" && exit 1; fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -572,10 +541,25 @@ if [ -z "$LASTFM_API_KEY" ]; then printf_red "LASTFM_API_KEY is not set" && exit
 
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Execute commands
-
+[ -d "$LASTFM_SAVE_DIR" ] || mkdir -p "$LASTFM_SAVE_DIR"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
-__main
+if [ -z "$LASTFM_TOTAL_PAGES" ] || [ "$LASTFM_TOTAL_PAGES" = "null" ]; then
+  printf_red "Could not retrieve data from Last.fm. Check your username and API key."
+  LASTFM_EXIT_STATUS=1
+else
+  printf_cyan "Found $LASTFM_TOTAL_PAGES pages of listening history. This may take a while..."
+  # Loop through each page of results.
+  while [ "$LASTFM_CURRENT_PAGE" -le "$LASTFM_TOTAL_PAGES" ]; do
+    printf '\r%b%s%b' "$BLUE" "Fetching page $LASTFM_CURRENT_PAGE of $LASTFM_TOTAL_PAGES " "$RESET"
+    __curl "${LASTFM_API_URL}&page${LASTFM_CURRENT_PAGE}" | __jq -rc '.recenttracks.track[] | select(.date) | [.artist."#text" + " :: " + .name] | @text' | __sed 's|"||g;s|\[||g;s|\]||g' >>"$LASTFM_TEMP_FILE"
+    # Increment the page number.
+    LASTFM_CURRENT_PAGE=$((LASTFM_CURRENT_PAGE + 1))
+  done
+  printf '\r                                                                                                               \n'
+  cat "$LASTFM_TEMP_FILE" | sort -u >"$LASTFM_SAVE_FILE"
+  printf_green "Done! Your Last.fm listening history has been saved to $LASTFM_SAVE_FILE."
+fi
 LASTFM_EXIT_STATUS=$?
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set exit code

@@ -162,6 +162,8 @@ WEATHER_WTTR_API_V2="${WEATHER_WTTR_API_V2:-}"
 WEATHER_WTTR_API_V3="${WEATHER_WTTR_API_V3:-}"
 WEATHER_WIDTH="${WEATHER_WIDTH:-}"
 WEATHER_API_OPTIONS="${WEATHER_API_OPTIONS:-}"
+WEATHER_CURL_VERSION="${WEATHER_CURL_VERSION:-}"
+WEATHER_USER_AGENT="${WEATHER_USER_AGENT:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
 WEATHER_OUTPUT_COLOR_1="${WEATHER_OUTPUT_COLOR_1:-}"
@@ -322,19 +324,18 @@ __set_vars() {
   WEATHER_MY_LOCATION_NAME="${WEATHER_MY_LOCATION_NAME:-$WEATHER_MY_LOCATION_ZIP}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__get_curl_version() { curl --version 2>/dev/null | head -1 | awk '{print $2}' || echo "unknown"; }
+__sed_remove() { sed -e 's/\[[^][]*\]//g;s|+| |g;s|Weather report: ||g;s|  | |g'; }
+__get_curl_version() { curl --version 2>/dev/null | head -1 | awk '{print $2}' || echo "7.76.1"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__curl() {
-  local WEATHER_CURL_VERSION="$(__get_curl_version)"
-  local WEATHER_USER_AGENT="curl/${WEATHER_CURL_VERSION} weather/${VERSION} (https://github.com/casjay-dotfiles/scripts)"
-  curl --disable -LSsfk --connect-timeout 3 --retry 0 -A "$WEATHER_USER_AGENT" "$@" 2>/dev/null || return 1
-}
+__curl() { curl --disable -LSsfk --connect-timeout 3 --retry 0 -A "$WEATHER_USER_AGENT" "$@" 2>/dev/null || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __remove_ascii() { sed -r 's/\x1B\[(;?[0-9]{1,3})+[mGK]//g'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__remove_location() { grep -Ev "Weather report|Location" || return 0; }
+__remove_location() { grep -Ev "Weather report|Location|Open-Meteo" || return 0; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__get_location() { __remove_ascii | grep -iE "Weather report|Location:|Moon Report" | tail -n1 | sed -e 's/\[[^][]*\]//g' | grep '^' || return 1; }
+__get_location() { __remove_ascii | grep -iE "Weather report|Location:|Moon Report" | tail -n1 | __sed_remove | grep '^' || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_img() { __get_weather "$1.png?AFuw" -o $image_file.tmp || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __wthr_top() { __curl "https://wthr.top/$*" || return 1; }
 __wttr_in() { __curl "$WEATHER_WTTR_API_SET/$*" || return 1; }
@@ -364,7 +365,7 @@ __wttrcity() {
 __wttrin() {
   __set_vars "$@"
   WEATHER_WTTR_API_SET="$WEATHER_WTTR_API_V1"
-  results="$(__get_weather "$WEATHER_MY_LOCATION_NAME?AFu$WEATHER_CURL_OPTIONS")"
+  results="$(__get_weather "${WEATHER_MY_LOCATION_NAME// /+}?AFu$WEATHER_CURL_OPTIONS")"
   location="$(echo "$results" | __get_location | grep '^' || echo "$WEATHER_MY_LOCATION_NAME")"
   if [ -n "$results" ]; then
     echo -e "$results" | __remove_location
@@ -405,7 +406,7 @@ __wttrin3() {
 __wttrmoon() {
   __set_vars "$@"
   WEATHER_WTTR_API_SET="$WEATHER_WTTR_API_V1"
-  results="$(__get_weather "moon$1?AFu$WEATHER_CURL_OPTIONS")"
+  results="$(__get_weather "moon/${WEATHER_MY_LOCATION_NAME// /+}?AFu$WEATHER_CURL_OPTIONS")"
   location="$(echo "$results" | __get_location | grep '^' || echo "$WEATHER_MY_LOCATION_NAME")"
   if [ -n "$results" ]; then
     echo -e "$results"
@@ -452,7 +453,7 @@ __wttrimage() {
   locale="${location// /+}"
   image_name="$(echo "$location" | sed 's| |_|g;s|+|_|g;s|,|_|g')"
   image_file="$WEATHER_CACHE_DIR/$image_name.png"
-  if __get_img; then
+  if __get_img "$locale"; then
     [ -f "$image_file.tmp" ] || printf_exit 2 5 "Something went wrong"
     __mv_f "$image_file.tmp" "$image_file"
     __ln_sf "$image_file" "$WEATHER_CACHE_DIR/weather.png"
@@ -461,10 +462,6 @@ __wttrimage() {
     __rm_rf "$image_file.tmp"
     printf_exit 1 1 "Something seems to have gone wrong"
   fi
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-__get_img() {
-  __get_weather "$locale.png?AFuw" -o $image_file.tmp || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
@@ -718,7 +715,9 @@ export WEATHER_CWD
 #am_i_online --error || exit 4           # exit 4 if no internet
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # APP Variables overrides
-
+WEATHER_MY_LOCATION_NAME="${WEATHER_SET_LOCATION:-$WEATHER_MY_LOCATION_NAME}"
+[ -n "$WEATHER_CURL_VERSION" ] || WEATHER_CURL_VERSION="${WEATHER_CURL_VERSION:-$(__get_curl_version)}"
+[ -n "$WEATHER_USER_AGENT" ] || WEATHER_USER_AGENT="${WEATHER_USER_AGENT:-curl/${WEATHER_CURL_VERSION} weather/${VERSION}}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
 
@@ -791,7 +790,7 @@ script)
   ;;
 *)
   [ "$1" = "help" ] && __help
-  __get_weather "$@"
+  __wttrin "$@"
   ;;
 esac
 # - - - - - - - - - - - - - - - - - - - - - - - - -

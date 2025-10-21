@@ -159,6 +159,9 @@ CHEAT_SH_URL="${CHEAT_SH_URL:-}"
 CHEAT_SH_UPDATE_URL="${CHEAT_SH_UPDATE_URL:-}"
 CHEAT_SH_HOME="${CHEAT_SH_HOME:-}"
 CHEAT_SH_BIN_DIR="${CHEAT_SH_BIN_DIR:-}"
+CHEAT_SH_QUERY_OPTIONS="${CHEAT_SH_QUERY_OPTIONS:-}"
+CHEAT_SH_CACHE_TTL="${CHEAT_SH_CACHE_TTL:-}"
+CHEAT_SH_CURL_TIMEOUT="${CHEAT_SH_CURL_TIMEOUT:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
 CHEAT_SH_OUTPUT_COLOR_1="${CHEAT_SH_OUTPUT_COLOR_1:-}"
@@ -299,65 +302,369 @@ __trap_exit() {
 # User defined functions
 __curl() { curl -q -LSSf --max-time 2 "$*"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__update() {
-  local UPDATE_FILE=""
-  __user_is_root &&
-    UPDATE_FILE="$CHEAT_SH_BIN_DIR/cheat.sh" ||
-    UPDATE_FILE="$HOME/.local/bin/cheat.sh"
-  printf_blue "Grabbing update from: $CHEAT_SH_UPDATE_URL"
-  __curl "$CHEAT_SH_UPDATE_URL" -o "$UPDATE_FILE" 2>/dev/null && true || false
-  if [ $? -eq 0 ]; then
-    printf_cyan "Successfully updated: $UPDATE_FILE"
-    return 0
+__execute_cheatsh() {
+  local rc=0
+
+  if [ -n "$standalone_target" ]; then
+    __cheatsh_handle_standalone
+    return $?
+  fi
+
+  if [ -n "$mode_request" ]; then
+    __cheatsh_handle_mode "$mode_request"
+    return $?
+  fi
+
+  if [ "$shell_mode" = "true" ]; then
+    __cheatsh_shell_loop "$shell_lang"
+    return $?
+  fi
+
+  __cheatsh_process_query "$topic" "$list" "$@"
+  rc=$?
+  return $rc
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__mtime() { # print epoch mtime
+  if stat -f %m "$1" >/dev/null 2>&1; then
+    stat -f %m "$1"
   else
-    printf_exit "Failed to update: $UPDATE_FILE"
+    stat -c %Y "$1" 2>/dev/null
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__strip_ansi() {
+  if __cmd_exists perl; then
+    perl -pe 's/\e\[[0-9;]*[A-Za-z]//g'
+  else
+    # Fallback: attempt with sed (BSD sed uses octal escape for ESC)
+    sed -E $'s/\033\\[[0-9;]*[A-Za-z]//g' 2>/dev/null || cat
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Encode a single string (spaces -> '+')
+__urlencode() {
+  if __cmd_exists python3; then
+    python3 - "$@" <<'PY'
+import sys, urllib.parse
+s = " ".join(sys.argv[1:])
+print(urllib.parse.quote_plus(s))
+PY
+  else
+    local s="$*"
+    local out="" c i hex
+    LC_ALL=C
+    for ((i = 0; i < ${#s}; i++)); do
+      c="${s:i:1}"
+      case "$c" in
+      [a-zA-Z0-9.~_-]) out+="$c" ;;
+      ' ') out+='+' ;;
+      *)
+        printf -v hex '%02X' "'$c"
+        out+="%$hex"
+        ;;
+      esac
+    done
+    printf '%s' "$out"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__file_hash() {
+  local s="$1"
+  if __cmd_exists sha1sum; then
+    printf %s "$s" | sha1sum | awk '{print $1}'
+  elif __cmd_exists shasum; then
+    printf %s "$s" | shasum -a 1 | awk '{print $1}'
+  elif __cmd_exists md5sum; then
+    printf %s "$s" | md5sum | awk '{print $1}'
+  elif __cmd_exists md5; then
+    printf %s "$s" | md5 | awk '{print $NF}'
+  else
+    printf %s "$s" | cksum | awk '{print $1}'
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# URL encode while keeping path delimiters intact
+__urlencode_path() {
+  local s="$*"
+  if __cmd_exists python3; then
+    python3 - "$s" <<'PY'
+import sys, urllib.parse
+value = " ".join(sys.argv[1:])
+print(urllib.parse.quote(value, safe="/:~?&="))
+PY
+  else
+    local encoded
+    encoded="$(__urlencode "$s")"
+    encoded="${encoded//%2F//}"
+    encoded="${encoded//%3A/:}"
+    encoded="${encoded//%7E/~}"
+    encoded="${encoded//%3F/?}"
+    encoded="${encoded//%26/&}"
+    encoded="${encoded//%3D/=}"
+    printf '%s' "$encoded"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__cheatsh_cache_path() {
+  local query="$1"
+  [ -n "$CHEAT_SH_EFFECTIVE_CACHE_DIR" ] || return 1
+  local key="$(__file_hash "${query}-${CHEAT_SH_QUERY_OPTIONS}")"
+  printf '%s/%s.cache' "$CHEAT_SH_EFFECTIVE_CACHE_DIR" "$key"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__cheatsh_cache_valid() {
+  local file="$1"
+  local ttl="$2"
+  [ -f "$file" ] || return 1
+  [ "$ttl" -gt 0 ] 2>/dev/null || return 1
+  local mtime now
+  mtime="$(__mtime "$file")" || return 1
+  now="$(date +%s)" || return 1
+  [ $((now - mtime)) -le "$ttl" ] 2>/dev/null
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__cheatsh_build_url() {
+  local query="$1"
+  local encoded
+  encoded="$(__urlencode_path "$query")" || return 1
+  local url="${CHEAT_SH_URL%/}/${encoded}"
+  if [ -n "$CHEAT_SH_QUERY_OPTIONS" ]; then
+    if printf '%s' "$url" | grep -q '\?'; then
+      url="${url}&${CHEAT_SH_QUERY_OPTIONS}"
+    else
+      url="${url}?${CHEAT_SH_QUERY_OPTIONS}"
+    fi
+  fi
+  printf '%s' "$url"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__cheatsh_fetch_to_file() {
+  local query="$1"
+  local dest="$2"
+  local cache_file=""
+  if [ "$CHEAT_SH_EFFECTIVE_TTL" -gt 0 ] 2>/dev/null; then
+    cache_file="$(__cheatsh_cache_path "$query")"
+    if [ -n "$cache_file" ] && __cheatsh_cache_valid "$cache_file" "$CHEAT_SH_EFFECTIVE_TTL"; then
+      cp "$cache_file" "$dest" 2>/dev/null && return 0
+    fi
+  fi
+
+  local url
+  url="$(__cheatsh_build_url "$query")" || return 1
+  if ! curl -fsSL --max-time "${CHEAT_SH_CURL_TIMEOUT:-10}" "$url" -o "$dest" 2>/dev/null; then
+    printf_red "Failed to retrieve cheat sheet for: $query"
     return 1
   fi
+
+  if [ -n "$cache_file" ]; then
+    mkdir -p "$CHEAT_SH_EFFECTIVE_CACHE_DIR" 2>/dev/null
+    cp "$dest" "$cache_file" 2>/dev/null
+  fi
+  return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__create_completion() {
-  type _cheat.sh_completion 2>&1 | grep -iq 'is a function' && return
-  [ -z "$CHEAT_SH_FORCE" ] && [ -f "$CHEAT_SH_CONFIG_DIR/completion.txt" ] && return
-  cat <<EOF | tee -p "$CHEAT_SH_CONFIG_DIR/completion.txt" |& __devnull
-_cheat.sh_completion()
-{
-    local cur prev opts
-    _get_comp_words_by_ref -n : cur
+__cheatsh_copy_output() {
+  local file="$1"
+  if __cmd_exists wl-copy; then
+    wl-copy <"$file"
+    return 0
+  elif __cmd_exists xclip; then
+    xclip -selection clipboard <"$file"
+    return 0
+  elif __cmd_exists pbcopy; then
+    pbcopy <"$file"
+    return 0
+  elif __cmd_exists clip.exe; then
+    clip.exe <"$file"
+    return 0
+  fi
+  printf_yellow "Copy requested but no supported clipboard utility was found"
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__cheatsh_deliver_output() {
+  local file="$1"
+  local query="$2"
 
-    COMPREPLY=()
-    cur="${COMP_WORDS[COMP_CWORD]}"
-    prev="${COMP_WORDS[COMP_CWORD - 1]}"
-    opts="$(__curl "$CHEAT_SH_UPDATE_URL/:list")"
+  if [ -n "$save" ]; then
+    local target="$save"
+    if [ -d "$target" ] || printf '%s' "$target" | grep -q '/$'; then
+      local sanitized="${query//\//_}"
+      sanitized="${sanitized//[^A-Za-z0-9_.-]/_}"
+      target="${target%/}/${sanitized}.txt"
+    fi
+    mkdir -p "$(dirname "$target")" 2>/dev/null
+    cp "$file" "$target" 2>/dev/null || printf_yellow "Unable to save output to $target"
+  fi
 
-    if [ ${COMP_CWORD} = 1 ]; then
-          COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
-          __ltrim_colon_completions "$cur"
+  if [ "$copy" -eq 1 ] 2>/dev/null; then
+    __cheatsh_copy_output "$file"
+  fi
+
+  [ "$CHEAT_SH_SILENT" = "true" ] && return 0
+
+  local use_pager=0
+  case "${pager_mode:-auto}" in
+  on) use_pager=1 ;;
+  off) use_pager=0 ;;
+  *) [ -n "$PAGER" ] && use_pager=1 ;;
+  esac
+
+  if [ "$use_pager" -eq 1 ]; then
+    local pager_cmd="${PAGER:-less -R}"
+    $pager_cmd "$file"
+  else
+    cat "$file"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__cheatsh_build_query() {
+  local topic="$1"
+  local list_flag="$2"
+  shift 2 || true
+  local args=("$@")
+
+  if [ "$list_flag" -eq 1 ] 2>/dev/null; then
+    printf '%s' ":list"
+    return 0
+  fi
+
+  if [ ${#args[@]} -gt 0 ]; then
+    local first="${args[0]}"
+    case "$first" in
+    :* | ~*)
+      printf '%s' "${args[*]}"
+      return 0
+      ;;
+    esac
+  fi
+
+  local sections=()
+  if [ -n "$topic" ]; then
+    IFS='/' read -r -a sections <<<"$topic"
+  fi
+  if [ ${#args[@]} -gt 0 ]; then
+    sections+=("${args[@]}")
+  fi
+
+  if [ ${#sections[@]} -eq 0 ]; then
+    return 1
+  fi
+
+  local query=""
+  local sep=""
+  local part
+  for part in "${sections[@]}"; do
+    [ -z "$part" ] && continue
+    query+="${sep}${part}"
+    sep="/"
+  done
+
+  printf '%s' "$query"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__cheatsh_process_query() {
+  local topic="$1"
+  local list_flag="$2"
+  shift 2 || true
+  local args=("$@")
+  local query
+  if ! query="$(__cheatsh_build_query "$topic" "$list_flag" "${args[@]}")"; then
+    printf_red "No query specified"
+    return 1
+  fi
+
+  local tmp_file
+  tmp_file="$(mktemp "${CHEAT_SH_TEMP_DIR}/result.XXXXXX" 2>/dev/null)" || tmp_file="$(mktemp 2>/dev/null)"
+  if [ -z "$tmp_file" ]; then
+    printf_red "Unable to create temporary file"
+    return 1
+  fi
+
+  if ! __cheatsh_fetch_to_file "$query" "$tmp_file"; then
+    rm -f "$tmp_file"
+    return 1
+  fi
+
+  __cheatsh_deliver_output "$tmp_file" "$query"
+  local rc=$?
+  rm -f "$tmp_file"
+  return $rc
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__cheatsh_handle_mode() {
+  local requested="$1"
+  local mode_file="${CHEAT_SH_HOME%/}/mode"
+  mkdir -p "${mode_file%/*}" 2>/dev/null
+
+  if [ -z "$requested" ] || [ "$requested" = "show" ] || [ "$requested" = "current" ]; then
+    if [ -f "$mode_file" ]; then
+      cat "$mode_file"
+    else
+      printf '%s\n' "lite"
     fi
     return 0
-}
-complete -F _cheat.sh_completion $APPNAME
-
-EOF
-  if [ -f "$CHEAT_SH_CONFIG_DIR/completion.txt" ]; then
-    [ -z "$BASH_COMPLETION_USER_DIR" ] || ln -sf "$CHEAT_SH_CONFIG_DIR/completion.txt" "$BASH_COMPLETION_USER_DIR/_cheat.sh_completion"
-    printf_cyan "Saved completion to: $CHEAT_SH_CONFIG_DIR/completion.txt"
-  else
-    printf_cyan "Failed to save completion to: $CHEAT_SH_CONFIG_DIR/completion.txt"
-    false
   fi
-  return $?
+
+  case "$requested" in
+  auto | lite)
+    if printf '%s\n' "$requested" >"$mode_file"; then
+      printf_green "Mode set to $requested"
+      return 0
+    fi
+    printf_red "Failed to write mode setting to $mode_file"
+    return 1
+    ;;
+  *)
+    printf_red "Unsupported mode: $requested"
+    return 1
+    ;;
+  esac
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__execute_cheatsh() {
-  if [ -f "$HOME/.local/bin/cheat.sh" ]; then
-    CHEAT_SH_BIN_DIR="$HOME/.local/bin"
-    bash "$HOME/.local/bin/cheat.sh" ${CHEAT_SH_VARS:-} "$@"
-  elif [ -f "$CHEAT_SH_BIN_DIR/cheat.sh" ]; then
-    bash "$CHEAT_SH_BIN_DIR/cheat.sh" ${CHEAT_SH_VARS:-} "$@"
-  else
-    printf_red "Can not find cheat.sh in:"
-    printf_exit "$CHEAT_SH_BIN_DIR"
+__cheatsh_handle_standalone() {
+  if [ "$standalone_target" = "help" ]; then
+    cat <<'EOF'
+Standalone installation is not supported directly by this bundled client.
+
+You can install the upstream cheat.sh standalone package manually by
+following the guide at:
+  https://github.com/chubin/cheat.sh#standalone-mode
+
+Once installed, this wrapper will automatically use the local instance.
+EOF
+    return 0
   fi
+  printf_yellow "Standalone installation is not supported by the embedded client."
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__cheatsh_shell_loop() {
+  local section="$1"
+  local prompt="cheat.sh"
+  [ -n "$section" ] && prompt="${prompt}/${section}"
+  printf_cyan "Interactive mode started. Type 'exit' to quit, 'use <topic>' to change section."
+  while true; do
+    printf '%s> ' "$prompt"
+    IFS= read -r line || break
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    case "$line" in
+    "") continue ;;
+    exit | quit | :q | :quit | :exit) break ;;
+    use\ *)
+      section="${line#use }"
+      section="${section#"${section%%[![:space:]]*}"}"
+      section="${section%"${section##*[![:space:]]}"}"
+      prompt="cheat.sh"
+      [ -n "$section" ] && prompt="${prompt}/${section}"
+      continue
+      ;;
+    esac
+    IFS=' ' read -r -a parts <<<"$line"
+    __cheatsh_process_query "$section" 0 "${parts[@]}"
+  done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
@@ -429,13 +736,23 @@ __notifications() {
 
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Argument/Option settings
+topic="${topic:-}"
+list=0
+pager_mode="${pager_mode:-auto}"
+copy=0
+save=""
+ttl=""
+cache_dir=""
+shell_mode="false"
+shell_lang=""
+standalone_target=""
+mode_request=""
 SETARGS=("$@")
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-SHORTOPTS=""
-SHORTOPTS+=""
+SHORTOPTS="t:LpPcs:T:C:"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 LONGOPTS="completions:,config,debug,help,options,raw,version,silent,"
-LONGOPTS+=",shell:,standalone-install:,mode,update"
+LONGOPTS+="shell:,standalone-install:,mode:,topic:,list,pager,no-pager,copy,save:,ttl:,cache-dir:"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY=""
 ARRAY+=""
@@ -524,14 +841,50 @@ while :; do
     shift 1
     CHEAT_SH_SILENT="true"
     ;;
-  --shell | --standalone-install | --mode)
-    [ -n "$CHEAT_SH_VARS" ] && CHEAT_SH_VARS="$1 "$2 || CHEAT_SH_VARS+="$1 $2"
+  --shell)
+    shell_mode="true"
+    shell_lang="$2"
     shift 2
     ;;
-  --update)
-    shift 1
-    __update
-    exit $?
+  --standalone-install)
+    standalone_target="$2"
+    shift 2
+    ;;
+  --mode)
+    mode_request="$2"
+    shift 2
+    ;;
+  -t | --topic)
+    topic="$2"
+    shift 2
+    ;;
+  -L | --list)
+    list=1
+    shift
+    ;;
+  -p | --pager)
+    pager_mode="on"
+    shift
+    ;;
+  -P | --no-pager)
+    pager_mode="off"
+    shift
+    ;;
+  -c | --copy)
+    copy=1
+    shift
+    ;;
+  -s | --save)
+    save="$2"
+    shift 2
+    ;;
+  -T | --ttl)
+    ttl="$2"
+    shift 2
+    ;;
+  -C | --cache-dir)
+    cache_dir="$2"
+    shift 2
     ;;
   --)
     shift 1
@@ -539,6 +892,18 @@ while :; do
     ;;
   esac
 done
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+CHEAT_SH_EFFECTIVE_CACHE_DIR="${cache_dir:-$CHEAT_SH_CACHE_DIR}"
+[ -n "$CHEAT_SH_EFFECTIVE_CACHE_DIR" ] && mkdir -p "$CHEAT_SH_EFFECTIVE_CACHE_DIR" |& __devnull
+CHEAT_SH_EFFECTIVE_TTL="${ttl:-${CHEAT_SH_CACHE_TTL:-0}}"
+case "${CHEAT_SH_EFFECTIVE_TTL:-0}" in
+'') CHEAT_SH_EFFECTIVE_TTL=0 ;;
+*[!0-9]*)
+  [ -n "$ttl" ] && printf_yellow "Ignoring invalid TTL value: $ttl"
+  CHEAT_SH_EFFECTIVE_TTL=0
+  ;;
+esac
+CHEAT_SH_CURL_TIMEOUT="${CHEAT_SH_CURL_TIMEOUT:-10}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Get directory from args
 # set -- "$@"
@@ -579,7 +944,9 @@ export CHEAT_SH_URL="${CHEAT_SH_URL}"
 export CHEATSH_CACHE_TYPE="${CHEATSH_CACHE_TYPE:-none}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
-[ $# -ne 0 ] || [ -n "$CHEAT_SH_VARS" ] || printf_exit "Usage: $APPNAME [options] [query]"
+if [ "$shell_mode" != "true" ] && [ -z "$mode_request" ] && [ -z "$standalone_target" ] && [ "$list" -eq 0 ] 2>/dev/null && [ -z "$topic" ] && [ $# -eq 0 ]; then
+  printf_exit "Usage: $APPNAME [options] [query]"
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Execute functions
 
@@ -588,11 +955,10 @@ export CHEATSH_CACHE_TYPE="${CHEATSH_CACHE_TYPE:-none}"
 
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
-__create_completion
 __execute_cheatsh "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set exit code
-exitCode="${exitCode:-0}"
+exitCode=$?
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # End application
 # - - - - - - - - - - - - - - - - - - - - - - - - -

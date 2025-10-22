@@ -634,7 +634,9 @@ __create_service_user() {
   local random_id="$(__generate_random_uids)"
   local create_home_dir="${create_home_dir:-/home/$create_user}"
   grep -shq "^$create_user:" "/etc/passwd" && grep -shq "^$create_group:" "/etc/group" && return
-  [ "$create_user" = "root" ] && [ "$create_group" = "root" ] && return 0
+  if [ "$create_user" = "root" ] && [ "$create_group" = "root" ]; then
+    return 0
+  fi
   if [ "$RUNAS_USER" != "root" ] && [ "$RUNAS_USER" != "" ]; then
     create_user="$RUNAS_USER"
     create_group="$RUNAS_USER"
@@ -653,17 +655,17 @@ __create_service_user() {
       break
     fi
   done
-  if ! __check_for_group "$create_group"; then
+  if [ -n "$create_group" ] && ! __check_for_group "$create_group"; then
     echo "creating system group $create_group"
-    groupadd --force --system -g $create_gid $create_group 2>/dev/stderr | tee -p -a "/data/logs/init.txt" >/dev/null
+    groupadd --force --system -g $create_gid $create_group 2>/dev/stderr | tee -a "/data/logs/init.txt" >/dev/null
+    grep -shq "$create_group" "/etc/group" || exitStatus=$((exitStatus + 1))
   fi
-  if ! __check_for_user "$create_user"; then
+  if [ -n "$create_user" ] && ! __check_for_user "$create_user"; then
     echo "creating system user $create_user"
-    useradd --system -u $create_uid -g $create_group -c "Account for $create_user" -d "$create_home_dir" -s /bin/false $create_user 2>/dev/stderr | tee -p -a "/data/logs/init.txt" >/dev/null
+    useradd --system --uid $create_uid --gid $create_group --comment "Account for $create_user" --home-dir "$create_home_dir" --shell /bin/false $create_user 2>/dev/stderr | tee -a "/data/logs/init.txt" >/dev/null
+    grep -shq "$create_user" "/etc/passwd" || exitStatus=$((exitStatus + 1))
   fi
-  grep -shq "$create_group" "/etc/group" || exitStatus=$((exitStatus + 1))
-  grep -shq "$create_user" "/etc/passwd" || exitStatus=$((exitCode + 1))
-  if [ $exitStatus -eq 0 ]; then
+  if [ $exitStatus -eq 0 ] && [ -n "$create_group" ] && [ -n "$create_user" ]; then
     export WORK_DIR="${create_home_dir:-}"
     if [ -n "$WORK_DIR" ]; then
       [ -d "$WORK_DIR" ] || mkdir -p "$WORK_DIR"
@@ -674,6 +676,7 @@ __create_service_user() {
     elif [ -f "/etc/sudoers" ] && ! grep -qs "$create_user" "/etc/sudoers"; then
       echo "$create_user ALL=(ALL)   NOPASSWD: ALL" >"/etc/sudoers"
     fi
+    exitStatus=0
     export SERVICE_UID="$create_uid"
     export SERVICE_GID="$create_gid"
     export SERVICE_USER="$create_user"

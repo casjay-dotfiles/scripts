@@ -24,6 +24,9 @@ cat <<EOF
 set -o pipefail
 [ "\$DEBUGGER" = "on" ] && echo "Enabling debugging" && set -x\$DEBUGGER_OPTIONS
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Load functions
+__find_and_remove() { [ -z "\$1" ] || find "\${2:-/etc}" -iname "\$1" -exec rm -Rf {} \; 2>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set env variables
 exitCode=0
 

@@ -52,6 +52,7 @@ __ps() { [ -f "$(type -P ps)" ] && ps "$@" 2>/dev/null | sed 's|:||g' | grep -Fw
 __is_dir_empty() { if [ -n "$1" ]; then [ "$(ls -A "$1" 2>/dev/null | wc -l)" -eq 0 ] && return 0 || return 1; else return 1; fi; }
 __get_ip6() { ip a 2>/dev/null | grep -w 'inet6' | awk '{print $2}' | grep -vE '^::1|^fe' | sed 's|/.*||g' | head -n1 | grep '.' || echo ''; }
 __get_ip4() { ip a 2>/dev/null | grep -w 'inet' | awk '{print $2}' | grep -vE '^127.0.0' | sed 's|/.*||g' | head -n1 | grep '.' || echo '127.0.0.1'; }
+__find_and_remove() { find "${2:-/etc}" -iname "$1" -exec rm -Rfv {} \; 2>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __pgrep() {
   local count=3

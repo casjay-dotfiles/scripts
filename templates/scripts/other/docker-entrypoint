@@ -483,50 +483,57 @@ backup)
   ;;
 # Docker healthcheck
 healthcheck)
-  arguments="$*"
-  healthStatus=0
-  healthEnabled="${HEALTH_ENABLED:-}"
-  healthPorts="${WEB_SERVER_PORTS:-}"
-  healthEndPoints="${HEALTH_ENDPOINTS:-}"
-  SERVICES_LIST="${arguments:-$SERVICES_LIST}"
-  services="$(echo "${SERVICES_LIST//,/ }")"
-  healthMessage="Everything seems to be running"
-  [ "$healthEnabled" = "yes" ] || exit 0
-  if [ -d "/run/healthcheck" ] && [ "$(ls -A "/run/healthcheck" | wc -l)" -ne 0 ]; then
-    for service in /run/healthcheck/*; do
-      name=$(basename -- $service)
-      services+="$name "
+  shift 1
+  case "$1" in
+  init | test)
+    exit 0
+    ;;
+  *)
+    arguments="$*"
+    healthStatus=0
+    healthEnabled="${HEALTH_ENABLED:-}"
+    healthPorts="${WEB_SERVER_PORTS:-}"
+    healthEndPoints="${HEALTH_ENDPOINTS:-}"
+    SERVICES_LIST="${arguments:-$SERVICES_LIST}"
+    services="$(echo "${SERVICES_LIST//,/ }")"
+    healthMessage="Everything seems to be running"
+    [ "$healthEnabled" = "yes" ] || exit 0
+    if [ -d "/run/healthcheck" ] && [ "$(ls -A "/run/healthcheck" | wc -l)" -ne 0 ]; then
+      for service in /run/healthcheck/*; do
+        name=$(basename -- $service)
+        services+="$name "
+      done
+    fi
+    services="$(echo "$services" | tr ' ' '\n' | sort -u | grep -v '^$')"
+    for proc in $services; do
+      if [ -n "$proc" ]; then
+        if ! __pgrep "$proc"; then
+          echo "$proc is not running" >&2
+          healthStatus=$((healthStatus + 1))
+        fi
+      fi
     done
-  fi
-  services="$(echo "$services" | tr ' ' '\n' | sort -u | grep -v '^$')"
-  { [ "$1" = "init" ] || [ "$1" = "test" ]; } && exit 0
-  for proc in $services; do
-    if [ -n "$proc" ]; then
-      if ! __pgrep "$proc"; then
-        echo "$proc is not running" >&2
-        healthStatus=$((healthStatus + 1))
+    for port in $ports; do
+      if [ -n "$(type -P netstat)" ] && [ -n "$port" ]; then
+        if ! netstat -taupln | grep -q ":$port "; then
+          echo "$port isn't open" >&2
+          healthStatus=$((healthStatus + 1))
+        fi
       fi
-    fi
-  done
-  for port in $ports; do
-    if [ -n "$(type -P netstat)" ] && [ -n "$port" ]; then
-      if ! netstat -taupln | grep -q ":$port "; then
-        echo "$port isn't open" >&2
-        healthStatus=$((healthStatus + 1))
+    done
+    for endpoint in $healthEndPoints; do
+      if [ -n "$endpoint" ]; then
+        if ! __curl "$endpoint"; then
+          echo "Can not connect to $endpoint" >&2
+          healthStatus=$((healthStatus + 1))
+        fi
       fi
-    fi
-  done
-  for endpoint in $healthEndPoints; do
-    if [ -n "$endpoint" ]; then
-      if ! __curl "$endpoint"; then
-        echo "Can not connect to $endpoint" >&2
-        healthStatus=$((healthStatus + 1))
-      fi
-    fi
-  done
-  [ "$healthStatus" -eq 0 ] || healthMessage="Errors reported see: docker logs --follow $CONTAINER_NAME"
-  [ -n "$healthMessage" ] && echo "$healthMessage"
-  exit $healthStatus
+    done
+    [ "$healthStatus" -eq 0 ] || healthMessage="Errors reported see: docker logs --follow $CONTAINER_NAME"
+    [ -n "$healthMessage" ] && echo "$healthMessage"
+    exit $healthStatus
+    ;;
+  esac
   ;;
   # show open ports
 ports)

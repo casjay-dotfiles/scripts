@@ -328,6 +328,7 @@ __grep_exclude() { sed 's|"||g' | __grep -viE '*.txt$|*.pem$|*.sbom$|*.sig$|*.gp
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __update_latest_list() { __add_to_latest "$1" "${2:-$1}" "${3:-$1}" &>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_service() { echo "$1" | grep ';' | awk -F ';' '{print $1}' | grep '^' || return 1; }
 __check_if_repo() { echo "$1" | __grep -q '.*[a-zA-Z0-9]/[a-zA-Z0-9].*' || { printf_custom "${YELLOW}$1${NC} ${RED}is an invalid repo: format is user/repo${NC}" && return 1; }; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __save_details() {
@@ -363,7 +364,7 @@ __get_arch() {
 search_gh_api() {
   local -a results=()
   local api_results=""
-  api_results="$(curl -q -LSsf -H "Accept: application/vnd.github+json" "https://api.github.com/search/repositories?q=$1&sort=stars&order=desc&per_page=60" 2>/dev/null | jq '.items | .[]')"
+  api_results="$(curl -q -LSsf -H "Accept: application/vnd.github+json" "https://api.github.com/search/repositories?q=$1&sort=stars&order=desc&per_page=100" 2>/dev/null | jq '.items | .[]')"
   results=("$(echo "${api_results}" | jq -c '[.full_name,.description]' | sed 's|\]||g;s|\[||g;s|"||g' | awk -F',' '{print $1": "$2}' | __grep -iwF "$1")")
   if [ -n "${results[*]}" ]; then
     for line in "${results[@]}"; do
@@ -802,8 +803,6 @@ __github() {
       printf_yellow "Can not find $filename"
       printf_exit "Download seems to have failed"
     fi
-    from_filename="$(basename -- "${extract_name:-$bin_filename}")"
-    bin_filename="$(basename -- "${from_filename}" | sed 's|.*-amd64||g;s|.*-arm64||g;s|.*-aarch64||g;s|.*-x86_64||g' | tr '[:upper:]' '[:lower:]')"
     [ -n "$bin_filename" ] || bin_filename="$(basename -- "$base_repo" | tr '[:upper:]' '[:lower:]')"
     if [ -f "$LATEST_RELEASES_BIN_DIR_USER/$bin_filename" ]; then
       chmod -Rf 755 "$LATEST_RELEASES_BIN_DIR_USER/$bin_filename"
@@ -824,7 +823,6 @@ __github() {
   if [ "$USER" = "root" ] || [ "$UID" = 0 ] || __can_i_sudo; then
     if [ "$LATEST_RELEASE_INSTALL_TO_SYSTEM_BIN" = "yes" ]; then
       if [ -x "$LATEST_RELEASES_BIN_DIR_USER/$bin_filename" ] && [ ! -L "$LATEST_RELEASES_BIN_DIR_USER/$bin_filename" ]; then
-        __sudoask true
         printf_green "Copying $bin_filename to $LATEST_RELEASES_BIN_DIR_SYSTEM/$bin_filename"
         __sudo cp -Rf "$LATEST_RELEASES_BIN_DIR_USER/$bin_filename" "$LATEST_RELEASES_BIN_DIR_SYSTEM/$bin_filename"
         __sudo chmod -Rf 755 "$LATEST_RELEASES_BIN_DIR_SYSTEM/$bin_filename"
@@ -937,8 +935,8 @@ __update_install() {
   if [ -f "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST" ] && [ -z "$1" ]; then
     grep -shv '^#' "$LATEST_RELEASES_CONFIG_DIR/$LATEST_RELEASE_REPO_LIST" | sed 's|#.*||g' | while read -r get_repo_list; do
       if [ -n "$get_repo_list" ]; then
+        service="$(__get_service "$get_repo_list" | grep '^' || false)"
         repo_list="$(echo "$get_repo_list" | awk '{print $1}' | sed 's|.*;||g')"
-        service="$(echo "$get_repo_list" | awk -F ';' '{print $1}' | grep '^' || echo '')"
         LATEST_RELEASES_BIN_NAME="$(echo "$get_repo_list" | awk '{print $2}' | grep '^' || false)"
         if [ -n "$repo_list" ]; then
           if [ -n "$service" ]; then
@@ -954,7 +952,7 @@ __update_install() {
     echo "$@" | __grep -q '/' || { printf_red "You provided an invalid repo" && printf_exit "Usage: $APPNAME install user/repo"; }
     for get_repo_list in "$@"; do
       repo_list="$(echo "$get_repo_list" | awk '{print $1}')"
-      service="$(echo "$repo_list" | awk -F ';' '{print $1}' | grep '^' | grep -v "^$repo_list" || echo '')"
+      service="$(__get_service "$get_repo_list" | grep -v "^$repo_list" | grep '^' || false)"
       if [ -n "$repo_list" ]; then
         if [ -n "$service" ]; then
           repo_list="${repo_list//*;/}"
@@ -1082,7 +1080,7 @@ SHORTOPTS="f:,t:,b:"
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent,force"
-LONGOPTS+=",filename:,binname:,type:,gitlab:,gitea:"
+LONGOPTS+=",filename:,binname:,type:,gitlab:,gitea:,system"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="add remove install update uninstall gitea gitlab info list search token"
 ARRAY+=""
@@ -1180,6 +1178,10 @@ while :; do
   --force)
     shift 1
     LATEST_RELEASE_FORCE_INSTALL="true"
+    ;;
+  --system)
+    shift 1
+    LATEST_RELEASE_INSTALL_TO_SYSTEM_BIN="yes"
     ;;
   -f | --filename)
     LATEST_RELEASES_FILENAME="$2"

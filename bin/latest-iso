@@ -396,7 +396,7 @@ __test_arch() {
   done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__extractor() {
+__unarchive() {
   local archive="${archive_file:-$1}"
   if echo "$archive" | __grep -qE '.tar$|.tar.gz$'; then
     tar xfvz "$archive"
@@ -410,47 +410,45 @@ __extractor() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+__ex() {
+  local d="$PWD"
+  local download_file="${1:-$download_file}"
+  local archive="$(realpath "$2" 2>/dev/null || echo '')"
+  local tmp_iso_dir="$(dirname "$archive" 2>/dev/null)"
+  if [ -f "$archive" ]; then
+    __cd "$tmp_iso_dir"
+    printf_cyan "extracting $archive"
+    echo "extracting $archive" >"$LATEST_ISO_LOG_DIR/ex.log"
+    __unarchive "$archive" &>>"$LATEST_ISO_LOG_DIR/ex.log"
+    iso_file="$(find "$tmp_iso_dir" -type f -name '*.iso' | __grep '.iso$' | head -n1 || echo '')"
+    __cd "$d"
+    if [ -n "$iso_file" ] && [ -f "$iso_file" ]; then
+      iso_dirname="$(dirname "$download_file")"
+      [ -d "$iso_dirname" ] || mkdir -p "$iso_dirname"
+      if [ "$archive" != "$download_file" ]; then
+        printf_cyan "moving $iso_file to $download_file"
+        if mv -f "$iso_file" "$download_file"; then
+          [ -f "$archive" ] && rm -Rf "$archive"
+          [ -d "$tmp_iso_dir" ] && rm -Rf "$tmp_iso_dir"
+          [ -f "$LATEST_ISO_LOG_DIR/ex.log" ] && rm -Rf "$LATEST_ISO_LOG_DIR/ex.log"
+        else
+          printf_red "Failed to move $iso_file to $download_file"
+          return 1
+        fi
+      fi
+    else
+      printf_red "Can not find file $archive"
+      return 1
+    fi
+  fi
+  [ -f "$download_file" ] && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __strip_url() { __grep -v '^$' | head -n1 | __grep '^'; }
 __set_filename() { echo "$1" | __sed "s|.iso$|.$2.iso|g" | __grep '^' || echo "$1"; }
 __get_filename() { __grep -E '\.iso$|\.tar$|\.gz$|\.zip$' | __grep $1 '^' || return 2; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__ex() {
-  local name=""
-  local d="$PWD"
-  local archive="$(realpath "$1")"
-  local iso_dir="$(dirname "$archive")"
-  local archive_iso_name="${2:-$archive_iso_name}"
-  archive_iso_name="${archive_iso_name%%.*}"
-  if [ -f "$archive" ]; then
-    __cd "$iso_dir"
-    printf_cyan "extracting $archive"
-    echo "extracting $archive" >"$LATEST_ISO_LOG_DIR/ex.log"
-    __extractor "$archive" &>>"$LATEST_ISO_LOG_DIR/ex.log"
-    iso_file="$(find "$iso_dir" -type f -name '*.iso' | __grep '.iso$' | head -n1 || echo '')"
-    if [ -n "$iso_file" ] && [ -f "$iso_file" ]; then
-      name="$(__set_filename "$archive_iso_name.iso" "$LATEST_ISO_SYSTEM_ARCH")"
-      download_file="$LATEST_ISO_DOWNLOAD_DIR/$(basename -- "$name")"
-      iso_dirname="$(dirname "$download_file")"
-      [ -d "$iso_dirname" ] || mkdir -p "$iso_dirname"
-      printf_cyan "moving $iso_file to $download_file"
-      if mv -f "$iso_file" "$download_file"; then
-        __cd "$d"
-        [ -f "$archive" ] && rm -Rf "$archive"
-        [ -d "$iso_dir" ] && rm -Rf "$iso_dir"
-        [ -f "$LATEST_ISO_LOG_DIR/ex.log" ] && rm -Rf "$LATEST_ISO_LOG_DIR/ex.log"
-      else
-        printf_red "Failed to move $iso_file to $download_file"
-        return 1
-      fi
-    else
-      printf_red "Can not locate extracted ISO in $iso_dir"
-      return 1
-    fi
-  else
-    printf_red "Can not find file $archive"
-    return 1
-  fi
-}
+
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __gui() {
   [ -n "$DISPLAY" ] || return 1
@@ -684,30 +682,36 @@ __grab_iso() {
     __filesize_local "$download_file" "silent" &>/dev/null
     printf_cyan "File already exists in: ${PURPLE}$download_file : $local_file_size"
     [ -n "$latest" ] && printf_blue "$latest : $remote_filesize"
-    exitCode="0"
+    return 0
   elif [ -n "$latest" ]; then
     if { [ "$LATEST_ISO_OVERWRITE" = "yes" ] || [ ! -f "$file" ] || [ "$LATEST_ISO_FORCE_INST" = "yes" ]; }; then
       if echo "$url" | __grep -qE '.tar$|.gz$|.zip$' &>/dev/null; then
+        curl_file="$archive_iso_name"
         save_message="Attempting to download the compressed ISO from: $url"
-        download_message="Size of $iso_name is $remote_filesize and saving it to: $download_file"
+        download_message="Size of $iso_name is $remote_filesize and saving it to: $archive_iso_name"
+        mkdir -p "$(dirname "$curl_file")"
       elif echo "$url" | __grep -qE '.iso$' &>/dev/null; then
+        curl_file="$download_file"
         save_message="Attempting to download the ISO from: $(dirname "$url")"
         download_message="Size of $iso_name is $remote_filesize and saving it to: $download_file"
+        mkdir -p "$(dirname "$curl_file")"
       else
+        curl_file="$download_file"
         save_message="Attempting to download the file from: $(dirname "$url")"
         download_message="Size of $iso_name is $remote_filesize and saving it to: $download_file"
+        mkdir -p "$(dirname "$curl_file")"
       fi
     fi
     printf_cyan "$save_message"
     printf_purple "$download_message"
     if [ -f "$download_file" ] && [ "$LATEST_ISO_OVERWRITE" = "yes" ]; then
-      __curl -o "$download_file" -C - "$latest" 2>"$log_file" && success="true" || success=""
+      __curl -o "$curl_file" -C - "$latest" 2>"$log_file" && success="true" || success=""
     else
-      __curl -o "$download_file" "$latest" 2>"$log_file" && success="true" || success=""
+      __curl -o "$curl_file" "$latest" 2>"$log_file" && success="true" || success=""
     fi
     [ "$success" = "true" ] && exitCode=0 || printf_exit "Failed to download $latest\n"
-    if echo "$latest" | __grep -qE '.gz$|.tar$'; then __ex "$download_file" "$archive_iso_name"; fi
-    [ -f "$download_file" ] && downloadStatus=0 && __filesize_local "$download_file" || downloadStatus=1
+    if echo "$latest" | __grep -qE '.gz$|.tar$'; then __ex "$download_file" "$curl_file"; fi
+    [ -f "$curl_file" ] && downloadStatus=0 && __filesize_local "$curl_file" || downloadStatus=1
     if [ "$downloadStatus" != "0" ]; then
       printf_red "Download failed for: $latest"
       exitCode="2"
@@ -1094,11 +1098,12 @@ __latest_list() {
     ;;
   pfsense)
     shift 1
+    set -x
     ISOFILE="$LATEST_ISO_DOWNLOAD_DIR/pfsense.iso"
-    ISOARCHIVE="$LATEST_ISO_TEMP_DIR/pfsense/archive.iso.gz"
+    ISOARCHIVE="$LATEST_ISO_TEMP_DIR/pfsense/pfsense.iso.gz"
     real_url="$LATEST_ISO_PFSENSE_URL"
     iso_name="$(curl -q -LSs "$LATEST_ISO_PFSENSE_URL" | __strip_tags | __grep '.iso.gz$' | __sort_rv)"
-    __latest_iso "$LATEST_ISO_PFSENSE_URL/$iso_name" "$ISOFILE" "pfsense"
+    __latest_iso "$LATEST_ISO_PFSENSE_URL/$iso_name" "$ISOFILE" "$ISOARCHIVE"
     statusCode=$(($? + $statusCode))
     ;;
   heads)

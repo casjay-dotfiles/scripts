@@ -185,6 +185,7 @@ DOCKERMGR_REGISTRY_URL="${DOCKERMGR_REGISTRY_URL:-https://hub.docker.com}"
 DOCKERMGR_NET_DEVICE="${DOCKERMGR_NET_DEVICE:-}"
 DOCKERMGR_BUILD_IMAGE="${DOCKERMGR_BUILD_IMAGE:-}"
 DOCKERMGR_MANIFEST_TEMPLATE="${DOCKERMGR_MANIFEST_TEMPLATE:-}"
+DOCKERMGR_DEFAULT_MANIFEST_FILE="${DOCKERMGR_DEFAULT_MANIFEST_FILE:-$HOME/Documents/docker-migrate.txt}"
 # Notification settings
 DOCKERMGR_GOOD_MESSAGE="${DOCKERMGR_GOOD_MESSAGE:-Everything Went OK}"
 DOCKERMGR_ERROR_MESSAGE="${DOCKERMGR_ERROR_MESSAGE:-Well something seems to have gone wrong}"
@@ -224,6 +225,7 @@ __trap_exit() {
 # Additional functions
 __cd() { \builtin cd "$1" || return 1; }
 __jq_exclude() { grep -vEw 'tools|templates|.github|community|template|docker-compose' | sort -u | grep -v 'null' | grep '^'; }
+__curl_save() { { [ -e "$2" ] && rm -Rf "$2" || true; } && curl -q -LSsf -H 'Cache-Control: no-cache, no-store' "$1" -o "$2" || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_docker_cron() { printf '# Clean old docker images\n%s\n' '5 4 * * * root docker image prune -a --force >/dev/null 2>&1' | sudo tee /etc/cron.d/dockermgr >/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -523,7 +525,7 @@ __fetch_tags_dockerhub() {
     org="library"
     repo="$image"
   fi
-  curl -q -LSsf "https://hub.docker.com/v2/repositories/$org/$repo/tags?page_size=1000" 2>/dev/null | \
+  curl -q -LSsf "https://hub.docker.com/v2/repositories/$org/$repo/tags?page_size=1000" 2>/dev/null |
     jq -r '.results[].name' 2>/dev/null | grep -v '^null$' | grep '^' || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -541,10 +543,10 @@ __fetch_tags_ghcr() {
   # GHCR uses OCI distribution API
   if [ -f "$AUTH_TOKEN_NAME" ]; then
     token="$(<"$AUTH_TOKEN_NAME")"
-    curl -q -LSsf -H "Authorization: Bearer $token" "https://ghcr.io/v2/$org/$repo/tags/list" 2>/dev/null | \
+    curl -q -LSsf -H "Authorization: Bearer $token" "https://ghcr.io/v2/$org/$repo/tags/list" 2>/dev/null |
       jq -r '.tags[]' 2>/dev/null | grep '^' || return 1
   else
-    curl -q -LSsf "https://ghcr.io/v2/$org/$repo/tags/list" 2>/dev/null | \
+    curl -q -LSsf "https://ghcr.io/v2/$org/$repo/tags/list" 2>/dev/null |
       jq -r '.tags[]' 2>/dev/null | grep '^' || return 1
   fi
 }
@@ -561,10 +563,10 @@ __fetch_tags_harbor() {
     return 1
   fi
   # Try Harbor API v2.0 first
-  curl -q -LSsf "https://$registry/api/v2.0/projects/$project/repositories/$repo/artifacts?page_size=1000" 2>/dev/null | \
-    jq -r '.[].tags[].name' 2>/dev/null | grep -v '^null$' | grep '^' || \
-  # Fallback to OCI API
-  curl -q -LSsf "https://$registry/v2/$project/$repo/tags/list" 2>/dev/null | \
+  curl -q -LSsf "https://$registry/api/v2.0/projects/$project/repositories/$repo/artifacts?page_size=1000" 2>/dev/null |
+    jq -r '.[].tags[].name' 2>/dev/null | grep -v '^null$' | grep '^' ||
+    # Fallback to OCI API
+    curl -q -LSsf "https://$registry/v2/$project/$repo/tags/list" 2>/dev/null |
     jq -r '.tags[]' 2>/dev/null | grep '^' || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -572,7 +574,7 @@ __fetch_tags_oci() {
   local registry="$1"
   local image="$2"
   # Generic OCI Distribution Spec v2 API
-  curl -q -LSsf "https://$registry/v2/$image/tags/list" 2>/dev/null | \
+  curl -q -LSsf "https://$registry/v2/$image/tags/list" 2>/dev/null |
     jq -r '.tags[]' 2>/dev/null | grep '^' || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -602,23 +604,23 @@ __fetch_all_tags() {
 
   # Try registry-specific APIs
   case "$registry" in
-    docker.io|hub.docker.com)
-      tags="$(__fetch_tags_dockerhub "$image")"
-      ;;
-    ghcr.io)
-      tags="$(__fetch_tags_ghcr "$image")"
-      ;;
-    *.harbor.*|dockersrc.us)
+  docker.io | hub.docker.com)
+    tags="$(__fetch_tags_dockerhub "$image")"
+    ;;
+  ghcr.io)
+    tags="$(__fetch_tags_ghcr "$image")"
+    ;;
+  *.harbor.* | dockersrc.us)
+    tags="$(__fetch_tags_harbor "$registry" "$image")"
+    ;;
+  *)
+    # Try OCI API for unknown registries
+    tags="$(__fetch_tags_oci "$registry" "$image")"
+    # If OCI fails, try Harbor API
+    if [ -z "$tags" ]; then
       tags="$(__fetch_tags_harbor "$registry" "$image")"
-      ;;
-    *)
-      # Try OCI API for unknown registries
-      tags="$(__fetch_tags_oci "$registry" "$image")"
-      # If OCI fails, try Harbor API
-      if [ -z "$tags" ]; then
-        tags="$(__fetch_tags_harbor "$registry" "$image")"
-      fi
-      ;;
+    fi
+    ;;
   esac
 
   if [ -n "$tags" ]; then
@@ -696,9 +698,9 @@ __copy_image() {
     fi
 
     # Copy to each destination
-    IFS=',' read -ra DESTS <<< "$destinations"
+    IFS=',' read -ra DESTS <<<"$destinations"
     for dest in "${DESTS[@]}"; do
-      dest="$(echo "$dest" | xargs)"  # Trim whitespace
+      dest="$(echo "$dest" | xargs)" # Trim whitespace
       [ -z "$dest" ] && continue
 
       local full_dest="$dest:$tag"
@@ -2663,8 +2665,6 @@ __how_long_did_it_take() {
   return $retval
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__curl_save() { { [ -f "$2" ] && rm -Rf "$2" || true; } && curl -q -LSsf -H 'Cache-Control: no-cache, no-store' "$1" -o "$2" || return 1; }
-# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Default variables
 exitCode="0"
 DOCKERMGR_START_TIMER="$(date +%s.%N)"
@@ -2706,6 +2706,7 @@ DOCKERMGR_FORCE_INSTALL="${DOCKERMGR_FORCE_INSTALL:-}"
 DOCKERMGER_MANIFEST_DELETE_TMP_TAGS=""
 DOCKERMGR_MANIFEST_TEMPLATE="${DOCKERMGR_MANIFEST_TEMPLATE:-https://gist.githubusercontent.com/casjay/d7a33dda283183c0187ce67bf8dbd9d3/raw/docker-migrate.txt}"
 DOCKERMGR_SHOW_USAGE="${DOCKERMGR_SHOW_USAGE:-yes}"
+DOCKERMGR_DEFAULT_MANIFEST_FILE="${DOCKERMGR_DEFAULT_MANIFEST_FILE:-$HOME/Documents/docker-migrate.tx}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$DOCKERMGR_CONFIG_DIR/$DOCKERMGR_CONFIG_FILE" ] || [[ "$*" = *config ]] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
@@ -3145,9 +3146,11 @@ manifest)
   DOCKERMGR_EXIT_STATUS=0
   DOCKERMGR_BUILD_FILE_LOG="$DOCKERMGR_LOG_DIR/manifest.log"
   DOCKERMGR_BUILD_FILE_TEMP="$DOCKERMGR_TEMP_DIR/manifest.log"
+  DOCKERMGR_DEFAULT_MANIFEST_DIR="$(dirname "$DOCKERMGR_DEFAULT_MANIFEST_FILE")"
+  [ -d "$DOCKERMGR_DEFAULT_MANIFEST_DIR" ] || mkdir -p "$DOCKERMGR_DEFAULT_MANIFEST_DIR"
   if [ "$1" = "create" ] || [ "$1" = "download" ]; then
     shift 1
-    [ -f "$HOME/Documents/docker-migrate.txt" ] && rm -Rf "$HOME/Documents/docker-migrate.txt"
+    [ -f "$DOCKERMGR_DEFAULT_MANIFEST_FILE" ] && rm -Rf "$DOCKERMGR_DEFAULT_MANIFEST_FILE"
   fi
   if [ -f "$1" ]; then
     cat "$1" >"$DOCKERMGR_BUILD_FILE_TEMP"
@@ -3155,8 +3158,8 @@ manifest)
     cat - >"$DOCKERMGR_BUILD_FILE_TEMP"
   elif [ $# -ge 1 ]; then
     printf '%s\n' "$@" >"$DOCKERMGR_BUILD_FILE_TEMP"
-  elif __curl_save "$DOCKERMGR_MANIFEST_TEMPLATE" "$HOME/Documents/docker-migrate.txt"; then
-    cat "$HOME/Documents/docker-migrate.txt" >"$DOCKERMGR_BUILD_FILE_TEMP"
+  elif __curl_save "$DOCKERMGR_MANIFEST_TEMPLATE" "$DOCKERMGR_DEFAULT_MANIFEST_FILE"; then
+    cat "$DOCKERMGR_DEFAULT_MANIFEST_FILE" >"$DOCKERMGR_BUILD_FILE_TEMP"
   else
     printf_cyan "Usage: $APPNAME manifest [file,pull push #description]"
   fi

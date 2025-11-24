@@ -309,6 +309,8 @@ GITCOMMIT_RELEASE_FORMAT="${GITCOMMIT_RELEASE_FORMAT:-%Y.%m.%d}"
 GITCOMMIT_RANDOM_API_URL="${GITCOMMIT_RANDOM_API_URL:-https://api.casjay.vercel.app/api/v1/commit/txt/}"
 GITCOMMIT_CHANGELOG_ICON="${GITCOMMIT_CHANGELOG_ICON:-}"
 GITCOMMIT_DEFAULT_COMMIT_FILE="${GITCOMMIT_DEFAULT_COMMIT_FILE:-}"
+GITCOMMIT_DEFAULT_AI_COMMAND="${GITCOMMIT_DEFAULT_AI_COMMAND:-}"
+GITCOMMIT_DEFAULT_AI_ARGS="${GITCOMMIT_DEFAULT_AI_ARGS:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
 GITCOMMIT_OUTPUT_COLOR_1="${GITCOMMIT_OUTPUT_COLOR_1:-}"
@@ -1515,7 +1517,7 @@ __curl_branch() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __ai_commit_message() {
   local diff_content="" prompt="" result="" changed_files=""
-  local short_msg="" long_msg=""
+  local short_msg="" long_msg="" preferred_ai=""
 
   # Get the diff for context
   changed_files="$(__changed_files all)"
@@ -1540,64 +1542,86 @@ $changed_files
 Diff:
 $diff_content"
 
-  # Try ollama first (local AI)
-  if __cmd_exists ollama; then
-    result="$(ollama run llama3.2 "$prompt" 2>/dev/null | grep -v '^$')"
-    if [ -n "$result" ]; then
-      short_msg="$(echo "$result" | head -n1)"
-      long_msg="$(echo "$result" | tail -n +2 | grep -v '^$')"
+  # Helper function to parse AI result
+  __parse_ai_result() {
+    local res="$1"
+    if [ -n "$res" ]; then
+      short_msg="$(echo "$res" | head -n1)"
+      long_msg="$(echo "$res" | tail -n +2 | grep -v '^$')"
       [ -n "$long_msg" ] && GITCOMMIT_MESSAGE_LONG="$long_msg"
       echo "$short_msg"
       return 0
     fi
+    return 1
+  }
+
+  # Check for user-preferred AI command
+  local ai_cmd="${GITCOMMIT_DEFAULT_AI_COMMAND:-}"
+  local ai_args="${GITCOMMIT_DEFAULT_AI_ARGS:-}"
+
+  # If user specified a preferred AI command, try that first
+  if [ -n "$ai_cmd" ] && __cmd_exists "$ai_cmd"; then
+    case "$ai_cmd" in
+    ollama)
+      [ -z "$ai_args" ] && ai_args="run llama3.2"
+      result="$(ollama $ai_args "$prompt" 2>/dev/null | grep -v '^$')"
+      __parse_ai_result "$result" && return 0
+      ;;
+    claude)
+      [ -z "$ai_args" ] && ai_args="-p --allowedTools \"\""
+      result="$(claude $ai_args "$prompt" 2>/dev/null | grep -v '^$')"
+      __parse_ai_result "$result" && return 0
+      ;;
+    codex)
+      [ -z "$ai_args" ] && ai_args="exec"
+      result="$(codex $ai_args "$prompt" 2>/dev/null | grep -v '^$')"
+      __parse_ai_result "$result" && return 0
+      ;;
+    copilot)
+      [ -z "$ai_args" ] && ai_args="-p --allow-all-tools"
+      result="$(copilot $ai_args "$prompt" 2>/dev/null | grep -v '^$')"
+      __parse_ai_result "$result" && return 0
+      ;;
+    *)
+      # Generic command - user provides full args
+      if [ -n "$ai_args" ]; then
+        result="$($ai_cmd $ai_args "$prompt" 2>/dev/null | grep -v '^$')"
+      else
+        result="$(echo "$prompt" | $ai_cmd 2>/dev/null | grep -v '^$')"
+      fi
+      __parse_ai_result "$result" && return 0
+      ;;
+    esac
+  fi
+
+  # Try ollama (local AI)
+  if __cmd_exists ollama; then
+    result="$(ollama run llama3.2 "$prompt" 2>/dev/null | grep -v '^$')"
+    __parse_ai_result "$result" && return 0
   fi
 
   # Try claude CLI
   if __cmd_exists claude; then
     result="$(claude -p "$prompt" --allowedTools "" 2>/dev/null | grep -v '^$')"
-    if [ -n "$result" ]; then
-      short_msg="$(echo "$result" | head -n1)"
-      long_msg="$(echo "$result" | tail -n +2 | grep -v '^$')"
-      [ -n "$long_msg" ] && GITCOMMIT_MESSAGE_LONG="$long_msg"
-      echo "$short_msg"
-      return 0
-    fi
+    __parse_ai_result "$result" && return 0
   fi
 
   # Try codex CLI
   if __cmd_exists codex; then
     result="$(codex exec "$prompt" 2>/dev/null | grep -v '^$')"
-    if [ -n "$result" ]; then
-      short_msg="$(echo "$result" | head -n1)"
-      long_msg="$(echo "$result" | tail -n +2 | grep -v '^$')"
-      [ -n "$long_msg" ] && GITCOMMIT_MESSAGE_LONG="$long_msg"
-      echo "$short_msg"
-      return 0
-    fi
+    __parse_ai_result "$result" && return 0
   fi
 
   # Try GitHub Copilot CLI
   if __cmd_exists copilot; then
     result="$(copilot -p "$prompt" --allow-all-tools 2>/dev/null | grep -v '^$')"
-    if [ -n "$result" ]; then
-      short_msg="$(echo "$result" | head -n1)"
-      long_msg="$(echo "$result" | tail -n +2 | grep -v '^$')"
-      [ -n "$long_msg" ] && GITCOMMIT_MESSAGE_LONG="$long_msg"
-      echo "$short_msg"
-      return 0
-    fi
+    __parse_ai_result "$result" && return 0
   fi
 
   # Try GitHub Copilot via gh extension
   if __cmd_exists gh && gh extension list 2>/dev/null | grep -q 'copilot'; then
     result="$(echo "$prompt" | gh copilot suggest -t shell 2>/dev/null | grep -v '^$')"
-    if [ -n "$result" ]; then
-      short_msg="$(echo "$result" | head -n1)"
-      long_msg="$(echo "$result" | tail -n +2 | grep -v '^$')"
-      [ -n "$long_msg" ] && GITCOMMIT_MESSAGE_LONG="$long_msg"
-      echo "$short_msg"
-      return 0
-    fi
+    __parse_ai_result "$result" && return 0
   fi
 
   # Fallback to auto-generated message

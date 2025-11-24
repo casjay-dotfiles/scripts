@@ -252,6 +252,26 @@ SCRIPTNAME_CACHE_DIR    # Cache directory
   - Common emojis: 🐛 (fix), ✨ (feature), 📝 (docs), 🚀 (release), ♻️ (refactor), 🗃️ (general), 🔧 (config)
   - Use contextually appropriate emojis for the content type
 
+**Short Commit Message Format (CRITICAL):**
+- **Maximum length**: 72 characters (including emojis)
+- **Format**: `🔧 Short descriptive summary 🔧`
+- **Rules**:
+  1. ✅ Start with emoji (no dots or text before)
+  2. ✅ Concise summary - get to the point
+  3. ✅ End with same emoji (no dots or text after)
+  4. ✅ Capitalize first word after emoji
+  5. ✅ NO period at end
+  6. ✅ NO "..." truncation indicators
+- **Good examples**:
+  - `✨ Enhanced --create to show full commit details ✨`
+  - `♻️ Removed unnecessary .log file handling ♻️`
+  - `🔧 Enhanced log command with optional limit ♻️`
+- **Bad examples**:
+  - `...✨ Enhanced changelog generation with full commit details and updated ...` (truncated)
+  - `🔧 Enhanced log command with optional limit parameter.` (has period)
+  - `Enhanced log command` (missing emojis)
+  - `🔧 This is a very long commit message that goes on and on and will get truncated with dots 🔧` (too long)
+
 ## Key Session Accomplishments
 
 ### Current Session: Docker Builds & gitcommit Fixes

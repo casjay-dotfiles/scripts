@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202511241729-git
+##@Version           :  202511241745-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Monday, Aug 08, 2022 23:40 EDT
 # @@File             :  gitcommit
 # @@Description      :  Commit changes to a git repo - self-contained, no external dependencies
-# @@Changelog        :  Enhanced log command to support optional limit parameter
+# @@Changelog        :  Removed unnecessary .log file handling for commit messages
 # @@TODO             :  Fix/re-write variables
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2120,SC2155,SC2199,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202511241729-git"
+VERSION="202511241745-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -311,6 +311,7 @@ GITCOMMIT_CHANGELOG_ICON="${GITCOMMIT_CHANGELOG_ICON:-}"
 GITCOMMIT_DEFAULT_COMMIT_FILE="${GITCOMMIT_DEFAULT_COMMIT_FILE:-}"
 GITCOMMIT_DEFAULT_AI_COMMAND="${GITCOMMIT_DEFAULT_AI_COMMAND:-}"
 GITCOMMIT_DEFAULT_AI_ARGS="${GITCOMMIT_DEFAULT_AI_ARGS:-}"
+GITCOMMIT_LOG_SHOW_EXCLUDE="${GITCOMMIT_LOG_SHOW_EXCLUDE:-Version Bump:}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
 GITCOMMIT_OUTPUT_COLOR_1="${GITCOMMIT_OUTPUT_COLOR_1:-}"
@@ -351,6 +352,7 @@ __help() {
   __printf_line "amend                           - Amend a previous commit"
   __printf_line "status                          - Show git status"
   __printf_line "log [limit]                     - Show the log (optionally limit results)"
+  __printf_line "log show [commit]               - Show full commit details (excludes patterns in GITCOMMIT_LOG_SHOW_EXCLUDE)"
   __printf_line "init                            - Initialize a repo"
   __printf_line "setup                           - Initialize a repo"
   __printf_line "reset                           - Reset a git repo"
@@ -578,11 +580,6 @@ __changelog_create() {
   if [ -n "$custom_action" ]; then
     gen-changelog --silent --message "$git_commit_mess" --files "$changed_files" --icon "$changed_icon"
     GITCOMMIT_AMEND=""
-  elif [ -s "${GITCOMMIT_MESSAGE_FILE}.log" ]; then
-    git_commit_mess="$(<"${GITCOMMIT_MESSAGE_FILE}.log")"
-    rm -Rf "${GITCOMMIT_MESSAGE_FILE}.log"
-    gen-changelog --silent --changelog "$git_commit_mess" --icon "$changed_icon"
-    GITCOMMIT_AMEND=""
   else
     gen-changelog --silent --message "$git_commit_mess" --files "$changed_files" --icon "$changed_icon"
     GITCOMMIT_AMEND=""
@@ -611,7 +608,6 @@ __gitmessage() {
   fi
   if [ -f "$GITCOMMIT_MESSAGE_FILE" ]; then
     GITCOMMIT_MESSAGE_FULL="$(<"$GITCOMMIT_MESSAGE_FILE")"
-    cat "$GITCOMMIT_MESSAGE_FILE" >>"${GITCOMMIT_MESSAGE_FILE}.log"
   fi
   [ -n "$GITCOMMIT_MESSAGE_LONG" ] || unset GITCOMMIT_MESSAGE_LONG
   [ -n "$GITCOMMIT_MESSAGE_SHORT" ] || unset GITCOMMIT_MESSAGE_SHORT
@@ -1934,9 +1930,50 @@ __git_log() {
   local log_cmd="git --no-pager -C '${1:-.}' log --pretty='%C(magenta)%h%C(red)%d %C(yellow)%ar %C(green)%s %C(yellow)(%an)' 2>/dev/null"
   if [ -n "$limit" ] && [ "$limit" -gt 0 ] 2>/dev/null; then
     eval "$log_cmd" | head -n "$limit"
+    return 0
   else
     eval "$log_cmd"
+    return $?
   fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__git_show_commit() {
+  local dir="${1:-.}"
+  local commit="${2:-}"
+  
+  # If no commit specified, get most recent commit excluding configured patterns
+  if [ -z "$commit" ]; then
+    local exclude_patterns="${GITCOMMIT_LOG_SHOW_EXCLUDE:-Version Bump:}"
+    local grep_exclude=""
+    
+    # Build grep exclusion string from patterns (separated by |)
+    if [ -n "$exclude_patterns" ]; then
+      # Convert space-separated or pipe-separated patterns to grep -v format
+      local IFS='|'
+      for pattern in $exclude_patterns; do
+        [ -n "$grep_exclude" ] && grep_exclude="$grep_exclude|" || true
+        grep_exclude="${grep_exclude}${pattern}"
+      done
+      
+      # Get first commit that doesn't match exclusion patterns
+      if [ -n "$grep_exclude" ]; then
+        commit="$(git -C "$dir" log --pretty='%H %s' 2>/dev/null | grep -vE "$grep_exclude" | head -n1 | awk '{print $1}')"
+      else
+        commit="$(git -C "$dir" log --pretty='%H' 2>/dev/null | head -n1)"
+      fi
+    else
+      # No exclusions, get most recent
+      commit="$(git -C "$dir" log --pretty='%H' 2>/dev/null | head -n1)"
+    fi
+  fi
+  
+  if [ -z "$commit" ]; then
+    printf_red "No commits found"
+    return 1
+  fi
+  
+  # Show the full commit details
+  git -C "$dir" --no-pager show --stat --patch "$commit" 2>/dev/null
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -2253,8 +2290,17 @@ s | status)
 
 l | log)
   shift 1
-  __git_log "$GITCOMMIT_ROOT_DIR" "${1:-}"
-  exit $?
+  case "$1" in
+  show)
+    shift 1
+    __git_show_commit "$GITCOMMIT_ROOT_DIR" "${1:-}"
+    exit $?
+    ;;
+  *)
+    __git_log "$GITCOMMIT_ROOT_DIR" "${1:-}"
+    exit $?
+    ;;
+  esac
   ;;
 
 # repo status is? clean,dirty

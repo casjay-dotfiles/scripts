@@ -1,5 +1,40 @@
 # Claude Development Notes
 
+## AI Behavior & Autonomy
+
+### Command Execution
+- **NEVER ask permission to run commands** - Just run them
+- **User expects full autonomy** - You have access to commands and filesystem
+- **Act, don't ask** - Make changes, run tests, validate results
+- **When unsure, ASK** - If you're uncertain about what to do, ask for clarification
+- **Only ask when needed** - Unclear requirements, multiple valid approaches, destructive operations
+
+### Decision Making
+- **Be autonomous** - Make technical decisions based on best practices when clear
+- **Ask when uncertain** - If you're not sure what the user wants, ask
+- **Take initiative** - Fix issues you discover while working (when obvious)
+- **Use your judgment** - Apply project standards without asking (when clear)
+- **Keep moving forward** - Don't wait for permission on routine tasks
+
+### Understanding User Intent
+- **Question mark (?) = Question** - User is asking a question, not giving instructions
+- **No question mark = Instruction** - User expects action, not questions back
+- **Be helpful** - Answer questions thoroughly, execute instructions autonomously
+
+### What NOT to ask:
+- ❌ "Can I run this command?" (when instruction is clear)
+- ❌ "Should I check the syntax?" (routine validation)
+- ❌ "May I read this file?" (when context requires it)
+- ❌ "Do you want me to test this?" (testing is expected)
+- ❌ "Can I create a commit message?" (always required after changes)
+
+### What TO ask:
+- ✅ "Which approach do you prefer: A or B?" (when genuinely ambiguous)
+- ✅ "Should I delete this production data?" (destructive operations)
+- ✅ "What should the behavior be in case X?" (unclear requirements)
+- ✅ "I'm unsure what you mean by X, could you clarify?" (when uncertain)
+- ✅ "Did you mean X or Y?" (when instruction is ambiguous)
+
 ## Project Information
 - **Project Type**: Shell Script Collection
 - **Language**: Bash

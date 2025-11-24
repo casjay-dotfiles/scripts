@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
-# shellcheck disable=SC2016
-# shellcheck disable=SC2317
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202304181317-git
+##@Version           :  202511241805-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -12,7 +10,7 @@
 # @@Created          :  Tuesday, Apr 18, 2023 13:17 EDT
 # @@File             :  gen-changelog
 # @@Description      :  Generate a changelog file
-# @@Changelog        :  New script
+# @@Changelog        :  Enhanced --create to include full commit bodies not just subjects
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -23,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2120,SC2155,SC2199,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202304181317-git"
+VERSION="202511241805-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -196,6 +194,7 @@ __help() {
   __printf_line " "
   __printf_head "Basic Options:"
   __printf_line "--init                          - Create initial CHANGELOG.md"
+  __printf_line "--create                        - Generate full CHANGELOG.md from git history"
   __printf_line "--amend                         - Amend last commit with changelog"
   __printf_line "--message MSG                   - Set message for all changes"
   __printf_line "--icon ICON                     - Change default icon (default: 🚀)"
@@ -707,14 +706,122 @@ __generate_release_notes() {
   fi
 
   if [ -n "$since_tag" ]; then
-    notes=$(git -C "$GEN_CHANGELOG_CWD" log --pretty=format:"- %s (%h)" "$since_tag..$until_tag" 2>/dev/null)
+    if [ -n "$GEN_CHANGELOG_EXCLUDE_PATTERN" ]; then
+      notes=$(git -C "$GEN_CHANGELOG_CWD" log --pretty=format:"- %s (%h)" "$since_tag..$until_tag" 2>/dev/null | grep -vE "$GEN_CHANGELOG_EXCLUDE_PATTERN")
+    else
+      notes=$(git -C "$GEN_CHANGELOG_CWD" log --pretty=format:"- %s (%h)" "$since_tag..$until_tag" 2>/dev/null)
+    fi
   else
-    notes=$(git -C "$GEN_CHANGELOG_CWD" log --pretty=format:"- %s (%h)" -10 2>/dev/null)
+    if [ -n "$GEN_CHANGELOG_EXCLUDE_PATTERN" ]; then
+      notes=$(git -C "$GEN_CHANGELOG_CWD" log --pretty=format:"- %s (%h)" -10 2>/dev/null | grep -vE "$GEN_CHANGELOG_EXCLUDE_PATTERN")
+    else
+      notes=$(git -C "$GEN_CHANGELOG_CWD" log --pretty=format:"- %s (%h)" -10 2>/dev/null)
+    fi
   fi
 
   echo "## Release Notes"
   echo ""
   echo "$notes"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Format commit for changelog with full details
+__format_commit_entry() {
+  local commit_range="$1"
+  
+  # Custom format: subject, hash, author, date, then body
+  git -C "$GEN_CHANGELOG_CWD" log --pretty=format:"### %s%n%n**Commit:** \`%h\` | **Author:** %aN | **Date:** %ad%n%n%b%n----%n" --date=short $commit_range 2>/dev/null | \
+    while IFS= read -r line; do
+      # Skip if matches exclusion pattern on subject lines (lines starting with ###)
+      if [[ "$line" =~ ^###\  ]]; then
+        if [ -n "$GEN_CHANGELOG_EXCLUDE_PATTERN" ]; then
+          echo "$line" | grep -qE "$GEN_CHANGELOG_EXCLUDE_PATTERN" && {
+            # Skip this commit - read until we hit the separator
+            while IFS= read -r skip_line; do
+              [[ "$skip_line" == "----" ]] && break
+            done
+            continue
+          }
+        fi
+      fi
+      echo "$line"
+    done | sed '/^----$/d'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Create full changelog from git history
+__create_new_changelog() {
+  local output_file="${1:-$GEN_CHANGELOG_FILE_NAME}"
+  local temp_file="$(mktemp)"
+
+  printf_blue "Generating full changelog from git history..."
+
+  # Get all tags in reverse chronological order
+  local tags=($(git -C "$GEN_CHANGELOG_CWD" tag --sort=-creatordate 2>/dev/null))
+
+  # Header
+  echo "# Changelog" >"$temp_file"
+  echo "" >>"$temp_file"
+  echo "All notable changes to this project will be documented in this file." >>"$temp_file"
+  echo "" >>"$temp_file"
+
+  if [ ${#tags[@]} -eq 0 ]; then
+    # No tags, generate from all commits
+    printf_cyan "No tags found, generating from all commits..."
+    echo "## Unreleased" >>"$temp_file"
+    echo "" >>"$temp_file"
+
+    __format_commit_entry "" >>"$temp_file"
+
+    echo "" >>"$temp_file"
+  else
+    # Generate changelog for each tag
+    for i in "${!tags[@]}"; do
+      local current_tag="${tags[$i]}"
+      local previous_tag="${tags[$((i + 1))]:-}"
+      local tag_date=$(git -C "$GEN_CHANGELOG_CWD" log -1 --format=%ai "$current_tag" 2>/dev/null | cut -d' ' -f1)
+
+      printf_cyan "Processing tag: $current_tag"
+
+      echo "## [$current_tag] - $tag_date" >>"$temp_file"
+      echo "" >>"$temp_file"
+
+      if [ -n "$previous_tag" ]; then
+        # Get commits between tags
+        __format_commit_entry "$previous_tag..$current_tag" >>"$temp_file"
+      else
+        # First tag - get all commits up to it
+        __format_commit_entry "$current_tag" >>"$temp_file"
+      fi
+
+      echo "" >>"$temp_file"
+      echo "" >>"$temp_file"
+    done
+
+    # Check for unreleased commits after latest tag
+    local latest_tag="${tags[0]}"
+    local unreleased_commits=$(git -C "$GEN_CHANGELOG_CWD" log --pretty=format:"%h" "$latest_tag..HEAD" 2>/dev/null | wc -l)
+
+    if [ "$unreleased_commits" -gt 0 ]; then
+      printf_cyan "Found $unreleased_commits unreleased commits"
+      echo "## [Unreleased]" >>"$temp_file"
+      echo "" >>"$temp_file"
+
+      __format_commit_entry "$latest_tag..HEAD" >>"$temp_file"
+
+      echo "" >>"$temp_file"
+      echo "" >>"$temp_file"
+    fi
+  fi
+
+  # Move temp file to output
+  if mv -f "$temp_file" "$output_file"; then
+    printf_green "Created $output_file"
+    git -C "$GEN_CHANGELOG_CWD" add "$output_file" 2>/dev/null
+    return 0
+  else
+    printf_red "Failed to create $output_file"
+    rm -f "$temp_file"
+    return 1
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Undo last changelog update
@@ -771,6 +878,7 @@ GEN_CHANGELOG_FILE_EXT="${GEN_CHANGELOG_FILE_EXT:-md}"
 GEN_CHANGELOG_DEFAULT_ICON="${GEN_CHANGELOG_DEFAULT_ICON:-🚀}"
 GEN_CHANGELOG_FILE_NAME="${GEN_CHANGELOG_FILE_NAME:-CHANGELOG}"
 GEN_CHANGELOG_VERSION_FILE="${GEN_CHANGELOG_VERSION_FILE:-version.txt}"
+GEN_CHANGELOG_EXCLUDE_PATTERN="${GEN_CHANGELOG_EXCLUDE_PATTERN:-Version Bump:}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$GEN_CHANGELOG_CONFIG_DIR/$GEN_CHANGELOG_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
@@ -815,7 +923,7 @@ SHORTOPTS=""
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent,force,"
-LONGOPTS+="message:,files:,changelog:,from:,icon:,prepend:,commit,amend,init,"
+LONGOPTS+="message:,files:,changelog:,from:,icon:,prepend:,commit,amend,init,create,"
 LONGOPTS+="major,minor,patch,version-bump,interactive,format:,install-hooks,"
 LONGOPTS+="stats,statistics,release,since-tag:,between:,author,contributors,"
 LONGOPTS+="pr:,issue:,link-commits,github-url:,undo,categorize,conventional"
@@ -944,6 +1052,10 @@ while :; do
   --commit | --amend)
     shift 1
     GEN_CHANGELOG_AMEND_CHANGELOG="true"
+    ;;
+  --create)
+    shift 1
+    GEN_CHANGELOG_CREATE_FULL="true"
     ;;
   --init)
     shift 1
@@ -1110,9 +1222,10 @@ GEN_CHANGELOG_MESSAGE_FOOTER="$(printf '\n### %s End of changes for %s %s  \n\n-
 GEN_CHANGELOG_FILE_NAME="$GEN_CHANGELOG_CWD/$GEN_CHANGELOG_FILE_NAME.$GEN_CHANGELOG_FILE_EXT"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Actions based on env
-[ -f "$GEN_CHANGELOG_FILE_NAME" ] || exit 0
+[ -f "$GEN_CHANGELOG_FILE_NAME" ] || [ -n "$GEN_CHANGELOG_CREATE_FULL" ] || exit 0
 [ -d "$GEN_CHANGELOG_CWD/.git" ] || printf_exit "$GEN_CHANGELOG_CWD does not seem to be a git repo" >&2
 { [ "$1" = "init" ] && shift 1 || [ -n "$GEN_CHANGELOG_CREATE_INIT" ]; } && touch "$GEN_CHANGELOG_FILE_NAME"
+[ -n "$GEN_CHANGELOG_CREATE_FULL" ] && __create_new_changelog "$GEN_CHANGELOG_FILE_NAME" && exit $?
 touch "$GEN_CHANGELOG_WORKFILE_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Export variables

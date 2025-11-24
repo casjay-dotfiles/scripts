@@ -625,8 +625,8 @@ __find_iso() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __latest_iso() {
   local exitCode="0"
-  __get_torrent || exitCode=3
-  if LATEST_ISO_IS_TORRENT="no"; then
+  __get_torrent "$1" || exitCode=3
+  if [ "$LATEST_ISO_IS_TORRENT" = "no" ]; then
     url="${1:-$url}"
     file="${2:-$file}"
     archive_iso_name="${3:-$archive_iso_name}"
@@ -670,6 +670,11 @@ __grab_iso() {
   [ -d "$latest_file_dir" ] || mkdir -p "$latest_file_dir"
   [ -d "$LATEST_ISO_DOWNLOAD_DIR" ] || mkdir -p "$LATEST_ISO_DOWNLOAD_DIR"
   [ -f "$download_file" ] && [ "$LATEST_ISO_FORCE_INST" = "true" ] && __rm_rf "$download_file"
+  # Check disk space before downloading
+  if ! __check_disk_space "$latest_file_dir" "$remote_file_size_raw"; then
+    printf_red "Downloading of $iso_name has failed: $LATEST_ISO_SPACE_ERROR"
+    return 3
+  fi
   [ "$system_arch" = "$iso_arch" ] && LATEST_ISO_SYSTEM_ARCH="$system_arch" || LATEST_ISO_SYSTEM_ARCH="$iso_arch"
   if [ "$remote_filesize" = "0" ] || [ "$remote_filesize" = "0B" ]; then
     printf_red "URL: $latest"
@@ -702,33 +707,33 @@ __grab_iso() {
     printf_cyan "$save_message"
     printf_purple "$download_message"
     if [ -f "$download_file" ] && [ "$LATEST_ISO_OVERWRITE" = "yes" ]; then
-      __curl -o "$curl_file" -C - "$latest" 2>"$log_file" && success="true" || success=""
+      __download_with_progress "$latest" "$curl_file" "$remote_file_size_raw" && success="true" || success=""
     else
-      __curl -o "$curl_file" "$latest" 2>"$log_file" && success="true" || success=""
+      __download_with_progress "$latest" "$curl_file" "$remote_file_size_raw" && success="true" || success=""
     fi
     [ "$success" = "true" ] && exitCode=0 || printf_exit "Failed to download $latest\n"
     if echo "$latest" | __grep -qE '.gz$|.tar$'; then __ex "$download_file" "$curl_file"; fi
     [ -f "$curl_file" ] && downloadStatus=0 && __filesize_local "$curl_file" || downloadStatus=1
     if [ "$downloadStatus" != "0" ]; then
-      printf_red "Download failed for: $latest"
+      printf_red "Downloading of $iso_name has failed: curl error code ${LATEST_ISO_CURL_ERROR:-unknown}"
       exitCode="2"
-    fi
-    if [ -f "$download_file" ]; then
+    elif [ -f "$download_file" ]; then
       if __verify_filesizes "$local_file_size_raw" "$remote_file_size_raw"; then
-        printf_green "Downloading of the ISO was successful"
+        printf_green "Downloading of $iso_name was successful"
         exitCode=0
       elif __verify_filesizes "$local_file_size" "$remote_file_size"; then
-        printf_green "Downloading of the ISO was successful"
+        printf_green "Downloading of $iso_name was successful"
         exitCode=0
-      elif ! __verify_filesizes "$local_file_size_raw" "$remote_file_size_raw"; then
-        printf_red "Downloading of the ISO was unsuccessful"
-        exitCode="1"
       else
-        printf_red "Error downloading from: $url"
-        exitCode="2"
+        printf_red "Downloading of $iso_name has failed: file size mismatch (got $local_file_size, expected $remote_filesize)"
+        exitCode="1"
       fi
     else
-      printf_red "Error downloading from: $url to $download_file"
+      if [ -n "$LATEST_ISO_CURL_ERROR" ] && [ "$LATEST_ISO_CURL_ERROR" != "0" ]; then
+        printf_red "Downloading of $iso_name has failed: curl error code $LATEST_ISO_CURL_ERROR"
+      else
+        printf_red "Downloading of $iso_name has failed: file not created (disk full or permission denied?)"
+      fi
       exitCode="2"
     fi
   fi
@@ -794,6 +799,40 @@ __remote_filesize() {
   else
     remote_filesize="$(printf '%s\n' "$content_length")"
   fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__check_disk_space() {
+  local dir="$1"
+  local needed="$2"
+  local needed_with_buffer=$((needed * 2))
+  local available=""
+
+  # Get available space in bytes
+  if [ -d "$dir" ]; then
+    available=$(df -B1 "$dir" 2>/dev/null | awk 'NR==2 {print $4}')
+  else
+    available=$(df -B1 "$(dirname "$dir")" 2>/dev/null | awk 'NR==2 {print $4}')
+  fi
+
+  [ -z "$available" ] && return 0  # Can't check, assume OK
+
+  if [ "$available" -lt "$needed_with_buffer" ]; then
+    # Format sizes for display
+    local avail_fmt="" need_fmt=""
+    if command -v numfmt &>/dev/null; then
+      avail_fmt="$(numfmt --to=iec-i --suffix=B "$available" | __sed 's|iB$||g')"
+      need_fmt="$(numfmt --to=iec-i --suffix=B "$needed_with_buffer" | __sed 's|iB$||g')"
+    elif command -v gnumfmt &>/dev/null; then
+      avail_fmt="$(gnumfmt --to=iec-i --suffix=B "$available" | __sed 's|iB$||g')"
+      need_fmt="$(gnumfmt --to=iec-i --suffix=B "$needed_with_buffer" | __sed 's|iB$||g')"
+    else
+      avail_fmt="$available"
+      need_fmt="$needed_with_buffer"
+    fi
+    export LATEST_ISO_SPACE_ERROR="insufficient disk space (need $need_fmt, have $avail_fmt)"
+    return 1
+  fi
+  return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_torrent() {
@@ -1158,6 +1197,91 @@ __latest_list() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_numbers() {
   printf '%s' "$1" | __sed 's/[^0-9]*//g' | tr -d '\n' | __grep '^' 3>/dev/null || printf '0'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__progress_bar() {
+  local current="$1"
+  local total="$2"
+  local width="${COLUMNS:-80}"
+  local bar_width=$((width - 30))
+  [ $bar_width -lt 10 ] && bar_width=10
+  [ $bar_width -gt 50 ] && bar_width=50
+
+  local percent=0
+  [ "$total" -gt 0 ] && percent=$((current * 100 / total))
+  [ $percent -gt 100 ] && percent=100
+
+  local filled=$((bar_width * percent / 100))
+  local empty=$((bar_width - filled))
+
+  # Format sizes
+  local current_fmt="" total_fmt=""
+  if command -v numfmt &>/dev/null; then
+    current_fmt="$(numfmt --to=iec-i --suffix=B "$current" 2>/dev/null | __sed 's|iB$||g')"
+    total_fmt="$(numfmt --to=iec-i --suffix=B "$total" 2>/dev/null | __sed 's|iB$||g')"
+  elif command -v gnumfmt &>/dev/null; then
+    current_fmt="$(gnumfmt --to=iec-i --suffix=B "$current" 2>/dev/null | __sed 's|iB$||g')"
+    total_fmt="$(gnumfmt --to=iec-i --suffix=B "$total" 2>/dev/null | __sed 's|iB$||g')"
+  else
+    current_fmt="$current"
+    total_fmt="$total"
+  fi
+
+  # Build progress bar
+  local bar_fill="" bar_empty=""
+  for ((i=0; i<filled; i++)); do bar_fill+="█"; done
+  for ((i=0; i<empty; i++)); do bar_empty+="░"; done
+
+  # Print with colors (cyan for bar, green for filled)
+  printf '\r%b[%b%s%b%s%b] %3d%% %s/%s%b' \
+    "$(tput setaf 6 2>/dev/null)" \
+    "$(tput setaf 2 2>/dev/null)" "$bar_fill" \
+    "$(tput setaf 8 2>/dev/null)" "$bar_empty" \
+    "$(tput setaf 5 2>/dev/null)" "$percent" "$current_fmt" "$total_fmt" \
+    "$(tput sgr0 2>/dev/null)"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__download_with_progress() {
+  local url="$1"
+  local output="$2"
+  local total_size="$3"
+  local current_size=0
+  local tmp_output="${output}.tmp"
+
+  # Start curl in background
+  curl -q -LSsf --fail-early --connect-timeout 2 --retry 5 --retry-delay 3 -o "$tmp_output" "$url" 2>/dev/null &
+  local curl_pid=$!
+
+  # Monitor progress
+  while kill -0 $curl_pid 2>/dev/null; do
+    if [ -f "$tmp_output" ]; then
+      current_size=$(stat -c%s "$tmp_output" 2>/dev/null || stat -f%z "$tmp_output" 2>/dev/null || echo 0)
+      __progress_bar "$current_size" "$total_size"
+    fi
+    sleep 0.5
+  done
+
+  # Wait for curl to finish and get exit code
+  wait $curl_pid
+  local exit_code=$?
+
+  # Final progress update
+  if [ -f "$tmp_output" ]; then
+    current_size=$(stat -c%s "$tmp_output" 2>/dev/null || stat -f%z "$tmp_output" 2>/dev/null || echo 0)
+    __progress_bar "$current_size" "$total_size"
+  fi
+  printf '\n'
+
+  # Move temp file to final location
+  if [ $exit_code -eq 0 ] && [ -f "$tmp_output" ]; then
+    mv "$tmp_output" "$output"
+    return 0
+  else
+    [ -f "$tmp_output" ] && rm -f "$tmp_output"
+    # Store curl exit code for error reporting
+    export LATEST_ISO_CURL_ERROR="$exit_code"
+    return 1
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables

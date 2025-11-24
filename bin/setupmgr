@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202511241550-git
+##@Version           :  202511241620-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Saturday, Sep 14, 2024 14:03 EDT
 # @@File             :  setupmgr
 # @@Description      :  Cross-platform binary/package installation manager - supports Linux, macOS, BSD, Solaris
-# @@Changelog        :  Renamed zed binary to zed-editor to avoid ZFS conflict
+# @@Changelog        :  Fixed system-wide installation permissions and relative symlink bug
 # @@TODO             :  Add systemd service files for server binaries (localai, ollama, etc)
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202511241550-git"
+VERSION="202511241620-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -864,8 +864,17 @@ __extract() {
           local installBinTo="$3"
           local installBinFrom=""
           local usr_bin_dir="$SYMLINK_FILES_TO"
+          local prefix=""
+          # Determine if we need sudo for system directories
+          if __sudoif && [[ "$installDir" == /usr/* ]] || [[ "$installDir" == /opt/* ]]; then
+            prefix="sudo"
+          fi
           if [ -n "$installDir" ]; then
-            mkdir -p "$installDir" && rsync -aq "$PACKAGE_TMP_DIR/." "$installDir/" --delete-before && exitEXCode=0 || exitEXCode=3
+            if [ -n "$prefix" ]; then
+              $prefix mkdir -p "$installDir" && $prefix rsync -aq "$PACKAGE_TMP_DIR/." "$installDir/" --delete-before && exitEXCode=0 || exitEXCode=3
+            else
+              mkdir -p "$installDir" && rsync -aq "$PACKAGE_TMP_DIR/." "$installDir/" --delete-before && exitEXCode=0 || exitEXCode=3
+            fi
             if [ $exitEXCode -eq 0 ]; then
               if [ -f "$installBinD" ]; then
                 installBinFrom="$installBinD"
@@ -875,8 +884,12 @@ __extract() {
                 installBinFrom="$installDir/$installBinD/$installBinD"
               fi
               if [ -n "$installBinFrom" ] && [ -n "$installBinTo" ]; then
-                [ -e "$installBinFrom" ] && chmod +x "$installBinFrom" || exitCode=1
-                __symlink_installed_files "$installBinFrom" "$installBinTo" || exitCode=1
+                if [ -n "$prefix" ]; then
+                  [ -e "$installBinFrom" ] && $prefix chmod +x "$installBinFrom" || exitCode=1
+                else
+                  [ -e "$installBinFrom" ] && chmod +x "$installBinFrom" || exitCode=1
+                fi
+                __symlink_installed_files "$installBinFrom" "$installBinTo" "$prefix" || exitCode=1
                 if [ ! -f "$installBinTo" ]; then
                   exitCode=2
                   printf_red "Can not find file $installBinTo"
@@ -887,7 +900,7 @@ __extract() {
                   for file in $get_files; do
                     local tmpFilename="$(__basename "$file")"
                     if [ ! -f "$usr_bin_dir/$tmpFilename" ] || [ -L "$usr_bin_dir/$tmpFilename" ]; then
-                      __symlink_installed_files "$file" "$usr_bin_dir/$tmpFilename"
+                      __symlink_installed_files "$file" "$usr_bin_dir/$tmpFilename" "$prefix"
                     fi
                   done
                 done
@@ -951,16 +964,32 @@ __move_extracted_file() {
 __symlink_installed_files() {
   local BinFrmFile="$1"
   local installBin="$2"
+  local prefix="$3"
   if [ -n "$BinFrmFile" ] && [ -n "$installBin" ]; then
     if [ -f "$BinFrmFile" ]; then
-      chmod +x "$BinFrmFile"
-      ln -sf "$BinFrmFile" "$installBin"
+      if [ -n "$prefix" ]; then
+        $prefix chmod +x "$BinFrmFile"
+        $prefix ln -sf "$BinFrmFile" "$installBin"
+      else
+        chmod +x "$BinFrmFile"
+        ln -sf "$BinFrmFile" "$installBin"
+      fi
     elif [ -f "$installDir/bin/$BinFrmFile" ]; then
-      chmod +x "$installDir/bin/$BinFrmFile"
-      ln -sf "$installDir/bin/$BinFrmFile" "$installBin"
+      if [ -n "$prefix" ]; then
+        $prefix chmod +x "$installDir/bin/$BinFrmFile"
+        $prefix ln -sf "$installDir/bin/$BinFrmFile" "$installBin"
+      else
+        chmod +x "$installDir/bin/$BinFrmFile"
+        ln -sf "$installDir/bin/$BinFrmFile" "$installBin"
+      fi
     elif [ -f "$installDir/$BinFrmFile" ]; then
-      chmod +x "$installDir/$BinFrmFile"
-      ln -sf "$installDir/$BinFrmFile" "$installBin"
+      if [ -n "$prefix" ]; then
+        $prefix chmod +x "$installDir/$BinFrmFile"
+        $prefix ln -sf "$installDir/$BinFrmFile" "$installBin"
+      else
+        chmod +x "$installDir/$BinFrmFile"
+        ln -sf "$installDir/$BinFrmFile" "$installBin"
+      fi
     else
       exitCode=1
     fi
@@ -1563,7 +1592,11 @@ __setup_lua() {
     fi
   fi
   if [ ! -f "$luaver_bin_file" ] && [ -f "$LUAVER_HOME/luaver" ] && [ "$luaver_bin_file" != "$LUAVER_HOME/luaver" ]; then
-    __symlink_installed_files "$LUAVER_HOME/luaver" "$luaver_bin_file"
+    local prefix=""
+    if __sudoif && [[ "$luaver_bin_file" == /usr/* ]] || [[ "$luaver_bin_file" == /opt/* ]]; then
+      prefix="sudo"
+    fi
+    __symlink_installed_files "$LUAVER_HOME/luaver" "$luaver_bin_file" "$prefix"
   fi
   if type luaver &>/dev/null; then
     printf_green "Installing lua version: $version"
@@ -2728,7 +2761,7 @@ __setup_golang() {
   local installDir="$SETUPMGR_DEFAULT_SHARE_DIR/go"
   local release_base_url="https://go.dev/VERSION?m=text"
   local latest_version="${GO_VERSION:-$(curl -q -LSsf "$release_base_url" | grep go[0-9])}"
-  local tempBin="go/bin/go"
+  local tempBin="bin/go"
   #extract_cmd="do_not_strip_components"
   PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
   case $arch in

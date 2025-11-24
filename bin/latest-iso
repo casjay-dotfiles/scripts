@@ -398,13 +398,16 @@ __test_arch() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __unarchive() {
   local archive="${archive_file:-$1}"
-  if echo "$archive" | __grep -qE '.tar$|.tar.gz$'; then
-    tar xfvz "$archive"
+  if echo "$archive" | __grep -qE '\.tar$|\.tar\.gz$|\.tar\.bz2$'; then
+    tar xfv "$archive"
     return $?
-  elif echo "$archive" | __grep -q '.gz$'; then
+  elif echo "$archive" | __grep -q '\.gz$'; then
     gzip -fd "$archive"
     return $?
-  elif echo "$archive" | __grep -q '.zip$'; then
+  elif echo "$archive" | __grep -q '\.bz2$'; then
+    bzip2 -fd "$archive"
+    return $?
+  elif echo "$archive" | __grep -q '\.zip$'; then
     unzip "$archive"
     return $?
   fi
@@ -687,19 +690,21 @@ __grab_iso() {
     return 0
   elif [ -n "$latest" ]; then
     if { [ "$LATEST_ISO_OVERWRITE" = "yes" ] || [ ! -f "$file" ] || [ "$LATEST_ISO_FORCE_INST" = "yes" ]; }; then
-      if echo "$url" | __grep -qE '.tar$|.gz$|.zip$' &>/dev/null; then
+      if echo "$latest" | __grep -qE '\.tar$|\.gz$|\.zip$|\.bz2$' &>/dev/null; then
+        # Set temp path for compressed files if not already set
+        [ -z "$archive_iso_name" ] && archive_iso_name="$LATEST_ISO_TEMP_DIR/$iso_name"
         curl_file="$archive_iso_name"
-        save_message="Attempting to download the compressed ISO from: $url"
+        save_message="Attempting to download the compressed ISO from: $(dirname "$latest")"
         download_message="Size of $iso_name is $remote_filesize and saving it to: $archive_iso_name"
         mkdir -p "$(dirname "$curl_file")"
-      elif echo "$url" | __grep -qE '.iso$' &>/dev/null; then
+      elif echo "$latest" | __grep -qE '\.iso$' &>/dev/null; then
         curl_file="$download_file"
-        save_message="Attempting to download the ISO from: $(dirname "$url")"
+        save_message="Attempting to download the ISO from: $(dirname "$latest")"
         download_message="Size of $iso_name is $remote_filesize and saving it to: $download_file"
         mkdir -p "$(dirname "$curl_file")"
       else
         curl_file="$download_file"
-        save_message="Attempting to download the file from: $(dirname "$url")"
+        save_message="Attempting to download the file from: $(dirname "$latest")"
         download_message="Size of $iso_name is $remote_filesize and saving it to: $download_file"
         mkdir -p "$(dirname "$curl_file")"
       fi
@@ -712,7 +717,7 @@ __grab_iso() {
       __download_with_progress "$latest" "$curl_file" "$remote_file_size_raw" && success="true" || success=""
     fi
     [ "$success" = "true" ] && exitCode=0 || printf_exit "Failed to download $latest\n"
-    if echo "$latest" | __grep -qE '.gz$|.tar$'; then __ex "$download_file" "$curl_file"; fi
+    if echo "$latest" | __grep -qE '\.gz$|\.tar$|\.zip$|\.bz2$'; then __ex "$download_file" "$curl_file"; fi
     [ -f "$curl_file" ] && downloadStatus=0 && __filesize_local "$curl_file" || downloadStatus=1
     if [ "$downloadStatus" != "0" ]; then
       printf_red "Downloading of $iso_name has failed: curl error code ${LATEST_ISO_CURL_ERROR:-unknown}"
@@ -738,21 +743,34 @@ __grab_iso() {
     fi
   fi
   if [ "$exitCode" -eq 0 ]; then
-    __notifications "Downloading of the ISO was successful:\n$latest"
+    __notifications "Downloading of $iso_name was successful"
   elif [ "$exitCode" -eq 1 ]; then
-    __notifications "Downloading of the ISO was unsuccessful:\n$download_file"
+    __notifications "Downloading of $iso_name has failed: file size mismatch"
   elif [ "$exitCode" -eq 2 ]; then
-    __notifications "Error downloading the ISO:\n$download_file"
+    if [ -n "$LATEST_ISO_CURL_ERROR" ] && [ "$LATEST_ISO_CURL_ERROR" != "0" ]; then
+      __notifications "Downloading of $iso_name has failed: curl error code $LATEST_ISO_CURL_ERROR"
+    else
+      __notifications "Downloading of $iso_name has failed: file not created"
+    fi
+  elif [ "$exitCode" -eq 3 ]; then
+    __notifications "Downloading of $iso_name has failed: $LATEST_ISO_SPACE_ERROR"
+  else
+    __notifications "Downloading of $iso_name has failed"
   fi
   echo ""
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __verify_filesizes() {
-  local local_size="" remote_size=""
+  local local_size="" remote_size="" min_size="" max_size=""
   local_size="$(__get_numbers "$1")"
   remote_size="$(__get_numbers "$2")"
-  if [ "$local_size" -ge "$remote_size" ]; then
+
+  # Allow 5% tolerance (95-105% of expected size)
+  min_size=$((remote_size * 95 / 100))
+  max_size=$((remote_size * 105 / 100))
+
+  if [ "$local_size" -ge "$min_size" ] && [ "$local_size" -le "$max_size" ]; then
     return 0
   else
     return 1
@@ -837,25 +855,116 @@ __check_disk_space() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_torrent() {
   local exitTCode=0
+  local torrent_url="$1"
+  local torrent_name=""
   LATEST_ISO_IS_TORRENT="no"
-  if echo "$1" | __grep -qE 'magnet:|.torrent$'; then
+
+  if echo "$torrent_url" | __grep -qE 'magnet:|\.torrent$'; then
     LATEST_ISO_IS_TORRENT="yes"
-    if __cmd_exists transadd; then
-      printf_yellow "This appears to be a torrent"
-      printf_blue "Downloading torrent via transmission"
-      transadd "$1"
-      exitTCode=$?
-    elif __cmd_exists aria2c; then
-      aria2c --enable-dht=true "$1"
-      exitTCode=$?
+    printf_yellow "This appears to be a torrent"
+
+    # Get torrent name for display
+    if echo "$torrent_url" | __grep -q 'magnet:'; then
+      torrent_name="$(echo "$torrent_url" | __sed 's|.*dn=||;s|&.*||' | __sed 's|%20| |g')"
     else
-      printf_red "The program transadd is not installed"
+      torrent_name="$(basename "$torrent_url")"
+    fi
+    [ -z "$torrent_name" ] && torrent_name="torrent"
+
+    # Try aria2c first (direct download with progress)
+    if __cmd_exists aria2c; then
+      printf_blue "Downloading torrent via aria2c"
+      aria2c --enable-dht=true --seed-time=0 --summary-interval=1 \
+        --console-log-level=warn --download-result=hide \
+        -d "$LATEST_ISO_DOWNLOAD_DIR" "$torrent_url"
+      exitTCode=$?
+      if [ $exitTCode -eq 0 ]; then
+        printf_green "Downloading of $torrent_name was successful"
+      else
+        printf_red "Downloading of $torrent_name has failed: aria2c error code $exitTCode"
+      fi
+    # Try transadd (transmission wrapper)
+    elif __cmd_exists transadd; then
+      printf_blue "Adding torrent via transadd"
+      transadd "$torrent_url"
+      exitTCode=$?
+      if [ $exitTCode -eq 0 ]; then
+        __monitor_transmission "$torrent_name"
+        exitTCode=$?
+      else
+        printf_red "Downloading of $torrent_name has failed: transadd error"
+      fi
+    # Try transmission-remote directly
+    elif __cmd_exists transmission-remote; then
+      printf_blue "Adding torrent via transmission-remote"
+      local server="${TORRENT_SERVER:-localhost}:${TORRENT_SERVER_PORT:-9091}"
+      transmission-remote "$server" -a "$torrent_url" &>/dev/null
+      exitTCode=$?
+      if [ $exitTCode -eq 0 ]; then
+        __monitor_transmission "$torrent_name"
+        exitTCode=$?
+      else
+        printf_red "Downloading of $torrent_name has failed: transmission-remote error"
+      fi
+    else
+      printf_red "No torrent client found (aria2c, transadd, or transmission-remote)"
       exitTCode=1
     fi
-  else
-    exitTCode=0
   fi
   return $exitTCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__monitor_transmission() {
+  local torrent_name="${1:-torrent}"
+  local server="${TORRENT_SERVER:-localhost}:${TORRENT_SERVER_PORT:-9091}"
+  local torrent_id=""
+  local status="" percent="" done_check=""
+
+  # Get the most recent torrent ID
+  sleep 2
+  torrent_id="$(transmission-remote "$server" -l 2>/dev/null | tail -2 | head -1 | awk '{print $1}')"
+
+  if [ -z "$torrent_id" ] || [ "$torrent_id" = "ID" ]; then
+    printf_yellow "Could not get torrent ID for monitoring"
+    return 0
+  fi
+
+  printf_cyan "Monitoring torrent download (ID: $torrent_id)"
+
+  # Monitor until complete or stopped
+  while true; do
+    local info="$(transmission-remote "$server" -t "$torrent_id" -i 2>/dev/null)"
+
+    if [ -z "$info" ]; then
+      printf_red "\nDownloading of $torrent_name has failed: torrent removed or connection lost"
+      return 1
+    fi
+
+    status="$(echo "$info" | __grep 'State:' | __sed 's|.*State: ||')"
+    percent="$(echo "$info" | __grep 'Percent Done:' | __sed 's|.*Percent Done: ||')"
+
+    # Check if done
+    if [ "$percent" = "100%" ] || echo "$status" | __grep -qi 'seeding\|finished'; then
+      printf '\n'
+      printf_green "Downloading of $torrent_name was successful"
+      return 0
+    fi
+
+    # Check if stopped/error
+    if echo "$status" | __grep -qi 'stopped\|error'; then
+      printf '\n'
+      printf_red "Downloading of $torrent_name has failed: $status"
+      return 1
+    fi
+
+    # Show progress
+    printf '\r%b[Torrent] %s - %s%b' \
+      "$(tput setaf 6 2>/dev/null)" \
+      "$percent" "$status" \
+      "$(tput sgr0 2>/dev/null)"
+
+    sleep 2
+  done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __github_api() {

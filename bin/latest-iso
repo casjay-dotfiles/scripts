@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202511241400-git
+##@Version           :  202511241430-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Friday, Aug 12, 2022 15:05 EDT
 # @@File             :  latest-iso
 # @@Description      :  Find and download the latest ISO for a given distro
-# @@Changelog        :  Extracted magic numbers to constants; consolidated __sort_rv and __sort_v
+# @@Changelog        :  Refactored __grab_iso into helper functions; fixed pfsense to get .iso.gz
 # @@TODO             :  Refactor code
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202511241400-git"
+VERSION="202511241430-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -651,113 +651,161 @@ __latest_iso() {
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__grab_iso() {
-  trap 'exitCode=$?;if [ $exitCode -ne 0 ]; then if [ -n "$download_file" ] && [ ! -s "$download_file" ]; then rm -Rf $download_file;fi;fi;exit $exitCode' ERR SIGINT
-  local exitCode="" url="" latest="" latest_file="" remote_filesize=""
-  local system_arch="" iso_arch="" download_file="" save_message="" local_iso_name="" remote_iso_name="" save_message=""
-  exitCode="10"
-  url="${url:-$1}"
-  latest="${1:-$latest}"
-  latest_file="${2:-$download_file}"
-  archive_iso_name="${3:-$archive_iso_name}"
-  system_arch="$(__get_arch)"
-  remote_iso_name="$(basename -- "$latest")"
-  iso_arch="$(__verify_arch "$latest")"
-  download_file="$(__set_filename ${latest_file:-$download_file} "$iso_arch")"
-  local_iso_name="$(basename -- "$download_file")"
-  latest_file_dir="$(dirname "$latest_file")"
-  log_file="$LATEST_ISO_LOG_DIR/$local_iso_name"
-  __remote_filesize "$latest"
-  [ -d "$latest_file_dir" ] || mkdir -p "$latest_file_dir"
+# Helper: Setup download paths and variables
+__setup_download_paths() {
+  local url_arg="$1"
+  local file_arg="$2"
+  local archive_arg="$3"
+
+  GRAB_URL="${url_arg:-$GRAB_URL}"
+  GRAB_LATEST="${url_arg:-$GRAB_LATEST}"
+  GRAB_LATEST_FILE="${file_arg:-$GRAB_DOWNLOAD_FILE}"
+  GRAB_ARCHIVE_NAME="${archive_arg:-$GRAB_ARCHIVE_NAME}"
+  GRAB_SYSTEM_ARCH="$(__get_arch)"
+  GRAB_REMOTE_ISO_NAME="$(basename -- "$GRAB_LATEST")"
+  GRAB_ISO_ARCH="$(__verify_arch "$GRAB_LATEST")"
+  GRAB_DOWNLOAD_FILE="$(__set_filename "${GRAB_LATEST_FILE:-$GRAB_DOWNLOAD_FILE}" "$GRAB_ISO_ARCH")"
+  GRAB_LOCAL_ISO_NAME="$(basename -- "$GRAB_DOWNLOAD_FILE")"
+  GRAB_LATEST_FILE_DIR="$(dirname "$GRAB_LATEST_FILE")"
+  GRAB_LOG_FILE="$LATEST_ISO_LOG_DIR/$GRAB_LOCAL_ISO_NAME"
+
+  __remote_filesize "$GRAB_LATEST"
+  [ -d "$GRAB_LATEST_FILE_DIR" ] || mkdir -p "$GRAB_LATEST_FILE_DIR"
   [ -d "$LATEST_ISO_DOWNLOAD_DIR" ] || mkdir -p "$LATEST_ISO_DOWNLOAD_DIR"
-  [ -f "$download_file" ] && [ "$LATEST_ISO_FORCE_INST" = "true" ] && __rm_rf "$download_file"
-  # Check disk space before downloading
-  if ! __check_disk_space "$latest_file_dir" "$remote_file_size_raw"; then
-    printf_red "Downloading of $local_iso_name has failed: $LATEST_ISO_SPACE_ERROR"
-    return 3
+  [ -f "$GRAB_DOWNLOAD_FILE" ] && [ "$LATEST_ISO_FORCE_INST" = "true" ] && __rm_rf "$GRAB_DOWNLOAD_FILE"
+
+  [ "$GRAB_SYSTEM_ARCH" = "$GRAB_ISO_ARCH" ] && LATEST_ISO_SYSTEM_ARCH="$GRAB_SYSTEM_ARCH" || LATEST_ISO_SYSTEM_ARCH="$GRAB_ISO_ARCH"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Helper: Determine download type and set messages
+__determine_download_type() {
+  if echo "$GRAB_LATEST" | __iso_is_archive &>/dev/null; then
+    [ -z "$GRAB_ARCHIVE_NAME" ] && GRAB_ARCHIVE_NAME="$LATEST_ISO_TEMP_DIR/$GRAB_REMOTE_ISO_NAME"
+    GRAB_CURL_FILE="$GRAB_ARCHIVE_NAME"
+    GRAB_SAVE_MESSAGE="Attempting to download the compressed ISO from: $(dirname "$GRAB_LATEST")"
+  elif echo "$GRAB_LATEST" | __grep -qE '\.iso$' &>/dev/null; then
+    GRAB_CURL_FILE="$GRAB_DOWNLOAD_FILE"
+    GRAB_SAVE_MESSAGE="Attempting to download the ISO from: $(dirname "$GRAB_LATEST")"
+  else
+    GRAB_CURL_FILE="$GRAB_DOWNLOAD_FILE"
+    GRAB_SAVE_MESSAGE="Attempting to download the file from: $(dirname "$GRAB_LATEST")"
   fi
-  [ "$system_arch" = "$iso_arch" ] && LATEST_ISO_SYSTEM_ARCH="$system_arch" || LATEST_ISO_SYSTEM_ARCH="$iso_arch"
-  if [ "$remote_filesize" = "0" ] || [ "$remote_filesize" = "0B" ]; then
-    printf_red "URL: $latest"
-    printf_error "doesn't seem to be a valid ISO image"
-    exitCode="4"
-  elif [ -f "$download_file" ] && [ "$LATEST_ISO_OVERWRITE" != "yes" ]; then
-    __filesize_local "$download_file" "silent" &>/dev/null
-    printf_cyan "File already exists in: ${PURPLE}$download_file : $local_file_size"
-    [ -n "$latest" ] && printf_blue "$latest : $remote_filesize"
-    return 0
-  elif [ -n "$latest" ]; then
-    if { [ "$LATEST_ISO_OVERWRITE" = "yes" ] || [ ! -f "$file" ] || [ "$LATEST_ISO_FORCE_INST" = "yes" ]; }; then
-      if echo "$latest" | __iso_is_archive &>/dev/null; then
-        # Set temp path for compressed files if not already set
-        [ -z "$archive_iso_name" ] && archive_iso_name="$LATEST_ISO_TEMP_DIR/$remote_iso_name"
-        curl_file="$archive_iso_name"
-        save_message="Attempting to download the compressed ISO from: $(dirname "$latest")"
-        download_message="Size of $remote_iso_name is $remote_filesize and saving it to: $download_file"
-        mkdir -p "$(dirname "$curl_file")"
-      elif echo "$latest" | __grep -qE '\.iso$' &>/dev/null; then
-        curl_file="$download_file"
-        save_message="Attempting to download the ISO from: $(dirname "$latest")"
-        download_message="Size of $remote_iso_name is $remote_filesize and saving it to: $download_file"
-        mkdir -p "$(dirname "$curl_file")"
-      else
-        curl_file="$download_file"
-        save_message="Attempting to download the file from: $(dirname "$latest")"
-        download_message="Size of $remote_iso_name is $remote_filesize and saving it to: $download_file"
-        mkdir -p "$(dirname "$curl_file")"
-      fi
-    fi
-    printf_cyan "$save_message"
-    printf_purple "$download_message"
-    # Check if this is an rsync URL
-    if echo "$latest" | __grep -q '^rsync://'; then
-      __rsync_download "$latest" "$curl_file" && success="true" || success=""
-    elif [ -f "$download_file" ] && [ "$LATEST_ISO_OVERWRITE" = "yes" ]; then
-      __download_with_progress "$latest" "$curl_file" "$remote_file_size_raw" && success="true" || success=""
-    else
-      __download_with_progress "$latest" "$curl_file" "$remote_file_size_raw" && success="true" || success=""
-    fi
-    [ "$success" = "true" ] && exitCode=0 || printf_exit "Failed to download $latest\n"
-    if echo "$latest" | __iso_is_archive &>/dev/null; then __ex "$download_file" "$curl_file"; fi
-    [ -f "$curl_file" ] && downloadStatus=0 && __filesize_local "$curl_file" || downloadStatus=1
-    if [ "$downloadStatus" != "0" ]; then
-      printf_red "Downloading of $local_iso_name has failed: curl error code ${LATEST_ISO_CURL_ERROR:-unknown}"
-      exitCode="2"
-    elif [ -f "$download_file" ]; then
-      if __verify_filesizes "$local_file_size_raw" "$remote_file_size_raw"; then
-        printf_green "Downloading of $local_iso_name was successful"
-        exitCode=0
-      elif __verify_filesizes "$local_file_size" "$remote_file_size"; then
-        printf_green "Downloading of $local_iso_name was successful"
-        exitCode=0
-      else
-        printf_red "Downloading of $local_iso_name has failed: file size mismatch (got $local_file_size, expected $remote_filesize)"
-        exitCode="1"
-      fi
-    else
-      if [ -n "$LATEST_ISO_CURL_ERROR" ] && [ "$LATEST_ISO_CURL_ERROR" != "0" ]; then
-        printf_red "Downloading of $local_iso_name has failed: curl error code $LATEST_ISO_CURL_ERROR"
-      else
-        printf_red "Downloading of $local_iso_name has failed: file not created (disk full or permission denied?)"
-      fi
-      exitCode="2"
-    fi
+  GRAB_DOWNLOAD_MESSAGE="Size of $GRAB_REMOTE_ISO_NAME is $remote_filesize and saving it to: $GRAB_DOWNLOAD_FILE"
+  mkdir -p "$(dirname "$GRAB_CURL_FILE")"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Helper: Execute the download
+__execute_download() {
+  local success=""
+  if echo "$GRAB_LATEST" | __grep -q '^rsync://'; then
+    __rsync_download "$GRAB_LATEST" "$GRAB_CURL_FILE" && success="true" || success=""
+  else
+    __download_with_progress "$GRAB_LATEST" "$GRAB_CURL_FILE" "$remote_file_size_raw" && success="true" || success=""
   fi
+  [ "$success" = "true" ] && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Helper: Verify download and return exit code
+__verify_download() {
+  local exitCode=0
+
+  if echo "$GRAB_LATEST" | __iso_is_archive &>/dev/null; then
+    __ex "$GRAB_DOWNLOAD_FILE" "$GRAB_CURL_FILE"
+  fi
+
+  [ -f "$GRAB_CURL_FILE" ] && __filesize_local "$GRAB_CURL_FILE" || return 2
+
+  if [ -f "$GRAB_DOWNLOAD_FILE" ]; then
+    if __verify_filesizes "$local_file_size_raw" "$remote_file_size_raw"; then
+      printf_green "Downloading of $GRAB_LOCAL_ISO_NAME was successful"
+      exitCode=0
+    elif __verify_filesizes "$local_file_size" "$remote_file_size"; then
+      printf_green "Downloading of $GRAB_LOCAL_ISO_NAME was successful"
+      exitCode=0
+    else
+      printf_red "Downloading of $GRAB_LOCAL_ISO_NAME has failed: file size mismatch (got $local_file_size, expected $remote_filesize)"
+      exitCode=1
+    fi
+  else
+    if [ -n "$LATEST_ISO_CURL_ERROR" ] && [ "$LATEST_ISO_CURL_ERROR" != "0" ]; then
+      printf_red "Downloading of $GRAB_LOCAL_ISO_NAME has failed: curl error code $LATEST_ISO_CURL_ERROR"
+    else
+      printf_red "Downloading of $GRAB_LOCAL_ISO_NAME has failed: file not created (disk full or permission denied?)"
+    fi
+    exitCode=2
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Helper: Send notifications based on result
+__notify_download_result() {
+  local exitCode="$1"
   if [ "$exitCode" -eq 0 ]; then
-    __notifications "Downloading of $local_iso_name was successful"
+    __notifications "Downloading of $GRAB_LOCAL_ISO_NAME was successful"
   elif [ "$exitCode" -eq 1 ]; then
-    __notifications "Downloading of $local_iso_name has failed: file size mismatch"
+    __notifications "Downloading of $GRAB_LOCAL_ISO_NAME has failed: file size mismatch"
   elif [ "$exitCode" -eq 2 ]; then
     if [ -n "$LATEST_ISO_CURL_ERROR" ] && [ "$LATEST_ISO_CURL_ERROR" != "0" ]; then
-      __notifications "Downloading of $local_iso_name has failed: curl error code $LATEST_ISO_CURL_ERROR"
+      __notifications "Downloading of $GRAB_LOCAL_ISO_NAME has failed: curl error code $LATEST_ISO_CURL_ERROR"
     else
-      __notifications "Downloading of $local_iso_name has failed: file not created"
+      __notifications "Downloading of $GRAB_LOCAL_ISO_NAME has failed: file not created"
     fi
   elif [ "$exitCode" -eq 3 ]; then
-    __notifications "Downloading of $local_iso_name has failed: $LATEST_ISO_SPACE_ERROR"
+    __notifications "Downloading of $GRAB_LOCAL_ISO_NAME has failed: $LATEST_ISO_SPACE_ERROR"
   else
-    __notifications "Downloading of $local_iso_name has failed"
+    __notifications "Downloading of $GRAB_LOCAL_ISO_NAME has failed"
   fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__grab_iso() {
+  trap 'exitCode=$?;if [ $exitCode -ne 0 ]; then if [ -n "$GRAB_DOWNLOAD_FILE" ] && [ ! -s "$GRAB_DOWNLOAD_FILE" ]; then rm -Rf "$GRAB_DOWNLOAD_FILE";fi;fi' ERR SIGINT
+  local exitCode=10
+
+  # Setup paths and variables
+  __setup_download_paths "$1" "$2" "$3"
+
+  # Check disk space before downloading
+  if ! __check_disk_space "$GRAB_LATEST_FILE_DIR" "$remote_file_size_raw"; then
+    printf_red "Downloading of $GRAB_LOCAL_ISO_NAME has failed: $LATEST_ISO_SPACE_ERROR"
+    __notify_download_result 3
+    echo ""
+    return 3
+  fi
+
+  # Check if URL is valid
+  if [ "$remote_filesize" = "0" ] || [ "$remote_filesize" = "0B" ]; then
+    printf_red "URL: $GRAB_LATEST"
+    printf_error "doesn't seem to be a valid ISO image"
+    __notify_download_result 4
+    echo ""
+    return 4
+  fi
+
+  # Check if file already exists
+  if [ -f "$GRAB_DOWNLOAD_FILE" ] && [ "$LATEST_ISO_OVERWRITE" != "yes" ]; then
+    __filesize_local "$GRAB_DOWNLOAD_FILE" "silent" &>/dev/null
+    printf_cyan "File already exists in: ${PURPLE}$GRAB_DOWNLOAD_FILE : $local_file_size"
+    [ -n "$GRAB_LATEST" ] && printf_blue "$GRAB_LATEST : $remote_filesize"
+    echo ""
+    return 0
+  fi
+
+  # Proceed with download
+  if [ -n "$GRAB_LATEST" ]; then
+    __determine_download_type
+    printf_cyan "$GRAB_SAVE_MESSAGE"
+    printf_purple "$GRAB_DOWNLOAD_MESSAGE"
+
+    if __execute_download; then
+      __verify_download
+      exitCode=$?
+    else
+      printf_red "Failed to download $GRAB_LATEST"
+      exitCode=2
+    fi
+  fi
+
+  __notify_download_result "$exitCode"
   echo ""
   return $exitCode
 }
@@ -1444,7 +1492,7 @@ __latest_list() {
     shift 1
     ISOFILE="$LATEST_ISO_DOWNLOAD_DIR/pfsense.iso"
     real_url="$LATEST_ISO_PFSENSE_URL"
-    iso_url_filename="$(__curl "$LATEST_ISO_PFSENSE_URL" | __strip_tags | __iso_is_archive | __sort_rv)"
+    iso_url_filename="$(__curl "$LATEST_ISO_PFSENSE_URL" | __strip_tags | __grep '\.iso' | __iso_is_archive | __sort_rv)"
     __latest_iso "$LATEST_ISO_PFSENSE_URL/$iso_url_filename" "$ISOFILE" "$LATEST_ISO_TEMP_DIR/pfsense/$iso_url_filename"
     statusCode=$(($? + $statusCode))
     ;;

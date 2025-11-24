@@ -80,6 +80,7 @@ docker run --rm -it local-scripts-test /usr/local/share/CasjaysDev/scripts/bin/s
 - **All functions prefixed with `__`** (internal functions)
 - **All variables prefixed with `{SCRIPTNAME}_`** (except where inappropriate)
 - **Always add newline at end of files** (except where not supported)
+- **Comments always go ABOVE the code** - Never use inline comments at end of line
 - Proper error handling and user feedback
 - Multi-architecture support where applicable
 - **Update script headers** (@@Version, @@Description, @@Changelog, etc.) when making changes
@@ -234,15 +235,30 @@ SCRIPTNAME_CACHE_DIR    # Cache directory
 - **Focus on code changes only** - Make edits, test, validate
 - **User commits when ready** - Respects signed commit workflow
 
+### AI/Claude Access
+- **AI has access to ALL commands** - Including git commands for checking status, logs, diffs, etc.
+- **EXCEPT: Never run `git commit`** - User handles all commits with GPG signing
+- **EXCEPT: Never run `gitcommit` without subcommand** - Only read-only operations allowed
+- **Can use git**: `git status`, `git diff`, `git log`, `git show`, `git branch`, etc.
+- **Can use gitcommit**: `gitcommit status`, `gitcommit log`, `gitcommit log show`, `gitcommit diff`, etc.
+- **Cannot use**: `git commit`, `gitcommit` (no args), `gitcommit all`, `gitcommit push`, etc. (user only)
+- **ALWAYS create/update**: `.git/COMMIT_MESS` file in the git repository root for commit messages
+  - Use `git rev-parse --show-toplevel` to find git root directory
+  - File path: `<git_root>/.git/COMMIT_MESS`
+  - Example: `/home/jason/Projects/github/casjay-dotfiles/scripts/.git/COMMIT_MESS`
+
 ### Commit Message Integration
 - **gitcommit script** - Parses `.git/COMMIT_MESS` file if it exists at startup
-- **Claude workflow**:
-  1. Create/update `.git/COMMIT_MESS` with commit message
+- **AI workflow**:
+  1. **ALWAYS** create/update `.git/COMMIT_MESS` with commit message after making changes
+     - Find git root: `git rev-parse --show-toplevel`
+     - File location: `<git_root>/.git/COMMIT_MESS`
+  2. File contains complete commit message ready for user to commit
      - First line: Short commit message (summary) with emojis
      - Remaining lines: Long commit message (detailed description)
-  2. User runs `gitcommit` or `./bin/gitcommit`
-  3. Script automatically parses file, extracts messages, commits with signing
-  4. Script cleans up `.git/COMMIT_MESS` file after successful commit
+  3. User runs `gitcommit` or `./bin/gitcommit`
+  4. Script automatically parses file, extracts messages, commits with signing
+  5. Script cleans up `.git/COMMIT_MESS` file after successful commit
 - **File format**: Plain text, first line = short message, rest = long message
 - **Automatic cleanup** - gitcommit's __gitcommit_cmd() removes message file after successful commit
 - **Emoji requirement** - Always add appropriate emojis to user-facing content

@@ -391,6 +391,7 @@ __help() {
   __printf_line "notes                           - Notes repo"
   __printf_line "blog                            - Blog repo"
   __printf_line "recipe                          - Recipe repo"
+  __printf_line "ai                              - Generate commit message using AI"
   __printf_line "random                          - Generate a random commit message"
   __printf_line "emojify                         - emojify a commit"
   __printf_line "custom                          - Specify custom message"
@@ -1542,11 +1543,41 @@ $changed_files
 Diff:
 $diff_content"
 
+  # Helper function to validate commit message format
+  __validate_commit_message() {
+    local msg="$1"
+    # Check if message is empty
+    [ -z "$msg" ] && return 1
+    # Check minimum length (at least 5 chars)
+    [ ${#msg} -lt 5 ] && return 1
+    # Check maximum length for first line (72 chars recommended)
+    [ ${#msg} -gt 150 ] && return 1
+    # Check for common AI error patterns
+    echo "$msg" | grep -qiE "^(I |Here|Sure|Okay|Let me|I'll|I can|I would|Sorry|I apologize|As an AI)" && return 1
+    # Check for markdown artifacts
+    echo "$msg" | grep -qE "^\`\`\`|^#+\s" && return 1
+    # Check it's not just the prompt echoed back
+    echo "$msg" | grep -qiE "^Generate a git commit|^First line:|^- First line:" && return 1
+    return 0
+  }
+
   # Helper function to parse AI result
   __parse_ai_result() {
     local res="$1"
     if [ -n "$res" ]; then
       short_msg="$(echo "$res" | head -n1)"
+      # Validate the short message
+      if ! __validate_commit_message "$short_msg"; then
+        # Try to find a valid line in the output
+        while IFS= read -r line; do
+          if __validate_commit_message "$line"; then
+            short_msg="$line"
+            break
+          fi
+        done <<< "$res"
+        # If still invalid, return failure
+        __validate_commit_message "$short_msg" || return 1
+      fi
       long_msg="$(echo "$res" | tail -n +2 | grep -v '^$')"
       [ -n "$long_msg" ] && GITCOMMIT_MESSAGE_LONG="$long_msg"
       echo "$short_msg"
@@ -1560,45 +1591,141 @@ $diff_content"
   local ai_args="${GITCOMMIT_DEFAULT_AI_ARGS:-}"
 
   # If user specified a preferred AI command, try that first
-  if [ -n "$ai_cmd" ] && __cmd_exists "$ai_cmd"; then
-    case "$ai_cmd" in
-    ollama)
-      [ -z "$ai_args" ] && ai_args="run llama3.2"
-      result="$(ollama $ai_args "$prompt" 2>/dev/null | grep -v '^$')"
-      __parse_ai_result "$result" && return 0
-      ;;
-    claude)
-      [ -z "$ai_args" ] && ai_args="-p --allowedTools \"\""
-      result="$(claude $ai_args "$prompt" 2>/dev/null | grep -v '^$')"
-      __parse_ai_result "$result" && return 0
-      ;;
-    codex)
-      [ -z "$ai_args" ] && ai_args="exec"
-      result="$(codex $ai_args "$prompt" 2>/dev/null | grep -v '^$')"
-      __parse_ai_result "$result" && return 0
-      ;;
-    copilot)
-      [ -z "$ai_args" ] && ai_args="-p --allow-all-tools"
-      result="$(copilot $ai_args "$prompt" 2>/dev/null | grep -v '^$')"
-      __parse_ai_result "$result" && return 0
-      ;;
-    *)
-      # Generic command - user provides full args
-      if [ -n "$ai_args" ]; then
+  if [ -n "$ai_cmd" ]; then
+    if ! __cmd_exists "$ai_cmd"; then
+      printf_yellow "⚠️  Configured AI command '$ai_cmd' not found, falling back to auto-detection"
+    else
+      printf_cyan "🤖 Using $ai_cmd to generate commit message..."
+      case "$ai_cmd" in
+      ollama)
+        if [ -z "$ai_args" ]; then
+          # Auto-detect first available model
+          local ollama_model=""
+          ollama_model="$(ollama list 2>/dev/null | tail -n +2 | head -n1 | awk '{print $1}')"
+          if [ -z "$ollama_model" ]; then
+            printf_yellow "⚠️  ollama is not running or has no models, trying fallbacks..."
+          else
+            ai_args="run $ollama_model"
+          fi
+        fi
+        if [ -n "$ai_args" ]; then
+          result="$(ollama $ai_args "$prompt" 2>/dev/null | grep -v '^$')"
+          if __parse_ai_result "$result"; then
+            return 0
+          else
+            printf_yellow "⚠️  ollama failed to generate message, trying fallbacks..."
+          fi
+        fi
+        ;;
+      claude)
+        [ -z "$ai_args" ] && ai_args="-p --allowedTools \"\""
+        result="$(claude $ai_args "$prompt" 2>/dev/null | grep -v '^$')"
+        if __parse_ai_result "$result"; then
+          return 0
+        else
+          printf_yellow "⚠️  claude failed to generate message, trying fallbacks..."
+        fi
+        ;;
+      codex)
+        [ -z "$ai_args" ] && ai_args="exec"
+        result="$(codex $ai_args "$prompt" 2>/dev/null | grep -v '^$')"
+        if __parse_ai_result "$result"; then
+          return 0
+        else
+          printf_yellow "⚠️  codex failed to generate message, trying fallbacks..."
+        fi
+        ;;
+      copilot)
+        [ -z "$ai_args" ] && ai_args="-p --allow-all-tools"
+        result="$(copilot $ai_args "$prompt" 2>/dev/null | grep -v '^$')"
+        if __parse_ai_result "$result"; then
+          return 0
+        else
+          printf_yellow "⚠️  copilot failed to generate message, trying fallbacks..."
+        fi
+        ;;
+      llama-cli | llama-cpp | llamafile)
+        [ -z "$ai_args" ] && ai_args="-p --no-display-prompt"
         result="$($ai_cmd $ai_args "$prompt" 2>/dev/null | grep -v '^$')"
-      else
-        result="$(echo "$prompt" | $ai_cmd 2>/dev/null | grep -v '^$')"
-      fi
-      __parse_ai_result "$result" && return 0
-      ;;
-    esac
+        if __parse_ai_result "$result"; then
+          return 0
+        else
+          printf_yellow "⚠️  $ai_cmd failed to generate message, trying fallbacks..."
+        fi
+        ;;
+      gpt4all-cli)
+        result="$(gpt4all-cli ${ai_args:-} "$prompt" 2>/dev/null | grep -v '^$')"
+        if __parse_ai_result "$result"; then
+          return 0
+        else
+          printf_yellow "⚠️  gpt4all-cli failed to generate message, trying fallbacks..."
+        fi
+        ;;
+      lms)
+        result="$(echo "$prompt" | lms ${ai_args:-chat} 2>/dev/null | grep -v '^$')"
+        if __parse_ai_result "$result"; then
+          return 0
+        else
+          printf_yellow "⚠️  lms failed to generate message, trying fallbacks..."
+        fi
+        ;;
+      *)
+        # Generic command - user provides full args
+        if [ -n "$ai_args" ]; then
+          result="$($ai_cmd $ai_args "$prompt" 2>/dev/null | grep -v '^$')"
+        else
+          result="$(echo "$prompt" | $ai_cmd 2>/dev/null | grep -v '^$')"
+        fi
+        if __parse_ai_result "$result"; then
+          return 0
+        else
+          printf_yellow "⚠️  $ai_cmd failed to generate message, trying fallbacks..."
+        fi
+        ;;
+      esac
+    fi
   fi
 
-  # Try ollama (local AI)
+  # Try local AI clients first (prefer local over cloud)
+
+  # Try ollama
   if __cmd_exists ollama; then
-    result="$(ollama run llama3.2 "$prompt" 2>/dev/null | grep -v '^$')"
+    local ollama_model=""
+    ollama_model="$(ollama list 2>/dev/null | tail -n +2 | head -n1 | awk '{print $1}')"
+    if [ -n "$ollama_model" ]; then
+      result="$(ollama run "$ollama_model" "$prompt" 2>/dev/null | grep -v '^$')"
+      __parse_ai_result "$result" && return 0
+    fi
+  fi
+
+  # Try llama.cpp (llama-cli or main)
+  if __cmd_exists llama-cli; then
+    result="$(llama-cli -p "$prompt" --no-display-prompt 2>/dev/null | grep -v '^$')"
+    __parse_ai_result "$result" && return 0
+  elif __cmd_exists llama-cpp; then
+    result="$(llama-cpp -p "$prompt" --no-display-prompt 2>/dev/null | grep -v '^$')"
     __parse_ai_result "$result" && return 0
   fi
+
+  # Try llamafile
+  if __cmd_exists llamafile; then
+    result="$(llamafile -p "$prompt" --no-display-prompt 2>/dev/null | grep -v '^$')"
+    __parse_ai_result "$result" && return 0
+  fi
+
+  # Try gpt4all
+  if __cmd_exists gpt4all-cli; then
+    result="$(gpt4all-cli "$prompt" 2>/dev/null | grep -v '^$')"
+    __parse_ai_result "$result" && return 0
+  fi
+
+  # Try lmstudio CLI
+  if __cmd_exists lms; then
+    result="$(echo "$prompt" | lms chat 2>/dev/null | grep -v '^$')"
+    __parse_ai_result "$result" && return 0
+  fi
+
+  # Try cloud AI clients
 
   # Try claude CLI
   if __cmd_exists claude; then

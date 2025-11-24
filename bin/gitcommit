@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202510101240-git
+##@Version           :  202511241500-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Monday, Aug 08, 2022 23:40 EDT
 # @@File             :  gitcommit
 # @@Description      :  Commit changes to a git repo - self-contained, no external dependencies
-# @@Changelog        :  Fixed COMMIT_MESS file deletion - now properly deletes after successful commits in all code paths
+# @@Changelog        :  Implemented __ai_commit_message with ollama, claude, codex, copilot fallback chain
 # @@TODO             :  Fix/re-write variables
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202510070756-git"
+VERSION="202511241500-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -1514,7 +1514,100 @@ __curl_branch() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __ai_commit_message() {
-  return
+  local diff_content="" prompt="" result="" changed_files=""
+  local short_msg="" long_msg=""
+
+  # Get the diff for context
+  changed_files="$(__changed_files all)"
+  diff_content="$(git -C "$GITCOMMIT_ROOT_DIR" diff --cached 2>/dev/null || git -C "$GITCOMMIT_ROOT_DIR" diff 2>/dev/null)"
+
+  # Limit diff size to avoid token limits
+  if [ ${#diff_content} -gt 4000 ]; then
+    diff_content="${diff_content:0:4000}..."
+  fi
+
+  # Build prompt for full commit message
+  prompt="Generate a git commit message for these changes with the following format:
+- First line: Short summary (max 72 chars) with appropriate emoji at start and end
+- Blank line
+- Body: Detailed description of what changed and why (2-5 bullet points)
+
+Only output the commit message, nothing else.
+
+Files changed:
+$changed_files
+
+Diff:
+$diff_content"
+
+  # Try ollama first (local AI)
+  if __cmd_exists ollama; then
+    result="$(ollama run llama3.2 "$prompt" 2>/dev/null | grep -v '^$')"
+    if [ -n "$result" ]; then
+      short_msg="$(echo "$result" | head -n1)"
+      long_msg="$(echo "$result" | tail -n +2 | grep -v '^$')"
+      [ -n "$long_msg" ] && GITCOMMIT_MESSAGE_LONG="$long_msg"
+      echo "$short_msg"
+      return 0
+    fi
+  fi
+
+  # Try claude CLI
+  if __cmd_exists claude; then
+    result="$(claude -p "$prompt" --allowedTools "" 2>/dev/null | grep -v '^$')"
+    if [ -n "$result" ]; then
+      short_msg="$(echo "$result" | head -n1)"
+      long_msg="$(echo "$result" | tail -n +2 | grep -v '^$')"
+      [ -n "$long_msg" ] && GITCOMMIT_MESSAGE_LONG="$long_msg"
+      echo "$short_msg"
+      return 0
+    fi
+  fi
+
+  # Try codex CLI
+  if __cmd_exists codex; then
+    result="$(codex exec "$prompt" 2>/dev/null | grep -v '^$')"
+    if [ -n "$result" ]; then
+      short_msg="$(echo "$result" | head -n1)"
+      long_msg="$(echo "$result" | tail -n +2 | grep -v '^$')"
+      [ -n "$long_msg" ] && GITCOMMIT_MESSAGE_LONG="$long_msg"
+      echo "$short_msg"
+      return 0
+    fi
+  fi
+
+  # Try GitHub Copilot CLI
+  if __cmd_exists copilot; then
+    result="$(copilot -p "$prompt" --allow-all-tools 2>/dev/null | grep -v '^$')"
+    if [ -n "$result" ]; then
+      short_msg="$(echo "$result" | head -n1)"
+      long_msg="$(echo "$result" | tail -n +2 | grep -v '^$')"
+      [ -n "$long_msg" ] && GITCOMMIT_MESSAGE_LONG="$long_msg"
+      echo "$short_msg"
+      return 0
+    fi
+  fi
+
+  # Try GitHub Copilot via gh extension
+  if __cmd_exists gh && gh extension list 2>/dev/null | grep -q 'copilot'; then
+    result="$(echo "$prompt" | gh copilot suggest -t shell 2>/dev/null | grep -v '^$')"
+    if [ -n "$result" ]; then
+      short_msg="$(echo "$result" | head -n1)"
+      long_msg="$(echo "$result" | tail -n +2 | grep -v '^$')"
+      [ -n "$long_msg" ] && GITCOMMIT_MESSAGE_LONG="$long_msg"
+      echo "$short_msg"
+      return 0
+    fi
+  fi
+
+  # Fallback to auto-generated message
+  local auto_result="$(__auto_generate_message "$changed_files" "")"
+  local auto_message="${auto_result%|*}"
+  local auto_emoji="${auto_result#*|}"
+  [ -z "$auto_emoji" ] && auto_emoji="$(__auto_detect_emoji "$changed_files")"
+
+  GITCOMMIT_MESSAGE_LONG="$changed_files"
+  echo "${auto_emoji} ${auto_message} ${auto_emoji}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __search() {
@@ -1960,6 +2053,12 @@ reset)
 tag)
   shift 1
   case "$1" in
+  version)
+    shift 1
+    [ $# -ne 0 ] || printf_exit "$APPNAME tag version [version] [message]"
+    __git_release_version "$@"
+    exit $?
+    ;;
   add)
     shift 1
     [ $# -ne 0 ] || printf_exit "$APPNAME tag add [tag] [message]"
@@ -1982,16 +2081,10 @@ tag)
     ;;
   esac
   ;;
+
 tar)
   shift 1
   __tar_release "$@"
-  ;;
-
-version)
-  shift 1
-  [ $# -ne 0 ] || printf_exit "$APPNAME version [version] [message]"
-  __git_release_version "$@"
-  exit $?
   ;;
 
 branch)
@@ -2023,6 +2116,7 @@ version)
 
 ai)
   shift 1
+  printf_cyan "Generating commit message using AI... Please wait."
   GITCOMMIT_MESSAGE_SHORT="$(__ai_commit_message "$*")"
   repo_has_changed="$(__changed_files all)"
   [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been modified in $GITCOMMIT_ROOT_DIR 😿"

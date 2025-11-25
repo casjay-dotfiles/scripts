@@ -18,7 +18,7 @@ cat <<EOF
 # @@sudo/root        :  yes
 # @@Template         :  templates/dockerfiles/init_scripts/07-cleanup.sh
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2120,SC2155,SC2199,SC2317,SC2329
+# shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set bash options
 set -o pipefail

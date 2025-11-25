@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
-# - - - - - - - - - - - - - - - - - - - - - - - - - 
-##@Version           :  202511241413-git
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version           :  202511242107-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,18 +10,18 @@
 # @@Created          :  Monday, Nov 24, 2025 14:13 EST
 # @@File             :  ai
 # @@Description      :  AI prompt wrapper - local AI first, then cloud CLI tools
-# @@Changelog        :  New script
+# @@Changelog        :  Added directory context for code analysis commands
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
 # @@Terminal App     :  no
 # @@sudo/root        :  no
 # @@Template         :  bash/system
-# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
-# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202511241413-git"
+VERSION="202511242107-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -415,9 +415,18 @@ __how_long_did_it_take() {
 __trap_exit_ai() {
 	AI_EXIT_STATUS=${AI_EXIT_STATUS:-0}
 	[ -f "$AI_TEMP_FILE" ] && rm -Rf "$AI_TEMP_FILE" &>/dev/null
+	rm -f "$AI_TEMP_DIR"/output_$$ "$AI_TEMP_DIR"/error_$$ 2>/dev/null
 	#unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD/#$HOME/~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
 	if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
 	return $AI_EXIT_STATUS
+}
+
+__trap_sigint_ai() {
+	printf_red "\n\nInterrupted by user (Ctrl+C)\n"
+	# Kill all child processes
+	pkill -P $$ 2>/dev/null
+	AI_EXIT_STATUS=130
+	exit 130
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - 
 # Create a --no-* options function
@@ -462,9 +471,10 @@ __notify_remote() {
 		fi
 	fi
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup trap to remove temp file
 trap '__trap_exit_ai' EXIT
+trap '__trap_sigint_ai' SIGINT
 # - - - - - - - - - - - - - - - - - - - - - - - - - 
 # start timer
 AI_START_TIMER="${AI_START_TIMER:-$(date +%s.%N)}"
@@ -487,16 +497,34 @@ __is_provider() {
 	done
 	return 1
 }
-# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run command with timeout
 __with_timeout() {
 	local timeout_sec="${AI_TIMEOUT:-120}"
 	if __cmd_exists timeout; then
-		timeout "$timeout_sec" "$@"
+		timeout --foreground --kill-after=5 "$timeout_sec" "$@"
 	else
 		# Fallback: run without timeout
 		"$@"
 	fi
+}
+
+# Execute command with streaming output (saves to temp file and displays in real-time)
+__exec_streaming() {
+	local output_file="$1"
+	local error_file="$2"
+	shift 2
+	local exit_code=0
+
+	if [ "$AI_SILENT" != "true" ]; then
+		# Stream to terminal and save to file
+		__with_timeout "$@" 2>"$error_file" | tee "$output_file" || exit_code=$?
+	else
+		# Just save to file (silent mode)
+		__with_timeout "$@" >"$output_file" 2>"$error_file" || exit_code=$?
+	fi
+
+	return $exit_code
 }
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - 
@@ -769,6 +797,7 @@ __run_provider() {
 	local args="${4:-}"
 	local exit_code=0
 	local output=""
+	local output_file="$AI_TEMP_DIR/output_$$"
 	local error_file="$AI_TEMP_DIR/error_$$"
 
 	case "$provider" in
@@ -776,101 +805,131 @@ __run_provider() {
 	ollama)
 		model="${model:-$(__get_model ollama)}"
 		[ -z "$model" ] && return 1
-		output="$(__with_timeout ollama run $args "$model" "$prompt" 2>"$error_file")" || exit_code=$?
+		__exec_streaming "$output_file" "$error_file" ollama run $args "$model" "$prompt" || exit_code=$?
+		output="$(cat "$output_file" 2>/dev/null)"
 		;;
 	llama-cli)
 		model="${model:-$(__get_model llama-cli)}"
 		[ -z "$model" ] && return 1
-		output="$(__with_timeout llama-cli $args -m "$model" -p "$prompt" --no-display-prompt 2>"$error_file")" || exit_code=$?
+		__exec_streaming "$output_file" "$error_file" llama-cli $args -m "$model" -p "$prompt" --no-display-prompt || exit_code=$?
+		output="$(cat "$output_file" 2>/dev/null)"
 		;;
 	llama)
 		model="${model:-$(__get_model llama)}"
 		[ -z "$model" ] && return 1
-		output="$(__with_timeout llama $args -m "$model" -p "$prompt" --no-display-prompt 2>"$error_file")" || exit_code=$?
+		__exec_streaming "$output_file" "$error_file" llama $args -m "$model" -p "$prompt" --no-display-prompt || exit_code=$?
+		output="$(cat "$output_file" 2>/dev/null)"
 		;;
 	llamafile)
-		output="$(__with_timeout llamafile $args -p "$prompt" --no-display-prompt 2>"$error_file")" || exit_code=$?
+		__exec_streaming "$output_file" "$error_file" llamafile $args -p "$prompt" --no-display-prompt || exit_code=$?
+		output="$(cat "$output_file" 2>/dev/null)"
 		;;
 	localai)
 		model="${model:-$(__get_model localai)}"
-		output="$(__with_timeout local-ai run $args ${model:+--model "$model"} "$prompt" 2>"$error_file")" || exit_code=$?
+		__exec_streaming "$output_file" "$error_file" local-ai run $args ${model:+--model "$model"} "$prompt" || exit_code=$?
+		output="$(cat "$output_file" 2>/dev/null)"
 		;;
 	lmstudio)
 		model="${model:-$(__get_model lmstudio)}"
-		output="$(__with_timeout lms chat $args ${model:+--model "$model"} "$prompt" 2>"$error_file")" || exit_code=$?
+		__exec_streaming "$output_file" "$error_file" lms chat $args ${model:+--model "$model"} "$prompt" || exit_code=$?
+		output="$(cat "$output_file" 2>/dev/null)"
 		;;
 	gpt4all)
 		model="${model:-$(__get_model gpt4all)}"
-		output="$(__with_timeout gpt4all $args ${model:+--model "$model"} --prompt "$prompt" 2>"$error_file")" || exit_code=$?
+		__exec_streaming "$output_file" "$error_file" gpt4all $args ${model:+--model "$model"} --prompt "$prompt" || exit_code=$?
+		output="$(cat "$output_file" 2>/dev/null)"
 		;;
 	llm)
 		model="${model:-$(__get_model llm)}"
-		output="$(__with_timeout llm $args ${model:+-m "$model"} "$prompt" 2>"$error_file")" || exit_code=$?
+		__exec_streaming "$output_file" "$error_file" llm $args ${model:+-m "$model"} "$prompt" || exit_code=$?
+		output="$(cat "$output_file" 2>/dev/null)"
 		;;
 	mlx)
 		model="${model:-$(__get_model mlx)}"
-		output="$(__with_timeout mlx_lm.generate $args ${model:+--model "$model"} --prompt "$prompt" 2>"$error_file")" || exit_code=$?
+		__exec_streaming "$output_file" "$error_file" mlx_lm.generate $args ${model:+--model "$model"} --prompt "$prompt" || exit_code=$?
+		output="$(cat "$output_file" 2>/dev/null)"
 		;;
 	koboldcpp)
-		output="$(__with_timeout koboldcpp $args --prompt "$prompt" 2>"$error_file")" || exit_code=$?
+		__exec_streaming "$output_file" "$error_file" koboldcpp $args --prompt "$prompt" || exit_code=$?
+		output="$(cat "$output_file" 2>/dev/null)"
 		;;
 	jan)
 		model="${model:-$(__get_model jan)}"
-		output="$(__with_timeout jan $args ${model:+--model "$model"} "$prompt" 2>"$error_file")" || exit_code=$?
+		__exec_streaming "$output_file" "$error_file" jan $args ${model:+--model "$model"} "$prompt" || exit_code=$?
+		output="$(cat "$output_file" 2>/dev/null)"
 		;;
 	mods)
-		output="$(echo "$prompt" | __with_timeout mods $args 2>"$error_file")" || exit_code=$?
+		echo "$prompt" | __exec_streaming "$output_file" "$error_file" mods $args || exit_code=$?
+		output="$(cat "$output_file" 2>/dev/null)"
 		;;
 	fabric)
-		output="$(echo "$prompt" | __with_timeout fabric $args 2>"$error_file")" || exit_code=$?
+		echo "$prompt" | __exec_streaming "$output_file" "$error_file" fabric $args || exit_code=$?
+		output="$(cat "$output_file" 2>/dev/null)"
 		;;
 	aichat)
-		output="$(__with_timeout aichat $args "$prompt" 2>"$error_file")" || exit_code=$?
+		__exec_streaming "$output_file" "$error_file" aichat $args "$prompt" || exit_code=$?
+		output="$(cat "$output_file" 2>/dev/null)"
 		;;
 	tgpt)
-		output="$(__with_timeout tgpt $args "$prompt" 2>"$error_file")" || exit_code=$?
+		__exec_streaming "$output_file" "$error_file" tgpt $args "$prompt" || exit_code=$?
+		output="$(cat "$output_file" 2>/dev/null)"
 		;;
 	plandex)
-		output="$(__with_timeout plandex $args "$prompt" 2>"$error_file")" || exit_code=$?
+		__exec_streaming "$output_file" "$error_file" plandex $args "$prompt" || exit_code=$?
+		output="$(cat "$output_file" 2>/dev/null)"
 		;;
 	# Cloud providers
 	claude)
-		output="$(__with_timeout claude $args -p "$prompt" 2>"$error_file")" || exit_code=$?
+		# Claude CLI doesn't support true token-by-token streaming in -p mode
+		# It buffers the complete response before outputting
+		__exec_streaming "$output_file" "$error_file" claude -p "$prompt" || exit_code=$?
+		output="$(cat "$output_file" 2>/dev/null)"
 		;;
 	copilot)
-		output="$(__with_timeout copilot $args -p "$prompt" 2>"$error_file")" || exit_code=$?
+		__exec_streaming "$output_file" "$error_file" copilot $args -p "$prompt" || exit_code=$?
+		output="$(cat "$output_file" 2>/dev/null)"
 		;;
 	gh-copilot)
-		output="$(__with_timeout gh copilot suggest $args "$prompt" 2>"$error_file")" || exit_code=$?
+		__exec_streaming "$output_file" "$error_file" gh copilot suggest $args "$prompt" || exit_code=$?
+		output="$(cat "$output_file" 2>/dev/null)"
 		;;
 	amazonq | amazon-q)
-		output="$(__with_timeout q chat $args "$prompt" 2>"$error_file")" || exit_code=$?
+		__exec_streaming "$output_file" "$error_file" q chat $args "$prompt" || exit_code=$?
+		output="$(cat "$output_file" 2>/dev/null)"
 		;;
 	cody)
-		output="$(__with_timeout cody chat $args -m "$prompt" 2>"$error_file")" || exit_code=$?
+		__exec_streaming "$output_file" "$error_file" cody chat $args -m "$prompt" || exit_code=$?
+		output="$(cat "$output_file" 2>/dev/null)"
 		;;
 	gemini)
-		output="$(echo "$prompt" | __with_timeout gemini $args 2>"$error_file")" || exit_code=$?
+		echo "$prompt" | __exec_streaming "$output_file" "$error_file" gemini $args || exit_code=$?
+		output="$(cat "$output_file" 2>/dev/null)"
 		;;
 	bito)
-		output="$(echo "$prompt" | __with_timeout bito $args 2>"$error_file")" || exit_code=$?
+		echo "$prompt" | __exec_streaming "$output_file" "$error_file" bito $args || exit_code=$?
+		output="$(cat "$output_file" 2>/dev/null)"
 		;;
 	aider)
-		output="$(__with_timeout aider $args --message "$prompt" 2>"$error_file")" || exit_code=$?
+		__exec_streaming "$output_file" "$error_file" aider $args --message "$prompt" || exit_code=$?
+		output="$(cat "$output_file" 2>/dev/null)"
 		;;
 	sgpt)
-		output="$(__with_timeout sgpt $args "$prompt" 2>"$error_file")" || exit_code=$?
+		__exec_streaming "$output_file" "$error_file" sgpt $args "$prompt" || exit_code=$?
+		output="$(cat "$output_file" 2>/dev/null)"
 		;;
 	openai)
-		output="$(__with_timeout openai api chat.completions.create $args -m "${model:-gpt-4}" -g user "$prompt" 2>"$error_file")" || exit_code=$?
+		__exec_streaming "$output_file" "$error_file" openai api chat.completions.create $args -m "${model:-gpt-4}" -g user "$prompt" || exit_code=$?
+		output="$(cat "$output_file" 2>/dev/null)"
 		;;
 	chatgpt)
-		output="$(__with_timeout chatgpt $args "$prompt" 2>"$error_file")" || exit_code=$?
+		__exec_streaming "$output_file" "$error_file" chatgpt $args "$prompt" || exit_code=$?
+		output="$(cat "$output_file" 2>/dev/null)"
 		;;
 	*)
 		# For unknown providers, try generic invocation
 		if __cmd_exists "$provider"; then
-			output="$(__with_timeout "$provider" $args "$prompt" 2>"$error_file")" || exit_code=$?
+			__exec_streaming "$output_file" "$error_file" "$provider" $args "$prompt" || exit_code=$?
+			output="$(cat "$output_file" 2>/dev/null)"
 		else
 			printf_red "Unknown provider: $provider"
 			return 1
@@ -916,9 +975,16 @@ __run_provider() {
 		)
 	fi
 
-	# Output result
+	# Cleanup temp files
+	[ -f "$output_file" ] && rm -f "$output_file" 2>/dev/null
+
+	# Output result (only if not already streamed)
 	if [ -n "$output" ]; then
-		echo "$output"
+		# If in normal mode (not silent), output was already streamed via tee
+		# Silent mode still needs to output for programmatic use
+		if [ "$AI_SILENT" = "true" ]; then
+			echo "$output"
+		fi
 		return 0
 	else
 		return 1
@@ -1936,6 +2002,51 @@ $prompt"
 # - - - - - - - - - - - - - - - - - - - - - - - - - 
 
 # Get smart default context for subcommands when no input provided
+__get_directory_context() {
+	local context=""
+	local file_count=0
+	local code_files=""
+
+	context+="Current directory: $(pwd)\n\n"
+
+	context+="Files in directory:\n"
+	code_files=$(find . -maxdepth 2 -type f \( \
+		-name "*.sh" -o -name "*.bash" -o -name "*.py" -o -name "*.js" -o -name "*.ts" \
+		-o -name "*.jsx" -o -name "*.tsx" -o -name "*.go" -o -name "*.rs" -o -name "*.c" \
+		-o -name "*.cpp" -o -name "*.java" -o -name "*.rb" -o -name "*.php" -o -name "*.lua" \
+		-o -name "*.md" -o -name "*.txt" -o -name "*.json" -o -name "*.yaml" -o -name "*.yml" \
+		-o -name "Makefile" -o -name "Dockerfile" -o -name "*.toml" \
+	\) ! -path "*/.*" ! -path "*/node_modules/*" ! -path "*/venv/*" ! -path "*/__pycache__/*" 2>/dev/null | head -50)
+
+	if [ -n "$code_files" ]; then
+		context+="$code_files\n\n"
+		file_count=$(echo "$code_files" | wc -l)
+	fi
+
+	if [ $file_count -le 3 ] && [ $file_count -gt 0 ]; then
+		context+="File contents:\n"
+		echo "$code_files" | while read -r file; do
+			if [ -f "$file" ]; then
+				local size=$(wc -l < "$file" 2>/dev/null || echo 0)
+				if [ "$size" -le 200 ]; then
+					context+="--- $file ---\n"
+					context+="$(cat "$file" 2>/dev/null)\n\n"
+				else
+					context+="--- $file (first 100 lines) ---\n"
+					context+="$(head -100 "$file" 2>/dev/null)\n\n"
+				fi
+			fi
+		done
+	fi
+
+	if [ -f "README.md" ]; then
+		context+="--- README.md (summary) ---\n"
+		context+="$(head -50 README.md 2>/dev/null)\n\n"
+	fi
+
+	echo -e "$context"
+}
+
 __get_smart_context() {
 	local subcmd="$1"
 	case "$subcmd" in
@@ -2025,6 +2136,14 @@ fi
 # Get prompt from arguments
 if [ $# -gt 0 ]; then
 	AI_PROMPT="$*"
+fi
+
+# If no context provided via pipe, use directory context for code-related commands
+CODE_COMMANDS="explain fix debug refactor optimize convert types modernize review security complexity perf test e2e bench doc mock example implement"
+if [ -z "$AI_CONTEXT" ] && [ -n "$1" ]; then
+	if echo " $CODE_COMMANDS " | grep -q " $1 "; then
+		AI_CONTEXT="$(__get_directory_context)"
+	fi
 fi
 
 # Combine context (stdin) with prompt (args)
@@ -2210,9 +2329,9 @@ else
 		__run_ai_prompt "$AI_PROMPT"
 		AI_EXIT_STATUS=$?
 		;;
-	# ============================================ 
+	# ============================================
 	# CODE TRANSFORMATION
-	# ============================================ 
+	# ============================================
 	explain)
 		shift 1
 		AI_PROMPT="Explain the following code or text clearly and concisely. Break down complex parts and explain the purpose:\n\n$AI_CONTEXT"

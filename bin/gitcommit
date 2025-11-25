@@ -360,6 +360,8 @@ __help() {
   __printf_line "tar                             - Create a tar release"
   __printf_line "branch                          - Create a new branch"
   __printf_line "push                            - Push changes to remote repo"
+  __printf_line "fixup                           - Fix last commit (auto-skips version bumps)"
+  __printf_line "squash [num] [msg]              - Squash last N commits (default: 2)"
   __printf_line "version                         - Bump the version"
   __printf_line "all                             - Commit all files"
   __printf_line "files                           - Commit files based on status"
@@ -2016,6 +2018,92 @@ __github_api_repo_verify() {
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+__git_fix_last() {
+  local repo_dir="${1:-$GITCOMMIT_ROOT_DIR}"
+
+  printf_cyan "Fixing last commit by adding current changes..."
+
+  local version_bump_count=0
+  local commit_hash=""
+  local commit_msg=""
+
+  while IFS= read -r line; do
+    commit_hash=$(echo "$line" | awk '{print $1}')
+    commit_msg=$(echo "$line" | cut -d' ' -f2-)
+
+    if echo "$commit_msg" | grep -qE "^🚀 Version Bump:|Version Bump:"; then
+      version_bump_count=$((version_bump_count + 1))
+    else
+      break
+    fi
+  done < <(git -C "$repo_dir" log --oneline -10 2>/dev/null)
+
+  if [ -z "$commit_hash" ]; then
+    printf_red "Could not find any commits"
+    return 1
+  fi
+
+  if [ "$version_bump_count" -gt 0 ]; then
+    printf_yellow "Removing $version_bump_count version bump commit(s)..."
+    git -C "$repo_dir" reset --soft HEAD~${version_bump_count} || return 1
+  fi
+
+  printf_cyan "Last real commit: $commit_msg"
+  printf_cyan "Amending with current changes..."
+
+  if ! git -C "$repo_dir" diff --cached --quiet; then
+    git -C "$repo_dir" commit --amend --no-edit
+  elif ! git -C "$repo_dir" diff --quiet; then
+    git -C "$repo_dir" add -u
+    git -C "$repo_dir" commit --amend --no-edit
+  else
+    printf_yellow "No changes to add"
+    return 1
+  fi
+
+  if [ $? -eq 0 ]; then
+    printf_green "Successfully amended last commit: $commit_msg"
+    return 0
+  else
+    printf_red "Failed to amend commit"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__git_squash() {
+  local num_commits="${1:-2}"
+  local new_message="$2"
+  local repo_dir="${3:-$GITCOMMIT_ROOT_DIR}"
+
+  if ! [[ "$num_commits" =~ ^[0-9]+$ ]] || [ "$num_commits" -lt 2 ]; then
+    printf_red "Number of commits must be 2 or greater"
+    return 1
+  fi
+
+  local total_commits=$(git -C "$repo_dir" rev-list --count HEAD 2>/dev/null)
+  if [ "$num_commits" -gt "$total_commits" ]; then
+    printf_red "Cannot squash $num_commits commits (only $total_commits commits exist)"
+    return 1
+  fi
+
+  printf_cyan "Squashing last $num_commits commits..."
+
+  if [ -n "$new_message" ]; then
+    GIT_SEQUENCE_EDITOR="sed -i -e '2,${num_commits}s/^pick/squash/'" git -C "$repo_dir" rebase -i HEAD~${num_commits} && \
+    git -C "$repo_dir" commit --amend -m "$new_message"
+  else
+    GIT_SEQUENCE_EDITOR="sed -i -e '2,${num_commits}s/^pick/squash/'" git -C "$repo_dir" rebase -i HEAD~${num_commits}
+  fi
+
+  if [ $? -eq 0 ]; then
+    printf_green "Successfully squashed $num_commits commits"
+    return 0
+  else
+    printf_red "Failed to squash commits"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
 
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -2962,6 +3050,27 @@ custom)
   else
     printf_exit "You must specify your commit message"
   fi
+  exit $?
+  ;;
+
+fixup | fix-last | fix)
+  shift 1
+  if [ "$1" = "help" ]; then
+    printf_exit "Usage: $APPNAME fixup\n  Automatically amends last real commit (skips version bumps) with current changes"
+  fi
+  __git_fix_last
+  exit $?
+  ;;
+
+squash)
+  shift 1
+  if [ "$1" = "help" ]; then
+    printf_exit "Usage: $APPNAME squash [number] [new_message]\n  number: Number of commits to squash (default: 2)\n  new_message: Optional new commit message"
+  fi
+  num_commits="${1:-2}"
+  shift 1 2>/dev/null || true
+  new_message="$*"
+  __git_squash "$num_commits" "$new_message"
   exit $?
   ;;
 

@@ -3,6 +3,7 @@
 ## AI Behavior & Autonomy
 
 ### Command Execution
+
 - **NEVER ask permission to run commands** - Just run them
 - **User expects full autonomy** - You have access to commands and filesystem
 - **Act, don't ask** - Make changes, run tests, validate results
@@ -13,6 +14,7 @@
 - **Allowed**: `gitcommit status`, `gitcommit log`, `git status`, `git diff`, and other read-only git operations
 
 ### Decision Making
+
 - **Be autonomous** - Make technical decisions based on best practices when clear
 - **Ask when uncertain** - If you're not sure what the user wants, ask
 - **Take initiative** - Fix issues you discover while working (when obvious)
@@ -20,11 +22,13 @@
 - **Keep moving forward** - Don't wait for permission on routine tasks
 
 ### Understanding User Intent
+
 - **Question mark (?) = Question** - User is asking a question, not giving instructions
 - **No question mark = Instruction** - User expects action, not questions back
 - **Be helpful** - Answer questions thoroughly, execute instructions autonomously
 
 ### What NOT to ask:
+
 - ❌ "Can I run this command?" (when instruction is clear)
 - ❌ "Should I check the syntax?" (routine validation)
 - ❌ "May I read this file?" (when context requires it)
@@ -32,6 +36,7 @@
 - ❌ "Can I create a commit message?" (always required after changes)
 
 ### What TO ask:
+
 - ✅ "Which approach do you prefer: A or B?" (when genuinely ambiguous)
 - ✅ "Should I delete this production data?" (destructive operations)
 - ✅ "What should the behavior be in case X?" (unclear requirements)
@@ -39,6 +44,7 @@
 - ✅ "Did you mean X or Y?" (when instruction is ambiguous)
 
 ## Project Information
+
 - **Project Type**: Shell Script Collection
 - **Language**: Bash
 - **Purpose**: System administration and development tools
@@ -46,6 +52,7 @@
 ## Development Workflow
 
 ### Session Overview
+
 Current session: Docker container builds and gitcommit COMMIT_MESS workflow
 - Fixed Docker build failures (AlmaLinux and Alpine)
 - Emptied .dockerignore to include .git directory for install.sh
@@ -108,6 +115,7 @@ docker run --rm -it local-scripts-test /usr/local/share/CasjaysDev/scripts/bin/s
 ## Script Layout Standards
 
 ### Overview
+
 All bash scripts follow a standardized layout for consistency, maintainability, and integration with the function library system.
 
 ### Script Header (Lines 1-21)
@@ -194,6 +202,7 @@ set -o pipefail
 - Format: `user@hostname:~/path - scriptname`
 
 ### Internal Functions Section (Lines 50-560)
+
 All internal/helper functions with `__` prefix:
 - `__devnull()` - Redirect output to /dev/null
 - `__devnull2()` - Redirect errors to /dev/null
@@ -465,12 +474,14 @@ exit ${SCRIPTNAME_EXIT_STATUS:-0}
 ### Template Types
 
 #### mgr-script.user.sh
+
 - **sudo/root**: no
 - **Purpose**: User-level scripts (no root required)
 - **Config Location**: `~/.config/myscripts/scriptname/`
 - **Uses**: `USRUPDATEDIR` for package management
 
 #### mgr-script.system.sh
+
 - **sudo/root**: yes
 - **Purpose**: System-level scripts (requires root for certain operations)
 - **Config Location**: System-wide and user configs
@@ -489,12 +500,14 @@ exit ${SCRIPTNAME_EXIT_STATUS:-0}
 8. **Newline at EOF** - Always end file with newline character
 
 ### Version Format
+
 - Format: `YYYYMMDDHHMM-git`
 - Example: `202510070726-git`
 - Update on every change
 - Use in both header (`##@Version`) and `VERSION` variable
 
 ### When to Update Headers
+
 - **Always update** when making changes to script
 - **Version**: Update to current date-time
 - **Changelog**: Brief description of what changed
@@ -504,12 +517,14 @@ exit ${SCRIPTNAME_EXIT_STATUS:-0}
 ## Best Practices Implemented
 
 ### Security
+
 - No `curl | sh` patterns - use direct downloads
 - Proper sudo handling with `sudo tee` instead of redirects
 - Input validation and sanitization
 - Secure credential storage
 
 ### Code Quality
+
 - Use `if/else` or `if/elif/else` instead of `&&`/`||` chains for readability
 - **All functions prefixed with `__`** (internal functions)
 - **All variables prefixed with `{SCRIPTNAME}_`** (except where inappropriate)
@@ -524,6 +539,7 @@ exit ${SCRIPTNAME_EXIT_STATUS:-0}
   - Update other fields as appropriate to reflect script functionality
 
 ### Architecture Support
+
 - **amd64** (x86_64)
 - **arm64** (aarch64)  
 - **arm** (armv7l)
@@ -558,6 +574,7 @@ __install_package()    # Installation helpers
 ```
 
 ### Common Issues
+
 1. **Permission errors** - Check sudo configuration
 2. **Function not found** - Verify function library imports
 3. **Syntax errors** - Use `bash -n` to check
@@ -566,6 +583,7 @@ __install_package()    # Installation helpers
 ## Configuration
 
 ### Config Locations
+
 - User configs: `~/.config/myscripts/scriptname/`
 - System configs: `/etc/scriptname/`
 - Logs: `~/.local/log/scriptname/`
@@ -580,11 +598,13 @@ SCRIPTNAME_CACHE_DIR    # Cache directory
 ### Naming Schema
 
 #### Man Pages
+
 - **Location**: `man/`
 - **Format**: `{scriptname}.1`
 - **Examples**: `dockermgr.1`, `virtmgr.1`, `setupmgr.1`
 
-#### Completion Files  
+#### Completion Files
+
 - **Location**: `completions/`
 - **Format**: `_{scriptname}_completions`
 - **Examples**: `_dockermgr_completions`, `_virtmgr_completions`
@@ -592,6 +612,7 @@ SCRIPTNAME_CACHE_DIR    # Cache directory
 ## Integration
 
 ### With System Package Managers
+
 - **pacman** (Arch/CachyOS/Manjaro)
 - **apt** (Debian/Ubuntu/Mint)
 - **dnf/yum** (RHEL/Fedora/CentOS)
@@ -604,12 +625,14 @@ SCRIPTNAME_CACHE_DIR    # Cache directory
 - **Windows**: Use WSL with appropriate Linux package manager
 
 ### With External APIs
+
 - GitHub API for releases and version checking
 - Docker Hub API for repository management
 - Container registries for multi-architecture builds
 - Various web services for functionality
 
 ### Docker Integration
+
 - Multi-platform builds with buildx
 - Platform detection and fallback support
 - Container-based testing environments
@@ -618,23 +641,27 @@ SCRIPTNAME_CACHE_DIR    # Cache directory
 ## Environment Variable Specification
 
 ### Repository URLs (Full URLs)
+
 - **`ENV_GIT_REPO_URL`** - Complete Git repository URL (e.g., `https://github.com/user/repo`)
 - **`ENV_REGISTRY_URL`** - Complete registry URL for reference (NOT used for pushing)
   - Default: `https://hub.docker.com` for Docker Hub
   - Custom: `https://registry.company.com` for private registries
 
 ### Push Configuration
+
 - **`ENV_IMAGE_PUSH`** - Complete push destination (this IS used for pushing)
   - Format: `{user}/{repo}` (Docker Hub) or `{registry}/{user}/{repo}` (Custom)
   - Examples: `casjaysdev/myapp` or `ghcr.io/casjaysdev/myapp`
 
 ### Tag Management
+
 - **`ENV_IMAGE_TAG`** - Default tag (e.g., `latest`, `v1.0`)
 - **`ENV_ADD_TAGS`** - Additional tags, comma-separated
   - Special: `USE_DATE` → automatically adds date as tag
   - Example: `v1.0,stable,USE_DATE`
 
 ### Pull Configuration
+
 - **`ENV_PULL_URL`** - Source image (same format as ENV_IMAGE_PUSH)
 - **`ENV_DISTRO_TAG`** - Tag for source image
 - **Combined**: `$ENV_PULL_URL:$ENV_DISTRO_TAG` (e.g., `ubuntu:22.04`)
@@ -642,18 +669,21 @@ SCRIPTNAME_CACHE_DIR    # Cache directory
 ## File Management Standards
 
 ### Reading Large Files
+
 - **Always read in chunks** (top to bottom)
 - **Read multiple times** for comprehension
 - Use `offset` and `limit` parameters for large files
 - Never attempt to read entire large files at once
 
 ### Temporary Files
+
 - **All temp/debug files**: `~/.local/tmp/claude/{reponame}/`
 - **Keep base directory clean** - production ready state only
 - **No temp files in working directory** - use proper temp locations
 - **Clean up after development** - remove debugging artifacts
 
 ### AI File Management
+
 - **AI.md** - Master context file with full AI conversation history, rules, patterns
   - Location: `<git_root>/AI.md`
   - **ALWAYS keep in sync** - Update continuously throughout session
@@ -702,6 +732,7 @@ SCRIPTNAME_CACHE_DIR    # Cache directory
 6. Create COMMIT_MESS with all changes
 
 ### Function and Variable Naming
+
 - **Functions**: Prefix with `__` for internal functions
 - **Variables**: Prefix with `{SCRIPTNAME}_` (uppercase script name)
 - **Exceptions**: Use judgment for standard variables (PATH, HOME, etc.)
@@ -713,11 +744,13 @@ SCRIPTNAME_CACHE_DIR    # Cache directory
 ## Git & Version Control
 
 ### Commit Policy
+
 - **Never commit changes** - User handles all commits with signing
 - **Focus on code changes only** - Make edits, test, validate
 - **User commits when ready** - Respects signed commit workflow
 
 ### AI/Claude Access
+
 - **AI has access to ALL commands** - Including git commands for checking status, logs, diffs, etc.
 - **EXCEPT: Never run `git commit`** - User handles all commits with GPG signing
 - **EXCEPT: Never run `gitcommit` without subcommand** - Only read-only operations allowed
@@ -730,6 +763,7 @@ SCRIPTNAME_CACHE_DIR    # Cache directory
   - Example: `/home/jason/Projects/github/casjay-dotfiles/scripts/.git/COMMIT_MESS`
 
 ### Commit Message Integration
+
 - **gitcommit script** - Parses `.git/COMMIT_MESS` file if it exists at startup
 - **AI workflow**:
   1. **ALWAYS** create/update `.git/COMMIT_MESS` with commit message after making changes
@@ -773,6 +807,7 @@ SCRIPTNAME_CACHE_DIR    # Cache directory
 ## Key Session Accomplishments
 
 ### Current Session: Docker Builds & gitcommit Fixes
+
 - **Docker Container Builds**: Fixed AlmaLinux and Alpine container build failures
   - Emptied `.dockerignore` to include `.git` directory (required by install.sh)
   - Added git package to Alpine Dockerfile
@@ -787,30 +822,35 @@ SCRIPTNAME_CACHE_DIR    # Cache directory
 ### Previous Sessions
 
 #### Security & Code Quality
+
 - Fixed shellcheck SC2024 errors (sudo redirect patterns)
 - Eliminated insecure `curl | sh` patterns throughout codebase
 - Implemented proper multi-architecture binary downloads
 - Converted complex `&&`/`||` chains to readable if/else statements
 
 #### Docker Management Enhancements
+
 - Enhanced dockermgr with comprehensive k3s (k3b) management
 - Consolidated 8 minikube functions into single `__minikube_cmd()`
 - Implemented direct Docker Hub API integration (no external containers)
 - Added `__create_readme()` function for automated documentation
 
 #### Build & Container Improvements
+
 - Enhanced buildx script with platform detection and graceful fallback
 - Fixed Dockerfile systemd issues for proper container operation
 - Added comprehensive OCI labels and metadata
 - Separated setupmgr (binary installation) from dockermgr (configuration)
 
 #### Infrastructure & Templates
+
 - Created generic CLAUDE.md and TODO.md templates for reuse
 - Documented comprehensive development standards and workflows
 - Added support for extensive package manager ecosystem
 - Established Docker-first testing methodology
 
 ## Notes
+
 - Always test changes in development environment first
 - Use shellcheck for code quality
 - Follow existing patterns and conventions

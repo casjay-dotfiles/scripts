@@ -8,6 +8,9 @@
 - **Act, don't ask** - Make changes, run tests, validate results
 - **When unsure, ASK** - If you're uncertain about what to do, ask for clarification
 - **Only ask when needed** - Unclear requirements, multiple valid approaches, destructive operations
+- **Never assume** - Do not make assumptions about user intent, requirements, or context
+- **Exception**: Cannot run `git commit` or `gitcommit` commands that actually commit (e.g., `gitcommit`, `gitcommit ai`, `gitcommit all`)
+- **Allowed**: `gitcommit status`, `gitcommit log`, `git status`, `git diff`, and other read-only git operations
 
 ### Decision Making
 - **Be autonomous** - Make technical decisions based on best practices when clear
@@ -253,6 +256,54 @@ SCRIPTNAME_CACHE_DIR    # Cache directory
 - **Keep base directory clean** - production ready state only
 - **No temp files in working directory** - use proper temp locations
 - **Clean up after development** - remove debugging artifacts
+
+### AI File Management
+- **AI.md** - Master context file with full AI conversation history, rules, patterns
+  - Location: `<git_root>/AI.md`
+  - **ALWAYS keep in sync** - Update continuously throughout session
+  - **Update after completing each major task** - Never wait until end of session
+  - Prevents context loss if crash or error occurs
+  - Contains: Session history, lessons learned, patterns established, quick reference
+  - Purpose: Complete AI context for current and future sessions
+  - If doesn't exist at session start: Create by reading CLAUDE.md and repository state
+  
+- **AI.TODO.md** - Temporary task tracker for current session
+  - **ALWAYS use when >2 instructions or >2 tasks**
+  - Location: `<git_root>/AI.TODO.md`
+  - Purpose: Track multiple tasks, keep AI focused and organized
+  - **Keep in sync**: Update after completing each task
+  - **Delete when done**: Remove AI.TODO.md when all tasks are completed
+  - Format: Standard markdown checklist with clear task descriptions
+
+**When to create AI.TODO.md:**
+- ✅ More than 2 instructions given at once
+- ✅ More than 2 tasks to complete
+- ✅ Complex multi-step workflow
+- ✅ Multiple files to modify
+
+**What to include:**
+```markdown
+# AI TODO
+
+## Current Session Tasks
+
+- [ ] Task 1: Description
+- [ ] Task 2: Description
+- [ ] Task 3: Description
+
+## Completed
+
+- [x] Completed task 1
+- [x] Completed task 2
+```
+
+**Workflow:**
+1. User gives 3+ tasks → Create AI.TODO.md immediately
+2. Work on tasks one at a time
+3. Update AI.TODO.md after each task (move to Completed section)
+4. When all tasks done → Delete AI.TODO.md
+5. Update AI.md after completing each major task (continuous sync)
+6. Create COMMIT_MESS with all changes
 
 ### Function and Variable Naming
 - **Functions**: Prefix with `__` for internal functions

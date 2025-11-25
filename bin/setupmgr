@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202511241710-git
+##@Version           :  202511241730-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Saturday, Sep 14, 2024 14:03 EDT
 # @@File             :  setupmgr
 # @@Description      :  Cross-platform binary/package installation manager - supports Linux, macOS, BSD, Solaris
-# @@Changelog        :  Added __get_release_info helper to reduce code duplication
+# @@Changelog        :  Added Plandex AI coding agent with server setup
 # @@TODO             :  Add systemd service files for server binaries (localai, ollama, etc)
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2120,SC2155,SC2199,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202511241710-git"
+VERSION="202511241730-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -353,11 +353,11 @@ __help() {
   __printf_line "Supported Architectures: x86_64 (amd64), aarch64 (arm64), armv7 (arm), armv6"
   __printf_line " - "
   __printf_line "Package Installation Commands:"
-  __printf_line "act,aichat,asdf,bat,bob,bun,caddy,coder,delta,deno,devbox,direnv,distrobox"
+  __printf_line "act,aichat,aider,asdf,bat,bob,bun,caddy,coder,delta,deno,devbox,direnv,distrobox"
   __printf_line "dotnet,dust,exa,fabric,fastfetch,fd,fnm,fzf,garage,gemini,gh,glow,go,gohttpserver"
   __printf_line "gpt,gvm,helm,incus,jekyll,jless,just,kind,kubectl,lapce,lazydocker"
   __printf_line "lazygit,lima,llama-cpp,llm,localai,lua,mc,minikube,minio_server,mods,nix,nodejs,nvm,ollama"
-  __printf_line "opentofu,packer,pipx,podman,powershell,procs,rbenv,ripgrep,rvm"
+  __printf_line "opentofu,packer,plandex,pipx,podman,powershell,procs,rbenv,ripgrep,rvm"
   __printf_line "shellcheck,shfmt,speedtest,starship,tokei,traefik,uv,vagrant,vfox"
   __printf_line "webhookd,yq,zed,zoxide,claude,copilot,cortex,codex,vercel,prettier,eslint"
   __printf_line "npm-check-updates"
@@ -4413,6 +4413,228 @@ __setup_llm() {
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_aider() {
+  local exitCode=0
+  local name="aider-chat"
+  local cmd_name="aider"
+  if ! __cmd_exists pipx; then
+    printf_red "pipx is required to install $name"
+    printf_yellow "Run: setupmgr pipx"
+    return 1
+  fi
+  if __cmd_exists "$cmd_name" && [ "$SETUPMGR_FORCE_INSTALL" != "true" ]; then
+    printf_green "$cmd_name is already installed"
+    return 0
+  fi
+  printf_green "Installing $name via pipx"
+  if pipx install aider-chat |& __output_status; then
+    printf_green "Installed $cmd_name via pipx"
+    printf_cyan "Usage: aider --model ollama/qwen2.5-coder:32b"
+    printf_cyan "Docs: https://aider.chat/docs/"
+  else
+    exitCode=1
+    printf_red "Failed to install $name via pipx"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_plandex() {
+  local exitCode=0
+  local cli_name="plandex"
+  local server_dir=""
+  local install_server="${PLANDEX_INSTALL_SERVER:-true}"
+
+  # Determine server directory based on sudo availability
+  if __sudoif; then
+    server_dir="${PLANDEX_SERVER_DIR:-/opt/plandex}"
+  else
+    server_dir="${PLANDEX_SERVER_DIR:-$HOME/.local/share/plandex/server}"
+  fi
+
+  # Check prerequisites
+  if ! __cmd_exists docker; then
+    printf_red "Docker is required for Plandex server"
+    printf_yellow "Install Docker first, then run: setupmgr plandex"
+    return 1
+  fi
+
+  if ! __cmd_exists docker-compose && ! docker compose version &>/dev/null; then
+    printf_red "docker-compose is required for Plandex server"
+    printf_yellow "Install docker-compose first, then run: setupmgr plandex"
+    return 1
+  fi
+
+  # Install CLI
+  if __cmd_exists "$cli_name" && [ "$SETUPMGR_FORCE_INSTALL" != "true" ]; then
+    printf_green "Plandex CLI is already installed"
+  else
+    printf_green "Installing Plandex CLI"
+    if curl -sL https://plandex.ai/install.sh | bash |& __output_status; then
+      printf_green "Plandex CLI installed successfully"
+    else
+      exitCode=1
+      printf_red "Failed to install Plandex CLI"
+      return $exitCode
+    fi
+  fi
+
+  # Setup server
+  if [ "$install_server" = "true" ]; then
+    if [ -d "$server_dir/.git" ]; then
+      printf_cyan "Plandex server repository already exists at: $server_dir"
+      printf_yellow "To update: cd $server_dir && git pull"
+    else
+      printf_green "Cloning Plandex server repository to: $server_dir"
+      if git clone https://github.com/plandex-ai/plandex.git "$server_dir" |& __output_status; then
+        printf_green "Plandex server repository cloned successfully"
+      else
+        exitCode=1
+        printf_red "Failed to clone Plandex server repository"
+        return $exitCode
+      fi
+    fi
+
+    # Setup systemd service
+    local service_file=""
+    local systemd_cmd="systemctl"
+
+    if __sudoif; then
+      service_file="/etc/systemd/system/plandex.service"
+    else
+      service_file="$HOME/.config/systemd/user/plandex.service"
+      systemd_cmd="systemctl --user"
+      mkdir -p "$HOME/.config/systemd/user"
+    fi
+
+    printf_green "Installing systemd service file"
+    # Create service file with embedded content
+    if __sudoif; then
+      sudo tee "$service_file" >/dev/null <<EOF
+[Unit]
+Description=Plandex AI Coding Agent Server
+After=network.target docker.service
+Requires=docker.service
+Documentation=https://docs.plandex.ai/
+
+[Service]
+Type=simple
+WorkingDirectory=$server_dir/app
+PrivateTmp=true
+Restart=always
+RestartSec=10
+KillMode=mixed
+
+Environment=TERM=linux
+Environment=HOME="$HOME"
+Environment=GOENV=development
+Environment=PORT=8099
+Environment=LOCAL_MODE=true
+
+# Start the server using the official start script
+ExecStart=/bin/bash -c 'cd $server_dir/app && ./start_local.sh'
+ExecStop=/usr/bin/docker compose down
+ExecReload=/usr/bin/docker compose restart
+TimeoutStartSec=60
+TimeoutStopSec=30
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=$server_dir
+
+[Install]
+WantedBy=multi-user.target
+EOF
+      sudo systemctl daemon-reload
+    else
+      cat > "$service_file" <<EOF
+[Unit]
+Description=Plandex AI Coding Agent Server
+After=network.target docker.service
+Requires=docker.service
+Documentation=https://docs.plandex.ai/
+
+[Service]
+Type=simple
+WorkingDirectory=$server_dir/app
+PrivateTmp=true
+Restart=always
+RestartSec=10
+KillMode=mixed
+
+Environment=TERM=linux
+Environment=HOME="$HOME"
+Environment=GOENV=development
+Environment=PORT=8099
+Environment=LOCAL_MODE=true
+
+# Start the server using the official start script
+ExecStart=/bin/bash -c 'cd $server_dir/app && ./start_local.sh'
+ExecStop=/usr/bin/docker compose down
+ExecReload=/usr/bin/docker compose restart
+TimeoutStartSec=60
+TimeoutStopSec=30
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=$server_dir
+
+[Install]
+WantedBy=multi-user.target
+EOF
+      systemctl --user daemon-reload
+    fi
+    printf_green "Systemd service installed: $service_file"
+    printf_cyan "Enable service: $systemd_cmd enable plandex"
+    printf_cyan "Start service:  $systemd_cmd start plandex"
+    printf_cyan "Status:         $systemd_cmd status plandex"
+
+    # Check if server is running
+    if curl -s http://localhost:8099/health &>/dev/null; then
+      printf_green "Plandex server is already running on http://localhost:8099"
+    else
+      printf_yellow "Plandex server is not running"
+      printf_cyan "To start server manually:"
+      printf_cyan "  cd $server_dir/app && ./start_local.sh"
+      printf_cyan "Or use systemd:"
+      printf_cyan "  $systemd_cmd start plandex"
+    fi
+  fi
+
+  # Show configuration instructions
+  printf_purple "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  printf_cyan "Plandex Setup Complete!"
+  printf_purple "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  printf_cyan ""
+  printf_cyan "Next Steps:"
+  printf_cyan ""
+  printf_cyan "1. Start the server (if not running):"
+  printf_cyan "   cd $server_dir/app && ./start_local.sh"
+  printf_cyan ""
+  printf_cyan "2. Sign in (in a new terminal):"
+  printf_cyan "   plandex sign-in"
+  printf_cyan "   > Select: Local mode host"
+  printf_cyan "   > Accept: http://localhost:8099"
+  printf_cyan ""
+  printf_cyan "3. Configure for Ollama:"
+  printf_cyan "   plandex set-model ollama-daily  # Hybrid (recommended)"
+  printf_cyan "   # OR"
+  printf_cyan "   plandex set-model ollama         # Full local (needs 32GB+ RAM)"
+  printf_cyan ""
+  printf_cyan "4. Start using:"
+  printf_cyan "   cd your-project && plandex"
+  printf_cyan ""
+  printf_cyan "Server location: $server_dir"
+  printf_cyan "Server port: http://localhost:8099"
+  printf_cyan "Docs: https://docs.plandex.ai/"
+  printf_purple "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
 SETUPMGR_START_TIMER="${SETUPMGR_START_TIMER:-$(date +%s.%N)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -4801,6 +5023,11 @@ while [ $# -gt 0 ]; do
     __setup_aichat
     SETUPMGR_EXIT_STATUS=$?
     ;;
+  aider)
+    shift 1
+    __setup_aider
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
   asdf)
     shift 1
     __setup_asdf
@@ -5055,6 +5282,11 @@ while [ $# -gt 0 ]; do
   packer)
     shift 1
     __setup_packer
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  plandex)
+    shift 1
+    __setup_plandex
     SETUPMGR_EXIT_STATUS=$?
     ;;
   pipx)

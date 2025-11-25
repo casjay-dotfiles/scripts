@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202511241815-git
+##@Version           :  202511251249-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Monday, Aug 08, 2022 23:22 EDT
 # @@File             :  gitadmin
 # @@Description      :  push/clone/pull from github/gitlab/private/bitbucket/codeberg/forgejo/gitea/gogs/azure/aws repos
-# @@Changelog        :  Updated __git_log function to support optional limit parameter like gitcommit
+# @@Changelog        :  Updated org all to clone user repos first then org repos in alphabetical order
 # @@TODO             :  Add more platform support (Forgejo, Gogs API improvements)
 # @@Other            :  Somethings may be broken due to variable changes
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202511241815-git"
+VERSION="202511251249-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -3482,6 +3482,55 @@ __api_org() {
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Smart API - Try org first, fallback to user
+__api_smart_org_or_user() {
+  local name="${1:-$GITADMIN_DEFAULT_USERNAME}"
+  local org_repos="" user_repos=""
+
+  org_repos="$(__curl_gh_api "https://api.github.com/orgs/$name/repos?per_page=1000&sort=full_name" | __jq -r '.[]|.name' 2>/dev/null | grep -v '^$' | grep '^')"
+
+  if [ -n "$org_repos" ]; then
+    export MESSAGE="Getting the repos for org: $name"
+    __api_org_token "$name"
+  else
+    user_repos="$(__curl_gh_api "https://api.github.com/users/$name/repos?per_page=1000&sort=full_name&type=owner" | __jq -r '.[]|.name' 2>/dev/null | grep -v '^$' | grep '^')"
+    if [ -n "$user_repos" ]; then
+      export MESSAGE="Getting the repos for user: $name"
+      printf '%s\n' "$user_repos" >"$GITADMIN_TEMP_FILE"
+      COUNT="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
+      return 0
+    else
+      printf_yellow "⛔ No repos found for $name ⛔"
+      return 1
+    fi
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Smart API - Try user first, fallback to org
+__api_smart_user_or_org() {
+  local name="${1:-$GITADMIN_DEFAULT_USERNAME}"
+  local user_repos="" org_repos=""
+
+  user_repos="$(__curl_gh_api "https://api.github.com/users/$name/repos?per_page=1000&sort=full_name&type=owner" | __jq -r '.[]|.name' 2>/dev/null | grep -v '^$' | grep '^')"
+
+  if [ -n "$user_repos" ]; then
+    export MESSAGE="Getting the repos for user: $name"
+    printf '%s\n' "$user_repos" >"$GITADMIN_TEMP_FILE"
+    COUNT="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
+    return 0
+  else
+    org_repos="$(__curl_gh_api "https://api.github.com/orgs/$name/repos?per_page=1000&sort=full_name" | __jq -r '.[]|.name' 2>/dev/null | grep -v '^$' | grep '^')"
+    if [ -n "$org_repos" ]; then
+      export MESSAGE="Getting the repos for org: $name"
+      __api_org_token "$name"
+      return 0
+    else
+      printf_yellow "⛔ No repos found for $name ⛔"
+      return 1
+    fi
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # pull function
 __git_pull() {
   local git_dir="" args="" regex=""
@@ -3941,12 +3990,21 @@ __git_retrieve_orgs() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_all_orgs_clone() {
-  __git_retrieve_orgs "${1:-$GITADMIN_DEFAULT_USERNAME}"
+  local username="${1:-$GITADMIN_DEFAULT_USERNAME}"
+
+  printf_blue "🚀 Cloning user repos for $username first 🚀"
+  $0 user clone "$username"
+
+  __git_retrieve_orgs "$username"
   total="$(printf '%s\n' "$GIT_ALL_REPOS" | tr ' ' '\n ' | grep -v '^$' | grep '^' | wc -l)"
-  [ -n "$total" ] && printf_blue "$GITADMIN_DEFAULT_USERNAME has $total organizations"
-  for org in $GIT_ALL_REPOS; do
-    $0 org clone "$org"
-  done
+  if [ -n "$total" ] && [ "$total" -gt 0 ]; then
+    printf_blue "$username has $total organizations"
+    for org in $(printf '%s\n' "$GIT_ALL_REPOS" | tr ' ' '\n' | sort); do
+      $0 org clone "$org"
+    done
+  else
+    printf_yellow "⚠️  No organizations found for $username ⚠️"
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Retrieve all Bitbucket workspaces
@@ -4670,7 +4728,7 @@ __clone_orgs() {
   GITADMIN_DEFAULT_USERNAME="${1:-$GITADMIN_DEFAULT_USERNAME}"
   GITADMIN_DEFAULT_REPO_BASE="${2:-$GITADMIN_DEFAULT_REPO_BASE}/$GITADMIN_DEFAULT_USERNAME"
   GITADMIN_NEW_PROJECT_DIR="$GITADMIN_DEFAULT_PROJECT_DIR/github"
-  __api_org_token "$GITADMIN_DEFAULT_USERNAME" || return 1
+  __api_smart_org_or_user "$GITADMIN_DEFAULT_USERNAME" || return 1
   printf_green "$MESSAGE"
   printf_blue "There's currently $COUNT repos available"
   __main "$GITADMIN_DEFAULT_REPO_BASE"
@@ -4769,17 +4827,21 @@ __github_user_clone_repos() {
   local exitCode=0
   GITADMIN_DEFAULT_USERNAME="${1:-$GITADMIN_DEFAULT_USERNAME}"
   GITADMIN_DEFAULT_REPO_BASE="$GITADMIN_DEFAULT_REPO_BASE/$GITADMIN_DEFAULT_USERNAME"
-  __api_user "$GITADMIN_DEFAULT_USERNAME" | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
-  COUNT="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
-  if [ -n "$COUNT" ]; then
-    printf_green "$MESSAGE"
-    printf_blue "There's currently $COUNT repos available"
-    printf_green "Initializing $GITADMIN_DEFAULT_REPO_BASE"
-    __main "$GITADMIN_DEFAULT_USERNAME"
-    exitCode=$?
+  if __api_smart_user_or_org "$GITADMIN_DEFAULT_USERNAME"; then
+    COUNT="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
+    if [ "$COUNT" -gt 0 ]; then
+      printf_green "$MESSAGE"
+      printf_blue "There's currently $COUNT repos available"
+      printf_green "Initializing $GITADMIN_DEFAULT_REPO_BASE"
+      __main "$GITADMIN_DEFAULT_USERNAME"
+      exitCode=$?
+    else
+      exitCode=1
+      printf_red "😿 No repos found for $GITADMIN_DEFAULT_USERNAME 😿"
+    fi
   else
     exitCode=1
-    printf_red "No repos found for $GITADMIN_DEFAULT_USERNAME"
+    printf_red "😿 No repos found for $GITADMIN_DEFAULT_USERNAME 😿"
   fi
   return $exitCode
 }
@@ -4788,17 +4850,21 @@ __github_org_clone_repos() {
   local exitCode=0
   GITADMIN_DEFAULT_USERNAME="${1:-$GITADMIN_DEFAULT_USERNAME}"
   GITADMIN_DEFAULT_REPO_BASE="$GITADMIN_DEFAULT_REPO_BASE/$GITADMIN_DEFAULT_USERNAME"
-  __api_org_token "$GITADMIN_DEFAULT_USERNAME" | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
-  COUNT="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
-  if [ -n "$COUNT" ]; then
-    printf_green "$MESSAGE"
-    printf_blue "There's currently $COUNT repos available"
-    printf_green "Initializing $GITADMIN_DEFAULT_REPO_BASE"
-    __main "$GITADMIN_DEFAULT_USERNAME"
-    exitCode=$?
+  if __api_smart_org_or_user "$GITADMIN_DEFAULT_USERNAME"; then
+    COUNT="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
+    if [ "$COUNT" -gt 0 ]; then
+      printf_green "$MESSAGE"
+      printf_blue "There's currently $COUNT repos available"
+      printf_green "Initializing $GITADMIN_DEFAULT_REPO_BASE"
+      __main "$GITADMIN_DEFAULT_USERNAME"
+      exitCode=$?
+    else
+      exitCode=1
+      printf_red "😿 No repos found for $GITADMIN_DEFAULT_USERNAME 😿"
+    fi
   else
     exitCode=1
-    printf_red "No repos found for $GITADMIN_DEFAULT_USERNAME"
+    printf_red "😿 No repos found for $GITADMIN_DEFAULT_USERNAME 😿"
   fi
   return $exitCode
 }

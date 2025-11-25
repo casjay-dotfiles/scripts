@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202511251215-git
+##@Version           :  202511251235-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Tuesday, Aug 09, 2022 01:23 EDT
 # @@File             :  gitignore
 # @@Description      :  Generate a .gitignore file with intelligent duplicate filtering
-# @@Changelog        :  Fixed __ensure_new_line to conditionally add blank lines
+# @@Changelog        :  Fixed __ensure_new_line to preserve blank lines correctly
 # @@TODO             :  Make this work locally
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202511251215-git"
+VERSION="202511251235-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -290,7 +290,10 @@ __trap_exit() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
 __ensure_new_line() {
-  awk 'NF {if (blank) print ""; blank=0; print} !NF {blank++} END {if (!blank) print ""}'
+  awk '{lines[NR]=$0} END {
+    for(i=1; i<=NR; i++) print lines[i]
+    if (NR > 0 && lines[NR] != "") print ""
+  }'
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __line_exists() { if grep -qs "$1" "${2:-$GITIGNORE_CWD/.gitignore}" 2>/dev/null; then return 0; else return 1; fi; }
@@ -422,8 +425,8 @@ __merge_gitignore_sections() {
   local existing_file="$1"
   local new_content_file="$2"
 
-  # Output the existing file
-  cat "$existing_file"
+  # Output the existing file with blank line separator
+  cat "$existing_file" | __ensure_new_line
 
   # Filter and append new content
   cat "$new_content_file" | __filter_duplicates "$existing_file"
@@ -637,8 +640,28 @@ print_gitignore() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 create_gitignore() {
   ignore_list "$@"
-  printf '# gitignore created on %s\n' "$(date +'%D at %H:%M')" >"$GITIGNORE_CWD/.gitignore"
-  fetch_ignore "$@" >>"$GITIGNORE_CWD/.gitignore"
+  if [ -f "$GITIGNORE_CWD/.gitignore" ]; then
+    # File exists - append with duplicate filtering (like add command)
+    if grep -q '^###.*###$' "$GITIGNORE_CWD/.gitignore" 2>/dev/null; then
+      # Has sections - use intelligent merging
+      temp_new="$GITIGNORE_TEMP_DIR/new_content.$$"
+      temp_merged="$GITIGNORE_TEMP_DIR/merged.$$"
+      fetch_ignore >"$temp_new"
+      __merge_gitignore_sections "$GITIGNORE_CWD/.gitignore" "$temp_new" >"$temp_merged"
+      cp "$temp_merged" "$GITIGNORE_CWD/.gitignore"
+      rm -f "$temp_new" "$temp_merged" 2>/dev/null
+    else
+      # No sections - simple append with filtering
+      temp_combined="$GITIGNORE_TEMP_DIR/combined.$$"
+      cat "$GITIGNORE_CWD/.gitignore" | __ensure_new_line >"$temp_combined"
+      fetch_ignore | __filter_duplicates "$GITIGNORE_CWD/.gitignore" >>"$temp_combined"
+      mv -f "$temp_combined" "$GITIGNORE_CWD/.gitignore"
+    fi
+  else
+    # File doesn't exist - create new
+    printf '# gitignore created on %s\n' "$(date +'%D at %H:%M')" >"$GITIGNORE_CWD/.gitignore"
+    fetch_ignore "$@" >>"$GITIGNORE_CWD/.gitignore"
+  fi
   printf_green "Added $IGNORELIST to your $GITIGNORE_CWD/.gitignore"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -

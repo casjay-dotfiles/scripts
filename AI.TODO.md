@@ -3,52 +3,63 @@
 ## Pending Additions to setupmgr
 
 ### Kubernetes/Container Tools
-- [ ] **k9s** - Kubernetes TUI (popular terminal UI for kubectl/helm)
+- [x] **k9s** - Kubernetes TUI (popular terminal UI for kubectl/helm) ✅ COMPLETED
   - Binary releases available for multiple architectures
   - GitHub: https://github.com/derailed/k9s
+  - Added: bin/setupmgr:2915-2956
 
-- [ ] **dive** - Docker image layer explorer (complements dockermgr)
+- [x] **dive** - Docker image layer explorer (complements dockermgr) ✅ COMPLETED
   - Binary releases available
   - GitHub: https://github.com/wagoodman/dive
+  - Added: bin/setupmgr:3108-3148
 
-- [ ] **ctop** - Container monitoring tool
+- [x] **ctop** - Container monitoring tool ✅ COMPLETED
   - Binary releases available
   - GitHub: https://github.com/bcicen/ctop
+  - Added: bin/setupmgr:3683-3724
 
 ### Terminal/Shell Tools
-- [ ] **zellij** - Modern terminal multiplexer (Rust-based, gaining popularity)
+- [x] **zellij** - Modern terminal multiplexer (Rust-based, gaining popularity) ✅ COMPLETED
   - Binary releases available
   - GitHub: https://github.com/zellij-org/zellij
+  - Added: bin/setupmgr:2017-2057
 
-- [ ] **atuin** - Shell history sync/search tool (very popular lately)
+- [x] **atuin** - Shell history sync/search tool (very popular lately) ✅ COMPLETED
   - Binary releases available
   - GitHub: https://github.com/atuinsh/atuin
+  - Added: bin/setupmgr:2159-2200
 
-- [ ] **broot** - Better directory navigation/tree viewer
+- [x] **broot** - Better directory navigation/tree viewer ✅ COMPLETED
   - Binary releases available
   - GitHub: https://github.com/Canop/broot
+  - Added: bin/setupmgr:3426-3467
 
 ### Development Tools
-- [ ] **helix** - Modern modal editor (alternative to lapce)
+- [x] **helix** - Modern modal editor (alternative to lapce) ✅ COMPLETED
   - Binary releases available
   - GitHub: https://github.com/helix-editor/helix
+  - Added: bin/setupmgr:2878-2919
 
-- [ ] **hyperfine** - Command-line benchmarking tool
+- [x] **hyperfine** - Command-line benchmarking tool ✅ COMPLETED
   - Binary releases available
   - GitHub: https://github.com/sharkdp/hyperfine
+  - Added: bin/setupmgr:2921-2962
 
-- [ ] **ruff** - Fast Python linter/formatter (from Astral, creators of uv)
+- [x] **ruff** - Fast Python linter/formatter (from Astral, creators of uv) ✅ COMPLETED
   - Binary releases available
   - GitHub: https://github.com/astral-sh/ruff
+  - Added: bin/setupmgr:1555-1596
 
 ### Language/Platform
-- [ ] **zig** - Systems programming language (growing in popularity)
+- [x] **zig** - Systems programming language (growing in popularity) ✅ COMPLETED
   - Binary releases available
   - Website: https://ziglang.org/
+  - Added: bin/setupmgr:2059-2093
 
-- [ ] **rust/rustup** - Rust toolchain installer
+- [x] **rust/rustup** - Rust toolchain installer ✅ COMPLETED
   - Consider if not assuming system package manager installation
   - Website: https://rustup.rs/
+  - Added: bin/setupmgr:2095-2115
 
 ## Systemd Service Files (from existing TODO)
 - [ ] **localai.service** - Enable by default
@@ -63,5 +74,5 @@
 ## Notes
 - All tools should have binary releases (no building from source)
 - Multi-architecture support preferred (amd64, arm64, arm)
-- Systemd services should use templates from `templates/systemd/`
-- Services should be user-installable when possible
+- **Systemd services should be embedded in scripts** (not external template files)
+- Services should be user-installable when possible (systemctl --user)

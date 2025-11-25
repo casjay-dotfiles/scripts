@@ -105,6 +105,402 @@ docker run --rm -it local-scripts-test /usr/local/share/CasjaysDev/scripts/bin/s
 ./bin/scriptname --config
 ```
 
+## Script Layout Standards
+
+### Overview
+All bash scripts follow a standardized layout for consistency, maintainability, and integration with the function library system.
+
+### Script Header (Lines 1-21)
+```bash
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version           :  202510070726-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  git.io/casjay
+# @@License          :  LICENSE.md
+# @@ReadME           :  scriptname --help
+# @@Copyright        :  Copyright (c) 2024 CasjaysDev
+# @@Created          :  Monday, Oct 07, 2024 00:00 EDT
+# @@File             :  scriptname
+# @@Description      :  Brief description of what script does
+# @@Changelog        :  New script
+# @@TODO             :  TODO items if any
+# @@Other            :  Other notes if any
+# @@Resource         :  Resources used if any
+# @@Terminal App     :  yes/no
+# @@sudo/root        :  yes/no
+# @@Template         :  installers/mgr-script.system
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2120,SC2155,SC2199,SC2317,SC2329
+```
+
+**Header Fields:**
+- `##@Version` - Version in YYYYMMDDHHMM-git format (note: ## not # for Version)
+- `@@Author` - Script author
+- `@@Contact` - Contact information
+- `@@License` - License file reference
+- `@@ReadME` - Help command
+- `@@Copyright` - Copyright notice
+- `@@Created` - Creation date/time
+- `@@File` - Script filename
+- `@@Description` - Brief description
+- `@@Changelog` - What changed in this version
+- `@@TODO` - TODO items
+- `@@Other` - Additional notes
+- `@@Resource` - Resources/references used
+- `@@Terminal App` - Whether requires terminal (yes/no)
+- `@@sudo/root` - Whether requires root (yes/no)
+- `@@Template` - Template used to create script
+
+### Initial Setup (Lines 23-49)
+```bash
+APPNAME="$(basename -- "$0" 2>/dev/null)"
+VERSION="202510070726-git"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${RUN_USER:-$USER}"
+USER_HOME="${USER_HOME:-$HOME}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+SCRIPTNAME_REQUIRE_SUDO="${SCRIPTNAME_REQUIRE_SUDO:-yes/no}"
+SCRIPTNAME_SCRIPTS_PREFIX="${APPNAME:-scriptname}"
+
+# Reopen in terminal (optional - uncomment if needed)
+#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then 
+#  { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1
+#fi
+
+# Set script title (optional - commented out by default)
+# Uses more compatible BEL terminator (\007) instead of ST (\033\\)
+# Sets both icon name and window title with OSC 0 sequence
+#CASJAYS_DEV_TILE_FORMAT="${USER}@${HOSTNAME}:${PWD/#$HOME/~} - $APPNAME"
+#CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}"
+#[ -z "$CASJAYSDEV_TITLE_SET" ] && printf '\033]0;%s\007' "$CASJAYS_DEV_TILE_FORMAT" && CASJAYSDEV_TITLE_SET="$APPNAME"
+export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}" CASJAYSDEV_TITLE_SET
+
+# Initial debugging
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+
+# pipes fail
+set -o pipefail
+```
+
+**Terminal Title Notes:**
+- Uses `\033]0;` (OSC 0) - Sets both icon name and window title
+- Uses `\007` (BEL) terminator - More compatible than `\033\\` (ST)
+- Commented out by default - Uncomment if needed for your terminal
+- Format: `user@hostname:~/path - scriptname`
+
+### Internal Functions Section (Lines 50-560)
+All internal/helper functions with `__` prefix:
+- `__devnull()` - Redirect output to /dev/null
+- `__devnull2()` - Redirect errors to /dev/null
+- `__cmd_exists()` - Check if command exists
+- `__am_i_online()` - Check internet connectivity
+- Colorization functions and setup
+- `__printf_head()`, `__printf_opts()`, `__printf_line()` - Formatted output
+- `__gen_config()` - Generate config file
+- `__help()` - Display help message
+- `__trap_exit_SCRIPTNAME()` - Exit trap handler
+- Additional script-specific helper functions
+
+**Sudo Functions (for scripts requiring root):**
+```bash
+# Check if current user is root
+__user_is_root() {
+  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+
+# Check if current user is not root
+__user_is_not_root() {
+  if { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; }; then return 1; else return 0; fi
+}
+
+# Check if user can sudo
+__can_i_sudo() {
+  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0 || return 1
+}
+
+# Test if user has sudo access
+__sudoif() {
+  __user_is_root && return 0
+  __can_i_sudo "${RUN_USER:-$USER}" && return 0
+  __user_is_not_root && sudo -HE true && return 0 || return 1
+}
+
+# Execute command with sudo
+__sudo() { sudo -HE "$@"; }
+
+# Require sudo for script execution
+__require_sudo() { __sudoif && __sudo "$0" "$@" && exit 0 || exit $?; }
+```
+
+**Function Naming:**
+- All internal functions prefixed with `__`
+- Use descriptive names: `__function_name()`
+- Comments go ABOVE the function, never inline at end of line
+
+**Note on External Dependencies:**
+- Scripts are being refactored to be self-contained
+- No external function library sourcing required
+- All needed functions defined within each script
+
+### Trap and Timer Setup (Lines 561-567)
+```bash
+# Trap handlers
+trap '__trap_exit_SCRIPTNAME' EXIT
+trap '__trap_ctrl_c_SCRIPTNAME' SIGINT
+trap '__trap_resize_SCRIPTNAME' SIGWINCH
+
+# Start timer
+SCRIPTNAME_START_TIMER="${SCRIPTNAME_START_TIMER:-$(date +%s.%N)}"
+```
+
+**Trap Functions:**
+```bash
+# Exit trap - cleanup on script exit
+__trap_exit_SCRIPTNAME() {
+  local exitCode=${1:-${SCRIPTNAME_EXIT_STATUS:-0}}
+  # Cleanup temp files
+  [ -f "$SCRIPTNAME_TEMP_FILE" ] && rm -Rf "$SCRIPTNAME_TEMP_FILE" &>/dev/null
+  # Additional cleanup if needed
+  if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+  return $exitCode
+}
+
+# Ctrl+C trap - handle user interrupt
+__trap_ctrl_c_SCRIPTNAME() {
+  printf_red "\n\nScript interrupted by user (Ctrl+C)\n"
+  # Perform cleanup
+  __trap_exit_SCRIPTNAME 130
+  exit 130
+}
+
+# Window resize trap - handle terminal resize
+__trap_resize_SCRIPTNAME() {
+  # Update terminal dimensions if needed
+  # Useful for scripts with interactive/dynamic output
+  return 0
+}
+```
+
+**Standard Trap Signals:**
+- `EXIT` - Always trap for cleanup (temp files, restore state)
+- `SIGINT` - Trap Ctrl+C for graceful interrupt handling
+- `SIGWINCH` - Trap window resize for interactive scripts
+- Exit code 130 for Ctrl+C (standard for SIGINT)
+
+### User Defined Functions Section (Lines 565-567)
+```bash
+# User defined functions
+# Add custom functions here
+```
+
+### Variable Declarations (Lines 568-638)
+```bash
+# Default exit code
+SCRIPTNAME_EXIT_STATUS=0
+
+# Default variables
+SCRIPTNAME_USER_DIR="${SCRIPTNAME_USER_DIR:-$USRUPDATEDIR}"
+SCRIPTNAME_SYSTEM_DIR="${SCRIPTNAME_SYSTEM_DIR:-$SYSUPDATEDIR}"
+
+# Application Folders
+SCRIPTNAME_LOG_DIR="${SCRIPTNAME_LOG_DIR:-$HOME/.local/log/scriptname}"
+SCRIPTNAME_CACHE_DIR="${SCRIPTNAME_CACHE_DIR:-$HOME/.cache/scriptname}"
+SCRIPTNAME_CONFIG_DIR="${SCRIPTNAME_CONFIG_DIR:-$HOME/.config/myscripts/scriptname}"
+SCRIPTNAME_CONFIG_BACKUP_DIR="${SCRIPTNAME_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/scriptname/backups}"
+SCRIPTNAME_RUN_DIR="${SCRIPTNAME_RUN_DIR:-$HOME/.local/run/system_scripts/scriptname}"
+SCRIPTNAME_TEMP_DIR="${SCRIPTNAME_TEMP_DIR:-$HOME/.local/tmp/system_scripts/scriptname}"
+
+# File settings
+SCRIPTNAME_CONFIG_FILE="${SCRIPTNAME_CONFIG_FILE:-settings.conf}"
+SCRIPTNAME_LOG_ERROR_FILE="${SCRIPTNAME_LOG_ERROR_FILE:-$SCRIPTNAME_LOG_DIR/error.log}"
+
+# Color Settings
+SCRIPTNAME_OUTPUT_COLOR_1="${SCRIPTNAME_OUTPUT_COLOR_1:-33}"
+SCRIPTNAME_OUTPUT_COLOR_2="${SCRIPTNAME_OUTPUT_COLOR:-6}"
+SCRIPTNAME_OUTPUT_COLOR_GOOD="${SCRIPTNAME_OUTPUT_COLOR_GOOD:-2}"
+SCRIPTNAME_OUTPUT_COLOR_ERROR="${SCRIPTNAME_OUTPUT_COLOR_ERROR:-1}"
+
+# Notification Settings
+SCRIPTNAME_REMOTE_NOTIFY_ENABLED="${SCRIPTNAME_REMOTE_NOTIFY_ENABLED:-yes}"
+SCRIPTNAME_SYSTEM_NOTIFY_ENABLED="${SCRIPTNAME_SYSTEM_NOTIFY_ENABLED:-yes}"
+SCRIPTNAME_GOOD_NAME="${SCRIPTNAME_GOOD_NAME:-Great:}"
+SCRIPTNAME_ERROR_NAME="${SCRIPTNAME_ERROR_NAME:-Error:}"
+
+# Additional Variables (script-specific)
+```
+
+**Variable Naming:**
+- All variables prefixed with `SCRIPTNAME_` (uppercase script name)
+- Standard variables (USER, HOME, PATH, etc.) don't need prefix
+- Group related variables together
+- Use descriptive names
+
+### Config and Directory Setup (Lines 625-638)
+```bash
+# Export variables
+export SCRIPTS_PREFIX="$SCRIPTNAME_SCRIPTS_PREFIX"
+
+# Generate non-existing config files
+[ -f "$SCRIPTNAME_CONFIG_DIR/$SCRIPTNAME_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+
+# Import config
+[ -f "$SCRIPTNAME_CONFIG_DIR/$SCRIPTNAME_CONFIG_FILE" ] && . "$SCRIPTNAME_CONFIG_DIR/$SCRIPTNAME_CONFIG_FILE"
+
+# Ensure Directories and files exist
+[ -d "$SCRIPTNAME_RUN_DIR" ] || mkdir -p "$SCRIPTNAME_RUN_DIR" &>/dev/null
+[ -d "$SCRIPTNAME_LOG_DIR" ] || mkdir -p "$SCRIPTNAME_LOG_DIR" &>/dev/null
+[ -d "$SCRIPTNAME_TEMP_DIR" ] || mkdir -p "$SCRIPTNAME_TEMP_DIR" &>/dev/null
+[ -d "$SCRIPTNAME_CACHE_DIR" ] || mkdir -p "$SCRIPTNAME_CACHE_DIR" &>/dev/null
+SCRIPTNAME_TEMP_FILE="${SCRIPTNAME_TEMP_FILE:-$(mktemp $SCRIPTNAME_TEMP_DIR/XXXXXX 2>/dev/null)}"
+```
+
+### Option Parsing (Lines 640-767)
+```bash
+# Set custom actions
+# Add any pre-parse actions here
+
+# Set additional variables/Argument/Option settings
+SETARGS=("$@")
+
+SHORTOPTS="a,f"
+SHORTOPTS+=""
+
+GET_OPTIONS_NO="no-*"
+GET_OPTIONS_YES="yes-*"
+LONGOPTS="all,completions:,config,reset-config,debug,force,help,options,raw,version,"
+LONGOPTS+=""
+
+ARRAY="available,cron,download,install,list,remove,search,update,version"
+ARRAY+=""
+
+LIST=""
+LIST+=""
+
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+  case "$1" in
+  --raw) ... ;;
+  --debug) ... ;;
+  --completions) ... ;;
+  --options) ... ;;
+  --version) ... ;;
+  --help) ... ;;
+  --config) ... ;;
+  -f | --force) ... ;;
+  --) shift 1; break ;;
+  esac
+done
+```
+
+### Pre-execution Setup (Lines 793-816)
+```bash
+# Set actions based on variables
+# Add any post-parse actions here
+
+# Check for required applications/Network check
+# __sudoif && __requiresudo "$0" "${SETARGS[@]}" || exit 2
+# __cmd_exists bash || exit 3
+# __am_i_online "1.1.1.1" || exit 4
+
+# APP Variables overrides
+declare -a LISTARRAY=()
+
+# Actions based on env
+# Add environment-based actions
+
+# Export variables
+# Export additional variables if needed
+
+# Execute functions
+# Call initialization functions if needed
+
+# Execute commands
+# Run pre-main commands if needed
+```
+
+### Main Application Logic (Lines 818-981)
+```bash
+# begin main app
+case "$1" in
+list)
+  shift 1
+  # List logic
+  exit ${SCRIPTNAME_EXIT_STATUS:-0}
+  ;;
+
+install)
+  shift 1
+  # Install logic
+  exit ${SCRIPTNAME_EXIT_STATUS:-0}
+  ;;
+
+*)
+  # Default action (usually show help/info)
+  __help
+  ;;
+esac
+```
+
+### Script Footer (Lines 982-992)
+```bash
+# Set exit code
+SCRIPTNAME_EXIT_STATUS="${SCRIPTNAME_EXIT_STATUS:-0}"
+
+# End application
+# Final cleanup if needed
+
+# lets exit with code
+exit ${SCRIPTNAME_EXIT_STATUS:-0}
+
+# ex: ts=2 sw=2 et filetype=sh
+```
+
+### Template Types
+
+#### mgr-script.user.sh
+- **sudo/root**: no
+- **Purpose**: User-level scripts (no root required)
+- **Config Location**: `~/.config/myscripts/scriptname/`
+- **Uses**: `USRUPDATEDIR` for package management
+
+#### mgr-script.system.sh
+- **sudo/root**: yes
+- **Purpose**: System-level scripts (requires root for certain operations)
+- **Config Location**: System-wide and user configs
+- **Uses**: `SYSUPDATEDIR` for package management
+- **Special**: Includes `__requiresudo()` logic for specific commands
+
+### Key Layout Rules
+
+1. **Header always at top** - Lines 1-21 with all metadata
+2. **Functions before variables** - All function definitions before variable declarations
+3. **Variables before options** - All variable declarations before option parsing
+4. **Main logic at end** - Case statement for main application logic at end
+5. **Comments above code** - Never inline comments at end of lines
+6. **Consistent spacing** - Use separator lines (# - - - - -) between sections
+7. **Exit codes set** - Always set `SCRIPTNAME_EXIT_STATUS` before exit
+8. **Newline at EOF** - Always end file with newline character
+
+### Version Format
+- Format: `YYYYMMDDHHMM-git`
+- Example: `202510070726-git`
+- Update on every change
+- Use in both header (`##@Version`) and `VERSION` variable
+
+### When to Update Headers
+- **Always update** when making changes to script
+- **Version**: Update to current date-time
+- **Changelog**: Brief description of what changed
+- **Description**: Update if functionality changed
+- **Keep format/layout** consistent with template
+
 ## Best Practices Implemented
 
 ### Security

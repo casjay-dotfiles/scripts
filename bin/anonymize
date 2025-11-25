@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202501191000-git
+##@Version           :  202511251120-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Thursday, Aug 04, 2022 17:29 EDT
 # @@File             :  anonymize
 # @@Description      :  Anonymous web access
-# @@Changelog        :  Fixed stray apostrophes, updated function naming
+# @@Changelog        :  Refactored with reusable helpers, renamed functions for clarity
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202501191000-git"
+VERSION="202511251120-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -45,25 +45,6 @@ export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # pipes fail
 set -o pipefail
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Import functions
-CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
-SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
-SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
-SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
-  . "$PWD/$SCRIPTSFUNCTFILE"
-elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
-  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
-else
-  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
-  exit 1
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Options are: *_install
-# system user desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
-user_install && __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Send all output to /dev/null
 __devnull() {
@@ -357,82 +338,161 @@ __curl_dl() { curl -q -LSsf --retry 1 "$1" -o "$2" 2>/dev/null || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_versions() { return; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__install_tor() {
-  local tor_bin=""
-  if [ "$(uname -m)" = "aarch64" ]; then
-    local tor_home="$HOME/.local/share/tor/browser"
-    printf_cyan "Grabbing tor-browser from $ANONYMIZE_TOR_ARM64"
-    rm -Rf "$tor_home"
-    mkdir -p "$tor_home"
-    if __curl_dl "$ANONYMIZE_TOR_ARM64" "$ANONYMIZE_TEMP_FILE"; then
-      tar xf "$ANONYMIZE_TEMP_FILE" -C "$tor_home" --strip-components=1 && rm -Rf "$ANONYMIZE_TEMP_FILE" || exitCode=1
+# Check and install Java if not present
+__java_install() {
+  if __cmd_exists java; then
+    return 0
+  fi
+  printf_cyan "Java not found, attempting to install..."
+  if pkmgr silent install openjdk || pkmgr silent install java || pkmgr silent install default-jre; then
+    printf_green "Java installed successfully"
+    return 0
+  else
+    printf_red "Failed to install Java"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Download and extract archive to destination
+__download_and_extract_archive() {
+  local url="$1"
+  local destination="$2"
+  local strip_components="${3:-1}"
+  local temp_file="${4:-$ANONYMIZE_TEMP_FILE}"
+
+  if [ -z "$url" ] || [ -z "$destination" ]; then
+    printf_red "Error: URL and destination required"
+    return 1
+  fi
+
+  mkdir -p "$destination"
+
+  if __curl_dl "$url" "$temp_file"; then
+    if tar xf "$temp_file" -C "$destination" --strip-components="$strip_components" 2>/dev/null; then
+      rm -f "$temp_file"
+      return 0
     else
-      printf_exit "Failed to download torbrowser from $ANONYMIZE_TOR_ARM64"
-    fi
-    if [ -f "$tor_home/start-tor-browser.desktop" ]; then
-      cd "$tor_home" && eval "$tor_home/start-tor-browser.desktop" --register-app | printf_readline
-      exitCode=0
-    else
-      exitCode=1
-    fi
-  elif [ "$(uname -m)" = "x86_64" ]; then
-    local tor_home="$HOME/.local/share/tor/browser"
-    local version="$(curl -q -LSsf "https://dist.torproject.org/torbrowser" | __get_current_version)"
-    ANONYMIZE_TOR_AMD64="https://dist.torproject.org/torbrowser/$version/tor-browser-linux-x86_64-$version.tar.xz"
-    printf_cyan "Grabbing tor-browser from $ANONYMIZE_TOR_AMD64"
-    rm -Rf "$tor_home"
-    mkdir -p "$tor_home"
-    if __curl_dl "$ANONYMIZE_TOR_AMD64" "$ANONYMIZE_TEMP_FILE"; then
-      tar xf "$ANONYMIZE_TEMP_FILE" -C "$tor_home" --strip-components=1 && rm -Rf "$ANONYMIZE_TEMP_FILE" || exitCode=1
-    else
-      printf_exit "Failed to download torbrowser from $ANONYMIZE_TOR_AMD64"
-    fi
-    if [ -f "$tor_home/start-tor-browser.desktop" ]; then
-      cd "$tor_home" && eval "$tor_home/start-tor-browser.desktop" --register-app | printf_readline
-      exitCode=0
-    else
-      exitCode=1
+      rm -f "$temp_file"
+      printf_red "Failed to extract archive"
+      return 1
     fi
   else
-    printf_exit "Unsupported architecture "
+    printf_red "Failed to download from $url"
+    return 1
   fi
-  if __cmd_exists torbrowser; then
-    exitCode=0
-  elif __cmd_exists tor-browser; then
-    exitCode=0
-  elif __cmd_exists torbrowser-launcher; then
-    exitCode=0
-  elif [ -f "$tor_home/start-tor-browser" ]; then
-    tor_bin="$tor_home/start-tor-browser"
-    exitCode=0
-  elif [ -f $(find "$HOME/.local/share/torbrowser"/*/* -name 'start-tor-browser' 2>/dev/null) ]; then
-    tor_bin="$(find "$HOME/.local/share/torbrowser"/*/* -name 'start-tor-browser' 2>/dev/null)"
-    exitCode=0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Find executable in common locations
+__find_executable() {
+  local name="$1"
+  local search_paths="$2"
+
+  if __cmd_exists "$name"; then
+    builtin type -P "$name"
+    return 0
+  fi
+
+  if [ -n "$search_paths" ]; then
+    for path in $search_paths; do
+      if [ -f "$path" ] && [ -x "$path" ]; then
+        echo "$path"
+        return 0
+      fi
+    done
+  fi
+
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Create wrapper script for executable
+__create_wrapper_script() {
+  local wrapper_path="$1"
+  local target_bin="$2"
+  local target_dir="$(dirname "$target_bin")"
+
+  if [ -z "$wrapper_path" ] || [ -z "$target_bin" ]; then
+    return 1
+  fi
+
+  mkdir -p "$(dirname "$wrapper_path")"
+
+  cat >"$wrapper_path" <<EOF
+#!/usr/bin/env sh
+
+cd "$target_dir"
+exec "$target_bin" "\$@"
+EOF
+
+  chmod 755 "$wrapper_path"
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__install_tor_browser() {
+  local tor_bin=""
+  local tor_home="$HOME/.local/share/tor/browser"
+  local exitCode=0
+  local download_url=""
+  local arch="$(uname -m)"
+
+  if [ "$arch" = "aarch64" ]; then
+    download_url="$ANONYMIZE_TOR_ARM64"
+  elif [ "$arch" = "x86_64" ]; then
+    local version="$(curl -q -LSsf "https://dist.torproject.org/torbrowser" | __get_current_version)"
+    download_url="https://dist.torproject.org/torbrowser/$version/tor-browser-linux-x86_64-$version.tar.xz"
+  else
+    printf_exit "Unsupported architecture: $arch"
+  fi
+
+  printf_cyan "Grabbing tor-browser from $download_url"
+  rm -Rf "$tor_home"
+
+  if __download_and_extract_archive "$download_url" "$tor_home" 1 "$ANONYMIZE_TEMP_FILE"; then
+    if [ -f "$tor_home/start-tor-browser.desktop" ]; then
+      cd "$tor_home" && eval "$tor_home/start-tor-browser.desktop" --register-app | printf_readline
+      exitCode=0
+    else
+      exitCode=1
+    fi
   else
     exitCode=1
   fi
-  if [ "$exitCode" -ne 0 ]; then
-    printf_green "Attempting to install tor browser"
-    if pkmgr silent install tor-browser || pkmgr silent install torbrowser || pkmgr silent install tor-browser || pkmgr silent install torbrowser-launcher || false; then
-      exitCode=0
-    else
-      printf_red "Failed to install the tor browser"
-      exitCode=1
+
+  if [ "$exitCode" -eq 0 ]; then
+    tor_bin="$(__find_executable "torbrowser" "$tor_home/start-tor-browser $tor_home/Browser/start-tor-browser $HOME/.local/share/torbrowser/tbb/*/Browser/start-tor-browser")"
+    if [ -z "$tor_bin" ]; then
+      tor_bin="$(__find_executable "tor-browser" "")"
+    fi
+    if [ -z "$tor_bin" ]; then
+      tor_bin="$(__find_executable "torbrowser-launcher" "")"
     fi
   fi
-  tor_bin="${tor_bin:-$(builtin type -P "$HOME/.local/share/tor/browser/Browser/start-tor-browser" || type -P "$HOME/.local/share/torbrowser/tbb"/*/*/Browser/start-tor-browser || builtin type -P torbrowser || builtin type -P tor-browser || false)}"
+
+  if [ -z "$tor_bin" ] || [ "$exitCode" -ne 0 ]; then
+    printf_green "Attempting to install tor browser via package manager"
+    if pkmgr silent install tor-browser || pkmgr silent install torbrowser || pkmgr silent install torbrowser-launcher; then
+      tor_bin="$(__find_executable "torbrowser" "")"
+      if [ -z "$tor_bin" ]; then
+        tor_bin="$(__find_executable "tor-browser" "")"
+      fi
+      if [ -z "$tor_bin" ]; then
+        tor_bin="$(__find_executable "torbrowser-launcher" "")"
+      fi
+    else
+      printf_red "Failed to install the tor browser"
+      return 1
+    fi
+  fi
+
   if [ -n "$tor_bin" ]; then
     printf_green "torbrowser has been installed to $tor_bin"
     if [ ! -e "$HOME/.local/bin/torbrowser" ]; then
-      printf '#!/usr/bin/env sh\n\n%s\n%s %s\n' "cd $(dirname $tor_bin)" "exec $tor_bin" \"\$@\" >"$HOME/.local/bin/torbrowser"
-      chmod -Rf 755 "$HOME/.local/bin/torbrowser"
+      __create_wrapper_script "$HOME/.local/bin/torbrowser" "$tor_bin"
     fi
-    exitCode=0
+    return 0
   else
     printf_red "Can not find the tor browser binary"
-    exitCode=1
+    return 1
   fi
-  return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __zerotier() {
@@ -457,65 +517,114 @@ __zerotier() {
   __cmd_exists zerotier-cli || __cmd_exists zerotier-one || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__init_i2p() {
-  __cmd_exists java || printf_exit "Please install the openjdk runtime"
+__install_i2p_server() {
+  local i2p_home="$ANONYMIZE_HOME/i2p"
+  local i2p_jar="$i2p_home/i2p-install.jar"
+  local i2p_router="$i2p_home/i2prouter"
 
-  # Check if already installed and just start it
-  if [ -f "$ANONYMIZE_HOME/i2p/i2prouter" ] && [ "$ANONYMIZE_DOWNLOAD" != "true" ]; then
+  __java_install || return 1
+
+  if [ -f "$i2p_router" ] && [ "$ANONYMIZE_DOWNLOAD" != "true" ]; then
     printf_cyan "Starting existing I2P installation..."
-    eval "$ANONYMIZE_HOME/i2p/i2prouter" start &
+    eval "$i2p_router" start &
     sleep 10
     return 0
   fi
 
-  # Download and install
-  if [ "$ANONYMIZE_DOWNLOAD" = "true" ] || [ ! -f "$ANONYMIZE_HOME/i2p/i2p-install.jar" ]; then
-    mkdir -p "$ANONYMIZE_HOME/i2p"
-    __cd "$ANONYMIZE_HOME/i2p"
-    if [ ! -f "$ANONYMIZE_HOME/i2p/i2p-install.jar" ]; then
+  if [ "$ANONYMIZE_DOWNLOAD" = "true" ] || [ ! -f "$i2p_jar" ]; then
+    mkdir -p "$i2p_home"
+    if [ ! -f "$i2p_jar" ]; then
       printf_cyan "Downloading I2P installer..."
-      __curl_dl "$ANONYMIZE_I2P_JAR" "$ANONYMIZE_HOME/i2p/i2p-install.jar"
-      [ -f "$ANONYMIZE_HOME/i2p/i2p-install.jar" ] || printf_exit "failed to download $ANONYMIZE_I2P_JAR"
+      if ! __curl_dl "$ANONYMIZE_I2P_JAR" "$i2p_jar"; then
+        printf_exit "Failed to download $ANONYMIZE_I2P_JAR"
+      fi
     fi
-    printf_yellow "Installing I2P to $ANONYMIZE_HOME/i2p"
+
+    printf_yellow "Installing I2P to $i2p_home"
+    __cd "$i2p_home"
     if [ "$CONSOLE" = "true" ]; then
-      java -jar "$ANONYMIZE_HOME/i2p/i2p-install.jar" -console
+      java -jar "$i2p_jar" -console
     else
-      java -jar "$ANONYMIZE_HOME/i2p/i2p-install.jar"
+      java -jar "$i2p_jar"
     fi
   fi
 
-  # Start I2P
-  if [ -f "$ANONYMIZE_HOME/i2p/i2prouter" ]; then
-    eval "$ANONYMIZE_HOME/i2p/i2prouter" start &
+  if [ -f "$i2p_router" ]; then
+    eval "$i2p_router" start &
     sleep 10
-    printf_green "I2P started successfully"
+    printf_green "I2P server started successfully"
+    return 0
   else
-    printf_red "I2P may not have installed correctly"
+    printf_red "I2P server may not have installed correctly"
+    return 1
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__init_freenet() {
-  __cmd_exists java || printf_exit "Please install the openjdk runtime"
-  if [ -f "$ANONYMIZE_HOME/Freenet/run.sh" ]; then
-    eval "$ANONYMIZE_HOME/Freenet/run.sh" start &
+__install_freenet_server() {
+  local freenet_home="$ANONYMIZE_HOME/freenet"
+  local freenet_jar="$freenet_home/freenet-install.jar"
+  local freenet_runner="$ANONYMIZE_HOME/Freenet/run.sh"
+
+  __java_install || return 1
+
+  if [ -f "$freenet_runner" ] && [ "$ANONYMIZE_DOWNLOAD" != "true" ]; then
+    printf_cyan "Starting existing Freenet installation..."
+    eval "$freenet_runner" start &
     sleep 10
-  else
-    if [ "$ANONYMIZE_DOWNLOAD" = "true" ] || [ ! -f "$ANONYMIZE_HOME/freenet/freenet-install.jar" ]; then
-      mkdir -p "$ANONYMIZE_HOME/freenet"
-      __cd "$ANONYMIZE_HOME/freenet"
-      if [ ! -f "$ANONYMIZE_HOME/freenet/freenet-install.jar" ]; then
-        printf_cyan "Downloading Freenet installer..."
-        __curl_dl "$ANONYMIZE_FREENET_JAR" "$ANONYMIZE_HOME/freenet/freenet-install.jar"
-        [ -f "$ANONYMIZE_HOME/freenet/freenet-install.jar" ] || printf_exit "failed to download $ANONYMIZE_FREENET_JAR"
-      fi
-      printf_yellow "Install to $ANONYMIZE_HOME/Freenet"
-      if [ "$CONSOLE" = "true" ]; then
-        java -jar "$ANONYMIZE_HOME/freenet/freenet-install.jar" -console
-      else
-        java -jar "$ANONYMIZE_HOME/freenet/freenet-install.jar"
+    return 0
+  fi
+
+  if [ "$ANONYMIZE_DOWNLOAD" = "true" ] || [ ! -f "$freenet_jar" ]; then
+    mkdir -p "$freenet_home"
+    if [ ! -f "$freenet_jar" ]; then
+      printf_cyan "Downloading Freenet installer..."
+      if ! __curl_dl "$ANONYMIZE_FREENET_JAR" "$freenet_jar"; then
+        printf_exit "Failed to download $ANONYMIZE_FREENET_JAR"
       fi
     fi
+
+    printf_yellow "Installing Freenet to $ANONYMIZE_HOME/Freenet"
+    __cd "$freenet_home"
+    if [ "$CONSOLE" = "true" ]; then
+      java -jar "$freenet_jar" -console
+    else
+      java -jar "$freenet_jar"
+    fi
+  fi
+
+  if [ -f "$freenet_runner" ]; then
+    eval "$freenet_runner" start &
+    sleep 10
+    printf_green "Freenet server started successfully"
+    return 0
+  else
+    printf_red "Freenet server may not have installed correctly"
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__install_tor_server() {
+  printf_cyan "Installing Tor server daemon..."
+
+  if __cmd_exists tor; then
+    printf_green "Tor daemon is already installed"
+    return 0
+  fi
+
+  if pkmgr silent install tor; then
+    printf_green "Tor daemon installed successfully"
+    if __cmd_exists systemctl; then
+      printf_cyan "Enabling and starting Tor service..."
+      sudo systemctl enable tor 2>/dev/null
+      sudo systemctl start tor 2>/dev/null
+    elif __cmd_exists service; then
+      printf_cyan "Starting Tor service..."
+      sudo service tor start 2>/dev/null
+    fi
+    return 0
+  else
+    printf_red "Failed to install Tor daemon"
+    return 1
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -836,7 +945,7 @@ __check_dns_leak() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Install Lokinet
-__install_lokinet() {
+__install_lokinet_server() {
   printf_cyan "Installing Lokinet..."
   local platform="$(__detect_platform)"
 
@@ -1363,7 +1472,7 @@ case "$1" in
 init)
   shift 1
   __create_versions
-  __install_tor
+  __install_tor_browser
   exit $?
   ;;
 
@@ -1441,7 +1550,7 @@ tor)
 
 i2p)
   shift 1
-  __init_i2p
+  __install_i2p_server
   netstatg 7657 2>&1 | grep -q 'java' || printf_exit "i2p does not seem to be running"
   [ -z "$BROWSER" ] || eval "$BROWSER" "http://localhost:7657"
   exit $?
@@ -1449,7 +1558,7 @@ i2p)
 
 freenet)
   shift 1
-  __init_freenet
+  __install_freenet_server
   netstatg 8888 2>&1 | grep -q 'java' || printf_exit "Freenet does not seem to be running"
   [ -z "$BROWSER" ] || eval "$BROWSER" "http://localhost:8888"
   exit $?
@@ -1514,7 +1623,7 @@ vpn)
 lokinet)
   shift 1
   if ! __cmd_exists lokinet; then
-    __install_lokinet
+    __install_lokinet_server
   fi
   if __cmd_exists lokinet; then
     printf_cyan "Starting Lokinet..."

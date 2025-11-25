@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202511242215-git
+##@Version           :  202511250713-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git.io/casjay
 # @@License          :  LICENSE.md
@@ -10,7 +10,7 @@
 # @@Created          :  Monday, Aug 15, 2022 10:37 EDT
 # @@File             :  randomwallpaper
 # @@Description      :  Set a random wallpaper
-# @@Changelog        :  Refactored to be self-contained, improved error handling
+# @@Changelog        :  Added visible console output for wallpaper changes
 # @@TODO             :  Add MacOS support
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202511242215-git"
+VERSION="202511250713-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -552,6 +552,8 @@ __mesg_ok() {
   COUNT_SEEN="$(grep -shc "$RANDOMWALLPAPER_WALLPAPER_DIR" "$RANDOMWALLPAPER_SEEN_FILE" | grep -v '^$' || echo 0)"
   COUNT_ALL="$(grep -shc "$RANDOMWALLPAPER_WALLPAPER_DIR" "$RANDOMWALLPAPER_WALLPAPER_FILE" | grep -v '^$' || echo 0)"
   COUNT_MESSAGE="You have seen $COUNT_SEEN of $COUNT_ALL wallpapers"
+  printf_green "Wallpaper changed to: $SHORTNAME"
+  printf_cyan "$COUNT_MESSAGE"
   __notifications "Wallpaper Changer" "Wallpaper has been changed to\n$SHORTNAME\n$COUNT_MESSAGE"
   return 0
 }
@@ -561,6 +563,8 @@ __mesg_fail() {
   COUNT_SEEN="$(grep -shc "$RANDOMWALLPAPER_WALLPAPER_DIR" "$RANDOMWALLPAPER_SEEN_FILE" | grep -v '^$' || echo 0)"
   COUNT_ALL="$(grep -shc "$RANDOMWALLPAPER_WALLPAPER_DIR" "$RANDOMWALLPAPER_WALLPAPER_FILE" | grep -v '^$' || echo 0)"
   COUNT_MESSAGE="You have seen $COUNT_SEEN of $COUNT_ALL wallpapers"
+  printf_red "Failed to change wallpaper"
+  printf_cyan "$COUNT_MESSAGE"
   __notifications "Wallpaper Changer" "Failed to change the wallpaper\n$COUNT_MESSAGE"
   return 1
 }
@@ -788,8 +792,24 @@ __update_cache() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __xfce_change_wp() {
-  xfconf-query --channel xfce4-desktop --list | grep 'last-image' | while read path; do
-    xfconf-query --channel xfce4-desktop --property "$path" --set "$1"
+  local wallpaper="$1"
+  local monitor screen workspace
+  for screen in $(xfconf-query --channel xfce4-desktop --list | grep -oP '/backdrop/screen\d+' | sort -u); do
+    for monitor in $(xfconf-query --channel xfce4-desktop --list | grep "^$screen" | grep -oP 'monitor[^/]*' | sort -u); do
+      for workspace in $(xfconf-query --channel xfce4-desktop --list | grep "^$screen/$monitor" | grep -oP 'workspace\d+' | sort -u); do
+        local base_path="$screen/$monitor/$workspace"
+        xfconf-query --channel xfce4-desktop --property "$base_path/color-style" --create --type int --set 0 2>/dev/null || \
+        xfconf-query --channel xfce4-desktop --property "$base_path/color-style" --set 0 2>/dev/null
+        xfconf-query --channel xfce4-desktop --property "$base_path/image-path" --create --type string --set "$wallpaper" 2>/dev/null || \
+        xfconf-query --channel xfce4-desktop --property "$base_path/image-path" --set "$wallpaper" 2>/dev/null
+        xfconf-query --channel xfce4-desktop --property "$base_path/last-image" --create --type string --set "$wallpaper" 2>/dev/null || \
+        xfconf-query --channel xfce4-desktop --property "$base_path/last-image" --set "$wallpaper" 2>/dev/null
+        xfconf-query --channel xfce4-desktop --property "$base_path/image-style" --create --type int --set 3 2>/dev/null || \
+        xfconf-query --channel xfce4-desktop --property "$base_path/image-style" --set 3 2>/dev/null
+        xfconf-query --channel xfce4-desktop --property "$base_path/image-show" --create --type bool --set true 2>/dev/null || \
+        xfconf-query --channel xfce4-desktop --property "$base_path/image-show" --set true 2>/dev/null
+      done
+    done
   done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -822,14 +842,14 @@ __detect_wallpaper_tool() {
     tool="gsettings-cinnamon"
   elif [[ "$session" == *"mate"* ]] && __cmd_exists gsettings; then
     tool="gsettings-mate"
-  elif __cmd_exists variety && __proc_is_running variety; then
-    tool="variety"
   elif __cmd_exists feh; then
     tool="feh"
   elif __cmd_exists nitrogen; then
     tool="nitrogen"
   elif __cmd_exists xwallpaper; then
     tool="xwallpaper"
+  elif __cmd_exists variety && __proc_is_running variety; then
+    tool="variety"
   elif __cmd_exists hsetroot; then
     tool="hsetroot"
   elif __cmd_exists xloadimage; then
@@ -875,6 +895,10 @@ __randomwallpaper() {
   xfconf-query)
     __xfce_change_wp "$SET_WALLPAPER" &>/dev/null
     exitCode=$?
+    if __proc_is_running xfdesktop; then
+      sleep 0.5
+      xfdesktop --reload &>/dev/null
+    fi
     ;;
   gsettings)
     gsettings set org.gnome.desktop.background picture-uri "file://$SET_WALLPAPER" &>/dev/null

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202511241745-git
+##@Version           :  202511251403-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Monday, Aug 08, 2022 23:40 EDT
 # @@File             :  gitcommit
 # @@Description      :  Commit changes to a git repo - self-contained, no external dependencies
-# @@Changelog        :  Removed unnecessary .log file handling for commit messages
+# @@Changelog        :  Enhanced log to search entire commit history with full body display
 # @@TODO             :  Fix/re-write variables
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202511241745-git"
+VERSION="202511251403-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -1928,24 +1928,39 @@ __git_repo_init() {
 __git_status() { git -C "${1:-.}" status -b -s 2>/dev/null && return 0 || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_log() {
+  local dir="${1:-.}"
   local limit="${2:-}"
-  # Use - not :- to allow empty string to disable filtering
+  local search_pattern="${3:-}"
   local exclude_patterns="${GITCOMMIT_LOG_SHOW_EXCLUDE-Version Bump:}"
-  local git_cmd="git --no-pager -C '${1:-.}' log --color=always --pretty='%C(magenta)%h%C(red)%d %C(yellow)%ar %C(green)%s %C(yellow)(%an)' 2>/dev/null"
+  local git_cmd=""
+
+  # Use different format when searching to show full commit body
+  if [ -n "$search_pattern" ]; then
+    git_cmd="git --no-pager -C '$dir' log --color=always --pretty='%C(magenta)%h%C(red)%d %C(yellow)%ar %C(green)%s %C(yellow)(%an)%n%C(white)%b' --grep='$search_pattern' -i 2>/dev/null"
+  else
+    git_cmd="git --no-pager -C '$dir' log --color=always --pretty='%C(magenta)%h%C(red)%d %C(yellow)%ar %C(green)%s %C(yellow)(%an)' 2>/dev/null"
+  fi
 
   # Add limit if specified
   if [ -n "$limit" ] && [ "$limit" -gt 0 ] 2>/dev/null; then
     git_cmd="$git_cmd --max-count='$limit'"
   fi
 
-  # Apply exclusion filter if patterns specified
+  # Apply exclusion filter if patterns specified, then search filter
   if [ -n "$exclude_patterns" ]; then
-    # Convert pipe-separated or space-separated patterns to grep format
     local grep_pattern=$(echo "$exclude_patterns" | sed 's/[[:space:]]*|[[:space:]]*/|/g')
-    eval "$git_cmd" | grep --line-buffered -vE "$grep_pattern"
+    if [ -n "$search_pattern" ]; then
+      eval "$git_cmd" | grep --line-buffered -vE "$grep_pattern" | grep --line-buffered --color=always -iE "$search_pattern|$"
+    else
+      eval "$git_cmd" | grep --line-buffered -vE "$grep_pattern"
+    fi
     return $?
   else
-    eval "$git_cmd"
+    if [ -n "$search_pattern" ]; then
+      eval "$git_cmd" | grep --line-buffered --color=always -iE "$search_pattern|$"
+    else
+      eval "$git_cmd"
+    fi
     return $?
   fi
 }
@@ -2395,8 +2410,20 @@ l | log)
     __git_show_commit "$GITCOMMIT_ROOT_DIR" "${1:-}"
     exit $?
     ;;
+  search)
+    shift 1
+    __git_log "$GITCOMMIT_ROOT_DIR" "" "${1:-}"
+    exit $?
+    ;;
   *)
-    __git_log "$GITCOMMIT_ROOT_DIR" "${1:-}"
+    # First arg can be limit (number) or search pattern (string)
+    if [ -n "$1" ] && [ "$1" -eq "$1" ] 2>/dev/null; then
+      # It's a number (limit)
+      __git_log "$GITCOMMIT_ROOT_DIR" "$1" "${2:-}"
+    else
+      # It's a search pattern (or empty)
+      __git_log "$GITCOMMIT_ROOT_DIR" "" "${1:-}"
+    fi
     exit $?
     ;;
   esac

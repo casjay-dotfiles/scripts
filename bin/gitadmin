@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202511251255-git
+##@Version           :  202511251350-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Monday, Aug 08, 2022 23:22 EDT
 # @@File             :  gitadmin
 # @@Description      :  push/clone/pull from github/gitlab/private/bitbucket/codeberg/forgejo/gitea/gogs/azure/aws repos
-# @@Changelog        :  Added type=owner filter to only fetch repos user owns not just has access to
+# @@Changelog        :  Added proper error handling for invalid GitHub API tokens
 # @@TODO             :  Add more platform support (Forgejo, Gogs API improvements)
 # @@Other            :  Somethings may be broken due to variable changes
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202511251255-git"
+VERSION="202511251350-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -3445,7 +3445,7 @@ __api_user_token() {
   local user="${1:-$GITADMIN_DEFAULT_USERNAME}"
   export GITHUBAPIPAGES="$(__github_api_user_page_count "$user")"
   export MESSAGE="Getting the repos for user: $user"
-  export GITHUBAPIREPO="https://api.github.com/user/repos?per_page=1000&sort=full_name&type=owner"
+  export GITHUBAPIREPO="https://api.github.com/user/repos?per_page=100&sort=full_name&type=owner"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # User api
@@ -3460,7 +3460,7 @@ __api_user() {
 __api_org_token() {
   local user="${1:-}" org=""
   export GITHUBAPIPAGES="$(__github_api_org_page_count "$user")"
-  export GITHUBAPIREPO="https://api.github.com/orgs/$user/repos?per_page=1000&sort=full_name&type=owner"
+  export GITHUBAPIREPO="https://api.github.com/orgs/$user/repos?per_page=100&sort=full_name&type=owner"
   export MESSAGE="Getting the repos for org: $user"
   org="$(__curl_gh_api "$GITHUBAPIREPO" | __jq -r '.[]|.name' | grep -v '^$' | grep '^' || __api_user "$user" | __jq -r '.[]|.name' | grep -v '^$' | grep '^')"
   COUNT="$(printf '%s' "$org" | grep -v '^$' | wc -l | grep '^')"
@@ -3485,27 +3485,41 @@ __api_org() {
 # Smart API - Try org first, fallback to user
 __api_smart_org_or_user() {
   local name="${1:-$GITADMIN_DEFAULT_USERNAME}"
-  local org_repos="" user_repos=""
-  local msg_suffix=""
+  local org_repos="" user_repos="" auth_user="" api_response=""
+  local msg_suffix="" user_endpoint=""
 
   if [ -n "$GITADMIN_GITHUB_AUTH_TOKEN" ]; then
     msg_suffix=" (authenticated - including private repos)"
+    api_response="$(__curl_gh_api "https://api.github.com/user" 2>/dev/null)"
+    if echo "$api_response" | jq -e '.message' >/dev/null 2>&1; then
+      local error_msg="$(echo "$api_response" | jq -r '.message' 2>/dev/null)"
+      echo "⛔ GitHub API Error: $error_msg ⛔" >&2
+      echo "Please check your GITADMIN_GITHUB_AUTH_TOKEN in ~/.config/myscripts/gitadmin/settings.conf" >&2
+      return 1
+    fi
+    auth_user="$(echo "$api_response" | jq -r '.login' 2>/dev/null)"
   fi
 
-  org_repos="$(__curl_gh_api "https://api.github.com/orgs/$name/repos?per_page=1000&sort=full_name&type=owner" | __jq -r '.[]|.name' 2>/dev/null | grep -v '^$' | grep '^')"
+  org_repos="$(__curl_gh_api "https://api.github.com/orgs/$name/repos?per_page=100&sort=full_name&type=owner" | jq -r '.[]|.name' 2>/dev/null | grep -v '^$' | grep '^')"
 
   if [ -n "$org_repos" ]; then
     export MESSAGE="Getting the repos for org: $name$msg_suffix"
     __api_org_token "$name"
   else
     export MESSAGE="Getting the repos for user: $name$msg_suffix"
-    user_repos="$(__curl_gh_api "https://api.github.com/users/$name/repos?per_page=1000&sort=full_name&type=owner" | __jq -r '.[]|.name' 2>/dev/null | grep -v '^$' | grep '^')"
+    if [ -n "$GITADMIN_GITHUB_AUTH_TOKEN" ] && [ "$auth_user" = "$name" ]; then
+      user_endpoint="https://api.github.com/user/repos?per_page=100&sort=full_name&affiliation=owner"
+    elif [ -n "$GITADMIN_GITHUB_AUTH_TOKEN" ]; then
+      user_endpoint="https://api.github.com/users/$name/repos?per_page=100&sort=full_name"
+    else
+      user_endpoint="https://api.github.com/users/$name/repos?per_page=100&sort=full_name"
+    fi
+    user_repos="$(__curl_gh_api "$user_endpoint" | jq -r '.[]|.name' 2>/dev/null | grep -v '^$' | grep '^')"
     if [ -n "$user_repos" ]; then
       printf '%s\n' "$user_repos" >"$GITADMIN_TEMP_FILE"
       COUNT="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
       return 0
     else
-      printf_yellow "⛔ No repos found for $name ⛔"
       return 1
     fi
   fi
@@ -3514,15 +3528,30 @@ __api_smart_org_or_user() {
 # Smart API - Try user first, fallback to org
 __api_smart_user_or_org() {
   local name="${1:-$GITADMIN_DEFAULT_USERNAME}"
-  local user_repos="" org_repos=""
-  local msg_suffix=""
+  local user_repos="" org_repos="" auth_user="" api_response=""
+  local msg_suffix="" user_endpoint=""
 
   if [ -n "$GITADMIN_GITHUB_AUTH_TOKEN" ]; then
     msg_suffix=" (authenticated - including private repos)"
+    api_response="$(__curl_gh_api "https://api.github.com/user" 2>/dev/null)"
+    if echo "$api_response" | jq -e '.message' >/dev/null 2>&1; then
+      local error_msg="$(echo "$api_response" | jq -r '.message' 2>/dev/null)"
+      echo "⛔ GitHub API Error: $error_msg ⛔" >&2
+      echo "Please check your GITADMIN_GITHUB_AUTH_TOKEN in ~/.config/myscripts/gitadmin/settings.conf" >&2
+      return 1
+    fi
+    auth_user="$(echo "$api_response" | jq -r '.login' 2>/dev/null)"
   fi
 
   export MESSAGE="Getting the repos for user: $name$msg_suffix"
-  user_repos="$(__curl_gh_api "https://api.github.com/users/$name/repos?per_page=1000&sort=full_name&type=owner" | __jq -r '.[]|.name' 2>/dev/null | grep -v '^$' | grep '^')"
+  if [ -n "$GITADMIN_GITHUB_AUTH_TOKEN" ] && [ "$auth_user" = "$name" ]; then
+    user_endpoint="https://api.github.com/user/repos?per_page=100&sort=full_name&affiliation=owner"
+  elif [ -n "$GITADMIN_GITHUB_AUTH_TOKEN" ]; then
+    user_endpoint="https://api.github.com/users/$name/repos?per_page=100&sort=full_name"
+  else
+    user_endpoint="https://api.github.com/users/$name/repos?per_page=100&sort=full_name"
+  fi
+  user_repos="$(__curl_gh_api "$user_endpoint" | jq -r '.[]|.name' 2>/dev/null | grep -v '^$' | grep '^')"
 
   if [ -n "$user_repos" ]; then
     printf '%s\n' "$user_repos" >"$GITADMIN_TEMP_FILE"
@@ -3530,12 +3559,11 @@ __api_smart_user_or_org() {
     return 0
   else
     export MESSAGE="Getting the repos for org: $name$msg_suffix"
-    org_repos="$(__curl_gh_api "https://api.github.com/orgs/$name/repos?per_page=1000&sort=full_name&type=owner" | __jq -r '.[]|.name' 2>/dev/null | grep -v '^$' | grep '^')"
+    org_repos="$(__curl_gh_api "https://api.github.com/orgs/$name/repos?per_page=100&sort=full_name&type=owner" | jq -r '.[]|.name' 2>/dev/null | grep -v '^$' | grep '^')"
     if [ -n "$org_repos" ]; then
       __api_org_token "$name"
       return 0
     else
-      printf_yellow "⛔ No repos found for $name ⛔"
       return 1
     fi
   fi

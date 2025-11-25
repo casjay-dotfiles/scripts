@@ -1,0 +1,2800 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+##@Version           :  202511241413-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  jason@casjaysdev.pro
+# @@License          :  WTFPL
+# @@ReadME           :  ai --help
+# @@Copyright        :  Copyright: (c) 2025 Jason Hempstead, Casjays Developments
+# @@Created          :  Monday, Nov 24, 2025 14:13 EST
+# @@File             :  ai
+# @@Description      :  AI prompt wrapper - local AI first, then cloud CLI tools
+# @@Changelog        :  New script
+# @@TODO             :  Better documentation
+# @@Other            :
+# @@Resource         :
+# @@Terminal App     :  no
+# @@sudo/root        :  no
+# @@Template         :  bash/system
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+APPNAME="$(basename -- "$0" 2>/dev/null)"
+VERSION="202511241413-git"
+USER="${SUDO_USER:-$USER}"
+RUN_USER="${RUN_USER:-$USER}"
+USER_HOME="${USER_HOME:-$HOME}"
+SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
+AI_REQUIRE_SUDO="${AI_REQUIRE_SUDO:-no}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Reopen in a terminal
+#if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Set script title
+#CASJAYS_DEV_TILE_FORMAT="${USER}@${HOSTNAME}:${PWD/#$HOME/~} - $APPNAME"
+#CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}"
+#[ -z "$CASJAYSDEV_TITLE_SET" ] && printf '\033]2│;%s\033\\' "$CASJAYS_DEV_TILE_FORMAT" && CASJAYSDEV_TITLE_SET="$APPNAME"
+export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$APPNAME}}" CASJAYSDEV_TITLE_SET
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Initial debugging
+[ "$1" = "--debug" ] && set -x && export SCRIPT_OPTS="--debug" && export _DEBUG="on"
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Disables colorization
+[ "$1" = "--raw" ] && export SHOW_RAW="true"
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# pipes fail
+set -o pipefail
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Import functions
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+	. "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+	. "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+	echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+	exit 1
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Options are: *_install
+# system user desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+user_install && __options "$@"
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Send all output to /dev/null
+__devnull() {
+	tee &>/dev/null && AI_EXIT_STATUS=0 || AI_EXIT_STATUS=1
+	return ${AI_EXIT_STATUS:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - '
+# Send errors to /dev/null
+__devnull2() {
+	[ -n "$1" ] && local cmd="$1" && shift 1 || return 1
+	eval $cmd "$*" 2>/dev/null && AI_EXIT_STATUS=0 || AI_EXIT_STATUS=1
+	return ${AI_EXIT_STATUS:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - '
+# See if the executable exists
+__cmd_exists() {
+	AI_EXIT_STATUS=0
+	[ -n "$1" ] && local AI_EXIT_STATUS="" || return 0
+	for cmd in "$@"; do
+		builtin command -v "$cmd" &>/dev/null && AI_EXIT_STATUS+=$((AI_EXIT_STATUS + 0)) || AI_EXIT_STATUS+=$((AI_EXIT_STATUS + 1))
+	done
+	[ $AI_EXIT_STATUS -eq 0 ] || AI_EXIT_STATUS=3
+	return ${AI_EXIT_STATUS:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Check for a valid internet connection
+__am_i_online() {
+	local AI_EXIT_STATUS=0
+	curl -q -LSsfI --max-time 1 --retry 0 "${1:-https://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || AI_EXIT_STATUS=4
+	return ${AI_EXIT_STATUS:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# colorization
+if [ "$SHOW_RAW" = "true" ]; then
+	NC=""
+	RESET=""
+	BLACK=""
+	RED=""
+	GREEN=""
+	YELLOW=""
+	BLUE=""
+	PURPLE=""
+	CYAN=""
+	WHITE=""
+	ORANGE=""
+	LIGHTRED=""
+	BG_GREEN=""
+	BG_RED=""
+	ICON_INFO="[ info ]"
+	ICON_GOOD="[ ok ]"
+	ICON_WARN="[ warn ]"
+	ICON_ERROR="[ error ]"
+	ICON_QUESTION="[ ? ]"
+	printf_column() { tee | grep '^'; }
+	printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+else
+	printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Additional printf_ colors
+__printf_head() { printf_blue "$1"; }
+__printf_opts() { printf_purple "$1"; }
+__printf_line() { printf_cyan "$1"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# output version
+__version() { printf_cyan "$VERSION"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# list options
+__list_options() {
+	printf_color "$1: " "$5"
+	echo -ne "$2" | sed 's|:||g;s|'$3'| '$4'/g' | tr '\n' ' '
+	printf_newline
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# create the config file
+__gen_config() {
+	local NOTIFY_CLIENT_NAME="$APPNAME"
+	if [ "$INIT_CONFIG" != "TRUE" ]; then
+		printf_blue "Generating the config file in"
+		printf_cyan "$AI_CONFIG_DIR/$AI_CONFIG_FILE"
+	fi
+	[ -d "$AI_CONFIG_DIR" ] || mkdir -p "$AI_CONFIG_DIR"
+	[ -d "$AI_CONFIG_BACKUP_DIR" ] || mkdir -p "$AI_CONFIG_BACKUP_DIR"
+	[ -f "$AI_CONFIG_DIR/$AI_CONFIG_FILE" ] &&
+		cp -Rf "$AI_CONFIG_DIR/$AI_CONFIG_FILE" "$AI_CONFIG_BACKUP_DIR/$AI_CONFIG_FILE.$$"
+	cat <<EOF >"$AI_CONFIG_DIR/$AI_CONFIG_FILE"
+# Settings for ai
+# AI prompt wrapper - uses local AI first, then cloud CLI tools
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# AI Provider Settings
+# Preferred provider to try first (before fallback order)
+AI_PREFERRED_PROVIDER="${AI_PREFERRED_PROVIDER:-}"
+# Custom AI application (only for tools not in provider list)
+AI_DEFAULT_APP="${AI_DEFAULT_APP:-}"
+# Arguments for custom AI application
+AI_DEFAULT_ARGS="${AI_DEFAULT_ARGS:-}"
+# Default model to use (for providers that support model selection)
+AI_DEFAULT_MODEL="${AI_DEFAULT_MODEL:-}"
+# System prompt to prepend to all requests
+AI_SYSTEM_PROMPT="${AI_SYSTEM_PROMPT:-}"
+# Timeout in seconds for AI requests (default: 120)
+AI_TIMEOUT="${AI_TIMEOUT:-120}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Provider order (local first, then cloud)
+AI_LOCAL_PROVIDERS="${AI_LOCAL_PROVIDERS:-ollama llama-cli llama llamafile localai lmstudio gpt4all llm mlx koboldcpp jan mods fabric aichat tgpt}"
+AI_CLOUD_PROVIDERS="${AI_CLOUD_PROVIDERS:-claude copilot gh-copilot amazonq cody gemini bito aider sgpt openai chatgpt codex plandex mentat goose openhands opencode gpte}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Color Settings
+AI_OUTPUT_COLOR_1="${AI_OUTPUT_COLOR_1:-}"
+AI_OUTPUT_COLOR_2="${AI_OUTPUT_COLOR_2:-}"
+AI_OUTPUT_COLOR_GOOD="${AI_OUTPUT_COLOR_GOOD:-}"
+AI_OUTPUT_COLOR_ERROR="${AI_OUTPUT_COLOR_ERROR:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Notification Settings
+AI_SYSTEM_NOTIFY_ENABLED="${AI_SYSTEM_NOTIFY_ENABLED:-}"
+AI_GOOD_NAME="${AI_GOOD_NAME:-}"
+AI_ERROR_NAME="${AI_ERROR_NAME:-}"
+AI_GOOD_MESSAGE="${AI_GOOD_MESSAGE:-}"
+AI_ERROR_MESSAGE="${AI_ERROR_MESSAGE:-}"
+AI_NOTIFY_CLIENT_NAME="${AI_NOTIFY_CLIENT_NAME:-}"
+AI_NOTIFY_CLIENT_ICON="${AI_NOTIFY_CLIENT_ICON:-}"
+AI_NOTIFY_CLIENT_URGENCY="${AI_NOTIFY_CLIENT_URGENCY:-}"
+
+EOF
+	if builtin type -t __gen_config_local | grep -q 'function'; then __gen_config_local; fi
+	if [ -f "$AI_CONFIG_DIR/$AI_CONFIG_FILE" ]; then
+		[ "$INIT_CONFIG" = "TRUE" ] || printf_green "Your config file for $APPNAME has been created"
+		. "$AI_CONFIG_DIR/$AI_CONFIG_FILE"
+		AI_EXIT_STATUS=0
+	else
+		printf_red "Failed to create the config file"
+		AI_EXIT_STATUS=1
+	fi
+	return ${AI_EXIT_STATUS:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Help function - Align to 50
+__help() {
+	__printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+	__printf_opts "ai: AI prompt wrapper - $VERSION"
+	__printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+	__printf_line "Usage: ai [options] \"prompt\""
+	__printf_line ""
+	__printf_line "Send prompts to AI using local tools first, then cloud CLI tools."
+	__printf_line "No API keys required - uses CLI tools that handle their own auth."
+	__printf_line ""
+	__printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+	__printf_opts "Examples"
+	__printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+	__printf_line "ai                              - Start interactive chat"
+	__printf_line "ai What is the capital of France"
+	__printf_line "ai --model llama2 Write a haiku"
+	__printf_line "echo \"text\" | ai summarize     - Summarize piped text"
+	__printf_line "git diff | ai commit            - Generate commit message"
+	__printf_line "cat file.py | ai review         - Review code"
+	__printf_line ""
+	__printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+	__printf_opts "Subcommands (pipe content via stdin)"
+	__printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+	__printf_line ""
+	__printf_line "Git & Version Control:"
+	__printf_line "  commit, changelog, pr, release, branch, diff"
+	__printf_line "  issue, squash"
+	__printf_line ""
+	__printf_line "Code Analysis:"
+	__printf_line "  review, security, complexity, deps, perf"
+	__printf_line ""
+	__printf_line "Code Transformation:"
+	__printf_line "  explain, fix, debug, refactor, optimize"
+	__printf_line "  convert <lang>, types, modernize"
+	__printf_line ""
+	__printf_line "Code Generation:"
+	__printf_line "  test [framework], e2e [framework], bench [framework]"
+	__printf_line "  doc, mock, example, implement"
+	__printf_line ""
+	__printf_line "Text & Writing:"
+	__printf_line "  summarize, translate <lang>, rewrite, grammar"
+	__printf_line "  email, bullet, outline, tldr"
+	__printf_line ""
+	__printf_line "Shell & DevOps:"
+	__printf_line "  shell, cmd, shellx, docker, compose, k8s, ci"
+	__printf_line "  nginx, systemd, cron, makefile"
+	__printf_line "  terraform, ansible, helm"
+	__printf_line ""
+	__printf_line "Data & Formats:"
+	__printf_line "  json, yaml, csv, sql, regex, schema"
+	__printf_line "  migration, model, seed"
+	__printf_line ""
+	__printf_line "Project Files:"
+	__printf_line "  readme, gitignore, env, license <type>"
+	__printf_line "  api-doc, comment"
+	__printf_line ""
+	__printf_line "API & Web:"
+	__printf_line "  api, curl, http"
+	__printf_line ""
+	__printf_line "Learning:"
+	__printf_line "  learn, compare, eli5, how, why"
+	__printf_line ""
+	__printf_line "Frontend & UI:"
+	__printf_line "  component"
+	__printf_line ""
+	__printf_line "Security & Validation:"
+	__printf_line "  validate"
+	__printf_line ""
+	__printf_line "Debugging & Logging:"
+	__printf_line "  trace, error"
+	__printf_line ""
+	__printf_line "Utilities:"
+	__printf_line "  name, style, pros-cons, ideas, brainstorm"
+	__printf_line "  critique, improve"
+	__printf_line ""
+	__printf_line "Filesystem Commands (create/build/edit):"
+	__printf_line "  create <desc>, build <desc>, scaffold <desc>"
+	__printf_line "  edit <file> <instructions>"
+	__printf_line ""
+	__printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+	__printf_opts "AI Options"
+	__printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+	__printf_line "--model <name>                  - Use specific model"
+	__printf_line "--provider <name|local|cloud>   - Use specific provider or type"
+	__printf_line "--list                          - List available providers"
+	__printf_line "--check                         - Test provider health"
+	__printf_line ""
+	__printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+	__printf_opts "Supported Providers"
+	__printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+	__printf_line "Local:  ollama, llama-cli, llama, llamafile, localai,"
+	__printf_line "        lmstudio, gpt4all, llm, mlx, koboldcpp, jan,"
+	__printf_line "        mods, fabric, aichat, tgpt"
+	__printf_line "Cloud:  claude, copilot, gh-copilot, amazonq, cody,"
+	__printf_line "        gemini, bito, aider, sgpt, openai, chatgpt,"
+	__printf_line "        codex, plandex, mentat, goose, openhands,"
+	__printf_line "        opencode, gpte"
+	__printf_line ""
+	__printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+	__printf_opts "Other Options"
+	__printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+	__printf_line "--help                          - Shows this message"
+	__printf_line "--config                        - Generate user config file"
+	__printf_line "--version                       - Show script version"
+	__printf_line "--options                       - Shows all available options"
+	__printf_line "--debug                         - Enables script debugging"
+	__printf_line "--raw                           - Removes all formatting on output"
+	__printf_line "--silent                        - Suppress status messages"
+	__printf_line "--dir                           - Sets the working directory"
+	__printf_line ""
+	__printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+	__printf_opts "Environment Variables"
+	__printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+	__printf_line "AI_DEFAULT_APP                  - Default AI application"
+	__printf_line "AI_DEFAULT_ARGS                 - Default arguments for AI app"
+	__printf_line "AI_DEFAULT_MODEL                - Default model to use"
+	__printf_line ""
+	__printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+__grep() { grep "$@" 2>/dev/null; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# check if arg is a builtin option
+__is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0; fi; }
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Is current user root
+__user_is_root() {
+	{ [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Is current user not root
+__user_is_not_root() {
+	if { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; }; then return 1; else return 0; fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Check if user is a member of sudo
+__sudo_group() {
+	grep -sh "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# # Get sudo password
+__sudoask() {
+	ask_for_password sudo true && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Run sudo
+__sudorun() {
+	__sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
+	return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Test if user has access to sudo
+__can_i_sudo() {
+	(sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
+	__sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# User can run sudo
+__sudoif() {
+	__user_is_root && return 0
+	__can_i_sudo "${RUN_USER:-$USER}" && return 0
+	__user_is_not_root && __sudoask && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Run command as root
+requiresudo() {
+	if [ "$AI_REQUIRE_SUDO" = "yes" ] && [ -z "$AI_REQUIRE_SUDO_RUN" ]; then
+		export AI_REQUIRE_SUDO="no"
+		export AI_REQUIRE_SUDO_RUN="true"
+		__sudo "$@"
+		exit $?
+	else
+		return 0
+	fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Execute sudo
+__sudo() {
+	CMD="${1:-echo}" && shift 1
+	CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
+	SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
+	[ "$(basename -- "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
+	if __sudoif; then
+		export PATH="$PATH"
+		$SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
+		AI_EXIT_STATUS=$?
+	else
+		printf '%s\n' "This requires root to run"
+		AI_EXIT_STATUS=1
+	fi
+	return ${AI_EXIT_STATUS:-0}
+}
+# End of sudo functions
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+__how_long_did_it_take() {
+	local retprev=$?
+	local retval=${1:-$retprev}
+	__cmd_exists bc || return $retval
+	[ -n "$AI_START_TIMER" ] || return 0
+	local stop_time="$(date +%s.%N)"
+	local dt=$(echo "$stop_time - $AI_START_TIMER" | bc)
+	local dd=$(echo "$dt/86400" | bc)
+	local dt2=$(echo "$dt-86400*$dd" | bc)
+	local dh=$(echo "$dt2/3600" | bc)
+	local dt3=$(echo "$dt2-3600*$dh" | bc)
+	local dm=$(echo "$dt3/60" | bc)
+	local ds=$(echo "$dt3-60*$dm" | bc)
+	printf_purple "$(LC_NUMERIC=C printf "Total runtime: %d Days, %02d Hours, %02d Minutes, %02.4f Seconds\n" $dd $dh $dm $ds)"
+	return $retval
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+__trap_exit_ai() {
+	AI_EXIT_STATUS=${AI_EXIT_STATUS:-0}
+	[ -f "$AI_TEMP_FILE" ] && rm -Rf "$AI_TEMP_FILE" &>/dev/null
+	#unset CASJAYSDEV_TITLE_SET && printf '\033]2│;%s\033\\' "${USER}@${HOSTNAME}:${PWD/#$HOME/~} - ${CASJAYSDEV_TITLE_PREV:-$SHELL}"
+	if builtin type -t __trap_exit_local | grep -q 'function'; then __trap_exit_local; fi
+	return $AI_EXIT_STATUS
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Create a --no-* options function
+__options_function_no() {
+	local options="${1//=*/}"
+	local argument="${1//*=/}"
+	case "$options" in
+	*) echo "${argument:-No argument provided}" && shift ;;
+	esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Create a --yes-* options function
+__options_function_yes() {
+	local options="${1//=*/}"
+	local argument="${1//*=/}"
+	case "$options" in
+	*) echo "${argument:-No argument provided}" && shift ;;
+	esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Setup notification function
+__notifications() {
+	__cmd_exists notifications || return
+	[ "$AI_SYSTEM_NOTIFY_ENABLED" = "yes" ] || return
+	[ "$SEND_NOTIFICATION" = "no" ] && return
+	(
+		export SCRIPT_OPTS="" _DEBUG=""
+		export NOTIFY_GOOD_MESSAGE="${NOTIFY_GOOD_MESSAGE:-$AI_GOOD_MESSAGE}"
+		export NOTIFY_ERROR_MESSAGE="${NOTIFY_ERROR_MESSAGE:-$AI_ERROR_MESSAGE}"
+		export NOTIFY_CLIENT_ICON="${NOTIFY_CLIENT_ICON:-$AI_NOTIFY_CLIENT_ICON}"
+		export NOTIFY_CLIENT_NAME="${NOTIFY_CLIENT_NAME:-$AI_NOTIFY_CLIENT_NAME}"
+		export NOTIFY_CLIENT_URGENCY="${NOTIFY_CLIENT_URGENCY:-$AI_NOTIFY_CLIENT_URGENCY}"
+		notifications "$@"
+	) |& __devnull &
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+__notify_remote() {
+	local cmd="$(echo "$AI_REMOTE_NOTIFY_COMMAND" | awk -F ' ' '{print $1}')"
+	if [ "$AI_REMOTE_NOTIFY_ENABLED" = "yes" ]; then
+		if [ -n "$(command -v "$cmd")" ]; then
+			eval $AI_REMOTE_NOTIFY_COMMAND "$@"
+		fi
+	fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Setup trap to remove temp file
+trap '__trap_exit_ai' EXIT
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# start timer
+AI_START_TIMER="${AI_START_TIMER:-$(date +%s.%N)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# User defined functions
+
+# List of local AI providers (checked first, in order) - can be overridden in config
+AI_LOCAL_PROVIDERS="${AI_LOCAL_PROVIDERS:-ollama llama-cli llama llamafile localai lmstudio gpt4all llm mlx koboldcpp jan mods fabric aichat tgpt}"
+# List of cloud CLI providers (checked second, in order) - can be overridden in config
+AI_CLOUD_PROVIDERS="${AI_CLOUD_PROVIDERS:-claude copilot gh-copilot amazonq cody gemini bito aider sgpt openai chatgpt codex plandex mentat goose openhands opencode gpte}"
+# All providers combined
+AI_ALL_PROVIDERS="$AI_LOCAL_PROVIDERS $AI_CLOUD_PROVIDERS"
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Check if argument is a known provider
+__is_provider() {
+	local check="$1"
+	for provider in $AI_ALL_PROVIDERS; do
+		[ "$check" = "$provider" ] && return 0
+	done
+	return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Run command with timeout
+__with_timeout() {
+	local timeout_sec="${AI_TIMEOUT:-120}"
+	if __cmd_exists timeout; then
+		timeout "$timeout_sec" "$@"
+	else
+		# Fallback: run without timeout
+		"$@"
+	fi
+}
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Get first available model for a provider
+__get_model() {
+	local provider="$1"
+	case "$provider" in
+	ollama)
+		ollama list 2>/dev/null | tail -n +2 | awk '{print $1}' | head -1
+		;;
+	llama-cli | llama)
+		# Look for .gguf models in common locations
+		local model_dirs="$HOME/.local/share/llama.cpp/models $HOME/models $HOME/.cache/llama.cpp /usr/share/llama.cpp/models"
+		for dir in $model_dirs; do
+			[ -d "$dir" ] && find "$dir" -name "*.gguf" -type f 2>/dev/null | head -1 && return 0
+		done
+		;;
+	llamafile)
+		# llamafile is self-contained, no model needed
+		echo ""
+		;;
+	localai)
+		local-ai models list 2>/dev/null | head -1
+		;;
+	lmstudio)
+		lms ls 2>/dev/null | tail -n +2 | awk '{print $1}' | head -1
+		;;
+	gpt4all)
+		# gpt4all stores models in ~/.local/share/nomic.ai/GPT4All/
+		local model_dir="$HOME/.local/share/nomic.ai/GPT4All"
+		[ -d "$model_dir" ] && find "$model_dir" -name "*.gguf" -type f 2>/dev/null | head -1
+		;;
+	llm)
+		llm models default 2>/dev/null || llm models list 2>/dev/null | head -1
+		;;
+	mlx)
+		# mlx models are typically in ~/.cache/huggingface
+		echo ""
+		;;
+	koboldcpp)
+		echo ""
+		;;
+	jan)
+		jan models list 2>/dev/null | head -1
+		;;
+	mods)
+		echo ""
+		;;
+	fabric)
+		echo ""
+		;;
+	aichat)
+		aichat --list-models 2>/dev/null | head -1
+		;;
+	tgpt)
+		echo ""
+		;;
+	plandex)
+		echo ""
+		;;
+	*)
+		echo ""
+		;;
+	esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Check if provider is available and working
+__provider_available() {
+	local provider="$1"
+	case "$provider" in
+	# Local providers
+	ollama)
+		__cmd_exists ollama && ollama list &>/dev/null && [ -n "$(__get_model ollama)" ]
+		;;
+	llama-cli)
+		__cmd_exists llama-cli && [ -n "$(__get_model llama-cli)" ]
+		;;
+	llama)
+		__cmd_exists llama && [ -n "$(__get_model llama)" ]
+		;;
+	llamafile)
+		__cmd_exists llamafile
+		;;
+	localai)
+		__cmd_exists local-ai && local-ai models list &>/dev/null
+		;;
+	lmstudio)
+		__cmd_exists lms && lms status &>/dev/null
+		;;
+	gpt4all)
+		__cmd_exists gpt4all
+		;;
+	llm)
+		__cmd_exists llm
+		;;
+	mlx)
+		__cmd_exists mlx_lm.generate || __cmd_exists python3 && python3 -c "import mlx_lm" &>/dev/null
+		;;
+	koboldcpp)
+		__cmd_exists koboldcpp
+		;;
+	jan)
+		__cmd_exists jan
+		;;
+	mods)
+		__cmd_exists mods
+		;;
+	fabric)
+		__cmd_exists fabric
+		;;
+	aichat)
+		__cmd_exists aichat
+		;;
+	tgpt)
+		__cmd_exists tgpt
+		;;
+	plandex)
+		__cmd_exists plandex
+		;;
+	mentat)
+		__cmd_exists mentat
+		;;
+	goose)
+		__cmd_exists goose
+		;;
+	openhands)
+		__cmd_exists openhands || __cmd_exists oh
+		;;
+	opencode)
+		__cmd_exists opencode
+		;;
+	gpte)
+		__cmd_exists gpte || __cmd_exists gpt-engineer
+		;;
+	# Cloud providers
+	claude)
+		__cmd_exists claude
+		;;
+	copilot)
+		__cmd_exists copilot
+		;;
+	gh-copilot)
+		__cmd_exists gh && gh copilot --help &>/dev/null
+		;;
+	amazonq | amazon-q)
+		__cmd_exists q
+		;;
+	cody)
+		__cmd_exists cody
+		;;
+	gemini)
+		__cmd_exists gemini
+		;;
+	bito)
+		__cmd_exists bito
+		;;
+	aider)
+		__cmd_exists aider
+		;;
+	sgpt)
+		__cmd_exists sgpt
+		;;
+	openai)
+		__cmd_exists openai
+		;;
+	chatgpt)
+		__cmd_exists chatgpt
+		;;
+	codex)
+		__cmd_exists codex
+		;;
+	*)
+		# For unknown providers, just check if command exists
+		__cmd_exists "$provider"
+		;;
+	esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get the AI working directory (git root if in repo, otherwise CWD)
+__get_ai_workdir() {
+	local git_root=""
+	git_root="$(git rev-parse --show-toplevel 2>/dev/null)"
+	if [ -n "$git_root" ]; then
+		echo "$git_root"
+	else
+		echo "$AI_CWD"
+	fi
+}
+
+# Get filesystem access flags for a provider
+__get_fs_flags() {
+	local provider="$1"
+	local workdir="$(__get_ai_workdir)"
+	case "$provider" in
+	claude)
+		echo "--tools Edit,Write,Read,Bash --permission-mode acceptEdits --add-dir $workdir"
+		;;
+	copilot)
+		# Allow file access, deny git write operations
+		echo "--add-dir $workdir --allow-all-tools --deny-tool 'shell(git add*)' --deny-tool 'shell(git commit*)' --deny-tool 'shell(git push*)' --deny-tool 'shell(git reset*)'"
+		;;
+	gemini)
+		echo "--approval-mode yolo --include-directories $workdir"
+		;;
+	aider)
+		# --yes auto-confirms, --no-auto-commits prevents git commits
+		echo "--yes --no-auto-commits --no-stream"
+		;;
+	plandex)
+		# Flags for tell command: auto-apply, smart context, no git
+		echo "--auto-apply --smart-context --no-auto-commit"
+		;;
+	mentat)
+		# Auto-context for file discovery
+		echo "--auto-context"
+		;;
+	goose)
+		# Goose runs autonomously by default
+		echo ""
+		;;
+	openhands)
+		# OpenHands/OpenDevin autonomous agent
+		echo ""
+		;;
+	opencode)
+		# Go-based CLI
+		echo ""
+		;;
+	gpte)
+		# gpt-engineer project generation
+		echo ""
+		;;
+	codex)
+		# OpenAI Codex CLI - full-auto for file editing
+		echo "exec --full-auto"
+		;;
+	aichat)
+		# aichat with coder agent (requires fs tools configured)
+		echo "-a coder -S"
+		;;
+	sgpt)
+		echo "--code"
+		;;
+	*)
+		# No special flags for other providers
+		echo ""
+		;;
+	esac
+}
+
+# Check if provider supports native filesystem access
+__provider_has_fs() {
+	local provider="$1"
+	case "$provider" in
+	# Providers with filesystem support
+	claude|copilot|gemini|aider|codex|plandex|mentat|goose|openhands|opencode|gpte|aichat)
+		return 0
+		;;
+	*)
+		return 1
+		;;
+	esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Execute prompt with provider
+__run_provider() {
+	local provider="$1"
+	local prompt="$2"
+	local model="${3:-}"
+	local args="${4:-}"
+	local exit_code=0
+	local output=""
+	local error_file="$AI_TEMP_DIR/error_$$"
+
+	case "$provider" in
+	# Local providers
+	ollama)
+		model="${model:-$(__get_model ollama)}"
+		[ -z "$model" ] && return 1
+		output="$(__with_timeout ollama run $args "$model" "$prompt" 2>"$error_file")" || exit_code=$?
+		;;
+	llama-cli)
+		model="${model:-$(__get_model llama-cli)}"
+		[ -z "$model" ] && return 1
+		output="$(__with_timeout llama-cli $args -m "$model" -p "$prompt" --no-display-prompt 2>"$error_file")" || exit_code=$?
+		;;
+	llama)
+		model="${model:-$(__get_model llama)}"
+		[ -z "$model" ] && return 1
+		output="$(__with_timeout llama $args -m "$model" -p "$prompt" --no-display-prompt 2>"$error_file")" || exit_code=$?
+		;;
+	llamafile)
+		output="$(__with_timeout llamafile $args -p "$prompt" --no-display-prompt 2>"$error_file")" || exit_code=$?
+		;;
+	localai)
+		model="${model:-$(__get_model localai)}"
+		output="$(__with_timeout local-ai run $args ${model:+--model "$model"} "$prompt" 2>"$error_file")" || exit_code=$?
+		;;
+	lmstudio)
+		model="${model:-$(__get_model lmstudio)}"
+		output="$(__with_timeout lms chat $args ${model:+--model "$model"} "$prompt" 2>"$error_file")" || exit_code=$?
+		;;
+	gpt4all)
+		model="${model:-$(__get_model gpt4all)}"
+		output="$(__with_timeout gpt4all $args ${model:+--model "$model"} --prompt "$prompt" 2>"$error_file")" || exit_code=$?
+		;;
+	llm)
+		model="${model:-$(__get_model llm)}"
+		output="$(__with_timeout llm $args ${model:+-m "$model"} "$prompt" 2>"$error_file")" || exit_code=$?
+		;;
+	mlx)
+		model="${model:-$(__get_model mlx)}"
+		output="$(__with_timeout mlx_lm.generate $args ${model:+--model "$model"} --prompt "$prompt" 2>"$error_file")" || exit_code=$?
+		;;
+	koboldcpp)
+		output="$(__with_timeout koboldcpp $args --prompt "$prompt" 2>"$error_file")" || exit_code=$?
+		;;
+	jan)
+		model="${model:-$(__get_model jan)}"
+		output="$(__with_timeout jan $args ${model:+--model "$model"} "$prompt" 2>"$error_file")" || exit_code=$?
+		;;
+	mods)
+		output="$(echo "$prompt" | __with_timeout mods $args 2>"$error_file")" || exit_code=$?
+		;;
+	fabric)
+		output="$(echo "$prompt" | __with_timeout fabric $args 2>"$error_file")" || exit_code=$?
+		;;
+	aichat)
+		output="$(__with_timeout aichat $args "$prompt" 2>"$error_file")" || exit_code=$?
+		;;
+	tgpt)
+		output="$(__with_timeout tgpt $args "$prompt" 2>"$error_file")" || exit_code=$?
+		;;
+	plandex)
+		output="$(__with_timeout plandex $args "$prompt" 2>"$error_file")" || exit_code=$?
+		;;
+	# Cloud providers
+	claude)
+		output="$(__with_timeout claude $args -p "$prompt" 2>"$error_file")" || exit_code=$?
+		;;
+	copilot)
+		output="$(__with_timeout copilot $args -p "$prompt" 2>"$error_file")" || exit_code=$?
+		;;
+	gh-copilot)
+		output="$(__with_timeout gh copilot suggest $args "$prompt" 2>"$error_file")" || exit_code=$?
+		;;
+	amazonq | amazon-q)
+		output="$(__with_timeout q chat $args "$prompt" 2>"$error_file")" || exit_code=$?
+		;;
+	cody)
+		output="$(__with_timeout cody chat $args -m "$prompt" 2>"$error_file")" || exit_code=$?
+		;;
+	gemini)
+		output="$(echo "$prompt" | __with_timeout gemini $args 2>"$error_file")" || exit_code=$?
+		;;
+	bito)
+		output="$(echo "$prompt" | __with_timeout bito $args 2>"$error_file")" || exit_code=$?
+		;;
+	aider)
+		output="$(__with_timeout aider $args --message "$prompt" 2>"$error_file")" || exit_code=$?
+		;;
+	sgpt)
+		output="$(__with_timeout sgpt $args "$prompt" 2>"$error_file")" || exit_code=$?
+		;;
+	openai)
+		output="$(__with_timeout openai api chat.completions.create $args -m "${model:-gpt-4}" -g user "$prompt" 2>"$error_file")" || exit_code=$?
+		;;
+	chatgpt)
+		output="$(__with_timeout chatgpt $args "$prompt" 2>"$error_file")" || exit_code=$?
+		;;
+	*)
+		# For unknown providers, try generic invocation
+		if __cmd_exists "$provider"; then
+			output="$(__with_timeout "$provider" $args "$prompt" 2>"$error_file")" || exit_code=$?
+		else
+			printf_red "Unknown provider: $provider"
+			return 1
+		fi
+		;;
+	esac
+
+	# Check for API/service errors in stderr (only if command failed or no output)
+	if [ -f "$error_file" ]; then
+		local error_content="$(cat "$error_file" 2>/dev/null)"
+		rm -f "$error_file"
+		# Only treat as error if command failed AND error patterns found
+		# Ignore retry messages (e.g., gemini "Attempt 1 failed...Retrying")
+		if [ $exit_code -ne 0 ] || [ -z "$output" ]; then
+			if echo "$error_content" | grep -qiE '(unauthorized|forbidden|invalid.*(key|token|auth)|connection.*(refused|reset)|503|502|500|401|403|429)' &&
+				! echo "$error_content" | grep -qiE 'retrying'; then
+				[ "$AI_SILENT" != "true" ] && printf_red "Provider $provider failed: $error_content" >&2
+				return 1
+			fi
+		fi
+	fi
+
+	# Check exit code
+	if [ $exit_code -ne 0 ]; then
+		return 1
+	fi
+
+	# Clean up provider-specific noise from output
+	if [ -n "$output" ]; then
+		output=$(echo "$output" | sed \
+			-e 's/> EOF by user//g' \
+			-e 's/^> $//g' \
+			-e 's/<|user|>.*//g' \
+			-e 's/<|assistant|>//g' \
+			-e 's/<|end|>//g' \
+			-e 's/<|im_end|>//g' \
+			-e 's/<|im_start|>//g' \
+			-e 's/\\\[end of text\\\\]//g' \
+			-e 's/^User:.*//g' \
+			-e 's/^Human:.*//g' \
+			-e 's/^Assistant: *//' \
+			| sed '/^$/N;/^\n$/d' \
+		)
+	fi
+
+	# Output result
+	if [ -n "$output" ]; then
+		echo "$output"
+		return 0
+	else
+		return 1
+	fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Run the AI with the prompt (non-interactive)
+__run_ai_prompt() {
+	local prompt="$1"
+	local model="${AI_MODEL:-$AI_DEFAULT_MODEL}"
+	local args=""
+
+	# Validate prompt
+	if [ -z "$prompt" ]; then
+		printf_red "Error: No prompt provided"
+		return 1
+	fi
+
+	# Prepend system prompt if set
+	if [ -n "$AI_SYSTEM_PROMPT" ]; then
+		prompt="System: $AI_SYSTEM_PROMPT\n\n$prompt"
+	fi
+
+	# Handle --provider flag
+	if [ -n "$AI_REQUESTED_PROVIDER" ]; then
+		case "$AI_REQUESTED_PROVIDER" in
+		local)
+			# Try only local providers
+			for provider in $AI_LOCAL_PROVIDERS; do
+				if __provider_available "$provider"; then
+					[ "$AI_SILENT" != "true" ] && printf_cyan "Using local provider: $provider" >&2
+					if __run_provider "$provider" "$prompt" "$model" "$args"; then
+						return 0
+					fi
+					[ "$AI_SILENT" != "true" ] && printf_yellow "Provider $provider failed, trying next local..." >&2
+				fi
+			done
+			printf_red "Error: No local AI providers available"
+			printf_yellow "Install one of: $AI_LOCAL_PROVIDERS"
+			return 1
+			;;
+		cloud)
+			# Try only cloud providers
+			for provider in $AI_CLOUD_PROVIDERS; do
+				if __provider_available "$provider"; then
+					[ "$AI_SILENT" != "true" ] && printf_cyan "Using cloud provider: $provider" >&2
+					if __run_provider "$provider" "$prompt" "$model" "$args"; then
+						return 0
+					fi
+					[ "$AI_SILENT" != "true" ] && printf_yellow "Provider $provider failed, trying next cloud..." >&2
+				fi
+			done
+			printf_red "Error: No cloud AI providers available"
+			printf_yellow "Install one of: $AI_CLOUD_PROVIDERS"
+			return 1
+			;;
+		*)
+			# Try specific provider
+			if __provider_available "$AI_REQUESTED_PROVIDER"; then
+				[ "$AI_SILENT" != "true" ] && printf_cyan "Using provider: $AI_REQUESTED_PROVIDER" >&2
+				if __run_provider "$AI_REQUESTED_PROVIDER" "$prompt" "$model" "$args"; then
+					return 0
+				fi
+				printf_red "Error: Provider $AI_REQUESTED_PROVIDER failed"
+				return 1
+			else
+				printf_red "Error: Provider $AI_REQUESTED_PROVIDER is not available"
+				return 1
+			fi
+			;;
+		esac
+	fi
+
+	# If custom default app is set and exists, try it first
+	if [ -n "$AI_DEFAULT_APP" ] && __cmd_exists "$AI_DEFAULT_APP"; then
+		[ "$AI_SILENT" != "true" ] && printf_cyan "Using custom app: $AI_DEFAULT_APP" >&2
+		if __run_provider "$AI_DEFAULT_APP" "$prompt" "$model" "$AI_DEFAULT_ARGS"; then
+			return 0
+		fi
+		[ "$AI_SILENT" != "true" ] && printf_yellow "Custom app failed, trying alternatives..." >&2
+	fi
+
+	# Try preferred provider first (if set and available)
+	if [ -n "$AI_PREFERRED_PROVIDER" ] && __provider_available "$AI_PREFERRED_PROVIDER"; then
+		[ "$AI_SILENT" != "true" ] && printf_cyan "Using preferred provider: $AI_PREFERRED_PROVIDER" >&2
+		if __run_provider "$AI_PREFERRED_PROVIDER" "$prompt" "$model" "$args"; then
+			return 0
+		fi
+		[ "$AI_SILENT" != "true" ] && printf_yellow "Preferred provider failed, trying fallback..." >&2
+	fi
+
+	# Try local providers first
+	for provider in $AI_LOCAL_PROVIDERS; do
+		if __provider_available "$provider"; then
+			[ "$AI_SILENT" != "true" ] && printf_cyan "Using local provider: $provider" >&2
+			if __run_provider "$provider" "$prompt" "$model" "$args"; then
+				return 0
+			fi
+			[ "$AI_SILENT" != "true" ] && printf_yellow "Provider $provider failed, trying next..." >&2
+		fi
+	done
+
+	# Try cloud providers
+	for provider in $AI_CLOUD_PROVIDERS; do
+		if __provider_available "$provider"; then
+			[ "$AI_SILENT" != "true" ] && printf_cyan "Using cloud provider: $provider" >&2
+			if __run_provider "$provider" "$prompt" "$model" "$args"; then
+				return 0
+			fi
+			[ "$AI_SILENT" != "true" ] && printf_yellow "Provider $provider failed, trying next..." >&2
+		fi
+	done
+
+	# No providers available
+	printf_red "Error: No AI providers available"
+	printf_yellow "Install one of the following:"
+	printf_yellow "  Local:  $AI_LOCAL_PROVIDERS"
+	printf_yellow "  Cloud:  $AI_CLOUD_PROVIDERS"
+	printf_yellow ""
+	printf_yellow "Or set AI_DEFAULT_APP to your preferred AI command"
+	return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Run interactive chat session
+__run_interactive() {
+	local model="${AI_MODEL:-$AI_DEFAULT_MODEL}"
+
+	# Handle --provider flag
+	if [ -n "$AI_REQUESTED_PROVIDER" ]; then
+		case "$AI_REQUESTED_PROVIDER" in
+		local)
+			# Try only local providers
+			for provider in $AI_LOCAL_PROVIDERS; do
+				if __provider_available "$provider"; then
+					[ "$AI_SILENT" != "true" ] && printf_cyan "Starting interactive session with local: $provider" >&2
+					__run_interactive_provider "$provider" "$model"
+					return $?
+				fi
+			done
+			printf_red "Error: No local AI providers available for interactive mode"
+			printf_yellow "Install one of: $AI_LOCAL_PROVIDERS"
+			return 1
+			;;
+		cloud)
+			# Try only cloud providers
+			for provider in $AI_CLOUD_PROVIDERS; do
+				if __provider_available "$provider"; then
+					[ "$AI_SILENT" != "true" ] && printf_cyan "Starting interactive session with cloud: $provider" >&2
+					__run_interactive_provider "$provider" "$model"
+					return $?
+				fi
+			done
+			printf_red "Error: No cloud AI providers available for interactive mode"
+			printf_yellow "Install one of: $AI_CLOUD_PROVIDERS"
+			return 1
+			;;
+		*)
+			# Try specific provider
+			if __provider_available "$AI_REQUESTED_PROVIDER"; then
+				[ "$AI_SILENT" != "true" ] && printf_cyan "Starting interactive session with: $AI_REQUESTED_PROVIDER" >&2
+				__run_interactive_provider "$AI_REQUESTED_PROVIDER" "$model"
+				return $?
+			else
+				printf_red "Error: Provider $AI_REQUESTED_PROVIDER is not available"
+				return 1
+			fi
+			;;
+		esac
+	fi
+
+	# If custom default app is set and exists, use it
+	if [ -n "$AI_DEFAULT_APP" ] && __cmd_exists "$AI_DEFAULT_APP"; then
+		[ "$AI_SILENT" != "true" ] && printf_cyan "Starting interactive session with: $AI_DEFAULT_APP" >&2
+		__run_interactive_provider "$AI_DEFAULT_APP" "$model" "$AI_DEFAULT_ARGS"
+		return $?
+	fi
+
+	# Try preferred provider first (if set and available)
+	if [ -n "$AI_PREFERRED_PROVIDER" ] && __provider_available "$AI_PREFERRED_PROVIDER"; then
+		[ "$AI_SILENT" != "true" ] && printf_cyan "Starting interactive session with: $AI_PREFERRED_PROVIDER" >&2
+		__run_interactive_provider "$AI_PREFERRED_PROVIDER" "$model"
+		return $?
+	fi
+
+	# Try local providers first
+	for provider in $AI_LOCAL_PROVIDERS; do
+		if __provider_available "$provider"; then
+			[ "$AI_SILENT" != "true" ] && printf_cyan "Starting interactive session with: $provider" >&2
+			__run_interactive_provider "$provider" "$model"
+			return $?
+		fi
+	done
+
+	# Try cloud providers
+	for provider in $AI_CLOUD_PROVIDERS; do
+		if __provider_available "$provider"; then
+			[ "$AI_SILENT" != "true" ] && printf_cyan "Starting interactive session with: $provider" >&2
+			__run_interactive_provider "$provider" "$model"
+			return $?
+		fi
+	done
+
+	# No providers available
+	printf_red "Error: No AI providers available for interactive mode"
+	printf_yellow "Install one of the following:"
+	printf_yellow "  Local:  $AI_LOCAL_PROVIDERS"
+	printf_yellow "  Cloud:  $AI_CLOUD_PROVIDERS"
+	return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Run interactive session with specific provider
+__run_interactive_provider() {
+	local provider="$1"
+	local model="${2:-}"
+	local args="${3:-}"
+
+	case "$provider" in
+	# Local providers
+	ollama)
+		model="${model:-$(__get_model ollama)}"
+		[ -z "$model" ] && {
+			printf_red "No model available for ollama"
+			return 1
+		}
+		exec ollama run $args "$model"
+		;;
+	llama-cli)
+		model="${model:-$(__get_model llama-cli)}"
+		[ -z "$model" ] && {
+			printf_red "No model available for llama-cli"
+			return 1
+		}
+		exec llama-cli $args -m "$model" -cnv
+		;;
+	llama)
+		model="${model:-$(__get_model llama)}"
+		[ -z "$model" ] && {
+			printf_red "No model available for llama"
+			return 1
+		}
+		exec llama $args -m "$model" -cnv
+		;;
+	llamafile)
+		exec llamafile $args
+		;;
+	localai)
+		model="${model:-$(__get_model localai)}"
+		exec local-ai $args ${model:+--model "$model"}
+		;;
+	lmstudio)
+		model="${model:-$(__get_model lmstudio)}"
+		exec lms chat $args ${model:+--model "$model"}
+		;;
+	gpt4all)
+		exec gpt4all $args
+		;;
+	llm)
+		exec llm chat $args ${model:+-m "$model"}
+		;;
+	mlx)
+		model="${model:-$(__get_model mlx)}"
+		exec mlx_lm.chat $args ${model:+--model "$model"}
+		;;
+	koboldcpp)
+		exec koboldcpp $args
+		;;
+	jan)
+		exec jan $args
+		;;
+	mods)
+		exec mods $args
+		;;
+	fabric)
+		exec fabric $args
+		;;
+	aichat)
+		exec aichat $args
+		;;
+	tgpt)
+		exec tgpt $args --interactive
+		;;
+	plandex)
+		exec plandex $args
+		;;
+	# Cloud providers
+	claude)
+		exec claude $args
+		;;
+	copilot)
+		exec copilot $args
+		;;
+	gh-copilot)
+		exec gh copilot $args
+		;;
+	amazonq | amazon-q)
+		exec q chat $args
+		;;
+	cody)
+		exec cody chat $args
+		;;
+	gemini)
+		exec gemini $args
+		;;
+	bito)
+		exec bito $args
+		;;
+	aider)
+		exec aider $args
+		;;
+	sgpt)
+		exec sgpt $args --repl temp
+		;;
+	openai)
+		exec openai api chat.completions.create $args
+		;;
+	chatgpt)
+		exec chatgpt $args
+		;;
+	*)
+		# For unknown providers, try direct execution
+		if __cmd_exists "$provider"; then
+			exec "$provider" $args
+		else
+			printf_red "Unknown provider: $provider"
+			return 1
+		fi
+		;;
+	esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Health check - test if providers actually work
+__check_providers() {
+	local test_prompt="Say hello in one word"
+	local passed=0
+	local failed=0
+	local timeout_orig="$AI_TIMEOUT"
+	AI_TIMEOUT=10 # Short timeout for health check
+
+	printf_blue "AI Provider Health Check"
+	printf_newline
+	printf_cyan "Testing providers with: \"$test_prompt\""
+	printf_newline
+
+	printf_cyan "Local providers:"
+	for provider in $AI_LOCAL_PROVIDERS; do
+		printf "  Testing $provider... "
+		if __provider_available "$provider"; then
+			if output=$(__run_provider "$provider" "$test_prompt" "" "" 2>/dev/null) && [ -n "$output" ]; then
+				printf_green "✓ OK"
+				((passed++))
+			else
+				printf_red "✗ FAILED (no response)"
+				((failed++))
+			fi
+		else
+			printf_yellow "- SKIP (not installed)"
+		fi
+	done
+
+	printf_newline
+	printf_cyan "Cloud providers:"
+	for provider in $AI_CLOUD_PROVIDERS; do
+		printf "  Testing $provider... "
+		if __provider_available "$provider"; then
+			if output=$(__run_provider "$provider" "$test_prompt" "" "" 2>/dev/null) && [ -n "$output" ]; then
+				printf_green "✓ OK"
+				((passed++))
+			else
+				printf_red "✗ FAILED (no response)"
+				((failed++))
+			fi
+		else
+			printf_yellow "- SKIP (not installed)"
+		fi
+	done
+
+	AI_TIMEOUT="$timeout_orig"
+	printf_newline
+	printf_blue "Results: $passed passed, $failed failed"
+
+	[ $failed -eq 0 ] && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# List available providers
+__list_providers() {
+	printf_blue "Available AI Providers:"
+	printf_newline
+	printf_cyan "Local providers:"
+	for provider in $AI_LOCAL_PROVIDERS; do
+		if __provider_available "$provider"; then
+			local model="$(__get_model "$provider")"
+			printf_green "  ✓ $provider${model:+ (model: $model)}"
+		else
+			printf_red "  ✗ $provider (not available)"
+		fi
+	done
+	printf_newline
+	printf_cyan "Cloud providers:"
+	for provider in $AI_CLOUD_PROVIDERS; do
+		if __provider_available "$provider"; then
+			printf_green "  ✓ $provider"
+		else
+			printf_red "  ✗ $provider (not available)"
+		fi
+	done
+	printf_newline
+	if [ -n "$AI_DEFAULT_APP" ]; then
+		printf_purple "Default: $AI_DEFAULT_APP ${AI_DEFAULT_ARGS:+"$AI_DEFAULT_ARGS"}"
+	fi
+}
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Default exit code
+AI_EXIT_STATUS=0
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Application Folders
+AI_CONFIG_DIR="${AI_CONFIG_DIR:-$HOME/.config/myscripts/ai}"
+AI_CONFIG_BACKUP_DIR="${AI_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/ai/backups}"
+AI_LOG_DIR="${AI_LOG_DIR:-$HOME/.local/log/ai}"
+AI_RUN_DIR="${AI_RUN_DIR:-$HOME/.local/run/system_scripts/$AI_SCRIPTS_PREFIX}"
+AI_TEMP_DIR="${AI_TEMP_DIR:-$HOME/.local/tmp/system_scripts/ai}"
+AI_CACHE_DIR="${AI_CACHE_DIR:-$HOME/.cache/ai}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# File settings
+AI_CONFIG_FILE="${AI_CONFIG_FILE:-settings.conf}"
+AI_LOG_ERROR_FILE="${AI_LOG_ERROR_FILE:-$AI_LOG_DIR/error.log}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Color Settings
+AI_OUTPUT_COLOR_1="${AI_OUTPUT_COLOR_1:-33}"
+AI_OUTPUT_COLOR_2="${AI_OUTPUT_COLOR_2:-5}"
+AI_OUTPUT_COLOR_GOOD="${AI_OUTPUT_COLOR_GOOD:-2}"
+AI_OUTPUT_COLOR_ERROR="${AI_OUTPUT_COLOR_ERROR:-1}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Notification Settings
+AI_REMOTE_NOTIFY_ENABLED="${AI_REMOTE_NOTIFY_ENABLED:-yes}"
+AI_REMOTE_NOTIFY_COMMAND="${AI_REMOTE_NOTIFY_COMMAND:-web-notify telegram}"
+# System
+AI_SYSTEM_NOTIFY_ENABLED="${AI_SYSTEM_NOTIFY_ENABLED:-yes}"
+AI_GOOD_NAME="${AI_GOOD_NAME:-Great:}"
+AI_ERROR_NAME="${AI_ERROR_NAME:-Error:}"
+AI_GOOD_MESSAGE="${AI_GOOD_MESSAGE:-No errors reported}"
+AI_ERROR_MESSAGE="${AI_ERROR_MESSAGE:-Errors were reported}"
+AI_NOTIFY_CLIENT_NAME="${AI_NOTIFY_CLIENT_NAME:-$APPNAME}"
+AI_NOTIFY_CLIENT_ICON="${AI_NOTIFY_CLIENT_ICON:-notification-new}"
+AI_NOTIFY_CLIENT_URGENCY="${AI_NOTIFY_CLIENT_URGENCY:-normal}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Additional Variables
+AI_DEFAULT_APP="${AI_DEFAULT_APP:-}"
+AI_DEFAULT_ARGS="${AI_DEFAULT_ARGS:-}"
+AI_DEFAULT_MODEL="${AI_DEFAULT_MODEL:-}"
+AI_PREFERRED_PROVIDER="${AI_PREFERRED_PROVIDER:-}"
+AI_SYSTEM_PROMPT="${AI_SYSTEM_PROMPT:-}"
+AI_TIMEOUT="${AI_TIMEOUT:-120}"
+AI_MODEL="${AI_MODEL:-}"
+AI_REQUESTED_PROVIDER="${AI_REQUESTED_PROVIDER:-}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Generate config files
+[ -f "$AI_CONFIG_DIR/$AI_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Import config
+[ -f "$AI_CONFIG_DIR/$AI_CONFIG_FILE" ] && . "$AI_CONFIG_DIR/$AI_CONFIG_FILE"
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Ensure Directories exist
+[ -d "$AI_RUN_DIR" ] || mkdir -p "$AI_RUN_DIR" |& __devnull
+[ -d "$AI_LOG_DIR" ] || mkdir -p "$AI_LOG_DIR" |& __devnull
+[ -d "$AI_TEMP_DIR" ] || mkdir -p "$AI_TEMP_DIR" |& __devnull
+[ -d "$AI_CACHE_DIR" ] || mkdir -p "$AI_CACHE_DIR" |& __devnull
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+AI_TEMP_FILE="${AI_TEMP_FILE:-$(mktemp $AI_TEMP_DIR/XXXXXX 2>/dev/null)}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Set custom actions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Argument/Option settings
+SETARGS=($@)
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+SHORTOPTS=""
+SHORTOPTS+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+GET_OPTIONS_NO="no-*"
+GET_OPTIONS_YES="yes-*"
+LONGOPTS="completions:,config,reset-config,debug,dir:,help,options,raw,version,silent,force,"
+LONGOPTS+="model:,provider:,list,check,template:"
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Subcommands
+ARRAY="changelog commit pr release branch diff issue squash"
+ARRAY+=" review security complexity deps perf"
+ARRAY+=" explain fix debug refactor optimize convert types modernize"
+ARRAY+=" test e2e bench doc mock example implement"
+ARRAY+=" summarize translate rewrite grammar email bullet outline tldr"
+ARRAY+=" shell cmd shellx docker compose k8s ci nginx systemd cron makefile terraform ansible helm"
+ARRAY+=" json yaml csv sql regex schema migration model seed"
+ARRAY+=" readme gitignore env license api-doc comment"
+ARRAY+=" api curl http"
+ARRAY+=" learn compare eli5 how why"
+ARRAY+=" name style pros-cons ideas brainstorm critique improve"
+ARRAY+=" create build scaffold edit component validate trace error"
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+LIST=""
+LIST+=""
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Setup application options
+setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
+eval set -- "${setopts[@]}" 2>/dev/null
+while :; do
+	case "$1" in
+	--raw) 
+		shift 1
+		export SHOW_RAW="true"
+		NC=""
+		RESET=""
+		BLACK=""
+		RED=""
+		GREEN=""
+		YELLOW=""
+		BLUE=""
+		PURPLE=""
+		CYAN=""
+		WHITE=""
+		ORANGE=""
+		LIGHTRED=""
+		BG_GREEN=""
+		BG_RED=""
+		ICON_INFO="[ info ]"
+		ICON_GOOD="[ ok ]"
+		ICON_WARN="[ warn ]"
+		ICON_ERROR="[ error ]"
+		ICON_QUESTION="[ ? ]"
+		printf_column() { tee | grep '^'; }
+		printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
+		;;
+	--debug) 
+		shift 1
+		set -xo pipefail
+		export SCRIPT_OPTS="--debug"
+		export _DEBUG="on"
+		__devnull() { tee || return 1; }
+		__devnull2() { eval "$@" |& tee -p || return 1; }
+		;;
+	--completions)
+		if [ "$2" = "short" ]; then
+			printf '%s\n' "-$SHORTOPTS" | sed 's|"||g;s|:||g;s|,|,-|g' | tr ',' '\n'
+		elif [ "$2" = "long" ]; then
+			printf '%s\n' "--$LONGOPTS" | sed 's|"||g;s|:||g;s|,|,--|g' | tr ',' '\n'
+		elif [ "$2" = "array" ]; then
+			printf '%s\n' "$ARRAY" | sed 's|"||g;s|:||g' | tr ',' '\n'
+		elif [ "$2" = "list" ]; then
+			printf '%s\n' "$LIST" | sed 's|"||g;s|:||g' | tr ',' '\n'
+		else
+			exit 1
+		fi
+		shift 2
+		exit $?
+		;;
+	--options)
+		shift 1
+		printf_blue "Current options for ${PROG:-$APPNAME}"
+		[ -z "$SHORTOPTS" ] || __list_options "Short Options" "-${SHORTOPTS}" ',' '-' 4
+		[ -z "$LONGOPTS" ] || __list_options "Long Options" "--$LONGOPTS" ',' '--' 4
+		[ -z "$ARRAY" ] || __list_options "Base Options" "${ARRAY}" ',' '' 4
+		[ -z "$LIST" ] || __list_options "LIST Options" "${LIST}" ',' '' 4
+		exit $?
+		;;
+	--version)
+		shift 1
+		__version
+		exit $?
+		;;
+	--help)
+		shift 1
+		__help
+		exit $?
+		;;
+	--config)
+		shift 1
+		__gen_config
+		exit $?
+		;;
+	--reset-config)
+		shift 1
+		[ -f "$AI_CONFIG_DIR/$AI_CONFIG_FILE" ] && rm -Rf "${AI_CONFIG_DIR:?}/$AI_CONFIG_FILE"
+		__gen_config
+		exit $?
+		;;
+	--silent)
+		shift 1
+		AI_SILENT="true"
+		;;
+	--force)
+		shift 1
+		export FORCE_INSTALL="true"
+		AI_FORCE_INSTALL="true"
+		;;
+	--dir)
+		CWD_IS_SET="TRUE"
+		AI_CWD="$2"
+		[ -d "$AI_CWD" ] || mkdir -p "$AI_CWD" |& __devnull
+		shift 2
+		;;
+	--model)
+		AI_MODEL="$2"
+		shift 2
+		;;
+	--provider)
+		AI_REQUESTED_PROVIDER="$2"
+		shift 2
+		;;
+	--list)
+		shift 1
+		__list_providers
+		exit $?
+		;;
+	--check)
+		shift 1
+		__check_providers
+		exit $?
+		;;
+	--no-*)
+		__options_function_no "$@"
+		shift 1
+		;;
+	--yes-*)
+		__options_function_yes "$@"
+		shift 1
+		;;
+	--)
+		shift 1
+		break
+		;;
+	esac
+done
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Get directory from args
+# set -- "$@"
+# for arg in "$@"; do
+# if [ -d "$arg" ]; then
+# AI_CWD="$arg" && shift 1 && SET_NEW_ARGS=($@) && break
+# elif [ -f "$arg" ]; then
+# AI_CWD="$(dirname "$arg" 2>/dev/null)" && shift 1 && SET_NEW_ARGS=($@) && break
+# else
+# SET_NEW_ARGS+=("$arg")
+# fi
+# done
+# set -- "${SET_NEW_ARGS[@]}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Set directory to first argument
+# [ -d "$1" ] && __is_an_option "$1" && AI_CWD="$1" && shift 1 || AI_CWD="${AI_CWD:-$PWD}"
+AI_CWD="$(realpath "${AI_CWD:-$PWD}" 2>/dev/null)"
+if [ -d "$AI_CWD" ] && cd "$AI_CWD"; then
+	true
+# if [ "$AI_SILENT" != "true" ] && [ "$CWD_SILENCE" != "true" ]; then
+# printf_cyan "Setting working dir to $AI_CWD"
+# fi
+# else
+# printf_exit "💔 $AI_CWD does not exist 💔"
+fi
+export AI_CWD
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Set actions based on variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Check for required applications/Network check
+#requiresudo "$0" "$@" || exit 2     # exit 2 if errors
+cmd_exists --error --ask bash || exit 3 # exit 3 if not found
+#am_i_online --error || exit 4           # exit 4 if no internet
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# APP Variables overrides
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Actions based on env
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Export variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Execute functions
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Execute commands
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# begin main app
+
+# Unset AI_DEFAULT_APP if it's a known provider (handled by fallback) or doesn't exist
+if [ -n "$AI_DEFAULT_APP" ]; then
+	if __is_provider "$AI_DEFAULT_APP" || ! __cmd_exists "$AI_DEFAULT_APP"; then
+		unset AI_DEFAULT_APP AI_DEFAULT_ARGS
+	fi
+fi
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# FILESYSTEM ACCESS FUNCTIONS
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+
+# Get current working directory context for AI
+__get_cwd_context() {
+	local max_files="${1:-50}"
+	local max_depth="${2:-3}"
+	local workdir="$(__get_ai_workdir)"
+	echo "PROJECT ROOT: $workdir"
+	[ "$workdir" != "$AI_CWD" ] && echo "CURRENT DIRECTORY: $AI_CWD"
+	echo ""
+	echo "FILES AND DIRECTORIES:"
+	# List files with tree if available, otherwise use find
+	if command -v tree &>/dev/null; then
+		tree -L "$max_depth" -a --noreport -I '.git|node_modules|__pycache__|.venv|venv|dist|build|.cache' "$workdir" 2>/dev/null | head -n "$max_files"
+	else
+		find "$workdir" -maxdepth "$max_depth" \( -name '.git' -o -name 'node_modules' -o -name '__pycache__' -o -name '.venv' -o -name 'venv' \) -prune -o -print 2>/dev/null | head -n "$max_files" | sed "s|^$workdir/||"
+	fi
+}
+
+# Read a file and return its contents with line numbers
+__read_file() {
+	local file="$1"
+	local filepath="$AI_CWD/$file"
+	[ "${file:0:1}" = "/" ] && filepath="$file"
+	if [ -f "$filepath" ]; then
+		echo "=== FILE: $file ==="
+		cat -n "$filepath" 2>/dev/null
+		echo "=== END FILE ==="
+	else
+		echo "ERROR: File not found: $file"
+		return 1
+	fi
+}
+
+# Parse file blocks from AI response
+# Format: ```file:path/to/file ... ```
+__parse_file_blocks() {
+	local response="$1"
+	local temp_file="$AI_TEMP_DIR/fileblocks_$$"
+	echo "$response" > "$temp_file"
+
+	# Extract file blocks using awk
+	awk '
+	/^```file:/ {
+		# Extract filename from ```file:path/to/file
+		match($0, /^```file:(.+)$/, arr)
+		if (arr[1] != "") {
+			filename = arr[1]
+			gsub(/^[ \t]+|[ \t]+$/, "", filename)  # trim whitespace
+			in_block = 1
+			content = ""
+			next
+		}
+	}
+	/^```$/ && in_block {
+		# End of file block - print filename and content
+		print "FILE:" filename
+		print "CONTENT_START"
+		print content
+		print "CONTENT_END"
+		in_block = 0
+		next
+	}
+	in_block {
+		if (content == "") {
+			content = $0
+		} else {
+			content = content "\n" $0
+		}
+	}
+	' "$temp_file"
+
+	rm -f "$temp_file"
+}
+
+# Write file blocks to disk
+__write_file_blocks() {
+	local response="$1"
+	local files_written=0
+	local current_file=""
+	local in_content=0
+	local content=""
+
+	while IFS= read -r line; do
+		if [[ "$line" == FILE:* ]]; then
+			current_file="${line#FILE:}"
+		elif [[ "$line" == "CONTENT_START" ]]; then
+			in_content=1
+			content=""
+		elif [[ "$line" == "CONTENT_END" ]]; then
+			in_content=0
+			if [ -n "$current_file" ]; then
+				local filepath="$AI_CWD/$current_file"
+				# Create directory if needed
+				local dir=$(dirname "$filepath")
+				[ -d "$dir" ] || mkdir -p "$dir"
+				# Write file
+				printf '%s\n' "$content" > "$filepath"
+				[ "$AI_SILENT" != "true" ] && printf_green "  ✓ Created: $current_file" >&2
+				((files_written++))
+			fi
+			current_file=""
+		elif [ $in_content -eq 1 ]; then
+			if [ -z "$content" ]; then
+				content="$line"
+			else
+				content="$content"$'
+'"$line"
+			fi
+		fi
+	done < <(__parse_file_blocks "$response")
+
+	echo "$files_written"
+}
+
+# Parse questions from AI response
+# Format: ???: question text or ???question: text
+__parse_questions() {
+	local response="$1"
+	echo "$response" | grep -oE '\?\?\?:? ?[^\n]+' | sed 's/^\?\?\?:* *//'
+}
+
+# Check if response contains questions
+__has_questions() {
+	local response="$1"
+	echo "$response" | grep -qE '\?\?\?:?'
+}
+
+# Check if response contains file blocks
+__has_file_blocks() {
+	local response="$1"
+	echo "$response" | grep -qE '^```file:'
+}
+
+# Prompt user for input
+__prompt_user() {
+	local question="$1"
+	local answer=""
+	printf_yellow "AI asks: $question"
+	printf_cyan "> "
+	read -r answer
+	echo "$answer"
+}
+
+# Get the filesystem-aware system prompt
+__get_fs_system_prompt() {
+	cat <<'SYSPROMPT'
+You are an AI assistant with full access to the user's filesystem in the current working directory.
+
+CAPABILITIES:
+- You can READ files by asking the user to provide them or referencing files listed in the context
+- You can CREATE or MODIFY files by using the special file block format
+- You can ASK QUESTIONS when you need clarification
+
+FILE OUTPUT FORMAT:
+When you need to create or modify a file, use this exact format:
+```file:path/to/filename.ext
+file contents here
+```
+
+IMPORTANT:
+- Use relative paths from the working directory
+- Create directories as needed (they will be created automatically)
+- You can output multiple file blocks in one response
+- Do NOT run git write commands (git add, git commit, git push, git reset, etc)
+
+ASKING QUESTIONS:
+When you need more information, use this format:
+???: Your question here?
+
+The user will answer and you can continue.
+
+GUIDELINES:
+- Be concise but complete
+- Create production-ready code with proper error handling
+- Include necessary config files (package.json, requirements.txt, etc.)
+- Add brief comments explaining complex logic
+- Follow best practices for the language/framework
+SYSPROMPT
+}
+
+# Run AI with filesystem access
+__run_ai_with_fs() {
+	local prompt="$1"
+	local model="${AI_MODEL:-$AI_DEFAULT_MODEL}"
+	local provider=""
+	local fs_flags=""
+	local fs_context=""
+	local full_prompt=""
+
+	# Find a provider with native FS support, or use requested/preferred
+	if [ -n "$AI_REQUESTED_PROVIDER" ]; then
+		provider="$AI_REQUESTED_PROVIDER"
+	elif [ -n "$AI_PREFERRED_PROVIDER" ] && __provider_available "$AI_PREFERRED_PROVIDER"; then
+		provider="$AI_PREFERRED_PROVIDER"
+	else
+		# Try to find a provider with native FS support first
+		for p in claude copilot gemini aichat aider codex plandex mentat goose openhands opencode gpte; do
+			if __provider_available "$p"; then
+				provider="$p"
+				break
+			fi
+		done
+		# Fall back to any available provider
+		if [ -z "$provider" ]; then
+			for p in $AI_LOCAL_PROVIDERS $AI_CLOUD_PROVIDERS; do
+				if __provider_available "$p"; then
+					provider="$p"
+					break
+				fi
+			done
+		fi
+	fi
+
+	if [ -z "$provider" ]; then
+		printf_red "No AI providers available"
+		return 1
+	fi
+
+	[ "$AI_SILENT" != "true" ] && printf_cyan "Using provider: $provider" >&2
+
+	# Check if provider has native filesystem support
+	if __provider_has_fs "$provider"; then
+		# Use native flags - provider handles files directly
+		local workdir="$(__get_ai_workdir)"
+		fs_flags="$(__get_fs_flags "$provider")"
+		fs_context="$(__get_cwd_context)"
+		full_prompt="Project root: $workdir
+Current directory: $AI_CWD
+
+IMPORTANT: Do NOT run any git write commands (git add, git commit, git push, git reset, etc). Git read commands (git status, git log, git diff) are allowed.
+
+$fs_context
+
+Task: $prompt"
+
+		# Run with filesystem flags
+		case "$provider" in
+		# Local providers
+		plandex)
+			# plandex tell "prompt" --auto-apply --smart-context
+			cd "$workdir" && __with_timeout plandex tell $fs_flags "$prompt" 2>/dev/null
+			;;
+		mentat)
+			# mentat with auto-context for file discovery
+			cd "$workdir" && __with_timeout mentat $fs_flags --message "$prompt" 2>/dev/null
+			;;
+		goose)
+			# Block's autonomous agent
+			cd "$workdir" && __with_timeout goose run "$prompt" 2>/dev/null
+			;;
+		openhands)
+			# OpenHands/OpenDevin - may use 'oh' or 'openhands' command
+			cd "$workdir" && __with_timeout openhands "$prompt" 2>/dev/null
+			;;
+		opencode)
+			# Go-based CLI
+			cd "$workdir" && __with_timeout opencode "$prompt" 2>/dev/null
+			;;
+		gpte)
+			# gpt-engineer - create project from prompt file
+			cd "$workdir" && echo "$prompt" > .gpte-prompt && __with_timeout gpte . 2>/dev/null
+			;;
+		# Cloud providers
+		claude)
+			__with_timeout claude $fs_flags -p "$full_prompt" 2>/dev/null
+			;;
+		copilot)
+			# GitHub Copilot CLI with filesystem access
+			__with_timeout copilot $fs_flags -p "$full_prompt" 2>/dev/null
+			;;
+		gemini)
+			echo "$full_prompt" | __with_timeout gemini $fs_flags 2>/dev/null
+			;;
+		aider)
+			# aider --message "prompt" --yes --no-auto-commits
+			cd "$workdir" && __with_timeout aider $fs_flags --message "$prompt" 2>/dev/null
+			;;
+		codex)
+			# OpenAI Codex CLI - exec for non-interactive
+			cd "$workdir" && __with_timeout codex $fs_flags "$prompt" 2>/dev/null
+			;;
+		aichat)
+			# aichat with agent mode for fs tools
+			cd "$workdir" && __with_timeout aichat $fs_flags "$prompt" 2>/dev/null
+			;;
+		esac
+	else
+		# Fall back to text parsing for providers without native FS
+		local response=""
+		local files_created=0
+		local system_prompt="$(__get_fs_system_prompt)"
+		fs_context="$(__get_cwd_context)"
+
+		full_prompt="$system_prompt
+
+CURRENT FILESYSTEM:
+$fs_context
+
+USER REQUEST:
+$prompt"
+
+		response="$(__run_ai_prompt "$full_prompt")"
+		[ $? -ne 0 ] || [ -z "$response" ] && { printf_red "AI request failed"; return 1; }
+
+		# Parse and write file blocks
+		if __has_file_blocks "$response"; then
+			[ "$AI_SILENT" != "true" ] && printf_blue "Creating files..." >&2
+			files_created="$(__write_file_blocks "$response")"
+		fi
+
+		# Show response without file blocks
+		echo "$response" | sed '/^```file:/,/^```$/d'
+
+		[ $files_created -gt 0 ] && [ "$AI_SILENT" != "true" ] && printf_green "✓ Created $files_created file(s)" >&2
+	fi
+
+	return 0
+}
+
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# END FILESYSTEM ACCESS FUNCTIONS
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+
+# Get smart default context for subcommands when no input provided
+__get_smart_context() {
+	local subcmd="$1"
+	case "$subcmd" in
+	commit)
+		# Get staged changes, or all changes if nothing staged
+		if git diff --cached --quiet 2>/dev/null; then
+			git diff 2>/dev/null
+		else
+			git diff --cached 2>/dev/null
+		fi
+		;;
+	changelog | release)
+		# Get recent commits
+		git log --oneline -20 2>/dev/null
+		;;
+	pr)
+		# Get commits not in main/master
+		local base=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo "main")
+		git log --oneline "$base"..HEAD 2>/dev/null || git log --oneline -10 2>/dev/null
+		;;
+	diff)
+		git diff 2>/dev/null
+		;;
+	branch)
+		# Show current task context from recent commits
+		git log --oneline -5 2>/dev/null
+		;;
+	deps)
+		# Try to find and read dependency files
+		if [ -f "package.json" ]; then
+			cat package.json
+		elif [ -f "requirements.txt" ]; then
+			cat requirements.txt
+		elif [ -f "Cargo.toml" ]; then
+			cat Cargo.toml
+		elif [ -f "go.mod" ]; then
+			cat go.mod
+		elif [ -f "Gemfile" ]; then
+			cat Gemfile
+		elif [ -f "composer.json" ]; then
+			cat composer.json
+		fi
+		;;
+	gitignore)
+		# Detect project type from files present
+		local types=""
+		[ -f "package.json" ] && types+="Node.js "
+		[ -f "requirements.txt" ] || [ -f "setup.py" ] && types+="Python "
+		[ -f "Cargo.toml" ] && types+="Rust "
+		[ -f "go.mod" ] && types+="Go "
+		[ -f "Gemfile" ] && types+="Ruby "
+		[ -f "composer.json" ] && types+="PHP "
+		[ -f "pom.xml" ] || [ -f "build.gradle" ] && types+="Java "
+		[ -d ".git" ] && types+="Git "
+		echo "${types:-General project}"
+		;;
+	readme)
+		# Gather project context
+		echo "Project files:"
+		ls -la 2>/dev/null | head -20
+		[ -f "package.json" ] && echo -e "\npackage.json:" && cat package.json
+		;;
+	env)
+		# Detect project type
+		local types=""
+		[ -f "package.json" ] && types+="Node.js "
+		[ -f "requirements.txt" ] && types+="Python "
+		[ -f "docker-compose.yml" ] && types+="Docker "
+		echo "${types:-Web application}"
+		;;
+	*)
+		# No smart default available
+		return 1
+		;;
+	esac
+}
+
+# Get prompt from arguments and/or stdin
+AI_PROMPT=""
+AI_CONTEXT=""
+
+# Read from stdin if piped
+if [ ! -t 0 ]; then
+	AI_CONTEXT=$(cat)
+fi
+
+# Get prompt from arguments
+if [ $# -gt 0 ]; then
+	AI_PROMPT="$*"
+fi
+
+# Combine context (stdin) with prompt (args)
+if [ -n "$AI_CONTEXT" ] && [ -n "$AI_PROMPT" ]; then
+	# Both stdin and args: context + instruction
+	AI_PROMPT="$AI_CONTEXT\n\n$AI_PROMPT"
+elif [ -n "$AI_CONTEXT" ]; then
+	# Only stdin
+	AI_PROMPT="$AI_CONTEXT"
+fi
+
+# If no prompt provided, run interactive mode
+if [ -z "$AI_PROMPT" ]; then
+	__run_interactive
+	AI_EXIT_STATUS=$?
+else
+	case "$1" in
+	# ============================================ 
+	# GIT & VERSION CONTROL
+	# ============================================ 
+	changelog)
+		shift 1
+		[ -z "$AI_CONTEXT" ] && AI_CONTEXT="$(__get_smart_context changelog)"
+		[ -z "$AI_CONTEXT" ] && {
+			printf_red "No changes found. Pipe content or run in a git repository."
+			exit 1
+		}
+		AI_PROMPT="Generate a detailed changelog entry for the following changes. Use conventional changelog format with sections like Added, Changed, Fixed, Removed as appropriate:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nAdditional context: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	commit)
+		shift 1
+		[ -z "$AI_CONTEXT" ] && AI_CONTEXT="$(__get_smart_context commit)"
+		[ -z "$AI_CONTEXT" ] && {
+			printf_red "No changes found. Stage changes or pipe a diff."
+			exit 1
+		}
+
+		local base_prompt_content=""
+		local use_per_file_messages="false"
+
+		# Determine the base prompt content
+		if [ -n "$AI_COMMIT_TEMPLATE" ] && [ -f "$AI_COMMIT_TEMPLATE" ]; then
+			base_prompt_content="$(cat "$AI_COMMIT_TEMPLATE")"
+			use_per_file_messages="true"
+		elif [ -f "$AI_CWD/.git/COMMIT_MESS" ]; then
+			base_prompt_content="$(cat "$AI_CWD/.git/COMMIT_MESS")"
+			use_per_file_messages="true"
+		fi
+
+		local per_file_messages=""
+		if [ "$use_per_file_messages" = "true" ]; then
+			local staged_files=$(git diff --cached --name-only)
+			if [ -n "$staged_files" ]; then
+				for file in $staged_files; do
+					local file_diff=$(git diff --cached -- "$file")
+					if [ -n "$file_diff" ]; then
+						local file_prompt="Generate a concise git commit message for the following changes to the file '$file'. Use conventional commit format (type: description). First line under 72 chars. Output ONLY the commit message, nothing else:\n\n$file_diff"
+						local file_message="$(__run_ai_prompt "$file_prompt")"
+						if [ -n "$file_message" ]; then
+							per_file_messages+="- $file: $file_message\n"
+						fi
+					fi
+				done
+			fi
+		fi
+
+		if [ -n "$base_prompt_content" ]; then
+			AI_PROMPT="$base_prompt_content\n\n$per_file_messages\n---\nGenerate a concise git commit message for the following changes. Use conventional commit format (type: description). First line under 72 chars. Output ONLY the commit message, nothing else:\n\n$AI_CONTEXT"
+		else
+			AI_PROMPT="Generate a concise git commit message for the following changes. Use conventional commit format (type: description). First line under 72 chars. Output ONLY the commit message, nothing else:\n\n$AI_CONTEXT"
+		fi
+
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nAdditional context: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	pr)
+		shift 1
+		[ -z "$AI_CONTEXT" ] && AI_CONTEXT="$(__get_smart_context pr)"
+		[ -z "$AI_CONTEXT" ] && {
+			printf_red "No commits found. Run in a git repository with commits."
+			exit 1
+		}
+		AI_PROMPT="Generate a pull request description for the following changes. Include a summary, list of changes, and testing notes:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nPR title/context: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	release)
+		shift 1
+		[ -z "$AI_CONTEXT" ] && AI_CONTEXT="$(__get_smart_context release)"
+		[ -z "$AI_CONTEXT" ] && {
+			printf_red "No commits found. Pipe content or run in a git repository."
+			exit 1
+		}
+		AI_PROMPT="Generate release notes for the following changes. Group by feature, fix, and breaking changes. Make it user-friendly:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nVersion: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	branch)
+		shift 1
+		[ -z "$AI_CONTEXT" ] && AI_CONTEXT="$(__get_smart_context branch)"
+		AI_PROMPT="Suggest a git branch name for the following task/feature. Use kebab-case, be concise. Output ONLY the branch name:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nTask: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	diff)
+		shift 1
+		[ -z "$AI_CONTEXT" ] && AI_CONTEXT="$(__get_smart_context diff)"
+		[ -z "$AI_CONTEXT" ] && {
+			printf_red "No diff found. Pipe content or run in a git repository."
+			exit 1
+		}
+		AI_PROMPT="Explain the following diff/patch in plain English. Summarize what changed and why it might matter:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nFocus on: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	issue)
+		shift 1
+		AI_PROMPT="Generate a GitHub issue from the following description. Include a clear title, detailed description, steps to reproduce (if bug), expected vs actual behavior, and relevant labels:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="Create a GitHub issue for: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	squash)
+		shift 1
+		[ -z "$AI_CONTEXT" ] && AI_CONTEXT="$(git log --oneline -10 2>/dev/null)"
+		[ -z "$AI_CONTEXT" ] && {
+			printf_red "No git history found."
+			exit 1
+		}
+		AI_PROMPT="Generate a squash commit message for the following commits. Combine them into a single clear, comprehensive message:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nContext: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	# ============================================
+	# CODE ANALYSIS & REVIEW
+	# ============================================ 
+	review)
+		shift 1
+		AI_PROMPT="Review the following code. Identify potential bugs, security issues, performance problems, and suggest improvements. Be specific and actionable:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nFocus on: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	security)
+		shift 1
+		AI_PROMPT="Perform a security audit on the following code. Look for vulnerabilities like injection, XSS, authentication issues, secrets exposure, and OWASP top 10. Be thorough:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nContext: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	complexity)
+		shift 1
+		AI_PROMPT="Analyze the complexity of the following code. Identify complex sections, suggest simplifications, and estimate maintainability:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nFocus: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	deps)
+		shift 1
+		[ -z "$AI_CONTEXT" ] && AI_CONTEXT="$(__get_smart_context deps)"
+		[ -z "$AI_CONTEXT" ] && {
+			printf_red "No dependency file found. Pipe content or run in a project directory."
+			exit 1
+		}
+		AI_PROMPT="Analyze the following dependency list/file. Identify outdated packages, security concerns, redundancies, and suggest improvements:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nFocus: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	perf)
+		shift 1
+		AI_PROMPT="Analyze the following code for performance issues. Identify bottlenecks, inefficient patterns, and suggest optimizations:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nContext: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	# ============================================ 
+	# CODE TRANSFORMATION
+	# ============================================ 
+	explain)
+		shift 1
+		AI_PROMPT="Explain the following code or text clearly and concisely. Break down complex parts and explain the purpose:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nSpecifically explain: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	fix)
+		shift 1
+		AI_PROMPT="Analyze the following code or error and suggest fixes. Provide corrected code where applicable:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nThe problem is: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	debug)
+		shift 1
+		AI_PROMPT="Help debug the following code/error. Identify the root cause, explain why it's happening, and provide a fix:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nError/Issue: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	refactor)
+		shift 1
+		AI_PROMPT="Refactor the following code for better readability, maintainability, and best practices. Provide the complete refactored code:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nGoals: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	optimize)
+		shift 1
+		AI_PROMPT="Optimize the following code for performance. Provide the optimized code with explanations of improvements:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nOptimize for: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	convert)
+		shift 1
+		target_lang="${1:-Python}"
+		shift 1 2>/dev/null
+		AI_PROMPT="Convert the following code to $target_lang. Maintain functionality and use idiomatic patterns for the target language:\n\n$AI_CONTEXT"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	types)
+		shift 1
+		AI_PROMPT="Add type annotations/hints to the following code. Use the language's native type system:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nLanguage/Framework: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	modernize)
+		shift 1
+		AI_PROMPT="Modernize the following code using current best practices and modern language features. Provide the updated code:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nTarget version: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	# ============================================ 
+	# CODE GENERATION
+	# ============================================ 
+	test)
+		shift 1
+		AI_PROMPT="Generate comprehensive unit tests for the following code. Cover happy paths, edge cases, and error conditions:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nTesting framework: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	e2e)
+		shift 1
+		AI_PROMPT="Generate end-to-end tests for the following code/application. Test complete user workflows, integrations, and realistic scenarios:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nFramework/context: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	bench)
+		shift 1
+		AI_PROMPT="Generate benchmarks/performance tests for the following code. Measure execution time, memory usage, and throughput:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nFramework: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	doc)
+		shift 1
+		AI_PROMPT="Generate documentation for the following code. Include description, parameters, return values, and usage examples:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nFormat: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	mock)
+		shift 1
+		AI_PROMPT="Generate mock/fake data based on the following schema, type definition, or example. Output valid data:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nCount/Format: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	example)
+		shift 1
+		AI_PROMPT="Generate practical code examples for the following concept, API, or library:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nLanguage/Context: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	implement)
+		shift 1
+		AI_PROMPT="Implement the following specification, interface, or requirements. Provide complete, working code:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nLanguage/Framework: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	# ============================================ 
+	# TEXT & WRITING
+	# ============================================ 
+	summarize)
+		shift 1
+		AI_PROMPT="Summarize the following text concisely, capturing the key points:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nFormat/Length: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	translate)
+		shift 1
+		target_lang="${1:-English}"
+		shift 1 2>/dev/null
+		AI_PROMPT="Translate the following text to $target_lang. Preserve formatting and tone:\n\n$AI_CONTEXT"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	rewrite)
+		shift 1
+		AI_PROMPT="Rewrite the following text to improve clarity and readability while preserving the meaning:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nStyle/Tone: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	grammar)
+		shift 1
+		AI_PROMPT="Fix grammar, spelling, and punctuation in the following text. Output the corrected text only:\n\n$AI_CONTEXT"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	email)
+		shift 1
+		AI_PROMPT="Draft a professional email based on the following notes or context:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nTone/Purpose: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	bullet)
+		shift 1
+		AI_PROMPT="Convert the following text into clear, concise bullet points:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nFormat: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	outline)
+		shift 1
+		AI_PROMPT="Create an outline for the following topic or content:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nPurpose: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	# ============================================ 
+	# SHELL & DEVOPS
+	# ============================================ 
+	shell | cmd)
+		shift 1
+		AI_PROMPT="Generate a shell command to accomplish the following task. Output ONLY the command, no explanation:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nTask: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	shellx)
+		shift 1
+		AI_PROMPT="Generate a shell command with explanation for the following task:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nTask: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	docker)
+		shift 1
+		AI_PROMPT="Generate a Dockerfile or docker-compose.yml for the following requirements:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nRequirements: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	k8s)
+		shift 1
+		AI_PROMPT="Generate Kubernetes manifests (YAML) for the following requirements:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nRequirements: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	ci)
+		shift 1
+		AI_PROMPT="Generate CI/CD configuration (GitHub Actions, GitLab CI, etc.) for the following requirements:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nPlatform: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	nginx)
+		shift 1
+		AI_PROMPT="Generate nginx configuration for the following requirements:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nRequirements: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	systemd)
+		shift 1
+		AI_PROMPT="Generate a systemd service unit file for the following:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nService: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	cron)
+		shift 1
+		AI_PROMPT="Generate a cron expression or crontab entry for the following schedule. Output the cron expression and explain it:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nSchedule: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	makefile)
+		shift 1
+		AI_PROMPT="Generate a Makefile for the following project/requirements:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nRequirements: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	compose)
+		shift 1
+		AI_PROMPT="Generate a docker-compose.yml file for the following services/requirements:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nServices: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	terraform)
+		shift 1
+		AI_PROMPT="Generate Terraform configuration (.tf files) for the following infrastructure:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nRequirements: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	ansible)
+		shift 1
+		AI_PROMPT="Generate Ansible playbook/role for the following automation task:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nTask: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	helm)
+		shift 1
+		AI_PROMPT="Generate Helm chart templates for the following Kubernetes application:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nApplication: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	# ============================================
+	# DATA & FORMATS
+	# ============================================ 
+	json)
+		shift 1
+		AI_PROMPT="Generate, transform, or fix the following JSON. Output valid JSON only:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nTask: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	yaml)
+		shift 1
+		AI_PROMPT="Generate, transform, or fix the following YAML. Output valid YAML only:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nTask: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	csv)
+		shift 1
+		AI_PROMPT="Parse, transform, or analyze the following CSV data:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nTask: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	sql)
+		shift 1
+		AI_PROMPT="Generate an SQL query for the following requirement. Use standard SQL unless specified:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nDatabase/Dialect: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	regex)
+		shift 1
+		AI_PROMPT="Generate or explain a regular expression for the following pattern/requirement:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nFlavor/Context: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	schema)
+		shift 1
+		AI_PROMPT="Generate a schema (JSON Schema, DB schema, etc.) from the following data or requirements:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nFormat: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	migration)
+		shift 1
+		AI_PROMPT="Generate a database migration for the following changes/schema:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nFramework/DB: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	model)
+		shift 1
+		AI_PROMPT="Generate database model/ORM code for the following schema or requirements:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nORM/Framework: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	seed)
+		shift 1
+		AI_PROMPT="Generate seed/fixture data for the following database schema or model:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nFormat/Count: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	# ============================================
+	# PROJECT FILES
+	# ============================================ 
+	readme)
+		shift 1
+		[ -z "$AI_CONTEXT" ] && AI_CONTEXT="$(__get_smart_context readme)"
+		AI_PROMPT="Generate a README.md for the following project or code:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nProject name: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	gitignore)
+		shift 1
+		[ -z "$AI_CONTEXT" ] && AI_CONTEXT="$(__get_smart_context gitignore)"
+		AI_PROMPT="Generate a .gitignore file for the following project type. Output ONLY the gitignore contents:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nProject type: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	env)
+		shift 1
+		[ -z "$AI_CONTEXT" ] && AI_CONTEXT="$(__get_smart_context env)"
+		AI_PROMPT="Generate a .env.example file with appropriate environment variables for the following:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nProject type: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	license)
+		shift 1
+		license_type="${1:-MIT}"
+		shift 1 2>/dev/null
+		AI_PROMPT="Generate a $license_type license file. Output ONLY the license text:\n\n$AI_CONTEXT"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	api-doc)
+		shift 1
+		AI_PROMPT="Generate API documentation (OpenAPI/Swagger) for the following code or endpoints:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nFormat: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	comment)
+		shift 1
+		AI_PROMPT="Add clear, helpful comments to the following code. Explain complex logic, document functions, and add inline comments:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nStyle: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	# ============================================
+	# API & WEB
+	# ============================================ 
+	api)
+		shift 1
+		AI_PROMPT="Generate API endpoint documentation or implementation for the following:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nFramework: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	curl)
+		shift 1
+		AI_PROMPT="Generate a curl command for the following API request. Output ONLY the curl command:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nDetails: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	http)
+		shift 1
+		AI_PROMPT="Explain or debug the following HTTP request/response:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nFocus: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	# ============================================ 
+	# LEARNING & HELP
+	# ============================================ 
+	learn)
+		shift 1
+		AI_PROMPT="Explain the following concept in a clear, educational way with examples:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nTopic: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	compare)
+		shift 1
+		AI_PROMPT="Compare and contrast the following technologies, approaches, or concepts. Include pros, cons, and use cases:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nCompare: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	eli5)
+		shift 1
+		AI_PROMPT="Explain the following like I'm 5 years old. Use simple analogies:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nTopic: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	how)
+		shift 1
+		AI_PROMPT="Explain how to accomplish the following task step by step:\n\n$*"
+		[ -n "$AI_CONTEXT" ] && AI_PROMPT="$AI_PROMPT\n\nContext:\n$AI_CONTEXT"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	why)
+		shift 1
+		AI_PROMPT="Explain why the following is the case, or why this approach is used:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nQuestion: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	# ============================================ 
+	# NAMING & STYLE
+	# ============================================ 
+	name)
+		shift 1
+		AI_PROMPT="Suggest good names for the following (variable, function, class, project, etc.). Provide multiple options:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nContext: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	style)
+		shift 1
+		AI_PROMPT="Reformat the following code to match standard style conventions. Output the formatted code:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nStyle guide: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	# ============================================ 
+	# UTILITIES
+	# ============================================ 
+	tldr)
+		shift 1
+		AI_PROMPT="Give a TL;DR (very brief summary, 1-3 sentences max) of the following:\n\n$AI_CONTEXT"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	pros-cons)
+		shift 1
+		AI_PROMPT="List the pros and cons of the following:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nContext: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	ideas)
+		shift 1
+		AI_PROMPT="Generate creative ideas or suggestions for the following:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nTopic: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	brainstorm)
+		shift 1
+		AI_PROMPT="Brainstorm solutions, approaches, or ideas for the following problem:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nFocus: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	critique)
+		shift 1
+		AI_PROMPT="Provide constructive critique of the following. Be honest but helpful:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nFocus: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	improve)
+		shift 1
+		AI_PROMPT="Suggest improvements for the following. Provide specific, actionable recommendations:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nGoals: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	# ============================================ 
+	# FILESYSTEM-ENABLED COMMANDS
+	# ============================================
+	# FRONTEND & UI
+	# ============================================
+	component)
+		shift 1
+		AI_PROMPT="Generate a UI component for the following requirements:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nFramework/Style: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	# ============================================
+	# SECURITY & VALIDATION
+	# ============================================
+	validate)
+		shift 1
+		AI_PROMPT="Add input validation to the following code. Handle edge cases, sanitize inputs, and add appropriate error messages:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nValidation type: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	# ============================================
+	# DEBUGGING & LOGGING
+	# ============================================
+	trace)
+		shift 1
+		AI_PROMPT="Add logging/tracing to the following code. Include function entry/exit, important values, and timing:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nLogging framework: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	error)
+		shift 1
+		AI_PROMPT="Add comprehensive error handling to the following code. Include try/catch, error types, and recovery strategies:\n\n$AI_CONTEXT"
+		[ -n "$*" ] && AI_PROMPT="$AI_PROMPT\n\nStyle: $*"
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	# ============================================
+	# FILESYSTEM COMMANDS
+	# ============================================
+	create | build | scaffold)
+		shift 1
+		project_desc="$AI_CONTEXT"
+		[ -n "$*" ] && project_desc="$*"
+		[ -z "$project_desc" ] && {
+			printf_red "Please describe what you want to create."
+			printf_yellow "Example: ai create a nodejs express app with auth"
+			exit 1
+		}
+		__run_ai_with_fs "Create the following project/files: $project_desc"
+		AI_EXIT_STATUS=$?
+		;;
+	edit)
+		shift 1
+		edit_target="$1"
+		shift 1
+		edit_instruction="$*"
+		if [ -z "$edit_target" ]; then
+			printf_red "Please specify a file to edit."
+			printf_yellow "Example: ai edit src/index.js add error handling"
+			exit 1
+		fi
+		# Read the file content
+		file_content="$(__read_file "$edit_target")"
+		if [ $? -ne 0 ]; then
+			printf_red "Cannot read file: $edit_target"
+			exit 1
+		fi
+		__run_ai_with_fs "Edit the file '$edit_target' with the following changes: $edit_instruction\n\nCURRENT FILE CONTENT:\n$file_content"
+		AI_EXIT_STATUS=$?
+		;;
+	# ============================================ 
+	# DEFAULT
+	# ============================================ 
+	*)
+		__run_ai_prompt "$AI_PROMPT"
+		AI_EXIT_STATUS=$?
+		;;
+	esac
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Set exit code
+AI_EXIT_STATUS="${AI_EXIT_STATUS:-0}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# End application
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# lets exit with code
+exit ${AI_EXIT_STATUS:-0}
+# - - - - - - - - - - - - - - - - - - - - - - - - - 
+# ex: ts=2 sw=2 et filetype=sh

@@ -628,7 +628,29 @@ ANONYMIZE_TOR_VERSION_ARM64="${ANONYMIZE_TOR_VERSION_ARM64}"
 EOF
     fi
 
-    printf_green "Using versions: I2P=$ANONYMIZE_I2P_VERSION, Freenet=$ANONYMIZE_FREENET_VERSION, Tor=$ANONYMIZE_TOR_VERSION_ARM64"
+    # Only show versions for installed software
+    local version_message="Using versions:"
+    local has_installed=false
+
+    if [ -f "$ANONYMIZE_HOME/i2p/i2prouter" ] || __cmd_exists i2prouter; then
+      version_message="$version_message I2P=$ANONYMIZE_I2P_VERSION,"
+      has_installed=true
+    fi
+
+    if [ -f "$ANONYMIZE_HOME/Freenet/run.sh" ] || __cmd_exists freenet; then
+      version_message="$version_message Freenet=$ANONYMIZE_FREENET_VERSION,"
+      has_installed=true
+    fi
+
+    if __cmd_exists torbrowser || __cmd_exists tor-browser || __cmd_exists torbrowser-launcher || [ -f "$HOME/.local/share/tor/browser/Browser/start-tor-browser" ]; then
+      version_message="$version_message Tor=$ANONYMIZE_TOR_VERSION_ARM64,"
+      has_installed=true
+    fi
+
+    if [ "$has_installed" = true ]; then
+      version_message="${version_message%,}"
+      printf_green "$version_message"
+    fi
   else
     # Load cached versions if offline
     if [ -f "$ANONYMIZE_CONFIG_DIR/versions.conf" ]; then
@@ -1041,22 +1063,47 @@ __monitor_connections() {
   done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Speed test through proxy
+__format_speed() {
+  local bytes="$1"
+  local speed=""
+
+  if [ -z "$bytes" ] || [ "$bytes" = "0" ]; then
+    echo "0 B/s"
+    return
+  fi
+
+  if [ "$bytes" -ge 1073741824 ]; then
+    speed=$(awk "BEGIN {printf \"%.2f GB/s\", $bytes/1073741824}")
+  elif [ "$bytes" -ge 1048576 ]; then
+    speed=$(awk "BEGIN {printf \"%.2f MB/s\", $bytes/1048576}")
+  elif [ "$bytes" -ge 1024 ]; then
+    speed=$(awk "BEGIN {printf \"%.2f KB/s\", $bytes/1024}")
+  else
+    speed="${bytes} B/s"
+  fi
+
+  echo "$speed"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __speed_test() {
   printf_cyan "Testing connection speed..."
   local test_file="http://speedtest.tele2.net/10MB.zip"
   local start_time=$(date +%s)
   local tor_port=""
+  local speed_bytes=""
+  local speed_human=""
 
-  if ss -tln 2>/dev/null | grep -q ":9050 " || netstat -tln 2>/dev/null | grep -q ":9050 "; then
-    tor_port="9050"
-  elif ss -tln 2>/dev/null | grep -q ":9150 " || netstat -tln 2>/dev/null | grep -q ":9150 "; then
-    tor_port="9150"
+  tor_port=$(ss -tln 2>/dev/null | awk '/:9050[[:space:]]/ {print "9050"; exit} /:9150[[:space:]]/ {print "9150"; exit}')
+  if [ -z "$tor_port" ]; then
+    tor_port=$(netstat -tln 2>/dev/null | awk '/:9050[[:space:]]/ {print "9050"; exit} /:9150[[:space:]]/ {print "9150"; exit}')
   fi
 
   if [ -n "$tor_port" ]; then
     printf_yellow "Testing through Tor on port $tor_port (this will be slow)..."
-    if curl -q -LSsf --socks5 127.0.0.1:$tor_port -o /dev/null -w "Download Speed: %{speed_download} bytes/sec\n" "$test_file" 2>/dev/null; then
+    speed_bytes=$(curl -q -LSsf --socks5 127.0.0.1:$tor_port -o /dev/null -w "%{speed_download}" "$test_file" 2>/dev/null)
+    if [ -n "$speed_bytes" ] && [ "$speed_bytes" != "0" ]; then
+      speed_human=$(__format_speed "${speed_bytes%.*}")
+      printf_green "Download Speed: $speed_human"
       local end_time=$(date +%s)
       printf_green "Test completed in $((end_time - start_time)) seconds"
       return 0
@@ -1066,7 +1113,9 @@ __speed_test() {
   fi
 
   printf_cyan "Testing direct connection..."
-  curl -q -LSsf -o /dev/null -w "Download Speed: %{speed_download} bytes/sec\n" "$test_file"
+  speed_bytes=$(curl -q -LSsf -o /dev/null -w "%{speed_download}" "$test_file" 2>/dev/null)
+  speed_human=$(__format_speed "${speed_bytes%.*}")
+  printf_green "Download Speed: $speed_human"
 
   local end_time=$(date +%s)
   printf_green "Test completed in $((end_time - start_time)) seconds"
@@ -1316,6 +1365,35 @@ init)
   __create_versions
   __install_tor
   exit $?
+  ;;
+
+servers)
+  shift 1
+  case "$1" in
+  i2p)
+    __install_i2p_server
+    exit $?
+    ;;
+  freenet)
+    __install_freenet_server
+    exit $?
+    ;;
+  lokinet)
+    __install_lokinet_server
+    exit $?
+    ;;
+  tor)
+    __install_tor_server
+    exit $?
+    ;;
+  *)
+    __install_tor_server
+    __install_lokinet_server
+    __install_i2p_server
+    __install_freenet_server
+    exit $?
+    ;;
+  esac
   ;;
 
 proxy)

@@ -157,6 +157,7 @@ __gen_config() {
 # Settings for check-for-updates
 CHECK_FOR_UPDATES_ENABLE_UPDATE_NAG="${CHECK_FOR_UPDATES_ENABLE_UPDATE_NAG:-}"
 CHECK_FOR_UPDATES_SUDO_ASKPASS="${SUDO_ASKPASS:-}"
+CHECK_FOR_UPDATES_INTERVAL_HOURS="${CHECK_FOR_UPDATES_INTERVAL_HOURS:-4}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
 CHECK_FOR_UPDATES_OUTPUT_COLOR_1="${CHECK_FOR_UPDATES_OUTPUT_COLOR_1:-}"
@@ -194,8 +195,9 @@ __help() {
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "Usage: check-for-updates [options]"
   __printf_line "                                - Check if there are any update available"
+  __printf_line "                                  (runs once every \$CHECK_FOR_UPDATES_INTERVAL_HOURS hours, default: 4)"
   __printf_line "--ask                           - Ask to update"
-  __printf_line "--force                         - Force a check"
+  __printf_line "--force                         - Force a check (bypass interval timer)"
   __printf_line "--show                          - Show how many package to update"
   __printf_line "--notify                        - Send a notification"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -324,7 +326,47 @@ __update_count() {
   printf '%s\n' "$update_count"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+__should_check_updates() {
+  local timestamp_file="$CHECK_FOR_UPDATES_CACHE_DIR/last_check_time"
+  local current_time=$(date +%s)
+  local interval_seconds=$((CHECK_FOR_UPDATES_INTERVAL_HOURS * 3600))
+
+  # If force flag is set, always check
+  [ "$CHECK_FOR_UPDATES_FORCE" = "true" ] && return 0
+
+  # If timestamp file doesn't exist, we should check
+  [ ! -f "$timestamp_file" ] && return 0
+
+  # Read last check time
+  local last_check_time=$(cat "$timestamp_file" 2>/dev/null || echo "0")
+
+  # Calculate time difference
+  local time_diff=$((current_time - last_check_time))
+
+  # Check if enough time has passed
+  if [ "$time_diff" -ge "$interval_seconds" ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __execute_update_check() {
+  # Check if we should run the update check
+  if ! __should_check_updates; then
+    # Not enough time has passed, read cached value if exists
+    if [ -f "$CHECK_FOR_UPDATES_CACHE_DIR/update_check" ]; then
+      local cached_updates=$(cat "$CHECK_FOR_UPDATES_CACHE_DIR/update_check" 2>/dev/null || echo "0")
+      if [ "$CHECK_FOR_UPDATES_SHOW" = "true" ]; then
+        echo "$cached_updates"
+      fi
+    fi
+    return 0
+  fi
+
+  # Store timestamp of this check
+  date +%s >"$CHECK_FOR_UPDATES_CACHE_DIR/last_check_time"
+
   updates="$(__update_count)"
   if [ "$updates" -eq 0 ]; then
     __rm_rf "$CHECK_FOR_UPDATES_CACHE_DIR/update_check"
@@ -405,6 +447,7 @@ CHECK_FOR_UPDATES_NOTIFY_CLIENT_URGENCY="${CHECK_FOR_UPDATES_NOTIFY_CLIENT_URGEN
 # Additional Variables
 CHECK_FOR_UPDATES_ENABLE_UPDATE_NAG="${CHECK_FOR_UPDATES_ENABLE_UPDATE_NAG:-yes}"
 CHECK_FOR_UPDATES_SUDO_ASKPASS="${SUDO_ASKPASS:-/usr/local/bin/ask_for_password}"
+CHECK_FOR_UPDATES_INTERVAL_HOURS="${CHECK_FOR_UPDATES_INTERVAL_HOURS:-4}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Generate config files
 [ -f "$CHECK_FOR_UPDATES_CONFIG_DIR/$CHECK_FOR_UPDATES_CONFIG_FILE" ] || [ "$*" = "--config" ] || INIT_CONFIG="${INIT_CONFIG:-TRUE}" __gen_config ${SETARGS:-$@}
@@ -538,7 +581,10 @@ while :; do
     CHECK_FOR_UPDATES_SILENT="true"
     ;;
   --force)
+    shift 1
+    CHECK_FOR_UPDATES_FORCE="true"
     __rm_rf "$CHECK_FOR_UPDATES_CACHE_DIR/update_check"
+    __rm_rf "$CHECK_FOR_UPDATES_CACHE_DIR/last_check_time"
     ;;
   --ask)
     shift 1

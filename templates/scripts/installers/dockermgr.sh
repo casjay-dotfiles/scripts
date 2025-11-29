@@ -367,9 +367,14 @@ CONTAINER_ENV_FILE_ENABLED="no"
 CONTAINER_ENV_FILE_MOUNT=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Enable cgroups - [yes/no] [v1/v2] [/sys/fs/cgroup]
+# NOTE: For Docker-in-Docker set CGROUPS_ENABLED="no" and use DOCKER_IN_DOCKER="yes"
 CGROUPS_ENABLED="no"
 CGROUPS_VERSION="v2"
 CGROUPS_MOUNTS=""
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Docker-in-Docker mode - [yes/no]
+# When enabled, container runs its own Docker daemon with isolated cgroups
+DOCKER_IN_DOCKER="no"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set location to resolv.conf - [yes/no] [/etc/resolv.conf]
 HOST_RESOLVE_ENABLED="no"
@@ -757,6 +762,7 @@ ENV_CONTAINER_ENV_FILE_MOUNT="\${ENV_CONTAINER_ENV_FILE_MOUNT:-$CONTAINER_ENV_FI
 ENV_CGROUPS_ENABLED="\${ENV_CGROUPS_ENABLED:-$CGROUPS_ENABLED}"
 ENV_CGROUPS_VERSION="\${ENV_CGROUPS_VERSION:-$CGROUPS_VERSION}"
 ENV_CGROUPS_MOUNTS="\${ENV_CGROUPS_MOUNTS:-$CGROUPS_MOUNTS}"
+ENV_DOCKER_IN_DOCKER="\${ENV_DOCKER_IN_DOCKER:-$DOCKER_IN_DOCKER}"
 ENV_HOST_RESOLVE_ENABLED="\${ENV_HOST_RESOLVE_ENABLED:-$HOST_RESOLVE_ENABLED}"
 ENV_HOST_ETC_RESOLVE_INIT_FILE="\${ENV_HOST_ETC_RESOLVE_INIT_FILE:-$HOST_ETC_RESOLVE_INIT_FILE}"
 ENV_HOST_ETC_HOSTS_ENABLED="\${ENV_HOST_ETC_HOSTS_ENABLED:-$HOST_ETC_HOSTS_ENABLED}"
@@ -1219,6 +1225,7 @@ CONTAINER_ENV_FILE_MOUNT="${ENV_CONTAINER_ENV_FILE_MOUNT:-$CONTAINER_ENV_FILE_MO
 CGROUPS_ENABLED="${ENV_CGROUPS_ENABLED:-$CGROUPS_ENABLED}"
 CGROUPS_VERSION="${ENV_CGROUPS_VERSION:-$CGROUPS_VERSION}"
 CGROUPS_MOUNTS="${ENV_CGROUPS_MOUNTS:-$CGROUPS_MOUNTS}"
+DOCKER_IN_DOCKER="${ENV_DOCKER_IN_DOCKER:-$DOCKER_IN_DOCKER}"
 HOST_RESOLVE_ENABLED="${ENV_HOST_RESOLVE_ENABLED:-$HOST_RESOLVE_ENABLED}"
 HOST_ETC_RESOLVE_INIT_FILE="${ENV_HOST_ETC_RESOLVE_INIT_FILE:-$HOST_ETC_RESOLVE_INIT_FILE}"
 HOST_ETC_HOSTS_ENABLED="${ENV_HOST_ETC_HOSTS_ENABLED:-$HOST_ETC_HOSTS_ENABLED}"
@@ -1514,9 +1521,17 @@ if [ "$CONTAINER_INTERACTIVE_ENABLED" = "yes" ]; then
   DOCKER_SET_OPTIONS_DEFAULT+=("--interactive")
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Configure Docker-in-Docker mode
+if [ "$DOCKER_IN_DOCKER" = "yes" ]; then
+  CGROUPS_ENABLED="no"
+  DOCKER_SOCKET_ENABLED="no"
+  CONTAINER_PRIVILEGED_ENABLED="yes"
+  DOCKER_SET_OPTIONS_DEFAULT+=("--cgroupns=private")
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Mount cgroups in the container
-if [ -e "$CGROUPS_MOUNTS" ] || [ -e "/sys/fs/cgroup" ]; then
-  if [ "$CGROUPS_ENABLED" = "yes" ]; then
+if [ "$CGROUPS_ENABLED" = "yes" ]; then
+  if [ -e "$CGROUPS_MOUNTS" ] || [ -e "/sys/fs/cgroup" ]; then
     CGROUPS_VERSION="${CGROUPS_VERSION:-v2}"
     if [ -z "$CGROUPS_MOUNTS" ]; then
       if [ "$CGROUPS_VERSION" = "v1" ]; then

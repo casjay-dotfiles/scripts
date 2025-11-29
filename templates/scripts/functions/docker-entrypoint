@@ -628,6 +628,8 @@ __set_user_group_id() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_service_user() {
   local exitStatus=0
+  local max_attempts=100
+  local attempt=0
   local create_user="${1:-$SERVICE_USER}"
   local create_group="${2:-${SERVICE_GROUP:-$create_user}}"
   local create_home_dir="${3:-$WORK_DIR}"
@@ -635,55 +637,118 @@ __create_service_user() {
   local create_gid="${5:-${SERVICE_GID:-$USER_GID}}"
   local random_id="$(__generate_random_uids)"
   local create_home_dir="${create_home_dir:-/home/$create_user}"
-  grep -shq "^$create_user:" "/etc/passwd" && grep -shq "^$create_group:" "/etc/group" && return
+  local log_file="/data/logs/init.txt"
+  # Ensure log directory exists
+  [ -d "$(dirname "$log_file")" ] || mkdir -p "$(dirname "$log_file")" 2>/dev/null
+  # Validate that we have at least a user or group to create
+  if [ -z "$create_user" ] && [ -z "$create_group" ]; then
+    echo "Error: No user or group specified to create" >&2
+    return 1
+  fi
+  # Validate user/group name format (alphanumeric, underscore, hyphen; must start with letter or underscore)
+  if [ -n "$create_user" ] && ! echo "$create_user" | grep -qE '^[a-z_][a-z0-9_-]*$'; then
+    echo "Error: Invalid username format '$create_user' - must start with letter/underscore, contain only lowercase alphanumeric, underscore, or hyphen" >&2
+    return 1
+  fi
+  if [ -n "$create_group" ] && ! echo "$create_group" | grep -qE '^[a-z_][a-z0-9_-]*$'; then
+    echo "Error: Invalid group name format '$create_group' - must start with letter/underscore, contain only lowercase alphanumeric, underscore, or hyphen" >&2
+    return 1
+  fi
+  # Check if user and group already exist
+  if grep -shq "^$create_user:" "/etc/passwd" && grep -shq "^$create_group:" "/etc/group"; then
+    return 0
+  fi
+  # Root user/group - nothing to create
   if [ "$create_user" = "root" ] && [ "$create_group" = "root" ]; then
     return 0
   fi
-  if [ "$RUNAS_USER" != "root" ] && [ "$RUNAS_USER" != "" ]; then
+  # Override with RUNAS_USER if specified and not root
+  if [ -n "$RUNAS_USER" ] && [ "$RUNAS_USER" != "root" ]; then
     create_user="$RUNAS_USER"
     create_group="$RUNAS_USER"
     create_uid="${create_uid:-1000}"
     create_gid="${create_gid:-1000}"
   fi
-  create_uid="$(__get_uid "$create_user" || echo "$create_uid")"
-  create_gid="$(__get_gid "$create_user" || echo "$create_gid")"
-  [ -n "$create_uid" ] && [ "$create_uid" != "0" ] || create_uid="$random_id"
-  [ -n "$create_gid" ] && [ "$create_gid" != "0" ] || create_gid="$random_id"
-  while :; do
-    if __check_for_uid "$create_uid" && __check_for_guid "$create_gid"; then
-      create_uid=$(($random_id + 1))
-      create_gid="$create_uid"
-    else
-      break
+  # Get existing UID/GID or use provided values
+  create_uid="$(__get_uid "$create_user" 2>/dev/null || echo "$create_uid")"
+  create_gid="$(__get_gid "$create_user" 2>/dev/null || echo "$create_gid")"
+  # Ensure we have valid non-root UID/GID
+  if [ -z "$create_uid" ] || [ "$create_uid" = "0" ]; then
+    create_uid="$random_id"
+  fi
+  if [ -z "$create_gid" ] || [ "$create_gid" = "0" ]; then
+    create_gid="$random_id"
+  fi
+  # Validate UID/GID are numeric and within valid range
+  if ! echo "$create_uid" | grep -qE '^[0-9]+$' || [ "$create_uid" -lt 1 ] || [ "$create_uid" -gt 65534 ]; then
+    echo "Error: Invalid UID '$create_uid' - must be a number between 1 and 65534" >&2
+    return 1
+  fi
+  if ! echo "$create_gid" | grep -qE '^[0-9]+$' || [ "$create_gid" -lt 1 ] || [ "$create_gid" -gt 65534 ]; then
+    echo "Error: Invalid GID '$create_gid' - must be a number between 1 and 65534" >&2
+    return 1
+  fi
+  # Find available UID/GID if current ones are taken (with loop protection)
+  while __check_for_uid "$create_uid" || __check_for_guid "$create_gid"; do
+    attempt=$((attempt + 1))
+    if [ $attempt -ge $max_attempts ]; then
+      echo "Error: Could not find available UID/GID after $max_attempts attempts" >&2
+      return 1
     fi
+    random_id=$((random_id + 1))
+    create_uid="$random_id"
+    create_gid="$random_id"
   done
+  # Create group if needed
   if [ -n "$create_group" ] && ! __check_for_group "$create_group"; then
-    echo "creating system group $create_group"
-    groupadd --force --system -g $create_gid $create_group 2>/dev/stderr | tee -a "/data/logs/init.txt" >/dev/null
-    grep -shq "$create_group" "/etc/group" || exitStatus=$((exitStatus + 1))
+    echo "Creating system group '$create_group' with GID $create_gid"
+    if ! groupadd --force --system -g "$create_gid" "$create_group" 2>&1 | tee -a "$log_file"; then
+      echo "Error: Failed to create group '$create_group'" >&2
+      exitStatus=$((exitStatus + 1))
+    elif ! grep -shq "^$create_group:" "/etc/group"; then
+      echo "Error: Group '$create_group' not found in /etc/group after creation" >&2
+      exitStatus=$((exitStatus + 1))
+    fi
   fi
-  if [ -n "$create_user" ] && ! __check_for_user "$create_user"; then
-    echo "creating system user $create_user"
-    useradd --system --uid $create_uid --gid $create_group --comment "Account for $create_user" --home-dir "$create_home_dir" --shell /bin/false $create_user 2>/dev/stderr | tee -a "/data/logs/init.txt" >/dev/null
-    grep -shq "$create_user" "/etc/passwd" || exitStatus=$((exitStatus + 1))
+  # Create user if needed (only if group creation succeeded)
+  if [ $exitStatus -eq 0 ] && [ -n "$create_user" ] && ! __check_for_user "$create_user"; then
+    echo "Creating system user '$create_user' with UID $create_uid"
+    if ! useradd --system --uid "$create_uid" --gid "$create_group" --comment "Account for $create_user" --home-dir "$create_home_dir" --shell /bin/false "$create_user" 2>&1 | tee -a "$log_file"; then
+      echo "Error: Failed to create user '$create_user'" >&2
+      exitStatus=$((exitStatus + 1))
+    elif ! grep -shq "^$create_user:" "/etc/passwd"; then
+      echo "Error: User '$create_user' not found in /etc/passwd after creation" >&2
+      exitStatus=$((exitStatus + 1))
+    fi
   fi
+  # Setup user environment if creation succeeded
   if [ $exitStatus -eq 0 ] && [ -n "$create_group" ] && [ -n "$create_user" ]; then
     export WORK_DIR="${create_home_dir:-}"
     if [ -n "$WORK_DIR" ]; then
-      [ -d "$WORK_DIR" ] || mkdir -p "$WORK_DIR"
-      [ -d "/etc/.skel" ] && cp -Rf /etc/.skel/. "$WORK_DIR/"
+      if [ ! -d "$WORK_DIR" ]; then
+        if ! mkdir -p "$WORK_DIR" 2>/dev/null; then
+          echo "Warning: Failed to create home directory '$WORK_DIR'" >&2
+        fi
+      fi
+      if [ -d "/etc/.skel" ] && [ -d "$WORK_DIR" ]; then
+        cp -Rf /etc/.skel/. "$WORK_DIR/" 2>/dev/null || echo "Warning: Failed to copy skeleton files to '$WORK_DIR'" >&2
+      fi
     fi
-    if [ -d "/etc/sudoers.d" ] && [ ! -f "/etc/sudoers.d/$create_user" ]; then
-      echo "$create_user ALL=(ALL)   NOPASSWD: ALL" >"/etc/sudoers.d/$create_user"
-    elif [ -f "/etc/sudoers" ] && ! grep -qs "$create_user" "/etc/sudoers"; then
-      echo "$create_user ALL=(ALL)   NOPASSWD: ALL" ? >>"/etc/sudoers"
+    # Setup sudo access
+    if [ -d "/etc/sudoers.d" ]; then
+      if [ ! -f "/etc/sudoers.d/$create_user" ]; then
+        echo "$create_user ALL=(ALL)   NOPASSWD: ALL" >"/etc/sudoers.d/$create_user" 2>/dev/null || echo "Warning: Failed to create sudoers file for '$create_user'" >&2
+        chmod 0440 "/etc/sudoers.d/$create_user" 2>/dev/null
+      fi
+    elif [ -f "/etc/sudoers" ] && ! grep -qs "^$create_user " "/etc/sudoers"; then
+      echo "$create_user ALL=(ALL)   NOPASSWD: ALL" >>"/etc/sudoers" 2>/dev/null || echo "Warning: Failed to add '$create_user' to sudoers" >&2
     fi
-    exitStatus=0
     SERVICE_UID="$create_uid"
     SERVICE_GID="$create_gid"
     SERVICE_USER="$create_user"
     SERVICE_GROUP="$create_group"
   else
+    echo "Warning: Falling back to root user due to creation errors" >&2
     SERVICE_UID=0
     SERVICE_GID=0
     SERVICE_USER=root

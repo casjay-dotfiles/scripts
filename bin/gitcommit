@@ -843,20 +843,36 @@ __git_top_dir() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_remote_pull() {
-  git -C "${1:-.}" remote -v 2>/dev/null |
-    grep push | head -n 1 | awk '{print $2}' 2>/dev/null |
-    grep '^'
+  local remote_url=""
+  remote_url="$(git -C "${1:-.}" remote -v 2>/dev/null | grep push | head -n 1 | awk '{print $2}' 2>/dev/null | grep '^')"
+  if [ -n "$remote_url" ]; then
+    echo "$remote_url"
+    return 0
+  else
+    return 1
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_remote_fetch() {
-  git -C "${1:-.}" remote -v 2>/dev/null |
-    grep fetch | head -n 1 | awk '{print $2}' 2>/dev/null |
-    grep '^' && return 0 || return 1
+  local remote_url=""
+  remote_url="$(git -C "${1:-.}" remote -v 2>/dev/null | grep fetch | head -n 1 | awk '{print $2}' 2>/dev/null | grep '^')"
+  if [ -n "$remote_url" ]; then
+    echo "$remote_url"
+    return 0
+  else
+    return 1
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_remote_origin() {
-  __git_remote_pull "${1:-.}" &&
-    return 0 || return 1
+  local origin_url=""
+  origin_url="$(__git_remote_pull "${1:-.}" 2>/dev/null)"
+  if [ -n "$origin_url" ]; then
+    echo "$origin_url"
+    return 0
+  else
+    return 1
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_porcelain_count() {
@@ -1108,7 +1124,13 @@ __git_custom_pull() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_custom_push() {
+  local remote_origin=""
   if [ -d "${1:-GITCOMMIT_ROOT_DIR}/.git" ]; then
+    remote_origin="$(__git_remote_origin "${GITADMIN_NEW_PROJECT_DIR:-$GITCOMMIT_ROOT_DIR}" 2>/dev/null || echo "")"
+    if [ -z "$remote_origin" ]; then
+      printf_yellow "⚠️ No remote configured for ${1:-GITCOMMIT_ROOT_DIR} - skipping push ⚠️"
+      return 0
+    fi
     printf_custom "4" "🐛 Pushing the repo in ${1:-GITCOMMIT_ROOT_DIR} 🐛"
     git -C "${1:-GITCOMMIT_ROOT_DIR}" push $url -q
     exitCode=$?
@@ -1129,9 +1151,9 @@ __git_custom_push() {
     exitCode=1
   fi
   if [ $exitCode -eq 0 ]; then
-    printf_green "👾 Push to $(__git_remote_origin "${GITADMIN_NEW_PROJECT_DIR:-$GITCOMMIT_ROOT_DIR}") has completed 👾"
+    printf_green "👾 Push to $remote_origin has completed 👾"
   else
-    printf_red "😿 Push to $(__git_remote_origin "${GITADMIN_NEW_PROJECT_DIR:-$GITCOMMIT_ROOT_DIR}") has failed 😿"
+    printf_red "😿 Push to $remote_origin has failed 😿"
   fi
   return $exitCode
 }
@@ -1143,14 +1165,17 @@ __git_push() {
   errorlog="$GITCOMMIT_ERROR_LOG"
   git_icon_succes="㊗️ "
   git_icon_failed="😿 "
-  git_repo="$(__git_remote_fetch "$GITCOMMIT_ROOT_DIR" || echo "$REMOTE_REPO")"
-  git_repo_clean="$(echo "$git_repo" | __sanitize_url)"
-  git_failed="Failed to push the changes to $git_repo:"
-  git_succes="Successfully pushed the changes for commit ID:"
-  git_remote="$(__git_remote_push || false)"
-  remote_formatted="$(echo "$git_remote" | sed 's|\.git$||g' | grep '^' || false)"
+  git_remote="$(__git_remote_push 2>/dev/null || echo "")"
   if __git_push_check; then
-    [ -n "$git_remote" ] || return 0
+    if [ -z "$git_remote" ]; then
+      printf_yellow "⚠️ No remote configured - skipping push ⚠️"
+      return 0
+    fi
+    git_repo="$(__git_remote_fetch "$GITCOMMIT_ROOT_DIR" 2>/dev/null || echo "$REMOTE_REPO")"
+    git_repo_clean="$(echo "$git_repo" | __sanitize_url)"
+    git_failed="Failed to push the changes to $git_repo:"
+    git_succes="Successfully pushed the changes for commit ID:"
+    remote_formatted="$(echo "$git_remote" | sed 's|\.git$||g' | grep '^' || echo "")"
     [ -f "$git_dir/.nopush" ] && return
     am_i_online --error -m "🚫 No internet connection. Skipping push 🚫" || exit 1
     if [ "$git_repo" != "localdir" ]; then
@@ -1414,16 +1439,20 @@ __commit_custom() {
     __changelog_create "$changed_files"
     __update_version
     if [ ! -f "$GITCOMMIT_ROOT_DIR/.no_push" ] && __git_check_push; then
-      git_repo="$(__git_remote_fetch "$GITCOMMIT_ROOT_DIR")"
-      git_failed="Failed to push the changes to $git_repo"
-      git_succes="Successfully pushed the changes for commit ID:"
-      git_repo_clean="$(echo "$git_repo" | __sanitize_url)"
-      if echo "$git_repo_clean" | grep -qF 'github.com'; then
-        __github_create_repo "${git_repo_clean}"
+      git_repo="$(__git_remote_fetch "$GITCOMMIT_ROOT_DIR" 2>/dev/null || echo "")"
+      if [ -z "$git_repo" ]; then
+        printf_yellow "⚠️ No remote configured - skipping push ⚠️"
+      else
+        git_failed="Failed to push the changes to $git_repo"
+        git_succes="Successfully pushed the changes for commit ID:"
+        git_repo_clean="$(echo "$git_repo" | __sanitize_url)"
+        if echo "$git_repo_clean" | grep -qF 'github.com'; then
+          __github_create_repo "${git_repo_clean}"
+        fi
+        printf_green "📍 Pushing the changes to $git_repo_clean 📍"
+        git -C "$GITCOMMIT_ROOT_DIR" push $ARGS -q &>/dev/null && GITCOMMIT_EXITCODE=0 || GITCOMMIT_EXITCODE=1
+        __getexitcode $GITCOMMIT_EXITCODE "$sicon $git_succes $(__git_commitid "$GITCOMMIT_ROOT_DIR") $sicon" "$ficon $git_failed $ficon"
       fi
-      printf_green "📍 Pushing the changes to $git_repo_clean 📍"
-      git -C "$GITCOMMIT_ROOT_DIR" push $ARGS -q &>/dev/null && GITCOMMIT_EXITCODE=0 || GITCOMMIT_EXITCODE=1
-      __getexitcode $GITCOMMIT_EXITCODE "$sicon $git_succes $(__git_commitid "$GITCOMMIT_ROOT_DIR") $sicon" "$ficon $git_failed $ficon"
     fi
   else
     printf_exit "😿 Failed to commit the changes 😿"
@@ -2366,7 +2395,7 @@ export GITCOMMIT_CWD
 GITCOMMIT_RAN=""
 GITCOMMIT_CWD="${GITCOMMIT_CWD:-$PWD}"
 GITCOMMIT_ROOT_DIR="$(__git_root "$GITCOMMIT_CWD" || echo "$GITCOMMIT_CWD")"
-REMOTE_REPO="$(__git_remote_fetch "$GITCOMMIT_ROOT_DIR")"
+REMOTE_REPO="$(__git_remote_fetch "$GITCOMMIT_ROOT_DIR" 2>/dev/null || echo "localdir")"
 BASE_DIR="$(basename $GITCOMMIT_ROOT_DIR)"
 GIT_USERNAME="$(basename -- "$(dirname "$GITCOMMIT_ROOT_DIR")")"
 GIT_VERSION="$GITCOMMIT_VERSION_FORMAT"

@@ -1267,24 +1267,26 @@ __check_service() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __switch_to_user() {
-  if [ "$RUNAS_USER" = "root" ]; then
+  # Use SERVICE_USER if set, otherwise fall back to RUNAS_USER
+  local switch_user="${SERVICE_USER:-$RUNAS_USER}"
+  if [ "$switch_user" = "root" ]; then
     su_exec=""
     su_cmd() { eval "$@" || return 1; }
   elif [ "$(builtin type -P gosu)" ]; then
-    su_exec="gosu $RUNAS_USER"
+    su_exec="gosu $switch_user"
     su_cmd() { $su_exec "$@" || return 1; }
   elif [ "$(builtin type -P runuser)" ]; then
-    su_exec="runuser -u $RUNAS_USER"
+    su_exec="runuser -u $switch_user"
     su_cmd() { $su_exec "$@" || return 1; }
   elif [ "$(builtin type -P sudo)" ]; then
-    su_exec="sudo -u $RUNAS_USER"
+    su_exec="sudo -u $switch_user"
     su_cmd() { $su_exec "$@" || return 1; }
   elif [ "$(builtin type -P su)" ]; then
-    su_exec="su -s /bin/sh - $RUNAS_USER"
+    su_exec="su -s /bin/sh - $switch_user"
     su_cmd() { $su_exec -c "$@" || return 1; }
   else
     su_exec=""
-    su_cmd() { echo "Can not switch to $RUNAS_USER: attempting to run as root" && eval "$@" || return 1; }
+    su_cmd() { echo "Can not switch to $switch_user: attempting to run as root" && eval "$@" || return 1; }
   fi
   export su_exec
 }

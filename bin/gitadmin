@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202511300900-git
+##@Version           :  202511300929-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Monday, Aug 08, 2022 23:22 EDT
 # @@File             :  gitadmin
 # @@Description      :  push/clone/pull from github/gitlab/private/bitbucket/codeberg/forgejo/gitea/gogs/azure/aws repos
-# @@Changelog        :  Added smart merge command with conflict detection and multiple strategies
+# @@Changelog        :  Integrated __git_auto_pull with empty repository handling
 # @@TODO             :  Add more platform support (Forgejo, Gogs API improvements)
 # @@Other            :  Somethings may be broken due to variable changes
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202511300900-git"
+VERSION="202511300929-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -3584,6 +3584,94 @@ __git_pull() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# smart auto-resolving pull function
+__git_auto_pull() {
+  local git_dir="" args="" regex="" exitCode=0
+  local current_branch="" remote_origin="" error_msg="" has_commits=""
+  [ -n "$1" ] && [ -d "$1/.git" ] && git_dir="$1" && shift 1 || git_dir="$GITADMIN_CWD"
+  args="$*"
+  regex="(https?|ftp|file|git|ssh)://[-A-Za-z0-9\+&@#/%?=~_|!:,.;]*[-A-Za-z0-9\+&@#/%=~_|]"
+
+  remote_origin="$(__git_remote_origin "$git_dir" 2>/dev/null)"
+
+  if [ -z "$remote_origin" ]; then
+    printf_yellow "⚠️  No remote configured for $(basename "$git_dir") - skipping pull"
+    return 0
+  fi
+
+  current_branch="$(git -C "$git_dir" branch --show-current 2>/dev/null)"
+  has_commits="$(git -C "$git_dir" rev-parse HEAD 2>/dev/null)"
+
+  if [[ "$remote_origin" =~ $regex ]]; then
+    if ! __am_i_online; then
+      printf_yellow "⚠️  Offline - skipping pull for $(basename "$git_dir")"
+      return 1
+    fi
+  fi
+
+  if [ -n "$has_commits" ]; then
+    if ! git -C "$git_dir" diff-index --quiet HEAD -- 2>/dev/null; then
+      printf_cyan "💾 Stashing uncommitted changes in $(basename "$git_dir")..."
+      git -C "$git_dir" stash push -q -m "Auto-stash before pull $(date +%Y%m%d_%H%M%S)" 2>/dev/null
+    fi
+  fi
+
+  error_msg="$(git -C "$git_dir" pull $args --no-edit 2>&1)"
+  exitCode=$?
+
+  if [ $exitCode -ne 0 ]; then
+    if echo "$error_msg" | grep -qi "no such ref was fetched\|couldn't find remote ref"; then
+      printf_yellow "⚠️  Remote repository is empty - nothing to pull"
+      return 0
+    elif echo "$error_msg" | grep -qi "divergent\|diverged"; then
+      printf_yellow "🔄 Branches diverged - trying rebase strategy..."
+      git -C "$git_dir" pull --rebase $args --no-edit 2>/dev/null
+      exitCode=$?
+
+      if [ $exitCode -ne 0 ]; then
+        printf_yellow "⚠️  Rebase failed - trying merge with strategy..."
+        git -C "$git_dir" rebase --abort 2>/dev/null
+        git -C "$git_dir" pull --no-rebase -X theirs $args --no-edit 2>/dev/null
+        exitCode=$?
+      fi
+    elif echo "$error_msg" | grep -qi "conflict"; then
+      printf_yellow "⚠️  Merge conflicts detected - auto-resolving with theirs strategy..."
+      git -C "$git_dir" pull -X theirs $args --no-edit 2>/dev/null
+      exitCode=$?
+    elif echo "$error_msg" | grep -qi "authentication\|permission\|403\|401"; then
+      printf_red "😿 Authentication failed for $(basename "$git_dir") 😿"
+      return 1
+    else
+      printf_yellow "⚠️  Pull failed - trying force update..."
+      if [ -n "$current_branch" ]; then
+        git -C "$git_dir" fetch origin "$current_branch" 2>/dev/null
+        git -C "$git_dir" reset --hard "origin/$current_branch" 2>/dev/null
+        exitCode=$?
+      else
+        git -C "$git_dir" fetch origin 2>/dev/null
+        default_branch="$(git -C "$git_dir" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')"
+        if [ -n "$default_branch" ]; then
+          git -C "$git_dir" checkout -B "$default_branch" "origin/$default_branch" 2>/dev/null
+          exitCode=$?
+        else
+          git -C "$git_dir" checkout -B main origin/main 2>/dev/null || git -C "$git_dir" checkout -B master origin/master 2>/dev/null
+          exitCode=$?
+        fi
+      fi
+    fi
+  fi
+
+  if git -C "$git_dir" stash list 2>/dev/null | grep -q "Auto-stash before pull"; then
+    printf_cyan "🔄 Restoring stashed changes..."
+    if ! git -C "$git_dir" stash pop -q 2>/dev/null; then
+      printf_yellow "⚠️  Could not auto-restore stash - conflicts may exist"
+      printf_cyan "Run: git -C $git_dir stash pop"
+    fi
+  fi
+
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Push function
 __git_push() {
   local git_dir="" args="" regex=""
@@ -4617,7 +4705,7 @@ __git_pull_single() {
   [ -d "$SET_BASE_REPO" ] && shift 1
   if [ -d "$GITADMIN_CWD/.git" ]; then
     printf_custom "4" "Updating the repo in $GITADMIN_CWD"
-    __git_custom "$GITADMIN_CWD" pull && GITADMIN_EXITCODE=0 || GITADMIN_EXITCODE=1
+    __git_auto_pull "$GITADMIN_CWD" && GITADMIN_EXITCODE=0 || GITADMIN_EXITCODE=1
     __getexitcode $GITADMIN_EXITCODE "$(SUCCESS_MSG)" "$(FAILED_MSG)"
   else
     if [ -n "$SET_BASE_REPO" ]; then
@@ -4629,7 +4717,7 @@ __git_pull_single() {
     fi
     if [ -d "$GITADMIN_NEW_PROJECT_DIR/.git" ]; then
       printf_custom "4" "Updating the repo in $GITADMIN_NEW_PROJECT_DIR"
-      __git_pull "$GITADMIN_NEW_PROJECT_DIR" && GITADMIN_EXITCODE=0 || GITADMIN_EXITCODE=1
+      __git_auto_pull "$GITADMIN_NEW_PROJECT_DIR" && GITADMIN_EXITCODE=0 || GITADMIN_EXITCODE=1
       __getexitcode $GITADMIN_NEW_PROJECT_DIR "$(SUCCESS_MSG)" "$(FAILED_MSG)"
     else
       return 1
@@ -4765,6 +4853,213 @@ __git_smart_merge() {
   fi
 
   return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# check for conflict markers in file
+__git_check_conflict_markers() {
+  local file="$1"
+  local git_dir="${2:-$GITADMIN_CWD}"
+  local has_markers=0
+
+  if grep -Eq '^<<<<<<<|^=======|^>>>>>>>' "$file" 2>/dev/null; then
+    has_markers=1
+  fi
+
+  return $has_markers
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# check if merge is in progress
+__git_merge_status() {
+  local git_dir="${1:-$GITADMIN_CWD}"
+
+  if [ -f "$git_dir/.git/MERGE_HEAD" ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# resolve merge conflicts
+__git_merge_resolve() {
+  local action="${1:-status}"
+  local git_dir="${2:-$GITADMIN_CWD}"
+  local conflicted_files=""
+  local exitCode=0
+
+  if ! __git_merge_status "$git_dir"; then
+    printf_yellow "ℹ️  No merge in progress"
+    return 0
+  fi
+
+  conflicted_files="$(git -C "$git_dir" diff --name-only --diff-filter=U 2>/dev/null)"
+
+  case "$action" in
+  status|check)
+    if [ -z "$conflicted_files" ]; then
+      printf_green "✅ No conflicted files found ✅"
+
+      printf_cyan ""
+      printf_cyan "Checking for leftover conflict markers..."
+
+      local all_changed="$(git -C "$git_dir" diff --name-only HEAD 2>/dev/null)"
+      local marker_count=0
+
+      if [ -n "$all_changed" ]; then
+        while IFS= read -r file; do
+          if [ -f "$git_dir/$file" ]; then
+            if __git_check_conflict_markers "$git_dir/$file" "$git_dir"; then
+              if [ $marker_count -eq 0 ]; then
+                printf_red ""
+                printf_red "😿 WARNING: Conflict markers still present in files 😿"
+                printf_yellow ""
+              fi
+              printf_custom "1" "  ⚠️  $file"
+              ((marker_count++))
+            fi
+          fi
+        done <<<"$all_changed"
+      fi
+
+      if [ $marker_count -gt 0 ]; then
+        printf_yellow ""
+        printf_yellow "Found $marker_count file(s) with conflict markers (<<<<<<<, =======, >>>>>>>)"
+        printf_cyan "Please edit these files to remove markers before committing"
+        return 1
+      else
+        printf_cyan ""
+        printf_cyan "✨ All conflicts resolved and no markers found ✨"
+        printf_cyan ""
+        printf_cyan "Ready to complete merge:"
+        printf_custom "2" "  git commit"
+        printf_custom "2" "  OR: gitcommit all \"Merge commit message\""
+        return 0
+      fi
+    else
+      printf_red "😿 Unresolved merge conflicts 😿"
+      printf_yellow ""
+      printf_yellow "Conflicted files:"
+      echo "$conflicted_files" | while IFS= read -r file; do
+        printf_custom "1" "  ⚠️  $file"
+      done
+      printf_yellow ""
+      printf_cyan "Use: gitadmin merge-resolve show <file>   - to see conflicts"
+      printf_cyan "Use: gitadmin merge-resolve ours <file>   - to keep current branch version"
+      printf_cyan "Use: gitadmin merge-resolve theirs <file> - to keep incoming branch version"
+      return 1
+    fi
+    ;;
+
+  show)
+    local show_file="$3"
+
+    if [ -z "$show_file" ]; then
+      printf_exit "Usage: $APPNAME merge-resolve show <file> [directory]"
+    fi
+
+    if [ ! -f "$git_dir/$show_file" ]; then
+      printf_exit "😿 File not found: $show_file 😿"
+    fi
+
+    printf_custom "6" "🔍 Showing conflicts in: $show_file 🔍"
+    printf_yellow ""
+
+    local in_conflict=0
+    local conflict_num=0
+    local line_num=0
+
+    while IFS= read -r line; do
+      ((line_num++))
+
+      if echo "$line" | grep -Eq '^<<<<<<<'; then
+        ((conflict_num++))
+        in_conflict=1
+        printf_yellow "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        printf_custom "6" "Conflict #$conflict_num (line $line_num):"
+        printf_custom "2" "▼ CURRENT BRANCH (ours) ▼"
+      elif echo "$line" | grep -Eq '^======='; then
+        printf_custom "1" "▲ CURRENT BRANCH ▲"
+        printf_yellow "────────────────────────────────────────────"
+        printf_custom "3" "▼ INCOMING BRANCH (theirs) ▼"
+      elif echo "$line" | grep -Eq '^>>>>>>>'; then
+        printf_custom "1" "▲ INCOMING BRANCH ▲"
+        printf_yellow "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        in_conflict=0
+      else
+        if [ $in_conflict -eq 1 ]; then
+          echo "  $line"
+        fi
+      fi
+    done <"$git_dir/$show_file"
+
+    if [ $conflict_num -eq 0 ]; then
+      printf_green "✅ No conflicts found in this file ✅"
+    else
+      printf_yellow ""
+      printf_cyan "Found $conflict_num conflict(s) in $show_file"
+      printf_cyan ""
+      printf_cyan "Resolution options:"
+      printf_cyan "  gitadmin merge-resolve ours $show_file   - Keep current branch"
+      printf_cyan "  gitadmin merge-resolve theirs $show_file - Keep incoming branch"
+    fi
+    ;;
+
+  ours)
+    local ours_file="$3"
+
+    if [ -z "$ours_file" ]; then
+      printf_exit "Usage: $APPNAME merge-resolve ours <file> [directory]"
+    fi
+
+    printf_custom "2" "✅ Keeping current branch version of: $ours_file ✅"
+    git -C "$git_dir" checkout --ours "$ours_file" && git -C "$git_dir" add "$ours_file"
+    exitCode=$?
+
+    if [ $exitCode -eq 0 ]; then
+      printf_green "✅ Resolved with current branch version ✅"
+    else
+      printf_red "😿 Failed to resolve with ours 😿"
+    fi
+    return $exitCode
+    ;;
+
+  theirs)
+    local theirs_file="$3"
+
+    if [ -z "$theirs_file" ]; then
+      printf_exit "Usage: $APPNAME merge-resolve theirs <file> [directory]"
+    fi
+
+    printf_custom "3" "✅ Keeping incoming branch version of: $theirs_file ✅"
+    git -C "$git_dir" checkout --theirs "$theirs_file" && git -C "$git_dir" add "$theirs_file"
+    exitCode=$?
+
+    if [ $exitCode -eq 0 ]; then
+      printf_green "✅ Resolved with incoming branch version ✅"
+    else
+      printf_red "😿 Failed to resolve with theirs 😿"
+    fi
+    return $exitCode
+    ;;
+
+  abort)
+    printf_yellow "⚠️  Aborting merge ⚠️"
+    git -C "$git_dir" merge --abort
+    exitCode=$?
+
+    if [ $exitCode -eq 0 ]; then
+      printf_green "✅ Merge aborted successfully ✅"
+    else
+      printf_red "😿 Failed to abort merge 😿"
+    fi
+    return $exitCode
+    ;;
+
+  *)
+    printf_exit "Usage: $APPNAME merge-resolve [status|show|ours|theirs|abort] <file> [directory]\n\nCommands:\n  status [dir]           - Check merge status and find leftover markers\n  show <file> [dir]      - Display conflicts in file with context\n  ours <file> [dir]      - Keep current branch version (auto-stages)\n  theirs <file> [dir]    - Keep incoming branch version (auto-stages)\n  abort [dir]            - Abort the merge"
+    ;;
+  esac
+
+  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # clone a single repo
@@ -6481,6 +6776,19 @@ merge)
   custom_msg="$*"
   [ -d "$repo_dir/.git" ] && GITADMIN_CWD="$repo_dir"
   __git_smart_merge "$source_branch" "$strategy" "$custom_msg" "$GITADMIN_CWD"
+  ;;
+
+# Resolve merge conflicts
+merge-resolve)
+  shift 1
+  action="${1:-status}"
+  shift 1 2>/dev/null || true
+  repo_dir="$GITADMIN_CWD"
+  if [ -d "$2" ]; then
+    repo_dir="$2"
+  fi
+  [ -d "$repo_dir/.git" ] && GITADMIN_CWD="$repo_dir"
+  __git_merge_resolve "$action" "$GITADMIN_CWD" "$@"
   ;;
 
 # Clone repo from url

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202511300900-git
+##@Version           :  202511300913-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Monday, Aug 08, 2022 23:40 EDT
 # @@File             :  gitcommit
 # @@Description      :  Commit changes to a git repo - self-contained, no external dependencies
-# @@Changelog        :  Added smart merge command with conflict detection and multiple strategies
+# @@Changelog        :  Added merge-resolve command with automatic conflict marker detection
 # @@TODO             :  Fix/re-write variables
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202511300900-git"
+VERSION="202511300913-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -621,6 +621,40 @@ __gitmessage() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __gitcommit_cmd() {
   export GITCOMMIT_RAN="" GITADMIN_NO_ERROR_MESSAGE=""
+
+  if __git_merge_status "$GITCOMMIT_ROOT_DIR"; then
+    printf_cyan "🔍 Checking for conflict markers before commit..."
+    local all_files="$(__git_repo "$GITCOMMIT_ROOT_DIR" diff --cached --name-only 2>/dev/null)"
+    local marker_found=0
+    local files_with_markers=""
+
+    if [ -n "$all_files" ]; then
+      while IFS= read -r file; do
+        if [ -f "$GITCOMMIT_ROOT_DIR/$file" ]; then
+          if __git_check_conflict_markers "$GITCOMMIT_ROOT_DIR/$file" "$GITCOMMIT_ROOT_DIR"; then
+            files_with_markers="$files_with_markers  ⚠️  $file\n"
+            marker_found=1
+          fi
+        fi
+      done <<<"$all_files"
+    fi
+
+    if [ $marker_found -eq 1 ]; then
+      printf_red ""
+      printf_red "😿 CANNOT COMMIT: Conflict markers found in staged files 😿"
+      printf_yellow ""
+      printf_yellow "Files with markers (<<<<<<<, =======, >>>>>>>):"
+      printf "$files_with_markers"
+      printf_yellow ""
+      printf_cyan "Please resolve conflicts first:"
+      printf_cyan "  gitcommit merge-resolve status     - Check all files"
+      printf_cyan "  gitcommit merge-resolve edit <file> - Edit and validate"
+      printf_yellow ""
+      return 1
+    fi
+    printf_green "✅ No conflict markers found ✅"
+  fi
+
   if [ -s "$GITCOMMIT_MESSAGE_FILE" ]; then
     __git_repo "$GITCOMMIT_ROOT_DIR" commit -q -S -m "$(<"$GITCOMMIT_MESSAGE_FILE")" &>"$GITCOMMIT_TEMP_FILE" || return 1
   else
@@ -1210,13 +1244,15 @@ __git_smart_merge() {
         printf_custom "1" "  ⚠️  $file"
       done
       printf_yellow ""
-      printf_cyan "To resolve conflicts:"
-      printf_cyan "  1. Edit conflicted files and remove conflict markers"
-      printf_cyan "  2. Stage resolved files: git add <file>"
-      printf_cyan "  3. Complete merge: git commit"
-      printf_cyan ""
-      printf_cyan "To abort merge:"
-      printf_cyan "  git merge --abort"
+      printf_cyan "🔧 Quick resolution options:"
+      printf_cyan "  gitcommit merge-resolve status              - Check status"
+      printf_cyan "  gitcommit merge-resolve show <file>         - View conflicts"
+      printf_cyan "  gitcommit merge-resolve ours <file>         - Keep current (auto-stages)"
+      printf_cyan "  gitcommit merge-resolve theirs <file>       - Keep incoming (auto-stages)"
+      printf_cyan "  gitcommit merge-resolve edit <file>         - Edit manually (validates)"
+      printf_cyan "  gitcommit merge-resolve abort               - Abort merge"
+      printf_yellow ""
+      printf_cyan "💡 Pro tip: The resolve commands automatically stage files and check for markers"
       printf_yellow ""
       return 1
     else
@@ -1244,6 +1280,246 @@ __git_smart_merge() {
   fi
 
   return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__git_check_conflict_markers() {
+  local file="$1"
+  local git_dir="${2:-$GITCOMMIT_ROOT_DIR}"
+  local has_markers=0
+
+  if __grep_lang_c -q '^<<<<<<<\|^=======\|^>>>>>>>' "$file" 2>/dev/null; then
+    has_markers=1
+  fi
+
+  return $has_markers
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__git_merge_status() {
+  local git_dir="${1:-$GITCOMMIT_ROOT_DIR}"
+
+  if [ -f "$git_dir/.git/MERGE_HEAD" ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__git_merge_resolve() {
+  local action="${1:-status}"
+  local git_dir="${GITCOMMIT_ROOT_DIR}"
+  local conflicted_files=""
+  local files_with_markers=""
+  local exitCode=0
+
+  if ! __git_merge_status "$git_dir"; then
+    printf_yellow "ℹ️  No merge in progress"
+    return 0
+  fi
+
+  conflicted_files="$(__git_repo "$git_dir" diff --name-only --diff-filter=U 2>/dev/null)"
+
+  case "$action" in
+  status|check)
+    if [ -z "$conflicted_files" ]; then
+      printf_green "✅ No conflicted files found ✅"
+
+      printf_cyan ""
+      printf_cyan "Checking for leftover conflict markers..."
+
+      local all_changed="$(__git_repo "$git_dir" diff --name-only HEAD 2>/dev/null)"
+      local marker_count=0
+
+      if [ -n "$all_changed" ]; then
+        while IFS= read -r file; do
+          if [ -f "$git_dir/$file" ]; then
+            if __git_check_conflict_markers "$git_dir/$file" "$git_dir"; then
+              if [ $marker_count -eq 0 ]; then
+                printf_red ""
+                printf_red "😿 WARNING: Conflict markers still present in files 😿"
+                printf_yellow ""
+              fi
+              printf_custom "1" "  ⚠️  $file"
+              ((marker_count++))
+            fi
+          fi
+        done <<<"$all_changed"
+      fi
+
+      if [ $marker_count -gt 0 ]; then
+        printf_yellow ""
+        printf_yellow "Found $marker_count file(s) with conflict markers (<<<<<<<, =======, >>>>>>>)"
+        printf_cyan "Please edit these files to remove markers before committing"
+        return 1
+      else
+        printf_cyan ""
+        printf_cyan "✨ All conflicts resolved and no markers found ✨"
+        printf_cyan ""
+        printf_cyan "Ready to complete merge:"
+        printf_custom "2" "  git commit"
+        printf_custom "2" "  OR: gitcommit all \"Merge commit message\""
+        return 0
+      fi
+    else
+      printf_red "😿 Unresolved merge conflicts 😿"
+      printf_yellow ""
+      printf_yellow "Conflicted files:"
+      echo "$conflicted_files" | while IFS= read -r file; do
+        printf_custom "1" "  ⚠️  $file"
+      done
+      printf_yellow ""
+      printf_cyan "Use: gitcommit merge-resolve show <file> - to see conflicts"
+      printf_cyan "Use: gitcommit merge-resolve edit <file> - to edit file"
+      printf_cyan "Use: gitcommit merge-resolve ours <file> - to keep current branch version"
+      printf_cyan "Use: gitcommit merge-resolve theirs <file> - to keep incoming branch version"
+      return 1
+    fi
+    ;;
+
+  show)
+    shift 1 2>/dev/null || true
+    local show_file="$1"
+
+    if [ -z "$show_file" ]; then
+      printf_exit "Usage: $APPNAME merge-resolve show <file>"
+    fi
+
+    if [ ! -f "$git_dir/$show_file" ]; then
+      printf_exit "😿 File not found: $show_file 😿"
+    fi
+
+    printf_custom "6" "🔍 Showing conflicts in: $show_file 🔍"
+    printf_yellow ""
+
+    local in_conflict=0
+    local conflict_num=0
+    local line_num=0
+
+    while IFS= read -r line; do
+      ((line_num++))
+
+      if echo "$line" | __grep_lang_c -q '^<<<<<<<'; then
+        ((conflict_num++))
+        in_conflict=1
+        printf_yellow "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        printf_custom "6" "Conflict #$conflict_num (line $line_num):"
+        printf_custom "2" "▼ CURRENT BRANCH (ours) ▼"
+      elif echo "$line" | __grep_lang_c -q '^======='; then
+        printf_custom "1" "▲ CURRENT BRANCH ▲"
+        printf_yellow "────────────────────────────────────────────"
+        printf_custom "3" "▼ INCOMING BRANCH (theirs) ▼"
+      elif echo "$line" | __grep_lang_c -q '^>>>>>>>'; then
+        printf_custom "1" "▲ INCOMING BRANCH ▲"
+        printf_yellow "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        in_conflict=0
+      else
+        if [ $in_conflict -eq 1 ]; then
+          echo "  $line"
+        fi
+      fi
+    done <"$git_dir/$show_file"
+
+    if [ $conflict_num -eq 0 ]; then
+      printf_green "✅ No conflicts found in this file ✅"
+    else
+      printf_yellow ""
+      printf_cyan "Found $conflict_num conflict(s) in $show_file"
+      printf_cyan ""
+      printf_cyan "Resolution options:"
+      printf_cyan "  gitcommit merge-resolve edit $show_file     - Edit manually"
+      printf_cyan "  gitcommit merge-resolve ours $show_file     - Keep current branch"
+      printf_cyan "  gitcommit merge-resolve theirs $show_file   - Keep incoming branch"
+    fi
+    ;;
+
+  edit)
+    shift 1 2>/dev/null || true
+    local edit_file="$1"
+
+    if [ -z "$edit_file" ]; then
+      printf_exit "Usage: $APPNAME merge-resolve edit <file>"
+    fi
+
+    if [ ! -f "$git_dir/$edit_file" ]; then
+      printf_exit "😿 File not found: $edit_file 😿"
+    fi
+
+    local editor="${EDITOR:-${VISUAL:-vi}}"
+    printf_custom "6" "✏️  Opening $edit_file in $editor ✏️"
+
+    "$editor" "$git_dir/$edit_file"
+
+    if __git_check_conflict_markers "$git_dir/$edit_file" "$git_dir"; then
+      printf_yellow ""
+      printf_yellow "⚠️  Conflict markers still present in file ⚠️"
+      printf_cyan "Make sure to remove all <<<<<<< ======= >>>>>>> markers"
+      return 1
+    else
+      printf_green ""
+      printf_green "✅ No conflict markers found ✅"
+      printf_cyan "Stage this file: git add $edit_file"
+      return 0
+    fi
+    ;;
+
+  ours)
+    shift 1 2>/dev/null || true
+    local ours_file="$1"
+
+    if [ -z "$ours_file" ]; then
+      printf_exit "Usage: $APPNAME merge-resolve ours <file>"
+    fi
+
+    printf_custom "2" "✅ Keeping current branch version of: $ours_file ✅"
+    __git_repo "$git_dir" checkout --ours "$ours_file" && __git_repo "$git_dir" add "$ours_file"
+    exitCode=$?
+
+    if [ $exitCode -eq 0 ]; then
+      printf_green "✅ Resolved with current branch version ✅"
+    else
+      printf_red "😿 Failed to resolve with ours 😿"
+    fi
+    return $exitCode
+    ;;
+
+  theirs)
+    shift 1 2>/dev/null || true
+    local theirs_file="$1"
+
+    if [ -z "$theirs_file" ]; then
+      printf_exit "Usage: $APPNAME merge-resolve theirs <file>"
+    fi
+
+    printf_custom "3" "✅ Keeping incoming branch version of: $theirs_file ✅"
+    __git_repo "$git_dir" checkout --theirs "$theirs_file" && __git_repo "$git_dir" add "$theirs_file"
+    exitCode=$?
+
+    if [ $exitCode -eq 0 ]; then
+      printf_green "✅ Resolved with incoming branch version ✅"
+    else
+      printf_red "😿 Failed to resolve with theirs 😿"
+    fi
+    return $exitCode
+    ;;
+
+  abort)
+    printf_yellow "⚠️  Aborting merge ⚠️"
+    __git_repo "$git_dir" merge --abort
+    exitCode=$?
+
+    if [ $exitCode -eq 0 ]; then
+      printf_green "✅ Merge aborted successfully ✅"
+    else
+      printf_red "😿 Failed to abort merge 😿"
+    fi
+    return $exitCode
+    ;;
+
+  *)
+    printf_exit "Usage: $APPNAME merge-resolve [status|show|edit|ours|theirs|abort] <file>\n\nCommands:\n  status          - Check merge status and find leftover markers\n  show <file>     - Display conflicts in file with context\n  edit <file>     - Edit file in editor and validate markers removed\n  ours <file>     - Keep current branch version\n  theirs <file>   - Keep incoming branch version\n  abort           - Abort the merge"
+    ;;
+  esac
+
+  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_custom_pull() {
@@ -2811,6 +3087,14 @@ merge)
   shift 2 2>/dev/null || shift 1 2>/dev/null || true
   message="$*"
   __git_smart_merge "$source_branch" "$strategy" "$message"
+  exit $?
+  ;;
+
+merge-resolve)
+  shift 1
+  action="${1:-status}"
+  shift 1 2>/dev/null || true
+  __git_merge_resolve "$action" "$@"
   exit $?
   ;;
 

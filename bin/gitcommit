@@ -1275,33 +1275,44 @@ __normalize_message_spacing() {
   local start_emoji="$2"
   local end_emoji="${3:-$start_emoji}"
 
-  # Strategy: Strip emojis intelligently while preserving all other text
-  # We'll remove common emoji patterns from start/end only
+  # Strategy: Use perl or python for better Unicode handling, fallback to simpler method
+  # Strip emojis from start and end while preserving all other text
 
   # Trim all whitespace first
   message="$(echo "$message" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
 
-  # Remove leading emoji patterns (iterate to catch multiple/compound emojis)
-  # This pattern matches UTF-8 emoji byte sequences (starts with \xF0 or similar)
-  local i=0
-  while [ $i -lt 3 ]; do
-    # Try removing common emoji byte patterns from start
-    local before="$message"
-    message="$(echo "$message" | LC_ALL=C sed 's/^\xF0[\x80-\xBF][\x80-\xBF][\x80-\xBF]*//' | sed 's/^\xE2[\x80-\xBF][\x80-\xBF]*//')"
-    message="$(echo "$message" | sed 's/^[[:space:]]*//')"
-    [ "$before" = "$message" ] && break
-    i=$((i + 1))
-  done
-
-  # Remove trailing emoji patterns
-  i=0
-  while [ $i -lt 3 ]; do
-    local before="$message"
-    message="$(echo "$message" | LC_ALL=C sed 's/\xF0[\x80-\xBF][\x80-\xBF][\x80-\xBF]*$//' | sed 's/\xE2[\x80-\xBF][\x80-\xBF]*$//')"
-    message="$(echo "$message" | sed 's/[[:space:]]*$//')"
-    [ "$before" = "$message" ] && break
-    i=$((i + 1))
-  done
+  # Try perl first (most reliable for Unicode)
+  if command -v perl >/dev/null 2>&1; then
+    # Remove leading emojis using perl Unicode regex
+    message="$(echo "$message" | perl -CS -pe 's/^[\x{1F300}-\x{1F9FF}\x{2600}-\x{27BF}\x{1F000}-\x{1F02F}\x{1F0A0}-\x{1F0FF}\x{1F100}-\x{1F64F}\x{1F680}-\x{1F6FF}\x{1F900}-\x{1F9FF}\x{1FA00}-\x{1FAFF}\x{2700}-\x{27BF}\x{24C2}-\x{1F251}\x{FE0F}\x{200D}]+\s*//')"
+    # Remove trailing emojis
+    message="$(echo "$message" | perl -CS -pe 's/\s*[\x{1F300}-\x{1F9FF}\x{2600}-\x{27BF}\x{1F000}-\x{1F02F}\x{1F0A0}-\x{1F0FF}\x{1F100}-\x{1F64F}\x{1F680}-\x{1F6FF}\x{1F900}-\x{1F9FF}\x{1FA00}-\x{1FAFF}\x{2700}-\x{27BF}\x{24C2}-\x{1F251}\x{FE0F}\x{200D}]+$//')"
+  elif command -v python3 >/dev/null 2>&1; then
+    # Fallback to python if perl not available
+    message="$(echo "$message" | python3 -c "import sys, re; print(re.sub(r'^[\U0001F300-\U0001F9FF\U00002600-\U000027BF\U0001F000-\U0001F02F\U0001F0A0-\U0001F0FF\U0001F100-\U0001F64F\U0001F680-\U0001F6FF\U0001F900-\U0001F9FF\U0001FA00-\U0001FAFF\U00002700-\U000027BF\U000024C2-\U0001F251\uFE0F\u200D]+\s*', '', sys.stdin.read().strip()))")"
+    message="$(echo "$message" | python3 -c "import sys, re; print(re.sub(r'\s*[\U0001F300-\U0001F9FF\U00002600-\U000027BF\U0001F000-\U0001F02F\U0001F0A0-\U0001F0FF\U0001F100-\U0001F64F\U0001F680-\U0001F6FF\U0001F900-\U0001F9FF\U0001FA00-\U0001FAFF\U00002700-\U000027BF\U000024C2-\U0001F251\uFE0F\u200D]+$', '', sys.stdin.read().strip()))")"
+  else
+    # Last resort: simple character stripping (may not work perfectly with all emojis)
+    # Strip leading non-ASCII, non-printable characters
+    local i=0
+    while [ $i -lt 5 ]; do
+      local before="$message"
+      # Remove first few bytes if they look like emojis (high bit set)
+      message="$(echo "$message" | LC_ALL=C sed 's/^[^ -~][^ -~]*//')"
+      message="$(echo "$message" | sed 's/^[[:space:]]*//')"
+      [ "$before" = "$message" ] && break
+      i=$((i + 1))
+    done
+    # Strip trailing non-ASCII
+    i=0
+    while [ $i -lt 5 ]; do
+      local before="$message"
+      message="$(echo "$message" | LC_ALL=C sed 's/[^ -~][^ -~]*$//')"
+      message="$(echo "$message" | sed 's/[[:space:]]*$//')"
+      [ "$before" = "$message" ] && break
+      i=$((i + 1))
+    done
+  fi
 
   # Final cleanup
   message="$(echo "$message" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"

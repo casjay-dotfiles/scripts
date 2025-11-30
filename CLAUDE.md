@@ -738,13 +738,43 @@ SCRIPTNAME_CACHE_DIR    # Cache directory
 
 ### Function and Variable Naming
 
-- **Functions**: Prefix with `__` for internal functions
-- **Variables**: Prefix with `{SCRIPTNAME}_` (uppercase script name)
-- **Exceptions**: Use judgment for standard variables (PATH, HOME, etc.)
-- **Examples**: 
-  - `DOCKERMGR_CONFIG_DIR` ✅
-  - `BUILDX_TEMP_DIR` ✅
-  - `USER` ✅ (standard variable)
+#### Functions
+- **All functions MUST be prefixed with `__`** for internal functions
+- **Naming convention**: Use snake_case after the prefix
+- **Examples**:
+  - `__printf_blue` ✅
+  - `__cmd_exists` ✅
+  - `__gen_config` ✅
+  - `__git_auto_pull` ✅
+- **Tip**: Use `_____function_name` in source, then delete first `___` → `__function_name`
+
+#### Variables
+
+**Global Variables** - Use SCREAMING_SNAKE_CASE (uppercase with underscores):
+- **Format**: `{SCRIPTNAME}_VARIABLE_NAME`
+- **Script names with `-`**: Replace dash with underscore
+  - `gitadmin` → `GITADMIN_`
+  - `check-for-updates` → `CHECK_FOR_UPDATES_`
+  - `clean-system` → `CLEAN_SYSTEM_`
+- **Examples**:
+  - `SETUPMGR_CONFIG_DIR` ✅
+  - `GITADMIN_CWD` ✅
+  - `CHECK_FOR_UPDATES_INTERVAL_HOURS` ✅
+  - `CLEAN_SYSTEM_DEFAULT_DAYS` ✅
+- **Standard variables**: PATH, HOME, USER, etc. can be prefixed for script scope
+  - **Use best judgment**: Prefix when script needs scoped version
+  - Examples: `SETUPMGR_USER_HOME`, `GITADMIN_PATH`, `DOCKERMGR_USER`
+  - Unprefix when using system standard: `HOME`, `USER`, `PATH`
+
+**Local Variables** - Use snake_case (lowercase with underscores):
+- **Format**: Descriptive names in lowercase with underscores
+- **Examples**:
+  - `local exit_code` ✅
+  - `local config_file` ✅
+  - `local download_url` ✅
+  - `local error_msg` ✅
+  - `local user_name` ✅
+- **Consistency**: Apply snake_case for ALL local variables across all scripts
 
 ## Git & Version Control
 

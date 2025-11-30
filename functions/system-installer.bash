@@ -194,7 +194,7 @@ printf_readline() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_custom() {
-  [[ $1 == ?(-)+([0-9]) ]] && local color="$1" && shift 1 || local color="1"
+  [[ $1 == ?(-)+([0-9]) ]] && local color="$1" && shift 1 || local color="208"
   local msg="$*"
   shift
   printf_color "$msg" "$color"
@@ -235,7 +235,7 @@ printf_result() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_return() {
-  test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="1"
+  test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="208"
   test -n "$1" && test -z "${1//[0-9]/}" && local exitCode="$1" && shift 1 || local exitCode="1"
   local msg="$*"
   [ ${#msg} = 0 ] || { printf_color "$msg" "$color" 1>&2 && printf "\n"; }

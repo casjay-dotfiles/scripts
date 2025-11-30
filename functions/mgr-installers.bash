@@ -280,7 +280,7 @@ printf_question() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #printf_error "color" "exitcode" "message"
 printf_error() {
-  test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="1"
+  test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="208"
   test -n "$1" && test -z "${1//[0-9]/}" && local exitCode="$1" && shift 1 || local exitCode="1"
   local msg="$*"
   printf_color "$msg" "$color" 1>&2
@@ -289,7 +289,7 @@ printf_error() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #printf_exit "color" "exitcode" "message"
 printf_exit() {
-  test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="1"
+  test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="208"
   test -n "$1" && test -z "${1//[0-9]/}" && local exitCode="$1" && shift 1 || local exitCode="1"
   local msg="$*"
   shift
@@ -300,7 +300,7 @@ printf_exit() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #printf_exit "color" "exitcode" "message"
 printf_return() {
-  test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="1"
+  test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="208"
   test -n "$1" && test -z "${1//[0-9]/}" && local exitCode="$1" && shift 1 || local exitCode="1"
   local msg="$*"
   shift
@@ -329,14 +329,14 @@ printf_custom() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_custom_question() {
-  test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="1"
+  test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="208"
   local msg="$*"
   shift
   printf_color "$msg " "$color"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_question_timeout() {
-  test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="1"
+  test -n "$1" && test -z "${1//[0-9]/}" && local color="$1" && shift 1 || local color="208"
   local msg="$1" && shift 1
   test -n "$1" && test -z "${1//[0-9]/}" && local lines="$1" && shift 1 || local lines="120"
   reply="${1:-REPLY}" && shift 1

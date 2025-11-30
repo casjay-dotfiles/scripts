@@ -1270,6 +1270,50 @@ __fix_emoji_spacing() {
   echo "$spaces"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+__normalize_message_spacing() {
+  local message="$1"
+  local start_emoji="$2"
+  local end_emoji="${3:-$start_emoji}"
+
+  # Strategy: Strip emojis intelligently while preserving all other text
+  # We'll remove common emoji patterns from start/end only
+
+  # Trim all whitespace first
+  message="$(echo "$message" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+
+  # Remove leading emoji patterns (iterate to catch multiple/compound emojis)
+  # This pattern matches UTF-8 emoji byte sequences (starts with \xF0 or similar)
+  local i=0
+  while [ $i -lt 3 ]; do
+    # Try removing common emoji byte patterns from start
+    local before="$message"
+    message="$(echo "$message" | LC_ALL=C sed 's/^\xF0[\x80-\xBF][\x80-\xBF][\x80-\xBF]*//' | sed 's/^\xE2[\x80-\xBF][\x80-\xBF]*//')"
+    message="$(echo "$message" | sed 's/^[[:space:]]*//')"
+    [ "$before" = "$message" ] && break
+    i=$((i + 1))
+  done
+
+  # Remove trailing emoji patterns
+  i=0
+  while [ $i -lt 3 ]; do
+    local before="$message"
+    message="$(echo "$message" | LC_ALL=C sed 's/\xF0[\x80-\xBF][\x80-\xBF][\x80-\xBF]*$//' | sed 's/\xE2[\x80-\xBF][\x80-\xBF]*$//')"
+    message="$(echo "$message" | sed 's/[[:space:]]*$//')"
+    [ "$before" = "$message" ] && break
+    i=$((i + 1))
+  done
+
+  # Final cleanup
+  message="$(echo "$message" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+
+  # Get proper spacing for emojis
+  local start_spacing="$(__fix_emoji_spacing "$start_emoji")"
+  local end_spacing="$(__fix_emoji_spacing "$end_emoji")"
+
+  # Build properly spaced message
+  echo "${start_emoji}${start_spacing}${message}${end_spacing}${end_emoji}"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __auto_detect_emoji() {
   local changed_files="$1"
   local emoji="🗃️"
@@ -1420,14 +1464,32 @@ __commit_custom() {
   [ -n "$local_set_mess" ] || local_set_mess="$prepend"
   changelog_message="$prepend"
   if [ -n "$GITCOMMIT_MESSAGE_FROM_FILE" ]; then
-    setmess="$local_set_mess"
+    # Message from file or AI - already has emojis, just normalize spacing
+    local start_emoji="" end_emoji=""
+
+    # Detect start emoji (first non-ASCII character sequence at beginning)
+    if echo "$local_set_mess" | grep -qE '^[[:space:]]*[^\x00-\x7F]'; then
+      start_emoji="$(echo "$local_set_mess" | sed -E 's/^[[:space:]]*([^\x00-\x7F]+).*/\1/' | head -c 10)"
+    fi
+
+    # Detect end emoji (last non-ASCII character sequence at end)
+    if echo "$local_set_mess" | grep -qE '[^\x00-\x7F][[:space:]]*$'; then
+      end_emoji="$(echo "$local_set_mess" | sed -E 's/.*[[:space:]]([^\x00-\x7F]+)[[:space:]]*$/\1/' | tail -c 10)"
+    fi
+
+    # Use detected emojis from AI/file, or fall back to default
+    start_emoji="${start_emoji:-${set_action:-🗃️}}"
+    end_emoji="${end_emoji:-$start_emoji}"
+
+    setmess="$(__normalize_message_spacing "$local_set_mess" "$start_emoji" "$end_emoji")"
     if [ -n "$GITCOMMIT_MESSAGE_LONG" ]; then
       GITCOMMIT_MESSAGE_LONG="$(printf '%s\n\n%s' "$GITCOMMIT_MESSAGE_LONG" "$changed_files")"
     else
       GITCOMMIT_MESSAGE_LONG="$changed_files"
     fi
   else
-    setmess="$(printf '%b\n' "$action $local_set_mess $icon")"
+    # Regular mode - build message with proper spacing
+    setmess="$(__normalize_message_spacing "$local_set_mess" "$emoji_for_spacing" "$icon")"
     GITCOMMIT_MESSAGE_LONG="$changed_files"
   fi
   __gitmessage "$setmess" "$GITCOMMIT_MESSAGE_LONG"
@@ -2600,6 +2662,8 @@ ai)
   shift 1
   printf_cyan "Generating commit message using AI... Please wait."
   GITCOMMIT_MESSAGE_SHORT="$(__ai_commit_message "$*")"
+  GITCOMMIT_MESSAGE_FROM_FILE="true"
+  export GITCOMMIT_MESSAGE_SHORT GITCOMMIT_MESSAGE_FROM_FILE
   repo_has_changed="$(__changed_files all)"
   [ -n "$repo_has_changed" ] || printf_exit "😿 No files have been modified in $GITCOMMIT_ROOT_DIR 😿"
   __commit_custom "."

@@ -53,14 +53,19 @@
 
 ### Session Overview
 
-Current session: Docker container builds and gitcommit COMMIT_MESS workflow
-- Fixed Docker build failures (AlmaLinux and Alpine)
-- Emptied .dockerignore to include .git directory for install.sh
-- Added git package to Alpine Dockerfile
-- Fixed gitcommit COMMIT_MESS file handling and cleanup timing
-- Updated CLAUDE.md with emoji requirements for user-facing content
+Current session: Git merge and pull auto-resolution enhancements
+- Added smart merge command with automatic strategy detection
+- Added merge-resolve command for conflict marker detection and resolution
+- Created __git_auto_pull() function with intelligent failure handling
+- Integrated auto-pull into __git_pull_single() for automatic conflict resolution
+- Added empty repository handling and comprehensive error detection
+- Pre-commit hooks to prevent commits with unresolved conflict markers
 
 Previous sessions included:
+- Docker container builds and gitcommit COMMIT_MESS workflow
+- Fixed Docker build failures (AlmaLinux and Alpine)
+- Fixed gitcommit COMMIT_MESS file handling and cleanup timing
+- Updated CLAUDE.md with emoji requirements for user-facing content
 - Security improvements (fixed shellcheck errors, eliminated curl | sh)
 - Function consolidation (minikube functions: 8 → 1)
 - Multi-architecture support (amd64, arm64, arm)
@@ -806,7 +811,38 @@ SCRIPTNAME_CACHE_DIR    # Cache directory
 
 ## Key Session Accomplishments
 
-### Current Session: Docker Builds & gitcommit Fixes
+### Current Session: Git Merge & Pull Auto-Resolution
+
+- **Smart Merge Command**: Added intelligent merge with automatic strategy detection
+  - `__git_smart_merge()` function with fast-forward detection
+  - Multiple merge strategies (auto, ff, no-ff, squash)
+  - Comprehensive safety checks and validation
+  - Clear guidance on conflict resolution
+  - Implemented in both gitcommit and gitadmin
+
+- **Merge Conflict Resolution**: Automated conflict marker detection and resolution
+  - `merge-resolve` command with status, show, edit, ours, theirs, abort subcommands
+  - `__git_check_conflict_markers()` scans for <<<, ===, >>> markers
+  - Pre-commit hook automatically blocks commits with unresolved markers
+  - Prevents accidental commits with conflict blocks
+
+- **Pull Auto-Resolution**: Created `__git_auto_pull()` with intelligent failure handling
+  - Auto-stashing uncommitted changes with automatic restore
+  - Diverged branch detection and resolution (rebase → merge fallback)
+  - Merge conflict auto-resolution using `-X theirs` strategy
+  - Empty repository handling with clear messaging
+  - Authentication error detection (401, 403)
+  - Force update fallback (fetch + reset --hard)
+  - Smart skip logic for offline/no remote scenarios
+  - Integrated into `__git_pull_single()` for automatic use
+
+- **Version Updates**:
+  - gitcommit: 202511300913-git → 202511300913-git
+  - gitadmin: 202511300922-git → 202511300929-git
+
+### Previous Sessions
+
+#### Docker Builds & gitcommit Fixes
 
 - **Docker Container Builds**: Fixed AlmaLinux and Alpine container build failures
   - Emptied `.dockerignore` to include `.git` directory (required by install.sh)
@@ -818,8 +854,6 @@ SCRIPTNAME_CACHE_DIR    # Cache directory
   - Fixed 'all' case to preserve message from `.git/COMMIT_MESS` file
   - Updated script version to 202510070726-git
 - **Documentation**: Updated CLAUDE.md with emoji requirements and workflow details
-
-### Previous Sessions
 
 #### Security & Code Quality
 

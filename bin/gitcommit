@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202511251403-git
+##@Version           :  202511300900-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Monday, Aug 08, 2022 23:40 EDT
 # @@File             :  gitcommit
 # @@Description      :  Commit changes to a git repo - self-contained, no external dependencies
-# @@Changelog        :  Enhanced log to search entire commit history with full body display
+# @@Changelog        :  Added smart merge command with conflict detection and multiple strategies
 # @@TODO             :  Fix/re-write variables
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202511251403-git"
+VERSION="202511300900-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -1116,6 +1116,134 @@ __git_push_check() {
   else
     return 1
   fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__git_smart_merge() {
+  local source_branch="$1"
+  local merge_strategy="${2:-auto}"
+  local custom_message="$3"
+  local git_dir="${GITCOMMIT_ROOT_DIR}"
+  local current_branch=""
+  local merge_msg=""
+  local exitCode=0
+
+  if [ -z "$source_branch" ]; then
+    printf_exit "Usage: $APPNAME merge <source_branch> [strategy] [message]\n  strategy: auto (default), ff, no-ff, squash\n  message: Custom merge commit message"
+  fi
+
+  current_branch="$(__git_repo "$git_dir" branch --show-current 2>/dev/null)"
+  if [ -z "$current_branch" ]; then
+    printf_exit "😿 Failed to detect current branch 😿"
+  fi
+
+  if [ "$current_branch" = "$source_branch" ]; then
+    printf_exit "😿 Cannot merge branch into itself: $current_branch 😿"
+  fi
+
+  if ! __git_repo "$git_dir" rev-parse --verify "$source_branch" &>/dev/null; then
+    printf_exit "😿 Source branch does not exist: $source_branch 😿"
+  fi
+
+  if ! __git_repo "$git_dir" diff-index --quiet HEAD -- 2>/dev/null; then
+    printf_yellow "⚠️ You have uncommitted changes ⚠️"
+    printf_cyan "🔹 Stash changes: git stash"
+    printf_cyan "🔹 Commit changes: gitcommit all <message>"
+    printf_cyan "🔹 Or discard changes: git reset --hard"
+    printf_exit "😿 Please commit or stash changes before merging 😿"
+  fi
+
+  printf_custom "6" "🔀 Merging $source_branch into $current_branch 🔀"
+
+  local can_ff="false"
+  if __git_repo "$git_dir" merge-base --is-ancestor HEAD "$source_branch" 2>/dev/null; then
+    can_ff="true"
+    printf_custom "2" "✨ Fast-forward merge possible ✨"
+  fi
+
+  case "$merge_strategy" in
+  ff)
+    if [ "$can_ff" = "true" ]; then
+      __git_repo "$git_dir" merge --ff-only "$source_branch"
+      exitCode=$?
+    else
+      printf_exit "😿 Fast-forward not possible - branches have diverged 😿"
+    fi
+    ;;
+
+  no-ff)
+    merge_msg="${custom_message:-Merge branch '$source_branch' into $current_branch}"
+    __git_repo "$git_dir" merge --no-ff -m "🔀 $merge_msg 🔀" "$source_branch"
+    exitCode=$?
+    ;;
+
+  squash)
+    merge_msg="${custom_message:-Squash merge branch '$source_branch' into $current_branch}"
+    __git_repo "$git_dir" merge --squash "$source_branch"
+    exitCode=$?
+    if [ $exitCode -eq 0 ]; then
+      printf_custom "3" "📦 Changes squashed - creating commit 📦"
+      __git_repo "$git_dir" commit -m "📦 $merge_msg 📦"
+      exitCode=$?
+    fi
+    ;;
+
+  auto|*)
+    if [ "$can_ff" = "true" ]; then
+      printf_custom "2" "🚀 Using fast-forward merge 🚀"
+      __git_repo "$git_dir" merge --ff "$source_branch"
+      exitCode=$?
+    else
+      merge_msg="${custom_message:-Merge branch '$source_branch' into $current_branch}"
+      printf_custom "3" "🔀 Creating merge commit 🔀"
+      __git_repo "$git_dir" merge --no-ff -m "🔀 $merge_msg 🔀" "$source_branch"
+      exitCode=$?
+    fi
+    ;;
+  esac
+
+  if [ $exitCode -ne 0 ]; then
+    if __git_repo "$git_dir" status | __grep_lang_c -q "Unmerged paths\|both modified\|both added"; then
+      printf_red "😿 MERGE CONFLICT DETECTED 😿"
+      printf_yellow ""
+      printf_yellow "Conflicted files:"
+      __git_repo "$git_dir" diff --name-only --diff-filter=U | while read file; do
+        printf_custom "1" "  ⚠️  $file"
+      done
+      printf_yellow ""
+      printf_cyan "To resolve conflicts:"
+      printf_cyan "  1. Edit conflicted files and remove conflict markers"
+      printf_cyan "  2. Stage resolved files: git add <file>"
+      printf_cyan "  3. Complete merge: git commit"
+      printf_cyan ""
+      printf_cyan "To abort merge:"
+      printf_cyan "  git merge --abort"
+      printf_yellow ""
+      return 1
+    else
+      printf_red "😿 Merge failed 😿"
+      return $exitCode
+    fi
+  fi
+
+  printf_green "✅ Successfully merged $source_branch into $current_branch ✅"
+
+  local merge_commit="$(__git_repo "$git_dir" rev-parse HEAD)"
+  printf_cyan "📝 Merge commit: ${merge_commit:0:8}"
+
+  if [ "$can_ff" = "false" ] || [ "$merge_strategy" = "no-ff" ]; then
+    printf_cyan ""
+    printf_cyan "Changed files:"
+    __git_repo "$git_dir" diff --name-status HEAD~1 HEAD | while read status file; do
+      case "$status" in
+      M) printf_custom "3" "  📝 Modified: $file" ;;
+      A) printf_custom "2" "  ✨ Added: $file" ;;
+      D) printf_custom "1" "  🗑️  Deleted: $file" ;;
+      R*) printf_custom "6" "  ♻️  Renamed: $file" ;;
+      esac
+    done
+  fi
+
+  return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_custom_pull() {
@@ -2670,6 +2798,19 @@ pull)
 push)
   shift 1
   __git_custom_push "$GITCOMMIT_ROOT_DIR"
+  exit $?
+  ;;
+
+merge)
+  shift 1
+  if [ "$1" = "help" ]; then
+    printf_exit "Usage: $APPNAME merge <source_branch> [strategy] [message]\n\nStrategies:\n  auto   - Auto-detect: fast-forward if possible, otherwise merge commit (default)\n  ff     - Fast-forward only (fails if not possible)\n  no-ff  - Always create merge commit (even if fast-forward possible)\n  squash - Squash all commits into one\n\nExamples:\n  $APPNAME merge feature-branch\n  $APPNAME merge develop ff\n  $APPNAME merge hotfix no-ff \"Emergency fix\"\n  $APPNAME merge feature squash \"Combined feature commits\""
+  fi
+  source_branch="$1"
+  strategy="${2:-auto}"
+  shift 2 2>/dev/null || shift 1 2>/dev/null || true
+  message="$*"
+  __git_smart_merge "$source_branch" "$strategy" "$message"
   exit $?
   ;;
 

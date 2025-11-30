@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202511300929-git
+##@Version           :  202511300955-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Monday, Aug 08, 2022 23:22 EDT
 # @@File             :  gitadmin
 # @@Description      :  push/clone/pull from github/gitlab/private/bitbucket/codeberg/forgejo/gitea/gogs/azure/aws repos
-# @@Changelog        :  Integrated __git_auto_pull with empty repository handling
+# @@Changelog        :  Added missing __git_remote_origin function
 # @@TODO             :  Add more platform support (Forgejo, Gogs API improvements)
 # @@Other            :  Somethings may be broken due to variable changes
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202511300929-git"
+VERSION="202511300955-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -3643,6 +3643,11 @@ __git_auto_pull() {
       return 1
     else
       printf_yellow "⚠️  Pull failed - trying force update..."
+      printf_yellow "⚠️  Force update will discard local changes"
+      if git -C "$git_dir" stash list 2>/dev/null | grep -q "Auto-stash before pull"; then
+        git -C "$git_dir" stash drop -q 2>/dev/null
+        printf_yellow "⚠️  Dropped auto-stash due to force update"
+      fi
       if [ -n "$current_branch" ]; then
         git -C "$git_dir" fetch origin "$current_branch" 2>/dev/null
         git -C "$git_dir" reset --hard "origin/$current_branch" 2>/dev/null
@@ -3658,6 +3663,7 @@ __git_auto_pull() {
           exitCode=$?
         fi
       fi
+      return $exitCode
     fi
   fi
 
@@ -3688,6 +3694,92 @@ __git_push() {
   else
     git -C "$git_dir" push $args -q &>/dev/null && return 0 || return 1
   fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# smart auto-resolving push function
+__git_auto_push() {
+  local git_dir="" args="" regex="" exitCode=0
+  local current_branch="" remote_origin="" error_msg="" upstream_branch=""
+  [ -n "$1" ] && [ -d "$1/.git" ] && git_dir="$1" && shift 1 || git_dir="$GITADMIN_CWD"
+  args="$*"
+  regex="(https?|ftp|file|git|ssh)://[-A-Za-z0-9\+&@#/%?=~_|!:,.;]*[-A-Za-z0-9\+&@#/%=~_|]"
+
+  [ -f "$git_dir/.no_push" ] && return 0
+
+  remote_origin="$(__git_remote_origin "$git_dir" 2>/dev/null)"
+
+  if [ -z "$remote_origin" ]; then
+    printf_yellow "⚠️  No remote configured for $(basename "$git_dir") - skipping push"
+    return 0
+  fi
+
+  current_branch="$(git -C "$git_dir" branch --show-current 2>/dev/null)"
+
+  if [ -z "$current_branch" ]; then
+    printf_yellow "⚠️  Detached HEAD or no branch - skipping push for $(basename "$git_dir")"
+    return 1
+  fi
+
+  if [[ "$remote_origin" =~ $regex ]]; then
+    if ! __am_i_online; then
+      printf_yellow "⚠️  Offline - skipping push for $(basename "$git_dir")"
+      return 1
+    fi
+  fi
+
+  upstream_branch="$(git -C "$git_dir" rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null)"
+
+  error_msg="$(git -C "$git_dir" push $args 2>&1)"
+  exitCode=$?
+
+  if [ $exitCode -ne 0 ]; then
+    if echo "$error_msg" | grep -qi "no upstream branch\|has no upstream branch"; then
+      printf_yellow "🔄 No upstream branch - setting upstream to origin/$current_branch..."
+      git -C "$git_dir" push --set-upstream origin "$current_branch" $args 2>/dev/null
+      exitCode=$?
+    elif echo "$error_msg" | grep -qi "rejected.*non-fast-forward\|rejected.*fetch first"; then
+      printf_yellow "🔄 Remote has changes - pulling with auto-resolution first..."
+      if __git_auto_pull "$git_dir"; then
+        printf_cyan "🔄 Retrying push after pull..."
+        git -C "$git_dir" push $args 2>/dev/null
+        exitCode=$?
+      else
+        printf_red "😿 Pull failed - cannot push 😿"
+        return 1
+      fi
+    elif echo "$error_msg" | grep -qi "diverged"; then
+      printf_yellow "🔄 Branches diverged - pulling with auto-resolution first..."
+      if __git_auto_pull "$git_dir"; then
+        printf_cyan "🔄 Retrying push after pull..."
+        git -C "$git_dir" push $args 2>/dev/null
+        exitCode=$?
+      else
+        printf_red "😿 Pull failed - cannot push 😿"
+        return 1
+      fi
+    elif echo "$error_msg" | grep -qi "authentication\|permission\|403\|401"; then
+      printf_red "😿 Authentication failed for $(basename "$git_dir") 😿"
+      return 1
+    elif echo "$error_msg" | grep -qi "protected branch\|required status check"; then
+      printf_red "😿 Protected branch - cannot force push to $(basename "$git_dir") 😿"
+      printf_yellow "⚠️  This branch has protection rules that prevent direct push"
+      return 1
+    elif echo "$error_msg" | grep -qi "pre-receive hook declined\|pre-push hook"; then
+      printf_red "😿 Push rejected by remote hook 😿"
+      printf_yellow "⚠️  Remote repository has validation rules that failed"
+      return 1
+    elif echo "$error_msg" | grep -qi "large file\|file size"; then
+      printf_red "😿 Large file detected - consider using git-lfs 😿"
+      printf_yellow "⚠️  Files exceed size limits for standard git push"
+      return 1
+    else
+      printf_yellow "⚠️  Push failed with unknown error"
+      printf_cyan "Error: $error_msg"
+      return 1
+    fi
+  fi
+
+  return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Clone function
@@ -4670,7 +4762,7 @@ __git_push_single() {
   if [ -d "$SET_BASE_REPO/.git" ]; then
     printf_custom "4" "🐛 Pushing the repo in $SET_BASE_REPO 🐛"
     __git_push_mirror "$SET_BASE_REPO"
-    __git_custom "$SET_BASE_REPO" push && GITADMIN_EXITCODE=0 || GITADMIN_EXITCODE=1
+    __git_auto_push "$SET_BASE_REPO" && GITADMIN_EXITCODE=0 || GITADMIN_EXITCODE=1
     __getexitcode $GITADMIN_EXITCODE "$(SUCCESS_MSG)" "$(FAILED_MSG)"
   else
     if [ -n "$1" ]; then
@@ -4685,7 +4777,7 @@ __git_push_single() {
     if [ -d "$GITADMIN_NEW_PROJECT_DIR/.git" ]; then
       printf_custom "4" "🐛 Pushing the repo in $GITADMIN_NEW_PROJECT_DIR 🐛"
       __git_push_mirror "$GITADMIN_NEW_PROJECT_DIR"
-      __git_push "$GITADMIN_NEW_PROJECT_DIR" && GITADMIN_EXITCODE=0 || GITADMIN_EXITCODE=1
+      __git_auto_push "$GITADMIN_NEW_PROJECT_DIR" && GITADMIN_EXITCODE=0 || GITADMIN_EXITCODE=1
       __getexitcode $GITADMIN_EXITCODE "$(SUCCESS_MSG)" "$(FAILED_MSG)"
     else
       GITADMIN_EXITCODE=1
@@ -5247,6 +5339,20 @@ __cd_into() {
   fi
 }
 #
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__git_remote_origin() {
+  local dir="${1:-${GITADMIN_CWD:-.}}"
+  local gitconfig="${GITADMIN_DEFAULT_MAINCONFIG:-gitmainconfig}"
+  local set_remote="" get_remote="" push_remote="" fetch_remote=""
+  get_remote="$(grep -sh 'url =' "$dir/$gitconfig" "$dir/.git/config" | awk -F '=' '{print $2}' | grep '^' | head -n1)"
+  get_remote="$(echo "${get_remote// /}")"
+  if [ -z "$get_remote" ]; then
+    push_remote="$(git -C "$dir" remote -v 2>/dev/null | grep 'push' | __test_if_url | head -n 1 | awk '{print $2}' 2>/dev/null | grep '^')"
+    fetch_remote="$(git -C "$dir" remote -v 2>/dev/null | grep 'fetch' | __test_if_url | head -n 1 | awk '{print $2}' 2>/dev/null | grep '^')"
+    set_remote="${push_remote:-$fetch_remote}"
+  fi
+  printf '%s\n' "${get_remote:-$set_remote}"
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_remote_push() {
   local dir="${1:-${GITADMIN_CWD:-.}}"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202511301200-git
+##@Version           :  202511301726-git
 # @@Author           :  GEN_SCRIPT_REPLACE_AUTHOR
 # @@Contact          :  GEN_SCRIPT_REPLACE_EMAIL
 # @@License          :  GEN_SCRIPT_REPLACE_LICENSE
@@ -21,7 +21,25 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # run trap command on exit
-trap 'retVal=$?;[ "$SERVICE_IS_RUNNING" != "yes" ] && [ -f "$SERVICE_PID_FILE" ] && rm -Rf "$SERVICE_PID_FILE";exit $retVal' INT TERM PWR
+trap '__trap_exit_handler' EXIT
+trap '__trap_signal_handler' INT TERM PWR
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_exit_handler() {
+  local retVal=$?
+  if [ "$SERVICE_IS_RUNNING" != "yes" ] && [ -f "$SERVICE_PID_FILE" ]; then
+    rm -Rf "$SERVICE_PID_FILE" 2>/dev/null || true
+  fi
+  exit $retVal
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__trap_signal_handler() {
+  local retVal=$?
+  echo "Container received shutdown signal"
+  if [ "$SERVICE_IS_RUNNING" != "yes" ] && [ -f "$SERVICE_PID_FILE" ]; then
+    rm -Rf "$SERVICE_PID_FILE" 2>/dev/null || true
+  fi
+  exit $retVal
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # setup debugging - https://www.gnu.org/software/bash/manual/html_node/The-Set-Builtin.html
 if [ -f "/config/.debug" ] && [ -z "$DEBUGGER_OPTIONS" ]; then

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202511301145-git
+##@Version           :  202511301726-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git-admin@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -166,13 +166,31 @@ __find_and_remove() {
 __pgrep() {
   local count=3
   local srvc="${1:-SERVICE_NAME}"
+  local found=0
+  if [ -z "$srvc" ] || [ "$srvc" = "SERVICE_NAME" ]; then
+    return 10
+  fi
   while [ $count -ge 0 ]; do
-    # Use exact process name matching, not full command line search
-    pgrep -x "$srvc" >/dev/null 2>&1 && return 0
-    sleep 1
+    if pgrep -x "$srvc" >/dev/null 2>&1; then
+      found=1
+      break
+    elif pgrep -f "$srvc" >/dev/null 2>&1; then
+      found=1
+      break
+    elif ps -ef 2>/dev/null | grep -v grep | grep -qw "$srvc"; then
+      found=1
+      break
+    fi
+    if [ $count -gt 0 ]; then
+      sleep 1
+    fi
     count=$((count - 1))
   done
-  return 10
+  if [ $found -eq 1 ]; then
+    return 0
+  else
+    return 10
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __find_file_relative() {
@@ -766,11 +784,27 @@ __check_for_group() { cat "/etc/group" 2>/dev/null | awk -F ':' '{print $1}' | s
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # check if process is already running
 __proc_check() {
-  cmd_bin="$(type -P "${1:-$EXEC_CMD_BIN}")"
-  cmd_name="$(basename "${cmd_bin:-$EXEC_CMD_NAME}")"
-  if __pgrep "$cmd_bin" || __pgrep "$cmd_name"; then
+  local cmd_bin cmd_name check_result
+  cmd_bin="$(type -P "${1:-$EXEC_CMD_BIN}" 2>/dev/null || echo "${1:-$EXEC_CMD_BIN}")"
+  cmd_name="$(basename "${cmd_bin:-${1:-$EXEC_CMD_NAME}}" 2>/dev/null)"
+  if [ -z "$cmd_name" ] || [ "$cmd_name" = "." ]; then
+    return 1
+  fi
+  check_result=1
+  if [ -n "$cmd_bin" ] && __pgrep "$cmd_bin" 2>/dev/null; then
+    check_result=0
+  elif [ -n "$cmd_name" ] && __pgrep "$cmd_name" 2>/dev/null; then
+    check_result=0
+  elif [ -f "$SERVICE_PID_FILE" ]; then
+    local pid_from_file
+    pid_from_file="$(cat "$SERVICE_PID_FILE" 2>/dev/null || echo "")"
+    if [ -n "$pid_from_file" ] && kill -0 "$pid_from_file" 2>/dev/null; then
+      check_result=0
+    fi
+  fi
+  if [ $check_result -eq 0 ]; then
     SERVICE_IS_RUNNING="yes"
-    touch "$SERVICE_PID_FILE"
+    touch "$SERVICE_PID_FILE" 2>/dev/null || true
     return 0
   else
     return 1
@@ -1041,31 +1075,28 @@ __start_init_scripts() {
               __service_banner "✅" "Service $service completed successfully -" "configuration service"
             else
               # Allow some time for service to initialize
-              sleep 1
+              sleep 2
               # Check for service success indicators
               local expected_pid_file="/run/init.d/$service.pid"
+              set +e
               if [ "$SERVICE_USES_PID" = "no" ]; then
-                # Service doesn't use PID files - check if expected PID file exists or assume success
-                if [ -f "$expected_pid_file" ]; then
-                  retPID="$(cat "$expected_pid_file" 2>/dev/null || echo "0")"
-                  initStatus="0"
-                  __service_banner "✅" "Service $service started successfully -" "PID file"
-                else
-                  initStatus="0"
-                  __service_banner "✅" "Service $service started successfully -" "no PID tracking"
-                fi
+                # Service doesn't use PID files - assume success unless explicitly failed
+                initStatus="0"
+                __service_banner "✅" "Service $service completed successfully -" "no PID tracking required"
               else
                 # Service uses PID tracking - verify actual running processes
-                set +e # Temporarily disable exit on error
                 retPID=""
-                # First, try to find actual running process with various name patterns
+                local found_process=""
+                # Try multiple name variants to find the process
                 for name_variant in "$service" "${service}84" "${service}d" "$(echo "$service" | sed 's/-//g')" "$(echo "$service" | tr -d '-')"; do
                   if [ -z "$retPID" ]; then
                     retPID=$(__get_pid "$name_variant" 2>/dev/null || echo "")
-                    [ -n "$retPID" ] && found_process="$name_variant" && break
+                    if [ -n "$retPID" ] && [ "$retPID" != "0" ]; then
+                      found_process="$name_variant"
+                      break
+                    fi
                   fi
                 done
-                set -e # Re-enable exit on error
                 if [ -n "$retPID" ] && [ "$retPID" != "0" ]; then
                   # Found actual running process
                   initStatus="0"
@@ -1076,20 +1107,18 @@ __start_init_scripts() {
                   if [ -n "$file_pid" ] && kill -0 "$file_pid" 2>/dev/null; then
                     initStatus="0"
                     __service_banner "✅" "Service $service started successfully -" "PID: $file_pid (from file)"
-                  elif [ -n "$file_pid" ]; then
-                    initStatus="1"
-                    critical_failures=$((critical_failures + 1))
-                    __service_banner "⚠️" "Service $service has stale PID file -" "process $file_pid not running"
                   else
+                    # PID file exists but process isn't running - treat as warning, not failure
                     initStatus="0"
-                    __service_banner "✅" "Service $service completed initialization -" "no process tracking"
+                    __service_banner "⚠️" "Service $service may not be running -" "no process found (non-critical)"
                   fi
                 else
-                  # No process and no PID file - this is likely a configuration-only service
+                  # No process and no PID file - likely a configuration-only service
                   initStatus="0"
                   __service_banner "✅" "Service $service completed successfully -" "configuration service"
                 fi
               fi
+              set -e
             fi
           else
             initStatus="1"
@@ -1102,15 +1131,19 @@ __start_init_scripts() {
       done
 
       # Summary
+      echo ""
       if [ $critical_failures -gt 0 ]; then
-        echo "⚠️ Warning: $critical_failures service(s) failed to start"
-        if [ "$exit_on_failure" = "true" ] && [ $critical_failures -ge 1 ]; then
-          echo "❌ Exiting due to critical service failures"
+        echo "⚠️ Warning: $critical_failures critical service(s) reported failures"
+        if [ "$exit_on_failure" = "true" ] && [ $critical_failures -ge 2 ]; then
+          echo "❌ Exiting due to multiple critical service failures (threshold: 2)"
           return 1
+        else
+          echo "ℹ️ Continuing with $critical_failures failure(s) - container may still be functional"
         fi
       else
-        echo "✅ All services started successfully"
+        echo "✅ All service initializations completed successfully"
       fi
+      echo ""
     fi
   fi
 

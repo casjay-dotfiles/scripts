@@ -642,8 +642,8 @@ __create_service_user() {
   [ -d "$(dirname "$log_file")" ] || mkdir -p "$(dirname "$log_file")" 2>/dev/null
   # Validate that we have at least a user or group to create
   if [ -z "$create_user" ] && [ -z "$create_group" ]; then
-    echo "Error: No user or group specified to create" >&2
-    return 1
+    echo "No user or group specified to create" >&2
+    return 0
   fi
   # Validate user/group name format (alphanumeric, underscore, hyphen; must start with letter or underscore)
   if [ -n "$create_user" ] && ! echo "$create_user" | grep -qE '^[a-z_][a-z0-9_-]*$'; then

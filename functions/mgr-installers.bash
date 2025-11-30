@@ -228,7 +228,7 @@ printf_newline() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 printf_normal() { printf_color "$1\n" "$2"; }
 printf_green() { printf_color "$1\n" 2; }
-printf_red() { printf_color "$1\n" 1; }
+printf_red() { printf_color "$1\n" 208; }
 printf_purple() { printf_color "$1\n" 5; }
 printf_yellow() { printf_color "$1\n" 3; }
 printf_blue() { printf_color "$1\n" 33; }

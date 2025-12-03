@@ -26,23 +26,26 @@ set -e
 trap '__trap_err_handler' ERR
 trap 'retVal=$?;if [ "$SERVICE_IS_RUNNING" != "yes" ] && [ -f "$SERVICE_PID_FILE" ]; then rm -Rf "$SERVICE_PID_FILE"; fi;exit $retVal' SIGINT SIGTERM SIGPWR
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# ERR trap handler - only fail on critical errors
+# ERR trap handler - smart about critical vs non-critical errors
 __trap_err_handler() {
   local retVal=$?
-  local line_number=$LINENO
   local command="$BASH_COMMAND"
-  if [ $retVal -gt 0 ] && [ $retVal -ne 130 ] && [ $retVal -ne 141 ]; then
-    if [[ "$command" =~ (mkdir|touch|chmod|chown|ln|cp|mv|rm|echo|printf|cat|tee|sed|awk|grep) ]]; then
-      echo "⚠️ Non-critical command failed (continuing): $command" >&2
-      return 0
-    else
-      echo "❌ Fatal error occurred: Exit code $retVal at line $line_number in command: $command" >&2
-      if [ "$SERVICE_IS_RUNNING" != "yes" ]; then
-        kill -TERM 1 2>/dev/null || true
-      fi
-    fi
+  # Ignore SIGPIPE and user interrupts
+  [ $retVal -eq 130 ] || [ $retVal -eq 141 ] && return $retVal
+  # Non-critical: file operations, text processing, user/group operations
+  if [[ "$command" =~ (mkdir|touch|chmod|chown|chgrp|ln|cp|mv|rm|echo|printf|cat|tee|sed|awk|grep|find|sort|uniq|adduser|addgroup|usermod|groupmod|id|getent) ]]; then
+    return 0
   fi
-  return $retVal
+  # Non-critical: conditional checks that might fail
+  if [[ "$command" =~ (test|\[|\[\[|kill -0|pgrep|pidof|ps) ]]; then
+    return 0
+  fi
+  # Critical error - but only fail if service hasn't started yet
+  if [ "$SERVICE_IS_RUNNING" != "yes" ]; then
+    echo "❌ Critical error (exit $retVal): $command" >&2
+    kill -TERM 1 2>/dev/null || exit $retVal
+  fi
+  return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 SCRIPT_FILE="$0"

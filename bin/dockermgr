@@ -1319,66 +1319,82 @@ __init() {
     printf_exit 1 1 "This script requires root privileges"
   fi
 
-  # Check if Docker is already installed and we're not forcing reinstall
-  if [ "$DOCKERMGR_FORCE_INSTALL" != "true" ] && __cmd_exists docker; then
-    printf_cyan "Docker is already installed. Use --force to reinstall"
-    return 0
+  # Check if Docker is installed, if not ask to install
+  if ! __cmd_exists docker; then
+    printf_newline
+    ask_yes_no_question --off "Docker is not installed: would you like to install it?" "echo 'Installing Docker...'" || return 1
+    printf_green "Installing docker and setting up systemd"
+    printf_green "This will take a few minutes"
+  else
+    printf_cyan "Docker is already installed, continuing with configuration"
   fi
 
-  # Ask user if they want to install Docker
-  printf_newline
-  __cmd_exists docker || ask_yes_no_question --off "Docker is not installed: would you like to install it?" "echo 'Installing Docker...'" || return 1
-  printf_green "Installing docker and setting up systemd"
-  printf_green "This will take a few minutes"
-  if __cmd_exists pacman; then
-    sudo -HE pacman -Syy --noconfirm docker docker-buildx docker-compose &>/dev/null
-  elif __cmd_exists apt-get; then
-    local distro="$(__detect_distro)"
-    printf_cyan "Installing Docker for $distro using package manager"
-    __add_docker_repo "$distro" || return 1
-    sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin 2>&1 | sudo tee "$DOCKERMGR_LOG_DIR/docker-install.log" >/dev/null
-    sudo systemctl enable docker.service --now &>/dev/null
-  elif __cmd_exists dnf || __cmd_exists yum; then
-    local distro="$(__detect_distro)"
-    local __dnf_yum="$(type -P dnf || type -P yum || false)"
-    printf_cyan "Installing Docker for $distro using package manager"
-    __add_docker_repo "$distro" || return 1
-    sudo $__dnf_yum remove -y -q podman buildah &>/dev/null || true
-    sudo $__dnf_yum install -y -q docker-ce docker-ce-cli containerd.io docker-compose-plugin 2>&1 | sudo tee "$DOCKERMGR_LOG_DIR/docker-install.log" >/dev/null
-    sudo systemctl enable docker.service --now &>/dev/null
-  elif __cmd_exists apk; then
-    printf_cyan "Installing Docker for Alpine using package manager"
-    sudo apk update &>/dev/null
-    sudo apk add docker docker-cli-compose docker-cli-buildx 2>&1 | sudo tee "$DOCKERMGR_LOG_DIR/docker-install.log" >/dev/null
-    sudo rc-update add docker default &>/dev/null
-    sudo service docker start &>/dev/null
-  else
-    printf_red "Unsupported distribution for automatic Docker installation"
-    printf_yellow "Please install Docker manually:"
-    printf_cyan "https://docs.docker.com/engine/install/"
-    return 1
-  fi
-  if __cmd_exists docker; then
-    printf_green "Docker has been installed."
-    if ! grep -qs '^docker' /etc/group; then
-      sudo groupadd --system --force docker
+  # Install Docker if not present or if forcing reinstall
+  if [ "$DOCKERMGR_FORCE_INSTALL" = "true" ] || ! __cmd_exists docker; then
+    printf_green "Installing docker packages"
+    if __cmd_exists pacman; then
+      sudo -HE pacman -Syy --noconfirm docker docker-buildx docker-compose &>/dev/null
+    elif __cmd_exists apt-get; then
+      local distro="$(__detect_distro)"
+      printf_cyan "Installing Docker for $distro using package manager"
+      __add_docker_repo "$distro" || return 1
+      sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin 2>&1 | sudo tee "$DOCKERMGR_LOG_DIR/docker-install.log" >/dev/null
+      sudo systemctl enable docker.service --now &>/dev/null
+    elif __cmd_exists dnf || __cmd_exists yum; then
+      local distro="$(__detect_distro)"
+      local __dnf_yum="$(type -P dnf || type -P yum || false)"
+      printf_cyan "Installing Docker for $distro using package manager"
+      __add_docker_repo "$distro" || return 1
+      sudo $__dnf_yum remove -y -q podman buildah &>/dev/null || true
+      sudo $__dnf_yum install -y -q docker-ce docker-ce-cli containerd.io docker-compose-plugin 2>&1 | sudo tee "$DOCKERMGR_LOG_DIR/docker-install.log" >/dev/null
+      sudo systemctl enable docker.service --now &>/dev/null
+    elif __cmd_exists apk; then
+      printf_cyan "Installing Docker for Alpine using package manager"
+      sudo apk update &>/dev/null
+      sudo apk add docker docker-cli-compose docker-cli-buildx 2>&1 | sudo tee "$DOCKERMGR_LOG_DIR/docker-install.log" >/dev/null
+      sudo rc-update add docker default &>/dev/null
+      sudo service docker start &>/dev/null
+    else
+      printf_red "Unsupported distribution for automatic Docker installation"
+      printf_yellow "Please install Docker manually:"
+      printf_cyan "https://docs.docker.com/engine/install/"
+      return 1
     fi
-  else
-    printf_exit "Installation has failed: could not install docker"
+    if __cmd_exists docker; then
+      printf_green "Docker has been installed."
+    else
+      printf_exit "Installation has failed: could not install docker"
+    fi
+  fi
+
+  # Ensure docker group exists
+  if ! grep -qs '^docker' /etc/group; then
+    printf_cyan "Creating docker group"
+    sudo groupadd --system --force docker
   fi
   printf_green "Continuing with configuration"
   mkdir -p "$HOME/.docker"
+
+  # Add user to docker group if not already a member
   if grep -q docker /etc/group; then
-    printf_cyan "Adding $USER to the docker group"
-    sudo -HE usermod -aG docker "$USER" &>/dev/null
+    if ! groups "$USER" | grep -q docker; then
+      printf_cyan "Adding $USER to the docker group"
+      sudo -HE usermod -aG docker "$USER" &>/dev/null
+      [ -n "$(builtin type -P gpasswd 2>/dev/null)" ] && sudo -HE gpasswd -a "${USER}" docker &>/dev/null
+    else
+      printf_cyan "User $USER already in docker group"
+    fi
     sudo -HE chown -R "$USER":"$USER" "$HOME/.docker" &>/dev/null
     sudo -HE chmod -R g+rwx "$HOME/.docker" &>/dev/null
-    [ -n "$(builtin type -P gpasswd 2>/dev/null)" ] && sudo -HE gpasswd -a "${USER}" docker &>/dev/null
   fi
 
+  # Update systemd docker service if not already configured
   if [ ! -f "/etc/systemd/system/docker.service.d/docker.conf" ]; then
     __update_systemd_docker_service
+  else
+    printf_cyan "Docker systemd service already configured"
   fi
+
   if __docker_service; then
     printf_green "docker installation has completed"
     __create_docker_cron

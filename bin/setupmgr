@@ -805,6 +805,60 @@ __require_gpu() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+__detect_desktop() {
+  local has_desktop="false"
+  local desktop_type=""
+  local desktop_info=""
+  if [ -n "$DISPLAY" ] || [ -n "$WAYLAND_DISPLAY" ]; then
+    has_desktop="true"
+    if [ -n "$WAYLAND_DISPLAY" ]; then
+      desktop_type="wayland"
+      desktop_info="Wayland display: $WAYLAND_DISPLAY"
+    elif [ -n "$DISPLAY" ]; then
+      desktop_type="x11"
+      desktop_info="X11 display: $DISPLAY"
+    fi
+  elif [ -n "$XDG_SESSION_TYPE" ]; then
+    if [ "$XDG_SESSION_TYPE" = "wayland" ] || [ "$XDG_SESSION_TYPE" = "x11" ]; then
+      has_desktop="true"
+      desktop_type="$XDG_SESSION_TYPE"
+      desktop_info="Session type: $XDG_SESSION_TYPE"
+    fi
+  elif __cmd_exists loginctl; then
+    if loginctl show-session "$(loginctl | grep "$USER" | awk '{print $1}' | head -1)" 2>/dev/null | grep -q "Type=wayland\|Type=x11"; then
+      has_desktop="true"
+      desktop_type="$(loginctl show-session "$(loginctl | grep "$USER" | awk '{print $1}' | head -1)" 2>/dev/null | grep "Type=" | cut -d= -f2)"
+      desktop_info="Session type: $desktop_type"
+    fi
+  fi
+  if [ "$has_desktop" = "true" ]; then
+    printf '%s|%s|%s' "$has_desktop" "$desktop_type" "$desktop_info"
+    return 0
+  else
+    printf 'false||'
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__require_desktop() {
+  local tool_name="$1"
+  local desktop_result=""
+  desktop_result="$(__detect_desktop)"
+  local has_desktop="$(echo "$desktop_result" | cut -d'|' -f1)"
+  local desktop_type="$(echo "$desktop_result" | cut -d'|' -f2)"
+  local desktop_info="$(echo "$desktop_result" | cut -d'|' -f3)"
+  if [ "$has_desktop" = "false" ]; then
+    printf_red "Error: $tool_name requires a desktop environment (X11/Wayland)"
+    printf_yellow "This tool requires a graphical display to run"
+    printf_yellow "Desktop environments supported: X11, Wayland"
+    printf_yellow "Skipping installation on headless system"
+    return 1
+  else
+    printf_cyan "Detected desktop: $desktop_type - $desktop_info"
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __configure_tool() {
   local tool_name="$1"
   shift 1
@@ -8235,6 +8289,388 @@ __setup_grype() {
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_antigravity() {
+  local exitCode=0
+  local name="antigravity"
+  local arch="$(uname -m)"
+  local install_dir="$HOME/.local/share/antigravity"
+  local bin_dir="$SETUPMGR_DEFAULT_BIN_DIR"
+  local desktop_file="$HOME/.local/share/applications/antigravity.desktop"
+  local version=""
+  local installed_version=""
+  if ! __require_desktop "$name"; then
+    printf_yellow "Skipping $name installation on headless system"
+    return 1
+  fi
+  [ -d "$install_dir" ] || mkdir -p "$install_dir"
+  [ -d "$HOME/.local/share/applications" ] || mkdir -p "$HOME/.local/share/applications"
+  if __cmd_exists antigravity; then
+    installed_version="$(__get_installed_version "$name")"
+    if [ -n "$installed_version" ]; then
+      printf_cyan "$name is already installed ($installed_version)"
+      return 0
+    fi
+  fi
+  printf_green "Installing Google Antigravity IDE..."
+  printf_cyan "This is a GUI IDE application (150-200MB download)"
+  local download_url=""
+  local file_ext=""
+  local os_type="$(uname -s)"
+  case $arch in
+  x86_64)
+    if [ "$os_type" = "Darwin" ]; then
+      download_url="https://antigravity.google/download/mac/x64/latest"
+      file_ext="dmg"
+    else
+      if __cmd_exists apt; then
+        download_url="https://antigravity.google/download/linux/x64/deb/latest"
+        file_ext="deb"
+      else
+        download_url="https://antigravity.google/download/linux/x64/tar/latest"
+        file_ext="tar.gz"
+      fi
+    fi
+    ;;
+  aarch64 | arm64)
+    if [ "$os_type" = "Darwin" ]; then
+      download_url="https://antigravity.google/download/mac/arm64/latest"
+      file_ext="dmg"
+    else
+      if __cmd_exists apt; then
+        download_url="https://antigravity.google/download/linux/arm64/deb/latest"
+        file_ext="deb"
+      else
+        download_url="https://antigravity.google/download/linux/arm64/tar/latest"
+        file_ext="tar.gz"
+      fi
+    fi
+    ;;
+  *)
+    printf_red "Unsupported architecture: $arch"
+    return 1
+    ;;
+  esac
+  if [ -z "$download_url" ]; then
+    printf_red "Failed to determine download URL for $name"
+    return 1
+  fi
+  local tmp_file="$SETUPMGR_TEMP_DIR/antigravity.$file_ext"
+  [ -d "$SETUPMGR_TEMP_DIR" ] || mkdir -p "$SETUPMGR_TEMP_DIR"
+  printf_cyan "Downloading from: $download_url"
+  if [ "$os_type" = "Darwin" ]; then
+    printf_yellow "macOS installation requires manual steps:"
+    printf_cyan "  1. Downloading to $tmp_file"
+    if curl -fsSL "$download_url" -o "$tmp_file" 2>/dev/null; then
+      printf_green "Download complete"
+      printf_cyan "  2. Please open: $tmp_file"
+      printf_cyan "  3. Drag Antigravity to Applications folder"
+      printf_cyan "  4. Launch from Applications"
+      open "$tmp_file" 2>/dev/null || printf_yellow "Please manually open: $tmp_file"
+      exitCode=0
+    else
+      printf_red "Download failed"
+      exitCode=1
+    fi
+  elif [ "$file_ext" = "deb" ]; then
+    printf_cyan "Installing via apt package manager..."
+    if curl -fsSL "$download_url" -o "$tmp_file" 2>/dev/null; then
+      printf_green "Download complete"
+      if __sudoif; then
+        printf_cyan "Installing .deb package..."
+        if __sudo apt install -y "$tmp_file" 2>/dev/null; then
+          printf_green "Antigravity installed successfully"
+          version="$(antigravity --version 2>/dev/null | head -1 | awk '{print $NF}')"
+          [ -n "$version" ] && __save_version "$name" "$version"
+          rm -f "$tmp_file" 2>/dev/null
+          exitCode=0
+        else
+          printf_red "Failed to install .deb package"
+          printf_yellow "Try manually: sudo apt install $tmp_file"
+          exitCode=1
+        fi
+      else
+        printf_yellow "sudo not available, manual installation required:"
+        printf_cyan "  sudo apt install $tmp_file"
+        exitCode=1
+      fi
+    else
+      printf_red "Download failed"
+      exitCode=1
+    fi
+  else
+    printf_cyan "Installing from tarball..."
+    if curl -fsSL "$download_url" -o "$tmp_file" 2>/dev/null; then
+      printf_green "Download complete"
+      printf_cyan "Extracting to $install_dir..."
+      if tar -xzf "$tmp_file" -C "$install_dir" --strip-components=1 2>/dev/null; then
+        printf_green "Extraction complete"
+        if [ -f "$install_dir/antigravity" ]; then
+          chmod +x "$install_dir/antigravity"
+          ln -sf "$install_dir/antigravity" "$bin_dir/antigravity" 2>/dev/null
+          cat >"$desktop_file" <<EOF
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Google Antigravity
+Comment=AI-powered IDE by Google
+Exec=$install_dir/antigravity %F
+Icon=$install_dir/icon.png
+Terminal=false
+Categories=Development;IDE;
+StartupWMClass=antigravity
+EOF
+          printf_green "Desktop entry created at $desktop_file"
+          version="$($install_dir/antigravity --version 2>/dev/null | head -1 | awk '{print $NF}')"
+          [ -n "$version" ] && __save_version "$name" "$version"
+          printf_green "Antigravity installed successfully"
+          printf_cyan "Launch via: antigravity"
+          rm -f "$tmp_file" 2>/dev/null
+          exitCode=0
+        else
+          printf_red "Binary not found after extraction"
+          exitCode=1
+        fi
+      else
+        printf_red "Extraction failed"
+        exitCode=1
+      fi
+    else
+      printf_red "Download failed"
+      printf_yellow "Manual download: $download_url"
+      exitCode=1
+    fi
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_zed() {
+  local exitCode=0
+  local name="zed"
+  local arch="$(uname -m)"
+  local install_dir="$HOME/.local/share/zed"
+  local bin_dir="$SETUPMGR_DEFAULT_BIN_DIR"
+  local desktop_file="$HOME/.local/share/applications/zed.desktop"
+  local version=""
+  local installed_version=""
+  if ! __require_desktop "$name"; then
+    printf_yellow "Skipping $name installation on headless system"
+    return 1
+  fi
+  [ -d "$install_dir" ] || mkdir -p "$install_dir"
+  [ -d "$HOME/.local/share/applications" ] || mkdir -p "$HOME/.local/share/applications"
+  if __cmd_exists zed; then
+    installed_version="$(__get_installed_version "$name")"
+    if [ -n "$installed_version" ]; then
+      printf_cyan "$name is already installed ($installed_version)"
+      return 0
+    fi
+  fi
+  printf_green "Installing Zed editor..."
+  printf_cyan "This is a GUI code editor"
+  local download_url=""
+  local os_type="$(uname -s)"
+  case $arch in
+  x86_64)
+    if [ "$os_type" = "Darwin" ]; then
+      download_url="https://zed.dev/api/releases/stable/latest/zed-macos-x86_64.dmg"
+    else
+      download_url="https://zed.dev/api/releases/stable/latest/zed-linux-x86_64.tar.gz"
+    fi
+    ;;
+  aarch64 | arm64)
+    if [ "$os_type" = "Darwin" ]; then
+      download_url="https://zed.dev/api/releases/stable/latest/zed-macos-aarch64.dmg"
+    else
+      download_url="https://zed.dev/api/releases/stable/latest/zed-linux-aarch64.tar.gz"
+    fi
+    ;;
+  *)
+    printf_red "Unsupported architecture: $arch"
+    return 1
+    ;;
+  esac
+  if [ -z "$download_url" ]; then
+    printf_red "Failed to determine download URL for $name"
+    return 1
+  fi
+  local tmp_file="$SETUPMGR_TEMP_DIR/zed.tar.gz"
+  [ -d "$SETUPMGR_TEMP_DIR" ] || mkdir -p "$SETUPMGR_TEMP_DIR"
+  printf_cyan "Downloading from: $download_url"
+  if [ "$os_type" = "Darwin" ]; then
+    tmp_file="$SETUPMGR_TEMP_DIR/zed.dmg"
+    printf_yellow "macOS installation requires manual steps:"
+    if curl -fsSL "$download_url" -o "$tmp_file" 2>/dev/null; then
+      printf_green "Download complete"
+      printf_cyan "Please open: $tmp_file"
+      open "$tmp_file" 2>/dev/null || printf_yellow "Manually open: $tmp_file"
+      exitCode=0
+    else
+      printf_red "Download failed"
+      exitCode=1
+    fi
+  else
+    if curl -fsSL "$download_url" -o "$tmp_file" 2>/dev/null; then
+      printf_green "Download complete"
+      printf_cyan "Extracting to $install_dir..."
+      if tar -xzf "$tmp_file" -C "$install_dir" --strip-components=1 2>/dev/null; then
+        printf_green "Extraction complete"
+        if [ -f "$install_dir/bin/zed" ]; then
+          chmod +x "$install_dir/bin/zed"
+          ln -sf "$install_dir/bin/zed" "$bin_dir/zed" 2>/dev/null
+          cat >"$desktop_file" <<EOF
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Zed
+Comment=High-performance code editor
+Exec=$install_dir/bin/zed %F
+Icon=$install_dir/share/icons/hicolor/512x512/apps/zed.png
+Terminal=false
+Categories=Development;TextEditor;
+StartupWMClass=zed
+EOF
+          printf_green "Desktop entry created"
+          version="$(zed --version 2>/dev/null | awk '{print $2}')"
+          [ -n "$version" ] && __save_version "$name" "$version"
+          printf_green "Zed installed successfully"
+          printf_cyan "Launch via: zed"
+          rm -f "$tmp_file" 2>/dev/null
+          exitCode=0
+        else
+          printf_red "Binary not found after extraction"
+          exitCode=1
+        fi
+      else
+        printf_red "Extraction failed"
+        exitCode=1
+      fi
+    else
+      printf_red "Download failed"
+      exitCode=1
+    fi
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__setup_lapce() {
+  local exitCode=0
+  local name="lapce"
+  local arch="$(uname -m)"
+  local install_dir="$HOME/.local/share/lapce"
+  local bin_dir="$SETUPMGR_DEFAULT_BIN_DIR"
+  local desktop_file="$HOME/.local/share/applications/lapce.desktop"
+  local release_url="https://api.github.com/repos/lapce/lapce/releases/latest"
+  local version=""
+  local installed_version=""
+  if ! __require_desktop "$name"; then
+    printf_yellow "Skipping $name installation on headless system"
+    return 1
+  fi
+  [ -d "$install_dir" ] || mkdir -p "$install_dir"
+  [ -d "$HOME/.local/share/applications" ] || mkdir -p "$HOME/.local/share/applications"
+  version="$(__get_release_info "$release_url" '"tag_name"')"
+  if [ -z "$version" ]; then
+    printf_red "Failed to determine latest version for $name"
+    return 1
+  fi
+  if __cmd_exists lapce; then
+    installed_version="$(__get_installed_version "$name")"
+    if [ -n "$installed_version" ]; then
+      if __compare_versions "$installed_version" "$version"; then
+        printf_green "Updating $name from $installed_version to $version"
+      else
+        printf_cyan "$name is already up to date ($installed_version)"
+        return 0
+      fi
+    fi
+  else
+    printf_green "Installing Lapce $version..."
+  fi
+  printf_cyan "This is a GUI code editor"
+  local download_url=""
+  local os_type="$(uname -s)"
+  case $arch in
+  x86_64)
+    if [ "$os_type" = "Darwin" ]; then
+      download_url="https://github.com/lapce/lapce/releases/download/${version}/Lapce-macos.dmg"
+    else
+      download_url="https://github.com/lapce/lapce/releases/download/${version}/Lapce-linux-x86_64.tar.gz"
+    fi
+    ;;
+  aarch64 | arm64)
+    if [ "$os_type" = "Darwin" ]; then
+      download_url="https://github.com/lapce/lapce/releases/download/${version}/Lapce-macos-aarch64.dmg"
+    else
+      download_url="https://github.com/lapce/lapce/releases/download/${version}/Lapce-linux-aarch64.tar.gz"
+    fi
+    ;;
+  *)
+    printf_red "Unsupported architecture: $arch"
+    return 1
+    ;;
+  esac
+  if [ -z "$download_url" ]; then
+    printf_red "Failed to determine download URL for $name"
+    return 1
+  fi
+  local tmp_file="$SETUPMGR_TEMP_DIR/lapce.tar.gz"
+  [ -d "$SETUPMGR_TEMP_DIR" ] || mkdir -p "$SETUPMGR_TEMP_DIR"
+  printf_cyan "Downloading from: $download_url"
+  if [ "$os_type" = "Darwin" ]; then
+    tmp_file="$SETUPMGR_TEMP_DIR/lapce.dmg"
+    printf_yellow "macOS installation requires manual steps:"
+    if curl -fsSL "$download_url" -o "$tmp_file" 2>/dev/null; then
+      printf_green "Download complete"
+      printf_cyan "Please open: $tmp_file"
+      open "$tmp_file" 2>/dev/null || printf_yellow "Manually open: $tmp_file"
+      exitCode=0
+    else
+      printf_red "Download failed"
+      exitCode=1
+    fi
+  else
+    if curl -fsSL "$download_url" -o "$tmp_file" 2>/dev/null; then
+      printf_green "Download complete"
+      printf_cyan "Extracting to $install_dir..."
+      if tar -xzf "$tmp_file" -C "$install_dir" 2>/dev/null; then
+        printf_green "Extraction complete"
+        if [ -f "$install_dir/lapce" ]; then
+          chmod +x "$install_dir/lapce"
+          ln -sf "$install_dir/lapce" "$bin_dir/lapce" 2>/dev/null
+          cat >"$desktop_file" <<EOF
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Lapce
+Comment=Lightning-fast code editor
+Exec=$install_dir/lapce %F
+Icon=$install_dir/lapce.png
+Terminal=false
+Categories=Development;TextEditor;
+StartupWMClass=lapce
+EOF
+          printf_green "Desktop entry created"
+          __save_version "$name" "${version#v}"
+          printf_green "Lapce $version installed successfully"
+          printf_cyan "Launch via: lapce"
+          rm -f "$tmp_file" 2>/dev/null
+          exitCode=0
+        else
+          printf_red "Binary not found after extraction"
+          exitCode=1
+        fi
+      else
+        printf_red "Extraction failed"
+        exitCode=1
+      fi
+    else
+      printf_red "Download failed"
+      exitCode=1
+    fi
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
 SETUPMGR_START_TIMER="${SETUPMGR_START_TIMER:-$(date +%s.%N)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -8287,7 +8723,7 @@ else
   SETUPMGR_DEFAULT_SHARE_DIR="${SETUPMGR_DEFAULT_USER_SHARE_DIR}"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-SETUPMGR_ALL_TOOLS="${SETUPMGR_ALL_TOOLS:-act age aichat aider ali asdf atuin bandwhich bat bob bombardier bottom broot btop buf bun caddy coder cody continue cosign ctlptl ctop curlie dasel delta deno devbox difftastic direnv dive dog dotnet dua duf dust earthly entr evans exa eza fabric fastfetch fd fnm fzf fx garage gh ghz git-cliff gitleaks gitui glow golang gohttpserver gpt grex gron grype grpcurl gvm helix helm htmlq httpie hyperfine incus jekyll jless jnv jq just k6 k9s kind kompose kubectl kubectx kubens lapce lazydocker lazygit lf lima llama_cpp llm localai lsd lua mc miller mise minio minikube mods nix nodejs nushell nvm oha ollama opentofu packer pipx plandex podman powershell procs rbenv ripgrep ruff rustup rvm sd shellcheck shfmt skaffold sops speedtest sq starship stern syft tabby task tgpt tig tilt tldr tokei traefik trufflehog trivy uv vagrant vale vegeta vfox viddy watchexec webhookd wrk xcaddy xh xsv yq zed zellij zig zoxide}"
+SETUPMGR_ALL_TOOLS="${SETUPMGR_ALL_TOOLS:-act age aichat aider ali antigravity asdf atuin bandwhich bat bob bombardier bottom broot btop buf bun caddy coder cody continue cosign ctlptl ctop curlie dasel delta deno devbox difftastic direnv dive dog dotnet dua duf dust earthly entr evans exa eza fabric fastfetch fd fnm fzf fx garage gh ghz git-cliff gitleaks gitui glow golang gohttpserver gpt grex gron grype grpcurl gvm helix helm htmlq httpie hyperfine incus jekyll jless jnv jq just k6 k9s kind kompose kubectl kubectx kubens lapce lazydocker lazygit lf lima llama_cpp llm localai lsd lua mc miller mise minio minikube mods nix nodejs nushell nvm oha ollama opentofu packer pipx plandex podman powershell procs rbenv ripgrep ruff rustup rvm sd shellcheck shfmt skaffold sops speedtest sq starship stern syft tabby task tgpt tig tilt tldr tokei traefik trufflehog trivy uv vagrant vale vegeta vfox viddy watchexec webhookd wrk xcaddy xh xsv yq zed zellij zig zoxide}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 LUA_JIT_VERSION="${LUA_JIT_VERSION:-2.0.5}"
 LUA_DEFAULT_VERSION="${LUA_DEFAULT_VERSION:-5.4.3}"

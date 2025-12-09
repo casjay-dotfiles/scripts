@@ -673,6 +673,45 @@ __is_installed() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+__compare_versions() {
+  local installed="$1"
+  local available="$2"
+  installed="${installed#v}"
+  available="${available#v}"
+  if [ "$installed" = "$available" ]; then
+    return 2
+  fi
+  local IFS=.
+  local i ver1=($installed) ver2=($available)
+  for ((i=0; i<${#ver1[@]} || i<${#ver2[@]}; i++)); do
+    local num1=${ver1[i]:-0}
+    local num2=${ver2[i]:-0}
+    num1="${num1%%[^0-9]*}"
+    num2="${num2%%[^0-9]*}"
+    if ((num1 < num2)); then
+      return 0
+    elif ((num1 > num2)); then
+      return 1
+    fi
+  done
+  return 2
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_installed_version() {
+  local name="$1"
+  local version=""
+  if __cmd_exists "$name"; then
+    version="$($name --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)"
+    if [ -z "$version" ]; then
+      version="$($name version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)"
+    fi
+    if [ -z "$version" ]; then
+      version="$($name -v 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)"
+    fi
+  fi
+  printf '%s' "$version"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # url options
 __download_and_execute() {
   local exitCode=0
@@ -5126,16 +5165,32 @@ __setup_shfmt() {
   local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
   local release_url="https://api.github.com/repos/mvdan/sh/releases/latest"
   local version=""
+  local installed_version=""
 
   [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
 
-  if __cmd_exists $name; then
-    printf_green "Updating $name"
-  else
-    printf_green "Installing $name"
+  version="$(__get_release_info "$release_url" '"tag_name"')"
+
+  if [ -z "$version" ]; then
+    printf_red "Failed to determine latest version for $name"
+    return 1
   fi
 
-  version="$(__get_release_info "$release_url" '"tag_name"')"
+  if __cmd_exists $name; then
+    installed_version="$(__get_installed_version "$name")"
+    if [ -n "$installed_version" ]; then
+      if __compare_versions "$installed_version" "$version"; then
+        printf_green "Updating $name from $installed_version to $version"
+      else
+        printf_cyan "$name is already up to date ($installed_version)"
+        return 0
+      fi
+    else
+      printf_green "Updating $name to $version"
+    fi
+  else
+    printf_green "Installing $name $version"
+  fi
 
   case $arch in
   x86_64) download_url="https://github.com/mvdan/sh/releases/download/${version}/shfmt_${version}_linux_amd64" ;;
@@ -5146,7 +5201,7 @@ __setup_shfmt() {
     ;;
   esac
 
-  if [ -z "$version" ] || [ -z "$download_url" ]; then
+  if [ -z "$download_url" ]; then
     printf_red "Failed to determine download URL for $name"
     return 1
   fi
@@ -6416,6 +6471,25 @@ while [ $# -gt 0 ]; do
     shift 1
     __setup_zoxide
     SETUPMGR_EXIT_STATUS=$?
+    ;;
+  update)
+    shift 1
+    if [ $# -eq 0 ]; then
+      printf_cyan "Updating all installed tools..."
+      for tool in act aichat aider atuin bat bob broot caddy coder ctop curlie devbox direnv dive dog dua dust earthly eza fd fzf fx gh glow gotop gum hyperfine jq k9s lazydocker lazygit lf lsd mods minio nix nodejs ollama opentofu packer plandex pipx podman powershell procs ruff rustup shellcheck shfmt speedtest starship tokei traefik uv vale vfox webhookd yq zed zellij zig zoxide; do
+        if __cmd_exists "$tool"; then
+          printf_blue "Checking $tool..."
+          "$0" "$tool" 2>&1 | grep -v "^$"
+        fi
+      done
+    else
+      while [ $# -gt 0 ]; do
+        case_arg="$1"
+        shift 1
+        "$0" "$case_arg"
+        SETUPMGR_EXIT_STATUS=$((SETUPMGR_EXIT_STATUS + $?))
+      done
+    fi
     ;;
   remove)
     shift 1

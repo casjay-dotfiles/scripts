@@ -9,8 +9,8 @@
 # @@Copyright        :  Copyright: (c) 2022 Jason Hempstead, Casjays Developments
 # @@Created          :  Friday, Aug 05, 2022 10:42 EDT
 # @@File             :  define
-# @@Description      :  Script to lookup definition of words using dict
-# @@Changelog        :  Enhanced with multiple dictionaries, etymology, caching, and similar word lookup
+# @@Description      :  Dictionary lookup using curl and Free Dictionary API
+# @@Changelog        :  Replaced dict command with curl-based API calls (dictionaryapi.dev, datamuse, etymonline)
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -93,10 +93,19 @@ __cmd_exists() {
   return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# URL encode string for safe use in URLs
+__urlencode() {
+  local string="$1"
+  printf '%s' "$string" | sed 's/ /%20/g;s/!/%21/g;s/"/%22/g;s/#/%23/g;s/\$/%24/g;s/&/%26/g;s/'\''/%27/g;s/(/%28/g;s/)/%29/g;s/\*/%2A/g;s/+/%2B/g;s/,/%2C/g;s/:/%3A/g;s/;/%3B/g;s/</%3C/g;s/=/%3D/g;s/>/%3E/g;s/?/%3F/g;s/@/%40/g;s/\[/%5B/g;s/\\/%5C/g;s/\]/%5D/g'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# curl wrapper with timeout and retry
+__curl() { curl -q -LSsf --max-time 10 --retry 2 "$@" 2>/dev/null || return 1; }
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for a valid internet connection
 __am_i_online() {
   local exitCode=0
-  curl -q -LSsfI --max-time 2 --retry 1 "${1:-https://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
+  __curl -I --max-time 2 --retry 1 "${1:-https://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
   return ${exitCode:-0}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -155,10 +164,9 @@ __gen_config() {
     cp -Rf "$DEFINE_CONFIG_DIR/$DEFINE_CONFIG_FILE" "$DEFINE_CONFIG_BACKUP_DIR/$DEFINE_CONFIG_FILE.$$"
   cat <<EOF >"$DEFINE_CONFIG_DIR/$DEFINE_CONFIG_FILE"
 # Settings for define
+DEFINE_API_URL="${DEFINE_API_URL:-}"
 DEFINE_YAD_WIDTH="${DEFINE_YAD_WIDTH:-}"
 DEFINE_YAD_HEIGHT="${DEFINE_YAD_HEIGHT:-}"
-DEFINE_SERVER_HOST="${DEFINE_SERVER_HOST:-}"
-DEFINE_SERVER_PORT="${DEFINE_SERVER_PORT:-}"
 DEFINE_PING_URL="${DEFINE_PING_URL:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
@@ -193,19 +201,19 @@ EOF
 # Help function - Align to 50
 __help() {
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_opts "define:  Script to lookup definition of words using dict - $VERSION"
+  __printf_opts "define:  Dictionary lookup using curl and Free Dictionary API - $VERSION"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_line "Usage: define [options] [command] [word]"
   __printf_line ""
   __printf_head "Commands:"
-  __printf_line "define [word]                   - Get definition from main dictionary"
-  __printf_line "define multiple [word]          - Search multiple dictionaries"
-  __printf_line "define etymology [word]         - Get word etymology/origin"
+  __printf_line "define [word]                   - Get definition from dictionary API"
+  __printf_line "define multiple [word]          - Full lookup with all parts of speech"
+  __printf_line "define etymology [word]         - Get word etymology from etymonline.com"
   __printf_line "define cached [word]            - Use cached definitions (faster)"
-  __printf_line "define similar [word]           - Find similar words"
+  __printf_line "define similar [word]           - Find similar words via datamuse API"
   __printf_line "define clear-cache              - Clear definition cache"
   __printf_line ""
-  __printf_line "--gtk                           - Opens a prompt"
+  __printf_line "--gtk                           - Opens a GUI prompt"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Other Options"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -299,52 +307,58 @@ __trap_exit() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
+__format_definition() {
+  local json="$1"
+  local word="$2"
+  # Parse JSON response and format definitions
+  printf '%s\n' "$json" | sed 's/},{/}\n{/g' | while IFS= read -r line; do
+    local part_of_speech="$(printf '%s' "$line" | grep -oE '"partOfSpeech":"[^"]*"' | head -1 | sed 's/"partOfSpeech":"//;s/"$//')"
+    local definitions="$(printf '%s' "$line" | grep -oE '"definition":"[^"]*"' | sed 's/"definition":"//g;s/"$//g')"
+    if [ -n "$definitions" ]; then
+      [ -n "$part_of_speech" ] && printf '\n%s (%s):\n' "$word" "$part_of_speech"
+      printf '%s\n' "$definitions" | head -5 | nl -w2 -s'. '
+    fi
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __lookup() {
-  dict -h ${DEFINE_SERVER_HOST} -p ${DEFINE_SERVER_PORT} -d gcide "$1" 2>/dev/null |
-    grep -v 'No definitions found' | sed '/^$/d' | sed 's#From The Collaborative International.*##g'
+  local word="$1"
+  local encoded_word="$(__urlencode "$word")"
+  local api_url="${DEFINE_API_URL:-https://api.dictionaryapi.dev/api/v2/entries/en}"
+  local result=""
+  result="$(__curl "${api_url}/${encoded_word}")"
+  if printf '%s' "$result" | grep -q '"definition"'; then
+    __format_definition "$result" "$word"
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Enhanced lookup functions
 __lookup_multiple() {
   local word="$1"
-  local databases="${2:-gcide,wn,devil,vera,jargon}"
-
-  printf_blue "📖 Looking up '$word' in multiple dictionaries..."
-
-  for db in $(echo "$databases" | tr ',' ' '); do
-    printf_cyan "🔍 Checking $db dictionary..."
-    local result="$(dict -h ${DEFINE_SERVER_HOST} -p ${DEFINE_SERVER_PORT} -d "$db" "$word" 2>/dev/null | grep -v 'No definitions found' | sed '/^$/d')"
-
-    if [ -n "$result" ]; then
-      printf_green "📚 From $db:"
-      echo "$result" | sed 's#From.*##g' | sed '/^$/d'
-      echo ""
-    fi
-  done
+  local encoded_word="$(__urlencode "$word")"
+  local api_url="${DEFINE_API_URL:-https://api.dictionaryapi.dev/api/v2/entries/en}"
+  printf_blue "📖 Looking up '$word'..."
+  local result="$(__curl "${api_url}/${encoded_word}")"
+  if printf '%s' "$result" | grep -q '"definition"'; then
+    __format_definition "$result" "$word"
+  else
+    printf_red "❌ No definitions found for '$word'"
+  fi
 }
 
 __lookup_etymology() {
   local word="$1"
-
+  local encoded_word="$(__urlencode "$word")"
   printf_blue "🏛️ Looking up etymology for '$word'..."
-
-  # Try etymology dictionary first
-  local etym_result="$(dict -h ${DEFINE_SERVER_HOST} -p ${DEFINE_SERVER_PORT} -d etymon "$word" 2>/dev/null | grep -v 'No definitions found')"
-
-  if [ -n "$etym_result" ]; then
-    echo "$etym_result" | sed 's#From.*##g' | sed '/^$/d'
-  else
-    # Fallback to online etymology if dict fails
-    if __cmd_exists curl; then
-      printf_yellow "💡 Checking online etymology..."
-      local online_etym="$(curl -s "https://www.etymonline.com/word/$word" | grep -oE '<p[^>]*>[^<]*</p>' | head -3 | sed 's/<[^>]*>//g' | sed '/^$/d')"
-
-      if [ -n "$online_etym" ]; then
-        echo "$online_etym"
-      else
-        printf_red "❌ No etymology found for '$word'"
-      fi
+  if __cmd_exists curl; then
+    local online_etym="$(__curl "https://www.etymonline.com/word/${encoded_word}" | grep -oE '<p[^>]*class="word__defination[^"]*"[^>]*>[^<]*</p>' | head -3 | sed 's/<[^>]*>//g' | sed '/^$/d')"
+    if [ -n "$online_etym" ]; then
+      printf '%s\n' "$online_etym"
+    else
+      printf_red "❌ No etymology found for '$word'"
     fi
+  else
+    printf_red "❌ curl is required for etymology lookup"
   fi
 }
 
@@ -380,14 +394,15 @@ __lookup_cached() {
 
 __lookup_similar() {
   local word="$1"
-
+  local encoded_word="$(__urlencode "$word")"
   printf_blue "🔍 Finding words similar to '$word'..."
-
-  # Use dict to find similar words
-  dict -h ${DEFINE_SERVER_HOST} -p ${DEFINE_SERVER_PORT} -m "$word" 2>/dev/null |
-    grep -v 'invalid strategy' |
-    sed '/^$/d' |
-    head -20
+  # Use datamuse API for similar words
+  local similar="$(__curl "https://api.datamuse.com/words?sp=${encoded_word}*&max=10" | grep -oE '"word":"[^"]*"' | sed 's/"word":"//g;s/"$//g')"
+  if [ -n "$similar" ]; then
+    printf '%s\n' "$similar"
+  else
+    printf_red "❌ No similar words found for '$word'"
+  fi
 }
 
 __clear_cache() {
@@ -447,8 +462,7 @@ DEFINE_NOTIFY_CLIENT_ICON="${DEFINE_NOTIFY_CLIENT_ICON:-notification-new}"
 DEFINE_NOTIFY_CLIENT_URGENCY="${DEFINE_NOTIFY_CLIENT_URGENCY:-normal}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional Variables
-DEFINE_SERVER_HOST="${DEFINE_SERVER_HOST:-dict.org}"
-DEFINE_SERVER_PORT="${DEFINE_SERVER_PORT:-2628}"
+DEFINE_API_URL="${DEFINE_API_URL:-https://api.dictionaryapi.dev/api/v2/entries/en}"
 DEFINE_PING_URL="${DEFINE_PING_URL:-8.8.8.8}"
 DEFINE_YAD_WIDTH="${DEFINE_YAD_WIDTH:-900}"
 DEFINE_YAD_HEIGHT="${DEFINE_YAD_HEIGHT:-600}"

@@ -297,6 +297,17 @@ __setsid() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if running in GUI environment
+__has_gui() {
+  if [ -n "$SSH_CONNECTION" ] || [ -n "$SSH_CLIENT" ] || [ -n "$SSH_TTY" ]; then
+    return 1
+  fi
+  if [ -n "$DISPLAY" ] || [ -n "$WAYLAND_DISPLAY" ]; then
+    return 0
+  fi
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
 if __cmd_exists rofi; then
   __dmenu() { rofi -theme ${ROFI_THEME:-purple} -dmenu -i -p "Open link with what program?" 2>/dev/null; }
@@ -520,6 +531,10 @@ export DMENUHANDLER_CWD
 
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # begin main app
+if ! __has_gui; then
+  printf_exit "ERROR: This script requires a GUI environment (X11 or Wayland)"
+fi
+
 if [ -z "$DMENUHANDLER_URL" ]; then
   if __cmd_exists rofi; then
     url="$(rofi -theme ${ROFI_THEME:-purple} -dmenu -i -p "Enter URL:" 2>/dev/null)"
@@ -544,16 +559,100 @@ if ! curl -q -LSsfI "$url" | grep -q ' 200 OK'; then
   exit 1
 fi
 
-case "$(printf "copy url\\nmpv\\nmpv (loop)\\nqueue download\\n\\nqueue youtube-dl\\nfeh\\nbrowser\\nw3m\\nmpv (float)" | __dmenu)" in
+available_options=""
+[ -n "$available_options" ] && available_options+="copy url\\n"
+__cmd_exists mpv && available_options+="mpv\\nmpv (loop)\\nmpv (float)\\n"
+__cmd_exists tsp && __cmd_exists curl && available_options+="queue download\\n"
+if __cmd_exists tsp; then
+  __cmd_exists yt-dlp && available_options+="queue yt-dlp\\n"
+  __cmd_exists youtube-dl && available_options+="queue youtube-dl\\n"
+fi
+__cmd_exists feh && available_options+="feh\\n"
+[ -n "$BROWSER" ] && available_options+="browser\\n"
+__cmd_exists w3m && available_options+="w3m\\n"
+
+if [ -z "$available_options" ]; then
+  __notifications "ERROR: No available programs to handle URL"
+  exit 1
+fi
+
+choice="$(printf "${available_options%\\n}" | __dmenu)"
+
+case "$choice" in
 "copy url") echo "$url" | clipboard ;;
-mpv) __setsid mpv -quiet "$url" 2>/dev/null & ;;
-"mpv (loop)") __setsid mpv --input-ipc-server=/tmp/mpvsoc"$(date +%s)" -quiet --loop "$url" 2>/dev/null & ;;
-"queue download") tsp curl -LO "$url" 2>/dev/null ;;
-"queue youtube-dl") tsp youtube-dl --write-metadata -ic "$url" 2>/dev/null ;;
-browser) __setsid "$BROWSER" "$url" 2>/dev/null & ;;
-feh) __setsid feh "$url" 2>/dev/null & ;;
-w3m) w3m "$url" 2>/dev/null ;;
-"mpv (float)") __setsid mpv --input-ipc-server=/tmp/mpvsoc"$(date +%s)" --geometry=+0-0 --autofit=30% --title="mpvfloat" "$url" 2>/dev/null & ;;
+mpv)
+  if __cmd_exists mpv; then
+    __setsid mpv -quiet "$url" 2>/dev/null &
+  else
+    __notifications "ERROR: mpv is not installed"
+    exitCode=1
+  fi
+  ;;
+"mpv (loop)")
+  if __cmd_exists mpv; then
+    __setsid mpv --input-ipc-server=/tmp/mpvsoc"$(date +%s)" -quiet --loop "$url" 2>/dev/null &
+  else
+    __notifications "ERROR: mpv is not installed"
+    exitCode=1
+  fi
+  ;;
+"queue download")
+  if __cmd_exists tsp && __cmd_exists curl; then
+    tsp curl -LO "$url" 2>/dev/null
+  else
+    __notifications "ERROR: tsp or curl is not installed"
+    exitCode=1
+  fi
+  ;;
+"queue yt-dlp")
+  if __cmd_exists tsp && __cmd_exists yt-dlp; then
+    tsp yt-dlp --write-metadata -ic "$url" 2>/dev/null
+  else
+    __notifications "ERROR: tsp or yt-dlp is not installed"
+    exitCode=1
+  fi
+  ;;
+"queue youtube-dl")
+  if __cmd_exists tsp && __cmd_exists youtube-dl; then
+    tsp youtube-dl --write-metadata -ic "$url" 2>/dev/null
+  else
+    __notifications "ERROR: tsp or youtube-dl is not installed"
+    exitCode=1
+  fi
+  ;;
+browser)
+  if [ -n "$BROWSER" ]; then
+    __setsid "$BROWSER" "$url" 2>/dev/null &
+  else
+    __notifications "ERROR: BROWSER variable is not set"
+    exitCode=1
+  fi
+  ;;
+feh)
+  if __cmd_exists feh; then
+    __setsid feh "$url" 2>/dev/null &
+  else
+    __notifications "ERROR: feh is not installed"
+    exitCode=1
+  fi
+  ;;
+w3m)
+  if __cmd_exists w3m; then
+    w3m "$url" 2>/dev/null
+  else
+    __notifications "ERROR: w3m is not installed"
+    exitCode=1
+  fi
+  ;;
+"mpv (float)")
+  if __cmd_exists mpv; then
+    __setsid mpv --input-ipc-server=/tmp/mpvsoc"$(date +%s)" --geometry=+0-0 --autofit=30% --title="mpvfloat" "$url" 2>/dev/null &
+  else
+    __notifications "ERROR: mpv is not installed"
+    exitCode=1
+  fi
+  ;;
+"") exitCode=0 ;;
 *) exitCode=1
 esac
 # - - - - - - - - - - - - - - - - - - - - - - - - -

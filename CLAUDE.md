@@ -812,6 +812,11 @@ SCRIPTNAME_CACHE_DIR    # Cache directory
   5. Script cleans up `.git/COMMIT_MESS` file after successful commit
 - **File format**: Plain text, first line = short message, rest = long message
 - **Automatic cleanup** - gitcommit's __gitcommit_cmd() removes message file after successful commit
+- **NO AI attribution** - NEVER include AI attribution lines in commit messages
+  - ❌ DO NOT add "Generated with Claude Code" or similar
+  - ❌ DO NOT add "Co-Authored-By: Claude" or similar
+  - ❌ NO AI/bot signatures or attribution of any kind
+  - ✅ Commit messages are from the user, not from AI
 - **Emoji requirement** - Always add appropriate emojis to user-facing content
   - **Commit messages**: `🐛 Commit message 🐛` (emoji at start and end)
   - **All user-facing content**: Documentation, messages, appropriate file content

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202409241800-git
+##@Version           :  202512091500-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -10,7 +10,7 @@
 # @@Created          :  Sunday, Aug 28, 2022 20:25 EDT
 # @@File             :  tmux-new
 # @@Description      :  Launch a new tmux session with config
-# @@Changelog        :  Major enhancement: Added session management, new dev environments, and comprehensive features
+# @@Changelog        :  Performance optimization: Removed external dependencies, optimized caching and subprocess calls
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202409241800-git"
+VERSION="202512091500-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -45,25 +45,6 @@ export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # pipes fail
 set -o pipefail
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Import functions
-CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
-SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
-SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
-SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
-  . "$PWD/$SCRIPTSFUNCTFILE"
-elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
-  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
-else
-  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
-  exit 1
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Options are: *_install
-# system user desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
-user_install && __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Send all output to /dev/null
 __devnull() {
@@ -127,6 +108,46 @@ else
   printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Color printf functions
+printf_blue() { printf_color "$1\n" 4; }
+printf_cyan() { printf_color "$1\n" 6; }
+printf_green() { printf_color "$1\n" 2; }
+printf_yellow() { printf_color "$1\n" 3; }
+printf_red() { printf_color "$1\n" 1; }
+printf_purple() { printf_color "$1\n" 5; }
+printf_newline() { printf '\n'; }
+printf_readline() { printf '%s\n' "$(cat -)"; }
+printf_exit() { printf_red "$1" && exit ${2:-1}; }
+# - - - - - - - - - - - - - - - - - - - - - - - -
+# Command and password helpers
+cmd_exists() {
+  local error_mode="" ask_mode="" exitCode=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+    --error) error_mode="true" && shift 1 ;;
+    --ask) ask_mode="true" && shift 1 ;;
+    *) break ;;
+    esac
+  done
+  for cmd in "$@"; do
+    if ! builtin command -v "$cmd" &>/dev/null; then
+      [ "$error_mode" = "true" ] && printf_red "$cmd is not installed"
+      exitCode=1
+    fi
+  done
+  return $exitCode
+}
+ask_for_password() {
+  local cmd="${1:-sudo}"
+  shift 1
+  if [ "$cmd" = "sudo" ]; then
+    sudo -vn 2>/dev/null || sudo -v
+    return $?
+  else
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional printf_ colors
 __printf_head() { printf_blue "$1"; }
 __printf_opts() { printf_purple "$1"; }
@@ -149,10 +170,9 @@ __gen_config() {
     printf_blue "Generating the config file in"
     printf_cyan "$TMUX_NEW_CONFIG_DIR/$TMUX_NEW_CONFIG_FILE"
   fi
-  [ -d "$TMUX_NEW_CONFIG_DIR" ] || mkdir -p "$TMUX_NEW_CONFIG_DIR"
-  [ -d "$TMUX_NEW_CONFIG_BACKUP_DIR" ] || mkdir -p "$TMUX_NEW_CONFIG_BACKUP_DIR"
+  mkdir -p "$TMUX_NEW_CONFIG_DIR" "$TMUX_NEW_CONFIG_BACKUP_DIR" 2>/dev/null
   [ -f "$TMUX_NEW_CONFIG_DIR/$TMUX_NEW_CONFIG_FILE" ] &&
-    cp -Rf "$TMUX_NEW_CONFIG_DIR/$TMUX_NEW_CONFIG_FILE" "$TMUX_NEW_CONFIG_BACKUP_DIR/$TMUX_NEW_CONFIG_FILE.$$"
+    cp -Rf "$TMUX_NEW_CONFIG_DIR/$TMUX_NEW_CONFIG_FILE" "$TMUX_NEW_CONFIG_BACKUP_DIR/$TMUX_NEW_CONFIG_FILE.$$" 2>/dev/null
   cat <<EOF >"$TMUX_NEW_CONFIG_DIR/$TMUX_NEW_CONFIG_FILE"
 # Settings for tmux-new
 TMUX_NEW_CONFIG_DIR="${TMUX_NEW_CONFIG_DIR:-}"
@@ -337,16 +357,17 @@ __tmux() { \tmux -L "$TMUX_NEW_SOCKET_DIR/$TMUX_NEW_SOCKET_FILE"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __init() {
   local name="$1"
+  name="${name##*/}"
   if [ -f "$TMUX_NEW_FILE_CONF/$name" ]; then
-    TMUX_NEW_NAME="$(basename -- "$name")"
+    TMUX_NEW_NAME="$name"
   elif [ -f "$TMUX_NEW_FILE_CONF/$name-$name" ]; then
-    TMUX_NEW_NAME="$(basename -- "$name-$name")"
+    TMUX_NEW_NAME="$name-$name"
   elif [ -f "$TMUX_NEW_FILE_CONF/$USER-$name" ]; then
-    TMUX_NEW_NAME="$(basename -- "$USER-$name")"
+    TMUX_NEW_NAME="$USER-$name"
   elif [ -f "$TMUX_NEW_FILE_CONF/$name-$USER" ]; then
-    TMUX_NEW_NAME="$(basename -- "$name-$USER")"
+    TMUX_NEW_NAME="$name-$USER"
   else
-    TMUX_NEW_NAME="$(basename -- "$name")"
+    TMUX_NEW_NAME="$name"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -491,41 +512,50 @@ __tmux_kill() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __cd() {
   TMUX_NEW_CWD="${1:-$TMUX_NEW_CWD}"
-  [ -d "$TMUX_NEW_CWD" ] || mkdir -p "$TMUX_NEW_CWD"
+  mkdir -p "$TMUX_NEW_CWD" 2>/dev/null
   builtin cd "$TMUX_NEW_CWD" || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __tmux_get_session_sockets() {
-  local sockets="$([ -n "$TMUX_NEW_SOCKET_DIR" ] && ls "$TMUX_NEW_SOCKET_DIR" | grep -v "default" || false)"
-  [ -n "$sockets" ] || return 1
-  for socket in $sockets; do tmux -S $TMUX_NEW_SOCKET_DIR/$socket ls 2>/dev/null | awk -F ':' '{print $1}'; done
+  [ -d "$TMUX_NEW_SOCKET_DIR" ] || return 1
+  local socket_sessions=""
+  for socket in "$TMUX_NEW_SOCKET_DIR"/*; do
+    [ -e "$socket" ] || continue
+    [ "$(basename "$socket")" = "default" ] && continue
+    socket_sessions+="$(tmux -S "$socket" ls 2>/dev/null)"$'\n'
+  done
+  [ -n "$socket_sessions" ] && printf '%s' "$socket_sessions" | awk -F ':' '{print $1}' || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __tmux_get_all_sessions() {
-  local default="$(tmux ls 2>/dev/null || false)"
-  local sockets="$(__tmux_get_session_sockets || false)"
-  [ -n "$default" ] || return 1
-  printf '%s\n%s\n' "$default" "$sockets" | awk -F ':' '{print $1}'
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-__tmux_list() {
-  local tmux_ls="$(__tmux_get_all_sessions | grep '^' || false)"
-  if [ -n "$tmux_ls" ]; then
-    printf '%s\n' "$tmux_ls"
+  local all_sessions=""
+  all_sessions="$(tmux ls 2>/dev/null || true)"
+  local socket_sessions="$(__tmux_get_session_sockets 2>/dev/null || true)"
+  if [ -n "$all_sessions" ]; then
+    printf '%s\n' "$all_sessions" | awk -F ':' '{print $1}'
+    [ -n "$socket_sessions" ] && printf '%s\n' "$socket_sessions"
+  elif [ -n "$socket_sessions" ]; then
+    printf '%s\n' "$socket_sessions"
   else
     return 1
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+__tmux_list() {
+  __tmux_get_all_sessions 2>/dev/null
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __create_tmux_conf() {
   [ -n "$1" ] && [ -n "$TMUX_NEW_NAME" ] || TMUX_NEW_NAME="${1:-${TMUX_NEW_NAME:-default}}"
-  [ -d "$TMUX_NEW_CONFIG_DIR" ] || mkdir -p "$TMUX_NEW_CONFIG_DIR"
-  if [ -f "$CASJAYSDEVDIR/templates/tmux/new.conf" ] && [ ! -f "$TMUX_NEW_CONFIG_DIR/template" ]; then
-    cp -Rf "$CASJAYSDEVDIR/templates/tmux/new.conf" "$TMUX_NEW_CONFIG_DIR/template"
-  else
-    touch "$TMUX_NEW_CONFIG_DIR/template"
+  mkdir -p "$TMUX_NEW_CONFIG_DIR" 2>/dev/null
+  if [ ! -f "$TMUX_NEW_CONFIG_DIR/template" ]; then
+    if [ -f "$CASJAYSDEVDIR/templates/tmux/new.conf" ]; then
+      cp -Rf "$CASJAYSDEVDIR/templates/tmux/new.conf" "$TMUX_NEW_CONFIG_DIR/template" 2>/dev/null
+    else
+      touch "$TMUX_NEW_CONFIG_DIR/template" 2>/dev/null
+    fi
   fi
-  [ -f "$TMUX_NEW_CONFIG_DIR/template" ] && return 0 || return 1
+  [ -f "$TMUX_NEW_CONFIG_DIR/template" ]
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __launch_tmux() {
@@ -634,21 +664,16 @@ __update_all_configs() {
 
   if [ -d "$TMUX_NEW_FILE_CONF" ]; then
     for config_file in "$TMUX_NEW_FILE_CONF"/*; do
-      if [ -f "$config_file" ]; then
-        local session_name="$(basename "$config_file")"
-        printf_blue "Updating config for session: $session_name"
-
-        cp -f "$TMUX_NEW_CONFIG_DIR/template" "$config_file"
-
-        if [ -f "$config_file" ]; then
-          sed -i 's|TMUX_NEW_CONF_FILE_MAIN|'"${TMUX_NEW_FILE_CONF}/${session_name}"'|g' "$config_file"
-          sed -i 's|TMUX_NEW_CONF_FILE_LOCAL|'"${TMUX_NEW_FILE_CONF_LOCAL}/${session_name}"'|g' "$config_file"
-          printf_green "✓ Updated: $session_name"
-          updated=$((updated + 1))
-        else
-          printf_red "✗ Failed: $session_name"
-          failed=$((failed + 1))
-        fi
+      [ -f "$config_file" ] || continue
+      local session_name="${config_file##*/}"
+      printf_blue "Updating config for session: $session_name"
+      if cp -f "$TMUX_NEW_CONFIG_DIR/template" "$config_file" 2>/dev/null; then
+        sed -i "s|TMUX_NEW_CONF_FILE_MAIN|${TMUX_NEW_FILE_CONF}/${session_name}|g; s|TMUX_NEW_CONF_FILE_LOCAL|${TMUX_NEW_FILE_CONF_LOCAL}/${session_name}|g" "$config_file"
+        printf_green "✓ Updated: $session_name"
+        updated=$((updated + 1))
+      else
+        printf_red "✗ Failed: $session_name"
+        failed=$((failed + 1))
       fi
     done
   fi
@@ -837,7 +862,7 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined variables/import external variables
-
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Application Folders
 TMUX_NEW_CONFIG_FILE="${TMUX_NEW_CONFIG_FILE:-settings.conf}"
@@ -890,15 +915,11 @@ TMUX_NEW_SOCKET_FILE="default"
 [ -f "$TMUX_NEW_CONFIG_DIR/$TMUX_NEW_CONFIG_FILE" ] && . "$TMUX_NEW_CONFIG_DIR/$TMUX_NEW_CONFIG_FILE"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ensure Directories exist
-[ -d "$TMUX_NEW_LOG_DIR" ] || mkdir -p "$TMUX_NEW_LOG_DIR" |& __devnull
-[ -d "$TMUX_NEW_TEMP_DIR" ] || mkdir -p "$TMUX_NEW_TEMP_DIR" |& __devnull
-[ -d "$TMUX_NEW_CACHE_DIR" ] || mkdir -p "$TMUX_NEW_CACHE_DIR" |& __devnull
-[ -d "$TMUX_NEW_SOCKET_DIR" ] || mkdir -p "$TMUX_NEW_SOCKET_DIR" |& __devnull
-[ -d "$RUN_OPTIONS_LOGS_BUILDX" ] || mkdir -p "$RUN_OPTIONS_LOGS_BUILDX" |& __devnull
-[ -d "$RUN_OPTIONS_DIRS_PROJECTS" ] || mkdir -p "$RUN_OPTIONS_DIRS_PROJECTS" |& __devnull
-[ -d "$RUN_OPTIONS_DIRS_DOCKER_SRC" ] || mkdir -p "$RUN_OPTIONS_DIRS_DOCKER_SRC" |& __devnull
-[ -d "$RUN_OPTIONS_DIRS_GITHUB_DOCKERMGR" ] || mkdir -p "$RUN_OPTIONS_DIRS_GITHUB_DOCKERMGR" |& __devnull
-[ -f "$RUN_OPTIONS_LOGS_BUILDX/init.log" ] || echo "$APPNAME has started: $(date)" >"$RUN_OPTIONS_LOGS_BUILDX/init.log" |& __devnull
+mkdir -p "$TMUX_NEW_LOG_DIR" "$TMUX_NEW_TEMP_DIR" "$TMUX_NEW_CACHE_DIR" \
+  "$TMUX_NEW_SOCKET_DIR" "$RUN_OPTIONS_LOGS_BUILDX" \
+  "$RUN_OPTIONS_DIRS_PROJECTS" "$RUN_OPTIONS_DIRS_DOCKER_SRC" \
+  "$RUN_OPTIONS_DIRS_GITHUB_DOCKERMGR" 2>/dev/null
+[ -f "$RUN_OPTIONS_LOGS_BUILDX/init.log" ] || echo "$APPNAME has started: $(date)" >"$RUN_OPTIONS_LOGS_BUILDX/init.log" 2>/dev/null
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 TMUX_NEW_TEMP_FILE="${TMUX_NEW_TEMP_FILE:-$(mktemp $TMUX_NEW_TEMP_DIR/XXXXXX 2>/dev/null)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1091,12 +1112,9 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 [ "$1" = "launch-tmux" ] && shift 1
 [ -L "$HOME/.tmux.conf" ] && unlink "$HOME/.tmux.conf"
-[ -d "$TMUX_CONFIG_DIR" ] || mkdir -p "$TMUX_CONFIG_DIR"
-[ -d "$TMUX_NEW_FILE_CONF" ] || mkdir -p "$TMUX_NEW_FILE_CONF"
-[ -d "$TMUX_NEW_FILE_WINDOWS" ] || mkdir -p "$TMUX_NEW_FILE_WINDOWS"
-[ -d "$TMUX_NEW_FILE_CONF_LOCAL" ] || mkdir -p "$TMUX_NEW_FILE_CONF_LOCAL"
+mkdir -p "$TMUX_CONFIG_DIR" "$TMUX_NEW_FILE_CONF" "$TMUX_NEW_FILE_WINDOWS" "$TMUX_NEW_FILE_CONF_LOCAL" 2>/dev/null
 [ -e "$HOME/.tmux.conf" ] && [ -f "$TMUX_CONFIG_DIR/tmux.conf" ] && rm -R "$HOME/.tmux.conf"
-[ -f "$TMUX_CONFIG_DIR/tmux.conf" ] || cp -Rf "$CASJAYSDEVDIR/templates/tmux/default.conf" "$TMUX_CONFIG_DIR/tmux.conf"
+[ -f "$TMUX_CONFIG_DIR/tmux.conf" ] || cp -Rf "$CASJAYSDEVDIR/templates/tmux/default.conf" "$TMUX_CONFIG_DIR/tmux.conf" 2>/dev/null
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Migrate old plugin directory to new global location
 if [ -d "$HOME/.local/share/tmux/plugins/tmux-new" ]; then

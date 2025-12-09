@@ -543,6 +543,46 @@ exit ${SCRIPTNAME_EXIT_STATUS:-0}
   - Update changelog with brief description of changes
   - Update other fields as appropriate to reflect script functionality
 
+### Documentation Synchronization (CRITICAL)
+
+**When modifying any script in `bin/`, you MUST update all three documentation sources:**
+
+1. **`__help()` function** - Internal help function within the script
+   - Update command descriptions, options, and examples
+   - Ensure accuracy matches actual script functionality
+   - Keep format consistent with other scripts
+
+2. **`man/{script}.1`** - Man page documentation
+   - Update SYNOPSIS, DESCRIPTION, OPTIONS sections
+   - Keep examples current with script capabilities
+   - Maintain proper man page formatting
+
+3. **`completions/_{script}_completions`** - Shell completion file
+   - Update command/option arrays to match case statements
+   - Add new subcommands and options
+   - Remove obsolete completions
+
+**Why this matters:**
+- Prevents documentation drift and user confusion
+- Ensures `--help`, `man`, and tab completion all show accurate information
+- Maintains professional quality across all user touchpoints
+- Avoids massive synchronization efforts later
+
+**When to update:**
+- ✅ Adding new commands or options
+- ✅ Removing deprecated functionality
+- ✅ Changing command behavior or syntax
+- ✅ Updating script descriptions or examples
+- ✅ ANY change that affects user-facing functionality
+
+**Workflow:**
+1. Modify script in `bin/{script}`
+2. Update `__help()` function in same file
+3. Update `man/{script}.1` man page
+4. Update `completions/_{script}_completions`
+5. Test all three: `script --help`, `man script`, tab completion
+6. Commit all four files together
+
 ### Architecture Support
 
 - **amd64** (x86_64)

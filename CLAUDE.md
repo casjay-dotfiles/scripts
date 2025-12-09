@@ -519,6 +519,69 @@ exit ${SCRIPTNAME_EXIT_STATUS:-0}
 - **Description**: Update if functionality changed
 - **Keep format/layout** consistent with template
 
+### Version Update Rules
+
+**IMPORTANT: When updating script versions, be careful with templates**
+
+Some scripts contain embedded templates (like gen-dockermgr, gen-installers, etc.) that include version placeholders. When updating versions:
+
+- **Update ONLY the first occurrence** in the header section (lines 1-30)
+  - First `##@Version` line (around line 4)
+  - First `VERSION=` variable (around line 24)
+- **DO NOT update** template versions that appear later in the script
+- **Template versions** are placeholders for generated scripts, not the generator's version
+
+**How to identify:**
+```bash
+# Check first 30 lines for the script's actual version
+head -n30 bin/scriptname
+
+# First ##@Version and VERSION= are the script's version
+# Any others are likely template placeholders
+```
+
+**Example of version locations in a template-based script:**
+```bash
+# Lines 1-30: SCRIPT'S VERSION (UPDATE THESE)
+##@Version           :  202512091523-git    # ← UPDATE THIS
+VERSION="202512091523-git"                 # ← UPDATE THIS
+
+# Lines 200+: TEMPLATE VERSION (DON'T UPDATE THESE)
+##@Version           :  {{VERSION}}         # ← Template placeholder - leave as-is
+VERSION="{{VERSION}}"                      # ← Template placeholder - leave as-is
+```
+
+**Also update man pages and completions:**
+
+When updating a script version, **ALWAYS update** the version in related files:
+
+1. **Script**: `bin/scriptname` - Update `##@Version` and `VERSION=` (first occurrences only)
+2. **Man page**: `man/scriptname.1` - Update `.TH` header line
+3. **Completion**: `completions/_scriptname_completions` - Update `##@Version` line
+
+**Safe update commands:**
+```bash
+# Get current timestamp
+NEW_VERSION=$(date +"%Y%m%d%H%M")-git
+
+# 1. Update script (first occurrences only in header)
+sed -i "0,/^##@Version.*:/{s|^##@Version.*:.*|##@Version           :  $NEW_VERSION|}" bin/scriptname
+sed -i "0,/^VERSION=/{s|^VERSION=.*|VERSION=\"$NEW_VERSION\"|}" bin/scriptname
+
+# 2. Update man page (.TH header - line 1)
+sed -i "1s|\"scriptname [^\"]*\"|\"scriptname $NEW_VERSION\"|" man/scriptname.1
+
+# 3. Update completion file (##@Version line)
+sed -i "s|^##@Version.*:.*|##@Version           :  $NEW_VERSION|" completions/_scriptname_completions
+```
+
+**Why synchronize versions:**
+- Ensures consistency across all documentation
+- Users can verify they have matching versions
+- Helps identify outdated documentation
+- Man pages reference script version in header
+- Completions should match script they complete for
+
 ## Best Practices Implemented
 
 ### Security

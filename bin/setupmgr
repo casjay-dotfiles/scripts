@@ -542,25 +542,73 @@ __git_update_repo() { (git -C "$1" reset --hard && git -C "$1" fetch origin && g
 __git_clone_repo() { git clone "$1" "$2" -q &>/dev/null || return 2; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __npm_install_global() {
-  printf_blue "Installing npm package: $1"
-  eval "$SETUPMG_NPM_SYSTEM_BIN_FILE" install "$1" -g --silent --no-progress 2>/dev/null
-  "$SETUPMG_NPM_SYSTEM_BIN_FILE" list -g --depth=0 2>/dev/null | grep "$1" | awk -F '/' '{print $2}' | sed 's|@.*||g' | grep -q '^' ||
-    "$SETUPMG_NPM_SYSTEM_BIN_FILE" list -g --depth=0 2>/dev/null | grep "$1" | sed 's|.* ||g;s|@.*||g' | grep -q '^' || return 1
+  local package="$1"
+  local npm_bin="$2"
+  local install_mode="$3"
+  local npm_prefix="$4"
+
+  if [ "$install_mode" = "global" ]; then
+    printf_blue "Installing npm package globally: $package"
+    __sudo "$npm_bin" install "$package" -g --silent --no-progress 2>/dev/null || return 1
+    __sudo "$npm_bin" list -g --depth=0 2>/dev/null | grep "$package" | awk -F '/' '{print $2}' | sed 's|@.*||g' | grep -q '^' ||
+      __sudo "$npm_bin" list -g --depth=0 2>/dev/null | grep "$package" | sed 's|.* ||g;s|@.*||g' | grep -q '^' || return 1
+  else
+    printf_blue "Installing npm package locally: $package"
+    if [ -n "$npm_prefix" ]; then
+      [ -d "$npm_prefix" ] || mkdir -p "$npm_prefix"
+      [ -d "$npm_prefix/bin" ] || mkdir -p "$npm_prefix/bin"
+      [ -d "$npm_prefix/lib" ] || mkdir -p "$npm_prefix/lib"
+      NPM_CONFIG_PREFIX="$npm_prefix" "$npm_bin" install "$package" -g --silent --no-progress 2>/dev/null || return 1
+      NPM_CONFIG_PREFIX="$npm_prefix" "$npm_bin" list -g --depth=0 2>/dev/null | grep "$package" | awk -F '/' '{print $2}' | sed 's|@.*||g' | grep -q '^' ||
+        NPM_CONFIG_PREFIX="$npm_prefix" "$npm_bin" list -g --depth=0 2>/dev/null | grep "$package" | sed 's|.* ||g;s|@.*||g' | grep -q '^' || return 1
+    else
+      "$npm_bin" install "$package" -g --silent --no-progress 2>/dev/null || return 1
+      "$npm_bin" list -g --depth=0 2>/dev/null | grep "$package" | awk -F '/' '{print $2}' | sed 's|@.*||g' | grep -q '^' ||
+        "$npm_bin" list -g --depth=0 2>/dev/null | grep "$package" | sed 's|.* ||g;s|@.*||g' | grep -q '^' || return 1
+    fi
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __execute_npm() {
   local name="$1"
-  local package=$2
-  SETUPMG_NPM_SYSTEM_BIN_FILE="${SETUPMG_NPM_SYSTEM_BIN_FILE:-$(type -P "/usr/bin/npm" || type -P "/usr/local/bin/npm")}"
-  if [ -z "$SETUPMG_NPM_SYSTEM_BIN_FILE" ]; then
+  local package="$2"
+  local install_mode=""
+  local npm_bin=""
+  local npm_prefix=""
+  local system_npm="$(type -P "/usr/bin/npm" || type -P "/usr/local/bin/npm")"
+  local user_npm="$(type -P "$HOME/.local/bin/npm")"
+
+  if [ "$SETUPMGR_USER_INSTALL" = "true" ]; then
+    install_mode="user"
+  elif __sudoif && [ -n "$system_npm" ]; then
+    install_mode="global"
+    npm_bin="$system_npm"
+  else
+    install_mode="user"
+  fi
+
+  if [ "$install_mode" = "user" ]; then
+    if [ -n "$user_npm" ]; then
+      npm_bin="$user_npm"
+    elif [ -n "$system_npm" ]; then
+      npm_bin="$system_npm"
+      npm_prefix="$HOME/.local"
+    else
+      npm_bin="$(type -p npm 2>/dev/null)"
+      npm_prefix="$HOME/.local"
+    fi
+  fi
+
+  if [ -z "$npm_bin" ]; then
     printf_red "npm is not installed"
     return 1
   fi
+
   if __cmd_exists "$name" && [ "$SETUPMGR_FORCE_INSTALL" != "true" ]; then
     printf_green "$name is already installed"
     return 0
-  elif __npm_install_global "$package"; then
-    printf_green "Installed npm package: $package"
+  elif __npm_install_global "$package" "$npm_bin" "$install_mode" "$npm_prefix"; then
+    printf_green "Installed npm package: $package ($install_mode)"
   else
     printf_red "Failed to install npm package: $package"
   fi

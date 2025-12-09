@@ -10,8 +10,8 @@
 # @@Created          :  Saturday, Sep 14, 2024 14:03 EDT
 # @@File             :  setupmgr
 # @@Description      :  Cross-platform binary/package installation manager - supports Linux, macOS, BSD, Solaris
-# @@Changelog        :  Expanded SETUPMGR_ALL_TOOLS with Priority 1 tools (34 additional tools)
-# @@TODO             :  Add Priority 2-9 tools, implement GPU detection and configuration system
+# @@Changelog        :  Added GPU detection, configuration system, and --configure flag for AI/infrastructure tools
+# @@TODO             :  Add Priority 2-9 tools (63 additional modern CLI/dev/security tools)
 # @@Other            :
 # @@Resource         :
 # @@Terminal App     :  no
@@ -743,6 +743,218 @@ __remove_saved_version() {
   if [ -f "$SETUPMGR_VERSIONS_FILE" ]; then
     sed -i "/^${name}=/d" "$SETUPMGR_VERSIONS_FILE" 2>/dev/null
   fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__detect_gpu() {
+  local has_gpu="false"
+  local gpu_type=""
+  local gpu_info=""
+  if __cmd_exists nvidia-smi; then
+    if nvidia-smi &>/dev/null; then
+      has_gpu="true"
+      gpu_type="nvidia"
+      gpu_info="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)"
+    fi
+  fi
+  if [ "$has_gpu" = "false" ] && __cmd_exists lspci; then
+    if lspci | grep -iE 'vga|3d|display' | grep -iq 'nvidia'; then
+      has_gpu="true"
+      gpu_type="nvidia"
+      gpu_info="$(lspci | grep -iE 'vga|3d|display' | grep -i 'nvidia' | head -1 | sed 's/.*: //')"
+    elif lspci | grep -iE 'vga|3d|display' | grep -iq 'amd'; then
+      has_gpu="true"
+      gpu_type="amd"
+      gpu_info="$(lspci | grep -iE 'vga|3d|display' | grep -i 'amd' | head -1 | sed 's/.*: //')"
+    elif lspci | grep -iE 'vga|3d|display' | grep -iq 'intel'; then
+      has_gpu="true"
+      gpu_type="intel"
+      gpu_info="$(lspci | grep -iE 'vga|3d|display' | grep -i 'intel' | head -1 | sed 's/.*: //')"
+    fi
+  fi
+  if [ "$has_gpu" = "false" ] && [ -d "/sys/class/drm" ]; then
+    if ls /sys/class/drm/card*/device/driver 2>/dev/null | grep -q .; then
+      has_gpu="true"
+      gpu_type="generic"
+      gpu_info="$(ls -l /sys/class/drm/card*/device/driver 2>/dev/null | head -1 | awk '{print $NF}' | xargs basename)"
+    fi
+  fi
+  if [ "$has_gpu" = "true" ]; then
+    printf '%s|%s|%s' "$has_gpu" "$gpu_type" "$gpu_info"
+    return 0
+  else
+    printf 'false||'
+    return 1
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__require_gpu() {
+  local tool_name="$1"
+  local gpu_result=""
+  gpu_result="$(__detect_gpu)"
+  local has_gpu="$(echo "$gpu_result" | cut -d'|' -f1)"
+  local gpu_type="$(echo "$gpu_result" | cut -d'|' -f2)"
+  local gpu_info="$(echo "$gpu_result" | cut -d'|' -f3)"
+  if [ "$has_gpu" = "false" ]; then
+    printf_red "Error: $tool_name requires GPU support, but no supported GPU was detected"
+    printf_yellow "This tool requires a GPU for AI/ML workloads"
+    printf_yellow "Supported GPUs: NVIDIA, AMD, Intel"
+    return 1
+  else
+    printf_cyan "Detected GPU: $gpu_type - $gpu_info"
+    return 0
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__configure_tool() {
+  local tool_name="$1"
+  shift 1
+  case "$tool_name" in
+  minikube) __configure_minikube "$@" ;;
+  garage) __configure_garage "$@" ;;
+  localai) __configure_localai "$@" ;;
+  llama_cpp) __configure_llama_cpp "$@" ;;
+  ollama) __configure_ollama "$@" ;;
+  *) printf_yellow "Configuration not available for $tool_name" && return 1 ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__configure_minikube() {
+  printf_cyan "Configuring minikube..."
+  if ! __cmd_exists minikube; then
+    printf_red "minikube is not installed"
+    return 1
+  fi
+  if ! __cmd_exists kubectl; then
+    printf_yellow "kubectl is not installed, installing..."
+    "$0" kubectl || return 1
+  fi
+  printf_green "minikube is ready"
+  printf_cyan "To start minikube cluster:"
+  printf_cyan "  minikube start"
+  printf_cyan "To enable addons:"
+  printf_cyan "  minikube addons enable dashboard"
+  printf_cyan "  minikube addons enable metrics-server"
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__configure_garage() {
+  printf_cyan "Configuring garage..."
+  if ! __cmd_exists garage; then
+    printf_red "garage is not installed"
+    return 1
+  fi
+  local config_dir="$HOME/.config/garage"
+  local data_dir="$HOME/.local/share/garage"
+  mkdir -p "$config_dir" "$data_dir" 2>/dev/null
+  if [ ! -f "$config_dir/garage.toml" ]; then
+    cat >"$config_dir/garage.toml" <<'GARAGECFG'
+metadata_dir = "$HOME/.local/share/garage/meta"
+data_dir = "$HOME/.local/share/garage/data"
+
+replication_mode = "none"
+
+rpc_bind_addr = "127.0.0.1:3901"
+rpc_public_addr = "127.0.0.1:3901"
+
+[s3_api]
+s3_region = "garage"
+api_bind_addr = "127.0.0.1:3900"
+root_domain = ".s3.garage.localhost"
+
+[s3_web]
+bind_addr = "127.0.0.1:3902"
+root_domain = ".web.garage.localhost"
+
+[admin]
+api_bind_addr = "127.0.0.1:3903"
+GARAGECFG
+    sed -i "s|\$HOME|$HOME|g" "$config_dir/garage.toml"
+    if ! grep -q "rpc_secret" "$config_dir/garage.toml"; then
+      if __cmd_exists openssl; then
+        echo "rpc_secret = \"$(openssl rand -hex 32)\"" | sed -i "/rpc_public_addr/a $(cat)" "$config_dir/garage.toml"
+      fi
+    fi
+    printf_green "Created garage config at $config_dir/garage.toml"
+  fi
+  printf_green "Garage is ready"
+  printf_cyan "To start garage:"
+  printf_cyan "  garage -c $config_dir/garage.toml server"
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__configure_localai() {
+  printf_cyan "Configuring localai..."
+  if ! __require_gpu "localai"; then
+    return 1
+  fi
+  if ! __cmd_exists localai; then
+    printf_red "localai is not installed"
+    return 1
+  fi
+  local config_dir="$HOME/.config/localai"
+  local models_dir="$HOME/.local/share/localai/models"
+  mkdir -p "$config_dir" "$models_dir" 2>/dev/null
+  printf_green "LocalAI is ready"
+  printf_cyan "To start LocalAI:"
+  printf_cyan "  localai run"
+  printf_cyan "Models directory: $models_dir"
+  printf_cyan "To download models, visit:"
+  printf_cyan "  https://localai.io/models/"
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__configure_llama_cpp() {
+  printf_cyan "Configuring llama.cpp..."
+  if ! __require_gpu "llama.cpp"; then
+    printf_yellow "Warning: llama.cpp will run in CPU mode (slower)"
+  fi
+  if ! __cmd_exists llama-server && ! __cmd_exists llama-cli; then
+    printf_red "llama.cpp is not installed"
+    return 1
+  fi
+  local models_dir="$HOME/.local/share/llama-cpp/models"
+  mkdir -p "$models_dir" 2>/dev/null
+  printf_green "llama.cpp is ready"
+  printf_cyan "Models directory: $models_dir"
+  printf_cyan "To download models from Hugging Face:"
+  printf_cyan "  Visit: https://huggingface.co/models"
+  if __cmd_exists llama-server; then
+    printf_cyan "To start llama server:"
+    printf_cyan "  llama-server -m $models_dir/model.gguf"
+  fi
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__configure_ollama() {
+  printf_cyan "Configuring ollama..."
+  if ! __cmd_exists ollama; then
+    printf_red "ollama is not installed"
+    return 1
+  fi
+  if ! __require_gpu "ollama"; then
+    printf_yellow "Warning: ollama will run in CPU mode (slower)"
+  fi
+  if __user_is_root && __cmd_exists systemctl; then
+    if ! systemctl is-active --quiet ollama 2>/dev/null; then
+      if systemctl list-unit-files 2>/dev/null | grep -q ollama.service; then
+        printf_cyan "Starting ollama service..."
+        __sudo systemctl start ollama
+        __sudo systemctl enable ollama
+        printf_green "Ollama service started"
+      fi
+    else
+      printf_green "Ollama service is already running"
+    fi
+  else
+    printf_cyan "To start ollama manually:"
+    printf_cyan "  ollama serve"
+  fi
+  printf_cyan "To download models:"
+  printf_cyan "  ollama pull llama2"
+  printf_cyan "  ollama pull codellama"
+  printf_cyan "To list models:"
+  printf_cyan "  ollama list"
+  return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # url options
@@ -5846,7 +6058,7 @@ SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 GET_OPTIONS_NO="no-tee"
 GET_OPTIONS_YES="yes-*"
-LONGOPTS="completions:,config,reset-config,debug,dir:,help,options,raw,version,silent,force,"
+LONGOPTS="completions:,config,reset-config,configure,debug,dir:,help,options,raw,version,silent,force,"
 LONGOPTS+="system,all,$GET_OPTIONS_NO,$GET_OPTIONS_YES"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="act,aichat,asdf,bat,bob,bun,caddy,coder,delta,deno,devbox,direnv,distrobox,dotnet,dust,exa,fabric,fastfetch,fd,fnm,fzf,garage,gh,glow,go,gohttpserver,"
@@ -5933,6 +6145,10 @@ while :; do
     shift 1
     __gen_config
     exit $?
+    ;;
+  --configure)
+    shift 1
+    SETUPMGR_CONFIGURE_TOOL="yes"
     ;;
   --reset-config)
     shift 1
@@ -6200,6 +6416,7 @@ while [ $# -gt 0 ]; do
     SETUPMGR_EXIT_STATUS=$?
     ;;
   garage)
+    SETUPMGR_LAST_TOOL="garage"
     shift 1
     __setup_garage
     SETUPMGR_EXIT_STATUS=$?
@@ -6305,11 +6522,13 @@ while [ $# -gt 0 ]; do
     SETUPMGR_EXIT_STATUS=$?
     ;;
   localai)
+    SETUPMGR_LAST_TOOL="localai"
     shift 1
     __setup_localai
     SETUPMGR_EXIT_STATUS=$?
     ;;
   llama-cpp | llama_cpp)
+    SETUPMGR_LAST_TOOL="llama_cpp"
     shift 1
     __setup_llama_cpp
     SETUPMGR_EXIT_STATUS=$?
@@ -6336,6 +6555,7 @@ while [ $# -gt 0 ]; do
     SETUPMGR_EXIT_STATUS=$?
     ;;
   minikube)
+    SETUPMGR_LAST_TOOL="minikube"
     shift 1
     __setup_minikube
     SETUPMGR_EXIT_STATUS=$?
@@ -6366,6 +6586,7 @@ while [ $# -gt 0 ]; do
     SETUPMGR_EXIT_STATUS=$?
     ;;
   ollama)
+    SETUPMGR_LAST_TOOL="ollama"
     shift 1
     __setup_ollama
     SETUPMGR_EXIT_STATUS=$?
@@ -6510,6 +6731,23 @@ while [ $# -gt 0 ]; do
     __setup_zoxide
     SETUPMGR_EXIT_STATUS=$?
     ;;
+  configure)
+    shift 1
+    if [ $# -eq 0 ]; then
+      printf_red "Error: configure requires a tool name"
+      printf_cyan "Usage: setupmgr configure <tool>"
+      printf_cyan "Example: setupmgr configure minikube"
+      printf_cyan "Supported tools: minikube, garage, localai, llama_cpp, ollama"
+      SETUPMGR_EXIT_STATUS=1
+    else
+      while [ $# -gt 0 ]; do
+        tool_name="$1"
+        shift 1
+        __configure_tool "$tool_name"
+        SETUPMGR_EXIT_STATUS=$((SETUPMGR_EXIT_STATUS + $?))
+      done
+    fi
+    ;;
   update)
     shift 1
     if [ $# -eq 0 ]; then
@@ -6542,6 +6780,13 @@ while [ $# -gt 0 ]; do
     ;;
   esac
 done
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Post-installation configuration
+if [ "$SETUPMGR_CONFIGURE_TOOL" = "yes" ] && [ -n "$SETUPMGR_LAST_TOOL" ] && [ "$SETUPMGR_EXIT_STATUS" -eq 0 ]; then
+  printf_newline
+  __configure_tool "$SETUPMGR_LAST_TOOL"
+  SETUPMGR_EXIT_STATUS=$?
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set exit code
 SETUPMGR_EXIT_STATUS="${SETUPMGR_EXIT_STATUS:-0}"

@@ -1,0 +1,654 @@
+.TH KILLPROC "1" "December 2025" "killproc 202208111807-git" "User Commands"
+.SH NAME
+killproc \- Process termination utility with search and kill capabilities
+.SH SYNOPSIS
+.B killproc
+[\fI\,PROCESS_NAME\fR] [\fI\,OPTIONS\fR]
+.PP
+.B killproc show
+[\fI\,PROCESS_NAME\fR]
+.SH DESCRIPTION
+.B killproc
+is a process management utility that searches for and terminates processes by name or PID. It provides a simple interface for killing processes with automatic PID lookup, multiple signal support (defaults to SIGKILL -9), process listing with filtering, and desktop notification integration for kill status feedback.
+.PP
+The script simplifies process termination by providing process name-based killing (no PID lookup needed), automatic multi-process handling (kills all matching PIDs), job control integration (kills background jobs), process filtering and listing with grep integration, and success/failure status reporting with color-coded output.
+.PP
+killproc is particularly useful for quick process termination by name, killing stuck or hung processes, bulk process termination (all matching processes), background job cleanup, and terminal process management without ps/grep/kill chains.
+.SH USAGE
+.B killproc firefox
+.PP
+Kill all firefox processes by name.
+.PP
+.B killproc show nginx
+.PP
+Show all running nginx processes.
+.PP
+.B killproc
+.PP
+Kill all background jobs in current shell.
+.SH COMMANDS
+.TP
+.BR show " " [\fI\,PROCESS_NAME\fR]
+Display running processes (all user processes or filtered by name)
+.TP
+.I PROCESS_NAME
+Kill all processes matching PROCESS_NAME (default command)
+.SH OPTIONS
+.TP
+.BR \-\-help
+Display help message with usage information
+.TP
+.BR \-\-config
+Generate or regenerate user configuration file
+.TP
+.BR \-\-version
+Show script version information and exit
+.TP
+.BR \-\-options
+Display all available command-line options
+.TP
+.BR \-\-debug
+Enable debug mode with verbose output
+.TP
+.BR \-\-raw
+Disable colorized output for plain text display
+.TP
+.BR \-\-silent
+Suppress desktop notifications
+.TP
+.BR \-\-dir " " \fI\,DIRECTORY\fR
+Set working directory
+.SH PROCESS TERMINATION
+How killproc kills processes:
+.SS Process Name Killing
+.RS
+.EX
+killproc firefox
+# Output: Killing firefox
+# Output: killed 12345
+.EE
+.IP \(bu 2
+Searches for process by name with ps -ux
+.IP \(bu 2
+Filters results with grep -wF (whole word match)
+.IP \(bu 2
+Excludes grep itself from results
+.IP \(bu 2
+Extracts PIDs with awk '{print $2}'
+.IP \(bu 2
+Kills all matching PIDs with kill -9
+.IP \(bu 2
+Waits for process to terminate
+.IP \(bu 2
+Verifies termination with pidof check
+.RE
+.SS Kill Logic
+.RS
+.EX
+__execute_killproc() {
+  local i="" p="" name=""
+  name="$1"
+  p="$(ps -ux | grep -wF "$name" | grep -v 'grep' | awk '{print $2}')"
+  if [ -n "$p" ]; then
+    printf_red "Killing $name"
+    for i in $(pidof "$p"); do
+      kill -9 "$i" | wait "$i" &>/dev/null
+    done
+  else
+    for i in $(jobs -p); do
+      printf_red "Killing $i"
+      kill -9 "$i" | wait "$i" &>/dev/null
+    done
+  fi
+  [ -z "$(pidof "$p")" ] && printf_cyan "killed $p" && true || { printf_red "failed to kill $p" && false; }
+}
+.EE
+.IP \(bu 2
+Uses SIGKILL (-9) for forced termination
+.IP \(bu 2
+Iterates all matching PIDs
+.IP \(bu 2
+Waits for each process to terminate
+.IP \(bu 2
+Falls back to background jobs if no name match
+.IP \(bu 2
+Validates termination with pidof check
+.RE
+.SS Background Job Killing
+.RS
+If no process name matches:
+.EX
+for i in $(jobs -p); do
+  kill -9 "$i" | wait "$i" &>/dev/null
+done
+.EE
+.IP \(bu 2
+Falls back to killing background jobs
+.IP \(bu 2
+Uses jobs -p to get job PIDs
+.IP \(bu 2
+Kills each job with SIGKILL (-9)
+.IP \(bu 2
+Waits for job termination
+.IP \(bu 2
+Useful for cleaning up shell background processes
+.RE
+.SH PROCESS LISTING
+How killproc shows running processes:
+.SS Show All User Processes
+.RS
+.EX
+killproc show
+# Output: Found 45 processes running for $USER
+# [Lists all user processes]
+.EE
+.IP \(bu 2
+Lists all processes for current user
+.IP \(bu 2
+Uses ps -ux for user process listing
+.IP \(bu 2
+Excludes grep and killproc show from results
+.IP \(bu 2
+Shows process count
+.IP \(bu 2
+Color-coded output with printf_readline
+.RE
+.SS Show Filtered Processes
+.RS
+.EX
+killproc show nginx
+# Output: Found 3 processes running for nginx
+# [Lists matching nginx processes]
+.EE
+.IP \(bu 2
+Filters processes by name with grep -wF
+.IP \(bu 2
+Whole word matching (nginx matches nginx, not nginx-debug)
+.IP \(bu 2
+Excludes grep and killproc show commands
+.IP \(bu 2
+Shows count of matching processes
+.IP \(bu 2
+Displays full ps output for each match
+.RE
+.SS Show Function
+.RS
+.EX
+__show_pid() {
+  local i="" p="" name=""
+  name="$1"
+  if [ -n "$name" ]; then
+    message="processes running for $name"
+    i="$(ps -ux 2>&1 | grep -wF "$name" | grep -vE "grep|$APPNAME show" | grep '^')"
+  else
+    message="processes running for $USER"
+    i="$(ps -ux 2>&1 | grep '^' | grep -vE "grep|$APPNAME show" | grep '^')"
+  fi
+  if [ -n "$i" ]; then
+    printf_cyan "Found $(echo "$i" | wc -l) $message"
+    echo "$i" | sed 's|?    ||g' | printf_readline $KILLPROC_OUTPUT_COLOR_2
+  fi
+}
+.EE
+.IP \(bu 2
+Conditional filtering based on name argument
+.IP \(bu 2
+Removes "?" marker with sed for clean output
+.IP \(bu 2
+Counts processes with wc -l
+.IP \(bu 2
+Color-coded output via printf_readline
+.RE
+.SH SIGNAL USAGE
+How killproc uses Unix signals:
+.SS SIGKILL (-9)
+.RS
+.EX
+kill -9 "$pid"
+.EE
+.IP \(bu 2
+.B SIGKILL (9):
+Immediate process termination (cannot be caught)
+.IP \(bu 2
+Forceful termination (no cleanup)
+.IP \(bu 2
+Always used (no graceful shutdown option)
+.IP \(bu 2
+Guaranteed to terminate process
+.IP \(bu 2
+No chance for process to save state
+.RE
+.SS Wait for Termination
+.RS
+.EX
+kill -9 "$pid" | wait "$pid" &>/dev/null
+.EE
+.IP \(bu 2
+Uses wait to block until process exits
+.IP \(bu 2
+Redirects output to /dev/null
+.IP \(bu 2
+Ensures process fully terminated before continuing
+.IP \(bu 2
+Prevents zombie processes
+.RE
+.SS Termination Verification
+.RS
+.EX
+[ -z "$(pidof "$p")" ]
+.EE
+.IP \(bu 2
+Checks if process still running with pidof
+.IP \(bu 2
+Empty output = process terminated
+.IP \(bu 2
+Non-empty = process still running (failure)
+.IP \(bu 2
+Determines success/failure status
+.RE
+.SH PROCESS SEARCH
+How killproc finds processes:
+.SS PS Command
+.RS
+.EX
+ps -ux | grep -wF "$name" | grep -v 'grep' | awk '{print $2}'
+.EE
+.IP \(bu 2
+.B ps -ux:
+User processes with detailed info
+.IP \(bu 2
+.B grep -wF:
+Whole word, fixed string matching
+.IP \(bu 2
+.B grep -v 'grep':
+Exclude grep itself from results
+.IP \(bu 2
+.B awk '{print $2}':
+Extract PID (second column)
+.RE
+.SS Process Filtering
+.RS
+Filtering logic:
+.IP \(bu 2
+Whole word match (-w): "nginx" matches "nginx" not "nginx-debug"
+.IP \(bu 2
+Fixed string (-F): No regex interpretation
+.IP \(bu 2
+Exclude grep: Removes grep from process list
+.IP \(bu 2
+Exclude killproc show: Removes show command from list
+.IP \(bu 2
+Only matching processes: No false positives
+.RE
+.SS PID Extraction
+.RS
+ps -ux output format:
+.EX
+USER       PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+root     12345  0.1  0.5 123456  7890 pts/0    S+   14:30   0:00 nginx
+.EE
+.IP \(bu 2
+Column 2 = PID
+.IP \(bu 2
+awk '{print $2}' extracts 12345
+.IP \(bu 2
+Handles multiple matching processes
+.IP \(bu 2
+Iterates all PIDs for killing
+.RE
+.SH EXAMPLES
+.TP
+.B killproc firefox
+Kill all firefox processes
+.TP
+.B killproc chrome
+Kill all chrome processes (multiple instances)
+.TP
+.B killproc python
+Kill all python processes (all running Python scripts)
+.TP
+.B killproc node
+Kill all Node.js processes
+.TP
+.B killproc show
+Show all processes running for current user
+.TP
+.B killproc show nginx
+Show only nginx processes
+.TP
+.B killproc show python
+List all running Python processes
+.TP
+.B killproc --silent firefox
+Kill firefox without desktop notification
+.TP
+.B killproc
+Kill all background jobs in current shell (no arguments)
+.SH FILES
+.TP
+.B ~/.config/myscripts/killproc/settings.conf
+User configuration file
+.TP
+.B ~/.local/share/myscripts/killproc/backups/
+Configuration backup directory
+.TP
+.B ~/.local/log/killproc/
+Log file directory
+.TP
+.B ~/.local/tmp/system_scripts/killproc/
+Temporary files directory (auto-cleanup)
+.TP
+.B ~/.cache/killproc/
+Cache directory
+.SH ENVIRONMENT VARIABLES
+.TP
+.B KILLPROC_NOTIFY_ENABLED
+Enable/disable desktop notifications (default: yes)
+.TP
+.B KILLPROC_SILENT
+Suppress all notifications when set to "true"
+.TP
+.B SEND_NOTIFICATION
+Runtime notification control (set to "no" to disable)
+.TP
+.B KILLPROC_NOTIFY_CLIENT_NAME
+Application name for notifications (default: killproc)
+.TP
+.B KILLPROC_NOTIFY_CLIENT_ICON
+Icon for notifications (default: notification-new)
+.TP
+.B KILLPROC_NOTIFY_CLIENT_URGENCY
+Notification urgency level (default: normal)
+.TP
+.B KILLPROC_GOOD_NAME
+Success notification title (default: Great:)
+.TP
+.B KILLPROC_ERROR_NAME
+Error notification title (default: Error:)
+.TP
+.B KILLPROC_GOOD_MESSAGE
+Success message text (default: No errors reported)
+.TP
+.B KILLPROC_ERROR_MESSAGE
+Error message text (default: Errors were reported)
+.TP
+.B KILLPROC_OUTPUT_COLOR_1
+Primary output color code (default: 33 for yellow)
+.TP
+.B KILLPROC_OUTPUT_COLOR_2
+Secondary output color code (default: 5 for magenta)
+.TP
+.B KILLPROC_OUTPUT_COLOR_GOOD
+Success message color (default: 2 for green)
+.TP
+.B KILLPROC_OUTPUT_COLOR_ERROR
+Error message color (default: 1 for red)
+.SH CONFIGURATION FILE
+The configuration file located at ~/.config/myscripts/killproc/settings.conf supports the following settings:
+.PP
+.RS 4
+.EX
+# Notification settings
+KILLPROC_NOTIFY_ENABLED="yes"
+KILLPROC_GOOD_NAME="Great:"
+KILLPROC_ERROR_NAME="Error:"
+KILLPROC_GOOD_MESSAGE="No errors reported"
+KILLPROC_ERROR_MESSAGE="Errors were reported"
+KILLPROC_NOTIFY_CLIENT_NAME="killproc"
+KILLPROC_NOTIFY_CLIENT_ICON="notification-new"
+KILLPROC_NOTIFY_CLIENT_URGENCY="normal"
+
+# Output colorization
+KILLPROC_OUTPUT_COLOR_1="33"
+KILLPROC_OUTPUT_COLOR_2="5"
+KILLPROC_OUTPUT_COLOR_GOOD="2"
+KILLPROC_OUTPUT_COLOR_ERROR="1"
+.EE
+.RE
+.SH EXIT STATUS
+.TP
+.B 0
+Success - process(es) killed successfully
+.TP
+.B 1
+Error - failed to kill process or no processes found
+.SH NOTES
+.IP \(bu 2
+Uses SIGKILL (-9) for immediate termination
+.IP \(bu 2
+No graceful shutdown (processes cannot cleanup)
+.IP \(bu 2
+Kills all matching processes (not just first match)
+.IP \(bu 2
+Falls back to background jobs if no name match
+.IP \(bu 2
+Desktop notifications via notifications command
+.IP \(bu 2
+Whole word matching prevents partial name matches
+.IP \(bu 2
+Excludes grep and killproc from process list
+.IP \(bu 2
+Verifies termination with pidof check
+.SH TIPS
+.SS Shell Aliases
+.RS
+.EX
+# Add to ~/.bashrc or ~/.zshrc
+alias kp='killproc'
+alias kps='killproc show'
+
+# Usage
+kp firefox
+kps nginx
+.EE
+.RE
+.SS Quick Process Management
+.RS
+.EX
+# Kill and verify
+killproc nginx && echo "Nginx stopped"
+
+# Show before killing
+killproc show python
+killproc python
+.EE
+.RE
+.SS Script Integration
+.RS
+.EX
+#!/bin/bash
+# Restart service
+killproc myapp
+sleep 2
+./myapp &
+.EE
+.RE
+.SS Bulk Termination
+.RS
+.EX
+# Kill multiple process types
+killproc chrome
+killproc firefox
+killproc safari
+.EE
+.RE
+.SH USE CASES
+.SS Development Workflow
+.RS
+.IP \(bu 2
+Kill stuck development servers
+.IP \(bu 2
+Terminate hung processes during debugging
+.IP \(bu 2
+Clean up background jobs after testing
+.IP \(bu 2
+Quick restart of development processes
+.RE
+.SS System Administration
+.RS
+.IP \(bu 2
+Emergency process termination
+.IP \(bu 2
+Kill unresponsive services
+.IP \(bu 2
+Cleanup after crashed applications
+.IP \(bu 2
+Bulk process termination
+.RE
+.SS Terminal Management
+.RS
+.IP \(bu 2
+Kill all instances of a process
+.IP \(bu 2
+Clean up background jobs
+.IP \(bu 2
+Quick process name-based killing
+.IP \(bu 2
+No need to lookup PIDs manually
+.RE
+.SH TROUBLESHOOTING
+.SS Process Not Killed
+.RS
+If error: "failed to kill $pid"
+.IP \(bu 2
+Check if you have permission to kill the process
+.IP \(bu 2
+Try with sudo: sudo killproc PROCESS_NAME
+.IP \(bu 2
+Verify process exists: killproc show PROCESS_NAME
+.IP \(bu 2
+Check if process is owned by another user
+.IP \(bu 2
+Ensure process name matches exactly (whole word)
+.RE
+.SS No Processes Found
+.RS
+If message: "Sorry no processes were found"
+.IP \(bu 2
+Verify process name spelling
+.IP \(bu 2
+Use killproc show to list all processes
+.IP \(bu 2
+Check if process is running: ps aux | grep PROCESS_NAME
+.IP \(bu 2
+Try partial name if whole word fails
+.IP \(bu 2
+Ensure process exists and is running
+.RE
+.SS Permission Denied
+.RS
+If cannot kill process:
+.IP \(bu 2
+Run as root: sudo killproc PROCESS_NAME
+.IP \(bu 2
+Check process owner: ps aux | grep PROCESS_NAME
+.IP \(bu 2
+Ensure you have kill permission
+.IP \(bu 2
+Check if process is system process (requires root)
+.RE
+.SS Background Jobs Not Killed
+.RS
+If jobs not terminated:
+.IP \(bu 2
+Check background jobs: jobs -l
+.IP \(bu 2
+Try without process name: killproc
+.IP \(bu 2
+Verify jobs belong to current shell
+.IP \(bu 2
+Use jobs -p to see job PIDs
+.RE
+.SH COMPARISON TO OTHER TOOLS
+.SS vs pkill
+.RS
+.IP \(bu 2
+.B killproc:
+Simple name-based killing with feedback
+.IP \(bu 2
+.B pkill:
+Pattern-based killing with signal options
+.IP \(bu 2
+killproc shows process list before killing
+.IP \(bu 2
+pkill offers more signal control (not just -9)
+.RE
+.SS vs killall
+.RS
+.IP \(bu 2
+.B killproc:
+Whole word match, excludes grep
+.IP \(bu 2
+.B killall:
+Exact command name matching
+.IP \(bu 2
+killproc has desktop notifications
+.IP \(bu 2
+killall is more standard and portable
+.RE
+.SS vs kill
+.RS
+.IP \(bu 2
+.B killproc:
+Name-based (no PID lookup needed)
+.IP \(bu 2
+.B kill:
+PID-based (requires manual PID lookup)
+.IP \(bu 2
+killproc kills all matching processes
+.IP \(bu 2
+kill is more precise (single PID)
+.RE
+.SH SECURITY NOTES
+.IP \(bu 2
+Always uses SIGKILL (-9) - no graceful shutdown
+.IP \(bu 2
+No confirmation prompt - kills immediately
+.IP \(bu 2
+Kills all matching processes (be specific with names)
+.IP \(bu 2
+May require sudo for system processes
+.IP \(bu 2
+Whole word match prevents accidental partial matches
+.IP \(bu 2
+Verifies termination to prevent zombie processes
+.SH DEPENDENCIES
+.TP
+.B Required:
+.RS
+.IP \(bu 2
+bash - Bash shell for script execution
+.IP \(bu 2
+ps - Process status command
+.IP \(bu 2
+kill - Process termination command
+.IP \(bu 2
+grep - Pattern matching for process filtering
+.IP \(bu 2
+awk - Text processing for PID extraction
+.RE
+.TP
+.B Optional:
+.RS
+.IP \(bu 2
+pidof - PID lookup verification
+.IP \(bu 2
+jobs - Background job management
+.IP \(bu 2
+notifications - Desktop notification system
+.RE
+.SH BUGS
+Report bugs at: https://github.com/casjay-dotfiles/scripts/issues
+.SH AUTHOR
+Written by Jason Hempstead (CasjaysDev)
+.SH COPYRIGHT
+Copyright \(co 2022 Jason Hempstead, Casjays Developments
+.br
+License: WTFPL (Do What The F*** You Want To Public License)
+.SH SEE ALSO
+.BR kill (1),
+.BR killall (1),
+.BR pkill (1),
+.BR ps (1),
+.BR jobs (1),
+.BR pidof (8)

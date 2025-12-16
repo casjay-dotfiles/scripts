@@ -1,0 +1,790 @@
+.TH LOGOUT-MENU "1" "December 2025" "logout-menu 202208102302-git" "User Commands"
+.SH NAME
+logout-menu \- Graphical logout and power management menu using rofi or dmenu
+.SH SYNOPSIS
+.B logout-menu
+[\fI\,OPTIONS\fR]
+.SH DESCRIPTION
+.B logout-menu
+is a graphical menu system for managing user logout, screen locking, and system power operations using rofi or dmenu as the frontend. It provides a clean, user-friendly interface for common desktop session management tasks with automatic window manager detection and confirmation dialogs for destructive operations.
+.PP
+The script simplifies desktop session management by providing a graphical rofi/dmenu-based menu interface, automatic window manager detection from XDG session files, configurable screen locker application selection, confirmation dialogs for destructive actions (logout, reboot, shutdown), graceful window manager process termination for logout, systemd integration for power management operations, desktop notification support for operation feedback, and themeable rofi interface with color customization.
+.PP
+logout-menu is particularly useful for quick access to logout/power options, custom desktop environment power menus, tiling window manager integration (i3, bspwm, etc.), keyboard shortcut bindings for power menu, and automated session management workflows.
+.SH MENU OPTIONS
+The logout-menu presents a rofi/dmenu interface with the following options:
+.TP
+.BR Cancel
+Exit the menu without performing any action. Safe option to abort the operation.
+.TP
+.BR "Lock screen"
+Lock the current desktop session using the configured screen locker application. Does not terminate any processes or close applications. Configured via LOGOUT_MENU_LOCKER_APP environment variable (default: slock).
+.TP
+.BR Logout
+Terminate the current desktop session by killing all detected window manager processes. Presents a Yes/No confirmation dialog before execution. Detects window managers from /usr/share/xsessions/*.desktop files and terminates matching processes.
+.TP
+.BR Reboot
+Restart the system immediately. Presents a Yes/No confirmation dialog before execution. Uses sudo reboot for systemd-based power management.
+.TP
+.BR Shutdown
+Power off the system immediately. Presents a Yes/No confirmation dialog before execution. Uses sudo poweroff for systemd-based power management.
+.TP
+.BR Quit
+Exit the menu without performing any action. Functionally identical to Cancel.
+.SH OPTIONS
+.TP
+.BR \-\-help
+Display help message with usage information and exit
+.TP
+.BR \-\-config
+Generate or regenerate user configuration file and exit
+.TP
+.BR \-\-version
+Show script version information and exit
+.TP
+.BR \-\-options
+Display all available command-line options and exit
+.TP
+.BR \-\-debug
+Enable debug mode with verbose output for troubleshooting
+.TP
+.BR \-\-raw
+Disable colorized output for plain text display
+.TP
+.BR \-\-silent
+Suppress desktop notifications during menu operations
+.TP
+.BR \-\-dir " " \fI\,DIRECTORY\fR
+Set working directory for menu execution
+.SH WINDOW MANAGER DETECTION
+How logout-menu automatically detects window managers:
+.SS XDG Session Files
+.RS
+logout-menu parses all .desktop files in /usr/share/xsessions/ to detect installed window managers and desktop environments:
+.EX
+# Example detection
+/usr/share/xsessions/i3.desktop → i3
+/usr/share/xsessions/bspwm.desktop → bspwm
+/usr/share/xsessions/awesome.desktop → awesome
+/usr/share/xsessions/gnome.desktop → gnome-shell
+/usr/share/xsessions/plasma.desktop → plasmashell
+.EE
+.IP \(bu 2
+Reads Name field from each .desktop file
+.IP \(bu 2
+Converts names to lowercase for process matching
+.IP \(bu 2
+Builds array of detected window managers
+.IP \(bu 2
+Uses for logout termination process
+.RE
+.SS Detection Code
+.RS
+.EX
+declare -a MANAGERS
+while IFS= read -r manager; do
+  MANAGERS+=("${manager,,}")
+done < <(grep 'Name' /usr/share/xsessions/*.desktop | awk -F"=" '{print $2}')
+.EE
+.IP \(bu 2
+Parses all .desktop files in xsessions directory
+.IP \(bu 2
+Extracts Name field value
+.IP \(bu 2
+Converts to lowercase with ${manager,,} expansion
+.IP \(bu 2
+Stores in MANAGERS array for logout operation
+.RE
+.SS Supported Window Managers
+.RS
+Common window managers detected automatically:
+.IP \(bu 2
+.B Tiling:
+i3, bspwm, awesome, dwm, xmonad, qtile
+.IP \(bu 2
+.B Stacking:
+openbox, fluxbox, icewm, jwm
+.IP \(bu 2
+.B Desktop Environments:
+gnome-shell, plasmashell, xfce4-session, cinnamon
+.IP \(bu 2
+.B Compositors:
+mutter, kwin, compton, picom
+.RE
+.SH SCREEN LOCKING
+How logout-menu handles screen locking:
+.SS Locker Configuration
+.RS
+.EX
+# Default locker
+LOGOUT_MENU_LOCKER_APP="slock"
+
+# Configuration file override
+LOGOUT_MENU_LOCKER_APP="i3lock -c 000000"
+
+# Lock screen execution
+${LOGOUT_MENU_LOCKER_APP}
+.EE
+.IP \(bu 2
+Configurable via LOGOUT_MENU_LOCKER_APP variable
+.IP \(bu 2
+Supports any screen locker application
+.IP \(bu 2
+Can include command-line arguments
+.IP \(bu 2
+Executed directly when Lock screen selected
+.RE
+.SS Supported Lockers
+.RS
+Popular screen lockers that work with logout-menu:
+.IP \(bu 2
+.B slock
+- Simple X screen locker (default)
+.IP \(bu 2
+.B i3lock
+- Improved screen locker with customization
+.IP \(bu 2
+.B xscreensaver-command
+- XScreenSaver locker (-lock option)
+.IP \(bu 2
+.B gnome-screensaver-command
+- GNOME screensaver (-l option)
+.IP \(bu 2
+.B xfce4-screensaver-command
+- XFCE screensaver (-l option)
+.IP \(bu 2
+.B light-locker-command
+- Light locker (-l option)
+.IP \(bu 2
+.B dm-tool
+- Display manager tool (lock option)
+.RE
+.SH LOGOUT OPERATION
+How logout-menu performs logout:
+.SS Logout Workflow
+.RS
+.EX
+# 1. User selects "Logout" from menu
+choice="Logout"
+
+# 2. Confirmation dialog presented
+confirm=$(echo -e "No\\nYes" | __dmenu "Logout?" "${@}")
+
+# 3. If confirmed, kill all detected window managers
+if [[ "$confirm" == "Yes" ]]; then
+  for manager in "${MANAGERS[@]}"; do
+    killall "${manager}" || echo "Process ${manager} was not running."
+  done
+fi
+.EE
+.IP \(bu 2
+Requires explicit Yes confirmation
+.IP \(bu 2
+Iterates through all detected window managers
+.IP \(bu 2
+Uses killall to terminate each process
+.IP \(bu 2
+Continues if process not running (non-fatal)
+.IP \(bu 2
+Desktop notification on completion
+.RE
+.SS Graceful Termination
+.RS
+logout-menu attempts graceful process termination:
+.IP \(bu 2
+Uses killall (SIGTERM signal by default)
+.IP \(bu 2
+Allows processes to clean up properly
+.IP \(bu 2
+Does not force kill (no SIGKILL)
+.IP \(bu 2
+Window managers can save state before exit
+.IP \(bu 2
+Applications may prompt to save unsaved work
+.RE
+.SH POWER MANAGEMENT
+How logout-menu handles system power operations:
+.SS Reboot Operation
+.RS
+.EX
+# Reboot workflow
+if [[ "$(echo -e "No\\nYes" | __dmenu "Reboot?" "${@}")" == "Yes" ]]; then
+  sudo reboot
+fi
+.EE
+.IP \(bu 2
+Requires sudo privileges for reboot command
+.IP \(bu 2
+Presents Yes/No confirmation dialog
+.IP \(bu 2
+Uses systemd reboot command
+.IP \(bu 2
+Immediate system restart (no grace period)
+.IP \(bu 2
+Desktop notification before execution
+.RE
+.SS Shutdown Operation
+.RS
+.EX
+# Shutdown workflow
+if [[ "$(echo -e "No\\nYes" | __dmenu "Shutdown?" "${@}")" == "Yes" ]]; then
+  sudo poweroff
+fi
+.EE
+.IP \(bu 2
+Requires sudo privileges for poweroff command
+.IP \(bu 2
+Presents Yes/No confirmation dialog
+.IP \(bu 2
+Uses systemd poweroff command
+.IP \(bu 2
+Immediate system shutdown (no grace period)
+.IP \(bu 2
+Desktop notification before execution
+.RE
+.SS Sudo Configuration
+.RS
+For passwordless power operations, configure sudo:
+.EX
+# /etc/sudoers.d/logout-menu
+username ALL=(ALL) NOPASSWD: /usr/bin/reboot
+username ALL=(ALL) NOPASSWD: /usr/bin/poweroff
+.EE
+.IP \(bu 2
+Replace "username" with your username
+.IP \(bu 2
+Enables passwordless reboot/shutdown
+.IP \(bu 2
+Improves user experience in graphical menu
+.IP \(bu 2
+Security consideration: grants power management privileges
+.RE
+.SH ROFI INTEGRATION
+How logout-menu integrates with rofi:
+.SS Rofi Detection
+.RS
+.EX
+if __cmd_exists rofi; then
+  __dmenu() {
+    rofi -theme ${ROFI_THEME:-purple} -dmenu -i -p "$*" || return 1
+  }
+elif __cmd_exists dmenu; then
+  __dmenu() {
+    dmenu -i -p "$*" || return 1
+  }
+else
+  false
+fi
+.EE
+.IP \(bu 2
+Prefers rofi if available
+.IP \(bu 2
+Falls back to dmenu if rofi not installed
+.IP \(bu 2
+Uses -dmenu mode for rofi (dmenu emulation)
+.IP \(bu 2
+Case-insensitive matching with -i flag
+.IP \(bu 2
+Configurable theme via ROFI_THEME variable
+.RE
+.SS Rofi Theming
+.RS
+logout-menu supports rofi themes:
+.EX
+# Default theme
+ROFI_THEME="purple"
+
+# Custom theme
+ROFI_THEME="Arc-Dark"
+
+# Theme location
+~/.config/rofi/themes/purple.rasi
+/usr/share/rofi/themes/Arc-Dark.rasi
+.EE
+.IP \(bu 2
+Configure via ROFI_THEME environment variable
+.IP \(bu 2
+Supports user and system theme directories
+.IP \(bu 2
+Default theme: purple
+.IP \(bu 2
+Customize colors, fonts, layout in .rasi files
+.RE
+.SS Dmenu Fallback
+.RS
+If rofi not available, logout-menu uses dmenu:
+.IP \(bu 2
+Basic menu interface without theming
+.IP \(bu 2
+Same functionality as rofi version
+.IP \(bu 2
+Case-insensitive matching (-i flag)
+.IP \(bu 2
+Prompt text with -p flag
+.IP \(bu 2
+Lightweight alternative for minimal systems
+.RE
+.SH EXAMPLES
+.TP
+.B logout-menu
+Launch the logout menu with default settings
+.TP
+.B logout-menu --silent
+Launch menu without desktop notifications
+.TP
+.B logout-menu --debug
+Launch menu with debug output for troubleshooting
+.TP
+.B logout-menu --config
+Generate default configuration file
+.TP
+.B ROFI_THEME=Arc-Dark logout-menu
+Launch menu with Arc-Dark rofi theme
+.TP
+.B LOGOUT_MENU_LOCKER_APP="i3lock -c 000000" logout-menu
+Launch menu with i3lock black screen locker
+.SH KEYBOARD SHORTCUTS
+Common keybinding configurations for launching logout-menu:
+.SS i3 Window Manager
+.RS
+.EX
+# ~/.config/i3/config
+bindsym $mod+Shift+e exec --no-startup-id logout-menu
+bindsym $mod+Escape exec --no-startup-id logout-menu
+.EE
+.RE
+.SS bspwm Window Manager
+.RS
+.EX
+# ~/.config/sxhkd/sxhkdrc
+super + shift + e
+    logout-menu
+
+super + Escape
+    logout-menu
+.EE
+.RE
+.SS Awesome Window Manager
+.RS
+.EX
+# ~/.config/awesome/rc.lua
+awful.key({ modkey, "Shift" }, "e", function()
+  awful.spawn("logout-menu")
+end, {description = "logout menu", group = "system"}),
+.EE
+.RE
+.SS Openbox Window Manager
+.RS
+.EX
+# ~/.config/openbox/rc.xml
+<keybind key="W-S-e">
+  <action name="Execute">
+    <command>logout-menu</command>
+  </action>
+</keybind>
+.EE
+.RE
+.SS XMonad Window Manager
+.RS
+.EX
+# ~/.xmonad/xmonad.hs
+, ((modMask .|. shiftMask, xK_e), spawn "logout-menu")
+.EE
+.RE
+.SH FILES
+.TP
+.B ~/.config/myscripts/logout-menu/settings.conf
+User configuration file for logout-menu settings
+.TP
+.B ~/.local/share/myscripts/logout-menu/backups/
+Configuration backup directory
+.TP
+.B ~/.local/log/logout-menu/
+Log file directory for menu operations
+.TP
+.B ~/.local/tmp/system_scripts/logout-menu/
+Temporary files directory
+.TP
+.B ~/.cache/logout-menu/
+Cache directory
+.TP
+.B /usr/share/xsessions/*.desktop
+XDG session files for window manager detection
+.TP
+.B ~/.config/rofi/themes/
+User rofi theme directory
+.TP
+.B /usr/share/rofi/themes/
+System rofi theme directory
+.SH ENVIRONMENT VARIABLES
+.TP
+.B LOGOUT_MENU_LOCKER_APP
+Screen locker application command (default: slock)
+.TP
+.B ROFI_THEME
+Rofi theme name (default: purple)
+.TP
+.B LOGOUT_MENU_SILENT
+Suppress desktop notifications when set to "true"
+.TP
+.B LOGOUT_MENU_CWD
+Working directory for menu execution
+.TP
+.B LOGOUT_MENU_NOTIFY_ENABLED
+Enable/disable desktop notifications (default: yes)
+.TP
+.B LOGOUT_MENU_NOTIFY_CLIENT_NAME
+Application name for notifications (default: logout-menu)
+.TP
+.B LOGOUT_MENU_NOTIFY_CLIENT_ICON
+Icon for notifications (default: system-shutdown)
+.TP
+.B LOGOUT_MENU_NOTIFY_CLIENT_URGENCY
+Notification urgency level (default: normal)
+.TP
+.B LOGOUT_MENU_GOOD_NAME
+Success notification title (default: Great:)
+.TP
+.B LOGOUT_MENU_ERROR_NAME
+Error notification title (default: Error:)
+.TP
+.B LOGOUT_MENU_GOOD_MESSAGE
+Success message text (default: No errors reported)
+.TP
+.B LOGOUT_MENU_ERROR_MESSAGE
+Error message text (default: Errors were reported)
+.TP
+.B LOGOUT_MENU_OUTPUT_COLOR_1
+Primary output color code (default: 33 for yellow)
+.TP
+.B LOGOUT_MENU_OUTPUT_COLOR_2
+Secondary output color code (default: 6 for cyan)
+.TP
+.B LOGOUT_MENU_OUTPUT_COLOR_GOOD
+Success message color (default: 2 for green)
+.TP
+.B LOGOUT_MENU_OUTPUT_COLOR_ERROR
+Error message color (default: 1 for red)
+.SH CONFIGURATION FILE
+The configuration file located at ~/.config/myscripts/logout-menu/settings.conf supports the following settings:
+.PP
+.RS 4
+.EX
+# Screen locker application
+LOGOUT_MENU_LOCKER_APP="slock"
+
+# Rofi theme
+ROFI_THEME="purple"
+
+# Notification settings
+LOGOUT_MENU_NOTIFY_ENABLED="yes"
+LOGOUT_MENU_GOOD_NAME="Great:"
+LOGOUT_MENU_ERROR_NAME="Error:"
+LOGOUT_MENU_GOOD_MESSAGE="No errors reported"
+LOGOUT_MENU_ERROR_MESSAGE="Errors were reported"
+LOGOUT_MENU_NOTIFY_CLIENT_NAME="logout-menu"
+LOGOUT_MENU_NOTIFY_CLIENT_ICON="system-shutdown"
+LOGOUT_MENU_NOTIFY_CLIENT_URGENCY="normal"
+
+# Output colorization
+LOGOUT_MENU_OUTPUT_COLOR_1="33"
+LOGOUT_MENU_OUTPUT_COLOR_2="6"
+LOGOUT_MENU_OUTPUT_COLOR_GOOD="2"
+LOGOUT_MENU_OUTPUT_COLOR_ERROR="1"
+.EE
+.RE
+.SH EXIT STATUS
+.TP
+.B 0
+Success - menu operation completed successfully
+.TP
+.B 1
+Error - menu operation failed or user cancelled
+.SH NOTES
+.IP \(bu 2
+Requires rofi or dmenu for graphical menu interface
+.IP \(bu 2
+Logout operation kills all detected window managers
+.IP \(bu 2
+Reboot/shutdown require sudo privileges
+.IP \(bu 2
+Configure sudo for passwordless power operations
+.IP \(bu 2
+Confirmation dialogs prevent accidental operations
+.IP \(bu 2
+Lock screen uses configurable locker application
+.IP \(bu 2
+Window managers detected from XDG session files
+.IP \(bu 2
+Desktop notifications for operation feedback
+.SH SECURITY CONSIDERATIONS
+.SS Sudo Configuration
+.RS
+Granting passwordless sudo for reboot/poweroff:
+.IP \(bu 2
+Improves user experience in graphical environment
+.IP \(bu 2
+Allows any local user to reboot/shutdown system
+.IP \(bu 2
+Consider security implications for multi-user systems
+.IP \(bu 2
+Alternative: Use polkit for finer-grained control
+.RE
+.SS Logout Behavior
+.RS
+Logout terminates window managers immediately:
+.IP \(bu 2
+May not save all application state
+.IP \(bu 2
+Unsaved work in applications may be lost
+.IP \(bu 2
+Applications should prompt to save on SIGTERM
+.IP \(bu 2
+Consider warning users to save work first
+.RE
+.SH TIPS
+.SS Custom Rofi Themes
+.RS
+Create custom rofi themes for logout-menu:
+.EX
+# ~/.config/rofi/themes/logout.rasi
+* {
+    background-color: #1e1e1e;
+    text-color: #ffffff;
+    selected-normal-background: #cc241d;
+    selected-normal-foreground: #ffffff;
+}
+window {
+    width: 400px;
+}
+
+# Use custom theme
+ROFI_THEME=logout logout-menu
+.EE
+.RE
+.SS Alternative Screen Lockers
+.RS
+Configure different screen lockers:
+.EX
+# i3lock with blur effect
+LOGOUT_MENU_LOCKER_APP="i3lock -i ~/wallpaper.png -e -f"
+
+# XScreenSaver
+LOGOUT_MENU_LOCKER_APP="xscreensaver-command -lock"
+
+# GNOME screensaver
+LOGOUT_MENU_LOCKER_APP="gnome-screensaver-command -l"
+
+# Light Locker
+LOGOUT_MENU_LOCKER_APP="light-locker-command -l"
+
+# Add to configuration file for persistence
+echo 'LOGOUT_MENU_LOCKER_APP="i3lock -c 000000"' >> ~/.config/myscripts/logout-menu/settings.conf
+.EE
+.RE
+.SS Desktop Environment Integration
+.RS
+Integrate logout-menu with desktop panels:
+.EX
+# Add to panel launcher
+[Desktop Entry]
+Name=Logout Menu
+Comment=System power menu
+Exec=logout-menu
+Icon=system-shutdown
+Type=Application
+Categories=System;
+
+# Polybar module
+[module/logout]
+type = custom/text
+content = 襤
+click-left = logout-menu
+
+# i3blocks blocklet
+[logout]
+command=echo "襤"
+interval=once
+.EE
+.RE
+.SS Passwordless Sudo
+.RS
+Configure passwordless sudo for power operations:
+.EX
+# Create sudoers file
+sudo visudo -f /etc/sudoers.d/logout-menu
+
+# Add these lines (replace USERNAME)
+USERNAME ALL=(ALL) NOPASSWD: /usr/bin/reboot
+USERNAME ALL=(ALL) NOPASSWD: /usr/bin/poweroff
+USERNAME ALL=(ALL) NOPASSWD: /usr/bin/systemctl reboot
+USERNAME ALL=(ALL) NOPASSWD: /usr/bin/systemctl poweroff
+
+# Set correct permissions
+sudo chmod 0440 /etc/sudoers.d/logout-menu
+.EE
+.RE
+.SH USE CASES
+.SS Tiling Window Managers
+.RS
+Perfect for tiling WM users who lack built-in logout menus:
+.IP \(bu 2
+i3, bspwm, awesome, xmonad, qtile
+.IP \(bu 2
+Bind to keyboard shortcut for quick access
+.IP \(bu 2
+Replace complex i3-nagbar configurations
+.IP \(bu 2
+Consistent menu across different WMs
+.RE
+.SS Minimal Desktop Environments
+.RS
+Add logout menu to minimal setups:
+.IP \(bu 2
+Openbox, Fluxbox, JWM, IceWM
+.IP \(bu 2
+Replace missing power management menus
+.IP \(bu 2
+Integrate with panels and launchers
+.IP \(bu 2
+Lightweight alternative to full DE features
+.RE
+.SS Custom Desktop Sessions
+.RS
+Build custom desktop sessions with logout-menu:
+.IP \(bu 2
+Custom .xinitrc or .xsession setups
+.IP \(bu 2
+Alternative to standard DE logout dialogs
+.IP \(bu 2
+Scriptable power management workflow
+.IP \(bu 2
+Integration with custom session managers
+.RE
+.SS Accessibility
+.RS
+Keyboard-driven power management:
+.IP \(bu 2
+Navigate menu with arrow keys
+.IP \(bu 2
+Select with Enter key
+.IP \(bu 2
+No mouse required
+.IP \(bu 2
+Consistent keyboard shortcuts
+.RE
+.SH TROUBLESHOOTING
+.SS Rofi/Dmenu Not Found
+.RS
+If error: "command not found"
+.IP \(bu 2
+Install rofi: pkmgr install rofi
+.IP \(bu 2
+Or install dmenu: pkmgr install dmenu
+.IP \(bu 2
+Verify installation: which rofi dmenu
+.IP \(bu 2
+Check PATH includes /usr/bin
+.RE
+.SS Logout Not Working
+.RS
+If logout doesn't terminate session:
+.IP \(bu 2
+Check window manager detection: grep Name /usr/share/xsessions/*.desktop
+.IP \(bu 2
+Verify WM process name matches .desktop file
+.IP \(bu 2
+Check running processes: ps aux | grep -E 'i3|bspwm|awesome'
+.IP \(bu 2
+Add custom WM to MANAGERS array manually
+.RE
+.SS Sudo Password Required
+.RS
+If prompted for password on reboot/shutdown:
+.IP \(bu 2
+Configure passwordless sudo (see TIPS section)
+.IP \(bu 2
+Test: sudo -n reboot (should not prompt)
+.IP \(bu 2
+Check sudoers file: sudo visudo -c
+.IP \(bu 2
+Verify permissions: ls -la /etc/sudoers.d/
+.RE
+.SS Screen Locker Fails
+.RS
+If lock screen doesn't work:
+.IP \(bu 2
+Verify locker installed: which slock i3lock
+.IP \(bu 2
+Test locker manually: slock
+.IP \(bu 2
+Check configuration: echo $LOGOUT_MENU_LOCKER_APP
+.IP \(bu 2
+Update config file with working locker
+.RE
+.SS Rofi Theme Not Found
+.RS
+If theme error appears:
+.IP \(bu 2
+List available themes: ls ~/.config/rofi/themes/ /usr/share/rofi/themes/
+.IP \(bu 2
+Use existing theme: ROFI_THEME=Arc logout-menu
+.IP \(bu 2
+Remove theme to use default: unset ROFI_THEME
+.IP \(bu 2
+Install theme package: pkmgr install rofi-themes
+.RE
+.SS No Window Managers Detected
+.RS
+If logout doesn't detect any WMs:
+.IP \(bu 2
+Check xsessions directory: ls /usr/share/xsessions/
+.IP \(bu 2
+Verify .desktop files exist for your WM
+.IP \(bu 2
+Check Name field: grep Name /usr/share/xsessions/*.desktop
+.IP \(bu 2
+Create .desktop file if missing
+.RE
+.SH DEPENDENCIES
+.TP
+.B Required:
+.RS
+.IP \(bu 2
+bash - Bash shell for script execution
+.IP \(bu 2
+rofi OR dmenu - Menu interface (at least one required)
+.IP \(bu 2
+sudo - Privilege escalation for power operations
+.IP \(bu 2
+systemd - Reboot and poweroff commands
+.RE
+.TP
+.B Optional:
+.RS
+.IP \(bu 2
+slock - Default screen locker (or alternative locker)
+.IP \(bu 2
+notifications - Desktop notification system
+.IP \(bu 2
+killall - Process termination for logout
+.RE
+.SH BUGS
+Report bugs at: https://github.com/casjay-dotfiles/scripts/issues
+.SH AUTHOR
+Written by Jason Hempstead (CasjaysDev)
+.SH COPYRIGHT
+Copyright \(co 2022 Jason Hempstead, Casjays Developments
+.br
+License: WTFPL (Do What The F*** You Want To Public License)
+.SH SEE ALSO
+.BR rofi (1),
+.BR dmenu (1),
+.BR sudo (8),
+.BR systemctl (1),
+.BR slock (1),
+.BR i3lock (1)
+.PP
+Rofi documentation:
+.br
+https://github.com/davatorium/rofi

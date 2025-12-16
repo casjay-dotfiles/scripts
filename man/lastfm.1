@@ -1,61 +1,666 @@
-.\" Manpage for lastfm
-.TH man 1 "14 July 2022" "202510211543-git" "lastfm"
-
+.TH LASTFM "1" "December 2025" "lastfm 202510211543-git" "User Commands"
 .SH NAME
-lastfm
-
-.SH DESCRIPTION
-
-
+lastfm \- Export Last.fm listening history to text file
 .SH SYNOPSIS
-lastfm [options] [command]
-
+.B lastfm
+[\fI\,OPTIONS\fR]
+.SH DESCRIPTION
+.B lastfm
+is a Last.fm API client that exports your complete listening history from Last.fm to a local text file. It fetches all scrobbled tracks using the Last.fm web service API, paginates through all available pages of listening history, extracts artist and track information from JSON responses, removes duplicate entries, and saves a sorted unique list to a text file.
+.PP
+The script simplifies listening history export by providing automated pagination through all history pages, JSON parsing with jq for data extraction, duplicate track removal for clean output, progress indication during multi-page fetches, configurable Last.fm username and API key, customizable save directory and file location, and desktop notification integration for completion status.
+.PP
+lastfm is particularly useful for backing up listening history locally, analyzing music preferences and patterns, creating playlists from historical data, exporting data before account deletion, and sharing listening history in text format.
 .SH OPTIONS
 .TP
-.B \-\-help
-Display the full help.
+.BR \-\-user " " \fI\,USERNAME\fR
+Set Last.fm username for API queries (overrides config)
 .TP
-.B \-\-version
-Display current version.
+.BR \-\-key " " \fI\,API_KEY\fR
+Set Last.fm API key for authentication (overrides config)
 .TP
-.B \-\-config
-Create user settings file.
+.BR \-\-dir " " \fI\,DIRECTORY\fR
+Set output directory for history file (default: ~/Documents/lastfm)
 .TP
-.B \-\-options
-Show all availabe options.
+.BR \-\-help
+Display help message with usage information
 .TP
-.B \-\-dir
-Change current directory
+.BR \-\-config
+Generate or regenerate user configuration file
 .TP
-.B \-\-debug
-Output debugging information.
+.BR \-\-reset-config
+Delete existing configuration and regenerate from defaults
 .TP
-.B \-\-raw
-Removes all formatting
+.BR \-\-version
+Show script version information and exit
+.TP
+.BR \-\-options
+Display all available command-line options
+.TP
+.BR \-\-debug
+Enable debug mode with verbose output
+.TP
+.BR \-\-raw
+Disable colorized output for plain text display
+.TP
+.BR \-\-silent
+Suppress desktop notifications
+.TP
+.BR \-\-force
+Force operation even if output file already exists
+.SH LAST.FM API INTEGRATION
+How lastfm fetches listening history:
+.SS API Endpoint
+.RS
+.EX
+Base URL: http://ws.audioscrobbler.com/2.0/
+Method: user.getrecenttracks
+Format: json
+Limit: 100 tracks per page
 
+Full API URL:
+http://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&format=json&limit=100&user={USERNAME}&api_key={API_KEY}&page={PAGE}
+.EE
+.IP \(bu 2
+Uses Last.fm web service API v2.0
+.IP \(bu 2
+Fetches recent tracks for specified user
+.IP \(bu 2
+Returns JSON formatted responses
+.IP \(bu 2
+Retrieves 100 tracks per page (maximum)
+.IP \(bu 2
+Supports pagination through all history
+.RE
+.SS Authentication
+.RS
+.EX
+# Required credentials
+LASTFM_USER="your_lastfm_username"
+LASTFM_API_KEY="your_api_key_here"
+
+# Get API key from:
+https://www.last.fm/api/account/create
+.EE
+.IP \(bu 2
+Requires valid Last.fm username
+.IP \(bu 2
+Requires API key from Last.fm API account
+.IP \(bu 2
+No password required (read-only API)
+.IP \(bu 2
+Free API key from Last.fm developer portal
+.IP \(bu 2
+Stored in configuration file or passed via options
+.RE
+.SS Pagination Logic
+.RS
+.EX
+# Get total pages from first request
+total_pages=$(__curl "API_URL&page=1" | jq -r '.recenttracks["@attr"].totalPages')
+
+# Loop through all pages
+current_page=1
+while [ "$current_page" -le "$total_pages" ]; do
+  # Fetch page
+  __curl "API_URL&page=$current_page" | jq -rc '.recenttracks.track[] | ...'
+  # Increment page number
+  current_page=$((current_page + 1))
+done
+.EE
+.IP \(bu 2
+First request retrieves total page count
+.IP \(bu 2
+Loops through each page sequentially
+.IP \(bu 2
+Shows progress: "Fetching page X of Y"
+.IP \(bu 2
+Handles large listening histories (thousands of tracks)
+.IP \(bu 2
+No rate limiting delays (respects Last.fm terms)
+.RE
+.SH DATA PROCESSING
+How lastfm processes and formats listening history:
+.SS JSON Parsing
+.RS
+.EX
+# Extract artist and track from JSON
+jq -rc '.recenttracks.track[] | select(.date) | [.artist."#text" + " :: " + .name] | @text'
+
+# Example JSON structure:
+{
+  "recenttracks": {
+    "track": [
+      {
+        "artist": { "#text": "Artist Name" },
+        "name": "Track Name",
+        "date": { "uts": "1234567890" }
+      }
+    ],
+    "@attr": { "totalPages": "123" }
+  }
+}
+.EE
+.IP \(bu 2
+Uses jq for JSON processing
+.IP \(bu 2
+Extracts artist name from nested object
+.IP \(bu 2
+Extracts track name from track object
+.IP \(bu 2
+Filters tracks with date (excludes "now playing")
+.IP \(bu 2
+Formats as: "Artist Name :: Track Name"
+.IP \(bu 2
+Raw compact output for line-by-line processing
+.RE
+.SS Duplicate Removal
+.RS
+.EX
+# Save to temporary file during fetch
+__curl "API_URL&page=$page" | jq ... >> "$LASTFM_TEMP_FILE"
+
+# After all pages fetched, sort and remove duplicates
+cat "$LASTFM_TEMP_FILE" | sort -u > "$LASTFM_SAVE_FILE"
+.EE
+.IP \(bu 2
+Appends all pages to temporary file first
+.IP \(bu 2
+Uses sort -u for unique sorting
+.IP \(bu 2
+Alphabetically sorted output
+.IP \(bu 2
+Removes duplicate scrobbles
+.IP \(bu 2
+Saves final deduplicated list to history file
+.RE
+.SS Output Format
+.RS
+.EX
+# Example output in history.txt:
+Aphex Twin :: Windowlicker
+Boards of Canada :: Roygbiv
+Burial :: Archangel
+Daft Punk :: Around the World
+Radiohead :: Paranoid Android
+.EE
+.IP \(bu 2
+One track per line
+.IP \(bu 2
+Format: "Artist :: Track"
+.IP \(bu 2
+Alphabetically sorted
+.IP \(bu 2
+UTF-8 encoded text file
+.IP \(bu 2
+No timestamps or play counts
+.IP \(bu 2
+Clean, simple format for parsing
+.RE
+.SH PROGRESS INDICATION
+How lastfm shows fetch progress:
+.SS Progress Display
+.RS
+.EX
+# Before fetching
+printf_cyan "Found 123 pages of listening history. This may take a while..."
+
+# During fetch
+printf '\r%b%s%b' "$BLUE" "Fetching page 45 of 123 " "$RESET"
+
+# After completion
+printf '\r                                                                    \n'
+printf_green "Done! Your Last.fm listening history has been saved to /path/to/file"
+.EE
+.IP \(bu 2
+Shows total page count before starting
+.IP \(bu 2
+Live progress updates with carriage return (\\r)
+.IP \(bu 2
+Current page / total pages indicator
+.IP \(bu 2
+Clears progress line after completion
+.IP \(bu 2
+Success message with file path
+.IP \(bu 2
+Colorized output for visibility
+.RE
 .SH EXAMPLES
 .TP
-.B lastfm \-\-help
-
+.B lastfm
+Export listening history using configured username and API key
+.TP
+.B lastfm --user johndoe --key abc123xyz
+Export history for user "johndoe" with specified API key
+.TP
+.B lastfm --dir ~/Music/lastfm
+Save history to custom directory (~/Music/lastfm/history.txt)
+.TP
+.B lastfm --config
+Generate configuration file with prompts for username and API key
+.TP
+.B lastfm --silent
+Export history without desktop notifications
+.TP
+.B lastfm --raw
+Export history with plain text output (no colors)
+.TP
+.B lastfm --debug
+Export history with verbose debug output
 .SH FILES
 .TP
-.I
-~/.config/myscripts/lastfm/settings.conf
+.B ~/.config/myscripts/lastfm/settings.conf
+User configuration file (stores username and API key)
 .TP
-.I
-/usr/local/bin/lastfm
+.B ~/Documents/lastfm/history.txt
+Default output file for listening history (customizable)
+.TP
+.B ~/.local/share/myscripts/lastfm/backups/
+Configuration backup directory
+.TP
+.B ~/.local/log/lastfm/
+Log file directory
+.TP
+.B ~/.local/log/lastfm/error.log
+Error log file
+.TP
+.B ~/.local/tmp/system_scripts/lastfm/
+Temporary files directory (stores intermediate data during fetch)
+.TP
+.B ~/.cache/lastfm/
+Cache directory
+.SH ENVIRONMENT VARIABLES
+.TP
+.B LASTFM_USER
+Last.fm username for API queries
+.TP
+.B LASTFM_API_KEY
+Last.fm API key for authentication
+.TP
+.B LASTFM_SAVE_DIR
+Output directory for history file (default: ~/Documents/lastfm)
+.TP
+.B LASTFM_SAVE_FILE
+Output file path (default: $LASTFM_SAVE_DIR/history.txt)
+.TP
+.B LASTFM_BASE_URL
+Last.fm API base URL (default: http://ws.audioscrobbler.com/2.0/)
+.TP
+.B LASTFM_SILENT
+Suppress all notifications when set to "true"
+.TP
+.B LASTFM_NOTIFY_CLIENT_NAME
+Application name for notifications (default: lastfm)
+.TP
+.B LASTFM_NOTIFY_CLIENT_ICON
+Icon for notifications (default: notification-new)
+.TP
+.B LASTFM_NOTIFY_CLIENT_URGENCY
+Notification urgency level (default: normal)
+.TP
+.B LASTFM_GOOD_NAME
+Success notification title (default: Great:)
+.TP
+.B LASTFM_ERROR_NAME
+Error notification title (default: Error:)
+.TP
+.B LASTFM_GOOD_MESSAGE
+Success message text (default: No errors reported)
+.TP
+.B LASTFM_ERROR_MESSAGE
+Error message text (default: Errors were reported)
+.TP
+.B LASTFM_OUTPUT_COLOR_1
+Primary output color code (default: 33 for yellow)
+.TP
+.B LASTFM_OUTPUT_COLOR_2
+Secondary output color code (default: 5 for magenta)
+.TP
+.B LASTFM_OUTPUT_COLOR_GOOD
+Success message color (default: 2 for green)
+.TP
+.B LASTFM_OUTPUT_COLOR_ERROR
+Error message color (default: 1 for red)
+.SH CONFIGURATION FILE
+The configuration file located at ~/.config/myscripts/lastfm/settings.conf supports the following settings:
+.PP
+.RS 4
+.EX
+# Last.fm API credentials
+LASTFM_USER="your_username"
+LASTFM_API_KEY="your_api_key_here"
 
-.SH TODO
-Better documentation
+# Output settings
+LASTFM_SAVE_DIR="$HOME/Documents/lastfm"
+LASTFM_SAVE_FILE="$LASTFM_SAVE_DIR/history.txt"
 
-.SH LICENSE
-WTFPL
+# API configuration
+LASTFM_BASE_URL="http://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&format=json&limit=100"
 
+# Notification settings
+LASTFM_SYSTEM_NOTIFY_ENABLED="yes"
+LASTFM_REMOTE_NOTIFY_ENABLED="yes"
+LASTFM_REMOTE_NOTIFY_COMMAND="web-notify telegram"
+LASTFM_GOOD_NAME="Great:"
+LASTFM_ERROR_NAME="Error:"
+LASTFM_GOOD_MESSAGE="No errors reported"
+LASTFM_ERROR_MESSAGE="Errors were reported"
+LASTFM_NOTIFY_CLIENT_NAME="lastfm"
+LASTFM_NOTIFY_CLIENT_ICON="notification-new"
+LASTFM_NOTIFY_CLIENT_URGENCY="normal"
+
+# Output colorization
+LASTFM_OUTPUT_COLOR_1="33"
+LASTFM_OUTPUT_COLOR_2="5"
+LASTFM_OUTPUT_COLOR_GOOD="2"
+LASTFM_OUTPUT_COLOR_ERROR="1"
+.EE
+.RE
+.SH EXIT STATUS
+.TP
+.B 0
+Success - listening history exported successfully
+.TP
+.B 1
+Error - missing username, API key, or API request failed
+.TP
+.B 3
+Error - required application (bash) not found
+.SH NOTES
+.IP \(bu 2
+Requires valid Last.fm username and API key
+.IP \(bu 2
+API key must be obtained from Last.fm API account
+.IP \(bu 2
+Internet connection required for API access
+.IP \(bu 2
+Fetches all scrobbled tracks (may be thousands)
+.IP \(bu 2
+Large histories may take several minutes to fetch
+.IP \(bu 2
+Output file contains unique tracks only (duplicates removed)
+.IP \(bu 2
+Format: "Artist :: Track" (one per line)
+.IP \(bu 2
+Uses jq for JSON parsing (must be installed)
+.IP \(bu 2
+Uses curl for HTTP requests (must be installed)
+.IP \(bu 2
+Progress shown during multi-page fetches
+.IP \(bu 2
+Temporary file created during fetch, deleted after
+.SH TIPS
+.SS Getting an API Key
+.RS
+.EX
+# Visit Last.fm API account creation page
+https://www.last.fm/api/account/create
+
+# Fill in application details:
+- Application name: "lastfm export"
+- Application description: "Export listening history"
+- Callback URL: (leave empty for non-web app)
+
+# API key will be displayed after creation
+# Save to configuration file or use --key option
+.EE
+.RE
+.SS Initial Setup
+.RS
+.EX
+# Generate configuration file
+lastfm --config
+
+# Edit configuration manually
+vim ~/.config/myscripts/lastfm/settings.conf
+
+# Or use command-line options
+lastfm --user johndoe --key abc123xyz
+.EE
+.RE
+.SS Data Analysis
+.RS
+.EX
+# Count total unique tracks
+wc -l ~/Documents/lastfm/history.txt
+
+# Find all tracks by specific artist
+grep "Artist Name ::" ~/Documents/lastfm/history.txt
+
+# Extract just artist names
+cut -d':' -f1 ~/Documents/lastfm/history.txt | sort -u
+
+# Count plays per artist (from raw temp file before dedup)
+cut -d':' -f1 temp_file | sort | uniq -c | sort -rn
+.EE
+.RE
+.SS Automated Backups
+.RS
+.EX
+# Cron job to export weekly
+0 2 * * 0 lastfm --silent
+
+# Export to dated backup
+lastfm --dir ~/Backups/lastfm-$(date +%Y%m%d)
+
+# Compare current vs old backup
+diff old_history.txt new_history.txt | grep "^>" | wc -l
+.EE
+.RE
+.SS Shell Integration
+.RS
+.EX
+#!/bin/bash
+# Export and analyze listening history
+
+# Export history
+lastfm --silent
+
+# Count total tracks
+total=$(wc -l < ~/Documents/lastfm/history.txt)
+echo "Total unique tracks: $total"
+
+# Top 10 artists by track count (requires raw data)
+# Note: Default output is deduplicated
+# For artist counts, modify script to preserve duplicates
+.EE
+.RE
+.SH USE CASES
+.SS Listening History Backup
+.RS
+.IP \(bu 2
+Create local backup before account deletion
+.IP \(bu 2
+Preserve listening history independently
+.IP \(bu 2
+Export data for migration to other services
+.IP \(bu 2
+Archive historical music preferences
+.RE
+.SS Music Analysis
+.RS
+.IP \(bu 2
+Analyze music taste evolution over time
+.IP \(bu 2
+Identify favorite artists and tracks
+.IP \(bu 2
+Generate statistics on listening habits
+.IP \(bu 2
+Create custom playlists from history
+.RE
+.SS Data Sharing
+.RS
+.IP \(bu 2
+Share listening history in text format
+.IP \(bu 2
+Import into spreadsheet applications
+.IP \(bu 2
+Generate music recommendations
+.IP \(bu 2
+Compare tastes with friends
+.RE
+.SS Integration Projects
+.RS
+.IP \(bu 2
+Feed data into recommendation engines
+.IP \(bu 2
+Create visualizations of listening patterns
+.IP \(bu 2
+Build custom music discovery tools
+.IP \(bu 2
+Generate automated playlist suggestions
+.RE
+.SH TROUBLESHOOTING
+.SS Missing Username or API Key
+.RS
+If error: "LASTFM_USER is not set" or "LASTFM_API_KEY is not set"
+.IP \(bu 2
+Run: lastfm --config to create configuration
+.IP \(bu 2
+Edit: ~/.config/myscripts/lastfm/settings.conf
+.IP \(bu 2
+Set LASTFM_USER="your_username"
+.IP \(bu 2
+Set LASTFM_API_KEY="your_api_key"
+.IP \(bu 2
+Or use: lastfm --user USERNAME --key API_KEY
+.RE
+.SS Could Not Retrieve Data
+.RS
+If error: "Could not retrieve data from Last.fm. Check your username and API key."
+.IP \(bu 2
+Verify username is correct (case-sensitive)
+.IP \(bu 2
+Verify API key is valid (no spaces or quotes)
+.IP \(bu 2
+Check internet connectivity
+.IP \(bu 2
+Test API manually:
+.EX
+curl "http://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=USERNAME&api_key=API_KEY&format=json&limit=1"
+.EE
+.IP \(bu 2
+Check Last.fm service status
+.IP \(bu 2
+Verify firewall allows HTTP to ws.audioscrobbler.com
+.RE
+.SS jq Not Found
+.RS
+.IP \(bu 2
+Install jq package: pkmgr install jq
+.IP \(bu 2
+Or: apt-get install jq (Debian/Ubuntu)
+.IP \(bu 2
+Or: yum install jq (RHEL/CentOS)
+.IP \(bu 2
+Or: brew install jq (macOS)
+.IP \(bu 2
+Verify jq works: echo '{"test":"value"}' | jq .test
+.RE
+.SS curl Not Found
+.RS
+.IP \(bu 2
+Install curl package: pkmgr install curl
+.IP \(bu 2
+Verify curl works: curl -s https://www.last.fm
+.IP \(bu 2
+Check PATH includes /usr/bin
+.RE
+.SS Incomplete History
+.RS
+If output file seems incomplete:
+.IP \(bu 2
+Check for API errors in debug output: lastfm --debug
+.IP \(bu 2
+Verify all pages were fetched (check progress output)
+.IP \(bu 2
+Check temporary file exists during fetch
+.IP \(bu 2
+Ensure sufficient disk space
+.IP \(bu 2
+Try again with --force to overwrite
+.RE
+.SS Slow Fetch
+.RS
+If fetch is taking very long:
+.IP \(bu 2
+Large listening history is normal (thousands of tracks)
+.IP \(bu 2
+100 tracks per page means 100 pages = 10,000 tracks
+.IP \(bu 2
+Each page requires separate API request
+.IP \(bu 2
+No rate limiting delays (respects Last.fm terms)
+.IP \(bu 2
+Progress shown: "Fetching page X of Y"
+.IP \(bu 2
+Be patient for large histories
+.RE
+.SH API REFERENCE
+.SS Last.fm API Method
+.RS
+.B user.getrecenttracks
+.PP
+Returns recent tracks for specified user.
+.PP
+Parameters:
+.IP \(bu 2
+.B user
+(required) - Last.fm username
+.IP \(bu 2
+.B api_key
+(required) - Last.fm API key
+.IP \(bu 2
+.B limit
+(optional) - Number of results per page (max: 200, default: 50)
+.IP \(bu 2
+.B page
+(optional) - Page number to fetch (default: 1)
+.IP \(bu 2
+.B format
+(optional) - Response format (json or xml)
+.PP
+Response includes:
+.IP \(bu 2
+Array of track objects (artist, name, album, date, etc.)
+.IP \(bu 2
+Pagination metadata (total pages, current page, etc.)
+.IP \(bu 2
+User information
+.RE
+.SH DEPENDENCIES
+.TP
+.B Required:
+.RS
+.IP \(bu 2
+bash - Bash shell for script execution
+.IP \(bu 2
+curl - HTTP client for API requests
+.IP \(bu 2
+jq - JSON processor for response parsing
+.RE
+.TP
+.B Optional:
+.RS
+.IP \(bu 2
+notifications - Desktop notification system
+.RE
 .SH BUGS
-No known bugs.
-
-.SH REPORTING BUGS
-https://github.com/casjay-dotfiles/issues
-
+Report bugs at: https://github.com/casjay-dotfiles/scripts/issues
 .SH AUTHOR
-Currently maintained by Jason Hempstead <jason@casjaysdev.pro>
+Written by Jason Hempstead (CasjaysDev)
+.SH COPYRIGHT
+Copyright \\(co 2024 Jason Hempstead, Casjays Developments
+.br
+License: WTFPL (Do What The F*** You Want To Public License)
+.SH SEE ALSO
+.BR curl (1),
+.BR jq (1)
+.PP
+Last.fm API Documentation:
+.br
+https://www.last.fm/api
+.PP
+Last.fm API Account Creation:
+.br
+https://www.last.fm/api/account/create

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202511301021-git
+##@Version           :  202512181936-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,8 +10,8 @@
 # @@Created          :  Monday, Aug 08, 2022 23:22 EDT
 # @@File             :  gitadmin
 # @@Description      :  push/clone/pull from github/gitlab/private/bitbucket/codeberg/forgejo/gitea/gogs/azure/aws repos
-# @@Changelog        :  Added missing __git_remote_origin function
-# @@TODO             :  Add more platform support (Forgejo, Gogs API improvements)
+# @@Changelog        :  Variable naming cleanup - GITADMIN_ prefix and snake_case
+# @@TODO             :  Continue local variable cleanup
 # @@Other            :  Somethings may be broken due to variable changes
 # @@Resource         :
 # @@Terminal App     :  no
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202511301021-git"
+VERSION="202512181936-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -263,7 +263,7 @@ __help() {
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "gitadmin:  push/clone/pull from github/gitlab/private repo - $VERSION"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_line "Usage: gitadmin [options] [directory] [commands]"
+  __printf_line "Usage: $APPNAME [options] [directory] [commands]"
   __printf_line "init                            - Initialize current project into a git repo"
   __printf_line "setup                           - Initialize current project into a git repo"
   __printf_line "stow                            - Keep your dotfiles in a repo"
@@ -294,12 +294,15 @@ __help() {
   __printf_line "user [userName]                 - Clone/Pull all repos owned by you"
   __printf_line "user list [userName]            - List all repos owned by you"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_opts "Organization: [all,push,pull,clone] [userName]"
+  __printf_opts "Organization: [repos,clone,push,pull] [username [all]]"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
-  __printf_line "orgs all [userName]             - Clone/Pull all orgs owned by you"
-  __printf_line "orgs push [userName]            - Push all your local repos to remote"
-  __printf_line "orgs pull [userName]            - Update all your local repos from remote"
-  __printf_line "orgs clone [userName]           - Clone a repo"
+  __printf_line "org repos [username]            - List repos for user/org"
+  __printf_line "org clone [username]            - Clone repos for user/org (scoped)"
+  __printf_line "org clone [username] all        - Clone repos including owned orgs"
+  __printf_line "org push [username]             - Push repos for user/org (scoped)"
+  __printf_line "org push [username] all         - Push repos including owned orgs"
+  __printf_line "org pull [username]             - Pull repos for user/org (scoped)"
+  __printf_line "org pull [username] all         - Pull repos including owned orgs"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "Github Gist: [clone,create,delete,edit,list,search] [userName]"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -370,6 +373,21 @@ __help() {
   __printf_line "--options                       - Shows all available options"
   __printf_line "--debug                         - Enables script debugging"
   __printf_line "--raw                           - Removes all formatting on output"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Release Actions: [version,delete] [arguments]"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "release [version] [message]     - Create a new release tag"
+  __printf_line "release delete [owner/repo]     - Delete all releases and tags for a repository"
+  __printf_line "release delete [username]       - Delete releases and tags for user/org repos (scoped)"
+  __printf_line "release delete [username] all   - Delete releases and tags including owned orgs"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_opts "Tag Actions: [add,remove] [arguments]"
+  __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
+  __printf_line "tag add [tagname] [message]     - Add a tag to current project"
+  __printf_line "tag remove local [tagname]      - Remove a local tag from current project"
+  __printf_line "tag remove [owner/repo]         - Remove all tags and releases for a repository"
+  __printf_line "tag remove [username]           - Remove tags and releases for user/org repos (scoped)"
+  __printf_line "tag remove [username] all       - Remove tags and releases including owned orgs"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
   __printf_opts "This is a work in progress"
   __printf_head "- - - - - - - - - - - - - - - - - - - - - - - - -"
@@ -1100,17 +1118,114 @@ __github_package_visibility() {
   return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Bitbucket API helper
-__curl_bitbucket_api() {
-  local exitCode=0
-  if [ -z "$GITADMIN_BITBUCKET_TOKEN" ]; then
+# Unified Git API helper - handles all platforms
+# Usage: __curl_git_api <platform> [curl_options...] <url>
+# Platforms: github, gitlab, bitbucket, codeberg, forgejo, gitea, gogs, azure, aws
+__curl_git_api() {
+  local platform="$1"
+  shift 1
+  local exit_code=0
+
+  case "$platform" in
+  github)
+    if [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ]; then
+      curl -q -LSs -H "Accept: application/vnd.github.v3+json" -H "X-GitHub-Api-Version: $GITADMIN_GITHUB_API_VERSION" "$@"
+      exit_code=$?
+    else
+      curl -q -LSs -H "Authorization: token $GITADMIN_GITHUB_AUTH_TOKEN" -H "Accept: application/vnd.github.v3+json" -H "X-GitHub-Api-Version: $GITADMIN_GITHUB_API_VERSION" "$@"
+      exit_code=$?
+    fi
+    ;;
+  gitlab)
+    if [ -z "$GITADMIN_GITLAB_AUTH_TOKEN" ]; then
+      curl -q -LSs -H "Accept: application/json" -H "Content-Type: application/json" "$@"
+      exit_code=$?
+    else
+      curl -q -LSs -H "PRIVATE-TOKEN: $GITADMIN_GITLAB_AUTH_TOKEN" -H "Accept: application/json" -H "Content-Type: application/json" "$@"
+      exit_code=$?
+    fi
+    ;;
+  bitbucket)
+    if [ -z "$GITADMIN_BITBUCKET_TOKEN" ]; then
+      curl -q -LSs -H "Accept: application/json" -H "Content-Type: application/json" "$@"
+      exit_code=$?
+    else
+      curl -q -LSs -u "$GITADMIN_BITBUCKET_USERNAME:$GITADMIN_BITBUCKET_TOKEN" -H "Accept: application/json" -H "Content-Type: application/json" "$@"
+      exit_code=$?
+    fi
+    ;;
+  codeberg)
+    if [ -z "$GITADMIN_CODEBERG_TOKEN" ]; then
+      curl -q -LSs -H "Accept: application/json" -H "Content-Type: application/json" "$@"
+      exit_code=$?
+    else
+      curl -q -LSs -H "Authorization: token $GITADMIN_CODEBERG_TOKEN" -H "Accept: application/json" -H "Content-Type: application/json" "$@"
+      exit_code=$?
+    fi
+    ;;
+  forgejo)
+    if [ -z "$GITADMIN_FORGEJO_TOKEN" ]; then
+      curl -q -LSs -H "Accept: application/json" -H "Content-Type: application/json" "$@"
+      exit_code=$?
+    else
+      curl -q -LSs -H "Authorization: token $GITADMIN_FORGEJO_TOKEN" -H "Accept: application/json" -H "Content-Type: application/json" "$@"
+      exit_code=$?
+    fi
+    ;;
+  gitea)
+    if [ -z "$GITADMIN_GITEA_TOKEN" ]; then
+      curl -q -LSs -H "Accept: application/json" -H "Content-Type: application/json" "$@"
+      exit_code=$?
+    else
+      curl -q -LSs -H "Authorization: token $GITADMIN_GITEA_TOKEN" -H "Accept: application/json" -H "Content-Type: application/json" "$@"
+      exit_code=$?
+    fi
+    ;;
+  gogs)
+    if [ -z "$GITADMIN_GOGS_TOKEN" ]; then
+      curl -q -LSs -H "Accept: application/json" -H "Content-Type: application/json" "$@"
+      exit_code=$?
+    else
+      curl -q -LSs -H "Authorization: token $GITADMIN_GOGS_TOKEN" -H "Accept: application/json" -H "Content-Type: application/json" "$@"
+      exit_code=$?
+    fi
+    ;;
+  azure)
+    if [ -z "$GITADMIN_AZURE_TOKEN" ]; then
+      curl -q -LSs -H "Accept: application/json" -H "Content-Type: application/json" "$@"
+      exit_code=$?
+    else
+      curl -q -LSs -u ":$GITADMIN_AZURE_TOKEN" -H "Accept: application/json" -H "Content-Type: application/json" "$@"
+      exit_code=$?
+    fi
+    ;;
+  aws)
+    # AWS CodeCommit uses AWS CLI, not direct curl - pass through to curl for basic operations
     curl -q -LSs -H "Accept: application/json" -H "Content-Type: application/json" "$@"
-    exitCode=$?
-  else
-    curl -q -LSs -u "$GITADMIN_BITBUCKET_USERNAME:$GITADMIN_BITBUCKET_TOKEN" -H "Accept: application/json" -H "Content-Type: application/json" "$@"
-    exitCode=$?
-  fi
-  return ${exitCode:-0}
+    exit_code=$?
+    ;;
+  private)
+    if [ -z "$GITADMIN_PRIVATE_AUTH_TOKEN" ]; then
+      curl -q -LSs -H "Accept: application/json" -H "Content-Type: application/json" "$@"
+      exit_code=$?
+    else
+      curl -q -LSs -H "Authorization: token $GITADMIN_PRIVATE_AUTH_TOKEN" -H "Accept: application/json" -H "Content-Type: application/json" "$@"
+      exit_code=$?
+    fi
+    ;;
+  *)
+    printf_red "Unknown platform: $platform"
+    return 1
+    ;;
+  esac
+
+  return ${exit_code:-0}
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Bitbucket API helper (wrapper for backward compatibility)
+__curl_bitbucket_api() {
+  __curl_git_api bitbucket "$@"
+  return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Platform-specific API functions - Bitbucket
@@ -1121,7 +1236,7 @@ __bitbucket_create_repo() {
   local repo="$2"
   local description="${3:-repo for $repo}"
   local visibility="${4:-public}"
-  local GITADMIN_EXITCODE=0
+  local exit_code=0
 
   local is_private="false"
   [ "$visibility" = "private" ] && is_private="true"
@@ -1137,24 +1252,24 @@ __bitbucket_create_repo() {
 
   if echo "$response" | grep -q '"full_name".*"'$workspace'/'$repo'"'; then
     printf_green "✓ Created https://bitbucket.org/$workspace/$repo"
-    GITADMIN_EXITCODE=0
+    exit_code=0
   elif echo "$response" | grep -qi 'already exists'; then
     printf_green "ℹ️ https://bitbucket.org/$workspace/$repo already exists"
-    GITADMIN_EXITCODE=0
+    exit_code=0
   else
     printf_red "✗ Failed to create https://bitbucket.org/$workspace/$repo"
     [ -f "$GITADMIN_TEMP_FILE" ] && cat "$GITADMIN_TEMP_FILE" 2>/dev/null
-    GITADMIN_EXITCODE=1
+    exit_code=1
   fi
 
-  return "$GITADMIN_EXITCODE"
+  return "$exit_code"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Delete Bitbucket repo
 __bitbucket_delete_repo() {
   local workspace="$1"
   local repo="$2"
-  local GITADMIN_EXITCODE=0
+  local exit_code=0
 
   [ -z "$GITADMIN_BITBUCKET_TOKEN" ] && printf_exit "BITBUCKET_TOKEN not set. Create one at: https://bitbucket.org/account/settings/app-passwords/"
 
@@ -1164,13 +1279,13 @@ __bitbucket_delete_repo() {
 
   if __curl_bitbucket_api -X DELETE "$url" >/dev/null 2>&1; then
     printf_green "✓ Deleted https://bitbucket.org/$workspace/$repo"
-    GITADMIN_EXITCODE=0
+    exit_code=0
   else
     printf_red "✗ Failed to delete https://bitbucket.org/$workspace/$repo"
-    GITADMIN_EXITCODE=1
+    exit_code=1
   fi
 
-  return "$GITADMIN_EXITCODE"
+  return "$exit_code"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Modify Bitbucket repo settings
@@ -1179,7 +1294,7 @@ __bitbucket_modify_repo() {
   local repo="$2"
   local description="${3:-}"
   local homepage="${4:-}"
-  local GITADMIN_EXITCODE=0
+  local exit_code=0
 
   [ -z "$GITADMIN_BITBUCKET_TOKEN" ] && printf_exit "BITBUCKET_TOKEN not set. Create one at: https://bitbucket.org/account/settings/app-passwords/"
 
@@ -1197,26 +1312,19 @@ __bitbucket_modify_repo() {
 
   if __curl_bitbucket_api -X PUT "$url" -d "$json_data" >/dev/null 2>&1; then
     printf_green "✓ Modified https://bitbucket.org/$workspace/$repo"
-    GITADMIN_EXITCODE=0
+    exit_code=0
   else
     printf_red "✗ Failed to modify https://bitbucket.org/$workspace/$repo"
-    GITADMIN_EXITCODE=1
+    exit_code=1
   fi
 
-  return "$GITADMIN_EXITCODE"
+  return "$exit_code"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Codeberg API helper (uses Forgejo/Gitea-compatible API)
+# Codeberg API helper (wrapper for backward compatibility)
 __curl_codeberg_api() {
-  local exitCode=0
-  if [ -z "$GITADMIN_CODEBERG_TOKEN" ]; then
-    curl -q -LSs -H "Accept: application/json" -H "Content-Type: application/json" "$@"
-    exitCode=$?
-  else
-    curl -q -LSs -H "Authorization: token $GITADMIN_CODEBERG_TOKEN" -H "Accept: application/json" -H "Content-Type: application/json" "$@"
-    exitCode=$?
-  fi
-  return ${exitCode:-0}
+  __curl_git_api codeberg "$@"
+  return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Platform-specific API functions - Codeberg
@@ -1226,7 +1334,7 @@ __codeberg_create_repo() {
   local repo="$1"
   local description="${2:-repo for $repo}"
   local visibility="${3:-public}"
-  local GITADMIN_EXITCODE=0
+  local exit_code=0
 
   local private_repo="false"
   [ "$visibility" = "private" ] && private_repo="true"
@@ -1242,24 +1350,24 @@ __codeberg_create_repo() {
 
   if echo "$response" | grep -q '"name".*"'$repo'"'; then
     printf_green "✓ Created https://codeberg.org/${GITADMIN_CODEBERG_USERNAME}/$repo"
-    GITADMIN_EXITCODE=0
+    exit_code=0
   elif echo "$response" | grep -qi 'already exists'; then
     printf_green "ℹ️ https://codeberg.org/${GITADMIN_CODEBERG_USERNAME}/$repo already exists"
-    GITADMIN_EXITCODE=0
+    exit_code=0
   else
     printf_red "✗ Failed to create https://codeberg.org/${GITADMIN_CODEBERG_USERNAME}/$repo"
     [ -f "$GITADMIN_TEMP_FILE" ] && cat "$GITADMIN_TEMP_FILE" 2>/dev/null
-    GITADMIN_EXITCODE=1
+    exit_code=1
   fi
 
-  return "$GITADMIN_EXITCODE"
+  return "$exit_code"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Delete Codeberg repo
 __codeberg_delete_repo() {
   local owner="$1"
   local repo="$2"
-  local GITADMIN_EXITCODE=0
+  local exit_code=0
 
   [ -z "$GITADMIN_CODEBERG_TOKEN" ] && printf_exit "CODEBERG_TOKEN not set. Create one at: https://codeberg.org/user/settings/applications"
 
@@ -1269,13 +1377,13 @@ __codeberg_delete_repo() {
 
   if __curl_codeberg_api -X DELETE "$url" >/dev/null 2>&1; then
     printf_green "✓ Deleted https://codeberg.org/$owner/$repo"
-    GITADMIN_EXITCODE=0
+    exit_code=0
   else
     printf_red "✗ Failed to delete https://codeberg.org/$owner/$repo"
-    GITADMIN_EXITCODE=1
+    exit_code=1
   fi
 
-  return "$GITADMIN_EXITCODE"
+  return "$exit_code"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Modify Codeberg repo settings
@@ -1284,7 +1392,7 @@ __codeberg_modify_repo() {
   local repo="$2"
   local description="${3:-}"
   local homepage="${4:-}"
-  local GITADMIN_EXITCODE=0
+  local exit_code=0
 
   [ -z "$GITADMIN_CODEBERG_TOKEN" ] && printf_exit "CODEBERG_TOKEN not set. Create one at: https://codeberg.org/user/settings/applications"
 
@@ -1302,27 +1410,19 @@ __codeberg_modify_repo() {
 
   if __curl_codeberg_api -X PATCH "$url" -d "$json_data" >/dev/null 2>&1; then
     printf_green "✓ Modified https://codeberg.org/$owner/$repo"
-    GITADMIN_EXITCODE=0
+    exit_code=0
   else
     printf_red "✗ Failed to modify https://codeberg.org/$owner/$repo"
-    GITADMIN_EXITCODE=1
+    exit_code=1
   fi
 
-  return "$GITADMIN_EXITCODE"
+  return "$exit_code"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Forgejo API helper (same as Gitea/Codeberg)
+# Forgejo API helper (wrapper for backward compatibility)
 __curl_forgejo_api() {
-  local exitCode=0
-  local host="${GITADMIN_FORGEJO_HOST:-https://forge.example.com}"
-  if [ -z "$GITADMIN_FORGEJO_TOKEN" ]; then
-    curl -q -LSs -H "Accept: application/json" -H "Content-Type: application/json" "$@"
-    exitCode=$?
-  else
-    curl -q -LSs -H "Authorization: token $GITADMIN_FORGEJO_TOKEN" -H "Accept: application/json" -H "Content-Type: application/json" "$@"
-    exitCode=$?
-  fi
-  return ${exitCode:-0}
+  __curl_git_api forgejo "$@"
+  return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Platform-specific API functions - Forgejo
@@ -1332,7 +1432,7 @@ __forgejo_create_repo() {
   local repo="$1"
   local description="${2:-repo for $repo}"
   local visibility="${3:-public}"
-  local GITADMIN_EXITCODE=0
+  local exit_code=0
 
   local private_repo="false"
   [ "$visibility" = "private" ] && private_repo="true"
@@ -1349,24 +1449,24 @@ __forgejo_create_repo() {
 
   if echo "$response" | grep -q '"name".*"'$repo'"'; then
     printf_green "✓ Created ${GITADMIN_FORGEJO_HOST}/${GITADMIN_FORGEJO_USERNAME}/$repo"
-    GITADMIN_EXITCODE=0
+    exit_code=0
   elif echo "$response" | grep -qi 'already exists'; then
     printf_green "ℹ️ ${GITADMIN_FORGEJO_HOST}/${GITADMIN_FORGEJO_USERNAME}/$repo already exists"
-    GITADMIN_EXITCODE=0
+    exit_code=0
   else
     printf_red "✗ Failed to create ${GITADMIN_FORGEJO_HOST}/${GITADMIN_FORGEJO_USERNAME}/$repo"
     [ -f "$GITADMIN_TEMP_FILE" ] && cat "$GITADMIN_TEMP_FILE" 2>/dev/null
-    GITADMIN_EXITCODE=1
+    exit_code=1
   fi
 
-  return "$GITADMIN_EXITCODE"
+  return "$exit_code"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Delete Forgejo repo
 __forgejo_delete_repo() {
   local owner="$1"
   local repo="$2"
-  local GITADMIN_EXITCODE=0
+  local exit_code=0
 
   [ -z "$GITADMIN_FORGEJO_TOKEN" ] && printf_exit "FORGEJO_TOKEN not set. Create one at: ${GITADMIN_FORGEJO_HOST}/user/settings/applications"
   [ -z "$GITADMIN_FORGEJO_HOST" ] && printf_exit "FORGEJO_HOST not set. Set it to your Forgejo instance URL"
@@ -1377,13 +1477,13 @@ __forgejo_delete_repo() {
 
   if __curl_forgejo_api -X DELETE "$url" >/dev/null 2>&1; then
     printf_green "✓ Deleted ${GITADMIN_FORGEJO_HOST}/$owner/$repo"
-    GITADMIN_EXITCODE=0
+    exit_code=0
   else
     printf_red "✗ Failed to delete ${GITADMIN_FORGEJO_HOST}/$owner/$repo"
-    GITADMIN_EXITCODE=1
+    exit_code=1
   fi
 
-  return "$GITADMIN_EXITCODE"
+  return "$exit_code"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Modify Forgejo repo settings
@@ -1392,7 +1492,7 @@ __forgejo_modify_repo() {
   local repo="$2"
   local description="${3:-}"
   local homepage="${4:-}"
-  local GITADMIN_EXITCODE=0
+  local exit_code=0
 
   [ -z "$GITADMIN_FORGEJO_TOKEN" ] && printf_exit "FORGEJO_TOKEN not set. Create one at: ${GITADMIN_FORGEJO_HOST}/user/settings/applications"
   [ -z "$GITADMIN_FORGEJO_HOST" ] && printf_exit "FORGEJO_HOST not set. Set it to your Forgejo instance URL"
@@ -1411,54 +1511,31 @@ __forgejo_modify_repo() {
 
   if __curl_forgejo_api -X PATCH "$url" -d "$json_data" >/dev/null 2>&1; then
     printf_green "✓ Modified ${GITADMIN_FORGEJO_HOST}/$owner/$repo"
-    GITADMIN_EXITCODE=0
+    exit_code=0
   else
     printf_red "✗ Failed to modify ${GITADMIN_FORGEJO_HOST}/$owner/$repo"
-    GITADMIN_EXITCODE=1
+    exit_code=1
   fi
 
-  return "$GITADMIN_EXITCODE"
+  return "$exit_code"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Gitea API helper (reuse for Gogs too with slight modifications)
+# Gitea API helper (wrapper for backward compatibility)
 __curl_gitea_api() {
-  local exitCode=0
-  local host="${GITADMIN_GITEA_HOST:-https://gitea.example.com}"
-  if [ -z "$GITADMIN_GITEA_TOKEN" ]; then
-    curl -q -LSs -H "Accept: application/json" -H "Content-Type: application/json" "$@"
-    exitCode=$?
-  else
-    curl -q -LSs -H "Authorization: token $GITADMIN_GITEA_TOKEN" -H "Accept: application/json" -H "Content-Type: application/json" "$@"
-    exitCode=$?
-  fi
-  return ${exitCode:-0}
+  __curl_git_api gitea "$@"
+  return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Gogs API helper
+# Gogs API helper (wrapper for backward compatibility)
 __curl_gogs_api() {
-  local exitCode=0
-  local host="${GITADMIN_GOGS_HOST:-https://gogs.example.com}"
-  if [ -z "$GITADMIN_GOGS_TOKEN" ]; then
-    curl -q -LSs -H "Accept: application/json" -H "Content-Type: application/json" "$@"
-    exitCode=$?
-  else
-    curl -q -LSs -H "Authorization: token $GITADMIN_GOGS_TOKEN" -H "Accept: application/json" -H "Content-Type: application/json" "$@"
-    exitCode=$?
-  fi
-  return ${exitCode:-0}
+  __curl_git_api gogs "$@"
+  return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Azure DevOps API helper
+# Azure DevOps API helper (wrapper for backward compatibility)
 __curl_azure_api() {
-  local exitCode=0
-  if [ -z "$GITADMIN_AZURE_TOKEN" ]; then
-    curl -q -LSs -H "Accept: application/json" -H "Content-Type: application/json" "$@"
-    exitCode=$?
-  else
-    curl -q -LSs -u ":$GITADMIN_AZURE_TOKEN" -H "Accept: application/json" -H "Content-Type: application/json" "$@"
-    exitCode=$?
-  fi
-  return ${exitCode:-0}
+  __curl_git_api azure "$@"
+  return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Platform-specific API functions - Azure DevOps
@@ -1468,7 +1545,7 @@ __azure_create_repo() {
   local project="$1"
   local repo="$2"
   local description="${3:-repo for $repo}"
-  local GITADMIN_EXITCODE=0
+  local exit_code=0
 
   [ -z "$GITADMIN_AZURE_TOKEN" ] && printf_exit "AZURE_DEVOPS_EXT_PAT not set. Create one at: https://dev.azure.com/${GITADMIN_AZURE_ORGANIZATION}/_usersSettings/tokens"
   [ -z "$GITADMIN_AZURE_ORGANIZATION" ] && printf_exit "AZURE_DEVOPS_ORG not set. Set it to your Azure DevOps organization name"
@@ -1482,24 +1559,24 @@ __azure_create_repo() {
 
   if echo "$response" | grep -q '"name".*"'$repo'"'; then
     printf_green "✓ Created https://dev.azure.com/${GITADMIN_AZURE_ORGANIZATION}/${project}/_git/$repo"
-    GITADMIN_EXITCODE=0
+    exit_code=0
   elif echo "$response" | grep -qi 'already exists'; then
     printf_green "ℹ️ https://dev.azure.com/${GITADMIN_AZURE_ORGANIZATION}/${project}/_git/$repo already exists"
-    GITADMIN_EXITCODE=0
+    exit_code=0
   else
     printf_red "✗ Failed to create Azure DevOps repo"
     [ -f "$GITADMIN_TEMP_FILE" ] && cat "$GITADMIN_TEMP_FILE" 2>/dev/null
-    GITADMIN_EXITCODE=1
+    exit_code=1
   fi
 
-  return "$GITADMIN_EXITCODE"
+  return "$exit_code"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Delete Azure DevOps repo
 __azure_delete_repo() {
   local project="$1"
   local repo="$2"
-  local GITADMIN_EXITCODE=0
+  local exit_code=0
 
   [ -z "$GITADMIN_AZURE_TOKEN" ] && printf_exit "AZURE_DEVOPS_EXT_PAT not set. Create one at: https://dev.azure.com/${GITADMIN_AZURE_ORGANIZATION}/_usersSettings/tokens"
   [ -z "$GITADMIN_AZURE_ORGANIZATION" ] && printf_exit "AZURE_DEVOPS_ORG not set. Set it to your Azure DevOps organization name"
@@ -1520,13 +1597,13 @@ __azure_delete_repo() {
 
   if __curl_azure_api -X DELETE "$url" >/dev/null 2>&1; then
     printf_green "✓ Deleted https://dev.azure.com/${GITADMIN_AZURE_ORGANIZATION}/${project}/_git/$repo"
-    GITADMIN_EXITCODE=0
+    exit_code=0
   else
     printf_red "✗ Failed to delete Azure DevOps repo"
-    GITADMIN_EXITCODE=1
+    exit_code=1
   fi
 
-  return "$GITADMIN_EXITCODE"
+  return "$exit_code"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Platform-specific API functions - AWS CodeCommit
@@ -1535,7 +1612,7 @@ __azure_delete_repo() {
 __aws_create_repo() {
   local repo="$1"
   local description="${2:-repo for $repo}"
-  local GITADMIN_EXITCODE=0
+  local exit_code=0
 
   # Check if AWS CLI is installed
   if ! __cmd_exists aws; then
@@ -1560,23 +1637,23 @@ __aws_create_repo() {
     --repository-name "$repo" \
     --repository-description "$description" 2>&1)"; then
     printf_green "✓ Created AWS CodeCommit repo: $repo"
-    GITADMIN_EXITCODE=0
+    exit_code=0
   elif echo "$output" | grep -qi 'already exists'; then
     printf_green "ℹ️ AWS CodeCommit repo already exists: $repo"
-    GITADMIN_EXITCODE=0
+    exit_code=0
   else
     printf_red "✗ Failed to create AWS CodeCommit repo"
     echo "$output" | grep -i error
-    GITADMIN_EXITCODE=1
+    exit_code=1
   fi
 
-  return "$GITADMIN_EXITCODE"
+  return "$exit_code"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # AWS CodeCommit delete repo
 __aws_delete_repo() {
   local repo="$1"
-  local GITADMIN_EXITCODE=0
+  local exit_code=0
 
   # Check if AWS CLI is installed
   if ! __cmd_exists aws; then
@@ -1598,13 +1675,13 @@ __aws_delete_repo() {
     AWS_DEFAULT_REGION="$region" \
     aws codecommit delete-repository --repository-name "$repo" >/dev/null 2>&1; then
     printf_green "✓ Deleted AWS CodeCommit repo: $repo"
-    GITADMIN_EXITCODE=0
+    exit_code=0
   else
     printf_red "✗ Failed to delete AWS CodeCommit repo"
-    GITADMIN_EXITCODE=1
+    exit_code=1
   fi
 
-  return "$GITADMIN_EXITCODE"
+  return "$exit_code"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # List Bitbucket workspace repos
@@ -1943,7 +2020,7 @@ __bitbucket_workspace_push_repos() {
   local exitCode=0
   local workspace="${1:-$GITADMIN_BITBUCKET_USERNAME}"
   local git_base="$GITADMIN_DEFAULT_GIT_DIR_BITBUCKET/$workspace"
-  local GIT_MAIN_FILE="${GITADMIN_MAIN_CONF_NAME:-gitmainconfig}"
+  local git_main_file="${GITADMIN_MAIN_CONF_NAME:-gitmainconfig}"
 
   [ -z "$GITADMIN_BITBUCKET_TOKEN" ] && printf_red "🚫 ERROR: GITADMIN_BITBUCKET_TOKEN is not set" && printf_yellow "Create one at: https://bitbucket.org/account/settings/app-passwords/" && return 1
 
@@ -1962,8 +2039,8 @@ __bitbucket_workspace_push_repos() {
     if [ -d "$repo_dir/.git" ]; then
       printf_purple "Now running git push $workspace/$repo"
 
-      if [ -f "$repo_dir/$GIT_MAIN_FILE" ] && [ ! -L "$repo_dir/.git/config" ]; then
-        cp -Rf "$repo_dir/$GIT_MAIN_FILE" "$repo_dir/.git/config"
+      if [ -f "$repo_dir/$git_main_file" ] && [ ! -L "$repo_dir/.git/config" ]; then
+        cp -Rf "$repo_dir/$git_main_file" "$repo_dir/.git/config"
       fi
 
       if (__devnull2 git -C "$repo_dir" status | grep -q "working tree clean"); then
@@ -2089,7 +2166,7 @@ __codeberg_owner_push_repos() {
   local exitCode=0
   local owner="${1:-$GITADMIN_CODEBERG_USERNAME}"
   local git_base="$GITADMIN_DEFAULT_GIT_DIR_CODEBERG/$owner"
-  local GIT_MAIN_FILE="${GITADMIN_MAIN_CONF_NAME:-gitmainconfig}"
+  local git_main_file="${GITADMIN_MAIN_CONF_NAME:-gitmainconfig}"
 
   [ -z "$GITADMIN_CODEBERG_TOKEN" ] && printf_red "🚫 ERROR: GITADMIN_CODEBERG_TOKEN is not set" && printf_yellow "Create one at: https://codeberg.org/user/settings/applications" && return 1
 
@@ -2108,8 +2185,8 @@ __codeberg_owner_push_repos() {
     if [ -d "$repo_dir/.git" ]; then
       printf_purple "Now running git push $owner/$repo"
 
-      if [ -f "$repo_dir/$GIT_MAIN_FILE" ] && [ ! -L "$repo_dir/.git/config" ]; then
-        cp -Rf "$repo_dir/$GIT_MAIN_FILE" "$repo_dir/.git/config"
+      if [ -f "$repo_dir/$git_main_file" ] && [ ! -L "$repo_dir/.git/config" ]; then
+        cp -Rf "$repo_dir/$git_main_file" "$repo_dir/.git/config"
       fi
 
       if (__devnull2 git -C "$repo_dir" status | grep -q "working tree clean"); then
@@ -2246,7 +2323,7 @@ __forgejo_owner_push_repos() {
   local exitCode=0
   local owner="${1:-$GITADMIN_FORGEJO_USERNAME}"
   local git_base="$GITADMIN_DEFAULT_GIT_DIR_FORGEJO/$owner"
-  local GIT_MAIN_FILE="${GITADMIN_MAIN_CONF_NAME:-gitmainconfig}"
+  local git_main_file="${GITADMIN_MAIN_CONF_NAME:-gitmainconfig}"
 
   [ -z "$GITADMIN_FORGEJO_TOKEN" ] && printf_red "🚫 ERROR: GITADMIN_FORGEJO_TOKEN is not set" && printf_yellow "Create one at: ${GITADMIN_FORGEJO_HOST}/user/settings/applications" && return 1
   [ -z "$GITADMIN_FORGEJO_HOST" ] && printf_red "🚫 ERROR: GITADMIN_FORGEJO_HOST is not set" && return 1
@@ -2266,8 +2343,8 @@ __forgejo_owner_push_repos() {
     if [ -d "$repo_dir/.git" ]; then
       printf_purple "Now running git push $owner/$repo"
 
-      if [ -f "$repo_dir/$GIT_MAIN_FILE" ] && [ ! -L "$repo_dir/.git/config" ]; then
-        cp -Rf "$repo_dir/$GIT_MAIN_FILE" "$repo_dir/.git/config"
+      if [ -f "$repo_dir/$git_main_file" ] && [ ! -L "$repo_dir/.git/config" ]; then
+        cp -Rf "$repo_dir/$git_main_file" "$repo_dir/.git/config"
       fi
 
       if (__devnull2 git -C "$repo_dir" status | grep -q "working tree clean"); then
@@ -2405,7 +2482,7 @@ __gitea_owner_push_repos() {
   local exitCode=0
   local owner="${1:-$GITADMIN_GITEA_USERNAME}"
   local git_base="$GITADMIN_DEFAULT_GIT_DIR_GITEA/$owner"
-  local GIT_MAIN_FILE="${GITADMIN_MAIN_CONF_NAME:-gitmainconfig}"
+  local git_main_file="${GITADMIN_MAIN_CONF_NAME:-gitmainconfig}"
 
   [ -z "$GITADMIN_GITEA_TOKEN" ] && printf_red "🚫 ERROR: GITADMIN_GITEA_TOKEN is not set" && printf_yellow "Create one at: ${GITADMIN_GITEA_HOST}/user/settings/applications" && return 1
   [ -z "$GITADMIN_GITEA_HOST" ] && printf_red "🚫 ERROR: GITADMIN_GITEA_HOST is not set" && return 1
@@ -2425,8 +2502,8 @@ __gitea_owner_push_repos() {
     if [ -d "$repo_dir/.git" ]; then
       printf_purple "Now running git push $owner/$repo"
 
-      if [ -f "$repo_dir/$GIT_MAIN_FILE" ] && [ ! -L "$repo_dir/.git/config" ]; then
-        cp -Rf "$repo_dir/$GIT_MAIN_FILE" "$repo_dir/.git/config"
+      if [ -f "$repo_dir/$git_main_file" ] && [ ! -L "$repo_dir/.git/config" ]; then
+        cp -Rf "$repo_dir/$git_main_file" "$repo_dir/.git/config"
       fi
 
       if (__devnull2 git -C "$repo_dir" status | grep -q "working tree clean"); then
@@ -2564,7 +2641,7 @@ __gogs_owner_push_repos() {
   local exitCode=0
   local owner="${1:-$GITADMIN_GOGS_USERNAME}"
   local git_base="$GITADMIN_DEFAULT_GIT_DIR_GOGS/$owner"
-  local GIT_MAIN_FILE="${GITADMIN_MAIN_CONF_NAME:-gitmainconfig}"
+  local git_main_file="${GITADMIN_MAIN_CONF_NAME:-gitmainconfig}"
 
   [ -z "$GITADMIN_GOGS_TOKEN" ] && printf_red "🚫 ERROR: GITADMIN_GOGS_TOKEN is not set" && printf_yellow "Create one at: ${GITADMIN_GOGS_HOST}/user/settings/applications" && return 1
   [ -z "$GITADMIN_GOGS_HOST" ] && printf_red "🚫 ERROR: GITADMIN_GOGS_HOST is not set" && return 1
@@ -2584,8 +2661,8 @@ __gogs_owner_push_repos() {
     if [ -d "$repo_dir/.git" ]; then
       printf_purple "Now running git push $owner/$repo"
 
-      if [ -f "$repo_dir/$GIT_MAIN_FILE" ] && [ ! -L "$repo_dir/.git/config" ]; then
-        cp -Rf "$repo_dir/$GIT_MAIN_FILE" "$repo_dir/.git/config"
+      if [ -f "$repo_dir/$git_main_file" ] && [ ! -L "$repo_dir/.git/config" ]; then
+        cp -Rf "$repo_dir/$git_main_file" "$repo_dir/.git/config"
       fi
 
       if (__devnull2 git -C "$repo_dir" status | grep -q "working tree clean"); then
@@ -2714,7 +2791,7 @@ __azure_project_push_repos() {
   local exitCode=0
   local project="${1:-}"
   local git_base="$GITADMIN_DEFAULT_GIT_DIR_AZURE/$project"
-  local GIT_MAIN_FILE="${GITADMIN_MAIN_CONF_NAME:-gitmainconfig}"
+  local git_main_file="${GITADMIN_MAIN_CONF_NAME:-gitmainconfig}"
 
   [ -z "$GITADMIN_AZURE_TOKEN" ] && printf_red "🚫 ERROR: GITADMIN_AZURE_TOKEN is not set" && printf_yellow "Create one at: https://dev.azure.com/${GITADMIN_AZURE_ORGANIZATION}/_usersSettings/tokens" && return 1
   [ -z "$GITADMIN_AZURE_ORGANIZATION" ] && printf_red "🚫 ERROR: GITADMIN_AZURE_ORGANIZATION is not set" && return 1
@@ -2735,8 +2812,8 @@ __azure_project_push_repos() {
     if [ -d "$repo_dir/.git" ]; then
       printf_purple "Now running git push $project/$repo"
 
-      if [ -f "$repo_dir/$GIT_MAIN_FILE" ] && [ ! -L "$repo_dir/.git/config" ]; then
-        cp -Rf "$repo_dir/$GIT_MAIN_FILE" "$repo_dir/.git/config"
+      if [ -f "$repo_dir/$git_main_file" ] && [ ! -L "$repo_dir/.git/config" ]; then
+        cp -Rf "$repo_dir/$git_main_file" "$repo_dir/.git/config"
       fi
 
       if (__devnull2 git -C "$repo_dir" status | grep -q "working tree clean"); then
@@ -2855,7 +2932,7 @@ __aws_push_all_repos() {
   local exitCode=0
   local region="${1:-$GITADMIN_AWS_REGION}"
   local git_base="$GITADMIN_DEFAULT_GIT_DIR_AWS/$region"
-  local GIT_MAIN_FILE="${GITADMIN_MAIN_CONF_NAME:-gitmainconfig}"
+  local git_main_file="${GITADMIN_MAIN_CONF_NAME:-gitmainconfig}"
 
   [ -z "$AWS_ACCESS_KEY_ID" ] && [ -z "$GITADMIN_AWS_ACCESS_KEY" ] && printf_red "🚫 ERROR: AWS credentials not set" && printf_yellow "Configure AWS CLI or set GITADMIN_AWS_ACCESS_KEY" && return 1
   [ -z "$region" ] && printf_red "🚫 ERROR: AWS region is required" && return 1
@@ -2875,8 +2952,8 @@ __aws_push_all_repos() {
     if [ -d "$repo_dir/.git" ]; then
       printf_purple "Now running git push $repo"
 
-      if [ -f "$repo_dir/$GIT_MAIN_FILE" ] && [ ! -L "$repo_dir/.git/config" ]; then
-        cp -Rf "$repo_dir/$GIT_MAIN_FILE" "$repo_dir/.git/config"
+      if [ -f "$repo_dir/$git_main_file" ] && [ ! -L "$repo_dir/.git/config" ]; then
+        cp -Rf "$repo_dir/$git_main_file" "$repo_dir/.git/config"
       fi
 
       if (__devnull2 git -C "$repo_dir" status | grep -q "working tree clean"); then
@@ -2996,7 +3073,7 @@ __gitea_update_repo() {
   local json_message=""
   local token="$GITADMIN_PRIVATE_AUTH_TOKEN"
   local host="$GITADMIN_PERSONAL_GIT_HOST"
-  { [ $# = 0 ] || [ "$1" = "help" ]; } && __update_usage
+  { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __update_usage
   echo "$1" | grep -q '.*./.*.' || echo "$1" | grep -q '.*.=.*.' || __update_usage
   repo="$1" && shift 1
   name="$(echo "$repo" | sed 's|/|_|g')"
@@ -3357,7 +3434,7 @@ __update_github_repo() {
   local show_message=""
   local token="$GITADMIN_GITHUB_AUTH_TOKEN"
   local host="https://api.github.com"
-  { [ $# = 0 ] || [ "$1" = "help" ]; } && __update_usage
+  { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __update_usage
   echo "$1" | grep -q '.*./.*.' || echo "$1" | grep -q '.*.=.*.' || __update_usage
   [ -d "$GITADMIN_CWD/.git" ] || printf_exit "$GITADMIN_CWD is not a valid repo"
   org="$(echo "$GITADMIN_CWD" | awk -F'/' '{print $(NF-1)}')"
@@ -3442,15 +3519,15 @@ __git_username_repo() {
 __api_issues_token() {
   local git_repo
   { [ $# = 2 ] && git_repo="$1/$2"; } || { [ $# = 1 ] && git_repo="$1"; }
-  ISSUE_HTML="https://github.com/$git_repo/issues"
-  ISSUE_API="https://api.github.com/repos/$git_repo/issues"
-  export ISSUE_HTML ISSUE_API
+  GITADMIN_ISSUE_HTML="https://github.com/$git_repo/issues"
+  GITADMIN_ISSUE_API="https://api.github.com/repos/$git_repo/issues"
+  export GITADMIN_ISSUE_HTML GITADMIN_ISSUE_API
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # call the issues api
 __api_issues() {
   local resp=""
-  resp="$(__curl_gh_api -X ${1:-GET} "${2:-$ISSUE_API}" 2>/dev/null)"
+  resp="$(__curl_gh_api -X ${1:-GET} "${2:-$GITADMIN_ISSUE_API}" 2>/dev/null)"
   [ -n "$resp" ] && printf "%s" "$resp" || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -3465,7 +3542,7 @@ __api_user_token() {
   local user="${1:-$GITADMIN_DEFAULT_USERNAME}"
   export GITHUBAPIPAGES="$(__github_api_user_page_count "$user")"
   export MESSAGE="Getting the repos for user: $user"
-  export GITHUBAPIREPO="https://api.github.com/user/repos?per_page=100&sort=full_name&type=owner"
+  export GITADMIN_GITHUB_API_REPO="https://api.github.com/user/repos?per_page=100&sort=full_name&type=owner"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # User api
@@ -3473,19 +3550,19 @@ __api_user() {
   local user="${1:-$GITADMIN_DEFAULT_USERNAME}"
   __api_user_token "$user"
   __urlverify "https://api.github.com/users/$user" || return 1
-  __curl_gh_api "$GITHUBAPIREPO"
+  __curl_gh_api "$GITADMIN_GITHUB_API_REPO"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set Message for token - org
 __api_org_token() {
   local user="${1:-}" org=""
   export GITHUBAPIPAGES="$(__github_api_org_page_count "$user")"
-  export GITHUBAPIREPO="https://api.github.com/orgs/$user/repos?per_page=100&sort=full_name&type=owner"
+  export GITADMIN_GITHUB_API_REPO="https://api.github.com/orgs/$user/repos?per_page=100&sort=full_name&type=owner"
   export MESSAGE="Getting the repos for org: $user"
-  org="$(__curl_gh_api "$GITHUBAPIREPO" | __jq -r '.[]|.name' | grep -v '^$' | grep '^' || __api_user "$user" | __jq -r '.[]|.name' | grep -v '^$' | grep '^')"
-  COUNT="$(printf '%s' "$org" | grep -v '^$' | wc -l | grep '^')"
+  org="$(__curl_gh_api "$GITADMIN_GITHUB_API_REPO" | __jq -r '.[]|.name' | grep -v '^$' | grep '^' || __api_user "$user" | __jq -r '.[]|.name' | grep -v '^$' | grep '^')"
+  repo_count="$(printf '%s' "$org" | grep -v '^$' | wc -l | grep '^')"
   if [ -n "$org" ]; then
-    [ "$COUNT" != 0 ] && printf '%s\n' "$org" | sort -u >"$GITADMIN_TEMP_FILE" || return 1
+    [ "$repo_count" != 0 ] && printf '%s\n' "$org" | sort -u >"$GITADMIN_TEMP_FILE" || return 1
   else
     printf_yellow "⛔ No repos found for $user ⛔"
     echo ""
@@ -3497,8 +3574,8 @@ __api_org_token() {
 __api_org() {
   local user="${1:-$GITADMIN_DEFAULT_USERNAME}"
   __api_org_token "$user" || return 1
-  __urlverify "$GITHUBAPIREPO" || return 1
-  __curl_gh_api "$GITHUBAPIREPO"
+  __urlverify "$GITADMIN_GITHUB_API_REPO" || return 1
+  __curl_gh_api "$GITADMIN_GITHUB_API_REPO"
   return $?
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -3537,7 +3614,7 @@ __api_smart_org_or_user() {
     user_repos="$(__curl_gh_api "$user_endpoint" | jq -r '.[]|.name' 2>/dev/null | grep -v '^$' | grep '^')"
     if [ -n "$user_repos" ]; then
       printf '%s\n' "$user_repos" >"$GITADMIN_TEMP_FILE"
-      COUNT="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
+      repo_count="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
       return 0
     else
       return 1
@@ -3575,7 +3652,7 @@ __api_smart_user_or_org() {
 
   if [ -n "$user_repos" ]; then
     printf '%s\n' "$user_repos" >"$GITADMIN_TEMP_FILE"
-    COUNT="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
+    repo_count="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
     return 0
   else
     export MESSAGE="Getting the repos for org: $name$msg_suffix"
@@ -3889,7 +3966,7 @@ __do_not_add_a_url() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # The initialize git function
 __run_git_init() {
-  local GITADMIN_EXITCODE=0 git_dir="" git_push="" git_confirm="" git_confirm_repo=""
+  local exit_code=0 git_dir="" git_push="" git_confirm="" git_confirm_repo=""
   git_dir="${1:-$GITADMIN_CWD}"
   git_remote_repo="${2:-$git_remote_repo}"
   git_repo="${git_remote_repo:-$git_repo}"
@@ -3914,27 +3991,27 @@ __run_git_init() {
         [ -f "$git_dir/.no_push" ] || git -C "$git_dir" push -q -f --set-upstream origin "$GITADMIN_DEFAULT_BRANCH" &>/dev/null
         git -C "$git_dir" remote show origin 2>&1 | grep -q 'Repository not found' && git_push="n"
         [ "$git_push" = "n" ] || __git_push "$git_dir"
-        GITADMIN_EXITCODE=$?
-        if [ -d "$git_dir/.git" ] && [ "$GITADMIN_EXITCODE" = 0 ]; then
+        exit_code=$?
+        if [ -d "$git_dir/.git" ] && [ "$exit_code" = 0 ]; then
           [ "$git_push" = "n" ] && printf_yellow "The remote repository wasn't found: not pushing" || __git_push "$git_dir"
-          GITADMIN_EXITCODE=0
+          exit_code=0
         else
           printf_red "Push to $git_repo has failed"
-          GITADMIN_EXITCODE=1
+          exit_code=1
         fi
       else
         printf_yellow "Not pushing due to user canceling"
-        GITADMIN_EXITCODE=1
+        exit_code=1
       fi
     else
       printf_yellow "Not pushing due to user canceling"
-      GITADMIN_EXITCODE=1
+      exit_code=1
     fi
   else
     printf_red "No remote repo specified"
-    GITADMIN_EXITCODE=1
+    exit_code=1
   fi
-  return ${GITADMIN_EXITCODE:-$?}
+  return ${exit_code:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __split_create_repo() {
@@ -4002,7 +4079,7 @@ __split_create_repo() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup a new git repo
 __run_git_setup() {
-  local GITADMIN_EXITCODE=0 git_dir="" git_continue="" git_reuse="" git_version_file=""
+  local exit_code=0 git_dir="" git_continue="" git_reuse="" git_version_file=""
   git_dir="$(__basedir "$GITADMIN_CWD/.git" | grep -v '^$' | grep '^')"
   git_continue="${continue:-}"
   git_reuse="${reuse:-}"
@@ -4070,19 +4147,19 @@ __run_git_setup() {
       fi
       export git_remote_repo
       if __run_git_init "$git_dir" $git_remote_repo; then
-        GITADMIN_EXITCODE=0
+        exit_code=0
       else
-        GITADMIN_EXITCODE=1
+        exit_code=1
       fi
     else
       printf_yellow "You have decided not to add a remote repository"
     fi
   fi
-  if [ $GITADMIN_EXITCODE -ne 0 ]; then
+  if [ $exit_code -ne 0 ]; then
     printf_red "Initialization has failed"
   fi
   echo ""
-  exit $GITADMIN_EXITCODE
+  exit $exit_code
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Run git setup with no interactions
@@ -4094,7 +4171,7 @@ __run_git_setup_automated() {
   git_prev="${remote_repo:-$(__git_remote_push "$GITADMIN_CWD")}"
   GITADMIN_SETUP_MESSAGE="${GITADMIN_SETUP_MESSAGE:-$GITCOMMIT_MESSAGE}"
   GITCOMMIT_MESSAGE="${GITADMIN_SETUP_MESSAGE:- 🦈🏠🐜❗ Initial Commit ❗🐜🦈🏠 }"
-  GITADMIN_EXITCODE=0
+  exit_code=0
   printf_green "🌱 Initializing the repo in $git_dir"
   # Determine default repo based on platform preference
   if [ -z "$git_prev" ]; then
@@ -4156,12 +4233,12 @@ __run_git_setup_automated() {
   fi
   __split_create_repo "$repo_url" || printf_exit "$git_prev repo does not exist"
   __run_git_init_automated "$git_dir" "$git_url"
-  GITADMIN_EXITCODE=$?
-  if [ $GITADMIN_EXITCODE -ne 0 ]; then
+  exit_code=$?
+  if [ $exit_code -ne 0 ]; then
     printf_red "Initialization has failed"
   fi
   echo ""
-  exit $GITADMIN_EXITCODE
+  exit $exit_code
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_git_init_automated() {
@@ -4179,19 +4256,19 @@ __run_git_init_automated() {
     [ ! -f "$git_dir/.no_push" ] && git -C "$git_dir" push -q -f --set-upstream origin "$GITADMIN_DEFAULT_BRANCH" &>/dev/null || return
     git -C "$git_dir" remote show origin 2>&1 | grep -q 'Repository not found' && git_push="n"
     [ "$git_push" = "n" ] && printf_yellow "The remote repository wasn't found: not pushing" || __git_push "$git_dir"
-    GITADMIN_EXITCODE=$?
-    if [ -d "$git_dir/.git" ] && [ "$GITADMIN_EXITCODE" = 0 ]; then
+    exit_code=$?
+    if [ -d "$git_dir/.git" ] && [ "$exit_code" = 0 ]; then
       [ "$git_push" = "n" ] || printf_green "✅ Successfully pushed to $(__strip_git_url "$git_repo")"
-      GITADMIN_EXITCODE=0
+      exit_code=0
     else
       printf_red "Push to $git_repo has failed"
-      GITADMIN_EXITCODE=1
+      exit_code=1
     fi
   else
     printf_red "No remote repo specified"
-    GITADMIN_EXITCODE=1
+    exit_code=1
   fi
-  return ${GITADMIN_EXITCODE:-$?}
+  return ${exit_code:-$?}
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Makes a new jeckyll site
@@ -4224,7 +4301,7 @@ __git_retrieve_orgs() {
   else
     git_user="$(__curl_gh_api "$api_url/users/$git_user/orgs?per_page=1000" | __jq -rc '.[].login' 2>/dev/null | sort -u | grep '^')"
   fi
-  export GIT_ALL_REPOS="${git_user}"
+  export GITADMIN_ALL_REPOS="${git_user}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_all_orgs_clone() {
@@ -4234,11 +4311,68 @@ __git_all_orgs_clone() {
   $0 user clone "$username"
 
   __git_retrieve_orgs "$username"
-  total="$(printf '%s\n' "$GIT_ALL_REPOS" | tr ' ' '\n ' | grep -v '^$' | grep '^' | wc -l)"
+  total="$(printf '%s\n' "$GITADMIN_ALL_REPOS" | tr ' ' '\n ' | grep -v '^$' | grep '^' | wc -l)"
   if [ -n "$total" ] && [ "$total" -gt 0 ]; then
     printf_blue "$username has $total organizations"
-    for org in $(printf '%s\n' "$GIT_ALL_REPOS" | tr ' ' '\n' | sort); do
+    for org in $(printf '%s\n' "$GITADMIN_ALL_REPOS" | tr ' ' '\n' | sort); do
       $0 org clone "$org"
+    done
+  else
+    printf_yellow "⚠️  No organizations found for $username ⚠️"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Push to all orgs owned by user
+__git_all_orgs_push() {
+  local username="${1:-$GITADMIN_DEFAULT_USERNAME}"
+
+  printf_blue "🚀 Pushing user repos for $username first 🚀"
+  __github_org_push_repos "$username"
+
+  __git_retrieve_orgs "$username"
+  total="$(printf '%s\n' "$GITADMIN_ALL_REPOS" | tr ' ' '\n ' | grep -v '^$' | grep '^' | wc -l)"
+  if [ -n "$total" ] && [ "$total" -gt 0 ]; then
+    printf_blue "$username has $total organizations"
+    for org in $(printf '%s\n' "$GITADMIN_ALL_REPOS" | tr ' ' '\n' | sort); do
+      printf_purple "🏢 Processing organization: $org"
+      __github_org_push_repos "$org"
+    done
+  else
+    printf_yellow "⚠️  No organizations found for $username ⚠️"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Pull from all orgs owned by user
+__git_all_orgs_pull() {
+  local username="${1:-$GITADMIN_DEFAULT_USERNAME}"
+  local repo_base="$GITADMIN_DEFAULT_REPO_BASE"
+
+  printf_blue "🚀 Pulling user repos for $username first 🚀"
+  GITADMIN_DEFAULT_USERNAME="$username"
+  GITADMIN_DEFAULT_REPO_BASE="$repo_base/$username"
+  __api_user_token "$username"
+  __curl_gh_api "$GITADMIN_GITHUB_API_REPO" | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
+  repo_count="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
+  if [ -n "$repo_count" ]; then
+    printf_blue "There's currently $repo_count repos available for $username"
+    __main "$username"
+  fi
+
+  __git_retrieve_orgs "$username"
+  total="$(printf '%s\n' "$GITADMIN_ALL_REPOS" | tr ' ' '\n ' | grep -v '^$' | grep '^' | wc -l)"
+  if [ -n "$total" ] && [ "$total" -gt 0 ]; then
+    printf_blue "$username has $total organizations"
+    for org in $(printf '%s\n' "$GITADMIN_ALL_REPOS" | tr ' ' '\n' | sort); do
+      printf_purple "🏢 Processing organization: $org"
+      GITADMIN_DEFAULT_USERNAME="$org"
+      GITADMIN_DEFAULT_REPO_BASE="$repo_base/$org"
+      __api_user_token "$org"
+      __curl_gh_api "$GITADMIN_GITHUB_API_REPO" | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
+      repo_count="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
+      if [ -n "$repo_count" ]; then
+        printf_blue "There's currently $repo_count repos available for $org"
+        __main "$org"
+      fi
     done
   else
     printf_yellow "⚠️  No organizations found for $username ⚠️"
@@ -4266,6 +4400,26 @@ __bitbucket_all_workspaces_clone() {
   done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Push all Bitbucket workspaces
+__bitbucket_all_workspaces_push() {
+  __bitbucket_retrieve_workspaces "${1:-$GITADMIN_BITBUCKET_USERNAME}"
+  total="$(printf '%s\n' "$BITBUCKET_ALL_WORKSPACES" | tr ' ' '\n ' | grep -v '^$' | grep '^' | wc -l)"
+  [ -n "$total" ] && printf_blue "${1:-$GITADMIN_BITBUCKET_USERNAME} has $total workspaces"
+  for workspace in $BITBUCKET_ALL_WORKSPACES; do
+    $0 bitbucket push "$workspace"
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Pull all Bitbucket workspaces
+__bitbucket_all_workspaces_pull() {
+  __bitbucket_retrieve_workspaces "${1:-$GITADMIN_BITBUCKET_USERNAME}"
+  total="$(printf '%s\n' "$BITBUCKET_ALL_WORKSPACES" | tr ' ' '\n ' | grep -v '^$' | grep '^' | wc -l)"
+  [ -n "$total" ] && printf_blue "${1:-$GITADMIN_BITBUCKET_USERNAME} has $total workspaces"
+  for workspace in $BITBUCKET_ALL_WORKSPACES; do
+    $0 bitbucket pull "$workspace"
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Retrieve all Codeberg organizations
 __codeberg_retrieve_orgs() {
   local user="${1:-$GITADMIN_CODEBERG_USERNAME}"
@@ -4284,6 +4438,26 @@ __codeberg_all_orgs_clone() {
   [ -n "$total" ] && printf_blue "${1:-$GITADMIN_CODEBERG_USERNAME} has $total organizations"
   for org in $CODEBERG_ALL_ORGS; do
     $0 codeberg clone "$org"
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Push all Codeberg organizations
+__codeberg_all_orgs_push() {
+  __codeberg_retrieve_orgs "${1:-$GITADMIN_CODEBERG_USERNAME}"
+  total="$(printf '%s\n' "$CODEBERG_ALL_ORGS" | tr ' ' '\n ' | grep -v '^$' | grep '^' | wc -l)"
+  [ -n "$total" ] && printf_blue "${1:-$GITADMIN_CODEBERG_USERNAME} has $total organizations"
+  for org in $CODEBERG_ALL_ORGS; do
+    $0 codeberg push "$org"
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Pull all Codeberg organizations
+__codeberg_all_orgs_pull() {
+  __codeberg_retrieve_orgs "${1:-$GITADMIN_CODEBERG_USERNAME}"
+  total="$(printf '%s\n' "$CODEBERG_ALL_ORGS" | tr ' ' '\n ' | grep -v '^$' | grep '^' | wc -l)"
+  [ -n "$total" ] && printf_blue "${1:-$GITADMIN_CODEBERG_USERNAME} has $total organizations"
+  for org in $CODEBERG_ALL_ORGS; do
+    $0 codeberg pull "$org"
   done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -4312,6 +4486,26 @@ __forgejo_all_orgs_clone() {
   done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Push all Forgejo organizations
+__forgejo_all_orgs_push() {
+  __forgejo_retrieve_orgs "${1:-$GITADMIN_FORGEJO_USERNAME}"
+  total="$(printf '%s\n' "$FORGEJO_ALL_ORGS" | tr ' ' '\n ' | grep -v '^$' | grep '^' | wc -l)"
+  [ -n "$total" ] && printf_blue "${1:-$GITADMIN_FORGEJO_USERNAME} has $total organizations"
+  for org in $FORGEJO_ALL_ORGS; do
+    $0 forgejo push "$org"
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Pull all Forgejo organizations
+__forgejo_all_orgs_pull() {
+  __forgejo_retrieve_orgs "${1:-$GITADMIN_FORGEJO_USERNAME}"
+  total="$(printf '%s\n' "$FORGEJO_ALL_ORGS" | tr ' ' '\n ' | grep -v '^$' | grep '^' | wc -l)"
+  [ -n "$total" ] && printf_blue "${1:-$GITADMIN_FORGEJO_USERNAME} has $total organizations"
+  for org in $FORGEJO_ALL_ORGS; do
+    $0 forgejo pull "$org"
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Retrieve all Gitea organizations
 __gitea_retrieve_orgs() {
   local user="${1:-$GITADMIN_GITEA_USERNAME}"
@@ -4334,6 +4528,26 @@ __gitea_all_orgs_clone() {
   [ -n "$total" ] && printf_blue "${1:-$GITADMIN_GITEA_USERNAME} has $total organizations"
   for org in $GITEA_ALL_ORGS; do
     $0 gitea clone "$org"
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Push all Gitea organizations
+__gitea_all_orgs_push() {
+  __gitea_retrieve_orgs "${1:-$GITADMIN_GITEA_USERNAME}"
+  total="$(printf '%s\n' "$GITEA_ALL_ORGS" | tr ' ' '\n ' | grep -v '^$' | grep '^' | wc -l)"
+  [ -n "$total" ] && printf_blue "${1:-$GITADMIN_GITEA_USERNAME} has $total organizations"
+  for org in $GITEA_ALL_ORGS; do
+    $0 gitea push "$org"
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Pull all Gitea organizations
+__gitea_all_orgs_pull() {
+  __gitea_retrieve_orgs "${1:-$GITADMIN_GITEA_USERNAME}"
+  total="$(printf '%s\n' "$GITEA_ALL_ORGS" | tr ' ' '\n ' | grep -v '^$' | grep '^' | wc -l)"
+  [ -n "$total" ] && printf_blue "${1:-$GITADMIN_GITEA_USERNAME} has $total organizations"
+  for org in $GITEA_ALL_ORGS; do
+    $0 gitea pull "$org"
   done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -4362,6 +4576,26 @@ __gogs_all_orgs_clone() {
   done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Push all Gogs organizations
+__gogs_all_orgs_push() {
+  __gogs_retrieve_orgs "${1:-$GITADMIN_GOGS_USERNAME}"
+  total="$(printf '%s\n' "$GOGS_ALL_ORGS" | tr ' ' '\n ' | grep -v '^$' | grep '^' | wc -l)"
+  [ -n "$total" ] && printf_blue "${1:-$GITADMIN_GOGS_USERNAME} has $total organizations"
+  for org in $GOGS_ALL_ORGS; do
+    $0 gogs push "$org"
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Pull all Gogs organizations
+__gogs_all_orgs_pull() {
+  __gogs_retrieve_orgs "${1:-$GITADMIN_GOGS_USERNAME}"
+  total="$(printf '%s\n' "$GOGS_ALL_ORGS" | tr ' ' '\n ' | grep -v '^$' | grep '^' | wc -l)"
+  [ -n "$total" ] && printf_blue "${1:-$GITADMIN_GOGS_USERNAME} has $total organizations"
+  for org in $GOGS_ALL_ORGS; do
+    $0 gogs pull "$org"
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 # Retrieve all Azure projects
 __azure_retrieve_projects() {
   local org="${1:-$GITADMIN_AZURE_ORGANIZATION}"
@@ -4383,6 +4617,26 @@ __azure_all_projects_clone() {
   [ -n "$total" ] && printf_blue "${1:-$GITADMIN_AZURE_ORGANIZATION} has $total projects"
   for project in $AZURE_ALL_PROJECTS; do
     $0 azure clone "$project"
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Push all Azure projects
+__azure_all_projects_push() {
+  __azure_retrieve_projects "${1:-$GITADMIN_AZURE_ORGANIZATION}"
+  total="$(printf '%s\n' "$AZURE_ALL_PROJECTS" | tr ' ' '\n ' | grep -v '^$' | grep '^' | wc -l)"
+  [ -n "$total" ] && printf_blue "${1:-$GITADMIN_AZURE_ORGANIZATION} has $total projects"
+  for project in $AZURE_ALL_PROJECTS; do
+    $0 azure push "$project"
+  done
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Pull all Azure projects
+__azure_all_projects_pull() {
+  __azure_retrieve_projects "${1:-$GITADMIN_AZURE_ORGANIZATION}"
+  total="$(printf '%s\n' "$AZURE_ALL_PROJECTS" | tr ' ' '\n ' | grep -v '^$' | grep '^' | wc -l)"
+  [ -n "$total" ] && printf_blue "${1:-$GITADMIN_AZURE_ORGANIZATION} has $total projects"
+  for project in $AZURE_ALL_PROJECTS; do
+    $0 azure pull "$project"
   done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -4595,7 +4849,7 @@ __github_delete_repo_user() {
 # Creates a new repo on github
 __github_create_repo() {
   local git_user="" git_repo="" git_describe="" git_visibility="" git_homepage=""
-  local git_failed="" git_succes="" GITADMIN_EXITCODE=0
+  local git_failed="" git_succes="" exit_code=0
 
   # Parse arguments - support: user/repo desc visibility homepage
   if echo "$1" | grep -q '/'; then
@@ -4624,26 +4878,26 @@ __github_create_repo() {
   if __api_repo_verify "$api_url" "$git_user" "$git_repo"; then
     # Repo already exists
     printf_cyan "$git_succes"
-    GITADMIN_EXITCODE=0
+    exit_code=0
   elif __curl_github_orgs_create "$git_user" "$git_repo" "$git_describe" "$git_homepage" "$git_visibility" || __curl_github_user_create "$git_user" "$git_repo" "$git_describe" "$git_homepage" "$git_visibility"; then
     sleep 5
     if __api_repo_verify "$api_url" "$git_user" "$git_repo" &>/dev/null; then
       printf_green "$git_succes"
-      GITADMIN_EXITCODE=0
+      exit_code=0
     else
       printf_yellow "$git_failed"
-      GITADMIN_EXITCODE=1
+      exit_code=1
     fi
   else
     printf_yellow "😠 An error occured while trying to create github.com/$git_user/$git_repo 😠"
-    GITADMIN_EXITCODE=1
+    exit_code=1
   fi
-  return "$GITADMIN_EXITCODE"
+  return "$exit_code"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Deletes a github repo
 __github_delete_repo() {
-  local git_user="" git_repo="" git_failed="" git_succes="" GITADMIN_EXITCODE=""
+  local git_user="" git_repo="" git_failed="" git_succes="" exit_code=""
   local api_url="https://api.github.com/repos"
   if echo "$1" | grep -q '/'; then
     git_user="$(echo "$@" | awk -F '/' '{print $(NF-1)}')"
@@ -4655,18 +4909,367 @@ __github_delete_repo() {
   if __api_repo_verify "$api_url" "$git_user" "$git_repo"; then
     git_failed="💢 Deletion of http://github.com/$git_user/$git_repo failed 💢"
     git_succes="🌱 Deletion of http://github.com/$git_user/$git_repo successful 🌱"
-    GITADMIN_EXITCODE=0
+    exit_code=0
     printf_green "🗑️ Deleting repo $git_repo for user $git_user"
     __github_delete_repo_user "$git_user" "$git_repo"
     if __api_repo_verify "$api_url" "$git_user" "$git_repo"; then
-      GITADMIN_EXITCODE=1
+      exit_code=1
     fi
   else
     printf_yellow "❔ The repo http://github.com/$git_user/$git_repo does not exist ❔"
     exit "1"
   fi
-  __getexitcode $GITADMIN_EXITCODE "$git_succes" "$git_failed"
-  return $GITADMIN_EXITCODE
+  __getexitcode $exit_code "$git_succes" "$git_failed"
+  return $exit_code
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if a GitHub name is an organization
+__github_is_org() {
+  local name="${1:-}"
+  [ -z "$name" ] && return 1
+  local response=""
+  response="$(__curl_gh_api "https://api.github.com/orgs/$name" 2>/dev/null)"
+  if echo "$response" | __jq -e '.login' >/dev/null 2>&1; then
+    return 0
+  fi
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get all repos for an org or user
+__github_get_repos_for_owner() {
+  local owner="${1:-}"
+  local is_org="${2:-}"
+  local repos=""
+  [ -z "$owner" ] && return 1
+  [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "🚫 ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
+  if [ "$is_org" = "true" ]; then
+    repos="$(__curl_gh_api "https://api.github.com/orgs/$owner/repos?per_page=100&sort=full_name" | __jq -r '.[].name' 2>/dev/null | grep -v '^$' | sort -u)"
+  else
+    repos="$(__curl_gh_api "https://api.github.com/users/$owner/repos?per_page=100&sort=full_name" | __jq -r '.[].name' 2>/dev/null | grep -v '^$' | sort -u)"
+  fi
+  printf '%s\n' "$repos"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get all releases for a repo
+__github_get_releases() {
+  local owner="${1:-}"
+  local repo="${2:-}"
+  [ -z "$owner" ] || [ -z "$repo" ] && return 1
+  [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "🚫 ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
+  # Return "id:tag_name" pairs for each release
+  __curl_gh_api "https://api.github.com/repos/$owner/$repo/releases?per_page=100" | __jq -r '.[] | "\(.id):\(.tag_name)"' 2>/dev/null | grep -v '^$'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Delete a git tag via GitHub API
+__github_delete_tag() {
+  local owner="${1:-}"
+  local repo="${2:-}"
+  local tag_name="${3:-}"
+  local http_code=""
+  [ -z "$owner" ] || [ -z "$repo" ] || [ -z "$tag_name" ] && return 1
+  [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "🚫 ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
+  http_code="$(curl -q -LSs -o /dev/null -w '%{http_code}' -X DELETE \
+    -H "Accept: application/vnd.github.v3+json" \
+    -H "Authorization: token ${GITADMIN_GITHUB_AUTH_TOKEN}" \
+    -H "X-GitHub-Api-Version: $GITADMIN_GITHUB_API_VERSION" \
+    "https://api.github.com/repos/$owner/$repo/git/refs/tags/$tag_name" 2>/dev/null)"
+  if [ "$http_code" = "204" ] || [ "$http_code" = "200" ]; then
+    return 0
+  fi
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Delete a single release by ID
+__github_delete_release() {
+  local owner="${1:-}"
+  local repo="${2:-}"
+  local release_id="${3:-}"
+  local http_code=""
+  [ -z "$owner" ] || [ -z "$repo" ] || [ -z "$release_id" ] && return 1
+  [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "🚫 ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
+  http_code="$(curl -q -LSs -o /dev/null -w '%{http_code}' -X DELETE \
+    -H "Accept: application/vnd.github.v3+json" \
+    -H "Authorization: token ${GITADMIN_GITHUB_AUTH_TOKEN}" \
+    -H "X-GitHub-Api-Version: $GITADMIN_GITHUB_API_VERSION" \
+    "https://api.github.com/repos/$owner/$repo/releases/$release_id" 2>/dev/null)"
+  if [ "$http_code" = "204" ] || [ "$http_code" = "200" ]; then
+    return 0
+  fi
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Delete all releases for a specific repo
+__github_delete_all_releases_repo() {
+  local owner="${1:-}"
+  local repo="${2:-}"
+  local releases="" release_data="" release_id="" tag_name="" deleted=0 failed=0
+  [ -z "$owner" ] || [ -z "$repo" ] && return 1
+  [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "🚫 ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
+  printf_cyan "🔍 Getting releases for $owner/$repo..."
+  releases="$(__github_get_releases "$owner" "$repo")"
+  if [ -z "$releases" ]; then
+    printf_yellow "📭 No releases found for $owner/$repo"
+    return 0
+  fi
+  local count="$(printf '%s\n' "$releases" | wc -l)"
+  printf_blue "🗑️  Found $count release(s) to delete for $owner/$repo"
+  for release_data in $releases; do
+    release_id="${release_data%%:*}"
+    tag_name="${release_data#*:}"
+    if __github_delete_release "$owner" "$repo" "$release_id"; then
+      printf_green "  ✅ Deleted release ID: $release_id"
+      if [ -n "$tag_name" ] && __github_delete_tag "$owner" "$repo" "$tag_name"; then
+        printf_green "  ✅ Deleted tag: $tag_name"
+      else
+        printf_yellow "  ⚠️  Could not delete tag: $tag_name"
+      fi
+      deleted=$((deleted + 1))
+    else
+      failed=$((failed + 1))
+      printf_red "  ❌ Failed to delete release ID: $release_id"
+    fi
+  done
+  printf_blue "📊 Summary for $owner/$repo: $deleted deleted, $failed failed"
+  [ $failed -eq 0 ] && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Delete all releases for all repos of a user/org
+__github_delete_all_releases_orgs() {
+  local username="${1:-$GITADMIN_DEFAULT_USERNAME}"
+  local total_deleted=0 total_failed=0 total_repos=0
+  local repos="" repo="" is_org=""
+  [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "🚫 ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
+  [ -z "$username" ] && printf_exit "Please provide a username"
+  printf_blue "🔍 Checking if '$username' is an organization or user..."
+  if __github_is_org "$username"; then
+    printf_cyan "📁 '$username' is an organization"
+    is_org="true"
+    # Get all repos for this org
+    printf_blue "🚀 Getting all repos for org: $username"
+    repos="$(__github_get_repos_for_owner "$username" "true")"
+    if [ -n "$repos" ]; then
+      for repo in $repos; do
+        total_repos=$((total_repos + 1))
+        __github_delete_all_releases_repo "$username" "$repo"
+      done
+    else
+      printf_yellow "📭 No repos found for org: $username"
+    fi
+  else
+    printf_cyan "👤 '$username' is a user"
+    # First, get user's own repos
+    printf_blue "🚀 Getting all repos for user: $username"
+    repos="$(__github_get_repos_for_owner "$username" "false")"
+    if [ -n "$repos" ]; then
+      for repo in $repos; do
+        total_repos=$((total_repos + 1))
+        __github_delete_all_releases_repo "$username" "$repo"
+      done
+    else
+      printf_yellow "📭 No personal repos found for user: $username"
+    fi
+    # Then, get all orgs the user owns and process them
+    printf_blue "🔍 Getting organizations owned by $username..."
+    __git_retrieve_orgs "$username"
+    local orgs="$GITADMIN_ALL_REPOS"
+    if [ -n "$orgs" ]; then
+      local org_count="$(printf '%s\n' "$orgs" | tr ' ' '\n' | grep -v '^$' | wc -l)"
+      printf_blue "📁 Found $org_count organization(s) for $username"
+      for org in $(printf '%s\n' "$orgs" | tr ' ' '\n' | grep -v '^$'); do
+        printf_purple "🏢 Processing organization: $org"
+        repos="$(__github_get_repos_for_owner "$org" "true")"
+        if [ -n "$repos" ]; then
+          for repo in $repos; do
+            total_repos=$((total_repos + 1))
+            __github_delete_all_releases_repo "$org" "$repo"
+          done
+        else
+          printf_yellow "  📭 No repos found for org: $org"
+        fi
+      done
+    else
+      printf_yellow "📭 No organizations found for user: $username"
+    fi
+  fi
+  printf_newline
+  printf_blue "🏁 Completed processing $total_repos repositories"
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get all tags for a repo
+__github_get_tags() {
+  local owner="${1:-}"
+  local repo="${2:-}"
+  [ -z "$owner" ] || [ -z "$repo" ] && return 1
+  [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "🚫 ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
+  __curl_gh_api "https://api.github.com/repos/$owner/$repo/tags?per_page=100" | __jq -r '.[].name' 2>/dev/null | grep -v '^$'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get release ID for a specific tag (returns empty if no release)
+__github_get_release_for_tag() {
+  local owner="${1:-}"
+  local repo="${2:-}"
+  local tag_name="${3:-}"
+  [ -z "$owner" ] || [ -z "$repo" ] || [ -z "$tag_name" ] && return 1
+  [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "🚫 ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
+  __curl_gh_api "https://api.github.com/repos/$owner/$repo/releases/tags/$tag_name" 2>/dev/null | __jq -r '.id // empty' 2>/dev/null
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Delete all tags (and associated releases) for a specific repo
+__github_delete_all_tags_repo() {
+  local owner="${1:-}"
+  local repo="${2:-}"
+  local tags="" tag_name="" release_id="" deleted=0 failed=0
+  [ -z "$owner" ] || [ -z "$repo" ] && return 1
+  [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "🚫 ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
+  printf_cyan "🔍 Getting tags for $owner/$repo..."
+  tags="$(__github_get_tags "$owner" "$repo")"
+  if [ -z "$tags" ]; then
+    printf_yellow "📭 No tags found for $owner/$repo"
+    return 0
+  fi
+  local count="$(printf '%s\n' "$tags" | wc -l)"
+  printf_blue "🏷️  Found $count tag(s) to remove for $owner/$repo"
+  for tag_name in $tags; do
+    # Check if tag has an associated release
+    release_id="$(__github_get_release_for_tag "$owner" "$repo" "$tag_name")"
+    if [ -n "$release_id" ]; then
+      if __github_delete_release "$owner" "$repo" "$release_id"; then
+        printf_green "  ✅ Deleted release ID: $release_id (for tag: $tag_name)"
+      else
+        printf_yellow "  ⚠️  Could not delete release ID: $release_id"
+      fi
+    fi
+    # Delete the tag
+    if __github_delete_tag "$owner" "$repo" "$tag_name"; then
+      printf_green "  ✅ Deleted tag: $tag_name"
+      deleted=$((deleted + 1))
+    else
+      failed=$((failed + 1))
+      printf_red "  ❌ Failed to delete tag: $tag_name"
+    fi
+  done
+  printf_blue "📊 Summary for $owner/$repo: $deleted deleted, $failed failed"
+  [ $failed -eq 0 ] && return 0 || return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Delete all tags for all repos of a user/org
+__github_delete_all_tags_orgs() {
+  local username="${1:-$GITADMIN_DEFAULT_USERNAME}"
+  local total_repos=0
+  local repos="" repo=""
+  [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "🚫 ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
+  [ -z "$username" ] && printf_exit "Please provide a username"
+  printf_blue "🔍 Checking if '$username' is an organization or user..."
+  if __github_is_org "$username"; then
+    printf_cyan "📁 '$username' is an organization"
+    printf_blue "🚀 Getting all repos for org: $username"
+    repos="$(__github_get_repos_for_owner "$username" "true")"
+    if [ -n "$repos" ]; then
+      for repo in $repos; do
+        total_repos=$((total_repos + 1))
+        __github_delete_all_tags_repo "$username" "$repo"
+      done
+    else
+      printf_yellow "📭 No repos found for org: $username"
+    fi
+  else
+    printf_cyan "👤 '$username' is a user"
+    printf_blue "🚀 Getting all repos for user: $username"
+    repos="$(__github_get_repos_for_owner "$username" "false")"
+    if [ -n "$repos" ]; then
+      for repo in $repos; do
+        total_repos=$((total_repos + 1))
+        __github_delete_all_tags_repo "$username" "$repo"
+      done
+    else
+      printf_yellow "📭 No personal repos found for user: $username"
+    fi
+    printf_blue "🔍 Getting organizations owned by $username..."
+    __git_retrieve_orgs "$username"
+    local orgs="$GITADMIN_ALL_REPOS"
+    if [ -n "$orgs" ]; then
+      local org_count="$(printf '%s\n' "$orgs" | tr ' ' '\n' | grep -v '^$' | wc -l)"
+      printf_blue "📁 Found $org_count organization(s) for $username"
+      for org in $(printf '%s\n' "$orgs" | tr ' ' '\n' | grep -v '^$'); do
+        printf_purple "🏢 Processing organization: $org"
+        repos="$(__github_get_repos_for_owner "$org" "true")"
+        if [ -n "$repos" ]; then
+          for repo in $repos; do
+            total_repos=$((total_repos + 1))
+            __github_delete_all_tags_repo "$org" "$repo"
+          done
+        else
+          printf_yellow "  📭 No repos found for org: $org"
+        fi
+      done
+    else
+      printf_yellow "📭 No organizations found for user: $username"
+    fi
+  fi
+  printf_newline
+  printf_blue "🏁 Completed processing $total_repos repositories"
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Delete all releases for a specific user/org (scoped - no org expansion)
+__github_delete_all_releases_user() {
+  local username="${1:-}"
+  local total_repos=0
+  local repos="" repo=""
+  [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "🚫 ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
+  [ -z "$username" ] && printf_exit "Please provide a username"
+  printf_blue "🔍 Checking if '$username' is an organization or user..."
+  if __github_is_org "$username"; then
+    printf_cyan "📁 '$username' is an organization"
+    printf_blue "🚀 Getting all repos for org: $username"
+    repos="$(__github_get_repos_for_owner "$username" "true")"
+  else
+    printf_cyan "👤 '$username' is a user"
+    printf_blue "🚀 Getting all repos for user: $username"
+    repos="$(__github_get_repos_for_owner "$username" "false")"
+  fi
+  if [ -n "$repos" ]; then
+    for repo in $repos; do
+      total_repos=$((total_repos + 1))
+      __github_delete_all_releases_repo "$username" "$repo"
+    done
+  else
+    printf_yellow "📭 No repos found for: $username"
+  fi
+  printf_newline
+  printf_blue "🏁 Completed processing $total_repos repositories for $username"
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Delete all tags for a specific user/org (scoped - no org expansion)
+__github_delete_all_tags_user() {
+  local username="${1:-}"
+  local total_repos=0
+  local repos="" repo=""
+  [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_red "🚫 ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set" && return 1
+  [ -z "$username" ] && printf_exit "Please provide a username"
+  printf_blue "🔍 Checking if '$username' is an organization or user..."
+  if __github_is_org "$username"; then
+    printf_cyan "📁 '$username' is an organization"
+    printf_blue "🚀 Getting all repos for org: $username"
+    repos="$(__github_get_repos_for_owner "$username" "true")"
+  else
+    printf_cyan "👤 '$username' is a user"
+    printf_blue "🚀 Getting all repos for user: $username"
+    repos="$(__github_get_repos_for_owner "$username" "false")"
+  fi
+  if [ -n "$repos" ]; then
+    for repo in $repos; do
+      total_repos=$((total_repos + 1))
+      __github_delete_all_tags_repo "$username" "$repo"
+    done
+  else
+    printf_yellow "📭 No repos found for: $username"
+  fi
+  printf_newline
+  printf_blue "🏁 Completed processing $total_repos repositories for $username"
+  return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Reusable function for create repo
@@ -4773,17 +5376,17 @@ __git_push_mirror() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # push local repo
 __git_push_single() {
-  local SET_BASE_REPO="" GITADMIN_EXITCODE="0" username="" user_repo=""
+  local set_base_repo="" exit_code="0" username="" user_repo=""
   SUCCESS_MSG() { echo "👾 Push to $(__git_remote_origin "${GITADMIN_NEW_PROJECT_DIR:-$GITADMIN_CWD}") has completed 👾"; }
   FAILED_MSG() { echo "😿 Push to $(__git_remote_origin "${GITADMIN_NEW_PROJECT_DIR:-$GITADMIN_CWD}") has failed 😿"; }
-  SET_BASE_REPO="$1"
-  GITADMIN_CWD_NAME="$(basename -- "${SET_BASE_REPO:-$GITADMIN_CWD}")"
-  [ -d "$SET_BASE_REPO" ] && shift 1
-  if [ -d "$SET_BASE_REPO/.git" ]; then
-    printf_custom "4" "🐛 Pushing the repo in $SET_BASE_REPO 🐛"
-    __git_push_mirror "$SET_BASE_REPO"
-    __git_auto_push "$SET_BASE_REPO" && GITADMIN_EXITCODE=0 || GITADMIN_EXITCODE=1
-    __getexitcode $GITADMIN_EXITCODE "$(SUCCESS_MSG)" "$(FAILED_MSG)"
+  set_base_repo="$1"
+  GITADMIN_CWD_NAME="$(basename -- "${set_base_repo:-$GITADMIN_CWD}")"
+  [ -d "$set_base_repo" ] && shift 1
+  if [ -d "$set_base_repo/.git" ]; then
+    printf_custom "4" "🐛 Pushing the repo in $set_base_repo 🐛"
+    __git_push_mirror "$set_base_repo"
+    __git_auto_push "$set_base_repo" && exit_code=0 || exit_code=1
+    __getexitcode $exit_code "$(SUCCESS_MSG)" "$(FAILED_MSG)"
   else
     if [ -n "$1" ]; then
       GITADMIN_CWD_NAME="$(__git_hostname "$1")"
@@ -4797,45 +5400,45 @@ __git_push_single() {
     if [ -d "$GITADMIN_NEW_PROJECT_DIR/.git" ]; then
       printf_custom "4" "🐛 Pushing the repo in $GITADMIN_NEW_PROJECT_DIR 🐛"
       __git_push_mirror "$GITADMIN_NEW_PROJECT_DIR"
-      __git_auto_push "$GITADMIN_NEW_PROJECT_DIR" && GITADMIN_EXITCODE=0 || GITADMIN_EXITCODE=1
-      __getexitcode $GITADMIN_EXITCODE "$(SUCCESS_MSG)" "$(FAILED_MSG)"
+      __git_auto_push "$GITADMIN_NEW_PROJECT_DIR" && exit_code=0 || exit_code=1
+      __getexitcode $exit_code "$(SUCCESS_MSG)" "$(FAILED_MSG)"
     else
-      GITADMIN_EXITCODE=1
+      exit_code=1
     fi
   fi
-  return $GITADMIN_EXITCODE
+  return $exit_code
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # pull a single repo
 __git_pull_single() {
-  local SET_BASE_REPO="" GITADMIN_EXITCODE="0" username="" user_repo=""
+  local set_base_repo="" exit_code="0" username="" user_repo=""
   SUCCESS_MSG() { echo "Pull from $(__git_remote_origin "${GITADMIN_NEW_PROJECT_DIR:-$GITADMIN_CWD}") has completed"; }
   FAILED_MSG() { echo "Pull from $(__git_remote_origin "${GITADMIN_NEW_PROJECT_DIR:-$GITADMIN_CWD}") has failed"; }
-  SET_BASE_REPO="$1"
-  GITADMIN_CWD="$(realpath $SET_BASE_REPO)"
-  GITADMIN_CWD_NAME="$(basename -- "${SET_BASE_REPO:-$GITADMIN_CWD}")"
-  [ -d "$SET_BASE_REPO" ] && shift 1
+  set_base_repo="$1"
+  GITADMIN_CWD="$(realpath $set_base_repo)"
+  GITADMIN_CWD_NAME="$(basename -- "${set_base_repo:-$GITADMIN_CWD}")"
+  [ -d "$set_base_repo" ] && shift 1
   if [ -d "$GITADMIN_CWD/.git" ]; then
     printf_custom "4" "Updating the repo in $GITADMIN_CWD"
-    __git_auto_pull "$GITADMIN_CWD" && GITADMIN_EXITCODE=0 || GITADMIN_EXITCODE=1
-    __getexitcode $GITADMIN_EXITCODE "$(SUCCESS_MSG)" "$(FAILED_MSG)"
+    __git_auto_pull "$GITADMIN_CWD" && exit_code=0 || exit_code=1
+    __getexitcode $exit_code "$(SUCCESS_MSG)" "$(FAILED_MSG)"
   else
-    if [ -n "$SET_BASE_REPO" ]; then
-      __git_username_repo "$SET_BASE_REPO"
-      GITADMIN_CWD_NAME="$(__git_hostname "$SET_BASE_REPO")"
+    if [ -n "$set_base_repo" ]; then
+      __git_username_repo "$set_base_repo"
+      GITADMIN_CWD_NAME="$(__git_hostname "$set_base_repo")"
       GITADMIN_NEW_PROJECT_DIR="$1"
     else
       GITADMIN_NEW_PROJECT_DIR="${GITADMIN_NEW_PROJECT_DIR:-$GITADMIN_DEFAULT_PROJECT_DIR/$GITADMIN_CWD_NAME/$username/$userrepo}"
     fi
     if [ -d "$GITADMIN_NEW_PROJECT_DIR/.git" ]; then
       printf_custom "4" "Updating the repo in $GITADMIN_NEW_PROJECT_DIR"
-      __git_auto_pull "$GITADMIN_NEW_PROJECT_DIR" && GITADMIN_EXITCODE=0 || GITADMIN_EXITCODE=1
+      __git_auto_pull "$GITADMIN_NEW_PROJECT_DIR" && exit_code=0 || exit_code=1
       __getexitcode $GITADMIN_NEW_PROJECT_DIR "$(SUCCESS_MSG)" "$(FAILED_MSG)"
     else
       return 1
     fi
   fi
-  return "${GITADMIN_EXITCODE:-$?}"
+  return "${exit_code:-$?}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # smart merge with conflict detection
@@ -5176,22 +5779,22 @@ __git_merge_resolve() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # clone a single repo
 __git_clone_single() {
-  local set_url="$1" git_url="" FAILED_MSG="" SUCCESS_MSG="" GITADMIN_EXITCODE=""
+  local set_url="$1" git_url="" FAILED_MSG="" SUCCESS_MSG="" exit_code=""
   git_url="$set_url"
   __git_username_repo "$git_url"
   GITADMIN_NEW_PROJECT_DIR="${2:-$GITADMIN_NEW_PROJECT_DIR}"
   GITADMIN_NEW_PROJECT_DIR="${GITADMIN_NEW_PROJECT_DIR:-$GITADMIN_DEFAULT_PROJECT_DIR/$GITADMIN_CWD_NAME/$username/$userrepo}"
   FAILED_MSG="😿 Cloning from $git_url has failed 😿"
   SUCCESS_MSG="😻 Cloning from $git_url has completed 😻"
-  GITADMIN_EXITCODE=0
+  exit_code=0
   if [ -d "$GITADMIN_NEW_PROJECT_DIR/.git" ]; then
     printf_custom "4" "👾 Updating the repo in $GITADMIN_NEW_PROJECT_DIR 👾"
-    __git_pull "$GITADMIN_NEW_PROJECT_DIR" && GITADMIN_EXITCODE=0 || GITADMIN_EXITCODE=1
-    __getexitcode $GITADMIN_EXITCODE "$SUCCESS_MSG" "$FAILED_MSG"
+    __git_pull "$GITADMIN_NEW_PROJECT_DIR" && exit_code=0 || exit_code=1
+    __getexitcode $exit_code "$SUCCESS_MSG" "$FAILED_MSG"
   else
     printf_custom "4" "👾 Cloning the repo to $GITADMIN_NEW_PROJECT_DIR 👾 "
-    __git_clone "$git_url" "$GITADMIN_NEW_PROJECT_DIR" && GITADMIN_EXITCODE=0 || GITADMIN_EXITCODE=1
-    __getexitcode $GITADMIN_EXITCODE "$SUCCESS_MSG" "$FAILED_MSG"
+    __git_clone "$git_url" "$GITADMIN_NEW_PROJECT_DIR" && exit_code=0 || exit_code=1
+    __getexitcode $exit_code "$SUCCESS_MSG" "$FAILED_MSG"
   fi
   return "$?"
 }
@@ -5304,7 +5907,7 @@ __clone_orgs() {
   GITADMIN_NEW_PROJECT_DIR="$GITADMIN_DEFAULT_PROJECT_DIR/github"
   __api_smart_org_or_user "$GITADMIN_DEFAULT_USERNAME" || return 1
   printf_green "$MESSAGE"
-  printf_blue "There's currently $COUNT repos available"
+  printf_blue "There's currently $repo_count repos available"
   __main "$GITADMIN_DEFAULT_REPO_BASE"
   return $?
 }
@@ -5416,10 +6019,10 @@ __github_user_clone_repos() {
   GITADMIN_DEFAULT_USERNAME="${1:-$GITADMIN_DEFAULT_USERNAME}"
   GITADMIN_DEFAULT_REPO_BASE="$GITADMIN_DEFAULT_REPO_BASE/$GITADMIN_DEFAULT_USERNAME"
   if __api_smart_user_or_org "$GITADMIN_DEFAULT_USERNAME"; then
-    COUNT="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
-    if [ "$COUNT" -gt 0 ]; then
+    repo_count="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
+    if [ "$repo_count" -gt 0 ]; then
       printf_green "$MESSAGE"
-      printf_blue "There's currently $COUNT repos available"
+      printf_blue "There's currently $repo_count repos available"
       printf_green "Initializing $GITADMIN_DEFAULT_REPO_BASE"
       __main "$GITADMIN_DEFAULT_USERNAME"
       exitCode=$?
@@ -5439,10 +6042,10 @@ __github_org_clone_repos() {
   GITADMIN_DEFAULT_USERNAME="${1:-$GITADMIN_DEFAULT_USERNAME}"
   GITADMIN_DEFAULT_REPO_BASE="$GITADMIN_DEFAULT_REPO_BASE/$GITADMIN_DEFAULT_USERNAME"
   if __api_smart_org_or_user "$GITADMIN_DEFAULT_USERNAME"; then
-    COUNT="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
-    if [ "$COUNT" -gt 0 ]; then
+    repo_count="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
+    if [ "$repo_count" -gt 0 ]; then
       printf_green "$MESSAGE"
-      printf_blue "There's currently $COUNT repos available"
+      printf_blue "There's currently $repo_count repos available"
       printf_green "Initializing $GITADMIN_DEFAULT_REPO_BASE"
       __main "$GITADMIN_DEFAULT_USERNAME"
       exitCode=$?
@@ -5462,10 +6065,10 @@ __github_org_list_repos() {
   GITADMIN_DEFAULT_USERNAME="${1:-$GITADMIN_DEFAULT_USERNAME}"
   GITADMIN_DEFAULT_REPO_BASE="https://github.com/$GITADMIN_DEFAULT_USERNAME"
   __api_org_token "$GITADMIN_DEFAULT_USERNAME" | sort -u >"$GITADMIN_TEMP_FILE" || echo >>"$GITADMIN_TEMP_FILE"
-  COUNT="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
-  if [ -n "$COUNT" ]; then
+  repo_count="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
+  if [ -n "$repo_count" ]; then
     printf_green "$MESSAGE"
-    printf_blue "There's currently $COUNT repos available"
+    printf_blue "There's currently $repo_count repos available"
     printf_green "Initializing $GITADMIN_DEFAULT_REPO_BASE"
     __file_exists_and_not_empty "$GITADMIN_TEMP_FILE" && cat "$GITADMIN_TEMP_FILE" | printf_column "5" || exitCode=2
   else
@@ -5475,18 +6078,40 @@ __github_org_list_repos() {
   return $exitCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# List repos for user and all their organizations
+__github_all_orgs_list_repos() {
+  local username="${1:-$GITADMIN_DEFAULT_USERNAME}"
+  local exitCode=0
+
+  printf_blue "🚀 Listing repos for $username 🚀"
+  __github_org_list_repos "$username" || exitCode=$((exitCode + 1))
+
+  __git_retrieve_orgs "$username"
+  local total="$(printf '%s\n' "$GITADMIN_ALL_REPOS" | tr ' ' '\n ' | grep -v '^$' | grep '^' | wc -l)"
+  if [ -n "$total" ] && [ "$total" -gt 0 ]; then
+    printf_blue "$username has $total organizations"
+    for org in $(printf '%s\n' "$GITADMIN_ALL_REPOS" | tr ' ' '\n' | sort); do
+      printf_purple "🏢 Organization: $org"
+      __github_org_list_repos "$org" || exitCode=$((exitCode + 1))
+    done
+  else
+    printf_yellow "⚠️  No organizations found for $username ⚠️"
+  fi
+  return $exitCode
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __github_org_push_repos() {
   local exitCode=0
   local ERROR SUCCES
-  local GIT_MAIN_FILE="${GITADMIN_MAIN_CONF_NAME:-gitmainconfig}"
+  local git_main_file="${GITADMIN_MAIN_CONF_NAME:-gitmainconfig}"
   GITADMIN_DEFAULT_USERNAME="${1:-$GITADMIN_DEFAULT_USERNAME}"
   GITADMIN_DEFAULT_REPO_BASE="$GITADMIN_DEFAULT_REPO_BASE/$GITADMIN_DEFAULT_USERNAME"
   __api_user_token "$GITADMIN_DEFAULT_USERNAME"
-  __curl_gh_api "$GITHUBAPIREPO" | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
-  COUNT="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
-  if [ -n "$COUNT" ]; then
+  __curl_gh_api "$GITADMIN_GITHUB_API_REPO" | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
+  repo_count="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
+  if [ -n "$repo_count" ]; then
     printf_green "$MESSAGE"
-    printf_blue "There's currently $COUNT repos available"
+    printf_blue "There's currently $repo_count repos available"
     printf_green "Initializing $GITADMIN_DEFAULT_REPO_BASE"
     repo_list="$(<"$GITADMIN_TEMP_FILE")"
     for i in $repo_list; do
@@ -5494,8 +6119,8 @@ __github_org_push_repos() {
         printf_purple "Now running git push $1/$i"
         ERROR="git push failed for $GITADMIN_DEFAULT_USERNAME/$i"
         SUCCES="git push completed for $GITADMIN_DEFAULT_USERNAME/$i"
-        if [ -f "$GITADMIN_DEFAULT_PROJECT_DIR/$GITADMIN_DEFAULT_USERNAME/$i/$GIT_MAIN_FILE" ] && [ ! -L "$GITADMIN_DEFAULT_PROJECT_DIR/$GITADMIN_DEFAULT_USERNAME/$i/.git/config" ]; then
-          cp -Rf "$GITADMIN_DEFAULT_PROJECT_DIR/$GITADMIN_DEFAULT_USERNAME/$i/$GIT_MAIN_FILE" "$GITADMIN_DEFAULT_PROJECT_DIR/$GITADMIN_DEFAULT_USERNAME/$i/.git/config"
+        if [ -f "$GITADMIN_DEFAULT_PROJECT_DIR/$GITADMIN_DEFAULT_USERNAME/$i/$git_main_file" ] && [ ! -L "$GITADMIN_DEFAULT_PROJECT_DIR/$GITADMIN_DEFAULT_USERNAME/$i/.git/config" ]; then
+          cp -Rf "$GITADMIN_DEFAULT_PROJECT_DIR/$GITADMIN_DEFAULT_USERNAME/$i/$git_main_file" "$GITADMIN_DEFAULT_PROJECT_DIR/$GITADMIN_DEFAULT_USERNAME/$i/.git/config"
         fi
         if (__devnull2 git -C "$GITADMIN_DEFAULT_PROJECT_DIR/$GITADMIN_DEFAULT_USERNAME/$i" status | grep -q "working tree clean"); then
           __getexitcode "$?" "$ERROR" "$SUCCES"
@@ -5680,7 +6305,7 @@ __github_orgs_visibility() {
 
   *)
     printf_red "Invalid option: $visibility"
-    printf_yellow "Usage: gitadmin github orgs visibility [show|public|private] [orgName]"
+    printf_yellow "Usage: $APPNAME github orgs visibility [show|public|private] [orgName]"
     return 1
     ;;
   esac
@@ -6401,13 +7026,53 @@ tag)
     ;;
   remove)
     shift 1
-    [ $# -ne 0 ] || printf_exit "$APPNAME tag remove [tag]"
-    if __git_tag_del "$@"; then
-      printf_green "The tag has been deleted from your project"
-    else
-      printf_return "Failed to delete the tag from your project"
-    fi
-    exit
+    case "$1" in
+    local)
+      shift 1
+      { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME tag remove local [tagname]"
+      if __git_tag_del "$@"; then
+        printf_green "The tag has been deleted from your project"
+      else
+        printf_return "Failed to delete the tag from your project"
+      fi
+      exit
+      ;;
+    help | "")
+      __printf_help "Usage: $APPNAME tag remove [username [all] | owner/repo | local tagname]"
+      ;;
+    *)
+      # Handle owner/repo format or username for GitHub API deletion
+      if echo "$1" | grep -q '/'; then
+        owner="${1%%/*}"
+        repo="${1#*/}"
+        __github_delete_all_tags_repo "$owner" "$repo"
+        exit $?
+      else
+        # Check if it's a GitHub user/org
+        if __github_is_org "$1" 2>/dev/null || __curl_gh_api "https://api.github.com/users/$1" 2>/dev/null | __jq -e '.login' >/dev/null 2>&1; then
+          username="$1"
+          shift 1
+          if [ "$1" = "all" ]; then
+            __github_delete_all_tags_orgs "$username"
+          else
+            __github_delete_all_tags_user "$username"
+          fi
+          exit $?
+        else
+          # Local tag deletion
+          if __git_tag_del "$@"; then
+            printf_green "The tag has been deleted from your project"
+          else
+            printf_return "Failed to delete the tag from your project"
+          fi
+        fi
+      fi
+      exit
+      ;;
+    esac
+    ;;
+  help | "")
+    __printf_help "Usage: $APPNAME tag [add tagname | remove [username [all] | owner/repo | local tagname]]"
     ;;
   *)
     [ $# -ne 0 ] || printf_exit "$APPNAME tag [add,remove] [tag]"
@@ -6419,9 +7084,42 @@ tag)
 
 release)
   shift 1
-  [ $# -ne 0 ] || printf_exit "$APPNAME release [version] [message]"
-  __git_release_version "$@"
-  exit $?
+  case "$1" in
+  delete)
+    shift 1
+    case "$1" in
+    help | "")
+      __printf_help "Usage: $APPNAME release delete [username [all] | owner/repo]"
+      ;;
+    *)
+      # Handle owner/repo format or username
+      if echo "$1" | grep -q '/'; then
+        owner="${1%%/*}"
+        repo="${1#*/}"
+        __github_delete_all_releases_repo "$owner" "$repo"
+        exit $?
+      else
+        # Username - check if "all" flag is present
+        username="$1"
+        shift 1
+        if [ "$1" = "all" ]; then
+          __github_delete_all_releases_orgs "$username"
+        else
+          __github_delete_all_releases_user "$username"
+        fi
+        exit $?
+      fi
+      ;;
+    esac
+    ;;
+  help | "")
+    __printf_help "Usage: $APPNAME release [version] [message] | delete [username [all] | owner/repo]"
+    ;;
+  *)
+    __git_release_version "$@"
+    exit $?
+    ;;
+  esac
   ;;
 
 # show git info
@@ -6444,7 +7142,7 @@ show)
 # github url shortner
 shorten)
   shift 1
-  { [ "$1" = "help" ] || [ -z "$1" ]; } && __printf_help "Usage: gitadmin shorten [url] [name]"
+  { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME shorten [url] [name]"
   git_io "$@"
   ;;
 
@@ -6458,28 +7156,28 @@ web)
 # get the latest release
 latest)
   shift 1
-  { [ "$1" = "help" ] || [ -z "$1" ]; } && __printf_help "Usage: gitadmin latest [userName] [repoName] [arch]"
+  { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME latest [userName] [repoName] [arch]"
   printf_red "This has been moved to install-latest"
   install-latest install "$@"
   ;;
   # create a new site
 newsite)
   shift 1
-  { [ "$1" = "help" ] || [ -z "$1" ]; } && __printf_help "Usage: gitadmin newsite [sitename] [template:default]"
+  { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME newsite [sitename] [template:default]"
   __make_newsite "$@"
   ;;
 
   # backup dotfiles
 stow)
   shift 1
-  { [ "$1" = "help" ] || [ -z "$1" ]; } && __printf_help "Usage: gitadmin stow [files]"
+  { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME stow [files]"
   config "$@"
   ;;
 
 # repo status
 s | status)
   shift 1
-  [ "$1" = "help" ] && __printf_help "Usage: gitadmin status"
+  [ "$1" = "help" ] && __printf_help "Usage: $APPNAME status"
   [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
   [ -d "$GITADMIN_CWD/.git" ] || printf_exit "$GITADMIN_CWD doesn't seem to be a git repo"
   __git_status "$GITADMIN_CWD"
@@ -6489,7 +7187,7 @@ s | status)
 # git log
 l | log)
   shift 1
-  [ "$1" = "help" ] && __printf_help "Usage: gitadmin log"
+  [ "$1" = "help" ] && __printf_help "Usage: $APPNAME log"
   [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
   [ -d "$GITADMIN_CWD/.git" ] || printf_exit "$GITADMIN_CWD doesn't seem to be a git repo"
   __test_if_number $1 && count=$1 && shift 1
@@ -6500,7 +7198,7 @@ l | log)
 # initialize repo
 init)
   shift 1
-  [ "$1" = "help" ] && __printf_help "Usage: gitadmin init"
+  [ "$1" = "help" ] && __printf_help "Usage: $APPNAME init"
   [ -d "$1" ] && GITADMIN_CWD="$1" && shift 1
   git_init "$@"
   ;;
@@ -6508,7 +7206,7 @@ init)
 # initialize repo
 setup)
   shift 1
-  [ "$1" = "help" ] && __printf_help "Usage: gitadmin setup [--automated]"
+  [ "$1" = "help" ] && __printf_help "Usage: $APPNAME setup [--automated]"
   [ -d "$1" ] && GITADMIN_CWD="$1" && shift 1
   if [ "$AUTOMATED" = "true" ]; then
     __run_git_setup_automated "$@"
@@ -6635,7 +7333,7 @@ branch)
   case $1 in
   rename)
     shift 1
-    { [ $# = 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin rename branch newname userName repoName"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME rename branch newname userName repoName"
     [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
     [ -d "$GITADMIN_CWD/.git" ] || printf_exit "$GITADMIN_CWD doesn't seem to be a git repo"
     __rename_branch "${1:-main}" $2 $3
@@ -6666,7 +7364,7 @@ backup)
 # commit changes
 commit)
   shift 1
-  { [ $# = 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin commit [message]"
+  { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME commit [message]"
   [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
   gitcommit --dir "$GITADMIN_CWD" "${@:-all}"
   ;;
@@ -6674,14 +7372,14 @@ commit)
 # update local repos
 update)
   shift 1
-  { [ $# = 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin update [--while]"
+  { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME update [--while]"
   __git_update_loop "$@"
   ;;
 
 # modify repo settings
 modify)
   shift 1
-  { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin --platform github modify userName/repoName --description 'desc' --private"
+  { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME --platform github modify userName/repoName --description 'desc' --private"
 
   user="" repo="" platform="${GITADMIN_PLATFORM:-}"
   modify_args=""
@@ -6752,7 +7450,7 @@ modify)
 # create repo (intelligent platform detection)
 create)
   shift 1
-  { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin --platform github create userName/repoName 'Description' --private"
+  { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME --platform github create userName/repoName 'Description' --private"
 
   platform="${GITADMIN_PLATFORM:-}"
   user="" repo="" description=""
@@ -6791,7 +7489,7 @@ create)
 # delete repo (intelligent platform detection)
 delete)
   shift 1
-  { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin --platform github delete userName/repoName"
+  { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME --platform github delete userName/repoName"
 
   platform="${GITADMIN_PLATFORM:-}" user="" repo="" delete_dir_flag=""
 
@@ -6852,7 +7550,7 @@ delete)
   # push a repo
 push)
   shift 1
-  [ "$1" = "help" ] && __printf_help "Usage: gitadmin push [MyProjectDir,all]"
+  [ "$1" = "help" ] && __printf_help "Usage: $APPNAME push [MyProjectDir,all]"
   if [ "$1" = "all" ] || [ "$GITADMIN_RUN_ALL" = "true" ]; then
     repo_dirs="$(ls -d "$GITADMIN_DEFAULT_PROJECT_DIR"/*/*/* 2>/dev/null | grep -v "$GITADMIN_DEFAULT_PROJECT_DIR/local/**" | grep '^' || false)"
     #repo_dirs="$(find "$GITADMIN_DEFAULT_PROJECT_DIR"/*/"$GITADMIN_DEFAULT_USERNAME"/* -maxdepth 0 -type d | grep '^' || echo '')"
@@ -6870,7 +7568,7 @@ push)
   # update repo
 pull)
   shift 1
-  [ "$1" = "help" ] && __printf_help "Usage: gitadmin pull [MyProjectDir]"
+  [ "$1" = "help" ] && __printf_help "Usage: $APPNAME pull [MyProjectDir]"
   GITADMIN_DEFAULT_USERNAME="${1:-$GITADMIN_DEFAULT_USERNAME}"
   if [ "$1" = "all" ] || [ "$GITADMIN_RUN_ALL" = "true" ]; then
     repo_dirs="$(ls -d "$GITADMIN_DEFAULT_PROJECT_DIR"/*/*/* 2>/dev/null | grep -v "$GITADMIN_DEFAULT_PROJECT_DIR/local/**" | grep '^' || false)"
@@ -6891,7 +7589,7 @@ pull)
 merge)
   shift 1
   if [ "$1" = "help" ]; then
-    __printf_help "Usage: gitadmin merge <source_branch> [strategy] [message] [directory]\n\nStrategies:\n  auto   - Auto-detect: fast-forward if possible, otherwise merge commit (default)\n  ff     - Fast-forward only (fails if not possible)\n  no-ff  - Always create merge commit (even if fast-forward possible)\n  squash - Squash all commits into one\n\nExamples:\n  gitadmin merge feature-branch\n  gitadmin merge develop ff\n  gitadmin merge hotfix no-ff \"Emergency fix\"\n  gitadmin merge feature squash \"Combined feature commits\" /path/to/repo"
+    __printf_help "Usage: $APPNAME merge <source_branch> [strategy] [message] [directory]\n\nStrategies:\n  auto   - Auto-detect: fast-forward if possible, otherwise merge commit (default)\n  ff     - Fast-forward only (fails if not possible)\n  no-ff  - Always create merge commit (even if fast-forward possible)\n  squash - Squash all commits into one\n\nExamples:\n  gitadmin merge feature-branch\n  gitadmin merge develop ff\n  gitadmin merge hotfix no-ff \"Emergency fix\"\n  gitadmin merge feature squash \"Combined feature commits\" /path/to/repo"
   fi
   source_branch="$1"
   strategy="${2:-auto}"
@@ -6923,7 +7621,7 @@ merge-resolve)
 # Clone repo from url
 clone)
   shift 1
-  { [ $# = 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin clone MyURL"
+  { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME clone MyURL"
   GITADMIN_REPO_URL="$(__strip_git_url "$1")" && shift 1
   __if_is_url "$GITADMIN_REPO_URL" || GITADMIN_REPO_URL="https://github.com/$GITADMIN_REPO_URL"
   __create_dirs "${1:-}"
@@ -6933,7 +7631,7 @@ clone)
   # rebase options
 rebase)
   shift 1
-  { [ $# = 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin rebase [fromBranch] [toBranch]"
+  { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME rebase [fromBranch] [toBranch]"
   [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
   git -C "$GITADMIN_CWD" switch $1
   git -C "$GITADMIN_CWD" rebase $2
@@ -6944,14 +7642,14 @@ switch)
   shift 1
   case $1 in
   create)
-    { [ $# = 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin switch create [branchName]"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME switch create [branchName]"
     [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
     git -C "$GITADMIN_CWD" switch -c $1
     exit $?
     ;;
 
   *)
-    { [ $# = 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin switch [branchName]"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME switch [branchName]"
     [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
     git -C "$GITADMIN_CWD" switch $1
     exit $?
@@ -6965,14 +7663,14 @@ squash)
   case $1 in
   head)
     shift 1
-    { [ $# = 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin squash head [number]"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME squash head [number]"
     [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
     git -C "$GITADMIN_CWD" rebase -i HEAD~$1
     exit $?
     ;;
   merge)
     shift 1
-    { [ $# = 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin squash merge [hash]"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME squash merge [hash]"
     [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
     [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
     git -C "$GITADMIN_CWD" merge --squash $1
@@ -6980,13 +7678,13 @@ squash)
     ;;
   rebase)
     shift 1
-    { [ $# = 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin squash rebase [hash]"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME squash rebase [hash]"
     [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
     git -C "$GITADMIN_CWD" rebase -i $1
     exit $?
     ;;
   *)
-    { [ $# = 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin squash [hash]"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME squash [hash]"
     [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
     git -C "$GITADMIN_CWD" rebase -i $1
     exit $?
@@ -7001,14 +7699,14 @@ remote)
   case "$1" in
   show)
     shift 1
-    [ "$1" = "help" ] && __printf_help "Usage: gitadmin remote show [name]"
+    [ "$1" = "help" ] && __printf_help "Usage: $APPNAME remote show [name]"
     [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
     git -C "$GITADMIN_CWD" remote show "${1:-origin}"
     exit $?
     ;;
   add)
     shift 1
-    [ "$1" = "help" ] && __printf_help "Usage: gitadmin remote add [remoteURL] [name]"
+    [ "$1" = "help" ] && __printf_help "Usage: $APPNAME remote add [remoteURL] [name]"
     [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
     GITADMIN_REPO_URL="$(__strip_git_url "$1")"
     printf_cyan "Adding remote: $GITADMIN_REPO_URL"
@@ -7018,7 +7716,7 @@ remote)
     ;;
   *)
     [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
-    [ "$1" = "help" ] && __printf_help "Usage: gitadmin remote [show,add]"
+    [ "$1" = "help" ] && __printf_help "Usage: $APPNAME remote [show,add]"
     git -C "$GITADMIN_CWD" remote show ${1:-origin}
     exit $?
     ;;
@@ -7028,19 +7726,19 @@ remote)
 # list user orgs
 list)
   shift 1
-  [ "$1" = "help" ] && __printf_help "Usage: gitadmin list [user]"
+  [ "$1" = "help" ] && __printf_help "Usage: $APPNAME list [user]"
   if [ "$1" = "raw" ]; then
     shift 1
     GITADMIN_DEFAULT_USERNAME="${1:-$GITADMIN_DEFAULT_USERNAME}"
     [ -n "$GITADMIN_DEFAULT_USERNAME" ] || __printf_help "Usage: $APPNAME list [raw] github_user"
     __git_retrieve_orgs "$GITADMIN_DEFAULT_USERNAME"
-    echo "$GIT_ALL_REPOS" | tr ' ' '\n'
+    echo "$GITADMIN_ALL_REPOS" | tr ' ' '\n'
   else
     GITADMIN_DEFAULT_USERNAME="${1:-$GITADMIN_DEFAULT_USERNAME}"
     [ -n "$GITADMIN_DEFAULT_USERNAME" ] || __printf_help "Usage: $APPNAME list [raw] github_user"
     __git_retrieve_orgs "$GITADMIN_DEFAULT_USERNAME"
     printf_green "I have found the following organizations"
-    echo "$GIT_ALL_REPOS" | tr ' ' '\n' | printf_column "5"
+    echo "$GITADMIN_ALL_REPOS" | tr ' ' '\n' | printf_column "5"
     printf_newline
   fi
   ;;
@@ -7048,11 +7746,11 @@ list)
 # gist options
 gist)
   shift 1
-  { [ $# = 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin gist [clone,create,delete,edit,list,search]"
+  { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME gist [clone,create,delete,edit,list,search]"
   case "$1" in
   clone)
     shift 1
-    [ $# -lt 1 ] && __printf_help "Usage: gitadmin gist clone id [directory]"
+    [ $# -lt 1 ] && __printf_help "Usage: $APPNAME gist clone id [directory]"
     SET_REPO="$(curl -q -LSsfI "https://gist.github.com/$1" | grep 'location: https://' | head -n1 | awk -F': ' '{print $2}' | grep "$1" || echo '')"
     GITADMIN_REPO_URL="$(__strip_git_url "$SET_REPO")"
     GIST_USER="$(basename -- "$(dirname "$SET_REPO")" | grep '^')"
@@ -7065,7 +7763,7 @@ gist)
 
   create)
     shift 1
-    [ "$1" = "help" ] && __printf_help "Usage: gitadmin gist create 'description' 'filename' [text/file]"
+    [ "$1" = "help" ] && __printf_help "Usage: $APPNAME gist create 'description' 'filename' [text/file]"
     if [ $# -eq 3 ]; then
       descript="$1" && shift 1
       filename="$1" && shift 1
@@ -7094,34 +7792,34 @@ gist)
     descript="${DESCR:-${descript:-New Gist}}"
     filename="${filename:-$(basename -- "${filename:-gistfile1.txt}")}"
     [ -s "$GITADMIN_TEMP_FILE" ] && contents="$(<"$GITADMIN_TEMP_FILE")"
-    [ -n "$contents" ] || printf_exit "Usage: gitadmin gist create 'description' 'filename' [text/file]"
+    [ -n "$contents" ] || printf_exit "Usage: $APPNAME gist create 'description' 'filename' [text/file]"
     ghgist_create "$descript" "$filename" "$contents"
     exit $?
     ;;
 
   delete)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin gist delete [GIT_URL or GIST_ID]"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME gist delete [GIT_URL or GIST_ID]"
     ghgist_delete "$@"
     exit $?
     ;;
 
   edit)
     shift 1
-    { [ $# -lt 3 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin gist edit GIST_ID description filename text"
+    { [ $# -lt 3 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME gist edit GIST_ID description filename text"
     ghgist_edit "$@"
     exit $?
     ;;
 
   list)
     shift 1
-    { [ $# = 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin gist list GIST_USER"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME gist list GIST_USER"
     ghgist_list "$@"
     exit $?
     ;;
 
   search)
-    { [ $# = 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin gist search GIST_USER SearchTerm"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME gist search GIST_USER SearchTerm"
     search_list "$@"
     exit $?
     ;;
@@ -7131,12 +7829,12 @@ gist)
   # Single repo options
 single)
   shift 1
-  { [ $# = 0 ] || [ "$1" = "help" ]; } && __help
+  { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __help
   case $1 in
   # init a github repo
   init)
     shift 1
-    { [ $# = 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin single init RepoName"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME single init RepoName"
     do_not_add_a_url "${1:-$GITADMIN_CWD}"
     if echo "${1:-$GITADMIN_CWD}" | grep -q '\.git$'; then
       homerepo="$(echo "${1:-$GITADMIN_CWD}" | grep '\.git$' | __sed 's/\",//;s/\.[^.]*$//;s#"##g')"
@@ -7167,9 +7865,9 @@ single)
     # Clone repo from url
   clone)
     shift 1
-    { [ $# = 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME clone [URL] [directory] | clone the repos"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME clone [URL] [directory] | clone the repos"
     [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
-    [ $# -eq 0 ] && __printf_help "Usage: $APPNAME clone [URL] [directory] | clone the repos"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME clone [URL] [directory] | clone the repos"
     GITADMIN_REPO_URL="$(__strip_git_url "$1")"
     __git_clone_single "$GITADMIN_REPO_URL" "${2:-$GITADMIN_CWD}"
     ;;
@@ -7179,16 +7877,16 @@ single)
 # User repos
 user)
   shift 1
-  { [ $# = 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin user [clone,orgs] [userName]"
+  { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME user [clone,orgs] [userName]"
   case "$1" in
   orgs)
     shift 1
-    [ "$1" = "help" ] && __printf_help "Usage: gitadmin user orgs [userName]"
+    [ "$1" = "help" ] && __printf_help "Usage: $APPNAME user orgs [userName]"
     GITADMIN_DEFAULT_USERNAME="$1"
     __git_retrieve_orgs "$GITADMIN_DEFAULT_USERNAME"
     printf_newline
     printf_green "I have found the following organizations"
-    echo "$GIT_ALL_REPOS" | tr ' ' '\n' | grep -v '^$' | printf_column "5"
+    echo "$GITADMIN_ALL_REPOS" | tr ' ' '\n' | grep -v '^$' | printf_column "5"
     ;;
   clone)
     shift 1
@@ -7203,73 +7901,103 @@ user)
 # organization options
 org)
   shift 1
-  [ "$1" = "help" ] && __printf_help "Usage: gitadmin org [list,all,push,pull,clone] [userName]"
   case "$1" in
   # Show repos owned by org
   repos)
     shift 1
-    { [ $# = 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin org repos [userName]"
-    __github_org_list_repos "$1"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME org repos [username [all]]"
+    username="$1"
+    shift 1
+    if [ "$1" = "all" ]; then
+      __github_all_orgs_list_repos "$username"
+    else
+      __github_org_list_repos "$username"
+    fi
+    exit $?
     ;;
 
-  all)
+  clone)
     shift 1
-    { [ $# = 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin org all [userName]"
-    GITADMIN_DEFAULT_USERNAME="${1:-$GITADMIN_DEFAULT_USERNAME}"
-    __git_all_orgs_clone "$GITADMIN_DEFAULT_USERNAME"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME org clone [username [all]]"
+    username="$1"
+    shift 1
+    if [ "$1" = "all" ]; then
+      __git_all_orgs_clone "$username"
+    else
+      GITADMIN_DEFAULT_USERNAME="$username"
+      GITADMIN_DEFAULT_REPO_BASE="$GITADMIN_DEFAULT_REPO_BASE/$username"
+      __create_dirs
+      __api_org_token "$username" || exit 1
+      __curl_gh_api $GITADMIN_GITHUB_API_REPO | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
+      repo_count="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
+      [ -n "$repo_count" ] || printf_exit "No repos found for $username"
+      printf_green "$MESSAGE"
+      printf_blue "There's currently $repo_count repos available"
+      printf_green "Initializing $GITADMIN_DEFAULT_REPO_BASE"
+      __main "$GITADMIN_DEFAULT_REPO_BASE"
+    fi
+    exit $?
     ;;
 
   push)
     shift 1
-    [ "$1" = "help" ] && __printf_help "Usage: gitadmin org push [userName]"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME org push [username [all]]"
     [ -z "$GITADMIN_GITHUB_AUTH_TOKEN" ] && printf_exit "ERROR: GITADMIN_GITHUB_AUTH_TOKEN is not set"
-    __github_org_push_repos "$1"
+    username="$1"
+    shift 1
+    if [ "$1" = "all" ]; then
+      __git_all_orgs_push "$username"
+    else
+      __github_org_push_repos "$username"
+    fi
     exit $?
     ;;
 
   pull)
     shift 1
-    { [ $# = 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin org pull [userName]"
-    GITADMIN_DEFAULT_USERNAME="${1:-$GITADMIN_DEFAULT_USERNAME}"
-    GITADMIN_DEFAULT_REPO_BASE="$GITADMIN_DEFAULT_REPO_BASE/$GITADMIN_DEFAULT_USERNAME"
-    __api_user_token "$GITADMIN_DEFAULT_USERNAME"
-    __curl_gh_api "$GITHUBAPIREPO" | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
-    COUNT="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
-    [ -n "$COUNT" ] || printf_exit "No repos found for $GITADMIN_DEFAULT_USERNAME"
-    printf_green "$MESSAGE"
-    printf_blue "There's currently $COUNT repos available"
-    printf_green "Initializing $GITADMIN_DEFAULT_REPO_BASE"
-    __main "$GITADMIN_DEFAULT_USERNAME"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME org pull [username [all]]"
+    username="$1"
+    shift 1
+    if [ "$1" = "all" ]; then
+      __git_all_orgs_pull "$username"
+    else
+      GITADMIN_DEFAULT_USERNAME="$username"
+      GITADMIN_DEFAULT_REPO_BASE="$GITADMIN_DEFAULT_REPO_BASE/$username"
+      __api_user_token "$username"
+      __curl_gh_api "$GITADMIN_GITHUB_API_REPO" | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
+      repo_count="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
+      [ -n "$repo_count" ] || printf_exit "No repos found for $username"
+      printf_green "$MESSAGE"
+      printf_blue "There's currently $repo_count repos available"
+      printf_green "Initializing $GITADMIN_DEFAULT_REPO_BASE"
+      __main "$username"
+    fi
+    exit $?
     ;;
 
-  clone)
-    shift 1
-    { [ $# -eq 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin org clone [userName]"
-    GITADMIN_DEFAULT_USERNAME="${1:-$GITADMIN_DEFAULT_USERNAME}"
-    GITADMIN_DEFAULT_REPO_BASE="$GITADMIN_DEFAULT_REPO_BASE/$GITADMIN_DEFAULT_USERNAME"
-    __create_dirs
-    __api_org_token "$GITADMIN_DEFAULT_USERNAME" || exit 1
-    __curl_gh_api $GITHUBAPIREPO | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
-    COUNT="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
-    [ -n "$COUNT" ] || printf_exit "No repos found for $GITADMIN_DEFAULT_USERNAME"
-    printf_green "$MESSAGE"
-    printf_blue "There's currently $COUNT repos available"
-    printf_green "Initializing $GITADMIN_DEFAULT_REPO_BASE"
-    __main "$GITADMIN_DEFAULT_REPO_BASE"
+  help | "")
+    __printf_help "Usage: $APPNAME org [repos|clone|push|pull] [username [all]]"
     ;;
 
   *)
-    [ "$1" = "all" ] && shift
-    { [ -z $1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin org [userName]"
-    __create_dirs
-    GIT_ALL_REPOS="$*"
-    repo_base="$GITADMIN_DEFAULT_REPO_BASE"
-    for org in ${GIT_ALL_REPOS//,/ }; do
-      GITADMIN_DEFAULT_USERNAME="$org"
-      GITADMIN_DEFAULT_REPO_BASE="$repo_base"
-      __git_retrieve_orgs "$org"
-      __clone_orgs "$org"
-    done
+    # Default: treat as username for clone
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME org [repos|clone|push|pull] [username [all]]"
+    username="$1"
+    shift 1
+    if [ "$1" = "all" ]; then
+      __git_all_orgs_clone "$username"
+    else
+      __create_dirs
+      GITADMIN_DEFAULT_USERNAME="$username"
+      GITADMIN_DEFAULT_REPO_BASE="$GITADMIN_DEFAULT_REPO_BASE/$username"
+      __api_org_token "$username" || exit 1
+      __curl_gh_api $GITADMIN_GITHUB_API_REPO | grep -w clone_url | awk -F / '{print $NF}' | __sed 's/\",//' | __sed 's/\.[^.]*$//' >"$GITADMIN_TEMP_FILE"
+      repo_count="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
+      [ -n "$repo_count" ] || printf_exit "No repos found for $username"
+      printf_green "$MESSAGE"
+      printf_blue "There's currently $repo_count repos available"
+      __main "$GITADMIN_DEFAULT_REPO_BASE"
+    fi
     ;;
   esac
   ;;
@@ -7277,7 +8005,7 @@ org)
 # github repo
 github)
   shift 1
-  { [ $# = 0 ] || [ "$1" = "help" ]; } && __help
+  { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __help
   case $1 in
   # create github repo
   all)
@@ -7308,7 +8036,7 @@ github)
     ;;
   create)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin github create userName repoName Description"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME github create userName repoName Description"
     __github_create_repo "$@"
     exit $?
     ;;
@@ -7316,7 +8044,7 @@ github)
     # init a github repo
   init)
     shift 1
-    { [ $# = 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin github init RepoName"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME github init RepoName"
     __create_dirs
     do_not_add_a_url "$1"
     if echo "$GITADMIN_DEFAULT_GIT_DIR_GITHUB/$1" | grep -q '\.git$'; then
@@ -7332,7 +8060,7 @@ github)
     # Clone repo from github
   clone)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin github clone username/projectname"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME github clone username/projectname"
     url="$(echo "$*" | tr ' ' '/')"
     __create_dirs
     do_not_add_a_url "$url"
@@ -7380,7 +8108,7 @@ github)
     # add github to remote
   remote)
     shift 1
-    { [ $# -lt 2 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin github remote [username/projectname] [name]"
+    { [ $# -lt 2 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME github remote [username/projectname] [name]"
     [ -d "$1/.git" ] && GITADMIN_CWD="$1" && shift 1
     do_not_add_a_url "$1"
     git -C "$GITADMIN_CWD" remote add "${2:-orgin}" "https://github.com/$1.git"
@@ -7412,7 +8140,7 @@ github)
       ;;
     visibility)
       shift 1
-      [ "$1" = "help" ] && __printf_help "Usage: gitadmin orgs visibility [show|public|private] [orgName]"
+      [ "$1" = "help" ] && __printf_help "Usage: $APPNAME orgs visibility [show|public|private] [orgName]"
       __github_orgs_visibility "$@"
       exit $?
       ;;
@@ -7436,10 +8164,10 @@ github)
         shift 1
         ORG_REPO_NAME="${1//\/*/}" && shift 1
         __api_org_token "$ORG_REPO_NAME" | sort -u >"$GITADMIN_TEMP_FILE" || echo >"$GITADMIN_TEMP_FILE"
-        COUNT="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
-        if [ -n "$COUNT" ]; then
+        repo_count="$(cat "$GITADMIN_TEMP_FILE" | wc -l | grep '^')"
+        if [ -n "$repo_count" ]; then
           printf_green "$MESSAGE"
-          printf_blue "There's currently $COUNT repos available"
+          printf_blue "There's currently $repo_count repos available"
           printf_green "Initializing $GITADMIN_DEFAULT_REPO_BASE"
           repo_list="$(<"$GITADMIN_TEMP_FILE")"
           __github_org_options_set "$@"
@@ -7524,7 +8252,7 @@ github)
   # manage container/package visibility
   container)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin --visible [yes|no] github container [user] [repo]"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME --visible [yes|no] github container [user] [repo]"
 
     user="${1:-${GITADMIN_GITHUB_USERNAME:-}}"
     shift 1
@@ -7537,7 +8265,7 @@ github)
       visibility="private"
     fi
 
-    [ -z "$user" ] && printf_exit "Usage: gitadmin --visible [yes|no] github container [user] [repo]"
+    [ -z "$user" ] && printf_exit "Usage: $APPNAME --visible [yes|no] github container [user] [repo]"
 
     __github_package_visibility "$user" "$repo" "$visibility"
     exit $?
@@ -7555,7 +8283,7 @@ gitlab)
   # init a gitlab repo
   init)
     shift 1
-    { [ $# = 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin gitlab init RepoName"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME gitlab init RepoName"
     __create_dirs
     do_not_add_a_url "$1"
     if echo "$GITADMIN_DEFAULT_GIT_DIR_GITLAB/$1" | grep -q '\.git$'; then
@@ -7571,7 +8299,7 @@ gitlab)
     # Clone repo from gitlab
   clone)
     shift 1
-    { [ $# = 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin gitlab clone username/projectname"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME gitlab clone username/projectname"
     __create_dirs
     do_not_add_a_url "$1"
     remote_repo="https://gitlab.com/$(__strip_git_url "$1")"
@@ -7619,7 +8347,7 @@ gitlab)
     # add gitlab to remote
   remote)
     shift 1
-    { [ $# -ne 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin gitlab remote [username/projectname] [name]"
+    { [ $# -ne 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME gitlab remote [username/projectname] [name]"
     do_not_add_a_url "$1"
     remote_repo="https://gitlab.com/$(__strip_git_url "$1")"
     git -C "$GITADMIN_CWD" remote add "${2:-orgin}" "https://github.com/$1.git"
@@ -7634,7 +8362,7 @@ gitlab)
 
   branch)
     shift 1
-    { [ $# -ne 2 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin gitlab branch projectID branch"
+    { [ $# -ne 2 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME gitlab branch projectID branch"
     __gitlab_branch "$@"
     exit $?
     ;;
@@ -7642,7 +8370,7 @@ gitlab)
   # manage container/package visibility
   container)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin --visible [yes|no] gitlab container [user] [repo]"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME --visible [yes|no] gitlab container [user] [repo]"
 
     user="${1:-${GITADMIN_GITLAB_USERNAME:-}}"
     shift 1
@@ -7655,7 +8383,7 @@ gitlab)
       visibility="private"
     fi
 
-    [ -z "$user" ] && printf_exit "Usage: gitadmin --visible [yes|no] gitlab container [user] [repo]"
+    [ -z "$user" ] && printf_exit "Usage: $APPNAME --visible [yes|no] gitlab container [user] [repo]"
 
     __universal_package_visibility "gitlab" "$user" "$repo" "$visibility"
     exit $?
@@ -7676,7 +8404,7 @@ private)
   # init a private repo
   init)
     shift 1
-    { [ $# = 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin private init RepoName"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME private init RepoName"
     __create_dirs
     do_not_add_a_url "$1"
     if echo "$GITADMIN_DEFAULT_GIT_DIR_PRIVATE/$1" | grep -q '\.git$'; then
@@ -7692,7 +8420,7 @@ private)
     # Clone repo from private
   clone)
     shift 1
-    { [ $# = 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin private clone username/projectname"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME private clone username/projectname"
     __create_dirs
     do_not_add_a_url "$1"
     remote_repo="$GITADMIN_PERSONAL_GIT_HOST/$(__strip_git_url "$1")"
@@ -7740,7 +8468,7 @@ private)
     # add private to remote
   remote)
     shift 1
-    { [ $# -ne 2 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin private remote username/projectname [name]"
+    { [ $# -ne 2 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME private remote username/projectname [name]"
     do_not_add_a_url "$1"
     git -C "$GITADMIN_DEFAULT_GIT_DIR_PRIVATE/$2" remote add "${2:-orgin}" "https://github.com/$(__strip_git_url "$1").git"
     exit "$?"
@@ -7759,7 +8487,7 @@ private)
     # create a private repo
     repo)
       shift 1
-      { [ $# = 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin private create RepoName 'description'"
+      { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME private create RepoName 'description'"
       __gitea_create_repo "$@"
       exit "$?"
       ;;
@@ -7767,7 +8495,7 @@ private)
       # create a private org
     org)
       shift 1
-      { [ $# = 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin private create orgname 'reponame' 'description'"
+      { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME private create orgname 'reponame' 'description'"
       __gitea_create_org "$@"
       exit "$?"
       ;;
@@ -7777,7 +8505,7 @@ private)
     # create a branch
   branch)
     shift 1
-    [ "$1" = "help" ] && __printf_help "Usage: gitadmin private branch RepoName branch"
+    [ "$1" = "help" ] && __printf_help "Usage: $APPNAME private branch RepoName branch"
     __gitea_branch "$@"
     exit "$?"
     ;;
@@ -7787,10 +8515,10 @@ private)
     shift 1
     if [ "$1" = "delete" ]; then
       shift 1
-      { [ $# = 0 ] || [ "$1" = "help" ] && __printf_help "Usage: gitadmin private repos delete RepoName"; }
+      { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME private repos delete RepoName"
       __gitea_delete_repo "$@"
     else
-      { [ $# = 0 ] || [ "$1" = "help" ] && __printf_help "Usage: gitadmin private repos"; }
+      { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME private repos"
       __gitea_users "$@"
     fi
     exit "$?"
@@ -7871,7 +8599,7 @@ private)
   # manage container/package visibility
   container)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin --visible [yes|no] private container [user] [repo]"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME --visible [yes|no] private container [user] [repo]"
 
     user="${1:-${GITADMIN_GITEA_USERNAME:-}}"
     shift 1
@@ -7884,7 +8612,7 @@ private)
       visibility="private"
     fi
 
-    [ -z "$user" ] && printf_exit "Usage: gitadmin --visible [yes|no] private container [user] [repo]"
+    [ -z "$user" ] && printf_exit "Usage: $APPNAME --visible [yes|no] private container [user] [repo]"
 
     __universal_package_visibility "gitea" "$user" "$repo" "$visibility"
     exit $?
@@ -7898,13 +8626,13 @@ bitbucket)
   shift 1
   if [ $# = 0 ] || [ "$1" = "help" ]; then
     printf_green "Bitbucket repository management"
-    printf_cyan "Usage: gitadmin bitbucket [create|delete|modify] workspace/repo"
+    printf_cyan "Usage: $APPNAME bitbucket [create|delete|modify] workspace/repo"
     exit 0
   fi
   case $1 in
   create)
     shift 1
-    { [ $# -lt 2 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin bitbucket create workspace repo [description]"
+    { [ $# -lt 2 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME bitbucket create workspace repo [description]"
     workspace="$1"
     repo="$2"
     description="${3:-repo for $repo}"
@@ -7916,61 +8644,62 @@ bitbucket)
 
   delete)
     shift 1
-    { [ $# -lt 2 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin bitbucket delete workspace repo"
+    { [ $# -lt 2 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME bitbucket delete workspace repo"
     __bitbucket_delete_repo "$1" "$2"
     exit $?
     ;;
 
   modify)
     shift 1
-    { [ $# -lt 2 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin bitbucket modify workspace repo [description] [homepage]"
+    { [ $# -lt 2 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME bitbucket modify workspace repo [description] [homepage]"
     __bitbucket_modify_repo "$1" "$2" "$3" "$4"
     exit $?
     ;;
 
   repos)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin bitbucket repos workspace"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME bitbucket repos workspace"
     __bitbucket_list_repos "$1"
     exit $?
     ;;
 
   clone)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin bitbucket clone workspace"
-    __bitbucket_workspace_clone_repos "$1"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME bitbucket clone [workspace [all]]"
+    workspace="$1"
+    shift 1
+    if [ "$1" = "all" ]; then
+      __bitbucket_all_workspaces_clone "$workspace"
+    else
+      __bitbucket_workspace_clone_repos "$workspace"
+    fi
     exit $?
     ;;
 
   push)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin bitbucket push workspace"
-    __bitbucket_workspace_push_repos "$1"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME bitbucket push [workspace [all]]"
+    workspace="$1"
+    shift 1
+    if [ "$1" = "all" ]; then
+      __bitbucket_all_workspaces_push "$workspace"
+    else
+      __bitbucket_workspace_push_repos "$workspace"
+    fi
     exit $?
     ;;
 
   pull)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin bitbucket pull workspace"
-    __bitbucket_workspace_pull_repos "$1"
-    exit $?
-    ;;
-
-  org)
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME bitbucket pull [workspace [all]]"
+    workspace="$1"
     shift 1
-    case "$1" in
-    all)
-      shift 1
-      { [ $# = 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin bitbucket org all [username]"
-      __bitbucket_all_workspaces_clone "$1"
-      exit $?
-      ;;
-    *)
-      printf_red "Unknown org command: $1"
-      printf_cyan "Available: all"
-      exit 1
-      ;;
-    esac
+    if [ "$1" = "all" ]; then
+      __bitbucket_all_workspaces_pull "$workspace"
+    else
+      __bitbucket_workspace_pull_repos "$workspace"
+    fi
+    exit $?
     ;;
 
   user)
@@ -7978,7 +8707,7 @@ bitbucket)
     case "$1" in
     clone)
       shift 1
-      { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin bitbucket user clone username"
+      { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME bitbucket user clone username"
       __bitbucket_user_clone_repos "$1"
       exit $?
       ;;
@@ -8002,13 +8731,13 @@ codeberg)
   shift 1
   if [ $# = 0 ] || [ "$1" = "help" ]; then
     printf_green "Codeberg repository management"
-    printf_cyan "Usage: gitadmin codeberg [create|delete|modify] repo"
+    printf_cyan "Usage: $APPNAME codeberg [create|delete|modify] repo"
     exit 0
   fi
   case $1 in
   create)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin codeberg create repo [description]"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME codeberg create repo [description]"
     repo="$1"
     description="${2:-repo for $repo}"
     visibility="${GITADMIN_REPO_VISIBLE:-yes}"
@@ -8019,7 +8748,7 @@ codeberg)
 
   delete)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin codeberg delete owner/repo"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME codeberg delete owner/repo"
     owner="$(echo "$1" | cut -d'/' -f1)"
     repo="$(echo "$1" | cut -d'/' -f2)"
     __codeberg_delete_repo "$owner" "$repo"
@@ -8028,7 +8757,7 @@ codeberg)
 
   modify)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin codeberg modify owner/repo [description] [homepage]"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME codeberg modify owner/repo [description] [homepage]"
     owner="$(echo "$1" | cut -d'/' -f1)"
     repo="$(echo "$1" | cut -d'/' -f2)"
     __codeberg_modify_repo "$owner" "$repo" "$2" "$3"
@@ -8037,47 +8766,48 @@ codeberg)
 
   repos)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin codeberg repos owner"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME codeberg repos owner"
     __codeberg_list_repos "$1"
     exit $?
     ;;
 
   clone)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin codeberg clone owner"
-    __codeberg_owner_clone_repos "$1"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME codeberg clone [username [all]]"
+    username="$1"
+    shift 1
+    if [ "$1" = "all" ]; then
+      __codeberg_all_orgs_clone "$username"
+    else
+      __codeberg_owner_clone_repos "$username"
+    fi
     exit $?
     ;;
 
   push)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin codeberg push owner"
-    __codeberg_owner_push_repos "$1"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME codeberg push [username [all]]"
+    username="$1"
+    shift 1
+    if [ "$1" = "all" ]; then
+      __codeberg_all_orgs_push "$username"
+    else
+      __codeberg_owner_push_repos "$username"
+    fi
     exit $?
     ;;
 
   pull)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin codeberg pull owner"
-    __codeberg_owner_pull_repos "$1"
-    exit $?
-    ;;
-
-  org)
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME codeberg pull [username [all]]"
+    username="$1"
     shift 1
-    case "$1" in
-    all)
-      shift 1
-      { [ $# = 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin codeberg org all [username]"
-      __codeberg_all_orgs_clone "$1"
-      exit $?
-      ;;
-    *)
-      printf_red "Unknown org command: $1"
-      printf_cyan "Available: all"
-      exit 1
-      ;;
-    esac
+    if [ "$1" = "all" ]; then
+      __codeberg_all_orgs_pull "$username"
+    else
+      __codeberg_owner_pull_repos "$username"
+    fi
+    exit $?
     ;;
 
   user)
@@ -8085,7 +8815,7 @@ codeberg)
     case "$1" in
     clone)
       shift 1
-      { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin codeberg user clone username"
+      { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME codeberg user clone username"
       __codeberg_user_clone_repos "$1"
       exit $?
       ;;
@@ -8109,13 +8839,13 @@ forgejo)
   shift 1
   if [ $# = 0 ] || [ "$1" = "help" ]; then
     printf_green "Forgejo repository management"
-    printf_cyan "Usage: gitadmin forgejo [create|delete|modify] repo"
+    printf_cyan "Usage: $APPNAME forgejo [create|delete|modify] repo"
     exit 0
   fi
   case $1 in
   create)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin forgejo create repo [description]"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME forgejo create repo [description]"
     repo="$1"
     description="${2:-repo for $repo}"
     visibility="${GITADMIN_REPO_VISIBLE:-yes}"
@@ -8126,7 +8856,7 @@ forgejo)
 
   delete)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin forgejo delete owner/repo"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME forgejo delete owner/repo"
     owner="$(echo "$1" | cut -d'/' -f1)"
     repo="$(echo "$1" | cut -d'/' -f2)"
     __forgejo_delete_repo "$owner" "$repo"
@@ -8135,7 +8865,7 @@ forgejo)
 
   modify)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin forgejo modify owner/repo [description] [homepage]"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME forgejo modify owner/repo [description] [homepage]"
     owner="$(echo "$1" | cut -d'/' -f1)"
     repo="$(echo "$1" | cut -d'/' -f2)"
     __forgejo_modify_repo "$owner" "$repo" "$2" "$3"
@@ -8144,47 +8874,48 @@ forgejo)
 
   repos)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin forgejo repos owner"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME forgejo repos owner"
     __forgejo_list_repos "$1"
     exit $?
     ;;
 
   clone)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin forgejo clone owner"
-    __forgejo_owner_clone_repos "$1"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME forgejo clone [username [all]]"
+    username="$1"
+    shift 1
+    if [ "$1" = "all" ]; then
+      __forgejo_all_orgs_clone "$username"
+    else
+      __forgejo_owner_clone_repos "$username"
+    fi
     exit $?
     ;;
 
   push)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin forgejo push owner"
-    __forgejo_owner_push_repos "$1"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME forgejo push [username [all]]"
+    username="$1"
+    shift 1
+    if [ "$1" = "all" ]; then
+      __forgejo_all_orgs_push "$username"
+    else
+      __forgejo_owner_push_repos "$username"
+    fi
     exit $?
     ;;
 
   pull)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin forgejo pull owner"
-    __forgejo_owner_pull_repos "$1"
-    exit $?
-    ;;
-
-  org)
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME forgejo pull [username [all]]"
+    username="$1"
     shift 1
-    case "$1" in
-    all)
-      shift 1
-      { [ $# = 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin forgejo org all [username]"
-      __forgejo_all_orgs_clone "$1"
-      exit $?
-      ;;
-    *)
-      printf_red "Unknown org command: $1"
-      printf_cyan "Available: all"
-      exit 1
-      ;;
-    esac
+    if [ "$1" = "all" ]; then
+      __forgejo_all_orgs_pull "$username"
+    else
+      __forgejo_owner_pull_repos "$username"
+    fi
+    exit $?
     ;;
 
   user)
@@ -8192,7 +8923,7 @@ forgejo)
     case "$1" in
     clone)
       shift 1
-      { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin forgejo user clone username"
+      { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME forgejo user clone username"
       __forgejo_user_clone_repos "$1"
       exit $?
       ;;
@@ -8216,68 +8947,69 @@ gitea)
   shift 1
   if [ $# = 0 ] || [ "$1" = "help" ]; then
     printf_green "Gitea repository management (self-hosted)"
-    printf_cyan "Usage: gitadmin gitea [create|delete] repo"
+    printf_cyan "Usage: $APPNAME gitea [create|delete] repo"
     printf_cyan "Set GITEA_HOST environment variable to your Gitea instance URL"
     exit 0
   fi
   case $1 in
   create)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin gitea create repo [description]"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME gitea create repo [description]"
     __gitea_create_repo "$@"
     exit $?
     ;;
 
   delete)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin gitea delete owner/repo"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME gitea delete owner/repo"
     __gitea_delete_repo "$@"
     exit $?
     ;;
 
   repos)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin gitea repos owner"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME gitea repos owner"
     __gitea_list_repos "$1"
     exit $?
     ;;
 
   clone)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin gitea clone owner"
-    __gitea_owner_clone_repos "$1"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME gitea clone [username [all]]"
+    username="$1"
+    shift 1
+    if [ "$1" = "all" ]; then
+      __gitea_all_orgs_clone "$username"
+    else
+      __gitea_owner_clone_repos "$username"
+    fi
     exit $?
     ;;
 
   push)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin gitea push owner"
-    __gitea_owner_push_repos "$1"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME gitea push [username [all]]"
+    username="$1"
+    shift 1
+    if [ "$1" = "all" ]; then
+      __gitea_all_orgs_push "$username"
+    else
+      __gitea_owner_push_repos "$username"
+    fi
     exit $?
     ;;
 
   pull)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin gitea pull owner"
-    __gitea_owner_pull_repos "$1"
-    exit $?
-    ;;
-
-  org)
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME gitea pull [username [all]]"
+    username="$1"
     shift 1
-    case "$1" in
-    all)
-      shift 1
-      { [ $# = 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin gitea org all [username]"
-      __gitea_all_orgs_clone "$1"
-      exit $?
-      ;;
-    *)
-      printf_red "Unknown org command: $1"
-      printf_cyan "Available: all"
-      exit 1
-      ;;
-    esac
+    if [ "$1" = "all" ]; then
+      __gitea_all_orgs_pull "$username"
+    else
+      __gitea_owner_pull_repos "$username"
+    fi
+    exit $?
     ;;
 
   user)
@@ -8285,7 +9017,7 @@ gitea)
     case "$1" in
     clone)
       shift 1
-      { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin gitea user clone username"
+      { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME gitea user clone username"
       __gitea_user_clone_repos "$1"
       exit $?
       ;;
@@ -8299,7 +9031,7 @@ gitea)
 
   container)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin --visible [yes|no] gitea container [user] [repo]"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME --visible [yes|no] gitea container [user] [repo]"
     user="${1:-${GITADMIN_GITEA_USERNAME:-}}"
     shift 1
     repo="${1:-}"
@@ -8307,7 +9039,7 @@ gitea)
     if [ "$GITADMIN_REPO_VISIBLE" = "no" ]; then
       visibility="private"
     fi
-    [ -z "$user" ] && printf_exit "Usage: gitadmin --visible [yes|no] gitea container [user] [repo]"
+    [ -z "$user" ] && printf_exit "Usage: $APPNAME --visible [yes|no] gitea container [user] [repo]"
     __universal_package_visibility "gitea" "$user" "$repo" "$visibility"
     exit $?
     ;;
@@ -8324,68 +9056,69 @@ gogs)
   shift 1
   if [ $# = 0 ] || [ "$1" = "help" ]; then
     printf_green "Gogs repository management (self-hosted)"
-    printf_cyan "Usage: gitadmin gogs [create|delete] repo"
+    printf_cyan "Usage: $APPNAME gogs [create|delete] repo"
     printf_cyan "Set GOGS_HOST environment variable to your Gogs instance URL"
     exit 0
   fi
   case $1 in
   create)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin gogs create repo [description]"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME gogs create repo [description]"
     __gitea_create_repo "$@" # Gogs uses same API as Gitea
     exit $?
     ;;
 
   delete)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin gogs delete owner/repo"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME gogs delete owner/repo"
     __gitea_delete_repo "$@" # Gogs uses same API as Gitea
     exit $?
     ;;
 
   repos)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin gogs repos owner"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME gogs repos owner"
     __gogs_list_repos "$1"
     exit $?
     ;;
 
   clone)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin gogs clone owner"
-    __gogs_owner_clone_repos "$1"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME gogs clone [username [all]]"
+    username="$1"
+    shift 1
+    if [ "$1" = "all" ]; then
+      __gogs_all_orgs_clone "$username"
+    else
+      __gogs_owner_clone_repos "$username"
+    fi
     exit $?
     ;;
 
   push)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin gogs push owner"
-    __gogs_owner_push_repos "$1"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME gogs push [username [all]]"
+    username="$1"
+    shift 1
+    if [ "$1" = "all" ]; then
+      __gogs_all_orgs_push "$username"
+    else
+      __gogs_owner_push_repos "$username"
+    fi
     exit $?
     ;;
 
   pull)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin gogs pull owner"
-    __gogs_owner_pull_repos "$1"
-    exit $?
-    ;;
-
-  org)
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME gogs pull [username [all]]"
+    username="$1"
     shift 1
-    case "$1" in
-    all)
-      shift 1
-      { [ $# = 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin gogs org all [username]"
-      __gogs_all_orgs_clone "$1"
-      exit $?
-      ;;
-    *)
-      printf_red "Unknown org command: $1"
-      printf_cyan "Available: all"
-      exit 1
-      ;;
-    esac
+    if [ "$1" = "all" ]; then
+      __gogs_all_orgs_pull "$username"
+    else
+      __gogs_owner_pull_repos "$username"
+    fi
+    exit $?
     ;;
 
   user)
@@ -8393,7 +9126,7 @@ gogs)
     case "$1" in
     clone)
       shift 1
-      { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin gogs user clone username"
+      { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME gogs user clone username"
       __gogs_user_clone_repos "$1"
       exit $?
       ;;
@@ -8417,67 +9150,68 @@ azure)
   shift 1
   if [ $# = 0 ] || [ "$1" = "help" ]; then
     printf_green "Azure DevOps repository management"
-    printf_cyan "Usage: gitadmin azure [create|delete] project repo"
+    printf_cyan "Usage: $APPNAME azure [create|delete] project repo"
     exit 0
   fi
   case $1 in
   create)
     shift 1
-    { [ $# -lt 2 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin azure create project repo [description]"
+    { [ $# -lt 2 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME azure create project repo [description]"
     __azure_create_repo "$1" "$2" "$3"
     exit $?
     ;;
 
   delete)
     shift 1
-    { [ $# -lt 2 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin azure delete project repo"
+    { [ $# -lt 2 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME azure delete project repo"
     __azure_delete_repo "$1" "$2"
     exit $?
     ;;
 
   repos)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin azure repos project"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME azure repos project"
     __azure_list_repos "$1"
     exit $?
     ;;
 
   clone)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin azure clone project"
-    __azure_project_clone_repos "$1"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME azure clone [project [all]]"
+    project="$1"
+    shift 1
+    if [ "$1" = "all" ]; then
+      __azure_all_projects_clone "$project"
+    else
+      __azure_project_clone_repos "$project"
+    fi
     exit $?
     ;;
 
   push)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin azure push project"
-    __azure_project_push_repos "$1"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME azure push [project [all]]"
+    project="$1"
+    shift 1
+    if [ "$1" = "all" ]; then
+      __azure_all_projects_push "$project"
+    else
+      __azure_project_push_repos "$project"
+    fi
     exit $?
     ;;
 
   pull)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin azure pull project"
-    __azure_project_pull_repos "$1"
-    exit $?
-    ;;
-
-  org)
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME azure pull [project [all]]"
+    project="$1"
     shift 1
-    case "$1" in
-    all)
-      shift 1
-      { [ $# = 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin azure org all [organization]"
-      __azure_all_projects_clone "$1"
-      exit $?
-      ;;
-    *)
-      printf_red "Unknown org command: $1"
-      printf_cyan "Available: all"
-      exit 1
-      ;;
-    esac
+    if [ "$1" = "all" ]; then
+      __azure_all_projects_pull "$project"
+    else
+      __azure_project_pull_repos "$project"
+    fi
+    exit $?
     ;;
 
   *)
@@ -8492,34 +9226,34 @@ aws)
   shift 1
   if [ $# = 0 ] || [ "$1" = "help" ]; then
     printf_green "AWS CodeCommit repository management"
-    printf_cyan "Usage: gitadmin aws [create|delete] repo"
+    printf_cyan "Usage: $APPNAME aws [create|delete] repo"
     exit 0
   fi
   case $1 in
   create)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin aws create repo [description]"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME aws create repo [description]"
     __aws_create_repo "$1" "$2"
     exit $?
     ;;
 
   delete)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin aws delete repo"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME aws delete repo"
     __aws_delete_repo "$1"
     exit $?
     ;;
 
   repos)
     shift 1
-    [ "$1" = "help" ] && __printf_help "Usage: gitadmin aws repos"
+    [ "$1" = "help" ] && __printf_help "Usage: $APPNAME aws repos"
     __aws_list_repos
     exit $?
     ;;
 
   clone)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin aws clone [region]"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME aws clone [region]"
     region="${1:-$GITADMIN_AWS_REGION}"
     __aws_clone_all_repos "$region"
     exit $?
@@ -8527,7 +9261,7 @@ aws)
 
   push)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin aws push [region]"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME aws push [region]"
     region="${1:-$GITADMIN_AWS_REGION}"
     __aws_push_all_repos "$region"
     exit $?
@@ -8535,7 +9269,7 @@ aws)
 
   pull)
     shift 1
-    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin aws pull [region]"
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME aws pull [region]"
     region="${1:-$GITADMIN_AWS_REGION}"
     __aws_pull_all_repos "$region"
     exit $?
@@ -8554,18 +9288,18 @@ issues)
   case "$1" in
   count)
     shift 1
-    { [ $# = 0 ] || [ "$1" = "help" ] && __printf_help "Usage: gitadmin issues count username/projectname"; }
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME issues count username/projectname"
     __api_issues_token "$@"
     get_count="$(__api_issues "GET" | __jq 'map(select(.pull_request == null)) | length' 2>/dev/null || false)"
     [ -n "$get_count" ] || printf_exit 1 1 "failed to get count"
     printf_blue "You currently have $get_count issues"
-    printf_cyan "$ISSUE_HTML"
+    printf_cyan "$GITADMIN_ISSUE_HTML"
     exit $?
     ;;
 
   list)
     shift 1
-    { [ $# = 0 ] || [ "$1" = "help" ] && __printf_help "Usage: gitadmin issues count username/projectname"; }
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME issues list username/projectname"
     if [ "$1" = "json" ]; then
       shift 1
       __api_issues_token "$@"
@@ -8580,7 +9314,7 @@ issues)
 
   create)
     shift 1
-    { [ $# = 0 ] || [ "$1" = "help" ] && __printf_help "Usage: gitadmin issues count username/projectname"; }
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME issues create username repo title [body]"
     user="${1:-$GITADMIN_DEFAULT_USERNAME}" && shift 1
     issue_repo="$1" && shift 1
     issue_title="$1" && shift 1
@@ -8589,12 +9323,12 @@ issues)
     content="$(printf "%s\r" "{ \"title\": \"$issue_title\", \"body\": \"$issue_body\" }" | tee "$GITADMIN_TEMP_FILE")"
     __api_issues_token ${user} ${issue_repo:-}
     printf_green "Attempting to create a new issue "
-    __curl_gh_api -X "POST" "$ISSUE_API" -d @$GITADMIN_TEMP_FILE 2>/dev/null | __jq -r ".html_url" 2>/dev/null | grep -v 'null' | printf_readline | grep '^' || printf_exit 1 "Failed to create the issue on\n$ISSUE_API"
+    __curl_gh_api -X "POST" "$GITADMIN_ISSUE_API" -d @$GITADMIN_TEMP_FILE 2>/dev/null | __jq -r ".html_url" 2>/dev/null | grep -v 'null' | printf_readline | grep '^' || printf_exit 1 "Failed to create the issue on\n$GITADMIN_ISSUE_API"
     ;;
 
   edit)
     shift 1
-    { [ $# = 0 ] || [ "$1" = "help" ] && __printf_help "Usage: gitadmin issues count username/projectname"; }
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME issues edit issue_number username repo title [body]"
     issue_number="$1" && shift 1
     user="${1:-$GITADMIN_DEFAULT_USERNAME}" && shift 1
     issue_repo="$1" && shift 1
@@ -8604,19 +9338,19 @@ issues)
     content="$(printf "%s\r" "{ \"title\": \"$issue_title\", \"body\": \"$issue_body\" }" | tee "$GITADMIN_TEMP_FILE")"
     __api_issues_token "$user" "$issue_repo"
     printf_green "Attempting to edit issue $issue_number"
-    __curl_gh_api -X "PATCH" "$ISSUE_API/$issue_number" -d @$GITADMIN_TEMP_FILE 2>/dev/null | __jq -r ".html_url" 2>/dev/null | grep -v 'null' | printf_readline | grep '^' || printf_exit 1 "Failed to edit the issue at\n$ISSUE_API/$issue_number"
+    __curl_gh_api -X "PATCH" "$GITADMIN_ISSUE_API/$issue_number" -d @$GITADMIN_TEMP_FILE 2>/dev/null | __jq -r ".html_url" 2>/dev/null | grep -v 'null' | printf_readline | grep '^' || printf_exit 1 "Failed to edit the issue at\n$GITADMIN_ISSUE_API/$issue_number"
     ;;
 
   delete)
     shift 1
-    { [ $# = 0 ] || [ "$1" = "help" ] && __printf_help "Usage: gitadmin issues count username/projectname"; }
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME issues delete issue_number username/projectname"
     printf_exit "Not implemented yet"
     issue_number="$1" && shift 1
     __api_issues_token "$@"
     ;;
 
   *)
-    { [ $# = 0 ] || [ "$1" = "help" ] && __printf_help "Usage: gitadmin issues [list,count,create] username/projectname"; }
+    { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME issues [list|count|create|edit|delete] username/projectname"
     $APPNAME issues list "$@"
     exit $?
     ;;
@@ -8625,7 +9359,7 @@ issues)
 
 cron | updater)
   shift 1
-  { [ $# = 0 ] || [ "$1" = "help" ]; } && __printf_help "Usage: gitadmin cron [run,remove,add]"
+  { [ $# -lt 1 ] || [ "$1" = "help" ]; } && __printf_help "Usage: $APPNAME cron [run,remove,add]"
   case "$1" in
   run)
     shift 1

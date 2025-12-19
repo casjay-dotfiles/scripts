@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202511301021-git
+##@Version           :  202512191052-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Monday, Aug 08, 2022 23:40 EDT
 # @@File             :  gitcommit
 # @@Description      :  Commit changes to a git repo - self-contained, no external dependencies
-# @@Changelog        :  Updated __git_remote_origin with push-priority logic
+# @@Changelog        :  Added git lock file detection with stale lock removal
 # @@TODO             :  Fix/re-write variables
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202511301021-git"
+VERSION="202512191052-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -874,6 +874,30 @@ __basename() {
 __git_top_dir() {
   git -C "${1:-.}" rev-parse --show-toplevel 2>/dev/null |
     grep -v fatal && return 0 || echo "${1:-$PWD}"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check for git lock file
+__git_check_lock() {
+  local git_dir="${1:-$GITCOMMIT_ROOT_DIR}"
+  local lock_file="$git_dir/.git/index.lock"
+  if [ -f "$lock_file" ]; then
+    local lock_age=0
+    if [ -f "$lock_file" ]; then
+      lock_age=$(( $(date +%s) - $(stat -c %Y "$lock_file" 2>/dev/null || echo "0") ))
+    fi
+    # If lock is older than 5 minutes, it's probably stale
+    if [ "$lock_age" -gt 300 ]; then
+      printf_yellow "Removing stale git lock file (age: ${lock_age}s)"
+      rm -f "$lock_file" 2>/dev/null
+      return 0
+    else
+      printf_red "Git lock file exists: $lock_file"
+      printf_red "Another git process may be running (lock age: ${lock_age}s)"
+      printf_yellow "Remove with: rm -f \"$lock_file\""
+      return 1
+    fi
+  fi
+  return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __git_remote_pull() {
@@ -3090,6 +3114,8 @@ export GITCOMMIT_CWD
 GITCOMMIT_RAN=""
 GITCOMMIT_CWD="${GITCOMMIT_CWD:-$PWD}"
 GITCOMMIT_ROOT_DIR="$(__git_root "$GITCOMMIT_CWD" || echo "$GITCOMMIT_CWD")"
+# Check for git lock file before proceeding
+__git_check_lock "$GITCOMMIT_ROOT_DIR" || exit 5
 REMOTE_REPO="$(__git_remote_fetch "$GITCOMMIT_ROOT_DIR" 2>/dev/null || echo "localdir")"
 BASE_DIR="$(basename $GITCOMMIT_ROOT_DIR)"
 GIT_USERNAME="$(basename -- "$(dirname "$GITCOMMIT_ROOT_DIR")")"

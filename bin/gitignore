@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202511251235-git
+##@Version           :  202512191039-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Tuesday, Aug 09, 2022 01:23 EDT
 # @@File             :  gitignore
 # @@Description      :  Generate a .gitignore file with intelligent duplicate filtering
-# @@Changelog        :  Fixed __ensure_new_line to preserve blank lines correctly
+# @@Changelog        :  Fixed add command to support raw entries and preserve existing content
 # @@TODO             :  Make this work locally
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202511251235-git"
+VERSION="202512191039-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -593,11 +593,19 @@ fetch_file() {
     fi
   done
   IFS=,
-  curl -q -LSs "${curl_args[@]}" $GITIGNORE_API_URL/"${gi_args[*]}" | grep -vE '# Created by |# Edit at |# End of |^$'
+  local api_response
+  api_response=$(curl -q -LSs "${curl_args[@]}" $GITIGNORE_API_URL/"${gi_args[*]}" 2>/dev/null)
+  # Check if API returned an error (undefined type)
+  if echo "$api_response" | grep -q 'ERROR:.*is undefined'; then
+    # Return empty - caller will handle as raw entry
+    return 1
+  fi
+  echo "$api_response" | grep -vE '# Created by |# Edit at |# End of |^$'
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 fetch_ignore() {
   local IGNOREFILES="$IGNOREFILES"
+  local api_result
   for file in $IGNOREFILES; do
     if [ "$file" = "dirignore" ]; then
       __dirignore | __ensure_new_line
@@ -612,7 +620,16 @@ fetch_ignore() {
     elif grep -shEvq '#.*|^$' "$GITIGNORE_TEMPLATE_DIR/$file"; then
       cat "$GITIGNORE_TEMPLATE_DIR/$file" | __ensure_new_line
     else
-      fetch_file "$file" | __ensure_new_line
+      # Try to fetch from API, if fails add as raw entry
+      api_result=$(fetch_file "$file")
+      if [ $? -eq 0 ] && [ -n "$api_result" ]; then
+        echo "$api_result" | __ensure_new_line
+      else
+        # Not a valid template - add as raw entry (only if not already in file)
+        if ! grep -Fxq "$file" "$GITIGNORE_CWD/.gitignore" 2>/dev/null; then
+          printf '# Added manually\n%s\n' "$file"
+        fi
+      fi
     fi
   done
 }
@@ -971,8 +988,15 @@ add)
     # Clean up
     rm -f "$temp_new" "$temp_merged" 2>/dev/null
   else
-    # Simple append with duplicate filtering
-    fetch_ignore | __filter_duplicates "$GITIGNORE_CWD/.gitignore" >"$GITIGNORE_CWD/.gitignore.tmp" && mv -f "$GITIGNORE_CWD/.gitignore.tmp" "$GITIGNORE_CWD/.gitignore"
+    # Simple append with duplicate filtering - preserve existing content
+    temp_append="$GITIGNORE_TEMP_DIR/append.$$"
+    if [ -f "$GITIGNORE_CWD/.gitignore" ]; then
+      cat "$GITIGNORE_CWD/.gitignore" | __ensure_new_line > "$temp_append"
+    else
+      : > "$temp_append"
+    fi
+    fetch_ignore | __filter_duplicates "$GITIGNORE_CWD/.gitignore" >> "$temp_append"
+    mv -f "$temp_append" "$GITIGNORE_CWD/.gitignore"
   fi
 
   exit $?

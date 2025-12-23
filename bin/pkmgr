@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202512231845-git
+##@Version           :  202511241540-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Friday, Aug 19, 2022 16:56 EDT
 # @@File             :  pkmgr
 # @@Description      :  Manage system packages
-# @@Changelog        :  Fixed all package manager command execution bugs, pip deprecation warnings, added missing URL functions
+# @@Changelog        :  Fixed AWK format string error when descriptions contain % characters
 # @@TODO             :  Add BSD support
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202512231845-git"
+VERSION="202511241540-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -46,13 +46,24 @@ export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$
 # pipes fail
 set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Builtin helper function for available command
-____run_install_available() {
-  printf_cyan "Listing available installers for $1"
-  printf_yellow "This feature requires external installer framework"
-  printf_cyan "Available via: https://github.com/casjay-dotfiles/scripts"
-  return 0
-}
+# Import functions
+CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
+SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
+SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
+SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
+  . "$PWD/$SCRIPTSFUNCTFILE"
+elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
+  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
+else
+  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
+  exit 1
+fi
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Options are: *_install
+# system user desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
+user_install && __options "$@"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # import system variables
 [ -f "/usr/local/bin/detectostype" ] && . "/usr/local/bin/detectostype"
@@ -112,11 +123,6 @@ if [ "$SHOW_RAW" = "true" ]; then
   printf_column() { tee | grep '^'; }
   printf_color() { printf '%b' "$1" | tr -d '\t' | sed '/^%b$/d;s,\x1B\[ 0-9;]*[a-zA-Z],,g'; }
 else
-  ICON_INFO="[ ℹ ]"
-  ICON_GOOD="[ ✔ ]"
-  ICON_WARN="[ ❗ ]"
-  ICON_ERROR="[ ✖ ]"
-  ICON_QUESTION="[ ? ]"
   printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -125,134 +131,8 @@ __printf_head() { printf_blue "$1"; }
 __printf_opts() { printf_purple "$1"; }
 __printf_line() { printf_cyan "$1"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Builtin printf functions
-printf_blue() { printf_color "$1" 4; }
-printf_cyan() { printf_color "$1" 6; }
-printf_green() { printf_color "$1" 2; }
-printf_red() { printf_color "$1" 1; }
-printf_yellow() { printf_color "$1" 3; }
-printf_purple() { printf_color "$1" 5; }
-printf_newline() { printf '\n'; }
-printf_custom() { printf_color "$1" "${2:-5}"; }
-printf_error() { printf_red "ERROR: $1\n" >&2; }
-printf_exit() {
-  local exitCode="${1:-0}"
-  local exitMsg="${2:-Script has completed}"
-  if [ "$exitCode" -eq 0 ]; then
-    printf_green "$exitMsg"
-  else
-    printf_red "$exitMsg"
-  fi
-  printf_newline
-  exit "$exitCode"
-}
-printf_readline() {
-  local readline_var="$1"
-  local readline_msg="${2:-Enter value}"
-  local readline_default="${3:-}"
-  if [ -n "$readline_default" ]; then
-    printf_cyan "$readline_msg [$readline_default]: "
-  else
-    printf_cyan "$readline_msg: "
-  fi
-  read -r "$readline_var" || return 1
-  eval "[ -z \"\$$readline_var\" ] && $readline_var=\"$readline_default\""
-  return 0
-}
-printf_readline_trunc() {
-  local max_length="${1:-80}"
-  local input_text="${2:-}"
-  if [ -z "$input_text" ]; then
-    read -r input_text || return 1
-  fi
-  if [ "${#input_text}" -gt "$max_length" ]; then
-    printf '%s' "${input_text:0:$max_length}..."
-  else
-    printf '%s' "$input_text"
-  fi
-  printf_newline
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# execute functions (spinner support)
-printf_execute_success() {
-  printf_color "$ICON_GOOD $1" 2
-  printf_newline
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-printf_execute_error() {
-  printf_color "$ICON_WARN $1 $2" 208
-  printf_newline
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-printf_execute_result() {
-  if [ "$1" -eq 0 ]; then
-    printf_execute_success "$2"
-  else
-    printf_execute_error "${3:-$2}"
-  fi
-  return "$1"
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-printf_execute_error_stream() {
-  while read -r line; do
-    printf_execute_error "↳ ERROR: $line"
-  done
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-__set_trap() {
-  trap -p "$1" | grep -q "$2" 2>/dev/null || trap "$2" "$1"
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-__kill_all_subprocesses() {
-  local i=""
-  for i in $(jobs -p); do
-    kill "$i" 2>/dev/null
-    wait "$i" 2>/dev/null
-  done
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-__show_spinner() {
-  local -r FRAMES='/-\|'
-  local -r NUMBER_OR_FRAMES=${#FRAMES}
-  local -r CMDS="$2"
-  local -r MSG="$3"
-  local -r PID="$1"
-  local i=0
-  local frameText=""
-  while kill -0 "$PID" 2>/dev/null; do
-    frameText="[${FRAMES:i++%NUMBER_OR_FRAMES:1}] $MSG"
-    printf "%s" "$frameText"
-    sleep 0.2
-    printf "\r"
-  done
-  printf "\r\033[K"
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-__execute() {
-  local -r CMDS="$1"
-  local -r MSG="${2:-$1} "
-  local -r TMP_FILE="$(mktemp /tmp/XXXXX 2>/dev/null)"
-  local exitCode=0
-  local cmdsPID=""
-  __set_trap "EXIT" "__kill_all_subprocesses"
-  eval "$CMDS" >/dev/null 2>"$TMP_FILE" &
-  cmdsPID=$!
-  __show_spinner "$cmdsPID" "$CMDS" "$MSG"
-  wait "$cmdsPID" 2>/dev/null
-  exitCode=$?
-  printf_execute_result $exitCode "$MSG"
-  if [ $exitCode -ne 0 ]; then
-    printf_execute_error_stream <"$TMP_FILE"
-  fi
-  rm -rf "$TMP_FILE" 2>/dev/null
-  return $exitCode
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
 # output version
-__version() {
-  printf_cyan "$VERSION"
-  printf_newline
-}
+__version() { printf_cyan "$VERSION"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # list options
 __list_options() {
@@ -443,21 +323,6 @@ __not_installed() { echo -ne "${RED}Not Installed${NC}"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __is_url() { echo "${1:-$url}" | grep -qE '^http://|^https://|^ftp://' || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__curl_exit() { EXIT=0 && return 0 || { EXIT=1 && return 1; }; }
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-__urlcheck() { curl --disable -LSsk --connect-timeout 2 --retry 1 --retry-delay 0 --output /dev/null --silent --head --fail "$1" 2>/dev/null && __curl_exit; }
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-__urlinvalid() {
-  if [ -z "$1" ]; then
-    printf_red "Invalid URL"
-  else
-    printf_red "Can't find $1"
-  fi
-  return 1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-__urlverify() { __urlcheck "$1" || __urlinvalid "$1"; }
-# - - - - - - - - - - - - - - - - - - - - - - - - -
 __logging() {
   # Deprecated - kept for compatibility
   cat
@@ -555,14 +420,14 @@ EOF
 __list_install() {
   local exitCode=0
   if __is_url "$1"; then
-    __curl_run "$@"
+    curl_run "$@"
     PCKLIST="$(grep -sh -Ev '^$|^#' "$PKMGR_TEMP_FILE" | sort -u | tr '\n' ' ' || false)"
   else
     PCKLIST="$(grep -sh -Ev '^$|^#' "$1" | sort -u | tr '\n' ' ' || false)"
   fi
   if [ -n "$PCKLIST" ]; then
     for pkg in $PCKLIST; do
-      __pkgmgrbininssil "$pkg" && __saved_file_create "$pkg" || exitCode=$((exitCode + 1))
+      __execute "$pkgmgrbininssil $pkg" "Installing $pkg" && __saved_file_create "$pkg" || exitCode=$((exitCode + 1))
     done
   fi
   [ $exitCode -eq 0 ] && exitCode=0 || exitCode="${exitCode:-1}"
@@ -620,7 +485,7 @@ __pipecmd() {
 # fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Perl/CPAN functions
-__cpan_run() {
+cpan_run() {
   local cpandir="" cpanconf="" cpanfile=""
   cpan="$(type -P cpan 2>/dev/null | grep -v "$HOME" | grep '^' || return)"
   if [[ -n "$cpan" ]]; then
@@ -636,7 +501,7 @@ __cpan_run() {
     sudo bash -c "$cpan notest install $*" 2>/dev/null || return 1
   fi
 }
-__cpan_remove() {
+cpan_remove() {
   cpan="$(type -P cpan 2>/dev/null | grep -v "$HOME" | grep '^' || return)"
   if [[ -n "$cpan" ]]; then
     sudo bash -c "$cpan --uninstall $*" 2>/dev/null || return 1
@@ -644,7 +509,7 @@ __cpan_remove() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Python/PIP functions
-__pip_run() {
+pip_run() {
   local packages="$*"
   local pip_opts=""
   pip3="$(ls /usr/bin/pip*3* 2>/dev/null | head -n 1)"
@@ -656,8 +521,8 @@ __pip_run() {
   pip="$(type -P $pip3 || type -P pip || echo "$py_bin -m pip")"
   cat <<EOF >"$PKMGR_TEMP_FILE"
 pip="$pip"
-pip_opts=""
-[ "$py_version" -gt "310" ] && pip_opts="--break-system-packages"
+[ "$py_version" -le "310" ] && pip_opts+="--use-pep517"
+[ "$py_version" -gt "310" ] && pip_opts+="--break-system-packages " || pip_opts=""
 [ -n "\$pip" ] && exitStatus=0 || { echo "pip is not installed" >&2 && exit 1; }
 [ -f "/etc/profile.d/pyenv.sh" ] && . /etc/profile.d/pyenv.sh
 echo "Running as: $SUDO_USER"
@@ -675,9 +540,8 @@ EOF
   return $?
 }
 #
-__pip_remove() {
+pip_remove() {
   local packages="$*"
-  local pip_opts=""
   pip3="$(ls /usr/bin/pip*3* 2>/dev/null | head -n 1)"
   py_bin="$(type -P python3 || type -P python2 || type -P python || return)"
   py_version="$($py_bin --version | sed 's|[pP]ython ||g' | awk -F '.' '{print $1$2}' | grep '[0-9]' || echo "0")"
@@ -687,14 +551,14 @@ __pip_remove() {
   pip="$(type -P $pip3 || type -P pip || echo "$py_bin -m pip")"
   cat <<EOF >"$PKMGR_TEMP_FILE"
 pip="$pip"
-pip_opts=""
-[ "$py_version" -gt "310" ] && pip_opts="--break-system-packages"
 [ -f "/etc/profile.d/pyenv.sh" ] && . /etc/profile.d/pyenv.sh
 [ -n "\$pip" ] && exitStatus=0 || { echo "pip is not installed" >&2 && exit 1; }
+[ "$py_version" -le "310" ] && pip_opts+="--use-pep517"
+[ "$py_version" -gt "310" ] && pip_opts+="--break-system-packages " || pip_opts=""
 echo "Running as: $SUDO_USER"
 for file in $packages; do
   name="\${file// /}"
-  sudo -HE -u $SUDO_USER \$pip uninstall --yes \$pip_opts "\$name" || exitStatus=\$((exitStatus + 1))
+  sudo -HE -u $SUDO_USER \$pip uninstall --yes --user \$py_version "\$name" || exitStatus=\$((exitStatus + 1))
   if [ -f "/usr/local/bin/\$name" ]; then
     rm -Rf "/usr/local/bin/\$name"
   fi
@@ -710,7 +574,7 @@ EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Ruby/GEM functions
-__gem_run() {
+gem_run() {
   local packages="$*"
   gem="$(type -P gem 2>/dev/null | grep -v "$HOME" | grep '^' || return)"
   [ -n "$packages" ] || printf_exit "Usage: $APPNAME gem install [package]" >&2
@@ -718,7 +582,7 @@ __gem_run() {
     sudo $gem install --no-user-install $packages 2>/dev/null || return 1
   fi
 }
-__gem_remove() {
+gem_remove() {
   local packages="$*"
   gem="$(type -P gem 2>/dev/null | grep -v "$HOME" | grep '^' || return)"
   [ -n "$packages" ] || printf_exit "Usage: $APPNAME gem remove [package]" >&2
@@ -728,7 +592,7 @@ __gem_remove() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # NODE/Yarn/NPM functions
-__npm_run() {
+npm_run() {
   local packages="$*"
   local NODE_PATH="" PATH="${PATH}"
   NODE_PATH="$(echo "$PATH" | tr ':' '\n' | grep 'node' | grep '/bin' || return)"
@@ -750,7 +614,7 @@ __npm_run() {
     printf_exit "Neither npm or yarn seem to be installed"
   fi
 }
-__npm_remove() {
+npm_remove() {
   local packages="$*"
   local NODE_PATH="" PATH="${PATH}"
   NODE_PATH="$(echo "$PATH" | tr ':' '\n' | grep 'node' | grep '/bin' || return)"
@@ -774,13 +638,13 @@ __npm_remove() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Lua/Rocks functions
-__lua_run() {
+lua_run() {
   local packages="$*"
   __cmd_exists lua && __cmd_exists luarocks || return 1
   [ -n "$packages" ] || printf_exit "Usage: $APPNAME lua install [package]" >&2
   luarocks install --local $packages
 }
-__lua_remove() {
+lua_remove() {
   local packages="$*"
   __cmd_exists lua && __cmd_exists luarocks || return 1
   [ -n "$packages" ] || printf_exit "Usage: $APPNAME lua remove [package]" >&2
@@ -788,7 +652,7 @@ __lua_remove() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Go functions
-__go_run() {
+go_run() {
   local packages="$*"
   __cmd_exists go || return 1
   [ -n "$packages" ] || printf_exit "Usage: $APPNAME go install [package]" >&2
@@ -797,7 +661,7 @@ __go_run() {
     go install -v "$pack@latest"
   done
 }
-__go_remove() {
+go_remove() {
   local packages="$*"
   __cmd_exists go || return 1
   local pkg="" ost="" cnt="" scr=""
@@ -821,7 +685,7 @@ __go_remove() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Curl functions
-__curl_run() {
+curl_run() {
   local os="" distro="" distroid="" url=""
   [ -z $1 ] && printf_exit 1 0 "Usage: pkmgr curl OS filename or pkmgr curl fullurltolist "
   url="$1"
@@ -838,7 +702,7 @@ __curl_run() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Remote script execution functions
-__script_run_if_is_url() {
+script_run_if_is_url() {
   [ -z "$1" ] && printf_exit 1 0 "Usage: pkmgr script filename or url "
   if [[ "$1" =~ https?://.* ]] || [[ "$1" =~ ftp?://.* ]]; then
     __urlverify "$1" && __curl "$1" | tee -p "$PKMGR_TEMP_FILE" &>/dev/null || return 1
@@ -854,17 +718,17 @@ __script_run_if_is_url() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Script execution
-__script_run() {
+script_run() {
   if [ "$1" = "--script" ]; then
     shift 1
-    __script_run_if_is_url "$1"
+    script_run_if_is_url "$1"
     __execute "$PKMGR_TEMP_FILE" "executing the script"
   elif [ "$1" = "--line" ]; then
     shift 1
-    __script_run_if_is_url "$1"
+    script_run_if_is_url "$1"
     while read -r line; do __execute "$line" "$line"; done <"$PKMGR_TEMP_FILE"
   else
-    __script_run_if_is_url "$1"
+    script_run_if_is_url "$1"
     "$PKMGR_TEMP_FILE"
   fi
   __rm_rf "$PKMGR_TEMP_FILE"
@@ -902,7 +766,7 @@ __schedule() {
     shift 1
     echo -e "###########\n$date\n###########\n" | sudo tee -p -a "$logfile" &>/dev/null
     echo -e "###########\n$date\n###########\n" | sudo tee -p -a "$loggerfile" &>/dev/null
-    $pkgmgrbinupdcron 2>>"$loggerfile.tmp" | sudo tee -p -a "$logfile" &>/dev/null
+    sudo $pkgmgrbinupdcron 2>>"$loggerfile.tmp" | sudo tee -p -a "$logfile" &>/dev/null
     if [ -s "$loggerfile.tmp" ] && [ -f "$loggerfile.tmp" ] && grep -q '[^[:space:]]' "$loggerfile.tmp" &>/dev/null; then
       if __cmd_exists mail; then
         MAILMESS="$(echo -e "Errors were reported and they are as follows:\n""$(cat $loggerfile.tmp)\n")"
@@ -917,7 +781,7 @@ __schedule() {
   esac
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__dotfiles_run() {
+dotfiles_run() {
   local file="" f="" url=""
   [ -n "$1" ] || printf_exit "Usage: pkmgr dotfiles name"
   f=""
@@ -943,7 +807,7 @@ __aliases() {
 EOF
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__show_info() {
+show_info() {
   local col=""
   local truncate="$1"
   [ -n "$COLUMNS" ] && col=$(($COLUMNS - 30)) || col=80
@@ -999,7 +863,7 @@ __show_info() {
   printf_newline
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__exportpkg() {
+exportpkg() {
   local pkgdir="" pkglist=""
   local distro="$(printf '%s\n' "$DISTRO" | sed 's|[0-9]||g')"
   case "$(uname -s)" in
@@ -1011,10 +875,10 @@ __exportpkg() {
   mkdir -p "$pkgdir"
   printf_green "Exporting package list to:"
   printf_green "$pkglist"
-  __pkgmgrexport >"$pkglist"
+  pkgmgrexport >"$pkglist"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__update_mirrors() {
+update_mirrors() {
   __cmd_exists pacman || return 0
   sudo pacman -S --noconfirm --needed reflector &>/dev/null
   __cmd_exists reflector || return
@@ -1057,42 +921,20 @@ __initialize_variables() {
       dotfilesrepo_url="$PKMGR_GIT_REPO/$PKMGR_GIT_DOTFILES"                                                                      #
       dotfilesrepo_raw="$dotfilesrepo_url/raw/$PKMGR_GIT_BRANCH/apt"                                                              #
       pkgmgrbin="sudo --preserve-env=PATH /usr/bin/apt-get"                                                                       #
+      pkgmgrbinins="$pkgmgrbin install"                                                                                           #
+      pkgmgrbininssil="$pkgmgrbin install $APT_OPTS --ignore-missing -yy -q --allow-unauthenticated --assume-yes"                 #
+      pkgmgrbinremsil="$pkgmgrbin remove -yy -q --assume-yes --purge"                                                             #
+      pkgmgrbinupdsil="$pkgmgrbin dist-upgrade $APT_OPTS --ignore-missing -yy -q --allow-unauthenticated --assume-yes"            #
+      pkgmgrbinupdcron="$pkgmgrbin dist-upgrade $APT_OPTS --ignore-missing -yy --allow-unauthenticated --assume-yes"              #
+      pkgmgrbindel="$pkgmgrbin remove --purge"                                                                                    #
       pkgmgrbinsea="sudo --preserve-env=PATH /usr/bin/apt-cache search"                                                           #
+      pkgmgrbinupd="$pkgmgrbin dist-upgrade"                                                                                      #
+      pkgmgrbincle="$pkgmgrbin clean"                                                                                             #
+      pkgmgrbincac="$pkgmgrbin update"                                                                                            #
       pkmgrcheckbin="$(builtin type -P apt 2>/dev/null)"                                                                          #
       __pkmgrcheckupdates() { [ -n "$pkmgrcheckbin" ] && $pkmgrcheckbin $pkmgrcheckbin_opts 2>/dev/null | grep '^Inst' | wc -l; } #
-      __pkgmgrexport() { dpkg -l | grep ^ii | awk '{print $2}' | sed "s#:.*##g" | sort -u; }                                      #
-      __pkgmr_reinstall() { for pkg in $(__pkgmgrexport); do $pkgmgrbin install --reinstall "$pkg" 2>/dev/null || $pkgmgrbin install "$pkg" 2>/dev/null || true; done; return 0; }                                                             #
-      __pkgmgrbinins() { $pkgmgrbin install "$@" || return 1; }
-      __pkgmgrbininssil() { $pkgmgrbin install $APT_OPTS --ignore-missing -yy -q --allow-unauthenticated --assume-yes "$@" || return 1; }
-      __pkgmgrbinremsil() { $pkgmgrbin remove -yy -q --assume-yes --purge "$@" || return 1; }
-      __pkgmgrbinupdsil() { $pkgmgrbin dist-upgrade $APT_OPTS --ignore-missing -yy -q --allow-unauthenticated --assume-yes || return 1; }
-      __pkgmgrbinupdcron() { $pkgmgrbin dist-upgrade $APT_OPTS --ignore-missing -yy --allow-unauthenticated --assume-yes || return 1; }
-      __pkgmgrbindel() { $pkgmgrbin remove --purge "$@" || return 1; }
-      __pkgmgrbinupd() { $pkgmgrbin dist-upgrade "$@" || return 1; }
-      __pkgmgrbincle() { $pkgmgrbin clean || return 1; }
-      __pkgmgrbincac() { $pkgmgrbin update || return 1; }
-      __pkgmgrbinins() { __pkgmgrbinins "$@" || return 1; }
-      __pkgmgrbininssil() { __pkgmgrbininssil "$@" || return 1; }
-      __pkgmgrbinremsil() { __pkgmgrbinremsil "$@" || return 1; }
-      __pkgmgrbinupdsil() { __pkgmgrbinupdsil || return 1; }
-      __pkgmgrbinupdcron() { __pkgmgrbinupdcron || return 1; }
-      __pkgmgrbindel() { __pkgmgrbindel "$@" || return 1; }
-      __pkgmgrbinupd() { __pkgmgrbinupd "$@" || return 1; }
-      __pkgmgrbincle() { __pkgmgrbincle || return 1; }
-      __pkgmgrbincac() { __pkgmgrbincac || return 1; }
-      __pkgmgr_update_keys() {
-        local all_keyrings="debian-archive-keyring debian-keyring ubuntu-keyring ubuntu-advantage-tools ca-certificates gnupg gnupg2 ubuntu-minimal ubuntu-standard debian-ports-archive-keyring kali-archive-keyring raspbian-archive-keyring pop-keyring elementary-keyring linuxmint-keyring pureos-keyring trisquel-keyring"
-        local installed_keyrings=""
-        for pkg in $all_keyrings; do
-          if dpkg -l "$pkg" 2>/dev/null | grep -q '^ii'; then
-            installed_keyrings+="$pkg "
-          fi
-        done
-        if [ -n "$installed_keyrings" ]; then
-          $pkgmgrbin install --only-upgrade $APT_OPTS -yy -q $installed_keyrings 2>/dev/null || return 0
-        fi
-      }
-
+      pkgmgrexport() { dpkg -l | grep ^ii | awk '{print $2}' | sed "s#:.*##g" | sort -u; }                                        #
+      pkgmr_reinstall() { echo "Not yet implemented" && return 1; }                                                               #
     # apt-get debian based setup
     elif [ -f "$(builtin type -P apt 2>/dev/null)" ]; then                                                                        #
       pkmgrcheckbin_opts="-q -y --ignore-hold --allow-change-held-packages --allow-unauthenticated -s dist-upgrade"               #
@@ -1101,256 +943,159 @@ __initialize_variables() {
       dotfilesrepo_url="$PKMGR_GIT_REPO/$PKMGR_GIT_DOTFILES"                                                                      #
       dotfilesrepo_raw="$dotfilesrepo_url/raw/$PKMGR_GIT_BRANCH/apt"                                                              #
       pkgmgrbin="sudo --preserve-env=PATH /usr/bin/apt"                                                                           #
-      __pkgmgrbinins() { $pkgmgrbin install "$@" || return 1; }
-      __pkgmgrbininssil() { $pkgmgrbin install $APT_OPTS --ignore-missing -yy -q --allow-unauthenticated --assume-yes "$@" || return 1; }
-      __pkgmgrbinremsil() { $pkgmgrbin remove -yy -q --assume-yes --purge "$@" || return 1; }
-      __pkgmgrbinupdsil() { $pkgmgrbin dist-upgrade $APT_OPTS --ignore-missing -yy -q --allow-unauthenticated --assume-yes || return 1; }
-      __pkgmgrbinupdcron() { $pkgmgrbin dist-upgrade $APT_OPTS --ignore-missing -yy --allow-unauthenticated --assume-yes || return 1; }
-      __pkgmgrbindel() { $pkgmgrbin remove --purge "$@" || return 1; }
+      pkgmgrbinins="$pkgmgrbin install"                                                                                           #
+      pkgmgrbininssil="$pkgmgrbin install $APT_OPTS --ignore-missing -yy -q --allow-unauthenticated --assume-yes"                 #
+      pkgmgrbinremsil="$pkgmgrbin remove -yy -q --assume-yes --purge"                                                             #
+      pkgmgrbinupdsil="$pkgmgrbin dist-upgrade $APT_OPTS --ignore-missing -yy -q --allow-unauthenticated --assume-yes"            #
+      pkgmgrbinupdcron="$pkgmgrbin dist-upgrade $APT_OPTS --ignore-missing -yy --allow-unauthenticated --assume-yes"              #
+      pkgmgrbindel="$pkgmgrbin remove --purge"                                                                                    #
       pkgmgrbinsea="sudo --preserve-env=PATH /usr/bin/apt-cache search"                                                           #
-      __pkgmgrbinupd() { $pkgmgrbin dist-upgrade "$@" || return 1; }
-      __pkgmgrbincle() { $pkgmgrbin clean || return 1; }
-      __pkgmgrbincac() { $pkgmgrbin update || return 1; }
+      pkgmgrbinupd="$pkgmgrbin dist-upgrade"                                                                                      #
+      pkgmgrbincle="$pkgmgrbin clean"                                                                                             #
+      pkgmgrbincac="$pkgmgrbin update"                                                                                            #
       pkmgrcheckbin="$(builtin type -P apt 2>/dev/null)"                                                                          #
       __pkmgrcheckupdates() { [ -n "$pkmgrcheckbin" ] && $pkmgrcheckbin $pkmgrcheckbin_opts 2>/dev/null | grep '^Inst' | wc -l; } #
-__pkgmgrexport() { dpkg -l | grep ^ii | awk '{print $2}' | sed "s#:.*##g" | sort -u; }                                        #
-__pkgmr_reinstall() { for pkg in $(__pkgmgrexport); do $pkgmgrbin install --reinstall "$pkg" 2>/dev/null || $pkgmgrbin install "$pkg" 2>/dev/null || true; done; return 0; }                                                               #
-__pkgmgr_update_keys() {
-        local all_keyrings="debian-archive-keyring debian-keyring ubuntu-keyring ubuntu-advantage-tools ca-certificates gnupg gnupg2 ubuntu-minimal ubuntu-standard debian-ports-archive-keyring kali-archive-keyring raspbian-archive-keyring pop-keyring elementary-keyring linuxmint-keyring pureos-keyring trisquel-keyring"
-        local installed_keyrings=""
-        for pkg in $all_keyrings; do
-          if dpkg -l "$pkg" 2>/dev/null | grep -q '^ii'; then
-            installed_keyrings+="$pkg "
-          fi
-        done
-        if [ -n "$installed_keyrings" ]; then
-          $pkgmgrbin install --only-upgrade $APT_OPTS -yy -q $installed_keyrings 2>/dev/null || return 0
-        fi
-      }
-
+      pkgmgrexport() { dpkg -l | grep ^ii | awk '{print $2}' | sed "s#:.*##g" | sort -u; }                                        #
+      pkgmr_reinstall() { echo "Not yet implemented" && return 1; }                                                               #
     # pacman archlinux based setup
     elif [ -f "$(builtin type -P pacman 2>/dev/null)" ]; then                                                                                                               #
       dotfilesrepo_url="$PKMGR_GIT_REPO/$PKMGR_GIT_DOTFILES"                                                                                                                #
       dotfilesrepo_raw="$dotfilesrepo_url/raw/$PKMGR_GIT_BRANCH/pacman"                                                                                                     #
       pkgmgrbin="sudo --preserve-env=PATH /usr/bin/pacman"                                                                                                                  #
-      __pkgmgrbinins() { $pkgmgrbin -S --noconfirm --overwrite='*' "$@" || return 1; }
-      __pkgmgrbininssil() { $pkgmgrbin -Sy --noconfirm --needed --overwrite='*'  "$@" || return 1; }
-      __pkgmgrbinremsil() { $pkgmgrbin -Ry --noconfirm "$@" || return 1; }
-      __pkgmgrbinupdsil() { $pkgmgrbin -Syyu --noconfirm || return 1; }
-      __pkgmgrbinupdcron() { $pkgmgrbin -Syyu --noconfirm || return 1; }
-      __pkgmgrbindel() { $pkgmgrbin -R "$@" || return 1; }
+      pkgmgrbinins="$pkgmgrbin -S --noconfirm --overwrite='*'"                                                                                                              #
+      pkgmgrbininssil="$pkgmgrbin -Sy --noconfirm --needed --overwrite='*' "                                                                                                #
+      pkgmgrbinremsil="$pkgmgrbin -Ry --noconfirm"                                                                                                                          #
+      pkgmgrbinupdsil="$pkgmgrbin -Syyu --noconfirm"                                                                                                                        #
+      pkgmgrbinupdcron="$pkgmgrbin -Syyu --noconfirm"                                                                                                                       #
+      pkgmgrbindel="$pkgmgrbin -R"                                                                                                                                          #
       pkgmgrbinsea="$pkgmgrbin -Ss --noconfirm"                                                                                                                             #
-      __pkgmgrbinupd() { $pkgmgrbin -Syyu --needed --overwrite='*' "$@" || return 1; }
-      __pkgmgrbincle() { yes | $pkgmgrbin -Scc --noconfirm || return 1; }
-      __pkgmgrbincac() { $pkgmgrbin -Syy || return 1; }
+      pkgmgrbinupd="$pkgmgrbin -Syyu --needed --overwrite='*'"                                                                                                              #
+      pkgmgrbincle="yes | $pkgmgrbin -Scc --noconfirm"                                                                                                                      #
+      pkgmgrbincac="$pkgmgrbin -Syy"                                                                                                                                        #
       pkmgrcheckbin="$(builtin type -P pacman 2>/dev/null)"                                                                                                                 #
       __pkmgrcheckupdates() { [ -n "$pkmgrcheckbin" ] && $pkmgrcheckbin -Qu 2>/dev/null | wc -l; }                                                                          #
-__pkgmgrexport() { (pacman -Qqe | grep -v "$(pacman -Qqm)" && pacman -Qqet | grep -v "$(pacman -Qqm)") | sort -u; }                                                     #
-__pkgmr_reinstall() { for pkg in $(pacman -Q | cut -d' ' -f1); do __execute "pacman -S --noconfirm $pkg" "Reinstalling package: $pkg"; done && return 0 || return $?; } #
-__pkgmgr_update_keys() {
-        local all_keyrings="archlinux-keyring chaotic-keyring endeavouros-keyring manjaro-keyring artix-keyring arcolinux-keyring cachyos-keyring garuda-keyring"
-        local installed_keyrings=""
-        for pkg in $all_keyrings; do
-          if pacman -Q "$pkg" &>/dev/null; then
-            installed_keyrings+="$pkg "
-          fi
-        done
-        if [ -n "$installed_keyrings" ]; then
-          $pkgmgrbin -Sy --noconfirm --needed $installed_keyrings 2>/dev/null || return 0
-        fi
-      }
+      pkgmgrexport() { (pacman -Qqe | grep -v "$(pacman -Qqm)" && pacman -Qqet | grep -v "$(pacman -Qqm)") | sort -u; }                                                     #
+      pkgmr_reinstall() { for pkg in $(pacman -Q | cut -d' ' -f1); do __execute "pacman -S --noconfirm $pkg" "Reinstalling package: $pkg"; done && return 0 || return $?; } #
     # pamac archlinux based setup
     elif [ -f "$(builtin type -P pamac 2>/dev/null)" ]; then                                                                                                      #
       dotfilesrepo_url="$PKMGR_GIT_REPO/$PKMGR_GIT_DOTFILES"                                                                                                      #
       dotfilesrepo_raw="$dotfilesrepo_url/raw/$PKMGR_GIT_BRANCH/pacman"                                                                                           #
       pkgmgrbin="sudo /usr/bin/pamac"                                                                                                                             #
-      __pkgmgrbinins() { $pkgmgrbin install --noconfirm "$@" || return 1; }
-      __pkgmgrbininssil() { $pkgmgrbin install --noconfirm "$@" || return 1; }
-      __pkgmgrbinremsil() { $pkgmgrbin remove --noconfirm "$@" || return 1; }
-      __pkgmgrbinupdsil() { $pkgmgrbin upgrade -a || return 1; }
-      __pkgmgrbinupdcron() { $pkgmgrbin upgrade -a || return 1; }
-      __pkgmgrbindel() { $pkgmgrbin remove "$@" || return 1; }
+      pkgmgrbinins="$pkgmgrbin install --noconfirm"                                                                                                               #
+      pkgmgrbininssil="$pkgmgrbin install --noconfirm"                                                                                                            #
+      pkgmgrbinremsil="$pkgmgrbin remove --noconfirm"                                                                                                             #
+      pkgmgrbinupdsil="$pkgmgrbin upgrade -a"                                                                                                                     #
+      pkgmgrbinupdcron="$pkgmgrbin upgrade -a"                                                                                                                    #
+      pkgmgrbindel="$pkgmgrbin remove"                                                                                                                            #
       pkgmgrbinsea="$pkgmgrbin search -a"                                                                                                                         #
-      __pkgmgrbinupd() { $pkgmgrbin upgrade -a "$@" || return 1; }
-      __pkgmgrbincle() { $pkgmgrbin clean || return 1; }
-      __pkgmgrbincac() { $pkgmgrbin checkupdates || return 1; }
+      pkgmgrbinupd="$pkgmgrbin upgrade -a"                                                                                                                        #
+      pkgmgrbincle="$pkgmgrbin clean"                                                                                                                             #
+      pkgmgrbincac="$pkgmgrbin checkupdates"                                                                                                                      #
       pkmgrcheckbin="$(builtin type -P pamac 2>/dev/null)"                                                                                                        #
       __pkmgrcheckupdates() { [ -n "$pkmgrcheckbin" ] && $pkmgrcheckbin checkupdates -a 2>/dev/null | wc -l; }                                                    #
-__pkgmgrexport() { pamac list ${1:--e} | grep -E 'extra|community|core' | awk '{print $1}' | sort -u; }                                                       #
-__pkgmr_reinstall() { for pkg in $(__pkgmgrexport -i); do __execute "pacman -S --noconfirm $pkg" "Reinstalling package: $pkg"; done && return 0 || return $?; } #
-__pkgmgr_update_keys() {
-        local all_keyrings="archlinux-keyring chaotic-keyring endeavouros-keyring manjaro-keyring artix-keyring arcolinux-keyring cachyos-keyring garuda-keyring"
-        local installed_keyrings=""
-        for pkg in $all_keyrings; do
-          if pamac list -i | grep -q "^$pkg "; then
-            installed_keyrings+="$pkg "
-          fi
-        done
-        if [ -n "$installed_keyrings" ]; then
-          $pkgmgrbin install --noconfirm --upgrade $installed_keyrings 2>/dev/null || return 0
-        fi
-      }
+      pkgmgrexport() { pamac list ${1:--e} | grep -E 'extra|community|core' | awk '{print $1}' | sort -u; }                                                       #
+      pkgmr_reinstall() { for pkg in $(pkgmgrexport -i); do __execute "pacman -S --noconfirm $pkg" "Reinstalling package: $pkg"; done && return 0 || return $?; } #
     # dnf fedora based setup
     elif [ -f "$(builtin type -P dnf 2>/dev/null)" ]; then                                                                        #
       execute_pkg_check="true"                                                                                                    #
       dotfilesrepo_url="$PKMGR_GIT_REPO/$PKMGR_GIT_DOTFILES"                                                                      #
       dotfilesrepo_raw="$dotfilesrepo_url/raw/$PKMGR_GIT_BRANCH/yum"                                                              #
       pkgmgrbin="sudo --preserve-env=PATH /usr/bin/dnf"                                                                           #
-      __pkgmgrbinins() { $pkgmgrbin install -y "$@" || return 1; }
-      __pkgmgrbininssil() { $pkgmgrbin install --skip-broken -y "$@" || return 1; }
-      __pkgmgrbinremsil() { $pkgmgrbin remove -y "$@" || return 1; }
-      __pkgmgrbinupdsil() { $pkgmgrbin update -y || return 1; }
-      __pkgmgrbinupdcron() { $pkgmgrbin update -y || return 1; }
-      __pkgmgrbindel() { $pkgmgrbin remove -y "$@" || return 1; }
+      pkgmgrbinins="$pkgmgrbin install -y"                                                                                        #
+      pkgmgrbininssil="$pkgmgrbin install --skip-broken -y"                                                                       #
+      pkgmgrbinremsil="$pkgmgrbin remove -y"                                                                                      #
+      pkgmgrbinupdsil="$pkgmgrbin update -y"                                                                                      #
+      pkgmgrbinupdcron="$pkgmgrbin update -y"                                                                                     #
+      pkgmgrbindel="$pkgmgrbin remove -y"                                                                                         #
       pkgmgrbinsea="$pkgmgrbin search"                                                                                            #
-      __pkgmgrbinupd() { $pkgmgrbin update "$@" || return 1; }
-      __pkgmgrbincle() { $pkgmgrbin clean || return 1; }
-      __pkgmgrbincac() { $pkgmgrbin makecache || return 1; }
+      pkgmgrbinupd="$pkgmgrbin update"                                                                                            #
+      pkgmgrbincle="$pkgmgrbin clean"                                                                                             #
+      pkgmgrbincac="$pkgmgrbin makecache"                                                                                         #
       pkmgrcheckbin="$(builtin type -P dnf 2>/dev/null)"                                                                          #
       __pkmgrcheckupdates() { [ -n "$pkmgrcheckbin" ] && $pkmgrcheckbin -q check-update 2>/dev/null | grep -v Security | wc -l; } #
-__pkgmgrexport() { rpm -qa --qf '%{name}\n' | grep -v gpg-pubkey | sort -u; }                                                 #
-__pkgmr_reinstall() { for pkg in $(__pkgmgrexport); do $pkgmgrbin install --reinstall "$pkg" 2>/dev/null || $pkgmgrbin install "$pkg" 2>/dev/null || true; done; return 0; }                                                               #
+      pkgmgrexport() { rpm -qa --qf '%{name}\n' | grep -v gpg-pubkey | sort -u; }                                                 #
+      pkgmr_reinstall() { echo "Not yet implemented" && return 1; }                                                               #
       execute_pkg_check() { __cmd_exists "$1" || rpm -qi "$1" &>/dev/null || return 1; }                                          #
-__pkgmgr_update_keys() {
-        local all_keyrings="fedora-gpg-keys centos-gpg-keys redhat-release epel-release distribution-gpg-keys almalinux-release rocky-release oraclelinux-release"
-        local installed_keyrings=""
-        for pkg in $all_keyrings; do
-          if rpm -q "$pkg" &>/dev/null; then
-            installed_keyrings+="$pkg "
-          fi
-        done
-        if [ -n "$installed_keyrings" ]; then
-          $pkgmgrbin update --skip-broken -y $installed_keyrings 2>/dev/null || return 0
-        fi
-      }
     # yum fedora based setup
     elif [ -f "$(builtin type -P yum 2>/dev/null)" ]; then                                                                        #
       execute_pkg_check="true"                                                                                                    #
       dotfilesrepo_url="$PKMGR_GIT_REPO/$PKMGR_GIT_DOTFILES"                                                                      #
       dotfilesrepo_raw="$dotfilesrepo_url/raw/$PKMGR_GIT_BRANCH/yum"                                                              #
       pkgmgrbin="sudo --preserve-env=PATH /usr/bin/yum"                                                                           #
-      __pkgmgrbinins() { $pkgmgrbin install -y "$@" || return 1; }
-      __pkgmgrbininssil() { $pkgmgrbin install --skip-broken -y "$@" || return 1; }
-      __pkgmgrbinremsil() { $pkgmgrbin remove -y "$@" || return 1; }
-      __pkgmgrbinupdsil() { $pkgmgrbin update -y || return 1; }
-      __pkgmgrbinupdcron() { $pkgmgrbin update -y || return 1; }
-      __pkgmgrbindel() { $pkgmgrbin remove -y "$@" || return 1; }
+      pkgmgrbinins="$pkgmgrbin install -y"                                                                                        #
+      pkgmgrbininssil="$pkgmgrbin install --skip-broken -y"                                                                       #
+      pkgmgrbinremsil="$pkgmgrbin remove -y"                                                                                      #
+      pkgmgrbinupdsil="$pkgmgrbin update -y"                                                                                      #
+      pkgmgrbinupdcron="$pkgmgrbin update -y"                                                                                     #
+      pkgmgrbindel="$pkgmgrbin remove -y"                                                                                         #
       pkgmgrbinsea="$pkgmgrbin search"                                                                                            #
-      __pkgmgrbinupd() { $pkgmgrbin update "$@" || return 1; }
-      __pkgmgrbincle() { $pkgmgrbin clean || return 1; }
-      __pkgmgrbincac() { $pkgmgrbin makecache || return 1; }
+      pkgmgrbinupd="$pkgmgrbin update"                                                                                            #
+      pkgmgrbincle="$pkgmgrbin clean"                                                                                             #
+      pkgmgrbincac="$pkgmgrbin makecache"                                                                                         #
       pkmgrcheckbin="$(builtin type -P yum 2>/dev/null)"                                                                          #
       __pkmgrcheckupdates() { [ -n "$pkmgrcheckbin" ] && $pkmgrcheckbin -q check-update 2>/dev/null | grep -v Security | wc -l; } #
-__pkgmgrexport() { rpm -qa --qf '%{name}\n' | grep -v gpg-pubkey | sort -u; }                                                 #
-__pkgmr_reinstall() { for pkg in $(__pkgmgrexport); do $pkgmgrbin install --reinstall "$pkg" 2>/dev/null || $pkgmgrbin install "$pkg" 2>/dev/null || true; done; return 0; }                                                               #
+      pkgmgrexport() { rpm -qa --qf '%{name}\n' | grep -v gpg-pubkey | sort -u; }                                                 #
+      pkgmr_reinstall() { echo "Not yet implemented" && return 1; }                                                               #
       execute_pkg_check() { __cmd_exists "$1" || rpm -qi "$1" &>/dev/null || return 1; }                                          #
-__pkgmgr_update_keys() {
-        local all_keyrings="fedora-gpg-keys centos-gpg-keys redhat-release epel-release distribution-gpg-keys almalinux-release rocky-release oraclelinux-release"
-        local installed_keyrings=""
-        for pkg in $all_keyrings; do
-          if rpm -q "$pkg" &>/dev/null; then
-            installed_keyrings+="$pkg "
-          fi
-        done
-        if [ -n "$installed_keyrings" ]; then
-          $pkgmgrbin update --skip-broken -y $installed_keyrings 2>/dev/null || return 0
-        fi
-      }
       # tdnf photon based setup
     elif [ -f "$(builtin type -P tdnf 2>/dev/null)" ]; then                                                                         #
       execute_pkg_check="true"                                                                                                      #
       dotfilesrepo_url="$PKMGR_GIT_REPO/$PKMGR_GIT_DOTFILES"                                                                        #
       dotfilesrepo_raw="$dotfilesrepo_url/raw/$PKMGR_GIT_BRANCH/tdnf"                                                               #
       pkgmgrbin="sudo --preserve-env=PATH /usr/bin/tdnf"                                                                            #
-      __pkgmgrbinins() { $pkgmgrbin install "$@" || return 1; }
-      __pkgmgrbininssil() { $pkgmgrbin install -y "$@" || return 1; }
-      __pkgmgrbinremsil() { $pkgmgrbin remove -y "$@" || return 1; }
-      __pkgmgrbinupdsil() { $pkgmgrbin update -y || return 1; }
-      __pkgmgrbinupdcron() { $pkgmgrbin update -y || return 1; }
-      __pkgmgrbindel() { $pkgmgrbin remove "$@" || return 1; }
+      pkgmgrbinins="$pkgmgrbin install"                                                                                             #
+      pkgmgrbininssil="$pkgmgrbin install -y"                                                                                       #
+      pkgmgrbinremsil="$pkgmgrbin remove -y"                                                                                        #
+      pkgmgrbinupdsil="$pkgmgrbin update -y"                                                                                        #
+      pkgmgrbinupdcron="$pkgmgrbin update -y"                                                                                       #
+      pkgmgrbindel="$pkgmgrbin remove"                                                                                              #
       pkgmgrbinsea="$pkgmgrbin search"                                                                                              #
-      __pkgmgrbinupd() { $pkgmgrbin update "$@" || return 1; }
-      __pkgmgrbincle() { $pkgmgrbin clean || return 1; }
-      __pkgmgrbincac() { $pkgmgrbin makecache || return 1; }
+      pkgmgrbinupd="$pkgmgrbin update"                                                                                              #
+      pkgmgrbincle="$pkgmgrbin clean"                                                                                               #
+      pkgmgrbincac="$pkgmgrbin makecache"                                                                                           #
       pkmgrcheckbin="$(builtin type -P tdnf 2>/dev/null)"                                                                           #
       __pkmgrcheckupdates() { [ -n "$pkmgrcheckbin" ] && $pkmgrcheckbin -q check-update 2>/dev/null | grep -v 'Security' | wc -l; } #
-__pkgmgrexport() { rpm -qa --qf '%{name}\n' | grep -v gpg-pubkey | sort -u; }                                                   #
-__pkgmr_reinstall() { for pkg in $(__pkgmgrexport); do $pkgmgrbin install --reinstall "$pkg" 2>/dev/null || $pkgmgrbin install "$pkg" 2>/dev/null || true; done; return 0; }                                                                 #
+      pkgmgrexport() { rpm -qa --qf '%{name}\n' | grep -v gpg-pubkey | sort -u; }                                                   #
+      pkgmr_reinstall() { echo "Not yet implemented" && return 1; }                                                                 #
       execute_pkg_check() { __cmd_exists "$1" || rpm -qi "$1" &>/dev/null || return 1; }                                            #
-__pkgmgr_update_keys() {
-        local all_keyrings="photon-release photon-repos"
-        local installed_keyrings=""
-        for pkg in $all_keyrings; do
-          if rpm -q "$pkg" &>/dev/null; then
-            installed_keyrings+="$pkg "
-          fi
-        done
-        if [ -n "$installed_keyrings" ]; then
-          $pkgmgrbin update -y $installed_keyrings 2>/dev/null || return 0
-        fi
-      }
       # apk alpine based setup
     elif [ -f "$(builtin type -P apk 2>/dev/null)" ]; then                   #
       dotfilesrepo_url="$PKMGR_GIT_REPO/$PKMGR_GIT_DOTFILES"                 #
       dotfilesrepo_raw="$dotfilesrepo_url/raw/$PKMGR_GIT_BRANCH/apk"         #
       pkgmgrbin="$(builtin type -P apk 2>/dev/null)"                         #
-      __pkgmgrbinins() { $pkgmgrbin -U add "$@" || return 1; }
-      __pkgmgrbininssil() { $pkgmgrbin -U add >/dev/null "$@" || return 1; }
-      __pkgmgrbinremsil() { $pkgmgrbin del -f "$@" || return 1; }
-      __pkgmgrbinupdsil() { $pkgmgrbin -U upgrade >/dev/null || return 1; }
-      __pkgmgrbinupdcron() { $pkgmgrbin -U upgrade >/dev/null || return 1; }
-      __pkgmgrbindel() { $pkgmgrbin del "$@" || return 1; }
+      pkgmgrbinins="$pkgmgrbin -U add"                                       #
+      pkgmgrbininssil="$pkgmgrbin -U add >/dev/null"                         #
+      pkgmgrbinremsil="$pkgmgrbin del -f"                                    #
+      pkgmgrbinupdsil="$pkgmgrbin -U upgrade >/dev/null"                     #
+      pkgmgrbinupdcron="$pkgmgrbin -U upgrade >/dev/null"                    #
+      pkgmgrbindel="$pkgmgrbin del"                                          #
       pkgmgrbinsea="$pkgmgrbin search | sed 's|-[0-9].*\.[0-9]\.[0-9].*||g'" #
-      __pkgmgrbinupd() { $pkgmgrbin -U upgrade "$@" || return 1; }
-      __pkgmgrbincle() { $pkgmgrbin cache clean && rm -rf /var/lib/apk/ || return 1; }
-      __pkgmgrbincac() { $pkgmgrbin update || return 1; }
+      pkgmgrbinupd="$pkgmgrbin -U upgrade"                                   #
+      pkgmgrbincle="$pkgmgrbin cache clean && rm -rf /var/lib/apk/"          #
+      pkgmgrbincac="$pkgmgrbin update"                                       #
       pkmgrcheckbin="$(builtin type -P apk 2>/dev/null)"                     #
       __pkmgrcheckupdates() { $pkmgrcheckbin -u list | wc -l; }              #
-__pkgmgrexport() { $pkgmgrbin info | grep -ve '-doc$' | sort -u; }       #
-__pkgmr_reinstall() { apk info | xargs apk fix || return 1; }            #
-__pkgmgr_update_keys() {
-        local all_keyrings="alpine-keys alpine-base"
-        local installed_keyrings=""
-        for pkg in $all_keyrings; do
-          if apk info -e "$pkg" &>/dev/null; then
-            installed_keyrings+="$pkg "
-          fi
-        done
-        if [ -n "$installed_keyrings" ]; then
-          $pkgmgrbin -U upgrade $installed_keyrings 2>/dev/null || return 0
-        fi
-      }
+      pkgmgrexport() { $pkgmgrbin info | grep -ve '-doc$' | sort -u; }       #
+      pkgmr_reinstall() { apk info | xargs apk fix || return 1; }            #
     # xbps-* voidlinux based setup
     elif [ -f "$(builtin type -P xbps-install 2>/dev/null)" ]; then                            #
       dotfilesrepo_url="$PKMGR_GIT_REPO/$PKMGR_GIT_DOTFILES"                                   #
       dotfilesrepo_raw="$dotfilesrepo_url/raw/$PKMGR_GIT_BRANCH/xbps"                          #
       pkgmgrbin="sudo --preserve-env=PATH /usr/bin/xbps-install"                               #
-      __pkgmgrbinins() { $pkgmgrbin -S "$@" || return 1; }
-      __pkgmgrbininssil() { $pkgmgrbin -Sy "$@" || return 1; }
-      __pkgmgrbinremsil() { sudo --preserve-env=PATH /usr/bin/xbps-remove -y "$@" || return 1; }
-      __pkgmgrbinupdsil() { $pkgmgrbin -Syu || return 1; }
-      __pkgmgrbinupdcron() { $pkgmgrbin -Syu || return 1; }
-      __pkgmgrbindel() { sudo --preserve-env=PATH /usr/bin/xbps-remove "$@" || return 1; }
+      pkgmgrbinins="$pkgmgrbin -S"                                                             #
+      pkgmgrbininssil="$pkgmgrbin -Sy"                                                         #
+      pkgmgrbinremsil="sudo --preserve-env=PATH /usr/bin/xbps-remove -y"                       #
+      pkgmgrbinupdsil="$pkgmgrbin -Syu"                                                        #
+      pkgmgrbinupdcron="$pkgmgrbin -Syu"                                                       #
+      pkgmgrbindel="sudo --preserve-env=PATH /usr/bin/xbps-remove"                             #
       pkgmgrbinsea="sudo --preserve-env=PATH /usr/bin/xbps-query -Rs"                          #
-      __pkgmgrbinupd() { $pkgmgrbin -Syu  "$@" || return 1; }
-      __pkgmgrbincle() { sudo --preserve-env=PATH /usr/bin/xbps-remove -O || return 1; }
-      __pkgmgrbincac() { $pkgmgrbin -S || return 1; }
+      pkgmgrbinupd="$pkgmgrbin -Syu "                                                          #
+      pkgmgrbincle="sudo --preserve-env=PATH /usr/bin/xbps-remove -O"                          #
+      pkgmgrbincac="$pkgmgrbin -S"                                                             #
       pkmgrcheckbin="$(builtin type -P xbps-install 2>/dev/null)"                              #
       __pkmgrcheckupdates() { [ -n "$pkmgrcheckbin" ] && $pkmgrcheckbin 2>/dev/null | wc -l; } #
-__pkgmgrexport() { xbps-query -l; }                                                        #
-__pkgmr_reinstall() { for pkg in $(__pkgmgrexport); do $pkgmgrbin install --reinstall "$pkg" 2>/dev/null || $pkgmgrbin install "$pkg" 2>/dev/null || true; done; return 0; }                            #
-__pkgmgr_update_keys() {
-        local all_keyrings="void-repo-keys void-release"
-        local installed_keyrings=""
-        for pkg in $all_keyrings; do
-          if xbps-query -l | grep -q "^ii $pkg"; then
-            installed_keyrings+="$pkg "
-          fi
-        done
-        if [ -n "$installed_keyrings" ]; then
-          $pkgmgrbin -Syu $installed_keyrings 2>/dev/null || return 0
-        fi
-      }
+      pkgmgrexport() { xbps-query -l; }                                                        #
+      pkgmr_reinstall() { echo "Not yet implemented" && return 1; }                            #
     fi                                                                                         #
     ;;                                                                                         #
     # MacOS brew
@@ -1363,21 +1108,20 @@ __pkgmgr_update_keys() {
       else                                                                                              #
         pkgmgrbin="sudo --preserve-env=PATH -u $RUN_USER brew"                                          #
       fi                                                                                                #
-      __pkgmgrbinins() { $pkgmgrbin install "$@" || return 1; }
-      __pkgmgrbininssil() { $pkgmgrbin install -f "$@" || return 1; }
-      __pkgmgrbinremsil() { $pkgmgrbin remove -f "$@" || return 1; }
-      __pkgmgrbinupdsil() { $pkgmgrbin upgrade -f || return 1; }
-      __pkgmgrbinupdcron() { $pkgmgrbin upgrade -f || return 1; }
-      __pkgmgrbindel() { $pkgmgrbin remove "$@" || return 1; }
+      pkgmgrbinins="$pkgmgrbin install"                                                                 #
+      pkgmgrbininssil="$pkgmgrbin install -f"                                                           #
+      pkgmgrbinremsil="$pkgmgrbin remove -f"                                                            #
+      pkgmgrbinupdsil="$pkgmgrbin upgrade -f"                                                           #
+      pkgmgrbinupdcron="$pkgmgrbin upgrade -f"                                                          #
+      pkgmgrbindel="$pkgmgrbin remove"                                                                  #
       pkgmgrbinsea="$pkgmgrbin search"                                                                  #
-      __pkgmgrbinupd() { $pkgmgrbin upgrade "$@" || return 1; }
-      __pkgmgrbincle() { $pkgmgrbin cleanup || return 1; }
-      __pkgmgrbincac() { $pkgmgrbin update || return 1; }
+      pkgmgrbinupd="$pkgmgrbin upgrade"                                                                 #
+      pkgmgrbincle="$pkgmgrbin cleanup"                                                                 #
+      pkgmgrbincac="$pkgmgrbin update"                                                                  #
       pkmgrcheckbin="$(builtin type -P brew 2>/dev/null)"                                               #
       __pkmgrcheckupdates() { [ -n "$pkmgrcheckbin" ] && $pkmgrcheckbin outdated 2>/dev/null | wc -l; } #
-__pkgmgrexport() { $pkgmgrbin list --cask && $pkgmgrbin list --formula | sort -u; }                 #
-__pkgmr_reinstall() { for pkg in $(__pkgmgrexport); do $pkgmgrbin install --reinstall "$pkg" 2>/dev/null || $pkgmgrbin install "$pkg" 2>/dev/null || true; done; return 0; }                                     #
-__pkgmgr_update_keys() { return 0; }
+      pkgmgrexport() { $pkgmgrbin list --cask && $pkgmgrbin list --formula | sort -u; }                 #
+      pkgmr_reinstall() { echo "Not yet implemented" && return 1; }                                     #
     fi                                                                                                  #
     ;;                                                                                                  #
     # Windows chocolatey based setup
@@ -1396,9 +1140,8 @@ __pkgmgr_update_keys() { return 0; }
     pkgmgrbincle="choco cleanup"                                                             #
     pkmgrcheckbin="$(builtin type -P false 2>/dev/null)"                                     #
     __pkmgrcheckupdates() { [ -n "$pkmgrcheckbin" ] && $pkmgrcheckbin 2>/dev/null | wc -l; } #
-    __pkgmgrexport() { echo not enabled; }                                                     #
-    __pkgmr_reinstall() { for pkg in $(__pkgmgrexport); do $pkgmgrbin install --reinstall "$pkg" 2>/dev/null || $pkgmgrbin install "$pkg" 2>/dev/null || true; done; return 0; }                            #
-    __pkgmgr_update_keys() { return 0; }
+    pkgmgrexport() { echo not enabled; }                                                     #
+    pkgmr_reinstall() { echo "Not yet implemented" && return 1; }                            #
     ;;                                                                                       #
   *)                                                                                         #
     printf_exit "Unknown OS or OS not supported"                                             #
@@ -1412,41 +1155,17 @@ __pkgmgr_update_keys() { return 0; }
     pkgmgrbinins="$pkgmgrbin -S --cleanafter --overwrite='*'"                          #
     pkgmgrbininssil="$pkgmgrbin -Sy --needed --noconfirm --cleanafter --overwrite='*'" #
     pkgmgrbinremsil="$pkgmgrbin -Ry --noconfirm --needed --noconfirm"                  #
+    pkgmgrbinupdsil="$pkgmgrbin -Syyu --noconfirm"                                     #
+    pkgmgrbinupdcron="$pkgmgrbin -Syyu --noconfirm"                                    #
     pkgmgrbindel="$pkgmgrbin -R"                                                       #
     pkgmgrbinsea="$pkgmgrbin -Ss"                                                      #
+    pkgmgrbinupd="$pkgmgrbin -Syyu --needed --overwrite='*'"                           #
     pkgmgrbincle="yes | $pkgmgrbin -Scc --noconfirm"                                   #
     pkgmgrbincac="$pkgmgrbin -Syy"                                                     #
     pkmgrcheckbin="$(builtin type -P yay 2>/dev/null)"                                 #
     __pkmgrcheckupdates() { [ -n "$pkmgrcheckbin" ] && yay -Qum 2>/dev/null | wc -l; } #
-    __pkgmgrexport() { pacman -Qqet | grep -v "$(pacman -Qqm)" | sort -u; }              #
-    __pkgmr_reinstall() { for pkg in $(__pkgmgrexport); do $pkgmgrbin install --reinstall "$pkg" 2>/dev/null || $pkgmgrbin install "$pkg" 2>/dev/null || true; done; return 0; }                      #
-    __pkgmgrbinupdsil() {
-      sudo pacman -Syyu --noconfirm || return 1
-      $pkgmgrbin -Syua --noconfirm || return 1
-    }
-    __pkgmgrbinupdcron() {
-      sudo pacman -Syyu --noconfirm || return 1
-      $pkgmgrbin -Syua --noconfirm || return 1
-    }
-    __pkgmgrbinupd() {
-      sudo pacman -Syyu --needed --overwrite='*' "$@" || return 1
-      $pkgmgrbin -Syua --needed --overwrite='*' "$@" || return 1
-    }
-    pkgmgrbinupdsil="__pkgmgrbinupdsil"                                                #
-    pkgmgrbinupdcron="__pkgmgrbinupdcron"                                              #
-    pkgmgrbinupd="__pkgmgrbinupd"                                                      #
-    __pkgmgr_update_keys() {
-      local all_keyrings="archlinux-keyring chaotic-keyring endeavouros-keyring manjaro-keyring artix-keyring arcolinux-keyring cachyos-keyring garuda-keyring"
-      local installed_keyrings=""
-      for pkg in $all_keyrings; do
-        if pacman -Q "$pkg" &>/dev/null; then
-          installed_keyrings+="$pkg "
-        fi
-      done
-      if [ -n "$installed_keyrings" ]; then
-        sudo pacman -Sy --noconfirm --needed $installed_keyrings 2>/dev/null || return 0
-      fi
-    }
+    pkgmgrexport() { pacman -Qqet | grep -v "$(pacman -Qqm)" | sort -u; }              #
+    pkgmr_reinstall() { echo "Not yet implemented" && return 1; }                      #
   fi                                                                                   #
   if __cmd_exists yay pacman; then                                                     #
     __pkmgrcheckupdates() {                                                            #
@@ -1484,16 +1203,14 @@ __execute_pkmgr() {
 
   available) # List
     shift 1
-    __run_install_available "$APPNAME"
+    run_install_available "$APPNAME"
     exit ${exitCode:-0}
     ;;
 
   init) # Update package manager and upgrade system
     shift 1
     [ "$1" = "help" ] && printf_exit 2 0 "Initialize the system by making the cache and updating"
-    __am_i_online || { printf_red "ERROR: No internet connection detected"; exit 1; }
-    printf_blue "Updating keyring packages"
-    __pkgmgr_update_keys
+    am_i_online --error || exit 1
     __execute "$pkginit" "Initializing System" && exitCode=0 || exitCode=1
     exit ${exitCode:-0}
     ;;
@@ -1502,8 +1219,8 @@ __execute_pkmgr() {
     shift 1
     [ "$1" = "help" ] && printf_exit 2 0 "Create the cache for the package manager"
     printf_blue "Updating the package manager cache files - May take a while"
-    __update_mirrors
-    __pkgmgrbincac |& __devnull && exitCode=0 || exitCode=1
+    update_mirrors
+    eval $pkgmgrbincac |& __devnull && exitCode=0 || exitCode=1
     exit ${exitCode:-0}
     ;;
 
@@ -1553,7 +1270,7 @@ __execute_pkmgr() {
   export) # Export installed packages
     shift 1
     [ "$1" = "help" ] && printf_exit 2 0 "Export installed packages to a list"
-    __exportpkg
+    exportpkg
     ;;
 
   clean) # Clean package manager files
@@ -1561,7 +1278,7 @@ __execute_pkmgr() {
     exitCode=0
     [ "$1" = "help" ] && printf_exit 2 0 "Clean up package manager files"
     [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "clean" "$pkgmgrbincle $*"
-    __pkgmgrbincle || exitCode=1
+    eval $pkgmgrbincle || exitCode=1
     [ $exitCode -eq 0 ] && __write_log_status "clean ran successfully" || __write_log_status "Failed with status: $exitCode"
     exit ${exitCode:-0}
     ;;
@@ -1593,26 +1310,9 @@ __execute_pkmgr() {
     shift 1
     exitCode=0
     if __cmd_exists pacman-key; then
-      [ "$1" = "help" ] && printf_exit 2 0 "Usage: $APPNAME keys [broken] [arch,manjaro,arcolinux,cachyos,all] - Manage arch keys"
+      [ "$1" = "help" ] && printf_exit 2 0 "Usage: $APPNAME keys [broken] [arch,manjaro,arcolinux] - Manage arch keys"
       [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "keys" "pacman-key $*"
       [ "$1" = "broken" ] && PKMGR_FIX_BROKEN="true" && shift 1 && printf_yellow "Updating mirrors file and deleting gpg keys"
-      local keyrings_to_populate="${1:-archlinux}"
-      if [ "$keyrings_to_populate" = "all" ]; then
-        if [ -f "/etc/os-release" ]; then
-          . /etc/os-release
-          case "${ID,,}" in
-          cachyos) keyrings_to_populate="archlinux cachyos" ;;
-          manjaro) keyrings_to_populate="archlinux manjaro" ;;
-          arcolinux) keyrings_to_populate="archlinux arcolinux" ;;
-          endeavouros) keyrings_to_populate="archlinux endeavouros" ;;
-          garuda) keyrings_to_populate="archlinux garuda chaotic" ;;
-          artix) keyrings_to_populate="artix" ;;
-          *) keyrings_to_populate="archlinux" ;;
-          esac
-        else
-          keyrings_to_populate="archlinux"
-        fi
-      fi
       (
         __default_mirror_list_archlinux | sudo tee -p /etc/pacman.d/mirrorlist &>/dev/null
         sudo rm -Rf "/root/.gnupg/" "/etc/pacman.d/gnupg/" &>/dev/null
@@ -1626,9 +1326,7 @@ __execute_pkmgr() {
         fi
         sudo gpg --refresh-keys >/dev/null 2>&1
         __execute "sudo pacman-key --init >/dev/null 2>&1" "Initializing pacman key"
-        for keyring in $keyrings_to_populate; do
-          __execute "sudo pacman-key --populate $keyring >/dev/null 2>&1" "Populating $keyring keys"
-        done
+        __execute "sudo pacman-key --populate ${1:-archlinux} >/dev/null 2>&1" "Populating the keys"
         __execute "sudo pacman-key --refresh-keys >/dev/null 2>&1" "Refreshing the keys"
         __execute "sudo pacman -Syyu --noconfirm >/dev/null 2>&1" "${YELLOW}Updating packages"
         if [ -f "$PKMGR_TEMP_DIR/pacman.conf" ]; then
@@ -1646,7 +1344,7 @@ __execute_pkmgr() {
   import) # Install packages from export
     shift 1
     { [ "$1" = "" ] || [ "$1" = "help" ]; } && printf_exit 2 0 "Install package via a list: pkmgr list ./listToInstall"
-    __am_i_online || { printf_red "ERROR: No internet connection detected"; exit 1; }
+    am_i_online --error || exit 1
     __list_install "$@"
     exit $?
     ;;
@@ -1654,7 +1352,7 @@ __execute_pkmgr() {
   list) # Install package in a list file
     shift 1
     { [ "$1" = "" ] || [ "$1" = "help" ]; } && printf_exit 2 0 "Install package via a list: pkmgr list ./listToInstall"
-    __am_i_online || { printf_red "ERROR: No internet connection detected"; exit 1; }
+    am_i_online --error || exit 1
     __list_install "$@"
     exit $?
     ;;
@@ -1663,13 +1361,13 @@ __execute_pkmgr() {
     shift 1
     exitCode=0
     { [ "$1" = "" ] || [ "$1" = "help" ]; } && printf_exit 2 0 "pkmgr curl arch min or pkmgr curl fullURLtoList"
-    __am_i_online || { printf_red "ERROR: No internet connection detected"; exit 1; }
-    __curl_run "$@"
+    am_i_online --error || exit 1
+    curl_run "$@"
     PCKLIST="$(grep -sh -Ev '^$|^#' "$PKMGR_TEMP_FILE" | sort -u | tr '\n' ' ' && echo '')"
     if [ -n "$PCKLIST" ]; then
       for pkg in $PCKLIST; do
         if [ -n "$pkg" ]; then
-          __pkgmgrbininssil "$pkg" && __saved_file_create "$pkg" || exitCode=$((exitCode + 1))
+          __execute "$pkgmgrbininssil $pkg" "Installing $pkg" && __saved_file_create "$pkg" || exitCode=$((exitCode + 1))
         fi
       done
     else
@@ -1684,13 +1382,13 @@ __execute_pkmgr() {
     shift 1
     exitCode=0
     { [ "$1" = "" ] || [ "$1" = "help" ]; } && printf_exit 2 0 "pkmgr dotfiles git"
-    __am_i_online || { printf_red "ERROR: No internet connection detected"; exit 1; }
-    __dotfiles_run "$@"
+    am_i_online --error || exit 1
+    dotfiles_run "$@"
     PCKLIST="$(grep -Ev '^$|^#' "$PKMGR_TEMP_FILE" | sort -u | tr '\n' ' ' && echo '')"
     if [ -n "$PCKLIST" ]; then
       for pkg in $PCKLIST; do
         if [ -n "$pkg" ]; then
-          __pkgmgrbininssil "$pkg" && __saved_file_create "$pkg" || exitCode=$((exitCode + 1))
+          __execute "$pkgmgrbininssil $pkg" "Installing $pkg" && __saved_file_create "$pkg" || exitCode=$((exitCode + 1))
         fi
       done
     else
@@ -1706,8 +1404,8 @@ __execute_pkmgr() {
     shift 1
     exitCode=0
     { [ "$1" = "" ] || [ "$1" = "help" ]; } && printf_exit 2 0 "pkmgr script ./myScript or fullURLtoScript"
-    __am_i_online || { printf_red "ERROR: No internet connection detected"; exit 1; }
-    __script_run "$@" || exitCode=$((exitCode + 1))
+    am_i_online --error || exit 1
+    script_run "$@" || exitCode=$((exitCode + 1))
     [ $exitCode -eq 0 ] && exitCode=0 || exitCode="${exitCode:-1}"
     exit ${exitCode:-0}
     ;;
@@ -1716,10 +1414,10 @@ __execute_pkmgr() {
     shift 1
     exitCode=0
     { [ "$1" = "" ] || [ "$1" = "help" ]; } && printf_exit 2 0 "Install required packages"
-    __am_i_online || { printf_red "ERROR: No internet connection detected"; exit 1; }
+    am_i_online --error || exit 1
     declare -a LISTARRAY=("$@")
     for pkg in "${LISTARRAY[@]}"; do
-      __pkgmgrbininssil "$pkg" && __saved_file_create "$pkg" || exitCode=$((exitCode + 1))
+      __execute "$pkgmgrbininssil $pkg" "Installing $pkg" && __saved_file_create "$pkg" || exitCode=$((exitCode + 1))
     done
     [ $exitCode -eq 0 ] && exitCode=0 || exitCode="${exitCode:-1}"
     exit ${exitCode:-0}
@@ -1727,8 +1425,8 @@ __execute_pkmgr() {
 
   reinstall) # reinstall all packages
     shift 1
-    [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "reinstall" "__pkgmr_reinstall $*"
-    __pkgmr_reinstall || exitCode=1
+    [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "reinstall" "pkgmr_reinstall $*"
+    pkgmr_reinstall || exitCode=1
     [ $exitCode -eq 0 ] && __write_log_status "reinstall ran successfully" || __write_log_status "Failed with status: $exitCode"
     exit ${exitCode:-0}
     ;;
@@ -1737,13 +1435,12 @@ __execute_pkmgr() {
     shift 1
     exitCode=0
     { [ "$1" = "" ] || [ "$1" = "help" ]; } && printf_exit 2 0 "Install a package"
-    __am_i_online || { printf_red "ERROR: No internet connection detected"; exit 1; }
+    am_i_online --error || exit 1
     declare -a LISTARRAY=("$@")
-    __init_log_status "install" "__pkgmgrbinins ${LISTARRAY[*]}"
-    for pkg in "${LISTARRAY[@]}"; do
-      __pkgmgrbinins "$pkg" && __saved_file_create "$pkg" || exitCode=$((exitCode + 1))
-    done
-    [ $exitCode -eq 0 ] && __write_log_status "install was successful" || __write_log_status "Failed with status: $exitCode"
+    __init_log_status "install" "$pkgmgrbinins ${LISTARRAY[*]}"
+    #for pkg in "${LISTARRAY[@]}"; do
+    __exec_unbuffered "$pkgmgrbinins $*" || exitCode=$((exitCode + 1))
+    [ $exitCode -eq 0 ] && __write_log_status "upgrade was successful" || __write_log_status "Failed with status: $exitCode"
     exit ${exitCode:-0}
     ;;
 
@@ -1751,28 +1448,13 @@ __execute_pkmgr() {
     shift 1
     exitCode=0
     [ "$1" = "help" ] && printf_exit 2 0 "Update your system"
-    __am_i_online || { printf_red "ERROR: No internet connection detected"; exit 1; }
+    am_i_online --error || exit 1
     __init_log_status "update" "$pkgmgrbinupd $*"
     if __cmd_exists systemmgr; then
       systemmgr update installer || exitCode=$((exitCode + 1))
     fi
-    if builtin type -t __pkgmgr_update_keys | grep -q 'function'; then
-      printf_cyan "Updating keyrings first..."
-      if ! __pkgmgr_update_keys; then
-        printf_yellow "Keyring update failed - attempting automatic fix"
-        printf_cyan "Running: pkmgr keys broken all"
-        if "$0" keys broken all; then
-          printf_green "Keyring fix successful - continuing with update"
-        else
-          printf_red "Keyring fix failed - cannot continue safely"
-          exitCode=1
-          [ $exitCode -eq 0 ] && __write_log_status "upgrade was successful" || __write_log_status "Failed with status: $exitCode"
-          exit ${exitCode:-0}
-        fi
-      fi
-    fi
     printf_cyan "Updating system packages"
-    __pkgmgrbinupd "$@" || exitCode=$((exitCode + 1))
+    eval $pkgmgrbinupd "$@" || exitCode=$((exitCode + 1))
     [ $exitCode -eq 0 ] && __write_log_status "upgrade was successful" || __write_log_status "Failed with status: $exitCode"
     exit ${exitCode:-0}
     ;;
@@ -1784,7 +1466,7 @@ __execute_pkmgr() {
     declare -a LISTARRAY=("$@")
     __init_log_status "remove" "$pkgmgrbindel ${LISTARRAY[*]}"
     for pkg in "${LISTARRAY[@]}"; do
-      __pkgmgrbindel "$pkg" && __saved_file_delete "$pkg" || exitCode=$((exitCode + 1))
+      eval $pkgmgrbindel "$pkg" && __saved_file_delete "$pkg" || exitCode=$((exitCode + 1))
     done
     [ $exitCode -eq 0 ] && __write_log_status "upgrade was successful" || __write_log_status "Failed with status: $exitCode"
     exit ${exitCode:-0}
@@ -1796,11 +1478,11 @@ __execute_pkmgr() {
       shift 2
       exitCode=0
       { [ "$1" = "" ] || [ "$1" = "help" ]; } && printf_exit 2 0 "Silently install packages"
-      __am_i_online || { printf_red "ERROR: No internet connection detected"; exit 1; }
+      am_i_online --error || exit 1
       declare -a LISTARRAY=("$@")
       __init_log_status "silent install" "$pkgmgrbininssil ${LISTARRAY[*]}"
       for pkg in "${LISTARRAY[@]}"; do
-        __pkgmgrbininssil "$pkg" |& __silent_log_file && __saved_file_create "$pkg" || exitCode=$((exitCode + 1))
+        eval $pkgmgrbininssil "$pkg" |& __silent_log_file && __saved_file_create "$pkg" || exitCode=$((exitCode + 1))
         [ "$execute_pkg_check" = "true" ] && { execute_pkg_check "$pkg" || exitCode=$((exitCode + 1)); }
       done
       [ $exitCode -eq 0 ] && __write_log_status "upgrade was successful" || __write_log_status "Failed with status: $exitCode"
@@ -1814,7 +1496,7 @@ __execute_pkmgr() {
       declare -a LISTARRAY=("$@")
       __init_log_status "silent remove" "$pkgmgrbinremsil ${LISTARRAY[*]}"
       for pkg in "${LISTARRAY[@]}"; do
-        __pkgmgrbinremsil "*$pkg*" |& __silent_log_file && __saved_file_delete "$pkg" || exitCode=$((exitCode + 1))
+        eval $pkgmgrbinremsil "*$pkg*" |& __silent_log_file && __saved_file_delete "$pkg" || exitCode=$((exitCode + 1))
         [ "$execute_pkg_check" = "true" ] && { execute_pkg_check "$pkg" && exitCode=$((exitCode + 1)); }
       done
       [ $exitCode -eq 0 ] && __write_log_status "package was removal was successful" || __write_log_status "Failed with status: $exitCode"
@@ -1825,13 +1507,12 @@ __execute_pkmgr() {
       shift 2
       exitCode=0
       [ "$1" = "help" ] && printf_exit 2 0 "Silently upgrade your system"
-      __am_i_online || { printf_red "ERROR: No internet connection detected"; exit 1; }
+      am_i_online --error || exit 1
       __init_log_status "silent update" "$pkgmgrbinupdsil $*"
-      __pkgmgr_update_keys |& __silent_log_file
       if __cmd_exists systemmgr; then
         systemmgr --raw update installer |& __silent_log_file
       fi
-      __pkgmgrbinupdsil |& __silent_log_file || false
+      eval $pkgmgrbinupdsil |& __silent_log_file || false
       [ $exitCode -eq 0 ] && __write_log_status "upgrade was successful" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
       ;;
@@ -1840,14 +1521,14 @@ __execute_pkmgr() {
       shift 1
       exitCode=0
       { [ "$1" = "" ] || [ "$1" = "help" ]; } && printf_exit 2 0 "Silently install packages | defaults to a silent update"
-      __am_i_online || { printf_red "ERROR: No internet connection detected"; exit 1; }
+      am_i_online --error || exit 1
       declare -a LISTARRAY=("$@")
       __init_log_status "silent update" "$pkgmgrbininssil ${LISTARRAY[*]}"
       if [ -z "$1" ]; then
-        __pkgmgrbinupdsil |& __silent_log_file || exitCode=$((exitCode + 1))
+        eval $pkgmgrbinupdsil |& __silent_log_file || exitCode=$((exitCode + 1))
       else
         for pkg in "${LISTARRAY[@]}"; do
-          __pkgmgrbininssil "$pkg" |& __silent_log_file && __saved_file_create "$pkg" || exitCode=$((exitCode + 1))
+          eval $pkgmgrbininssil "$pkg" |& __silent_log_file && __saved_file_create "$pkg" || exitCode=$((exitCode + 1))
         done
       fi
       [ $exitCode -eq 0 ] && __write_log_status "upgrade was successful" || __write_log_status "Failed with status: $exitCode"
@@ -1863,11 +1544,11 @@ __execute_pkmgr() {
       shift 1
       exitCode=0
       [ "$1" = "help" ] && printf_exit 2 0 "install perl modules via cpan"
-      __am_i_online || { printf_red "ERROR: No internet connection detected"; exit 1; }
+      am_i_online --error || exit 1
       declare -a LISTARRAY=("$@")
-      [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "cpan" "__cpan_run ${LISTARRAY[*]}"
+      [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "cpan" "cpan_run ${LISTARRAY[*]}"
       for pkg in "${LISTARRAY[@]}"; do
-        __cpan_run "$pkg" || exitCode=$((exitCode + 1))
+        cpan_run "$pkg" || exitCode=$((exitCode + 1))
       done
       [ $exitCode -eq 0 ] && __write_log_status "cpan install ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
@@ -1878,9 +1559,9 @@ __execute_pkmgr() {
       exitCode=0
       [ "$1" = "help" ] && printf_exit 2 0 "Remove perl modules via cpan"
       declare -a LISTARRAY=("$@")
-      [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "cpan" "__cpan_remove ${LISTARRAY[*]}"
+      [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "cpan" "cpan_remove ${LISTARRAY[*]}"
       for pkg in "${LISTARRAY[@]}"; do
-        __cpan_remove "$pkg" || exitCode=$((exitCode + 1))
+        cpan_remove "$pkg" || exitCode=$((exitCode + 1))
       done
       [ $exitCode -eq 0 ] && __write_log_status "cpan remove ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
@@ -1902,11 +1583,11 @@ __execute_pkmgr() {
     *) # Install perl modules
       exitCode=0
       [ "$1" = "help" ] && printf_exit 2 0 "install perl modules via cpan"
-      __am_i_online || { printf_red "ERROR: No internet connection detected"; exit 1; }
+      am_i_online --error || exit 1
       declare -a LISTARRAY=("$@")
-      [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "cpan" "__cpan_run ${LISTARRAY[*]}"
+      [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "cpan" "cpan_run ${LISTARRAY[*]}"
       for pkg in "${LISTARRAY[@]}"; do
-        __cpan_run "$pkg" || exitCode=$((exitCode + 1))
+        cpan_run "$pkg" || exitCode=$((exitCode + 1))
       done
       [ $exitCode -eq 0 ] && __write_log_status "cpan ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
@@ -1921,10 +1602,10 @@ __execute_pkmgr() {
       shift 1
       exitCode=0
       [ "$1" = "help" ] && printf_exit 2 0 "Install python modules via pip"
-      __am_i_online || { printf_red "ERROR: No internet connection detected"; exit 1; }
+      am_i_online --error || exit 1
       declare -a LISTARRAY=("$@")
-      [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "pip" "__cpan_run ${LISTARRAY[*]}"
-      __cpan_run "${LISTARRAY[*]}" || exitCode=$((exitCode + 1))
+      [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "pip" "pip_run ${LISTARRAY[*]}"
+      pip_run "${LISTARRAY[*]}" || exitCode=$((exitCode + 1))
       [ $exitCode -eq 0 ] && __write_log_status "pip install ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
       ;;
@@ -1934,8 +1615,8 @@ __execute_pkmgr() {
       exitCode=0
       [ "$1" = "help" ] && printf_exit 2 0 "Remove python modules via pip"
       declare -a LISTARRAY=("$@")
-      [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "pip" "__pip_remove ${LISTARRAY[*]}"
-      __pip_remove "${LISTARRAY[*]}" || exitCode=$((exitCode + 1))
+      [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "pip" "pip_remove ${LISTARRAY[*]}"
+      pip_remove "${LISTARRAY[*]}" || exitCode=$((exitCode + 1))
       [ $exitCode -eq 0 ] && __write_log_status "pip remove ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
       ;;
@@ -1962,11 +1643,11 @@ __execute_pkmgr() {
       shift 1
       exitCode=0
       [ "$1" = "help" ] && printf_exit 2 0 "Install ruby modules via rubygems"
-      __am_i_online || { printf_red "ERROR: No internet connection detected"; exit 1; }
+      am_i_online --error || exit 1
       declare -a LISTARRAY=("$@")
-      [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "gem" "__gem_run ${LISTARRAY[*]}"
+      [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "gem" "gem_run ${LISTARRAY[*]}"
       for pkg in "${LISTARRAY[@]}"; do
-        __gem_run "$pkg" || exitCode=$((exitCode + 1))
+        gem_run "$pkg" || exitCode=$((exitCode + 1))
       done
       [ $exitCode -eq 0 ] && __write_log_status "gem install ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
@@ -1977,9 +1658,9 @@ __execute_pkmgr() {
       exitCode=0
       [ "$1" = "help" ] && printf_exit 2 0 "Remove ruby modules via rubygems"
       declare -a LISTARRAY=("$@")
-      [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "gem" "__gem_remove ${LISTARRAY[*]}"
+      [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "gem" "gem_remove ${LISTARRAY[*]}"
       for pkg in "${LISTARRAY[@]}"; do
-        __gem_remove "$pkg" || exitCode=$((exitCode + 1))
+        gem_remove "$pkg" || exitCode=$((exitCode + 1))
       done
       [ $exitCode -eq 0 ] && __write_log_status "gem remove ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
@@ -2001,11 +1682,11 @@ __execute_pkmgr() {
     *) # Install ruby modules
       exitCode=0
       [ "$1" = "help" ] && printf_exit 2 0 "Install ruby modules via rubygems"
-      __am_i_online || { printf_red "ERROR: No internet connection detected"; exit 1; }
+      am_i_online --error || exit 1
       declare -a LISTARRAY=("$@")
-      [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "gem" "__gem_run ${LISTARRAY[*]}"
+      [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "gem" "gem_run ${LISTARRAY[*]}"
       for pkg in "${LISTARRAY[@]}"; do
-        __gem_run "$pkg" || exitCode=$((exitCode + 1))
+        gem_run "$pkg" || exitCode=$((exitCode + 1))
       done
       [ $exitCode -eq 0 ] && __write_log_status "gem ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
@@ -2020,11 +1701,11 @@ __execute_pkmgr() {
       shift 1
       exitCode=0
       [ "$1" = "help" ] && printf_exit 2 0 "Install node package via npm"
-      __am_i_online || { printf_red "ERROR: No internet connection detected"; exit 1; }
+      am_i_online --error || exit 1
       declare -a LISTARRAY=("$@")
-      [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "npm" "__npm_run ${LISTARRAY[*]}"
+      [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "npm" "npm_run ${LISTARRAY[*]}"
       for pkg in "${LISTARRAY[@]}"; do
-        __npm_run "$pkg" || exitCode=$((exitCode + 1))
+        npm_run "$pkg" || exitCode=$((exitCode + 1))
       done
       [ $exitCode -eq 0 ] && __write_log_status "npm install ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
@@ -2035,9 +1716,9 @@ __execute_pkmgr() {
       exitCode=0
       [ "$1" = "help" ] && printf_exit 2 0 "Remove node package via npm"
       declare -a LISTARRAY=("$@")
-      [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "npm" "__npm_remove ${LISTARRAY[*]}"
+      [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "npm" "npm_remove ${LISTARRAY[*]}"
       for pkg in "${LISTARRAY[@]}"; do
-        __npm_remove "$pkg" || exitCode=$((exitCode + 1))
+        npm_remove "$pkg" || exitCode=$((exitCode + 1))
       done
       [ $exitCode -eq 0 ] && __write_log_status "npm remove ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
@@ -2059,11 +1740,11 @@ __execute_pkmgr() {
     *) # Install node modules
       exitCode=0
       [ "$1" = "help" ] && printf_exit 2 0 "Install node package via npm"
-      __am_i_online || { printf_red "ERROR: No internet connection detected"; exit 1; }
+      am_i_online --error || exit 1
       declare -a LISTARRAY=("$@")
-      [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "npm" "__npm_run ${LISTARRAY[*]}"
+      [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "npm" "npm_run ${LISTARRAY[*]}"
       for pkg in "${LISTARRAY[@]}"; do
-        __npm_run "$pkg" || exitCode=$((exitCode + 1))
+        npm_run "$pkg" || exitCode=$((exitCode + 1))
       done
       [ $exitCode -eq 0 ] && __write_log_status "npm ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
@@ -2078,11 +1759,11 @@ __execute_pkmgr() {
       shift 1
       exitCode=0
       [ "$1" = "help" ] && printf_exit 2 0 "Install go modules"
-      __am_i_online || { printf_red "ERROR: No internet connection detected"; exit 1; }
+      am_i_online --error || exit 1
       declare -a LISTARRAY=("$@")
-      [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "go" "__go_run ${LISTARRAY[*]}"
+      [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "go" "go_run ${LISTARRAY[*]}"
       for pkg in "${LISTARRAY[@]}"; do
-        __go_run "$pkg" || exitCode=$((exitCode + 1))
+        go_run "$pkg" || exitCode=$((exitCode + 1))
       done
       [ $exitCode -eq 0 ] && __write_log_status "go install ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
@@ -2093,9 +1774,9 @@ __execute_pkmgr() {
       exitCode=0
       [ "$1" = "help" ] && printf_exit 2 0 "Remove go modules"
       declare -a LISTARRAY=("$@")
-      [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "go" "__go_remove ${LISTARRAY[*]}"
+      [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "go" "go_remove ${LISTARRAY[*]}"
       for pkg in "${LISTARRAY[@]}"; do
-        __go_remove "$pkg" || exitCode=$((exitCode + 1))
+        go_remove "$pkg" || exitCode=$((exitCode + 1))
       done
       [ $exitCode -eq 0 ] && __write_log_status "go remove ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
@@ -2116,11 +1797,11 @@ __execute_pkmgr() {
     *) # Install GO modules
       exitCode=0
       [ "$1" = "help" ] && printf_exit 2 0 "Install go modules via"
-      __am_i_online || { printf_red "ERROR: No internet connection detected"; exit 1; }
+      am_i_online --error || exit 1
       declare -a LISTARRAY=("$@")
-      [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "go" "__go_run ${LISTARRAY[*]}"
+      [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "go" "go_run ${LISTARRAY[*]}"
       for pkg in "${LISTARRAY[@]}"; do
-        __go_run "$pkg" || exitCode=$((exitCode + 1))
+        go_run "$pkg" || exitCode=$((exitCode + 1))
       done
       [ $exitCode -eq 0 ] && __write_log_status "go ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
@@ -2135,11 +1816,11 @@ __execute_pkmgr() {
       shift 1
       exitCode=0
       [ "$1" = "help" ] && printf_exit 2 0 "Install lua modules via luarocks"
-      __am_i_online || { printf_red "ERROR: No internet connection detected"; exit 1; }
+      am_i_online --error || exit 1
       declare -a LISTARRAY=("$@")
-      [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "lua" "__lua_run ${LISTARRAY[*]}"
+      [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "lua" "lua_run ${LISTARRAY[*]}"
       for pkg in "${LISTARRAY[@]}"; do
-        __lua_run "$pkg" || exitCode=$((exitCode + 1))
+        lua_run "$pkg" || exitCode=$((exitCode + 1))
       done
       [ $exitCode -eq 0 ] && __write_log_status "lua install ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
@@ -2150,9 +1831,9 @@ __execute_pkmgr() {
       exitCode=0
       [ "$1" = "help" ] && printf_exit 2 0 "Remove lua modules via luarocks"
       declare -a LISTARRAY=("$@")
-      [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "lua" "__lua_remove ${LISTARRAY[*]}"
+      [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "lua" "lua_remove ${LISTARRAY[*]}"
       for pkg in "${LISTARRAY[@]}"; do
-        __lua_remove "$pkg" || exitCode=$((exitCode + 1))
+        lua_remove "$pkg" || exitCode=$((exitCode + 1))
       done
       [ $exitCode -eq 0 ] && __write_log_status "lua remove ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
@@ -2173,11 +1854,11 @@ __execute_pkmgr() {
     *) # Install lua modules
       exitCode=0
       [ "$1" = "help" ] && printf_exit 2 0 "Install lua modules via luarocks"
-      __am_i_online || { printf_red "ERROR: No internet connection detected"; exit 1; }
+      am_i_online --error || exit 1
       declare -a LISTARRAY=("$@")
-      [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "lua" "__lua_run ${LISTARRAY[*]}"
+      [ "$PKMGR_LOG_ENABLED" = "true" ] && __init_log_status "lua" "lua_run ${LISTARRAY[*]}"
       for pkg in "${LISTARRAY[@]}"; do
-        __lua_run "$pkg" || exitCode=$((exitCode + 1))
+        lua_run "$pkg" || exitCode=$((exitCode + 1))
       done
       [ $exitCode -eq 0 ] && __write_log_status "lua ran successfully" || __write_log_status "Failed with status: $exitCode"
       exit ${exitCode:-0}
@@ -2188,7 +1869,7 @@ __execute_pkmgr() {
   info) # Show system info
     shift 1
     [ "$1" = "help" ] && printf_exit 2 0 "Show info about your system"
-    __show_info "${1:-notruncate}"
+    show_info "${1:-notruncate}"
     ;;
 
   version) # Show version

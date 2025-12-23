@@ -38,11 +38,20 @@ __perl_exists() {
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #python_exists "pythonpackage"
 __python_exists() {
-  builtin type -P python3 &>/dev/null || builtin type -P python2 &>/dev/null || builtin type -P python &>/dev/null || printf_return "Python is not installed"
-  __getpythonver
-  [ "$1" = "--sudo" ] && local cmdbin="sudo $PYTHONVER" && shift 1 || local cmdbin="$PYTHONVER"
+  local pythonver=""
+  if builtin type -P python3 &>/dev/null; then
+    pythonver="python3"
+  elif builtin type -P python2 &>/dev/null; then
+    pythonver="python2"
+  elif builtin type -P python &>/dev/null; then
+    pythonver="python"
+  else
+    printf_return "Python is not installed"
+    return 1
+  fi
+  [ "$1" = "--sudo" ] && local cmdbin="sudo $pythonver" && shift 1 || local cmdbin="$pythonver"
   local package="$1"
-  if $cmdbin -c "import $package" &>/dev/null; then return 0; else return 1; fi
+  if $cmdbin -c "import importlib.util; exit(0 if importlib.util.find_spec('$package') else 1)" 2>/dev/null; then return 0; else return 1; fi
   set --
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

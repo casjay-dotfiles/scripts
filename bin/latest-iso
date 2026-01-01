@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202601011628-git
+##@Version           :  202601011727-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Friday, Aug 12, 2022 15:05 EDT
 # @@File             :  latest-iso
 # @@Description      :  Find and download the latest ISO for a given distro
-# @@Changelog        :  Added macOS recovery image download support
+# @@Changelog        :  ISO-only extraction, removes .img file support
 # @@TODO             :  Refactor code
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202601011628-git"
+VERSION="202601011727-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -383,26 +383,27 @@ __ex() {
     printf_cyan "Extracting $archive"
     echo "extracting $archive" >"$LATEST_ISO_LOG_DIR/ex.log"
     __unarchive "$archive" &>>"$LATEST_ISO_LOG_DIR/ex.log"
-    # Look for .iso or .img files after extraction
-    extracted_file="$(find "$tmp_iso_dir" -maxdepth 1 -type f \( -name '*.iso' -o -name '*.img' \) | head -n1 || echo '')"
+    # Look for .iso files after extraction (search recursively)
+    extracted_file="$(find "$tmp_iso_dir" -type f -name '*.iso' 2>/dev/null | head -n1 || echo '')"
     __cd "$d"
     if [ -n "$extracted_file" ] && [ -f "$extracted_file" ]; then
       iso_dirname="$(dirname "$download_file")"
       [ -d "$iso_dirname" ] || mkdir -p "$iso_dirname"
-      # Update download_file to use .img extension if extracted file is .img
-      if echo "$extracted_file" | __grep -q '\.img$'; then
-        download_file="$(echo "$download_file" | __sed 's|\.iso$|.img|g;s|\.img\.xz$|.img|g')"
-      fi
+      # Ensure output has .iso extension
+      download_file="$(echo "$download_file" | __sed 's|\.zip$|.iso|g;s|\.xz$|.iso|g;s|\.gz$|.iso|g')"
       if [ "$extracted_file" != "$download_file" ]; then
         printf_cyan "Moving $extracted_file to $download_file"
         if mv -f "$extracted_file" "$download_file"; then
+          # Clean up extracted directory if it was a subdirectory
+          find "$tmp_iso_dir" -mindepth 1 -type d -empty -delete 2>/dev/null
           [ -f "$archive" ] && rm -Rf "$archive"
           [ -f "$LATEST_ISO_LOG_DIR/ex.log" ] && rm -Rf "$LATEST_ISO_LOG_DIR/ex.log"
           printf_green "Extraction complete: $download_file"
         fi
       fi
     else
-      printf_red "Could not find extracted file from $archive"
+      printf_red "Could not find .iso file in $archive"
+      printf_red "Check $LATEST_ISO_LOG_DIR/ex.log for details"
       return 1
     fi
   fi
@@ -1182,13 +1183,65 @@ __rsync_get_filesize() {
 __rsync_download() {
   local url="$1"
   local output="$2"
+  local total_size="${3:-$remote_file_size_raw}"
   local output_dir="$(dirname "$output")"
+  local current_size=0
+  local rsync_pid=""
+  local resume_flag=""
 
   [ -d "$output_dir" ] || mkdir -p "$output_dir"
 
-  printf_blue "Downloading via rsync"
-  rsync -avP --progress "$url" "$output" 2>&1
-  return $?
+  # Check if partial file exists for resume
+  if [ -f "$output" ]; then
+    current_size=$(stat -c%s "$output" 2>/dev/null || stat -f%z "$output" 2>/dev/null || echo 0)
+    if [ "$current_size" -gt 0 ]; then
+      local resume_size=""
+      if command -v numfmt &>/dev/null; then
+        resume_size="$(numfmt --to=iec-i --suffix=B "$current_size" 2>/dev/null | __sed 's|iB$||g')"
+      elif command -v gnumfmt &>/dev/null; then
+        resume_size="$(gnumfmt --to=iec-i --suffix=B "$current_size" 2>/dev/null | __sed 's|iB$||g')"
+      else
+        resume_size="${current_size}B"
+      fi
+      printf_cyan "Resuming download from $resume_size..."
+    fi
+  fi
+
+  # Run rsync in background with partial/resume support
+  rsync -a --partial --inplace "$url" "$output" >/dev/null 2>&1 &
+  rsync_pid=$!
+
+  # Trap CTRL+C to clean up
+  trap 'kill $rsync_pid 2>/dev/null; return 130' INT TERM
+
+  # Monitor progress
+  while kill -0 $rsync_pid 2>/dev/null; do
+    if [ -f "$output" ]; then
+      current_size=$(stat -c%s "$output" 2>/dev/null || stat -f%z "$output" 2>/dev/null || echo 0)
+      if [ -n "$total_size" ] && [ "$total_size" -gt 0 ]; then
+        __progress_bar "$current_size" "$total_size"
+      fi
+    fi
+    sleep 0.5
+  done
+
+  # Reset trap
+  trap - INT TERM
+
+  # Wait for rsync to finish and get exit code
+  wait $rsync_pid
+  local exit_code=$?
+
+  # Final progress update
+  if [ -f "$output" ]; then
+    current_size=$(stat -c%s "$output" 2>/dev/null || stat -f%z "$output" 2>/dev/null || echo 0)
+    if [ -n "$total_size" ] && [ "$total_size" -gt 0 ]; then
+      __progress_bar "$current_size" "$total_size"
+    fi
+  fi
+  printf '\n'
+
+  return $exit_code
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __get_torrent() {

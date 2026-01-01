@@ -841,7 +841,6 @@ __update_cache() {
 __xfce_change_wp() {
   local wallpaper="$1"
   local xfce_version="" xfce_major=0 xfce_minor=0
-  local base_path=""
   # Get xfdesktop version
   if __cmd_exists xfdesktop; then
     xfce_version="$(xfdesktop --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1)"
@@ -851,33 +850,30 @@ __xfce_change_wp() {
   if [ "$_DEBUG" = "on" ]; then
     printf_cyan "XFCE: Detected xfdesktop version $xfce_version"
   fi
-  # Get all workspace base paths and set ALL image properties
-  for base_path in $(xfconf-query --channel xfce4-desktop --list 2>/dev/null | grep -E '/backdrop/.*/workspace[0-9]+' | sed 's|/[^/]*$||' | sort -u); do
-    if [ "$_DEBUG" = "on" ]; then
-      printf_cyan "XFCE: Setting properties for $base_path"
-    fi
-    # Set last-image (primary)
-    xfconf-query --channel xfce4-desktop --property "$base_path/last-image" --set "$wallpaper" 2>/dev/null
-    # Set image-path
-    xfconf-query --channel xfce4-desktop --property "$base_path/image-path" --set "$wallpaper" 2>/dev/null
-  done
-  # XFCE 4.20+ needs xfdesktop restart
+  # XFCE 4.20+ - use feh/nitrogen/hsetroot (xfconf-query is buggy)
   if [ "$xfce_major" -ge 4 ] && [ "${xfce_minor:-0}" -ge 20 ]; then
     if [ "$_DEBUG" = "on" ]; then
-      printf_cyan "XFCE 4.20+: Restarting xfdesktop"
+      printf_cyan "XFCE 4.20+: Using feh/nitrogen/hsetroot"
     fi
-    xfdesktop --quit 2>/dev/null
-    sleep 1
-    # Set properties AGAIN after quit (before restart)
-    for base_path in $(xfconf-query --channel xfce4-desktop --list 2>/dev/null | grep -E '/backdrop/.*/workspace[0-9]+' | sed 's|/[^/]*$||' | sort -u); do
-      xfconf-query --channel xfce4-desktop --property "$base_path/last-image" --set "$wallpaper" 2>/dev/null
-      xfconf-query --channel xfce4-desktop --property "$base_path/image-path" --set "$wallpaper" 2>/dev/null
+    # Kill xfdesktop so it doesn't paint over
+    killall xfdesktop 2>/dev/null
+    sleep 0.3
+    # Set wallpaper with available tool
+    if __cmd_exists feh; then
+      feh --bg-fill "$wallpaper" 2>/dev/null && return 0
+    elif __cmd_exists nitrogen; then
+      nitrogen --set-zoom-fill --save "$wallpaper" 2>/dev/null && return 0
+    elif __cmd_exists hsetroot; then
+      hsetroot -fill "$wallpaper" 2>/dev/null && return 0
+    fi
+  else
+    # Older XFCE - use xfconf-query
+    if [ "$_DEBUG" = "on" ]; then
+      printf_cyan "XFCE: Using xfconf-query"
+    fi
+    xfconf-query --channel xfce4-desktop --list 2>/dev/null | grep 'last-image' | while read -r path; do
+      xfconf-query --channel xfce4-desktop --property "$path" --set "$wallpaper" 2>/dev/null
     done
-    # Start xfdesktop if not running
-    if ! pgrep -x xfdesktop >/dev/null 2>&1; then
-      xfdesktop 2>/dev/null &
-      disown 2>/dev/null
-    fi
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -908,30 +904,9 @@ __detect_wallpaper_tool() {
   # macOS
   if [ "$session" = "macos" ]; then
     tool="osascript"
-  # XFCE - check version first
-  elif [[ "$session" == *"xfce"* ]]; then
-    # Get xfdesktop version
-    if __cmd_exists xfdesktop; then
-      xfce_version="$(xfdesktop --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1)"
-      xfce_major="${xfce_version%%.*}"
-      xfce_minor="${xfce_version#*.}"
-    fi
-    # XFCE 4.20+ has buggy xfconf-query - prefer xwallpaper/feh/nitrogen
-    if [ "$xfce_major" -ge 4 ] && [ "${xfce_minor:-0}" -ge 20 ]; then
-      if __cmd_exists xwallpaper; then
-        tool="xwallpaper"
-      elif __cmd_exists feh; then
-        tool="feh"
-      elif __cmd_exists nitrogen; then
-        tool="nitrogen"
-      elif __cmd_exists hsetroot; then
-        tool="hsetroot"
-      elif __cmd_exists xfconf-query; then
-        tool="xfconf-query"
-      fi
-    elif __cmd_exists xfconf-query; then
-      tool="xfconf-query"
-    fi
+  # XFCE - use xfconf-query but with special handling for 4.20+
+  elif [[ "$session" == *"xfce"* ]] && __cmd_exists xfconf-query; then
+    tool="xfconf-query"
   # GNOME and GNOME-based
   elif [[ "$session" == *"gnome"* ]] && __cmd_exists gsettings; then
     tool="gsettings"

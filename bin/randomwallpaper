@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202601011557-git
+##@Version           :  202601011606-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git.io/casjay
 # @@License          :  LICENSE.md
@@ -10,7 +10,7 @@
 # @@Created          :  Monday, Aug 15, 2022 10:37 EDT
 # @@File             :  randomwallpaper
 # @@Description      :  Set a random wallpaper
-# @@Changelog        :  Fixed XFCE 4.20 wallpaper using feh/nitrogen/hsetroot
+# @@Changelog        :  Use shortnames for deduplication across directories
 # @@TODO             :  N/A
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202601011557-git"
+VERSION="202601011606-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -601,6 +601,47 @@ __find_cmd() {
     -not -path "*/.git/*" 2>/dev/null
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get short display name by stripping wallpaper directory prefixes
+__get_shortname() {
+  local fullpath="$1"
+  local shortname="$fullpath"
+  local prefix=""
+  # Strip all known wallpaper directory prefixes
+  for prefix in \
+    "$HOME/.local/share/wallpapers" \
+    "/usr/share/backgrounds" \
+    "/usr/share/wallpapers" \
+    "$HOME/Pictures/Wallpapers" \
+    "$HOME/Library/Desktop Pictures" \
+    "/Library/Desktop Pictures" \
+    "$RANDOMWALLPAPER_WALLPAPER_DIR"; do
+    if [ -n "$prefix" ] && [[ "$shortname" == "$prefix"/* ]]; then
+      shortname="${shortname#"$prefix"}"
+      break
+    fi
+  done
+  # Remove leading slash
+  shortname="${shortname#/}"
+  echo "$shortname"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Resolve shortname to full path by searching wallpaper directories
+__resolve_shortname() {
+  local shortname="$1"
+  local dir="" fullpath=""
+  # Search each wallpaper directory for the file
+  while IFS= read -r dir; do
+    [ -n "$dir" ] || continue
+    fullpath="$dir/$shortname"
+    if [ -f "$fullpath" ]; then
+      echo "$fullpath"
+      return 0
+    fi
+  done < <(__get_wallpaper_dirs)
+  # Not found
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __initialize() {
   if [ -f "$1" ]; then
     WALLPAPER="$1"
@@ -619,24 +660,31 @@ __initialize() {
       fi
     fi
     [ -f "$RANDOMWALLPAPER_SEEN_FILE" ] || touch "$RANDOMWALLPAPER_SEEN_FILE"
-    # Get a random wallpaper not yet seen
+    # Get a random shortname not yet seen (cache stores shortnames)
     SETRANDOM="$(grep -shvFf "$RANDOMWALLPAPER_SEEN_FILE" "$RANDOMWALLPAPER_WALLPAPER_FILE" | sort -R | head -n1 | grep '')"
     # If all have been seen or cache is empty, try direct search
     if [ -z "$SETRANDOM" ]; then
-      local dir=""
+      local dir="" fullpath=""
       while IFS= read -r dir; do
         [ -n "$dir" ] || continue
-        SETRANDOM="$(__find_cmd "$dir" | sort -R | head -n1)"
-        [ -n "$SETRANDOM" ] && break
+        fullpath="$(__find_cmd "$dir" | sort -R | head -n1)"
+        if [ -n "$fullpath" ]; then
+          SETRANDOM="$(__get_shortname "$fullpath")"
+          break
+        fi
       done < <(__get_wallpaper_dirs)
     fi
     __make_seen_file
   fi
-  RANDOMWALLPAPER="${WALLPAPER:-$SETRANDOM}"
-  SET_WALLPAPER="${RANDOMWALLPAPER}"
-  if [ -n "$SET_WALLPAPER" ]; then
-    SHORTNAME="$(basename "$SET_WALLPAPER")"
+  # WALLPAPER is full path (manual), SETRANDOM is shortname (from cache)
+  if [ -n "$WALLPAPER" ]; then
+    SET_WALLPAPER="$WALLPAPER"
+    SHORTNAME="$(__get_shortname "$SET_WALLPAPER")"
+  elif [ -n "$SETRANDOM" ]; then
+    SHORTNAME="$SETRANDOM"
+    SET_WALLPAPER="$(__resolve_shortname "$SETRANDOM")"
   else
+    SET_WALLPAPER=""
     SHORTNAME=""
   fi
 }
@@ -736,16 +784,21 @@ __find_random() {
     __update_cache
   fi
   if [ "$RANDOMWALLPAPER_MANUAL" != "true" ]; then
-    if grep -shqvF "$SET_WALLPAPER" "$RANDOMWALLPAPER_SEEN_FILE" &>/dev/null; then
+    # Check if current SHORTNAME is already seen
+    if grep -shqvF "$SHORTNAME" "$RANDOMWALLPAPER_SEEN_FILE" &>/dev/null; then
       while :; do
+        # Cache stores shortnames
         SETRANDOM="$(grep -shvFf "$RANDOMWALLPAPER_SEEN_FILE" "$RANDOMWALLPAPER_WALLPAPER_FILE" | sort -R | head -n1)"
         if [ -z "$SETRANDOM" ]; then
-          SETRANDOM="$(__find_cmd "$RANDOMWALLPAPER_WALLPAPER_DIR" | sort -R | tail -n 1)"
+          # Direct search returns full path, convert to shortname
+          local fullpath=""
+          fullpath="$(__find_cmd "$RANDOMWALLPAPER_WALLPAPER_DIR" | sort -R | tail -n 1)"
+          [ -n "$fullpath" ] && SETRANDOM="$(__get_shortname "$fullpath")"
         fi
-        RANDOMWALLPAPER="$SETRANDOM"
-        SET_WALLPAPER="$RANDOMWALLPAPER"
-        SHORTNAME="$(echo "${SET_WALLPAPER/$RANDOMWALLPAPER_WALLPAPER_DIR/}" | sed 's#^/##g')"
-        if grep -shF "$SET_WALLPAPER" "$RANDOMWALLPAPER_SEEN_FILE" &>/dev/null; then
+        SHORTNAME="$SETRANDOM"
+        SET_WALLPAPER="$(__resolve_shortname "$SETRANDOM")"
+        # Check using shortname (seen file stores shortnames)
+        if grep -shqF "$SHORTNAME" "$RANDOMWALLPAPER_SEEN_FILE" &>/dev/null; then
           true
         else
           break
@@ -757,7 +810,8 @@ __find_random() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __seen_file() {
-  echo "$SET_WALLPAPER" >>"$RANDOMWALLPAPER_SEEN_FILE"
+  # Store shortname for deduplication (same image in multiple dirs = same)
+  echo "$SHORTNAME" >>"$RANDOMWALLPAPER_SEEN_FILE"
   if __cp_rf "$RANDOMWALLPAPER_SEEN_FILE" "$RANDOMWALLPAPER_SEEN_FILE_TMP"; then
     cat "$RANDOMWALLPAPER_SEEN_FILE_TMP" | sort -u >"$RANDOMWALLPAPER_SEEN_FILE"
   fi
@@ -820,12 +874,14 @@ __update_cache() {
     fi
     return 1
   fi
-  # Search each directory
+  # Search each directory and store shortnames (for deduplication across dirs)
   for dir in "${wp_dirs[@]}"; do
     if [ "$_DEBUG" = "on" ]; then
       printf_cyan "Searching: $dir"
     fi
-    __find_cmd "$dir"
+    __find_cmd "$dir" | while IFS= read -r fullpath; do
+      __get_shortname "$fullpath"
+    done
   done | sort -u >"$RANDOMWALLPAPER_WALLPAPER_FILE"
   count="$(wc -l < "$RANDOMWALLPAPER_WALLPAPER_FILE" 2>/dev/null || echo 0)"
   if [ "$count" -eq 0 ]; then

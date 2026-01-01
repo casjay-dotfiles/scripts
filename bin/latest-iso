@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202601011426-git
+##@Version           :  202601011613-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Friday, Aug 12, 2022 15:05 EDT
 # @@File             :  latest-iso
 # @@Description      :  Find and download the latest ISO for a given distro
-# @@Changelog        :  Added Clear Linux alternatives: aeryn, bazzite, chimera, nobara, popos, solus, vanilla
+# @@Changelog        :  Added download retry logic for network errors
 # @@TODO             :  Refactor code
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202601011426-git"
+VERSION="202601011613-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -756,15 +756,29 @@ __determine_download_type() {
   mkdir -p "$(dirname "$GRAB_CURL_FILE")"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Helper: Execute the download
+# Helper: Execute the download with retry logic (resumes partial downloads)
 __execute_download() {
-  local success=""
-  if echo "$GRAB_LATEST" | __grep -q '^rsync://'; then
-    __rsync_download "$GRAB_LATEST" "$GRAB_CURL_FILE" && success="true" || success=""
-  else
-    __download_with_progress "$GRAB_LATEST" "$GRAB_CURL_FILE" "$remote_file_size_raw" && success="true" || success=""
-  fi
-  [ "$success" = "true" ] && return 0 || return 1
+  local success="" attempt=0
+  local max_retries="${LATEST_ISO_DOWNLOAD_RETRIES:-2}"
+  local retry_delay="${LATEST_ISO_DOWNLOAD_RETRY_DELAY:-5}"
+  while [ "$attempt" -le "$max_retries" ]; do
+    if [ "$attempt" -gt 0 ]; then
+      printf_yellow "Download failed, resuming in ${retry_delay}s (attempt $((attempt + 1)) of $((max_retries + 1)))..."
+      sleep "$retry_delay"
+    fi
+    if echo "$GRAB_LATEST" | __grep -q '^rsync://'; then
+      __rsync_download "$GRAB_LATEST" "$GRAB_CURL_FILE" && success="true" || success=""
+    else
+      __download_with_progress "$GRAB_LATEST" "$GRAB_CURL_FILE" "$remote_file_size_raw" && success="true" || success=""
+    fi
+    if [ "$success" = "true" ]; then
+      return 0
+    fi
+    attempt=$((attempt + 1))
+  done
+  # Only delete partial file after all retries exhausted
+  [ -f "$GRAB_CURL_FILE" ] && rm -f "$GRAB_CURL_FILE"
+  return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Helper: Verify download and return exit code
@@ -1937,20 +1951,38 @@ __download_with_progress() {
   local output="$2"
   local total_size="$3"
   local current_size=0
-  local tmp_output="${output}.tmp"
   local curl_pid=""
+  local resume_flag=""
 
-  # Start curl in background (can't use __curl since we need background process)
-  \curl -q -LSsf --fail-early --connect-timeout "${LATEST_ISO_CONNECT_TIMEOUT:-2}" --retry "${LATEST_ISO_RETRY_COUNT:-5}" --retry-delay "${LATEST_ISO_RETRY_DELAY:-3}" -o "$tmp_output" "$url" 2>/dev/null &
+  # Check if partial file exists for resume
+  if [ -f "$output" ]; then
+    current_size=$(stat -c%s "$output" 2>/dev/null || stat -f%z "$output" 2>/dev/null || echo 0)
+    if [ "$current_size" -gt 0 ]; then
+      resume_flag="-C -"
+      local resume_size=""
+      if command -v numfmt &>/dev/null; then
+        resume_size="$(numfmt --to=iec-i --suffix=B "$current_size" 2>/dev/null | __sed 's|iB$||g')"
+      elif command -v gnumfmt &>/dev/null; then
+        resume_size="$(gnumfmt --to=iec-i --suffix=B "$current_size" 2>/dev/null | __sed 's|iB$||g')"
+      else
+        resume_size="${current_size}B"
+      fi
+      printf_cyan "Resuming download from $resume_size..."
+    fi
+  fi
+
+  # Start curl in background with resume support
+  # shellcheck disable=SC2086
+  \curl -q -LSsf --fail-early --connect-timeout "${LATEST_ISO_CONNECT_TIMEOUT:-2}" --retry "${LATEST_ISO_RETRY_COUNT:-5}" --retry-delay "${LATEST_ISO_RETRY_DELAY:-3}" $resume_flag -o "$output" "$url" 2>/dev/null &
   curl_pid=$!
 
   # Trap CTRL+C to clean up
-  trap '__download_cleanup "$tmp_output" "$curl_pid"; return 130' INT TERM
+  trap '__download_cleanup "$output" "$curl_pid"; return 130' INT TERM
 
   # Monitor progress
   while kill -0 $curl_pid 2>/dev/null; do
-    if [ -f "$tmp_output" ]; then
-      current_size=$(stat -c%s "$tmp_output" 2>/dev/null || stat -f%z "$tmp_output" 2>/dev/null || echo 0)
+    if [ -f "$output" ]; then
+      current_size=$(stat -c%s "$output" 2>/dev/null || stat -f%z "$output" 2>/dev/null || echo 0)
       __progress_bar "$current_size" "$total_size"
     fi
     sleep 0.5
@@ -1964,19 +1996,16 @@ __download_with_progress() {
   local exit_code=$?
 
   # Final progress update
-  if [ -f "$tmp_output" ]; then
-    current_size=$(stat -c%s "$tmp_output" 2>/dev/null || stat -f%z "$tmp_output" 2>/dev/null || echo 0)
+  if [ -f "$output" ]; then
+    current_size=$(stat -c%s "$output" 2>/dev/null || stat -f%z "$output" 2>/dev/null || echo 0)
     __progress_bar "$current_size" "$total_size"
   fi
   printf '\n'
 
-  # Move temp file to final location
-  if [ $exit_code -eq 0 ] && [ -f "$tmp_output" ]; then
-    mv "$tmp_output" "$output"
+  if [ $exit_code -eq 0 ] && [ -f "$output" ]; then
     return 0
   else
-    [ -f "$tmp_output" ] && rm -f "$tmp_output"
-    # Store curl exit code for error reporting
+    # Keep partial file for resume on retry (caller handles cleanup on final failure)
     export LATEST_ISO_CURL_ERROR="$exit_code"
     return 1
   fi
@@ -2014,6 +2043,8 @@ LATEST_ISO_CONNECT_TIMEOUT="${LATEST_ISO_CONNECT_TIMEOUT:-2}"
 LATEST_ISO_MAX_TIMEOUT="${LATEST_ISO_MAX_TIMEOUT:-5}"
 LATEST_ISO_RETRY_COUNT="${LATEST_ISO_RETRY_COUNT:-5}"
 LATEST_ISO_RETRY_DELAY="${LATEST_ISO_RETRY_DELAY:-3}"
+LATEST_ISO_DOWNLOAD_RETRIES="${LATEST_ISO_DOWNLOAD_RETRIES:-2}"
+LATEST_ISO_DOWNLOAD_RETRY_DELAY="${LATEST_ISO_DOWNLOAD_RETRY_DELAY:-5}"
 LATEST_ISO_HEALTH_RETRY="${LATEST_ISO_HEALTH_RETRY:-1}"
 LATEST_ISO_HEALTH_TIMEOUT="${LATEST_ISO_HEALTH_TIMEOUT:-2}"
 LATEST_ISO_FILESIZE_TOLERANCE="${LATEST_ISO_FILESIZE_TOLERANCE:-5}"

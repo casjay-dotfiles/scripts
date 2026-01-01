@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202601011500-git
+##@Version           :  202601011515-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git.io/casjay
 # @@License          :  LICENSE.md
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202601011500-git"
+VERSION="202601011515-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -599,34 +599,6 @@ __find_cmd() {
   done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__system_wallpapers() {
-  if [[ "$RANDOMWALLPAPER_USE_SYSTEM" != "true" ]]; then
-    return 0
-  fi
-  local system_dirs=(
-    "/usr/share/backgrounds"
-    "/usr/share/wallpapers"
-    "/usr/share/pixmaps/backgrounds"
-    "/usr/share/gnome-background-properties"
-    "/usr/local/share/backgrounds"
-    "/usr/local/share/wallpapers"
-  )
-  local target_dir="$RANDOMWALLPAPER_CONFIG_DIR/wallpapers"
-  [ -d "$target_dir" ] || __mkd "$target_dir"
-  for system_dir in "${system_dirs[@]}"; do
-    if [ -d "$system_dir" ]; then
-      local dir_name="$(basename "$system_dir")"
-      local link_target="$target_dir/$dir_name"
-      if [ ! -e "$link_target" ]; then
-        if [ "$_DEBUG" = "on" ]; then
-          printf_cyan "Linking system wallpapers: $system_dir -> $link_target"
-        fi
-        __ln_sf "$system_dir" "$link_target"
-      fi
-    fi
-  done
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
 __initialize() {
   if [ -f "$1" ]; then
     WALLPAPER="$1"
@@ -637,19 +609,34 @@ __initialize() {
     RANDOMWALLPAPER_MANUAL=true
     shift 1
   else
+    # Build/update cache if needed
     if [[ ! -s "$RANDOMWALLPAPER_WALLPAPER_FILE" ]]; then
-      __rm_rf "$RANDOMWALLPAPER_SEEN_FILE" && __update_cache
+      __rm_rf "$RANDOMWALLPAPER_SEEN_FILE"
+      if ! __update_cache; then
+        return 1
+      fi
     fi
     [ -f "$RANDOMWALLPAPER_SEEN_FILE" ] || touch "$RANDOMWALLPAPER_SEEN_FILE"
+    # Get a random wallpaper not yet seen
     SETRANDOM="$(grep -shvf "$RANDOMWALLPAPER_SEEN_FILE" "$RANDOMWALLPAPER_WALLPAPER_FILE" | sort -R | head -n1 | grep '')"
+    # If all have been seen or cache is empty, try direct search
     if [ -z "$SETRANDOM" ]; then
-      SETRANDOM="$(__find_cmd "$RANDOMWALLPAPER_WALLPAPER_DIR" | sort -R | tail -n 1 | grep '')"
+      local dir=""
+      while IFS= read -r dir; do
+        [ -n "$dir" ] || continue
+        SETRANDOM="$(__find_cmd "$dir" | sort -R | head -n1)"
+        [ -n "$SETRANDOM" ] && break
+      done < <(__get_wallpaper_dirs)
     fi
     __make_seen_file
   fi
   RANDOMWALLPAPER="${WALLPAPER:-$SETRANDOM}"
   SET_WALLPAPER="${RANDOMWALLPAPER}"
-  SHORTNAME="$(echo "${SET_WALLPAPER/$RANDOMWALLPAPER_WALLPAPER_DIR/}" | sed 's#^/##g')"
+  if [ -n "$SET_WALLPAPER" ]; then
+    SHORTNAME="$(basename "$SET_WALLPAPER")"
+  else
+    SHORTNAME=""
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __background_job() {
@@ -775,20 +762,71 @@ __seen_file() {
   __rm_rf "$RANDOMWALLPAPER_SEEN_FILE_TMP"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_wallpaper_dirs() {
+  local dirs=()
+  local dir=""
+  # User configured directory
+  [ -d "$RANDOMWALLPAPER_WALLPAPER_DIR" ] && dirs+=("$RANDOMWALLPAPER_WALLPAPER_DIR")
+  # Config directory wallpapers
+  [ -d "$RANDOMWALLPAPER_CONFIG_DIR/wallpapers" ] && dirs+=("$RANDOMWALLPAPER_CONFIG_DIR/wallpapers")
+  # Common user wallpaper locations
+  [ -d "$HOME/.local/share/wallpapers" ] && dirs+=("$HOME/.local/share/wallpapers")
+  [ -d "$HOME/.wallpapers" ] && dirs+=("$HOME/.wallpapers")
+  [ -d "$HOME/Pictures/Wallpapers" ] && dirs+=("$HOME/Pictures/Wallpapers")
+  [ -d "$HOME/Pictures/wallpapers" ] && dirs+=("$HOME/Pictures/wallpapers")
+  [ -d "$HOME/Wallpapers" ] && dirs+=("$HOME/Wallpapers")
+  # System wallpaper locations (if USE_SYSTEM is enabled)
+  if [ "$RANDOMWALLPAPER_USE_SYSTEM" = "true" ]; then
+    [ -d "/usr/share/backgrounds" ] && dirs+=("/usr/share/backgrounds")
+    [ -d "/usr/share/wallpapers" ] && dirs+=("/usr/share/wallpapers")
+    [ -d "/usr/local/share/backgrounds" ] && dirs+=("/usr/local/share/backgrounds")
+    [ -d "/usr/local/share/wallpapers" ] && dirs+=("/usr/local/share/wallpapers")
+  fi
+  # macOS locations
+  if [ "$(uname -s)" = "Darwin" ]; then
+    [ -d "/Library/Desktop Pictures" ] && dirs+=("/Library/Desktop Pictures")
+    [ -d "$HOME/Library/Desktop Pictures" ] && dirs+=("$HOME/Library/Desktop Pictures")
+  fi
+  # Remove duplicates and print
+  printf '%s\n' "${dirs[@]}" | sort -u
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __update_cache() {
+  local dir="" count=0
+  local -a wp_dirs=()
   if [ "$_DEBUG" = "on" ]; then
     printf_cyan "Updating wallpaper cache..."
   fi
   rm -Rf "$RANDOMWALLPAPER_WALLPAPER_FILE" &>/dev/null
-  __system_wallpapers
-  {
-    __find_cmd "$RANDOMWALLPAPER_WALLPAPER_DIR"
-    __find_cmd "$RANDOMWALLPAPER_CONFIG_DIR/wallpapers"
-  } | sort -u >"$RANDOMWALLPAPER_WALLPAPER_FILE"
-  local count="$(wc -l < "$RANDOMWALLPAPER_WALLPAPER_FILE" 2>/dev/null || echo 0)"
+  touch "$RANDOMWALLPAPER_WALLPAPER_FILE"
+  # Get all valid wallpaper directories
+  while IFS= read -r dir; do
+    [ -n "$dir" ] && wp_dirs+=("$dir")
+  done < <(__get_wallpaper_dirs)
+  if [ ${#wp_dirs[@]} -eq 0 ]; then
+    printf_error "No wallpaper directories found"
+    printf_error "Create one of the following:"
+    printf_error "  - $HOME/.local/share/wallpapers"
+    printf_error "  - $HOME/Pictures/Wallpapers"
+    printf_error "  - $HOME/Wallpapers"
+    return 1
+  fi
+  # Search each directory
+  for dir in "${wp_dirs[@]}"; do
+    if [ "$_DEBUG" = "on" ]; then
+      printf_cyan "Searching: $dir"
+    fi
+    __find_cmd "$dir"
+  done | sort -u >"$RANDOMWALLPAPER_WALLPAPER_FILE"
+  count="$(wc -l < "$RANDOMWALLPAPER_WALLPAPER_FILE" 2>/dev/null || echo 0)"
+  if [ "$count" -eq 0 ]; then
+    printf_error "No wallpaper images found in any directory"
+    return 1
+  fi
   if [ "$_DEBUG" = "on" ]; then
     printf_cyan "Found $count wallpapers in cache"
   fi
+  return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __xfce_change_wp() {

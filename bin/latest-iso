@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202601011613-git
+##@Version           :  202601011628-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Friday, Aug 12, 2022 15:05 EDT
 # @@File             :  latest-iso
 # @@Description      :  Find and download the latest ISO for a given distro
-# @@Changelog        :  Added download retry logic for network errors
+# @@Changelog        :  Added macOS recovery image download support
 # @@TODO             :  Refactor code
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202601011613-git"
+VERSION="202601011628-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -685,6 +685,56 @@ __find_iso() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get macOS recovery image URL from Apple's software update catalog
+# Usage: __get_macos_iso <arch> [catalog_url]
+# Returns: URL to BaseSystem.dmg and sets MACOS_VERSION variable
+__get_macos_iso() {
+  local arch="${1:-x86_64}"
+  local catalog_url="${2:-$LATEST_ISO_MACOS_CATALOG_URL}"
+  local catalog="" all_urls="" url="" ver="" major_ver="" best_url="" best_ver=""
+  MACOS_VERSION=""
+  # Fetch Apple's software update catalog
+  catalog="$(__curl "$catalog_url")"
+  [ -z "$catalog" ] && return 1
+  # Get all BaseSystem.dmg URLs
+  all_urls="$(echo "$catalog" | __grep -oE 'https://[^<]+BaseSystem\.dmg' | sort -u)"
+  [ -z "$all_urls" ] && return 1
+  # Check each URL's version via the .smd metadata file
+  for url in $all_urls; do
+    local smd_url="${url/BaseSystem.dmg/InstallAssistantAuto.smd}"
+    ver="$(__curl "$smd_url" 2>/dev/null | __grep -A1 'CFBundleShortVersionString' | __grep string | __sed 's/.*<string>\(.*\)<\/string>.*/\1/')"
+    [ -z "$ver" ] && continue
+    major_ver="${ver%%.*}"
+    # Apple Silicon requires macOS 11+ (Big Sur or later with Universal binaries)
+    if [ "$arch" = "arm64e" ]; then
+      if [ "$major_ver" -ge 11 ] 2>/dev/null; then
+        # Keep the latest version found
+        if [ -z "$best_ver" ] || __version_gt "$ver" "$best_ver"; then
+          best_url="$url"
+          best_ver="$ver"
+        fi
+      fi
+    else
+      # Intel supports all versions, keep latest
+      if [ -z "$best_ver" ] || __version_gt "$ver" "$best_ver"; then
+        best_url="$url"
+        best_ver="$ver"
+      fi
+    fi
+  done
+  if [ -n "$best_url" ]; then
+    MACOS_VERSION="$best_ver"
+    echo "$best_url"
+    return 0
+  fi
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Compare versions: returns true if $1 > $2
+__version_gt() {
+  [ "$(printf '%s\n%s' "$1" "$2" | sort -V | tail -n1)" = "$1" ] && [ "$1" != "$2" ]
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __latest_iso() {
   local exitCode="0"
   __get_torrent "$1" || exitCode=3
@@ -1091,6 +1141,14 @@ __distro_arch_schema() {
   proxmox | freenas | truenas | pfsense | opnsense | flatcar | heads | hirens | xcp-ng)
     case "$system_arch" in
     x86_64 | amd64) echo "amd64" ;;
+    *) echo "$system_arch" ;;
+    esac
+    ;;
+  # macOS: x86_64 for Intel, arm64e for Apple Silicon
+  macos | mac | osx)
+    case "$system_arch" in
+    x86_64 | amd64) echo "x86_64" ;;
+    aarch64 | arm64) echo "arm64e" ;;
     *) echo "$system_arch" ;;
     esac
     ;;
@@ -1730,6 +1788,55 @@ __latest_list() {
     __latest_iso "$iso_url" "$ISOFILE"
     statusCode=$(($? + $statusCode))
     ;;
+  macos | mac | osx)
+    shift 1
+    local macos_arch="" macos_url="" macos_dmg="" macos_iso=""
+    macos_arch="$(__distro_arch_schema "$LATEST_ISO_SYSTEM_ARCH" "macos")"
+    if [ "$macos_arch" = "arm64e" ]; then
+      macos_dmg="$LATEST_ISO_DOWNLOAD_DIR/mac.arm64.dmg"
+      macos_iso="$LATEST_ISO_DOWNLOAD_DIR/mac.arm64.iso"
+    else
+      macos_dmg="$LATEST_ISO_DOWNLOAD_DIR/mac.amd64.dmg"
+      macos_iso="$LATEST_ISO_DOWNLOAD_DIR/mac.amd64.iso"
+    fi
+    ISOFILE="$macos_dmg"
+    real_url="$LATEST_ISO_MACOS_CATALOG_URL"
+    printf_cyan "Fetching macOS catalog from Apple..."
+    macos_url="$(__get_macos_iso "$macos_arch")"
+    if [ -n "$macos_url" ]; then
+      printf_cyan "Found macOS $MACOS_VERSION recovery image"
+      __latest_iso "$macos_url" "$ISOFILE"
+      statusCode=$(($? + $statusCode))
+      # Convert DMG to ISO if dmg2img is available (Linux)
+      if [ "$statusCode" -eq 0 ] && [ -f "$macos_dmg" ]; then
+        if command -v dmg2img &>/dev/null; then
+          printf_cyan "Converting DMG to ISO..."
+          if dmg2img "$macos_dmg" "$macos_iso" &>/dev/null; then
+            rm -f "$macos_dmg"
+            printf_green "Converted to: $macos_iso"
+            ISOFILE="$macos_iso"
+          else
+            printf_yellow "Conversion failed, keeping DMG format"
+          fi
+        elif command -v hdiutil &>/dev/null; then
+          # macOS native conversion
+          printf_cyan "Converting DMG to ISO..."
+          local macos_cdr="${macos_iso%.iso}.cdr"
+          if hdiutil convert "$macos_dmg" -format UDTO -o "$macos_cdr" &>/dev/null; then
+            mv "$macos_cdr" "$macos_iso"
+            rm -f "$macos_dmg"
+            printf_green "Converted to: $macos_iso"
+            ISOFILE="$macos_iso"
+          else
+            printf_yellow "Conversion failed, keeping DMG format"
+          fi
+        fi
+      fi
+    else
+      printf_red "No macOS recovery image found for $macos_arch"
+      statusCode=$((1 + $statusCode))
+    fi
+    ;;
   openvz)
     shift 1
     local openvz_arch=""
@@ -2092,6 +2199,7 @@ LATEST_ISO_NOBARA_URL="${LATEST_ISO_NOBARA_URL:-https://nobara-images.nobaraproj
 LATEST_ISO_POPOS_URL="${LATEST_ISO_POPOS_URL:-https://api.pop-os.org/builds}"
 LATEST_ISO_SOLUS_URL="${LATEST_ISO_SOLUS_URL:-https://downloads.getsol.us/isos}"
 LATEST_ISO_VANILLA_URL="${LATEST_ISO_VANILLA_URL:-https://download.vanillaos.org}"
+LATEST_ISO_MACOS_CATALOG_URL="${LATEST_ISO_MACOS_CATALOG_URL:-https://swscan.apple.com/content/catalogs/others/index-15-14-13-12-10.16-10.15-10.14-10.13-10.12-10.11-10.10-10.9-mountainlion-lion-snowleopard-leopard.merged-1.sucatalog}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 LATEST_ISO_ALMA_RELEASE="${LATEST_ISO_ALMA_RELEASE:-9}"
 LATEST_ISO_ROCKY_RELEASE="${LATEST_ISO_ROCKY_RELEASE:-9}"
@@ -2165,7 +2273,7 @@ LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
 LONGOPTS+=",force,all,ask,filename:,arch:,release:,name:"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="aeryn,alma,alpine,arch,archcraft,arco,bazzite,blackarch,cachy,centos,chimera,clear,clonezilla,debian,endeavour,fedora,"
-ARRAY+="flatcar,freenas,garuda,gentoo,gparted,heads,hirens,kali,manjaro,nixos,nobara,opensuse,openvz,parrot,peppermint,"
+ARRAY+="flatcar,freenas,garuda,gentoo,gparted,heads,hirens,kali,macos,manjaro,nixos,nobara,opensuse,openvz,parrot,peppermint,"
 ARRAY+="pfsense,photon,popos,proxmox,redcore,rocky,solus,tails,tiny,ubuntu,vanilla,void,xcp-ng"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""

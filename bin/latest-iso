@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202511241430-git
+##@Version           :  202601011232-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Friday, Aug 12, 2022 15:05 EDT
 # @@File             :  latest-iso
 # @@Description      :  Find and download the latest ISO for a given distro
-# @@Changelog        :  Refactored __grab_iso into helper functions; fixed pfsense to get .iso.gz
+# @@Changelog        :  Fixed TinyCore version detection and rsync URL handling
 # @@TODO             :  Refactor code
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202511241430-git"
+VERSION="202601011232-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -46,24 +46,8 @@ export CASJAYSDEV_TITLE_PREV="${CASJAYSDEV_TITLE_PREV:-${CASJAYSDEV_TITLE_SET:-$
 # pipes fail
 set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Import functions
-CASJAYSDEVDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}"
-SCRIPTSFUNCTDIR="${CASJAYSDEVDIR:-/usr/local/share/CasjaysDev/scripts}/functions"
-SCRIPTSFUNCTFILE="${SCRIPTSAPPFUNCTFILE:-testing.bash}"
-SCRIPTSFUNCTURL="${SCRIPTSAPPFUNCTURL:-https://github.com/dfmgr/installer/raw/main/functions}"
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-if [ -f "$PWD/$SCRIPTSFUNCTFILE" ]; then
-  . "$PWD/$SCRIPTSFUNCTFILE"
-elif [ -f "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" ]; then
-  . "$SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE"
-else
-  echo "Can not load the functions file: $SCRIPTSFUNCTDIR/$SCRIPTSFUNCTFILE" 1>&2
-  exit 1
-fi
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Options are: *_install
-# system user desktopmgr devenvmgr dfmgr dockermgr fontmgr iconmgr pkmgr systemmgr thememgr wallpapermgr
-user_install && __options "$@"
+# Additional command check
+cmd_exists() { builtin command -v "$1" &>/dev/null; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Send all output to /dev/null
 __devnull() {
@@ -95,9 +79,7 @@ __cmd_exists() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check for a valid internet connection
 __am_i_online() {
-  local exitCode=0
-  __curl -I "${1:-https://1.1.1.1}" 2>&1 | grep -qi 'server:.*cloudflare' || exitCode=4
-  return ${exitCode:-0}
+  __curl -sI "${1:-1.1.1.1}" &>/dev/null && return 0 || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # colorization
@@ -126,6 +108,17 @@ if [ "$SHOW_RAW" = "true" ]; then
 else
   printf_color() { printf "%b" "$(tput setaf "${2:-7}" 2>/dev/null)" "$1" "$(tput sgr0 2>/dev/null)"; }
 fi
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Printf wrapper functions (self-contained)
+printf_newline() { printf '\n'; }
+printf_blue() { printf_color "$1\n" "4"; }
+printf_red() { printf_color "$1\n" "1"; }
+printf_green() { printf_color "$1\n" "2"; }
+printf_cyan() { printf_color "$1\n" "6"; }
+printf_yellow() { printf_color "$1\n" "3"; }
+printf_purple() { printf_color "$1\n" "5"; }
+printf_error() { printf_red "ERROR: $1"; }
+printf_exit() { printf_red "$1"; exit "${2:-1}"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Additional printf_ colors
 __printf_head() { printf_blue "$1"; }
@@ -296,70 +289,6 @@ __user_is_root() {
   { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Is current user not root
-__user_is_not_root() {
-  if { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; }; then return 1; else return 0; fi
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Check if user is a member of sudo
-__sudo_group() {
-  grep -sh "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# # Get sudo password
-__sudoask() {
-  ask_for_password sudo true && return 0 || return 1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Run sudo
-__sudorun() {
-  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
-  return $?
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Test if user has access to sudo
-__can_i_sudo() {
-  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
-  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# User can run sudo
-__sudoif() {
-  __user_is_root && return 0
-  __can_i_sudo "${RUN_USER:-$USER}" && return 0
-  __user_is_not_root && __sudoask && return 0 || return 1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Run command as root
-requiresudo() {
-  if [ "$LATEST_ISO_REQUIRE_SUDO" = "yes" ] && [ -z "$LATEST_ISO_REQUIRE_SUDO_RUN" ]; then
-    export LATEST_ISO_REQUIRE_SUDO="no"
-    export LATEST_ISO_REQUIRE_SUDO_RUN="true"
-    __sudo "$@"
-    exit $?
-  else
-    return 0
-  fi
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Execute sudo
-__sudo() {
-  CMD="${1:-echo}" && shift 1
-  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
-  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
-  [ "$(basename -- "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
-  if __sudoif; then
-    export PATH="$PATH"
-    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
-    exitCode=$?
-  else
-    printf '%s\n' "This requires root to run"
-    exitCode=1
-  fi
-  return ${exitCode:-1}
-}
-# End of sudo functions
-# - - - - - - - - - - - - - - - - - - - - - - - - -
 __trap_exit() {
   exitCode=${exitCode:-0}
   [ -f "$LATEST_ISO_TEMP_FILE" ] && rm -Rf "$LATEST_ISO_TEMP_FILE" &>/dev/null
@@ -377,28 +306,49 @@ __rm_rf() { if [ -e "$1" ]; then rm -Rf "$1" && return 0 || return 1; fi; }
 __curl() { \curl -q -LSsf --fail-early --connect-timeout "${LATEST_ISO_CONNECT_TIMEOUT:-2}" --retry "${LATEST_ISO_RETRY_COUNT:-5}" --retry-delay "${LATEST_ISO_RETRY_DELAY:-3}" "$@" 2>/dev/null || return 1; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __test_arch() {
-  local test_arch="" a=""
-  local arch="$(uname -m | tr '[:upper:]' '[:lower:]')"
-  local -a input=("$@")
+  local test_arch="" exclude_arch="" a="" output=""
+  local arch="${LATEST_ISO_SYSTEM_ARCH:-$(uname -m)}"
+  arch="$(echo "$arch" | tr '[:upper:]' '[:lower:]')"
+  local -a input=()
+  # Read from arguments or stdin
+  if [ $# -gt 0 ]; then
+    input=("$@")
+  else
+    while IFS= read -r line; do
+      [ -n "$line" ] && input+=("$line")
+    done
+  fi
+  [ ${#input[@]} -eq 0 ] && return 1
   if [ "$arch" = "x86_64" ]; then
     test_arch="amd64 x86_64 x64"
-  elif [ "$arch" = "aarch64" ]; then
+    exclude_arch="i386|i686|arm64|aarch64|arm"
+  elif [ "$arch" = "aarch64" ] || [ "$arch" = "arm64" ]; then
     test_arch="aarch64 arm64"
-  elif [ "$arch" = "arm64" ]; then
-    test_arch="arm64 aarch64"
+    exclude_arch="i386|i686|x86_64|amd64|x64"
   else
     test_arch="$arch"
+    exclude_arch="aarch64|arm64|x86_64|amd64"
   fi
+  # Try to find arch-specific match first
   for a in $test_arch; do
-    output="$(printf '%s\n' "${input[@]}" | tr ' ' '\n' | __grep "$a" | head -n1 | __grep '^' || false)"
-    [ -n "$output" ] && echo "$output" && break
+    output="$(printf '%s\n' "${input[@]}" | tr ' ' '\n' | __grep -i "$a" | head -n1)"
+    [ -n "$output" ] && echo "$output" && return 0
   done
+  # Fallback: return first result that doesn't match other architectures
+  output="$(printf '%s\n' "${input[@]}" | tr ' ' '\n' | __grep -vE "$exclude_arch" | head -n1)"
+  [ -n "$output" ] && echo "$output"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __unarchive() {
   local archive="${archive_file:-$1}"
-  if echo "$archive" | __grep -qE '\.tar$|\.tar\.gz$|\.tar\.bz2$'; then
-    tar xfv "$archive"
+  local extract_dir="$(dirname "$archive")"
+  local extracted_file=""
+  if echo "$archive" | __grep -qE '\.tar$|\.tar\.gz$|\.tar\.bz2$|\.tar\.xz$'; then
+    tar xfv "$archive" -C "$extract_dir" && rm -f "$archive"
+    return $?
+  elif echo "$archive" | __grep -q '\.xz$'; then
+    # For .xz files (like .img.xz), decompress in place and remove archive
+    xz -fd "$archive"
     return $?
   elif echo "$archive" | __grep -q '\.gz$'; then
     gzip -fd "$archive"
@@ -407,7 +357,10 @@ __unarchive() {
     bzip2 -fd "$archive"
     return $?
   elif echo "$archive" | __grep -q '\.zip$'; then
-    unzip "$archive"
+    unzip -o "$archive" -d "$extract_dir" && rm -f "$archive"
+    return $?
+  elif echo "$archive" | __grep -q '\.7z$'; then
+    7z x "$archive" -o"$extract_dir" && rm -f "$archive"
     return $?
   fi
 }
@@ -417,26 +370,32 @@ __ex() {
   download_file="${1:-$download_file}"
   archive="$(realpath "$2" 2>/dev/null || echo '')"
   local tmp_iso_dir="$(dirname "$archive" 2>/dev/null)"
+  local extracted_file=""
   if [ -f "$archive" ]; then
     __cd "$tmp_iso_dir"
-    printf_cyan "extracting $archive"
+    printf_cyan "Extracting $archive"
     echo "extracting $archive" >"$LATEST_ISO_LOG_DIR/ex.log"
     __unarchive "$archive" &>>"$LATEST_ISO_LOG_DIR/ex.log"
-    iso_file="$(find "$tmp_iso_dir" -type f -name '*.iso' | __grep '.iso$' | head -n1 || echo '')"
+    # Look for .iso or .img files after extraction
+    extracted_file="$(find "$tmp_iso_dir" -maxdepth 1 -type f \( -name '*.iso' -o -name '*.img' \) | head -n1 || echo '')"
     __cd "$d"
-    if [ -n "$iso_file" ] && [ -f "$iso_file" ]; then
+    if [ -n "$extracted_file" ] && [ -f "$extracted_file" ]; then
       iso_dirname="$(dirname "$download_file")"
       [ -d "$iso_dirname" ] || mkdir -p "$iso_dirname"
-      if [ "$archive" != "$download_file" ]; then
-        printf_cyan "moving $iso_file to $download_file"
-        if mv -f "$iso_file" "$download_file"; then
+      # Update download_file to use .img extension if extracted file is .img
+      if echo "$extracted_file" | __grep -q '\.img$'; then
+        download_file="$(echo "$download_file" | __sed 's|\.iso$|.img|g;s|\.img\.xz$|.img|g')"
+      fi
+      if [ "$extracted_file" != "$download_file" ]; then
+        printf_cyan "Moving $extracted_file to $download_file"
+        if mv -f "$extracted_file" "$download_file"; then
           [ -f "$archive" ] && rm -Rf "$archive"
-          [ -d "$tmp_iso_dir" ] && rm -Rf "$tmp_iso_dir"
           [ -f "$LATEST_ISO_LOG_DIR/ex.log" ] && rm -Rf "$LATEST_ISO_LOG_DIR/ex.log"
+          printf_green "Extraction complete: $download_file"
         fi
       fi
     else
-      printf_red "Can not find file $archive"
+      printf_red "Could not find extracted file from $archive"
       return 1
     fi
   fi
@@ -444,8 +403,20 @@ __ex() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __strip_url() { __grep -v '^$' | head -n1 | __grep '^'; }
-__set_filename() { echo "$1" | __sed "s|.iso$|.$2.iso|g" | __grep '^' || echo "$1"; }
-__get_filename() { __grep -E '\.iso$|\.tar$|\.gz$|\.zip$' | __grep $1 '^' || return 2; }
+__set_filename() {
+  local file="$1" arch="$2"
+  # Handle various archive/image extensions: .iso, .img.xz, .tar.gz, etc.
+  if echo "$file" | __grep -qE '\.(img|tar)\.(xz|gz|bz2)$'; then
+    echo "$file" | sed -E "s#\.(img|tar)\.(xz|gz|bz2)\$#.${arch}.\1.\2#g" | __grep '^' || echo "$file"
+  elif echo "$file" | __grep -qE '\.iso$'; then
+    echo "$file" | sed "s#\.iso\$#.${arch}.iso#g" | __grep '^' || echo "$file"
+  elif echo "$file" | __grep -qE '\.(xz|gz|bz2|7z|zip)$'; then
+    echo "$file" | sed -E "s#\.(xz|gz|bz2|7z|zip)\$#.${arch}.\1#g" | __grep '^' || echo "$file"
+  else
+    echo "$file"
+  fi
+}
+__get_filename() { __grep -E '\.iso$|\.tar$|\.gz$|\.xz$|\.bz2$|\.7z$|\.zip$' | __grep $1 '^' || return 2; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -487,6 +458,10 @@ __test_iso() {
   local test=""
   local verify=""
   local get_status=""
+  # Handle rsync URLs - if URL ends with bootable/archive extension, assume valid
+  if echo "$1" | __grep -qE '^rsync://.*\.(iso|xz|gz|bz2|7z)$'; then
+    return 0
+  fi
   [ -n "$1" ] && test="$(echo "$1" | __grep -E 'https://|http://|ftp://' | __get_filename | __grep '^' || echo '')"
   [ -n "$test" ] && get_status="$(__curl -I "$test" || return 1)"
   verify="$(echo "$get_status" | __grep -q 'HTTP/.* 200' && echo 'valid' || echo '')"
@@ -502,7 +477,7 @@ __test_iso() {
 __grep_size_large() { __sort_size | __grep "$@"; }
 __awk_nf() { awk '{print $NF}' 2>/dev/null | head -n1; }
 __tr_split() { tr '=' '\n' 2>/dev/null | __strip_tags; }
-__iso_is_archive() { __grep -E '\.tar$|\.gz$|\.zip$|\.bz2$|\.7z$'; }
+__iso_is_archive() { __grep -E '\.tar$|\.xz$|\.gz$|\.zip$|\.bz2$|\.7z$'; }
 __sort_rv() { __strip_tags 2>/dev/null | sort -rV | head -n1 | __sed 's|/$||g' | __sed 's|//|/|g' | __grep '^' 2>/dev/null || false; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __sort_v() { __strip_tags 2>/dev/null | __grep '^[0-9]' | sort -rV | __sed 's|/$||g' | __sed 's|//|/|g' | __grep '^' 2>/dev/null || false; }
@@ -532,21 +507,25 @@ __strip_tags() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __verify_arch() {
+  # Returns standardized arch for filename: amd64, arm64, arm, i386
   latest="${1:-$latest}"
-  if echo "$latest" | __grep -wq 'x86_64'; then
-    verify_arch="x86_64"
-  elif echo "$latest" | __grep -wq 'amd64'; then
-    verify_arch="x86_64"
-  elif echo "$latest" | __grep -wq 'aarch64'; then
-    verify_arch="aarch64"
-  elif echo "$latest" | __grep -wq 'arm64'; then
-    verify_arch="aarch64"
-  elif echo "$latest" | __grep -wq 'arm.*'; then
+  if echo "$latest" | __grep -wiq 'x86_64'; then
+    verify_arch="amd64"
+  elif echo "$latest" | __grep -wiq 'amd64'; then
+    verify_arch="amd64"
+  elif echo "$latest" | __grep -wiq 'aarch64'; then
+    verify_arch="arm64"
+  elif echo "$latest" | __grep -wiq 'arm64'; then
+    verify_arch="arm64"
+  elif echo "$latest" | __grep -iq '\-ARM\-'; then
+    # Handle patterns like "Manjaro-ARM-"
+    verify_arch="arm64"
+  elif echo "$latest" | __grep -wiq 'arm'; then
     verify_arch="arm"
-  elif echo "$latest" | __grep -wqE 'i[1-9]86|x86'; then
+  elif echo "$latest" | __grep -wiqE 'i[1-9]86|x86'; then
     verify_arch="i386"
   else
-    verify_arch="x86_64"
+    verify_arch="amd64"
   fi
   echo "$verify_arch"
 }
@@ -564,23 +543,99 @@ __get_arch() {
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__sf_version() {
-  local file_dirs=""
-  file_dirs="$1/files/$2"
-  get_folder="$(__curl "$file_dirs" | __grep 'net.sf.files =' | __sed 's|net.sf.files =||g' | jq -r '.[]' 2>/dev/null | __grep 'download_url' | __sed 's|"download_url": ||g;s|"||g;s|,||g;s|/download$||g' | __grep 'v[0-9]' | sort -Vr | head -n1 | __sed 's| ||g')"
-  get_isos="$(__curl $get_folder | __grep 'net.sf.files' | __sed 's|.*= ||g' | jq -rc '.[]|.name' 2>/dev/null | sort -rV | __grep 'iso$')"
-  get_isos="$(__test_arch "$get_isos")"
-  [ -n "$get_isos" ] && echo "$get_folder/$get_isos"
+# Display architecture not supported message
+__arch_not_supported() {
+  local msg="${1:-This distribution does not support the requested architecture}"
+  printf_red "$msg"
+  statusCode=$((1 + ${statusCode:-0}))
+  return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Filter out unstable versions (beta, rc, alpha, dev, test, preview, unstable, nightly)
+__filter_stable() {
+  __grep -viE '(beta|alpha|rc[0-9]|[-.]rc[-.]|dev|test|preview|unstable|nightly|snapshot|pre[0-9])'
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generic HTML directory listing parser
+# Usage: __parse_html <url> [include_pattern] [exclude_pattern] [options]
+# Options: nojs (append ?nojs=1), filename (return filename only)
+__parse_html() {
+  local url="${1:-}"
+  local include="${2:-}"
+  local exclude="${3:-^$}"
+  local options="${4:-}"
+  local result=""
+  [ -n "$url" ] || return 1
+  [[ "$options" == *"nojs"* ]] && url="${url}?nojs=1"
+  result="$(__curl "$url" | __grep -oE '[a-zA-Z0-9._-]+\.(iso|img|raw|qcow2|tar\.[gx]z|zip)' | __grep -E "$include" | __grep -vE "$exclude" | __filter_stable | sort -rV | __test_arch | head -n1)"
+  [ -n "$result" ] && echo "$result"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Generic JSON API parser
+# Usage: __parse_json <url> <jq_filter> [include_pattern] [exclude_pattern]
+__parse_json() {
+  local url="${1:-}"
+  local jq_filter="${2:-.}"
+  local include="${3:-}"
+  local exclude="${4:-^$}"
+  local result=""
+  [ -n "$url" ] || return 1
+  result="$(__curl "$url" | jq -r "$jq_filter" 2>/dev/null | __grep -E "$include" | __grep -vE "$exclude" | __filter_stable | sort -rV | __test_arch | head -n1)"
+  [ -n "$result" ] && echo "$result"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# GitHub releases API
+# Usage: __github <owner/repo> [include_pattern] [exclude_pattern]
+__github() {
+  local repo="${1:-}"
+  local include="${2:-\.iso}"
+  local exclude="${3:-^$}"
+  local api_url="" result=""
+  [ -n "$repo" ] || return 1
+  # Clean repo format (remove URL parts if full URL given)
+  repo="$(echo "$repo" | __sed 's|.*github\.com/||g;s|/*$||g' | __grep '^' || echo "$repo")"
+  api_url="https://api.github.com/repos/$repo/releases/latest"
+  result="$(__curl -H "Accept: application/vnd.github+json" "$api_url" | jq -r '.assets[].browser_download_url' 2>/dev/null | __grep -E "$include" | __grep -vE "$exclude" | __filter_stable | sort -rV | __test_arch | head -n1)"
+  [ -n "$result" ] && echo "$result"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# GitLab releases API
+# Usage: __gitlab <instance> <project_id_or_path> [include_pattern] [exclude_pattern]
+__gitlab() {
+  local instance="${1:-gitlab.com}"
+  local project="${2:-}"
+  local include="${3:-\.iso}"
+  local exclude="${4:-^$}"
+  local api_url="" result=""
+  [ -n "$project" ] || return 1
+  # URL encode project path if it contains /
+  project="$(echo "$project" | __sed 's|/|%2F|g')"
+  api_url="https://$instance/api/v4/projects/$project/releases"
+  result="$(__curl "$api_url" | jq -r '.[0].assets.links[].url' 2>/dev/null | __grep -E "$include" | __grep -vE "$exclude" | __filter_stable | sort -rV | __test_arch | head -n1)"
+  [ -n "$result" ] && echo "$result"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# SourceForge project releases
+# Usage: __sourceforge <project> [subdir] [version_pattern]
 __sourceforge() {
+  local project="${1:-}"
+  local subdir="${2:-}"
+  local version_pattern="${3:-stable|[0-9].[0-9]|[a-z].*[0-9]}"
+  local sf_base="https://sourceforge.net/projects/$project/files"
+  local sf_path="$sf_base"
   local get_dirs="" get_isos=""
-  file_dirs="$1/files/$2"
-  get_dirs="$(__curl https://sourceforge.net/projects/$file_dirs | __grep 'net.sf.files' | __sed 's|.*= ||g' | jq -rc '.[]|.name' 2>/dev/null | __grep -E 'stable|[0-9].[0-9]|[a-z].*[0-9]' | __grep -v '^$' | sort -rV | head -n1 | __grep '^')"
-  get_isos="$(__curl https://sourceforge.net/projects/$file_dirs/$get_dirs | __grep 'net.sf.files' | __sed 's|.*= ||g' | jq -rc '.[]|.name' 2>/dev/null | sort -rV | __grep 'iso$')"
-  [ -n "$get_isos" ] || get_isos="$(__curl https://sourceforge.net/projects/$file_dirs/$get_dirs | __grep -i '.iso' | __sed 's/<[^>]*>//g' | __sed 's|/download$||g' | sort -rV)"
-  get_isos="$(__test_arch "$get_isos")"
-  [ -n "$get_isos" ] && echo "https://sourceforge.net/projects/$file_dirs/$get_dirs/$get_isos"
+  [ -n "$project" ] || return 1
+  [ -n "$subdir" ] && sf_path="$sf_base/$subdir"
+  # Get version/release directory
+  get_dirs="$(__curl "$sf_path/" | __grep 'net.sf.files' | head -1 | __sed 's|.*= ||g' | jq -rc '.[].name' 2>/dev/null | __grep -E "$version_pattern" | __filter_stable | __grep -v '^$' | sort -rV | head -n1)"
+  if [ -n "$get_dirs" ]; then
+    # Try to get ISO from version subdirectory
+    get_isos="$(__curl "$sf_path/$get_dirs/" | __grep 'net.sf.files' | head -1 | __sed 's|.*= ||g' | jq -rc '.[].name' 2>/dev/null | __grep -iE '\.(iso|img)$' | __test_arch | sort -rV | head -n1)"
+    [ -n "$get_isos" ] && echo "$sf_path/$get_dirs/$get_isos" && return 0
+  fi
+  # Fallback: ISO directly in path
+  get_isos="$(__curl "$sf_path/" | __grep 'net.sf.files' | head -1 | __sed 's|.*= ||g' | jq -rc '.[].name' 2>/dev/null | __grep -iE '\.(iso|img)$' | __test_arch | sort -rV | head -n1)"
+  [ -n "$get_isos" ] && echo "$sf_path/$get_isos"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __find_iso() {
@@ -713,10 +768,31 @@ __verify_download() {
     __ex "$GRAB_DOWNLOAD_FILE" "$GRAB_CURL_FILE"
   fi
 
-  [ -f "$GRAB_CURL_FILE" ] && __filesize_local "$GRAB_CURL_FILE" || return 2
+  # Check if downloaded file exists (could be the archive or extracted file)
+  local verify_file=""
+  if [ -f "$GRAB_DOWNLOAD_FILE" ]; then
+    verify_file="$GRAB_DOWNLOAD_FILE"
+  elif [ -f "$GRAB_CURL_FILE" ]; then
+    verify_file="$GRAB_CURL_FILE"
+  else
+    printf_red "Downloading of $GRAB_LOCAL_ISO_NAME has failed: no file created"
+    return 2
+  fi
+
+  __filesize_local "$verify_file"
 
   if [ -f "$GRAB_DOWNLOAD_FILE" ]; then
-    if __verify_filesizes "$local_file_size_raw" "$remote_file_size_raw"; then
+    # For compressed files (like .img.xz), extracted size is always larger - skip size check
+    if echo "$GRAB_LATEST" | __iso_is_archive &>/dev/null; then
+      # For archives: just verify file exists and has reasonable size (> 10MB)
+      if [ "$local_file_size_raw" -gt 10000000 ]; then
+        printf_green "Downloading and extraction of $GRAB_LOCAL_ISO_NAME was successful"
+        exitCode=0
+      else
+        printf_red "Extraction of $GRAB_LOCAL_ISO_NAME has failed: extracted file too small"
+        exitCode=1
+      fi
+    elif __verify_filesizes "$local_file_size_raw" "$remote_file_size_raw"; then
       printf_green "Downloading of $GRAB_LOCAL_ISO_NAME was successful"
       exitCode=0
     elif __verify_filesizes "$local_file_size" "$remote_file_size"; then
@@ -1162,21 +1238,54 @@ __monitor_transmission() {
   done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-__github_api() {
-  local repo=""
-  repo="$(echo "$1" | __sed 's|.*://||g;s|.*.github.com/||g' | __grep '^' || echo "$1")"
-  if echo "$repo" | __grep -q 'api.github.com'; then
-    api="$1"
-  else
-    api="https://api.github.com/repos/${repo:-$1}/releases/latest"
-  fi
-  results="$(__curl -H "Accept: application/vnd.github+json" "$api" | jq -r '.[]' | __grep 'browser_download_url' | __sed 's|"||g;s|browser_download_url.* ||g;s|^  *||g;s|  *| |g' | __get_filename | __grep "${2:-^}" | __grep -v "${3:-^$}")"
-  [ -n "$results" ] && echo "$results" | head -n1 | __grep '^' || return 1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
 __latest_list() {
   local statusCode=0
   case "$1" in
+  # Server variants (hyphenated)
+  debian-server)
+    shift 1
+    local debian_arch="" debian_url=""
+    debian_arch="$(__distro_arch_schema "$LATEST_ISO_SYSTEM_ARCH" "debian")"
+    ISOFILE="$LATEST_ISO_DOWNLOAD_DIR/debian-server.iso"
+    debian_url="https://cdimage.debian.org/cdimage/release/current/$debian_arch/iso-cd"
+    real_url="$debian_url"
+    iso_url="$(__curl "$debian_url" | __strip_tags | __grep "netinst" | __grep -i "$debian_arch" | __strip_iso)"
+    iso_url_filename="$debian_url/$iso_url"
+    __latest_iso "$iso_url_filename" "$ISOFILE"
+    statusCode=$(($? + $statusCode))
+    ;;
+  ubuntu-server)
+    shift 1
+    local ubuntu_version="" ubuntu_iso="" ubuntu_arch="" ubuntu_base_url="" ubuntu_versions=""
+    ubuntu_arch="$(__distro_arch_schema "$LATEST_ISO_SYSTEM_ARCH" "ubuntu")"
+    ISOFILE="$LATEST_ISO_DOWNLOAD_DIR/ubuntu-server.iso"
+    if [ "$ubuntu_arch" = "arm64" ]; then
+      ubuntu_base_url="https://cdimage.ubuntu.com/ubuntu-server/releases"
+      # arm64 uses different URL structure
+      for ubuntu_version in $(__curl "$ubuntu_base_url" | __strip_tags | __grep -oE '[0-9]+\.[0-9]+' | sort -ruV); do
+        ubuntu_iso="$(__curl "$ubuntu_base_url/$ubuntu_version/release/" | __strip_tags | __grep "live-server" | __grep "$ubuntu_arch" | __grep "\.iso$" | head -n1)"
+        [ -n "$ubuntu_iso" ] && { iso_url="$ubuntu_base_url/$ubuntu_version/release"; break; }
+      done
+    else
+      ubuntu_base_url="https://releases.ubuntu.com"
+      # amd64: iterate through versions to find one with actual ISOs
+      for ubuntu_version in $(__curl "$ubuntu_base_url" | __strip_tags | __grep -oE '[0-9]+\.[0-9]+' | sort -ruV); do
+        ubuntu_iso="$(__curl "$ubuntu_base_url/$ubuntu_version" | __strip_tags | __grep "live-server" | __grep "$ubuntu_arch" | __grep "\.iso$" | head -n1)"
+        [ -n "$ubuntu_iso" ] && { iso_url="$ubuntu_base_url/$ubuntu_version"; break; }
+      done
+    fi
+    real_url="$ubuntu_base_url"
+    iso_url_filename="$iso_url/$ubuntu_iso"
+    __latest_iso "$iso_url_filename" "$ISOFILE"
+    statusCode=$(($? + $statusCode))
+    ;;
+  cachy-server)
+    shift 1
+    printf_yellow "CachyOS Server Edition is coming soon (expected 2026)"
+    printf_cyan "See: https://cachyos.org/blog/2025-christmas-new-year/"
+    statusCode=$((1 + $statusCode))
+    ;;
+  # Regular distros
   alma)
     shift 1
     local alma_arch=""
@@ -1202,17 +1311,24 @@ __latest_list() {
     ;;
   arch)
     shift 1
+    local arch_arch=""
+    arch_arch="$(__distro_arch_schema "$LATEST_ISO_SYSTEM_ARCH" "arch")"
     ISOFILE="$LATEST_ISO_DOWNLOAD_DIR/arch.iso"
-    real_url="$LATEST_ISO_ARCHLINUX_URL"
-    iso_url="$(__curl "$LATEST_ISO_ARCHLINUX_URL" | __strip_tags | __strip_iso)"
-    __latest_iso "$LATEST_ISO_ARCHLINUX_URL/$iso_url" "$ISOFILE"
-    statusCode=$(($? + $statusCode))
+    # Arch Linux mainline only provides x86_64 ISOs (Arch ARM is a separate project)
+    if [ "$arch_arch" = "aarch64" ] || [ "$arch_arch" = "arm64" ]; then
+      __arch_not_supported "Arch Linux does not support arm64 (see archlinuxarm.org for ARM builds)"
+    else
+      real_url="$LATEST_ISO_ARCHLINUX_URL"
+      iso_url="$(__curl "$LATEST_ISO_ARCHLINUX_URL" | __strip_tags | __strip_iso)"
+      __latest_iso "$LATEST_ISO_ARCHLINUX_URL/$iso_url" "$ISOFILE"
+      statusCode=$(($? + $statusCode))
+    fi
     ;;
   archcraft)
     shift 1
     ISOFILE="$LATEST_ISO_DOWNLOAD_DIR/archcraft.iso"
     real_url="$LATEST_ISO_ARCHCRAFT_URL"
-    iso_url_filename="$(__sf_version "$LATEST_ISO_ARCHCRAFT_URL")"
+    iso_url_filename="$(__sourceforge "archcraft" "" "v[0-9]")"
     __latest_iso "$iso_url_filename" "$ISOFILE"
     statusCode=$(($? + $statusCode))
     ;;
@@ -1235,11 +1351,20 @@ __latest_list() {
     ;;
   cachy)
     shift 1
-    ISOFILE="$LATEST_ISO_DOWNLOAD_DIR/cachy.iso"
-    real_url="${LATEST_ISO_CACHYOS_URL//\/best_release.json/}"
-    iso_url="$(__curl "$LATEST_ISO_CACHYOS_URL" | jq -rc '.release|.url' | __sed 's|/download$||g' | __grep -i "$LATEST_ISO_CACHY_FLAVOR")"
-    __latest_iso "$iso_url" "$ISOFILE"
-    statusCode=$(($? + $statusCode))
+    local cachy_type=""
+    cachy_type="$1"
+    if [ "$cachy_type" = "server" ]; then
+      shift 1
+      printf_yellow "CachyOS Server Edition is coming soon (expected 2026)"
+      printf_cyan "See: https://cachyos.org/blog/2025-christmas-new-year/"
+      statusCode=$((1 + $statusCode))
+    else
+      ISOFILE="$LATEST_ISO_DOWNLOAD_DIR/cachy.iso"
+      real_url="${LATEST_ISO_CACHYOS_URL//\/best_release.json/}"
+      iso_url="$(__curl "$LATEST_ISO_CACHYOS_URL" | jq -rc '.release|.url' | __sed 's|/download$||g' | __grep -i "$LATEST_ISO_CACHY_FLAVOR")"
+      __latest_iso "$iso_url" "$ISOFILE"
+      statusCode=$(($? + $statusCode))
+    fi
     ;;
   centos)
     shift 1
@@ -1266,12 +1391,23 @@ __latest_list() {
     ;;
   debian)
     shift 1
-    local debian_arch=""
+    local debian_arch="" debian_type="" debian_url=""
     debian_arch="$(__distro_arch_schema "$LATEST_ISO_SYSTEM_ARCH" "debian")"
-    ISOFILE="$LATEST_ISO_DOWNLOAD_DIR/debian.iso"
-    real_url="$LATEST_ISO_DEBIAN_URL/$debian_arch/${LATEST_ISO_DEBIAN_FLAVOR}"
-    iso_url="$(__curl "$LATEST_ISO_DEBIAN_URL/$debian_arch/${LATEST_ISO_DEBIAN_FLAVOR}" | __strip_tags | __grep -i ".iso$" | __strip_iso)"
-    iso_url_filename="$LATEST_ISO_DEBIAN_URL/$debian_arch/${LATEST_ISO_DEBIAN_FLAVOR}/$iso_url"
+    debian_type="$1"
+    if [ "$debian_type" = "server" ]; then
+      shift 1
+      # Server/netinst images from cdimage.debian.org
+      ISOFILE="$LATEST_ISO_DOWNLOAD_DIR/debian-server.iso"
+      debian_url="https://cdimage.debian.org/cdimage/release/current/$debian_arch/iso-cd"
+      real_url="$debian_url"
+      iso_url="$(__curl "$debian_url" | __strip_tags | __grep "netinst" | __grep -i "$debian_arch" | __strip_iso)"
+      iso_url_filename="$debian_url/$iso_url"
+    else
+      ISOFILE="$LATEST_ISO_DOWNLOAD_DIR/debian.iso"
+      real_url="$LATEST_ISO_DEBIAN_URL/$debian_arch/${LATEST_ISO_DEBIAN_FLAVOR}"
+      iso_url="$(__curl "$LATEST_ISO_DEBIAN_URL/$debian_arch/${LATEST_ISO_DEBIAN_FLAVOR}" | __strip_tags | __grep -i ".iso$" | __strip_iso)"
+      iso_url_filename="$LATEST_ISO_DEBIAN_URL/$debian_arch/${LATEST_ISO_DEBIAN_FLAVOR}/$iso_url"
+    fi
     __latest_iso "$iso_url_filename" "$ISOFILE"
     statusCode=$(($? + $statusCode))
     ;;
@@ -1304,6 +1440,8 @@ __latest_list() {
     ;;
   garuda)
     shift 1
+    local garuda_arch=""
+    garuda_arch="$(__distro_arch_schema "$LATEST_ISO_SYSTEM_ARCH" "garuda")"
     ISOFILE="$LATEST_ISO_DOWNLOAD_DIR/garuda.iso"
     real_url="$LATEST_ISO_GARUDA_URL/$LATEST_ISO_GARUDA_FLAVOR"
     __latest_iso "$LATEST_ISO_GARUDA_URL/$LATEST_ISO_GARUDA_FLAVOR/latest.iso" "$ISOFILE"
@@ -1330,17 +1468,25 @@ __latest_list() {
     ;;
   manjaro)
     shift 1
+    local manjaro_arch=""
+    manjaro_arch="$(__distro_arch_schema "$LATEST_ISO_SYSTEM_ARCH" "manjaro")"
     ISOFILE="$LATEST_ISO_DOWNLOAD_DIR/manjaro.iso"
-    real_url="https://github.com/manjaro/release-review/releases/latest"
-    iso_url="$(__github_api "manjaro/release-review" "$LATEST_ISO_MANJARO_FLAVOR" 'minimal')"
-    __latest_iso "$iso_url" "$ISOFILE" ""
-    statusCode=$(($? + $statusCode))
+    if [ "$manjaro_arch" = "aarch64" ] || [ "$manjaro_arch" = "arm64" ]; then
+      # Manjaro ARM only provides .img files (not ISOs) - not compatible with multiboot/VMs
+      __arch_not_supported "Manjaro does not support arm64 (see manjaro.org/download/#ARM for ARM builds)"
+    else
+      # x86_64 uses SourceForge
+      real_url="https://sourceforge.net/projects/manjarolinux/files/$LATEST_ISO_MANJARO_FLAVOR/"
+      iso_url="$(__sourceforge "manjarolinux" "$LATEST_ISO_MANJARO_FLAVOR" "^[0-9]+\.")"
+      __latest_iso "$iso_url" "$ISOFILE" ""
+      statusCode=$(($? + $statusCode))
+    fi
     ;;
   nixos)
     shift 1
     ISOFILE="$LATEST_ISO_DOWNLOAD_DIR/nixos.iso"
     real_url="https://github.com/nix-community/nixos-images/releases/latest"
-    iso_url="$(__github_api "nix-community/nixos-images" "linux.iso")"
+    iso_url="$(__github "nix-community/nixos-images" "linux.*\.iso")"
     __latest_iso "$iso_url" "$ISOFILE" ""
     statusCode=$(($? + $statusCode))
     ;;
@@ -1408,16 +1554,22 @@ __latest_list() {
     ;;
   tiny)
     shift 1
-    local tiny_arch="" tiny_version="" tiny_iso="" tiny_pattern=""
+    local tiny_arch="" tiny_version="" tiny_iso="" tiny_versions=""
     tiny_arch="$(__distro_arch_schema "$LATEST_ISO_SYSTEM_ARCH" "tinycore")"
-    ISOFILE="$LATEST_ISO_DOWNLOAD_DIR/tiny.$tiny_arch.iso"
-    real_url="rsync://repo.tinycorelinux.net/tc"
-    # Find latest version (e.g., 16.x)
-    tiny_version="$(__rsync_find_latest_version "rsync://repo.tinycorelinux.net/tc/")"
-    if [ -n "$tiny_version" ]; then
-      # Find largest *Core*.iso (CorePlus for x86, TinyCorePure64 for x86_64, etc.)
-      # Use versioned files (not -current symlinks) for proper filesize detection
-      tiny_iso="$(__rsync_list "rsync://repo.tinycorelinux.net/tc/$tiny_version/$tiny_arch/release/" | __grep_size_large 'Core.*[0-9]+\.[0-9]+\.iso$' | __awk_nf)"
+    ISOFILE="$LATEST_ISO_DOWNLOAD_DIR/tiny.iso"
+    # TinyCore only provides x86 and x86_64 ISOs
+    if [ "$tiny_arch" = "aarch64" ] || [ "$tiny_arch" = "arm64" ]; then
+      __arch_not_supported "TinyCore does not support arm64"
+    else
+      real_url="rsync://repo.tinycorelinux.net/tc"
+      # Find latest version that has actual ISOs (iterate through versions)
+      tiny_versions="$(__rsync_list "rsync://repo.tinycorelinux.net/tc/" | awk '{print $NF}' | __grep -E '^[0-9]+\.x$' | sort -rV)"
+      for tiny_version in $tiny_versions; do
+        # Find largest *Core*.iso (CorePlus for x86, TinyCorePure64 for x86_64, etc.)
+        # Use versioned files (not -current symlinks) for proper filesize detection
+        tiny_iso="$(__rsync_list "rsync://repo.tinycorelinux.net/tc/$tiny_version/$tiny_arch/release/" | __grep_size_large 'Core.*[0-9]\+\.[0-9]\+\.iso$' | __awk_nf)"
+        [ -n "$tiny_iso" ] && break
+      done
       if [ -n "$tiny_iso" ]; then
         iso_url_filename="rsync://repo.tinycorelinux.net/tc/$tiny_version/$tiny_arch/release/$tiny_iso"
         __latest_iso "$iso_url_filename" "$ISOFILE"
@@ -1426,17 +1578,42 @@ __latest_list() {
         printf_red "Could not find TinyCore ISO for $tiny_arch architecture"
         statusCode=$((1 + $statusCode))
       fi
-    else
-      printf_red "Could not determine latest TinyCore version"
-      statusCode=$((1 + $statusCode))
     fi
     ;;
   ubuntu)
     shift 1
-    ISOFILE="$LATEST_ISO_DOWNLOAD_DIR/ubuntu.iso"
-    real_url="$LATEST_ISO_UBUNTU_URL"
-    iso_url="$LATEST_ISO_UBUNTU_URL/$(__curl "$LATEST_ISO_UBUNTU_URL" | __sort_v | head -n1)/release"
-    iso_url_filename="$iso_url/$(__curl "$iso_url" | __strip_tags | __strip_iso)"
+    local ubuntu_version="" ubuntu_iso="" ubuntu_arch="" ubuntu_base_url="" ubuntu_type="" ubuntu_pattern=""
+    ubuntu_arch="$(__distro_arch_schema "$LATEST_ISO_SYSTEM_ARCH" "ubuntu")"
+    ubuntu_type="$1"
+    if [ "$ubuntu_type" = "server" ]; then
+      shift 1
+      # Ubuntu Server ISOs
+      ISOFILE="$LATEST_ISO_DOWNLOAD_DIR/ubuntu-server.iso"
+      ubuntu_pattern="live-server"
+      # Server ISOs are at releases.ubuntu.com (amd64) or cdimage.ubuntu.com (arm64)
+      if [ "$ubuntu_arch" = "arm64" ]; then
+        ubuntu_base_url="https://cdimage.ubuntu.com/ubuntu-server"
+      else
+        ubuntu_base_url="https://releases.ubuntu.com"
+      fi
+    else
+      ISOFILE="$LATEST_ISO_DOWNLOAD_DIR/ubuntu.iso"
+      ubuntu_pattern="desktop"
+      # Desktop: Use cdimage for arm64 (xubuntu only has amd64), otherwise use configured URL
+      if [ "$ubuntu_arch" = "arm64" ]; then
+        ubuntu_base_url="https://cdimage.ubuntu.com/releases"
+      else
+        ubuntu_base_url="$LATEST_ISO_UBUNTU_URL"
+      fi
+    fi
+    real_url="$ubuntu_base_url"
+    # Find latest version that has actual ISO files (not development releases)
+    for ubuntu_version in $(__curl "$ubuntu_base_url" | __sort_v); do
+      ubuntu_iso="$(__curl "$ubuntu_base_url/$ubuntu_version/release/" | __strip_tags | __grep "$ubuntu_pattern" | __grep "$ubuntu_arch" | __strip_iso)"
+      [ -n "$ubuntu_iso" ] && break
+    done
+    iso_url="$ubuntu_base_url/$ubuntu_version/release"
+    iso_url_filename="$iso_url/$ubuntu_iso"
     __latest_iso "$iso_url_filename" "$ISOFILE"
     statusCode=$(($? + $statusCode))
     ;;
@@ -1490,25 +1667,41 @@ __latest_list() {
     ;;
   pfsense)
     shift 1
+    local pfsense_arch=""
+    pfsense_arch="$(__distro_arch_schema "$LATEST_ISO_SYSTEM_ARCH" "pfsense")"
     ISOFILE="$LATEST_ISO_DOWNLOAD_DIR/pfsense.iso"
-    real_url="$LATEST_ISO_PFSENSE_URL"
-    iso_url_filename="$(__curl "$LATEST_ISO_PFSENSE_URL" | __strip_tags | __grep '\.iso' | __iso_is_archive | __sort_rv)"
-    __latest_iso "$LATEST_ISO_PFSENSE_URL/$iso_url_filename" "$ISOFILE" "$LATEST_ISO_TEMP_DIR/pfsense/$iso_url_filename"
-    statusCode=$(($? + $statusCode))
+    # pfSense only provides amd64 ISOs
+    if [ "$pfsense_arch" = "aarch64" ] || [ "$pfsense_arch" = "arm64" ]; then
+      __arch_not_supported "pfSense does not support arm64"
+    else
+      real_url="$LATEST_ISO_PFSENSE_URL"
+      iso_url_filename="$(__curl "$LATEST_ISO_PFSENSE_URL" | __strip_tags | __grep '\.iso' | __iso_is_archive | __sort_rv)"
+      __latest_iso "$LATEST_ISO_PFSENSE_URL/$iso_url_filename" "$ISOFILE" "$LATEST_ISO_TEMP_DIR/pfsense/$iso_url_filename"
+      statusCode=$(($? + $statusCode))
+    fi
     ;;
   heads)
     shift 1
     ISOFILE="$LATEST_ISO_DOWNLOAD_LIVE_DIR/heads.iso"
     real_url="$LATEST_ISO_HEADS_URL"
-    __latest_iso "$LATEST_ISO_HEADS_URL" "$ISOFILE"
+    iso_file="$(__parse_html "$LATEST_ISO_HEADS_URL" "heads-" "" "nojs")"
+    iso_url="${LATEST_ISO_HEADS_URL}/${iso_file}"
+    __latest_iso "$iso_url" "$ISOFILE"
     statusCode=$(($? + $statusCode))
     ;;
   tails)
     shift 1
+    local tails_arch=""
+    tails_arch="$(__distro_arch_schema "$LATEST_ISO_SYSTEM_ARCH" "tails")"
     ISOFILE="$LATEST_ISO_DOWNLOAD_LIVE_DIR/tails.iso"
-    real_url="$LATEST_ISO_TAILS_URL"
-    __latest_iso "$LATEST_ISO_TAILS_URL" "$ISOFILE"
-    statusCode=$(($? + $statusCode))
+    # Tails only provides amd64 ISOs
+    if [ "$tails_arch" = "aarch64" ] || [ "$tails_arch" = "arm64" ]; then
+      __arch_not_supported "Tails does not support arm64"
+    else
+      real_url="$LATEST_ISO_TAILS_URL"
+      __latest_iso "$LATEST_ISO_TAILS_URL" "$ISOFILE"
+      statusCode=$(($? + $statusCode))
+    fi
     ;;
   clonezilla)
     shift 1
@@ -1533,6 +1726,56 @@ __latest_list() {
     iso_url="https://www.hirensbootcd.org/files/$(__curl "https://www.hirensbootcd.org/download" | __get_link | __grep '.iso')"
     __latest_iso "$iso_url" "$ISOFILE"
     statusCode=$(($? + $statusCode))
+    ;;
+  server)
+    # Server edition downloads: server debian, server ubuntu, server cachy
+    shift 1
+    local server_distro="${1:-}"
+    [ -n "$server_distro" ] && shift 1
+    case "$server_distro" in
+    debian)
+      local debian_arch="" debian_url=""
+      debian_arch="$(__distro_arch_schema "$LATEST_ISO_SYSTEM_ARCH" "debian")"
+      ISOFILE="$LATEST_ISO_DOWNLOAD_DIR/debian-server.iso"
+      debian_url="https://cdimage.debian.org/cdimage/release/current/$debian_arch/iso-cd"
+      real_url="$debian_url"
+      iso_url="$(__curl "$debian_url" | __strip_tags | __grep "netinst" | __grep -i "$debian_arch" | __strip_iso)"
+      iso_url_filename="$debian_url/$iso_url"
+      __latest_iso "$iso_url_filename" "$ISOFILE"
+      statusCode=$(($? + $statusCode))
+      ;;
+    ubuntu)
+      local ubuntu_version="" ubuntu_iso="" ubuntu_arch="" ubuntu_base_url=""
+      ubuntu_arch="$(__distro_arch_schema "$LATEST_ISO_SYSTEM_ARCH" "ubuntu")"
+      ISOFILE="$LATEST_ISO_DOWNLOAD_DIR/ubuntu-server.iso"
+      if [ "$ubuntu_arch" = "arm64" ]; then
+        ubuntu_base_url="https://cdimage.ubuntu.com/ubuntu-server/releases"
+        for ubuntu_version in $(__curl "$ubuntu_base_url" | __strip_tags | __grep -oE '[0-9]+\.[0-9]+' | sort -ruV); do
+          ubuntu_iso="$(__curl "$ubuntu_base_url/$ubuntu_version/release/" | __strip_tags | __grep "live-server" | __grep "$ubuntu_arch" | __grep "\.iso$" | head -n1)"
+          [ -n "$ubuntu_iso" ] && { iso_url="$ubuntu_base_url/$ubuntu_version/release"; break; }
+        done
+      else
+        ubuntu_base_url="https://releases.ubuntu.com"
+        for ubuntu_version in $(__curl "$ubuntu_base_url" | __strip_tags | __grep -oE '[0-9]+\.[0-9]+' | sort -ruV); do
+          ubuntu_iso="$(__curl "$ubuntu_base_url/$ubuntu_version" | __strip_tags | __grep "live-server" | __grep "$ubuntu_arch" | __grep "\.iso$" | head -n1)"
+          [ -n "$ubuntu_iso" ] && { iso_url="$ubuntu_base_url/$ubuntu_version"; break; }
+        done
+      fi
+      real_url="$ubuntu_base_url"
+      iso_url_filename="$iso_url/$ubuntu_iso"
+      __latest_iso "$iso_url_filename" "$ISOFILE"
+      statusCode=$(($? + $statusCode))
+      ;;
+    cachy)
+      printf_yellow "CachyOS Server Edition is coming soon (expected 2026)"
+      printf_cyan "See: https://cachyos.org/blog/2025-christmas-new-year/"
+      statusCode=$((1 + $statusCode))
+      ;;
+    *)
+      printf_red "Usage: $APPNAME server [debian|ubuntu|cachy]"
+      statusCode=$((1 + $statusCode))
+      ;;
+    esac
     ;;
   *) printf_red "$1 is not a valid option" ;;
   esac
@@ -1719,7 +1962,7 @@ LATEST_ISO_REDCORE_URL="${LATEST_ISO_REDCORE_URL:-https://mirror.math.princeton.
 LATEST_ISO_ROCKY_URL="${LATEST_ISO_ROCKY_URL:-https://download.rockylinux.org/pub/rocky}"
 LATEST_ISO_UBUNTU_URL="${LATEST_ISO_UBUNTU_URL:-https://mirror.us.leaseweb.net/ubuntu-cdimage/xubuntu/releases}"
 LATEST_ISO_VOID_URL="${LATEST_ISO_VOID_URL:-https://repo-default.voidlinux.org/live/current}"
-LATEST_ISO_TAILS_URL="${LATEST_ISO_TAILS_URL:-https://tails.boum.org/install/dvd/index.en.html}"
+LATEST_ISO_TAILS_URL="${LATEST_ISO_TAILS_URL:-https://tails.net/install/dvd/index.en.html}"
 LATEST_ISO_TINYCORE_URL="${LATEST_ISO_TINYCORE_URL:-https://mirror.math.princeton.edu/pub/tinycorelinux}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 LATEST_ISO_ALMA_RELEASE="${LATEST_ISO_ALMA_RELEASE:-9}"
@@ -1982,6 +2225,12 @@ all)
   shift 1
   exitStatus=0
   __run_all
+  exit $?
+  ;;
+server)
+  # Handle 'server debian', 'server ubuntu', 'server cachy' as a single command
+  shift 1
+  __latest_list "server" "$@"
   exit $?
   ;;
 *)

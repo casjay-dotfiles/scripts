@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202511241540-git
+##@Version           :  202601060957-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Friday, Aug 19, 2022 16:56 EDT
 # @@File             :  pkmgr
 # @@Description      :  Manage system packages
-# @@Changelog        :  Fixed AWK format string error when descriptions contain % characters
+# @@Changelog        :  Scripts update now cached every 6 hours instead of every run
 # @@TODO             :  Add BSD support
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202511241540-git"
+VERSION="202601060957-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -160,6 +160,8 @@ PKMGR_GIT_BRANCH="${PKMGR_GIT_BRANCH:-}"
 PKMGR_GIT_DOTFILES="${PKMGR_GIT_DOTFILES:-}"
 PKMGR_NOTIFICATION_EMAIL="${PKMGR_NOTIFICATION_EMAIL:-}"
 PKMGR_OUTPUT_TRUNCATE="${PKMGR_OUTPUT_TRUNCATE:-}"
+# Scripts update interval in seconds (default: 21600 = 6 hours)
+PKMGR_SCRIPTS_UPDATE_INTERVAL="${PKMGR_SCRIPTS_UPDATE_INTERVAL:-21600}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
 PKMGR_OUTPUT_COLOR_1="${PKMGR_OUTPUT_COLOR_1:-}"
@@ -387,6 +389,31 @@ __write_log_status() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __run_updatecheck() { __am_i_online && __pkmgrcheckupdates || echo "0"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check if scripts update is needed (every 6 hours)
+__scripts_update_needed() {
+  local timestamp_file="${PKMGR_CACHE_DIR:-$HOME/.cache/pkmgr}/scripts_update_timestamp"
+  local update_interval="${PKMGR_SCRIPTS_UPDATE_INTERVAL:-21600}"
+  local current_time last_update time_diff
+  current_time=$(date +%s)
+  if [ -f "$timestamp_file" ]; then
+    last_update=$(cat "$timestamp_file" 2>/dev/null)
+    if [ -n "$last_update" ] && [[ "$last_update" =~ ^[0-9]+$ ]]; then
+      time_diff=$((current_time - last_update))
+      if [ "$time_diff" -lt "$update_interval" ]; then
+        return 1
+      fi
+    fi
+  fi
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Update the scripts update timestamp
+__scripts_update_timestamp() {
+  local timestamp_file="${PKMGR_CACHE_DIR:-$HOME/.cache/pkmgr}/scripts_update_timestamp"
+  [ -d "${timestamp_file%/*}" ] || mkdir -p "${timestamp_file%/*}"
+  date +%s >"$timestamp_file" 2>/dev/null
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __rm_rf() { sudo rm -Rf "$@"; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1451,8 +1478,13 @@ __execute_pkmgr() {
     [ "$1" = "help" ] && printf_exit 2 0 "Update your system"
     am_i_online --error || exit 1
     __init_log_status "update" "$pkgmgrbinupd $*"
-    if __cmd_exists systemmgr; then
-      systemmgr update installer || exitCode=$((exitCode + 1))
+    if __cmd_exists systemmgr && __scripts_update_needed; then
+      printf_cyan "Updating scripts (cached every 6 hours)"
+      if systemmgr update installer; then
+        __scripts_update_timestamp
+      else
+        exitCode=$((exitCode + 1))
+      fi
     fi
     printf_cyan "Updating system packages"
     eval $pkgmgrbinupd "$@" || exitCode=$((exitCode + 1))
@@ -1510,8 +1542,10 @@ __execute_pkmgr() {
       [ "$1" = "help" ] && printf_exit 2 0 "Silently upgrade your system"
       am_i_online --error || exit 1
       __init_log_status "silent update" "$pkgmgrbinupdsil $*"
-      if __cmd_exists systemmgr; then
-        systemmgr --raw update installer |& __silent_log_file
+      if __cmd_exists systemmgr && __scripts_update_needed; then
+        if systemmgr --raw update installer |& __silent_log_file; then
+          __scripts_update_timestamp
+        fi
       fi
       eval $pkgmgrbinupdsil |& __silent_log_file || false
       [ $exitCode -eq 0 ] && __write_log_status "upgrade was successful" || __write_log_status "Failed with status: $exitCode"

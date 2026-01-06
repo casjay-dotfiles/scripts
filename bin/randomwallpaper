@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202601011606-git
+##@Version           :  202601060849-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  git.io/casjay
 # @@License          :  LICENSE.md
@@ -10,7 +10,7 @@
 # @@Created          :  Monday, Aug 15, 2022 10:37 EDT
 # @@File             :  randomwallpaper
 # @@Description      :  Set a random wallpaper
-# @@Changelog        :  Use shortnames for deduplication across directories
+# @@Changelog        :  Fixed background job, grep logic, XFCE/Hyprland wallpaper handling
 # @@TODO             :  N/A
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202601011606-git"
+VERSION="202601060849-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -690,19 +690,31 @@ __initialize() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __background_job() {
-  local RANDOMWALLPAPER_SLEEP_TIME="${1:-$RANDOMWALLPAPER_SLEEP_TIME}"
-  __rm_rf "$RANDOMWALLPAPER_RUN_FILE"
-  if randomwallpaper bg new; then
-    touch "$RANDOMWALLPAPER_RUN_FILE"
-  else
+  local sleep_time="${1:-$RANDOMWALLPAPER_SLEEP_TIME}"
+  while true; do
+    # Check for stop signal before each iteration
+    if [ -f "$RANDOMWALLPAPER_KILL_FILE" ]; then
+      __rm_rf "$RANDOMWALLPAPER_KILL_FILE" "$RANDOMWALLPAPER_RUN_FILE"
+      __notifications "Wallpaper Changer" "Background service stopped"
+      return 0
+    fi
+    # Change wallpaper
     __rm_rf "$RANDOMWALLPAPER_RUN_FILE"
-  fi
-  sleep $RANDOMWALLPAPER_SLEEP_TIME
-  if __kill; then
-    __background_job "$RANDOMWALLPAPER_SLEEP_TIME"
-  else
-    return 1
-  fi
+    if randomwallpaper bg new; then
+      touch "$RANDOMWALLPAPER_RUN_FILE"
+    fi
+    # Sleep in short intervals to check for stop signal
+    local slept=0
+    while [ "$slept" -lt "$sleep_time" ]; do
+      if [ -f "$RANDOMWALLPAPER_KILL_FILE" ]; then
+        __rm_rf "$RANDOMWALLPAPER_KILL_FILE" "$RANDOMWALLPAPER_RUN_FILE"
+        __notifications "Wallpaper Changer" "Background service stopped"
+        return 0
+      fi
+      sleep 5
+      slept=$((slept + 5))
+    done
+  done
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __start() {
@@ -784,8 +796,8 @@ __find_random() {
     __update_cache
   fi
   if [ "$RANDOMWALLPAPER_MANUAL" != "true" ]; then
-    # Check if current SHORTNAME is already seen
-    if grep -shqvF "$SHORTNAME" "$RANDOMWALLPAPER_SEEN_FILE" &>/dev/null; then
+    # Check if current SHORTNAME is already seen - if so, find a new one
+    if grep -shqF "$SHORTNAME" "$RANDOMWALLPAPER_SEEN_FILE" &>/dev/null; then
       while :; do
         # Cache stores shortnames
         SETRANDOM="$(grep -shvFf "$RANDOMWALLPAPER_SEEN_FILE" "$RANDOMWALLPAPER_WALLPAPER_FILE" | sort -R | head -n1)"
@@ -894,58 +906,251 @@ __update_cache() {
   return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_xfce_version() {
+  local version=""
+  if __cmd_exists xfdesktop; then
+    version="$(xfdesktop --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1)"
+  fi
+  echo "${version:-0.0}"
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__xfce_version_ge() {
+  local required="$1"
+  local current="$(__get_xfce_version)"
+  local req_major="${required%%.*}"
+  local req_minor="${required#*.}"
+  local cur_major="${current%%.*}"
+  local cur_minor="${current#*.}"
+  if [ "$cur_major" -gt "$req_major" ]; then
+    return 0
+  elif [ "$cur_major" -eq "$req_major" ] && [ "$cur_minor" -ge "$req_minor" ]; then
+    return 0
+  fi
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __xfce_change_wp() {
   local wallpaper="$1"
-  local xfce_version="" xfce_major=0 xfce_minor=0
-  # Get xfdesktop version
-  if __cmd_exists xfdesktop; then
-    xfce_version="$(xfdesktop --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1)"
-    xfce_major="${xfce_version%%.*}"
-    xfce_minor="${xfce_version#*.}"
+  local xfce_version=""
+  xfce_version="$(__get_xfce_version)"
+  if [ "$_DEBUG" = "on" ]; then
+    printf_cyan "XFCE: Detected xfdesktop version ${xfce_version:-unknown}"
+  fi
+  # XFCE 4.19+ has a bug where xfconf changes aren't applied - use external tools
+  if __xfce_version_ge "4.19"; then
+    if [ "$_DEBUG" = "on" ]; then
+      printf_cyan "XFCE 4.19+: Using external wallpaper tool (xfconf bug workaround)"
+    fi
+    # Store in xfconf for persistence across reboots
+    while IFS= read -r prop; do
+      [ -n "$prop" ] || continue
+      xfconf-query --channel xfce4-desktop --property "$prop" --set "$wallpaper" 2>/dev/null
+    done < <(xfconf-query --channel xfce4-desktop --list 2>/dev/null | grep -E 'image-path$|last-image$')
+    # Use external tool for immediate effect
+    __set_wallpaper_x11 "$wallpaper"
+    return $?
+  fi
+  # XFCE < 4.19 - use xfconf-query directly
+  local prop="" prop_count=0
+  while IFS= read -r prop; do
+    [ -n "$prop" ] || continue
+    if [ "$_DEBUG" = "on" ]; then
+      printf_cyan "XFCE: Setting $prop"
+    fi
+    xfconf-query --channel xfce4-desktop --property "$prop" --set "$wallpaper" 2>/dev/null
+    prop_count=$((prop_count + 1))
+  done < <(xfconf-query --channel xfce4-desktop --list 2>/dev/null | grep -E 'image-path$|last-image$')
+  if [ "$prop_count" -eq 0 ]; then
+    if [ "$_DEBUG" = "on" ]; then
+      printf_red "XFCE: No backdrop properties found"
+    fi
+    return 1
+  fi
+  xfdesktop --reload 2>/dev/null
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__set_wallpaper_x11() {
+  local wallpaper="$1"
+  local tool=""
+  # Try tools in order of preference
+  if __cmd_exists feh; then
+    tool="feh"
+    feh --bg-fill "$wallpaper" 2>/dev/null && return 0
+  fi
+  if __cmd_exists nitrogen; then
+    tool="nitrogen"
+    nitrogen --set-zoom-fill --save "$wallpaper" 2>/dev/null && return 0
+  fi
+  if __cmd_exists xwallpaper; then
+    tool="xwallpaper"
+    xwallpaper --zoom "$wallpaper" 2>/dev/null && return 0
+  fi
+  if __cmd_exists hsetroot; then
+    tool="hsetroot"
+    hsetroot -fill "$wallpaper" 2>/dev/null && return 0
+  fi
+  if __cmd_exists xsetroot; then
+    tool="xsetroot"
+    xsetroot -solid "#000000" 2>/dev/null
+    return 1
+  fi
+  if __cmd_exists display; then
+    tool="display"
+    display -window root "$wallpaper" 2>/dev/null && return 0
+  fi
+  if __cmd_exists xloadimage; then
+    tool="xloadimage"
+    xloadimage -onroot -fullscreen "$wallpaper" 2>/dev/null && return 0
+  fi
+  if __cmd_exists xv; then
+    tool="xv"
+    xv -root -quit -max "$wallpaper" 2>/dev/null && return 0
+  fi
+  if __cmd_exists habak; then
+    tool="habak"
+    habak -ms "$wallpaper" 2>/dev/null && return 0
+  fi
+  if __cmd_exists Esetroot; then
+    tool="Esetroot"
+    Esetroot -scale "$wallpaper" 2>/dev/null && return 0
+  fi
+  if __cmd_exists chbg; then
+    tool="chbg"
+    chbg -once "$wallpaper" 2>/dev/null && return 0
+  fi
+  if __cmd_exists qiv; then
+    tool="qiv"
+    qiv --root "$wallpaper" 2>/dev/null && return 0
   fi
   if [ "$_DEBUG" = "on" ]; then
-    printf_cyan "XFCE: Detected xfdesktop version $xfce_version"
+    printf_red "X11: No wallpaper tool available"
   fi
-  # XFCE 4.20+ - use feh/nitrogen/hsetroot (xfconf-query is buggy)
-  if [ "$xfce_major" -ge 4 ] && [ "${xfce_minor:-0}" -ge 20 ]; then
-    if [ "$_DEBUG" = "on" ]; then
-      printf_cyan "XFCE 4.20+: Using feh/nitrogen/hsetroot"
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__set_wallpaper_wayland() {
+  local wallpaper="$1"
+  if __cmd_exists swww; then
+    if ! pgrep -x swww-daemon &>/dev/null; then
+      swww-daemon &>/dev/null &
+      sleep 0.5
     fi
-    # Set wallpaper with available tool
-    if __cmd_exists feh; then
-      feh --bg-fill "$wallpaper" 2>/dev/null && return 0
-    elif __cmd_exists nitrogen; then
-      nitrogen --set-zoom-fill --save "$wallpaper" 2>/dev/null && return 0
-    elif __cmd_exists hsetroot; then
-      hsetroot -fill "$wallpaper" 2>/dev/null && return 0
-    fi
-  else
-    # Older XFCE - use xfconf-query
-    if [ "$_DEBUG" = "on" ]; then
-      printf_cyan "XFCE: Using xfconf-query"
-    fi
-    xfconf-query --channel xfce4-desktop --list 2>/dev/null | grep 'last-image' | while read -r path; do
-      xfconf-query --channel xfce4-desktop --property "$path" --set "$wallpaper" 2>/dev/null
-    done
+    swww img "$wallpaper" --transition-type none 2>/dev/null && return 0
   fi
+  if __cmd_exists swaybg; then
+    pkill -x swaybg 2>/dev/null
+    sleep 0.1
+    swaybg -i "$wallpaper" -m fill &>/dev/null &
+    disown 2>/dev/null
+    return 0
+  fi
+  if __cmd_exists wbg; then
+    pkill -x wbg 2>/dev/null
+    wbg "$wallpaper" &>/dev/null &
+    disown 2>/dev/null
+    return 0
+  fi
+  if __cmd_exists mpvpaper; then
+    pkill -x mpvpaper 2>/dev/null
+    mpvpaper '*' "$wallpaper" 2>/dev/null &
+    disown 2>/dev/null
+    return 0
+  fi
+  if __cmd_exists oguri; then
+    ogurictl output '*' --image "$wallpaper" 2>/dev/null && return 0
+  fi
+  if [ "$_DEBUG" = "on" ]; then
+    printf_red "Wayland: No wallpaper tool available"
+  fi
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__set_wallpaper_macos() {
+  local wallpaper="$1"
+  osascript -e "tell application \"System Events\" to tell every desktop to set picture to \"$wallpaper\"" 2>/dev/null
+  return $?
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__set_wallpaper_windows() {
+  local wallpaper="$1"
+  # Convert path for Windows if in WSL
+  local win_path="$wallpaper"
+  if [ -n "$WSL_DISTRO_NAME" ] || grep -qi microsoft /proc/version 2>/dev/null; then
+    win_path="$(wslpath -w "$wallpaper" 2>/dev/null)" || win_path="$wallpaper"
+  fi
+  # Try PowerShell
+  if __cmd_exists powershell.exe; then
+    powershell.exe -Command "
+      Add-Type -TypeDefinition 'using System.Runtime.InteropServices; public class Wallpaper { [DllImport(\"user32.dll\", CharSet = CharSet.Auto)] public static extern int SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni); }';
+      [Wallpaper]::SystemParametersInfo(0x0014, 0, '$win_path', 0x0001 -bor 0x0002)
+    " 2>/dev/null && return 0
+  fi
+  # Try reg.exe
+  if __cmd_exists reg.exe; then
+    reg.exe add "HKCU\Control Panel\Desktop" /v Wallpaper /t REG_SZ /d "$win_path" /f 2>/dev/null
+    rundll32.exe user32.dll,UpdatePerUserSystemParameters 2>/dev/null
+    return $?
+  fi
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__get_platform() {
+  local platform=""
+  case "$(uname -s)" in
+    Darwin) platform="macos" ;;
+    Linux)
+      if [ -n "$WSL_DISTRO_NAME" ] || grep -qi microsoft /proc/version 2>/dev/null; then
+        platform="wsl"
+      else
+        platform="linux"
+      fi
+      ;;
+    FreeBSD|OpenBSD|NetBSD|DragonFly) platform="bsd" ;;
+    CYGWIN*|MINGW*|MSYS*) platform="windows" ;;
+    *) platform="unknown" ;;
+  esac
+  echo "$platform"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __detect_desktop_session() {
   local session=""
-  if [ "$(uname -s)" = "Darwin" ]; then
-    echo "macos"
-    return 0
-  fi
+  local platform="$(__get_platform)"
+  # Platform-specific detection
+  case "$platform" in
+    macos) echo "macos"; return 0 ;;
+    wsl|windows) echo "windows"; return 0 ;;
+  esac
+  # Desktop environment detection (Linux/BSD)
   if [ -n "$XDG_CURRENT_DESKTOP" ]; then
     session="$(echo "$XDG_CURRENT_DESKTOP" | tr '[:upper:]' '[:lower:]')"
   elif [ -n "$DESKTOP_SESSION" ]; then
     session="$(echo "$DESKTOP_SESSION" | tr '[:upper:]' '[:lower:]')"
   elif [ -n "$XDG_SESSION_DESKTOP" ]; then
     session="$(echo "$XDG_SESSION_DESKTOP" | tr '[:upper:]' '[:lower:]')"
-  elif [ -n "$HYPRLAND_INSTANCE_SIGNATURE" ]; then
-    session="hyprland"
-  elif [ -n "$SWAYSOCK" ]; then
-    session="sway"
+  fi
+  # Compositor/WM-specific detection
+  [ -n "$HYPRLAND_INSTANCE_SIGNATURE" ] && session="hyprland"
+  [ -n "$SWAYSOCK" ] && session="sway"
+  [ -n "$WAYFIRE_SOCKET" ] && session="wayfire"
+  [ -n "$RIVER_SOCKET" ] && session="river"
+  [ -n "$I3SOCK" ] && session="i3"
+  [ -n "$AWESOME_PID" ] && session="awesome"
+  # Fallback: check running processes
+  if [ -z "$session" ]; then
+    if pgrep -x "gnome-shell" &>/dev/null; then session="gnome"
+    elif pgrep -x "plasmashell" &>/dev/null; then session="kde"
+    elif pgrep -x "xfdesktop" &>/dev/null; then session="xfce"
+    elif pgrep -x "cinnamon" &>/dev/null; then session="cinnamon"
+    elif pgrep -x "mate-panel" &>/dev/null; then session="mate"
+    elif pgrep -x "lxqt-panel" &>/dev/null; then session="lxqt"
+    elif pgrep -x "lxpanel" &>/dev/null; then session="lxde"
+    elif pgrep -x "budgie-panel" &>/dev/null; then session="budgie"
+    elif pgrep -x "openbox" &>/dev/null; then session="openbox"
+    elif pgrep -x "fluxbox" &>/dev/null; then session="fluxbox"
+    elif pgrep -x "bspwm" &>/dev/null; then session="bspwm"
+    elif pgrep -x "dwm" &>/dev/null; then session="dwm"
+    fi
   fi
   echo "$session"
 }
@@ -953,76 +1158,76 @@ __detect_desktop_session() {
 __detect_wallpaper_tool() {
   local tool=""
   local session="$(__detect_desktop_session)"
-  local xfce_version="" xfce_major=0 xfce_minor=0
-  # macOS
-  if [ "$session" = "macos" ]; then
-    tool="osascript"
-  # XFCE - use xfconf-query but with special handling for 4.20+
-  elif [[ "$session" == *"xfce"* ]] && __cmd_exists xfconf-query; then
-    tool="xfconf-query"
-  # GNOME and GNOME-based
-  elif [[ "$session" == *"gnome"* ]] && __cmd_exists gsettings; then
-    tool="gsettings"
-  elif [[ "$session" == *"unity"* ]] && __cmd_exists gsettings; then
-    tool="gsettings"
-  elif [[ "$session" == *"pantheon"* ]] && __cmd_exists gsettings; then
-    tool="gsettings-pantheon"
-  elif [[ "$session" == *"budgie"* ]] && __cmd_exists gsettings; then
-    tool="gsettings"
-  # KDE Plasma
-  elif [[ "$session" == *"kde"* ]] || [[ "$session" == *"plasma"* ]]; then
-    if __cmd_exists plasma-apply-wallpaperimage; then
-      tool="plasma-apply-wallpaperimage"
-    elif __cmd_exists qdbus; then
-      tool="qdbus"
-    fi
-  # Cinnamon
-  elif [[ "$session" == *"cinnamon"* ]] && __cmd_exists gsettings; then
-    tool="gsettings-cinnamon"
-  # MATE
-  elif [[ "$session" == *"mate"* ]] && __cmd_exists gsettings; then
-    tool="gsettings-mate"
-  # LXQt
-  elif [[ "$session" == *"lxqt"* ]] && __cmd_exists pcmanfm-qt; then
-    tool="pcmanfm-qt"
-  # LXDE
-  elif [[ "$session" == *"lxde"* ]] && __cmd_exists pcmanfm; then
-    tool="pcmanfm"
-  # Hyprland
-  elif [[ "$session" == *"hyprland"* ]]; then
-    if __cmd_exists hyprctl; then
-      tool="hyprctl"
-    elif __cmd_exists swww; then
-      tool="swww"
-    elif __cmd_exists swaybg; then
-      tool="swaybg"
-    fi
-  # Sway
-  elif [[ "$session" == *"sway"* ]]; then
-    if __cmd_exists swww; then
-      tool="swww"
-    elif __cmd_exists swaybg; then
-      tool="swaybg"
-    fi
-  # Wayland fallbacks
-  elif [ -n "$WAYLAND_DISPLAY" ]; then
-    if __cmd_exists swww; then
-      tool="swww"
-    elif __cmd_exists swaybg; then
-      tool="swaybg"
-    fi
-  # X11 fallbacks
-  elif [ -n "$DISPLAY" ]; then
-    if __cmd_exists feh; then
-      tool="feh"
-    elif __cmd_exists nitrogen; then
-      tool="nitrogen"
-    elif __cmd_exists xwallpaper; then
-      tool="xwallpaper"
-    elif __cmd_exists hsetroot; then
-      tool="hsetroot"
-    fi
-  fi
+  local platform="$(__get_platform)"
+  # Platform-specific tools
+  case "$platform" in
+    macos)
+      tool="macos"
+      ;;
+    wsl|windows)
+      tool="windows"
+      ;;
+    *)
+      # Desktop environment specific tools
+      case "$session" in
+        *xfce*)
+          tool="xfce"
+          ;;
+        *gnome*|*unity*|*budgie*|*pop*)
+          __cmd_exists gsettings && tool="gsettings"
+          ;;
+        *pantheon*)
+          __cmd_exists gsettings && tool="gsettings-pantheon"
+          ;;
+        *kde*|*plasma*)
+          if __cmd_exists plasma-apply-wallpaperimage; then
+            tool="plasma-apply-wallpaperimage"
+          elif __cmd_exists qdbus; then
+            tool="qdbus"
+          fi
+          ;;
+        *cinnamon*)
+          __cmd_exists gsettings && tool="gsettings-cinnamon"
+          ;;
+        *mate*)
+          __cmd_exists gsettings && tool="gsettings-mate"
+          ;;
+        *deepin*)
+          __cmd_exists dconf && tool="dconf-deepin"
+          ;;
+        *lxqt*)
+          __cmd_exists pcmanfm-qt && tool="pcmanfm-qt"
+          ;;
+        *lxde*)
+          __cmd_exists pcmanfm && tool="pcmanfm"
+          ;;
+        *enlightenment*|*e17*|*e24*)
+          __cmd_exists enlightenment_remote && tool="enlightenment"
+          ;;
+        *hyprland*)
+          if __cmd_exists hyprctl && pgrep -x hyprpaper &>/dev/null; then
+            tool="hyprpaper"
+          else
+            tool="wayland"
+          fi
+          ;;
+        *sway*|*wayfire*|*river*)
+          tool="wayland"
+          ;;
+        *i3*|*bspwm*|*dwm*|*openbox*|*fluxbox*|*awesome*)
+          tool="x11"
+          ;;
+        *)
+          # Fallback based on display server
+          if [ -n "$WAYLAND_DISPLAY" ]; then
+            tool="wayland"
+          elif [ -n "$DISPLAY" ]; then
+            tool="x11"
+          fi
+          ;;
+      esac
+      ;;
+  esac
   echo "$tool"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1062,11 +1267,15 @@ __randomwallpaper() {
     printf_cyan "Setting wallpaper: $SET_WALLPAPER"
   fi
   case "$changer_app" in
-  osascript)
-    osascript -e "tell application \"System Events\" to tell every desktop to set picture to \"$SET_WALLPAPER\"" &>/dev/null
+  macos)
+    __set_wallpaper_macos "$SET_WALLPAPER"
     exitCode=$?
     ;;
-  xfconf-query)
+  windows)
+    __set_wallpaper_windows "$SET_WALLPAPER"
+    exitCode=$?
+    ;;
+  xfce)
     __xfce_change_wp "$SET_WALLPAPER"
     exitCode=$?
     ;;
@@ -1089,6 +1298,10 @@ __randomwallpaper() {
   gsettings-mate)
     gsettings set org.mate.background picture-filename "$SET_WALLPAPER" 2>/dev/null
     gsettings set org.mate.background picture-options "zoom" 2>/dev/null
+    exitCode=$?
+    ;;
+  dconf-deepin)
+    dconf write /com/deepin/wrap/gnome/desktop/background/picture-uri "'file://$SET_WALLPAPER'" 2>/dev/null
     exitCode=$?
     ;;
   plasma-apply-wallpaperimage)
@@ -1114,45 +1327,44 @@ __randomwallpaper() {
     pcmanfm --set-wallpaper="$SET_WALLPAPER" --wallpaper-mode=stretch 2>/dev/null
     exitCode=$?
     ;;
-  hyprctl)
+  enlightenment)
+    enlightenment_remote -desktop-bg-set 0 0 0 0 "$SET_WALLPAPER" 2>/dev/null
+    exitCode=$?
+    ;;
+  hyprpaper)
+    # Preload and set via hyprctl
     hyprctl hyprpaper preload "$SET_WALLPAPER" 2>/dev/null
     hyprctl hyprpaper wallpaper ",$SET_WALLPAPER" 2>/dev/null
     exitCode=$?
-    ;;
-  swww)
-    if ! pgrep -x swww-daemon &>/dev/null; then
-      swww-daemon &>/dev/null &
-      sleep 0.5
+    # If that failed, try per-monitor
+    if [ "$exitCode" -ne 0 ] && __cmd_exists jq; then
+      while IFS= read -r monitor; do
+        [ -n "$monitor" ] || continue
+        hyprctl hyprpaper wallpaper "$monitor,$SET_WALLPAPER" 2>/dev/null
+      done < <(hyprctl monitors -j 2>/dev/null | jq -r '.[].name' 2>/dev/null)
+      exitCode=$?
     fi
-    swww img "$SET_WALLPAPER" --transition-type none 2>/dev/null
+    ;;
+  wayland)
+    __set_wallpaper_wayland "$SET_WALLPAPER"
     exitCode=$?
     ;;
-  swaybg)
-    pkill -x swaybg 2>/dev/null
-    sleep 0.1
-    swaybg -i "$SET_WALLPAPER" -m fill &>/dev/null &
-    disown 2>/dev/null
-    exitCode=0
-    ;;
-  feh)
-    feh --bg-fill "$SET_WALLPAPER" 2>/dev/null
-    exitCode=$?
-    ;;
-  nitrogen)
-    nitrogen --set-zoom-fill --save "$SET_WALLPAPER" 2>/dev/null
-    exitCode=$?
-    ;;
-  xwallpaper)
-    xwallpaper --zoom "$SET_WALLPAPER" 2>/dev/null
-    exitCode=$?
-    ;;
-  hsetroot)
-    hsetroot -fill "$SET_WALLPAPER" 2>/dev/null
+  x11)
+    __set_wallpaper_x11 "$SET_WALLPAPER"
     exitCode=$?
     ;;
   *)
-    printf_error "Unknown wallpaper tool: $changer_app"
-    exitCode=1
+    # Try generic fallbacks
+    if [ -n "$WAYLAND_DISPLAY" ]; then
+      __set_wallpaper_wayland "$SET_WALLPAPER"
+      exitCode=$?
+    elif [ -n "$DISPLAY" ]; then
+      __set_wallpaper_x11 "$SET_WALLPAPER"
+      exitCode=$?
+    else
+      printf_error "Unknown wallpaper tool: $changer_app"
+      exitCode=1
+    fi
     ;;
   esac
   if [ $exitCode -ne 0 ]; then
@@ -1285,7 +1497,8 @@ RANDOMWALLPAPER_SEEN_FILE="${RANDOMWALLPAPER_SEEN_FILE:-$RANDOMWALLPAPER_CACHE_D
 RANDOMWALLPAPER_WALLPAPER_FILE="${RANDOMWALLPAPER_WALLPAPER_FILE:-$RANDOMWALLPAPER_CACHE_DIR/randomwallpaper.all}"
 RANDOMWALLPAPER_SEEN_FILE_TMP="${RANDOMWALLPAPER_SEEN_FILE_TMP:-$RANDOMWALLPAPER_SEEN_FILE.tmp}"
 RANDOMWALLPAPER_WALLPAPER_DIR="${RANDOMWALLPAPER_WALLPAPER_DIR:-${WALLPAPER_DIR:-$HOME/.local/share/wallpapers}}"
-RANDOMWALLPAPER_REFRESH_TIME="${RANDOMWALLPAPER_REFRESH_TIME:-$((60 * "${RANDOMWALLPAPER_REFRESH_TIME:-12}"))}"
+# Refresh cache every 12 hours (720 minutes) by default
+RANDOMWALLPAPER_REFRESH_TIME="${RANDOMWALLPAPER_REFRESH_TIME:-720}"
 RANDOMWALLPAPER_MANUAL="${RANDOMWALLPAPER_MANUAL:-}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -f "$RANDOMWALLPAPER_CONFIG_DIR/$RANDOMWALLPAPER_CONFIG_FILE" ]; then
@@ -1307,7 +1520,8 @@ fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 RANDOMWALLPAPER_TEMP_FILE="${RANDOMWALLPAPER_TEMP_FILE:-$(mktemp $RANDOMWALLPAPER_TEMP_DIR/XXXXXX 2>/dev/null)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-RANDOMWALLPAPER_WALLPAPER_COUNT="$(find -L "$RANDOMWALLPAPER_WALLPAPER_DIR" -type f 2>/dev/null | wc -l)"
+# Count only image files (not all files)
+RANDOMWALLPAPER_WALLPAPER_COUNT="$(__find_cmd "$RANDOMWALLPAPER_WALLPAPER_DIR" 2>/dev/null | wc -l)"
 if [ "$RANDOMWALLPAPER_ROTATE_TYPE" = "minutes" ]; then
   RANDOMWALLPAPER_SLEEP_TIME="$((RANDOMWALLPAPER_ROTATE_TIME * 60))"
   RANDOMWALLPAPER_DISPLAY_TIME="$RANDOMWALLPAPER_ROTATE_TIME minute[s]"

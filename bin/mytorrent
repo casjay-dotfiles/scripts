@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202208141312-git
+##@Version           :  202601061012-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Sunday, Aug 14, 2022 13:12 EDT
 # @@File             :  mytorrent
 # @@Description      :  Open torrent client
-# @@Changelog        :  New script
+# @@Changelog        :  Enhanced client support with proper minimize and add-torrent flags for all clients
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202208141312-git"
+VERSION="202601061012-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -302,6 +302,66 @@ __console_apps() {
   [ -n "$MYTORRENT" ] || return 1
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
+# Get minimize flag for client
+__get_minimize_flag() {
+  local client="$1"
+  case "$client" in
+  transmission-gtk | transmission-qt | transmission-remote-gtk)
+    echo "-m"
+    ;;
+  ktorrent)
+    echo "--silent"
+    ;;
+  *)
+    echo ""
+    ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Launch client with torrent file/magnet
+__launch_with_torrent() {
+  local client="$1"
+  local torrent="$2"
+  case "$client" in
+  transmission-gtk | transmission-qt | transmission-remote-gtk)
+    "$client" "$torrent" &>/dev/null &
+    ;;
+  transmission-cli)
+    "$client" "$torrent"
+    ;;
+  transmission-remote)
+    "$client" -a "$torrent"
+    ;;
+  deluge | deluge-gtk)
+    "$client" "$torrent" &>/dev/null &
+    ;;
+  qbittorrent)
+    "$client" "$torrent" &>/dev/null &
+    ;;
+  ktorrent)
+    "$client" --silent "$torrent" &>/dev/null &
+    ;;
+  rtorrent)
+    "$client" "$torrent"
+    ;;
+  *)
+    "$client" "$torrent" &>/dev/null &
+    ;;
+  esac
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Launch client without arguments
+__launch_client() {
+  local client="$1"
+  local minimize_flag
+  minimize_flag="$(__get_minimize_flag "$client")"
+  if [ -n "$minimize_flag" ]; then
+    "$client" "$minimize_flag" &>/dev/null &
+  else
+    "$client" &>/dev/null &
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
 __term() {
   trap '$APPNAME --term' SIGINT
   clear
@@ -344,26 +404,16 @@ __execute_mytorrent() {
   fi
   __notifications "Attempting to launch $MYTORRENT_NAME"
   if [ ${#ARGS} -eq 0 ]; then
-    if [ "$MYTORRENT_CONSOLE" != "yes" ] && [[ "$MYTORRENT" =~ transmission* ]]; then
-      __exec "$MYTORRENT" -m &>/dev/null &
-    else
+    if [ "$MYTORRENT_CONSOLE" = "yes" ]; then
       __exec "$MYTORRENT" $OPEN &>/dev/null
-    fi
-  elif [[ "$ARGS" = *.torrent ]] || [[ "$ARGS" =~ ^magnet: ]]; then
-    if [[ "$MYTORRENT" =~ transmission ]]; then
-      if cmd_exists transadd; then
-        transadd "$ARGS" | grep -q "success" && exit 0 || exit 1
-      elif [[ "$MYTORRENT" = "transmission-cli" ]]; then
-        transmission-cli "$ARGS" && exit 0 || exit 1
-      elif [[ "$MYTORRENT" = "transmission-remote" ]]; then
-        eval "$MYTORRENT_NAME" -a "$ARGS" && exit 0 || exit 1
-      else
-        eval "$MYTORRENT_NAME" "$ARGS" && exit 0 || exit 1
-      fi
-    elif [ -n "$DESKTOP_SESSION" ]; then
-      xdg-open "$ARGS"
     else
-      "$MYTORRENT" "$ARGS"
+      __launch_client "$MYTORRENT"
+    fi
+  elif [[ "$ARGS" = *.torrent ]] || [[ "$ARGS" =~ ^magnet: ]] || [[ "$ARGS" =~ ^http ]]; then
+    if cmd_exists transadd && [[ "$MYTORRENT" =~ transmission ]]; then
+      transadd "$ARGS" | grep -q "success" && exit 0 || exit 1
+    else
+      __launch_with_torrent "$MYTORRENT" "$ARGS"
     fi
   elif [ "$MYTORRENT_CONSOLE" = "yes" ]; then
     if [ ! -t 0 ] && [ $# = 0 ]; then
@@ -373,11 +423,7 @@ __execute_mytorrent() {
       bash -l
     fi
   else
-    if [[ "$ARGS" = "" ]]; then
-      __exec "$MYTORRENT" &>/dev/null &
-    else
-      __exec $MYTORRENT $OPEN &>/dev/null
-    fi
+    __exec $MYTORRENT $OPEN &>/dev/null
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -

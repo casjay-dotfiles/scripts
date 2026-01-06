@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202512091500-git
+##@Version           :  202601061658-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  LICENSE.md
@@ -10,7 +10,7 @@
 # @@Created          :  Sunday, Aug 28, 2022 20:25 EDT
 # @@File             :  tmux-new
 # @@Description      :  Launch a new tmux session with config
-# @@Changelog        :  Performance optimization: Removed external dependencies, optimized caching and subprocess calls
+# @@Changelog        :  Added --exec option with caching functions for weather and uptime
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202512091500-git"
+VERSION="202601061658-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -354,6 +354,58 @@ __trap_exit() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # User defined functions
 __tmux() { \tmux -L "$TMUX_NEW_SOCKET_DIR/$TMUX_NEW_SOCKET_FILE"; }
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Cache helper function
+__cache_valid() {
+  local cache_file="$1"
+  local cache_ttl="$2"
+  local current_time cache_time time_diff
+  if [ -f "$cache_file" ]; then
+    current_time=$(date +%s)
+    cache_time=$(stat -c %Y "$cache_file" 2>/dev/null || stat -f %m "$cache_file" 2>/dev/null || echo 0)
+    time_diff=$((current_time - cache_time))
+    if [ "$time_diff" -lt "$cache_ttl" ]; then
+      return 0
+    fi
+  fi
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Weather function with caching
+__exec_weather() {
+  local cache_dir="${TMUX_CACHE_DIR:-$HOME/.cache/tmux}"
+  local cache_file="$cache_dir/weather-$$"
+  local cache_ttl="${TMUX_WEATHER_INTERVAL:-3600}"
+  local weather_server="${TMUX_WEATHER_SERVER:-https://wthr.top}"
+  local weather_location="${MYLOCATION_NAME:-${TMUX_WEATHER_LOCATION:-New York, NY}}"
+  local weather_url
+  weather_url=$(echo "${weather_location}" | sed 's/ /%20/g')
+  [ -d "$cache_dir" ] || mkdir -p "$cache_dir" 2>/dev/null
+  if __cache_valid "$cache_file" "$cache_ttl"; then
+    cat "$cache_file" 2>/dev/null || echo "No Weather"
+  else
+    local weather
+    weather=$(curl -q -LSsf -m 2 "${weather_server}/${weather_url}?u&format=3" 2>/dev/null | sed 's/:/ /g;s/°F/F/g' || echo "No Weather")
+    echo "$weather" >"$cache_file" 2>/dev/null
+    echo "$weather"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Uptime function with caching
+__exec_uptime() {
+  local cache_dir="${TMUX_CACHE_DIR:-$HOME/.cache/tmux}"
+  local cache_file="$cache_dir/uptime-$$"
+  local cache_ttl="${TMUX_UPTIME_INTERVAL:-60}"
+  [ -d "$cache_dir" ] || mkdir -p "$cache_dir" 2>/dev/null
+  if __cache_valid "$cache_file" "$cache_ttl"; then
+    cat "$cache_file" 2>/dev/null
+  else
+    local uptime_info
+    uptime_info=$(uptime | cut -f 4-5 -d ' ' | cut -f 1 -d ',' 2>/dev/null)
+    echo "$uptime_info" >"$cache_file" 2>/dev/null
+    echo "$uptime_info"
+  fi
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __init() {
   local name="$1"
@@ -952,7 +1004,7 @@ SHORTOPTS=""
 SHORTOPTS+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
-LONGOPTS+=",kill,name:,socket:"
+LONGOPTS+=",kill,name:,socket:,exec:"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 ARRAY="liskill,clean,list,attach,single,shell,server,web,docker,dev,rpm,node,bun,deno,build,ssh,productivity,test,default,edit,create"
 ARRAY+=""
@@ -1040,6 +1092,22 @@ while :; do
   --silent)
     shift 1
     TMUX_NEW_SILENT="true"
+    ;;
+  --exec)
+    shift 1
+    case "$1" in
+    weather)
+      __exec_weather
+      exit $?
+      ;;
+    uptime)
+      __exec_uptime
+      exit $?
+      ;;
+    *)
+      printf_exit 1 1 "Unknown exec command: $1"
+      ;;
+    esac
     ;;
   --dir)
     CWD_IS_SET="TRUE"

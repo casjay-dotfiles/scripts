@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202512091101-git
+##@Version           :  202601100220-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Saturday, Sep 14, 2024 14:03 EDT
 # @@File             :  setupmgr
 # @@Description      :  Cross-platform binary/package installation manager - supports Linux, macOS, BSD, Solaris
-# @@Changelog        :  Expanded to 159 tools total, added 8 new configuration functions, enhanced AI tool support
+# @@Changelog        :  Fixed pipx to download binary release and added automatic sudo detection for system directories
 # @@TODO             :  Implement __setup_ functions for Priority 2-9 tools (63 tools pending implementation)
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202512091101-git"
+VERSION="202601100220-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -621,20 +621,43 @@ __is_npm_package() {
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 __install_to_system_bin() {
   local basename="$(__basename "$1")"
-  local sysBinDir="${SETUPMGR_DEFAULT_SYSTEM_BIN_DIR:-/usr/local/bin}"
+  local sysBinDir="${SETUPMGR_DEFAULT_BIN_DIR:-/usr/local/bin}"
   local source_file="$1"
   local dest_file="$sysBinDir/$basename"
+  local prefix=""
+
+  # Auto-detect if we need sudo for the destination
+  case "$sysBinDir" in
+  /usr/local/bin | /usr/bin | /usr/sbin | /usr/local/sbin | /bin | /sbin) prefix="sudo" ;;
+  esac
+
   if [ ! -f "$source_file" ]; then
     return 1
   fi
+
+  # If source equals dest, file is already installed - just ensure permissions
   if [ "$source_file" = "$dest_file" ]; then
-    __sudo chmod -Rf 777 "$dest_file" 2>/dev/null
-    printf_blue "File already at $dest_file"
+    if [ -n "$prefix" ]; then
+      $prefix chmod 755 "$dest_file" 2>/dev/null
+    else
+      chmod 755 "$dest_file" 2>/dev/null
+    fi
     return 0
   fi
-  if __can_i_sudo; then
-    if __sudo cp -Rf "$source_file" "$dest_file"; then
-      __sudo chmod -Rf 777 "$dest_file"
+
+  # Copy file to destination
+  if [ -n "$prefix" ] || __can_i_sudo; then
+    local cmd="${prefix:-__sudo}"
+    if $cmd cp -Rf "$source_file" "$dest_file"; then
+      $cmd chmod 755 "$dest_file"
+      printf_blue "Installed to $dest_file"
+      return 0
+    else
+      return 1
+    fi
+  else
+    if cp -Rf "$source_file" "$dest_file"; then
+      chmod 755 "$dest_file"
       printf_blue "Installed to $dest_file"
       return 0
     else
@@ -1400,6 +1423,10 @@ __extract() {
           for file in "$PACKAGE_TMP_DIR"/*; do
             if [ -x "$file" ]; then
               [ "$SETUPMGR_SYSTEM_INSTALL" = "yes" ] && prefix="sudo" && directory="$SETUPMGR_DEFAULT_BIN_DIR" || directory="$1"
+              # Always use sudo for system directories
+              case "$directory" in
+              /usr/local/bin | /usr/bin | /usr/sbin | /usr/local/sbin | /bin | /sbin) prefix="sudo" ;;
+              esac
               local filename="$(__basename "$file")"
               printf_purple "Installing $file to $directory/$filename"
               $prefix mv -f "$file" "$directory/$filename"
@@ -1526,6 +1553,10 @@ __move_extracted_file() {
   local installFrom=""
   local binFile="$(__basename "${userBin:-$tempBin}")"
   [ "$SETUPMGR_SYSTEM_INSTALL" = "yes" ] && prefix="sudo" && directory="$SETUPMGR_DEFAULT_BIN_DIR" || directory="$(dirname "$userBin")"
+  # Always use sudo for system directories
+  case "$directory" in
+  /usr/local/bin | /usr/bin | /usr/sbin | /usr/local/sbin | /bin | /sbin) prefix="sudo" ;;
+  esac
   [ -f "$PACKAGE_TMP_DIR/$binFile" ] && tempBin="$PACKAGE_TMP_DIR/$binFile" || tempBin="$(ls "$PACKAGE_TMP_DIR" | grep "$binFile$" || find "$PACKAGE_TMP_DIR" -type f -iname "$binFile" 2>/dev/null)"
   if [ -f "$1" ]; then
     installFrom="$1"
@@ -1537,7 +1568,7 @@ __move_extracted_file() {
     return 1
   fi
   printf_cyan "Installing ${installFrom//$HOME/\~} to $directory"
-  $prefix mv -f "$installFrom" "$directory/$binFile" && chmod +x "$directory/$binFile" || exitEXCode=2
+  $prefix mv -f "$installFrom" "$directory/$binFile" && $prefix chmod +x "$directory/$binFile" || exitEXCode=2
   [ -x "$directory/$binFile" ] || return $exitEXCode
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -5530,19 +5561,72 @@ __setup_gpt() {
 __setup_pipx() {
   local exitCode=0
   local name="pipx"
+  local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
+  local pyzFile="$SETUPMGR_DEFAULT_SHARE_DIR/$name/pipx.pyz"
+  local download_url="https://github.com/pypa/pipx/releases/latest/download/pipx.pyz"
+  local python_cmd="$(command -v python3 || command -v python)"
+  local prefix=""
+
+  if [ -z "$python_cmd" ]; then
+    printf_red "Python is required for pipx but not found"
+    return 1
+  fi
+
+  # Detect if we need sudo
+  case "$SETUPMGR_DEFAULT_BIN_DIR" in
+  /usr/local/bin | /usr/bin | /usr/sbin | /usr/local/sbin | /bin | /sbin) prefix="sudo" ;;
+  esac
+
   if __cmd_exists $name; then
     printf_green "Updating $name"
   else
     printf_green "Installing $name"
   fi
-  if pkmgr silent install pipx; then
-    requiresudo true
-    pipx ensurepath >/dev/null 2>&1
-    requiresudo pipx ensurepath --global >/dev/null 2>&1
-    printf_green "$name installed"
+
+  # Create directory for .pyz file
+  if [ -n "$prefix" ]; then
+    $prefix mkdir -p "$(dirname "$pyzFile")"
+  else
+    mkdir -p "$(dirname "$pyzFile")"
+  fi
+
+  # Download pipx.pyz
+  if __curl "$download_url" -o "/tmp/pipx.pyz"; then
+    if [ -n "$prefix" ]; then
+      $prefix mv -f "/tmp/pipx.pyz" "$pyzFile"
+      $prefix chmod 755 "$pyzFile"
+    else
+      mv -f "/tmp/pipx.pyz" "$pyzFile"
+      chmod 755 "$pyzFile"
+    fi
+
+    # Create wrapper script
+    cat <<EOF >/tmp/pipx-wrapper
+#!/usr/bin/env bash
+exec $python_cmd "$pyzFile" "\$@"
+EOF
+    chmod 755 /tmp/pipx-wrapper
+
+    # Install wrapper
+    if [ -n "$prefix" ]; then
+      $prefix mv -f /tmp/pipx-wrapper "$binFile"
+      $prefix chmod 755 "$binFile"
+    else
+      mv -f /tmp/pipx-wrapper "$binFile"
+      chmod 755 "$binFile"
+    fi
+
+    if [ -x "$binFile" ]; then
+      printf_green "$name installed to $binFile"
+      pipx ensurepath >/dev/null 2>&1 || true
+      exitCode=0
+    else
+      exitCode=1
+      printf_red "Failed to install $name"
+    fi
   else
     exitCode=1
-    printf_red "Failed to install $name"
+    printf_red "Failed to download $name"
   fi
   return $exitCode
 }
@@ -8715,12 +8799,20 @@ SETUPMGR_DEFAULT_SYSTEM_BIN_DIR="${SETUPMGR_DEFAULT_SYSTEM_BIN_DIR:-/usr/local/b
 SETUPMGR_DEFAULT_USER_SHARE_DIR="${SETUPMGR_DEFAULT_USER_SHARE_DIR:-$HOME/.local/share}"
 SETUPMGR_DEFAULT_SYSTEM_SHARE_DIR="${SETUPMGR_DEFAULT_SYSTEM_SHARE_DIR:-/usr/local/share}"
 # Auto-detect: system-wide if sudo available, otherwise user directory
-if __sudoif; then
-  SETUPMGR_DEFAULT_BIN_DIR="${SETUPMGR_DEFAULT_SYSTEM_BIN_DIR}"
-  SETUPMGR_DEFAULT_SHARE_DIR="${SETUPMGR_DEFAULT_SYSTEM_SHARE_DIR}"
-else
-  SETUPMGR_DEFAULT_BIN_DIR="${SETUPMGR_DEFAULT_USER_BIN_DIR}"
-  SETUPMGR_DEFAULT_SHARE_DIR="${SETUPMGR_DEFAULT_USER_SHARE_DIR}"
+# Only set if not already specified by user
+if [ -z "$SETUPMGR_DEFAULT_BIN_DIR" ]; then
+  if __sudoif; then
+    SETUPMGR_DEFAULT_BIN_DIR="${SETUPMGR_DEFAULT_SYSTEM_BIN_DIR}"
+  else
+    SETUPMGR_DEFAULT_BIN_DIR="${SETUPMGR_DEFAULT_USER_BIN_DIR}"
+  fi
+fi
+if [ -z "$SETUPMGR_DEFAULT_SHARE_DIR" ]; then
+  if __sudoif; then
+    SETUPMGR_DEFAULT_SHARE_DIR="${SETUPMGR_DEFAULT_SYSTEM_SHARE_DIR}"
+  else
+    SETUPMGR_DEFAULT_SHARE_DIR="${SETUPMGR_DEFAULT_USER_SHARE_DIR}"
+  fi
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 SETUPMGR_ALL_TOOLS="${SETUPMGR_ALL_TOOLS:-act age aichat aider ali antigravity asdf atuin bandwhich bat bob bombardier bottom broot btop buf bun caddy coder cody continue cosign ctlptl ctop curlie dasel delta deno devbox difftastic direnv dive dog dotnet dua duf dust earthly entr evans exa eza fabric fastfetch fd fnm fzf fx garage gh ghz git-cliff gitleaks gitui glow golang gohttpserver gpt grex gron grype grpcurl gvm helix helm htmlq httpie hyperfine incus jekyll jless jnv jq just k6 k9s kind kompose kubectl kubectx kubens lapce lazydocker lazygit lf lima llama_cpp llm localai lsd lua mc miller mise minio minikube mods nix nodejs nushell nvm oha ollama opentofu packer pipx plandex podman powershell procs rbenv ripgrep ruff rustup rvm sd shellcheck shfmt skaffold sops speedtest sq starship stern syft tabby task tgpt tig tilt tldr tokei traefik trufflehog trivy uv vagrant vale vegeta vfox viddy watchexec webhookd wrk xcaddy xh xsv yq zed zellij zig zoxide}"
@@ -8964,6 +9056,15 @@ while :; do
     ;;
   esac
 done
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+# Override bin directory based on --system flag
+if [ "$SETUPMGR_SYSTEM_INSTALL" = "yes" ]; then
+  SETUPMGR_DEFAULT_BIN_DIR="${SETUPMGR_DEFAULT_SYSTEM_BIN_DIR}"
+  SETUPMGR_DEFAULT_SHARE_DIR="${SETUPMGR_DEFAULT_SYSTEM_SHARE_DIR}"
+elif [ "$SETUPMGR_SYSTEM_INSTALL" = "no" ]; then
+  SETUPMGR_DEFAULT_BIN_DIR="${SETUPMGR_DEFAULT_USER_BIN_DIR}"
+  SETUPMGR_DEFAULT_SHARE_DIR="${SETUPMGR_DEFAULT_USER_SHARE_DIR}"
+fi
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Get directory from args
 # set -- "$@"

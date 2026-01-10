@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202501150000-git
+##@Version           :  202601092156-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,10 @@
 # @@Created          :  Wednesday, Jan 15, 2025 00:00 EST
 # @@File             :  ask_yes_no_question
 # @@Description      :  ask user a question and execute command
-# @@Changelog        :  Modernized with universal environment support
+# @@Changelog        :  Cleaned up unused code and fixed xset dependency issue
+#                    :  Removed all sudo functions (script doesn't require root)
+#                    :  Fixed __hasdisplay to work without xset via X11 socket detection
+#                    :  Removed unused CACHE_DIR and empty ARRAY/LIST variables
 # @@TODO             :  Better documentation
 # @@Other            :
 # @@Resource         :
@@ -21,12 +24,11 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202501150000-git"
+VERSION="202601092156-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
 SCRIPT_SRC_DIR="${BASH_SOURCE%/*}"
-ASK_YES_NO_QUESTION_REQUIRE_SUDO="${ASK_YES_NO_QUESTION_REQUIRE_SUDO:-no}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Reopen in a terminal
 #if [ ! -t 0 ] && { [ "$1" = --term ] || [ $# = 0 ]; }; then { [ "$1" = --term ] && shift 1 || true; } && TERMINAL_APP="TRUE" myterminal -e "$APPNAME $*" && exit || exit 1; fi
@@ -217,75 +219,6 @@ __help() {
 # check if arg is a builtin option
 __is_an_option() { if echo "$ARRAY" | grep -q "${1:-^}"; then return 1; else return 0; fi; }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-# Is current user root
-__user_is_root() {
-  { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; } && return 0 || return 1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Is current user not root
-__user_is_not_root() {
-  if { [ $(id -u) -eq 0 ] || [ $EUID -eq 0 ] || [ "$WHOAMI" = "root" ]; }; then return 1; else return 0; fi
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Check if user is a member of sudo
-__sudo_group() {
-  grep -sh "${1:-$USER}" "/etc/group" | grep -Eq 'wheel|adm|sudo' || return 1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# # Get sudo password
-__sudoask() {
-  ask_for_password sudo true && return 0 || return 1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Run sudo
-__sudorun() {
-  __sudoif && __cmd_exists sudo && sudo -HE "$@" || { __sudoif && eval "$@"; }
-  return $?
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Test if user has access to sudo
-__can_i_sudo() {
-  (sudo -vn && sudo -ln) 2>&1 | grep -vq 'may not' >/dev/null && return 0
-  __sudo_group "${1:-$USER}" || __sudoif || __sudo true &>/dev/null || return 1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# User can run sudo
-__sudoif() {
-  __user_is_root && return 0
-  __can_i_sudo "${RUN_USER:-$USER}" && return 0
-  __user_is_not_root && __sudoask && return 0 || return 1
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Run command as root
-requiresudo() {
-  if [ "$ASK_YES_NO_QUESTION_REQUIRE_SUDO" = "yes" ] && [ -z "$ASK_YES_NO_QUESTION_REQUIRE_SUDO_RUN" ]; then
-    export ASK_YES_NO_QUESTION_REQUIRE_SUDO="no"
-    export ASK_YES_NO_QUESTION_REQUIRE_SUDO_RUN="true"
-    __sudo "$@"
-    exit $?
-  else
-    return 0
-  fi
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Execute sudo
-__sudo() {
-  CMD="${1:-echo}" && shift 1
-  CMD_ARGS="${*:--e "${RUN_USER:-$USER}"}"
-  SUDO="$(builtin command -v sudo 2>/dev/null || echo 'eval')"
-  [ "$(basename -- "$SUDO" 2>/dev/null)" = "sudo" ] && OPTS="--preserve-env=PATH -HE"
-  if __sudoif; then
-    export PATH="$PATH"
-    $SUDO ${OPTS:-} $CMD $CMD_ARGS && true || false
-    exitCode=$?
-  else
-    printf '%s\n' "This requires root to run"
-    exitCode=1
-  fi
-  return ${exitCode:-1}
-}
-# End of sudo functions
-# - - - - - - - - - - - - - - - - - - - - - - - - -
 __trap_exit() {
   exitCode=${exitCode:-0}
   [ -f "$ASK_YES_NO_QUESTION_TEMP_FILE" ] && rm -Rf "$ASK_YES_NO_QUESTION_TEMP_FILE" &>/dev/null
@@ -332,38 +265,80 @@ notify_error() {
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Environment detection
-__detect_environment() {
+__isremote() {
   if [ -n "$SSH_CONNECTION" ] || [ -n "$SSH_CLIENT" ] || [ -n "$SSH_TTY" ]; then
+    return 0
+  fi
+  if [ -n "$MOSH_CONNECTION" ]; then
+    return 0
+  fi
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__hasdisplay() {
+  # Check for X11
+  if [ -n "$DISPLAY" ]; then
+    # Try xset if available (fastest method)
+    if command -v xset >/dev/null 2>&1; then
+      xset q >/dev/null 2>&1 && return 0
+    fi
+    # Fallback: Check if X server socket exists
+    local display_num="${DISPLAY#*:}"
+    display_num="${display_num%%.*}"
+    if [ -S "/tmp/.X11-unix/X${display_num}" ]; then
+      return 0
+    fi
+    # Fallback: Just trust DISPLAY variable if in tmux/screen
+    if [ -n "$TMUX" ] || [ -n "$STY" ]; then
+      return 0
+    fi
+  fi
+  # Check for Wayland
+  if [ -n "$WAYLAND_DISPLAY" ]; then
+    if [ -S "${XDG_RUNTIME_DIR}/${WAYLAND_DISPLAY}" ] 2>/dev/null; then
+      return 0
+    fi
+  fi
+  return 1
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - -
+__detect_environment() {
+  # CI/CD environment takes priority
+  if [ -n "$CI" ] || [ -n "$CONTINUOUS_INTEGRATION" ] || [ -n "$GITHUB_ACTIONS" ] || [ -n "$GITLAB_CI" ] || [ -n "$JENKINS_URL" ] || [ -n "$TRAVIS" ] || [ -n "$CIRCLECI" ]; then
+    echo "ci"
+    return
+  fi
+
+  # Remote session (SSH/mosh)
+  if __isremote; then
     echo "ssh"
-  elif [ -n "$DISPLAY" ] || [ -n "$WAYLAND_DISPLAY" ]; then
+    return
+  fi
+
+  # Local session with display
+  if __hasdisplay; then
     # Check for app menu launch (no TTY but GUI available)
     if [ -z "$TERM" ] && [ ! -t 0 ] && [ ! -t 1 ]; then
       echo "app_menu"
     else
       echo "gui"
     fi
-  elif [ -t 0 ] && [ -t 1 ]; then
-    echo "terminal"
-  elif [ -n "$CI" ] || [ -n "$CONTINUOUS_INTEGRATION" ] || [ -n "$GITHUB_ACTIONS" ] || [ -n "$GITLAB_CI" ] || [ -n "$JENKINS_URL" ] || [ -n "$TRAVIS" ] || [ -n "$CIRCLECI" ]; then
-    echo "ci"
-  else
-    echo "headless"
+    return
   fi
+
+  # Local terminal session
+  if [ -t 0 ] && [ -t 1 ]; then
+    echo "terminal"
+    return
+  fi
+
+  # Fallback to headless
+  echo "headless"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Check if running on macOS
 __is_mac() {
   [[ "$OSTYPE" == "darwin"* ]]
-}
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-# Validate environment before tool execution
-__validate_environment() {
-  # Check for broken DISPLAY
-  if [ -n "$DISPLAY" ] && ! xset q >/dev/null 2>&1; then
-    echo "terminal" # Force terminal mode if X11 broken
-    return 1
-  fi
-  return 0
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set GUI tool with fallback chain
@@ -467,6 +442,18 @@ __execute_question() {
     result=1
   fi
 
+  # Fallback to simple read prompt if dialog failed or timed out
+  # Exit codes: 0=yes, 1=no, 255=timeout/cancelled, >1=error
+  if [ $result -eq 255 ] || [ $result -gt 1 ]; then
+    local answer
+    printf "\n%s (y/N): " "$question" >&2
+    read -r answer </dev/tty
+    case "$answer" in
+    [Yy] | [Yy][Ee][Ss]) result=0 ;;
+    *) result=1 ;;
+    esac
+  fi
+
   return $result
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -507,7 +494,6 @@ ASK_YES_NO_QUESTION_CONFIG_DIR="${ASK_YES_NO_QUESTION_CONFIG_DIR:-$HOME/.config/
 ASK_YES_NO_QUESTION_CONFIG_BACKUP_DIR="${ASK_YES_NO_QUESTION_CONFIG_BACKUP_DIR:-$HOME/.local/share/myscripts/ask_yes_no_question/backups}"
 ASK_YES_NO_QUESTION_LOG_DIR="${ASK_YES_NO_QUESTION_LOG_DIR:-$HOME/.local/log/ask_yes_no_question}"
 ASK_YES_NO_QUESTION_TEMP_DIR="${ASK_YES_NO_QUESTION_TEMP_DIR:-$HOME/.local/tmp/system_scripts/ask_yes_no_question}"
-ASK_YES_NO_QUESTION_CACHE_DIR="${ASK_YES_NO_QUESTION_CACHE_DIR:-$HOME/.cache/ask_yes_no_question}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Color Settings
 ASK_YES_NO_QUESTION_OUTPUT_COLOR_1="${ASK_YES_NO_QUESTION_OUTPUT_COLOR_1:-33}"
@@ -542,7 +528,6 @@ ASK_YES_NO_QUESTION_CI_DEFAULT="${ASK_YES_NO_QUESTION_CI_DEFAULT:-fail}"
 # Ensure Directories exist
 [ -d "$ASK_YES_NO_QUESTION_LOG_DIR" ] || mkdir -p "$ASK_YES_NO_QUESTION_LOG_DIR" |& __devnull
 [ -d "$ASK_YES_NO_QUESTION_TEMP_DIR" ] || mkdir -p "$ASK_YES_NO_QUESTION_TEMP_DIR" |& __devnull
-[ -d "$ASK_YES_NO_QUESTION_CACHE_DIR" ] || mkdir -p "$ASK_YES_NO_QUESTION_CACHE_DIR" |& __devnull
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 ASK_YES_NO_QUESTION_TEMP_FILE="${ASK_YES_NO_QUESTION_TEMP_FILE:-$(mktemp $ASK_YES_NO_QUESTION_TEMP_DIR/XXXXXX 2>/dev/null)}"
 # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -576,16 +561,9 @@ __notifications() {
 SETARGS=("$@")
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 SHORTOPTS=""
-SHORTOPTS+=""
-# - - - - - - - - - - - - - - - - - - - - - - - - -
-LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent"
-LONGOPTS+=",terminal,silent,off"
-# - - - - - - - - - - - - - - - - - - - - - - - - -
+LONGOPTS="completions:,config,debug,dir:,help,options,raw,version,silent,terminal,off"
 ARRAY=""
-ARRAY+=""
-# - - - - - - - - - - - - - - - - - - - - - - - - -
 LIST=""
-LIST+=""
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 # Setup application options
 setopts=$(getopt -o "$SHORTOPTS" --long "$LONGOPTS" -n "$APPNAME" -- "$@" 2>/dev/null)
@@ -722,11 +700,6 @@ name="${title:-$APPNAME}"
 main() {
   local environment=$(__detect_environment)
   local result=1
-
-  # Validate environment
-  if [ "$environment" = "gui" ] && ! __validate_environment; then
-    environment="terminal"
-  fi
 
   case "$environment" in
   ci)

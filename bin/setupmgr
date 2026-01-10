@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202601100220-git
+##@Version           :  202601100251-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
 # @@License          :  WTFPL
@@ -10,7 +10,7 @@
 # @@Created          :  Saturday, Sep 14, 2024 14:03 EDT
 # @@File             :  setupmgr
 # @@Description      :  Cross-platform binary/package installation manager - supports Linux, macOS, BSD, Solaris
-# @@Changelog        :  Fixed pipx to download binary release and added automatic sudo detection for system directories
+# @@Changelog        :  Fixed missing case entries, version strings, extraction logic, and permission handling for multiple tools
 # @@TODO             :  Implement __setup_ functions for Priority 2-9 tools (63 tools pending implementation)
 # @@Other            :
 # @@Resource         :
@@ -21,7 +21,7 @@
 # shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2090,SC2115,SC2120,SC2155,SC2199,SC2229,SC2317,SC2329
 # - - - - - - - - - - - - - - - - - - - - - - - - -
 APPNAME="$(basename -- "$0" 2>/dev/null)"
-VERSION="202601100220-git"
+VERSION="202601100251-git"
 USER="${SUDO_USER:-$USER}"
 RUN_USER="${RUN_USER:-$USER}"
 USER_HOME="${USER_HOME:-$HOME}"
@@ -1249,7 +1249,15 @@ __download_extract_all() {
 __download_extract_move() {
   local exitCode=0
   local url="$1" name="$(__basename "$1")" && shift 1
+  local extract_cmd=""
   SETUPMGR_TEMP_EXTRACT_FILE=$SETUPMGR_TEMP_DIR/$name
+
+  # Check if first arg is do_not_strip_components flag
+  if [ "$1" = "do_not_strip_components" ]; then
+    extract_cmd="do_not_strip_components"
+    shift 1
+  fi
+
   if [ -z "$url" ]; then
     printf_red "The url was not provided"
     return 1
@@ -1294,7 +1302,16 @@ __download_and_move() {
   local exitCode=0
   local url="$1" name="$(__basename "$1")" && shift 1
   local dest="$1"
+  local dest_dir="$(dirname "$dest")"
+  local prefix=""
+
   [ -n "$url" ] && [ -n "$dest" ] || return 1
+
+  # Auto-detect if we need sudo for the destination
+  case "$dest_dir" in
+  /usr/local/bin | /usr/bin | /usr/sbin | /usr/local/sbin | /bin | /sbin) prefix="sudo" ;;
+  esac
+
   SETUPMGR_TEMP_MOVE_FILE="$SETUPMGR_TEMP_DIR/$name"
   [ -n "$SETUPMGR_TEMP_MOVE_FILE" ] || return
   if [ -n "$PACKAGE_TMP_DIR" ] && [ -e "$PACKAGE_TMP_DIR" ]; then
@@ -1303,7 +1320,7 @@ __download_and_move() {
   [ -d "$SETUPMGR_TEMP_DIR" ] || mkdir -p "$SETUPMGR_TEMP_DIR"
   [ -f "$SETUPMGR_TEMP_MOVE_FILE" ] && __rm "$SETUPMGR_TEMP_MOVE_FILE"
   if __curl "$url" -o "$SETUPMGR_TEMP_MOVE_FILE"; then
-    mv -f "$SETUPMGR_TEMP_MOVE_FILE" "$dest" && chmod +x "$dest" && __rm "$SETUPMGR_TEMP_MOVE_FILE"
+    $prefix mv -f "$SETUPMGR_TEMP_MOVE_FILE" "$dest" && $prefix chmod +x "$dest" && __rm "$SETUPMGR_TEMP_MOVE_FILE"
     [ -x "$dest" ] || exitCode=1
   else
     exitCode=1
@@ -2645,10 +2662,11 @@ __setup_zoxide() {
   fi
 
   version="$(__get_release_info "$release_url" '"tag_name"')"
+  version_no_v="${version#v}"
 
   case $arch in
-  x86_64) download_url="https://github.com/ajeetdsouza/zoxide/releases/download/${version}/zoxide-${version}-x86_64-unknown-linux-musl.tar.gz" ;;
-  aarch64 | arm64) download_url="https://github.com/ajeetdsouza/zoxide/releases/download/${version}/zoxide-${version}-aarch64-unknown-linux-musl.tar.gz" ;;
+  x86_64) download_url="https://github.com/ajeetdsouza/zoxide/releases/download/${version}/zoxide-${version_no_v}-x86_64-unknown-linux-musl.tar.gz" ;;
+  aarch64 | arm64) download_url="https://github.com/ajeetdsouza/zoxide/releases/download/${version}/zoxide-${version_no_v}-aarch64-unknown-linux-musl.tar.gz" ;;
   *)
     printf_red "Unsupported architecture: $arch"
     return 1
@@ -2660,7 +2678,7 @@ __setup_zoxide() {
     return 1
   fi
 
-  if __download_extract_move "$download_url" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
+  if __download_extract_move "$download_url" "do_not_strip_components" "$name" "$binFile" && __is_installed "$name" "$binFile"; then
     printf_green "$name installed to $binFile"
   else
     exitCode=1
@@ -2774,8 +2792,7 @@ __setup_tokei() {
   local name="tokei"
   local arch="$(uname -m)"
   local binFile="$SETUPMGR_DEFAULT_BIN_DIR/$name"
-  local release_url="https://api.github.com/repos/XAMPPRocky/tokei/releases/latest"
-  local version=""
+  local version="v12.1.2"
   PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
 
   [ -d "$SETUPMGR_DEFAULT_BIN_DIR" ] || mkdir -p "$SETUPMGR_DEFAULT_BIN_DIR"
@@ -2785,8 +2802,6 @@ __setup_tokei() {
   else
     printf_green "Installing $name"
   fi
-
-  version="$(__get_release_info "$release_url" '"tag_name"')"
 
   case $arch in
   x86_64) download_url="https://github.com/XAMPPRocky/tokei/releases/download/${version}/tokei-x86_64-unknown-linux-musl.tar.gz" ;;
@@ -6242,8 +6257,8 @@ __setup_btop() {
     printf_green "Installing $name $version"
   fi
   case $arch in
-  x86_64) download_url="https://github.com/aristocratos/btop/releases/download/${version}/btop-x86_64-linux-musl.tbz" ;;
-  aarch64 | arm64) download_url="https://github.com/aristocratos/btop/releases/download/${version}/btop-aarch64-linux-musl.tbz" ;;
+  x86_64) download_url="https://github.com/aristocratos/btop/releases/download/${version}/btop-x86_64-unknown-linux-musl.tbz" ;;
+  aarch64 | arm64) download_url="https://github.com/aristocratos/btop/releases/download/${version}/btop-aarch64-unknown-linux-musl.tbz" ;;
   *)
     printf_red "Unsupported architecture: $arch"
     return 1
@@ -6678,9 +6693,13 @@ __setup_age() {
   fi
   PACKAGE_TMP_DIR="$SETUPMGR_TEMP_DIR/$name"
   SETUPMGR_LAST_TOOL="age"
-  if __download_extract_move "$download_url" "age/age" "$binDir/age" && \
-     __download_extract_move "$download_url" "age/age-keygen" "$binDir/age-keygen" && \
-     __is_installed "age" "$binDir/age"; then
+
+  # Download and extract once
+  if __download_extract_move "$download_url" "do_not_strip_components" "age" "$binDir/age" && __is_installed "age" "$binDir/age"; then
+    # Move age-keygen from the same extraction
+    if [ -f "$PACKAGE_TMP_DIR/age-keygen" ]; then
+      __move_extracted_file "$PACKAGE_TMP_DIR/age-keygen" "$binDir/age-keygen"
+    fi
     __save_version "$name" "${version#v}"
     printf_green "$name $version installed to $binDir"
   else
@@ -9163,6 +9182,11 @@ while [ $# -gt 0 ]; do
     __setup_act
     SETUPMGR_EXIT_STATUS=$?
     ;;
+  age)
+    shift 1
+    __setup_age
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
   aichat)
     shift 1
     __setup_aichat
@@ -9191,6 +9215,16 @@ while [ $# -gt 0 ]; do
   bob)
     shift 1
     __setup_bob
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  bottom)
+    shift 1
+    __setup_bottom
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  btop)
+    shift 1
+    __setup_btop
     SETUPMGR_EXIT_STATUS=$?
     ;;
   broot)
@@ -9256,6 +9290,11 @@ while [ $# -gt 0 ]; do
   dotnet)
     shift 1
     __setup_dotnet
+    SETUPMGR_EXIT_STATUS=$?
+    ;;
+  duf)
+    shift 1
+    __setup_duf
     SETUPMGR_EXIT_STATUS=$?
     ;;
   exa)
